@@ -2,7 +2,7 @@
 
 *Paths in this document are relative to this `docs/` directory.*
 
-Status: draft, 2026-10-16. Phase 0 is done (`../phase0_tessellation_spike/phase0_results.md`). Phase 1 is under way; progress is in `phase1_progress.md`. The schema generator (`../packages/step-schemas`), Layer 1 (`../packages/step-parser`: parser and writer) and the raw JSON form (`../packages/lexical-json`) are done. See `initial_analysis.md` for background research, reference repositories and licensing analysis.
+Status: draft, 2026-10-16. Phase 0 is done (`../phase0_tessellation_spike/phase0_results.md`). Phase 1 is under way; progress is in `phase1_progress.md`. The schema generator (`../packages/step-schemas`), Layer 1 (`../packages/step-parser`: parser and writer), the raw JSON form (`../packages/lexical-json`) and Layer 2 schema binding are done. See `initial_analysis.md` for background research, reference repositories and licensing analysis.
 
 ## Goals
 
@@ -143,6 +143,8 @@ function writeValue(v: Value): string {
 
 ### Layer 2: schema binding
 
+**Status:** done (`../packages/step-parser/src/bind.ts`; details, corpus results and tests in `phase1_progress.md`, step 5). `openModel(file)` picks the dictionary from FILE_SCHEMA, with AP242 as the fallback for other schemas' entities and for files with no known schema. A `StepModel` answers type queries through subtypes and complex instances, and keeps a reverse-reference index in typed arrays. `bind(p)` gives each attribute its name and declared type under the tolerance policy below, with optional checks of every value against its type. 99.56% of the corpus's 4.93 M instances bind with names; the rest are entities no shipped dictionary defines, mostly from AP209 and AP227 files, and a few from other editions.
+
 - **Generated dictionary:** each schema's dictionary supplies attribute names, the supertype/subtype hierarchy, select and enumeration definitions, and the attribute order within complex instances.
 - **Reverse-reference index:** a generic index answers questions like "which NAUOs reference this product definition?".
 - **Schema identification:** `FILE_SCHEMA` is mapped to the right dictionary. Examples:
@@ -155,6 +157,7 @@ function writeValue(v: Value): string {
   - **Derived slots:** accept a value where the schema says derived (`CONVERSION_BASED_UNIT` in AP214, `CHARACTERIZED_REPRESENTATION` in AP242), and `*` where it doesn't (`NAMED_UNIT(*)` next to `CONVERSION_BASED_UNIT`).
   - **Attribute counts** that match another edition or a broken writer: keep the instance positional, without names.
   - **Complex instances** whose partials aren't in alphabetical order.
+  - **Value checks** (step 5): SELECT values without their type name, or doubly typed (10.8 k in the corpus, mostly `TRIMMED_CURVE` trims); reals in INTEGER slots (1.4 k); `$` in mandatory attributes (7.8 k, an `info`); references to the wrong entity type and dangling references. All bind by position, with a diagnostic.
 
 ### Layer 3: semantic extractors
 

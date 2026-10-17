@@ -14,12 +14,22 @@ export interface AttributeSlot {
   derived: boolean;
 }
 
+/** What a SELECT type admits; see Schema.selectLeaves. */
+export interface SelectLeaves {
+  entities: Set<string>;
+  types: Set<string>;
+  generic: boolean;
+}
+
 export class Schema {
   readonly dict: SchemaDictionary;
   private flatCache = new Map<string, readonly AttributeSlot[]>();
   private partialCache = new Map<string, readonly AttributeSlot[]>();
   private ancestorCache = new Map<string, readonly string[]>();
   private subtypeIndex?: Map<string, string[]>;
+  private selectCache = new Map<string, SelectLeaves>();
+  private enumCache = new Map<string, ReadonlySet<string>>();
+  private basedOnIndex?: Map<string, string[]>;
 
   constructor(dict: SchemaDictionary) {
     this.dict = dict;
@@ -113,6 +123,74 @@ export class Schema {
       this.partialCache.set(key, out);
     }
     return out;
+  }
+
+  /**
+   * What a SELECT type admits, flattened through nested selects and BASED_ON extensions: entity names, the other
+   * named types (defined types and enumerations, which appear as typed parameters), and whether any entity is
+   * allowed (GENERIC_ENTITY).
+   */
+  selectLeaves(name: string): SelectLeaves {
+    const n = name.toUpperCase();
+    let out = this.selectCache.get(n);
+    if (!out) {
+      const leaves: SelectLeaves = { entities: new Set(), types: new Set(), generic: false };
+      const seen = new Set<string>();
+      const visit = (t: string) => {
+        if (seen.has(t)) return;
+        seen.add(t);
+        const def = this.type(t);
+        if (def?.kind === 'select') {
+          if (def.genericEntity) leaves.generic = true;
+          for (const i of def.items) visit(i);
+          for (const e of this.extensions(t)) visit(e);
+        } else if (def) {
+          leaves.types.add(t);
+        } else if (this.entity(t)) {
+          leaves.entities.add(t);
+        }
+      };
+      visit(n);
+      out = leaves;
+      this.selectCache.set(n, out);
+    }
+    return out;
+  }
+
+  /** The values of an enumeration, including those of enumerations BASED_ON it. */
+  enumValues(name: string): ReadonlySet<string> {
+    const n = name.toUpperCase();
+    let out = this.enumCache.get(n);
+    if (!out) {
+      const values = new Set<string>();
+      const seen = new Set<string>();
+      const visit = (t: string) => {
+        if (seen.has(t)) return;
+        seen.add(t);
+        const def = this.type(t);
+        if (def?.kind !== 'enum') return;
+        for (const v of def.values) values.add(v.toUpperCase());
+        for (const e of this.extensions(t)) visit(e);
+      };
+      visit(n);
+      out = values;
+      this.enumCache.set(n, out);
+    }
+    return out;
+  }
+
+  /** Types declared BASED_ON this one. */
+  private extensions(name: string): readonly string[] {
+    if (!this.basedOnIndex) {
+      this.basedOnIndex = new Map();
+      for (const [t, def] of Object.entries(this.dict.types)) {
+        if (def.kind === 'defined' || !def.basedOn) continue;
+        let list = this.basedOnIndex.get(def.basedOn);
+        if (!list) this.basedOnIndex.set(def.basedOn, (list = []));
+        list.push(t);
+      }
+    }
+    return this.basedOnIndex.get(name) ?? [];
   }
 
   private slots(owners: readonly string[], redeclarers: readonly string[]): AttributeSlot[] {

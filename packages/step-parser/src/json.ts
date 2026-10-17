@@ -17,8 +17,9 @@
 //      {"id":2,"parts":[{"type":"LENGTH_UNIT","attrs":[]}, ...]},
 //    ...]}]}
 //
-// One instance per line. Keys the loader doesn't know are ignored in the document, sections, instances and records
-// (room for annotations such as attribute names); value objects must match exactly.
+// One instance per line. Records may carry their attribute names, `"names":[...]` before `"attrs"`, as an annotation
+// (see JsonWriteOptions.names). Keys the loader doesn't know, these included, are ignored in the document, sections,
+// instances and records; value objects must match exactly.
 
 import { formatInt, formatReal, formatString, parseJson, type JsonObject, type JsonValue } from 'lexical-json';
 import { Chunker, concatChunks } from './chunks.ts';
@@ -47,7 +48,15 @@ export class RawJsonError extends Error {
  * Write a document as raw JSON, in byte chunks (UTF-8). Instances given as source bytes are decoded first; a
  * malformed one throws its ParseError.
  */
-export function* jsonChunks(doc: StepDocument, opts: WriteOptions = {}): Generator<Uint8Array> {
+export interface JsonWriteOptions extends WriteOptions {
+  /**
+   * Attribute names to annotate each instance with, one list per record (see StepModel.attributeNames), written as
+   * `"names":[...]` before `"attrs"`. The loader ignores them.
+   */
+  names?: (inst: Instance) => readonly (readonly string[])[] | undefined;
+}
+
+export function* jsonChunks(doc: StepDocument, opts: JsonWriteOptions = {}): Generator<Uint8Array> {
   const out = new Chunker(opts.chunkSize);
   let head = `{"format":${formatString(RAW_JSON_FORMAT)},"version":${RAW_JSON_VERSION},"source":"step",\n"header":[`;
   doc.header.forEach((r, i) => { head += (i ? ',\n' : '\n') + recordJson(r); });
@@ -61,7 +70,7 @@ export function* jsonChunks(doc: StepDocument, opts: WriteOptions = {}): Generat
     let n = 0;
     for (const item of s.instances) {
       const inst = item instanceof Uint8Array ? decodeInstance(item, 0, item.length) : item;
-      yield* out.text((n++ ? ',\n' : '\n') + instanceJson(inst));
+      yield* out.text((n++ ? ',\n' : '\n') + instanceJson(inst, opts.names?.(inst)));
     }
     yield* out.text(n ? '\n]}' : ']}');
     first = false;
@@ -71,24 +80,25 @@ export function* jsonChunks(doc: StepDocument, opts: WriteOptions = {}): Generat
 }
 
 /** Write a document as one raw JSON byte array. */
-export function writeJson(doc: StepDocument, opts?: WriteOptions): Uint8Array {
+export function writeJson(doc: StepDocument, opts?: JsonWriteOptions): Uint8Array {
   return concatChunks(jsonChunks(doc, opts));
 }
 
 /** `{"id":1,"type":"T","attrs":[...]}` or `{"id":1,"parts":[...]}` */
-export function instanceJson(inst: Instance): string {
+export function instanceJson(inst: Instance, names?: readonly (readonly string[])[]): string {
   if (!Number.isSafeInteger(inst.id) || inst.id < 0) throw new WriteError(`invalid instance id ${inst.id}`);
   try {
-    if ('parts' in inst) return `{"id":${inst.id},"parts":[${inst.parts.map(recordJson).join(',')}]}`;
-    return `{"id":${inst.id},"type":${formatString(inst.type)},"attrs":${valuesJson(inst.attrs)}}`;
+    if ('parts' in inst) return `{"id":${inst.id},"parts":[${inst.parts.map((r, i) => recordJson(r, names?.[i])).join(',')}]}`;
+    return `{"id":${inst.id},${recordJson(inst, names?.[0]).slice(1)}`;
   } catch (e) {
     throw e instanceof WriteError && e.id === undefined ? new WriteError(e.message, inst.id) : e;
   }
 }
 
-/** `{"type":"T","attrs":[...]}` */
-export function recordJson(r: EntityRecord): string {
-  return `{"type":${formatString(r.type)},"attrs":${valuesJson(r.attrs)}}`;
+/** `{"type":"T","attrs":[...]}`, or with `"names":[...]` before `"attrs"`. */
+export function recordJson(r: EntityRecord, names?: readonly string[]): string {
+  const n = names ? `"names":[${names.map(formatString).join(',')}],` : '';
+  return `{"type":${formatString(r.type)},${n}"attrs":${valuesJson(r.attrs)}}`;
 }
 
 function valuesJson(vs: readonly Value[]): string {

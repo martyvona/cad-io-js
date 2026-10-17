@@ -8,6 +8,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "lexical-json": "0.0.0"
+    "lexical-json": "0.0.0",
+    "step-schemas": "0.0.0"
   }
 }

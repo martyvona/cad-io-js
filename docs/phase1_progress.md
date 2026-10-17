@@ -12,8 +12,8 @@ Phase 1 of `architecture.md` ("Phasing"). The design is in `architecture.md`, "S
 | 2 | Layer 1 lexer and parser: byte-range index pass, lazy entity decode, string decoding, `.stpZ` (`../packages/step-parser`) | **Done** 2026-10-17 |
 | 3 | Part 21 writer | **Done** 2026-10-17 |
 | 4 | Raw JSON encoding (lexical numbers, `../packages/lexical-json`), list kinds in the raw model, and round-trip tests A ≡ B ≡ C | **Done** 2026-10-17 |
-| 5 | Layer 2 schema binding: names, reverse-reference index, `FILE_SCHEMA` mapping, tolerance policy | Next |
-| 6 | Layer 3 semantic extractors: product tree, units, names, styles, validation properties | |
+| 5 | Layer 2 schema binding: names, reverse-reference index, `FILE_SCHEMA` mapping, tolerance policy, value checks | **Done** 2026-10-17 |
+| 6 | Layer 3 semantic extractors: product tree, units, names, styles, validation properties | Next |
 | 7 | `step2json` CLI: raw and semantic modes, streaming, NDJSON | |
 
 ## Repo setup (done with step 1)
@@ -338,3 +338,109 @@ On AC power (Node 24, M-series Mac), decoding and writing JSON run at about 80 M
 - **Attribute-name annotations** in raw JSON wait for step 5 (Layer 2).
 - **The lexer-level token comparison** described in `architecture.md`, "Round-trip testing", isn't implemented. The model-level checks have found nothing it would add so far.
 - **Float32 vertex attributes and recentering** are scene-model work (stage 2).
+
+## Step 5: Layer 2 schema binding
+
+### What was built
+
+`../packages/step-parser/src/bind.ts` (about 440 lines), which makes `step-parser` depend on `step-schemas`:
+
+- **`openModel(file, {fallback})`** loads the dictionary that FILE_SCHEMA names (the first entry we have one for) and a **fallback dictionary**, AP242 by default, for entities the file's schema doesn't define. A file with no known schema binds entirely with the fallback, with a model-level warning. `new StepModel(file, schema, fallback)` takes `Schema` objects directly (the tests use a synthetic dictionary).
+- **Type queries:** `types(p)` (the type, or a complex instance's partials, decoded once and cached), `isInstanceOf(p, entity)` through supertypes and partials, in whichever dictionary defines each type, and `instancesOf(entity)`, every instance of an entity and its subtypes in either dictionary, in file order, from a type index built on first use.
+- **Reverse references:** `referrers(p)`, the distinct instances that reference p, in file order: one `Uint32Array` in compressed-row form built on first use from the pass-1 reference index (4 bytes per distinct reference plus 4 per instance). Dangling references are left out; `resolve(id)` gives a reference's position or -1.
+- **Binding:** `bind(p, {check})` decodes an instance and returns a `BoundInstance`: its types, the dictionary that bound it, every attribute with its slot (name, declaring entity, declared type, optionality, derived), and `get('name')` or `get('ENTITY.name')`, which throws if an unqualified name is ambiguous (two supertypes declaring the same name). `bindInstance(inst)` binds an instance decoded elsewhere. `attributeNames(inst)` gives the names per record for annotating raw JSON.
+- **Raw JSON names:** `writeJson(doc, {names: (inst) => model.attributeNames(inst)})` writes `"names":[...]` before each record's `"attrs"`. The loader ignores it, so annotated and plain JSON load the same.
+- **`Schema.selectLeaves(t)` and `Schema.enumValues(t)`** in `step-schemas`: what a SELECT admits, flattened through nested selects and BASED_ON extensions, and an enumeration's values with its extensions. The long-form dictionaries have no BASED_ON types, but they're handled anyway.
+
+### The tolerance policy as implemented
+
+Nothing fails the file or the instance; every problem is a diagnostic on the `BoundInstance` (`warning` unless noted):
+
+- **Which dictionary:** all of an instance's entities must be in one dictionary. The file's own is tried first, then the fallback (`info`: "X not in AUTOMOTIVE_DESIGN; bound with AP242…"). Otherwise the instance stays positional: "unknown entity X".
+- **Attribute count** differing from the schema (another edition, a broken writer): positional, with a warning.
+- **Derived slots:** a value where the schema derives the attribute, or `*` where it doesn't, binds by position with a warning.
+- **Complex instances** with partials out of alphabetical order bind normally (`info`).
+- **With `check: true`**, each value is checked against its declared type:
+  - simple types: INTEGER, REAL, NUMBER, STRING, BINARY, BOOLEAN, LOGICAL
+  - enumeration values
+  - aggregate kinds and bounds, and `$` in an aggregate that isn't `OPTIONAL`
+  - entity references, against the target's type through supertypes and partials, and dangling references
+  - SELECT values: references to an allowed entity; typed parameters naming an allowed type or a specialization of one (`POSITIVE_LENGTH_MEASURE(…)` where `LENGTH_MEASURE` is listed); untyped values; typed parameters where a plain value is expected (the doubly wrapped `BOX_HEIGHT(POSITIVE_RATIO_MEASURE(…))`)
+  - `$` in a mandatory attribute (`info`: it is very common for names and descriptions)
+
+  Each distinct problem is reported once per attribute. Checks are opt-in, because extraction doesn't need them and they add about 45% to the binding time (see Speed).
+
+### Tests
+
+5 new tests (54 in the repo) in `test/bind.test.ts`:
+- dictionary choice, the fallback and the no-dictionary cases
+- names, qualified names and ambiguity
+- complex units, with SI_UNIT making `NAMED_UNIT.dimensions` derived
+- the AP214 derived-value and AP242 `*` cases, partial order, fallback binding, unknown entities, too many and too few attributes
+- `types`, `isInstanceOf`, `instancesOf` (subtypes, complex instances, entities through the fallback, unknown entities), and `referrers` (file order, dedupe, dangling references)
+- every check against a synthetic dictionary, in 9 variations of one instance
+- raw JSON names
+
+The real-dictionary tests caught three mistakes in the tests' own expectations, all confirmed against the dictionaries: `COORDINATES_LIST` and `EDGE_CURVE` are geometric representation items, and an `EDGE_CURVE` in the test data pointed at a point where a vertex belongs.
+
+Mutation check: 18 deliberate bugs, covering:
+- dictionary choice and the default fallback
+- attribute counts, derived slots and mandatory `$`
+- reverse-index dedupe
+- subtype and exact type queries
+- REAL accepting ints, defined-type specialization, enumeration values, aggregate bounds, `$` in aggregates
+- SELECT references, nested SELECT flattening, dangling references
+- partial order and name ambiguity
+
+All 18 fail at least one test. Two of them (a weakened attribute-count check, and the dedupe) at first survived and needed new test cases: an instance with too few attributes, and a `POLYLINE` that repeats a point.
+
+Before the corpus run was trusted, instrumenting the checker on 30 corpus files confirmed that it reaches every branch the files exercise: simple types, defined types, enumerations, entity references, SELECT references, typed and untyped values, and aggregates of every list kind. BINARY and NUMBER were not reached there; the synthetic tests cover them.
+
+### Corpus (`../corpus_checks/bind_corpus.ts`, log in `../corpus_checks/bind_corpus.log`)
+
+Every corpus instance bound with checks. The reverse index and type index of each file were cross-checked: every resolved forward reference appears exactly once among its target's referrers, and `instancesOf('REPRESENTATION_ITEM')` agrees with `isInstanceOf` on every instance.
+
+| FILE_SCHEMA dictionary | Files | Instances | Bound by it | By the AP242 fallback | Positional |
+|---|---|---|---|---|---|
+| `ap203` | 62 | 467,679 | 466,136 | 1,536 | 7 |
+| `ap203e2` | 45 | 361,660 | 361,627 | 33 | 0 |
+| `ap214e3` | 345 | 3,320,556 | 3,320,259 | 157 | 140 |
+| `ap242` | 46 | 674,749 | 674,749 | (none) | 0 |
+| none (AP209, AP227, …), bound with AP242 | 19 | 100,364 | (none) | 78,572 | 21,792 |
+
+So 99.56% of the 4.93 M instances bind with names. The cross-checks found no problems.
+
+**Diagnostics** by kind:
+
+| Kind | Count | Notes |
+|---|---|---|
+| Unknown entity | 21,924 | 80 distinct names: 66 from the two AP209 and one AP227 files, which have no dictionary; the other 14 are AP214 edition 1 (`PRODUCT_TYPE`, `AUTO_DESIGN_*`), AP203 construction history and a corrupted file. As step 1 predicted, the fallback resolved the rest. |
+| SELECT values | 10,787 | `TRIMMED_CURVE` trims as bare reals instead of `PARAMETER_VALUE(…)` (10,648, 11 files); bare strings in `SOURCE_ITEM`; bare reals in `SIZE_SELECT` and `MEASURE_VALUE`; doubly wrapped typed parameters. |
+| `$` in a mandatory attribute (`info`) | 7,775 | Mostly names, descriptions and ids. |
+| Reference to the wrong type | 5,240 | Mostly the AP227 file, whose plant entities bind by AP242 supertypes only. Elsewhere `CC_DESIGN_APPROVAL` items (AP203 edition 1 meets AP242 selects), `STYLED_ITEM` styling whole representations (`ADVANCED_BREP_SHAPE_REPRESENTATION`, 170 in 8 files), an `OPEN_SHELL` as `MANIFOLD_SOLID_BREP.outer`. |
+| Derived slots | 1,979 | `NAMED_UNIT.dimensions` given a value (1,880 in 189 files) or `*` (75); `CHARACTERIZED_OBJECT` name and description (22). |
+| Bound by the fallback (`info`) | 1,726 | AP203 edition 1 files with presentation entities, AP214 files with `MECHANICAL_CONTEXT`, AP242 tessellation. |
+| INTEGER/REAL mismatch | 1,436 | `INTEGER_REPRESENTATION_ITEM` with a real (1,435, 24 files), as `number_kinds.ts` found. |
+| Aggregate bounds, `$` in a SET | 347 | Empty `REPRESENTATION.items` (289). |
+| Partials out of order (`info`) | 125 | |
+| Dangling reference | 74 | |
+| Attribute count | 15 | `DOCUMENT_FILE` 5 vs 6, `DESCRIPTIVE_REPRESENTATION_ITEM` 1 vs 2. |
+
+The picture matches steps 1 and 4: the schema mismatches the crude tokenizer found are all here, now with exact locations, plus what only full type checking can see.
+
+**Speed** (Node 24, on battery in low power mode, so only comparable among themselves; measured back to back, twice, over the whole corpus held in memory):
+
+| Pass over every instance | Time |
+|---|---|
+| decode | 6.0 s |
+| decode and bind | 7.8 s |
+| decode, bind and check | 11.0–11.5 s |
+
+Building the reverse indexes took 0.2 s for the whole corpus, and the type indexes 1.1 s.
+
+### Open from step 5
+
+- **WHERE rules, UNIQUE clauses and derived values** aren't checked; the dictionaries don't carry them (step 1).
+- **Complex instance validity** (whether a set of partials is a legal combination under the SUPERTYPE OF constraints) isn't checked.
+- **INVERSE attributes** aren't exposed by name; `referrers` plus a type filter answers the same questions.
+- **The AP227 and AP209 files** bind with AP242 supertypes only. Whether to ship further dictionaries (AP209, AP214 edition 1) is still undecided (step 1).
