@@ -9,7 +9,7 @@ export {
   WriteError, type StepDocument, type DocumentSection, type WriteOptions, type HeaderFields,
 } from './write.ts';
 export {
-  jsonChunks, writeJson, readJson, instanceJson, recordJson, valueJson, instanceFromJson, valueFromJson, RawJsonError,
+  jsonChunks, writeJson, readJson, jsonLinesChunks, writeJsonLines, readJsonLines, instanceJson, recordJson, valueJson, instanceFromJson, valueFromJson, RawJsonError,
   RAW_JSON_FORMAT, RAW_JSON_VERSION, type RawJsonDocument, type JsonWriteOptions,
 } from './json.ts';
 export { openModel, StepModel, BoundInstance, type BoundAttribute, type BindOptions, type OpenOptions } from './bind.ts';

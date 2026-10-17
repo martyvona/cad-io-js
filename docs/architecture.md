@@ -2,7 +2,7 @@
 
 *Paths in this document are relative to this `docs/` directory.*
 
-Status: draft, 2026-10-16. Phase 0 is done (`../phase0_tessellation_spike/phase0_results.md`). Phase 1 is under way; progress is in `phase1_progress.md`. The schema generator (`../packages/step-schemas`), Layer 1 (`../packages/step-parser`: parser and writer), the raw JSON form (`../packages/lexical-json`), Layer 2 schema binding and the Layer 3 extractors are done. See `initial_analysis.md` for background research, reference repositories and licensing analysis.
+Status: draft, 2026-10-16. Phase 0 is done (`../phase0_tessellation_spike/phase0_results.md`). Phase 1 is under way; progress is in `phase1_progress.md`. The schema generator (`../packages/step-schemas`), Layer 1 (`../packages/step-parser`: parser and writer), the raw JSON form (`../packages/lexical-json`), Layer 2 schema binding, the Layer 3 extractors and the `step2json` CLI are done: phase 1 is complete. See `initial_analysis.md` for background research, reference repositories and licensing analysis.
 
 ## Goals
 
@@ -37,7 +37,7 @@ This is a monorepo using npm workspaces (`../packages/*`). TypeScript runs direc
 | `export-threejs` | Scene model → three.js JSON Object Scene format 4 | None | Apache-2.0 |
 | `export-gltf` | Scene model → glTF/GLB | glTF-Transform (MIT) | Apache-2.0 |
 | `export-3mf` | Scene model → 3MF | fflate (MIT) | Apache-2.0 |
-| `cli` | `step2json` and `stepconv` | All of the above | Apache-2.0 |
+| `cli` (npm name `cad-io-cli`) | `step2json` (done, phase 1 step 7) and `stepconv` | All of the above | Apache-2.0 |
 
 ## Stage 1: the parser
 
@@ -188,9 +188,10 @@ A build-time generator, written in TypeScript, converts EXPRESS into JSON dictio
   - **Positional attributes:** stored as arrays, in file order. When the schema is known, attribute names are added as an annotation, but loading never depends on them. Loading the JSON back into the model therefore needs no schema, and unknown entities round-trip.
   - **Encoding** (done in phase 1 step 4, `../packages/step-parser/src/json.ts`; format and measurements in `phase1_progress.md`, step 4): clarity and extensibility come before size, because raw JSON is for testing, debugging and validation, not production. Numbers are **lexical**: an int is written `5`, a real always `5.0` or `1e-7`, read by our own parser (`../packages/lexical-json`), since `JSON.parse` merges the two. Strings are JSON strings, lists arrays, `$` is `null`, and the other kinds are one-key objects: `{"ref":12}`, `{"refs":[1,2]}`, `{"enum":"T"}`, `{"derived":true}`, `{"bin":"0F"}`, `{"type":"LENGTH_MEASURE","value":5.0}`. The document names its format, version and source format (`{"format":"cad-io-js raw","version":1,"source":"step",…}`), so IGES or JT raw JSON can follow. Instances are objects (`{"id":1,"type":"…","attrs":[…]}`), one per line. Typing numbers by schema context instead was considered and rejected for raw mode: context decides only 98.6% of the corpus's numbers, and the loader would need the schema.
   - **Completeness:** enough to reconstruct the raw instance model exactly (see "Testing").
-- **Semantic mode:** the product tree, units, styles, validation properties and diagnostics.
-- **Streaming output:** required, because a large STEP file can produce JSON that exceeds V8's maximum string length. The raw JSON writer produces byte chunks; the loader reads the whole document for now.
-- **NDJSON option:** one instance per line.
+- **Semantic mode** (done, phase 1 step 7): the product tree, units, styles, validation properties and diagnostics, as **standard JSON** with plain numbers (`semanticJson` in `../packages/step-parser/src/extract/json.ts`). The format fixes what each field is, so the integer/real question of raw mode doesn't arise, and any JSON tool can read it.
+- **Streaming output:** required, because a large STEP file can produce JSON that exceeds V8's maximum string length. Raw output is written in byte chunks with backpressure. Semantic output is small (1.5 MB for the largest corpus file) and is written in one piece.
+- **NDJSON option** (done): one JSON value per line: an envelope with the header, a `{"data":…}` line opening each DATA section, then one line per instance; `readJsonLines` reads it a line at a time.
+- **The tool:** `step2json [options] <file.stp | file.stpZ | ->` in `../packages/cli`; details in `phase1_progress.md`, step 7.
 
 ## Stage 2: the scene model and the tessellator interface
 

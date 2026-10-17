@@ -1,11 +1,11 @@
 // Phase 1 step 4: round-trip every corpus file through raw JSON and back to Part 21:
 // parse (A) → raw JSON → load (B) → Part 21 → parse (C), checking A ≡ B and A ≡ C instance by instance, plus the
-// header and DATA sections. Also checks that the JSON is standard JSON (JSON.parse accepts it) and that writing B
-// again gives the same bytes.
+// header and DATA sections. Also checks that the JSON is standard JSON (JSON.parse accepts it), that writing B
+// again gives the same bytes, and that the NDJSON form loads back to B too.
 // Usage: node corpus_checks/json_corpus.ts [file-list.txt]
 import fs from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
-import { fileDocument, parseStep, readJson, writeJson, writeStep, type Instance, type StepFile } from '../packages/step-parser/src/index.ts';
+import { fileDocument, parseStep, readJson, readJsonLines, writeJson, writeJsonLines, writeStep, type Instance, type StepFile } from '../packages/step-parser/src/index.ts';
 import { corpusFiles, shortName as short } from './corpus.ts';
 
 const problems = new Map<string, { n: number; ex: string }>();
@@ -53,6 +53,7 @@ for (const path of corpusFiles(process.argv[2])) {
   }
   diffB += compare(a, b.data.flatMap((d) => d.instances), 'B', path);
   if (!isDeepStrictEqual(writeJson(b), json)) note('B: second JSON write not byte-identical', short(path));
+  if (!isDeepStrictEqual(readJsonLines(writeJsonLines(fileDocument(a, () => {}))), b)) note('NDJSON: loads to something other than B', short(path));
 
   const c = parseStep(writeStep(b));
   for (const d of c.diagnostics) if (d.severity !== 'info') note(`C: ${d.message}`, short(path));

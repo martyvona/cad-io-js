@@ -14,7 +14,7 @@ Phase 1 of `architecture.md` ("Phasing"). The design is in `architecture.md`, "S
 | 4 | Raw JSON encoding (lexical numbers, `../packages/lexical-json`), list kinds in the raw model, and round-trip tests A ≡ B ≡ C | **Done** 2026-10-17 |
 | 5 | Layer 2 schema binding: names, reverse-reference index, `FILE_SCHEMA` mapping, tolerance policy, value checks | **Done** 2026-10-17 |
 | 6 | Layer 3 semantic extractors: product tree, units, names, styles, validation properties | **Done** 2026-10-17 |
-| 7 | `step2json` CLI: raw and semantic modes, streaming, NDJSON | Next |
+| 7 | `step2json` CLI: raw and semantic modes, streaming, NDJSON | **Done** 2026-10-17 |
 
 ## Backlog: not scheduled yet
 
@@ -30,6 +30,9 @@ Work identified along the way and not yet assigned to a step. Each step's own "O
 | AP242 tessellated geometry as meshes | step 6 | `rec_prac_3dtess_geo_v11.pdf`. The representations are reached; turning `TRIANGULATED_FACE`, `COMPLEX_TRIANGULATED_SURFACE_SET` and friends into `Float32Array` buffers belongs with the scene model. |
 | Per-instance style resolution | step 6 | Context-dependent overrides (`style_context` paths) and styles on assembly representations, resolved per instance; needs the scene model's instance paths. |
 | Named coordinate systems | step 6 | List the `AXIS2_PLACEMENT_3D`s among a shape representation's items that no transformation or mapped item uses ('MCS2' in `bug24383_224013.stp`) as named coordinate systems, so a viewer can show them. OCCT moves the geometry by them instead; we decided not to (step 6, "Placement conventions"). |
+| 64-bit byte offsets | step 7 | The index stores byte offsets in `Uint32Array`s (step 2), so files over 4 GiB can't be parsed. Moving to 64-bit offsets costs about 8 more bytes per instance in the index. |
+| On-demand range reading | step 7 | Keep only the index in memory and read each instance's bytes when needed (`Blob.slice` in browsers, `fs.read` at an offset in Node): bounds memory for every mode, including semantic and tessellator subsets. Pass 1 would scan in chunks and decoding would become asynchronous or batched. The goal (user, 2026-10-17): handle large files in the browser as far as possible, later. |
+| Streaming raw/NDJSON conversion | step 7 | A chunked pass 1 that hands each instance to the writer as it completes, for raw and NDJSON output without holding the input. Lowest priority: only raw conversion can use it, since everything else needs random access. |
 | Upstream reports to OCCT | steps 0 and 6 | The transform formula (`OCC22238_test.stp`), the identity placements for Alibre's file, and phase 0's BRepMesh slow faces. |
 
 ## Repo setup (done with step 1)
@@ -346,7 +349,7 @@ Every corpus file: parse (A) → raw JSON → `JSON.parse` must accept it → lo
 
 ### Speed
 
-On AC power (Node 24, M-series Mac), decoding and writing JSON run at about 80 MB/s of JSON, and reading it back (`parseJson` plus model building) at about 80 MB/s. That is ample for a test and debug format. The timing line in the committed log was taken in low power mode, at about half that speed.
+On AC power (Node 24, M-series Mac), decoding and writing JSON run at about 80 MB/s of JSON, and reading it back (`parseJson` plus model building) at about 80 MB/s. That is ample for a test and debug format. (The committed log was first made in low power mode; the step 7 rerun, on AC power, replaced it: 79 MB/s both ways.)
 
 ### Open from step 4
 
@@ -520,3 +523,56 @@ Mutation check: 23 deliberate bugs (plus a no-op control, which correctly surviv
 ### Open from step 6
 
 - Everything not done is in the backlog at the top of this document.
+
+## Step 7: the `step2json` CLI
+
+### What was built
+
+- **`../packages/cli`** (npm name `cad-io-cli`): `step2json [options] <file.stp | file.stpZ | ->`, as `bin/step2json.ts` (runs directly under Node 24) over `src/step2json.ts`, whose `step2json(argv, io)` takes the streams as arguments so the tests run it in-process.
+
+  | Option | Meaning |
+  |---|---|
+  | `-m raw` (default) | the lossless raw JSON (step 4), streamed in chunks with backpressure |
+  | `--ndjson` | raw mode, one JSON value per line |
+  | `--names` | raw mode, each record annotated with its attribute names (binds the file; step 5) |
+  | `-m semantic` | Layer 3's output (step 6) as standard JSON |
+  | `--instances` | semantic mode, every product instance with its path and transform |
+  | `--check` | semantic mode, every instance checked against the schema; the diagnostics join the output |
+  | `--pretty` | semantic mode, indented |
+  | `-o <file>`, `-q`, `-h` | output file (default standard output), no summary, help |
+
+  Input is a file or standard input (`-`), plain or gzipped (`.stpZ`, detected by content). A summary goes to standard error: instance count, errors, warnings and notes, and the first 20 problems. Malformed instances are left out of raw output and reported. Exit codes: 0, 1 for usage errors, 2 when the input can't be read or the output fails. Diagnostics never change the exit code.
+- **Raw NDJSON** in `../packages/step-parser/src/json.ts`: `jsonLinesChunks`/`writeJsonLines` and `readJsonLines`. The first line is the envelope (`"layout":"ndjson"`, with the header); each DATA section opens with `{"data":{"name":…,"schemas":[…]}}` (`{"data":{}}` for an unnamed one); then one instance per line, in the same encoding as raw JSON. The reader goes a line at a time, takes CRLF and blank lines, names the line in errors, and `readJson` refuses NDJSON with a pointer to `readJsonLines`.
+- **Semantic JSON**, `semanticJson(model, semantics, opts)` in `../packages/step-parser/src/extract/json.ts`: `{"format":"cad-io-js semantic","version":1,"source":"step", file, roots, products, occurrences, representations, instances?, styles, validation, diagnostics}`. `file` has the header fields, the FILE_SCHEMA names and the dictionaries used. Numbers are plain JSON numbers; matrices are 16 numbers, column-major; `roots`, `parent`, `child` and `product` are indices into `products`; everything else that identifies an entity is its instance id in the source file. Representation contexts are inlined with their units (name, kind, factor to SI).
+
+### Tests
+
+6 new tests (67 in the repo):
+- **NDJSON:** the exact layout, a round trip equal to raw JSON's, CRLF and blank lines, edition 3 sections, every line valid JSON on its own, and 6 error cases.
+- **The CLI** (`../packages/cli/test/step2json.test.ts`), in-process, on a file with a product, a dangling reference and a malformed instance:
+  - raw and NDJSON output load back to the parsed model
+  - `--names` output loads to the same model
+  - semantic output: structure, units, `--instances`, and the exact `--check` diagnostics
+  - `--pretty`
+  - gzip input, standard input and `-o` all give the same bytes
+  - usage errors and an unreadable input give the right exit codes
+  - backpressure: 5,000 instances through a 1-byte high-water-mark sink that acknowledges asynchronously arrive complete
+  - the bin script runs as a child process
+
+### Corpus
+
+- `../corpus_checks/json_corpus.ts` now also checks NDJSON: for every corpus file it loads back to the same document as raw JSON (517 files, no differences).
+- Semantic JSON for every corpus file, with instances, serializes and parses back; 8.7 MB in all, the largest 1.5 MB (a one-off check, not kept as a script).
+- On the largest files (AC power, Node 24, M-series Mac; times include Node's start-up):
+
+  | File | Raw | NDJSON | Semantic `--instances` | Semantic `--check` |
+  |---|---|---|---|---|
+  | `bug29979_firetherm_12.step` (59 MB, 537k instances) | 1.2 s, 279 MB peak, 63 MB out | 1.2 s, 63 MB out | 0.36 s, 266 MB peak | 1.1 s, 27 warnings |
+  | `Median_cx-fs01_bicycle.stp` (25 MB, 302k instances) | 0.55 s, 192 MB peak, 31 MB out | 0.55 s, 30 MB out | 0.36 s, 315 MB peak | 0.66 s, 92 warnings |
+
+### Open from step 7
+
+- **Streaming input:** the whole input is held in memory (it is indexed by byte range, step 2); the largest corpus file needs under 300 MB. Large-file work is in the backlog (64-bit offsets, on-demand range reading, streaming raw conversion).
+- **`stepconv`** (STEP to three.js JSON, glTF/GLB, 3MF) comes with the scene model and exporters (phases 2–4).
+- **Publishing:** the packages run as TypeScript under Node 24; emitting JavaScript for npm is still to do (see "Repo setup").
+

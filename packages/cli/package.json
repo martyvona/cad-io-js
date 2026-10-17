@@ -1,0 +1,16 @@
+{
+  "name": "cad-io-cli",
+  "version": "0.0.0",
+  "description": "Command-line tools: step2json",
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": {
+    "step2json": "./bin/step2json.ts"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "step-parser": "0.0.0"
+  }
+}

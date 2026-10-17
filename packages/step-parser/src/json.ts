@@ -17,11 +17,11 @@
 //      {"id":2,"parts":[{"type":"LENGTH_UNIT","attrs":[]}, ...]},
 //    ...]}]}
 //
-// One instance per line. Records may carry their attribute names, `"names":[...]` before `"attrs"`, as an annotation
+// One instance per line; jsonLinesChunks writes the NDJSON form, one JSON value per line. Records may carry their attribute names, `"names":[...]` before `"attrs"`, as an annotation
 // (see JsonWriteOptions.names). Keys the loader doesn't know, these included, are ignored in the document, sections,
 // instances and records; value objects must match exactly.
 
-import { formatInt, formatReal, formatString, parseJson, type JsonObject, type JsonValue } from 'lexical-json';
+import { formatInt, formatReal, formatString, JsonParseError, parseJson, type JsonObject, type JsonValue } from 'lexical-json';
 import { Chunker, concatChunks } from './chunks.ts';
 import { decodeInstance } from './decode.ts';
 import { makeList, type EntityRecord, type Instance, type Value } from './model.ts';
@@ -63,10 +63,8 @@ export function* jsonChunks(doc: StepDocument, opts: JsonWriteOptions = {}): Gen
   yield* out.text(head + (doc.header.length ? '\n],\n"data":[' : '],\n"data":['));
   let first = true;
   for (const s of doc.data) {
-    let open = first ? '\n{' : ',\n{';
-    if (s.name !== undefined) open += `"name":${formatString(s.name)},`;
-    if (s.schemas !== undefined) open += `"schemas":[${s.schemas.map(formatString).join(',')}],`;
-    yield* out.text(open + '"instances":[');
+    const fields = sectionFields(s);
+    yield* out.text(`${first ? '\n{' : ',\n{'}${fields}${fields ? ',' : ''}"instances":[`);
     let n = 0;
     for (const item of s.instances) {
       const inst = item instanceof Uint8Array ? decodeInstance(item, 0, item.length) : item;
@@ -82,6 +80,37 @@ export function* jsonChunks(doc: StepDocument, opts: JsonWriteOptions = {}): Gen
 /** Write a document as one raw JSON byte array. */
 export function writeJson(doc: StepDocument, opts?: JsonWriteOptions): Uint8Array {
   return concatChunks(jsonChunks(doc, opts));
+}
+
+/**
+ * Write a document as raw NDJSON: one JSON value per line, so that a reader can take a file of any size line by
+ * line. The first line is the envelope with the header (`"layout":"ndjson"`); each DATA section starts with a line
+ * `{"data":{"name":...,"schemas":[...]}}` (empty for an unnamed section), followed by its instances, one per line.
+ * Values and instances are as in raw JSON.
+ */
+export function* jsonLinesChunks(doc: StepDocument, opts: JsonWriteOptions = {}): Generator<Uint8Array> {
+  const out = new Chunker(opts.chunkSize);
+  yield* out.text(`{"format":${formatString(RAW_JSON_FORMAT)},"version":${RAW_JSON_VERSION},"source":"step","layout":"ndjson","header":[${doc.header.map((r) => recordJson(r)).join(',')}]}\n`);
+  for (const s of doc.data) {
+    yield* out.text(`{"data":{${sectionFields(s)}}}\n`);
+    for (const item of s.instances) {
+      const inst = item instanceof Uint8Array ? decodeInstance(item, 0, item.length) : item;
+      yield* out.text(instanceJson(inst, opts.names?.(inst)) + '\n');
+    }
+  }
+  yield* out.flush();
+}
+
+/** Write a document as one raw NDJSON byte array. */
+export function writeJsonLines(doc: StepDocument, opts?: JsonWriteOptions): Uint8Array {
+  return concatChunks(jsonLinesChunks(doc, opts));
+}
+
+function sectionFields(s: { name?: string; schemas?: readonly string[] }): string {
+  const f: string[] = [];
+  if (s.name !== undefined) f.push(`"name":${formatString(s.name)}`);
+  if (s.schemas !== undefined) f.push(`"schemas":[${s.schemas.map(formatString).join(',')}]`);
+  return f.join(',');
 }
 
 /** `{"id":1,"type":"T","attrs":[...]}` or `{"id":1,"parts":[...]}` */
@@ -153,23 +182,71 @@ function ref(r: number): string {
  * JSON that isn't a raw document. Lists come back canonical (see makeList).
  */
 export function readJson(input: Uint8Array | string): RawJsonDocument {
-  const doc = parseJson(input);
-  const top = object(doc, 'document');
-  if (top.format !== RAW_JSON_FORMAT) throw new RawJsonError(`format is not ${JSON.stringify(RAW_JSON_FORMAT)}`, 'document');
-  if (top.version !== BigInt(RAW_JSON_VERSION)) throw new RawJsonError(`unsupported version ${String(top.version)}`, 'document');
-  if (top.source !== 'step') throw new RawJsonError(`source is ${JSON.stringify(top.source)}, not "step"`, 'document');
+  const top = envelope(parseJson(input), 'document');
+  if (top.layout !== undefined) throw new RawJsonError(`layout ${JSON.stringify(top.layout)}: read it with readJsonLines`, 'document');
   const header = array(top.header, 'header').map((r, i) => recordFromJson(r, `header[${i}]`));
   const data = array(top.data, 'data').map((s, i) => {
     const where = `data[${i}]`;
     const o = object(s, where);
-    const section: RawJsonDocument['data'][number] = {
-      instances: array(o.instances, `${where}.instances`).map((x, k) => instanceFromJson(x, `${where}.instances[${k}]`)),
-    };
-    if (o.name !== undefined) section.name = string(o.name, `${where}.name`);
-    if (o.schemas !== undefined) section.schemas = array(o.schemas, `${where}.schemas`).map((x, k) => string(x, `${where}.schemas[${k}]`));
+    const section = sectionFromJson(o, where);
+    section.instances = array(o.instances, `${where}.instances`).map((x, k) => instanceFromJson(x, `${where}.instances[${k}]`));
     return section;
   });
   return { header, data };
+}
+
+/** Read raw NDJSON (see jsonLinesChunks), from UTF-8 bytes or a string. Errors name the line. */
+export function readJsonLines(input: Uint8Array | string): RawJsonDocument {
+  const bytes = typeof input === 'string' ? new TextEncoder().encode(input) : input;
+  const doc: RawJsonDocument = { header: [], data: [] };
+  let line = 0, seenEnvelope = false;
+  for (let start = 0; start < bytes.length;) {
+    let end = bytes.indexOf(0x0a, start);
+    if (end < 0) end = bytes.length;
+    line++;
+    const text = bytes.subarray(start, end > start && bytes[end - 1] === 0x0d ? end - 1 : end);
+    start = end + 1;
+    if (text.every((c) => c === 0x20 || c === 0x09)) continue;
+    const where = `line ${line}`;
+    let j: JsonValue;
+    try {
+      j = parseJson(text);
+    } catch (e) {
+      throw e instanceof JsonParseError ? new RawJsonError(e.message, where) : e;
+    }
+    if (!seenEnvelope) {
+      const top = envelope(j, where);
+      if (top.layout !== 'ndjson') throw new RawJsonError('the first line is not an NDJSON envelope ("layout":"ndjson")', where);
+      doc.header = array(top.header, `${where}.header`).map((r, i) => recordFromJson(r, `${where}.header[${i}]`));
+      seenEnvelope = true;
+      continue;
+    }
+    const o = object(j, where);
+    if (o.data !== undefined) {
+      doc.data.push(sectionFromJson(object(o.data, `${where}.data`), `${where}.data`));
+      continue;
+    }
+    const section = doc.data.at(-1);
+    if (!section) throw new RawJsonError('an instance before any {"data":...} line', where);
+    section.instances.push(instanceFromJson(o, where));
+  }
+  if (!seenEnvelope) throw new RawJsonError('empty input', 'line 1');
+  return doc;
+}
+
+function envelope(j: JsonValue, where: string): JsonObject {
+  const top = object(j, where);
+  if (top.format !== RAW_JSON_FORMAT) throw new RawJsonError(`format is not ${JSON.stringify(RAW_JSON_FORMAT)}`, where);
+  if (top.version !== BigInt(RAW_JSON_VERSION)) throw new RawJsonError(`unsupported version ${String(top.version)}`, where);
+  if (top.source !== 'step') throw new RawJsonError(`source is ${JSON.stringify(top.source)}, not "step"`, where);
+  return top;
+}
+
+function sectionFromJson(o: JsonObject, where: string): RawJsonDocument['data'][number] {
+  const section: RawJsonDocument['data'][number] = { instances: [] };
+  if (o.name !== undefined) section.name = string(o.name, `${where}.name`);
+  if (o.schemas !== undefined) section.schemas = array(o.schemas, `${where}.schemas`).map((x, k) => string(x, `${where}.schemas[${k}]`));
+  return section;
 }
 
 /** An instance from its raw JSON object. */
