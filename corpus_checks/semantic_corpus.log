@@ -1,0 +1,19 @@
+517 files; extraction 2.0 s
+3732 product definitions, 2448 roots, 4549 shape representations reached
+2576 NAUO occurrences + 23 mapped-item occurrences, 2599 with a placement; 71 external documents
+38646 styled items, 3169 layers, 2713 validation properties
+    692   22 info: placement relationship with rep_1 and rep_2 swapped (rep_1 is the assembly)  e.g. gkv311-opencascade-dataset/step/trj7_as1-pe-203.stp #660
+    176   25 info: unsupported presentation style SYMBOL_STYLE  e.g. gkv311-opencascade-dataset/step/trj4_d2-pe-214.stp #627
+     58    1 info: colour component above 1; scaled by the largest component  e.g. gkv311-opencascade-dataset/step/trj5_k1-ct-214.stp #220
+     32    4 info: transformation items are in the opposite representations; swapped back  e.g. gkv311-opencascade-dataset/step/bug33410.step #53
+     23   23 files with several roots  e.g. gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp
+     14    7 product without a shape representation  e.g. gkv311-opencascade-dataset/step/trj10_ap209-td.stp #26
+     11    1 info: transformation items are in the opposite representations; kept as written (Alibre)  e.g. gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #32
+      6    1 warning: area unit 'INCH' converts from a length unit; read as its square  e.g. gkv311-opencascade-dataset/step/trj2_as1-pe-203.stp #788
+      6    1 warning: volume unit 'INCH' converts from a length unit; read as its cube  e.g. gkv311-opencascade-dataset/step/trj2_as1-pe-203.stp #796
+      4    1 warning: relating_product_definition is a product definition shape, not a product definition; using its definition  e.g. gkv311-opencascade-dataset/step/bug25167.stp #384
+      3    1 warning: expected a placement, got FEA_AXIS2_PLACEMENT_3D  e.g. gkv311-opencascade-dataset/step/trj9_ap209-mp.stp #470
+      2    2 warning: area unit named .METRE.; read as square metres  e.g. gkv311-opencascade-dataset/step/trj1_t4m-pe.stp #577
+      2    1 warning: transformation item not in its representation  e.g. gkv311-opencascade-dataset/step/trj9_ap209-mp.stp #16425
+      1    1 warning: volume unit named .METRE.; read as cubic metres  e.g. gkv311-opencascade-dataset/step/trj2_io1-pe-203.stp #1177
+      1    1 warning: product definition without a product  e.g. gkv311-opencascade-dataset/step/bug26461_test_ap227.stp #18087

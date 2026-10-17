@@ -2,7 +2,7 @@
 
 *Paths in this document are relative to this `docs/` directory.*
 
-Status: draft, 2026-10-16. Phase 0 is done (`../phase0_tessellation_spike/phase0_results.md`). Phase 1 is under way; progress is in `phase1_progress.md`. The schema generator (`../packages/step-schemas`), Layer 1 (`../packages/step-parser`: parser and writer), the raw JSON form (`../packages/lexical-json`) and Layer 2 schema binding are done. See `initial_analysis.md` for background research, reference repositories and licensing analysis.
+Status: draft, 2026-10-16. Phase 0 is done (`../phase0_tessellation_spike/phase0_results.md`). Phase 1 is under way; progress is in `phase1_progress.md`. The schema generator (`../packages/step-schemas`), Layer 1 (`../packages/step-parser`: parser and writer), the raw JSON form (`../packages/lexical-json`), Layer 2 schema binding and the Layer 3 extractors are done. See `initial_analysis.md` for background research, reference repositories and licensing analysis.
 
 ## Goals
 
@@ -161,6 +161,8 @@ function writeValue(v: Value): string {
 
 ### Layer 3: semantic extractors
 
+**Status:** done for the items below (`../packages/step-parser/src/extract/`; details, the corpus checks against OCCT and the open decisions in `phase1_progress.md`, step 6). `extractSemantics(model)` gives the product structure (products, occurrences with placement matrices including unit conversion, roots, shape representations and their relations), styles and layers, and validation properties in SI units. Placements were checked against OCCT's assembly reader on the corpus: every B-rep vertex of every instance lands on OCCT's mesh in 495 of 512 files, and the rest are explained (three deliberate differences from OCCT, recorded with the evidence, plus broken files). Not yet extracted: PMI, user-defined attributes, materials, SHUO, AP242 tessellated geometry as meshes; per-instance style resolution waits for the scene model.
+
 - the product and assembly tree (NAUO, `CONTEXT_DEPENDENT_SHAPE_REPRESENTATION`, `REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION`, `MAPPED_ITEM`), with transforms and instancing
 - units per representation context
 - names and product metadata
@@ -203,6 +205,7 @@ All exporters, and later the viewer, consume one scene model instead of reaching
   - `curves`: wireframe or edge-only geometry, common in IGES.
 - **Source IDs:** `{format, id}` pairs, used on nodes, parts and faces. Picking and face highlighting then work the same way whatever the source format.
 - **Materials:** derived from source colors, per part or per face.
+- **Instances and styles:** Layer 3 provides the instance walk (`productInstances`: path and transform per use of a product) and styles as stated in the file; resolving a face's appearance per instance (context-dependent overrides, assembly-level styles) happens here, where instance paths exist.
 - **Layers:** an optional grouping independent of the tree (STEP presentation layers, IGES levels, OCCT/XCAF layers).
 - **External references:** a node can reference an external file or a lazily loaded subtree (STEP external references; future JT shattered assemblies).
 - **Units:** normalized to a single unit for the whole scene. STEP can use different units in different parts.

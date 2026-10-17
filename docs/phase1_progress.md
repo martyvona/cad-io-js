@@ -13,8 +13,24 @@ Phase 1 of `architecture.md` ("Phasing"). The design is in `architecture.md`, "S
 | 3 | Part 21 writer | **Done** 2026-10-17 |
 | 4 | Raw JSON encoding (lexical numbers, `../packages/lexical-json`), list kinds in the raw model, and round-trip tests A ≡ B ≡ C | **Done** 2026-10-17 |
 | 5 | Layer 2 schema binding: names, reverse-reference index, `FILE_SCHEMA` mapping, tolerance policy, value checks | **Done** 2026-10-17 |
-| 6 | Layer 3 semantic extractors: product tree, units, names, styles, validation properties | Next |
-| 7 | `step2json` CLI: raw and semantic modes, streaming, NDJSON | |
+| 6 | Layer 3 semantic extractors: product tree, units, names, styles, validation properties | **Done** 2026-10-17 |
+| 7 | `step2json` CLI: raw and semantic modes, streaming, NDJSON | Next |
+
+## Backlog: not scheduled yet
+
+Work identified along the way and not yet assigned to a step. Each step's own "Open from step N" list has the smaller loose ends.
+
+| Item | From | Notes |
+|---|---|---|
+| PMI, semantic and graphical | step 6 | `rec_pracs_pmi_v41.pdf` in `../third_party/mbx-if-recpractices/`. Graphical PMI is presentation geometry (polylines, tessellated text); semantic PMI is tolerances and datums tied to shape aspects. |
+| User-defined attributes | step 6 | `rec_prac_user_def_attributes_v18.pdf`. Name/value properties on products, occurrences and shape aspects. |
+| Materials and densities | step 6 | Material products (AP214 'material' definitions, such as `dm1-pe-214.stp`'s Titanium 6-4) and densities. |
+| SHUO (specified higher usage occurrences) | step 6 | Occurrence-specific overrides deeper than one level of the tree. |
+| Kinematics | step 6 | The AP214 kinematics schema (step 1 found it is where the AP214 and AP242 dictionaries differ most). |
+| AP242 tessellated geometry as meshes | step 6 | `rec_prac_3dtess_geo_v11.pdf`. The representations are reached; turning `TRIANGULATED_FACE`, `COMPLEX_TRIANGULATED_SURFACE_SET` and friends into `Float32Array` buffers belongs with the scene model. |
+| Per-instance style resolution | step 6 | Context-dependent overrides (`style_context` paths) and styles on assembly representations, resolved per instance; needs the scene model's instance paths. |
+| Named coordinate systems | step 6 | List the `AXIS2_PLACEMENT_3D`s among a shape representation's items that no transformation or mapped item uses ('MCS2' in `bug24383_224013.stp`) as named coordinate systems, so a viewer can show them. OCCT moves the geometry by them instead; we decided not to (step 6, "Placement conventions"). |
+| Upstream reports to OCCT | steps 0 and 6 | The transform formula (`OCC22238_test.stp`), the identity placements for Alibre's file, and phase 0's BRepMesh slow faces. |
 
 ## Repo setup (done with step 1)
 
@@ -444,3 +460,63 @@ Building the reverse indexes took 0.2 s for the whole corpus, and the type index
 - **Complex instance validity** (whether a set of partials is a legal combination under the SUPERTYPE OF constraints) isn't checked.
 - **INVERSE attributes** aren't exposed by name; `referrers` plus a type filter answers the same questions.
 - **The AP227 and AP209 files** bind with AP242 supertypes only. Whether to ship further dictionaries (AP209, AP214 edition 1) is still undecided (step 1).
+
+## Step 6: Layer 3 semantic extractors
+
+### What was built
+
+`../packages/step-parser/src/extract/` (about 1,330 lines), on top of `StepModel` (step 5). `extractSemantics(model)` runs everything and returns `{structure, styles, validation, diagnostics}`; each extractor is also exported on its own. The design follows the CAx-IF recommended practices in `../third_party/mbx-if-recpractices/` (PDM Schema Usage Guide 4.3 section 4.4, Model Styling and Organization 1.10, Geometric and Assembly Validation Properties 4.6, External References 3.1), and where files disagree with them, OCCT's reader (`../third_party/OCCT`), checked case by case.
+
+- **`reader.ts`:** cached binding, attribute access by name, reference following, `referrers(p, entity, via)` from the reverse index, and diagnostics. Extractors never throw over file content.
+- **`units.ts`:** units (`SI_UNIT` with prefixes, `CONVERSION_BASED_UNIT` through any chain, `DERIVED_UNIT`, context dependent units) as a kind plus a factor to SI base units; representation contexts with their length, plane angle and solid angle units, dimension and length uncertainty (in metres).
+- **`math.ts`, `placement.ts`:** 4×4 column-major `Float64Array` matrices (as three.js and glTF). Placements follow ISO 10303-42 exactly (`build_axes`, `first_proj_axis`, `base_axis`, `second_proj_axis`), for `AXIS2_PLACEMENT_3D`/`2D` and `CARTESIAN_TRANSFORMATION_OPERATOR` (2D, 3D, non-uniform). `ITEM_DEFINED_TRANSFORMATION` is `M2 · S · M1⁻¹`, mapping frame `transform_item_1` onto `transform_item_2`, with `S` the unit ratio of the two representations; `MAPPED_ITEM` likewise from `mapping_origin` to `mapping_target`.
+- **`products.ts`, the product structure:**
+  - `products`: every `PRODUCT_DEFINITION`, with the product's part number (`PRODUCT.id`), name, description, version, definition id, life-cycle stage, its shape representations (through `PRODUCT_DEFINITION_SHAPE` and `SHAPE_DEFINITION_REPRESENTATION`), and its documents (`APPLIED_DOCUMENT_REFERENCE`, `documentation_ids`), with `external` set for a file holding its geometry (a `PROPERTY_DEFINITION('external definition')` on the document, as in the external-references practice).
+  - `occurrences`: each `NEXT_ASSEMBLY_USAGE_OCCURRENCE` with its id, name and reference designator, and its **placement**: a matrix from the child's main shape representation's coordinates to the parent's, including any difference in length units, and where it came from (CDSR, relationship, mapped item).
+  - `roots`: the definitions that aren't anyone's component.
+  - `representations`: every shape representation reached, with its context and the representations related to it (`SHAPE_REPRESENTATION_RELATIONSHIP`s without a transformation, in either direction; relationships with a transformation that don't place an occurrence; `MAPPED_ITEM`s), each with its transform.
+  - `productInstances(s)` walks the tree from the roots (each use of a product gets its path and its transform to the root), and `productRepresentations(s, product)` gathers a product's representations with their transforms to its main one. These are what the scene model and the tessellator subsets will use.
+- **`styles.ts`:** every `STYLED_ITEM` with its surface colour (the `SURFACE_STYLE_RENDERING` colour when present, else the fill colour, as the practice says), surface side, transparency, curve and point colours, null style and invisibility; `OVER_RIDING_STYLED_ITEM` with what it overrides, and the `style_context` of a `CONTEXT_DEPENDENT_OVER_RIDING_STYLED_ITEM`; layers (`PRESENTATION_LAYER_ASSIGNMENT`), with invisibility. `effectiveStyle(item)` resolves an item's style through the topology (face → shell → solid → representation), overrides first.
+- **`properties.ts`:** geometric and assembly validation properties (names matched with spaces or underscores), targeting a product's shape or a `SHAPE_ASPECT` (whose items come from `GEOMETRIC_ITEM_SPECIFIC_USAGE` or the older shape representation); each value with the item's name ('volume measure', 'centre point'...) and the representation's, converted to SI: measures by their unit, points by the representation's length unit, counts.
+
+### Placement conventions, and where files and OCCT disagree
+
+The standard (PDM usage guide 4.4.2): `rep_1` is the component's representation, `rep_2` the assembly's, `transform_item_1` lies in `rep_1` and `transform_item_2` in `rep_2`. What the corpus does, and what we do:
+
+| Case | Corpus | Handling |
+|---|---|---|
+| Standard | most of 2,576 occurrences | as is |
+| `rep_1`/`rep_2` swapped, items consistent with them | 692 relationships in 22 files | inverted (as OCCT), with an `info` |
+| Items in the opposite representations | 43 relationships in 5 files | items swapped back (as OCCT), with an `info`; except in Alibre's file (11), where they're kept as written (see below) |
+| A NAUO with no CDSR, placed by a `MAPPED_ITEM` in its own `SHAPE_DEFINITION_REPRESENTATION` | 59 occurrences in 3 files (`tr8_ha1_db.stp`, `trj3_s1-db-214.stp`, `bug33261.stp`) | the mapped item places it |
+| A product's shape mapped by a `MAPPED_ITEM` into another's, with no NAUO | 23 in `2.stp` | made an occurrence (`kind: 'mapped-item'`), as OCCT's XCAF reader does; the mapped product is no longer a root |
+| `relating_product_definition` pointing at a `PRODUCT_DEFINITION_SHAPE` | 4 in `bug25167.stp` (an OCCT bug-test file) | its `definition` used, with a warning, as OCCT does |
+
+Every NAUO in the corpus gets a placement.
+
+Three places where we and OCCT differ, each checked against the geometry:
+
+1. **The transform formula.** OCCT computes `gp_Trsf::SetTransformation(ax3Targ, ax3Orig)`, which comes to `M1⁻¹ · M2`, the conjugate of `M2 · M1⁻¹`. They agree whenever one frame is the identity, which is the case in every assembly of the corpus but one: `OCC22238_test.stp`, whose two frames are both rotated (z along world x). There, mapping the component's frame onto the assembly's (the definition) gives a shift of −2 in x; OCCT's gives −2 in z, which leaves the frames apart. We keep the definition.
+2. **Alibre's double swap (`trj4_s1-ai-214.stp`).** Both representations and items are swapped, as in three CATIA V4 files. For CATIA, the rule above (OCCT's) gives a plausible assembly: the tail turbines symmetric about the tail, matching the same model from five other systems in the corpus. For Alibre, it doesn't, and only the opposite reading assembles the parts (each foot's halves side by side). OCCT's own result for this file places every part at the identity (overlapping). The two writers can't be told apart structurally. **Decided by the user (2026-10-17):** a writer-specific exception. When `FILE_NAME.originating_system` contains 'Alibre', items in the opposite representations are kept in the order written (an `info` says so); everyone else gets OCCT's rule. With it, the Alibre file assembles like the other systems' exports of the model (each foot's halves meet, the turbines are symmetric about the tail). `products_occt.ts` still reports it, since OCCT places its parts at the identity.
+3. **Placements among a representation's items.** OCCT moves a representation's geometry by an `AXIS2_PLACEMENT_3D` among its items that no transformation uses, when that placement isn't the identity (`bug24383_224013.stp`, 'MCS2' at z = −35.5). Part 43 gives such an item no meaning, so we don't. **Decided by the user (2026-10-17): not adopted.** Such a placement is a coordinate system that goes with the geometry (here, by its name, a manufacturing setup frame), not a transform of it; the CAx-IF styling practice (section 4.5, "Styling of Axis Placements") likewise treats placements among a representation's items as coordinate systems to display. So the file's coordinates are kept: ours puts this part at z −114.73..0 mm, OCCT at −150..−35.5 mm.
+
+### Units: tolerances
+
+- **Area and volume units declared as length units:** `AREA_UNIT`/`VOLUME_UNIT` conversion-based units that convert from a length unit (`trj2_as1-pe-203.stp`: 'INCH' from millimetres) are read as the square or cube of that length, with a warning; so are an `AREA_UNIT`/`VOLUME_UNIT` named `.METRE.` (two files). The validation check below confirmed what these files mean: with the literal reading, the volume of `trj2_as1-pe-203.stp` was off by a factor of 1,550 (0.0254 against 0.0254³).
+- **Colour components above 1** (one file, 255,255,255): divided by the largest component, as OCCT does. Dividing by 255 would differ only when the largest component isn't 255; the corpus has no such case.
+
+### Tests
+
+7 new tests (61 in the repo), in `test/extract.test.ts`, on two hand-written AP214 files: units and contexts (including the area/volume heuristics and prefixed square and cubic units); placements (an absolute frame, an `ITEM_DEFINED_TRANSFORMATION` with a unit change, a frame 1.6e-8 off the x axis, a parallel `ref_direction`, the affine inverse); the product structure (an inch part placed twice in a millimetre assembly, once by a standard and once by a swapped relationship rotated 90°, its geometry through a relationship, an external component placed by a mapped item, instances and representations); styles (rendering over fill colour, an override beating the face's own plain style, inherited transparency, null style and invisibility, layers); validation properties in SI units (product and shape aspect targets); the less common placements (items in the opposite representations, a NAUO placed by its own mapped item, a mapped-item occurrence); and the Alibre exception, which must apply to Alibre's files only.
+
+Mutation check: 23 deliberate bugs (plus a no-op control, which correctly survived), all caught. Seven at first survived and needed new test cases. One is worth noting: a left-handed y axis (`x × z` instead of `z × x`) passed every transform test, because it flips both frames of `M2 · M1⁻¹` and cancels; only an absolute check of a single placement catches it.
+
+### Corpus checks
+
+- **`../corpus_checks/semantic_corpus.ts`** (log `semantic_corpus.log`): every extractor on every file, 1.0 s for the corpus. 3,732 product definitions; 2,576 NAUO and 23 mapped-item occurrences, all placed; 71 external documents; 38,646 styled items; 3,169 layers; 2,713 validation properties. Files with several roots are files of unconnected parts (1,756 in `bug26451_Test_STEP.stp`), and products without shape are AP214 material definitions and AP209 analysis products.
+- **`../corpus_checks/products_occt.ts`** (log `products_occt.log`), against OCCT through `occt-import-js` (its prebuilt module in the corpus checkout, which reads with OCCT's XCAF assembly reader and returns meshes in world coordinates). For every instance in our tree, every B-rep vertex of the product's representations is moved to world millimetres with our transforms and looked up among OCCT's mesh vertices, which contain the B-rep vertices. Results on 512 files (2 over 30 MB skipped; 3 that `occt-import-js` fails on): **495 files with every vertex found**, 130,462 of 138,993 vertices. The others: `OCC22238_test.stp`, `trj4_s1-ai-214.stp` and `bug24383_224013.stp` (the three differences above); `bug33261.stp`, where OCCT produces no meshes at all; `bug31292.stp`, OCCT's deliberately broken-references file; and 1–16 vertices in 12 single-part files with no assembly (one of them the deliberately corrupted file), not investigated individually; with no transforms involved, they are a matter of which vertices OCCT's meshes keep, not of placement.
+- **`../corpus_checks/validation_occt.ts`** (log `validation_occt.log`): for the 108 files with one root carrying validation properties, the volume, area and centroid we extract (in SI units, picked by their CAx-IF item names) against the same quantities computed from OCCT's meshes. Within 1%: volume 85 of 106, area 84 of 98, centroid 90 of 106; most of them within 0.1%. The rest: external-reference assemblies (no geometry in the file), the Alibre file, files whose own properties are wrong (zero volumes in the 'hc' files; `sp7_08_nx-242.stp`, whose part-level values contradict its shape-aspect values by exactly (1/0.0254)³), a few volumes off by 1–30% with the area exact (mesh or file effects, not units), and two not investigated: `trj7_as1-hc-214.stp` (volume 44%, area 101%; its structure matches OCCT exactly) and `nist_stc_08_asme1_ap242-e3.stp` (volume 23%, centroid 15%).
+
+### Open from step 6
+
+- Everything not done is in the backlog at the top of this document.

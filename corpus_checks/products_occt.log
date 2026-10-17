@@ -1,0 +1,22 @@
+512 files checked (2 over the size limit, 3 failed in occt-import-js); 5720 product instances
+130462 of 138993 B-rep vertices found in OCCT's meshes; 495 files with every vertex found
+   gkv311-opencascade-dataset/step/bug32314_corrupted.stp: 1 of 69 vertices not found (0 occurrences, 13 OCCT meshes)
+   gkv311-opencascade-dataset/step/bug30790.step: occt-import-js failed
+   gkv311-opencascade-dataset/step/bug31292.stp: 84 of 236 vertices not found (13 occurrences, 10 OCCT meshes)
+   gkv311-opencascade-dataset/step/bug25823_280612.stp: 2 of 74 vertices not found (0 occurrences, 1 OCCT meshes)
+   gkv311-opencascade-dataset/step/trj6_c1-ct-214.stp: 2 of 14 vertices not found (0 occurrences, 2 OCCT meshes)
+   gkv311-opencascade-dataset/step/OCC22238_test.stp: 2 of 2 vertices not found (1 occurrences, 1 OCCT meshes)
+   gkv311-opencascade-dataset/step/trj6_c1-ct-203.stp: 2 of 14 vertices not found (0 occurrences, 2 OCCT meshes)
+   gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp: 182 of 182 vertices not found (11 occurrences, 8 OCCT meshes)
+   gkv311-opencascade-dataset/step/bug25415_part_of_hdrv8w64p254_4x2_1016x502h838p.stp: 1 of 16 vertices not found (0 occurrences, 1 OCCT meshes)
+   gkv311-opencascade-dataset/step/pr1sy.stp: 1 of 12 vertices not found (0 occurrences, 4 OCCT meshes)
+   gkv311-opencascade-dataset/step/bug25013_25013face.stp: 1 of 4 vertices not found (0 occurrences, 1 OCCT meshes)
+   gkv311-opencascade-dataset/step/bug24595_281390.stp: 1 of 35 vertices not found (0 occurrences, 1 OCCT meshes)
+   gkv311-opencascade-dataset/step/bug33665.step: occt-import-js failed
+   gkv311-opencascade-dataset/step/trj5_k1-ct-203.stp: 16 of 111 vertices not found (0 occurrences, 58 OCCT meshes)
+   gkv311-opencascade-dataset/step/bug24983_111FACE.stp: 3 of 11 vertices not found (0 occurrences, 1 OCCT meshes)
+   gkv311-opencascade-dataset/step/bug33261.stp: 3813 of 3813 vertices not found (47 occurrences, 0 OCCT meshes)
+   gkv311-opencascade-dataset/step/trj5_k1-ct-214.stp: 16 of 111 vertices not found (0 occurrences, 58 OCCT meshes)
+   gkv311-opencascade-dataset/step/bug24383_224013.stp: 4403 of 4403 vertices not found (0 occurrences, 31 OCCT meshes)
+   gkv311-opencascade-dataset/step/pr_3-sy.stp: 1 of 12 vertices not found (0 occurrences, 4 OCCT meshes)
+   nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_07_asme1_ap242-e3.stp: occt-import-js failed

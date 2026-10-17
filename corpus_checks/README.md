@@ -16,6 +16,9 @@ read the whole corpus take an optional list file in place of `../test_corpus/fil
 
 | Script | Step | What it does | Time |
 |---|---|---|---|
+| `semantic_corpus.ts` | 6 | Runs every Layer 3 extractor on every file and tallies products, occurrences (and whether each got a placement), styles, layers, validation properties and diagnostics. | ~5 s |
+| `products_occt.ts` | 6 | Checks product structure and placements against OCCT through `occt-import-js` (prebuilt in `../test_corpus/third_party/occt-import-js/dist`): every B-rep vertex of every product instance, moved to world millimetres with our transforms, must be among OCCT's mesh vertices. Takes a maximum file size in MB as a second argument (the log used 30). | many minutes: OCCT tessellates every file |
+| `validation_occt.ts` | 6 | Compares the volume, area and centroid validation properties we extract (in SI units) with those computed from OCCT's meshes, for files with one root. Second argument: maximum MB (the log used 5). | minutes |
 | `bind_corpus.ts` | 5 | Binds every instance with value checks (Layer 2) and tallies how instances bind and every diagnostic; cross-checks each file's reverse-reference index against the forward references, and `instancesOf` against `isInstanceOf`. | ~20 s |
 | `json_corpus.ts` | 4 | Parse (A) → raw JSON → load (B) → Part 21 → parse (C), comparing every instance, the header and the DATA sections (A ≡ B and A ≡ C); also checks that `JSON.parse` accepts the JSON and that writing B again gives the same bytes. Expect 0 instances differing. | ~1 min |
 | `number_kinds.ts` | 4 | Binds every int and real to its schema slot and tallies what the schema says the slot holds (INTEGER, REAL, NUMBER, SELECT, no context). Shows that context alone can't tell ints from reals, and lists the number-kind violations Layer 2 must tolerate. | ~1 min |
@@ -31,9 +34,10 @@ read the whole corpus take an optional list file in place of `../test_corpus/fil
 ## Reference outputs
 
 The `.log` files are the outputs the progress document cites. To compare a fresh run with one, diff everything but the
-lines with timings (line 2 of the writer and JSON logs, line 1 of the parser and binding logs), for example:
+lines with timings (line 2 of the writer and JSON logs, line 1 of the parser, binding and semantic logs; the OCCT checks print no timings), for example:
 
 ```sh
+node corpus_checks/semantic_corpus.ts > /tmp/s6.log && diff <(sed 1d corpus_checks/semantic_corpus.log) <(sed 1d /tmp/s6.log)
 node corpus_checks/bind_corpus.ts > /tmp/b.log && diff <(sed 1d corpus_checks/bind_corpus.log) <(sed 1d /tmp/b.log)
 node corpus_checks/json_corpus.ts > /tmp/j.log && diff <(sed 2d corpus_checks/json_corpus.log) <(sed 2d /tmp/j.log)
 node corpus_checks/number_kinds.ts > /tmp/n.log && diff corpus_checks/number_kinds.log /tmp/n.log

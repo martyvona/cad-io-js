@@ -13,3 +13,4 @@ export {
   RAW_JSON_FORMAT, RAW_JSON_VERSION, type RawJsonDocument, type JsonWriteOptions,
 } from './json.ts';
 export { openModel, StepModel, BoundInstance, type BoundAttribute, type BindOptions, type OpenOptions } from './bind.ts';
+export * from './extract/index.ts';

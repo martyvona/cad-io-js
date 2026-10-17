@@ -1,0 +1,109 @@
+108 files with root validation properties, 108 compared; within 1%: volume 85/106, area 84/98, centroid 90/106
+   gkv311-opencascade-dataset/step/bug32049_sp7_04dx_242.stp: volume 0.03%, area 0.09%, centroid 0.00% of size
+   gkv311-opencascade-dataset/step/trj2_as1-id-203.stp: volume 0.00%, area 0.00%, centroid 0.00% of size
+   gkv311-opencascade-dataset/step/bug21802_as1-oc-214.stp: volume 0.00%, area 0.01%, centroid 0.00% of size
+   gkv311-opencascade-dataset/step/trj2_as1-tc-214.stp: volume 0.00%, area 0.00%, centroid 0.00% of size
+   gkv311-opencascade-dataset/step/trj6_as1-tu-214.stp: volume 0.00%, area 0.00%, centroid 0.00% of size
+   gkv311-opencascade-dataset/step/trj7_as1-pe-203.stp: volume 0.00%, area 0.00%, centroid 0.00% of size
+   gkv311-opencascade-dataset/step/sp7_04-dx-242.stp: volume 0.03%, area 0.09%, centroid 0.00% of size
+   gkv311-opencascade-dataset/step/as1-oc-214-mat.stp: volume 0.02%, area 0.00%, centroid 0.00% of size
+   gkv311-opencascade-dataset/step/trj3_as1-ac-214.stp: volume 0.00%, area 0.00%, centroid 0.00% of size
+   gkv311-opencascade-dataset/step/bug31292.stp: volume 0.70%, area 4.23%, centroid 0.02% of size
+   gkv311-opencascade-dataset/step/trj4_s1-ac-214.stp: volume 0.15%, area 0.02%, centroid 0.01% of size
+   gkv311-opencascade-dataset/step/trj7_as1-pe-214.stp: volume 0.00%, area 0.00%, centroid 0.00% of size
+   gkv311-opencascade-dataset/step/trj3_s1-ac-214.stp: volume 0.15%, area 0.02%, centroid 0.01% of size
+   gkv311-opencascade-dataset/step/trj6_as1-pe-214.stp: volume 0.00%, area 0.00%, centroid 0.00% of size
+   gkv311-opencascade-dataset/step/trj3_as1-tc-203.stp: volume 0.00%, area 0.00%, centroid 0.00% of size
+   gkv311-opencascade-dataset/step/trj8_as1-tu-214.stp: volume 0.00%, area 0.00%, centroid 0.00% of size
+   gkv311-opencascade-dataset/step/trj4_pm2-ec-214.stp: volume 0.07%, area 0.03%, centroid 0.01% of size
+   gkv311-opencascade-dataset/step/trj6_as1-pe-203.stp: volume 0.00%, area 0.00%, centroid 0.00% of size
+   gkv311-opencascade-dataset/step/trj3_as1-id-203.stp: volume 0.00%, area 0.00%, centroid 0.00% of size
+   gkv311-opencascade-dataset/step/trj3_as1-tc-214.stp: volume 0.00%, area 0.00%, centroid 0.00% of size
+   gkv311-opencascade-dataset/step/trj9_io1-oc-214.stp: volume 0.04%, area 0.03%, centroid 0.00% of size
+   gkv311-opencascade-dataset/step/trj4_s1-pe-214.stp: volume 0.04%, area 0.06%, centroid 0.01% of size
+   gkv311-opencascade-dataset/step/trj6_as1-id-214.stp: volume 0.00%, area 0.00%, centroid 0.00% of size
+   gkv311-opencascade-dataset/step/trj3_as1-pe-203.stp: volume 0.00%, area 0.00%, centroid 0.00% of size
+   gkv311-opencascade-dataset/step/trj6_as1-tc-214.stp: volume 0.00%, area 0.00%, centroid 0.00% of size
+   gkv311-opencascade-dataset/step/bug28389_CONFIDENTIAL_SHEET_METAL_F3D.stp: volume 30.33%, area 0.10%, centroid 21.04% of size
+   gkv311-opencascade-dataset/step/trj4_s1-pe-203.stp: volume 0.05%, area 0.07%, centroid 0.01% of size
+   gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp: volume 37.37%, area 9.50%, centroid 29.74% of size
+   gkv311-opencascade-dataset/step/bug28345_30338.stp: volume 0.04%, area 0.01%, centroid 0.00% of size
+   gkv311-opencascade-dataset/step/trj3_s1-pe-203.stp: volume 0.04%, area 0.06%, centroid 0.01% of size
+   gkv311-opencascade-dataset/step/trj4_s1-tu-214.stp: volume 0.05%, area 0.03%, centroid 0.01% of size
+   gkv311-opencascade-dataset/step/bug32745_pmi1.stp: volume 0.01%, centroid 0.01% of size
+   gkv311-opencascade-dataset/step/sp7_04-do-242.stp: volume 0.03%, area 0.09%, centroid 0.00% of size
+   gkv311-opencascade-dataset/step/trj7_as1-id-214.stp: volume 0.00%, area 0.00%, centroid 0.00% of size
+   gkv311-opencascade-dataset/step/trj8_as1-ec-214.stp: volume 0.00%, area 0.00%, centroid 0.00% of size
+   gkv311-opencascade-dataset/step/trj4_k1_geo-ac-214.stp: area 2.56%
+   gkv311-opencascade-dataset/step/trj6_pm4-ec-203.stp: volume 0.07%, area 0.03%, centroid 0.01% of size
+   gkv311-opencascade-dataset/step/trj6_as1-ug-214.stp: volume 0.00%, area 0.00%, centroid 0.00% of size
+   gkv311-opencascade-dataset/step/trj7_c2-ac-214.stp: area 0.00%
+   gkv311-opencascade-dataset/step/trj6_as1-ec-214.stp: volume 0.00%, area 0.00%, centroid 0.00% of size
+   gkv311-opencascade-dataset/step/trj8_c2-hc-214.stp: volume Infinity%, area Infinity%, centroid 77.06% of size
+   gkv311-opencascade-dataset/step/trj9_io1-id-214.stp: volume 0.03%, area 0.02%, centroid 0.00% of size
+   gkv311-opencascade-dataset/step/sp7_08_nx-242.stp: volume 100.00%, area 99.93%, centroid 628.69% of size
+   gkv311-opencascade-dataset/step/trj2_as1-md-214.stp: volume 0.00%, centroid 0.00% of size
+   gkv311-opencascade-dataset/step/OCC22962-dm1-oc-214.stp: volume 0.00%, area 0.00%, centroid 2.58% of size
+   gkv311-opencascade-dataset/step/trj3_as1-ec-214.stp: volume 0.00%, area 0.00%, centroid 0.00% of size
+   gkv311-opencascade-dataset/step/trj6_as1-td-214.stp: volume 0.00%, area 0.00%, centroid 0.00% of size
+   gkv311-opencascade-dataset/step/trj4_s1-ec-214.stp: volume 0.10%, area 0.07%, centroid 0.02% of size
+   gkv311-opencascade-dataset/step/bug25171.stp: volume 0.00%, area 0.01%, centroid 0.00% of size
+   gkv311-opencascade-dataset/step/trj2_as1-ug-214.stp: volume 0.00%, area 0.00%, centroid 0.00% of size
+   gkv311-opencascade-dataset/step/trj12_b3-tu-203.stp: volume 0.02%, area 0.01%, centroid 0.00% of size
+   gkv311-opencascade-dataset/step/trj3_as1-ec-203.stp: volume 0.00%, area 0.00%, centroid 0.00% of size
+   gkv311-opencascade-dataset/step/trj4_xr1-pe-214.stp: volume 100.00%, area 100.00%, centroid NaN% of size
+   gkv311-opencascade-dataset/step/trj2_as1-ug-203.stp: volume 0.00%, area 0.00%, centroid 0.00% of size
+   gkv311-opencascade-dataset/step/trj7_c1-hc-214.stp: volume 0.00%, area 0.00%, centroid 0.00% of size
+   gkv311-opencascade-dataset/step/bug32087_part.stp: volume 0.01%, centroid 0.01% of size
+   gkv311-opencascade-dataset/step/trj8_k1-hc-214.stp: volume Infinity%, area 1.72%, centroid 45.92% of size
+   gkv311-opencascade-dataset/step/trj12_gd1-id-214.stp: volume 0.00%, area 0.00%, centroid 0.00% of size
+   gkv311-opencascade-dataset/step/trj7_as1-hc-214.stp: volume 44.09%, area 101.46%, centroid 4.66% of size
+   gkv311-opencascade-dataset/step/trj5_s1-ac-214.stp: volume 0.15%, area 0.02%, centroid 0.01% of size
+   gkv311-opencascade-dataset/step/trj3_as1-ug-214.stp: volume 0.00%, area 0.00%, centroid 0.00% of size
+   gkv311-opencascade-dataset/step/trj2_as1-ec-214.stp: volume 0.00%, centroid 0.00% of size
+   gkv311-opencascade-dataset/step/trj3_as1-md-214.stp: volume 0.00%, area 0.00%, centroid 0.00% of size
+   gkv311-opencascade-dataset/step/bug26657.stp: volume 0.02%, area 0.00%, centroid 0.00% of size
+   gkv311-opencascade-dataset/step/trj9_io1-tu-214.stp: volume 0.01%, area 0.00%, centroid 0.00% of size
+   gkv311-opencascade-dataset/step/trj4_s1-ug-214.stp: volume 0.04%, area 0.08%, centroid 0.01% of size
+   gkv311-opencascade-dataset/step/nist/bug26689_nist_ctc_04_asme1_ap242.stp: volume 0.03%, area 0.09%, centroid 0.00% of size
+   gkv311-opencascade-dataset/step/nist/bug26689_nist_ctc_01_asme1_ap242.stp: volume 0.00%, area 0.00%, centroid 0.00% of size
+   gkv311-opencascade-dataset/step/nist/bug30616_nist_ctc_01_asme1_ap242.stp: volume 0.00%, centroid 0.00% of size
+   nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_02_asme1_ap242-e2.stp: volume 5.80%, centroid 1.96% of size
+   nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_01_asme1_ap242-e1.stp: volume 0.00%, centroid 0.00% of size
+   nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_06_asme1_ap242-e2.stp: volume 0.00%, centroid 0.00% of size
+   nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_08_asme1_ap242-e3.stp: volume 23.10%, centroid 14.83% of size
+   nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_04_asme1_ap242-e1.stp: volume 0.03%, area 0.09%, centroid 0.00% of size
+   nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp: volume 0.00%, area 0.00%, centroid 0.00% of size
+   nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_07_asme1_ap242-e2.stp: volume 0.00%, area 0.00%, centroid 0.00% of size
+   nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_03_asme1_ap242-e2.stp: volume 0.00%, centroid 0.00% of size
+   nist-pmi-models/NIST_MBE_PMI_CTC_Definitions/NIST_MBE_PMI_CTC_Definitions/nist_ctc_05_asme1_rd.stp: volume 1.09%, area 0.02%, centroid 0.49% of size
+   nist-pmi-models/NIST_MBE_PMI_CTC_Definitions/NIST_MBE_PMI_CTC_Definitions/nist_ctc_02_asme1_rc.stp: volume 2.53%, area 0.00%, centroid 0.79% of size
+   nist-pmi-models/NIST_MBE_PMI_FTC_Definitions/NIST_MBE_PMI_FTC_Definitions/nist_ftc_09_asme1_rd.stp: volume 0.00%, area 0.00%, centroid 0.00% of size
+   gkv311-opencascade-dataset/step/cax_stepLib/s1-tu-203/mainbodyback.stp: volume 0.40%, area 0.05%, centroid 0.10% of size
+   gkv311-opencascade-dataset/step/cax_stepLib/s1-tu-203/footfront.stp: volume 0.41%, area 0.05%, centroid 0.02% of size
+   gkv311-opencascade-dataset/step/cax_stepLib/s1-tu-203/footback.stp: volume 0.01%, area 0.04%, centroid 0.01% of size
+   gkv311-opencascade-dataset/step/cax_stepLib/s1-tu-203/tailmiddlepart.stp: volume 0.02%, area 0.01%, centroid 0.00% of size
+   gkv311-opencascade-dataset/step/cax_stepLib/s1-tu-203/s1-tu-203.stp: volume 100.00%, area 100.00%, centroid NaN% of size
+   gkv311-opencascade-dataset/step/cax_stepLib/s1-tu-203/headback.stp: volume 0.62%, area 0.06%, centroid 0.16% of size
+   gkv311-opencascade-dataset/step/cax_stepLib/s1-tu-203/tailturbine.stp: volume 0.11%, area 0.03%, centroid 0.01% of size
+   gkv311-opencascade-dataset/step/cax_stepLib/s1-tu-203/mainbodyfront.stp: volume 0.13%, area 0.05%, centroid 0.21% of size
+   gkv311-opencascade-dataset/step/cax_stepLib/s1-tu-203/headfront.stp: volume 0.08%, area 0.07%, centroid 0.02% of size
+   gkv311-opencascade-dataset/step/cax_stepLib/s1_pe_214/mainbody_asm.stp: volume 100.00%, area 100.00%, centroid NaN% of size
+   gkv311-opencascade-dataset/step/cax_stepLib/s1_pe_214/foot_asm.stp: volume 100.00%, area 100.00%, centroid NaN% of size
+   gkv311-opencascade-dataset/step/cax_stepLib/s1_pe_214/tail_asm.stp: volume 100.00%, area 100.00%, centroid NaN% of size
+   gkv311-opencascade-dataset/step/cax_stepLib/s1_pe_214/head_asm.stp: volume 100.00%, area 100.00%, centroid NaN% of size
+   gkv311-opencascade-dataset/step/cax_stepLib/s1_pe_214/s1_pe_214.stp: volume 100.00%, area 100.00%, centroid NaN% of size
+   nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_05_asme1_ap203.stp: volume 0.03%, area 0.02%, centroid 0.00% of size
+   nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_03_asme1_ap203.stp: volume 0.00%, area 0.00%, centroid 0.00% of size
+   nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_01_asme1_ap203.stp: volume 0.00%, area 0.00%, centroid 0.00% of size
+   nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ftc_09_asme1_rd.stp: volume 0.00%, area 0.00%, centroid 0.00% of size
+   nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ctc_05_asme1_rd.stp: volume 1.09%, area 0.02%, centroid 0.49% of size
+   nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ctc_02_asme1_rc.stp: volume 2.53%, area 0.00%, centroid 0.79% of size
+   nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/FTC Definitions/nist_ftc_09_asme1_rd.stp: volume 0.00%, area 0.00%, centroid 0.00% of size
+   nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/CTC Definitions/nist_ctc_05_asme1_rd.stp: volume 1.09%, area 0.02%, centroid 0.49% of size
+   nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/CTC Definitions/nist_ctc_02_asme1_rc.stp: volume 2.53%, area 0.00%, centroid 0.79% of size
+   occt-import-js/test/testfiles/cax-if/as1_pe_203.stp: volume 0.00%, area 0.00%, centroid 0.00% of size
+   occt-import-js/test/testfiles/cax-if/as1-tu-203.stp: volume 0.00%, area 0.00%, centroid 0.00% of size
+   occt-import-js/test/testfiles/cax-if/sg1-c5-214.stp: volume 0.11%, area 0.02%, centroid 0.00% of size
+   occt-import-js/test/testfiles/cax-if/io1-tu-203.stp: volume 0.04%, area 0.02%, centroid 0.00% of size
+   occt-import-js/test/testfiles/cax-if/as1-oc-214.stp: volume 0.00%, area 0.01%, centroid 0.00% of size
