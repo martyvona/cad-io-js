@@ -99,6 +99,11 @@ export class StepFile {
     return latin1(this.bytes, this.index.starts[p]!, this.index.ends[p]!);
   }
 
+  /** The source bytes of the instance at position p, from its `#` through its `;`, for copying verbatim. */
+  sourceBytesAt(p: number): Uint8Array {
+    return this.bytes.subarray(this.index.starts[p]!, this.index.ends[p]!);
+  }
+
   /**
    * Decode every instance in file order. Malformed instances are reported to `onError` and omitted. Recoverable
    * problems are appended to `warnings`.

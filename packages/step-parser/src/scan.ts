@@ -223,7 +223,8 @@ export function scan(bytes: Uint8Array): ScanResult {
           v = v * 10 + d;
           j++;
         }
-        if (j > i + 1) refs.push(v);
+        // Ids are at most 2^32 - 1, so a larger reference can't resolve (and mustn't wrap around in Uint32Array).
+        if (j > i + 1 && v <= 0xffffffff) refs.push(v);
         i = j;
         continue;
       }

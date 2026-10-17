@@ -8,8 +8,8 @@ Phase 1 of `architecture.md` ("Phasing"). The design is in `architecture.md`, "S
 |---|---|---|
 | 1 | Schema generator: EXPRESS → JSON dictionaries (`packages/step-schemas`) | **Done** 2026-10-17 |
 | 2 | Layer 1 lexer and parser: byte-range index pass, lazy entity decode, string decoding, `.stpZ` (`packages/step-parser`) | **Done** 2026-10-17 |
-| 3 | Part 21 writer | Next |
-| 4 | Raw JSON encoding (compact value encoding, still open) and round-trip tests A ≡ B ≡ C | |
+| 3 | Part 21 writer | **Done** 2026-10-17 |
+| 4 | Raw JSON encoding (compact value encoding, still open) and round-trip tests A ≡ B ≡ C | Next |
 | 5 | Layer 2 schema binding: names, reverse-reference index, `FILE_SCHEMA` mapping, tolerance policy | |
 | 6 | Layer 3 semantic extractors: product tree, units, names, styles, validation properties | |
 | 7 | `step2json` CLI: raw and semantic modes, streaming, NDJSON | |
@@ -19,7 +19,7 @@ Phase 1 of `architecture.md` ("Phasing"). The design is in `architecture.md`, "S
 - npm workspaces at the root (`packages/*`). pnpm isn't installed; npm does the job so far.
 - TypeScript runs directly on Node 24 with type stripping (`node file.ts`), so the code uses only erasable syntax (`erasableSyntaxOnly`: no enums, namespaces or parameter properties) and imports with `.ts` extensions. `tsc` (TypeScript 7.0.2) is a dev dependency for type-checking only. Emitting plain JS for publishing comes later (`rewriteRelativeImportExtensions` is already on).
 - Tests use `node:test`: `npm test` from the root, and `npm run typecheck`.
-- Git repo initialized 2026-10-17 (no commits yet). `.gitignore` excludes `node_modules`, the multi-GB spike build outputs and generated subsets, and the Siemens JT reference documents.
+- Git repo initialized 2026-10-17; initial commit `b5a1794` (phase 0, steps 1–2). `.gitignore` excludes `node_modules`, the multi-GB spike build outputs and generated subsets, and the Siemens JT reference documents.
 - Spike scripts written in TypeScript use `.mts`, because `spike/package.json` is CommonJS.
 
 ## Step 1: schema generator
@@ -118,6 +118,7 @@ All of these are recorded so the next steps (writer, binding) know the model can
 - **OCCT's string-escape tolerances:** `\X2\` in 3-digit groups, an unclosed `\X2\`/`\X4\` run at the end of the string, a stray `\X0\` dropped, and `\N\`/`\T\`. These follow OCCT's reader. Its test `bugs/step/bug28454_2` provides 15 cases, all reproduced in `test/strings.test.ts`. That test's printed comment for case 13 has a typo (`\S\D` where the data file has `\S\B`).
 - **Strings in general:** unknown escapes keep their backslash, line breaks inside strings are dropped, and raw non-ASCII bytes decode as UTF-8 when valid and as ISO 8859-1 otherwise.
 - **An empty parameter** (`EDGE_CURVE('',#1,#1,#0, )`) is read as `$`, with a warning. OCCT also keeps such instances (its test for issue 31756).
+- **A reference beyond 2^32 − 1** (the largest id the index holds) is read as `$`, with a warning, and isn't recorded in the index. Found by the step 3 writer check: OCCT's `bug31292.stp` ("references to invalid entities") has `#18446744073709551615`, which the decoder had read as an imprecise double and the index had wrapped to `#0`; a reference like `#4294967297` would have wrapped to `#1`, a real instance. This matches OCCT, which keeps the entity and treats the reference as unresolved (its fix for issue 31292, commit `ef59b5e064`). Decided by the user 2026-10-17, over the strict alternative (failing the instance's decode). Part 21 sets no maximum as far as known; OCCT and stepcode read ids into a signed 32-bit `int` (limit 2^31 − 1), and the corpus's largest id is 821,290.
 - **Header decoding** problems and section-structure problems (missing `ENDSEC`, missing `END-ISO-10303-21;`, unterminated strings or comments) become diagnostics; the file still loads.
 
 ### Tests
@@ -153,3 +154,63 @@ Pass 1 matches the phase 0 spike indexer (250–290 MB/s), which collected the s
 - **Edition 3 constant references and anchors** are still unrepresented. ANCHOR/REFERENCE/SIGNATURE sections are skipped with a warning, and a value that uses edition 3 syntax (`@name`, `<uri>`) fails that instance's decode. No corpus file has any.
 - **Decode caching** is left to callers. Revisit when Layer 3 traversals show whether they need it.
 - **Unterminated strings:** scan-level recovery isn't attempted. The rest of the file is lost, with a diagnostic; this never happened in the corpus.
+
+## Step 3: Part 21 writer
+
+### What was built
+
+`packages/step-parser/src/write.ts`, about 250 lines, schema-independent, as designed in `architecture.md`:
+
+- **`writeChunks(doc, {chunkSize})`**, a generator of byte chunks (64 KiB by default). The caller pulls, so any sink gets backpressure for free, and instances are pulled lazily from their iterables, so a whole file is never one string or one array of instances. `writeStep(doc)` concatenates into one `Uint8Array`.
+- **`StepDocument`** is `{header, data: [{name?, schemas?, instances}]}`. Several DATA sections, or a named one, write edition 3 `DATA('name',('SCHEMA'));`. No sections writes an empty `DATA;`.
+- **Verbatim instances:** an item that is a `Uint8Array` is copied as is: the subset fast path. `StepFile.sourceBytesAt(p)` gives an instance's source bytes.
+- **`fileDocument(file, onError?)`** re-writes a parsed file lazily: its header, its DATA sections, its instances in file order. Malformed instances are reported and skipped; without `onError` they throw.
+- **`makeHeader({name, schemas, …})`** builds the three mandatory header entities, for subset files.
+- **`formatInstance`, `formatRecord`, `formatValue`, `formatReal`, `formatString`** are exported for one-off use.
+
+### Formatting rules
+
+- **Reals:** the shortest text that reads back as the same double (`String(x)`), with `.` added to the mantissa and the exponent written `E` without `+`: `5.`, `1.E-7`, `1.E21`, `0.25`. `-0` is written `-0.`.
+- **Strings:** `'` and `\` doubled; printable ASCII as is; other BMP characters, including control characters and lone surrogates, as `\X2\hhhh…\X0\` runs; characters beyond the BMP as `\X4\hhhhhhhh…\X0\` runs, so a run switches between the two as needed. The output is pure ASCII, except bytes copied verbatim.
+- **Integers:** `bigint` and unsafe-but-integral numbers through `BigInt`.
+- **One instance per line**, no spaces, no line wrapping.
+- **Values Part 21 can't hold throw a `WriteError`** naming the instance: NaN and infinities, a non-integer `int`, malformed names, enumerations or binaries, negative or unsafe ids and references. The parser never produces these, so they mean a caller bug. (`architecture.md` had said "a diagnostic"; a throw is simpler and can't be ignored.) Entity names are checked once each and cached.
+
+### What the writer brings back from tolerated input
+
+The parser's tolerances (step 2) mean the model can hold values from non-conformant text. The writer always writes them conformantly, so the output differs from the source text but parses to the same model:
+- An out-of-range reference (read as `$`) is written `$`.
+- A lone apostrophe is written doubled (`'Bob''s part'`); an unknown escape's backslash is written `\\`.
+- An empty parameter is written `$`.
+- `\N\`, `\T\` and `\X\hh` become `\X2\` runs; `\S\` with a code page becomes the Unicode character in an `\X2\` run.
+- Line breaks that were dropped from inside strings stay dropped.
+
+### Tests
+
+6 new tests (36 in the repo):
+- `formatReal` cases, plus 20,000 random doubles over the whole range (by bit pattern) written and read back exactly
+- `formatString` cases, plus 5,000 random strings from a pool of awkward characters (quotes, backslashes, `,`, `)`, CR/LF, NUL, DEL, Latin-1, Cyrillic, U+FFFF, astral, lone surrogates), checked to be pure ASCII and to decode back exactly
+- every value kind and the `WriteError` cases
+- parse → write → parse on a file with every kind and every string tolerance (A ≡ C), and the second write byte-identical to the first
+- chunked output equal to whole output; verbatim copies with comments and spacing; malformed instances skipped or thrown
+- edition 3 sections; `makeHeader`; an empty document
+
+Mutation check: six deliberate bugs in `write.ts` (no `.` on integral reals, `-0` lost, mixed `\X2\`/`\X4\` runs, an undoubled quote on either string path, chunk buffer reuse) each fail at least one test.
+
+### Corpus round trip (`spike/writer_corpus.mts`, log in `spike/writer_corpus.log`)
+
+Every corpus file: parse (A) → write → parse (C), compared instance by instance with `isDeepStrictEqual` (which distinguishes `-0`, int vs. real, and so on), plus the header and DATA section names; then C written again must be byte-identical; then the verbatim fast path (all source bytes copied) parsed and compared with A.
+
+- **517 files, 4,925,007 instances: 0 differ**, headers and sections all equal, every second write byte-identical, the fast path equal everywhere, all output pure ASCII.
+- 3 malformed instances skipped, the known ones from step 2. `bug31292.stp`'s out-of-range reference is read as `$` (see the step 2 tolerances) and written back as `$`.
+- `bug25013_25013faces.stp` has two duplicated instances (identical copies, `#794080`/`#794081`) in its source; the writer reproduces both, so the rewritten file has the same duplicate-id diagnostics.
+- Output is 381 MB for 421 MB of input: mostly the dropped spacing, offset by longer reals in some files.
+
+### Speed
+
+About 65–70 MB/s of output (Node 24, M-series Mac), for example 45 MB written in 0.65 s for `bug29979_firetherm_12.step`, not counting decoding. A quarter of the time is in `formatReal`, i.e. `String(x)` producing the shortest round-trip text; garbage collection and `encodeInto` are next. That's about half the decode speed, and enough for subset files, which are small. A faster real formatter (or reusing the source text of each real) is possible if a full-file rewrite ever matters.
+
+### Open from step 3
+
+- **Line wrapping** for readability isn't implemented; neither OCCT nor truck needs it.
+- **Edition 3 anchors and references** can't be written, since the model doesn't hold them (see step 2).

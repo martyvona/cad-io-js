@@ -19,7 +19,7 @@ const DERIVED: Value = Object.freeze({ k: 'derived' }) as Value;
 
 /**
  * Decode `#id=TYPE(...);` or `#id=(A(...)B(...));` from bytes[start, end). Throws ParseError if it is malformed.
- * Recoverable problems (an empty parameter, read as `$`) go to `warnings`.
+ * Recoverable problems (an empty parameter or an out-of-range reference, read as `$`) go to `warnings`.
  */
 export function decodeInstance(bytes: Uint8Array, start: number, end: number, warnings?: Diagnostic[]): Instance {
   const d = new Decoder(bytes, start, end, warnings);
@@ -174,9 +174,18 @@ class Decoder {
     const b = this.bytes;
     const c = this.peek();
     switch (c) {
-      case HASH:
+      case HASH: {
         this.pos++;
-        return { k: 'ref', v: this.unsigned() };
+        const at = this.pos;
+        const v = this.unsigned();
+        if (v > 0xffffffff) {
+          // Ids are at most 2^32 - 1, so this can't resolve (OCCT's bug31292.stp has #18446744073709551615). Like
+          // OCCT, keep the instance and treat the reference as unresolved: read as $.
+          this.warnings?.push({ severity: 'warning', message: 'reference beyond the largest instance id (2^32 - 1) read as $', offset: at - 1, id: this.id });
+          return UNSET;
+        }
+        return { k: 'ref', v };
+      }
       case DOLLAR:
         this.pos++;
         return UNSET;

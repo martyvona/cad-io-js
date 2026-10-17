@@ -1,6 +1,6 @@
 # STEP JS: architecture
 
-Status: draft, 2026-10-16. Phase 0 is done (`phase0_results.md`). Phase 1 is under way; progress is in `phase1_progress.md`. The schema generator (`packages/step-schemas`) and the Layer 1 parser (`packages/step-parser`) are done. See `initial_analysis.md` for background research, reference repositories and licensing analysis.
+Status: draft, 2026-10-16. Phase 0 is done (`phase0_results.md`). Phase 1 is under way; progress is in `phase1_progress.md`. The schema generator (`packages/step-schemas`) and Layer 1 (`packages/step-parser`: parser and writer) are done. See `initial_analysis.md` for background research, reference repositories and licensing analysis.
 
 ## Goals
 
@@ -55,7 +55,7 @@ This is a monorepo using npm workspaces (`packages/*`). TypeScript runs directly
 - **Other inputs:** gzip-compressed `.stpZ`, via `DecompressionStream`.
 - **Editions:** targets Part 21 edition 2, and tolerates edition 3 features (anchor and reference sections, multiple data sections) without failing.
 - **Writer:** serializes the instance model back to Part 21. It is used both for round-trip testing and for building the per-part subset files sent to tessellators. See "Part 21 writer" below.
-- **Status:** done (`packages/step-parser`), apart from the writer. Pass 1 scans at about 230 MB/s into a typed-array index (ids, byte ranges, type names, references); pass 2 decodes at about 140 MB/s. The lexical tolerances it adopted (lone apostrophes, OCCT's escape leniencies, empty parameters read as `$`) are listed in `phase1_progress.md`, step 2.
+- **Status:** done (`packages/step-parser`), including the writer. Pass 1 scans at about 230 MB/s into a typed-array index (ids, byte ranges, type names, references); pass 2 decodes at about 140 MB/s. The lexical tolerances it adopted (lone apostrophes, OCCT's escape leniencies, empty parameters and out-of-range references read as `$`) are listed in `phase1_progress.md`, step 2. The writer round-trips the whole corpus (4.9 M instances) with no differences; see step 3.
 
 ### The raw instance model
 
@@ -85,6 +85,8 @@ type Instance =
 ### Part 21 writer
 
 A recursive serializer over the raw instance model. It doesn't use the schema. Expected size is around 150–200 lines of TypeScript.
+
+**Status:** done (`packages/step-parser/src/write.ts`). The API is a generator of byte chunks over a `StepDocument` (`{header, data: [{name?, schemas?, instances}]}`), with instances pulled lazily and `Uint8Array` items copied verbatim for the subset fast path. Differences from the sketch below: characters beyond the BMP form `\X4\` runs within the same string as `\X2\` runs; exponents are written without `+`; `-0` is written `-0.`; unrepresentable values throw a `WriteError` instead of producing a diagnostic. Details in `phase1_progress.md`, step 3.
 
 **File structure:**
 

@@ -38,6 +38,7 @@ export class ParseError extends Error {
   readonly offset: number;
   constructor(message: string, offset: number) {
     super(`${message} at byte ${offset}`);
+    this.name = 'ParseError';
     this.offset = offset;
   }
 }

@@ -4,3 +4,7 @@ export { decodeInstance, decodeRecord, decodeList } from './decode.ts';
 export { decodeString, decodeStringBody, stringEnd } from './strings.ts';
 export { StepFile, parseStep, type DataSection } from './file.ts';
 export { readStep, readBytes, type StepSource } from './input.ts';
+export {
+  writeChunks, writeStep, fileDocument, makeHeader, formatInstance, formatRecord, formatValue, formatReal, formatString,
+  WriteError, type StepDocument, type DocumentSection, type WriteOptions, type HeaderFields,
+} from './write.ts';

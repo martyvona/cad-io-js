@@ -115,6 +115,7 @@ test('problems: duplicates, malformed instances, truncation', () => {
 #1=A(1);
 #1=A(2);
 #2=EDGE_CURVE('',#1,#1,#0, );
+#4=EDGE_CURVE('',#1,#18446744073709551617,#1,.T.);
 #3=B('unterminated);
 `);
   assert.deepEqual(f.diagnostics.map((d) => d.message), [
@@ -125,11 +126,17 @@ test('problems: duplicates, malformed instances, truncation', () => {
   const warnings: Diagnostic[] = [];
   assert.deepEqual((f.instance(2, warnings) as { attrs: unknown[] }).attrs.slice(3), [{ k: 'ref', v: 0 }, { k: 'unset' }]);
   assert.deepEqual(warnings.map((w) => [w.message, w.id]), [['empty parameter read as $', 2]]);
-  assert.throws(() => f.instanceAt(3), (e) => e instanceof ParseError && /unterminated string/.test(e.message));
+  // A reference too large to be an id (OCCT's bug31292.stp) is read as $, with a warning, and doesn't wrap around
+  // to #1 in the index.
+  assert.deepEqual([...f.index.refsOf(3)], [1, 1]);
+  warnings.length = 0;
+  assert.deepEqual((f.instanceAt(3, warnings) as { attrs: unknown[] }).attrs.slice(1, 4), [{ k: 'ref', v: 1 }, { k: 'unset' }, { k: 'ref', v: 1 }]);
+  assert.deepEqual(warnings.map((w) => [w.message, w.id]), [['reference beyond the largest instance id (2^32 - 1) read as $', 4]]);
+  assert.throws(() => f.instanceAt(4), (e) => e instanceof ParseError && /unterminated string/.test(e.message));
   const errors: number[] = [];
   const ok: Instance[] = [...f.instances((p) => errors.push(p))];
-  assert.equal(ok.length, 3);
-  assert.deepEqual(errors, [3]);
+  assert.equal(ok.length, 4);
+  assert.deepEqual(errors, [4]);
 });
 
 test('readStep: gzip input and streams', async () => {
