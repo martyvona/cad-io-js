@@ -1,0 +1,4 @@
+517 files imported in 14.5 s: 3732 components, 3279 parts, 5051 part instances (3 hidden)
+666 materials; 0 component materials; 114 parts with per-face materials (5469 faces); 0 instance overrides; 3169 layers; 68 external components
+payloads: 324.5 MB, all parsed
+      1 diagnostic: representation without a length unit; read as millimetres  e.g. gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938

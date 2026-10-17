@@ -1,0 +1,191 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { partInstances, validate, type Mat4 } from 'cad-scene';
+import { parseStep } from 'step-parser';
+import { importStep } from '../src/index.ts';
+
+const enc = new TextEncoder();
+const AP214 = 'AUTOMOTIVE_DESIGN { 1 0 10303 214 1 1 1 1 }';
+const file = (data: string) => enc.encode(`ISO-10303-21;HEADER;FILE_NAME('asm.stp','',(''),(''),'pp','sys','');FILE_SCHEMA(('${AP214}'));ENDSEC;DATA;\n${data}\nENDSEC;END-ISO-10303-21;`);
+const at = (m: Mat4) => [m[12], m[13], m[14]].map((x) => Math.round(x! * 1e9) / 1e9);
+
+// An assembly in metres holding an inch box twice (the second instance coloured by a context-dependent style), a
+// styled assembly subcomponent, and an externally defined component. The box: a red solid with one face blue, a
+// placement and a mapped item among its representation's items, on a layer.
+const DATA = `
+#1=APPLICATION_CONTEXT('');
+#2=PRODUCT_CONTEXT('',#1,'mechanical');
+#3=PRODUCT_DEFINITION_CONTEXT('part definition',#1,'design');
+#10=(LENGTH_UNIT()NAMED_UNIT(*)SI_UNIT($,.METRE.));
+#11=(LENGTH_UNIT()NAMED_UNIT(*)SI_UNIT(.MILLI.,.METRE.));
+#12=(LENGTH_UNIT()CONVERSION_BASED_UNIT('INCH',#13)NAMED_UNIT(*));
+#13=LENGTH_MEASURE_WITH_UNIT(LENGTH_MEASURE(25.4),#11);
+#16=(GEOMETRIC_REPRESENTATION_CONTEXT(3)GLOBAL_UNIT_ASSIGNED_CONTEXT((#10))REPRESENTATION_CONTEXT('m',''));
+#17=(GEOMETRIC_REPRESENTATION_CONTEXT(3)GLOBAL_UNIT_ASSIGNED_CONTEXT((#12))REPRESENTATION_CONTEXT('in',''));
+#20=CARTESIAN_POINT('',(0.,0.,0.));
+#21=DIRECTION('',(0.,0.,1.));
+#22=DIRECTION('',(1.,0.,0.));
+#23=AXIS2_PLACEMENT_3D('',#20,#21,#22);
+#24=CARTESIAN_POINT('',(0.1,0.,0.));
+#25=AXIS2_PLACEMENT_3D('',#24,#21,#22);
+#26=AXIS2_PLACEMENT_3D('',#20,#21,#22);
+#100=PRODUCT('ASM','Assembly','',(#2));
+#101=PRODUCT_DEFINITION_FORMATION('1','',#100);
+#102=PRODUCT_DEFINITION('','',#101,#3);
+#103=PRODUCT_DEFINITION_SHAPE('','',#102);
+#104=SHAPE_REPRESENTATION('asm',(#23,#25),#16);
+#105=SHAPE_DEFINITION_REPRESENTATION(#103,#104);
+#200=PRODUCT('BOX','Box','a box',(#2));
+#201=PRODUCT_DEFINITION_FORMATION('','',#200);
+#202=PRODUCT_DEFINITION('','',#201,#3);
+#203=PRODUCT_DEFINITION_SHAPE('','',#202);
+#205=ADVANCED_BREP_SHAPE_REPRESENTATION('box',(#26,#211,#219,#226,#240),#17);
+#206=SHAPE_DEFINITION_REPRESENTATION(#203,#205);
+#211=MANIFOLD_SOLID_BREP('',#212);
+#212=CLOSED_SHELL('',(#213,#214));
+#213=ADVANCED_FACE('',(),#215,.T.);
+#214=ADVANCED_FACE('',(),#215,.T.);
+#215=PLANE('',#230);
+#217=ADVANCED_FACE('',(),#215,.T.);
+#218=CLOSED_SHELL('',(#217));
+#219=MANIFOLD_SOLID_BREP('',#218);
+#224=ADVANCED_FACE('',(),#215,.T.);
+#225=CLOSED_SHELL('',(#224));
+#226=MANIFOLD_SOLID_BREP('',#225);
+#230=AXIS2_PLACEMENT_3D('',#231,#21,#22);
+#231=CARTESIAN_POINT('',(2.,4.,6.));
+#232=CARTESIAN_POINT('',(4.,8.,10.));
+#233=VERTEX_POINT('',#232);
+#240=MAPPED_ITEM('',#241,#26);
+#241=REPRESENTATION_MAP(#26,#242);
+#242=SHAPE_REPRESENTATION('mapped',(#243),#17);
+#243=CARTESIAN_POINT('',(1000.,0.,0.));
+#250=NEXT_ASSEMBLY_USAGE_OCCURRENCE('1','box 1','',#102,#202,'B1');
+#251=PRODUCT_DEFINITION_SHAPE('','',#250);
+#252=(REPRESENTATION_RELATIONSHIP('','',#205,#104)REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION(#253)SHAPE_REPRESENTATION_RELATIONSHIP());
+#253=ITEM_DEFINED_TRANSFORMATION('','',#26,#23);
+#254=CONTEXT_DEPENDENT_SHAPE_REPRESENTATION(#252,#251);
+#260=NEXT_ASSEMBLY_USAGE_OCCURRENCE('2','box 2','',#102,#202,$);
+#261=PRODUCT_DEFINITION_SHAPE('','',#260);
+#262=(REPRESENTATION_RELATIONSHIP('','',#205,#104)REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION(#263)SHAPE_REPRESENTATION_RELATIONSHIP());
+#263=ITEM_DEFINED_TRANSFORMATION('','',#26,#25);
+#264=CONTEXT_DEPENDENT_SHAPE_REPRESENTATION(#262,#261);
+#400=PRODUCT('EXT','External','',(#2));
+#401=PRODUCT_DEFINITION_FORMATION('','',#400);
+#402=PRODUCT_DEFINITION('','',#401,#3);
+#403=PRODUCT_DEFINITION_SHAPE('','',#402);
+#404=SHAPE_DEFINITION_REPRESENTATION(#403,#405);
+#405=SHAPE_REPRESENTATION('ext',(#26),#16);
+#406=NEXT_ASSEMBLY_USAGE_OCCURRENCE('3','ext','',#102,#402,$);
+#407=PRODUCT_DEFINITION_SHAPE('','',#406);
+#408=(REPRESENTATION_RELATIONSHIP('','',#405,#104)REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION(#409)SHAPE_REPRESENTATION_RELATIONSHIP());
+#409=ITEM_DEFINED_TRANSFORMATION('','',#26,#23);
+#410=CONTEXT_DEPENDENT_SHAPE_REPRESENTATION(#408,#407);
+#411=DOCUMENT_FILE('ext.stp','','',#412,'',$);
+#412=DOCUMENT_TYPE('geometry');
+#413=APPLIED_DOCUMENT_REFERENCE(#411,'',(#402));
+#414=PROPERTY_DEFINITION('external definition','',#411);
+#500=COLOUR_RGB('',1.,0.,0.);
+#501=FILL_AREA_STYLE_COLOUR('',#500);
+#502=FILL_AREA_STYLE('',(#501));
+#503=SURFACE_STYLE_FILL_AREA(#502);
+#504=SURFACE_SIDE_STYLE('',(#503));
+#505=SURFACE_STYLE_USAGE(.BOTH.,#504);
+#506=PRESENTATION_STYLE_ASSIGNMENT((#505));
+#507=STYLED_ITEM('',(#506),#211);
+#510=COLOUR_RGB('',0.,0.,1.);
+#511=FILL_AREA_STYLE_COLOUR('',#510);
+#512=FILL_AREA_STYLE('',(#511));
+#513=SURFACE_STYLE_FILL_AREA(#512);
+#514=SURFACE_SIDE_STYLE('',(#513));
+#515=SURFACE_STYLE_USAGE(.BOTH.,#514);
+#516=PRESENTATION_STYLE_ASSIGNMENT((#515));
+#517=OVER_RIDING_STYLED_ITEM('',(#516),#214,#507);
+#520=COLOUR_RGB('',0.,1.,0.);
+#521=FILL_AREA_STYLE_COLOUR('',#520);
+#522=FILL_AREA_STYLE('',(#521));
+#523=SURFACE_STYLE_FILL_AREA(#522);
+#524=SURFACE_SIDE_STYLE('',(#523));
+#525=SURFACE_STYLE_USAGE(.BOTH.,#524);
+#526=PRESENTATION_STYLE_ASSIGNMENT((#525));
+#527=CONTEXT_DEPENDENT_OVER_RIDING_STYLED_ITEM('',(#526),#205,#507,(#262));
+#528=OVER_RIDING_STYLED_ITEM('',(#526),#214,#507);
+#540=DRAUGHTING_PRE_DEFINED_COLOUR('yellow');
+#541=CURVE_STYLE('',$,POSITIVE_LENGTH_MEASURE(0.1),#540);
+#542=SURFACE_STYLE_BOUNDARY(#541);
+#543=SURFACE_SIDE_STYLE('',(#542));
+#544=SURFACE_STYLE_USAGE(.BOTH.,#543);
+#545=PRESENTATION_STYLE_ASSIGNMENT((#544));
+#546=STYLED_ITEM('',(#545),#219);
+#531=PRESENTATION_STYLE_BY_CONTEXT((#525),#104);
+#532=OVER_RIDING_STYLED_ITEM('',(#531),#213,#507);
+#530=PRESENTATION_LAYER_ASSIGNMENT('L1','',(#211,#213));
+#600=PRODUCT('SUB','Sub','',(#2));
+#601=PRODUCT_DEFINITION_FORMATION('','',#600);
+#602=PRODUCT_DEFINITION('','',#601,#3);
+#603=PRODUCT_DEFINITION_SHAPE('','',#602);
+#604=SHAPE_REPRESENTATION('sub',(#26),#16);
+#605=SHAPE_DEFINITION_REPRESENTATION(#603,#604);
+#620=NEXT_ASSEMBLY_USAGE_OCCURRENCE('4','sub','',#102,#602,$);
+#621=PRODUCT_DEFINITION_SHAPE('','',#620);
+#622=(REPRESENTATION_RELATIONSHIP('','',#604,#104)REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION(#623)SHAPE_REPRESENTATION_RELATIONSHIP());
+#623=ITEM_DEFINED_TRANSFORMATION('','',#26,#23);
+#624=CONTEXT_DEPENDENT_SHAPE_REPRESENTATION(#622,#621);
+#630=NEXT_ASSEMBLY_USAGE_OCCURRENCE('5','box in sub','',#602,#202,$);
+#631=PRODUCT_DEFINITION_SHAPE('','',#630);
+#632=(REPRESENTATION_RELATIONSHIP('','',#205,#604)REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION(#633)SHAPE_REPRESENTATION_RELATIONSHIP());
+#633=ITEM_DEFINED_TRANSFORMATION('','',#26,#26);
+#634=CONTEXT_DEPENDENT_SHAPE_REPRESENTATION(#632,#631);
+#640=CONTEXT_DEPENDENT_OVER_RIDING_STYLED_ITEM('',(#516),#205,#507,(#622,#632));`;
+
+test('components, parts, units and placements', async () => {
+  const { scene, partOf } = await importStep(file(DATA));
+  assert.deepEqual(validate(scene), []);
+  assert.equal(scene.unit, 'millimetre');
+  assert.deepEqual(scene.components.map((c) => [c.name, c.properties, c.sources.map((x) => x.id), c.parts.length, c.children.length, c.external]), [
+    ['Assembly', { partNumber: 'ASM', version: '1', lifeCycleStage: 'design' }, [102, 100], 0, 4, undefined],
+    ['Box', { partNumber: 'BOX', description: 'a box', lifeCycleStage: 'design' }, [202, 200], 2, 0, undefined],
+    ['External', { partNumber: 'EXT', lifeCycleStage: 'design' }, [402, 400], 0, 0, { uri: 'ext.stp', format: 'step' }],
+    ['Sub', { partNumber: 'SUB', lifeCycleStage: 'design' }, [602, 600], 0, 1, undefined],
+  ]);
+  // Two parts: the box's representation, and the one its mapped item places (a part of its own, referenced by the box).
+  assert.deepEqual([...partOf], [[205, 0], [242, 1]]);
+  const box = scene.parts[0]!;
+  // The origin: the centre of the points in the box's closure, (0,0,0) and (2,4,6); not the mapped item's, nor the
+  // unreferenced vertex #233.
+  assert.deepEqual([box.kind, box.name, box.unit, box.origin, box.sources], ['brep', 'box', 25.4, [1, 2, 3], [{ format: 'step', id: 205 }]]);
+  assert.deepEqual(scene.parts[1]!.origin, [1000, 0, 0]);
+  // The payload: a subset rooted at the box's representation, without the mapped item.
+  const sub = parseStep(box.kind === 'brep' ? box.payload() : new Uint8Array());
+  assert.deepEqual([...sub.index.ids].includes(240), false);
+  assert.ok(sub.index.position(205) >= 0);
+  // Placements, in millimetres: box 1 at the origin, box 2 at 0.1 m; an inch is 25.4 mm.
+  const placed = [...partInstances(scene)].map((p) => [p.path.join('/'), p.part, at(p.transform), Math.round(p.transform[0]! * 1e9) / 1e9]);
+  assert.deepEqual(placed, [
+    ['0/0', 0, [0, 0, 0], 25.4], ['0/0', 1, [0, 0, 0], 25.4], ['0/1', 0, [100, 0, 0], 25.4], ['0/1', 1, [100, 0, 0], 25.4],
+    ['0/3/0', 0, [0, 0, 0], 25.4], ['0/3/0', 1, [0, 0, 0], 25.4],
+  ]);
+});
+
+test('materials: part, face, instance override; layers', async () => {
+  const { scene } = await importStep(file(DATA));
+  const color = (m: number | undefined) => (m === undefined ? undefined : scene.materials[m]!.color);
+  const box = scene.parts[0]!;
+  // The red solid's faces red (face 213's green override applies only in a presentation context, so not by default),
+  // except face 214, which has two overrides, blue then green: the later wins. The second solid (#219) has only a
+  // boundary colour, yellow, which its face #217 shows. The third (#226) is unstyled, so the part has no material of
+  // its own and its face #224 stays unstyled.
+  assert.equal(box.material, undefined);
+  assert.deepEqual(box.faceMaterials?.map((f) => [f.face, color(f.material)]), [[213, [1, 0, 0]], [214, [0, 1, 0]], [217, [1, 1, 0]]]);
+  // The second box instance is green as a whole, by the context-dependent style on relationship #262; the box in the
+  // subassembly blue, by one whose context goes two levels down (the occurrence's index among its parent's children,
+  // 0, isn't its index in the file's occurrences, 4).
+  assert.deepEqual(scene.overrides.map((o) => [o.path, color(o.material), o.sources]), [
+    [[0, 1], [0, 1, 0], [{ format: 'step', id: 527 }]], [[0, 3, 0], [0, 0, 1], [{ format: 'step', id: 640 }]],
+  ]);
+  const looks = [...partInstances(scene)].filter((p) => p.part === 0).map((p) => [p.path.join('/'), color(p.material), [...p.faceMaterials]]);
+  const faces = box.faceMaterials!.map((f) => [f.face, f.material]);
+  assert.deepEqual(looks, [['0/0', undefined, faces], ['0/1', [0, 1, 0], []], ['0/3/0', [0, 0, 1], []]]);
+  assert.deepEqual(scene.layers.map((l) => [l.name, l.visible, l.parts, l.faces]), [['L1', true, [0], [{ part: 0, face: 213 }]]]);
+  assert.deepEqual(scene.properties, { format: 'step', name: 'asm.stp', originatingSystem: 'sys', preprocessorVersion: 'pp', schemas: AP214 });
+});

@@ -14,6 +14,8 @@ export interface Style {
   surfaceSide?: 'positive' | 'negative';
   /** Surface transparency, 0 (opaque) to 1. */
   transparency?: number;
+  /** The colour of a surface's boundary curves (SURFACE_STYLE_BOUNDARY): a curve colour, not the surface's. */
+  boundary?: Rgb;
   curve?: Rgb;
   point?: Rgb;
   /** A null style: shown, with the receiving system's default appearance. */
@@ -35,6 +37,11 @@ export interface StyledItem {
    * the root (identifying one assembly instance), or other context items, by instance id.
    */
   context?: number[];
+  /**
+   * Set when the styles apply only in a presentation context (PRESENTATION_STYLE_BY_CONTEXT: a particular view, say):
+   * the context items' ids. Such styles don't apply to the default appearance.
+   */
+  presentationContext?: number[];
 }
 
 export interface Layer {
@@ -80,6 +87,8 @@ export function extractStyles(r: Reader): Styles {
       if (o >= 0) s.overrides = r.id(o);
     }
     if (r.is(p, 'CONTEXT_DEPENDENT_OVER_RIDING_STYLED_ITEM')) s.context = r.refs(p, 'style_context').map((q) => r.id(q));
+    const byContext = r.refs(p, 'styles').filter((q) => r.is(q, 'PRESENTATION_STYLE_BY_CONTEXT'));
+    if (byContext.length) s.presentationContext = byContext.flatMap((q) => r.refs(q, 'style_context')).map((q) => r.id(q));
     styled.push(s);
     let list = byItem.get(s.item);
     if (!list) byItem.set(s.item, (list = []));
@@ -129,6 +138,9 @@ function surfaceSideStyle(r: Reader, p: number, style: Style): void {
       for (const fs of r.refs(r.ref(s, 'fill_area'), 'fill_styles')) {
         if (r.is(fs, 'FILL_AREA_STYLE_COLOUR')) fill ??= colour(r, r.ref(fs, 'fill_colour'));
       }
+    } else if (r.is(s, 'SURFACE_STYLE_BOUNDARY')) {
+      const c = colour(r, r.ref(r.ref(s, 'style_of_boundary'), 'curve_colour'));
+      if (c) style.boundary = c;
     } else if (r.is(s, 'SURFACE_STYLE_RENDERING')) {
       rendering ??= colour(r, r.ref(s, 'surface_colour'));
       if (r.is(s, 'SURFACE_STYLE_RENDERING_WITH_PROPERTIES')) {
@@ -188,8 +200,10 @@ export function effectiveStyle(r: Reader, styles: Styles, item: number): Style |
       if (seen.has(p)) continue;
       seen.add(p);
       const own = styles.byItem.get(r.id(p)) ?? [];
-      // Overriding styles first, then plain ones.
-      for (const s of [...own.filter((x) => x.overrides !== undefined && !x.context), ...own.filter((x) => x.overrides === undefined)]) {
+      // Overriding styles first, then plain ones, later ones before earlier (two overrides of one style: the later
+      // wins, as in OCCT).
+      const general = own.filter((x) => !x.presentationContext);
+      for (const s of [...general.filter((x) => x.overrides !== undefined && !x.context).reverse(), ...general.filter((x) => x.overrides === undefined).reverse()]) {
         found = true;
         for (const k of Object.keys(s.style) as (keyof Style)[]) if (out[k] === undefined) (out as Record<string, unknown>)[k] = s.style[k];
       }

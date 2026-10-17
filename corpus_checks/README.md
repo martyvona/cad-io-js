@@ -2,7 +2,7 @@
 
 Scripts that run this repository's code against the real-world test corpus: 517 Part 21 files, 421 MB, 4.9 M
 instances (see `../test_corpus/README.md`). They complement the package tests (`npm test`), which use small inline
-fixtures and don't need the corpus. Each phase 1 step added the check that verified it; the results and what they
+fixtures and don't need the corpus. Each phase 1 and phase 2 step added the check that verified it; the results and what they
 found are recorded in `../docs/phase1_progress.md`.
 
 ## Setup
@@ -16,6 +16,9 @@ read the whole corpus take an optional list file in place of `../test_corpus/fil
 
 | Script | Step | What it does | Time |
 |---|---|---|---|
+| `subset_corpus.ts` | phase 2, 2 | Builds a subset for every shape representation the product structure reaches, as the importer does, and checks it parses cleanly, matches the source instance for instance, and lacks only references dangling in the source. | ~10 s |
+| `import_corpus.ts` | phase 2, 3 | Imports every file into the scene model: `validate`, agreement with the semantic layer, every part payload parsed; tallies parts, materials, layers. Second argument `none` skips the payload checks. | ~10 s |
+| `scene_occt.ts` | phase 2, 5 | The whole path (import, our OCCT backend, placement) against `occt-import-js`'s import: sampled vertices on OCCT's surface, and colours of sampled triangles. Needs `packages/tess-occt` built. Second argument: maximum MB (the log used 5). Progress per file on standard error. | ~4 min |
 | `semantic_corpus.ts` | 6 | Runs every Layer 3 extractor on every file and tallies products, occurrences (and whether each got a placement), styles, layers, validation properties and diagnostics. | ~5 s |
 | `products_occt.ts` | 6 | Checks product structure and placements against OCCT through `occt-import-js` (prebuilt in `../test_corpus/third_party/occt-import-js/dist`): every B-rep vertex of every product instance, moved to world millimetres with our transforms, must be among OCCT's mesh vertices. Takes a maximum file size in MB as a second argument (the log used 30). | many minutes: OCCT tessellates every file |
 | `validation_occt.ts` | 6 | Compares the volume, area and centroid validation properties we extract (in SI units) with those computed from OCCT's meshes, for files with one root. Second argument: maximum MB (the log used 5). | minutes |

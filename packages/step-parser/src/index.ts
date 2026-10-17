@@ -14,3 +14,4 @@ export {
 } from './json.ts';
 export { openModel, StepModel, BoundInstance, type BoundAttribute, type BindOptions, type OpenOptions } from './bind.ts';
 export * from './extract/index.ts';
+export { closure, buildSubset, type Subset, type SubsetOptions } from './subset.ts';

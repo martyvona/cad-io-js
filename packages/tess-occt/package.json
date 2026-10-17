@@ -1,0 +1,19 @@
+{
+  "name": "tess-occt",
+  "version": "0.0.0",
+  "description": "OCCT tessellation backend for cad-io-js (STEP subsets to meshes with face and edge ids), as WebAssembly",
+  "license": "LGPL-2.1-only WITH OCCT-exception-1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "./build.sh"
+  },
+  "dependencies": {
+    "cad-scene": "0.0.0"
+  },
+  "devDependencies": {
+    "step-import": "0.0.0"
+  }
+}
