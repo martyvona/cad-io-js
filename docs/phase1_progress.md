@@ -11,8 +11,8 @@ Phase 1 of `architecture.md` ("Phasing"). The design is in `architecture.md`, "S
 | 1 | Schema generator: EXPRESS → JSON dictionaries (`../packages/step-schemas`) | **Done** 2026-10-17 |
 | 2 | Layer 1 lexer and parser: byte-range index pass, lazy entity decode, string decoding, `.stpZ` (`../packages/step-parser`) | **Done** 2026-10-17 |
 | 3 | Part 21 writer | **Done** 2026-10-17 |
-| 4 | Raw JSON encoding (compact value encoding, still open) and round-trip tests A ≡ B ≡ C | Next |
-| 5 | Layer 2 schema binding: names, reverse-reference index, `FILE_SCHEMA` mapping, tolerance policy | |
+| 4 | Raw JSON encoding (lexical numbers, `../packages/lexical-json`), list kinds in the raw model, and round-trip tests A ≡ B ≡ C | **Done** 2026-10-17 |
+| 5 | Layer 2 schema binding: names, reverse-reference index, `FILE_SCHEMA` mapping, tolerance policy | Next |
 | 6 | Layer 3 semantic extractors: product tree, units, names, styles, validation properties | |
 | 7 | `step2json` CLI: raw and semantic modes, streaming, NDJSON | |
 
@@ -204,7 +204,7 @@ Mutation check: six deliberate bugs in `write.ts` (no `.` on integral reals, `-0
 
 Every corpus file: parse (A) → write → parse (C), compared instance by instance with `isDeepStrictEqual` (which distinguishes `-0`, int vs. real, and so on), plus the header and DATA section names; then C written again must be byte-identical; then the verbatim fast path (all source bytes copied) parsed and compared with A.
 
-- **517 files, 4,925,007 instances: 0 differ**, headers and sections all equal, every second write byte-identical, the fast path equal everywhere, all output pure ASCII.
+- **517 files, 4,925,008 instances: 0 differ**, headers and sections all equal, every second write byte-identical, the fast path equal everywhere, all output pure ASCII.
 - 3 malformed instances skipped, the known ones from step 2. `bug31292.stp`'s out-of-range reference is read as `$` (see the step 2 tolerances) and written back as `$`.
 - `bug25013_25013faces.stp` has two duplicated instances (identical copies, `#794080`/`#794081`) in its source; the writer reproduces both, so the rewritten file has the same duplicate-id diagnostics.
 - Output is 381 MB for 421 MB of input: mostly the dropped spacing, offset by longer reals in some files.
@@ -217,3 +217,124 @@ About 65–70 MB/s of output (Node 24, M-series Mac), for example 45 MB written 
 
 - **Line wrapping** for readability isn't implemented; neither OCCT nor truck needs it.
 - **Edition 3 anchors and references** can't be written, since the model doesn't hold them (see step 2).
+
+## Step 4: raw JSON and the A ≡ B ≡ C round trip
+
+### Design discussion and decisions
+
+The architecture had left the "compact value encoding" open. The measurements below were made first, then the user set the priorities and chose the design (2026-10-17):
+
+- **Clarity and extensibility over size.** Raw JSON is for testing, debugging and validation, and is expected to be rare in production. Production outputs are glTF, GLB and 3MF, and possibly tessellated JT and STEP. The format should also extend to other source formats (IGES, JT).
+- **Lexical numbers** (the user's choice): an int is written `5`, a real always with a point or an exponent (`5.0`, `1e-7`), with our own reader and writer, since `JSON.parse` merges the two.
+- **In memory, typed arrays for long numeric lists**, plain arrays for short ones (no experiment needed: V8 already stores short double arrays unboxed, and small typed arrays cost more to create). Serialized, they're plain JSON arrays of lexical numbers.
+- **Float32 belongs in the scene model, not the raw model.** Tessellated vertex positions, normals and colours always use `Float32Array` in the scene model and the backends, which feed glTF/GLB/3MF directly; the raw model keeps doubles, since it must be lossless (AP242 `COORDINATES_LIST` and friends are REALs), Layer 1 can't tell which lists are vertex attributes, and narrowing should follow recentering on a part-local origin. If doubles in the raw model use too much memory, revisit later; not optimized now.
+
+**Value kinds in the corpus** (517 files, 4.93 M instances): 12.5 M reals, 5.7 M references, 5.5 M lists, 4.9 M strings (3.4 M of them empty), 3.1 M ints (95% inside lists: knot multiplicities, tessellation indices), 1.3 M enumerations, 0.8 M `*`, 52 k typed parameters, 43 k `$`. No int needs more than 53 bits.
+
+**Size of the candidate encodings** over the corpus, for the record (instances only, one per line):
+
+| Encoding | Raw | gzip |
+|---|---|---|
+| Part 21 source | 421 MB | 99.9 MB |
+| Part 21 rewritten by our writer | 381 MB | 95.1 MB |
+| Tagged `{"k":…,"v":…}` values, object framing | 1,052 MB | 112.9 MB |
+| Sigil strings (`"#12"`, `".T."`), int `{"i":n}`, object framing | 532 MB | 100.0 MB |
+| Sigil strings, int `{"i":n}`, array framing | 419 MB | 96.7 MB |
+| Sigil strings, int `"=n"`, array framing | 409 MB | 96.4 MB |
+| **Chosen: lexical numbers, one-key tags, object framing** (whole document) | 554 MB | not measured |
+
+**Could the int/real distinction come from the schema instead?** The user asked whether plain JSON numbers could be typed by context (knot multiplicities and indices are always ints). `../corpus_checks/number_kinds.ts` (log `../corpus_checks/number_kinds.log`) bound every number in the corpus to its schema slot:
+
+| Number in the file | Count |
+|---|---|
+| real where the schema says REAL | 12,283,985 |
+| int where the schema says INTEGER | 3,113,547 |
+| no usable context (unknown entity, attribute count mismatch, no dictionary) | 198,022 (187 k reals, 11 k ints) |
+| real in an untyped SELECT slot (e.g. `CURVE_STYLE.curve_width` without its `POSITIVE_LENGTH_MEASURE(...)` wrapper) | 10,668 |
+| real where the schema says INTEGER (`INTEGER_REPRESENTATION_ITEM.the_value`) | 1,435 |
+| int or real where the schema says NUMBER | 444 |
+| int where the schema says REAL | 1 |
+
+Context decides 98.6% of numbers, but not the rest, so context typing would still need a rule plus tagged exceptions, and loading raw JSON would then need the same dictionary and binding logic as the writer (a regenerated dictionary could silently change how an old file loads). Lexical numbers keep raw JSON schema-free. Context-typed plain numbers remain the natural choice for semantic mode, where the schema has already been applied, and for spec-driven formats like JT. The violations in the table also feed step 5's tolerance policy: reals in INTEGER slots and untyped values in SELECT slots must bind with a diagnostic.
+
+### The list kinds in the raw model
+
+`../packages/step-parser/src/model.ts` gains three list kinds besides `list`:
+
+```ts
+| { k: 'reals'; v: number[] | Float64Array }              // a non-empty list of reals only
+| { k: 'ints';  v: number[] | Int32Array | Float64Array } // a non-empty list of ints only, no bigints
+| { k: 'refs';  v: number[] | Uint32Array }               // a non-empty list of references only
+```
+
+- **Canonical:** `makeList(values)` picks the kind, and the parser and the JSON loader produce only canonical lists, so two models of the same data are deeply equal. `list` holds everything else: mixed lists, lists with `$`, nested lists, empty lists, lists with a bigint. `listItems(v)` turns any list back into values.
+- **Storage:** lists of `TYPED_ARRAY_MIN` (16) or more elements use typed arrays; shorter ones plain arrays. Ints use `Int32Array` when they all fit, else `Float64Array` (exact to 2^53); references use `Uint32Array`, or `Float64Array` above 2^32 − 1 (possible from JSON or the API, not from the parser). Storage isn't part of a value's meaning; `isDeepStrictEqual` distinguishes it, but it is a function of the contents, so equal data always gets equal storage.
+- **Effect** (Node 24, AC power): decoding speed is unchanged within noise, measured back to back against the old code. Memory with every instance of a file decoded and held drops by a third: `bug29979_firetherm_12.step` 392 → 261 MiB, the bicycle 177 → 121 MiB, `bug31711.stp` 284 → 175 MiB.
+
+### What was built
+
+- **`../packages/lexical-json`**, a new format-agnostic package (about 340 lines): `parseJson(bytes | string)` is an RFC 8259 parser over UTF-8 bytes that returns integers as `bigint` and reals as `number`. A real beyond the double range, duplicate keys and invalid UTF-8 are errors; a `"__proto__"` key is an ordinary property, as with `JSON.parse`; a leading BOM is skipped. `formatReal` writes the shortest round-trip text plus `.0` when it is integral (`-0` → `-0.0`); `formatInt`, `formatString` (`JSON.stringify`, so lone surrogates come out as `\u` escapes), and a generic `stringify` (bigints as ints, numbers as reals, float typed arrays as reals, integer typed arrays as ints, optional indentation). Our output is also standard JSON: `JSON.parse` reads it, merging ints and reals; so does any tool that re-serializes it with `JSON.stringify`, which turns `4.0` into `4`.
+- **`../packages/step-parser/src/json.ts`**: `jsonChunks(doc)` / `writeJson(doc)` write a `StepDocument` as raw JSON in byte chunks (the writer's chunking moved to a shared `src/chunks.ts`, which now also handles multi-byte UTF-8 at chunk boundaries); verbatim byte instances are decoded first. `readJson(bytes)` returns a `RawJsonDocument`, which is itself a `StepDocument`, so it can be written as Part 21 directly. `valueJson`/`valueFromJson` and `instanceJson`/`instanceFromJson` work on single items. Errors: `WriteError` for values JSON can't hold (NaN, a non-integer int, a negative reference), `JsonParseError` for invalid JSON, `RawJsonError` with a path (`data[0].instances[12] (#34).attrs[2]`) for valid JSON that isn't a raw document.
+
+**The format** (version 1):
+
+```
+{"format":"cad-io-js raw","version":1,"source":"step",
+"header":[
+{"type":"FILE_DESCRIPTION","attrs":[["a test"],"2;1"]},
+…
+],
+"data":[
+{"name":"…","schemas":["…"],"instances":[
+{"id":1,"type":"CARTESIAN_POINT","attrs":["origin",[0.0,-1.5,1e-7]]},
+{"id":3,"type":"AXIS2_PLACEMENT_3D","attrs":["",{"ref":1},{"ref":2},null]},
+{"id":10,"parts":[{"type":"LENGTH_UNIT","attrs":[]},{"type":"NAMED_UNIT","attrs":[{"derived":true}]},{"type":"SI_UNIT","attrs":[{"enum":"MILLI"},{"enum":"METRE"}]}]},
+…
+]}
+]}
+```
+
+| Value | JSON |
+|---|---|
+| real | `5.0`, `1e-7`, `-0.0` |
+| int | `5` |
+| string | `"x"` (decoded Unicode, UTF-8) |
+| `$` | `null` |
+| list, `reals`, `ints` | `[…]` |
+| `refs` | `{"refs":[1,2]}` |
+| reference | `{"ref":12}` |
+| enumeration | `{"enum":"T"}` |
+| `*` | `{"derived":true}` |
+| binary | `{"bin":"0FF"}` |
+| typed parameter | `{"type":"LENGTH_MEASURE","value":5.0}` |
+
+- One instance per line; DATA section `name` and `schemas` only when the file has them (edition 3).
+- `format`, `version` and `source` are checked on load, so other source formats can get raw JSON of their own.
+- Unknown keys in the document, sections, instances and records are ignored, leaving room for annotations (attribute names, in step 5). Value objects must match one shape exactly. Booleans are rejected, since logicals are enumerations.
+
+### Tests
+
+13 new tests (49 in the repo): 7 in `lexical-json` (number kinds, 20,000 random doubles through `formatReal`, read by both parsers; escapes, raw UTF-8, BOMs and 5,000 random awkward strings; random documents against `JSON.parse`; 22 error cases; `stringify`), 5 in `step-parser/test/json.test.ts` (A ≡ B ≡ C on a file with every kind and tolerance, plus 16-element lists in each storage; the exact document layout; every value kind both ways; the error cases; chunking at every size from 1 to 256 bytes, verbatim instances, edition 3 sections, empty documents), and one parser test for canonical lists and their storage. The writer's chunk test now also runs every size from 1 to 256.
+
+Mutation check: 16 deliberate bugs, in `formatReal`, escapes, duplicate keys, the BOM, int/real parsing, the loader's kinds and canonical lists, the `refs` key, section schemas, chunk handling (three), the typed-array threshold, wrapped references and the Part 21 `refs` format. 15 fail at least one test; the 16th only changes where chunks break, not the bytes written. One of the 15, text duplicated after a chunk flush, at first survived because chunk sizes 7 and 64 never reached that path; the 1–256 sweeps were added for it.
+
+### Corpus round trip (`../corpus_checks/json_corpus.ts`, log in `../corpus_checks/json_corpus.log`)
+
+Every corpus file: parse (A) → raw JSON → `JSON.parse` must accept it → load (B) → Part 21 → parse (C), comparing A with B and with C instance by instance (`isDeepStrictEqual`, which also checks typed-array storage), plus the header and DATA sections; writing B again must give the same bytes.
+
+- **517 files, 4,925,008 instances: A ≢ B for 0, A ≢ C for 0.** Every JSON output is standard JSON, and every second write is byte-identical.
+- The 3 malformed instances are skipped, as in steps 2 and 3, and `bug25013_25013faces.stp`'s two duplicated instances come back as duplicates in C, as in step 3.
+- 554 MB of JSON for 421 MB of Part 21.
+- The check detects what it should: with enumerations deliberately written as plain strings, 3 files gave 1,006 instances differing in both B and C.
+- The other corpus checks reproduce their logs exactly after the model change (`writer_corpus.ts`, `parser_corpus.ts`).
+
+### Speed
+
+On AC power (Node 24, M-series Mac), decoding and writing JSON run at about 80 MB/s of JSON, and reading it back (`parseJson` plus model building) at about 80 MB/s. That is ample for a test and debug format. The timing line in the committed log was taken in low power mode, at about half that speed.
+
+### Open from step 4
+
+- **Streaming load:** `readJson` builds the whole JSON tree, then the model. Fine for testing; a streaming reader (or NDJSON, step 7) is needed for very large files.
+- **Attribute-name annotations** in raw JSON wait for step 5 (Layer 2).
+- **The lexer-level token comparison** described in `architecture.md`, "Round-trip testing", isn't implemented. The model-level checks have found nothing it would add so far.
+- **Float32 vertex attributes and recentering** are scene-model work (stage 2).

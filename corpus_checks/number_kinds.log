@@ -1,0 +1,9 @@
+ 12283985 real where context says REAL             gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #9 LOCAL_TIME.second_component
+  3113547 int where context says INTEGER           gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #2 APPLICATION_PROTOCOL_DEFINITION.application_protocol_year
+   187232 real where context says no-context       gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1252 CURVE_STYLE[2]
+    10790 int where context says no-context        gkv311-opencascade-dataset/step/trj3_as1-tc-203.stp #86 B_SPLINE_CURVE[0]
+    10668 real where context says select           gkv311-opencascade-dataset/step/trj3_s1-tc-214.stp #5537 CURVE_STYLE.curve_width
+     1435 real where context says INTEGER          gkv311-opencascade-dataset/step/bug32049_sp7_04dx_242.stp #13471 INTEGER_REPRESENTATION_ITEM.the_value
+      427 real where context says NUMBER           gkv311-opencascade-dataset/step/bug32049_test.stp #403 MEASURE_REPRESENTATION_ITEM.value_component
+       17 int where context says NUMBER            gkv311-opencascade-dataset/step/bug28345_30338.stp #273 VALUE_REPRESENTATION_ITEM.value_component
+        1 int where context says REAL              gkv311-opencascade-dataset/step/trj3_t2-db-214.stp #1352 MEASURE_WITH_UNIT.value_component

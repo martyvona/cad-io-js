@@ -1,6 +1,6 @@
 // Pass 2: decode one instance (or header entity) from its byte range into the raw instance model.
 
-import { ParseError, type Diagnostic, type EntityRecord, type Instance, type Value } from './model.ts';
+import { makeList, ParseError, type Diagnostic, type EntityRecord, type Instance, type Value } from './model.ts';
 import { decodeString } from './strings.ts';
 
 const HASH = 0x23, DOLLAR = 0x24, STAR = 0x2a, QUOTE = 0x27, DQUOTE = 0x22, DOT = 0x2e, LPAREN = 0x28;
@@ -221,7 +221,7 @@ class Decoder {
         return { k: 'enum', v: v.toUpperCase() };
       }
       case LPAREN:
-        return { k: 'list', v: this.list() };
+        return makeList(this.list());
     }
     if ((c >= 0x30 && c <= 0x39) || c === PLUS || c === MINUS) return this.number();
     if (c >= 0 && (KW[c] || c === BANG)) {

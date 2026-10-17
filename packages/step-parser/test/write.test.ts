@@ -112,6 +112,9 @@ test('chunked output, verbatim instances, malformed instances', () => {
   // Text longer than a chunk (the header, long instances) gets a chunk of its own.
   assert.ok(chunks.length > 10 && chunks.every((c) => c.length <= 16 || /^(#|ISO|END)/.test(dec.decode(c))));
   assert.equal(chunks.map((c) => dec.decode(c)).join(''), dec.decode(whole));
+  for (let chunkSize = 1; chunkSize <= 256; chunkSize++) {
+    assert.equal([...writeChunks(fileDocument(a), { chunkSize })].map((c) => dec.decode(c)).join(''), dec.decode(whole));
+  }
 
   // The subset fast path: copy source bytes, comments and spacing included.
   const doc = { header: a.header, data: [{ instances: [a.sourceBytesAt(1), a.sourceBytesAt(0)] }] };

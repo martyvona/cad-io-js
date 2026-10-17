@@ -1,0 +1,10 @@
+{
+  "name": "lexical-json",
+  "version": "0.0.0",
+  "description": "JSON that keeps integers and reals apart by their lexical form: 5 is an integer, 5.0 a real",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

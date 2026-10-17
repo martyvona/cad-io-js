@@ -7,6 +7,7 @@
 
 import { ParseError, type EntityRecord, type Instance, type Value } from './model.ts';
 import type { StepFile } from './file.ts';
+import { Chunker, concatChunks } from './chunks.ts';
 
 export interface StepDocument {
   /** Header entities, written in order: FILE_DESCRIPTION, FILE_NAME, FILE_SCHEMA and any others. */
@@ -41,57 +42,32 @@ export class WriteError extends Error {
   }
 }
 
-const NL = 0x0a;
-const encoder = new TextEncoder();
-
 /** Write a document as a sequence of byte chunks. Instances are pulled from their iterables as output is pulled. */
 export function* writeChunks(doc: StepDocument, opts: WriteOptions = {}): Generator<Uint8Array> {
-  const size = opts.chunkSize ?? 65536;
-  let buf = new Uint8Array(size);
-  let pos = 0;
-
-  // Append to the current chunk, yielding it first when it is full.
-  function* text(s: string): Generator<Uint8Array> {
-    if (s.length > size - pos) {
-      if (pos > 0) { yield buf.subarray(0, pos); buf = new Uint8Array(size); pos = 0; }
-      if (s.length > size) { yield encoder.encode(s); return; }
-    }
-    pos += encoder.encodeInto(s, buf.subarray(pos)).written;
-  }
-  function* bytes(b: Uint8Array): Generator<Uint8Array> {
-    if (b.length + 1 > size - pos) {
-      if (pos > 0) { yield buf.subarray(0, pos); buf = new Uint8Array(size); pos = 0; }
-      if (b.length + 1 > size) { yield b; yield Uint8Array.of(NL); return; }
-    }
-    buf.set(b, pos);
-    pos += b.length;
-    buf[pos++] = NL;
-  }
-
+  const out = new Chunker(opts.chunkSize);
   let head = 'ISO-10303-21;\nHEADER;\n';
   for (const r of doc.header) head += formatRecord(r) + ';\n';
-  yield* text(head + 'ENDSEC;\n');
+  yield* out.text(head + 'ENDSEC;\n');
   const sections = doc.data.length ? doc.data : [{ instances: [] }];
   for (const s of sections) {
-    yield* text(s.name === undefined ? 'DATA;\n' : `DATA(${formatString(s.name)},(${(s.schemas ?? []).map(formatString).join(',')}));\n`);
+    yield* out.text(s.name === undefined ? 'DATA;\n' : `DATA(${formatString(s.name)},(${(s.schemas ?? []).map(formatString).join(',')}));\n`);
     for (const item of s.instances) {
-      if (item instanceof Uint8Array) yield* bytes(item);
-      else yield* text(formatInstance(item) + '\n');
+      if (item instanceof Uint8Array) {
+        yield* out.bytes(item);
+        yield* out.text('\n');
+      } else {
+        yield* out.text(formatInstance(item) + '\n');
+      }
     }
-    yield* text('ENDSEC;\n');
+    yield* out.text('ENDSEC;\n');
   }
-  yield* text('END-ISO-10303-21;\n');
-  if (pos > 0) yield buf.subarray(0, pos);
+  yield* out.text('END-ISO-10303-21;\n');
+  yield* out.flush();
 }
 
 /** Write a document as one byte array. */
 export function writeStep(doc: StepDocument, opts?: WriteOptions): Uint8Array {
-  const chunks = [...writeChunks(doc, opts)];
-  if (chunks.length === 1) return chunks[0]!;
-  const out = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
-  let o = 0;
-  for (const c of chunks) { out.set(c, o); o += c.length; }
-  return out;
+  return concatChunks(writeChunks(doc, opts));
 }
 
 /**
@@ -178,27 +154,48 @@ function formatValues(vs: readonly Value[]): string {
 
 export function formatValue(v: Value): string {
   switch (v.k) {
-    case 'ref':
-      if (!Number.isSafeInteger(v.v) || v.v < 0) throw new WriteError(`invalid reference #${v.v}`);
-      return `#${v.v}`;
+    case 'ref': return formatRef(v.v);
     case 'real': return formatReal(v.v);
     case 'str': return formatString(v.v);
     case 'enum':
       if (!ENUM.test(v.v)) throw new WriteError(`invalid enumeration .${v.v}.`);
       return `.${v.v}.`;
     case 'list': return `(${formatValues(v.v)})`;
+    case 'reals': {
+      let s = '(';
+      for (let i = 0; i < v.v.length; i++) s += (i ? ',' : '') + formatReal(v.v[i]!);
+      return s + ')';
+    }
+    case 'ints': {
+      let s = '(';
+      for (let i = 0; i < v.v.length; i++) s += (i ? ',' : '') + formatInt(v.v[i]!);
+      return s + ')';
+    }
+    case 'refs': {
+      let s = '(';
+      for (let i = 0; i < v.v.length; i++) s += (i ? ',' : '') + formatRef(v.v[i]!);
+      return s + ')';
+    }
     case 'unset': return '$';
     case 'derived': return '*';
-    case 'int':
-      if (typeof v.v === 'bigint') return v.v.toString();
-      if (!Number.isInteger(v.v)) throw new WriteError(`integer value ${v.v} is not an integer`);
-      return Number.isSafeInteger(v.v) ? String(v.v) : BigInt(v.v).toString();
+    case 'int': return formatInt(v.v);
     case 'typed': return `${keyword(v.type)}(${formatValue(v.v)})`;
     case 'bin':
       if (!BIN.test(v.v)) throw new WriteError(`invalid binary "${v.v}"`);
       return `"${v.v}"`;
   }
   throw new WriteError(`unknown value kind ${(v as { k: unknown }).k}`);
+}
+
+function formatRef(r: number): string {
+  if (!Number.isSafeInteger(r) || r < 0) throw new WriteError(`invalid reference #${r}`);
+  return `#${r}`;
+}
+
+function formatInt(x: number | bigint): string {
+  if (typeof x === 'bigint') return x.toString();
+  if (!Number.isInteger(x)) throw new WriteError(`integer value ${x} is not an integer`);
+  return Number.isSafeInteger(x) ? String(x) : BigInt(x).toString();
 }
 
 const ENUM = /^[A-Za-z0-9_]+$/;

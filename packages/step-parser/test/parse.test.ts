@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { gzipSync } from 'node:zlib';
 import { test } from 'node:test';
-import { ParseError, parseStep, readStep, type Diagnostic, type Instance } from '../src/index.ts';
+import { formatReal, listItems, makeList, ParseError, parseStep, TYPED_ARRAY_MIN, readStep, type Diagnostic, type Instance, type Value } from '../src/index.ts';
 
 const enc = new TextEncoder();
 const parse = (s: string) => parseStep(enc.encode(s));
@@ -34,7 +34,7 @@ test('header, lookup and value kinds', () => {
 
   assert.deepEqual(f.instance(1), {
     id: 1, type: 'CARTESIAN_POINT',
-    attrs: [{ k: 'str', v: 'origin' }, { k: 'list', v: [{ k: 'real', v: 0 }, { k: 'real', v: -1.5 }, { k: 'real', v: 1e-7 }] }],
+    attrs: [{ k: 'str', v: 'origin' }, { k: 'reals', v: [0, -1.5, 1e-7] }],
   });
   assert.equal((f.instance(2) as { type: string }).type, 'DIRECTION');
   assert.deepEqual(f.instance(3), {
@@ -53,11 +53,45 @@ test('header, lookup and value kinds', () => {
   assert.deepEqual((f.instance(12) as { attrs: unknown[] }).attrs, [
     { k: 'int', v: 12 }, { k: 'int', v: -7 }, { k: 'int', v: 3 }, { k: 'real', v: 1e5 }, { k: 'bin', v: '0FF' },
     { k: 'enum', v: 'T' }, { k: 'list', v: [] },
-    { k: 'list', v: [{ k: 'list', v: [{ k: 'int', v: 1 }, { k: 'int', v: 2 }] }, { k: 'list', v: [{ k: 'ref', v: 3 }] }] },
+    { k: 'list', v: [{ k: 'ints', v: [1, 2] }, { k: 'refs', v: [3] }] },
     { k: 'typed', type: 'A', v: { k: 'typed', type: 'B', v: { k: 'int', v: 1 } } },
     { k: 'str', v: '#5 is not a ref' }, { k: 'derived' }, { k: 'int', v: 9007199254740993n },
   ]);
   assert.equal(f.instance(4), undefined);
+});
+
+test('canonical lists: kinds and storage', () => {
+  const n = TYPED_ARRAY_MIN;
+  const reals = (k: number) => Array.from({ length: k }, (_, i) => (i ? i / 4 : -0));
+  const ints = (k: number, big = 0) => Array.from({ length: k }, (_, i) => (i === k - 1 ? big || i : i));
+  const text = (xs: (number | string)[]) => `(${xs.join(',')})`;
+  const f = parse(`ISO-10303-21;HEADER;ENDSEC;DATA;
+#1=X(${text(reals(n - 1).map(formatReal))},${text(reals(n).map(formatReal))});
+#2=X(${text(ints(n - 1))},${text(ints(n))},${text(ints(n, 2 ** 31))},${text(ints(n, 2 ** 60))});
+#3=X(${text(ints(n - 1).map((i) => '#' + i))},${text(ints(n, 4294967295).map((i) => '#' + i))});
+#4=X((1,2.),(#1,$),(.T.),('a'),(),((1.)));
+ENDSEC;END-ISO-10303-21;`);
+  const attrs = (id: number) => (f.instance(id) as { attrs: Value[] }).attrs;
+  const [r0, r1] = attrs(1) as Extract<Value, { k: 'reals' }>[];
+  assert.ok(Array.isArray(r0!.v) && r1!.v instanceof Float64Array);
+  assert.deepEqual([...r1!.v], reals(n));
+  assert.ok(Object.is(r1!.v[0], -0) && Object.is(r0!.v[0], -0));
+  const [i0, i1, i2, i3] = attrs(2);
+  assert.ok(i0!.k === 'ints' && Array.isArray(i0.v));
+  assert.ok(i1!.k === 'ints' && i1.v instanceof Int32Array);
+  assert.ok(i2!.k === 'ints' && i2.v instanceof Float64Array && i2.v[n - 1] === 2 ** 31);
+  assert.equal(i3!.k, 'list'); // contains a bigint
+  const [f0, f1] = attrs(3);
+  assert.ok(f0!.k === 'refs' && Array.isArray(f0.v));
+  assert.ok(f1!.k === 'refs' && f1.v instanceof Uint32Array && f1.v[n - 1] === 4294967295);
+  assert.deepEqual(attrs(4).map((v) => v.k), ['list', 'list', 'list', 'list', 'list', 'list']);
+  assert.deepEqual(attrs(4)[5], { k: 'list', v: [{ k: 'reals', v: [1] }] });
+  // makeList and listItems are inverses on canonical lists.
+  for (const id of [1, 2, 3, 4]) {
+    for (const v of attrs(id)) {
+      if (v.k === 'list' || v.k === 'reals' || v.k === 'ints' || v.k === 'refs') assert.deepEqual(makeList(listItems(v)), v);
+    }
+  }
 });
 
 test('index: types, references, byte ranges', () => {

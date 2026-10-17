@@ -2,7 +2,7 @@
 
 *Paths in this document are relative to this `docs/` directory.*
 
-Status: draft, 2026-10-16. Phase 0 is done (`../phase0_tessellation_spike/phase0_results.md`). Phase 1 is under way; progress is in `phase1_progress.md`. The schema generator (`../packages/step-schemas`) and Layer 1 (`../packages/step-parser`: parser and writer) are done. See `initial_analysis.md` for background research, reference repositories and licensing analysis.
+Status: draft, 2026-10-16. Phase 0 is done (`../phase0_tessellation_spike/phase0_results.md`). Phase 1 is under way; progress is in `phase1_progress.md`. The schema generator (`../packages/step-schemas`), Layer 1 (`../packages/step-parser`: parser and writer) and the raw JSON form (`../packages/lexical-json`) are done. See `initial_analysis.md` for background research, reference repositories and licensing analysis.
 
 ## Goals
 
@@ -29,6 +29,7 @@ This is a monorepo using npm workspaces (`../packages/*`). TypeScript runs direc
 | Package | Purpose | Runtime dependencies | License |
 |---|---|---|---|
 | `step-parser` | Part 21 parsing, schema binding, semantic extraction, and the Part 21 writer | None | Apache-2.0 |
+| `lexical-json` | JSON that keeps integers and reals apart by lexical form (`5` vs. `5.0`); used by raw JSON, and meant for other formats' raw JSON too | None | Apache-2.0 |
 | `step-schemas` | Schema dictionaries for AP203, AP214 and AP242, generated from EXPRESS | None | Apache-2.0 (to verify: ISO EXPRESS redistribution terms) |
 | `cad-scene` | The intermediate scene model and the tessellator interface definition | None | Apache-2.0 |
 | `tess-occt` | OCCT WASM tessellation backend | OCCT WASM | LGPL-2.1 (isolated here) |
@@ -57,7 +58,7 @@ This is a monorepo using npm workspaces (`../packages/*`). TypeScript runs direc
 - **Other inputs:** gzip-compressed `.stpZ`, via `DecompressionStream`.
 - **Editions:** targets Part 21 edition 2, and tolerates edition 3 features (anchor and reference sections, multiple data sections) without failing.
 - **Writer:** serializes the instance model back to Part 21. It is used both for round-trip testing and for building the per-part subset files sent to tessellators. See "Part 21 writer" below.
-- **Status:** done (`../packages/step-parser`), including the writer. Pass 1 scans at about 230 MB/s into a typed-array index (ids, byte ranges, type names, references); pass 2 decodes at about 140 MB/s. The lexical tolerances it adopted (lone apostrophes, OCCT's escape leniencies, empty parameters and out-of-range references read as `$`) are listed in `phase1_progress.md`, step 2. The writer round-trips the whole corpus (4.9 M instances) with no differences; see step 3.
+- **Status:** done (`../packages/step-parser`), including the writer. Pass 1 scans at about 230 MB/s into a typed-array index (ids, byte ranges, type names, references); pass 2 decodes at about 140 MB/s. The lexical tolerances it adopted (lone apostrophes, OCCT's escape leniencies, empty parameters and out-of-range references read as `$`) are listed in `phase1_progress.md`, step 2. The writer round-trips the whole corpus (4.9 M instances) with no differences; see step 3. So does raw JSON (A ≡ B ≡ C); see step 4.
 
 ### The raw instance model
 
@@ -72,7 +73,10 @@ type Value =
   | { k: 'ref';     v: number }          // #12
   | { k: 'bin';     v: string }          // hex digits, first digit = unused-bit count
   | { k: 'unset' } | { k: 'derived' }    // $  *
-  | { k: 'list';    v: Value[] }
+  | { k: 'list';    v: Value[] }             // anything not covered by the next three, including ()
+  | { k: 'reals';   v: number[] | Float64Array }               // non-empty, reals only
+  | { k: 'ints';    v: number[] | Int32Array | Float64Array }  // non-empty, ints only, no bigint
+  | { k: 'refs';    v: number[] | Uint32Array }                // non-empty, references only
   | { k: 'typed';   type: string; v: Value };   // LENGTH_MEASURE(5.)
 
 type Instance =
@@ -80,6 +84,7 @@ type Instance =
   | { id: number; parts: { type: string; attrs: Value[] }[] };      // complex
 ```
 
+- **Homogeneous lists** (added in phase 1 step 4): a list of only reals, only ints or only references has its own kind, so its elements are bare numbers instead of one object each. The kind is canonical (`makeList`), so equal data gives deeply equal models. Lists of 16 or more elements are stored in typed arrays, shorter ones in plain arrays. This cut the memory of fully decoded files by a third, at the same decoding speed. Reals stay doubles, since the model is lossless; `Float32Array` vertex attributes belong to the scene model (see "The intermediate scene model").
 - **Positional attributes:** attributes are stored in file order, not by name. Names come from schema binding (Layer 2) and are an annotation only. This keeps Layer 1 and the writer schema-independent, and lets unknown entities round-trip.
 - **File order:** the model records the original instance order, and the writer preserves it.
 - **Edition 3 extensions:** Part 21 edition 3 adds constant references and anchors. Their representation is still to be decided.
@@ -176,10 +181,10 @@ A build-time generator, written in TypeScript, converts EXPRESS into JSON dictio
 - **Raw mode:** a lossless dump of the header plus every instance of the raw instance model.
   - **Value types:** must be explicit, because JSON can't distinguish integer `5` from real `5.`, or a string from an enumeration.
   - **Positional attributes:** stored as arrays, in file order. When the schema is known, attribute names are added as an annotation, but loading never depends on them. Loading the JSON back into the model therefore needs no schema, and unknown entities round-trip.
-  - **Compact encoding** (to be designed in stage 1): tagging every value as `{k, v}` would bloat files. The common kinds (reals, refs, lists) should get a compact encoding, with explicit tags only for the rarer kinds.
+  - **Encoding** (done in phase 1 step 4, `../packages/step-parser/src/json.ts`; format and measurements in `phase1_progress.md`, step 4): clarity and extensibility come before size, because raw JSON is for testing, debugging and validation, not production. Numbers are **lexical**: an int is written `5`, a real always `5.0` or `1e-7`, read by our own parser (`../packages/lexical-json`), since `JSON.parse` merges the two. Strings are JSON strings, lists arrays, `$` is `null`, and the other kinds are one-key objects: `{"ref":12}`, `{"refs":[1,2]}`, `{"enum":"T"}`, `{"derived":true}`, `{"bin":"0F"}`, `{"type":"LENGTH_MEASURE","value":5.0}`. The document names its format, version and source format (`{"format":"cad-io-js raw","version":1,"source":"step",…}`), so IGES or JT raw JSON can follow. Instances are objects (`{"id":1,"type":"…","attrs":[…]}`), one per line. Typing numbers by schema context instead was considered and rejected for raw mode: context decides only 98.6% of the corpus's numbers, and the loader would need the schema.
   - **Completeness:** enough to reconstruct the raw instance model exactly (see "Testing").
 - **Semantic mode:** the product tree, units, styles, validation properties and diagnostics.
-- **Streaming output:** required, because a large STEP file can produce JSON that exceeds V8's maximum string length.
+- **Streaming output:** required, because a large STEP file can produce JSON that exceeds V8's maximum string length. The raw JSON writer produces byte chunks; the loader reads the whole document for now.
 - **NDJSON option:** one instance per line.
 
 ## Stage 2: the scene model and the tessellator interface
@@ -191,7 +196,7 @@ All exporters, and later the viewer, consume one scene model instead of reaching
 - **Nodes:** a tree of occurrences (product occurrences for STEP), each with a local transform, a name, a property map and source IDs. Flat files are just a single-level tree.
 - **Parts:** each part is defined once and referenced by every occurrence (instancing). A part's geometry is one of these source types:
   - `brep`: exact geometry, tessellated lazily by a backend. It carries the format (`'step' | 'iges' | 'brep'`), the per-part payload and the root ID. Used for STEP, IGES, BREP, `.xbf` and `.FCStd`.
-  - `mesh`: already tessellated in the source file. It supports multiple levels of detail. Used for future JT import, and potentially STL, OBJ and glTF input.
+  - `mesh`: already tessellated in the source file. Vertex positions, normals and colours are always `Float32Array`, as glTF/GLB/3MF need them, after recentering on a part-local origin carried by the node transform. Backends deliver tessellations of `brep` parts the same way. It supports multiple levels of detail. Used for future JT import, and potentially STL, OBJ and glTF input.
   - `curves`: wireframe or edge-only geometry, common in IGES.
 - **Source IDs:** `{format, id}` pairs, used on nodes, parts and faces. Picking and face highlighting then work the same way whatever the source format.
 - **Materials:** derived from source colors, per part or per face.
@@ -414,7 +419,7 @@ The Part 21 writer (Layer 1) is a production component, not test-only, because t
 - ~~whether OCCT can transfer a bare shape representation subset~~: resolved in phase 0 (`../phase0_tessellation_spike/phase0_results.md`). Yes with `read.step.product.mode` OFF, verified with a custom OCCT 8.1 build; `occt-import-js` needs the synthetic wrapper
 - ~~whether truck can report face IDs~~: resolved in phase 0. Yes, with a ~30-line wrapper
 - whether to use the 3MF Production extension
-- the compact value encoding for raw JSON
+- ~~the compact value encoding for raw JSON~~: resolved in phase 1 step 4, lexical numbers (`phase1_progress.md`)
 - how to represent Part 21 edition 3 constant references and anchors in the raw model
 - future: FreeCAD assembly representations across versions and workbenches
 - future: the JT "combining formats" license clause, as it applies to JT→glTF/3MF conversion; sample JT files (v9.x and v10.x) from current writers; the distribution of JT versions in real-world files

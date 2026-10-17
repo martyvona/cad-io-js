@@ -1,0 +1,4 @@
+517 files, 4925008 instances, 421 MB of Part 21, 554 MB of raw JSON; 3 malformed instances skipped; A ≢ B: 0 instances, A ≢ C: 0 instances
+decode+write JSON 13.5 s (41 MB/s of JSON); read JSON 13.3 s (42 MB/s)
+      1 C: duplicate instance id #794080  e.g. gkv311-opencascade-dataset/step/bug25013_25013faces.stp
+      1 C: duplicate instance id #794081  e.g. gkv311-opencascade-dataset/step/bug25013_25013faces.stp
