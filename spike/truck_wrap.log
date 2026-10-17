@@ -1,0 +1,77 @@
+bug21802_as1-oc-214.stp.absr+wrap.1189.stp	ok	13ms	shells=1	failedShells=0	cfsFaces=7	faces=7	tris=2378	idFaces=7/7	agree=7/7	idNearest=7	emptyFaces=0
+bug21802_as1-oc-214.stp.absr+wrap.1933.stp	ok	23ms	shells=1	failedShells=0	cfsFaces=16	faces=16	tris=4148	idFaces=16/16	agree=16/16	idNearest=16	emptyFaces=0
+bug21802_as1-oc-214.stp.absr+wrap.3812.stp	ok	30ms	shells=1	failedShells=0	cfsFaces=18	faces=18	tris=6204	idFaces=18/18	agree=18/18	idNearest=18	emptyFaces=0
+bug21802_as1-oc-214.stp.absr+wrap.62.stp	ok	9ms	shells=1	failedShells=0	cfsFaces=8	faces=8	tris=444	idFaces=8/8	agree=8/8	idNearest=8	emptyFaces=0
+bug21802_as1-oc-214.stp.absr+wrap.758.stp	ok	23ms	shells=1	failedShells=0	cfsFaces=4	faces=4	tris=15424	idFaces=4/4	agree=4/4	idNearest=4	emptyFaces=0
+bug32049_sp7_10nx_242.stp.absr+wrap.2882.stp	ok	39ms	shells=1	failedShells=0	cfsFaces=256	faces=256	tris=8704	idFaces=256/256	agree=227/256	idNearest=255	emptyFaces=0
+bug33569.stp.absr+wrap.1463.stp	ok	5ms	shells=4	failedShells=0	cfsFaces=30	faces=30	tris=300	idFaces=30/30	agree=30/30	idNearest=30	emptyFaces=0
+bug33569.stp.absr+wrap.1483.stp	ok	1ms	shells=1	failedShells=0	cfsFaces=6	faces=6	tris=12	idFaces=6/6	agree=6/6	idNearest=6	emptyFaces=0
+bug33569.stp.absr+wrap.1500.stp	ok	1ms	shells=1	failedShells=0	cfsFaces=6	faces=6	tris=12	idFaces=6/6	agree=6/6	idNearest=6	emptyFaces=0
+bug33569.stp.absr+wrap.1517.stp	ok	2ms	shells=1	failedShells=0	cfsFaces=8	faces=8	tris=20	idFaces=8/8	agree=8/8	idNearest=8	emptyFaces=0
+bug33569.stp.absr+wrap.1534.stp	ok	2ms	shells=1	failedShells=0	cfsFaces=10	faces=10	tris=256	idFaces=10/10	agree=10/10	idNearest=10	emptyFaces=0
+bug33569.stp.absr+wrap.1551.stp	ok	5ms	shells=4	failedShells=0	cfsFaces=30	faces=30	tris=300	idFaces=30/30	agree=30/30	idNearest=30	emptyFaces=0
+nist_ctc_01_asme1_ap242-e1.stp.absr+wrap.643.stp	ok	21ms	shells=1	failedShells=0	cfsFaces=117	faces=117	tris=3276	idFaces=117/117	agree=117/117	idNearest=117	emptyFaces=0
+nist_ctc_02_asme1_ap242-e2.stp.absr+wrap.1333.stp	ok	2ms	shells=2	failedShells=0	cfsFaces=2	faces=2	tris=176	idFaces=2/2	agree=2/2	idNearest=2	emptyFaces=0
+nist_ctc_02_asme1_ap242-e2.stp.absr+wrap.1341.stp	ok	152ms	shells=1	failedShells=0	cfsFaces=635	faces=635	tris=47480	idFaces=635/635	agree=603/633	idNearest=621	emptyFaces=2
+nist_ctc_02_asme1_ap242-e2.stp.absr+wrap.21821.stp	ok	146ms	shells=1	failedShells=0	cfsFaces=635	faces=635	tris=47480	idFaces=635/635	agree=603/633	idNearest=621	emptyFaces=2
+nist_ctc_02_asme1_ap242-e2.stp.absr+wrap.21822.stp	ok	1ms	shells=1	failedShells=0	cfsFaces=1	faces=1	tris=64	idFaces=1/1	agree=1/1	idNearest=1	emptyFaces=0
+nist_ctc_02_asme1_ap242-e2.stp.absr+wrap.21823.stp	ok	1ms	shells=1	failedShells=0	cfsFaces=1	faces=1	tris=112	idFaces=1/1	agree=1/1	idNearest=1	emptyFaces=0
+nist_ctc_02_asme1_ap242-e2.stp.absr+wrap.21835.stp	ok	1ms	shells=1	failedShells=0	cfsFaces=1	faces=1	tris=64	idFaces=1/1	agree=1/1	idNearest=1	emptyFaces=0
+nist_ctc_02_asme1_ap242-e2.stp.absr+wrap.21836.stp	ok	1ms	shells=1	failedShells=0	cfsFaces=1	faces=1	tris=112	idFaces=1/1	agree=1/1	idNearest=1	emptyFaces=0
+nist_ctc_03_asme1_ap242-e2.stp.absr+wrap.5619.stp	ok	15ms	shells=1	failedShells=0	cfsFaces=120	faces=120	tris=2888	idFaces=120/120	agree=120/120	idNearest=120	emptyFaces=0
+nist_ctc_03_asme1_ap242-e2.stp.absr+wrap.922.stp	ok	16ms	shells=1	failedShells=0	cfsFaces=120	faces=120	tris=2888	idFaces=120/120	agree=120/120	idNearest=120	emptyFaces=0
+nist_ctc_04_asme1_ap242-e1.stp.absr+wrap.18027.stp	ok	90ms	shells=1	failedShells=0	cfsFaces=483	faces=483	tris=16036	idFaces=483/483	agree=483/483	idNearest=483	emptyFaces=0
+nist_ctc_04_asme1_ap242-e1.stp.absr+wrap.18028.stp	ok	1ms	shells=1	failedShells=0	cfsFaces=1	faces=1	tris=40	idFaces=1/1	agree=1/1	idNearest=1	emptyFaces=0
+nist_ctc_05_asme1_ap242-e1.stp.absr+wrap.1177.stp	ok	26ms	shells=1	failedShells=0	cfsFaces=156	faces=156	tris=2158	idFaces=156/156	agree=146/156	idNearest=156	emptyFaces=0
+nist_ftc_06_asme1_ap242-e2.stp.absr+wrap.2155.stp	ok	25ms	shells=1	failedShells=0	cfsFaces=187	faces=187	tris=9771	idFaces=187/187	agree=185/187	idNearest=185	emptyFaces=0
+nist_ftc_06_asme1_ap242-e2.stp.absr+wrap.9322.stp	ok	23ms	shells=1	failedShells=0	cfsFaces=187	faces=187	tris=9771	idFaces=187/187	agree=185/187	idNearest=185	emptyFaces=0
+nist_ftc_06_asme1_ap242-e2.stp.absr+wrap.9323.stp	ok	24ms	shells=1	failedShells=0	cfsFaces=187	faces=187	tris=9771	idFaces=187/187	agree=185/187	idNearest=185	emptyFaces=0
+nist_ftc_07_asme1_ap242-e2.stp.absr+wrap.13541.stp	ok	69ms	shells=1	failedShells=0	cfsFaces=304	faces=304	tris=1580	idFaces=304/304	agree=274/288	idNearest=288	emptyFaces=16
+nist_ftc_07_asme1_ap242-e2.stp.absr+wrap.13542.stp	ok	1ms	shells=2	failedShells=0	cfsFaces=2	faces=2	tris=2	idFaces=2/2	agree=2/2	idNearest=2	emptyFaces=0
+nist_ftc_08_asme1_ap242-e2.stp.absr+wrap.1711.stp	ok	34ms	shells=1	failedShells=0	cfsFaces=247	faces=247	tris=1362	idFaces=247/247	agree=247/247	idNearest=247	emptyFaces=0
+nist_ftc_09_asme1_ap242-e1.stp.absr+wrap.6016.stp	ok	36ms	shells=1	failedShells=0	cfsFaces=158	faces=158	tris=3592	idFaces=158/158	agree=158/158	idNearest=158	emptyFaces=0
+nist_ftc_09_asme1_ap242-e1.stp.absr+wrap.6261.stp	ok	2ms	shells=5	failedShells=0	cfsFaces=5	faces=5	tris=74	idFaces=5/5	agree=5/5	idNearest=5	emptyFaces=0
+nist_ftc_10_asme1_ap242-e2.stp.absr+wrap.17967.stp	ok	77ms	shells=1	failedShells=0	cfsFaces=264	faces=264	tris=6900	idFaces=264/264	agree=239/248	idNearest=248	emptyFaces=16
+nist_ftc_10_asme1_ap242-e2.stp.absr+wrap.17968.stp	ok	21ms	shells=12	failedShells=0	cfsFaces=18	faces=18	tris=496	idFaces=18/18	agree=18/18	idNearest=18	emptyFaces=0
+nist_ftc_11_asme1_ap242-e2.stp.absr+wrap.466.stp	ok	9ms	shells=1	failedShells=0	cfsFaces=42	faces=42	tris=2030	idFaces=42/42	agree=32/42	idNearest=42	emptyFaces=0
+nist_stc_06_asme1_ap242-e3.stp.absr+wrap.5079.stp	ok	23ms	shells=1	failedShells=0	cfsFaces=144	faces=144	tris=9727	idFaces=144/144	agree=142/144	idNearest=144	emptyFaces=0
+nist_stc_07_asme1_ap242-e3.stp.absr+wrap.11020.stp	panic	57ms	panicked at /Users/vona/src/others/truck/truck-geometry/src/specifieds/circle.rs:65:9: tolerance must be no less than 1e-6
+nist_stc_07_asme1_ap242-e3.stp.absr+wrap.13816.stp	panic	56ms	panicked at /Users/vona/src/others/truck/truck-geometry/src/specifieds/circle.rs:65:9: tolerance must be no less than 1e-6
+nist_stc_07_asme1_ap242-e3.stp.absr+wrap.13843.stp	panic	56ms	panicked at /Users/vona/src/others/truck/truck-geometry/src/specifieds/circle.rs:65:9: tolerance must be no less than 1e-6
+nist_stc_07_asme1_ap242-e3.stp.absr+wrap.13870.stp	panic	56ms	panicked at /Users/vona/src/others/truck/truck-geometry/src/specifieds/circle.rs:65:9: tolerance must be no less than 1e-6
+nist_stc_07_asme1_ap242-e3.stp.absr+wrap.13897.stp	panic	52ms	panicked at /Users/vona/src/others/truck/truck-geometry/src/specifieds/circle.rs:65:9: tolerance must be no less than 1e-6
+nist_stc_07_asme1_ap242-e3.stp.absr+wrap.152.stp	ok	1ms	shells=2	failedShells=0	cfsFaces=2	faces=2	tris=2	idFaces=2/2	agree=2/2	idNearest=2	emptyFaces=0
+nist_stc_08_asme1_ap242-e3.stp.absr+wrap.11473.stp	ok	47ms	shells=1	failedShells=0	cfsFaces=270	faces=270	tris=5136	idFaces=270/270	agree=258/270	idNearest=270	emptyFaces=0
+nist_stc_08_asme1_ap242-e3.stp.absr+wrap.11474.stp	ok	1ms	shells=1	failedShells=0	cfsFaces=1	faces=1	tris=2	idFaces=1/1	agree=1/1	idNearest=1	emptyFaces=0
+nist_stc_08_asme1_ap242-e3.stp.absr+wrap.11477.stp	ok	1ms	shells=1	failedShells=0	cfsFaces=1	faces=1	tris=2	idFaces=1/1	agree=1/1	idNearest=1	emptyFaces=0
+nist_stc_08_asme1_ap242-e3.stp.absr+wrap.1776.stp	ok	1ms	shells=1	failedShells=0	cfsFaces=1	faces=1	tris=2	idFaces=1/1	agree=1/1	idNearest=1	emptyFaces=0
+nist_stc_08_asme1_ap242-e3.stp.absr+wrap.1781.stp	ok	49ms	shells=1	failedShells=0	cfsFaces=270	faces=270	tris=5136	idFaces=270/270	agree=258/270	idNearest=270	emptyFaces=0
+nist_stc_09_asme1_ap242-e3.stp.absr+wrap.4622.stp	ok	20ms	shells=1	failedShells=0	cfsFaces=125	faces=125	tris=1104	idFaces=125/125	agree=125/125	idNearest=125	emptyFaces=0
+nist_stc_10_asme1_ap242-e2.stp.absr+wrap.3044.stp	ok	47ms	shells=1	failedShells=0	cfsFaces=256	faces=256	tris=8600	idFaces=256/256	agree=227/256	idNearest=255	emptyFaces=0
+sp7_04-dx-242.stp.absr+wrap.13456.stp	ok	64ms	shells=1	failedShells=0	cfsFaces=405	faces=405	tris=16822	idFaces=405/405	agree=383/405	idNearest=405	emptyFaces=0
+sp7_04-dx-242.stp.absr+wrap.13457.stp	ok	1ms	shells=1	failedShells=0	cfsFaces=1	faces=1	tris=40	idFaces=1/1	agree=1/1	idNearest=1	emptyFaces=0
+trj2_as1-id-203.stp.absr+wrap.1138.stp	ok	12ms	shells=1	failedShells=0	cfsFaces=12	faces=12	tris=9695	idFaces=12/12	agree=12/12	idNearest=12	emptyFaces=0
+trj2_as1-id-203.stp.absr+wrap.1589.stp	ok	212ms	shells=1	failedShells=0	cfsFaces=3	faces=3	tris=51308	idFaces=3/3	agree=3/3	idNearest=3	emptyFaces=0
+trj2_as1-id-203.stp.absr+wrap.247.stp	ok	21ms	shells=1	failedShells=0	cfsFaces=12	faces=12	tris=28775	idFaces=12/12	agree=12/12	idNearest=12	emptyFaces=0
+trj2_as1-id-203.stp.absr+wrap.730.stp	ok	9ms	shells=1	failedShells=0	cfsFaces=7	faces=7	tris=2438	idFaces=7/7	agree=7/7	idNearest=7	emptyFaces=0
+trj2_as1-id-203.stp.absr+wrap.891.stp	TIMEOUT
+trj2_as1-tc-214.stp.absr+wrap.1117.stp	ok	4ms	shells=1	failedShells=0	cfsFaces=7	faces=7	tris=2406	idFaces=7/7	agree=7/7	idNearest=7	emptyFaces=0
+trj2_as1-tc-214.stp.absr+wrap.1137.stp	ok	4ms	shells=1	failedShells=0	cfsFaces=7	faces=7	tris=2406	idFaces=7/7	agree=7/7	idNearest=7	emptyFaces=0
+trj2_as1-tc-214.stp.absr+wrap.1879.stp	ok	8ms	shells=1	failedShells=0	cfsFaces=18	faces=18	tris=6204	idFaces=18/18	agree=18/18	idNearest=18	emptyFaces=0
+trj2_as1-tc-214.stp.absr+wrap.1899.stp	ok	7ms	shells=1	failedShells=0	cfsFaces=18	faces=18	tris=6204	idFaces=18/18	agree=18/18	idNearest=18	emptyFaces=0
+trj2_as1-tc-214.stp.absr+wrap.2026.stp	ok	16ms	shells=1	failedShells=0	cfsFaces=4	faces=4	tris=15424	idFaces=4/4	agree=4/4	idNearest=4	emptyFaces=0
+trj2_as1-tc-214.stp.absr+wrap.2046.stp	ok	16ms	shells=1	failedShells=0	cfsFaces=4	faces=4	tris=15424	idFaces=4/4	agree=4/4	idNearest=4	emptyFaces=0
+trj2_as1-tc-214.stp.absr+wrap.609.stp	ok	6ms	shells=1	failedShells=0	cfsFaces=16	faces=16	tris=4148	idFaces=16/16	agree=16/16	idNearest=16	emptyFaces=0
+trj2_as1-tc-214.stp.absr+wrap.629.stp	ok	5ms	shells=1	failedShells=0	cfsFaces=16	faces=16	tris=4148	idFaces=16/16	agree=16/16	idNearest=16	emptyFaces=0
+trj2_as1-tc-214.stp.absr+wrap.887.stp	ok	3ms	shells=1	failedShells=0	cfsFaces=8	faces=8	tris=504	idFaces=8/8	agree=8/8	idNearest=8	emptyFaces=0
+trj2_as1-tc-214.stp.absr+wrap.907.stp	ok	3ms	shells=1	failedShells=0	cfsFaces=8	faces=8	tris=504	idFaces=8/8	agree=8/8	idNearest=8	emptyFaces=0
+trj7_k1-al-214.stp.absr+wrap.6176.stp	ok	67ms	shells=3	failedShells=0	cfsFaces=57	faces=57	tris=10939	idFaces=57/57	agree=55/55	idNearest=55	emptyFaces=2
+trj7_k1-ct-214.stp.absr+wrap.1926.stp	panic	11ms	panicked at /Users/vona/src/others/truck/truck-geometry/src/specifieds/circle.rs:65:9: tolerance must be no less than 1e-6
+trj7_k1-ec-214.stp.absr+wrap.6446.stp	ok	45ms	shells=1	failedShells=0	cfsFaces=45	faces=45	tris=2229	idFaces=45/45	agree=34/45	idNearest=45	emptyFaces=0
+trj7_k1-id-214.stp.absr+wrap.44.stp	ok	16ms	shells=1	failedShells=0	cfsFaces=46	faces=46	tris=1389	idFaces=46/46	agree=44/44	idNearest=44	emptyFaces=2
+trj7_k1-pe-214.stp.absr+wrap.2179.stp	ok	15ms	shells=1	failedShells=0	cfsFaces=52	faces=52	tris=364	idFaces=52/52	agree=52/52	idNearest=52	emptyFaces=0
+trj7_k1-pe-214.stp.absr+wrap.2188.stp	ok	16ms	shells=1	failedShells=0	cfsFaces=52	faces=52	tris=364	idFaces=52/52	agree=52/52	idNearest=52	emptyFaces=0
+trj7_k1-sd-214.stp.absr+wrap.30730.stp	ok	26ms	shells=1	failedShells=0	cfsFaces=55	faces=55	tris=2542	idFaces=55/55	agree=48/53	idNearest=53	emptyFaces=2
+trj7_k1-sd-214.stp.absr+wrap.31440.stp	ok	1ms	shells=1	failedShells=0	cfsFaces=2	faces=2	tris=183	idFaces=2/2	agree=2/2	idNearest=2	emptyFaces=0
+trj7_k1-ug-214.stp.absr+wrap.11.stp	ok	21ms	shells=44	failedShells=0	cfsFaces=44	faces=44	tris=318	idFaces=44/44	agree=41/43	idNearest=43	emptyFaces=1
+{"files":76,"ok":69,"panic":6,"timeout":1,"err":0,"faces":6242,"facesWithId":6242,"facesAgree":5966,"facesEmpty":43,"ms":1735,"tris":420814,"facesIdBest":6167}

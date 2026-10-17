@@ -1,0 +1,398 @@
+occt init 27 ms, rss 68 MiB, wasm heap 29 MiB
+
+== nist_ctc_01_asme1_ap242-e1.stp (0.40 MB, 4350 ents, index 7 ms)
+  whole: ok=true 583ms meshes=1 faces=117 tris=5060 bb=-400.0,-225.0,-100.0,400.0,225.0,50.0
+  absr      #643 ADVANCED_BREP_SHAPE_REPRESENTATION (2843 ents, 124 kB): ok=false 39ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #643 ADVANCED_BREP_SHAPE_REPRESENTATION (2843 ents, 124 kB): ok=true 229ms meshes=1 faces=117 tris=5060 bb=-400.0,-225.0,-100.0,400.0,225.0,50.0 | stepFaces=117 faceOrderAgree=117/117 scale=1
+  solid     #3567 MANIFOLD_SOLID_BREP (2831 ents, 123 kB): ok=false 36ms meshes=undefined faces=undefined tris=undefined bb=
+
+== nist_ctc_02_asme1_ap242-e2.stp (1.98 MB, 22304 ents, index 22 ms)
+  whole: ok=true 2518ms meshes=3 faces=637 tris=98140 bb=-340.0,-40.0,-360.0,340.0,820.0,40.0
+  absr      #1333 MANIFOLD_SURFACE_SHAPE_REPRESENTATION (75 ents, 4 kB): ok=false 2ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #1333 MANIFOLD_SURFACE_SHAPE_REPRESENTATION (75 ents, 5 kB): ok=true 7ms meshes=2 faces=2 tris=246 bb=-42.5,812.0,-182.5,42.5,812.0,-97.5 | stepFaces=2 faceOrderAgree=2/2 scale=1
+  solid     #1336 SHELL_BASED_SURFACE_MODEL (26 ents, 2 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #1337 SHELL_BASED_SURFACE_MODEL (42 ents, 2 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+  absr      #1341 ADVANCED_BREP_SHAPE_REPRESENTATION (16076 ents, 919 kB): ok=false 234ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #1341 ADVANCED_BREP_SHAPE_REPRESENTATION (16076 ents, 919 kB): ok=true 1992ms meshes=1 faces=635 tris=97894 bb=-340.0,-40.0,-360.0,340.0,820.0,40.0 | stepFaces=635 faceOrderAgree=635/635 scale=1
+  solid     #14911 MANIFOLD_SOLID_BREP (16064 ents, 918 kB): ok=false 230ms meshes=undefined faces=undefined tris=undefined bb=
+  absr      #21821 SHAPE_REPRESENTATION (16076 ents, 919 kB): ok=false 226ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #21821 SHAPE_REPRESENTATION (16076 ents, 919 kB): ok=true 1982ms meshes=1 faces=635 tris=97894 bb=-340.0,-40.0,-360.0,340.0,820.0,40.0 | stepFaces=635 faceOrderAgree=635/635 scale=1
+  solid     #14911 MANIFOLD_SOLID_BREP (16064 ents, 918 kB): ok=false 233ms meshes=undefined faces=undefined tris=undefined bb=
+  absr      #21822 SHAPE_REPRESENTATION (38 ents, 3 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #21822 SHAPE_REPRESENTATION (38 ents, 3 kB): ok=true 4ms meshes=1 faces=1 tris=90 bb=-42.5,812.0,-182.5,42.5,812.0,-97.5 | stepFaces=1 faceOrderAgree=1/1 scale=1
+  solid     #1336 SHELL_BASED_SURFACE_MODEL (26 ents, 2 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+  absr      #21823 SHAPE_REPRESENTATION (54 ents, 3 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #21823 SHAPE_REPRESENTATION (54 ents, 4 kB): ok=true 5ms meshes=1 faces=1 tris=156 bb=-42.5,812.0,-182.5,42.5,812.0,-97.5 | stepFaces=1 faceOrderAgree=1/1 scale=1
+  solid     #1337 SHELL_BASED_SURFACE_MODEL (42 ents, 2 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+  absr      #21835 SHAPE_REPRESENTATION (38 ents, 3 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #21835 SHAPE_REPRESENTATION (38 ents, 3 kB): ok=true 3ms meshes=1 faces=1 tris=90 bb=-42.5,812.0,-182.5,42.5,812.0,-97.5 | stepFaces=1 faceOrderAgree=1/1 scale=1
+  solid     #1336 SHELL_BASED_SURFACE_MODEL (26 ents, 2 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+  absr      #21836 SHAPE_REPRESENTATION (54 ents, 3 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #21836 SHAPE_REPRESENTATION (54 ents, 4 kB): ok=true 5ms meshes=1 faces=1 tris=156 bb=-42.5,812.0,-182.5,42.5,812.0,-97.5 | stepFaces=1 faceOrderAgree=1/1 scale=1
+  solid     #1337 SHELL_BASED_SURFACE_MODEL (42 ents, 2 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+
+== nist_ctc_03_asme1_ap242-e2.stp (0.67 MB, 5920 ents, index 9 ms)
+  whole: ok=true 349ms meshes=1 faces=120 tris=3948 bb=-249.6,0.0,-0.0,53.4,485.4,162.7
+  absr      #922 ADVANCED_BREP_SHAPE_REPRESENTATION (3037 ents, 138 kB): ok=false 38ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #922 ADVANCED_BREP_SHAPE_REPRESENTATION (3037 ents, 139 kB): ok=true 205ms meshes=1 faces=120 tris=3948 bb=-249.6,0.0,-0.0,53.4,485.4,162.7 | stepFaces=120 faceOrderAgree=120/120 scale=1
+  solid     #4544 MANIFOLD_SOLID_BREP (3025 ents, 137 kB): ok=false 38ms meshes=undefined faces=undefined tris=undefined bb=
+  absr      #5619 SHAPE_REPRESENTATION (3037 ents, 138 kB): ok=false 38ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #5619 SHAPE_REPRESENTATION (3037 ents, 139 kB): ok=true 204ms meshes=1 faces=120 tris=3948 bb=-249.6,0.0,-0.0,53.4,485.4,162.7 | stepFaces=120 faceOrderAgree=120/120 scale=1
+  solid     #4544 MANIFOLD_SOLID_BREP (3025 ents, 137 kB): ok=false 38ms meshes=undefined faces=undefined tris=undefined bb=
+
+== nist_ctc_04_asme1_ap242-e1.stp (1.29 MB, 20456 ents, index 47 ms)
+  whole: ok=true 1077ms meshes=2 faces=484 tris=32532 bb=-250.0,0.0,-100.6,250.0,780.0,30.0
+  absr      #18027 ADVANCED_BREP_SHAPE_REPRESENTATION (16718 ents, 921 kB): ok=false 229ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #18027 ADVANCED_BREP_SHAPE_REPRESENTATION (16718 ents, 921 kB): ok=true 970ms meshes=1 faces=483 tris=32474 bb=-250.0,0.0,-100.6,250.0,780.0,30.0 | stepFaces=483 faceOrderAgree=483/483 scale=1
+  solid     #17366 MANIFOLD_SOLID_BREP (16709 ents, 920 kB): ok=false 228ms meshes=undefined faces=undefined tris=undefined bb=
+  absr      #18028 MANIFOLD_SURFACE_SHAPE_REPRESENTATION (37 ents, 2 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #18028 MANIFOLD_SURFACE_SHAPE_REPRESENTATION (37 ents, 3 kB): ok=true 3ms meshes=1 faces=1 tris=58 bb=97.5,312.5,-13.8,132.5,347.5,-13.8 | stepFaces=1 faceOrderAgree=1/1 scale=1
+  solid     #17462 SHELL_BASED_SURFACE_MODEL (28 ents, 2 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+
+== nist_ctc_05_asme1_ap242-e1.stp (0.88 MB, 13394 ents, index 8 ms)
+  whole: ok=true 627ms meshes=1 faces=156 tris=24072 bb=-263.5,-279.4,0.0,263.5,279.4,482.6
+  absr      #1177 SHAPE_REPRESENTATION (4715 ents, 218 kB): ok=false 57ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #1177 SHAPE_REPRESENTATION (4715 ents, 219 kB): ok=true 450ms meshes=1 faces=156 tris=24072 bb=-263.5,-279.4,0.0,263.5,279.4,482.6 | stepFaces=156 faceOrderAgree=156/156 scale=25.4
+  solid     #1205 MANIFOLD_SOLID_BREP (4655 ents, 215 kB): ok=false 55ms meshes=undefined faces=undefined tris=undefined bb=
+
+== nist_ftc_06_asme1_ap242-e2.stp (1.97 MB, 10034 ents, index 11 ms)
+  whole: ok=true 1184ms meshes=1 faces=187 tris=20578 bb=-152.4,0.0,-247.7,152.4,97.8,0.0
+  absr      #2155 ADVANCED_BREP_SHAPE_REPRESENTATION (4277 ents, 206 kB): ok=false 55ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #2155 ADVANCED_BREP_SHAPE_REPRESENTATION (4277 ents, 206 kB): ok=true 381ms meshes=1 faces=187 tris=20578 bb=-152.4,0.0,-247.7,152.4,97.8,0.0 | stepFaces=187 faceOrderAgree=187/187 scale=1
+  solid     #7516 MANIFOLD_SOLID_BREP (4265 ents, 205 kB): ok=false 54ms meshes=undefined faces=undefined tris=undefined bb=
+  absr      #9322 SHAPE_REPRESENTATION (4277 ents, 206 kB): ok=false 55ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #9322 SHAPE_REPRESENTATION (4277 ents, 206 kB): ok=true 382ms meshes=1 faces=187 tris=20578 bb=-152.4,0.0,-247.7,152.4,97.8,0.0 | stepFaces=187 faceOrderAgree=187/187 scale=1
+  solid     #7516 MANIFOLD_SOLID_BREP (4265 ents, 205 kB): ok=false 54ms meshes=undefined faces=undefined tris=undefined bb=
+  absr      #9323 SHAPE_REPRESENTATION (4277 ents, 206 kB): ok=false 54ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #9323 SHAPE_REPRESENTATION (4277 ents, 206 kB): ok=true 378ms meshes=1 faces=187 tris=20578 bb=-152.4,0.0,-247.7,152.4,97.8,0.0 | stepFaces=187 faceOrderAgree=187/187 scale=1
+  solid     #7516 MANIFOLD_SOLID_BREP (4265 ents, 205 kB): ok=false 54ms meshes=undefined faces=undefined tris=undefined bb=
+
+== nist_ftc_07_asme1_ap242-e2.stp (1.48 MB, 17010 ents, index 15 ms)
+  whole: ok=true 925ms meshes=3 faces=306 tris=12417 bb=-155.8,-123.2,-111.4,155.8,12.7,146.3
+  absr      #13541 ADVANCED_BREP_SHAPE_REPRESENTATION (13245 ents, 786 kB): ok=false 195ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #13541 ADVANCED_BREP_SHAPE_REPRESENTATION (13245 ents, 787 kB): ok=true 677ms meshes=1 faces=304 tris=12415 bb=-155.8,-123.2,-111.4,155.8,12.7,111.4 | stepFaces=304 faceOrderAgree=304/304 scale=25.4
+  solid     #13272 MANIFOLD_SOLID_BREP (13233 ents, 785 kB): ok=false 193ms meshes=undefined faces=undefined tris=undefined bb=
+  absr      #13542 MANIFOLD_SURFACE_SHAPE_REPRESENTATION (80 ents, 4 kB): ok=false 2ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #13542 MANIFOLD_SURFACE_SHAPE_REPRESENTATION (80 ents, 5 kB): ok=true 4ms meshes=2 faces=2 tris=2 bb=-117.9,12.7,119.7,-93.0,12.7,146.3 | stepFaces=2 faceOrderAgree=2/2 scale=25.4
+  solid     #13408 SHELL_BASED_SURFACE_MODEL (34 ents, 2 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #13452 SHELL_BASED_SURFACE_MODEL (34 ents, 2 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+
+== nist_ftc_08_asme1_ap242-e1-tg.stp (2.12 MB, 12630 ents, index 14 ms)
+  whole: ok=false 489ms meshes=0 faces=0 tris=0 bb=Infinity,Infinity,Infinity,-Infinity,-Infinity,-Infinity
+
+== nist_ftc_08_asme1_ap242-e2.stp (4.72 MB, 10072 ents, index 30 ms)
+  whole: ok=true 13576ms meshes=1 faces=247 tris=8108 bb=-155.8,-111.4,0.0,155.8,111.4,48.3
+  absr      #1711 ADVANCED_BREP_SHAPE_REPRESENTATION (7521 ents, 314 kB): ok=false 90ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #1711 ADVANCED_BREP_SHAPE_REPRESENTATION (7521 ents, 314 kB): ok=true 399ms meshes=1 faces=247 tris=8108 bb=-155.8,-111.4,0.0,155.8,111.4,48.3 | stepFaces=247 faceOrderAgree=247/247 scale=25.4
+  solid     #6324 MANIFOLD_SOLID_BREP (7512 ents, 313 kB): ok=false 82ms meshes=undefined faces=undefined tris=undefined bb=
+
+== nist_ftc_09_asme1_ap242-e1.stp (6.11 MB, 11662 ents, index 45 ms)
+  whole: ok=true 1795ms meshes=6 faces=163 tris=5322 bb=-95.3,0.0,-139.7,95.3,3.0,139.7
+  absr      #6016 ADVANCED_BREP_SHAPE_REPRESENTATION (5373 ents, 286 kB): ok=false 72ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #6016 ADVANCED_BREP_SHAPE_REPRESENTATION (5373 ents, 286 kB): ok=true 308ms meshes=1 faces=158 tris=5216 bb=-95.3,0.0,-139.7,95.3,3.0,139.7 | stepFaces=158 faceOrderAgree=158/158 scale=1
+  solid     #6015 MANIFOLD_SOLID_BREP (5360 ents, 285 kB): ok=false 72ms meshes=undefined faces=undefined tris=undefined bb=
+  absr      #6261 MANIFOLD_SURFACE_SHAPE_REPRESENTATION (231 ents, 13 kB): ok=false 4ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #6261 MANIFOLD_SURFACE_SHAPE_REPRESENTATION (231 ents, 14 kB): ok=true 8ms meshes=5 faces=5 tris=106 bb=34.9,0.0,-98.4,74.1,3.0,-3.5 | stepFaces=5 faceOrderAgree=5/5 scale=1
+  solid     #6073 SHELL_BASED_SURFACE_MODEL (42 ents, 3 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #6125 SHELL_BASED_SURFACE_MODEL (44 ents, 3 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #6170 SHELL_BASED_SURFACE_MODEL (44 ents, 3 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #6215 SHELL_BASED_SURFACE_MODEL (44 ents, 3 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #6260 SHELL_BASED_SURFACE_MODEL (44 ents, 3 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+
+== nist_ftc_10_asme1_ap242-e2.stp (1.88 MB, 21230 ents, index 13 ms)
+  whole: ok=true 1095ms meshes=13 faces=282 tris=17126 bb=-79.0,0.0,-37.5,79.0,31.0,37.5
+  absr      #17967 ADVANCED_BREP_SHAPE_REPRESENTATION (13859 ents, 837 kB): ok=false 204ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #17967 ADVANCED_BREP_SHAPE_REPRESENTATION (13859 ents, 837 kB): ok=true 726ms meshes=1 faces=264 tris=16270 bb=-79.0,0.0,-37.5,79.0,31.0,37.5 | stepFaces=264 faceOrderAgree=264/264 scale=1
+  solid     #13886 MANIFOLD_SOLID_BREP (13850 ents, 836 kB): ok=false 208ms meshes=undefined faces=undefined tris=undefined bb=
+  absr      #17968 MANIFOLD_SURFACE_SHAPE_REPRESENTATION (3547 ents, 265 kB): ok=false 60ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #17968 MANIFOLD_SURFACE_SHAPE_REPRESENTATION (3547 ents, 265 kB): ok=true 124ms meshes=12 faces=18 tris=856 bb=27.5,12.3,-27.8,62.5,31.0,31.1 | stepFaces=18 faceOrderAgree=18/18 scale=1
+  solid     #13983 SHELL_BASED_SURFACE_MODEL (44 ents, 2 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #14752 SHELL_BASED_SURFACE_MODEL (758 ents, 61 kB): ok=false 14ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #15538 SHELL_BASED_SURFACE_MODEL (782 ents, 62 kB): ok=false 14ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #15618 SHELL_BASED_SURFACE_MODEL (68 ents, 3 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #15723 SHELL_BASED_SURFACE_MODEL (44 ents, 2 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #16485 SHELL_BASED_SURFACE_MODEL (758 ents, 60 kB): ok=false 14ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #17271 SHELL_BASED_SURFACE_MODEL (782 ents, 61 kB): ok=false 14ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #17344 SHELL_BASED_SURFACE_MODEL (68 ents, 3 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #17483 SHELL_BASED_SURFACE_MODEL (73 ents, 4 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #17561 SHELL_BASED_SURFACE_MODEL (73 ents, 4 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #17614 SHELL_BASED_SURFACE_MODEL (44 ents, 2 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #17681 SHELL_BASED_SURFACE_MODEL (44 ents, 2 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+
+== nist_ftc_11_asme1_ap242-e2.stp (1.95 MB, 2032 ents, index 10 ms)
+  whole: ok=true 5573ms meshes=1 faces=42 tris=7158 bb=-31.5,-31.5,-1.5,31.5,31.5,1.5
+  absr      #466 ADVANCED_BREP_SHAPE_REPRESENTATION (1270 ents, 55 kB): ok=false 15ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #466 ADVANCED_BREP_SHAPE_REPRESENTATION (1270 ents, 55 kB): ok=true 110ms meshes=1 faces=42 tris=7158 bb=-31.5,-31.5,-1.5,31.5,31.5,1.5 | stepFaces=42 faceOrderAgree=42/42 scale=1
+  solid     #1299 MANIFOLD_SOLID_BREP (1264 ents, 54 kB): ok=false 15ms meshes=undefined faces=undefined tris=undefined bb=
+
+== nist_stc_06_asme1_ap242-e3.stp (1.01 MB, 11780 ents, index 7 ms)
+  whole: ok=true 615ms meshes=1 faces=144 tris=20065 bb=0.0,-152.4,0.0,247.7,152.4,97.8
+  absr      #5079 SHAPE_REPRESENTATION (4211 ents, 176 kB): ok=false 48ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #5079 SHAPE_REPRESENTATION (4211 ents, 176 kB): ok=true 339ms meshes=1 faces=144 tris=20065 bb=0.0,-152.4,0.0,247.7,152.4,97.8 | stepFaces=144 faceOrderAgree=144/144 scale=1
+  solid     #4078 MANIFOLD_SOLID_BREP (4063 ents, 168 kB): ok=false 46ms meshes=undefined faces=undefined tris=undefined bb=
+
+== nist_stc_07_asme1_ap242-e3.stp (1.95 MB, 17470 ents, index 12 ms)
+  whole: ok=false 812ms meshes=undefined faces=undefined tris=undefined bb=
+  absr      #13816 SHAPE_REPRESENTATION (10811 ents, 669 kB): ok=false 165ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #13816 SHAPE_REPRESENTATION (10811 ents, 669 kB): ok=true 623ms meshes=1 faces=304 tris=12596 bb=-155.8,-123.2,-111.4,155.8,12.7,111.4 | stepFaces=304 faceOrderAgree=304/304 scale=25.4
+  solid     #210 MANIFOLD_SOLID_BREP (10802 ents, 668 kB): ok=false 166ms meshes=undefined faces=undefined tris=undefined bb=
+  absr      #13843 SHAPE_REPRESENTATION (10886 ents, 673 kB): ok=false 166ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #13843 SHAPE_REPRESENTATION (10886 ents, 673 kB): ok=true 620ms meshes=1 faces=304 tris=12596 bb=-155.8,-123.2,-111.4,155.8,12.7,111.4 | stepFaces=306 faceOrderAgree=304/304 scale=25.4
+  solid     #210 MANIFOLD_SOLID_BREP (10802 ents, 668 kB): ok=false 164ms meshes=undefined faces=undefined tris=undefined bb=
+  absr      #13870 SHAPE_REPRESENTATION (10811 ents, 669 kB): ok=false 166ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #13870 SHAPE_REPRESENTATION (10811 ents, 669 kB): ok=true 621ms meshes=1 faces=304 tris=12596 bb=-155.8,-123.2,-111.4,155.8,12.7,111.4 | stepFaces=304 faceOrderAgree=304/304 scale=25.4
+  solid     #210 MANIFOLD_SOLID_BREP (10802 ents, 668 kB): ok=false 164ms meshes=undefined faces=undefined tris=undefined bb=
+  absr      #13897 SHAPE_REPRESENTATION (10811 ents, 669 kB): ok=false 166ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #13897 SHAPE_REPRESENTATION (10811 ents, 669 kB): ok=true 625ms meshes=1 faces=304 tris=12596 bb=-155.8,-123.2,-111.4,155.8,12.7,111.4 | stepFaces=304 faceOrderAgree=304/304 scale=25.4
+  solid     #210 MANIFOLD_SOLID_BREP (10802 ents, 668 kB): ok=false 167ms meshes=undefined faces=undefined tris=undefined bb=
+  absr      #11020 ADVANCED_BREP_SHAPE_REPRESENTATION (10811 ents, 669 kB): ok=false 165ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #11020 ADVANCED_BREP_SHAPE_REPRESENTATION (10811 ents, 670 kB): ok=true 623ms meshes=1 faces=304 tris=12596 bb=-155.8,-123.2,-111.4,155.8,12.7,111.4 | stepFaces=304 faceOrderAgree=304/304 scale=25.4
+  solid     #210 MANIFOLD_SOLID_BREP (10802 ents, 668 kB): ok=false 164ms meshes=undefined faces=undefined tris=undefined bb=
+  absr      #152 MANIFOLD_SURFACE_SHAPE_REPRESENTATION (77 ents, 5 kB): ok=false 2ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #152 MANIFOLD_SURFACE_SHAPE_REPRESENTATION (77 ents, 5 kB): ok=true 4ms meshes=2 faces=2 tris=2 bb=-117.9,12.7,119.7,-93.0,12.7,146.3 | stepFaces=2 faceOrderAgree=2/2 scale=25.4
+  solid     #118 SHELL_BASED_SURFACE_MODEL (34 ents, 2 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #155 SHELL_BASED_SURFACE_MODEL (34 ents, 2 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+
+== nist_stc_08_asme1_ap242-e3.stp (2.25 MB, 11548 ents, index 26 ms)
+  whole: ok=true 2135ms meshes=2 faces=271 tris=8146 bb=-155.8,-111.3,-0.0,155.8,111.3,48.3
+  absr      #1776 MANIFOLD_SURFACE_SHAPE_REPRESENTATION (48 ents, 4 kB): ok=false 2ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #1776 MANIFOLD_SURFACE_SHAPE_REPRESENTATION (48 ents, 4 kB): ok=true 3ms meshes=1 faces=1 tris=2 bb=-50.8,-102.5,11.7,50.8,-102.5,45.2 | stepFaces=1 faceOrderAgree=1/1 scale=1
+  solid     #1780 SHELL_BASED_SURFACE_MODEL (36 ents, 2 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+  absr      #1781 ADVANCED_BREP_SHAPE_REPRESENTATION (6208 ents, 293 kB): ok=false 78ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #1781 ADVANCED_BREP_SHAPE_REPRESENTATION (6208 ents, 293 kB): ok=true 409ms meshes=1 faces=270 tris=8144 bb=-155.8,-111.3,-0.0,155.8,111.3,48.3 | stepFaces=270 faceOrderAgree=270/270 scale=1
+  solid     #9306 MANIFOLD_SOLID_BREP (6196 ents, 291 kB): ok=false 77ms meshes=undefined faces=undefined tris=undefined bb=
+  absr      #11473 SHAPE_REPRESENTATION (6208 ents, 293 kB): ok=false 77ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #11473 SHAPE_REPRESENTATION (6208 ents, 293 kB): ok=true 407ms meshes=1 faces=270 tris=8144 bb=-155.8,-111.3,-0.0,155.8,111.3,48.3 | stepFaces=270 faceOrderAgree=270/270 scale=1
+  solid     #9306 MANIFOLD_SOLID_BREP (6196 ents, 291 kB): ok=false 77ms meshes=undefined faces=undefined tris=undefined bb=
+  absr      #11474 SHAPE_REPRESENTATION (48 ents, 3 kB): ok=false 2ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #11474 SHAPE_REPRESENTATION (48 ents, 4 kB): ok=true 3ms meshes=1 faces=1 tris=2 bb=-50.8,-102.5,11.7,50.8,-102.5,45.2 | stepFaces=1 faceOrderAgree=1/1 scale=1
+  solid     #1780 SHELL_BASED_SURFACE_MODEL (36 ents, 2 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+  absr      #11477 SHAPE_REPRESENTATION (78 ents, 5 kB): ok=false 2ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #11477 SHAPE_REPRESENTATION (78 ents, 6 kB): ok=true 3ms meshes=1 faces=1 tris=2 bb=-50.8,-102.5,11.7,50.8,-102.5,45.2 | stepFaces=1 faceOrderAgree=1/1 scale=1
+  solid     #1780 SHELL_BASED_SURFACE_MODEL (36 ents, 2 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+
+== nist_stc_09_asme1_ap242-e3.stp (5.29 MB, 10393 ents, index 29 ms)
+  whole: ok=true 1815ms meshes=1 faces=125 tris=5206 bb=-95.2,0.0,-139.7,95.2,3.0,139.7
+  absr      #4622 ADVANCED_BREP_SHAPE_REPRESENTATION (4596 ents, 204 kB): ok=false 55ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #4622 ADVANCED_BREP_SHAPE_REPRESENTATION (4596 ents, 204 kB): ok=true 276ms meshes=1 faces=125 tris=5206 bb=-95.2,0.0,-139.7,95.2,3.0,139.7 | stepFaces=125 faceOrderAgree=125/125 scale=25.4
+  solid     #4613 MANIFOLD_SOLID_BREP (4583 ents, 203 kB): ok=false 54ms meshes=undefined faces=undefined tris=undefined bb=
+*** ERR StepReaderData : Unresolved Reference : Fails Count : 1 ***
+
+== nist_stc_10_asme1_ap242-e2.stp (4.88 MB, 12073 ents, index 43 ms)
+  whole: ok=true 10056ms meshes=1 faces=256 tris=17928 bb=0.0,-0.0,0.0,158.0,31.0,75.0
+*** ERR StepReaderData : Unresolved Reference : Fails Count : 1 ***
+  absr      #3044 ADVANCED_BREP_SHAPE_REPRESENTATION (7355 ents, 320 kB): ok=false 84ms meshes=undefined faces=undefined tris=undefined bb=
+*** ERR StepReaderData : Unresolved Reference : Fails Count : 1 ***
+  absr+wrap #3044 ADVANCED_BREP_SHAPE_REPRESENTATION (7355 ents, 320 kB): ok=true 468ms meshes=1 faces=256 tris=17928 bb=0.0,-0.0,0.0,158.0,31.0,75.0 | stepFaces=256 faceOrderAgree=256/256 scale=1
+*** ERR StepReaderData : Unresolved Reference : Fails Count : 1 ***
+  solid     #7490 MANIFOLD_SOLID_BREP (7349 ents, 319 kB): ok=false 85ms meshes=undefined faces=undefined tris=undefined bb=
+
+== trj2_as1-id-203.stp (0.17 MB, 2822 ents, index 1 ms)
+  whole: ok=true 208ms meshes=18 faces=125 tris=5136 bb=-10.0,0.0,-7.0,190.0,150.0,80.0
+  absr      #247 ADVANCED_BREP_SHAPE_REPRESENTATION (475 ents, 35 kB): ok=false 10ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #247 ADVANCED_BREP_SHAPE_REPRESENTATION (475 ents, 35 kB): ok=true 62ms meshes=1 faces=12 tris=852 bb=0.0,0.0,0.0,180.0,150.0,20.0 | stepFaces=12 faceOrderAgree=12/12 scale=1
+  solid     #3198 MANIFOLD_SOLID_BREP (462 ents, 34 kB): ok=false 9ms meshes=undefined faces=undefined tris=undefined bb=
+  absr      #730 ADVANCED_BREP_SHAPE_REPRESENTATION (213 ents, 15 kB): ok=false 4ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #730 ADVANCED_BREP_SHAPE_REPRESENTATION (213 ents, 16 kB): ok=true 22ms meshes=1 faces=7 tris=152 bb=-10.0,-7.5,-1.5,10.0,7.5,1.5 | stepFaces=7 faceOrderAgree=7/7 scale=1
+  solid     #2586 MANIFOLD_SOLID_BREP (192 ents, 14 kB): ok=false 4ms meshes=undefined faces=undefined tris=undefined bb=
+  absr      #891 ADVANCED_BREP_SHAPE_REPRESENTATION (145 ents, 13 kB): ok=false 3ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #891 ADVANCED_BREP_SHAPE_REPRESENTATION (145 ents, 13 kB): ok=true 20ms meshes=1 faces=5 tris=296 bb=-7.5,-18.5,-7.5,7.5,21.5,7.5 | stepFaces=5 faceOrderAgree=5/5 scale=1
+  solid     #1827 MANIFOLD_SOLID_BREP (132 ents, 12 kB): ok=false 3ms meshes=undefined faces=undefined tris=undefined bb=
+  absr      #1138 ADVANCED_BREP_SHAPE_REPRESENTATION (427 ents, 31 kB): ok=false 8ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #1138 ADVANCED_BREP_SHAPE_REPRESENTATION (427 ents, 31 kB): ok=true 49ms meshes=1 faces=12 tris=580 bb=0.0,0.0,0.0,60.0,50.0,100.0 | stepFaces=12 faceOrderAgree=12/12 scale=1
+  solid     #2349 MANIFOLD_SOLID_BREP (414 ents, 30 kB): ok=false 8ms meshes=undefined faces=undefined tris=undefined bb=
+  absr      #1589 ADVANCED_BREP_SHAPE_REPRESENTATION (85 ents, 7 kB): ok=false 2ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #1589 ADVANCED_BREP_SHAPE_REPRESENTATION (85 ents, 7 kB): ok=true 13ms meshes=1 faces=3 tris=132 bb=-5.0,-100.0,-5.0,5.0,100.0,5.0 | stepFaces=3 faceOrderAgree=3/3 scale=1
+  solid     #3315 MANIFOLD_SOLID_BREP (72 ents, 6 kB): ok=false 2ms meshes=undefined faces=undefined tris=undefined bb=
+
+== trj2_as1-tc-214.stp (0.13 MB, 2260 ents, index 1 ms)
+  whole: ok=true 164ms meshes=18 faces=160 tris=5160 bb=-10.0,0.0,-4.0,190.0,150.0,80.0
+  absr      #609 ADVANCED_BREP_SHAPE_REPRESENTATION (554 ents, 30 kB): ok=false 9ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #609 ADVANCED_BREP_SHAPE_REPRESENTATION (554 ents, 31 kB): ok=true 43ms meshes=1 faces=16 tris=580 bb=0.0,0.0,0.0,50.0,60.0,100.0 | stepFaces=16 faceOrderAgree=16/16 scale=1
+  solid     #602 MANIFOLD_SOLID_BREP (544 ents, 30 kB): ok=false 8ms meshes=undefined faces=undefined tris=undefined bb=
+  absr      #629 SHAPE_REPRESENTATION (550 ents, 30 kB): ok=false 8ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #629 SHAPE_REPRESENTATION (550 ents, 30 kB): ok=true 42ms meshes=1 faces=16 tris=580 bb=0.0,0.0,0.0,50.0,60.0,100.0 | stepFaces=16 faceOrderAgree=16/16 scale=1
+  solid     #602 MANIFOLD_SOLID_BREP (544 ents, 30 kB): ok=false 8ms meshes=undefined faces=undefined tris=undefined bb=
+  absr      #887 ADVANCED_BREP_SHAPE_REPRESENTATION (242 ents, 12 kB): ok=false 4ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #887 ADVANCED_BREP_SHAPE_REPRESENTATION (242 ents, 12 kB): ok=true 16ms meshes=1 faces=8 tris=152 bb=0.0,0.0,0.0,20.0,15.0,3.0 | stepFaces=8 faceOrderAgree=8/8 scale=1
+  solid     #880 MANIFOLD_SOLID_BREP (232 ents, 11 kB): ok=false 4ms meshes=undefined faces=undefined tris=undefined bb=
+  absr      #907 SHAPE_REPRESENTATION (238 ents, 12 kB): ok=false 4ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #907 SHAPE_REPRESENTATION (238 ents, 12 kB): ok=true 15ms meshes=1 faces=8 tris=152 bb=0.0,0.0,0.0,20.0,15.0,3.0 | stepFaces=8 faceOrderAgree=8/8 scale=1
+  solid     #880 MANIFOLD_SOLID_BREP (232 ents, 11 kB): ok=false 3ms meshes=undefined faces=undefined tris=undefined bb=
+  absr      #1117 ADVANCED_BREP_SHAPE_REPRESENTATION (194 ents, 12 kB): ok=false 4ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #1117 ADVANCED_BREP_SHAPE_REPRESENTATION (194 ents, 13 kB): ok=true 18ms meshes=1 faces=7 tris=300 bb=-7.5,-7.5,0.0,7.5,7.5,37.0 | stepFaces=7 faceOrderAgree=7/7 scale=1
+  solid     #1110 MANIFOLD_SOLID_BREP (184 ents, 12 kB): ok=false 3ms meshes=undefined faces=undefined tris=undefined bb=
+  absr      #1137 SHAPE_REPRESENTATION (190 ents, 12 kB): ok=false 4ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #1137 SHAPE_REPRESENTATION (190 ents, 13 kB): ok=true 18ms meshes=1 faces=7 tris=300 bb=-7.5,-7.5,0.0,7.5,7.5,37.0 | stepFaces=7 faceOrderAgree=7/7 scale=1
+  solid     #1110 MANIFOLD_SOLID_BREP (184 ents, 12 kB): ok=false 3ms meshes=undefined faces=undefined tris=undefined bb=
+  absr      #1879 ADVANCED_BREP_SHAPE_REPRESENTATION (652 ents, 41 kB): ok=false 11ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #1879 ADVANCED_BREP_SHAPE_REPRESENTATION (652 ents, 41 kB): ok=true 57ms meshes=1 faces=18 tris=852 bb=0.0,0.0,0.0,180.0,150.0,20.0 | stepFaces=18 faceOrderAgree=18/18 scale=1
+  solid     #1872 MANIFOLD_SOLID_BREP (642 ents, 40 kB): ok=false 11ms meshes=undefined faces=undefined tris=undefined bb=
+  absr      #1899 SHAPE_REPRESENTATION (648 ents, 41 kB): ok=false 11ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #1899 SHAPE_REPRESENTATION (648 ents, 41 kB): ok=true 57ms meshes=1 faces=18 tris=852 bb=0.0,0.0,0.0,180.0,150.0,20.0 | stepFaces=18 faceOrderAgree=18/18 scale=1
+  solid     #1872 MANIFOLD_SOLID_BREP (642 ents, 40 kB): ok=false 11ms meshes=undefined faces=undefined tris=undefined bb=
+  absr      #2026 ADVANCED_BREP_SHAPE_REPRESENTATION (106 ents, 7 kB): ok=false 2ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #2026 ADVANCED_BREP_SHAPE_REPRESENTATION (106 ents, 7 kB): ok=true 10ms meshes=1 faces=4 tris=132 bb=-5.0,-5.0,0.0,5.0,5.0,200.0 | stepFaces=4 faceOrderAgree=4/4 scale=1
+  solid     #2019 MANIFOLD_SOLID_BREP (96 ents, 6 kB): ok=false 2ms meshes=undefined faces=undefined tris=undefined bb=
+  absr      #2046 SHAPE_REPRESENTATION (102 ents, 7 kB): ok=false 2ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #2046 SHAPE_REPRESENTATION (102 ents, 7 kB): ok=true 9ms meshes=1 faces=4 tris=132 bb=-5.0,-5.0,0.0,5.0,5.0,200.0 | stepFaces=4 faceOrderAgree=4/4 scale=1
+  solid     #2019 MANIFOLD_SOLID_BREP (96 ents, 6 kB): ok=false 2ms meshes=undefined faces=undefined tris=undefined bb=
+
+== bug21802_as1-oc-214.stp (0.43 MB, 6425 ents, index 6 ms)
+  whole: ok=true 247ms meshes=18 faces=160 tris=5392 bb=-10.0,0.0,-4.0,190.0,150.0,80.0
+  absr      #62 ADVANCED_BREP_SHAPE_REPRESENTATION (682 ents, 40 kB): ok=false 11ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #62 ADVANCED_BREP_SHAPE_REPRESENTATION (682 ents, 40 kB): ok=true 24ms meshes=1 faces=8 tris=160 bb=0.0,0.0,0.0,20.0,15.0,3.0 | stepFaces=8 faceOrderAgree=8/8 scale=1
+  solid     #63 MANIFOLD_SOLID_BREP (672 ents, 39 kB): ok=false 10ms meshes=undefined faces=undefined tris=undefined bb=
+  absr      #758 ADVANCED_BREP_SHAPE_REPRESENTATION (366 ents, 27 kB): ok=false 7ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #758 ADVANCED_BREP_SHAPE_REPRESENTATION (366 ents, 27 kB): ok=true 15ms meshes=1 faces=4 tris=140 bb=-5.0,-5.0,0.0,5.0,5.0,200.0 | stepFaces=4 faceOrderAgree=4/4 scale=1
+  solid     #759 MANIFOLD_SOLID_BREP (356 ents, 26 kB): ok=false 6ms meshes=undefined faces=undefined tris=undefined bb=
+  absr      #1189 ADVANCED_BREP_SHAPE_REPRESENTATION (714 ents, 52 kB): ok=false 13ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #1189 ADVANCED_BREP_SHAPE_REPRESENTATION (714 ents, 52 kB): ok=true 29ms meshes=1 faces=7 tris=308 bb=-7.5,-7.5,-0.0,7.5,7.5,37.0 | stepFaces=7 faceOrderAgree=7/7 scale=1
+  solid     #1190 MANIFOLD_SOLID_BREP (704 ents, 51 kB): ok=false 13ms meshes=undefined faces=undefined tris=undefined bb=
+  absr      #1933 ADVANCED_BREP_SHAPE_REPRESENTATION (1864 ents, 123 kB): ok=false 30ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #1933 ADVANCED_BREP_SHAPE_REPRESENTATION (1864 ents, 123 kB): ok=true 68ms meshes=1 faces=16 tris=612 bb=0.0,0.0,0.0,50.0,60.0,100.0 | stepFaces=16 faceOrderAgree=16/16 scale=1
+  solid     #1934 MANIFOLD_SOLID_BREP (1854 ents, 122 kB): ok=false 30ms meshes=undefined faces=undefined tris=undefined bb=
+  absr      #3812 ADVANCED_BREP_SHAPE_REPRESENTATION (2392 ents, 168 kB): ok=false 41ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #3812 ADVANCED_BREP_SHAPE_REPRESENTATION (2392 ents, 169 kB): ok=true 104ms meshes=1 faces=18 tris=900 bb=0.0,0.0,-0.0,180.0,150.0,20.0 | stepFaces=18 faceOrderAgree=18/18 scale=1
+  solid     #3813 MANIFOLD_SOLID_BREP (2382 ents, 167 kB): ok=false 41ms meshes=undefined faces=undefined tris=undefined bb=
+
+== trj7_k1-al-214.stp (0.57 MB, 6182 ents, index 3 ms)
+  whole: ok=true 354ms meshes=3 faces=57 tris=7600 bb=7.0,-25.4,-6.4,127.0,17.1,6.4
+  absr      #6176 SHAPE_REPRESENTATION (6159 ents, 568 kB): ok=false 68ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #6176 SHAPE_REPRESENTATION (6159 ents, 568 kB): ok=true 233ms meshes=3 faces=57 tris=7600 bb=7.0,-25.4,-6.4,127.0,17.1,6.4 | stepFaces=57 faceOrderAgree=57/57 scale=1
+  solid     #1033 SHELL_BASED_SURFACE_MODEL (2256 ents, 211 kB): ok=false 25ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #1034 SHELL_BASED_SURFACE_MODEL (2949 ents, 275 kB): ok=false 32ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #1035 SHELL_BASED_SURFACE_MODEL (944 ents, 83 kB): ok=false 10ms meshes=undefined faces=undefined tris=undefined bb=
+
+== trj7_k1-ct-214.stp (0.12 MB, 1929 ents, index 0 ms)
+  whole: ok=true 72ms meshes=1 faces=58 tris=4316 bb=0.0,-25.4,-6.3,127.0,22.9,6.3
+  absr      #1926 MANIFOLD_SURFACE_SHAPE_REPRESENTATION (1903 ents, 123 kB): ok=false 16ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #1926 MANIFOLD_SURFACE_SHAPE_REPRESENTATION (1903 ents, 124 kB): ok=true 73ms meshes=1 faces=58 tris=4316 bb=0.0,-25.4,-6.3,127.0,22.9,6.3 | stepFaces=58 faceOrderAgree=58/58 scale=1
+  solid     #1927 SHELL_BASED_SURFACE_MODEL (1897 ents, 123 kB): ok=false 16ms meshes=undefined faces=undefined tris=undefined bb=
+
+== trj7_k1-ec-214.stp (0.56 MB, 6464 ents, index 2 ms)
+  whole: ok=true 178ms meshes=1 faces=45 tris=2067 bb=0.0,-1.0,-0.2,5.0,0.9,0.2
+  absr      #6446 MANIFOLD_SURFACE_SHAPE_REPRESENTATION (6431 ents, 553 kB): ok=false 63ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #6446 MANIFOLD_SURFACE_SHAPE_REPRESENTATION (6431 ents, 554 kB): ok=true 174ms meshes=1 faces=45 tris=2067 bb=0.0,-1.0,-0.2,5.0,0.9,0.2 | stepFaces=45 faceOrderAgree=45/45 scale=1
+  solid     #6445 SHELL_BASED_SURFACE_MODEL (6421 ents, 552 kB): ok=false 64ms meshes=undefined faces=undefined tris=undefined bb=
+
+== trj7_k1-id-214.stp (0.16 MB, 1973 ents, index 0 ms)
+  whole: ok=true 140ms meshes=1 faces=46 tris=8886 bb=0.0,-25.4,-6.3,127.0,22.9,6.3
+  absr      #44 MANIFOLD_SURFACE_SHAPE_REPRESENTATION (1817 ents, 154 kB): ok=false 19ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #44 MANIFOLD_SURFACE_SHAPE_REPRESENTATION (1817 ents, 154 kB): ok=true 137ms meshes=1 faces=46 tris=8886 bb=0.0,-25.4,-6.3,127.0,22.9,6.3 | stepFaces=46 faceOrderAgree=2/46 scale=25.4
+  solid     #2248 SHELL_BASED_SURFACE_MODEL (1805 ents, 153 kB): ok=false 19ms meshes=undefined faces=undefined tris=undefined bb=
+
+== trj7_k1-pe-214.stp (0.13 MB, 2205 ents, index 0 ms)
+  whole: ok=true 83ms meshes=1 faces=52 tris=4088 bb=0.0,-25.4,-6.3,127.0,22.9,6.3
+  absr      #2179 MANIFOLD_SURFACE_SHAPE_REPRESENTATION (2172 ents, 128 kB): ok=false 16ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #2179 MANIFOLD_SURFACE_SHAPE_REPRESENTATION (2172 ents, 129 kB): ok=true 81ms meshes=1 faces=52 tris=4088 bb=0.0,-25.4,-6.3,127.0,22.9,6.3 | stepFaces=52 faceOrderAgree=52/52 scale=25.4
+  solid     #2167 SHELL_BASED_SURFACE_MODEL (2160 ents, 127 kB): ok=false 16ms meshes=undefined faces=undefined tris=undefined bb=
+  absr      #2188 SHAPE_REPRESENTATION (2172 ents, 128 kB): ok=false 16ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #2188 SHAPE_REPRESENTATION (2172 ents, 129 kB): ok=true 82ms meshes=1 faces=52 tris=4088 bb=0.0,-25.4,-6.3,127.0,22.9,6.3 | stepFaces=52 faceOrderAgree=52/52 scale=25.4
+  solid     #2167 SHELL_BASED_SURFACE_MODEL (2160 ents, 127 kB): ok=false 16ms meshes=undefined faces=undefined tris=undefined bb=
+
+== trj7_k1-sd-214.stp (0.22 MB, 3154 ents, index 1 ms)
+  whole: ok=true 93ms meshes=2 faces=57 tris=4266 bb=0.0,-25.4,-6.3,127.0,22.8,6.3
+  absr      #30730 MANIFOLD_SURFACE_SHAPE_REPRESENTATION (3061 ents, 214 kB): ok=false 26ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #30730 MANIFOLD_SURFACE_SHAPE_REPRESENTATION (3061 ents, 214 kB): ok=true 90ms meshes=1 faces=55 tris=3888 bb=0.0,-25.4,-6.3,123.2,22.8,6.3 | stepFaces=55 faceOrderAgree=55/55 scale=1
+  solid     #30510 SHELL_BASED_SURFACE_MODEL (3051 ents, 213 kB): ok=false 26ms meshes=undefined faces=undefined tris=undefined bb=
+  absr      #31440 MANIFOLD_SURFACE_SHAPE_REPRESENTATION (49 ents, 3 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #31440 MANIFOLD_SURFACE_SHAPE_REPRESENTATION (49 ents, 3 kB): ok=true 2ms meshes=1 faces=2 tris=378 bb=123.2,-3.8,-3.8,127.0,3.8,3.8 | stepFaces=2 faceOrderAgree=2/2 scale=1
+  solid     #31220 SHELL_BASED_SURFACE_MODEL (39 ents, 2 kB): ok=false 0ms meshes=undefined faces=undefined tris=undefined bb=
+
+== trj7_k1-ug-214.stp (0.12 MB, 2673 ents, index 0 ms)
+  whole: ok=true 58ms meshes=44 faces=44 tris=4464 bb=0.0,-25.4,-6.3,127.0,22.9,6.3
+  absr      #11 MANIFOLD_SURFACE_SHAPE_REPRESENTATION (2346 ents, 105 kB): ok=false 14ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #11 MANIFOLD_SURFACE_SHAPE_REPRESENTATION (2346 ents, 106 kB): ok=true 55ms meshes=44 faces=44 tris=4464 bb=0.0,-25.4,-6.3,127.0,22.9,6.3 | stepFaces=44 faceOrderAgree=44/44 scale=25.4
+  solid     #416 SHELL_BASED_SURFACE_MODEL (171 ents, 12 kB): ok=false 2ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #417 SHELL_BASED_SURFACE_MODEL (55 ents, 3 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #418 SHELL_BASED_SURFACE_MODEL (33 ents, 2 kB): ok=false 0ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #419 SHELL_BASED_SURFACE_MODEL (55 ents, 3 kB): ok=false 0ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #420 SHELL_BASED_SURFACE_MODEL (121 ents, 9 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #421 SHELL_BASED_SURFACE_MODEL (28 ents, 2 kB): ok=false 0ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #422 SHELL_BASED_SURFACE_MODEL (28 ents, 2 kB): ok=false 0ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #423 SHELL_BASED_SURFACE_MODEL (30 ents, 2 kB): ok=false 0ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #424 SHELL_BASED_SURFACE_MODEL (30 ents, 2 kB): ok=false 0ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #425 SHELL_BASED_SURFACE_MODEL (30 ents, 2 kB): ok=false 0ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #426 SHELL_BASED_SURFACE_MODEL (30 ents, 2 kB): ok=false 0ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #427 SHELL_BASED_SURFACE_MODEL (30 ents, 2 kB): ok=false 0ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #428 SHELL_BASED_SURFACE_MODEL (30 ents, 2 kB): ok=false 0ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #429 SHELL_BASED_SURFACE_MODEL (66 ents, 3 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #430 SHELL_BASED_SURFACE_MODEL (19 ents, 1 kB): ok=false 0ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #431 SHELL_BASED_SURFACE_MODEL (42 ents, 2 kB): ok=false 0ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #432 SHELL_BASED_SURFACE_MODEL (42 ents, 2 kB): ok=false 0ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #433 SHELL_BASED_SURFACE_MODEL (42 ents, 2 kB): ok=false 0ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #434 SHELL_BASED_SURFACE_MODEL (42 ents, 2 kB): ok=false 0ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #435 SHELL_BASED_SURFACE_MODEL (42 ents, 2 kB): ok=false 0ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #436 SHELL_BASED_SURFACE_MODEL (42 ents, 2 kB): ok=false 0ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #437 SHELL_BASED_SURFACE_MODEL (42 ents, 2 kB): ok=false 0ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #438 SHELL_BASED_SURFACE_MODEL (42 ents, 2 kB): ok=false 0ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #439 SHELL_BASED_SURFACE_MODEL (42 ents, 2 kB): ok=false 0ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #440 SHELL_BASED_SURFACE_MODEL (42 ents, 2 kB): ok=false 0ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #441 SHELL_BASED_SURFACE_MODEL (42 ents, 2 kB): ok=false 0ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #442 SHELL_BASED_SURFACE_MODEL (42 ents, 2 kB): ok=false 0ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #443 SHELL_BASED_SURFACE_MODEL (42 ents, 2 kB): ok=false 0ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #444 SHELL_BASED_SURFACE_MODEL (42 ents, 2 kB): ok=false 0ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #445 SHELL_BASED_SURFACE_MODEL (42 ents, 2 kB): ok=false 0ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #446 SHELL_BASED_SURFACE_MODEL (42 ents, 2 kB): ok=false 0ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #447 SHELL_BASED_SURFACE_MODEL (42 ents, 2 kB): ok=false 0ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #448 SHELL_BASED_SURFACE_MODEL (43 ents, 2 kB): ok=false 0ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #449 SHELL_BASED_SURFACE_MODEL (43 ents, 2 kB): ok=false 0ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #450 SHELL_BASED_SURFACE_MODEL (170 ents, 7 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #451 SHELL_BASED_SURFACE_MODEL (170 ents, 7 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #452 SHELL_BASED_SURFACE_MODEL (53 ents, 3 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #453 SHELL_BASED_SURFACE_MODEL (46 ents, 2 kB): ok=false 0ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #454 SHELL_BASED_SURFACE_MODEL (53 ents, 3 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #455 SHELL_BASED_SURFACE_MODEL (53 ents, 3 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #456 SHELL_BASED_SURFACE_MODEL (46 ents, 2 kB): ok=false 0ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #457 SHELL_BASED_SURFACE_MODEL (53 ents, 4 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #458 SHELL_BASED_SURFACE_MODEL (67 ents, 6 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #459 SHELL_BASED_SURFACE_MODEL (67 ents, 6 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+
+== sp7_04-dx-242.stp (0.83 MB, 15075 ents, index 4 ms)
+  whole: ok=true 437ms meshes=2 faces=406 tris=32393 bb=-250.0,0.0,-100.6,250.0,780.0,30.0
+  absr      #13456 ADVANCED_BREP_SHAPE_REPRESENTATION (11074 ents, 468 kB): ok=false 65ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #13456 ADVANCED_BREP_SHAPE_REPRESENTATION (11074 ents, 468 kB): ok=true 376ms meshes=1 faces=405 tris=32336 bb=-250.0,0.0,-100.6,250.0,780.0,30.0 | stepFaces=405 faceOrderAgree=405/405 scale=1
+  solid     #11080 MANIFOLD_SOLID_BREP (11065 ents, 467 kB): ok=false 63ms meshes=undefined faces=undefined tris=undefined bb=
+  absr      #13457 MANIFOLD_SURFACE_SHAPE_REPRESENTATION (28 ents, 2 kB): ok=false 0ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #13457 MANIFOLD_SURFACE_SHAPE_REPRESENTATION (28 ents, 2 kB): ok=true 1ms meshes=1 faces=1 tris=57 bb=97.5,312.5,-13.8,132.5,347.5,-13.8 | stepFaces=1 faceOrderAgree=1/1 scale=1
+  solid     #11122 SHELL_BASED_SURFACE_MODEL (19 ents, 1 kB): ok=false 0ms meshes=undefined faces=undefined tris=undefined bb=
+*** ERR StepReaderData : Unresolved Reference : Fails Count : 1 ***
+
+== bug32049_sp7_10nx_242.stp (5.21 MB, 11990 ents, index 14 ms)
+  whole: ok=true 4843ms meshes=1 faces=256 tris=18032 bb=0.0,-0.0,0.0,158.0,31.0,75.0
+*** ERR StepReaderData : Unresolved Reference : Fails Count : 1 ***
+  absr      #2882 ADVANCED_BREP_SHAPE_REPRESENTATION (7408 ents, 326 kB): ok=false 43ms meshes=undefined faces=undefined tris=undefined bb=
+*** ERR StepReaderData : Unresolved Reference : Fails Count : 1 ***
+  absr+wrap #2882 ADVANCED_BREP_SHAPE_REPRESENTATION (7408 ents, 326 kB): ok=true 242ms meshes=1 faces=256 tris=18032 bb=0.0,-0.0,0.0,158.0,31.0,75.0 | stepFaces=256 faceOrderAgree=256/256 scale=1
+*** ERR StepReaderData : Unresolved Reference : Fails Count : 1 ***
+  solid     #6730 MANIFOLD_SOLID_BREP (7402 ents, 325 kB): ok=false 43ms meshes=undefined faces=undefined tris=undefined bb=
+
+== bug33569.stp (4.01 MB, 55089 ents, index 15 ms)
+  whole: ok=true 491ms meshes=4 faces=30 tris=388 bb=0.0,0.0,-400.0,500.0,300.0,0.0
+  absr      #1463 ADVANCED_BREP_SHAPE_REPRESENTATION (814 ents, 32 kB): ok=false 5ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #1463 ADVANCED_BREP_SHAPE_REPRESENTATION (814 ents, 33 kB): ok=true 18ms meshes=4 faces=30 tris=388 bb=0.0,0.0,-400.0,500.0,300.0,0.0 | stepFaces=30 faceOrderAgree=30/30 scale=1
+  solid     #276 MANIFOLD_SOLID_BREP (150 ents, 6 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #541 MANIFOLD_SOLID_BREP (150 ents, 6 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #914 MANIFOLD_SOLID_BREP (216 ents, 9 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #1403 MANIFOLD_SOLID_BREP (290 ents, 12 kB): ok=false 2ms meshes=undefined faces=undefined tris=undefined bb=
+  absr      #1483 SHAPE_REPRESENTATION (158 ents, 7 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #1483 SHAPE_REPRESENTATION (158 ents, 7 kB): ok=true 3ms meshes=1 faces=6 tris=12 bb=0.0,0.0,-400.0,500.0,300.0,0.0 | stepFaces=6 faceOrderAgree=6/6 scale=1
+  solid     #276 MANIFOLD_SOLID_BREP (150 ents, 6 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+  absr      #1500 SHAPE_REPRESENTATION (158 ents, 7 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #1500 SHAPE_REPRESENTATION (158 ents, 7 kB): ok=true 3ms meshes=1 faces=6 tris=12 bb=0.0,0.0,-400.0,500.0,295.0,0.0 | stepFaces=6 faceOrderAgree=6/6 scale=1
+  solid     #541 MANIFOLD_SOLID_BREP (150 ents, 6 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+  absr      #1517 SHAPE_REPRESENTATION (224 ents, 9 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #1517 SHAPE_REPRESENTATION (224 ents, 10 kB): ok=true 5ms meshes=1 faces=8 tris=20 bb=0.0,0.0,-400.0,500.0,275.0,0.0 | stepFaces=8 faceOrderAgree=8/8 scale=1
+  solid     #914 MANIFOLD_SOLID_BREP (216 ents, 9 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+  absr      #1534 SHAPE_REPRESENTATION (298 ents, 13 kB): ok=false 2ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #1534 SHAPE_REPRESENTATION (298 ents, 13 kB): ok=true 8ms meshes=1 faces=10 tris=344 bb=0.0,0.0,-400.0,500.0,275.0,0.0 | stepFaces=10 faceOrderAgree=10/10 scale=1
+  solid     #1403 MANIFOLD_SOLID_BREP (290 ents, 12 kB): ok=false 2ms meshes=undefined faces=undefined tris=undefined bb=
+  absr      #1551 SHAPE_REPRESENTATION (814 ents, 32 kB): ok=false 5ms meshes=undefined faces=undefined tris=undefined bb=
+  absr+wrap #1551 SHAPE_REPRESENTATION (814 ents, 32 kB): ok=true 18ms meshes=4 faces=30 tris=388 bb=0.0,0.0,-400.0,500.0,300.0,0.0 | stepFaces=30 faceOrderAgree=30/30 scale=1
+  solid     #276 MANIFOLD_SOLID_BREP (150 ents, 6 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #541 MANIFOLD_SOLID_BREP (150 ents, 6 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #914 MANIFOLD_SOLID_BREP (216 ents, 9 kB): ok=false 1ms meshes=undefined faces=undefined tris=undefined bb=
+  solid     #1403 MANIFOLD_SOLID_BREP (290 ents, 12 kB): ok=false 2ms meshes=undefined faces=undefined tris=undefined bb=
+
+final rss 737 MiB, wasm heap 103 MiB

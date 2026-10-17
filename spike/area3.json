@@ -1,0 +1,1130 @@
+[
+ {
+  "f": "bug21802_as1-oc-214.stp.absr.1189.stp",
+  "ref": 1559.9514946290342,
+  "truck": 0.9993333911724968,
+  "mtruck": 1.0009592620927465
+ },
+ {
+  "f": "bug21802_as1-oc-214.stp.absr.1933.stp",
+  "ref": 24630.008373357483,
+  "truck": 1.0000167441059686,
+  "mtruck": 1.0000856805367764
+ },
+ {
+  "f": "bug21802_as1-oc-214.stp.absr.3812.stp",
+  "ref": 70027.4280766802,
+  "truck": 0.9999962851546057,
+  "mtruck": 1.0000676873349692
+ },
+ {
+  "f": "bug21802_as1-oc-214.stp.absr.62.stp",
+  "ref": 747.8873991544863,
+  "truck": 1.0002688427538509,
+  "mtruck": 1.0004450997687042
+ },
+ {
+  "f": "bug21802_as1-oc-214.stp.absr.758.stp",
+  "ref": 6430.957933350871,
+  "truck": 0.9995207035395224,
+  "mtruck": 1.0008360473910753
+ },
+ {
+  "f": "bug32049_sp7_10nx_242.stp.absr.2882.stp",
+  "ref": 48455.22298161566,
+  "truck": 1.1872921008814907,
+  "mtruck": 0.985556921187475
+ },
+ {
+  "f": "bug33569.stp.absr.1463.stp",
+  "ref": 3583677.696271984,
+  "truck": 0.9999994488908467,
+  "mtruck": 1.0000002641128254
+ },
+ {
+  "f": "bug33569.stp.absr.1483.stp",
+  "ref": 940000,
+  "truck": 1,
+  "mtruck": 1
+ },
+ {
+  "f": "bug33569.stp.absr.1500.stp",
+  "ref": 931000,
+  "truck": 1,
+  "mtruck": 1
+ },
+ {
+  "f": "bug33569.stp.absr.1517.stp",
+  "ref": 842500,
+  "truck": 1,
+  "mtruck": 1
+ },
+ {
+  "f": "bug33569.stp.absr.1534.stp",
+  "ref": 870177.6962719853,
+  "truck": 0.9999977303513884,
+  "mtruck": 1.00000108770294
+ },
+ {
+  "f": "bug33569.stp.absr.1551.stp",
+  "ref": 3583677.696271984,
+  "truck": 0.9999994488908467,
+  "mtruck": 1.0000002641128254
+ },
+ {
+  "f": "nist_ctc_01_asme1_ap242-e1.stp.absr.643.stp",
+  "ref": 807037.4991868968,
+  "truck": 0.999986929033221,
+  "mtruck": 1.0001009803031715
+ },
+ {
+  "f": "nist_ctc_02_asme1_ap242-e2.stp.absr.1333.stp",
+  "ref": 10085.563757748907,
+  "truck": 0.9993626169851383,
+  "mtruck": 0.9993626169851383
+ },
+ {
+  "f": "nist_ctc_02_asme1_ap242-e2.stp.absr.1341.stp",
+  "ref": 2480284.3346193065,
+  "truck": 1.040910113091663,
+  "mtruck": 1.0053346900266735
+ },
+ {
+  "f": "nist_ctc_02_asme1_ap242-e2.stp.absr.21821.stp",
+  "ref": 2480284.3346193065,
+  "truck": 1.040910113091663,
+  "mtruck": 1.0053346900266735
+ },
+ {
+  "f": "nist_ctc_02_asme1_ap242-e2.stp.absr.21822.stp",
+  "ref": 5670.0915668422,
+  "truck": 0.9992668044963201,
+  "mtruck": 0.9992668044963199
+ },
+ {
+  "f": "nist_ctc_02_asme1_ap242-e2.stp.absr.21823.stp",
+  "ref": 4415.472190906708,
+  "truck": 0.9994856537887579,
+  "mtruck": 0.9994856537887579
+ },
+ {
+  "f": "nist_ctc_02_asme1_ap242-e2.stp.absr.21835.stp",
+  "ref": 5670.0915668422,
+  "truck": 0.9992668044963201,
+  "mtruck": 0.9992668044963199
+ },
+ {
+  "f": "nist_ctc_02_asme1_ap242-e2.stp.absr.21836.stp",
+  "ref": 4415.472190906708,
+  "truck": 0.9994856537887579,
+  "mtruck": 0.9994856537887579
+ },
+ {
+  "f": "nist_ctc_03_asme1_ap242-e2.stp.absr.5619.stp",
+  "ref": 354771.24515540735,
+  "truck": 0.9999769562780044,
+  "mtruck": 1.000173359365575
+ },
+ {
+  "f": "nist_ctc_03_asme1_ap242-e2.stp.absr.922.stp",
+  "ref": 354771.24515540735,
+  "truck": 0.9999769562780044,
+  "mtruck": 1.000173359365575
+ },
+ {
+  "f": "nist_ctc_04_asme1_ap242-e1.stp.absr.18027.stp",
+  "ref": 1022336.8017114198,
+  "truck": 1.0006111825592943,
+  "mtruck": 1.000711191670371
+ },
+ {
+  "f": "nist_ctc_04_asme1_ap242-e1.stp.absr.18028.stp",
+  "ref": 960.3554322845303,
+  "truck": 0.9980972066408157,
+  "mtruck": 0.9980972066408152
+ },
+ {
+  "f": "nist_ctc_05_asme1_ap242-e1.stp.absr.1177.stp",
+  "ref": 1332.4402714279918,
+  "truck": 1.116066731803162,
+  "mtruck": 0.9302011360140522
+ },
+ {
+  "f": "nist_ftc_06_asme1_ap242-e2.stp.absr.2155.stp",
+  "ref": 283355.43724446854,
+  "truck": 1.0015227551265509,
+  "mtruck": 1.000149171242112
+ },
+ {
+  "f": "nist_ftc_06_asme1_ap242-e2.stp.absr.9322.stp",
+  "ref": 283355.43724446854,
+  "truck": 1.0015227551265509,
+  "mtruck": 1.000149171242112
+ },
+ {
+  "f": "nist_ftc_06_asme1_ap242-e2.stp.absr.9323.stp",
+  "ref": 283355.43724446854,
+  "truck": 1.0015227551265509,
+  "mtruck": 1.000149171242112
+ },
+ {
+  "f": "nist_ftc_07_asme1_ap242-e2.stp.absr.13541.stp",
+  "ref": 606.5992022325224,
+  "truck": 0.9988847738311476,
+  "mtruck": 0.9993675977511758
+ },
+ {
+  "f": "nist_ftc_07_asme1_ap242-e2.stp.absr.13542.stp",
+  "ref": 0.02416811114551365,
+  "truck": 1.0000015937463962,
+  "mtruck": 1.0000015937463962
+ },
+ {
+  "f": "nist_ftc_08_asme1_ap242-e2.stp.absr.1711.stp",
+  "ref": 297.1020254780581,
+  "truck": 0.9934101518471004,
+  "mtruck": 0.999504643939148
+ },
+ {
+  "f": "nist_ftc_09_asme1_ap242-e1.stp.absr.6016.stp",
+  "ref": 96633.07394371193,
+  "truck": 1.000209234683373,
+  "mtruck": 1.0003239035517095
+ },
+ {
+  "f": "nist_ftc_09_asme1_ap242-e1.stp.absr.6261.stp",
+  "ref": 146.7160561123964,
+  "truck": 0.9978213684186558,
+  "mtruck": 1.001875687235846
+ },
+ {
+  "f": "nist_ftc_10_asme1_ap242-e2.stp.absr.17967.stp",
+  "ref": 48502.979376599396,
+  "truck": 0.992908968086127,
+  "mtruck": 0.9992264986148185
+ },
+ {
+  "f": "nist_ftc_10_asme1_ap242-e2.stp.absr.17968.stp",
+  "ref": 2708.8043293443916,
+  "truck": 0.9950010295995568,
+  "mtruck": 1.001918984017882
+ },
+ {
+  "f": "nist_ftc_11_asme1_ap242-e2.stp.absr.466.stp",
+  "ref": 5467.100014728688,
+  "truck": 0.9978641201929047,
+  "mtruck": 1.0320214425062304
+ },
+ {
+  "f": "nist_stc_06_asme1_ap242-e3.stp.absr.5079.stp",
+  "ref": 283355.8944873918,
+  "truck": 1.000227598421047,
+  "mtruck": 0.990547979574846
+ },
+ {
+  "f": "nist_stc_07_asme1_ap242-e3.stp.absr.11020.stp",
+  "ref": 606.6075924380897,
+  "truck": null,
+  "mtruck": null
+ },
+ {
+  "f": "nist_stc_07_asme1_ap242-e3.stp.absr.13816.stp",
+  "ref": 606.6075924380897,
+  "truck": null,
+  "mtruck": null
+ },
+ {
+  "f": "nist_stc_07_asme1_ap242-e3.stp.absr.13843.stp",
+  "ref": 606.6075924380897,
+  "truck": null,
+  "mtruck": null
+ },
+ {
+  "f": "nist_stc_07_asme1_ap242-e3.stp.absr.13870.stp",
+  "ref": 606.6075924380897,
+  "truck": null,
+  "mtruck": null
+ },
+ {
+  "f": "nist_stc_07_asme1_ap242-e3.stp.absr.13897.stp",
+  "ref": 606.6075924380897,
+  "truck": null,
+  "mtruck": null
+ },
+ {
+  "f": "nist_stc_07_asme1_ap242-e3.stp.absr.152.stp",
+  "ref": 0.02416811114551365,
+  "truck": 1.0000015943717704,
+  "mtruck": 1.0000015943717704
+ },
+ {
+  "f": "nist_stc_08_asme1_ap242-e3.stp.absr.11473.stp",
+  "ref": 191656.46972348454,
+  "truck": 0.9997788518140371,
+  "mtruck": 1.00024286568114
+ },
+ {
+  "f": "nist_stc_08_asme1_ap242-e3.stp.absr.11474.stp",
+  "ref": 3406.4449302246067,
+  "truck": 0.9999999617793631,
+  "mtruck": 0.9999999617793631
+ },
+ {
+  "f": "nist_stc_08_asme1_ap242-e3.stp.absr.11477.stp",
+  "ref": 3406.4449302246067,
+  "truck": 0.9999999617793631,
+  "mtruck": 0.9999999617793631
+ },
+ {
+  "f": "nist_stc_08_asme1_ap242-e3.stp.absr.1776.stp",
+  "ref": 3406.4449302246067,
+  "truck": 0.9999999617793631,
+  "mtruck": 0.9999999617793631
+ },
+ {
+  "f": "nist_stc_08_asme1_ap242-e3.stp.absr.1781.stp",
+  "ref": 191656.46972348454,
+  "truck": 0.9997788518140371,
+  "mtruck": 1.00024286568114
+ },
+ {
+  "f": "nist_stc_09_asme1_ap242-e3.stp.absr.4622.stp",
+  "ref": 149.7931076209677,
+  "truck": 1.0069420514465905,
+  "mtruck": 1.0069420514465706
+ },
+ {
+  "f": "nist_stc_10_asme1_ap242-e2.stp.absr.3044.stp",
+  "ref": 48455.040724594146,
+  "truck": 1.1885135491082173,
+  "mtruck": 0.9848918164978807
+ },
+ {
+  "f": "sp7_04-dx-242.stp.absr.13456.stp",
+  "ref": 1022917.275384488,
+  "truck": 1.0013967293791783,
+  "mtruck": 1.0003343709477683
+ },
+ {
+  "f": "sp7_04-dx-242.stp.absr.13457.stp",
+  "ref": 960.2953019686975,
+  "truck": 0.9981597039790235,
+  "mtruck": 0.9981597039790234
+ },
+ {
+  "f": "trj2_as1-id-203.stp.absr.1138.stp",
+  "ref": 24630.14905334624,
+  "truck": 1.0008330414181816,
+  "mtruck": 0.94933215372128
+ },
+ {
+  "f": "trj2_as1-id-203.stp.absr.1589.stp",
+  "ref": 6430.184339359698,
+  "truck": 1.000059732944903,
+  "mtruck": 0.024268568629917272
+ },
+ {
+  "f": "trj2_as1-id-203.stp.absr.247.stp",
+  "ref": 70027.42774719777,
+  "truck": 1.0000183326182215,
+  "mtruck": 0.9462534025890295
+ },
+ {
+  "f": "trj2_as1-id-203.stp.absr.730.stp",
+  "ref": 747.9479384105036,
+  "truck": 1.0003222552647488,
+  "mtruck": 0.8743237282623764
+ },
+ {
+  "f": "trj2_as1-id-203.stp.absr.891.stp",
+  "ref": 1653.9642557013922,
+  "truck": null,
+  "mtruck": 0.21228728562960164
+ },
+ {
+  "f": "trj2_as1-tc-214.stp.absr.1117.stp",
+  "ref": 1559.890368994695,
+  "truck": 0.9996652303926458,
+  "mtruck": 1.002040059256975
+ },
+ {
+  "f": "trj2_as1-tc-214.stp.absr.1137.stp",
+  "ref": 1559.890368994695,
+  "truck": 0.9996652303926458,
+  "mtruck": 1.002040059256975
+ },
+ {
+  "f": "trj2_as1-tc-214.stp.absr.1879.stp",
+  "ref": 70027.42605525133,
+  "truck": 0.9999999286499668,
+  "mtruck": 1.0000721192962176
+ },
+ {
+  "f": "trj2_as1-tc-214.stp.absr.1899.stp",
+  "ref": 70027.42605525133,
+  "truck": 0.9999999286499668,
+  "mtruck": 1.0000721192962176
+ },
+ {
+  "f": "trj2_as1-tc-214.stp.absr.2026.stp",
+  "ref": 6430.2043919153,
+  "truck": 0.9996282973621374,
+  "mtruck": 1.0009454097893185
+ },
+ {
+  "f": "trj2_as1-tc-214.stp.absr.2046.stp",
+  "ref": 6430.2043919153,
+  "truck": 0.9996282973621374,
+  "mtruck": 1.0009454097893185
+ },
+ {
+  "f": "trj2_as1-tc-214.stp.absr.609.stp",
+  "ref": 24630.1458625229,
+  "truck": 1.0000174006567095,
+  "mtruck": 1.0000887403769183
+ },
+ {
+  "f": "trj2_as1-tc-214.stp.absr.629.stp",
+  "ref": 24630.1458625229,
+  "truck": 1.0000174006567095,
+  "mtruck": 1.0000887403769183
+ },
+ {
+  "f": "trj2_as1-tc-214.stp.absr.887.stp",
+  "ref": 747.944433055904,
+  "truck": 1.0002458941041976,
+  "mtruck": 1.0004403560747896
+ },
+ {
+  "f": "trj2_as1-tc-214.stp.absr.907.stp",
+  "ref": 747.944433055904,
+  "truck": 1.0002458941041976,
+  "mtruck": 1.0004403560747896
+ },
+ {
+  "f": "trj7_k1-al-214.stp.absr.6176.stp",
+  "ref": 4943.728406671196,
+  "truck": 0.9720527562903457,
+  "mtruck": 1.2894771119587285
+ },
+ {
+  "f": "trj7_k1-ct-214.stp.absr.1926.stp",
+  "ref": 5832.98206986,
+  "truck": null,
+  "mtruck": 1.218950544267672
+ },
+ {
+  "f": "trj7_k1-ec-214.stp.absr.6446.stp",
+  "ref": 8.989379955390373,
+  "truck": 0.9898158769163127,
+  "mtruck": 1.0156315881323812
+ },
+ {
+  "f": "trj7_k1-id-214.stp.absr.44.stp",
+  "ref": 8.965346825981662,
+  "truck": 1.504719923818954,
+  "mtruck": 0.6853845425832987
+ },
+ {
+  "f": "trj7_k1-pe-214.stp.absr.2179.stp",
+  "ref": 9.054097704105988,
+  "truck": 0.9494797312179988,
+  "mtruck": 0.9635096124569436
+ },
+ {
+  "f": "trj7_k1-pe-214.stp.absr.2188.stp",
+  "ref": 9.054097704105988,
+  "truck": 0.9494797312179988,
+  "mtruck": 0.9635096124569436
+ },
+ {
+  "f": "trj7_k1-sd-214.stp.absr.30730.stp",
+  "ref": 5732.149101856065,
+  "truck": 1.465310369247874,
+  "mtruck": 3.2683037624031597
+ },
+ {
+  "f": "trj7_k1-sd-214.stp.absr.31440.stp",
+  "ref": 90.28182033148919,
+  "truck": 0.9896531389428632,
+  "mtruck": 1.0122576287516971
+ },
+ {
+  "f": "trj7_k1-ug-214.stp.absr.11.stp",
+  "ref": 9.005926751375448,
+  "truck": 0.8837327617370807,
+  "mtruck": 0.953319141275636
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1164.stp",
+  "ref": 1459.2961455168602,
+  "truck": 0.9999479896480417,
+  "mtruck": 0.9999435023474663
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1170.stp",
+  "ref": 111.74644487112995,
+  "truck": 0.9967253221340006,
+  "mtruck": 0.04059713364411976
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1195.stp",
+  "ref": 4592.445471854528,
+  "truck": 0.997492237076991,
+  "mtruck": 1.010038939041582
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1201.stp",
+  "ref": 998.7978966430545,
+  "truck": 0.9182851270193069,
+  "mtruck": 0.858890681607248
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1209.stp",
+  "ref": 652.067584727987,
+  "truck": 0.9971452765386449,
+  "mtruck": 0.9982415049294201
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1217.stp",
+  "ref": 900.3410394517678,
+  "truck": 0.9965793427064757,
+  "mtruck": 1.2044968039007597
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1225.stp",
+  "ref": 14.24034841640599,
+  "truck": 1.6755955826711224,
+  "mtruck": 0.567320665386971
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1324.stp",
+  "ref": 2892.2959384314536,
+  "truck": 1.0004751754091363,
+  "mtruck": 1.001463108394151
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1330.stp",
+  "ref": 12404.351020980443,
+  "truck": 1.0814728912384854,
+  "mtruck": 0.04057623967364961
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1336.stp",
+  "ref": 10295.3253748471,
+  "truck": 1.0072099266889167,
+  "mtruck": 0.9026748711547237
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1342.stp",
+  "ref": 1280.952901353542,
+  "truck": 0.6060211860362724,
+  "mtruck": 0.9999836975043028
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1350.stp",
+  "ref": 682.223676882323,
+  "truck": 1.0563298932784644,
+  "mtruck": 0.9988243859711747
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1362.stp",
+  "ref": 8369.514751534512,
+  "truck": 0.9986993513882928,
+  "mtruck": 0.9993851417445432
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1371.stp",
+  "ref": 483.8301418128071,
+  "truck": 0.9985924881929487,
+  "mtruck": 1.0004924837124902
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1377.stp",
+  "ref": 49.06938994867675,
+  "truck": 1.0307690597876837,
+  "mtruck": 0.184845115755949
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1398.stp",
+  "ref": 7583.5573447015995,
+  "truck": 1.0021172402460832,
+  "mtruck": 1.7326373099404284
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1404.stp",
+  "ref": 2575.8410145623925,
+  "truck": 0.999532684813043,
+  "mtruck": 0.9998486941667813
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1410.stp",
+  "ref": 3766.254571052847,
+  "truck": 1.0200828179369326,
+  "mtruck": 3.546176555218566
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1416.stp",
+  "ref": 4067.923378397303,
+  "truck": 0.999281714095271,
+  "mtruck": 1.163275936014803
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1429.stp",
+  "ref": 384.54059764769215,
+  "truck": 0.9993426668400779,
+  "mtruck": 1.0035944746169498
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1435.stp",
+  "ref": 796.3059044516807,
+  "truck": 1.0217680917053042,
+  "mtruck": 0.9991851129252877
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1441.stp",
+  "ref": 274.08128866238263,
+  "truck": 0.9994560908559257,
+  "mtruck": 1.0008398036423112
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1447.stp",
+  "ref": 555.1077155620202,
+  "truck": 1.034515520705912,
+  "mtruck": 0.9989837668906868
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1453.stp",
+  "ref": 311.39064972581724,
+  "truck": 1.0287936448697896,
+  "mtruck": 0.9353253322824251
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1459.stp",
+  "ref": 305.2497673297793,
+  "truck": 1.0532091828959926,
+  "mtruck": 0.04958812937936252
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1465.stp",
+  "ref": 16387.519249454264,
+  "truck": 0.9982195936897884,
+  "mtruck": 1.2815402712579618
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1471.stp",
+  "ref": 4622.06206666179,
+  "truck": 1.0363394619649926,
+  "mtruck": 1.0013659416237068
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1480.stp",
+  "ref": 1221.6480926792199,
+  "truck": 1.0009296411775412,
+  "mtruck": 1.0024823645596717
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1486.stp",
+  "ref": 49.28610660949055,
+  "truck": 1.0160469247814679,
+  "mtruck": 0.13963155054900064
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1525.stp",
+  "ref": 483.50201947986346,
+  "truck": 0.9999841028471482,
+  "mtruck": 1.0014782915408895
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1531.stp",
+  "ref": 9558.90037400666,
+  "truck": 1.0487243353725646,
+  "mtruck": 1.0002250043766483
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1537.stp",
+  "ref": 1121.7927494304515,
+  "truck": 1.0624168671250371,
+  "mtruck": 0.8487357684703194
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1543.stp",
+  "ref": 575.6620505670875,
+  "truck": 0.4245878649509264,
+  "mtruck": 2.4661323904665156
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1549.stp",
+  "ref": 3406.040278137042,
+  "truck": 1.0007887896785364,
+  "mtruck": 1.0041839560479202
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1555.stp",
+  "ref": 570.9792698908865,
+  "truck": 0.8039184603185359,
+  "mtruck": 1.1307240879635978
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1561.stp",
+  "ref": 150.2416002872933,
+  "truck": 0.998419107196138,
+  "mtruck": 0.9984578366911538
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1596.stp",
+  "ref": 9558.900374006687,
+  "truck": 1.0448095087311569,
+  "mtruck": 1.000225004376562
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1617.stp",
+  "ref": 4622.077250484366,
+  "truck": 1.037640521888385,
+  "mtruck": 1.0013139390479964
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1623.stp",
+  "ref": 16387.51904605636,
+  "truck": 0.9982197297821725,
+  "mtruck": 1.278931745645367
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1632.stp",
+  "ref": 119362.06256264939,
+  "truck": 0.8312167751770979,
+  "mtruck": 0.40894365061925353
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1638.stp",
+  "ref": 3779.206689477829,
+  "truck": 1.0410317087400405,
+  "mtruck": 0.999527625936258
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1653.stp",
+  "ref": 199708.17929633765,
+  "truck": 0.9899063751399406,
+  "mtruck": 1.042130030501103
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1659.stp",
+  "ref": 21456.920370260217,
+  "truck": 1.0093513270701093,
+  "mtruck": 1.0135795682559514
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1665.stp",
+  "ref": 1631.5559717143067,
+  "truck": 0.5058277268380865,
+  "mtruck": 1.0116834759256843
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1705.stp",
+  "ref": 225.02833384913552,
+  "truck": 0.9912104684290987,
+  "mtruck": 1.001020446047573
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1781.stp",
+  "ref": 1737.292070637787,
+  "truck": 0.5089326337760919,
+  "mtruck": 0.9994109493643205
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1821.stp",
+  "ref": 429069.58598712174,
+  "truck": 2.6146087377857343,
+  "mtruck": 1.7306358879375845
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1827.stp",
+  "ref": 24242.26135239886,
+  "truck": 1.0035938752343194,
+  "mtruck": 1.0025224066593978
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1833.stp",
+  "ref": 3587.7562237521015,
+  "truck": 0.8775155588496588,
+  "mtruck": 0.9995740878818116
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1844.stp",
+  "ref": 3394.8069040846563,
+  "truck": 0.9877288402024693,
+  "mtruck": 1.0002104258137166
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1850.stp",
+  "ref": 2887.8066816071864,
+  "truck": 0.9973002165787196,
+  "mtruck": 1.0009542655910835
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1858.stp",
+  "ref": 1000.7622753493281,
+  "truck": 0.9932212570068902,
+  "mtruck": 1.0012120508380093
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1866.stp",
+  "ref": 629.1326463169039,
+  "truck": 0.9971281001451283,
+  "mtruck": 0.9990924376595564
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1872.stp",
+  "ref": 3034.6326631785805,
+  "truck": 1.0319385542396364,
+  "mtruck": 1.0016080871214514
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1878.stp",
+  "ref": 2140.892776985026,
+  "truck": 0.9885944782547057,
+  "mtruck": 1.0001058467826427
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1884.stp",
+  "ref": 867.7473423893387,
+  "truck": 0.9974184671380238,
+  "mtruck": 1.0015171396354299
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1890.stp",
+  "ref": 3241.6737517849774,
+  "truck": 0.9988017526034563,
+  "mtruck": 0.9995129897050178
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1896.stp",
+  "ref": 967.599641313758,
+  "truck": 0.9969260020792647,
+  "mtruck": 0.999647895955783
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1902.stp",
+  "ref": 498.3469272745837,
+  "truck": 0.9947073221566419,
+  "mtruck": 0.893351016984241
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1912.stp",
+  "ref": 235.76276682295222,
+  "truck": 0.9998499875186745,
+  "mtruck": 1.0011875700834283
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1918.stp",
+  "ref": 406.7741755352469,
+  "truck": 0.9951603185177893,
+  "mtruck": 0.9989977158274421
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1926.stp",
+  "ref": 381.70254602703386,
+  "truck": 0.9951627800381236,
+  "mtruck": 0.9988928548872955
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1934.stp",
+  "ref": 6113.844563060149,
+  "truck": 0.999776081821878,
+  "mtruck": 1.0000355295327736
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1940.stp",
+  "ref": 344.1341833030581,
+  "truck": 0.9943388090847286,
+  "mtruck": 0.9982881307108319
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1948.stp",
+  "ref": 5276.999101540425,
+  "truck": 0.9998616242514489,
+  "mtruck": 1.0001530866687804
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1954.stp",
+  "ref": 2209.8212803184974,
+  "truck": 1.0015334138582832,
+  "mtruck": 1.001195356812599
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1965.stp",
+  "ref": 2229.8355218184392,
+  "truck": 1.000918684971102,
+  "mtruck": 1.0011605245040907
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1973.stp",
+  "ref": 5347.566663239237,
+  "truck": 1.0000894527341004,
+  "mtruck": 1.0004663558524256
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1981.stp",
+  "ref": 2487.812948773653,
+  "truck": 0.9780637039985673,
+  "mtruck": 0.9998487409633222
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1989.stp",
+  "ref": 2020,
+  "truck": 1,
+  "mtruck": 1
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.1997.stp",
+  "ref": 10193.451577173704,
+  "truck": 0.9362276846543467,
+  "mtruck": 0.9145434862282241
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.2003.stp",
+  "ref": 4304.587492786125,
+  "truck": 0.9985605620354848,
+  "mtruck": 0.9998315577516541
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.2016.stp",
+  "ref": 210503.5813673873,
+  "truck": 1.1283967619475677,
+  "mtruck": null
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.2022.stp",
+  "ref": 115878.90926001847,
+  "truck": 0.9434985996199285,
+  "mtruck": 0.6603456950094945
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.2028.stp",
+  "ref": 1660.302433556037,
+  "truck": 1.0377449248455124,
+  "mtruck": 0.9993876166540847
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.2036.stp",
+  "ref": 585.6575779732276,
+  "truck": 1.1121022582403284,
+  "mtruck": 0.9976540614934687
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.2044.stp",
+  "ref": 9622.362404074003,
+  "truck": 0.9946509270582646,
+  "mtruck": 0.9993284336055839
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.2050.stp",
+  "ref": 4284.266694447717,
+  "truck": 0.9885966944285107,
+  "mtruck": 0.9990845288501073
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.2056.stp",
+  "ref": 1192.460376092888,
+  "truck": 0.9986516758347579,
+  "mtruck": 0.9994219274858475
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.2062.stp",
+  "ref": 527.0702255028264,
+  "truck": 1.0002288262100776,
+  "mtruck": 1.0002705718497633
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.2075.stp",
+  "ref": 82316.84808752524,
+  "truck": 1.0138147679982317,
+  "mtruck": 0.9446140447399026
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.2081.stp",
+  "ref": 2982.0147577494113,
+  "truck": 1.0105247747230863,
+  "mtruck": 1.3759062541264744
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.2089.stp",
+  "ref": 6861.221657724848,
+  "truck": 0.9454760074595632,
+  "mtruck": 1.0010652584589437
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.2095.stp",
+  "ref": 22701.646378691818,
+  "truck": 0.5229606532223379,
+  "mtruck": 0.9931342882366373
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.2104.stp",
+  "ref": 197.22587165470526,
+  "truck": 0.9925819111867431,
+  "mtruck": 0.9957944176755152
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.2312.stp",
+  "ref": 333.09016033402446,
+  "truck": 0.999405906119023,
+  "mtruck": 1.0006940904644577
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.2318.stp",
+  "ref": 333.0901603340247,
+  "truck": 0.9994059061190228,
+  "mtruck": 1.000694090464454
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.2524.stp",
+  "ref": 333.0901681852723,
+  "truck": 0.9994058825620878,
+  "mtruck": 1.000694066877159
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.2530.stp",
+  "ref": 333.09016818527243,
+  "truck": 0.9994058825620881,
+  "mtruck": 1.0006940668771553
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.2732.stp",
+  "ref": 292.89007056840506,
+  "truck": 0.9988509895921619,
+  "mtruck": 1.0000737428160642
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.2743.stp",
+  "ref": 20183.961433882083,
+  "truck": 0.8391455979763236,
+  "mtruck": 0.9951165453368647
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.2751.stp",
+  "ref": 3984.3420649472328,
+  "truck": 1.00208634753893,
+  "mtruck": 1.0000948805461545
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.2757.stp",
+  "ref": 87450.05848635553,
+  "truck": 0.8533054397920555,
+  "mtruck": 0.9994483049077375
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.2763.stp",
+  "ref": 16863.179028530285,
+  "truck": 1.1938287987881955,
+  "mtruck": 1.158161149128187
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.2769.stp",
+  "ref": 1873.0748496108913,
+  "truck": 1.0272384270851227,
+  "mtruck": 0.9992872786026731
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.2775.stp",
+  "ref": 16863.213973497965,
+  "truck": 1.2680444531125439,
+  "mtruck": 1.1478231621094095
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.2781.stp",
+  "ref": 20622.791714424064,
+  "truck": 0.7059230213282225,
+  "mtruck": 1.0189470301732635
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.2787.stp",
+  "ref": 4805.478137110776,
+  "truck": 1.0665622697238286,
+  "mtruck": 1.166845395903891
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.2819.stp",
+  "ref": 477.21166698558466,
+  "truck": 1.0008781558845148,
+  "mtruck": 1.0011911276431957
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.2935.stp",
+  "ref": 199708.17929633765,
+  "truck": 0.9899063751399406,
+  "mtruck": 1.042130030501103
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.2941.stp",
+  "ref": 225.02833384913552,
+  "truck": 0.9912104684290987,
+  "mtruck": 1.001020446047573
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.3017.stp",
+  "ref": 16446.059529035156,
+  "truck": 1.0108757430470634,
+  "mtruck": 1.0002197196815619
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.3023.stp",
+  "ref": 1768.6313956789113,
+  "truck": 0.5086503000469237,
+  "mtruck": 0.9993852671994538
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.3063.stp",
+  "ref": 3564.6664262200293,
+  "truck": 0.9973875741265046,
+  "mtruck": 1.0080275128125051
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.3077.stp",
+  "ref": 1662.8952967546957,
+  "truck": 0.5055859139681832,
+  "mtruck": 1.011424868652035
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.3117.stp",
+  "ref": 429069.58598712174,
+  "truck": 2.6146087377857343,
+  "mtruck": 1.7306358879375845
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.3126.stp",
+  "ref": 9558.900374006687,
+  "truck": 1.0448095087311569,
+  "mtruck": 1.000225004376562
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.3151.stp",
+  "ref": 16978.806031212447,
+  "truck": 1.0253420212707307,
+  "mtruck": 2.1893936167040957
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.3157.stp",
+  "ref": 79956.87746812461,
+  "truck": 1.0231100971757083,
+  "mtruck": 1.2857902575066407
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.3163.stp",
+  "ref": 1216.5449342526567,
+  "truck": 0.9516818065879319,
+  "mtruck": 0.9991223254775322
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.3171.stp",
+  "ref": 849.1768861771209,
+  "truck": 0.9977197269483898,
+  "mtruck": 0.9995831715953803
+ },
+ {
+  "f": "Median_cx-fs01_bicycle.stp.absr.3177.stp",
+  "ref": 421.06766626234486,
+  "truck": 0.9989768827880346,
+  "mtruck": 1.000063320156555
+ }
+]

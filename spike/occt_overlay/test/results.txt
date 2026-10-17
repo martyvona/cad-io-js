@@ -1,0 +1,29 @@
+# python3 compare.py patched.txt orig.txt   (overlay vs upstream table, 2026-10-17)
+case 1: segments/degrees/params same=True bit-identical=False maxPoleDiff=9.09e-12 rel=9.09e-12 | segments 1 allApprox 1 tolReached 1 maxDev 6.977e-06 || segments 1 allApprox 1 tolReached 1 maxDev 6.977e-06
+case 2: segments/degrees/params same=True bit-identical=False maxPoleDiff=1.64e-11 rel=7.36e-12 | segments 2 allApprox 1 tolReached 1 maxDev 6.529e-06 || segments 2 allApprox 1 tolReached 1 maxDev 6.529e-06
+case 3: segments/degrees/params same=True bit-identical=False maxPoleDiff=4.55e-13 rel=6.05e-14 | segments 29 allApprox 1 tolReached 1 maxDev 9.640e-10 || segments 29 allApprox 1 tolReached 1 maxDev 9.640e-10
+case 4: segments/degrees/params same=False bit-identical=False maxPoleDiff=0.00e+00 rel=0.00e+00 | segments 34 allApprox 1 tolReached 0 maxDev 1.280e+01 || segments 34 allApprox 1 tolReached 0 maxDev 1.052e+01
+case 5: segments/degrees/params same=True bit-identical=False maxPoleDiff=8.29e+04 rel=1.52e+01 | segments 1 allApprox 0 tolReached 0 maxDev 9.479e+03 || segments 1 allApprox 0 tolReached 0 maxDev 5.328e+03
+case 6: segments/degrees/params same=False bit-identical=False maxPoleDiff=0.00e+00 rel=0.00e+00 | segments 16 allApprox 1 tolReached 0 maxDev 1.891e+04 || segments 37 allApprox 1 tolReached 0 maxDev 7.262e+04
+case 7: segments/degrees/params same=True bit-identical=False maxPoleDiff=2.66e-15 rel=7.70e-16 | segments 29 allApprox 1 tolReached 1 maxDev 4.841e-08 || segments 29 allApprox 1 tolReached 1 maxDev 4.841e-08
+case 8: segments/degrees/params same=True bit-identical=False maxPoleDiff=2.64e-07 rel=7.95e-08 | segments 3 allApprox 1 tolReached 1 maxDev 1.004e-06 || segments 3 allApprox 1 tolReached 1 maxDev 9.979e-07
+
+# control 1: instrumented header writing the exact table values
+case 1: segments/degrees/params same=True bit-identical=True maxPoleDiff=0.00e+00 rel=0.00e+00 | segments 1 allApprox 1 tolReached 1 maxDev 6.977e-06 || segments 1 allApprox 1 tolReached 1 maxDev 6.977e-06
+case 2: segments/degrees/params same=True bit-identical=True maxPoleDiff=0.00e+00 rel=0.00e+00 | segments 2 allApprox 1 tolReached 1 maxDev 6.529e-06 || segments 2 allApprox 1 tolReached 1 maxDev 6.529e-06
+case 3: segments/degrees/params same=True bit-identical=True maxPoleDiff=0.00e+00 rel=0.00e+00 | segments 29 allApprox 1 tolReached 1 maxDev 9.640e-10 || segments 29 allApprox 1 tolReached 1 maxDev 9.640e-10
+case 4: segments/degrees/params same=True bit-identical=True maxPoleDiff=0.00e+00 rel=0.00e+00 | segments 34 allApprox 1 tolReached 0 maxDev 1.052e+01 || segments 34 allApprox 1 tolReached 0 maxDev 1.052e+01
+case 5: segments/degrees/params same=True bit-identical=True maxPoleDiff=0.00e+00 rel=0.00e+00 | segments 1 allApprox 0 tolReached 0 maxDev 5.328e+03 || segments 1 allApprox 0 tolReached 0 maxDev 5.328e+03
+case 6: segments/degrees/params same=True bit-identical=True maxPoleDiff=0.00e+00 rel=0.00e+00 | segments 37 allApprox 1 tolReached 0 maxDev 7.262e+04 || segments 37 allApprox 1 tolReached 0 maxDev 7.262e+04
+case 7: segments/degrees/params same=True bit-identical=True maxPoleDiff=0.00e+00 rel=0.00e+00 | segments 29 allApprox 1 tolReached 1 maxDev 4.841e-08 || segments 29 allApprox 1 tolReached 1 maxDev 4.841e-08
+case 8: segments/degrees/params same=True bit-identical=True maxPoleDiff=0.00e+00 rel=0.00e+00 | segments 3 allApprox 1 tolReached 1 maxDev 9.979e-07 || segments 3 allApprox 1 tolReached 1 maxDev 9.979e-07
+
+# control 2: table nudged by up to +-4 ulps
+case 1: segments/degrees/params same=True bit-identical=False maxPoleDiff=1.00e-11 rel=1.00e-11 | segments 1 allApprox 1 tolReached 1 maxDev 6.977e-06 || segments 1 allApprox 1 tolReached 1 maxDev 6.977e-06
+case 2: segments/degrees/params same=True bit-identical=False maxPoleDiff=2.55e-11 rel=1.01e-11 | segments 2 allApprox 1 tolReached 1 maxDev 6.529e-06 || segments 2 allApprox 1 tolReached 1 maxDev 6.529e-06
+case 3: segments/degrees/params same=True bit-identical=False maxPoleDiff=6.82e-13 rel=9.08e-14 | segments 29 allApprox 1 tolReached 1 maxDev 9.640e-10 || segments 29 allApprox 1 tolReached 1 maxDev 9.640e-10
+case 4: segments/degrees/params same=False bit-identical=False maxPoleDiff=0.00e+00 rel=0.00e+00 | segments 62 allApprox 1 tolReached 0 maxDev 1.692e+01 || segments 34 allApprox 1 tolReached 0 maxDev 1.052e+01
+case 5: segments/degrees/params same=True bit-identical=False maxPoleDiff=1.18e+05 rel=1.60e+01 | segments 1 allApprox 0 tolReached 0 maxDev 9.047e+03 || segments 1 allApprox 0 tolReached 0 maxDev 5.328e+03
+case 6: segments/degrees/params same=False bit-identical=False maxPoleDiff=0.00e+00 rel=0.00e+00 | segments 17 allApprox 1 tolReached 0 maxDev 1.335e+04 || segments 37 allApprox 1 tolReached 0 maxDev 7.262e+04
+case 7: segments/degrees/params same=True bit-identical=False maxPoleDiff=1.78e-15 rel=1.01e-15 | segments 29 allApprox 1 tolReached 1 maxDev 4.841e-08 || segments 29 allApprox 1 tolReached 1 maxDev 4.841e-08
+case 8: segments/degrees/params same=True bit-identical=False maxPoleDiff=3.58e-07 rel=9.21e-08 | segments 3 allApprox 1 tolReached 1 maxDev 9.998e-07 || segments 3 allApprox 1 tolReached 1 maxDev 9.979e-07

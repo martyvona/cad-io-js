@@ -1,0 +1,10 @@
+{
+  "name": "step-parser",
+  "version": "0.0.0",
+  "description": "ISO 10303-21 (STEP Part 21) parser and writer",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

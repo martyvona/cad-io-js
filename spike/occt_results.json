@@ -1,0 +1,3050 @@
+{
+ "tInit": 15.526416999999999,
+ "rssInit": 71630848,
+ "rssFinal": 1635057664,
+ "heapFinal": 685572096,
+ "rows": [
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "whole",
+   "root": "",
+   "ok": true,
+   "ms": 31023.930834,
+   "meshes": 802,
+   "tris": 1226350,
+   "faces": 14764,
+   "bb": [
+    -326.00000000000006,
+    -691.8153229418659,
+    -149.66801808381192,
+    325.99999999999994,
+    876.5362758971102,
+    848.3107718166464
+   ]
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1164,
+   "ents": 7478,
+   "bytes": 586977,
+   "ok": true,
+   "ms": 199.06245800000033,
+   "meshes": 1,
+   "tris": 2598,
+   "faces": 237,
+   "bb": [
+    -15.2589929526882,
+    -15.3715359420289,
+    0,
+    15.0170225901437,
+    15.3715359420289,
+    7
+   ],
+   "corr": {
+    "stepFaces": 237,
+    "occtFaces": 237,
+    "checked": 237,
+    "agree": 237,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1170,
+   "ents": 38,
+   "bytes": 3704,
+   "ok": true,
+   "ms": 2.1557919999977457,
+   "meshes": 1,
+   "tris": 58,
+   "faces": 2,
+   "bb": [
+    -0.873555951270436,
+    -0.8671867448473293,
+    -2.9854617694556196,
+    0.873555951270436,
+    0.8671867448473289,
+    -2.87
+   ],
+   "corr": {
+    "stepFaces": 2,
+    "occtFaces": 2,
+    "checked": 2,
+    "agree": 2,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1195,
+   "ents": 98,
+   "bytes": 7689,
+   "ok": true,
+   "ms": 6.424250000000029,
+   "meshes": 1,
+   "tris": 1228,
+   "faces": 5,
+   "bb": [
+    -3.9941336554044953,
+    -90,
+    -3.976551828617439,
+    3.9941336554044953,
+    90,
+    4
+   ],
+   "corr": {
+    "stepFaces": 5,
+    "occtFaces": 5,
+    "checked": 5,
+    "agree": 5,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1201,
+   "ents": 278,
+   "bytes": 19462,
+   "ok": true,
+   "ms": 10.946291000000201,
+   "meshes": 1,
+   "tris": 896,
+   "faces": 11,
+   "bb": [
+    -7.5,
+    -7.493917486286772,
+    0,
+    7.5000000000000036,
+    7.493917486286772,
+    12
+   ],
+   "corr": {
+    "stepFaces": 11,
+    "occtFaces": 11,
+    "checked": 11,
+    "agree": 11,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1209,
+   "ents": 212,
+   "bytes": 15148,
+   "ok": true,
+   "ms": 12.760292000002664,
+   "meshes": 1,
+   "tris": 1952,
+   "faces": 10,
+   "bb": [
+    -9.4,
+    -9.4,
+    -1.62630325872826e-16,
+    9.4,
+    9.4,
+    2.5
+   ],
+   "corr": {
+    "stepFaces": 10,
+    "occtFaces": 10,
+    "checked": 10,
+    "agree": 10,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1217,
+   "ents": 828,
+   "bytes": 67074,
+   "ok": true,
+   "ms": 33.322791000002326,
+   "meshes": 1,
+   "tris": 2076,
+   "faces": 24,
+   "bb": [
+    -8.94307480407833,
+    -8.94964222112864,
+    2.24221222871215e-15,
+    8.924617206322516,
+    8.949640948369135,
+    8
+   ],
+   "corr": {
+    "stepFaces": 24,
+    "occtFaces": 24,
+    "checked": 24,
+    "agree": 24,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1225,
+   "ents": 146,
+   "bytes": 14629,
+   "ok": true,
+   "ms": 11.152500000000146,
+   "meshes": 1,
+   "tris": 644,
+   "faces": 5,
+   "bb": [
+    -1.0844215016193082,
+    -0.9933862271349001,
+    -2.5,
+    1.0844215016193077,
+    1.1913862271349,
+    -0.5
+   ],
+   "corr": {
+    "stepFaces": 5,
+    "occtFaces": 5,
+    "checked": 5,
+    "agree": 5,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1324,
+   "ents": 1750,
+   "bytes": 117717,
+   "ok": true,
+   "ms": 47.62816699999894,
+   "meshes": 1,
+   "tris": 1332,
+   "faces": 53,
+   "bb": [
+    -20.6133238284083,
+    -20.6133238284083,
+    -3.5,
+    20.6133238284083,
+    20.6133238284083,
+    3.5
+   ],
+   "corr": {
+    "stepFaces": 53,
+    "occtFaces": 53,
+    "checked": 53,
+    "agree": 53,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1330,
+   "ents": 801,
+   "bytes": 92022,
+   "ok": true,
+   "ms": 193.9228750000002,
+   "meshes": 1,
+   "tris": 21268,
+   "faces": 5,
+   "bb": [
+    -21.500000000000004,
+    -21.5,
+    -3.610920150703275e-14,
+    21.5,
+    21.5,
+    70.00000000000034
+   ],
+   "corr": {
+    "stepFaces": 5,
+    "occtFaces": 5,
+    "checked": 5,
+    "agree": 5,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1336,
+   "ents": 560,
+   "bytes": 48874,
+   "ok": true,
+   "ms": 38.7845419999976,
+   "meshes": 1,
+   "tris": 2206,
+   "faces": 15,
+   "bb": [
+    -12.5,
+    -12.475334105353397,
+    0,
+    12.500000000000004,
+    12.475334105353397,
+    100.00000000000001
+   ],
+   "corr": {
+    "stepFaces": 15,
+    "occtFaces": 15,
+    "checked": 15,
+    "agree": 15,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1342,
+   "ents": 92,
+   "bytes": 7257,
+   "ok": true,
+   "ms": 4.039833000002545,
+   "meshes": 1,
+   "tris": 248,
+   "faces": 4,
+   "bb": [
+    -5.475095574151966,
+    -20,
+    -5.493770365506544,
+    5.5,
+    0,
+    5.493770365506543
+   ],
+   "corr": {
+    "stepFaces": 4,
+    "occtFaces": 4,
+    "checked": 4,
+    "agree": 4,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1350,
+   "ents": 92,
+   "bytes": 7257,
+   "ok": true,
+   "ms": 4.076165999998921,
+   "meshes": 1,
+   "tris": 304,
+   "faces": 4,
+   "bb": [
+    -8.975990552971966,
+    -4,
+    -8.993995635332155,
+    9,
+    0,
+    8.993995635332153
+   ],
+   "corr": {
+    "stepFaces": 4,
+    "occtFaces": 4,
+    "checked": 4,
+    "agree": 4,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1362,
+   "ents": 624,
+   "bytes": 42289,
+   "ok": true,
+   "ms": 30.581333999998606,
+   "meshes": 1,
+   "tris": 4238,
+   "faces": 26,
+   "bb": [
+    -22,
+    -21.975081462026175,
+    -40,
+    22,
+    21.975081462026175,
+    34
+   ],
+   "corr": {
+    "stepFaces": 26,
+    "occtFaces": 26,
+    "checked": 26,
+    "agree": 26,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1371,
+   "ents": 6478,
+   "bytes": 511395,
+   "ok": true,
+   "ms": 189.33854200000133,
+   "meshes": 1,
+   "tris": 1994,
+   "faces": 199,
+   "bb": [
+    -8.21143890564872,
+    -7.96280576453076,
+    0,
+    8.21143920227825,
+    8.04831679043945,
+    3.71504429266035
+   ],
+   "corr": {
+    "stepFaces": 199,
+    "occtFaces": 199,
+    "checked": 199,
+    "agree": 199,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1377,
+   "ents": 38,
+   "bytes": 3737,
+   "ok": true,
+   "ms": 2.126916999997775,
+   "meshes": 1,
+   "tris": 80,
+   "faces": 2,
+   "bb": [
+    -1.191250648917665,
+    -1.2,
+    -1.983738375116948,
+    1.1912506489176646,
+    1.2000000000000002,
+    -1.6
+   ],
+   "corr": {
+    "stepFaces": 2,
+    "occtFaces": 2,
+    "checked": 2,
+    "agree": 2,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1398,
+   "ents": 2942,
+   "bytes": 258873,
+   "ok": true,
+   "ms": 126.94312499999796,
+   "meshes": 1,
+   "tris": 7190,
+   "faces": 73,
+   "bb": [
+    -75,
+    -10.96490371097642,
+    -10.995649777880086,
+    75,
+    10.96490371097642,
+    10.995649735347518
+   ],
+   "corr": {
+    "stepFaces": 73,
+    "occtFaces": 73,
+    "checked": 73,
+    "agree": 73,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1404,
+   "ents": 504,
+   "bytes": 34012,
+   "ok": true,
+   "ms": 15.884750000001077,
+   "meshes": 1,
+   "tris": 732,
+   "faces": 17,
+   "bb": [
+    -22.99508539698717,
+    -3,
+    -22.9128784747792,
+    22.995085396987168,
+    0,
+    22.975964971404803
+   ],
+   "corr": {
+    "stepFaces": 17,
+    "occtFaces": 17,
+    "checked": 17,
+    "agree": 17,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1410,
+   "ents": 546,
+   "bytes": 39183,
+   "ok": true,
+   "ms": 21.68974999999773,
+   "meshes": 1,
+   "tris": 1844,
+   "faces": 18,
+   "bb": [
+    1.5,
+    -16.5,
+    -16.5,
+    17.7,
+    16.5,
+    16.5
+   ],
+   "corr": {
+    "stepFaces": 18,
+    "occtFaces": 18,
+    "checked": 18,
+    "agree": 18,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1416,
+   "ents": 338,
+   "bytes": 23886,
+   "ok": true,
+   "ms": 16.980999999999767,
+   "meshes": 1,
+   "tris": 2110,
+   "faces": 14,
+   "bb": [
+    -18.975389472286512,
+    1.4999999999999987,
+    -17.5,
+    18.975389472286512,
+    15.500000000000002,
+    17.5
+   ],
+   "corr": {
+    "stepFaces": 14,
+    "occtFaces": 14,
+    "checked": 14,
+    "agree": 14,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1429,
+   "ents": 632,
+   "bytes": 50504,
+   "ok": true,
+   "ms": 21.064625000002707,
+   "meshes": 1,
+   "tris": 416,
+   "faces": 21,
+   "bb": [
+    -5,
+    -5.77350269189626,
+    -2.6,
+    5,
+    5.77350269189625,
+    2.6
+   ],
+   "corr": {
+    "stepFaces": 21,
+    "occtFaces": 21,
+    "checked": 21,
+    "agree": 21,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1435,
+   "ents": 520,
+   "bytes": 35088,
+   "ok": true,
+   "ms": 17.59416599999895,
+   "meshes": 1,
+   "tris": 1375,
+   "faces": 21,
+   "bb": [
+    -5,
+    -5,
+    0,
+    5,
+    5,
+    28
+   ],
+   "corr": {
+    "stepFaces": 21,
+    "occtFaces": 21,
+    "checked": 21,
+    "agree": 21,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1441,
+   "ents": 616,
+   "bytes": 48730,
+   "ok": true,
+   "ms": 20.585957999999664,
+   "meshes": 1,
+   "tris": 392,
+   "faces": 21,
+   "bb": [
+    -4,
+    -4.61880215351701,
+    -2.4,
+    4,
+    4.618802153517,
+    2.4000000000000004
+   ],
+   "corr": {
+    "stepFaces": 21,
+    "occtFaces": 21,
+    "checked": 21,
+    "agree": 21,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1447,
+   "ents": 520,
+   "bytes": 35230,
+   "ok": true,
+   "ms": 17.054000000000087,
+   "meshes": 1,
+   "tris": 1219,
+   "faces": 21,
+   "bb": [
+    -4.25,
+    -4.243767008867276,
+    0,
+    4.25,
+    4.243767008867276,
+    24
+   ],
+   "corr": {
+    "stepFaces": 21,
+    "occtFaces": 21,
+    "checked": 21,
+    "agree": 21,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1453,
+   "ents": 244,
+   "bytes": 17242,
+   "ok": true,
+   "ms": 7.913833000002342,
+   "meshes": 1,
+   "tris": 272,
+   "faces": 10,
+   "bb": [
+    -2.745898322001784,
+    -2.75,
+    0,
+    2.75,
+    2.75,
+    25
+   ],
+   "corr": {
+    "stepFaces": 10,
+    "occtFaces": 10,
+    "checked": 10,
+    "agree": 10,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1459,
+   "ents": 689,
+   "bytes": 79215,
+   "ok": true,
+   "ms": 65.2848750000012,
+   "meshes": 1,
+   "tris": 5646,
+   "faces": 5,
+   "bb": [
+    -2.65,
+    -2.6500000000000057,
+    -5.731532094071507e-13,
+    2.6500000000000004,
+    2.6500000000000057,
+    12.250000000000279
+   ],
+   "corr": {
+    "stepFaces": 5,
+    "occtFaces": 5,
+    "checked": 5,
+    "agree": 5,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1465,
+   "ents": 3487,
+   "bytes": 244621,
+   "ok": true,
+   "ms": 102.66720799999894,
+   "meshes": 1,
+   "tris": 2726,
+   "faces": 107,
+   "bb": [
+    -73,
+    0,
+    -15,
+    14.992446630507636,
+    65,
+    14.980501482804256
+   ],
+   "corr": {
+    "stepFaces": 107,
+    "occtFaces": 107,
+    "checked": 107,
+    "agree": 107,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1471,
+   "ents": 3011,
+   "bytes": 260130,
+   "ok": true,
+   "ms": 119.1761669999978,
+   "meshes": 1,
+   "tris": 4122,
+   "faces": 75,
+   "bb": [
+    -72.41966618181867,
+    -6.5000000000000036,
+    -6.5,
+    6.5,
+    39.493697133488276,
+    6.5
+   ],
+   "corr": {
+    "stepFaces": 75,
+    "occtFaces": 75,
+    "checked": 75,
+    "agree": 75,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1480,
+   "ents": 10046,
+   "bytes": 779808,
+   "ok": true,
+   "ms": 289.3070409999964,
+   "meshes": 1,
+   "tris": 3708,
+   "faces": 323,
+   "bb": [
+    -15.461178264483,
+    -15.461178264483,
+    -1.38777878078145e-14,
+    15.461178264483,
+    15.461178264483,
+    4.70398124796308
+   ],
+   "corr": {
+    "stepFaces": 323,
+    "occtFaces": 323,
+    "checked": 323,
+    "agree": 323,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1486,
+   "ents": 38,
+   "bytes": 3733,
+   "ok": true,
+   "ms": 2.2424170000012964,
+   "meshes": 1,
+   "tris": 70,
+   "faces": 2,
+   "bb": [
+    -1.0535653752852696,
+    -1.0458836974881345,
+    -2,
+    1.05356537528527,
+    1.045883697488134,
+    -1.6999999999999997
+   ],
+   "corr": {
+    "stepFaces": 2,
+    "occtFaces": 2,
+    "checked": 2,
+    "agree": 2,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1525,
+   "ents": 632,
+   "bytes": 50508,
+   "ok": true,
+   "ms": 21.285791999995126,
+   "meshes": 1,
+   "tris": 464,
+   "faces": 21,
+   "bb": [
+    -6,
+    -6.92820323027551,
+    -2.5,
+    6.00000000000001,
+    6.92820323027552,
+    2.5
+   ],
+   "corr": {
+    "stepFaces": 21,
+    "occtFaces": 21,
+    "checked": 21,
+    "agree": 21,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1531,
+   "ents": 1659,
+   "bytes": 115846,
+   "ok": true,
+   "ms": 53.89420799999789,
+   "meshes": 1,
+   "tris": 2318,
+   "faces": 52,
+   "bb": [
+    -11.5,
+    -11.5,
+    0,
+    17.290152555503525,
+    103.48946043313296,
+    18
+   ],
+   "corr": {
+    "stepFaces": 52,
+    "occtFaces": 52,
+    "checked": 52,
+    "agree": 52,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1537,
+   "ents": 818,
+   "bytes": 59481,
+   "ok": true,
+   "ms": 29.77874999999767,
+   "meshes": 1,
+   "tris": 1035,
+   "faces": 28,
+   "bb": [
+    -5.5,
+    -5.5,
+    0,
+    5.5,
+    5.5,
+    30
+   ],
+   "corr": {
+    "stepFaces": 28,
+    "occtFaces": 28,
+    "checked": 28,
+    "agree": 28,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1543,
+   "ents": 262,
+   "bytes": 26866,
+   "ok": true,
+   "ms": 12.718332999997074,
+   "meshes": 1,
+   "tris": 318,
+   "faces": 4,
+   "bb": [
+    -8.498715746242937,
+    -8.4999146276931,
+    0,
+    8.5,
+    8.49842893353069,
+    5
+   ],
+   "corr": {
+    "stepFaces": 4,
+    "occtFaces": 4,
+    "checked": 4,
+    "agree": 4,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1549,
+   "ents": 3766,
+   "bytes": 320726,
+   "ok": true,
+   "ms": 240.752459000003,
+   "meshes": 1,
+   "tris": 3858,
+   "faces": 108,
+   "bb": [
+    -30,
+    -30,
+    0,
+    30,
+    9,
+    14
+   ],
+   "corr": {
+    "stepFaces": 108,
+    "occtFaces": 108,
+    "checked": 108,
+    "agree": 108,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1555,
+   "ents": 304,
+   "bytes": 28785,
+   "ok": true,
+   "ms": 14.95262499999808,
+   "meshes": 1,
+   "tris": 442,
+   "faces": 7,
+   "bb": [
+    -8,
+    -8,
+    0,
+    8,
+    8,
+    3.9998418660486843
+   ],
+   "corr": {
+    "stepFaces": 7,
+    "occtFaces": 7,
+    "checked": 7,
+    "agree": 7,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1561,
+   "ents": 92,
+   "bytes": 7258,
+   "ok": true,
+   "ms": 4.050125000001572,
+   "meshes": 1,
+   "tris": 232,
+   "faces": 4,
+   "bb": [
+    -4.9999999999999964,
+    -5,
+    0,
+    5,
+    5,
+    1
+   ],
+   "corr": {
+    "stepFaces": 4,
+    "occtFaces": 4,
+    "checked": 4,
+    "agree": 4,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1596,
+   "ents": 1659,
+   "bytes": 116187,
+   "ok": true,
+   "ms": 53.24804099999892,
+   "meshes": 1,
+   "tris": 2318,
+   "faces": 52,
+   "bb": [
+    -11.5,
+    -103.48946043313296,
+    0,
+    17.290152555503525,
+    11.5,
+    18
+   ],
+   "corr": {
+    "stepFaces": 52,
+    "occtFaces": 52,
+    "checked": 52,
+    "agree": 52,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1617,
+   "ents": 3011,
+   "bytes": 261373,
+   "ok": true,
+   "ms": 115.24387500000012,
+   "meshes": 1,
+   "tris": 4122,
+   "faces": 75,
+   "bb": [
+    -72.41966618181867,
+    -39.493697133488276,
+    -6.5,
+    6.5,
+    6.5000000000000036,
+    6.5
+   ],
+   "corr": {
+    "stepFaces": 75,
+    "occtFaces": 75,
+    "checked": 75,
+    "agree": 75,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1623,
+   "ents": 3487,
+   "bytes": 245303,
+   "ok": true,
+   "ms": 103.08487500000047,
+   "meshes": 1,
+   "tris": 2726,
+   "faces": 107,
+   "bb": [
+    -73,
+    -65,
+    -15,
+    14.992446630507636,
+    0,
+    14.980501482804256
+   ],
+   "corr": {
+    "stepFaces": 107,
+    "occtFaces": 107,
+    "checked": 107,
+    "agree": 107,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1632,
+   "ents": 15624,
+   "bytes": 1604810,
+   "ok": true,
+   "ms": 773.2282500000001,
+   "meshes": 1,
+   "tris": 27342,
+   "faces": 205,
+   "bb": [
+    -16.5,
+    -76.49548525979814,
+    -452,
+    57,
+    76.49523788663103,
+    90
+   ],
+   "corr": {
+    "stepFaces": 205,
+    "occtFaces": 205,
+    "checked": 205,
+    "agree": 205,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1638,
+   "ents": 400,
+   "bytes": 27108,
+   "ok": true,
+   "ms": 16.084584000003815,
+   "meshes": 1,
+   "tris": 1044,
+   "faces": 16,
+   "bb": [
+    -20.5,
+    -20.5,
+    -4,
+    20.5,
+    20.5,
+    5
+   ],
+   "corr": {
+    "stepFaces": 16,
+    "occtFaces": 16,
+    "checked": 16,
+    "agree": 16,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1653,
+   "ents": 5642,
+   "bytes": 578532,
+   "ok": true,
+   "ms": 656.5046660000007,
+   "meshes": 1,
+   "tris": 17220,
+   "faces": 55,
+   "bb": [
+    -287.5,
+    -287.4937905913516,
+    -13,
+    287.4751626336275,
+    287.4937905913516,
+    13
+   ],
+   "corr": {
+    "stepFaces": 55,
+    "occtFaces": 55,
+    "checked": 55,
+    "agree": 55,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1659,
+   "ents": 1876,
+   "bytes": 121574,
+   "ok": true,
+   "ms": 101.10766600000352,
+   "meshes": 1,
+   "tris": 11540,
+   "faces": 68,
+   "bb": [
+    -22.5,
+    -22.493816664970858,
+    -44,
+    22.47527005842851,
+    22.493816664970858,
+    61
+   ],
+   "corr": {
+    "stepFaces": 68,
+    "occtFaces": 68,
+    "checked": 68,
+    "agree": 68,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1665,
+   "ents": 94,
+   "bytes": 7545,
+   "ok": true,
+   "ms": 4.78808299999946,
+   "meshes": 1,
+   "tris": 204,
+   "faces": 5,
+   "bb": [
+    -0.99658449300667,
+    -0.9999999999999991,
+    -1.466546785022526,
+    1,
+    5.116670737099337,
+    255
+   ],
+   "corr": {
+    "stepFaces": 5,
+    "occtFaces": 5,
+    "checked": 5,
+    "agree": 5,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1705,
+   "ents": 804,
+   "bytes": 54533,
+   "ok": true,
+   "ms": 24.84737500000483,
+   "meshes": 1,
+   "tris": 1302,
+   "faces": 30,
+   "bb": [
+    -2.9924488754152705,
+    -2.9883712171572747,
+    -1.5,
+    3,
+    2.9981781653664674,
+    9
+   ],
+   "corr": {
+    "stepFaces": 30,
+    "occtFaces": 30,
+    "checked": 30,
+    "agree": 30,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1781,
+   "ents": 94,
+   "bytes": 7543,
+   "ok": true,
+   "ms": 4.347708000001148,
+   "meshes": 1,
+   "tris": 204,
+   "faces": 5,
+   "bb": [
+    -0.99658449300667,
+    -0.9999999999999991,
+    -0.9805361374831367,
+    1,
+    7.138697754260452,
+    270
+   ],
+   "corr": {
+    "stepFaces": 5,
+    "occtFaces": 5,
+    "checked": 5,
+    "agree": 5,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1821,
+   "ents": 772,
+   "bytes": 51669,
+   "ok": true,
+   "ms": 301.10837499999616,
+   "meshes": 1,
+   "tris": 59620,
+   "faces": 38,
+   "bb": [
+    -317.9832366908883,
+    -317.97690951238303,
+    -16.71969192165558,
+    317.9832367457038,
+    317.9581301260734,
+    17.300748914621042
+   ],
+   "corr": {
+    "stepFaces": 38,
+    "occtFaces": 38,
+    "checked": 38,
+    "agree": 38,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1827,
+   "ents": 14314,
+   "bytes": 1078468,
+   "ok": true,
+   "ms": 409.22579200000473,
+   "meshes": 1,
+   "tris": 10388,
+   "faces": 391,
+   "bb": [
+    -4.95785741249874e-16,
+    -48.2668364407695,
+    -48.2668364407695,
+    24.5,
+    48.2668364407695,
+    48.2668364407695
+   ],
+   "corr": {
+    "stepFaces": 391,
+    "occtFaces": 391,
+    "checked": 391,
+    "agree": 391,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1833,
+   "ents": 288,
+   "bytes": 20110,
+   "ok": true,
+   "ms": 10.509666999998444,
+   "meshes": 1,
+   "tris": 546,
+   "faces": 11,
+   "bb": [
+    -13,
+    -12,
+    -14.977166872719128,
+    13,
+    10,
+    14.977166872719128
+   ],
+   "corr": {
+    "stepFaces": 11,
+    "occtFaces": 11,
+    "checked": 11,
+    "agree": 11,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1844,
+   "ents": 2067,
+   "bytes": 147522,
+   "ok": true,
+   "ms": 61.965541999998095,
+   "meshes": 1,
+   "tris": 1580,
+   "faces": 66,
+   "bb": [
+    -15.717424305044204,
+    -24.987223386153342,
+    -19.4934165803186,
+    7.71742430504418,
+    24.992050999752617,
+    1
+   ],
+   "corr": {
+    "stepFaces": 66,
+    "occtFaces": 66,
+    "checked": 66,
+    "agree": 66,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1850,
+   "ents": 976,
+   "bytes": 66709,
+   "ok": true,
+   "ms": 34.30887499999517,
+   "meshes": 1,
+   "tris": 3084,
+   "faces": 31,
+   "bb": [
+    -10.25,
+    -16.999575346039673,
+    -19.88553939025942,
+    10.25,
+    22.976104884203025,
+    3.0931612968180424
+   ],
+   "corr": {
+    "stepFaces": 31,
+    "occtFaces": 31,
+    "checked": 31,
+    "agree": 31,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1858,
+   "ents": 502,
+   "bytes": 34832,
+   "ok": true,
+   "ms": 15.855083000002196,
+   "meshes": 1,
+   "tris": 1056,
+   "faces": 17,
+   "bb": [
+    -8,
+    0,
+    -5,
+    8,
+    23,
+    8.67361737988404e-16
+   ],
+   "corr": {
+    "stepFaces": 17,
+    "occtFaces": 17,
+    "checked": 17,
+    "agree": 17,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1866,
+   "ents": 138,
+   "bytes": 10277,
+   "ok": true,
+   "ms": 5.521749999999884,
+   "meshes": 1,
+   "tris": 340,
+   "faces": 7,
+   "bb": [
+    -4.5,
+    -4.47534852915723,
+    -11,
+    4.5,
+    4.47534852915723,
+    11
+   ],
+   "corr": {
+    "stepFaces": 7,
+    "occtFaces": 7,
+    "checked": 7,
+    "agree": 7,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1872,
+   "ents": 678,
+   "bytes": 49722,
+   "ok": true,
+   "ms": 20.93716599999607,
+   "meshes": 1,
+   "tris": 694,
+   "faces": 20,
+   "bb": [
+    -30.428985227572525,
+    -4.000000000000001,
+    -40.00817990663012,
+    -0.40892241939690077,
+    2.500000000000001,
+    20.556040024700316
+   ],
+   "corr": {
+    "stepFaces": 20,
+    "occtFaces": 20,
+    "checked": 20,
+    "agree": 20,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1878,
+   "ents": 1043,
+   "bytes": 83771,
+   "ok": true,
+   "ms": 34.80541699999594,
+   "meshes": 1,
+   "tris": 916,
+   "faces": 28,
+   "bb": [
+    -7.71742430504415,
+    -18.999615882180528,
+    -8.97386389162869,
+    8.71742430504416,
+    18.999615882180528,
+    2
+   ],
+   "corr": {
+    "stepFaces": 28,
+    "occtFaces": 28,
+    "checked": 28,
+    "agree": 28,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1884,
+   "ents": 497,
+   "bytes": 34156,
+   "ok": true,
+   "ms": 15.940834000000905,
+   "meshes": 1,
+   "tris": 600,
+   "faces": 16,
+   "bb": [
+    -4.9999669649735,
+    -15.489514853728506,
+    -2.77555756156289e-14,
+    8,
+    15.5,
+    10.97653796962269
+   ],
+   "corr": {
+    "stepFaces": 16,
+    "occtFaces": 16,
+    "checked": 16,
+    "agree": 16,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1890,
+   "ents": 812,
+   "bytes": 54669,
+   "ok": true,
+   "ms": 31.96062499999971,
+   "meshes": 1,
+   "tris": 3444,
+   "faces": 40,
+   "bb": [
+    -9.975640502598843,
+    -9.993908270191557,
+    0,
+    10.0000000000006,
+    9.993908270191557,
+    21.057179427196
+   ],
+   "corr": {
+    "stepFaces": 40,
+    "occtFaces": 40,
+    "checked": 40,
+    "agree": 40,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1896,
+   "ents": 138,
+   "bytes": 10335,
+   "ok": true,
+   "ms": 5.411792000006244,
+   "meshes": 1,
+   "tris": 340,
+   "faces": 7,
+   "bb": [
+    -4.475348529157227,
+    -4.5,
+    -20,
+    4.475348529157234,
+    4.5,
+    20
+   ],
+   "corr": {
+    "stepFaces": 7,
+    "occtFaces": 7,
+    "checked": 7,
+    "agree": 7,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1902,
+   "ents": 748,
+   "bytes": 57538,
+   "ok": true,
+   "ms": 36.037374999999884,
+   "meshes": 1,
+   "tris": 738,
+   "faces": 23,
+   "bb": [
+    -5,
+    -5,
+    -15,
+    5,
+    5,
+    3.5595102365682587
+   ],
+   "corr": {
+    "stepFaces": 23,
+    "occtFaces": 23,
+    "checked": 23,
+    "agree": 23,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1912,
+   "ents": 656,
+   "bytes": 51351,
+   "ok": true,
+   "ms": 22.068915999996534,
+   "meshes": 1,
+   "tris": 496,
+   "faces": 23,
+   "bb": [
+    -4,
+    -4.61880215351701,
+    -2,
+    4,
+    4.618802153517,
+    2
+   ],
+   "corr": {
+    "stepFaces": 23,
+    "occtFaces": 23,
+    "checked": 23,
+    "agree": 23,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1918,
+   "ents": 138,
+   "bytes": 10277,
+   "ok": true,
+   "ms": 5.458041999998386,
+   "meshes": 1,
+   "tris": 308,
+   "faces": 7,
+   "bb": [
+    -3,
+    -2.978126622294163,
+    -12.25,
+    3,
+    2.978126622294163,
+    12.25
+   ],
+   "corr": {
+    "stepFaces": 7,
+    "occtFaces": 7,
+    "checked": 7,
+    "agree": 7,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1926,
+   "ents": 138,
+   "bytes": 10277,
+   "ok": true,
+   "ms": 5.235916999998153,
+   "meshes": 1,
+   "tris": 308,
+   "faces": 7,
+   "bb": [
+    -3,
+    -2.978126622294163,
+    -11.25,
+    3,
+    2.978126622294163,
+    11.25
+   ],
+   "corr": {
+    "stepFaces": 7,
+    "occtFaces": 7,
+    "checked": 7,
+    "agree": 7,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1934,
+   "ents": 1305,
+   "bytes": 87676,
+   "ok": true,
+   "ms": 40.2132500000007,
+   "meshes": 1,
+   "tris": 1106,
+   "faces": 39,
+   "bb": [
+    -34.5659113324158,
+    -60.485378769335775,
+    -1.11022302462516e-13,
+    21.334057250348238,
+    64.65213416821666,
+    2
+   ],
+   "corr": {
+    "stepFaces": 39,
+    "occtFaces": 39,
+    "checked": 39,
+    "agree": 39,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1940,
+   "ents": 138,
+   "bytes": 10337,
+   "ok": true,
+   "ms": 5.43291699999827,
+   "meshes": 1,
+   "tris": 312,
+   "faces": 7,
+   "bb": [
+    -3.4763342520967973,
+    -3.494078553949439,
+    -9.75,
+    3.5,
+    3.494078553949439,
+    8.75
+   ],
+   "corr": {
+    "stepFaces": 7,
+    "occtFaces": 7,
+    "checked": 7,
+    "agree": 7,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1948,
+   "ents": 1482,
+   "bytes": 99931,
+   "ok": true,
+   "ms": 40.67195899999933,
+   "meshes": 1,
+   "tris": 958,
+   "faces": 46,
+   "bb": [
+    -23.5897920768198,
+    -52.5,
+    -10,
+    23.497286985156414,
+    52.055603823302036,
+    2
+   ],
+   "corr": {
+    "stepFaces": 46,
+    "occtFaces": 46,
+    "checked": 46,
+    "agree": 46,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1954,
+   "ents": 1922,
+   "bytes": 154954,
+   "ok": true,
+   "ms": 64.15258400000312,
+   "meshes": 1,
+   "tris": 4812,
+   "faces": 51,
+   "bb": [
+    -18.49694796473817,
+    -5.250000000000001,
+    -17.8798070459388,
+    18.49694796473817,
+    5.250000000000001,
+    17.8798070459388
+   ],
+   "corr": {
+    "stepFaces": 51,
+    "occtFaces": 51,
+    "checked": 51,
+    "agree": 51,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1965,
+   "ents": 1570,
+   "bytes": 105749,
+   "ok": true,
+   "ms": 43.24133399999846,
+   "meshes": 1,
+   "tris": 844,
+   "faces": 47,
+   "bb": [
+    -1.38777878078145e-14,
+    -29,
+    -13.5,
+    1.5000000000000007,
+    29,
+    13.5
+   ],
+   "corr": {
+    "stepFaces": 47,
+    "occtFaces": 47,
+    "checked": 47,
+    "agree": 47,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1973,
+   "ents": 4653,
+   "bytes": 308977,
+   "ok": true,
+   "ms": 136.07224999999744,
+   "meshes": 1,
+   "tris": 2628,
+   "faces": 137,
+   "bb": [
+    -48.499233389736204,
+    -15.5,
+    -2.77555756156289e-14,
+    48.499233389736204,
+    15.484718442882734,
+    1.5
+   ],
+   "corr": {
+    "stepFaces": 137,
+    "occtFaces": 137,
+    "checked": 137,
+    "agree": 137,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1981,
+   "ents": 1352,
+   "bytes": 89773,
+   "ok": true,
+   "ms": 33.16549999999552,
+   "meshes": 1,
+   "tris": 320,
+   "faces": 50,
+   "bb": [
+    -27.5,
+    -8,
+    -7.5,
+    27.5,
+    8,
+    1
+   ],
+   "corr": {
+    "stepFaces": 50,
+    "occtFaces": 50,
+    "checked": 50,
+    "agree": 50,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1989,
+   "ents": 160,
+   "bytes": 11476,
+   "ok": true,
+   "ms": 3.904624999995576,
+   "meshes": 1,
+   "tris": 12,
+   "faces": 6,
+   "bb": [
+    -26.5,
+    -7,
+    -2,
+    26.5,
+    7,
+    2
+   ],
+   "corr": {
+    "stepFaces": 6,
+    "occtFaces": 6,
+    "checked": 6,
+    "agree": 6,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 1997,
+   "ents": 410,
+   "bytes": 34108,
+   "ok": true,
+   "ms": 44.816375000002154,
+   "meshes": 1,
+   "tris": 6740,
+   "faces": 17,
+   "bb": [
+    -11,
+    -56,
+    -11,
+    10.999999999999998,
+    41.5,
+    11.000000000000004
+   ],
+   "corr": {
+    "stepFaces": 17,
+    "occtFaces": 17,
+    "checked": 17,
+    "agree": 17,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 2003,
+   "ents": 264,
+   "bytes": 18490,
+   "ok": true,
+   "ms": 9.147415999999794,
+   "meshes": 1,
+   "tris": 432,
+   "faces": 11,
+   "bb": [
+    -50.5,
+    -9,
+    -7.5,
+    64.5,
+    9,
+    7.5
+   ],
+   "corr": {
+    "stepFaces": 11,
+    "occtFaces": 11,
+    "checked": 11,
+    "agree": 11,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 2016,
+   "ents": 13519,
+   "bytes": 1392944,
+   "ok": true,
+   "ms": 1536.8997500000041,
+   "meshes": 1,
+   "tris": 149002,
+   "faces": 160,
+   "bb": [
+    -26,
+    -27.5,
+    -29.67118683110805,
+    26,
+    575.5368889013047,
+    356.6619741061595
+   ],
+   "corr": {
+    "stepFaces": 157,
+    "occtFaces": 160,
+    "checked": 156,
+    "agree": 37,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 2022,
+   "ents": 25398,
+   "bytes": 2583928,
+   "ok": true,
+   "ms": 6936.982541999998,
+   "meshes": 1,
+   "tris": 141644,
+   "faces": 314,
+   "bb": [
+    -394.81337249214164,
+    -76.7259494146267,
+    -113.99399051124782,
+    65.97514022383446,
+    76.72744931525784,
+    90
+   ],
+   "corr": {
+    "stepFaces": 312,
+    "occtFaces": 314,
+    "checked": 310,
+    "agree": 1,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 2028,
+   "ents": 560,
+   "bytes": 37957,
+   "ok": true,
+   "ms": 20.14379100000224,
+   "meshes": 1,
+   "tris": 1617,
+   "faces": 23,
+   "bb": [
+    -7,
+    -6.97609145104669,
+    -5,
+    7,
+    6.976091451046689,
+    30
+   ],
+   "corr": {
+    "stepFaces": 23,
+    "occtFaces": 23,
+    "checked": 23,
+    "agree": 23,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 2036,
+   "ents": 520,
+   "bytes": 35373,
+   "ok": true,
+   "ms": 17.457916999999725,
+   "meshes": 1,
+   "tris": 1279,
+   "faces": 21,
+   "bb": [
+    -7,
+    -6.97609145104669,
+    -5,
+    7,
+    6.976091451046689,
+    9.16297503204397
+   ],
+   "corr": {
+    "stepFaces": 21,
+    "occtFaces": 21,
+    "checked": 21,
+    "agree": 21,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 2044,
+   "ents": 500,
+   "bytes": 34303,
+   "ok": true,
+   "ms": 17.282500000001164,
+   "meshes": 1,
+   "tris": 987,
+   "faces": 20,
+   "bb": [
+    -50,
+    -18,
+    -17.999999999999996,
+    2.000000000000001,
+    18,
+    18.000000000000004
+   ],
+   "corr": {
+    "stepFaces": 20,
+    "occtFaces": 20,
+    "checked": 20,
+    "agree": 20,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 2050,
+   "ents": 460,
+   "bytes": 31280,
+   "ok": true,
+   "ms": 14.980624999996508,
+   "meshes": 1,
+   "tris": 755,
+   "faces": 18,
+   "bb": [
+    -18,
+    -18,
+    -20,
+    18,
+    18,
+    2
+   ],
+   "corr": {
+    "stepFaces": 18,
+    "occtFaces": 18,
+    "checked": 18,
+    "agree": 18,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 2056,
+   "ents": 500,
+   "bytes": 38217,
+   "ok": true,
+   "ms": 17.296249999999418,
+   "meshes": 1,
+   "tris": 1008,
+   "faces": 18,
+   "bb": [
+    -6.5,
+    -7.50555349946514,
+    -27.5,
+    6.5,
+    7.50555349946512,
+    2.5
+   ],
+   "corr": {
+    "stepFaces": 18,
+    "occtFaces": 18,
+    "checked": 18,
+    "agree": 18,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 2062,
+   "ents": 688,
+   "bytes": 54957,
+   "ok": true,
+   "ms": 22.518457999998645,
+   "meshes": 1,
+   "tris": 588,
+   "faces": 23,
+   "bb": [
+    -6.5,
+    -7.50555349946514,
+    -2.5,
+    6.5,
+    7.50555349946512,
+    2.5
+   ],
+   "corr": {
+    "stepFaces": 23,
+    "occtFaces": 23,
+    "checked": 23,
+    "agree": 23,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 2075,
+   "ents": 14342,
+   "bytes": 1480380,
+   "ok": true,
+   "ms": 757.6388749999969,
+   "meshes": 1,
+   "tris": 55585,
+   "faces": 125,
+   "bb": [
+    -79.4508053312193,
+    35.76500023278247,
+    0.23305392014673187,
+    79.45244054200542,
+    260.953026874722,
+    90
+   ],
+   "corr": {
+    "stepFaces": 125,
+    "occtFaces": 125,
+    "checked": 123,
+    "agree": 122,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 2081,
+   "ents": 923,
+   "bytes": 71335,
+   "ok": true,
+   "ms": 35.39754199999879,
+   "meshes": 1,
+   "tris": 2816,
+   "faces": 26,
+   "bb": [
+    -1.7347234759768e-15,
+    -16.75,
+    -16.725434682006323,
+    8.000000000000002,
+    16.75,
+    11
+   ],
+   "corr": {
+    "stepFaces": 26,
+    "occtFaces": 26,
+    "checked": 26,
+    "agree": 26,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 2089,
+   "ents": 952,
+   "bytes": 71906,
+   "ok": true,
+   "ms": 35.29120800000237,
+   "meshes": 1,
+   "tris": 3388,
+   "faces": 28,
+   "bb": [
+    -11.986457539701238,
+    -31.97673717622994,
+    0,
+    11.98645753970124,
+    12,
+    27.5
+   ],
+   "corr": {
+    "stepFaces": 28,
+    "occtFaces": 28,
+    "checked": 28,
+    "agree": 28,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 2095,
+   "ents": 568,
+   "bytes": 55888,
+   "ok": true,
+   "ms": 37.675999999999476,
+   "meshes": 1,
+   "tris": 4230,
+   "faces": 8,
+   "bb": [
+    -12.993322339526049,
+    -12.993834356273757,
+    -100,
+    13,
+    12.999992872935383,
+    50
+   ],
+   "corr": {
+    "stepFaces": 8,
+    "occtFaces": 8,
+    "checked": 8,
+    "agree": 8,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 2104,
+   "ents": 218,
+   "bytes": 15726,
+   "ok": true,
+   "ms": 8.517959000004339,
+   "meshes": 1,
+   "tris": 520,
+   "faces": 11,
+   "bb": [
+    -3.4763342520967977,
+    -3.8,
+    -3.494078553949439,
+    3.5,
+    3.8,
+    3.494078553949439
+   ],
+   "corr": {
+    "stepFaces": 11,
+    "occtFaces": 11,
+    "checked": 11,
+    "agree": 11,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 2312,
+   "ents": 236,
+   "bytes": 17038,
+   "ok": true,
+   "ms": 8.197542000001704,
+   "meshes": 1,
+   "tris": 428,
+   "faces": 8,
+   "bb": [
+    2.3999999999999995,
+    -10.61,
+    -4.230706440092753,
+    3.4000000000000004,
+    10.61,
+    4.23070644009275
+   ],
+   "corr": {
+    "stepFaces": 8,
+    "occtFaces": 8,
+    "checked": 8,
+    "agree": 8,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 2318,
+   "ents": 236,
+   "bytes": 17086,
+   "ok": true,
+   "ms": 8.155750000005355,
+   "meshes": 1,
+   "tris": 428,
+   "faces": 8,
+   "bb": [
+    -3.4000000000000004,
+    -10.61,
+    -4.230706440092754,
+    -2.3999999999999995,
+    10.61,
+    4.230706440092749
+   ],
+   "corr": {
+    "stepFaces": 8,
+    "occtFaces": 8,
+    "checked": 8,
+    "agree": 8,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 2524,
+   "ents": 236,
+   "bytes": 17038,
+   "ok": true,
+   "ms": 7.980583000004117,
+   "meshes": 1,
+   "tris": 428,
+   "faces": 8,
+   "bb": [
+    1.3999999999999997,
+    -10.61,
+    -4.230706440092753,
+    2.4000000000000004,
+    10.61,
+    4.23070644009275
+   ],
+   "corr": {
+    "stepFaces": 8,
+    "occtFaces": 8,
+    "checked": 8,
+    "agree": 8,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 2530,
+   "ents": 236,
+   "bytes": 17086,
+   "ok": true,
+   "ms": 8.376541999998153,
+   "meshes": 1,
+   "tris": 428,
+   "faces": 8,
+   "bb": [
+    -2.4000000000000004,
+    -10.61,
+    -4.230706440092754,
+    -1.3999999999999997,
+    10.61,
+    4.230706440092749
+   ],
+   "corr": {
+    "stepFaces": 8,
+    "occtFaces": 8,
+    "checked": 8,
+    "agree": 8,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 2732,
+   "ents": 236,
+   "bytes": 16917,
+   "ok": true,
+   "ms": 7.9572079999998095,
+   "meshes": 1,
+   "tris": 396,
+   "faces": 8,
+   "bb": [
+    -4.2482364009970315,
+    -0.5,
+    -12.204620787553525,
+    8.253536217299462,
+    0.5,
+    4.247238328648793
+   ],
+   "corr": {
+    "stepFaces": 8,
+    "occtFaces": 8,
+    "checked": 8,
+    "agree": 8,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 2743,
+   "ents": 2044,
+   "bytes": 175556,
+   "ok": true,
+   "ms": 75.03025000000343,
+   "meshes": 1,
+   "tris": 3506,
+   "faces": 56,
+   "bb": [
+    -18,
+    -53.50000000000001,
+    -17.49817429135578,
+    18.000000000000007,
+    47.500000000000014,
+    17.49817414894531
+   ],
+   "corr": {
+    "stepFaces": 56,
+    "occtFaces": 56,
+    "checked": 56,
+    "agree": 56,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 2751,
+   "ents": 540,
+   "bytes": 36454,
+   "ok": true,
+   "ms": 18.880417000000307,
+   "meshes": 1,
+   "tris": 1671,
+   "faces": 22,
+   "bb": [
+    -6,
+    -6,
+    0,
+    6,
+    6,
+    163
+   ],
+   "corr": {
+    "stepFaces": 22,
+    "occtFaces": 22,
+    "checked": 22,
+    "agree": 22,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 2757,
+   "ents": 332,
+   "bytes": 23328,
+   "ok": true,
+   "ms": 42.23537500000384,
+   "meshes": 1,
+   "tris": 8556,
+   "faces": 16,
+   "bb": [
+    -11.50000000000002,
+    -320,
+    -11.5,
+    11.5,
+    320,
+    36.5
+   ],
+   "corr": {
+    "stepFaces": 16,
+    "occtFaces": 16,
+    "checked": 16,
+    "agree": 16,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 2763,
+   "ents": 8510,
+   "bytes": 821316,
+   "ok": true,
+   "ms": 454.43179200000304,
+   "meshes": 1,
+   "tris": 7650,
+   "faces": 158,
+   "bb": [
+    -23.999974865035863,
+    -35,
+    -23.99378123619238,
+    24,
+    40,
+    47.499999134814004
+   ],
+   "corr": {
+    "stepFaces": 158,
+    "occtFaces": 158,
+    "checked": 158,
+    "agree": 158,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 2769,
+   "ents": 232,
+   "bytes": 16315,
+   "ok": true,
+   "ms": 10.835125000005064,
+   "meshes": 1,
+   "tris": 942,
+   "faces": 11,
+   "bb": [
+    -11,
+    -10.993857201032801,
+    0,
+    10.975435664854684,
+    10.993857201032801,
+    14
+   ],
+   "corr": {
+    "stepFaces": 11,
+    "occtFaces": 11,
+    "checked": 11,
+    "agree": 11,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 2775,
+   "ents": 8378,
+   "bytes": 800698,
+   "ok": true,
+   "ms": 427.30216700000165,
+   "meshes": 1,
+   "tris": 7688,
+   "faces": 158,
+   "bb": [
+    -23.999974865035863,
+    -40,
+    -23.99378123619238,
+    24,
+    35,
+    47.499998859473614
+   ],
+   "corr": {
+    "stepFaces": 158,
+    "occtFaces": 158,
+    "checked": 158,
+    "agree": 158,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 2781,
+   "ents": 5370,
+   "bytes": 513255,
+   "ok": true,
+   "ms": 226.0820840000015,
+   "meshes": 1,
+   "tris": 13464,
+   "faces": 81,
+   "bb": [
+    -11,
+    -11,
+    50,
+    99.9559415382817,
+    11,
+    175.98866614850454
+   ],
+   "corr": {
+    "stepFaces": 81,
+    "occtFaces": 81,
+    "checked": 81,
+    "agree": 81,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 2787,
+   "ents": 658,
+   "bytes": 48540,
+   "ok": true,
+   "ms": 33.19970900000044,
+   "meshes": 1,
+   "tris": 3980,
+   "faces": 25,
+   "bb": [
+    -22,
+    -21.975081462026175,
+    6.93889390390723e-15,
+    22,
+    21.975081462026175,
+    13
+   ],
+   "corr": {
+    "stepFaces": 25,
+    "occtFaces": 25,
+    "checked": 25,
+    "agree": 25,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 2819,
+   "ents": 462,
+   "bytes": 36011,
+   "ok": true,
+   "ms": 14.532666999999492,
+   "meshes": 1,
+   "tris": 286,
+   "faces": 15,
+   "bb": [
+    -7.50555349946514,
+    -6.50000000000001,
+    0,
+    7.50555349946514,
+    6.5,
+    4
+   ],
+   "corr": {
+    "stepFaces": 15,
+    "occtFaces": 15,
+    "checked": 15,
+    "agree": 15,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 2935,
+   "ents": 5642,
+   "bytes": 578502,
+   "ok": true,
+   "ms": 657.4972500000003,
+   "meshes": 1,
+   "tris": 17220,
+   "faces": 55,
+   "bb": [
+    -287.5,
+    -287.4937905913516,
+    -13,
+    287.4751626336275,
+    287.4937905913516,
+    13
+   ],
+   "corr": {
+    "stepFaces": 55,
+    "occtFaces": 55,
+    "checked": 55,
+    "agree": 55,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 2941,
+   "ents": 804,
+   "bytes": 54537,
+   "ok": true,
+   "ms": 25.375625000000582,
+   "meshes": 1,
+   "tris": 1302,
+   "faces": 30,
+   "bb": [
+    -2.9924488754152705,
+    -2.9883712171572747,
+    -1.5,
+    3,
+    2.9981781653664674,
+    9
+   ],
+   "corr": {
+    "stepFaces": 30,
+    "occtFaces": 30,
+    "checked": 30,
+    "agree": 30,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 3017,
+   "ents": 1676,
+   "bytes": 108697,
+   "ok": true,
+   "ms": 85.94425000000047,
+   "meshes": 1,
+   "tris": 7328,
+   "faces": 58,
+   "bb": [
+    -22.5,
+    -22.493816664970858,
+    -41,
+    22.47527005842851,
+    22.493816664970858,
+    41
+   ],
+   "corr": {
+    "stepFaces": 58,
+    "occtFaces": 58,
+    "checked": 58,
+    "agree": 58,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 3023,
+   "ents": 94,
+   "bytes": 7539,
+   "ok": true,
+   "ms": 5.023000000001048,
+   "meshes": 1,
+   "tris": 204,
+   "faces": 5,
+   "bb": [
+    -0.99658449300667,
+    -0.9999999999999991,
+    -0.9805361374831367,
+    1,
+    7.138697754260452,
+    275
+   ],
+   "corr": {
+    "stepFaces": 5,
+    "occtFaces": 5,
+    "checked": 5,
+    "agree": 5,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 3063,
+   "ents": 138,
+   "bytes": 10290,
+   "ok": true,
+   "ms": 7.841459000002942,
+   "meshes": 1,
+   "tris": 1340,
+   "faces": 7,
+   "bb": [
+    -3.9941336554044953,
+    -70,
+    -3.976551828617439,
+    3.9941336554044953,
+    70,
+    4
+   ],
+   "corr": {
+    "stepFaces": 7,
+    "occtFaces": 7,
+    "checked": 7,
+    "agree": 7,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 3077,
+   "ents": 94,
+   "bytes": 7537,
+   "ok": true,
+   "ms": 4.266583999997238,
+   "meshes": 1,
+   "tris": 204,
+   "faces": 5,
+   "bb": [
+    -0.99658449300667,
+    -0.9999999999999991,
+    -1.466546785022526,
+    1,
+    5.116670737099337,
+    260
+   ],
+   "corr": {
+    "stepFaces": 5,
+    "occtFaces": 5,
+    "checked": 5,
+    "agree": 5,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 3117,
+   "ents": 772,
+   "bytes": 51663,
+   "ok": true,
+   "ms": 301.7175830000051,
+   "meshes": 1,
+   "tris": 59620,
+   "faces": 38,
+   "bb": [
+    -317.9832366908883,
+    -317.97690951238303,
+    -16.71969192165558,
+    317.9832367457038,
+    317.9581301260734,
+    17.300748914621042
+   ],
+   "corr": {
+    "stepFaces": 38,
+    "occtFaces": 38,
+    "checked": 38,
+    "agree": 38,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 3126,
+   "ents": 1659,
+   "bytes": 116183,
+   "ok": true,
+   "ms": 53.741916999999376,
+   "meshes": 1,
+   "tris": 2318,
+   "faces": 52,
+   "bb": [
+    -11.5,
+    -103.48946043313296,
+    0,
+    17.290152555503525,
+    11.5,
+    18
+   ],
+   "corr": {
+    "stepFaces": 52,
+    "occtFaces": 52,
+    "checked": 52,
+    "agree": 52,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 3151,
+   "ents": 2175,
+   "bytes": 206931,
+   "ok": true,
+   "ms": 160.15087499999936,
+   "meshes": 1,
+   "tris": 15378,
+   "faces": 48,
+   "bb": [
+    -17.499879055256827,
+    -20.989752511317786,
+    -150.9297355315231,
+    17.49484107200641,
+    25,
+    44.0701098180018
+   ],
+   "corr": {
+    "stepFaces": 48,
+    "occtFaces": 48,
+    "checked": 48,
+    "agree": 48,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 3157,
+   "ents": 26481,
+   "bytes": 2120675,
+   "ok": true,
+   "ms": 855.028624999999,
+   "meshes": 1,
+   "tris": 35262,
+   "faces": 637,
+   "bb": [
+    -97.3842261354476,
+    -20.989752511317786,
+    -150.9297355315231,
+    97.3842261354477,
+    39.0122491482262,
+    125.454335953449
+   ],
+   "corr": {
+    "stepFaces": 637,
+    "occtFaces": 637,
+    "checked": 637,
+    "agree": 637,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 3163,
+   "ents": 300,
+   "bytes": 20539,
+   "ok": true,
+   "ms": 9.826499999995576,
+   "meshes": 1,
+   "tris": 328,
+   "faces": 11,
+   "bb": [
+    -9.649999999999997,
+    -9.65,
+    -2,
+    9.65,
+    9.65,
+    7
+   ],
+   "corr": {
+    "stepFaces": 11,
+    "occtFaces": 11,
+    "checked": 11,
+    "agree": 11,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 3171,
+   "ents": 492,
+   "bytes": 37319,
+   "ok": true,
+   "ms": 16.430082999999286,
+   "meshes": 1,
+   "tris": 732,
+   "faces": 18,
+   "bb": [
+    -6.35085296108589,
+    -5.5,
+    -29,
+    6.35085296108589,
+    5.5,
+    2
+   ],
+   "corr": {
+    "stepFaces": 18,
+    "occtFaces": 18,
+    "checked": 18,
+    "agree": 18,
+    "scale": 1
+   }
+  },
+  {
+   "file": "Median_cx-fs01_bicycle.stp",
+   "variant": "absr+wrap",
+   "root": 3177,
+   "ents": 672,
+   "bytes": 53130,
+   "ok": true,
+   "ms": 22.164875000002212,
+   "meshes": 1,
+   "tris": 544,
+   "faces": 23,
+   "bb": [
+    -5.5,
+    -6.35085296108586,
+    -2.5,
+    5.5,
+    6.35085296108589,
+    2.5
+   ],
+   "corr": {
+    "stepFaces": 23,
+    "occtFaces": 23,
+    "checked": 23,
+    "agree": 23,
+    "scale": 1
+   }
+  }
+ ]
+}

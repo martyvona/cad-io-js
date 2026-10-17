@@ -1,0 +1,19 @@
+node_modules/
+.DS_Store
+
+# Third-party reference documents (Siemens JT specs): local copies only, not ours to redistribute
+/JT*.pdf
+/JT*.txt
+/Siemens JT*.pdf
+/Siemens JT*.txt
+/PMIPropertiesStrings*.xlsx
+
+# Phase 0 spike build outputs and generated data (multi-GB; reproducible from the scripts)
+/spike/occt-build*/
+/spike/out/
+/spike/out_bike/
+/spike/tout/
+/spike/*/target/
+/spike/*/pkg-node/
+/spike/occt_tess/*.wasm
+/spike/occt_tess/final_*.mjs

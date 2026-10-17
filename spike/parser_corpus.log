@@ -1,0 +1,80 @@
+4925008 instances, 421 MB; scan 1.9 s, decode 3.7 s (decode time includes the schema check); 3 decode errors
+┌─────────┬───────┬─────────┬─────────┬──────┐
+│ (index) │ files │ inst    │ ok      │ bad  │
+├─────────┼───────┼─────────┼─────────┼──────┤
+│ ap203   │ 62    │ 467679  │ 466099  │ 1580 │
+│ ap214e3 │ 345   │ 3320556 │ 3318902 │ 1654 │
+│ ap242   │ 46    │ 674749  │ 674735  │ 14   │
+│ none    │ 19    │ 0       │ 0       │ 0    │
+│ ap203e2 │ 45    │ 361660  │ 361585  │ 75   │
+└─────────┴───────┴─────────┴─────────┴──────┘
+   1357 ap214e3 NAMED_UNIT.dimensions derived but not *  e.g. gkv311-opencascade-dataset/step/trj4_d2-pe-214.stp #571
+    252 ap203 unknown entity STYLED_ITEM  e.g. gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp
+    182 ap203 unknown entity PRESENTATION_STYLE_ASSIGNMENT  e.g. gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp
+    153 ap203 unknown entity MEASURE_REPRESENTATION_ITEM  e.g. gkv311-opencascade-dataset/step/trj2_as1-id-203.stp
+    127 ap203 unknown entity CURVE_STYLE  e.g. gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp
+    115 ap214e3 unknown entity MECHANICAL_CONTEXT  e.g. gkv311-opencascade-dataset/step/ec_exhaust-A.stp
+    100 ap214e3 unknown entity PRODUCT_TYPE  e.g. gkv311-opencascade-dataset/step/PRO10363.stp
+     78 ap203 unknown entity SURFACE_SIDE_STYLE  e.g. gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp
+     78 ap203 unknown entity SURFACE_STYLE_USAGE  e.g. gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp
+     72 ap203 unknown entity FILL_AREA_STYLE_COLOUR  e.g. gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp
+     72 ap203 unknown entity FILL_AREA_STYLE  e.g. gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp
+     72 ap203 unknown entity SURFACE_STYLE_FILL_AREA  e.g. gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp
+     71 ap203 unknown entity DERIVED_UNIT_ELEMENT  e.g. gkv311-opencascade-dataset/step/trj2_as1-id-203.stp
+     71 ap203 unknown entity DERIVED_UNIT  e.g. gkv311-opencascade-dataset/step/trj2_as1-id-203.stp
+     69 ap203 unknown entity DRAUGHTING_PRE_DEFINED_COLOUR  e.g. gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp
+     63 ap203 unknown entity MECHANICAL_DESIGN_GEOMETRIC_PRESENTATION_REPRESENTATION  e.g. gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp
+     57 ap203 unknown entity OVER_RIDING_STYLED_ITEM  e.g. gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp
+     49 ap203 unknown entity DRAUGHTING_PRE_DEFINED_CURVE_FONT  e.g. gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp
+     42 ap203e2 NAMED_UNIT.dimensions is * but not derived  e.g. nist-pmi-models/NIST_MBE_PMI_CTC_Definitions/NIST_MBE_PMI_CTC_Definitions/nist_ctc_05_asme1_rd.stp #6596
+     40 ap203 unknown entity COLOUR_RGB  e.g. gkv311-opencascade-dataset/step/trj7_as1-pe-203.stp
+     33 ap203e2 unknown entity PRODUCT_CATEGORY_RELATIONSHIP  e.g. gkv311-opencascade-dataset/step/cax_stepLib/s1-tu-203/mainbodyback.stp
+     31 ap203 NAMED_UNIT.dimensions is * but not derived  e.g. gkv311-opencascade-dataset/step/bug33261.stp #23879
+     23 ap214e3 unknown entity DESIGN_CONTEXT  e.g. gkv311-opencascade-dataset/step/PRO10363.stp
+     17 ap203 unknown entity PRESENTATION_LAYER_ASSIGNMENT  e.g. gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp
+     16 ap214e3 unknown entity AUTO_DESIGN_GROUP_ASSIGNMENT  e.g. gkv311-opencascade-dataset/step/PRO7071.stp
+     12 ap242 CHARACTERIZED_OBJECT.name derived but not *  e.g. gkv311-opencascade-dataset/step/bug32745_pmi1.stp #1281
+     10 ap242 CHARACTERIZED_OBJECT.description derived but not *  e.g. gkv311-opencascade-dataset/step/bug32745_pmi1.stp #1281
+      7 ap214e3 DOCUMENT_FILE: expected 6 attrs, got 5  e.g. gkv311-opencascade-dataset/step/trj4_xr1-pe-214.stp #59
+      6 ap214e3 DESCRIPTIVE_REPRESENTATION_ITEM: expected 2 attrs, got 1  e.g. gkv311-opencascade-dataset/step/OCC23251-dm1-oc-214.stp #3362
+      6 ap203 unknown entity SURFACE_STYLE_BOUNDARY  e.g. gkv311-opencascade-dataset/step/trj2_io1-ug-203.stp
+      6 ap203 NAMED_UNIT.dimensions derived but not *  e.g. gkv311-opencascade-dataset/step/bug24601_216523_2_03.stp #96
+      4 ap214e3 unknown entity TRIANGULATED_FACE  e.g. gkv311-opencascade-dataset/step/bug33100_window.step
+      4 ap214e3 unknown entity COORDINATES_LIST  e.g. gkv311-opencascade-dataset/step/bug33100_window.step
+      4 ap214e3 unknown entity CC_DESIGN_PERSON_AND_ORGANIZATION_ASSIGNMENT  e.g. gkv311-opencascade-dataset/step/bug24983_111FACE.stp
+      3 ap214e3 unknown entity CC_DESIGN_APPROVAL  e.g. gkv311-opencascade-dataset/step/bug24983_111FACE.stp
+      2 decode error: expected '('  e.g. gkv311-opencascade-dataset/step/bug32314_corrupted.stp #2 = APPLICATIONtzj automotive mechanical design processes');
+#3 = SHAPE_DEFINITION_REPRESENTATION(#
+      2 ap214e3 unknown entity GROUP_MEMBER_ASSIGNMENT  e.g. gkv311-opencascade-dataset/step/brep_wv2.stp
+      2 ap203 unknown entity EDGE_BLEND_FILLET_FIXED_RADIUS  e.g. gkv311-opencascade-dataset/step/trj10_ch1-tu-203.stp
+      2 ap203 unknown entity BOOLEAN_RESULT  e.g. gkv311-opencascade-dataset/step/trj10_ch1-tu-203.stp
+      2 ap242 NAMED_UNIT.dimensions is * but not derived  e.g. gkv311-opencascade-dataset/step/bug33569.stp #1459
+      2 ap214e3 unknown entity AUTO_DESIGN_PRESENTED_ITEM  e.g. gkv311-opencascade-dataset/step/tr9_asd-db.stp
+      2 ap214e3 unknown entity AUTO_DESIGN_DRAWING_REVISION  e.g. gkv311-opencascade-dataset/step/tr9_asd-db.stp
+      2 diag error: duplicate instance id #N  e.g. gkv311-opencascade-dataset/step/bug25013_25013faces.stp
+      2 ap214e3 unknown entity CC_DESIGN_DATE_AND_TIME_ASSIGNMENT  e.g. gkv311-opencascade-dataset/step/bug24983_111FACE.stp
+      2 ap203 unknown entity NAME_ATTRIBUTE  e.g. gkv311-opencascade-dataset/step/trj2_as1-ug-203.stp
+      2 ap242 REPRESENTATION.name is * but not derived  e.g. gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp #45
+      1 diag error: unexpected 'FROM' outside the HEADER section  e.g. gkv311-opencascade-dataset/step/bug32314_corrupted.stp
+      1 diag error: unexpected 'TZJTZJD_EDGE' outside the HEADER section  e.g. gkv311-opencascade-dataset/step/bug32314_corrupted.stp
+      1 diag error: unexpected 'TZJTAN_POTZ' outside the HEADER section  e.g. gkv311-opencascade-dataset/step/bug32314_corrupted.stp
+      1 ap214e3 unknown entity ORIZTZTJENTED_E56UE56DGE  e.g. gkv311-opencascade-dataset/step/bug32314_corrupted.stp
+      1 ap214e3 unknown entity RTH  e.g. gkv311-opencascade-dataset/step/bug32314_corrupted.stp
+      1 ap214e3 unknown entity CARRTTESIAN_POINT  e.g. gkv311-opencascade-dataset/step/bug32314_corrupted.stp
+      1 ap203 unknown entity PARAMETRIC_EXTRUDED_FACE_SOLID  e.g. gkv311-opencascade-dataset/step/trj10_ch1-tu-203.stp
+      1 ap203 unknown entity RIGHT_CIRCULAR_CYLINDER  e.g. gkv311-opencascade-dataset/step/trj10_ch1-tu-203.stp
+      1 ap203 unknown entity RIGHT_CIRCULAR_CONE  e.g. gkv311-opencascade-dataset/step/trj10_ch1-tu-203.stp
+      1 ap203 unknown entity OPERATION_SEQUENCE  e.g. gkv311-opencascade-dataset/step/trj10_ch1-tu-203.stp
+      1 ap203 unknown entity CONSTRUCTION_HISTORY_SHAPE_REPRESENTATION  e.g. gkv311-opencascade-dataset/step/trj10_ch1-tu-203.stp
+      1 ap203 unknown entity IMPORTED_REFERENCE_ELEMENT  e.g. gkv311-opencascade-dataset/step/trj10_ch1-tu-203.stp
+      1 ap203 unknown entity FUNCTIONAL_PARAMETRIC_HISTORY_MODEL  e.g. gkv311-opencascade-dataset/step/trj10_ch1-tu-203.stp
+      1 ap203 unknown entity DRAUGHTING_MODEL  e.g. gkv311-opencascade-dataset/step/trj5_k1-tc-203.stp
+      1 ap214e3 partial REPRESENTATION_ITEM: expected 1 attrs, got 0  e.g. gkv311-opencascade-dataset/step/bug29478.stp #111
+      1 ap214e3 POSITION_TOLERANCE: expected 4 attrs, got 5  e.g. gkv311-opencascade-dataset/step/OCC8229.stp #1567
+      1 ap214e3 unknown entity TESSELLATED_SHAPE_REPRESENTATION  e.g. gkv311-opencascade-dataset/step/bug33100_window.step
+      1 ap214e3 unknown entity CC_DESIGN_SECURITY_CLASSIFICATION  e.g. gkv311-opencascade-dataset/step/bug24983_111FACE.stp
+      1 diag error: missing ; at end of input  e.g. gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp
+      1 diag error: DATA section not closed by ENDSEC  e.g. gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp
+      1 diag warning: missing END-ISO-10303-21;  e.g. gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp
+      1 decode error: expected ',' or ')'  e.g. gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp #14000=COMPOUND_REPRESENTATION_ITEM('',SET_REPRESENTATION_ITEM((#14001));
+#14001=DESCRIPTIVE_REPRESE

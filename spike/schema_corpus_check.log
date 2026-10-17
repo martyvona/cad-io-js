@@ -1,0 +1,126 @@
+┌──────────────────────────────────┬───────┬─────────┬─────────┬─────────┬──────┐
+│ (index)                          │ files │ simple  │ complex │ ok      │ bad  │
+├──────────────────────────────────┼───────┼─────────┼─────────┼─────────┼──────┤
+│ ap203                            │ 62    │ 463475  │ 4204    │ 466099  │ 1580 │
+│ ap214e3                          │ 345   │ 3258727 │ 59165   │ 3316197 │ 1695 │
+│ ap242                            │ 46    │ 670664  │ 4085    │ 674735  │ 14   │
+│ none:ccd_cla_cvp_ast             │ 1     │ 0       │ 0       │ 0       │ 0    │
+│ none:ccd_cla_gvp_ast             │ 4     │ 0       │ 0       │ 0       │ 0    │
+│ none:STRUCTURAL_ANALYSIS_DESIGN  │ 4     │ 0       │ 0       │ 0       │ 0    │
+│ none:CCD_CLA_GVP_AST             │ 6     │ 0       │ 0       │ 0       │ 0    │
+│ none:CCD_CLA_GVP_AST_ASD         │ 2     │ 0       │ 0       │ 0       │ 0    │
+│ none:CONSTRUCTION_HISTORY_SCHEMA │ 1     │ 0       │ 0       │ 0       │ 0    │
+│ none:PLANT_SPATIAL_CONFIGURATION │ 1     │ 0       │ 0       │ 0       │ 0    │
+│ ap203e2                          │ 45    │ 360858  │ 802     │ 361585  │ 75   │
+└──────────────────────────────────┴───────┴─────────┴─────────┴─────────┴──────┘
+   1357 ap214e3 NAMED_UNIT.dimensions derived but not *  e.g. gkv311-opencascade-dataset/step/trj4_d2-pe-214.stp #571
+    664 (info) ap203 CARTESIAN_POINT.name $ in mandatory slot  e.g. gkv311-opencascade-dataset/step/mat.stp #64
+    252 ap203 unknown entity STYLED_ITEM  e.g. gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp
+    182 ap203 unknown entity PRESENTATION_STYLE_ASSIGNMENT  e.g. gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp
+    153 ap203 unknown entity MEASURE_REPRESENTATION_ITEM  e.g. gkv311-opencascade-dataset/step/trj2_as1-id-203.stp
+    127 ap203 unknown entity CURVE_STYLE  e.g. gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp
+    123 (info) ap214e3 complex instance not in alphabetical order  e.g. gkv311-opencascade-dataset/step/OCC2368.stp #20
+    115 ap214e3 unknown entity MECHANICAL_CONTEXT  e.g. gkv311-opencascade-dataset/step/ec_exhaust-A.stp
+    100 ap214e3 unknown entity PRODUCT_TYPE  e.g. gkv311-opencascade-dataset/step/PRO10363.stp
+     78 ap203 unknown entity SURFACE_SIDE_STYLE  e.g. gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp
+     78 ap203 unknown entity SURFACE_STYLE_USAGE  e.g. gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp
+     72 ap203 unknown entity FILL_AREA_STYLE_COLOUR  e.g. gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp
+     72 ap203 unknown entity FILL_AREA_STYLE  e.g. gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp
+     72 ap203 unknown entity SURFACE_STYLE_FILL_AREA  e.g. gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp
+     71 ap203 unknown entity DERIVED_UNIT_ELEMENT  e.g. gkv311-opencascade-dataset/step/trj2_as1-id-203.stp
+     71 ap203 unknown entity DERIVED_UNIT  e.g. gkv311-opencascade-dataset/step/trj2_as1-id-203.stp
+     69 ap203 unknown entity DRAUGHTING_PRE_DEFINED_COLOUR  e.g. gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp
+     63 ap203 unknown entity MECHANICAL_DESIGN_GEOMETRIC_PRESENTATION_REPRESENTATION  e.g. gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp
+     57 ap203 unknown entity OVER_RIDING_STYLED_ITEM  e.g. gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp
+     52 (info) ap203 DIRECTION.name $ in mandatory slot  e.g. gkv311-opencascade-dataset/step/mat.stp #65
+     49 ap203 unknown entity DRAUGHTING_PRE_DEFINED_CURVE_FONT  e.g. gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp
+     45 (info) ap203 B_SPLINE_CURVE_WITH_KNOTS.name $ in mandatory slot  e.g. gkv311-opencascade-dataset/step/OCC22459-TEST2.stp #163
+     42 ap203e2 NAMED_UNIT.dimensions is * but not derived  e.g. nist-pmi-models/NIST_MBE_PMI_CTC_Definitions/NIST_MBE_PMI_CTC_Definitions/nist_ctc_05_asme1_rd.stp #6596
+     40 ap203 unknown entity COLOUR_RGB  e.g. gkv311-opencascade-dataset/step/trj7_as1-pe-203.stp
+     40 ap214e3 EDGE_CURVE: expected 5 attrs, got 4  e.g. gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #71919
+     35 (info) ap203 PRODUCT_DEFINITION_SHAPE.description $ in mandatory slot  e.g. gkv311-opencascade-dataset/step/OCC22238_test.stp #104
+     33 (info) ap203 PRODUCT_DEFINITION_SHAPE.name $ in mandatory slot  e.g. gkv311-opencascade-dataset/step/mat.stp #68
+     33 ap203e2 unknown entity PRODUCT_CATEGORY_RELATIONSHIP  e.g. gkv311-opencascade-dataset/step/cax_stepLib/s1-tu-203/mainbodyback.stp
+     31 ap203 NAMED_UNIT.dimensions is * but not derived  e.g. gkv311-opencascade-dataset/step/bug33261.stp #23879
+     30 (info) ap203 ORIENTED_EDGE.name $ in mandatory slot  e.g. gkv311-opencascade-dataset/step/OCC22459-TEST2.stp #80
+     25 (info) ap203 EDGE_CURVE.name $ in mandatory slot  e.g. gkv311-opencascade-dataset/step/OCC22459-TEST2.stp #110
+     24 (info) ap203 PRODUCT.description $ in mandatory slot  e.g. gkv311-opencascade-dataset/step/mat.stp #22
+     24 (info) ap203 PRODUCT_DEFINITION.description $ in mandatory slot  e.g. gkv311-opencascade-dataset/step/mat.stp #24
+     23 ap214e3 unknown entity DESIGN_CONTEXT  e.g. gkv311-opencascade-dataset/step/PRO10363.stp
+     21 (info) ap242 QUALIFIED_REPRESENTATION_ITEM.qualifiers $ in mandatory slot  e.g. gkv311-opencascade-dataset/step/bug32049_sp7_10nx_242.stp #1512
+     20 (info) ap203 AXIS2_PLACEMENT_3D.name $ in mandatory slot  e.g. gkv311-opencascade-dataset/step/mat.stp #67
+     20 (info) ap203 VERTEX_POINT.name $ in mandatory slot  e.g. gkv311-opencascade-dataset/step/OCC22459-TEST2.stp #135
+     19 (info) ap203 NEXT_ASSEMBLY_USAGE_OCCURRENCE.id $ in mandatory slot  e.g. gkv311-opencascade-dataset/step/mat.stp #110
+     19 (info) ap203 NEXT_ASSEMBLY_USAGE_OCCURRENCE.description $ in mandatory slot  e.g. gkv311-opencascade-dataset/step/mat.stp #110
+     19 (info) ap203 ITEM_DEFINED_TRANSFORMATION.name $ in mandatory slot  e.g. gkv311-opencascade-dataset/step/mat.stp #130
+     19 (info) ap203 ITEM_DEFINED_TRANSFORMATION.description $ in mandatory slot  e.g. gkv311-opencascade-dataset/step/mat.stp #130
+     19 (info) ap203 REPRESENTATION_RELATIONSHIP.name $ in mandatory slot  e.g. gkv311-opencascade-dataset/step/mat.stp #135
+     19 (info) ap203 REPRESENTATION_RELATIONSHIP.description $ in mandatory slot  e.g. gkv311-opencascade-dataset/step/mat.stp #135
+     17 ap203 unknown entity PRESENTATION_LAYER_ASSIGNMENT  e.g. gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp
+     16 ap214e3 unknown entity AUTO_DESIGN_GROUP_ASSIGNMENT  e.g. gkv311-opencascade-dataset/step/PRO7071.stp
+     14 (info) ap203 PRODUCT.name $ in mandatory slot  e.g. gkv311-opencascade-dataset/step/mat.stp #22
+     14 (info) ap203 PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE.description $ in mandatory slot  e.g. gkv311-opencascade-dataset/step/mat.stp #23
+     14 (info) ap242 DATUM_REFERENCE_ELEMENT.name $ in mandatory slot  e.g. gkv311-opencascade-dataset/step/nist/nist_ctc_05_asme1_ap242-1.stp #949
+     14 (info) ap242 DATUM_REFERENCE_ELEMENT.of_shape $ in mandatory slot  e.g. gkv311-opencascade-dataset/step/nist/nist_ctc_05_asme1_ap242-1.stp #949
+     12 ap242 CHARACTERIZED_OBJECT.name derived but not *  e.g. gkv311-opencascade-dataset/step/bug32745_pmi1.stp #1281
+     11 (info) ap214e3 PRODUCT_DEFINITION_SHAPE.name $ in mandatory slot  e.g. gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #412
+     10 (info) ap242 GEOMETRIC_ITEM_SPECIFIC_USAGE.used_representation $ in mandatory slot  e.g. gkv311-opencascade-dataset/step/bug32745_pmi1.stp #1514
+     10 ap242 CHARACTERIZED_OBJECT.description derived but not *  e.g. gkv311-opencascade-dataset/step/bug32745_pmi1.stp #1281
+     10 (info) ap203 PRODUCT_DEFINITION_FORMATION.description $ in mandatory slot  e.g. gkv311-opencascade-dataset/step/bug24024_slow_import.stp #10
+      8 (info) ap214e3 APPLIED_DATE_ASSIGNMENT.assigned_date $ in mandatory slot  e.g. gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #440
+      8 (info) ap203 ADVANCED_FACE.name $ in mandatory slot  e.g. gkv311-opencascade-dataset/step/OCC22459-TEST2.stp #56
+      8 (info) ap203 FACE_OUTER_BOUND.name $ in mandatory slot  e.g. gkv311-opencascade-dataset/step/OCC22459-TEST2.stp #64
+      8 (info) ap203 EDGE_LOOP.name $ in mandatory slot  e.g. gkv311-opencascade-dataset/step/OCC22459-TEST2.stp #72
+      8 (info) ap203 B_SPLINE_SURFACE_WITH_KNOTS.name $ in mandatory slot  e.g. gkv311-opencascade-dataset/step/OCC22459-TEST2.stp #155
+      7 ap214e3 DOCUMENT_FILE: expected 6 attrs, got 5  e.g. gkv311-opencascade-dataset/step/trj4_xr1-pe-214.stp #59
+      6 ap214e3 DESCRIPTIVE_REPRESENTATION_ITEM: expected 2 attrs, got 1  e.g. gkv311-opencascade-dataset/step/OCC23251-dm1-oc-214.stp #3362
+      6 ap203 unknown entity SURFACE_STYLE_BOUNDARY  e.g. gkv311-opencascade-dataset/step/trj2_io1-ug-203.stp
+      6 (info) ap214e3 SURFACE_CURVE.curve_3d $ in mandatory slot  e.g. gkv311-opencascade-dataset/step/bug22871_null-swept-curve.stp #3374
+      6 (info) ap203 VECTOR.name $ in mandatory slot  e.g. gkv311-opencascade-dataset/step/OCC22459-TEST2.stp #12
+      6 (info) ap203 LINE.name $ in mandatory slot  e.g. gkv311-opencascade-dataset/step/OCC22459-TEST2.stp #18
+      6 ap203 NAMED_UNIT.dimensions derived but not *  e.g. gkv311-opencascade-dataset/step/bug24601_216523_2_03.stp #96
+      6 (info) ap242 OVER_RIDING_STYLED_ITEM.over_ridden_style $ in mandatory slot  e.g. gkv311-opencascade-dataset/step/nist/nist_ctc_05_asme1_ap242-1.stp #111
+      5 (info) ap203 COMPOSITE_CURVE.name $ in mandatory slot  e.g. gkv311-opencascade-dataset/step/OCC22459-TEST2.stp #41
+      5 (info) ap242 DESCRIPTIVE_REPRESENTATION_ITEM.description $ in mandatory slot  e.g. nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_08_asme1_ap242-e2.stp #200
+      4 ap214e3 unknown entity TRIANGULATED_FACE  e.g. gkv311-opencascade-dataset/step/bug33100_window.step
+      4 ap214e3 unknown entity COORDINATES_LIST  e.g. gkv311-opencascade-dataset/step/bug33100_window.step
+      4 ap214e3 unknown entity CC_DESIGN_PERSON_AND_ORGANIZATION_ASSIGNMENT  e.g. gkv311-opencascade-dataset/step/bug24983_111FACE.stp
+      3 (info) ap242 LIMITS_AND_FITS.form_variance $ in mandatory slot  e.g. gkv311-opencascade-dataset/step/bug32049_sp7_10nx_242.stp #86
+      3 (info) ap242 LIMITS_AND_FITS.zone_variance $ in mandatory slot  e.g. gkv311-opencascade-dataset/step/bug32049_sp7_10nx_242.stp #86
+      3 (info) ap242 LIMITS_AND_FITS.source $ in mandatory slot  e.g. gkv311-opencascade-dataset/step/bug32049_sp7_10nx_242.stp #86
+      3 (info) ap203 OPEN_SHELL.name $ in mandatory slot  e.g. gkv311-opencascade-dataset/step/OCC22459-TEST2.stp #53
+      3 ap214e3 unknown entity CC_DESIGN_APPROVAL  e.g. gkv311-opencascade-dataset/step/bug24983_111FACE.stp
+      3 (info) ap242 PRESENTATION_STYLE_ASSIGNMENT.styles $ in mandatory slot  e.g. gkv311-opencascade-dataset/step/nist/nist_ctc_05_asme1_ap242-1.stp #13367
+      2 ap214e3 unknown entity GROUP_MEMBER_ASSIGNMENT  e.g. gkv311-opencascade-dataset/step/brep_wv2.stp
+      2 ap203 unknown entity EDGE_BLEND_FILLET_FIXED_RADIUS  e.g. gkv311-opencascade-dataset/step/trj10_ch1-tu-203.stp
+      2 ap203 unknown entity BOOLEAN_RESULT  e.g. gkv311-opencascade-dataset/step/trj10_ch1-tu-203.stp
+      2 (info) ap214e3 SURFACE_OF_LINEAR_EXTRUSION.swept_curve $ in mandatory slot  e.g. gkv311-opencascade-dataset/step/bug22871_null-swept-curve.stp #627
+      2 ap242 NAMED_UNIT.dimensions is * but not derived  e.g. gkv311-opencascade-dataset/step/bug33569.stp #1459
+      2 ap214e3 unknown entity AUTO_DESIGN_PRESENTED_ITEM  e.g. gkv311-opencascade-dataset/step/tr9_asd-db.stp
+      2 ap214e3 unknown entity AUTO_DESIGN_DRAWING_REVISION  e.g. gkv311-opencascade-dataset/step/tr9_asd-db.stp
+      2 (info) ap242 complex instance not in alphabetical order  e.g. gkv311-opencascade-dataset/step/bug31685_2.stp #3314
+      2 ap214e3 unknown entity CC_DESIGN_DATE_AND_TIME_ASSIGNMENT  e.g. gkv311-opencascade-dataset/step/bug24983_111FACE.stp
+      2 ap203 unknown entity NAME_ATTRIBUTE  e.g. gkv311-opencascade-dataset/step/trj2_as1-ug-203.stp
+      2 ap242 REPRESENTATION.name is * but not derived  e.g. gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp #45
+      1 ap214e3 unknown entity APPLICATIONTZJ  e.g. gkv311-opencascade-dataset/step/bug32314_corrupted.stp
+      1 ap214e3 unknown entity DEFINIETZ  e.g. gkv311-opencascade-dataset/step/bug32314_corrupted.stp
+      1 ap214e3 unknown entity PARAMETRIC_REPRHR  e.g. gkv311-opencascade-dataset/step/bug32314_corrupted.stp
+      1 ap203 unknown entity PARAMETRIC_EXTRUDED_FACE_SOLID  e.g. gkv311-opencascade-dataset/step/trj10_ch1-tu-203.stp
+      1 ap203 unknown entity RIGHT_CIRCULAR_CYLINDER  e.g. gkv311-opencascade-dataset/step/trj10_ch1-tu-203.stp
+      1 ap203 unknown entity RIGHT_CIRCULAR_CONE  e.g. gkv311-opencascade-dataset/step/trj10_ch1-tu-203.stp
+      1 ap203 unknown entity OPERATION_SEQUENCE  e.g. gkv311-opencascade-dataset/step/trj10_ch1-tu-203.stp
+      1 ap203 unknown entity CONSTRUCTION_HISTORY_SHAPE_REPRESENTATION  e.g. gkv311-opencascade-dataset/step/trj10_ch1-tu-203.stp
+      1 ap203 unknown entity IMPORTED_REFERENCE_ELEMENT  e.g. gkv311-opencascade-dataset/step/trj10_ch1-tu-203.stp
+      1 ap203 unknown entity FUNCTIONAL_PARAMETRIC_HISTORY_MODEL  e.g. gkv311-opencascade-dataset/step/trj10_ch1-tu-203.stp
+      1 ap203 unknown entity DRAUGHTING_MODEL  e.g. gkv311-opencascade-dataset/step/trj5_k1-tc-203.stp
+      1 (info) ap214e3 SHAPE_REPRESENTATION.name $ in mandatory slot  e.g. gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #376
+      1 ap214e3 partial REPRESENTATION_ITEM: expected 1 attrs, got 0  e.g. gkv311-opencascade-dataset/step/bug29478.stp #111
+      1 ap214e3 POSITION_TOLERANCE: expected 4 attrs, got 5  e.g. gkv311-opencascade-dataset/step/OCC8229.stp #1567
+      1 (info) ap203 GEOMETRIC_CURVE_SET.name $ in mandatory slot  e.g. gkv311-opencascade-dataset/step/OCC22459-TEST2.stp #47
+      1 (info) ap203 GEOMETRICALLY_BOUNDED_WIREFRAME_SHAPE_REPRESENTATION.name $ in mandatory slot  e.g. gkv311-opencascade-dataset/step/OCC22459-TEST2.stp #48
+      1 (info) ap203 MANIFOLD_SURFACE_SHAPE_REPRESENTATION.name $ in mandatory slot  e.g. gkv311-opencascade-dataset/step/OCC22459-TEST2.stp #52
+      1 ap214e3 unknown entity TESSELLATED_SHAPE_REPRESENTATION  e.g. gkv311-opencascade-dataset/step/bug33100_window.step
+      1 ap214e3 PRODUCT: expected 4 attrs, got 5  e.g. gkv311-opencascade-dataset/step/bug25171.stp #1143
+      1 ap214e3 unknown entity CC_DESIGN_SECURITY_CLASSIFICATION  e.g. gkv311-opencascade-dataset/step/bug24983_111FACE.stp
+      1 (info) ap214e3 DOCUMENT_FILE.name $ in mandatory slot  e.g. gkv311-opencascade-dataset/step/bug31711.stp #18
+      1 PARSE FAILURE eof  e.g. gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp
