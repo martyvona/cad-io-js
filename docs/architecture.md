@@ -197,6 +197,8 @@ A build-time generator, written in TypeScript, converts EXPRESS into JSON dictio
 
 ### The intermediate scene model (`cad-scene`)
 
+**Status:** done in phase 2 (`../packages/cad-scene`, with the STEP importer `../packages/step-import` and the OCCT backend `../packages/tess-occt` brought forward from stage 3). Design decisions, deviations from this sketch (components and occurrences instead of a stored tree; millimetres) and the end-to-end checks against OCCT are in `phase2_progress.md`.
+
 All exporters, and later the viewer, consume one scene model instead of reaching back into the parser and backend:
 
 - **Nodes:** a tree of occurrences (product occurrences for STEP), each with a local transform, a name, a property map and source IDs. Flat files are just a single-level tree.

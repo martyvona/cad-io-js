@@ -12,7 +12,7 @@ Phase 2 of `architecture.md` ("Phasing"): the scene model and the tessellator in
 | 2 | STEP subset builder: the production version of phase 0's per-part subsets (closure over the pass-1 reference index, verbatim bytes, optional synthetic product wrapper), with the checks `architecture.md` asks for | **Done** 2026-10-17 |
 | 3 | STEP importer: Layer 3 semantics → scene (nodes, parts, instancing, units, materials from styles, layers, external references, metadata) | **Done** 2026-10-17 |
 | 4 | Tessellation driver and the custom OCCT backend (`tess-occt`), brought forward from phase 3 (decision 5) | **Done** 2026-10-17 |
-| 5 | Corpus checks: every file imports; the scene agrees with the semantic counts; end to end against OCCT | **Done** 2026-10-17; two decisions open (step 5) |
+| 5 | Corpus checks: every file imports; the scene agrees with the semantic counts; end to end against OCCT | **Done** 2026-10-17 |
 
 Phase 3 (the custom OCCT backend, then truck) and phase 4 (exporters, `stepconv`) follow.
 
@@ -84,7 +84,7 @@ Still to do here: caching across runs, workers, and `curves` parts for wireframe
 **`../corpus_checks/scene_occt.ts`** (log `scene_occt.log`) runs the whole path, import → tessellation with our OCCT backend → placement (`partInstances`), and compares it with `occt-import-js`'s import of the whole file (OCCT's XCAF reader, world millimetres), at a deflection of 1/1000 of the model's size on both sides:
 
 - **Geometry:** sampled vertices of every placed part must lie on OCCT's mesh surface, within the two meshes' deflections. **181,542 of 183,247 (99.1%)**, in 465 files (files up to 5 MB; 37 more where `occt-import-js` produces no meshes). Every placement, unit and origin agrees except in the known cases: `trj4_s1-ai-214.stp` (Alibre: `occt-import-js` places the parts at the identity) and `OCC22238_test.stp` (the transform formula; phase 1, step 6), plus files with broken or degenerate geometry (`bug22871_null-swept-curve.stp`, `bug28414_bug_toroidal_surface.stp`, the `k1_geo` kinematics files).
-- **Colour:** each sampled triangle's colour (part, face and instance materials resolved) against the colour OCCT gives the nearest triangle facing the same way (orientation tells touching assembly parts apart), within 0.01 per component (OCCT's colours are linear RGB, `Quantity_Color`; ours are converted from the file's sRGB). **132,025 of 135,966 (97.1%)**.
+- **Colour:** each sampled triangle's colour (part, face and instance materials resolved) against the colour OCCT gives the nearest triangle facing the same way (orientation tells touching assembly parts apart), within 0.01 per component (OCCT's colours are linear RGB, `Quantity_Color`; ours are converted from the file's sRGB). **133,018 of 135,966 (97.8%)**, after the boundary-colour decision below (97.1% before it).
 
 The check found three importer bugs, all fixed and covered by tests:
 
@@ -96,12 +96,24 @@ The check found three importer bugs, all fixed and covered by tests:
 
 The remaining colour differences, classified:
 
-- **Boundary colours shown on faces by `occt-import-js`.** Unigraphics styles solids only through `SURFACE_STYLE_BOUNDARY` (the `as1-ug`, `io1-ug`, `ha1-ug`, `bv1-ug` files, and others). OCCT stores that as a curve colour (`XCAFDoc_ColorCurv`), and `occt-import-js` falls back to curve colours when a face has none, so it shows the faces coloured; by the file, the faces are unstyled. **Open for the user:** whether to show a boundary colour on the faces when a surface style has nothing else (it is clearly what these writers mean, and what OCCT-based viewers show).
-- **A representation's style against its faces' own styles** (`bug31670_russian.stp`, 1,177 samples): the representation and the faces carry plain (not overriding) styles in different colours. We let the more specific, the face, win; `occt-import-js` shows the representation's. The CAx-IF practice says styles inherit top down and a face should override its solid with `OVER_RIDING_STYLED_ITEM`, so a plain face style under a styled representation is a writer's ambiguity. **Open for the user:** most specific wins (as now) or top down.
+- **Boundary colours shown on faces by `occt-import-js`.** Unigraphics styles solids only through `SURFACE_STYLE_BOUNDARY` (the `as1-ug`, `io1-ug`, `ha1-ug`, `bv1-ug` files, and others). OCCT stores that as a curve colour (`XCAFDoc_ColorCurv`), and `occt-import-js` falls back to curve colours when a face has none, so it shows the faces coloured; by the file, the faces are unstyled. **Decided by the user (2026-10-17): faces show a boundary colour when nothing more specific gives them a surface colour**, since that is clearly what these writers mean and what OCCT-based viewers show. Covered by the importer test; colour agreement rose from 97.1% to 97.8%.
+- **A representation's style against its faces' own styles** (`bug31670_russian.stp`, 1,177 samples): the representation and the faces carry plain (not overriding) styles in different colours. We let the more specific, the face, win; `occt-import-js` shows the representation's. The CAx-IF practice says styles inherit top down and a face should override its solid with `OVER_RIDING_STYLED_ITEM`, so a plain face style under a styled representation is a writer's ambiguity. **Decided by the user (2026-10-17): the most specific style wins** (as implemented), which is what viewers usually do; this file's differences from `occt-import-js` stay.
 - **OCCT losing face colours**: in `2.stp` (the mapped-item assembly) OCCT drops the faces' own fill colours and shows the solid's curve colour (white); ours follow the file.
 - **Per-view styles** applied by OCCT (`trj12_is1-oc-214.stp`, 12 samples), and small cases not investigated individually.
 
-**Parts without meshes:** 120 of 1,114. 66 are geometrically bounded wireframes and 8 other wireframe representations, which have no faces (they should become `curves` parts); 62 are geometrically bounded *surface* representations that our backend returns no shape for (to investigate: OCCT may need them as roots in another way); 16 are OCCT "no shape" results on other representations.
+**Parts without meshes:** 120 of 1,114 parts in the files compared. By representation type (a rerun classifying them; some parts are counted under both their type and an OCCT error):
+
+| Representation | Parts | Example | Why no mesh |
+|---|---|---|---|
+| `GEOMETRICALLY_BOUNDED_WIREFRAME_SHAPE_REPRESENTATION` | 66 | `bug32049_sp7_04dx_242.stp` #13458 | wireframe: no faces to triangulate; should become `curves` parts |
+| `GEOMETRICALLY_BOUNDED_SURFACE_SHAPE_REPRESENTATION` | 62 | `trj8_k1-pe-214.stp` #2266 | our backend returns no shape; to investigate (OCCT may need these transferred another way) |
+| plain `SHAPE_REPRESENTATION` | 12 | `trj8_c2-ac-214.stp` #62 | OCCT "no shape" (16 such errors in all) |
+| `EDGE_BASED_WIREFRAME_SHAPE_REPRESENTATION` | 4 | `trj6_c1-ct-214.stp` #258 | wireframe |
+| `GEOMETRICALLY_BOUNDED_2D_WIREFRAME_REPRESENTATION` | 4 | `trj2_d2-db-214.stp` #1032 | 2D wireframe (drawings) |
+| `MANIFOLD_SURFACE_SHAPE_REPRESENTATION` | 2 | `tr9_asd-db.stp` #241 | not investigated |
+| `ADVANCED_BREP_SHAPE_REPRESENTATION` | 1 | `bug31292.stp` #62 | OCCT's deliberately broken-references file |
+
+These are in the backlog (`phase1_progress.md`), to revisit in later work.
 
 The other step 5 checks: `import_corpus.ts` and `subset_corpus.ts` (steps 2 and 3) on every file.
 
