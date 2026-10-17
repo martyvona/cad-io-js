@@ -1,4 +1,4 @@
-// The Part 21 writer: the raw instance model → Part 21 text, without using the schema. See architecture.md,
+// The Part 21 writer: the raw instance model → Part 21 text, without using the schema. See docs/architecture.md,
 // "Part 21 writer".
 //
 // Output is pure ASCII: strings escape everything outside printable ASCII. It is produced in chunks by a generator,

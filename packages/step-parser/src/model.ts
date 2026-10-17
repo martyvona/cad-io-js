@@ -1,4 +1,4 @@
-// The raw instance model: Part 21 values exactly as written, with no schema knowledge. See architecture.md,
+// The raw instance model: Part 21 values exactly as written, with no schema knowledge. See docs/architecture.md,
 // "The raw instance model".
 
 export type Value =
