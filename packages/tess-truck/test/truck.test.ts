@@ -272,18 +272,121 @@ test("surface curves are read by their 3D curves, where truck's pcurves give NaN
   assert.ok(r.indices.length > 0);
 });
 
-test('edges and faces truck evaluates to NaN are left out, instead of running out of memory', { skip: skip || (![s1ug, dm1].every((f) => fs.existsSync(f)) && 'corpus files missing') }, async () => {
+/** One face's part of a result. */
+const only = (r: TessellationResult, id: number): TessellationResult => ({ ...r, faces: r.faces.filter((f) => f.entityId === id) });
+
+/** The fraction of (about 60) sampled triangle centroids of `x`'s faces within `d` of `y`'s triangles. */
+function within(x: TessellationResult, y: TessellationResult, d: number): number {
+  const tris = (r: TessellationResult) => r.faces.flatMap((f) => Array.from({ length: f.count / 3 }, (_, t) => [0, 1, 2].map((j) => [0, 1, 2].map((c) => r.positions[3 * r.indices[f.start + 3 * t + j]! + c]!))));
+  const sub = (a: number[], b: number[]) => a.map((v, i) => v - b[i]!), dot = (a: number[], b: number[]) => a[0]! * b[0]! + a[1]! * b[1]! + a[2]! * b[2]!;
+  const dist = (p: number[], [a, b, c]: number[][]) => {
+    const ab = sub(b!, a!), ac = sub(c!, a!), ap = sub(p, a!);
+    const [d00, d01, d11, d20, d21] = [dot(ab, ab), dot(ab, ac), dot(ac, ac), dot(ap, ab), dot(ap, ac)], den = d00 * d11 - d01 * d01;
+    const v = (d11 * d20 - d01 * d21) / den, w = (d00 * d21 - d01 * d20) / den;
+    if (den > 0 && v >= 0 && w >= 0 && v + w <= 1) return Math.hypot(...sub(ap, ab.map((e, i) => v * e + w * ac[i]!)));
+    return Math.min(...[[a!, b!], [b!, c!], [c!, a!]].map(([u, e]) => { const ue = sub(e!, u!), t = Math.max(0, Math.min(1, dot(sub(p, u!), ue) / (dot(ue, ue) || 1))); return Math.hypot(...sub(p, u!.map((q, i) => q + t * ue[i]!))); }));
+  };
+  const [tx, ty] = [tris(x), tris(y)];
+  const step = Math.max(1, Math.floor(tx.length / 60));
+  let n = 0, near = 0;
+  for (let i = 0; i < tx.length; i += step, n++) {
+    const p = [0, 1, 2].map((c) => (tx[i]![0]![c]! + tx[i]![1]![c]! + tx[i]![2]![c]!) / 3);
+    if (ty.some((t) => dist(p, t) <= d)) near++;
+  }
+  return near / n;
+}
+
+test("unclamped B-splines are clamped to their valid range, and mesh on OCCT's faces", { skip: skip || (!occtBuilt && 'tess-occt not built') || (![s1ug, dm1].every((f) => fs.existsSync(f)) && 'corpus files missing') }, async () => {
+  const { OcctTessellator } = await import('tess-occt');
+  const truck = new TruckTessellator();
+  const occt = new OcctTessellator();
+  await truck.init();
+  await occt.init();
+  // Without clamping, truck evaluated these outside their valid range, to NaN, and they were left out. They now lie on
+  // OCCT's faces, but truck meshes some of these periodic faces with overlapping triangles (#40, #628: up to 18% more
+  // area) or a few stray ones (#40, #637), as it does other faces on closed surfaces.
+  for (const [file, rootId, edges, faces, ids] of [[s1ug, 80, 0, 2, [628, 637]], [dm1, 37, 8, 4, [40, 207, 374, 531]]] as const) {
+    const req = (await requests(file)).find((q) => q.rootId === rootId)!;
+    const a = await truck.tessellate(req), b = await occt.tessellate(req);
+    const messages = a.diagnostics.map((d) => d.message);
+    assert.ok(messages.includes(`B-splines with unclamped knot vectors clamped to their valid range, which truck lacks: ${edges} edge curves, ${faces} face surfaces`), messages.join('; '));
+    assert.ok(!messages.some((m) => /NaN|can't convert/.test(m)), messages.join('; '));
+    for (const id of ids) {
+      const [fa, fb] = [only(a, id), only(b, id)];
+      assert.equal(fa.faces.length, 1, `#${id}`);
+      const d = 2 * req.linearDeflection;
+      assert.ok(within(fa, fb, d) >= 0.9 && within(fb, fa, d) >= 0.9, `#${id}: ${within(fa, fb, d)}, ${within(fb, fa, d)} near`);
+      assert.equal(flippedFaces(fa, fb), 0, `#${id}`);
+    }
+  }
+});
+
+test('edges and faces truck evaluates to NaN are left out, instead of running out of memory', { skip: skip || (!fs.existsSync(dm1) && 'corpus file missing') }, async () => {
   const tess = new TruckTessellator();
   await tess.init();
-  // Unclamped B-spline knot vectors: truck evaluates them outside their valid range.
-  const faces = await tess.tessellate((await requests(s1ug)).find((q) => q.rootId === 80)!);
-  assert.ok(faces.indices.length > 0);
-  assert.ok(faces.diagnostics.some((d) => /^2 faces whose surfaces truck evaluates to NaN \(left out\): #628, #637$/.test(d.message)));
-  const edges = await tess.tessellate((await requests(dm1)).find((q) => q.rootId === 37)!);
-  const messages = edges.diagnostics.map((d) => d.message);
-  assert.ok(messages.includes('4 edges whose curves truck evaluates to NaN (left out, with their faces): #572, #81, #642, #156'), messages.join('; '));
-  assert.ok(messages.includes('4 faces whose surfaces truck evaluates to NaN (left out): #40, #207, #374, #531'), messages.join('; '));
-  assert.ok(!messages.some((m) => /edges truck can't convert/.test(m)), messages.join('; '));
+  const req = (await requests(dm1)).find((q) => q.rootId === 37)!;
+  const text = new TextDecoder().decode(req.data);
+  // Invalid files, not seen in the corpus since clamping: a rational B-spline's first weight 0, so its first point is
+  // 0/0. truck would subdivide the curve, or the surface's range edges, without end.
+  for (const [re, message] of [
+    [/RATIONAL_B_SPLINE_CURVE\s*\(\s*\(\s*1\./, '1 edges whose curves truck evaluates to NaN (left out, with their faces): #81'],
+    [/RATIONAL_B_SPLINE_SURFACE\s*\(\s*\(\s*\(\s*1\./, '1 faces whose surfaces truck evaluates to NaN (left out): #40'],
+  ] as const) {
+    const bad = text.replace(re, (x) => x.replace(/1\.$/, '0.'));
+    assert.notEqual(bad, text);
+    const r = await tess.tessellate({ ...req, data: new TextEncoder().encode(bad) });
+    const messages = r.diagnostics.map((d) => d.message);
+    assert.ok(messages.includes(message), messages.join('; '));
+    assert.ok(!messages.some((m) => /edges truck can't convert/.test(m)), messages.join('; '));
+    assert.ok(r.faces.length >= 10);
+  }
+});
+
+test('a face truck meshes against all its loops is reversed, and faces as OCCT has it', { skip: skip || (!occtBuilt && 'tess-occt not built') || (!fs.existsSync(gkv('trj7_k1-ec-214.stp')) && 'corpus file missing') }, async () => {
+  const { OcctTessellator } = await import('tess-occt');
+  const truck = new TruckTessellator();
+  const occt = new OcctTessellator();
+  await truck.init();
+  await occt.init();
+  const req = (await requests(gkv('trj7_k1-ec-214.stp'))).find((q) => q.rootId === 6446)!;
+  const a = await truck.tessellate(req), b = await occt.tessellate(req);
+  assert.deepEqual(a.diagnostics.map((d) => d.message).filter((m) => /reversed/.test(m)), ['1 faces reversed, since truck meshed them against all their loops: #5547']);
+  assert.equal(flippedFaces(a, b), 0);
+  assert.equal(windingMismatches(only(a, 5547)), 0);
+});
+
+test("a shell whose volume truck's mesh can't tell isn't reversed: a thin solid, a mesh that leaks", { skip: skip || (![gkv('trj4_s1-pe-203.stp'), gkv('trj3_s1-id-203.stp')].every((f) => fs.existsSync(f)) && 'corpus files missing') }, async () => {
+  const tess = new TruckTessellator();
+  await tess.init();
+  // trj4: truck meshes face #803 about 3% too large, inside its closed boundary, and the faces' parts of the volume
+  // nearly cancel: by the signed volume alone, the outer shell faced inward. trj3: truck's face meshes leave gaps, so
+  // the volume's sign depends on the point it's measured from. OCCT has both as written.
+  for (const [file, rootId, shell] of [['trj4_s1-pe-203.stp', 1138, 1118], ['trj3_s1-id-203.stp', 408, 4195]] as const) {
+    const r = await tess.tessellate((await requests(gkv(file))).find((q) => q.rootId === rootId)!);
+    assert.deepEqual(r.diagnostics.map((d) => d.message), [`orientation of 1 solid shells not checked, since their meshes' volumes are too small or uncertain to tell: #${shell}`], file);
+  }
+});
+
+test('a void whose volume is small beside its faces\' parts of it is still reversed', { skip: skip || (!fs.existsSync(gkv('bug31670_russian.stp')) && 'corpus file missing') }, async () => {
+  const tess = new TruckTessellator();
+  await tess.init();
+  // The void's volume is 3% of the sum of its faces' parts, from its bounding box's centre.
+  const r = await tess.tessellate((await requests(gkv('bug31670_russian.stp'))).find((q) => q.rootId === 26312)!);
+  assert.ok(r.diagnostics.some((d) => d.message === 'shell #18476 reversed: as written, this void faces into the material'));
+});
+
+test("a face that truck meshes partly along its loops is left as it is", { skip: skip || (![gkv('Checking_Fixture_Clamping.STEP'), gkv('bug25013_25013faces.stp')].every((f) => fs.existsSync(f)) && 'corpus files missing') }, async () => {
+  const tess = new TruckTessellator();
+  await tess.init();
+  // Faces #8281 and #8483 each have one loop segment against their triangles, and the rest along them. Face #794022
+  // has one along and two against (OCCT has it the other way): only a face with every segment against is reversed.
+  // A majority rule would reverse 9 such faces in the corpus, and 8 of them would then face opposite to OCCT's.
+  const r = await tess.tessellate((await requests(gkv('Checking_Fixture_Clamping.STEP'))).find((q) => q.rootId === 5594)!);
+  assert.deepEqual(r.diagnostics, []);
+  assert.ok(r.faces.some((f) => f.entityId === 8281) && r.faces.some((f) => f.entityId === 8483));
+  const m = await tess.tessellate((await requests(gkv('bug25013_25013faces.stp'))).find((q) => q.rootId === 821282)!);
+  assert.deepEqual(m.diagnostics.map((d) => d.message), ["orientation of 1 solid shells not checked, since their meshes aren't closed: #821262"]);
+  assert.ok(m.faces.some((f) => f.entityId === 794022));
 });
 
 test("a closed solid shell whose faces disagree in orientation isn't reversed", { skip: skip || (!fs.existsSync(s1ug) && 'corpus file missing') }, async () => {

@@ -10,6 +10,7 @@ crate-type = ["cdylib", "rlib"]
 
 # truck at the commit pinned by ../../../third_party/pull.sh, used as is (no fork).
 [dependencies]
+truck-geometry = { path = "../../../third_party/truck/truck-geometry" }
 truck-meshalgo = { path = "../../../third_party/truck/truck-meshalgo", default-features = false, features = ["tessellation"] }
 truck-stepio = { path = "../../../third_party/truck/truck-stepio" }
 truck-topology = { path = "../../../third_party/truck/truck-topology" }

@@ -31,6 +31,10 @@ interface Diag {
   reversedShells?: [number, boolean][];
   uncheckedShells?: number[];
   inconsistentShells?: number[];
+  unclearShells?: number[];
+  clampedEdges?: number;
+  clampedFaces?: number;
+  flippedFaces?: number[];
 }
 
 const KINDS: EdgeKind[] = ['shared', 'seam', 'free', 'degenerate'];
@@ -145,12 +149,15 @@ export class TruckTessellator implements Tessellator {
     if (diag.unconvertedEdges?.length) diagnostics.push({ severity: 'warning', message: `${diag.unconvertedEdges.length} edges truck can't convert: ${list(diag.unconvertedEdges)}` });
     if (diag.unmeshedFaces?.length) diagnostics.push({ severity: 'warning', message: `${diag.unmeshedFaces.length} faces failed to mesh: ${list(diag.unmeshedFaces)}` });
     if (diag.skippedItems?.length) diagnostics.push({ severity: 'warning', message: `representation items truck doesn't mesh: ${diag.skippedItems.slice(0, 10).join(', ')}${diag.skippedItems.length > 10 ? ', …' : ''}` });
+    if (diag.flippedFaces?.length) diagnostics.push({ severity: 'info', message: `${diag.flippedFaces.length} faces reversed, since truck meshed them against all their loops: ${list(diag.flippedFaces)}` });
     for (const [id, isVoid] of diag.reversedShells ?? []) diagnostics.push({ severity: 'info', message: `shell #${id} reversed: as written, this ${isVoid ? 'void' : 'outer shell'} faces into the material` });
     if (diag.inconsistentShells?.length) diagnostics.push({ severity: 'info', message: `orientation of ${diag.inconsistentShells.length} solid shells not checked, since their faces disagree in orientation: ${list(diag.inconsistentShells)}` });
+    if (diag.unclearShells?.length) diagnostics.push({ severity: 'info', message: `orientation of ${diag.unclearShells.length} solid shells not checked, since their meshes' volumes are too small or uncertain to tell: ${list(diag.unclearShells)}` });
     if (diag.uncheckedShells?.length) diagnostics.push({ severity: 'info', message: `orientation of ${diag.uncheckedShells.length} solid shells not checked, since their meshes aren't closed: ${list(diag.uncheckedShells)}` });
     if (diag.curves3d) diagnostics.push({ severity: 'info', message: `${diag.curves3d} SURFACE_CURVEs read by their 3D curve instead of a pcurve` });
     if (diag.cones) diagnostics.push({ severity: 'info', message: `${diag.cones} CONICAL_SURFACE semi-angles converted to radians from the context's angle unit` });
     if (diag.tori) diagnostics.push({ severity: 'info', message: `${diag.tori} TOROIDAL_SURFACEs with negative radii read with their absolute values` });
+    if (diag.clampedEdges || diag.clampedFaces) diagnostics.push({ severity: 'info', message: `B-splines with unclamped knot vectors clamped to their valid range, which truck lacks: ${diag.clampedEdges ?? 0} edge curves, ${diag.clampedFaces ?? 0} face surfaces` });
     if (diag.fixedPlacements) diagnostics.push({ severity: 'info', message: `${diag.fixedPlacements} AXIS2_PLACEMENT_3Ds along x without a ref_direction given the standard's default (0, 1, 0), which truck lacks` });
     return result;
   }

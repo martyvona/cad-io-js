@@ -185,6 +185,33 @@ function loopUses(ins: Map<number, string>): Map<number, [number, boolean][]> {
   return out;
 }
 
+/** The faces reversed in their solids, as the file gives them (an ORIENTED_FACE or an ORIENTED_ shell .F.), or as
+ * truck's wrapper reverses them (`reversedShells`: the ids of the shells, plain or ORIENTED_, it reports). Their
+ * normals run against their loops. */
+function reversedFaces(ins: Map<number, string>, reversedShells: Set<number>): Set<number> {
+  const refs = (x: string) => [...x.matchAll(/#(\d+)/g)].map((m) => Number(m[1]));
+  const neg = (x: string) => /\.F\.\s*\)\s*$/.test(x);
+  const shellFlip = new Map<number, boolean>();
+  for (const [id, r] of ins) {
+    if (/^(CLOSED_SHELL|OPEN_SHELL)\b/.test(r)) shellFlip.set(id, (shellFlip.get(id) ?? false) !== reversedShells.has(id));
+  }
+  for (const [id, r] of ins) {
+    if (!/^ORIENTED_(CLOSED|OPEN)_SHELL\b/.test(r)) continue;
+    const s = refs(r).at(-1)!;
+    shellFlip.set(s, (shellFlip.get(s) ?? false) !== (neg(r) !== reversedShells.has(id)));
+  }
+  const out = new Set<number>();
+  for (const [id, r] of ins) {
+    if (!/^(CLOSED_SHELL|OPEN_SHELL)\b/.test(r)) continue;
+    for (const f of refs(r)) {
+      const o = ins.get(f);
+      const [face, flip] = o && /^ORIENTED_FACE\b/.test(o) ? [refs(o).at(-1)!, neg(o)] : [f, false];
+      if (flip !== shellFlip.get(id)) out.add(face);
+    }
+  }
+  return out;
+}
+
 const byFaceType = new Map<string, { faces: number; missing: number; ok: number; wrong: number; short: number; contra: number; mixed: number; flipped: number }>();
 const byEdgeType = new Map<string, { edges: number; withOff: number; off: number }>();
 const tally = <T>(m: Map<string, T>, k: string, init: () => T) => { let v = m.get(k); if (!v) m.set(k, (v = init())); return v; };
@@ -200,7 +227,7 @@ const totals = {
   area: { '0.1%': 0, '1%': 0, '5%': 0, worse: 0 } as Record<string, number>,
   facesOcct: 0, facesMissing: 0, facesUnmeshed: 0, facesUnconverted: 0, facesExtra: 0,
   edgesCompared: 0, edgeKindDiff: 0, edgePoints: 0, edgePointsOff: 0, partsOffMesh: 0,
-  partsFlipped: 0, facesFlipped: 0, placementsFixed: 0, partsPlacementsFixed: 0, shellsReversed: 0, shellsOpen: 0, shellsInconsistent: 0,
+  partsFlipped: 0, facesFlipped: 0, placementsFixed: 0, partsPlacementsFixed: 0, shellsReversed: 0, shellsOpen: 0, shellsInconsistent: 0, shellsUnclear: 0, facesLoopFlipped: 0, clampedEdges: 0, clampedFaces: 0,
   curves3d: 0, tori: 0, cones: 0, nanEdges: 0, nanFaces: 0, unread: 0, partsComplete: 0,
   validation: { files: 0, truck: [0, 0], occt: [0, 0] } as { files: number; truck: number[]; occt: number[] },
 };
@@ -289,6 +316,8 @@ for (const [fi, f] of files.entries()) {
       const epts = new Map<number, string[]>();
       for (const e of a.edges!) if (e.entityId !== null) epts.set(e.entityId, Array.from({ length: e.count }, (_, i) => `${a.edgePositions![3 * (e.start + i)]},${a.edgePositions![3 * (e.start + i) + 1]},${a.edgePositions![3 * (e.start + i) + 2]}`));
       const uses = loopUses(ins);
+      const reversedShells = new Set(a.diagnostics.flatMap((d) => /^shell #(\d+) reversed/.exec(d.message)?.[1] ?? []).map(Number));
+      const against = reversedFaces(ins, reversedShells);
       let wrongFaces = 0, contraFaces = 0;
       for (const [id, fbs] of fb) {
         const t = tally(byFaceType, surfaceType(ins, id), () => ({ faces: 0, missing: 0, ok: 0, wrong: 0, short: 0, contra: 0, mixed: 0, flipped: 0 }));
@@ -301,7 +330,8 @@ for (const [fi, f] of files.entries()) {
         if (farA > nA / 5) t.wrong++; else if (farB > nB / 5) t.short++; else t.ok++;
         if (farA > nA / 5 || farB > nB / 5) wrongFaces++;
         // Orientation against the file's loops: truck's triangles wind counter-clockwise about its normals, so the
-        // loops (counter-clockwise about the face normal, ISO 10303-42) run along the face's triangle boundaries.
+        // loops (counter-clockwise about the face normal, ISO 10303-42) run along the face's triangle boundaries,
+        // or against them where the face is reversed in its solid (`reversedFaces`).
         const half = new Set<string>();
         const vk = (v: number) => `${a.positions[3 * v]},${a.positions[3 * v + 1]},${a.positions[3 * v + 2]}`;
         for (const fc of fas) for (let k = fc.start; k < fc.start + fc.count; k += 3) for (let j = 0; j < 3; j++) half.add(`${vk(a.indices[k + j]!)}>${vk(a.indices[k + (j + 1) % 3]!)}`);
@@ -309,7 +339,7 @@ for (const [fi, f] of files.entries()) {
         for (const [ec, along] of uses.get(id) ?? []) {
           const p = epts.get(ec);
           if (!p) continue;
-          const q = along ? p : [...p].reverse();
+          const q = along !== against.has(id) ? p : [...p].reverse();
           for (let k = 0; k + 1 < q.length; k++) { if (half.has(`${q[k]}>${q[k + 1]}`)) agree++; else if (half.has(`${q[k + 1]}>${q[k]}`)) contra++; }
         }
         if (contra && !agree) { t.contra++; contraFaces++; } else if (contra && agree) t.mixed++;
@@ -334,11 +364,15 @@ for (const [fi, f] of files.entries()) {
       if (reversed.length) problems.push(reversed.map((d) => d.message).join('; '));
       totals.shellsOpen += num(a, /^orientation of (\d+) solid shells not checked, since their meshes/);
       totals.shellsInconsistent += num(a, /^orientation of (\d+) solid shells not checked, since their faces/);
+      totals.shellsUnclear += num(a, /^orientation of (\d+) solid shells not checked, since their meshes' volumes/);
+      totals.facesLoopFlipped += num(a, /^(\d+) faces reversed, since truck meshed them against all their loops/);
     }
     if (!(a instanceof Error)) {
       totals.curves3d += num(a, /^(\d+) SURFACE_CURVEs read/); totals.tori += num(a, /^(\d+) TOROIDAL_SURFACEs/); totals.cones += num(a, /^(\d+) CONICAL_SURFACE semi-angles/);
       totals.nanEdges += num(a, /^(\d+) edges whose curves truck evaluates to NaN/); totals.nanFaces += num(a, /^(\d+) faces whose surfaces truck evaluates to NaN/);
       totals.unread += num(a, /^(\d+) instances truck's parser can't read/);
+      const clamped = /^B-splines with unclamped knot vectors clamped .*: (\d+) edge curves, (\d+) face surfaces$/.exec(a.diagnostics.find((d) => /^B-splines with unclamped/.test(d.message))?.message ?? '');
+      if (clamped) { totals.clampedEdges += Number(clamped[1]); totals.clampedFaces += Number(clamped[2]); }
     }
     if (status === 'ok' && !problems.some((x) => /missing|off OCCT's geometry/.test(x))) totals.partsComplete++;
     if (problems.length) {
@@ -395,7 +429,8 @@ console.log(`  edge kinds: ${pct(T.edgeKindDiff, T.edgesCompared)} differ; edge 
 console.log(`  orientation: ${T.facesFlipped} faces in ${T.partsFlipped} parts facing opposite to OCCT's`);
 console.log(`  complete and on OCCT's geometry (truck ok, no face missing or off): ${pct(T.partsComplete, T.compared)} parts`);
 console.log(`  workarounds: ${T.placementsFixed} placements fixed in ${T.partsPlacementsFixed} parts; ${T.curves3d} surface curves read by their 3D curve; ${T.tori} tori with negative radii; ${T.cones} cone angles converted to radians; ${T.unread} unreadable instances left out`);
-console.log(`    ${T.nanEdges} edges and ${T.nanFaces} faces evaluating to NaN left out; ${T.shellsReversed} shells reversed; solid shells not checked: ${T.shellsOpen} open meshes, ${T.shellsInconsistent} with faces disagreeing`);
+console.log(`    ${T.clampedEdges} edge curves and ${T.clampedFaces} face surfaces clamped; ${T.nanEdges} edges and ${T.nanFaces} faces evaluating to NaN left out; ${T.facesLoopFlipped} faces reversed to their loops`);
+console.log(`    ${T.shellsReversed} shells reversed; solid shells not checked: ${T.shellsOpen} open meshes, ${T.shellsInconsistent} with faces disagreeing, ${T.shellsUnclear} with unclear volumes`);
 console.log(`  surface area validation property, within 1%: truck ${pct(T.validation.truck[0]!, T.validation.truck[1]!)}, OCCT ${pct(T.validation.occt[0]!, T.validation.occt[1]!)}, in ${T.validation.files} files`);
 if (panics.size) {
   console.log('  panics:');

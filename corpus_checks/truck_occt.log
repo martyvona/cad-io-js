@@ -1,57 +1,58 @@
 truck against OCCT, 0.05 mm: 515 files (2 over 30 MB skipped), 3252 brep parts; OCCT meshes 3098 (154 empty or failed, not compared)
-  truck status: ok 2891, panic 0, timeout 10, error 0, empty 197
-  area against OCCT (truck ok): within 0.1% 1205, within 1% 757, within 5% 514, > 5% 415
-  faces: 1578 of 62218 (2.5%) of OCCT's missing (1040 failed to mesh, 525 not converted), 4 extra
-  edge kinds: 1874 of 151598 (1.2%) differ; edge points off the mesh: 21559 of 1269673 (1.7%), in 337 parts
-  orientation: 402 faces in 41 parts facing opposite to OCCT's
-  complete and on OCCT's geometry (truck ok, no face missing or off): 2560 of 3098 (82.6%) parts
+  truck status: ok 2893, panic 0, timeout 10, error 0, empty 195
+  area against OCCT (truck ok): within 0.1% 1209, within 1% 768, within 5% 515, > 5% 401
+  faces: 1491 of 62226 (2.4%) of OCCT's missing (980 failed to mesh, 519 not converted), 4 extra
+  edge kinds: 1820 of 151622 (1.2%) differ; edge points off the mesh: 7326 of 1239438 (0.6%), in 317 parts
+  orientation: 318 faces in 35 parts facing opposite to OCCT's
+  complete and on OCCT's geometry (truck ok, no face missing or off): 2587 of 3098 (83.5%) parts
   workarounds: 669 placements fixed in 33 parts; 11986 surface curves read by their 3D curve; 6 tori with negative radii; 2092 cone angles converted to radians; 868 unreadable instances left out
-    11 edges and 24 faces evaluating to NaN left out; 15 shells reversed; solid shells not checked: 155 open meshes, 236 with faces disagreeing
-  surface area validation property, within 1%: truck 45 of 67 (67.2%), OCCT 58 of 67 (86.6%), in 67 files
+    384 edge curves and 78 face surfaces clamped; 0 edges and 0 faces evaluating to NaN left out; 3 faces reversed to their loops
+    12 shells reversed; solid shells not checked: 169 open meshes, 248 with faces disagreeing, 29 with unclear volumes
+  surface area validation property, within 1%: truck 46 of 67 (68.7%), OCCT 58 of 67 (86.6%), in 67 files
   faces by surface type (parts truck meshes; OCCT's faces). Geometry, sampled vertices within 2 x tolerance: ok;
   truck off OCCT's face (wrong or extra surface); OCCT's off truck's (part missing). Normals against the loops:
   contradict, mixed. Facing opposite to OCCT's.
     type                               faces missing      ok   wrong   short  contra   mixed  vsOCCT
-    CYLINDRICAL_SURFACE                22235      93   21454     649      39      46     191      77
-    PLANE                              21540      38   21364      99      39     158       5     125
-    RATIONAL_B_SPLINE_SURFACE           5368     162    4640     208     358      36     521      81
-    CONICAL_SURFACE                     4132     922    2580      86     544       4     248      15
-    TOROIDAL_SURFACE                    2961      14    2894      52       1      16      93      12
-    B_SPLINE_SURFACE_WITH_KNOTS         2768     256    2368     129      15       1     126      24
-    SPHERICAL_SURFACE                   1732      68    1618      41       5       4      81      26
-    SURFACE_OF_LINEAR_EXTRUSION          720      14     682      22       2       1      14       1
-    SURFACE_OF_REVOLUTION                603       1     405      17     180       2      18      32
-    QUASI_UNIFORM_SURFACE                149       0     146       0       3       9       0       9
+    CYLINDRICAL_SURFACE                22235      45   21625     525      40       2     177      53
+    PLANE                              21542      38   21375      90      39       0       0      95
+    RATIONAL_B_SPLINE_SURFACE           5371     140    4664     208     359       0     522      63
+    CONICAL_SURFACE                     4132     920    2637      30     545       0     215      15
+    TOROIDAL_SURFACE                    2961      13    2895      52       1       0      93      12
+    B_SPLINE_SURFACE_WITH_KNOTS         2771     247    2387     121      16       0     132      24
+    SPHERICAL_SURFACE                   1732      68    1618      41       5       0      81      26
+    SURFACE_OF_LINEAR_EXTRUSION          720       9     688      19       4       0       5       0
+    SURFACE_OF_REVOLUTION                603       1     405      17     180       0      18      30
+    QUASI_UNIFORM_SURFACE                149       0     146       0       3       0       0       0
     DEGENERATE_TOROIDAL_SURFACE           10      10       0       0       0       0       0       0
   edges by curve type (truck ok): edges, edges with points off the mesh, points off
-    LINE                                       59076    691     702
-    CIRCLE                                     49500    471    3321
-    B_SPLINE_CURVE_WITH_KNOTS                  24204    598   15424
+    LINE                                       59076    684     692
+    CIRCLE                                     49500    434    3206
+    B_SPLINE_CURVE_WITH_KNOTS                  24204    317    1811
     SURFACE_CURVE/LINE                          4947     13      13
     RATIONAL_B_SPLINE_CURVE                     4581     67    1044
     SURFACE_CURVE/CIRCLE                        2770     14     123
-    SURFACE_CURVE/B_SPLINE_CURVE_WITH_KNOTS     2419    112     657
+    SURFACE_CURVE/B_SPLINE_CURVE_WITH_KNOTS     2419    106     315
     ELLIPSE                                     2343     29      29
-    SURFACE_CURVE/RATIONAL_B_SPLINE_CURVE        851     21      77
+    SURFACE_CURVE/RATIONAL_B_SPLINE_CURVE        867     21      77
     QUASI_UNIFORM_CURVE                          444      1       1
     SEAM_CURVE/LINE                              245      0       0
     SURFACE_CURVE/ELLIPSE                        147      0       0
     SEAM_CURVE/CIRCLE                             61      3      10
-    SEAM_CURVE/B_SPLINE_CURVE_WITH_KNOTS          21      1     153
+    SEAM_CURVE/B_SPLINE_CURVE_WITH_KNOTS          28      0       0
     SURFACE_CURVE/HYPERBOLA                        9      4       4
     HYPERBOLA                                      6      1       1
-    SEAM_CURVE/RATIONAL_B_SPLINE_CURVE             1      0       0
-  1097 s, 4 workers per backend
+    SEAM_CURVE/RATIONAL_B_SPLINE_CURVE             2      0       0
+  955 s, 4 workers per backend
 
 gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926: 2 of 844 edge points off the mesh
 gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #31440: 1 of 34 edge points off the mesh | area 0.9897 x OCCT's
-gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #30730: faces: 2 of 55 missing (2 failed to mesh, 0 not converted), 0 extra | 53 of 1627 edge points off the mesh | area 1.4653 x OCCT's | 6 faces off OCCT's geometry
-gkv311-opencascade-dataset/step/trj7_k1-ec-214.stp #6446: 5 of 367 edge points off the mesh | area 0.9898 x OCCT's | 1 faces off OCCT's geometry | 1 faces whose normals contradict their loops | 1 faces facing opposite to OCCT's: #5547
+gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #30730: area 1.4653 x OCCT's | 4 faces off OCCT's geometry
+gkv311-opencascade-dataset/step/trj7_k1-ec-214.stp #6446: 5 of 367 edge points off the mesh | area 0.9898 x OCCT's | 1 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/bug32049_sp7_04dx_242.stp #13456: faces: 22 of 405 missing (0 failed to mesh, 22 not converted), 0 extra | edge kinds (truck/OCCT): 22 free/shared | 29 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/trj2_as1-id-203.stp #1138: 1 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/trj2_as1-id-203.stp #891: timeout: tessellation timed out after 60000 ms
 gkv311-opencascade-dataset/step/trj2_as1-id-203.stp: surface area validation property 0.141645 m²: truck incomplete, OCCT -0.01%
-gkv311-opencascade-dataset/step/trj4_d2-pe-214.stp #575: empty: 9 faces truck can't convert (left out): #167, #210, #270, #312, #354, #405, #446, #487, #543; 7 edges truck can't convert: #155, #258, #305, #264, #161, #440, #307; 21 SURFACE_CURVEs read by their 3D 
+gkv311-opencascade-dataset/step/trj4_d2-pe-214.stp #575: empty: 9 faces truck can't convert (left out): #167, #210, #270, #312, #354, #405, #446, #487, #543; 7 edges truck can't convert: #155, #258, #305, #264, #161, #440, #307; orientation of 1 solid shells not c
 gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938: faces: 1 of 2 missing (0 failed to mesh, 6 not converted), 0 extra
 gkv311-opencascade-dataset/step/bug32314_corrupted.stp #391682: faces: 1 of 7 missing (1 failed to mesh, 0 not converted), 0 extra | area 0.0213 x OCCT's
 gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049: area 0.9161 x OCCT's | 2 faces off OCCT's geometry
@@ -63,9 +64,8 @@ gkv311-opencascade-dataset/step/trj3_s1-id-203.stp #1578: 1 of 220 edge points o
 gkv311-opencascade-dataset/step/trj3_s1-id-203.stp #1052: faces: 2 of 3 missing (2 failed to mesh, 0 not converted), 0 extra | 64 of 324 edge points off the mesh | area 0.0083 x OCCT's
 gkv311-opencascade-dataset/step/trj3_s1-id-203.stp #891: faces: 2 of 6 missing (2 failed to mesh, 0 not converted), 0 extra | area 0.1186 x OCCT's
 gkv311-opencascade-dataset/step/trj3_s1-id-203.stp #569: area 1.0136 x OCCT's
-gkv311-opencascade-dataset/step/trj3_s1-id-203.stp #408: area 1.0339 x OCCT's | 1 faces off OCCT's geometry | 11 faces whose normals contradict their loops | 19 faces facing opposite to OCCT's: #3435, #3486, #3516, #3567, #3597 | shell #4195 reversed: as written, this outer shell faces into the material
+gkv311-opencascade-dataset/step/trj3_s1-id-203.stp #408: area 1.0339 x OCCT's | 1 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/bug25045_ick_0433.stp #109: area 1.0274 x OCCT's | 1 faces off OCCT's geometry
-gkv311-opencascade-dataset/step/brep_wv2.stp #949: 12 faces whose normals contradict their loops
 gkv311-opencascade-dataset/step/trj8_c2-ac-214.stp #245: empty: representation items truck doesn't mesh: GEOMETRIC_SET #244
 gkv311-opencascade-dataset/step/trj3_s1-tc-214.stp #5416: 1 of 476 edge points off the mesh | area 2.3788 x OCCT's | 3 faces off OCCT's geometry | 1 faces facing opposite to OCCT's: #5346
 gkv311-opencascade-dataset/step/trj3_s1-tc-214.stp #4876: 1 of 248 edge points off the mesh
@@ -74,8 +74,8 @@ gkv311-opencascade-dataset/step/trj3_s1-tc-214.stp #1157: 1 faces off OCCT's geo
 gkv311-opencascade-dataset/step/sp7_04-dx-242.stp #13456: faces: 22 of 405 missing (0 failed to mesh, 22 not converted), 0 extra | edge kinds (truck/OCCT): 22 free/shared | 29 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/trj7_k1-ct-203.stp #1947: 2 of 844 edge points off the mesh
 gkv311-opencascade-dataset/step/bug27693_cornetta-step.stp #22: 1 faces off OCCT's geometry
-gkv311-opencascade-dataset/step/trj5_s1-ug-214.stp #81: faces: 2 of 23 missing (0 failed to mesh, 0 not converted), 0 extra | edge kinds (truck/OCCT): 4 free/shared | 4 of 1638 edge points off the mesh | area 0.6133 x OCCT's
-gkv311-opencascade-dataset/step/trj5_s1-ug-214.stp #80: faces: 2 of 21 missing (0 failed to mesh, 0 not converted), 0 extra | edge kinds (truck/OCCT): 4 free/shared | area 0.6906 x OCCT's
+gkv311-opencascade-dataset/step/trj5_s1-ug-214.stp #81: 2 of 1638 edge points off the mesh | area 1.1323 x OCCT's
+gkv311-opencascade-dataset/step/trj5_s1-ug-214.stp #80: area 1.1225 x OCCT's
 gkv311-opencascade-dataset/step/trj5_s1-ug-214.stp #79: area 1.1178 x OCCT's
 gkv311-opencascade-dataset/step/trj5_s1-ug-214.stp #78: area 1.0299 x OCCT's
 gkv311-opencascade-dataset/step/trj5_s1-ug-214.stp #75: 1 of 149 edge points off the mesh | 2 faces off OCCT's geometry
@@ -106,7 +106,7 @@ gkv311-opencascade-dataset/step/bug30790.step #2421: edge kinds (truck/OCCT): 24
 gkv311-opencascade-dataset/step/bug30790.step #2418: edge kinds (truck/OCCT): 21 shared/free | area 0.0048 x OCCT's | 42 faces off OCCT's geometry | 6 faces facing opposite to OCCT's: #2733, #5429, #5273, #3569, #6377
 gkv311-opencascade-dataset/step/bug30790.step #2415: area 0.9710 x OCCT's | 3 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/bug30790.step #2409: edge kinds (truck/OCCT): 28 shared/free | area 0.0041 x OCCT's | 47 faces off OCCT's geometry
-gkv311-opencascade-dataset/step/bug32049_sp7_10nx_242.stp #2882: faces: 8 of 256 missing (0 failed to mesh, 8 not converted), 0 extra | edge kinds (truck/OCCT): 8 free/shared | 366 of 4762 edge points off the mesh | area 1.1820 x OCCT's | 12 faces off OCCT's geometry
+gkv311-opencascade-dataset/step/bug32049_sp7_10nx_242.stp #2882: faces: 8 of 256 missing (0 failed to mesh, 8 not converted), 0 extra | edge kinds (truck/OCCT): 8 free/shared | area 0.9540 x OCCT's
 gkv311-opencascade-dataset/step/OCC2368.stp #13: area 1.0289 x OCCT's | 1 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/t4mec.stp #9: faces: 1 of 12 missing (1 failed to mesh, 0 not converted), 0 extra | 2 of 2688 edge points off the mesh | area 0.9160 x OCCT's | 1 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/trj6_k1-id-203.stp #127: timeout: tessellation timed out after 60000 ms
@@ -114,7 +114,7 @@ gkv311-opencascade-dataset/step/bug28366_fuselage.stp #368: empty: representatio
 gkv311-opencascade-dataset/step/brep_wv1.stp #949: shell #933 reversed: as written, this void faces into the material; shell #934 reversed: as written, this void faces into the material
 gkv311-opencascade-dataset/step/trj10_b2-oc-214.stp #10: 3 of 4157 edge points off the mesh | area 1.0874 x OCCT's | 6 faces off OCCT's geometry | 1 faces facing opposite to OCCT's: #2304
 gkv311-opencascade-dataset/step/trj5_k1-sh-203.stp #1489: area 1.1318 x OCCT's
-gkv311-opencascade-dataset/step/bug28118_18547.stp #11: faces: 4 of 245 missing (3 failed to mesh, 1 not converted), 0 extra | edge kinds (truck/OCCT): 1 free/shared | 188 of 2881 edge points off the mesh | area 0.9571 x OCCT's | 1 faces off OCCT's geometry
+gkv311-opencascade-dataset/step/bug28118_18547.stp #11: faces: 1 of 245 missing (0 failed to mesh, 1 not converted), 0 extra | edge kinds (truck/OCCT): 1 free/shared | area 1.1074 x OCCT's | 1 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/ec_soapbox-A.stp #11: 66 of 2143 edge points off the mesh | area 1.0578 x OCCT's | 6 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/trj4_k1_top-tc-214.stp #5699: area 1.2898 x OCCT's | 4 faces off OCCT's geometry | 2 faces facing opposite to OCCT's: #2774, #4125
 gkv311-opencascade-dataset/step/PRO10363.stp #169: faces: 2 of 15 missing (2 failed to mesh, 0 not converted), 0 extra | 2 of 616 edge points off the mesh | area 0.8618 x OCCT's
@@ -125,21 +125,20 @@ gkv311-opencascade-dataset/step/bug33410.step #77: empty: 1 instances truck's pa
 gkv311-opencascade-dataset/step/trj4_pm2-ec-214.stp #22794: faces: 2 of 324 missing (2 failed to mesh, 0 not converted), 0 extra | 33 of 4208 edge points off the mesh | area 1.0461 x OCCT's | 23 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/trj4_pm2-ec-214.stp #5727: faces: 12 of 323 missing (12 failed to mesh, 0 not converted), 0 extra | 4 of 4428 edge points off the mesh | area 1.0960 x OCCT's | 2 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/trj4_pm2-ec-214.stp #1544: 7 of 1173 edge points off the mesh | area 2.0633 x OCCT's | 20 faces off OCCT's geometry | 7 faces facing opposite to OCCT's: #3838, #3877, #3894, #3966, #4014
-gkv311-opencascade-dataset/step/trj4_pm2-ec-214.stp #1361: empty: 1 faces truck can't convert (left out): #1364
+gkv311-opencascade-dataset/step/trj4_pm2-ec-214.stp #1361: empty: 1 faces truck can't convert (left out): #1364; orientation of 1 solid shells not checked, since their meshes' volumes are too small or uncertain to tell: #1363
 gkv311-opencascade-dataset/step/trj4_pm2-ec-214.stp: surface area validation property 0.268964 m²: truck incomplete, OCCT -0.06%
 gkv311-opencascade-dataset/step/trj7_c2-al-214.stp #50: empty: representation items truck doesn't mesh: GEOMETRIC_SET #20
-gkv311-opencascade-dataset/step/bug24593_285330.stp #13: area 6.4121 x OCCT's | 6 faces off OCCT's geometry
+gkv311-opencascade-dataset/step/bug24593_285330.stp #13: faces: 4 of 64 missing (4 failed to mesh, 0 not converted), 0 extra | 30 of 1074 edge points off the mesh | area 1.2760 x OCCT's | 1 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/trj5_k1-tc-203.stp #5753: area 1.2898 x OCCT's | 4 faces off OCCT's geometry | 2 faces facing opposite to OCCT's: #2824, #4175
 gkv311-opencascade-dataset/step/trj4_k1_top-id-214.stp #44: timeout: tessellation timed out after 60000 ms
 gkv311-opencascade-dataset/step/r0901_ec.stp #11: faces: 2 of 438 missing (2 failed to mesh, 0 not converted), 0 extra | 23 of 6888 edge points off the mesh | area 1.0595 x OCCT's | 5 faces off OCCT's geometry
-gkv311-opencascade-dataset/step/trj7_k1-ug-214.stp #11: faces: 1 of 44 missing (1 failed to mesh, 0 not converted), 0 extra | 172 of 1520 edge points off the mesh | area 0.9296 x OCCT's
 gkv311-opencascade-dataset/step/PRO7071.stp #403: faces: 2 of 15 missing (2 failed to mesh, 0 not converted), 0 extra | 2 of 378 edge points off the mesh | area 0.8699 x OCCT's | 2 faces facing opposite to OCCT's: #194, #207
 gkv311-opencascade-dataset/step/trj5_k1-id-214.stp #44: timeout: tessellation timed out after 60000 ms
 gkv311-opencascade-dataset/step/trj7_c2-td-203.stp #1001: empty: representation items truck doesn't mesh: GEOMETRIC_SET #988
 gkv311-opencascade-dataset/step/trj3_as1-id-203.stp #1138: 1 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/trj3_as1-id-203.stp #891: timeout: tessellation timed out after 60000 ms
 gkv311-opencascade-dataset/step/trj3_as1-id-203.stp: surface area validation property 0.141645 m²: truck incomplete, OCCT -0.01%
-gkv311-opencascade-dataset/step/bug25823_280612.stp #13: faces: 2 of 35 missing (0 failed to mesh, 2 not converted), 0 extra | edge kinds (truck/OCCT): 40 free/shared | 8 of 576 edge points off the mesh | area 4.7241 x OCCT's | 8 faces off OCCT's geometry
+gkv311-opencascade-dataset/step/bug25823_280612.stp #13: faces: 2 of 35 missing (0 failed to mesh, 2 not converted), 0 extra | edge kinds (truck/OCCT): 40 free/shared | 8 of 576 edge points off the mesh | area 2.6381 x OCCT's | 8 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/bug30014.stp #11367: area 1.0470 x OCCT's
 gkv311-opencascade-dataset/step/bug30014.stp #116765: 1 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/bug30014.stp #41105: 2 of 1331 edge points off the mesh | area 70.1401 x OCCT's | 2 faces off OCCT's geometry
@@ -152,40 +151,35 @@ gkv311-opencascade-dataset/step/bug30014.stp #65953: faces: 1 of 62 missing (1 f
 gkv311-opencascade-dataset/step/bug30014.stp #108072: area 0.7611 x OCCT's | 2 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/bug22715_cube.stp #1932: faces: 7 of 26 missing (7 failed to mesh, 0 not converted), 0 extra | area 0.9106 x OCCT's
 gkv311-opencascade-dataset/step/trj4_s1-pe-214.stp #12543: empty: 12 faces truck can't convert (left out): #11910, #11945, #11988, #12030, #12071, #12104, #12248, #12282, #12314, #12357, …; 7 edges truck can't convert: #11900, #11937, #12022, #12098, #12066, #12275,
-gkv311-opencascade-dataset/step/trj4_s1-pe-214.stp #11613: empty: 5 faces truck can't convert (left out): #11317, #11362, #11518, #11552, #11584; 3 edges truck can't convert: #11309, #11357, #11545; 8 SURFACE_CURVEs read by their 3D curve instead of a pcurve
+gkv311-opencascade-dataset/step/trj4_s1-pe-214.stp #11613: empty: 5 faces truck can't convert (left out): #11317, #11362, #11518, #11552, #11584; 3 edges truck can't convert: #11309, #11357, #11545; orientation of 1 solid shells not checked, since their meshes' volu
 gkv311-opencascade-dataset/step/trj4_s1-pe-214.stp #11087: empty: 20 faces truck can't convert (left out): #9864, #9919, #10034, #10144, #10261, #10304, #10347, #10458, #10499, #10540, …; 17 edges truck can't convert: #9856, #9911, #10010, #10030, #10140, #10245, #1
 gkv311-opencascade-dataset/step/trj4_s1-pe-214.stp #9256: empty: 20 faces truck can't convert (left out): #8223, #8265, #8308, #8369, #8422, #8475, #8532, #8592, #8723, #8764, …; 17 edges truck can't convert: #8193, #8302, #8356, #8412, #8465, #8525, #8217, #8215, 
-gkv311-opencascade-dataset/step/trj4_s1-pe-214.stp #7553: empty: 9 faces truck can't convert (left out): #7138, #7180, #7300, #7343, #7384, #7418, #7450, #7484, #7516; 5 edges truck can't convert: #7128, #7173, #7334, #7411, #7477; 16 SURFACE_CURVEs read by their 3
+gkv311-opencascade-dataset/step/trj4_s1-pe-214.stp #7553: empty: 9 faces truck can't convert (left out): #7138, #7180, #7300, #7343, #7384, #7418, #7450, #7484, #7516; 5 edges truck can't convert: #7128, #7173, #7334, #7411, #7477; orientation of 1 solid shells not
 gkv311-opencascade-dataset/step/trj4_s1-pe-214.stp #6897: empty: 13 faces truck can't convert (left out): #6270, #6316, #6358, #6510, #6553, #6594, #6628, #6660, #6701, #6741, …; 9 edges truck can't convert: #6252, #6266, #6256, #6544, #6621, #6254, #6444, #6258, #
 gkv311-opencascade-dataset/step/trj4_s1-pe-214.stp #5840: faces: 35 of 36 missing (0 failed to mesh, 35 not converted), 0 extra | edge kinds (truck/OCCT): 2 free/shared | area 0.0086 x OCCT's
 gkv311-opencascade-dataset/step/trj4_s1-pe-214.stp #2608: empty: 31 faces truck can't convert (left out): #666, #709, #750, #856, #899, #940, #1048, #1115, #1180, #1223, …; 24 edges truck can't convert: #660, #700, #802, #890, #992, #1106, #1214, #1313, #1371, #141
 gkv311-opencascade-dataset/step/trj4_s1-pe-214.stp: surface area validation property 0.478320 m²: truck incomplete, OCCT -0.04%
 gkv311-opencascade-dataset/step/bm2_ec_exhaust-A.stp #9: faces: 3 of 58 missing (3 failed to mesh, 0 not converted), 0 extra | 9 of 3390 edge points off the mesh | area 1.0460 x OCCT's | 1 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/OCC22238_test.stp #20: 2 of 32 edge points off the mesh
-gkv311-opencascade-dataset/step/tr9_bv1-ug.stp #4730: 12 faces whose normals contradict their loops
 gkv311-opencascade-dataset/step/trj6_as1-id-214.stp #1392: 1 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/trj6_as1-id-214.stp #301: timeout: tessellation timed out after 60000 ms
-gkv311-opencascade-dataset/step/trj5_d3-pe-214.stp #579: empty: 9 faces truck can't convert (left out): #171, #214, #274, #316, #358, #409, #450, #491, #547; 7 edges truck can't convert: #159, #262, #309, #268, #165, #444, #311; 21 SURFACE_CURVEs read by their 3D 
+gkv311-opencascade-dataset/step/trj5_d3-pe-214.stp #579: empty: 9 faces truck can't convert (left out): #171, #214, #274, #316, #358, #409, #450, #491, #547; 7 edges truck can't convert: #159, #262, #309, #268, #165, #444, #311; orientation of 1 solid shells not c
 gkv311-opencascade-dataset/step/trj5_k1-pe-203.stp #5316: faces: 50 of 52 missing (0 failed to mesh, 50 not converted), 0 extra | edge kinds (truck/OCCT): 4 free/shared | area 0.0158 x OCCT's
 gkv311-opencascade-dataset/step/trj10_ap209-td.stp #1507: faces: 1 of 29 missing (1 failed to mesh, 0 not converted), 0 extra
-gkv311-opencascade-dataset/step/trj4_s1-pe-203.stp #1138: 31 faces whose normals contradict their loops | 31 faces facing opposite to OCCT's: #619, #634, #647, #663, #678 | shell #1118 reversed: as written, this outer shell faces into the material
 gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3146: area 1.0117 x OCCT's
 gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3144: faces: 2 of 25 missing (0 failed to mesh, 2 not converted), 0 extra | edge kinds (truck/OCCT): 4 free/shared | 4 of 1722 edge points off the mesh | area 0.6148 x OCCT's
 gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3143: faces: 2 of 13 missing (0 failed to mesh, 2 not converted), 0 extra | edge kinds (truck/OCCT): 4 free/shared | 4 of 714 edge points off the mesh | area 0.6033 x OCCT's
 gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3140: area 1.1129 x OCCT's
 gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3139: area 1.1186 x OCCT's
 gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp: surface area validation property 0.473897 m²: truck -22.79%, OCCT -0.04%
-gkv311-opencascade-dataset/step/bug22871_null-swept-curve.stp #10: faces: 6 of 7 missing (0 failed to mesh, 8 not converted), 0 extra | edge kinds (truck/OCCT): 1 free/shared | 288 of 390 edge points off the mesh | area 0.4109 x OCCT's | 1 faces off OCCT's geometry
+gkv311-opencascade-dataset/step/bug22871_null-swept-curve.stp #10: faces: 6 of 7 missing (0 failed to mesh, 8 not converted), 0 extra | edge kinds (truck/OCCT): 1 free/shared | 96 of 126 edge points off the mesh | area 0.3647 x OCCT's
 gkv311-opencascade-dataset/step/tr8_bv1_tc.stp #464: shell #310 reversed: as written, this void faces into the material; shell #460 reversed: as written, this void faces into the material
-gkv311-opencascade-dataset/step/tr8_bv1_ug.stp #4730: 12 faces whose normals contradict their loops
 gkv311-opencascade-dataset/step/trj4_k1_top-pe-214.stp #4779: faces: 50 of 52 missing (0 failed to mesh, 50 not converted), 0 extra | edge kinds (truck/OCCT): 4 free/shared | area 0.0158 x OCCT's
-gkv311-opencascade-dataset/step/trj8_k1-ac-203.stp #2712: 7 of 1190 edge points off the mesh | area 1.1988 x OCCT's | 2 faces off OCCT's geometry | 66 faces whose normals contradict their loops
+gkv311-opencascade-dataset/step/trj8_k1-ac-203.stp #2712: 7 of 1190 edge points off the mesh | area 1.1988 x OCCT's | 2 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/trj1_t4m-pe.stp #564: area 1.0113 x OCCT's | 2 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/trj5_k1-pe-214.stp #5316: faces: 50 of 52 missing (0 failed to mesh, 50 not converted), 0 extra | edge kinds (truck/OCCT): 4 free/shared | area 0.0158 x OCCT's
 gkv311-opencascade-dataset/step/bug28345_30338.stp #200: faces: 2 of 5 missing (2 failed to mesh, 0 not converted), 0 extra | 2 of 40 edge points off the mesh | area 0.8877 x OCCT's
 gkv311-opencascade-dataset/step/bug28345_30338.stp: surface area validation property 0.000545317 m²: truck -2.30%, OCCT -0.28%
-gkv311-opencascade-dataset/step/trj3_s1-pe-203.stp #1194: 31 faces whose normals contradict their loops | 31 faces facing opposite to OCCT's: #627, #642, #655, #671, #686 | shell #1174 reversed: as written, this outer shell faces into the material
-gkv311-opencascade-dataset/step/tr8_bv1a_ec.stp #11: 11 faces whose normals contradict their loops
 gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787: faces: 5 of 95 missing (5 failed to mesh, 0 not converted), 0 extra | area 1.0839 x OCCT's | 5 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/trj4_s1-tu-214.stp #4497: area 1.7967 x OCCT's | 2 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/trj4_s1-tu-214.stp #3431: area 1.1524 x OCCT's | 2 faces off OCCT's geometry
@@ -193,7 +187,7 @@ gkv311-opencascade-dataset/step/trj4_s1-tu-214.stp #2811: area 0.9845 x OCCT's
 gkv311-opencascade-dataset/step/trj4_s1-tu-214.stp: surface area validation property 0.462569 m²: truck 27.96%, OCCT -0.01%
 gkv311-opencascade-dataset/step/bug29478.stp #130: empty: 1 faces truck can't convert (left out): #114; 1 edges truck can't convert: #28
 gkv311-opencascade-dataset/step/trj7_k1-al-214.stp #6176: faces: 2 of 57 missing (2 failed to mesh, 0 not converted), 0 extra | 2 of 1008 edge points off the mesh | area 0.9721 x OCCT's
-gkv311-opencascade-dataset/step/bug24283_spheres.stp #8: empty: 1 instances truck's parser can't read (left out): #7; 1 faces truck can't convert (left out): #7
+gkv311-opencascade-dataset/step/bug24283_spheres.stp #8: empty: 1 instances truck's parser can't read (left out): #7; 1 faces truck can't convert (left out): #7; orientation of 1 solid shells not checked, since their meshes' volumes are too small or uncertain to t
 gkv311-opencascade-dataset/step/sp7_04-do-242.stp #17823: 32 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/trj9_io1-sy-214.stp #2228: 9 of 820 edge points off the mesh
 gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17565: area 0.9669 x OCCT's
@@ -980,7 +974,7 @@ gkv311-opencascade-dataset/step/trj7_as1-id-214.stp #246: area 1.0706 x OCCT's
 gkv311-opencascade-dataset/step/trj10_ch1-id-chs.stp #127: faces: 1 of 12 missing (1 failed to mesh, 0 not converted), 0 extra | 1 of 312 edge points off the mesh
 gkv311-opencascade-dataset/step/bug25013_25013faces.stp #821282: 2 of 81 edge points off the mesh | area 1.3211 x OCCT's | 1 faces off OCCT's geometry | 4 faces facing opposite to OCCT's: #794022, #793922, #799366, #793880
 gkv311-opencascade-dataset/step/pr1sy.stp #293: faces: 2 of 11 missing (0 failed to mesh, 2 not converted), 0 extra | area 0.2686 x OCCT's
-gkv311-opencascade-dataset/step/bug27453_165-174_piattello.stp #11: faces: 13 of 313 missing (0 failed to mesh, 13 not converted), 0 extra | edge kinds (truck/OCCT): 13 free/shared | area 1.0427 x OCCT's | 1 faces off OCCT's geometry
+gkv311-opencascade-dataset/step/bug27453_165-174_piattello.stp #11: faces: 13 of 313 missing (0 failed to mesh, 13 not converted), 0 extra | edge kinds (truck/OCCT): 13 free/shared | area 0.9854 x OCCT's | 1 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/trj6_k1-al-214.stp #5529: faces: 3 of 39 missing (3 failed to mesh, 0 not converted), 0 extra | area 0.9621 x OCCT's
 gkv311-opencascade-dataset/step/OCC8228.stp #10: faces: 4 of 761 missing (4 failed to mesh, 0 not converted), 0 extra | 37 of 15352 edge points off the mesh | area 1.3148 x OCCT's | 14 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/bug32596_abc_0_13.step #113: faces: 1 of 99 missing (0 failed to mesh, 1 not converted), 0 extra | edge kinds (truck/OCCT): 3 free/shared | 3 of 1438 edge points off the mesh | area 0.8161 x OCCT's | 2 faces off OCCT's geometry
@@ -992,20 +986,17 @@ gkv311-opencascade-dataset/step/trj5_s1-in-214.stp #1106: area 0.6677 x OCCT's |
 gkv311-opencascade-dataset/step/trj6_k1-td-214.stp #7301: faces: 2 of 59 missing (2 failed to mesh, 0 not converted), 0 extra | 58 of 2006 edge points off the mesh | area 0.9851 x OCCT's
 gkv311-opencascade-dataset/step/trj8_k1-ct-203.stp #2099: 2 of 844 edge points off the mesh
 gkv311-opencascade-dataset/step/bug30053.stp #11: faces: 2 of 10 missing (2 failed to mesh, 0 not converted), 0 extra | 6 of 166 edge points off the mesh | area 119.8350 x OCCT's | 3 faces off OCCT's geometry | 2 faces facing opposite to OCCT's: #803, #874
-gkv311-opencascade-dataset/step/tr9_bv1-ct.stp #539: 12 faces whose normals contradict their loops
 gkv311-opencascade-dataset/step/bm2_ec_t4-A.stp #9: faces: 1 of 13 missing (1 failed to mesh, 0 not converted), 0 extra | area 0.9252 x OCCT's | 2 faces off OCCT's geometry | 1 faces facing opposite to OCCT's: #748
 gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10: faces: 23 of 414 missing (23 failed to mesh, 0 not converted), 0 extra | 32 of 4841 edge points off the mesh | area 0.9839 x OCCT's | 18 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/trj6_pm4-ec-203.stp #43110: faces: 2 of 324 missing (2 failed to mesh, 0 not converted), 0 extra | 33 of 4208 edge points off the mesh | area 1.0461 x OCCT's | 23 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/trj6_pm4-ec-203.stp #23172: faces: 12 of 323 missing (12 failed to mesh, 0 not converted), 0 extra | 4 of 4428 edge points off the mesh | area 1.0960 x OCCT's | 2 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/trj6_pm4-ec-203.stp #4521: 7 of 1173 edge points off the mesh | area 2.0634 x OCCT's | 20 faces off OCCT's geometry | 7 faces facing opposite to OCCT's: #4112, #4151, #4168, #4240, #4288
-gkv311-opencascade-dataset/step/trj6_pm4-ec-203.stp #1499: empty: 1 faces truck can't convert (left out): #1489
+gkv311-opencascade-dataset/step/trj6_pm4-ec-203.stp #1499: empty: 1 faces truck can't convert (left out): #1489; orientation of 1 solid shells not checked, since their meshes' volumes are too small or uncertain to tell: #1488
 gkv311-opencascade-dataset/step/trj6_pm4-ec-203.stp: surface area validation property 0.268964 m²: truck incomplete, OCCT -0.06%
 gkv311-opencascade-dataset/step/OCC22459-TEST2.stp #52: empty: representation items truck doesn't mesh: shell #53, shell #54, shell #55
 gkv311-opencascade-dataset/step/trj7_c2-ac-214.stp #259: empty: representation items truck doesn't mesh: GEOMETRIC_SET #258
-gkv311-opencascade-dataset/step/bug26889_export.step #2074: 53 of 149 edge points off the mesh
-gkv311-opencascade-dataset/step/bug26889_export.step #33: faces: 1 of 3 missing (1 failed to mesh, 0 not converted), 0 extra | 154 of 424 edge points off the mesh | area 0.0137 x OCCT's | 1 faces off OCCT's geometry
-gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704: faces: 5 of 90 missing (5 failed to mesh, 0 not converted), 0 extra | edge kinds (truck/OCCT): 8 shared/free | area 0.8532 x OCCT's | 32 faces off OCCT's geometry | 26 faces whose normals contradict their loops | shell #54 reversed: as written, this outer shell faces into the material; shell #56 reversed: as written, this outer shell faces into the material; shell #58 reversed: as written, this outer shell faces into the material
-gkv311-opencascade-dataset/step/tr8_bv1_ct.stp #539: 12 faces whose normals contradict their loops
+gkv311-opencascade-dataset/step/bug26889_export.step #33: area 1.0791 x OCCT's
+gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704: faces: 5 of 90 missing (5 failed to mesh, 0 not converted), 0 extra | edge kinds (truck/OCCT): 8 shared/free | area 0.8532 x OCCT's | 32 faces off OCCT's geometry | shell #54 reversed: as written, this outer shell faces into the material; shell #56 reversed: as written, this outer shell faces into the material; shell #58 reversed: as written, this outer shell faces into the material
 gkv311-opencascade-dataset/step/as1_motor.step #9410: area 1.0375 x OCCT's | 1 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/as1_motor.step #7316: faces: 2 of 20 missing (2 failed to mesh, 0 not converted), 0 extra | area 1.0246 x OCCT's
 gkv311-opencascade-dataset/step/as1_motor.step #6322: faces: 2 of 29 missing (2 failed to mesh, 0 not converted), 0 extra | area 0.9709 x OCCT's
@@ -1013,7 +1004,7 @@ gkv311-opencascade-dataset/step/as1_motor.step #5816: area 1.0443 x OCCT's
 gkv311-opencascade-dataset/step/as1_motor.step #5185: faces: 1 of 17 missing (1 failed to mesh, 0 not converted), 0 extra | 2 of 20349 edge points off the mesh | area 0.9759 x OCCT's
 gkv311-opencascade-dataset/step/as1_motor.step #3728: faces: 7 of 34 missing (7 failed to mesh, 0 not converted), 0 extra | 451 of 8754 edge points off the mesh
 gkv311-opencascade-dataset/step/as1_motor.step #1070: faces: 4 of 18 missing (4 failed to mesh, 0 not converted), 0 extra | 1395 of 12647 edge points off the mesh | area 0.7951 x OCCT's | 2 faces off OCCT's geometry
-gkv311-opencascade-dataset/step/bug24594_284965.stp #13: area 3.3272 x OCCT's | 5 faces off OCCT's geometry
+gkv311-opencascade-dataset/step/bug24594_284965.stp #13: faces: 3 of 19 missing (3 failed to mesh, 0 not converted), 0 extra | 7 of 373 edge points off the mesh | area 1.3031 x OCCT's | 2 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/trj8_k1-ct-214.stp #2070: 2 of 844 edge points off the mesh
 gkv311-opencascade-dataset/step/bug24601_216523_2_03.stp #90: 1 of 1157 edge points off the mesh | area 1.1677 x OCCT's | 2 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/bug24601_216523_2_03.stp #79: faces: 5 of 46 missing (0 failed to mesh, 5 not converted), 0 extra | edge kinds (truck/OCCT): 5 free/shared | 3 of 1025 edge points off the mesh | area 0.9428 x OCCT's
@@ -1024,7 +1015,6 @@ gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp #5203: empty: representat
 gkv311-opencascade-dataset/step/trj9_c2-pe-203.stp #113: empty: representation items truck doesn't mesh: GEOMETRIC_SET #75, GEOMETRIC_SET #76
 gkv311-opencascade-dataset/step/bug33398.step #13688: faces: 12 of 422 missing (12 failed to mesh, 0 not converted), 0 extra | area 1.0214 x OCCT's
 gkv311-opencascade-dataset/step/bug31685_1.stp #17: faces: 80 of 505 missing (74 failed to mesh, 6 not converted), 0 extra | edge kinds (truck/OCCT): 24 free/shared | 74 of 13135 edge points off the mesh | area 1.1631 x OCCT's | 4 faces off OCCT's geometry
-gkv311-opencascade-dataset/step/trj8_k1-ug-214.stp #11: faces: 1 of 44 missing (1 failed to mesh, 0 not converted), 0 extra | 172 of 1520 edge points off the mesh | area 0.9296 x OCCT's
 gkv311-opencascade-dataset/step/bug33100_window.step #32: empty: representation items truck doesn't mesh: TRIANGULATED_FACE #33, TRIANGULATED_FACE #35, TRIANGULATED_FACE #37, TRIANGULATED_FACE #39
 gkv311-opencascade-dataset/step/bug23202_Leuchte.stp #29007: area 1.1064 x OCCT's
 gkv311-opencascade-dataset/step/pr1db.stp #1339: faces: 3 of 15 missing (3 failed to mesh, 0 not converted), 0 extra | 77 of 378 edge points off the mesh | area 0.8004 x OCCT's | 2 faces off OCCT's geometry
@@ -1036,10 +1026,7 @@ gkv311-opencascade-dataset/step/bm2_id_t4-A.stp #1031: 3 faces off OCCT's geomet
 gkv311-opencascade-dataset/step/bug31685_2.stp #17: faces: 2 of 147 missing (2 failed to mesh, 0 not converted), 0 extra | 3 of 3044 edge points off the mesh
 gkv311-opencascade-dataset/step/sp7_08_nx-242.stp #2252: empty: 1 instances truck's parser can't read (left out): #6883; representation items truck doesn't mesh: #6883
 gkv311-opencascade-dataset/step/sp7_08_nx-242.stp: surface area validation property 297.148 m²: truck incomplete, OCCT -99.93%
-gkv311-opencascade-dataset/step/OCC22962-dm1-oc-214.stp #1731: empty: 2 faces whose surfaces truck evaluates to NaN (left out): #1832, #2004; 3 edges whose curves truck evaluates to NaN (left out, with their faces): #1738, #1937, #2008; 3 faces truck can't convert (left
-gkv311-opencascade-dataset/step/OCC22962-dm1-oc-214.stp #1231: faces: 3 of 7 missing (0 failed to mesh, 2 not converted), 0 extra | edge kinds (truck/OCCT): 8 free/shared | area 0.2808 x OCCT's
-gkv311-opencascade-dataset/step/OCC22962-dm1-oc-214.stp #37: faces: 8 of 12 missing (0 failed to mesh, 4 not converted), 0 extra | edge kinds (truck/OCCT): 14 free/shared | area 0.1624 x OCCT's
-gkv311-opencascade-dataset/step/OCC22962-dm1-oc-214.stp: surface area validation property 0.0318414 m²: truck incomplete, OCCT -0.02%
+gkv311-opencascade-dataset/step/OCC22962-dm1-oc-214.stp #37: 1 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/trj7_k1-ac-203.stp #2710: 2 of 1190 edge points off the mesh | area 1.0339 x OCCT's | 4 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/trj3_s1-db-214.stp #6221: area 0.9865 x OCCT's
 gkv311-opencascade-dataset/step/trj3_s1-db-214.stp #4045: area 0.6636 x OCCT's | 1 faces off OCCT's geometry | 11 faces facing opposite to OCCT's: #3760, #3805, #3873, #3895, #3913
@@ -1049,14 +1036,13 @@ gkv311-opencascade-dataset/step/trj6_as1-td-214.stp #2390: area 0.9766 x OCCT's
 gkv311-opencascade-dataset/step/trj6_as1-td-214.stp #1568: 1 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/trj6_as1-td-214.stp #830: 1 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/screw.step #11: faces: 2 of 10 missing (2 failed to mesh, 0 not converted), 0 extra | 6 of 166 edge points off the mesh | area 119.8350 x OCCT's | 3 faces off OCCT's geometry | 2 faces facing opposite to OCCT's: #803, #874
-gkv311-opencascade-dataset/step/bug24595_281390.stp #13: faces: 1 of 20 missing (0 failed to mesh, 1 not converted), 0 extra | edge kinds (truck/OCCT): 20 free/shared | 4 of 371 edge points off the mesh | area 5.1712 x OCCT's | 5 faces off OCCT's geometry
-gkv311-opencascade-dataset/step/trj3_s1-ug-214.stp #81: faces: 2 of 23 missing (0 failed to mesh, 0 not converted), 0 extra | edge kinds (truck/OCCT): 4 free/shared | 4 of 1638 edge points off the mesh | area 0.6133 x OCCT's
-gkv311-opencascade-dataset/step/trj3_s1-ug-214.stp #80: faces: 2 of 21 missing (0 failed to mesh, 0 not converted), 0 extra | edge kinds (truck/OCCT): 4 free/shared | area 0.6906 x OCCT's
+gkv311-opencascade-dataset/step/bug24595_281390.stp #13: faces: 1 of 20 missing (0 failed to mesh, 1 not converted), 0 extra | edge kinds (truck/OCCT): 20 free/shared | 4 of 371 edge points off the mesh | area 1.8250 x OCCT's | 5 faces off OCCT's geometry
+gkv311-opencascade-dataset/step/trj3_s1-ug-214.stp #81: 2 of 1638 edge points off the mesh | area 1.1323 x OCCT's
+gkv311-opencascade-dataset/step/trj3_s1-ug-214.stp #80: area 1.1225 x OCCT's
 gkv311-opencascade-dataset/step/trj3_s1-ug-214.stp #79: area 1.1178 x OCCT's
 gkv311-opencascade-dataset/step/trj3_s1-ug-214.stp #78: area 1.0299 x OCCT's
 gkv311-opencascade-dataset/step/trj3_s1-ug-214.stp #75: 1 of 149 edge points off the mesh | 2 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/trj3_s1-ug-214.stp #74: 1 of 128 edge points off the mesh | area 1.0636 x OCCT's
-gkv311-opencascade-dataset/step/tr8_bv1_ec.stp #11: 12 faces whose normals contradict their loops
 gkv311-opencascade-dataset/step/trj4_k1_top-ct-203.stp #121: edge kinds (truck/OCCT): 294 free/shared | 4 of 1680 edge points off the mesh
 gkv311-opencascade-dataset/step/trj4_s1-ec-214.stp #4170: area 1.3931 x OCCT's
 gkv311-opencascade-dataset/step/trj4_s1-ec-214.stp #2586: 1 of 150 edge points off the mesh
@@ -1066,11 +1052,11 @@ gkv311-opencascade-dataset/step/trj4_s1-ec-214.stp #961: 1 faces off OCCT's geom
 gkv311-opencascade-dataset/step/trj4_s1-ec-214.stp: surface area validation property 0.413317 m²: truck 5.05%, OCCT -0.04%
 gkv311-opencascade-dataset/step/trj4_k1_geo-pe-203.stp #6268: empty: representation items truck doesn't mesh: GEOMETRIC_SET #6255
 gkv311-opencascade-dataset/step/bug33665.step #10: faces: 1 of 6 missing (0 failed to mesh, 1 not converted), 0 extra
-gkv311-opencascade-dataset/step/bug24593_281946.stp #13: area 3.9654 x OCCT's | 5 faces off OCCT's geometry
+gkv311-opencascade-dataset/step/bug24593_281946.stp #13: area 2.7567 x OCCT's | 5 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/bug25287_bad_tess_face_plus.step #2134: faces: 15 of 196 missing (15 failed to mesh, 0 not converted), 0 extra | 14 of 2390 edge points off the mesh | area 10.3581 x OCCT's | 9 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/tr8_bv1_sy.stp #519: shell #484 reversed: as written, this void faces into the material; shell #485 reversed: as written, this void faces into the material
-gkv311-opencascade-dataset/step/trj3_s1-md-214.stp #2468: area 1.2391 x OCCT's | 1 faces off OCCT's geometry
-gkv311-opencascade-dataset/step/trj3_s1-md-214.stp #1707: area 1.1651 x OCCT's | 2 faces off OCCT's geometry
+gkv311-opencascade-dataset/step/trj3_s1-md-214.stp #2468: area 1.2643 x OCCT's
+gkv311-opencascade-dataset/step/trj3_s1-md-214.stp #1707: area 1.0158 x OCCT's
 gkv311-opencascade-dataset/step/trj3_s1-md-214.stp #883: 2 of 710 edge points off the mesh | area 1.2115 x OCCT's
 gkv311-opencascade-dataset/step/trj3_s1-md-214.stp #303: 2 of 1704 edge points off the mesh
 gkv311-opencascade-dataset/step/trj3_s1-md-214.stp #105: area 1.0236 x OCCT's
@@ -1078,7 +1064,7 @@ gkv311-opencascade-dataset/step/trj12_b3-tu-203.stp #27964: faces: 22 of 696 mis
 gkv311-opencascade-dataset/step/trj5_k1-ct-203.stp #250: edge kinds (truck/OCCT): 294 free/shared | 4 of 1680 edge points off the mesh
 gkv311-opencascade-dataset/step/bug24983_111FACE.stp #19: 4 of 52 edge points off the mesh
 gkv311-opencascade-dataset/step/bug28414_bug_toroidal_surface.stp #163: 31 of 42 edge points off the mesh | area 1.0453 x OCCT's
-gkv311-opencascade-dataset/step/trj3_d1-pe-214.stp #575: empty: 9 faces truck can't convert (left out): #167, #210, #270, #312, #354, #405, #446, #487, #543; 7 edges truck can't convert: #155, #258, #305, #264, #161, #440, #307; 21 SURFACE_CURVEs read by their 3D 
+gkv311-opencascade-dataset/step/trj3_d1-pe-214.stp #575: empty: 9 faces truck can't convert (left out): #167, #210, #270, #312, #354, #405, #446, #487, #543; 7 edges truck can't convert: #155, #258, #305, #264, #161, #440, #307; orientation of 1 solid shells not c
 gkv311-opencascade-dataset/step/trj6_as1-hc-214.stp #110: area 0.7025 x OCCT's
 gkv311-opencascade-dataset/step/bug33261.stp #77881: 4 of 40 edge points off the mesh
 gkv311-opencascade-dataset/step/bug33261.stp #77876: area 2.1768 x OCCT's | 2 faces off OCCT's geometry
@@ -1088,7 +1074,7 @@ gkv311-opencascade-dataset/step/bug33261.stp #74059: area 0.9646 x OCCT's
 gkv311-opencascade-dataset/step/bug33261.stp #66256: area 0.9720 x OCCT's
 gkv311-opencascade-dataset/step/bug33261.stp #64490: area 1.0874 x OCCT's
 gkv311-opencascade-dataset/step/bug33261.stp #63374: area 0.9837 x OCCT's
-gkv311-opencascade-dataset/step/bug33261.stp #41791: 1 faces off OCCT's geometry | 1 faces whose normals contradict their loops | 1 faces facing opposite to OCCT's: #41718
+gkv311-opencascade-dataset/step/bug33261.stp #41791: 1 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/bug33261.stp #24378: faces: 2 of 16 missing (2 failed to mesh, 0 not converted), 0 extra | 4 of 194 edge points off the mesh | area 0.9712 x OCCT's
 gkv311-opencascade-dataset/step/bug33261.stp #23887: 1 of 5571 edge points off the mesh | area 1.1654 x OCCT's
 gkv311-opencascade-dataset/step/pr1ct.stp #453: faces: 2 of 3 missing (2 failed to mesh, 0 not converted), 0 extra | 5 of 78 edge points off the mesh | area 0.3088 x OCCT's
@@ -1116,16 +1102,13 @@ gkv311-opencascade-dataset/step/bug26327_fuse_input.stp #3212: 2 of 44 edge poin
 gkv311-opencascade-dataset/step/bug26327_fuse_input.stp #2202: 2 of 44 edge points off the mesh | area 3.3557 x OCCT's | 2 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/bug26327_fuse_input.stp #1192: 2 of 44 edge points off the mesh | area 3.3677 x OCCT's | 2 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/bug26327_fuse_input.stp #180: 2 of 44 edge points off the mesh | area 2.6987 x OCCT's | 2 faces off OCCT's geometry
-gkv311-opencascade-dataset/step/bug26327_fuse_input.stp #10: empty: 1 faces whose surfaces truck evaluates to NaN (left out): #17; 2 edges whose curves truck evaluates to NaN (left out, with their faces): #126, #91; 2 faces truck can't convert (left out): #159, #163; 
-gkv311-opencascade-dataset/step/trj6_k1-md-214.stp #10: 71 of 1124 edge points off the mesh | area 1.4243 x OCCT's | 2 faces off OCCT's geometry
+gkv311-opencascade-dataset/step/trj6_k1-md-214.stp #10: 47 of 986 edge points off the mesh | 1 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/bug24024_slow_import.stp #76247: area 1.0666 x OCCT's
 gkv311-opencascade-dataset/step/trj9_ap209-td.stp #1507: faces: 1 of 29 missing (1 failed to mesh, 0 not converted), 0 extra
 gkv311-opencascade-dataset/step/trj4_k1_geo-pe-214.stp #6272: empty: representation items truck doesn't mesh: GEOMETRIC_SET #6259
-gkv311-opencascade-dataset/step/trj6_k1-ug-214.stp #11: faces: 1 of 44 missing (1 failed to mesh, 0 not converted), 0 extra | 172 of 1520 edge points off the mesh | area 0.9296 x OCCT's
 gkv311-opencascade-dataset/step/trj4_k1_top-ec-214.stp #10: 9 of 741 edge points off the mesh | area 1.1110 x OCCT's | 2 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/trj5_k1-ct-214.stp #294: edge kinds (truck/OCCT): 294 free/shared | 4 of 1680 edge points off the mesh
-gkv311-opencascade-dataset/step/OCC5157.stp #11: faces: 8 of 523 missing (8 failed to mesh, 0 not converted), 0 extra | 702 of 6223 edge points off the mesh | area 0.4881 x OCCT's | 2 faces off OCCT's geometry
-gkv311-opencascade-dataset/step/tr9_bv1-ec.stp #11: 12 faces whose normals contradict their loops
+gkv311-opencascade-dataset/step/OCC5157.stp #11: faces: 4 of 523 missing (4 failed to mesh, 0 not converted), 0 extra | 1 of 5385 edge points off the mesh | area 1.2462 x OCCT's
 gkv311-opencascade-dataset/step/trj5_k1-ec-214.stp #10: faces: 1 of 47 missing (0 failed to mesh, 1 not converted), 0 extra | 8 of 733 edge points off the mesh | area 1.1111 x OCCT's | 1 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/trj3_s1-ec-203.stp #2392: area 1.3931 x OCCT's
 gkv311-opencascade-dataset/step/trj3_s1-ec-203.stp #1545: 1 of 150 edge points off the mesh
@@ -1141,7 +1124,6 @@ gkv311-opencascade-dataset/step/trj3_s1-ct-203.stp #773: area 0.9720 x OCCT's
 gkv311-opencascade-dataset/step/bm2_pe_t4-A.stp #971: empty: 9 faces truck can't convert (left out): #72, #144, #219, #294, #355, #461, #834, #895, #938; 8 edges truck can't convert: #64, #134, #209, #284, #347, #455, #693, #697; 40 SURFACE_CURVEs read by their
 gkv311-opencascade-dataset/step/trj8_k1-hc-214.stp #66910: faces: 2 of 52 missing (0 failed to mesh, 2 not converted), 0 extra | 30 of 1729 edge points off the mesh | area 0.9890 x OCCT's
 gkv311-opencascade-dataset/step/trj8_k1-hc-214.stp: surface area validation property 0.00584966 m²: truck -1.05%, OCCT 0.05%
-gkv311-opencascade-dataset/step/trj5_k1-ug-214.stp #11: faces: 1 of 44 missing (1 failed to mesh, 0 not converted), 0 extra | 86 of 760 edge points off the mesh | area 0.9296 x OCCT's
 gkv311-opencascade-dataset/step/bug32239.STEP #116154: area 1.9080 x OCCT's | 5 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/bug32239.STEP #57866: area 4.6428 x OCCT's
 gkv311-opencascade-dataset/step/bug32239.STEP #109721: area 1.1009 x OCCT's | 2 faces off OCCT's geometry
@@ -1153,7 +1135,7 @@ gkv311-opencascade-dataset/step/trj7_k1-id-214.stp #44: timeout: tessellation ti
 gkv311-opencascade-dataset/step/trj7_as1-hc-214.stp #110: area 0.7025 x OCCT's
 gkv311-opencascade-dataset/step/trj7_as1-hc-214.stp: surface area validation property 0.0700274 m²: truck 97.46%, OCCT 101.43%
 gkv311-opencascade-dataset/step/trj2_io1-id-203.stp #121: area 1.0621 x OCCT's
-gkv311-opencascade-dataset/step/trj6_k1-ec-214.stp #6446: 5 of 367 edge points off the mesh | area 0.9898 x OCCT's | 1 faces off OCCT's geometry | 1 faces whose normals contradict their loops | 1 faces facing opposite to OCCT's: #5548
+gkv311-opencascade-dataset/step/trj6_k1-ec-214.stp #6446: 5 of 367 edge points off the mesh | area 0.9898 x OCCT's | 1 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/trj1_t4m-ac.stp #1390: empty: representation items truck doesn't mesh: GEOMETRIC_SET #1389
 gkv311-opencascade-dataset/step/bug24383_224013.stp #11: faces: 45 of 2661 missing (46 failed to mesh, 0 not converted), 0 extra | edge kinds (truck/OCCT): 3 shared/free, 2 seam/free | area 0.8638 x OCCT's | 81 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/bug31670_russian.stp #31639: area 0.9734 x OCCT's
@@ -1162,25 +1144,22 @@ gkv311-opencascade-dataset/step/bug31670_russian.stp #26312: shell #18476 revers
 gkv311-opencascade-dataset/step/2.stp #347: faces: 2 of 6 missing (0 failed to mesh, 2 not converted), 0 extra | edge kinds (truck/OCCT): 8 free/shared | area 0.0145 x OCCT's
 gkv311-opencascade-dataset/step/2.stp #342: faces: 4 of 190 missing (0 failed to mesh, 4 not converted), 0 extra | edge kinds (truck/OCCT): 8 free/shared | 2 of 1184 edge points off the mesh | area 0.2459 x OCCT's
 gkv311-opencascade-dataset/step/2.stp #337: 1 faces off OCCT's geometry
-gkv311-opencascade-dataset/step/2.stp #332: faces: 2 of 15 missing (2 failed to mesh, 0 not converted), 0 extra | 312 of 1652 edge points off the mesh | area 0.7859 x OCCT's | 1 faces off OCCT's geometry
+gkv311-opencascade-dataset/step/2.stp #332: area 0.9804 x OCCT's
 gkv311-opencascade-dataset/step/2.stp #327: faces: 4 of 34 missing (0 failed to mesh, 4 not converted), 0 extra | edge kinds (truck/OCCT): 160 free/shared | 615 of 1386 edge points off the mesh | area 1.9154 x OCCT's
-gkv311-opencascade-dataset/step/2.stp #322: faces: 16 of 65 missing (3 failed to mesh, 13 not converted), 0 extra | edge kinds (truck/OCCT): 30 free/shared | 741 of 4737 edge points off the mesh | area 0.8602 x OCCT's | 8 faces off OCCT's geometry
+gkv311-opencascade-dataset/step/2.stp #322: faces: 13 of 65 missing (0 failed to mesh, 13 not converted), 0 extra | edge kinds (truck/OCCT): 30 free/shared | area 0.9691 x OCCT's | 2 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/2.stp #317: faces: 1 of 6 missing (0 failed to mesh, 1 not converted), 0 extra | edge kinds (truck/OCCT): 1 free/shared | 1 of 100 edge points off the mesh | area 0.5405 x OCCT's | 1 faces off OCCT's geometry
-gkv311-opencascade-dataset/step/2.stp #312: faces: 26 of 170 missing (26 failed to mesh, 0 not converted), 0 extra | 276 of 5196 edge points off the mesh | area 8.0575 x OCCT's | 63 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/2.stp #307: area 1.0209 x OCCT's | 1 faces off OCCT's geometry
-gkv311-opencascade-dataset/step/2.stp #262: faces: 8 of 24 missing (2 failed to mesh, 6 not converted), 0 extra | edge kinds (truck/OCCT): 6 free/shared | 202 of 1106 edge points off the mesh | area 0.8131 x OCCT's | 5 faces off OCCT's geometry
-gkv311-opencascade-dataset/step/trj4_k1_top-ug-214.stp #11: faces: 1 of 44 missing (1 failed to mesh, 0 not converted), 0 extra | 86 of 760 edge points off the mesh | area 0.9296 x OCCT's
+gkv311-opencascade-dataset/step/2.stp #262: faces: 6 of 24 missing (0 failed to mesh, 6 not converted), 0 extra | edge kinds (truck/OCCT): 6 free/shared | 6 of 812 edge points off the mesh | area 1.0374 x OCCT's
 gkv311-opencascade-dataset/step/trj6_k1-ct-214.stp #2176: 2 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/bug24055_8MTF-75LS05.step #93397: timeout: tessellation timed out after 60000 ms
-gkv311-opencascade-dataset/step/tr9_bv1-db.stp #949: 12 faces whose normals contradict their loops
 gkv311-opencascade-dataset/step/trj6_k1-sd-214.stp #31730: 1 of 34 edge points off the mesh | area 0.9897 x OCCT's
-gkv311-opencascade-dataset/step/trj6_k1-sd-214.stp #30730: faces: 3 of 55 missing (3 failed to mesh, 0 not converted), 0 extra | 53 of 1627 edge points off the mesh | area 1.3121 x OCCT's | 5 faces off OCCT's geometry
+gkv311-opencascade-dataset/step/trj6_k1-sd-214.stp #30730: area 1.5707 x OCCT's | 5 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/tr8_ha1_ct.stp #253: 4 of 8 edge points off the mesh | area 2000000.5000 x OCCT's | 1 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/trj3_s1-ec-214.stp #2176: area 1.3931 x OCCT's
 gkv311-opencascade-dataset/step/trj3_s1-ec-214.stp #1403: 1 of 150 edge points off the mesh
 gkv311-opencascade-dataset/step/trj3_s1-ec-214.stp #1132: area 0.9547 x OCCT's
 gkv311-opencascade-dataset/step/trj3_s1-ec-214.stp #922: 1 of 375 edge points off the mesh
-gkv311-opencascade-dataset/step/trj4_k1_top-md-203.stp #10: 56 of 742 edge points off the mesh | area 1.0477 x OCCT's | 1 faces off OCCT's geometry
+gkv311-opencascade-dataset/step/trj4_k1_top-md-203.stp #10: 22 of 658 edge points off the mesh
 gkv311-opencascade-dataset/step/trj3_s1-ct-214.stp #5744: area 0.9842 x OCCT's
 gkv311-opencascade-dataset/step/trj3_s1-ct-214.stp #5298: area 0.9842 x OCCT's
 gkv311-opencascade-dataset/step/trj3_s1-ct-214.stp #4830: 3 of 2568 edge points off the mesh | area 1.0395 x OCCT's | 4 faces off OCCT's geometry
@@ -1189,7 +1168,7 @@ gkv311-opencascade-dataset/step/trj3_s1-ct-214.stp #2221: 1 of 702 edge points o
 gkv311-opencascade-dataset/step/trj3_s1-ct-214.stp #1460: area 1.0385 x OCCT's
 gkv311-opencascade-dataset/step/trj3_s1-ct-214.stp #743: area 0.9720 x OCCT's
 gkv311-opencascade-dataset/step/bug29715_slow.stp #25: area 0.8692 x OCCT's | 1 faces off OCCT's geometry
-gkv311-opencascade-dataset/step/trj5_k1-md-203.stp #10: 56 of 742 edge points off the mesh | area 1.0477 x OCCT's | 1 faces off OCCT's geometry
+gkv311-opencascade-dataset/step/trj5_k1-md-203.stp #10: 22 of 658 edge points off the mesh
 gkv311-opencascade-dataset/step/pr_3-sy.stp #303: faces: 2 of 11 missing (0 failed to mesh, 2 not converted), 0 extra | area 0.2960 x OCCT's
 gkv311-opencascade-dataset/step/trj4_k1_geo-tu-214.stp #2080: empty: representation items truck doesn't mesh: GEOMETRIC_SET #70, GEOMETRIC_SET #109, GEOMETRIC_SET #159, GEOMETRIC_SET #279, GEOMETRIC_SET #303, GEOMETRIC_SET #332, GEOMETRIC_SET #559, GEOMETRIC_SET #583, 
 gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877: empty: representation items truck doesn't mesh: GEOMETRIC_SET #69; 40 SURFACE_CURVEs read by their 3D curve instead of a pcurve; 1 CONICAL_SURFACE semi-angles converted to radians from the context's angle un
@@ -1203,24 +1182,23 @@ gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #3063: 2 of 116 edge 
 gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #3023: area 0.5087 x OCCT's
 gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #3017: area 1.0109 x OCCT's | 2 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2941: 1 faces off OCCT's geometry
-gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2935: faces: 2 of 55 missing (2 failed to mesh, 0 not converted), 0 extra | 4109 of 13276 edge points off the mesh | area 0.9899 x OCCT's | 37 faces off OCCT's geometry
+gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2935: 1 of 4310 edge points off the mesh | area 2.3872 x OCCT's
 gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2787: 1 of 634 edge points off the mesh | area 1.0666 x OCCT's
-gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2781: faces: 1 of 81 missing (1 failed to mesh, 0 not converted), 0 extra | 25 of 1224 edge points off the mesh | area 0.7059 x OCCT's | 1 faces off OCCT's geometry
+gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2781: area 1.0469 x OCCT's
 gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2775: 5 of 2026 edge points off the mesh | area 1.2681 x OCCT's | 9 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2769: area 1.0272 x OCCT's
 gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2763: 2 of 2028 edge points off the mesh | area 1.2118 x OCCT's | 8 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2757: area 0.8533 x OCCT's
 gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2751: faces: 1 of 22 missing (0 failed to mesh, 1 not converted), 0 extra | edge kinds (truck/OCCT): 6 free/shared | 1 of 249 edge points off the mesh
 gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2743: area 0.8391 x OCCT's
-gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2095: faces: 2 of 8 missing (2 failed to mesh, 0 not converted), 0 extra | 52 of 456 edge points off the mesh | area 0.5230 x OCCT's
 gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2089: area 0.9455 x OCCT's
 gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2081: area 1.0105 x OCCT's
-gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2075: faces: 5 of 125 missing (5 failed to mesh, 0 not converted), 0 extra | 172 of 2562 edge points off the mesh | area 1.0138 x OCCT's | 3 faces off OCCT's geometry
+gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2075: faces: 3 of 125 missing (3 failed to mesh, 0 not converted), 0 extra | area 1.0247 x OCCT's | 3 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2050: faces: 1 of 18 missing (0 failed to mesh, 1 not converted), 0 extra | edge kinds (truck/OCCT): 6 free/shared | area 0.9686 x OCCT's
 gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2044: faces: 1 of 20 missing (0 failed to mesh, 1 not converted), 0 extra | edge kinds (truck/OCCT): 6 free/shared | 2 of 336 edge points off the mesh | area 0.9858 x OCCT's
 gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2036: faces: 1 of 21 missing (0 failed to mesh, 1 not converted), 0 extra | edge kinds (truck/OCCT): 6 free/shared | area 1.0401 x OCCT's | 1 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2028: faces: 1 of 23 missing (0 failed to mesh, 1 not converted), 0 extra | edge kinds (truck/OCCT): 6 free/shared | area 1.0124 x OCCT's | 1 faces off OCCT's geometry
-gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2022: faces: 7 of 312 missing (7 failed to mesh, 0 not converted), 0 extra | 231 of 4876 edge points off the mesh | area 0.9436 x OCCT's | 5 faces off OCCT's geometry
+gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2022: faces: 5 of 312 missing (5 failed to mesh, 0 not converted), 0 extra | 25 of 4739 edge points off the mesh | area 1.0596 x OCCT's | 6 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2016: faces: 7 of 157 missing (7 failed to mesh, 0 not converted), 0 extra | 3 of 3045 edge points off the mesh | area 1.1284 x OCCT's | 4 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1997: 5 of 496 edge points off the mesh | area 0.9362 x OCCT's | 2 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1981: area 0.9781 x OCCT's
@@ -1234,15 +1212,15 @@ gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1781: area 0.5089 x 
 gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1705: 1 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1665: area 0.5058 x OCCT's
 gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1659: 1 of 2026 edge points off the mesh | 2 faces off OCCT's geometry
-gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1653: faces: 2 of 55 missing (2 failed to mesh, 0 not converted), 0 extra | 4109 of 13276 edge points off the mesh | area 0.9899 x OCCT's | 37 faces off OCCT's geometry
+gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1653: 1 of 4310 edge points off the mesh | area 2.3872 x OCCT's
 gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1638: area 1.0410 x OCCT's
 gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1632: faces: 7 of 205 missing (7 failed to mesh, 0 not converted), 0 extra | 4 of 3154 edge points off the mesh | area 0.8351 x OCCT's | 2 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1617: faces: 2 of 75 missing (2 failed to mesh, 0 not converted), 0 extra | area 1.0376 x OCCT's
 gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1596: area 1.0448 x OCCT's
-gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1555: faces: 1 of 7 missing (1 failed to mesh, 0 not converted), 0 extra | 3 of 216 edge points off the mesh | area 0.8039 x OCCT's | 1 faces off OCCT's geometry
+gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1555: area 1.2772 x OCCT's
 gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1549: faces: 7 of 108 missing (7 failed to mesh, 0 not converted), 0 extra | 2 of 1099 edge points off the mesh | 2 faces off OCCT's geometry
-gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1543: faces: 2 of 4 missing (2 failed to mesh, 0 not converted), 0 extra | 21 of 175 edge points off the mesh | area 0.4246 x OCCT's
-gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1537: faces: 1 of 28 missing (0 failed to mesh, 1 not converted), 0 extra | edge kinds (truck/OCCT): 6 free/shared | area 1.0248 x OCCT's | 1 faces off OCCT's geometry
+gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1543: area 1.3176 x OCCT's
+gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1537: faces: 1 of 28 missing (0 failed to mesh, 1 not converted), 0 extra | edge kinds (truck/OCCT): 6 free/shared
 gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1531: area 1.0487 x OCCT's
 gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1486: area 1.0160 x OCCT's
 gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1471: faces: 2 of 75 missing (2 failed to mesh, 0 not converted), 0 extra | area 1.0363 x OCCT's
@@ -1291,14 +1269,13 @@ gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #73204: empty: representat
 gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #73037: empty: representation items truck doesn't mesh: GEOMETRIC_SET #73024; 13 CONICAL_SURFACE semi-angles converted to radians from the context's angle unit
 gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #71291: empty: representation items truck doesn't mesh: GEOMETRIC_SET #68507; 307 CONICAL_SURFACE semi-angles converted to radians from the context's angle unit
 gkv311-opencascade-dataset/step/trj6_k1-ct-203.stp #2169: 2 faces off OCCT's geometry
-gkv311-opencascade-dataset/step/bug29564.stp #19: 85 of 716 edge points off the mesh
-gkv311-opencascade-dataset/step/trj4_s1-ug-214.stp #81: faces: 2 of 23 missing (0 failed to mesh, 0 not converted), 0 extra | edge kinds (truck/OCCT): 4 free/shared | 4 of 1638 edge points off the mesh | area 0.6133 x OCCT's
-gkv311-opencascade-dataset/step/trj4_s1-ug-214.stp #80: faces: 2 of 21 missing (0 failed to mesh, 0 not converted), 0 extra | edge kinds (truck/OCCT): 4 free/shared | area 0.6906 x OCCT's
+gkv311-opencascade-dataset/step/trj4_s1-ug-214.stp #81: 2 of 1638 edge points off the mesh | area 1.1323 x OCCT's
+gkv311-opencascade-dataset/step/trj4_s1-ug-214.stp #80: area 1.1225 x OCCT's
 gkv311-opencascade-dataset/step/trj4_s1-ug-214.stp #79: area 1.1178 x OCCT's
 gkv311-opencascade-dataset/step/trj4_s1-ug-214.stp #78: area 1.0299 x OCCT's
 gkv311-opencascade-dataset/step/trj4_s1-ug-214.stp #75: 1 of 149 edge points off the mesh | 2 faces off OCCT's geometry
 gkv311-opencascade-dataset/step/trj4_s1-ug-214.stp #74: 1 of 128 edge points off the mesh | area 1.0636 x OCCT's
-gkv311-opencascade-dataset/step/trj4_s1-ug-214.stp: surface area validation property 0.467433 m²: truck -20.11%, OCCT -0.04%
+gkv311-opencascade-dataset/step/trj4_s1-ug-214.stp: surface area validation property 0.467433 m²: truck 8.40%, OCCT -0.04%
 gkv311-opencascade-dataset/step/trj6_b1-ec-214.stp #10: timeout: tessellation timed out after 60000 ms
 gkv311-opencascade-dataset/step/nist/bug26689_nist_ctc_02_asme1_ap242-2.stp #106: empty: 1 instances truck's parser can't read (left out): #125561; representation items truck doesn't mesh: #125561
 gkv311-opencascade-dataset/step/nist/bug33661_nist_ftc_08_asme1_ap242-e1-tg.stp #106: empty: 272 instances truck's parser can't read (left out): #141, #171, #201, #231, #261, #291, #321, #351, #381, #411, …; representation items truck doesn't mesh: TESSELLATED_SOLID #11436
@@ -1316,7 +1293,7 @@ nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_06_asme1_ap242-
 nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_10_asme1_ap242-e2.stp #17967: faces: 16 of 264 missing (16 failed to mesh, 0 not converted), 0 extra | 16 of 3947 edge points off the mesh
 nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_08_asme1_ap242-e1-tg.stp #106: empty: 272 instances truck's parser can't read (left out): #141, #171, #201, #231, #261, #291, #321, #351, #381, #411, …; representation items truck doesn't mesh: TESSELLATED_SOLID #11436
 nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_04_asme1_ap242-e1.stp #18027: 18 faces off OCCT's geometry
-nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp #3044: faces: 8 of 256 missing (0 failed to mesh, 8 not converted), 0 extra | edge kinds (truck/OCCT): 8 free/shared | 299 of 4675 edge points off the mesh | area 1.1832 x OCCT's | 12 faces off OCCT's geometry
+nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp #3044: faces: 8 of 256 missing (0 failed to mesh, 8 not converted), 0 extra | edge kinds (truck/OCCT): 8 free/shared | area 0.9538 x OCCT's
 nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177: faces: 10 of 156 missing (0 failed to mesh, 10 not converted), 0 extra | edge kinds (truck/OCCT): 10 free/shared | area 1.0299 x OCCT's
 nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_07_asme1_ap242-e2.stp #13541: faces: 16 of 304 missing (16 failed to mesh, 0 not converted), 0 extra | 18 of 4030 edge points off the mesh
 nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_07_asme1_ap242-e3.stp #11020: faces: 16 of 304 missing (16 failed to mesh, 0 not converted), 0 extra | 16 of 3773 edge points off the mesh
@@ -1352,7 +1329,7 @@ gkv311-opencascade-dataset/step/cax_stepLib/s1_pe_214/foot_back_prt.stp #321: 1 
 gkv311-opencascade-dataset/step/cax_stepLib/s1_pe_214/head_asm.stp: surface area validation property 0.0907922 m²: truck -100.00%, OCCT -100.00%
 gkv311-opencascade-dataset/step/cax_stepLib/s1_pe_214/s1_pe_214.stp: surface area validation property 0.461567 m²: truck -100.00%, OCCT -100.00%
 nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_05_asme1_ap203.stp #91: faces: 10 of 156 missing (0 failed to mesh, 10 not converted), 0 extra | edge kinds (truck/OCCT): 10 free/shared | area 1.0373 x OCCT's
-nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_02_asme1_ap203.stp #295: faces: 80 of 487 missing (2 failed to mesh, 74 not converted), 0 extra | edge kinds (truck/OCCT): 82 free/shared | 1120 of 12320 edge points off the mesh | area 1.0527 x OCCT's | 3 faces off OCCT's geometry
+nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_02_asme1_ap203.stp #295: faces: 74 of 487 missing (0 failed to mesh, 74 not converted), 0 extra | edge kinds (truck/OCCT): 74 free/shared | area 1.2226 x OCCT's | 3 faces off OCCT's geometry
 nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_04_asme1_ap203.stp #559: faces: 22 of 405 missing (0 failed to mesh, 22 not converted), 0 extra | edge kinds (truck/OCCT): 22 free/shared | 30 faces off OCCT's geometry
 nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_01_asme1_ap203.stp #148: faces: 2 of 139 missing (0 failed to mesh, 2 not converted), 0 extra | edge kinds (truck/OCCT): 2 free/shared
 nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ftc_08_asme1_rc.stp #7969: faces: 16 of 270 missing (16 failed to mesh, 0 not converted), 0 extra | 33 of 2996 edge points off the mesh | 179 faces off OCCT's geometry | 2 faces facing opposite to OCCT's: #3990, #4058

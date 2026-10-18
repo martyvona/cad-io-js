@@ -17,14 +17,19 @@
 //!   context (often degrees): truck has no unit handling, so it takes the value as radians.
 //! - A TOROIDAL_SURFACE's radii are taken as absolute values, as OCCT does (StepToGeom::MakeToroidalSurface): some
 //!   writers give a negative major radius, which truck's Torus::new rejects with a panic.
+//! - A B-spline curve or surface with an unclamped knot vector is clamped: its valid range is the inner one, between
+//!   its p-th knots from either end, but truck evaluates it over the whole knot vector, which yields NaN at the ends.
 //! - An edge whose curve evaluates to non-finite points is left out, with its faces: truck would subdivide it until
 //!   memory runs out.
 //! - A solid's shell that faces the wrong way is reversed, as OCCT's shape healing (ShapeFix_Solid) does: an outer
 //!   shell whose closed mesh encloses a negative signed volume, or a void whose mesh encloses a positive one. Some
 //!   writers reverse voids twice (docs/phase3_progress.md, step 2).
+//! - A face whose mesh runs against all of its loops is reversed: ISO 10303-42 orients a face's loops
+//!   counter-clockwise about its normal, but truck sometimes meshes a face inside out.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use truck_geometry::prelude::{BSplineCurve, BSplineSurface, KnotVec, NurbsCurve, NurbsSurface};
 use truck_meshalgo::prelude::*;
 use std::str::FromStr;
 use truck_stepio::r#in::ruststep::ast::{DataSection, EntityInstance, Name, Parameter};
@@ -68,6 +73,8 @@ struct Diag {
     inconsistent_shells: Vec<u64>,
     /// Solid shells whose mesh isn't closed, so their orientation couldn't be checked.
     unchecked_shells: Vec<u64>,
+    /// Solid shells whose mesh's volume is too small or too uncertain to tell their orientation (see `volume_sign`).
+    unclear_shells: Vec<u64>,
     /// CONICAL_SURFACEs whose semi_angle was converted to radians.
     cones: usize,
     /// TOROIDAL_SURFACEs whose negative radii were made positive.
@@ -76,6 +83,11 @@ struct Diag {
     curves_3d: usize,
     /// AXIS2_PLACEMENT_3Ds given the standard's default ref_direction (see the module comment).
     fixed_placements: usize,
+    /// Edges and faces whose B-spline curves or surfaces were clamped (see `clamp_curve`).
+    clamped_edges: usize,
+    clamped_faces: usize,
+    /// Faces whose meshes ran against all their loops, reversed (see `loop_sense`).
+    flipped_faces: Vec<u64>,
 }
 
 fn entity<T>(p: &PlaceHolder<T>) -> Option<u64> {
@@ -108,6 +120,105 @@ fn finite_curve(c: &Curve3D) -> bool {
         let p = c.subs(t0 + (t1 - t0) * i as f64 / 32.0);
         p.x.is_finite() && p.y.is_finite() && p.z.is_finite()
     })
+}
+
+/// The clamped form of an unclamped knot vector of degree `p`, given that its valid range's ends `lo` and `hi` (its
+/// p-th knots from either end) have multiplicity at least p, which knot insertion gives without changing the curve:
+/// the knots from just before the last p copies of `lo` to just after the first p copies of `hi`, the outer two set
+/// to `lo` and `hi`, and the range of control points they keep. The control points outside that range only shape
+/// the curve outside its valid range, and the basis functions over the valid range don't depend on the outer two
+/// knots' values.
+fn clamped_knots(k: &KnotVec, p: usize, lo: f64, hi: f64) -> Option<(KnotVec, std::ops::Range<usize>)> {
+    let s = (k.iter().rposition(|&t| t == lo)? + 1).checked_sub(p)?.checked_sub(1)?;
+    let f = k.iter().position(|&t| t == hi)?;
+    let mut knots = k.as_slice().get(s..=f + p)?.to_vec();
+    knots[0] = lo;
+    *knots.last_mut()? = hi;
+    Some((KnotVec::from(knots), s..f))
+}
+
+/// The valid range of a knot vector of degree `p`, if it's unclamped and the range isn't empty.
+fn unclamped_range(k: &KnotVec, p: usize) -> Option<(f64, f64)> {
+    if p == 0 || k.is_clamped(p) || k.len() < 2 * p + 2 {
+        return None;
+    }
+    let (lo, hi) = (k[p], k[k.len() - 1 - p]);
+    (lo < hi).then_some((lo, hi))
+}
+
+fn count(k: &KnotVec, x: f64) -> usize {
+    k.iter().filter(|&&t| t == x).count()
+}
+
+/// A B-spline curve clamped (see `clamped_knots`), or None if it's clamped already.
+fn clamp_bspline<P: truck_geometry::base::control_point::ControlPoint<f64> + Tolerance>(c: &BSplineCurve<P>) -> Option<BSplineCurve<P>> {
+    let p = c.degree();
+    let (lo, hi) = unclamped_range(c.knot_vec(), p)?;
+    let mut c = c.clone();
+    while count(c.knot_vec(), lo) < p {
+        c.add_knot(lo);
+    }
+    while count(c.knot_vec(), hi) < p {
+        c.add_knot(hi);
+    }
+    let (knots, keep) = clamped_knots(c.knot_vec(), p, lo, hi)?;
+    BSplineCurve::try_new(knots, c.control_points()[keep].to_vec()).ok()
+}
+
+/// A B-spline surface clamped in u and v, or None if it's clamped already.
+fn clamp_bspline_surface<P: truck_geometry::base::control_point::ControlPoint<f64> + Tolerance>(s: &BSplineSurface<P>) -> Option<BSplineSurface<P>> {
+    let (pu, pv) = (s.udegree(), s.vdegree());
+    let (ur, vr) = (unclamped_range(s.uknot_vec(), pu), unclamped_range(s.vknot_vec(), pv));
+    if ur.is_none() && vr.is_none() {
+        return None;
+    }
+    let mut s = s.clone();
+    let mut uknots = s.uknot_vec().clone();
+    let mut vknots = s.vknot_vec().clone();
+    let mut keep_u = 0..s.control_points().len();
+    let mut keep_v = 0..s.control_points()[0].len();
+    if let Some((lo, hi)) = ur {
+        while count(s.uknot_vec(), lo) < pu {
+            s.add_uknot(lo);
+        }
+        while count(s.uknot_vec(), hi) < pu {
+            s.add_uknot(hi);
+        }
+        (uknots, keep_u) = clamped_knots(s.uknot_vec(), pu, lo, hi)?;
+    }
+    if let Some((lo, hi)) = vr {
+        while count(s.vknot_vec(), lo) < pv {
+            s.add_vknot(lo);
+        }
+        while count(s.vknot_vec(), hi) < pv {
+            s.add_vknot(hi);
+        }
+        (vknots, keep_v) = clamped_knots(s.vknot_vec(), pv, lo, hi)?;
+    }
+    let pts = s.control_points()[keep_u].iter().map(|row| row[keep_v.clone()].to_vec()).collect();
+    BSplineSurface::try_new((uknots, vknots), pts).ok()
+}
+
+/// Clamp a curve that's an unclamped B-spline; returns whether it was one. truck evaluates a B-spline over its whole
+/// knot vector, but an unclamped one is only valid between its p-th knots from either end (ISO 10303-42), and yields
+/// NaN or garbage outside.
+fn clamp_curve(c: &mut Curve3D) -> bool {
+    let clamped = match c {
+        Curve3D::BSplineCurve(b) => clamp_bspline(b).map(Curve3D::BSplineCurve),
+        Curve3D::NurbsCurve(n) => clamp_bspline(n.non_rationalized()).map(|b| Curve3D::NurbsCurve(NurbsCurve::new(b))),
+        _ => None,
+    };
+    clamped.map(|x| *c = x).is_some()
+}
+
+/// Clamp a surface that's an unclamped B-spline, as `clamp_curve`; returns whether it was one.
+fn clamp_surface(s: &mut Surface) -> bool {
+    let clamped = match s {
+        Surface::BSplineSurface(b) => clamp_bspline_surface(b).map(Surface::BSplineSurface),
+        Surface::NurbsSurface(n) => clamp_bspline_surface(n.non_rationalized()).map(|b| Surface::NurbsSurface(NurbsSurface::new(b))),
+        _ => None,
+    };
+    clamped.map(|x| *s = x).is_some()
 }
 
 /// An ORIENTED_EDGE or EDGE_CURVE id → the EDGE_CURVE id and the orientation.
@@ -155,7 +266,8 @@ impl<'a> ShellBuilder<'a> {
         let e = (|| {
             let h = self.t.edge_curve.get(&id)?;
             let (a, b) = (entity(&h.edge_start)?, entity(&h.edge_end)?);
-            let curve = EntityTable::<EdgeCurveHolder>::get_owned(self.t, id).ok()?.parse_curve3d().ok()?;
+            let mut curve = EntityTable::<EdgeCurveHolder>::get_owned(self.t, id).ok()?.parse_curve3d().ok()?;
+            diag.clamped_edges += clamp_curve(&mut curve) as usize;
             if !finite_curve(&curve) {
                 diag.nonfinite_edges.push(id);
                 return None;
@@ -200,6 +312,7 @@ impl<'a> ShellBuilder<'a> {
         let surface = (|| {
             let s: SurfaceAny = face.face_geometry.clone().into_owned(self.t).ok()?;
             let mut s = Surface::try_from(&s).ok()?;
+            diag.clamped_faces += clamp_surface(&mut s) as usize;
             if !face.same_sense {
                 s.invert();
             }
@@ -528,18 +641,62 @@ fn consistent(polys: &[Option<PolygonMesh>]) -> bool {
     true
 }
 
-/// Six times the volume a closed triangle mesh encloses: positive when its triangles face outward.
-fn signed_volume6(polys: &[Option<PolygonMesh>]) -> f64 {
-    let Some(r) = polys.iter().flatten().find_map(|p| p.positions().first().copied()) else { return 0.0 };
-    let mut v = 0.0;
+/// How many of a face's loop segments its mesh's triangles run along (agree) and against (contra). The loops run
+/// counter-clockwise about the face normal (ISO 10303-42) and truck's triangles wind counter-clockwise about theirs,
+/// so a loop edge, traversed as the loop uses it, runs along its triangles' boundary. The meshes of a face and its
+/// edges share their points exactly.
+fn loop_sense(poly: &PolygonMesh, boundaries: &[Vec<CompressedEdgeIndex>], edges: &[CompressedEdge<PolylineCurve<Point3>>]) -> (usize, usize) {
+    let pos = poly.positions();
+    let mut half = std::collections::HashSet::new();
+    for tri in poly.faces().triangle_iter() {
+        for k in 0..3 {
+            half.insert((key(pos[tri[k].pos]), key(pos[tri[(k + 1) % 3].pos])));
+        }
+    }
+    let (mut agree, mut contra) = (0, 0);
+    for e in boundaries.iter().flatten() {
+        let pts: &[Point3] = &edges[e.index].curve;
+        for w in pts.windows(2) {
+            let (a, b) = if e.orientation { (key(w[0]), key(w[1])) } else { (key(w[1]), key(w[0])) };
+            if half.contains(&(a, b)) {
+                agree += 1;
+            } else if half.contains(&(b, a)) {
+                contra += 1;
+            }
+        }
+    }
+    (agree, contra)
+}
+
+/// The sign of the volume a closed triangle mesh encloses (positive when its triangles face outward), or None when
+/// truck's mesh can't tell. Six times the volume measured from a point r is 6V(r) = 6V(0) - r·N, N the sum of the
+/// triangles' (b - a) × (c - a), which is zero only when the mesh closes up geometrically, as well as topologically:
+/// where truck's face meshes leave gaps or overhang their boundaries, the volume depends on r. So the sign counts only
+/// if it's the same from every r in the mesh's bounding box. And it must be at least 1% of the sum of the triangles'
+/// |6V| (from the box's centre): in a thin part, the faces' contributions nearly cancel, and one face that truck
+/// meshes wrongly, inside closed boundaries, outweighs the part's volume (docs/phase3_progress.md, step 3).
+fn volume_sign(polys: &[Option<PolygonMesh>]) -> Option<f64> {
+    let mut lo = Point3::new(f64::MAX, f64::MAX, f64::MAX);
+    let mut hi = Point3::new(f64::MIN, f64::MIN, f64::MIN);
+    for q in polys.iter().flatten().flat_map(|p| p.positions()) {
+        lo = Point3::new(lo.x.min(q.x), lo.y.min(q.y), lo.z.min(q.z));
+        hi = Point3::new(hi.x.max(q.x), hi.y.max(q.y), hi.z.max(q.z));
+    }
+    let r = lo.midpoint(hi);
+    let (mut v, mut total, mut n) = (0.0, 0.0, Vector3::new(0.0, 0.0, 0.0));
     for p in polys.iter().flatten() {
         let pos = p.positions();
         for tri in p.faces().triangle_iter() {
             let (a, b, c) = (pos[tri[0].pos] - r, pos[tri[1].pos] - r, pos[tri[2].pos] - r);
-            v += a.dot(b.cross(c));
+            let x = a.dot(b.cross(c));
+            v += x;
+            total += x.abs();
+            n += (b - a).cross(c - a);
         }
     }
-    v
+    let h = (hi - lo) / 2.0;
+    let spread = n.x.abs() * h.x + n.y.abs() * h.y + n.z.abs() * h.z;
+    (v.abs() > spread && v.abs() >= 0.01 * total).then(|| v.signum())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -552,32 +709,42 @@ fn mesh_shell(b: &Built, id: u64, role: Role, tol: f64, origin: Point3, with_edg
             uses[e.index].push(k);
         }
     }
-    // The face meshes, each facing the way its face does.
-    let mut polys: Vec<Option<PolygonMesh>> = meshed
-        .faces
-        .iter()
-        .map(|face| {
-            face.surface.clone().map(|mut poly| {
-                if !face.orientation {
-                    poly.invert();
-                }
-                poly
-            })
-        })
-        .collect();
+    // The face meshes, each facing the way its face does: reversed first if it runs against all its loops (in the
+    // face's own sense, before its orientation in the shell).
+    let mut polys: Vec<Option<PolygonMesh>> = Vec::with_capacity(meshed.faces.len());
+    for (k, face) in meshed.faces.iter().enumerate() {
+        polys.push(face.surface.clone().map(|mut poly| {
+            let (agree, contra) = loop_sense(&poly, &face.boundaries, &meshed.edges);
+            if contra > 0 && agree == 0 {
+                poly.invert();
+                diag.flipped_faces.push(b.face_ids[k]);
+            }
+            if !face.orientation {
+                poly.invert();
+            }
+            poly
+        }));
+    }
     // A solid's shell must face out of the material: outward for the outer shell, into the void for a void. Checked
-    // only when the mesh is closed (every face meshed and every edge used twice) and its faces agree (`consistent`):
-    // a face truck orients against its neighbours would make the volume meaningless. (A face that didn't convert leaves
-    // its neighbours' edges used once, unless what remains is closed anyway.)
+    // only when the mesh is closed (every face meshed and every edge used twice), its faces agree (`consistent`), and
+    // the volume's sign is clear (`volume_sign`): a face truck orients against its neighbours, or meshes wrongly, would
+    // make the volume meaningless. (A face that didn't convert leaves its neighbours' edges used once, unless what
+    // remains is closed anyway.)
     if role != Role::Surface {
         let closed = polys.iter().all(Option::is_some) && uses.iter().all(|u| u.len() == 2);
         if !closed {
             diag.unchecked_shells.push(id);
         } else if !consistent(&polys) {
             diag.inconsistent_shells.push(id);
-        } else if (signed_volume6(&polys) < 0.0) == (role == Role::Outer) {
-            polys.iter_mut().flatten().for_each(|p| p.invert());
-            diag.reversed_shells.push((id, role == Role::Void));
+        } else {
+            match volume_sign(&polys) {
+                None => diag.unclear_shells.push(id),
+                Some(sign) if (sign < 0.0) == (role == Role::Outer) => {
+                    polys.iter_mut().flatten().for_each(|p| p.invert());
+                    diag.reversed_shells.push((id, role == Role::Void));
+                }
+                Some(_) => {}
+            }
         }
     }
     // Per face: each boundary position's normal, for dihedral angles.
@@ -712,6 +879,10 @@ fn diag_json(d: &Diag) -> String {
     m.insert("reversedShells".into(), d.reversed_shells.iter().map(|&(id, void)| serde_json::json!([id, void])).collect::<Vec<_>>().into());
     m.insert("uncheckedShells".into(), d.unchecked_shells.clone().into());
     m.insert("inconsistentShells".into(), d.inconsistent_shells.clone().into());
+    m.insert("unclearShells".into(), d.unclear_shells.clone().into());
+    m.insert("clampedEdges".into(), d.clamped_edges.into());
+    m.insert("clampedFaces".into(), d.clamped_faces.into());
+    m.insert("flippedFaces".into(), d.flipped_faces.clone().into());
     serde_json::Value::Object(m).to_string()
 }
 
@@ -813,4 +984,79 @@ pub extern "C" fn tess_len(which: i32) -> usize {
 #[no_mangle]
 pub extern "C" fn tess_free() {
     RESULT.with(|r| *r.borrow_mut() = Out::default());
+}
+
+// Native tests: (cd native && CARGO_TARGET_DIR=../build/target cargo test --release --lib)
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The rational quadratic circle of OCC22962-dm1-oc-214.stp #1742: knots (-1/3, 0, 0, …, 1, 1, 4/3), valid on
+    // [0, 1], and a cubic with uniform knots 0..=9, valid on [3, 6], which needs knots inserted at both ends.
+    #[test]
+    fn clamping_keeps_the_curve_over_its_valid_range() {
+        let t = 1.0 / 3.0;
+        let knots = KnotVec::from(vec![-t, 0.0, 0.0, t, t, 2.0 * t, 2.0 * t, 1.0, 1.0, 1.0 + t]);
+        let pts: Vec<Vector4> = [(1.0, 0.0, 1.0), (0.5, 0.866, 0.5), (-0.5, 0.866, 1.0), (-1.0, 0.0, 0.5), (-0.5, -0.866, 1.0), (0.5, -0.866, 0.5), (1.0, 0.0, 1.0)]
+            .iter()
+            .map(|&(x, y, w)| Vector4::new(x * w, y * w, 0.0, w))
+            .collect();
+        let cubic = BSplineCurve::new(KnotVec::from((0..10).map(f64::from).collect::<Vec<_>>()), (0..6).map(|i| Point3::new(i as f64, (i * i % 5) as f64, (i % 2) as f64)).collect());
+        let circle = NurbsCurve::new(BSplineCurve::new(knots, pts));
+        for (mut c, lo, hi) in [(Curve3D::NurbsCurve(circle), 0.0, 1.0), (Curve3D::BSplineCurve(cubic), 3.0, 6.0)] {
+            let orig = c.clone();
+            assert!(clamp_curve(&mut c));
+            assert_eq!(c.range_tuple(), (lo, hi));
+            for i in 0..=20 {
+                let x = lo + (hi - lo) * i as f64 / 20.0;
+                assert!(c.subs(x).distance(orig.subs(x)) < 1e-9, "at {x}: {:?} vs {:?}", c.subs(x), orig.subs(x));
+            }
+            assert!(!clamp_curve(&mut c));
+        }
+    }
+
+    fn mesh(positions: Vec<Point3>, tris: &[[usize; 3]]) -> Option<PolygonMesh> {
+        let attrs = StandardAttributes { positions, uv_coords: vec![], normals: vec![] };
+        Some(PolygonMesh::new(attrs, Faces::from_iter(tris)))
+    }
+
+    #[test]
+    fn a_volume_sign_needs_a_closed_mesh_and_a_volume_beside_its_faces_parts() {
+        // A unit cube, outward and inward.
+        let cube: Vec<Point3> = (0..8).map(|i| Point3::new((i & 1) as f64, (i >> 1 & 1) as f64, (i >> 2 & 1) as f64)).collect();
+        let out = [[0, 2, 1], [1, 2, 3], [4, 5, 6], [5, 7, 6], [0, 1, 4], [1, 5, 4], [2, 6, 3], [3, 6, 7], [0, 4, 2], [2, 4, 6], [1, 3, 5], [3, 7, 5]];
+        let inward: Vec<[usize; 3]> = out.iter().map(|&[a, b, c]| [a, c, b]).collect();
+        assert_eq!(volume_sign(&[mesh(cube.clone(), &out)]), Some(1.0));
+        assert_eq!(volume_sign(&[mesh(cube.clone(), &inward)]), Some(-1.0));
+        // Open along z only: a 2 x 2 square over a 1 x 1 one, both facing +z. 6V from the box centre is 3, but
+        // anywhere from -2 to 8 in the box.
+        let sq = |h: f64, z: f64| vec![Point3::new(-h, -h, z), Point3::new(h, -h, z), Point3::new(h, h, z), Point3::new(-h, h, z)];
+        let two = [mesh(sq(0.5, 0.0), &[[0, 1, 2], [0, 2, 3]]), mesh(sq(1.0, 1.0), &[[0, 1, 2], [0, 2, 3]])];
+        assert_eq!(volume_sign(&two), None);
+        // A box with walls of thickness t: the outer cube outward, an inner one inward. The faces' parts of 6V from the
+        // centre nearly cancel: the volume is 3% of their sum at t = 0.01, 0.3% at t = 0.001.
+        let walls = |t: f64| {
+            let inner: Vec<Point3> = cube.iter().map(|p| Point3::new(t + (1.0 - 2.0 * t) * p.x, t + (1.0 - 2.0 * t) * p.y, t + (1.0 - 2.0 * t) * p.z)).collect();
+            [mesh(cube.clone(), &out), mesh(inner, &inward)]
+        };
+        assert_eq!(volume_sign(&walls(0.01)), Some(1.0));
+        assert_eq!(volume_sign(&walls(0.001)), None);
+    }
+
+    #[test]
+    fn clamping_keeps_the_surface_over_its_valid_range() {
+        let uk = KnotVec::from((0..8).map(f64::from).collect::<Vec<_>>());
+        let vk = KnotVec::bezier_knot(1);
+        let pts: Vec<Vec<Point3>> = (0..5).map(|i| (0..2).map(|j| Point3::new(i as f64, j as f64, ((i * 3) % 4) as f64)).collect()).collect();
+        let mut s = Surface::BSplineSurface(BSplineSurface::new((uk, vk), pts));
+        let orig = s.clone();
+        assert!(clamp_surface(&mut s));
+        assert_eq!(s.try_range_tuple(), (Some((2.0, 5.0)), Some((0.0, 1.0))));
+        for i in 0..=12 {
+            for j in 0..=4 {
+                let (u, v) = (2.0 + 3.0 * i as f64 / 12.0, j as f64 / 4.0);
+                assert!(s.subs(u, v).distance(orig.subs(u, v)) < 1e-9);
+            }
+        }
+    }
 }
