@@ -2,8 +2,8 @@
 
 Scripts that run this repository's code against the real-world test corpus: 517 Part 21 files, 421 MB, 4.9 M
 instances (see `../test_corpus/README.md`). They complement the package tests (`npm test`), which use small inline
-fixtures and don't need the corpus. Each phase 1 and phase 2 step added the check that verified it; the results and what they
-found are recorded in `../docs/phase1_progress.md`.
+fixtures and don't need the corpus. Each phase 1, 2 and 3 step added the check that verified it; the results and what they
+found are recorded in `../docs/phase1_progress.md`, `../docs/phase2_progress.md` and `../docs/phase3_progress.md`.
 
 ## Setup
 
@@ -16,6 +16,8 @@ read the whole corpus take an optional list file in place of `../test_corpus/fil
 
 | Script | Step | What it does | Time |
 |---|---|---|---|
+| `truck_occt.ts` | phase 3, 3 | Every brep part through the truck backend and our OCCT backend (each in a `tess-workers` pool, so hangs time out): truck's status (panic, timeout, error, empty), missing faces, edge kinds, edge points off the mesh, area against OCCT's, faces facing opposite to OCCT's, its workaround diagnostics; and both backends' placed surface area against the file's validation property. Needs both backends built. Second argument: maximum MB (default 30). `DUMP=<dir>` writes each problem part's subset (the log used `DUMP=corpus_checks/truck_repros`, git-ignored); `WORKERS=<n>` per backend (default 4). | see `../docs/phase3_progress.md` |
+| `truck_bench.ts` | phase 3, 3 | Single-threaded speed of truck module variants (arguments: `.wasm` files; default the built one) and our OCCT backend over phase 0's subsets (`../phase0_tessellation_spike/out`, `out_bike`), as phase 0 timed them. Run with the CPU idle, not on battery in low power mode. | ~1 min per variant |
 | `subset_corpus.ts` | phase 2, 2 | Builds a subset for every shape representation the product structure reaches, as the importer does, and checks it parses cleanly, matches the source instance for instance, and lacks only references dangling in the source. | ~10 s |
 | `import_corpus.ts` | phase 2, 3 | Imports every file into the scene model: `validate`, agreement with the semantic layer, every part payload parsed; tallies parts, materials, layers. Second argument `none` skips the payload checks. | ~10 s |
 | `scene_occt.ts` | phase 2, 5 | The whole path (import, our OCCT backend, placement) against `occt-import-js`'s import: sampled vertices on OCCT's surface, and colours of sampled triangles. Needs `packages/tess-occt` built. Second argument: maximum MB (the log used 5). Progress per file on standard error. | ~4 min |

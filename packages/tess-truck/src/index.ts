@@ -22,8 +22,15 @@ interface Diag {
   unmeshedFaces?: number[];
   skippedItems?: string[];
   fixedPlacements?: number;
+  curves3d?: number;
+  tori?: number;
+  cones?: number;
+  nonfiniteEdges?: number[];
+  nonfiniteFaces?: number[];
+  unreadInstances?: number[];
   reversedShells?: [number, boolean][];
   uncheckedShells?: number[];
+  inconsistentShells?: number[];
 }
 
 const KINDS: EdgeKind[] = ['shared', 'seam', 'free', 'degenerate'];
@@ -131,12 +138,19 @@ export class TruckTessellator implements Tessellator {
       }
     }
     x.tess_free();
+    if (diag.unreadInstances?.length) diagnostics.push({ severity: 'warning', message: `${diag.unreadInstances.length} instances truck's parser can't read (left out): ${list(diag.unreadInstances)}` });
+    if (diag.nonfiniteFaces?.length) diagnostics.push({ severity: 'warning', message: `${diag.nonfiniteFaces.length} faces whose surfaces truck evaluates to NaN (left out): ${list(diag.nonfiniteFaces)}` });
+    if (diag.nonfiniteEdges?.length) diagnostics.push({ severity: 'warning', message: `${diag.nonfiniteEdges.length} edges whose curves truck evaluates to NaN (left out, with their faces): ${list(diag.nonfiniteEdges)}` });
     if (diag.unconvertedFaces?.length) diagnostics.push({ severity: 'warning', message: `${diag.unconvertedFaces.length} faces truck can't convert (left out): ${list(diag.unconvertedFaces)}` });
     if (diag.unconvertedEdges?.length) diagnostics.push({ severity: 'warning', message: `${diag.unconvertedEdges.length} edges truck can't convert: ${list(diag.unconvertedEdges)}` });
     if (diag.unmeshedFaces?.length) diagnostics.push({ severity: 'warning', message: `${diag.unmeshedFaces.length} faces failed to mesh: ${list(diag.unmeshedFaces)}` });
     if (diag.skippedItems?.length) diagnostics.push({ severity: 'warning', message: `representation items truck doesn't mesh: ${diag.skippedItems.slice(0, 10).join(', ')}${diag.skippedItems.length > 10 ? ', …' : ''}` });
     for (const [id, isVoid] of diag.reversedShells ?? []) diagnostics.push({ severity: 'info', message: `shell #${id} reversed: as written, this ${isVoid ? 'void' : 'outer shell'} faces into the material` });
+    if (diag.inconsistentShells?.length) diagnostics.push({ severity: 'info', message: `orientation of ${diag.inconsistentShells.length} solid shells not checked, since their faces disagree in orientation: ${list(diag.inconsistentShells)}` });
     if (diag.uncheckedShells?.length) diagnostics.push({ severity: 'info', message: `orientation of ${diag.uncheckedShells.length} solid shells not checked, since their meshes aren't closed: ${list(diag.uncheckedShells)}` });
+    if (diag.curves3d) diagnostics.push({ severity: 'info', message: `${diag.curves3d} SURFACE_CURVEs read by their 3D curve instead of a pcurve` });
+    if (diag.cones) diagnostics.push({ severity: 'info', message: `${diag.cones} CONICAL_SURFACE semi-angles converted to radians from the context's angle unit` });
+    if (diag.tori) diagnostics.push({ severity: 'info', message: `${diag.tori} TOROIDAL_SURFACEs with negative radii read with their absolute values` });
     if (diag.fixedPlacements) diagnostics.push({ severity: 'info', message: `${diag.fixedPlacements} AXIS2_PLACEMENT_3Ds along x without a ref_direction given the standard's default (0, 1, 0), which truck lacks` });
     return result;
   }

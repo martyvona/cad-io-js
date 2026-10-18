@@ -145,7 +145,7 @@ test('against OCCT: face and edge ids, edge kinds, face orientation, area, edge 
       const a = await truck.tessellate(req), b = await occt.tessellate(req);
       const where = `${path.basename(file)} #${req.rootId}`;
       const expected = file.includes('tr8_bv1') ? ['shell #310 reversed: as written, this void faces into the material', 'shell #460 reversed: as written, this void faces into the material'] : [];
-      assert.deepEqual(a.diagnostics.filter((d) => !d.message.startsWith("representation items truck doesn't mesh: GEOMETRIC_CURVE_SET")).map((d) => d.message), expected, where);
+      assert.deepEqual(a.diagnostics.filter((d) => !d.message.startsWith("representation items truck doesn't mesh: GEOMETRIC_CURVE_SET") && !/SURFACE_CURVEs read by their 3D curve/.test(d.message)).map((d) => d.message), expected, where);
       assert.deepEqual(a.faces.map((f) => f.entityId).sort(), b.faces.map((f) => f.entityId).sort(), where);
       const kinds = (r: TessellationResult) => r.edges!.filter((e) => e.entityId !== null).map((e) => `${e.entityId}:${e.kind}`).sort();
       assert.deepEqual(kinds(a), kinds(b), where);
@@ -242,23 +242,96 @@ test('placements along x without a ref_direction get the standard default instea
   assert.match(r.diagnostics[0]!.message, /^26 AXIS2_PLACEMENT_3Ds along x/);
 });
 
-test('a panic returns an error diagnostic, and the next request runs on a fresh instance', { skip: k1Skip }, async () => {
+test('a panic returns an error diagnostic, and the next request runs on a fresh instance', { skip: skip || (!fs.existsSync(asm) && 'corpus file missing') }, async () => {
   const tess = new TruckTessellator();
   await tess.init();
-  const req = (await requests(k1)).find((r) => r.rootId === 1926)!;
-  // Spell the bad default out (ref_direction = axis), which the workaround leaves alone: truck panics.
-  const text = new TextDecoder().decode(req.data).replace(/(AXIS2_PLACEMENT_3D\('[^']*',#\d+,)(#\d+),\$\)/g, '$1$2,$2)');
+  const req = (await requests(asm)).find((r) => new TextDecoder().decode(r.data).includes('B_SPLINE_CURVE_WITH_KNOTS'))!;
+  // An invalid file, not seen in the corpus: one B-spline's knots in descending order. truck unwraps the error.
+  const text = new TextDecoder().decode(req.data).replace(/(B_SPLINE_CURVE_WITH_KNOTS\([^;]*\(([^()]*)\)\s*,\s*)\(([^()]*)\)(\s*,\s*\.\w+\.\s*\)\s*;)/, (_, head, _m, knots, tail) => `${head}(${knots.split(',').reverse().join(',')})${tail}`);
+  assert.notEqual(text, new TextDecoder().decode(req.data));
   const bad = await tess.tessellate({ ...req, data: new TextEncoder().encode(text) });
   assert.equal(bad.indices.length, 0);
   assert.equal(bad.diagnostics.length, 1);
-  assert.match(bad.diagnostics[0]!.message, /^truck panicked: panicked at .*circle\.rs:\d+:\d+:\ntolerance must be no less than 1e-6$/s);
+  assert.match(bad.diagnostics[0]!.message, /^truck panicked: panicked at .*NotSortedVector/s);
   // The instance was replaced: its memory is back to a fresh instance's, although meshing had grown it.
   const fresh = new TruckTessellator();
   await fresh.init();
   assert.equal(tess.memoryBytes(), fresh.memoryBytes());
   const good = await tess.tessellate(req);
-  assert.equal(good.faces.length, 58);
+  assert.ok(good.faces.length > 0);
   assert.ok(tess.memoryBytes() > fresh.memoryBytes());
+});
+
+const exhaust = gkv('ec_exhaust-A.stp'), s1ug = gkv('trj5_s1-ug-214.stp'), dm1 = gkv('OCC22962-dm1-oc-214.stp'), lemon = gkv('bug25287_bad_tess_face_plus.step');
+
+test("surface curves are read by their 3D curves, where truck's pcurves give NaN", { skip: skip || (!fs.existsSync(exhaust) && 'corpus file missing') }, async () => {
+  const tess = new TruckTessellator();
+  await tess.init();
+  const r = await tess.tessellate((await requests(exhaust)).find((q) => q.rootId === 3049)!);
+  assert.deepEqual(r.diagnostics.map((d) => d.message), ['26 SURFACE_CURVEs read by their 3D curve instead of a pcurve']);
+  assert.ok(r.indices.length > 0);
+});
+
+test('edges and faces truck evaluates to NaN are left out, instead of running out of memory', { skip: skip || (![s1ug, dm1].every((f) => fs.existsSync(f)) && 'corpus files missing') }, async () => {
+  const tess = new TruckTessellator();
+  await tess.init();
+  // Unclamped B-spline knot vectors: truck evaluates them outside their valid range.
+  const faces = await tess.tessellate((await requests(s1ug)).find((q) => q.rootId === 80)!);
+  assert.ok(faces.indices.length > 0);
+  assert.ok(faces.diagnostics.some((d) => /^2 faces whose surfaces truck evaluates to NaN \(left out\): #628, #637$/.test(d.message)));
+  const edges = await tess.tessellate((await requests(dm1)).find((q) => q.rootId === 37)!);
+  const messages = edges.diagnostics.map((d) => d.message);
+  assert.ok(messages.includes('4 edges whose curves truck evaluates to NaN (left out, with their faces): #572, #81, #642, #156'), messages.join('; '));
+  assert.ok(messages.includes('4 faces whose surfaces truck evaluates to NaN (left out): #40, #207, #374, #531'), messages.join('; '));
+  assert.ok(!messages.some((m) => /edges truck can't convert/.test(m)), messages.join('; '));
+});
+
+test("a closed solid shell whose faces disagree in orientation isn't reversed", { skip: skip || (!fs.existsSync(s1ug) && 'corpus file missing') }, async () => {
+  const tess = new TruckTessellator();
+  await tess.init();
+  // truck orients one face against its neighbours here; the signed volume would then reverse a correct shell.
+  const r = await tess.tessellate((await requests(s1ug)).find((q) => q.rootId === 75)!);
+  const messages = r.diagnostics.map((d) => d.message);
+  assert.ok(messages.includes('orientation of 1 solid shells not checked, since their faces disagree in orientation: #574'), messages.join('; '));
+  assert.ok(!messages.some((m) => /reversed/.test(m)));
+});
+
+test('negative torus radii are read as their absolute values', { skip: skip || (!fs.existsSync(lemon) && 'corpus file missing') }, async () => {
+  const tess = new TruckTessellator();
+  await tess.init();
+  const r = await tess.tessellate((await requests(lemon)).find((q) => q.rootId === 2134)!);
+  assert.ok(r.diagnostics.some((d) => d.message === '2 TOROIDAL_SURFACEs with negative radii read with their absolute values'));
+  assert.ok(!r.diagnostics.some((d) => /panicked/.test(d.message)));
+  assert.ok(r.indices.length > 0);
+});
+
+test("a cone's semi-angle is read in the context's angle unit", { skip: skip || (!fs.existsSync(fixtures[5]!) && 'corpus file missing') }, async () => {
+  const tess = new TruckTessellator();
+  await tess.init();
+  const [req] = await requests(fixtures[5]!);
+  const plain = await tess.tessellate(req!);
+  // The same file in degrees: the angle unit made a conversion-based DEGREE, and the 45 degree cone written as 45.
+  const text = new TextDecoder().decode(req!.data)
+    .replace(/#156=\(\s*NAMED_UNIT\(\*\)\s*PLANE_ANGLE_UNIT\(\)\s*SI_UNIT\(\$,\.RADIAN\.\)\s*\);/, "#156=(CONVERSION_BASED_UNIT('DEGREE',#999993)NAMED_UNIT(*)PLANE_ANGLE_UNIT());\n#999993=PLANE_ANGLE_MEASURE_WITH_UNIT(PLANE_ANGLE_MEASURE(0.0174532925199433),#999994);\n#999994=(NAMED_UNIT(*)PLANE_ANGLE_UNIT()SI_UNIT($,.RADIAN.));")
+    .replace('0.785398163397449);', '45.);');
+  assert.match(text, /'DEGREE'/);
+  const r = await tess.tessellate({ ...req!, data: new TextEncoder().encode(text) });
+  assert.ok(r.diagnostics.some((d) => d.message === "1 CONICAL_SURFACE semi-angles converted to radians from the context's angle unit"));
+  assert.equal(r.positions.length, plain.positions.length);
+  assert.ok(r.positions.every((x, i) => Math.abs(x - plain.positions[i]!) < 1e-5));
+});
+
+test("instances truck's parser can't read are left out, and the rest is read", { skip }, async () => {
+  const tess = new TruckTessellator();
+  await tess.init();
+  const [req] = await requests(cube, 0.01);
+  const plain = await tess.tessellate(req!);
+  // An empty list, which Part 21 allows and ruststep can't tokenize.
+  const text = new TextDecoder().decode(req!.data).replace(/ENDSEC;(\s*END-ISO)/, `#999992=CARTESIAN_POINT('a;b',());\nENDSEC;$1`);
+  const r = await tess.tessellate({ ...req!, data: new TextEncoder().encode(text) });
+  assert.deepEqual(r.diagnostics.map((d) => d.message), ["1 instances truck's parser can't read (left out): #999992"]);
+  assert.deepEqual(r.indices, plain.indices);
+  assert.deepEqual(r.positions, plain.positions);
 });
 
 test('unreadable input and a missing root give error diagnostics', { skip }, async () => {

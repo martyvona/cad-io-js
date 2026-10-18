@@ -16,8 +16,8 @@ Phase 3 of `architecture.md` ("Phasing"): the tessellation backends, OCCT first,
 | # | Step | Status |
 |---|---|---|
 | 1 | **Worker host**: a `Tessellator` that runs another backend in a pool of workers (Web Workers in browsers, `worker_threads` in Node), with a per-request timeout that terminates a stuck worker, recycling after a backend trap or after a number of parts or heap size, and `tessellateScene` sending requests in parallel. Tested with a fake backend that hangs, traps and leaks | **Done** 2026-10-17 |
-| 2 | **truck backend** (`tess-truck`, Apache-2.0): the production wrapper. A Rust crate in the package (path dependencies on `../third_party/truck`, no fork), built with `wasm-pack`; the representation named by `rootId` (its solids and shells, not every shell in the file); an indexed mesh with normals (truck's per-corner attributes welded into shared vertices); face ids carried through instead of mirrored where truck allows; edges from truck's meshed edges (`PolylineCurve`s that share the faces' boundary points), with kinds and dihedral angles; the origin subtracted in double precision before `Float32`; flat typed arrays across the WebAssembly boundary instead of JSON | **Done** 2026-10-18 |
-| 3 | **truck against OCCT**: unit tests on the cube and small fixtures; corpus checks reusing phase 0's three oracles (area per part against OCCT 8.1, the vertex-based face-id check, bare against wrapped subsets) plus the scene-level check of `scene_occt.ts` with truck in place of our OCCT backend; edges against OCCT's (counts and kinds per part); the files' own validation properties (`validation_occt.ts`) for both backends. Each truck failure classified (panic, hang, wrong area, empty face) with a repro subset | Proposed |
+| 2 | **truck backend** (`tess-truck`, Apache-2.0): the production wrapper. A Rust crate in the package (path dependencies on `../third_party/truck`, no fork), built with `cargo` and `wasm-opt` into a plain WebAssembly module; the representation named by `rootId` (its solids and shells, not every shell in the file); an indexed mesh with normals (truck's per-corner attributes welded into shared vertices); face ids carried through instead of mirrored where truck allows; edges from truck's meshed edges (`PolylineCurve`s that share the faces' boundary points), with kinds and dihedral angles; the origin subtracted in double precision before `Float32`; flat typed arrays across the WebAssembly boundary instead of JSON | **Done** 2026-10-18 |
+| 3 | **truck against OCCT**: unit tests on the cube and small fixtures; corpus checks reusing phase 0's three oracles (area per part against OCCT 8.1, the vertex-based face-id check, bare against wrapped subsets) plus the scene-level check of `scene_occt.ts` with truck in place of our OCCT backend; edges against OCCT's (counts and kinds per part); the files' own validation properties (`validation_occt.ts`) for both backends. Each truck failure classified (panic, hang, wrong area, empty face) with a repro subset | **Done** 2026-10-18 |
 | 4 | **Caching**: tessellation results stored per part, keyed by the payload's hash, the backend's name and version and the request options; an in-memory store, plus stores for the file system (Node) and IndexedDB (browsers); each with a configurable maximum size (least recently used entries evicted), 0 disabling it (decision 4) | Proposed |
 | 5 | **OCCT loose ends**: the geometrically bounded surface representations and "no shape" parts; the recycle policy from step 1 tuned on OCCT's heap growth over the corpus | Proposed |
 | 6 | **`curves` parts** (decision 5): wireframe representations (74 parts in phase 2's end-to-end check) as polylines, discretized by the backend, with a request and result shape for curves added to the interface | Proposed |
@@ -101,6 +101,91 @@ Order: the worker host comes first because truck needs the watchdog to get throu
 12 tests (102 in the repo; the corpus-dependent ones skip without the corpus or the builds): the import list; the cube (ids, unit normals pointing outward, 12 shared edges at 90°, area 600, the origin subtracted in double precision for vertices and edge points, no edges unless asked); the OCCT comparison above (with `tr8_bv1_tc`, whose two voids must be reported reversed and then agree with OCCT); the cube's shell wrapped in `ORIENTED_CLOSED_SHELL(.F.)` as a solid's outer shell, which must come back reversed, identical to the plain cube; the same with one face removed from the shell, an open mesh, which is left as written and reported unchecked; an `ORIENTED_FACE(.F.)` wrapped around one of the cube's faces (its face's id, its normals reversed); ids above 2³¹ − 1; the faces that fail to mesh in `nist_stc_07`; the placement workaround; a panic (the k1 part with the bad default spelled out, `ref_direction` = axis, which the workaround leaves alone), after which the instance's memory is back to a fresh instance's and the next request succeeds; unreadable input, a missing root and an unsupported format; and truck in the worker pool, equal to direct results.
 
 **Mutation check:** 22 deliberate bugs (18 in the Rust wrapper, 4 in `index.ts`). The first round, on the first 17, caught 5: the fixtures had no oriented shells, seams, free edges, oriented faces, large ids or unmeshed faces, and nothing compared face orientation with OCCT or checked that a panicked instance was replaced. With the fixtures and checks above, 21 are caught, including the 5 on the orientation check (the check skipped, the sign inverted, voids taken for outer shells, the closure test without its face or edge condition). One more mutation, the closure test without a separate "no face dropped" condition, survived and showed that condition redundant (a dropped face leaves its neighbours' edges used once, unless the rest is closed, when the volume is meaningful anyway); the condition was removed. The survivor welds vertices by position alone instead of position and normal; on our fixtures, the positions that carry two normals within one face (at a cone's seam) carry the same normal up to rounding, so no test can tell the difference.
+
+## Step 3: truck against OCCT
+
+**`../corpus_checks/truck_occt.ts`** (log `truck_occt.log`) runs every brep part of every corpus file up to 30 MB (515 files; `bug29979_firetherm_12.step` and `bug31711.stp` are larger) through the truck backend and our OCCT backend, each in a `tess-workers` pool (4 workers; timeouts 60 s for truck, 300 s for OCCT), at 0.05 mm (phase 0's tolerance; OCCT also 0.5 rad), and compares them part by part, and face by face where both mesh a part. `DUMP=<dir>` writes every problem part's subset, for repros (1,291 files, 177 MB, in the git-ignored `../corpus_checks/truck_repros/`). It replaces phase 0's three oracles: the area check is kept per part; the face ids are compared directly with OCCT's (the vertex-based check was only needed while ids came from mirroring truck); the bare-against-wrapped check no longer applies, since the wrapper reads the root representation itself. **`../corpus_checks/truck_bench.ts`** times truck builds and OCCT single-threaded over phase 0's subsets.
+
+The run found eight more truck failures with workarounds, all now in the wrapper (decision 3), and showed that comparing orientation and area with OCCT confuses truck's errors with OCCT's healing and with the meshes' different chords. So the per-face comparison is geometric and topological:
+
+- **Geometry:** up to 10 vertices of each face sampled from each mesh, against the other mesh's triangles of the same face (by entity id), within twice the tolerance. A truck vertex off OCCT's face means truck's surface is wrong or extends too far ("wrong"); an OCCT vertex off truck's face means part of the face is missing ("short"). Per-face area, the first measure, flagged many small fillets merely for their chords (at 0.05 mm, a fillet of 0.2 mm radius loses about 10% of its area to either mesher); all such cylinders and tori pass the geometric test.
+- **Orientation against the file's own loops:** truck's triangles wind counter-clockwise about its normals, and ISO 10303-42 orients a face's loops counter-clockwise about the face normal, so each loop edge, traversed as the loop uses it, should run along the face's own triangle boundaries. A face whose loop edges all run the other way has a normal that contradicts its loops ("contra"). This needs no OCCT: comparing with OCCT turned out to measure OCCT's healing (below) as much as truck.
+
+### Workarounds added (decision 3)
+
+4. **`SURFACE_CURVE`s are read by their 3D curve**, as OCCT does (`StepToGeom::MakeCurve` takes `Curve3d()` whatever the `master_representation`). truck follows a `.PCURVE_S1.` or `.PCURVE_S2.` master and evaluates the pcurve on its surface, which in many files yields NaN; 11,986 surface curves in the corpus are switched.
+5. **Edges and faces that evaluate to NaN are left out.** truck subdivides a curve until each piece is within the tolerance, to a depth of 100 halvings (`truck-geotrait/src/algo/curve.rs`, `sub_parameter_division`), so a curve that yields NaN anywhere is divided without end: memory grows by about 400 MB/s natively, and in WebAssembly the allocation fails at 4 GiB and traps, without a panic message (the first run's 19 "unreachable" traps). The same happens when meshing along a bounded surface's range edges. The wrapper samples each edge's curve (33 points) and each bounded surface (17 × 17) and leaves out what isn't finite, reporting it. After workaround 4, what remains are B-splines with unclamped ("periodic") knot vectors, which truck evaluates over their whole knot range instead of the valid inner range: 11 edges and 24 faces in the corpus. Clamping them by knot insertion would recover them (not done).
+6. **Instances truck's parser can't read are left out**, and the rest read. ruststep fails the whole file on the first instance it can't tokenize, such as an empty list `()`, which Part 21 allows (an `ADVANCED_FACE` with no bounds, a `TRIANGULATED_FACE`), and on malformed instances (`bug26451_Test_STEP.stp`). When the whole file fails, the wrapper splits the DATA section into instances (outside strings and comments) and tokenizes them one at a time: 868 instances left out across the corpus, which turned the first run's 50 parse errors into partial or empty results.
+7. **Negative torus radii are taken as absolute values**, as OCCT does (`StepToGeom::MakeToroidalSurface`): one writer gives spindle tori a negative major radius, and truck's `Torus::new` panics on it (6 tori, 3 parts).
+8. **Cone semi-angles are converted to radians** from the plane angle unit of the root representation's context (often a conversion-based `DEGREE`); truck has no unit handling and builds the cone from `tan(semi_angle)`. 2,092 cones in the corpus; cone faces off OCCT's geometry fell from 224 to 86.
+9. **A shell is reversed only if its mesh is consistently oriented** (workaround 3 refined): no boundary segment traversed the same way by two triangles. The first run reversed 47 shells, most of them wrongly: where truck orients a few faces against their neighbours, the signed volume is meaningless, and reversing then flipped every correct face (1,256 of the 1,469 faces facing opposite to OCCT were in reversed shells). Now 15 shells are reversed (the round 8 voids of step 2, `brep_wv1.stp`, outer shells in `trj3_s1-al-214.stp` and others, each agreeing with OCCT afterwards) and 236 are reported unchecked for disagreeing faces, besides 155 with open meshes.
+
+Two smaller fixes: a NaN edge is no longer also counted as unconverted, and the panic test now uses an explicitly invalid file (a B-spline with descending knots, which truck unwraps into a panic; not seen in the corpus), since the earlier fixture no longer panics.
+
+### Results
+
+From `truck_occt.log` (the final run, 18 minutes; three earlier runs, before and between the workarounds, are summarized above):
+
+| | |
+|---|---|
+| Parts compared (OCCT meshes them) | 3,098 of 3,252 (154 empty or failed in OCCT, not compared) |
+| truck: ok / timeout / empty / panic / error | 2,891 / 10 / 197 / 0 / 0 (first run: 2,870 / 10 / 146 / 22 / 50) |
+| **Parts complete and on OCCT's geometry** (no face missing or off) | **2,560 (82.6%)** |
+| Part area against OCCT (truck ok) | within 0.1%: 1,205; 1%: 757; 5%: 514; over 5%: 415 |
+| Faces of OCCT's that truck lacks | 1,578 of 62,218 (2.5%): 1,040 fail to mesh, 525 don't convert |
+| Edge kinds differing | 1,874 of 151,598 (1.2%): 1,585 free in truck and shared in OCCT (truck lacks the neighbouring face), 287 the other way, 2 seam against free |
+| Edge points not on a mesh vertex | 21,559 of 1,269,673 (1.7%), in 337 parts; 15,285 of them on `B_SPLINE_CURVE_WITH_KNOTS` edges |
+| Faces facing opposite to OCCT's | 402 in 41 parts (first run: 1,469 in 63) |
+| Surface area validation property, within 1% | truck 45 of 67 files, OCCT 58 of 67 |
+
+Faces by surface type (parts truck meshes; OCCT's faces):
+
+| Surface | Faces | Missing | Ok | Wrong | Short | Contra |
+|---|---|---|---|---|---|---|
+| `CYLINDRICAL_SURFACE` | 22,235 | 93 | 21,454 | 649 | 39 | 46 |
+| `PLANE` | 21,540 | 38 | 21,364 | 99 | 39 | 158 |
+| rational B-spline | 5,368 | 162 | 4,640 | 208 | 358 | 36 |
+| `CONICAL_SURFACE` | 4,132 | 922 | 2,580 | 86 | 544 | 4 |
+| `TOROIDAL_SURFACE` | 2,961 | 14 | 2,894 | 52 | 1 | 16 |
+| `B_SPLINE_SURFACE_WITH_KNOTS` | 2,768 | 256 | 2,368 | 129 | 15 | 1 |
+| `SPHERICAL_SURFACE` | 1,732 | 68 | 1,618 | 41 | 5 | 4 |
+| `SURFACE_OF_LINEAR_EXTRUSION` | 720 | 14 | 682 | 22 | 2 | 1 |
+| `SURFACE_OF_REVOLUTION` | 603 | 1 | 405 | 17 | 180 | 2 |
+| `QUASI_UNIFORM_SURFACE` | 149 | 0 | 146 | 0 | 3 | 9 |
+| `DEGENERATE_TOROIDAL_SURFACE` | 10 | 10 | 0 | 0 | 0 | 0 |
+
+**What remains, classified** (repros for each in `truck_repros/`; no upstream reports, per decision 3):
+
+- **Cones** are truck's weakest surface: 922 faces fail to mesh, 544 are short, 86 wrong (38% of cone faces not right). In `nist_ctc_02_asme1_rc.stp` all 148 faces that fail are 59-degree countersinks near their apexes; the 3-degree cones in the same part mesh. A truck meshing problem, not a reading one; phase 0 saw bad cone faces too.
+- **Surfaces of revolution** come out short in 30% of faces, rational B-splines wrong or short in 10%: truck's trimming of these surfaces, not investigated further.
+- **Timeouts** (10 parts, 8 of them from one writer's `-id-203`/`-id-214` exports, including phase 0's `trj2_as1-id-203` #891): compute-bound in NURBS surface evaluation, with memory flat. Only the pool's timeout covers them.
+- **Empty parts** (197): representations whose only geometry truck doesn't mesh, such as `GEOMETRIC_SET`s of surfaces (48 parts) and `TRIANGULATED_FACE`s, faces of unsupported surface types (`DEGENERATE_TOROIDAL_SURFACE`, 10 faces), and parts whose faces don't convert.
+- **Orientation:** the 402 faces opposite to OCCT are of two kinds. Mostly truck follows the file and OCCT heals: in `Checking_Fixture_Clamping.STEP` (a surface model; its open shells have no inside) 118 faces follow both their `same_sense` and their loops, yet OCCT shows them reversed, and in closed shells OCCT's `ShapeFix_Shell` reorients faces against their neighbours. The rest are faces whose truck normals contradict their own loops (277 faces in all, the "contra" column), which is truck's error by the file's own topology.
+- **Validation property misses:** 22 files miss; in 9 of them OCCT misses too, so the check itself is at fault there: seven at −100% for both (`trj4_xr1-pe-214.stp` and the `cax_stepLib` `s1_pe_214` and `s1-tu-203` files, where the placed totals are evidently incomplete), `sp7_08_nx-242.stp` (OCCT −99.93%) and `trj7_as1-hc-214.stp` (OCCT +101%). Not refined further here.
+
+### Size and speed
+
+`truck_bench.ts`, single-threaded, on AC power with the CPU otherwise idle, phase 0's subsets at 0.05 file units without edges:
+
+| Build | brotli | NIST + gkv311 (75 parts) | Bicycle (112 parts) |
+|---|---|---|---|
+| opt-level 3 (current), before the step 3 workarounds | 312,068 | 2.53 s | 6.31 s |
+| opt-level `s` | 284,998 | 3.80 s | 11.22 s |
+| opt-level `z` | 272,563 | 6.51 s | 21.84 s |
+| **opt-level 3, final** | **318,480** | **2.62 s** | **6.36 s** |
+| our OCCT backend | (2.18 MB) | 6.20 s | 17.29 s |
+
+Repeated runs agree within 0.5%. Size optimization saves 27–40 kB at 1.5–3.5 times the time, so the build stays at opt-level 3. The workarounds cost 1–4%. truck is now 2.4–2.7 times faster than our OCCT backend on these sets (with 1.5 times OCCT's triangles on the bicycle, since truck has no angular tolerance), and faster than phase 0's spike (4.3 s and 11.8 s; our OCCT backend measured 16.7 s on the bicycle then, so the machine is comparable; the cause is not investigated).
+
+### Tests
+
+7 more truck tests (18 in the package): surface curves read by their 3D curves (`ec_exhaust-A.stp` #3049); NaN faces and edges left out (`trj5_s1-ug-214.stp` #80, `OCC22962-dm1-oc-214.stp` #37), which ran out of memory before; a closed shell whose faces disagree, left unreversed (`trj5_s1-ug-214.stp` #75); negative torus radii (`bug25287_bad_tess_face_plus.step` #2134); a cone's angle in degrees (the cone fixture rewritten in degrees must mesh as in radians); an unreadable instance among readable ones (the cube with an empty list, inside a string containing `;`). **Mutation check:** 32 deliberate bugs in the wrapper and `index.ts` (step 2's 22, plus 10 on the new workarounds: each disabled, the string handling of the instance splitter, the consistency guard, the angle factor, the double count), 31 caught; the survivor is step 2's weld by position alone.
+
+### Open from step 3, for the user
+
+- **Face orientation healing.** Flipping each face whose truck normal contradicts all its loops would fix the 277 "contra" faces with an OCCT-independent rule (the file's own topology). Going further, as OCCT's `ShapeFix_Shell` does, and making faces consistent with their neighbours where `same_sense` and loops agree but neighbours disagree, would change faces the file defines one way. Neither is done.
+- **Clamping unclamped B-splines** (knot insertion) to recover the 11 edges and 24 faces now left out.
+- **Cones, surfaces of revolution, rational B-splines:** truck's own meshing; no workaround in sight short of patching truck.
 
 ## Not planned
 

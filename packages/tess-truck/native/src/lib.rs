@@ -10,6 +10,15 @@
 //!   10303-42's `first_proj_axis` prescribes. truck always defaults it to (1, 0, 0), so the placement's x axis
 //!   becomes NaN, and meshing a circle on it panics (`tolerance must be no less than 1e-6`, truck-geometry
 //!   `specifieds/circle.rs`, since NaN fails the check).
+//! - A SURFACE_CURVE (or SEAM_CURVE) is read by its 3D curve, as OCCT does (StepToGeom::MakeCurve), whatever its
+//!   master_representation says. truck follows a .PCURVE_S1. or .PCURVE_S2. master and evaluates the pcurve on its
+//!   surface, which in some files yields NaN (and then see `finite_curve`).
+//! - A CONICAL_SURFACE's semi_angle is converted to radians from the plane angle unit of the root representation's
+//!   context (often degrees): truck has no unit handling, so it takes the value as radians.
+//! - A TOROIDAL_SURFACE's radii are taken as absolute values, as OCCT does (StepToGeom::MakeToroidalSurface): some
+//!   writers give a negative major radius, which truck's Torus::new rejects with a panic.
+//! - An edge whose curve evaluates to non-finite points is left out, with its faces: truck would subdivide it until
+//!   memory runs out.
 //! - A solid's shell that faces the wrong way is reversed, as OCCT's shape healing (ShapeFix_Solid) does: an outer
 //!   shell whose closed mesh encloses a negative signed volume, or a void whose mesh encloses a positive one. Some
 //!   writers reverse voids twice (docs/phase3_progress.md, step 2).
@@ -17,7 +26,8 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use truck_meshalgo::prelude::*;
-use truck_stepio::r#in::ruststep::ast::{EntityInstance, Name, Parameter};
+use std::str::FromStr;
+use truck_stepio::r#in::ruststep::ast::{DataSection, EntityInstance, Name, Parameter};
 use truck_stepio::r#in::ruststep::tables::{EntityTable, IntoOwned, PlaceHolder};
 use truck_stepio::r#in::step_geometry::{Curve3D, Surface};
 use truck_stepio::r#in::*;
@@ -46,10 +56,24 @@ struct Diag {
     unconverted_edges: Vec<u64>,
     unmeshed_faces: Vec<u64>,
     skipped_items: Vec<String>,
+    /// Instances truck's parser can't read (left out; see `read_instances`).
+    unread_instances: Vec<u64>,
+    /// Faces whose surfaces evaluate to non-finite points (left out).
+    nonfinite_faces: Vec<u64>,
+    /// Edges whose curves evaluate to non-finite points (left out, as unconverted).
+    nonfinite_edges: Vec<u64>,
     /// Solid shells reversed because they faced the wrong way: (id, void or not).
     reversed_shells: Vec<(u64, bool)>,
+    /// Solid shells whose faces' meshes disagree in orientation, so the shell's couldn't be checked.
+    inconsistent_shells: Vec<u64>,
     /// Solid shells whose mesh isn't closed, so their orientation couldn't be checked.
     unchecked_shells: Vec<u64>,
+    /// CONICAL_SURFACEs whose semi_angle was converted to radians.
+    cones: usize,
+    /// TOROIDAL_SURFACEs whose negative radii were made positive.
+    tori: usize,
+    /// SURFACE_CURVEs and SEAM_CURVEs switched from a pcurve to their 3D curve (see the module comment).
+    curves_3d: usize,
     /// AXIS2_PLACEMENT_3Ds given the standard's default ref_direction (see the module comment).
     fixed_placements: usize,
 }
@@ -59,6 +83,31 @@ fn entity<T>(p: &PlaceHolder<T>) -> Option<u64> {
         PlaceHolder::Ref(Name::Entity(id)) => Some(*id),
         _ => None,
     }
+}
+
+/// Whether a surface evaluates to finite points over its parameter range, bounds included (sampled; unbounded
+/// directions aren't sampled). truck meshes along a bounded surface's range edges and would subdivide a NaN without
+/// end, as for curves.
+fn finite_surface(s: &Surface) -> bool {
+    let (ur, vr) = s.try_range_tuple();
+    let (Some((u0, u1)), Some((v0, v1))) = (ur, vr) else { return true };
+    (0..=16).all(|i| {
+        (0..=16).all(|j| {
+            let p = s.subs(u0 + (u1 - u0) * i as f64 / 16.0, v0 + (v1 - v0) * j as f64 / 16.0);
+            p.x.is_finite() && p.y.is_finite() && p.z.is_finite()
+        })
+    })
+}
+
+/// Whether a curve evaluates to finite points along its range (sampled). truck subdivides a curve until each piece is
+/// within the tolerance, to a depth of 100, so a curve that yields NaN somewhere is divided without end, until memory
+/// runs out.
+fn finite_curve(c: &Curve3D) -> bool {
+    let (t0, t1) = c.range_tuple();
+    (0..=32).all(|i| {
+        let p = c.subs(t0 + (t1 - t0) * i as f64 / 32.0);
+        p.x.is_finite() && p.y.is_finite() && p.z.is_finite()
+    })
 }
 
 /// An ORIENTED_EDGE or EDGE_CURVE id → the EDGE_CURVE id and the orientation.
@@ -107,12 +156,16 @@ impl<'a> ShellBuilder<'a> {
             let h = self.t.edge_curve.get(&id)?;
             let (a, b) = (entity(&h.edge_start)?, entity(&h.edge_end)?);
             let curve = EntityTable::<EdgeCurveHolder>::get_owned(self.t, id).ok()?.parse_curve3d().ok()?;
+            if !finite_curve(&curve) {
+                diag.nonfinite_edges.push(id);
+                return None;
+            }
             let vertices = (self.vertex(a)?, self.vertex(b)?);
             self.out.shell.edges.push(CompressedEdge { vertices, curve });
             self.out.edge_ids.push(id);
             Some(self.out.shell.edges.len() - 1)
         })();
-        if e.is_none() {
+        if e.is_none() && diag.nonfinite_edges.last() != Some(&id) {
             diag.unconverted_edges.push(id);
         }
         self.edges.insert(id, e);
@@ -152,6 +205,10 @@ impl<'a> ShellBuilder<'a> {
             }
             Some(s)
         })();
+        if surface.as_ref().is_some_and(|s| !finite_surface(s)) {
+            diag.nonfinite_faces.push(fid);
+            return;
+        }
         match (surface, self.boundaries(face, diag)) {
             (Some(surface), Some(boundaries)) => {
                 self.out.shell.faces.push(CompressedFace { surface, boundaries, orientation: orientation != flip });
@@ -215,10 +272,173 @@ fn root_items(e: &EntityInstance) -> Option<Vec<u64>> {
     Some(items.iter().filter_map(|p| if let Parameter::Ref(Name::Entity(id)) = p { Some(*id) } else { None }).collect())
 }
 
+/// The DATA section read one instance at a time, for when ruststep can't read the whole file: it fails on the
+/// first instance it can't tokenize, such as one with an empty list `()`, which Part 21 allows. Returns the
+/// instances it can read, and the ids of those it can't. None if there's no DATA section.
+fn read_instances(text: &str) -> Option<(DataSection, Vec<u64>)> {
+    let header_end = text.find("ENDSEC;")? + 7;
+    let data = header_end + text[header_end..].find("DATA")?;
+    let start = data + text[data..].find(';')? + 1;
+    let end = start + text[start..].rfind("ENDSEC;")?;
+    let (mut entities, mut unread) = (Vec::new(), Vec::new());
+    for rec in split_instances(&text[start..end]) {
+        match EntityInstance::from_str(&format!("{rec};")) {
+            Ok(e) => entities.push(e),
+            Err(_) => unread.push(rec.trim_start_matches('#').split(|c: char| !c.is_ascii_digit()).next().and_then(|n| n.parse().ok()).unwrap_or(0)),
+        }
+    }
+    Some((DataSection { meta: vec![], entities }, unread))
+}
+
+/// Part 21 instances, split at the semicolons outside strings and comments.
+fn split_instances(data: &str) -> Vec<&str> {
+    let (b, mut out, mut start, mut i) = (data.as_bytes(), Vec::new(), 0, 0);
+    let (mut string, mut comment) = (false, false);
+    while i < b.len() {
+        match b[i] {
+            b'*' if comment && b.get(i + 1) == Some(&b'/') => { comment = false; i += 1; }
+            _ if comment => {}
+            b'\'' => string = !string,
+            b'/' if !string && b.get(i + 1) == Some(&b'*') => { comment = true; i += 1; }
+            b';' if !string => {
+                let rec = data[start..i].trim();
+                if !rec.is_empty() {
+                    out.push(rec);
+                }
+                start = i + 1;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    out
+}
+
 fn instance_id(e: &EntityInstance) -> u64 {
     match e {
         EntityInstance::Simple { id, .. } | EntityInstance::Complex { id, .. } => *id,
     }
+}
+
+fn partial<'a>(e: &'a EntityInstance, name: &str) -> Option<&'a [Parameter]> {
+    let rec = match e {
+        EntityInstance::Simple { record, .. } => (record.name == name).then_some(record)?,
+        EntityInstance::Complex { subsuper, .. } => subsuper.0.iter().find(|r| r.name == name)?,
+    };
+    match &rec.parameter {
+        Parameter::List(ps) => Some(ps),
+        _ => None,
+    }
+}
+
+fn ref_id(p: Option<&Parameter>) -> Option<u64> {
+    match p? {
+        Parameter::Ref(Name::Entity(id)) => Some(*id),
+        _ => None,
+    }
+}
+
+/// Radians per unit of a plane angle unit: 1 for the SI radian, a CONVERSION_BASED_UNIT's factor (degrees: pi/180).
+fn angle_unit_factor(by_id: &HashMap<u64, &EntityInstance>, unit: u64) -> Option<f64> {
+    let e = by_id.get(&unit)?;
+    partial(e, "PLANE_ANGLE_UNIT")?;
+    if let Some(cb) = partial(e, "CONVERSION_BASED_UNIT") {
+        let m = by_id.get(&ref_id(cb.get(1))?)?;
+        let ps = partial(m, "PLANE_ANGLE_MEASURE_WITH_UNIT").or_else(|| partial(m, "MEASURE_WITH_UNIT"))?;
+        let value = match ps.first()? {
+            Parameter::Typed { parameter, .. } => match **parameter {
+                Parameter::Real(x) => x,
+                Parameter::Integer(i) => i as f64,
+                _ => return None,
+            },
+            Parameter::Real(x) => *x,
+            _ => return None,
+        };
+        return Some(value * angle_unit_factor(by_id, ref_id(ps.get(1))?).unwrap_or(1.0));
+    }
+    partial(e, "SI_UNIT").map(|_| 1.0)
+}
+
+/// Radians per plane angle unit in the root representation's context, if it says.
+fn angle_factor(entities: &[EntityInstance], root: u64) -> Option<f64> {
+    let by_id: HashMap<u64, &EntityInstance> = entities.iter().map(|e| (instance_id(e), e)).collect();
+    let rep = by_id.get(&root)?;
+    let ps = match rep {
+        EntityInstance::Simple { record, .. } => match &record.parameter {
+            Parameter::List(ps) => ps.as_slice(),
+            _ => return None,
+        },
+        EntityInstance::Complex { .. } => partial(rep, "REPRESENTATION")?,
+    };
+    let ctx = by_id.get(&ref_id(ps.get(2))?)?;
+    let Some(Parameter::List(units)) = partial(ctx, "GLOBAL_UNIT_ASSIGNED_CONTEXT")?.first() else { return None };
+    units.iter().find_map(|u| angle_unit_factor(&by_id, ref_id(Some(u))?))
+}
+
+/// Convert each CONICAL_SURFACE's semi_angle to radians; returns how many were changed.
+fn cone_angles(entities: &mut [EntityInstance], factor: f64) -> usize {
+    if (factor - 1.0).abs() < 1e-15 {
+        return 0;
+    }
+    let mut changed = 0;
+    for e in entities.iter_mut() {
+        let EntityInstance::Simple { record, .. } = e else { continue };
+        if record.name != "CONICAL_SURFACE" {
+            continue;
+        }
+        let Parameter::List(ps) = &mut record.parameter else { continue };
+        if let Some(Parameter::Real(x)) = ps.get_mut(3) {
+            *x *= factor;
+            changed += 1;
+        }
+    }
+    changed
+}
+
+/// Make each TOROIDAL_SURFACE's radii positive; returns how many were changed.
+fn abs_torus_radii(entities: &mut [EntityInstance]) -> usize {
+    let mut changed = 0;
+    for e in entities.iter_mut() {
+        let EntityInstance::Simple { record, .. } = e else { continue };
+        if record.name != "TOROIDAL_SURFACE" {
+            continue;
+        }
+        let Parameter::List(ps) = &mut record.parameter else { continue };
+        let mut any = false;
+        for p in ps.iter_mut().skip(2).take(2) {
+            if let Parameter::Real(x) = p {
+                if *x < 0.0 {
+                    *x = -*x;
+                    any = true;
+                }
+            }
+        }
+        changed += any as usize;
+    }
+    changed
+}
+
+/// Make each SURFACE_CURVE and SEAM_CURVE with a 3D curve use it (master_representation .CURVE_3D.); returns how
+/// many were changed.
+fn prefer_3d_curves(entities: &mut [EntityInstance]) -> usize {
+    let mut changed = 0;
+    for e in entities.iter_mut() {
+        let EntityInstance::Simple { record, .. } = e else { continue };
+        if record.name != "SURFACE_CURVE" && record.name != "SEAM_CURVE" {
+            continue;
+        }
+        let Parameter::List(ps) = &mut record.parameter else { continue };
+        if !matches!(ps.get(1), Some(Parameter::Ref(_))) {
+            continue;
+        }
+        if let Some(m @ Parameter::Enumeration(_)) = ps.get_mut(3) {
+            if *m != Parameter::Enumeration("CURVE_3D".into()) {
+                *m = Parameter::Enumeration("CURVE_3D".into());
+                changed += 1;
+            }
+        }
+    }
+    changed
 }
 
 /// Give each AXIS2_PLACEMENT_3D whose ref_direction is omitted and whose axis is ±x the ref_direction (0, 1, 0), a
@@ -289,6 +509,25 @@ fn key(p: Point3) -> [u64; 3] {
     [p.x.to_bits(), p.y.to_bits(), p.z.to_bits()]
 }
 
+/// Whether a shell's face meshes are oriented consistently: no boundary segment traversed in the same direction by
+/// two triangles (as happens where one face is flipped against its neighbour). Face meshes share their boundary
+/// points exactly, so segments are compared by position.
+fn consistent(polys: &[Option<PolygonMesh>]) -> bool {
+    let mut seen = std::collections::HashSet::new();
+    for p in polys.iter().flatten() {
+        let pos = p.positions();
+        for tri in p.faces().triangle_iter() {
+            for k in 0..3 {
+                let (a, b) = (key(pos[tri[k].pos]), key(pos[tri[(k + 1) % 3].pos]));
+                if a != b && !seen.insert((a, b)) {
+                    return false;
+                }
+            }
+        }
+    }
+    true
+}
+
 /// Six times the volume a closed triangle mesh encloses: positive when its triangles face outward.
 fn signed_volume6(polys: &[Option<PolygonMesh>]) -> f64 {
     let Some(r) = polys.iter().flatten().find_map(|p| p.positions().first().copied()) else { return 0.0 };
@@ -327,12 +566,15 @@ fn mesh_shell(b: &Built, id: u64, role: Role, tol: f64, origin: Point3, with_edg
         })
         .collect();
     // A solid's shell must face out of the material: outward for the outer shell, into the void for a void. Checked
-    // only when the mesh is closed: every face meshed and every edge used twice. (A face that didn't convert leaves
+    // only when the mesh is closed (every face meshed and every edge used twice) and its faces agree (`consistent`):
+    // a face truck orients against its neighbours would make the volume meaningless. (A face that didn't convert leaves
     // its neighbours' edges used once, unless what remains is closed anyway.)
     if role != Role::Surface {
         let closed = polys.iter().all(Option::is_some) && uses.iter().all(|u| u.len() == 2);
         if !closed {
             diag.unchecked_shells.push(id);
+        } else if !consistent(&polys) {
+            diag.inconsistent_shells.push(id);
         } else if (signed_volume6(&polys) < 0.0) == (role == Role::Outer) {
             polys.iter_mut().flatten().for_each(|p| p.invert());
             diag.reversed_shells.push((id, role == Role::Void));
@@ -408,10 +650,23 @@ fn mesh_shell(b: &Built, id: u64, role: Role, tol: f64, origin: Point3, with_edg
 
 fn run(data: &[u8], root: u64, tol: f64, origin: Point3, with_edges: bool) -> Result<(Out, Diag), String> {
     let text = String::from_utf8_lossy(data);
-    let mut ex = ruststep::parser::parse(&text).map_err(|e| format!("STEP parse error: {e}"))?;
-    let section = ex.data.first_mut().ok_or("no DATA section")?;
     let mut diag = Diag::default();
+    let mut section = match ruststep::parser::parse(&text) {
+        Ok(mut ex) if !ex.data.is_empty() => ex.data.swap_remove(0),
+        Ok(_) => return Err("no DATA section".into()),
+        Err(e) => {
+            let (section, unread) = read_instances(&text).ok_or_else(|| format!("STEP parse error: {e}"))?;
+            diag.unread_instances = unread;
+            section
+        }
+    };
+    let section = &mut section;
     diag.fixed_placements = fix_placements(&mut section.entities);
+    diag.curves_3d = prefer_3d_curves(&mut section.entities);
+    diag.tori = abs_torus_radii(&mut section.entities);
+    if let Some(f) = angle_factor(&section.entities, root) {
+        diag.cones = cone_angles(&mut section.entities, f);
+    }
     let section = &*section;
     let table = Table::from_data_section(section);
     let mut shells = Vec::new();
@@ -445,11 +700,18 @@ fn diag_json(d: &Diag) -> String {
     let mut m = serde_json::Map::new();
     m.insert("unconvertedFaces".into(), d.unconverted_faces.clone().into());
     m.insert("unconvertedEdges".into(), d.unconverted_edges.clone().into());
+    m.insert("nonfiniteEdges".into(), d.nonfinite_edges.clone().into());
+    m.insert("nonfiniteFaces".into(), d.nonfinite_faces.clone().into());
+    m.insert("unreadInstances".into(), d.unread_instances.clone().into());
     m.insert("unmeshedFaces".into(), d.unmeshed_faces.clone().into());
     m.insert("skippedItems".into(), d.skipped_items.clone().into());
     m.insert("fixedPlacements".into(), d.fixed_placements.into());
+    m.insert("curves3d".into(), d.curves_3d.into());
+    m.insert("tori".into(), d.tori.into());
+    m.insert("cones".into(), d.cones.into());
     m.insert("reversedShells".into(), d.reversed_shells.iter().map(|&(id, void)| serde_json::json!([id, void])).collect::<Vec<_>>().into());
     m.insert("uncheckedShells".into(), d.unchecked_shells.clone().into());
+    m.insert("inconsistentShells".into(), d.inconsistent_shells.clone().into());
     serde_json::Value::Object(m).to_string()
 }
 
