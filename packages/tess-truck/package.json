@@ -1,0 +1,21 @@
+{
+  "name": "tess-truck",
+  "version": "0.0.0",
+  "description": "truck tessellation backend for cad-io-js (STEP subsets to meshes with face and edge ids), as WebAssembly",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "./build.sh"
+  },
+  "dependencies": {
+    "cad-scene": "0.0.0"
+  },
+  "devDependencies": {
+    "step-import": "0.0.0",
+    "tess-occt": "0.0.0",
+    "tess-workers": "0.0.0"
+  }
+}

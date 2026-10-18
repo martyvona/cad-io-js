@@ -152,7 +152,7 @@ The indexer (`p21.mjs`) is a single pass over a latin1 string. It finds `#id=` b
   - **Bicycle:** 5514/5624 exact and 5619/5624 nearest.
   - **The misses are inaccurate meshes, not wrong IDs:** a wrong ID would shift every later face in the shell, which never happens. The misses come from vertices off by about 3e-3 and from bad cone faces.
 - **Robustness problems:**
-  - **Panics:** `tolerance must be no less than 1e-6` at `truck-geometry/src/specifieds/circle.rs:65` on 6 inch-unit parts (`nist_stc_07` ×5, `trj7_k1-ct`). A panic in WASM traps, so the instance has to be recreated.
+  - **Panics:** `tolerance must be no less than 1e-6` at `truck-geometry/src/specifieds/circle.rs:65` on 6 inch-unit parts (`nist_stc_07` ×5, `trj7_k1-ct`). A panic in WASM traps, so the instance has to be recreated. *(Correction, phase 3 step 2: the cause is not the tolerance or the units. truck defaults a missing `ref_direction` of an `AXIS2_PLACEMENT_3D` to (1, 0, 0) even when the axis is ±x, which makes the placement NaN; see `../docs/phase3_progress.md`, step 2.)*
   - **Hang:** more than 10 minutes on `trj2_as1-id-203` part #891 (5 faces). The host needs a watchdog: run tessellation in a worker that can be terminated.
   - **Wrong geometry:** against the custom OCCT 8.1 build, 64/188 parts are within 0.1%, 112 within 1%, 144 within 5%. The worst cases are on the bicycle:
     - #1821 and #3117: 2.6× the area

@@ -1,0 +1,24 @@
+[package]
+name = "tess_truck"
+version = "0.0.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+# truck at the commit pinned by ../../../third_party/pull.sh, used as is (no fork).
+[dependencies]
+truck-meshalgo = { path = "../../../third_party/truck/truck-meshalgo", default-features = false, features = ["tessellation"] }
+truck-stepio = { path = "../../../third_party/truck/truck-stepio" }
+truck-topology = { path = "../../../third_party/truck/truck-topology" }
+serde_json = "1"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[workspace]

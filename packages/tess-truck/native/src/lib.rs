@@ -1,0 +1,500 @@
+//! The truck tessellation backend: a STEP subset in, the faces and edges of one shape representation out, with
+//! their STEP entity ids, as flat arrays in linear memory that ../src/index.ts reads. A plain C ABI (no wasm-bindgen).
+//!
+//! Workarounds for truck (see docs/phase3_progress.md, step 2; truck itself is used unchanged):
+//! - Shells are built here rather than by `Table::to_compressed_shell`. truck numbers a vertex or edge before
+//!   converting it, so one that fails to convert shifts every later index, and it drops faces it can't convert
+//!   without saying which. Here each face and edge keeps its STEP id, and a face whose surface or edges don't
+//!   convert is left out and reported.
+//! - An AXIS2_PLACEMENT_3D without a ref_direction whose axis is ±x gets the ref_direction (0, 1, 0), as ISO
+//!   10303-42's `first_proj_axis` prescribes. truck always defaults it to (1, 0, 0), so the placement's x axis
+//!   becomes NaN, and meshing a circle on it panics (`tolerance must be no less than 1e-6`, truck-geometry
+//!   `specifieds/circle.rs`, since NaN fails the check).
+
+use std::cell::RefCell;
+use std::collections::HashMap;
+use truck_meshalgo::prelude::*;
+use truck_stepio::r#in::ruststep::ast::{EntityInstance, Name, Parameter};
+use truck_stepio::r#in::ruststep::tables::{EntityTable, IntoOwned, PlaceHolder};
+use truck_stepio::r#in::step_geometry::{Curve3D, Surface};
+use truck_stepio::r#in::*;
+use truck_topology::compress::{CompressedEdge, CompressedEdgeIndex, CompressedFace, CompressedShell};
+
+// ---- building shells, ids attached ----
+
+struct Built {
+    shell: CompressedShell<Point3, Curve3D, Surface>,
+    face_ids: Vec<u64>,
+    edge_ids: Vec<u64>,
+}
+
+#[derive(Default)]
+struct Diag {
+    unconverted_faces: Vec<u64>,
+    unconverted_edges: Vec<u64>,
+    unmeshed_faces: Vec<u64>,
+    skipped_items: Vec<String>,
+    /// AXIS2_PLACEMENT_3Ds given the standard's default ref_direction (see the module comment).
+    fixed_placements: usize,
+}
+
+fn entity<T>(p: &PlaceHolder<T>) -> Option<u64> {
+    match p {
+        PlaceHolder::Ref(Name::Entity(id)) => Some(*id),
+        _ => None,
+    }
+}
+
+/// An ORIENTED_EDGE or EDGE_CURVE id → the EDGE_CURVE id and the orientation.
+fn edge_ref(t: &Table, id: u64) -> Option<(u64, bool)> {
+    if let Some(oe) = t.oriented_edge.get(&id) {
+        return Some((entity(&oe.edge_element)?, oe.orientation));
+    }
+    t.edge_curve.contains_key(&id).then_some((id, true))
+}
+
+/// An ORIENTED_FACE or FACE_SURFACE (ADVANCED_FACE) id → the face's id, holder and orientation.
+fn face_ref(t: &Table, id: u64) -> Option<(u64, &FaceSurfaceHolder, bool)> {
+    if let Some(f) = t.face_surface.get(&id) {
+        return Some((id, f, true));
+    }
+    let of = t.oriented_face.get(&id)?;
+    let fid = entity(&of.face_element)?;
+    Some((fid, t.face_surface.get(&fid)?, of.orientation))
+}
+
+struct ShellBuilder<'a> {
+    t: &'a Table,
+    out: Built,
+    vertices: HashMap<u64, Option<usize>>,
+    edges: HashMap<u64, Option<usize>>,
+}
+
+impl<'a> ShellBuilder<'a> {
+    fn vertex(&mut self, id: u64) -> Option<usize> {
+        if let Some(v) = self.vertices.get(&id) {
+            return *v;
+        }
+        let v = EntityTable::<VertexPointHolder>::get_owned(self.t, id).ok().map(|vp| {
+            self.out.shell.vertices.push(Point3::from(&vp.vertex_geometry));
+            self.out.shell.vertices.len() - 1
+        });
+        self.vertices.insert(id, v);
+        v
+    }
+
+    fn edge(&mut self, id: u64, diag: &mut Diag) -> Option<usize> {
+        if let Some(e) = self.edges.get(&id) {
+            return *e;
+        }
+        let e = (|| {
+            let h = self.t.edge_curve.get(&id)?;
+            let (a, b) = (entity(&h.edge_start)?, entity(&h.edge_end)?);
+            let curve = EntityTable::<EdgeCurveHolder>::get_owned(self.t, id).ok()?.parse_curve3d().ok()?;
+            let vertices = (self.vertex(a)?, self.vertex(b)?);
+            self.out.shell.edges.push(CompressedEdge { vertices, curve });
+            self.out.edge_ids.push(id);
+            Some(self.out.shell.edges.len() - 1)
+        })();
+        if e.is_none() {
+            diag.unconverted_edges.push(id);
+        }
+        self.edges.insert(id, e);
+        e
+    }
+
+    /// One face's loops, as truck's `face_bound_to_edges` builds them; None if any edge didn't convert.
+    fn boundaries(&mut self, face: &FaceSurfaceHolder, diag: &mut Diag) -> Option<Vec<Vec<CompressedEdgeIndex>>> {
+        let mut out = Vec::new();
+        for b in &face.bounds {
+            let bound = self.t.face_bound.get(&entity(b)?)?;
+            let lp = self.t.edge_loop.get(&entity(&bound.bound)?)?;
+            let mut wire = Vec::new();
+            for e in &lp.edge_list {
+                let (eid, ori) = edge_ref(self.t, entity(e)?)?;
+                let index = self.edge(eid, diag)?;
+                wire.push(CompressedEdgeIndex { index, orientation: ori == bound.orientation });
+            }
+            if !bound.orientation {
+                wire.reverse();
+            }
+            out.push(wire);
+        }
+        Some(out)
+    }
+
+    fn face(&mut self, cfs: u64, flip: bool, diag: &mut Diag) {
+        let Some((fid, face, orientation)) = face_ref(self.t, cfs) else {
+            diag.unconverted_faces.push(cfs);
+            return;
+        };
+        let surface = (|| {
+            let s: SurfaceAny = face.face_geometry.clone().into_owned(self.t).ok()?;
+            let mut s = Surface::try_from(&s).ok()?;
+            if !face.same_sense {
+                s.invert();
+            }
+            Some(s)
+        })();
+        match (surface, self.boundaries(face, diag)) {
+            (Some(surface), Some(boundaries)) => {
+                self.out.shell.faces.push(CompressedFace { surface, boundaries, orientation: orientation != flip });
+                self.out.face_ids.push(fid);
+            }
+            _ => diag.unconverted_faces.push(fid),
+        }
+    }
+}
+
+/// A CLOSED_SHELL or OPEN_SHELL, or an ORIENTED_ one of them.
+fn build_shell(t: &Table, id: u64, diag: &mut Diag) -> Option<Built> {
+    let (shell, flip) = match t.shell.get(&id) {
+        Some(s) => (s, false),
+        None => {
+            let os = t.oriented_shell.get(&id)?;
+            (t.shell.get(&entity(&os.shell_element)?)?, !os.orientation)
+        }
+    };
+    let empty = CompressedShell { vertices: vec![], edges: vec![], faces: vec![] };
+    let mut b = ShellBuilder { t, out: Built { shell: empty, face_ids: vec![], edge_ids: vec![] }, vertices: HashMap::new(), edges: HashMap::new() };
+    for f in &shell.cfs_faces {
+        match entity(f) {
+            Some(cfs) => b.face(cfs, flip, diag),
+            None => diag.unconverted_faces.push(0),
+        }
+    }
+    Some(b.out)
+}
+
+/// The shells of a representation item: a MANIFOLD_SOLID_BREP (or BREP_WITH_VOIDS), a SHELL_BASED_SURFACE_MODEL or
+/// a shell. Anything else is listed as skipped, except placements.
+fn item_shells(t: &Table, id: u64, name: &str, diag: &mut Diag, out: &mut Vec<u64>) {
+    if let Some(s) = t.manifold_solid_brep.get(&id) {
+        out.extend(entity(&s.outer));
+        out.extend(s.voids.iter().filter_map(entity));
+    } else if let Some(m) = t.shell_based_surface_model.get(&id) {
+        out.extend(m.sbsm_boundary.iter().filter_map(entity));
+    } else if t.shell.contains_key(&id) || t.oriented_shell.contains_key(&id) {
+        out.push(id);
+    } else if !name.starts_with("AXIS2_PLACEMENT") {
+        diag.skipped_items.push(format!("{name} #{id}"));
+    }
+}
+
+fn record_name(e: &EntityInstance) -> String {
+    match e {
+        EntityInstance::Simple { record, .. } => record.name.clone(),
+        EntityInstance::Complex { subsuper, .. } => subsuper.0.iter().map(|r| r.name.as_str()).collect::<Vec<_>>().join("+"),
+    }
+}
+
+/// The ids in a representation's `items` (its second attribute), simple or complex.
+fn root_items(e: &EntityInstance) -> Option<Vec<u64>> {
+    let params = match e {
+        EntityInstance::Simple { record, .. } => &record.parameter,
+        EntityInstance::Complex { subsuper, .. } => &subsuper.0.iter().find(|r| r.name == "REPRESENTATION")?.parameter,
+    };
+    let Parameter::List(ps) = params else { return None };
+    let Some(Parameter::List(items)) = ps.get(1) else { return None };
+    Some(items.iter().filter_map(|p| if let Parameter::Ref(Name::Entity(id)) = p { Some(*id) } else { None }).collect())
+}
+
+fn instance_id(e: &EntityInstance) -> u64 {
+    match e {
+        EntityInstance::Simple { id, .. } | EntityInstance::Complex { id, .. } => *id,
+    }
+}
+
+/// Give each AXIS2_PLACEMENT_3D whose ref_direction is omitted and whose axis is ±x the ref_direction (0, 1, 0), a
+/// DIRECTION added with a new id; returns how many were changed. (ISO 10303-42 `first_proj_axis`: (1, 0, 0) unless
+/// the axis is ±(1, 0, 0), then (0, 1, 0). Here "is" allows rounding, which gives the same frame.)
+fn fix_placements(entities: &mut Vec<EntityInstance>) -> usize {
+    let mut along_x = std::collections::HashSet::new();
+    for e in entities.iter() {
+        let EntityInstance::Simple { id, record } = e else { continue };
+        if record.name != "DIRECTION" {
+            continue;
+        }
+        let Parameter::List(ps) = &record.parameter else { continue };
+        let Some(Parameter::List(r)) = ps.get(1) else { continue };
+        let v: Vec<f64> = r.iter().filter_map(|p| if let Parameter::Real(x) = p { Some(*x) } else { None }).collect();
+        let n = v.iter().map(|x| x * x).sum::<f64>().sqrt();
+        if v.len() == 3 && n > 0.0 && (v[0] / n).abs() > 1.0 - 1e-12 {
+            along_x.insert(*id);
+        }
+    }
+    let new_id = entities.iter().map(instance_id).max().unwrap_or(0) + 1;
+    let mut fixed = 0;
+    for e in entities.iter_mut() {
+        let EntityInstance::Simple { record, .. } = e else { continue };
+        if record.name != "AXIS2_PLACEMENT_3D" {
+            continue;
+        }
+        let Parameter::List(ps) = &mut record.parameter else { continue };
+        if let (Some(Parameter::Ref(Name::Entity(axis))), Some(r @ Parameter::NotProvided)) = (ps.get(2).cloned(), ps.get_mut(3)) {
+            if along_x.contains(&axis) {
+                *r = Parameter::Ref(Name::Entity(new_id));
+                fixed += 1;
+            }
+        }
+    }
+    if fixed > 0 {
+        let ratios = Parameter::List(vec![Parameter::Real(0.0), Parameter::Real(1.0), Parameter::Real(0.0)]);
+        let record = truck_stepio::r#in::ruststep::ast::Record { name: "DIRECTION".into(), parameter: Parameter::List(vec![Parameter::String(String::new()), ratios]) };
+        entities.push(EntityInstance::Simple { id: new_id, record });
+    }
+    fixed
+}
+
+// ---- meshing and output ----
+
+#[derive(Default)]
+struct Out {
+    positions: Vec<f32>,
+    normals: Vec<f32>,
+    indices: Vec<u32>,
+    faces: Vec<i32>,          // (entity id or -1, start, count) per face
+    edge_positions: Vec<f32>, // all polylines
+    edges: Vec<i32>,          // (entity id or -1, start, count, kind) per edge
+    edge_angles: Vec<f32>,    // dihedral angle per edge, or -1
+    diag: String,
+}
+
+const SHARED: i32 = 0;
+const SEAM: i32 = 1;
+const FREE: i32 = 2;
+const DEGENERATE: i32 = 3;
+
+fn id32(id: u64) -> i32 {
+    i32::try_from(id).unwrap_or(-1)
+}
+
+fn key(p: Point3) -> [u64; 3] {
+    [p.x.to_bits(), p.y.to_bits(), p.z.to_bits()]
+}
+
+fn mesh_shell(b: &Built, tol: f64, origin: Point3, with_edges: bool, out: &mut Out, diag: &mut Diag) {
+    let meshed = b.shell.robust_triangulation(tol);
+    // Per face: each boundary position's normal, for dihedral angles.
+    let mut face_normals: Vec<HashMap<[u64; 3], Vector3>> = Vec::new();
+    for (k, face) in meshed.faces.iter().enumerate() {
+        let fid = b.face_ids[k];
+        let Some(poly) = &face.surface else {
+            diag.unmeshed_faces.push(fid);
+            face_normals.push(HashMap::new());
+            continue;
+        };
+        let mut poly = poly.clone();
+        if !face.orientation {
+            poly.invert();
+        }
+        let (pos, nor) = (poly.positions(), poly.normals());
+        let base = (out.positions.len() / 3) as u32;
+        let start = out.indices.len();
+        let mut welded: HashMap<(usize, Option<usize>), u32> = HashMap::new();
+        let mut normals = HashMap::new();
+        for tri in poly.faces().triangle_iter() {
+            let flat = (pos[tri[1].pos] - pos[tri[0].pos]).cross(pos[tri[2].pos] - pos[tri[0].pos]);
+            for v in tri {
+                let n = v.nor.and_then(|i| nor.get(i)).unwrap_or(flat).normalize();
+                let next = base + welded.len() as u32;
+                let i = *welded.entry((v.pos, v.nor)).or_insert_with(|| {
+                    let p = pos[v.pos];
+                    out.positions.extend([(p.x - origin.x) as f32, (p.y - origin.y) as f32, (p.z - origin.z) as f32]);
+                    out.normals.extend([n.x as f32, n.y as f32, n.z as f32]);
+                    next
+                });
+                normals.entry(key(pos[v.pos])).or_insert(n);
+                out.indices.push(i);
+            }
+        }
+        out.faces.extend([id32(fid), start as i32, (out.indices.len() - start) as i32]);
+        face_normals.push(normals);
+    }
+    if !with_edges {
+        return;
+    }
+    // Which faces use each edge (one entry per use).
+    let mut uses: Vec<Vec<usize>> = vec![Vec::new(); meshed.edges.len()];
+    for (k, face) in meshed.faces.iter().enumerate() {
+        for e in face.boundaries.iter().flatten() {
+            uses[e.index].push(k);
+        }
+    }
+    for (j, edge) in meshed.edges.iter().enumerate() {
+        let pts: &[Point3] = &edge.curve;
+        let start = out.edge_positions.len() / 3;
+        for p in pts {
+            out.edge_positions.extend([(p.x - origin.x) as f32, (p.y - origin.y) as f32, (p.z - origin.z) as f32]);
+        }
+        let u = &uses[j];
+        let degenerate = pts.iter().all(|p| p.distance(pts[0]) <= 1e-12 * (1.0 + pts[0].to_vec().magnitude()));
+        let kind = if degenerate {
+            DEGENERATE
+        } else if u.len() == 1 {
+            FREE
+        } else if u.len() == 2 && u[0] == u[1] {
+            SEAM
+        } else if u.len() >= 2 {
+            SHARED
+        } else {
+            FREE
+        };
+        let mut angle: f32 = -1.0;
+        if kind == SHARED {
+            let (fa, fb) = (&face_normals[u[0]], &face_normals[*u.iter().find(|&&k| k != u[0]).unwrap_or(&u[1])]);
+            for p in pts {
+                if let (Some(a), Some(b)) = (fa.get(&key(*p)), fb.get(&key(*p))) {
+                    angle = angle.max(a.dot(*b).clamp(-1.0, 1.0).acos() as f32);
+                }
+            }
+        }
+        out.edges.extend([id32(b.edge_ids[j]), start as i32, pts.len() as i32, kind]);
+        out.edge_angles.push(angle);
+    }
+}
+
+fn run(data: &[u8], root: u64, tol: f64, origin: Point3, with_edges: bool) -> Result<(Out, Diag), String> {
+    let text = String::from_utf8_lossy(data);
+    let mut ex = ruststep::parser::parse(&text).map_err(|e| format!("STEP parse error: {e}"))?;
+    let section = ex.data.first_mut().ok_or("no DATA section")?;
+    let mut diag = Diag::default();
+    diag.fixed_placements = fix_placements(&mut section.entities);
+    let section = &*section;
+    let table = Table::from_data_section(section);
+    let mut shells = Vec::new();
+    if root != 0 {
+        let e = section.entities.iter().find(|e| matches!(e, EntityInstance::Simple { id, .. } | EntityInstance::Complex { id, .. } if *id == root));
+        let e = e.ok_or_else(|| format!("root #{root} not in the payload"))?;
+        let items = root_items(e).ok_or_else(|| format!("root #{root} ({}) has no items", record_name(e)))?;
+        for id in items {
+            let name = section.entities.iter().find(|e| matches!(e, EntityInstance::Simple { id: i, .. } | EntityInstance::Complex { id: i, .. } if *i == id)).map(record_name).unwrap_or_default();
+            item_shells(&table, id, &name, &mut diag, &mut shells);
+        }
+    } else {
+        let mut ids: Vec<u64> = table.manifold_solid_brep.keys().chain(table.shell_based_surface_model.keys()).copied().collect();
+        ids.sort();
+        for id in ids {
+            item_shells(&table, id, "", &mut diag, &mut shells);
+        }
+    }
+    let mut out = Out::default();
+    for id in shells {
+        if let Some(b) = build_shell(&table, id, &mut diag) {
+            mesh_shell(&b, tol, origin, with_edges, &mut out, &mut diag);
+        } else {
+            diag.skipped_items.push(format!("shell #{id}"));
+        }
+    }
+    Ok((out, diag))
+}
+
+fn diag_json(d: &Diag) -> String {
+    let mut m = serde_json::Map::new();
+    m.insert("unconvertedFaces".into(), d.unconverted_faces.clone().into());
+    m.insert("unconvertedEdges".into(), d.unconverted_edges.clone().into());
+    m.insert("unmeshedFaces".into(), d.unmeshed_faces.clone().into());
+    m.insert("skippedItems".into(), d.skipped_items.clone().into());
+    m.insert("fixedPlacements".into(), d.fixed_placements.into());
+    serde_json::Value::Object(m).to_string()
+}
+
+// ---- the C ABI ----
+
+thread_local! {
+    static RESULT: RefCell<Out> = RefCell::new(Out::default());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[link(wasm_import_module = "env")]
+extern "C" {
+    /// Supplied by the host: receives the panic message just before the module traps.
+    fn tess_panic(ptr: *const u8, len: usize);
+}
+
+#[no_mangle]
+pub extern "C" fn tess_init() {
+    std::panic::set_hook(Box::new(|info| {
+        let s = info.to_string();
+        #[cfg(target_arch = "wasm32")]
+        unsafe {
+            tess_panic(s.as_ptr(), s.len())
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        eprintln!("{s}");
+    }));
+}
+
+#[no_mangle]
+pub extern "C" fn tess_alloc(len: usize) -> *mut u8 {
+    let mut v = Vec::<u8>::with_capacity(len);
+    let p = v.as_mut_ptr();
+    std::mem::forget(v);
+    p
+}
+
+/// # Safety
+/// `ptr` and `len` must come from `tess_alloc`.
+#[no_mangle]
+pub unsafe extern "C" fn tess_dealloc(ptr: *mut u8, len: usize) {
+    drop(Vec::from_raw_parts(ptr, 0, len));
+}
+
+/// Tessellate `len` bytes at `ptr`; 0 on success, 1 on failure (the diagnostics say why).
+/// # Safety
+/// `ptr` must point to `len` readable bytes.
+#[no_mangle]
+pub unsafe extern "C" fn tess_run(ptr: *const u8, len: usize, root: f64, tol: f64, ox: f64, oy: f64, oz: f64, edges: i32) -> i32 {
+    let data = std::slice::from_raw_parts(ptr, len);
+    let (out, rc) = match run(data, root as u64, tol, Point3::new(ox, oy, oz), edges != 0) {
+        Ok((mut out, d)) => {
+            out.diag = diag_json(&d);
+            (out, 0)
+        }
+        Err(e) => (Out { diag: serde_json::json!({ "error": e }).to_string(), ..Out::default() }, 1),
+    };
+    RESULT.with(|r| *r.borrow_mut() = out);
+    rc
+}
+
+/// The address of one result array: 0 positions, 1 normals (f32 × 3), 2 indices (u32), 3 faces (i32 × 3),
+/// 4 edge positions (f32 × 3), 5 edges (i32 × 4), 6 edge angles (f32), 7 diagnostics (UTF-8 JSON).
+#[no_mangle]
+pub extern "C" fn tess_ptr(which: i32) -> *const u8 {
+    RESULT.with(|r| {
+        let r = r.borrow();
+        match which {
+            0 => r.positions.as_ptr() as *const u8,
+            1 => r.normals.as_ptr() as *const u8,
+            2 => r.indices.as_ptr() as *const u8,
+            3 => r.faces.as_ptr() as *const u8,
+            4 => r.edge_positions.as_ptr() as *const u8,
+            5 => r.edges.as_ptr() as *const u8,
+            6 => r.edge_angles.as_ptr() as *const u8,
+            _ => r.diag.as_ptr(),
+        }
+    })
+}
+
+/// The length of one result array, in elements (bytes for the diagnostics).
+#[no_mangle]
+pub extern "C" fn tess_len(which: i32) -> usize {
+    RESULT.with(|r| {
+        let r = r.borrow();
+        match which {
+            0 => r.positions.len(),
+            1 => r.normals.len(),
+            2 => r.indices.len(),
+            3 => r.faces.len(),
+            4 => r.edge_positions.len(),
+            5 => r.edges.len(),
+            6 => r.edge_angles.len(),
+            _ => r.diag.len(),
+        }
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn tess_free() {
+    RESULT.with(|r| *r.borrow_mut() = Out::default());
+}
