@@ -129,8 +129,9 @@ function windingMismatches(r: TessellationResult): number {
 }
 
 const gkv = (f: string) => path.join(corpus, 'gkv311-opencascade-dataset/step', f);
-// An assembly; a solid with two voids (oriented shells); seams; an open shell beside a curve set; a cone.
-const fixtures = [asm, gkv('tr9_bv1-tc.stp'), gkv('trj9_io1-oc-214.stp'), gkv('trj7_c2-ug-214.stp'), path.join(corpus, 'occt-import-js/test/testfiles/conical-surface/conical-surface.step')];
+// An assembly; a solid with two voids (oriented shells), and an older export of it that reverses the voids twice;
+// seams; an open shell beside a curve set; a cone.
+const fixtures = [asm, gkv('tr9_bv1-tc.stp'), gkv('tr8_bv1_tc.stp'), gkv('trj9_io1-oc-214.stp'), gkv('trj7_c2-ug-214.stp'), path.join(corpus, 'occt-import-js/test/testfiles/conical-surface/conical-surface.step')];
 
 test('against OCCT: face and edge ids, edge kinds, face orientation, area, edge points on the mesh', { skip: skip || (!occtBuilt && 'tess-occt not built') || (!fixtures.every((f) => fs.existsSync(f)) && 'corpus files missing') }, async () => {
   const { OcctTessellator } = await import('tess-occt');
@@ -143,7 +144,8 @@ test('against OCCT: face and edge ids, edge kinds, face orientation, area, edge 
     for (const req of await requests(file)) {
       const a = await truck.tessellate(req), b = await occt.tessellate(req);
       const where = `${path.basename(file)} #${req.rootId}`;
-      assert.deepEqual(a.diagnostics.filter((d) => !d.message.startsWith("representation items truck doesn't mesh: GEOMETRIC_CURVE_SET")), [], where);
+      const expected = file.includes('tr8_bv1') ? ['shell #310 reversed: as written, this void faces into the material', 'shell #460 reversed: as written, this void faces into the material'] : [];
+      assert.deepEqual(a.diagnostics.filter((d) => !d.message.startsWith("representation items truck doesn't mesh: GEOMETRIC_CURVE_SET")).map((d) => d.message), expected, where);
       assert.deepEqual(a.faces.map((f) => f.entityId).sort(), b.faces.map((f) => f.entityId).sort(), where);
       const kinds = (r: TessellationResult) => r.edges!.filter((e) => e.entityId !== null).map((e) => `${e.entityId}:${e.kind}`).sort();
       assert.deepEqual(kinds(a), kinds(b), where);
@@ -176,6 +178,35 @@ test("an ORIENTED_FACE reports its face's id, with the face reversed", { skip },
   assert.equal(windingMismatches(r), 0);
 });
 
+test('an outer shell that faces inward is reversed', { skip }, async () => {
+  const tess = new TruckTessellator();
+  await tess.init();
+  const [req] = await requests(cube, 0.01);
+  const plain = await tess.tessellate(req!);
+  const text = new TextDecoder().decode(req!.data);
+  const solid = /MANIFOLD_SOLID_BREP\('[^']*',#(\d+)\)/.exec(text)!;
+  const inside = text.replace(solid[0], solid[0].replace(`#${solid[1]}`, '#999991')).replace(/ENDSEC;(\s*END-ISO)/, `#999991=ORIENTED_CLOSED_SHELL('',*,#${solid[1]},.F.);\nENDSEC;$1`);
+  const r = await tess.tessellate({ ...req!, data: new TextEncoder().encode(inside) });
+  assert.deepEqual(r.diagnostics.map((d) => d.message), ['shell #999991 reversed: as written, this outer shell faces into the material']);
+  assert.deepEqual(r.normals, plain.normals);
+  assert.deepEqual(r.indices, plain.indices);
+});
+
+test("an open solid shell's orientation is left as written and reported unchecked", { skip }, async () => {
+  const tess = new TruckTessellator();
+  await tess.init();
+  const [req] = await requests(cube, 0.01);
+  const text = new TextDecoder().decode(req!.data);
+  // The cube's shell without its first face, inside out: all five faces mesh, but the mesh is open.
+  const shell = /CLOSED_SHELL\('([^']*)',\(#\d+,/.exec(text)!;
+  const solid = /MANIFOLD_SOLID_BREP\('[^']*',#(\d+)\)/.exec(text)!;
+  const open = text.replace(shell[0], `CLOSED_SHELL('${shell[1]}',(`).replace(solid[0], solid[0].replace(`#${solid[1]}`, '#999991')).replace(/ENDSEC;(\s*END-ISO)/, `#999991=ORIENTED_CLOSED_SHELL('',*,#${solid[1]},.F.);\nENDSEC;$1`);
+  const r = await tess.tessellate({ ...req!, data: new TextEncoder().encode(open) });
+  assert.equal(r.faces.length, 5);
+  assert.deepEqual(r.diagnostics.map((d) => d.message), ["orientation of 1 solid shells not checked, since their meshes aren't closed: #999991"]);
+  assert.deepEqual(r.edges!.map((e) => e.kind).sort(), [...Array(4).fill('free'), ...Array(8).fill('shared')]);
+});
+
 test('entity ids above 2^31 - 1 come back as null', { skip }, async () => {
   const tess = new TruckTessellator();
   await tess.init();
@@ -194,7 +225,7 @@ test('faces truck fails to mesh are left out and reported', { skip: skip || (!fs
   const req = (await requests(stc07)).find((r) => r.rootId === 11020)!;
   const r = await tess.tessellate(req);
   assert.equal(r.faces.length, 288);
-  assert.deepEqual(r.diagnostics.map((d) => d.message.replace(/:.*/s, '')), ['16 faces failed to mesh', '72 AXIS2_PLACEMENT_3Ds along x without a ref_direction given the standard\'s default (0, 1, 0), which truck lacks']);
+  assert.deepEqual(r.diagnostics.map((d) => d.message.replace(/:.*/s, '')), ['16 faces failed to mesh', "orientation of 1 solid shells not checked, since their meshes aren't closed", '72 AXIS2_PLACEMENT_3Ds along x without a ref_direction given the standard\'s default (0, 1, 0), which truck lacks']);
   assert.ok(!r.faces.some((f) => f.entityId === 2277));
   assert.match(r.diagnostics[0]!.message, /#2277, #2288,/);
 });

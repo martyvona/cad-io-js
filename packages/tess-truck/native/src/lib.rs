@@ -10,6 +10,9 @@
 //!   10303-42's `first_proj_axis` prescribes. truck always defaults it to (1, 0, 0), so the placement's x axis
 //!   becomes NaN, and meshing a circle on it panics (`tolerance must be no less than 1e-6`, truck-geometry
 //!   `specifieds/circle.rs`, since NaN fails the check).
+//! - A solid's shell that faces the wrong way is reversed, as OCCT's shape healing (ShapeFix_Solid) does: an outer
+//!   shell whose closed mesh encloses a negative signed volume, or a void whose mesh encloses a positive one. Some
+//!   writers reverse voids twice (docs/phase3_progress.md, step 2).
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -28,12 +31,25 @@ struct Built {
     edge_ids: Vec<u64>,
 }
 
+/// A shell's part in its solid, which fixes the way it must face.
+#[derive(Clone, Copy, PartialEq)]
+enum Role {
+    Outer,
+    Void,
+    /// A surface model's shell, or a shell on its own: no orientation to check.
+    Surface,
+}
+
 #[derive(Default)]
 struct Diag {
     unconverted_faces: Vec<u64>,
     unconverted_edges: Vec<u64>,
     unmeshed_faces: Vec<u64>,
     skipped_items: Vec<String>,
+    /// Solid shells reversed because they faced the wrong way: (id, void or not).
+    reversed_shells: Vec<(u64, bool)>,
+    /// Solid shells whose mesh isn't closed, so their orientation couldn't be checked.
+    unchecked_shells: Vec<u64>,
     /// AXIS2_PLACEMENT_3Ds given the standard's default ref_direction (see the module comment).
     fixed_placements: usize,
 }
@@ -168,14 +184,14 @@ fn build_shell(t: &Table, id: u64, diag: &mut Diag) -> Option<Built> {
 
 /// The shells of a representation item: a MANIFOLD_SOLID_BREP (or BREP_WITH_VOIDS), a SHELL_BASED_SURFACE_MODEL or
 /// a shell. Anything else is listed as skipped, except placements.
-fn item_shells(t: &Table, id: u64, name: &str, diag: &mut Diag, out: &mut Vec<u64>) {
+fn item_shells(t: &Table, id: u64, name: &str, diag: &mut Diag, out: &mut Vec<(u64, Role)>) {
     if let Some(s) = t.manifold_solid_brep.get(&id) {
-        out.extend(entity(&s.outer));
-        out.extend(s.voids.iter().filter_map(entity));
+        out.extend(entity(&s.outer).map(|i| (i, Role::Outer)));
+        out.extend(s.voids.iter().filter_map(entity).map(|i| (i, Role::Void)));
     } else if let Some(m) = t.shell_based_surface_model.get(&id) {
-        out.extend(m.sbsm_boundary.iter().filter_map(entity));
+        out.extend(m.sbsm_boundary.iter().filter_map(entity).map(|i| (i, Role::Surface)));
     } else if t.shell.contains_key(&id) || t.oriented_shell.contains_key(&id) {
-        out.push(id);
+        out.push((id, Role::Surface));
     } else if !name.starts_with("AXIS2_PLACEMENT") {
         diag.skipped_items.push(format!("{name} #{id}"));
     }
@@ -273,21 +289,64 @@ fn key(p: Point3) -> [u64; 3] {
     [p.x.to_bits(), p.y.to_bits(), p.z.to_bits()]
 }
 
-fn mesh_shell(b: &Built, tol: f64, origin: Point3, with_edges: bool, out: &mut Out, diag: &mut Diag) {
+/// Six times the volume a closed triangle mesh encloses: positive when its triangles face outward.
+fn signed_volume6(polys: &[Option<PolygonMesh>]) -> f64 {
+    let Some(r) = polys.iter().flatten().find_map(|p| p.positions().first().copied()) else { return 0.0 };
+    let mut v = 0.0;
+    for p in polys.iter().flatten() {
+        let pos = p.positions();
+        for tri in p.faces().triangle_iter() {
+            let (a, b, c) = (pos[tri[0].pos] - r, pos[tri[1].pos] - r, pos[tri[2].pos] - r);
+            v += a.dot(b.cross(c));
+        }
+    }
+    v
+}
+
+#[allow(clippy::too_many_arguments)]
+fn mesh_shell(b: &Built, id: u64, role: Role, tol: f64, origin: Point3, with_edges: bool, out: &mut Out, diag: &mut Diag) {
     let meshed = b.shell.robust_triangulation(tol);
+    // Which faces use each edge (one entry per use).
+    let mut uses: Vec<Vec<usize>> = vec![Vec::new(); meshed.edges.len()];
+    for (k, face) in meshed.faces.iter().enumerate() {
+        for e in face.boundaries.iter().flatten() {
+            uses[e.index].push(k);
+        }
+    }
+    // The face meshes, each facing the way its face does.
+    let mut polys: Vec<Option<PolygonMesh>> = meshed
+        .faces
+        .iter()
+        .map(|face| {
+            face.surface.clone().map(|mut poly| {
+                if !face.orientation {
+                    poly.invert();
+                }
+                poly
+            })
+        })
+        .collect();
+    // A solid's shell must face out of the material: outward for the outer shell, into the void for a void. Checked
+    // only when the mesh is closed: every face meshed and every edge used twice. (A face that didn't convert leaves
+    // its neighbours' edges used once, unless what remains is closed anyway.)
+    if role != Role::Surface {
+        let closed = polys.iter().all(Option::is_some) && uses.iter().all(|u| u.len() == 2);
+        if !closed {
+            diag.unchecked_shells.push(id);
+        } else if (signed_volume6(&polys) < 0.0) == (role == Role::Outer) {
+            polys.iter_mut().flatten().for_each(|p| p.invert());
+            diag.reversed_shells.push((id, role == Role::Void));
+        }
+    }
     // Per face: each boundary position's normal, for dihedral angles.
     let mut face_normals: Vec<HashMap<[u64; 3], Vector3>> = Vec::new();
-    for (k, face) in meshed.faces.iter().enumerate() {
+    for (k, poly) in polys.iter().enumerate() {
         let fid = b.face_ids[k];
-        let Some(poly) = &face.surface else {
+        let Some(poly) = poly else {
             diag.unmeshed_faces.push(fid);
             face_normals.push(HashMap::new());
             continue;
         };
-        let mut poly = poly.clone();
-        if !face.orientation {
-            poly.invert();
-        }
         let (pos, nor) = (poly.positions(), poly.normals());
         let base = (out.positions.len() / 3) as u32;
         let start = out.indices.len();
@@ -313,13 +372,6 @@ fn mesh_shell(b: &Built, tol: f64, origin: Point3, with_edges: bool, out: &mut O
     }
     if !with_edges {
         return;
-    }
-    // Which faces use each edge (one entry per use).
-    let mut uses: Vec<Vec<usize>> = vec![Vec::new(); meshed.edges.len()];
-    for (k, face) in meshed.faces.iter().enumerate() {
-        for e in face.boundaries.iter().flatten() {
-            uses[e.index].push(k);
-        }
     }
     for (j, edge) in meshed.edges.iter().enumerate() {
         let pts: &[Point3] = &edge.curve;
@@ -379,9 +431,9 @@ fn run(data: &[u8], root: u64, tol: f64, origin: Point3, with_edges: bool) -> Re
         }
     }
     let mut out = Out::default();
-    for id in shells {
+    for (id, role) in shells {
         if let Some(b) = build_shell(&table, id, &mut diag) {
-            mesh_shell(&b, tol, origin, with_edges, &mut out, &mut diag);
+            mesh_shell(&b, id, role, tol, origin, with_edges, &mut out, &mut diag);
         } else {
             diag.skipped_items.push(format!("shell #{id}"));
         }
@@ -396,6 +448,8 @@ fn diag_json(d: &Diag) -> String {
     m.insert("unmeshedFaces".into(), d.unmeshed_faces.clone().into());
     m.insert("skippedItems".into(), d.skipped_items.clone().into());
     m.insert("fixedPlacements".into(), d.fixed_placements.into());
+    m.insert("reversedShells".into(), d.reversed_shells.iter().map(|&(id, void)| serde_json::json!([id, void])).collect::<Vec<_>>().into());
+    m.insert("uncheckedShells".into(), d.unchecked_shells.clone().into());
     serde_json::Value::Object(m).to_string()
 }
 

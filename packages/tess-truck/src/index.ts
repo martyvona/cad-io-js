@@ -22,6 +22,8 @@ interface Diag {
   unmeshedFaces?: number[];
   skippedItems?: string[];
   fixedPlacements?: number;
+  reversedShells?: [number, boolean][];
+  uncheckedShells?: number[];
 }
 
 const KINDS: EdgeKind[] = ['shared', 'seam', 'free', 'degenerate'];
@@ -133,6 +135,8 @@ export class TruckTessellator implements Tessellator {
     if (diag.unconvertedEdges?.length) diagnostics.push({ severity: 'warning', message: `${diag.unconvertedEdges.length} edges truck can't convert: ${list(diag.unconvertedEdges)}` });
     if (diag.unmeshedFaces?.length) diagnostics.push({ severity: 'warning', message: `${diag.unmeshedFaces.length} faces failed to mesh: ${list(diag.unmeshedFaces)}` });
     if (diag.skippedItems?.length) diagnostics.push({ severity: 'warning', message: `representation items truck doesn't mesh: ${diag.skippedItems.slice(0, 10).join(', ')}${diag.skippedItems.length > 10 ? ', …' : ''}` });
+    for (const [id, isVoid] of diag.reversedShells ?? []) diagnostics.push({ severity: 'info', message: `shell #${id} reversed: as written, this ${isVoid ? 'void' : 'outer shell'} faces into the material` });
+    if (diag.uncheckedShells?.length) diagnostics.push({ severity: 'info', message: `orientation of ${diag.uncheckedShells.length} solid shells not checked, since their meshes aren't closed: ${list(diag.uncheckedShells)}` });
     if (diag.fixedPlacements) diagnostics.push({ severity: 'info', message: `${diag.fixedPlacements} AXIS2_PLACEMENT_3Ds along x without a ref_direction given the standard's default (0, 1, 0), which truck lacks` });
     return result;
   }
