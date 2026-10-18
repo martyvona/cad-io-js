@@ -65,5 +65,10 @@ export interface Tessellator {
   /** Load and compile the backend (WASM). */
   init(opts?: Record<string, unknown>): Promise<void>;
   tessellate(req: TessellationRequest): Promise<TessellationResult>;
+  /**
+   * The backend's memory in bytes (WASM: its linear memory, which never shrinks), so a host can recycle an instance
+   * that has grown too large. Optional.
+   */
+  memoryBytes?(): number;
   dispose(): void;
 }

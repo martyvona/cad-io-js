@@ -268,7 +268,8 @@ Every variant was built from the same OCCT source with the same wrapper (edges i
     - The overlay is a full copy of an upstream header, so it silently masks any upstream change to that header. A build step should check the upstream file's hash and fail on a mismatch.
     - Results aren't bit-identical with stock OCCT whenever the fitter runs. On well-conditioned inputs the difference is negligible; on ill-conditioned ones it's no larger than ulp-level noise.
     - Possible alternative: offer the change upstream. OCCT already has GTests checking `VBernstein` against direct Bernstein evaluation (`AppCont_ContMatrices_Test.cxx`), so a computed version would fit their test suite.
-  - **Decision deferred:** `-Os` versus `-Os` + patch. Both build directories are kept.
+  - **Decision deferred:** `-Os` versus `-Os` + patch. Both build directories were kept at the time (the overlay build was deleted on 2026-10-17).
+  - **Decided (2026-10-17, `../docs/phase3_progress.md` decision 6):** ship `-Os` without the patch; not worth maintaining for now. The overlay stays in `occt_overlay/` in case the download size matters later.
 - **Startup:** 10–13 ms in all variants.
 - **Remaining size candidates (untried):**
   - The CJK code-page tables in TKernel `Resource_*`: 651 kB raw but only about 103 kB brotli. They're included with quoted `#include`s, so the overlay trick doesn't reach them; a small source patch would.
@@ -374,7 +375,7 @@ Measured against OCCT 8.1 on area, monstertruck fixes 29 parts that truck gets w
 ## Suggested next steps
 
 - **Custom OCCT build:**
-  - Ship `-Os`, with or without the `VBernstein` table patch (2.18 vs 1.71 MB brotli; decision deferred, see "Build variants"). If the patch is kept, add an upstream-hash check to the build, or propose the change upstream.
+  - Ship `-Os`, with or without the `VBernstein` table patch (2.18 vs 1.71 MB brotli; decided 2026-10-17: without, see "Build variants"). If the patch is kept, add an upstream-hash check to the build, or propose the change upstream.
   - Optionally stub the CJK code-page tables (about 100 kB brotli) and the writer path.
   - Find a STEP corpus that actually reaches the approximation code (`ProjLib`/`Approx_FitAndDivide`), for example files with missing p-curves.
   - Isolate the #2022 slow faces (OCCT 8.1 `BRepMesh_Delaun` frontier recovery) and report them upstream. Until it's fixed, the host's per-request timeout covers it.

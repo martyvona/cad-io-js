@@ -99,6 +99,10 @@ export class OcctTessellator implements Tessellator {
     return result;
   }
 
+  memoryBytes(): number {
+    return this.m?.HEAPU8.buffer.byteLength ?? 0;
+  }
+
   dispose(): void {
     this.m = undefined;
   }

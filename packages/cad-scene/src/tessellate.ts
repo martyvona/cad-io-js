@@ -12,7 +12,9 @@ export interface TessellateOptions {
   edges?: boolean;
   /** Only these parts (indices); default every brep part the backend supports. */
   parts?: readonly number[];
-  /** Called after each part, for progress reporting. */
+  /** Requests in flight at once; set it to a worker pool's size. Default 1. */
+  concurrency?: number;
+  /** Called after each part, in the order parts finish, for progress reporting. */
   onPart?: (part: number, mesh: Mesh | undefined, done: number, total: number) => void;
 }
 
@@ -40,18 +42,21 @@ export function toMesh(r: TessellationResult): Mesh {
   return mesh;
 }
 
-/** Tessellate a scene's brep parts, one at a time. */
+/** Tessellate a scene's brep parts, `concurrency` at a time. */
 export async function tessellateScene(scene: Scene, tess: Tessellator, opts: TessellateOptions): Promise<TessellateResult> {
-  const meshes = new Map<number, Mesh>();
-  const diagnostics: Diagnostic[] = [];
   const todo = (opts.parts ?? scene.parts.map((_, i) => i)).filter((i) => {
     const p = scene.parts[i];
     return p?.kind === 'brep' && tess.info.formats.includes(p.format);
   });
+  const perPart: Diagnostic[][] = todo.map(() => []);
+  const found: (Mesh | undefined)[] = [];
   let done = 0;
-  for (const i of todo) {
+  let next = 0;
+  const one = async (k: number) => {
+    const i = todo[k]!;
     const part = scene.parts[i]!;
-    if (part.kind !== 'brep') continue;
+    if (part.kind !== 'brep') return;
+    const diagnostics = perPart[k]!;
     const source = part.sources[0];
     let mesh: Mesh | undefined;
     try {
@@ -64,8 +69,13 @@ export async function tessellateScene(scene: Scene, tess: Tessellator, opts: Tes
     } catch (e) {
       diagnostics.push({ severity: 'error', message: `tessellation failed: ${(e as Error).message}`, ...(source ? { source } : {}) });
     }
-    if (mesh) meshes.set(i, mesh);
+    found[k] = mesh;
     opts.onPart?.(i, mesh, ++done, todo.length);
-  }
-  return { meshes, diagnostics };
+  };
+  const lane = async () => { while (next < todo.length) await one(next++); };
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(opts.concurrency ?? 1, todo.length)) }, lane));
+  // Both in part order, whatever order the parts finished in.
+  const meshes = new Map<number, Mesh>();
+  todo.forEach((i, k) => { if (found[k]) meshes.set(i, found[k]); });
+  return { meshes, diagnostics: perPart.flat() };
 }

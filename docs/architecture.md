@@ -34,6 +34,7 @@ This is a monorepo using npm workspaces (`../packages/*`). TypeScript runs direc
 | `cad-scene` | The intermediate scene model and the tessellator interface definition | None | Apache-2.0 |
 | `tess-occt` | OCCT WASM tessellation backend | OCCT WASM | LGPL-2.1 (isolated here) |
 | `tess-truck` | truck WASM tessellation backend | truck WASM | Apache-2.0 |
+| `tess-workers` | Runs any backend in a pool of workers (`worker_threads` in Node, Web Workers in browsers), with a per-request timeout and instance recycling (phase 3, step 1) | None | Apache-2.0 |
 | `export-threejs` | Scene model → three.js JSON Object Scene format 4 | None | Apache-2.0 |
 | `export-gltf` | Scene model → glTF/GLB | glTF-Transform (MIT) | Apache-2.0 |
 | `export-3mf` | Scene model → 3MF | fflate (MIT) | Apache-2.0 |
@@ -285,7 +286,7 @@ interface Tessellator {
     - It maps faces to STEP entities through the transfer bindings, including split faces.
     - It returns flat typed arrays.
     - It must be built with `-UOCC_CONVERT_SIGNALS` (see `../phase0_tessellation_spike/phase0_results.md`).
-    - Build with `-Os`; `-O2`/`-O3`/LTO buy no speed. An optional header overlay that computes OCCT's `VBernstein` table instead of storing it cuts the download from 2.18 to 1.71 MB brotli. Whether to carry that patch is deferred (see "Build variants" in `../phase0_tessellation_spike/phase0_results.md`).
+    - Build with `-Os`; `-O2`/`-O3`/LTO buy no speed. An optional header overlay that computes OCCT's `VBernstein` table instead of storing it cuts the download from 2.18 to 1.71 MB brotli. The user decided (2026-10-17, `phase3_progress.md` decision 6) to ship `-Os` without that patch, which isn't worth maintaining for now (see "Build variants" in `../phase0_tessellation_spike/phase0_results.md`).
 - **truck:** needs a small Rust wrapper (not a fork) to report face IDs; phase 0 has a working prototype. It is about 1/6 the size of OCCT, but less robust: it panics, hangs and produces wrong or empty faces on some real files, so the host needs a watchdog. The monstertruck fork was also evaluated in phase 0; it fixes some of these cases, regresses others and is not a clear improvement.
 - **Order:** OCCT first, as the more robust reference, then truck, tested against OCCT.
 

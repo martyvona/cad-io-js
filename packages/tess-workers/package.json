@@ -1,0 +1,20 @@
+{
+  "name": "tess-workers",
+  "version": "0.0.0",
+  "description": "Runs a cad-io-js tessellation backend in a pool of workers (worker_threads in Node, Web Workers in browsers), with a timeout and instance recycling",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "node": "./src/node.ts",
+      "default": "./src/browser.ts"
+    }
+  },
+  "dependencies": {
+    "cad-scene": "0.0.0"
+  },
+  "devDependencies": {
+    "step-import": "0.0.0",
+    "tess-occt": "0.0.0"
+  }
+}
