@@ -1,3 +1,5 @@
+# no shebang, this script is designed only to be sourced
+
 # cad-io-js development environment: checks that the tools this repository expects are installed and recent enough,
 # and sets up their environment (Rust's ~/.cargo/env, Emscripten's emsdk_env.sh) in the current shell.
 # Prints the commands to install or update anything that's missing or too old, for macOS or Linux.
@@ -7,6 +9,16 @@
 # Minimum versions are known requirements where there is one (Node 24 from package.json, CMake 3.10 from OCCT, Rust
 # 1.85 for edition 2024), and otherwise the versions the builds were validated with (Emscripten 6.0.12, wasm-pack
 # 0.15.0).
+
+script_dir="$(cd -P "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  script_name="${BASH_SOURCE[0]##*/}"
+  echo "ERROR: you must source $script_name rather than executing it in a subshell"
+  echo "e.g. \"source $script_dir/$script_name\""
+  echo "aborting"
+  exit 1
+fi
 
 if [ -n "${ZSH_VERSION:-}" ]; then
   case $ZSH_EVAL_CONTEXT in *:file*) _sj_sourced=1 ;; *) _sj_sourced=0 ;; esac
@@ -108,6 +120,11 @@ if [ -n "$_sj_emsdk" ] && ! command -v emcc >/dev/null 2>&1; then
   EMSDK_QUIET=1 . "$_sj_emsdk/emsdk_env.sh" >/dev/null 2>&1
 fi
 
+# TeX (BasicTeX or MacTeX on macOS): its installer adds /Library/TeX/texbin to PATH only for new shells.
+if ! command -v pdflatex >/dev/null 2>&1 && [ -x /Library/TeX/texbin/pdflatex ]; then
+  PATH=/Library/TeX/texbin:$PATH
+fi
+
 # --- Checks ------------------------------------------------------------------------------------------------------
 
 echo "cad-io-js environment ($_sj_os):"
@@ -185,6 +202,19 @@ fi
 _sj_report warning c++ "$(_sj_have c++ --version)" "" "optional: native occt_overlay/test/table_test.cpp" ||
   _sj_fix_pkg c++ "xcode-select --install" g++ gcc-c++
 
+# Documents: scripts/md2pdf.sh converts Markdown (docs/step_tutorial.md) to PDF with pandoc and LaTeX. Any
+# version will do, so none is checked; the install commands get the current one.
+_sj_report warning pandoc "$(_sj_have pandoc --version)" "" "optional: scripts/md2pdf.sh, Markdown to PDF" ||
+  _sj_fix_pkg pandoc "brew install pandoc" pandoc pandoc
+_sj_tex=
+if command -v pdflatex >/dev/null 2>&1; then
+  _sj_tex=$(pdflatex --version 2>/dev/null | sed -n 's/.*(\(TeX Live [0-9][0-9]*\)).*/\1/p' | head -n 1)
+  [ -n "$_sj_tex" ] || _sj_tex=installed
+fi
+_sj_report warning texlive "$_sj_tex" "" "optional: pdflatex for scripts/md2pdf.sh" ||
+  _sj_fix_pkg texlive "brew install --cask basictex    # then open a new shell, or: source env.sh" \
+    "texlive-latex-base texlive-latex-recommended texlive-latex-extra" "texlive-scheme-basic texlive-collection-latexrecommended"
+
 # Repository state: the npm install and the third-party checkouts.
 if [ ! -d "$_sj_repo/node_modules/typescript" ]; then
   printf '  %-8s %-12s %s\n' missing npm-deps "(run npm install for type checking)"
@@ -220,7 +250,7 @@ fi
 
 _sj_status=$((_sj_errors > 0))
 unset -f _sj_version _sj_ge _sj_fix _sj_fix_pkg _sj_report _sj_have _sj_rust_fix
-unset _sj_os _sj_pkg _sj_errors _sj_warnings _sj_fixes _sj_emsdk _sj_emcc _sj_d _sj_repo _sj_py
+unset _sj_os _sj_pkg _sj_errors _sj_warnings _sj_fixes _sj_emsdk _sj_emcc _sj_d _sj_repo _sj_py _sj_tex
 if [ $_sj_sourced = 1 ]; then
   unset _sj_sourced
   return $_sj_status 2>/dev/null || true
