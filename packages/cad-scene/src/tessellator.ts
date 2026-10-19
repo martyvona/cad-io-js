@@ -70,5 +70,7 @@ export interface Tessellator {
    * that has grown too large. Optional.
    */
   memoryBytes?(): number;
+  /** The time limit per request, in milliseconds, that this tessellator enforces (0: none). Absent if it has none. */
+  readonly timeoutMs?: number;
   dispose(): void;
 }

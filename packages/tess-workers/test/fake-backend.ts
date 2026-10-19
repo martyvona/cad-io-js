@@ -1,9 +1,10 @@
 // A fake backend for the pool tests. The first payload byte picks the behaviour: 0 a one-triangle result, 1 hang,
-// 2 throw as a WASM trap does, 3 grow the reported memory by data[1] MiB, 4 wait data[1] × 10 ms, 5 exit the worker.
+// 2 throw as a WASM trap does, 3 grow the reported memory by data[1] MiB, 4 wait data[1] × 10 ms, 5 exit the worker,
+// 6 throw an ordinary error, 7 throw a TessellationError with a time limit of 50 ms.
 // Every result names its backend instance, so the tests can tell when a worker was replaced. Init fails with the
 // option `fail`, or after the time `failAfter`.
 
-import type { TessellationRequest, TessellationResult, Tessellator } from 'cad-scene';
+import { TessellationError, type TessellationRequest, type TessellationResult, type Tessellator } from 'cad-scene';
 
 export class FakeTessellator implements Tessellator {
   readonly info = { name: 'fake', version: '1', license: 'Apache-2.0', formats: ['step' as const], supportsFaceIds: true, supportsEdges: false };
@@ -21,6 +22,8 @@ export class FakeTessellator implements Tessellator {
     if (mode === 3) this.memory += arg * 2 ** 20;
     if (mode === 4) await new Promise((r) => setTimeout(r, arg * 10));
     if (mode === 5) process.exit(3);
+    if (mode === 6) throw new Error('ordinary');
+    if (mode === 7) throw new TessellationError('own limit', 50);
     return {
       origin: req.origin ?? [0, 0, 0],
       positions: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]),

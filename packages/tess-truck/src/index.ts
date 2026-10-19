@@ -59,6 +59,12 @@ async function wasmBytes(source?: BufferSource | URL | string): Promise<BufferSo
   return new Uint8Array(await (await fetch(url)).arrayBuffer());
 }
 
+/** The first 12 hex digits of the module's SHA-256, so that `info.version` changes with every build. */
+async function wasmId(bytes: BufferSource): Promise<string> {
+  const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+  return Array.from(hash.subarray(0, 6), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
 export class TruckTessellator implements Tessellator {
   readonly info: TessellatorInfo = {
     name: 'truck', version: 'truck 88ed005', license: 'Apache-2.0',
@@ -70,11 +76,15 @@ export class TruckTessellator implements Tessellator {
 
   /**
    * Compile and instantiate the module. `opts.wasm`: its bytes or URL (default dist/tess_truck.wasm next to this
-   * package).
+   * package). `info.version` then names the module's hash too.
    */
   async init(opts?: Record<string, unknown>): Promise<void> {
     if (this.x) return;
-    this.module ??= await WebAssembly.compile(await wasmBytes(opts?.wasm as BufferSource | URL | string | undefined));
+    if (!this.module) {
+      const bytes = await wasmBytes(opts?.wasm as BufferSource | URL | string | undefined);
+      this.module = await WebAssembly.compile(bytes);
+      this.info.version = `truck 88ed005, wasm ${await wasmId(bytes)}`;
+    }
     this.instantiate();
   }
 

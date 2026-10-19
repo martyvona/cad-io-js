@@ -18,7 +18,8 @@ export type FromWorker =
   | { type: 'ready'; info: TessellatorInfo }
   | { type: 'initError'; message: string }
   | { type: 'result'; id: number; result: TessellationResult; memory?: number }
-  | { type: 'error'; id: number; message: string };
+  /** `part`: the part's failure (a TessellationError, with its `timeoutMs`, or a WASM trap), not the worker's. */
+  | { type: 'error'; id: number; message: string; part: boolean; timeoutMs?: number };
 
 /** One worker, as the pool sees it. */
 export interface WorkerHandle {

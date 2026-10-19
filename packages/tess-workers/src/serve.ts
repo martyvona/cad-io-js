@@ -1,6 +1,6 @@
 // The worker side: load the backend, then answer requests one at a time, transferring the result's buffers.
 
-import type { TessellationResult, Tessellator } from 'cad-scene';
+import { TessellationError, type TessellationResult, type Tessellator } from 'cad-scene';
 import type { WorkerPort } from './protocol.ts';
 
 const message = (e: unknown) => (e instanceof Error ? `${e.name}: ${e.message}` : String(e));
@@ -33,7 +33,9 @@ export function serve(port: WorkerPort): void {
       const memory = tess.memoryBytes?.();
       port.post(memory === undefined ? { type: 'result', id: msg.id, result } : { type: 'result', id: msg.id, result, memory }, buffers(result));
     } catch (e) {
-      port.post({ type: 'error', id: msg.id, message: message(e) }, []);
+      const part = e instanceof TessellationError || e instanceof WebAssembly.RuntimeError;
+      const timeoutMs = e instanceof TessellationError ? e.timeoutMs : undefined;
+      port.post({ type: 'error', id: msg.id, message: message(e), part, ...(timeoutMs === undefined ? {} : { timeoutMs }) }, []);
     }
   });
 }

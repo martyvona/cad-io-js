@@ -30,6 +30,12 @@ interface OcctModule {
 
 const KINDS: EdgeKind[] = ['shared', 'seam', 'free', 'degenerate'];
 
+/** The first 12 hex digits of the module's SHA-256, so that `info.version` changes with every build. */
+async function wasmId(bytes: BufferSource): Promise<string> {
+  const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+  return Array.from(hash.subarray(0, 6), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
 export class OcctTessellator implements Tessellator {
   readonly info: TessellatorInfo = {
     name: 'occt', version: 'OCCT 8.1 (3d097a0328)', license: 'LGPL-2.1-only WITH OCCT-exception-1.0',
@@ -37,11 +43,28 @@ export class OcctTessellator implements Tessellator {
   };
   private m?: OcctModule;
 
-  /** Load and instantiate the WebAssembly module (dist/occt_tess.mjs). */
+  /**
+   * Load and instantiate the WebAssembly module (dist/occt_tess.mjs). The module is compiled here rather than by
+   * Emscripten's loader, to hash it: `info.version` then names the hash too.
+   */
   async init(): Promise<void> {
     if (this.m) return;
-    const factory = (await import(new URL('../dist/occt_tess.mjs', import.meta.url).href)).default as () => Promise<OcctModule>;
-    this.m = await factory();
+    type Factory = (moduleArg: { instantiateWasm: (imports: WebAssembly.Imports, done: (i: WebAssembly.Instance) => void) => object }) => Promise<OcctModule>;
+    const factory = (await import(new URL('../dist/occt_tess.mjs', import.meta.url).href)).default as Factory;
+    const url = new URL('../dist/occt_tess.wasm', import.meta.url);
+    const bytes = url.protocol === 'file:' ? await (await import('node:fs/promises')).readFile(url) : new Uint8Array(await (await fetch(url)).arrayBuffer());
+    const module = await WebAssembly.compile(bytes);
+    const id = await wasmId(bytes);
+    // Emscripten waits on `done` without a way to fail, so a failed instantiation rejects alongside it.
+    let fail!: (e: unknown) => void;
+    const failed = new Promise<never>((_, reject) => (fail = reject));
+    this.m = await Promise.race([factory({
+      instantiateWasm: (imports, done) => {
+        WebAssembly.instantiate(module, imports).then(done, fail);
+        return {};
+      },
+    }), failed]);
+    this.info.version = `OCCT 8.1 (3d097a0328), wasm ${id}`;
   }
 
   async tessellate(req: TessellationRequest): Promise<TessellationResult> {

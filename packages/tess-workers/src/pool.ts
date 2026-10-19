@@ -3,13 +3,16 @@
 // after a number of parts or when the backend's memory grows too large. Written against WorkerHandle; node.ts and
 // browser.ts supply the workers.
 
-import type { TessellationRequest, TessellationResult, Tessellator, TessellatorInfo } from 'cad-scene';
+import { TessellationError, type TessellationRequest, type TessellationResult, type Tessellator, type TessellatorInfo } from 'cad-scene';
 import type { BackendSpec, FromWorker, WorkerHandle } from './protocol.ts';
 
 export interface PoolOptions {
   /** Number of workers. Default: one less than the hardware concurrency, at least 1. */
   workers?: number;
-  /** Per request, in milliseconds; the worker is terminated and the request rejected. 0: none. Default 120,000. */
+  /**
+   * Per request, in milliseconds; the worker is terminated and the request rejected with a TessellationError. 0: none.
+   * Default 120,000.
+   */
   timeoutMs?: number;
   /** Recycle a worker after this many parts. 0: never. Default 0. */
   maxPartsPerWorker?: number;
@@ -45,7 +48,7 @@ export class PoolTessellator implements Tessellator {
   readonly workers: number;
   private readonly spawnWorker: () => WorkerHandle;
   private readonly backend: BackendSpec;
-  private readonly timeoutMs: number;
+  readonly timeoutMs: number;
   private readonly maxParts: number;
   private readonly maxMemory: number;
   private slots: Slot[] = [];
@@ -143,7 +146,7 @@ export class PoolTessellator implements Tessellator {
         // The backend instance may be left broken (a WASM trap), so the worker is replaced.
         const job = this.finish(s);
         this.kill(s);
-        job?.reject(new Error(msg.message));
+        job?.reject(msg.part ? new TessellationError(msg.message, msg.timeoutMs) : new Error(msg.message));
         break;
       }
     }
@@ -198,7 +201,7 @@ export class PoolTessellator implements Tessellator {
       s.h.post({ type: 'tessellate', id: job.id, req: job.req });
       if (this.timeoutMs > 0) {
         s.timer = setTimeout(() => {
-          this.kill(s, new Error(`tessellation timed out after ${this.timeoutMs} ms`));
+          this.kill(s, new TessellationError(`tessellation timed out after ${this.timeoutMs} ms`, this.timeoutMs));
           this.pump();
         }, this.timeoutMs);
       }

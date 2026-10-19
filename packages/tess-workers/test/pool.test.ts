@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import type { TessellationRequest } from 'cad-scene';
+import { TessellationError, type TessellationRequest } from 'cad-scene';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -39,7 +39,8 @@ test('a request that hangs times out, and the next one gets a new worker', async
   const t = await pool({ workers: 1, timeoutMs: 300 });
   try {
     const before = instance(await t.tessellate(req(0)));
-    await assert.rejects(t.tessellate(req(1)), /timed out after 300 ms/);
+    await assert.rejects(t.tessellate(req(1)), (e) => e instanceof TessellationError && /timed out after 300 ms/.test(e.message) && e.timeoutMs === 300);
+    assert.equal(t.timeoutMs, 300);
     const after = instance(await t.tessellate(req(0)));
     assert.notEqual(after, before);
   } finally {
@@ -54,8 +55,21 @@ test('a backend error rejects the request and replaces the worker; requests queu
     const [bad, good] = await Promise.allSettled([t.tessellate(req(2)), t.tessellate(req(0))]);
     assert.equal(bad.status, 'rejected');
     assert.match((bad as PromiseRejectedResult).reason.message, /RuntimeError: unreachable/);
+    assert.ok((bad as PromiseRejectedResult).reason instanceof TessellationError);
+    assert.equal((bad as PromiseRejectedResult).reason.timeoutMs, undefined);
     assert.equal(good.status, 'fulfilled');
     assert.notEqual(instance((good as PromiseFulfilledResult<{ diagnostics: { message: string }[] }>).value), before);
+  } finally {
+    t.dispose();
+  }
+});
+
+test("only the part's failures reject with a TessellationError, which keeps its time limit across the worker", async () => {
+  const t = await pool({ workers: 1 });
+  try {
+    await assert.rejects(t.tessellate(req(6)), (e) => /Error: ordinary/.test((e as Error).message) && !(e instanceof TessellationError));
+    await assert.rejects(t.tessellate(req(7)), (e) => e instanceof TessellationError && /own limit/.test(e.message) && e.timeoutMs === 50);
+    assert.equal(t.timeoutMs, 120_000);
   } finally {
     t.dispose();
   }
@@ -66,7 +80,7 @@ test('a worker that exits rejects its request, and the pool carries on', async (
   try {
     const exit = t.tessellate(req(5));
     const queued = t.tessellate(req(0));
-    await assert.rejects(exit, /worker exited with code 3/);
+    await assert.rejects(exit, (e) => /worker exited with code 3/.test((e as Error).message) && !(e instanceof TessellationError));
     assert.deepEqual([...(await queued).indices], [0, 1, 2]);
     assert.deepEqual([...(await t.tessellate(req(0))).indices], [0, 1, 2]);
   } finally {

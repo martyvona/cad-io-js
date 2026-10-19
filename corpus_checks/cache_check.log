@@ -1,0 +1,6 @@
+187 parts, 34.7 MB of payload
+truck 88ed005, wasm 75196734450c: results equal; 0 with an error diagnostic (cached too); 46.8 MB stored
+  backend 9.01 s; file store, first run 9.03 s, second 0.07 s (187 hits); memory store, second 0.04 s
+OCCT 8.1 (3d097a0328), wasm bf2d253691d3: results equal; 0 with an error diagnostic (cached too); 43.9 MB stored
+  backend 22.46 s; file store, first run 22.26 s, second 0.07 s (187 hits); memory store, second 0.04 s
+truck in a pool, trj2_as1-id-203 #891 (hangs): first run 10.00 s (tessellation timed out after 10000 ms), second 0.000 s, from the store

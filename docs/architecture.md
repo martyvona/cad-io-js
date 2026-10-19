@@ -35,6 +35,7 @@ This is a monorepo using npm workspaces (`../packages/*`). TypeScript runs direc
 | `tess-occt` | OCCT WASM tessellation backend | OCCT WASM | LGPL-2.1 (isolated here) |
 | `tess-truck` | truck WASM tessellation backend | truck WASM | Apache-2.0 |
 | `tess-workers` | Runs any backend in a pool of workers (`worker_threads` in Node, Web Workers in browsers), with a per-request timeout and instance recycling (phase 3, step 1) | None | Apache-2.0 |
+| `tess-cache` | Caches any backend's results per part, failures included, keyed by payload, backend version and options: in memory, in a directory (Node) or in IndexedDB (browsers), each with a maximum size, 0 disabling it; a backend's other versions deleted (phase 3, step 4) | None | Apache-2.0 |
 | `export-threejs` | Scene model → three.js JSON Object Scene format 4 | None | Apache-2.0 |
 | `export-gltf` | Scene model → glTF/GLB | glTF-Transform (MIT) | Apache-2.0 |
 | `export-3mf` | Scene model → 3MF | fflate (MIT) | Apache-2.0 |

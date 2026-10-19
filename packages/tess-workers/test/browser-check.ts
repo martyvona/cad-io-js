@@ -20,7 +20,8 @@ const inst = (r) => r.diagnostics[0].message;
 const results = [];
 const check = async (name, f) => { try { results.push([name, (await f()) ?? 'ok']); } catch (e) { results.push([name, 'FAIL ' + e.message]); } };
 const expect = (c, m) => { if (!c) throw new Error(m); };
-const rejects = async (p, re) => { try { await p; } catch (e) { expect(re.test(e.message), 'wrong error: ' + e.message); return; } throw new Error('did not reject'); };
+const rejects = async (p, re) => { try { await p; } catch (e) { expect(re.test(e.message), 'wrong error: ' + e.message); return e; } throw new Error('did not reject'); };
+const partFailure = (e) => e.name === 'TessellationError';
 await check('parallel results', async () => {
   const t = new WorkerTessellator({ backend, workers: 2 }); await t.init();
   const rs = await Promise.all([1, 2, 3, 4].map(() => t.tessellate(req(4, 20))));
@@ -31,16 +32,23 @@ await check('parallel results', async () => {
 await check('timeout', async () => {
   const t = new WorkerTessellator({ backend, workers: 1, timeoutMs: 300 }); await t.init();
   const a = inst(await t.tessellate(req(0)));
-  await rejects(t.tessellate(req(1)), /timed out after 300 ms/);
+  const e = await rejects(t.tessellate(req(1)), /timed out after 300 ms/);
+  expect(partFailure(e) && e.timeoutMs === 300, 'not a TessellationError with its limit');
   const b = inst(await t.tessellate(req(0)));
   t.dispose(); expect(a !== b, 'same worker after timeout');
 });
 await check('trap', async () => {
   const t = new WorkerTessellator({ backend, workers: 1 }); await t.init();
   const a = inst(await t.tessellate(req(0)));
-  await rejects(t.tessellate(req(2)), /RuntimeError: unreachable/);
+  expect(partFailure(await rejects(t.tessellate(req(2)), /RuntimeError: unreachable/)), 'not a TessellationError');
   const b = inst(await t.tessellate(req(0)));
   t.dispose(); expect(a !== b, 'same worker after trap');
+});
+await check("only the part's failures are TessellationErrors", async () => {
+  const t = new WorkerTessellator({ backend, workers: 1 }); await t.init();
+  expect(!partFailure(await rejects(t.tessellate(req(6)), /Error: ordinary/)), 'an ordinary error became a TessellationError');
+  const e = await rejects(t.tessellate(req(7)), /own limit/);
+  t.dispose(); expect(partFailure(e) && e.timeoutMs === 50, 'limit lost across the worker');
 });
 await check('recycle', async () => {
   const t = new WorkerTessellator({ backend, workers: 1, maxPartsPerWorker: 2 }); await t.init();
@@ -72,7 +80,9 @@ const server = http.createServer((q, s) => {
   }
   const file = path.join(root, url.pathname);
   if (!file.startsWith(root + path.sep) || !file.endsWith('.ts') || !fs.existsSync(file)) return void s.writeHead(404).end();
-  s.writeHead(200, { 'content-type': 'text/javascript' }).end(stripTypeScriptTypes(fs.readFileSync(file, 'utf8')));
+  // The one bare specifier the sources import as a value; a bundler resolves it in an application.
+  const js = stripTypeScriptTypes(fs.readFileSync(file, 'utf8')).replace(/from 'cad-scene'/g, "from '/packages/cad-scene/src/index.ts'");
+  s.writeHead(200, { 'content-type': 'text/javascript' }).end(js);
 });
 
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'tess-workers-chrome-'));
