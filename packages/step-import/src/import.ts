@@ -29,6 +29,8 @@ export async function importStep(input: StepSource | StepFile, opts: OpenOptions
 }
 
 const PLACEMENT_ONLY = ['AXIS2_PLACEMENT_3D', 'AXIS2_PLACEMENT_2D', 'MAPPED_ITEM', 'CARTESIAN_TRANSFORMATION_OPERATOR'];
+/** Presentation (text, callouts, annotation occurrences): not shape, so a representation of only these isn't a part. */
+const ANNOTATION = ['TEXT_LITERAL', 'COMPOSITE_TEXT', 'DRAUGHTING_CALLOUT', 'ANNOTATION_OCCURRENCE'];
 
 /** Build the scene from a bound model and its Layer 3 semantics. */
 export function sceneFromStep(model: StepModel, sem: Semantics): ImportResult {
@@ -82,13 +84,13 @@ export function sceneFromStep(model: StepModel, sem: Semantics): ImportResult {
     return out;
   };
 
-  // Parts: shape representations with geometry (anything but placements and mapped items).
+  // Parts: shape representations with geometry (anything but placements, mapped items and annotations).
   const parts: Part[] = [];
   const partOf = new Map<number, number>();
   const partOfPosition = new Map<number, number>(); // top-level items, faces and roots → part
   for (const rep of s.representations.values()) {
     const items = rep.items.map((id) => model.resolve(id));
-    if (!items.some((q) => q >= 0 && !PLACEMENT_ONLY.some((e) => model.isInstanceOf(q, e)))) continue;
+    if (!items.some((q) => q >= 0 && ![...PLACEMENT_ONLY, ...ANNOTATION].some((e) => model.isInstanceOf(q, e)))) continue;
     const root = model.resolve(rep.id);
     const exclude = new Set(items.filter((q) => q >= 0 && model.isInstanceOf(q, 'MAPPED_ITEM')));
     const positions = closure(file, [root], exclude);
@@ -108,6 +110,17 @@ export function sceneFromStep(model: StepModel, sem: Semantics): ImportResult {
       } else if (model.isInstanceOf(q, 'FACE') || model.isInstanceOf(q, 'TESSELLATED_FACE')) {
         faces.push(q);
         if (!partOfPosition.has(q)) partOfPosition.set(q, index);
+      }
+    }
+    // A geometric set's surfaces are faces too (a backend makes one face of each, with the surface's id).
+    const isFace = new Set(faces);
+    for (const q of positions) {
+      if (!model.isInstanceOf(q, 'GEOMETRIC_SET')) continue;
+      for (const e of r.refs(q, 'elements')) {
+        if (!model.isInstanceOf(e, 'SURFACE') || isFace.has(e)) continue;
+        isFace.add(e);
+        faces.push(e);
+        if (!partOfPosition.has(e)) partOfPosition.set(e, index);
       }
     }
     const origin: Vec3 = lo[0] === Infinity ? [0, 0, 0] : [0, 1, 2].map((k) => (lo[k]! + hi[k]!) / 2) as Vec3;

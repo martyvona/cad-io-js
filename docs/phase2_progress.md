@@ -106,8 +106,8 @@ The remaining colour differences, classified:
 | Representation | Parts | Example | Why no mesh |
 |---|---|---|---|
 | `GEOMETRICALLY_BOUNDED_WIREFRAME_SHAPE_REPRESENTATION` | 66 | `bug32049_sp7_04dx_242.stp` #13458 | wireframe: no faces to triangulate; should become `curves` parts |
-| `GEOMETRICALLY_BOUNDED_SURFACE_SHAPE_REPRESENTATION` | 62 | `trj8_k1-pe-214.stp` #2266 | our backend returns no shape; to investigate (OCCT may need these transferred another way) |
-| plain `SHAPE_REPRESENTATION` | 12 | `trj8_c2-ac-214.stp` #62 | OCCT "no shape" (16 such errors in all) |
+| `GEOMETRICALLY_BOUNDED_SURFACE_SHAPE_REPRESENTATION` | 62 | `trj8_k1-pe-214.stp` #2266 | our backend returns no shape; to investigate (OCCT may need these transferred another way). *Phase 3 step 5: these hold only curves and points, no surface* |
+| plain `SHAPE_REPRESENTATION` | 12 | `trj8_c2-ac-214.stp` #62 | OCCT "no shape" (16 such errors in all). *Phase 3 step 5: 11 hold only annotations, and are no longer parts* |
 | `EDGE_BASED_WIREFRAME_SHAPE_REPRESENTATION` | 4 | `trj6_c1-ct-214.stp` #258 | wireframe |
 | `GEOMETRICALLY_BOUNDED_2D_WIREFRAME_REPRESENTATION` | 4 | `trj2_d2-db-214.stp` #1032 | 2D wireframe (drawings) |
 | `MANIFOLD_SURFACE_SHAPE_REPRESENTATION` | 2 | `tr9_asd-db.stp` #241 | not investigated |

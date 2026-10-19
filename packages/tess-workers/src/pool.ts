@@ -16,7 +16,10 @@ export interface PoolOptions {
   timeoutMs?: number;
   /** Recycle a worker after this many parts. 0: never. Default 0. */
   maxPartsPerWorker?: number;
-  /** Recycle a worker once its backend reports more memory than this (`Tessellator.memoryBytes`). 0: never. Default 1 GiB. */
+  /**
+   * Recycle a worker once its backend reports more memory than this after a part (`Tessellator.memoryBytes`). 0:
+   * never. Default 256 MiB, above what all but the heaviest parts need (docs/phase3_progress.md, step 5).
+   */
   maxMemoryBytes?: number;
 }
 
@@ -66,7 +69,7 @@ export class PoolTessellator implements Tessellator {
     this.workers = Math.max(1, Math.floor(opts.workers ?? defaultWorkers()));
     this.timeoutMs = opts.timeoutMs ?? 120_000;
     this.maxParts = opts.maxPartsPerWorker ?? 0;
-    this.maxMemory = opts.maxMemoryBytes ?? 2 ** 30;
+    this.maxMemory = opts.maxMemoryBytes ?? 256 * 2 ** 20;
   }
 
   /** The backend's info, as its first worker reported it. */

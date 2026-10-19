@@ -1,16 +1,14 @@
-465 files compared (15 over the size limit, 37 without OCCT meshes); 994 of 1114 parts tessellated
-vertices on OCCT's surface: 181542 of 183247; colours matching: 133018 of 135966
+465 files compared (15 over the size limit, 37 without OCCT meshes); 994 of 1103 parts tessellated
+vertices on OCCT's surface: 181676 of 183248; colours matching: 133270 of 136000
    gkv311-opencascade-dataset/step/trj12_is1-oc-214.stp: 0 of 120 vertices off OCCT's surface; 12 of 60 colour samples differ
    gkv311-opencascade-dataset/step/bug32049_sp7_04dx_242.stp: 0 of 127 vertices off OCCT's surface; 2 of 1138 colour samples differ
    gkv311-opencascade-dataset/step/trj3_s1-id-203.stp: 0 of 1193 vertices off OCCT's surface; 3 of 353 colour samples differ
-   gkv311-opencascade-dataset/step/trj8_c2-ac-214.stp: 0 of 4 vertices off OCCT's surface; 2 of 2 colour samples differ
    gkv311-opencascade-dataset/step/trj3_s1-tc-214.stp: 0 of 1200 vertices off OCCT's surface; 6 of 530 colour samples differ
    gkv311-opencascade-dataset/step/sp7_04-dx-242.stp: 0 of 127 vertices off OCCT's surface; 2 of 1138 colour samples differ
    gkv311-opencascade-dataset/step/trj5_s1-ug-214.stp: 0 of 1331 vertices off OCCT's surface; 3 of 375 colour samples differ
    gkv311-opencascade-dataset/step/tr8_ha1_tc.stp: 0 of 56 vertices off OCCT's surface; 28 of 28 colour samples differ
-   gkv311-opencascade-dataset/step/trj7_c2-al-214.stp: 0 of 8 vertices off OCCT's surface; 3 of 3 colour samples differ
+   gkv311-opencascade-dataset/step/tr8_ha1_ug.stp: 0 of 56 vertices off OCCT's surface; 4 of 28 colour samples differ
    gkv311-opencascade-dataset/step/trj6_c1-hc-214.stp: 0 of 24 vertices off OCCT's surface; 12 of 12 colour samples differ
-   gkv311-opencascade-dataset/step/trj7_c2-td-203.stp: 0 of 108 vertices off OCCT's surface; 12 of 12 colour samples differ
    gkv311-opencascade-dataset/step/trj6_c1-ec-214.stp: 0 of 28 vertices off OCCT's surface; 4 of 14 colour samples differ
    gkv311-opencascade-dataset/step/trj7_c2-sd-214.stp: 0 of 4 vertices off OCCT's surface; 2 of 2 colour samples differ
    gkv311-opencascade-dataset/step/trj7_c2-ec-214.stp: 0 of 4 vertices off OCCT's surface; 2 of 2 colour samples differ
@@ -24,44 +22,36 @@ vertices on OCCT's surface: 181542 of 183247; colours matching: 133018 of 135966
    gkv311-opencascade-dataset/step/bug24283_spheres.stp: 0 of 214 vertices off OCCT's surface; 6 of 6 colour samples differ
    gkv311-opencascade-dataset/step/sp7_04-do-242.stp: 0 of 137 vertices off OCCT's surface; 2 of 1474 colour samples differ
    gkv311-opencascade-dataset/step/bug25415_part_of_hdrv8w64p254_4x2_1016x502h838p.stp: 4 of 56 vertices off OCCT's surface; 0 of 17 colour samples differ
-   gkv311-opencascade-dataset/step/trj7_c2-db-214.stp: 0 of 106 vertices off OCCT's surface; 3 of 3 colour samples differ
    gkv311-opencascade-dataset/step/trj7_as1-id-214.stp: 0 of 2250 vertices off OCCT's surface; 3 of 335 colour samples differ
    gkv311-opencascade-dataset/step/bug32596_abc_0_13.step: 4 of 101 vertices off OCCT's surface; 0 of 289 colour samples differ
-   gkv311-opencascade-dataset/step/trj4_k1_geo-ac-214.stp: 0 of 103 vertices off OCCT's surface; 164 of 164 colour samples differ
    gkv311-opencascade-dataset/step/trj5_s1-in-214.stp: 0 of 1264 vertices off OCCT's surface; 7 of 405 colour samples differ
    gkv311-opencascade-dataset/step/tr8_ha1_db.stp: 0 of 48 vertices off OCCT's surface; 24 of 24 colour samples differ
    gkv311-opencascade-dataset/step/OCC22459-TEST2.stp: 126 of 142 vertices off OCCT's surface; 0 of 8 colour samples differ
-   gkv311-opencascade-dataset/step/trj7_c2-ac-214.stp: 0 of 4 vertices off OCCT's surface; 2 of 2 colour samples differ
-   gkv311-opencascade-dataset/step/trj3_s1-al-214.stp: 0 of 101 vertices off OCCT's surface; 9 of 246 colour samples differ
+   gkv311-opencascade-dataset/step/trj3_s1-al-214.stp: 0 of 101 vertices off OCCT's surface; 6 of 246 colour samples differ
    gkv311-opencascade-dataset/step/pr2ct.stp: 0 of 24 vertices off OCCT's surface; 2 of 12 colour samples differ
    gkv311-opencascade-dataset/step/Checking_Fixture_Clamping.STEP: 0 of 101 vertices off OCCT's surface; 1 of 624 colour samples differ
-   gkv311-opencascade-dataset/step/trj9_c2-pe-203.stp: 0 of 4 vertices off OCCT's surface; 2 of 2 colour samples differ
-   gkv311-opencascade-dataset/step/trj9_c2-pe-214.stp: 0 of 4 vertices off OCCT's surface; 2 of 2 colour samples differ
    gkv311-opencascade-dataset/step/sp7_08_nx-242.stp: 0 of 105 vertices off OCCT's surface; 1 of 670 colour samples differ
    gkv311-opencascade-dataset/step/trj3_s1-db-214.stp: 0 of 1108 vertices off OCCT's surface; 104 of 498 colour samples differ
    gkv311-opencascade-dataset/step/trj6_c1-pe-214.stp: 0 of 76 vertices off OCCT's surface; 6 of 38 colour samples differ
    gkv311-opencascade-dataset/step/trj3_s1-ug-214.stp: 0 of 1331 vertices off OCCT's surface; 3 of 375 colour samples differ
    gkv311-opencascade-dataset/step/trj4_s1-ec-214.stp: 0 of 1207 vertices off OCCT's surface; 3 of 334 colour samples differ
-   gkv311-opencascade-dataset/step/trj4_k1_geo-pe-203.stp: 50 of 101 vertices off OCCT's surface; 0 of 125 colour samples differ
    gkv311-opencascade-dataset/step/trj5_k1-ct-203.stp: 40 of 103 vertices off OCCT's surface; 0 of 143 colour samples differ
    gkv311-opencascade-dataset/step/bug25381_test_assembly_invisible.step: 0 of 172 vertices off OCCT's surface; 26 of 86 colour samples differ
    gkv311-opencascade-dataset/step/bug28414_bug_toroidal_surface.stp: 99 of 102 vertices off OCCT's surface; 0 of 0 colour samples differ
    gkv311-opencascade-dataset/step/trj6_as1-hc-214.stp: 0 of 2122 vertices off OCCT's surface; 335 of 335 colour samples differ
    gkv311-opencascade-dataset/step/pr1ct.stp: 0 of 318 vertices off OCCT's surface; 12 of 39 colour samples differ
    gkv311-opencascade-dataset/step/bug25167.stp: 0 of 144 vertices off OCCT's surface; 24 of 72 colour samples differ
-   gkv311-opencascade-dataset/step/trj4_k1_geo-pe-214.stp: 50 of 101 vertices off OCCT's surface; 0 of 125 colour samples differ
    gkv311-opencascade-dataset/step/trj5_k1-ct-214.stp: 40 of 103 vertices off OCCT's surface; 0 of 143 colour samples differ
    gkv311-opencascade-dataset/step/trj7_c1-hc-214.stp: 0 of 24 vertices off OCCT's surface; 2 of 12 colour samples differ
    gkv311-opencascade-dataset/step/trj3_s1-ec-203.stp: 0 of 1207 vertices off OCCT's surface; 3 of 334 colour samples differ
    gkv311-opencascade-dataset/step/trj3_s1-ct-203.stp: 0 of 1208 vertices off OCCT's surface; 15 of 490 colour samples differ
    gkv311-opencascade-dataset/step/trj8_k1-hc-214.stp: 0 of 101 vertices off OCCT's surface; 135 of 135 colour samples differ
-   gkv311-opencascade-dataset/step/trj1_t4m-ac.stp: 0 of 103 vertices off OCCT's surface; 35 of 35 colour samples differ
    gkv311-opencascade-dataset/step/bug31670_russian.stp: 0 of 1815 vertices off OCCT's surface; 1177 of 5340 colour samples differ
    gkv311-opencascade-dataset/step/2.stp: 0 of 2254 vertices off OCCT's surface; 510 of 2287 colour samples differ
    gkv311-opencascade-dataset/step/tr8_ha1_ct.stp: 0 of 56 vertices off OCCT's surface; 4 of 28 colour samples differ
    gkv311-opencascade-dataset/step/trj3_s1-ec-214.stp: 0 of 1207 vertices off OCCT's surface; 3 of 334 colour samples differ
    gkv311-opencascade-dataset/step/trj3_s1-ct-214.stp: 0 of 1208 vertices off OCCT's surface; 15 of 490 colour samples differ
-   gkv311-opencascade-dataset/step/trj4_k1_geo-tu-214.stp: 33 of 101 vertices off OCCT's surface; 109 of 109 colour samples differ
+   gkv311-opencascade-dataset/step/trj4_k1_geo-tu-214.stp: 0 of 102 vertices off OCCT's surface; 115 of 115 colour samples differ
    gkv311-opencascade-dataset/step/trj4_s1-ug-214.stp: 0 of 1331 vertices off OCCT's surface; 3 of 375 colour samples differ
    gkv311-opencascade-dataset/step/trj6_b1-ec-214.stp: 0 of 101 vertices off OCCT's surface; 6 of 846 colour samples differ
    gkv311-opencascade-dataset/step/nist/bug26689_nist_ctc_04_asme1_ap242.stp: 0 of 127 vertices off OCCT's surface; 1 of 1474 colour samples differ

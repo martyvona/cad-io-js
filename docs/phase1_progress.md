@@ -22,7 +22,7 @@ Work identified along the way and not yet assigned to a step. Each step's own "O
 
 | Item | From | Notes |
 |---|---|---|
-| PMI, semantic and graphical | step 6 | `rec_pracs_pmi_v41.pdf` in `../third_party/mbx-if-recpractices/`. Graphical PMI is presentation geometry (polylines, tessellated text); semantic PMI is tolerances and datums tied to shape aspects. |
+| PMI, semantic and graphical | step 6 | `rec_pracs_pmi_v41.pdf` in `../third_party/mbx-if-recpractices/`. Graphical PMI is presentation geometry (polylines, tessellated text); semantic PMI is tolerances and datums tied to shape aspects. Representations holding only annotations (text, callouts) aren't parts since phase 3 step 5. |
 | User-defined attributes | step 6 | `rec_prac_user_def_attributes_v18.pdf`. Name/value properties on products, occurrences and shape aspects. |
 | Materials and densities | step 6 | Material products (AP214 'material' definitions, such as `dm1-pe-214.stp`'s Titanium 6-4) and densities. |
 | SHUO (specified higher usage occurrences) | step 6 | Occurrence-specific overrides deeper than one level of the tree. |
@@ -33,7 +33,7 @@ Work identified along the way and not yet assigned to a step. Each step's own "O
 | 64-bit byte offsets | step 7 | The index stores byte offsets in `Uint32Array`s (step 2), so files over 4 GiB can't be parsed. Moving to 64-bit offsets costs about 8 more bytes per instance in the index. |
 | On-demand range reading | step 7 | Keep only the index in memory and read each instance's bytes when needed (`Blob.slice` in browsers, `fs.read` at an offset in Node): bounds memory for every mode, including semantic and tessellator subsets. Pass 1 would scan in chunks and decoding would become asynchronous or batched. The goal (user, 2026-10-17): handle large files in the browser as far as possible, later. |
 | Streaming raw/NDJSON conversion | step 7 | A chunked pass 1 that hands each instance to the writer as it completes, for raw and NDJSON output without holding the input. Lowest priority: only raw conversion can use it, since everything else needs random access. |
-| Parts without meshes | phase 2 step 5 | 120 of 1,114 parts in the end-to-end check produce no mesh: wireframes (74, to become `curves` parts), geometrically bounded surface representations (62, our backend returns no shape), and OCCT "no shape" results; table in `phase2_progress.md`, step 5. |
+| Parts without meshes | phase 2 step 5 | Classified in phase 3, step 5 (`phase3_progress.md`): of 151 brep parts without a mesh, 136 hold only curves and points (the 62 geometrically bounded surface representations among them), to become `curves` parts in phase 3 step 6; 4 are 2D drawings; 11 annotation-only representations are no longer parts; 1 is OCCT's broken-reference file. |
 | Upstream reports to OCCT | steps 0 and 6 | The transform formula (`OCC22238_test.stp`), the identity placements for Alibre's file, and phase 0's BRepMesh slow faces. |
 
 ## Repo setup (done with step 1)

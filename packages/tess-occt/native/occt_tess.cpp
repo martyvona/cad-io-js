@@ -6,6 +6,8 @@
 // in double precision before the conversion to float (docs/phase2_progress.md, decision 3).
 #include <BRepLib_ToolTriangulatedShape.hxx>
 #include <BRepMesh_IncrementalMesh.hxx>
+#include <DESTEP_Parameters.hxx>
+#include <DE_ShapeFixParameters.hxx>
 #include <IMeshTools_Parameters.hxx>
 #include <BRep_Tool.hxx>
 #include <Interface_Static.hxx>
@@ -19,10 +21,12 @@
 #include <StepData_StepModel.hxx>
 #include <StepGeom_GeomRepContextAndGlobUnitAssCtxAndGlobUncertaintyAssCtx.hxx>
 #include <StepGeom_GeometricRepresentationContextAndGlobalUnitAssignedContext.hxx>
+#include <StepGeom_Surface.hxx>
 #include <StepRepr_GlobalUnitAssignedContext.hxx>
 #include <StepRepr_Representation.hxx>
 #include <StepShape_EdgeCurve.hxx>
 #include <StepShape_FaceSurface.hxx>
+#include <StepShape_GeometricallyBoundedSurfaceShapeRepresentation.hxx>
 #include <TopExp.hxx>
 #include <TopoDS_Vertex.hxx>
 #include <TopExp_Explorer.hxx>
@@ -130,6 +134,16 @@ int occt_tessellate(const char* data, int len, int rootId, double linDefl, doubl
     const double unitMm = contextLengthFactor(rootRep);
     reader.SetSystemLengthUnit(unitMm); // output in file units
 
+    // A geometric set's curve-bounded surfaces on closed surfaces (spheres, tori): a lone boundary that OCCT doesn't
+    // classify as outer is reversed, as OCCT 7.6 did, rather than kept as a hole in the natural bounds (OCCT 8), which
+    // gives the rest of the surface. Other writers' copies of the same models agree with 7.6
+    // (docs/phase3_progress.md, step 5); for faces (topology) OCCT 8's reading is right (its tests bug28414, bug29564).
+    if (occ::down_cast<StepShape_GeometricallyBoundedSurfaceShapeRepresentation>(rootRep))
+    {
+      DE_ShapeFixParameters fix  = DESTEP_Parameters::GetDefaultShapeFixParameters();
+      fix.FixAddNaturalBoundMode = DE_ShapeFixParameters::FixMode::NotFix;
+      reader.SetShapeFixParameters(fix);
+    }
     const int nbRoots = reader.NbRootsForTransfer();
     reader.TransferRoots();
     TopoDS_Shape shape = reader.OneShape();
@@ -156,6 +170,19 @@ int occt_tessellate(const char* data, int len, int rootId, double linDefl, doubl
         continue;
       for (TopExp_Explorer ex(s, isFace ? TopAbs_FACE : TopAbs_EDGE); ex.More(); ex.Next())
         (isFace ? faceIds : edgeIds).emplace(ex.Current().TShape().get(), model->IdentLabel(ent));
+    }
+    // Faces made from a geometric set's surfaces (GEOMETRICALLY_BOUNDED_SURFACE_SHAPE_REPRESENTATION): OCCT binds each
+    // element's shape to it. After the faces, so that a face entity's id wins.
+    for (int i = 1; i <= nbEnt; ++i)
+    {
+      occ::handle<Standard_Transient> ent = model->Value(i);
+      if (!ent->IsKind(STANDARD_TYPE(StepGeom_Surface)))
+        continue;
+      TopoDS_Shape s = TransferBRep::ShapeResult(tp, ent);
+      if (s.IsNull())
+        continue;
+      for (TopExp_Explorer ex(s, TopAbs_FACE); ex.More(); ex.Next())
+        faceIds.emplace(ex.Current().TShape().get(), model->IdentLabel(ent));
     }
 
     IMeshTools_Parameters mp;

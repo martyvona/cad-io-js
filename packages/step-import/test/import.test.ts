@@ -189,3 +189,47 @@ test('materials: part, face, instance override; layers', async () => {
   assert.deepEqual(scene.layers.map((l) => [l.name, l.visible, l.parts, l.faces]), [['L1', true, [0], [{ part: 0, face: 213 }]]]);
   assert.deepEqual(scene.properties, { format: 'step', name: 'asm.stp', originatingSystem: 'sys', preprocessorVersion: 'pp', schemas: AP214 });
 });
+
+// A product whose representation holds only an annotation (text and a placement) and, related to it, a geometrically
+// bounded surface representation: a geometric set of a red curve-bounded surface, an unstyled plane and a point.
+const SURFACES = `
+#1=APPLICATION_CONTEXT('');
+#2=PRODUCT_CONTEXT('',#1,'mechanical');
+#3=PRODUCT_DEFINITION_CONTEXT('part definition',#1,'design');
+#11=(LENGTH_UNIT()NAMED_UNIT(*)SI_UNIT(.MILLI.,.METRE.));
+#16=(GEOMETRIC_REPRESENTATION_CONTEXT(3)GLOBAL_UNIT_ASSIGNED_CONTEXT((#11))REPRESENTATION_CONTEXT('mm',''));
+#20=CARTESIAN_POINT('',(0.,0.,0.));
+#21=DIRECTION('',(0.,0.,1.));
+#22=DIRECTION('',(1.,0.,0.));
+#23=AXIS2_PLACEMENT_3D('',#20,#21,#22);
+#30=TEXT_LITERAL('note','a note',#23,'baseline left',.RIGHT.);
+#100=PRODUCT('P','P','',(#2));
+#101=PRODUCT_DEFINITION_FORMATION('','',#100);
+#102=PRODUCT_DEFINITION('','',#101,#3);
+#103=PRODUCT_DEFINITION_SHAPE('','',#102);
+#104=SHAPE_REPRESENTATION('notes',(#23,#30),#16);
+#105=SHAPE_DEFINITION_REPRESENTATION(#103,#104);
+#110=PLANE('',#23);
+#111=PLANE('',#23);
+#112=CURVE_BOUNDED_SURFACE('',#110,(),.T.);
+#113=CARTESIAN_POINT('',(1.,2.,3.));
+#114=GEOMETRIC_SET('',(#112,#111,#113));
+#115=GEOMETRICALLY_BOUNDED_SURFACE_SHAPE_REPRESENTATION('gbssr',(#114),#16);
+#116=SHAPE_REPRESENTATION_RELATIONSHIP('','',#115,#104);
+#500=COLOUR_RGB('',1.,0.,0.);
+#501=FILL_AREA_STYLE_COLOUR('',#500);
+#502=FILL_AREA_STYLE('',(#501));
+#503=SURFACE_STYLE_FILL_AREA(#502);
+#504=SURFACE_SIDE_STYLE('',(#503));
+#505=SURFACE_STYLE_USAGE(.BOTH.,#504);
+#506=PRESENTATION_STYLE_ASSIGNMENT((#505));
+#507=STYLED_ITEM('',(#506),#112);`;
+
+test("an annotation-only representation isn't a part; a geometric set's surfaces take their styles as faces", async () => {
+  const { scene } = await importStep(file(SURFACES));
+  assert.deepEqual(scene.parts.map((p) => (p.kind === 'brep' ? p.rootId : undefined)), [115]);
+  const part = scene.parts[0]!;
+  assert.equal(part.material, undefined);
+  assert.deepEqual(part.faceMaterials?.map((f) => [f.face, scene.materials[f.material]!.color]), [[112, [1, 0, 0]]]);
+  assert.deepEqual([...partInstances(scene)].map((p) => p.part), [0]);
+});
