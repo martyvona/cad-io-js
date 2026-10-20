@@ -2,7 +2,7 @@
 
 *Paths in this document are relative to this `docs/` directory.*
 
-Status: draft, 2026-10-16. Phase 0 is done (`../phase0_tessellation_spike/phase0_results.md`). Phase 1 is under way; progress is in `phase1_progress.md`. The schema generator (`../packages/step-schemas`), Layer 1 (`../packages/step-parser`: parser and writer), the raw JSON form (`../packages/lexical-json`), Layer 2 schema binding, the Layer 3 extractors and the `step2json` CLI are done: phase 1 is complete. See `initial_analysis.md` for background research, reference repositories and licensing analysis.
+Status: draft, 2026-10-16. Phase 0 is done (`../phase0_tessellation_spike/phase0_results.md`). Phase 1 is under way; progress is in `phase1_progress.md`. The schema generator (`../packages/step-schemas`), Layer 1 (`../packages/step-parser`: parser and writer), the raw JSON form (`../packages/lexical-json`), Layer 2 schema binding, the Layer 3 extractors and the `step2json` CLI are done: phase 1 is complete. Phases 2 and 3 are complete (`phase2_progress.md`, `phase3_progress.md`); phase 4's plan is in `phase4_progress.md`. See `initial_analysis.md` for background research, reference repositories and licensing analysis.
 
 ## Goals
 
