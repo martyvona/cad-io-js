@@ -68,7 +68,7 @@ async function wasmId(bytes: BufferSource): Promise<string> {
 export class TruckTessellator implements Tessellator {
   readonly info: TessellatorInfo = {
     name: 'truck', version: 'truck 88ed005', license: 'Apache-2.0',
-    formats: ['step'], supportsFaceIds: true, supportsEdges: true,
+    formats: ['step'], supportsFaceIds: true, supportsEdges: true, supportsCurves: false,
   };
   private module?: WebAssembly.Module;
   private x?: Exports;

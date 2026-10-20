@@ -15,13 +15,17 @@ const result = (full: boolean, diagnostics: Diagnostic[] = []): TessellationResu
     r.normals = new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, -1]);
     r.edgePositions = new Float32Array([0, 0, 0, 1, 0, 0]);
     r.edges = [{ entityId: null, start: 0, count: 2, kind: 'seam', dihedral: 0.25 }];
+    r.curvePositions = new Float32Array([0, 0, 1, 1, 0, 1, 1, 1, 1]);
+    r.curves = [{ entityId: 40, start: 0, count: 2 }, { entityId: null, start: 2, count: 1 }];
+    r.points = new Float32Array([5, 6, 7]);
+    r.pointIds = [41];
   }
   return r;
 };
 
 const resultOf = (e: CacheEntry) => (e as { result: TessellationResult }).result;
 
-test('a result survives encoding, with or without normals and edges, in arrays of its own', () => {
+test('a result survives encoding, with or without normals, edges, curves and points, in arrays of its own', () => {
   for (const full of [false, true]) {
     const r = result(full, [{ severity: 'warning', message: 'w', source: { format: 'step', id: 7 } }]);
     const bytes = encodeEntry({ at: 1234, result: r });
@@ -29,6 +33,7 @@ test('a result survives encoding, with or without normals and edges, in arrays o
     assert.deepEqual(back, { at: 1234, result: r });
     assert.equal('normals' in resultOf(back), full);
     assert.equal('edges' in resultOf(back), full);
+    assert.equal('curves' in resultOf(back) && 'points' in resultOf(back), full);
     resultOf(back).positions[0] = 99;
     assert.equal(resultOf(decodeEntry(bytes)).positions[0], 0);
     // Decoding works on a view into a larger buffer, at any offset.
@@ -54,7 +59,7 @@ test("bytes that aren't a whole encoded entry don't decode", () => {
   assert.throws(() => decodeEntry(new Uint8Array([...thrown, 0, 0, 0, 0])), /truncated/);
 });
 
-const info: TessellatorInfo = { name: 'fake', version: '1', license: 'MIT', formats: ['step'], supportsFaceIds: true, supportsEdges: true };
+const info: TessellatorInfo = { name: 'fake', version: '1', license: 'MIT', formats: ['step'], supportsFaceIds: true, supportsEdges: true, supportsCurves: true };
 const req: TessellationRequest = { format: 'step', data: new Uint8Array([1, 2, 3]), rootId: 5, origin: [1, 2, 3], linearDeflection: 0.1, angularDeflection: 0.5, edges: true };
 
 test('the key changes with the backend, every request option and the payload, and only with them', async () => {

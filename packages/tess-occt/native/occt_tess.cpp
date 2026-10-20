@@ -21,6 +21,9 @@
 #include <StepData_StepModel.hxx>
 #include <StepGeom_GeomRepContextAndGlobUnitAssCtxAndGlobUncertaintyAssCtx.hxx>
 #include <StepGeom_GeometricRepresentationContextAndGlobalUnitAssignedContext.hxx>
+#include <StepGeom_CompositeCurve.hxx>
+#include <StepGeom_Curve.hxx>
+#include <StepGeom_Point.hxx>
 #include <StepGeom_Surface.hxx>
 #include <StepRepr_GlobalUnitAssignedContext.hxx>
 #include <StepRepr_Representation.hxx>
@@ -61,6 +64,10 @@ struct Result
   std::vector<float>    edgePositions;
   std::vector<int32_t>  edges;      // quads: entityId (-1 = unknown), first point, point count, kind
   std::vector<float>    edgeAngles; // max angle (radians) between adjacent face normals along the edge; -1 if n/a
+  std::vector<float>    curvePositions;
+  std::vector<int32_t>  curves; // triples: entityId (-1 = unknown), first point, point count
+  std::vector<float>    points;
+  std::vector<int32_t>  pointIds; // -1 = unknown
   std::string           diag;  // JSON object text
 };
 Result g;
@@ -239,16 +246,80 @@ int occt_tessellate(const char* data, int len, int rootId, double linDefl, doubl
       }
       g.faces.insert(g.faces.end(), {id, (int32_t)first, (int32_t)(g.indices.size() - first)});
     }
-    // edges: one polyline per topological edge, taken from a face triangulation so points coincide with mesh vertices
-    NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> edgeFaces;
+    // Wireframe: edges in no face (a geometric set's or wireframe model's curves) and vertices in no edge (its
+    // points). Their ids: an EDGE_CURVE's, else the geometric set's element (a composite curve before its segments'
+    // curves), else the point's; looked up only if there are any.
+    NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> edgeFaces, vertexEdges;
     TopExp::MapShapesAndUniqueAncestors(shape, TopAbs_EDGE, TopAbs_FACE, edgeFaces);
-    int edgesUnmapped = 0, edgesNoPolygon = 0;
+    TopExp::MapShapesAndUniqueAncestors(shape, TopAbs_VERTEX, TopAbs_EDGE, vertexEdges);
+    bool hasCurves = false, hasPoints = false;
+    for (int ie = 1; ie <= edgeFaces.Extent() && !hasCurves; ++ie)
+      hasCurves = edgeFaces.FindFromIndex(ie).IsEmpty();
+    for (int iv = 1; iv <= vertexEdges.Extent() && !hasPoints; ++iv)
+      hasPoints = vertexEdges.FindFromIndex(iv).IsEmpty();
+    std::unordered_map<const TopoDS_TShape*, int> curveIds, pointIds;
+    for (int pass = 0; pass < 3 && (hasCurves || hasPoints); ++pass)
+      for (int i = 1; i <= nbEnt; ++i)
+      {
+        occ::handle<Standard_Transient> ent = model->Value(i);
+        const bool composite = ent->IsKind(STANDARD_TYPE(StepGeom_CompositeCurve));
+        if (pass == 0 ? !(hasCurves && composite)
+            : pass == 1 ? !(hasCurves && !composite && ent->IsKind(STANDARD_TYPE(StepGeom_Curve)))
+                        : !(hasPoints && ent->IsKind(STANDARD_TYPE(StepGeom_Point))))
+          continue;
+        TopoDS_Shape sh = TransferBRep::ShapeResult(tp, ent);
+        if (sh.IsNull())
+          continue;
+        for (TopExp_Explorer ex(sh, pass < 2 ? TopAbs_EDGE : TopAbs_VERTEX); ex.More(); ex.Next())
+          (pass < 2 ? curveIds : pointIds).emplace(ex.Current().TShape().get(), model->IdentLabel(ent));
+      }
+    for (int iv = 1; iv <= vertexEdges.Extent(); ++iv)
+    {
+      if (!vertexEdges.FindFromIndex(iv).IsEmpty())
+        continue;
+      const TopoDS_Vertex& v  = TopoDS::Vertex(vertexEdges.FindKey(iv));
+      const gp_Pnt         p  = BRep_Tool::Pnt(v);
+      auto                 it = pointIds.find(v.TShape().get());
+      g.points.insert(g.points.end(), {(float)(p.X() - ox), (float)(p.Y() - oy), (float)(p.Z() - oz)});
+      g.pointIds.push_back(it == pointIds.end() ? -1 : it->second);
+    }
+
+    // edges: one polyline per topological edge, taken from a face triangulation so points coincide with mesh vertices
+    int edgesUnmapped = 0, edgesNoPolygon = 0, curvesUnmapped = 0, curvesNoPolygon = 0;
     for (int ie = 1; ie <= edgeFaces.Extent(); ++ie)
     {
       const TopoDS_Edge& edge   = TopoDS::Edge(edgeFaces.FindKey(ie));
       const auto&        adj    = edgeFaces.FindFromIndex(ie);
       auto               itId   = edgeIds.find(edge.TShape().get());
-      const int          id     = itId == edgeIds.end() ? -1 : itId->second;
+      if (adj.IsEmpty())
+      {
+        // a curve: its 3D polygon, from the mesher's discretization of edges in no face
+        int id = itId == edgeIds.end() ? -1 : itId->second;
+        if (id < 0)
+        {
+          auto itCurve = curveIds.find(edge.TShape().get());
+          if (itCurve != curveIds.end())
+            id = itCurve->second;
+        }
+        const uint32_t                     first = (uint32_t)(g.curvePositions.size() / 3);
+        TopLoc_Location                    l3;
+        const occ::handle<Poly_Polygon3D>& p3 = BRep_Tool::Polygon3D(edge, l3);
+        if (!p3.IsNull())
+          for (int k = 1; k <= p3->NbNodes(); ++k)
+          {
+            gp_Pnt p = p3->Nodes().Value(k).Transformed(l3.Transformation());
+            g.curvePositions.insert(g.curvePositions.end(), {(float)(p.X() - ox), (float)(p.Y() - oy), (float)(p.Z() - oz)});
+          }
+        const int32_t count = (int32_t)(g.curvePositions.size() / 3 - first);
+        if (id < 0)
+          ++curvesUnmapped;
+        if (count == 0)
+          ++curvesNoPolygon;
+        else
+          g.curves.insert(g.curves.end(), {id, (int32_t)first, count});
+        continue;
+      }
+      const int id = itId == edgeIds.end() ? -1 : itId->second;
       if (id < 0)
         ++edgesUnmapped;
       // kind: 0 shared (2+ faces), 1 seam (closed on its face), 2 free (one face), 3 degenerate
@@ -344,7 +415,9 @@ int occt_tessellate(const char* data, int len, int rootId, double linDefl, doubl
              + ",\"faces\":" + std::to_string(nFaces) + ",\"unmapped\":" + std::to_string(unmapped)
              + ",\"noTriangulation\":" + std::to_string(noTri) + ",\"stepEdges\":" + std::to_string(stepEdges)
              + ",\"edges\":" + std::to_string(edgeFaces.Extent()) + ",\"edgesUnmapped\":" + std::to_string(edgesUnmapped)
-             + ",\"edgesNoPolygon\":" + std::to_string(edgesNoPolygon) + ",\"unitMm\":" + std::to_string(unitMm) + "}";
+             + ",\"edgesNoPolygon\":" + std::to_string(edgesNoPolygon) + ",\"curves\":" + std::to_string(g.curves.size() / 3)
+             + ",\"curvesUnmapped\":" + std::to_string(curvesUnmapped) + ",\"curvesNoPolygon\":" + std::to_string(curvesNoPolygon)
+             + ",\"points\":" + std::to_string(g.pointIds.size()) + ",\"unitMm\":" + std::to_string(unitMm) + "}";
     return 0;
   }
   catch (const Standard_Failure& e)
@@ -379,6 +452,13 @@ int             occt_num_edge_points() { return (int)(g.edgePositions.size() / 3
 const int32_t*  occt_edges() { return g.edges.data(); }
 const float*    occt_edge_angles() { return g.edgeAngles.data(); }
 int             occt_num_edges() { return (int)g.edgeAngles.size(); }
+const float*    occt_curve_positions() { return g.curvePositions.data(); }
+int             occt_num_curve_points() { return (int)(g.curvePositions.size() / 3); }
+const int32_t*  occt_curves() { return g.curves.data(); }
+int             occt_num_curves() { return (int)(g.curves.size() / 3); }
+const float*    occt_points() { return g.points.data(); }
+const int32_t*  occt_point_ids() { return g.pointIds.data(); }
+int             occt_num_points() { return (int)g.pointIds.size(); }
 const char*     occt_diag() { return g.diag.c_str(); }
 void            occt_free() { g = Result(); }
 }

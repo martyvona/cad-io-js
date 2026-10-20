@@ -24,6 +24,13 @@ interface OcctModule {
   _occt_edges(): number;
   _occt_edge_angles(): number;
   _occt_num_edges(): number;
+  _occt_curve_positions(): number;
+  _occt_num_curve_points(): number;
+  _occt_curves(): number;
+  _occt_num_curves(): number;
+  _occt_points(): number;
+  _occt_point_ids(): number;
+  _occt_num_points(): number;
   _occt_diag(): number;
   _occt_free(): void;
 }
@@ -39,7 +46,7 @@ async function wasmId(bytes: BufferSource): Promise<string> {
 export class OcctTessellator implements Tessellator {
   readonly info: TessellatorInfo = {
     name: 'occt', version: 'OCCT 8.1 (3d097a0328)', license: 'LGPL-2.1-only WITH OCCT-exception-1.0',
-    formats: ['step'], supportsFaceIds: true, supportsEdges: true,
+    formats: ['step'], supportsFaceIds: true, supportsEdges: true, supportsCurves: true,
   };
   private m?: OcctModule;
 
@@ -116,9 +123,25 @@ export class OcctTessellator implements Tessellator {
         result.edges.push(e);
       }
     }
+    const nc = m._occt_num_curves();
+    if (nc) {
+      const curveData = i32(m._occt_curves(), nc * 3);
+      result.curvePositions = f32(m._occt_curve_positions(), m._occt_num_curve_points() * 3);
+      result.curves = [];
+      for (let i = 0; i < curveData.length; i += 3) {
+        result.curves.push({ entityId: curveData[i]! < 0 ? null : curveData[i]!, start: curveData[i + 1]!, count: curveData[i + 2]! });
+      }
+    }
+    const np = m._occt_num_points();
+    if (np) {
+      result.points = f32(m._occt_points(), np * 3);
+      result.pointIds = Array.from(i32(m._occt_point_ids(), np), (id) => (id < 0 ? null : id));
+    }
     m._occt_free();
     if (diag.unmapped) diagnostics.push({ severity: 'info', message: `${String(diag.unmapped)} faces without a STEP entity id` });
     if (diag.noTriangulation) diagnostics.push({ severity: 'warning', message: `${String(diag.noTriangulation)} faces failed to mesh` });
+    if (diag.curvesUnmapped) diagnostics.push({ severity: 'info', message: `${String(diag.curvesUnmapped)} curves without a STEP entity id` });
+    if (diag.curvesNoPolygon) diagnostics.push({ severity: 'warning', message: `${String(diag.curvesNoPolygon)} curves failed to discretize` });
     return result;
   }
 

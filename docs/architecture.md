@@ -207,7 +207,7 @@ All exporters, and later the viewer, consume one scene model instead of reaching
 - **Parts:** each part is defined once and referenced by every occurrence (instancing). A part's geometry is one of these source types:
   - `brep`: exact geometry, tessellated lazily by a backend. It carries the format (`'step' | 'iges' | 'brep'`), the per-part payload and the root ID. Used for STEP, IGES, BREP, `.xbf` and `.FCStd`.
   - `mesh`: already tessellated in the source file. Vertex positions, normals and colours are always `Float32Array`, as glTF/GLB/3MF need them, after recentering on a part-local origin carried by the node transform. Backends deliver tessellations of `brep` parts the same way. It supports multiple levels of detail. Used for future JT import, and potentially STL, OBJ and glTF input.
-  - `curves`: wireframe or edge-only geometry, common in IGES.
+  - `curves`: wireframe or edge-only geometry already discretized in the source. STEP wireframes are `brep` parts instead, whose tessellations carry curves and points beside any triangles (`phase3_progress.md`, step 6).
 - **Source IDs:** `{format, id}` pairs, used on nodes, parts and faces. Picking and face highlighting then work the same way whatever the source format.
 - **Materials:** derived from source colors, per part or per face.
 - **Instances and styles:** Layer 3 provides the instance walk (`productInstances`: path and transform per use of a product) and styles as stated in the file; resolving a face's appearance per instance (context-dependent overrides, assembly-level styles) happens here, where instance paths exist.
@@ -241,7 +241,7 @@ For STEP, the interface uses **per-part subsets**:
 interface Tessellator {
   readonly info: { name: string; version: string; license: string;
                    formats: ('step' | 'iges' | 'brep')[];
-                   supportsFaceIds: boolean; supportsEdges: boolean };
+                   supportsFaceIds: boolean; supportsEdges: boolean; supportsCurves: boolean };
   init(opts?: TessellatorInitOptions): Promise<void>;   // load/compile WASM
   tessellate(req: {
     format: 'step' | 'iges' | 'brep';
@@ -263,6 +263,12 @@ interface Tessellator {
               start: number; count: number;   // in points, into edgePositions
               kind: 'shared' | 'seam' | 'free' | 'degenerate';
               dihedral?: number }[];          // max angle (rad) between the two faces' normals along the edge; shared only
+    // Wireframe curves (STEP: a geometric set's or wireframe model's curves, not faces' edges) and isolated points,
+    // whenever the part has them, with or without `edges`.
+    curvePositions?: Float32Array;   // all polylines concatenated
+    curves?: { entityId: number | null; start: number; count: number }[];   // the set's element; may repeat if split
+    points?: Float32Array;
+    pointIds?: (number | null)[];
     diagnostics: Diagnostic[];
   }>;
   dispose(): void;

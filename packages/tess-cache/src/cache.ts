@@ -19,8 +19,8 @@ export interface CacheStore {
 }
 
 /** Changes whenever the key's contents or the encoding change, so old entries are never read. */
-const FORMAT = 2;
-const MAGIC = 0x32524354; // "TCR2", little-endian
+const FORMAT = 3;
+const MAGIC = 0x33524354; // "TCR3", little-endian
 
 const hex = (b: ArrayBuffer) => Array.from(new Uint8Array(b), (x) => x.toString(16).padStart(2, '0')).join('');
 const sha256 = async (b: Uint8Array<ArrayBuffer>) => hex(await crypto.subtle.digest('SHA-256', b));
@@ -59,22 +59,25 @@ export type CacheEntry =
   | { at: number; result: TessellationResult }
   | { at: number; thrown: { message: string; timeoutMs?: number } };
 
-type Header = Partial<Pick<TessellationResult, 'origin' | 'faces' | 'edges' | 'diagnostics'>> & {
+type Header = Partial<Pick<TessellationResult, 'origin' | 'faces' | 'edges' | 'curves' | 'pointIds' | 'diagnostics'>> & {
   at: number;
   thrown?: { message: string; timeoutMs?: number };
-  /** Lengths of positions, normals, indices, edgePositions (-1: absent). */
-  n: [number, number, number, number];
+  /** Lengths of positions, normals, indices, edgePositions, curvePositions, points (-1: absent). */
+  n: [number, number, number, number, number, number];
 };
 
 /**
  * An entry as bytes: the magic number, the JSON header's length, the header, then the result's arrays (positions,
- * normals, indices, edge positions) 4-byte aligned, in the platform's byte order (a store is local to its machine).
+ * normals, indices, edge positions, curve positions, points) 4-byte aligned, in the platform's byte order (a store is local to its machine).
  */
 export function encodeEntry(e: CacheEntry): Uint8Array {
   const r = 'result' in e ? e.result : undefined;
-  const arrays = [r?.positions, r?.normals, r?.indices, r?.edgePositions];
+  const arrays = [r?.positions, r?.normals, r?.indices, r?.edgePositions, r?.curvePositions, r?.points];
   const header: Header = { at: e.at, n: arrays.map((a) => a?.length ?? -1) as Header['n'] };
-  if (r) Object.assign(header, { origin: r.origin, faces: r.faces, diagnostics: r.diagnostics }, r.edges ? { edges: r.edges } : {});
+  if (r) {
+    Object.assign(header, { origin: r.origin, faces: r.faces, diagnostics: r.diagnostics }, r.edges ? { edges: r.edges } : {});
+    Object.assign(header, r.curves ? { curves: r.curves } : {}, r.pointIds ? { pointIds: r.pointIds } : {});
+  }
   else if ('thrown' in e) header.thrown = e.thrown;
   const json = new TextEncoder().encode(JSON.stringify(header));
   let offset = align(8 + json.length);
@@ -107,15 +110,21 @@ export function decodeEntry(bytes: Uint8Array): CacheEntry {
     offset += 4 * k;
     return a;
   };
-  const [np, nn, ni, ne] = header.n;
+  const [np, nn, ni, ne, nc, nq] = header.n;
   const positions = take(np, Float32Array)!;
   const normals = take(nn, Float32Array);
   const indices = take(ni, Uint32Array)!;
   const edgePositions = take(ne, Float32Array);
+  const curvePositions = take(nc, Float32Array);
+  const points = take(nq, Float32Array);
   const r: TessellationResult = { origin: header.origin!, positions, indices, faces: header.faces!, diagnostics: header.diagnostics! };
   if (normals) r.normals = normals;
   if (edgePositions) r.edgePositions = edgePositions;
   if (header.edges) r.edges = header.edges;
+  if (curvePositions) r.curvePositions = curvePositions;
+  if (header.curves) r.curves = header.curves;
+  if (points) r.points = points;
+  if (header.pointIds) r.pointIds = header.pointIds;
   return { at: header.at, result: r };
 }
 

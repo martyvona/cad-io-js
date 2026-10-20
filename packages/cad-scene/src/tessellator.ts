@@ -12,6 +12,8 @@ export interface TessellatorInfo {
   formats: PayloadFormat[];
   supportsFaceIds: boolean;
   supportsEdges: boolean;
+  /** Whether results include wireframe curves and points (`curves`, `points`). */
+  supportsCurves: boolean;
 }
 
 export interface TessellationRequest {
@@ -57,6 +59,22 @@ export interface TessellationResult {
     /** Shared edges: the largest angle (radians) between the two faces' normals along the edge. */
     dihedral?: number;
   }[];
+  /**
+   * Wireframe curves (STEP: a geometric set's or wireframe model's curves, not faces' edges) as polylines, minus
+   * `origin`, whenever the part has them. All polylines concatenated.
+   */
+  curvePositions?: Float32Array;
+  curves?: {
+    /** The curve as the source names it (STEP: the geometric set's element); null if unknown; may repeat if split. */
+    entityId: number | null;
+    /** In points, into curvePositions. */
+    start: number;
+    count: number;
+  }[];
+  /** Isolated points (STEP: a geometric set's points), minus `origin`, whenever the part has them. */
+  points?: Float32Array;
+  /** Each point's source entity (STEP: CARTESIAN_POINT), or null. */
+  pointIds?: (number | null)[];
   diagnostics: Diagnostic[];
 }
 

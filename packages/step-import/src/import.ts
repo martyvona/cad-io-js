@@ -31,6 +31,8 @@ export async function importStep(input: StepSource | StepFile, opts: OpenOptions
 const PLACEMENT_ONLY = ['AXIS2_PLACEMENT_3D', 'AXIS2_PLACEMENT_2D', 'MAPPED_ITEM', 'CARTESIAN_TRANSFORMATION_OPERATOR'];
 /** Presentation (text, callouts, annotation occurrences): not shape, so a representation of only these isn't a part. */
 const ANNOTATION = ['TEXT_LITERAL', 'COMPOSITE_TEXT', 'DRAUGHTING_CALLOUT', 'ANNOTATION_OCCURRENCE'];
+/** Two-dimensional drawings: not parts until drawings are supported (docs/phase3_progress.md, step 6). */
+const DRAWING = 'GEOMETRICALLY_BOUNDED_2D_WIREFRAME_REPRESENTATION';
 
 /** Build the scene from a bound model and its Layer 3 semantics. */
 export function sceneFromStep(model: StepModel, sem: Semantics): ImportResult {
@@ -84,13 +86,18 @@ export function sceneFromStep(model: StepModel, sem: Semantics): ImportResult {
     return out;
   };
 
-  // Parts: shape representations with geometry (anything but placements, mapped items and annotations).
+  // Parts: shape representations with geometry (anything but placements, mapped items and annotations), other than
+  // drawings.
   const parts: Part[] = [];
   const partOf = new Map<number, number>();
   const partOfPosition = new Map<number, number>(); // top-level items, faces and roots → part
   for (const rep of s.representations.values()) {
     const items = rep.items.map((id) => model.resolve(id));
     if (!items.some((q) => q >= 0 && ![...PLACEMENT_ONLY, ...ANNOTATION].some((e) => model.isInstanceOf(q, e)))) continue;
+    if (rep.types.includes(DRAWING)) {
+      warn('a two-dimensional drawing; not imported', rep.id, 'info');
+      continue;
+    }
     const root = model.resolve(rep.id);
     const exclude = new Set(items.filter((q) => q >= 0 && model.isInstanceOf(q, 'MAPPED_ITEM')));
     const positions = closure(file, [root], exclude);

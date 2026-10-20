@@ -39,6 +39,14 @@ export function toMesh(r: TessellationResult): Mesh {
       return out;
     });
   }
+  if (r.curvePositions && r.curves) {
+    mesh.curvePositions = r.curvePositions;
+    mesh.curves = r.curves.map((c) => ({ source: c.entityId, start: c.start, count: c.count }));
+  }
+  if (r.points && r.pointIds) {
+    mesh.points = r.points;
+    mesh.pointSources = r.pointIds;
+  }
   return mesh;
 }
 
@@ -65,7 +73,7 @@ export async function tessellateScene(scene: Scene, tess: Tessellator, opts: Tes
         linearDeflection: opts.linearDeflection / part.unit, angularDeflection: opts.angularDeflection, edges: opts.edges,
       });
       for (const d of r.diagnostics) diagnostics.push(source && !d.source ? { ...d, source } : d);
-      if (r.indices.length || r.positions.length) mesh = toMesh(r);
+      if (r.indices.length || r.positions.length || r.curves?.length || r.points?.length) mesh = toMesh(r);
     } catch (e) {
       diagnostics.push({ severity: 'error', message: `tessellation failed: ${(e as Error).message}`, ...(source ? { source } : {}) });
     }

@@ -124,7 +124,7 @@ export interface CurvesPart extends PartBase {
   polylines: { start: number; count: number; source?: number }[];
 }
 
-/** A triangle mesh, in the part's coordinates minus `origin`. */
+/** A triangle mesh, with any wireframe curves and points, in the part's coordinates minus `origin`. */
 export interface Mesh {
   origin: Vec3;
   positions: Float32Array;
@@ -134,6 +134,12 @@ export interface Mesh {
   faces: { source: number | null; start: number; count: number }[];
   edgePositions?: Float32Array;
   edges?: { source: number | null; start: number; count: number; kind: EdgeKind; dihedral?: number }[];
+  /** Wireframe curves (not faces' edges) as polylines, all concatenated; a curve may repeat, null if unknown. */
+  curvePositions?: Float32Array;
+  curves?: { source: number | null; start: number; count: number }[];
+  /** Isolated points, and each one's source (or null). */
+  points?: Float32Array;
+  pointSources?: (number | null)[];
 }
 
 export type EdgeKind = 'shared' | 'seam' | 'free' | 'degenerate';

@@ -122,7 +122,7 @@ await check('the caching tessellator over IndexedDB', async () => {
   const name = fresh();
   let calls = 0;
   const fake = {
-    info: { name: 'fake', version: '1', license: 'MIT', formats: ['step'], supportsFaceIds: true, supportsEdges: false },
+    info: { name: 'fake', version: '1', license: 'MIT', formats: ['step'], supportsFaceIds: true, supportsEdges: false, supportsCurves: false },
     init: async () => {}, dispose: () => {},
     tessellate: async (req) => ({ origin: req.origin, positions: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), indices: new Uint32Array([0, 1, 2]), faces: [{ entityId: 3, start: 0, count: 3 }], diagnostics: [{ severity: 'info', message: 'call ' + ++calls }] }),
   };

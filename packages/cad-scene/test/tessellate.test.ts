@@ -20,7 +20,7 @@ function fake() {
   let inFlight = 0;
   const t = {
     peak: 0, seen,
-    info: { name: 'fake', version: '1', license: 'x', formats: ['step' as const], supportsFaceIds: true, supportsEdges: false },
+    info: { name: 'fake', version: '1', license: 'x', formats: ['step' as const], supportsFaceIds: true, supportsEdges: false, supportsCurves: false },
     async init() {},
     dispose() {},
     async tessellate(req: TessellationRequest): Promise<TessellationResult> {
@@ -49,3 +49,19 @@ for (const concurrency of [1, 3]) {
     if (concurrency > 1) assert.notDeepEqual(finished, [0, 1, 2, 4, 5]);
   });
 }
+
+test('tessellateScene keeps results with only curves or only points, with their sources, and drops empty ones', async () => {
+  const t = fake();
+  t.tessellate = async (req: TessellationRequest): Promise<TessellationResult> => {
+    const r: TessellationResult = { origin: req.origin!, positions: new Float32Array(), indices: new Uint32Array(), faces: [], diagnostics: [] };
+    const i = req.data[0]!;
+    if (i === 0) Object.assign(r, { curvePositions: new Float32Array([0, 0, 0, 1, 0, 0]), curves: [{ entityId: 7, start: 0, count: 2 }] });
+    if (i === 1) Object.assign(r, { points: new Float32Array([1, 2, 3, 4, 5, 6]), pointIds: [8, null] });
+    return r;
+  };
+  const r = await tessellateScene(scene(), t, { linearDeflection: 1, angularDeflection: 0.5, parts: [0, 1, 2] });
+  assert.deepEqual([...r.meshes.keys()], [0, 1]);
+  const [a, b] = [r.meshes.get(0)!, r.meshes.get(1)!];
+  assert.deepEqual([a.curvePositions, a.curves, a.points], [new Float32Array([0, 0, 0, 1, 0, 0]), [{ source: 7, start: 0, count: 2 }], undefined]);
+  assert.deepEqual([b.points, b.pointSources, b.curves], [new Float32Array([1, 2, 3, 4, 5, 6]), [8, null], undefined]);
+});

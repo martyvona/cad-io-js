@@ -233,3 +233,41 @@ test("an annotation-only representation isn't a part; a geometric set's surfaces
   assert.deepEqual(part.faceMaterials?.map((f) => [f.face, scene.materials[f.material]!.color]), [[112, [1, 0, 0]]]);
   assert.deepEqual([...partInstances(scene)].map((p) => p.part), [0]);
 });
+
+// A product whose representation holds a placement, with two representations related to it: a two-dimensional drawing
+// (a point in a curve set) and a three-dimensional wireframe (a line segment).
+const DRAWING = `
+#1=APPLICATION_CONTEXT('');
+#2=PRODUCT_CONTEXT('',#1,'mechanical');
+#3=PRODUCT_DEFINITION_CONTEXT('part definition',#1,'design');
+#11=(LENGTH_UNIT()NAMED_UNIT(*)SI_UNIT(.MILLI.,.METRE.));
+#16=(GEOMETRIC_REPRESENTATION_CONTEXT(3)GLOBAL_UNIT_ASSIGNED_CONTEXT((#11))REPRESENTATION_CONTEXT('mm',''));
+#17=(GEOMETRIC_REPRESENTATION_CONTEXT(2)GLOBAL_UNIT_ASSIGNED_CONTEXT((#11))REPRESENTATION_CONTEXT('sheet',''));
+#20=CARTESIAN_POINT('',(0.,0.,0.));
+#21=DIRECTION('',(0.,0.,1.));
+#22=DIRECTION('',(1.,0.,0.));
+#23=AXIS2_PLACEMENT_3D('',#20,#21,#22);
+#100=PRODUCT('P','P','',(#2));
+#101=PRODUCT_DEFINITION_FORMATION('','',#100);
+#102=PRODUCT_DEFINITION('','',#101,#3);
+#103=PRODUCT_DEFINITION_SHAPE('','',#102);
+#104=SHAPE_REPRESENTATION('',(#23),#16);
+#105=SHAPE_DEFINITION_REPRESENTATION(#103,#104);
+#110=CARTESIAN_POINT('',(5.,5.));
+#111=GEOMETRIC_CURVE_SET('',(#110));
+#112=GEOMETRICALLY_BOUNDED_2D_WIREFRAME_REPRESENTATION('sheet',(#111),#17);
+#113=SHAPE_REPRESENTATION_RELATIONSHIP('','',#112,#104);
+#120=CARTESIAN_POINT('',(1.,0.,0.));
+#121=VECTOR('',#22,1.);
+#122=LINE('',#20,#121);
+#123=TRIMMED_CURVE('',#122,(#20),(#120),.T.,.CARTESIAN.);
+#124=GEOMETRIC_CURVE_SET('',(#123));
+#125=GEOMETRICALLY_BOUNDED_WIREFRAME_SHAPE_REPRESENTATION('wire',(#124),#16);
+#126=SHAPE_REPRESENTATION_RELATIONSHIP('','',#125,#104);`;
+
+test("a two-dimensional drawing isn't a part, and says so; a wireframe is", async () => {
+  const { scene } = await importStep(file(DRAWING));
+  assert.deepEqual(scene.parts.map((p) => (p.kind === 'brep' ? p.rootId : undefined)), [125]);
+  assert.deepEqual(scene.diagnostics.filter((d) => /drawing/.test(d.message)), [{ severity: 'info', message: 'a two-dimensional drawing; not imported', source: { format: 'step', id: 112 } }]);
+  assert.deepEqual([...partInstances(scene)].map((p) => p.part), [0]);
+});

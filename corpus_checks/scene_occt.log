@@ -1,4 +1,4 @@
-465 files compared (15 over the size limit, 37 without OCCT meshes); 994 of 1103 parts tessellated
+465 files compared (15 over the size limit, 37 without OCCT meshes); 1098 of 1099 parts tessellated
 vertices on OCCT's surface: 181676 of 183248; colours matching: 133270 of 136000
    gkv311-opencascade-dataset/step/trj12_is1-oc-214.stp: 0 of 120 vertices off OCCT's surface; 12 of 60 colour samples differ
    gkv311-opencascade-dataset/step/bug32049_sp7_04dx_242.stp: 0 of 127 vertices off OCCT's surface; 2 of 1138 colour samples differ
