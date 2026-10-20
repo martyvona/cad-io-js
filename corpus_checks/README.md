@@ -2,8 +2,8 @@
 
 Scripts that run this repository's code against the real-world test corpus: 517 Part 21 files, 421 MB, 4.9 M
 instances (see `../test_corpus/README.md`). They complement the package tests (`npm test`), which use small inline
-fixtures and don't need the corpus. Each phase 1, 2 and 3 step added the check that verified it; the results and what they
-found are recorded in `../docs/phase1_progress.md`, `../docs/phase2_progress.md` and `../docs/phase3_progress.md`.
+fixtures and don't need the corpus. Each step added the check that verified it; the results and what they
+found are recorded in `../docs/phase1_progress.md` through `../docs/phase4_progress.md`.
 
 ## Setup
 
@@ -16,6 +16,7 @@ read the whole corpus take an optional list file in place of `../test_corpus/fil
 
 | Script | Step | What it does | Time |
 |---|---|---|---|
+| `export_view.ts` | phase 4, 1 | Every file imported and tessellated with our OCCT backend (a `tess-workers` pool, 0.1 mm, edges), and `cad-scene`'s export view checked against `partInstances`: each drawable part instance once at its path, world transforms with the mesh's origin, visibility, default materials, every triangle with the material the scene resolves for its face, equal instances sharing a look. Second argument: maximum MB (default 2; the log used 1000). | ~3 min |
 | `truck_occt.ts` | phase 3, 3 and 3b | Every brep part through the truck backend and our OCCT backend (each in a `tess-workers` pool, so hangs time out): truck's status (panic, timeout, error, empty), missing faces, edge kinds, edge points off the mesh, area against OCCT's, faces facing opposite to OCCT's, faces whose normals contradict their loops (as the file orients the faces in their solids), its workaround diagnostics; and both backends' placed surface area against the file's validation property. Needs both backends built. Second argument: maximum MB (default 30). `DUMP=<dir>` writes each problem part's subset (the log used `DUMP=corpus_checks/truck_repros`, git-ignored); `WORKERS=<n>` per backend (default 4). OCCT's reader prints `*** ERR StepReaderData ...` lines on standard output; the log has them filtered out (`grep -v '^\*\*\*\*\? ERR '`). | see `../docs/phase3_progress.md` |
 | `truck_bench.ts` | phase 3, 3 | Single-threaded speed of truck module variants (arguments: `.wasm` files; default the built one) and our OCCT backend over phase 0's subsets (`../phase0_tessellation_spike/out`, `out_bike`), as phase 0 timed them. Run with the CPU idle, not on battery in low power mode. | ~1 min per variant |
 | `cache_check.ts` | phase 3, 4 | `tess-cache` over phase 0's subsets with each backend: every result read back from a new file store, and from a memory store, equals the backend's own; times of the backend alone and of a first and second cached run; then truck's hang (`trj2_as1-id-203` #891) in a pool with a 10 s timeout, the timeout cached and answered from the store. Run with the CPU idle, not on battery in low power mode. | ~2 min |
