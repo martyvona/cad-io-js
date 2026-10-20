@@ -26,6 +26,8 @@ export interface Look {
   indices: Uint32Array;
   /** Ranges of `indices`, in the order their materials first appear; they partition `indices`. */
   groups: { material: number | undefined; start: number; count: number }[];
+  /** The mesh's face ranges, moved with their triangles: ranges of `indices`, for picking. */
+  faces: Mesh['faces'];
   /** Kept only when `ExportViewOptions` asks for them. */
   edges: boolean;
   curves: boolean;
@@ -133,7 +135,7 @@ export function exportView(scene: Scene, meshes: ReadonlyMap<number, Mesh>, opts
 }
 
 /** A mesh's triangles reordered by face material, groups in order of first appearance; a mesh without faces is one group. */
-function group(mesh: Mesh, perFace: (number | undefined)[], material: number | undefined): { indices: Uint32Array; groups: Look['groups'] } {
+function group(mesh: Mesh, perFace: (number | undefined)[], material: number | undefined): Pick<Look, 'indices' | 'groups' | 'faces'> {
   const order: (number | undefined)[] = [];
   const ranges = new Map<number | undefined, number[]>();
   mesh.faces.forEach((f, k) => {
@@ -144,19 +146,21 @@ function group(mesh: Mesh, perFace: (number | undefined)[], material: number | u
   });
   if (order.length <= 1) {
     const m = order.length ? order[0] : material;
-    return { indices: mesh.indices, groups: mesh.indices.length ? [{ material: m, start: 0, count: mesh.indices.length }] : [] };
+    return { indices: mesh.indices, groups: mesh.indices.length ? [{ material: m, start: 0, count: mesh.indices.length }] : [], faces: mesh.faces };
   }
   const indices = new Uint32Array(mesh.indices.length);
   const groups: Look['groups'] = [];
+  const faces: Look['faces'] = [];
   let at = 0;
   for (const m of order) {
     const start = at;
     for (const k of ranges.get(m)!) {
       const f = mesh.faces[k]!;
       indices.set(mesh.indices.subarray(f.start, f.start + f.count), at);
+      faces.push({ source: f.source, start: at, count: f.count });
       at += f.count;
     }
     if (at > start) groups.push({ material: m, start, count: at - start });
   }
-  return { indices, groups };
+  return { indices, groups, faces };
 }

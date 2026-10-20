@@ -186,3 +186,25 @@ test("idle workers don't keep Node running when the pool isn't disposed", () => 
     fs.rmSync(dir, { recursive: true });
   }
 });
+
+test('workers start whatever flags the process has: process-wide ones, and --input-type with node -e', () => {
+  const script = `
+    import { WorkerTessellator } from ${JSON.stringify(new URL('../src/node.ts', import.meta.url).href)};
+    const t = new WorkerTessellator({ backend: ${JSON.stringify(backend)}, workers: 1 });
+    await t.init();
+    await t.tessellate({ format: 'step', data: new Uint8Array([0]), linearDeflection: 0.1, angularDeflection: 0.5 });
+    t.dispose();
+    console.log('done');`;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tess-workers-'));
+  const file = path.join(dir, 'flags.mjs');
+  fs.writeFileSync(file, script);
+  const flags = ['--max-old-space-size=4096', '--stack-size=2000'];
+  try {
+    for (const args of [[...flags, file], [...flags, '--input-type=module', '-e', script], ['--input-type=module', '-e', script]]) {
+      const out = execFileSync(process.execPath, args, { timeout: 20_000, encoding: 'utf8' });
+      assert.equal(out.trim(), 'done', args.slice(0, 3).join(' '));
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true });
+  }
+});

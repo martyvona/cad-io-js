@@ -67,6 +67,7 @@ test('exportView: the tree, shared looks, groups by material, origins', () => {
   assert.equal(p!.material, 1);
   assert.deepEqual(p!.groups, [{ material: 1, start: 0, count: 6 }, { material: 2, start: 6, count: 3 }]);
   assert.deepEqual([...p!.indices], [0, 1, 2, 6, 7, 8, 3, 4, 5]);
+  assert.deepEqual(p!.faces, [{ source: 8, start: 0, count: 3 }, { source: null, start: 3, count: 3 }, { source: 7, start: 6, count: 3 }]);
   // The bolt is unstyled: one group with the viewer's default; its own indices; no edges without `edges`.
   assert.equal(b!.material, undefined);
   assert.deepEqual(b!.groups, [{ material: undefined, start: 0, count: 3 }]);
@@ -87,9 +88,13 @@ test('exportView: overrides make new looks; hidden instances; a face material eq
   // The overridden plate is white throughout, so one group and the mesh's own order.
   assert.deepEqual(v.looks[2]!.groups, [{ material: 3, start: 0, count: 9 }]);
   assert.equal(v.looks[2]!.indices, v.looks[2]!.mesh.indices);
+  assert.equal(v.looks[2]!.faces, v.looks[2]!.mesh.faces);
   // Its bolt is white too (the override recolours the subtree) and hidden.
   assert.equal(v.looks[3]!.material, 3);
   assert.equal(v.roots[0]!.children[1]!.children[0]!.parts[0]!.visible, false);
+  // The wireframe has no faces, so only its default material tells its two instances apart.
+  const wires = flat(exportView(s, meshes(), { curves: true }).roots).flatMap((n) => n.parts.slice(1).map((p) => p.look));
+  assert.equal(new Set(wires).size, 2);
   // Face 7 green like the rest: one group.
   s.overrides = [];
   s.parts[0]!.faceMaterials = [{ face: 7, material: 1 }];
@@ -110,7 +115,8 @@ test('exportView: edges and curves on request', () => {
   const m = meshes();
   m.set(1, { origin: [0, 0, 0], positions: new Float32Array(0), indices: new Uint32Array(0), faces: [], points: new Float32Array(3), pointSources: [11] });
   assert.deepEqual(summary(exportView(s, m).roots)[2]![2], []);
-  assert.equal(exportView(s, m, { curves: true }).looks[1]!.curves, true);
+  const pts = exportView(s, m, { curves: true }).looks[1]!;
+  assert.deepEqual([pts.part, pts.curves], [1, true]);
 });
 
 test('exportView: a mesh part without faces is one group; a component inside itself', () => {

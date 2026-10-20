@@ -1,0 +1,17 @@
+{
+  "name": "export-threejs",
+  "version": "0.0.0",
+  "description": "Scene model to three.js JSON Object Scene format 4, loadable with THREE.ObjectLoader",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "cad-scene": "0.0.0"
+  },
+  "devDependencies": {
+    "@types/three": "0.186.0",
+    "three": "0.186.1"
+  }
+}
