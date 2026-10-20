@@ -6,7 +6,7 @@ Phase 3 of `architecture.md` ("Phasing"): the tessellation backends, OCCT first,
 
 ## Where things stand
 
-- **OCCT backend** (`../packages/tess-occt`): the `Tessellator` interface with face ids, edges, file units and the request origin; 99.1% geometric and 97.8% colour agreement with `occt-import-js` over the corpus (`phase2_progress.md`, step 5). Open: the 62 geometrically bounded surface representations it returns no shape for and the 16 "no shape" errors, instance recycling (OCCT's heap never shrinks), and phase 0's slow `BRepMesh` faces (bicycle #2022). *(Step 5 classified the first two and tuned recycling; step 6 returns the wireframes' curves and points; the slow faces are still open.)*
+- **OCCT backend** (`../packages/tess-occt`): the `Tessellator` interface with face ids, edges, file units and the request origin; 99.1% geometric and 97.8% colour agreement with `occt-import-js` over the corpus (`phase2_progress.md`, step 5). Open: the 62 geometrically bounded surface representations it returns no shape for and the 16 "no shape" errors, instance recycling (OCCT's heap never shrinks), and phase 0's slow `BRepMesh` faces (bicycle #2022). *(Step 5 classified the first two and tuned recycling; step 6 returns the wireframes' curves and points; step 7 explained the slow faces: a ShapeFix mis-split and faces with thousands of holes, both left as they are.)*
 - **truck** (`../phase0_tessellation_spike/truck_spike`): phase 0's prototype, about 120 lines of Rust over truck `88ed005`, tessellates every shell in a subset and reports face ids by mirroring the `filter_map` in truck's `shell_faces`. It returns unindexed triangles as JSON, with no normals, edges, origin or root. Robustness against OCCT 8.1: 144 of 188 parts within 5% of OCCT's area; 6 panics (`circle.rs:65`, tolerance below 1e-6 on inch parts), one hang over 10 minutes (`trj2_as1-id-203` #891), 93 empty faces. 263,902 bytes brotli, about 1/6 of OCCT.
 - **truck upstream** has only a dependency upgrade (`c2a1da8`, 2026-10-12) since our pin, so none of those problems has been fixed upstream.
 - **`tessellateScene`** (`../packages/cad-scene/src/tessellate.ts`) runs one request at a time on the calling thread, with no timeout and no cache.
@@ -22,6 +22,7 @@ Phase 3 of `architecture.md` ("Phasing"): the tessellation backends, OCCT first,
 | 4 | **Caching**: tessellation results stored per part, keyed by the payload's hash, the backend's name and version and the request options; an in-memory store, plus stores for the file system (Node) and IndexedDB (browsers); each with a configurable maximum size (least recently used entries evicted), 0 disabling it (decision 4). Revised on the user's review: failures cached too (timeouts only under a limit no longer than theirs), and a backend's other versions deleted | **Done** 2026-10-19 |
 | 5 | **OCCT loose ends**: the geometrically bounded surface representations and "no shape" parts; the recycle policy from step 1 tuned on OCCT's heap growth over the corpus | **Done** 2026-10-19 |
 | 6 | **`curves` parts** (decision 5): wireframe representations (74 parts in phase 2's end-to-end check) as polylines, discretized by the backend, with a request and result shape for curves added to the interface. As built (the user's decisions below): curves and points in the brep result, OCCT only, drawings skipped | **Done** 2026-10-19 |
+| 7 | **OCCT's slow faces** (phase 0's bicycle #2022, thought to be a `BRepMesh_Delaun` frontier-recovery regression in OCCT 8.1): the slow faces found and timed, and a small workaround in our wrapper if one helps (decision 3, as widened); no upstream report. Found: a face ShapeFix builds wrong, and faces with thousands of holes; both left as they are by the user's decisions | **Done** 2026-10-20 |
 
 Order: the worker host comes first because truck needs the watchdog to get through the corpus at all (the #891 hang), and OCCT benefits from it as is. Steps 4–6 are independent of truck and could move.
 
@@ -32,7 +33,7 @@ Order: the worker host comes first because truck needs the watchdog to get throu
    - two adapters implement the handle, one over `worker_threads` (Node has no global `Worker`) and one over Web Workers, plus the matching worker-side entry (`parentPort` against `self`);
    - `package.json` conditional exports pick the adapter (`"node"` → the `worker_threads` one, `"default"` → the Web Worker one), so browser bundles never see `worker_threads`.
 2. **How truck's tolerance maps onto the request.** truck takes one absolute distance (`tol`, in file units); the interface also has an angular deflection. **Decided by the user (2026-10-17): `tol = linearDeflection`, the angular deflection ignored** (noted in the backend's `info`). Meshes of small round features come out coarser than OCCT's at the same request, and triangle counts differ (phase 0: 1.23 M against OCCT's 0.81 M on the bicycle, at 0.05 mm against 0.05 mm / 0.5 rad). (Alternative: also bound the angle by lowering `tol` per face from its curvature, `r (1 − cos(θ/2))` for radius `r`; closer to OCCT's meshes, but more wrapper code, and truck applies one tolerance per shell, so per-face control may need a call per face.)
-3. **truck's known failures.** **Decided by the user (2026-10-17): small workarounds in our wrapper where feasible** (for example, checking each circle's radius against the tolerance before meshing and raising the tolerance locally, to avoid the circle-tolerance panic; keeping the face-id mirroring), **and no upstream reports for now.** Each failure, workaround and repro subset is documented here instead, and how to work with the truck project is decided later. Whatever the workarounds don't cover, the host's trap recovery and watchdog turn into diagnostics. truck itself is not patched (no fork). (Alternative: upstream reports only, with no workarounds.)
+3. **truck's known failures.** **Decided by the user (2026-10-17): small workarounds in our wrapper where feasible** (for example, checking each circle's radius against the tolerance before meshing and raising the tolerance locally, to avoid the circle-tolerance panic; keeping the face-id mirroring), **and no upstream reports for now.** Each failure, workaround and repro subset is documented here instead, and how to work with the truck project is decided later. Whatever the workarounds don't cover, the host's trap recovery and watchdog turn into diagnostics. truck itself is not patched (no fork). (Alternative: upstream reports only, with no workarounds.) **Widened by the user (2026-10-19): no upstream reports to any upstream project** (OCCT included), not only truck; phase 0's plan to report the #2022 slow faces to OCCT is dropped.
 4. **Caching. Decided by the user (2026-10-17): in phase 3 (step 4), with a configurable maximum size, in Node and in browsers, that can be set to 0 to disable caching.** (Alternative: deferred to phase 4's `stepconv`.)
 5. **`curves` parts. Decided by the user (2026-10-17): in phase 3 (step 6).** (Alternative: left in the backlog.)
 6. **The OCCT build variant. Decided by the user (2026-10-17): `-Os` without the `VBernstein` patch**, which isn't worth maintaining for now (2.18 against 1.71 MB brotli). The patch stays documented in `../phase0_tessellation_spike/phase0_results.md` ("Build variants") in case the download size matters later.
@@ -371,6 +372,46 @@ The 15 files over 5 MB (2,097 parts, 56 s), in a fresh instance: 138 MiB by `tr9
 
 - Curve and point colours in mixed parts: a wireframe-only part takes its curves' colour as its material (phase 2), but the scene has no per-curve materials, so the 81 curves beside solids and surfaces show the part's colour. Per-curve materials (like `faceMaterials`, by curve id) would be importer work; not planned yet.
 - truck curves (decision 2) and drawings (decision 3), in the backlog.
+
+## Step 7: OCCT's slow faces
+
+Phase 0 timed bicycle #2022 at 6–9 s and put it down to a regression in OCCT 8.1's mesher (`BRepMesh_Delaun` frontier recovery), to report upstream. The user widened decision 3 on 2026-10-19 to cover every upstream project, so there's no report; this step finds the slow faces and looks for wrapper workarounds. Scripts and logs: the session scratchpad (`s7/`), a copy of `occt_tess.cpp` with probes for per-face timing, ShapeFix modes and a face scan. **Timings here were taken on battery in low power mode**: they compare with each other, not with earlier steps.
+
+### What's slow
+
+Every brep part of the corpus (files up to 5 MB, plus the bicycle; 1,279 parts) at the scene's deflection, 0.1 mm and 0.5 rad. Six parts trapped in the probe's own scan code (null function), not in the backend; they're left out. The slowest parts by meshing time, and why:
+
+| Part | Meshing | Cause |
+|---|---|---|
+| `bug28366_fuselage.stp` #368 (feet) | 25.8 s | size: 8 faces, four of 730–740 k triangles. 0.1 mm on a fuselage |
+| `as1_motor.step` #6322 | 25.8 s | size: 3.9 M triangles over 29 faces, up to 389 k each, on tori of 32 m major radius |
+| `bug24024_slow_import.stp` #76247 | 19.6 s | two planar faces, #69299 and #76119, each with **2,232 circular holes**: 9.5 s each for 62 k triangles, 25 times the time per triangle of the others. The meshes are right (0.3% over the exact area, the holes being polygons) |
+| `as1_motor.step` #1070 | 9.0 s | size: B-spline and toroidal faces of 130–380 k triangles |
+| bicycle #2022 | 1.7 s (6–9 s at phase 0's 0.05 mm) | **one wrong face**, #23723 (below); the other 313 faces take 0.7 s in all at 0.05 mm |
+
+So phase 0's "slow faces" are two different things, neither a slow mesher on a good face: a face ShapeFix builds wrong (#2022), and faces with thousands of holes (#76247). The parts that are slow by size are meshed as asked: 0.1 mm is fine for a 32 m torus. A deflection relative to the part's size would bound them, but that's a request option, not a backend fault.
+
+### Bicycle #23723: a hole on the seam
+
+#23723 is a tube of radius 8 mm, a closed rational B-spline, bounded by two `FACE_OUTER_BOUND` circles at its ends and one `FACE_BOUND`: the hole where an equal tube, the cylinder face #17467, joins it. Two equal cylinders intersect in two curves that meet at two singular points, so the hole's two edges (#159600, #159601) run between points half a turn apart. Here those points lie on the B-spline's seam (u = 0 and u = 0.5).
+
+- **The projection:** STEP gives no pcurves, so OCCT projects each edge onto the surface. On the seam, u is 0 or 1; #159600 comes out at u 1–1.5 and #159601 at 0–0.5, so the hole's loop looks open by one period, like the circles.
+- **The seam:** ShapeFix's `FixMissingSeam` joins two such open loops with a seam edge at u = 0. Even with the hole's pcurve shifted back by a period (tried in the probe: the hole then closes in UV, and the two circles are the only open loops), it re-splits the face along the seam with `ShapeFix_ComposeShell`, and the seam passes through the hole's vertex at (0, 0.653). The result is the same either way: one face whose single loop is the hole, part of the seam, one circle and the seam again, its domain overlapping itself (u from 0 to 1.5), plus a zero-area face holding the other circle, which fails to mesh.
+- **The cost:** the overlapping face takes 7.4 s of #2022's 8.2 s at 0.05 mm, and its mesh (3,364 mm²) is larger than its own exact area (3,127). truck, which builds its own pcurves, gives 3,523 mm²: the tube less the hole (253 mm², which OCCT meshes cleanly as a face of its own when the seam fix is off).
+- **Turning ShapeFix modes off** doesn't help: `FixMissingSeamMode` off leaves 43 faces of the part unmeshed; the split, intersecting-wire, loop-wire and shifted-pcurve modes change nothing.
+- **How common:** the scan flags faces whose UV domain spans more than their surface's period. 11 such faces in 6 parts; only 4 of them also have a mesh area far from their exact area: #23723 and #21557 (the same pattern, 456 against 132 mm²) on the bicycle, and two faces of 0.0001 mm² in `bug32596_abc_0_13.step` #113. The others are faces that wind round a cylinder several times (`2.stp`, up to 15 turns) or barely over one turn (a sphere in `trj4_s1-ai-214.stp`), with right meshes.
+
+- **Decided by the user (2026-10-20): left as is, and documented** (backlog row "ShapeFix's split at a seam" in `phase1_progress.md`). The alternatives were moving the seam away from the hole before ShapeFix (rewriting the surface's parametrization and splitting the circle edges its neighbours share, about 100 lines with uncertain reach) or dropping the bad face with a warning (faster, but a hole in the mesh where there's now a slightly wrong face).
+
+### The perforated plates
+
+The mesher's other algorithm, Delabella (`IMeshTools_MeshAlgoType_Delabella`, through `occt_set_mesh_options`), meshes #76247 in 3.1 s against Watson's 19.3 s, with the same triangle counts and areas on both plates. Phase 0 found Delabella worse over the whole corpus (57 untriangulated faces against Watson's 5), so a workaround would use it only for faces with many holes. Such faces are rare: of the corpus's faces, 83,033 have fewer than 10 holes, 144 have 10–49, 8 have 50–80, and only these two plates have more than 100.
+
+- **Decided by the user (2026-10-20): not now**; it goes with the deep dive into the two algorithms (backlog row "OCCT's two mesh algorithms" in `phase1_progress.md`), since only one file, from an OCCT bug report, would gain.
+
+### Outcome
+
+No code changes: the wrapper stays as it was after step 6. What phase 0 called slow faces is explained and documented here, and the two follow-ups are in the backlog. The parts slow by size would want a deflection relative to the part's size (backlog row "Size-relative deflection").
 
 ## Not planned
 

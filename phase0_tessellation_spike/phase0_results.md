@@ -378,7 +378,7 @@ Measured against OCCT 8.1 on area, monstertruck fixes 29 parts that truck gets w
   - Ship `-Os`, with or without the `VBernstein` table patch (2.18 vs 1.71 MB brotli; decided 2026-10-17: without, see "Build variants"). If the patch is kept, add an upstream-hash check to the build, or propose the change upstream.
   - Optionally stub the CJK code-page tables (about 100 kB brotli) and the writer path.
   - Find a STEP corpus that actually reaches the approximation code (`ProjLib`/`Approx_FitAndDivide`), for example files with missing p-curves.
-  - Isolate the #2022 slow faces (OCCT 8.1 `BRepMesh_Delaun` frontier recovery) and report them upstream. Until it's fixed, the host's per-request timeout covers it.
+  - Isolate the #2022 slow faces (OCCT 8.1 `BRepMesh_Delaun` frontier recovery) and report them upstream. Until it's fixed, the host's per-request timeout covers it. *(Phase 3 step 7: the slow face is one ShapeFix builds wrong, not a mesher regression; no upstream report, by the user's decision. See `../docs/phase3_progress.md`.)*
   - Add an `init`/`dispose` cycle and a heap-threshold recycle in the host.
   - Report the `setjmp` + exceptions link bug to LLVM/Emscripten.
 - **Rust backends:** optional. Report the circle-tolerance panic (both), the #891 hang (truck), the #2016 timeout and wrong-side trimming (monstertruck), with `out*/` subsets as repros.
