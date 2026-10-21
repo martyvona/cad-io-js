@@ -37,6 +37,37 @@ interface OcctModule {
 
 const KINDS: EdgeKind[] = ['shared', 'seam', 'free', 'degenerate'];
 
+/**
+ * OCCT's printed messages are kept per part as warnings, at most this many and this many characters in all; the rest
+ * are counted. In the corpus a part prints at most 2 (`*** ERR StepReaderData : Unresolved Reference : Fails Count :
+ * 13 ***`, `**** ERR StepFile : Incorrect Syntax : ...`); see docs/phase4_progress.md, step 3.
+ */
+export const MAX_MESSAGES = 10;
+export const MAX_MESSAGE_CHARS = 1000;
+
+/** Changes when this adapter's results change for the same module, so that cached results from before aren't read. */
+const ADAPTER = 2;
+
+/** Collects one tessellate call's messages, within the limits. Exported for the tests. */
+export class Messages {
+  readonly kept: string[] = [];
+  chars = 0;
+  dropped = 0;
+  add(text: string): void {
+    const t = text.replace(/^\*+\s*|\s*\*+$/g, '');
+    if (!t) return;
+    if (this.kept.length === MAX_MESSAGES || this.chars === MAX_MESSAGE_CHARS) { this.dropped++; return; }
+    const kept = t.slice(0, MAX_MESSAGE_CHARS - this.chars);
+    this.kept.push(kept.length < t.length ? `${kept}...` : kept);
+    this.chars += kept.length;
+  }
+  diagnostics(): Diagnostic[] {
+    const d: Diagnostic[] = this.kept.map((t) => ({ severity: 'warning', message: `OCCT: ${t}` }));
+    if (this.dropped) d.push({ severity: 'warning', message: `OCCT: ${this.dropped} more messages left out` });
+    return d;
+  }
+}
+
 /** The first 12 hex digits of the module's SHA-256, so that `info.version` changes with every build. */
 async function wasmId(bytes: BufferSource): Promise<string> {
   const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
@@ -49,6 +80,8 @@ export class OcctTessellator implements Tessellator {
     formats: ['step'], supportsFaceIds: true, supportsEdges: true, supportsCurves: true,
   };
   private m?: OcctModule;
+  /** Where OCCT's messages go during a tessellate call; outside one (init) they're dropped. */
+  private messages?: Messages;
 
   /**
    * Load and instantiate the WebAssembly module (dist/occt_tess.mjs). The module is compiled here rather than by
@@ -56,7 +89,11 @@ export class OcctTessellator implements Tessellator {
    */
   async init(): Promise<void> {
     if (this.m) return;
-    type Factory = (moduleArg: { instantiateWasm: (imports: WebAssembly.Imports, done: (i: WebAssembly.Instance) => void) => object }) => Promise<OcctModule>;
+    type Factory = (moduleArg: {
+      instantiateWasm: (imports: WebAssembly.Imports, done: (i: WebAssembly.Instance) => void) => object;
+      print: (text: string) => void;
+      printErr: (text: string) => void;
+    }) => Promise<OcctModule>;
     const factory = (await import(new URL('../dist/occt_tess.mjs', import.meta.url).href)).default as Factory;
     const url = new URL('../dist/occt_tess.wasm', import.meta.url);
     const bytes = url.protocol === 'file:' ? await (await import('node:fs/promises')).readFile(url) : new Uint8Array(await (await fetch(url)).arrayBuffer());
@@ -70,8 +107,11 @@ export class OcctTessellator implements Tessellator {
         WebAssembly.instantiate(module, imports).then(done, fail);
         return {};
       },
+      // OCCT prints to standard output (and maybe error): kept as diagnostics instead of written anywhere.
+      print: (text) => this.messages?.add(text),
+      printErr: (text) => this.messages?.add(text),
     }), failed]);
-    this.info.version = `OCCT 8.1 (3d097a0328), wasm ${id}`;
+    this.info.version = `OCCT 8.1 (3d097a0328), wasm ${id}, adapter ${ADAPTER}`;
   }
 
   async tessellate(req: TessellationRequest): Promise<TessellationResult> {
@@ -82,14 +122,16 @@ export class OcctTessellator implements Tessellator {
     const ptr = m._malloc(req.data.length);
     m.HEAPU8.set(req.data, ptr);
     let rc: number;
+    const messages = this.messages = new Messages();
     try {
       rc = m._occt_tessellate(ptr, req.data.length, req.rootId ?? 0, req.linearDeflection, req.angularDeflection, 0, origin[0], origin[1], origin[2]);
     } finally {
       m._free(ptr);
+      this.messages = undefined;
     }
     const diagText = m.UTF8ToString(m._occt_diag());
     const diag = JSON.parse(diagText) as Record<string, unknown>;
-    const diagnostics: Diagnostic[] = [];
+    const diagnostics = messages.diagnostics();
     if (rc !== 0) {
       m._occt_free();
       diagnostics.push({ severity: 'error', message: `OCCT: ${String(diag.error)}${diag.what ? `: ${String(diag.what)}` : ''}` });

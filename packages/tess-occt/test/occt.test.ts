@@ -6,7 +6,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { partInstances, tessellateScene } from 'cad-scene';
 import { importStep } from 'step-import';
-import { OcctTessellator } from '../src/index.ts';
+import { MAX_MESSAGE_CHARS, MAX_MESSAGES, Messages, OcctTessellator } from '../src/index.ts';
 
 const root = path.resolve(import.meta.dirname, '../../..');
 const cube = path.join(root, 'test_corpus/third_party/occt-import-js/test/testfiles/cube-10x10mm/Cube 10x10.stp');
@@ -53,8 +53,58 @@ test('unreadable input: an error diagnostic, an empty result', { skip: built ? f
   await tess.init();
   const r = await tess.tessellate({ format: 'step', data: new TextEncoder().encode('not STEP'), linearDeflection: 1, angularDeflection: 0.5 });
   assert.equal(r.indices.length, 0);
-  assert.equal(r.diagnostics[0]?.severity, 'error');
+  // OCCT's own message, then the failure.
+  assert.deepEqual(r.diagnostics, [
+    { severity: 'warning', message: 'OCCT: ERR StepFile : Undefined Parsing: Line 2: Incorrect syntax: unexpected TYPE, expecting STEP' },
+    { severity: 'error', message: 'OCCT: read failed' },
+  ]);
   await assert.rejects(new OcctTessellator().tessellate({ format: 'step', data: new Uint8Array(), linearDeflection: 1, angularDeflection: 0.5 }), /init/);
+});
+
+test("OCCT's messages: warnings on the part, never printed", { skip }, async () => {
+  const tess = new OcctTessellator();
+  await tess.init();
+  const { scene } = await importStep(fs.readFileSync(cube));
+  const part = scene.parts[0]!;
+  assert.ok(part.kind === 'brep');
+  // A reference to an entity that isn't there: OCCT prints a count of them, and reads the rest.
+  const text = new TextDecoder().decode(part.payload());
+  const end = text.lastIndexOf('ENDSEC;');
+  const dangling = new TextEncoder().encode(`${text.slice(0, end)}#900000=VERTEX_POINT('',#900001);\n${text.slice(end)}`);
+  const req = { format: 'step' as const, data: dangling, rootId: part.rootId, linearDeflection: 0.01, angularDeflection: 0.5 };
+  const printed: unknown[] = [];
+  const restore = [process.stdout, process.stderr].map((s) => {
+    const write = s.write;
+    s.write = ((c: unknown) => (printed.push(c), true)) as typeof s.write;
+    return () => { s.write = write; };
+  });
+  let r, clean;
+  try {
+    r = await tess.tessellate(req);
+    clean = await tess.tessellate({ ...req, data: part.payload() });
+  } finally {
+    for (const f of restore) f();
+  }
+  assert.deepEqual(printed, []);
+  assert.deepEqual(r.diagnostics, [{ severity: 'warning', message: 'OCCT: ERR StepReaderData : Unresolved Reference : Fails Count : 1' }]);
+  assert.equal(r.indices.length, 36);
+  assert.deepEqual(clean.diagnostics, []);
+});
+
+test("OCCT's messages: at most MAX_MESSAGES of MAX_MESSAGE_CHARS in all, the rest counted", () => {
+  const many = new Messages();
+  for (let i = 0; i < MAX_MESSAGES + 3; i++) many.add(`*** ERR ${i} ***`);
+  many.add('');
+  const d = many.diagnostics();
+  assert.equal(d.length, MAX_MESSAGES + 1);
+  assert.deepEqual(d[0], { severity: 'warning', message: 'OCCT: ERR 0' });
+  assert.equal(d.at(-1)!.message, 'OCCT: 3 more messages left out');
+  const long = new Messages();
+  long.add('a'.repeat(MAX_MESSAGE_CHARS - 10));
+  long.add('b'.repeat(30));
+  long.add('c');
+  assert.deepEqual(long.diagnostics().map((x) => x.message), [`OCCT: ${'a'.repeat(MAX_MESSAGE_CHARS - 10)}`, `OCCT: ${'b'.repeat(10)}...`, 'OCCT: 1 more messages left out']);
+  assert.deepEqual(new Messages().diagnostics(), []);
 });
 
 const gbssr = path.join(root, 'test_corpus/third_party/gkv311-opencascade-dataset/step/trj8_c2-ac-214.stp');

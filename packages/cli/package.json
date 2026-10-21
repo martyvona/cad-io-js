@@ -1,16 +1,28 @@
 {
   "name": "cad-io-cli",
   "version": "0.0.0",
-  "description": "Command-line tools: step2json",
+  "description": "Command-line tools: step2json and stepconv",
   "license": "Apache-2.0",
   "type": "module",
   "bin": {
-    "step2json": "./bin/step2json.ts"
+    "step2json": "./bin/step2json.ts",
+    "stepconv": "./bin/stepconv.ts"
   },
   "exports": {
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "step-parser": "0.0.0"
+    "step-parser": "0.0.0",
+    "cad-scene": "0.0.0",
+    "export-threejs": "0.0.0",
+    "step-import": "0.0.0",
+    "tess-cache": "0.0.0",
+    "tess-occt": "0.0.0",
+    "tess-truck": "0.0.0",
+    "tess-workers": "0.0.0"
+  },
+  "devDependencies": {
+    "@types/three": "0.186.0",
+    "three": "0.186.1"
   }
 }

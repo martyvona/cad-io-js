@@ -26,7 +26,7 @@ test("each backend's results from a directory, in a new process's store, equal t
   for (const C of [OcctTessellator, TruckTessellator]) {
     const direct: Tessellator = new C();
     await direct.init();
-    assert.match(direct.info.version, /, wasm [0-9a-f]{12}$/);
+    assert.match(direct.info.version, /, wasm [0-9a-f]{12}(, adapter \d+)?$/);
     const expected = await tessellateScene(scene, direct, opts);
     assert.ok(expected.meshes.size >= 5, `${direct.info.name}: ${expected.meshes.size} meshes`);
     const first = new CachedTessellator(direct, new FileStore({ dir }));
@@ -46,7 +46,7 @@ test('in front of a worker pool, a cached part never reaches a worker', { skip }
   const t = new CachedTessellator(counted, new MemoryStore());
   await t.init();
   try {
-    assert.match(t.info.version, /^OCCT .*, wasm [0-9a-f]{12}$/);
+    assert.match(t.info.version, /^OCCT .*, wasm [0-9a-f]{12}, adapter \d+$/);
     const a = await tessellateScene(scene, t, { ...opts, concurrency: 2 });
     const n = sent;
     assert.ok(n >= 5);
