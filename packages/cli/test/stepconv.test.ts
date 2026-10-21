@@ -218,7 +218,8 @@ test("stepconv: the backend's messages are warnings, not printed", { skip: skip 
     assert.equal(r.status, 0);
     assert.ok(JSON.parse(r.stdout).object, `workers ${workers}`);
     assert.doesNotMatch(r.stderr, /\*\*\*/);
-    assert.match(r.stderr, /\n3 errors, 14 warnings, 0 notes\n/);
+    assert.match(r.stderr, /\n3 errors, 26 warnings, 0 notes\n/);
+    assert.match(r.stderr, /\n  warning: #392938: 13 references to instances the file doesn't define: #11, #393036, .*, #393179, \.\.\.\n/);
     assert.match(r.stderr, /\n  warning: #392938: OCCT: ERR StepReaderData : Unresolved Reference : Fails Count : 13\n/);
   }
 });

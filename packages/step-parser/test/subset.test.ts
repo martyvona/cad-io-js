@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildSubset, closure, parseStep, type StepFile } from '../src/index.ts';
+import { buildSubset, closure, danglingRefs, parseStep, type StepFile } from '../src/index.ts';
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
@@ -36,6 +36,14 @@ test('closure: everything the root references, in file order, nothing that refer
   const ids = (ps: Uint32Array) => [...ps].map((p) => f.index.ids[p]);
   assert.deepEqual(ids(closure(f, [f.index.position(10)])), [10, 11, 12, 13, 14, 15, 16, 17, 18, 20, 21]);
   assert.deepEqual(ids(closure(f, [f.index.position(10)], new Set([f.index.position(12)]))), [10, 11, 13, 14, 20, 21]);
+});
+
+test("dangling references: ids the closure refers to that the file doesn't define, once each, ascending", () => {
+  const f = parse(FILE.replace("#13=CLOSED_SHELL('',(#14,#99));", "#13=CLOSED_SHELL('',(#14,#99,#98,#99));"));
+  const at = (id: number) => f.index.position(id);
+  assert.deepEqual(danglingRefs(f, closure(f, [at(10)])), [98, 99]);
+  assert.deepEqual(danglingRefs(f, closure(f, [at(16)])), []);
+  assert.deepEqual(danglingRefs(f, []), []);
 });
 
 test('subsets: verbatim bytes, a root rewritten without excluded items, missing references, the wrapper', () => {

@@ -8,7 +8,7 @@
 //   layers          → layers of parts and faces
 
 import {
-  buildSubset, closure, extractSemantics, math, openModel, productRepresentations, readStep, Reader,
+  buildSubset, closure, danglingRefs, extractSemantics, math, openModel, productRepresentations, readStep, Reader,
   type Diagnostic as StepDiagnostic, type OpenOptions, type Semantics, type StepFile, type StepModel, type StepSource, type Style,
 } from 'step-parser';
 import type { Component, Diagnostic, Layer, Material, Part, Scene, Vec3 } from 'cad-scene';
@@ -28,6 +28,8 @@ export async function importStep(input: StepSource | StepFile, opts: OpenOptions
   return sceneFromStep(model, extractSemantics(model));
 }
 
+/** Dangling references named in a part's warning; the rest are counted. */
+const MAX_DANGLING = 10;
 const PLACEMENT_ONLY = ['AXIS2_PLACEMENT_3D', 'AXIS2_PLACEMENT_2D', 'MAPPED_ITEM', 'CARTESIAN_TRANSFORMATION_OPERATOR'];
 /** Presentation (text, callouts, annotation occurrences): not shape, so a representation of only these isn't a part. */
 const ANNOTATION = ['TEXT_LITERAL', 'COMPOSITE_TEXT', 'DRAUGHTING_CALLOUT', 'ANNOTATION_OCCURRENCE'];
@@ -101,6 +103,11 @@ export function sceneFromStep(model: StepModel, sem: Semantics): ImportResult {
     const root = model.resolve(rep.id);
     const exclude = new Set(items.filter((q) => q >= 0 && model.isInstanceOf(q, 'MAPPED_ITEM')));
     const positions = closure(file, [root], exclude);
+    const dangling = danglingRefs(file, positions);
+    if (dangling.length) {
+      const shown = dangling.slice(0, MAX_DANGLING).map((id) => `#${id}`).join(', ');
+      warn(`${dangling.length === 1 ? '1 reference to an instance' : `${dangling.length} references to instances`} the file doesn't define: ${shown}${dangling.length > MAX_DANGLING ? ', ...' : ''}`, rep.id);
+    }
     const index = parts.length;
     partOf.set(rep.id, index);
     partOfPosition.set(root, index);

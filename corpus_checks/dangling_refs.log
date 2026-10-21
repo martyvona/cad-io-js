@@ -1,0 +1,17 @@
+gkv311-opencascade-dataset/step/bug32314_corrupted.stp: 12 parts with dangling references, 0 references beyond the largest id
+  #392938: 13 references to instances the file doesn't define: #11, #393036, #393037, #393043, #393049, #393074, #393075, #393076, #393127, #393179, ...
+  #392624: 1 reference to an instance the file doesn't define: #11
+  #392310: 1 reference to an instance the file doesn't define: #11
+  #391996: 1 reference to an instance the file doesn't define: #11
+  #391682: 1 reference to an instance the file doesn't define: #11
+gkv311-opencascade-dataset/step/bug31292.stp: 0 parts with dangling references, 1 references beyond the largest id
+  #69: reference beyond the largest instance id (2^32 - 1) read as $
+gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp: 40 parts with dangling references, 0 references beyond the largest id
+  #17525: 1 reference to an instance the file doesn't define: #0
+  #17485: 1 reference to an instance the file doesn't define: #0
+  #17475: 1 reference to an instance the file doesn't define: #0
+  #17415: 1 reference to an instance the file doesn't define: #0
+  #17395: 1 reference to an instance the file doesn't define: #0
+gkv311-opencascade-dataset/step/bug33665.step: 1 parts with dangling references, 0 references beyond the largest id
+  #10: 1 reference to an instance the file doesn't define: #18
+files 517, 4 with dangling references; parts 3264, 53 with dangling references; 1 references beyond the largest id; 16 s

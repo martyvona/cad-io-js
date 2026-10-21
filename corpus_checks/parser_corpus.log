@@ -1,4 +1,4 @@
-4925008 instances, 421 MB; scan 1.9 s, decode 3.7 s (decode time includes the schema check); 3 decode errors
+4925008 instances, 421 MB; scan 3.9 s, decode 7.7 s (decode time includes the schema check); 3 decode errors
 ┌─────────┬───────┬─────────┬─────────┬──────┐
 │ (index) │ files │ inst    │ ok      │ bad  │
 ├─────────┼───────┼─────────┼─────────┼──────┤
@@ -61,6 +61,7 @@
       1 ap214e3 unknown entity ORIZTZTJENTED_E56UE56DGE  e.g. gkv311-opencascade-dataset/step/bug32314_corrupted.stp
       1 ap214e3 unknown entity RTH  e.g. gkv311-opencascade-dataset/step/bug32314_corrupted.stp
       1 ap214e3 unknown entity CARRTTESIAN_POINT  e.g. gkv311-opencascade-dataset/step/bug32314_corrupted.stp
+      1 diag warning: reference beyond the largest instance id (2^32 - 1) read as $  e.g. gkv311-opencascade-dataset/step/bug31292.stp
       1 ap203 unknown entity PARAMETRIC_EXTRUDED_FACE_SOLID  e.g. gkv311-opencascade-dataset/step/trj10_ch1-tu-203.stp
       1 ap203 unknown entity RIGHT_CIRCULAR_CYLINDER  e.g. gkv311-opencascade-dataset/step/trj10_ch1-tu-203.stp
       1 ap203 unknown entity RIGHT_CIRCULAR_CONE  e.g. gkv311-opencascade-dataset/step/trj10_ch1-tu-203.stp

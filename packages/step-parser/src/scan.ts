@@ -202,9 +202,9 @@ export function scan(bytes: Uint8Array): ScanResult {
 
   /**
    * Scan to the `;` that ends a statement, at parenthesis depth 0 and outside strings and comments. Collects
-   * references when `collect` is set. Returns the offset just past the `;`, or n.
+   * references when `collect` is set, those of instance `id`. Returns the offset just past the `;`, or n.
    */
-  const statementEnd = (i: number, collect: boolean): number => {
+  const statementEnd = (i: number, collect: boolean, id = 0): number => {
     let depth = 0;
     while (i < n) {
       const c = bytes[i]!;
@@ -225,6 +225,7 @@ export function scan(bytes: Uint8Array): ScanResult {
         }
         // Ids are at most 2^32 - 1, so a larger reference can't resolve (and mustn't wrap around in Uint32Array).
         if (j > i + 1 && v <= 0xffffffff) refs.push(v);
+        else if (j > i + 1) diagnostics.push({ severity: 'warning', message: 'reference beyond the largest instance id (2^32 - 1) read as $', offset: i, id });
         i = j;
         continue;
       }
@@ -288,7 +289,7 @@ export function scan(bytes: Uint8Array): ScanResult {
       type = t;
     }
     refStarts.push(refs.n);
-    const end = statementEnd(i, true);
+    const end = statementEnd(i, true, id);
     ids.push(id);
     starts.push(start);
     ends.push(end);

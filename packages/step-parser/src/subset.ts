@@ -49,6 +49,17 @@ export function closure(file: StepFile, roots: readonly number[], exclude?: Read
   return Uint32Array.from(out);
 }
 
+/**
+ * The ids that instances at `positions` refer to but the file doesn't define, ascending (references beyond the largest
+ * id aren't indexed; the scan warns of them).
+ */
+export function danglingRefs(file: StepFile, positions: ArrayLike<number>): number[] {
+  const ix = file.index;
+  const out = new Set<number>();
+  for (let k = 0; k < positions.length; k++) for (const id of ix.refsOf(positions[k]!)) if (ix.position(id) < 0) out.add(id);
+  return [...out].sort((a, b) => a - b);
+}
+
 /** Build the subset for the representations at `roots` (positions). Throws ParseError if a rewritten root is malformed. */
 export function buildSubset(file: StepFile, roots: readonly number[], opts: SubsetOptions = {}): Subset {
   const ix = file.index;

@@ -271,3 +271,39 @@ test("a two-dimensional drawing isn't a part, and says so; a wireframe is", asyn
   assert.deepEqual(scene.diagnostics.filter((d) => /drawing/.test(d.message)), [{ severity: 'info', message: 'a two-dimensional drawing; not imported', source: { format: 'step', id: 112 } }]);
   assert.deepEqual([...partInstances(scene)].map((p) => p.part), [0]);
 });
+
+test('dangling references: a warning per part naming them, at most 10; one beyond the largest id, from the scan', async () => {
+  const ctx = "#20=(GEOMETRIC_REPRESENTATION_CONTEXT(3)GLOBAL_UNIT_ASSIGNED_CONTEXT((#21))REPRESENTATION_CONTEXT('',''));\n#21=(LENGTH_UNIT()NAMED_UNIT(*)SI_UNIT(.MILLI.,.METRE.));";
+  const many = Array.from({ length: 12 }, (_, i) => `#${912 - i}`).join(',');
+  const { scene } = await importStep(file(`${ctx}
+#1=APPLICATION_CONTEXT('');
+#2=PRODUCT_CONTEXT('',#1,'mechanical');
+#3=PRODUCT_DEFINITION_CONTEXT('part definition',#1,'design');
+#5=CARTESIAN_POINT('',(0.,0.,0.));
+#6=AXIS2_PLACEMENT_3D('',#5,$,$);
+#100=PRODUCT('P','P','',(#2));
+#101=PRODUCT_DEFINITION_FORMATION('','',#100);
+#102=PRODUCT_DEFINITION('','',#101,#3);
+#103=PRODUCT_DEFINITION_SHAPE('','',#102);
+#104=SHAPE_REPRESENTATION('',(#6),#20);
+#105=SHAPE_DEFINITION_REPRESENTATION(#103,#104);
+#106=SHAPE_REPRESENTATION_RELATIONSHIP('','',#10,#104);
+#107=SHAPE_REPRESENTATION_RELATIONSHIP('','',#30,#104);
+#108=SHAPE_REPRESENTATION_RELATIONSHIP('','',#40,#104);
+#10=ADVANCED_BREP_SHAPE_REPRESENTATION('many',(#11),#20);
+#11=MANIFOLD_SOLID_BREP('',#12);
+#12=CLOSED_SHELL('',(${many},#901));
+#30=ADVANCED_BREP_SHAPE_REPRESENTATION('one',(#31),#20);
+#31=MANIFOLD_SOLID_BREP('',#32);
+#32=CLOSED_SHELL('',(#0,#18446744073709551615));
+#40=ADVANCED_BREP_SHAPE_REPRESENTATION('sound',(#41),#20);
+#41=MANIFOLD_SOLID_BREP('',#42);
+#42=CLOSED_SHELL('',());`));
+  assert.equal(scene.parts.length, 3);
+  const step = (id: number) => ({ format: 'step', id });
+  assert.deepEqual(scene.diagnostics.filter((d) => /define|beyond/.test(d.message)), [
+    { severity: 'warning', message: 'reference beyond the largest instance id (2^32 - 1) read as $', source: step(32) },
+    { severity: 'warning', message: "1 reference to an instance the file doesn't define: #0", source: step(30) },
+    { severity: 'warning', message: "12 references to instances the file doesn't define: #901, #902, #903, #904, #905, #906, #907, #908, #909, #910, ...", source: step(10) },
+  ]);
+});
