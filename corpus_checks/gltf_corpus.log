@@ -1,0 +1,13 @@
+files 517 (0 over 1000 MB skipped), 174 s
+part nodes 5027 (3 hidden), meshes 3125, triangle primitives 5146, triangles 17744792, segments 1972391, points 1064
+GLB 461.2 MB; export 1.60 s; validation 4.75 s
+largest:
+  130.4 MB, 0.3 s  gkv311-opencascade-dataset/step/as1_motor.step
+  93.8 MB, 0.2 s  gkv311-opencascade-dataset/step/bug28366_fuselage.stp
+  17.6 MB, 0.0 s  gkv311-opencascade-dataset/step/trj3_s1-ac-214.stp
+  15.6 MB, 0.1 s  gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp
+  15.1 MB, 0.1 s  gkv311-opencascade-dataset/step/bug29979_firetherm_12.step
+validator issues (count, files, code, an example):
+         3    3 info ACCESSOR_INDEX_TRIANGLE_DEGENERATE  e.g. gkv311-opencascade-dataset/step/nist/bug33661_nist_ftc_08_asme1_ap242-e1-tg.stp /meshes/0/primitives/0/indices: Indices accessor contains 7 degenerate triangles (out of 3375).
+         3    3 info UNSUPPORTED_EXTENSION  e.g. nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_02_asme1_ap242-e2.stp /extensionsUsed/0: Cannot validate an extension as it is not supported by the validator: 'KHR_node_visibility'.
+problems 0

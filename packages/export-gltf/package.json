@@ -1,0 +1,18 @@
+{
+  "name": "export-gltf",
+  "version": "0.0.0",
+  "description": "Scene model to glTF 2.0 (GLB, or .gltf with a .bin), written with glTF-Transform",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@gltf-transform/core": "4.5.1",
+    "@gltf-transform/extensions": "4.5.1",
+    "cad-scene": "0.0.0"
+  },
+  "devDependencies": {
+    "gltf-validator": "2.0.0-dev.3.10"
+  }
+}

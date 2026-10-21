@@ -11,6 +11,7 @@ import path from 'node:path';
 import { Readable, type Writable } from 'node:stream';
 import { parseArgs } from 'node:util';
 import { exportView, tessellateScene, type Diagnostic, type ExportView, type Scene, type Tessellator } from 'cad-scene';
+import { glb, gltfJson, type GltfOptions, type LineKind } from 'export-gltf';
 import { threejsChunks } from 'export-threejs';
 import { importStep } from 'step-import';
 import { readStep } from 'step-parser';
@@ -21,21 +22,60 @@ import type { Io } from './step2json.ts';
 interface Format {
   extensions: string[];
   description: string;
-  write(scene: Scene, view: ExportView, opts: FormatOptions): Iterable<string | Uint8Array>;
+  /** Needs a file beside the output (so can't write standard output), unless --gltf-embed. */
+  sidecar?: string;
+  /** Takes the --gltf-* options. */
+  gltf?: boolean;
+  write(scene: Scene, view: ExportView, opts: FormatOptions): Promise<Written> | Written;
 }
 
 interface FormatOptions {
   name: string;
   doubleSided: boolean;
+  keepHidden: boolean;
+  /** The sidecar's file name, beside the output, for formats with one; empty: embedded. */
+  sidecar: string;
+  exclude: LineKind[];
+  unlitLines: boolean;
+}
+
+interface Written {
+  chunks: Iterable<string | Uint8Array>;
+  /** The sidecar's contents, for formats with one. */
+  sidecar?: Uint8Array;
+  diagnostics?: Diagnostic[];
 }
 
 const FORMATS: Record<string, Format> = {
   threejs: {
     extensions: ['.json'],
     description: 'three.js JSON Object Scene format 4 (THREE.ObjectLoader)',
-    write: (scene, view, o) => threejsChunks(scene, view, { name: o.name, doubleSided: o.doubleSided }),
+    write: (scene, view, o) => ({ chunks: threejsChunks(scene, view, { name: o.name, doubleSided: o.doubleSided }) }),
+  },
+  glb: {
+    extensions: ['.glb'],
+    description: 'glTF 2.0, binary',
+    gltf: true,
+    write: async (scene, view, o) => {
+      const r = await glb(scene, view, gltfOptions(o));
+      return { chunks: [r.bytes], diagnostics: r.diagnostics };
+    },
+  },
+  gltf: {
+    extensions: ['.gltf'],
+    description: 'glTF 2.0, JSON with its buffer in a .bin beside it (or embedded: --gltf-embed)',
+    sidecar: '.bin',
+    gltf: true,
+    write: async (scene, view, o) => {
+      const r = await gltfJson(scene, view, o.sidecar || undefined, gltfOptions(o));
+      return { chunks: [r.json], sidecar: r.bin, diagnostics: r.diagnostics };
+    },
   },
 };
+
+function gltfOptions(o: FormatOptions): GltfOptions {
+  return { name: o.name, doubleSided: o.doubleSided, hidden: o.keepHidden ? 'extension' : 'omit', exclude: o.exclude, unlitLines: o.unlitLines };
+}
 
 const BACKENDS: Record<string, { module: string; export: string }> = {
   occt: { module: 'tess-occt', export: 'OcctTessellator' },
@@ -64,7 +104,15 @@ Options:
                            0.5 rad; truck ignores it)
       --edges              write B-rep edges
       --curves             write wireframe curves and points
-      --double-sided       render faces from both sides (three.js)
+      --double-sided       render faces from both sides
+      --keep-hidden        glTF: write hidden instances with KHR_node_visibility (default: left out); three.js
+                           always writes them hidden
+      --gltf-no-edges      glTF: leave out B-rep edges (as without --edges)
+      --gltf-no-curves     glTF: leave out wireframe curves
+      --gltf-no-points     glTF: leave out isolated points
+      --gltf-faces-only    glTF: all three
+      --gltf-unlit-lines   glTF: edges, curves and points with KHR_materials_unlit (flat colour)
+      --gltf-embed         .gltf: the buffer embedded as base64 instead of a .bin beside it (a third bigger)
   -j, --workers <n>        parts tessellated at once, each in a worker (default ${defaultWorkers()}); 0: one at a time
                            on the main thread, without a timeout
       --timeout <s>        per part, in a worker (default 120); 0: none
@@ -94,6 +142,13 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
         edges: { type: 'boolean', default: false },
         curves: { type: 'boolean', default: false },
         'double-sided': { type: 'boolean', default: false },
+        'keep-hidden': { type: 'boolean', default: false },
+        'gltf-no-edges': { type: 'boolean', default: false },
+        'gltf-no-curves': { type: 'boolean', default: false },
+        'gltf-no-points': { type: 'boolean', default: false },
+        'gltf-faces-only': { type: 'boolean', default: false },
+        'gltf-unlit-lines': { type: 'boolean', default: false },
+        'gltf-embed': { type: 'boolean', default: false },
         workers: { type: 'string', short: 'j' },
         timeout: { type: 'string', default: '120' },
         cache: { type: 'string' },
@@ -121,6 +176,12 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
   }
   const format = FORMATS[formatName];
   if (!format) return usage(`unknown format '${formatName}'`);
+  const gltfFlags = ['gltf-no-edges', 'gltf-no-curves', 'gltf-no-points', 'gltf-faces-only', 'gltf-unlit-lines', 'gltf-embed'] as const;
+  const given = gltfFlags.find((f) => o[f]);
+  if (given && !format.gltf) return usage(`--${given} applies to glb and gltf output`);
+  if (o['gltf-embed'] && !format.sidecar) return usage('--gltf-embed applies to gltf output (GLB holds its buffer)');
+  const embed = o['gltf-embed'];
+  if (format.sidecar && !embed && o.output === '-') return usage(`${formatName} writes a ${format.sidecar} file beside the output, so not to standard output`);
   const backend = BACKENDS[o.backend];
   if (!backend) return usage(`unknown backend '${o.backend}'`);
   let bad: string | undefined;
@@ -166,11 +227,16 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
     return 2;
   }
   if (out !== io.stdout) out.on('error', (e: Error) => { outError = e; out.emit('drain'); });
-  // On a failure after this, no partial file is left.
+  // The sidecar (glTF's .bin): beside the output, named after it.
+  const sidecar = format.sidecar && !embed ? `${path.basename(o.output, path.extname(o.output))}${format.sidecar}` : '';
+  const sidecarPath = path.join(path.dirname(o.output), sidecar);
+  let sidecarWritten = false;
+  // On a failure after this, no partial file is left (and nothing removed that this run didn't write).
   const abandon = () => {
     if (out === io.stdout) return;
     out.destroy();
     fs.rmSync(o.output!, { force: true });
+    if (sidecarWritten) fs.rmSync(sidecarPath, { force: true });
   };
 
   let tess: Tessellator;
@@ -209,7 +275,17 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
   const view = exportView(scene, meshes, { edges: o.edges, curves: o.curves });
   let written = 0;
   try {
-    for (const c of format.write(scene, view, { name, doubleSided: o['double-sided'] })) {
+    const faces = o['gltf-faces-only'];
+    const exclude = (['edges', 'curves', 'points'] as const).filter((k) => faces || o[`gltf-no-${k}`]);
+    const w = await format.write(scene, view, { name, doubleSided: o['double-sided'], keepHidden: o['keep-hidden'], sidecar, exclude, unlitLines: o['gltf-unlit-lines'] });
+    diagnostics.push(...(w.diagnostics ?? []));
+    // (None when embedded, or when there's no buffer: a scene with nothing to draw.)
+    if (sidecar && w.sidecar?.length) {
+      fs.writeFileSync(sidecarPath, w.sidecar);
+      sidecarWritten = true;
+      written += w.sidecar.length;
+    }
+    for (const c of w.chunks) {
       written += typeof c === 'string' ? Buffer.byteLength(c) : c.length;
       if (!out.write(c)) await new Promise<void>((resolve) => out.once('drain', () => resolve()));
       if (outError) throw outError;

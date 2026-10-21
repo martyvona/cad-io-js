@@ -11,6 +11,7 @@ import { test } from 'node:test';
 import { gzipSync } from 'node:zlib';
 import * as THREE from 'three';
 import { exportView, tessellateScene } from 'cad-scene';
+import { glb, gltfJson } from 'export-gltf';
 import { threejsJson } from 'export-threejs';
 import { importStep } from 'step-import';
 import { OcctTessellator } from 'tess-occt';
@@ -82,6 +83,101 @@ test('stepconv: the same file as the library pipeline, in a worker pool and on t
   assert.deepEqual([...sides], [THREE.DoubleSide]);
 });
 
+test('stepconv: GLB and .gltf with its .bin, the same as the library; hidden instances; standard output', { skip }, async () => {
+  const tess = new OcctTessellator();
+  await tess.init();
+  const { scene } = await importStep(fs.readFileSync(assembly));
+  const { meshes } = await tessellateScene(scene, tess, { linearDeflection: 0.1, angularDeflection: 0.5, edges: true });
+  tess.dispose();
+  const view = exportView(scene, meshes, { edges: true });
+  const out = path.join(tmp, 'as1.glb');
+  const r = await run([assembly, '-o', out, '--edges', '-j', '2']);
+  assert.equal(r.code, 0, r.stderr);
+  assert.deepEqual(new Uint8Array(fs.readFileSync(out)), (await glb(scene, view, { name: 'as1-oc-214-mat' })).bytes);
+  // .gltf: the JSON names a .bin beside it, named after the output.
+  const json = path.join(tmp, 'model.gltf');
+  assert.equal((await run([assembly, '-o', json, '--edges', '-j', '2'])).code, 0);
+  const expected = await gltfJson(scene, view, 'model.bin', { name: 'as1-oc-214-mat' });
+  assert.equal(fs.readFileSync(json, 'utf8'), expected.json);
+  assert.deepEqual(new Uint8Array(fs.readFileSync(path.join(tmp, 'model.bin'))), expected.bin);
+  assert.match(expected.json, /"uri":"model.bin"/);
+  // GLB to standard output; .gltf can't go there.
+  const stdout = spawnSync(process.execPath, [path.join(import.meta.dirname, '../bin/stepconv.ts'), cube, '-o', '-', '-f', 'glb', '-j', '0', '-q']);
+  assert.equal(stdout.status, 0);
+  assert.equal(stdout.stdout.subarray(0, 4).toString('latin1'), 'glTF');
+  // (In the temporary directory, so that a broken check writes its '-.bin' there.)
+  const usage = spawnSync(process.execPath, [path.join(import.meta.dirname, '../bin/stepconv.ts'), cube, '-o', '-', '-f', 'gltf'], { cwd: tmp, encoding: 'utf8' });
+  assert.equal(usage.status, 1);
+  assert.match(usage.stderr, /gltf writes a \.bin file beside the output, so not to standard output/);
+  // If the .bin can't be written, neither file is left.
+  const blocked = path.join(tmp, 'blocked.gltf');
+  fs.mkdirSync(path.join(tmp, 'blocked.bin'));
+  const failed = await run([cube, '-o', blocked, '-j', '0']);
+  assert.equal(failed.code, 2);
+  assert.match(failed.stderr, /can't write .*blocked\.gltf: EISDIR/);
+  assert.ok(!fs.existsSync(blocked) && fs.statSync(path.join(tmp, 'blocked.bin')).isDirectory());
+});
+
+// A solid with a curve set and points beside it: edges, curves and points.
+const mixed = path.join(root, 'test_corpus/third_party/gkv311-opencascade-dataset/step/trj6_as1-td-214.stp');
+
+test('stepconv: --gltf-no-edges/curves/points, --gltf-faces-only, --gltf-unlit-lines, --gltf-embed', { skip: skip || (!fs.existsSync(mixed) && 'corpus not fetched') }, async () => {
+  const out = path.join(tmp, 'flags.gltf');
+  // Each run embedded, so the .gltf alone has everything.
+  const kinds = async (file: string, args: string[]) => {
+    const r = await run([file, '-o', out, '--gltf-embed', '-j', '2', ...args]);
+    assert.equal(r.code, 0, r.stderr);
+    const json = JSON.parse(fs.readFileSync(out, 'utf8'));
+    return { names: [...new Set<string>(json.nodes.map((n: { name?: string }) => n.name).filter((n: string) => ['edges', 'curves', 'points'].includes(n)))].sort(), json };
+  };
+  const all = ['--edges', '--curves'];
+  assert.deepEqual((await kinds(mixed, all)).names, ['curves', 'edges', 'points']);
+  assert.deepEqual((await kinds(mixed, [...all, '--gltf-no-edges'])).names, ['curves', 'points']);
+  assert.deepEqual((await kinds(mixed, [...all, '--gltf-no-curves'])).names, ['edges', 'points']);
+  assert.deepEqual((await kinds(mixed, [...all, '--gltf-no-points'])).names, ['curves', 'edges']);
+  assert.deepEqual((await kinds(mixed, [...all, '--gltf-no-edges', '--gltf-no-curves', '--gltf-no-points'])).names, []);
+  assert.deepEqual((await kinds(mixed, [...all, '--gltf-faces-only'])).names, []);
+  // Embedded: no .bin beside it, the buffer a data URI.
+  const { json } = await kinds(assembly, all);
+  assert.ok(!fs.existsSync(path.join(tmp, 'flags.bin')));
+  assert.match(json.buffers[0].uri, /^data:application\/octet-stream;base64,/);
+  assert.equal(json.extensionsUsed, undefined);
+  // Unlit lines: the extension on the edges' material only.
+  const unlit = (await kinds(assembly, [...all, '--gltf-unlit-lines'])).json;
+  assert.deepEqual(unlit.extensionsUsed, ['KHR_materials_unlit']);
+  const edgeMesh = unlit.nodes.find((n: { name?: string }) => n.name === 'edges').mesh;
+  const unlitMaterials = unlit.materials.map((m: { extensions?: object }, i: number) => (m.extensions ? i : -1)).filter((i: number) => i >= 0);
+  assert.deepEqual(unlitMaterials, [unlit.meshes[edgeMesh].primitives[0].material]);
+  // Embedded .gltf to standard output.
+  const stdout = spawnSync(process.execPath, [path.join(import.meta.dirname, '../bin/stepconv.ts'), cube, '-o', '-', '-f', 'gltf', '--gltf-embed', '-j', '0', '-q'], { cwd: tmp, encoding: 'utf8' });
+  assert.equal(stdout.status, 0);
+  assert.equal(JSON.parse(stdout.stdout).asset.version, '2.0');
+  // glTF flags with other formats.
+  const scratch = path.join(tmp, 'usage.json');
+  for (const flag of ['--gltf-no-edges', '--gltf-no-curves', '--gltf-no-points', '--gltf-faces-only', '--gltf-unlit-lines', '--gltf-embed']) {
+    const r = await run([cube, '-o', scratch, flag]);
+    assert.equal(r.code, 1, flag);
+    assert.match(r.stderr, new RegExp(`${flag} applies to glb and gltf output`));
+  }
+  const g = await run([cube, '-o', path.join(tmp, 'usage.glb'), '--gltf-embed']);
+  assert.equal(g.code, 1);
+  assert.match(g.stderr, /--gltf-embed applies to gltf output \(GLB holds its buffer\)/);
+});
+
+const hidden = path.join(root, 'test_corpus/third_party/nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_02_asme1_ap242-e2.stp');
+
+test('stepconv: glTF leaves hidden instances out, with a warning, unless --keep-hidden', { skip: skip || (!fs.existsSync(hidden) && 'corpus not fetched') }, async () => {
+  const out = path.join(tmp, 'hidden.gltf');
+  const used = () => JSON.parse(fs.readFileSync(out, 'utf8')).extensionsUsed;
+  const lax = await run([hidden, '-o', out, '-j', '2']);
+  assert.equal(lax.code, 0);
+  assert.match(lax.stderr, /\n  warning: 1 hidden part instance left out \(glTF has no visibility without KHR_node_visibility\)\n/);
+  assert.equal(used(), undefined);
+  const kept = await run([hidden, '-o', out, '-j', '2', '--keep-hidden']);
+  assert.doesNotMatch(kept.stderr, /hidden/);
+  assert.deepEqual(used(), ['KHR_node_visibility']);
+});
+
 test('stepconv: --angular in degrees', { skip }, async () => {
   const out = path.join(tmp, 'angular.json');
   const tess = new OcctTessellator();
@@ -108,6 +204,10 @@ test('stepconv: --strict exits 3 when a part fails, with the output written', { 
   assert.match(lax.stderr, /^1 parts \(0 of 1 brep parts tessellated\)/);
   fs.rmSync(out);
   assert.equal((await run([broken, '-o', out, '-j', '0', '--strict'])).code, 3);
+  // Nothing to draw: a .gltf without a buffer, so no .bin.
+  assert.equal((await run([broken, '-o', path.join(tmp, 'empty.gltf'), '-j', '0'])).code, 0);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(tmp, 'empty.gltf'), 'utf8')).buffers, undefined);
+  assert.ok(!fs.existsSync(path.join(tmp, 'empty.bin')));
   assert.equal(load(fs.readFileSync(out, 'utf8')).type, 'Group');
   assert.equal((await run([cube, '-o', out, '-j', '0', '--strict'])).code, 0);
 });
@@ -190,6 +290,8 @@ test('stepconv: usage errors and failures', async () => {
   assert.equal(help.code, 0);
   assert.match(help.stdout, /^Usage: stepconv/);
   assert.match(help.stdout, /threejs +\.json/);
+  assert.match(help.stdout, /glb +\.glb/);
+  assert.match(help.stdout, /gltf +\.gltf/);
   // Failures: an unreadable input; an output that can't be opened (nothing written).
   const missing = await run([path.join(tmp, 'missing.stp'), '-o', path.join(tmp, 'x.json')]);
   assert.equal(missing.code, 2);
