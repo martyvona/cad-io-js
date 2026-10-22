@@ -1,0 +1,10 @@
+files 517 (0 over 1000 MB skipped), 336 s
+items 4857, objects: model 1142, surface 1983 (1983 not manifold by lib3mf, 0 inside out); triangles 16752986 (0 degenerate dropped)
+3MF 218.6 MB (assembly build 218.6 MB); export 41.15 s; lib3mf read 83.78 s
+largest:
+  69.6 MB, 13.1 s  gkv311-opencascade-dataset/step/as1_motor.step
+  56.6 MB, 10.1 s  gkv311-opencascade-dataset/step/bug28366_fuselage.stp
+  9.9 MB, 1.8 s  gkv311-opencascade-dataset/step/trj3_s1-ac-214.stp
+  8.5 MB, 1.6 s  gkv311-opencascade-dataset/step/bug30790.step
+  6.2 MB, 1.2 s  gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp
+problems 0

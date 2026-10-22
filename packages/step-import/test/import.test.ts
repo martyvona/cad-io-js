@@ -138,6 +138,26 @@ const DATA = `
 #634=CONTEXT_DEPENDENT_SHAPE_REPRESENTATION(#632,#631);
 #640=CONTEXT_DEPENDENT_OVER_RIDING_STYLED_ITEM('',(#516),#205,#507,(#622,#632));`;
 
+test('names: generic part names take the product\'s, blank names are missing', async () => {
+  const names = async (rep: string, product = 'Box', partNumber = 'BOX', occurrence = 'box 1') => {
+    const data = DATA.replace("ADVANCED_BREP_SHAPE_REPRESENTATION('box',", `ADVANCED_BREP_SHAPE_REPRESENTATION('${rep}',`)
+      .replace("PRODUCT('BOX','Box','a box'", `PRODUCT('${partNumber}','${product}','a box'`)
+      .replace("NEXT_ASSEMBLY_USAGE_OCCURRENCE('1','box 1'", `NEXT_ASSEMBLY_USAGE_OCCURRENCE('1','${occurrence}'`);
+    const { scene } = await importStep(file(data));
+    return { part: scene.parts[0]!.name, component: scene.components[1]!.name, occurrence: scene.components[0]!.children[0]!.name };
+  };
+  // Generic representation names (blank, NONE, an instance id) take the product's; others are kept.
+  for (const rep of ['', ' ', 'NONE', 'none', '#205', ' #12 ']) assert.equal((await names(rep)).part, 'Box', `'${rep}'`);
+  for (const rep of ['box', 'SOLID', 'Part 12', '#205 copy']) assert.equal((await names(rep)).part, rep);
+  // A blank product name gives way to the part number, for the component and for the part.
+  assert.deepEqual(await names('#205', ' '), { part: 'BOX', component: 'BOX', occurrence: 'box 1' });
+  assert.deepEqual(await names('#205', '', 'BOX'), { part: 'BOX', component: 'BOX', occurrence: 'box 1' });
+  // Both blank: the component keeps its blank name, the part its own.
+  assert.deepEqual(await names('NONE', ' ', ''), { part: 'NONE', component: ' ', occurrence: 'box 1' });
+  // A blank occurrence name is no name (the products extractor drops it).
+  assert.equal((await names('box', 'Box', 'BOX', '  ')).occurrence, undefined);
+});
+
 test('components, parts, units and placements', async () => {
   const { scene, partOf } = await importStep(file(DATA));
   assert.deepEqual(validate(scene), []);

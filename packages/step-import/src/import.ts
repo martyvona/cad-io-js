@@ -192,18 +192,20 @@ export function sceneFromStep(model: StepModel, sem: Semantics): ImportResult {
     parts.push(part);
   }
 
-  // Parts without a name of their own take the name of the first product that uses them.
+  // Parts with a generic name (blank, NONE, #123) take the name of the first product that uses them, if it has one
+  // (decided by the user, 2026-10-22).
   s.products.forEach((p, i) => {
     for (const { representation } of productRepresentations(s, i)) {
       const part = partOf.get(representation);
-      if (part !== undefined && !parts[part]!.name) parts[part]!.name = p.name || p.partNumber;
+      const name = productName(p);
+      if (part !== undefined && genericName(parts[part]!.name) && !genericName(name)) parts[part]!.name = name;
     }
   });
 
   // Components, one per product definition.
   const components: Component[] = s.products.map((p, i) => {
     const c: Component = {
-      name: p.name || p.partNumber, sources: [src(p.id), ...(p.productId >= 0 ? [src(p.productId)] : [])],
+      name: productName(p), sources: [src(p.id), ...(p.productId >= 0 ? [src(p.productId)] : [])],
       properties: Object.fromEntries(Object.entries({
         partNumber: p.partNumber, version: p.version, description: p.description, definitionId: p.definitionId, lifeCycleStage: p.lifeCycleStage,
       }).filter(([, v]) => v !== undefined)) as Record<string, string>,
@@ -297,3 +299,12 @@ export function sceneFromStep(model: StepModel, sem: Semantics): ImportResult {
   return { scene, model, semantics: sem, partOf };
 }
 
+/** A product's name, else (blank) its part number (decided by the user, 2026-10-22). */
+function productName(p: { name: string; partNumber: string }): string {
+  return p.name.trim() || !p.partNumber.trim() ? p.name : p.partNumber;
+}
+
+/** Names that say nothing of the part: blank, NONE, or an instance id such as #830 (as some writers name representations). */
+function genericName(name: string): boolean {
+  return /^\s*(none|#\d+)?\s*$/i.test(name);
+}

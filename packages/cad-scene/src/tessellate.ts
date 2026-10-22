@@ -1,6 +1,10 @@
 // Driving a tessellator over a scene: one request per brep part, with the part's origin and the deflection
-// converted from the scene's millimetres to the part's units; the results become the parts' meshes.
+// converted from the scene's millimetres to the part's units; the results become the parts' meshes, with closed
+// shells that are inside out (and can't be voids' boundaries) turned over, so every consumer of the meshes, not just
+// the exporters, has them outward, and triangles with two corners at one position dropped first (both decided by the
+// user, 2026-10-22).
 
+import { dropDegenerate, orientShells } from './mesh.ts';
 import type { Diagnostic, Mesh, Scene } from './scene.ts';
 import type { TessellationResult, Tessellator } from './tessellator.ts';
 
@@ -14,6 +18,10 @@ export interface TessellateOptions {
   parts?: readonly number[];
   /** Requests in flight at once; set it to a worker pool's size. Default 1. */
   concurrency?: number;
+  /** Turn inside-out closed shells over (orientShells), with a warning per part. Default true; false keeps the meshes as the backend gave them. */
+  orient?: boolean;
+  /** Drop triangles with two corners at one position (dropDegenerate), with an info diagnostic per part. Default true; false keeps them. */
+  dropDegenerate?: boolean;
   /** Called after each part, in the order parts finish, for progress reporting. */
   onPart?: (part: number, mesh: Mesh | undefined, done: number, total: number) => void;
 }
@@ -74,6 +82,22 @@ export async function tessellateScene(scene: Scene, tess: Tessellator, opts: Tes
       });
       for (const d of r.diagnostics) diagnostics.push(source && !d.source ? { ...d, source } : d);
       if (r.indices.length || r.positions.length || r.curves?.length || r.points?.length) mesh = toMesh(r);
+      if (mesh && (opts.dropDegenerate ?? true)) {
+        const d = dropDegenerate(mesh);
+        mesh = d.mesh;
+        if (d.dropped) {
+          const n = d.dropped;
+          diagnostics.push({ severity: 'info', message: `${n} degenerate ${n === 1 ? 'triangle' : 'triangles'} dropped (two corners at one position)`, ...(source ? { source } : {}) });
+        }
+      }
+      if (mesh && (opts.orient ?? true)) {
+        const o = orientShells(mesh);
+        mesh = o.mesh;
+        if (o.turned) {
+          const n = o.turned;
+          diagnostics.push({ severity: 'warning', message: `${n} closed ${n === 1 ? 'shell' : 'shells'} turned over (inside out, and inside no other shell)`, ...(source ? { source } : {}) });
+        }
+      }
     } catch (e) {
       diagnostics.push({ severity: 'error', message: `tessellation failed: ${(e as Error).message}`, ...(source ? { source } : {}) });
     }

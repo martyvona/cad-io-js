@@ -1,5 +1,5 @@
 // stepconv: STEP (Part 21, or gzipped .stpZ) to a tessellated format. See docs/architecture.md, "Stage 4", and
-// docs/phase4_progress.md, step 3.
+// docs/phase4_progress.md, steps 3 to 5.
 //
 //   import (step-import) → tessellate each part (a backend, in a tess-workers pool unless --workers 0, cached with
 //   tess-cache when --cache names a directory) → the export view (cad-scene) → an exporter, chosen by the output's
@@ -11,6 +11,7 @@ import path from 'node:path';
 import { Readable, type Writable } from 'node:stream';
 import { parseArgs } from 'node:util';
 import { exportView, tessellateScene, type Diagnostic, type ExportView, type Scene, type Tessellator } from 'cad-scene';
+import { threemf } from 'export-3mf';
 import { glb, gltfJson, type GltfOptions, type LineKind } from 'export-gltf';
 import { threejsChunks } from 'export-threejs';
 import { importStep } from 'step-import';
@@ -26,6 +27,8 @@ interface Format {
   sidecar?: string;
   /** Takes the --gltf-* options. */
   gltf?: boolean;
+  /** Takes the --3mf-* options; has no lines, and no double-sided faces. */
+  threemf?: boolean;
   write(scene: Scene, view: ExportView, opts: FormatOptions): Promise<Written> | Written;
 }
 
@@ -37,6 +40,9 @@ interface FormatOptions {
   sidecar: string;
   exclude: LineKind[];
   unlitLines: boolean;
+  colorgroup: boolean;
+  assembly: boolean;
+  surfaces: boolean;
 }
 
 interface Written {
@@ -71,6 +77,18 @@ const FORMATS: Record<string, Format> = {
       return { chunks: [r.json], sidecar: r.bin, diagnostics: r.diagnostics };
     },
   },
+  '3mf': {
+    extensions: ['.3mf'],
+    description: '3MF core, closed meshes (an item per placed part; colours as basematerials)',
+    threemf: true,
+    write: (scene, view, o) => {
+      const r = threemf(scene, view, {
+        name: o.name, colors: o.colorgroup ? 'colorgroup' : 'basematerials', build: o.assembly ? 'assembly' : 'parts',
+        nonManifold: o.surfaces ? 'surface' : 'omit', hidden: o.keepHidden ? 'keep' : 'omit',
+      });
+      return { chunks: r.chunks, diagnostics: r.diagnostics };
+    },
+  },
 };
 
 function gltfOptions(o: FormatOptions): GltfOptions {
@@ -102,17 +120,21 @@ Options:
   -d, --deflection <mm>    maximum distance between mesh and surface, in millimetres (default 0.1)
       --angular <deg>      maximum angle between adjacent mesh normals, in degrees (default ${degrees(DEFAULT_ANGULAR).toFixed(1)},
                            0.5 rad; truck ignores it)
-      --edges              write B-rep edges
-      --curves             write wireframe curves and points
-      --double-sided       render faces from both sides
-      --keep-hidden        glTF: write hidden instances with KHR_node_visibility (default: left out); three.js
-                           always writes them hidden
+      --edges              write B-rep edges (not 3MF, which has no lines)
+      --curves             write wireframe curves and points (not 3MF)
+      --double-sided       render faces from both sides (not 3MF)
+      --keep-hidden        glTF: write hidden instances with KHR_node_visibility; 3MF: as ordinary parts
+                           (default: left out); three.js always writes them hidden
       --gltf-no-edges      glTF: leave out B-rep edges (as without --edges)
       --gltf-no-curves     glTF: leave out wireframe curves
       --gltf-no-points     glTF: leave out isolated points
       --gltf-faces-only    glTF: all three
       --gltf-unlit-lines   glTF: edges, curves and points with KHR_materials_unlit (flat colour)
       --gltf-embed         .gltf: the buffer embedded as base64 instead of a .bin beside it (a third bigger)
+      --3mf-colorgroup     3MF: colours as the Materials extension's colorgroup (print colours, opaque) instead
+                           of basematerials (display colours)
+      --3mf-assembly       3MF: one build item, the assembly as components, instead of an item per placed part
+      --3mf-surfaces       3MF: meshes that aren't closed manifolds as surface objects instead of left out
   -j, --workers <n>        parts tessellated at once, each in a worker (default ${defaultWorkers()}); 0: one at a time
                            on the main thread, without a timeout
       --timeout <s>        per part, in a worker (default 120); 0: none
@@ -149,6 +171,9 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
         'gltf-faces-only': { type: 'boolean', default: false },
         'gltf-unlit-lines': { type: 'boolean', default: false },
         'gltf-embed': { type: 'boolean', default: false },
+        '3mf-colorgroup': { type: 'boolean', default: false },
+        '3mf-assembly': { type: 'boolean', default: false },
+        '3mf-surfaces': { type: 'boolean', default: false },
         workers: { type: 'string', short: 'j' },
         timeout: { type: 'string', default: '120' },
         cache: { type: 'string' },
@@ -179,6 +204,10 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
   const gltfFlags = ['gltf-no-edges', 'gltf-no-curves', 'gltf-no-points', 'gltf-faces-only', 'gltf-unlit-lines', 'gltf-embed'] as const;
   const given = gltfFlags.find((f) => o[f]);
   if (given && !format.gltf) return usage(`--${given} applies to glb and gltf output`);
+  const threemfGiven = (['3mf-colorgroup', '3mf-assembly', '3mf-surfaces'] as const).find((f) => o[f]);
+  if (threemfGiven && !format.threemf) return usage(`--${threemfGiven} applies to 3mf output`);
+  const notThreemf = (['edges', 'curves', 'double-sided'] as const).find((f) => o[f]);
+  if (notThreemf && format.threemf) return usage(`--${notThreemf} doesn't apply to 3mf output`);
   if (o['gltf-embed'] && !format.sidecar) return usage('--gltf-embed applies to gltf output (GLB holds its buffer)');
   const embed = o['gltf-embed'];
   if (format.sidecar && !embed && o.output === '-') return usage(`${formatName} writes a ${format.sidecar} file beside the output, so not to standard output`);
@@ -277,7 +306,10 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
   try {
     const faces = o['gltf-faces-only'];
     const exclude = (['edges', 'curves', 'points'] as const).filter((k) => faces || o[`gltf-no-${k}`]);
-    const w = await format.write(scene, view, { name, doubleSided: o['double-sided'], keepHidden: o['keep-hidden'], sidecar, exclude, unlitLines: o['gltf-unlit-lines'] });
+    const w = await format.write(scene, view, {
+      name, doubleSided: o['double-sided'], keepHidden: o['keep-hidden'], sidecar, exclude, unlitLines: o['gltf-unlit-lines'],
+      colorgroup: o['3mf-colorgroup'], assembly: o['3mf-assembly'], surfaces: o['3mf-surfaces'],
+    });
     diagnostics.push(...(w.diagnostics ?? []));
     // (None when embedded, or when there's no buffer: a scene with nothing to draw.)
     if (sidecar && w.sidecar?.length) {

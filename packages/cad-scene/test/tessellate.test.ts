@@ -30,7 +30,7 @@ function fake() {
       await new Promise((r) => setTimeout(r, (5 - i) * 15));
       inFlight--;
       if (i === 2) throw new Error('boom');
-      return { origin: req.origin!, positions: new Float32Array(9), indices: new Uint32Array([0, 1, 2]), faces: [], diagnostics: [{ severity: 'info', message: `part ${i}` }] };
+      return { origin: req.origin!, positions: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), indices: new Uint32Array([0, 1, 2]), faces: [], diagnostics: [{ severity: 'info', message: `part ${i}` }] };
     },
   };
   return t satisfies Tessellator;

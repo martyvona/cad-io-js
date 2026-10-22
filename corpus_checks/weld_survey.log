@@ -1,0 +1,86 @@
+files 517 (0 over 1000 MB skipped), 270 s
+part meshes with triangles 3125, triangles 16803356, vertices 9996058 (8409678 after exact welding)
+exact, by B-rep free edges: closed, free 11; closed, no free 1131; misoriented, free 5; non-manifold, free 12; non-manifold, no free 16; open, free 1940; open, no free 10
+exact: closed 1142, open 1950, misoriented 5, non-manifold 28; degenerate triangles 50370 in 407 parts
+  open, e.g.:
+    gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp part 0 (small_shell): 26 boundary, 0 non-manifold edges, 2 degenerate
+    gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp part 1 (big_shell): 26 boundary, 0 non-manifold edges, 0 degenerate
+    gkv311-opencascade-dataset/step/bug32049_sp7_04dx_242.stp part 1 (nist_ctc_04): 42 boundary, 0 non-manifold edges, 0 degenerate
+    gkv311-opencascade-dataset/step/bug32314_corrupted.stp part 0 (Open CASCADE STEP translator 7.0 1251): 52 boundary, 0 non-manifold edges, 0 degenerate
+    gkv311-opencascade-dataset/step/trj8_c2-ac-214.stp part 1 (GBSSR1): 4 boundary, 0 non-manifold edges, 0 degenerate
+    gkv311-opencascade-dataset/step/sp7_04-dx-242.stp part 1 (nist_ctc_04): 42 boundary, 0 non-manifold edges, 0 degenerate
+    gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp part 0 (SOLID): 56 boundary, 0 non-manifold edges, 15 degenerate
+    gkv311-opencascade-dataset/step/bug30790.step part 11 (Part 12): 59 boundary, 0 non-manifold edges, 30 degenerate
+  non-manifold, e.g.:
+    gkv311-opencascade-dataset/step/bug30014.stp part 40 (B1075-115P001): 0 boundary, 1 non-manifold edges, 0 degenerate
+    gkv311-opencascade-dataset/step/bug30014.stp part 46 (B1075-115P002): 0 boundary, 1 non-manifold edges, 0 degenerate
+    gkv311-opencascade-dataset/step/bug30014.stp part 69 (P1075-199P001): 0 boundary, 109 non-manifold edges, 0 degenerate
+    gkv311-opencascade-dataset/step/bug28389_CONFIDENTIAL_SHEET_METAL_F3D.stp part 2 (SHEET METAL F3D): 0 boundary, 211 non-manifold edges, 0 degenerate
+    gkv311-opencascade-dataset/step/trj1_t4m-pe.stp part 0 (T4M): 721 boundary, 79 non-manifold edges, 2 degenerate
+    gkv311-opencascade-dataset/step/bug29979_firetherm_12.step part 11 (KA-5 K2309 modif nov 2016 propose Buggin_0): 78 boundary, 2 non-manifold edges, 253 degenerate
+    gkv311-opencascade-dataset/step/bug29979_firetherm_12.step part 15 (K2400_0): 46 boundary, 5 non-manifold edges, 53 degenerate
+    gkv311-opencascade-dataset/step/bug29979_firetherm_12.step part 18 (KA-15 K2401 modif nov 2016 propose Buggin Rev_D_0): 0 boundary, 41 non-manifold edges, 216 degenerate
+  misoriented, e.g.:
+    gkv311-opencascade-dataset/step/trj5_k1-ec-214.stp part 0 (Key1 1): 0 boundary, 0 non-manifold edges, 4 degenerate
+    gkv311-opencascade-dataset/step/wgehaeuse_surface.stp part 3 (DB_304593): 0 boundary, 0 non-manifold edges, 0 degenerate
+    gkv311-opencascade-dataset/step/wgehaeuse_surface.stp part 8 (DB_315935): 0 boundary, 0 non-manifold edges, 0 degenerate
+    gkv311-opencascade-dataset/step/wgehaeuse_surface.stp part 23 (DB_320376): 0 boundary, 0 non-manifold edges, 0 degenerate
+    gkv311-opencascade-dataset/step/wgehaeuse_surface.stp part 27 (DB_320384): 0 boundary, 0 non-manifold edges, 0 degenerate
+1e-7 diag, by B-rep free edges: closed, free 12; closed, no free 1132; misoriented, free 21; non-manifold, free 13; non-manifold, no free 16; open, free 1922; open, no free 9
+1e-7 diag: closed 1144, open 1931, misoriented 21, non-manifold 29; degenerate triangles 52321 in 407 parts
+  open, e.g.:
+    gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp part 0 (small_shell): 26 boundary, 0 non-manifold edges, 2 degenerate
+    gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp part 1 (big_shell): 26 boundary, 0 non-manifold edges, 0 degenerate
+    gkv311-opencascade-dataset/step/bug32049_sp7_04dx_242.stp part 1 (nist_ctc_04): 42 boundary, 0 non-manifold edges, 0 degenerate
+    gkv311-opencascade-dataset/step/bug32314_corrupted.stp part 0 (Open CASCADE STEP translator 7.0 1251): 52 boundary, 0 non-manifold edges, 0 degenerate
+    gkv311-opencascade-dataset/step/trj8_c2-ac-214.stp part 1 (GBSSR1): 4 boundary, 0 non-manifold edges, 0 degenerate
+    gkv311-opencascade-dataset/step/sp7_04-dx-242.stp part 1 (nist_ctc_04): 42 boundary, 0 non-manifold edges, 0 degenerate
+    gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp part 0 (SOLID): 55 boundary, 0 non-manifold edges, 30 degenerate
+    gkv311-opencascade-dataset/step/bug30790.step part 11 (Part 12): 59 boundary, 0 non-manifold edges, 30 degenerate
+  non-manifold, e.g.:
+    gkv311-opencascade-dataset/step/t4mec.stp part 0 (the product name): 1828 boundary, 2 non-manifold edges, 13 degenerate
+    gkv311-opencascade-dataset/step/bug30014.stp part 40 (B1075-115P001): 0 boundary, 1 non-manifold edges, 0 degenerate
+    gkv311-opencascade-dataset/step/bug30014.stp part 46 (B1075-115P002): 0 boundary, 1 non-manifold edges, 0 degenerate
+    gkv311-opencascade-dataset/step/bug30014.stp part 69 (P1075-199P001): 0 boundary, 109 non-manifold edges, 0 degenerate
+    gkv311-opencascade-dataset/step/bug28389_CONFIDENTIAL_SHEET_METAL_F3D.stp part 2 (SHEET METAL F3D): 0 boundary, 211 non-manifold edges, 0 degenerate
+    gkv311-opencascade-dataset/step/trj1_t4m-pe.stp part 0 (T4M): 721 boundary, 79 non-manifold edges, 2 degenerate
+    gkv311-opencascade-dataset/step/bug29979_firetherm_12.step part 11 (KA-5 K2309 modif nov 2016 propose Buggin_0): 78 boundary, 2 non-manifold edges, 729 degenerate
+    gkv311-opencascade-dataset/step/bug29979_firetherm_12.step part 15 (K2400_0): 46 boundary, 5 non-manifold edges, 53 degenerate
+  misoriented, e.g.:
+    gkv311-opencascade-dataset/step/trj5_k1-ec-214.stp part 0 (Key1 1): 0 boundary, 0 non-manifold edges, 4 degenerate
+    gkv311-opencascade-dataset/step/wgehaeuse_surface.stp part 1 (DB_320496): 0 boundary, 0 non-manifold edges, 0 degenerate
+    gkv311-opencascade-dataset/step/wgehaeuse_surface.stp part 2 (DB_320386): 0 boundary, 0 non-manifold edges, 0 degenerate
+    gkv311-opencascade-dataset/step/wgehaeuse_surface.stp part 3 (DB_304593): 0 boundary, 0 non-manifold edges, 0 degenerate
+    gkv311-opencascade-dataset/step/wgehaeuse_surface.stp part 4 (DB_320371): 0 boundary, 0 non-manifold edges, 0 degenerate
+    gkv311-opencascade-dataset/step/wgehaeuse_surface.stp part 5 (DB_319531): 0 boundary, 0 non-manifold edges, 0 degenerate
+    gkv311-opencascade-dataset/step/wgehaeuse_surface.stp part 6 (DB_322805): 0 boundary, 0 non-manifold edges, 0 degenerate
+    gkv311-opencascade-dataset/step/wgehaeuse_surface.stp part 8 (DB_315935): 0 boundary, 0 non-manifold edges, 0 degenerate
+1e-5 diag, by B-rep free edges: closed, free 6; closed, no free 1123; misoriented, free 23; non-manifold, free 26; non-manifold, no free 26; open, free 1913; open, no free 8
+1e-5 diag: closed 1129, open 1921, misoriented 23, non-manifold 52; degenerate triangles 91128 in 422 parts
+  open, e.g.:
+    gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp part 0 (small_shell): 26 boundary, 0 non-manifold edges, 2 degenerate
+    gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp part 1 (big_shell): 26 boundary, 0 non-manifold edges, 0 degenerate
+    gkv311-opencascade-dataset/step/bug32049_sp7_04dx_242.stp part 1 (nist_ctc_04): 42 boundary, 0 non-manifold edges, 0 degenerate
+    gkv311-opencascade-dataset/step/bug32314_corrupted.stp part 0 (Open CASCADE STEP translator 7.0 1251): 52 boundary, 0 non-manifold edges, 0 degenerate
+    gkv311-opencascade-dataset/step/trj8_c2-ac-214.stp part 1 (GBSSR1): 4 boundary, 0 non-manifold edges, 0 degenerate
+    gkv311-opencascade-dataset/step/sp7_04-dx-242.stp part 1 (nist_ctc_04): 42 boundary, 0 non-manifold edges, 0 degenerate
+    gkv311-opencascade-dataset/step/bug30790.step part 26 (Surface 1): 719 boundary, 0 non-manifold edges, 0 degenerate
+    gkv311-opencascade-dataset/step/trj9_c2-sy-214.stp part 0 (*MASTER): 4 boundary, 0 non-manifold edges, 0 degenerate
+  non-manifold, e.g.:
+    gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp part 0 (SOLID): 55 boundary, 13 non-manifold edges, 84 degenerate
+    gkv311-opencascade-dataset/step/bug30790.step part 11 (Part 12): 56 boundary, 18 non-manifold edges, 2157 degenerate
+    gkv311-opencascade-dataset/step/bug30790.step part 12 (Part 13): 28 boundary, 14 non-manifold edges, 2002 degenerate
+    gkv311-opencascade-dataset/step/bug30790.step part 13 (Part 14): 0 boundary, 38 non-manifold edges, 1322 degenerate
+    gkv311-opencascade-dataset/step/bug30790.step part 14 (Part 15): 55 boundary, 23 non-manifold edges, 1616 degenerate
+    gkv311-opencascade-dataset/step/bug30790.step part 15 (Part 16): 85 boundary, 27 non-manifold edges, 997 degenerate
+    gkv311-opencascade-dataset/step/bug30790.step part 16 (Part 17): 0 boundary, 37 non-manifold edges, 1768 degenerate
+    gkv311-opencascade-dataset/step/bug30790.step part 17 (Part 18): 0 boundary, 27 non-manifold edges, 1140 degenerate
+  misoriented, e.g.:
+    gkv311-opencascade-dataset/step/trj5_k1-ec-214.stp part 0 (Key1 1): 0 boundary, 0 non-manifold edges, 4 degenerate
+    gkv311-opencascade-dataset/step/wgehaeuse_surface.stp part 0 (DB_324248): 0 boundary, 0 non-manifold edges, 0 degenerate
+    gkv311-opencascade-dataset/step/wgehaeuse_surface.stp part 1 (DB_320496): 0 boundary, 0 non-manifold edges, 0 degenerate
+    gkv311-opencascade-dataset/step/wgehaeuse_surface.stp part 2 (DB_320386): 0 boundary, 0 non-manifold edges, 0 degenerate
+    gkv311-opencascade-dataset/step/wgehaeuse_surface.stp part 3 (DB_304593): 0 boundary, 0 non-manifold edges, 0 degenerate
+    gkv311-opencascade-dataset/step/wgehaeuse_surface.stp part 4 (DB_320371): 0 boundary, 0 non-manifold edges, 0 degenerate
+    gkv311-opencascade-dataset/step/wgehaeuse_surface.stp part 5 (DB_319531): 0 boundary, 0 non-manifold edges, 0 degenerate
+    gkv311-opencascade-dataset/step/wgehaeuse_surface.stp part 6 (DB_322805): 0 boundary, 0 non-manifold edges, 0 degenerate

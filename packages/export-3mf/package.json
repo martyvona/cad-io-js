@@ -1,0 +1,17 @@
+{
+  "name": "export-3mf",
+  "version": "0.0.0",
+  "description": "Scene model to 3MF (core specification, zipped with fflate)",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "cad-scene": "0.0.0",
+    "fflate": "0.8.3"
+  },
+  "devDependencies": {
+    "@3mfconsortium/lib3mf": "2.5.0-fix.2"
+  }
+}
