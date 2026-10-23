@@ -24,7 +24,7 @@ The package tests (`npm test`) don't need the corpus.
 
 ## Versions
 
-Updating the checkouts can change the corpus. The results recorded in `../docs/phase1_progress.md` (through 2026-10-17)
+Updating the checkouts can change the corpus. The results in `../corpus_checks/*.log` (and in `../CLAUDE.md`)
 used gkv311 at `ead84b5` (2026-10-06), occt-import-js at `41e4708` (2024-12-03), and the NIST packages with the
 Last-Modified dates `pull.sh` records in `third_party/nist-pmi-models/.<name>.last-modified`.
 

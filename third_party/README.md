@@ -18,11 +18,11 @@ The test corpus is separate: see `../test_corpus/README.md`. The system tools th
 | `mbx-if-recpractices/` | https://www.mbx-if.org/home/cax/recpractices/ | the 21 file URLs in `pull.sh` | CAx-IF / MBx-IF recommended practices (19 PDFs and two trace-information sample zips): the guide for the semantic extractors (assembly structure, validation properties, PMI, styling). Documents only. |
 
 Licenses: OCCT is LGPL-2.1 with the Open CASCADE exception, which is why the architecture isolates it in the
-`tess-occt` package; stepcode is BSD-3-Clause; truck is Apache-2.0. See the licensing section of `../docs/initial_analysis.md`.
+`tess-occt` package; stepcode is BSD-3-Clause; truck is Apache-2.0. See "Licensing and provenance" in `../CLAUDE.md`.
 
 ## Reference only (not checked out here)
 
-Read for background, never built against. The commits are the ones reviewed (see `../docs/initial_analysis.md`).
+Read for background, never built against. The commits are the ones reviewed (see "Reference projects and prior art" in `../CLAUDE.md`).
 
 | Project | Upstream | Commit reviewed | Why |
 |---|---|---|---|
@@ -34,4 +34,4 @@ Read for background, never built against. The commits are the ones reviewed (see
 
 monstertruck (https://github.com/virtualritz/monstertruck, `d2ad1ed7aa`, 2026-10-07), evaluated and not chosen in phase 0, was
 dropped from `pull.sh` on 2026-10-23: only the spike's `mtruck_spike` used it (`phase0_tessellation_spike/` at tag
-`V0.1.0`; `../docs/phase0/README.md`). To build that again, clone it at that commit into `monstertruck/`.
+`V0.1.0`; "Phase 0" in `../CLAUDE.md`). To build that again, clone it at that commit into `monstertruck/`.

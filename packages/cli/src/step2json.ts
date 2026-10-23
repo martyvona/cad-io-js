@@ -1,4 +1,4 @@
-// step2json: STEP (Part 21, or gzipped .stpZ) to JSON. See docs/architecture.md, "`step2json` output".
+// step2json: STEP (Part 21, or gzipped .stpZ) to JSON. See README.md, "`step2json`: STEP to JSON".
 //
 //   raw mode (default): the lossless raw JSON of every instance (step-parser's json.ts), or NDJSON with --ndjson;
 //     streamed, so output size isn't limited by memory or string length. --names annotates attribute names.

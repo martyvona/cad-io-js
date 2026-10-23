@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Build OCCT's static toolkits (TKDESTEP, TKMesh and their dependencies) for Emscripten, from ../../third_party/OCCT
-# (third_party/pull.sh), into build/occt-<name>/, for build.sh to link against. About 6 minutes on 10 cores.
+# (third_party/pull.sh), into build/occt-<name>/, for build.sh to link against. About 6–12 minutes on 10 cores.
 #   build-occt.sh [<name> "<release flags>" ["<extra cxx flags>"] [overlay=1]]   default: Os "-Os"
 # JOBS sets the build parallelism (default: the number of CPUs).
 # overlay=1 copies occt_overlay/*.pxx over the generated include stubs after configure (the VBernstein table
-# computed instead of stored: 1.71 instead of 2.18 MB brotli; not used, phase 3 decision 6; see occt_overlay/README.md).
-# Gotchas (docs/phase0/phase0_results.md):
+# computed instead of stored: 1.71 instead of 2.18 MB brotli; not used (CLAUDE.md, "Decisions"); see
+# occt_overlay/README.md).
+# Gotchas (CLAUDE.md, "OCCT"):
 #   - -UOCC_CONVERT_SIGNALS, or the link produces invalid WASM;
 #   - CMAKE_CXX_FLAGS_RELEASE set, or OCCT forces -O3; -Os it is, as -O2, -O3 and LTO buy no speed;
 #   - a build directory can't be moved (CMake keeps absolute paths): delete it and build again.

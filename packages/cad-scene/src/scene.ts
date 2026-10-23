@@ -1,5 +1,5 @@
 // The scene model: what every importer produces and every exporter (and later the viewer) consumes, independent of
-// the source format. See docs/architecture.md, "The intermediate scene model", and docs/phase2_progress.md.
+// the source format. See README.md, "The scene model (cad-scene)", and CLAUDE.md, "Decisions".
 //
 // Structure: components (one per product or assembly definition) are defined once and placed by occurrences, so a
 // subassembly used many times is stored once; `instances` expands the tree on demand. Parts (one per tessellation

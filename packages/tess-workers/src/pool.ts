@@ -18,7 +18,7 @@ export interface PoolOptions {
   maxPartsPerWorker?: number;
   /**
    * Recycle a worker once its backend reports more memory than this after a part (`Tessellator.memoryBytes`). 0:
-   * never. Default 256 MiB, above what all but the heaviest parts need (docs/phase3_progress.md, step 5).
+   * never. Default 256 MiB, above what all but the heaviest parts need (CLAUDE.md, "OCCT": memory).
    */
   maxMemoryBytes?: number;
 }

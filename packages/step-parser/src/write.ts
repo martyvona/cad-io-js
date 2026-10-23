@@ -1,5 +1,5 @@
-// The Part 21 writer: the raw instance model → Part 21 text, without using the schema. See docs/architecture.md,
-// "Part 21 writer".
+// The Part 21 writer: the raw instance model → Part 21 text, without using the schema. See README.md,
+// "step-parser".
 //
 // Output is pure ASCII: strings escape everything outside printable ASCII. It is produced in chunks by a generator,
 // so a caller can pump it into any sink (a WritableStream, a Node stream, a file) with backpressure, and the whole

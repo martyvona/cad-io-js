@@ -1,7 +1,7 @@
-// Mesh topology shared by the exporters (docs/phase4_progress.md, step 5): vertices welded by position, whether a
-// welded mesh is a closed, oriented manifold of positive volume (what 3MF's model objects must be), triangles with
-// two corners at one position dropped, and closed shells turned outward when they are inside out and can't be the
-// boundaries of voids.
+// Mesh topology shared by the exporters: vertices welded by position, whether a welded mesh is a closed, oriented
+// manifold of positive volume (what 3MF's model objects must be), triangles with two corners at one position
+// dropped, and closed shells turned outward when they are inside out and can't be the boundaries of voids (the last
+// two are input fixes made in memory: CLAUDE.md, "Decisions").
 
 import type { Mesh } from './scene.ts';
 

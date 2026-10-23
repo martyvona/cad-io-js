@@ -1,4 +1,4 @@
-// Per-part subsets of one STEP file, as phase 0 cut them (docs/phase0/phase0_subset_method.md), for the checks that
+// Per-part subsets of one STEP file, as phase 0 cut them (CLAUDE.md, "Phase 0"), for the checks that
 // tessellate parts one at a time (cache_check.ts, truck_bench.ts): for every shape representation that refers to a
 // solid-bearing item, `<file>.absr.<id>.stp` (bare) and `<file>.absr+wrap.<id>.stp` (with a minimal product
 // structure). The port of the spike's make_subsets.mjs to step-parser's buildSubset. Usage:

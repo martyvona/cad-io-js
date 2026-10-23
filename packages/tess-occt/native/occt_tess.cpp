@@ -1,9 +1,9 @@
-// The OCCT tessellation backend: tessellates one STEP subset (docs/architecture.md, "The tessellator interface"),
-// with per-face and per-edge STEP entity ids. Grown from the phase 0 spike (phase0_tessellation_spike/occt_tess, at tag V0.1.0).
+// The OCCT tessellation backend: tessellates one STEP subset (README.md, "Tessellation"), with per-face and per-edge
+// STEP entity ids. Grown from the phase 0 spike (phase0_tessellation_spike/occt_tess, at tag V0.1.0).
 // Exposes a small C ABI; the JS side (src/index.ts) copies the results out of the heap.
 //
 // Coordinates are in the file's units (the root representation's), minus the request's origin, which is subtracted
-// in double precision before the conversion to float (docs/phase2_progress.md, decision 3).
+// in double precision before the conversion to float (CLAUDE.md, "Decisions").
 #include <BRepLib_ToolTriangulatedShape.hxx>
 #include <BRepMesh_IncrementalMesh.hxx>
 #include <DESTEP_Parameters.hxx>
@@ -144,7 +144,7 @@ int occt_tessellate(const char* data, int len, int rootId, double linDefl, doubl
     // A geometric set's curve-bounded surfaces on closed surfaces (spheres, tori): a lone boundary that OCCT doesn't
     // classify as outer is reversed, as OCCT 7.6 did, rather than kept as a hole in the natural bounds (OCCT 8), which
     // gives the rest of the surface. Other writers' copies of the same models agree with 7.6
-    // (docs/phase3_progress.md, step 5); for faces (topology) OCCT 8's reading is right (its tests bug28414, bug29564).
+    // (CLAUDE.md, "OCCT"); for faces (topology) OCCT 8's reading is right (its tests bug28414, bug29564).
     if (occ::down_cast<StepShape_GeometricallyBoundedSurfaceShapeRepresentation>(rootRep))
     {
       DE_ShapeFixParameters fix  = DESTEP_Parameters::GetDefaultShapeFixParameters();

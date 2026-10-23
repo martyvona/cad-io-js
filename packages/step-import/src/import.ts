@@ -1,5 +1,5 @@
 // The STEP importer: a parsed file, through Layer 2 and Layer 3 (step-parser), to the scene model (cad-scene). See
-// docs/phase2_progress.md, step 3, for how each STEP construct maps.
+// README.md, "`step-import`", and CLAUDE.md, "STEP files in the wild", for the conventions files follow.
 //
 //   products        → components (index for index); their documents → external references
 //   occurrences     → each component's children, with transforms converted to millimetres
@@ -33,7 +33,7 @@ const MAX_DANGLING = 10;
 const PLACEMENT_ONLY = ['AXIS2_PLACEMENT_3D', 'AXIS2_PLACEMENT_2D', 'MAPPED_ITEM', 'CARTESIAN_TRANSFORMATION_OPERATOR'];
 /** Presentation (text, callouts, annotation occurrences): not shape, so a representation of only these isn't a part. */
 const ANNOTATION = ['TEXT_LITERAL', 'COMPOSITE_TEXT', 'DRAUGHTING_CALLOUT', 'ANNOTATION_OCCURRENCE'];
-/** Two-dimensional drawings: not parts until drawings are supported (docs/phase3_progress.md, step 6). */
+/** Two-dimensional drawings: not parts until drawings are supported (CLAUDE.md, "Decisions"). */
 const DRAWING = 'GEOMETRICALLY_BOUNDED_2D_WIREFRAME_REPRESENTATION';
 
 /** Build the scene from a bound model and its Layer 3 semantics. */

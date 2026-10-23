@@ -1,7 +1,7 @@
 //! The truck tessellation backend: a STEP subset in, the faces and edges of one shape representation out, with
 //! their STEP entity ids, as flat arrays in linear memory that ../src/index.ts reads. A plain C ABI (no wasm-bindgen).
 //!
-//! Workarounds for truck (see docs/phase3_progress.md, step 2; truck itself is used unchanged):
+//! Workarounds for truck (see CLAUDE.md, "truck"; truck itself is used unchanged):
 //! - Shells are built here rather than by `Table::to_compressed_shell`. truck numbers a vertex or edge before
 //!   converting it, so one that fails to convert shifts every later index, and it drops faces it can't convert
 //!   without saying which. Here each face and edge keeps its STEP id, and a face whose surface or edges don't
@@ -23,7 +23,7 @@
 //!   memory runs out.
 //! - A solid's shell that faces the wrong way is reversed, as OCCT's shape healing (ShapeFix_Solid) does: an outer
 //!   shell whose closed mesh encloses a negative signed volume, or a void whose mesh encloses a positive one. Some
-//!   writers reverse voids twice (docs/phase3_progress.md, step 2).
+//!   writers reverse voids twice (CLAUDE.md, "STEP files in the wild").
 //! - A face whose mesh runs against all of its loops is reversed: ISO 10303-42 orients a face's loops
 //!   counter-clockwise about its normal, but truck sometimes meshes a face inside out.
 
@@ -674,7 +674,7 @@ fn loop_sense(poly: &PolygonMesh, boundaries: &[Vec<CompressedEdgeIndex>], edges
 /// where truck's face meshes leave gaps or overhang their boundaries, the volume depends on r. So the sign counts only
 /// if it's the same from every r in the mesh's bounding box. And it must be at least 1% of the sum of the triangles'
 /// |6V| (from the box's centre): in a thin part, the faces' contributions nearly cancel, and one face that truck
-/// meshes wrongly, inside closed boundaries, outweighs the part's volume (docs/phase3_progress.md, step 3).
+/// meshes wrongly, inside closed boundaries, outweighs the part's volume (CLAUDE.md, "truck", workaround 12).
 fn volume_sign(polys: &[Option<PolygonMesh>]) -> Option<f64> {
     let mut lo = Point3::new(f64::MAX, f64::MAX, f64::MAX);
     let mut hi = Point3::new(f64::MIN, f64::MIN, f64::MIN);

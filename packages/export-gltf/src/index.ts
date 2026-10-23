@@ -1,5 +1,5 @@
-// Scene model → glTF 2.0, written with glTF-Transform (decision 1): GLB, or .gltf JSON with its buffer as a separate
-// .bin or embedded as base64. See docs/architecture.md, "Stage 4", and docs/phase4_progress.md, step 4.
+// Scene model → glTF 2.0, written with glTF-Transform: GLB, or .gltf JSON with its buffer as a separate .bin or
+// embedded as base64. See README.md, "`stepconv`", and CLAUDE.md, "Decisions".
 //
 //   nodes: a root node turning the scene's millimetres, Z up, into glTF's metres, Y up; under it a node per
 //     instance-tree node (its local transform), and per placed part a node with the part's faces; its children
@@ -87,7 +87,7 @@ export function base64(bytes: Uint8Array): string {
 /**
  * glTF-Transform's JSON for a document, with each node's translation, rotation and scale as they are: its writer
  * leaves out any within 1e-5 of the default, which drops rotations of up to about 2e-5 rad (20 µm a metre away)
- * and scales within 1e-5 of 1 (docs/phase4_progress.md, step 4).
+ * and scales within 1e-5 of 1 (CLAUDE.md, "JavaScript, Node and the libraries").
  */
 async function write(document: Document, format: Format): Promise<JSONDocument> {
   const out = await new WebIO().registerExtensions([KHRMaterialsUnlit, KHRNodeVisibility]).writeJSON(document, { format });

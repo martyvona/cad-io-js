@@ -1,4 +1,4 @@
-// What every exporter needs from a scene and its meshes, computed once (docs/phase4_progress.md, step 1):
+// What every exporter needs from a scene and its meshes, computed once (README.md, "The exporters"):
 //
 //   looks: each part as it appears, with its materials resolved. All three formats share geometry between instances,
 //     but a mesh carries its materials, so instances whose resolved materials differ (an assembly's colour applied
@@ -10,9 +10,9 @@ import type { Component, Mat4, Mesh, Occurrence, Scene } from './scene.ts';
 import { identity, multiply, partInstances, type PartInstance } from './walk.ts';
 
 export interface ExportViewOptions {
-  /** Keep B-rep edges. Default false (decision 2). */
+  /** Keep B-rep edges. Default false (CLAUDE.md, "Decisions"). */
   edges?: boolean;
-  /** Keep wireframe curves and isolated points. Default false (decision 2). */
+  /** Keep wireframe curves and isolated points. Default false (CLAUDE.md, "Decisions"). */
   curves?: boolean;
 }
 

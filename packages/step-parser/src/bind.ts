@@ -1,7 +1,8 @@
 // Layer 2: schema binding. A StepModel joins a parsed file with the schema dictionary its FILE_SCHEMA names (plus a
 // fallback dictionary, AP242 by default, for entities from other schemas): entity type queries that know about
 // subtypes and complex instances, a reverse-reference index, and attribute names for decoded instances, with
-// optional checks of each value against its declared type. See docs/architecture.md, "Layer 2: schema binding".
+// optional checks of each value against its declared type. See README.md, "step-parser", and CLAUDE.md, "STEP files
+// in the wild".
 //
 // Nothing here fails the file: whatever doesn't match the schema stays positional and gets a diagnostic.
 

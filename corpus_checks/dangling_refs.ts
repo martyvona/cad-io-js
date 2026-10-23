@@ -1,6 +1,6 @@
 // The importer's dangling-reference warnings for every corpus file: per part, references to instances the file
 // doesn't define; per file, references beyond the largest instance id (the scan). Lists each file with either, with
-// the parts and ids, to compare with what OCCT reports (docs/phase4_progress.md, "Dangling references").
+// the parts and ids, to compare with what OCCT reports (CLAUDE.md, "OCCT": messages).
 // Usage: node corpus_checks/dangling_refs.ts [file-list.txt]  (progress on standard error)
 import fs from 'node:fs';
 import { importStep } from '../packages/step-import/src/index.ts';

@@ -1,5 +1,5 @@
 // Raw JSON: a lossless JSON form of the raw instance model, for testing, debugging and validation. See
-// docs/architecture.md, "`step2json` output", and docs/phase1_progress.md, step 4.
+// README.md, "`step2json`: STEP to JSON", and CLAUDE.md, "Decisions" (lexical numbers).
 //
 // It is lexical JSON (package lexical-json): an integer is written without a point (`5`), a real always with one or
 // with an exponent (`5.0`, `1e-7`). Standard JSON.parse merges the two, so load it with readJson. Values:

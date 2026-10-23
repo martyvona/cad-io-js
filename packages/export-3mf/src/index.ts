@@ -1,12 +1,13 @@
-// Scene model → 3MF (core specification 1.4.0), zipped with fflate. See docs/architecture.md, "Stage 4", and
-// docs/phase4_progress.md, step 5.
+// Scene model → 3MF (core specification 1.4.0), zipped with fflate. See README.md,
+// "`stepconv`" (what each format holds), and CLAUDE.md, "Decisions" and "JavaScript, Node and the libraries" (lib3mf).
 //
 //   meshes: each part mesh's vertices welded by position, exactly (OCCT gives a shared edge's nodes the same
 //     coordinates on both faces, and welding within a tolerance merges distinct vertices: the step 5 survey), and the
 //     triangles welding made degenerate dropped; then a mesh object per look, its triangles' properties its groups'
 //     materials. Vertices are in the part's unit, relative to its origin, as the scene has them; the transforms
 //     scale and place them (`unit="millimeter"`). A mesh that isn't a closed, oriented manifold of positive volume
-//     (what a `model` object must be) is left out with a warning, or written as a `surface` object (decision 3).
+//     (what a `model` object must be) is left out with a warning, or written as a `surface` object (CLAUDE.md,
+//     "Decisions").
 //   build: an item per placed part at its world transform, its path in the instance tree in its metadata (decided
 //     by the user, 2026-10-21); or (`build: 'assembly'`) one item, an object whose components follow the instance
 //     tree, identical subtrees shared.

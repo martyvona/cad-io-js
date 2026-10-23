@@ -40,7 +40,7 @@ const KINDS: EdgeKind[] = ['shared', 'seam', 'free', 'degenerate'];
 /**
  * OCCT's printed messages are kept per part as warnings, at most this many and this many characters in all; the rest
  * are counted. In the corpus a part prints at most 2 (`*** ERR StepReaderData : Unresolved Reference : Fails Count :
- * 13 ***`, `**** ERR StepFile : Incorrect Syntax : ...`); see docs/phase4_progress.md, step 3.
+ * 13 ***`, `**** ERR StepFile : Incorrect Syntax : ...`); see CLAUDE.md, "OCCT".
  */
 export const MAX_MESSAGES = 10;
 export const MAX_MESSAGE_CHARS = 1000;

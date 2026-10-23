@@ -1,5 +1,5 @@
-// stepconv: STEP (Part 21, or gzipped .stpZ) to a tessellated format. See docs/architecture.md, "Stage 4", and
-// docs/phase4_progress.md, steps 3 to 5.
+// stepconv: STEP (Part 21, or gzipped .stpZ) to a tessellated format. See README.md,
+// "`stepconv`: STEP to three.js, glTF or 3MF", and CLAUDE.md, "Decisions".
 //
 //   import (step-import) → tessellate each part (a backend, in a tess-workers pool unless --workers 0, cached with
 //   tess-cache when --cache names a directory) → the export view (cad-scene) → an exporter, chosen by the output's

@@ -1,5 +1,5 @@
-// The tessellator interface: one request per part, its payload parsed by the backend. See docs/architecture.md,
-// "The tessellator interface". Backends implement it in their own packages (tess-occt, tess-truck).
+// The tessellator interface: one request per part, its payload parsed by the backend. See README.md,
+// "Tessellation". Backends implement it in their own packages (tess-occt, tess-truck).
 
 import type { Diagnostic, EdgeKind, Vec3 } from './scene.ts';
 

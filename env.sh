@@ -185,14 +185,14 @@ _sj_report error wasm-pack "$(_sj_have wasm-pack --version)" 0.15.0 "builds the 
   _sj_fix "cargo install wasm-pack --locked"
 
 # Optional tools.
-# Python: docs/third_party/pull.sh installs pypdf into a local venv there to extract the JT documents' text (pypdf
-# isn't an npm package); occt_overlay/test/compare.py also uses it.
+# Python: third_party/pull.sh installs pypdf into a local venv (third_party/jt/.venv) to extract the JT documents'
+# text (pypdf isn't an npm package); packages/tess-occt/occt_overlay/test/compare.py also uses it.
 _sj_py=$(_sj_have python3 --version)
-if _sj_report warning python3 "$_sj_py" 3.8.0 "optional: docs/third_party/pull.sh text extraction, overlay tests"; then
+if _sj_report warning python3 "$_sj_py" 3.8.0 "optional: JT text extraction in third_party/pull.sh, overlay tests"; then
   if python3 -c 'import venv, ensurepip' >/dev/null 2>&1; then
     printf '  %-8s %-12s %s\n' ok py-venv "python3 -m venv"
   else
-    printf '  %-8s %-12s %s\n' missing py-venv "(python3 can't create virtual environments; needed by docs/third_party/pull.sh)"
+    printf '  %-8s %-12s %s\n' missing py-venv "(python3 can't create virtual environments; needed for the JT text in third_party/pull.sh)"
     _sj_warnings=$((_sj_warnings + 1))
     _sj_fix_pkg python3-venv "brew install python" python3-venv python3
   fi
@@ -202,7 +202,7 @@ fi
 _sj_report warning c++ "$(_sj_have c++ --version)" "" "optional: native occt_overlay/test/table_test.cpp" ||
   _sj_fix_pkg c++ "xcode-select --install" g++ gcc-c++
 
-# Documents: scripts/md2pdf.sh converts Markdown (docs/step_tutorial.md) to PDF with pandoc and LaTeX. Any
+# Documents: scripts/md2pdf.sh converts Markdown (step_tutorial.md) to PDF with pandoc and LaTeX. Any
 # version will do, so none is checked; the install commands get the current one.
 _sj_report warning pandoc "$(_sj_have pandoc --version)" "" "optional: scripts/md2pdf.sh, Markdown to PDF" ||
   _sj_fix_pkg pandoc "brew install pandoc" pandoc pandoc
@@ -226,10 +226,10 @@ if [ ! -d "$_sj_repo/third_party/OCCT/.git" ] || [ ! -d "$_sj_repo/third_party/s
   _sj_warnings=$((_sj_warnings + 1))
   _sj_fix "\"$_sj_repo/third_party/pull.sh\""
 fi
-if [ ! -f "$_sj_repo/docs/third_party/JT-v10-file-format-reference-rev-B_tcm1023-233786.txt" ]; then
+if [ ! -f "$_sj_repo/third_party/jt/JT-v10-file-format-reference-rev-B_tcm1023-233786.txt" ]; then
   printf '  %-8s %-12s %s\n' missing jt-docs "(only needed for JT work)"
   _sj_warnings=$((_sj_warnings + 1))
-  _sj_fix "\"$_sj_repo/docs/third_party/pull.sh\""
+  _sj_fix "\"$_sj_repo/third_party/pull.sh\""
 fi
 if [ ! -d "$_sj_repo/test_corpus/third_party/gkv311-opencascade-dataset" ]; then
   printf '  %-8s %-12s %s\n' missing test-corpus "(only needed for corpus_checks/)"
