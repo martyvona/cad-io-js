@@ -4,9 +4,28 @@ The feasibility spike of 2026-10-16/17. It tested whether STEP parts can be cut 
 and tessellated one at a time by WebAssembly backends, with each mesh face traced back to its `ADVANCED_FACE`. Four
 backends were tried: `occt-import-js` (OCCT 7.x), a custom Emscripten build of OCCT 8.1, truck and monstertruck.
 
-Everything here is throwaway. Nothing in `packages/` imports it, and it is kept as evidence and as a model for later
-work: the custom OCCT build (`occt_tess/`, `occt_variant_build.sh`, `occt_overlay/`) is the starting point for the
-real OCCT backend.
+## Where it went (2026-10-23)
+
+The spike's code lived in `phase0_tessellation_spike/` until release `V0.1.0`, and left the tree after it. What was
+still in use moved; the rest is in git at that tag.
+
+| What | Now |
+|---|---|
+| The documents (results, plan, subset method, this tour) | here, `docs/phase0/` |
+| `occt_variant_build.sh` (OCCT's static libraries) | `../../packages/tess-occt/build-occt.sh`, building into `packages/tess-occt/build/occt-<name>/` (was `occt-build-<name>/`); rebuilt with it on 2026-10-23: the linked `occt_tess.mjs` is byte-identical, and `occt_tess.wasm` differs only through OCCT's source path in 5 assertion messages (the old libraries predate the project's rename from `step_js`, so each path is 2 bytes shorter, shifting the data addresses in the code); on all 188 phase 0 subsets, with edges, both modules give deep-equal results |
+| `occt_overlay/` (the `VBernstein` patch and its tests) | `../../packages/tess-occt/occt_overlay/` |
+| `occt_tess/` (the C++ wrapper and its link script) | grown into `../../packages/tess-occt` (`native/occt_tess.cpp`, `build.sh`) in phase 2 |
+| `truck_spike/` | succeeded by `../../packages/tess-truck`, phase 3's production wrapper (the spike crate stays at the tag) |
+| `make_subsets.mjs` and `p21.mjs` | `../../corpus_checks/make_subsets.ts` on `step-parser`'s `buildSubset`: the same entities in all 376 subset files, only the header's layout differs |
+| `out/`, `out_bike/` (the subsets) | `../../test_corpus/subsets/out` and `out_bike` (git-ignored; the commands are in `make_subsets.ts`), used by `cache_check.ts` and `truck_bench.ts` |
+| Everything else: the harnesses, `mtruck_spike/`, the logs and results JSON, `occt-import-js`'s `package.json` | at tag `V0.1.0` only |
+
+To get a file back: `git show V0.1.0:phase0_tessellation_spike/<file>`. To run the spike again, check out the tag
+(`git worktree add ../spike V0.1.0`), link the git-ignored data the scripts expect beside it (`ln -s` the main tree's
+`third_party` and `test_corpus` into the worktree), and follow the commands below from its
+`phase0_tessellation_spike/`. The commands that build OCCT there use the old script and directory names, as below; `mtruck_spike/` also needs the monstertruck checkout, no longer in `pull.sh` (`../../third_party/README.md` gives its commit).
+
+Everything below is the spike's README as it was, describing `phase0_tessellation_spike/` at the tag.
 
 ## Documents
 
@@ -15,7 +34,7 @@ real OCCT backend.
 - `phase0_subset_method.md`: how the per-part subsets were cut, and the gaps in that method.
 - `occt_overlay/README.md`: the `VBernstein` table overlay and its tests.
 
-Paths in these documents are relative to this directory. All commands below run from this directory.
+Paths below are relative to `phase0_tessellation_spike/` at tag `V0.1.0`, and all commands run from there; the documents themselves are now in `docs/phase0/`.
 
 ## Tour of the committed files
 

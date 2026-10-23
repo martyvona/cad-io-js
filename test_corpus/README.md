@@ -18,6 +18,8 @@ only when the server's Last-Modified date changes. About 1.5 GB in all.
 Then run the corpus checks in `corpus_checks/`, for example `node corpus_checks/writer_corpus.ts`. Each check takes
 an optional list file in place of `files.txt`, and stops with a hint to run `pull.sh` if corpus files are missing.
 
+`subsets/` (git-ignored) holds phase 0's per-part subsets of 30 of these files, for two of the checks; `corpus_checks/make_subsets.ts` makes them.
+
 The package tests (`npm test`) don't need the corpus.
 
 ## Versions

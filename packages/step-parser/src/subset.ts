@@ -1,6 +1,6 @@
 // Per-part subsets: a small, valid Part 21 file holding one shape representation and everything it references, for a
 // tessellator (docs/architecture.md, "The tessellator interface"). The production version of phase 0's subsets
-// (phase0_tessellation_spike/phase0_subset_method.md): the forward-reference closure over the pass-1 index, original
+// (docs/phase0/phase0_subset_method.md): the forward-reference closure over the pass-1 index, original
 // #ids kept, entities in file order and copied byte for byte.
 
 import type { EntityRecord, Instance, Value } from './model.ts';

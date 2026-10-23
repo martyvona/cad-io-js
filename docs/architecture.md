@@ -2,7 +2,7 @@
 
 *Paths in this document are relative to this `docs/` directory.*
 
-Status: draft, 2026-10-16. Phase 0 is done (`../phase0_tessellation_spike/phase0_results.md`). Phase 1 is under way; progress is in `phase1_progress.md`. The schema generator (`../packages/step-schemas`), Layer 1 (`../packages/step-parser`: parser and writer), the raw JSON form (`../packages/lexical-json`), Layer 2 schema binding, the Layer 3 extractors and the `step2json` CLI are done: phase 1 is complete. Phases 2 and 3 are complete (`phase2_progress.md`, `phase3_progress.md`); phase 4's plan is in `phase4_progress.md`. See `initial_analysis.md` for background research, reference repositories and licensing analysis.
+Status: draft, 2026-10-16. Phase 0 is done (`phase0/phase0_results.md`). Phase 1 is under way; progress is in `phase1_progress.md`. The schema generator (`../packages/step-schemas`), Layer 1 (`../packages/step-parser`: parser and writer), the raw JSON form (`../packages/lexical-json`), Layer 2 schema binding, the Layer 3 extractors and the `step2json` CLI are done: phase 1 is complete. Phases 2 and 3 are complete (`phase2_progress.md`, `phase3_progress.md`); phase 4's plan is in `phase4_progress.md`. See `initial_analysis.md` for background research, reference repositories and licensing analysis.
 
 ## Goals
 
@@ -227,7 +227,7 @@ The interface is **per part**: each request carries one part's geometry (one nod
 For STEP, the interface uses **per-part subsets**:
 
 - **Subset construction:** the JS side computes the closure of one shape representation, meaning every entity it transitively references, including units and context. It keeps the original `#` IDs and emits a small, valid Part 21 file.
-  - **Synthetic product wrapper (optional):** for backends that need a product structure, such as `occt-import-js`, the JS side can append 8 entities (`APPLICATION_CONTEXT` … `SHAPE_DEFINITION_REPRESENTATION(#pds, #root)`) with fresh IDs above the file's maximum. The custom OCCT backend reads bare subsets with `read.step.product.mode` OFF (phase 0: 188/188 parts, identical output to wrapped), and truck reads them as-is. See `../phase0_tessellation_spike/phase0_results.md`.
+  - **Synthetic product wrapper (optional):** for backends that need a product structure, such as `occt-import-js`, the JS side can append 8 entities (`APPLICATION_CONTEXT` … `SHAPE_DEFINITION_REPRESENTATION(#pds, #root)`) with fresh IDs above the file's maximum. The custom OCCT backend reads bare subsets with `read.step.product.mode` OFF (phase 0: 188/188 parts, identical output to wrapped), and truck reads them as-is. See `phase0/phase0_results.md`.
   - **Fast path:** copy each entity's original byte range from the source file instead of re-serializing it.
 - **Benefits:**
   - **Correlation by construction:** each result belongs to a known representation.
@@ -288,12 +288,12 @@ interface Tessellator {
 
 - **OCCT:**
   - **Prototype:** `occt-import-js` accepts only wrapped subsets and doesn't report face entity IDs.
-  - **Real backend:** our own Emscripten build of OCCT 8.1, prototyped in phase 0 (`../phase0_tessellation_spike/occt_tess`).
+  - **Real backend:** our own Emscripten build of OCCT 8.1, prototyped in phase 0 (the spike's `occt_tess/`, at tag `V0.1.0`), now `../packages/tess-occt`.
     - It reads bare subsets (product mode OFF) and outputs file units.
     - It maps faces to STEP entities through the transfer bindings, including split faces.
     - It returns flat typed arrays.
-    - It must be built with `-UOCC_CONVERT_SIGNALS` (see `../phase0_tessellation_spike/phase0_results.md`).
-    - Build with `-Os`; `-O2`/`-O3`/LTO buy no speed. An optional header overlay that computes OCCT's `VBernstein` table instead of storing it cuts the download from 2.18 to 1.71 MB brotli. The user decided (2026-10-17, `phase3_progress.md` decision 6) to ship `-Os` without that patch, which isn't worth maintaining for now (see "Build variants" in `../phase0_tessellation_spike/phase0_results.md`).
+    - It must be built with `-UOCC_CONVERT_SIGNALS` (see `phase0/phase0_results.md`).
+    - Build with `-Os`; `-O2`/`-O3`/LTO buy no speed. An optional header overlay that computes OCCT's `VBernstein` table instead of storing it cuts the download from 2.18 to 1.71 MB brotli. The user decided (2026-10-17, `phase3_progress.md` decision 6) to ship `-Os` without that patch, which isn't worth maintaining for now (see "Build variants" in `phase0/phase0_results.md`; the overlay is in `../packages/tess-occt/occt_overlay/`).
 - **truck:** needs a small Rust wrapper (not a fork) to report face IDs; phase 0 has a working prototype. It is about 1/6 the size of OCCT, but less robust: it panics, hangs and produces wrong or empty faces on some real files, so the host needs a watchdog. The monstertruck fork was also evaluated in phase 0; it fixes some of these cases, regresses others and is not a clear improvement.
 - **Order:** OCCT first, as the more robust reference, then truck, tested against OCCT.
 
@@ -433,7 +433,7 @@ The Part 21 writer (Layer 1) is a production component, not test-only, because t
 
 - the AP242 edition of stepcode's schema (later than ed1, ed2 or ed3 unconfirmed). Our test files use editions 1–4, and one dictionary binds them all (`phase1_progress.md`)
 - the ISO EXPRESS schema's redistribution terms, for the generated dictionaries
-- ~~whether OCCT can transfer a bare shape representation subset~~: resolved in phase 0 (`../phase0_tessellation_spike/phase0_results.md`). Yes with `read.step.product.mode` OFF, verified with a custom OCCT 8.1 build; `occt-import-js` needs the synthetic wrapper
+- ~~whether OCCT can transfer a bare shape representation subset~~: resolved in phase 0 (`phase0/phase0_results.md`). Yes with `read.step.product.mode` OFF, verified with a custom OCCT 8.1 build; `occt-import-js` needs the synthetic wrapper
 - ~~whether truck can report face IDs~~: resolved in phase 0. Yes, with a ~30-line wrapper
 - whether to use the 3MF Production extension
 - ~~the compact value encoding for raw JSON~~: resolved in phase 1 step 4, lexical numbers (`phase1_progress.md`)

@@ -42,9 +42,8 @@ download() { # <dir> <url>
 git_dep OCCT https://github.com/Open-Cascade-SAS/OCCT.git 3d097a0328e71b826377d4814ab05ec3c3d23871
 # EXPRESS schemas (data/) for packages/step-schemas (npm run gen -w step-schemas).
 git_dep stepcode https://github.com/stepcode/stepcode.git 24783b448511b8f6bce2829286a3f00015430236
-# The truck tessellation backend, and the monstertruck fork evaluated in phase 0.
+# The truck tessellation backend.
 git_dep truck https://github.com/ricosjp/truck.git 88ed005249e5e3a6b07f62425399435905cd3ab6
-git_dep monstertruck https://github.com/virtualritz/monstertruck.git d2ad1ed7aa420b7f32cd2c1e3ad319b46d593652
 
 # CAx-IF / MBx-IF recommended practices (https://www.mbx-if.org/home/cax/recpractices/).
 U=https://www.mbx-if.org/home/wp-content/uploads

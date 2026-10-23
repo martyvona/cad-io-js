@@ -1,6 +1,8 @@
 # Phase 0: how the per-part subsets were made
 
-This is how the spike cut individual parts out of the source STEP files. The code is `make_subsets.mjs`, which uses `closure` and `emitSubset` from `p21.mjs`. The results are in `phase0_results.md`.
+*Moved from `phase0_tessellation_spike/` to `docs/phase0/` on 2026-10-23, when the spike's code left the tree. Names of the spike's files (scripts, logs, `occt_tess/`, `truck_spike/`, `out/`, …) refer to that directory at tag `V0.1.0`; `README.md` here says where each part went and how to get the rest back.*
+
+This is how the spike cut individual parts out of the source STEP files. The code is `make_subsets.mjs`, which uses `closure` and `emitSubset` from `p21.mjs`. (Since 2026-10-23 the subsets are made by `../../corpus_checks/make_subsets.ts` with `step-parser`'s `buildSubset`, `step-parser`'s production version of this method: the same entities, byte for byte, in all 376 files; only the header's layout differs.) The results are in `phase0_results.md`.
 
 Each subset is the forward-reference closure of one shape representation, with the original bytes and `#IDs` kept.
 

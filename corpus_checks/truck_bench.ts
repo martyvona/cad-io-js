@@ -1,5 +1,5 @@
 // Phase 3 step 3: tessellation speed of truck module variants (and our OCCT backend for reference), single-threaded
-// on this thread, over phase 0's subsets (phase0_tessellation_spike/out and out_bike, made by make_subsets.mjs), at
+// on this thread, over phase 0's subsets (test_corpus/subsets/out and out_bike, made by make_subsets.ts), at
 // phase 0's 0.05 file units (OCCT also 0.5 rad), without edges, as phase 0 timed them. Skips trj2_as1-id-203 #891,
 // which hangs truck (phase 0). Only meaningful with the CPU otherwise idle and not in low power mode.
 // Usage: node corpus_checks/truck_bench.ts [truck.wasm ...]   (default packages/tess-truck/dist/tess_truck.wasm)
@@ -11,7 +11,7 @@ import { TruckTessellator } from '../packages/tess-truck/src/index.ts';
 import { repoDir } from './corpus.ts';
 
 const SKIP = /trj2_as1-id-203\.stp\.absr\.891\./;
-const sets = ['out', 'out_bike'].map((d) => path.join(repoDir, 'phase0_tessellation_spike', d));
+const sets = ['out', 'out_bike'].map((d) => path.join(repoDir, 'test_corpus/subsets', d));
 const subsets = sets.map((dir) => ({
   dir: path.basename(dir),
   files: fs.readdirSync(dir).filter((f) => /\.absr\.\d+\.stp$/.test(f) && !SKIP.test(f)).sort().map((f) => ({ data: fs.readFileSync(path.join(dir, f)), rootId: Number(/\.absr\.(\d+)\.stp$/.exec(f)![1]) })),

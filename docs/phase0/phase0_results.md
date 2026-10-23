@@ -1,6 +1,8 @@
 # Phase 0 feasibility spike: results
 
-Run 2026-10-16/17. The spike code is throwaway. `README.md` in this directory is the tour of its files and logs, with the commands that reproduce the builds and the results below. Paths in this document are relative to this directory.
+*Moved from `phase0_tessellation_spike/` to `docs/phase0/` on 2026-10-23, when the spike's code left the tree. Names of the spike's files (scripts, logs, `occt_tess/`, `truck_spike/`, `out/`, …) refer to that directory at tag `V0.1.0`; `README.md` here says where each part went and how to get the rest back.*
+
+Run 2026-10-16/17. The spike code is throwaway. `README.md` in this directory is the tour of its files and logs, with the commands that reproduce the builds and the results below. Paths to the spike's files are relative to `phase0_tessellation_spike/` at tag `V0.1.0`.
 
 **Status:** four backends were tested.
 
@@ -86,7 +88,7 @@ Variants tested:
 **Side findings for the parser:**
 
 - `bug32314_corrupted.stp` has an unbalanced quote, so a naive scanner swallows the rest of the file. OCCT recovers, so the production lexer needs resynchronization at `\n#<digits>=`.
-- `trj7_k1-id-214` has two length units (cm and inch) in different contexts. Units must be resolved per representation context, as `../docs/architecture.md` already says.
+- `trj7_k1-id-214` has two length units (cm and inch) in different contexts. Units must be resolved per representation context, as `../architecture.md` already says.
 
 ## 2. Face IDs
 
@@ -152,7 +154,7 @@ The indexer (`p21.mjs`) is a single pass over a latin1 string. It finds `#id=` b
   - **Bicycle:** 5514/5624 exact and 5619/5624 nearest.
   - **The misses are inaccurate meshes, not wrong IDs:** a wrong ID would shift every later face in the shell, which never happens. The misses come from vertices off by about 3e-3 and from bad cone faces.
 - **Robustness problems:**
-  - **Panics:** `tolerance must be no less than 1e-6` at `truck-geometry/src/specifieds/circle.rs:65` on 6 inch-unit parts (`nist_stc_07` ×5, `trj7_k1-ct`). A panic in WASM traps, so the instance has to be recreated. *(Correction, phase 3 step 2: the cause is not the tolerance or the units. truck defaults a missing `ref_direction` of an `AXIS2_PLACEMENT_3D` to (1, 0, 0) even when the axis is ±x, which makes the placement NaN; see `../docs/phase3_progress.md`, step 2.)*
+  - **Panics:** `tolerance must be no less than 1e-6` at `truck-geometry/src/specifieds/circle.rs:65` on 6 inch-unit parts (`nist_stc_07` ×5, `trj7_k1-ct`). A panic in WASM traps, so the instance has to be recreated. *(Correction, phase 3 step 2: the cause is not the tolerance or the units. truck defaults a missing `ref_direction` of an `AXIS2_PLACEMENT_3D` to (1, 0, 0) even when the axis is ±x, which makes the placement NaN; see `../phase3_progress.md`, step 2.)*
   - **Hang:** more than 10 minutes on `trj2_as1-id-203` part #891 (5 faces). The host needs a watchdog: run tessellation in a worker that can be terminated.
   - **Wrong geometry:** against the custom OCCT 8.1 build, 64/188 parts are within 0.1%, 112 within 1%, 144 within 5%. The worst cases are on the bicycle:
     - #1821 and #3117: 2.6× the area
@@ -269,7 +271,7 @@ Every variant was built from the same OCCT source with the same wrapper (edges i
     - Results aren't bit-identical with stock OCCT whenever the fitter runs. On well-conditioned inputs the difference is negligible; on ill-conditioned ones it's no larger than ulp-level noise.
     - Possible alternative: offer the change upstream. OCCT already has GTests checking `VBernstein` against direct Bernstein evaluation (`AppCont_ContMatrices_Test.cxx`), so a computed version would fit their test suite.
   - **Decision deferred:** `-Os` versus `-Os` + patch. Both build directories were kept at the time (the overlay build was deleted on 2026-10-17).
-  - **Decided (2026-10-17, `../docs/phase3_progress.md` decision 6):** ship `-Os` without the patch; not worth maintaining for now. The overlay stays in `occt_overlay/` in case the download size matters later.
+  - **Decided (2026-10-17, `../phase3_progress.md` decision 6):** ship `-Os` without the patch; not worth maintaining for now. The overlay stays in `occt_overlay/` (now `../../packages/tess-occt/occt_overlay/`) in case the download size matters later.
 - **Startup:** 10–13 ms in all variants.
 - **Remaining size candidates (untried):**
   - The CJK code-page tables in TKernel `Resource_*`: 651 kB raw but only about 103 kB brotli. They're included with quoted `#include`s, so the overlay trick doesn't reach them; a small source patch would.
@@ -370,18 +372,18 @@ Measured against OCCT 8.1 on area, monstertruck fixes 29 parts that truck gets w
 2. **STEP payload:** the bare closure of the root representation. `rootId` names the representation. The JS subset writer can optionally append the synthetic product wrapper for backends that need it (`occt-import-js`); the custom OCCT build and the Rust backends don't.
 3. **Lifecycle:** the backend may need to recycle its WASM instance. OCCT's linear memory never shrinks, and a truck panic traps the instance. truck can also hang, so the host needs a per-request timeout that terminates the worker. `init`/`dispose` per worker, a "parts per instance" policy and a watchdog belong on the host side, not in the interface.
 4. **Units:** tolerances are given in file units (the interface already says so), and output coordinates are in file units. The custom OCCT build does this by setting the system length unit to the root context's unit. `occt-import-js` converts to mm, so it would need the result scaled back.
-5. **Edges:** flat `edgePositions` plus `{entityId | null, start, count, kind, dihedral}` per edge, as prototyped in the custom OCCT wrapper. See "Edges" above and `../docs/architecture.md`.
+5. **Edges:** flat `edgePositions` plus `{entityId | null, start, count, kind, dihedral}` per edge, as prototyped in the custom OCCT wrapper. See "Edges" above and `../architecture.md`.
 
 ## Suggested next steps
 
 - **Custom OCCT build:**
-  - Ship `-Os`, with or without the `VBernstein` table patch (2.18 vs 1.71 MB brotli; decided 2026-10-17: without, see "Build variants"). If the patch is kept, add an upstream-hash check to the build, or propose the change upstream.
+  - Ship `-Os`, with or without the `VBernstein` table patch (2.18 vs 1.71 MB brotli; decided 2026-10-17: without, see "Build variants"). If the patch is kept, add an upstream-hash check to the build, or propose the change upstream (not upstream: by the user's later decision, no reports or proposals to any upstream project).
   - Optionally stub the CJK code-page tables (about 100 kB brotli) and the writer path.
   - Find a STEP corpus that actually reaches the approximation code (`ProjLib`/`Approx_FitAndDivide`), for example files with missing p-curves.
-  - Isolate the #2022 slow faces (OCCT 8.1 `BRepMesh_Delaun` frontier recovery) and report them upstream. Until it's fixed, the host's per-request timeout covers it. *(Phase 3 step 7: the slow face is one ShapeFix builds wrong, not a mesher regression; no upstream report, by the user's decision. See `../docs/phase3_progress.md`.)*
+  - Isolate the #2022 slow faces (OCCT 8.1 `BRepMesh_Delaun` frontier recovery) and report them upstream. Until it's fixed, the host's per-request timeout covers it. *(Phase 3 step 7: the slow face is one ShapeFix builds wrong, not a mesher regression; no upstream report, by the user's decision. See `../phase3_progress.md`.)*
   - Add an `init`/`dispose` cycle and a heap-threshold recycle in the host.
-  - Report the `setjmp` + exceptions link bug to LLVM/Emscripten.
-- **Rust backends:** optional. Report the circle-tolerance panic (both), the #891 hang (truck), the #2016 timeout and wrong-side trimming (monstertruck), with `out*/` subsets as repros.
+  - Report the `setjmp` + exceptions link bug to LLVM/Emscripten. *(Not done: no upstream reports to any project, by the user's decision.)*
+- **Rust backends:** optional. Report the circle-tolerance panic (both), the #891 hang (truck), the #2016 timeout and wrong-side trimming (monstertruck), with `out*/` subsets as repros. *(Not done: no upstream reports to any project, by the user's decision.)*
 - **Test harness:** keep three oracles:
   - the area cross-check against OCCT 8.1
   - the vertex-based face-ID check

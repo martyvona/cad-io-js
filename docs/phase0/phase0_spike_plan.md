@@ -1,12 +1,14 @@
 # Phase 0 feasibility spike: handoff notes
 
+*Moved from `phase0_tessellation_spike/` to `docs/phase0/` on 2026-10-23, when the spike's code left the tree. Names of the spike's files (scripts, logs, `occt_tess/`, `truck_spike/`, `out/`, …) refer to that directory at tag `V0.1.0`; `README.md` here says where each part went and how to get the rest back.*
+
 *Historical: the plan as written before the spike ran. The outcome is in `phase0_results.md`, and the code tour in `README.md`.*
 
-Written 2026-10-16 before a session restart. **The spike is the next step.** Read `../docs/architecture.md` first (stage 2, "The tessellator interface", and "Phasing"); `../docs/initial_analysis.md` has the background research. No project code exists yet.
+Written 2026-10-16 before a session restart. **The spike is the next step.** Read `../architecture.md` first (stage 2, "The tessellator interface", and "Phasing"); `../docs/initial_analysis.md` has the background research. No project code exists yet.
 
 ## What the spike must answer
 
-The answers determine whether the per-part tessellator interface in `../docs/architecture.md` can be frozen.
+The answers determine whether the per-part tessellator interface in `../architecture.md` can be frozen.
 
 1. **Per-part subsets:** will OCCT and truck tessellate a STEP subset file that contains only the closure of one shape representation? That means every entity transitively referenced from, for example, an `ADVANCED_BREP_SHAPE_REPRESENTATION` or `MANIFOLD_SOLID_BREP`, keeping the original `#` IDs. If not, would a minimal synthetic product wrapper make them accept it?
 2. **Face IDs:** can each backend report which source `ADVANCED_FACE` entity each triangle range came from?
@@ -67,7 +69,7 @@ The answers determine whether the per-part tessellator interface in `../docs/arc
 4. **Check `occt-import-js`'s output** for any face or entity identifiers.
 5. **truck:** check npm for a prebuilt `truck-js`. Otherwise ask the user before installing Rust and `wasm-pack`, then build `truck-js` and repeat steps 3–4.
 6. **Record payload sizes, load times and peak memory** (Node's `process.memoryUsage()`).
-7. **Write up the results** in `step_js/phase0_results.md` (now `phase0_results.md` in this directory), and update the tessellator interface in `../docs/architecture.md` if anything changes.
+7. **Write up the results** in `step_js/phase0_results.md` (now `phase0_results.md` in this directory), and update the tessellator interface in `../architecture.md` if anything changes.
 
 ## Decisions already made (don't revisit)
 

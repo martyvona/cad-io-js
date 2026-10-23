@@ -1,4 +1,4 @@
-// Phase 3 step 4: the tessellation cache over phase 0's subsets (phase0_tessellation_spike/out and out_bike), with
+// Phase 3 step 4: the tessellation cache over phase 0's subsets (test_corpus/subsets/out and out_bike, made by make_subsets.ts), with
 // each backend, single-threaded, at 0.05 file units (0.5 rad) with edges: every result through a file store (written,
 // then read by a new store) and the memory store must equal the backend's own; and the time of the backend alone, of
 // a first run through the file store (key, encoding, write), and of a second (key, read, decoding). Results with an
@@ -21,7 +21,7 @@ import { repoDir } from './corpus.ts';
 const SKIP = /trj2_as1-id-203\.stp\.absr\.891\./;
 const request = (file: string): TessellationRequest => ({ format: 'step', data: fs.readFileSync(file), rootId: Number(/\.absr\.(\d+)\.stp$/.exec(file)![1]), linearDeflection: 0.05, angularDeflection: 0.5, edges: true });
 const files = ['out', 'out_bike'].flatMap((d) => {
-  const dir = path.join(repoDir, 'phase0_tessellation_spike', d);
+  const dir = path.join(repoDir, 'test_corpus/subsets', d);
   return fs.readdirSync(dir).filter((f) => /\.absr\.\d+\.stp$/.test(f)).sort().map((f) => path.join(dir, f));
 });
 const reqs = files.filter((f) => !SKIP.test(f)).map(request);
