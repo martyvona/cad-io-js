@@ -16,7 +16,8 @@ const plate = (): Mesh => ({
 });
 // The bolt: one face, and an edge.
 const bolt = (): Mesh => ({
-  origin: [0, 0, 0], positions: new Float32Array(9), indices: Uint32Array.of(0, 1, 2), faces: [{ source: 3, start: 0, count: 3 }],
+  origin: [0, 0, 0], positions: new Float32Array(9), indices: Uint32Array.of(0, 1, 2),
+  faces: [{ source: 3, start: 0, count: 3 }],
   edgePositions: new Float32Array(6), edges: [{ source: 4, start: 0, count: 2, kind: 'free' }],
 });
 
@@ -24,23 +25,33 @@ const bolt = (): Mesh => ({
 // face 7 blue), a part that failed to tessellate (part 3) and a bolt component (2) with the bolt (part 1) and a
 // wireframe (part 2). Materials: 0 red, 1 green, 2 blue, 3 white.
 function scene(): Scene {
-  const occ = (component: number, t: Mat4, name?: string) => ({ component, transform: t, sources: [], properties: {}, ...(name ? { name } : {}) });
-  const brep = (name: string, unit: number) => ({ kind: 'brep' as const, name, sources: [], properties: {}, unit, origin: [0, 0, 0] as [number, number, number], format: 'step' as const, payload: () => new Uint8Array() });
+  const occ = (component: number, t: Mat4, name?: string) => (
+    { component, transform: t, sources: [], properties: {}, ...(name ? { name } : {}) });
+  const brep = (name: string, unit: number) => (
+    { kind: 'brep' as const, name, sources: [], properties: {}, unit, origin: [0, 0, 0] as [number, number, number],
+    format: 'step' as const, payload: () => new Uint8Array() });
   return {
     unit: 'millimetre',
     components: [
-      { name: 'asm', sources: [], properties: {}, parts: [], children: [occ(1, translation(100, 0, 0), 'left'), occ(1, translation(200, 0, 0))] },
-      { name: 'sub', sources: [], properties: {}, parts: [{ part: 0, transform: scaling(25.4) }, { part: 3, transform: identity() }], children: [occ(2, translation(0, 10, 0))] },
-      { name: 'bolt', sources: [], properties: {}, parts: [{ part: 1, transform: identity() }, { part: 2, transform: identity() }], children: [] },
+      { name: 'asm', sources: [], properties: {}, parts: [],
+        children: [occ(1, translation(100, 0, 0), 'left'), occ(1, translation(200, 0, 0))] },
+      { name: 'sub', sources: [], properties: {},
+        parts: [{ part: 0, transform: scaling(25.4) }, { part: 3, transform: identity() }],
+        children: [occ(2, translation(0, 10, 0))] },
+      { name: 'bolt', sources: [], properties: {},
+        parts: [{ part: 1, transform: identity() }, { part: 2, transform: identity() }], children: [] },
     ],
     roots: [occ(0, identity())],
     parts: [
       { ...brep('plate', 25.4), material: 1, faceMaterials: [{ face: 7, material: 2 }] },
       brep('bolt', 1),
-      { kind: 'curves', name: 'wire', sources: [], properties: {}, unit: 1, origin: [5, 0, 0], positions: new Float32Array(6), polylines: [{ start: 0, count: 2, source: 9 }] },
+      { kind: 'curves', name: 'wire', sources: [], properties: {}, unit: 1, origin: [5, 0, 0],
+        positions: new Float32Array(6), polylines: [{ start: 0, count: 2, source: 9 }] },
       brep('failed', 1),
     ],
-    materials: [0, 1, 2, 3].map((i) => ({ color: [[1, 0, 0], [0, 1, 0], [0, 0, 1], [1, 1, 1]][i] as [number, number, number], opacity: 1, sources: [] })),
+    materials: [0, 1, 2, 3].map(
+      (i) => ({ color: [[1, 0, 0], [0, 1, 0], [0, 0, 1], [1, 1, 1]][i] as [number, number, number], opacity: 1,
+      sources: [] })),
     layers: [],
     overrides: [],
     properties: {},
@@ -50,7 +61,8 @@ function scene(): Scene {
 const meshes = () => new Map([[0, plate()], [1, bolt()]]);
 
 const flat = (nodes: ExportNode[]): ExportNode[] => nodes.flatMap((n) => [n, ...flat(n.children)]);
-const summary = (nodes: ExportNode[]) => flat(nodes).map((n) => [n.path.join('/'), n.name, n.parts.map((p) => p.look), at(n.transform)]);
+const summary = (nodes: ExportNode[]) => flat(nodes).map(
+  (n) => [n.path.join('/'), n.name, n.parts.map((p) => p.look), at(n.transform)]);
 
 test('exportView: the tree, shared looks, groups by material, origins', () => {
   const s = scene();
@@ -67,7 +79,8 @@ test('exportView: the tree, shared looks, groups by material, origins', () => {
   assert.equal(p!.material, 1);
   assert.deepEqual(p!.groups, [{ material: 1, start: 0, count: 6 }, { material: 2, start: 6, count: 3 }]);
   assert.deepEqual([...p!.indices], [0, 1, 2, 6, 7, 8, 3, 4, 5]);
-  assert.deepEqual(p!.faces, [{ source: 8, start: 0, count: 3 }, { source: null, start: 3, count: 3 }, { source: 7, start: 6, count: 3 }]);
+  assert.deepEqual(p!.faces, [{ source: 8, start: 0, count: 3 }, { source: null, start: 3, count: 3 },
+    { source: 7, start: 6, count: 3 }]);
   // The bolt is unstyled: one group with the viewer's default; its own indices; no edges without `edges`.
   assert.equal(b!.material, undefined);
   assert.deepEqual(b!.groups, [{ material: undefined, start: 0, count: 3 }]);
@@ -93,7 +106,8 @@ test('exportView: overrides make new looks; hidden instances; a face material eq
   assert.equal(v.looks[3]!.material, 3);
   assert.equal(v.roots[0]!.children[1]!.children[0]!.parts[0]!.visible, false);
   // The wireframe has no faces, so only its default material tells its two instances apart.
-  const wires = flat(exportView(s, meshes(), { curves: true }).roots).flatMap((n) => n.parts.slice(1).map((p) => p.look));
+  const wires = flat(exportView(s, meshes(), { curves: true }).roots).flatMap(
+    (n) => n.parts.slice(1).map((p) => p.look));
   assert.equal(new Set(wires).size, 2);
   // Face 7 green like the rest: one group.
   s.overrides = [];
@@ -113,7 +127,8 @@ test('exportView: edges and curves on request', () => {
   assert.deepEqual(at(v.roots[0]!.children[0]!.children[0]!.parts[1]!.transform), [5, 0, 0]);
   // A brep part with only curves is dropped without `curves`, kept with it.
   const m = meshes();
-  m.set(1, { origin: [0, 0, 0], positions: new Float32Array(0), indices: new Uint32Array(0), faces: [], points: new Float32Array(3), pointSources: [11] });
+  m.set(1, { origin: [0, 0, 0], positions: new Float32Array(0), indices: new Uint32Array(0), faces: [],
+    points: new Float32Array(3), pointSources: [11] });
   assert.deepEqual(summary(exportView(s, m).roots)[2]![2], []);
   const pts = exportView(s, m, { curves: true }).looks[1]!;
   assert.deepEqual([pts.part, pts.curves], [1, true]);
@@ -121,7 +136,8 @@ test('exportView: edges and curves on request', () => {
 
 test('exportView: a mesh part without faces is one group; a component inside itself', () => {
   const s = scene();
-  s.parts[1] = { kind: 'mesh', name: 'bolt', sources: [], properties: {}, unit: 1, origin: [0, 0, 0], material: 0, lods: [{ ...bolt(), faces: [] }] };
+  s.parts[1] = { kind: 'mesh', name: 'bolt', sources: [], properties: {}, unit: 1, origin: [0, 0, 0], material: 0,
+    lods: [{ ...bolt(), faces: [] }] };
   s.components[2]!.children.push({ component: 1, transform: identity(), sources: [], properties: {} }); // 1 → 2 → 1
   const v = exportView(s, new Map([[0, plate()]]));
   assert.deepEqual(v.looks[1]!.groups, [{ material: 0, start: 0, count: 3 }]);

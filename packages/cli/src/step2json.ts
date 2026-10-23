@@ -64,13 +64,15 @@ export async function step2json(argv: string[], io: Io): Promise<number> {
   const usage = (msg: string) => { io.stderr.write(`step2json: ${msg}\n\n${USAGE}`); return 1; };
   if (args.positionals.length !== 1) return usage('expected one input file');
   if (o.mode !== 'raw' && o.mode !== 'semantic') return usage(`unknown mode '${o.mode}'`);
-  if (o.mode === 'raw' && (o.instances || o.check || o.pretty)) return usage('--instances, --check and --pretty are for semantic mode');
+  if (o.mode === 'raw' && (o.instances || o.check || o.pretty)) return usage(
+    '--instances, --check and --pretty are for semantic mode');
   if (o.mode === 'semantic' && (o.ndjson || o.names)) return usage('--ndjson and --names are for raw mode');
 
   const input = args.positionals[0]!;
   let file: StepFile;
   try {
-    file = await readStep(input === '-' ? (Readable.toWeb(io.stdin) as ReadableStream<Uint8Array>) : fs.readFileSync(input));
+    file = await readStep(input === '-' ? (
+      Readable.toWeb(io.stdin) as ReadableStream<Uint8Array>) : fs.readFileSync(input));
   } catch (e) {
     io.stderr.write(`step2json: can't read ${input}: ${(e as Error).message}\n`);
     return 2;
@@ -83,9 +85,11 @@ export async function step2json(argv: string[], io: Io): Promise<number> {
       const model = o.names ? await openModel(file) : undefined;
       if (model) diagnostics.push(...model.diagnostics);
       const doc = fileDocument(file, (p: number, e: ParseError) => {
-        diagnostics.push({ severity: 'error', message: `malformed instance, left out: ${e.message}`, offset: e.offset, id: file.index.ids[p] });
+        diagnostics.push({ severity: 'error', message: `malformed instance, left out: ${e.message}`, offset: e.offset,
+          id: file.index.ids[p] });
       });
-      const opts = { names: model && ((inst: Parameters<typeof model.attributeNames>[0]) => model.attributeNames(inst)) };
+      const opts = { names: model && (
+        (inst: Parameters<typeof model.attributeNames>[0]) => model.attributeNames(inst)) };
       await pump(o.ndjson ? jsonLinesChunks(doc, opts) : jsonChunks(doc, opts), out);
     } else {
       const model = await openModel(file);
@@ -96,7 +100,8 @@ export async function step2json(argv: string[], io: Io): Promise<number> {
             diagnostics.push(...model.bind(p, { check: true, warnings: diagnostics }).diagnostics);
           } catch (e) {
             if (!(e instanceof ParseError)) throw e;
-            diagnostics.push({ severity: 'error', message: `malformed instance: ${e.message}`, offset: e.offset, id: file.index.ids[p] });
+            diagnostics.push({ severity: 'error', message: `malformed instance: ${e.message}`, offset: e.offset,
+              id: file.index.ids[p] });
           }
         }
       }
@@ -125,7 +130,8 @@ async function pump(chunks: Iterable<Uint8Array>, out: Writable): Promise<void> 
 
 function summary(file: StepFile, diagnostics: readonly Diagnostic[]): string {
   const count = (s: Diagnostic['severity']) => diagnostics.filter((d) => d.severity === s).length;
-  let text = `${file.count} instances; ${count('error')} errors, ${count('warning')} warnings, ${count('info')} notes\n`;
+  let text = `${file.count} instances; ${count('error')} errors, ${count('warning')} warnings, `
+    + `${count('info')} notes\n`;
   const shown = diagnostics.filter((d) => d.severity !== 'info').slice(0, 20);
   for (const d of shown) text += `  ${d.severity}: ${d.id !== undefined ? `#${d.id}: ` : ''}${d.message}\n`;
   if (shown.length < count('error') + count('warning')) text += `  ...\n`;

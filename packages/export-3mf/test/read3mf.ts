@@ -15,7 +15,8 @@ export interface Read3mf {
     property?: [number, number];
   }>;
   components: Map<number, { name: string; components: { object: number; transform?: number[] }[] }>;
-  items: { object: number; transform?: number[]; partNumber: string; metadata: { name: string; namespace: string; value: string }[] }[];
+  items: { object: number; transform?: number[]; partNumber: string;
+    metadata: { name: string; namespace: string; value: string }[] }[];
   /** Colours by group id, then property id: [r, g, b, a] 0–255, and base names. */
   colors: Map<number, Map<number, { color: number[]; name?: string }>>;
 }
@@ -51,8 +52,11 @@ function readModel(M: any, own: <T>(x: T) => T, bytes: Uint8Array, strict: boole
   } finally {
     M.FS.unlink('/in.3mf');
   }
-  const transform = (t: any) => { own(t); return [0, 1, 2, 3].flatMap((r) => [0, 1, 2].map((c) => t[`get_Fields_${r}_${c}`]())); }; // eslint-disable-line @typescript-eslint/no-explicit-any
-  const out: Read3mf = { warnings: [], unit: model.GetUnit().value, meshes: new Map(), components: new Map(), items: [], colors: new Map() };
+  // eslint-disable-line @typescript-eslint/no-explicit-any
+  const transform = (t: any) => { own(t);
+    return [0, 1, 2, 3].flatMap((r) => [0, 1, 2].map((c) => t[`get_Fields_${r}_${c}`]())); };
+  const out: Read3mf = { warnings: [], unit: model.GetUnit().value, meshes: new Map(), components: new Map(), items: [],
+    colors: new Map() };
   for (let i = 0; i < reader.GetWarningCount(); i++) out.warnings.push(JSON.stringify(reader.GetWarning(i)));
 
   const meshes = own(model.GetMeshObjects());
@@ -77,7 +81,8 @@ function readModel(M: any, own: <T>(x: T) => T, bytes: Uint8Array, strict: boole
     const level = o.GetObjectLevelProperty();
     out.meshes.set(o.GetResourceID(), {
       name: o.GetName(), partNumber: o.GetPartNumber(), type: o.GetType().value, manifold: o.IsManifoldAndOriented(),
-      positions, triangles, properties, ...(level.return ? { property: [level.UniqueResourceID, level.PropertyID] as [number, number] } : {}),
+      positions, triangles, properties,
+      ...(level.return ? { property: [level.UniqueResourceID, level.PropertyID] as [number, number] } : {}),
     });
   }
   const comps = own(model.GetComponentsObjects());
@@ -86,7 +91,8 @@ function readModel(M: any, own: <T>(x: T) => T, bytes: Uint8Array, strict: boole
     const components = [];
     for (let k = 0; k < o.GetComponentCount(); k++) {
       const c = own(o.GetComponent(k));
-      components.push({ object: c.GetObjectResourceID(), ...(c.HasTransform() ? { transform: transform(c.GetTransform()) } : {}) });
+      components.push({ object: c.GetObjectResourceID(),
+        ...(c.HasTransform() ? { transform: transform(c.GetTransform()) } : {}) });
     }
     out.components.set(o.GetResourceID(), { name: o.GetName(), components });
   }
@@ -99,10 +105,13 @@ function readModel(M: any, own: <T>(x: T) => T, bytes: Uint8Array, strict: boole
       const m = own(group.GetMetaData(k));
       metadata.push({ name: m.GetName(), namespace: m.GetNameSpace(), value: m.GetValue() });
     }
-    out.items.push({ object: it.GetObjectResourceID(), ...(it.HasObjectTransform() ? { transform: transform(it.GetObjectTransform()) } : {}), partNumber: it.GetPartNumber(), metadata });
+    out.items.push({ object: it.GetObjectResourceID(),
+      ...(it.HasObjectTransform() ? { transform: transform(it.GetObjectTransform()) } : {}),
+      partNumber: it.GetPartNumber(), metadata });
   }
   // Property ids count from 1 in each group.
-  const rgba = (c: any) => { own(c); return [c.get_Red(), c.get_Green(), c.get_Blue(), c.get_Alpha()]; }; // eslint-disable-line @typescript-eslint/no-explicit-any
+  // eslint-disable-line @typescript-eslint/no-explicit-any
+  const rgba = (c: any) => { own(c); return [c.get_Red(), c.get_Green(), c.get_Blue(), c.get_Alpha()]; };
   const bases = own(model.GetBaseMaterialGroups());
   while (bases.MoveNext()) {
     const g = own(bases.GetCurrentBaseMaterialGroup());

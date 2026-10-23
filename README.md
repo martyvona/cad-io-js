@@ -1,21 +1,14 @@
 # cad-io-js
 
-Reading CAD files into memory, and converting them, in TypeScript for Node.js and browsers. Today that means STEP
-(ISO 10303-21 files of AP203, AP214 and AP242):
+Reading CAD files into memory, and converting them, in TypeScript for Node.js and browsers. Today that means STEP (ISO 10303-21 files of AP203, AP214 and AP242):
 
-- **a STEP parser and writer** in pure TypeScript with no runtime dependencies: lossless, schema-aware, tolerant of
-  real-world files, and fast (about 230 MB/s to index, 140 MB/s to decode);
-- **a scene model**: the assembly tree with transforms and instancing, names, part numbers, units, colours and
-  layers, as the file states them and as well as they can be recovered from imperfect files;
-- **tessellation by WebAssembly backends** behind one per-part interface: our own build of OCCT 8.1 (robust, the
-  default) and truck (Apache-2.0, a fifth of the size), run in a pool of workers with timeouts and an optional cache;
+- **a STEP parser and writer** in pure TypeScript with no runtime dependencies: lossless, schema-aware, tolerant of real-world files, and fast (about 230 MB/s to index, 140 MB/s to decode);
+- **a scene model**: the assembly tree with transforms and instancing, names, part numbers, units, colours and layers, as the file states them and as well as they can be recovered from imperfect files;
+- **tessellation by WebAssembly backends** behind one per-part interface: our own build of OCCT 8.1 (robust, the default) and truck (Apache-2.0, a fifth of the size), run in a pool of workers with timeouts and an optional cache;
 - **exporters** to three.js JSON, glTF/GLB and 3MF;
-- **two command-line tools**, `step2json` (STEP to JSON, lossless or semantic) and `stepconv` (STEP to three.js,
-  glTF or 3MF).
+- **two command-line tools**, `step2json` (STEP to JSON, lossless or semantic) and `stepconv` (STEP to three.js, glTF or 3MF).
 
-Version 0.1.0, not yet published to npm: the packages run as TypeScript sources under Node 24 (see
-[Building from source](#building-from-source)). A browser-based viewer and more input formats are on the
-[roadmap](#roadmap).
+Version 0.1.0, not yet published to npm: the packages run as TypeScript sources under Node 24 (see [Building from source](#building-from-source)). A browser-based viewer and more input formats are on the [roadmap](#roadmap).
 
 ```sh
 stepconv bracket.step -o bracket.glb          # STEP → GLB, OCCT, 0.1 mm, all cores
@@ -39,15 +32,9 @@ const { bytes } = await glb(scene, exportView(scene, meshes));
 fs.writeFileSync('bracket.glb', bytes);
 ```
 
-(Until the packages are on npm, code like this runs inside the repository, where the workspace resolves the package
-names.)
+(Until the packages are on npm, code like this runs inside the repository, where the workspace resolves the package names.)
 
-Contents: [building from source](#building-from-source) · [installing](#installing) ·
-[command-line tools](#command-line-tools) · [architecture](#architecture) · [packages and their APIs](#packages-and-their-apis)
-· [the test corpus](#the-test-corpus) · [the tests](#the-tests) · [roadmap](#roadmap) · [backlog](#backlog) ·
-[license](#license). The history of the work so far, the decisions behind the design and the lessons learned are in
-[`CLAUDE.md`](CLAUDE.md); [`CHANGELOG.md`](CHANGELOG.md) lists the releases; [`step_tutorial.md`](step_tutorial.md)
-is a tutorial on STEP AP203/214/242 in practice.
+Contents: [building from source](#building-from-source) · [installing](#installing) · [command-line tools](#command-line-tools) · [architecture](#architecture) · [packages and their APIs](#packages-and-their-apis) · [the test corpus](#the-test-corpus) · [the tests](#the-tests) · [roadmap](#roadmap) · [backlog](#backlog) · [license](#license). The history of the work so far, the decisions behind the design and the lessons learned are in [`CLAUDE.md`](CLAUDE.md); [`CHANGELOG.md`](CHANGELOG.md) lists the releases; [`step_tutorial.md`](step_tutorial.md) is a tutorial on STEP AP203/214/242 in practice.
 
 ## Building from source
 
@@ -55,8 +42,7 @@ On macOS or Linux (the build scripts are bash; Windows is untested).
 
 ### What you need first
 
-None of these comes with the repository. `source env.sh` (below) checks every one of them and prints the commands
-to install or update what's missing, for macOS (Homebrew) or Linux (apt or dnf).
+None of these comes with the repository. `source env.sh` (below) checks every one of them and prints the commands to install or update what's missing, for macOS (Homebrew) or Linux (apt or dnf).
 
 | Tool | Version | Needed for |
 |---|---|---|
@@ -73,8 +59,7 @@ to install or update what's missing, for macOS (Homebrew) or Linux (apt or dnf).
 | a C++ compiler | optional | the overlay's native table test |
 | pandoc and LaTeX | optional | `scripts/md2pdf.sh` (the tutorial's PDF) |
 
-The project was built and tested with Node 24.5, Emscripten 6.0.12, Rust 1.99.1 and wasm-pack 0.15.0 on an
-M-series Mac.
+The project was built and tested with Node 24.5, Emscripten 6.0.12, Rust 1.99.1 and wasm-pack 0.15.0 on an M-series Mac.
 
 ### Steps
 
@@ -91,9 +76,7 @@ npm test                             # the package tests
 npm run typecheck
 ```
 
-Then the tools run directly, for example `node packages/cli/bin/stepconv.ts model.step -o model.glb` (or put
-`packages/cli/bin` on your `PATH`). The parser, importer, scene and exporters need none of the native builds; only
-tessellation does (one backend is enough: `stepconv -b truck` without OCCT, the default otherwise).
+Then the tools run directly, for example `node packages/cli/bin/stepconv.ts model.step -o model.glb` (or put `packages/cli/bin` on your `PATH`). The parser, importer, scene and exporters need none of the native builds; only tessellation does (one backend is enough: `stepconv -b truck` without OCCT, the default otherwise).
 
 For the corpus checks, also fetch the test corpus (about 1.5 GB) and make phase 0's subsets:
 
@@ -102,27 +85,17 @@ test_corpus/third_party/pull.sh
 # the subsets: the loop in corpus_checks/make_subsets.ts's header
 ```
 
-Details: [`third_party/README.md`](third_party/README.md) (the pinned dependencies),
-[`test_corpus/README.md`](test_corpus/README.md), [`corpus_checks/README.md`](corpus_checks/README.md).
+Details: [`third_party/README.md`](third_party/README.md) (the pinned dependencies), [`test_corpus/README.md`](test_corpus/README.md), [`corpus_checks/README.md`](corpus_checks/README.md).
 
-**OCCT build notes:** `build-occt.sh` builds only the `TKDESTEP` and `TKMesh` toolkits and their dependencies, with
-`-Os` (`-O2`, `-O3` and LTO buy no speed), `-fwasm-exceptions` and `-UOCC_CONVERT_SIGNALS` (without it the link
-produces invalid WebAssembly), into `packages/tess-occt/build/occt-Os/`. A build directory can't be moved (CMake
-keeps absolute paths); delete it and build again. The module is 7.2 MB (2.18 MB brotli). An optional patch,
-`packages/tess-occt/occt_overlay/`, computes a table OCCT stores and brings it to 1.71 MB brotli; it isn't used (see
-its README).
+**OCCT build notes:** `build-occt.sh` builds only the `TKDESTEP` and `TKMesh` toolkits and their dependencies, with `-Os` (`-O2`, `-O3` and LTO buy no speed), `-fwasm-exceptions` and `-UOCC_CONVERT_SIGNALS` (without it the link produces invalid WebAssembly), into `packages/tess-occt/build/occt-Os/`. A build directory can't be moved (CMake keeps absolute paths); delete it and build again. The module is 7.2 MB (2.18 MB brotli). An optional patch, `packages/tess-occt/occt_overlay/`, computes a table OCCT stores and brings it to 1.71 MB brotli; it isn't used (see its README).
 
 ## Installing
 
-The packages aren't on npm yet. When they are, this section will say how to install and use them, and the build
-above will only be needed to work on cad-io-js itself.
+The packages aren't on npm yet. When they are, this section will say how to install and use them, and the build above will only be needed to work on cad-io-js itself.
 
 ## Command-line tools
 
-Both are in `packages/cli` (npm name `cad-io-cli`), as `bin/step2json.ts` and `bin/stepconv.ts`. Both read a file or
-standard input (`-`), plain or gzipped (`.stpZ`, detected by content), write a summary and the diagnostics to standard
-error (`-q` silences it), and exit with 0 on success, 1 for a usage error, 2 when the input can't be read or the output
-can't be written. Problems in the file are diagnostics, not failures.
+Both are in `packages/cli` (npm name `cad-io-cli`), as `bin/step2json.ts` and `bin/stepconv.ts`. Both read a file or standard input (`-`), plain or gzipped (`.stpZ`, detected by content), write a summary and the diagnostics to standard error (`-q` silences it), and exit with 0 on success, 1 for a usage error, 2 when the input can't be read or the output can't be written. Problems in the file are diagnostics, not failures.
 
 ### `step2json`: STEP to JSON
 
@@ -148,9 +121,7 @@ gunzip -c part.stpZ | step2json - -o part.json         # standard input (gzipped
 step2json -m semantic --instances --check --pretty assembly.stp -o assembly.json
 ```
 
-**Raw mode** is the lossless form: the header and every instance, attributes in file order, numbers keeping their
-integer or real form (`5` against `5.0`), references, enumerations, `$` and `*` explicit. It loads back into exactly
-the parsed model and writes back to equivalent Part 21; the whole corpus round-trips with no differences. Format:
+**Raw mode** is the lossless form: the header and every instance, attributes in file order, numbers keeping their integer or real form (`5` against `5.0`), references, enumerations, `$` and `*` explicit. It loads back into exactly the parsed model and writes back to equivalent Part 21; the whole corpus round-trips with no differences. Format:
 
 ```
 {"format":"cad-io-js raw","version":1,"source":"step",
@@ -171,16 +142,9 @@ the parsed model and writes back to equivalent Part 21; the whole corpus round-t
 | list | `[…]` | | binary | `{"bin":"0FF"}` |
 | typed `LENGTH_MEASURE(5.)` | `{"type":"LENGTH_MEASURE","value":5.0}` | | | |
 
-It is standard JSON (any parser reads it, though `JSON.parse` merges ints and reals); `lexical-json` reads it keeping
-the distinction. NDJSON: an envelope line with the header, a `{"data":{…}}` line opening each DATA section, then one
-instance per line. `--names` adds `"names":[…]` before each record's `"attrs"`; loading ignores it.
+It is standard JSON (any parser reads it, though `JSON.parse` merges ints and reals); `lexical-json` reads it keeping the distinction. NDJSON: an envelope line with the header, a `{"data":{…}}` line opening each DATA section, then one instance per line. `--names` adds `"names":[…]` before each record's `"attrs"`; loading ignores it.
 
-**Semantic mode** is what the file means, as standard JSON: `{"format":"cad-io-js semantic","version":1, file,
-roots, products, occurrences, representations, instances?, styles, validation, diagnostics}`. Products carry part
-number, name, description, version, life-cycle stage, shape representations and documents; occurrences their
-placement matrices (16 numbers, column-major, units converted); representations their contexts and units; styles the
-styled items with colours, transparency, overrides and layers; validation the CAx-IF validation properties in SI
-units. `--check` binds every instance with value checks and adds what it finds to the diagnostics.
+**Semantic mode** is what the file means, as standard JSON: `{"format":"cad-io-js semantic","version":1, file, roots, products, occurrences, representations, instances?, styles, validation, diagnostics}`. Products carry part number, name, description, version, life-cycle stage, shape representations and documents; occurrences their placement matrices (16 numbers, column-major, units converted); representations their contexts and units; styles the styled items with colours, transparency, overrides and layers; validation the CAx-IF validation properties in SI units. `--check` binds every instance with value checks and adds what it finds to the diagnostics.
 
 On the largest corpus file (59 MB, 537k instances), raw output takes 1.2 s and semantic 0.4 s.
 
@@ -259,10 +223,7 @@ What each format holds:
 | Edges, curves, points | `LineSegments`, `Points` children, on request | `LINES`, `POINTS` child nodes, on request | none (3MF has no lines) |
 | Not closed | written | written | left out with a warning (or `surface` objects with `--3mf-surfaces`) |
 
-Parts that fail to tessellate don't fail the run; they are in the summary (with `--strict`, exit 3). OCCT's own
-messages are kept as warnings on their parts, not printed. Over the 517 corpus files, a run with the defaults takes
-about 200 s in all with 9 workers, nearly all of it tessellation; exporting is under 1 s for glTF, 15 s for three.js
-and 33 s for 3MF.
+Parts that fail to tessellate don't fail the run; they are in the summary (with `--strict`, exit 3). OCCT's own messages are kept as warnings on their parts, not printed. Over the 517 corpus files, a run with the defaults takes about 200 s in all with 9 workers, nearly all of it tessellation; exporting is under 1 s for glTF, 15 s for three.js and 33 s for 3MF.
 
 ## Architecture
 
@@ -291,13 +252,9 @@ An npm workspace of 13 packages. Arrows point from a package to what it uses.
  (from stepcode)               tess-truck ──► truck, WebAssembly (our Rust wrapper over third_party/truck)
 ```
 
-- **No runtime dependencies** in `step-schemas`, `lexical-json`, `step-parser`, `cad-scene`, `step-import`, the
-  tessellation packages and `export-threejs`. `export-gltf` uses glTF-Transform (MIT) and `export-3mf` fflate (MIT).
-- **`cad-scene` is the hub:** the scene model, the tessellator interface, the tessellation driver and the export
-  view. Importers produce scenes, backends implement its interface, exporters consume scenes; none of them knows the
-  others.
-- **Licenses:** everything is Apache-2.0 except `tess-occt`, which keeps OCCT's LGPL-2.1 (with the Open CASCADE
-  exception) isolated in one package.
+- **No runtime dependencies** in `step-schemas`, `lexical-json`, `step-parser`, `cad-scene`, `step-import`, the tessellation packages and `export-threejs`. `export-gltf` uses glTF-Transform (MIT) and `export-3mf` fflate (MIT).
+- **`cad-scene` is the hub:** the scene model, the tessellator interface, the tessellation driver and the export view. Importers produce scenes, backends implement its interface, exporters consume scenes; none of them knows the others.
+- **Licenses:** everything is Apache-2.0 except `tess-occt`, which keeps OCCT's LGPL-2.1 (with the Open CASCADE exception) isolated in one package.
 
 ### The path from a STEP file to a mesh file
 
@@ -345,9 +302,7 @@ An npm workspace of 13 packages. Arrows point from a package to what it uses.
                             representations, instances), styles (effectiveStyle), properties ─► semanticJson
 ```
 
-Every problem is a diagnostic: lexical tolerances in Layer 1 (lone apostrophes, OCCT's escape leniencies, empty
-parameters), unknown entities and schema violations in Layer 2 (bound by position), odd placements and units in
-Layer 3. Nothing fails a whole file but unreadable input.
+Every problem is a diagnostic: lexical tolerances in Layer 1 (lone apostrophes, OCCT's escape leniencies, empty parameters), unknown entities and schema violations in Layer 2 (bound by position), odd placements and units in Layer 3. Nothing fails a whole file but unreadable input.
 
 ### The scene model (cad-scene)
 
@@ -367,10 +322,7 @@ Layer 3. Nothing fails a whole file but unreadable input.
  materials and visibility, resolved top down as the CAx-IF practice has it
 ```
 
-A part is one shape representation with geometry, the unit of tessellation and caching; a product spanning several
-representations has several part references. Lengths are millimetres; each part's geometry stays in its own unit and
-the transforms convert. Meshes (`Mesh`) are `Float32` positions minus the part's origin, chosen from the part's own
-points so that parts far from their origin keep their precision.
+A part is one shape representation with geometry, the unit of tessellation and caching; a product spanning several representations has several part references. Lengths are millimetres; each part's geometry stays in its own unit and the transforms convert. Meshes (`Mesh`) are `Float32` positions minus the part's origin, chosen from the part's own points so that parts far from their origin keep their precision.
 
 ### Tessellation
 
@@ -392,27 +344,15 @@ points so that parts far from their origin keep their precision.
                      kinds shared/seam/free/degenerate, dihedral angles), curves and points (wireframes, with ids)
 ```
 
-Each layer is itself a `Tessellator`, so they compose, and each can be used alone (a backend on the main thread, a
-pool without a cache).
+Each layer is itself a `Tessellator`, so they compose, and each can be used alone (a backend on the main thread, a pool without a cache).
 
-**The OCCT backend** (`native/occt_tess.cpp`, C ABI, Emscripten): reads the subset from memory with product mode
-off (a bare shape representation is a root), sets the system length unit from the root's context so output is in
-file units, transfers, maps every resulting face back to its `ADVANCED_FACE` through the transfer bindings (faces
-ShapeFix split included), meshes with `BRepMesh_IncrementalMesh`, subtracts the origin in double precision, and
-returns faces, edges (each with its polyline on the face triangulation, so edge points are mesh vertices), wireframe
-curves and points, plus OCCT's printed messages as warnings.
+**The OCCT backend** (`native/occt_tess.cpp`, C ABI, Emscripten): reads the subset from memory with product mode off (a bare shape representation is a root), sets the system length unit from the root's context so output is in file units, transfers, maps every resulting face back to its `ADVANCED_FACE` through the transfer bindings (faces ShapeFix split included), meshes with `BRepMesh_IncrementalMesh`, subtracts the origin in double precision, and returns faces, edges (each with its polyline on the face triangulation, so edge points are mesh vertices), wireframe curves and points, plus OCCT's printed messages as warnings.
 
-**The truck backend** (`native/src/lib.rs`, plain C ABI, `wasm32-unknown-unknown`): over truck unchanged, it builds
-the shells itself so every face and edge keeps its STEP id, meshes them, welds truck's per-corner attributes into an
-indexed mesh, and carries a dozen workarounds for truck's failures on real files (see `CLAUDE.md`). A panic costs only
-its part: the instance is re-instantiated.
+**The truck backend** (`native/src/lib.rs`, plain C ABI, `wasm32-unknown-unknown`): over truck unchanged, it builds the shells itself so every face and edge keeps its STEP id, meshes them, welds truck's per-corner attributes into an indexed mesh, and carries a dozen workarounds for truck's failures on real files (see `CLAUDE.md`). A panic costs only its part: the instance is re-instantiated.
 
 ### The exporters
 
-`exportView(scene, meshes, {edges, curves})` computes what every format needs once: **looks** (a part plus the
-material of each of its faces, so instances that look alike share one mesh), each look's triangles **grouped** by
-material, and the **instance tree** with each placed part's transform including its mesh's origin. Each exporter
-then only writes its format, in chunks, so a model's output never has to fit in one string.
+`exportView(scene, meshes, {edges, curves})` computes what every format needs once: **looks** (a part plus the material of each of its faces, so instances that look alike share one mesh), each look's triangles **grouped** by material, and the **instance tree** with each placed part's transform including its mesh's origin. Each exporter then only writes its format, in chunks, so a model's output never has to fit in one string.
 
 ## Packages and their APIs
 
@@ -436,26 +376,15 @@ effectiveStyle(reader, styles, item) / semanticJson(model, semantics, opts)
 closure(file, roots, exclude?) / buildSubset(file, roots, {exclude, wrapper}) / danglingRefs(file, positions)
 ```
 
-The raw model (`model.ts`): `Instance` is `{id, type, attrs: Value[]}` or, for a complex instance, `{id, parts:
-[{type, attrs}]}`; `Value` is one of `int` (number or bigint), `real`, `str`, `enum`, `ref`, `bin`, `unset`,
-`derived`, `list`, `typed`, and the homogeneous lists `reals`, `ints`, `refs` (canonical: `makeList` picks the kind).
+The raw model (`model.ts`): `Instance` is `{id, type, attrs: Value[]}` or, for a complex instance, `{id, parts: [{type, attrs}]}`; `Value` is one of `int` (number or bigint), `real`, `str`, `enum`, `ref`, `bin`, `unset`, `derived`, `list`, `typed`, and the homogeneous lists `reals`, `ints`, `refs` (canonical: `makeList` picks the kind).
 
 ### `step-schemas`
 
-`Schema` dictionaries generated from the EXPRESS long forms in stepcode (AP203 ed1 and ed2, AP214 ed3, AP242), committed
-as JSON (`dict/*.json`, 1.1 MB, 143 kB gzipped): entities with their attribute slots in Part 21 order (supertypes
-first, redeclarations and derived attributes applied), types, selects and enumerations.
-`dictionaryForFileSchema(fileSchemaNames)` picks a dictionary, `loadSchema(id)` loads it as a `Schema`:
-`instanceAttributes(entity)`, `partialAttributes(entity, members)` (a complex instance's partial), `ancestors`,
-`subtypes`, `isSubtypeOf(a, b)`, `selectLeaves(t)`, `enumValues(t)`. `npm run gen -w step-schemas` regenerates
-them from `third_party/stepcode`.
+`Schema` dictionaries generated from the EXPRESS long forms in stepcode (AP203 ed1 and ed2, AP214 ed3, AP242), committed as JSON (`dict/*.json`, 1.1 MB, 143 kB gzipped): entities with their attribute slots in Part 21 order (supertypes first, redeclarations and derived attributes applied), types, selects and enumerations. `dictionaryForFileSchema(fileSchemaNames)` picks a dictionary, `loadSchema(id)` loads it as a `Schema`: `instanceAttributes(entity)`, `partialAttributes(entity, members)` (a complex instance's partial), `ancestors`, `subtypes`, `isSubtypeOf(a, b)`, `selectLeaves(t)`, `enumValues(t)`. `npm run gen -w step-schemas` regenerates them from `third_party/stepcode`.
 
 ### `lexical-json`
 
-JSON that keeps integers and reals apart by their written form: `parseJson(bytes | string)` returns integers as
-`bigint` and reals as `number`; `formatReal` (shortest round-trip, always with `.0` or an exponent), `formatInt`,
-`formatString`, `stringify` (bigints as ints, numbers as reals, typed arrays). Format-agnostic, for raw JSON of other
-CAD formats later.
+JSON that keeps integers and reals apart by their written form: `parseJson(bytes | string)` returns integers as `bigint` and reals as `number`; `formatReal` (shortest round-trip, always with `.0` or an exponent), `formatInt`, `formatString`, `stringify` (bigints as ints, numbers as reals, typed arrays). Format-agnostic, for raw JSON of other CAD formats later.
 
 ### `cad-scene`
 
@@ -470,42 +399,23 @@ weld(positions) / manifoldProblems(positions, triangles) / orientShells(mesh) / 
 TessellationError                                                    // a failure that is the part's, not the host's
 ```
 
-`tessellateScene` repairs what it can in every mesh, with a diagnostic each time, so every consumer of the scene gets
-the repaired mesh: triangles with two corners at one position are dropped, and closed shells that are inside out and
-enclosed by nothing else (so can't be voids) are turned over. `orient: false` and `dropDegenerate: false` keep the
-backend's meshes as they are.
+`tessellateScene` repairs what it can in every mesh, with a diagnostic each time, so every consumer of the scene gets the repaired mesh: triangles with two corners at one position are dropped, and closed shells that are inside out and enclosed by nothing else (so can't be voids) are turned over. `orient: false` and `dropDegenerate: false` keep the backend's meshes as they are.
 
 ### `step-import`
 
-`importStep(input): Promise<{scene, model, semantics, partOf}>` (or `sceneFromStep(model, semantics)`; `partOf` maps
-shape representation ids to part indices): STEP to a
-scene. Components from product definitions (name, part number, version, description as properties), parts from
-shape representations with geometry (annotations and 2D drawings are skipped), part references and occurrences with
-their placements in millimetres, materials from styles (per part when every face agrees, else per face; boundary
-colours when nothing else colours a face; context-dependent overrides per instance), layers, external references.
-Generic part names (`NONE`, `#123`, blank) take their product's; blank product names their part number. Parts with
-references to instances the file doesn't define get a warning naming them.
+`importStep(input): Promise<{scene, model, semantics, partOf}>` (or `sceneFromStep(model, semantics)`; `partOf` maps shape representation ids to part indices): STEP to a scene. Components from product definitions (name, part number, version, description as properties), parts from shape representations with geometry (annotations and 2D drawings are skipped), part references and occurrences with their placements in millimetres, materials from styles (per part when every face agrees, else per face; boundary colours when nothing else colours a face; context-dependent overrides per instance), layers, external references. Generic part names (`NONE`, `#123`, blank) take their product's; blank product names their part number. Parts with references to instances the file doesn't define get a warning naming them.
 
 ### `tess-occt`, `tess-truck`
 
-`new OcctTessellator()`, `new TruckTessellator()`: `Tessellator`s. `init()` loads and compiles the module (from the
-file system in Node, by `fetch` elsewhere; truck also takes `init({wasm})` with bytes or a URL); `info` names the backend, its
-version (with the module's hash), license and abilities; `memoryBytes()` reports the WebAssembly heap. OCCT returns
-face and edge ids, edges, curves and points; truck face and edge ids and edges (no curves), and ignores the angular
-deflection.
+`new OcctTessellator()`, `new TruckTessellator()`: `Tessellator`s. `init()` loads and compiles the module (from the file system in Node, by `fetch` elsewhere; truck also takes `init({wasm})` with bytes or a URL); `info` names the backend, its version (with the module's hash), license and abilities; `memoryBytes()` reports the WebAssembly heap. OCCT returns face and edge ids, edges, curves and points; truck face and edge ids and edges (no curves), and ignores the angular deflection.
 
 ### `tess-workers`
 
-`new WorkerTessellator({backend: {module, export, options}, workers, timeoutMs, maxPartsPerWorker,
-maxMemoryBytes})`: any backend in a pool of workers (`worker_threads` in Node, module Web Workers in browsers, chosen
-by export conditions). Defaults: cores − 1 workers, 120 s timeout, recycling above 256 MiB.
+`new WorkerTessellator({backend: {module, export, options}, workers, timeoutMs, maxPartsPerWorker, maxMemoryBytes})`: any backend in a pool of workers (`worker_threads` in Node, module Web Workers in browsers, chosen by export conditions). Defaults: cores − 1 workers, 120 s timeout, recycling above 256 MiB.
 
 ### `tess-cache`
 
-`new CachedTessellator(inner, store, {retryFailures, keepOtherVersions})` with `new MemoryStore(maxBytes)`, `new
-FileStore({dir, maxBytes})` (Node) or `new IndexedDbStore({name, maxBytes})` (browsers): results cached per part, a
-miss costing nothing measurable and a hit about 0.4 ms. A backend's other versions are deleted on first use; failures
-and timeouts are cached (a timeout answers only under a limit no longer than its own).
+`new CachedTessellator(inner, store, {retryFailures, keepOtherVersions})` with `new MemoryStore(maxBytes)`, `new FileStore({dir, maxBytes})` (Node) or `new IndexedDbStore({name, maxBytes})` (browsers): results cached per part, a miss costing nothing measurable and a hit about 0.4 ms. A backend's other versions are deleted on first use; failures and timeouts are cached (a timeout answers only under a limit no longer than its own).
 
 ### `export-threejs`, `export-gltf`, `export-3mf`
 
@@ -522,13 +432,11 @@ Output is deterministic: the same scene gives the same bytes.
 
 ### `cli` (`cad-io-cli`)
 
-`step2json(argv, io)` and `stepconv(argv, io)`, the tools as functions over streams (`{stdin, stdout, stderr}`),
-returning the exit code; `bin/` runs them.
+`step2json(argv, io)` and `stepconv(argv, io)`, the tools as functions over streams (`{stdin, stdout, stderr}`), returning the exit code; `bin/` runs them.
 
 ## The test corpus
 
-517 real-world Part 21 files, 421 MB, 4.9 M instances, listed in `test_corpus/files.txt` and fetched by
-`test_corpus/third_party/pull.sh` (not in the repository):
+517 real-world Part 21 files, 421 MB, 4.9 M instances, listed in `test_corpus/files.txt` and fetched by `test_corpus/third_party/pull.sh` (not in the repository):
 
 | Files | Source |
 |---|---|
@@ -536,53 +444,30 @@ returning the exit code; `bin/` runs them.
 | 60 | NIST's MBE PMI models (CTC, FTC, STC, D2MI; AP203 and AP242 editions 1–4) |
 | 19 | the test files of `occt-import-js` |
 
-By schema: 62 files AP203 ed1, 45 AP203 ed2, 345 AP214, 46 AP242, 19 others (AP209, AP227, …, bound with AP242).
-They include deliberately broken files (unbalanced quotes, dangling and out-of-range references), files from
-writers with known quirks, wireframes, surface models, tessellated geometry, voids, external references and files
-over 50 MB. `test_corpus/subsets/` holds phase 0's per-part subsets of 30 of them (188 parts), made by
-`corpus_checks/make_subsets.ts`. See [`test_corpus/README.md`](test_corpus/README.md) for versions.
+By schema: 62 files AP203 ed1, 45 AP203 ed2, 345 AP214, 46 AP242, 19 others (AP209, AP227, …, bound with AP242). They include deliberately broken files (unbalanced quotes, dangling and out-of-range references), files from writers with known quirks, wireframes, surface models, tessellated geometry, voids, external references and files over 50 MB. `test_corpus/subsets/` holds phase 0's per-part subsets of 30 of them (188 parts), made by `corpus_checks/make_subsets.ts`. See [`test_corpus/README.md`](test_corpus/README.md) for versions.
 
 ## The tests
 
-- **`npm test`**: the package tests, 193 of them (`node:test`, in each package's `test/`), on small inline fixtures
-  and a few corpus files. Tests that need a built backend or the corpus skip when it's missing; with everything built,
-  they take about 20 s.
+- **`npm test`**: the package tests, 193 of them (`node:test`, in each package's `test/`), on small inline fixtures and a few corpus files. Tests that need a built backend or the corpus skip when it's missing; with everything built, they take about 20 s.
 - **`npm run typecheck`**: `tsc` over the packages (no output; the sources run as they are).
-- **`cargo test`** in `packages/tess-truck/native`: 3 native tests of the truck wrapper (B-spline clamping, the
-  volume sign guard).
-- **Browser checks**, run by hand: `node packages/tess-workers/test/browser-check.ts` and
-  `node packages/tess-cache/test/browser-check.ts` serve the sources and run the pool's and IndexedDB's scenarios in
-  headless Chrome.
-- **Corpus checks** (`corpus_checks/`, 25 scripts, each with its log committed): every corpus file through each
-  stage, against OCCT (through `occt-import-js`) and against each format's own validator: the writer and raw JSON
-  round trips (0 differences in 4.9 M instances), binding, placements against OCCT's assembly reader, the scene end
-  to end against OCCT (99.1% of sampled vertices on OCCT's surfaces, 97.8% of colours equal), truck against OCCT part
-  by part and face by face, and each exporter read back with three.js's `ObjectLoader`, the Khronos glTF-Validator
-  and lib3mf, and all of it through `stepconv`. They take from seconds to 20 minutes each; see
-  [`corpus_checks/README.md`](corpus_checks/README.md). Timing runs need AC power (macOS's low power mode halves the
-  speed).
+- **`cargo test`** in `packages/tess-truck/native`: 3 native tests of the truck wrapper (B-spline clamping, the volume sign guard).
+- **Browser checks**, run by hand: `node packages/tess-workers/test/browser-check.ts` and `node packages/tess-cache/test/browser-check.ts` serve the sources and run the pool's and IndexedDB's scenarios in headless Chrome.
+- **Corpus checks** (`corpus_checks/`, 25 scripts, each with its log committed): every corpus file through each stage, against OCCT (through `occt-import-js`) and against each format's own validator: the writer and raw JSON round trips (0 differences in 4.9 M instances), binding, placements against OCCT's assembly reader, the scene end to end against OCCT (99.1% of sampled vertices on OCCT's surfaces, 97.8% of colours equal), truck against OCCT part by part and face by face, and each exporter read back with three.js's `ObjectLoader`, the Khronos glTF-Validator and lib3mf, and all of it through `stepconv`. They take from seconds to 20 minutes each; see [`corpus_checks/README.md`](corpus_checks/README.md). Timing runs need AC power (macOS's low power mode halves the speed).
 
-Each piece of work so far was also checked by deliberately breaking the code (a few dozen mutations per step) and
-confirming the tests fail; gaps found that way became tests.
+Each piece of work so far was also checked by deliberately breaking the code (a few dozen mutations per step) and confirming the tests fail; gaps found that way became tests.
 
 ## Roadmap
 
-Done (0.1.0): the parser and writer, schema binding and semantic extraction, `step2json`; the scene model and STEP
-importer; the OCCT and truck backends with workers and caching; the three.js, glTF and 3MF exporters and `stepconv`.
+Done (0.1.0): the parser and writer, schema binding and semantic extraction, `step2json`; the scene model and STEP importer; the OCCT and truck backends with workers and caching; the three.js, glTF and 3MF exporters and `stepconv`.
 
 Next, roughly in order:
 
-1. **Publishing to npm:** emit JavaScript (`rewriteRelativeImportExtensions` is already on), package names and
-   scope, per-package READMEs and licenses, the prebuilt WebAssembly modules in their packages.
-2. **A browser viewer:** the assembly tree and an interactive 3D view on the same packages (parsing in the page,
-   tessellation in Web Workers, the IndexedDB cache), with picking by face id.
+1. **Publishing to npm:** emit JavaScript (`rewriteRelativeImportExtensions` is already on), package names and scope, per-package READMEs and licenses, the prebuilt WebAssembly modules in their packages.
+2. **A browser viewer:** the assembly tree and an interactive 3D view on the same packages (parsing in the page, tessellation in Web Workers, the IndexedDB cache), with picking by face id.
 3. **Large files in the browser:** reading instance bytes on demand instead of holding the file, 64-bit offsets.
-4. **More of STEP:** PMI (semantic and graphical), AP242 tessellated geometry as meshes, user-defined attributes,
-   materials, SHUO, per-curve colours, named coordinate systems.
+4. **More of STEP:** PMI (semantic and graphical), AP242 tessellated geometry as meshes, user-defined attributes, materials, SHUO, per-curve colours, named coordinate systems.
 5. **More formats** (the scene and tessellator interface were designed for them), by value to a viewer:
-   - **JT** (ISO 14306; Siemens Teamcenter): a pure-TypeScript importer of its meshes (levels of detail, so no
-     tessellation needed), scene graph and properties; v9 and v10 compression both needed; specifications in
-     `third_party/jt/`, free to implement against (the terms are summarized in `CLAUDE.md`);
+   - **JT** (ISO 14306; Siemens Teamcenter): a pure-TypeScript importer of its meshes (levels of detail, so no tessellation needed), scene graph and properties; v9 and v10 compression both needed; specifications in `third_party/jt/`, free to implement against (the terms are summarized in `CLAUDE.md`);
    - **IGES**: a small parser plus the OCCT backend (`format: 'iges'`, subsets with renumbered pointers);
    - **OCCT BREP** (`.brep`), OCCT documents (`.xbf`) and **FreeCAD** (`.FCStd`, whose `.brp` shapes OCCT reads);
    - exporting STEP (the writer exists) and JT.
@@ -595,8 +480,7 @@ Known work not yet scheduled; the detail behind each is in `CLAUDE.md`.
 
 **Parser and extraction**
 
-- PMI, semantic and graphical (`rec_pracs_pmi_v41.pdf` in `third_party/mbx-if-recpractices/`); 2D drawings
-  (`GEOMETRICALLY_BOUNDED_2D_WIREFRAME`, skipped today) go with it.
+- PMI, semantic and graphical (`rec_pracs_pmi_v41.pdf` in `third_party/mbx-if-recpractices/`); 2D drawings (`GEOMETRICALLY_BOUNDED_2D_WIREFRAME`, skipped today) go with it.
 - User-defined attributes; materials and densities; SHUO; kinematics.
 - AP242 tessellated geometry as scene meshes (OCCT meshes it today as brep parts).
 - Per-instance style resolution beyond what the importer does; per-curve colours in mixed parts.
@@ -608,10 +492,8 @@ Known work not yet scheduled; the detail behind each is in `CLAUDE.md`.
 **Tessellation**
 
 - A deflection relative to each part's size (absolute 0.1 mm gives a 32 m torus 3.9 M triangles).
-- OCCT: ShapeFix's split of a face whose hole touches its seam (bicycle #23723, left as is); Delabella for faces
-  with thousands of holes (6× faster on `bug24024_slow_import.stp`); size cuts (CJK code-page tables, writer code).
-- truck: wireframe curves (`TRIMMED_CURVE`, `COMPOSITE_CURVE`); geometric sets' surfaces; cones, surfaces of
-  revolution and rational B-splines it meshes badly (no workaround short of patching truck).
+- OCCT: ShapeFix's split of a face whose hole touches its seam (bicycle #23723, left as is); Delabella for faces with thousands of holes (6× faster on `bug24024_slow_import.stp`); size cuts (CJK code-page tables, writer code).
+- truck: wireframe curves (`TRIMMED_CURVE`, `COMPOSITE_CURVE`); geometric sets' surfaces; cones, surfaces of revolution and rational B-splines it meshes badly (no workaround short of patching truck).
 
 **Export**
 
@@ -626,7 +508,4 @@ Known work not yet scheduled; the detail behind each is in `CLAUDE.md`.
 
 ## License
 
-Apache-2.0 ([`LICENSE.txt`](LICENSE.txt)), except `packages/tess-occt`, which is LGPL-2.1 with the Open CASCADE
-exception, as OCCT is ([`packages/tess-occt/LICENSE.txt`](packages/tess-occt/LICENSE.txt)). The other code we build
-against keeps its own license: OCCT LGPL-2.1, stepcode BSD-3-Clause, truck Apache-2.0, glTF-Transform and fflate MIT.
-The code here is written independently, using OCCT as a reference and test oracle only, not translated from it.
+Apache-2.0 ([`LICENSE.txt`](LICENSE.txt)), except `packages/tess-occt`, which is LGPL-2.1 with the Open CASCADE exception, as OCCT is ([`packages/tess-occt/LICENSE.txt`](packages/tess-occt/LICENSE.txt)). The other code we build against keeps its own license: OCCT LGPL-2.1, stepcode BSD-3-Clause, truck Apache-2.0, glTF-Transform and fflate MIT. The code here is written independently, using OCCT as a reference and test oracle only, not translated from it.

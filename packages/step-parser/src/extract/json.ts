@@ -20,7 +20,8 @@ export interface SemanticJsonOptions {
 }
 
 /** The semantic JSON document, as a plain object for JSON.stringify. */
-export function semanticJson(model: StepModel, sem: Semantics, opts: SemanticJsonOptions = {}): Record<string, unknown> {
+export function semanticJson(model: StepModel, sem: Semantics,
+  opts: SemanticJsonOptions = {}): Record<string, unknown> {
   const s = sem.structure;
   const file = model.file;
   const header = (type: string, i: number): unknown => {
@@ -57,7 +58,8 @@ export function semanticJson(model: StepModel, sem: Semantics, opts: SemanticJso
     })),
   };
   if (opts.instances) {
-    doc.instances = productInstances(s).map((i) => ({ product: i.product, path: i.path, transform: matrix(i.transform) }));
+    doc.instances = productInstances(s).map(
+      (i) => ({ product: i.product, path: i.path, transform: matrix(i.transform) }));
   }
   doc.styles = { styled: sem.styles.styled, layers: sem.styles.layers };
   doc.validation = sem.validation;

@@ -44,7 +44,8 @@ export function dictionaryForSchemaName(fileSchema: string): string | undefined 
   // Drop the object identifier and normalize case.
   const name = fileSchema.replace(/\{.*$/s, '').trim().toUpperCase();
   if (name === 'CONFIG_CONTROL_DESIGN') return 'ap203';
-  if (name.startsWith('AP203_CONFIGURATION_CONTROLLED_3D_DESIGN') || name === 'CONFIGURATION_CONTROL_3D_DESIGN_ED2_MIM_LF') {
+  if (name.startsWith(
+    'AP203_CONFIGURATION_CONTROLLED_3D_DESIGN') || name === 'CONFIGURATION_CONTROL_3D_DESIGN_ED2_MIM_LF') {
     return 'ap203e2';
   }
   // AUTOMOTIVE_DESIGN and its conformance-class variants (AUTOMOTIVE_DESIGN_CC2, ...).

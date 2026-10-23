@@ -8,7 +8,8 @@ import { FileStore } from 'tess-cache';
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'tess-cache-'));
 const bytes = (n: number, fill = 0) => new Uint8Array(n).fill(fill);
 /** Files under `dir`, relative, sorted. */
-const files = (dir: string) => (fs.readdirSync(dir, { recursive: true }) as string[]).filter((f) => fs.statSync(path.join(dir, f)).isFile()).sort();
+const files = (dir: string) => (fs.readdirSync(dir, { recursive: true }) as string[]).filter(
+  (f) => fs.statSync(path.join(dir, f)).isFile()).sort();
 /** Sets a file's times to `s` seconds after the epoch. */
 const age = (dir: string, key: string, s: number) => fs.utimesSync(path.join(dir, key.slice(-2), key), s, s);
 
@@ -33,7 +34,8 @@ test('entries persist in the directory, one file per entry, and survive a new st
   assert.throws(() => (b as unknown as { file(k: string): string }).file('../x'), /bad key/);
 });
 
-test('recency is the files\' times, which reads update: a new store evicts the least recently used first', async (t) => {
+test('recency is the files\' times, which reads update: a new store evicts the least recently used first',
+  async (t) => {
   const dir = tmp();
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const a = new FileStore({ dir, maxBytes: 100 });

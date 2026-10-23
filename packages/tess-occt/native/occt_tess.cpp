@@ -249,7 +249,8 @@ int occt_tessellate(const char* data, int len, int rootId, double linDefl, doubl
     // Wireframe: edges in no face (a geometric set's or wireframe model's curves) and vertices in no edge (its
     // points). Their ids: an EDGE_CURVE's, else the geometric set's element (a composite curve before its segments'
     // curves), else the point's; looked up only if there are any.
-    NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> edgeFaces, vertexEdges;
+    NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> edgeFaces,
+      vertexEdges;
     TopExp::MapShapesAndUniqueAncestors(shape, TopAbs_EDGE, TopAbs_FACE, edgeFaces);
     TopExp::MapShapesAndUniqueAncestors(shape, TopAbs_VERTEX, TopAbs_EDGE, vertexEdges);
     bool hasCurves = false, hasPoints = false;
@@ -308,7 +309,8 @@ int occt_tessellate(const char* data, int len, int rootId, double linDefl, doubl
           for (int k = 1; k <= p3->NbNodes(); ++k)
           {
             gp_Pnt p = p3->Nodes().Value(k).Transformed(l3.Transformation());
-            g.curvePositions.insert(g.curvePositions.end(), {(float)(p.X() - ox), (float)(p.Y() - oy), (float)(p.Z() - oz)});
+            g.curvePositions.insert(g.curvePositions.end(),
+              {(float)(p.X() - ox), (float)(p.Y() - oy), (float)(p.Z() - oz)});
           }
         const int32_t count = (int32_t)(g.curvePositions.size() / 3 - first);
         if (id < 0)
@@ -360,7 +362,8 @@ int occt_tessellate(const char* data, int len, int rootId, double linDefl, doubl
         for (int k = 1; k <= o0.poly->NbNodes(); ++k)
         {
           gp_Pnt p = o0.tri->Node(o0.poly->Node(k)).Transformed(trsf);
-          g.edgePositions.insert(g.edgePositions.end(), {(float)(p.X() - ox), (float)(p.Y() - oy), (float)(p.Z() - oz)});
+          g.edgePositions.insert(g.edgePositions.end(),
+            {(float)(p.X() - ox), (float)(p.Y() - oy), (float)(p.Z() - oz)});
         }
         if (kind == 0 && on.size() >= 2 && on[1].poly->NbNodes() == o0.poly->NbNodes() && o0.tri->HasNormals()
             && on[1].tri->HasNormals())
@@ -391,7 +394,8 @@ int occt_tessellate(const char* data, int len, int rootId, double linDefl, doubl
           for (int k = 1; k <= p3->NbNodes(); ++k)
           {
             gp_Pnt p = p3->Nodes().Value(k).Transformed(l3.Transformation());
-            g.edgePositions.insert(g.edgePositions.end(), {(float)(p.X() - ox), (float)(p.Y() - oy), (float)(p.Z() - oz)});
+            g.edgePositions.insert(g.edgePositions.end(),
+              {(float)(p.X() - ox), (float)(p.Y() - oy), (float)(p.Z() - oz)});
           }
       }
       if (g.edgePositions.size() / 3 == first && kind == 3)
@@ -401,7 +405,8 @@ int occt_tessellate(const char* data, int len, int rootId, double linDefl, doubl
         if (!v.IsNull())
         {
           const gp_Pnt p = BRep_Tool::Pnt(v);
-          g.edgePositions.insert(g.edgePositions.end(), {(float)(p.X() - ox), (float)(p.Y() - oy), (float)(p.Z() - oz)});
+          g.edgePositions.insert(g.edgePositions.end(),
+            {(float)(p.X() - ox), (float)(p.Y() - oy), (float)(p.Z() - oz)});
         }
       }
       const int32_t count = (int32_t)(g.edgePositions.size() / 3 - first);
@@ -414,9 +419,12 @@ int occt_tessellate(const char* data, int len, int rootId, double linDefl, doubl
     g.diag = "{\"roots\":" + std::to_string(nbRoots) + ",\"stepFaces\":" + std::to_string(stepFaces)
              + ",\"faces\":" + std::to_string(nFaces) + ",\"unmapped\":" + std::to_string(unmapped)
              + ",\"noTriangulation\":" + std::to_string(noTri) + ",\"stepEdges\":" + std::to_string(stepEdges)
-             + ",\"edges\":" + std::to_string(edgeFaces.Extent()) + ",\"edgesUnmapped\":" + std::to_string(edgesUnmapped)
-             + ",\"edgesNoPolygon\":" + std::to_string(edgesNoPolygon) + ",\"curves\":" + std::to_string(g.curves.size() / 3)
-             + ",\"curvesUnmapped\":" + std::to_string(curvesUnmapped) + ",\"curvesNoPolygon\":" + std::to_string(curvesNoPolygon)
+             + ",\"edges\":" + std::to_string(edgeFaces.Extent())
+             + ",\"edgesUnmapped\":" + std::to_string(edgesUnmapped)
+             + ",\"edgesNoPolygon\":" + std::to_string(edgesNoPolygon)
+             + ",\"curves\":" + std::to_string(g.curves.size() / 3)
+             + ",\"curvesUnmapped\":" + std::to_string(curvesUnmapped)
+             + ",\"curvesNoPolygon\":" + std::to_string(curvesNoPolygon)
              + ",\"points\":" + std::to_string(g.pointIds.size()) + ",\"unitMm\":" + std::to_string(unitMm) + "}";
     return 0;
   }

@@ -92,7 +92,8 @@ class Parser {
       const v = this.value();
       if (Object.hasOwn(o, k)) throw new JsonParseError(`duplicate key ${JSON.stringify(k)}`, at);
       // defineProperty, so that a "__proto__" key is an ordinary property, as with JSON.parse.
-      if (k === '__proto__') Object.defineProperty(o, k, { value: v, enumerable: true, writable: true, configurable: true });
+      if (k === '__proto__') Object.defineProperty(o, k,
+        { value: v, enumerable: true, writable: true, configurable: true });
       else o[k] = v;
       this.ws();
       const c = this.b[this.pos];
@@ -196,7 +197,9 @@ class Parser {
             let u = 0;
             for (let k = 0; k < 4; k++) {
               const h = b[i + k]!;
-              const d = h >= 0x30 && h <= 0x39 ? h - 0x30 : h >= 0x41 && h <= 0x46 ? h - 0x37 : h >= 0x61 && h <= 0x66 ? h - 0x57 : -1;
+              const d = h >= 0x30 && h <= 0x39 ? h - 0x30
+                : h >= 0x41 && h <= 0x46 ? h - 0x37
+                  : h >= 0x61 && h <= 0x66 ? h - 0x57 : -1;
               if (d < 0) throw this.at(i + k, 'invalid \\u escape');
               u = u * 16 + d;
             }

@@ -9,7 +9,9 @@ cd "$(dirname "$0")"
 mkdir -p dist build
 (cd native && CARGO_TARGET_DIR=../build/target cargo build --release --locked --target wasm32-unknown-unknown)
 OUT=build/target/wasm32-unknown-unknown/release/tess_truck.wasm
-WASM_OPT=${WASM_OPT:-$(command -v wasm-opt || ls "$HOME"/Library/Caches/.wasm-pack/wasm-opt-*/bin/wasm-opt "$HOME"/.cache/.wasm-pack/wasm-opt-*/bin/wasm-opt 2>/dev/null | head -1 || true)}
+WASM_OPT=${WASM_OPT:-$(command -v wasm-opt ||
+  ls "$HOME"/Library/Caches/.wasm-pack/wasm-opt-*/bin/wasm-opt "$HOME"/.cache/.wasm-pack/wasm-opt-*/bin/wasm-opt \
+    2>/dev/null | head -1 || true)}
 if [ -n "$WASM_OPT" ]; then
   "$WASM_OPT" -O "$OUT" -o dist/tess_truck.wasm
 else

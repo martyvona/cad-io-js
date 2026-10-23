@@ -17,11 +17,13 @@
 //      {"id":2,"parts":[{"type":"LENGTH_UNIT","attrs":[]}, ...]},
 //    ...]}]}
 //
-// One instance per line; jsonLinesChunks writes the NDJSON form, one JSON value per line. Records may carry their attribute names, `"names":[...]` before `"attrs"`, as an annotation
-// (see JsonWriteOptions.names). Keys the loader doesn't know, these included, are ignored in the document, sections,
-// instances and records; value objects must match exactly.
+// One instance per line; jsonLinesChunks writes the NDJSON form, one JSON value per line. Records may carry their
+// attribute names, `"names":[...]` before `"attrs"`, as an annotation (see JsonWriteOptions.names). Keys the loader
+// doesn't know, these included, are ignored in the document, sections, instances and records; value objects must match
+// exactly.
 
-import { formatInt, formatReal, formatString, JsonParseError, parseJson, type JsonObject, type JsonValue } from 'lexical-json';
+import { formatInt, formatReal, formatString, JsonParseError, parseJson, type JsonObject,
+  type JsonValue } from 'lexical-json';
 import { Chunker, concatChunks } from './chunks.ts';
 import { decodeInstance } from './decode.ts';
 import { makeList, type EntityRecord, type Instance, type Value } from './model.ts';
@@ -90,7 +92,8 @@ export function writeJson(doc: StepDocument, opts?: JsonWriteOptions): Uint8Arra
  */
 export function* jsonLinesChunks(doc: StepDocument, opts: JsonWriteOptions = {}): Generator<Uint8Array> {
   const out = new Chunker(opts.chunkSize);
-  yield* out.text(`{"format":${formatString(RAW_JSON_FORMAT)},"version":${RAW_JSON_VERSION},"source":"step","layout":"ndjson","header":[${doc.header.map((r) => recordJson(r)).join(',')}]}\n`);
+  yield* out.text(`{"format":${formatString(RAW_JSON_FORMAT)},"version":${RAW_JSON_VERSION},"source":"step",`
+    + `"layout":"ndjson","header":[${doc.header.map((r) => recordJson(r)).join(',')}]}\n`);
   for (const s of doc.data) {
     yield* out.text(`{"data":{${sectionFields(s)}}}\n`);
     for (const item of s.instances) {
@@ -117,7 +120,8 @@ function sectionFields(s: { name?: string; schemas?: readonly string[] }): strin
 export function instanceJson(inst: Instance, names?: readonly (readonly string[])[]): string {
   if (!Number.isSafeInteger(inst.id) || inst.id < 0) throw new WriteError(`invalid instance id ${inst.id}`);
   try {
-    if ('parts' in inst) return `{"id":${inst.id},"parts":[${inst.parts.map((r, i) => recordJson(r, names?.[i])).join(',')}]}`;
+    if ('parts' in inst) return `{"id":${inst.id},`
+      + `"parts":[${inst.parts.map((r, i) => recordJson(r, names?.[i])).join(',')}]}`;
     return `{"id":${inst.id},${recordJson(inst, names?.[0]).slice(1)}`;
   } catch (e) {
     throw e instanceof WriteError && e.id === undefined ? new WriteError(e.message, inst.id) : e;
@@ -183,13 +187,15 @@ function ref(r: number): string {
  */
 export function readJson(input: Uint8Array | string): RawJsonDocument {
   const top = envelope(parseJson(input), 'document');
-  if (top.layout !== undefined) throw new RawJsonError(`layout ${JSON.stringify(top.layout)}: read it with readJsonLines`, 'document');
+  if (top.layout !== undefined) throw new RawJsonError(
+    `layout ${JSON.stringify(top.layout)}: read it with readJsonLines`, 'document');
   const header = array(top.header, 'header').map((r, i) => recordFromJson(r, `header[${i}]`));
   const data = array(top.data, 'data').map((s, i) => {
     const where = `data[${i}]`;
     const o = object(s, where);
     const section = sectionFromJson(o, where);
-    section.instances = array(o.instances, `${where}.instances`).map((x, k) => instanceFromJson(x, `${where}.instances[${k}]`));
+    section.instances = array(o.instances, `${where}.instances`).map(
+      (x, k) => instanceFromJson(x, `${where}.instances[${k}]`));
     return section;
   });
   return { header, data };
@@ -216,7 +222,8 @@ export function readJsonLines(input: Uint8Array | string): RawJsonDocument {
     }
     if (!seenEnvelope) {
       const top = envelope(j, where);
-      if (top.layout !== 'ndjson') throw new RawJsonError('the first line is not an NDJSON envelope ("layout":"ndjson")', where);
+      if (top.layout !== 'ndjson') throw new RawJsonError(
+        'the first line is not an NDJSON envelope ("layout":"ndjson")', where);
       doc.header = array(top.header, `${where}.header`).map((r, i) => recordFromJson(r, `${where}.header[${i}]`));
       seenEnvelope = true;
       continue;
@@ -237,7 +244,8 @@ export function readJsonLines(input: Uint8Array | string): RawJsonDocument {
 function envelope(j: JsonValue, where: string): JsonObject {
   const top = object(j, where);
   if (top.format !== RAW_JSON_FORMAT) throw new RawJsonError(`format is not ${JSON.stringify(RAW_JSON_FORMAT)}`, where);
-  if (top.version !== BigInt(RAW_JSON_VERSION)) throw new RawJsonError(`unsupported version ${String(top.version)}`, where);
+  if (top.version !== BigInt(RAW_JSON_VERSION)) throw new RawJsonError(
+    `unsupported version ${String(top.version)}`, where);
   if (top.source !== 'step') throw new RawJsonError(`source is ${JSON.stringify(top.source)}, not "step"`, where);
   return top;
 }
@@ -245,14 +253,16 @@ function envelope(j: JsonValue, where: string): JsonObject {
 function sectionFromJson(o: JsonObject, where: string): RawJsonDocument['data'][number] {
   const section: RawJsonDocument['data'][number] = { instances: [] };
   if (o.name !== undefined) section.name = string(o.name, `${where}.name`);
-  if (o.schemas !== undefined) section.schemas = array(o.schemas, `${where}.schemas`).map((x, k) => string(x, `${where}.schemas[${k}]`));
+  if (o.schemas !== undefined) section.schemas = array(o.schemas, `${where}.schemas`).map(
+    (x, k) => string(x, `${where}.schemas[${k}]`));
   return section;
 }
 
 /** An instance from its raw JSON object. */
 export function instanceFromJson(j: JsonValue, where = 'instance'): Instance {
   const o = object(j, where);
-  if (typeof o.id !== 'bigint' || o.id < 0n || o.id > BigInt(Number.MAX_SAFE_INTEGER)) throw new RawJsonError('id is not a non-negative integer', where);
+  if (typeof o.id !== 'bigint' || o.id < 0n || o.id > BigInt(Number.MAX_SAFE_INTEGER)) throw new RawJsonError(
+    'id is not a non-negative integer', where);
   const id = Number(o.id);
   where += ` (#${id})`;
   if (o.parts !== undefined) {
@@ -285,7 +295,8 @@ export function valueFromJson(j: JsonValue, where = 'value'): Value {
   if (Array.isArray(j)) return makeList(j.map((x, i) => valueFromJson(x, `${where}[${i}]`)));
   const keys = Object.keys(j);
   const only = (...ks: string[]) => {
-    if (keys.length !== ks.length || !ks.every((k) => k in j)) throw new RawJsonError(`not a raw value: ${JSON.stringify(keys)}`, where);
+    if (keys.length !== ks.length || !ks.every((k) => k in j)) throw new RawJsonError(
+      `not a raw value: ${JSON.stringify(keys)}`, where);
   };
   if ('ref' in j) { only('ref'); return { k: 'ref', v: refFromJson(j.ref!, where) }; }
   if ('refs' in j) {
@@ -299,14 +310,16 @@ export function valueFromJson(j: JsonValue, where = 'value'): Value {
     return { k: 'derived' };
   }
   if ('bin' in j) { only('bin'); return { k: 'bin', v: string(j.bin, where) }; }
-  if ('type' in j) { only('type', 'value'); return { k: 'typed', type: string(j.type, where), v: valueFromJson(j.value!, where) }; }
+  if ('type' in j) { only('type', 'value');
+    return { k: 'typed', type: string(j.type, where), v: valueFromJson(j.value!, where) }; }
   throw new RawJsonError(`not a raw value: ${JSON.stringify(keys)}`, where);
 }
 
 const safe = (x: bigint) => x >= BigInt(Number.MIN_SAFE_INTEGER) && x <= BigInt(Number.MAX_SAFE_INTEGER);
 
 function refFromJson(j: JsonValue, where: string): number {
-  if (typeof j !== 'bigint' || j < 0n || !safe(j)) throw new RawJsonError('reference is not a non-negative integer', where);
+  if (typeof j !== 'bigint' || j < 0n || !safe(j)) throw new RawJsonError(
+    'reference is not a non-negative integer', where);
   return Number(j);
 }
 

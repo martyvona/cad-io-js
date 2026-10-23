@@ -51,16 +51,19 @@ export class StepFile {
           if (schemas?.k === 'list') d.schemas = schemas.v.flatMap((v) => (v.k === 'str' ? [v.v] : []));
         } catch (e) {
           if (!(e instanceof ParseError)) throw e;
-          this.diagnostics.push({ severity: 'warning', message: `DATA section parameters: ${e.message}`, offset: e.offset });
+          this.diagnostics.push(
+            { severity: 'warning', message: `DATA section parameters: ${e.message}`, offset: e.offset });
         }
       }
       data.push(d);
     }
     this.dataSections = data;
-    if (data.length > 1) this.diagnostics.push({ severity: 'info', message: `${data.length} DATA sections (edition 3)` });
+    if (data.length > 1) this.diagnostics.push(
+      { severity: 'info', message: `${data.length} DATA sections (edition 3)` });
     for (const s of r.sections) {
       if (s.kind === 'anchor' || s.kind === 'reference' || s.kind === 'signature') {
-        this.diagnostics.push({ severity: 'warning', message: `${s.kind.toUpperCase()} section ignored`, offset: s.start });
+        this.diagnostics.push(
+          { severity: 'warning', message: `${s.kind.toUpperCase()} section ignored`, offset: s.start });
       }
     }
   }

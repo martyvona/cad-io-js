@@ -1,16 +1,19 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  effectiveStyle, extractSemantics, math, openModel, parseStep, placement, productInstances, productRepresentations, Reader,
+  effectiveStyle, extractSemantics, math, openModel, parseStep, placement, productInstances,
+  productRepresentations, Reader,
   transformation, Units, type Mat4, type Unit, type Vec3,
 } from '../src/index.ts';
 
 const enc = new TextEncoder();
 const parse = (s: string) => parseStep(enc.encode(s));
 const AP214 = 'AUTOMOTIVE_DESIGN { 1 0 10303 214 1 1 1 1 }';
-const file = (data: string) => parse(`ISO-10303-21;HEADER;FILE_SCHEMA(('${AP214}'));ENDSEC;DATA;\n${data}\nENDSEC;END-ISO-10303-21;`);
+const file = (data: string) => parse(
+  `ISO-10303-21;HEADER;FILE_SCHEMA(('${AP214}'));ENDSEC;DATA;\n${data}\nENDSEC;END-ISO-10303-21;`);
 const close = (a: ArrayLike<number>, b: ArrayLike<number>, eps = 1e-9) =>
-  assert.ok(a.length === b.length && Array.from(a).every((x, i) => Math.abs(x - b[i]!) <= eps), `${Array.from(a)} ≉ ${Array.from(b)}`);
+  assert.ok(a.length === b.length && Array.from(a).every((x, i) => Math.abs(x - b[i]!) <= eps),
+    `${Array.from(a)} ≉ ${Array.from(b)}`);
 const point = (m: Mat4, p: Vec3) => math.apply(m, p);
 
 // An assembly in millimetres with:
@@ -145,7 +148,8 @@ test('units and contexts', async () => {
   const r = new Reader(m);
   const u = new Units(r);
   const mm = u.context(m.resolve(16))!;
-  assert.deepEqual([mm.lengthUnit?.name, mm.lengthUnit?.factor, mm.planeAngleUnit?.factor, mm.uncertainty, mm.dimension], ['millimetre', 0.001, 1, 1e-6, 3]);
+  assert.deepEqual([mm.lengthUnit?.name, mm.lengthUnit?.factor, mm.planeAngleUnit?.factor, mm.uncertainty,
+    mm.dimension], ['millimetre', 0.001, 1, 1e-6, 3]);
   const inch = u.ofRepresentation(m.resolve(205))!;
   assert.deepEqual([inch.lengthUnit?.name, inch.lengthUnit?.kind], ['INCH', 'length']);
   close([inch.lengthUnit!.factor!], [0.0254]);
@@ -168,7 +172,8 @@ test('units and contexts', async () => {
   assert.deepEqual([area.kind, volume.kind, mm2.kind, mm2.name], ['area', 'volume', 'area', 'square millimetre']);
   close([area.factor!, volume.factor!, mm2.factor!], [0.0254 ** 2, 0.0254 ** 3, 1e-6], 1e-18);
   const [cm2, mm3] = [6, 7].map((id) => u2.unit(m2.resolve(id))!) as [Unit, Unit];
-  assert.deepEqual([cm2.name, cm2.kind, mm3.name, mm3.kind], ['square centimetre', 'area', 'cubic millimetre', 'volume']);
+  assert.deepEqual([cm2.name, cm2.kind, mm3.name, mm3.kind],
+    ['square centimetre', 'area', 'cubic millimetre', 'volume']);
   close([cm2.factor!, mm3.factor!], [1e-4, 1e-9], 1e-20);
   assert.deepEqual(r2.diagnostics.map((d) => d.message), [
     "area unit 'INCH' converts from a length unit; read as its square",
@@ -188,15 +193,18 @@ test('placements and transformations', async () => {
   close(point(t, [100, 0, 0]), [0, 0, 0]);
   close(point(t, [100, 25.4, 0]), [1, 0, 0]); // the frame's x axis (assembly y) becomes the component's x
   // Pure frame maths: a frame 1.6e-8 off the x axis still gives an orthonormal matrix.
-  const f = file(`#1=CARTESIAN_POINT('',(0.,0.,0.));#2=DIRECTION('',(-1.,0.,-1.6E-08));#3=AXIS2_PLACEMENT_3D('',#1,#2,$);#5=AXIS2_PLACEMENT_3D('',#1,#2,#2);`);
+  const f = file(`#1=CARTESIAN_POINT('',(0.,0.,0.));#2=DIRECTION('',(-1.,0.,-1.6E-08));#3=AXIS2_PLACEMENT_3D('',#1,#2,`
+    + `$);#5=AXIS2_PLACEMENT_3D('',#1,#2,#2);`);
   const m2 = await openModel(f);
   const r2 = new Reader(m2);
   for (const id of [3, 5]) {
     const M = placement(r2, m2.resolve(id))!;
     const cols = [0, 4, 8].map((o) => [M[o]!, M[o + 1]!, M[o + 2]!] as Vec3);
-    for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) assert.ok(Math.abs(math.dot(cols[i]!, cols[j]!) - (i === j ? 1 : 0)) < 1e-15);
+    for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) assert.ok(
+      Math.abs(math.dot(cols[i]!, cols[j]!) - (i === j ? 1 : 0)) < 1e-15);
   }
-  assert.deepEqual(r2.diagnostics.map((d) => d.message), ['placement ref_direction is parallel to its axis; using the default']);
+  assert.deepEqual(r2.diagnostics.map((d) => d.message),
+    ['placement ref_direction is parallel to its axis; using the default']);
   // The inverse of an affine matrix.
   const a = math.multiply(math.fromAxes([0, 2, 0], [-3, 0, 0], [0, 0, 1], [5, 6, 7]), math.scaling(1));
   close(math.multiply(a, math.invertAffine(a)!), math.identity(), 1e-12);
@@ -206,12 +214,14 @@ test('product structure: occurrences, swapped relationships, units, mapped items
   const m = await openModel(file(DATA));
   const { structure: s, diagnostics } = extractSemantics(m);
   assert.deepEqual(s.products.map((p) => [p.id, p.partNumber, p.name, p.version, p.definitionId, p.shapes]), [
-    [102, 'ASM', 'Assembly', 'A', 'd1', [104]], [202, 'BOX', 'Box', 'B', 'd2', [205]], [402, 'EXT', 'External', undefined, undefined, [405]],
+    [102, 'ASM', 'Assembly', 'A', 'd1', [104]], [202, 'BOX', 'Box', 'B', 'd2', [205]],
+    [402, 'EXT', 'External', undefined, undefined, [405]],
   ]);
   assert.equal(s.products[1]!.description, 'a box');
   assert.deepEqual(s.products[2]!.documents, [{ id: 411, name: 'ext.stp', external: true }]);
   assert.deepEqual(s.roots, [0]);
-  assert.deepEqual(s.occurrences.map((o) => [o.id, o.kind, o.parent, o.child, o.name, o.referenceDesignator, o.source]), [
+  assert.deepEqual(s.occurrences.map(
+    (o) => [o.id, o.kind, o.parent, o.child, o.name, o.referenceDesignator, o.source]), [
     [250, 'nauo', 0, 1, 'box 1', 'B1', { cdsr: 254, relationship: 252 }],
     [260, 'nauo', 0, 1, 'box 2', undefined, { cdsr: 264, relationship: 262 }],
     [406, 'nauo', 0, 2, 'ext', undefined, { cdsr: 408, relationship: 409, mappedItem: 300 }],
@@ -230,7 +240,8 @@ test('product structure: occurrences, swapped relationships, units, mapped items
   ]);
   // Representations: the box's own, and its geometry through the relationship; the mapped item places an occurrence,
   // so it isn't geometry of the assembly.
-  assert.deepEqual(s.representations.get(205)!.related.map((x) => [x.representation, x.via, x.source]), [[210, 'relationship', 207]]);
+  assert.deepEqual(s.representations.get(205)!.related.map((x) => [x.representation, x.via, x.source]),
+    [[210, 'relationship', 207]]);
   assert.deepEqual(s.representations.get(104)!.related, []);
   assert.deepEqual(productRepresentations(s, 1).map((x) => x.representation), [205, 210]);
   const inst = productInstances(s);
@@ -252,7 +263,8 @@ test('styles: colours, overrides, transparency, invisibility, layers, inheritanc
   // A face inherits the solid's style through the shell; on the other face the override (blue) beats both the face's
   // own plain style (green) and the solid's, and the transparency is still inherited.
   assert.deepEqual(effectiveStyle(r, styles, m.resolve(213)), { surface: [1, 0.5, 0], transparency: 0.25 });
-  assert.deepEqual(effectiveStyle(r, styles, m.resolve(214)), { surfaceSide: 'positive', surface: [0, 0, 1], transparency: 0.25 });
+  assert.deepEqual(effectiveStyle(r, styles, m.resolve(214)),
+    { surfaceSide: 'positive', surface: [0, 0, 1], transparency: 0.25 });
   assert.equal(effectiveStyle(r, styles, m.resolve(20)), undefined);
 });
 
@@ -345,7 +357,8 @@ test('less common placements: swapped items, mapped items without CDSR or NAUO',
 });
 
 test('Alibre: transformation items in the opposite representations are kept in the order written', async () => {
-  const header = (system: string) => `ISO-10303-21;HEADER;FILE_NAME('a.stp','',(''),(''),'ST-DEVELOPER v7','${system}','');FILE_SCHEMA(('${AP214}'));ENDSEC;DATA;\n${DATA2}\nENDSEC;END-ISO-10303-21;`;
+  const header = (system: string) => `ISO-10303-21;HEADER;FILE_NAME('a.stp','',(''),(''),'ST-DEVELOPER v7','${system}',`
+    + `'');FILE_SCHEMA(('${AP214}'));ENDSEC;DATA;\n${DATA2}\nENDSEC;END-ISO-10303-21;`;
   for (const [system, x, message] of [
     ['Alibre', -10, 'transformation items are in the opposite representations; kept as written (Alibre)'],
     ['CATIA SOLUTIONS V4', 10, 'transformation items are in the opposite representations; swapped back'],

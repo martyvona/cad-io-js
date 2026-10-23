@@ -18,7 +18,8 @@
 // The model part is written and compressed in pieces, so its size isn't bound by the longest string V8 allows.
 
 import { Zip, ZipDeflate, strToU8 } from 'fflate';
-import { identity, manifoldProblems, multiply, weld, type Diagnostic, type ExportNode, type ExportView, type Look, type Mat4, type Mesh, type Scene, type Vec3 } from 'cad-scene';
+import { identity, manifoldProblems, multiply, weld, type Diagnostic, type ExportNode, type ExportView, type Look,
+  type Mat4, type Mesh, type Scene, type Vec3 } from 'cad-scene';
 
 export interface ThreeMfOptions {
   /** Colour of faces without a material (sRGB). Default light grey. */
@@ -46,11 +47,14 @@ export const METADATA_NAMESPACE = 'urn:cad-io-js:3mf';
 const CORE = 'http://schemas.microsoft.com/3dmanufacturing/core/2015/02';
 const MATERIAL = 'http://schemas.microsoft.com/3dmanufacturing/material/2015/02';
 const MODEL_PATH = '3D/3dmodel.model';
-const CONTENT_TYPES = '<?xml version="1.0" encoding="UTF-8"?>\n<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+const CONTENT_TYPES = '<?xml version="1.0" encoding="UTF-8"?>\n<Types '
+  + 'xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
   + '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
   + '<Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/></Types>\n';
-const RELS = '<?xml version="1.0" encoding="UTF-8"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
-  + `<Relationship Target="/${MODEL_PATH}" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>\n`;
+const RELS = '<?xml version="1.0" encoding="UTF-8"?>\n<Relationships '
+  + 'xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+  + `<Relationship Target="/${MODEL_PATH}" Id="rel0" `
+    + `Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>\n`;
 /** The zip entries' time, fixed so the same scene gives the same bytes (local time, as zip's DOS times are). */
 const MTIME = new Date(1980, 0, 1);
 /** Text is encoded and compressed in pieces of about this many characters. */
@@ -84,7 +88,9 @@ const isIdentity = (m: Mat4) => m.every((x, i) => x === (i % 5 === 0 ? 1 : 0));
  * them anyway), and content keeps them as they are.
  */
 export function xmlText(s: string, content = false): string {
-  const kept = s.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g, '');
+  // Characters XML 1.0 doesn't allow: controls other than tab, LF and CR; U+FFFE, U+FFFF; lone surrogates.
+  const kept = s.replace(new RegExp(String.raw`[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff]`
+    + String.raw`|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]`, 'g'), '');
   const escaped = kept.replace(/[&<>"]/g, (c) => ENTITIES[c]!);
   return content ? escaped : escaped.replace(/[\t\n\r]/g, ' ');
 }
@@ -164,7 +170,8 @@ class Writer {
       const props = this.scene.components[n.component]!.properties;
       n.parts.forEach((p, index) => {
         const part = this.view.looks[p.look]!.part;
-        if (typeof props.partNumber === 'string' && !this.partNumbers.has(part)) this.partNumbers.set(part, props.partNumber);
+        if (typeof props.partNumber === 'string' && !this.partNumbers.has(part)) this.partNumbers.set(part,
+          props.partNumber);
         if (!p.visible && this.opts.hidden !== 'keep') { this.hiddenLeftOut++; return; }
         if (this.usable(p.look)) placed.push({ node: n, names, index, look: p.look, world: multiply(t, p.transform) });
       });
@@ -185,19 +192,25 @@ class Writer {
     for (const p of placed) this.object(p.look, model);
     const items: string[] = [];
     if (this.opts.build === 'assembly') {
-      const roots = this.view.roots.map((r) => ({ id: this.assembly(r, model), transform: r.transform })).filter((r) => r.id !== undefined);
+      const roots = this.view.roots.map((r) => ({ id: this.assembly(r, model), transform: r.transform })).filter(
+        (r) => r.id !== undefined);
       let id = roots[0]?.id, transform = roots[0]?.transform;
       if (roots.length > 1) {
         id = this.nextId++;
-        model.push(`<object id="${id}"${this.opts.name ? ` name="${xmlText(this.opts.name)}"` : ''}><components>\n${roots.map((r) => component(r.id!, r.transform)).join('')}</components></object>\n`);
+        const name = this.opts.name ? ` name="${xmlText(this.opts.name)}"` : '';
+        model.push(`<object id="${id}"${name}><components>\n`
+          + `${roots.map((r) => component(r.id!, r.transform)).join('')}</components></object>\n`);
         transform = identity();
       }
-      if (id !== undefined) items.push(`<item objectid="${id}"${isIdentity(transform!) ? '' : ` transform="${transformText(transform!)}"`}/>\n`);
+      if (id !== undefined) items.push(
+        `<item objectid="${id}"${isIdentity(transform!) ? '' : ` transform="${transformText(transform!)}"`}/>\n`);
     } else {
       for (const p of placed) {
         const names = [...p.names, this.scene.parts[this.view.looks[p.look]!.part]!.name];
-        items.push(`<item objectid="${this.lookObjects.get(p.look)}"${isIdentity(p.world) ? '' : ` transform="${transformText(p.world)}"`}`
-          + ` partnumber="${xmlText(`${p.node.path.join('.')}:${p.index}`)}"><metadatagroup><metadata name="cadio:path">${xmlText(names.join(' / '), true)}</metadata></metadatagroup></item>\n`);
+        const transform = isIdentity(p.world) ? '' : ` transform="${transformText(p.world)}"`;
+        items.push(`<item objectid="${this.lookObjects.get(p.look)}"${transform}`
+          + ` partnumber="${xmlText(`${p.node.path.join('.')}:${p.index}`)}"><metadatagroup><metadata `
+            + `name="cadio:path">${xmlText(names.join(' / '), true)}</metadata></metadatagroup></item>\n`);
       }
     }
     model.push('</resources>\n<build>\n');
@@ -222,15 +235,21 @@ class Writer {
     }
     if (this.hiddenLeftOut) {
       const n = this.hiddenLeftOut;
-      this.diagnostics.push({ severity: 'warning', message: `${n} hidden part ${n === 1 ? 'instance' : 'instances'} left out (3MF has no visibility)` });
+      this.diagnostics.push({ severity: 'warning',
+        message: `${n} hidden part ${n === 1 ? 'instance' : 'instances'} left out (3MF has no visibility)` });
     }
     if (colorgroup) {
-      const transparent = [...this.slots.keys()].filter((m) => m !== undefined && this.scene.materials[m]!.opacity < 1).length;
-      if (transparent) this.diagnostics.push({ severity: 'warning', message: `${transparent} transparent ${transparent === 1 ? 'material' : 'materials'} written opaque (colorgroup colours are opaque)` });
+      const transparent = [...this.slots.keys()].filter(
+        (m) => m !== undefined && this.scene.materials[m]!.opacity < 1).length;
+      if (transparent) this.diagnostics.push(
+        { severity: 'warning', message: `${transparent} transparent ${transparent === 1 ? 'material' : 'materials'} `
+        + `written opaque (colorgroup colours are opaque)` });
     }
     let degenerate = 0, parts = 0;
     for (const s of this.solids.values()) if (s.degenerate) { degenerate += s.degenerate; parts++; }
-    if (degenerate) this.diagnostics.push({ severity: 'info', message: `${degenerate} degenerate ${degenerate === 1 ? 'triangle' : 'triangles'} dropped from ${parts} part ${parts === 1 ? 'mesh' : 'meshes'} (two corners at one position)` });
+    if (degenerate) this.diagnostics.push(
+      { severity: 'info', message: `${degenerate} degenerate ${degenerate === 1 ? 'triangle' : 'triangles'} dropped `
+      + `from ${parts} part ${parts === 1 ? 'mesh' : 'meshes'} (two corners at one position)` });
   }
 
   private solid(mesh: Mesh): Solid {
@@ -250,10 +269,12 @@ class Writer {
     let n = 0;
     for (const v of kept) if (used[v]! < 0) used[v] = n++;
     const compact = new Float32Array(3 * n);
-    for (let v = 0; v < used.length; v++) if (used[v]! >= 0) compact.set(positions.subarray(3 * v, 3 * v + 3), 3 * used[v]!);
+    for (let v = 0; v < used.length; v++) if (used[v]! >= 0) compact.set(positions.subarray(3 * v, 3 * v + 3),
+      3 * used[v]!);
     for (let v = 0; v < remap.length; v++) remap[v] = used[remap[v]!]! < 0 ? 0xffffffff : used[remap[v]!]!;
     const triangles = Uint32Array.from(kept, (v) => used[v]!);
-    s = { positions: compact, remap, triangles: triangles.length / 3, degenerate, problems: manifoldProblems(compact, triangles) };
+    s = { positions: compact, remap, triangles: triangles.length / 3, degenerate,
+      problems: manifoldProblems(compact, triangles) };
     this.solids.set(mesh, s);
     return s;
   }
@@ -291,7 +312,8 @@ class Writer {
       names.add(name);
       return `<base name="${xmlText(name)}" displaycolor="${rgb}${hex(source?.opacity ?? 1)}"/>`;
     });
-    return colorgroup ? `<m:colorgroup id="1">${entries.join('')}</m:colorgroup>\n` : `<basematerials id="1">${entries.join('')}</basematerials>\n`;
+    return colorgroup ? `<m:colorgroup id="1">${entries.join('')}</m:colorgroup>\n` : `<basematerials `
+      + `id="1">${entries.join('')}</basematerials>\n`;
   }
 
   /** A look's mesh object, written on first use. */

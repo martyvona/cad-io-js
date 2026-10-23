@@ -20,7 +20,8 @@ const plate = (): Mesh => ({
   indices: Uint32Array.of(0, 1, 2, 0, 2, 3),
   faces: [{ source: 8, start: 0, count: 3 }, { source: 7, start: 3, count: 3 }],
   edgePositions: Float32Array.of(0, 0, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 2, 2, 2),
-  edges: [{ source: 4, start: 0, count: 2, kind: 'shared', dihedral: 0.5 }, { source: null, start: 2, count: 3, kind: 'seam' }],
+  edges: [{ source: 4, start: 0, count: 2, kind: 'shared', dihedral: 0.5 },
+    { source: null, start: 2, count: 3, kind: 'seam' }],
 });
 // A wireframe: one curve of three points, and a point.
 const wire = (): Mesh => ({
@@ -32,17 +33,24 @@ const wire = (): Mesh => ({
 // An assembly with two instances of a subassembly holding the plate (in inches; green, face 7 blue, 50% opaque
 // red for its second instance by override) and the wireframe. Materials: 0 red half opaque, 1 green, 2 blue.
 function scene(): Scene {
-  const occ = (component: number, t: Mat4, name?: string) => ({ component, transform: t, sources: [{ format: 'step', id: 100 + component }], properties: {}, ...(name ? { name } : {}) });
-  const brep = (name: string, unit: number) => ({ kind: 'brep' as const, name, sources: [{ format: 'step', id: 50 }], properties: { pn: 'X-1' }, unit, origin: [0, 0, 0] as [number, number, number], format: 'step' as const, payload: () => new Uint8Array() });
+  const occ = (component: number, t: Mat4, name?: string) => (
+    { component, transform: t, sources: [{ format: 'step', id: 100 + component }], properties: {},
+    ...(name ? { name } : {}) });
+  const brep = (name: string, unit: number) => (
+    { kind: 'brep' as const, name, sources: [{ format: 'step', id: 50 }], properties: { pn: 'X-1' }, unit,
+    origin: [0, 0, 0] as [number, number, number], format: 'step' as const, payload: () => new Uint8Array() });
   return {
     unit: 'millimetre',
     components: [
-      { name: 'asm', sources: [], properties: {}, parts: [], children: [occ(1, translation(100, 0, 0), 'left'), occ(1, translation(200, 0, 0))] },
-      { name: 'sub', sources: [{ format: 'step', id: 7 }], properties: { rev: 'B' }, parts: [{ part: 0, transform: scaling(25.4) }, { part: 1, transform: identity() }], children: [] },
+      { name: 'asm', sources: [], properties: {}, parts: [],
+        children: [occ(1, translation(100, 0, 0), 'left'), occ(1, translation(200, 0, 0))] },
+      { name: 'sub', sources: [{ format: 'step', id: 7 }], properties: { rev: 'B' },
+        parts: [{ part: 0, transform: scaling(25.4) }, { part: 1, transform: identity() }], children: [] },
     ],
     roots: [occ(0, identity())],
     parts: [{ ...brep('plate', 25.4), material: 1, faceMaterials: [{ face: 7, material: 2 }] }, brep('wire', 1)],
-    materials: [{ name: 'red', color: [1, 0, 0], opacity: 0.5, sources: [] }, { color: [0, 1, 0], opacity: 1, sources: [] }, { color: [0, 0, 1], opacity: 1, sources: [] }],
+    materials: [{ name: 'red', color: [1, 0, 0], opacity: 0.5, sources: [] },
+      { color: [0, 1, 0], opacity: 1, sources: [] }, { color: [0, 0, 1], opacity: 1, sources: [] }],
     layers: [],
     overrides: [{ path: [0, 1], material: 0, sources: [] }],
     properties: { schema: 'AP214' },
@@ -54,7 +62,8 @@ const io = new WebIO().registerExtensions([KHRMaterialsUnlit, KHRNodeVisibility]
 
 /** The validator's issues, as code and pointer, for a GLB (or .gltf JSON with its resources). */
 async function issues(bytes: Uint8Array, resources: Record<string, Uint8Array> = {}): Promise<string[]> {
-  const report = await validator.validateBytes(bytes, { maxIssues: 0, externalResourceFunction: async (uri: string) => resources[uri]! });
+  const report = await validator.validateBytes(bytes,
+    { maxIssues: 0, externalResourceFunction: async (uri: string) => resources[uri]! });
   return report.issues.messages.map((m) => `${m.code} ${m.pointer ?? ''}`);
 }
 const byName = (nodes: Node[], name: string) => nodes.filter((n) => n.getName() === name);
@@ -62,7 +71,8 @@ const byName = (nodes: Node[], name: string) => nodes.filter((n) => n.getName() 
 const child = (n: Node, name: string) => n.listChildren().find((c) => c.getName() === name);
 const linePrim = (n: Node, name: string) => child(n, name)!.getMesh()!.listPrimitives()[0]!;
 const linear = (c: number[]) => [...c.slice(0, 3).map(srgbToLinear), c[3]!];
-const close = (a: ArrayLike<number>, b: ArrayLike<number>, eps = 1e-9) => a.length === b.length && Array.from(a).every((x, i) => Math.abs(x - b[i]!) <= eps);
+const close = (a: ArrayLike<number>, b: ArrayLike<number>, eps = 1e-9) => a.length === b.length && Array.from(a).every(
+  (x, i) => Math.abs(x - b[i]!) <= eps);
 
 test('GLB: valid; the tree, transforms to metres and Y up, shared accessors, materials, extras', async () => {
   const s = scene();
@@ -80,7 +90,9 @@ test('GLB: valid; the tree, transforms to metres and Y up, shared accessors, mat
   assert.deepEqual(top!.listChildren().map((c) => c.getName()), ['asm']);
   const asm = top!.listChildren()[0]!;
   assert.deepEqual(asm.listChildren().map((c) => c.getName()), ['left', 'sub']);
-  assert.deepEqual(asm.listChildren()[0]!.getExtras(), { sources: [{ format: 'step', id: 101 }], component: { index: 1, name: 'sub', sources: [{ format: 'step', id: 7 }], properties: { rev: 'B' } } });
+  assert.deepEqual(asm.listChildren()[0]!.getExtras(),
+    { sources: [{ format: 'step', id: 101 }],
+    component: { index: 1, name: 'sub', sources: [{ format: 'step', id: 7 }], properties: { rev: 'B' } } });
 
   // Without edges and curves the wireframe has nothing to draw: a node without a mesh.
   const nodes = root.listNodes();
@@ -88,7 +100,8 @@ test('GLB: valid; the tree, transforms to metres and Y up, shared accessors, mat
   assert.equal(plates.length, 2);
   assert.ok(byName(nodes, 'wire').every((w) => w.getMesh() === null));
   // World: metres and Y up, the instance's translation, inches to mm, the mesh's origin (1 inch along x).
-  const expected = multiply(multiply(multiply(ROOT_TRANSFORM, translation(100, 0, 0)), scaling(25.4)), translation(1, 0, 0));
+  const expected = multiply(multiply(multiply(ROOT_TRANSFORM, translation(100, 0, 0)), scaling(25.4)),
+    translation(1, 0, 0));
   assert.ok(close(plates[0]!.getWorldMatrix(), expected, 1e-12));
   // 1 mm along x, y (back) and z (up) in the root's space is 1 mm along x, −z and y (up) in glTF's metres: a
   // rotation, not a mirror.
@@ -101,39 +114,53 @@ test('GLB: valid; the tree, transforms to metres and Y up, shared accessors, mat
   assert.equal(prims(m0)[0]!.getAttribute('NORMAL'), prims(m1)[0]!.getAttribute('NORMAL'));
   assert.deepEqual(Array.from(prims(m0)[0]!.getAttribute('POSITION')!.getArray()!), Array.from(plate().positions));
   assert.deepEqual(Array.from(prims(m0)[0]!.getAttribute('NORMAL')!.getArray()!), Array.from(plate().normals!));
-  assert.deepEqual(prims(m0).map((p) => [p.getMode(), Array.from(p.getIndices()!.getArray()!)]), [[4, [0, 1, 2]], [4, [0, 2, 3]]]);
+  assert.deepEqual(prims(m0).map((p) => [p.getMode(), Array.from(p.getIndices()!.getArray()!)]),
+    [[4, [0, 1, 2]], [4, [0, 2, 3]]]);
   assert.ok(prims(m0)[0]!.getIndices()!.getArray() instanceof Uint16Array);
   // The second is red all over, so one primitive with the mesh's own triangles.
-  assert.deepEqual(prims(m1).map((p) => [p.getMode(), Array.from(p.getIndices()!.getArray()!)]), [[4, [0, 1, 2, 0, 2, 3]]]);
+  assert.deepEqual(prims(m1).map((p) => [p.getMode(), Array.from(p.getIndices()!.getArray()!)]),
+    [[4, [0, 1, 2, 0, 2, 3]]]);
   // Materials: green and blue, linear, not metallic, fully rough, single-sided; red half opaque, blended.
-  const mat = (p: Primitive) => { const m = p.getMaterial()!; return [m.getName(), ...m.getBaseColorFactor(), m.getMetallicFactor(), m.getRoughnessFactor(), m.getAlphaMode(), m.getDoubleSided()]; };
-  assert.deepEqual(prims(m0).map(mat), [['', ...linear([0, 1, 0, 1]), 0, 1, 'OPAQUE', false], ['', ...linear([0, 0, 1, 1]), 0, 1, 'OPAQUE', false]]);
+  const mat = (p: Primitive) => { const m = p.getMaterial()!;
+    return [m.getName(), ...m.getBaseColorFactor(), m.getMetallicFactor(), m.getRoughnessFactor(), m.getAlphaMode(),
+    m.getDoubleSided()]; };
+  assert.deepEqual(prims(m0).map(mat),
+    [['', ...linear([0, 1, 0, 1]), 0, 1, 'OPAQUE', false], ['', ...linear([0, 0, 1, 1]), 0, 1, 'OPAQUE', false]]);
   assert.deepEqual(prims(m1).map(mat), [['red', ...linear([1, 0, 0, 0.5]), 0, 1, 'BLEND', false]]);
-  assert.deepEqual([...prims(m0), ...prims(m1)].map((p) => p.getMaterial()!.getExtras()), [{ material: 1 }, { material: 2 }, { material: 0 }]);
+  assert.deepEqual([...prims(m0), ...prims(m1)].map((p) => p.getMaterial()!.getExtras()),
+    [{ material: 1 }, { material: 2 }, { material: 0 }]);
   // Without the override both instances have one look, so one mesh.
   const plain = scene();
   plain.overrides = [];
-  const shared = byName((await io.readBinary((await glb(plain, exportView(plain, meshes()))).bytes)).getRoot().listNodes(), 'plate');
+  const shared = byName((await io.readBinary(
+    (await glb(plain, exportView(plain, meshes()))).bytes)).getRoot().listNodes(), 'plate');
   assert.equal(shared[0]!.getMesh(), shared[1]!.getMesh());
-  assert.equal((await io.readBinary((await glb(plain, exportView(plain, meshes()))).bytes)).getRoot().listMeshes().length, 1);
+  assert.equal((await io.readBinary(
+    (await glb(plain, exportView(plain, meshes()))).bytes)).getRoot().listMeshes().length, 1);
   // The part's ids and properties; each primitive's faces as ranges of its own indices.
-  assert.deepEqual(plates[0]!.getExtras(), { part: 0, sources: [{ format: 'step', id: 50 }], properties: { pn: 'X-1' } });
-  assert.deepEqual(prims(m0).map((p) => p.getExtras()), [{ faces: [{ source: 8, start: 0, count: 3 }] }, { faces: [{ source: 7, start: 0, count: 3 }] }]);
+  assert.deepEqual(plates[0]!.getExtras(),
+    { part: 0, sources: [{ format: 'step', id: 50 }], properties: { pn: 'X-1' } });
+  assert.deepEqual(prims(m0).map((p) => p.getExtras()),
+    [{ faces: [{ source: 8, start: 0, count: 3 }] }, { faces: [{ source: 7, start: 0, count: 3 }] }]);
 });
 
-test('edges, curves and points on request; edge kinds; hidden instances left out or KHR_node_visibility; colours', async () => {
+test('edges, curves and points on request; edge kinds; hidden instances left out or KHR_node_visibility; colours',
+  async () => {
   const s = scene();
   s.overrides.push({ path: [0, 0], visible: false, sources: [] });
   const view = exportView(s, meshes(), { edges: true, curves: true });
   // Hidden instances left out by default, with a warning: one plate and one wire, of the second instance.
   const omitted = await glb(s, view);
-  assert.deepEqual(omitted.diagnostics, [{ severity: 'warning', message: '2 hidden part instances left out (glTF has no visibility without KHR_node_visibility)' }]);
+  assert.deepEqual(omitted.diagnostics,
+    [{ severity: 'warning', message: '2 hidden part instances left out (glTF has no visibility without '
+    + 'KHR_node_visibility)' }]);
   assert.deepEqual(await issues(omitted.bytes), []);
   const od = await io.readBinary(omitted.bytes);
   assert.equal(byName(od.getRoot().listNodes(), 'plate').length, 1);
   assert.deepEqual(od.getRoot().listExtensionsUsed(), []);
   // Or written hidden: the extension used, not required (viewers without it show them).
-  const kept = await glb(s, view, { hidden: 'extension', doubleSided: true, defaultColor: [0, 0.5, 1], edgeColor: [0.2, 0.2, 0.2] });
+  const kept = await glb(s, view,
+    { hidden: 'extension', doubleSided: true, defaultColor: [0, 0.5, 1], edgeColor: [0.2, 0.2, 0.2] });
   assert.deepEqual(kept.diagnostics, []);
   // The validator doesn't know KHR_node_visibility.
   assert.deepEqual(await issues(kept.bytes), ['UNSUPPORTED_EXTENSION /extensionsUsed/0']);
@@ -141,7 +168,8 @@ test('edges, curves and points on request; edge kinds; hidden instances left out
   assert.deepEqual([json.extensionsUsed, json.extensionsRequired], [['KHR_node_visibility'], undefined]);
   const doc = await io.readBinary(kept.bytes);
   const nodes = doc.getRoot().listNodes();
-  const visible = (n: Node) => (n.getExtension('KHR_node_visibility') as unknown as { getVisible(): boolean } | null)?.getVisible() ?? true;
+  const visible = (n: Node) => (
+    n.getExtension('KHR_node_visibility') as unknown as { getVisible(): boolean } | null)?.getVisible() ?? true;
   const [p0, p1] = byName(nodes, 'plate');
   assert.deepEqual([visible(p0!), visible(p1!)], [false, true]);
   // Faces in the part's mesh; edges a child node with a mesh of its own, at the part's place.
@@ -164,7 +192,9 @@ test('edges, curves and points on request; edge kinds; hidden instances left out
   const all = await io.readBinary((await glb(s, view, { edgeKinds: ['shared', 'seam'], hidden: 'extension' })).bytes);
   const allEdges = linePrim(byName(all.getRoot().listNodes(), 'plate')[0]!, 'edges');
   assert.deepEqual(Array.from(allEdges.getIndices()!.getArray()!), [0, 1, 2, 3, 3, 4]);
-  assert.deepEqual((allEdges.getExtras() as { edges: { source: number | null; start: number; count: number }[] }).edges.map((e) => [e.source, e.start, e.count]), [[4, 0, 2], [null, 2, 4]]);
+  assert.deepEqual((allEdges.getExtras() as {
+    edges: { source: number | null; start: number; count: number }[] }).edges.map((e) => [e.source, e.start, e.count]),
+    [[4, 0, 2], [null, 2, 4]]);
   // The wireframe: its curve and point, in the default colour (it has no material); red for the second instance.
   const [w0, w1] = byName(nodes, 'wire');
   assert.equal(w0!.getMesh(), null);
@@ -173,7 +203,8 @@ test('edges, curves and points on request; edge kinds; hidden instances left out
   assert.deepEqual([curve!.getMode(), Array.from(curve!.getIndices()!.getArray()!)], [1, [0, 1, 1, 2]]);
   assert.deepEqual(curve!.getExtras(), { curves: [{ source: 9, start: 0, count: 4 }] });
   assert.ok(close(curve!.getMaterial()!.getBaseColorFactor(), linear([0, 0.5, 1, 1])));
-  assert.deepEqual([point!.getMode(), Array.from(point!.getAttribute('POSITION')!.getArray()!), point!.getExtras()], [0, [5, 5, 5], { points: [11] }]);
+  assert.deepEqual([point!.getMode(), Array.from(point!.getAttribute('POSITION')!.getArray()!), point!.getExtras()],
+    [0, [5, 5, 5], { points: [11] }]);
   assert.ok(close(linePrim(w1!, 'curves').getMaterial()!.getBaseColorFactor(), linear([1, 0, 0, 0.5])));
   // Different colours, so different curve meshes; lit by default.
   assert.notEqual(child(w0!, 'curves')!.getMesh(), child(w1!, 'curves')!.getMesh());
@@ -185,7 +216,9 @@ test('edges, curves and points left out on request, each or all; unlit on reques
   const view = exportView(s, meshes(), { edges: true, curves: true });
   const names = async (opts: Parameters<typeof glb>[2]) => {
     const doc = await io.readBinary((await glb(s, view, opts)).bytes);
-    return [...new Set(doc.getRoot().listNodes().filter((n) => (n.getExtras() as { part?: number }).part !== undefined).flatMap((n) => n.listChildren().map((c) => c.getName())))].sort();
+    return [...new Set(doc.getRoot().listNodes().filter(
+      (n) => (n.getExtras() as { part?: number }).part !== undefined).flatMap(
+      (n) => n.listChildren().map((c) => c.getName())))].sort();
   };
   assert.deepEqual(await names({}), ['curves', 'edges', 'points']);
   assert.deepEqual(await names({ exclude: ['edges'] }), ['curves', 'points']);
@@ -195,7 +228,8 @@ test('edges, curves and points left out on request, each or all; unlit on reques
   // Curves without points: just the curves.
   const noPoints = new Map([[0, plate()], [1, { ...wire(), points: undefined, pointSources: undefined }]]);
   const np = await io.readBinary((await glb(s, exportView(s, noPoints, { curves: true }))).bytes);
-  assert.deepEqual(byName(np.getRoot().listNodes(), 'wire').map((w) => w.listChildren().map((c) => c.getName())), [['curves'], ['curves']]);
+  assert.deepEqual(byName(np.getRoot().listNodes(), 'wire').map((w) => w.listChildren().map((c) => c.getName())),
+    [['curves'], ['curves']]);
   // Unlit: edges, curves and points with KHR_materials_unlit (which the validator knows); faces lit.
   const out = await glb(s, view, { unlitLines: true });
   assert.deepEqual(await issues(out.bytes), []);
@@ -205,18 +239,22 @@ test('edges, curves and points left out on request, each or all; unlit on reques
   const unlit = (m: { getExtension(n: string): unknown } | null) => m!.getExtension('KHR_materials_unlit') !== null;
   const [p0] = byName(doc.getRoot().listNodes(), 'plate');
   const [w0] = byName(doc.getRoot().listNodes(), 'wire');
-  assert.deepEqual([...p0!.getMesh()!.listPrimitives().map((p) => unlit(p.getMaterial())), unlit(linePrim(p0!, 'edges').getMaterial()), unlit(linePrim(w0!, 'curves').getMaterial()), unlit(linePrim(w0!, 'points').getMaterial())], [false, false, true, true, true]);
+  assert.deepEqual([...p0!.getMesh()!.listPrimitives().map((p) => unlit(p.getMaterial())),
+    unlit(linePrim(p0!, 'edges').getMaterial()), unlit(linePrim(w0!, 'curves').getMaterial()),
+    unlit(linePrim(w0!, 'points').getMaterial())], [false, false, true, true, true]);
   // The wire's curves (no material) and the plate's faces in the default colour: different materials when unlit.
   const plain = scene();
   plain.parts[0] = { ...plain.parts[0]!, material: undefined, faceMaterials: [] } as typeof plain.parts[0];
   plain.overrides = [];
-  const d2 = await io.readBinary((await glb(plain, exportView(plain, meshes(), { curves: true }), { unlitLines: true })).bytes);
+  const d2 = await io.readBinary(
+    (await glb(plain, exportView(plain, meshes(), { curves: true }), { unlitLines: true })).bytes);
   const [pp] = byName(d2.getRoot().listNodes(), 'plate');
   const [ww] = byName(d2.getRoot().listNodes(), 'wire');
   assert.notEqual(pp!.getMesh()!.listPrimitives()[0]!.getMaterial(), linePrim(ww!, 'curves').getMaterial());
 });
 
-test('.gltf: JSON naming its .bin, valid, the same as the GLB; deterministic; 32-bit indices past 65535 vertices', async () => {
+test('.gltf: JSON naming its .bin, valid, the same as the GLB; deterministic; 32-bit indices past 65535 vertices',
+  async () => {
   const s = scene();
   const view = exportView(s, meshes(), { edges: true, curves: true });
   const out = await gltfJson(s, view, 'model.bin');
@@ -225,16 +263,21 @@ test('.gltf: JSON naming its .bin, valid, the same as the GLB; deterministic; 32
   assert.deepEqual(await issues(new TextEncoder().encode(out.json), { 'model.bin': out.bin }), []);
   const fromJson = await io.readJSON({ json, resources: { 'model.bin': out.bin as Uint8Array<ArrayBuffer> } });
   const fromGlb = await io.readBinary((await glb(s, view)).bytes);
-  assert.deepEqual(fromJson.getRoot().listNodes().map((n) => [n.getName(), n.getMatrix()]), fromGlb.getRoot().listNodes().map((n) => [n.getName(), n.getMatrix()]));
-  assert.deepEqual((await glb(s, view)).bytes, (await glb(s, exportView(s, meshes(), { edges: true, curves: true }))).bytes);
+  assert.deepEqual(fromJson.getRoot().listNodes().map((n) => [n.getName(), n.getMatrix()]),
+    fromGlb.getRoot().listNodes().map((n) => [n.getName(), n.getMatrix()]));
+  assert.deepEqual((await glb(s, view)).bytes,
+    (await glb(s, exportView(s, meshes(), { edges: true, curves: true }))).bytes);
   // Embedded: one JSON with the same buffer as a base64 data URI, valid, read back the same.
   const embedded = await gltfJson(s, view, undefined);
   assert.equal(embedded.bin.length, 0);
   const ej = JSON.parse(embedded.json);
-  assert.deepEqual(ej.buffers, [{ uri: `data:application/octet-stream;base64,${Buffer.from(out.bin).toString('base64')}`, byteLength: out.bin.length }]);
+  assert.deepEqual(ej.buffers,
+    [{ uri: `data:application/octet-stream;base64,${Buffer.from(out.bin).toString('base64')}`,
+    byteLength: out.bin.length }]);
   assert.deepEqual(await issues(new TextEncoder().encode(embedded.json)), []);
   const fromEmbedded = await io.readJSON({ json: ej, resources: {} });
-  assert.deepEqual(fromEmbedded.getRoot().listAccessors().map((a) => Array.from(a.getArray()!)), fromJson.getRoot().listAccessors().map((a) => Array.from(a.getArray()!)));
+  assert.deepEqual(fromEmbedded.getRoot().listAccessors().map((a) => Array.from(a.getArray()!)),
+    fromJson.getRoot().listAccessors().map((a) => Array.from(a.getArray()!)));
   // 70,002 vertices, three to a triangle (x along a strip, y alternating, so none is degenerate): indices need 32 bits.
   const big = plate();
   const n = 70002;
@@ -247,7 +290,8 @@ test('.gltf: JSON naming its .bin, valid, the same as the GLB; deterministic; 32
   big.faces = [{ source: 8, start: 0, count: n }];
   const bigOut = await glb(s, exportView(s, new Map([[0, big]])));
   assert.deepEqual(await issues(bigOut.bytes), []);
-  const ix = (await io.readBinary(bigOut.bytes)).getRoot().listMeshes()[0]!.listPrimitives()[0]!.getIndices()!.getArray()!;
+  const ix = (await io.readBinary(bigOut.bytes)).getRoot().listMeshes()[0]!.listPrimitives()[
+    0]!.getIndices()!.getArray()!;
   assert.ok(ix instanceof Uint32Array);
   assert.equal(ix[69999], 69999);
 });
@@ -267,7 +311,8 @@ test('transforms written exactly, however close to identity; a scene with nothin
   const empty = await glb(s, exportView(s, new Map()));
   assert.deepEqual(await issues(empty.bytes), []);
   const json = (await io.binaryToJSON(empty.bytes)).json;
-  assert.deepEqual([json.buffers, json.accessors, json.nodes!.map((n) => n.name)], [undefined, undefined, [undefined, 'asm', 'left', 'sub']]);
+  assert.deepEqual([json.buffers, json.accessors, json.nodes!.map((n) => n.name)],
+    [undefined, undefined, [undefined, 'asm', 'left', 'sub']]);
 });
 
 test('base64: as Node encodes it, across pieces', () => {

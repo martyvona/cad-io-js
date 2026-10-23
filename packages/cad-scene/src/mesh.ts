@@ -34,7 +34,9 @@ export function weld(positions: Float32Array): { remap: Uint32Array; positions: 
   return { remap, positions: Float32Array.from(out) };
 }
 
-/** What keeps a welded mesh from being a closed, oriented manifold of positive volume (a 3MF `model`); none if it is. */
+/**
+ * What keeps a welded mesh from being a closed, oriented manifold of positive volume (a 3MF `model`); none if it is.
+ */
 export function manifoldProblems(positions: Float32Array, triangles: Uint32Array): string[] {
   const nv = positions.length / 3;
   const n = triangles.length;
@@ -84,8 +86,10 @@ export const INSIDE_OUT = 'inside out (negative volume)';
  */
 export function dropDegenerate(mesh: Mesh): { mesh: Mesh; dropped: number } {
   const ix = mesh.indices, p = mesh.positions;
-  const same = (a: number, b: number) => a === b || (p[3 * a] === p[3 * b] && p[3 * a + 1] === p[3 * b + 1] && p[3 * a + 2] === p[3 * b + 2]);
-  const degenerate = (t: number) => same(ix[t]!, ix[t + 1]!) || same(ix[t + 1]!, ix[t + 2]!) || same(ix[t + 2]!, ix[t]!);
+  const same = (a: number, b: number) => a === b || (
+    p[3 * a] === p[3 * b] && p[3 * a + 1] === p[3 * b + 1] && p[3 * a + 2] === p[3 * b + 2]);
+  const degenerate = (t: number) => same(ix[t]!, ix[t + 1]!) || same(ix[t + 1]!, ix[t + 2]!) || same(
+    ix[t + 2]!, ix[t]!);
   let dropped = 0;
   for (let t = 0; t < ix.length; t += 3) if (degenerate(t)) dropped++;
   if (!dropped) return { mesh, dropped };
@@ -144,7 +148,9 @@ export function orientShells(mesh: Mesh): { mesh: Mesh; turned: number } {
     if (a === b || b === c || c === a) continue;
     const root = find(a);
     let piece = pieces.get(root);
-    if (!piece) pieces.set(root, (piece = { triangles: [], volume: 0, lo: [Infinity, Infinity, Infinity], hi: [-Infinity, -Infinity, -Infinity] }));
+    if (!piece) pieces.set(root,
+      (piece = { triangles: [], volume: 0, lo: [Infinity, Infinity, Infinity],
+      hi: [-Infinity, -Infinity, -Infinity] }));
     piece.triangles.push(a, b, c);
     piece.volume += triple(p, a, b, c);
     for (const v of [a, b, c]) for (let k = 0; k < 3; k++) {
@@ -191,7 +197,8 @@ export function orientShells(mesh: Mesh): { mesh: Mesh; turned: number } {
     indices[t + 2] = ix[t + 1]!;
     if (!n) continue;
     const [a, b, c] = [ix[t]!, ix[t + 1]!, ix[t + 2]!];
-    const u = [0, 1, 2].map((k) => q[3 * b + k]! - q[3 * a + k]!), w = [0, 1, 2].map((k) => q[3 * c + k]! - q[3 * a + k]!);
+    const u = [0, 1, 2].map((k) => q[3 * b + k]! - q[3 * a + k]!),
+      w = [0, 1, 2].map((k) => q[3 * c + k]! - q[3 * a + k]!);
     const g = [u[1]! * w[2]! - u[2]! * w[1]!, u[2]! * w[0]! - u[0]! * w[2]!, u[0]! * w[1]! - u[1]! * w[0]!];
     let dot = 0;
     for (let k = 0; k < 3; k++) dot += g[k]! * (n[3 * a + k]! + n[3 * b + k]! + n[3 * c + k]!);

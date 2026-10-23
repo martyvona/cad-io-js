@@ -151,7 +151,9 @@ fn count(k: &KnotVec, x: f64) -> usize {
 }
 
 /// A B-spline curve clamped (see `clamped_knots`), or None if it's clamped already.
-fn clamp_bspline<P: truck_geometry::base::control_point::ControlPoint<f64> + Tolerance>(c: &BSplineCurve<P>) -> Option<BSplineCurve<P>> {
+fn clamp_bspline<P: truck_geometry::base::control_point::ControlPoint<f64> + Tolerance>(
+    c: &BSplineCurve<P>,
+) -> Option<BSplineCurve<P>> {
     let p = c.degree();
     let (lo, hi) = unclamped_range(c.knot_vec(), p)?;
     let mut c = c.clone();
@@ -166,7 +168,9 @@ fn clamp_bspline<P: truck_geometry::base::control_point::ControlPoint<f64> + Tol
 }
 
 /// A B-spline surface clamped in u and v, or None if it's clamped already.
-fn clamp_bspline_surface<P: truck_geometry::base::control_point::ControlPoint<f64> + Tolerance>(s: &BSplineSurface<P>) -> Option<BSplineSurface<P>> {
+fn clamp_bspline_surface<P: truck_geometry::base::control_point::ControlPoint<f64> + Tolerance>(
+    s: &BSplineSurface<P>,
+) -> Option<BSplineSurface<P>> {
     let (pu, pv) = (s.udegree(), s.vdegree());
     let (ur, vr) = (unclamped_range(s.uknot_vec(), pu), unclamped_range(s.vknot_vec(), pv));
     if ur.is_none() && vr.is_none() {
@@ -215,7 +219,9 @@ fn clamp_curve(c: &mut Curve3D) -> bool {
 fn clamp_surface(s: &mut Surface) -> bool {
     let clamped = match s {
         Surface::BSplineSurface(b) => clamp_bspline_surface(b).map(Surface::BSplineSurface),
-        Surface::NurbsSurface(n) => clamp_bspline_surface(n.non_rationalized()).map(|b| Surface::NurbsSurface(NurbsSurface::new(b))),
+        Surface::NurbsSurface(n) => {
+            clamp_bspline_surface(n.non_rationalized()).map(|b| Surface::NurbsSurface(NurbsSurface::new(b)))
+        }
         _ => None,
     };
     clamped.map(|x| *s = x).is_some()
@@ -342,7 +348,8 @@ fn build_shell(t: &Table, id: u64, diag: &mut Diag) -> Option<Built> {
         }
     };
     let empty = CompressedShell { vertices: vec![], edges: vec![], faces: vec![] };
-    let mut b = ShellBuilder { t, out: Built { shell: empty, face_ids: vec![], edge_ids: vec![] }, vertices: HashMap::new(), edges: HashMap::new() };
+    let out = Built { shell: empty, face_ids: vec![], edge_ids: vec![] };
+    let mut b = ShellBuilder { t, out, vertices: HashMap::new(), edges: HashMap::new() };
     for f in &shell.cfs_faces {
         match entity(f) {
             Some(cfs) => b.face(cfs, flip, diag),
@@ -370,7 +377,9 @@ fn item_shells(t: &Table, id: u64, name: &str, diag: &mut Diag, out: &mut Vec<(u
 fn record_name(e: &EntityInstance) -> String {
     match e {
         EntityInstance::Simple { record, .. } => record.name.clone(),
-        EntityInstance::Complex { subsuper, .. } => subsuper.0.iter().map(|r| r.name.as_str()).collect::<Vec<_>>().join("+"),
+        EntityInstance::Complex { subsuper, .. } => {
+            subsuper.0.iter().map(|r| r.name.as_str()).collect::<Vec<_>>().join("+")
+        }
     }
 }
 
@@ -397,7 +406,13 @@ fn read_instances(text: &str) -> Option<(DataSection, Vec<u64>)> {
     for rec in split_instances(&text[start..end]) {
         match EntityInstance::from_str(&format!("{rec};")) {
             Ok(e) => entities.push(e),
-            Err(_) => unread.push(rec.trim_start_matches('#').split(|c: char| !c.is_ascii_digit()).next().and_then(|n| n.parse().ok()).unwrap_or(0)),
+            Err(_) => unread.push(
+                rec.trim_start_matches('#')
+                    .split(|c: char| !c.is_ascii_digit())
+                    .next()
+                    .and_then(|n| n.parse().ok())
+                    .unwrap_or(0),
+            ),
         }
     }
     Some((DataSection { meta: vec![], entities }, unread))
@@ -580,7 +595,9 @@ fn fix_placements(entities: &mut Vec<EntityInstance>) -> usize {
             continue;
         }
         let Parameter::List(ps) = &mut record.parameter else { continue };
-        if let (Some(Parameter::Ref(Name::Entity(axis))), Some(r @ Parameter::NotProvided)) = (ps.get(2).cloned(), ps.get_mut(3)) {
+        if let (Some(Parameter::Ref(Name::Entity(axis))), Some(r @ Parameter::NotProvided)) =
+            (ps.get(2).cloned(), ps.get_mut(3))
+        {
             if along_x.contains(&axis) {
                 *r = Parameter::Ref(Name::Entity(new_id));
                 fixed += 1;
@@ -589,7 +606,10 @@ fn fix_placements(entities: &mut Vec<EntityInstance>) -> usize {
     }
     if fixed > 0 {
         let ratios = Parameter::List(vec![Parameter::Real(0.0), Parameter::Real(1.0), Parameter::Real(0.0)]);
-        let record = truck_stepio::r#in::ruststep::ast::Record { name: "DIRECTION".into(), parameter: Parameter::List(vec![Parameter::String(String::new()), ratios]) };
+        let record = truck_stepio::r#in::ruststep::ast::Record {
+            name: "DIRECTION".into(),
+            parameter: Parameter::List(vec![Parameter::String(String::new()), ratios]),
+        };
         entities.push(EntityInstance::Simple { id: new_id, record });
     }
     fixed
@@ -645,7 +665,11 @@ fn consistent(polys: &[Option<PolygonMesh>]) -> bool {
 /// counter-clockwise about the face normal (ISO 10303-42) and truck's triangles wind counter-clockwise about theirs,
 /// so a loop edge, traversed as the loop uses it, runs along its triangles' boundary. The meshes of a face and its
 /// edges share their points exactly.
-fn loop_sense(poly: &PolygonMesh, boundaries: &[Vec<CompressedEdgeIndex>], edges: &[CompressedEdge<PolylineCurve<Point3>>]) -> (usize, usize) {
+fn loop_sense(
+    poly: &PolygonMesh,
+    boundaries: &[Vec<CompressedEdgeIndex>],
+    edges: &[CompressedEdge<PolylineCurve<Point3>>],
+) -> (usize, usize) {
     let pos = poly.positions();
     let mut half = std::collections::HashSet::new();
     for tri in poly.faces().triangle_iter() {
@@ -700,7 +724,9 @@ fn volume_sign(polys: &[Option<PolygonMesh>]) -> Option<f64> {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn mesh_shell(b: &Built, id: u64, role: Role, tol: f64, origin: Point3, with_edges: bool, out: &mut Out, diag: &mut Diag) {
+fn mesh_shell(
+    b: &Built, id: u64, role: Role, tol: f64, origin: Point3, with_edges: bool, out: &mut Out, diag: &mut Diag,
+) {
     let meshed = b.shell.robust_triangulation(tol);
     // Which faces use each edge (one entry per use).
     let mut uses: Vec<Vec<usize>> = vec![Vec::new(); meshed.edges.len()];
@@ -838,15 +864,28 @@ fn run(data: &[u8], root: u64, tol: f64, origin: Point3, with_edges: bool) -> Re
     let table = Table::from_data_section(section);
     let mut shells = Vec::new();
     if root != 0 {
-        let e = section.entities.iter().find(|e| matches!(e, EntityInstance::Simple { id, .. } | EntityInstance::Complex { id, .. } if *id == root));
+        let e = section.entities.iter().find(|e| {
+            matches!(e, EntityInstance::Simple { id, .. } | EntityInstance::Complex { id, .. } if *id == root)
+        });
         let e = e.ok_or_else(|| format!("root #{root} not in the payload"))?;
         let items = root_items(e).ok_or_else(|| format!("root #{root} ({}) has no items", record_name(e)))?;
         for id in items {
-            let name = section.entities.iter().find(|e| matches!(e, EntityInstance::Simple { id: i, .. } | EntityInstance::Complex { id: i, .. } if *i == id)).map(record_name).unwrap_or_default();
+            let name = section
+                .entities
+                .iter()
+                .find(|e| {
+                    matches!(
+                        e,
+                        EntityInstance::Simple { id: i, .. } | EntityInstance::Complex { id: i, .. } if *i == id
+                    )
+                })
+                .map(record_name)
+                .unwrap_or_default();
             item_shells(&table, id, &name, &mut diag, &mut shells);
         }
     } else {
-        let mut ids: Vec<u64> = table.manifold_solid_brep.keys().chain(table.shell_based_surface_model.keys()).copied().collect();
+        let mut ids: Vec<u64> =
+            table.manifold_solid_brep.keys().chain(table.shell_based_surface_model.keys()).copied().collect();
         ids.sort();
         for id in ids {
             item_shells(&table, id, "", &mut diag, &mut shells);
@@ -876,7 +915,8 @@ fn diag_json(d: &Diag) -> String {
     m.insert("curves3d".into(), d.curves_3d.into());
     m.insert("tori".into(), d.tori.into());
     m.insert("cones".into(), d.cones.into());
-    m.insert("reversedShells".into(), d.reversed_shells.iter().map(|&(id, void)| serde_json::json!([id, void])).collect::<Vec<_>>().into());
+    let reversed: Vec<_> = d.reversed_shells.iter().map(|&(id, void)| serde_json::json!([id, void])).collect();
+    m.insert("reversedShells".into(), reversed.into());
     m.insert("uncheckedShells".into(), d.unchecked_shells.clone().into());
     m.insert("inconsistentShells".into(), d.inconsistent_shells.clone().into());
     m.insert("unclearShells".into(), d.unclear_shells.clone().into());
@@ -931,7 +971,9 @@ pub unsafe extern "C" fn tess_dealloc(ptr: *mut u8, len: usize) {
 /// # Safety
 /// `ptr` must point to `len` readable bytes.
 #[no_mangle]
-pub unsafe extern "C" fn tess_run(ptr: *const u8, len: usize, root: f64, tol: f64, ox: f64, oy: f64, oz: f64, edges: i32) -> i32 {
+pub unsafe extern "C" fn tess_run(
+    ptr: *const u8, len: usize, root: f64, tol: f64, ox: f64, oy: f64, oz: f64, edges: i32,
+) -> i32 {
     let data = std::slice::from_raw_parts(ptr, len);
     let (out, rc) = match run(data, root as u64, tol, Point3::new(ox, oy, oz), edges != 0) {
         Ok((mut out, d)) => {
@@ -997,11 +1039,17 @@ mod tests {
     fn clamping_keeps_the_curve_over_its_valid_range() {
         let t = 1.0 / 3.0;
         let knots = KnotVec::from(vec![-t, 0.0, 0.0, t, t, 2.0 * t, 2.0 * t, 1.0, 1.0, 1.0 + t]);
-        let pts: Vec<Vector4> = [(1.0, 0.0, 1.0), (0.5, 0.866, 0.5), (-0.5, 0.866, 1.0), (-1.0, 0.0, 0.5), (-0.5, -0.866, 1.0), (0.5, -0.866, 0.5), (1.0, 0.0, 1.0)]
+        let pts: Vec<Vector4> = [
+            (1.0, 0.0, 1.0), (0.5, 0.866, 0.5), (-0.5, 0.866, 1.0), (-1.0, 0.0, 0.5), (-0.5, -0.866, 1.0),
+            (0.5, -0.866, 0.5), (1.0, 0.0, 1.0),
+        ]
             .iter()
             .map(|&(x, y, w)| Vector4::new(x * w, y * w, 0.0, w))
             .collect();
-        let cubic = BSplineCurve::new(KnotVec::from((0..10).map(f64::from).collect::<Vec<_>>()), (0..6).map(|i| Point3::new(i as f64, (i * i % 5) as f64, (i % 2) as f64)).collect());
+        let cubic = BSplineCurve::new(
+            KnotVec::from((0..10).map(f64::from).collect::<Vec<_>>()),
+            (0..6).map(|i| Point3::new(i as f64, (i * i % 5) as f64, (i % 2) as f64)).collect(),
+        );
         let circle = NurbsCurve::new(BSplineCurve::new(knots, pts));
         for (mut c, lo, hi) in [(Curve3D::NurbsCurve(circle), 0.0, 1.0), (Curve3D::BSplineCurve(cubic), 3.0, 6.0)] {
             let orig = c.clone();
@@ -1023,20 +1071,29 @@ mod tests {
     #[test]
     fn a_volume_sign_needs_a_closed_mesh_and_a_volume_beside_its_faces_parts() {
         // A unit cube, outward and inward.
-        let cube: Vec<Point3> = (0..8).map(|i| Point3::new((i & 1) as f64, (i >> 1 & 1) as f64, (i >> 2 & 1) as f64)).collect();
-        let out = [[0, 2, 1], [1, 2, 3], [4, 5, 6], [5, 7, 6], [0, 1, 4], [1, 5, 4], [2, 6, 3], [3, 6, 7], [0, 4, 2], [2, 4, 6], [1, 3, 5], [3, 7, 5]];
+        let cube: Vec<Point3> =
+            (0..8).map(|i| Point3::new((i & 1) as f64, (i >> 1 & 1) as f64, (i >> 2 & 1) as f64)).collect();
+        let out = [
+            [0, 2, 1], [1, 2, 3], [4, 5, 6], [5, 7, 6], [0, 1, 4], [1, 5, 4],
+            [2, 6, 3], [3, 6, 7], [0, 4, 2], [2, 4, 6], [1, 3, 5], [3, 7, 5],
+        ];
         let inward: Vec<[usize; 3]> = out.iter().map(|&[a, b, c]| [a, c, b]).collect();
         assert_eq!(volume_sign(&[mesh(cube.clone(), &out)]), Some(1.0));
         assert_eq!(volume_sign(&[mesh(cube.clone(), &inward)]), Some(-1.0));
         // Open along z only: a 2 x 2 square over a 1 x 1 one, both facing +z. 6V from the box centre is 3, but
         // anywhere from -2 to 8 in the box.
-        let sq = |h: f64, z: f64| vec![Point3::new(-h, -h, z), Point3::new(h, -h, z), Point3::new(h, h, z), Point3::new(-h, h, z)];
+        let sq = |h: f64, z: f64| {
+            vec![Point3::new(-h, -h, z), Point3::new(h, -h, z), Point3::new(h, h, z), Point3::new(-h, h, z)]
+        };
         let two = [mesh(sq(0.5, 0.0), &[[0, 1, 2], [0, 2, 3]]), mesh(sq(1.0, 1.0), &[[0, 1, 2], [0, 2, 3]])];
         assert_eq!(volume_sign(&two), None);
         // A box with walls of thickness t: the outer cube outward, an inner one inward. The faces' parts of 6V from the
         // centre nearly cancel: the volume is 3% of their sum at t = 0.01, 0.3% at t = 0.001.
         let walls = |t: f64| {
-            let inner: Vec<Point3> = cube.iter().map(|p| Point3::new(t + (1.0 - 2.0 * t) * p.x, t + (1.0 - 2.0 * t) * p.y, t + (1.0 - 2.0 * t) * p.z)).collect();
+            let inner: Vec<Point3> = cube
+                .iter()
+                .map(|p| Point3::new(t + (1.0 - 2.0 * t) * p.x, t + (1.0 - 2.0 * t) * p.y, t + (1.0 - 2.0 * t) * p.z))
+                .collect();
             [mesh(cube.clone(), &out), mesh(inner, &inward)]
         };
         assert_eq!(volume_sign(&walls(0.01)), Some(1.0));
@@ -1047,7 +1104,8 @@ mod tests {
     fn clamping_keeps_the_surface_over_its_valid_range() {
         let uk = KnotVec::from((0..8).map(f64::from).collect::<Vec<_>>());
         let vk = KnotVec::bezier_knot(1);
-        let pts: Vec<Vec<Point3>> = (0..5).map(|i| (0..2).map(|j| Point3::new(i as f64, j as f64, ((i * 3) % 4) as f64)).collect()).collect();
+        let pts: Vec<Vec<Point3>> =
+            (0..5).map(|i| (0..2).map(|j| Point3::new(i as f64, j as f64, ((i * 3) % 4) as f64)).collect()).collect();
         let mut s = Surface::BSplineSurface(BSplineSurface::new((uk, vk), pts));
         let orig = s.clone();
         assert!(clamp_surface(&mut s));

@@ -85,7 +85,8 @@ export class BoundInstance {
       }
     }
     const a = this.byName.get(name.includes('.') ? name.replace(/^[^.]*/, (e) => e.toUpperCase()) : name);
-    if (a === null) throw new Error(`#${this.id}: attribute '${name}' is ambiguous; qualify it with the declaring entity`);
+    if (a === null) throw new Error(
+      `#${this.id}: attribute '${name}' is ambiguous; qualify it with the declaring entity`);
     return a?.value;
   }
 }
@@ -197,19 +198,23 @@ export class StepModel {
     const types = parts.map((r) => r.type);
     const diags: Diagnostic[] = [];
     const id = inst.id;
-    const warn = (message: string, severity: Diagnostic['severity'] = 'warning') => diags.push({ severity, message, id });
+    const warn = (message: string, severity: Diagnostic['severity'] = 'warning') => diags.push(
+      { severity, message, id });
 
     const knows = (s: Schema | undefined) => !!s && types.every((t) => s.entity(t));
     const s = knows(this.schema) ? this.schema : knows(this.fallback) ? this.fallback : undefined;
     if (!s) {
       const unknown = types.filter((t) => !this.schemaFor(t)?.entity(t));
-      warn(unknown.length ? `unknown entity ${unknown.join(', ')}` : `entities ${types.join(', ')} are not all in one schema`);
+      warn(unknown.length ? `unknown entity ${unknown.join(', ')}` : `entities ${types.join(', ')} are not all in `
+        + `one schema`);
       return new BoundInstance(inst, p, types, undefined, undefined, diags);
     }
     if (s !== this.schema && this.schema) {
-      warn(`${types.filter((t) => !this.schema!.entity(t)).join(', ')} not in ${this.schema.name}; bound with ${s.name}`, 'info');
+      warn(`${types.filter((t) => !this.schema!.entity(t)).join(', ')} not in ${this.schema.name}; bound with `
+        + `${s.name}`, 'info');
     }
-    if (parts.length > 1 && types.some((t, i) => i > 0 && types[i - 1]! > t)) warn('partials not in alphabetical order', 'info');
+    if (parts.length > 1 && types.some((t, i) => i > 0 && types[i - 1]! > t)) warn(
+      'partials not in alphabetical order', 'info');
 
     const attributes: BoundAttribute[] = [];
     for (const r of parts) {
@@ -334,8 +339,10 @@ class Checker {
       case 'NUMBER': if (v.k !== 'int' && v.k !== 'real') this.problem(`expected NUMBER, got ${kind(v)}`); return;
       case 'STRING': if (v.k !== 'str') this.problem(`expected STRING, got ${kind(v)}`); return;
       case 'BINARY': if (v.k !== 'bin') this.problem(`expected BINARY, got ${kind(v)}`); return;
-      case 'BOOLEAN': if (v.k !== 'enum' || (v.v !== 'T' && v.v !== 'F')) this.problem(`expected BOOLEAN, got ${kind(v)}`); return;
-      case 'LOGICAL': if (v.k !== 'enum' || (v.v !== 'T' && v.v !== 'F' && v.v !== 'U')) this.problem(`expected LOGICAL, got ${kind(v)}`); return;
+      case 'BOOLEAN': if (v.k !== 'enum' || (v.v !== 'T' && v.v !== 'F')) this.problem(
+        `expected BOOLEAN, got ${kind(v)}`); return;
+      case 'LOGICAL': if (v.k !== 'enum' || (v.v !== 'T' && v.v !== 'F' && v.v !== 'U')) this.problem(
+        `expected LOGICAL, got ${kind(v)}`); return;
     }
     const def = this.s.type(t);
     if (!def) {
@@ -365,7 +372,8 @@ class Checker {
   private select(v: Value, t: string): void {
     const leaves = this.s.selectLeaves(t);
     if (v.k === 'ref') {
-      this.target(v.v, (p) => leaves.generic || [...leaves.entities].some((e) => this.model.isInstanceOf(p, e)), `SELECT ${t}`);
+      this.target(v.v, (p) => leaves.generic || [...leaves.entities].some((e) => this.model.isInstanceOf(p, e)),
+        `SELECT ${t}`);
     } else if (v.k === 'refs' || v.k === 'reals' || v.k === 'ints' || v.k === 'list') {
       this.problem(`expected SELECT ${t}, got a list`);
     } else if (v.k === 'typed') {
@@ -396,7 +404,8 @@ class Checker {
   private target(id: number, ok: (p: number) => boolean, expected: string): void {
     const p = this.model.resolve(id);
     if (p < 0) { this.problem('dangling reference'); return; }
-    if (!ok(p)) this.problem(`reference to ${this.model.types(p).join('+') || 'a malformed instance'}, expected ${expected}`);
+    if (!ok(p)) this.problem(`reference to ${this.model.types(p).join('+') || 'a malformed instance'}, expected `
+      + `${expected}`);
   }
 
   private aggregate(v: Value, t: Exclude<TypeRef, string>): void {

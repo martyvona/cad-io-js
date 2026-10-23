@@ -86,9 +86,11 @@ export function extractStyles(r: Reader): Styles {
       const o = r.ref(p, 'over_ridden_style');
       if (o >= 0) s.overrides = r.id(o);
     }
-    if (r.is(p, 'CONTEXT_DEPENDENT_OVER_RIDING_STYLED_ITEM')) s.context = r.refs(p, 'style_context').map((q) => r.id(q));
+    if (r.is(p, 'CONTEXT_DEPENDENT_OVER_RIDING_STYLED_ITEM')) s.context = r.refs(p, 'style_context').map(
+      (q) => r.id(q));
     const byContext = r.refs(p, 'styles').filter((q) => r.is(q, 'PRESENTATION_STYLE_BY_CONTEXT'));
-    if (byContext.length) s.presentationContext = byContext.flatMap((q) => r.refs(q, 'style_context')).map((q) => r.id(q));
+    if (byContext.length) s.presentationContext = byContext.flatMap((q) => r.refs(q, 'style_context')).map(
+      (q) => r.id(q));
     styled.push(s);
     let list = byItem.get(s.item);
     if (!list) byItem.set(s.item, (list = []));
@@ -97,7 +99,8 @@ export function extractStyles(r: Reader): Styles {
 
   const layers: Layer[] = [];
   for (const p of m.instancesOf('PRESENTATION_LAYER_ASSIGNMENT')) {
-    const layer: Layer = { id: r.id(p), name: r.str(p, 'name') ?? '', items: r.refs(p, 'assigned_items').map((q) => r.id(q)) };
+    const layer: Layer = { id: r.id(p), name: r.str(p, 'name') ?? '',
+      items: r.refs(p, 'assigned_items').map((q) => r.id(q)) };
     const d = r.str(p, 'description');
     if (d) layer.description = d;
     if (hidden.has(p)) layer.invisible = true;
@@ -163,7 +166,8 @@ export function colour(r: Reader, p: number): Rgb | undefined {
   if (p < 0) return undefined;
   if (r.is(p, 'COLOUR_RGB')) {
     const c = [r.num(p, 'red'), r.num(p, 'green'), r.num(p, 'blue')];
-    if (c.some((x) => x === undefined || !(x >= 0))) { r.warn('colour with a missing or negative component', p); return undefined; }
+    if (c.some((x) => x === undefined || !(x >= 0))) { r.warn('colour with a missing or negative component', p);
+      return undefined; }
     const max = Math.max(...(c as number[]));
     if (max > 1) {
       // Some writers use 0..255 (trj5_k1-ct-214.stp: 255,255,255). OCCT divides by the largest component; so do we.
@@ -203,9 +207,11 @@ export function effectiveStyle(r: Reader, styles: Styles, item: number): Style |
       // Overriding styles first, then plain ones, later ones before earlier (two overrides of one style: the later
       // wins, as in OCCT).
       const general = own.filter((x) => !x.presentationContext);
-      for (const s of [...general.filter((x) => x.overrides !== undefined && !x.context).reverse(), ...general.filter((x) => x.overrides === undefined).reverse()]) {
+      for (const s of [...general.filter((x) => x.overrides !== undefined && !x.context).reverse(),
+        ...general.filter((x) => x.overrides === undefined).reverse()]) {
         found = true;
-        for (const k of Object.keys(s.style) as (keyof Style)[]) if (out[k] === undefined) (out as Record<string, unknown>)[k] = s.style[k];
+        for (const k of Object.keys(s.style) as (keyof Style)[]) if (out[k] === undefined) (
+          out as Record<string, unknown>)[k] = s.style[k];
       }
       for (const q of m.referrers(p)) {
         if (m.isInstanceOf(q, 'STYLED_ITEM') || m.isInstanceOf(q, 'PRESENTATION_LAYER_ASSIGNMENT')) continue;
@@ -219,7 +225,8 @@ export function effectiveStyle(r: Reader, styles: Styles, item: number): Style |
 
 // Topology and representations that pass their style down to what they contain.
 const CONTAINERS = [
-  'CONNECTED_FACE_SET', 'MANIFOLD_SOLID_BREP', 'BREP_WITH_VOIDS', 'SHELL_BASED_SURFACE_MODEL', 'FACE_BASED_SURFACE_MODEL',
+  'CONNECTED_FACE_SET', 'MANIFOLD_SOLID_BREP', 'BREP_WITH_VOIDS', 'SHELL_BASED_SURFACE_MODEL',
+  'FACE_BASED_SURFACE_MODEL',
   'GEOMETRIC_SET', 'REPRESENTATION', 'TESSELLATED_SOLID', 'TESSELLATED_SHELL', 'TESSELLATED_SURFACE_SET',
   'TESSELLATED_GEOMETRIC_SET',
 ];

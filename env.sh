@@ -81,7 +81,8 @@ _sj_report() {
   if [ -z "$3" ]; then
     printf '  %-8s %-12s %s\n' "$(if [ $1 = error ]; then echo MISSING; else echo missing; fi)" "$2" "($5)"
   elif [ -n "$4" ] && ! _sj_ge "$3" "$4"; then
-    printf '  %-8s %-12s %s\n' "$(if [ $1 = error ]; then echo TOO-OLD; else echo too-old; fi)" "$2" "$3, need >= $4 ($5)"
+    printf '  %-8s %-12s %s\n' "$(if [ $1 = error ]; then echo TOO-OLD; else echo too-old; fi)" "$2" \
+      "$3, need >= $4 ($5)"
   else
     printf '  %-8s %-12s %s\n' ok "$2" "$3"
     return 0
@@ -133,18 +134,24 @@ echo "cad-io-js environment ($_sj_os):"
 _sj_report error node "$(_sj_have node --version)" 24.0.0 "runs the TypeScript sources and tests" || {
   case $_sj_os in
     macos) _sj_fix "brew install node    # or: brew upgrade node" ;;
-    *) _sj_fix "curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash && . ~/.nvm/nvm.sh && nvm install 24" ;;
+    *) _sj_fix "curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash"\
+" && . ~/.nvm/nvm.sh && nvm install 24" ;;
   esac
 }
-_sj_report error npm "$(_sj_have npm --version)" "" "workspaces, dev dependencies" || _sj_fix "# npm comes with Node; reinstall Node (see above)"
+_sj_report error npm "$(_sj_have npm --version)" "" "workspaces, dev dependencies" ||
+  _sj_fix "# npm comes with Node; reinstall Node (see above)"
 _sj_report error git "$(_sj_have git --version)" 2.25.0 "third_party/pull.sh, test_corpus/third_party/pull.sh" ||
   _sj_fix_pkg git "xcode-select --install    # or: brew install git" git git
-_sj_report error curl "$(_sj_have curl --version)" "" "downloads in the pull scripts" || _sj_fix_pkg curl "brew install curl" curl curl
-_sj_report error unzip "$(_sj_have unzip -v)" "" "NIST packages in test_corpus/third_party/pull.sh" || _sj_fix_pkg unzip "brew install unzip" unzip unzip
+_sj_report error curl "$(_sj_have curl --version)" "" "downloads in the pull scripts" ||
+  _sj_fix_pkg curl "brew install curl" curl curl
+_sj_report error unzip "$(_sj_have unzip -v)" "" "NIST packages in test_corpus/third_party/pull.sh" ||
+  _sj_fix_pkg unzip "brew install unzip" unzip unzip
 
 # Native builds: the OCCT WebAssembly build and the Rust backends.
-_sj_report error cmake "$(_sj_have cmake --version)" 3.10.0 "configures the OCCT build" || _sj_fix_pkg cmake "brew install cmake    # or: brew upgrade cmake" cmake cmake
-_sj_report error make "$(_sj_have make --version)" "" "builds OCCT (Unix Makefiles generator)" || _sj_fix_pkg make "xcode-select --install" make make
+_sj_report error cmake "$(_sj_have cmake --version)" 3.10.0 "configures the OCCT build" ||
+  _sj_fix_pkg cmake "brew install cmake    # or: brew upgrade cmake" cmake cmake
+_sj_report error make "$(_sj_have make --version)" "" "builds OCCT (Unix Makefiles generator)" ||
+  _sj_fix_pkg make "xcode-select --install" make make
 
 _sj_emcc=$(_sj_have emcc --version)
 _sj_report error emscripten "$_sj_emcc" 6.0.12 "compiles OCCT to WebAssembly${EMSDK:+; emsdk at $EMSDK}" || {
@@ -153,9 +160,11 @@ _sj_report error emscripten "$_sj_emcc" 6.0.12 "compiles OCCT to WebAssembly${EM
     _sj_fix "cd \"$_sj_d\" && git pull && ./emsdk install 6.0.12 && ./emsdk activate 6.0.12 && cd - && source env.sh"
   elif [ -n "$_sj_emcc" ]; then
     _sj_fix "# emcc $(command -v emcc) isn't from an emsdk; install one at ~/emsdk (below), then re-run: source env.sh"
-    _sj_fix "git clone https://github.com/emscripten-core/emsdk.git ~/emsdk && (cd ~/emsdk && ./emsdk install 6.0.12 && ./emsdk activate 6.0.12) && source env.sh"
+    _sj_fix "git clone https://github.com/emscripten-core/emsdk.git ~/emsdk"\
+" && (cd ~/emsdk && ./emsdk install 6.0.12 && ./emsdk activate 6.0.12) && source env.sh"
   else
-    _sj_fix "git clone https://github.com/emscripten-core/emsdk.git ~/emsdk && (cd ~/emsdk && ./emsdk install 6.0.12 && ./emsdk activate 6.0.12) && source env.sh"
+    _sj_fix "git clone https://github.com/emscripten-core/emsdk.git ~/emsdk"\
+" && (cd ~/emsdk && ./emsdk install 6.0.12 && ./emsdk activate 6.0.12) && source env.sh"
   fi
 }
 
@@ -192,7 +201,8 @@ if _sj_report warning python3 "$_sj_py" 3.8.0 "optional: JT text extraction in t
   if python3 -c 'import venv, ensurepip' >/dev/null 2>&1; then
     printf '  %-8s %-12s %s\n' ok py-venv "python3 -m venv"
   else
-    printf '  %-8s %-12s %s\n' missing py-venv "(python3 can't create virtual environments; needed for the JT text in third_party/pull.sh)"
+    printf '  %-8s %-12s %s\n' missing py-venv \
+      "(python3 can't create virtual environments; needed for the JT text in third_party/pull.sh)"
     _sj_warnings=$((_sj_warnings + 1))
     _sj_fix_pkg python3-venv "brew install python" python3-venv python3
   fi
@@ -213,7 +223,8 @@ if command -v pdflatex >/dev/null 2>&1; then
 fi
 _sj_report warning texlive "$_sj_tex" "" "optional: pdflatex for scripts/md2pdf.sh" ||
   _sj_fix_pkg texlive "brew install --cask basictex    # then open a new shell, or: source env.sh" \
-    "texlive-latex-base texlive-latex-recommended texlive-latex-extra" "texlive-scheme-basic texlive-collection-latexrecommended"
+    "texlive-latex-base texlive-latex-recommended texlive-latex-extra" \
+    "texlive-scheme-basic texlive-collection-latexrecommended"
 
 # Repository state: the npm install and the third-party checkouts.
 if [ ! -d "$_sj_repo/node_modules/typescript" ]; then
@@ -246,7 +257,8 @@ if [ $_sj_errors -gt 0 ] || [ $_sj_warnings -gt 0 ]; then
 else
   echo "All set."
 fi
-[ $_sj_sourced = 1 ] || echo "(env.sh was run, not sourced: the environment changes above don't persist. Use: source env.sh)"
+[ $_sj_sourced = 1 ] ||
+  echo "(env.sh was run, not sourced: the environment changes above don't persist. Use: source env.sh)"
 
 _sj_status=$((_sj_errors > 0))
 unset -f _sj_version _sj_ge _sj_fix _sj_fix_pkg _sj_report _sj_have _sj_rust_fix

@@ -18,9 +18,15 @@ export interface TessellateOptions {
   parts?: readonly number[];
   /** Requests in flight at once; set it to a worker pool's size. Default 1. */
   concurrency?: number;
-  /** Turn inside-out closed shells over (orientShells), with a warning per part. Default true; false keeps the meshes as the backend gave them. */
+  /**
+   * Turn inside-out closed shells over (orientShells), with a warning per part. Default true; false keeps the meshes as
+   * the backend gave them.
+   */
   orient?: boolean;
-  /** Drop triangles with two corners at one position (dropDegenerate), with an info diagnostic per part. Default true; false keeps them. */
+  /**
+   * Drop triangles with two corners at one position (dropDegenerate), with an info diagnostic per part. Default true;
+   * false keeps them.
+   */
   dropDegenerate?: boolean;
   /** Called after each part, in the order parts finish, for progress reporting. */
   onPart?: (part: number, mesh: Mesh | undefined, done: number, total: number) => void;
@@ -42,7 +48,8 @@ export function toMesh(r: TessellationResult): Mesh {
   if (r.edgePositions && r.edges) {
     mesh.edgePositions = r.edgePositions;
     mesh.edges = r.edges.map((e) => {
-      const out: NonNullable<Mesh['edges']>[number] = { source: e.entityId, start: e.start, count: e.count, kind: e.kind };
+      const out: NonNullable<Mesh['edges']>[number] = { source: e.entityId, start: e.start, count: e.count,
+        kind: e.kind };
       if (e.dihedral !== undefined) out.dihedral = e.dihedral;
       return out;
     });
@@ -59,7 +66,8 @@ export function toMesh(r: TessellationResult): Mesh {
 }
 
 /** Tessellate a scene's brep parts, `concurrency` at a time. */
-export async function tessellateScene(scene: Scene, tess: Tessellator, opts: TessellateOptions): Promise<TessellateResult> {
+export async function tessellateScene(scene: Scene, tess: Tessellator,
+  opts: TessellateOptions): Promise<TessellateResult> {
   const todo = (opts.parts ?? scene.parts.map((_, i) => i)).filter((i) => {
     const p = scene.parts[i];
     return p?.kind === 'brep' && tess.info.formats.includes(p.format);
@@ -78,7 +86,8 @@ export async function tessellateScene(scene: Scene, tess: Tessellator, opts: Tes
     try {
       const r = await tess.tessellate({
         format: part.format, data: part.payload(), rootId: part.rootId, origin: part.origin,
-        linearDeflection: opts.linearDeflection / part.unit, angularDeflection: opts.angularDeflection, edges: opts.edges,
+        linearDeflection: opts.linearDeflection / part.unit, angularDeflection: opts.angularDeflection,
+        edges: opts.edges,
       });
       for (const d of r.diagnostics) diagnostics.push(source && !d.source ? { ...d, source } : d);
       if (r.indices.length || r.positions.length || r.curves?.length || r.points?.length) mesh = toMesh(r);
@@ -87,7 +96,9 @@ export async function tessellateScene(scene: Scene, tess: Tessellator, opts: Tes
         mesh = d.mesh;
         if (d.dropped) {
           const n = d.dropped;
-          diagnostics.push({ severity: 'info', message: `${n} degenerate ${n === 1 ? 'triangle' : 'triangles'} dropped (two corners at one position)`, ...(source ? { source } : {}) });
+          diagnostics.push({ severity: 'info',
+            message: `${n} degenerate ${n === 1 ? 'triangle' : 'triangles'} dropped (two corners at one position)`,
+            ...(source ? { source } : {}) });
         }
       }
       if (mesh && (opts.orient ?? true)) {
@@ -95,11 +106,14 @@ export async function tessellateScene(scene: Scene, tess: Tessellator, opts: Tes
         mesh = o.mesh;
         if (o.turned) {
           const n = o.turned;
-          diagnostics.push({ severity: 'warning', message: `${n} closed ${n === 1 ? 'shell' : 'shells'} turned over (inside out, and inside no other shell)`, ...(source ? { source } : {}) });
+          diagnostics.push({ severity: 'warning',
+            message: `${n} closed ${n === 1 ? 'shell' : 'shells'} turned over (inside out, and inside no other shell)`,
+            ...(source ? { source } : {}) });
         }
       }
     } catch (e) {
-      diagnostics.push({ severity: 'error', message: `tessellation failed: ${(e as Error).message}`, ...(source ? { source } : {}) });
+      diagnostics.push({ severity: 'error', message: `tessellation failed: ${(e as Error).message}`,
+        ...(source ? { source } : {}) });
     }
     found[k] = mesh;
     opts.onPart?.(i, mesh, ++done, todo.length);

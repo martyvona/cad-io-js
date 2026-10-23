@@ -2,7 +2,8 @@
 // (build_axes, build_2axes, first_proj_axis), cartesian_transformation_operator (base_axis, second_proj_axis), and
 // ISO 10303-43's item_defined_transformation and mapped_item.
 
-import { cross, dot, fromAxes, invertAffine, multiply, normalize, scale, scaling, sub, type Mat4, type Vec3 } from './math.ts';
+import { cross, dot, fromAxes, invertAffine, multiply, normalize, scale, scaling, sub, type Mat4,
+  type Vec3 } from './math.ts';
 import { numbersOf, type Reader } from './reader.ts';
 
 function vec(v: number[] | undefined): Vec3 | undefined {
@@ -136,7 +137,8 @@ export function transformation(
  * mapping_target. `unitScale(rep)` gives the mapped representation's length unit in units of the representation
  * that holds the mapped item.
  */
-export function mappedItem(r: Reader, p: number, unitScale: (rep: number) => number = () => 1): { representation: number; matrix: Mat4 } | undefined {
+export function mappedItem(r: Reader, p: number, unitScale: (rep: number) => number = () => 1): {
+  representation: number; matrix: Mat4 } | undefined {
   const map = r.ref(p, 'mapping_source');
   const rep = r.ref(map, 'mapped_representation');
   if (rep < 0) { r.warn('mapped item without a mapped representation', p); return undefined; }

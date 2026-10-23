@@ -35,7 +35,8 @@ test('entities: attributes, OPTIONAL, aggregates, supertypes', () => {
       { name: 'note', type: 'STRING', optional: true },
       {
         name: 'grid',
-        type: { agg: 'ARRAY', lo: 0, hi: 'hi', of: { agg: 'ARRAY', lo: 1, hi: 2, of: 'REAL', unique: true }, optional: true },
+        type: { agg: 'ARRAY', lo: 0, hi: 'hi', of: { agg: 'ARRAY', lo: 1, hi: 2, of: 'REAL', unique: true },
+          optional: true },
       },
       { name: 'tags', type: { agg: 'SET', lo: 1, hi: null, of: 'STRING' } },
     ],
@@ -139,6 +140,8 @@ test('skips remarks, constants, rules, nested algorithms and subtype constraints
 });
 
 test('errors carry a line number', () => {
-  assert.throws(() => parseExpress('SCHEMA t;\nENTITY a;\n  x INTEGER;\nEND_ENTITY;\nEND_SCHEMA;'), /line 3: expected ':'/);
-  assert.throws(() => parseExpress('SCHEMA t;\nENTITY a; END_ENTITY;\nENTITY A; END_ENTITY;\nEND_SCHEMA;'), /duplicate declaration of A/);
+  assert.throws(() => parseExpress('SCHEMA t;\nENTITY a;\n  x INTEGER;\nEND_ENTITY;\nEND_SCHEMA;'),
+    /line 3: expected ':'/);
+  assert.throws(() => parseExpress('SCHEMA t;\nENTITY a; END_ENTITY;\nENTITY A; END_ENTITY;\nEND_SCHEMA;'),
+    /duplicate declaration of A/);
 });

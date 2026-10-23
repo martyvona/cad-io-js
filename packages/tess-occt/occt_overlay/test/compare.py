@@ -1,10 +1,12 @@
-# usage: python3 compare.py a.txt b.txt -- per case: segment structure and max pole difference (abs and relative to pole size)
+# usage: python3 compare.py a.txt b.txt -- per case: segment structure and max pole difference (abs and relative to
+# pole size)
 import sys, collections
 def load(p):
     segs, poles, summ = {}, collections.defaultdict(list), {}
     for l in open(p):
         w = l.split()
-        if w[0] == 'case': segs[(int(w[1]), int(w[3]))] = (int(w[5]), float(w[7]), float(w[8]), float(w[10]), float(w[11]))
+        if w[0] == 'case':
+            segs[(int(w[1]), int(w[3]))] = (int(w[5]), float(w[7]), float(w[8]), float(w[10]), float(w[11]))
         elif w[0] == 'pole': poles[(int(w[1]), int(w[2]))].append([float(x) for x in w[4:]])
         elif w[0] == 'summary': summ[int(w[2])] = ' '.join(w[3:])
     return segs, poles, summ
@@ -18,4 +20,5 @@ for c in sorted(A[2]):
             for pa, pb in zip(A[1][k], B[1][k]):
                 for x, y in zip(pa, pb):
                     identical &= x == y; d = max(d, abs(x - y)); r = max(r, abs(x - y) / max(1.0, abs(x)))
-    print(f'case {c}: segments/degrees/params same={same} bit-identical={identical} maxPoleDiff={d:.2e} rel={r:.2e} | {A[2][c]} || {B[2][c]}')
+    print(f'case {c}: segments/degrees/params same={same} bit-identical={identical} maxPoleDiff={d:.2e} rel={r:.2e} '
+          f'| {A[2][c]} || {B[2][c]}')

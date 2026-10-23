@@ -13,14 +13,16 @@ const note = (k: string, file: string, ex: string) => {
   t.n++;
   t.files.add(file);
 };
-const stats: Record<string, { files: number; inst: number; bySchema: number; byFallback: number; unbound: number }> = {};
+const stats: Record<string, { files: number; inst: number; bySchema: number; byFallback: number;
+  unbound: number }> = {};
 let nInst = 0, malformed = 0, tBind = 0, tRev = 0, tTypes = 0, revEntries = 0;
 
 for (const path of corpusFiles(process.argv[2])) {
   const f = parseStep(fs.readFileSync(path));
   const m = await openModel(f);
   const name = short(path);
-  const st = (stats[m.schema?.name ?? `none (${m.fallback?.name ?? 'no fallback'})`] ??= { files: 0, inst: 0, bySchema: 0, byFallback: 0, unbound: 0 });
+  const st = (stats[m.schema?.name ?? `none (${m.fallback?.name ?? 'no fallback'})`] ??= { files: 0, inst: 0,
+    bySchema: 0, byFallback: 0, unbound: 0 });
   st.files++;
   for (const d of m.diagnostics) note(`model ${d.severity}: ${d.message.replace(/\(.*\)/, '(…)')}`, name, name);
 
@@ -53,7 +55,8 @@ for (const path of corpusFiles(process.argv[2])) {
     const targets = new Set<number>();
     for (const r of ix.refsOf(p)) { const q = ix.position(r); if (q >= 0) targets.add(q); }
     expected += targets.size;
-    for (const q of targets) if (!m.referrers(q).includes(p)) note('reverse index: missing referrer', name, `${name} #${ix.ids[p]}`);
+    for (const q of targets) if (!m.referrers(q).includes(p)) note('reverse index: missing referrer', name,
+      `${name} #${ix.ids[p]}`);
   }
   let total = 0;
   for (let q = 0; q < ix.count; q++) total += m.referrers(q).length;
@@ -64,9 +67,12 @@ for (const path of corpusFiles(process.argv[2])) {
   t = performance.now();
   const items = new Set(m.instancesOf('REPRESENTATION_ITEM'));
   tTypes += performance.now() - t;
-  for (let p = 0; p < ix.count; p++) if (items.has(p) !== m.isInstanceOf(p, 'REPRESENTATION_ITEM')) note('instancesOf disagrees with isInstanceOf', name, `${name} #${ix.ids[p]}`);
+  for (let p = 0; p < ix.count; p++) if (items.has(p) !== m.isInstanceOf(p, 'REPRESENTATION_ITEM')) note(
+    'instancesOf disagrees with isInstanceOf', name, `${name} #${ix.ids[p]}`);
 }
 
-console.log(`${nInst} instances bound (${malformed} malformed); bind+check ${(tBind / 1000).toFixed(1)} s; reverse index ${(tRev / 1000).toFixed(1)} s, ${revEntries} entries; type index ${(tTypes / 1000).toFixed(1)} s`);
+console.log(`${nInst} instances bound (${malformed} malformed); bind+check ${(tBind / 1000).toFixed(1)} s; reverse `
+  + `index ${(tRev / 1000).toFixed(1)} s, ${revEntries} entries; type index ${(tTypes / 1000).toFixed(1)} s`);
 console.table(stats);
-for (const [k, v] of [...tally].sort((a, b) => b[1].n - a[1].n)) console.log(String(v.n).padStart(8), String(v.files.size).padStart(4), k, ' e.g.', v.ex);
+for (const [k, v] of [...tally].sort((a, b) => b[1].n - a[1].n)) console.log(String(v.n).padStart(8),
+  String(v.files.size).padStart(4), k, ' e.g.', v.ex);

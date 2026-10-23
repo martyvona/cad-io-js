@@ -56,11 +56,14 @@ export function closure(file: StepFile, roots: readonly number[], exclude?: Read
 export function danglingRefs(file: StepFile, positions: ArrayLike<number>): number[] {
   const ix = file.index;
   const out = new Set<number>();
-  for (let k = 0; k < positions.length; k++) for (const id of ix.refsOf(positions[k]!)) if (ix.position(id) < 0) out.add(id);
+  for (let k = 0; k < positions.length; k++) for (const id of ix.refsOf(positions[k]!)) if (
+    ix.position(id) < 0) out.add(id);
   return [...out].sort((a, b) => a - b);
 }
 
-/** Build the subset for the representations at `roots` (positions). Throws ParseError if a rewritten root is malformed. */
+/**
+ * Build the subset for the representations at `roots` (positions). Throws ParseError if a rewritten root is malformed.
+ */
 export function buildSubset(file: StepFile, roots: readonly number[], opts: SubsetOptions = {}): Subset {
   const ix = file.index;
   const positions = closure(file, roots, opts.exclude);
@@ -93,7 +96,8 @@ function withoutRefs(inst: Instance, ids: ReadonlySet<number>): Instance {
       default: return v;
     }
   };
-  if ('parts' in inst) return { id: inst.id, parts: inst.parts.map((r) => ({ type: r.type, attrs: r.attrs.map(filter) })) };
+  if ('parts' in inst) return { id: inst.id,
+    parts: inst.parts.map((r) => ({ type: r.type, attrs: r.attrs.map(filter) })) };
   return { id: inst.id, type: inst.type, attrs: inst.attrs.map(filter) };
 }
 
@@ -105,7 +109,8 @@ function wrapper(file: StepFile, root: number): Instance[] {
   let max = 0;
   for (const id of file.index.ids) if (id > max) max = id;
   for (const id of file.index.refs) if (id > max) max = id;
-  const [ac, pc, p, pdf, pdc, pd, pds, sdr] = Array.from({ length: 8 }, (_, i) => max + 1 + i) as [number, number, number, number, number, number, number, number];
+  const [ac, pc, p, pdf, pdc, pd, pds, sdr] = Array.from({ length: 8 }, (_, i) => max + 1 + i) as [number, number,
+    number, number, number, number, number, number];
   const str = (v: string): Value => ({ k: 'str', v });
   const ref = (v: number): Value => ({ k: 'ref', v });
   return [

@@ -3,7 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { parseStep } from '../packages/step-parser/src/index.ts';
 import { corpusDir } from './corpus.ts';
-// Usage: node corpus_checks/parser_bench.ts gkv311-opencascade-dataset/step/bug31711.stp … (paths relative to test_corpus/third_party)
+// Usage: node corpus_checks/parser_bench.ts gkv311-opencascade-dataset/step/bug31711.stp … (paths relative to
+// test_corpus/third_party)
 for (const f of process.argv.slice(2)) {
   const bytes = fs.readFileSync(path.join(corpusDir, f));
   const mb = bytes.length / 1e6;
@@ -18,6 +19,10 @@ for (const f of process.argv.slice(2)) {
     let n = 0, errs = 0;
     for (const _ of file.instances(() => errs++)) n++;
     const tDec = performance.now() - t;
-    if (run === 2) console.log(`${f}: ${mb.toFixed(1)} MB, ${file.count} instances, ${file.index.refs.length} refs | scan ${tScan.toFixed(0)} ms (${(mb / tScan * 1000).toFixed(0)} MB/s), +${((h1 - h0) / 1e6).toFixed(0)} MB heap | decode all ${tDec.toFixed(0)} ms (${(mb / tDec * 1000).toFixed(0)} MB/s), ${errs} errors, ${file.diagnostics.length} diagnostics`);
+    if (run === 2) console.log(
+      `${f}: ${mb.toFixed(1)} MB, ${file.count} instances, ${file.index.refs.length} refs | scan ${tScan.toFixed(0)} `
+      + `ms (${(mb / tScan * 1000).toFixed(0)} MB/s), +${((h1 - h0) / 1e6).toFixed(0)} MB heap | decode all `
+      + `${tDec.toFixed(0)} ms (${(mb / tDec * 1000).toFixed(0)} MB/s), ${errs} errors, ${file.diagnostics.length} `
+      + `diagnostics`);
   }
 }

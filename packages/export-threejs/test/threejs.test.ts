@@ -18,7 +18,8 @@ const plate = (): Mesh => ({
   indices: Uint32Array.of(0, 1, 2, 0, 2, 3),
   faces: [{ source: 8, start: 0, count: 3 }, { source: 7, start: 3, count: 3 }],
   edgePositions: Float32Array.of(0, 0, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 2, 2, 2),
-  edges: [{ source: 4, start: 0, count: 2, kind: 'shared', dihedral: 0.5 }, { source: null, start: 2, count: 3, kind: 'seam' }],
+  edges: [{ source: 4, start: 0, count: 2, kind: 'shared', dihedral: 0.5 },
+    { source: null, start: 2, count: 3, kind: 'seam' }],
 });
 // A wireframe: one curve of three points, and a point.
 const wire = (): Mesh => ({
@@ -30,17 +31,24 @@ const wire = (): Mesh => ({
 // An assembly with two instances of a subassembly holding the plate (in inches; green, face 7 blue, 50% opaque
 // red for its second instance by override) and the wireframe. Materials: 0 red half opaque, 1 green, 2 blue.
 function scene(): Scene {
-  const occ = (component: number, t: Mat4, name?: string) => ({ component, transform: t, sources: [{ format: 'step', id: 100 + component }], properties: {}, ...(name ? { name } : {}) });
-  const brep = (name: string, unit: number) => ({ kind: 'brep' as const, name, sources: [{ format: 'step', id: 50 }], properties: { pn: 'X-1' }, unit, origin: [0, 0, 0] as [number, number, number], format: 'step' as const, payload: () => new Uint8Array() });
+  const occ = (component: number, t: Mat4, name?: string) => (
+    { component, transform: t, sources: [{ format: 'step', id: 100 + component }], properties: {},
+    ...(name ? { name } : {}) });
+  const brep = (name: string, unit: number) => (
+    { kind: 'brep' as const, name, sources: [{ format: 'step', id: 50 }], properties: { pn: 'X-1' }, unit,
+    origin: [0, 0, 0] as [number, number, number], format: 'step' as const, payload: () => new Uint8Array() });
   return {
     unit: 'millimetre',
     components: [
-      { name: 'asm', sources: [], properties: {}, parts: [], children: [occ(1, translation(100, 0, 0), 'left'), occ(1, translation(200, 0, 0))] },
-      { name: 'sub', sources: [{ format: 'step', id: 7 }], properties: { rev: 'B' }, parts: [{ part: 0, transform: scaling(25.4) }, { part: 1, transform: identity() }], children: [] },
+      { name: 'asm', sources: [], properties: {}, parts: [],
+        children: [occ(1, translation(100, 0, 0), 'left'), occ(1, translation(200, 0, 0))] },
+      { name: 'sub', sources: [{ format: 'step', id: 7 }], properties: { rev: 'B' },
+        parts: [{ part: 0, transform: scaling(25.4) }, { part: 1, transform: identity() }], children: [] },
     ],
     roots: [occ(0, identity())],
     parts: [{ ...brep('plate', 25.4), material: 1, faceMaterials: [{ face: 7, material: 2 }] }, brep('wire', 1)],
-    materials: [{ name: 'red', color: [1, 0, 0], opacity: 0.5, sources: [] }, { color: [0, 1, 0], opacity: 1, sources: [] }, { color: [0, 0, 1], opacity: 1, sources: [] }],
+    materials: [{ name: 'red', color: [1, 0, 0], opacity: 0.5, sources: [] },
+      { color: [0, 1, 0], opacity: 1, sources: [] }, { color: [0, 0, 1], opacity: 1, sources: [] }],
     layers: [],
     overrides: [{ path: [0, 1], material: 0, sources: [] }],
     properties: { schema: 'AP214' },
@@ -49,7 +57,8 @@ function scene(): Scene {
 }
 const meshes = () => new Map([[0, plate()], [1, wire()]]);
 const load = (json: string) => new THREE.ObjectLoader().parse(JSON.parse(json));
-const byName = (root: THREE.Object3D, name: string) => { const out: THREE.Object3D[] = []; root.traverse((o) => { if (o.name === name) out.push(o); }); return out; };
+const byName = (root: THREE.Object3D, name: string) => { const out: THREE.Object3D[] = [];
+  root.traverse((o) => { if (o.name === name) out.push(o); }); return out; };
 
 test('three.js JSON loads with ObjectLoader: tree, transforms, shared geometry, materials, userData', () => {
   const s = scene();
@@ -61,7 +70,9 @@ test('three.js JSON loads with ObjectLoader: tree, transforms, shared geometry, 
   assert.deepEqual(root.children.map((c) => c.name), ['asm']);
   assert.deepEqual(root.children[0]!.children.map((c) => c.name), ['left', 'sub']);
   const left = root.children[0]!.children[0]!;
-  assert.deepEqual(left.userData, { sources: [{ format: 'step', id: 101 }], component: { index: 1, name: 'sub', sources: [{ format: 'step', id: 7 }], properties: { rev: 'B' } } });
+  assert.deepEqual(left.userData,
+    { sources: [{ format: 'step', id: 101 }],
+    component: { index: 1, name: 'sub', sources: [{ format: 'step', id: 7 }], properties: { rev: 'B' } } });
 
   // Without edges and curves, the wireframe has nothing to draw: each subassembly holds just the plate.
   const plates = byName(root, 'plate') as THREE.Mesh[];
@@ -78,9 +89,14 @@ test('three.js JSON loads with ObjectLoader: tree, transforms, shared geometry, 
   assert.deepEqual(Array.from(g.getAttribute('normal').array), Array.from(plate().normals!));
   assert.deepEqual(Array.from(g.index!.array), [0, 1, 2, 0, 2, 3]);
   // Materials: green and blue on the first; red, half opaque, on both groups of the overridden second.
-  const colours = (m: THREE.Mesh) => (m.material as THREE.MeshStandardMaterial[]).map((x) => [x.type, x.color.getHexString(), x.opacity, x.transparent, x.side]);
-  assert.deepEqual(colours(plates[0]!), [['MeshStandardMaterial', '00ff00', 1, false, THREE.FrontSide], ['MeshStandardMaterial', '0000ff', 1, false, THREE.FrontSide]]);
-  assert.deepEqual(colours(plates[1]!), [['MeshStandardMaterial', 'ff0000', 0.5, true, THREE.FrontSide], ['MeshStandardMaterial', 'ff0000', 0.5, true, THREE.FrontSide]]);
+  const colours = (m: THREE.Mesh) => (m.material as THREE.MeshStandardMaterial[]).map(
+    (x) => [x.type, x.color.getHexString(), x.opacity, x.transparent, x.side]);
+  assert.deepEqual(colours(plates[0]!),
+    [['MeshStandardMaterial', '00ff00', 1, false, THREE.FrontSide],
+    ['MeshStandardMaterial', '0000ff', 1, false, THREE.FrontSide]]);
+  assert.deepEqual(colours(plates[1]!),
+    [['MeshStandardMaterial', 'ff0000', 0.5, true, THREE.FrontSide],
+    ['MeshStandardMaterial', 'ff0000', 0.5, true, THREE.FrontSide]]);
   assert.equal((plates[1]!.material as THREE.Material[])[0], (plates[1]!.material as THREE.Material[])[1]);
   assert.equal((plates[1]!.material as THREE.Material[])[0]!.name, 'red');
   // The part's ids and properties, and its faces as index ranges for picking.
@@ -109,7 +125,9 @@ test('edges and curves on request; edge kinds; hidden instances; colours', () =>
   const all = load(threejsJson(s, view, { edgeKinds: ['shared', 'seam'] }));
   const allEdges = (byName(all, 'plate')[0]!.children.find((c) => c.name === 'edges') as THREE.LineSegments);
   assert.deepEqual(Array.from(allEdges.geometry.index!.array), [0, 1, 2, 3, 3, 4]);
-  assert.deepEqual(allEdges.userData.edges.map((e: { source: number | null; start: number; count: number }) => [e.source, e.start, e.count]), [[4, 0, 2], [null, 2, 4]]);
+  assert.deepEqual(allEdges.userData.edges.map(
+    (e: { source: number | null; start: number; count: number }) => [e.source, e.start, e.count]),
+    [[4, 0, 2], [null, 2, 4]]);
   // The wireframe: a Group with its curve and point, in the default colour (it has no material).
   const [w] = byName(root, 'wire');
   assert.equal(w!.type, 'Group');

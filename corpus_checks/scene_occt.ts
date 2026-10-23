@@ -37,17 +37,22 @@ function triDist(p: V, a: V, b: V, c: V): number {
     const cp = sub(p, c), d5 = dot(ab, cp), d6 = dot(ac, cp);
     const vc = d1 * d4 - d3 * d2, vb = d5 * d2 - d1 * d6, va = d3 * d6 - d5 * d4;
     if (d3 >= 0 && d4 <= d3) q = b;
-    else if (vc <= 0 && d1 >= 0 && d3 <= 0) { const v = d1 / (d1 - d3); q = [a[0] + ab[0] * v, a[1] + ab[1] * v, a[2] + ab[2] * v]; }
+    else if (vc <= 0 && d1 >= 0 && d3 <= 0) { const v = d1 / (d1 - d3);
+      q = [a[0] + ab[0] * v, a[1] + ab[1] * v, a[2] + ab[2] * v]; }
     else if (d6 >= 0 && d5 <= d6) q = c;
-    else if (vb <= 0 && d2 >= 0 && d6 <= 0) { const w = d2 / (d2 - d6); q = [a[0] + ac[0] * w, a[1] + ac[1] * w, a[2] + ac[2] * w]; }
-    else if (va <= 0 && d4 - d3 >= 0 && d5 - d6 >= 0) { const w = (d4 - d3) / ((d4 - d3) + (d5 - d6)); q = [b[0] + (c[0] - b[0]) * w, b[1] + (c[1] - b[1]) * w, b[2] + (c[2] - b[2]) * w]; }
-    else { const den = 1 / (va + vb + vc), v = vb * den, w = vc * den; q = [a[0] + ab[0] * v + ac[0] * w, a[1] + ab[1] * v + ac[1] * w, a[2] + ab[2] * v + ac[2] * w]; }
+    else if (vb <= 0 && d2 >= 0 && d6 <= 0) { const w = d2 / (d2 - d6);
+      q = [a[0] + ac[0] * w, a[1] + ac[1] * w, a[2] + ac[2] * w]; }
+    else if (va <= 0 && d4 - d3 >= 0 && d5 - d6 >= 0) { const w = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+      q = [b[0] + (c[0] - b[0]) * w, b[1] + (c[1] - b[1]) * w, b[2] + (c[2] - b[2]) * w]; }
+    else { const den = 1 / (va + vb + vc), v = vb * den, w = vc * den;
+      q = [a[0] + ab[0] * v + ac[0] * w, a[1] + ab[1] * v + ac[1] * w, a[2] + ab[2] * v + ac[2] * w]; }
   }
   return Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
 }
 const toLinear = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
 
-const totals = { files: 0, skipped: 0, occtFailed: 0, parts: 0, meshes: 0, samples: 0, onSurface: 0, colourSamples: 0, colourMatch: 0 };
+const totals = { files: 0, skipped: 0, occtFailed: 0, parts: 0, meshes: 0, samples: 0, onSurface: 0, colourSamples: 0,
+  colourMatch: 0 };
 const rows: string[] = [];
 for (const f of corpusFiles(process.argv[2])) {
   const bytes = fs.readFileSync(f);
@@ -55,7 +60,9 @@ for (const f of corpusFiles(process.argv[2])) {
   const name = shortName(f);
   let res;
   try {
-    res = occt.ReadStepFile(bytes, { linearUnit: 'millimeter', linearDeflectionType: 'bounding_box_ratio', linearDeflection: RATIO, angularDeflection: 0.5 });
+    res = occt.ReadStepFile(bytes,
+      { linearUnit: 'millimeter', linearDeflectionType: 'bounding_box_ratio', linearDeflection: RATIO,
+      angularDeflection: 0.5 });
   } catch {
     occt = await loadOcct();
     res = { success: false };
@@ -70,7 +77,8 @@ for (const f of corpusFiles(process.argv[2])) {
   for (const mesh of res.meshes) {
     const p = mesh.attributes.position.array as number[], idx = mesh.index.array as number[];
     const faceColour: (string | undefined)[] = [];
-    for (const bf of mesh.brep_faces ?? []) for (let t = bf.first; t <= bf.last; t++) faceColour[t] = bf.color ? bf.color.map((x: number) => x.toFixed(3)).join(',') : undefined;
+    for (const bf of mesh.brep_faces ?? []) for (let t = bf.first; t <= bf.last; t++) faceColour[
+      t] = bf.color ? bf.color.map((x: number) => x.toFixed(3)).join(',') : undefined;
     const meshColour = mesh.color ? mesh.color.map((x: number) => x.toFixed(3)).join(',') : 'none';
     for (let i = 0; i < idx.length; i += 3) {
       const v = (k: number): V => [p[idx[i + k]! * 3]!, p[idx[i + k]! * 3 + 1]!, p[idx[i + k]! * 3 + 2]!];
@@ -83,8 +91,10 @@ for (const f of corpusFiles(process.argv[2])) {
   const grid = new Map<string, number[]>();
   const key = (x: number, y: number, z: number) => `${x},${y},${z}`;
   tris.forEach((t, i) => {
-    const lo = [0, 1, 2].map((k) => Math.floor(Math.min(t.a[k]!, t.b[k]!, t.c[k]!) / cell)), hi = [0, 1, 2].map((k) => Math.floor(Math.max(t.a[k]!, t.b[k]!, t.c[k]!) / cell));
-    for (let x = lo[0]!; x <= hi[0]!; x++) for (let y = lo[1]!; y <= hi[1]!; y++) for (let z = lo[2]!; z <= hi[2]!; z++) {
+    const lo = [0, 1, 2].map((k) => Math.floor(Math.min(t.a[k]!, t.b[k]!, t.c[k]!) / cell)),
+    hi = [0, 1, 2].map((k) => Math.floor(Math.max(t.a[k]!, t.b[k]!, t.c[k]!) / cell));
+    for (let x = lo[0]!; x <= hi[0]!; x++) for (let y = lo[1]!; y <= hi[1]!; y++) for (
+      let z = lo[2]!; z <= hi[2]!; z++) {
       let l = grid.get(key(x, y, z));
       if (!l) grid.set(key(x, y, z), (l = []));
       l.push(i);
@@ -113,7 +123,8 @@ for (const f of corpusFiles(process.argv[2])) {
 
   // The model's diagonal, from OCCT's meshes, for the deflection.
   let lo: V = [Infinity, Infinity, Infinity], hi: V = [-Infinity, -Infinity, -Infinity];
-  for (const t of tris) for (const x of [t.a, t.b, t.c]) for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k]!, x[k]!); hi[k] = Math.max(hi[k]!, x[k]!); }
+  for (const t of tris) for (const x of [t.a, t.b, t.c]) for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k]!, x[k]!);
+    hi[k] = Math.max(hi[k]!, x[k]!); }
   const deflection = RATIO * Math.hypot(...sub(hi, lo));
   const { scene } = await importStep(bytes);
   const { meshes } = await tessellateScene(scene, tess, { linearDeflection: deflection, angularDeflection: 0.5 });
@@ -126,8 +137,10 @@ for (const f of corpusFiles(process.argv[2])) {
     if (!mesh || !pi.visible) continue;
     const m = pi.transform, o = mesh.origin;
     const world = (i: number): V => {
-      const x = mesh.positions[i * 3]! + o[0], y = mesh.positions[i * 3 + 1]! + o[1], z = mesh.positions[i * 3 + 2]! + o[2];
-      return [m[0]! * x + m[4]! * y + m[8]! * z + m[12]!, m[1]! * x + m[5]! * y + m[9]! * z + m[13]!, m[2]! * x + m[6]! * y + m[10]! * z + m[14]!];
+      const x = mesh.positions[i * 3]! + o[0], y = mesh.positions[i * 3 + 1]! + o[1],
+      z = mesh.positions[i * 3 + 2]! + o[2];
+      return [m[0]! * x + m[4]! * y + m[8]! * z + m[12]!, m[1]! * x + m[5]! * y + m[9]! * z + m[13]!,
+        m[2]! * x + m[6]! * y + m[10]! * z + m[14]!];
     };
     const nv = mesh.positions.length / 3, step = Math.max(1, Math.floor(nv / 100));
     for (let i = 0; i < nv; i += step) { samples++; if (nearest(world(i)).d <= tol) onSurface++; }
@@ -140,7 +153,8 @@ for (const f of corpusFiles(process.argv[2])) {
         const near = nearest(centroid, normal(a, b, c), tol);
         if (!near.t || near.d > tol) continue;
         const mat = (face.source !== null ? pi.faceMaterials.get(face.source) : undefined) ?? pi.material;
-        const ours = mat === undefined ? 'none' : scene.materials[mat]!.color.map((x) => toLinear(x).toFixed(3)).join(',');
+        const ours = mat === undefined ? 'none' : scene.materials[mat]!.color.map(
+          (x) => toLinear(x).toFixed(3)).join(',');
         cs++;
         // Within 0.01 per component: OCCT's sRGB-to-linear conversion differs from ours in the third decimal.
         const same = ours === near.t.colour || (ours !== 'none' && near.t.colour !== 'none'
@@ -152,8 +166,12 @@ for (const f of corpusFiles(process.argv[2])) {
   }
   totals.samples += samples; totals.onSurface += onSurface; totals.colourSamples += cs; totals.colourMatch += cm;
   console.error(`${name}: ${onSurface}/${samples} on surface, ${cm}/${cs} colours`);
-  if (onSurface < samples || cm < cs) rows.push(`${name}: ${samples - onSurface} of ${samples} vertices off OCCT's surface; ${cs - cm} of ${cs} colour samples differ`);
+  if (onSurface < samples || cm < cs) rows.push(
+    `${name}: ${samples - onSurface} of ${samples} vertices off OCCT's surface; ${cs - cm} of ${cs} colour `
+    + `samples differ`);
 }
-console.log(`${totals.files} files compared (${totals.skipped} over the size limit, ${totals.occtFailed} without OCCT meshes); ${totals.meshes} of ${totals.parts} parts tessellated`);
-console.log(`vertices on OCCT's surface: ${totals.onSurface} of ${totals.samples}; colours matching: ${totals.colourMatch} of ${totals.colourSamples}`);
+console.log(`${totals.files} files compared (${totals.skipped} over the size limit, ${totals.occtFailed} without OCCT `
+  + `meshes); ${totals.meshes} of ${totals.parts} parts tessellated`);
+console.log(`vertices on OCCT's surface: ${totals.onSurface} of ${totals.samples}; colours matching: `
+  + `${totals.colourMatch} of ${totals.colourSamples}`);
 for (const r of rows) console.log('  ', r);

@@ -92,7 +92,9 @@ interface PartBase {
   properties: Properties;
   /** The part's length unit, in millimetres (25.4 for inches). */
   unit: number;
-  /** A point near the part's geometry, in its own coordinates: tessellators subtract it before converting to Float32. */
+  /**
+   * A point near the part's geometry, in its own coordinates: tessellators subtract it before converting to Float32.
+   */
   origin: Vec3;
   material?: number;
   /** Materials of individual faces, by the face's source id (a STEP ADVANCED_FACE, say); override `material`. */
@@ -130,7 +132,9 @@ export interface Mesh {
   positions: Float32Array;
   normals?: Float32Array;
   indices: Uint32Array;
-  /** Index ranges per source face; they partition `indices`. A face may repeat; null for ranges with no known source. */
+  /**
+   * Index ranges per source face; they partition `indices`. A face may repeat; null for ranges with no known source.
+   */
   faces: { source: number | null; start: number; count: number }[];
   edgePositions?: Float32Array;
   edges?: { source: number | null; start: number; count: number; kind: EdgeKind; dihedral?: number }[];

@@ -227,7 +227,8 @@ export function extractProducts(r: Reader, units: Units): ProductStructure {
     for (const pds of r.referrers(nauo, 'PRODUCT_DEFINITION_SHAPE', 'definition')) {
       for (const cdsr of r.referrers(pds, 'CONTEXT_DEPENDENT_SHAPE_REPRESENTATION', 'represented_product_relation')) {
         const rel = r.ref(cdsr, 'representation_relation');
-        if (occ.source.cdsr !== undefined) { r.warn('more than one placement for an occurrence; using the first', nauo); return; }
+        if (occ.source.cdsr !== undefined) {
+          r.warn('more than one placement for an occurrence; using the first', nauo); return; }
         occ.source.cdsr = r.id(cdsr);
         if (rel < 0) { r.warn('context dependent shape representation without a relationship', cdsr); continue; }
         occ.source.relationship = r.id(rel);
@@ -241,17 +242,22 @@ export function extractProducts(r: Reader, units: Units): ProductStructure {
         }
         if (swapped) r.warn('placement relationship with rep_1 and rep_2 swapped (rep_1 is the assembly)', rel, 'info');
         if (r.is(rel, 'REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION')) {
-          const t = transformation(r, r.ref(rel, 'transformation_operator'), unitRatio(rep1, rep2), [rep1, rep2], keepItemOrder);
+          const t = transformation(r, r.ref(rel, 'transformation_operator'), unitRatio(rep1, rep2), [rep1, rep2],
+            keepItemOrder);
           const tt = t && (swapped ? invertAffine(t) : t);
           if (!tt) { r.warn('occurrence placement could not be computed', rel); continue; }
           // Relative to the child's and parent's main representations, when rep_1/rep_2 are others in their sets.
-          occ.transform = multiply(multiply(toMain(parentShapes, swapped ? rep1 : rep2), tt), fromMain(childShapes, swapped ? rep2 : rep1));
+          occ.transform = multiply(multiply(toMain(parentShapes, swapped ? rep1 : rep2), tt),
+            fromMain(childShapes, swapped ? rep2 : rep1));
         } else {
           // A relationship without a transformation: the explicit approach, with a MAPPED_ITEM of the component's
           // representation in the assembly's.
           const asm = swapped ? rep1 : rep2, comp = swapped ? rep2 : rep1;
-          const mi = r.refs(asm, 'items').find((q) => r.is(q, 'MAPPED_ITEM') && r.ref(r.ref(q, 'mapping_source'), 'mapped_representation') === comp);
-          if (mi === undefined) { r.warn('occurrence placed by a relationship without a transformation or a matching mapped item', rel); continue; }
+          const mi = r.refs(asm, 'items').find(
+            (q) => r.is(q, 'MAPPED_ITEM') && r.ref(r.ref(q, 'mapping_source'), 'mapped_representation') === comp);
+          if (mi === undefined) {
+            r.warn('occurrence placed by a relationship without a transformation or a matching mapped item',
+            rel); continue; }
           const t = mappedItem(r, mi, (rep) => unitRatio(rep, asm));
           if (!t) continue;
           occ.source.mappedItem = r.id(mi);
@@ -287,7 +293,8 @@ export function extractProducts(r: Reader, units: Units): ProductStructure {
     if (main < 0) return out;
     out.set(main, identity());
     const todo = [main];
-    for (const id of pr.shapes.slice(1)) { const q = m.resolve(id); if (q >= 0 && !out.has(q)) { out.set(q, scaling(unitRatio(q, main))); todo.push(q); } }
+    for (const id of pr.shapes.slice(1)) { const q = m.resolve(id);
+      if (q >= 0 && !out.has(q)) { out.set(q, scaling(unitRatio(q, main))); todo.push(q); } }
     while (todo.length) {
       const q = todo.pop()!;
       for (const rel of r.referrers(q, 'SHAPE_REPRESENTATION_RELATIONSHIP')) {
@@ -311,7 +318,8 @@ export function extractProducts(r: Reader, units: Units): ProductStructure {
 
   function representation(p: number): ShapeRepresentation {
     const rep: ShapeRepresentation = {
-      id: r.id(p), types: m.types(p), name: r.str(p, 'name') ?? '', items: r.refs(p, 'items').map((q) => r.id(q)), related: [],
+      id: r.id(p), types: m.types(p), name: r.str(p, 'name') ?? '', items: r.refs(p, 'items').map((q) => r.id(q)),
+      related: [],
     };
     const ctx = units.ofRepresentation(p);
     if (ctx) rep.context = ctx;
@@ -321,19 +329,22 @@ export function extractProducts(r: Reader, units: Units): ProductStructure {
       if (r.is(rel, 'REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION')) {
         // Not an occurrence placement: rep_1's contents placed in rep_2.
         if (rep2 !== p || rep1 < 0) continue;
-        const t = transformation(r, r.ref(rel, 'transformation_operator'), unitRatio(rep1, rep2), [rep1, rep2], keepItemOrder);
+        const t = transformation(r, r.ref(rel, 'transformation_operator'), unitRatio(rep1, rep2), [rep1, rep2],
+          keepItemOrder);
         if (t) rep.related.push({ representation: r.id(rep1), transform: t, via: 'relationship', source: r.id(rel) });
       } else if (r.is(rel, 'SHAPE_REPRESENTATION_RELATIONSHIP')) {
         const other = rep1 === p ? rep2 : rep1;
         if (other >= 0 && other !== p) {
-          rep.related.push({ representation: r.id(other), transform: scaling(unitRatio(other, p)), via: 'relationship', source: r.id(rel) });
+          rep.related.push({ representation: r.id(other), transform: scaling(unitRatio(other, p)), via: 'relationship',
+            source: r.id(rel) });
         }
       }
     }
     for (const q of r.refs(p, 'items')) {
       if (!r.is(q, 'MAPPED_ITEM') || placing.has(q)) continue;
       const t = mappedItem(r, q, (mapped) => unitRatio(mapped, p));
-      if (t) rep.related.push({ representation: r.id(t.representation), transform: t.matrix, via: 'mapped-item', source: r.id(q) });
+      if (t) rep.related.push(
+        { representation: r.id(t.representation), transform: t.matrix, via: 'mapped-item', source: r.id(q) });
     }
     return rep;
   }
@@ -346,11 +357,13 @@ function documents(r: Reader, pd: number): ProductDocument[] {
     const d = r.ref(a, 'assigned_document');
     if (d >= 0) found.add(d);
   }
-  if (r.is(pd, 'PRODUCT_DEFINITION_WITH_ASSOCIATED_DOCUMENTS')) for (const d of r.refs(pd, 'documentation_ids')) found.add(d);
+  if (r.is(pd, 'PRODUCT_DEFINITION_WITH_ASSOCIATED_DOCUMENTS')) for (
+    const d of r.refs(pd, 'documentation_ids')) found.add(d);
   return [...found].sort((a, b) => a - b).map((d) => ({
     id: r.id(d),
     name: r.str(d, 'id') ?? '',
-    external: r.referrers(d, 'PROPERTY_DEFINITION', 'definition').some((q) => r.str(q, 'name') === 'external definition'),
+    external: r.referrers(d, 'PROPERTY_DEFINITION', 'definition').some(
+      (q) => r.str(q, 'name') === 'external definition'),
   }));
 }
 
@@ -388,7 +401,8 @@ export function productInstances(s: ProductStructure, r?: Reader): ProductInstan
  * to the product's main representation's. A representation appears once, except that each MAPPED_ITEM of it adds
  * another placement.
  */
-export function productRepresentations(s: ProductStructure, product: number): { representation: number; transform: Mat4 }[] {
+export function productRepresentations(s: ProductStructure, product: number): { representation: number;
+  transform: Mat4 }[] {
   const out: { representation: number; transform: Mat4 }[] = [];
   const shapes = s.products[product]!.shapes;
   const mainId = shapes[0];

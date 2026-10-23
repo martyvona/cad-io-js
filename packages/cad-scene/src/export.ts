@@ -20,7 +20,9 @@ export interface ExportViewOptions {
 export interface Look {
   part: number;
   mesh: Mesh;
-  /** The material of faces without one of their own, and of edges, curves and points; undefined: the viewer's default. */
+  /**
+   * The material of faces without one of their own, and of edges, curves and points; undefined: the viewer's default.
+   */
   material?: number;
   /** The mesh's triangles, reordered so each group is contiguous (the mesh's own when there's one group). */
   indices: Uint32Array;
@@ -64,7 +66,8 @@ export function partMesh(scene: Scene, meshes: ReadonlyMap<number, Mesh>, part: 
   if (p.kind === 'curves') {
     return {
       origin: p.origin, positions: new Float32Array(0), indices: new Uint32Array(0), faces: [],
-      curvePositions: p.positions, curves: p.polylines.map((l) => ({ source: l.source ?? null, start: l.start, count: l.count })),
+      curvePositions: p.positions,
+      curves: p.polylines.map((l) => ({ source: l.source ?? null, start: l.start, count: l.count })),
     };
   }
   return meshes.get(part);
@@ -83,7 +86,8 @@ export function exportView(scene: Scene, meshes: ReadonlyMap<number, Mesh>, opts
   const lookByKey = new Map<string, number>();
   const meshOf = new Map<number, Mesh | undefined>();
 
-  const lookFor = (part: number, material: number | undefined, faceMaterials: ReadonlyMap<number, number>): number | undefined => {
+  const lookFor = (part: number, material: number | undefined,
+    faceMaterials: ReadonlyMap<number, number>): number | undefined => {
     if (!meshOf.has(part)) meshOf.set(part, partMesh(scene, meshes, part));
     const mesh = meshOf.get(part);
     if (!mesh) return undefined;
@@ -115,12 +119,14 @@ export function exportView(scene: Scene, meshes: ReadonlyMap<number, Mesh>, opts
   const visit = (occ: Occurrence, path: number[], onPath: Set<number>): ExportNode => {
     const comp: Component = scene.components[occ.component]!;
     const node: ExportNode = {
-      path, component: occ.component, occurrence: occ, name: occ.name ?? comp.name, transform: occ.transform, parts: [], children: [],
+      path, component: occ.component, occurrence: occ, name: occ.name ?? comp.name, transform: occ.transform, parts: [],
+      children: [],
     };
     for (const pi of resolved.get(path.join('/')) ?? []) {
       const look = lookFor(pi.part, pi.material, pi.faceMaterials);
       if (look === undefined) continue;
-      node.parts.push({ look, transform: multiply(pi.ref.transform, translation(looks[look]!.mesh.origin)), visible: pi.visible });
+      node.parts.push({ look, transform: multiply(pi.ref.transform, translation(looks[look]!.mesh.origin)),
+        visible: pi.visible });
     }
     comp.children.forEach((child, i) => {
       if (onPath.has(child.component)) return;
@@ -134,8 +140,12 @@ export function exportView(scene: Scene, meshes: ReadonlyMap<number, Mesh>, opts
   return { looks, roots };
 }
 
-/** A mesh's triangles reordered by face material, groups in order of first appearance; a mesh without faces is one group. */
-function group(mesh: Mesh, perFace: (number | undefined)[], material: number | undefined): Pick<Look, 'indices' | 'groups' | 'faces'> {
+/**
+ * A mesh's triangles reordered by face material, groups in order of first appearance; a mesh without faces is one
+ * group.
+ */
+function group(mesh: Mesh, perFace: (number | undefined)[],
+  material: number | undefined): Pick<Look, 'indices' | 'groups' | 'faces'> {
   const order: (number | undefined)[] = [];
   const ranges = new Map<number | undefined, number[]>();
   mesh.faces.forEach((f, k) => {
@@ -146,7 +156,8 @@ function group(mesh: Mesh, perFace: (number | undefined)[], material: number | u
   });
   if (order.length <= 1) {
     const m = order.length ? order[0] : material;
-    return { indices: mesh.indices, groups: mesh.indices.length ? [{ material: m, start: 0, count: mesh.indices.length }] : [], faces: mesh.faces };
+    return { indices: mesh.indices,
+      groups: mesh.indices.length ? [{ material: m, start: 0, count: mesh.indices.length }] : [], faces: mesh.faces };
   }
   const indices = new Uint32Array(mesh.indices.length);
   const groups: Look['groups'] = [];

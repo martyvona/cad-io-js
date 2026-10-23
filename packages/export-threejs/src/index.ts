@@ -18,7 +18,9 @@ export interface ThreejsOptions {
   defaultColor?: Vec3;
   /** Colour of B-rep edges (sRGB). Default black. */
   edgeColor?: Vec3;
-  /** B-rep edge kinds to write, when the view has edges. Default shared and free (seams and degenerate edges hidden). */
+  /**
+   * B-rep edge kinds to write, when the view has edges. Default shared and free (seams and degenerate edges hidden).
+   */
   edgeKinds?: readonly ('shared' | 'seam' | 'free' | 'degenerate')[];
   /** Render both sides of faces (open shells and surface models are then seen from behind too). Default false. */
   doubleSided?: boolean;
@@ -98,7 +100,8 @@ const hex = (c: Vec3) => c.reduce((h, v) => h * 256 + Math.round(Math.min(1, Mat
 const matrix = (m: Mat4) => Array.from(m);
 
 /** Segment pairs for a set of polylines, and each polyline's range of index entries. */
-function segments(lines: { start: number; count: number }[]): { index: Uint32Array; ranges: { start: number; count: number }[] } {
+function segments(lines: { start: number; count: number }[]): { index: Uint32Array;
+  ranges: { start: number; count: number }[] } {
   let n = 0;
   for (const l of lines) n += Math.max(0, l.count - 1) * 2;
   const index = new Uint32Array(n);
@@ -174,26 +177,31 @@ class Writer {
     if (!list) this.faceGeometries.set(look.mesh, (list = []));
     if (look.groups.length === 1 && list.length) return list[0]!;
     const ranges = look.groups.map((g) => `${g.start}+${g.count}`).join(',');
-    const same = (a: Uint32Array, b: Uint32Array) => a === b || (a.length === b.length && a.every((x, i) => x === b[i]));
+    const same = (a: Uint32Array, b: Uint32Array) => a === b || (
+      a.length === b.length && a.every((x, i) => x === b[i]));
     const known = list.find((g) => g.ranges === ranges && same(g.indices, look.indices));
     if (known) return known;
-    const g: Geometry = { uuid: this.uuid(), name, attributes: [{ name: 'position', array: look.mesh.positions }], index: look.indices };
+    const g: Geometry = { uuid: this.uuid(), name, attributes: [{ name: 'position', array: look.mesh.positions }],
+      index: look.indices };
     if (look.mesh.normals) g.attributes.push({ name: 'normal', array: look.mesh.normals });
-    if (look.groups.length > 1) g.groups = look.groups.map((gr, i) => ({ start: gr.start, count: gr.count, materialIndex: i }));
+    if (look.groups.length > 1) g.groups = look.groups.map(
+      (gr, i) => ({ start: gr.start, count: gr.count, materialIndex: i }));
     this.geometries.push(g);
     const made = { uuid: g.uuid, groups: look.groups.length, ranges, indices: look.indices };
     list.push(made);
     return made;
   }
 
-  private linesGeometry(mesh: Mesh, what: 'edges' | 'curves' | 'points', name: string): { uuid: string; userData: Json } | undefined {
+  private linesGeometry(mesh: Mesh, what: 'edges' | 'curves' | 'points', name: string): { uuid: string;
+    userData: Json } | undefined {
     let byWhat = this.lineGeometry.get(mesh);
     if (!byWhat) this.lineGeometry.set(mesh, (byWhat = new Map()));
     if (byWhat.has(what)) return byWhat.get(what);
     let made: { uuid: string; userData: Json } | undefined;
     if (what === 'points') {
       const n = mesh.pointSources!.length;
-      const g: Geometry = { uuid: this.uuid(), name, attributes: [{ name: 'position', array: mesh.points! }], index: Uint32Array.from({ length: n }, (_, i) => i) };
+      const g: Geometry = { uuid: this.uuid(), name, attributes: [{ name: 'position', array: mesh.points! }],
+        index: Uint32Array.from({ length: n }, (_, i) => i) };
       this.geometries.push(g);
       made = { uuid: g.uuid, userData: { points: mesh.pointSources! } };
     } else {
@@ -230,8 +238,10 @@ class Writer {
     const lines = (what: 'edges' | 'curves' | 'points') => {
       const g = this.linesGeometry(look.mesh, what, `${part.name} ${what}`);
       if (!g) return;
-      const material = what === 'edges' ? this.material('line', undefined, this.edgeColor) : this.material(what === 'points' ? 'points' : 'line', look.material);
-      children.push({ uuid: this.uuid(), type: what === 'points' ? 'Points' : 'LineSegments', name: what, geometry: g.uuid, material, userData: g.userData });
+      const material = what === 'edges' ? this.material('line', undefined, this.edgeColor) : this.material(
+        what === 'points' ? 'points' : 'line', look.material);
+      children.push({ uuid: this.uuid(), type: what === 'points' ? 'Points' : 'LineSegments', name: what,
+        geometry: g.uuid, material, userData: g.userData });
     };
     if (look.edges) lines('edges');
     if (look.curves && look.mesh.curves?.length) lines('curves');
@@ -256,7 +266,8 @@ class Writer {
     const comp = this.scene.components[n.component]!;
     const userData: Json = { ...this.sourced(n.occurrence.sources, n.occurrence.properties) };
     userData.component = { index: n.component, name: comp.name, ...this.sourced(comp.sources, comp.properties) };
-    if (comp.external) userData.external = { uri: comp.external.uri, ...(comp.external.format ? { format: comp.external.format } : {}) };
+    if (comp.external) userData.external = { uri: comp.external.uri,
+      ...(comp.external.format ? { format: comp.external.format } : {}) };
     const children = [...n.parts.map((p) => this.part(p)), ...n.children.map((c) => this.node(c))];
     const o: Json = { uuid: this.uuid(), type: 'Group', name: n.name, matrix: matrix(n.transform), userData };
     if (children.length) o.children = children;
@@ -266,7 +277,8 @@ class Writer {
   root(): Json {
     const o: Json = {
       uuid: this.uuid(), type: 'Group', name: this.opts.name ?? '',
-      userData: { unit: 'millimetre', ...(Object.keys(this.scene.properties).length ? { properties: this.scene.properties } : {}) },
+      userData: { unit: 'millimetre',
+        ...(Object.keys(this.scene.properties).length ? { properties: this.scene.properties } : {}) },
     };
     const children = this.view.roots.map((n) => this.node(n));
     if (children.length) o.children = children;

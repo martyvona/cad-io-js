@@ -40,7 +40,8 @@ function resolveRedeclarations(entities: Record<string, EntityDef>, source: stri
     for (const r of [...(def.redeclared ?? []), ...(def.derivedRedeclared ?? [])]) {
       const found = declarer(r.from, r.name);
       if (found.length !== 1) {
-        throw new Error(`${source}: ${name} redeclares ${r.from}.${r.name}, declared in ${found.length ? found.join(', ') : 'no entity'}`);
+        throw new Error(`${source}: ${name} redeclares ${r.from}.${r.name}, declared in `
+          + `${found.length ? found.join(', ') : 'no entity'}`);
       }
       r.from = found[0]!;
     }

@@ -35,6 +35,8 @@ export {
   extractProducts, productInstances, productRepresentations, type ProductStructure, type Product, type ProductDocument,
   type Occurrence, type ShapeRepresentation, type RelatedRepresentation, type ProductInstance,
 } from './products.ts';
-export { extractStyles, effectiveStyle, colour, type Styles, type Style, type StyledItem, type Layer, type Rgb } from './styles.ts';
-export { extractValidationProperties, type ValidationProperty, type ValidationValue, type PropertyTarget } from './properties.ts';
+export { extractStyles, effectiveStyle, colour, type Styles, type Style, type StyledItem, type Layer,
+  type Rgb } from './styles.ts';
+export { extractValidationProperties, type ValidationProperty, type ValidationValue,
+  type PropertyTarget } from './properties.ts';
 export { semanticJson, SEMANTIC_JSON_FORMAT, SEMANTIC_JSON_VERSION, type SemanticJsonOptions } from './json.ts';

@@ -1,20 +1,12 @@
 # Corpus checks
 
-Scripts that run this repository's code against the real-world test corpus: 517 Part 21 files, 421 MB, 4.9 M
-instances (see `../test_corpus/README.md`). They complement the package tests (`npm test`), which use small inline
-fixtures and don't need the corpus. Each step of the work added the check that verified it (the Step column: phase
-and step, as `../CLAUDE.md`'s history lists them); each check's last results are in its `.log` beside it, and what
-they found is summarized in `../CLAUDE.md`.
+Scripts that run this repository's code against the real-world test corpus: 517 Part 21 files, 421 MB, 4.9 M instances (see `../test_corpus/README.md`). They complement the package tests (`npm test`), which use small inline fixtures and don't need the corpus. Each step of the work added the check that verified it (the Step column: phase and step, as `../CLAUDE.md`'s history lists them); each check's last results are in its `.log` beside it, and what they found is summarized in `../CLAUDE.md`.
 
 ## Setup
 
-Fetch the corpus once with `../test_corpus/third_party/pull.sh`. The scripts find it relative to the repository, so
-they run from any directory; a check stops with a hint to run `pull.sh` if listed files are missing. The checks that
-read the whole corpus take an optional list file in place of `../test_corpus/files.txt`, one path per line relative to
-`../test_corpus/third_party/`.
+Fetch the corpus once with `../test_corpus/third_party/pull.sh`. The scripts find it relative to the repository, so they run from any directory; a check stops with a hint to run `pull.sh` if listed files are missing. The checks that read the whole corpus take an optional list file in place of `../test_corpus/files.txt`, one path per line relative to `../test_corpus/third_party/`.
 
-`cache_check.ts` and `truck_bench.ts` tessellate phase 0's per-part subsets instead: make them once with
-`make_subsets.ts` (the commands are in its header) into `../test_corpus/subsets/` (git-ignored).
+`cache_check.ts` and `truck_bench.ts` tessellate phase 0's per-part subsets instead: make them once with `make_subsets.ts` (the commands are in its header) into `../test_corpus/subsets/` (git-ignored).
 
 ## The checks
 
@@ -50,8 +42,7 @@ read the whole corpus take an optional list file in place of `../test_corpus/fil
 
 ## Reference outputs
 
-The `.log` files are the outputs the progress document cites. To compare a fresh run with one, diff everything but the
-lines with timings (line 2 of the writer and JSON logs, line 1 of the parser, binding and semantic logs; the OCCT checks print no timings), for example:
+The `.log` files are the outputs the progress document cites. To compare a fresh run with one, diff everything but the lines with timings (line 2 of the writer and JSON logs, line 1 of the parser, binding and semantic logs; the OCCT checks print no timings), for example:
 
 ```sh
 node corpus_checks/semantic_corpus.ts > /tmp/s6.log && diff <(sed 1d corpus_checks/semantic_corpus.log) <(sed 1d /tmp/s6.log)
@@ -65,5 +56,4 @@ node corpus_checks/schema_xdict.ts corpus_checks/schema_corpus_check.log
 node corpus_checks/parser_bench.ts gkv311-opencascade-dataset/step/bug31711.stp gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp
 ```
 
-A difference means either a code change or a corpus update; `../test_corpus/README.md` records the corpus versions the
-logs were made with.
+A difference means either a code change or a corpus update; `../test_corpus/README.md` records the corpus versions the logs were made with.

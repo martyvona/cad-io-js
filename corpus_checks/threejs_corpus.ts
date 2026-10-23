@@ -11,20 +11,24 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import * as THREE from 'three';
-import { exportView, identity, multiply, tessellateScene, type ExportNode, type Mat4 } from '../packages/cad-scene/src/index.ts';
+import { exportView, identity, multiply, tessellateScene, type ExportNode,
+  type Mat4 } from '../packages/cad-scene/src/index.ts';
 import { threejsChunks } from '../packages/export-threejs/src/index.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
 import { WorkerTessellator } from '../packages/tess-workers/src/node.ts';
 import { corpusFiles, shortName } from './corpus.ts';
 
 const workers = Math.max(1, os.availableParallelism() - 1);
-const tess = new WorkerTessellator({ backend: { module: import.meta.resolve('../packages/tess-occt/src/index.ts'), export: 'OcctTessellator' }, workers });
+const tess = new WorkerTessellator(
+  { backend: { module: import.meta.resolve('../packages/tess-occt/src/index.ts'),
+  export: 'OcctTessellator' }, workers });
 await tess.init();
 const maxBytes = Number(process.argv[3] ?? 2) * 1e6;
 const STRING_LIMIT = 2 ** 29 - 24; // V8's maximum string length (characters)
 
 const hex = (c: readonly number[]) => c.reduce((h, v) => h * 256 + Math.round(Math.min(1, Math.max(0, v)) * 255), 0);
-const totals = { files: 0, skipped: 0, notLoaded: 0, meshes: 0, groups: 0, triangles: 0, geometries: 0, segments: 0, points: 0, bytes: 0, exportMs: 0, loadMs: 0, problems: 0 };
+const totals = { files: 0, skipped: 0, notLoaded: 0, meshes: 0, groups: 0, triangles: 0, geometries: 0, segments: 0,
+  points: 0, bytes: 0, exportMs: 0, loadMs: 0, problems: 0 };
 const problems: string[] = [];
 const biggest: [number, string, number][] = [];
 const t0 = Date.now();
@@ -36,7 +40,8 @@ for (const f of corpusFiles(process.argv[2])) {
   totals.files++;
   const problem = (msg: string) => { totals.problems++; if (problems.length < 200) problems.push(`${name}: ${msg}`); };
   const { scene } = await importStep(bytes);
-  const { meshes } = await tessellateScene(scene, tess, { linearDeflection: 0.1, angularDeflection: 0.5, edges: true, concurrency: workers });
+  const { meshes } = await tessellateScene(scene, tess,
+    { linearDeflection: 0.1, angularDeflection: 0.5, edges: true, concurrency: workers });
   const view = exportView(scene, meshes, { edges: true, curves: true });
 
   const te = performance.now();
@@ -61,26 +66,32 @@ for (const f of corpusFiles(process.argv[2])) {
     for (const c of n.children) walk(c, t);
   };
   for (const r of view.roots) walk(r, identity());
-  // The loaded part objects in the same order: objects with userData.part, depth first as written (parts before children).
+  // The loaded part objects in the same order: objects with userData.part, depth first as written (parts before
+  // children).
   const found: THREE.Object3D[] = [];
-  const visit = (o: THREE.Object3D) => { if (o.userData.part !== undefined) found.push(o); for (const c of o.children) visit(c); };
+  const visit = (o: THREE.Object3D) => { if (o.userData.part !== undefined) found.push(o);
+    for (const c of o.children) visit(c); };
   visit(root);
-  if (found.length !== expected.length) { problem(`${found.length} part objects, expected ${expected.length}`); continue; }
+  if (found.length !== expected.length) {
+    problem(`${found.length} part objects, expected ${expected.length}`); continue; }
   const geometries = new Set<THREE.BufferGeometry>();
   found.forEach((o, k) => {
     const e = expected[k]!;
     const look = view.looks[e.look]!;
     if (o.userData.part !== look.part) problem(`object ${k}: part ${o.userData.part}, expected ${look.part}`);
     const scale = Math.max(1, ...Array.from(e.world, Math.abs));
-    if (!o.matrixWorld.elements.every((x, i) => Math.abs(x - e.world[i]!) <= 1e-6 * scale)) problem(`object ${k} (part ${look.part}): world matrix differs`);
+    if (!o.matrixWorld.elements.every((x, i) => Math.abs(x - e.world[i]!) <= 1e-6 * scale)) problem(
+      `object ${k} (part ${look.part}): world matrix differs`);
     if (look.groups.length) {
       if (!(o instanceof THREE.Mesh)) { problem(`object ${k}: not a Mesh`); return; }
       totals.meshes++;
       geometries.add(o.geometry);
       const index = o.geometry.index!.array;
-      if (index.length !== look.indices.length) problem(`object ${k}: ${index.length} indices, expected ${look.indices.length}`);
+      if (index.length !== look.indices.length) problem(
+        `object ${k}: ${index.length} indices, expected ${look.indices.length}`);
       const mats = Array.isArray(o.material) ? o.material : [o.material];
-      const groups = o.geometry.groups.length ? o.geometry.groups : [{ start: 0, count: index.length, materialIndex: 0 }];
+      const groups = o.geometry.groups.length ? o.geometry.groups : [
+        { start: 0, count: index.length, materialIndex: 0 }];
       // Per triangle: the loaded material's colour and opacity against the look's group for the same triangle.
       const lookMat = new Array<string>(look.indices.length / 3);
       for (const g of look.groups) {
@@ -96,8 +107,10 @@ for (const f of corpusFiles(process.argv[2])) {
         for (let t = g.start / 3; t < (g.start + g.count) / 3; t++) loadedMat[t] = key;
       }
       // Triangles may come from another look's geometry (a one-material look reuses one), so compare as multisets.
-      const tris = (ix: ArrayLike<number>, mats: string[]) => mats.map((m, t) => `${ix[3 * t]},${ix[3 * t + 1]},${ix[3 * t + 2]}:${m}`).sort().join('|');
-      if (tris(index, loadedMat) !== tris(look.indices, lookMat)) problem(`object ${k} (part ${look.part}): triangles or materials differ`);
+      const tris = (ix: ArrayLike<number>, mats: string[]) => mats.map(
+        (m, t) => `${ix[3 * t]},${ix[3 * t + 1]},${ix[3 * t + 2]}:${m}`).sort().join('|');
+      if (tris(index, loadedMat) !== tris(look.indices, lookMat)) problem(
+        `object ${k} (part ${look.part}): triangles or materials differ`);
       totals.triangles += index.length / 3;
     } else if (o.type !== 'Group') problem(`object ${k}: ${o.type}, expected a Group`);
     for (const c of o.children) {
@@ -110,10 +123,14 @@ for (const f of corpusFiles(process.argv[2])) {
 tess.dispose();
 
 const mb = (n: number) => (n / 1e6).toFixed(1);
-console.log(`files ${totals.files} (${totals.skipped} over ${maxBytes / 1e6} MB skipped; ${totals.notLoaded} too large to load), ${((Date.now() - t0) / 1000).toFixed(0)} s`);
-console.log(`meshes ${totals.meshes} (geometries ${totals.geometries}), groups ${totals.groups}, triangles ${totals.triangles}, segments ${totals.segments}, points ${totals.points}`);
-console.log(`JSON ${mb(totals.bytes)} M characters; export ${(totals.exportMs / 1000).toFixed(2)} s; JSON.parse + ObjectLoader ${(totals.loadMs / 1000).toFixed(2)} s`);
+console.log(`files ${totals.files} (${totals.skipped} over ${maxBytes / 1e6} MB skipped; ${totals.notLoaded} too large `
+  + `to load), ${((Date.now() - t0) / 1000).toFixed(0)} s`);
+console.log(`meshes ${totals.meshes} (geometries ${totals.geometries}), groups ${totals.groups}, triangles `
+  + `${totals.triangles}, segments ${totals.segments}, points ${totals.points}`);
+console.log(`JSON ${mb(totals.bytes)} M characters; export ${(totals.exportMs / 1000).toFixed(2)} s; JSON.parse + `
+  + `ObjectLoader ${(totals.loadMs / 1000).toFixed(2)} s`);
 console.log('largest:');
-for (const [n, f, ms] of biggest.sort((a, b) => b[0] - a[0]).slice(0, 5)) console.log(`  ${mb(n)} M characters, ${(ms / 1000).toFixed(1)} s  ${f}`);
+for (const [n, f, ms] of biggest.sort((a, b) => b[0] - a[0]).slice(0, 5)) console.log(
+  `  ${mb(n)} M characters, ${(ms / 1000).toFixed(1)} s  ${f}`);
 console.log(`problems ${totals.problems}`);
 for (const p of problems) console.log(`  ${p}`);

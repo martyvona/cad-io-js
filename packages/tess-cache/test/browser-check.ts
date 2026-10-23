@@ -15,7 +15,8 @@ const chrome = process.argv[2] ?? '/Applications/Google Chrome.app/Contents/MacO
 const page = `<!doctype html><meta charset="utf-8"><script type="module">
 import { CachedTessellator, IndexedDbStore } from '/packages/tess-cache/src/browser.ts';
 const results = [];
-const check = async (name, f) => { try { results.push([name, (await f()) ?? 'ok']); } catch (e) { results.push([name, 'FAIL ' + e.message]); } };
+const check = async (name, f) => {
+  try { results.push([name, (await f()) ?? 'ok']); } catch (e) { results.push([name, 'FAIL ' + e.message]); } };
 const expect = (c, m) => { if (!c) throw new Error(m); };
 const bytes = (n, fill = 0) => new Uint8Array(n).fill(fill);
 const same = (a, b) => a && b && a.length === b.length && a.every((x, i) => x === b[i]);
@@ -108,7 +109,8 @@ await check("maxBytes 0 doesn't open the database", async () => {
 });
 await check('a database that fails to open is retried on the next call', async () => {
   const name = fresh();
-  await new Promise((res, rej) => { const r = indexedDB.open(name, 2); r.onsuccess = () => { r.result.close(); res(); }; r.onerror = () => rej(r.error); });
+  await new Promise((res, rej) => { const r = indexedDB.open(name, 2); r.onsuccess = () => { r.result.close(); res(); };
+    r.onerror = () => rej(r.error); });
   const s = new IndexedDbStore({ name });
   let failed = false;
   try { await s.get('a'); } catch (e) { failed = e.name === 'VersionError'; }
@@ -122,29 +124,39 @@ await check('the caching tessellator over IndexedDB', async () => {
   const name = fresh();
   let calls = 0;
   const fake = {
-    info: { name: 'fake', version: '1', license: 'MIT', formats: ['step'], supportsFaceIds: true, supportsEdges: false, supportsCurves: false },
+    info: { name: 'fake', version: '1', license: 'MIT', formats: ['step'], supportsFaceIds: true, supportsEdges: false,
+      supportsCurves: false },
     init: async () => {}, dispose: () => {},
-    tessellate: async (req) => ({ origin: req.origin, positions: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), indices: new Uint32Array([0, 1, 2]), faces: [{ entityId: 3, start: 0, count: 3 }], diagnostics: [{ severity: 'info', message: 'call ' + ++calls }] }),
+    tessellate: async (req) => (
+      { origin: req.origin, positions: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]),
+      indices: new Uint32Array([0, 1, 2]), faces: [{ entityId: 3, start: 0, count: 3 }],
+      diagnostics: [{ severity: 'info', message: 'call ' + ++calls }] }),
   };
-  const req = { format: 'step', data: new Uint8Array([1, 2, 3]), rootId: 3, origin: [1, 2, 3], linearDeflection: 0.1, angularDeflection: 0.5 };
+  const req = { format: 'step', data: new Uint8Array([1, 2, 3]), rootId: 3, origin: [1, 2, 3], linearDeflection: 0.1,
+    angularDeflection: 0.5 };
   const a = await new CachedTessellator(fake, new IndexedDbStore({ name })).tessellate(req);
   const t = new CachedTessellator(fake, new IndexedDbStore({ name }));
   const b = await t.tessellate(req);
   expect(calls === 1, 'calls ' + calls);
-  expect(b.diagnostics[0].message === 'call 1' && same(b.positions, a.positions) && b.positions instanceof Float32Array && b.origin[2] === 3, 'bad result');
+  expect(b.diagnostics[0].message === 'call 1' && same(b.positions,
+    a.positions) && b.positions instanceof Float32Array && b.origin[2] === 3, 'bad result');
   expect(t.stats().hits === 1, 'no hit');
   // A cached failure, and the old version's entries deleted on a new version.
   const failing = { ...fake, tessellate: async () => { calls++; throw new WebAssembly.RuntimeError('unreachable'); } };
   const bad = { ...req, data: new Uint8Array([9]) };
   for (let i = 0; i < 2; i++) {
-    try { await new CachedTessellator(failing, new IndexedDbStore({ name })).tessellate(bad); throw new Error('resolved'); } catch (e) { expect(/unreachable/.test(e.message), e.message); }
+    try { await new CachedTessellator(failing, new IndexedDbStore({ name })).tessellate(bad);
+      throw new Error('resolved'); } catch (e) { expect(/unreachable/.test(e.message), e.message); }
   }
   expect(calls === 2, 'failure not cached, calls ' + calls);
   const s = new IndexedDbStore({ name });
   expect((await s.size()) > 0, 'empty');
   const v2 = { ...fake, info: { ...fake.info, version: '2' } };
   await new CachedTessellator(v2, s).tessellate(req);
-  const keys = await new Promise((res) => { const r = indexedDB.open(name); r.onsuccess = () => { const q = r.result.transaction('meta').objectStore('meta').getAllKeys(); q.onsuccess = () => { r.result.close(); res(q.result); }; }; });
+  const keys = await new Promise(
+    (res) => { const r = indexedDB.open(name);
+    r.onsuccess = () => { const q = r.result.transaction('meta').objectStore('meta').getAllKeys();
+    q.onsuccess = () => { r.result.close(); res(q.result); }; }; });
   expect(keys.length === 1 && calls === 3, 'old version kept: ' + keys.length);
   s.close();
 });
@@ -161,15 +173,18 @@ const server = http.createServer((q, s) => {
       s.end();
       const { userAgent, results } = JSON.parse(body) as { userAgent: string; results: [string, string][] };
       console.log(userAgent);
-      for (const [name, r] of results) console.log(`${r === 'ok' ? 'ok  ' : 'FAIL'} ${name}${r === 'ok' ? '' : `: ${r}`}`);
+      for (const [name, r] of results) console.log(
+        `${r === 'ok' ? 'ok  ' : 'FAIL'} ${name}${r === 'ok' ? '' : `: ${r}`}`);
       finish(results.every(([, r]) => r === 'ok') ? 0 : 1);
     });
     return;
   }
   const file = path.join(root, url.pathname);
-  if (!file.startsWith(root + path.sep) || !file.endsWith('.ts') || !fs.existsSync(file)) return void s.writeHead(404).end();
+  if (!file.startsWith(root + path.sep) || !file.endsWith('.ts') || !fs.existsSync(
+    file)) return void s.writeHead(404).end();
   // The one bare specifier the sources import as a value; a bundler resolves it in an application.
-  const js = stripTypeScriptTypes(fs.readFileSync(file, 'utf8')).replace(/from 'cad-scene'/g, "from '/packages/cad-scene/src/index.ts'");
+  const js = stripTypeScriptTypes(fs.readFileSync(file, 'utf8')).replace(/from 'cad-scene'/g,
+    "from '/packages/cad-scene/src/index.ts'");
   s.writeHead(200, { 'content-type': 'text/javascript' }).end(js);
 });
 
@@ -182,7 +197,8 @@ function finish(code: number) {
 }
 server.listen(0, '127.0.0.1', () => {
   const { port } = server.address() as { port: number };
-  browser = spawn(chrome, ['--headless=new', `--user-data-dir=${profile}`, '--no-first-run', '--no-default-browser-check', `http://127.0.0.1:${port}/`], { stdio: 'ignore' });
+  browser = spawn(chrome, ['--headless=new', `--user-data-dir=${profile}`, '--no-first-run',
+    '--no-default-browser-check', `http://127.0.0.1:${port}/`], { stdio: 'ignore' });
   browser.on('error', (e) => { console.error(`can't start ${chrome}: ${e.message}`); finish(2); });
 });
 setTimeout(() => { console.error('no report from the page within 60 s'); finish(1); }, 60_000).unref();

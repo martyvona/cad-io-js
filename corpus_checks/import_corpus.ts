@@ -9,8 +9,10 @@ import { importStep } from '../packages/step-import/src/index.ts';
 import { corpusFiles, shortName as short } from './corpus.ts';
 
 const problems = new Map<string, { n: number; ex: string }>();
-const note = (k: string, ex: string, n = 1) => { const p = problems.get(k); if (p) p.n += n; else problems.set(k, { n, ex }); };
-const t = { files: 0, components: 0, parts: 0, partInstances: 0, hidden: 0, materials: 0, faceMaterialParts: 0, faceMaterials: 0, componentMaterials: 0, overrides: 0, layers: 0, external: 0, payloadBytes: 0, time: 0 };
+const note = (k: string, ex: string, n = 1) => { const p = problems.get(k); if (p) p.n += n;
+  else problems.set(k, { n, ex }); };
+const t = { files: 0, components: 0, parts: 0, partInstances: 0, hidden: 0, materials: 0, faceMaterialParts: 0,
+  faceMaterials: 0, componentMaterials: 0, overrides: 0, layers: 0, external: 0, payloadBytes: 0, time: 0 };
 const checkPayloads = (process.argv[3] ?? 'all') === 'all';
 
 for (const path of corpusFiles(process.argv[2])) {
@@ -37,15 +39,22 @@ for (const path of corpusFiles(process.argv[2])) {
       t.payloadBytes += bytes.length;
       const sub = parseStep(bytes);
       if (sub.diagnostics.length) note('payload with diagnostics', `${name} #${p.rootId}`);
-      if (p.rootId === undefined || sub.index.position(p.rootId) < 0) note('payload without its root', `${name} #${p.rootId}`);
+      if (p.rootId === undefined || sub.index.position(p.rootId) < 0) note('payload without its root',
+        `${name} #${p.rootId}`);
     }
     if (!p.origin.every(Number.isFinite)) note('non-finite origin', `${name} #${p.sources[0]?.id}`);
   }
   for (const pi of partInstances(scene)) { t.partInstances++; if (!pi.visible) t.hidden++; }
   if ([...instances(scene)].length === 0 && scene.components.length) note('no instances', name);
-  for (const d of scene.diagnostics) if (d.message.startsWith('representation without a length unit') || d.message.startsWith('context-dependent')) note(`diagnostic: ${d.message}`, `${name} #${d.source?.id}`);
+  for (const d of scene.diagnostics) if (
+    d.message.startsWith('representation without a length unit') || d.message.startsWith('context-dependent')) note(
+    `diagnostic: ${d.message}`, `${name} #${d.source?.id}`);
 }
-console.log(`${t.files} files imported in ${(t.time / 1000).toFixed(1)} s: ${t.components} components, ${t.parts} parts, ${t.partInstances} part instances (${t.hidden} hidden)`);
-console.log(`${t.materials} materials; ${t.componentMaterials} component materials; ${t.faceMaterialParts} parts with per-face materials (${t.faceMaterials} faces); ${t.overrides} instance overrides; ${t.layers} layers; ${t.external} external components`);
+console.log(`${t.files} files imported in ${(t.time / 1000).toFixed(1)} s: ${t.components} components, ${t.parts} `
+  + `parts, ${t.partInstances} part instances (${t.hidden} hidden)`);
+console.log(`${t.materials} materials; ${t.componentMaterials} component materials; ${t.faceMaterialParts} parts with `
+  + `per-face materials (${t.faceMaterials} faces); ${t.overrides} instance overrides; ${t.layers} layers; `
+  + `${t.external} external components`);
 if (checkPayloads) console.log(`payloads: ${(t.payloadBytes / 1e6).toFixed(1)} MB, all parsed`);
-for (const [k, v] of [...problems].sort((a, b) => b[1].n - a[1].n)) console.log(String(v.n).padStart(7), k, ' e.g.', v.ex);
+for (const [k, v] of [...problems].sort((a, b) => b[1].n - a[1].n)) console.log(String(v.n).padStart(7), k,
+  ' e.g.', v.ex);

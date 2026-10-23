@@ -13,7 +13,8 @@ const note = (k: string, file: string, ex: string, n = 1) => {
   t.files.add(file);
 };
 let files = 0, time = 0;
-const totals = { products: 0, roots: 0, nauo: 0, mapped: 0, placed: 0, reps: 0, styled: 0, layers: 0, validation: 0, external: 0 };
+const totals = { products: 0, roots: 0, nauo: 0, mapped: 0, placed: 0, reps: 0, styled: 0, layers: 0, validation: 0,
+  external: 0 };
 
 for (const path of corpusFiles(process.argv[2])) {
   files++;
@@ -44,7 +45,10 @@ for (const path of corpusFiles(process.argv[2])) {
 }
 
 console.log(`${files} files; extraction ${(time / 1000).toFixed(1)} s`);
-console.log(`${totals.products} product definitions, ${totals.roots} roots, ${totals.reps} shape representations reached`);
-console.log(`${totals.nauo} NAUO occurrences + ${totals.mapped} mapped-item occurrences, ${totals.placed} with a placement; ${totals.external} external documents`);
+console.log(`${totals.products} product definitions, ${totals.roots} roots, ${totals.reps} shape `
+  + `representations reached`);
+console.log(`${totals.nauo} NAUO occurrences + ${totals.mapped} mapped-item occurrences, ${totals.placed} with a `
+  + `placement; ${totals.external} external documents`);
 console.log(`${totals.styled} styled items, ${totals.layers} layers, ${totals.validation} validation properties`);
-for (const [k, v] of [...tally].sort((a, b) => b[1].n - a[1].n)) console.log(String(v.n).padStart(7), String(v.files.size).padStart(4), k, ' e.g.', v.ex);
+for (const [k, v] of [...tally].sort((a, b) => b[1].n - a[1].n)) console.log(String(v.n).padStart(7),
+  String(v.files.size).padStart(4), k, ' e.g.', v.ex);

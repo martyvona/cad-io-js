@@ -66,9 +66,11 @@ done
 # the PMI property strings list, as one zip.
 download jt https://ww3.cad.de/foren/ubb/uploads/Rainer+Schulze/JT_v95_File_Format_Reference_Rev-A_tcm73-111987.pdf
 download jt https://www.plm.automation.siemens.com/en_us/Images/JT-v10-file-format-reference-rev-B_tcm1023-233786.pdf
-if [[ ! -f "jt/Siemens JT V10.6 Format Description Rev D 10 Feb 2026.pdf" || ! -f jt/PMIPropertiesStrings_alphabetic_list-JT_V10_6.xlsx ]]; then
-  download jt https://static.sw.cdn.siemens.com/media/published/4Zc4NsBnmaFlEd0mtssp7f/siemens-jt-v-10-6-file-format-reference-rev-d-10-feb-2026.zip
-  (cd jt && unzip -q -o siemens-jt-v-10-6-file-format-reference-rev-d-10-feb-2026.zip && rm siemens-jt-v-10-6-file-format-reference-rev-d-10-feb-2026.zip)
+JT106_PDF="Siemens JT V10.6 Format Description Rev D 10 Feb 2026.pdf"
+JT106_ZIP=siemens-jt-v-10-6-file-format-reference-rev-d-10-feb-2026.zip
+if [[ ! -f "jt/$JT106_PDF" || ! -f jt/PMIPropertiesStrings_alphabetic_list-JT_V10_6.xlsx ]]; then
+  download jt "https://static.sw.cdn.siemens.com/media/published/4Zc4NsBnmaFlEd0mtssp7f/$JT106_ZIP"
+  (cd jt && unzip -q -o "$JT106_ZIP" && rm "$JT106_ZIP")
 fi
 
 # Text versions of the JT PDFs (one "=== PAGE n ===" header per page).
@@ -80,7 +82,8 @@ if ! python3 -c 'import venv' 2>/dev/null; then
   echo "== jt: no python3 with venv; text versions skipped (see env.sh)" >&2
   exit 0
 fi
-if [[ ! -x jt/.venv/bin/python ]] || ! jt/.venv/bin/python -c "import pypdf, sys; sys.exit(pypdf.__version__ != '$PYPDF')" 2>/dev/null; then
+if [[ ! -x jt/.venv/bin/python ]] ||
+  ! jt/.venv/bin/python -c "import pypdf, sys; sys.exit(pypdf.__version__ != '$PYPDF')" 2>/dev/null; then
   echo "== jt/.venv: installing pypdf $PYPDF"
   python3 -m venv jt/.venv
   jt/.venv/bin/python -m pip install --quiet --disable-pip-version-check "pypdf==$PYPDF"

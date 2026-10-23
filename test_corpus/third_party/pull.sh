@@ -25,7 +25,8 @@ nist_zip() { # <name> <slug>: https://www.nist.gov/document/<slug> redirects to 
   local stamp=$root/.$name.last-modified
   mkdir -p "$root"
   local remote
-  remote=$(curl -fsSIL "$url" | tr -d '\r' | awk 'tolower($1) == "last-modified:" { sub(/^[^:]*: */, ""); lm = $0 } END { print lm }')
+  remote=$(curl -fsSIL "$url" | tr -d '\r' |
+    awk 'tolower($1) == "last-modified:" { sub(/^[^:]*: */, ""); lm = $0 } END { print lm }')
   if [[ -d $root/$name && -f $stamp && $(cat "$stamp") == "$remote" ]]; then
     echo "== $root/$name: up to date ($remote)"
     return

@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { parseExpress } from '../gen/parser.ts';
-import { Schema, dictionaryForFileSchema, dictionaryForSchemaName, loadSchema, type SchemaDictionary } from '../src/index.ts';
+import { Schema, dictionaryForFileSchema, dictionaryForSchemaName, loadSchema,
+  type SchemaDictionary } from '../src/index.ts';
 
 function schemaOf(src: string): Schema {
   const p = parseExpress(src)[0]!;
@@ -9,7 +10,8 @@ function schemaOf(src: string): Schema {
   return new Schema(dict);
 }
 
-const slotNames = (s: Schema, e: string) => s.instanceAttributes(e).map((a) => `${a.owner}.${a.name}${a.derived ? '*' : ''}`);
+const slotNames = (s: Schema, e: string) => s.instanceAttributes(e).map(
+  (a) => `${a.owner}.${a.name}${a.derived ? '*' : ''}`);
 
 test('instance attributes: supertypes first, SUBTYPE OF order, shared supertypes once', () => {
   const s = schemaOf(`
@@ -64,7 +66,8 @@ test('AP242: B_SPLINE_CURVE_WITH_KNOTS layout', async () => {
 test('FILE_SCHEMA names map to dictionaries', () => {
   const cases: [string, string | undefined][] = [
     ['CONFIG_CONTROL_DESIGN', 'ap203'],
-    ["AP203_CONFIGURATION_CONTROLLED_3D_DESIGN_OF_MECHANICAL_PARTS_AND_ASSEMBLIES_MIM_LF { 1 0 10303 403 2 1 2}", 'ap203e2'],
+    ["AP203_CONFIGURATION_CONTROLLED_3D_DESIGN_OF_MECHANICAL_PARTS_AND_ASSEMBLIES_MIM_LF { 1 0 10303 403 2 1 "
+      + "2}", 'ap203e2'],
     ['CONFIGURATION_CONTROL_3D_DESIGN_ED2_MIM_LF { 1 0 10303 403 1 1 4}', 'ap203e2'],
     ['AUTOMOTIVE_DESIGN { 1 0 10303 214 1 1 1 1 }', 'ap214e3'],
     ['automotive_design', 'ap214e3'],

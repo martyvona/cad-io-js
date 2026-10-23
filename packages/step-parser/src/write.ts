@@ -50,7 +50,8 @@ export function* writeChunks(doc: StepDocument, opts: WriteOptions = {}): Genera
   yield* out.text(head + 'ENDSEC;\n');
   const sections = doc.data.length ? doc.data : [{ instances: [] }];
   for (const s of sections) {
-    yield* out.text(s.name === undefined ? 'DATA;\n' : `DATA(${formatString(s.name)},(${(s.schemas ?? []).map(formatString).join(',')}));\n`);
+    yield* out.text(s.name === undefined ? 'DATA;\n' : `DATA(${formatString(s.name)},`
+      + `(${(s.schemas ?? []).map(formatString).join(',')}));\n`);
     for (const item of s.instances) {
       if (item instanceof Uint8Array) {
         yield* out.bytes(item);

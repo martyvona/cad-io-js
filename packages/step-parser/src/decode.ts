@@ -157,7 +157,8 @@ class Decoder {
       const e = this.peek();
       if (e === COMMA || e === RPAREN) {
         // An empty parameter, as in EDGE_CURVE('',#1,#2,#3, ): not Part 21, read as $.
-        this.warnings?.push({ severity: 'warning', message: 'empty parameter read as $', offset: this.pos, id: this.id });
+        this.warnings?.push({ severity: 'warning', message: 'empty parameter read as $', offset: this.pos,
+          id: this.id });
         out.push(UNSET);
       } else {
         out.push(this.value());
@@ -264,7 +265,8 @@ class Decoder {
     if (real) return { k: 'real', v: Number(text) };
     if (i - digits <= 15) return { k: 'int', v: Number(text) };
     const big = BigInt(text);
-    return { k: 'int', v: big >= BigInt(Number.MIN_SAFE_INTEGER) && big <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(big) : big };
+    return { k: 'int', v: big >= BigInt(Number.MIN_SAFE_INTEGER) && big <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(
+      big) : big };
   }
 
   error(msg: string): ParseError {

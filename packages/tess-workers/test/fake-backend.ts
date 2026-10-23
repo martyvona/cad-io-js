@@ -7,12 +7,14 @@
 import { TessellationError, type TessellationRequest, type TessellationResult, type Tessellator } from 'cad-scene';
 
 export class FakeTessellator implements Tessellator {
-  readonly info = { name: 'fake', version: '1', license: 'Apache-2.0', formats: ['step' as const], supportsFaceIds: true, supportsEdges: false, supportsCurves: false };
+  readonly info = { name: 'fake', version: '1', license: 'Apache-2.0', formats: ['step' as const],
+    supportsFaceIds: true, supportsEdges: false, supportsCurves: false };
   private readonly instance = Math.random().toString(36).slice(2);
   private memory = 0;
 
   async init(opts?: Record<string, unknown>): Promise<void> {
-    if (opts?.fail || (typeof opts?.failAfter === 'number' && Date.now() > opts.failAfter)) throw new Error('init refused');
+    if (opts?.fail || (typeof opts?.failAfter === 'number' && Date.now() > opts.failAfter)) throw new Error(
+      'init refused');
   }
 
   async tessellate(req: TessellationRequest): Promise<TessellationResult> {

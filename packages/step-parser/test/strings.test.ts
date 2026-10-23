@@ -12,7 +12,8 @@ function decode(literal: string): string | undefined {
 // The 15 cases of OCCT's test bugs/step/bug28454_2 (file bug28454_directives.stp), copied verbatim: the STEP
 // literal and the name OCCT must produce. Several are deliberately malformed.
 const OCCT_CASES: [string, string][] = [
-  ["'AaBbCc\\X2\\00C4\\X0\\\\X2\\00E4\\X0\\\\X2\\00D6\\X0\\\\X2\\00F6\\X0\\\\X2\\00DC\\X0\\\\X2\\00FC\\X0\\\\X2\\00DF\\X0\\*,.-;:_'", "AaBbCcÄäÖöÜüß*,.-;:_"],
+  ["'AaBbCc\\X2\\00C4\\X0\\\\X2\\00E4\\X0\\\\X2\\00D6\\X0\\\\X2\\00F6\\X0\\"
+    + "\\X2\\00DC\\X0\\\\X2\\00FC\\X0\\\\X2\\00DF\\X0\\*,.-;:_'", "AaBbCcÄäÖöÜüß*,.-;:_"],
   ["'\\X2\\03C0\\X0\\'", "π"],
   ["'Expression: \\X2\\03B103B2\\X0\\\\\\X2\\03B3\\X0\\*\\X2\\03C0\\X0\\'", "Expression: αβ\\X2\\03B3*π"],
   ["'\\X4\\0001F7CA\\X0\\'", "🟊"],
@@ -26,7 +27,8 @@ const OCCT_CASES: [string, string][] = [
   ["'Expression: \\X2\\03B1\\X0\\\\PC\\*\\X2\\03B2\\X0\\\\S\\w\\X2\\03B3'", "Expression: α*β÷γ"],
   // OCCT's test prints \S\D for this one, but the data file has \S\B (ISO 8859-5 0xC2 = Т); \S\D would be Ф.
   ["'T\\PE\\\\S\\5C\\S\\B'", "TЕCТ"],
-  ["'A\\S\\DaBbCc\\X2\\0C4\\X0\\'h\\S\\t\\X2\\0E4\\X0\\\\X4\\0001F7CA\\X0\\\\X\\0A\\X4\\0001F7CA\\X0\\*,.-;:_\\X2\\0D6\\X0\\\\PE\\\\S\\5'", "AÄaBbCcÄ'hôä🟊\n🟊*,.-;:_ÖЕ"],
+  ["'A\\S\\DaBbCc\\X2\\0C4\\X0\\'h\\S\\t\\X2\\0E4\\X0\\\\X4\\0001F7CA\\X0\\\\X\\0A\\X4\\0001F7CA\\X0\\*,.-;"
+    + ":_\\X2\\0D6\\X0\\\\PE\\\\S\\5'", "AÄaBbCcÄ'hôä🟊\n🟊*,.-;:_ÖЕ"],
   ["'\\X2\\3B13B23B3\\X0\\'", "αβγ"],
 ];
 
@@ -50,7 +52,8 @@ test('tolerances', () => {
   assert.equal(decode("'wrapped\r\n line'"), 'wrapped line'); // line breaks dropped
   assert.equal(decode("'tab\\T\\and\\N\\newline'"), 'tab\tand\nnewline');
   assert.equal(decodeString(enc.encode("'caf\u00e9')"), 0)?.value, 'caf\u00e9'); // raw UTF-8
-  assert.equal(decodeString(new Uint8Array([0x27, 0x63, 0x61, 0x66, 0xe9, 0x27, 0x29]), 0)?.value, 'caf\u00e9'); // raw latin1
+  // raw latin1
+  assert.equal(decodeString(new Uint8Array([0x27, 0x63, 0x61, 0x66, 0xe9, 0x27, 0x29]), 0)?.value, 'caf\u00e9');
 });
 
 test('string end detection', () => {

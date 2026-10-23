@@ -3,7 +3,8 @@
 // after a number of parts or when the backend's memory grows too large. Written against WorkerHandle; node.ts and
 // browser.ts supply the workers.
 
-import { TessellationError, type TessellationRequest, type TessellationResult, type Tessellator, type TessellatorInfo } from 'cad-scene';
+import { TessellationError, type TessellationRequest, type TessellationResult, type Tessellator,
+  type TessellatorInfo } from 'cad-scene';
 import type { BackendSpec, FromWorker, WorkerHandle } from './protocol.ts';
 
 export interface PoolOptions {
@@ -141,7 +142,8 @@ export class PoolTessellator implements Tessellator {
         const job = this.finish(s);
         job?.resolve(msg.result);
         s.parts++;
-        if ((this.maxParts > 0 && s.parts >= this.maxParts) || (this.maxMemory > 0 && (msg.memory ?? 0) > this.maxMemory)) this.kill(s);
+        if ((this.maxParts > 0 && s.parts >= this.maxParts) || (
+          this.maxMemory > 0 && (msg.memory ?? 0) > this.maxMemory)) this.kill(s);
         else this.idle(s);
         break;
       }

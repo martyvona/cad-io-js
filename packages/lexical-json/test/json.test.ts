@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { formatInt, formatReal, formatString, JsonParseError, parseJson, stringify, type JsonValue } from '../src/index.ts';
+import { formatInt, formatReal, formatString, JsonParseError, parseJson, stringify,
+  type JsonValue } from '../src/index.ts';
 
 let seed = 4242;
 const rand = () => (seed = (Math.imul(seed, 1103515245) + 12345) >>> 0);
@@ -16,7 +17,8 @@ test('numbers: integers are bigints, reals are numbers, by lexical form', () => 
 test('formatReal: a point or exponent always; exact round trip of random doubles', () => {
   const cases: [number, string][] = [
     [5, '5.0'], [0, '0.0'], [-0, '-0.0'], [0.25, '0.25'], [-1.5, '-1.5'], [1e-7, '1e-7'], [1e21, '1e+21'],
-    [123456789012345680000, '123456789012345680000.0'], [5e-324, '5e-324'], [Number.MAX_VALUE, '1.7976931348623157e+308'],
+    [123456789012345680000, '123456789012345680000.0'], [5e-324, '5e-324'],
+    [Number.MAX_VALUE, '1.7976931348623157e+308'],
   ];
   for (const [x, s] of cases) assert.equal(formatReal(x), s);
   for (const x of [NaN, Infinity, -Infinity]) assert.throws(() => formatReal(x), RangeError);
@@ -90,18 +92,22 @@ test('errors', () => {
     ['01', /after the value/], ['1.', /after the decimal point/], ['.5', /unexpected '\.'/], ['+1', /unexpected '\+'/],
     ['-', /expected a digit/], ['1e', /exponent/], ['1e400', /out of range/], ['NaN', /unexpected 'N'/],
     ['"abc', /unterminated string/], ['"a\nb"', /control character/], ['"\\x"', /invalid escape/],
-    ['"\\u12G4"', /invalid \\u escape/], ['tru', /expected 'true'/], ['[1] x', /after the value/], ["'a'", /unexpected/],
+    ['"\\u12G4"', /invalid \\u escape/], ['tru', /expected 'true'/], ['[1] x', /after the value/],
+    ["'a'", /unexpected/],
   ];
-  for (const [text, re] of bad) assert.throws(() => parseJson(text), (e) => e instanceof JsonParseError && re.test(e.message), text);
+  for (const [text, re] of bad) assert.throws(() => parseJson(text),
+    (e) => e instanceof JsonParseError && re.test(e.message), text);
   assert.throws(() => parseJson(Uint8Array.of(0x22, 0xc3, 0x28, 0x22)), /invalid UTF-8/);
   assert.throws(() => parseJson('[1, ]'), (e) => e instanceof JsonParseError && e.offset === 4);
 });
 
 test('stringify: kinds, typed arrays, indentation', () => {
   assert.equal(stringify([1, 1n, -0, 'x', null, true, { a: undefined, b: 2n }]), '[1.0,1,-0.0,"x",null,true,{"b":2}]');
-  assert.equal(stringify({ f: new Float32Array([0.5, 1]), d: new Float64Array([2]), i: new Int32Array([-1, 2]), u: new BigUint64Array([3n]) }),
+  assert.equal(stringify({ f: new Float32Array([0.5, 1]), d: new Float64Array([2]), i: new Int32Array([-1, 2]),
+    u: new BigUint64Array([3n]) }),
     '{"f":[0.5,1.0],"d":[2.0],"i":[-1,2],"u":[3]}');
-  assert.equal(stringify({ a: [1, [2n]], b: {}, c: [] }, { indent: 2 }), '{\n  "a": [\n    1.0,\n    [2]\n  ],\n  "b": {},\n  "c": []\n}');
+  assert.equal(stringify({ a: [1, [2n]], b: {}, c: [] }, { indent: 2 }),
+    '{\n  "a": [\n    1.0,\n    [2]\n  ],\n  "b": {},\n  "c": []\n}');
   const v = { pts: new Float64Array([0, 1.5]), n: [3n, 4n], s: 'é' };
   assert.deepEqual(parseJson(stringify(v, { indent: 1 })), { pts: [0, 1.5], n: [3n, 4n], s: 'é' });
   assert.throws(() => stringify([NaN]), RangeError);

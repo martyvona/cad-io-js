@@ -1,6 +1,6 @@
 #include <cmath>
 #include <cstdio>
-#include "../../../third_party/OCCT/src/ModelingData/TKGeomBase/AppCont/AppCont_ContMatrices_VB.pxx"
+#include "../../../../third_party/OCCT/src/ModelingData/TKGeomBase/AppCont/AppCont_ContMatrices_VB.pxx"
 constexpr int THE_MAX_NBPOINTS = 24;
 struct Mat { double v[27][25]; double& operator()(int i, int j) { return v[i][j]; } };
 static void VB(int classe, int nbpoints, Mat& M) {
@@ -46,7 +46,8 @@ int main() {
       Mat M; VB(classe, nb, M);
       const int Som = static_cast<int>(300.0 * ((classe - 1) * classe / 2.0 - 1.0) + classe * (nb - 1) * nb / 2.0);
       const double* d = AppCont_ContMatrices::THE_VBMATRIX_DATA + Som;
-      for (int i = 1; i <= classe; ++i) for (int j = 1; j <= nb; ++j, ++d, ++n) maxErr = std::fmax(maxErr, std::fabs(M(i, j) - *d));
+      for (int i = 1; i <= classe; ++i)
+        for (int j = 1; j <= nb; ++j, ++d, ++n) maxErr = std::fmax(maxErr, std::fabs(M(i, j) - *d));
     }
   std::printf("checked %ld, max abs err %.2e\n", n, maxErr);
 }

@@ -6,7 +6,9 @@ import { importStep } from '../src/index.ts';
 
 const enc = new TextEncoder();
 const AP214 = 'AUTOMOTIVE_DESIGN { 1 0 10303 214 1 1 1 1 }';
-const file = (data: string) => enc.encode(`ISO-10303-21;HEADER;FILE_NAME('asm.stp','',(''),(''),'pp','sys','');FILE_SCHEMA(('${AP214}'));ENDSEC;DATA;\n${data}\nENDSEC;END-ISO-10303-21;`);
+const file = (data: string) => enc.encode(
+  `ISO-10303-21;HEADER;FILE_NAME('asm.stp','',(''),(''),'pp','sys','');FILE_SCHEMA(('${AP214}'));ENDSEC;DATA;`
+  + `\n${data}\nENDSEC;END-ISO-10303-21;`);
 const at = (m: Mat4) => [m[12], m[13], m[14]].map((x) => Math.round(x! * 1e9) / 1e9);
 
 // An assembly in metres holding an inch box twice (the second instance coloured by a context-dependent style), a
@@ -140,14 +142,17 @@ const DATA = `
 
 test('names: generic part names take the product\'s, blank names are missing', async () => {
   const names = async (rep: string, product = 'Box', partNumber = 'BOX', occurrence = 'box 1') => {
-    const data = DATA.replace("ADVANCED_BREP_SHAPE_REPRESENTATION('box',", `ADVANCED_BREP_SHAPE_REPRESENTATION('${rep}',`)
+    const data = DATA.replace("ADVANCED_BREP_SHAPE_REPRESENTATION('box',",
+      `ADVANCED_BREP_SHAPE_REPRESENTATION('${rep}',`)
       .replace("PRODUCT('BOX','Box','a box'", `PRODUCT('${partNumber}','${product}','a box'`)
       .replace("NEXT_ASSEMBLY_USAGE_OCCURRENCE('1','box 1'", `NEXT_ASSEMBLY_USAGE_OCCURRENCE('1','${occurrence}'`);
     const { scene } = await importStep(file(data));
-    return { part: scene.parts[0]!.name, component: scene.components[1]!.name, occurrence: scene.components[0]!.children[0]!.name };
+    return { part: scene.parts[0]!.name, component: scene.components[1]!.name,
+      occurrence: scene.components[0]!.children[0]!.name };
   };
   // Generic representation names (blank, NONE, an instance id) take the product's; others are kept.
-  for (const rep of ['', ' ', 'NONE', 'none', '#205', ' #12 ']) assert.equal((await names(rep)).part, 'Box', `'${rep}'`);
+  for (const rep of ['', ' ', 'NONE', 'none', '#205', ' #12 ']) assert.equal((await names(rep)).part, 'Box',
+    `'${rep}'`);
   for (const rep of ['box', 'SOLID', 'Part 12', '#205 copy']) assert.equal((await names(rep)).part, rep);
   // A blank product name gives way to the part number, for the component and for the part.
   assert.deepEqual(await names('#205', ' '), { part: 'BOX', component: 'BOX', occurrence: 'box 1' });
@@ -162,7 +167,8 @@ test('components, parts, units and placements', async () => {
   const { scene, partOf } = await importStep(file(DATA));
   assert.deepEqual(validate(scene), []);
   assert.equal(scene.unit, 'millimetre');
-  assert.deepEqual(scene.components.map((c) => [c.name, c.properties, c.sources.map((x) => x.id), c.parts.length, c.children.length, c.external]), [
+  assert.deepEqual(scene.components.map(
+    (c) => [c.name, c.properties, c.sources.map((x) => x.id), c.parts.length, c.children.length, c.external]), [
     ['Assembly', { partNumber: 'ASM', version: '1', lifeCycleStage: 'design' }, [102, 100], 0, 4, undefined],
     ['Box', { partNumber: 'BOX', description: 'a box', lifeCycleStage: 'design' }, [202, 200], 2, 0, undefined],
     ['External', { partNumber: 'EXT', lifeCycleStage: 'design' }, [402, 400], 0, 0, { uri: 'ext.stp', format: 'step' }],
@@ -173,16 +179,19 @@ test('components, parts, units and placements', async () => {
   const box = scene.parts[0]!;
   // The origin: the centre of the points in the box's closure, (0,0,0) and (2,4,6); not the mapped item's, nor the
   // unreferenced vertex #233.
-  assert.deepEqual([box.kind, box.name, box.unit, box.origin, box.sources], ['brep', 'box', 25.4, [1, 2, 3], [{ format: 'step', id: 205 }]]);
+  assert.deepEqual([box.kind, box.name, box.unit, box.origin, box.sources],
+    ['brep', 'box', 25.4, [1, 2, 3], [{ format: 'step', id: 205 }]]);
   assert.deepEqual(scene.parts[1]!.origin, [1000, 0, 0]);
   // The payload: a subset rooted at the box's representation, without the mapped item.
   const sub = parseStep(box.kind === 'brep' ? box.payload() : new Uint8Array());
   assert.deepEqual([...sub.index.ids].includes(240), false);
   assert.ok(sub.index.position(205) >= 0);
   // Placements, in millimetres: box 1 at the origin, box 2 at 0.1 m; an inch is 25.4 mm.
-  const placed = [...partInstances(scene)].map((p) => [p.path.join('/'), p.part, at(p.transform), Math.round(p.transform[0]! * 1e9) / 1e9]);
+  const placed = [...partInstances(scene)].map(
+    (p) => [p.path.join('/'), p.part, at(p.transform), Math.round(p.transform[0]! * 1e9) / 1e9]);
   assert.deepEqual(placed, [
-    ['0/0', 0, [0, 0, 0], 25.4], ['0/0', 1, [0, 0, 0], 25.4], ['0/1', 0, [100, 0, 0], 25.4], ['0/1', 1, [100, 0, 0], 25.4],
+    ['0/0', 0, [0, 0, 0], 25.4], ['0/0', 1, [0, 0, 0], 25.4], ['0/1', 0, [100, 0, 0], 25.4],
+    ['0/1', 1, [100, 0, 0], 25.4],
     ['0/3/0', 0, [0, 0, 0], 25.4], ['0/3/0', 1, [0, 0, 0], 25.4],
   ]);
 });
@@ -196,18 +205,22 @@ test('materials: part, face, instance override; layers', async () => {
   // boundary colour, yellow, which its face #217 shows. The third (#226) is unstyled, so the part has no material of
   // its own and its face #224 stays unstyled.
   assert.equal(box.material, undefined);
-  assert.deepEqual(box.faceMaterials?.map((f) => [f.face, color(f.material)]), [[213, [1, 0, 0]], [214, [0, 1, 0]], [217, [1, 1, 0]]]);
+  assert.deepEqual(box.faceMaterials?.map((f) => [f.face, color(f.material)]),
+    [[213, [1, 0, 0]], [214, [0, 1, 0]], [217, [1, 1, 0]]]);
   // The second box instance is green as a whole, by the context-dependent style on relationship #262; the box in the
   // subassembly blue, by one whose context goes two levels down (the occurrence's index among its parent's children,
   // 0, isn't its index in the file's occurrences, 4).
   assert.deepEqual(scene.overrides.map((o) => [o.path, color(o.material), o.sources]), [
     [[0, 1], [0, 1, 0], [{ format: 'step', id: 527 }]], [[0, 3, 0], [0, 0, 1], [{ format: 'step', id: 640 }]],
   ]);
-  const looks = [...partInstances(scene)].filter((p) => p.part === 0).map((p) => [p.path.join('/'), color(p.material), [...p.faceMaterials]]);
+  const looks = [...partInstances(scene)].filter((p) => p.part === 0).map(
+    (p) => [p.path.join('/'), color(p.material), [...p.faceMaterials]]);
   const faces = box.faceMaterials!.map((f) => [f.face, f.material]);
   assert.deepEqual(looks, [['0/0', undefined, faces], ['0/1', [0, 1, 0], []], ['0/3/0', [0, 0, 1], []]]);
-  assert.deepEqual(scene.layers.map((l) => [l.name, l.visible, l.parts, l.faces]), [['L1', true, [0], [{ part: 0, face: 213 }]]]);
-  assert.deepEqual(scene.properties, { format: 'step', name: 'asm.stp', originatingSystem: 'sys', preprocessorVersion: 'pp', schemas: AP214 });
+  assert.deepEqual(scene.layers.map((l) => [l.name, l.visible, l.parts, l.faces]),
+    [['L1', true, [0], [{ part: 0, face: 213 }]]]);
+  assert.deepEqual(scene.properties,
+    { format: 'step', name: 'asm.stp', originatingSystem: 'sys', preprocessorVersion: 'pp', schemas: AP214 });
 });
 
 // A product whose representation holds only an annotation (text and a placement) and, related to it, a geometrically
@@ -245,7 +258,8 @@ const SURFACES = `
 #506=PRESENTATION_STYLE_ASSIGNMENT((#505));
 #507=STYLED_ITEM('',(#506),#112);`;
 
-test("an annotation-only representation isn't a part; a geometric set's surfaces take their styles as faces", async () => {
+test("an annotation-only representation isn't a part; a geometric set's surfaces take their styles as faces",
+  async () => {
   const { scene } = await importStep(file(SURFACES));
   assert.deepEqual(scene.parts.map((p) => (p.kind === 'brep' ? p.rootId : undefined)), [115]);
   const part = scene.parts[0]!;
@@ -288,12 +302,15 @@ const DRAWING = `
 test("a two-dimensional drawing isn't a part, and says so; a wireframe is", async () => {
   const { scene } = await importStep(file(DRAWING));
   assert.deepEqual(scene.parts.map((p) => (p.kind === 'brep' ? p.rootId : undefined)), [125]);
-  assert.deepEqual(scene.diagnostics.filter((d) => /drawing/.test(d.message)), [{ severity: 'info', message: 'a two-dimensional drawing; not imported', source: { format: 'step', id: 112 } }]);
+  assert.deepEqual(scene.diagnostics.filter((d) => /drawing/.test(d.message)),
+    [{ severity: 'info', message: 'a two-dimensional drawing; not imported', source: { format: 'step', id: 112 } }]);
   assert.deepEqual([...partInstances(scene)].map((p) => p.part), [0]);
 });
 
-test('dangling references: a warning per part naming them, at most 10; one beyond the largest id, from the scan', async () => {
-  const ctx = "#20=(GEOMETRIC_REPRESENTATION_CONTEXT(3)GLOBAL_UNIT_ASSIGNED_CONTEXT((#21))REPRESENTATION_CONTEXT('',''));\n#21=(LENGTH_UNIT()NAMED_UNIT(*)SI_UNIT(.MILLI.,.METRE.));";
+test('dangling references: a warning per part naming them, at most 10; one beyond the largest id, from the scan',
+  async () => {
+  const ctx = "#20=(GEOMETRIC_REPRESENTATION_CONTEXT(3)GLOBAL_UNIT_ASSIGNED_CONTEXT((#21))REPRESENTATION_CONTEXT('',"
+    + "''));\n#21=(LENGTH_UNIT()NAMED_UNIT(*)SI_UNIT(.MILLI.,.METRE.));";
   const many = Array.from({ length: 12 }, (_, i) => `#${912 - i}`).join(',');
   const { scene } = await importStep(file(`${ctx}
 #1=APPLICATION_CONTEXT('');
@@ -324,6 +341,7 @@ test('dangling references: a warning per part naming them, at most 10; one beyon
   assert.deepEqual(scene.diagnostics.filter((d) => /define|beyond/.test(d.message)), [
     { severity: 'warning', message: 'reference beyond the largest instance id (2^32 - 1) read as $', source: step(32) },
     { severity: 'warning', message: "1 reference to an instance the file doesn't define: #0", source: step(30) },
-    { severity: 'warning', message: "12 references to instances the file doesn't define: #901, #902, #903, #904, #905, #906, #907, #908, #909, #910, ...", source: step(10) },
+    { severity: 'warning', message: "12 references to instances the file doesn't define: #901, #902, #903, #904, #905, "
+      + "#906, #907, #908, #909, #910, ...", source: step(10) },
   ]);
 });

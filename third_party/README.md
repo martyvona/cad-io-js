@@ -1,10 +1,8 @@
 # Third-party dependencies
 
-Source code and documents this project builds against or reads, other than npm packages. Only this README,
-`pull.sh` and `.gitignore` are committed; the checkouts are git-ignored.
+Source code and documents this project builds against or reads, other than npm packages. Only this README, `pull.sh` and `.gitignore` are committed; the checkouts are git-ignored.
 
-`pull.sh` (runnable from any directory) fetches everything at the pinned versions, or brings existing checkouts to
-them. To move a dependency to a new version, change its pin in `pull.sh` and run it again. About 400 MB in all.
+`pull.sh` (runnable from any directory) fetches everything at the pinned versions, or brings existing checkouts to them. To move a dependency to a new version, change its pin in `pull.sh` and run it again. About 400 MB in all.
 
 The test corpus is separate: see `../test_corpus/README.md`. The system tools these need (Emscripten, CMake, Rust, …) are checked by `source ../env.sh`.
 
@@ -17,8 +15,7 @@ The test corpus is separate: see `../test_corpus/README.md`. The system tools th
 | `truck/` | https://github.com/ricosjp/truck | `88ed005249` (2026-09-28) | The truck tessellation backend, `../packages/tess-truck` (Cargo `path` dependencies). |
 | `mbx-if-recpractices/` | https://www.mbx-if.org/home/cax/recpractices/ | the 21 file URLs in `pull.sh` | CAx-IF / MBx-IF recommended practices (19 PDFs and two trace-information sample zips): the guide for the semantic extractors (assembly structure, validation properties, PMI, styling). Documents only. |
 
-Licenses: OCCT is LGPL-2.1 with the Open CASCADE exception, which is why the architecture isolates it in the
-`tess-occt` package; stepcode is BSD-3-Clause; truck is Apache-2.0. See "Licensing and provenance" in `../CLAUDE.md`.
+Licenses: OCCT is LGPL-2.1 with the Open CASCADE exception, which is why the architecture isolates it in the `tess-occt` package; stepcode is BSD-3-Clause; truck is Apache-2.0. See "Licensing and provenance" in `../CLAUDE.md`.
 
 ## Reference only (not checked out here)
 
@@ -32,6 +29,4 @@ Read for background, never built against. The commits are the ones reviewed (see
 | STP2X3D | https://github.com/usnistgov/STP2X3D | `f86980e` (2026-10-15) | NIST's STEP-to-X3D converter (built on OCCT): semantic extraction and presentation. |
 | SFA | https://github.com/usnistgov/SFA | `72375d1` (2026-09-14) | NIST STEP File Analyzer and Viewer: semantic checks, validation properties, PMI reporting. |
 
-monstertruck (https://github.com/virtualritz/monstertruck, `d2ad1ed7aa`, 2026-10-07), evaluated and not chosen in phase 0, was
-dropped from `pull.sh` on 2026-10-23: only the spike's `mtruck_spike` used it (`phase0_tessellation_spike/` at tag
-`V0.1.0`; "Phase 0" in `../CLAUDE.md`). To build that again, clone it at that commit into `monstertruck/`.
+monstertruck (https://github.com/virtualritz/monstertruck, `d2ad1ed7aa`, 2026-10-07), evaluated and not chosen in phase 0, was dropped from `pull.sh` on 2026-10-23: only the spike's `mtruck_spike` used it (`phase0_tessellation_spike/` at tag `V0.1.0`; "Phase 0" in `../CLAUDE.md`). To build that again, clone it at that commit into `monstertruck/`.

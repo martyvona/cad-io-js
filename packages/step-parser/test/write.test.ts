@@ -50,7 +50,8 @@ test('formatReal: a decimal point always, exact round trip', () => {
     words[1] = rand();
     if (Number.isFinite(bits[0]!)) values.push({ k: 'real', v: bits[0]! });
   }
-  const f = parse(`ISO-10303-21;HEADER;ENDSEC;DATA;${formatInstance({ id: 1, type: 'R', attrs: values })}ENDSEC;END-ISO-10303-21;`);
+  const f = parse(`ISO-10303-21;HEADER;ENDSEC;DATA;${formatInstance({ id: 1, type: 'R', attrs: values })}ENDSEC;`
+    + `END-ISO-10303-21;`);
   assert.deepEqual((f.instance(1) as { attrs: Value[] }).attrs, values);
 });
 
@@ -63,7 +64,8 @@ test('formatString: escapes, and decoding gives the string back', () => {
   assert.equal(formatString('a\nb\t'), "'a\\X2\\000A\\X0\\b\\X2\\0009\\X0\\'");
   assert.equal(formatString('\uD83D'), "'\\X2\\D83D\\X0\\'"); // a lone surrogate survives as a UTF-16 code unit
 
-  const pool = ["'", '\\', 'a', ' ', ',', ')', '\n', '\r', '\u0000', '\u007f', 'é', 'Ж', '\uffff', '\u{1F600}', '\uDC00', 'X', '0'];
+  const pool = ["'", '\\', 'a', ' ', ',', ')', '\n', '\r', '\u0000', '\u007f', 'é', 'Ж', '\uffff', '\u{1F600}',
+    '\uDC00', 'X', '0'];
   let seed = 7;
   const rand = (n: number) => (seed = (Math.imul(seed, 1103515245) + 12345) >>> 0) % n;
   for (let t = 0; t < 5000; t++) {
@@ -86,7 +88,8 @@ test('formatValue: every kind, and values Part 21 cannot hold', () => {
     { k: 'typed', type: '1BAD', v: { k: 'unset' } },
   ];
   for (const v of bad) assert.throws(() => formatValue(v), WriteError, JSON.stringify(v));
-  assert.throws(() => formatInstance({ id: 9, type: 'P', attrs: [{ k: 'real', v: Infinity }] }), /^WriteError: #9: real/);
+  assert.throws(() => formatInstance({ id: 9, type: 'P', attrs: [{ k: 'real', v: Infinity }] }),
+    /^WriteError: #9: real/);
   assert.throws(() => formatInstance({ id: 9, parts: [] }), WriteError);
 });
 
@@ -101,7 +104,8 @@ test('round trip: parse → write → parse gives the same model (A ≡ C)', () 
   // Rewriting the rewritten file is a fixed point, byte for byte.
   assert.deepEqual(writeStep(fileDocument(c)), out);
   assert.equal(dec.decode(out).split('\n').find((l) => l.startsWith('#13=')),
-    "#13=PRODUCT('Bob''s part','\\X2\\00C4\\X0\\rger \\X2\\00C4\\X0\\rger C:\\\\temp \\X4\\0001F7CA\\X0\\','line\\X2\\000A\\X0\\two',$);");
+    "#13=PRODUCT('Bob''s part','\\X2\\00C4\\X0\\rger \\X2\\00C4\\X0\\rger C:\\\\temp \\X4\\0001F7CA\\X0\\',"
+      + "'line\\X2\\000A\\X0\\two',$);");
   assert.ok(dec.decode(out).includes('\n#14=EDGE_CURVE(\'\',#1,#1,#0,$);\n')); // the empty parameter is written as $
 });
 
@@ -113,19 +117,22 @@ test('chunked output, verbatim instances, malformed instances', () => {
   assert.ok(chunks.length > 10 && chunks.every((c) => c.length <= 16 || /^(#|ISO|END)/.test(dec.decode(c))));
   assert.equal(chunks.map((c) => dec.decode(c)).join(''), dec.decode(whole));
   for (let chunkSize = 1; chunkSize <= 256; chunkSize++) {
-    assert.equal([...writeChunks(fileDocument(a), { chunkSize })].map((c) => dec.decode(c)).join(''), dec.decode(whole));
+    assert.equal([...writeChunks(fileDocument(a), { chunkSize })].map((c) => dec.decode(c)).join(''),
+      dec.decode(whole));
   }
 
   // The subset fast path: copy source bytes, comments and spacing included.
   const doc = { header: a.header, data: [{ instances: [a.sourceBytesAt(1), a.sourceBytesAt(0)] }] };
   for (const chunkSize of [8, 65536]) {
     const text = dec.decode(writeStep(doc, { chunkSize }));
-    assert.ok(text.includes("DATA;\n#2 = DIRECTION ( '' , ( 0. , 0. , 1. ) ) ;\n#1=CARTESIAN_POINT('origin',(0.,-1.5,1.E-07));\nENDSEC;"));
+    assert.ok(text.includes("DATA;\n#2 = DIRECTION ( '' , ( 0. , 0. , 1. ) ) ;\n#1=CARTESIAN_POINT('origin',(0.,-1.5,"
+      + "1.E-07));\nENDSEC;"));
   }
 
   const broken = parse("ISO-10303-21;HEADER;ENDSEC;DATA;#1=A(1);#2=B(1 2);#3=C(3);ENDSEC;END-ISO-10303-21;");
   const errors: number[] = [];
-  assert.deepEqual(instances(parseStep(writeStep(fileDocument(broken, (p) => errors.push(p))))).map((i) => i.id), [1, 3]);
+  assert.deepEqual(instances(parseStep(writeStep(fileDocument(broken, (p) => errors.push(p))))).map(
+    (i) => i.id), [1, 3]);
   assert.deepEqual(errors, [1]);
   assert.throws(() => writeStep(fileDocument(broken)), /expected/);
 });
@@ -139,7 +146,8 @@ DATA('first',('A'));#1=P(#2);ENDSEC;DATA('it''s',('B'));#2=Q(1);#3=Q(2);ENDSEC;E
   assert.deepEqual(c.dataSections, a.dataSections);
   assert.deepEqual(instances(c), instances(a));
 
-  const header = makeHeader({ name: 'sub.stp', timeStamp: '2026-10-17T12:00:00', schemas: ['AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF'] });
+  const header = makeHeader({ name: 'sub.stp', timeStamp: '2026-10-17T12:00:00',
+    schemas: ['AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF'] });
   const empty: Instance[] = [];
   assert.equal(dec.decode(writeStep({ header, data: [] })), `ISO-10303-21;
 HEADER;

@@ -4,7 +4,8 @@ import { repoDir } from './corpus.ts';
 // Usage: node corpus_checks/schema_xdict.ts corpus_checks/schema_corpus_check.log
 const ids = ['ap203', 'ap203e2', 'ap214e3', 'ap242'];
 const sch: Record<string, Schema> = {};
-for (const id of ids) sch[id] = new Schema(JSON.parse(fs.readFileSync(`${repoDir}/packages/step-schemas/dict/${id}.json`, 'utf8')) as SchemaDictionary);
+for (const id of ids) sch[id] = new Schema(
+  JSON.parse(fs.readFileSync(`${repoDir}/packages/step-schemas/dict/${id}.json`, 'utf8')) as SchemaDictionary);
 const ap242 = sch.ap242!;
 for (const id of ids.slice(0, 3)) {
   const s = sch[id]!;
@@ -17,11 +18,13 @@ for (const id of ids.slice(0, 3)) {
     if (a === b) same++; else diffs.push(`${e}: ${id}(${a}) vs ap242(${b})`);
   }
   const only = Object.keys(s.dict.entities).filter((e) => !ap242.entity(e));
-  console.log(`\n${id}: ${common} entities shared with ap242, ${same} identical layouts, ${diffs.length} differ; ${only.length} not in ap242: ${only.slice(0, 40).join(' ')}`);
+  console.log(`\n${id}: ${common} entities shared with ap242, ${same} identical layouts, ${diffs.length} differ; `
+    + `${only.length} not in ap242: ${only.slice(0, 40).join(' ')}`);
   for (const d of diffs) console.log('  ', d);
 }
 // which corpus-unknown entities exist in ap242?
 const unk = fs.readFileSync(process.argv[2]!, 'utf8').matchAll(/(ap\w+) unknown entity (\w+)/g);
 const res: Record<string, string[]> = { inAp242: [], notInAp242: [] };
 for (const m of unk) (ap242.entity(m[2]!) ? res.inAp242 : res.notInAp242).push(`${m[1]}:${m[2]}`);
-console.log('\nunknown in corpus, found in ap242:', res.inAp242.length, '\nnot found in ap242:', res.notInAp242.join(' '));
+console.log('\nunknown in corpus, found in ap242:', res.inAp242.length, '\nnot found in ap242:',
+  res.notInAp242.join(' '));

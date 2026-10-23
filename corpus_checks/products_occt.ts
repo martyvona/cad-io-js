@@ -12,7 +12,8 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { openModel, parseStep } from '../packages/step-parser/src/index.ts';
 import { apply, multiply, scaling, type Vec3 } from '../packages/step-parser/src/extract/math.ts';
-import { productInstances, productRepresentations, extractProducts } from '../packages/step-parser/src/extract/products.ts';
+import { productInstances, productRepresentations,
+  extractProducts } from '../packages/step-parser/src/extract/products.ts';
 import { point } from '../packages/step-parser/src/extract/placement.ts';
 import { Reader } from '../packages/step-parser/src/extract/reader.ts';
 import { Units } from '../packages/step-parser/src/extract/units.ts';
@@ -33,7 +34,8 @@ for (const f of corpusFiles(process.argv[2])) {
   const name = shortName(f);
   let res;
   try {
-    res = occt.ReadStepFile(bytes, { linearUnit: 'millimeter', linearDeflectionType: 'bounding_box_ratio', linearDeflection: 0.01 });
+    res = occt.ReadStepFile(bytes,
+      { linearUnit: 'millimeter', linearDeflectionType: 'bounding_box_ratio', linearDeflection: 0.01 });
   } catch {
     // A WebAssembly exception (on the deliberately corrupted files): the module's state is suspect, so reload it.
     occt = await loadOcct();
@@ -46,7 +48,8 @@ for (const f of corpusFiles(process.argv[2])) {
   let lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
   for (const mesh of res.meshes) {
     const a = mesh.attributes.position.array as number[];
-    for (let i = 0; i < a.length; i += 3) for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k]!, a[i + k]!); hi[k] = Math.max(hi[k]!, a[i + k]!); }
+    for (let i = 0; i < a.length; i += 3) for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k]!, a[i + k]!);
+      hi[k] = Math.max(hi[k]!, a[i + k]!); }
   }
   const size = Math.max(hi[0]! - lo[0]!, hi[1]! - lo[1]!, hi[2]! - lo[2]!, 1e-9);
   const tol = size * 1e-5;
@@ -64,7 +67,8 @@ for (const f of corpusFiles(process.argv[2])) {
   const near = (p: Vec3) => {
     const [x, y, z] = p.map((c) => Math.floor(c / cell));
     for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
-      for (const q of grid.get(`${x! + dx},${y! + dy},${z! + dz}`) ?? []) if (Math.hypot(q[0] - p[0], q[1] - p[1], q[2] - p[2]) <= tol) return true;
+      for (const q of grid.get(`${x! + dx},${y! + dy},${z! + dz}`) ?? []) if (
+        Math.hypot(q[0] - p[0], q[1] - p[1], q[2] - p[2]) <= tol) return true;
     }
     return false;
   };
@@ -85,7 +89,8 @@ for (const f of corpusFiles(process.argv[2])) {
       if (seen.has(p)) continue;
       seen.add(p);
       if (m.isInstanceOf(p, 'MAPPED_ITEM') || m.isInstanceOf(p, 'REPRESENTATION')) continue; // placed separately
-      if (m.isInstanceOf(p, 'VERTEX_POINT')) { const c = point(r, r.ref(p, 'vertex_geometry')); if (c) v.push(c); continue; }
+      if (m.isInstanceOf(p, 'VERTEX_POINT')) { const c = point(r, r.ref(p, 'vertex_geometry'));
+        if (c) v.push(c); continue; }
       for (const id2 of m.file.index.refsOf(p)) { const q = m.resolve(id2); if (q >= 0) todo.push(q); }
     }
     verticesOf.set(id, v);
@@ -108,9 +113,12 @@ for (const f of corpusFiles(process.argv[2])) {
   totals.vertices += total;
   totals.found += total - missing;
   if (missing === 0) totals.filesAllFound++;
-  else problems.push(`${name}: ${missing} of ${total} vertices not found (${s.occurrences.length} occurrences, ${res.meshes.length} OCCT meshes)`);
+  else problems.push(`${name}: ${missing} of ${total} vertices not found (${s.occurrences.length} occurrences, `
+    + `${res.meshes.length} OCCT meshes)`);
 }
 
-console.log(`${totals.files} files checked (${totals.skipped} over the size limit, ${totals.failed} failed in occt-import-js); ${totals.instances} product instances`);
-console.log(`${totals.found} of ${totals.vertices} B-rep vertices found in OCCT's meshes; ${totals.filesAllFound} files with every vertex found`);
+console.log(`${totals.files} files checked (${totals.skipped} over the size limit, ${totals.failed} failed in `
+  + `occt-import-js); ${totals.instances} product instances`);
+console.log(`${totals.found} of ${totals.vertices} B-rep vertices found in OCCT's meshes; ${totals.filesAllFound} `
+  + `files with every vertex found`);
 for (const p of problems) console.log('  ', p);

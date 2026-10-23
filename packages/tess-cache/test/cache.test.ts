@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { TessellationError, type Diagnostic, type TessellationRequest, type TessellationResult, type Tessellator, type TessellatorInfo } from 'cad-scene';
-import { CachedTessellator, cacheKey, decodeEntry, encodeEntry, keyPrefix, MemoryStore, type CacheEntry, type CacheStore } from 'tess-cache';
+import { TessellationError, type Diagnostic, type TessellationRequest, type TessellationResult, type Tessellator,
+  type TessellatorInfo } from 'cad-scene';
+import { CachedTessellator, cacheKey, decodeEntry, encodeEntry, keyPrefix, MemoryStore, type CacheEntry,
+  type CacheStore } from 'tess-cache';
 
 const result = (full: boolean, diagnostics: Diagnostic[] = []): TessellationResult => {
   const r: TessellationResult = {
@@ -59,8 +61,10 @@ test("bytes that aren't a whole encoded entry don't decode", () => {
   assert.throws(() => decodeEntry(new Uint8Array([...thrown, 0, 0, 0, 0])), /truncated/);
 });
 
-const info: TessellatorInfo = { name: 'fake', version: '1', license: 'MIT', formats: ['step'], supportsFaceIds: true, supportsEdges: true, supportsCurves: true };
-const req: TessellationRequest = { format: 'step', data: new Uint8Array([1, 2, 3]), rootId: 5, origin: [1, 2, 3], linearDeflection: 0.1, angularDeflection: 0.5, edges: true };
+const info: TessellatorInfo = { name: 'fake', version: '1', license: 'MIT', formats: ['step'], supportsFaceIds: true,
+  supportsEdges: true, supportsCurves: true };
+const req: TessellationRequest = { format: 'step', data: new Uint8Array([1, 2, 3]), rootId: 5, origin: [1, 2, 3],
+  linearDeflection: 0.1, angularDeflection: 0.5, edges: true };
 
 test('the key changes with the backend, every request option and the payload, and only with them', async () => {
   const k = await cacheKey(info, req);
@@ -91,7 +95,8 @@ test('the key changes with the backend, every request option and the payload, an
   const keys = await Promise.all(changed.map(([i, r]) => cacheKey(i, r)));
   assert.equal(new Set([k, ...keys]).size, changed.length + 1);
   // Defaults are spelled out: no origin is (0, 0, 0), no edges is false.
-  assert.equal(await cacheKey(info, { ...req, origin: undefined }), await cacheKey(info, { ...req, origin: [0, 0, 0] }));
+  assert.equal(await cacheKey(info, { ...req, origin: undefined }),
+    await cacheKey(info, { ...req, origin: [0, 0, 0] }));
   assert.equal(await cacheKey(info, { ...req, edges: undefined }), await cacheKey(info, { ...req, edges: false }));
 });
 
@@ -113,7 +118,8 @@ class Fake implements Tessellator {
     if (mode === 3) throw new TessellationError('bad part');
     if (mode === 4) throw new WebAssembly.RuntimeError('unreachable');
     if (mode === 5) throw new TessellationError('timed out', arg * 10);
-    return result(true, mode === 1 ? [{ severity: 'error', message: 'panicked' }] : [{ severity: 'info', message: `call ${this.calls}` }]);
+    return result(true, mode === 1 ? [{ severity: 'error', message: 'panicked' }] : [
+      { severity: 'info', message: `call ${this.calls}` }]);
   }
   memoryBytes() { return 42; }
   dispose() { this.disposed = true; }
@@ -150,7 +156,8 @@ test('a repeated request is answered from the store, and a different one by the 
 const data = (...d: number[]) => ({ ...req, data: new Uint8Array(d) });
 const cachedNote = /^a cached failure from \d{4}-\d\d-\d\dT[\d:.]+Z; retryFailures retries it$/;
 
-test("failures are cached: error results, TessellationErrors and traps, each said to be cached; other throws aren't", async () => {
+test("failures are cached: error results, TessellationErrors and traps, each said to be cached; other throws aren't",
+  async () => {
   const fake = new Fake();
   const store = new MemoryStore();
   const t = new CachedTessellator(fake, store);
@@ -164,10 +171,12 @@ test("failures are cached: error results, TessellationErrors and traps, each sai
   assert.match(again.diagnostics[1]!.message, cachedNote);
   assert.deepEqual({ ...again, diagnostics: first.diagnostics }, first);
   for (const [mode, message] of [[3, 'bad part'], [4, 'RuntimeError: unreachable']] as const) {
-    await assert.rejects(t.tessellate(data(mode)), (e) => (e as Error).message === (mode === 3 ? 'bad part' : 'unreachable'));
+    await assert.rejects(t.tessellate(data(mode)),
+      (e) => (e as Error).message === (mode === 3 ? 'bad part' : 'unreachable'));
     const calls: number = fake.calls;
     await assert.rejects(t.tessellate(data(mode)), (e) => e instanceof TessellationError && e.timeoutMs === undefined
-      && e.message.startsWith(`${message} (a cached failure from `) && e.message.endsWith('; retryFailures retries it)'));
+      && e.message.startsWith(`${message} (a cached failure from `) && e.message.endsWith(
+        '; retryFailures retries it)'));
     assert.equal(fake.calls, calls);
   }
   for (let i = 0; i < 2; i++) await assert.rejects(t.tessellate(data(2)), /^Error: boom$/);
@@ -207,11 +216,14 @@ test("a cached timeout answers only when the backend's time limit is no longer t
   fake.timeoutMs = 50;
   const t = new CachedTessellator(fake, store);
   assert.equal(t.timeoutMs, 50);
-  await assert.rejects(t.tessellate(data(5, 5)), (e) => e instanceof TessellationError && e.timeoutMs === 50 && e.message === 'timed out');
-  for (const [limit, sent] of [[50, false], [20, false], [1, false], [51, true], [0, true], [undefined, true]] as const) {
+  await assert.rejects(t.tessellate(data(5, 5)),
+    (e) => e instanceof TessellationError && e.timeoutMs === 50 && e.message === 'timed out');
+  for (const [limit, sent] of [[50, false], [20, false], [1, false], [51, true], [0, true],
+    [undefined, true]] as const) {
     fake.timeoutMs = limit;
     const calls = fake.calls;
-    await assert.rejects(t.tessellate(data(5, 5)), (e) => e instanceof TessellationError && e.timeoutMs === 50 && /cached/.test(e.message) !== sent);
+    await assert.rejects(t.tessellate(data(5, 5)),
+      (e) => e instanceof TessellationError && e.timeoutMs === 50 && /cached/.test(e.message) !== sent);
     assert.equal(fake.calls - calls, sent ? 1 : 0, `limit ${limit}`);
   }
 });
@@ -221,7 +233,8 @@ test('a request retried under a longer time limit that succeeds replaces the cac
   const fake = new Fake();
   const backend: Tessellator = {
     info, init: async () => {}, dispose: () => {}, get timeoutMs() { return limit; },
-    tessellate: (r) => (fake.calls++, limit < 100 ? Promise.reject(new TessellationError('timed out', limit)) : Promise.resolve(result(false))),
+    tessellate: (r) => (fake.calls++,
+      limit < 100 ? Promise.reject(new TessellationError('timed out', limit)) : Promise.resolve(result(false))),
   };
   const t = new CachedTessellator(backend, new MemoryStore());
   await assert.rejects(t.tessellate(req));
@@ -238,7 +251,8 @@ test('a store with maxBytes 0 disables caching: no key computed, nothing stored'
   const store: CacheStore = {
     maxBytes: 0,
     get: async () => { touched++; return undefined; }, set: async () => { touched++; },
-    delete: async () => { touched++; }, deleteWhere: async () => { touched++; }, clear: async () => {}, size: async () => 0,
+    delete: async () => { touched++; }, deleteWhere: async () => { touched++; }, clear: async () => {},
+    size: async () => 0,
   };
   const t = new CachedTessellator(fake, store);
   // A backend whose info throws would fail the key; with caching off it's never read.
@@ -258,7 +272,8 @@ test("the store's failures are answered by the backend, and a corrupt entry is d
     maxBytes: mem.maxBytes,
     get: (k) => (failGet ? Promise.reject(new Error('read')) : mem.get(k)),
     set: (k, v) => (failSet ? Promise.reject(new Error('write')) : mem.set(k, v)),
-    delete: (k) => mem.delete(k), deleteWhere: (d) => mem.deleteWhere(d), clear: () => mem.clear(), size: () => mem.size(),
+    delete: (k) => mem.delete(k), deleteWhere: (d) => mem.deleteWhere(d), clear: () => mem.clear(),
+    size: () => mem.size(),
   };
   const t = new CachedTessellator(fake, store);
   failSet = true;
@@ -284,10 +299,13 @@ test("the store's failures are answered by the backend, and a corrupt entry is d
   assert.equal(await mem.get(key), undefined);
 });
 
-test("a backend's other versions are deleted when a version is first seen, once; other backends' entries stay", async () => {
+test("a backend's other versions are deleted when a version is first seen, once; other backends' entries stay",
+  async () => {
   const store = new MemoryStore();
   let pruning = 0;
-  const counted: CacheStore = { ...Object.fromEntries((['get', 'set', 'delete', 'clear', 'size'] as const).map((m) => [m, (...a: unknown[]) => (store[m] as (...x: unknown[]) => unknown)(...a)])) as unknown as CacheStore,
+  const counted: CacheStore = {
+    ...Object.fromEntries((['get', 'set', 'delete', 'clear', 'size'] as const).map(
+    (m) => [m, (...a: unknown[]) => (store[m] as (...x: unknown[]) => unknown)(...a)])) as unknown as CacheStore,
     maxBytes: store.maxBytes, deleteWhere: (d) => (pruning++, store.deleteWhere(d)) };
   const v1 = new Fake(), other = new Fake();
   other.info.name = 'other';
@@ -298,7 +316,8 @@ test("a backend's other versions are deleted when a version is first seen, once;
   const longer = new Fake();
   longer.info.name = 'fakeish';
   await new CachedTessellator(longer, counted).tessellate(r0(1));
-  const [k1, k2, ko, kl] = await Promise.all([cacheKey(v1.info, r0(1)), cacheKey(v1.info, r0(2)), cacheKey(other.info, r0(1)), cacheKey(longer.info, r0(1))]);
+  const [k1, k2, ko, kl] = await Promise.all(
+    [cacheKey(v1.info, r0(1)), cacheKey(v1.info, r0(2)), cacheKey(other.info, r0(1)), cacheKey(longer.info, r0(1))]);
   const has = async (k: string) => (await store.get(k)) !== undefined;
   const v2 = new Fake();
   v2.info.version = '2';
@@ -310,7 +329,8 @@ test("a backend's other versions are deleted when a version is first seen, once;
   await t.tessellate(r0(1));
   assert.equal(pruning, 1);
   assert.ok(!(await has(k1)) && !(await has(k2)));
-  assert.ok((await has(ko)) && (await has(kl)) && (await has(await cacheKey(v2.info, r0(1)))) && (await has(await cacheKey(v2.info, r0(3)))));
+  assert.ok((await has(ko)) && (await has(kl)) && (await has(await cacheKey(v2.info, r0(1)))) && (
+    await has(await cacheKey(v2.info, r0(3)))));
   assert.deepEqual(t.stats(), { hits: 2, failureHits: 0, misses: 1, errors: 0 });
   // Back to version 1 in the same tessellator: version 2's entries go.
   v2.info.version = '1';

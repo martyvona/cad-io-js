@@ -15,16 +15,20 @@
 // Hidden part instances are left out (glTF core has no visibility), or with `hidden: 'extension'` written with
 // KHR_node_visibility (decided by the user, 2026-10-21).
 
-import { Document, Format, WebIO, type Accessor, type JSONDocument, type Buffer, type Material as GltfMaterial, type Mesh as GltfMesh, type Node, type TypedArray, type mat4 } from '@gltf-transform/core';
+import { Document, Format, WebIO, type Accessor, type JSONDocument, type Buffer, type Material as GltfMaterial,
+  type Mesh as GltfMesh, type Node, type TypedArray, type mat4 } from '@gltf-transform/core';
 import { KHRMaterialsUnlit, KHRNodeVisibility } from '@gltf-transform/extensions';
-import type { Diagnostic, ExportNode, ExportView, Look, Mat4, Mesh, PropertyValue, Scene, SourceId, Vec3 } from 'cad-scene';
+import type { Diagnostic, ExportNode, ExportView, Look, Mat4, Mesh, PropertyValue, Scene, SourceId,
+  Vec3 } from 'cad-scene';
 
 export interface GltfOptions {
   /** Colour of faces, curves and points without a material (sRGB). Default light grey. */
   defaultColor?: Vec3;
   /** Colour of B-rep edges (sRGB). Default black. */
   edgeColor?: Vec3;
-  /** B-rep edge kinds to write, when the view has edges. Default shared and free (seams and degenerate edges hidden). */
+  /**
+   * B-rep edge kinds to write, when the view has edges. Default shared and free (seams and degenerate edges hidden).
+   */
   edgeKinds?: readonly ('shared' | 'seam' | 'free' | 'degenerate')[];
   /** Materials render both sides of faces. Default false. */
   doubleSided?: boolean;
@@ -55,7 +59,8 @@ export function gltfDocument(scene: Scene, view: ExportView, opts: GltfOptions =
 }
 
 /** The scene's export view as GLB. */
-export async function glb(scene: Scene, view: ExportView, opts: GltfOptions = {}): Promise<{ bytes: Uint8Array; diagnostics: Diagnostic[] }> {
+export async function glb(scene: Scene, view: ExportView, opts: GltfOptions = {}): Promise<{ bytes: Uint8Array;
+  diagnostics: Diagnostic[] }> {
   const { document, diagnostics } = gltfDocument(scene, view, opts);
   const { json, resources } = await write(document, Format.GLB);
   return { bytes: packGlb(json, Object.values(resources)[0]), diagnostics };
@@ -66,7 +71,8 @@ export async function glb(scene: Scene, view: ExportView, opts: GltfOptions = {}
  * `bin` undefined, the buffer is embedded in the JSON as a base64 data URI (a third bigger; the JSON is one string,
  * so a buffer beyond about 400 MB exceeds V8's string limit) and `bin` is empty.
  */
-export async function gltfJson(scene: Scene, view: ExportView, bin: string | undefined, opts: GltfOptions = {}): Promise<{ json: string; bin: Uint8Array; diagnostics: Diagnostic[] }> {
+export async function gltfJson(scene: Scene, view: ExportView, bin: string | undefined,
+  opts: GltfOptions = {}): Promise<{ json: string; bin: Uint8Array; diagnostics: Diagnostic[] }> {
   const { document, diagnostics } = gltfDocument(scene, view, opts);
   const uri = bin ?? 'buffer.bin';
   for (const b of document.getRoot().listBuffers()) b.setURI(uri);
@@ -80,7 +86,8 @@ export async function gltfJson(scene: Scene, view: ExportView, bin: string | und
 /** Base64, in pieces (String.fromCharCode takes a limited number of arguments). */
 export function base64(bytes: Uint8Array): string {
   const parts: string[] = [];
-  for (let i = 0; i < bytes.length; i += 3 * 8192) parts.push(btoa(String.fromCharCode(...bytes.subarray(i, i + 3 * 8192))));
+  for (let i = 0; i < bytes.length; i += 3 * 8192) parts.push(
+    btoa(String.fromCharCode(...bytes.subarray(i, i + 3 * 8192))));
   return parts.join('');
 }
 
@@ -90,7 +97,8 @@ export function base64(bytes: Uint8Array): string {
  * and scales within 1e-5 of 1 (CLAUDE.md, "JavaScript, Node and the libraries").
  */
 async function write(document: Document, format: Format): Promise<JSONDocument> {
-  const out = await new WebIO().registerExtensions([KHRMaterialsUnlit, KHRNodeVisibility]).writeJSON(document, { format });
+  const out = await new WebIO().registerExtensions([KHRMaterialsUnlit, KHRNodeVisibility]).writeJSON(document,
+    { format });
   const nodes = document.getRoot().listNodes(); // the writer's order
   out.json.nodes?.forEach((def, i) => {
     const n = nodes[i]!;
@@ -134,7 +142,8 @@ export function srgbToLinear(c: number): number {
 }
 
 /** Segment pairs for a set of polylines, and each polyline's range of index entries. */
-function segments(lines: { start: number; count: number }[]): { index: Uint32Array; ranges: { start: number; count: number }[] } {
+function segments(lines: { start: number; count: number }[]): { index: Uint32Array;
+  ranges: { start: number; count: number }[] } {
   let n = 0;
   for (const l of lines) n += Math.max(0, l.count - 1) * 2;
   const index = new Uint32Array(n);
@@ -192,14 +201,17 @@ class Writer {
   write(): GltfResult {
     const root = this.doc.createNode(this.opts.name ?? '').setMatrix(Array.from(ROOT_TRANSFORM) as mat4);
     // Below the root: millimetres, the source's axes.
-    root.setExtras({ unit: 'millimetre', up: 'z', ...(Object.keys(this.scene.properties).length ? { properties: this.scene.properties } : {}) });
+    root.setExtras({ unit: 'millimetre', up: 'z',
+      ...(Object.keys(this.scene.properties).length ? { properties: this.scene.properties } : {}) });
     for (const n of this.view.roots) root.addChild(this.node(n));
     this.doc.createScene(this.opts.name ?? '').addChild(root);
     // A scene with nothing to draw has no accessors, and an empty buffer isn't valid glTF.
     if (!this.doc.getRoot().listAccessors().length) this.buffer.dispose();
     if (this.hiddenLeftOut) {
       const n = this.hiddenLeftOut;
-      this.diagnostics.push({ severity: 'warning', message: `${n} hidden part ${n === 1 ? 'instance' : 'instances'} left out (glTF has no visibility without KHR_node_visibility)` });
+      this.diagnostics.push({ severity: 'warning',
+        message: `${n} hidden part ${n === 1 ? 'instance' : 'instances'} left out (glTF has no visibility without `
+        + `KHR_node_visibility)` });
     }
     return { document: this.doc, diagnostics: this.diagnostics };
   }
@@ -221,7 +233,8 @@ class Writer {
     if (!byRange) this.indexAccessors.set(indices, (byRange = new Map()));
     const key = `${start}+${count}`;
     let a = byRange.get(key);
-    if (!a) byRange.set(key, (a = this.accessor(name, 'SCALAR', indexArray(indices.subarray(start, start + count), vertices))));
+    if (!a) byRange.set(key, (
+      a = this.accessor(name, 'SCALAR', indexArray(indices.subarray(start, start + count), vertices))));
     return a;
   }
 
@@ -325,8 +338,11 @@ class Writer {
     if (what === 'points' && !look.mesh.pointSources?.length) return undefined;
     const d = this.lineData(look.mesh, what, name);
     if (!d) return undefined;
-    const mat = what === 'edges' ? this.material(undefined, this.edgeColor, true) : this.material(material, undefined, true);
-    const mesh = this.doc.createMesh(`${name} ${what}`).addPrimitive(this.doc.createPrimitive().setMode(what === 'points' ? 0 : 1) // POINTS, LINES
+    const mat = what === 'edges' ? this.material(undefined, this.edgeColor, true) : this.material(material,
+      undefined, true);
+    // POINTS, LINES
+    const mesh = this.doc.createMesh(`${name} ${what}`).addPrimitive(
+      this.doc.createPrimitive().setMode(what === 'points' ? 0 : 1)
       .setAttribute('POSITION', d.positions).setIndices(d.indices).setMaterial(mat).setExtras(d.extras));
     this.lineMeshes.set(key, mesh);
     return mesh;
@@ -363,7 +379,8 @@ class Writer {
     const comp = this.scene.components[n.component]!;
     const extras: Json = { ...this.sourced(n.occurrence.sources, n.occurrence.properties) };
     extras.component = { index: n.component, name: comp.name, ...this.sourced(comp.sources, comp.properties) };
-    if (comp.external) extras.external = { uri: comp.external.uri, ...(comp.external.format ? { format: comp.external.format } : {}) };
+    if (comp.external) extras.external = { uri: comp.external.uri,
+      ...(comp.external.format ? { format: comp.external.format } : {}) };
     const node = this.doc.createNode(n.name).setMatrix(Array.from(n.transform) as mat4).setExtras(extras);
     for (const p of n.parts) { const c = this.part(p); if (c) node.addChild(c); }
     for (const c of n.children) node.addChild(this.node(c));

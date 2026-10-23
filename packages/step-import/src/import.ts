@@ -9,7 +9,8 @@
 
 import {
   buildSubset, closure, danglingRefs, extractSemantics, math, openModel, productRepresentations, readStep, Reader,
-  type Diagnostic as StepDiagnostic, type OpenOptions, type Semantics, type StepFile, type StepModel, type StepSource, type Style,
+  type Diagnostic as StepDiagnostic, type OpenOptions, type Semantics, type StepFile, type StepModel,
+  type StepSource, type Style,
 } from 'step-parser';
 import type { Component, Diagnostic, Layer, Material, Part, Scene, Vec3 } from 'cad-scene';
 
@@ -69,7 +70,8 @@ export function sceneFromStep(model: StepModel, sem: Semantics): ImportResult {
       materials.push({ color: [...c], opacity, sources: [] });
       materialIndex.set(key, i);
     }
-    if (sourceId !== undefined && !materials[i]!.sources.some((x) => x.id === sourceId)) materials[i]!.sources.push(src(sourceId));
+    if (sourceId !== undefined && !materials[i]!.sources.some((x) => x.id === sourceId)) materials[i]!.sources.push(
+      src(sourceId));
     return i;
   };
 
@@ -82,8 +84,10 @@ export function sceneFromStep(model: StepModel, sem: Semantics): ImportResult {
     // Overrides first, then plain styles, later ones before earlier (two overrides of one style: the later wins, as in
     // OCCT); each property from the first that has it.
     const out: Style = {};
-    for (const x of [...list.filter((y) => y.overrides !== undefined).reverse(), ...list.filter((y) => y.overrides === undefined).reverse()]) {
-      for (const k of Object.keys(x.style) as (keyof Style)[]) if (out[k] === undefined) (out as Record<string, unknown>)[k] = x.style[k];
+    for (const x of [...list.filter((y) => y.overrides !== undefined).reverse(),
+      ...list.filter((y) => y.overrides === undefined).reverse()]) {
+      for (const k of Object.keys(x.style) as (keyof Style)[]) if (out[k] === undefined) (
+        out as Record<string, unknown>)[k] = x.style[k];
     }
     return out;
   };
@@ -95,7 +99,8 @@ export function sceneFromStep(model: StepModel, sem: Semantics): ImportResult {
   const partOfPosition = new Map<number, number>(); // top-level items, faces and roots → part
   for (const rep of s.representations.values()) {
     const items = rep.items.map((id) => model.resolve(id));
-    if (!items.some((q) => q >= 0 && ![...PLACEMENT_ONLY, ...ANNOTATION].some((e) => model.isInstanceOf(q, e)))) continue;
+    if (!items.some((q) => q >= 0 && ![...PLACEMENT_ONLY, ...ANNOTATION].some(
+      (e) => model.isInstanceOf(q, e)))) continue;
     if (rep.types.includes(DRAWING)) {
       warn('a two-dimensional drawing; not imported', rep.id, 'info');
       continue;
@@ -106,7 +111,8 @@ export function sceneFromStep(model: StepModel, sem: Semantics): ImportResult {
     const dangling = danglingRefs(file, positions);
     if (dangling.length) {
       const shown = dangling.slice(0, MAX_DANGLING).map((id) => `#${id}`).join(', ');
-      warn(`${dangling.length === 1 ? '1 reference to an instance' : `${dangling.length} references to instances`} the file doesn't define: ${shown}${dangling.length > MAX_DANGLING ? ', ...' : ''}`, rep.id);
+      warn(`${dangling.length === 1 ? '1 reference to an instance' : `${dangling.length} references to instances`} the `
+        + `file doesn't define: ${shown}${dangling.length > MAX_DANGLING ? ', ...' : ''}`, rep.id);
     }
     const index = parts.length;
     partOf.set(rep.id, index);
@@ -120,7 +126,8 @@ export function sceneFromStep(model: StepModel, sem: Semantics): ImportResult {
       if (file.index.typeName(q) === 'CARTESIAN_POINT') {
         const c = r.attr(q, 'coordinates');
         const xs = c && (c.k === 'reals' || c.k === 'ints') ? Array.from(c.v as ArrayLike<number>) : undefined;
-        if (xs && xs.length >= 2) for (let k = 0; k < 3; k++) { const x = xs[k] ?? 0; if (x < lo[k]!) lo[k] = x; if (x > hi[k]!) hi[k] = x; }
+        if (xs && xs.length >= 2) for (let k = 0; k < 3; k++) { const x = xs[k] ?? 0; if (x < lo[k]!) lo[k] = x;
+          if (x > hi[k]!) hi[k] = x; }
       } else if (model.isInstanceOf(q, 'FACE') || model.isInstanceOf(q, 'TESSELLATED_FACE')) {
         faces.push(q);
         if (!partOfPosition.has(q)) partOfPosition.set(q, index);
@@ -144,7 +151,8 @@ export function sceneFromStep(model: StepModel, sem: Semantics): ImportResult {
       name: rep.name, sources: [src(rep.id)], properties: { representation: rep.types.join('+') },
       unit: mmOf(rep.id), origin,
     };
-    if (s.representations.get(rep.id)?.context?.lengthUnit === undefined) warn('representation without a length unit; read as millimetres', rep.id);
+    if (s.representations.get(rep.id)?.context?.lengthUnit === undefined) warn(
+      'representation without a length unit; read as millimetres', rep.id);
 
     // Face materials: each face's style resolved up through its shell, solid and the representation, within the part.
     const inPart = new Set(positions);
@@ -207,7 +215,8 @@ export function sceneFromStep(model: StepModel, sem: Semantics): ImportResult {
     const c: Component = {
       name: productName(p), sources: [src(p.id), ...(p.productId >= 0 ? [src(p.productId)] : [])],
       properties: Object.fromEntries(Object.entries({
-        partNumber: p.partNumber, version: p.version, description: p.description, definitionId: p.definitionId, lifeCycleStage: p.lifeCycleStage,
+        partNumber: p.partNumber, version: p.version, description: p.description, definitionId: p.definitionId,
+        lifeCycleStage: p.lifeCycleStage,
       }).filter(([, v]) => v !== undefined)) as Record<string, string>,
       parts: [], children: [],
     };
@@ -234,11 +243,13 @@ export function sceneFromStep(model: StepModel, sem: Semantics): ImportResult {
   const childIndex = new Map<number, number>(); // occurrence index → index in its parent's children
   s.occurrences.forEach((o, i) => {
     const parentMm = mmOf(s.products[o.parent]!.shapes[0]), childMm = mmOf(s.products[o.child]!.shapes[0]);
-    const t = math.multiply(math.multiply(math.scaling(parentMm), o.transform ?? math.identity()), math.scaling(1 / childMm));
+    const t = math.multiply(math.multiply(math.scaling(parentMm), o.transform ?? math.identity()),
+      math.scaling(1 / childMm));
     const props: Record<string, string> = { kind: o.kind };
     if (o.occurrenceId) props.occurrenceId = o.occurrenceId;
     if (o.referenceDesignator) props.referenceDesignator = o.referenceDesignator;
-    const occ: Component['children'][number] = { component: o.child, transform: t, sources: [src(o.id)], properties: props };
+    const occ: Component['children'][number] = { component: o.child, transform: t, sources: [src(o.id)],
+      properties: props };
     if (o.name) occ.name = o.name;
     childIndex.set(i, components[o.parent]!.children.length);
     components[o.parent]!.children.push(occ);
@@ -248,16 +259,19 @@ export function sceneFromStep(model: StepModel, sem: Semantics): ImportResult {
   // Instance overrides: context-dependent overriding styles, whose context is the representation relationships from
   // the root down to the instance.
   const occurrenceByRelationship = new Map<number, number>();
-  s.occurrences.forEach((o, i) => { if (o.source.relationship !== undefined) occurrenceByRelationship.set(o.source.relationship, i); });
+  s.occurrences.forEach((o, i) => {
+    if (o.source.relationship !== undefined) occurrenceByRelationship.set(o.source.relationship, i); });
   const overrides: Scene['overrides'] = [];
   for (const st of styles.styled) {
     if (!st.context) continue;
     const occs = st.context.map((id) => occurrenceByRelationship.get(id));
-    if (!occs.length || occs.some((o) => o === undefined)) { warn('context-dependent style whose context is not a chain of occurrence placements', st.id); continue; }
+    if (!occs.length || occs.some((o) => o === undefined)) {
+      warn('context-dependent style whose context is not a chain of occurrence placements', st.id); continue; }
     const first = s.occurrences[occs[0]!]!;
     const rootIndex = roots.findIndex((x) => x.component === first.parent);
     const chainOk = occs.every((o, k) => k === 0 || s.occurrences[o!]!.parent === s.occurrences[occs[k - 1]!]!.child);
-    if (rootIndex < 0 || !chainOk) { warn('context-dependent style whose context does not start at a root or is not a chain', st.id); continue; }
+    if (rootIndex < 0 || !chainOk) {
+      warn('context-dependent style whose context does not start at a root or is not a chain', st.id); continue; }
     const path = [rootIndex, ...occs.map((o) => childIndex.get(o!)!)];
     const target = model.resolve(st.item);
     const material = materialOf(st.style, st.id);
@@ -286,15 +300,20 @@ export function sceneFromStep(model: StepModel, sem: Semantics): ImportResult {
     return layer;
   });
 
-  const convert = (d: StepDiagnostic): Diagnostic => (d.id === undefined ? { severity: d.severity, message: d.message } : { severity: d.severity, message: d.message, source: src(d.id) });
-  const header = (type: string, i: number) => { const v = file.headerEntity(type)?.attrs[i]; return v?.k === 'str' ? v.v : undefined; };
+  const convert = (d: StepDiagnostic): Diagnostic => (
+    d.id === undefined ? { severity: d.severity, message: d.message } : { severity: d.severity, message: d.message,
+    source: src(d.id) });
+  const header = (type: string, i: number) => { const v = file.headerEntity(type)?.attrs[i];
+    return v?.k === 'str' ? v.v : undefined; };
   const scene: Scene = {
     unit: 'millimetre', components, roots, parts, materials, layers, overrides,
     properties: Object.fromEntries(Object.entries({
-      format: 'step', name: header('FILE_NAME', 0), originatingSystem: header('FILE_NAME', 5), preprocessorVersion: header('FILE_NAME', 4),
+      format: 'step', name: header('FILE_NAME', 0), originatingSystem: header('FILE_NAME', 5),
+      preprocessorVersion: header('FILE_NAME', 4),
       schemas: file.schemaNames.join(', ') || undefined,
     }).filter(([, v]) => v !== undefined)) as Record<string, string>,
-    diagnostics: [...file.diagnostics.map(convert), ...model.diagnostics.map(convert), ...sem.diagnostics.map(convert), ...diagnostics],
+    diagnostics: [...file.diagnostics.map(convert), ...model.diagnostics.map(convert), ...sem.diagnostics.map(convert),
+      ...diagnostics],
   };
   return { scene, model, semantics: sem, partOf };
 }
@@ -304,7 +323,10 @@ function productName(p: { name: string; partNumber: string }): string {
   return p.name.trim() || !p.partNumber.trim() ? p.name : p.partNumber;
 }
 
-/** Names that say nothing of the part: blank, NONE, or an instance id such as #830 (as some writers name representations). */
+/**
+ * Names that say nothing of the part: blank, NONE, or an instance id such as #830 (as some writers name
+ * representations).
+ */
 function genericName(name: string): boolean {
   return /^\s*(none|#\d+)?\s*$/i.test(name);
 }

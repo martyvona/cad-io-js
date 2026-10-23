@@ -1,7 +1,8 @@
 // Caching tessellation results per part: a Tessellator that answers from a store when it has seen the request, keyed
 // by a hash of the payload, the backend's name and version, and the request's options. Failures are cached too.
 
-import { TessellationError, type TessellationRequest, type TessellationResult, type Tessellator, type TessellatorInfo } from 'cad-scene';
+import { TessellationError, type TessellationRequest, type TessellationResult, type Tessellator,
+  type TessellatorInfo } from 'cad-scene';
 
 /** Where cached results live: bytes by key, the least recently used evicted beyond `maxBytes`. */
 export interface CacheStore {
@@ -32,7 +33,8 @@ const sha256 = async (b: Uint8Array<ArrayBuffer>) => hex(await crypto.subtle.dig
  */
 export async function keyPrefix(info: TessellatorInfo): Promise<{ backend: string; version: string }> {
   const backend = `${info.name.toLowerCase().replace(/[^0-9a-z]+/g, '-').slice(0, 32) || '-'}_`;
-  const version = (await sha256(new TextEncoder().encode(JSON.stringify([FORMAT, info.name, info.version])))).slice(0, 12);
+  const version = (await sha256(
+    new TextEncoder().encode(JSON.stringify([FORMAT, info.name, info.version])))).slice(0, 12);
   return { backend, version: `${backend}${version}_` };
 }
 
@@ -59,7 +61,8 @@ export type CacheEntry =
   | { at: number; result: TessellationResult }
   | { at: number; thrown: { message: string; timeoutMs?: number } };
 
-type Header = Partial<Pick<TessellationResult, 'origin' | 'faces' | 'edges' | 'curves' | 'pointIds' | 'diagnostics'>> & {
+type Header = Partial<Pick<TessellationResult, 'origin' | 'faces' | 'edges' | 'curves' | 'pointIds'
+  | 'diagnostics'>> & {
   at: number;
   thrown?: { message: string; timeoutMs?: number };
   /** Lengths of positions, normals, indices, edgePositions, curvePositions, points (-1: absent). */
@@ -68,14 +71,16 @@ type Header = Partial<Pick<TessellationResult, 'origin' | 'faces' | 'edges' | 'c
 
 /**
  * An entry as bytes: the magic number, the JSON header's length, the header, then the result's arrays (positions,
- * normals, indices, edge positions, curve positions, points) 4-byte aligned, in the platform's byte order (a store is local to its machine).
+ * normals, indices, edge positions, curve positions, points) 4-byte aligned, in the platform's byte order (a store
+ * is local to its machine).
  */
 export function encodeEntry(e: CacheEntry): Uint8Array {
   const r = 'result' in e ? e.result : undefined;
   const arrays = [r?.positions, r?.normals, r?.indices, r?.edgePositions, r?.curvePositions, r?.points];
   const header: Header = { at: e.at, n: arrays.map((a) => a?.length ?? -1) as Header['n'] };
   if (r) {
-    Object.assign(header, { origin: r.origin, faces: r.faces, diagnostics: r.diagnostics }, r.edges ? { edges: r.edges } : {});
+    Object.assign(header, { origin: r.origin, faces: r.faces, diagnostics: r.diagnostics },
+      r.edges ? { edges: r.edges } : {});
     Object.assign(header, r.curves ? { curves: r.curves } : {}, r.pointIds ? { pointIds: r.pointIds } : {});
   }
   else if ('thrown' in e) header.thrown = e.thrown;
@@ -102,7 +107,8 @@ export function decodeEntry(bytes: Uint8Array): CacheEntry {
   if (8 + jsonLength > bytes.length) throw new Error('truncated cache entry');
   const header = JSON.parse(new TextDecoder().decode(bytes.subarray(8, 8 + jsonLength))) as Header;
   let offset = align(8 + jsonLength);
-  if (offset + header.n.reduce((s, k) => s + 4 * Math.max(k, 0), 0) !== bytes.length) throw new Error('truncated cache entry');
+  if (offset + header.n.reduce((s, k) => s + 4 * Math.max(k, 0), 0) !== bytes.length) throw new Error(
+    'truncated cache entry');
   if (header.thrown) return { at: header.at, thrown: header.thrown };
   const take = <T>(k: number, C: new (b: ArrayBuffer) => T): T | undefined => {
     if (k < 0) return undefined;
@@ -117,7 +123,8 @@ export function decodeEntry(bytes: Uint8Array): CacheEntry {
   const edgePositions = take(ne, Float32Array);
   const curvePositions = take(nc, Float32Array);
   const points = take(nq, Float32Array);
-  const r: TessellationResult = { origin: header.origin!, positions, indices, faces: header.faces!, diagnostics: header.diagnostics! };
+  const r: TessellationResult = { origin: header.origin!, positions, indices, faces: header.faces!,
+    diagnostics: header.diagnostics! };
   if (normals) r.normals = normals;
   if (edgePositions) r.edgePositions = edgePositions;
   if (header.edges) r.edges = header.edges;
@@ -149,7 +156,10 @@ export interface CacheStats {
   /** Of the hits, cached failures. */
   failureHits: number;
   misses: number;
-  /** Store failures (a read, a write, an entry that didn't decode, deleting other versions), each answered by the backend instead. */
+  /**
+   * Store failures (a read, a write, an entry that didn't decode, deleting other versions), each answered by the
+   * backend instead.
+   */
   errors: number;
 }
 
@@ -218,8 +228,11 @@ export class CachedTessellator implements Tessellator {
     try {
       r = await this.inner.tessellate(req);
     } catch (e) {
-      if (e instanceof TessellationError) await this.put(key, { at: Date.now(), thrown: e.timeoutMs === undefined ? { message: e.message } : { message: e.message, timeoutMs: e.timeoutMs } });
-      else if (e instanceof WebAssembly.RuntimeError) await this.put(key, { at: Date.now(), thrown: { message: `${e.name}: ${e.message}` } });
+      if (e instanceof TessellationError) await this.put(key,
+        { at: Date.now(), thrown: e.timeoutMs === undefined ? { message: e.message } : { message: e.message,
+        timeoutMs: e.timeoutMs } });
+      else if (e instanceof WebAssembly.RuntimeError) await this.put(key,
+        { at: Date.now(), thrown: { message: `${e.name}: ${e.message}` } });
       throw e;
     }
     await this.put(key, { at: Date.now(), result: r });
@@ -256,7 +269,8 @@ export class CachedTessellator implements Tessellator {
   private prune(p: { backend: string; version: string }): Promise<void> {
     let done = this.pruned.get(p.version);
     if (!done) {
-      done = this.store.deleteWhere((k) => k.startsWith(p.backend) && !k.startsWith(p.version)).catch(() => { this.counts.errors++; });
+      done = this.store.deleteWhere((k) => k.startsWith(p.backend) && !k.startsWith(p.version)).catch(
+        () => { this.counts.errors++; });
       this.pruned.set(p.version, done);
     }
     return done;
@@ -266,7 +280,9 @@ export class CachedTessellator implements Tessellator {
 /** A cached entry as the backend's answer: the result, or the error thrown again, each saying it's from the cache. */
 function answer(e: CacheEntry): TessellationResult {
   const when = new Date(e.at).toISOString();
-  if ('thrown' in e) throw new TessellationError(`${e.thrown.message} (a cached failure from ${when}; retryFailures retries it)`, e.thrown.timeoutMs);
+  if ('thrown' in e) throw new TessellationError(
+    `${e.thrown.message} (a cached failure from ${when}; retryFailures retries it)`, e.thrown.timeoutMs);
   if (!isFailure(e)) return e.result;
-  return { ...e.result, diagnostics: [...e.result.diagnostics, { severity: 'info', message: `a cached failure from ${when}; retryFailures retries it` }] };
+  return { ...e.result, diagnostics: [...e.result.diagnostics,
+    { severity: 'info', message: `a cached failure from ${when}; retryFailures retries it` }] };
 }

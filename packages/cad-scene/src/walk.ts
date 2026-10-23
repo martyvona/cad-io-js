@@ -41,7 +41,8 @@ export interface ComponentInstance {
  * expanded again inside itself.
  */
 export function* instances(scene: Scene): Generator<ComponentInstance> {
-  function* visit(component: number, path: number[], transform: Mat4, onPath: Set<number>): Generator<ComponentInstance> {
+  function* visit(component: number, path: number[], transform: Mat4,
+    onPath: Set<number>): Generator<ComponentInstance> {
     yield { path, component, transform };
     const children = scene.components[component]!.children;
     for (let i = 0; i < children.length; i++) {
@@ -111,8 +112,10 @@ export function* partInstances(scene: Scene): Generator<PartInstance> {
         material = ref.material ?? part.material;
         for (const f of part.faceMaterials ?? []) faceMaterials.set(f.face, f.material);
       }
-      for (const o of pathOverrides) for (const f of o.faceMaterials ?? []) if (f.part === ref.part) faceMaterials.set(f.face, f.material);
-      const pi: PartInstance = { path: inst.path, part: ref.part, ref, transform: multiply(inst.transform, ref.transform), faceMaterials, visible: visible && ref.visible !== false };
+      for (const o of pathOverrides) for (const f of o.faceMaterials ?? []) if (f.part === ref.part) faceMaterials.set(
+        f.face, f.material);
+      const pi: PartInstance = { path: inst.path, part: ref.part, ref,
+        transform: multiply(inst.transform, ref.transform), faceMaterials, visible: visible && ref.visible !== false };
       if (material !== undefined) pi.material = material;
       yield pi;
     }
@@ -127,7 +130,8 @@ export function validate(scene: Scene): string[] {
     if (m.length !== 16 || !m.every(Number.isFinite)) problems.push(`${where}: transform is not 16 finite numbers`);
   };
   const material = (m: number | undefined, where: string) => {
-    if (m !== undefined && !(Number.isInteger(m) && m >= 0 && m < nm)) problems.push(`${where}: material ${m} out of range`);
+    if (m !== undefined && !(Number.isInteger(m) && m >= 0 && m < nm)) problems.push(
+      `${where}: material ${m} out of range`);
   };
   scene.roots.forEach((o, i) => {
     if (!(o.component >= 0 && o.component < nc)) problems.push(`roots[${i}]: component ${o.component} out of range`);
@@ -136,7 +140,8 @@ export function validate(scene: Scene): string[] {
   scene.components.forEach((c, i) => {
     material(c.material, `components[${i}]`);
     c.children.forEach((o, k) => {
-      if (!(o.component >= 0 && o.component < nc)) problems.push(`components[${i}].children[${k}]: component ${o.component} out of range`);
+      if (!(o.component >= 0 && o.component < nc)) problems.push(
+        `components[${i}].children[${k}]: component ${o.component} out of range`);
       finite(o.transform, `components[${i}].children[${k}]`);
     });
     c.parts.forEach((r, k) => {

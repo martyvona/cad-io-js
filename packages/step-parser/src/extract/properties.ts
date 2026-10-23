@@ -44,7 +44,8 @@ export function extractValidationProperties(r: Reader, units: Units): Validation
   const out: ValidationProperty[] = [];
   for (const p of r.model.instancesOf('PROPERTY_DEFINITION')) {
     const name = normal(r.str(p, 'name'));
-    const kind = name === 'geometric validation property' ? 'geometric' : name === 'assembly validation property' ? 'assembly' : undefined;
+    const kind = name === 'geometric validation property' ? 'geometric' : name === 'assembly validation '
+      + 'property' ? 'assembly' : undefined;
     if (!kind) continue;
     const prop: ValidationProperty = { id: r.id(p), kind, target: target(r, r.ref(p, 'definition')), values: [] };
     const desc = r.str(p, 'description');
@@ -64,7 +65,8 @@ export function extractValidationProperties(r: Reader, units: Units): Validation
         } else if (r.is(item, 'MEASURE_REPRESENTATION_ITEM')) {
           const value = r.num(item, 'value_component');
           const unit = units.unit(r.ref(item, 'unit_component'));
-          if (value === undefined || unit?.factor === undefined) { r.warn('validation measure without a usable value and unit', item); continue; }
+          if (value === undefined || unit?.factor === undefined) {
+            r.warn('validation measure without a usable value and unit', item); continue; }
           v.measure = value * unit.factor;
           v.unit = unit.kind;
         } else if (r.is(item, 'INTEGER_REPRESENTATION_ITEM') || r.is(item, 'VALUE_REPRESENTATION_ITEM')) {

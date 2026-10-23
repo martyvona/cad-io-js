@@ -21,8 +21,11 @@ interface Meta {
 
 const DATA = 'data', META = 'meta';
 
-const done = <T>(r: IDBRequest<T>) => new Promise<T>((resolve, reject) => { r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error); });
-const finished = (tx: IDBTransaction) => new Promise<void>((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onerror = tx.onabort = () => reject(tx.error ?? new Error('transaction aborted')); });
+const done = <T>(r: IDBRequest<T>) => new Promise<T>(
+  (resolve, reject) => { r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error); });
+const finished = (tx: IDBTransaction) => new Promise<void>(
+  (resolve, reject) => { tx.oncomplete = () => resolve();
+  tx.onerror = tx.onabort = () => reject(tx.error ?? new Error('transaction aborted')); });
 
 export class IndexedDbStore implements CacheStore {
   readonly maxBytes: number;

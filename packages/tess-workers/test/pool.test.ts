@@ -8,7 +8,9 @@ import path from 'node:path';
 import { PoolTessellator, spawnNodeWorker, WorkerTessellator, type PoolOptions } from '../src/node.ts';
 
 const backend = { module: new URL('./fake-backend.ts', import.meta.url).href, export: 'FakeTessellator' };
-const req = (...data: number[]): TessellationRequest => ({ format: 'step', data: new Uint8Array(data), rootId: 7, origin: [1, 2, 3], linearDeflection: 0.1, angularDeflection: 0.5 });
+const req = (...data: number[]): TessellationRequest => (
+  { format: 'step', data: new Uint8Array(data), rootId: 7, origin: [1, 2, 3], linearDeflection: 0.1,
+  angularDeflection: 0.5 });
 const instance = (r: { diagnostics: { message: string }[] }) => r.diagnostics[0]!.message;
 
 async function pool(opts: PoolOptions & { options?: Record<string, unknown> } = {}) {
@@ -39,7 +41,8 @@ test('a request that hangs times out, and the next one gets a new worker', async
   const t = await pool({ workers: 1, timeoutMs: 300 });
   try {
     const before = instance(await t.tessellate(req(0)));
-    await assert.rejects(t.tessellate(req(1)), (e) => e instanceof TessellationError && /timed out after 300 ms/.test(e.message) && e.timeoutMs === 300);
+    await assert.rejects(t.tessellate(req(1)),
+      (e) => e instanceof TessellationError && /timed out after 300 ms/.test(e.message) && e.timeoutMs === 300);
     assert.equal(t.timeoutMs, 300);
     const after = instance(await t.tessellate(req(0)));
     assert.notEqual(after, before);
@@ -64,11 +67,14 @@ test('a backend error rejects the request and replaces the worker; requests queu
   }
 });
 
-test("only the part's failures reject with a TessellationError, which keeps its time limit across the worker", async () => {
+test("only the part's failures reject with a TessellationError, which keeps its time limit across the worker",
+  async () => {
   const t = await pool({ workers: 1 });
   try {
-    await assert.rejects(t.tessellate(req(6)), (e) => /Error: ordinary/.test((e as Error).message) && !(e instanceof TessellationError));
-    await assert.rejects(t.tessellate(req(7)), (e) => e instanceof TessellationError && /own limit/.test(e.message) && e.timeoutMs === 50);
+    await assert.rejects(t.tessellate(req(6)),
+      (e) => /Error: ordinary/.test((e as Error).message) && !(e instanceof TessellationError));
+    await assert.rejects(t.tessellate(req(7)),
+      (e) => e instanceof TessellationError && /own limit/.test(e.message) && e.timeoutMs === 50);
     assert.equal(t.timeoutMs, 120_000);
   } finally {
     t.dispose();
@@ -80,7 +86,8 @@ test('a worker that exits rejects its request, and the pool carries on', async (
   try {
     const exit = t.tessellate(req(5));
     const queued = t.tessellate(req(0));
-    await assert.rejects(exit, (e) => /worker exited with code 3/.test((e as Error).message) && !(e instanceof TessellationError));
+    await assert.rejects(exit,
+      (e) => /worker exited with code 3/.test((e as Error).message) && !(e instanceof TessellationError));
     assert.deepEqual([...(await queued).indices], [0, 1, 2]);
     assert.deepEqual([...(await t.tessellate(req(0))).indices], [0, 1, 2]);
   } finally {
@@ -133,9 +140,11 @@ test('dispose rejects pending requests; requests before init and after dispose a
   await assert.rejects(t.tessellate(req(0)), /disposed/);
 });
 
-test("when a replacement worker can't load the backend, queued requests fail instead of respawning forever", async () => {
+test("when a replacement worker can't load the backend, queued requests fail instead of respawning forever",
+  async () => {
   let spawns = 0;
-  const t = new PoolTessellator(() => { spawns++; return spawnNodeWorker(); }, { backend: { ...backend, options: { failAfter: Date.now() + 500 } }, workers: 1, maxPartsPerWorker: 1 });
+  const t = new PoolTessellator(() => { spawns++; return spawnNodeWorker(); },
+    { backend: { ...backend, options: { failAfter: Date.now() + 500 } }, workers: 1, maxPartsPerWorker: 1 });
   await t.init();
   try {
     await t.tessellate(req(0)); // the first worker retires after this
@@ -151,9 +160,11 @@ test("when a replacement worker can't load the backend, queued requests fail ins
   }
 });
 
-test('while another worker is busy, a replacement that fails to load is not retried until that worker is done', async () => {
+test('while another worker is busy, a replacement that fails to load is not retried until that worker is done',
+  async () => {
   let spawns = 0;
-  const t = new PoolTessellator(() => { spawns++; return spawnNodeWorker(); }, { backend: { ...backend, options: { failAfter: Date.now() + 500 } }, workers: 2, maxPartsPerWorker: 1 });
+  const t = new PoolTessellator(() => { spawns++; return spawnNodeWorker(); },
+    { backend: { ...backend, options: { failAfter: Date.now() + 500 } }, workers: 2, maxPartsPerWorker: 1 });
   await t.init();
   try {
     await new Promise((r) => setTimeout(r, 600));
@@ -200,7 +211,8 @@ test('workers start whatever flags the process has: process-wide ones, and --inp
   fs.writeFileSync(file, script);
   const flags = ['--max-old-space-size=4096', '--stack-size=2000'];
   try {
-    for (const args of [[...flags, file], [...flags, '--input-type=module', '-e', script], ['--input-type=module', '-e', script]]) {
+    for (const args of [[...flags, file], [...flags, '--input-type=module', '-e', script],
+      ['--input-type=module', '-e', script]]) {
       const out = execFileSync(process.execPath, args, { timeout: 20_000, encoding: 'utf8' });
       assert.equal(out.trim(), 'done', args.slice(0, 3).join(' '));
     }

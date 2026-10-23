@@ -92,7 +92,8 @@ const FORMATS: Record<string, Format> = {
 };
 
 function gltfOptions(o: FormatOptions): GltfOptions {
-  return { name: o.name, doubleSided: o.doubleSided, hidden: o.keepHidden ? 'extension' : 'omit', exclude: o.exclude, unlitLines: o.unlitLines };
+  return { name: o.name, doubleSided: o.doubleSided, hidden: o.keepHidden ? 'extension' : 'omit', exclude: o.exclude,
+    unlitLines: o.unlitLines };
 }
 
 const BACKENDS: Record<string, { module: string; export: string }> = {
@@ -105,20 +106,24 @@ const defaultWorkers = () => Math.max(1, os.availableParallelism() - 1);
 const DEFAULT_ANGULAR = 0.5;
 const degrees = (rad: number) => (rad * 180) / Math.PI;
 
+const FORMAT_LINES = Object.entries(FORMATS)
+  .map(([k, f]) => `  ${k.padEnd(10)} ${f.extensions.join(', ').padEnd(12)} ${f.description}`).join('\n');
+const DEFAULT_DEGREES = degrees(DEFAULT_ANGULAR).toFixed(1);
+
 const USAGE = `Usage: stepconv [options] <file.stp | file.stpZ | -> -o <output>
 
 Converts a STEP file to a tessellated format, chosen by the output's extension or --format. '-' reads standard
 input; '-o -' writes standard output (with --format).
 
 Formats:
-${Object.entries(FORMATS).map(([k, f]) => `  ${k.padEnd(10)} ${f.extensions.join(', ').padEnd(12)} ${f.description}`).join('\n')}
+${FORMAT_LINES}
 
 Options:
   -o, --output <file>      the output file
   -f, --format <format>    the output format, whatever the extension
   -b, --backend <name>     occt (default) or truck
   -d, --deflection <mm>    maximum distance between mesh and surface, in millimetres (default 0.1)
-      --angular <deg>      maximum angle between adjacent mesh normals, in degrees (default ${degrees(DEFAULT_ANGULAR).toFixed(1)},
+      --angular <deg>      maximum angle between adjacent mesh normals, in degrees (default ${DEFAULT_DEGREES},
                            0.5 rad; truck ignores it)
       --edges              write B-rep edges (not 3MF, which has no lines)
       --curves             write wireframe curves and points (not 3MF)
@@ -201,7 +206,8 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
   }
   const format = FORMATS[formatName];
   if (!format) return usage(`unknown format '${formatName}'`);
-  const gltfFlags = ['gltf-no-edges', 'gltf-no-curves', 'gltf-no-points', 'gltf-faces-only', 'gltf-unlit-lines', 'gltf-embed'] as const;
+  const gltfFlags = ['gltf-no-edges', 'gltf-no-curves', 'gltf-no-points', 'gltf-faces-only', 'gltf-unlit-lines',
+    'gltf-embed'] as const;
   const given = gltfFlags.find((f) => o[f]);
   if (given && !format.gltf) return usage(`--${given} applies to glb and gltf output`);
   const threemfGiven = (['3mf-colorgroup', '3mf-assembly', '3mf-surfaces'] as const).find((f) => o[f]);
@@ -210,13 +216,15 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
   if (notThreemf && format.threemf) return usage(`--${notThreemf} doesn't apply to 3mf output`);
   if (o['gltf-embed'] && !format.sidecar) return usage('--gltf-embed applies to gltf output (GLB holds its buffer)');
   const embed = o['gltf-embed'];
-  if (format.sidecar && !embed && o.output === '-') return usage(`${formatName} writes a ${format.sidecar} file beside the output, so not to standard output`);
+  if (format.sidecar && !embed && o.output === '-') return usage(
+    `${formatName} writes a ${format.sidecar} file beside the output, so not to standard output`);
   const backend = BACKENDS[o.backend];
   if (!backend) return usage(`unknown backend '${o.backend}'`);
   let bad: string | undefined;
   const number = (name: string, text: string | undefined, fallback: number, positive: boolean) => {
     const v = text === undefined ? fallback : Number(text);
-    if (!(Number.isFinite(v) && (positive ? v > 0 : v >= 0))) bad ??= `--${name} must be a ${positive ? 'positive' : 'non-negative'} number`;
+    if (!(Number.isFinite(v) && (
+      positive ? v > 0 : v >= 0))) bad ??= `--${name} must be a ${positive ? 'positive' : 'non-negative'} number`;
     return v;
   };
   const deflection = number('deflection', o.deflection, 0.1, true);
@@ -238,7 +246,8 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
 
   let scene: Scene;
   try {
-    const file = await readStep(input === '-' ? (Readable.toWeb(io.stdin) as ReadableStream<Uint8Array>) : fs.readFileSync(input));
+    const file = await readStep(
+      input === '-' ? (Readable.toWeb(io.stdin) as ReadableStream<Uint8Array>) : fs.readFileSync(input));
     scene = (await importStep(file)).scene;
   } catch (e) {
     io.stderr.write(`stepconv: can't read ${input}: ${(e as Error).message}\n`);
@@ -272,12 +281,15 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
   let cached: CachedTessellator | undefined;
   try {
     if (workers > 0) {
-      tess = new WorkerTessellator({ backend: { module: import.meta.resolve(backend.module), export: backend.export }, workers, timeoutMs: timeout * 1000 });
+      tess = new WorkerTessellator(
+        { backend: { module: import.meta.resolve(backend.module), export: backend.export }, workers,
+        timeoutMs: timeout * 1000 });
     } else {
       const mod = (await import(backend.module)) as Record<string, new () => Tessellator>;
       tess = new mod[backend.export]!();
     }
-    if (o.cache !== undefined) tess = cached = new CachedTessellator(tess, new FileStore({ dir: o.cache, maxBytes: cacheMb * 2 ** 20 }));
+    if (o.cache !== undefined) tess = cached = new CachedTessellator(tess,
+      new FileStore({ dir: o.cache, maxBytes: cacheMb * 2 ** 20 }));
     await tess.init();
   } catch (e) {
     io.stderr.write(`stepconv: can't start the ${o.backend} backend: ${(e as Error).message}\n`);
@@ -307,7 +319,8 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
     const faces = o['gltf-faces-only'];
     const exclude = (['edges', 'curves', 'points'] as const).filter((k) => faces || o[`gltf-no-${k}`]);
     const w = await format.write(scene, view, {
-      name, doubleSided: o['double-sided'], keepHidden: o['keep-hidden'], sidecar, exclude, unlitLines: o['gltf-unlit-lines'],
+      name, doubleSided: o['double-sided'], keepHidden: o['keep-hidden'], sidecar, exclude,
+      unlitLines: o['gltf-unlit-lines'],
       colorgroup: o['3mf-colorgroup'], assembly: o['3mf-assembly'], surfaces: o['3mf-surfaces'],
     });
     diagnostics.push(...(w.diagnostics ?? []));
@@ -336,7 +349,8 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
   return o.strict && failed ? 3 : 0;
 }
 
-function summary(scene: Scene, meshed: number, view: ExportView, diagnostics: readonly Diagnostic[], times: Record<string, number>,
+function summary(scene: Scene, meshed: number, view: ExportView, diagnostics: readonly Diagnostic[],
+  times: Record<string, number>,
   written: number, cached: CachedTessellator | undefined): string {
   const brep = scene.parts.filter((p) => p.kind === 'brep').length;
   let placed = 0, triangles = 0;
@@ -346,12 +360,14 @@ function summary(scene: Scene, meshed: number, view: ExportView, diagnostics: re
   };
   view.roots.forEach(walk);
   const s = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
-  let text = `${scene.parts.length} parts (${meshed} of ${brep} brep parts tessellated), ${placed} placed; ${triangles} triangles; `
+  let text = `${scene.parts.length} parts (${meshed} of ${brep} brep parts tessellated), ${placed} placed; `
+    + `${triangles} triangles; `
     + `${(written / 1e6).toFixed(1)} MB written\n`;
   text += `import ${s(times.import!)}, tessellation ${s(times.tessellate!)}, export ${s(times.export!)}\n`;
   if (cached) {
     const c = cached.stats();
-    text += `cache: ${c.hits} hits (${c.failureHits} failures), ${c.misses} misses${c.errors ? `, ${c.errors} errors` : ''}\n`;
+    text += `cache: ${c.hits} hits (${c.failureHits} failures), ${c.misses} `
+      + `misses${c.errors ? `, ${c.errors} errors` : ''}\n`;
   }
   const count = (sev: Diagnostic['severity']) => diagnostics.filter((d) => d.severity === sev).length;
   text += `${count('error')} errors, ${count('warning')} warnings, ${count('info')} notes\n`;

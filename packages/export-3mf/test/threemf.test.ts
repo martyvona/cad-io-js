@@ -20,7 +20,8 @@ const QUADS = [[0, 2, 3, 1], [4, 5, 7, 6], [0, 1, 5, 4], [2, 6, 7, 3], [0, 4, 6,
 /**
  * A unit cube as a tessellator gives it: each face (sources 10–15) with four vertices of its own, so welding has
  * to join them; face 10's first vertex has a −0, and face 10 has a degenerate triangle (two corners at one position,
- * by distinct vertices), whose third corner, at the centre, no other triangle uses. `flip` turns triangles over (all, or those of the faces listed).
+ * by distinct vertices), whose third corner, at the centre, no other triangle uses. `flip` turns triangles over
+ * (all, or those of the faces listed).
  */
 function cube(flip: boolean | number[] = false): Mesh {
   const positions: number[] = [], indices: number[] = [];
@@ -42,26 +43,34 @@ function cube(flip: boolean | number[] = false): Mesh {
 }
 /** An open square: two triangles. */
 const sheet = (): Mesh => ({
-  origin: [0, 0, 0], positions: Float32Array.of(0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0), indices: Uint32Array.of(0, 1, 2, 0, 2, 3),
+  origin: [0, 0, 0], positions: Float32Array.of(0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0),
+  indices: Uint32Array.of(0, 1, 2, 0, 2, 3),
   faces: [{ source: 20, start: 0, count: 6 }],
 });
 
 // An assembly: two instances of a subassembly holding the cube (in inches, green, face 15 blue; the second instance
 // turned and, by override, 50% opaque red all over), a sheet, and a hidden cube. Materials: 0 red, 1 green, 2 blue.
 function scene({ override = true } = {}): Scene {
-  const occ = (component: number, t: Mat4, name?: string) => ({ component, transform: t, sources: [], properties: {}, ...(name ? { name } : {}) });
-  const brep = (name: string, unit: number) => ({ kind: 'brep' as const, name, sources: [{ format: 'step', id: 50 }], properties: {}, unit, origin: [0, 0, 0] as [number, number, number], format: 'step' as const, payload: () => new Uint8Array() });
+  const occ = (component: number, t: Mat4, name?: string) => (
+    { component, transform: t, sources: [], properties: {}, ...(name ? { name } : {}) });
+  const brep = (name: string, unit: number) => (
+    { kind: 'brep' as const, name, sources: [{ format: 'step', id: 50 }], properties: {}, unit,
+    origin: [0, 0, 0] as [number, number, number], format: 'step' as const, payload: () => new Uint8Array() });
   return {
     unit: 'millimetre',
     components: [
-      { name: 'asm', sources: [], properties: {}, parts: [], children: [occ(1, translation(100, 0, 0), 'left'), occ(1, turn(200)), occ(2, identity()), occ(3, identity())] },
-      { name: 'sub', sources: [], properties: { partNumber: 'SUB-1' }, parts: [{ part: 0, transform: scaling(25.4) }], children: [] },
+      { name: 'asm', sources: [], properties: {}, parts: [],
+        children: [occ(1, translation(100, 0, 0), 'left'), occ(1, turn(200)), occ(2, identity()), occ(3, identity())] },
+      { name: 'sub', sources: [], properties: { partNumber: 'SUB-1' }, parts: [{ part: 0, transform: scaling(25.4) }],
+        children: [] },
       { name: 'flat', sources: [], properties: {}, parts: [{ part: 1, transform: identity() }], children: [] },
-      { name: 'hid', sources: [], properties: { partNumber: 'HID-1' }, parts: [{ part: 0, transform: identity(), visible: false }], children: [] },
+      { name: 'hid', sources: [], properties: { partNumber: 'HID-1' },
+        parts: [{ part: 0, transform: identity(), visible: false }], children: [] },
     ],
     roots: [occ(0, identity())],
     parts: [{ ...brep('cube & co', 25.4), material: 1, faceMaterials: [{ face: 15, material: 2 }] }, brep('sheet', 1)],
-    materials: [{ name: 'red', color: [1, 0, 0], opacity: 0.5, sources: [] }, { name: 'green', color: [0, 1, 0], opacity: 1, sources: [] }, { color: [0, 0, 1], opacity: 1, sources: [] }],
+    materials: [{ name: 'red', color: [1, 0, 0], opacity: 0.5, sources: [] },
+      { name: 'green', color: [0, 1, 0], opacity: 1, sources: [] }, { color: [0, 0, 1], opacity: 1, sources: [] }],
     layers: [],
     overrides: override ? [{ path: [0, 1], material: 0, sources: [] }] : [],
     properties: {},
@@ -79,7 +88,8 @@ function triangleSet(read: Read3mf, id: number): string[] {
   const m = read.meshes.get(id)!;
   const out: string[] = [];
   for (let t = 0; t < m.triangles.length; t += 3) {
-    const corners = [0, 1, 2].map((k) => m.positions.slice(3 * m.triangles[t + k]!, 3 * m.triangles[t + k]! + 3).join(','));
+    const corners = [0, 1, 2].map(
+      (k) => m.positions.slice(3 * m.triangles[t + k]!, 3 * m.triangles[t + k]! + 3).join(','));
     const [group, property] = m.properties[t / 3]!;
     out.push(`${rotate(corners)} ${read.colors.get(group)!.get(property)!.color.join(',')}`);
   }
@@ -95,7 +105,8 @@ function expectedCube(colors: (face: number) => number[]): string[] {
   const out: string[] = [];
   for (const f of c.faces) {
     for (let t = f.start; t < f.start + f.count; t += 3) {
-      const corners = [0, 1, 2].map((k) => Array.from(c.positions.slice(3 * c.indices[t + k]!, 3 * c.indices[t + k]! + 3), (x) => x + 0).join(','));
+      const corners = [0, 1, 2].map(
+        (k) => Array.from(c.positions.slice(3 * c.indices[t + k]!, 3 * c.indices[t + k]! + 3), (x) => x + 0).join(','));
       if (new Set(corners).size < 3) continue;
       out.push(`${rotate(corners)} ${colors(f.source!).join(',')}`);
     }
@@ -106,7 +117,8 @@ function expectedCube(colors: (face: number) => number[]): string[] {
 const f32 = (m: number[]) => m.map(Math.fround);
 const GREEN = [0, 255, 0, 255], BLUE = [0, 0, 255, 255], RED = [255, 0, 0, 128];
 
-test('parts build: valid; an item per placed part at its world transform, welded closed meshes, colours, names', async () => {
+test('parts build: valid; an item per placed part at its world transform, welded closed meshes, colours, names',
+  async () => {
   const s = scene();
   const out = write(s, { name: 'model & more' });
   assert.deepEqual(messages(out), [
@@ -123,7 +135,8 @@ test('parts build: valid; an item per placed part at its world transform, welded
   // Two looks of the cube (green, and red by override), each a closed model of 8 welded vertices and 12 triangles.
   assert.equal(r.meshes.size, 2);
   for (const m of r.meshes.values()) {
-    assert.deepEqual([m.name, m.partNumber, m.type, m.manifold, m.positions.length / 3, m.triangles.length / 3], ['cube & co', 'SUB-1', OBJECT_TYPE.model, true, 8, 12]);
+    assert.deepEqual([m.name, m.partNumber, m.type, m.manifold, m.positions.length / 3, m.triangles.length / 3],
+      ['cube & co', 'SUB-1', OBJECT_TYPE.model, true, 8, 12]);
     assert.deepEqual([...m.positions].sort(), CORNERS.flat().sort());
   }
   // Items: the two cube instances (the sheet open, the hidden one left out), at their world transforms.
@@ -172,10 +185,12 @@ test('assembly build: one item, components following the tree, identical subtree
   assert.equal(r.items[0]!.transform, undefined);
   assert.equal(top.name, 'asm');
   // asm: the two sub instances (the sheet and the hidden cube left out, so their nodes have nothing).
-  assert.deepEqual(top.components.map((c) => c.transform), [[1, 0, 0, 0, 1, 0, 0, 0, 1, 100, 0, 0], [0, 1, 0, -1, 0, 0, 0, 0, 1, 200, 0, 0]]);
+  assert.deepEqual(top.components.map((c) => c.transform),
+    [[1, 0, 0, 0, 1, 0, 0, 0, 1, 100, 0, 0], [0, 1, 0, -1, 0, 0, 0, 0, 1, 200, 0, 0]]);
   assert.equal(top.components[0]!.object, top.components[1]!.object);
   const sub = r.components.get(top.components[0]!.object)!;
-  assert.deepEqual(sub, { name: 'sub', components: [{ object: cubeId, transform: f32([25.4, 0, 0, 0, 25.4, 0, 0, 0, 25.4, 25.4, 0, 0]) }] });
+  assert.deepEqual(sub, { name: 'sub',
+    components: [{ object: cubeId, transform: f32([25.4, 0, 0, 0, 25.4, 0, 0, 0, 25.4, 25.4, 0, 0]) }] });
   assert.equal(r.components.size, 2);
 
   // Named, two objects (an object has one name).
@@ -205,18 +220,22 @@ test('assembly build: one item, components following the tree, identical subtree
 test('meshes that are not closed manifolds: left out, or written as surface objects', async () => {
   const s = scene();
   const out = write(s, { nonManifold: 'surface' });
-  assert.equal(messages(out)[0], "part 'sheet' is not a closed, oriented manifold (4 boundary edges, 2 triangles (a solid needs 4)); written as a surface object");
+  assert.equal(messages(out)[0],
+    "part 'sheet' is not a closed, oriented manifold (4 boundary edges, 2 triangles (a solid needs 4)); written as a "
+    + "surface object");
   const r = await read3mf(bytes(out.chunks));
   assert.equal(r.items.length, 3);
   const flat = r.meshes.get(r.items[2]!.object)!;
-  assert.deepEqual([flat.name, flat.type, flat.manifold, flat.triangles.length], ['sheet', OBJECT_TYPE.surface, false, 6]);
+  assert.deepEqual([flat.name, flat.type, flat.manifold, flat.triangles.length],
+    ['sheet', OBJECT_TYPE.surface, false, 6]);
   // A cube with a face turned over: left out.
   const o = write(scene(), {}, new Map([[0, cube([2])], [1, sheet()]]));
   assert.equal(messages(o)[0], "part 'cube & co' is not a closed, oriented manifold (4 misoriented edges); left out");
   assert.equal((await read3mf(bytes(o.chunks))).items.length, 0);
   // One inside out, handed over as it is (tessellateScene would have turned it over): left out.
   const inside = write(scene(), {}, new Map([[0, cube(true)], [1, sheet()]]));
-  assert.equal(messages(inside)[0], "part 'cube & co' is not a closed, oriented manifold (inside out (negative volume)); left out");
+  assert.equal(messages(inside)[0],
+    "part 'cube & co' is not a closed, oriented manifold (inside out (negative volume)); left out");
   assert.equal((await read3mf(bytes(inside.chunks))).items.length, 0);
 });
 
@@ -259,9 +278,11 @@ test('a scene with nothing to draw, many vertices (written in pieces), the same 
   const bottom = 2 * n, topc = 2 * n + 1;
   for (let i = 0; i < n; i++) {
     const j = (i + 1) % n;
-    indices.push(2 * i, 2 * j, 2 * j + 1, 2 * i, 2 * j + 1, 2 * i + 1, bottom, 2 * j, 2 * i, topc, 2 * i + 1, 2 * j + 1);
+    indices.push(2 * i, 2 * j, 2 * j + 1, 2 * i, 2 * j + 1, 2 * i + 1, bottom, 2 * j, 2 * i, topc,
+      2 * i + 1, 2 * j + 1);
   }
-  const big: Mesh = { origin: [0, 0, 0], positions: Float32Array.from(positions), indices: Uint32Array.from(indices), faces: [{ source: 1, start: 0, count: indices.length }] };
+  const big: Mesh = { origin: [0, 0, 0], positions: Float32Array.from(positions), indices: Uint32Array.from(indices),
+    faces: [{ source: 1, start: 0, count: indices.length }] };
   const t = scene({ override: false });
   t.components[0]!.children = [t.components[0]!.children[0]!];
   const out = write(t, {}, new Map([[0, big]]));
@@ -291,7 +312,8 @@ test('float32Text, transformText, xmlText', () => {
   }
   // Rows of the row-vector matrix: the images of x, y and z, then the translation.
   assert.equal(transformText(turn(200)), '0 1 0 -1 0 0 0 0 1 200 0 0');
-  assert.equal(transformText(Float64Array.of(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -0, 0, 0, 1)), '1 0 0 0 1 0 0 0 1 0 0 0');
+  assert.equal(transformText(Float64Array.of(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -0, 0, 0, 1)),
+    '1 0 0 0 1 0 0 0 1 0 0 0');
   assert.equal(xmlText('a&b<c>"d\'\te\n\u0001\ud800x\u{1f600}'), 'a&amp;b&lt;c&gt;&quot;d\' e x\u{1f600}');
   assert.equal(xmlText('a&b\te\r\n\u0001', true), 'a&amp;b\te\r\n');
 });

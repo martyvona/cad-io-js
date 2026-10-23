@@ -15,6 +15,7 @@ if (import.meta.main) {
     const dict = buildDictionary(d, fs.readFileSync(path.join(stepcodeDir, 'data', d.source)));
     const out = path.join(pkgDir, 'dict', `${d.id}.json`);
     fs.writeFileSync(out, formatDictionary(dict));
-    console.log(`${d.id}: ${Object.keys(dict.entities).length} entities, ${Object.keys(dict.types).length} types → ${path.relative(process.cwd(), out)}`);
+    console.log(`${d.id}: ${Object.keys(dict.entities).length} entities, ${Object.keys(dict.types).length} types → `
+      + `${path.relative(process.cwd(), out)}`);
   }
 }

@@ -14,13 +14,17 @@ for (const f of corpusFiles(process.argv[2])) {
   totals.files++;
   const { scene } = await importStep(fs.readFileSync(f));
   totals.parts += scene.parts.length;
-  const dangling = scene.diagnostics.filter((d) => /^\d+ references? to (an )?instances? the file doesn't define/.test(d.message));
+  const dangling = scene.diagnostics.filter(
+    (d) => /^\d+ references? to (an )?instances? the file doesn't define/.test(d.message));
   const beyond = scene.diagnostics.filter((d) => d.message.startsWith('reference beyond the largest instance id'));
   if (!dangling.length && !beyond.length) continue;
   totals.filesWith++;
   totals.partsWith += dangling.length;
   totals.beyond += beyond.length;
-  console.log(`${name}: ${dangling.length} parts with dangling references, ${beyond.length} references beyond the largest id`);
+  console.log(`${name}: ${dangling.length} parts with dangling references, ${beyond.length} references beyond the `
+    + `largest id`);
   for (const d of [...dangling, ...beyond].slice(0, 5)) console.log(`  #${d.source?.id}: ${d.message}`);
 }
-console.log(`files ${totals.files}, ${totals.filesWith} with dangling references; parts ${totals.parts}, ${totals.partsWith} with dangling references; ${totals.beyond} references beyond the largest id; ${((Date.now() - t0) / 1000).toFixed(0)} s`);
+console.log(`files ${totals.files}, ${totals.filesWith} with dangling references; parts ${totals.parts}, `
+  + `${totals.partsWith} with dangling references; ${totals.beyond} references beyond the largest id; `
+  + `${((Date.now() - t0) / 1000).toFixed(0)} s`);

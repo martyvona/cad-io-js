@@ -20,7 +20,8 @@ function startWorker(): Worker {
   try {
     return new Worker(entry, { execArgv });
   } catch (e) {
-    const m = (e as { code?: string; message: string }).code === 'ERR_WORKER_INVALID_EXEC_ARGV' && /flags: (.*)$/.exec((e as Error).message);
+    const m = (e as { code?: string; message: string }).code === 'ERR_WORKER_INVALID_EXEC_ARGV' && /flags: (.*)$/.exec(
+      (e as Error).message);
     if (!m) throw e;
     const invalid = new Set(m[1]!.split(', '));
     return new Worker(entry, { execArgv: execArgv.filter((a) => !invalid.has(a)) });

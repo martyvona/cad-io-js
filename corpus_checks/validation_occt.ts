@@ -24,9 +24,11 @@ for (const f of corpusFiles(process.argv[2])) {
   const sem = extractSemantics(m);
   if (sem.structure.roots.length !== 1) continue;
   const root = sem.structure.products[sem.structure.roots[0]!]!;
-  const props = sem.validation.filter((v) => v.target.kind === 'product' && v.target.product === root.id).flatMap((v) => v.values);
+  const props = sem.validation.filter((v) => v.target.kind === 'product' && v.target.product === root.id).flatMap(
+    (v) => v.values);
   // By the CAx-IF names (GVP v4.6, section 8): item names, or the representation's when the item has another.
-  const pick = (item: string, rep: string) => props.find((v) => v.name.toLowerCase() === item) ?? props.find((v) => v.representation.toLowerCase() === rep);
+  const pick = (item: string, rep: string) => props.find((v) => v.name.toLowerCase() === item) ?? props.find(
+    (v) => v.representation.toLowerCase() === rep);
   const volume = pick('volume measure', 'volume')?.measure;
   const area = pick('surface area measure', 'surface area')?.measure;
   const centroid = pick('centre point', 'centroid')?.point;
@@ -35,7 +37,9 @@ for (const f of corpusFiles(process.argv[2])) {
 
   let res;
   try {
-    res = occt.ReadStepFile(bytes, { linearUnit: 'millimeter', linearDeflectionType: 'bounding_box_ratio', linearDeflection: 0.001, angularDeflection: 0.1 });
+    res = occt.ReadStepFile(bytes,
+      { linearUnit: 'millimeter', linearDeflectionType: 'bounding_box_ratio', linearDeflection: 0.001,
+      angularDeflection: 0.1 });
   } catch {
     occt = await loadOcct();
     res = { success: false };
@@ -49,13 +53,16 @@ for (const f of corpusFiles(process.argv[2])) {
     const p = mesh.attributes.position.array as number[];
     const idx = mesh.index.array as number[];
     for (let i = 0; i < idx.length; i += 3) {
-      const a = [0, 1, 2].map((k) => p[idx[i]! * 3 + k]! / 1000), b = [0, 1, 2].map((k) => p[idx[i + 1]! * 3 + k]! / 1000), d = [0, 1, 2].map((k) => p[idx[i + 2]! * 3 + k]! / 1000);
+      const a = [0, 1, 2].map(
+        (k) => p[idx[i]! * 3 + k]! / 1000), b = [0, 1, 2].map((k) => p[idx[i + 1]! * 3 + k]! / 1000),
+      d = [0, 1, 2].map((k) => p[idx[i + 2]! * 3 + k]! / 1000);
       const cr = [a[1]! * b[2]! - a[2]! * b[1]!, a[2]! * b[0]! - a[0]! * b[2]!, a[0]! * b[1]! - a[1]! * b[0]!];
       const v6 = cr[0]! * d[0]! + cr[1]! * d[1]! + cr[2]! * d[2]!;
       vol += v6 / 6;
       for (let k = 0; k < 3; k++) c[k]! += (v6 / 24) * (a[k]! + b[k]! + d[k]!);
       const e1 = [b[0]! - a[0]!, b[1]! - a[1]!, b[2]! - a[2]!], e2 = [d[0]! - a[0]!, d[1]! - a[1]!, d[2]! - a[2]!];
-      ar += Math.hypot(e1[1]! * e2[2]! - e1[2]! * e2[1]!, e1[2]! * e2[0]! - e1[0]! * e2[2]!, e1[0]! * e2[1]! - e1[1]! * e2[0]!) / 2;
+      ar += Math.hypot(e1[1]! * e2[2]! - e1[2]! * e2[1]!, e1[2]! * e2[0]! - e1[0]! * e2[2]!,
+        e1[0]! * e2[1]! - e1[1]! * e2[0]!) / 2;
       size = Math.max(size, ...a.map(Math.abs), ...b.map(Math.abs), ...d.map(Math.abs));
     }
   }
@@ -77,5 +84,7 @@ for (const f of corpusFiles(process.argv[2])) {
   }
   rows.push(`${shortName(f)}: ${parts.filter((x) => x).join(', ')}`);
 }
-console.log(`${stats.files} files with root validation properties, ${stats.compared} compared; within 1%: volume ${stats.volume[0]}/${stats.volume[1]}, area ${stats.area[0]}/${stats.area[1]}, centroid ${stats.centroid[0]}/${stats.centroid[1]}`);
+console.log(`${stats.files} files with root validation properties, ${stats.compared} compared; within 1%: volume `
+  + `${stats.volume[0]}/${stats.volume[1]}, area ${stats.area[0]}/${stats.area[1]}, centroid `
+  + `${stats.centroid[0]}/${stats.centroid[1]}`);
 for (const r of rows) console.log('  ', r);

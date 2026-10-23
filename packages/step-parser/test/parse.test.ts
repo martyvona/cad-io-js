@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { gzipSync } from 'node:zlib';
 import { test } from 'node:test';
-import { formatReal, listItems, makeList, ParseError, parseStep, TYPED_ARRAY_MIN, readStep, type Diagnostic, type Instance, type Value } from '../src/index.ts';
+import { formatReal, listItems, makeList, ParseError, parseStep, TYPED_ARRAY_MIN, readStep, type Diagnostic,
+  type Instance, type Value } from '../src/index.ts';
 
 const enc = new TextEncoder();
 const parse = (s: string) => parseStep(enc.encode(s));
@@ -49,7 +50,8 @@ test('header, lookup and value kinds', () => {
       { type: 'SI_UNIT', attrs: [{ k: 'enum', v: 'MILLI' }, { k: 'enum', v: 'METRE' }] },
     ],
   });
-  assert.deepEqual((f.instance(11) as { attrs: unknown[] }).attrs[1], { k: 'typed', type: 'LENGTH_MEASURE', v: { k: 'real', v: 5 } });
+  assert.deepEqual((f.instance(11) as { attrs: unknown[] }).attrs[1],
+    { k: 'typed', type: 'LENGTH_MEASURE', v: { k: 'real', v: 5 } });
   assert.deepEqual((f.instance(12) as { attrs: unknown[] }).attrs, [
     { k: 'int', v: 12 }, { k: 'int', v: -7 }, { k: 'int', v: 3 }, { k: 'real', v: 1e5 }, { k: 'bin', v: '0FF' },
     { k: 'enum', v: 'T' }, { k: 'list', v: [] },
@@ -89,7 +91,8 @@ ENDSEC;END-ISO-10303-21;`);
   // makeList and listItems are inverses on canonical lists.
   for (const id of [1, 2, 3, 4]) {
     for (const v of attrs(id)) {
-      if (v.k === 'list' || v.k === 'reals' || v.k === 'ints' || v.k === 'refs') assert.deepEqual(makeList(listItems(v)), v);
+      if (v.k === 'list' || v.k === 'reals' || v.k === 'ints' || v.k === 'refs') assert.deepEqual(
+        makeList(listItems(v)), v);
     }
   }
 });
@@ -112,13 +115,15 @@ test('lookup with sparse and unordered ids', () => {
   const body = [9_000_000, 5, 4_000_000_000, 77].map((id) => `#${id}=X(${id});`).join('\n');
   const f = parse(`ISO-10303-21;HEADER;ENDSEC;DATA;${body}ENDSEC;END-ISO-10303-21;`);
   assert.ok(!f.index.idsIncreasing);
-  for (const id of [9_000_000, 5, 4_000_000_000, 77]) assert.deepEqual((f.instance(id) as { attrs: unknown[] }).attrs, [{ k: 'int', v: id }]);
+  for (const id of [9_000_000, 5, 4_000_000_000, 77]) assert.deepEqual((f.instance(id) as { attrs: unknown[] }).attrs,
+    [{ k: 'int', v: id }]);
   assert.equal(f.instance(6), undefined);
   assert.equal(f.index.position(4_000_000_001), -1);
 });
 
 test('lenient lexical forms: lowercase, BOM, CRLF, wrapped strings, comments between tokens', () => {
-  const f = parse('﻿ISO-10303-21;\r\nheader;\r\nendsec;\r\ndata;\r\n#1 /*c*/ = /*c*/ product(\'long\r\n name\', /*c*/ \'x\', $, (#2))/*c*/;\r\n#2=product_context(\'\',$,\'\');\r\nendsec;\r\nend-iso-10303-21;');
+  const f = parse('﻿ISO-10303-21;\r\nheader;\r\nendsec;\r\ndata;\r\n#1 /*c*/ = /*c*/ product(\'long\r\n name\', /*c*/ '
+    + '\'x\', $, (#2))/*c*/;\r\n#2=product_context(\'\',$,\'\');\r\nendsec;\r\nend-iso-10303-21;');
   assert.deepEqual(f.diagnostics, []);
   const p = f.instance(1) as { type: string; attrs: { v: unknown }[] };
   assert.equal(p.type, 'PRODUCT');
@@ -154,18 +159,21 @@ test('problems: duplicates, malformed instances, truncation', () => {
 `);
   assert.deepEqual(f.diagnostics.map((d) => [d.message, d.id]), [
     ['reference beyond the largest instance id (2^32 - 1) read as $', 4], ['unterminated string', undefined],
-    ['DATA section not closed by ENDSEC', undefined], ['missing END-ISO-10303-21;', undefined], ['duplicate instance id #1', 1],
+    ['DATA section not closed by ENDSEC', undefined], ['missing END-ISO-10303-21;', undefined],
+    ['duplicate instance id #1', 1],
   ]);
   assert.deepEqual((f.instance(1) as { attrs: unknown[] }).attrs, [{ k: 'int', v: 1 }]); // the first one wins
   // An empty parameter is read as $, with a warning.
   const warnings: Diagnostic[] = [];
-  assert.deepEqual((f.instance(2, warnings) as { attrs: unknown[] }).attrs.slice(3), [{ k: 'ref', v: 0 }, { k: 'unset' }]);
+  assert.deepEqual((f.instance(2, warnings) as { attrs: unknown[] }).attrs.slice(3),
+    [{ k: 'ref', v: 0 }, { k: 'unset' }]);
   assert.deepEqual(warnings.map((w) => [w.message, w.id]), [['empty parameter read as $', 2]]);
   // A reference too large to be an id (OCCT's bug31292.stp) is read as $, with the scan's warning (above) and none
   // when decoded, and doesn't wrap around to #1 in the index.
   assert.deepEqual([...f.index.refsOf(3)], [1, 1]);
   warnings.length = 0;
-  assert.deepEqual((f.instanceAt(3, warnings) as { attrs: unknown[] }).attrs.slice(1, 4), [{ k: 'ref', v: 1 }, { k: 'unset' }, { k: 'ref', v: 1 }]);
+  assert.deepEqual((f.instanceAt(3, warnings) as { attrs: unknown[] }).attrs.slice(1, 4),
+    [{ k: 'ref', v: 1 }, { k: 'unset' }, { k: 'ref', v: 1 }]);
   assert.deepEqual(warnings, []);
   assert.throws(() => f.instanceAt(4), (e) => e instanceof ParseError && /unterminated string/.test(e.message));
   const errors: number[] = [];

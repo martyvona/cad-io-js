@@ -40,6 +40,7 @@ while IFS= read -r line || [ "$line" ]; do # https://unix.stackexchange.com/a/70
   if [ "$pdfon" == "true" ]; then printf '%s\n' "$line" >> $tmp; fi
 done < "$1"
 
-pandoc -o $out -H $script_dir/md2pdf_preamble.tex -V geometry:margin=1in --number-sections --syntax-highlighting=idiomatic --variable colorlinks=true -V linkcolor=blue -V urlcolor=red -V toccolor=gray $tmp
+pandoc -o $out -H $script_dir/md2pdf_preamble.tex -V geometry:margin=1in --number-sections \
+  --syntax-highlighting=idiomatic --variable colorlinks=true -V linkcolor=blue -V urlcolor=red -V toccolor=gray $tmp
 
 rm -f $tmp

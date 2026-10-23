@@ -15,11 +15,13 @@ import { CachedTessellator, FileStore, MemoryStore } from 'tess-cache';
 
 const root = path.resolve(import.meta.dirname, '../../..');
 const file = path.join(root, 'test_corpus/third_party/gkv311-opencascade-dataset/step/as1-oc-214-mat.stp');
-const built = ['packages/tess-occt/dist/occt_tess.wasm', 'packages/tess-truck/dist/tess_truck.wasm'].every((f) => fs.existsSync(path.join(root, f)));
+const built = ['packages/tess-occt/dist/occt_tess.wasm', 'packages/tess-truck/dist/tess_truck.wasm'].every(
+  (f) => fs.existsSync(path.join(root, f)));
 const skip = !built ? 'backends not built' : !fs.existsSync(file) ? 'corpus not fetched' : false;
 const opts = { linearDeflection: 0.5, angularDeflection: 0.5, edges: true };
 
-test("each backend's results from a directory, in a new process's store, equal the backend's own", { skip }, async (t) => {
+test("each backend's results from a directory, in a new process's store, equal the backend's own", { skip },
+  async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tess-cache-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const { scene } = await importStep(fs.readFileSync(file));
@@ -40,9 +42,11 @@ test("each backend's results from a directory, in a new process's store, equal t
 
 test('in front of a worker pool, a cached part never reaches a worker', { skip }, async () => {
   const { scene } = await importStep(fs.readFileSync(file));
-  const pool = new WorkerTessellator({ backend: { module: import.meta.resolve('tess-occt'), export: 'OcctTessellator' }, workers: 2 });
+  const pool = new WorkerTessellator(
+    { backend: { module: import.meta.resolve('tess-occt'), export: 'OcctTessellator' }, workers: 2 });
   let sent = 0;
-  const counted: Tessellator = { get info() { return pool.info; }, init: () => pool.init(), tessellate: (r) => (sent++, pool.tessellate(r)), dispose: () => pool.dispose() };
+  const counted: Tessellator = { get info() { return pool.info; }, init: () => pool.init(),
+    tessellate: (r) => (sent++, pool.tessellate(r)), dispose: () => pool.dispose() };
   const t = new CachedTessellator(counted, new MemoryStore());
   await t.init();
   try {
@@ -60,14 +64,17 @@ test('in front of a worker pool, a cached part never reaches a worker', { skip }
   }
 });
 
-test("through a worker pool, timeouts and traps are cached, a worker's exit isn't, and a longer limit retries a timeout", async () => {
+test("through a worker pool, timeouts and traps are cached, a worker's exit isn't, and a longer limit retries a "
+  + "timeout", async () => {
   const backend = { module: import.meta.resolve('../../tess-workers/test/fake-backend.ts'), export: 'FakeTessellator' };
-  const req = (...data: number[]): TessellationRequest => ({ format: 'step', data: new Uint8Array(data), linearDeflection: 0.1, angularDeflection: 0.5 });
+  const req = (...data: number[]): TessellationRequest => (
+    { format: 'step', data: new Uint8Array(data), linearDeflection: 0.1, angularDeflection: 0.5 });
   const store = new MemoryStore();
   const counting = (timeoutMs: number) => {
     const pool = new WorkerTessellator({ backend, workers: 1, timeoutMs });
     const c = { sent: 0 };
-    const t: Tessellator = { get info() { return pool.info; }, get timeoutMs() { return pool.timeoutMs; }, init: () => pool.init(), tessellate: (r) => (c.sent++, pool.tessellate(r)), dispose: () => pool.dispose() };
+    const t: Tessellator = { get info() { return pool.info; }, get timeoutMs() { return pool.timeoutMs; },
+      init: () => pool.init(), tessellate: (r) => (c.sent++, pool.tessellate(r)), dispose: () => pool.dispose() };
     return Object.assign(new CachedTessellator(t, store), { c });
   };
   const a = counting(300);
@@ -75,8 +82,10 @@ test("through a worker pool, timeouts and traps are cached, a worker's exit isn'
   try {
     for (let i = 0; i < 2; i++) {
       await assert.rejects(a.tessellate(req(1)), (e) => e instanceof TessellationError && e.timeoutMs === 300);
-      await assert.rejects(a.tessellate(req(2)), (e) => e instanceof TessellationError && /RuntimeError: unreachable/.test(e.message));
-      await assert.rejects(a.tessellate(req(5)), (e) => !(e instanceof TessellationError) && /exited with code 3/.test((e as Error).message));
+      await assert.rejects(a.tessellate(req(2)),
+        (e) => e instanceof TessellationError && /RuntimeError: unreachable/.test(e.message));
+      await assert.rejects(a.tessellate(req(5)),
+        (e) => !(e instanceof TessellationError) && /exited with code 3/.test((e as Error).message));
     }
     assert.equal(a.c.sent, 4);
     assert.deepEqual(a.stats(), { hits: 2, failureHits: 2, misses: 4, errors: 0 });
@@ -87,7 +96,8 @@ test("through a worker pool, timeouts and traps are cached, a worker's exit isn'
   await b.init();
   try {
     const t0 = performance.now();
-    await assert.rejects(b.tessellate(req(1)), (e) => e instanceof TessellationError && e.timeoutMs === 600 && !/cached/.test(e.message));
+    await assert.rejects(b.tessellate(req(1)),
+      (e) => e instanceof TessellationError && e.timeoutMs === 600 && !/cached/.test(e.message));
     assert.ok(performance.now() - t0 >= 550);
     await assert.rejects(b.tessellate(req(2)), /cached/);
     assert.equal(b.c.sent, 1);
@@ -98,7 +108,8 @@ test("through a worker pool, timeouts and traps are cached, a worker's exit isn'
   const c = counting(300);
   await c.init();
   try {
-    await assert.rejects(c.tessellate(req(1)), (e) => e instanceof TessellationError && e.timeoutMs === 600 && /cached/.test(e.message));
+    await assert.rejects(c.tessellate(req(1)),
+      (e) => e instanceof TessellationError && e.timeoutMs === 600 && /cached/.test(e.message));
     assert.equal(c.c.sent, 0);
   } finally {
     c.dispose();

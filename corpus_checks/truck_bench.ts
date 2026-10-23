@@ -14,7 +14,8 @@ const SKIP = /trj2_as1-id-203\.stp\.absr\.891\./;
 const sets = ['out', 'out_bike'].map((d) => path.join(repoDir, 'test_corpus/subsets', d));
 const subsets = sets.map((dir) => ({
   dir: path.basename(dir),
-  files: fs.readdirSync(dir).filter((f) => /\.absr\.\d+\.stp$/.test(f) && !SKIP.test(f)).sort().map((f) => ({ data: fs.readFileSync(path.join(dir, f)), rootId: Number(/\.absr\.(\d+)\.stp$/.exec(f)![1]) })),
+  files: fs.readdirSync(dir).filter((f) => /\.absr\.\d+\.stp$/.test(f) && !SKIP.test(f)).sort().map(
+    (f) => ({ data: fs.readFileSync(path.join(dir, f)), rootId: Number(/\.absr\.(\d+)\.stp$/.exec(f)![1]) })),
 }));
 const variants = process.argv.slice(2);
 if (!variants.length) variants.push(path.join(repoDir, 'packages/tess-truck/dist/tess_truck.wasm'));
@@ -28,7 +29,8 @@ async function bench(name: string, make: () => Promise<Tessellator>) {
     let ms = 0, tris = 0, failed = 0;
     for (const f of s.files) {
       const t1 = performance.now();
-      const r = await t.tessellate({ format: 'step', data: f.data, rootId: f.rootId, linearDeflection: 0.05, angularDeflection: 0.5 });
+      const r = await t.tessellate(
+        { format: 'step', data: f.data, rootId: f.rootId, linearDeflection: 0.05, angularDeflection: 0.5 });
       ms += performance.now() - t1;
       tris += r.indices.length / 3;
       if (!r.indices.length) failed++;
@@ -41,6 +43,7 @@ async function bench(name: string, make: () => Promise<Tessellator>) {
 
 for (const v of variants) {
   const size = fs.statSync(v).size;
-  await bench(`truck ${path.basename(v)} (${size} bytes)`, async () => { const t = new TruckTessellator(); await t.init({ wasm: fs.readFileSync(v) }); return t; });
+  await bench(`truck ${path.basename(v)} (${size} bytes)`,
+    async () => { const t = new TruckTessellator(); await t.init({ wasm: fs.readFileSync(v) }); return t; });
 }
 await bench('occt', async () => { const t = new OcctTessellator(); await t.init(); return t; });

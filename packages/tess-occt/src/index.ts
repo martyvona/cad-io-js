@@ -1,7 +1,8 @@
 // The OCCT tessellation backend: implements cad-scene's Tessellator over the WebAssembly build of native/occt_tess.cpp
 // (build with ./build.sh). License: LGPL-2.1 with the Open CASCADE exception, isolated in this package.
 
-import type { Diagnostic, EdgeKind, TessellationRequest, TessellationResult, Tessellator, TessellatorInfo } from 'cad-scene';
+import type { Diagnostic, EdgeKind, TessellationRequest, TessellationResult, Tessellator,
+  TessellatorInfo } from 'cad-scene';
 
 interface OcctModule {
   HEAPU8: Uint8Array;
@@ -11,7 +12,8 @@ interface OcctModule {
   UTF8ToString(p: number): string;
   _malloc(n: number): number;
   _free(p: number): void;
-  _occt_tessellate(data: number, len: number, rootId: number, lin: number, ang: number, productMode: number, ox: number, oy: number, oz: number): number;
+  _occt_tessellate(data: number, len: number, rootId: number, lin: number, ang: number, productMode: number, ox: number,
+    oy: number, oz: number): number;
   _occt_positions(): number;
   _occt_normals(): number;
   _occt_num_vertices(): number;
@@ -96,7 +98,8 @@ export class OcctTessellator implements Tessellator {
     }) => Promise<OcctModule>;
     const factory = (await import(new URL('../dist/occt_tess.mjs', import.meta.url).href)).default as Factory;
     const url = new URL('../dist/occt_tess.wasm', import.meta.url);
-    const bytes = url.protocol === 'file:' ? await (await import('node:fs/promises')).readFile(url) : new Uint8Array(await (await fetch(url)).arrayBuffer());
+    const bytes = url.protocol === 'file:' ? await (await import('node:fs/promises')).readFile(url) : new Uint8Array(
+      await (await fetch(url)).arrayBuffer());
     const module = await WebAssembly.compile(bytes);
     const id = await wasmId(bytes);
     // Emscripten waits on `done` without a way to fail, so a failed instantiation rejects alongside it.
@@ -124,7 +127,8 @@ export class OcctTessellator implements Tessellator {
     let rc: number;
     const messages = this.messages = new Messages();
     try {
-      rc = m._occt_tessellate(ptr, req.data.length, req.rootId ?? 0, req.linearDeflection, req.angularDeflection, 0, origin[0], origin[1], origin[2]);
+      rc = m._occt_tessellate(ptr, req.data.length, req.rootId ?? 0, req.linearDeflection, req.angularDeflection, 0,
+        origin[0], origin[1], origin[2]);
     } finally {
       m._free(ptr);
       this.messages = undefined;
@@ -134,7 +138,8 @@ export class OcctTessellator implements Tessellator {
     const diagnostics = messages.diagnostics();
     if (rc !== 0) {
       m._occt_free();
-      diagnostics.push({ severity: 'error', message: `OCCT: ${String(diag.error)}${diag.what ? `: ${String(diag.what)}` : ''}` });
+      diagnostics.push({ severity: 'error',
+        message: `OCCT: ${String(diag.error)}${diag.what ? `: ${String(diag.what)}` : ''}` });
       return { origin, positions: new Float32Array(), indices: new Uint32Array(), faces: [], diagnostics };
     }
     // Copy out of the heap: it can move on the next allocation.
@@ -148,7 +153,8 @@ export class OcctTessellator implements Tessellator {
     const faceData = i32(m._occt_faces(), m._occt_num_faces() * 3);
     const faces: TessellationResult['faces'] = [];
     for (let i = 0; i < faceData.length; i += 3) {
-      faces.push({ entityId: faceData[i]! < 0 ? null : faceData[i]!, start: faceData[i + 1]!, count: faceData[i + 2]! });
+      faces.push({ entityId: faceData[i]! < 0 ? null : faceData[i]!, start: faceData[i + 1]!,
+        count: faceData[i + 2]! });
     }
     const result: TessellationResult = { origin, positions, normals, indices, faces, diagnostics };
     if (req.edges) {
@@ -159,7 +165,8 @@ export class OcctTessellator implements Tessellator {
       result.edges = [];
       for (let i = 0; i < ne; i++) {
         const e: NonNullable<TessellationResult['edges']>[number] = {
-          entityId: edgeData[i * 4]! < 0 ? null : edgeData[i * 4]!, start: edgeData[i * 4 + 1]!, count: edgeData[i * 4 + 2]!, kind: KINDS[edgeData[i * 4 + 3]!]!,
+          entityId: edgeData[i * 4]! < 0 ? null : edgeData[i * 4]!, start: edgeData[i * 4 + 1]!,
+          count: edgeData[i * 4 + 2]!, kind: KINDS[edgeData[i * 4 + 3]!]!,
         };
         if (angles[i]! >= 0) e.dihedral = angles[i]!;
         result.edges.push(e);
@@ -171,7 +178,8 @@ export class OcctTessellator implements Tessellator {
       result.curvePositions = f32(m._occt_curve_positions(), m._occt_num_curve_points() * 3);
       result.curves = [];
       for (let i = 0; i < curveData.length; i += 3) {
-        result.curves.push({ entityId: curveData[i]! < 0 ? null : curveData[i]!, start: curveData[i + 1]!, count: curveData[i + 2]! });
+        result.curves.push({ entityId: curveData[i]! < 0 ? null : curveData[i]!, start: curveData[i + 1]!,
+          count: curveData[i + 2]! });
       }
     }
     const np = m._occt_num_points();
@@ -180,10 +188,14 @@ export class OcctTessellator implements Tessellator {
       result.pointIds = Array.from(i32(m._occt_point_ids(), np), (id) => (id < 0 ? null : id));
     }
     m._occt_free();
-    if (diag.unmapped) diagnostics.push({ severity: 'info', message: `${String(diag.unmapped)} faces without a STEP entity id` });
-    if (diag.noTriangulation) diagnostics.push({ severity: 'warning', message: `${String(diag.noTriangulation)} faces failed to mesh` });
-    if (diag.curvesUnmapped) diagnostics.push({ severity: 'info', message: `${String(diag.curvesUnmapped)} curves without a STEP entity id` });
-    if (diag.curvesNoPolygon) diagnostics.push({ severity: 'warning', message: `${String(diag.curvesNoPolygon)} curves failed to discretize` });
+    if (diag.unmapped) diagnostics.push(
+      { severity: 'info', message: `${String(diag.unmapped)} faces without a STEP entity id` });
+    if (diag.noTriangulation) diagnostics.push(
+      { severity: 'warning', message: `${String(diag.noTriangulation)} faces failed to mesh` });
+    if (diag.curvesUnmapped) diagnostics.push(
+      { severity: 'info', message: `${String(diag.curvesUnmapped)} curves without a STEP entity id` });
+    if (diag.curvesNoPolygon) diagnostics.push(
+      { severity: 'warning', message: `${String(diag.curvesNoPolygon)} curves failed to discretize` });
     return result;
   }
 

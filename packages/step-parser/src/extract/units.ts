@@ -52,7 +52,8 @@ const SI: Record<string, [UnitKind, number, number]> = {
 // Partial entity names that say what kind a named unit is.
 const KIND_ENTITY: [string, UnitKind][] = [
   ['LENGTH_UNIT', 'length'], ['PLANE_ANGLE_UNIT', 'plane angle'], ['SOLID_ANGLE_UNIT', 'solid angle'],
-  ['AREA_UNIT', 'area'], ['VOLUME_UNIT', 'volume'], ['MASS_UNIT', 'mass'], ['TIME_UNIT', 'time'], ['RATIO_UNIT', 'ratio'],
+  ['AREA_UNIT', 'area'], ['VOLUME_UNIT', 'volume'], ['MASS_UNIT', 'mass'], ['TIME_UNIT', 'time'],
+  ['RATIO_UNIT', 'ratio'],
   ['THERMODYNAMIC_TEMPERATURE_UNIT', 'thermodynamic temperature'],
 ];
 
@@ -98,9 +99,11 @@ export class Units {
       // millimetre, square millimetre, degree celsius...
       const words = name!.toLowerCase().split('_');
       const pre = prefix ? prefix.toLowerCase() : '';
-      const nm = words.length === 2 && (words[0] === 'square' || words[0] === 'cubic') ? `${words[0]} ${pre}${words[1]}` : pre + words.join(' ');
+      const nm = words.length === 2 && (
+        words[0] === 'square' || words[0] === 'cubic') ? `${words[0]} ${pre}${words[1]}` : pre + words.join(' ');
       if (declared && declared !== kind) r.warn(`${declared} unit named .${name}.`, p);
-      if (kind !== si[0]) return { kind, name: `${kind === 'area' ? 'square' : 'cubic'} ${nm}`, factor: factor * pf ** power, id };
+      if (kind !== si[0]) return { kind, name: `${kind === 'area' ? 'square' : 'cubic'} ${nm}`,
+        factor: factor * pf ** power, id };
       return { kind: declared ?? kind, name: nm, factor: factor * pf ** power, id };
     }
     if (r.is(p, 'CONVERSION_BASED_UNIT')) {
@@ -108,14 +111,16 @@ export class Units {
       const cf = r.ref(p, 'conversion_factor');
       const value = r.num(cf, 'value_component');
       const base = this.unit(r.ref(cf, 'unit_component'));
-      if (value === undefined || !base) { r.warn(`conversion based unit '${name}' without a usable conversion factor`, p); return undefined; }
+      if (value === undefined || !base) {
+        r.warn(`conversion based unit '${name}' without a usable conversion factor`, p); return undefined; }
       let factor = base.factor === undefined ? undefined : value * base.factor;
       if (declared && base.kind !== declared) {
         if (base.kind === 'length' && (declared === 'area' || declared === 'volume') && factor !== undefined) {
           // An area or volume unit converted from a length unit (trj2_as1-pe-203.stp: VOLUME_UNIT 'INCH' from mm):
           // read as the square or cube of that length, which is what the values in these files mean.
           factor **= declared === 'area' ? 2 : 3;
-          r.warn(`${declared} unit '${name}' converts from a length unit; read as its ${declared === 'area' ? 'square' : 'cube'}`, p);
+          r.warn(`${declared} unit '${name}' converts from a length unit; read as its `
+            + `${declared === 'area' ? 'square' : 'cube'}`, p);
         } else {
           r.warn(`${declared} unit '${name}' converts from a ${base.kind} unit`, p);
         }
@@ -180,7 +185,9 @@ export class Units {
       for (const q of r.refs(p, 'units')) {
         const u = this.unit(q);
         if (!u) continue;
-        const slot = u.kind === 'length' ? 'lengthUnit' : u.kind === 'plane angle' ? 'planeAngleUnit' : u.kind === 'solid angle' ? 'solidAngleUnit' : undefined;
+        const slot = u.kind === 'length' ? 'lengthUnit'
+          : u.kind === 'plane angle' ? 'planeAngleUnit'
+            : u.kind === 'solid angle' ? 'solidAngleUnit' : undefined;
         if (!slot) { c.otherUnits.push(u); continue; }
         if (c[slot]) r.warn(`context has more than one ${u.kind} unit`, p);
         else c[slot] = u;
