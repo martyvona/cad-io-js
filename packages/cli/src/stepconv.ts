@@ -17,7 +17,7 @@ import { threejsChunks } from 'export-threejs';
 import { importStep } from 'step-import';
 import { readStep } from 'step-parser';
 import { CachedTessellator, FileStore, DEFAULT_FILE_BYTES } from 'tess-cache';
-import { WorkerTessellator } from 'tess-workers';
+import { DEFAULT_TIMEOUT_MS, WorkerTessellator } from 'tess-workers';
 import type { Io } from './step2json.ts';
 
 interface Format {
@@ -139,7 +139,7 @@ Options:
       --3mf-surfaces       3MF: meshes that aren't closed manifolds as surface objects instead of left out
   -j, --workers <n>        parts tessellated at once, each in a worker (default ${defaultWorkers()}); 0: one at a time
                            on the main thread, without a timeout
-      --timeout <s>        per part, in a worker (default 120); 0: none
+      --timeout <s>        per part, in a worker (default ${DEFAULT_TIMEOUT_MS / 1000}); 0: none
       --cache <dir>        cache tessellations in this directory
       --cache-size <MB>    the cache's maximum size (default ${DEFAULT_FILE_BYTES / 2 ** 20})
       --strict             exit 3 if a part fails to tessellate (the output is written all the same)
@@ -173,7 +173,7 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
         '3mf-assembly': { type: 'boolean', default: false },
         '3mf-surfaces': { type: 'boolean', default: false },
         workers: { type: 'string', short: 'j' },
-        timeout: { type: 'string', default: '120' },
+        timeout: { type: 'string' },
         cache: { type: 'string' },
         'cache-size': { type: 'string' },
         strict: { type: 'boolean', default: false },
@@ -223,7 +223,7 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
   if (angularDegrees > 180) bad ??= '--angular-deflection must be at most 180 degrees';
   const angular = angularText === undefined ? DEFAULT_ANGULAR : (angularDegrees * Math.PI) / 180;
   const workers = number('workers', o.workers, defaultWorkers(), false);
-  const timeout = number('timeout', o.timeout, 120, false);
+  const timeout = number('timeout', o.timeout, DEFAULT_TIMEOUT_MS / 1000, false);
   const cacheMb = number('cache-size', o['cache-size'], DEFAULT_FILE_BYTES / 2 ** 20, false);
   if (bad) return usage(bad);
   if (!Number.isInteger(workers)) return usage('--workers must be a whole number');
@@ -274,7 +274,7 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
     if (workers > 0) {
       tess = new WorkerTessellator(
         { backend: { module: import.meta.resolve(backend.module), export: backend.export }, workers,
-        timeoutMs: timeout * 1000 });
+        ...(o.timeout === undefined ? {} : { timeoutMs: timeout * 1000 }) });  // else the pool's default
     } else {
       const mod = (await import(backend.module)) as Record<string, new () => Tessellator>;
       tess = new mod[backend.export]!();

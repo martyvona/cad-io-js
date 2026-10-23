@@ -231,7 +231,7 @@ Options:
       --3mf-surfaces       3MF: meshes that aren't closed manifolds as surface objects instead of left out
   -j, --workers <n>        parts tessellated at once, each in a worker (default: cores - 1); 0: one at a time
                            on the main thread, without a timeout
-      --timeout <s>        per part, in a worker (default 120); 0: none
+      --timeout <s>        per part, in a worker (default 40); 0: none
       --cache <dir>        cache tessellations in this directory
       --cache-size <MB>    the cache's maximum size (default 1024)
       --strict             exit 3 if a part fails to tessellate (the output is written all the same)
@@ -623,7 +623,7 @@ new WorkerTessellator({ backend: { module: import.meta.resolve('tess-occt'), exp
 
 ### `tess-workers`
 
-Any backend in a pool of workers: `worker_threads` in Node, module Web Workers in browsers (the package's export conditions choose). Each worker loads the backend from `backend.module` (a URL or resolvable specifier) and `backend.export` (the class name), with `backend.options` passed to its `init`. A request that takes longer than `timeoutMs` terminates its worker and fails with a `TessellationError`; the part fails alone, and a fresh worker takes its place. Workers are also replaced after a backend trap, after `maxPartsPerWorker` parts, or when the backend's memory grows beyond `maxMemoryBytes` (WebAssembly memory never shrinks). Defaults: cores - 1 workers, 120 s timeout, recycling above 256 MiB, no limit on parts.
+Any backend in a pool of workers: `worker_threads` in Node, module Web Workers in browsers (the package's export conditions choose). Each worker loads the backend from `backend.module` (a URL or resolvable specifier) and `backend.export` (the class name), with `backend.options` passed to its `init`. A request that takes longer than `timeoutMs` terminates its worker and fails with a `TessellationError`; the part fails alone, and a fresh worker takes its place. Workers are also replaced after a backend trap, after `maxPartsPerWorker` parts, or when the backend's memory grows beyond `maxMemoryBytes` (WebAssembly memory never shrinks). Defaults: cores - 1 workers, 40 s timeout, recycling above 256 MiB, no limit on parts.
 
 ```ts
 import fs from 'node:fs';
@@ -759,7 +759,7 @@ A file whose schema has no dictionary is bound with AP242's, with a diagnostic: 
 
 ## Tests
 
-- **`npm test`**: the package tests, 195 of them (`node:test`, in each package's `test/`), on small inline fixtures and a few corpus files. Tests that need a built backend or the corpus skip when it's missing; with everything built, they take about 20 s.
+- **`npm test`**: the package tests, 196 of them (`node:test`, in each package's `test/`), on small inline fixtures and a few corpus files. Tests that need a built backend or the corpus skip when it's missing; with everything built, they take about 20 s.
 - **`npm run typecheck`**: `tsc` over the packages (no output; the sources run as they are).
 - **`cargo test`** in `packages/tess-truck/native`: 3 native tests of the truck wrapper (B-spline clamping, the volume sign guard).
 - **Browser checks**, run by hand: `node packages/tess-workers/test/browser-check.ts` and `node packages/tess-cache/test/browser-check.ts` serve the sources and run the pool's and IndexedDB's scenarios in headless Chrome.

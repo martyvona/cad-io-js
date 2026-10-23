@@ -12,7 +12,7 @@ export interface PoolOptions {
   workers?: number;
   /**
    * Per request, in milliseconds; the worker is terminated and the request rejected with a TessellationError. 0: none.
-   * Default 120,000.
+   * Default `DEFAULT_TIMEOUT_MS`.
    */
   timeoutMs?: number;
   /** Recycle a worker after this many parts. 0: never. Default 0. */
@@ -43,6 +43,9 @@ interface Slot {
   timer?: ReturnType<typeof setTimeout>;
 }
 
+/** 40 s: the corpus's slowest part takes 28 s with OCCT on an Apple M4 at 0.1 mm (CLAUDE.md, "Decisions"). */
+export const DEFAULT_TIMEOUT_MS = 40_000;
+
 export function defaultWorkers(): number {
   const n = (globalThis as { navigator?: { hardwareConcurrency?: number } }).navigator?.hardwareConcurrency ?? 2;
   return Math.max(1, n - 1);
@@ -68,7 +71,7 @@ export class PoolTessellator implements Tessellator {
     this.spawnWorker = spawnWorker;
     this.backend = opts.backend;
     this.workers = Math.max(1, Math.floor(opts.workers ?? defaultWorkers()));
-    this.timeoutMs = opts.timeoutMs ?? 120_000;
+    this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.maxParts = opts.maxPartsPerWorker ?? 0;
     this.maxMemory = opts.maxMemoryBytes ?? 256 * 2 ** 20;
   }

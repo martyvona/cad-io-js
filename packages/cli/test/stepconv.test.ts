@@ -315,6 +315,15 @@ test('stepconv: wireframe curves on request; --workers 0 starts no worker',
   }
 });
 
+test('stepconv: --timeout reaches the pool: at 1 ms every part times out, and the run still writes its output',
+  { skip }, async () => {
+  const out = path.join(tmp, 'timeout.json');
+  const r = await run([assembly, '-o', out, '--timeout', '0.001', '-j', '2']);
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(r.stderr, /^5 parts \(0 of 5 brep parts tessellated\)/);
+  assert.match(r.stderr, /timed out after 1 ms/);
+});
+
 test('stepconv: the cache answers a second run', { skip }, async () => {
   const cache = path.join(tmp, 'cache');
   const out = path.join(tmp, 'cached.json');
@@ -382,6 +391,7 @@ test('stepconv: usage errors and failures', async () => {
   const help = await run(['-h']);
   assert.equal(help.code, 0);
   assert.match(help.stdout, /^Usage: stepconv/);
+  assert.match(help.stdout, /--timeout <s> +per part, in a worker \(default 40\); 0: none/);
   assert.match(help.stdout, /threejs +\.json/);
   assert.match(help.stdout, /glb +\.glb/);
   assert.match(help.stdout, /gltf +\.gltf/);
