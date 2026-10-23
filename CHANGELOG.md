@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Documents: PDFs of the Markdown documents with Typst (`scripts/md2pdf.sh`, which fetches a pinned Typst with `scripts/fetch-typst.sh`) instead of pandoc and LaTeX; the README's diagrams are Mermaid flowcharts; every Markdown document has `#` for its title and `##` for its sections (the tutorial's headings moved down a level).
 - The default time limit per part is 40 s instead of 120 s (`stepconv --timeout`, `tess-workers`' `timeoutMs`).
 - `corpus_checks/backend_speed.ts`: truck against OCCT, tessellation time over the corpus as `stepconv` runs them.
 - `stepconv`: `--angular` renamed `--angular-deflection`, `--edges` and `--curves` renamed `--with-edges` and `--with-curves`, `--gltf-unlit-lines` renamed `--unlit-lines` (accepted for three.js too, whose lines are always unlit); `--gltf-no-edges`, `--gltf-no-curves`, `--gltf-no-points` and `--gltf-faces-only` removed (`--with-edges` and `--with-curves` choose what's written).

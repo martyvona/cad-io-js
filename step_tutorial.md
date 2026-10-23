@@ -1,27 +1,6 @@
 <!--
-
-TLDR on OS X:
-
-brew install --cask basictex
-brew install pandoc
-./scripts/md2pdf.sh document.md [out.pdf]
-
-This is github flavored markdown.
-
-It is intended to render via three different paths:
-1. by a github server
-2. loaded directly in a web browser with a markdown rendering extension like https://github.com/simov/markdown-viewer
-3. converted to PDF using pandoc via the script md2pdf.sh
-
-HTML comments like this will be ignored in the first two cases.  The md2pdf.sh script pre-processes the file before sending it to pandoc, looking for PDFxxx directives, including within comments.  If such a directive is on the same line as the HTML comment start or end tags, they will be removed, and thus the contents of the comment will get passed through to pandoc as a non-comment.  There are also two such directives which disable and re-enable passthrough of intervening lines to pandoc: PDF OFF and PDF ON, but without the spaces after PDF (if they were explicitly named here they would be acted upon by the preprocessor).
-
-Together these mechanisms enable "conditional compilation" for all three rendering paths:
-* contents of regular HTML comments will be ignored by all paths
-* contents of an HTML comment modified with PDFxxx directives on the same lines as the HTML comment start and end tags will be rendered only by pandoc
-* lines between PDF OFF and PDF ON directives, in that order, will be active only in the markdown rendering paths; the directives are enclosed in HTML comments so they themselves are not rendered.
+This is GitHub-flavoured Markdown. It renders as it is on GitHub and in browser Markdown viewers (for example https://github.com/simov/markdown-viewer, with its Mermaid and MathJax options on), and `scripts/md2pdf.sh step_tutorial.md` makes a PDF of it with Typst (see scripts/md2pdf.typ). The PDF gets a detailed table of contents from the comment after the contents list, and leaves out the short contents list, which is between the two "typst-...-exclude" comments.
 -->
-
-<!--PDFOFF title and table of contents for markdown -->
 
 # STEP in practice: AP203, AP214 and AP242
 
@@ -34,6 +13,7 @@ It's here *after* the main document heading because it creates extra whitespace 
 
 Authors: Claude and Marsette Vona <martyvona@gmail.com>, 2026
 
+<!--typst-begin-exclude-->
 __Contents__
 
 1. [Introduction](#introduction)
@@ -49,17 +29,14 @@ __Contents__
 1. [What real files look like](#what-real-files-look-like)
 1. [Complete examples](#complete-examples)
 1. [References](#references)
+<!--typst-end-exclude-->
 
-<!--PDFON title and table of contents for PDF rendering
-\title{STEP in practice: AP203, AP214 and AP242}
-\author{Claude and Marsette Vona <martyvona@gmail.com>}
-\date{\today}
-\maketitle
-PDFBREAK
-PDFTOC
-PDFBREAK-->
+<!--raw-typst
+#outline()
+#pagebreak()
+-->
 
-# Introduction
+## Introduction
 
 This is a practical introduction to the STEP files that CAD systems exchange: what is in them, how the pieces fit together, and how real files depart from the standard. It assumes you know CAD basics (B-rep solids, NURBS, assemblies) but nothing about STEP. Everything here can be checked against the references listed at the end.
 
@@ -74,9 +51,9 @@ The three APs that carry almost all mechanical CAD data:
 | AP | Schema name in files | Typical content |
 |---|---|---|
 | AP203 edition 1 | `CONFIG_CONTROL_DESIGN` | Solids and assemblies, with configuration management (approvals, dates, people). No colours in the schema itself, though writers add them anyway. |
-| AP203 edition 2 | `AP203_CONFIGURATION_ CONTROLLED_3D_DESIGN_ OF_MECHANICAL_PARTS_ AND_ASSEMBLIES_MIM_LF` | AP203 updated with colours, layers and more. |
+| AP203 edition 2 | `AP203_CONFIGURATION_CONTROLLED_3D_DESIGN_OF_MECHANICAL_PARTS_AND_ASSEMBLIES_MIM_LF` | AP203 updated with colours, layers and more. |
 | AP214 | `AUTOMOTIVE_DESIGN` | The automotive AP: solids, assemblies, colours, layers, validation properties, kinematics. Very widely used by CAD exporters. |
-| AP242 | `AP242_MANAGED_MODEL_ BASED_3D_ENGINEERING_MIM_LF` | The merger and successor of AP203 and AP214, adding tessellated geometry, semantic PMI (tolerances, datums) and more. Several editions. |
+| AP242 | `AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF` | The merger and successor of AP203 and AP214, adding tessellated geometry, semantic PMI (tolerances, datums) and more. Several editions. |
 
 For geometry, topology, assemblies, units and colours the three are nearly the same. The entities and their attributes mostly coincide, and a reader written for one handles the others with small adjustments.
 
@@ -93,9 +70,9 @@ An AP also has two levels of model:
 - **ARM** (Application Reference Model): the user-level concepts ("part", "assembly component usage"), written for domain experts. Files never contain ARM entities.
 - **MIM** (Module Interpreted Model; AIM, Application Interpreted Model, in older APs): what files actually contain. The AP documents how each ARM concept maps onto MIM entities, which is why, for example, a "part" becomes the `PRODUCT` to `PRODUCT_DEFINITION` chain of section 6.
 
-# The Part 21 file format
+## The Part 21 file format
 
-## Structure
+### Structure
 
 ```
 ISO-10303-21;
@@ -119,7 +96,7 @@ END-ISO-10303-21;
 - Whitespace and line breaks are insignificant; comments are `/* ... */`.
 - Keywords are uppercase in practice; readers should accept any case.
 
-## Attribute values
+### Attribute values
 
 | Written | Meaning |
 |---|---|
@@ -136,7 +113,7 @@ END-ISO-10303-21;
 
 Strings are ASCII in the file. Other characters use escapes: `\X2\00C4\X0\` for UTF-16 code units (here U+00C4, capital A with diaeresis), `\X4\0001F7CA\X0\` for code points beyond 16 bits, and the older `\X\C4` (one ISO 8859-1 byte) and `\S\`/`\P\` code-page escapes. A literal backslash is `\\`.
 
-## Simple and complex instances
+### Simple and complex instances
 
 Most instances are **simple**: one entity type, with the attributes of that entity and all its supertypes. Some instances belong to several entity types at once, where EXPRESS allows types to combine (`ANDOR`, `AND`). These are written as **complex instances**, also called external mapping:
 
@@ -188,11 +165,11 @@ A rational spline must also be a `RATIONAL_B_SPLINE_CURVE`, which adds `weights_
 
 `BOUNDED_CURVE()`, `CURVE()` and `GEOMETRIC_REPRESENTATION_ITEM()` are empty because those entities declare no attributes, but they must still appear: the partials list the instance's whole set of types. The `name` that a simple instance puts first now sits in the `REPRESENTATION_ITEM` partial at the end, because of the alphabetical order. Rational B-spline surfaces follow the same pattern (`B_SPLINE_SURFACE`, `B_SPLINE_SURFACE_WITH_KNOTS`, `RATIONAL_B_SPLINE_SURFACE` with a grid of weights).
 
-## Attribute order
+### Attribute order
 
 For a simple instance, attributes appear in EXPRESS declaration order: the supertypes' attributes first (depth first, in `SUBTYPE OF` order, each supertype once), then the entity's own. For example `CARTESIAN_POINT` inherits `name` from `REPRESENTATION_ITEM`, so `CARTESIAN_POINT('name',(x,y,z))` is (`name`, `coordinates`). Reading attributes by name needs the schema; reading them by position doesn't, which is why tolerant readers keep the positional data even when the schema doesn't match.
 
-# EXPRESS in five minutes
+## EXPRESS in five minutes
 
 ```
 ENTITY axis2_placement_3d
@@ -210,7 +187,7 @@ END_ENTITY;
 
 The EXPRESS schemas of the APs and integrated resources are freely available (section 13). They are the reference for every attribute layout in this document.
 
-# Units and representation contexts
+## Units and representation contexts
 
 Every geometric representation names a **context** that fixes its units and precision:
 
@@ -238,9 +215,9 @@ Every geometric representation names a **context** that fixes its units and prec
 
 Real files use millimetres most often, then inches, centimetres, metres and feet. Each representation has its own context, and an assembly may mix units: an inch part placed in a millimetre assembly is normal, and the placement must convert. A few writers declare an area or volume unit as a plain length unit (`VOLUME_UNIT` with `CONVERSION_BASED_UNIT('INCH', ...)`); what they mean is its cube.
 
-# Representations, geometry and topology
+## Representations, geometry and topology
 
-## Representations
+### Representations
 
 A **representation** is a set of items in a context: `REPRESENTATION(name, items, context_of_items)`. For shape, the common subtypes are:
 
@@ -256,14 +233,14 @@ A **representation** is a set of items in a context: `REPRESENTATION(name, items
 
 A representation's items usually include an `AXIS2_PLACEMENT_3D` at the origin as well as the solids. Assembly placements refer to it (section 7).
 
-## Geometry
+### Geometry
 
 - `CARTESIAN_POINT('', (x, y, z))`; `DIRECTION('', (dx, dy, dz))`, not necessarily normalized; `VECTOR('', direction, magnitude)`.
 - **`AXIS2_PLACEMENT_3D('', location, axis, ref_direction)`**, a right-handed frame. Its z axis is `axis` (default (0, 0, 1)). Its x axis is `ref_direction` projected perpendicular to z (default (1, 0, 0), or (0, 1, 0) if z is along x). Its y axis is $z \times x$. As a $4 \times 4$ matrix, the columns are x, y, z and the location. Directions in files are often slightly off unit length or perpendicularity, so normalize and orthogonalize.
 - Curves: `LINE`, `CIRCLE`, `ELLIPSE` (each positioned by a placement), `B_SPLINE_CURVE_WITH_KNOTS` (degree, control points, form, closed, self-intersect, knot multiplicities, knots, knot type), rational versions as complex instances, `TRIMMED_CURVE`, `COMPOSITE_CURVE`, `POLYLINE`.
 - Surfaces: `PLANE`, `CYLINDRICAL_SURFACE`, `CONICAL_SURFACE`, `SPHERICAL_SURFACE`, `TOROIDAL_SURFACE` (each with a placement), `B_SPLINE_SURFACE_WITH_KNOTS`, `SURFACE_OF_REVOLUTION`, `SURFACE_OF_LINEAR_EXTRUSION`, `OFFSET_SURFACE`.
 
-## Topology (B-rep)
+### Topology (B-rep)
 
 ```
 #100=MANIFOLD_SOLID_BREP('',#101);
@@ -283,7 +260,7 @@ A representation's items usually include an `AXIS2_PLACEMENT_3D` at the origin a
 - Edges are shared between faces, with each face using an edge through an `ORIENTED_EDGE`. The `*`s in `ORIENTED_EDGE` are its derived start and end vertices.
 - `BREP_WITH_VOIDS` adds inner shells. `OPEN_SHELL` occurs in surface models.
 
-# Products and their shapes
+## Products and their shapes
 
 The product structure ties a part's identity to its geometry. A minimal single part:
 
@@ -303,7 +280,7 @@ The product structure ties a part's identity to its geometry. A minimal single p
 - **`PRODUCT_DEFINITION`** (PD) is what assemblies and shapes attach to. One product may have several (for different life-cycle stages), but in CAD exports there is almost always one per product.
 - AP203 variants add `PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE` and many configuration-management entities (approvals, persons, dates, security classifications), which carry no geometry.
 
-## Linked representations
+### Linked representations
 
 Often the definition's own representation holds only a placement, and the geometry is in another representation linked by a `SHAPE_REPRESENTATION_RELATIONSHIP` (SRR) without a transformation:
 
@@ -315,9 +292,9 @@ Often the definition's own representation holds only a placement, and the geomet
 
 The order of `rep_1` and `rep_2` in such links varies, so treat them as undirected. A part may link several geometric representations: several bodies, a B-rep plus a tessellated alternative, or supplemental construction geometry.
 
-# Assemblies
+## Assemblies
 
-## The structure
+### The structure
 
 An assembly is a product whose definition is related to its components' definitions by **`NEXT_ASSEMBLY_USAGE_OCCURRENCE`** (NAUO):
 
@@ -327,7 +304,7 @@ An assembly is a product whose definition is related to its components' definiti
 
 The attributes are id, name, description, the relating (parent) definition, the related (child) definition and a reference designator. Each NAUO is one use of the child in the parent: a bolt used four times has four NAUOs. Root products are definitions that are nobody's child. Files may have several roots, for example several unconnected parts.
 
-## Placing a component: the implicit method
+### Placing a component: the implicit method
 
 The usual way to place an occurrence: a `CONTEXT_DEPENDENT_SHAPE_REPRESENTATION` (CDSR) connects the occurrence, through its own `PRODUCT_DEFINITION_SHAPE`, to a representation relationship carrying a transformation:
 
@@ -356,7 +333,7 @@ The conventions (PDM Schema Usage Guide, section 4.4.2):
 
 A `CARTESIAN_TRANSFORMATION_OPERATOR_3D` may replace the `ITEM_DEFINED_TRANSFORMATION`, but this is rare.
 
-## Placing a component: the explicit method (mapped items)
+### Placing a component: the explicit method (mapped items)
 
 The PDM Schema Usage Guide (section 4.4.1) gives a second way to place components, which represents the assembled geometry explicitly. It uses **`MAPPED_ITEM`**, STEP's general mechanism for placing a whole representation inside another as if it were one item (a block or instance reference, in CAD terms):
 
@@ -388,7 +365,7 @@ Mapped items also appear without any assembly:
 
 There is one trap for readers. A representation that contains mapped items also references, transitively, everything they map. A reader that collects "everything a representation references" as one part's geometry will include the mapped geometry. If it also places the mapped representations separately, that geometry is counted twice.
 
-## How real files deviate
+### How real files deviate
 
 Readers need to handle all of these:
 
@@ -397,7 +374,7 @@ Readers need to handle all of these:
 - **No NAUO at all**: an assembly expressed only as `MAPPED_ITEM`s in one representation, mapping other products' shapes. Treating each such mapped item as an occurrence recovers the structure.
 - **A `PRODUCT_DEFINITION_SHAPE` where a NAUO should name a `PRODUCT_DEFINITION`**: follow its `definition`.
 
-## External references
+### External references
 
 A large assembly may keep its parts in separate files. The component's definition is linked to a document:
 
@@ -410,7 +387,7 @@ A large assembly may keep its parts in separate files. The component's definitio
 
 The component's local representation then holds only a placement, and its geometry is in `bolt.stp`, relative to the referencing file. The CAx-IF practice on external references adds more detail, including document representation types and file formats.
 
-# Colours, styles and layers
+## Colours, styles and layers
 
 Presentation comes from ISO 10303-46. A **`STYLED_ITEM`** applies styles to one representation item (a solid, a shell, a face, a curve) or to a whole representation:
 
@@ -442,7 +419,7 @@ Presentation comes from ISO 10303-46. A **`STYLED_ITEM`** applies styles to one 
 - **Layers:** `PRESENTATION_LAYER_ASSIGNMENT(name, description, (items))` groups representation items (solids, faces, curves).
 - **Containers:** the `STYLED_ITEM`s are collected in a `MECHANICAL_DESIGN_GEOMETRIC_PRESENTATION_REPRESENTATION` or a `DRAUGHTING_MODEL`. Readers can find styled items directly; the container matters mainly to writers.
 
-# Validation properties
+## Validation properties
 
 CAD systems can record what they compute for the geometry, so the receiver can check its own reading:
 
@@ -469,7 +446,7 @@ CAD systems can record what they compute for the geometry, so the receiver can c
 
 Checking these against your own tessellation (volume, area, centroid) is the best free test of a reader. Some files record wrong values, though: zeros, unconverted units, and garbage centroids all occur.
 
-# Tessellated geometry (AP242)
+## Tessellated geometry (AP242)
 
 AP242 can carry triangle meshes, either instead of exact geometry or alongside it:
 
@@ -483,7 +460,7 @@ AP242 can carry triangle meshes, either instead of exact geometry or alongside i
 
 `TRIANGULATED_FACE` lists triangles explicitly. `COMPLEX_TRIANGULATED_FACE` uses triangle strips and fans. Indices are 1-based into the coordinates list, through the face's `pnindex` when present. A tessellated item may point to the exact face it approximates.
 
-# What real files look like
+## What real files look like
 
 A survey of several hundred real files (CAx-IF test files, NIST models, a large open-source CAD test set) shows the problems a robust reader must absorb. None of them should make a reader reject a file:
 
@@ -504,11 +481,11 @@ A survey of several hundred real files (CAx-IF test files, NIST models, a large 
 - **Placements among a representation's items** that no transformation uses, such as a `'MCS2'` machining frame. These are coordinate systems that go with the geometry, not transforms of it. At least one widely used reader moves the geometry by them anyway.
 - **Many unconnected root products** in one file, and products with no shape (material definitions, analysis models).
 
-# Complete examples
+## Complete examples
 
 The files below are complete and valid AP242 (the third shown without the parts it shares with the second). Their comments (`/* ... */`, allowed wherever whitespace is) say what each part of the file does. They were checked by reading them with OCCT (through the open-source `occt-import-js`), which gave the expected volumes (to within the tessellation's error), colours and placements.
 
-## A single part: a cylinder with a red top face
+### A single part: a cylinder with a red top face
 
 A cylinder is the smallest interesting B-rep: three faces, three edges, two vertices. The side face is bounded by the bottom circle, the **seam** line (the straight edge where the cylindrical surface closes on itself, used twice, once in each direction), and the top circle backwards. Each planar end face is bounded by one circle. The faces are oriented so that their normals point out of the solid. The bottom plane's placement faces $-z$, so `same_sense` can be `.T.` for every face. The whole solid is styled grey, and an `OVER_RIDING_STYLED_ITEM` makes the top face red.
 
@@ -615,7 +592,7 @@ Things to notice:
 - **Placements do double duty.** `#20` is both the part's origin placement and the placement of the bottom circle and of the cylindrical surface.
 - **Not every entity is referenced.** Nothing refers to `#2`, `#9` or `#90`. Readers find them by type: the product structure through `PRODUCT_DEFINITION`, the styles through `STYLED_ITEM`.
 
-## An assembly: a pin through a hole in a disc
+### An assembly: a pin through a hole in a disc
 
 Two parts placed by an assembly:
 - **The disc:** radius 20, height 5, with a through hole of radius 5.1. It adds two things the cylinder lacks:
@@ -818,7 +795,7 @@ Things to notice:
 - **The relationships follow the standard order:** `rep_1` is the component's representation, `rep_2` the assembly's, and `transform_item_1` lies in `rep_1`. Section 7 lists the variations real files use.
 - **Assembly-level colours:** to colour the pin differently in this assembly only, a `CONTEXT_DEPENDENT_OVER_RIDING_STYLED_ITEM` would list `#413` in its `style_context`.
 
-## The same assembly, placed by mapped items (the explicit method)
+### The same assembly, placed by mapped items (the explicit method)
 
 The pinned disc again, this time placed the explicit way (section 7). The assembly's representation holds a `MAPPED_ITEM` for each component, and each occurrence's own `SHAPE_DEFINITION_REPRESENTATION` holds its mapped item. There are no CDSRs and no `ITEM_DEFINED_TRANSFORMATION`s. The two parts are exactly as in the previous example, so they are left out here: the full file is that example with the assembly and occurrence sections replaced by these.
 
@@ -881,7 +858,7 @@ Things to notice:
 - **Each mapped item appears twice:** in the assembly's representation (`#105`), so the assembly's geometry is the placed components, and in its occurrence's representation (`#403`, `#413`), which ties it to the NAUO.
 - **The placements are the same ones the implicit version used** (`#107`, `#108`). Only the mechanism differs: `REPRESENTATION_MAP(#206,#205)` maps the disc from its origin, where the implicit version's `ITEM_DEFINED_TRANSFORMATION(#206,#107)` transformed it from there.
 
-# References
+## References
 
 - **CAx-IF / MBx-IF Recommended Practices** (https://www.mbx-if.org/home/cax/recpractices/): how to use the APs for real data. Each document has worked Part 21 examples. The most useful for reading files:
   - the PDM Schema Usage Guide (product structure and assemblies)
@@ -901,6 +878,4 @@ Things to notice:
   - stepcode
 - **ISO 10303-21** itself costs money from ISO, but the format is simple. Section 2 covers what readers meet in practice, and the edition 3 additions (anchors, references, several data sections, signatures) are rare in CAD exports.
 
-<!--PDFOFF the end of the width div opened above, for markdown only -->
 </div>
-<!--PDFON-->

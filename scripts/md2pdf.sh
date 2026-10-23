@@ -1,46 +1,27 @@
 #!/usr/bin/env bash
 
+# Markdown to PDF with Typst, styled by md2pdf.typ beside this script (which says how documents are written for it).
+# The Markdown stays the source: GitHub and browser Markdown viewers (e.g. https://github.com/simov/markdown-viewer,
+# with its Mermaid and MathJax options on) render it as it is, and only the PDF is built. Typst and its packages are
+# fetched once, pinned, by fetch-typst.sh into third_party/typst/; only Typst's own fonts are used, so the PDF is the
+# same on every machine. The input must be inside the repository (Typst reads files only under its root).
+#   scripts/md2pdf.sh in.md [out.pdf]   (default: in.pdf beside in.md)
+
 script_dir="$(cd -P "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
-
-# on OS X:
-# brew install --cask basictex
-# brew install pandoc
-# brew install skim # optional; skim is a PDF viewer with good support for editing workflow
-
-# the input document is written in github-flavored markdown
-# it's intended to be viewable in the following ways
-# * when served by github
-# * as a local file in a web browser with a markdown extension, e.g. https://github.com/simov/markdown-viewer
-# * when converted to PDF via pandoc with this script
-# this script pre-processes the file to handle directives like PDFOFF, PDFON, etc
+root="$(cd "$script_dir/.." && pwd)"
+typst_dir="$root/third_party/typst"
 
 if [ $# -lt 1 ]; then
   echo "USAGE: md2pdf.sh in.md [out.pdf]"
   exit 1
 fi
+in="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
+out=${2:-${1%.*}.pdf}
+case "$in" in
+  "$root"/*) ;;
+  *) echo "md2pdf.sh: $1 is outside the repository ($root)" >&2; exit 1 ;;
+esac
 
-if [ $# -lt 2 ]; then
-  out=${1%.*}.pdf 
-else
-  out=$2
-fi
-
-tmp=${1%.*}.tmp.md
-
-rm -f $tmp
-
-pdfon=true
-while IFS= read -r line || [ "$line" ]; do # https://unix.stackexchange.com/a/7012
-  if [[ "$line" =~ "PDFOFF" ]]; then pdfon=false; continue; 
-  elif [[ "$line" =~ "PDFON" ]]; then pdfon=true; continue;
-  elif [[ "$line" =~ "PDFBREAK" ]]; then printf '\pagebreak\n' >> $tmp; continue;
-  elif [[ "$line" =~ "PDFTOC" ]]; then printf '\\tableofcontents\n' >> $tmp; continue;
-  fi
-  #https://unix.stackexchange.com/a/65819
-  if [ "$pdfon" == "true" ]; then printf '%s\n' "$line" >> $tmp; fi
-done < "$1"
-
-pandoc -o $out -H $script_dir/md2pdf_preamble.tex -V geometry:margin=1in --number-sections \
-  --syntax-highlighting=idiomatic --variable colorlinks=true -V linkcolor=blue -V urlcolor=red -V toccolor=gray $tmp
-
-rm -f $tmp
+[ -x "$typst_dir/bin/typst" ] || "$script_dir/fetch-typst.sh" || exit 1
+"$typst_dir/bin/typst" compile --root "$root" --package-cache-path "$typst_dir/packages" --ignore-system-fonts \
+  --input md="${in#"$root"}" "$script_dir/md2pdf.typ" "$out"

@@ -17,6 +17,18 @@ The test corpus is separate: see `../test_corpus/README.md`. The system tools th
 
 Licenses: OCCT is LGPL-2.1 with the Open CASCADE exception, which is why the architecture isolates it in the `tess-occt` package; stepcode is BSD-3-Clause; truck is Apache-2.0. See "Licensing and provenance" in `../CLAUDE.md`.
 
+## Typst
+
+`../scripts/fetch-typst.sh` fetches what `../scripts/md2pdf.sh` needs to make PDFs of the Markdown documents into `typst/` here (git-ignored like the rest), pinned and checked against SHA-256 digests: the official Typst 0.15.1 release binary for the platform (https://github.com/typst/typst, Apache-2.0; macOS and Linux, arm64 and x86_64), and three Typst packages from https://packages.typst.org, unpacked where Typst's package cache expects them (`typst/packages/preview/<name>/<version>/`), so a build never downloads anything:
+
+| Package | Version | What it does | License |
+|---|---|---|---|
+| cmarker | 0.1.10 | CommonMark Markdown to Typst, inside Typst (a WebAssembly plugin) | MIT |
+| mitex | 0.2.7 | LaTeX math to Typst math (a WebAssembly plugin) | Apache-2.0 |
+| merman | 0.5.0 | Mermaid diagrams to SVG without a browser (a WebAssembly plugin of a headless Rust implementation of Mermaid) | MIT or Apache-2.0; its ELK layout component EPL-2.0 |
+
+They are build tools for documentation only; nothing ships with the packages. To move to new versions, change the pins (versions and digests) in `fetch-typst.sh`; the Typst release's digests are on its GitHub release page, the packages' are those of `https://packages.typst.org/preview/<name>-<version>.tar.gz`. cmarker and merman need Typst 0.15 or later.
+
 ## A custom OCCT build for tess-occt
 
 The OCCT backend (`../packages/tess-occt`) is our wrapper, `native/occt_tess.cpp`, and OCCT compiled together into one Emscripten module; its TypeScript side calls the wrapper's C functions, not OCCT's classes. A host that builds OCCT itself (to bind more of OCCT for its own use, to pin another commit, to ship one module instead of two) can have the backend use that build instead of ours, as long as the wrapper is linked into it. An OCCT module without the wrapper (`occt-import-js`, `opencascade.js`, a host's own bindings) can't be used: the wrapper's work could in principle be redone from JavaScript through bindings of the same OCCT classes, but that was decided against (2026-10-23), for the speed of copying meshes out one node at a time and the per-object memory management.

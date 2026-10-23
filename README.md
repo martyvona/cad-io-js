@@ -1,20 +1,13 @@
 <!--
-This file is GitHub-flavoured Markdown, and also converts to PDF with `scripts/md2pdf.sh README.md` (pandoc and LaTeX). That script passes the contents of the comments marked with its directives through to pandoc, and leaves out the lines between its "PDF OFF" and "PDF ON" directives (written without the space; see the header of step_tutorial.md). Here that gives the PDF its own title page and table of contents in place of the Markdown title and contents list.
+This file is GitHub-flavoured Markdown: GitHub and browser Markdown viewers render it as it is, and `scripts/md2pdf.sh README.md` makes a PDF of it with Typst (see scripts/md2pdf.typ). The PDF gets a title page with a detailed table of contents from the comment that follows the title, and leaves out the short contents list below, which is between the two "typst-...-exclude" comments.
 -->
 
-<!--PDFOFF title for Markdown -->
 # cad-io-js
 
-<!--PDFON title and table of contents for PDF rendering
-\title{cad-io-js}
-\date{\today}
-\maketitle
-\renewcommand{\thesubsection}{\arabic{subsection}}
-\renewcommand{\thesubsubsection}{\thesubsection.\arabic{subsubsection}}
-\lstset{basicstyle=\ttfamily\scriptsize}
-\renewcommand{\passthrough}[1]{{\lstset{basicstyle=\ttfamily}#1}}
-PDFTOC
-PDFBREAK-->
+<!--raw-typst
+#outline()
+#pagebreak()
+-->
 
 Reading CAD files into memory, and converting them, in TypeScript for Node.js and browsers. Today that means [STEP](./step_tutorial.md) (ISO 10303-21 files of AP203, AP214 and AP242):
 
@@ -50,7 +43,7 @@ fs.writeFileSync('bracket.glb', bytes);
 
 (Until the packages are on npm, code like this runs inside the repository, where the workspace resolves the package names.)
 
-<!--PDFOFF contents for Markdown -->
+<!--typst-begin-exclude-->
 Contents:
 
 * [Building From Source](#building-from-source)
@@ -63,7 +56,7 @@ Contents:
 * [Roadmap](#roadmap)
 * [Backlog](#backlog)
 * [License](#license)
-<!--PDFON-->
+<!--typst-end-exclude-->
 
 The decisions behind the design and the lessons learned are in [`CLAUDE.md`](CLAUDE.md) (the detailed history of the work up to 0.1.0 is in its version at tag `V0.1.0`); [`CHANGELOG.md`](CHANGELOG.md) lists the releases; [`step_tutorial.md`](step_tutorial.md) is a tutorial on STEP AP203/214/242 in practice.
 
@@ -88,7 +81,7 @@ None of these comes with the repository. `source env.sh` (below) checks every on
 | Rust, cargo | 1.85+ (edition 2024), with the `wasm32-unknown-unknown` target | the truck backend |
 | wasm-pack | 0.15.0 | its `wasm-opt` optimizes the truck module |
 | python3 with `venv` | 3.8+, optional | extracting the JT specifications' text; the `VBernstein` patch's tests |
-| pandoc and LaTeX | optional | `scripts/md2pdf.sh` (the tutorial's PDF, and this README's) |
+| Typst | 0.15.1, fetched | `scripts/md2pdf.sh` (PDFs of the Markdown documents); not installed on the system: `scripts/fetch-typst.sh` fetches the official binary and the Typst packages it uses, pinned and checksummed, into `third_party/typst/` (`md2pdf.sh` does so itself on first use) |
 
 The project was built and tested with Node 24.5, Emscripten 6.0.12, Rust 1.99.1 and wasm-pack 0.15.0 on an M-series Mac.
 
@@ -129,6 +122,8 @@ node corpus_checks/make_subsets.ts $G/Median_cx-fs01_bicycle.stp test_corpus/sub
 ```
 
 Then run any check, for example `node corpus_checks/writer_corpus.ts`; [Corpus Checks](#corpus-checks) below describes each one with its command line.
+
+**The documents** are GitHub-flavoured Markdown, readable as they are on GitHub and in browser Markdown viewers (such as [markdown-viewer](https://github.com/simov/markdown-viewer), with its Mermaid and MathJax options on). `scripts/md2pdf.sh README.md` (or `step_tutorial.md`) makes a PDF with Typst, with no other tools: no pandoc, LaTeX or browser. Diagrams are Mermaid (` ```mermaid ` blocks), math is LaTeX (`$...$`, `$$...$$`); how a document is written for the PDF is in `scripts/md2pdf.typ`.
 
 Details: [`third_party/README.md`](third_party/README.md) (the pinned dependencies), [`test_corpus/README.md`](test_corpus/README.md), [`corpus_checks/README.md`](corpus_checks/README.md).
 
@@ -279,27 +274,29 @@ Parts that fail to tessellate don't fail the run; they are in the summary (with 
 
 An npm workspace of 13 packages. Arrows point from a package to what it uses.
 
+```mermaid
+flowchart TD
+  cli["cli: step2json, stepconv"]
+  imp["step-import"]
+  parser["step-parser"]
+  schemas["step-schemas"]
+  ljson["lexical-json"]
+  tess["tess-cache, tess-workers,<br/>tess-occt, tess-truck"]
+  exp["export-threejs, export-gltf,<br/>export-3mf"]
+  scene["cad-scene"]
+  cli --> imp & tess & exp
+  cli --> parser
+  imp --> parser & scene
+  parser --> schemas & ljson
+  tess --> scene
+  exp --> scene
+  tess --> wasm["OCCT 8.1, truck<br/>(WebAssembly)"]
+  exp --> libs["glTF-Transform, fflate"]
 ```
-+------------------------------------ cli (cad-io-cli) -------------------------------------+
-|      step2json                                                   stepconv                 |
-+-------+-------------------------------+---------------------+------------------+----------+
-        |                               |                     |                  |
-        v                               v                     v                  v
-+--------------+            +--------------+  +--------------------------+  +-----------------+
-| step-parser  |<-----------+ step-import  |  | tess-cache  tess-workers |  | export-threejs  |
-| Layers 1-3,  |            +------+-------+  | tess-occt   tess-truck   |  | export-gltf ----+--> glTF-Transform
-| writer, JSON |                   |          +----+------------+--------+  | export-3mf -----+--> fflate
-+--+--------+--+                   |               |            |           +--------+--------+
-   v        v                      v               v            v                    v
-+------+ +--------+     +-------------------------------------------------------------------+
-|step- | |lexical-|     | cad-scene: the scene model, the tessellator interface,            |
-|schem-| |json    |     |            tessellateScene, exportView, mesh helpers              |
-|as    | +--------+     +-------------------------------------------------------------------+
-+------+
- EXPRESS dictionaries          tess-occt  --> OCCT 8.1, WebAssembly (our build of third_party/OCCT)
- (generated from stepcode's    tess-truck --> truck, WebAssembly (our Rust wrapper over third_party/truck)
-  EXPRESS schemas)
-```
+
+- **`step-parser`:** Layers 1 to 3 of STEP reading, the Part 21 writer and raw JSON. **`step-schemas`:** the EXPRESS dictionaries, generated from stepcode's EXPRESS schemas. **`lexical-json`:** JSON that keeps integers and reals apart.
+- **`cad-scene`:** the scene model, the tessellator interface, `tessellateScene`, `exportView` and the mesh helpers.
+- **The backends:** `tess-occt` is our build of OCCT 8.1 (`third_party/OCCT`) as WebAssembly; `tess-truck` is our Rust wrapper over truck (`third_party/truck`), likewise.
 
 - **No runtime dependencies** in `step-schemas`, `lexical-json`, `step-parser`, `cad-scene`, `step-import`, the tessellation packages and `export-threejs`. `export-gltf` uses glTF-Transform (MIT) and `export-3mf` fflate (MIT).
 - **The EXPRESS dictionaries** are generated by `step-schemas`' own EXPRESS parser from the AP203, AP214 and AP242 schemas in stepcode (`third_party/stepcode`, fetched by `third_party/pull.sh`), and committed as JSON (`packages/step-schemas/dict/`). Generating them is a development step (`npm run gen -w step-schemas`, needed only to change them); stepcode is needed neither to build nor to run. The dictionaries themselves are needed at run time, and ship in the `step-schemas` package: Layer 2 (`openModel`) loads the one a file's `FILE_SCHEMA` names, plus AP242 as the fallback for unknown entities, by dynamic JSON imports, so only those are fetched (in a browser, a bundler makes them separate chunks). Everything that binds names needs them: the semantic layer, the importer, `step2json -m semantic` and `stepconv`; Layer 1 (scanning, decoding, the writer, raw JSON) doesn't.
@@ -308,93 +305,85 @@ An npm workspace of 13 packages. Arrows point from a package to what it uses.
 
 ### From a STEP File to a Mesh File
 
+```mermaid
+flowchart TD
+  file["file.stp or .stpZ"] --> parser["step-parser: Layers 1-3"]
+  parser -.-> json["Part 21, raw JSON,<br/>semantic JSON"]
+  parser --> scene["step-import: the scene"]
+  scene --> tess["tessellateScene:<br/>cache, workers, backend"]
+  tess --> meshes["meshes, repaired in memory"]
+  meshes --> view["exportView"]
+  view --> out["three.js, glTF, 3MF exporters"]
 ```
-  file.stp / .stpZ --readBytes (gunzip)--> bytes
-        |
-        v  step-parser
-  Layer 1  scan: one pass over the bytes -> InstanceIndex (ids, byte ranges, types, references; typed arrays)
-           decode: one instance's bytes -> Instance (lazily, on demand)        --> writer (Part 21), raw JSON
-  Layer 2  openModel: the FILE_SCHEMA's dictionary (+ AP242 fallback) -> names, types, reverse references, checks
-  Layer 3  extractSemantics: products, occurrences + placements, units, styles, layers, validation properties
-        |                                                                       --> semantic JSON (step2json)
-        v  step-import
-  Scene: components placed by occurrences, parts (one per shape representation, each with a STEP subset payload
-         and an origin), materials resolved from styles, layers, overrides, names, properties
-        |
-        v  cad-scene: tessellateScene (one request per brep part, deflection in the part's unit)
-  CachedTessellator (tess-cache) -> WorkerTessellator (tess-workers) -> OcctTessellator | TruckTessellator
-        | meshes: Float32 positions minus the part's origin, face ranges with STEP face ids, edges, curves, points
-        | mesh repairs (for imperfect input, in memory): degenerate triangles dropped, inside-out shells turned over
-        v  cad-scene: exportView
-  looks (a part and its materials), groups by material, the instance tree with transforms
-        |
-        v  export-threejs | export-gltf | export-3mf
-  .json | .glb / .gltf + .bin | .3mf                                                   (stepconv)
-```
+
+1. **Layer 1** (`step-parser`) scans the bytes once into an `InstanceIndex` (ids, byte ranges, types, references, in typed arrays) and decodes an instance only when asked for it. The writer and raw JSON work at this level.
+2. **Layer 2** (`openModel`) adds the `FILE_SCHEMA`'s dictionary (and AP242's as the fallback): names, types, reverse references, value checks.
+3. **Layer 3** (`extractSemantics`) reads products, occurrences and their placements, units, styles, layers and validation properties; `step2json -m semantic` writes them.
+4. **`step-import`** builds the scene: components placed by occurrences, parts (one per shape representation, each with a STEP subset as its payload and an origin), materials resolved from styles, layers, overrides, names and properties.
+5. **`tessellateScene`** sends one request per brep part (the deflection in the part's unit) through the cache, the worker pool and a backend (`CachedTessellator`, `WorkerTessellator`, `OcctTessellator` or `TruckTessellator`), and gets back meshes: `Float32` positions minus the part's origin, face ranges with STEP face ids, edges, curves and points. It repairs them in memory: degenerate triangles dropped, inside-out shells turned over.
+6. **`exportView`** computes the looks (a part and its materials), the triangle groups by material and the instance tree with transforms; the exporters write `.json`, `.glb` or `.gltf` and `.bin`, or `.3mf` (all of it is what `stepconv` runs).
 
 The mesh repairs fix what imperfect files give the backends (shells written inside out, faces that mesh to slivers), so they belong to the scene's meshes rather than to any one exporter: every consumer of `tessellateScene`'s meshes, a viewer included, gets them, each with a diagnostic, and each can be turned off.
 
 ### step-parser
 
+```mermaid
+flowchart TD
+  bytes --> scan["scan.ts: pass 1"]
+  scan --> index["InstanceIndex"]
+  index --> decode["decode.ts, strings.ts: pass 2"]
+  index --> file["file.ts: StepFile"]
+  file --> write["write.ts: Part 21"]
+  file --> json["json.ts: raw JSON, NDJSON"]
+  file --> subset["subset.ts: subsets"]
+  file --> bind["bind.ts: StepModel"]
+  bind --> extract["extract/: semantics"]
 ```
- bytes -> scan.ts (pass 1, ~230 MB/s) -> InstanceIndex: per instance id, start, end, type; all references in one
-           sections, header, instances     Uint32Array; id lookup by dense table or binary search
-              |
-              +-> decode.ts / strings.ts (pass 2, ~140 MB/s): Instance = {id, type, attrs: Value[]}
-              |     Value: int | real | str | enum | ref | bin | unset | derived | list | reals | ints | refs | typed
-              |     (lists of one kind of number or of references are typed arrays from 16 elements)
-              |
-              +-> file.ts: StepFile (header, schemas, data sections, instance(id), sourceBytesAt(p))
-              +-> write.ts: StepDocument -> Part 21 byte chunks (verbatim byte copies for subsets)
-              +-> json.ts: raw JSON / NDJSON both ways (numbers by lexical-json)
-              +-> subset.ts: closure(roots), buildSubset (bytes copied, original #ids), danglingRefs
-              +-> bind.ts: StepModel (step-schemas dictionaries): types, isInstanceOf, instancesOf, referrers,
-              |            bind(p) -> named, typed attributes; optional value checks
-              +-> extract/: Reader over the model -> units, placement (ISO 10303-42), products (tree, placements,
-                            representations, instances), styles (effectiveStyle), properties -> semanticJson
-```
+
+- **`scan.ts`** (pass 1, about 230 MB/s) finds the sections, the header and every instance: per instance its id, start, end and type, and all references in one `Uint32Array`; ids are looked up in a dense table or by binary search.
+- **`decode.ts`, `strings.ts`** (pass 2, about 140 MB/s, on demand): an `Instance` is `{id, type, attrs: Value[]}`, a `Value` one of `int`, `real`, `str`, `enum`, `ref`, `bin`, `unset`, `derived`, `list`, `reals`, `ints`, `refs`, `typed` (lists of one kind of number, or of references, are typed arrays from 16 elements).
+- **`file.ts`:** `StepFile`, with the header, schemas, data sections, `instance(id)` and `sourceBytesAt(p)`.
+- **`write.ts`:** a `StepDocument` to Part 21 byte chunks (subsets copy instances' bytes as they are). **`json.ts`:** raw JSON and NDJSON, both ways (numbers through `lexical-json`). **`subset.ts`:** `closure(roots)`, `buildSubset` (bytes copied, original `#` ids kept), `danglingRefs`.
+- **`bind.ts`:** `StepModel`, over the `step-schemas` dictionaries: `types`, `isInstanceOf`, `instancesOf`, `referrers`, and `bind(p)` for named, typed attributes with optional value checks.
+- **`extract/`:** a `Reader` over the model for units, placements (ISO 10303-42), products (the tree, placements, representations, instances), styles (`effectiveStyle`) and properties, and `semanticJson`.
 
 Every problem is a diagnostic: lexical tolerances in Layer 1 (lone apostrophes, OCCT's escape leniencies, empty parameters), unknown entities and schema violations in Layer 2 (bound by position), odd placements and units in Layer 3. Nothing fails a whole file but unreadable input.
 
 ### Scene Model (cad-scene)
 
+```mermaid
+flowchart TD
+  scene["Scene (millimetres)"] --> roots["roots: Occurrence[]"]
+  roots --> comp["Component"]
+  comp -->|"children: Occurrence[]"| comp
+  comp --> refs["parts: PartRef[]"]
+  refs --> parts["parts: Part[]<br/>brep, mesh or curves"]
+  scene --> parts
+  scene --> mats["materials, layers, overrides"]
+  scene --> props["properties, diagnostics"]
 ```
- Scene (millimetres)
-  +- roots: Occurrence[] ---------------> Component (one per product definition)
-  |   (component, transform, name)         +- parts: PartRef[] (part, transform, material, visible)
-  |                                        +- children: Occurrence[] --> Component ...  (stored once, placed often)
-  |                                        +- external?, material?, name, sources, properties
-  +- parts: Part[]   brep:  payload() (a STEP subset), format, rootId     -+ each in its own unit, with
-  |                  mesh:  levels of detail                               + an origin near its geometry,
-  |                  curves: polylines                                    -+ a material and per-face materials
-  +- materials (sRGB, opacity), layers (parts, faces), overrides (by occurrence path: material, visibility)
-  +- properties, diagnostics
 
- instances(scene) / partInstances(scene): the expanded tree; each placed part's world transform, material, per-face
- materials and visibility, resolved top down as the CAx-IF practice has it
-```
+- **A component** is one product definition, stored once and placed by any number of occurrences (each with the component, a transform and a name); it has its part references (part, transform, material, visibility), its child occurrences, and optionally an external reference, a material, a name, sources and properties.
+- **A part** is a `brep` part (`payload()`, a STEP subset, with its format and root id), a `mesh` part (levels of detail) or a `curves` part (polylines); each is in its own unit, with an origin near its geometry, a material and per-face materials.
+- **Materials** are sRGB with opacity; **layers** name parts and faces; **overrides** change one instance's material or visibility, by its occurrence path.
+- **`instances(scene)` and `partInstances(scene)`** expand the tree: each placed part's world transform, material, per-face materials and visibility, resolved top down as the CAx-IF practice has it.
 
 A part is one shape representation with geometry, the unit of tessellation and caching; a product spanning several representations has several part references. Lengths are millimetres; each part's geometry stays in its own unit and the transforms convert. Meshes (`Mesh`) are `Float32` positions minus the part's origin, chosen from the part's own points so that parts far from their origin keep their precision.
 
 ### Tessellation
 
+```mermaid
+flowchart TD
+  ts["tessellateScene"] -->|"a request per brep part"| cache["CachedTessellator<br/>(tess-cache)"]
+  cache -->|miss| pool["WorkerTessellator<br/>(tess-workers)"]
+  pool --> backend["OcctTessellator or TruckTessellator,<br/>in each worker"]
+  backend --> result["TessellationResult"]
 ```
- tessellateScene(scene, tessellator, {linearDeflection, angularDeflection, edges, concurrency, ...})
-   for each brep part: TessellationRequest {format, data (subset), rootId, origin, deflections in the part's unit}
-        |
-        v
- CachedTessellator (tess-cache)    key: SHA-256 of backend name + version (with the module's hash) + request + payload
-        | miss                     store: memory / directory (Node) / IndexedDB (browser), LRU, max size, 0 = off;
-        v                          failures and timeouts cached too
- WorkerTessellator (tess-workers)  a pool of worker_threads / Web Workers, one request each; per-request timeout
-        |                          terminates a stuck worker; a worker replaced after a trap or above 256 MiB
-        v
- OcctTessellator (tess-occt) | TruckTessellator (tess-truck)   in each worker; results' buffers transferred
-        |
-        v
- TessellationResult: positions, normals, indices, faces (index ranges with STEP face ids), edges (polylines with ids,
-                     kinds shared/seam/free/degenerate, dihedral angles), curves and points (wireframes, with ids)
-```
+
+- **The request** (`TessellationRequest`): the payload's format and data (the subset), its root id, the origin, and the deflections in the part's unit; `tessellateScene` takes the deflections in millimetres, whether to return edges, and how many requests to keep in flight.
+- **The cache** keys each result by a SHA-256 of the backend's name and version (with its module's hash), the request and the payload; its stores are memory, a directory (Node) or IndexedDB (browsers), least-recently-used within a maximum size (0 turns it off), and failures and timeouts are cached too.
+- **The worker pool** runs one request per worker (`worker_threads` or Web Workers), terminates a worker whose request runs over the time limit, and replaces a worker after a trap or above 256 MiB; results' buffers are transferred, not copied.
+- **The result:** positions, normals, indices, faces (index ranges with STEP face ids), edges (polylines with ids, their kinds (shared, seam, free, degenerate) and dihedral angles), and wireframe curves and points with their ids.
 
 Each layer is itself a `Tessellator`, so they compose, and each can be used alone (a backend on the main thread, a pool without a cache).
 
@@ -402,7 +391,7 @@ Each layer is itself a `Tessellator`, so they compose, and each can be used alon
 
 **The truck backend** (`native/src/lib.rs`, plain C ABI, `wasm32-unknown-unknown`): over truck unchanged, it builds the shells itself so every face and edge keeps its STEP id, meshes them, welds truck's per-corner attributes into an indexed mesh, and implements workarounds to improve results on real-world files (listed in `CLAUDE.md`). A panic costs only its part: the instance is re-instantiated.
 
-**OCCT against truck** on the corpus. Quality, part by part at 0.05 mm (`corpus_checks/truck_occt.ts`): truck's meshes are complete and on OCCT's geometry for 2,587 of the 3,098 parts OCCT meshes (83.5%); over all parts, 2.4% of OCCT's faces are missing from truck's meshes (980 failed to mesh, 519 not converted), and some parts come back empty (geometric sets, triangulated faces, surfaces truck doesn't support); cones, surfaces of revolution and rational B-splines are where it goes wrong most. Size: its module is 326 kB brotli against OCCT's 2.18 MB. Speed, with `stepconv`'s defaults (0.1 mm, 0.5 rad, a worker pool; `corpus_checks/backend_speed.ts`), as example timings on a basic laptop (an Apple M4, 9 workers): on the 2,921 parts both mesh, truck takes 89 s of the workers' time against OCCT's 198 s (2.2 times as fast; a median of 1.7 times per part, more for larger parts), and makes 26% fewer triangles at these settings (it ignores the angular deflection). But 9 parts hang truck until the 120 s timeout, and one more fails after 51 s, so converting every file took 1,191 s with truck against 157 s with OCCT; without those 10 files, 60 s against 153 s. truck meshes 204 fewer parts than OCCT, and one OCCT doesn't.
+**OCCT against truck** on the corpus. Quality, part by part at 0.05 mm (`corpus_checks/truck_occt.ts`): truck's meshes are complete and on OCCT's geometry for 2,587 of the 3,098 parts OCCT meshes (83.5%); over all parts, 2.4% of OCCT's faces are missing from truck's meshes (980 failed to mesh, 519 not converted), and some parts come back empty (geometric sets, triangulated faces, surfaces truck doesn't support); cones, surfaces of revolution and rational B-splines are where it goes wrong most. Size: its module is 326 kB brotli against OCCT's 2.18 MB. Speed, with `stepconv`'s defaults (0.1 mm, 0.5 rad, a worker pool; `corpus_checks/backend_speed.ts`), as example timings on a basic laptop (an Apple M4, 9 workers): on the 2,921 parts both mesh, truck takes 89 s of the workers' time against OCCT's 198 s (2.2 times as fast; a median of 1.7 times per part, more for larger parts), and makes 26% fewer triangles at these settings (it ignores the angular deflection). But 9 parts hang truck until the time limit (120 s when this was measured; the default is now 40 s), and one more fails after 51 s, so converting every file took 1,191 s with truck against 157 s with OCCT; without those 10 files, 60 s against 153 s. truck meshes 204 fewer parts than OCCT, and one OCCT doesn't.
 
 ### Exporters
 

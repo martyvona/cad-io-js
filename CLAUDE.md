@@ -20,7 +20,7 @@ Notes for working on cad-io-js: how work is done here, the decisions behind the 
 | `third_party/` | `pull.sh` fetches OCCT, stepcode, truck, the MBx-IF recommended practices and the JT specifications (`jt/`), all ignored |
 | `workdir/` | git-ignored: deep dives, progress notes and measurement records that don't belong in git history (since 2026-10-23); findings worth keeping still go in this file or the README |
 | `env.sh` | `source env.sh`: checks and sets up the toolchain |
-| `scripts/md2pdf.sh` | Markdown to PDF (the tutorial) |
+| `scripts/md2pdf.sh` | Markdown to PDF with Typst (`md2pdf.typ` the style, `fetch-typst.sh` the pinned Typst and packages, into `third_party/typst/`) |
 | `step_tutorial.md` | a tutorial on STEP in practice (edited separately) |
 
 ### Commands
@@ -39,6 +39,7 @@ Notes for working on cad-io-js: how work is done here, the decisions behind the 
 - Problems in input are diagnostics (`{severity, message, source}`), never throws; throws are for caller bugs.
 - Large data: typed arrays, output in chunks (generators of strings or byte arrays) with backpressure; nothing may need one string near V8's limit (2^29 − 24 characters).
 - Deterministic output: the same input gives the same bytes (uuids, zip dates, ordering).
+- **Markdown documents** (the user, 2026-10-23): `#` is the document's title and `##` its top-level sections, in every Markdown file; diagrams are Mermaid `flowchart TD` (top-down) with concise labels, details in the prose around them; math is LaTeX (`$...$`, `$$...$$`). Documents must render as they are on GitHub and in browser viewers (markdown-viewer with Mermaid and MathJax on): PDF-only content goes in `<!--raw-typst ...-->` comments (the title page's `#outline()`), Markdown-only content between `<!--typst-begin-exclude-->` and `<!--typst-end-exclude-->` (the short contents list); see `scripts/md2pdf.typ`.
 - Lengths in the scene are millimetres; matrices column-major `Float64Array`; mesh positions `Float32Array` minus the part's origin.
 
 ### How the user wants work done
@@ -84,6 +85,7 @@ Made by the user unless marked; the alternatives considered are at `V0.1.0` (abo
 - The project is cad-io-js (renamed from step_js, 2026-10-17), since JT and IGES are planned; STEP packages keep their names.
 - Raw JSON favours clarity and extensibility over size; lexical numbers (2026-10-17), not context-typed ones (context can't decide every number, and loading would need the schema).
 - The scene's unit is the millimetre (2026-10-17; first metres); a part is one shape representation with geometry; positions become `Float32` in the backend after subtracting a per-part origin, in double precision; the importer is its own package, `step-import`.
+- Markdown to PDF with Typst (2026-10-23): the official Typst 0.15.1 binary, pinned and checksummed (`scripts/fetch-typst.sh`), with the Typst packages cmarker (Markdown), mitex (LaTeX math) and merman (Mermaid, headless; no browser); pandoc and LaTeX dropped. Goals: Markdown that renders unchanged on GitHub and in browser viewers, a short Markdown contents list and a detailed PDF one, Mermaid `flowchart TD` diagrams, LaTeX math, no pandoc, LaTeX or browser. Alternatives: typst.ts's npm compiler (`@myriaddreamin/typst-ts-node-compiler`; pure npm, but Typst 0.15 only in a release candidate, 0.8.0-rc3), a preprocessing pass plus tex2typst (unneeded: cmarker's comments replace the old PDFOFF/PDFON preprocessing, and mitex converts the math inside Typst). Mermaid renderers without a browser are all young (2025-26): merman chosen for its parity checks against upstream Mermaid and its Typst package; mmdr, oxdraw, Pele and mermaidx (real mermaid.js in QuickJS, Python) considered; mature tools (Graphviz, D2, Typst's fletcher) don't render on GitHub. Only Typst's embedded fonts are used (`--ignore-system-fonts`), so PDFs are the same on every machine; diagram labels are set in Libertinus Serif (merman measures text by fixed estimates, which overflowed boxes in the monospace fallback). Prototype and notes: `workdir/2026-10-23_md2pdf/`.
 - Custom OCCT builds must link our wrapper (`occt_tess.cpp`); a JavaScript adapter over another build's OCCT bindings was rejected for its per-node calls and manual memory management. Backends take a host's module through `init` (`glue`, `wasm`, `version`; a compiled module needs `version`, since it has no bytes to hash for the cache key) (2026-10-23).
 - The tessellator interface stays per part: a "load once, tessellate many" session API was rejected (2026-10-17).
 - The worker host is its own package, `tess-workers`, with conditional exports per environment.
