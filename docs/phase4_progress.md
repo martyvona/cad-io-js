@@ -33,7 +33,7 @@ A shared helper in `cad-scene`, `exportView` (step 1), computes the looks, their
 | 3a | **Detour: dangling references** (`step-parser`, `step-import`): the importer warns per part of references to instances the file doesn't define, which only OCCT's messages showed before | **Done** 2026-10-21 |
 | 4 | **glTF/GLB** (`export-gltf`): glTF 2.0, a mesh per look reused across nodes, the node tree following the instance tree, metadata in `extras`, a root node scaling millimetres to metres and turning Z-up to Y-up; materials as `pbrMetallicRoughness` base colours (sRGB → linear) with alpha blending for transparent ones; edges and curves as `LINES`, points as `POINTS`, on request (decision 2). Checked with the Khronos glTF-Validator (dev dependency) on every corpus file | **Done** 2026-10-21 |
 | 5 | **3MF** (`export-3mf`): the core spec with colours (`basematerials`, or `colorgroup`); vertices welded by position across faces so solids come out manifold, and meshes that still aren't manifold left out with a warning, or written as `surface` objects by option (decision 3); components for the assembly tree (an assembly node with its own geometry split into a mesh object and a component object, `architecture.md`); `unit="millimeter"`; zipped with fflate. Checked with lib3mf (the 3MF Consortium's WASM build, `@3mfconsortium/lib3mf`, BSD-2-Clause, dev dependency) | **Done** 2026-10-22 |
-| 6 | **Corpus checks:** every corpus file through `stepconv` in all three formats, with each format's validator, counts against the scene, and timings (import, tessellation, export) | Planned |
+| 6 | **Corpus checks:** every corpus file through `stepconv` in all three formats, with each format's validator, counts against the scene, and timings (import, tessellation, export) | **Done** 2026-10-23 |
 
 Order: as `architecture.md` has it. The export view comes first because all three exporters use it; `stepconv` comes right after the first exporter.
 
@@ -288,6 +288,41 @@ Choices made here, for the user's review:
 | Unit | millimetre, vertices in the part's unit scaled by the transforms | vertices in millimetres (transforms without scale) |
 | Lines and double-sided faces with 3MF | usage errors in `stepconv` | ignored silently |
 | Compression | deflate level 6 | level 9; stored |
+
+## Step 6: corpus checks through `stepconv`
+
+### Decisions
+
+1. **How the check runs `stepconv`. Decided by the user (2026-10-22): both ways.** `stepconv`'s `main` in the check's process for every corpus file and format, and the bin spawned on a sample (20 files spread over the list, in every format), its outputs byte-identical to `main`'s. A spawned run of the bin costs about 2 s more than the summary's times (process start, loading the modules and the backend), so spawning for all 517 files × 4 formats would take 1.5–2 hours; in process, each run still starts its own worker pool. (Alternatives: spawning only; in process only.)
+2. **Options. Decided by the user (2026-10-22): `stepconv`'s defaults**, what a user gets with no flags: three.js single-sided without edges or curves, glTF without hidden instances, 3MF without open meshes or hidden instances. The per-format checks of steps 2–5 cover the optional output. (Alternatives: everything on (`--edges --curves --keep-hidden --3mf-surfaces`); both.)
+
+### The check
+
+`../corpus_checks/stepconv_corpus.ts`. Each file is imported and tessellated in the check too (OCCT through a pool, `stepconv`'s defaults), for the export view the outputs should come from; then `stepconv -o model.<ext>` for `.json`, `.glb`, `.gltf` (with its `.bin`) and `.3mf`, and per format:
+- exit 0, nothing on standard output, and the summary's parts, tessellated parts, placed parts and triangles equal the scene's and the view's;
+- the output read back with the format's own tools: three.js's `ObjectLoader`; the Khronos glTF-Validator (errors are problems) and glTF-Transform for GLB and for glTF with its `.bin`; lib3mf in strict mode;
+- the placed parts in tree order with their triangle counts as each format's defaults have them: three.js every placed part with triangles, hidden ones invisible; glTF the visible ones; 3MF the visible ones whose welded mesh is a closed, oriented manifold of positive volume;
+- in the sample, the bin's exit code, standard output, summary (but for the times) and output files the same as `main`'s; its wall time less the summary's times is the startup.
+
+It prints per format the sizes and the summary's import, tessellation and export times, the validator's issues, the startup and the slowest runs.
+
+**Found on the way** (in the check, not in `stepconv`): the validator misreads a `.gltf`'s `.bin` handed to it as a Node `Buffer` (a view into a larger pooled buffer; it reads the whole `ArrayBuffer`), giving bogus accessor errors; a copied `Uint8Array` reads right.
+
+**Planted bugs** (11 files: the list's first 10 and `nist_ctc_02_asme1_ap242-e2.stp`, which has a hidden instance; sample 1): hidden instances kept by default, 2 problems (glTF; in 3MF the hidden part is an open mesh, left out either way); 3MF surfaces by default, 2; a triangle more per placed part in the summary, 44; three.js hidden instances visible, 1; glTF a triangle short per group, 102; clean, 0.
+
+**Corpus** (`../corpus_checks/stepconv_corpus.ts`, log `stepconv_corpus.log`; on AC power, low power mode off, checked before and after; a first run was stopped when the Mac went to battery in low power mode): all 517 files (max 1000 MB), 4 formats, 20 files also through the bin: **0 problems**, 1198 s in all.
+
+| Format | Size | Placed parts | Triangles | Import | Tessellation | Export | `main` in all |
+|---|---|---|---|---|---|---|---|
+| three.js `.json` | 929.1 MB | 4857 | 17,693,282 | 6.0 s | 199.1 s | 14.6 s | 219.1 s |
+| `.glb` | 411.1 MB | 4854 | 17,693,102 | 5.9 s | 197.0 s | 0.8 s | 203.1 s |
+| `.gltf` + `.bin` | 411.1 MB | 4854 | 17,693,102 | 5.8 s | 197.9 s | 0.8 s | 203.3 s |
+| `.3mf` | 190.0 MB | 2777 | 15,436,152 | 5.9 s | 197.2 s | 33.4 s | 237.6 s |
+
+- **Counts:** 4857 placed parts with triangles, 3 of them hidden: three.js has all, invisible where hidden; glTF the 4854 visible; 3MF the 2777 visible ones that are closed solids (2077 visible ones aren't: open B-rep shells, as the step 5 survey found, and non-manifold meshes), left out with their warnings by default. With `--3mf-surfaces --keep-hidden` the step 5 check has all 4857.
+- **Validator:** no issues at all with the defaults (step 4's `UNSUPPORTED_EXTENSION` infos came from `KHR_node_visibility`, used only for kept hidden instances).
+- **Times:** tessellation is nearly all of a run (OCCT through each run's own pool of 9 workers); exporting is under 1 s for glTF, 15 s for three.js (building the JSON text) and 33 s for 3MF (welding, the XML text and deflating). The slowest runs are `as1_motor.step` (37.9 s as 3MF, 30.5 s as three.js) and `bug28366_fuselage.stp` (35.1 s, 29.0 s).
+- **The bin's startup** (wall time less the summary's three times, each rounded to 0.1 s): median 0.9 s, 0.1–1.1 s, over 20 files × 4 formats. (The 15-file trial run gave a median of 1.9 s, and a run on a small cube 2.3 s wall for 0.5 s of summary times; why the startup varies this much between runs wasn't looked into.)
 
 ## Not planned
 
