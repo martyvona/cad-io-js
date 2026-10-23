@@ -1,4 +1,4 @@
-// What every exporter needs from a scene and its meshes, computed once (README.md, "The exporters"):
+// What every exporter needs from a scene and its meshes, computed once (README.md, "Exporters"):
 //
 //   looks: each part as it appears, with its materials resolved. All three formats share geometry between instances,
 //     but a mesh carries its materials, so instances whose resolved materials differ (an assembly's colour applied

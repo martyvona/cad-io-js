@@ -5,7 +5,7 @@ Overlay headers for the OCCT build, from phase 0; not used (the user's decision:
 `test/`:
 
 - `table_test.cpp`: native check of the computed values against the table, using a copy of the function body.
-- `instrumented_AppCont_ContMatrices.pxx`: the overlay plus a per-call comparison with the table, printed to stderr as `VBCHECK`, and an optional `VB_CONTROL_MODE` (1 writes the table values, 2 writes them nudged by up to ±4 ulps). To use it, copy it into a build's include dir and rebuild; restore the plain overlay afterwards.
+- `instrumented_AppCont_ContMatrices.pxx`: the overlay plus a per-call comparison with the table, printed to stderr as `VBCHECK`, and an optional `VB_CONTROL_MODE` (1 writes the table values, 2 writes them nudged by up to +/-4 ulps). To use it, copy it into a build's include dir and rebuild; restore the plain overlay afterwards.
 - `appcont_test.cpp`, `run.sh`, `compare.py`: an end-to-end `Approx_FitAndDivide` test. `run.sh <build dir> <name>` writes `<name>.txt`, and `compare.py a.txt b.txt` diffs the poles.
 - `results.txt` (patched, control 1 and control 2, each against upstream) and the `.txt` outputs it was made from.
 

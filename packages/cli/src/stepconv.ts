@@ -12,7 +12,7 @@ import { Readable, type Writable } from 'node:stream';
 import { parseArgs } from 'node:util';
 import { exportView, tessellateScene, type Diagnostic, type ExportView, type Scene, type Tessellator } from 'cad-scene';
 import { threemf } from 'export-3mf';
-import { glb, gltfJson, type GltfOptions, type LineKind } from 'export-gltf';
+import { glb, gltfJson, type GltfOptions } from 'export-gltf';
 import { threejsChunks } from 'export-threejs';
 import { importStep } from 'step-import';
 import { readStep } from 'step-parser';
@@ -27,7 +27,7 @@ interface Format {
   sidecar?: string;
   /** Takes the --gltf-* options. */
   gltf?: boolean;
-  /** Takes the --3mf-* options; has no lines, and no double-sided faces. */
+  /** Takes the --3mf-* options; has no lines (no --with-edges, --with-curves, --unlit-lines), no double-sided faces. */
   threemf?: boolean;
   write(scene: Scene, view: ExportView, opts: FormatOptions): Promise<Written> | Written;
 }
@@ -38,7 +38,6 @@ interface FormatOptions {
   keepHidden: boolean;
   /** The sidecar's file name, beside the output, for formats with one; empty: embedded. */
   sidecar: string;
-  exclude: LineKind[];
   unlitLines: boolean;
   colorgroup: boolean;
   assembly: boolean;
@@ -92,7 +91,7 @@ const FORMATS: Record<string, Format> = {
 };
 
 function gltfOptions(o: FormatOptions): GltfOptions {
-  return { name: o.name, doubleSided: o.doubleSided, hidden: o.keepHidden ? 'extension' : 'omit', exclude: o.exclude,
+  return { name: o.name, doubleSided: o.doubleSided, hidden: o.keepHidden ? 'extension' : 'omit',
     unlitLines: o.unlitLines };
 }
 
@@ -102,7 +101,7 @@ const BACKENDS: Record<string, { module: string; export: string }> = {
 };
 
 const defaultWorkers = () => Math.max(1, os.availableParallelism() - 1);
-/** The library's angular deflection, 0.5 rad, used exactly when --angular isn't given. */
+/** The library's angular deflection, 0.5 rad, used exactly when --angular-deflection isn't given. */
 const DEFAULT_ANGULAR = 0.5;
 const degrees = (rad: number) => (rad * 180) / Math.PI;
 
@@ -123,18 +122,16 @@ Options:
   -f, --format <format>    the output format, whatever the extension
   -b, --backend <name>     occt (default) or truck
   -d, --deflection <mm>    maximum distance between mesh and surface, in millimetres (default 0.1)
-      --angular <deg>      maximum angle between adjacent mesh normals, in degrees (default ${DEFAULT_DEGREES},
+      --angular-deflection <deg>
+                           maximum angle between adjacent mesh normals, in degrees (default ${DEFAULT_DEGREES},
                            0.5 rad; truck ignores it)
-      --edges              write B-rep edges (not 3MF, which has no lines)
-      --curves             write wireframe curves and points (not 3MF)
+      --with-edges         write B-rep edges (not 3MF, which has no lines)
+      --with-curves        write wireframe curves and points (not 3MF)
+      --unlit-lines        edges, curves and points in a flat colour: glTF with KHR_materials_unlit (three.js
+                           lines are always unlit; not 3MF)
       --double-sided       render faces from both sides (not 3MF)
       --keep-hidden        glTF: write hidden instances with KHR_node_visibility; 3MF: as ordinary parts
                            (default: left out); three.js always writes them hidden
-      --gltf-no-edges      glTF: leave out B-rep edges (as without --edges)
-      --gltf-no-curves     glTF: leave out wireframe curves
-      --gltf-no-points     glTF: leave out isolated points
-      --gltf-faces-only    glTF: all three
-      --gltf-unlit-lines   glTF: edges, curves and points with KHR_materials_unlit (flat colour)
       --gltf-embed         .gltf: the buffer embedded as base64 instead of a .bin beside it (a third bigger)
       --3mf-colorgroup     3MF: colours as the Materials extension's colorgroup (print colours, opaque) instead
                            of basematerials (display colours)
@@ -165,16 +162,12 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
         format: { type: 'string', short: 'f' },
         backend: { type: 'string', short: 'b', default: 'occt' },
         deflection: { type: 'string', short: 'd', default: '0.1' },
-        angular: { type: 'string' },
-        edges: { type: 'boolean', default: false },
-        curves: { type: 'boolean', default: false },
+        'angular-deflection': { type: 'string' },
+        'with-edges': { type: 'boolean', default: false },
+        'with-curves': { type: 'boolean', default: false },
+        'unlit-lines': { type: 'boolean', default: false },
         'double-sided': { type: 'boolean', default: false },
         'keep-hidden': { type: 'boolean', default: false },
-        'gltf-no-edges': { type: 'boolean', default: false },
-        'gltf-no-curves': { type: 'boolean', default: false },
-        'gltf-no-points': { type: 'boolean', default: false },
-        'gltf-faces-only': { type: 'boolean', default: false },
-        'gltf-unlit-lines': { type: 'boolean', default: false },
         'gltf-embed': { type: 'boolean', default: false },
         '3mf-colorgroup': { type: 'boolean', default: false },
         '3mf-assembly': { type: 'boolean', default: false },
@@ -206,13 +199,10 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
   }
   const format = FORMATS[formatName];
   if (!format) return usage(`unknown format '${formatName}'`);
-  const gltfFlags = ['gltf-no-edges', 'gltf-no-curves', 'gltf-no-points', 'gltf-faces-only', 'gltf-unlit-lines',
-    'gltf-embed'] as const;
-  const given = gltfFlags.find((f) => o[f]);
-  if (given && !format.gltf) return usage(`--${given} applies to glb and gltf output`);
+  if (o['gltf-embed'] && !format.gltf) return usage('--gltf-embed applies to glb and gltf output');
   const threemfGiven = (['3mf-colorgroup', '3mf-assembly', '3mf-surfaces'] as const).find((f) => o[f]);
   if (threemfGiven && !format.threemf) return usage(`--${threemfGiven} applies to 3mf output`);
-  const notThreemf = (['edges', 'curves', 'double-sided'] as const).find((f) => o[f]);
+  const notThreemf = (['with-edges', 'with-curves', 'unlit-lines', 'double-sided'] as const).find((f) => o[f]);
   if (notThreemf && format.threemf) return usage(`--${notThreemf} doesn't apply to 3mf output`);
   if (o['gltf-embed'] && !format.sidecar) return usage('--gltf-embed applies to gltf output (GLB holds its buffer)');
   const embed = o['gltf-embed'];
@@ -228,9 +218,10 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
     return v;
   };
   const deflection = number('deflection', o.deflection, 0.1, true);
-  const angularDegrees = number('angular', o.angular, degrees(DEFAULT_ANGULAR), true);
-  if (angularDegrees > 180) bad ??= '--angular must be at most 180 degrees';
-  const angular = o.angular === undefined ? DEFAULT_ANGULAR : (angularDegrees * Math.PI) / 180;
+  const angularText = o['angular-deflection'];
+  const angularDegrees = number('angular-deflection', angularText, degrees(DEFAULT_ANGULAR), true);
+  if (angularDegrees > 180) bad ??= '--angular-deflection must be at most 180 degrees';
+  const angular = angularText === undefined ? DEFAULT_ANGULAR : (angularDegrees * Math.PI) / 180;
   const workers = number('workers', o.workers, defaultWorkers(), false);
   const timeout = number('timeout', o.timeout, 120, false);
   const cacheMb = number('cache-size', o['cache-size'], DEFAULT_FILE_BYTES / 2 ** 20, false);
@@ -302,7 +293,8 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
   let meshes;
   try {
     const r = await tessellateScene(scene, tess, {
-      linearDeflection: deflection, angularDeflection: angular, edges: o.edges, concurrency: Math.max(1, workers),
+      linearDeflection: deflection, angularDeflection: angular, edges: o['with-edges'],
+      concurrency: Math.max(1, workers),
       onPart: progress ? (_p, _m, done, total) => io.stderr.write(`\rtessellating ${done}/${total}`) : undefined,
     });
     if (progress) io.stderr.write('\r\x1b[K');
@@ -313,14 +305,11 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
   }
   lap('tessellate');
 
-  const view = exportView(scene, meshes, { edges: o.edges, curves: o.curves });
+  const view = exportView(scene, meshes, { edges: o['with-edges'], curves: o['with-curves'] });
   let written = 0;
   try {
-    const faces = o['gltf-faces-only'];
-    const exclude = (['edges', 'curves', 'points'] as const).filter((k) => faces || o[`gltf-no-${k}`]);
     const w = await format.write(scene, view, {
-      name, doubleSided: o['double-sided'], keepHidden: o['keep-hidden'], sidecar, exclude,
-      unlitLines: o['gltf-unlit-lines'],
+      name, doubleSided: o['double-sided'], keepHidden: o['keep-hidden'], sidecar, unlitLines: o['unlit-lines'],
       colorgroup: o['3mf-colorgroup'], assembly: o['3mf-assembly'], surfaces: o['3mf-surfaces'],
     });
     diagnostics.push(...(w.diagnostics ?? []));

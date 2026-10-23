@@ -1,0 +1,24 @@
+9 workers; 493 files with brep parts, 3264 parts; 0.1 mm, 0.5 rad
+occt: ok 3125, empty 138, error 1; run 157.0 s, without the 10 files where truck times out or fails 152.9 s; in the workers 233.3 s; 16803356 triangles
+truck: ok 2922, empty 332, timeout 9, error 1; run 1191.1 s, without the 10 files where truck times out or fails 60.4 s; in the workers 1221.7 s; 8886823 triangles
+both mesh (ok): OCCT's time against truck's
+  all: 2921 parts; OCCT 198.0 s, truck 89.3 s: 2.22x, per part median 1.70x; truck faster on 2335; triangles OCCT 11976323, truck 8886609
+  OCCT 0-10 ms: 2086 parts; OCCT 5.9 s, truck 4.3 s: 1.39x, per part median 1.42x; truck faster on 1580; triangles OCCT 150821, truck 220592
+  OCCT 10-100 ms: 633 parts; OCCT 21.1 s, truck 10.3 s: 2.05x, per part median 3.29x; truck faster on 569; triangles OCCT 1696294, truck 1762497
+  OCCT 100-1000 ms: 177 parts; OCCT 52.7 s, truck 27.9 s: 1.89x, per part median 3.34x; truck faster on 162; triangles OCCT 3163494, truck 2789976
+  OCCT 1000-10000 ms: 22 parts; OCCT 55.2 s, truck 25.1 s: 2.20x, per part median 3.21x; truck faster on 21; triangles OCCT 2718258, truck 2591632
+  OCCT 10000-Infinity ms: 3 parts; OCCT 63.1 s, truck 21.8 s: 2.90x, per part median 3.51x; truck faster on 3; triangles OCCT 4247456, truck 1521912
+OCCT ok and truck not: 204; truck ok and OCCT not: 1
+slowest parts:
+  gkv311-opencascade-dataset/step/bug24055_8MTF-75LS05.step part 0: occt 2.1 s ok, truck 120.0 s timeout
+  gkv311-opencascade-dataset/step/trj12_b3-tu-203.stp part 0: occt 0.7 s ok, truck 120.0 s timeout
+  gkv311-opencascade-dataset/step/trj6_b1-ec-214.stp part 0: occt 0.7 s ok, truck 120.0 s timeout
+  gkv311-opencascade-dataset/step/trj4_k1_top-id-214.stp part 0: occt 0.1 s ok, truck 120.0 s timeout
+  gkv311-opencascade-dataset/step/trj5_k1-id-214.stp part 0: occt 0.1 s ok, truck 120.0 s timeout
+  gkv311-opencascade-dataset/step/trj6_k1-id-203.stp part 0: occt 0.1 s ok, truck 120.0 s timeout
+  gkv311-opencascade-dataset/step/trj3_as1-id-203.stp part 2: occt 0.0 s ok, truck 120.0 s timeout
+  gkv311-opencascade-dataset/step/trj6_as1-id-214.stp part 3: occt 0.0 s ok, truck 120.0 s timeout
+  gkv311-opencascade-dataset/step/trj2_as1-id-203.stp part 2: occt 0.0 s ok, truck 120.0 s timeout
+  gkv311-opencascade-dataset/step/trj8_k1-db-214.stp part 0: occt 0.1 s ok, truck 50.7 s error
+  gkv311-opencascade-dataset/step/bug24024_slow_import.stp part 0: occt 28.0 s ok, truck 12.6 s ok
+  gkv311-opencascade-dataset/step/as1_motor.step part 9: occt 24.5 s ok, truck 6.2 s ok

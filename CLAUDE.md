@@ -10,14 +10,15 @@ Notes for working on cad-io-js: how work is done here, the decisions behind the 
 
 | Path | What |
 |---|---|
-| `packages/*` | the 13 workspace packages (README, "Packages and their APIs") |
+| `packages/*` | the 13 workspace packages (README, "Package APIs") |
 | `packages/*/test/` | `node:test` tests, run by `npm test` from the root |
 | `packages/tess-occt/` | `native/occt_tess.cpp`, `build-occt.sh` (OCCT's libraries into `build/occt-Os/`), `build.sh` (links `dist/`), `occt_overlay/` (the unused `VBernstein` patch) |
 | `packages/tess-truck/` | `native/` (the Rust crate, `src/lib.rs`), `build.sh` (`dist/tess_truck.wasm`, cargo target in `build/`) |
 | `packages/step-schemas/dict/` | the generated dictionaries, committed; `gen/` the EXPRESS parser and generator |
-| `corpus_checks/` | 25 corpus checks with committed logs, `corpus.ts` (the list and paths), `make_subsets.ts`; its README lists them |
+| `corpus_checks/` | 26 corpus checks with committed logs, `corpus.ts` (the list and paths), `make_subsets.ts`; its README lists them |
 | `test_corpus/` | `files.txt` (517 files), `third_party/pull.sh` (fetches them, ignored), `subsets/` (phase 0's subsets, ignored) |
 | `third_party/` | `pull.sh` fetches OCCT, stepcode, truck, the MBx-IF recommended practices and the JT specifications (`jt/`), all ignored |
+| `workdir/` | git-ignored: deep dives, progress notes and measurement records that don't belong in git history (since 2026-10-23); findings worth keeping still go in this file or the README |
 | `env.sh` | `source env.sh`: checks and sets up the toolchain |
 | `scripts/md2pdf.sh` | Markdown to PDF (the tutorial) |
 | `step_tutorial.md` | a tutorial on STEP in practice (edited separately) |
@@ -31,7 +32,7 @@ Notes for working on cad-io-js: how work is done here, the decisions behind the 
 
 ### Code conventions
 
-- **Line length and indentation** (the user, 2026-10-23): code lines at most 120 characters, comments word-wrapped to fit, in every language (TypeScript, JavaScript, bash, Rust, C++, Python, TOML); a long line is folded at commas and brackets (or before `&&`, `||`, `?`, `+`, `.`) with a 2-space continuation indent, and a long string is split into literals joined by `+`. Markdown is the opposite: each paragraph (and list item) is one long line, never folded. Indentation is 2 spaces in TypeScript, JavaScript and bash (4 in Rust, as is its convention), never hard tabs. Data inside template literals (STEP fixtures in tests) is left as it is.
+- **Line length and indentation** (the user, 2026-10-23): code lines at most 120 characters, comments word-wrapped to fit, in every language (TypeScript, JavaScript, bash, Rust, C++, Python, TOML); a long line is folded at commas and brackets (or before `&&`, `||`, `?`, `+`, `.`) with a 2-space continuation indent, and a long string is split into literals joined by `+`. Markdown is the opposite: each paragraph (and list item) is one long line, never folded. Markdown for people to read and edit (every README, `step_tutorial.md`, `CHANGELOG.md`) is ASCII only: `->` for arrows, `x` for times, `-` for dashes and minus, `...`, `+/-`, and diagrams drawn with `+`, `-`, `|`, `v`, `>` (the user, 2026-10-23); this file may use any Unicode, since it is mainly for Claude. Indentation is 2 spaces in TypeScript, JavaScript and bash (4 in Rust, as is its convention), never hard tabs. Data inside template literals (STEP fixtures in tests) is left as it is.
 - TypeScript run directly by Node 24's type stripping: erasable syntax only (no enums, namespaces, parameter properties), imports with `.ts` extensions, `node:` built-ins. No build step yet.
 - No runtime dependencies in the core packages. Pinned exact versions where there are dependencies.
 - File-level comments say what a module is and cite where its design was decided; comments explain why, not what. Match the surrounding density and idiom.
@@ -83,6 +84,7 @@ Made by the user unless marked; the alternatives considered are at `V0.1.0` (abo
 - The project is cad-io-js (renamed from step_js, 2026-10-17), since JT and IGES are planned; STEP packages keep their names.
 - Raw JSON favours clarity and extensibility over size; lexical numbers (2026-10-17), not context-typed ones (context can't decide every number, and loading would need the schema).
 - The scene's unit is the millimetre (2026-10-17; first metres); a part is one shape representation with geometry; positions become `Float32` in the backend after subtracting a per-part origin, in double precision; the importer is its own package, `step-import`.
+- Custom OCCT builds must link our wrapper (`occt_tess.cpp`); a JavaScript adapter over another build's OCCT bindings was rejected for its per-node calls and manual memory management. Backends take a host's module through `init` (`glue`, `wasm`, `version`; a compiled module needs `version`, since it has no bytes to hash for the cache key) (2026-10-23).
 - The tessellator interface stays per part: a "load once, tessellate many" session API was rejected (2026-10-17).
 - The worker host is its own package, `tess-workers`, with conditional exports per environment.
 - Caching with a maximum size, 0 disabling it; failures (timeouts included) cached; only the same backend's other versions deleted.
@@ -91,7 +93,8 @@ Made by the user unless marked; the alternatives considered are at `V0.1.0` (abo
 - glTF via glTF-Transform; edges and curves each behind an option, both off by default; 3MF meshes that aren't manifold left out with a warning, or `surface` objects by option; `stepconv`'s default backend OCCT (2026-10-20).
 - three.js faces single-sided by default (2026-10-20, changed from double).
 - `stepconv`: the angular deflection in degrees (default 28.6, exactly 0.5 rad); exit 0 when parts fail, `--strict` exit 3 with the output written; OCCT's messages kept per part as warnings (at most 10, 1000 characters), printed nowhere; no default cache directory; workers cores − 1, timeout 120 s (2026-10-20).
-- glTF hidden instances left out by default, `KHR_node_visibility` by option; edges, curves and points as child nodes with their own meshes; `--gltf-no-*`, `--gltf-faces-only`, `--gltf-unlit-lines`, `--gltf-embed` (2026-10-21).
+- glTF hidden instances left out by default, `KHR_node_visibility` by option; edges, curves and points as child nodes with their own meshes; `--gltf-embed` (2026-10-21).
+- `stepconv`'s options after 0.1.0 (2026-10-23): `--angular-deflection` (was `--angular`), `--with-edges` and `--with-curves` (were `--edges`, `--curves`), `--unlit-lines` for every format with lines (was `--gltf-unlit-lines`; three.js lines are unlit anyway); `--gltf-no-edges`, `--gltf-no-curves`, `--gltf-no-points` and `--gltf-faces-only` removed as redundant (so curves and points come together). The exporters' own options (`exclude` in `export-gltf`) are unchanged.
 - 3MF: `basematerials` by default, `colorgroup` by option, the Materials extension not required; a build item per placed part by default, the assembly as components by option; hidden instances left out by default (2026-10-21).
 - The `stepconv` corpus check runs `main` in process for every file and spawns the bin for a sample, with the defaults (2026-10-22).
 
@@ -149,7 +152,7 @@ The rules, with an example file each; the corpus counts behind them are at `V0.1
 - **The workarounds** in `packages/tess-truck/native/src/lib.rs` (truck unchanged): (1) shells built by the wrapper, so ids survive faces and edges that fail to convert; (2) `AXIS2_PLACEMENT_3D` without `ref_direction` on an ±x axis gets (0, 1, 0) per ISO 10303-42 (truck's (1, 0, 0) made the frame NaN); (3) shells reversed by volume sign, as OCCT's `ShapeFix_Solid`; (4) `SURFACE_CURVE`s by their 3D curve; (5) edges and faces that evaluate to NaN left out (truck subdivides NaN curves until memory runs out); (6) instances truck's parser can't read skipped one at a time (ruststep fails the whole file on `()`); (7) negative torus radii as absolute values; (8) cone semi-angles converted from the context's angle unit; (9) a shell reversed only if its mesh is consistently oriented; (10) unclamped B-splines clamped (exact knot insertion); (11) a face meshed against all its loops reversed; (12) the volume sign trusted only if the same from every point of the bounding box and at least 1% of the sum of the triangles' contributions.
 - **What's left:** cones (e.g. countersinks near the apex), surfaces of revolution, rational B-splines; timeouts in NURBS evaluation; empty parts (geometric sets, triangulated faces, unsupported surfaces). About 83% of parts complete and on OCCT's geometry.
 - Comparing orientation or area with OCCT measures OCCT's healing as much as truck: compare geometry (sampled vertices on the other's faces) and the file's own loops instead. Per-face area flags small fillets for their chords.
-- **Size and speed:** opt-level 3; `s` and `z` save little at 1.5–3.5× the time. truck is about 2.5× faster than our OCCT, with more triangles (no angular tolerance). Five wasm-bindgen imports remain from chrono and getrandom, stubbed; a test pins the import list.
+- **Size and speed:** opt-level 3; `s` and `z` save little at 1.5–3.5× the time. Over the corpus with stepconv's defaults (`corpus_checks/backend_speed.ts`, 2026-10-23, Apple M4, 9 workers, AC power, low power mode off, two runs within 5–10%): on the 2,921 parts both mesh, truck 89 s of worker time against OCCT's 198 s (2.2×, median 1.7× per part, rising with part size), with 26% fewer triangles (more on only 246 parts; phase 0's "more triangles" was at 0.05 file units on subsets); but its 9 timeouts and one 51 s failure make a whole run 1,191 s against 157 s (60 s against 153 s without those 10 files). OCCT's triangle total differed by 28 of 16.8 M between the two runs, not investigated. Details and raw data: `workdir/2026-10-23_backend_speed/`. Five wasm-bindgen imports remain from chrono and getrandom, stubbed; a test pins the import list.
 - **monstertruck** (a fork) fixes some parts truck gets wrong but regresses others (the wrong side of single-loop periodic faces), with 9× the triangles; not adopted.
 
 ### JavaScript, Node and the libraries
@@ -175,7 +178,7 @@ The rules, with an example file each; the corpus counts behind them are at `V0.1
 (The list is in the README; here, what's known about each.)
 
 - **PMI:** graphical PMI is presentation geometry (polylines, tessellated text) in representations the importer now skips as annotations; semantic PMI is tolerances and datums on shape aspects. `rec_pracs_pmi_v41.pdf` and `rec_prac_polyline_pres_v23.pdf` in `third_party/mbx-if-recpractices/`. 2D drawings (`GEOMETRICALLY_BOUNDED_2D_WIREFRAME`, 4 in the corpus such as `trj2_d2-db-214.stp` #1032) need their sheets and placement, so they belong with presentation.
-- **User-defined attributes** (`rec_prac_user_def_attributes_v18.pdf`): name/value properties on products, occurrences, shape aspects. **Materials:** AP214 material products (`dm1-pe-214.stp`'s Titanium 6-4), densities. **SHUO:** overrides deeper than one level. **Kinematics:** where AP214 and AP242 differ most.
+- **User-defined attributes** (`rec_prac_user_def_attributes_v18.pdf`): name/value properties on products, occurrences, shape aspects. **Materials:** AP214 material products (`dm1-pe-214.stp`'s Titanium 6-4), densities. **SHUO** (`SPECIFIED_HIGHER_USAGE_OCCURRENCE`): not read at all yet; per-instance colours come only from context-dependent styles, whose context can be a chain of occurrences of any depth. **Kinematics:** where AP214 and AP242 differ most.
 - **AP242 tessellated geometry** (`rec_prac_3dtess_geo_v11.pdf`): `TRIANGULATED_FACE`, `COMPLEX_TRIANGULATED_SURFACE_SET` as `mesh` parts instead of through OCCT.
 - **Per-instance styles:** context-dependent overrides and styled assembly representations are implemented, but no corpus file has them, so only unit tests cover them; no corpus part has more than one look.
 - **Per-curve colours:** 81 curves beside solids in 24 parts show the part's colour; would need `curveMaterials` like `faceMaterials`.

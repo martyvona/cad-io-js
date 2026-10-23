@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { test } from 'node:test';
 import type { TessellationRequest, TessellationResult } from 'cad-scene';
 import { importStep } from 'step-import';
@@ -549,6 +550,38 @@ test('in the worker pool, results equal the direct ones', { skip }, async () => 
     const reqs = await requests(fs.existsSync(asm) ? asm : cube);
     const got = await Promise.all(reqs.map((r) => pool.tessellate(r)));
     for (const [i, r] of reqs.entries()) assert.deepEqual(got[i], await direct.tessellate(r));
+  } finally {
+    pool.dispose();
+  }
+});
+
+test("a host's module: bytes or a URL with a version, or compiled with one; in the worker pool too", { skip },
+  async () => {
+  const [req] = await requests(cube);
+  const ours = new TruckTessellator();
+  await ours.init();
+  const id = /^truck 88ed005, wasm ([0-9a-f]{12})$/.exec(ours.info.version)![1];
+  const expected = await ours.tessellate(req!);
+  const bytes = fs.readFileSync(wasm);
+  const named = new TruckTessellator();
+  await named.init({ wasm: bytes, version: 'host truck r3' });
+  assert.equal(named.info.version, `host truck r3, wasm ${id}`);
+  const byUrl = new TruckTessellator();
+  await byUrl.init({ wasm: pathToFileURL(wasm).href });
+  assert.equal(byUrl.info.version, ours.info.version);
+  const module = await WebAssembly.compile(bytes);
+  const compiled = new TruckTessellator();
+  await compiled.init({ wasm: module, version: 'host truck r3' });
+  assert.equal(compiled.info.version, 'host truck r3');
+  assert.deepEqual(await compiled.tessellate(req!), expected);
+  await assert.rejects(new TruckTessellator().init({ wasm: module }), /needs a version/);
+  const { WorkerTessellator } = await import('tess-workers');
+  const pool = new WorkerTessellator({ backend: { module: import.meta.resolve('tess-truck'), export: 'TruckTessellator',
+    options: { wasm: module, version: 'host truck r3' } }, workers: 1 });
+  await pool.init();
+  try {
+    assert.equal(pool.info.version, 'host truck r3');
+    assert.deepEqual(await pool.tessellate(req!), expected);
   } finally {
     pool.dispose();
   }

@@ -126,6 +126,13 @@ if ! command -v pdflatex >/dev/null 2>&1 && [ -x /Library/TeX/texbin/pdflatex ];
   PATH=/Library/TeX/texbin:$PATH
 fi
 
+# The workspace's tools (stepconv, step2json), which npm install links into node_modules/.bin. Appended, so the dev
+# dependencies' tools there (tsc, ...) don't shadow ones already installed; added once however often this is sourced.
+case ":$PATH:" in
+  *":$_sj_repo/node_modules/.bin:"*) ;;
+  *) PATH=$PATH:$_sj_repo/node_modules/.bin ;;
+esac
+
 # --- Checks ------------------------------------------------------------------------------------------------------
 
 echo "cad-io-js environment ($_sj_os):"

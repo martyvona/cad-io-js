@@ -6,7 +6,8 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { partInstances, tessellateScene } from 'cad-scene';
 import { importStep } from 'step-import';
-import { MAX_MESSAGE_CHARS, MAX_MESSAGES, Messages, OcctTessellator } from '../src/index.ts';
+import { MAX_MESSAGE_CHARS, MAX_MESSAGES, Messages, OcctTessellator, type OcctFactory,
+  type OcctInitOptions } from '../src/index.ts';
 
 const root = path.resolve(import.meta.dirname, '../../..');
 const cube = path.join(root, 'test_corpus/third_party/occt-import-js/test/testfiles/cube-10x10mm/Cube 10x10.stp');
@@ -221,4 +222,57 @@ test("curve ids: a composite curve's segments take the composite's, an edge-base
   assert.deepEqual(await ids(wireframes[1]!, 38),
     [31, 47, 59, 69, 83, 95, 107, 117, 131, 143, 155, 165, 179, 191, 203, 213]);
   tess.dispose();
+});
+
+test("a host's module: the glue and module given by URL, bytes, factory or compiled module, with a version",
+  { skip }, async () => {
+  const glue = new URL('../dist/occt_tess.mjs', import.meta.url);
+  const wasm = new URL('../dist/occt_tess.wasm', import.meta.url);
+  const bytes = fs.readFileSync(wasm);
+  const { scene } = await importStep(fs.readFileSync(cube));
+  const part = scene.parts[0]!;
+  assert.ok(part.kind === 'brep');
+  const req = { format: 'step' as const, data: part.payload(), rootId: part.rootId, linearDeflection: 0.01,
+    angularDeflection: 0.5, edges: true };
+  const run = async (opts: OcctInitOptions) => {
+    const tess = new OcctTessellator();
+    await tess.init(opts);
+    try { return { version: tess.info.version, result: await tess.tessellate(req) }; } finally { tess.dispose(); }
+  };
+  const ours = await run({});
+  const [, id, adapter] = /, wasm ([0-9a-f]{12}), (adapter \d+)$/.exec(ours.version)!;
+  assert.match(ours.version, /^OCCT 8\.1 \(3d097a0328\), wasm [0-9a-f]{12}, adapter \d+$/);
+  // By URL (as a string, as a worker would get it) and by bytes: hashed, the same id; named as a host's build.
+  const byUrl = await run({ glue: glue.href, wasm: wasm.href });
+  assert.equal(byUrl.version, `OCCT, a host build, wasm ${id}, ${adapter}`);
+  assert.deepEqual(byUrl.result, ours.result);
+  const factory = (await import(glue.href)).default as OcctFactory;
+  const byBytes = await run({ glue: factory, wasm: bytes, version: 'host OCCT 8.1 r7' });
+  assert.equal(byBytes.version, `host OCCT 8.1 r7, wasm ${id}, ${adapter}`);
+  assert.deepEqual(byBytes.result, ours.result);
+  // Compiled: no bytes to hash, so the version names the build, and is required.
+  const module = await WebAssembly.compile(bytes);
+  const compiled = await run({ glue, wasm: module, version: 'host OCCT 8.1 r7' });
+  assert.equal(compiled.version, `host OCCT 8.1 r7, ${adapter}`);
+  assert.deepEqual(compiled.result, ours.result);
+  await assert.rejects(new OcctTessellator().init({ wasm: module }), /needs a version/);
+  // A module without our wrapper's exports fails at init, naming what's missing; the tessellator stays unloaded.
+  const bare = new OcctTessellator();
+  await assert.rejects(bare.init({ glue: async () => ({ HEAPU8: new Uint8Array(1) }), wasm: module, version: 'x' }),
+    /lacks HEAPF32, .*_occt_tessellate, .*is native\/occt_tess\.cpp linked in/);
+  await assert.rejects(bare.tessellate(req), /init/);
+  // The wrong glue for the module: instantiation fails, and init rejects.
+  const truck = path.join(root, 'packages/tess-truck/dist/tess_truck.wasm');
+  if (fs.existsSync(truck)) await assert.rejects(new OcctTessellator().init({ glue, wasm: fs.readFileSync(truck) }));
+  // In a worker pool: the options are posted to each worker, a compiled module included.
+  const { WorkerTessellator } = await import('tess-workers');
+  const pool = new WorkerTessellator({ backend: { module: import.meta.resolve('tess-occt'), export: 'OcctTessellator',
+    options: { glue: glue.href, wasm: module, version: 'host OCCT 8.1 r7' } }, workers: 1 });
+  await pool.init();
+  try {
+    assert.equal(pool.info.version, compiled.version);
+    assert.deepEqual(await pool.tessellate(req), ours.result);
+  } finally {
+    pool.dispose();
+  }
 });

@@ -52,6 +52,21 @@ export const WBINDGEN_IMPORTS: Record<string, string[]> = {
 
 const list = (ids: number[], n = 10) => ids.slice(0, n).map((i) => `#${i}`).join(', ') + (ids.length > n ? ', …' : '');
 
+/**
+ * Where `TruckTessellator.init` gets its module: another build of native/ (this package's wrapper over truck), say
+ * one a host already loads. In a worker pool (tess-workers) the options are posted to each worker: a URL or a
+ * compiled module, not the bytes of a large module.
+ */
+export interface TruckInitOptions {
+  /** The module: its bytes, its URL, or compiled (then `version` is required). Default dist/tess_truck.wasm. */
+  wasm?: BufferSource | URL | string | WebAssembly.Module;
+  /**
+   * Names the build in `info.version`, which cache keys include, in place of "truck <commit>"; required with a
+   * compiled module, whose bytes can't be hashed, and then it must change whenever the module does.
+   */
+  version?: string;
+}
+
 async function wasmBytes(source?: BufferSource | URL | string): Promise<BufferSource> {
   if (source && typeof source !== 'string' && !(source instanceof URL)) return source;
   const url = source ? new URL(source) : new URL('../dist/tess_truck.wasm', import.meta.url);
@@ -78,15 +93,23 @@ export class TruckTessellator implements Tessellator {
   private panic = '';
 
   /**
-   * Compile and instantiate the module. `opts.wasm`: its bytes or URL (default dist/tess_truck.wasm next to this
-   * package). `info.version` then names the module's hash too.
+   * Compile and instantiate the module, by default dist/tess_truck.wasm next to this package. `info.version` then
+   * names the module's hash too, so caches tell builds apart (`TruckInitOptions`).
    */
-  async init(opts?: Record<string, unknown>): Promise<void> {
+  async init(opts: TruckInitOptions = {}): Promise<void> {
     if (this.x) return;
     if (!this.module) {
-      const bytes = await wasmBytes(opts?.wasm as BufferSource | URL | string | undefined);
-      this.module = await WebAssembly.compile(bytes);
-      this.info.version = `truck 88ed005, wasm ${await wasmId(bytes)}`;
+      const { wasm, version } = opts;
+      if (wasm instanceof WebAssembly.Module) {
+        if (version === undefined) throw new TypeError(
+          'tess-truck: init({wasm}) with a compiled WebAssembly.Module needs a version, since it has no bytes to hash');
+        this.module = wasm;
+        this.info.version = version;
+      } else {
+        const bytes = await wasmBytes(wasm);
+        this.module = await WebAssembly.compile(bytes);
+        this.info.version = `${version ?? 'truck 88ed005'}, wasm ${await wasmId(bytes)}`;
+      }
     }
     this.instantiate();
   }

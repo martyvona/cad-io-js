@@ -71,6 +71,45 @@ export class Messages {
 }
 
 /** The first 12 hex digits of the module's SHA-256, so that `info.version` changes with every build. */
+/** What this adapter uses of the module: the wrapper's C functions, the allocator, and the runtime's heap views. */
+export const REQUIRED_EXPORTS: readonly (keyof OcctModule)[] = [
+  'HEAPU8', 'HEAPF32', 'HEAPU32', 'HEAP32', 'UTF8ToString', '_malloc', '_free', '_occt_tessellate', '_occt_positions',
+  '_occt_normals', '_occt_num_vertices', '_occt_indices', '_occt_num_indices', '_occt_faces', '_occt_num_faces',
+  '_occt_edge_positions', '_occt_num_edge_points', '_occt_edges', '_occt_edge_angles', '_occt_num_edges',
+  '_occt_curve_positions', '_occt_num_curve_points', '_occt_curves', '_occt_num_curves', '_occt_points',
+  '_occt_point_ids', '_occt_num_points', '_occt_diag', '_occt_free',
+];
+
+/** Emscripten's module factory: the default export of the JavaScript glue built with the module. */
+export type OcctFactory = (moduleArg: {
+  instantiateWasm: (imports: WebAssembly.Imports, done: (i: WebAssembly.Instance) => void) => object;
+  print: (text: string) => void;
+  printErr: (text: string) => void;
+}) => Promise<unknown>;
+
+/**
+ * Where `OcctTessellator.init` gets its module, for hosts with their own OCCT build that links native/occt_tess.cpp
+ * (third_party/README.md, "A custom OCCT build for tess-occt"). The glue and the module must come from the same build.
+ * In a worker pool (tess-workers), the options are posted to each worker: give URLs or a compiled module, not bytes
+ * of a large module or a function, which can't be posted.
+ */
+export interface OcctInitOptions {
+  /** The Emscripten glue: its factory (the .mjs's default export), or the .mjs's URL. Default dist/occt_tess.mjs. */
+  glue?: OcctFactory | URL | string;
+  /** The module: its bytes, its URL, or compiled (then `version` is required). Default dist/occt_tess.wasm. */
+  wasm?: BufferSource | URL | string | WebAssembly.Module;
+  /**
+   * Names the build in `info.version`, which cache keys include, in place of "OCCT 8.1 (<commit>)"; required with a
+   * compiled module, whose bytes can't be hashed, and then it must change whenever the module does.
+   */
+  version?: string;
+}
+
+async function fetchBytes(url: URL): Promise<BufferSource> {
+  if (url.protocol === 'file:') return (await import('node:fs/promises')).readFile(url);
+  return new Uint8Array(await (await fetch(url)).arrayBuffer());
+}
+
 async function wasmId(bytes: BufferSource): Promise<string> {
   const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
   return Array.from(hash.subarray(0, 6), (b) => b.toString(16).padStart(2, '0')).join('');
@@ -86,26 +125,32 @@ export class OcctTessellator implements Tessellator {
   private messages?: Messages;
 
   /**
-   * Load and instantiate the WebAssembly module (dist/occt_tess.mjs). The module is compiled here rather than by
-   * Emscripten's loader, to hash it: `info.version` then names the hash too.
+   * Load and instantiate the WebAssembly module: by default dist/occt_tess.mjs and dist/occt_tess.wasm beside this
+   * package. A host with its own OCCT build, one that links native/occt_tess.cpp as third_party/README.md describes,
+   * passes it instead (`OcctInitOptions`). The module is compiled here rather than by Emscripten's loader, to hash it:
+   * `info.version` then names the hash too, so caches tell builds apart.
    */
-  async init(): Promise<void> {
+  async init(opts: OcctInitOptions = {}): Promise<void> {
     if (this.m) return;
-    type Factory = (moduleArg: {
-      instantiateWasm: (imports: WebAssembly.Imports, done: (i: WebAssembly.Instance) => void) => object;
-      print: (text: string) => void;
-      printErr: (text: string) => void;
-    }) => Promise<OcctModule>;
-    const factory = (await import(new URL('../dist/occt_tess.mjs', import.meta.url).href)).default as Factory;
-    const url = new URL('../dist/occt_tess.wasm', import.meta.url);
-    const bytes = url.protocol === 'file:' ? await (await import('node:fs/promises')).readFile(url) : new Uint8Array(
-      await (await fetch(url)).arrayBuffer());
-    const module = await WebAssembly.compile(bytes);
-    const id = await wasmId(bytes);
+    const { glue, wasm, version } = opts;
+    if (wasm instanceof WebAssembly.Module && version === undefined) throw new TypeError(
+      'tess-occt: init({wasm}) with a compiled WebAssembly.Module needs a version, since it has no bytes to hash');
+    const glueUrl = glue === undefined ? new URL('../dist/occt_tess.mjs', import.meta.url).href : String(glue);
+    const factory = typeof glue === 'function' ? glue : (await import(glueUrl)).default as OcctFactory;
+    let bytes: BufferSource | undefined;
+    let module: WebAssembly.Module;
+    if (wasm instanceof WebAssembly.Module) module = wasm;
+    else {
+      const b = wasm !== undefined && typeof wasm !== 'string' && !(wasm instanceof URL) ? wasm : await fetchBytes(
+        wasm === undefined ? new URL('../dist/occt_tess.wasm', import.meta.url) : new URL(wasm));
+      module = await WebAssembly.compile(b);
+      bytes = b;
+    }
+    const id = bytes && await wasmId(bytes);
     // Emscripten waits on `done` without a way to fail, so a failed instantiation rejects alongside it.
     let fail!: (e: unknown) => void;
     const failed = new Promise<never>((_, reject) => (fail = reject));
-    this.m = await Promise.race([factory({
+    this.m = (await Promise.race([factory({
       instantiateWasm: (imports, done) => {
         WebAssembly.instantiate(module, imports).then(done, fail);
         return {};
@@ -113,8 +158,15 @@ export class OcctTessellator implements Tessellator {
       // OCCT prints to standard output (and maybe error): kept as diagnostics instead of written anywhere.
       print: (text) => this.messages?.add(text),
       printErr: (text) => this.messages?.add(text),
-    }), failed]);
-    this.info.version = `OCCT 8.1 (3d097a0328), wasm ${id}, adapter ${ADAPTER}`;
+    }), failed])) as OcctModule;
+    const missing = REQUIRED_EXPORTS.filter((k) => !(k in this.m!));
+    if (missing.length) {
+      this.m = undefined;
+      throw new Error(`tess-occt: the module lacks ${missing.join(', ')}: is native/occt_tess.cpp linked in, with the `
+        + 'exports packages/tess-occt/build.sh lists?');
+    }
+    const name = version ?? (glue === undefined && wasm === undefined ? 'OCCT 8.1 (3d097a0328)' : 'OCCT, a host build');
+    this.info.version = `${name}${id ? `, wasm ${id}` : ''}, adapter ${ADAPTER}`;
   }
 
   async tessellate(req: TessellationRequest): Promise<TessellationResult> {

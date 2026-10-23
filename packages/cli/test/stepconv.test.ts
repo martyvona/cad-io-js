@@ -59,7 +59,7 @@ test('stepconv: the same file as the library pipeline, in a worker pool and on t
   const expected = threejsJson(scene, exportView(scene, meshes, { edges: true, curves: true }),
     { name: 'as1-oc-214-mat' });
   for (const workers of ['2', '0']) {
-    const r = await run([assembly, '-o', out, '--edges', '--curves', '-j', workers]);
+    const r = await run([assembly, '-o', out, '--with-edges', '--with-curves', '-j', workers]);
     assert.equal(r.code, 0, r.stderr);
     assert.equal(fs.readFileSync(out, 'utf8'), expected, `workers ${workers}`);
     assert.match(r.stderr, new RegExp(String.raw`^5 parts \(5 of 5 brep parts tessellated\), 18 placed; `
@@ -100,12 +100,12 @@ test('stepconv: GLB and .gltf with its .bin, the same as the library; hidden ins
   tess.dispose();
   const view = exportView(scene, meshes, { edges: true });
   const out = path.join(tmp, 'as1.glb');
-  const r = await run([assembly, '-o', out, '--edges', '-j', '2']);
+  const r = await run([assembly, '-o', out, '--with-edges', '-j', '2']);
   assert.equal(r.code, 0, r.stderr);
   assert.deepEqual(new Uint8Array(fs.readFileSync(out)), (await glb(scene, view, { name: 'as1-oc-214-mat' })).bytes);
   // .gltf: the JSON names a .bin beside it, named after the output.
   const json = path.join(tmp, 'model.gltf');
-  assert.equal((await run([assembly, '-o', json, '--edges', '-j', '2'])).code, 0);
+  assert.equal((await run([assembly, '-o', json, '--with-edges', '-j', '2'])).code, 0);
   const expected = await gltfJson(scene, view, 'model.bin', { name: 'as1-oc-214-mat' });
   assert.equal(fs.readFileSync(json, 'utf8'), expected.json);
   assert.deepEqual(new Uint8Array(fs.readFileSync(path.join(tmp, 'model.bin'))), expected.bin);
@@ -133,7 +133,7 @@ test('stepconv: GLB and .gltf with its .bin, the same as the library; hidden ins
 // A solid with a curve set and points beside it: edges, curves and points.
 const mixed = path.join(root, 'test_corpus/third_party/gkv311-opencascade-dataset/step/trj6_as1-td-214.stp');
 
-test('stepconv: --gltf-no-edges/curves/points, --gltf-faces-only, --gltf-unlit-lines, --gltf-embed',
+test('stepconv: glTF with --with-edges, --with-curves, --unlit-lines, --gltf-embed',
   { skip: skip || (!fs.existsSync(mixed) && 'corpus not fetched') }, async () => {
   const out = path.join(tmp, 'flags.gltf');
   // Each run embedded, so the .gltf alone has everything.
@@ -145,20 +145,18 @@ test('stepconv: --gltf-no-edges/curves/points, --gltf-faces-only, --gltf-unlit-l
       json.nodes.map((n: { name?: string }) => n.name).filter(
       (n: string) => ['edges', 'curves', 'points'].includes(n)))].sort(), json };
   };
-  const all = ['--edges', '--curves'];
+  const all = ['--with-edges', '--with-curves'];
   assert.deepEqual((await kinds(mixed, all)).names, ['curves', 'edges', 'points']);
-  assert.deepEqual((await kinds(mixed, [...all, '--gltf-no-edges'])).names, ['curves', 'points']);
-  assert.deepEqual((await kinds(mixed, [...all, '--gltf-no-curves'])).names, ['edges', 'points']);
-  assert.deepEqual((await kinds(mixed, [...all, '--gltf-no-points'])).names, ['curves', 'edges']);
-  assert.deepEqual((await kinds(mixed, [...all, '--gltf-no-edges', '--gltf-no-curves', '--gltf-no-points'])).names, []);
-  assert.deepEqual((await kinds(mixed, [...all, '--gltf-faces-only'])).names, []);
+  assert.deepEqual((await kinds(mixed, ['--with-edges'])).names, ['edges']);
+  assert.deepEqual((await kinds(mixed, ['--with-curves'])).names, ['curves', 'points']);
+  assert.deepEqual((await kinds(mixed, [])).names, []);
   // Embedded: no .bin beside it, the buffer a data URI.
   const { json } = await kinds(assembly, all);
   assert.ok(!fs.existsSync(path.join(tmp, 'flags.bin')));
   assert.match(json.buffers[0].uri, /^data:application\/octet-stream;base64,/);
   assert.equal(json.extensionsUsed, undefined);
   // Unlit lines: the extension on the edges' material only.
-  const unlit = (await kinds(assembly, [...all, '--gltf-unlit-lines'])).json;
+  const unlit = (await kinds(assembly, [...all, '--unlit-lines'])).json;
   assert.deepEqual(unlit.extensionsUsed, ['KHR_materials_unlit']);
   const edgeMesh = unlit.nodes.find((n: { name?: string }) => n.name === 'edges').mesh;
   const unlitMaterials = unlit.materials.map((m: { extensions?: object }, i: number) => (m.extensions ? i : -1)).filter(
@@ -170,14 +168,12 @@ test('stepconv: --gltf-no-edges/curves/points, --gltf-faces-only, --gltf-unlit-l
     '-q'], { cwd: tmp, encoding: 'utf8' });
   assert.equal(stdout.status, 0);
   assert.equal(JSON.parse(stdout.stdout).asset.version, '2.0');
-  // glTF flags with other formats.
+  // --gltf-embed with other formats; --unlit-lines is accepted for three.js, whose lines are always unlit.
   const scratch = path.join(tmp, 'usage.json');
-  for (const flag of ['--gltf-no-edges', '--gltf-no-curves', '--gltf-no-points', '--gltf-faces-only',
-    '--gltf-unlit-lines', '--gltf-embed']) {
-    const r = await run([cube, '-o', scratch, flag]);
-    assert.equal(r.code, 1, flag);
-    assert.match(r.stderr, new RegExp(`${flag} applies to glb and gltf output`));
-  }
+  const r = await run([cube, '-o', scratch, '--gltf-embed']);
+  assert.equal(r.code, 1);
+  assert.match(r.stderr, /--gltf-embed applies to glb and gltf output/);
+  assert.equal((await run([cube, '-o', scratch, '--with-edges', '--unlit-lines', '-j', '0'])).code, 0);
   const g = await run([cube, '-o', path.join(tmp, 'usage.glb'), '--gltf-embed']);
   assert.equal(g.code, 1);
   assert.match(g.stderr, /--gltf-embed applies to gltf output \(GLB holds its buffer\)/);
@@ -256,14 +252,14 @@ test('stepconv: 3MF, the same as the library; --3mf-colorgroup, --3mf-assembly, 
     assert.equal(u.code, 1, flag);
     assert.match(u.stderr, new RegExp(`${flag} applies to 3mf output`));
   }
-  for (const flag of ['--edges', '--curves', '--double-sided']) {
+  for (const flag of ['--with-edges', '--with-curves', '--unlit-lines', '--double-sided']) {
     const u = await run([cube, '-o', path.join(tmp, 'usage.3mf'), flag]);
     assert.equal(u.code, 1, flag);
     assert.match(u.stderr, new RegExp(`${flag} doesn't apply to 3mf output`));
   }
 });
 
-test('stepconv: --angular in degrees', { skip }, async () => {
+test('stepconv: --angular-deflection in degrees', { skip }, async () => {
   const out = path.join(tmp, 'angular.json');
   const tess = new OcctTessellator();
   await tess.init();
@@ -272,7 +268,7 @@ test('stepconv: --angular in degrees', { skip }, async () => {
     { linearDeflection: 0.1, angularDeflection: (10 * Math.PI) / 180 });
   tess.dispose();
   const expected = threejsJson(scene, exportView(scene, meshes, {}), { name: 'as1-oc-214-mat' });
-  assert.equal((await run([assembly, '-o', out, '--angular', '10', '-j', '2'])).code, 0);
+  assert.equal((await run([assembly, '-o', out, '--angular-deflection', '10', '-j', '2'])).code, 0);
   const fine = fs.readFileSync(out, 'utf8');
   assert.equal(fine, expected);
   assert.equal((await run([assembly, '-o', out, '-j', '2'])).code, 0);
@@ -311,7 +307,7 @@ test('stepconv: wireframe curves on request; --workers 0 starts no worker',
     assert.equal((await run([wireframe, '-o', out, '-j', '0'])).code, 0);
     assert.deepEqual(names(), []);
     assert.equal(started, 0);
-    assert.equal((await run([wireframe, '-o', out, '--curves', '-j', '1'])).code, 0);
+    assert.equal((await run([wireframe, '-o', out, '--with-curves', '-j', '1'])).code, 0);
     assert.ok(names().length > 0 && names().every((n) => n === 'curves'));
     assert.equal(started, 1);
   } finally {
@@ -331,7 +327,7 @@ test('stepconv: the cache answers a second run', { skip }, async () => {
   // A different deflection, linear or angular, is a different request.
   assert.match((await run([assembly, '-o', out, '--cache', cache, '-d', '0.05', '-j', '1'])).stderr,
     /\ncache: 0 hits \(0 failures\), 5 misses\n/);
-  assert.match((await run([assembly, '-o', out, '--cache', cache, '--angular', '20', '-j', '1'])).stderr,
+  assert.match((await run([assembly, '-o', out, '--cache', cache, '--angular-deflection', '20', '-j', '1'])).stderr,
     /\ncache: 0 hits \(0 failures\), 5 misses\n/);
   // Size 0 disables the cache.
   assert.match((await run([assembly, '-o', out, '--cache', cache, '--cache-size', '0', '-j', '1'])).stderr,
@@ -371,8 +367,13 @@ test('stepconv: usage errors and failures', async () => {
   await usage([cube, '-o', scratch, '-f', 'stl'], /unknown format 'stl'/);
   await usage([cube, '-o', scratch, '-b', 'nope'], /unknown backend 'nope'/);
   await usage([cube, '-o', scratch, '-d', '0'], /--deflection must be a positive number/);
-  await usage([cube, '-o', scratch, '--angular', 'x'], /--angular must be a positive number/);
-  await usage([cube, '-o', scratch, '--angular', '181'], /--angular must be at most 180 degrees/);
+  await usage([cube, '-o', scratch, '--angular-deflection', 'x'], /--angular-deflection must be a positive number/);
+  await usage([cube, '-o', scratch, '--angular-deflection', '181'], /--angular-deflection must be at most 180 degrees/);
+  // Options renamed or removed since 0.1.0 are unknown.
+  for (const old of ['--edges', '--curves', '--gltf-no-edges', '--gltf-faces-only', '--gltf-unlit-lines']) {
+    await usage([cube, '-o', scratch, old], new RegExp(`Unknown option '${old}'`));
+  }
+  await usage([cube, '-o', scratch, '--angular', '10'], /Unknown option '--angular'/);
   await usage([cube, '-o', scratch, '--workers=-1'], /--workers must be a non-negative number/);
   await usage([cube, '-o', scratch, '-j', '1.5'], /--workers must be a whole number/);
   await usage([cube, '-o', scratch, '--timeout=-3'], /--timeout must be a non-negative number/);
