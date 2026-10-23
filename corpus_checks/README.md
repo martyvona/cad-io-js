@@ -1,6 +1,6 @@
 # Corpus checks
 
-Scripts that run this repository's code against the real-world test corpus: 517 Part 21 files, 421 MB, 4.9 M instances (see `../test_corpus/README.md`). They complement the package tests (`npm test`), which use small inline fixtures and don't need the corpus. Each step of the work added the check that verified it (the Step column: phase and step, as `../CLAUDE.md`'s history lists them); each check's last results are in its `.log` beside it, and what they found is summarized in `../CLAUDE.md`.
+Scripts that run this repository's code against the real-world test corpus: 517 Part 21 files, 421 MB, 4.9 M instances (see `../test_corpus/README.md`). They complement the package tests (`npm test`), which use small inline fixtures and don't need the corpus. Each step of the work added the check that verified it (the Step column: phase and step, as the history in `git show V0.1.0:CLAUDE.md` lists them); each check's last results are in its `.log` beside it, and what they found is summarized in `../CLAUDE.md`.
 
 ## Setup
 
