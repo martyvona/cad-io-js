@@ -43,8 +43,8 @@ interface Slot {
   timer?: ReturnType<typeof setTimeout>;
 }
 
-/** 40 s: the corpus's slowest part takes 28 s with OCCT on an Apple M4 at 0.1 mm (CLAUDE.md, "Decisions"). */
-export const DEFAULT_TIMEOUT_MS = 40_000;
+/** 60 s: the corpus's slowest part takes 28 s with OCCT on an Apple M4 at 0.1 mm (CLAUDE.md, "Decisions"). */
+export const DEFAULT_TIMEOUT_MS = 60_000;
 
 export function defaultWorkers(): number {
   const n = (globalThis as { navigator?: { hardwareConcurrency?: number } }).navigator?.hardwareConcurrency ?? 2;

@@ -75,7 +75,7 @@ test("only the part's failures reject with a TessellationError, which keeps its 
       (e) => /Error: ordinary/.test((e as Error).message) && !(e instanceof TessellationError));
     await assert.rejects(t.tessellate(req(7)),
       (e) => e instanceof TessellationError && /own limit/.test(e.message) && e.timeoutMs === 50);
-    assert.equal(t.timeoutMs, 40_000);  // DEFAULT_TIMEOUT_MS
+    assert.equal(t.timeoutMs, 60_000);  // DEFAULT_TIMEOUT_MS
   } finally {
     t.dispose();
   }
