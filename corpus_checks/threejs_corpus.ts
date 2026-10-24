@@ -2,7 +2,8 @@
 // export view it was written from. Each file is imported, tessellated with our OCCT backend (a tess-workers pool,
 // 0.1 mm, edges), and exported with edges, curves and extras (userData); then, in the loaded scene:
 //   - one Mesh per placed part with triangles, and one Group per part without, in tree order;
-//   - each Mesh's world matrix equals the view's (node transforms down the tree, times the part's);
+//   - each Mesh's world matrix equals the view's (the root's, mm Z-up to m Y-up, then node transforms down the tree,
+//     times the part's);
 //   - its triangles (index count) and, per triangle, its material's colour and opacity equal the look's groups';
 //   - one geometry per mesh unless instances group faces differently; edges, curves and points segment counts.
 // Prints the JSON size and export time per format phase. Files whose JSON would exceed V8's string limit are
@@ -11,7 +12,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import * as THREE from 'three';
-import { exportView, identity, multiply, tessellateScene, type ExportNode,
+import { exportView, multiply, tessellateScene, type ExportNode,
   type Mat4 } from '../packages/cad-scene/src/index.ts';
 import { threejsChunks } from '../packages/export-threejs/src/index.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
@@ -26,6 +27,9 @@ await tess.init();
 const maxBytes = Number(process.argv[3] ?? 2) * 1e6;
 const STRING_LIMIT = 2 ** 29 - 24; // V8's maximum string length (characters)
 
+// Written out here rather than taken from the exporter: millimetres to metres and Z up to Y up ((x, y, z) ->
+// (x, z, -y)).
+const ROOT: Mat4 = Float64Array.of(0.001, 0, 0, 0, 0, 0, -0.001, 0, 0, 0.001, 0, 0, 0, 0, 0, 1);
 const hex = (c: readonly number[]) => c.reduce((h, v) => h * 256 + Math.round(Math.min(1, Math.max(0, v)) * 255), 0);
 const totals = { files: 0, skipped: 0, notLoaded: 0, meshes: 0, groups: 0, triangles: 0, geometries: 0, segments: 0,
   points: 0, bytes: 0, exportMs: 0, loadMs: 0, problems: 0 };
@@ -65,7 +69,7 @@ for (const f of corpusFiles(process.argv[2])) {
     for (const p of n.parts) expected.push({ world: multiply(t, p.transform), look: p.look });
     for (const c of n.children) walk(c, t);
   };
-  for (const r of view.roots) walk(r, identity());
+  for (const r of view.roots) walk(r, ROOT);
   // The loaded part objects in the same order: objects with userData.part, depth first as written (parts before
   // children).
   const found: THREE.Object3D[] = [];

@@ -34,8 +34,8 @@ import { Document, Format, Logger, WebIO, type Accessor, type JSONDocument, type
   type mat4 } from '@gltf-transform/core';
 import { EXTMeshGPUInstancing, EXTMeshoptCompression, KHRDracoMeshCompression, KHRMaterialsUnlit,
   KHRMeshQuantization, KHRNodeVisibility } from '@gltf-transform/extensions';
-import { identity, multiply, pruneView, type Diagnostic, type ExportNode, type ExportView, type Look, type Mat4,
-  type Mesh, type PropertyValue, type Scene, type SourceId, type Vec3 } from 'cad-scene';
+import { identity, multiply, pruneView, Y_UP_METRES, type Diagnostic, type ExportNode, type ExportView, type Look,
+  type Mat4, type Mesh, type PropertyValue, type Scene, type SourceId, type Vec3 } from 'cad-scene';
 
 export interface GltfOptions {
   /** Colour of faces, curves and points without a material (sRGB). Default light grey. */
@@ -91,8 +91,8 @@ export class GltfError extends Error {
 /** The most faces a primitive can have with Draco and extras: `_FACE` is 16 bits, and 65535 marks unused vertices. */
 export const MAX_DRACO_FACES = 65535;
 
-/** Millimetres to metres, and Z up to Y up: (x, y, z) mm -> (x, z, -y) m. Column-major. */
-export const ROOT_TRANSFORM: Mat4 = Float64Array.of(0.001, 0, 0, 0, 0, 0, -0.001, 0, 0, 0.001, 0, 0, 0, 0, 0, 1);
+/** Millimetres to metres, and Z up to Y up: (x, y, z) mm -> (x, z, -y) m. Column-major (cad-scene's `Y_UP_METRES`). */
+export const ROOT_TRANSFORM: Mat4 = Y_UP_METRES;
 
 /**
  * The scene's export view as a glTF-Transform document, with the compression's extensions set: writing it compresses

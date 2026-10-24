@@ -1,6 +1,7 @@
 // Needs the built module (./build.sh) and the corpus (test_corpus/third_party/pull.sh); skipped without them. The
 // comparison with OCCT also needs tess-occt built.
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -48,6 +49,22 @@ function offMesh(r: TessellationResult): number {
   for (let i = 0; i < e.length; i += 3) if (!verts.has(`${e[i]},${e[i + 1]},${e[i + 2]}`)) n++;
   return n;
 }
+
+test("the version names the module by its SHA-256, the same where crypto.subtle is missing (insecure contexts)",
+  { skip: !fs.existsSync(wasm) && 'not built' }, async () => {
+  const id = createHash('sha256').update(fs.readFileSync(wasm)).digest('hex').slice(0, 12);
+  const version = async () => {
+    const t = new TruckTessellator();
+    await t.init();
+    t.dispose();
+    return t.info.version;
+  };
+  assert.equal(await version(), `truck 88ed005, wasm ${id}`);
+  const own = Object.getOwnPropertyDescriptor(globalThis, 'crypto')!;
+  Object.defineProperty(globalThis, 'crypto', { value: {}, configurable: true });
+  try { assert.equal(await version(), `truck 88ed005, wasm ${id}`); } finally {
+    Object.defineProperty(globalThis, 'crypto', own); }
+});
 
 test('the module imports only the panic hook and the wasm-bindgen leftovers it has stubs for',
   { skip: !fs.existsSync(wasm) && 'not built' }, () => {

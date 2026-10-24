@@ -273,7 +273,7 @@ What each format holds:
 |---|---|---|---|
 | Tree | an `Object3D` tree following the assembly; a `Mesh` per placed part | a node tree following the assembly; a node per placed part (with `--gltf-instancing`, a node per repeated part, under the root) | by default a build item per placed part at its world transform (slicers may rearrange them), the instance path as its part number; `--3mf-assembly`: one item, nested component objects |
 | Sharing | geometries shared by the instances of a part (and look) | a mesh per look, shared across nodes | a mesh object per look |
-| Units, axes | millimetres, Z up, as the source | metres and Y up, by one root node | `unit="millimeter"` |
+| Units, axes | metres and Y up, by the root's matrix | metres and Y up, by one root node | `unit="millimeter"` |
 | Colours | `MeshStandardMaterial`, sRGB | `pbrMetallicRoughness`, linear base colour, alpha blending | `basematerials` with alpha; `--3mf-colorgroup` the Materials extension (opaque) |
 | Metadata | names; with `--extras`, STEP ids, properties, per-face ranges in `userData` | names; with `--extras`, the same in `extras` (with Draco, faces as a `_FACE` vertex attribute) | names, part numbers, the instance path as the item's part number; with `--extras`, its names in `cadio:path` |
 | Compression | none | Draco (`KHR_draco_mesh_compression`, the triangles), or meshopt (`EXT_meshopt_compression` with `KHR_mesh_quantization`, every buffer), or none | deflate (zip) |
@@ -564,7 +564,7 @@ console.log(mesh.positions.length / 3, mesh.indices.length / 3, mesh.faces.lengt
   mesh.origin, diagnostics.length);  // 168 156 8 65 [ 5, 10, 1.5 ] 0
 ```
 
-`tessellateScene` repairs what it can in every mesh, with a diagnostic each time, so every consumer of the scene gets the repaired mesh: triangles with two corners at one position are dropped, and closed shells that are inside out and enclosed by nothing else (so can't be voids) are turned over. `orient: false` and `dropDegenerate: false` keep the backend's meshes as they are, and `parts` limits it to some parts. Also: `identity()`, `multiply(a, b)`, `scaling(s)` for matrices; `weld(positions)` (vertices merged by exact position), `manifoldProblems(positions, triangles)`, `orientShells(mesh)` and `dropDegenerate(mesh)`, the mesh helpers behind the repairs and the 3MF exporter; `partMesh(scene, meshes, part)` (a part's mesh whatever its kind); `TessellationError`, which a backend throws for a failure that is the part's, not the host's.
+`tessellateScene` repairs what it can in every mesh, with a diagnostic each time, so every consumer of the scene gets the repaired mesh: triangles with two corners at one position are dropped, and closed shells that are inside out and enclosed by nothing else (so can't be voids) are turned over. `orient: false` and `dropDegenerate: false` keep the backend's meshes as they are, and `parts` limits it to some parts. Also: `identity()`, `multiply(a, b)`, `scaling(s)` for matrices, and `Y_UP_METRES` (millimetres and Z up to metres and Y up, the glTF and three.js exporters' root); `sha256(bytes)` (Web Crypto's, or our own `sha256Js` where Web Crypto is missing, as in pages that aren't a secure context); `weld(positions)` (vertices merged by exact position), `manifoldProblems(positions, triangles)`, `orientShells(mesh)` and `dropDegenerate(mesh)`, the mesh helpers behind the repairs and the 3MF exporter; `partMesh(scene, meshes, part)` (a part's mesh whatever its kind); `TessellationError`, which a backend throws for a failure that is the part's, not the host's.
 
 ### `step-import`
 
@@ -726,7 +726,7 @@ await pipeline(Readable.from(r.chunks), fs.createWriteStream('assembly.3mf'));
 
 Options:
 
-- **three.js** (`threejsChunks`, `threejsJson`): `name` (the root object's), `doubleSided`, `defaultColor` (faces without a material; sRGB), `edgeColor`, `edgeKinds` (which B-rep edges to write: by default shared and free ones, not seams or degenerate edges), `extras` (our `userData`: source ids, properties, parts, scene material indices, face, edge, curve and point sources, the root's unit; default false), `keepEmpty` (keep tree nodes with nothing to draw beneath them; default false).
+- **three.js** (`threejsChunks`, `threejsJson`): `name` (the root object's), `doubleSided`, `defaultColor` (faces without a material; sRGB), `edgeColor`, `edgeKinds` (which B-rep edges to write: by default shared and free ones, not seams or degenerate edges), `extras` (our `userData`: source ids, properties, parts, scene material indices, face, edge, curve and point sources, and on the root the unit and up axis below it, millimetres and Z; default false); the root's matrix turns millimetres and Z up into metres and Y up, as glTF's root node does, with extras or without, `keepEmpty` (keep tree nodes with nothing to draw beneath them; default false).
 - **glTF** (`glb`, `gltfJson`, `gltfDocument`): the same, with `extras` for glTF's `extras`, plus `hidden` (`'omit'`, the default, or `'extension'` for `KHR_node_visibility`), `unlitLines` (`KHR_materials_unlit` on edges, curves and points), `exclude` (leave edges, curves or points out even when the view has them), `compression` (`'draco'`, the default, `'meshopt'` or `'none'`), `dracoPositionBits` (default 14), `instancing` (`EXT_mesh_gpu_instancing`; default false) and `keepEmpty`. A primitive with more faces than `MAX_DRACO_FACES` (65,535) with Draco and extras throws a `GltfError`. The encoders (WebAssembly) are imported when first used. `gltfJson(scene, view, 'model.bin', opts)` gives the JSON and the buffer it names; with `undefined` for the name, the buffer is embedded as base64.
 - **3MF** (`threemf`): `name`, `defaultColor`, `colors` (`'basematerials'`, the default, or the Materials extension's `'colorgroup'`), `build` (`'parts'`, an item per placed part, or `'assembly'`), `nonManifold` (`'omit'` or `'surface'`), `hidden` (`'omit'` or `'keep'`), `extras` (each item's names as `cadio:path` metadata; default false). Meshes are welded by exact position (3MF wants shared vertices), and a mesh that isn't a closed, consistently oriented manifold isn't written as a solid.
 
@@ -866,6 +866,11 @@ Known work not yet scheduled; the detail behind each is in `CLAUDE.md`.
 
 - The 3MF Production extension.
 - Exporting STL and OBJ (the mesh helpers are there).
+
+**Viewer** (planned; see Roadmap)
+
+- An option to switch ambient occlusion from N8AO to three.js's `GTAOPass` (no dependency), to compare.
+- Optional `three-mesh-bvh` for faster picking on large meshes (more complexity; less reliable on some mobile GPUs).
 
 **Open questions**
 

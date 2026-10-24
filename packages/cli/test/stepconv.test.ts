@@ -490,7 +490,7 @@ test('stepconv: usage errors and failures', async () => {
   const help = await run(['-h']);
   assert.equal(help.code, 0);
   assert.match(help.stdout, /^Usage: stepconv/);
-  assert.match(help.stdout, /--timeout <s> +per part, in a worker \(default 40\); 0: none/);
+  assert.match(help.stdout, /--timeout <s> +per part, in a worker \(default 60\); 0: none/);
   assert.match(help.stdout, /threejs +\.json/);
   assert.match(help.stdout, /glb +\.glb/);
   assert.match(help.stdout, /gltf +\.gltf/);

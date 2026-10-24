@@ -1,21 +1,27 @@
 // Scene model -> three.js JSON Object Scene format 4 (the form Object3D.toJSON writes), loadable with
 // THREE.ObjectLoader. See README.md, "`stepconv`", and CLAUDE.md, "Decisions".
 //
-//   objects: a root Group (the scene's properties, unit 'millimetre'), a Group per instance-tree node (matrix =
+//   objects: a root Group (its matrix to metres, Y up), a Group per instance-tree node (matrix =
 //     the node's local transform), and per placed part a Mesh (or a Group, for a part without triangles) whose
 //     children are its B-rep edges (LineSegments), wireframe curves (LineSegments) and points (Points).
 //   geometries: one per distinct mesh and grouping, shared by every instance; groups index the Mesh's material array.
 //   materials: one per scene material and kind (MeshStandardMaterial, LineBasicMaterial, PointsMaterial).
 //   userData (on request): source ids, properties and parts; per Mesh its faces' sources as index ranges, for
-//     picking; the root's unit.
+//     picking; the scene's properties, and the unit and up axis below the root, on the root.
 //
 // Tree nodes with nothing to draw beneath them are left out unless `keepEmpty` (the user, 2026-10-24).
 //
-// Lengths are millimetres (the scene's unit) and axes as in the source (CAD files are usually Z-up). Format 4 holds
-// numbers as JSON arrays, so output is produced in chunks: a large model's JSON can exceed V8's maximum string length.
+// The root's matrix turns the scene's millimetres and Z up into metres and Y up (three.js's up axis, glTF's unit and
+// axis), with extras or without, so a file sits the same in any three.js application; below it lengths are
+// millimetres and axes as in the source (CAD files are usually Z-up), which the root's userData says with extras (the
+// user, 2026-10-24). Format 4 holds numbers as JSON arrays, so output is produced in chunks: a large model's JSON can
+// exceed V8's maximum string length.
 
-import { pruneView, type ExportNode, type ExportView, type Look, type Mat4, type Mesh, type PropertyValue, type Scene,
-  type SourceId, type Vec3 } from 'cad-scene';
+import { pruneView, Y_UP_METRES, type ExportNode, type ExportView, type Look, type Mat4, type Mesh, type PropertyValue,
+  type Scene, type SourceId, type Vec3 } from 'cad-scene';
+
+/** Millimetres to metres, and Z up to Y up: (x, y, z) mm -> (x, z, -y) m. Column-major (cad-scene's `Y_UP_METRES`). */
+export const ROOT_TRANSFORM: Mat4 = Y_UP_METRES;
 
 export interface ThreejsOptions {
   /** Colour of faces, curves and points without a material (sRGB). Default light grey. */
@@ -32,7 +38,8 @@ export interface ThreejsOptions {
   name?: string;
   /**
    * Our userData: source ids, properties and parts on objects, scene material indices on materials, face, edge, curve
-   * and point sources, and the root's unit. Default false: other systems don't read them (the user, 2026-10-24).
+   * and point sources, and the unit and up axis below the root. Default false: other systems don't read them (the
+   * user, 2026-10-24).
    */
   extras?: boolean;
   /** Keep tree nodes with nothing to draw beneath them. Default false. */
@@ -289,8 +296,8 @@ class Writer {
   }
 
   root(): Json {
-    const o: Json = { uuid: this.uuid(), type: 'Group', name: this.opts.name ?? '' };
-    if (this.extras) o.userData = { unit: 'millimetre',
+    const o: Json = { uuid: this.uuid(), type: 'Group', name: this.opts.name ?? '', matrix: matrix(ROOT_TRANSFORM) };
+    if (this.extras) o.userData = { unit: 'millimetre', up: 'z',
       ...(Object.keys(this.scene.properties).length ? { properties: this.scene.properties } : {}) };
     const children = this.view.roots.map((n) => this.node(n));
     if (children.length) o.children = children;

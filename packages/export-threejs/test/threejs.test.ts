@@ -63,10 +63,16 @@ const byName = (root: THREE.Object3D, name: string) => { const out: THREE.Object
 test('three.js JSON loads with ObjectLoader: tree, transforms, shared geometry, materials, userData', () => {
   const s = scene();
   const view = exportView(s, meshes());
-  const root = load(threejsJson(s, view, { name: 'model', extras: true }));
+  const json = threejsJson(s, view, { name: 'model', extras: true });
+  const root = load(json);
   root.updateMatrixWorld(true);
   assert.equal(root.name, 'model');
-  assert.deepEqual(root.userData, { unit: 'millimetre', properties: { schema: 'AP214' } });
+  assert.deepEqual(root.userData, { unit: 'millimetre', up: 'z', properties: { schema: 'AP214' } });
+  // The root: millimetres to metres, Z up to Y up, (x, y, z) -> (x, z, -y) / 1000 (written out, not the exporter's).
+  const yUp = Float64Array.of(0.001, 0, 0, 0, 0, 0, -0.001, 0, 0, 0.001, 0, 0, 0, 0, 0, 1);
+  assert.deepEqual(JSON.parse(json).object.matrix, Array.from(yUp));
+  // (ObjectLoader decomposes matrices and composes them again, so loaded ones differ from the file's by rounding.)
+  root.matrix.elements.forEach((x, i) => assert.ok(Math.abs(x - yUp[i]!) < 1e-15, `root element ${i}`));
   assert.deepEqual(root.children.map((c) => c.name), ['asm']);
   assert.deepEqual(root.children[0]!.children.map((c) => c.name), ['left', 'sub']);
   const left = root.children[0]!.children[0]!;
@@ -78,8 +84,8 @@ test('three.js JSON loads with ObjectLoader: tree, transforms, shared geometry, 
   const plates = byName(root, 'plate') as THREE.Mesh[];
   assert.equal(plates.length, 2);
   assert.ok(plates.every((p) => p instanceof THREE.Mesh) && byName(root, 'wire').length === 0);
-  // World transform: the instance's translation, inches to mm, and the mesh's origin (1 inch along x).
-  const expected = multiply(multiply(translation(100, 0, 0), scaling(25.4)), translation(1, 0, 0));
+  // World transform: the root's, the instance's translation, inches to mm, and the mesh's origin (1 inch along x).
+  const expected = multiply(multiply(multiply(yUp, translation(100, 0, 0)), scaling(25.4)), translation(1, 0, 0));
   plates[0]!.matrixWorld.elements.forEach((x, i) => assert.ok(Math.abs(x - expected[i]!) < 1e-9, `element ${i}`));
   // One geometry for both instances (same triangles and ranges), with groups for the two materials.
   assert.equal(plates[0]!.geometry, plates[1]!.geometry);

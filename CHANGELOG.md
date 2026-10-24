@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- three.js JSON: the root's matrix turns millimetres and Z up into metres and Y up, as glTF's root node does, with extras or without; with extras the root's `userData` adds `up: 'z'` beside `unit: 'millimetre'`, both describing the frame below the root. Before, the file was in millimetres with the source's axes. `cad-scene` exports the matrix as `Y_UP_METRES` (`export-gltf`'s `ROOT_TRANSFORM` and `export-threejs`'s are it).
+- `cad-scene`'s `sha256`: Web Crypto's SHA-256 where it exists, else our own (`sha256Js`), with the same digests; the backends' module hashes and the cache's keys use it, so both work in pages that aren't a secure context (plain http on a LAN), where `crypto.subtle` is missing. Keys and versions are unchanged.
 - glTF compression: Draco (`KHR_draco_mesh_compression`) by default, meshopt (`EXT_meshopt_compression` with `KHR_mesh_quantization`) or none by option (`stepconv --gltf-compression`, `--gltf-draco-bits`; the exporter's `compression`, `dracoPositionBits`). With Draco and extras, faces are a `_FACE` vertex attribute instead of index ranges. `gltfDocument` is now async.
 - glTF instancing by option (`stepconv --gltf-instancing`, the exporter's `instancing`): each part placed more than once is one node under the root with `EXT_mesh_gpu_instancing` (required), out of the assembly tree; with extras, its `extras.instances` names each instance's place in the tree.
 - Assembly nodes with nothing to draw beneath them are left out of glTF and three.js output (`stepconv --keep-empty`, the exporters' `keepEmpty`, keeps them); `cad-scene`'s `pruneView` does it for any export view.

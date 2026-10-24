@@ -1,7 +1,7 @@
 // Caching tessellation results per part: a Tessellator that answers from a store when it has seen the request, keyed
 // by a hash of the payload, the backend's name and version, and the request's options. Failures are cached too.
 
-import { TessellationError, type TessellationRequest, type TessellationResult, type Tessellator,
+import { sha256 as digest, TessellationError, type TessellationRequest, type TessellationResult, type Tessellator,
   type TessellatorInfo } from 'cad-scene';
 
 /** Where cached results live: bytes by key, the least recently used evicted beyond `maxBytes`. */
@@ -23,8 +23,8 @@ export interface CacheStore {
 const FORMAT = 3;
 const MAGIC = 0x33524354; // "TCR3", little-endian
 
-const hex = (b: ArrayBuffer) => Array.from(new Uint8Array(b), (x) => x.toString(16).padStart(2, '0')).join('');
-const sha256 = async (b: Uint8Array<ArrayBuffer>) => hex(await crypto.subtle.digest('SHA-256', b));
+const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+const sha256 = async (b: Uint8Array<ArrayBuffer>) => hex(await digest(b));
 
 /**
  * The start of a backend's keys: `<name>_` for every version of the backend (its name in lower case, other characters

@@ -3,6 +3,7 @@
 
 import type { Diagnostic, EdgeKind, TessellationRequest, TessellationResult, Tessellator,
   TessellatorInfo } from 'cad-scene';
+import { sha256 } from 'cad-scene';
 
 interface OcctModule {
   HEAPU8: Uint8Array;
@@ -70,7 +71,6 @@ export class Messages {
   }
 }
 
-/** The first 12 hex digits of the module's SHA-256, so that `info.version` changes with every build. */
 /** What this adapter uses of the module: the wrapper's C functions, the allocator, and the runtime's heap views. */
 export const REQUIRED_EXPORTS: readonly (keyof OcctModule)[] = [
   'HEAPU8', 'HEAPF32', 'HEAPU32', 'HEAP32', 'UTF8ToString', '_malloc', '_free', '_occt_tessellate', '_occt_positions',
@@ -110,8 +110,9 @@ async function fetchBytes(url: URL): Promise<BufferSource> {
   return new Uint8Array(await (await fetch(url)).arrayBuffer());
 }
 
+/** The first 12 hex digits of the module's SHA-256, so that `info.version` changes with every build. */
 async function wasmId(bytes: BufferSource): Promise<string> {
-  const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+  const hash = await sha256(bytes);
   return Array.from(hash.subarray(0, 6), (b) => b.toString(16).padStart(2, '0')).join('');
 }
 

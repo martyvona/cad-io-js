@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import test from 'node:test';
 import { TessellationError, type Diagnostic, type TessellationRequest, type TessellationResult, type Tessellator,
   type TessellatorInfo } from 'cad-scene';
@@ -65,6 +66,19 @@ const info: TessellatorInfo = { name: 'fake', version: '1', license: 'MIT', form
   supportsEdges: true, supportsCurves: true };
 const req: TessellationRequest = { format: 'step', data: new Uint8Array([1, 2, 3]), rootId: 5, origin: [1, 2, 3],
   linearDeflection: 0.1, angularDeflection: 0.5, edges: true };
+
+test('keys are the same where crypto.subtle is missing (insecure contexts), and are SHA-256', async () => {
+  const k = await cacheKey(info, req);
+  const p = await keyPrefix(info);
+  const own = Object.getOwnPropertyDescriptor(globalThis, 'crypto')!;
+  Object.defineProperty(globalThis, 'crypto', { value: {}, configurable: true });
+  try {
+    assert.equal(await cacheKey(info, req), k);
+    assert.deepEqual(await keyPrefix(info), p);
+  } finally { Object.defineProperty(globalThis, 'crypto', own); }
+  const prefix = createHash('sha256').update(JSON.stringify([3, 'fake', '1'])).digest('hex').slice(0, 12);
+  assert.equal(p.version, `fake_${prefix}_`);
+});
 
 test('the key changes with the backend, every request option and the payload, and only with them', async () => {
   const k = await cacheKey(info, req);

@@ -4,6 +4,7 @@
 
 import type { Diagnostic, EdgeKind, TessellationRequest, TessellationResult, Tessellator,
   TessellatorInfo } from 'cad-scene';
+import { sha256 } from 'cad-scene';
 
 interface Exports {
   memory: WebAssembly.Memory;
@@ -80,7 +81,7 @@ async function wasmBytes(source?: BufferSource | URL | string): Promise<BufferSo
 
 /** The first 12 hex digits of the module's SHA-256, so that `info.version` changes with every build. */
 async function wasmId(bytes: BufferSource): Promise<string> {
-  const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+  const hash = await sha256(bytes);
   return Array.from(hash.subarray(0, 6), (b) => b.toString(16).padStart(2, '0')).join('');
 }
 

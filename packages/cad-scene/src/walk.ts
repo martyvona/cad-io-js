@@ -3,6 +3,12 @@
 
 import type { Mat4, Part, PartRef, Scene } from './scene.ts';
 
+/**
+ * The scene's millimetres, Z up, to metres, Y up (glTF's convention, and three.js's): (x, y, z) mm -> (x, z, -y) m.
+ * Column-major. The glTF and three.js exporters put it on their root (the user, 2026-10-24).
+ */
+export const Y_UP_METRES: Mat4 = Float64Array.of(0.001, 0, 0, 0, 0, 0, -0.001, 0, 0, 0.001, 0, 0, 0, 0, 0, 1);
+
 export function identity(): Mat4 {
   const m = new Float64Array(16);
   m[0] = m[5] = m[10] = m[15] = 1;

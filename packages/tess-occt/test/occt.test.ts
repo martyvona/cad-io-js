@@ -1,6 +1,7 @@
 // Needs the built module (./build.sh) and the corpus checkout's cube (test_corpus/third_party/pull.sh); skipped
 // without them.
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -242,6 +243,12 @@ test("a host's module: the glue and module given by URL, bytes, factory or compi
   const ours = await run({});
   const [, id, adapter] = /, wasm ([0-9a-f]{12}), (adapter \d+)$/.exec(ours.version)!;
   assert.match(ours.version, /^OCCT 8\.1 \(3d097a0328\), wasm [0-9a-f]{12}, adapter \d+$/);
+  assert.equal(id, createHash('sha256').update(bytes).digest('hex').slice(0, 12));
+  // The same where crypto.subtle is missing (insecure contexts: a page over plain http on a LAN).
+  const own = Object.getOwnPropertyDescriptor(globalThis, 'crypto')!;
+  Object.defineProperty(globalThis, 'crypto', { value: {}, configurable: true });
+  try { assert.equal((await run({})).version, ours.version); } finally {
+    Object.defineProperty(globalThis, 'crypto', own); }
   // By URL (as a string, as a worker would get it) and by bytes: hashed, the same id; named as a host's build.
   const byUrl = await run({ glue: glue.href, wasm: wasm.href });
   assert.equal(byUrl.version, `OCCT, a host build, wasm ${id}, ${adapter}`);
