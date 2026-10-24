@@ -16,6 +16,7 @@ import { clipTo, fit, setAspect, setView, type ViewName } from './camera.ts';
 import { formatOf, nativeFrame, type Format } from './formats.ts';
 import { Frames } from './frames.ts';
 import { loadThree, type Source } from './load.ts';
+import { NodeModel, type FaceHiding } from './model.ts';
 import { detectEdges, StepGraph } from './step.ts';
 import { DEFAULT_SETTINGS, Tessellation, type TessellationSettings } from './tessellation.ts';
 
@@ -109,6 +110,12 @@ export class Viewer {
   settings: TessellationSettings = { ...DEFAULT_SETTINGS };
   /** Progress messages while loading. */
   onStatus?: (text: string) => void;
+  /** The node model of the model just shown (its tree, hiding). */
+  nodes?: NodeModel;
+  /** A new model is shown (its node model is `nodes`). */
+  onModel?: (nodes: NodeModel) => void;
+  /** Meshes arrived: parts' detail in the node model changed. */
+  onMeshes?: () => void;
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -194,14 +201,16 @@ export class Viewer {
     this.zoomAll();
   }
 
-  private show(root: THREE.Object3D, model: ModelInfo): void {
+  private show(root: THREE.Object3D, model: ModelInfo, faces?: FaceHiding): void {
     this.clear();
     this.root = root;
+    this.nodes = new NodeModel(root, faces);
     this.frame.matrix.copy(nativeFrame(model.format, root));
     this.frame.matrix.decompose(this.frame.position, this.frame.quaternion, this.frame.scale);
     this.frame.add(root);
     this.model = model;
     this.moved = false;
+    this.onModel?.(this.nodes);
   }
 
   private async loadStep(src: Source, gen: number): Promise<void> {
@@ -214,12 +223,19 @@ export class Viewer {
     const brep = scene.parts.flatMap((p, i) => p.kind === 'brep' && graph.placements.has(i) ? [i] : []);
     const model: ModelInfo = { name: src.name, format: 'step', parts: { total: brep.length, done: 0, failed: 0 },
       diagnostics: [...scene.diagnostics] };
-    this.show(graph.root, model);
+    this.show(graph.root, model, graph);
+    const added = (part: number) => {
+      for (const p of graph.placements.get(part) ?? []) this.nodes?.invalidate(p.group);
+      this.onMeshes?.();
+    };
     // Parts already meshes or curves need no tessellation.
     for (const i of graph.placements.keys()) {
       if (scene.parts[i]!.kind === 'brep') continue;
       const mesh = partMesh(scene, new Map(), i);
-      if (mesh) graph.addMesh(i, mesh);
+      if (mesh) {
+        graph.addMesh(i, mesh);
+        added(i);
+      }
     }
     this.redraw();
     const progress = () => this.onStatus?.(`${src.name}: meshed ${model.parts!.done} of ${model.parts!.total} parts` +
@@ -239,6 +255,7 @@ export class Viewer {
             model.parts!.done++;
             if (mesh && mesh.indices.length + (mesh.curvePositions?.length ?? 0) + (mesh.points?.length ?? 0)) {
               graph.addMesh(part, mesh);
+              added(part);
               if (!zoomed && !this.moved) { zoomed = true; this.zoomAll(); }
             } else model.parts!.failed++;
             progress();
@@ -274,6 +291,7 @@ export class Viewer {
     }
     this.root = undefined;
     this.model = undefined;
+    this.nodes = undefined;
     this.centered = false;
     this.display.position.set(0, 0, 0);
   }

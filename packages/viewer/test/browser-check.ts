@@ -142,8 +142,12 @@ async function page(query: string, after?: string): Promise<Record<string, unkno
             Buffer.from(data, 'base64'));
         }
         const report = JSON.parse(r.result.value) as Record<string, unknown>;
-        if (after) report.after = ((await send('Runtime.evaluate', { expression: after, returnByValue: true,
-          awaitPromise: true }, sessionId)) as { result: { value: unknown } }).result.value;
+        if (after) {
+          const e = await send('Runtime.evaluate', { expression: after, returnByValue: true, awaitPromise: true },
+            sessionId) as { result: { value: unknown }; exceptionDetails?: { exception?: { description?: string } } };
+          if (e.exceptionDetails) throw new Error(`in the page: ${e.exceptionDetails.exception?.description}`);
+          report.after = e.result.value;
+        }
         return report;
       }
       await new Promise((resolve) => setTimeout(resolve, 100));
@@ -240,6 +244,86 @@ await check('replaced while meshing', async () => {
   expect(a.glb.name === 'as1.glb' && a.glb.stats.triangles === triangles, `after: ${JSON.stringify(a.glb)}`);
   expect(a.step.name === 'as1.stp' && a.step.stats.triangles === triangles && a.step.parts.failed === 0,
     `STEP again: ${JSON.stringify(a.step)}`);
+  return undefined;
+});
+// The tree on the STEP assembly: the top level open; with detail and everything expanded, a row per node; clicking
+// rows selects them (ctrl adds); hiding them hides their objects and greys their rows; a face hidden in one
+// placement is hidden in every placement of its part; show all shows everything again.
+await check('tree', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    const frame = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+    const p = ui.panel(), m = p.model;
+    const rows = () => [...document.querySelectorAll('.tree-row')].filter((r) => r.style.display !== 'none')
+      .sort((a, b) => parseFloat(a.style.top) - parseFloat(b.style.top));
+    const spacerRows = () => Math.round(parseFloat(document.querySelector('.tree-scroller > div').style.height) / 18);
+    await frame();
+    const initial = rows().map((r) => r.textContent);
+    p.setDetail(true);
+    p.expandAll();
+    await frame();
+    const all = spacerRows(), nodes = m.nodes.length;
+    const click = (row, ctrlKey = false) => row.dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey }));
+    const parts = () => rows().filter((r) => m.nodes[+r.dataset.id].kind === 'part');
+    const display = getComputedStyle(rows()[0]).display;
+    const label = rows()[1].getAttribute('aria-label');
+    click(parts()[0]);
+    await frame();
+    click(parts()[1], true);
+    await frame();
+    const selected = [...p.selected()];
+    const afterClicks = spacerRows();
+    ui.hideSelected();
+    await frame();
+    const hiddenObjects = selected.filter((i) => m.nodes[i].object.visible === false).length;
+    const greyed = rows().filter((r) => r.classList.contains('hidden')).length;
+    // A face of the first part, hidden: every placement of that part draws it with nothing.
+    ui.showAll();
+    await frame();
+    const face = rows().find((r) => m.nodes[+r.dataset.id].kind === 'face');
+    const faceNode = m.nodes[+face.dataset.id];
+    click(face);
+    await frame();
+    ui.hideSelected();
+    await frame();
+    const same = m.nodes.filter((n) => n.face && n.face.part === faceNode.face.part && n.face.source ===
+      faceNode.face.source);
+    const sameHidden = same.filter((n) => n.hidden).length;
+    let invisibleGroups = 0;
+    viewer.display.traverse((o) => { if (o.isMesh && Array.isArray(o.material)) invisibleGroups +=
+      o.geometry.groups.filter((g) => !o.material[g.materialIndex].visible).length; });
+    ui.showAll();
+    await frame();
+    // Selecting from elsewhere (as picking will): the node's row selected and in view.
+    const last = m.nodes.length - 1;
+    p.select([last]);
+    await frame();
+    const pickedRow = rows().find((r) => +r.dataset.id === last);
+    const picked = !!pickedRow && pickedRow.classList.contains('selected') && p.selected().join() === String(last);
+    p.collapseAll();
+    await frame();
+    const collapsed = spacerRows();
+    let invisibleAfter = 0;
+    viewer.display.traverse((o) => { if (o.isMesh && Array.isArray(o.material)) invisibleAfter +=
+      o.geometry.groups.filter((g) => !o.material[g.materialIndex].visible).length; });
+    return { initial, all, nodes, selected: selected.length, hiddenObjects, greyed, same: same.length, sameHidden,
+      invisibleGroups, invisibleAfter, greyAfter: rows().filter((r) => r.classList.contains('hidden')).length,
+      display, label, afterClicks, picked, collapsed };
+  })()`) as { after?: { initial: string[]; all: number; nodes: number; selected: number; hiddenObjects: number;
+    greyed: number; same: number; sameHidden: number; invisibleGroups: number; invisibleAfter: number;
+    greyAfter: number; display: string; label: string; afterClicks: number; picked: boolean; collapsed: number } };
+  const a = r.after!;
+  const j = JSON.stringify(a);
+  expect(a.initial.length > 3 && a.initial[0] === 'as1.stp' && a.initial[1] === 'as1', `initial rows: ${j}`);
+  expect(a.all === a.nodes, `rows ${a.all}, nodes ${a.nodes}`);
+  expect(a.display === 'flex' && a.label === 'as1', `rows' layout and labels: ${j}`);
+  // Clicks select; they don't expand or collapse.
+  expect(a.afterClicks === a.all, `rows after clicks: ${j}`);
+  expect(a.picked && a.collapsed === 1, `selecting from elsewhere, collapsing: ${j}`);
+  expect(a.selected === 2 && a.hiddenObjects === 2, `selection and hiding: ${j}`);
+  // Each hidden part greys itself and its detail rows (its faces and edges).
+  expect(a.greyed > 2, `greyed rows: ${j}`);
+  expect(a.same > 1 && a.sameHidden === a.same && a.invisibleGroups === a.same, `face hiding: ${j}`);
+  expect(a.invisibleAfter === 0 && a.greyAfter === 0, `show all: ${j}`);
   return undefined;
 });
 await check('no model', async () => {

@@ -4,6 +4,6 @@ import { buildUi } from './ui.ts';
 import { Viewer } from './viewer.ts';
 
 const viewer = new Viewer(document.getElementById('view')!);
-buildUi(viewer, document.getElementById('status')!);
+const ui = buildUi(viewer, document.getElementById('status')!, document.getElementById('tree')!);
 // For the browser check and the console.
-(globalThis as { viewer?: Viewer }).viewer = viewer;
+Object.assign(globalThis, { viewer, ui });

@@ -9,9 +9,14 @@
 // A part's geometry is shared by its placements: one set of attributes, and one geometry (its groups) per distinct
 // colouring of the faces. Edges are the B-rep's where the backend gave them (shared and free ones, as the exporters
 // write them); a part with triangles and no B-rep edges gets edges found from its triangles instead.
+//
+// For the node model (model.ts): component groups have `userData.cad` 'assembly', placed parts' groups 'part', and
+// each placement's Mesh its faces' source ids in `userData.faces`. Hiding a face (FaceHiding) hides its triangles in
+// every placement of the part: they get a geometry group of their own with an invisible material.
 
 import * as THREE from 'three';
 import { instances, partInstances, type Mat4, type Mesh, type PartInstance, type Scene } from 'cad-scene';
+import type { FaceHiding } from './model.ts';
 
 /** sRGB, as the exporters' default: faces, curves and points without a material. */
 export const DEFAULT_COLOR: readonly [number, number, number] = [0.8, 0.8, 0.8];
@@ -46,13 +51,28 @@ export interface Placement {
   instance: PartInstance;
 }
 
-export class StepGraph {
+/** A meshed part: what assigning faces to geometry groups and materials needs again when faces are hidden. */
+interface MeshedPart {
+  mesh: Mesh;
+  attrs: { position: THREE.BufferAttribute; normal?: THREE.BufferAttribute; index: THREE.BufferAttribute };
+  /** Geometries by grouping (runs of faces and their materials). */
+  geometries: Map<string, THREE.BufferGeometry>;
+  objects: { obj: THREE.Mesh; instance: PartInstance }[];
+}
+
+/** Hidden faces' triangles: drawn with nothing. */
+const HIDDEN = new THREE.MeshBasicMaterial({ visible: false });
+
+export class StepGraph implements FaceHiding {
   readonly root = new THREE.Group();
   readonly scene: Scene;
   /** Each part's placements, by part index. */
   readonly placements = new Map<number, Placement[]>();
   private readonly materials = new Map<string, THREE.Material>();
   private readonly lineMaterial = new THREE.LineBasicMaterial({ color: 0x000000 });
+  private readonly meshed = new Map<number, MeshedPart>();
+  /** Hidden faces' source ids, by part. */
+  private readonly hiddenFaces = new Map<number, Set<number>>();
 
   constructor(scene: Scene, name: string) {
     this.scene = scene;
@@ -64,7 +84,7 @@ export class StepGraph {
         : scene.roots[inst.path[0]!]!;
       const g = new THREE.Group();
       g.name = occ.name ?? scene.components[inst.component]!.name;
-      g.userData = { component: inst.component, path: inst.path };
+      g.userData = { cad: 'assembly', component: inst.component, path: inst.path };
       setMatrix(g, occ.transform);
       (parent ?? this.root).add(g);
       groups.set(inst.path.join('/'), g);
@@ -72,7 +92,7 @@ export class StepGraph {
     for (const pi of partInstances(scene)) {
       const g = new THREE.Group();
       g.name = scene.parts[pi.part]!.name;
-      g.userData = { part: pi.part, path: pi.path };
+      g.userData = { cad: 'part', part: pi.part, path: pi.path };
       g.visible = pi.visible;
       setMatrix(g, pi.ref.transform);
       groups.get(pi.path.join('/'))!.add(g);
@@ -142,32 +162,21 @@ export class StepGraph {
       points.setAttribute('position', new THREE.BufferAttribute(mesh.points, 3));
     }
 
+    const meshed: MeshedPart | undefined = attrs ? { mesh, attrs, geometries, objects: [] } : undefined;
+    if (meshed) this.meshed.set(part, meshed);
+    const faceSources = [...new Set(mesh.faces.flatMap((f) => f.source === null ? [] : [f.source]))];
     const made: THREE.Object3D[] = [];
     for (const { group, instance } of placements) {
       let obj: THREE.Object3D;
-      if (attrs) {
-        // The faces' materials in order, as runs: one geometry group per run.
-        const runs: { start: number; count: number; material: number | undefined }[] = [];
-        for (const f of mesh.faces) {
-          const m = (f.source !== null ? instance.faceMaterials.get(f.source) : undefined) ?? instance.material;
-          const last = runs.at(-1);
-          if (last && last.material === m && last.start + last.count === f.start) last.count += f.count;
-          else runs.push({ start: f.start, count: f.count, material: m });
-        }
-        const key = runs.map((r) => `${r.start}:${r.material}`).join(',');
-        let g = geometries.get(key);
-        if (!g) {
-          g = new THREE.BufferGeometry();
-          g.setAttribute('position', attrs.position);
-          if (attrs.normal) g.setAttribute('normal', attrs.normal);
-          g.setIndex(attrs.index);
-          runs.forEach((r, i) => g!.addGroup(r.start, r.count, i));
-          geometries.set(key, g);
-        }
-        obj = new THREE.Mesh(g, runs.map((r) => this.material(r.material, 'face')));
+      if (meshed) {
+        const m = new THREE.Mesh();
+        this.assign(part, meshed, m, instance);
+        meshed.objects.push({ obj: m, instance });
+        obj = m;
       } else {
         obj = new THREE.Group();
       }
+      obj.userData = { faces: faceSources };
       obj.name = group.name;
       obj.position.set(...mesh.origin);
       if (edges) obj.add(Object.assign(new THREE.LineSegments(edges, this.lineMaterial), { name: 'edges' }));
@@ -179,6 +188,53 @@ export class StepGraph {
       made.push(obj);
     }
     return made;
+  }
+
+  /** Sets a placement's geometry (shared by grouping) and materials: runs of faces by material, hidden faces apart. */
+  private assign(part: number, meshed: MeshedPart, obj: THREE.Mesh, instance: PartInstance): void {
+    const hidden = this.hiddenFaces.get(part);
+    const runs: { start: number; count: number; material: number | undefined | 'hidden' }[] = [];
+    for (const f of meshed.mesh.faces) {
+      const m = f.source !== null && hidden?.has(f.source) ? 'hidden' as const
+        : (f.source !== null ? instance.faceMaterials.get(f.source) : undefined) ?? instance.material;
+      const last = runs.at(-1);
+      if (last && last.material === m && last.start + last.count === f.start) last.count += f.count;
+      else runs.push({ start: f.start, count: f.count, material: m });
+    }
+    const key = runs.map((r) => `${r.start}:${r.material}`).join(',');
+    let g = meshed.geometries.get(key);
+    if (!g) {
+      g = new THREE.BufferGeometry();
+      g.setAttribute('position', meshed.attrs.position);
+      if (meshed.attrs.normal) g.setAttribute('normal', meshed.attrs.normal);
+      g.setIndex(meshed.attrs.index);
+      runs.forEach((r, i) => g!.addGroup(r.start, r.count, i));
+      meshed.geometries.set(key, g);
+    }
+    obj.geometry = g;
+    obj.material = runs.map((r) => r.material === 'hidden' ? HIDDEN : this.material(r.material, 'face'));
+  }
+
+  isFaceHidden(part: number, source: number): boolean {
+    return this.hiddenFaces.get(part)?.has(source) ?? false;
+  }
+
+  setFaceHidden(part: number, source: number, hidden: boolean): void {
+    let set = this.hiddenFaces.get(part);
+    if (!set) this.hiddenFaces.set(part, (set = new Set()));
+    if (hidden) set.add(source);
+    else set.delete(source);
+    const meshed = this.meshed.get(part);
+    if (meshed) for (const { obj, instance } of meshed.objects) this.assign(part, meshed, obj, instance);
+  }
+
+  showAllFaces(): void {
+    const parts = [...this.hiddenFaces.keys()];
+    this.hiddenFaces.clear();
+    for (const part of parts) {
+      const meshed = this.meshed.get(part);
+      if (meshed) for (const { obj, instance } of meshed.objects) this.assign(part, meshed, obj, instance);
+    }
   }
 }
 

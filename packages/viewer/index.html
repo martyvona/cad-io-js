@@ -5,8 +5,21 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
   <title>cad-viewer</title>
   <style>
+    :root { --side: 300px; }
     html, body { margin: 0; height: 100%; overflow: hidden; background: #404040; }
-    #view { position: absolute; inset: 0; }
+    #side {
+      position: absolute; left: 0; top: 0; bottom: 0; width: var(--side); background: #1f1f1f; color: #ddd;
+      font: 12px/18px system-ui, -apple-system, "Segoe UI", sans-serif; border-right: 1px solid #111;
+    }
+    #tree { position: absolute; inset: 0; }
+    #view { position: absolute; top: 0; bottom: 0; right: 0; left: var(--side); }
+    body.tree-closed #side { display: none; }
+    body.tree-closed #view { left: 0; }
+    /* Narrow screens: the tree over the view, when open. */
+    @media (max-width: 700px) {
+      #view { left: 0; }
+      #side { width: 85%; z-index: 2; box-shadow: 4px 0 12px rgba(0, 0, 0, 0.5); }
+    }
     #view canvas { display: block; }
     #status {
       position: absolute; left: 0; bottom: 0; max-width: calc(100% - 16px); padding: 4px 8px;
@@ -15,11 +28,26 @@
     }
     #status:empty { display: none; }
     #status.error { color: #ff8a80; }
+    .tree-scroller:focus { outline: none; }
+    .tree-row { cursor: default; user-select: none; -webkit-user-select: none; }
+    .tree-row.selected { background: #2c5d87; }
+    .tree-row.focused { box-shadow: inset 0 0 0 1px #6a9fd0; }
+    .tree-row.hidden { color: #777; }
+    .tree-expander { flex: none; width: 16px; height: 18px; position: relative; }
+    .tree-expander.closed::before, .tree-expander.open::before {
+      content: ""; position: absolute; left: 5px; top: 5px; border: 4px solid transparent;
+    }
+    .tree-expander.closed::before { border-left: 6px solid #aaa; border-right: 0; }
+    .tree-expander.open::before { border-top: 6px solid #aaa; border-bottom: 0; left: 4px; top: 7px; }
+    .tree-content { display: flex; align-items: center; gap: 4px; overflow: hidden; }
+    .tree-icon { display: inline-flex; color: #9bb4cc; }
+    .tree-row.hidden .tree-icon { color: #666; }
+    .tree-name { overflow: hidden; text-overflow: ellipsis; }
   </style>
 </head>
 <body>
-  <div id="view"></div>
-  <div id="status"></div>
+  <div id="side"><div id="tree"></div></div>
+  <div id="view"><div id="status"></div></div>
   <script type="module" src="./src/main.ts"></script>
 </body>
 </html>

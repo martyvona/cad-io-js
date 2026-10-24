@@ -1,15 +1,24 @@
 // The viewer's controls, in lil-gui (the user, 2026-10-24; CLAUDE.md, "The viewer"): opening a local file or a URL
 // (also by dropping files on the page, or ?url= in the page's address), zoom all, the views along the axes,
-// centring the model, full screen; a status line for what's loading and what went wrong.
+// centring the model, full screen, the tree panel and hiding; a status line for what's loading and what went wrong.
 
 import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
 import { VIEWS, type ViewName } from './camera.ts';
 import type { Source } from './load.ts';
 import { DEFAULT_SETTINGS } from './tessellation.ts';
+import { TreePanel } from './tree-panel.ts';
 import { fromFiles, fromUrl, pickFiles } from './sources.ts';
 import { visibleBox, type Viewer } from './viewer.ts';
 
-export function buildUi(viewer: Viewer, status: HTMLElement): void {
+/** What the browser check reaches through `globalThis.ui`. */
+export interface Ui {
+  panel(): TreePanel | undefined;
+  hideSelected(): void;
+  showSelected(): void;
+  showAll(): void;
+}
+
+export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLElement): Ui {
   const gui = new GUI({ title: 'cad-viewer' });
   const say = (text: string, error = false) => {
     status.textContent = text;
@@ -105,6 +114,50 @@ export function buildUi(viewer: Viewer, status: HTMLElement): void {
     (e: Error) => say(`cache: ${e.message}`, true)) }, 'clear').name('Clear cache');
   step.close();
 
+  // The tree panel: a new one for each model; refreshed (at most once a frame) as meshes arrive.
+  let panel: TreePanel | undefined;
+  // Narrow screens (phones): the tree and these controls start closed, over the view when opened.
+  const narrow = matchMedia('(max-width: 700px)').matches;
+  if (narrow) gui.close();
+  const tree = { open: !narrow, detail: false };
+  const setOpen = (open: boolean) => document.body.classList.toggle('tree-closed', !open);
+  setOpen(tree.open);
+  viewer.onModel = (nodes) => {
+    panel?.dispose();
+    panel = new TreePanel(treeElement, nodes);
+    if (tree.detail) panel.setDetail(true);
+  };
+  let refresh = false;
+  viewer.onMeshes = () => {
+    if (refresh) return;
+    refresh = true;
+    requestAnimationFrame(() => { refresh = false; panel?.refresh(); });
+  };
+  const hide = (hidden: boolean) => {
+    if (!panel) return;
+    panel.model.setHidden(panel.selected(), hidden);
+    panel.redraw();
+    viewer.redraw();
+  };
+  const ui: Ui = {
+    panel: () => panel,
+    hideSelected: () => hide(true),
+    showSelected: () => hide(false),
+    showAll: () => {
+      panel?.model.showAll();
+      panel?.redraw();
+      viewer.redraw();
+    },
+  };
+  const treeFolder = gui.addFolder('Tree');
+  treeFolder.add(tree, 'open').name('Show the tree').onChange(setOpen);
+  treeFolder.add(tree, 'detail').name('Faces, edges, curves').onChange((on: boolean) => panel?.setDetail(on));
+  treeFolder.add({ expand: () => panel?.expandAll() }, 'expand').name('Expand all');
+  treeFolder.add({ collapse: () => panel?.collapseAll() }, 'collapse').name('Collapse all');
+  treeFolder.add(ui, 'hideSelected').name('Hide selected');
+  treeFolder.add(ui, 'showSelected').name('Show selected');
+  treeFolder.add(ui, 'showAll').name('Show all');
+
   const about = gui.addFolder('Model');
   about.add(info, 'file').name('File').disable().listen();
   about.add(info, 'objects').name('Objects').disable().listen();
@@ -125,4 +178,5 @@ export function buildUi(viewer: Viewer, status: HTMLElement): void {
     say('Open a file (or drop one here), or load one by URL');
     report({ empty: true });
   }
+  return ui;
 }
