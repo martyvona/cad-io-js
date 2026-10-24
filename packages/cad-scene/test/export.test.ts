@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { exportView, identity, scaling, type ExportNode, type Mat4, type Mesh, type Scene } from '../src/index.ts';
+import { exportView, identity, pruneView, scaling, type ExportNode, type Mat4, type Mesh,
+  type Scene } from '../src/index.ts';
 
 const translation = (x: number, y: number, z: number): Mat4 => {
   const m = identity();
@@ -142,4 +143,22 @@ test('exportView: a mesh part without faces is one group; a component inside its
   const v = exportView(s, new Map([[0, plate()]]));
   assert.deepEqual(v.looks[1]!.groups, [{ material: 0, start: 0, count: 3 }]);
   assert.equal(flat(v.roots).length, 5);
+});
+
+test('pruneView: nodes with nothing kept beneath them left out; kept nodes keep all their parts', () => {
+  const s = scene();
+  // Without the bolt's mesh, the bolt components have nothing to draw.
+  const view = exportView(s, new Map([[0, plate()]]));
+  const before = JSON.stringify(summary(view.roots));
+  const pruned = pruneView(view);
+  assert.equal(pruned.looks, view.looks);
+  assert.deepEqual(summary(pruned.roots),
+    summary(view.roots).filter((n) => !['0/0/0', '0/1/0'].includes(n[0] as string)));
+  assert.equal(JSON.stringify(summary(view.roots)), before);
+  // By a predicate: keep only the second instance's parts; the first's node goes, the second keeps its parts.
+  const second = new Set(flat(view.roots).find((n) => n.path.join('/') === '0/1')!.parts);
+  assert.deepEqual(summary(pruneView(view, (p) => second.has(p)).roots).map((n) => n[0]), ['0', '0/1']);
+  assert.deepEqual(pruneView(view, () => false).roots, []);
+  // Everything with something to draw: unchanged.
+  assert.deepEqual(summary(pruneView(exportView(s, meshes())).roots), summary(exportView(s, meshes()).roots));
 });

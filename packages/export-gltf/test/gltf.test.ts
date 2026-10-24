@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { WebIO, type Node, type Primitive } from '@gltf-transform/core';
-import { EXTMeshoptCompression, KHRDracoMeshCompression, KHRMaterialsUnlit, KHRMeshQuantization,
-  KHRNodeVisibility } from '@gltf-transform/extensions';
+import { EXTMeshGPUInstancing, EXTMeshoptCompression, KHRDracoMeshCompression, KHRMaterialsUnlit,
+  KHRMeshQuantization, KHRNodeVisibility, type InstancedMesh } from '@gltf-transform/extensions';
 import draco3d from 'draco3dgltf';
 import validator from 'gltf-validator';
 import { MeshoptDecoder, MeshoptEncoder } from 'meshoptimizer';
 import { exportView, identity, multiply, scaling, type ExportView, type Mat4, type Mesh,
   type Scene } from 'cad-scene';
-import { base64, glb as glbOf, gltfJson as gltfJsonOf, GltfError, MAX_DRACO_FACES, reorderWithinFaces,
+import { base64, decompose, glb as glbOf, gltfJson as gltfJsonOf, GltfError, MAX_DRACO_FACES, reorderWithinFaces,
   ROOT_TRANSFORM, srgbToLinear, type GltfOptions } from '../src/index.ts';
 
 // Most tests check the structure: uncompressed, with extras (the defaults, compressed and without, are tested last).
@@ -69,7 +69,7 @@ function scene(): Scene {
   };
 }
 const meshes = () => new Map([[0, plate()], [1, wire()]]);
-const io = new WebIO().registerExtensions([KHRMaterialsUnlit, KHRNodeVisibility]);
+const io = new WebIO().registerExtensions([KHRMaterialsUnlit, KHRNodeVisibility, EXTMeshGPUInstancing]);
 
 /** The validator's issues, as code and pointer, for a GLB (or .gltf JSON with its resources). */
 async function issues(bytes: Uint8Array, resources: Record<string, Uint8Array> = {}): Promise<string[]> {
@@ -318,12 +318,13 @@ test('transforms written exactly, however close to identity; a scene with nothin
   const left = doc.getRoot().listNodes().find((n) => n.getName() === 'left')!;
   assert.deepEqual(left.getTranslation(), [1e-7, 0, 0]);
   assert.ok(Math.abs(left.getRotation()[2] - Math.sin(a / 2)) < 1e-15);
-  // Nothing to draw: the root and the instance tree, no accessors, no buffer.
-  const empty = await glb(s, exportView(s, new Map()));
-  assert.deepEqual(await issues(empty.bytes), []);
-  const json = (await io.binaryToJSON(empty.bytes)).json;
-  assert.deepEqual([json.buffers, json.accessors, json.nodes!.map((n) => n.name)],
-    [undefined, undefined, [undefined, 'asm', 'left', 'sub']]);
+  // Nothing to draw: the root alone (or with the instance tree, kept), no accessors, no buffer.
+  for (const [keepEmpty, names] of [[false, [undefined]], [true, [undefined, 'asm', 'left', 'sub']]] as const) {
+    const empty = await glb(s, exportView(s, new Map()), { keepEmpty });
+    assert.deepEqual(await issues(empty.bytes), []);
+    const json = (await io.binaryToJSON(empty.bytes)).json;
+    assert.deepEqual([json.buffers, json.accessors, json.nodes!.map((n) => n.name)], [undefined, undefined, names]);
+  }
 });
 
 test('base64: as Node encodes it, across pieces', () => {
@@ -345,13 +346,14 @@ test('srgbToLinear: the sRGB transfer function, clamped', () => {
 await MeshoptDecoder.ready;
 await MeshoptEncoder.ready;
 const decoding = new WebIO().registerExtensions([KHRMaterialsUnlit, KHRNodeVisibility, KHRDracoMeshCompression,
-  EXTMeshoptCompression, KHRMeshQuantization]).registerDependencies({
+  EXTMeshoptCompression, KHRMeshQuantization, EXTMeshGPUInstancing]).registerDependencies({
   'draco3d.decoder': await draco3d.createDecoderModule(), 'meshopt.decoder': MeshoptDecoder });
 
 type Tri = number[]; // nine world coordinates, metres
 /** A primitive's triangles (mode 4) in world coordinates, each with the vertex numbers it came from. */
-function worldTriangles(node: Node, p: Primitive): { tri: Tri; v: number[] }[] {
-  const m = node.getWorldMatrix(), pos = p.getAttribute('POSITION')!, ix = p.getIndices()!;
+function worldTriangles(node: Node, p: Primitive,
+  m: ArrayLike<number> = node.getWorldMatrix()): { tri: Tri; v: number[] }[] {
+  const pos = p.getAttribute('POSITION')!, ix = p.getIndices()!;
   const out: { tri: Tri; v: number[] }[] = [];
   const e = [0, 0, 0];
   for (let i = 0; i < ix.getCount(); i += 3) {
@@ -595,4 +597,176 @@ test('options: an unknown compression, Draco bits out of range', async () => {
   for (const bits of [0, 31, 1.5]) await assert.rejects(glbOf(s, view, { dracoPositionBits: bits }), GltfError);
   await glbOf(s, view, { dracoPositionBits: 30 });
   await glbOf(s, view, { dracoPositionBits: 1 });
+});
+
+// Instancing: the plate placed twice with one look (without the override that reddens its second instance), the
+// second turned a quarter about z.
+const twice = () => {
+  const s = scene();
+  s.overrides = [];
+  const t = translation(200, 0, 0);
+  t[0] = 0; t[1] = 1; t[4] = -1; t[5] = 0;
+  s.components[0]!.children[1]!.transform = t;
+  return s;
+};
+/** A rotation (unit quaternion x y z w) with translation and scale, as a column-major matrix. */
+function compose(t: ArrayLike<number>, q: ArrayLike<number>, sc: ArrayLike<number>): Mat4 {
+  const [x, y, z, w] = [q[0]!, q[1]!, q[2]!, q[3]!];
+  const r = [1 - 2 * (y * y + z * z), 2 * (x * y + z * w), 2 * (x * z - y * w),
+    2 * (x * y - z * w), 1 - 2 * (x * x + z * z), 2 * (y * z + x * w),
+    2 * (x * z + y * w), 2 * (y * z - x * w), 1 - 2 * (x * x + y * y)];
+  return Float64Array.of(...r.slice(0, 3).map((v) => v * sc[0]!), 0, ...r.slice(3, 6).map((v) => v * sc[1]!), 0,
+    ...r.slice(6).map((v) => v * sc[2]!), 0, t[0]!, t[1]!, t[2]!, 1);
+}
+/** An instanced node's instances as world matrices: its world matrix times each one's TRS. */
+function instanceWorlds(n: Node): Mat4[] {
+  const ext = n.getExtension<InstancedMesh>('EXT_mesh_gpu_instancing')!;
+  const [t, r, sc] = ['TRANSLATION', 'ROTATION', 'SCALE'].map((k) => ext.getAttribute(k)!);
+  return Array.from({ length: t!.getCount() }, (_, i) => multiply(Float64Array.from(n.getWorldMatrix()),
+    compose(t!.getElement(i, [0, 0, 0]), r!.getElement(i, [0, 0, 0, 0]), sc!.getElement(i, [0, 0, 0]))));
+}
+const topOf = (doc: Awaited<ReturnType<typeof io.readBinary>>) => doc.getRoot().listScenes()[0]!.listChildren()[0]!;
+
+test('instancing: a look placed twice is one node with EXT_mesh_gpu_instancing, out of the tree; extras', async () => {
+  const s = twice();
+  const view = exportView(s, meshes());
+  const out = await glb(s, view, { instancing: true });
+  assert.deepEqual(out.diagnostics, []);
+  // The validator knows no instancing: it says so, and sees the instances' accessors as unused.
+  assert.deepEqual(await issues(out.bytes), ['UNSUPPORTED_EXTENSION /extensionsUsed/0',
+    'UNUSED_OBJECT /accessors/4', 'UNUSED_OBJECT /accessors/5', 'UNUSED_OBJECT /accessors/6']);
+  const json = (await io.binaryToJSON(out.bytes)).json;
+  assert.deepEqual(json.extensionsRequired, ['EXT_mesh_gpu_instancing']);
+  const doc = await io.readBinary(out.bytes);
+  // The tree had only the plates to draw: left out, empty.
+  assert.deepEqual(topOf(doc).listChildren().map((c) => c.getName()), ['plate']);
+  const inst = topOf(doc).listChildren()[0]!;
+  const plain = byName((await io.readBinary((await glb(s, view)).bytes)).getRoot().listNodes(), 'plate');
+  assert.equal(plain.length, 2);
+  const worlds = instanceWorlds(inst);
+  assert.equal(worlds.length, 2);
+  worlds.forEach((w, i) => assert.ok(close(w, plain[i]!.getWorldMatrix(), 1e-8), `instance ${i}`));
+  // The same mesh: each instance's triangles are the plain node's.
+  inst.getMesh()!.listPrimitives().forEach((p, g) => worlds.forEach((w, i) => assert.ok(sameTriangles(
+    worldTriangles(inst, p, w).map((t) => t.tri),
+    worldTriangles(plain[i]!, plain[i]!.getMesh()!.listPrimitives()[g]!).map((t) => t.tri), 1e-8))));
+  assert.deepEqual(inst.getExtras(), { part: 0, sources: [{ format: 'step', id: 50 }], properties: { pn: 'X-1' },
+    instances: [{ path: [0, 0], names: ['asm', 'left'], sources: [{ format: 'step', id: 101 }] },
+      { path: [0, 1], names: ['asm', 'sub'], sources: [{ format: 'step', id: 101 }] }] });
+  // Without extras, none; the empty tree kept on request.
+  assert.equal(extrasIn((await io.binaryToJSON((await glb(s, view, { instancing: true, extras: false })).bytes)).json),
+    0);
+  const kept = await io.readBinary((await glb(s, view, { instancing: true, keepEmpty: true })).bytes);
+  assert.deepEqual(topOf(kept).listChildren().map((c) => [c.getName(), c.listChildren().map((d) => d.getName())]),
+    [['asm', ['left', 'sub']], ['plate', []]]);
+  assert.ok(topOf(kept).listChildren()[0]!.listChildren().every((c) => !c.listChildren().length));
+  // Without instancing, no extension; deterministic.
+  assert.equal((await io.binaryToJSON((await glb(s, view)).bytes)).json.extensionsUsed, undefined);
+  assert.deepEqual((await glb(s, view, { instancing: true })).bytes, out.bytes);
+});
+
+test('instancing: edges in a node per placement; curves-only parts stay; hidden, mirrored, sheared apart',
+  async () => {
+  const s = twice();
+  const view = exportView(s, meshes(), { edges: true, curves: true });
+  const out = await glb(s, view, { instancing: true });
+  assert.deepEqual(await issues(out.bytes), ['UNSUPPORTED_EXTENSION /extensionsUsed/0',
+    'UNUSED_OBJECT /accessors/9', 'UNUSED_OBJECT /accessors/10', 'UNUSED_OBJECT /accessors/11']);
+  const doc = await io.readBinary(out.bytes);
+  const top = topOf(doc);
+  // The wireframe has no faces: not instanced, still in the tree (so the tree stays).
+  assert.deepEqual(top.listChildren().map((c) => c.getName()), ['asm', 'plate', 'plate', 'plate']);
+  assert.deepEqual(top.listChildren()[0]!.listChildren().map((c) => c.listChildren().map((d) => d.getName())),
+    [['wire'], ['wire']]);
+  const [, inst, a, b] = top.listChildren();
+  assert.ok(inst!.getMesh() && !inst!.listChildren().length);
+  const plain = byName((await io.readBinary((await glb(s, view)).bytes)).getRoot().listNodes(), 'plate');
+  [a!, b!].forEach((n, i) => {
+    assert.equal(n.getMesh(), null);
+    assert.deepEqual(n.listChildren().map((c) => c.getName()), ['edges']);
+    assert.ok(close(n.getWorldMatrix(), plain[i]!.getWorldMatrix(), 1e-12), `placement ${i}`);
+    assert.deepEqual(Array.from(linePrim(n, 'edges').getAttribute('POSITION')!.getArray()!),
+      Array.from(linePrim(plain[i]!, 'edges').getAttribute('POSITION')!.getArray()!));
+    assert.deepEqual(n.getExtras().instance, (inst!.getExtras().instances as unknown[])[i]);
+  });
+
+  // Hidden or not, apart: one instance hidden leaves one of each, so nothing instanced (left out or kept hidden).
+  const h = twice();
+  h.overrides.push({ path: [0, 0], visible: false, sources: [] });
+  const hv = exportView(h, meshes());
+  for (const hidden of ['omit', 'extension'] as const) {
+    const json = (await io.binaryToJSON((await glb(h, hv, { instancing: true, hidden })).bytes)).json;
+    assert.ok(!json.extensionsUsed?.includes('EXT_mesh_gpu_instancing'), hidden);
+    // Left out, the hidden plate leaves its node with nothing to draw: left out too.
+    assert.deepEqual(json.nodes!.map((n) => n.name), hidden === 'omit' ? [undefined, 'asm', 'sub', 'plate']
+      : [undefined, 'asm', 'left', 'plate', 'sub', 'plate']);
+  }
+  // Two hidden: left out, nothing; kept, instanced, the node and the edges' nodes hidden.
+  h.overrides.push({ path: [0, 1], visible: false, sources: [] });
+  const hv2 = exportView(h, meshes(), { edges: true });
+  assert.deepEqual((await io.binaryToJSON((await glb(h, hv2, { instancing: true })).bytes)).json.nodes!.map(
+    (n) => n.name), [undefined]);
+  const hidden = await io.readBinary((await glb(h, hv2, { instancing: true, hidden: 'extension' })).bytes);
+  const hn = topOf(hidden).listChildren();
+  assert.deepEqual(hn.map((c) => [c.getName(), (c.getExtension('KHR_node_visibility') as unknown as
+    { getVisible(): boolean } | null)?.getVisible()]), [['plate', false], ['plate', false], ['plate', false]]);
+
+  // A mirrored or sheared placement can't be TRS: it stays in the tree, and the other alone isn't instanced.
+  for (const [k, v] of [[0, -1], [4, 0.5]] as const) {
+    const m = twice();
+    const t = translation(200, 0, 0);
+    t[k] = v;
+    m.components[0]!.children[1]!.transform = t;
+    const json = (await io.binaryToJSON((await glb(m, exportView(m, meshes()), { instancing: true })).bytes)).json;
+    assert.equal(json.extensionsUsed, undefined, `${k}`);
+    assert.equal(json.nodes!.filter((n) => n.name === 'plate').length, 2);
+  }
+});
+
+test('instancing with Draco and meshopt: each instance\'s triangles in place, within quantization', async () => {
+  const s = twice();
+  const view = exportView(s, meshes(), { edges: true });
+  const plain = byName((await io.readBinary((await glb(s, view)).bytes)).getRoot().listNodes(), 'plate');
+  for (const compression of ['draco', 'meshopt'] as const) {
+    const doc = await decoding.readBinary((await glbOf(s, view, { compression, instancing: true })).bytes);
+    const [inst, ...lines] = topOf(doc).listChildren();
+    const worlds = instanceWorlds(inst!);
+    inst!.getMesh()!.listPrimitives().forEach((p, g) => worlds.forEach((w, i) => assert.ok(sameTriangles(
+      worldTriangles(inst!, p, w).map((t) => t.tri),
+      worldTriangles(plain[i]!, plain[i]!.getMesh()!.listPrimitives()[g]!).map((t) => t.tri), 2e-6),
+      `${compression} instance ${i} group ${g}`)));
+    // The edges' nodes too (meshopt: in the part mesh's volume).
+    const edges = (m: Node) => {
+      const w = child(m, 'edges')!.getWorldMatrix(), pos = linePrim(m, 'edges').getAttribute('POSITION')!;
+      return Array.from({ length: pos.getCount() }, (_, v) => {
+        const e = pos.getElement(v, [0, 0, 0]);
+        return [0, 1, 2].map((r) => w[r]! * e[0]! + w[4 + r]! * e[1]! + w[8 + r]! * e[2]! + w[12 + r]!);
+      }).flat();
+    };
+    assert.equal(lines.length, 2);
+    lines.forEach((n, i) => assert.ok(close(edges(n), edges(plain[i]!), 2e-6), `${compression} edges ${i}`));
+  }
+});
+
+test('decompose: TRS of rotations (every quaternion branch), scales, translations; none for mirrors and shear',
+  () => {
+  // (w largest, then x, y, z largest, each with every component non-zero; half turns; others)
+  const qs = [[0.2, -0.3, 0.1, 0.9], [0.9, 0.2, -0.1, -0.3], [0.2, -0.9, 0.3, 0.1], [-0.1, 0.3, 0.9, 0.2],
+    [0, 0, 0, 1], [1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0.5, -0.5, 0.5, 0.5], [0.1, 0.7, -0.3, 0.2]].map(
+    (q) => { const n = Math.hypot(...q); return q.map((x) => x / n); });
+  for (const q of qs) {
+    const m = compose([1, -2, 3], q, [2, 3, 0.5]);
+    const d = decompose(m)!;
+    assert.ok(close(compose(d.t, d.r, d.s), m, 1e-12), `${q}`);
+    assert.ok(close(d.s, [2, 3, 0.5], 1e-12));
+    assert.ok(Math.abs(Math.hypot(...d.r) - 1) < 1e-15);
+  }
+  // Within the tolerance of orthogonal: a unit quaternion all the same.
+  const near = compose([0, 0, 0], qs[0]!, [1, 1, 1]);
+  near[4]! += 3e-10;
+  assert.ok(Math.abs(Math.hypot(...decompose(near)!.r) - 1) < 1e-15);
+  const mirror = identity(); mirror[0] = -1;
+  const shears = [4, 8, 9].map((k) => { const m = identity(); m[k] = 0.5; return m; });
+  const flat = identity(); flat[10] = 0;
+  for (const m of [mirror, ...shears, flat]) assert.equal(decompose(m), undefined);
 });

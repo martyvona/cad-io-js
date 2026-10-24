@@ -141,6 +141,21 @@ export function exportView(scene: Scene, meshes: ReadonlyMap<number, Mesh>, opts
 }
 
 /**
+ * The view without the tree nodes that have nothing beneath them for which `keep` holds (by default any placed
+ * part): exporters leave out empty nodes unless asked to keep them (decided by the user, 2026-10-24). Kept nodes keep
+ * all their parts.
+ */
+export function pruneView(view: ExportView,
+  keep: (p: ExportNode['parts'][number]) => boolean = () => true): ExportView {
+  const prune = (n: ExportNode): ExportNode | undefined => {
+    const children = n.children.map(prune).filter((c) => c !== undefined);
+    if (!children.length && !n.parts.some(keep)) return undefined;
+    return { ...n, children };
+  };
+  return { looks: view.looks, roots: view.roots.map(prune).filter((r) => r !== undefined) };
+}
+
+/**
  * A mesh's triangles reordered by face material, groups in order of first appearance; a mesh without faces is one
  * group.
  */

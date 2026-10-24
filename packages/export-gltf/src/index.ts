@@ -19,15 +19,23 @@
 //     each face, so the face ranges hold), or none.
 //
 // Hidden part instances are left out (glTF core has no visibility), or with `hidden: 'extension'` written with
-// KHR_node_visibility (decided by the user, 2026-10-21).
+// KHR_node_visibility (decided by the user, 2026-10-21). Tree nodes with nothing to draw beneath them are left out
+// unless `keepEmpty` (the user, 2026-10-24).
+//
+// Instancing (by option, decided by the user, 2026-10-24): every look placed more than once (as many times visible or
+// hidden) becomes one node under the root with EXT_mesh_gpu_instancing (required: it has no fallback), its faces'
+// mesh drawn at each placement's world transform; the placements leave the tree, with their occurrence names. Their
+// edges, curves and points stay ordinary nodes, one per placement under the root, as three.js's GLTFLoader (0.186)
+// instances only triangles. Mirrored or sheared placements, which TRS can't hold, stay in the tree. With extras, the
+// instanced node's extras list each instance's tree path, names and occurrence sources in attribute order.
 
 import { Document, Format, Logger, WebIO, type Accessor, type JSONDocument, type Buffer,
   type Material as GltfMaterial, type Mesh as GltfMesh, type Node, type TypedArray,
   type mat4 } from '@gltf-transform/core';
-import { EXTMeshoptCompression, KHRDracoMeshCompression, KHRMaterialsUnlit, KHRMeshQuantization,
-  KHRNodeVisibility } from '@gltf-transform/extensions';
-import { multiply, type Diagnostic, type ExportNode, type ExportView, type Look, type Mat4, type Mesh,
-  type PropertyValue, type Scene, type SourceId, type Vec3 } from 'cad-scene';
+import { EXTMeshGPUInstancing, EXTMeshoptCompression, KHRDracoMeshCompression, KHRMaterialsUnlit,
+  KHRMeshQuantization, KHRNodeVisibility } from '@gltf-transform/extensions';
+import { identity, multiply, pruneView, type Diagnostic, type ExportNode, type ExportView, type Look, type Mat4,
+  type Mesh, type PropertyValue, type Scene, type SourceId, type Vec3 } from 'cad-scene';
 
 export interface GltfOptions {
   /** Colour of faces, curves and points without a material (sRGB). Default light grey. */
@@ -60,6 +68,10 @@ export interface GltfOptions {
    * and point sources on primitives, and the root's unit and up axis. Default false: other systems don't read them.
    */
   extras?: boolean;
+  /** Each look placed more than once as one node with EXT_mesh_gpu_instancing, out of the tree. Default false. */
+  instancing?: boolean;
+  /** Keep tree nodes with nothing to draw beneath them. Default false. */
+  keepEmpty?: boolean;
 }
 
 export type LineKind = 'edges' | 'curves' | 'points';
@@ -159,8 +171,8 @@ async function encoders(document: Document): Promise<Record<string, unknown>> {
  */
 async function write(document: Document, format: Format): Promise<JSONDocument> {
   const out = await new WebIO().setLogger(new Logger(Logger.Verbosity.ERROR))
-    .registerExtensions([KHRMaterialsUnlit, KHRNodeVisibility, KHRDracoMeshCompression, EXTMeshoptCompression,
-      KHRMeshQuantization])
+    .registerExtensions([KHRMaterialsUnlit, KHRNodeVisibility, EXTMeshGPUInstancing, KHRDracoMeshCompression,
+      EXTMeshoptCompression, KHRMeshQuantization])
     .registerDependencies(await encoders(document)).writeJSON(document, { format });
   const nodes = document.getRoot().listNodes(); // the writer's order
   out.json.nodes?.forEach((def, i) => {
@@ -196,6 +208,43 @@ function packGlb(json: unknown, bin: Uint8Array | undefined): Uint8Array {
     out.set(bin!, at + 8);
   }
   return out;
+}
+
+/**
+ * An affine matrix as glTF's translation, rotation (a unit quaternion, x y z w) and scale; undefined when it has shear,
+ * a mirror or a zero scale, which TRS can't hold (instancing).
+ */
+export function decompose(m: Mat4): { t: Vec3; r: [number, number, number, number]; s: Vec3 } | undefined {
+  const c = [0, 4, 8].map((k) => [m[k]!, m[k + 1]!, m[k + 2]!]);
+  const s = c.map((v) => Math.hypot(v[0]!, v[1]!, v[2]!)) as Vec3;
+  if (!s.every((x) => x > 0)) return undefined;
+  const dot = (i: number, j: number) => c[i]![0]! * c[j]![0]! + c[i]![1]! * c[j]![1]! + c[i]![2]! * c[j]![2]!;
+  if (Math.abs(dot(0, 1)) > 1e-9 * s[0] * s[1] || Math.abs(dot(0, 2)) > 1e-9 * s[0] * s[2]
+    || Math.abs(dot(1, 2)) > 1e-9 * s[1] * s[2]) return undefined;
+  const r = c.map((v, i) => v.map((x) => x / s[i]!)); // r[col][row]
+  const det = r[0]![0]! * (r[1]![1]! * r[2]![2]! - r[2]![1]! * r[1]![2]!)
+    - r[1]![0]! * (r[0]![1]! * r[2]![2]! - r[2]![1]! * r[0]![2]!)
+    + r[2]![0]! * (r[0]![1]! * r[1]![2]! - r[1]![1]! * r[0]![2]!);
+  if (det <= 0) return undefined;
+  const e = (row: number, col: number) => r[col]![row]!;
+  // From the largest of the four candidates, for precision.
+  const tr = e(0, 0) + e(1, 1) + e(2, 2);
+  let q: [number, number, number, number];
+  if (tr > 0) {
+    const k = 2 * Math.sqrt(tr + 1);
+    q = [(e(2, 1) - e(1, 2)) / k, (e(0, 2) - e(2, 0)) / k, (e(1, 0) - e(0, 1)) / k, k / 4];
+  } else if (e(0, 0) > e(1, 1) && e(0, 0) > e(2, 2)) {
+    const k = 2 * Math.sqrt(1 + e(0, 0) - e(1, 1) - e(2, 2));
+    q = [k / 4, (e(0, 1) + e(1, 0)) / k, (e(0, 2) + e(2, 0)) / k, (e(2, 1) - e(1, 2)) / k];
+  } else if (e(1, 1) > e(2, 2)) {
+    const k = 2 * Math.sqrt(1 + e(1, 1) - e(0, 0) - e(2, 2));
+    q = [(e(0, 1) + e(1, 0)) / k, k / 4, (e(1, 2) + e(2, 1)) / k, (e(0, 2) - e(2, 0)) / k];
+  } else {
+    const k = 2 * Math.sqrt(1 + e(2, 2) - e(0, 0) - e(1, 1));
+    q = [(e(0, 2) + e(2, 0)) / k, (e(1, 2) + e(2, 1)) / k, k / 4, (e(1, 0) - e(0, 1)) / k];
+  }
+  const n = Math.hypot(...q);
+  return { t: [m[12]!, m[13]!, m[14]!], r: q.map((x) => x / n) as typeof q, s };
 }
 
 /** sRGB to linear, as glTF's base colour factor is linear. */
@@ -297,12 +346,17 @@ function dequantization(v: Volume): Mat4 {
 }
 
 type Json = { [key: string]: PropertyValue | Json | Json[] | number[] | undefined };
+type Placed = ExportNode['parts'][number];
+/** An instanced look's placements, in tree order, with their world transforms (below the root) and tree nodes. */
+interface Instances { look: number; visible: boolean; items: { node: ExportNode; names: string[]; world: Mat4 }[] }
 
 class Writer {
   private readonly doc = new Document();
   private readonly buffer: Buffer;
   private readonly diagnostics: Diagnostic[] = [];
   private visibility?: KHRNodeVisibility;
+  private gpuInstancing?: EXTMeshGPUInstancing;
+  private instanced = new Set<Placed>();
   private unlit?: KHRMaterialsUnlit;
   private materials = new Map<string, GltfMaterial>();
   private meshes = new Map<number, GltfMesh | undefined>();
@@ -351,7 +405,17 @@ class Writer {
     // Below the root: millimetres, the source's axes.
     if (this.extras) root.setExtras({ unit: 'millimetre', up: 'z',
       ...(Object.keys(this.scene.properties).length ? { properties: this.scene.properties } : {}) });
-    for (const n of this.view.roots) root.addChild(this.node(n));
+    const omit = this.opts.hidden !== 'extension';
+    const visit = (n: ExportNode) => {
+      for (const p of n.parts) if (!p.visible && omit) this.hiddenLeftOut++;
+      n.children.forEach(visit);
+    };
+    this.view.roots.forEach(visit);
+    const groups = this.opts.instancing ? this.instances(omit) : [];
+    const roots = this.opts.keepEmpty ? this.view.roots : pruneView(this.view,
+      (p) => (p.visible || !omit) && !this.instanced.has(p)).roots;
+    for (const n of roots) root.addChild(this.node(n));
+    for (const g of groups) for (const node of this.instancedNodes(g)) root.addChild(node);
     this.doc.createScene(this.opts.name ?? '').addChild(root);
     // A scene with nothing to draw has no accessors, and an empty buffer isn't valid glTF.
     if (!this.doc.getRoot().listAccessors().length) this.buffer.dispose();
@@ -373,7 +437,7 @@ class Writer {
     return { document: this.doc, diagnostics: this.diagnostics };
   }
 
-  private accessor(name: string, type: 'SCALAR' | 'VEC3',
+  private accessor(name: string, type: 'SCALAR' | 'VEC3' | 'VEC4',
     array: Float32Array | Int16Array | Uint16Array | Uint32Array): Accessor {
     const a = this.doc.createAccessor(name).setType(type).setArray(array as TypedArray).setBuffer(this.buffer);
     return array instanceof Int16Array ? a.setNormalized(true) : a;
@@ -603,28 +667,98 @@ class Writer {
     return u;
   }
 
-  private part(p: ExportNode['parts'][number]): Node | undefined {
-    if (!p.visible && this.opts.hidden !== 'extension') { this.hiddenLeftOut++; return undefined; }
-    const look = this.view.looks[p.look]!;
+  private part(p: Placed): Node | undefined {
+    if ((!p.visible && this.opts.hidden !== 'extension') || this.instanced.has(p)) return undefined;
+    return this.partNode(p.look, p.transform, p.visible, true);
+  }
+
+  /** A placed part's node: its faces (unless instanced elsewhere), and its edges, curves and points as children. */
+  private partNode(lookIndex: number, transform: Mat4, visible: boolean, faces: boolean,
+    instance?: Json): Node {
+    const look = this.view.looks[lookIndex]!;
     const part = this.scene.parts[look.part]!;
     const node = this.doc.createNode(part.name);
-    if (this.extras) node.setExtras({ part: look.part, ...this.sourced(part.sources, part.properties) });
-    const mesh = this.mesh(p.look);
+    if (this.extras) node.setExtras({ part: look.part, ...this.sourced(part.sources, part.properties),
+      ...(instance ? { instance } : {}) });
+    const mesh = faces ? this.mesh(lookIndex) : undefined;
     if (mesh) node.setMesh(mesh);
     for (const what of ['edges', 'curves', 'points'] as const) {
       const m = this.lineMesh(look, what);
       if (m) node.addChild(this.doc.createNode(what).setMesh(m));
     }
-    // meshopt's positions are in the part mesh's volume; its children's too.
-    const quantized = this.compression === 'meshopt' && (mesh || node.listChildren().length);
-    node.setMatrix(Array.from(quantized ? multiply(p.transform, dequantization(this.volume(look.mesh)))
-      : p.transform) as mat4);
-    // (KHR_node_visibility hides the node's children too.)
-    if (!p.visible) {
-      this.visibility ??= this.doc.createExtension(KHRNodeVisibility);
-      node.setExtension('KHR_node_visibility', this.visibility.createVisibility().setVisible(false));
-    }
+    node.setMatrix(Array.from(this.placement(look, transform, !!mesh || node.listChildren().length > 0)) as mat4);
+    if (!visible) this.hide(node);
     return node;
+  }
+
+  /** A part node's matrix: meshopt's positions are in the part mesh's volume (its children's too). */
+  private placement(look: Look, transform: Mat4, drawn: boolean): Mat4 {
+    return this.compression === 'meshopt' && drawn ? multiply(transform, dequantization(this.volume(look.mesh)))
+      : transform;
+  }
+
+  /** (KHR_node_visibility hides the node's children too.) */
+  private hide(node: Node): void {
+    this.visibility ??= this.doc.createExtension(KHRNodeVisibility);
+    node.setExtension('KHR_node_visibility', this.visibility.createVisibility().setVisible(false));
+  }
+
+  /**
+   * The looks to instance: written placements (TRS-decomposable world transforms) grouped by look and visibility,
+   * in order of first placement, two or more each, of looks with faces. Marks their placements instanced.
+   */
+  private instances(omit: boolean): Instances[] {
+    const groups = new Map<string, Instances & { placed: Placed[] }>();
+    const walk = (n: ExportNode, parent: Mat4, above: string[]) => {
+      const t = multiply(parent, n.transform);
+      const names = [...above, n.name];
+      for (const p of n.parts) {
+        if ((!p.visible && omit) || !this.view.looks[p.look]!.groups.length) continue;
+        const world = multiply(t, p.transform);
+        if (!decompose(world)) continue;
+        const key = `${p.look}:${p.visible}`;
+        let g = groups.get(key);
+        if (!g) groups.set(key, (g = { look: p.look, visible: p.visible, items: [], placed: [] }));
+        g.items.push({ node: n, names, world });
+        g.placed.push(p);
+      }
+      for (const c of n.children) walk(c, t, names);
+    };
+    for (const r of this.view.roots) walk(r, identity(), []);
+    const out = [...groups.values()].filter((g) => g.items.length > 1);
+    for (const g of out) for (const p of g.placed) this.instanced.add(p);
+    return out;
+  }
+
+  /** An instanced look's faces node, then a node per placement for its edges, curves and points if it has any. */
+  private instancedNodes(g: Instances): Node[] {
+    const look = this.view.looks[g.look]!;
+    const part = this.scene.parts[look.part]!;
+    const node = this.doc.createNode(part.name).setMesh(this.mesh(g.look)!);
+    const n = g.items.length;
+    const t = new Float32Array(3 * n), r = new Float32Array(4 * n), s = new Float32Array(3 * n);
+    g.items.forEach((item, i) => {
+      const d = decompose(this.placement(look, item.world, true))!;
+      t.set(d.t, 3 * i); r.set(d.r, 4 * i); s.set(d.s, 3 * i);
+    });
+    this.gpuInstancing ??= this.doc.createExtension(EXTMeshGPUInstancing).setRequired(true);
+    node.setExtension('EXT_mesh_gpu_instancing', this.gpuInstancing.createInstancedMesh()
+      .setAttribute('TRANSLATION', this.accessor(`${part.name} instance translations`, 'VEC3', t))
+      .setAttribute('ROTATION', this.accessor(`${part.name} instance rotations`, 'VEC4', r))
+      .setAttribute('SCALE', this.accessor(`${part.name} instance scales`, 'VEC3', s)));
+    const instance = (item: Instances['items'][number]): Json => ({ path: item.node.path, names: item.names,
+      ...(item.node.occurrence.sources.length ? { sources: item.node.occurrence.sources.map((x) => ({
+        format: x.format, id: x.id })) } : {}) });
+    if (this.extras) node.setExtras({ part: look.part, ...this.sourced(part.sources, part.properties),
+      instances: g.items.map(instance) });
+    if (!g.visible) this.hide(node);
+    const out = [node];
+    if (look.edges || look.curves) for (const item of g.items) {
+      const lines = this.partNode(g.look, item.world, g.visible, false, instance(item));
+      if (lines.listChildren().length) out.push(lines);
+      else lines.dispose();
+    }
+    return out;
   }
 
   private node(n: ExportNode): Node {

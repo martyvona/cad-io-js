@@ -45,6 +45,8 @@ interface FormatOptions {
   extras: boolean;
   compression: Compression;
   dracoBits: number;
+  instancing: boolean;
+  keepEmpty: boolean;
 }
 
 interface Written {
@@ -59,7 +61,7 @@ const FORMATS: Record<string, Format> = {
     extensions: ['.json'],
     description: 'three.js JSON Object Scene format 4 (THREE.ObjectLoader)',
     write: (scene, view, o) => ({ chunks: threejsChunks(scene, view, { name: o.name, doubleSided: o.doubleSided,
-      extras: o.extras }) }),
+      extras: o.extras, keepEmpty: o.keepEmpty }) }),
   },
   glb: {
     extensions: ['.glb'],
@@ -96,7 +98,8 @@ const FORMATS: Record<string, Format> = {
 
 function gltfOptions(o: FormatOptions): GltfOptions {
   return { name: o.name, doubleSided: o.doubleSided, hidden: o.keepHidden ? 'extension' : 'omit',
-    unlitLines: o.unlitLines, extras: o.extras, compression: o.compression, dracoPositionBits: o.dracoBits };
+    unlitLines: o.unlitLines, extras: o.extras, compression: o.compression, dracoPositionBits: o.dracoBits,
+    instancing: o.instancing, keepEmpty: o.keepEmpty };
 }
 
 const BACKENDS: Record<string, { module: string; export: string }> = {
@@ -136,6 +139,8 @@ Options:
       --double-sided       render faces from both sides (not 3MF)
       --keep-hidden        glTF: write hidden instances with KHR_node_visibility; 3MF: as ordinary parts
                            (default: left out); three.js always writes them hidden
+      --keep-empty         keep assembly nodes with nothing to draw beneath them (default: left out; not 3MF,
+                           which never writes them)
       --extras             our ids for picking and lookup: source ids, properties and face ranges (glTF extras,
                            three.js userData, 3MF metadata); default: left out, as other systems don't read them
       --gltf-compression <draco|meshopt|none>
@@ -143,6 +148,9 @@ Options:
                            lossy; meshopt: EXT_meshopt_compression, every buffer, 16-bit positions)
       --gltf-draco-bits <n>
                            Draco's position quantization, bits over each part mesh's extent (default 14)
+      --gltf-instancing    each part placed more than once as one node with EXT_mesh_gpu_instancing (required),
+                           out of the assembly tree, losing its occurrence names (edges, curves and points stay
+                           a node per placement); mirrored or sheared placements stay in the tree
       --gltf-embed         .gltf: the buffer embedded as base64 instead of a .bin beside it (a third bigger)
       --3mf-colorgroup     3MF: colours as the Materials extension's colorgroup (print colours, opaque) instead
                            of basematerials (display colours)
@@ -179,10 +187,12 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
         'unlit-lines': { type: 'boolean', default: false },
         'double-sided': { type: 'boolean', default: false },
         'keep-hidden': { type: 'boolean', default: false },
+        'keep-empty': { type: 'boolean', default: false },
         extras: { type: 'boolean', default: false },
         'gltf-compression': { type: 'string' },
         'gltf-draco-bits': { type: 'string' },
         'gltf-embed': { type: 'boolean', default: false },
+        'gltf-instancing': { type: 'boolean', default: false },
         '3mf-colorgroup': { type: 'boolean', default: false },
         '3mf-assembly': { type: 'boolean', default: false },
         '3mf-surfaces': { type: 'boolean', default: false },
@@ -213,8 +223,8 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
   }
   const format = FORMATS[formatName];
   if (!format) return usage(`unknown format '${formatName}'`);
-  const gltfGiven = (['gltf-embed', 'gltf-compression', 'gltf-draco-bits'] as const).find((f) => o[f] !== undefined
-    && o[f] !== false);
+  const gltfGiven = (['gltf-embed', 'gltf-compression', 'gltf-draco-bits', 'gltf-instancing'] as const).find(
+    (f) => o[f] !== undefined && o[f] !== false);
   if (gltfGiven && !format.gltf) return usage(`--${gltfGiven} applies to glb and gltf output`);
   const compression = (o['gltf-compression'] ?? 'draco') as Compression;
   if (!['draco', 'meshopt', 'none'].includes(compression)) return usage(
@@ -226,7 +236,8 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
     '--gltf-draco-bits must be a whole number from 1 to 30');
   const threemfGiven = (['3mf-colorgroup', '3mf-assembly', '3mf-surfaces'] as const).find((f) => o[f]);
   if (threemfGiven && !format.threemf) return usage(`--${threemfGiven} applies to 3mf output`);
-  const notThreemf = (['with-edges', 'with-curves', 'unlit-lines', 'double-sided'] as const).find((f) => o[f]);
+  const notThreemf = (['with-edges', 'with-curves', 'unlit-lines', 'double-sided', 'keep-empty'] as const).find(
+    (f) => o[f]);
   if (notThreemf && format.threemf) return usage(`--${notThreemf} doesn't apply to 3mf output`);
   if (o['gltf-embed'] && !format.sidecar) return usage('--gltf-embed applies to gltf output (GLB holds its buffer)');
   const embed = o['gltf-embed'];
@@ -335,7 +346,7 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
     const w = await format.write(scene, view, {
       name, doubleSided: o['double-sided'], keepHidden: o['keep-hidden'], sidecar, unlitLines: o['unlit-lines'],
       colorgroup: o['3mf-colorgroup'], assembly: o['3mf-assembly'], surfaces: o['3mf-surfaces'], extras: o.extras,
-      compression, dracoBits,
+      compression, dracoBits, instancing: o['gltf-instancing'], keepEmpty: o['keep-empty'],
     });
     diagnostics.push(...(w.diagnostics ?? []));
     // (None when embedded, or when there's no buffer: a scene with nothing to draw.)

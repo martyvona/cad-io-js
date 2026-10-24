@@ -9,10 +9,13 @@
 //   userData (on request): source ids, properties and parts; per Mesh its faces' sources as index ranges, for
 //     picking; the root's unit.
 //
+// Tree nodes with nothing to draw beneath them are left out unless `keepEmpty` (the user, 2026-10-24).
+//
 // Lengths are millimetres (the scene's unit) and axes as in the source (CAD files are usually Z-up). Format 4 holds
 // numbers as JSON arrays, so output is produced in chunks: a large model's JSON can exceed V8's maximum string length.
 
-import type { ExportNode, ExportView, Look, Mat4, Mesh, PropertyValue, Scene, SourceId, Vec3 } from 'cad-scene';
+import { pruneView, type ExportNode, type ExportView, type Look, type Mat4, type Mesh, type PropertyValue, type Scene,
+  type SourceId, type Vec3 } from 'cad-scene';
 
 export interface ThreejsOptions {
   /** Colour of faces, curves and points without a material (sRGB). Default light grey. */
@@ -32,6 +35,8 @@ export interface ThreejsOptions {
    * and point sources, and the root's unit. Default false: other systems don't read them (the user, 2026-10-24).
    */
   extras?: boolean;
+  /** Keep tree nodes with nothing to draw beneath them. Default false. */
+  keepEmpty?: boolean;
 }
 
 const DOUBLE_SIDE = 2; // THREE.DoubleSide
@@ -39,7 +44,7 @@ const NUMBERS_PER_CHUNK = 16384;
 
 /** The scene's export view as three.js JSON, in chunks; concatenated, they are one JSON document. */
 export function* threejsChunks(scene: Scene, view: ExportView, opts: ThreejsOptions = {}): Generator<string> {
-  const w = new Writer(scene, view, opts);
+  const w = new Writer(scene, opts.keepEmpty ? view : pruneView(view), opts);
   const root = w.root();
   yield `{"metadata":{"version":4.7,"type":"Object","generator":"cad-io-js export-threejs"},"geometries":[`;
   let first = true;

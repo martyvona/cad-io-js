@@ -17,13 +17,18 @@
 //     over the extent of the part mesh's vertex array, which glTF-Transform hands Draco whole for each primitive;
 //     meshopt: 16 bits over the part mesh's extent, every position, the edges' too);
 //   - edges, curves and points: each vertex in place (meshopt, within its 16 bits; Draco leaves them exact).
+// And with instancing (uncompressed, extras, 2026-10-24): the looks placed two or more times (by visibility, with
+// faces, TRS-decomposable: grouped here, not by the exporter's code) are instanced nodes, every other placement a
+// tree node; each instance (found by its extras.instances path) at its world matrix within float32 rounding, each
+// instanced look's edges and curves a node per placement at its world matrix; no node but the root with nothing
+// to draw beneath it.
 // Prints the GLB sizes and export and validation times. Usage:
 //   node corpus_checks/gltf_corpus.ts [file-list.txt] [max MB, default 2]  (progress on standard error)
 import fs from 'node:fs';
 import os from 'node:os';
 import { WebIO, type Node } from '@gltf-transform/core';
-import { EXTMeshoptCompression, KHRDracoMeshCompression, KHRMaterialsUnlit, KHRMeshQuantization,
-  KHRNodeVisibility } from '@gltf-transform/extensions';
+import { EXTMeshGPUInstancing, EXTMeshoptCompression, KHRDracoMeshCompression, KHRMaterialsUnlit,
+  KHRMeshQuantization, KHRNodeVisibility, type InstancedMesh } from '@gltf-transform/extensions';
 import draco3d from 'draco3dgltf';
 import validator from 'gltf-validator';
 import { MeshoptDecoder } from 'meshoptimizer';
@@ -40,7 +45,7 @@ const tess = new WorkerTessellator(
   export: 'OcctTessellator' }, workers });
 await tess.init();
 const maxBytes = Number(process.argv[3] ?? 2) * 1e6;
-const io = new WebIO().registerExtensions([KHRMaterialsUnlit, KHRNodeVisibility]);
+const io = new WebIO().registerExtensions([KHRMaterialsUnlit, KHRNodeVisibility, EXTMeshGPUInstancing]);
 await MeshoptDecoder.ready;
 const decoding = new WebIO().registerExtensions([KHRMaterialsUnlit, KHRNodeVisibility, KHRDracoMeshCompression,
   EXTMeshoptCompression, KHRMeshQuantization]).registerDependencies({
@@ -116,7 +121,8 @@ const compressedTotals = { draco: { bytes: 0, ms: 0, faces: 0 }, meshopt: { byte
 const ROOT: Mat4 = Float64Array.of(0.001, 0, 0, 0, 0, 0, -0.001, 0, 0, 0.001, 0, 0, 0, 0, 0, 1);
 const linear = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
 
-const totals = { files: 0, skipped: 0, nodes: 0, hidden: 0, meshes: 0, primitives: 0, triangles: 0, segments: 0,
+const totals = { files: 0, skipped: 0, nodes: 0, hidden: 0, instancedPlacements: 0, instancedNodes: 0,
+  nodesInstancing: 0, notTrs: 0, meshes: 0, primitives: 0, triangles: 0, segments: 0,
   points: 0, bytes: 0, exportMs: 0, validateMs: 0, problems: 0, lineVertices: 0 };
 const issues = new Map<string, { n: number; files: Set<string>; example: string }>();
 const problems: string[] = [];
@@ -157,13 +163,15 @@ for (const f of corpusFiles(process.argv[2])) {
 
   const doc = await io.readBinary(out.bytes);
   // Expected, in tree order: each placed part's world matrix and look.
-  const expected: { world: Mat4; look: number; visible: boolean }[] = [];
-  const walk = (n: ExportNode, parent: Mat4) => {
-    const t = multiply(parent, n.transform);
-    for (const p of n.parts) expected.push({ world: multiply(t, p.transform), look: p.look, visible: p.visible });
-    for (const c of n.children) walk(c, t);
+  const expected: { world: Mat4; local: Mat4; look: number; visible: boolean; path: string; names: string[] }[] = [];
+  const walk = (n: ExportNode, parent: Mat4, local: Mat4, above: string[]) => {
+    const t = multiply(parent, n.transform), l = multiply(local, n.transform);
+    const names = [...above, n.name];
+    for (const p of n.parts) expected.push({ world: multiply(t, p.transform), local: multiply(l, p.transform),
+      look: p.look, visible: p.visible, path: n.path.join('/'), names });
+    for (const c of n.children) walk(c, t, l, names);
   };
-  for (const r of view.roots) walk(r, ROOT);
+  for (const r of view.roots) walk(r, ROOT, identity(), []);
   // World matrices: each node's local matrix (from the TRS written) down the tree.
   const found: { node: Node; world: Mat4 }[] = [];
   const visit = (n: Node, parent: Mat4) => {
@@ -319,6 +327,126 @@ for (const f of corpusFiles(process.argv[2])) {
       }
     });
   }
+  // Instancing.
+  {
+    const ip = (msg: string) => problem(`instancing: ${msg}`);
+    const out = await glb(scene, view, { hidden: 'extension', compression: 'none', extras: true, instancing: true });
+    const idoc = await io.readBinary(out.bytes);
+    // Expected: which placements are instanced, by look and visibility.
+    const trs = (m: Mat4) => {
+      const c = [0, 4, 8].map((k) => [m[k]!, m[k + 1]!, m[k + 2]!]);
+      const len = c.map((v) => Math.hypot(...v));
+      const dot = (i: number, j: number) => c[i]!.reduce((a, x, k) => a + x * c[j]![k]!, 0) / len[i]! / len[j]!;
+      const det = c[0]![0]! * (c[1]![1]! * c[2]![2]! - c[2]![1]! * c[1]![2]!)
+        - c[1]![0]! * (c[0]![1]! * c[2]![2]! - c[2]![1]! * c[0]![2]!)
+        + c[2]![0]! * (c[0]![1]! * c[1]![2]! - c[1]![1]! * c[0]![2]!);
+      return len.every((x) => x > 0) && det > 0 && [dot(0, 1), dot(0, 2), dot(1, 2)].every((x) => Math.abs(x) <= 1e-9);
+    };
+    const groups = new Map<string, number[]>();
+    expected.forEach((e, k) => {
+      if (!view.looks[e.look]!.groups.length) return;
+      if (!trs(e.local)) { totals.notTrs++; return; }
+      const key = `${e.look}:${e.visible}`;
+      (groups.get(key) ?? groups.set(key, []).get(key)!).push(k);
+    });
+    const instanced = new Set([...groups.values()].filter((g) => g.length > 1).flat());
+    totals.instancedPlacements += instanced.size;
+    // Found: tree part nodes, instanced nodes, the instanced looks' line nodes.
+    const tree: { node: Node; world: Mat4 }[] = [], inst: { node: Node; world: Mat4 }[] = [];
+    const lines: { node: Node; world: Mat4 }[] = [];
+    const drawn = (n: Node): boolean => !!n.getMesh() || n.listChildren().some(drawn);
+    const visit = (n: Node, parent: Mat4, top: boolean) => {
+      const world = multiply(parent, Float64Array.from(n.getMatrix()));
+      if (!top && !drawn(n)) ip(`node '${n.getName()}' with nothing to draw`);
+      const x = n.getExtras() as { part?: number; instance?: unknown };
+      if (n.getExtension('EXT_mesh_gpu_instancing')) inst.push({ node: n, world });
+      else if (x.instance) lines.push({ node: n, world });
+      else if (x.part !== undefined) tree.push({ node: n, world });
+      for (const c of n.listChildren()) visit(c, world, false);
+    };
+    for (const sc of idoc.getRoot().listScenes()) for (const n of sc.listChildren()) visit(n, identity(), true);
+    totals.instancedNodes += inst.length;
+    totals.nodesInstancing += tree.length + inst.length;
+    // Tree nodes: the placements not instanced, in tree order.
+    const rest = expected.map((_, k) => k).filter((k) => !instanced.has(k));
+    if (tree.length !== rest.length) ip(`${tree.length} tree part nodes, expected ${rest.length}`);
+    else tree.forEach(({ node, world }, i) => {
+      const e = expected[rest[i]!]!;
+      if ((node.getExtras() as { part: number }).part !== view.looks[e.look]!.part) ip(`tree node ${i}: part`);
+      const scale = Math.max(1, ...Array.from(e.world, Math.abs));
+      if (Math.max(...Array.from(world, (x, j) => Math.abs(x - e.world[j]!))) > 1e-9 * scale) ip(
+        `tree node ${i}: world matrix`);
+    });
+    // Instances: by path and part, in tree order within each.
+    const byPath = new Map<string, number[]>();
+    for (const k of instanced) {
+      const key = `${expected[k]!.path}:${view.looks[expected[k]!.look]!.part}`;
+      (byPath.get(key) ?? byPath.set(key, []).get(key)!).push(k);
+    }
+    const take = (path: number[], part: number) => byPath.get(`${path.join('/')}:${part}`)?.shift();
+    const close = (got: Mat4, want: Mat4, eps: number) => {
+      const scale = Math.max(1, ...Array.from(want, Math.abs));
+      return Math.max(...Array.from(got, (x, j) => Math.abs(x - want[j]!))) <= eps * scale;
+    };
+    let seen = 0;
+    for (const { node, world } of inst) {
+      const x = node.getExtras() as { part: number; instances: { path: number[]; names: string[] }[] };
+      const ext = node.getExtension<InstancedMesh>('EXT_mesh_gpu_instancing')!;
+      const [t, r, sc] = ['TRANSLATION', 'ROTATION', 'SCALE'].map((a) => ext.getAttribute(a)!);
+      if (t!.getCount() !== x.instances.length) { ip(`part ${x.part}: instances and extras differ`); continue; }
+      let look: number | undefined;
+      x.instances.forEach((ins, i) => {
+        const k = take(ins.path, x.part);
+        if (k === undefined) { ip(`part ${x.part}: instance at ${ins.path} not expected`); return; }
+        seen++;
+        const e = expected[k]!;
+        if (look !== undefined && look !== e.look) ip(`part ${x.part}: looks mixed`);
+        look = e.look;
+        if (ins.names.join('/') !== e.names.join('/')) ip(`part ${x.part}: names ${ins.names}`);
+        if (node.getExtension<{ getVisible(): boolean }>('KHR_node_visibility')?.getVisible() === false
+          ? e.visible : !e.visible) ip(`part ${x.part}: visibility`);
+        const q = r!.getElement(i, [0, 0, 0, 0]), s3 = sc!.getElement(i, [0, 0, 0]), t3 = t!.getElement(i, [0, 0, 0]);
+        const [qx, qy, qz, qw] = q as [number, number, number, number];
+        const rot = [1 - 2 * (qy * qy + qz * qz), 2 * (qx * qy + qz * qw), 2 * (qx * qz - qy * qw),
+          2 * (qx * qy - qz * qw), 1 - 2 * (qx * qx + qz * qz), 2 * (qy * qz + qx * qw),
+          2 * (qx * qz + qy * qw), 2 * (qy * qz - qx * qw), 1 - 2 * (qx * qx + qy * qy)];
+        const m = Float64Array.of(...rot.slice(0, 3).map((v) => v * s3[0]!), 0, ...rot.slice(3, 6).map(
+          (v) => v * s3[1]!), 0, ...rot.slice(6).map((v) => v * s3[2]!), 0, t3[0]!, t3[1]!, t3[2]!, 1);
+        if (!close(multiply(world, m), e.world, 1e-6)) ip(`part ${x.part} instance ${i}: world matrix`);
+      });
+      // The faces' mesh: the look's groups.
+      if (look === undefined) continue;
+      const lk = view.looks[look]!;
+      const prims = node.getMesh()!.listPrimitives();
+      if (prims.length !== lk.groups.length || prims.some((p, g) => {
+        const ix = p.getIndices()!.getArray()!;
+        return ix.length !== lk.groups[g]!.count || !ix.every((v, j) => v === lk.indices[lk.groups[g]!.start + j]);
+      })) ip(`part ${x.part}: primitives differ from the look's`);
+      if (node.listChildren().length) ip(`part ${x.part}: instanced node with children`);
+    }
+    if (seen !== instanced.size) ip(`${seen} instances, expected ${instanced.size}`);
+    // Line nodes: one per instanced placement with edges or curves, at its world matrix.
+    const linePlaced = [...instanced].filter((k) => {
+      const lk = view.looks[expected[k]!.look]!;
+      // (Edges written by default: shared and free ones, not seams or degenerate edges.)
+      return (lk.edges && !!lk.mesh.edges?.some((e) => e.kind === 'shared' || e.kind === 'free'))
+        || (lk.curves && (!!lk.mesh.curves?.length
+        || !!lk.mesh.pointSources?.length));
+    });
+    if (lines.length !== linePlaced.length) ip(`${lines.length} line nodes, expected ${linePlaced.length}`);
+    const unmatched = new Set(linePlaced);
+    for (const { node, world } of lines) {
+      const ins = (node.getExtras() as { part: number; instance: { path: number[] } });
+      const k = [...unmatched].find((j) => expected[j]!.path === ins.instance.path.join('/')
+        && view.looks[expected[j]!.look]!.part === ins.part && close(world, expected[j]!.world, 1e-9));
+      if (k === undefined) {
+        ip(`line node of part ${ins.part} at ${ins.instance.path}: no placement there`);
+        continue;
+      }
+      unmatched.delete(k);
+      if (node.getMesh()) ip(`line node of part ${ins.part}: has faces`);
+    }
+  }
 }
 tess.dispose();
 
@@ -332,6 +460,8 @@ console.log(`GLB ${mb(totals.bytes)} MB; export ${(totals.exportMs / 1000).toFix
 for (const [c, t] of Object.entries(compressedTotals)) console.log(`${c}: ${mb(t.bytes)} MB `
   + `(${(100 * t.bytes / totals.bytes).toFixed(1)}%), export ${(t.ms / 1000).toFixed(2)} s; faces checked ${t.faces}`
   + `${c === 'meshopt' ? `, line and point vertices ${totals.lineVertices}` : ''}`);
+console.log(`instancing: ${totals.instancedPlacements} placements in ${totals.instancedNodes} instanced nodes; `
+  + `${totals.nodesInstancing} part nodes against ${totals.nodes}; ${totals.notTrs} placements not TRS`);
 console.log('largest:');
 for (const [n, f, ms] of biggest.sort((a, b) => b[0] - a[0]).slice(0, 5)) console.log(
   `  ${mb(n)} MB, ${(ms / 1000).toFixed(1)} s  ${f}`);

@@ -198,3 +198,17 @@ test('formatFloat32: shortest form that reads back to the same float32', () => {
     if (digits > 1 && !Number.isInteger(x)) assert.notEqual(Math.fround(Number(x.toPrecision(digits - 1))), x, t);
   }
 });
+
+test('tree nodes with nothing to draw beneath them left out, unless keepEmpty', () => {
+  const s = scene();
+  const names = (json: string) => {
+    const out: string[] = [];
+    load(json).traverse((o) => out.push(o.name));
+    return out;
+  };
+  assert.deepEqual(names(threejsJson(s, exportView(s, new Map()))), ['']);
+  assert.deepEqual(names(threejsJson(s, exportView(s, new Map()), { keepEmpty: true })), ['', 'asm', 'left', 'sub']);
+  // With something to draw, the same either way.
+  const view = exportView(s, meshes());
+  assert.equal(threejsJson(s, view), threejsJson(s, view, { keepEmpty: true }));
+});

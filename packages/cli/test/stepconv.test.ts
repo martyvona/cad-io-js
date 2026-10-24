@@ -250,6 +250,51 @@ test('stepconv: --extras in every format; --gltf-compression, --gltf-draco-bits'
     /--gltf-draco-bits must be a whole number from 1 to 30/);
 });
 
+test('stepconv: --gltf-instancing; --keep-empty', { skip }, async () => {
+  const out = path.join(tmp, 'instancing.gltf');
+  const gltf = async (args: string[]) => {
+    const r = await run([assembly, '-o', out, '--gltf-embed', '-j', '2', '-q', ...args]);
+    assert.equal(r.code, 0, r.stderr);
+    return JSON.parse(fs.readFileSync(out, 'utf8'));
+  };
+  type N = { mesh?: number; children?: number[]; extensions?: { EXT_mesh_gpu_instancing?: { attributes:
+    { TRANSLATION: number } } } };
+  const plain = await gltf([]);
+  const placed = plain.nodes.filter((n: N) => n.mesh !== undefined).length;
+  const j = await gltf(['--gltf-instancing']);
+  assert.deepEqual(j.extensionsRequired.sort(), ['EXT_mesh_gpu_instancing', 'KHR_draco_mesh_compression']);
+  // 18 placed parts: three looks instanced (16 placements), two left as they were.
+  const inst = j.nodes.filter((n: N) => n.extensions?.EXT_mesh_gpu_instancing);
+  const count = inst.map((n: N) => j.accessors[n.extensions!.EXT_mesh_gpu_instancing!.attributes.TRANSLATION].count);
+  assert.deepEqual([placed, inst.length, count.reduce((a: number, b: number) => a + b, 0)], [18, 3, 16]);
+  assert.equal(j.nodes.filter((n: N) => n.mesh !== undefined && !n.extensions?.EXT_mesh_gpu_instancing).length, 2);
+  // Every node but the root has something to draw beneath it, unless --keep-empty.
+  const drawn = (doc: { nodes: N[] }, i: number): boolean => doc.nodes[i]!.mesh !== undefined
+    || (doc.nodes[i]!.children ?? []).some((c) => drawn(doc, c));
+  assert.ok(j.nodes.every((_: N, i: number) => i === j.scenes[0].nodes[0] || drawn(j, i)));
+  const kept = await gltf(['--gltf-instancing', '--keep-empty']);
+  assert.ok(kept.nodes.length > j.nodes.length);
+  assert.ok(kept.nodes.some((_: N, i: number) => !drawn(kept, i)));
+  // Usage errors: instancing is glTF's; 3MF never writes empty nodes.
+  for (const [args, message] of [[['-o', path.join(tmp, 'i.json'), '--gltf-instancing'],
+    /--gltf-instancing applies to glb and gltf output/], [['-o', path.join(tmp, 'i.3mf'), '--keep-empty'],
+    /--keep-empty doesn't apply to 3mf output/]] as const) {
+    const r = await run([cube, '-j', '0', ...args]);
+    assert.equal(r.code, 1);
+    assert.match(r.stderr, message);
+  }
+  // three.js: empty nodes left out, or kept (dm1's tree has 3 nodes with nothing to draw beneath them).
+  const dm1 = path.join(root, 'test_corpus/third_party/occt-import-js/test/testfiles/cax-if/dm1-pe-214.stp');
+  const three = async (args: string[]) => {
+    const r = await run([dm1, '-o', path.join(tmp, 'i.json'), '-j', '2', '-q', ...args]);
+    assert.equal(r.code, 0, r.stderr);
+    return JSON.parse(fs.readFileSync(path.join(tmp, 'i.json'), 'utf8'));
+  };
+  const objects = (o: { children?: object[] }): number => 1 + (o.children ?? []).reduce(
+    (a: number, c) => a + objects(c), 0);
+  assert.ok(objects((await three(['--keep-empty'])).object) > objects((await three([])).object));
+});
+
 // Open shells only.
 const shells = path.join(root, 'test_corpus/third_party/gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp');
 
