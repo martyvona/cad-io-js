@@ -1,0 +1,29 @@
+{
+  "name": "cad-viewer",
+  "version": "0.0.0",
+  "private": true,
+  "description": "An interactive three.js viewer for debugging and inspecting models: STEP through cad-io-js, glTF and three.js JSON through three.js's loaders",
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": {
+    "cad-viewer": "./bin/viewer.ts"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "cad-scene": "0.0.0",
+    "three": "0.186.1"
+  },
+  "devDependencies": {
+    "@types/three": "0.186.0",
+    "@vitejs/plugin-basic-ssl": "2.3.0",
+    "export-gltf": "0.0.0",
+    "export-threejs": "0.0.0",
+    "step-import": "0.0.0",
+    "tess-occt": "0.0.0",
+    "vite": "8.3.4"
+  }
+}

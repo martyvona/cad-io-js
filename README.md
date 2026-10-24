@@ -17,7 +17,7 @@ Reading CAD files into memory, and converting them, in TypeScript for Node.js an
 - **exporters** to three.js JSON, glTF/GLB and 3MF;
 - **two command-line tools**, `step2json` (STEP to JSON, lossless or semantic) and `stepconv` (STEP to three.js, glTF or 3MF).
 
-Version 0.1.0, not yet published to npm: the packages run as TypeScript sources under Node 24 (see [Building From Source](#building-from-source)). A browser-based viewer and more input formats are on the [roadmap](#roadmap).
+Version 0.1.0, not yet published to npm: the packages run as TypeScript sources under Node 24 (see [Building From Source](#building-from-source)). A browser-based [viewer](#viewer) is under way, and more input formats are on the [roadmap](#roadmap).
 
 ```sh
 stepconv bracket.step -o bracket.glb          # STEP to GLB, OCCT, 0.1 mm, all cores
@@ -49,6 +49,7 @@ Contents:
 * [Building From Source](#building-from-source)
 * [Installing](#installing)
 * [Command-Line Tools](#command-line-tools)
+* [Viewer](#viewer)
 * [Architecture](#architecture)
 * [Package APIs](#package-apis)
 * [Test Corpus](#test-corpus)
@@ -289,11 +290,51 @@ What each format holds:
 
 Parts that fail to tessellate don't fail the run; they are in the summary (with `--strict`, exit 3). OCCT's own messages are kept as warnings on their parts, not printed. Over the 517 corpus files, a run with the defaults takes about 200 s in all with 9 workers, nearly all of it tessellation; exporting is 6 s for glTF (with Draco), 15 s for three.js and 33 s for 3MF. The corpus's GLBs come to 34.5 MB with Draco, against 411 MB uncompressed; with edges and curves (which Draco leaves as they are), 90 MB with Draco and 109 MB with meshopt, against 461 MB.
 
+## Viewer
+
+`cad-viewer` (`packages/viewer`, private) is an interactive three.js viewer for debugging, prototyping and inspecting models, not for end users: a single-page web app built with Vite, served by any static server, and meant to work offline once loaded (as a progressive web app, later). It is being built in phases (the plan and its decisions are in `CLAUDE.md`, "The viewer"); this is phase 1 of 9: glTF, GLB and three.js JSON through three.js's own loaders, with an orthographic camera, trackball controls (mouse and touch), zoom all, the six views along the axes, centring and full screen. STEP files load from phase 2.
+
+### Running It
+
+```sh
+npm run viewer -- start              # the dev server in the background (http://localhost:5180/); or: npx cad-viewer start
+npm run viewer -- open part.glb      # starts it if needed, then opens the file in the default browser
+npm run viewer -- status
+npm run viewer -- stop
+```
+
+The dev server serves a **content root**, by default the repository's `test_corpus/`, at `/content/`: `open` takes a file below it (`--content-root <dir>` to serve another directory; stop the server first if it is running with another). `start` and `open` also take `--port <n>`, `--lan` and `--https self|mkcert` (below). The server's process and URL are in `packages/viewer/.run/server.json`, its output in `.run/server.log`.
+
+In the page: **File** opens local files (the browser's file picker; pick a `.gltf` together with its `.bin`), or a URL (the same server, or another that allows cross-origin requests); files can also be dropped on the page, and `?url=<url>` in the address loads one at startup. **View** has zoom all, the views along the axes (front looks along +Y with Z up; top has +Y up, bottom -Y), centring (once the model's centroid is known: the centre of the box around all its geometry, hidden or not) and full screen (disabled where the browser can't, as on iPhone). The world is millimetres with Z up: glTF and three.js JSON files (metres and Y up at their root, ours included) are turned and scaled to it. The page draws only when something changes, at most 30 frames a second.
+
+**A build for a static server**: `npm run build -w cad-viewer` writes `packages/viewer/dist/`, which any web server can serve as it is (no `/content/` there: load files by URL or from the device).
+
+### Phones, Tablets and https
+
+`--lan` makes the server listen on every interface, and `start` prints its LAN addresses: open one on the phone or tablet (same network). Over plain http, which is the default, a LAN address isn't a *secure context*, so the browser withholds what needs one: the service worker (so no offline use), the File System Access picker (the plain file picker still works) and Web Crypto (our own SHA-256 stands in, so tessellation and its cache still work). For those, serve https:
+
+- **`--https self`**: a self-signed certificate made on first use (`@vitejs/plugin-basic-ssl`). Each browser warns once and must be told to proceed (Chrome: "Advanced", then "Proceed"); Chrome still refuses to register a service worker under a certificate error.
+- **`--https mkcert`**: a certificate from a local certificate authority that each device trusts; everything works, at the cost of installing the authority on each device. Once, on the computer running the server:
+
+  ```sh
+  brew install mkcert                  # or see https://github.com/FiloSottile/mkcert
+  mkcert -install                      # trusts the local authority on this computer
+  mkdir -p packages/viewer/.cert
+  mkcert -cert-file packages/viewer/.cert/cert.pem -key-file packages/viewer/.cert/key.pem \
+    localhost 127.0.0.1 "$(hostname)" "$(ipconfig getifaddr en0)"   # the LAN address (macOS); add any others
+  ```
+
+  Then on each phone or tablet, install the authority's certificate, `rootCA.pem` in the directory `mkcert -CAROOT` prints (send it by mail, AirDrop or a USB cable). **Android**: Settings, Security, Encryption and credentials, Install a certificate, CA certificate (the menu names vary by maker). **iOS and iPadOS**: open the file to download the profile, install it in Settings, General, VPN and Device Management, then turn on full trust for it in Settings, General, About, Certificate Trust Settings. If the computer's LAN address changes, make the certificate again with the new one. The `.cert` directory is ignored by git.
+
+### Checks
+
+Its unit tests run with `npm test`. `node packages/viewer/test/browser-check.ts` (by hand; needs `tess-occt` built and the corpus) converts a corpus assembly to GLB with Draco, glTF with meshopt and three.js JSON (with and without extras), starts the dev server on them and loads each in headless Chrome, comparing the triangles, the world box in millimetres and the centroid with what the scene says, and centring with the model's centroid; `SHOTS=<dir>` saves a screenshot of each page, and `BUILD=1` checks a build (`vite build`, served by `vite preview`) instead of the dev server.
+
 ## Architecture
 
 ### Package Dependencies
 
-An npm workspace of 13 packages. Arrows point from a package to what it uses.
+An npm workspace of 14 packages. Arrows point from a package to what it uses.
 
 ```mermaid
 flowchart TD
@@ -305,7 +346,10 @@ flowchart TD
   tess["tess-cache, tess-workers,<br/>tess-occt, tess-truck"]
   exp["export-threejs, export-gltf,<br/>export-3mf"]
   scene["cad-scene"]
+  viewer["viewer (cad-viewer)"]
   cli --> imp & tess & exp
+  viewer --> scene
+  viewer --> three["three.js, Vite"]
   cli --> parser
   imp --> parser & scene
   parser --> schemas & ljson
@@ -317,6 +361,7 @@ flowchart TD
 
 - **`step-parser`:** Layers 1 to 3 of STEP reading, the Part 21 writer and raw JSON. **`step-schemas`:** the EXPRESS dictionaries, generated from stepcode's EXPRESS schemas. **`lexical-json`:** JSON that keeps integers and reals apart.
 - **`cad-scene`:** the scene model, the tessellator interface, `tessellateScene`, `exportView` and the mesh helpers.
+- **`viewer`:** the interactive viewer (see [Viewer](#viewer)); from phase 2 it uses the importer and the tessellation packages too.
 - **The backends:** `tess-occt` is our build of OCCT 8.1 (`third_party/OCCT`) as WebAssembly; `tess-truck` is our Rust wrapper over truck (`third_party/truck`), likewise.
 
 - **No runtime dependencies** in `step-schemas`, `lexical-json`, `step-parser`, `cad-scene`, `step-import`, the tessellation packages and `export-threejs`. `export-gltf` uses glTF-Transform (MIT) and `export-3mf` fflate (MIT).
@@ -773,7 +818,7 @@ A file whose schema has no dictionary is bound with AP242's, with a diagnostic: 
 - **`npm test`**: the package tests, 212 of them (`node:test`, in each package's `test/`), on small inline fixtures and a few corpus files. Tests that need a built backend or the corpus skip when it's missing; with everything built, they take about 20 s.
 - **`npm run typecheck`**: `tsc` over the packages (no output; the sources run as they are).
 - **`cargo test`** in `packages/tess-truck/native`: 3 native tests of the truck wrapper (B-spline clamping, the volume sign guard).
-- **Browser checks**, run by hand: `node packages/tess-workers/test/browser-check.ts` and `node packages/tess-cache/test/browser-check.ts` serve the sources and run the pool's and IndexedDB's scenarios in headless Chrome.
+- **Browser checks**, run by hand: `node packages/tess-workers/test/browser-check.ts` and `node packages/tess-cache/test/browser-check.ts` serve the sources and run the pool's and IndexedDB's scenarios in headless Chrome; `node packages/viewer/test/browser-check.ts` runs the viewer on models in each format (see [Viewer](#viewer)).
 - **Corpus checks** (`corpus_checks/`, 26 scripts, each with its last output committed as a `.log` beside it): every corpus file through each stage of the pipeline (parsing, writing, raw JSON, binding, semantic extraction, import, tessellation, export), compared with OCCT (through `occt-import-js`) and with each output format's own reader or validator. Below.
 
 The code was also checked by deliberately breaking it (a few dozen planted bugs for each piece of work, one at a time) and confirming the tests fail; the gaps found that way became tests.

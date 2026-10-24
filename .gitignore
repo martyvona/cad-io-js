@@ -7,3 +7,8 @@ node_modules/
 
 # Deep dives and progress notes kept out of git history (CLAUDE.md, "The repository")
 /workdir/
+
+# The viewer's dev server state and log, mkcert's certificate, builds (packages/viewer)
+/packages/viewer/.run/
+/packages/viewer/.cert/
+/packages/viewer/dist/
