@@ -18,7 +18,9 @@ import { Frames } from './frames.ts';
 import { loadThree, type Source } from './load.ts';
 import { NodeModel, type FaceHiding } from './model.ts';
 import { pick, type Pick } from './pick.ts';
+import { Composer } from './render.ts';
 import { detectEdges, StepGraph } from './step.ts';
+import { cadStyle, DEFAULT_RENDER, edgeLayer, type RenderSettings } from './style.ts';
 import { DEFAULT_SETTINGS, Tessellation, type TessellationSettings } from './tessellation.ts';
 
 export interface ModelInfo {
@@ -108,6 +110,9 @@ export class Viewer {
   private meshing = false;
   private readonly container: HTMLElement;
   readonly tessellation = new Tessellation();
+  private readonly composer: Composer;
+  /** The rendering settings; apply changes with setRender. */
+  render: RenderSettings = { ...DEFAULT_RENDER };
   settings: TessellationSettings = { ...DEFAULT_SETTINGS };
   /** Progress messages while loading. */
   onStatus?: (text: string) => void;
@@ -124,8 +129,10 @@ export class Viewer {
 
   constructor(container: HTMLElement) {
     this.container = container;
-    this.renderer = new THREE.WebGLRenderer({ antialias: true });
+    // No multisampling: SMAA smooths the composed frame. A stencil buffer, for the section caps.
+    this.renderer = new THREE.WebGLRenderer({ antialias: false, stencil: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.composer = new Composer(this.renderer, this.scene, this.camera, 1, 1);
     container.appendChild(this.renderer.domElement);
     this.scene.background = new THREE.Color(0x404040);
     this.scene.add(new THREE.AmbientLight(0xffffff, 1.5));
@@ -184,6 +191,7 @@ export class Viewer {
 
   private resize(): void {
     this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
+    this.composer.setSize(this.container.clientWidth, this.container.clientHeight, this.renderer.getPixelRatio());
     setAspect(this.camera, this.aspect());
     this.controls.handleResize();
     this.frames.request();
@@ -193,8 +201,21 @@ export class Viewer {
     this.changed = false;
     this.controls.update();
     clipTo(this.camera, this.bounds);
-    this.renderer.render(this.scene, this.camera);
+    this.composer.render();
     return this.interacting || this.changed;
+  }
+
+  /** Applies rendering settings (shininess to every Phong face in the model). */
+  setRender(s: RenderSettings): void {
+    this.render = { ...s };
+    this.composer.set(this.render);
+    this.display.traverse((o) => {
+      const m = (o as THREE.Mesh).material;
+      if ((o as THREE.Mesh).isMesh) for (const x of Array.isArray(m) ? m : [m]) {
+        if ((x as THREE.MeshPhongMaterial).isMeshPhongMaterial) (x as THREE.MeshPhongMaterial).shininess = s.shininess;
+      }
+    });
+    this.redraw();
   }
 
   /** Redraws soon (after any change to the scene). */
@@ -220,6 +241,8 @@ export class Viewer {
     }
     if (gen !== this.generation) return;
     detectEdges(root);
+    edgeLayer(root);
+    if (this.render.cadMaterials) cadStyle(root, this.render.shininess);
     this.show(root, { name: src.name, format });
     this.finished();
     this.zoomAll();
@@ -243,7 +266,7 @@ export class Viewer {
     await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
     const { scene } = await importStep(new Uint8Array(src.bytes));
     if (gen !== this.generation) return;
-    const graph = new StepGraph(scene, src.name);
+    const graph = new StepGraph(scene, src.name, this.render.shininess);
     const brep = scene.parts.flatMap((p, i) => p.kind === 'brep' && graph.placements.has(i) ? [i] : []);
     const model: ModelInfo = { name: src.name, format: 'step', parts: { total: brep.length, done: 0, failed: 0 },
       diagnostics: [...scene.diagnostics] };

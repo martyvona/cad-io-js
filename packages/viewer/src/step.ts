@@ -18,6 +18,7 @@
 import * as THREE from 'three';
 import { instances, partInstances, type Mat4, type Mesh, type PartInstance, type Scene } from 'cad-scene';
 import type { FaceHiding } from './model.ts';
+import { EDGES } from './style.ts';
 
 /** sRGB, as the exporters' default: faces, curves and points without a material. */
 export const DEFAULT_COLOR: readonly [number, number, number] = [0.8, 0.8, 0.8];
@@ -75,8 +76,11 @@ export class StepGraph implements FaceHiding {
   /** Hidden faces' source ids, by part. */
   private readonly hiddenFaces = new Map<number, Set<number>>();
 
-  constructor(scene: Scene, name: string) {
+  private readonly shininess: number;
+
+  constructor(scene: Scene, name: string, shininess = 30) {
     this.scene = scene;
+    this.shininess = shininess;
     this.root.name = name;
     const groups = new Map<string, THREE.Group>();
     for (const inst of instances(scene)) {
@@ -113,7 +117,7 @@ export class StepGraph implements FaceHiding {
     const color = new THREE.Color().setRGB(r, g, b, THREE.SRGBColorSpace);
     const opacity = sm?.opacity ?? 1;
     const common = { color, opacity, transparent: opacity < 1 };
-    m = kind === 'face' ? new THREE.MeshPhongMaterial({ ...common, specular: 0x222222, shininess: 30,
+    m = kind === 'face' ? new THREE.MeshPhongMaterial({ ...common, specular: 0x222222, shininess: this.shininess,
       // Faces a little behind their edges, so edges draw on top.
       polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 })
       : kind === 'curve' ? new THREE.LineBasicMaterial(common) : new THREE.PointsMaterial({ ...common, size: 4,
@@ -180,7 +184,11 @@ export class StepGraph implements FaceHiding {
       obj.userData = { faces: faceSources, faceRanges: mesh.faces };
       obj.name = group.name;
       obj.position.set(...mesh.origin);
-      if (edges) obj.add(Object.assign(new THREE.LineSegments(edges, this.lineMaterial), { name: 'edges' }));
+      if (edges) {
+        const e = Object.assign(new THREE.LineSegments(edges, this.lineMaterial), { name: 'edges' });
+        e.layers.set(EDGES);
+        obj.add(e);
+      }
       if (curves) obj.add(Object.assign(new THREE.LineSegments(curves, this.material(instance.material, 'curve')),
         { name: 'curves' }));
       if (points) obj.add(Object.assign(new THREE.Points(points, this.material(instance.material, 'point')),
@@ -255,8 +263,10 @@ export function detectEdges(root: THREE.Object3D): number {
     meshes.push(m);
   });
   for (const m of meshes) {
-    m.add(Object.assign(new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry, EDGE_ANGLE), material),
-      { name: 'edges' }));
+    const e = Object.assign(new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry, EDGE_ANGLE), material),
+      { name: 'edges' });
+    e.layers.set(EDGES);
+    m.add(e);
     for (const mat of Array.isArray(m.material) ? m.material : [m.material]) Object.assign(mat,
       { polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
   }

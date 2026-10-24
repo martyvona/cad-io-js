@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { multiply, scaling, type Mesh } from 'cad-scene';
 import { plate, scene, translation, wire } from './fixtures.ts';
 import { DEFAULT_COLOR, detectEdges, polylineSegments, StepGraph } from '../src/step.ts';
+import { EDGES } from '../src/style.ts';
 import { workerCount } from '../src/tessellation.ts';
 
 const close = (a: ArrayLike<number>, b: ArrayLike<number>) => Array.from(a).every((x, i) => Math.abs(x - b[i]!) < 1e-9);
@@ -51,6 +52,7 @@ test('meshes: at the origin in each placement, geometry shared where the colouri
   // B-rep edges: the shared one (one segment), not the seam; shared between placements.
   const edges = made.map((m) => m.children.find((c) => c.name === 'edges') as THREE.LineSegments);
   assert.deepEqual(Array.from(edges[0]!.geometry.index!.array), [0, 1]);
+  assert.equal(edges[0]!.layers.mask, 1 << EDGES);
   assert.equal(edges[0]!.geometry, edges[1]!.geometry);
 });
 
@@ -79,6 +81,7 @@ test('edges found from the triangles only for parts without B-rep edges', () => 
   const [m] = g.addMesh(0, bare);
   const e = m!.children.find((c) => c.name === 'edges') as THREE.LineSegments;
   assert.ok(e.geometry instanceof THREE.EdgesGeometry);
+  assert.equal(e.layers.mask, 1 << EDGES);
   // The square's outline; not the diagonal, where its two triangles fold by about 8 degrees, under EDGE_ANGLE.
   assert.equal(e.geometry.getAttribute('position').count / 2, 4);
   // Only seams: the B-rep has edges, none to draw; none found either.
@@ -107,6 +110,7 @@ test('detectEdges: meshes without lines of their own beside them; not instanced 
   assert.equal(detectEdges(root), 1);
   const e = plain.children[0] as THREE.LineSegments;
   assert.ok(e.geometry instanceof THREE.EdgesGeometry);
+  assert.equal(e.layers.mask, 1 << EDGES);
   assert.equal(e.geometry.getAttribute('position').count / 2, 12);
   assert.ok((plain.material as THREE.Material).polygonOffset);
   assert.equal(withChild.children.length, 1);

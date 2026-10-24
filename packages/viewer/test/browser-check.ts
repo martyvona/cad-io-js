@@ -45,6 +45,9 @@ fs.writeFileSync(path.join(content, 'as1.json'), threejsJson(scene, view));
 fs.writeFileSync(path.join(content, 'as1.json.extras.json'), threejsJson(scene, view, { extras: true }));
 fs.writeFileSync(path.join(content, 'as1-noedges.glb'), (await glb(scene, exportView(scene, meshes))).bytes);
 fs.copyFileSync(step, path.join(content, 'as1.stp'));
+// Half transparent everywhere (a copy of the scene's materials at opacity 0.5).
+const clear = { ...scene, materials: scene.materials.map((m) => ({ ...m, opacity: 0.5 })) };
+fs.writeFileSync(path.join(content, 'as1-clear.glb'), (await glb(clear, exportView(clear, meshes))).bytes);
 const bicycle = path.join(repo, 'test_corpus/third_party/gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp');
 fs.copyFileSync(bicycle, path.join(content, 'bicycle.stp'));
 fs.writeFileSync(path.join(content, 'notes.txt'), 'not a model');
@@ -426,6 +429,83 @@ await check('picking', async () => {
   expect(a.detailKind === 'face' || a.detailKind === 'edges', `detail pick: ${j}`);
   expect(a.placements > 1 && a.lit === a.placements && a.unlit === 0, `all instances: ${j}`);
   expect(a.dragged.length === 0, `a drag picked: ${j}`);
+  return undefined;
+});
+// The rendering settings: N8AO then SMAA by default; without AO, a render pass and the output pass; edges drawn and
+// pickable only while shown (their layer); shininess on the model's faces; a glTF file's own materials kept when
+// asked; no WebGL errors.
+await check('rendering', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    const frame = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+    // (By identity: class names are mangled in N8AO's bundle, and in a build.)
+    const c = viewer.composer;
+    const names = new Map([[c.n8ao, 'N8AOPass'], [c.smaa, 'SMAAPass'], [c.plain, 'RenderPass'],
+      [c.output, 'OutputPass']]);
+    const passes = () => c.composer.passes.map((p) => names.get(p) ?? 'other');
+    const gl = viewer.renderer.getContext();
+    const edgesShown = () => viewer.camera.layers.isEnabled(1);
+    const edgeHits = () => { let n = 0; viewer.display.traverse((o) => { if (o.isLine && o.name === 'edges' &&
+      o.layers.mask === 2) n++; }); return n; };
+    const initial = passes();
+    viewer.setRender({ ...viewer.render, ao: false, smaa: false, edges: false, shininess: 77 });
+    await frame();
+    const plain = passes(), hidden = edgesShown();
+    let shiny = 0, faces = 0;
+    viewer.display.traverse((o) => { if (o.isMesh) for (const m of [o.material].flat()) if (m.isMeshPhongMaterial) {
+      faces++; if (m.shininess === 77) shiny++; } });
+    // A pick on an edge's midpoint with edges hidden doesn't hit edges.
+    let edge;
+    viewer.display.traverse((o) => { if (!edge && o.isLine && o.name === 'edges') edge = o; });
+    const pos = edge.geometry.attributes.position, i0 = edge.geometry.index.getX(0), i1 = edge.geometry.index.getX(1);
+    const mid = viewer.camera.position.clone().set((pos.getX(i0) + pos.getX(i1)) / 2, (pos.getY(i0) + pos.getY(i1)) / 2,
+      (pos.getZ(i0) + pos.getZ(i1)) / 2).applyMatrix4(edge.matrixWorld).project(viewer.camera);
+    const rect = viewer.renderer.domElement.getBoundingClientRect();
+    const at = [rect.left + (mid.x + 1) / 2 * rect.width, rect.top + (1 - mid.y) / 2 * rect.height];
+    const hitHidden = viewer.pickAt(...at);
+    viewer.setRender({ ...viewer.render, ao: true, smaa: true, edges: true });
+    await frame();
+    const hitShown = viewer.pickAt(...at);
+    const back = passes();
+    return { initial, plain, back, hidden, shown: edgesShown(), shiny, faces, edgeLayers: edgeHits(),
+      hitHidden: hitHidden ? hitHidden.object.name || hitHidden.object.type : 'none',
+      hitShown: hitShown ? hitShown.object.name || hitShown.object.type : 'none', glError: gl.getError() };
+  })()`) as { after?: { initial: string[]; plain: string[]; back: string[]; hidden: boolean; shown: boolean;
+    shiny: number; faces: number; edgeLayers: number; hitHidden: string; hitShown: string; glError: number } };
+  const a = r.after!;
+  const j = JSON.stringify(a);
+  expect(a.initial.join() === 'N8AOPass,SMAAPass' && a.back.join() === a.initial.join(), `passes: ${j}`);
+  expect(a.plain.join() === 'RenderPass,OutputPass', `passes without AO and SMAA: ${j}`);
+  expect(!a.hidden && a.shown && a.edgeLayers > 0, `edges layer: ${j}`);
+  expect(a.faces > 0 && a.shiny === a.faces, `shininess: ${j}`);
+  expect(a.hitHidden !== 'edges' && a.hitShown === 'edges', `picking edges shown and hidden: ${j}`);
+  expect(a.glError === 0, `WebGL error ${a.glError}`);
+  // The file's own materials: a GLB loaded with CAD materials off keeps glTF-Transform's standard ones.
+  const g = await page(`?url=${encodeURIComponent('/content/as1.glb')}&check`, `(async () => {
+    const kinds = (root) => { const s = new Set(); root.traverse((o) => { if (o.isMesh) for (const m of
+      [o.material].flat()) s.add(m.type); }); return [...s].sort(); };
+    const phong = kinds(viewer.display);
+    let edges = 0, onLayer = 0;
+    viewer.display.traverse((o) => {
+      if (o.isLine && o.name === 'edges') { edges++; if (o.layers.mask === 2) onLayer++; }
+    });
+    viewer.render.cadMaterials = false;
+    await viewer.load({ name: 'as1.glb', bytes: await (await fetch('/content/as1.glb')).arrayBuffer() });
+    return { phong, own: kinds(viewer.display), edges, onLayer };
+  })()`) as { after?: { phong: string[]; own: string[]; edges: number; onLayer: number } };
+  expect(g.after!.phong.join() === 'MeshPhongMaterial' && g.after!.own.join() === 'MeshStandardMaterial',
+    `CAD materials: ${JSON.stringify(g.after)}`);
+  expect(g.after!.edges > 0 && g.after!.onLayer === g.after!.edges, `glTF edges' layer: ${JSON.stringify(g.after)}`);
+  // Transparency: three.js's sorting of transparent objects; N8AO aware of them.
+  const t = await page(`?url=${encodeURIComponent('/content/as1-clear.glb')}&check`, `(async () => {
+    const ms = []; viewer.display.traverse((o) => { if (o.isMesh) ms.push(...[o.material].flat()); });
+    await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+    return { all: ms.length, clear: ms.filter((m) => m.isMeshPhongMaterial && m.transparent && m.opacity === 0.5)
+      .length, aware: viewer.composer.n8ao.configuration.transparencyAware,
+      sorted: viewer.renderer.sortObjects, glError: viewer.renderer.getContext().getError() };
+  })()`) as { after?: { all: number; clear: number; aware: boolean; sorted: boolean; glError: number } };
+  const ta = t.after!;
+  expect(ta.all > 0 && ta.clear === ta.all && ta.aware && ta.sorted && ta.glError === 0,
+    `transparency: ${JSON.stringify(ta)}`);
   return undefined;
 });
 await check('no model', async () => {

@@ -38,6 +38,8 @@ function drawnFace(hit: THREE.Intersection): boolean {
 export function pick(camera: THREE.Camera, root: THREE.Object3D, ndc: THREE.Vector2, pixel: number,
   clipped?: (p: THREE.Vector3) => boolean): Pick | undefined {
   raycaster.setFromCamera(ndc, camera);
+  // What the camera draws (edges are on a layer of their own, shown or not).
+  raycaster.layers.mask = camera.layers.mask;
   raycaster.params.Line.threshold = PICK_PIXELS * pixel;
   raycaster.params.Points.threshold = PICK_PIXELS * pixel;
   const hits = raycaster.intersectObject(root, true).filter((h) => shown(h.object) && (!(h.object as THREE.Mesh).isMesh

@@ -16,6 +16,8 @@
   "dependencies": {
     "@headless-tree/core": "1.7.0",
     "cad-scene": "0.0.0",
+    "n8ao": "2.0.1",
+    "postprocessing": "6.39.5",
     "step-import": "0.0.0",
     "tess-cache": "0.0.0",
     "tess-occt": "0.0.0",

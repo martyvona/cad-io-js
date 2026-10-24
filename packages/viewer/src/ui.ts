@@ -113,6 +113,20 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   document.addEventListener('fullscreenchange', fullscreen);
   fullscreen();
 
+  const rendering = gui.addFolder('Rendering');
+  const look = viewer.render;
+  const restyle = () => viewer.setRender(look);
+  rendering.add(look, 'ao').name('Ambient occlusion').onChange(restyle);
+  rendering.add(look, 'aoIntensity', 0, 10, 0.1).name('AO intensity').onChange(restyle);
+  rendering.add(look, 'aoRadius', 4, 128, 1).name('AO radius (pixels)').onChange(restyle);
+  rendering.add(look, 'aoQuality', ['Performance', 'Low', 'Medium', 'High', 'Ultra']).name('AO quality')
+    .onChange(restyle);
+  rendering.add(look, 'smaa').name('Antialiasing (SMAA)').onChange(restyle);
+  rendering.add(look, 'edges').name('Edges').onChange(restyle);
+  rendering.add(look, 'shininess', 0, 100, 1).name('Shininess').onChange(restyle);
+  rendering.add(look, 'cadMaterials').name('Phong for glTF, three.js (next file)');
+  rendering.close();
+
   const step = gui.addFolder('STEP meshing');
   const settings = viewer.settings;
   step.add(settings, 'backend', ['occt', 'truck']).name('Backend');
