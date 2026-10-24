@@ -2,10 +2,12 @@
 // (also by dropping files on the page, or ?url= in the page's address), zoom all, the views along the axes,
 // centring the model, full screen, the tree panel and hiding; a status line for what's loading and what went wrong.
 
+import * as THREE from 'three';
 import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
 import { VIEWS, type ViewName } from './camera.ts';
 import type { Source } from './load.ts';
 import { details } from './details.ts';
+import { AXES } from './section.ts';
 import { boxOf, Highlighter, instancesOf, nodeForPick, piecesOf, type PickLevel } from './selection.ts';
 import { DEFAULT_SETTINGS } from './tessellation.ts';
 import { TreePanel } from './tree-panel.ts';
@@ -56,6 +58,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       last = src;
       await viewer.load(src);
       if (!viewer.latest(gen)) return;
+      fitPlanes();
       const s = viewer.stats()!;
       info.file = src.name;
       info.triangles = s.triangles.toLocaleString();
@@ -98,7 +101,13 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     views.add({ [v]: () => viewer.setView(v) }, v).name(v[0]!.toUpperCase() + v.slice(1));
   }
   centered = view.add({ centered: false }, 'centered').name('Center model')
-    .onChange((on: boolean) => viewer.setCentered(on)).disable();
+    .onChange((on: boolean) => {
+      viewer.setCentered(on);
+      // The planes moved with the model: take their positions, and fit the sliders to where the model is now.
+      const moved = viewer.sections.get();
+      for (const a of AXES) cut[a].at = moved[a].at;
+      fitPlanes();
+    }).disable();
   const full = {
     enter: () => void document.documentElement.requestFullscreen().catch((e: Error) => say(e.message, true)),
     exit: () => void document.exitFullscreen().catch(() => {}),
@@ -112,6 +121,34 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   };
   document.addEventListener('fullscreenchange', fullscreen);
   fullscreen();
+
+  // Section planes: the sliders span the model's box (with a margin); planes that are off start at its middle.
+  const cut = viewer.sections.get();
+  const sectionFolder = gui.addFolder('Section');
+  const sliders = new Map<string, { min(v: number): unknown; max(v: number): unknown; updateDisplay(): unknown }>();
+  const recut = () => viewer.setSections(cut);
+  for (const a of AXES) {
+    sectionFolder.add(cut[a], 'on').name(`Cut along ${a.toUpperCase()}`).onChange(recut);
+    sliders.set(a, sectionFolder.add(cut[a], 'at', -100, 100, 0.01).name(`${a.toUpperCase()} position (mm)`)
+      .onChange(recut));
+    sectionFolder.add(cut[a], 'flip').name(`Flip ${a.toUpperCase()}`).onChange(recut);
+  }
+  sectionFolder.add(cut, 'caps').name('Caps on closed parts').onChange(recut);
+  sectionFolder.close();
+  const fitPlanes = () => {
+    const box = viewer.modelBox();
+    if (box.isEmpty()) return;
+    const margin = 0.05 * box.getSize(new THREE.Vector3()).length();
+    for (const a of AXES) {
+      const lo = box.min[a] - margin, hi = box.max[a] + margin;
+      if (!cut[a].on) cut[a].at = (box.min[a] + box.max[a]) / 2;
+      const s = sliders.get(a)!;
+      s.min(lo);
+      s.max(hi);
+      s.updateDisplay();
+    }
+    recut();
+  };
 
   const rendering = gui.addFolder('Rendering');
   const look = viewer.render;
@@ -206,6 +243,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     if (!panel) return;
     highlighter.clear();
     panel.model.setHidden(selected, hidden);
+    viewer.drawnChanged();
     panel.redraw();
     highlight();
     describe();
@@ -220,6 +258,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     showAll: () => {
       highlighter.clear();
       panel?.model.showAll();
+      viewer.drawnChanged();
       panel?.redraw();
       highlight();
       describe();

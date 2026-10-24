@@ -28,8 +28,11 @@ export class Composer {
   constructor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, width: number,
     height: number) {
     this.camera = camera;
-    this.composer = new EffectComposer(renderer);
+    // Render targets with a stencil buffer, which the section caps need (N8AO's too).
+    this.composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(width, height,
+      { type: THREE.HalfFloatType, depthBuffer: true, stencilBuffer: true }));
     this.n8ao = new N8AOPass(scene, camera, width, height);
+    this.n8ao.configuration.stencil = true;
     this.plain = new RenderPass(scene, camera);
     this.output = new OutputPass();
     this.smaa = new SMAAPass();

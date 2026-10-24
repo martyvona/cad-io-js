@@ -19,6 +19,7 @@ import { loadThree, type Source } from './load.ts';
 import { NodeModel, type FaceHiding } from './model.ts';
 import { pick, type Pick } from './pick.ts';
 import { Composer } from './render.ts';
+import { AXES, Sections, type SectionSettings } from './section.ts';
 import { detectEdges, StepGraph } from './step.ts';
 import { cadStyle, DEFAULT_RENDER, edgeLayer, type RenderSettings } from './style.ts';
 import { DEFAULT_SETTINGS, Tessellation, type TessellationSettings } from './tessellation.ts';
@@ -111,6 +112,8 @@ export class Viewer {
   private readonly container: HTMLElement;
   readonly tessellation = new Tessellation();
   private readonly composer: Composer;
+  /** The section planes and their caps. */
+  readonly sections: Sections;
   /** The rendering settings; apply changes with setRender. */
   render: RenderSettings = { ...DEFAULT_RENDER };
   settings: TessellationSettings = { ...DEFAULT_SETTINGS };
@@ -133,6 +136,8 @@ export class Viewer {
     this.renderer = new THREE.WebGLRenderer({ antialias: false, stencil: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.composer = new Composer(this.renderer, this.scene, this.camera, 1, 1);
+    this.sections = new Sections(this.renderer);
+    this.clipped = (p) => this.sections.clipped(p);
     container.appendChild(this.renderer.domElement);
     this.scene.background = new THREE.Color(0x404040);
     this.scene.add(new THREE.AmbientLight(0xffffff, 1.5));
@@ -142,6 +147,7 @@ export class Viewer {
     this.camera.add(light);
     this.scene.add(this.camera, this.display);
     this.display.add(this.frame);
+    this.scene.add(this.sections.group);
     this.camera.up.set(0, 0, 1);
     this.camera.position.set(1, -1, 1);
 
@@ -201,6 +207,7 @@ export class Viewer {
     this.changed = false;
     this.controls.update();
     clipTo(this.camera, this.bounds);
+    this.sections.update(this.root ? this.display : undefined);
     this.composer.render();
     return this.interacting || this.changed;
   }
@@ -216,6 +223,24 @@ export class Viewer {
       }
     });
     this.redraw();
+  }
+
+  /** Applies section settings. */
+  setSections(s: SectionSettings): void {
+    this.sections.set(s);
+    this.redraw();
+  }
+
+  /** The model's drawn meshes changed (hidden or shown): the caps follow at the next draw. */
+  drawnChanged(): void {
+    this.sections.invalidate();
+    this.redraw();
+  }
+
+  /** The world box of the whole model, hidden parts included (for the planes' ranges). */
+  modelBox(): THREE.Box3 {
+    this.display.updateWorldMatrix(true, true);
+    return new THREE.Box3().setFromObject(this.frame);
   }
 
   /** Redraws soon (after any change to the scene). */
@@ -257,6 +282,7 @@ export class Viewer {
     this.frame.add(root);
     this.model = model;
     this.moved = false;
+    this.sections.invalidate();
     this.onModel?.(this.nodes);
   }
 
@@ -273,6 +299,7 @@ export class Viewer {
     this.show(graph.root, model, graph);
     const added = (part: number) => {
       for (const p of graph.placements.get(part) ?? []) this.nodes?.invalidate(p.group);
+      this.sections.invalidate();
       this.onMeshes?.();
     };
     // Parts already meshes or curves need no tessellation.
@@ -361,6 +388,11 @@ export class Viewer {
     const shift = this.display.position.clone().sub(before);
     this.camera.position.add(shift);
     this.controls.target.add(shift);
+    // The planes move with the model, cutting it where they did.
+    const s = this.sections.get();
+    for (const a of AXES) s[a].at += shift[a];
+    this.sections.set(s);
+    this.sections.invalidate();
     this.updateBounds();
     this.redraw();
   }

@@ -508,6 +508,97 @@ await check('rendering', async () => {
     `transparency: ${JSON.stringify(ta)}`);
   return undefined;
 });
+// Sections on the STEP assembly: a plane across X through the middle cuts the model (the renderer's clipping
+// planes), caps the closed parts (read back from the drawn frame: the plate's colour where its cut is, the background
+// without caps), keeps picks off the cut-away side; flipping it keeps the other side; centring moves it with the
+// model.
+await check('sections', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    const gl = viewer.renderer.getContext(), canvas = viewer.renderer.domElement;
+    const m = ui.panel().model;
+    const mesh = (name) => m.nodes.find((n) => n.kind === 'part' && n.name === name).object.children[0];
+    const boxOf = (o) => { o.geometry.computeBoundingBox(); return o.geometry.boundingBox.clone()
+      .applyMatrix4(o.matrixWorld); };
+    const frames = (n) => new Promise((r) => { const f = () => (n-- > 0 ? requestAnimationFrame(f) : r()); f(); });
+    // Colours where world points are drawn, after real frames (the viewer's own drawing makes the caps), rendered
+    // again and read back in one task.
+    const colours = async (points) => {
+      await frames(3);
+      viewer.composer.render();
+      viewer.composer.render();
+      const dpr = viewer.renderer.getPixelRatio();
+      return points.map((v) => { const p = v.clone().project(viewer.camera), out = new Uint8Array(4);
+        gl.readPixels(Math.round((p.x + 1) / 2 * canvas.clientWidth * dpr),
+          Math.round((p.y + 1) / 2 * canvas.clientHeight * dpr), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, out);
+        return [...out.slice(0, 3)]; });
+    };
+    // The rod (round, along X) cut through its middle, seen close: its cap's centre is inside it, the corner of the
+    // cap's square isn't.
+    const rod = mesh('rod'), rb = boxOf(rod), c = rb.getCenter(rod.position.clone());
+    const at = c.x;
+    viewer.zoomTo(rb);
+    const r = Math.min(rb.max.y - rb.min.y, rb.max.z - rb.min.z) / 2;
+    // (The corner away from the camera, which looks from +X -Y +Z: behind it, nothing of the rod's kept length.)
+    const centre = c.clone(), corner = c.clone().add(rod.position.clone().set(0, 0.9 * r, -0.9 * r));
+    const s = viewer.sections.get();
+    s.x.on = true;
+    s.x.at = at;
+    s.caps = true;
+    viewer.setSections(s);
+    const [capped, outside] = await colours([centre, corner]);
+    // The same without AO (the composer's own render targets, which need their stencil buffer).
+    viewer.setRender({ ...viewer.render, ao: false });
+    const [cappedPlain, outsidePlain] = await colours([centre, corner]);
+    viewer.setRender({ ...viewer.render, ao: true });
+    const planes = viewer.renderer.clippingPlanes.length, caps = viewer.sections.group.children.length;
+    viewer.setSections({ ...s, caps: false });
+    const [open] = await colours([centre]);
+    viewer.setSections(s);
+    viewer.zoomAll();
+    // Picks: on the kept side something, on the cut-away side nothing of the model's beyond the plane.
+    const pb = boxOf(mesh('plate'));
+    const rect = canvas.getBoundingClientRect();
+    const screen = (v) => { const p = v.clone().project(viewer.camera);
+      return [rect.left + (p.x + 1) / 2 * rect.width, rect.top + (1 - p.y) / 2 * rect.height]; };
+    const top = (x) => pb.getCenter(rod.position.clone()).setX(x).setZ(pb.max.z);
+    const kept = viewer.pickAt(...screen(top(at - 0.25 * (at - pb.min.x))));
+    const gone = viewer.pickAt(...screen(top(at + 0.25 * (pb.max.x - at))));
+    // Flipped: the other side kept.
+    viewer.setSections({ ...s, x: { ...s.x, flip: true } });
+    const flipped = viewer.sections.clipped(c.clone().setX(at - 1)) &&
+      !viewer.sections.clipped(c.clone().setX(at + 1));
+    // Centring moves the plane with the model (off the centroid, so the move shows).
+    const cx = viewer.model.centroid.x;
+    viewer.setSections({ ...s, x: { ...s.x, at: at - 10 } });
+    viewer.setCentered(true);
+    const movedTo = viewer.sections.get().x.at;
+    viewer.setCentered(false);
+    const back = viewer.sections.get().x.at;
+    return { planes, caps, capped, outside, cappedPlain, outsidePlain, open, kept: kept ? kept.point.x : null,
+      gone: gone ? gone.point.x : null,
+      at, flipped, movedTo, expectedMove: at - 10 - cx, back, glError: gl.getError() };
+  })()`) as { after?: { planes: number; caps: number; capped: number[]; outside: number[]; cappedPlain: number[];
+    outsidePlain: number[]; open: number[];
+    kept: number | null; gone: number | null; at: number; flipped: boolean; movedTo: number; expectedMove: number;
+    back: number; glError: number } };
+  const a = r.after!;
+  const j = JSON.stringify(a);
+  expect(a.planes === 1 && a.caps > 0, `planes and caps: ${j}`);
+  // The rod is orange (red high, green middling, blue low), hatched; its cap's square outside the circle isn't; with
+  // no caps, the cut shows what's beyond.
+  const orange = ([r, g, b]: number[]) => r! > 150 && g! > 40 && g! < 200 && b! < 60 && r! > g! + 40;
+  expect(orange(a.capped), `cap colour: ${j}`);
+  expect(!orange(a.outside), `cap outside the solid: ${j}`);
+  expect(orange(a.cappedPlain) && !orange(a.outsidePlain), `caps without AO: ${j}`);
+  expect(!orange(a.open), `no caps: ${j}`);
+  expect(a.kept !== null && a.kept <= a.at + 1e-6 && (a.gone === null || a.gone <= a.at + 1e-6),
+    `picking across the plane: ${j}`);
+  expect(a.flipped, `flip: ${j}`);
+  expect(Math.abs(a.movedTo - a.expectedMove) < 1e-6 && Math.abs(a.back - (a.at - 10)) < 1e-6 && a.movedTo !== a.back,
+    `centring: ${j}`);
+  expect(a.glError === 0, `WebGL error: ${j}`);
+  return undefined;
+});
 await check('no model', async () => {
   const r = await page('?check');
   expect(r.empty === true, `report ${JSON.stringify(r)}`);
