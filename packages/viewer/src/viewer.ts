@@ -5,20 +5,29 @@
 //     unit to the world's Z up and millimetres) -> the loaded model's root
 //
 // The centroid is the centre of the axis-aligned box of all the model's geometry, hidden included, in the world,
-// found when loading finishes and fixed from then on. One model at a time; loading another replaces it.
+// found when loading finishes (for STEP, when the last part is meshed) and fixed from then on. One model at a time;
+// loading another replaces it, and cancels the meshing of the last if it's still going.
 
 import * as THREE from 'three';
 import { TrackballControls } from 'three/addons/controls/TrackballControls.js';
+import { partMesh, tessellateScene, type Diagnostic } from 'cad-scene';
+import { importStep } from 'step-import';
 import { clipTo, fit, setAspect, setView, type ViewName } from './camera.ts';
 import { formatOf, nativeFrame, type Format } from './formats.ts';
 import { Frames } from './frames.ts';
 import { loadThree, type Source } from './load.ts';
+import { detectEdges, StepGraph } from './step.ts';
+import { DEFAULT_SETTINGS, Tessellation, type TessellationSettings } from './tessellation.ts';
 
 export interface ModelInfo {
   name: string;
   format: Format;
   /** The world centroid, once loading has finished. */
   centroid?: THREE.Vector3;
+  /** STEP: the parts to mesh, and how many are done and failed so far. */
+  parts?: { total: number; done: number; failed: number };
+  /** STEP: the importer's and the tessellation's diagnostics. */
+  diagnostics?: Diagnostic[];
 }
 
 export interface Stats { objects: number; meshes: number; triangles: number; segments: number; points: number }
@@ -90,7 +99,16 @@ export class Viewer {
   private bounds = new THREE.Sphere(new THREE.Vector3(), 1);
   private interacting = false;
   private changed = false;
+  /** The user has moved the view since the load began: no more automatic zooming. */
+  private moved = false;
+  /** Counts loads, so a superseded one's late results are dropped. */
+  private generation = 0;
+  private meshing = false;
   private readonly container: HTMLElement;
+  readonly tessellation = new Tessellation();
+  settings: TessellationSettings = { ...DEFAULT_SETTINGS };
+  /** Progress messages while loading. */
+  onStatus?: (text: string) => void;
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -111,7 +129,10 @@ export class Viewer {
     this.controls = new TrackballControls(this.camera, this.renderer.domElement);
     this.controls.rotateSpeed = 4;
     this.controls.staticMoving = true;
-    this.controls.addEventListener('start', () => { this.interacting = true; this.frames.request(); });
+    this.controls.addEventListener('start', () => {
+      this.interacting = this.moved = true;
+      this.frames.request();
+    });
     this.controls.addEventListener('end', () => { this.interacting = false; this.frames.request(); });
     this.controls.addEventListener('change', () => { this.changed = true; });
     // TrackballControls applies its input in update(), so a frame must follow every input event.
@@ -150,25 +171,90 @@ export class Viewer {
     this.frames.request();
   }
 
-  /** Replaces the model with the source's. */
+  /** Replaces the model with the source's; for STEP, resolves once every part is meshed (or has failed). */
   async load(src: Source): Promise<void> {
     const format = formatOf(src.name);
     if (!format) throw new Error(`unknown format: ${src.name}`);
-    if (format === 'step') throw new Error('STEP files load in phase 2 of the viewer; not yet');
+    const gen = ++this.generation;
+    if (this.meshing) {
+      this.tessellation.dispose();
+      this.meshing = false;
+    }
+    if (format === 'step') return this.loadStep(src, gen);
     let root: THREE.Object3D;
     try {
       root = await loadThree(src, format);
     } finally {
       for (const u of src.siblings?.values() ?? []) URL.revokeObjectURL(u);
     }
-    this.clear();
-    this.root = root;
-    this.frame.matrix.copy(nativeFrame(format, root));
-    this.frame.matrix.decompose(this.frame.position, this.frame.quaternion, this.frame.scale);
-    this.frame.add(root);
-    this.model = { name: src.name, format };
+    if (gen !== this.generation) return;
+    detectEdges(root);
+    this.show(root, { name: src.name, format });
     this.finished();
     this.zoomAll();
+  }
+
+  private show(root: THREE.Object3D, model: ModelInfo): void {
+    this.clear();
+    this.root = root;
+    this.frame.matrix.copy(nativeFrame(model.format, root));
+    this.frame.matrix.decompose(this.frame.position, this.frame.quaternion, this.frame.scale);
+    this.frame.add(root);
+    this.model = model;
+    this.moved = false;
+  }
+
+  private async loadStep(src: Source, gen: number): Promise<void> {
+    this.onStatus?.(`${src.name}: reading...`);
+    // Let the page show that before the import holds the main thread (for some seconds with a large file).
+    await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+    const { scene } = await importStep(new Uint8Array(src.bytes));
+    if (gen !== this.generation) return;
+    const graph = new StepGraph(scene, src.name);
+    const brep = scene.parts.flatMap((p, i) => p.kind === 'brep' && graph.placements.has(i) ? [i] : []);
+    const model: ModelInfo = { name: src.name, format: 'step', parts: { total: brep.length, done: 0, failed: 0 },
+      diagnostics: [...scene.diagnostics] };
+    this.show(graph.root, model);
+    // Parts already meshes or curves need no tessellation.
+    for (const i of graph.placements.keys()) {
+      if (scene.parts[i]!.kind === 'brep') continue;
+      const mesh = partMesh(scene, new Map(), i);
+      if (mesh) graph.addMesh(i, mesh);
+    }
+    this.redraw();
+    const progress = () => this.onStatus?.(`${src.name}: meshed ${model.parts!.done} of ${model.parts!.total} parts` +
+      (model.parts!.failed ? `, ${model.parts!.failed} failed` : ''));
+    progress();
+    if (brep.length) {
+      const s = this.settings;
+      const { tess, workers } = await this.tessellation.get(s);
+      if (gen !== this.generation) return;
+      let zoomed = false;
+      this.meshing = true;
+      try {
+        const { diagnostics } = await tessellateScene(scene, tess, { linearDeflection: s.linearDeflection,
+          angularDeflection: s.angularDeflection * Math.PI / 180, edges: true, concurrency: workers, parts: brep,
+          onPart: (part, mesh) => {
+            if (gen !== this.generation) return;
+            model.parts!.done++;
+            if (mesh && mesh.indices.length + (mesh.curvePositions?.length ?? 0) + (mesh.points?.length ?? 0)) {
+              graph.addMesh(part, mesh);
+              if (!zoomed && !this.moved) { zoomed = true; this.zoomAll(); }
+            } else model.parts!.failed++;
+            progress();
+            this.redraw();
+          } });
+        if (gen !== this.generation) return;
+        model.diagnostics!.push(...diagnostics);
+      } catch (e) {
+        if (gen !== this.generation) return;
+        throw e;
+      } finally {
+        if (gen === this.generation) this.meshing = false;
+      }
+    }
+    this.finished();
+    if (!this.moved) this.zoomAll();
   }
 
   /** Loading has finished: the centroid is found, once. */
@@ -212,6 +298,16 @@ export class Viewer {
     this.controls.target.add(shift);
     this.updateBounds();
     this.redraw();
+  }
+
+  /** The load that `load` was called for is still the latest (it wasn't replaced by another meanwhile). */
+  latest(gen: number): boolean {
+    return gen === this.generation;
+  }
+
+  /** The number the next load will have. */
+  nextLoad(): number {
+    return this.generation + 1;
   }
 
   isCentered(): boolean {

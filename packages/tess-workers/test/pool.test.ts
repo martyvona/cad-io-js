@@ -220,3 +220,21 @@ test('workers start whatever flags the process has: process-wide ones, and --inp
     fs.rmSync(dir, { recursive: true });
   }
 });
+
+test("serve: a backend module passed in `modules` is used as it is, not imported", async () => {
+  const { serve } = await import('../src/serve.ts');
+  const { FakeTessellator } = await import('./fake-backend.ts');
+  const posted: { type: string; info?: { name: string }; message?: string }[] = [];
+  let send!: (msg: unknown) => void;
+  const port = { post: (msg: never) => void posted.push(msg), onMessage: (cb: (msg: never) => void) => {
+    send = cb as (msg: unknown) => void; } };
+  serve(port as never, { 'no-such-module': { FakeTessellator } });
+  send({ type: 'init', backend: { module: 'no-such-module', export: 'FakeTessellator' } });
+  for (let t = 0; t < 100 && !posted.length; t++) await new Promise((r) => setTimeout(r, 10));
+  assert.equal(posted[0]?.type, 'ready', JSON.stringify(posted));
+  // Not in `modules`: imported, which fails here.
+  serve(port as never, {});
+  send({ type: 'init', backend: { module: 'no-such-module', export: 'FakeTessellator' } });
+  for (let t = 0; t < 100 && posted.length < 2; t++) await new Promise((r) => setTimeout(r, 10));
+  assert.equal(posted[1]?.type, 'initError');
+});

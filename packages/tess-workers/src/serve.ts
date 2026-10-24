@@ -1,4 +1,6 @@
-// The worker side: load the backend, then answer requests one at a time, transferring the result's buffers.
+// The worker side: load the backend, then answer requests one at a time, transferring the result's buffers. The
+// backend's module is imported by its specifier, unless the worker's entry imported it already and passes it in
+// `modules`: a bundler (the viewer's Vite build) can only bundle modules imported statically.
 
 import { TessellationError, type TessellationResult, type Tessellator } from 'cad-scene';
 import type { WorkerPort } from './protocol.ts';
@@ -12,12 +14,13 @@ function buffers(r: TessellationResult): ArrayBuffer[] {
   return [...out];
 }
 
-export function serve(port: WorkerPort): void {
+/** Answers the pool's requests on `port`. `modules`: backend modules already imported, by specifier. */
+export function serve(port: WorkerPort, modules: Record<string, Record<string, unknown>> = {}): void {
   let tess: Tessellator | undefined;
   port.onMessage(async (msg) => {
     if (msg.type === 'init') {
       try {
-        const mod = (await import(msg.backend.module)) as Record<string, unknown>;
+        const mod = modules[msg.backend.module] ?? (await import(msg.backend.module)) as Record<string, unknown>;
         const C = mod[msg.backend.export] as (new () => Tessellator) | undefined;
         if (typeof C !== 'function') throw new Error(`${msg.backend.module} has no export '${msg.backend.export}'`);
         tess = new C();

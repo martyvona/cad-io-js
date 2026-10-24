@@ -21,6 +21,21 @@ const content = (): Plugin => ({
   },
 });
 
+/**
+ * Drops `with { type: 'json' }` from dynamic imports (step-schemas loads its dictionaries so, as Node needs): Vite
+ * serves a JSON module as JavaScript, which a browser refuses for an import that asks for JSON.
+ */
+const jsonImports = (): Plugin => ({
+  name: 'cad-viewer-json-imports',
+  enforce: 'pre',
+  transform(code, id) {
+    if (!/\.[cm]?[jt]s$/.test(id.split('?')[0]!) || !code.includes('json')) return undefined;
+    const attribute = /(import\(\s*'[^']+\.json')\s*,\s*\{\s*with:\s*\{\s*type:\s*'json'\s*\}\s*\}\s*\)/g;
+    const out = code.replace(attribute, '$1)');
+    return out === code ? undefined : { code: out, map: null };
+  },
+});
+
 function mkcert(): { cert: Buffer; key: Buffer } {
   const cert = path.join(opts.certDir, 'cert.pem');
   const key = path.join(opts.certDir, 'key.pem');
@@ -32,7 +47,7 @@ function mkcert(): { cert: Buffer; key: Buffer } {
 export default defineConfig({
   root: import.meta.dirname,
   base: './',
-  plugins: [content(), ...(opts.https === 'self' ? [basicSsl()] : [])],
+  plugins: [content(), jsonImports(), ...(opts.https === 'self' ? [basicSsl()] : [])],
   server: {
     port: opts.port, strictPort: true, host: opts.lan ? '0.0.0.0' : 'localhost', allowedHosts: true,
     ...(opts.https === 'mkcert' ? { https: mkcert() } : {}),

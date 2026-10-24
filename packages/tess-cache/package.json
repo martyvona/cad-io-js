@@ -8,7 +8,8 @@
     ".": {
       "node": "./src/node.ts",
       "default": "./src/browser.ts"
-    }
+    },
+    "./browser": "./src/browser.ts"
   },
   "dependencies": {
     "cad-scene": "0.0.0"

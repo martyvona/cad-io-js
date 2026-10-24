@@ -4,7 +4,8 @@ import { Worker } from 'node:worker_threads';
 import { PoolTessellator, type WorkerTessellatorOptions } from './pool.ts';
 import type { WorkerHandle } from './protocol.ts';
 
-export { DEFAULT_TIMEOUT_MS, defaultWorkers, PoolTessellator, type PoolOptions, type WorkerTessellatorOptions } from './pool.ts';
+export { DEFAULT_TIMEOUT_MS, defaultWorkers, PoolTessellator, type PoolOptions,
+  type WorkerTessellatorOptions } from './pool.ts';
 export type { BackendSpec, WorkerHandle } from './protocol.ts';
 
 const entry = new URL('./worker.node.ts', import.meta.url);

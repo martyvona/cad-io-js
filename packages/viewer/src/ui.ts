@@ -5,6 +5,7 @@
 import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
 import { VIEWS, type ViewName } from './camera.ts';
 import type { Source } from './load.ts';
+import { DEFAULT_SETTINGS } from './tessellation.ts';
 import { fromFiles, fromUrl, pickFiles } from './sources.ts';
 import { visibleBox, type Viewer } from './viewer.ts';
 
@@ -16,6 +17,8 @@ export function buildUi(viewer: Viewer, status: HTMLElement): void {
   };
   const info = { file: '', triangles: '', objects: '', url: '' };
   let centered: { enable(on: boolean): unknown; setValue(v: boolean): unknown };
+  let last: Source | undefined;
+  viewer.onStatus = (text) => say(text);
 
   // With ?check in the address, what happened goes into the body's data-report for the browser check
   // (test/browser-check.ts), which reads the DOM.
@@ -28,16 +31,26 @@ export function buildUi(viewer: Viewer, status: HTMLElement): void {
       const src = await get();
       if (!src) return say('');
       const t = performance.now();
+      const gen = viewer.nextLoad();
+      last = src;
       await viewer.load(src);
+      if (!viewer.latest(gen)) return;
       const s = viewer.stats()!;
       info.file = src.name;
       info.triangles = s.triangles.toLocaleString();
       info.objects = `${s.objects.toLocaleString()} (${s.meshes.toLocaleString()} meshes)`;
       centered.setValue(false);
       centered.enable(viewer.model?.centroid !== undefined);
-      say(`${src.name}: ${((performance.now() - t) / 1000).toFixed(1)} s`);
+      const m = viewer.model!;
+      const parts = m.parts ? `; ${m.parts.done - m.parts.failed} of ${m.parts.total} parts meshed` +
+        (m.parts.failed ? `, ${m.parts.failed} failed` : '') : '';
+      const problems = (m.diagnostics ?? []).filter((d) => d.severity !== 'info').length;
+      say(`${src.name}: ${((performance.now() - t) / 1000).toFixed(1)} s${parts}` +
+        (problems ? `; ${problems} warnings and errors (in the console)` : ''));
+      if (problems) console.warn(m.diagnostics);
       const box = visibleBox(viewer.display);
-      report({ name: src.name, stats: s, centroid: viewer.model?.centroid?.toArray(), box: [box.min.toArray(),
+      report({ name: src.name, seconds: (performance.now() - t) / 1000, parts: m.parts, stats: s,
+        centroid: viewer.model?.centroid?.toArray(), box: [box.min.toArray(),
         box.max.toArray()], camera: { top: viewer.camera.top, target: viewer.controls.target.toArray() } });
     } catch (e) {
       console.error(e);
@@ -78,6 +91,19 @@ export function buildUi(viewer: Viewer, status: HTMLElement): void {
   };
   document.addEventListener('fullscreenchange', fullscreen);
   fullscreen();
+
+  const step = gui.addFolder('STEP meshing');
+  const settings = viewer.settings;
+  step.add(settings, 'backend', ['occt', 'truck']).name('Backend');
+  step.add(settings, 'linearDeflection', 0.001, 10).name('Deflection (mm)');
+  step.add(settings, 'angularDeflection', 1, 90).name('Angle (degrees)');
+  step.add(settings, 'cache').name('Cache (IndexedDB)');
+  step.add({ reload: () => last && open(async () => last, last.name) }, 'reload').name('Mesh again');
+  step.add({ defaults: () => { Object.assign(settings, DEFAULT_SETTINGS); step.controllers.forEach((c) =>
+    c.updateDisplay()); } }, 'defaults').name('Defaults');
+  step.add({ clear: () => viewer.tessellation.clearCache().then(() => say('cache cleared'),
+    (e: Error) => say(`cache: ${e.message}`, true)) }, 'clear').name('Clear cache');
+  step.close();
 
   const about = gui.addFolder('Model');
   about.add(info, 'file').name('File').disable().listen();

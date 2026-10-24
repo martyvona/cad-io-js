@@ -3,13 +3,12 @@
 import { PoolTessellator, type WorkerTessellatorOptions } from './pool.ts';
 import type { WorkerHandle } from './protocol.ts';
 
-export { DEFAULT_TIMEOUT_MS, defaultWorkers, PoolTessellator, type PoolOptions, type WorkerTessellatorOptions } from './pool.ts';
+export { DEFAULT_TIMEOUT_MS, defaultWorkers, PoolTessellator, type PoolOptions,
+  type WorkerTessellatorOptions } from './pool.ts';
 export type { BackendSpec, WorkerHandle } from './protocol.ts';
 
-const entry = new URL('./worker.browser.ts', import.meta.url);
-
-export function spawnWebWorker(): WorkerHandle {
-  const w = new Worker(entry, { type: 'module' });
+/** A pool's handle on a module Web Worker whose entry serves the protocol (serveWebWorker). */
+export function webWorkerHandle(w: Worker): WorkerHandle {
   return {
     post: (msg) => w.postMessage(msg),
     onMessage: (cb) => { w.onmessage = (e: MessageEvent) => cb(e.data); },
@@ -19,6 +18,11 @@ export function spawnWebWorker(): WorkerHandle {
     },
     terminate: () => w.terminate(),
   };
+}
+
+export function spawnWebWorker(): WorkerHandle {
+  // In one expression, as bundlers (Vite) recognize a worker entry.
+  return webWorkerHandle(new Worker(new URL('./worker.browser.ts', import.meta.url), { type: 'module' }));
 }
 
 /** A Tessellator running `opts.backend` in Web Workers. */

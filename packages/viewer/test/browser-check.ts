@@ -1,10 +1,13 @@
-// The viewer in a real browser, which `npm test` can't reach: makes a model in each three.js-loadable format (GLB
-// with Draco, glTF with meshopt and a .bin beside it, three.js JSON) from one STEP assembly, starts the dev server on
-// them (cad-viewer start), opens each in headless Chrome (?url=...&check) and compares what the page reports with
-// what the scene says, computed here independently of the viewer: the triangles, and the world box in millimetres
-// with Z up (so each format's frame mapping is checked). Also: the page with no model, and an unknown file.
+// The viewer in a real browser, which `npm test` can't reach: the STEP assembly itself (imported in the page, meshed
+// by OCCT in its workers) and models made from it in each three.js-loadable format (GLB with Draco, glTF with meshopt
+// and a .bin beside it, three.js JSON), served by the dev server (cad-viewer start) and opened in headless Chrome
+// (?url=...&check). What each page reports is compared with what the scene says, computed here independently of the
+// viewer: the triangles, the B-rep edges' segments, and the world box in millimetres with Z up (so each format's
+// frame mapping is checked); and centring. Also: a GLB without edges (edges found from its triangles), the page with
+// no model, an unknown file, a missing one.
 // Run by hand: node packages/viewer/test/browser-check.ts [path to Chrome]   (needs tess-occt built and the corpus;
-// SHOTS=<dir> saves a screenshot of each page there; BUILD=1 checks a build, served by vite preview, instead of the
+// SHOTS=<dir> saves a screenshot of each page there; EXTRA=<file>,... also loads those files and prints what the
+// page reports, with no expectations; BUILD=1 checks a build, served by vite preview, instead of the
 // dev server)
 
 import { spawn } from 'node:child_process';
@@ -40,15 +43,21 @@ fs.writeFileSync(path.join(content, 'as1-meshopt.gltf'), meshopt.json);
 fs.writeFileSync(path.join(content, 'as1-meshopt.bin'), meshopt.bin);
 fs.writeFileSync(path.join(content, 'as1.json'), threejsJson(scene, view));
 fs.writeFileSync(path.join(content, 'as1.json.extras.json'), threejsJson(scene, view, { extras: true }));
+fs.writeFileSync(path.join(content, 'as1-noedges.glb'), (await glb(scene, exportView(scene, meshes))).bytes);
+fs.copyFileSync(step, path.join(content, 'as1.stp'));
+const bicycle = path.join(repo, 'test_corpus/third_party/gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp');
+fs.copyFileSync(bicycle, path.join(content, 'bicycle.stp'));
 fs.writeFileSync(path.join(content, 'notes.txt'), 'not a model');
 
 let triangles = 0;
+let segments = 0;
 const lo = [Infinity, Infinity, Infinity];
 const hi = [-Infinity, -Infinity, -Infinity];
 for (const p of partInstances(scene)) {
   const m = meshes.get(p.part);
   if (!p.visible || !m) continue;
   triangles += m.indices.length / 3;
+  for (const e of m.edges ?? []) if (e.kind === 'shared' || e.kind === 'free') segments += e.count - 1;
   const t = p.transform;
   for (let i = 0; i < m.positions.length; i += 3) {
     const [x, y, z] = [0, 1, 2].map((k) => m.positions[i + k]! + m.origin[k]!) as [number, number, number];
@@ -121,7 +130,7 @@ async function page(query: string, after?: string): Promise<Record<string, unkno
   const { targetId } = await send('Target.createTarget', { url: `http://localhost:${port}/${query}` });
   const { sessionId } = await send('Target.attachToTarget', { targetId, flatten: true }) as { sessionId: string };
   try {
-    for (let t = 0; t < 600; t++) {
+    for (let t = 0; t < 3000; t++) {
       const r = await send('Runtime.evaluate', { expression: 'document.body?.dataset.report ?? null',
         returnByValue: true }, sessionId) as { result: { value: string | null } };
       if (r.result.value) {
@@ -133,15 +142,15 @@ async function page(query: string, after?: string): Promise<Record<string, unkno
             Buffer.from(data, 'base64'));
         }
         const report = JSON.parse(r.result.value) as Record<string, unknown>;
-        if (after) report.after = ((await send('Runtime.evaluate', { expression: after, returnByValue: true },
-          sessionId)) as { result: { value: unknown } }).result.value;
+        if (after) report.after = ((await send('Runtime.evaluate', { expression: after, returnByValue: true,
+          awaitPromise: true }, sessionId)) as { result: { value: unknown } }).result.value;
         return report;
       }
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
     const status = await send('Runtime.evaluate', { expression: "document.getElementById('status')?.textContent",
       returnByValue: true }, sessionId) as { result: { value: string } };
-    return { missing: `no report within 60 s; status: ${status.result.value}` };
+    return { missing: `no report within 300 s; status: ${status.result.value}` };
   } finally {
     await send('Target.closeTarget', { targetId });
   }
@@ -164,13 +173,15 @@ const CENTER = `(() => { const v = globalThis.viewer; const t0 = v.controls.targ
 
 // Draco quantizes positions to 14 bits over each part mesh's extent, meshopt to 16: well under 0.05 mm here.
 const TOL = 0.05;
-for (const file of ['as1.glb', 'as1-meshopt.gltf', 'as1.json', 'as1.json.extras.json']) {
+for (const file of ['as1.stp', 'as1.glb', 'as1-meshopt.gltf', 'as1.json', 'as1.json.extras.json', 'as1-noedges.glb']) {
   await check(file, async () => {
     const r = await page(`?url=${encodeURIComponent(`/content/${file}`)}&check`, CENTER) as {
-      stats?: { triangles: number }; box?: number[][]; centroid?: number[]; error?: string; missing?: string;
-      after?: { on: number[][]; off: number[][] } };
+      stats?: { triangles: number; segments: number }; box?: number[][]; centroid?: number[]; error?: string;
+      missing?: string; after?: { on: number[][]; off: number[][] } };
     expect(!r.error && !r.missing, `no model: ${r.error ?? r.missing}`);
     expect(r.stats!.triangles === triangles, `${r.stats!.triangles} triangles, expected ${triangles}`);
+    if (file === 'as1-noedges.glb') expect(r.stats!.segments > 0, 'no edges found from the triangles');
+    else expect(r.stats!.segments === segments, `${r.stats!.segments} edge segments, expected ${segments}`);
     const [min, max] = r.box!;
     for (let k = 0; k < 3; k++) expect(Math.abs(min![k]! - lo[k]!) < TOL && Math.abs(max![k]! - hi[k]!) < TOL,
       `box ${JSON.stringify(r.box)}, expected ${JSON.stringify([lo, hi])}`);
@@ -186,6 +197,51 @@ for (const file of ['as1.glb', 'as1-meshopt.gltf', 'as1.json', 'as1.json.extras.
     return undefined;
   });
 }
+for (const extra of process.env.EXTRA?.split(',') ?? []) {
+  fs.copyFileSync(extra, path.join(content, path.basename(extra)));
+  await check(`extra ${path.basename(extra)}`, async () => {
+    const r = await page(`?url=${encodeURIComponent(`/content/${path.basename(extra)}`)}&check`);
+    console.log(path.basename(extra), JSON.stringify({ ...r, box: undefined }));
+    expect(!r.error && !r.missing, `no model: ${r.error ?? r.missing}`);
+    return undefined;
+  });
+}
+// Replacing a model while it's meshing: the bicycle's meshing is cancelled once it has begun (its load ends at
+// once: the workers are stopped), the GLB shown alone, and STEP meshes again after (a new pool), from the cache (the
+// assembly was meshed above); and with truck when that's the backend chosen.
+await check('replaced while meshing', async () => {
+  const r = await page('?check', `(async () => {
+    const v = globalThis.viewer;
+    const src = async (name) => ({ name, bytes: await (await fetch('/content/' + name)).arrayBuffer() });
+    const first = v.load(await src('bicycle.stp'));
+    for (let t = 0; t < 3000 && !(v.model?.parts?.done > 0); t++) await new Promise((r) => setTimeout(r, 10));
+    const begun = v.model?.parts?.done ?? 0;
+    await v.load(await src('as1.glb'));
+    const t = performance.now();
+    await first;
+    const firstEnded = performance.now() - t;
+    await new Promise((r) => setTimeout(r, 1500));
+    const glb = { name: v.model.name, stats: v.stats() };
+    await v.load(await src('as1.stp'));
+    const step = { name: v.model.name, stats: v.stats(), parts: v.model.parts, ...v.tessellation.describe() };
+    v.settings.backend = 'truck';
+    await v.load(await src('as1.stp'));
+    const truck = { parts: v.model.parts, ...v.tessellation.describe() };
+    return { begun, firstEnded, glb, step, truck };
+  })()`) as { after?: { begun: number; firstEnded: number; glb: { name: string; stats: { triangles: number } };
+    step: { name: string; stats: { triangles: number }; parts: { done: number; failed: number }; backend: string;
+      cache?: { hits: number; misses: number } };
+    truck: { parts: { done: number; failed: number }; backend: string } } };
+  const a = r.after!;
+  expect(a.begun > 0 && a.begun < 112, `the bicycle wasn't caught meshing: ${a.begun} parts done`);
+  expect(a.firstEnded < 1000, `the bicycle's load went on for ${a.firstEnded} ms after it was replaced`);
+  expect(a.step.backend.startsWith('occt ') && a.step.cache!.hits >= 5, `STEP again: ${JSON.stringify(a.step)}`);
+  expect(a.truck.backend.startsWith('truck ') && a.truck.parts.done === 5, `truck: ${JSON.stringify(a.truck)}`);
+  expect(a.glb.name === 'as1.glb' && a.glb.stats.triangles === triangles, `after: ${JSON.stringify(a.glb)}`);
+  expect(a.step.name === 'as1.stp' && a.step.stats.triangles === triangles && a.step.parts.failed === 0,
+    `STEP again: ${JSON.stringify(a.step)}`);
+  return undefined;
+});
 await check('no model', async () => {
   const r = await page('?check');
   expect(r.empty === true, `report ${JSON.stringify(r)}`);
@@ -203,11 +259,11 @@ await check('missing file', async () => {
 });
 
 ws.close();
-browser.kill();
+await new Promise((resolve) => { browser.once('exit', resolve); browser.kill(); });
 if (preview) preview.kill();
 else await main(['stop'], io);
-fs.rmSync(tmp, { recursive: true, force: true });
+fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 5 });
 const rounded = [lo, hi].map((v) => v.map((x) => +x.toFixed(3)));
-console.log(`expected: ${triangles} triangles, box ${JSON.stringify(rounded)}`);
+console.log(`expected: ${triangles} triangles, ${segments} edge segments, box ${JSON.stringify(rounded)}`);
 for (const [name, r] of results) console.log(`${r === 'ok' ? 'ok  ' : 'FAIL'} ${name}${r === 'ok' ? '' : `: ${r}`}`);
 process.exit(results.every(([, r]) => r === 'ok') ? 0 : 1);

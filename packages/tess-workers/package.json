@@ -8,7 +8,9 @@
     ".": {
       "node": "./src/node.ts",
       "default": "./src/browser.ts"
-    }
+    },
+    "./web-worker": "./src/web-worker.ts",
+    "./browser": "./src/browser.ts"
   },
   "dependencies": {
     "cad-scene": "0.0.0"

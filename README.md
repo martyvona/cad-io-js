@@ -292,7 +292,7 @@ Parts that fail to tessellate don't fail the run; they are in the summary (with 
 
 ## Viewer
 
-`cad-viewer` (`packages/viewer`, private) is an interactive three.js viewer for debugging, prototyping and inspecting models, not for end users: a single-page web app built with Vite, served by any static server, and meant to work offline once loaded (as a progressive web app, later). It is being built in phases (the plan and its decisions are in `CLAUDE.md`, "The viewer"); this is phase 1 of 9: glTF, GLB and three.js JSON through three.js's own loaders, with an orthographic camera, trackball controls (mouse and touch), zoom all, the six views along the axes, centring and full screen. STEP files load from phase 2.
+`cad-viewer` (`packages/viewer`, private) is an interactive three.js viewer for debugging, prototyping and inspecting models, not for end users: a single-page web app built with Vite, served by any static server, and meant to work offline once loaded (as a progressive web app, later). It is being built in phases (the plan and its decisions are in `CLAUDE.md`, "The viewer"); phases 1 and 2 of 9 are done: STEP files through our own packages (parsed in the page, meshed by OCCT or truck in Web Workers, cached in IndexedDB, appearing part by part) and glTF, GLB and three.js JSON through three.js's own loaders, with an orthographic camera, trackball controls (mouse and touch), zoom all, the six views along the axes, centring and full screen. The assembly tree, picking and the rendering style come next.
 
 ### Running It
 
@@ -305,7 +305,7 @@ npm run viewer -- stop
 
 The dev server serves a **content root**, by default the repository's `test_corpus/`, at `/content/`: `open` takes a file below it (`--content-root <dir>` to serve another directory; stop the server first if it is running with another). `start` and `open` also take `--port <n>`, `--lan` and `--https self|mkcert` (below). The server's process and URL are in `packages/viewer/.run/server.json`, its output in `.run/server.log`.
 
-In the page: **File** opens local files (the browser's file picker; pick a `.gltf` together with its `.bin`), or a URL (the same server, or another that allows cross-origin requests); files can also be dropped on the page, and `?url=<url>` in the address loads one at startup. **View** has zoom all, the views along the axes (front looks along +Y with Z up; top has +Y up, bottom -Y), centring (once the model's centroid is known: the centre of the box around all its geometry, hidden or not) and full screen (disabled where the browser can't, as on iPhone). The world is millimetres with Z up: glTF and three.js JSON files (metres and Y up at their root, ours included) are turned and scaled to it. The page draws only when something changes, at most 30 frames a second.
+In the page: **File** opens local files (STEP as `.stp`, `.step` or `.stpZ`, glTF, GLB, three.js JSON) (the browser's file picker; pick a `.gltf` together with its `.bin`), or a URL (the same server, or another that allows cross-origin requests); files can also be dropped on the page, and `?url=<url>` in the address loads one at startup. **View** has zoom all, the views along the axes (front looks along +Y with Z up; top has +Y up, bottom -Y), centring (once the model's centroid is known: the centre of the box around all its geometry, hidden or not) and full screen (disabled where the browser can't, as on iPhone). **STEP meshing** chooses the backend (OCCT, the default, or truck), the deflections (stepconv's defaults: 0.1 mm and 0.5 rad, shown as 28.6 degrees), the IndexedDB cache (on by default; it can be cleared), and meshes the file again with them. A STEP file is parsed on the page's main thread (it holds the page for a moment with a large file); its assembly appears at once and its parts as they are meshed, by a pool of workers (one less than the cores, at most 8; at most 3 on touch devices); the view zooms to the first part, and to the whole when the last is done, unless it has been moved meanwhile. Opening another file while one is meshing stops the meshing. Parts are drawn with their B-rep edges; parts without them (and glTF and three.js meshes without lines of their own) get edges found from their triangles, where faces meet at more than 10 degrees. The world is millimetres with Z up: STEP files load as they are (most CAD systems model with Z up, some with Y), glTF and three.js JSON files (metres and Y up at their root, ours included) are turned and scaled to it. The page draws only when something changes, at most 30 frames a second.
 
 **A build for a static server**: `npm run build -w cad-viewer` writes `packages/viewer/dist/`, which any web server can serve as it is (no `/content/` there: load files by URL or from the device).
 
@@ -328,7 +328,7 @@ In the page: **File** opens local files (the browser's file picker; pick a `.glt
 
 ### Checks
 
-Its unit tests run with `npm test`. `node packages/viewer/test/browser-check.ts` (by hand; needs `tess-occt` built and the corpus) converts a corpus assembly to GLB with Draco, glTF with meshopt and three.js JSON (with and without extras), starts the dev server on them and loads each in headless Chrome, comparing the triangles, the world box in millimetres and the centroid with what the scene says, and centring with the model's centroid; `SHOTS=<dir>` saves a screenshot of each page, and `BUILD=1` checks a build (`vite build`, served by `vite preview`) instead of the dev server.
+Its unit tests run with `npm test`. `node packages/viewer/test/browser-check.ts` (by hand; needs `tess-occt` built and the corpus) loads a corpus assembly in headless Chrome as STEP (meshed in the page's workers) and converted to GLB with Draco, glTF with meshopt and three.js JSON (with and without extras), served by the dev server, comparing the triangles, the B-rep edges' segments, the world box in millimetres and the centroid with what the scene says, and centring with the model's centroid; it also checks edges found for a GLB without them, and replacing the bicycle (`Median_cx-fs01_bicycle.stp`) while it meshes (the meshing stops, the cache answers the next load, truck meshes when chosen); `SHOTS=<dir>` saves a screenshot of each page, `EXTRA=<file>,...` also loads those files and prints what the page reports (the bicycle: 3.8 s from opening to the last part, 875,317 triangles, in headless Chrome on an Apple M4, cache empty), and `BUILD=1` checks a build (`vite build`, served by `vite preview`) instead of the dev server.
 
 ## Architecture
 
@@ -348,7 +348,7 @@ flowchart TD
   scene["cad-scene"]
   viewer["viewer (cad-viewer)"]
   cli --> imp & tess & exp
-  viewer --> scene
+  viewer --> imp & tess & scene
   viewer --> three["three.js, Vite"]
   cli --> parser
   imp --> parser & scene
@@ -361,7 +361,7 @@ flowchart TD
 
 - **`step-parser`:** Layers 1 to 3 of STEP reading, the Part 21 writer and raw JSON. **`step-schemas`:** the EXPRESS dictionaries, generated from stepcode's EXPRESS schemas. **`lexical-json`:** JSON that keeps integers and reals apart.
 - **`cad-scene`:** the scene model, the tessellator interface, `tessellateScene`, `exportView` and the mesh helpers.
-- **`viewer`:** the interactive viewer (see [Viewer](#viewer)); from phase 2 it uses the importer and the tessellation packages too.
+- **`viewer`:** the interactive viewer (see [Viewer](#viewer)), on the importer, the tessellation packages and three.js.
 - **The backends:** `tess-occt` is our build of OCCT 8.1 (`third_party/OCCT`) as WebAssembly; `tess-truck` is our Rust wrapper over truck (`third_party/truck`), likewise.
 
 - **No runtime dependencies** in `step-schemas`, `lexical-json`, `step-parser`, `cad-scene`, `step-import`, the tessellation packages and `export-threejs`. `export-gltf` uses glTF-Transform (MIT) and `export-3mf` fflate (MIT).
@@ -697,11 +697,11 @@ const { meshes } = await tessellateScene(scene, pool,
 pool.dispose();                      // terminates the workers
 ```
 
-In a browser, the backend's module is fetched by each worker, and the pool's results' buffers are transferred, not copied.
+In a browser, the backend's module is fetched by each worker, and the pool's results' buffers are transferred, not copied. A bundled application (the viewer, with Vite) can't have its workers import a backend by a URL known only at run time: it gives the pool its own worker entry instead, which imports the backends statically and passes them to `serveWebWorker` (from `tess-workers/web-worker`), and spawns it with `webWorkerHandle(new Worker(new URL('./tess-worker.ts', import.meta.url), { type: 'module' }))` and `PoolTessellator` (from `tess-workers/browser`); `backend.module` then names one of the modules it passed (see `packages/viewer/src/tess-worker.ts`).
 
 ### `tess-cache`
 
-A `Tessellator` in front of another that keeps its results, keyed by a SHA-256 of the backend's name and version (which includes its module's hash), the request and the payload: a part asked for again, with the same deflections, is answered from the store. Stores: `MemoryStore(maxBytes)`, `FileStore({dir, maxBytes})` (Node; a directory, so it survives the process) and `IndexedDbStore({name, maxBytes})` (browsers), each least-recently-used within its maximum size, 0 disabling it.
+A `Tessellator` in front of another that keeps its results, keyed by a SHA-256 of the backend's name and version (which includes its module's hash), the request and the payload: a part asked for again, with the same deflections, is answered from the store. Stores: `MemoryStore(maxBytes)`, `FileStore({dir, maxBytes})` (Node; a directory, so it survives the process) and `IndexedDbStore({name, maxBytes})` (browsers; `tess-cache/browser` names the browser entry for type checking under Node), each least-recently-used within its maximum size, 0 disabling it.
 
 ```ts
 import fs from 'node:fs';
