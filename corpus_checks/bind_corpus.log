@@ -1,4 +1,4 @@
-4925008 instances bound (3 malformed); bind+check 11.9 s; reverse index 0.2 s, 5653627 entries; type index 1.1 s
+4925008 instances bound (3 malformed); bind+check 5.8 s; reverse index 0.1 s, 5653627 entries; type index 0.6 s
 ┌────────────────────────────────────────────────────────────────────────────────────┬───────┬─────────┬──────────┬────────────┬─────────┐
 │ (index)                                                                            │ files │ inst    │ bySchema │ byFallback │ unbound │
 ├────────────────────────────────────────────────────────────────────────────────────┼───────┼─────────┼──────────┼────────────┼─────────┤
@@ -96,7 +96,7 @@
       22    1 warning: unknown entity FEA_PARAMETRIC_POINT  e.g. gkv311-opencascade-dataset/step/trj9_ap209-mp.stp #1193
       21    1 info: QUALIFIED_REPRESENTATION_ITEM.qualifiers: $ in a mandatory attribute  e.g. gkv311-opencascade-dataset/step/bug32049_sp7_10nx_242.stp #1512
       21    1 warning: unknown entity VOLUME_ELEMENT_LOCATION  e.g. gkv311-opencascade-dataset/step/trj9_ap209-mp.stp #2533
-      19   19 model warning: no dictionary for FILE_SCHEMA (…); binding with AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF  e.g. gkv311-opencascade-dataset/step/trj3_as1-tc-203.stp
+      19   19 model warning: no dictionary for FILE_SCHEMA (...); binding with AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF  e.g. gkv311-opencascade-dataset/step/trj3_as1-tc-203.stp
       19    1 info: PRODUCT_DEFINITION_RELATIONSHIP.description: $ in a mandatory attribute  e.g. gkv311-opencascade-dataset/step/mat.stp #110
       19    1 info: ITEM_DEFINED_TRANSFORMATION.name: $ in a mandatory attribute  e.g. gkv311-opencascade-dataset/step/mat.stp #130
       19    1 info: ITEM_DEFINED_TRANSFORMATION.description: $ in a mandatory attribute  e.g. gkv311-opencascade-dataset/step/mat.stp #130

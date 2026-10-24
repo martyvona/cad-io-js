@@ -31,7 +31,7 @@ export interface ValidationValue {
   representation: string;
   /** The representation item's instance id. */
   item: number;
-  /** A measure in SI units (m³, m², m...), a point in metres, or a count. */
+  /** A measure in SI units (m^3, m^2, m...), a point in metres, or a count. */
   measure?: number;
   unit?: string;
   point?: Vec3;
@@ -96,7 +96,7 @@ function target(r: Reader, d: number): PropertyTarget {
       const i = r.ref(g, 'identified_item');
       if (i >= 0) items.add(r.id(i));
     }
-    // ...or the older PROPERTY_DEFINITION → SHAPE_DEFINITION_REPRESENTATION → representation.
+    // ...or the older PROPERTY_DEFINITION -> SHAPE_DEFINITION_REPRESENTATION -> representation.
     for (const pd of r.referrers(d, 'PROPERTY_DEFINITION', 'definition')) {
       for (const sdr of r.referrers(pd, 'SHAPE_DEFINITION_REPRESENTATION', 'definition')) {
         for (const i of r.refs(r.ref(sdr, 'used_representation'), 'items')) items.add(r.id(i));

@@ -227,7 +227,7 @@ if [ ! -d "$_sj_repo/node_modules/typescript" ]; then
   _sj_fix "(cd \"$_sj_repo\" && npm install)"
 fi
 if [ ! -d "$_sj_repo/third_party/OCCT/.git" ] || [ ! -d "$_sj_repo/third_party/stepcode/.git" ]; then
-  printf '  %-8s %-12s %s\n' missing third_party "(OCCT, stepcode, truck, … checkouts)"
+  printf '  %-8s %-12s %s\n' missing third_party "(OCCT, stepcode, truck, ... checkouts)"
   _sj_warnings=$((_sj_warnings + 1))
   _sj_fix "\"$_sj_repo/third_party/pull.sh\""
 fi

@@ -122,8 +122,8 @@ test('lookup with sparse and unordered ids', () => {
 });
 
 test('lenient lexical forms: lowercase, BOM, CRLF, wrapped strings, comments between tokens', () => {
-  const f = parse('﻿ISO-10303-21;\r\nheader;\r\nendsec;\r\ndata;\r\n#1 /*c*/ = /*c*/ product(\'long\r\n name\', /*c*/ '
-    + '\'x\', $, (#2))/*c*/;\r\n#2=product_context(\'\',$,\'\');\r\nendsec;\r\nend-iso-10303-21;');
+  const f = parse('\uFEFFISO-10303-21;\r\nheader;\r\nendsec;\r\ndata;\r\n#1 /*c*/ = /*c*/ product(\'long\r\n name\', '
+    + '/*c*/ \'x\', $, (#2))/*c*/;\r\n#2=product_context(\'\',$,\'\');\r\nendsec;\r\nend-iso-10303-21;');
   assert.deepEqual(f.diagnostics, []);
   const p = f.instance(1) as { type: string; attrs: { v: unknown }[] };
   assert.equal(p.type, 'PRODUCT');

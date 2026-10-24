@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build OCCT's static toolkits (TKDESTEP, TKMesh and their dependencies) for Emscripten, from ../../third_party/OCCT
-# (third_party/pull.sh), into build/occt-<name>/, for build.sh to link against. About 6–12 minutes on 10 cores.
+# (third_party/pull.sh), into build/occt-<name>/, for build.sh to link against. About 6-12 minutes on 10 cores.
 #   build-occt.sh [<name> "<release flags>" ["<extra cxx flags>"] [overlay=1]]   default: Os "-Os"
 # JOBS sets the build parallelism (default: the number of CPUs).
 # overlay=1 copies occt_overlay/*.pxx over the generated include stubs after configure (the VBernstein table

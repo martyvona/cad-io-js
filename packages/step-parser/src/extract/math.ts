@@ -1,5 +1,5 @@
-// 4×4 transform matrices, column-major in a Float64Array(16) as in three.js and glTF: element (row r, column c) is
-// m[c * 4 + r], and a point x maps to m · [x, 1].
+// 4x4 transform matrices, column-major in a Float64Array(16) as in three.js and glTF: element (row r, column c) is
+// m[c * 4 + r], and a point x maps to m * [x, 1].
 
 export type Mat4 = Float64Array;
 export type Vec3 = [number, number, number];
@@ -29,7 +29,7 @@ export function multiply(a: Mat4, b: Mat4): Mat4 {
 
 /** The inverse of an affine matrix (last row 0 0 0 1), or undefined if it is singular. */
 export function invertAffine(m: Mat4): Mat4 | undefined {
-  // The 3×3 part by rows: [a b c; d e f; g h i].
+  // The 3x3 part by rows: [a b c; d e f; g h i].
   const a = m[0]!, b = m[4]!, c = m[8]!;
   const d = m[1]!, e = m[5]!, f = m[9]!;
   const g = m[2]!, h = m[6]!, i = m[10]!;

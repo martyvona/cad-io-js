@@ -1,5 +1,5 @@
 // Phase 1 step 4: round-trip every corpus file through raw JSON and back to Part 21:
-// parse (A) → raw JSON → load (B) → Part 21 → parse (C), checking A ≡ B and A ≡ C instance by instance, plus the
+// parse (A) -> raw JSON -> load (B) -> Part 21 -> parse (C), checking A == B and A == C instance by instance, plus the
 // header and DATA sections. Also checks that the JSON is standard JSON (JSON.parse accepts it), that writing B
 // again gives the same bytes, and that the NDJSON form loads back to B too.
 // Usage: node corpus_checks/json_corpus.ts [file-list.txt]
@@ -70,7 +70,7 @@ for (const path of corpusFiles(process.argv[2])) {
 }
 const mb = (b: number) => (b / 1e6).toFixed(0);
 console.log(`${files} files, ${nInst} instances, ${mb(inBytes)} MB of Part 21, ${mb(jsonBytes)} MB of raw JSON; `
-  + `${skipped} malformed instances skipped; A ≢ B: ${diffB} instances, A ≢ C: ${diffC} instances`);
+  + `${skipped} malformed instances skipped; A != B: ${diffB} instances, A != C: ${diffC} instances`);
 console.log(`decode+write JSON ${(tWrite / 1000).toFixed(1)} s (${(jsonBytes / 1e6 / (tWrite / 1000)).toFixed(0)} MB/s `
   + `of JSON); read JSON ${(tRead / 1000).toFixed(1)} s (${(jsonBytes / 1e6 / (tRead / 1000)).toFixed(0)} MB/s)`);
 for (const [k, v] of [...problems].sort((a, b) => b[1].n - a[1].n)) console.log(String(v.n).padStart(7), k,

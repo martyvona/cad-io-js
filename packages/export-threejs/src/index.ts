@@ -1,4 +1,4 @@
-// Scene model → three.js JSON Object Scene format 4 (the form Object3D.toJSON writes), loadable with
+// Scene model -> three.js JSON Object Scene format 4 (the form Object3D.toJSON writes), loadable with
 // THREE.ObjectLoader. See README.md, "`stepconv`", and CLAUDE.md, "Decisions".
 //
 //   objects: a root Group (the scene's properties, unit 'millimetre'), a Group per instance-tree node (matrix =

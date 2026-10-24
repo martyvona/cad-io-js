@@ -1,8 +1,8 @@
-// Part 21 string literals → Unicode.
+// Part 21 string literals -> Unicode.
 //
 // Escapes (ISO 10303-21 edition 2/3): '' and \\ for a quote and a backslash; \S\c for character c + 128 in the
 // current ISO 8859 page; \Pa\ to select page ISO 8859-1 ('A') through 8859-9 ('I'); \X\hh for an ISO 8859-1
-// character; \X2\hhhh…\X0\ for UCS-2 (UTF-16 code units); \X4\hhhhhhhh…\X0\ for UCS-4 code points.
+// character; \X2\hhhh...\X0\ for UCS-2 (UTF-16 code units); \X4\hhhhhhhh...\X0\ for UCS-4 code points.
 //
 // Tolerances for files in the wild (the first four follow OCCT's reader, see its test bugs/step/bug28454_2):
 // - A lone ' ends the string only when followed by ',' or ')' (after optional whitespace and comments); otherwise
@@ -13,7 +13,7 @@
 // - \N\ and \T\ are a line feed and a tab.
 // - A backslash that doesn't start a valid escape is kept literally (Windows paths written unescaped).
 // - Line breaks inside a string are dropped: Part 21 line ends are not significant, and writers wrap long lines.
-// - Raw bytes ≥ 0x80 are decoded as UTF-8 when valid (edition 3 allows it), and as ISO 8859-1 otherwise.
+// - Raw bytes >= 0x80 are decoded as UTF-8 when valid (edition 3 allows it), and as ISO 8859-1 otherwise.
 
 const QUOTE = 0x27, BACKSLASH = 0x5c, CR = 0x0d, LF = 0x0a, COMMA = 0x2c, RPAREN = 0x29, SLASH = 0x2f, STAR = 0x2a;
 const WS = new Uint8Array(256);

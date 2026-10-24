@@ -32,7 +32,7 @@ const maxBytes = Number(process.argv[3] ?? 2) * 1e6;
 const io = new WebIO().registerExtensions([KHRMaterialsUnlit, KHRNodeVisibility]);
 
 // The expectations, written out here rather than taken from the exporter: millimetres to metres and Z up to Y up
-// ((x, y, z) → (x, z, −y)), and the sRGB transfer function.
+// ((x, y, z) -> (x, z, -y)), and the sRGB transfer function.
 const ROOT: Mat4 = Float64Array.of(0.001, 0, 0, 0, 0, 0, -0.001, 0, 0, 0.001, 0, 0, 0, 0, 0, 1);
 const linear = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
 

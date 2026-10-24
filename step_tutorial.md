@@ -51,9 +51,9 @@ The three APs that carry almost all mechanical CAD data:
 | AP | Schema name in files | Typical content |
 |---|---|---|
 | AP203 edition 1 | `CONFIG_CONTROL_DESIGN` | Solids and assemblies, with configuration management (approvals, dates, people). No colours in the schema itself, though writers add them anyway. |
-| AP203 edition 2 | `AP203_CONFIGURATION_CONTROLLED_3D_DESIGN_OF_MECHANICAL_PARTS_AND_ASSEMBLIES_MIM_LF` | AP203 updated with colours, layers and more. |
+| AP203 edition 2 | `AP203_CONFIGURATION_`<br>`CONTROLLED_3D_DESIGN_OF_`<br>`MECHANICAL_PARTS_AND_`<br>`ASSEMBLIES_MIM_LF` | AP203 updated with colours, layers and more. |
 | AP214 | `AUTOMOTIVE_DESIGN` | The automotive AP: solids, assemblies, colours, layers, validation properties, kinematics. Very widely used by CAD exporters. |
-| AP242 | `AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF` | The merger and successor of AP203 and AP214, adding tessellated geometry, semantic PMI (tolerances, datums) and more. Several editions. |
+| AP242 | `AP242_MANAGED_MODEL_`<br>`BASED_3D_ENGINEERING_`<br>`MIM_LF` | The merger and successor of AP203 and AP214, adding tessellated geometry, semantic PMI (tolerances, datums) and more. Several editions. |
 
 For geometry, topology, assemblies, units and colours the three are nearly the same. The entities and their attributes mostly coincide, and a reader written for one handles the others with small adjustments.
 
@@ -224,12 +224,12 @@ A **representation** is a set of items in a context: `REPRESENTATION(name, items
 | Entity | Holds |
 |---|---|
 | `SHAPE_REPRESENTATION` | anything; often just a placement, linked to the real geometry (section 6) |
-| `ADVANCED_BREP_SHAPE_REPRESENTATION` | B-rep solids (`MANIFOLD_SOLID_BREP`, `BREP_WITH_VOIDS`) with full topology and exact geometry |
-| `MANIFOLD_SURFACE_SHAPE_REPRESENTATION` | open or closed shells without a solid (`SHELL_BASED_SURFACE_MODEL`) |
-| `FACETED_BREP_SHAPE_REPRESENTATION` | polyhedral solids |
-| `GEOMETRICALLY_BOUNDED_SURFACE_SHAPE_REPRESENTATION` | surfaces without topology (trimmed surfaces in a `GEOMETRIC_SET`) |
-| `GEOMETRICALLY_BOUNDED_WIREFRAME_SHAPE_REPRESENTATION`, `EDGE_BASED_WIREFRAME_SHAPE_REPRESENTATION` | curves only |
-| `TESSELLATED_SHAPE_REPRESENTATION` (AP242) | triangle meshes (section 10) |
+| `ADVANCED_BREP_SHAPE_`<br>`REPRESENTATION` | B-rep solids (`MANIFOLD_SOLID_BREP`, `BREP_WITH_VOIDS`) with full topology and exact geometry |
+| `MANIFOLD_SURFACE_SHAPE_`<br>`REPRESENTATION` | open or closed shells without a solid (`SHELL_BASED_SURFACE_MODEL`) |
+| `FACETED_BREP_SHAPE_`<br>`REPRESENTATION` | polyhedral solids |
+| `GEOMETRICALLY_BOUNDED_`<br>`SURFACE_SHAPE_`<br>`REPRESENTATION` | surfaces without topology (trimmed surfaces in a `GEOMETRIC_SET`) |
+| `GEOMETRICALLY_BOUNDED_`<br>`WIREFRAME_SHAPE_`<br>`REPRESENTATION`, `EDGE_BASED_WIREFRAME_`<br>`SHAPE_REPRESENTATION` | curves only |
+| `TESSELLATED_SHAPE_`<br>`REPRESENTATION` (AP242) | triangle meshes (section 10) |
 
 A representation's items usually include an `AXIS2_PLACEMENT_3D` at the origin as well as the solids. Assembly placements refer to it (section 7).
 

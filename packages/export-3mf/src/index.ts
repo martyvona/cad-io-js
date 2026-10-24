@@ -1,4 +1,4 @@
-// Scene model → 3MF (core specification 1.4.0), zipped with fflate. See README.md,
+// Scene model -> 3MF (core specification 1.4.0), zipped with fflate. See README.md,
 // "`stepconv`" (what each format holds), and CLAUDE.md, "Decisions" and "JavaScript, Node and the libraries" (lib3mf).
 //
 //   meshes: each part mesh's vertices welded by position, exactly (OCCT gives a shared edge's nodes the same
@@ -74,7 +74,7 @@ export function float32Text(x: number): string {
   return String(Number(x.toPrecision(9)));
 }
 
-/** A transform as 3MF writes it: the first three rows of the row-vector matrix, so our column-major columns 0–3. */
+/** A transform as 3MF writes it: the first three rows of the row-vector matrix, so our column-major columns 0-3. */
 export function transformText(m: Mat4): string {
   return [0, 1, 2, 4, 5, 6, 8, 9, 10, 12, 13, 14].map((i) => String(m[i]! + 0)).join(' ');
 }

@@ -102,7 +102,7 @@ test('the key changes with the backend, every request option and the payload, an
 
 /**
  * A backend that counts its requests. The payload's first byte picks a result (0), an error diagnostic (1), an ordinary
- * throw (2), a TessellationError (3), a WebAssembly trap (4), or running out of a time limit of data[1] × 10 ms (5).
+ * throw (2), a TessellationError (3), a WebAssembly trap (4), or running out of a time limit of data[1] x 10 ms (5).
  */
 class Fake implements Tessellator {
   info = { ...info };

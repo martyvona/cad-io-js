@@ -122,7 +122,7 @@ export function transformation(
   r.warn(`expected a transformation, got ${r.model.types(p).join('+') || 'nothing'}`, p >= 0 ? p : undefined);
   return undefined;
 
-  // to · S · from⁻¹: into the first item's frame, convert units, then out of the second item's frame.
+  // to * S * from^-1: into the first item's frame, convert units, then out of the second item's frame.
   function between(fromP: number, toP: number): Mat4 | undefined {
     const from = placement(r, fromP);
     const to = placement(r, toP);

@@ -1,4 +1,4 @@
-// Phase 1 step 3: round-trip every corpus file through the writer: parse (A) → write → parse (C), A ≡ C.
+// Phase 1 step 3: round-trip every corpus file through the writer: parse (A) -> write -> parse (C), A == C.
 // Also re-writes C (must be byte-identical), and checks the verbatim fast path (source bytes copied) the same way.
 // Usage: node corpus_checks/writer_corpus.ts [file-list.txt]
 import fs from 'node:fs';
@@ -65,7 +65,7 @@ for (const path of corpusFiles(process.argv[2])) {
 const mb = (b: number) => (b / 1e6).toFixed(0);
 console.log(`${files} files, ${nInst} instances, ${mb(inBytes)} MB in, ${mb(outBytes)} MB written; ${skipped} `
   + `malformed instances skipped; ${mismatched} instances differ`);
-console.log(`decode ${(tDecode / 1000).toFixed(1)} s; decode+write ${(tWrite / 1000).toFixed(1)} s → write alone ≈ `
+console.log(`decode ${(tDecode / 1000).toFixed(1)} s; decode+write ${(tWrite / 1000).toFixed(1)} s -> write alone ~ `
   + `${(outBytes / 1e6 / ((tWrite - tDecode) / 1000)).toFixed(0)} MB/s of output`);
 for (const [k, v] of [...problems].sort((a, b) => b[1].n - a[1].n)) console.log(String(v.n).padStart(7), k,
   ' e.g.', v.ex);

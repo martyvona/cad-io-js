@@ -5,7 +5,7 @@ import type { JsonValue } from './parse.ts';
 
 /**
  * A real: the shortest text that reads back as the same double, with `.0` added when that text is integral.
- * 5 → `5.0`, 0.25 → `0.25`, 1e-7 → `1e-7`, 1e21 → `1e+21`, -0 → `-0.0`. NaN and infinities throw a RangeError.
+ * 5 -> `5.0`, 0.25 -> `0.25`, 1e-7 -> `1e-7`, 1e21 -> `1e+21`, -0 -> `-0.0`. NaN and infinities throw a RangeError.
  */
 export function formatReal(x: number): string {
   if (!Number.isFinite(x)) throw new RangeError(`real value ${x} can't be written in JSON`);

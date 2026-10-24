@@ -6,7 +6,7 @@
 // unit) are likewise defined once and referenced by components. Lengths in the scene are millimetres; each part's
 // geometry stays in its own unit, and the transforms carry the conversion.
 
-/** A 4×4 matrix, column-major (as three.js and glTF): element (row r, column c) is m[c * 4 + r]. */
+/** A 4x4 matrix, column-major (as three.js and glTF): element (row r, column c) is m[c * 4 + r]. */
 export type Mat4 = Float64Array;
 export type Vec3 = [number, number, number];
 

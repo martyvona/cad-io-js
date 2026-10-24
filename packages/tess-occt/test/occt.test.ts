@@ -49,7 +49,7 @@ test('a 10 mm cube: faces with entity ids, edges, the origin subtracted in doubl
   const { meshes } = await tessellateScene(scene, tess, { linearDeflection: 0.01, angularDeflection: 0.5 });
   const mesh = meshes.get(0)!;
   assert.deepEqual(mesh.origin, part.origin);
-  assert.ok(mesh.positions.every((x) => Math.abs(x) <= 5 + 1e-6)); // within ±5 mm of the centre
+  assert.ok(mesh.positions.every((x) => Math.abs(x) <= 5 + 1e-6)); // within +/-5 mm of the centre
   assert.equal([...partInstances(scene)].length, 1);
 });
 
@@ -166,11 +166,11 @@ test('a lone boundary on a sphere or torus: the small region in a geometric set,
       { format: 'step', data: p.payload(), rootId: p.rootId, origin: p.origin, linearDeflection: 0.2 / p.unit,
       angularDeflection: 0.3 }));
   };
-  // In inches: 9.07 as OCCT 7.6 reads it, matching the other writers' copies of the model (tc 5838 mm², md 5756 mm²);
+  // In inches: 9.07 as OCCT 7.6 reads it, matching the other writers' copies of the model (tc 5838 mm^2, md 5756 mm^2);
   // 10.56 with OCCT 8's natural bounds on the six curve-bounded spheres and tori.
   const gbssr = await areaOf(closed[0]!);
   assert.ok(Math.abs(gbssr - 9.07) < 0.05, `${gbssr}`);
-  // OCCT's own test of bug 28414 expects 3593.35 mm²; with the 7.6 healing it would be 156.
+  // OCCT's own test of bug 28414 expects 3593.35 mm^2; with the 7.6 healing it would be 156.
   const face = await areaOf(closed[1]!);
   assert.ok(Math.abs(face - 3593.35) < 0.01 * 3593.35, `${face}`);
   tess.dispose();

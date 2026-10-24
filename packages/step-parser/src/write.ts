@@ -1,4 +1,4 @@
-// The Part 21 writer: the raw instance model → Part 21 text, without using the schema. See README.md,
+// The Part 21 writer: the raw instance model -> Part 21 text, without using the schema. See README.md,
 // "step-parser".
 //
 // Output is pure ASCII: strings escape everything outside printable ASCII. It is produced in chunks by a generator,
@@ -214,7 +214,7 @@ function keyword(k: string): string {
 
 /**
  * A real with the decimal point Part 21 requires: the shortest text that reads back as the same double, with `.`
- * added to the mantissa and the exponent written `E`. 5 → `5.`, 1e-7 → `1.E-7`, -0 → `-0.`.
+ * added to the mantissa and the exponent written `E`. 5 -> `5.`, 1e-7 -> `1.E-7`, -0 -> `-0.`.
  */
 export function formatReal(x: number): string {
   if (!Number.isFinite(x)) throw new WriteError(`real value ${x} can't be written in Part 21`);
@@ -229,7 +229,7 @@ export function formatReal(x: number): string {
 
 /**
  * A string literal: `'` and `\` doubled, printable ASCII as is, other BMP characters (including lone surrogates)
- * as `\X2\hhhh…\X0\` runs, and characters beyond the BMP as `\X4\hhhhhhhh…\X0\` runs.
+ * as `\X2\hhhh...\X0\` runs, and characters beyond the BMP as `\X4\hhhhhhhh...\X0\` runs.
  */
 export function formatString(s: string): string {
   let i = 0;

@@ -6,7 +6,7 @@
     "packages/*"
   ],
   "scripts": {
-    "test": "node --test 'packages/*/test/**/*.test.ts'",
+    "test": "node --test 'packages/*/test/**/*.test.ts' 'test/*.test.ts'",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "engines": {

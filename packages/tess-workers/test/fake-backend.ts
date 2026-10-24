@@ -1,5 +1,5 @@
 // A fake backend for the pool tests. The first payload byte picks the behaviour: 0 a one-triangle result, 1 hang,
-// 2 throw as a WASM trap does, 3 grow the reported memory by data[1] MiB, 4 wait data[1] × 10 ms, 5 exit the worker,
+// 2 throw as a WASM trap does, 3 grow the reported memory by data[1] MiB, 4 wait data[1] x 10 ms, 5 exit the worker,
 // 6 throw an ordinary error, 7 throw a TessellationError with a time limit of 50 ms.
 // Every result names its backend instance, so the tests can tell when a worker was replaced. Init fails with the
 // option `fail`, or after the time `failAfter`.

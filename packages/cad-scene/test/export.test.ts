@@ -138,7 +138,7 @@ test('exportView: a mesh part without faces is one group; a component inside its
   const s = scene();
   s.parts[1] = { kind: 'mesh', name: 'bolt', sources: [], properties: {}, unit: 1, origin: [0, 0, 0], material: 0,
     lods: [{ ...bolt(), faces: [] }] };
-  s.components[2]!.children.push({ component: 1, transform: identity(), sources: [], properties: {} }); // 1 → 2 → 1
+  s.components[2]!.children.push({ component: 1, transform: identity(), sources: [], properties: {} }); // 1 -> 2 -> 1
   const v = exportView(s, new Map([[0, plate()]]));
   assert.deepEqual(v.looks[1]!.groups, [{ material: 0, start: 0, count: 3 }]);
   assert.equal(flat(v.roots).length, 5);

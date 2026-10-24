@@ -9,7 +9,7 @@ import type { Mesh } from './scene.ts';
 export function weld(positions: Float32Array): { remap: Uint32Array; positions: Float32Array } {
   const n = positions.length / 3;
   const bits = new Uint32Array(positions.buffer, positions.byteOffset, positions.length);
-  // −0 and 0 are one position.
+  // -0 and 0 are one position.
   const key = (i: number) => (positions[i] === 0 ? 0 : bits[i]!);
   let size = 1;
   while (size < 2 * n) size *= 2;
@@ -40,7 +40,7 @@ export function weld(positions: Float32Array): { remap: Uint32Array; positions: 
 export function manifoldProblems(positions: Float32Array, triangles: Uint32Array): string[] {
   const nv = positions.length / 3;
   const n = triangles.length;
-  // Each edge as (lower vertex × count + higher) × 2 + direction, sorted so an edge's uses are adjacent (exact in
+  // Each edge as (lower vertex x count + higher) x 2 + direction, sorted so an edge's uses are adjacent (exact in
   // a double below 2^53, so for fewer than 6.7e7 vertices).
   const keys = new Float64Array(n);
   let volume = 0;
@@ -78,7 +78,7 @@ export function manifoldProblems(positions: Float32Array, triangles: Uint32Array
 export const INSIDE_OUT = 'inside out (negative volume)';
 
 /**
- * The mesh without its triangles that have two corners at one position (exactly, −0 as 0), decided by the user,
+ * The mesh without its triangles that have two corners at one position (exactly, -0 as 0), decided by the user,
  * 2026-10-22: they cover nothing, and in a welded mesh they would join pieces that only touch there. Removing one
  * never opens the mesh, since its two other edges are one edge both ways. Slivers with three distinct corners on a
  * line stay: their long edge is a neighbour's too. Faces keep their entries (with fewer triangles, perhaps none);
@@ -227,7 +227,7 @@ function triple(p: Float32Array, a: number, b: number, c: number): number {
   return ax * (by * cz - bz * cy) - ay * (bx * cz - bz * cx) + az * (bx * cy - by * cx);
 }
 
-/** How many of these triangles a ray crosses (Möller–Trumbore), not counting hits behind its origin or at it. */
+/** How many of these triangles a ray crosses (Moeller-Trumbore), not counting hits behind its origin or at it. */
 function crossings(p: Float32Array, triangles: number[], o: number[], d: number[]): number {
   let n = 0;
   for (let t = 0; t < triangles.length; t += 3) {

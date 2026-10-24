@@ -13,23 +13,26 @@ function decode(literal: string): string | undefined {
 // literal and the name OCCT must produce. Several are deliberately malformed.
 const OCCT_CASES: [string, string][] = [
   ["'AaBbCc\\X2\\00C4\\X0\\\\X2\\00E4\\X0\\\\X2\\00D6\\X0\\\\X2\\00F6\\X0\\"
-    + "\\X2\\00DC\\X0\\\\X2\\00FC\\X0\\\\X2\\00DF\\X0\\*,.-;:_'", "AaBbCcÄäÖöÜüß*,.-;:_"],
-  ["'\\X2\\03C0\\X0\\'", "π"],
-  ["'Expression: \\X2\\03B103B2\\X0\\\\\\X2\\03B3\\X0\\*\\X2\\03C0\\X0\\'", "Expression: αβ\\X2\\03B3*π"],
-  ["'\\X4\\0001F7CA\\X0\\'", "🟊"],
-  ["'Star, arrow, faces: \\X4\\0001F7CA0001f80A0001f6370001f926\\X0\\ end'", "Star, arrow, faces: 🟊🠊😷🤦 end"],
-  ["'\\S\\Drger'", "Ärger"],
-  ["'h\\S\\ttel'", "hôtel"],
-  ["'\\PE\\\\S\\*\\S\\U\\S\\b'", "Њет"],
-  ["'see \\X\\A7 4.1'", "see § 4.1"],
+    + "\\X2\\00DC\\X0\\\\X2\\00FC\\X0\\\\X2\\00DF\\X0\\*,.-;:_'",
+    "AaBbCc\u00C4\u00E4\u00D6\u00F6\u00DC\u00FC\u00DF*,.-;:_"],
+  ["'\\X2\\03C0\\X0\\'", "\u03C0"],
+  ["'Expression: \\X2\\03B103B2\\X0\\\\\\X2\\03B3\\X0\\*\\X2\\03C0\\X0\\'",
+    "Expression: \u03B1\u03B2\\X2\\03B3*\u03C0"],
+  ["'\\X4\\0001F7CA\\X0\\'", "\u{1F7CA}"],
+  ["'Star, arrow, faces: \\X4\\0001F7CA0001f80A0001f6370001f926\\X0\\ end'",
+    "Star, arrow, faces: \u{1F7CA}\u{1F80A}\u{1F637}\u{1F926} end"],
+  ["'\\S\\Drger'", "\u00C4rger"],
+  ["'h\\S\\ttel'", "h\u00F4tel"],
+  ["'\\PE\\\\S\\*\\S\\U\\S\\b'", "\u040A\u0435\u0442"],
+  ["'see \\X\\A7 4.1'", "see \u00A7 4.1"],
   ["'line one\\X\\0Aline two'", "line one\nline two"],
-  ["'Expression: \\X\\B13\\X2\\03C0\\X0\\*\\X2\\03C0\\X0\\+12'", "Expression: ±3π*π+12"],
-  ["'Expression: \\X2\\03B1\\X0\\\\PC\\*\\X2\\03B2\\X0\\\\S\\w\\X2\\03B3'", "Expression: α*β÷γ"],
-  // OCCT's test prints \S\D for this one, but the data file has \S\B (ISO 8859-5 0xC2 = Т); \S\D would be Ф.
-  ["'T\\PE\\\\S\\5C\\S\\B'", "TЕCТ"],
+  ["'Expression: \\X\\B13\\X2\\03C0\\X0\\*\\X2\\03C0\\X0\\+12'", "Expression: \u00B13\u03C0*\u03C0+12"],
+  ["'Expression: \\X2\\03B1\\X0\\\\PC\\*\\X2\\03B2\\X0\\\\S\\w\\X2\\03B3'", "Expression: \u03B1*\u03B2\u00F7\u03B3"],
+  // OCCT's test prints \S\D for this one, but the data file has \S\B (ISO 8859-5 0xC2 = \u0422); \S\D would be \u0424.
+  ["'T\\PE\\\\S\\5C\\S\\B'", "T\u0415C\u0422"],
   ["'A\\S\\DaBbCc\\X2\\0C4\\X0\\'h\\S\\t\\X2\\0E4\\X0\\\\X4\\0001F7CA\\X0\\\\X\\0A\\X4\\0001F7CA\\X0\\*,.-;"
-    + ":_\\X2\\0D6\\X0\\\\PE\\\\S\\5'", "AÄaBbCcÄ'hôä🟊\n🟊*,.-;:_ÖЕ"],
-  ["'\\X2\\3B13B23B3\\X0\\'", "αβγ"],
+    + ":_\\X2\\0D6\\X0\\\\PE\\\\S\\5'", "A\u00C4aBbCc\u00C4'h\u00F4\u00E4\u{1F7CA}\n\u{1F7CA}*,.-;:_\u00D6\u0415"],
+  ["'\\X2\\3B13B23B3\\X0\\'", "\u03B1\u03B2\u03B3"],
 ];
 
 test('OCCT string directive cases (bug28454)', () => {

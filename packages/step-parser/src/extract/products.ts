@@ -107,7 +107,7 @@ export function extractProducts(r: Reader, units: Units): ProductStructure {
   const fileName = m.file.headerEntity('FILE_NAME');
   const system = fileName?.attrs[5];
   const keepItemOrder = system?.k === 'str' && /alibre/i.test(system.v);
-  const index = new Map<number, number>(); // PRODUCT_DEFINITION position → product index
+  const index = new Map<number, number>(); // PRODUCT_DEFINITION position -> product index
   const products: Product[] = [];
   const reps = new Map<number, ShapeRepresentation>();
   const placing = new Set<number>(); // relationships and mapped items that place occurrences
@@ -136,7 +136,7 @@ export function extractProducts(r: Reader, units: Units): ProductStructure {
     if (defId && defId.trim()) product.definitionId = defId;
     const stage = r.str(r.ref(p, 'frame_of_reference'), 'life_cycle_stage');
     if (stage) product.lifeCycleStage = stage;
-    // PRODUCT_DEFINITION_SHAPE → SHAPE_DEFINITION_REPRESENTATION → representation.
+    // PRODUCT_DEFINITION_SHAPE -> SHAPE_DEFINITION_REPRESENTATION -> representation.
     for (const pds of r.referrers(p, 'PRODUCT_DEFINITION_SHAPE', 'definition')) {
       for (const sdr of r.referrers(pds, 'SHAPE_DEFINITION_REPRESENTATION', 'definition')) {
         const rep = r.ref(sdr, 'used_representation');
@@ -182,7 +182,7 @@ export function extractProducts(r: Reader, units: Units): ProductStructure {
   // Occurrences made by mapped items: a MAPPED_ITEM in a product's representations that maps another product's shape,
   // when nothing placed it already.
   const sets = products.map((pr) => shapeSet(pr));
-  const ownerOf = new Map<number, number>(); // representation position → product index
+  const ownerOf = new Map<number, number>(); // representation position -> product index
   sets.forEach((set, i) => { for (const q of set.keys()) if (!ownerOf.has(q)) ownerOf.set(q, i); });
   sets.forEach((set, parent) => {
     for (const [container, toMainT] of set) {

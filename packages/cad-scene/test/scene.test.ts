@@ -81,7 +81,7 @@ test('materials resolve top down; instance overrides win; hidden instances', () 
 test('validate', () => {
   const s = scene();
   assert.deepEqual(validate(s), []);
-  s.components[2]!.children.push({ component: 1, transform: identity(), sources: [], properties: {} }); // 1 → 2 → 1
+  s.components[2]!.children.push({ component: 1, transform: identity(), sources: [], properties: {} }); // 1 -> 2 -> 1
   s.components[1]!.parts.push({ part: 5, transform: new Float64Array(16).fill(NaN), material: 9 });
   s.parts[1]!.unit = 0;
   assert.deepEqual(validate(s), [

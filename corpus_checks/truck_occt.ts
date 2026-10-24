@@ -447,7 +447,7 @@ for (const [fi, f] of files.entries()) {
               t[1]! * t[6]! - t[2]! * t[5]!);
             s += area(r) * Math.abs(det) ** (2 / 3);
           }
-          return all ? s * 1e-6 : NaN; // mm² to m²
+          return all ? s * 1e-6 : NaN; // mm^2 to m^2
         };
         const si = declared;
         const [at, ao] = [placed(meshes.truck), placed(meshes.occt)];
@@ -457,7 +457,7 @@ for (const [fi, f] of files.entries()) {
           totals.validation.occt[1]!++; if (within(ao)) totals.validation.occt[0]!++;
           totals.validation.truck[1]!++; if (!Number.isNaN(at) && within(at)) totals.validation.truck[0]!++;
           if (!within(at) || !within(ao)) rows.push(
-            `${name}: surface area validation property ${si.toPrecision(6)} m²: truck `
+            `${name}: surface area validation property ${si.toPrecision(6)} m^2: truck `
             + `${Number.isNaN(at) ? 'incomplete' : `${((at / si - 1) * 100).toFixed(2)}%`}, OCCT `
             + `${((ao / si - 1) * 100).toFixed(2)}%`);
         }
@@ -498,7 +498,7 @@ console.log(`  surface area validation property, within 1%: truck `
   + ` in ${T.validation.files} files`);
 if (panics.size) {
   console.log('  panics:');
-  for (const [k, n] of [...panics].sort((x, y) => y[1] - x[1])) console.log(`    ${n} × ${k}`);
+  for (const [k, n] of [...panics].sort((x, y) => y[1] - x[1])) console.log(`    ${n} x ${k}`);
 }
 console.log(`  faces by surface type (parts truck meshes; OCCT's faces). Geometry, sampled vertices within 2 x `
   + `tolerance: ok;`);

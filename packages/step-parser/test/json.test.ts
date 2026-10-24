@@ -36,7 +36,7 @@ ENDSEC;
 END-ISO-10303-21;
 `;
 
-test('A ≡ B ≡ C: parse → JSON → load → Part 21 → parse', () => {
+test('A == B == C: parse -> JSON -> load -> Part 21 -> parse', () => {
   const a = parse(FILE);
   const json = writeJson(fileDocument(a));
   const b = readJson(json);
@@ -74,7 +74,8 @@ test('the document layout, one instance per line', () => {
     '{"id":12,"type":"EVERYTHING","attrs":[12,-7,3,100000.0,{"bin":"0FF"},{"enum":"T"},[],[[1,2],{"refs":[3]}],'
       + '{"type":"A","value":{"type":"B","value":1}},"#5 is not a ref",{"derived":true},9007199254740993,-0.0,[1,2.0,'
       + '{"ref":3},null],[-0.0,5.0]]},',
-    '{"id":13,"type":"PRODUCT","attrs":["Bob\'s part","Ärger Ärger C:\\\\temp 🟊","line\\ntwo",null]},',
+    '{"id":13,"type":"PRODUCT","attrs":["Bob\'s part","\u00C4rger \u00C4rger C:\\\\temp \u{1F7CA}",'
+      + '"line\\ntwo",null]},',
   ]);
   assert.deepEqual(lines.slice(-5, -4), ['{"id":15,"type":"!USER_THING","attrs":[1]},']);
   assert.match(lines.at(-4)!, new RegExp(String.raw`^\{"id":16,"type":"BIG","attrs":\[\[0\.5,1\.5,.*\],\[0,1000,.*\],`
@@ -86,7 +87,7 @@ test('values: every kind both ways, typed-array storage, canonical lists', () =>
   const cases: [Value, string][] = [
     [{ k: 'real', v: 5 }, '5.0'], [{ k: 'real', v: -0 }, '-0.0'], [{ k: 'real', v: 1e21 }, '1e+21'],
     [{ k: 'int', v: 5 }, '5'], [{ k: 'int', v: 2n ** 70n }, '1180591620717411303424'],
-    [{ k: 'str', v: 'a"b\\é' }, '"a\\"b\\\\é"'], [{ k: 'enum', v: 'T' }, '{"enum":"T"}'],
+    [{ k: 'str', v: 'a"b\\\u00E9' }, '"a\\"b\\\\\u00E9"'], [{ k: 'enum', v: 'T' }, '{"enum":"T"}'],
     [{ k: 'ref', v: 7 }, '{"ref":7}'],
     [{ k: 'bin', v: '0FF' }, '{"bin":"0FF"}'], [{ k: 'unset' }, 'null'], [{ k: 'derived' }, '{"derived":true}'],
     [{ k: 'list', v: [] }, '[]'], [{ k: 'reals', v: [1, 2.5] }, '[1.0,2.5]'], [{ k: 'ints', v: [1, 2] }, '[1,2]'],

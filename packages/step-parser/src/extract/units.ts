@@ -141,7 +141,7 @@ export class Units {
       }
       const only = parts.length === 1 && lengthPowers.length === 1 ? lengthPowers[0] : undefined;
       const kind: UnitKind = declared ?? (only === 2 ? 'area' : only === 3 ? 'volume' : 'other');
-      return { kind, name: parts.join('·'), factor, id };
+      return { kind, name: parts.join('.'), factor, id };
     }
     if (r.is(p, 'CONTEXT_DEPENDENT_UNIT') || r.is(p, 'NAMED_UNIT')) {
       return { kind: declared ?? 'other', name: r.str(p, 'name') ?? '', id };

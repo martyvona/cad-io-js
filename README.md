@@ -734,11 +734,11 @@ By schema, as each file's `FILE_SCHEMA` names it:
 
 | Application protocol | Schema names in the files | Files | Bound with |
 |---|---|---|---|
-| AP203 edition 1: Configuration controlled 3D design of mechanical parts and assemblies | `CONFIG_CONTROL_DESIGN`, alone or with CAx-IF modules (`GEOMETRIC_VALIDATION_PROPERTIES_MIM`, `SHAPE_APPEARANCE_LAYER_MIM`, `SHAPE_APPEARANCE_LAYERS_GROUPS`, `COLORS_AND_LAYERS`) | 62 | `ap203` |
+| AP203 edition 1: Configuration controlled 3D design of mechanical parts and assemblies | `CONFIG_CONTROL_DESIGN`, alone or with CAx-IF modules (`GEOMETRIC_VALIDATION_`<br>`PROPERTIES_MIM`, `SHAPE_APPEARANCE_LAYER_MIM`, `SHAPE_APPEARANCE_LAYERS_`<br>`GROUPS`, `COLORS_AND_LAYERS`) | 62 | `ap203` |
 | AP203 edition 1 as extended for the CAx-IF test rounds (by the names: colours and layers, validation properties, associative text) | `CCD_CLA_GVP_AST`, `CCD_CLA_GVP_AST_ASD`, `CCD_CLA_CVP_AST` | 13 | `ap242` (no dictionary) |
-| AP203 edition 2: Configuration controlled 3D design of mechanical parts and assemblies | `AP203_CONFIGURATION_CONTROLLED_3D_DESIGN_OF_MECHANICAL_PARTS_AND_ASSEMBLIES_MIM_LF`, `CONFIGURATION_CONTROL_3D_DESIGN_ED2_MIM_LF` | 45 | `ap203e2` |
+| AP203 edition 2: Configuration controlled 3D design of mechanical parts and assemblies | `AP203_CONFIGURATION_`<br>`CONTROLLED_3D_DESIGN_OF_`<br>`MECHANICAL_PARTS_AND_`<br>`ASSEMBLIES_MIM_LF`, `CONFIGURATION_CONTROL_`<br>`3D_DESIGN_ED2_MIM_LF` | 45 | `ap203e2` |
 | AP214: Core data for automotive mechanical design processes | `AUTOMOTIVE_DESIGN`, and its conformance classes `AUTOMOTIVE_DESIGN_CC1`, `_CC2`, `_CC02`, `_CC04`, `_CC6` | 345 | `ap214e3` |
-| AP242: Managed model-based 3D engineering | `AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF`: edition 1 (28 files), 2 (5), 3 (9) and 4 (4), by the object identifier | 46 | `ap242` |
+| AP242: Managed model-based 3D engineering | `AP242_MANAGED_MODEL_`<br>`BASED_3D_ENGINEERING_`<br>`MIM_LF`: edition 1 (28 files), 2 (5), 3 (9) and 4 (4), by the object identifier | 46 | `ap242` |
 | AP209 edition 1: Composite and metallic structural analysis and related design | `STRUCTURAL_ANALYSIS_DESIGN` | 4 | `ap242` (no dictionary) |
 | AP227: Plant spatial configuration | `PLANT_SPATIAL_CONFIGURATION` | 1 | `ap242` (no dictionary) |
 | A construction history test of the CAx-IF (parametric and procedural models) | `CONSTRUCTION_HISTORY_SCHEMA` | 1 | `ap242` (no dictionary) |
@@ -748,7 +748,7 @@ A file whose schema has no dictionary is bound with AP242's, with a diagnostic: 
 
 ## Tests
 
-- **`npm test`**: the package tests, 196 of them (`node:test`, in each package's `test/`), on small inline fixtures and a few corpus files. Tests that need a built backend or the corpus skip when it's missing; with everything built, they take about 20 s.
+- **`npm test`**: the package tests, 197 of them (`node:test`, in each package's `test/`), on small inline fixtures and a few corpus files. Tests that need a built backend or the corpus skip when it's missing; with everything built, they take about 20 s.
 - **`npm run typecheck`**: `tsc` over the packages (no output; the sources run as they are).
 - **`cargo test`** in `packages/tess-truck/native`: 3 native tests of the truck wrapper (B-spline clamping, the volume sign guard).
 - **Browser checks**, run by hand: `node packages/tess-workers/test/browser-check.ts` and `node packages/tess-cache/test/browser-check.ts` serve the sources and run the pool's and IndexedDB's scenarios in headless Chrome.

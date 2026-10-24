@@ -103,7 +103,7 @@ test('GLB: valid; the tree, transforms to metres and Y up, shared accessors, mat
   const expected = multiply(multiply(multiply(ROOT_TRANSFORM, translation(100, 0, 0)), scaling(25.4)),
     translation(1, 0, 0));
   assert.ok(close(plates[0]!.getWorldMatrix(), expected, 1e-12));
-  // 1 mm along x, y (back) and z (up) in the root's space is 1 mm along x, −z and y (up) in glTF's metres: a
+  // 1 mm along x, y (back) and z (up) in the root's space is 1 mm along x, -z and y (up) in glTF's metres: a
   // rotation, not a mirror.
   assert.deepEqual(Array.from(ROOT_TRANSFORM), [0.001, 0, 0, 0, 0, 0, -0.001, 0, 0, 0.001, 0, 0, 0, 0, 0, 1]);
   // Two looks (the second overridden red), so two meshes, sharing the plate's vertex accessors.

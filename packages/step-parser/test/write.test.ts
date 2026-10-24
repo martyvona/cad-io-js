@@ -58,14 +58,14 @@ test('formatReal: a decimal point always, exact round trip', () => {
 test('formatString: escapes, and decoding gives the string back', () => {
   assert.equal(formatString('plain'), "'plain'");
   assert.equal(formatString("it's C:\\x"), "'it''s C:\\\\x'");
-  assert.equal(formatString('Ärger π'), "'\\X2\\00C4\\X0\\rger \\X2\\03C0\\X0\\'");
-  assert.equal(formatString('αβ'), "'\\X2\\03B103B2\\X0\\'");
-  assert.equal(formatString('a\u{1F7CA}\u{1F80A}é'), "'a\\X4\\0001F7CA0001F80A\\X0\\\\X2\\00E9\\X0\\'");
+  assert.equal(formatString('\u00C4rger \u03C0'), "'\\X2\\00C4\\X0\\rger \\X2\\03C0\\X0\\'");
+  assert.equal(formatString('\u03B1\u03B2'), "'\\X2\\03B103B2\\X0\\'");
+  assert.equal(formatString('a\u{1F7CA}\u{1F80A}\u00E9'), "'a\\X4\\0001F7CA0001F80A\\X0\\\\X2\\00E9\\X0\\'");
   assert.equal(formatString('a\nb\t'), "'a\\X2\\000A\\X0\\b\\X2\\0009\\X0\\'");
   assert.equal(formatString('\uD83D'), "'\\X2\\D83D\\X0\\'"); // a lone surrogate survives as a UTF-16 code unit
 
-  const pool = ["'", '\\', 'a', ' ', ',', ')', '\n', '\r', '\u0000', '\u007f', 'é', 'Ж', '\uffff', '\u{1F600}',
-    '\uDC00', 'X', '0'];
+  const pool = ["'", '\\', 'a', ' ', ',', ')', '\n', '\r', '\u0000', '\u007f', '\u00E9', '\u0416', '\uffff',
+    '\u{1F600}', '\uDC00', 'X', '0'];
   let seed = 7;
   const rand = (n: number) => (seed = (Math.imul(seed, 1103515245) + 12345) >>> 0) % n;
   for (let t = 0; t < 5000; t++) {
@@ -93,7 +93,7 @@ test('formatValue: every kind, and values Part 21 cannot hold', () => {
   assert.throws(() => formatInstance({ id: 9, parts: [] }), WriteError);
 });
 
-test('round trip: parse → write → parse gives the same model (A ≡ C)', () => {
+test('round trip: parse -> write -> parse gives the same model (A == C)', () => {
   const a = parse(FILE);
   const out = writeStep(fileDocument(a));
   assert.match(dec.decode(out), /^[\x20-\x7e\n]*$/);

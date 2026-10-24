@@ -267,8 +267,8 @@ for (const format of FORMATS) {
     + `${s1(t.import)}, tessellation ${s1(t.tessellate)}, export ${s1(t.export)}, main ${s1(t.wall)}`);
 }
 const st = counts.startup.sort((a, b) => a - b);
-if (st.length) console.log(`bin sample: ${counts.sampled} files × ${FORMATS.length} formats; startup (wall time less `
-  + `the summary's times) median ${s1(st[st.length >> 1]!)}, range ${s1(st[0]!)}–${s1(st[st.length - 1]!)}`);
+if (st.length) console.log(`bin sample: ${counts.sampled} files x ${FORMATS.length} formats; startup (wall time less `
+  + `the summary's times) median ${s1(st[st.length >> 1]!)}, range ${s1(st[0]!)}-${s1(st[st.length - 1]!)}`);
 console.log('validator issues (glb and gltf):');
 for (const [k, n] of [...issues].sort()) console.log(`  ${String(n).padStart(5)} ${k}`);
 console.log('slowest runs of main:');

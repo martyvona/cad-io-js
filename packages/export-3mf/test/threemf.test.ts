@@ -10,7 +10,7 @@ const translation = (x: number, y: number, z: number): Mat4 => {
   m[12] = x; m[13] = y; m[14] = z;
   return m;
 };
-/** 90° about z, then a translation: (x, y, z) → (−y + tx, x, z). */
+/** 90 deg about z, then a translation: (x, y, z) -> (-y + tx, x, z). */
 const turn = (tx: number): Mat4 => Float64Array.of(0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1, 0, tx, 0, 0, 1);
 
 // The unit cube's corners and its faces, each counter-clockwise seen from outside.
@@ -18,8 +18,8 @@ const CORNERS = [[0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0], [0, 0, 1], [1, 0, 1
 const QUADS = [[0, 2, 3, 1], [4, 5, 7, 6], [0, 1, 5, 4], [2, 6, 7, 3], [0, 4, 6, 2], [1, 3, 7, 5]];
 
 /**
- * A unit cube as a tessellator gives it: each face (sources 10–15) with four vertices of its own, so welding has
- * to join them; face 10's first vertex has a −0, and face 10 has a degenerate triangle (two corners at one position,
+ * A unit cube as a tessellator gives it: each face (sources 10-15) with four vertices of its own, so welding has
+ * to join them; face 10's first vertex has a -0, and face 10 has a degenerate triangle (two corners at one position,
  * by distinct vertices), whose third corner, at the centre, no other triangle uses. `flip` turns triangles over
  * (all, or those of the faces listed).
  */
@@ -99,7 +99,7 @@ function rotate(corners: string[]): string {
   const k = corners.indexOf([...corners].sort()[0]!);
   return [...corners.slice(k), ...corners.slice(0, k)].join(' ');
 }
-/** The cube's triangles as they should come out: degenerate ones dropped, −0 as 0, in each face's colour. */
+/** The cube's triangles as they should come out: degenerate ones dropped, -0 as 0, in each face's colour. */
 function expectedCube(colors: (face: number) => number[]): string[] {
   const c = cube();
   const out: string[] = [];
@@ -267,7 +267,7 @@ test('a scene with nothing to draw, many vertices (written in pieces), the same 
   s.roots = [];
   const empty = await read3mf(bytes(write(s).chunks));
   assert.deepEqual([empty.items.length, empty.meshes.size, empty.warnings], [0, 0, []]);
-  // A closed strip of 2 × 40,000 quads around a square tube: past the piece size in vertices and in triangles.
+  // A closed strip of 2 x 40,000 quads around a square tube: past the piece size in vertices and in triangles.
   const n = 40000, positions: number[] = [], indices: number[] = [];
   for (let i = 0; i < n; i++) {
     const a = (2 * Math.PI * i) / n;

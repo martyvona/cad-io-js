@@ -1,4 +1,4 @@
 517 files, 4925008 instances, 421 MB in, 381 MB written; 3 malformed instances skipped; 0 instances differ
-decode 6.3 s; decode+write 12.3 s → write alone ≈ 63 MB/s of output
+decode 3.3 s; decode+write 6.1 s -> write alone ~ 135 MB/s of output
       1 rewritten file: duplicate instance id #794080  e.g. gkv311-opencascade-dataset/step/bug25013_25013faces.stp
       1 rewritten file: duplicate instance id #794081  e.g. gkv311-opencascade-dataset/step/bug25013_25013faces.stp

@@ -1,8 +1,8 @@
 // stepconv: STEP (Part 21, or gzipped .stpZ) to a tessellated format. See README.md,
 // "`stepconv`: STEP to three.js, glTF or 3MF", and CLAUDE.md, "Decisions".
 //
-//   import (step-import) → tessellate each part (a backend, in a tess-workers pool unless --workers 0, cached with
-//   tess-cache when --cache names a directory) → the export view (cad-scene) → an exporter, chosen by the output's
+//   import (step-import) -> tessellate each part (a backend, in a tess-workers pool unless --workers 0, cached with
+//   tess-cache when --cache names a directory) -> the export view (cad-scene) -> an exporter, chosen by the output's
 //   extension or --format. A summary and the diagnostics go to standard error.
 
 import fs from 'node:fs';

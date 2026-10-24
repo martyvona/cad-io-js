@@ -33,7 +33,7 @@ function weld(p: Float32Array, tol: number): Uint32Array {
   const map = new Map<string, number>();
   if (tol === 0) {
     for (let i = 0; i < n; i++) {
-      // + 0 makes −0 equal 0.
+      // + 0 makes -0 equal 0.
       const key = `${p[3 * i]! + 0},${p[3 * i + 1]! + 0},${p[3 * i + 2]! + 0}`;
       const w = map.get(key);
       if (w === undefined) { map.set(key, i); out[i] = i; } else out[i] = w;
@@ -67,7 +67,7 @@ type Kind = 'closed' | 'open' | 'misoriented' | 'non-manifold';
 function classify(mesh: Mesh, tol: number): { kind: Kind; degenerate: number; boundary: number; nonManifold: number;
   vertices: number } {
   const w = weld(mesh.positions, tol);
-  // Each edge as (lower vertex × count + higher) × 2 + direction, sorted, so an edge's uses are adjacent (a Map
+  // Each edge as (lower vertex x count + higher) x 2 + direction, sorted, so an edge's uses are adjacent (a Map
   // tops out at 2^24 entries).
   const nv = mesh.positions.length / 3;
   const ix = mesh.indices;

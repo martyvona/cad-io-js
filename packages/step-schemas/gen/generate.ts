@@ -1,4 +1,4 @@
-// Build-time generator: EXPRESS long-form schemas from stepcode → JSON dictionaries in dict/.
+// Build-time generator: EXPRESS long-form schemas from stepcode -> JSON dictionaries in dict/.
 // Usage: node gen/generate.ts   (reads the stepcode checkout in third_party/; see third_party/pull.sh)
 // The output is committed, so the library has no build-time dependency on stepcode.
 
@@ -15,7 +15,7 @@ if (import.meta.main) {
     const dict = buildDictionary(d, fs.readFileSync(path.join(stepcodeDir, 'data', d.source)));
     const out = path.join(pkgDir, 'dict', `${d.id}.json`);
     fs.writeFileSync(out, formatDictionary(dict));
-    console.log(`${d.id}: ${Object.keys(dict.entities).length} entities, ${Object.keys(dict.types).length} types → `
+    console.log(`${d.id}: ${Object.keys(dict.entities).length} entities, ${Object.keys(dict.types).length} types -> `
       + `${path.relative(process.cwd(), out)}`);
   }
 }

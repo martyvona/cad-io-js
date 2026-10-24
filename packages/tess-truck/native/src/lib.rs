@@ -6,7 +6,7 @@
 //!   converting it, so one that fails to convert shifts every later index, and it drops faces it can't convert
 //!   without saying which. Here each face and edge keeps its STEP id, and a face whose surface or edges don't
 //!   convert is left out and reported.
-//! - An AXIS2_PLACEMENT_3D without a ref_direction whose axis is ±x gets the ref_direction (0, 1, 0), as ISO
+//! - An AXIS2_PLACEMENT_3D without a ref_direction whose axis is +/-x gets the ref_direction (0, 1, 0), as ISO
 //!   10303-42's `first_proj_axis` prescribes. truck always defaults it to (1, 0, 0), so the placement's x axis
 //!   becomes NaN, and meshing a circle on it panics (`tolerance must be no less than 1e-6`, truck-geometry
 //!   `specifieds/circle.rs`, since NaN fails the check).
@@ -227,7 +227,7 @@ fn clamp_surface(s: &mut Surface) -> bool {
     clamped.map(|x| *s = x).is_some()
 }
 
-/// An ORIENTED_EDGE or EDGE_CURVE id → the EDGE_CURVE id and the orientation.
+/// An ORIENTED_EDGE or EDGE_CURVE id -> the EDGE_CURVE id and the orientation.
 fn edge_ref(t: &Table, id: u64) -> Option<(u64, bool)> {
     if let Some(oe) = t.oriented_edge.get(&id) {
         return Some((entity(&oe.edge_element)?, oe.orientation));
@@ -235,7 +235,7 @@ fn edge_ref(t: &Table, id: u64) -> Option<(u64, bool)> {
     t.edge_curve.contains_key(&id).then_some((id, true))
 }
 
-/// An ORIENTED_FACE or FACE_SURFACE (ADVANCED_FACE) id → the face's id, holder and orientation.
+/// An ORIENTED_FACE or FACE_SURFACE (ADVANCED_FACE) id -> the face's id, holder and orientation.
 fn face_ref(t: &Table, id: u64) -> Option<(u64, &FaceSurfaceHolder, bool)> {
     if let Some(f) = t.face_surface.get(&id) {
         return Some((id, f, true));
@@ -569,9 +569,9 @@ fn prefer_3d_curves(entities: &mut [EntityInstance]) -> usize {
     changed
 }
 
-/// Give each AXIS2_PLACEMENT_3D whose ref_direction is omitted and whose axis is ±x the ref_direction (0, 1, 0), a
+/// Give each AXIS2_PLACEMENT_3D whose ref_direction is omitted and whose axis is +/-x the ref_direction (0, 1, 0), a
 /// DIRECTION added with a new id; returns how many were changed. (ISO 10303-42 `first_proj_axis`: (1, 0, 0) unless
-/// the axis is ±(1, 0, 0), then (0, 1, 0). Here "is" allows rounding, which gives the same frame.)
+/// the axis is +/-(1, 0, 0), then (0, 1, 0). Here "is" allows rounding, which gives the same frame.)
 fn fix_placements(entities: &mut Vec<EntityInstance>) -> usize {
     let mut along_x = std::collections::HashSet::new();
     for e in entities.iter() {
@@ -693,8 +693,8 @@ fn loop_sense(
 }
 
 /// The sign of the volume a closed triangle mesh encloses (positive when its triangles face outward), or None when
-/// truck's mesh can't tell. Six times the volume measured from a point r is 6V(r) = 6V(0) - r·N, N the sum of the
-/// triangles' (b - a) × (c - a), which is zero only when the mesh closes up geometrically, as well as topologically:
+/// truck's mesh can't tell. Six times the volume measured from a point r is 6V(r) = 6V(0) - r*N, N the sum of the
+/// triangles' cross(b - a, c - a), which is zero only when the mesh closes up geometrically, as well as topologically:
 /// where truck's face meshes leave gaps or overhang their boundaries, the volume depends on r. So the sign counts only
 /// if it's the same from every r in the mesh's bounding box. And it must be at least 1% of the sum of the triangles'
 /// |6V| (from the box's centre): in a thin part, the faces' contributions nearly cancel, and one face that truck
@@ -986,8 +986,8 @@ pub unsafe extern "C" fn tess_run(
     rc
 }
 
-/// The address of one result array: 0 positions, 1 normals (f32 × 3), 2 indices (u32), 3 faces (i32 × 3),
-/// 4 edge positions (f32 × 3), 5 edges (i32 × 4), 6 edge angles (f32), 7 diagnostics (UTF-8 JSON).
+/// The address of one result array: 0 positions, 1 normals (f32 x 3), 2 indices (u32), 3 faces (i32 x 3),
+/// 4 edge positions (f32 x 3), 5 edges (i32 x 4), 6 edge angles (f32), 7 diagnostics (UTF-8 JSON).
 #[no_mangle]
 pub extern "C" fn tess_ptr(which: i32) -> *const u8 {
     RESULT.with(|r| {
@@ -1033,7 +1033,7 @@ pub extern "C" fn tess_free() {
 mod tests {
     use super::*;
 
-    // The rational quadratic circle of OCC22962-dm1-oc-214.stp #1742: knots (-1/3, 0, 0, …, 1, 1, 4/3), valid on
+    // The rational quadratic circle of OCC22962-dm1-oc-214.stp #1742: knots (-1/3, 0, 0, ..., 1, 1, 4/3), valid on
     // [0, 1], and a cubic with uniform knots 0..=9, valid on [3, 6], which needs knots inserted at both ends.
     #[test]
     fn clamping_keeps_the_curve_over_its_valid_range() {

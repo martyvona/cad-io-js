@@ -123,12 +123,12 @@ function faceTriangles(m: Mesh): number[][][] {
 test('dropDegenerate: triangles with two corners at one position go, slivers and the rest stay, faces follow', () => {
   const box = boxes({});
   assert.equal(dropDegenerate(box).mesh, box);
-  // Extra vertices: one at corner 0's position with −0s, one in the middle of the bottom's edge 0–1.
+  // Extra vertices: one at corner 0's position with -0s, one in the middle of the bottom's edge 0-1.
   const positions = Float32Array.from([...box.positions, -0, -0, 0, 0.5, 0, 0]);
   const zero = positions.length / 3 - 2, mid = zero + 1;
   // Into face 0 (the bottom): triangles through the twin of vertex 0 (its first and third corners at one place),
   // using a vertex twice (first and second), and with its second and third at one place; then a sliver on the
-  // edge 0–1 (three positions on a line). Faces listed out of order.
+  // edge 0-1 (three positions on a line). Faces listed out of order.
   const extra = [[0, 2, zero], [1, 1, 3], [2, 0, zero], [0, mid, 1]];
   const indices = [...box.indices.subarray(0, 6), ...extra.flat(), ...box.indices.subarray(6)];
   const faces = box.faces.map((f, k) => (k ? { ...f, start: f.start + 12 } : { ...f, count: 18 })).reverse();
@@ -224,7 +224,7 @@ test("manifoldProblems", () => {
 });
 
 
-test('weld: equal coordinates join, −0 and 0 too; others stay apart', () => {
+test('weld: equal coordinates join, -0 and 0 too; others stay apart', () => {
   // Random positions, half repeated (shuffled), against a reference by string keys.
   const n = 20000, p = new Float32Array(3 * n);
   let seed = 1;

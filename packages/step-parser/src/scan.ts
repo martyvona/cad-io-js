@@ -27,7 +27,7 @@ export interface ScanResult {
 }
 
 /**
- * The instance index: parallel typed arrays in file order. Position `p` (0 ≤ p < count) identifies an instance.
+ * The instance index: parallel typed arrays in file order. Position `p` (0 <= p < count) identifies an instance.
  */
 export class InstanceIndex {
   readonly count: number;

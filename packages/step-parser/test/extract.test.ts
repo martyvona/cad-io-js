@@ -13,13 +13,13 @@ const file = (data: string) => parse(
   `ISO-10303-21;HEADER;FILE_SCHEMA(('${AP214}'));ENDSEC;DATA;\n${data}\nENDSEC;END-ISO-10303-21;`);
 const close = (a: ArrayLike<number>, b: ArrayLike<number>, eps = 1e-9) =>
   assert.ok(a.length === b.length && Array.from(a).every((x, i) => Math.abs(x - b[i]!) <= eps),
-    `${Array.from(a)} ≉ ${Array.from(b)}`);
+    `${Array.from(a)} !~ ${Array.from(b)}`);
 const point = (m: Mat4, p: Vec3) => math.apply(m, p);
 
 // An assembly in millimetres with:
-//  - a box part in inches (#200), placed twice: once by a standard relationship, once by a swapped one, rotated 90°
+//  - a box part in inches (#200), placed twice: once by a standard relationship, once by a swapped one, rotated 90 deg
 //    about z and moved by 100 mm;
-//  - its geometry reached through a SHAPE_REPRESENTATION_RELATIONSHIP (#205 → #210);
+//  - its geometry reached through a SHAPE_REPRESENTATION_RELATIONSHIP (#205 -> #210);
 //  - a third component placed by a mapped item, defined in another file (external reference);
 //  - styles: the solid red, one face overridden blue, transparency, an invisible styled item, and a layer;
 //  - validation properties on the box part: volume (in cubic inches... via a derived unit) and centroid.
@@ -185,10 +185,10 @@ test('units and contexts', async () => {
 test('placements and transformations', async () => {
   const m = await openModel(file(DATA));
   const r = new Reader(m);
-  // A single placement, absolutely: #26 has x along y, so y = z × x is along -x.
+  // A single placement, absolutely: #26 has x along y, so y = cross(z, x) is along -x.
   const p26 = placement(r, m.resolve(26))!;
   close(p26, [0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1, 0, 100, 0, 0, 1]);
-  // #263 takes #26 (100,0,0, x along y) onto #27 (origin): the assembly to the component, in mm → inch.
+  // #263 takes #26 (100,0,0, x along y) onto #27 (origin): the assembly to the component, in mm -> inch.
   const t = transformation(r, m.resolve(263), 1 / 25.4)!;
   close(point(t, [100, 0, 0]), [0, 0, 0]);
   close(point(t, [100, 25.4, 0]), [1, 0, 0]); // the frame's x axis (assembly y) becomes the component's x
@@ -226,12 +226,12 @@ test('product structure: occurrences, swapped relationships, units, mapped items
     [260, 'nauo', 0, 1, 'box 2', undefined, { cdsr: 264, relationship: 262 }],
     [406, 'nauo', 0, 2, 'ext', undefined, { cdsr: 408, relationship: 409, mappedItem: 300 }],
   ]);
-  // Box 1: identity frames, inch → mm.
+  // Box 1: identity frames, inch -> mm.
   close(point(s.occurrences[0]!.transform!, [1, 0, 0]), [25.4, 0, 0]);
-  // Box 2: rep_1 is the assembly; the inverse of assembly → component: component x → assembly y, origin → (100,0,0).
+  // Box 2: rep_1 is the assembly; the inverse of assembly -> component: component x -> assembly y, origin -> (100,0,0).
   close(point(s.occurrences[1]!.transform!, [0, 0, 0]), [100, 0, 0]);
   close(point(s.occurrences[1]!.transform!, [1, 0, 0]), [100, 25.4, 0]);
-  close(point(s.occurrences[1]!.transform!, [0, 1, 0]), [100 - 25.4, 0, 0]); // y = z × x
+  close(point(s.occurrences[1]!.transform!, [0, 1, 0]), [100 - 25.4, 0, 0]); // y = cross(z, x)
   close(point(s.occurrences[1]!.transform!, [0, 0, 1]), [100, 0, 25.4]);
   // The external component: by the mapped item, raised 50 mm.
   close(point(s.occurrences[2]!.transform!, [0, 0, 0]), [0, 0, 50]);

@@ -61,13 +61,13 @@ for (const path of corpusFiles(process.argv[2])) {
       const source = file.instanceAt(p);
       const expected = p === root ? strip(source, excludedIds) : source;
       if (!isDeepStrictEqual(inst, expected)) note('subset instance differs from the source',
-        `${name} #${rep.id} → #${inst.id}`);
+        `${name} #${rep.id} -> #${inst.id}`);
     }
     if (k !== sub.positions.length) note('subset instance count differs', `${name} #${rep.id}`);
     for (const id of sub.missing) {
       if (model.resolve(id) >= 0) note(
         'missing reference that the source resolves (needed by an excluded mapped item\'s neighbour)',
-        `${name} #${rep.id} → #${id}`);
+        `${name} #${rep.id} -> #${id}`);
     }
   }
 }

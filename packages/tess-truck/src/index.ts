@@ -50,7 +50,8 @@ export const WBINDGEN_IMPORTS: Record<string, string[]> = {
   __wbindgen_externref_xform__: ['__wbindgen_externref_table_set_null', '__wbindgen_externref_table_grow'],
 };
 
-const list = (ids: number[], n = 10) => ids.slice(0, n).map((i) => `#${i}`).join(', ') + (ids.length > n ? ', …' : '');
+const list = (ids: number[], n = 10) => ids.slice(0, n).map((i) => `#${i}`).join(', ')
+  + (ids.length > n ? ', ...' : '');
 
 /**
  * Where `TruckTessellator.init` gets its module: another build of native/ (this package's wrapper over truck), say
@@ -206,7 +207,7 @@ export class TruckTessellator implements Tessellator {
       + `${list(diag.unmeshedFaces)}` });
     if (diag.skippedItems?.length) diagnostics.push(
       { severity: 'warning', message: `representation items truck doesn't mesh: `
-      + `${diag.skippedItems.slice(0, 10).join(', ')}${diag.skippedItems.length > 10 ? ', …' : ''}` });
+      + `${diag.skippedItems.slice(0, 10).join(', ')}${diag.skippedItems.length > 10 ? ', ...' : ''}` });
     if (diag.flippedFaces?.length) diagnostics.push(
       { severity: 'info', message: `${diag.flippedFaces.length} faces reversed, since truck meshed them against all `
       + `their loops: ${list(diag.flippedFaces)}` });

@@ -22,7 +22,8 @@
 // Code lines up to 120 characters fit the text width (DejaVu Sans Mono's advance is 0.602 em).
 #show raw: set text(font: "DejaVu Sans Mono")
 #show raw.where(block: true): set text(size: 6.9pt)
-// Long identifiers (SNAKE_CASE entity names in table cells) may break after an underscore.
+// Long identifiers (SNAKE_CASE entity names) may break after an underscore. (GitHub never breaks inside code, so
+// tables break the longest ones themselves, as code spans joined by <br>.)
 #show raw.where(block: false): it => { show "_": "_" + sym.zws; it }
 #show table: set text(size: 9.5pt)
 #show table: set par(justify: false)

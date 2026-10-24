@@ -45,13 +45,15 @@ test('formatInt', () => {
 });
 
 test('strings: escapes, raw UTF-8, lone surrogates, BOM inside a string', () => {
-  assert.deepEqual(parseJson(String.raw`["a\"b\\c\/d\b\f\n\r\t", "Ää", "😀", "\udc00x"]`),
-    ['a"b\\c/d\b\f\n\r\t', 'Ää', '😀', '\udc00x']);
-  assert.equal(parseJson(new TextEncoder().encode('"Ärger π 😀 ﻿x"')), 'Ärger π 😀 ﻿x');
-  assert.equal(parseJson('"﻿"'), '﻿');
-  assert.equal(parseJson('﻿ "x"'), 'x'); // a BOM before the value is skipped
+  assert.deepEqual(parseJson(`["a\\"b\\\\c\\/d\\b\\f\\n\\r\\t", "\u00C4\u00E4", "\u{1F600}", "\\udc00x"]`),
+    ['a"b\\c/d\b\f\n\r\t', '\u00C4\u00E4', '\u{1F600}', '\udc00x']);
+  assert.equal(parseJson(new TextEncoder().encode('"\u00C4rger \u03C0 \u{1F600} \uFEFFx"')),
+    '\u00C4rger \u03C0 \u{1F600} \uFEFFx');
+  assert.equal(parseJson('"\uFEFF"'), '\uFEFF');
+  assert.equal(parseJson('\uFEFF "x"'), 'x'); // a BOM before the value is skipped
   // Random strings from awkward characters round trip through formatString.
-  const pool = ['a', 'Z', ' ', '"', '\\', '/', '\n', '\t', '\0', '\x7f', 'é', 'Ж', '￿', '😀', '\ud800', '\udfff', '﻿'];
+  const pool = ['a', 'Z', ' ', '"', '\\', '/', '\n', '\t', '\0', '\x7f', '\u00E9', '\u0416', '\uFFFF', '\u{1F600}',
+    '\ud800', '\udfff', '\uFEFF'];
   for (let n = 0; n < 5000; n++) {
     let s = '';
     for (let k = rand() % 12; k > 0; k--) s += pool[rand() % pool.length];
@@ -59,7 +61,7 @@ test('strings: escapes, raw UTF-8, lone surrogates, BOM inside a string', () => 
     assert.equal(parseJson(new TextEncoder().encode(formatString(s))), s);
   }
   // A long ASCII string and a long non-ASCII string take the TextDecoder path.
-  const long = 'x'.repeat(1000) + 'é'.repeat(1000);
+  const long = 'x'.repeat(1000) + '\u00E9'.repeat(1000);
   assert.equal(parseJson(formatString(long)), long);
 });
 
@@ -68,7 +70,7 @@ test('structure matches JSON.parse on documents without numbers', () => {
     const r = rand() % (d > 3 ? 4 : 6);
     if (r === 0) return null;
     if (r === 1) return rand() % 2 === 0;
-    if (r === 2 || r === 3) return ['', 'k', 'a b', 'é', '"q"'][rand() % 5]!;
+    if (r === 2 || r === 3) return ['', 'k', 'a b', '\u00E9', '"q"'][rand() % 5]!;
     if (r === 4) return Array.from({ length: rand() % 4 }, () => gen(d + 1));
     const o: Record<string, JsonValue> = {};
     for (let k = rand() % 4; k > 0; k--) o['k' + (rand() % 6)] = gen(d + 1);
@@ -108,7 +110,7 @@ test('stringify: kinds, typed arrays, indentation', () => {
     '{"f":[0.5,1.0],"d":[2.0],"i":[-1,2],"u":[3]}');
   assert.equal(stringify({ a: [1, [2n]], b: {}, c: [] }, { indent: 2 }),
     '{\n  "a": [\n    1.0,\n    [2]\n  ],\n  "b": {},\n  "c": []\n}');
-  const v = { pts: new Float64Array([0, 1.5]), n: [3n, 4n], s: 'é' };
-  assert.deepEqual(parseJson(stringify(v, { indent: 1 })), { pts: [0, 1.5], n: [3n, 4n], s: 'é' });
+  const v = { pts: new Float64Array([0, 1.5]), n: [3n, 4n], s: '\u00E9' };
+  assert.deepEqual(parseJson(stringify(v, { indent: 1 })), { pts: [0, 1.5], n: [3n, 4n], s: '\u00E9' });
   assert.throws(() => stringify([NaN]), RangeError);
 });

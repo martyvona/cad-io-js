@@ -24,7 +24,7 @@ for (const path of corpusFiles(process.argv[2])) {
   const st = (stats[m.schema?.name ?? `none (${m.fallback?.name ?? 'no fallback'})`] ??= { files: 0, inst: 0,
     bySchema: 0, byFallback: 0, unbound: 0 });
   st.files++;
-  for (const d of m.diagnostics) note(`model ${d.severity}: ${d.message.replace(/\(.*\)/, '(…)')}`, name, name);
+  for (const d of m.diagnostics) note(`model ${d.severity}: ${d.message.replace(/\(.*\)/, '(...)')}`, name, name);
 
   let t = performance.now();
   for (let p = 0; p < f.count; p++) {
@@ -45,7 +45,7 @@ for (const path of corpusFiles(process.argv[2])) {
   }
   tBind += performance.now() - t;
 
-  // Reverse references: every resolved forward reference p → q appears exactly once in referrers(q).
+  // Reverse references: every resolved forward reference p -> q appears exactly once in referrers(q).
   t = performance.now();
   m.referrers(0);
   tRev += performance.now() - t;

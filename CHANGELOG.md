@@ -8,6 +8,8 @@
 - `stepconv`: `--angular` renamed `--angular-deflection`, `--edges` and `--curves` renamed `--with-edges` and `--with-curves`, `--gltf-unlit-lines` renamed `--unlit-lines` (accepted for three.js too, whose lines are always unlit); `--gltf-no-edges`, `--gltf-no-curves`, `--gltf-no-points` and `--gltf-faces-only` removed (`--with-edges` and `--with-curves` choose what's written).
 - `tess-occt`: `init({glue, wasm, version})` loads a host's own OCCT build (one that links `occt_tess.cpp`; `third_party/README.md` says how to make one), by URL, bytes or compiled module, and checks it has the wrapper's exports. `tess-truck`: `init({wasm})` also takes a compiled module, and a `version`. A compiled module needs a `version`, which names it in cache keys.
 
+- Every tracked text file is ASCII, source code included (comments, messages, test data as escapes), checked by `test/ascii.test.ts`. Semantic JSON unit names are joined with `.` instead of a middle dot (`newton.metre`). Long identifiers in Markdown tables are broken by hand with `<br>`.
+
 ## 0.1.0 (2026-10-23)
 
 The first release, tagged `V0.1.0`; not published to npm (the packages run as TypeScript sources under Node 24).

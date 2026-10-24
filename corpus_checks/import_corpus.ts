@@ -22,9 +22,9 @@ for (const path of corpusFiles(process.argv[2])) {
   t.time += performance.now() - start;
   t.files++;
   for (const p of validate(scene)) note(`invalid scene: ${p.replace(/\d+/g, 'N')}`, name);
-  if (scene.components.length !== semantics.structure.products.length) note('components ≠ products', name);
+  if (scene.components.length !== semantics.structure.products.length) note('components != products', name);
   const occurrences = scene.components.reduce((n, c) => n + c.children.length, 0);
-  if (occurrences !== semantics.structure.occurrences.length) note('occurrences ≠ semantic occurrences', name);
+  if (occurrences !== semantics.structure.occurrences.length) note('occurrences != semantic occurrences', name);
   t.components += scene.components.length;
   t.parts += scene.parts.length;
   t.materials += scene.materials.length;

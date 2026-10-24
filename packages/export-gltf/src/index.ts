@@ -1,4 +1,4 @@
-// Scene model → glTF 2.0, written with glTF-Transform: GLB, or .gltf JSON with its buffer as a separate .bin or
+// Scene model -> glTF 2.0, written with glTF-Transform: GLB, or .gltf JSON with its buffer as a separate .bin or
 // embedded as base64. See README.md, "`stepconv`", and CLAUDE.md, "Decisions".
 //
 //   nodes: a root node turning the scene's millimetres, Z up, into glTF's metres, Y up; under it a node per
@@ -50,7 +50,7 @@ export interface GltfResult {
   diagnostics: Diagnostic[];
 }
 
-/** Millimetres to metres, and Z up to Y up: (x, y, z) mm → (x, z, −y) m. Column-major. */
+/** Millimetres to metres, and Z up to Y up: (x, y, z) mm -> (x, z, -y) m. Column-major. */
 export const ROOT_TRANSFORM: Mat4 = Float64Array.of(0.001, 0, 0, 0, 0, 0, -0.001, 0, 0, 0.001, 0, 0, 0, 0, 0, 1);
 
 /** The scene's export view as a glTF-Transform document. */
@@ -93,7 +93,7 @@ export function base64(bytes: Uint8Array): string {
 
 /**
  * glTF-Transform's JSON for a document, with each node's translation, rotation and scale as they are: its writer
- * leaves out any within 1e-5 of the default, which drops rotations of up to about 2e-5 rad (20 µm a metre away)
+ * leaves out any within 1e-5 of the default, which drops rotations of up to about 2e-5 rad (20 um a metre away)
  * and scales within 1e-5 of 1 (CLAUDE.md, "JavaScript, Node and the libraries").
  */
 async function write(document: Document, format: Format): Promise<JSONDocument> {

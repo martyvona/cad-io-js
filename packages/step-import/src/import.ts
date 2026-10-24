@@ -1,11 +1,11 @@
 // The STEP importer: a parsed file, through Layer 2 and Layer 3 (step-parser), to the scene model (cad-scene). See
 // README.md, "`step-import`", and CLAUDE.md, "STEP files in the wild", for the conventions files follow.
 //
-//   products        → components (index for index); their documents → external references
-//   occurrences     → each component's children, with transforms converted to millimetres
-//   representations → parts, one per shape representation holding geometry, with a STEP subset as payload
-//   styles          → materials: per part, per face, per component, and per instance (context-dependent styles)
-//   layers          → layers of parts and faces
+//   products        -> components (index for index); their documents -> external references
+//   occurrences     -> each component's children, with transforms converted to millimetres
+//   representations -> parts, one per shape representation holding geometry, with a STEP subset as payload
+//   styles          -> materials: per part, per face, per component, and per instance (context-dependent styles)
+//   layers          -> layers of parts and faces
 
 import {
   buildSubset, closure, danglingRefs, extractSemantics, math, openModel, productRepresentations, readStep, Reader,
@@ -96,7 +96,7 @@ export function sceneFromStep(model: StepModel, sem: Semantics): ImportResult {
   // drawings.
   const parts: Part[] = [];
   const partOf = new Map<number, number>();
-  const partOfPosition = new Map<number, number>(); // top-level items, faces and roots → part
+  const partOfPosition = new Map<number, number>(); // top-level items, faces and roots -> part
   for (const rep of s.representations.values()) {
     const items = rep.items.map((id) => model.resolve(id));
     if (!items.some((q) => q >= 0 && ![...PLACEMENT_ONLY, ...ANNOTATION].some(
@@ -239,8 +239,8 @@ export function sceneFromStep(model: StepModel, sem: Semantics): ImportResult {
     return c;
   });
 
-  // Occurrences: child millimetres → parent millimetres.
-  const childIndex = new Map<number, number>(); // occurrence index → index in its parent's children
+  // Occurrences: child millimetres -> parent millimetres.
+  const childIndex = new Map<number, number>(); // occurrence index -> index in its parent's children
   s.occurrences.forEach((o, i) => {
     const parentMm = mmOf(s.products[o.parent]!.shapes[0]), childMm = mmOf(s.products[o.child]!.shapes[0]);
     const t = math.multiply(math.multiply(math.scaling(parentMm), o.transform ?? math.identity()),

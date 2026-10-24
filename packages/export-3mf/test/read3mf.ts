@@ -17,7 +17,7 @@ export interface Read3mf {
   components: Map<number, { name: string; components: { object: number; transform?: number[] }[] }>;
   items: { object: number; transform?: number[]; partNumber: string;
     metadata: { name: string; namespace: string; value: string }[] }[];
-  /** Colours by group id, then property id: [r, g, b, a] 0–255, and base names. */
+  /** Colours by group id, then property id: [r, g, b, a] 0-255, and base names. */
   colors: Map<number, Map<number, { color: number[]; name?: string }>>;
 }
 
