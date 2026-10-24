@@ -219,6 +219,13 @@ Options:
       --double-sided       render faces from both sides (not 3MF)
       --keep-hidden        glTF: write hidden instances with KHR_node_visibility; 3MF: as ordinary parts
                            (default: left out); three.js always writes them hidden
+      --extras             our ids for picking and lookup: source ids, properties and face ranges (glTF extras,
+                           three.js userData, 3MF metadata); default: left out, as other systems don't read them
+      --gltf-compression <draco|meshopt|none>
+                           glTF geometry compression (default draco: KHR_draco_mesh_compression, triangles only,
+                           lossy; meshopt: EXT_meshopt_compression, every buffer, 16-bit positions)
+      --gltf-draco-bits <n>
+                           Draco's position quantization, bits over each part mesh's extent (default 14)
       --gltf-embed         .gltf: the buffer embedded as base64 instead of a .bin beside it (a third bigger)
       --3mf-colorgroup     3MF: colours as the Materials extension's colorgroup (print colours, opaque) instead
                            of basematerials (display colours)
@@ -235,7 +242,8 @@ Options:
 ```
 
 ```sh
-stepconv motor.step -o motor.glb                                        # OCCT, 0.1 mm, faces only
+stepconv motor.step -o motor.glb                                        # OCCT, 0.1 mm, faces only, Draco
+stepconv motor.step -o motor.glb --gltf-compression meshopt --extras    # meshopt, with ids for picking
 stepconv motor.step -o motor.json --with-edges --with-curves            # three.js with B-rep edges and wireframes
 stepconv motor.step -o motor.gltf --with-edges --unlit-lines            # motor.gltf + motor.bin
 stepconv motor.step -o motor.3mf --3mf-assembly --3mf-colorgroup        # one item, components following the tree
@@ -257,16 +265,19 @@ What each format holds:
 
 | | three.js JSON | glTF / GLB | 3MF |
 |---|---|---|---|
-| Tree | an `Object3D` tree following the assembly; a `Mesh` per placed part | a node tree following the assembly; a node per placed part | by default a build item per placed part at its world transform (slicers may rearrange them), the instance path in its metadata; `--3mf-assembly`: one item, nested component objects |
+| Tree | an `Object3D` tree following the assembly; a `Mesh` per placed part | a node tree following the assembly; a node per placed part | by default a build item per placed part at its world transform (slicers may rearrange them), the instance path as its part number; `--3mf-assembly`: one item, nested component objects |
 | Sharing | geometries shared by the instances of a part (and look) | a mesh per look, shared across nodes | a mesh object per look |
 | Units, axes | millimetres, Z up, as the source | metres and Y up, by one root node | `unit="millimeter"` |
 | Colours | `MeshStandardMaterial`, sRGB | `pbrMetallicRoughness`, linear base colour, alpha blending | `basematerials` with alpha; `--3mf-colorgroup` the Materials extension (opaque) |
-| Metadata | names, STEP ids, properties, per-face ranges in `userData` | the same in `extras` | names, part numbers, the instance path |
+| Metadata | names; with `--extras`, STEP ids, properties, per-face ranges in `userData` | names; with `--extras`, the same in `extras` (with Draco, faces as a `_FACE` vertex attribute) | names, part numbers, the instance path as the item's part number; with `--extras`, its names in `cadio:path` |
+| Compression | none | Draco (`KHR_draco_mesh_compression`, the triangles), or meshopt (`EXT_meshopt_compression` with `KHR_mesh_quantization`, every buffer), or none | deflate (zip) |
 | Hidden instances | `visible: false` | left out (or `KHR_node_visibility` with `--keep-hidden`) | left out (or kept) |
 | Edges, curves, points | `LineSegments`, `Points` children, on request (always unlit) | `LINES`, `POINTS` child nodes, on request (lit, or unlit with `--unlit-lines`) | none (3MF has no lines) |
 | Open shells | written | written | left out with a warning (or `surface` objects with `--3mf-surfaces`) |
 
-Parts that fail to tessellate don't fail the run; they are in the summary (with `--strict`, exit 3). OCCT's own messages are kept as warnings on their parts, not printed. Over the 517 corpus files, a run with the defaults takes about 200 s in all with 9 workers, nearly all of it tessellation; exporting is under 1 s for glTF, 15 s for three.js and 33 s for 3MF.
+**glTF compression** is lossy either way, and a viewer needs the codec's decoder (three.js: `DRACOLoader`, `MeshoptDecoder`). Draco, the default, quantizes positions to 14 bits over each part mesh's extent (a step of 0.05 mm on a part 785 mm across; `--gltf-draco-bits` for more), normals to 10 bits, and reorders triangles; edges, curves and points aren't compressed. meshopt quantizes positions to 16 bits over each part mesh's extent (its edges, curves and points included; the scale and offset are in the part's node), normals to 8 bits, and compresses every buffer; it reorders triangles only within each face. With `--extras`, faces stay findable for picking: with meshopt as index ranges, as uncompressed; with Draco as a `_FACE` vertex attribute, the index of the vertex's face in the primitive's `extras.faces` (16 bits, so at most 65,535 faces in one primitive, else the run fails; the corpus's largest has 4,660).
+
+Parts that fail to tessellate don't fail the run; they are in the summary (with `--strict`, exit 3). OCCT's own messages are kept as warnings on their parts, not printed. Over the 517 corpus files, a run with the defaults takes about 200 s in all with 9 workers, nearly all of it tessellation; exporting is 6 s for glTF (with Draco), 15 s for three.js and 33 s for 3MF. The corpus's GLBs come to 34.5 MB with Draco, against 411 MB uncompressed; with edges and curves (which Draco leaves as they are), 90 MB with Draco and 109 MB with meshopt, against 461 MB.
 
 ## Architecture
 
@@ -690,11 +701,12 @@ console.log(view.looks.length, 'looks');                      // 5
 await pipeline(Readable.from(threejsChunks(scene, view, { name: 'as1', edgeColor: [0.2, 0.2, 0.2] })),
   fs.createWriteStream('assembly.json'));               // or threejsJson(scene, view, opts) for one string
 
-// GLB (metres and Y up, as glTF has it), with hidden instances kept as KHR_node_visibility; or the glTF-Transform
-// document, to process further (compress, merge, ...) before writing it with glTF-Transform's own tools.
+// GLB (metres and Y up, as glTF has it), Draco-compressed, with hidden instances kept as KHR_node_visibility; or the
+// glTF-Transform document, to process further (merge, ...) before writing it with glTF-Transform's own tools (which
+// compress it with the encoder registered: `draco3d.encoder` from draco3dgltf, `meshopt.encoder` from meshoptimizer).
 const { bytes, diagnostics } = await glb(scene, view, { hidden: 'extension', unlitLines: true });
 fs.writeFileSync('assembly.glb', bytes);
-const { document } = gltfDocument(scene, view);
+const { document } = await gltfDocument(scene, view, { compression: 'none', extras: true });
 console.log(document.getRoot().listMeshes().length, 'glTF meshes');   // 10 (5 of faces, 5 of edges)
 
 // 3MF: closed meshes only (or open ones as surface objects), an item per placed part or the assembly as components.
@@ -704,9 +716,9 @@ await pipeline(Readable.from(r.chunks), fs.createWriteStream('assembly.3mf'));
 
 Options:
 
-- **three.js** (`threejsChunks`, `threejsJson`): `name` (the root object's), `doubleSided`, `defaultColor` (faces without a material; sRGB), `edgeColor`, `edgeKinds` (which B-rep edges to write: by default shared and free ones, not seams or degenerate edges).
-- **glTF** (`glb`, `gltfJson`, `gltfDocument`): the same, plus `hidden` (`'omit'`, the default, or `'extension'` for `KHR_node_visibility`), `unlitLines` (`KHR_materials_unlit` on edges, curves and points) and `exclude` (leave edges, curves or points out even when the view has them). `gltfJson(scene, view, 'model.bin', opts)` gives the JSON and the buffer it names; with `undefined` for the name, the buffer is embedded as base64.
-- **3MF** (`threemf`): `name`, `defaultColor`, `colors` (`'basematerials'`, the default, or the Materials extension's `'colorgroup'`), `build` (`'parts'`, an item per placed part, or `'assembly'`), `nonManifold` (`'omit'` or `'surface'`), `hidden` (`'omit'` or `'keep'`). Meshes are welded by exact position (3MF wants shared vertices), and a mesh that isn't a closed, consistently oriented manifold isn't written as a solid.
+- **three.js** (`threejsChunks`, `threejsJson`): `name` (the root object's), `doubleSided`, `defaultColor` (faces without a material; sRGB), `edgeColor`, `edgeKinds` (which B-rep edges to write: by default shared and free ones, not seams or degenerate edges), `extras` (our `userData`: source ids, properties, parts, scene material indices, face, edge, curve and point sources, the root's unit; default false).
+- **glTF** (`glb`, `gltfJson`, `gltfDocument`): the same, with `extras` for glTF's `extras`, plus `hidden` (`'omit'`, the default, or `'extension'` for `KHR_node_visibility`), `unlitLines` (`KHR_materials_unlit` on edges, curves and points), `exclude` (leave edges, curves or points out even when the view has them), `compression` (`'draco'`, the default, `'meshopt'` or `'none'`) and `dracoPositionBits` (default 14). A primitive with more faces than `MAX_DRACO_FACES` (65,535) with Draco and extras throws a `GltfError`. The encoders (WebAssembly) are imported when first used. `gltfJson(scene, view, 'model.bin', opts)` gives the JSON and the buffer it names; with `undefined` for the name, the buffer is embedded as base64.
+- **3MF** (`threemf`): `name`, `defaultColor`, `colors` (`'basematerials'`, the default, or the Materials extension's `'colorgroup'`), `build` (`'parts'`, an item per placed part, or `'assembly'`), `nonManifold` (`'omit'` or `'surface'`), `hidden` (`'omit'` or `'keep'`), `extras` (each item's names as `cadio:path` metadata; default false). Meshes are welded by exact position (3MF wants shared vertices), and a mesh that isn't a closed, consistently oriented manifold isn't written as a solid.
 
 ### `cli` (`cad-io-cli`)
 
@@ -748,7 +760,7 @@ A file whose schema has no dictionary is bound with AP242's, with a diagnostic: 
 
 ## Tests
 
-- **`npm test`**: the package tests, 197 of them (`node:test`, in each package's `test/`), on small inline fixtures and a few corpus files. Tests that need a built backend or the corpus skip when it's missing; with everything built, they take about 20 s.
+- **`npm test`**: the package tests, 205 of them (`node:test`, in each package's `test/`), on small inline fixtures and a few corpus files. Tests that need a built backend or the corpus skip when it's missing; with everything built, they take about 20 s.
 - **`npm run typecheck`**: `tsc` over the packages (no output; the sources run as they are).
 - **`cargo test`** in `packages/tess-truck/native`: 3 native tests of the truck wrapper (B-spline clamping, the volume sign guard).
 - **Browser checks**, run by hand: `node packages/tess-workers/test/browser-check.ts` and `node packages/tess-cache/test/browser-check.ts` serve the sources and run the pool's and IndexedDB's scenarios in headless Chrome.
@@ -796,10 +808,10 @@ They need the [test corpus](#test-corpus) (and some the backends built or the su
 **Export**
 
 - `export_view.ts` checks the export view against `partInstances` for every file: each drawable part instance once at its path, world transforms with the mesh's origin, visibility, default materials, every triangle with the material the scene resolves for its face, equal instances sharing a look. About 3 min: `node corpus_checks/export_view.ts test_corpus/files.txt 1000`
-- `threejs_corpus.ts` exports every file to three.js JSON with edges and curves, loads it with `THREE.ObjectLoader` and compares it with the export view: objects in tree order, world matrices, index counts, every triangle's colour and opacity. About 3.5 min: `node --max-old-space-size=8192 corpus_checks/threejs_corpus.ts test_corpus/files.txt 1000`
-- `gltf_corpus.ts` exports every file as GLB with edges, curves and hidden instances, validates it with the Khronos glTF-Validator (errors are problems), reads it back with glTF-Transform and compares it with the export view: a node per placed part in tree order, visibility, world matrices, triangles and colours, one mesh per look. About 7 min: `node --max-old-space-size=8192 corpus_checks/gltf_corpus.ts test_corpus/files.txt 1000`
+- `threejs_corpus.ts` exports every file to three.js JSON with edges, curves and extras, loads it with `THREE.ObjectLoader` and compares it with the export view: objects in tree order, world matrices, index counts, every triangle's colour and opacity. About 3.5 min: `node --max-old-space-size=8192 corpus_checks/threejs_corpus.ts test_corpus/files.txt 1000`
+- `gltf_corpus.ts` exports every file as GLB with edges, curves, hidden instances and extras, uncompressed, validates it with the Khronos glTF-Validator (errors are problems), reads it back with glTF-Transform and compares it with the export view: a node per placed part in tree order, visibility, world matrices, triangles and colours, one mesh per look. It also writes each file with Draco and with meshopt and compares the decoded triangles with the view, face by face (Draco's by `_FACE`, meshopt's by range) within what quantization allows, and every line and point vertex. About 4 min: `node --max-old-space-size=8192 corpus_checks/gltf_corpus.ts test_corpus/files.txt 1000`
 - `threemf_corpus.ts` exports every file as 3MF (open meshes as surfaces, hidden instances kept), reads it back with lib3mf in strict mode and compares it with the export view: an item per placed part at its world transform, each object's type against lib3mf's manifold check and its volume's sign, every triangle's corners and colour; and the assembly form composed to the same objects and transforms. About 5.5 min: `node --max-old-space-size=8192 corpus_checks/threemf_corpus.ts test_corpus/files.txt 1000`
-- `stepconv_corpus.ts` runs `stepconv` with its defaults on every file in each format, in process, and spawns the command for a sample (third argument, default 20 files), reading each output back with its format's tools and comparing it with the export view; the command's outputs must be byte-identical to the in-process ones. About 20 min: `node --max-old-space-size=8192 corpus_checks/stepconv_corpus.ts test_corpus/files.txt 1000`
+- `stepconv_corpus.ts` runs `stepconv` with its defaults on every file in each format, in process, and spawns the command for a sample (third argument, default 20 files), reading each output back with its format's tools (glTF through the Draco decoder) and comparing it with the export view (part names and triangle counts in tree order, and no extras); the command's outputs must be byte-identical to the in-process ones. About 20 min: `node --max-old-space-size=8192 corpus_checks/stepconv_corpus.ts test_corpus/files.txt 1000`
 
 ## Roadmap
 
@@ -842,7 +854,7 @@ Known work not yet scheduled; the detail behind each is in `CLAUDE.md`.
 
 **Export**
 
-- Draco or meshopt compression and `EXT_mesh_gpu_instancing` for glTF; the 3MF Production extension.
+- `EXT_mesh_gpu_instancing` for glTF; the 3MF Production extension.
 - Exporting STL and OBJ (the mesh helpers are there).
 
 **Open questions**

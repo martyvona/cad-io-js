@@ -63,7 +63,7 @@ const byName = (root: THREE.Object3D, name: string) => { const out: THREE.Object
 test('three.js JSON loads with ObjectLoader: tree, transforms, shared geometry, materials, userData', () => {
   const s = scene();
   const view = exportView(s, meshes());
-  const root = load(threejsJson(s, view, { name: 'model' }));
+  const root = load(threejsJson(s, view, { name: 'model', extras: true }));
   root.updateMatrixWorld(true);
   assert.equal(root.name, 'model');
   assert.deepEqual(root.userData, { unit: 'millimetre', properties: { schema: 'AP214' } });
@@ -110,7 +110,8 @@ test('edges and curves on request; edge kinds; hidden instances; colours', () =>
   const s = scene();
   s.overrides.push({ path: [0, 0], visible: false, sources: [] });
   const view = exportView(s, meshes(), { edges: true, curves: true });
-  const root = load(threejsJson(s, view, { doubleSided: true, defaultColor: [0, 0.5, 1], edgeColor: [0.2, 0.2, 0.2] }));
+  const root = load(threejsJson(s, view, { doubleSided: true, defaultColor: [0, 0.5, 1], edgeColor: [0.2, 0.2, 0.2],
+    extras: true }));
   const [p0, p1] = byName(root, 'plate') as THREE.Mesh[];
   assert.equal(p0!.visible, false);
   assert.equal(p1!.visible, true);
@@ -122,7 +123,7 @@ test('edges and curves on request; edge kinds; hidden instances; colours', () =>
   assert.deepEqual(edges.userData, { edges: [{ source: 4, start: 0, count: 2, kind: 'shared', dihedral: 0.5 }] });
   assert.equal((edges.material as THREE.LineBasicMaterial).color.getHexString(), '333333');
   // All kinds on request: the seam's three points become two segments.
-  const all = load(threejsJson(s, view, { edgeKinds: ['shared', 'seam'] }));
+  const all = load(threejsJson(s, view, { edgeKinds: ['shared', 'seam'], extras: true }));
   const allEdges = (byName(all, 'plate')[0]!.children.find((c) => c.name === 'edges') as THREE.LineSegments);
   assert.deepEqual(Array.from(allEdges.geometry.index!.array), [0, 1, 2, 3, 3, 4]);
   assert.deepEqual(allEdges.userData.edges.map(
@@ -144,6 +145,21 @@ test('edges and curves on request; edge kinds; hidden instances; colours', () =>
   // The second instance's wireframe is red by the override.
   const w1 = byName(root, 'wire')[1]!.children.find((c) => c.name === 'curves') as THREE.LineSegments;
   assert.equal((w1.material as THREE.LineBasicMaterial).color.getHexString(), 'ff0000');
+});
+
+test('without extras (the default): no userData anywhere, the same objects, geometries and materials', () => {
+  const s = scene();
+  const view = exportView(s, meshes(), { edges: true, curves: true });
+  const plain = JSON.parse(threejsJson(s, view));
+  assert.equal(JSON.stringify(plain).includes('"userData"'), false);
+  // The same document as with extras, once its userData is taken out.
+  const strip = (o: unknown): unknown => Array.isArray(o) ? o.map(strip) : o && typeof o === 'object'
+    ? Object.fromEntries(Object.entries(o).filter(([k]) => k !== 'userData').map(([k, v]) => [k, strip(v)])) : o;
+  const full = JSON.parse(threejsJson(s, view, { extras: true }));
+  assert.ok(JSON.stringify(full).includes('"userData"'));
+  assert.deepEqual(plain, strip(full));
+  const root = load(JSON.stringify(plain));
+  root.traverse((o) => assert.deepEqual(o.userData, {}));
 });
 
 test('chunks: one document, deterministic, large arrays split', () => {

@@ -9,14 +9,25 @@
 //   - its triangles and, per triangle, its material's base colour (linear) and alpha equal the look's groups';
 //   - one faces' mesh per look; edges, curves and points in child nodes (identity transforms) with meshes of their
 //     own, segment and point counts.
-// Prints the GLB size and export and validation times. Usage:
+// That GLB is uncompressed, with extras. The same view is also written with Draco and with meshopt (both with
+// extras), read back with their decoders, and compared with the view in world coordinates (2026-10-24):
+//   - per placed part, its triangle primitives' count and per primitive its triangles;
+//   - per face (Draco: by its _FACE vertex attribute, all three corners agreeing; meshopt: by its index range), its
+//     triangles, their total area and the mean of their centroids, within what quantization allows (Draco: 14 bits
+//     over the extent of the part mesh's vertex array, which glTF-Transform hands Draco whole for each primitive;
+//     meshopt: 16 bits over the part mesh's extent, every position, the edges' too);
+//   - edges, curves and points: each vertex in place (meshopt, within its 16 bits; Draco leaves them exact).
+// Prints the GLB sizes and export and validation times. Usage:
 //   node corpus_checks/gltf_corpus.ts [file-list.txt] [max MB, default 2]  (progress on standard error)
 import fs from 'node:fs';
 import os from 'node:os';
 import { WebIO, type Node } from '@gltf-transform/core';
-import { KHRMaterialsUnlit, KHRNodeVisibility } from '@gltf-transform/extensions';
+import { EXTMeshoptCompression, KHRDracoMeshCompression, KHRMaterialsUnlit, KHRMeshQuantization,
+  KHRNodeVisibility } from '@gltf-transform/extensions';
+import draco3d from 'draco3dgltf';
 import validator from 'gltf-validator';
-import { exportView, identity, multiply, tessellateScene, type ExportNode,
+import { MeshoptDecoder } from 'meshoptimizer';
+import { exportView, identity, multiply, tessellateScene, type ExportNode, type Look,
   type Mat4 } from '../packages/cad-scene/src/index.ts';
 import { glb } from '../packages/export-gltf/src/index.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
@@ -30,6 +41,75 @@ const tess = new WorkerTessellator(
 await tess.init();
 const maxBytes = Number(process.argv[3] ?? 2) * 1e6;
 const io = new WebIO().registerExtensions([KHRMaterialsUnlit, KHRNodeVisibility]);
+await MeshoptDecoder.ready;
+const decoding = new WebIO().registerExtensions([KHRMaterialsUnlit, KHRNodeVisibility, KHRDracoMeshCompression,
+  EXTMeshoptCompression, KHRMeshQuantization]).registerDependencies({
+  'draco3d.decoder': await draco3d.createDecoderModule(), 'meshopt.decoder': MeshoptDecoder });
+type V3 = [number, number, number];
+const apply = (m: ArrayLike<number>, p: ArrayLike<number>): V3 => [0, 1, 2].map(
+  (r) => m[r]! * p[0]! + m[4 + r]! * p[1]! + m[8 + r]! * p[2]! + m[12 + r]!) as V3;
+/** The largest factor by which a matrix stretches a length. */
+const stretch = (m: ArrayLike<number>) => Math.max(...[0, 4, 8].map((c) => Math.hypot(m[c]!, m[c + 1]!, m[c + 2]!)));
+/** A face's triangles, as world corners: their count, total area, perimeter and the mean of their centroids. */
+interface FaceStat { n: number; area: number; perimeter: number; centroid: V3 }
+function faceStat(tris: V3[][]): FaceStat {
+  let area = 0, perimeter = 0;
+  const c: V3 = [0, 0, 0];
+  for (const [a, b, d] of tris) {
+    const u = [b![0] - a![0], b![1] - a![1], b![2] - a![2]], v = [d![0] - a![0], d![1] - a![1], d![2] - a![2]];
+    area += Math.hypot(u[1]! * v[2]! - u[2]! * v[1]!, u[2]! * v[0]! - u[0]! * v[2]!, u[0]! * v[1]! - u[1]! * v[0]!) / 2;
+    perimeter += Math.hypot(...u) + Math.hypot(...v) + Math.hypot(d![0] - b![0], d![1] - b![1], d![2] - b![2]);
+    for (let k = 0; k < 3; k++) c[k] += (a![k]! + b![k]! + d![k]!) / 3 / tris.length;
+  }
+  return { n: tris.length, area, perimeter, centroid: c };
+}
+/**
+ * Whether two faces' statistics agree when every corner may have moved by up to `delta` (world units): moving one
+ * corner by delta changes a triangle's area by at most delta times the opposite edge's length over 2, so a face's
+ * by at most delta times its perimeter (and a little second order), and the centroids' mean by at most delta.
+ */
+function sameFace(got: FaceStat, want: FaceStat, delta: number): string | undefined {
+  if (got.n !== want.n) return `${got.n} triangles, expected ${want.n}`;
+  const eps = 1e-12 * Math.max(1, ...want.centroid.map(Math.abs));
+  if (Math.abs(got.area - want.area) > delta * want.perimeter + 3 * want.n * delta * delta + eps * want.perimeter) {
+    return `area ${got.area}, expected ${want.area}`;
+  }
+  const d = Math.hypot(...got.centroid.map((x, k) => x - want.centroid[k]!));
+  if (d > delta + eps) return `centroid off by ${d.toPrecision(3)} (allowed ${delta.toPrecision(3)})`;
+  return undefined;
+}
+/** The view's faces of a group as world triangles (with `world` the placed part's world matrix). */
+function expectedFaces(look: Look, g: Look['groups'][number], world: Mat4): FaceStat[] {
+  const pos = look.mesh.positions;
+  const corner = (v: number) => apply(world, pos.subarray(3 * v, 3 * v + 3));
+  return look.faces.filter((f) => f.start >= g.start && f.start < g.start + g.count).map((f) => {
+    const tris: V3[][] = [];
+    for (let i = f.start; i < f.start + f.count; i += 3) tris.push(
+      [corner(look.indices[i]!), corner(look.indices[i + 1]!), corner(look.indices[i + 2]!)]);
+    return faceStat(tris);
+  });
+}
+/** A part mesh's faces' extent in its units (the largest of its vertices' ranges along an axis). */
+function faceExtent(look: Look): number {
+  const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+  const a = look.mesh.positions;
+  for (let i = 0; i < a.length; i++) {
+    lo[i % 3] = Math.min(lo[i % 3]!, a[i]!);
+    hi[i % 3] = Math.max(hi[i % 3]!, a[i]!);
+  }
+  return Math.max(...[0, 1, 2].map((k) => hi[k]! - lo[k]!));
+}
+/** A part mesh's extent over every position it has, faces, edges, curves and points (meshopt's volume). */
+function meshExtent(look: Look): number {
+  const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+  const m = look.mesh;
+  for (const a of [m.positions, m.edgePositions, m.curvePositions, m.points]) {
+    if (a) for (let i = 0; i < a.length; i++) { lo[i % 3] = Math.min(lo[i % 3]!, a[i]!);
+      hi[i % 3] = Math.max(hi[i % 3]!, a[i]!); }
+  }
+  return Math.max(...[0, 1, 2].map((k) => hi[k]! - lo[k]!));
+}
+const compressedTotals = { draco: { bytes: 0, ms: 0, faces: 0 }, meshopt: { bytes: 0, ms: 0, faces: 0 } };
 
 // The expectations, written out here rather than taken from the exporter: millimetres to metres and Z up to Y up
 // ((x, y, z) -> (x, z, -y)), and the sRGB transfer function.
@@ -37,7 +117,7 @@ const ROOT: Mat4 = Float64Array.of(0.001, 0, 0, 0, 0, 0, -0.001, 0, 0, 0.001, 0,
 const linear = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
 
 const totals = { files: 0, skipped: 0, nodes: 0, hidden: 0, meshes: 0, primitives: 0, triangles: 0, segments: 0,
-  points: 0, bytes: 0, exportMs: 0, validateMs: 0, problems: 0 };
+  points: 0, bytes: 0, exportMs: 0, validateMs: 0, problems: 0, lineVertices: 0 };
 const issues = new Map<string, { n: number; files: Set<string>; example: string }>();
 const problems: string[] = [];
 const biggest: [number, string, number][] = [];
@@ -55,7 +135,7 @@ for (const f of corpusFiles(process.argv[2])) {
   const view = exportView(scene, meshes, { edges: true, curves: true });
 
   const te = performance.now();
-  const out = await glb(scene, view, { hidden: 'extension' });
+  const out = await glb(scene, view, { hidden: 'extension', compression: 'none', extras: true });
   const ms = performance.now() - te;
   totals.exportMs += ms;
   totals.bytes += out.bytes.length;
@@ -152,6 +232,93 @@ for (const f of corpusFiles(process.argv[2])) {
   totals.meshes += meshesSeen.size;
   const looksUsed = new Set(expected.filter((e) => view.looks[e.look]!.groups.length).map((e) => e.look));
   if (meshesSeen.size > looksUsed.size) problem(`${meshesSeen.size} meshes for ${looksUsed.size} looks`);
+
+  // Compressed, read back with the decoders.
+  for (const compression of ['draco', 'meshopt'] as const) {
+    const cp = (msg: string) => problem(`${compression}: ${msg}`);
+    const tc = performance.now();
+    let bytes: Uint8Array;
+    try {
+      bytes = (await glb(scene, view, { hidden: 'extension', compression, extras: true })).bytes;
+    } catch (e) { cp(`export: ${(e as Error).message}`); continue; }
+    compressedTotals[compression].ms += performance.now() - tc;
+    compressedTotals[compression].bytes += bytes.length;
+    const cdoc = await decoding.readBinary(bytes);
+    const parts: { node: Node; world: Mat4 }[] = [];
+    const walkNodes = (n: Node, parent: Mat4) => {
+      const world = multiply(parent, Float64Array.from(n.getMatrix()));
+      if ((n.getExtras() as { part?: number }).part !== undefined) parts.push({ node: n, world });
+      for (const c of n.listChildren()) walkNodes(c, world);
+    };
+    for (const sc of cdoc.getRoot().listScenes()) for (const n of sc.listChildren()) walkNodes(n, identity());
+    if (parts.length !== expected.length) { cp(`${parts.length} part nodes, expected ${expected.length}`); continue; }
+    parts.forEach(({ node, world }, k) => {
+      const e = expected[k]!;
+      const look = view.looks[e.look]!;
+      const where = `node ${k} (part ${look.part})`;
+      const tris = (node.getMesh()?.listPrimitives() ?? []).filter((p) => p.getMode() === 4);
+      if (tris.length !== look.groups.length) { cp(`${where}: ${tris.length} triangle primitives, expected `
+        + `${look.groups.length}`); return; }
+      const s = stretch(e.world);
+      const volumeStep = meshExtent(look) / 2 / 32767; // meshopt's step in the mesh's units
+      tris.forEach((p, g) => {
+        const group = look.groups[g]!;
+        const want = expectedFaces(look, group, e.world);
+        const step = compression === 'draco' ? faceExtent(look) / (2 ** 14 - 1) : volumeStep;
+        const delta = (step / 2) * Math.sqrt(3) * s * 1.0001;
+        const pos = p.getAttribute('POSITION')!, ix = p.getIndices()!;
+        const e3 = [0, 0, 0];
+        const corner = (v: number) => apply(world, pos.getElement(v, e3));
+        const got: V3[][][] = want.map(() => []);
+        if (compression === 'draco') {
+          const fa = p.getAttribute('_FACE');
+          if (!fa) { cp(`${where} group ${g}: no _FACE`); return; }
+          for (let i = 0; i < ix.getCount(); i += 3) {
+            const [a, b, c] = [ix.getScalar(i), ix.getScalar(i + 1), ix.getScalar(i + 2)];
+            const j = fa.getScalar(a);
+            if (fa.getScalar(b) !== j || fa.getScalar(c) !== j) { cp(`${where} group ${g}: a triangle's corners `
+              + 'in different faces'); return; }
+            if (!(j < want.length)) { cp(`${where} group ${g}: _FACE ${j} of ${want.length} faces`); return; }
+            got[j]!.push([corner(a), corner(b), corner(c)]);
+          }
+        } else {
+          const ranges = (p.getExtras() as { faces: { start: number; count: number }[] }).faces;
+          if (ranges.length !== want.length) { cp(`${where} group ${g}: ${ranges.length} faces`); return; }
+          ranges.forEach((f, j) => {
+            for (let i = f.start; i < f.start + f.count; i += 3) got[j]!.push(
+              [corner(ix.getScalar(i)), corner(ix.getScalar(i + 1)), corner(ix.getScalar(i + 2))]);
+          });
+        }
+        want.forEach((w, j) => {
+          const bad = sameFace(faceStat(got[j]!), w, delta);
+          if (bad) cp(`${where} group ${g} face ${j}: ${bad}`);
+        });
+        compressedTotals[compression].faces += want.length;
+      });
+      // Lines and points: vertex for vertex.
+      for (const c of node.listChildren()) {
+        const what = c.getName() as 'edges' | 'curves' | 'points';
+        const src = what === 'edges' ? look.mesh.edgePositions : what === 'curves' ? look.mesh.curvePositions
+          : look.mesh.points;
+        const p = c.getMesh()?.listPrimitives()[0];
+        if (!src || !p) { cp(`${where}: ${what} missing`); continue; }
+        const cw = multiply(world, Float64Array.from(c.getMatrix()));
+        const pos = p.getAttribute('POSITION')!;
+        if (pos.getCount() !== src.length / 3) { cp(`${where}: ${what} vertex count`); continue; }
+        let big = 1;
+        for (const x of src) big = Math.max(big, Math.abs(x));
+        // (Rounding in the matrices, a little; a lone point's volume has no extent, so quantization adds nothing.)
+        const delta = 1e-12 * s * big + (compression === 'draco' ? 0 : (volumeStep / 2) * Math.sqrt(3) * s * 1.0001);
+        const e3 = [0, 0, 0];
+        for (let v = 0; v < pos.getCount(); v++) {
+          const a = apply(cw, pos.getElement(v, e3)), b = apply(e.world, src.subarray(3 * v, 3 * v + 3));
+          const d = Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+          if (d > delta) { cp(`${where}: ${what} vertex ${v} off by ${d.toPrecision(3)}`); break; }
+        }
+        if (compression === 'meshopt') totals.lineVertices += pos.getCount();
+      }
+    });
+  }
 }
 tess.dispose();
 
@@ -162,6 +329,9 @@ console.log(`part nodes ${totals.nodes} (${totals.hidden} hidden), meshes ${tota
   + `${totals.primitives}, triangles ${totals.triangles}, segments ${totals.segments}, points ${totals.points}`);
 console.log(`GLB ${mb(totals.bytes)} MB; export ${(totals.exportMs / 1000).toFixed(2)} s; validation `
   + `${(totals.validateMs / 1000).toFixed(2)} s`);
+for (const [c, t] of Object.entries(compressedTotals)) console.log(`${c}: ${mb(t.bytes)} MB `
+  + `(${(100 * t.bytes / totals.bytes).toFixed(1)}%), export ${(t.ms / 1000).toFixed(2)} s; faces checked ${t.faces}`
+  + `${c === 'meshopt' ? `, line and point vertices ${totals.lineVertices}` : ''}`);
 console.log('largest:');
 for (const [n, f, ms] of biggest.sort((a, b) => b[0] - a[0]).slice(0, 5)) console.log(
   `  ${mb(n)} MB, ${(ms / 1000).toFixed(1)} s  ${f}`);

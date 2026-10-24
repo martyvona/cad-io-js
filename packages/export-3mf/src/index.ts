@@ -8,9 +8,10 @@
 //     scale and place them (`unit="millimeter"`). A mesh that isn't a closed, oriented manifold of positive volume
 //     (what a `model` object must be) is left out with a warning, or written as a `surface` object (CLAUDE.md,
 //     "Decisions").
-//   build: an item per placed part at its world transform, its path in the instance tree in its metadata (decided
-//     by the user, 2026-10-21); or (`build: 'assembly'`) one item, an object whose components follow the instance
-//     tree, identical subtrees shared.
+//   build: an item per placed part at its world transform, its path in the instance tree as its part number and, on
+//     request (`extras`), its names in our metadata (decided by the user, 2026-10-21; extras 2026-10-24); or
+//     (`build: 'assembly'`) one item, an object whose components follow the instance tree, identical subtrees
+//     shared.
 //   colours: one basematerials group (sRGB displaycolor with alpha), or (`colors: 'colorgroup'`) the Materials and
 //     Properties extension's colorgroup (opaque), declared but not required (decided by the user, 2026-10-21).
 //
@@ -34,6 +35,8 @@ export interface ThreeMfOptions {
   nonManifold?: 'omit' | 'surface';
   /** Hidden part instances: left out (default), or written as ordinary parts. */
   hidden?: 'omit' | 'keep';
+  /** Our metadata: each item's path of names (`cadio:path`). Default false: other systems don't read it. */
+  extras?: boolean;
 }
 
 export interface ThreeMfResult {
@@ -180,9 +183,10 @@ class Writer {
     for (const r of this.view.roots) walk(r, identity(), []);
 
     const colorgroup = this.opts.colors === 'colorgroup';
+    const extras = this.opts.extras ?? false;
     const model = new ModelStream(zip);
     model.push(`<?xml version="1.0" encoding="UTF-8"?>\n<model unit="millimeter" xml:lang="und" xmlns="${CORE}"`
-      + `${colorgroup ? ` xmlns:m="${MATERIAL}"` : ''} xmlns:cadio="${METADATA_NAMESPACE}">\n`);
+      + `${colorgroup ? ` xmlns:m="${MATERIAL}"` : ''}${extras ? ` xmlns:cadio="${METADATA_NAMESPACE}"` : ''}>\n`);
     if (this.opts.name) model.push(`<metadata name="Title">${xmlText(this.opts.name, true)}</metadata>\n`);
     model.push('<metadata name="Application">cad-io-js export-3mf</metadata>\n<resources>\n');
 
@@ -209,8 +213,8 @@ class Writer {
         const names = [...p.names, this.scene.parts[this.view.looks[p.look]!.part]!.name];
         const transform = isIdentity(p.world) ? '' : ` transform="${transformText(p.world)}"`;
         items.push(`<item objectid="${this.lookObjects.get(p.look)}"${transform}`
-          + ` partnumber="${xmlText(`${p.node.path.join('.')}:${p.index}`)}"><metadatagroup><metadata `
-            + `name="cadio:path">${xmlText(names.join(' / '), true)}</metadata></metadatagroup></item>\n`);
+          + ` partnumber="${xmlText(`${p.node.path.join('.')}:${p.index}`)}"${extras ? `><metadatagroup><metadata `
+            + `name="cadio:path">${xmlText(names.join(' / '), true)}</metadata></metadatagroup></item>` : '/>'}\n`);
       }
     }
     model.push('</resources>\n<build>\n');

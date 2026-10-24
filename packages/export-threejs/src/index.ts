@@ -6,7 +6,8 @@
 //     children are its B-rep edges (LineSegments), wireframe curves (LineSegments) and points (Points).
 //   geometries: one per distinct mesh and grouping, shared by every instance; groups index the Mesh's material array.
 //   materials: one per scene material and kind (MeshStandardMaterial, LineBasicMaterial, PointsMaterial).
-//   userData: names, source ids and properties; per Mesh its faces' sources as index ranges, for picking.
+//   userData (on request): source ids, properties and parts; per Mesh its faces' sources as index ranges, for
+//     picking; the root's unit.
 //
 // Lengths are millimetres (the scene's unit) and axes as in the source (CAD files are usually Z-up). Format 4 holds
 // numbers as JSON arrays, so output is produced in chunks: a large model's JSON can exceed V8's maximum string length.
@@ -26,6 +27,11 @@ export interface ThreejsOptions {
   doubleSided?: boolean;
   /** Name of the root object. */
   name?: string;
+  /**
+   * Our userData: source ids, properties and parts on objects, scene material indices on materials, face, edge, curve
+   * and point sources, and the root's unit. Default false: other systems don't read them (the user, 2026-10-24).
+   */
+  extras?: boolean;
 }
 
 const DOUBLE_SIDE = 2; // THREE.DoubleSide
@@ -130,6 +136,7 @@ class Writer {
   private readonly scene: Scene;
   private readonly view: ExportView;
   private readonly opts: ThreejsOptions;
+  private readonly extras: boolean;
 
   constructor(scene: Scene, view: ExportView, opts: ThreejsOptions) {
     this.scene = scene;
@@ -138,6 +145,7 @@ class Writer {
     this.defaultColor = opts.defaultColor ?? [0.8, 0.8, 0.8];
     this.edgeColor = opts.edgeColor ?? [0, 0, 0];
     this.edgeKinds = new Set(opts.edgeKinds ?? ['shared', 'free']);
+    this.extras = opts.extras ?? false;
   }
 
   /** Deterministic uuids, so the same scene gives the same file. */
@@ -163,7 +171,7 @@ class Writer {
     if (opacity < 1) { json.opacity = opacity; json.transparent = true; }
     if (kind === 'mesh' && this.opts.doubleSided) json.side = DOUBLE_SIDE;
     if (kind === 'points') { json.size = 4; json.sizeAttenuation = false; }
-    if (material !== undefined) json.userData = { material };
+    if (material !== undefined && this.extras) json.userData = { material };
     this.materials.push(json);
     return id;
   }
@@ -241,7 +249,7 @@ class Writer {
       const material = what === 'edges' ? this.material('line', undefined, this.edgeColor) : this.material(
         what === 'points' ? 'points' : 'line', look.material);
       children.push({ uuid: this.uuid(), type: what === 'points' ? 'Points' : 'LineSegments', name: what,
-        geometry: g.uuid, material, userData: g.userData });
+        geometry: g.uuid, material, ...(this.extras ? { userData: g.userData } : {}) });
     };
     if (look.edges) lines('edges');
     if (look.curves && look.mesh.curves?.length) lines('curves');
@@ -257,7 +265,7 @@ class Writer {
       userData.faces = look.faces.map((f) => ({ source: f.source, start: f.start, count: f.count }));
     }
     if (!p.visible) o.visible = false;
-    o.userData = userData;
+    if (this.extras) o.userData = userData;
     if (children.length) o.children = children;
     return o;
   }
@@ -269,17 +277,16 @@ class Writer {
     if (comp.external) userData.external = { uri: comp.external.uri,
       ...(comp.external.format ? { format: comp.external.format } : {}) };
     const children = [...n.parts.map((p) => this.part(p)), ...n.children.map((c) => this.node(c))];
-    const o: Json = { uuid: this.uuid(), type: 'Group', name: n.name, matrix: matrix(n.transform), userData };
+    const o: Json = { uuid: this.uuid(), type: 'Group', name: n.name, matrix: matrix(n.transform),
+      ...(this.extras ? { userData } : {}) };
     if (children.length) o.children = children;
     return o;
   }
 
   root(): Json {
-    const o: Json = {
-      uuid: this.uuid(), type: 'Group', name: this.opts.name ?? '',
-      userData: { unit: 'millimetre',
-        ...(Object.keys(this.scene.properties).length ? { properties: this.scene.properties } : {}) },
-    };
+    const o: Json = { uuid: this.uuid(), type: 'Group', name: this.opts.name ?? '' };
+    if (this.extras) o.userData = { unit: 'millimetre',
+      ...(Object.keys(this.scene.properties).length ? { properties: this.scene.properties } : {}) };
     const children = this.view.roots.map((n) => this.node(n));
     if (children.length) o.children = children;
     return o;

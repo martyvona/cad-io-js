@@ -1,10 +1,21 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { WebIO, type Node, type Primitive } from '@gltf-transform/core';
-import { KHRMaterialsUnlit, KHRNodeVisibility } from '@gltf-transform/extensions';
+import { EXTMeshoptCompression, KHRDracoMeshCompression, KHRMaterialsUnlit, KHRMeshQuantization,
+  KHRNodeVisibility } from '@gltf-transform/extensions';
+import draco3d from 'draco3dgltf';
 import validator from 'gltf-validator';
-import { exportView, identity, multiply, scaling, type Mat4, type Mesh, type Scene } from 'cad-scene';
-import { base64, glb, gltfJson, ROOT_TRANSFORM, srgbToLinear } from '../src/index.ts';
+import { MeshoptDecoder, MeshoptEncoder } from 'meshoptimizer';
+import { exportView, identity, multiply, scaling, type ExportView, type Mat4, type Mesh,
+  type Scene } from 'cad-scene';
+import { base64, glb as glbOf, gltfJson as gltfJsonOf, GltfError, MAX_DRACO_FACES, reorderWithinFaces,
+  ROOT_TRANSFORM, srgbToLinear, type GltfOptions } from '../src/index.ts';
+
+// Most tests check the structure: uncompressed, with extras (the defaults, compressed and without, are tested last).
+const PLAIN: GltfOptions = { compression: 'none', extras: true };
+const glb = (s: Scene, v: ExportView, o: GltfOptions = {}) => glbOf(s, v, { ...PLAIN, ...o });
+const gltfJson = (s: Scene, v: ExportView, bin: string | undefined, o: GltfOptions = {}) => gltfJsonOf(s, v, bin,
+  { ...PLAIN, ...o });
 
 const translation = (x: number, y: number, z: number): Mat4 => {
   const m = identity();
@@ -328,4 +339,260 @@ test('srgbToLinear: the sRGB transfer function, clamped', () => {
   assert.equal(srgbToLinear(0.04045), 0.04045 / 12.92);
   assert.ok(Math.abs(srgbToLinear(0.5) - 0.21404114) < 1e-8);
   assert.deepEqual([srgbToLinear(-1), srgbToLinear(2)], [0, 1]);
+});
+
+// Compressed output, read back with the decoders.
+await MeshoptDecoder.ready;
+await MeshoptEncoder.ready;
+const decoding = new WebIO().registerExtensions([KHRMaterialsUnlit, KHRNodeVisibility, KHRDracoMeshCompression,
+  EXTMeshoptCompression, KHRMeshQuantization]).registerDependencies({
+  'draco3d.decoder': await draco3d.createDecoderModule(), 'meshopt.decoder': MeshoptDecoder });
+
+type Tri = number[]; // nine world coordinates, metres
+/** A primitive's triangles (mode 4) in world coordinates, each with the vertex numbers it came from. */
+function worldTriangles(node: Node, p: Primitive): { tri: Tri; v: number[] }[] {
+  const m = node.getWorldMatrix(), pos = p.getAttribute('POSITION')!, ix = p.getIndices()!;
+  const out: { tri: Tri; v: number[] }[] = [];
+  const e = [0, 0, 0];
+  for (let i = 0; i < ix.getCount(); i += 3) {
+    const tri: Tri = [], v: number[] = [];
+    for (let k = 0; k < 3; k++) {
+      v.push(ix.getScalar(i + k));
+      pos.getElement(ix.getScalar(i + k), e);
+      for (let r = 0; r < 3; r++) tri.push(m[r]! * e[0]! + m[4 + r]! * e[1]! + m[8 + r]! * e[2]! + m[12 + r]!);
+    }
+    out.push({ tri, v });
+  }
+  return out;
+}
+/** The same triangles, each in its winding (a cyclic shift allowed), within `eps`; matched one to one. */
+function sameTriangles(a: Tri[], b: Tri[], eps: number): boolean {
+  if (a.length !== b.length) return false;
+  const left = [...b];
+  const near = (x: Tri, y: Tri) => [0, 3, 6].some((s) => x.every((c, i) => Math.abs(c - y[(i + s) % 9]!) <= eps));
+  return a.every((t) => { const j = left.findIndex((u) => near(t, u)); return j >= 0 && !!left.splice(j, 1); });
+}
+const plainTriangles = async (s: Scene, v: ExportView, part: string) => {
+  const doc = await io.readBinary((await glb(s, v)).bytes);
+  return byName(doc.getRoot().listNodes(), part).map((n) => n.getMesh()!.listPrimitives().map(
+    (p) => ({ p, tris: worldTriangles(n, p) })));
+};
+/** Every "extras" key in a glTF JSON. */
+const extrasIn = (json: unknown): number => JSON.stringify(json).split('"extras"').length - 1;
+
+test('the defaults: Draco, no extras; triangles within 14 bits of the part mesh\'s extent; lines uncompressed',
+  async () => {
+  const s = scene();
+  const view = exportView(s, meshes(), { edges: true, curves: true });
+  const out = await glbOf(s, view);
+  const json = (await decoding.binaryToJSON(out.bytes)).json;
+  assert.deepEqual([json.extensionsUsed, json.extensionsRequired],
+    [['KHR_draco_mesh_compression'], ['KHR_draco_mesh_compression']]);
+  assert.equal(extrasIn(json), 0);
+  // The validator knows no Draco: it says so, checks the rest, and sees the three primitives' compressed data as
+  // buffer views nothing uses.
+  assert.deepEqual(await issues(out.bytes), ['UNSUPPORTED_EXTENSION /extensionsUsed/0', 'UNUSED_OBJECT /bufferViews/4',
+    'UNUSED_OBJECT /bufferViews/5', 'UNUSED_OBJECT /bufferViews/6']);
+  // Every triangle primitive compressed, no line or point primitive.
+  const prims = json.meshes!.flatMap((m) => m.primitives);
+  assert.deepEqual(prims.map((p) => [p.mode ?? 4, !!p.extensions?.KHR_draco_mesh_compression]),
+    // (the plate's first look, its edges, the wire's curves and points; the second look, the wire's in red)
+    [[4, true], [4, true], [1, false], [1, false], [0, false], [4, true], [1, false], [0, false]]);
+  const doc = await decoding.readBinary(out.bytes);
+  const expected = await plainTriangles(s, view, 'plate');
+  const plates = byName(doc.getRoot().listNodes(), 'plate');
+  // 14 bits over 1 inch (the plate's extent in its mesh's units), in metres: 1.6e-6 m.
+  plates.forEach((n, i) => n.getMesh()!.listPrimitives().forEach((p, g) => assert.ok(sameTriangles(
+    worldTriangles(n, p).map((t) => t.tri), expected[i]![g]!.tris.map((t) => t.tri), 2e-6), `plate ${i} group ${g}`)));
+  // Draco keeps only the vertices a primitive uses: 3 of the plate's 4 for its first face.
+  assert.equal(plates[0]!.getMesh()!.listPrimitives()[0]!.getAttribute('POSITION')!.getCount(), 3);
+  // Edges as they are, exactly.
+  assert.deepEqual(Array.from(linePrim(plates[0]!, 'edges').getAttribute('POSITION')!.getArray()!),
+    Array.from(plate().edgePositions!));
+  // Coarser quantization: errors beyond 2e-6 m on the second face (its corner at z = 0.1 off the 4-bit grid; the first
+  // face's corners are its bounding box's, exact at any bits).
+  const coarse = await decoding.readBinary((await glbOf(s, view, { dracoPositionBits: 4 })).bytes);
+  const n0 = byName(coarse.getRoot().listNodes(), 'plate')[0]!;
+  assert.ok(!sameTriangles(worldTriangles(n0, n0.getMesh()!.listPrimitives()[1]!).map((t) => t.tri),
+    expected[0]![1]!.tris.map((t) => t.tri), 2e-6));
+  // Deterministic.
+  assert.deepEqual((await glbOf(s, view)).bytes, out.bytes);
+});
+
+test('Draco with extras: faces by a _FACE vertex attribute, vertices two faces share copied; at most 65535 faces',
+  async () => {
+  const s = scene();
+  const view = exportView(s, meshes());
+  const out = await glbOf(s, view, { extras: true });
+  const doc = await decoding.readBinary(out.bytes);
+  const expected = await plainTriangles(s, view, 'plate');
+  const plates = byName(doc.getRoot().listNodes(), 'plate');
+  // Look 0: green face 8 and blue face 7 in two primitives; look 1: both red, in one, sharing vertices 0 and 2.
+  const faceSources = (n: Node) => n.getMesh()!.listPrimitives().map((p) => p.getExtras());
+  assert.deepEqual(plates.map(faceSources),
+    [[{ faces: [{ source: 8 }] }, { faces: [{ source: 7 }] }], [{ faces: [{ source: 8 }, { source: 7 }] }]]);
+  plates.forEach((n, i) => n.getMesh()!.listPrimitives().forEach((p, g) => {
+    const face = p.getAttribute('_FACE')!;
+    assert.ok(face.getArray() instanceof Uint16Array);
+    const faces = (p.getExtras() as { faces: unknown[] }).faces;
+    const got = worldTriangles(n, p);
+    // Each triangle's corners are of one face; per face, its triangles.
+    for (const t of got) assert.equal(new Set(t.v.map((v) => face.getScalar(v))).size, 1);
+    const plainP = expected[i]![g]!.p;
+    const ranges = (plainP.getExtras() as { faces: { start: number; count: number }[] }).faces;
+    faces.forEach((_, j) => assert.ok(sameTriangles(
+      got.filter((t) => face.getScalar(t.v[0]!) === j).map((t) => t.tri),
+      expected[i]![g]!.tris.slice(ranges[j]!.start / 3, (ranges[j]!.start + ranges[j]!.count) / 3).map((t) => t.tri),
+      2e-6), `plate ${i} group ${g} face ${j}`));
+  }));
+  // The shared primitive: 4 vertices, 0 and 2 copied for the second face.
+  assert.equal(plates[1]!.getMesh()!.listPrimitives()[0]!.getAttribute('POSITION')!.getCount(), 6);
+
+  // A primitive of MAX_DRACO_FACES one-triangle faces is written; one more is an error.
+  const many = (faces: number): Mesh => ({
+    origin: [0, 0, 0],
+    positions: Float32Array.from({ length: 9 * faces }, (_, i) => (i % 9 === 3 || i % 9 === 7 ? 1 : 0) + Math.floor(
+      i / 9) * (i % 3 === 2 ? 1 : 0)),
+    indices: Uint32Array.from({ length: 3 * faces }, (_, i) => i),
+    faces: Array.from({ length: faces }, (_, f) => ({ source: f + 1, start: 3 * f, count: 3 })),
+  });
+  const one = scene();
+  one.parts = [{ ...one.parts[0]!, material: undefined, faceMaterials: [] } as typeof one.parts[0]];
+  one.components[1]!.parts = [{ part: 0, transform: identity() }];
+  one.overrides = [];
+  const atLimit = await glbOf(one, exportView(one, new Map([[0, many(MAX_DRACO_FACES)]])), { extras: true });
+  assert.ok(atLimit.bytes.length > 0);
+  await assert.rejects(glbOf(one, exportView(one, new Map([[0, many(MAX_DRACO_FACES + 1)]])), { extras: true }),
+    (e: Error) => e instanceof GltfError && /65536 faces in one primitive/.test(e.message));
+  // Without extras, or with meshopt, no limit.
+  await glbOf(one, exportView(one, new Map([[0, many(MAX_DRACO_FACES + 1)]])));
+  assert.equal(MAX_DRACO_FACES, 65535);
+});
+
+test('meshopt: positions in 16 bits, faces reordered within their ranges, the volume in the part node', async () => {
+  const s = scene();
+  const view = exportView(s, meshes(), { edges: true, curves: true });
+  const out = await glbOf(s, view, { compression: 'meshopt', extras: true });
+  const json = (await decoding.binaryToJSON(out.bytes)).json;
+  assert.deepEqual([json.extensionsUsed!.sort(), json.extensionsRequired!.sort()],
+    [['EXT_meshopt_compression', 'KHR_mesh_quantization'], ['EXT_meshopt_compression', 'KHR_mesh_quantization']]);
+  const doc = await decoding.readBinary(out.bytes);
+  const expected = await plainTriangles(s, view, 'plate');
+  const plates = byName(doc.getRoot().listNodes(), 'plate');
+  plates.forEach((n, i) => n.getMesh()!.listPrimitives().forEach((p, g) => {
+    assert.ok(p.getAttribute('POSITION')!.getArray() instanceof Int16Array);
+    assert.equal(p.getAttribute('POSITION')!.getNormalized(), true);
+    // Each face range holds its own triangles (16 bits over an inch: 4e-7 m).
+    const got = worldTriangles(n, p);
+    const ranges = (p.getExtras() as { faces: { start: number; count: number }[] }).faces;
+    assert.deepEqual(ranges, (expected[i]![g]!.p.getExtras() as { faces: unknown[] }).faces);
+    for (const f of ranges) assert.ok(sameTriangles(got.slice(f.start / 3, (f.start + f.count) / 3).map((t) => t.tri),
+      expected[i]![g]!.tris.slice(f.start / 3, (f.start + f.count) / 3).map((t) => t.tri), 5e-7));
+  }));
+  // The edges child, quantized in the same volume, inherits the part node's scale and offset.
+  const plainDoc = await io.readBinary((await glb(s, view)).bytes);
+  const plainEdges = linePrim(byName(plainDoc.getRoot().listNodes(), 'plate')[0]!, 'edges');
+  const [e0, pe] = [child(plates[0]!, 'edges')!, child(byName(plainDoc.getRoot().listNodes(), 'plate')[0]!, 'edges')!];
+  const at = (n: Node, p: Primitive, i: number) => {
+    const e = p.getAttribute('POSITION')!.getElement(i, [0, 0, 0]), m = n.getWorldMatrix();
+    return [0, 1, 2].map((r) => m[r]! * e[0]! + m[4 + r]! * e[1]! + m[8 + r]! * e[2]! + m[12 + r]!);
+  };
+  for (let i = 0; i < plainEdges.getAttribute('POSITION')!.getCount(); i++) assert.ok(close(
+    at(e0, linePrim(plates[0]!, 'edges'), i), at(pe, plainEdges, i), 5e-6), `edge vertex ${i}`);
+  // The part node: its transform times the volume's (centre (1, 1, 1), half-width 1 over the plate's edges'
+  // positions, which reach (2, 2, 2)).
+  const plainPlate = byName(plainDoc.getRoot().listNodes(), 'plate')[0]!;
+  assert.ok(close(plates[0]!.getMatrix(), multiply(Float64Array.from(plainPlate.getMatrix()),
+    Float64Array.of(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 1, 1, 1)), 1e-12));
+  // Deterministic.
+  assert.deepEqual((await glbOf(s, view, { compression: 'meshopt', extras: true })).bytes, out.bytes);
+});
+
+test('meshopt: vertices renumbered with their normals, faces kept apart, the volume as tall as the mesh', async () => {
+  // Two faces, each a strip of four quads in the x-z plane (x 0 to 1, z 0 to 10: tallest in z), one above the other
+  // and sharing a row of vertices, in one group; vertices numbered backwards, so first use isn't their order;
+  // triangles scattered within each face; a vertex no triangle uses; each vertex its own normal.
+  const at = (i: number, j: number) => 14 - (j * 5 + i);
+  const positions = new Float32Array(16 * 3), normals = new Float32Array(16 * 3);
+  for (let j = 0; j < 3; j++) for (let i = 0; i < 5; i++) {
+    positions.set([i * 0.25, 0, j * 5], 3 * at(i, j));
+    const n = [i - 2, 1, j - 1], l = Math.hypot(...n);
+    normals.set(n.map((x) => x / l), 3 * at(i, j));
+  }
+  positions.set([0.5, 0.5, 5], 45);
+  normals.set([0, 1, 0], 45);
+  const face = (j: number) => {
+    const tris: number[][] = [];
+    for (let i = 0; i < 4; i++) tris.push([at(i, j), at(i + 1, j), at(i + 1, j + 1)], [at(i, j), at(i + 1, j + 1),
+      at(i, j + 1)]);
+    return Array.from({ length: 8 }, (_, k) => tris[(k * 3) % 8]!).flat();
+  };
+  const strip: Mesh = { origin: [0, 0, 0], positions, normals, indices: Uint32Array.from([...face(0), ...face(1)]),
+    faces: [{ source: 1, start: 0, count: 24 }, { source: 2, start: 24, count: 24 }] };
+  const one = scene();
+  one.parts = [{ ...one.parts[0]!, material: undefined, faceMaterials: [] } as typeof one.parts[0]];
+  one.components[1]!.parts = [{ part: 0, transform: identity() }];
+  one.overrides = [];
+  const view = exportView(one, new Map([[0, strip]]));
+  const doc = await decoding.readBinary((await glbOf(one, view, { compression: 'meshopt', extras: true })).bytes);
+  const node = byName(doc.getRoot().listNodes(), 'plate')[0]!;
+  const p = node.getMesh()!.listPrimitives()[0]!;
+  const want = (await plainTriangles(one, view, 'plate'))[0]![0]!.tris.map((t) => t.tri);
+  const got = worldTriangles(node, p);
+  // Each face's triangles in its range (16 bits over 10 inches: 4e-6 m).
+  for (const [s0, s1] of [[0, 8], [8, 16]] as const) assert.ok(sameTriangles(got.slice(s0, s1).map((t) => t.tri),
+    want.slice(s0, s1), 5e-6), `face ${s0 / 8}`);
+  // The vertices renumbered: by first use, so the first triangle's are 0, 1, 2 (they weren't); each with its normal
+  // (8-bit octahedral: within 0.02); the unused one kept, last.
+  assert.deepEqual(got[0]!.v, [0, 1, 2]);
+  const pos = p.getAttribute('POSITION')!, nor = p.getAttribute('NORMAL')!;
+  assert.equal(pos.getCount(), 16);
+  const m = node.getWorldMatrix();
+  const world = (v: number) => { const e = pos.getElement(v, [0, 0, 0]);
+    return [0, 1, 2].map((r) => m[r]! * e[0]! + m[4 + r]! * e[1]! + m[8 + r]! * e[2]! + m[12 + r]!); };
+  const plainNode = byName((await io.readBinary((await glb(one, view)).bytes)).getRoot().listNodes(), 'plate')[0]!;
+  const pm = plainNode.getWorldMatrix();
+  const plainWorld = (v: number) => [0, 1, 2].map((r) => pm[r]! * positions[3 * v]! + pm[4 + r]! * positions[3 * v
+    + 1]! + pm[8 + r]! * positions[3 * v + 2]! + pm[12 + r]!);
+  // Every vertex, matched to the original by its position (all distinct here).
+  for (let v = 0; v < 16; v++) {
+    const src = Array.from({ length: 16 }, (_, u) => u).find((u) => close(world(v), plainWorld(u), 5e-6));
+    assert.notEqual(src, undefined, `vertex ${v}`);
+    assert.ok(close(nor.getElement(v, [0, 0, 0]), normals.subarray(3 * src!, 3 * src! + 3), 0.02), `normal ${v}`);
+  }
+  assert.ok(close(world(15), plainWorld(15), 5e-6));
+});
+
+test('reorderWithinFaces: each face keeps its triangles, reordered', () => {
+  // A 4 x 4 grid of quads as one face, its triangles in a scattered order, then a second face.
+  const tris: number[] = [];
+  for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) {
+    const v = y * 5 + x;
+    tris.push(v, v + 1, v + 6, v, v + 6, v + 5);
+  }
+  const order = Array.from({ length: 32 }, (_, i) => (i * 13) % 32);
+  const indices = Uint32Array.from([...order.flatMap((t) => tris.slice(3 * t, 3 * t + 3)), 25, 26, 27]);
+  const faces = [{ start: 0, count: 96 }, { start: 96, count: 3 }];
+  const out = reorderWithinFaces(indices, faces, MeshoptEncoder.reorderMesh);
+  const key = (a: Uint32Array, f: { start: number; count: number }) => {
+    const list: string[] = [];
+    for (let i = f.start; i < f.start + f.count; i += 3) {
+      const t = [a[i]!, a[i + 1]!, a[i + 2]!];
+      const r = t.indexOf(Math.min(...t));
+      list.push([t[r], t[(r + 1) % 3], t[(r + 2) % 3]].join(','));
+    }
+    return list.sort();
+  };
+  for (const f of faces) assert.deepEqual(key(out, f), key(indices, f));
+  assert.notDeepEqual(Array.from(out.subarray(0, 96)), Array.from(indices.subarray(0, 96)));
+  assert.deepEqual(Array.from(out.subarray(96)), [25, 26, 27]);
+});
+
+test('options: an unknown compression, Draco bits out of range', async () => {
+  const s = scene();
+  const view = exportView(s, meshes());
+  await assert.rejects(glbOf(s, view, { compression: 'zip' as 'none' }), GltfError);
+  for (const bits of [0, 31, 1.5]) await assert.rejects(glbOf(s, view, { dracoPositionBits: bits }), GltfError);
+  await glbOf(s, view, { dracoPositionBits: 30 });
+  await glbOf(s, view, { dracoPositionBits: 1 });
 });

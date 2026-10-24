@@ -1,6 +1,8 @@
-files 517 (0 over 1000 MB skipped), 177 s
+files 517 (0 over 1000 MB skipped), 225 s
 part nodes 5027 (3 hidden), meshes 3125, triangle primitives 5146, triangles 17693282, segments 1972391, points 1064
-GLB 460.9 MB; export 1.58 s; validation 4.73 s
+GLB 460.9 MB; export 1.60 s; validation 4.77 s
+draco: 89.6 MB (19.5%), export 10.45 s; faces checked 111774
+meshopt: 108.6 MB (23.6%), export 5.10 s; faces checked 111774, line and point vertices 2307548
 largest:
   130.4 MB, 0.3 s  gkv311-opencascade-dataset/step/as1_motor.step
   93.8 MB, 0.2 s  gkv311-opencascade-dataset/step/bug28366_fuselage.stp

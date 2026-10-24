@@ -12,7 +12,7 @@ import { Readable, type Writable } from 'node:stream';
 import { parseArgs } from 'node:util';
 import { exportView, tessellateScene, type Diagnostic, type ExportView, type Scene, type Tessellator } from 'cad-scene';
 import { threemf } from 'export-3mf';
-import { glb, gltfJson, type GltfOptions } from 'export-gltf';
+import { glb, gltfJson, type Compression, type GltfOptions } from 'export-gltf';
 import { threejsChunks } from 'export-threejs';
 import { importStep } from 'step-import';
 import { readStep } from 'step-parser';
@@ -42,6 +42,9 @@ interface FormatOptions {
   colorgroup: boolean;
   assembly: boolean;
   surfaces: boolean;
+  extras: boolean;
+  compression: Compression;
+  dracoBits: number;
 }
 
 interface Written {
@@ -55,7 +58,8 @@ const FORMATS: Record<string, Format> = {
   threejs: {
     extensions: ['.json'],
     description: 'three.js JSON Object Scene format 4 (THREE.ObjectLoader)',
-    write: (scene, view, o) => ({ chunks: threejsChunks(scene, view, { name: o.name, doubleSided: o.doubleSided }) }),
+    write: (scene, view, o) => ({ chunks: threejsChunks(scene, view, { name: o.name, doubleSided: o.doubleSided,
+      extras: o.extras }) }),
   },
   glb: {
     extensions: ['.glb'],
@@ -83,7 +87,7 @@ const FORMATS: Record<string, Format> = {
     write: (scene, view, o) => {
       const r = threemf(scene, view, {
         name: o.name, colors: o.colorgroup ? 'colorgroup' : 'basematerials', build: o.assembly ? 'assembly' : 'parts',
-        nonManifold: o.surfaces ? 'surface' : 'omit', hidden: o.keepHidden ? 'keep' : 'omit',
+        nonManifold: o.surfaces ? 'surface' : 'omit', hidden: o.keepHidden ? 'keep' : 'omit', extras: o.extras,
       });
       return { chunks: r.chunks, diagnostics: r.diagnostics };
     },
@@ -92,7 +96,7 @@ const FORMATS: Record<string, Format> = {
 
 function gltfOptions(o: FormatOptions): GltfOptions {
   return { name: o.name, doubleSided: o.doubleSided, hidden: o.keepHidden ? 'extension' : 'omit',
-    unlitLines: o.unlitLines };
+    unlitLines: o.unlitLines, extras: o.extras, compression: o.compression, dracoPositionBits: o.dracoBits };
 }
 
 const BACKENDS: Record<string, { module: string; export: string }> = {
@@ -132,6 +136,13 @@ Options:
       --double-sided       render faces from both sides (not 3MF)
       --keep-hidden        glTF: write hidden instances with KHR_node_visibility; 3MF: as ordinary parts
                            (default: left out); three.js always writes them hidden
+      --extras             our ids for picking and lookup: source ids, properties and face ranges (glTF extras,
+                           three.js userData, 3MF metadata); default: left out, as other systems don't read them
+      --gltf-compression <draco|meshopt|none>
+                           glTF geometry compression (default draco: KHR_draco_mesh_compression, triangles only,
+                           lossy; meshopt: EXT_meshopt_compression, every buffer, 16-bit positions)
+      --gltf-draco-bits <n>
+                           Draco's position quantization, bits over each part mesh's extent (default 14)
       --gltf-embed         .gltf: the buffer embedded as base64 instead of a .bin beside it (a third bigger)
       --3mf-colorgroup     3MF: colours as the Materials extension's colorgroup (print colours, opaque) instead
                            of basematerials (display colours)
@@ -168,6 +179,9 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
         'unlit-lines': { type: 'boolean', default: false },
         'double-sided': { type: 'boolean', default: false },
         'keep-hidden': { type: 'boolean', default: false },
+        extras: { type: 'boolean', default: false },
+        'gltf-compression': { type: 'string' },
+        'gltf-draco-bits': { type: 'string' },
         'gltf-embed': { type: 'boolean', default: false },
         '3mf-colorgroup': { type: 'boolean', default: false },
         '3mf-assembly': { type: 'boolean', default: false },
@@ -199,7 +213,17 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
   }
   const format = FORMATS[formatName];
   if (!format) return usage(`unknown format '${formatName}'`);
-  if (o['gltf-embed'] && !format.gltf) return usage('--gltf-embed applies to glb and gltf output');
+  const gltfGiven = (['gltf-embed', 'gltf-compression', 'gltf-draco-bits'] as const).find((f) => o[f] !== undefined
+    && o[f] !== false);
+  if (gltfGiven && !format.gltf) return usage(`--${gltfGiven} applies to glb and gltf output`);
+  const compression = (o['gltf-compression'] ?? 'draco') as Compression;
+  if (!['draco', 'meshopt', 'none'].includes(compression)) return usage(
+    `--gltf-compression must be draco, meshopt or none, not '${compression}'`);
+  if (o['gltf-draco-bits'] !== undefined && compression !== 'draco') return usage(
+    '--gltf-draco-bits applies to Draco compression');
+  const dracoBits = Number(o['gltf-draco-bits'] ?? 14);
+  if (!(Number.isInteger(dracoBits) && dracoBits >= 1 && dracoBits <= 30)) return usage(
+    '--gltf-draco-bits must be a whole number from 1 to 30');
   const threemfGiven = (['3mf-colorgroup', '3mf-assembly', '3mf-surfaces'] as const).find((f) => o[f]);
   if (threemfGiven && !format.threemf) return usage(`--${threemfGiven} applies to 3mf output`);
   const notThreemf = (['with-edges', 'with-curves', 'unlit-lines', 'double-sided'] as const).find((f) => o[f]);
@@ -310,7 +334,8 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
   try {
     const w = await format.write(scene, view, {
       name, doubleSided: o['double-sided'], keepHidden: o['keep-hidden'], sidecar, unlitLines: o['unlit-lines'],
-      colorgroup: o['3mf-colorgroup'], assembly: o['3mf-assembly'], surfaces: o['3mf-surfaces'],
+      colorgroup: o['3mf-colorgroup'], assembly: o['3mf-assembly'], surfaces: o['3mf-surfaces'], extras: o.extras,
+      compression, dracoBits,
     });
     diagnostics.push(...(w.diagnostics ?? []));
     // (None when embedded, or when there's no buffer: a scene with nothing to draw.)

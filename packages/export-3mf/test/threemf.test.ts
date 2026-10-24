@@ -120,7 +120,7 @@ const GREEN = [0, 255, 0, 255], BLUE = [0, 0, 255, 255], RED = [255, 0, 0, 128];
 test('parts build: valid; an item per placed part at its world transform, welded closed meshes, colours, names',
   async () => {
   const s = scene();
-  const out = write(s, { name: 'model & more' });
+  const out = write(s, { name: 'model & more', extras: true });
   assert.deepEqual(messages(out), [
     "part 'sheet' is not a closed, oriented manifold (4 boundary edges, 2 triangles (a solid needs 4)); left out",
     '1 hidden part instance left out (3MF has no visibility)',
@@ -156,6 +156,13 @@ test('parts build: valid; an item per placed part at its world transform, welded
   const xml = modelXml(out.chunks);
   assert.match(xml, /<metadata name="Title">model &amp; more<\/metadata>/);
   assert.doesNotMatch(xml, /requiredextensions|xmlns:m=/);
+  // Without extras (the default): the same items and part numbers, no metadata of ours, no namespace for it.
+  const plain = write(s, { name: 'model & more' });
+  const p = await read3mf(bytes(plain.chunks));
+  assert.deepEqual(p.items.map((i) => [i.partNumber, i.metadata]), [['0.0:0', []], ['0.1:0', []]]);
+  assert.doesNotMatch(modelXml(plain.chunks), /cadio/);
+  assert.equal(modelXml(plain.chunks), xml.replace(' xmlns:cadio="urn:cad-io-js:3mf"', '').replace(
+    /><metadatagroup>.*?<\/metadatagroup><\/item>/g, '/>'));
 });
 
 test("an object's property is its largest group's; the others' triangles name theirs", async () => {
@@ -253,7 +260,7 @@ test('colorgroup: the Materials extension, not required; colours opaque, with a 
 });
 
 test('hidden: keep writes hidden instances as ordinary parts', async () => {
-  const out = write(scene(), { hidden: 'keep' });
+  const out = write(scene(), { hidden: 'keep', extras: true });
   assert.ok(!messages(out).some((m) => m.includes('hidden')));
   const r = await read3mf(bytes(out.chunks));
   assert.equal(r.items.length, 3);

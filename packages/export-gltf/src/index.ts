@@ -10,16 +10,24 @@
 //   materials: pbrMetallicRoughness base colours (STEP's sRGB converted to linear), not metallic, fully rough (as
 //     three.js's MeshStandardMaterial defaults), alpha blended when transparent; edges, curves and points optionally
 //     KHR_materials_unlit.
-//   extras: names, source ids and properties; per triangle primitive its faces' sources as index ranges, for picking.
+//   extras (on request): names, source ids and properties; per triangle primitive its faces' sources, as index
+//     ranges, or with Draco (which reorders triangles) as a `_FACE` vertex attribute indexing them, for picking.
+//   compression (decided by the user, 2026-10-24): Draco by default (KHR_draco_mesh_compression, triangles only,
+//     positions to 14 bits over the part mesh's extent, normals to 10), meshopt by option (EXT_meshopt_compression
+//     on every buffer, with KHR_mesh_quantization: positions to 16 bits over each part mesh's extent, the scale and
+//     offset in the part's node, normals to 8-bit octahedral; triangles reordered for the vertex cache only within
+//     each face, so the face ranges hold), or none.
 //
 // Hidden part instances are left out (glTF core has no visibility), or with `hidden: 'extension'` written with
 // KHR_node_visibility (decided by the user, 2026-10-21).
 
-import { Document, Format, WebIO, type Accessor, type JSONDocument, type Buffer, type Material as GltfMaterial,
-  type Mesh as GltfMesh, type Node, type TypedArray, type mat4 } from '@gltf-transform/core';
-import { KHRMaterialsUnlit, KHRNodeVisibility } from '@gltf-transform/extensions';
-import type { Diagnostic, ExportNode, ExportView, Look, Mat4, Mesh, PropertyValue, Scene, SourceId,
-  Vec3 } from 'cad-scene';
+import { Document, Format, Logger, WebIO, type Accessor, type JSONDocument, type Buffer,
+  type Material as GltfMaterial, type Mesh as GltfMesh, type Node, type TypedArray,
+  type mat4 } from '@gltf-transform/core';
+import { EXTMeshoptCompression, KHRDracoMeshCompression, KHRMaterialsUnlit, KHRMeshQuantization,
+  KHRNodeVisibility } from '@gltf-transform/extensions';
+import { multiply, type Diagnostic, type ExportNode, type ExportView, type Look, type Mat4, type Mesh,
+  type PropertyValue, type Scene, type SourceId, type Vec3 } from 'cad-scene';
 
 export interface GltfOptions {
   /** Colour of faces, curves and points without a material (sRGB). Default light grey. */
@@ -40,9 +48,22 @@ export interface GltfOptions {
   exclude?: readonly LineKind[];
   /** Edges, curves and points with KHR_materials_unlit (drawn in their flat colour). Default false. */
   unlitLines?: boolean;
+  /** Geometry compression. Default 'draco'. */
+  compression?: Compression;
+  /**
+   * Draco's position quantization, in bits over the extent of each primitive's vertex array (1 to 30): the part mesh's,
+   * which its primitives share. Default 14.
+   */
+  dracoPositionBits?: number;
+  /**
+   * Our extras: source ids, properties and parts on nodes, scene material indices on materials, face, edge, curve
+   * and point sources on primitives, and the root's unit and up axis. Default false: other systems don't read them.
+   */
+  extras?: boolean;
 }
 
 export type LineKind = 'edges' | 'curves' | 'points';
+export type Compression = 'draco' | 'meshopt' | 'none';
 
 export interface GltfResult {
   document: Document;
@@ -50,18 +71,35 @@ export interface GltfResult {
   diagnostics: Diagnostic[];
 }
 
+/** Output the options can't give: more faces in a primitive than Draco's `_FACE` attribute can number. */
+export class GltfError extends Error {
+  override name = 'GltfError';
+}
+
+/** The most faces a primitive can have with Draco and extras: `_FACE` is 16 bits, and 65535 marks unused vertices. */
+export const MAX_DRACO_FACES = 65535;
+
 /** Millimetres to metres, and Z up to Y up: (x, y, z) mm -> (x, z, -y) m. Column-major. */
 export const ROOT_TRANSFORM: Mat4 = Float64Array.of(0.001, 0, 0, 0, 0, 0, -0.001, 0, 0, 0.001, 0, 0, 0, 0, 0, 1);
 
-/** The scene's export view as a glTF-Transform document. */
-export function gltfDocument(scene: Scene, view: ExportView, opts: GltfOptions = {}): GltfResult {
-  return new Writer(scene, view, opts).write();
+/**
+ * The scene's export view as a glTF-Transform document, with the compression's extensions set: writing it compresses
+ * only with their encoders registered (`draco3d.encoder` from draco3dgltf, `meshopt.encoder` from meshoptimizer).
+ */
+export async function gltfDocument(scene: Scene, view: ExportView, opts: GltfOptions = {}): Promise<GltfResult> {
+  const compression = opts.compression ?? 'draco';
+  if (!['draco', 'meshopt', 'none'].includes(compression)) throw new GltfError(`unknown compression '${compression}'`);
+  const bits = opts.dracoPositionBits ?? 14;
+  if (!(Number.isInteger(bits) && bits >= 1 && bits <= 30)) throw new GltfError(
+    `dracoPositionBits must be a whole number from 1 to 30, not ${bits}`);
+  const reorder = compression === 'meshopt' ? (await meshoptEncoder()).reorderMesh : undefined;
+  return new Writer(scene, view, opts, reorder).write();
 }
 
 /** The scene's export view as GLB. */
 export async function glb(scene: Scene, view: ExportView, opts: GltfOptions = {}): Promise<{ bytes: Uint8Array;
   diagnostics: Diagnostic[] }> {
-  const { document, diagnostics } = gltfDocument(scene, view, opts);
+  const { document, diagnostics } = await gltfDocument(scene, view, opts);
   const { json, resources } = await write(document, Format.GLB);
   return { bytes: packGlb(json, Object.values(resources)[0]), diagnostics };
 }
@@ -73,7 +111,7 @@ export async function glb(scene: Scene, view: ExportView, opts: GltfOptions = {}
  */
 export async function gltfJson(scene: Scene, view: ExportView, bin: string | undefined,
   opts: GltfOptions = {}): Promise<{ json: string; bin: Uint8Array; diagnostics: Diagnostic[] }> {
-  const { document, diagnostics } = gltfDocument(scene, view, opts);
+  const { document, diagnostics } = await gltfDocument(scene, view, opts);
   const uri = bin ?? 'buffer.bin';
   for (const b of document.getRoot().listBuffers()) b.setURI(uri);
   const { json, resources } = await write(document, Format.GLTF);
@@ -91,14 +129,39 @@ export function base64(bytes: Uint8Array): string {
   return parts.join('');
 }
 
+type MeshoptEncoderModule = typeof import('meshoptimizer').MeshoptEncoder;
+type ReorderMesh = MeshoptEncoderModule['reorderMesh'];
+let dracoEncoder: Promise<unknown> | undefined;
+
+/** meshoptimizer's encoder (WebAssembly), imported only when used. */
+async function meshoptEncoder(): Promise<MeshoptEncoderModule> {
+  const { MeshoptEncoder } = await import('meshoptimizer');
+  await MeshoptEncoder.ready;
+  return MeshoptEncoder;
+}
+
+/** The encoders a document's compression needs, loaded once each. */
+async function encoders(document: Document): Promise<Record<string, unknown>> {
+  const used = document.getRoot().listExtensionsUsed().map((e) => e.extensionName);
+  const deps: Record<string, unknown> = {};
+  if (used.includes(KHRDracoMeshCompression.EXTENSION_NAME)) {
+    dracoEncoder ??= import('draco3dgltf').then((m) => m.default.createEncoderModule());
+    deps['draco3d.encoder'] = await dracoEncoder;
+  }
+  if (used.includes(EXTMeshoptCompression.EXTENSION_NAME)) deps['meshopt.encoder'] = await meshoptEncoder();
+  return deps;
+}
+
 /**
  * glTF-Transform's JSON for a document, with each node's translation, rotation and scale as they are: its writer
  * leaves out any within 1e-5 of the default, which drops rotations of up to about 2e-5 rad (20 um a metre away)
  * and scales within 1e-5 of 1 (CLAUDE.md, "JavaScript, Node and the libraries").
  */
 async function write(document: Document, format: Format): Promise<JSONDocument> {
-  const out = await new WebIO().registerExtensions([KHRMaterialsUnlit, KHRNodeVisibility]).writeJSON(document,
-    { format });
+  const out = await new WebIO().setLogger(new Logger(Logger.Verbosity.ERROR))
+    .registerExtensions([KHRMaterialsUnlit, KHRNodeVisibility, KHRDracoMeshCompression, EXTMeshoptCompression,
+      KHRMeshQuantization])
+    .registerDependencies(await encoders(document)).writeJSON(document, { format });
   const nodes = document.getRoot().listNodes(); // the writer's order
   out.json.nodes?.forEach((def, i) => {
     const n = nodes[i]!;
@@ -162,6 +225,77 @@ function indexArray(indices: Uint32Array, vertices: number): Uint16Array | Uint3
   return vertices <= 65535 ? Uint16Array.from(indices) : indices;
 }
 
+/**
+ * Triangles reordered for the GPU's vertex cache (meshoptimizer's reorderMesh) within each face range, so the ranges
+ * stay valid. Each face alone, with its vertices numbered from 0 as reorderMesh wants, then numbered back.
+ */
+export function reorderWithinFaces(indices: Uint32Array, faces: readonly { start: number; count: number }[],
+  reorderMesh: ReorderMesh): Uint32Array {
+  const out = indices.slice();
+  for (const f of faces) {
+    const sub = out.slice(f.start, f.start + f.count);
+    const local = new Map<number, number>(), back: number[] = [];
+    for (let i = 0; i < sub.length; i++) {
+      let v = local.get(sub[i]!);
+      if (v === undefined) { local.set(sub[i]!, (v = back.length)); back.push(sub[i]!); }
+      sub[i] = v;
+    }
+    const [remap] = reorderMesh(sub, true, false); // reorders sub, renumbering its vertices by remap
+    const inv = new Uint32Array(back.length);
+    for (let v = 0; v < remap.length; v++) if (remap[v] !== 0xffffffff) inv[remap[v]!] = v;
+    for (let i = 0; i < sub.length; i++) out[f.start + i] = back[inv[sub[i]!]!]!;
+  }
+  return out;
+}
+
+/** Vertex numbers in order of first use by `indices`, then the unused ones in their order: old -> new. */
+function firstUse(indices: Uint32Array, vertices: number): Uint32Array {
+  const order = new Uint32Array(vertices).fill(0xffffffff);
+  let next = 0;
+  for (const v of indices) if (order[v] === 0xffffffff) order[v] = next++;
+  for (let v = 0; v < vertices; v++) if (order[v] === 0xffffffff) order[v] = next++;
+  return order;
+}
+
+/** A part mesh's quantization volume: a centre and a half-width, the same on every axis (so normals keep). */
+interface Volume { center: Vec3; half: number }
+
+function volume(mesh: Mesh): Volume {
+  const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+  for (const a of [mesh.positions, mesh.edgePositions, mesh.curvePositions, mesh.points]) {
+    if (!a) continue;
+    for (let i = 0; i < a.length; i++) {
+      lo[i % 3] = Math.min(lo[i % 3]!, a[i]!);
+      hi[i % 3] = Math.max(hi[i % 3]!, a[i]!);
+    }
+  }
+  if (lo[0] === Infinity) return { center: [0, 0, 0], half: 1 };
+  const half = Math.max(hi[0]! - lo[0]!, hi[1]! - lo[1]!, hi[2]! - lo[2]!) / 2;
+  return { center: [(lo[0]! + hi[0]!) / 2, (lo[1]! + hi[1]!) / 2, (lo[2]! + hi[2]!) / 2], half: half || 1 };
+}
+
+/** Positions as normalized 16-bit integers in a volume (vertex v moved to order[v] when given). */
+function quantize(src: Float32Array, v: Volume, order?: Uint32Array): Int16Array {
+  const out = new Int16Array(src.length);
+  for (let i = 0; i < src.length / 3; i++) {
+    const j = order ? order[i]! : i;
+    for (let k = 0; k < 3; k++) out[3 * j + k] = Math.round((src[3 * i + k]! - v.center[k]!) / v.half * 32767);
+  }
+  return out;
+}
+
+/** A vec3 array with vertex v moved to order[v]. */
+function permute(src: Float32Array, order: Uint32Array): Float32Array {
+  const out = new Float32Array(src.length);
+  for (let i = 0; i < src.length / 3; i++) out.set(src.subarray(3 * i, 3 * i + 3), 3 * order[i]!);
+  return out;
+}
+
+/** The node matrix that takes a volume's normalized coordinates back to the mesh's. */
+function dequantization(v: Volume): Mat4 {
+  return Float64Array.of(v.half, 0, 0, 0, 0, v.half, 0, 0, 0, 0, v.half, 0, v.center[0], v.center[1], v.center[2], 1);
+}
+
 type Json = { [key: string]: PropertyValue | Json | Json[] | number[] | undefined };
 
 class Writer {
@@ -177,36 +311,59 @@ class Writer {
   private readonly exclude: ReadonlySet<LineKind>;
   private vertices = new Map<Float32Array, Accessor>();
   private indexAccessors = new Map<Uint32Array, Map<string, Accessor>>();
+  private faceAttributes = new Map<Uint32Array, Map<string, { face: Accessor; positions?: Accessor;
+    normals?: Accessor; indices?: Accessor }>>();
   private lines = new Map<Mesh, Map<string, { indices: Accessor; positions: Accessor; extras: Json } | undefined>>();
+  private volumes = new Map<Mesh, Volume>();
+  /** meshopt: each part mesh's vertex order, and each look's reordered indices. */
+  private orders = new Map<Mesh, Uint32Array>();
+  private reordered = new Map<Uint32Array, Uint32Array>();
   private hiddenLeftOut = 0;
   private readonly defaultColor: Vec3;
   private readonly edgeColor: Vec3;
   private readonly edgeKinds: ReadonlySet<string>;
+  private readonly compression: Compression;
+  private readonly extras: boolean;
   private readonly scene: Scene;
   private readonly view: ExportView;
   private readonly opts: GltfOptions;
+  private readonly reorderMesh?: ReorderMesh;
 
-  constructor(scene: Scene, view: ExportView, opts: GltfOptions) {
+  constructor(scene: Scene, view: ExportView, opts: GltfOptions, reorderMesh?: ReorderMesh) {
     this.scene = scene;
     this.view = view;
     this.opts = opts;
+    this.reorderMesh = reorderMesh;
     this.defaultColor = opts.defaultColor ?? [0.8, 0.8, 0.8];
     this.edgeColor = opts.edgeColor ?? [0, 0, 0];
     this.edgeKinds = new Set(opts.edgeKinds ?? ['shared', 'free']);
     this.exclude = new Set(opts.exclude ?? []);
+    this.compression = opts.compression ?? 'draco';
+    this.extras = opts.extras ?? false;
     this.buffer = this.doc.createBuffer();
     this.doc.getRoot().getAsset().generator = 'cad-io-js export-gltf';
+    // (The Draco extension notes, through the document's logger, that it leaves lines and points uncompressed.)
+    this.doc.setLogger(new Logger(Logger.Verbosity.ERROR));
   }
 
   write(): GltfResult {
     const root = this.doc.createNode(this.opts.name ?? '').setMatrix(Array.from(ROOT_TRANSFORM) as mat4);
     // Below the root: millimetres, the source's axes.
-    root.setExtras({ unit: 'millimetre', up: 'z',
+    if (this.extras) root.setExtras({ unit: 'millimetre', up: 'z',
       ...(Object.keys(this.scene.properties).length ? { properties: this.scene.properties } : {}) });
     for (const n of this.view.roots) root.addChild(this.node(n));
     this.doc.createScene(this.opts.name ?? '').addChild(root);
     // A scene with nothing to draw has no accessors, and an empty buffer isn't valid glTF.
     if (!this.doc.getRoot().listAccessors().length) this.buffer.dispose();
+    else if (this.compression === 'draco') {
+      this.doc.createExtension(KHRDracoMeshCompression).setRequired(true).setEncoderOptions({
+        method: KHRDracoMeshCompression.EncoderMethod.EDGEBREAKER,
+        quantizationBits: { POSITION: this.opts.dracoPositionBits ?? 14 } });
+    } else if (this.compression === 'meshopt') {
+      this.doc.createExtension(KHRMeshQuantization).setRequired(true);
+      this.doc.createExtension(EXTMeshoptCompression).setRequired(true)
+        .setEncoderOptions({ method: EXTMeshoptCompression.EncoderMethod.FILTER });
+    }
     if (this.hiddenLeftOut) {
       const n = this.hiddenLeftOut;
       this.diagnostics.push({ severity: 'warning',
@@ -216,14 +373,27 @@ class Writer {
     return { document: this.doc, diagnostics: this.diagnostics };
   }
 
-  private accessor(name: string, type: 'SCALAR' | 'VEC3', array: Float32Array | Uint16Array | Uint32Array): Accessor {
-    return this.doc.createAccessor(name).setType(type).setArray(array as TypedArray).setBuffer(this.buffer);
+  private accessor(name: string, type: 'SCALAR' | 'VEC3',
+    array: Float32Array | Int16Array | Uint16Array | Uint32Array): Accessor {
+    const a = this.doc.createAccessor(name).setType(type).setArray(array as TypedArray).setBuffer(this.buffer);
+    return array instanceof Int16Array ? a.setNormalized(true) : a;
   }
 
-  /** One accessor per vertex array, whichever looks and primitives use it. */
-  private vec3(array: Float32Array, name: string): Accessor {
+  private volume(mesh: Mesh): Volume {
+    let v = this.volumes.get(mesh);
+    if (!v) this.volumes.set(mesh, (v = volume(mesh)));
+    return v;
+  }
+
+  /**
+   * One accessor per vertex array, whichever looks and primitives use it; with meshopt, positions quantized in the
+   * part mesh's volume (`quantized`), and vertices in the mesh's order (`order`).
+   */
+  private vec3(array: Float32Array, name: string, mesh?: Mesh, quantized = false, order?: Uint32Array): Accessor {
     let a = this.vertices.get(array);
-    if (!a) this.vertices.set(array, (a = this.accessor(name, 'VEC3', array)));
+    if (a) return a;
+    const data = quantized ? quantize(array, this.volume(mesh!), order) : order ? permute(array, order) : array;
+    this.vertices.set(array, (a = this.accessor(name, 'VEC3', data)));
     return a;
   }
 
@@ -236,6 +406,72 @@ class Writer {
     if (!a) byRange.set(key, (
       a = this.accessor(name, 'SCALAR', indexArray(indices.subarray(start, start + count), vertices))));
     return a;
+  }
+
+  /**
+   * Draco with extras: per vertex, the index of its face among the group's faces (`_FACE`, 16 bits; 65535 for the
+   * vertices the group doesn't use). A vertex two faces share (our backends never share them) gets a copy per face,
+   * with its own positions, normals and indices for the group.
+   */
+  private faceAttribute(look: Look, g: Look['groups'][number], faces: Look['faces'], name: string) {
+    let byRange = this.faceAttributes.get(look.indices);
+    if (!byRange) this.faceAttributes.set(look.indices, (byRange = new Map()));
+    const key = `${g.start}+${g.count}`;
+    const known = byRange.get(key);
+    if (known) return known;
+    if (faces.length > MAX_DRACO_FACES) throw new GltfError(`part '${name}': ${faces.length} faces in one `
+      + `primitive, more than Draco's _FACE attribute can number (${MAX_DRACO_FACES}); write it without extras or `
+      + 'with another compression');
+    const { positions, normals } = look.mesh;
+    const n = positions.length / 3;
+    const face = new Uint16Array(n).fill(65535);
+    const extra: number[] = []; // copies: [original vertex, face]
+    const indices = look.indices.slice(g.start, g.start + g.count);
+    faces.forEach((f, j) => {
+      const copies = new Map<number, number>();
+      for (let i = f.start - g.start; i < f.start - g.start + f.count; i++) {
+        const v = indices[i]!;
+        if (face[v] === 65535 || face[v] === j) { face[v] = j; continue; }
+        let c = copies.get(v);
+        if (c === undefined) { copies.set(v, (c = n + extra.length / 2)); extra.push(v, j); }
+        indices[i] = c;
+      }
+    });
+    let made: { face: Accessor; positions?: Accessor; normals?: Accessor; indices?: Accessor };
+    if (!extra.length) made = { face: this.accessor(`${name} faces`, 'SCALAR', face) };
+    else {
+      const m = n + extra.length / 2;
+      const grow = (src: Float32Array) => {
+        const out = new Float32Array(3 * m);
+        out.set(src);
+        for (let k = 0; k < extra.length; k += 2) out.set(src.subarray(3 * extra[k]!, 3 * extra[k]! + 3),
+          3 * (n + k / 2));
+        return out;
+      };
+      const all = new Uint16Array(m);
+      all.set(face);
+      for (let k = 0; k < extra.length; k += 2) all[n + k / 2] = extra[k + 1]!;
+      made = { face: this.accessor(`${name} faces`, 'SCALAR', all),
+        positions: this.accessor(name, 'VEC3', grow(positions)),
+        ...(normals ? { normals: this.accessor(`${name} normals`, 'VEC3', grow(normals)) } : {}),
+        indices: this.accessor(name, 'SCALAR', indexArray(indices, m)) };
+    }
+    byRange.set(key, made);
+    return made;
+  }
+
+  /** meshopt: a look's indices reordered within its faces, in its part mesh's vertex order. */
+  private lookIndices(look: Look): Uint32Array {
+    if (!this.reorderMesh) return look.indices;
+    // (Looks with the same index array have the same faces.)
+    let r = this.reordered.get(look.indices);
+    if (r) return r;
+    r = reorderWithinFaces(look.indices, look.faces, this.reorderMesh);
+    let order = this.orders.get(look.mesh);
+    if (!order) this.orders.set(look.mesh, (order = firstUse(r, look.mesh.positions.length / 3)));
+    for (let i = 0; i < r.length; i++) r[i] = order[r[i]!]!;
+    this.reordered.set(look.indices, r);
+    return r;
   }
 
   /** A material for faces, or (`lines`) for edges, curves and points, which are unlit with `unlitLines`. */
@@ -252,7 +488,7 @@ class Writer {
       .setMetallicFactor(0).setRoughnessFactor(1)
       .setDoubleSided(this.opts.doubleSided ?? false);
     if (opacity < 1) m.setAlphaMode('BLEND');
-    if (material !== undefined) m.setExtras({ material });
+    if (material !== undefined && this.extras) m.setExtras({ material });
     if (unlit) {
       this.unlit ??= this.doc.createExtension(KHRMaterialsUnlit);
       m.setExtension('KHR_materials_unlit', this.unlit.createUnlit());
@@ -266,11 +502,12 @@ class Writer {
     let byWhat = this.lines.get(mesh);
     if (!byWhat) this.lines.set(mesh, (byWhat = new Map()));
     if (byWhat.has(what)) return byWhat.get(what);
+    const quantized = this.compression === 'meshopt';
     let made: { indices: Accessor; positions: Accessor; extras: Json } | undefined;
     if (what === 'points') {
       const n = mesh.pointSources!.length;
       made = {
-        positions: this.vec3(mesh.points!, `${name} points`),
+        positions: this.vec3(mesh.points!, `${name} points`, mesh, quantized),
         indices: this.accessor(`${name} points`, 'SCALAR', indexArray(Uint32Array.from({ length: n }, (_, i) => i), n)),
         extras: { points: mesh.pointSources! },
       };
@@ -286,7 +523,7 @@ class Writer {
           return out;
         });
         made = {
-          positions: this.vec3(positions, `${name} ${what}`),
+          positions: this.vec3(positions, `${name} ${what}`, mesh, quantized),
           indices: this.accessor(`${name} ${what}`, 'SCALAR', indexArray(index, positions.length / 3)),
           extras: what === 'edges' ? { edges: list } : { curves: list },
         };
@@ -305,16 +542,26 @@ class Writer {
     if (look.groups.length) {
       made = this.doc.createMesh(name);
       const vertices = look.mesh.positions.length / 3;
+      const meshopt = this.compression === 'meshopt';
+      const indices = this.lookIndices(look);
+      const order = meshopt ? this.orders.get(look.mesh) : undefined;
       for (const g of look.groups) {
-        const p = this.doc.createPrimitive().setMode(4) // TRIANGLES
-          .setAttribute('POSITION', this.vec3(look.mesh.positions, name))
-          .setIndices(this.indices(look.indices, g.start, g.count, vertices, name))
-          .setMaterial(this.material(g.material));
-        if (look.mesh.normals) p.setAttribute('NORMAL', this.vec3(look.mesh.normals, `${name} normals`));
         // The faces in this group, as ranges of its indices.
-        const faces = look.faces.filter((f) => f.start >= g.start && f.start < g.start + g.count)
-          .map((f) => ({ source: f.source, start: f.start - g.start, count: f.count }));
-        p.setExtras({ faces });
+        const faces = look.faces.filter((f) => f.start >= g.start && f.start < g.start + g.count);
+        // Draco reorders triangles: with extras, the faces by vertex attribute, not by range.
+        const fa = this.extras && this.compression === 'draco' ? this.faceAttribute(look, g, faces, name) : undefined;
+        const p = this.doc.createPrimitive().setMode(4) // TRIANGLES
+          .setAttribute('POSITION', fa?.positions ?? this.vec3(look.mesh.positions, name, look.mesh, meshopt, order))
+          .setIndices(fa?.indices ?? this.indices(indices, g.start, g.count, vertices, name))
+          .setMaterial(this.material(g.material));
+        if (look.mesh.normals) p.setAttribute('NORMAL', fa?.normals ?? this.vec3(look.mesh.normals,
+          `${name} normals`, look.mesh, false, order));
+        if (fa) {
+          p.setAttribute('_FACE', fa.face);
+          p.setExtras({ faces: faces.map((f) => ({ source: f.source })) });
+        } else if (this.extras) {
+          p.setExtras({ faces: faces.map((f) => ({ source: f.source, start: f.start - g.start, count: f.count })) });
+        }
         made.addPrimitive(p);
       }
     }
@@ -341,9 +588,10 @@ class Writer {
     const mat = what === 'edges' ? this.material(undefined, this.edgeColor, true) : this.material(material,
       undefined, true);
     // POINTS, LINES
-    const mesh = this.doc.createMesh(`${name} ${what}`).addPrimitive(
-      this.doc.createPrimitive().setMode(what === 'points' ? 0 : 1)
-      .setAttribute('POSITION', d.positions).setIndices(d.indices).setMaterial(mat).setExtras(d.extras));
+    const prim = this.doc.createPrimitive().setMode(what === 'points' ? 0 : 1)
+      .setAttribute('POSITION', d.positions).setIndices(d.indices).setMaterial(mat);
+    if (this.extras) prim.setExtras(d.extras);
+    const mesh = this.doc.createMesh(`${name} ${what}`).addPrimitive(prim);
     this.lineMeshes.set(key, mesh);
     return mesh;
   }
@@ -359,14 +607,18 @@ class Writer {
     if (!p.visible && this.opts.hidden !== 'extension') { this.hiddenLeftOut++; return undefined; }
     const look = this.view.looks[p.look]!;
     const part = this.scene.parts[look.part]!;
-    const node = this.doc.createNode(part.name).setMatrix(Array.from(p.transform) as mat4)
-      .setExtras({ part: look.part, ...this.sourced(part.sources, part.properties) });
+    const node = this.doc.createNode(part.name);
+    if (this.extras) node.setExtras({ part: look.part, ...this.sourced(part.sources, part.properties) });
     const mesh = this.mesh(p.look);
     if (mesh) node.setMesh(mesh);
     for (const what of ['edges', 'curves', 'points'] as const) {
       const m = this.lineMesh(look, what);
       if (m) node.addChild(this.doc.createNode(what).setMesh(m));
     }
+    // meshopt's positions are in the part mesh's volume; its children's too.
+    const quantized = this.compression === 'meshopt' && (mesh || node.listChildren().length);
+    node.setMatrix(Array.from(quantized ? multiply(p.transform, dequantization(this.volume(look.mesh)))
+      : p.transform) as mat4);
     // (KHR_node_visibility hides the node's children too.)
     if (!p.visible) {
       this.visibility ??= this.doc.createExtension(KHRNodeVisibility);
@@ -377,11 +629,14 @@ class Writer {
 
   private node(n: ExportNode): Node {
     const comp = this.scene.components[n.component]!;
-    const extras: Json = { ...this.sourced(n.occurrence.sources, n.occurrence.properties) };
-    extras.component = { index: n.component, name: comp.name, ...this.sourced(comp.sources, comp.properties) };
-    if (comp.external) extras.external = { uri: comp.external.uri,
-      ...(comp.external.format ? { format: comp.external.format } : {}) };
-    const node = this.doc.createNode(n.name).setMatrix(Array.from(n.transform) as mat4).setExtras(extras);
+    const node = this.doc.createNode(n.name).setMatrix(Array.from(n.transform) as mat4);
+    if (this.extras) {
+      const extras: Json = { ...this.sourced(n.occurrence.sources, n.occurrence.properties) };
+      extras.component = { index: n.component, name: comp.name, ...this.sourced(comp.sources, comp.properties) };
+      if (comp.external) extras.external = { uri: comp.external.uri,
+        ...(comp.external.format ? { format: comp.external.format } : {}) };
+      node.setExtras(extras);
+    }
     for (const p of n.parts) { const c = this.part(p); if (c) node.addChild(c); }
     for (const c of n.children) node.addChild(this.node(c));
     return node;

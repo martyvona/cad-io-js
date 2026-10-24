@@ -5,8 +5,10 @@
 //   - exit 0, nothing on standard output, and the summary's parts, tessellated parts, placed parts and triangles
 //     those of the scene and the view;
 //   - the output read back with that format's own tools: three.js's ObjectLoader; the Khronos glTF-Validator (its
-//     errors are problems) and glTF-Transform for GLB and for glTF with its .bin; lib3mf in strict mode for 3MF;
-//   - its placed parts, in tree order, with their triangle counts, as the format's defaults have them: three.js
+//     errors are problems; it knows no Draco) and glTF-Transform with the Draco decoder for GLB and for glTF with its
+//     .bin; lib3mf in strict mode for 3MF;
+//   - its placed parts, in tree order, with their names and triangle counts (the defaults write no extras, so no part
+//     indices, since 2026-10-24), as the format's defaults have them: three.js
 //     every placed part with triangles, hidden ones invisible; glTF the visible ones; 3MF the visible ones whose
 //     welded mesh is a closed, oriented manifold of positive volume (the others are left out with warnings);
 //   - in the sample, the bin's outputs byte-identical to main's, its exit code, standard output and summary (but
@@ -20,7 +22,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { Writable } from 'node:stream';
 import { NodeIO, type Document } from '@gltf-transform/core';
-import { KHRMaterialsUnlit, KHRNodeVisibility } from '@gltf-transform/extensions';
+import { KHRDracoMeshCompression, KHRMaterialsUnlit, KHRNodeVisibility } from '@gltf-transform/extensions';
+import draco3d from 'draco3dgltf';
 import validator from 'gltf-validator';
 import * as THREE from 'three';
 import { exportView, manifoldProblems, tessellateScene, weld, type ExportNode,
@@ -39,7 +42,8 @@ await tess.init();
 const maxBytes = Number(process.argv[3] ?? 2) * 1e6;
 const sampleSize = Number(process.argv[4] ?? 20);
 const BIN = path.join(repoDir, 'packages/cli/bin/stepconv.ts');
-const gltfIo = new NodeIO().registerExtensions([KHRMaterialsUnlit, KHRNodeVisibility]);
+const gltfIo = new NodeIO().registerExtensions([KHRMaterialsUnlit, KHRNodeVisibility, KHRDracoMeshCompression])
+  .registerDependencies({ 'draco3d.decoder': await draco3d.createDecoderModule() });
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'stepconv-corpus-'));
 
 const FORMATS = ['json', 'glb', 'gltf', '3mf'] as const;
@@ -98,17 +102,14 @@ function placedParts(view: ExportView): { part: number; triangles: number; visib
   return out;
 }
 
-/** A glTF's part nodes, in tree order, with their triangles. */
-function gltfParts(doc: Document): { part: number; triangles: number }[] {
-  const out: { part: number; triangles: number }[] = [];
+/** A glTF's part nodes (those with triangles), in tree order, with their names and triangles. */
+function gltfParts(doc: Document): { name: string; triangles: number }[] {
+  const out: { name: string; triangles: number }[] = [];
   const visit = (n: ReturnType<Document['createNode']>) => {
-    const part = (n.getExtras() as { part?: number }).part;
-    if (part !== undefined) {
-      let triangles = 0;
-      for (const p of n.getMesh()?.listPrimitives() ?? []) if (
-        p.getMode() === 4) triangles += p.getIndices()!.getCount() / 3;
-      out.push({ part, triangles });
-    }
+    let triangles = 0;
+    for (const p of n.getMesh()?.listPrimitives() ?? []) if (
+      p.getMode() === 4) triangles += p.getIndices()!.getCount() / 3;
+    if (triangles) out.push({ name: n.getName(), triangles });
     n.listChildren().forEach(visit);
   };
   for (const s of doc.getRoot().listScenes()) s.listChildren().forEach(visit);
@@ -127,15 +128,15 @@ async function validate(bytes: Uint8Array, problem: (m: string) => void,
 }
 
 /** The output's placed parts and triangles, read back with the format's own tools. */
-async function readBack(format: Format, file: string, problem: (m: string) => void): Promise<{ part?: number;
+async function readBack(format: Format, file: string, problem: (m: string) => void): Promise<{ name?: string;
   triangles: number; visible?: boolean }[]> {
   if (format === 'json') {
     const root = new THREE.ObjectLoader().parse(JSON.parse(fs.readFileSync(file, 'utf8')));
-    const out: { part: number; triangles: number; visible: boolean }[] = [];
+    const out: { name: string; triangles: number; visible: boolean }[] = [];
     root.traverse((o) => {
-      const part = (o.userData as { part?: number }).part;
-      if (part !== undefined && (o as THREE.Mesh).isMesh) out.push(
-        { part, triangles: (o as THREE.Mesh).geometry.index!.count / 3, visible: o.visible });
+      if (Object.keys(o.userData).length) problem('json: userData without --extras');
+      if ((o as THREE.Mesh).isMesh) out.push(
+        { name: o.name, triangles: (o as THREE.Mesh).geometry.index!.count / 3, visible: o.visible });
     });
     return out;
   }
@@ -145,7 +146,10 @@ async function readBack(format: Format, file: string, problem: (m: string) => vo
     await validate(bytes, problem,
       format === 'gltf' ? async (uri) => new Uint8Array(
       fs.readFileSync(path.join(dirOf, decodeURIComponent(uri)))) : undefined);
-    return gltfParts(await gltfIo.read(file));
+    const doc = await gltfIo.read(file);
+    if (doc.getRoot().listNodes().some((n) => Object.keys(n.getExtras()).length)) problem(`${format}: extras without `
+      + '--extras');
+    return gltfParts(doc);
   }
   const read = await read3mf(fs.readFileSync(file));
   return read.items.map((it) => ({ triangles: (read.meshes.get(it.object)?.triangles.length ?? 0) / 3 }));
@@ -191,10 +195,11 @@ for (const f of files) {
     counts.hidden += placed.filter((p) => !p.visible).length;
     counts.notSolid += placed.filter((p) => p.visible && !p.solid).length;
     counts.triangles += viewTriangles;
-    const expected: Record<Format, { part?: number; triangles: number; visible?: boolean }[]> = {
-      json: placed.map((p) => ({ part: p.part, triangles: p.triangles, visible: p.visible })),
-      glb: placed.filter((p) => p.visible).map((p) => ({ part: p.part, triangles: p.triangles })),
-      gltf: placed.filter((p) => p.visible).map((p) => ({ part: p.part, triangles: p.triangles })),
+    const partName = (p: { part: number }) => scene.parts[p.part]!.name;
+    const expected: Record<Format, { name?: string; triangles: number; visible?: boolean }[]> = {
+      json: placed.map((p) => ({ name: partName(p), triangles: p.triangles, visible: p.visible })),
+      glb: placed.filter((p) => p.visible).map((p) => ({ name: partName(p), triangles: p.triangles })),
+      gltf: placed.filter((p) => p.visible).map((p) => ({ name: partName(p), triangles: p.triangles })),
       '3mf': placed.filter((p) => p.visible && p.solid).map((p) => ({ triangles: p.triangles })),
     };
 
@@ -227,7 +232,7 @@ for (const f of files) {
       if (got.length !== e.length) fp(`${got.length} placed parts, expected ${e.length}`);
       else got.forEach((g, k) => {
         const x = e[k]!;
-        if (g.triangles !== x.triangles || g.part !== x.part || g.visible !== x.visible) fp(
+        if (g.triangles !== x.triangles || g.name !== x.name || g.visible !== x.visible) fp(
           `placed part ${k}: ${JSON.stringify(g)}, expected ${JSON.stringify(x)}`);
       });
 

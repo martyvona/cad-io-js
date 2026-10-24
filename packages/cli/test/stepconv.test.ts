@@ -63,7 +63,7 @@ test('stepconv: the same file as the library pipeline, in a worker pool and on t
     assert.equal(r.code, 0, r.stderr);
     assert.equal(fs.readFileSync(out, 'utf8'), expected, `workers ${workers}`);
     assert.match(r.stderr, new RegExp(String.raw`^5 parts \(5 of 5 brep parts tessellated\), 18 placed; `
-      + String.raw`5180 triangles; 0\.2 MB written\nimport [\d.]+ s, tessellation [\d.]+ s, export [\d.]+ s\n`
+      + String.raw`5180 triangles; 0\.1 MB written\nimport [\d.]+ s, tessellation [\d.]+ s, export [\d.]+ s\n`
       + String.raw`0 errors, 0 warnings, 0 notes\n$`));
   }
   const loaded = load(expected);
@@ -154,10 +154,10 @@ test('stepconv: glTF with --with-edges, --with-curves, --unlit-lines, --gltf-emb
   const { json } = await kinds(assembly, all);
   assert.ok(!fs.existsSync(path.join(tmp, 'flags.bin')));
   assert.match(json.buffers[0].uri, /^data:application\/octet-stream;base64,/);
-  assert.equal(json.extensionsUsed, undefined);
+  assert.deepEqual(json.extensionsUsed, ['KHR_draco_mesh_compression']);
   // Unlit lines: the extension on the edges' material only.
   const unlit = (await kinds(assembly, [...all, '--unlit-lines'])).json;
-  assert.deepEqual(unlit.extensionsUsed, ['KHR_materials_unlit']);
+  assert.deepEqual(unlit.extensionsUsed, ['KHR_draco_mesh_compression', 'KHR_materials_unlit']);
   const edgeMesh = unlit.nodes.find((n: { name?: string }) => n.name === 'edges').mesh;
   const unlitMaterials = unlit.materials.map((m: { extensions?: object }, i: number) => (m.extensions ? i : -1)).filter(
     (i: number) => i >= 0);
@@ -185,15 +185,69 @@ const hidden = path.join(root,
 test('stepconv: glTF leaves hidden instances out, with a warning, unless --keep-hidden',
   { skip: skip || (!fs.existsSync(hidden) && 'corpus not fetched') }, async () => {
   const out = path.join(tmp, 'hidden.gltf');
-  const used = () => JSON.parse(fs.readFileSync(out, 'utf8')).extensionsUsed;
+  const used = () => JSON.parse(fs.readFileSync(out, 'utf8')).extensionsUsed.filter(
+    (e: string) => e !== 'KHR_draco_mesh_compression');
   const lax = await run([hidden, '-o', out, '-j', '2']);
   assert.equal(lax.code, 0);
   assert.match(lax.stderr,
     /\n  warning: 1 hidden part instance left out \(glTF has no visibility without KHR_node_visibility\)\n/);
-  assert.equal(used(), undefined);
+  assert.deepEqual(used(), []);
   const kept = await run([hidden, '-o', out, '-j', '2', '--keep-hidden']);
   assert.doesNotMatch(kept.stderr, /hidden/);
   assert.deepEqual(used(), ['KHR_node_visibility']);
+});
+
+test('stepconv: --extras in every format; --gltf-compression, --gltf-draco-bits', { skip }, async () => {
+  const out = (ext: string) => path.join(tmp, `extras${ext}`);
+  const ok = async (args: string[]) => { const r = await run([assembly, '-j', '2', '-q', ...args]);
+    assert.equal(r.code, 0, r.stderr); };
+  // three.js: userData only with --extras.
+  await ok(['-o', out('.json')]);
+  assert.doesNotMatch(fs.readFileSync(out('.json'), 'utf8'), /"userData"/);
+  await ok(['-o', out('.json'), '--extras']);
+  assert.match(fs.readFileSync(out('.json'), 'utf8'), /"userData":\{"part":0/);
+  // 3MF: our metadata only with --extras.
+  const model = () => strFromU8(unzipSync(new Uint8Array(fs.readFileSync(out('.3mf'))))['3D/3dmodel.model']!);
+  await ok(['-o', out('.3mf')]);
+  assert.doesNotMatch(model(), /cadio/);
+  await ok(['-o', out('.3mf'), '--extras']);
+  assert.match(model(), /<metadata name="cadio:path">/);
+  // glTF: Draco by default, no extras; with --extras, faces by _FACE.
+  const gltf = async (args: string[]) => {
+    await ok(['-o', out('.gltf'), '--gltf-embed', ...args]);
+    return JSON.parse(fs.readFileSync(out('.gltf'), 'utf8'));
+  };
+  const d = await gltf([]);
+  assert.deepEqual(d.extensionsRequired, ['KHR_draco_mesh_compression']);
+  assert.doesNotMatch(JSON.stringify(d), /"extras"/);
+  const de = await gltf(['--extras']);
+  const prim = de.meshes[0].primitives[0];
+  assert.ok('_FACE' in prim.extensions.KHR_draco_mesh_compression.attributes);
+  assert.ok(prim.extras.faces.every((f: object) => Object.keys(f).join() === 'source'));
+  // meshopt: face ranges; none: neither extension.
+  const m = await gltf(['--gltf-compression', 'meshopt', '--extras']);
+  assert.deepEqual(m.extensionsRequired.sort(), ['EXT_meshopt_compression', 'KHR_mesh_quantization']);
+  assert.deepEqual(Object.keys(m.meshes[0].primitives[0].extras.faces[0]), ['source', 'start', 'count']);
+  assert.equal((await gltf(['--gltf-compression', 'none'])).extensionsUsed, undefined);
+  // Fewer Draco bits, a smaller file.
+  const size = async (args: string[]) => {
+    await ok(['-o', out('.glb'), ...args]);
+    return fs.statSync(out('.glb')).size;
+  };
+  assert.ok(await size(['--gltf-draco-bits', '8']) < await size([]));
+  // Usage errors.
+  const bad = async (args: string[], message: RegExp) => {
+    const r = await run([cube, '-j', '0', ...args]);
+    assert.equal(r.code, 1);
+    assert.match(r.stderr, message);
+  };
+  await bad(['-o', out('.glb'), '--gltf-compression', 'zip'], /--gltf-compression must be draco, meshopt or none/);
+  await bad(['-o', out('.json'), '--gltf-compression', 'none'], /--gltf-compression applies to glb and gltf output/);
+  await bad(['-o', out('.3mf'), '--gltf-draco-bits', '12'], /--gltf-draco-bits applies to glb and gltf output/);
+  await bad(['-o', out('.glb'), '--gltf-compression', 'meshopt', '--gltf-draco-bits', '12'],
+    /--gltf-draco-bits applies to Draco compression/);
+  for (const bits of ['0', '31', '1.5', 'x']) await bad(['-o', out('.glb'), '--gltf-draco-bits', bits],
+    /--gltf-draco-bits must be a whole number from 1 to 30/);
 });
 
 // Open shells only.

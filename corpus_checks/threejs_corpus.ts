@@ -1,6 +1,6 @@
 // Phase 4 step 2: three.js JSON for every corpus file, loaded back with THREE.ObjectLoader and compared with the
 // export view it was written from. Each file is imported, tessellated with our OCCT backend (a tess-workers pool,
-// 0.1 mm, edges), and exported with edges and curves; then, in the loaded scene:
+// 0.1 mm, edges), and exported with edges, curves and extras (userData); then, in the loaded scene:
 //   - one Mesh per placed part with triangles, and one Group per part without, in tree order;
 //   - each Mesh's world matrix equals the view's (node transforms down the tree, times the part's);
 //   - its triangles (index count) and, per triangle, its material's colour and opacity equal the look's groups';
@@ -47,7 +47,7 @@ for (const f of corpusFiles(process.argv[2])) {
   const te = performance.now();
   const chunks: string[] = [];
   let length = 0;
-  for (const c of threejsChunks(scene, view)) { chunks.push(c); length += c.length; }
+  for (const c of threejsChunks(scene, view, { extras: true })) { chunks.push(c); length += c.length; }
   totals.exportMs += performance.now() - te;
   totals.bytes += length;
   biggest.push([length, name, performance.now() - te]);

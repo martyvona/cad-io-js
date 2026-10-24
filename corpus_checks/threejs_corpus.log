@@ -1,6 +1,6 @@
 files 517 (0 over 1000 MB skipped; 0 too large to load), 196 s
 meshes 4857 (geometries 3125), groups 5146, triangles 17693282, segments 1972391, points 1064
-JSON 1022.4 M characters; export 16.69 s; JSON.parse + ObjectLoader 2.18 s
+JSON 1022.4 M characters; export 16.73 s; JSON.parse + ObjectLoader 2.19 s
 largest:
   293.7 M characters, 5.0 s  gkv311-opencascade-dataset/step/as1_motor.step
   206.1 M characters, 3.1 s  gkv311-opencascade-dataset/step/bug28366_fuselage.stp
