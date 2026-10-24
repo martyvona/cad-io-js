@@ -17,6 +17,7 @@ import { formatOf, nativeFrame, type Format } from './formats.ts';
 import { Frames } from './frames.ts';
 import { loadThree, type Source } from './load.ts';
 import { NodeModel, type FaceHiding } from './model.ts';
+import { pick, type Pick } from './pick.ts';
 import { detectEdges, StepGraph } from './step.ts';
 import { DEFAULT_SETTINGS, Tessellation, type TessellationSettings } from './tessellation.ts';
 
@@ -116,6 +117,10 @@ export class Viewer {
   onModel?: (nodes: NodeModel) => void;
   /** Meshes arrived: parts' detail in the node model changed. */
   onMeshes?: () => void;
+  /** A click or tap that didn't move the view: what's under it (or nothing), and the keys held. */
+  onPick?: (hit: Pick | undefined, keys: { add: boolean }) => void;
+  /** Whether a world point is cut away (by the section planes): not pickable. */
+  clipped?: (p: THREE.Vector3) => boolean;
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -148,6 +153,25 @@ export class Viewer {
         if (this.interacting || e === 'wheel') this.frames.request();
       }, { passive: true });
     }
+
+    // A click or tap: one pointer, down and up within a few pixels and a moment, so not a drag of the view.
+    const canvas = this.renderer.domElement;
+    const down = new Map<number, { x: number; y: number; t: number }>();
+    let many = false;
+    canvas.addEventListener('pointerdown', (e) => {
+      down.set(e.pointerId, { x: e.clientX, y: e.clientY, t: performance.now() });
+      if (down.size > 1) many = true;
+    });
+    canvas.addEventListener('pointerup', (e) => {
+      const d = down.get(e.pointerId);
+      down.delete(e.pointerId);
+      const single = !many;
+      if (!down.size) many = false;
+      if (!d || !single || e.button > 0 || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 5 ||
+        performance.now() - d.t > 600) return;
+      this.onPick?.(this.pickAt(e.clientX, e.clientY), { add: e.ctrlKey || e.metaKey || e.shiftKey });
+    });
+    canvas.addEventListener('pointercancel', (e) => down.delete(e.pointerId));
 
     this.frames = new Frames(() => this.draw());
     new ResizeObserver(() => this.resize()).observe(container);
@@ -337,6 +361,26 @@ export class Viewer {
   }
 
   /** Fits what's drawn in the viewport, from the current direction. */
+  /** A pixel's size in world units at the current zoom. */
+  pixelSize(): number {
+    return (this.camera.top - this.camera.bottom) / this.camera.zoom / Math.max(1, this.container.clientHeight);
+  }
+
+  /** What's drawn under a point of the page (client coordinates). */
+  pickAt(clientX: number, clientY: number): Pick | undefined {
+    const r = this.renderer.domElement.getBoundingClientRect();
+    const ndc = new THREE.Vector2((clientX - r.left) / r.width * 2 - 1, -((clientY - r.top) / r.height * 2 - 1));
+    this.display.updateWorldMatrix(true, true);
+    return pick(this.camera, this.display, ndc, this.pixelSize(), this.clipped);
+  }
+
+  /** Fits a box in the viewport, from the current direction; zoom all if it's empty. */
+  zoomTo(box: THREE.Box3): void {
+    if (box.isEmpty()) return this.zoomAll();
+    fit(this.camera, this.controls.target, box, this.aspect());
+    this.redraw();
+  }
+
   zoomAll(): void {
     fit(this.camera, this.controls.target, visibleBox(this.display), this.aspect());
     this.redraw();

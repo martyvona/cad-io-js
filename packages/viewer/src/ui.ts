@@ -5,6 +5,8 @@
 import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
 import { VIEWS, type ViewName } from './camera.ts';
 import type { Source } from './load.ts';
+import { details } from './details.ts';
+import { boxOf, Highlighter, instancesOf, nodeForPick, piecesOf, type PickLevel } from './selection.ts';
 import { DEFAULT_SETTINGS } from './tessellation.ts';
 import { TreePanel } from './tree-panel.ts';
 import { fromFiles, fromUrl, pickFiles } from './sources.ts';
@@ -13,12 +15,22 @@ import { visibleBox, type Viewer } from './viewer.ts';
 /** What the browser check reaches through `globalThis.ui`. */
 export interface Ui {
   panel(): TreePanel | undefined;
+  /** The selected nodes. */
+  selected(): readonly number[];
+  select(ids: readonly number[]): void;
+  /** The selection settings. */
+  selection: { level: PickLevel; multi: boolean; instances: boolean };
   hideSelected(): void;
   showSelected(): void;
   showAll(): void;
+  zoomSelected(): void;
+  selectParent(): void;
+  /** The details panel's lines. */
+  details(): string[];
 }
 
-export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLElement): Ui {
+export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLElement, detailsElement: HTMLElement):
+  Ui {
   const gui = new GUI({ title: 'cad-viewer' });
   const say = (text: string, error = false) => {
     status.textContent = text;
@@ -122,10 +134,52 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   const tree = { open: !narrow, detail: false };
   const setOpen = (open: boolean) => document.body.classList.toggle('tree-closed', !open);
   setOpen(tree.open);
+  // The selection: the tree's and the 3D view's, one; highlighted, described, zoomed to.
+  let selected: readonly number[] = [];
+  const highlighter = new Highlighter();
+  const selection = { level: 'part' as PickLevel, multi: false, instances: false, details: false };
+  const highlight = () => {
+    const nodes = viewer.nodes;
+    if (!nodes) return highlighter.clear();
+    const others = selection.instances ? selected.filter((id) => nodes.nodes[id]!.kind === 'part').flatMap(
+      (id) => instancesOf(nodes, id)) : [];
+    highlighter.apply(piecesOf(nodes, selected), piecesOf(nodes, others));
+    viewer.redraw();
+  };
+  const describe = () => {
+    detailsElement.hidden = !selection.details;
+    if (selection.details && viewer.nodes) detailsElement.textContent = details(viewer.nodes, selected).join('\n');
+  };
+  /** Sets the selection; from the 3D view (or code), the tree follows. */
+  const select = (ids: readonly number[], fromTree = false) => {
+    selected = [...new Set(ids)];
+    if (!fromTree) panel?.select(selected);
+    highlight();
+    describe();
+  };
   viewer.onModel = (nodes) => {
     panel?.dispose();
+    highlighter.clear();
+    selected = [];
     panel = new TreePanel(treeElement, nodes);
+    panel.onSelect = (ids) => select(ids, true);
     if (tree.detail) panel.setDetail(true);
+    describe();
+  };
+  let detailControl: { updateDisplay(): unknown } | undefined;
+  viewer.onPick = (hit, keys) => {
+    const nodes = viewer.nodes;
+    if (!nodes || !panel) return;
+    // Picking faces, edges and curves needs their nodes: the tree shows detail from then on.
+    if (selection.level === 'detail' && !nodes.hasDetail()) {
+      tree.detail = true;
+      panel.setDetail(true);
+      detailControl?.updateDisplay();
+    }
+    const id = hit && nodeForPick(nodes, hit.object, hit.faceIndex, selection.level);
+    const add = keys.add || selection.multi;
+    if (id === undefined) return add ? undefined : select([]);
+    select(!add ? [id] : selected.includes(id) ? selected.filter((s) => s !== id) : [...selected, id]);
   };
   let refresh = false;
   viewer.onMeshes = () => {
@@ -133,30 +187,59 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     refresh = true;
     requestAnimationFrame(() => { refresh = false; panel?.refresh(); });
   };
+  // Hiding faces changes materials: the highlight comes off first, and goes back on after.
   const hide = (hidden: boolean) => {
     if (!panel) return;
-    panel.model.setHidden(panel.selected(), hidden);
+    highlighter.clear();
+    panel.model.setHidden(selected, hidden);
     panel.redraw();
-    viewer.redraw();
+    highlight();
+    describe();
   };
   const ui: Ui = {
     panel: () => panel,
+    selected: () => selected,
+    select: (ids) => select(ids),
+    selection,
     hideSelected: () => hide(true),
     showSelected: () => hide(false),
     showAll: () => {
+      highlighter.clear();
       panel?.model.showAll();
       panel?.redraw();
-      viewer.redraw();
+      highlight();
+      describe();
     },
+    zoomSelected: () => {
+      if (!viewer.nodes || !selected.length) return viewer.zoomAll();
+      viewer.zoomTo(boxOf(piecesOf(viewer.nodes, selected)));
+    },
+    selectParent: () => {
+      const nodes = viewer.nodes;
+      if (!nodes) return;
+      select(selected.map((id) => nodes.nodes[id]!.parent).filter((p) => p >= 0));
+    },
+    details: () => (viewer.nodes ? details(viewer.nodes, selected) : []),
   };
   const treeFolder = gui.addFolder('Tree');
   treeFolder.add(tree, 'open').name('Show the tree').onChange(setOpen);
-  treeFolder.add(tree, 'detail').name('Faces, edges, curves').onChange((on: boolean) => panel?.setDetail(on));
+  detailControl = treeFolder.add(tree, 'detail').name('Faces, edges, curves')
+    .onChange((on: boolean) => panel?.setDetail(on));
   treeFolder.add({ expand: () => panel?.expandAll() }, 'expand').name('Expand all');
   treeFolder.add({ collapse: () => panel?.collapseAll() }, 'collapse').name('Collapse all');
   treeFolder.add(ui, 'hideSelected').name('Hide selected');
   treeFolder.add(ui, 'showSelected').name('Show selected');
   treeFolder.add(ui, 'showAll').name('Show all');
+
+  const selFolder = gui.addFolder('Selection');
+  selFolder.add(selection, 'level', { 'Assembly': 'assembly', 'Part': 'part', 'Face, edge, curve': 'detail' })
+    .name('Pick');
+  selFolder.add(selection, 'multi').name('Multi-select (touch)');
+  selFolder.add(selection, 'instances').name('All instances').onChange(highlight);
+  selFolder.add(ui, 'selectParent').name('Select parent');
+  selFolder.add({ none: () => select([]) }, 'none').name('Select none');
+  selFolder.add(ui, 'zoomSelected').name('Zoom selected');
+  selFolder.add(selection, 'details').name('Details').onChange(describe);
 
   const about = gui.addFolder('Model');
   about.add(info, 'file').name('File').disable().listen();

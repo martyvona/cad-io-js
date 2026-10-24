@@ -11,8 +11,9 @@
 // write them); a part with triangles and no B-rep edges gets edges found from its triangles instead.
 //
 // For the node model (model.ts): component groups have `userData.cad` 'assembly', placed parts' groups 'part', and
-// each placement's Mesh its faces' source ids in `userData.faces`. Hiding a face (FaceHiding) hides its triangles in
-// every placement of the part: they get a geometry group of their own with an invisible material.
+// each placement's Mesh its faces' source ids in `userData.faces` (and their index ranges in `faceRanges`, for
+// picking and selection). Hiding a face (FaceHiding) hides its triangles in every placement of the part: they get
+// a geometry group of their own with an invisible material.
 
 import * as THREE from 'three';
 import { instances, partInstances, type Mat4, type Mesh, type PartInstance, type Scene } from 'cad-scene';
@@ -176,7 +177,7 @@ export class StepGraph implements FaceHiding {
       } else {
         obj = new THREE.Group();
       }
-      obj.userData = { faces: faceSources };
+      obj.userData = { faces: faceSources, faceRanges: mesh.faces };
       obj.name = group.name;
       obj.position.set(...mesh.origin);
       if (edges) obj.add(Object.assign(new THREE.LineSegments(edges, this.lineMaterial), { name: 'edges' }));

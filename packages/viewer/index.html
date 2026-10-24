@@ -27,6 +27,12 @@
       pointer-events: none; white-space: pre-wrap;
     }
     #status:empty { display: none; }
+    #details {
+      position: absolute; left: 8px; top: 8px; max-width: min(420px, calc(100% - 16px)); padding: 6px 10px;
+      font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace; color: #ddd; background: rgba(0, 0, 0, 0.7);
+      white-space: pre-wrap; border-radius: 4px; pointer-events: none;
+    }
+    #details[hidden] { display: none; }
     #status.error { color: #ff8a80; }
     .tree-scroller:focus { outline: none; }
     .tree-row { cursor: default; user-select: none; -webkit-user-select: none; }
@@ -47,7 +53,7 @@
 </head>
 <body>
   <div id="side"><div id="tree"></div></div>
-  <div id="view"><div id="status"></div></div>
+  <div id="view"><div id="status"></div><div id="details" hidden></div></div>
   <script type="module" src="./src/main.ts"></script>
 </body>
 </html>

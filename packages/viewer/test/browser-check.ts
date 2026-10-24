@@ -326,6 +326,108 @@ await check('tree', async () => {
   expect(a.invisibleAfter === 0 && a.greyAfter === 0, `show all: ${j}`);
   return undefined;
 });
+// Picking on the STEP assembly with pointer events on the canvas: a click over a part selects it (tinted, and in
+// the tree), ctrl adds another, empty space clears; details describe it; zoom selected centres it; at the detail
+// level a click picks a face (or the edges on it); all instances tints the part's other placements.
+await check('picking', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    const frame = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+    const m = ui.panel().model, canvas = viewer.renderer.domElement, rect = canvas.getBoundingClientRect();
+    const click = (x, y, ctrlKey = false) => {
+      for (const type of ['pointerdown', 'pointerup']) canvas.dispatchEvent(new PointerEvent(type, { bubbles: true,
+        pointerId: 1, button: 0, isPrimary: true, clientX: x, clientY: y, ctrlKey }));
+    };
+    const part = (id) => { while (id >= 0 && m.nodes[id].kind !== 'part') id = m.nodes[id].parent; return id; };
+    // Points over two different parts' meshes: their placements' box centres, where a pick hits the same part.
+    const spots = [];
+    for (const n of m.nodes) {
+      if (n.kind !== 'part' || spots.length === 2) continue;
+      const b = n.object.children[0].geometry; b.computeBoundingBox();
+      const centre = b.boundingBox.getCenter(viewer.camera.position.clone())
+        .applyMatrix4(n.object.children[0].matrixWorld);
+      const p = centre.clone().project(viewer.camera);
+      const x = rect.left + (p.x + 1) / 2 * rect.width, y = rect.top + (1 - p.y) / 2 * rect.height;
+      const hit = viewer.pickAt(x, y);
+      if (hit && hit.object.isMesh && part(m.nodeOf(hit.object)) === n.id && !spots.some((s) => s.id === n.id)) {
+        spots.push({ id: n.id, x, y });
+      }
+    }
+    // A drag (the pointer moved) rotates; it doesn't pick.
+    for (const [type, dx] of [['pointerdown', 0], ['pointerup', 30]]) canvas.dispatchEvent(new PointerEvent(type,
+      { bubbles: true, pointerId: 1, button: 0, isPrimary: true, clientX: spots[0].x + dx, clientY: spots[0].y }));
+    await frame();
+    const dragged = [...ui.selected()];
+    click(spots[0].x, spots[0].y);
+    await frame();
+    const first = [...ui.selected()];
+    const mesh = m.nodes[spots[0].id].object.children[0];
+    const tinted = mesh.material.some((x) => x.emissive && x.emissive.getHex() !== 0);
+    const row = [...document.querySelectorAll('.tree-row')].find((r) => +r.dataset.id === spots[0].id);
+    const rowSelected = !!row && row.classList.contains('selected');
+    ui.selection.details = true;
+    const detailsText = ui.details().join('|');
+    click(spots[1].x, spots[1].y, true);
+    await frame();
+    const two = [...ui.selected()];
+    click(rect.left + 2, rect.top + 2);
+    await frame();
+    const none = [...ui.selected()];
+    // Multi-select (touch): taps toggle without keys; select parent: the selection's parents.
+    ui.selection.multi = true;
+    click(spots[0].x, spots[0].y);
+    click(spots[1].x, spots[1].y);
+    click(spots[0].x, spots[0].y);
+    await frame();
+    const toggled = [...ui.selected()];
+    ui.selection.multi = false;
+    ui.selectParent();
+    const parent = [...ui.selected()];
+    ui.select([spots[0].id]);
+    ui.zoomSelected();
+    const b = mesh.geometry.boundingBox.clone().applyMatrix4(mesh.matrixWorld);
+    const centre = b.getCenter(viewer.camera.position.clone());
+    const centred = viewer.controls.target.distanceTo(centre) < 1e-6;
+    // The detail level: the same spot (after zooming in, recomputed) picks a face or the edges on it.
+    ui.selection.level = 'detail';
+    const p = centre.clone().project(viewer.camera);
+    click(rect.left + (p.x + 1) / 2 * rect.width, rect.top + (1 - p.y) / 2 * rect.height);
+    await frame();
+    const detailKind = ui.selected().length === 1 ? m.nodes[ui.selected()[0]].kind : 'none';
+    // All instances: a part placed more than once, its other placements tinted too.
+    ui.selection.level = 'part';
+    ui.selection.instances = true;
+    const shared = m.nodes.find((n) => n.kind === 'part' && m.nodes.filter((o) => o.kind === 'part' &&
+      o.object.userData.part === n.object.userData.part).length > 1);
+    ui.select([shared.id]);
+    const placements = m.nodes.filter((n) => n.kind === 'part' && n.object.userData.part ===
+      shared.object.userData.part);
+    const lit = placements.filter((n) => n.object.children[0].material.some((x) => x.emissive &&
+      x.emissive.getHex() !== 0)).length;
+    ui.selection.instances = false;
+    ui.select([]);
+    const unlit = placements.filter((n) => n.object.children[0].material.some((x) => x.emissive &&
+      x.emissive.getHex() !== 0)).length;
+    return { spots: spots.map((s) => s.id), first, tinted, rowSelected, detailsText, two, none, centred, detailKind,
+      placements: placements.length, lit, unlit, toggled, parent, parentExpected: [m.nodes[spots[1].id].parent],
+      dragged };
+  })()`) as { after?: { spots: number[]; first: number[]; tinted: boolean; rowSelected: boolean;
+    detailsText: string; two: number[]; none: number[]; centred: boolean; detailKind: string; placements: number;
+    lit: number; unlit: number; toggled: number[]; parent: number[]; parentExpected: number[]; dragged: number[] } };
+  const a = r.after!;
+  const j = JSON.stringify(a);
+  expect(a.spots.length === 2, `no two parts to click: ${j}`);
+  expect(a.first.join() === String(a.spots[0]) && a.tinted && a.rowSelected, `a click: ${j}`);
+  expect(/Placement \d+ of \d+|The only placement/.test(a.detailsText) && /Triangles: /.test(a.detailsText),
+    `details: ${j}`);
+  expect(a.two.join() === a.spots.join() && a.none.length === 0, `ctrl-click, empty space: ${j}`);
+  expect(a.toggled.join() === String(a.spots[1]) && a.parent.join() === a.parentExpected.join(),
+    `multi-select, select parent: ${j}`);
+  expect(a.centred, `zoom selected: ${j}`);
+  expect(a.detailKind === 'face' || a.detailKind === 'edges', `detail pick: ${j}`);
+  expect(a.placements > 1 && a.lit === a.placements && a.unlit === 0, `all instances: ${j}`);
+  expect(a.dragged.length === 0, `a drag picked: ${j}`);
+  return undefined;
+});
 await check('no model', async () => {
   const r = await page('?check');
   expect(r.empty === true, `report ${JSON.stringify(r)}`);

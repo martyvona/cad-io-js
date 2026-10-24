@@ -90,13 +90,14 @@ export class NodeModel {
         const partIndex = o.userData.part as number;
         for (const source of faces) out.push(this.add({ kind: 'face', name: `face #${source}`, parent: id,
           face: { part: partIndex, source }, hidden: this.faces?.isFaceHidden(partIndex, source) ?? false }));
-        for (const c of m.children) out.push(this.add({ kind: c.name as Kind, name: c.name, parent: id, object: c,
-          hidden: !c.visible }));
+        for (const c of m.children) if (['edges', 'curves', 'points'].includes(c.name)) out.push(this.add(
+          { kind: c.name as Kind, name: c.name, parent: id, object: c, hidden: !c.visible }));
       }
     } else {
       if (drawable(o) && o.children.length) out.push(this.add({ kind: drawableKind(o), name: `${o.name || 'part'}`
         + ' (itself)', parent: id, object: o, self: true, hidden: !o.layers.isEnabled(0) }));
       const visit = (c: THREE.Object3D) => {
+        if (c.userData.highlight) return;
         out.push(this.add({ kind: drawableKind(c), name: c.name || drawableKind(c), parent: id, object: c,
           hidden: !c.visible }));
         c.children.forEach(visit);
