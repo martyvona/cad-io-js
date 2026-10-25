@@ -977,6 +977,163 @@ if (!staticServer) await check('shot', async () => {
     JSON.stringify(report.state.model));
   return undefined;
 });
+// Recording (src/recorder.ts): a session driven by real input (clicks on parts, shift-click, a drag, a wheel zoom)
+// and controls (a switch, a button), recorded from the page's start (?record); its events timed in order, with
+// pixels; replayed in a fresh page with nothing diverging; a model from a local file replayed with the file given
+// again (and without it, said); and cad-viewer replay (the dev server only).
+type Rec = { events: { t: number; type: string; phase?: string; x?: number; y?: number; path?: string | null;
+  value?: unknown; url?: string; files?: { sha256?: string }[] }[]; view: { width: number; height: number } };
+await check('recording', async () => {
+  let recording: Rec | undefined;
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check&record`, `(async () => {
+    await cadViewer.ready;
+    await cadViewer.idle();
+    // Two points on two parts, from the view's top left.
+    const rect = viewer.renderer.domElement.getBoundingClientRect();
+    const spots = [];
+    for (let gy = 1; gy < 20 && spots.length < 2; gy++) for (let gx = 1; gx < 20 && spots.length < 2; gx++) {
+      const p = cadViewer.pickAt(gx / 20, gy / 20);
+      if (p && !spots.some((s) => s.path === p.path)) spots.push({ path: p.path, x: rect.left + gx / 20 * rect.width,
+        y: rect.top + gy / 20 * rect.height });
+    }
+    // Away from the controls' panel, which lies over the view's right side.
+    return { spots, left: rect.left, top: rect.top,
+      centre: [rect.left + rect.width * 0.3, rect.top + rect.height / 2] };
+  })()`, { then: async (sessionId, after) => {
+    const { spots, centre } = after as { spots: { x: number; y: number }[]; centre: [number, number] };
+    const mouse = (type: string, x: number, y: number, extra: object = {}) => send('Input.dispatchMouseEvent',
+      { type, x, y, button: 'left', clickCount: 1, ...extra }, sessionId);
+    const pause = () => new Promise((res) => setTimeout(res, 150));
+    // Hovering: not recorded.
+    await mouse('mouseMoved', centre[0], centre[1], { button: 'none' });
+    await mouse('mouseMoved', centre[0] + 5, centre[1] + 5, { button: 'none' });
+    // A click on the first part; a shift-click on the second.
+    await mouse('mousePressed', spots[0]!.x, spots[0]!.y, { buttons: 1 });
+    await mouse('mouseReleased', spots[0]!.x, spots[0]!.y);
+    await pause();
+    await mouse('mousePressed', spots[1]!.x, spots[1]!.y, { buttons: 1, modifiers: 8 });
+    await mouse('mouseReleased', spots[1]!.x, spots[1]!.y, { modifiers: 8 });
+    await pause();
+    // A drag (the view turns), then a wheel zoom.
+    await mouse('mousePressed', centre[0], centre[1], { buttons: 1 });
+    for (let k = 1; k <= 6; k++) {
+      await mouse('mouseMoved', centre[0] + 15 * k, centre[1] + 5 * k, { buttons: 1 });
+      await new Promise((res) => setTimeout(res, 40));
+    }
+    await mouse('mouseReleased', centre[0] + 90, centre[1] + 30);
+    await pause();
+    await send('Input.dispatchMouseEvent', { type: 'mouseWheel', x: centre[0], y: centre[1], deltaX: 0, deltaY: -120 },
+      sessionId);
+    await pause();
+    // A switch and a button, as clicked.
+    const end = await send('Runtime.evaluate', { expression: `(async () => {
+      const control = (name) => [...document.querySelectorAll('.lil-gui .controller')]
+        .find((c) => c.textContent.trim() === name);
+      control('Cut along X').querySelector('input').click();
+      await cadViewer.idle();
+      control('Zoom all').querySelector('button').click();
+      await cadViewer.idle();
+      return { rec: cadViewer.record(false), state: cadViewer.state() };
+    })()`, returnByValue: true, awaitPromise: true }, sessionId) as { result: { value: { rec: Rec; state: State } } };
+    return end.result.value;
+  } }) as { then: { rec: Rec; state: State }; after: { spots: { x: number; y: number }[]; left: number;
+    top: number } };
+  recording = r.then.rec;
+  const ev = recording.events;
+  const kinds = (type: string) => ev.filter((e) => e.type === type);
+  const j = JSON.stringify(ev.map((e) => [e.t, e.type, e.phase ?? e.path ?? e.value ?? e.url ?? '']));
+  expect(ev.every((e, k) => k === 0 || e.t >= ev[k - 1]!.t), `times in order: ${j}`);
+  // Recorded from the page's start: the (empty) view, then the address's model opened.
+  expect(ev[0]!.type === 'state' && ev[1]!.type === 'load' && /as1\.stp/.test(ev[1]!.url ?? '') &&
+    kinds('state').length === 2 && ev.at(-1)!.type === 'state', `ends: ${j}`);
+  const downs = ev.filter((e) => e.type === 'pointer' && e.phase === 'down');
+  expect(downs.length === 3 && downs.every((e) => e.x! > 0 && e.y! > 0 && e.x! < recording!.view.width),
+    `pointers with pixels: ${j}`);
+  // In the view's pixels, from its top left; timed from the start; no hovering.
+  const spot = r.after.spots[0]!;
+  expect(Math.abs(downs[0]!.x! - (spot.x - r.after.left)) < 0.01 && Math.abs(downs[0]!.y! - (spot.y - r.after.top)) <
+    0.01, `the first press at ${JSON.stringify([downs[0], spot, r.after.left, r.after.top])}`);
+  expect(ev[0]!.t < 1000, `the first event at ${ev[0]!.t} ms`);
+  const firstDown = ev.indexOf(downs[0]!);
+  expect(!ev.slice(0, firstDown).some((e) => e.type === 'pointer'), `hovering recorded: ${j}`);
+  expect(ev.some((e) => e.type === 'pointer' && e.phase === 'move') && kinds('wheel').length >= 1 &&
+    kinds('camera').length >= 2, `drag, wheel, camera: ${j}`);
+  const picks = kinds('pick');
+  expect(picks.length === 2 && picks.every((e) => typeof e.path === 'string' && e.x! > 0), `picks: ${j}`);
+  expect(ev.some((e) => e.type === 'control' && e.path === 'Section/Cut along X' && e.value === true) &&
+    ev.some((e) => e.type === 'control' && e.path === 'View/Zoom all' && e.value === undefined), `controls: ${j}`);
+  // Replayed in a fresh page: nothing diverges (picks land where they did, the end state is the same).
+  const replayed = await page('?check', `cadViewer.ready.then(() => cadViewer.replay(${JSON.stringify(recording)}))`) as
+    { after: { applied: number; divergences: string[] } };
+  expect(replayed.after.divergences.length === 0 && replayed.after.applied > 5,
+    `replay: ${JSON.stringify(replayed.after)}`);
+  // Replayed in a view of another size (a larger window): said at the picks.
+  const resized = await page('?check', `cadViewer.ready.then(() => cadViewer.replay(${JSON.stringify(recording)}))`,
+    { scale: 1 }) as { after: { divergences: string[] } };
+  expect(resized.after.divergences.some((d) => /the view is \d+x\d+, recorded \d+x\d+: the pick/.test(d)),
+    `another view size: ${JSON.stringify(resized.after)}`);
+  // A pick that landed elsewhere when recorded: said.
+  const tampered = structuredClone(recording);
+  tampered.events.find((e) => e.type === 'pick')!.path = 'somewhere/else';
+  const diverged = await page('?check', `cadViewer.ready.then(() => cadViewer.replay(${JSON.stringify(tampered)}))`) as
+    { after: { divergences: string[] } };
+  expect(diverged.after.divergences.some((d) => /picked .* recorded somewhere\/else/.test(d)),
+    `a tampered pick: ${JSON.stringify(diverged.after)}`);
+  // A model from a local file: recorded, then replayed with the file given again, and without it.
+  const local = await page('?check', `(async () => {
+    await cadViewer.ready;
+    const file = new File([await (await fetch('/content/as1.glb')).arrayBuffer()], 'as1.glb');
+    // Well after the page's start: the recording's times still begin at 0.
+    await new Promise((res) => setTimeout(res, 1200));
+    cadViewer.record(true);
+    await ui.openFiles([file]);
+    await cadViewer.idle();
+    cadViewer.hide([cadViewer.nodes().find((n) => n.kind === 'part').path]);
+    await new Promise((res) => setTimeout(res, 300));
+    const rec = cadViewer.record(false);
+    return { rec, file: [...new Uint8Array(await file.arrayBuffer())].length };
+  })()`) as { after: { rec: Rec } };
+  const localRec = local.after.rec;
+  expect(localRec.events.some((e) => e.files?.[0]?.sha256?.length === 64), 'the local file hashed');
+  expect(localRec.events[0]!.t < 500, `a later recording's first event at ${localRec.events[0]!.t} ms`);
+  // Without its hash (stopped before hashing finished), a file of another size isn't taken for it.
+  const unhashed = structuredClone(localRec);
+  for (const e of unhashed.events) for (const f of e.files ?? []) delete f.sha256;
+  const wrongSize = await page('?check', `cadViewer.ready.then(() => cadViewer.replay(${JSON.stringify(unhashed)},
+    { files: [new File([new Uint8Array(10)], 'as1.glb')] }))`) as { after: { divergences: string[] } };
+  expect(wrongSize.after.divergences.some((d) => /as1\.glb .* wasn't given/.test(d)),
+    `a file of another size: ${JSON.stringify(wrongSize.after)}`);
+  const withFile = await page('?check', `(async () => {
+    await cadViewer.ready;
+    const file = new File([await (await fetch('/content/as1.glb')).arrayBuffer()], 'as1.glb');
+    const a = await cadViewer.replay(${JSON.stringify(localRec)}, { files: [file] });
+    return a;
+  })()`) as { after: { divergences: string[] } };
+  expect(withFile.after.divergences.length === 0, `with the file: ${JSON.stringify(withFile.after)}`);
+  const without = await page('?check', `cadViewer.ready.then(() => cadViewer.replay(${JSON.stringify(localRec)},
+    { files: [new File([new Uint8Array(${fs.statSync(path.join(content, 'as1.glb')).size})], 'as1.glb')] }))`) as
+    { after: { divergences: string[] } };
+  expect(without.after.divergences.some((d) => /as1\.glb .* wasn't given/.test(d)),
+    `without the file: ${JSON.stringify(without.after)}`);
+  // cad-viewer replay, headless, at the recorded window's size.
+  if (!staticServer) {
+    const json = path.join(tmp, 'recording.json'), png = path.join(tmp, 'replay.png');
+    fs.writeFileSync(json, JSON.stringify(recording));
+    const out: string[] = [];
+    const code = await main(['replay', json, '-o', png, '--content-root', content, '--port', String(port)],
+      { ...io, out: (s) => out.push(s), err: (s) => out.push(s) });
+    expect(code === 0 && fs.existsSync(png) && /as recorded/.test(out.join('')), `cad-viewer replay: exit ${code}: ${
+      out.join('')}`);
+    // The local file found below the content root, by name and size.
+    fs.writeFileSync(json, JSON.stringify(localRec));
+    const out2: string[] = [];
+    const code2 = await main(['replay', json, '-o', png, '--content-root', content, '--port', String(port)],
+      { ...io, out: (s) => out2.push(s), err: (s) => out2.push(s) });
+    expect(code2 === 0 && /as recorded/.test(out2.join('')), `cad-viewer replay, a local file: exit ${code2}: ${
+      out2.join('')}`);
+  }
+  return undefined;
+});
 await check('not a model', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/notes.txt')}&check`);
   expect(typeof r.error === 'string' && /unknown format/.test(r.error), `report ${JSON.stringify(r)}`);

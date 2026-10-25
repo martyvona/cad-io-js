@@ -8,7 +8,10 @@
 
 import { VIEWS, type ViewName } from './camera.ts';
 import { AXES, type SectionSettings } from './section.ts';
+import { Recorder, RECORDING_FORMAT, replay, type Recording, type ReplayOptions, type ReplayReport,
+  type Session } from './recorder.ts';
 import { nodeForPick } from './selection.ts';
+import { pickFiles } from './sources.ts';
 import type { RenderSettings } from './style.ts';
 import type { Ui } from './ui.ts';
 import { fromQuery, renderChanges, toQuery, type CameraState, type ViewState } from './view-state.ts';
@@ -54,6 +57,12 @@ export interface CadViewer {
   pickAt(x: number, y: number): { path: string; point: number[] } | undefined;
   /** The view as a PNG data URL, drawn now. */
   screenshot(): string;
+  /** Starts recording (recorder.ts), or stops and returns the recording. */
+  record(on: boolean): Recording | undefined;
+  /** The recording going on (a copy), else the last one stopped. */
+  recording(): Recording | undefined;
+  /** Replays a recording in this page; resolves with what diverged. */
+  replay(recording: Recording, opts?: ReplayOptions): Promise<ReplayReport>;
 }
 
 const VERSION = 1;
@@ -222,9 +231,84 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
       return id === undefined ? undefined : { path: model.pathOf(id), point: hit.point.toArray() };
     },
     screenshot: () => viewer.snapshot(),
+    record: () => undefined,
+    recording: () => undefined,
+    replay: async () => ({ events: 0, applied: 0, divergences: [] }),
   };
+  // Recording: ?record starts it before anything loads; the controls' Recording folder.
+  const session: Session = { state: () => ({ ...state() }), link, apply: (s) => apply(s as ViewState),
+    idle: () => api.idle(), call: (method, args) => (api[method as keyof CadViewer] as (...a: unknown[]) => unknown)
+      .apply(api, args) };
+  const recorder = new Recorder(viewer, ui, session);
+  // Calls that change the view are recorded (loads are, as loads).
+  for (const m of ['select', 'hide', 'show', 'showAll', 'view', 'zoomAll', 'zoomSelected', 'apply'] as const) {
+    const f = api[m] as (...a: unknown[]) => unknown;
+    (api as unknown as Record<string, unknown>)[m] = (...args: unknown[]) => {
+      recorder.api(m, args);
+      return f.apply(api, args);
+    };
+  }
+  let lastRecording: Recording | undefined;
+  api.record = (on) => {
+    if (on) {
+      if (!recorder.recording) recorder.start();
+      return undefined;
+    }
+    lastRecording = recorder.stop() ?? lastRecording;
+    return lastRecording;
+  };
+  api.recording = () => recorder.snapshot() ?? lastRecording;
+  api.replay = async (rec, opts) => {
+    await busy.catch(() => {});
+    return replay(rec, viewer, ui, session, opts);
+  };
+  addRecordingControls(ui, api, recorder);
+  if (new URLSearchParams(location.search).has('record')) recorder.start();
   (api as { ready: Promise<void> }).ready = start();
   ui.link = link;
   return api;
 }
 
+
+/** The controls' Recording folder: record (a switch), download the recording, replay one (and the model's files). */
+function addRecordingControls(ui: Ui, api: CadViewer, recorder: Recorder): void {
+  const folder = ui.gui.addFolder('Recording');
+  const state = { on: recorder.recording };
+  const toggle = folder.add(state, 'on').name('Record').onChange((on: boolean) => {
+    api.record(on);
+    ui.say(on ? 'recording' : `recorded ${api.recording()?.events.length ?? 0} events: Download recording`);
+  });
+  folder.add({ download: () => {
+    const rec = api.recording();
+    if (!rec) return ui.say('nothing recorded yet', true);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(rec, null, 1)], { type: 'application/json' }));
+    a.download = `cad-viewer-recording-${rec.started.replace(/[:.]/g, '-')}.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
+  } }, 'download').name('Download recording');
+  folder.add({ replay: async () => {
+    // The recording, and the model's files if it opened local ones, picked together.
+    const files = await pickFiles();
+    let rec: Recording | undefined;
+    const others: File[] = [];
+    for (const f of files) {
+      const parsed = f.name.endsWith('.json') ? await f.text().then((t) => JSON.parse(t) as Recording, () => undefined)
+        : undefined;
+      if (parsed?.format === RECORDING_FORMAT) rec = parsed;
+      else others.push(f);
+    }
+    if (!rec) return ui.say('no recording among the files picked (pick the .json, with the model\'s files)', true);
+    if (recorder.recording) toggle.setValue(false);
+    ui.say('replaying...');
+    try {
+      const r = await api.replay(rec, { files: others });
+      if (r.divergences.length) console.warn('replay:', r.divergences);
+      ui.say(`replayed ${r.applied} of ${r.events} events; ${r.divergences.length ? `${r.divergences.length} ` +
+        'divergences (in the console)' : 'as recorded'}`, r.divergences.length > 0);
+    } catch (e) {
+      ui.say(`replay: ${(e as Error).message}`, true);
+    }
+  } }, 'replay').name('Replay recording...');
+  folder.close();
+}

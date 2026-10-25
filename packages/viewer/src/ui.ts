@@ -33,8 +33,12 @@ export interface Ui {
   details(): string[];
   /** Opens a model by URL; resolves with what the browser check's report has (`error` if it failed). */
   openUrl(url: string): Promise<Record<string, unknown>>;
+  /** Opens a model from local files (with a .gltf's .bin), as picked or dropped. */
+  openFiles(files: File[]): Promise<Record<string, unknown>>;
   /** The current model's URL, if it came from one. */
   currentUrl(): string | undefined;
+  /** The current model's source: its name, bytes and URL (if any). */
+  source(): Source | undefined;
   /** These settings take effect through the controls (which follow). */
   setSections(s: SectionSettings): void;
   setRender(r: Partial<RenderSettings>): void;
@@ -52,14 +56,31 @@ export interface Ui {
   say(text: string, error?: boolean): void;
   /** The view's address, for "Copy link to this view" (set by the automation layer). */
   link?: () => string;
+  /** The controls (for the recorder, recorder.ts, and replay). */
+  readonly gui: GUI;
+  /** What happens, as it happens (for the recorder). */
+  onEvent?: (e: UiEvent) => void;
+  /** A click at a point of the page (client coordinates), as the view's own click handling does it. */
+  pickAt(clientX: number, clientY: number, add: boolean): void;
 }
+
+/** What the UI reports as it happens: loads, selections (and where they came from), picks, the status line. */
+export type UiEvent =
+  | { type: 'load'; url?: string; files?: File[] }
+  | { type: 'loaded'; report: Record<string, unknown> }
+  | { type: 'select'; source: 'tree' | 'pick' | 'api'; ids: readonly number[] }
+  | { type: 'pick'; clientX: number; clientY: number; add: boolean; id?: number; point?: number[] }
+  | { type: 'status'; text: string; error: boolean };
 
 export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLElement, detailsElement: HTMLElement):
   Ui {
   const gui = new GUI({ title: 'cad-viewer' });
+  // Where events go (ui.onEvent), usable before `ui` exists (say is called while the controls are being built).
+  const hooks: { onEvent?: (e: UiEvent) => void } = {};
   const say = (text: string, error = false) => {
     status.textContent = text;
     status.classList.toggle('error', error);
+    hooks.onEvent?.({ type: 'status', text, error });
   };
   const info = { file: '', triangles: '', objects: '', url: '' };
   let centered: { enable(on: boolean): unknown; setValue(v: boolean): unknown };
@@ -99,23 +120,25 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
         (problems ? `; ${problems} warnings and errors (in the console)` : ''));
       if (problems) console.warn(m.diagnostics);
       const box = visibleBox(viewer.display);
-      const r = { name: src.name, seconds: (performance.now() - t) / 1000, parts: m.parts, stats: s,
-        centroid: viewer.model?.centroid?.toArray(), box: [box.min.toArray(),
-        box.max.toArray()], camera: { top: viewer.camera.top, target: viewer.controls.target.toArray() } };
+      const r: Record<string, unknown> = { name: src.name, seconds: (performance.now() - t) / 1000, parts: m.parts,
+        stats: s, centroid: viewer.model?.centroid?.toArray(), box: [box.min.toArray(), box.max.toArray()],
+        camera: { top: viewer.camera.top, target: viewer.controls.target.toArray() } };
       report(r);
+      hooks.onEvent?.({ type: 'loaded', report: r });
       return r;
     } catch (e) {
       console.error(e);
       say(`${what}: ${(e as Error).message}`, true);
       report({ error: (e as Error).message });
+      hooks.onEvent?.({ type: 'loaded', report: { error: (e as Error).message } });
       return { error: (e as Error).message };
     }
   };
-  const openFiles = (files: File[]) => files.length ? open(async () => {
+  const openFiles = (files: File[]) => files.length ? (hooks.onEvent?.({ type: 'load', files }), open(async () => {
     const src = await fromFiles(files);
     if (!src) throw new Error('no model among the files (.stp, .step, .stpz, .glb, .gltf, .json)');
     return src;
-  }, files.map((f) => f.name).join(', ')) : undefined;
+  }, files.map((f) => f.name).join(', '))) : undefined;
   // The view's address to the clipboard (where the page may write it: a secure context), else shown to copy.
   const copyLink = () => {
     const href = ui.link?.();
@@ -127,6 +150,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   };
   const openUrl = (url: string) => {
     info.url = url;
+    hooks.onEvent?.({ type: 'load', url });
     return open(() => fromUrl(url), url);
   };
 
@@ -256,9 +280,10 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     if (selection.details && viewer.nodes) detailsElement.textContent = details(viewer.nodes, selected).join('\n');
   };
   /** Sets the selection; from the 3D view (or code), the tree follows. */
-  const select = (ids: readonly number[], fromTree = false) => {
+  const select = (ids: readonly number[], source: 'tree' | 'pick' | 'api' = 'api') => {
     selected = [...new Set(ids)];
-    if (!fromTree) panel?.select(selected);
+    if (source !== 'tree') panel?.select(selected);
+    hooks.onEvent?.({ type: 'select', source, ids: selected });
     highlight();
     describe();
   };
@@ -268,7 +293,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     selected = [];
     panel = new TreePanel(treeElement, nodes);
     resetPlanes();
-    panel.onSelect = (ids) => select(ids, true);
+    panel.onSelect = (ids) => select(ids, 'tree');
     if (tree.detail) panel.setDetail(true);
     if (!narrow && !tree.closedByHand && !tree.open) openControl?.setValue(true);
     describe();
@@ -285,8 +310,10 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     }
     const id = hit && nodeForPick(nodes, hit.object, hit.faceIndex, selection.level);
     const add = keys.add || selection.multi;
-    if (id === undefined) return add ? undefined : select([]);
-    select(!add ? [id] : selected.includes(id) ? selected.filter((s) => s !== id) : [...selected, id]);
+    hooks.onEvent?.({ type: 'pick', clientX: keys.clientX, clientY: keys.clientY, add, ...(id !== undefined ? { id }
+      : {}), ...(hit ? { point: hit.point.toArray() } : {}) });
+    if (id === undefined) return add ? undefined : select([], 'pick');
+    select(!add ? [id] : selected.includes(id) ? selected.filter((s) => s !== id) : [...selected, id], 'pick');
   };
   let refresh = false;
   viewer.onMeshes = () => {
@@ -330,7 +357,9 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     },
     details: () => (viewer.nodes ? details(viewer.nodes, selected) : []),
     openUrl,
+    openFiles: async (files) => (await openFiles(files)) ?? { error: 'no files' },
     currentUrl: () => last?.url,
+    source: () => last,
     setSections: (s) => {
       for (const a of AXES) Object.assign(cut[a], s[a]);
       cut.caps = s.caps;
@@ -367,6 +396,10 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       report({ empty: true });
     },
     say,
+    gui,
+    get onEvent() { return hooks.onEvent; },
+    set onEvent(f) { hooks.onEvent = f; },
+    pickAt: (clientX, clientY, add) => viewer.onPick?.(viewer.pickAt(clientX, clientY), { add, clientX, clientY }),
   };
   const treeFolder = gui.addFolder('Tree');
   openControl = treeFolder.add(tree, 'open').name('Show the tree').onChange((open: boolean) => {

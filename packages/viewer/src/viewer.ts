@@ -136,7 +136,8 @@ export class Viewer {
   /** Meshes arrived: parts' detail in the node model changed. */
   onMeshes?: () => void;
   /** A click or tap that didn't move the view: what's under it (or nothing), and the keys held. */
-  onPick?: (hit: Pick | undefined, keys: { add: boolean }) => void;
+  /** A click or tap on the view (where, in client coordinates), and what's under it. */
+  onPick?: (hit: Pick | undefined, keys: { add: boolean; clientX: number; clientY: number }) => void;
   /** Whether a world point is cut away (by the section planes): not pickable. */
   clipped?: (p: THREE.Vector3) => boolean;
 
@@ -193,7 +194,8 @@ export class Viewer {
       if (!down.size) many = false;
       if (!d || !single || e.button > 0 || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 5 ||
         performance.now() - d.t > 600) return;
-      this.onPick?.(this.pickAt(e.clientX, e.clientY), { add: e.ctrlKey || e.metaKey || e.shiftKey });
+      this.onPick?.(this.pickAt(e.clientX, e.clientY), { add: e.ctrlKey || e.metaKey || e.shiftKey,
+        clientX: e.clientX, clientY: e.clientY });
     });
     canvas.addEventListener('pointercancel', (e) => down.delete(e.pointerId));
 

@@ -26,9 +26,13 @@ Commands:
   open <file>          start it if needed, then open the file (below the content root) in the default browser
   shot <file>          start it if needed, then render the file (below the content root) in headless Chrome to a
                        PNG, and say what the page reports (the server is left running)
+  replay <recording>   start it if needed, then replay a recording (Recording, in the page) in headless Chrome at
+                       its window's size: what diverged from it, and the view at the end as a PNG (-o); local files
+                       it opened are looked for below the content root, by name and size; exit 3 if anything diverged
 
 Options for shot:
   -o <png>             where the PNG goes (default: the file's name with .png, in the current directory)
+                       (replay: -o, --json and --chrome too)
   --size <w>x<h>       the view in pixels (default 1200x800; one pixel per CSS pixel)
   --view <name>        front, back, left, right, top, bottom or iso (default: as the page fits it)
   --state <query>      more of the view, as in a link's address: "cut=x:10&hide=as1/plate&ao=0" (README.md)
@@ -107,8 +111,10 @@ export function parseArgs(argv: string[]): Args | string {
   }
   const [command, file, ...extra] = rest;
   if (!command) return 'no command';
-  if (!['start', 'stop', 'status', 'open', 'shot'].includes(command)) return `unknown command: ${command}`;
-  const takesFile = command === 'open' || command === 'shot';
+  if (!['start', 'stop', 'status', 'open', 'shot', 'replay'].includes(command)) {
+    return `unknown command: ${command}`;
+  }
+  const takesFile = command === 'open' || command === 'shot' || command === 'replay';
   if (takesFile ? file === undefined || extra.length : file !== undefined) {
     return takesFile ? `${command} takes one file` : `${command} takes no file`;
   }
@@ -237,13 +243,72 @@ async function takeShot(s: State, file: string, o: ShotOptions, io: Io): Promise
   }
 }
 
+/** The files below a directory, by name (symbolic links not followed). */
+function filesBelow(dir: string): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  const walk = (d: string) => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const f = path.join(d, e.name);
+      if (e.isDirectory()) walk(f);
+      else if (e.isFile()) out.set(e.name, [...out.get(e.name) ?? [], f]);
+    }
+  };
+  walk(dir);
+  return out;
+}
+
+/** Replays a recording headlessly: what diverged, and the view at the end. Returns the exit code. */
+async function replayRecording(s: State, file: string, o: ShotOptions, io: Io): Promise<number> {
+  const rec = JSON.parse(fs.readFileSync(file, 'utf8')) as { format?: string; window: { width: number;
+    height: number; scale: number }; events: { type: string; url?: string; files?: { name: string; size: number }[]
+    }[] };
+  if (rec.format !== 'cad-viewer-recording') throw new Error(`${file} isn't a cad-viewer recording`);
+  // Local files, by name and size below the content root, as URLs there.
+  const urls: Record<string, string> = {};
+  let below: Map<string, string[]> | undefined;
+  for (const e of rec.events) for (const f of e.type === 'load' ? e.files ?? [] : []) {
+    below ??= filesBelow(s.contentRoot);
+    const match = (below.get(f.name) ?? []).find((g) => fs.statSync(g).size === f.size);
+    const rel = match && contentUrl(s.contentRoot, match);
+    if (rel) urls[f.name] = rel;
+    else io.err(`cad-viewer: ${f.name} (${f.size} bytes) isn't below the content root ${s.contentRoot}\n`);
+  }
+  const headless = await launchChrome(fs.mkdtempSync(path.join(os.tmpdir(), 'cad-viewer-replay-')),
+    { chrome: o.chrome, args: s.https === 'none' ? [] : ['--ignore-certificate-errors'] });
+  try {
+    const tab = await headless.open(s.url, { width: rec.window.width, height: rec.window.height,
+      scale: rec.window.scale });
+    await settled(tab, 'cadViewer.ready.then(() => true)', 600_000);
+    const r = await tab.evaluate(`cadViewer.replay(${JSON.stringify(rec)}, { urls: ${JSON.stringify(urls)} })
+      .then(async (report) => { await cadViewer.idle(); return { report, state: cadViewer.state(),
+      png: cadViewer.state().model ? cadViewer.screenshot() : null }; })`, 3_600_000) as { report: {
+      events: number; applied: number; divergences: string[] }; state: unknown; png: string | null };
+    if (o.json) {
+      const text = JSON.stringify({ report: r.report, state: r.state }, null, 2) + '\n';
+      if (o.json === '-') io.out(text);
+      else fs.writeFileSync(o.json, text);
+    }
+    const out = o.out ?? path.resolve(path.basename(file).replace(/\.[^.]*$/, '') + '.png');
+    if (r.png) fs.writeFileSync(out, Buffer.from(r.png.replace(/^data:image\/png;base64,/, ''), 'base64'));
+    if (o.json !== '-') {
+      io.out(`replayed ${r.report.applied} of ${r.report.events} events${r.png ? `; the end: ${out}` : ''}\n`);
+      for (const d of r.report.divergences) io.out(`diverged: ${d}\n`);
+      if (!r.report.divergences.length) io.out('as recorded\n');
+    }
+    return r.report.divergences.length ? 3 : 0;
+  } finally {
+    await headless.close();
+  }
+}
+
 function openBrowser(url: string): void {
   const [cmd, args] = process.platform === 'darwin' ? ['open', [url]] : process.platform === 'win32'
     ? ['cmd', ['/c', 'start', '', url]] : ['xdg-open', [url]];
   spawn(cmd, args, { detached: true, stdio: 'ignore' }).on('error', () => {}).unref();
 }
 
-/** Runs a command line; returns the exit code (0, 1 for failures, 2 for usage errors). */
+/** Runs a command line; returns the exit code (0, 1 for failures, 2 for usage errors, 3 for a replay that
+ * diverged). */
 export async function main(argv: string[], io: Io): Promise<number> {
   const args = parseArgs(argv);
   if (args === 'help') { io.out(USAGE); return 0; }
@@ -265,6 +330,7 @@ export async function main(argv: string[], io: Io): Promise<number> {
         await takeShot(s, args.file!, args.shot, io);
         return 0;
       }
+      if (args.command === 'replay') return await replayRecording(s, args.file!, args.shot, io);
       const rel = contentUrl(s.contentRoot, args.file!);
       if (!rel) throw new Error(`${args.file} isn't below the content root ${s.contentRoot} (or doesn't exist): ` +
         'stop the server and start it with --content-root');
