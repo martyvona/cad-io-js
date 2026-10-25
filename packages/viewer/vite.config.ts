@@ -13,6 +13,7 @@ import { contentMiddleware } from './server/content.ts';
 import { optionsFromEnv } from './server/options.ts';
 
 const opts = optionsFromEnv(process.env);
+const VITE_LICENSES = '.vite/licenses.md';
 
 const content = (): Plugin => ({
   name: 'cad-viewer-content',
@@ -39,6 +40,67 @@ const jsonImports = (): Plugin => ({
   },
 });
 
+/**
+ * Leaves out of a build the Draco decoders three.js's DRACOLoader names but the viewer never loads (it uses the
+ * glTF-only one, src/load.ts): the general WebAssembly decoder and the JavaScript one for browsers without
+ * WebAssembly, about 1 MB that the service worker would otherwise cache.
+ */
+const unusedDecoders = (): Plugin => ({
+  name: 'cad-viewer-unused-decoders',
+  apply: 'build',
+  generateBundle(_, bundle) {
+    const unused = /three\/examples\/jsm\/libs\/draco\/draco_(decoder\.js|decoder\.wasm|wasm_wrapper\.js)$/;
+    for (const [name, out] of Object.entries(bundle)) {
+      if (out.type === 'asset' && out.originalFileNames.some((f) => unused.test(f))) delete bundle[name];
+    }
+  },
+});
+
+/**
+ * licenses.md beside index.html: what a build bundles and under which licenses, then Vite's list of the npm packages
+ * (their own license texts), then ours in full (OCCT's LGPL among them). Vite's list misses what isn't an npm package
+ * in node_modules (our workspace packages, the WebAssembly modules), hence the first part.
+ */
+const licenses = (): Plugin => ({
+  name: 'cad-viewer-licenses',
+  apply: 'build',
+  // After the files are written: Vite's list is made last.
+  writeBundle(out) {
+    const dir = out.dir!;
+    const file = path.join(dir, VITE_LICENSES);
+    if (!fs.existsSync(file)) throw new Error(`no ${VITE_LICENSES} from Vite`);
+    const vite = fs.readFileSync(file, 'utf8');
+    fs.rmSync(path.dirname(file), { recursive: true });
+    const repo = path.resolve(import.meta.dirname, '../..');
+    const text = (f: string) => fs.readFileSync(path.join(repo, f), 'utf8').trim();
+    const packages = vite.replace(/^# Licenses\s*\n/, '').replace(/^(#+) /gm, '#$1 ');
+    const bundles = [
+      '- cad-io-js itself: Apache-2.0, below;',
+      '- the OCCT tessellation backend (`assets/occt_tess-*.wasm` and `occt_tess-*.mjs`), which contains ' +
+        'Open CASCADE Technology: LGPL-2.1 with the Open CASCADE exception, below (its source, the build scripts ' +
+        'included, in cad-io-js\'s `packages/tess-occt`; OCCT\'s at https://github.com/Open-Cascade-SAS/OCCT);',
+      '- the truck tessellation backend (`assets/tess_truck-*.wasm`): cad-io-js\'s wrapper and truck ' +
+        '(https://github.com/ricosjp/truck), Apache-2.0, with the Rust crates ' +
+        '`packages/tess-truck/native/Cargo.lock` lists, each under its own license (MIT or Apache-2.0 for the most ' +
+        'part);',
+      '- Draco\'s glTF decoder (`assets/draco_*`, from three.js): Apache-2.0 (https://github.com/google/draco);',
+      '- meshoptimizer\'s decoder (in three.js): MIT;',
+      '- the npm packages Vite lists below.',
+    ];
+    fs.writeFileSync(path.join(dir, 'licenses.md'), [
+      '# Licenses',
+      'cad-viewer, part of cad-io-js (https://github.com/martyvona/cad-io-js), bundles:',
+      bundles.join('\n'),
+      '## npm packages',
+      packages.trim(),
+      '## cad-io-js (Apache-2.0)',
+      text('LICENSE.txt'),
+      '## The OCCT tessellation backend (LGPL-2.1 with the Open CASCADE exception)',
+      text('packages/tess-occt/LICENSE.txt'),
+    ].join('\n\n') + '\n');
+  },
+});
+
 function mkcert(): { cert: Buffer; key: Buffer } {
   const cert = path.join(opts.certDir, 'cert.pem');
   const key = path.join(opts.certDir, 'key.pem');
@@ -47,36 +109,42 @@ function mkcert(): { cert: Buffer; key: Buffer } {
   return { cert: fs.readFileSync(cert), key: fs.readFileSync(key) };
 }
 
+const pwa = VitePWA({
+  // A new build replaces the old one at the next load, without asking (a developers' tool).
+  registerType: 'autoUpdate',
+  injectRegister: 'auto',
+  includeAssets: ['icon.svg'],
+  manifest: {
+    name: 'cad-viewer', short_name: 'cad-viewer', description: 'Views STEP, glTF and three.js models',
+    display: 'standalone', background_color: '#404040', theme_color: '#1f1f1f',
+    icons: [{ src: 'icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' }],
+  },
+  workbox: {
+    globPatterns: ['**/*.{js,mjs,css,html,wasm,json,svg}'],
+    // OCCT's module is about 7 MB.
+    maximumFileSizeToCacheInBytes: 32 * 2 ** 20,
+    // Models from the dev or preview server's content root are fetched, not cached.
+    navigateFallbackDenylist: [/\/content\//],
+    clientsClaim: true,
+    skipWaiting: true,
+  },
+});
+
 export default defineConfig({
   root: import.meta.dirname,
   base: './',
-  plugins: [content(), jsonImports(), ...(opts.https === 'self' ? [basicSsl()] : []), VitePWA({
-    // A new build replaces the old one at the next load, without asking (a developers' tool).
-    registerType: 'autoUpdate',
-    injectRegister: 'auto',
-    includeAssets: ['icon.svg'],
-    manifest: {
-      name: 'cad-viewer', short_name: 'cad-viewer', description: 'Views STEP, glTF and three.js models',
-      display: 'standalone', background_color: '#404040', theme_color: '#1f1f1f',
-      icons: [{ src: 'icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' }],
-    },
-    workbox: {
-      globPatterns: ['**/*.{js,mjs,css,html,wasm,json,svg}'],
-      // OCCT's module is about 7 MB.
-      maximumFileSizeToCacheInBytes: 32 * 2 ** 20,
-      // Models from the dev or preview server's content root are fetched, not cached.
-      navigateFallbackDenylist: [/\/content\//],
-      clientsClaim: true,
-      skipWaiting: true,
-    },
-  })],
+  resolve: { alias: { 'node:fs/promises': path.join(import.meta.dirname, 'src/no-fs.ts') } },
+  plugins: [content(), jsonImports(), unusedDecoders(), licenses(), ...(opts.https === 'self' ? [basicSsl()] : []),
+    pwa],
   server: {
     port: opts.port, strictPort: true, host: opts.lan ? '0.0.0.0' : 'localhost', allowedHosts: true,
     ...(opts.https === 'mkcert' ? { https: mkcert() } : {}),
   },
   preview: { port: opts.port, strictPort: true, host: opts.lan ? '0.0.0.0' : 'localhost', allowedHosts: true },
-  // three.js alone is about 700 kB minified, and loads at once anyway.
-  build: { outDir: 'dist', emptyOutDir: true, target: 'es2023', chunkSizeWarningLimit: 4000 },
+  // three.js alone is about 700 kB minified, and loads at once anyway. Vite's list of the bundled npm packages'
+  // licenses goes into licenses.md (licenses()).
+  build: { outDir: 'dist', emptyOutDir: true, target: 'es2023', chunkSizeWarningLimit: 4000,
+    license: { fileName: VITE_LICENSES } },
   // Module workers, split into chunks: the import worker loads the schema dictionaries on demand.
   worker: { format: 'es' },
 });

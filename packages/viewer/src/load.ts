@@ -1,11 +1,12 @@
 // Loading through three.js's own loaders: glTF and GLB (with the Draco and meshopt decoders, both in the build, so
-// offline too) and three.js JSON. Our extras aren't read yet, except a
-// three.js root's unit and up axis (formats.ts). A model comes as its bytes plus a way to find the files it refers
-// to (a .gltf's .bin and images): beside its URL, or among local files picked or dropped with it.
+// offline too; Draco's glTF-only decoder, the smaller, as glTF is all it decodes here) and three.js JSON. Our extras
+// aren't read yet, except a three.js root's unit and up axis (formats.ts). A model comes as its bytes plus a way to
+// find the files it refers to (a .gltf's .bin and images): beside its URL, or among local files picked or dropped with
+// it.
 
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+import { DRACO_GLTF_CONFIG, DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import type { Format } from './formats.ts';
 
@@ -27,7 +28,7 @@ function gltfLoader(src: Source): GLTFLoader {
     const siblings = src.siblings;
     manager.setURLModifier((url) => siblings.get(decodeURIComponent(url.split('/').pop() ?? '')) ?? url);
   }
-  draco ??= new DRACOLoader();
+  draco ??= new DRACOLoader().setDecoderPath(DRACO_GLTF_CONFIG);
   return new GLTFLoader(manager).setDRACOLoader(draco).setMeshoptDecoder(MeshoptDecoder);
 }
 

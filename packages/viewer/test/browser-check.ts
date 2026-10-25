@@ -7,11 +7,12 @@
 // no model, an unknown file, a missing one.
 // Run by hand: node packages/viewer/test/browser-check.ts [path to Chrome]   (needs tess-occt built and the corpus;
 // SHOTS=<dir> saves a screenshot of each page there; EXTRA=<file>,... also loads those files and prints what the
-// page reports, with no expectations; BUILD=1 checks a build, served by vite preview, instead of the
-// dev server)
+// page reports, with no expectations; BUILD=1 checks a build instead of the dev server, served below a path,
+// /viewer/, by a plain static server, as a build would be deployed)
 
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
+import http from 'node:http';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
@@ -79,23 +80,40 @@ const port = await new Promise<number>((resolve) => {
   });
 });
 const io = { out: () => {}, err: (s: string) => process.stderr.write(s), runDir: path.join(tmp, 'run') };
-let preview: ReturnType<typeof spawn> | undefined;
+let staticServer: http.Server | undefined;
+// Where the app is: the dev server's root, or a build's place on the static server.
+const base = process.env.BUILD ? '/viewer/' : '/';
+const dist = path.join(tmp, 'dist');
+let buildOutput = '';
 if (process.env.BUILD) {
-  // vite build into the temporary directory, then vite preview on it, with the same content root.
+  // vite build into the temporary directory, then a static server (no SPA fallback, no special headers, only content
+  // types) with the build at /viewer/ and the models at /content/.
   const viewer = path.resolve(import.meta.dirname, '..');
   const vite = path.join(repo, 'node_modules/vite/bin/vite.js');
   const env = { ...process.env, VIEWER_CONTENT_ROOT: content, VIEWER_PORT: String(port) };
-  const dist = path.join(tmp, 'dist');
-  await new Promise<void>((resolve, reject) => spawn(process.execPath, [vite, 'build', '--outDir', dist, '--logLevel',
-    'warn'], { cwd: viewer, env, stdio: 'inherit' }).on('exit', (c) => c === 0 ? resolve() : reject(new Error(
-    'vite build failed'))));
-  preview = spawn(process.execPath, [vite, 'preview', '--outDir', dist], { cwd: viewer, env, stdio: 'ignore' });
-  for (let t = 0; t < 100; t++) {
-    const up = await new Promise<boolean>((resolve) => net.connect(port, '127.0.0.1').once('connect',
-      function (this: net.Socket) { this.destroy(); resolve(true); }).once('error', () => resolve(false)));
-    if (up) break;
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
+  // Its warnings and errors kept, for the build check below (a build should print none).
+  await new Promise<void>((resolve, reject) => {
+    const b = spawn(process.execPath, [vite, 'build', '--outDir', dist, '--logLevel', 'warn'], { cwd: viewer, env,
+      stdio: ['ignore', 'pipe', 'pipe'] });
+    for (const s of [b.stdout, b.stderr]) s.on('data', (c) => { buildOutput += c; });
+    b.on('exit', (c) => c === 0 ? resolve() : reject(new Error(`vite build failed: ${buildOutput}`)));
+  });
+  const types: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript',
+    '.css': 'text/css', '.wasm': 'application/wasm', '.json': 'application/json', '.svg': 'image/svg+xml',
+    '.webmanifest': 'application/manifest+json', '.md': 'text/markdown' };
+  staticServer = http.createServer((req, res) => {
+    const url = decodeURIComponent(new URL(req.url!, 'http://x').pathname);
+    const [dir, rest] = url.startsWith(base) ? [dist, url.slice(base.length)]
+      : url.startsWith('/content/') ? [content, url.slice('/content/'.length)] : [undefined, ''];
+    const file = dir && path.join(dir, rest || 'index.html');
+    if (!file || !file.startsWith(dir + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
+      res.writeHead(404).end();
+      return;
+    }
+    res.writeHead(200, { 'content-type': types[path.extname(file)] ?? 'application/octet-stream' });
+    fs.createReadStream(file).pipe(res);
+  });
+  await new Promise<void>((resolve) => staticServer!.listen(port, '127.0.0.1', resolve));
 } else if (await main(['start', '--content-root', content, '--port', String(port)], io) !== 0) process.exit(1);
 
 // Chrome over the DevTools protocol: a tab per page, polled until the page reports (real time: Draco decodes in a
@@ -144,7 +162,7 @@ async function page(query: string, after?: string, opts: PageOptions = {}): Prom
       sessionId);
     await send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 }, sessionId);
   }
-  await send('Page.navigate', { url: `http://localhost:${port}/${query}` }, sessionId);
+  await send('Page.navigate', { url: `http://localhost:${port}${base}${query}` }, sessionId);
   try {
     for (let t = 0; t < 3000; t++) {
       const r = await send('Runtime.evaluate', { expression: 'document.body?.dataset.report ?? null',
@@ -186,9 +204,24 @@ const check = async (name: string, f: () => Promise<string | undefined>) => {
 };
 const expect = (c: boolean, m: string) => { if (!c) throw new Error(m); };
 
+/** Chrome and the server stopped, the temporary directory removed. */
+async function shutdown(): Promise<void> {
+  ws.close();
+  await new Promise((resolve) => { browser.once('exit', resolve); browser.kill(); });
+  if (staticServer) staticServer.close();
+  else await main(['stop'], io);
+  fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 5 });
+}
+
 // A first load, whose report isn't used: Vite optimizes the dependencies it finds on first use, and reloads the
-// page when it does.
-await page('?check');
+// page when it does. If even the empty page never reports (the app didn't load), every other page would wait its
+// full time for nothing: stop.
+const first = await page('?check');
+if (first.missing) {
+  await shutdown();
+  console.log(`FAIL the empty page: ${first.missing}`);
+  process.exit(1);
+}
 
 // Centring and back, through the page's `viewer`: [display position, target before, target after] each way.
 const CENTER = `(() => { const v = globalThis.viewer; const t0 = v.controls.target.toArray(); v.setCentered(true);
@@ -714,10 +747,30 @@ await check('missing file', async () => {
   return undefined;
 });
 
+// What a build holds (printing nothing as it's made): one Draco decoder (three.js's glTF one: the GLBs above loaded
+// through it), no JavaScript decoder; licenses.md with the npm packages' licenses and OCCT's, not precached by its
+// service worker (which precaches OCCT's module).
+if (staticServer) {
+  await check('build', async () => {
+    expect(buildOutput.trim() === '', `the build printed: ${buildOutput.slice(0, 1000)}`);
+    const assets = fs.readdirSync(path.join(dist, 'assets'));
+    const draco = assets.filter((f) => f.startsWith('draco_'));
+    expect(draco.length === 2 && draco.some((f) => /^draco_decoder-.*\.wasm$/.test(f)) &&
+      draco.some((f) => /^draco_wasm_wrapper-.*\.js$/.test(f)), `Draco's files: ${draco}`);
+    const licenses = fs.readFileSync(path.join(dist, 'licenses.md'), 'utf8');
+    expect(['### three - 0.186.1 (MIT)', '### @headless-tree/core', 'Open CASCADE exception (version 1.0)',
+      'GNU LESSER GENERAL PUBLIC LICENSE', 'Apache License'].every((t) => licenses.includes(t)), 'licenses.md');
+    expect(!fs.existsSync(path.join(dist, '.vite')), 'Vite\'s own licenses file left');
+    const sw = fs.readFileSync(path.join(dist, 'sw.js'), 'utf8');
+    expect(sw.includes('occt_tess-') && !sw.includes('licenses.md'), 'the precache list');
+    return undefined;
+  });
+}
+
 // Offline (a build only: the service worker exists only there): once the page is controlled by its service worker,
 // the server is stopped and the page reloaded; it comes back from the cache, and meshes the STEP assembly (given as
 // bytes; the tessellation cache off, so OCCT's module must load from the cache too).
-if (preview) {
+if (staticServer) {
   await check('offline', async () => {
     const { targetId } = await send('Target.createTarget', { url: 'about:blank' });
     const { sessionId } = await send('Target.attachToTarget', { targetId, flatten: true }) as { sessionId: string };
@@ -736,7 +789,7 @@ if (preview) {
     };
     try {
       await send('Page.enable', {}, sessionId);
-      await send('Page.navigate', { url: `http://localhost:${port}/?check` }, sessionId);
+      await send('Page.navigate', { url: `http://localhost:${port}${base}?check` }, sessionId);
       expect(await ready(), 'the page never reported');
       // Controlled once the worker has installed (it claims its clients); reload once if it hasn't yet. Within
       // 20 s: without a service worker, ready never settles.
@@ -749,8 +802,7 @@ if (preview) {
         controlled = await evaluate('!!navigator.serviceWorker.controller');
       }
       expect(controlled === true, 'no service worker controls the page');
-      preview!.kill();
-      await new Promise((resolve) => preview!.once('exit', resolve));
+      await new Promise((resolve) => { staticServer!.close(resolve); staticServer!.closeAllConnections(); });
       const down = !(await new Promise<boolean>((resolve) => net.connect(port, '127.0.0.1').once('connect',
         function (this: net.Socket) { this.destroy(); resolve(true); }).once('error', () => resolve(false))));
       expect(down, 'the server is still up');
@@ -774,11 +826,7 @@ if (preview) {
   });
 }
 
-ws.close();
-await new Promise((resolve) => { browser.once('exit', resolve); browser.kill(); });
-if (preview) preview.kill();
-else await main(['stop'], io);
-fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 5 });
+await shutdown();
 const rounded = [lo, hi].map((v) => v.map((x) => +x.toFixed(3)));
 console.log(`expected: ${triangles} triangles, ${segments} edge segments, box ${JSON.stringify(rounded)}`);
 for (const [name, r] of results) console.log(`${r === 'ok' ? 'ok  ' : 'FAIL'} ${name}${r === 'ok' ? '' : `: ${r}`}`);

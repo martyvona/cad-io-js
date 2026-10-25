@@ -8,7 +8,8 @@
   "scripts": {
     "test": "node --test 'packages/*/test/**/*.test.ts' 'test/*.test.ts'",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "viewer": "node packages/viewer/bin/viewer.ts"
+    "viewer": "node packages/viewer/bin/viewer.ts",
+    "deploy-viewer": "scripts/deploy-viewer.sh"
   },
   "engines": {
     "node": ">=24"
