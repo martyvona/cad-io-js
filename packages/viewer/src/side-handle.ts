@@ -11,15 +11,21 @@ export function clampWidth(width: number, windowWidth: number): number {
   return Math.round(Math.max(MIN, Math.min(width, windowWidth - 200)));
 }
 
+/** The width set by dragging (as --side has it; the panel's box adds its border), or undefined for the default. */
+export function sideWidth(): number | undefined {
+  const s = document.documentElement.style.getPropertyValue('--side');
+  return s ? parseFloat(s) : undefined;
+}
+
+/** Sets the width (undefined: the default), not remembered: for replaying a recording. */
+export function setSideWidth(width: number | undefined): void {
+  const root = document.documentElement;
+  if (width === undefined) root.style.removeProperty('--side');
+  else root.style.setProperty('--side', `${clampWidth(width, window.innerWidth)}px`);
+}
+
 export function addSideHandle(side: HTMLElement): void {
   const root = document.documentElement;
-  // The width set, as --side has it (the panel's box adds its border).
-  let current: number | undefined;
-  const set = (width: number | undefined) => {
-    current = width === undefined ? undefined : clampWidth(width, window.innerWidth);
-    if (current === undefined) root.style.removeProperty('--side');
-    else root.style.setProperty('--side', `${current}px`);
-  };
   const remember = (width: number | undefined) => {
     try {
       if (width === undefined) localStorage.removeItem(KEY);
@@ -28,7 +34,7 @@ export function addSideHandle(side: HTMLElement): void {
   };
   try {
     const saved = Number(localStorage.getItem(KEY));
-    if (saved > 0) set(saved);
+    if (saved > 0) setSideWidth(saved);
   } catch { /* no storage: the default */ }
 
   const handle = document.createElement('div');
@@ -41,20 +47,21 @@ export function addSideHandle(side: HTMLElement): void {
     handle.classList.add('dragging');
     // Moved by as much as the pointer, wherever on the handle it was grabbed.
     const start = parseFloat(getComputedStyle(root).getPropertyValue('--side'));
-    const move = (m: PointerEvent) => set(start + m.clientX - e.clientX);
+    const move = (m: PointerEvent) => setSideWidth(start + m.clientX - e.clientX);
     const up = () => {
       handle.removeEventListener('pointermove', move);
       handle.removeEventListener('pointerup', up);
       handle.removeEventListener('pointercancel', up);
       handle.classList.remove('dragging');
-      if (current !== undefined) remember(current);
+      const w = sideWidth();
+      if (w !== undefined) remember(w);
     };
     handle.addEventListener('pointermove', move);
     handle.addEventListener('pointerup', up);
     handle.addEventListener('pointercancel', up);
   });
   handle.addEventListener('dblclick', () => {
-    set(undefined);
+    setSideWidth(undefined);
     remember(undefined);
   });
 }

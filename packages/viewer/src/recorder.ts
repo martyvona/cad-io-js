@@ -14,7 +14,8 @@
 //   camera   the camera at the end of each drag or zoom
 //   api      a call through the automation interface (cadViewer.hide, view, apply...): its method and arguments
 //   load     a model opened: its URL, or local files' names, sizes and SHA-256s; loaded: its report
-//   resize   the view's size; status: the status line; error: an error in the page
+//   resize   the view's size, and the tree panel's width if dragged; status: the status line; error: an error in
+//            the page
 //
 // Replaying applies them in order through the same operations, waiting for the viewer to be idle before each: the
 // controls' values and buttons, selections from the tree or the API, loads (local files must be given again, matched
@@ -25,6 +26,7 @@
 
 import { sha256 } from 'cad-scene';
 import { nodeForPick } from './selection.ts';
+import { setSideWidth, sideWidth } from './side-handle.ts';
 import type { Ui, UiEvent } from './ui.ts';
 import type { CameraState } from './view-state.ts';
 import type { Viewer } from './viewer.ts';
@@ -43,9 +45,15 @@ export type RecordedEvent = { t: number } & (
   | { type: 'api'; method: string; args: unknown[] }
   | { type: 'load'; url?: string; files?: { name: string; size: number; sha256?: string }[] }
   | { type: 'loaded'; report: Record<string, unknown> }
-  | { type: 'resize'; width: number; height: number }
+  | { type: 'resize'; width: number; height: number; side?: number }
   | { type: 'status'; text: string; error: boolean }
   | { type: 'error'; message: string });
+
+/** The tree panel's width, if dragged, as a recording carries it. */
+const side = () => {
+  const w = sideWidth();
+  return w === undefined ? {} : { side: w };
+};
 
 /** An event without its time (each member of the union on its own). */
 type Untimed<E> = E extends unknown ? Omit<E, 't'> : never;
@@ -61,6 +69,8 @@ export interface Recording {
   /** The window (CSS pixels) and device pixels per CSS pixel; the view's size. */
   window: { width: number; height: number; scale: number };
   view: { width: number; height: number };
+  /** The tree panel's width as dragged (side-handle.ts); absent, the default. Replay sets it, so the view is as wide. */
+  side?: number;
   events: RecordedEvent[];
 }
 
@@ -135,7 +145,8 @@ export class Recorder {
     canvas.addEventListener('wheel', (e) => this.push({ type: 'wheel', ...at(e), deltaY: e.deltaY,
       deltaMode: e.deltaMode }), { capture: true, passive: true });
     viewer.controls.addEventListener('end', () => this.push({ type: 'camera', camera: viewer.cameraState() }));
-    new ResizeObserver(() => this.push({ type: 'resize', width: canvas.clientWidth, height: canvas.clientHeight }))
+    new ResizeObserver(() => this.push({ type: 'resize', width: canvas.clientWidth, height: canvas.clientHeight,
+      ...side() }))
       .observe(canvas);
     // Controls: values when a change is finished, buttons when pressed.
     const gui = ui.gui as unknown as { onFinishChange(f: (e: { controller: Controller; value: unknown }) => void):
@@ -168,7 +179,7 @@ export class Recorder {
     this.rec = { format: RECORDING_FORMAT, version: 1, started: new Date().toISOString(),
       userAgent: navigator.userAgent, page: location.href,
       window: { width: innerWidth, height: innerHeight, scale: devicePixelRatio },
-      view: { width: canvas.clientWidth, height: canvas.clientHeight }, events: [] };
+      view: { width: canvas.clientWidth, height: canvas.clientHeight }, ...side(), events: [] };
     // The model already open, as a load, so replay opens it first.
     const src = this.ui.source();
     if (src?.url) this.push({ type: 'load', url: src.url });
@@ -251,6 +262,12 @@ export async function replay(rec: Recording, viewer: Viewer, ui: Ui, session: Se
   const canvas = viewer.renderer.domElement;
   // The view's size as recorded, as it changes (the tree opening, the window resized): picks need the same.
   const recorded = { ...rec.view };
+  // The tree panel as wide as it was, so the view is (laid out, and the viewer resized, by the next frames).
+  const widen = async (side: number | undefined) => {
+    setSideWidth(side);
+    for (let i = 0; i < 2; i++) await new Promise((r) => requestAnimationFrame(r));
+  };
+  await widen(rec.side);
   const gui = ui.gui as unknown as { controllersRecursive(): Controller[] };
   const resolve = (paths: string[]) => paths.map((p) => viewer.nodes?.find(p)).filter((x) => x !== undefined);
   const open = async (e: Extract<RecordedEvent, { type: 'load' }>, at: string) => {
@@ -301,6 +318,7 @@ export async function replay(rec: Recording, viewer: Viewer, ui: Ui, session: Se
       applied++;
     } else if (e.type === 'resize') {
       Object.assign(recorded, { width: e.width, height: e.height });
+      if (e.side !== sideWidth()) await widen(e.side);
     } else if (e.type === 'pick') {
       // What the view's own picking finds at the recorded pixel now, then the click itself.
       if (Math.abs(canvas.clientWidth - recorded.width) > 0.5 || Math.abs(canvas.clientHeight - recorded.height) >

@@ -52,6 +52,9 @@ const clear = { ...scene, materials: scene.materials.map((m) => ({ ...m, opacity
 fs.writeFileSync(path.join(content, 'as1-clear.glb'), (await glb(clear, exportView(clear, meshes))).bytes);
 const bicycle = path.join(repo, 'test_corpus/third_party/gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp');
 fs.copyFileSync(bicycle, path.join(content, 'bicycle.stp'));
+// A part in metres (its placement scales by 1000, as every part of a file in metres).
+fs.copyFileSync(path.join(repo, 'test_corpus/third_party/gkv311-opencascade-dataset/step/r103ec.stp'),
+  path.join(content, 'metres.stp'));
 fs.writeFileSync(path.join(content, 'notes.txt'), 'not a model');
 
 let triangles = 0;
@@ -635,7 +638,12 @@ await check('sections', async () => {
 // and the ray hits it. Off the parts, an edge within reach may be picked, and a wireframe in front (by design); parts
 // thinner than a pixel may be drawn where the ray misses them (at most 2% of the points). Before 2026-10-25, any
 // part's edge within 4 pixels beat the face under the point: 27 of 860 points on parts wrong on as1, 39 of 171 on
-// the bicycle (measured with a 1200 x 800 window).
+// the bicycle (measured with a 1200 x 800 window). Everywhere, on parts or off, a line or point picked must be within
+// reach on the screen (4 pixels, pick.ts, and half a pixel for the sample's centre): under a scaled parent (a STEP
+// file in metres, or any glTF, scaled by the display transform) three.js's thresholds reached 1000 times too far, so
+// a click in empty space picked the nearest part's edges (2026-10-25), which the check, on parts only and on files in
+// millimetres, didn't see; a part in metres is checked too since (our GLB doesn't show it: its millimetre meshes sit
+// under a root scaling by 0.001, which the display transform undoes, so lines are at a world scale of 1).
 const PICK_ORACLE = `(async () => {
   const m = ui.panel().model, r = viewer.renderer, cam = viewer.camera, canvas = r.domElement;
   const partOf = (id) => { while (id !== undefined && id >= 0 && m.nodes[id].kind !== 'part') id = m.nodes[id].parent;
@@ -676,14 +684,25 @@ const PICK_ORACLE = `(async () => {
   const shown = (x, y) => { const i = 4 * (y * W + x);
     return px[i] + px[i + 1] + px[i + 2] < 4 ? undefined : q(px[i]) + 16 * q(px[i + 1]) + 256 * q(px[i + 2]) - 1; };
   const sx = W / rect.width, sy = H / rect.height;
-  let onParts = 0, wrong = 0, subpixel = 0;
+  let onParts = 0, wrong = 0, subpixel = 0, lines = 0, far = 0;
   const examples = [];
   for (let gy = 1; gy < 40; gy++) for (let gx = 1; gx < 60; gx++) {
     const ox = Math.floor(W * gx / 60), oy = Math.floor(H * gy / 40);
+    const cx = (ox + 0.5) / sx, cy = (oy + 0.5) / sy;
+    const hit = viewer.pickAt(rect.left + cx, rect.top + cy);
+    if (hit && !hit.object.isMesh) {
+      lines++;
+      const s = hit.point.clone().project(cam);
+      const d = Math.hypot((s.x + 1) / 2 * rect.width - cx, (1 - s.y) / 2 * rect.height - cy);
+      if (d > 4.5) {
+        far++;
+        if (examples.length < 5) examples.push({ x: ox, y: oy, far: d, line: m.nodes[partOf(m.nodeOf(hit.object))]
+          ?.name });
+      }
+    }
     const want = shown(ox, H - 1 - oy);
     if (want === undefined) continue;
     onParts++;
-    const hit = viewer.pickAt(rect.left + (ox + 0.5) / sx, rect.top + (oy + 0.5) / sy);
     const got = hit ? partOf(m.nodeOf(hit.object)) : undefined;
     if (got === want) continue;
     // Wireframes (parts with no faces) in front win by design; the ID render doesn't draw them.
@@ -694,23 +713,24 @@ const PICK_ORACLE = `(async () => {
     // does hit the drawn part's face (picking with every other part hidden).
     const parts = m.nodes.filter((n) => n.kind === 'part' && n.id !== want && n.object?.visible);
     for (const n of parts) n.object.visible = false;
-    const alone = viewer.pickAt(rect.left + (ox + 0.5) / sx, rect.top + (oy + 0.5) / sy);
+    const alone = viewer.pickAt(rect.left + cx, rect.top + cy);
     for (const n of parts) n.object.visible = true;
     if (!alone || !alone.object.isMesh) { subpixel++; continue; }
     wrong++;
     if (examples.length < 5) examples.push({ x: ox, y: oy, want: m.nodes[want]?.name, got: got === undefined ? null :
       m.nodes[got]?.name, line: hit ? !hit.object.isMesh : null });
   }
-  return { onParts, wrong, subpixel, examples };
+  return { onParts, wrong, subpixel, lines, far, examples };
 })()`;
 await check('picks match what is drawn', async () => {
   const out = [];
-  for (const file of ['as1.stp', 'bicycle.stp']) {
+  for (const file of ['as1.stp', 'as1.glb', 'bicycle.stp', 'metres.stp']) {
     const r = await page(`?url=${encodeURIComponent(`/content/${file}`)}&check`, PICK_ORACLE) as
-      { after: { onParts: number; wrong: number; subpixel: number; examples: unknown[] } };
+      { after: { onParts: number; wrong: number; subpixel: number; lines: number; far: number; examples: unknown[] } };
     const a = r.after;
-    expect(a.onParts > 100 && a.wrong === 0 && a.subpixel <= a.onParts / 50, `${file}: ${JSON.stringify(a)}`);
-    out.push(`${file} ${a.onParts} (${a.subpixel} thinner than a pixel)`);
+    expect(a.onParts > 100 && a.wrong === 0 && a.subpixel <= a.onParts / 50 && a.lines > 0 && a.far === 0,
+      `${file}: ${JSON.stringify(a)}`);
+    out.push(`${file} ${a.onParts} (${a.subpixel} thinner than a pixel; ${a.lines} lines picked)`);
   }
   console.log(`picks match what is drawn: points on parts ${out.join(', ')}`);
   return undefined;
@@ -982,7 +1002,9 @@ if (!staticServer) await check('shot', async () => {
 // pixels; replayed in a fresh page with nothing diverging; a model from a local file replayed with the file given
 // again (and without it, said); and cad-viewer replay (the dev server only).
 type Rec = { events: { t: number; type: string; phase?: string; x?: number; y?: number; path?: string | null;
-  value?: unknown; url?: string; files?: { sha256?: string }[] }[]; view: { width: number; height: number } };
+  value?: unknown; url?: string; files?: { sha256?: string }[]; side?: number }[];
+  view: { width: number; height: number };
+  side?: number };
 await check('recording', async () => {
   let recording: Rec | undefined;
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check&record`, `(async () => {
@@ -1067,6 +1089,14 @@ await check('recording', async () => {
     { after: { applied: number; divergences: string[] } };
   expect(replayed.after.divergences.length === 0 && replayed.after.applied > 5,
     `replay: ${JSON.stringify(replayed.after)}`);
+  // Replayed where the tree panel was dragged wider (remembered in this browser): the recording's width (the
+  // default) is put back, so the view is as wide and nothing diverges (cnc-box, 2026-10-25: 262 pixels recorded,
+  // replayed at 300).
+  const widened = await page('?check', `cadViewer.ready.then(() => {
+    document.documentElement.style.setProperty('--side', '400px');
+    return cadViewer.replay(${JSON.stringify(recording)});
+  })`) as { after: { divergences: string[] } };
+  expect(widened.after.divergences.length === 0, `the tree panel's width: ${JSON.stringify(widened.after)}`);
   // Replayed in a view of another size (a larger window): said at the picks.
   const resized = await page('?check', `cadViewer.ready.then(() => cadViewer.replay(${JSON.stringify(recording)}))`,
     { scale: 1 }) as { after: { divergences: string[] } };
@@ -1085,16 +1115,28 @@ await check('recording', async () => {
     const file = new File([await (await fetch('/content/as1.glb')).arrayBuffer()], 'as1.glb');
     // Well after the page's start: the recording's times still begin at 0.
     await new Promise((res) => setTimeout(res, 1200));
+    // The tree panel dragged to 360 pixels: recorded.
+    document.documentElement.style.setProperty('--side', '360px');
     cadViewer.record(true);
     await ui.openFiles([file]);
     await cadViewer.idle();
     cadViewer.hide([cadViewer.nodes().find((n) => n.kind === 'part').path]);
+    await new Promise((res) => setTimeout(res, 300));
+    // The panel dragged narrower meanwhile (a resize event with its width), then a click at the view's centre: replay
+    // must narrow it too, or the click is in a view of another size.
+    document.documentElement.style.setProperty('--side', '320px');
+    for (let f = 0; f < 3; f++) await new Promise((res) => requestAnimationFrame(res));
+    const rect = viewer.renderer.domElement.getBoundingClientRect();
+    ui.pickAt(rect.left + rect.width / 2, rect.top + rect.height / 2, false);
     await new Promise((res) => setTimeout(res, 300));
     const rec = cadViewer.record(false);
     return { rec, file: [...new Uint8Array(await file.arrayBuffer())].length };
   })()`) as { after: { rec: Rec } };
   const localRec = local.after.rec;
   expect(localRec.events.some((e) => e.files?.[0]?.sha256?.length === 64), 'the local file hashed');
+  expect(localRec.side === 360, `the tree panel's width recorded: ${localRec.side}`);
+  expect(localRec.events.some((e) => e.type === 'resize' && e.side === 320) && localRec.events.some((e) =>
+    e.type === 'pick'), `the width changed, then a pick: ${JSON.stringify(localRec.events.map((e) => e.type))}`);
   expect(localRec.events[0]!.t < 500, `a later recording's first event at ${localRec.events[0]!.t} ms`);
   // Without its hash (stopped before hashing finished), a file of another size isn't taken for it.
   const unhashed = structuredClone(localRec);

@@ -255,3 +255,46 @@ test('pick: the face under the point beats other parts\' lines near it; its own 
   root.updateMatrixWorld(true);
   assert.equal(at(0, 2.8), plate.mesh);
 });
+
+test('pick: lines are hit within the pixels asked under a scaled parent (a file in metres)', () => {
+  // three.js divides the threshold by the line's own scale only, so under a parent scaling by 1000 a line was hit
+  // within 1000 times the reach: a click in empty space picked the nearest part's edges (2026-10-25).
+  const root = new THREE.Group();
+  const metres = new THREE.Group();
+  metres.scale.setScalar(1000);
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(0.002, 0.002));
+  const edges = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-0.001, 0.001, 0),
+    new THREE.Vector3(0.001, 0.001, 0)]));
+  const dots = new THREE.Points(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0.001, -0.001, 0)]));
+  mesh.add(edges, dots);
+  metres.add(mesh);
+  root.add(metres);
+  root.updateMatrixWorld(true);
+  const camera = new THREE.OrthographicCamera(-10, 10, 10, -10, -100, 100);
+  camera.position.set(0, 0, 20);
+  camera.lookAt(0, 0, 0);
+  camera.updateMatrixWorld();
+  // The part spans -1 to 1 mm; a pixel 0.1 mm, so lines and points are hit within 0.4 mm.
+  const at = (x: number, y: number) => pick(camera, root, new THREE.Vector2(x / 10, y / 10), 0.1)?.object;
+  assert.equal(at(0, 0), mesh);
+  assert.equal(at(0, 1.3), edges);
+  assert.equal(at(1.2, -1.2), dots);
+  // Just beyond the reach (0.5 from the line, 0.25 squared, under the reach of 0.4 itself).
+  assert.equal(at(0, 1.5), undefined);
+  assert.equal(at(0, 3), undefined);
+  assert.equal(at(5, -5), undefined);
+  // Segments are pairs: nothing joins one's end to the next one's start (a wire at x = 3 with a gap across y = 0).
+  const gap = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([-0.001, -0.0006, 0.0006, 0.001]
+    .map((y) => new THREE.Vector3(0.003, y, 0))));
+  metres.add(gap);
+  root.updateMatrixWorld(true);
+  assert.equal(at(3.1, 0.8), gap);
+  assert.equal(at(3.1, 0), undefined);
+  metres.remove(gap);
+  // Scaled on the line itself (three.js's own case) too.
+  edges.scale.setScalar(2);
+  edges.position.y = 0.001;
+  root.updateMatrixWorld(true);
+  assert.equal(at(0, 3.3), edges);
+  assert.equal(at(0, 4), undefined);
+});
