@@ -77,4 +77,6 @@ export default defineConfig({
   preview: { port: opts.port, strictPort: true, host: opts.lan ? '0.0.0.0' : 'localhost', allowedHosts: true },
   // three.js alone is about 700 kB minified, and loads at once anyway.
   build: { outDir: 'dist', emptyOutDir: true, target: 'es2023', chunkSizeWarningLimit: 4000 },
+  // Module workers, split into chunks: the import worker loads the schema dictionaries on demand.
+  worker: { format: 'es' },
 });

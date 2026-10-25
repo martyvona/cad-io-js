@@ -159,8 +159,11 @@ async function page(query: string, after?: string, opts: PageOptions = {}): Prom
         }
         const report = JSON.parse(r.result.value) as Record<string, unknown>;
         if (after) {
-          const e = await send('Runtime.evaluate', { expression: after, returnByValue: true, awaitPromise: true },
-            sessionId) as { result: { value: unknown }; exceptionDetails?: { exception?: { description?: string } } };
+          // Within 3 minutes: a promise in the page that never settles fails the check rather than hanging it.
+          const e = await Promise.race([send('Runtime.evaluate', { expression: after, returnByValue: true,
+            awaitPromise: true }, sessionId), new Promise<never>((_, reject) => setTimeout(() => reject(new Error(
+            'the page did not finish within 3 minutes')), 180_000))]) as { result: { value: unknown };
+            exceptionDetails?: { exception?: { description?: string } } };
           if (e.exceptionDetails) throw new Error(`in the page: ${e.exceptionDetails.exception?.description}`);
           report.after = e.result.value;
         }
@@ -244,19 +247,21 @@ await check('replaced while meshing', async () => {
     await new Promise((r) => setTimeout(r, 1500));
     const glb = { name: v.model.name, stats: v.stats() };
     await v.load(await src('as1.stp'));
-    const step = { name: v.model.name, stats: v.stats(), parts: v.model.parts, ...v.tessellation.describe() };
+    const step = { name: v.model.name, stats: v.stats(), parts: v.model.parts, ...v.model.meshing };
     v.settings.backend = 'truck';
     await v.load(await src('as1.stp'));
-    const truck = { parts: v.model.parts, ...v.tessellation.describe() };
+    const truck = { parts: v.model.parts, ...v.model.meshing };
     return { begun, firstEnded, glb, step, truck };
   })()`) as { after?: { begun: number; firstEnded: number; glb: { name: string; stats: { triangles: number } };
     step: { name: string; stats: { triangles: number }; parts: { done: number; failed: number }; backend: string;
-      cache?: { hits: number; misses: number } };
+      cache?: { hits: number; misses: number }; pools: number };
     truck: { parts: { done: number; failed: number }; backend: string } } };
   const a = r.after!;
   expect(a.begun > 0 && a.begun < 112, `the bicycle wasn't caught meshing: ${a.begun} parts done`);
   expect(a.firstEnded < 1000, `the bicycle's load went on for ${a.firstEnded} ms after it was replaced`);
   expect(a.step.backend.startsWith('occt ') && a.step.cache!.hits >= 5, `STEP again: ${JSON.stringify(a.step)}`);
+  // The bicycle's pool was disposed when it was replaced: the assembly got a new one (the second).
+  expect(a.step.pools === 2, `a new pool after replacing: ${JSON.stringify(a.step)}`);
   expect(a.truck.backend.startsWith('truck ') && a.truck.parts.done === 5, `truck: ${JSON.stringify(a.truck)}`);
   expect(a.glb.name === 'as1.glb' && a.glb.stats.triangles === triangles, `after: ${JSON.stringify(a.glb)}`);
   expect(a.step.name === 'as1.stp' && a.step.stats.triangles === triangles && a.step.parts.failed === 0,
@@ -634,7 +639,7 @@ await check('phone', async () => {
     return { treeClosed: document.body.classList.contains('tree-closed'),
       guiClosed: document.querySelector('.lil-gui.root').classList.contains('closed'),
       overscroll: getComputedStyle(document.body).overscrollBehaviorY, touch: navigator.maxTouchPoints,
-      workers: viewer.tessellation.current?.pool.workers, spot };
+      workers: viewer.model.meshing?.workers, spot };
   })()`, { phone: true, then: async (sessionId, after) => {
     // A tap: a touch down and up at the spot, as a finger would.
     const spot = (after as { spot?: { x: number; y: number } }).spot;
@@ -652,6 +657,45 @@ await check('phone', async () => {
   expect(a.overscroll === 'none' && a.touch > 0 && a.workers <= 3, `phone settings: ${j}`);
   expect(!!a.spot, `no part to tap: ${j}`);
   expect(r.then?.join() === String(a.spot!.id), `a tap selects: ${JSON.stringify(r.then)}, ${j}`);
+  return undefined;
+});
+// The import worker against the page's thread, on the bicycle: the same triangles either way; in the worker the
+// page's own tessellation is never made, and its longest task (Chrome's long-task timing) is far shorter.
+await check('import worker', async () => {
+  const r = await page('?check', `(async () => {
+    const bytes = await (await fetch('/content/bicycle.stp')).arrayBuffer();
+    // The cache off, so both mesh alike.
+    viewer.settings.cache = false;
+    const run = async (inWorker) => {
+      viewer.importInWorker = inWorker;
+      let longest = 0;
+      const seen = new PerformanceObserver((l) => { for (const e of l.getEntries()) longest = Math.max(longest,
+        e.duration); });
+      seen.observe({ type: 'longtask' });
+      const t = performance.now();
+      await viewer.load({ name: 'bicycle.stp', bytes });
+      const ms = performance.now() - t;
+      await new Promise((r) => setTimeout(r, 200));
+      seen.disconnect();
+      return { longest: Math.round(longest), ms: Math.round(ms), triangles: viewer.stats().triangles,
+        meshing: viewer.model.meshing, pageTessellation: !!viewer.tessellation.describe() };
+    };
+    const byDefault = viewer.importInWorker;
+    const worker = await run(true);
+    const pageThread = await run(false);
+    return { byDefault, worker, pageThread };
+  })()`) as { after?: { byDefault: boolean; worker: { longest: number; ms: number; triangles: number;
+    meshing?: { backend: string };
+    pageTessellation: boolean }; pageThread: { longest: number; ms: number; triangles: number;
+    pageTessellation: boolean } } };
+  const { worker, pageThread } = r.after!;
+  const j = JSON.stringify(r.after);
+  console.log(`import worker: ${j}`);
+  expect(worker.triangles > 0 && worker.triangles === pageThread.triangles, `triangles: ${j}`);
+  expect(!worker.pageTessellation && pageThread.pageTessellation && /^occt /.test(worker.meshing?.backend ?? ''),
+    `where it ran: ${j}`);
+  expect(worker.longest < pageThread.longest, `the page's longest task: ${j}`);
+  expect(r.after!.byDefault === true, `in a worker by default: ${j}`);
   return undefined;
 });
 await check('no model', async () => {
@@ -719,7 +763,7 @@ if (preview) {
         const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0)).buffer;
         await viewer.load({ name: 'as1.stp', bytes });
         return { triangles: viewer.stats().triangles, parts: viewer.model.parts, backend:
-          viewer.tessellation.describe()?.backend };
+          viewer.model.meshing?.backend };
       })()`) as { triangles: number; parts: { done: number; failed: number }; backend: string };
       expect(r.triangles === triangles && r.parts.failed === 0 && /^occt /.test(r.backend),
         `offline meshing: ${JSON.stringify(r)}`);

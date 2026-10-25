@@ -170,10 +170,11 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   step.add(settings, 'linearDeflection', 0.001, 10).name('Deflection (mm)');
   step.add(settings, 'angularDeflection', 1, 90).name('Angle (degrees)');
   step.add(settings, 'cache').name('Cache (IndexedDB)');
+  step.add(viewer, 'importInWorker').name('Import in a worker');
   step.add({ reload: () => last && open(async () => last, last.name) }, 'reload').name('Mesh again');
   step.add({ defaults: () => { Object.assign(settings, DEFAULT_SETTINGS); step.controllers.forEach((c) =>
     c.updateDisplay()); } }, 'defaults').name('Defaults');
-  step.add({ clear: () => viewer.tessellation.clearCache().then(() => say('cache cleared'),
+  step.add({ clear: () => viewer.clearCache().then(() => say('cache cleared'),
     (e: Error) => say(`cache: ${e.message}`, true)) }, 'clear').name('Clear cache');
   step.close();
 

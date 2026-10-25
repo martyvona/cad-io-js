@@ -10,8 +10,7 @@
 
 import * as THREE from 'three';
 import { TrackballControls } from 'three/addons/controls/TrackballControls.js';
-import { partMesh, tessellateScene, type Diagnostic } from 'cad-scene';
-import { importStep } from 'step-import';
+import { partMesh, type Diagnostic } from 'cad-scene';
 import { clipTo, fit, setAspect, setView, type ViewName } from './camera.ts';
 import { formatOf, nativeFrame, type Format } from './formats.ts';
 import { Frames } from './frames.ts';
@@ -22,7 +21,9 @@ import { Composer } from './render.ts';
 import { AXES, Sections, type SectionSettings } from './section.ts';
 import { detectEdges, StepGraph } from './step.ts';
 import { cadStyle, DEFAULT_RENDER, edgeLayer, type RenderSettings } from './style.ts';
-import { DEFAULT_SETTINGS, Tessellation, type TessellationSettings } from './tessellation.ts';
+import type { FromImportWorker, ToImportWorker } from './import-worker.ts';
+import { loadStepIn, type Meshing, type StepEvent } from './step-load.ts';
+import { DEFAULT_SETTINGS, Tessellation, workerCount, type TessellationSettings } from './tessellation.ts';
 
 export interface ModelInfo {
   name: string;
@@ -33,6 +34,8 @@ export interface ModelInfo {
   parts?: { total: number; done: number; failed: number };
   /** STEP: the importer's and the tessellation's diagnostics. */
   diagnostics?: Diagnostic[];
+  /** STEP: what meshed it, once done. */
+  meshing?: Meshing;
 }
 
 export interface Stats { objects: number; meshes: number; triangles: number; segments: number; points: number }
@@ -110,7 +113,13 @@ export class Viewer {
   private generation = 0;
   private meshing = false;
   private readonly container: HTMLElement;
+  /** Tessellation when the import runs on the page's thread. */
   readonly tessellation = new Tessellation();
+  /** Import STEP files in a worker (the default), or on the page's thread (for comparison and debugging). */
+  importInWorker = true;
+  private worker?: Worker;
+  private readonly importListeners = new Map<number, (m: FromImportWorker) => void>();
+  private abortLoad?: () => void;
   private readonly composer: Composer;
   /** The section planes and their caps. */
   readonly sections: Sections;
@@ -243,6 +252,13 @@ export class Viewer {
     return new THREE.Box3().setFromObject(this.frame);
   }
 
+  /** Empties the tessellation cache (IndexedDB, shared with the import worker, whose next load opens it afresh). */
+  async clearCache(): Promise<void> {
+    this.tessellation.dispose();
+    this.worker?.postMessage({ type: 'cancel' } satisfies ToImportWorker);
+    await this.tessellation.clearCache();
+  }
+
   /** Redraws soon (after any change to the scene). */
   redraw(): void {
     this.frames.request();
@@ -254,8 +270,11 @@ export class Viewer {
     if (!format) throw new Error(`unknown format: ${src.name}`);
     const gen = ++this.generation;
     if (this.meshing) {
-      this.tessellation.dispose();
+      // Stop the last load's meshing (wherever it runs), and end its events.
+      if (this.importInWorker) this.worker?.postMessage({ type: 'cancel' } satisfies ToImportWorker);
+      else this.tessellation.dispose();
       this.meshing = false;
+      this.abortLoad?.();
     }
     if (format === 'step') return this.loadStep(src, gen);
     let root: THREE.Object3D;
@@ -286,64 +305,119 @@ export class Viewer {
     this.onModel?.(this.nodes);
   }
 
+  /**
+   * A load's events, from the import worker (by default) or from the page; they end with 'done', an error, or a
+   * newer load (`abortLoad`).
+   */
+  private events(bytes: Uint8Array, gen: number): AsyncIterable<StepEvent> {
+    const queue: StepEvent[] = [];
+    let wake: (() => void) | undefined;
+    let error: Error | undefined;
+    const push = (e: StepEvent) => { queue.push(e); wake?.(); };
+    const fail = (e: Error) => { error = e; wake?.(); };
+    this.abortLoad = () => wake?.();
+    if (this.importInWorker) {
+      this.importListeners.set(gen, (m) => (m.type === 'error' ? fail(new Error(m.message)) : push(m)));
+      const msg: ToImportWorker = { type: 'load', load: gen, bytes, settings: { ...this.settings },
+        workers: workerCount() };
+      this.importer().postMessage(msg, [bytes.buffer]);
+    } else {
+      loadStepIn(bytes, this.settings, workerCount(), this.tessellation, push, () => gen !== this.generation)
+        .catch(fail);
+    }
+    const listeners = this.importListeners;
+    const latest = () => gen === this.generation;
+    return { async *[Symbol.asyncIterator]() {
+      try {
+        for (;;) {
+          while (queue.length) {
+            const e = queue.shift()!;
+            yield e;
+            if (e.type === 'done') return;
+          }
+          if (error) throw error;
+          if (!latest()) return;
+          await new Promise<void>((r) => { wake = r; });
+          wake = undefined;
+        }
+      } finally {
+        listeners.delete(gen);
+      }
+    } };
+  }
+
+  /** The import worker, started when first needed and kept for later files. */
+  private importer(): Worker {
+    if (!this.worker) {
+      const w = new Worker(new URL('./import-worker.ts', import.meta.url), { type: 'module' });
+      w.onmessage = (e: MessageEvent<FromImportWorker>) => this.importListeners.get(e.data.load)?.(e.data);
+      w.onerror = (e) => {
+        e.preventDefault();
+        for (const l of this.importListeners.values()) l({ type: 'error', message: e.message || 'the import worker '
+          + 'failed', load: -1 });
+      };
+      this.worker = w;
+    }
+    return this.worker;
+  }
+
   private async loadStep(src: Source, gen: number): Promise<void> {
     this.onStatus?.(`${src.name}: reading...`);
-    // Let the page show that before the import holds the main thread (for some seconds with a large file).
+    // Let the page show that first (when the import runs on the page's thread, it holds it for a moment).
     await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
-    const { scene } = await importStep(new Uint8Array(src.bytes));
     if (gen !== this.generation) return;
-    const graph = new StepGraph(scene, src.name, this.render.shininess);
-    const brep = scene.parts.flatMap((p, i) => p.kind === 'brep' && graph.placements.has(i) ? [i] : []);
-    const model: ModelInfo = { name: src.name, format: 'step', parts: { total: brep.length, done: 0, failed: 0 },
-      diagnostics: [...scene.diagnostics] };
-    this.show(graph.root, model, graph);
+    // A copy goes (transferred) to the worker; the source keeps its bytes, to be meshed again.
+    const bytes = new Uint8Array(src.bytes.slice(0));
+    let graph: StepGraph | undefined;
+    let model: ModelInfo | undefined;
+    let zoomed = false;
     const added = (part: number) => {
-      for (const p of graph.placements.get(part) ?? []) this.nodes?.invalidate(p.group);
+      for (const p of graph!.placements.get(part) ?? []) this.nodes?.invalidate(p.group);
       this.sections.invalidate();
       this.onMeshes?.();
     };
-    // Parts already meshes or curves need no tessellation.
-    for (const i of graph.placements.keys()) {
-      if (scene.parts[i]!.kind === 'brep') continue;
-      const mesh = partMesh(scene, new Map(), i);
-      if (mesh) {
-        graph.addMesh(i, mesh);
-        added(i);
-      }
-    }
-    this.redraw();
-    const progress = () => this.onStatus?.(`${src.name}: meshed ${model.parts!.done} of ${model.parts!.total} parts` +
-      (model.parts!.failed ? `, ${model.parts!.failed} failed` : ''));
-    progress();
-    if (brep.length) {
-      const s = this.settings;
-      const { tess, workers } = await this.tessellation.get(s);
-      if (gen !== this.generation) return;
-      let zoomed = false;
-      this.meshing = true;
-      try {
-        const { diagnostics } = await tessellateScene(scene, tess, { linearDeflection: s.linearDeflection,
-          angularDeflection: s.angularDeflection * Math.PI / 180, edges: true, concurrency: workers, parts: brep,
-          onPart: (part, mesh) => {
-            if (gen !== this.generation) return;
-            model.parts!.done++;
-            if (mesh && mesh.indices.length + (mesh.curvePositions?.length ?? 0) + (mesh.points?.length ?? 0)) {
-              graph.addMesh(part, mesh);
-              added(part);
-              if (!zoomed && !this.moved) { zoomed = true; this.zoomAll(); }
-            } else model.parts!.failed++;
-            progress();
-            this.redraw();
-          } });
+    const progress = () => this.onStatus?.(`${src.name}: meshed ${model!.parts!.done} of ${model!.parts!.total} ` +
+      `parts${model!.parts!.failed ? `, ${model!.parts!.failed} failed` : ''}`);
+    this.meshing = true;
+    try {
+      for await (const ev of this.events(bytes, gen)) {
         if (gen !== this.generation) return;
-        model.diagnostics!.push(...diagnostics);
-      } catch (e) {
-        if (gen !== this.generation) return;
-        throw e;
-      } finally {
-        if (gen === this.generation) this.meshing = false;
+        if (ev.type === 'scene') {
+          const scene = ev.scene;
+          graph = new StepGraph(scene, src.name, this.render.shininess);
+          const brep = scene.parts.flatMap((p, i) => p.kind === 'brep' && graph!.placements.has(i) ? [i] : []);
+          model = { name: src.name, format: 'step', parts: { total: brep.length, done: 0, failed: 0 },
+            diagnostics: [...scene.diagnostics] };
+          this.show(graph.root, model, graph);
+          // Parts already meshes or curves need no tessellation.
+          for (const i of graph.placements.keys()) {
+            if (scene.parts[i]!.kind === 'brep') continue;
+            const mesh = partMesh(scene, new Map(), i);
+            if (mesh) {
+              graph.addMesh(i, mesh);
+              added(i);
+            }
+          }
+          progress();
+        } else if (ev.type === 'mesh') {
+          const mesh = ev.mesh;
+          model!.parts!.done++;
+          if (mesh && mesh.indices.length + (mesh.curvePositions?.length ?? 0) + (mesh.points?.length ?? 0)) {
+            graph!.addMesh(ev.part, mesh);
+            added(ev.part);
+            if (!zoomed && !this.moved) { zoomed = true; this.zoomAll(); }
+          } else model!.parts!.failed++;
+          progress();
+        } else {
+          model?.diagnostics!.push(...ev.diagnostics);
+          if (model && ev.meshing) model.meshing = ev.meshing;
+        }
+        this.redraw();
       }
+    } finally {
+      if (gen === this.generation) this.meshing = false;
     }
+    if (gen !== this.generation || !model) return;
     this.finished();
     if (!this.moved) this.zoomAll();
   }

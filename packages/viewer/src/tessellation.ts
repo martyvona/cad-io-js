@@ -1,5 +1,6 @@
 // Tessellation for our loader: a pool of Web Workers running OCCT or truck (the viewer's own worker entry,
-// tess-worker.ts, so Vite bundles the backends), behind the IndexedDB cache by default. The pool is made when first
+// tess-worker.ts, so Vite bundles the backends), behind the IndexedDB cache by default; in the import worker (its
+// workers nested in it), or in the page when the import runs there. The pool is made when first
 // needed and kept for later files; changing the backend or the cache makes a new one. Cancelling (a new file while
 // one is meshing) terminates the workers, which fails the requests still pending.
 
@@ -40,17 +41,23 @@ export function workerCount(cores = navigator.hardwareConcurrency || 2, touch = 
 
 export class Tessellation {
   private current?: { key: string; tess: Tessellator; pool: PoolTessellator };
+  /** Pools made so far. */
+  private pools = 0;
 
-  /** A tessellator for the settings, ready (its workers started). */
-  async get(s: TessellationSettings): Promise<{ tess: Tessellator; workers: number }> {
+  /**
+   * A tessellator for the settings, ready (its workers started). `workers` is given by the page when this runs in a
+   * worker, where touch screens can't be seen.
+   */
+  async get(s: TessellationSettings, workers = workerCount()): Promise<{ tess: Tessellator; workers: number }> {
     const key = `${s.backend}:${s.cache}`;
     if (this.current?.key !== key) {
       this.dispose();
       const pool = new PoolTessellator(
         () => webWorkerHandle(new Worker(new URL('./tess-worker.ts', import.meta.url), { type: 'module' })),
-        { backend: BACKENDS[s.backend], workers: workerCount() });
+        { backend: BACKENDS[s.backend], workers });
       const tess = s.cache ? new CachedTessellator(pool, new IndexedDbStore({ name: CACHE_NAME })) : pool;
       this.current = { key, tess, pool };
+      this.pools++;
       try {
         await tess.init();
       } catch (e) {
@@ -61,12 +68,13 @@ export class Tessellation {
     return { tess: this.current!.tess, workers: this.current!.pool.workers };
   }
 
-  /** The backend's name and version, and the cache's counts (if it's on), once a pool exists. */
-  describe(): { backend: string; cache?: CacheStats } | undefined {
+  /** The backend's name and version, the cache's counts (if it's on) and the pools made, once a pool exists. */
+  describe(): { backend: string; cache?: CacheStats; pools: number } | undefined {
     const c = this.current;
     if (!c) return undefined;
     const backend = `${c.tess.info.name} ${c.tess.info.version}`;
-    return c.tess instanceof CachedTessellator ? { backend, cache: c.tess.stats() } : { backend };
+    return c.tess instanceof CachedTessellator ? { backend, cache: c.tess.stats(), pools: this.pools }
+      : { backend, pools: this.pools };
   }
 
   /** Stops the workers; pending requests fail. */
