@@ -440,6 +440,12 @@ int occt_tessellate(const char* data, int len, int rootId, double linDefl, doubl
   }
 }
 
+// Our patches to OCCT the libraries were built with (occt_patches/, comma-separated; build.sh passes them).
+#ifndef OCCT_PATCHES
+  #define OCCT_PATCHES ""
+#endif
+const char* occt_patches() { return OCCT_PATCHES; }
+
 void occt_set_mesh_options(int algo, int adjustMinSize, double minSize, int controlSurfaceDeflection)
 {
   gMesh.algo                     = algo;

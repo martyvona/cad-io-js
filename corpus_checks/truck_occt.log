@@ -1,10 +1,10 @@
 truck against OCCT, 0.05 mm: 515 files (2 over 30 MB skipped), 3237 brep parts; OCCT meshes 3098 (139 empty or failed, not compared)
   truck status: ok 2893, panic 0, timeout 10, error 0, empty 195
-  area against OCCT (truck ok): within 0.1% 1209, within 1% 768, within 5% 515, > 5% 401
+  area against OCCT (truck ok): within 0.1% 1209, within 1% 769, within 5% 515, > 5% 400
   faces: 1495 of 62230 (2.4%) of OCCT's missing (980 failed to mesh, 519 not converted), 4 extra
   edge kinds: 1820 of 151622 (1.2%) differ; edge points off the mesh: 7326 of 1239438 (0.6%), in 317 parts
   orientation: 318 faces in 35 parts facing opposite to OCCT's
-  complete and on OCCT's geometry (truck ok, no face missing or off): 2587 of 3098 (83.5%) parts
+  complete and on OCCT's geometry (truck ok, no face missing or off): 2588 of 3098 (83.5%) parts
   workarounds: 669 placements fixed in 33 parts; 11986 surface curves read by their 3D curve; 6 tori with negative radii; 2092 cone angles converted to radians; 868 unreadable instances left out
     384 edge curves and 78 face surfaces clamped; 0 edges and 0 faces evaluating to NaN left out; 3 faces reversed to their loops
     12 shells reversed; solid shells not checked: 169 open meshes, 248 with faces disagreeing, 29 with unclear volumes
@@ -16,7 +16,7 @@ truck against OCCT, 0.05 mm: 515 files (2 over 30 MB skipped), 3237 brep parts; 
     CYLINDRICAL_SURFACE                22235      45   21625     525      40       2     177      53
     PLANE                              21542      38   21375      90      39       0       0      95
     RATIONAL_B_SPLINE_SURFACE           5371     140    4664     208     359       0     522      63
-    CONICAL_SURFACE                     4132     920    2637      30     545       0     215      15
+    CONICAL_SURFACE                     4132     920    2638      29     545       0     215      15
     TOROIDAL_SURFACE                    2961      13    2895      52       1       0      93      12
     B_SPLINE_SURFACE_WITH_KNOTS         2771     247    2387     121      16       0     132      24
     SPHERICAL_SURFACE                   1732      68    1618      41       5       0      81      26
@@ -43,7 +43,7 @@ truck against OCCT, 0.05 mm: 515 files (2 over 30 MB skipped), 3237 brep parts; 
     SURFACE_CURVE/HYPERBOLA                        9      4       4
     HYPERBOLA                                      6      1       1
     SEAM_CURVE/RATIONAL_B_SPLINE_CURVE             2      0       0
-  937 s, 4 workers per backend
+  939 s, 4 workers per backend
 
 gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926: 2 of 844 edge points off the mesh
 gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #31440: 1 of 34 edge points off the mesh | area 0.9897 x OCCT's
@@ -1351,4 +1351,3 @@ nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/CTC Defi
 nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/CTC Definitions/nist_ctc_02_asme1_rc.stp #20754: faces: 148 of 663 missing (148 failed to mesh, 0 not converted), 0 extra | 148 of 12895 edge points off the mesh | area 1.0692 x OCCT's | 6 faces off OCCT's geometry
 nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/CTC Definitions/nist_ctc_04_asme1_rd.stp #14149: 20 faces off OCCT's geometry
 nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/CTC Definitions/nist_ctc_01_asme1_rd.stp #13: faces: 2 of 139 missing (0 failed to mesh, 2 not converted), 0 extra | edge kinds (truck/OCCT): 2 free/shared
-occt-import-js/test/testfiles/conical-surface/conical-surface.step #12: area 1.3510 x OCCT's | 1 faces off OCCT's geometry

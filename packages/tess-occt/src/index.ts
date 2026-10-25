@@ -35,6 +35,8 @@ interface OcctModule {
   _occt_point_ids(): number;
   _occt_num_points(): number;
   _occt_diag(): number;
+  /** Our OCCT patches the build has, comma-separated (builds before 2026-10-25 lack it). */
+  _occt_patches?(): number;
   _occt_free(): void;
 }
 
@@ -166,7 +168,10 @@ export class OcctTessellator implements Tessellator {
       throw new Error(`tess-occt: the module lacks ${missing.join(', ')}: is native/occt_tess.cpp linked in, with the `
         + 'exports packages/tess-occt/build.sh lists?');
     }
-    const name = version ?? (glue === undefined && wasm === undefined ? 'OCCT 8.1 (3d097a0328)' : 'OCCT, a host build');
+    // Our OCCT patches the module was built with, named unless the host names its build itself.
+    const patches = this.m._occt_patches ? this.m.UTF8ToString(this.m._occt_patches()) : '';
+    const ours = glue === undefined && wasm === undefined ? 'OCCT 8.1 (3d097a0328)' : 'OCCT, a host build';
+    const name = version ?? ours + (patches ? ` + patches ${patches}` : '');
     this.info.version = `${name}${id ? `, wasm ${id}` : ''}, adapter ${ADAPTER}`;
   }
 

@@ -197,10 +197,10 @@ test('against OCCT: face and edge ids, edge kinds, face orientation, area, edge 
       for (const e of a.edges!) seen.add(e.kind);
       assert.equal(flippedFaces(a, b), 0, where);
       assert.equal(windingMismatches(a), 0, where);
-      // truck's known cone trouble (phase 0): the cone file comes out too large.
+      // The cone file included: until 2026-10-25 truck's area was 1.35 times OCCT's there, read as truck's cone
+      // trouble, but OCCT was leaving the cone unmeshed (our OCCT patch 0001 fixes it).
       const ratio = area(a) / area(b);
-      if (file.includes('conical')) assert.ok(ratio > 1.3 && ratio < 1.4, `${where}: area ratio ${ratio}`);
-      else assert.ok(Math.abs(ratio - 1) < 0.005, `${where}: area ratio ${ratio}`);
+      assert.ok(Math.abs(ratio - 1) < 0.005, `${where}: area ratio ${ratio}`);
       assert.equal(offMesh(a), 0, where);
     }
   }

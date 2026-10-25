@@ -1,0 +1,50 @@
+BRepMesh: the cone seam amplifier swaps a seam's pcurves when they are lines with the slightest slope in U.
+
+Against OCCT 3d097a0328 (8.1). Found 2026-10-25 (CLAUDE.md, "OCCT"); not reported upstream (the user's choice).
+
+BRepMesh_ModelPreProcessor's SeamEdgeAmplifier adds points to the seams of cones, splitting the edge and both its
+pcurves. It matches the geometric pcurves to the discrete ones by the U of the geometric pcurve's point at
+FirstParameter(): for a Geom2d_Line that is -2e100, so a seam line whose direction has any U component (3.35e-14 in
+conical-surface.step, from a reference direction written as (0, -1, 1.047e-14)) is evaluated about 1e86 away, never
+matches, and the pcurves are always swapped. When they were in the right order, the split seam's points land on the
+other side of the face, its boundary crosses itself in UV, and the face is left unmeshed (IMeshData_Failure).
+OCCT 7.6 (occt-import-js) meshes the face.
+
+The fix evaluates the pcurve at the start of the edge's range instead.
+
+Check: occt-import-js/test/testfiles/conical-surface/conical-surface.step, cone face #78: 0 triangles without the
+patch, meshed with it (packages/tess-occt/test/occt.test.ts). In the corpus it is the only face this patch changes.
+
+diff --git a/src/ModelingAlgorithms/TKMesh/BRepMesh/BRepMesh_ModelPreProcessor.cxx b/src/ModelingAlgorithms/TKMesh/BRepMesh/BRepMesh_ModelPreProcessor.cxx
+index 6f637819..b2959364 100644
+--- a/src/ModelingAlgorithms/TKMesh/BRepMesh/BRepMesh_ModelPreProcessor.cxx
++++ b/src/ModelingAlgorithms/TKMesh/BRepMesh/BRepMesh_ModelPreProcessor.cxx
+@@ -210,21 +210,23 @@ private:
+ 
+     // Define two pcurves of the seam-edge.
+     occ::handle<Geom2d_Curve> aPC1, aPC2;
+-    double                    af, al;
++    double                    af1, al1, af2, al2;
+ 
+     aE.Orientation(TopAbs_FORWARD);
+-    aPC1 = BRep_Tool::CurveOnSurface(aE, aF, af, al);
++    aPC1 = BRep_Tool::CurveOnSurface(aE, aF, af1, al1);
+ 
+     aE.Orientation(TopAbs_REVERSED);
+-    aPC2 = BRep_Tool::CurveOnSurface(aE, aF, af, al);
++    aPC2 = BRep_Tool::CurveOnSurface(aE, aF, af2, al2);
+ 
+     if (aPC1.IsNull() || aPC2.IsNull())
+     {
+       return false;
+     }
+ 
+-    // Select the correct pcurve of the seam-edge.
+-    const gp_Pnt2d& aFPntOfPC1 = aPC1->Value(aPC1->FirstParameter());
++    // Select the correct pcurve of the seam-edge, by its point at the start of the edge's range: the curve's own
++    // first parameter can be infinite (a Geom2d_Line's is -2e100), where a seam line with the slightest slope in U is
++    // far from its seam, and the pcurves would always be swapped.
++    const gp_Pnt2d aFPntOfPC1 = aPC1->Value(af1);
+ 
+     if (std::abs(aLPntOfIPC1.X() - aFPntOfPC1.X()) > Precision::Confusion())
+     {

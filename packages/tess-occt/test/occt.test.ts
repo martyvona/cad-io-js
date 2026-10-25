@@ -177,6 +177,28 @@ test('a lone boundary on a sphere or torus: the small region in a geometric set,
   tess.dispose();
 });
 
+const conical = path.join(root,
+  'test_corpus/third_party/occt-import-js/test/testfiles/conical-surface/conical-surface.step');
+test("our patch 0001: a cone whose seam pcurves slope by 3e-14 in U meshed (OCCT 8.1's seam amplifier swapped them)",
+  { skip: skip || (!fs.existsSync(conical) && 'corpus not fetched') }, async () => {
+  const tess = new OcctTessellator();
+  await tess.init();
+  assert.match(tess.info.version, / \+ patches [^,]*0001-brepmesh-cone-seam-pcurves/);
+  const { scene } = await importStep(fs.readFileSync(conical));
+  const p = scene.parts[0]!;
+  assert.ok(p.kind === 'brep');
+  const r = await tess.tessellate({ format: 'step', data: p.payload(), rootId: p.rootId, origin: p.origin,
+    linearDeflection: 0.1 / p.unit, angularDeflection: 0.5 });
+  tess.dispose();
+  const cone = r.faces.filter((f) => f.entityId === 78);
+  assert.ok(cone.length && cone.every((f) => f.count > 0), JSON.stringify(r.faces));
+  // The frustum's lateral area, pi (R + r) s, in square inches: 0.69515.
+  const a = cone.reduce((t, f) => t + area({ positions: r.positions, indices: r.indices.subarray(f.start,
+    f.start + f.count) }), 0);
+  assert.ok(Math.abs(a - 0.69515) < 0.01 * 0.69515, `${a}`);
+  assert.ok(!r.diagnostics.some((d) => /failed to mesh/.test(d.message)), JSON.stringify(r.diagnostics));
+});
+
 const mixed = step('trj6_as1-td-214.stp');
 test("a solid with a curve set beside it: the set's curves and points, by id, minus the origin, apart from the edges",
   { skip: skip || (!fs.existsSync(mixed) && 'corpus not fetched') }, async () => {
@@ -242,16 +264,19 @@ test("a host's module: the glue and module given by URL, bytes, factory or compi
   };
   const ours = await run({});
   const [, id, adapter] = /, wasm ([0-9a-f]{12}), (adapter \d+)$/.exec(ours.version)!;
-  assert.match(ours.version, /^OCCT 8\.1 \(3d097a0328\), wasm [0-9a-f]{12}, adapter \d+$/);
+  // With our OCCT patches named, if the build has any.
+  assert.match(ours.version, /^OCCT 8\.1 \(3d097a0328\)( \+ patches [0-9a-z,-]+)?, wasm [0-9a-f]{12}, adapter \d+$/);
   assert.equal(id, createHash('sha256').update(bytes).digest('hex').slice(0, 12));
+  const patches = / \+ patches [^,]+/.exec(ours.version)?.[0] ?? '';
   // The same where crypto.subtle is missing (insecure contexts: a page over plain http on a LAN).
   const own = Object.getOwnPropertyDescriptor(globalThis, 'crypto')!;
   Object.defineProperty(globalThis, 'crypto', { value: {}, configurable: true });
   try { assert.equal((await run({})).version, ours.version); } finally {
     Object.defineProperty(globalThis, 'crypto', own); }
-  // By URL (as a string, as a worker would get it) and by bytes: hashed, the same id; named as a host's build.
+  // By URL (as a string, as a worker would get it) and by bytes: hashed, the same id; named as a host's build (with
+  // our patches, which the module names), or as the host names it (verbatim).
   const byUrl = await run({ glue: glue.href, wasm: wasm.href });
-  assert.equal(byUrl.version, `OCCT, a host build, wasm ${id}, ${adapter}`);
+  assert.equal(byUrl.version, `OCCT, a host build${patches}, wasm ${id}, ${adapter}`);
   assert.deepEqual(byUrl.result, ours.result);
   const factory = (await import(glue.href)).default as OcctFactory;
   const byBytes = await run({ glue: factory, wasm: bytes, version: 'host OCCT 8.1 r7' });
