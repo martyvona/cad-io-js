@@ -41,6 +41,25 @@ test('frames: drawn only when requested, once per request burst, and not after t
   assert.equal(c.pending(), 0);
 });
 
+test('frames: idle at once when nothing is scheduled, else just after the last frame the draw wants', async () => {
+  const c = fakeClock();
+  let more = 2;
+  let draws = 0;
+  const frames = new Frames(() => { draws++; return more-- > 0; }, 1000 / 30, c.clock);
+  let idle = false;
+  await frames.whenIdle();
+  frames.request();
+  void frames.whenIdle().then(() => { idle = true; });
+  const at: number[] = [];
+  for (let i = 0; i < 12; i++) {
+    c.tick();
+    await Promise.resolve();
+    if (idle && !at.length) at.push(draws);
+  }
+  // Three draws (the first, then two more wanted): idle after the third, not before.
+  assert.deepEqual(at, [3]);
+});
+
 test('frames: at most 30 a second however fast the display, while the draw wants more', () => {
   for (const hz of [60, 120, 144]) {
     const c = fakeClock(hz);
@@ -276,7 +295,16 @@ test('cad-viewer: arguments', () => {
   const s = parseArgs(['start']);
   assert.ok(typeof s === 'object' && s.given.length === 0 && s.file === undefined);
   assert.equal(parseArgs(['-h']), 'help');
+  const shot = parseArgs(['shot', 'm.stp', '-o', 'out.png', '--size', '640x480', '--view', 'top', '--state',
+    '?cut=x:1&ao=0', '--json', '-', '--chrome', '/c']);
+  assert.ok(typeof shot === 'object');
+  assert.deepEqual(shot.shot, { out: path.resolve('out.png'), width: 640, height: 480, view: 'top',
+    state: 'cut=x:1&ao=0', json: '-', chrome: '/c' });
+  const plainShot = parseArgs(['shot', 'm.stp']);
+  assert.ok(typeof plainShot === 'object' && plainShot.shot.width === 1200 && plainShot.shot.height === 800);
   for (const [argv, err] of [[[], /no command/], [['serve'], /unknown command/], [['open'], /one file/],
+    [['shot'], /one file/], [['shot', 'a', '--size', '640'], /--size/], [['shot', 'a', '--size', '8x8'], /--size/],
+    [['shot', 'a', '--size', '9000x10'], /--size/],
     [['open', 'a', 'b'], /one file/], [['stop', 'a'], /takes no file/], [['start', '--port', 'x'], /bad port/],
     [['start', '--port'], /needs a value/], [['start', '--https', 'yes'], /self or mkcert/],
     [['start', '--frob'], /unknown option/]] as [string[], RegExp][]) {

@@ -160,3 +160,52 @@ test("three.js graphs: parts are objects with only drawables below; a part's own
   assert.equal(m.nodeOf(new THREE.Object3D()), undefined);
   assert.equal(m.nodeOf(withLines), top[0]);
 });
+
+test('paths: occurrence names with an index among same-named siblings, detail below parts, found either way', () => {
+  const { graph, model } = stepModel();
+  graph.addMesh(0, plate());
+  graph.addMesh(1, wire());
+  const all = (ids: readonly number[]): number[] => ids.flatMap((i) => [i, ...all(model.children(i))]);
+  model.setDetail(true);
+  const ids = all(model.roots);
+  const paths = ids.map((i) => model.pathOf(i));
+  // Unique, and each finds its node.
+  assert.equal(new Set(paths).size, paths.length);
+  for (const [k, id] of ids.entries()) assert.equal(model.find(paths[k]!), id, paths[k]);
+  assert.ok(paths.includes('model/asm/left/plate/face#8'), paths.join('\n'));
+  assert.ok(paths.includes('model/asm/left/plate/edges'), paths.join('\n'));
+  assert.ok(paths.includes('model/asm/left/wire/curves'), paths.join('\n'));
+  // Without detail shown, a detail path still finds its node (built for it), and assembly paths are the same.
+  const fresh = stepModel();
+  fresh.graph.addMesh(0, plate());
+  const face = fresh.model.find('model/asm/left/plate/face#7');
+  assert.ok(face !== undefined && fresh.model.nodes[face]!.kind === 'face');
+  assert.equal(fresh.model.pathOf(face), 'model/asm/left/plate/face#7');
+  assert.equal(fresh.model.find('model/asm/left/nothing'), undefined);
+  assert.equal(fresh.model.find('model/asm/left/plate/face#99'), undefined);
+});
+
+test('paths: same-named siblings numbered from the second; names escaped', () => {
+  const root = new THREE.Group();
+  root.name = 'top';
+  const named = (name: string) => {
+    const g = new THREE.Group();
+    g.name = name;
+    g.add(new THREE.Mesh(new THREE.BoxGeometry()));
+    return g;
+  };
+  const kids = [named('nut'), named('bolt'), named('nut'), named('a/b:c%d'), named('nut')];
+  const asm = new THREE.Group();
+  asm.name = 'asm';
+  asm.add(...kids, new THREE.Group());
+  root.add(asm, new THREE.Mesh(new THREE.BoxGeometry()));
+  const model = new NodeModel(root);
+  const paths = model.children(model.children(model.roots[0]!)[0]!).map((i) => model.pathOf(i));
+  assert.deepEqual(paths.slice(0, 5), ['top/asm/nut', 'top/asm/bolt', 'top/asm/nut:2', 'top/asm/a%2Fb%3Ac%25d',
+    'top/asm/nut:3']);
+  for (const p of paths) assert.equal(model.pathOf(model.find(p)!), p);
+  // A three.js part's drawables below it, and its own drawing.
+  const part = model.find('top/asm/bolt')!;
+  model.setDetail(true);
+  assert.deepEqual(model.children(part).map((i) => model.pathOf(i)), ['top/asm/bolt/mesh']);
+});

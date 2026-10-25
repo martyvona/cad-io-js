@@ -7,9 +7,10 @@ import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
 import { VIEWS, type ViewName } from './camera.ts';
 import type { Source } from './load.ts';
 import { details } from './details.ts';
-import { AXES, DEFAULT_SECTIONS } from './section.ts';
+import { AXES, DEFAULT_SECTIONS, type SectionSettings } from './section.ts';
 import { boxOf, Highlighter, instancesOf, nodeForPick, piecesOf, type PickLevel } from './selection.ts';
 import { addSideHandle } from './side-handle.ts';
+import type { RenderSettings } from './style.ts';
 import { DEFAULT_SETTINGS } from './tessellation.ts';
 import { TreePanel } from './tree-panel.ts';
 import { fromFiles, fromUrl, pickFiles } from './sources.ts';
@@ -30,6 +31,27 @@ export interface Ui {
   selectParent(): void;
   /** The details panel's lines. */
   details(): string[];
+  /** Opens a model by URL; resolves with what the browser check's report has (`error` if it failed). */
+  openUrl(url: string): Promise<Record<string, unknown>>;
+  /** The current model's URL, if it came from one. */
+  currentUrl(): string | undefined;
+  /** These settings take effect through the controls (which follow). */
+  setSections(s: SectionSettings): void;
+  setRender(r: Partial<RenderSettings>): void;
+  setTree(t: { open?: boolean; detail?: boolean }): void;
+  /** Centring, once the centroid is known (false if it isn't yet). */
+  setCentered(on: boolean): boolean;
+  setPickLevel(level: PickLevel): void;
+  setInstances(on: boolean): void;
+  setHidden(ids: readonly number[], hidden: boolean): void;
+  /** The tree panel's state. */
+  tree(): { open: boolean; detail: boolean };
+  /** No model to open at start: says how to open one. */
+  empty(): void;
+  /** Says something in the status line. */
+  say(text: string, error?: boolean): void;
+  /** The view's address, for "Copy link to this view" (set by the automation layer). */
+  link?: () => string;
 }
 
 export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLElement, detailsElement: HTMLElement):
@@ -49,16 +71,19 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   const check = new URLSearchParams(location.search).has('check');
   const report = (r: object) => { if (check) document.body.dataset.report = JSON.stringify(r); };
 
-  const open = async (get: () => Promise<Source | undefined>, what: string) => {
+  const open = async (get: () => Promise<Source | undefined>, what: string): Promise<Record<string, unknown>> => {
     try {
       say(`loading ${what}...`);
       const src = await get();
-      if (!src) return say('');
+      if (!src) {
+        say('');
+        return { cancelled: true };
+      }
       const t = performance.now();
       const gen = viewer.nextLoad();
       last = src;
       await viewer.load(src);
-      if (!viewer.latest(gen)) return;
+      if (!viewer.latest(gen)) return { superseded: true };
       fitPlanes();
       const s = viewer.stats()!;
       info.file = src.name;
@@ -74,13 +99,16 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
         (problems ? `; ${problems} warnings and errors (in the console)` : ''));
       if (problems) console.warn(m.diagnostics);
       const box = visibleBox(viewer.display);
-      report({ name: src.name, seconds: (performance.now() - t) / 1000, parts: m.parts, stats: s,
+      const r = { name: src.name, seconds: (performance.now() - t) / 1000, parts: m.parts, stats: s,
         centroid: viewer.model?.centroid?.toArray(), box: [box.min.toArray(),
-        box.max.toArray()], camera: { top: viewer.camera.top, target: viewer.controls.target.toArray() } });
+        box.max.toArray()], camera: { top: viewer.camera.top, target: viewer.controls.target.toArray() } };
+      report(r);
+      return r;
     } catch (e) {
       console.error(e);
       say(`${what}: ${(e as Error).message}`, true);
       report({ error: (e as Error).message });
+      return { error: (e as Error).message };
     }
   };
   const openFiles = (files: File[]) => files.length ? open(async () => {
@@ -88,7 +116,19 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     if (!src) throw new Error('no model among the files (.stp, .step, .stpz, .glb, .gltf, .json)');
     return src;
   }, files.map((f) => f.name).join(', ')) : undefined;
-  const openUrl = (url: string) => open(() => fromUrl(url), url);
+  // The view's address to the clipboard (where the page may write it: a secure context), else shown to copy.
+  const copyLink = () => {
+    const href = ui.link?.();
+    if (!href) return;
+    const show = () => window.prompt('The link to this view:', href);
+    if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(href).then(
+      () => say('link copied'), show);
+    else show();
+  };
+  const openUrl = (url: string) => {
+    info.url = url;
+    return open(() => fromUrl(url), url);
+  };
 
   const file = gui.addFolder('File');
   file.add({ open: async () => openFiles(await pickFiles()) }, 'open').name('Open file...');
@@ -97,6 +137,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
 
   const view = gui.addFolder('View');
   view.add({ all: () => viewer.zoomAll() }, 'all').name('Zoom all');
+  view.add({ copy: () => copyLink() }, 'copy').name('Copy link to this view');
   const views = view.addFolder('Look along an axis');
   for (const v of Object.keys(VIEWS) as ViewName[]) {
     views.add({ [v]: () => viewer.setView(v) }, v).name(v[0]!.toUpperCase() + v.slice(1));
@@ -232,7 +273,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     if (!narrow && !tree.closedByHand && !tree.open) openControl?.setValue(true);
     describe();
   };
-  let detailControl: { updateDisplay(): unknown } | undefined;
+  let detailControl: { updateDisplay(): unknown; setValue(v: boolean): unknown } | undefined;
   viewer.onPick = (hit, keys) => {
     const nodes = viewer.nodes;
     if (!nodes || !panel) return;
@@ -254,10 +295,10 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     requestAnimationFrame(() => { refresh = false; panel?.refresh(); });
   };
   // Hiding faces changes materials: the highlight comes off first, and goes back on after.
-  const hide = (hidden: boolean) => {
+  const hide = (hidden: boolean, ids: readonly number[] = selected) => {
     if (!panel) return;
     highlighter.clear();
-    panel.model.setHidden(selected, hidden);
+    panel.model.setHidden(ids, hidden);
     viewer.drawnChanged();
     panel.redraw();
     highlight();
@@ -288,6 +329,44 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       select(selected.map((id) => nodes.nodes[id]!.parent).filter((p) => p >= 0));
     },
     details: () => (viewer.nodes ? details(viewer.nodes, selected) : []),
+    openUrl,
+    currentUrl: () => last?.url,
+    setSections: (s) => {
+      for (const a of AXES) Object.assign(cut[a], s[a]);
+      cut.caps = s.caps;
+      for (const c of sectionFolder.controllersRecursive()) c.updateDisplay();
+      recut();
+    },
+    setRender: (r) => {
+      Object.assign(look, r);
+      for (const c of rendering.controllersRecursive()) c.updateDisplay();
+      restyle();
+    },
+    setTree: (t) => {
+      if (t.detail !== undefined && t.detail !== tree.detail) detailControl?.setValue(t.detail);
+      if (t.open !== undefined && t.open !== tree.open) openControl?.setValue(t.open);
+    },
+    setCentered: (on) => {
+      if (on && viewer.model?.centroid === undefined) return false;
+      if (on !== viewer.isCentered()) centered.setValue(on);
+      return true;
+    },
+    setPickLevel: (level) => {
+      selection.level = level;
+      for (const c of selFolder.controllersRecursive()) c.updateDisplay();
+    },
+    setInstances: (on) => {
+      selection.instances = on;
+      for (const c of selFolder.controllersRecursive()) c.updateDisplay();
+      highlight();
+    },
+    setHidden: (ids, hidden) => hide(hidden, ids),
+    tree: () => ({ open: tree.open, detail: tree.detail }),
+    empty: () => {
+      say('Open a file (or drop one here), or load one by URL');
+      report({ empty: true });
+    },
+    say,
   };
   const treeFolder = gui.addFolder('Tree');
   openControl = treeFolder.add(tree, 'open').name('Show the tree').onChange((open: boolean) => {
@@ -324,13 +403,6 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     void openFiles([...e.dataTransfer?.files ?? []]);
   });
 
-  const start = new URLSearchParams(location.search).get('url');
-  if (start) {
-    info.url = start;
-    void openUrl(start);
-  } else {
-    say('Open a file (or drop one here), or load one by URL');
-    report({ empty: true });
-  }
+  // Opening ?url= at start is the automation layer's (automation.ts), which then applies the view in the address.
   return ui;
 }

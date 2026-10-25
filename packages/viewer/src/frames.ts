@@ -16,6 +16,7 @@ export class Frames {
   private readonly clock: FrameClock;
   private scheduled = false;
   private last = -Infinity;
+  private idle: (() => void)[] = [];
   frames = 0;
 
   /** `draw` returns true while it wants another frame. */
@@ -32,6 +33,12 @@ export class Frames {
     this.clock.next(() => this.tick());
   }
 
+  /** Resolves once no frame is scheduled: at once if none is, else just after the last one is drawn. */
+  whenIdle(): Promise<void> {
+    if (!this.scheduled) return Promise.resolve();
+    return new Promise((resolve) => this.idle.push(resolve));
+  }
+
   private tick(): void {
     // Animation frames come at the display's rate (60 Hz or more): skip them until the interval has passed. A
     // little slack, so that a 60 Hz display gives every second frame rather than every third.
@@ -40,5 +47,6 @@ export class Frames {
     this.last = this.clock.now();
     this.frames++;
     if (this.draw()) this.request();
+    if (!this.scheduled) for (const f of this.idle.splice(0)) f();
   }
 }

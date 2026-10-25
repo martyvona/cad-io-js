@@ -22,9 +22,10 @@ import { threejsJson } from 'export-threejs';
 import { importStep } from 'step-import';
 import { OcctTessellator } from 'tess-occt';
 import { main } from '../bin/viewer.ts';
+import { defaultChrome, launchChrome } from '../server/headless.ts';
 
 const repo = path.resolve(import.meta.dirname, '../../..');
-const chrome = process.argv[2] ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const chrome = process.argv[2] ?? defaultChrome();
 const step = path.join(repo, 'test_corpus/third_party/gkv311-opencascade-dataset/step/as1-oc-214-mat.stp');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cad-viewer-check-'));
@@ -116,40 +117,16 @@ if (process.env.BUILD) {
   await new Promise<void>((resolve) => staticServer!.listen(port, '127.0.0.1', resolve));
 } else if (await main(['start', '--content-root', content, '--port', String(port)], io) !== 0) process.exit(1);
 
-// Chrome over the DevTools protocol: a tab per page, polled until the page reports (real time: Draco decodes in a
-// worker, which --virtual-time-budget doesn't wait for).
-const profile = path.join(tmp, 'chrome');
-const browser = spawn(chrome, ['--headless=new', `--user-data-dir=${profile}`, '--no-first-run',
-  '--no-default-browser-check', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--remote-debugging-port=0',
-  'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] });
-const endpoint = await new Promise<string>((resolve, reject) => {
-  let s = '';
-  browser.stderr.on('data', (c) => {
-    s += c;
-    const m = /DevTools listening on (ws:\S+)/.exec(s);
-    if (m) resolve(m[1]!);
-  });
-  browser.on('error', reject).on('exit', () => reject(new Error(`Chrome exited: ${s}`)));
-});
-const ws = new WebSocket(endpoint);
-await new Promise((resolve, reject) => { ws.onopen = resolve; ws.onerror = reject; });
-let nextId = 0;
-const pending = new Map<number, (r: { result?: Record<string, unknown>; error?: unknown }) => void>();
-ws.onmessage = (e) => {
-  const m = JSON.parse(String(e.data)) as { id?: number; result?: Record<string, unknown>; error?: unknown };
-  if (m.id !== undefined) pending.get(m.id)?.(m);
-};
-const send = (method: string, params: object = {}, sessionId?: string) => new Promise<Record<string, unknown>>(
-  (resolve, reject) => {
-    const id = ++nextId;
-    pending.set(id, (m) => m.error ? reject(new Error(JSON.stringify(m.error))) : resolve(m.result ?? {}));
-    ws.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
-  });
+// Headless Chrome (server/headless.ts): a tab per page, polled until the page reports.
+const headless = await launchChrome(path.join(tmp, 'chrome'), { chrome });
+const send = headless.send;
 
 /** Opens a page and waits for its report; `after`, an expression, is then evaluated there, its value the `after`. */
 interface PageOptions {
   /** A phone: 390 x 844 CSS pixels, touch, set before the page loads. */
   phone?: boolean;
+  /** Device pixels per CSS pixel, at 1200 x 800 CSS pixels. */
+  scale?: number;
   /** Driven from here after `after` (with the tab's session and `after`'s value); its value is the report's `then`. */
   then?: (sessionId: string, after: unknown) => Promise<unknown>;
 }
@@ -162,6 +139,8 @@ async function page(query: string, after?: string, opts: PageOptions = {}): Prom
       sessionId);
     await send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 }, sessionId);
   }
+  if (opts.scale) await send('Emulation.setDeviceMetricsOverride', { width: 1200, height: 800,
+    deviceScaleFactor: opts.scale, mobile: false }, sessionId);
   await send('Page.navigate', { url: `http://localhost:${port}${base}${query}` }, sessionId);
   try {
     for (let t = 0; t < 3000; t++) {
@@ -206,8 +185,7 @@ const expect = (c: boolean, m: string) => { if (!c) throw new Error(m); };
 
 /** Chrome and the server stopped, the temporary directory removed. */
 async function shutdown(): Promise<void> {
-  ws.close();
-  await new Promise((resolve) => { browser.once('exit', resolve); browser.kill(); });
+  await headless.close();
   if (staticServer) staticServer.close();
   else await main(['stop'], io);
   fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 5 });
@@ -896,6 +874,107 @@ await check('tree width', async () => {
   expect(dragged.side === 401 && near(dragged.view, before.view - 100) && dragged.saved === '400',
     `dragged: ${j}`);
   expect(reset.side === 301 && near(reset.view, before.view) && reset.saved === null, `reset: ${j}`);
+  return undefined;
+});
+// The automation interface (src/automation.ts) and links: nodes by path, select, hide and show by path, a pick and a
+// screenshot; a view (top, a cut, AO off, a hidden part, a selected face) taken as a link and opened in another page
+// gives the same state; with ?deterministic one pixel per CSS pixel at any screen scale, and screenshots that repeat.
+type State = { camera: { position: number[]; target: number[]; up: number[]; height: number }; cut: object;
+  render: { ao: boolean }; hidden: string[]; selected: string[]; tree: object; model?: { triangles: number } };
+await check('automation', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    await cadViewer.ready;
+    await cadViewer.idle();
+    const nodes = cadViewer.nodes();
+    const parts = nodes.filter((n) => n.kind === 'part').map((n) => n.path);
+    const missing = cadViewer.select([parts[0], 'nowhere/at/all']);
+    const selected = cadViewer.state().selected;
+    cadViewer.hide([parts[1]]);
+    const hidden = cadViewer.state().hidden;
+    cadViewer.show([parts[1]]);
+    const shown = cadViewer.state().hidden;
+    cadViewer.view('iso');
+    const pick = cadViewer.pickAt(0.5, 0.5);
+    // Off the centre: the point pickAt names is the viewer's at the same place, from the view's top left.
+    const rect = viewer.renderer.domElement.getBoundingClientRect();
+    const offCentre = [[0.3, 0.3], [0.6, 0.7], [0.45, 0.62], [0.7, 0.4]].map(([x, y]) => {
+      const a = cadViewer.pickAt(x, y), b = viewer.pickAt(rect.left + x * rect.width, rect.top + y * rect.height);
+      return !a === !b && (!a || a.point.every((v, k) => Math.abs(v - b.point.getComponent(k)) < 1e-6));
+    });
+    const shot = cadViewer.screenshot();
+    // Drawn when asked for: another view at once, another picture.
+    cadViewer.view('top');
+    const other = cadViewer.screenshot();
+    cadViewer.view('iso');
+    // A view to link: top, a cut, no AO, a part hidden, a face selected (a path below a part, detail not shown).
+    const face = parts[2] + '/face#' + viewer.nodes.nodes[viewer.nodes.find(parts[2])].object.children[0]
+      .userData.faces[0];
+    const problems = cadViewer.apply({ view: 'top', cut: { x: { at: 50, flip: true } }, render: { ao: false },
+      hidden: [parts[3]], selected: [face] });
+    await cadViewer.idle();
+    // The controls follow.
+    const control = (name) => [...document.querySelectorAll('.lil-gui .controller')]
+      .find((c) => c.textContent.includes(name)).querySelector('input').checked;
+    const controls = [control('Cut along X'), control('Flip X'), control('Ambient occlusion')];
+    return { controls, version: cadViewer.version, count: nodes.length, unique: new Set(nodes.map((n) => n.path)).size,
+      parts, missing, selected, hidden, shown, pick, shot: shot.slice(0, 30), shotLength: shot.length, problems,
+      offCentre, redrawn: other !== shot,
+      face, state: cadViewer.state(), link: cadViewer.link() };
+  })()`) as { after: { version: number; count: number; unique: number; parts: string[]; missing: string[];
+    selected: string[]; hidden: string[]; shown: string[]; pick?: { path: string }; shot: string; shotLength: number;
+    problems: string[]; face: string; state: State; link: string; controls: boolean[]; offCentre: boolean[];
+    redrawn: boolean } };
+  const a = r.after;
+  const j = JSON.stringify({ ...a, state: undefined });
+  expect(a.version === 1 && a.count === a.unique && a.parts.length >= 4, `nodes: ${j}`);
+  expect(a.missing.length === 1 && /nowhere/.test(a.missing[0]!) && a.selected[0] === a.parts[0], `select: ${j}`);
+  expect(a.hidden.includes(a.parts[1]!) && !a.shown.includes(a.parts[1]!), `hide and show: ${j}`);
+  expect(!!a.pick && a.pick.path.startsWith(a.parts[0]!.split('/')[0]!), `pick: ${j}`);
+  expect(a.offCentre.every((x) => x), `pickAt off the centre: ${j}`);
+  expect(a.shot.startsWith('data:image/png;base64,') && a.shotLength > 10_000 && a.redrawn, `screenshot: ${j}`);
+  expect(a.problems.length === 0 && a.state.selected[0] === a.face && a.state.hidden.includes(a.parts[3]!) &&
+    a.state.render.ao === false && JSON.stringify(a.state.cut) === '{"x":{"at":50,"flip":true}}', `apply: ${j}`);
+  expect(JSON.stringify(a.controls) === '[true,true,false]', `the controls: ${j}`);
+  // The link, opened in a new page: the same state.
+  const linked = await page(a.link.slice(a.link.indexOf('?')) + '&check', `cadViewer.ready.then(() => cadViewer.idle())
+    .then(() => cadViewer.state())`) as { after: State };
+  const b = linked.after;
+  const near = (x: number[], y: number[]) => x.every((v, k) => Math.abs(v - y[k]!) < 1e-4);
+  const sa = a.state;
+  expect(near(b.camera.position, sa.camera.position) && near(b.camera.target, sa.camera.target) &&
+    near(b.camera.up, sa.camera.up) && Math.abs(b.camera.height - sa.camera.height) < 1e-4,
+    `linked camera: ${JSON.stringify([b.camera, sa.camera])}`);
+  expect(JSON.stringify([b.cut, b.render.ao, b.hidden, b.selected, b.tree]) === JSON.stringify([sa.cut,
+    sa.render.ao, sa.hidden, sa.selected, sa.tree]), `linked state: ${JSON.stringify([b, sa])}`);
+  return undefined;
+});
+await check('deterministic', async () => {
+  const shots = `cadViewer.ready.then(() => cadViewer.idle()).then(() => { cadViewer.view('iso');
+    const a = cadViewer.screenshot(), b = cadViewer.screenshot(), c = viewer.renderer.domElement;
+    return { same: a === b, ratio: c.width / c.clientWidth, dpr: devicePixelRatio }; })`;
+  const go = (q: string) => page(`?url=${encodeURIComponent('/content/as1.glb')}&check${q}`, shots,
+    { scale: 2 }) as Promise<{ after: { same: boolean; ratio: number; dpr: number } }>;
+  const [plain, fixed] = [(await go('')).after, (await go('&deterministic')).after];
+  expect(plain.dpr === 2 && plain.ratio === 2 && fixed.ratio === 1 && fixed.same,
+    `${JSON.stringify({ plain, fixed })}`);
+  return undefined;
+});
+// cad-viewer shot (the dev server only): a PNG of the size asked for, and the page's state with the scene's
+// triangles.
+if (!staticServer) await check('shot', async () => {
+  const png = path.join(tmp, 'shot.png'), json = path.join(tmp, 'shot.json');
+  const out: string[] = [];
+  const code = await main(['shot', path.join(content, 'as1.stp'), '-o', png, '--size', '1000x600', '--view', 'top',
+    '--json', json, '--content-root', content, '--port', String(port)], { ...io, out: (s) => out.push(s),
+    err: (s) => out.push(s) });
+  expect(code === 0, `exit ${code}: ${out.join('')}`);
+  const bytes = fs.readFileSync(png);
+  const [w, h] = [bytes.readUInt32BE(16), bytes.readUInt32BE(20)];
+  const report = JSON.parse(fs.readFileSync(json, 'utf8')) as { state: State; link: string };
+  // Wider than a phone, where the tree would open with the model unless shot closes it.
+  expect(bytes.subarray(1, 4).toString() === 'PNG' && w === 1000 && h === 600, `png ${w}x${h}`);
+  expect(report.state.model?.triangles === triangles && /[?&]url=/.test(report.link),
+    JSON.stringify(report.state.model));
   return undefined;
 });
 await check('not a model', async () => {

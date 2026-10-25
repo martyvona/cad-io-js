@@ -12,6 +12,7 @@ import * as THREE from 'three';
 import { TrackballControls } from 'three/addons/controls/TrackballControls.js';
 import { partMesh, type Diagnostic } from 'cad-scene';
 import { clipTo, fit, setAspect, setView, type ViewName } from './camera.ts';
+import type { CameraState } from './view-state.ts';
 import { formatOf, nativeFrame, type Format } from './formats.ts';
 import { Frames } from './frames.ts';
 import { loadThree, type Source } from './load.ts';
@@ -139,11 +140,12 @@ export class Viewer {
   /** Whether a world point is cut away (by the section planes): not pickable. */
   clipped?: (p: THREE.Vector3) => boolean;
 
-  constructor(container: HTMLElement) {
+  /** `pixelRatio`: fixed (deterministic screenshots: ?deterministic), else the screen's, at most 2. */
+  constructor(container: HTMLElement, opts: { pixelRatio?: number } = {}) {
     this.container = container;
     // No multisampling: SMAA smooths the composed frame. A stencil buffer, for the section caps.
     this.renderer = new THREE.WebGLRenderer({ antialias: false, stencil: true });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setPixelRatio(opts.pixelRatio ?? Math.min(window.devicePixelRatio, 2));
     this.composer = new Composer(this.renderer, this.scene, this.camera, 1, 1);
     this.sections = new Sections(this.renderer);
     this.clipped = (p) => this.sections.clipped(p);
@@ -513,6 +515,34 @@ export class Viewer {
   zoomAll(): void {
     fit(this.camera, this.controls.target, visibleBox(this.display), this.aspect());
     this.redraw();
+  }
+
+  /** The camera exactly: position, target, up, and the viewport's height in world millimetres. */
+  cameraState(): CameraState {
+    const c = this.camera;
+    return { position: c.position.toArray(), target: this.controls.target.toArray(), up: c.up.toArray(),
+      height: (c.top - c.bottom) / c.zoom };
+  }
+
+  /** Puts the camera exactly so (the aspect ratio stays the viewport's); no more automatic zooming this load. */
+  setCamera(s: CameraState): void {
+    const c = this.camera;
+    c.position.fromArray(s.position);
+    c.up.fromArray(s.up).normalize();
+    this.controls.target.fromArray(s.target);
+    c.lookAt(this.controls.target);
+    c.top = s.height / 2;
+    c.bottom = -s.height / 2;
+    c.zoom = 1;
+    setAspect(c, this.aspect());
+    this.moved = true;
+    this.redraw();
+  }
+
+  /** The view drawn now, as a PNG data URL (drawn and read in one task, so the buffer still holds it). */
+  snapshot(): string {
+    this.draw();
+    return this.renderer.domElement.toDataURL('image/png');
   }
 
   /** Looks along one of the world's axes, then zooms all. */

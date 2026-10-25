@@ -1,7 +1,9 @@
 #!/usr/bin/env node
-// cad-viewer: starts and stops the viewer's dev server (Vite, in the background) and opens files from its content
-// root in the default browser (the user, 2026-10-24; CLAUDE.md, "The viewer"; README.md, "The viewer"). The running
-// server is described in .run/server.json (its process, URL and options); its output goes to .run/server.log.
+// cad-viewer: starts and stops the viewer's dev server (Vite, in the background), opens files from its content
+// root in the default browser, and renders them headlessly to PNG (`shot`, through headless Chrome and the page's
+// automation interface, src/automation.ts) (the user, 2026-10-24 and 25; CLAUDE.md, "The viewer"; README.md, "The
+// viewer"). The running server is described in .run/server.json (its process, URL and options); its output goes to
+// .run/server.log.
 
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -10,6 +12,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { contentUrl } from '../server/content.ts';
+import { launchChrome, type Tab } from '../server/headless.ts';
 import { DEFAULTS, envFromOptions, type ServerOptions } from '../server/options.ts';
 
 const viewer = path.resolve(import.meta.dirname, '..');
@@ -21,8 +24,18 @@ Commands:
   stop                 stop it
   status               say whether it's running, and where
   open <file>          start it if needed, then open the file (below the content root) in the default browser
+  shot <file>          start it if needed, then render the file (below the content root) in headless Chrome to a
+                       PNG, and say what the page reports (the server is left running)
 
-Options (start and open; a running server keeps its own):
+Options for shot:
+  -o <png>             where the PNG goes (default: the file's name with .png, in the current directory)
+  --size <w>x<h>       the view in pixels (default 1200x800; one pixel per CSS pixel)
+  --view <name>        front, back, left, right, top, bottom or iso (default: as the page fits it)
+  --state <query>      more of the view, as in a link's address: "cut=x:10&hide=as1/plate&ao=0" (README.md)
+  --json <file>        also write the page's state, the view's link and its status line there ("-": standard output)
+  --chrome <path>      Chrome (default: $CHROME, or where it usually is)
+
+Options (start, open and shot; a running server keeps its own):
   --content-root <dir> the directory served at /content/ (default: the repository's test_corpus/)
   --port <n>           the port (default ${DEFAULTS.port})
   --lan                listen on the LAN too, for phones and tablets (not a secure context over plain http)
@@ -34,16 +47,28 @@ export interface Io { out: (s: string) => void; err: (s: string) => void; runDir
 
 interface State extends ServerOptions { pid: number; url: string }
 
+export interface ShotOptions {
+  out?: string;
+  width: number;
+  height: number;
+  view?: string;
+  state?: string;
+  json?: string;
+  chrome?: string;
+}
+
 export interface Args {
   command: string;
   file?: string;
   opts: ServerOptions;
+  shot: ShotOptions;
   /** The options given on the command line. */
   given: (keyof ServerOptions)[];
 }
 
 export function parseArgs(argv: string[]): Args | string {
   const opts: ServerOptions = { ...DEFAULTS };
+  const shot: ShotOptions = { width: 1200, height: 800 };
   const given: (keyof ServerOptions)[] = [];
   const rest: string[] = [];
   for (let i = 0; i < argv.length; i++) {
@@ -66,18 +91,28 @@ export function parseArgs(argv: string[]): Args | string {
         const v = value();
         if (v !== 'self' && v !== 'mkcert') return `--https is self or mkcert: ${v}`;
         opts.https = v;
-      } else if (a === '-h' || a === '--help') return 'help';
+      } else if (a === '-o') shot.out = path.resolve(value());
+      else if (a === '--size') {
+        const [w, h] = (/^(\d+)x(\d+)$/.exec(value()) ?? []).slice(1).map(Number);
+        if (!w || !h || [w, h].some((x) => x < 16 || x > 8192)) return `--size is <w>x<h>, 16 to 8192: ${argv[i]}`;
+        [shot.width, shot.height] = [w, h];
+      } else if (a === '--view') shot.view = value();
+      else if (a === '--state') shot.state = value().replace(/^\?/, '');
+      else if (a === '--json') shot.json = value();
+      else if (a === '--chrome') shot.chrome = value();
+      else if (a === '-h' || a === '--help') return 'help';
       else if (a.startsWith('-')) return `unknown option: ${a}`;
       else rest.push(a);
     } catch (e) { return (e as Error).message; }
   }
   const [command, file, ...extra] = rest;
   if (!command) return 'no command';
-  if (!['start', 'stop', 'status', 'open'].includes(command)) return `unknown command: ${command}`;
-  if (command === 'open' ? file === undefined || extra.length : file !== undefined) {
-    return command === 'open' ? 'open takes one file' : `${command} takes no file`;
+  if (!['start', 'stop', 'status', 'open', 'shot'].includes(command)) return `unknown command: ${command}`;
+  const takesFile = command === 'open' || command === 'shot';
+  if (takesFile ? file === undefined || extra.length : file !== undefined) {
+    return takesFile ? `${command} takes one file` : `${command} takes no file`;
   }
-  return { command, ...(file !== undefined ? { file: path.resolve(file) } : {}), opts, given };
+  return { command, ...(file !== undefined ? { file: path.resolve(file) } : {}), opts, shot, given };
 }
 
 const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
@@ -150,6 +185,58 @@ async function stop(runDir: string, io: Io): Promise<void> {
   io.out(`stopped ${s.url}\n`);
 }
 
+/** Evaluates in a page that may reload once (Vite optimizing its dependencies on first use), until `timeoutMs`. */
+async function settled(tab: Tab, expression: string, timeoutMs: number): Promise<unknown> {
+  for (const end = Date.now() + timeoutMs; ;) {
+    try {
+      return await tab.evaluate(expression, Math.max(1000, end - Date.now()));
+    } catch (e) {
+      if (Date.now() > end || !/context|destroyed|not defined|undefined/i.test((e as Error).message)) throw e;
+      await pause(250);
+    }
+  }
+}
+
+/** Renders a file headlessly: its PNG, and what the page says. */
+async function takeShot(s: State, file: string, o: ShotOptions, io: Io): Promise<void> {
+  const rel = contentUrl(s.contentRoot, file);
+  if (!rel) throw new Error(`${file} isn't below the content root ${s.contentRoot} (or doesn't exist): ` +
+    'stop the server and start it with --content-root');
+  const q = new URLSearchParams({ url: rel });
+  q.set('deterministic', '');
+  const extra = new URLSearchParams(o.state ?? '');
+  // The tree closed, so the view is the whole page, unless the state says otherwise.
+  if (!extra.has('tree')) q.set('tree', '0');
+  if (o.view) q.set('view', o.view);
+  for (const [k, v] of extra) q.append(k, v);
+  const page = `${s.url}?${q}`;
+  const headless = await launchChrome(fs.mkdtempSync(path.join(os.tmpdir(), 'cad-viewer-shot-')),
+    { chrome: o.chrome, args: s.https === 'none' ? [] : ['--ignore-certificate-errors'] });
+  try {
+    const tab = await headless.open(page, { width: o.width, height: o.height, scale: 1 });
+    await settled(tab, 'cadViewer.ready.then(() => cadViewer.idle()).then(() => true)', 600_000);
+    const r = await tab.evaluate(`({ state: cadViewer.state(), link: cadViewer.link(),
+      status: document.getElementById('status').textContent,
+      error: document.getElementById('status').classList.contains('error'),
+      png: cadViewer.state().model ? cadViewer.screenshot() : null })`) as { state: { model?: { name: string;
+      triangles: number } }; link: string; status: string; error: boolean; png: string | null };
+    const { png, ...report } = r;
+    if (o.json) {
+      const text = JSON.stringify({ page, ...report }, null, 2) + '\n';
+      if (o.json === '-') io.out(text);
+      else fs.writeFileSync(o.json, text);
+    }
+    if (!png) throw new Error(`no model: ${r.status}`);
+    const out = o.out ?? path.resolve(path.basename(file).replace(/\.[^.]*$/, '') + '.png');
+    fs.writeFileSync(out, Buffer.from(png.replace(/^data:image\/png;base64,/, ''), 'base64'));
+    if (r.error) io.err(`cad-viewer: the page says: ${r.status}\n`);
+    if (o.json !== '-') io.out(`${out}: ${o.width}x${o.height}, ${r.state.model!.name}, ${
+      r.state.model!.triangles.toLocaleString('en')} triangles\n${r.link}\n`);
+  } finally {
+    await headless.close();
+  }
+}
+
 function openBrowser(url: string): void {
   const [cmd, args] = process.platform === 'darwin' ? ['open', [url]] : process.platform === 'win32'
     ? ['cmd', ['/c', 'start', '', url]] : ['xdg-open', [url]];
@@ -172,6 +259,10 @@ export async function main(argv: string[], io: Io): Promise<number> {
       const s = await start(args.opts, runDir, io, args.given);
       if (args.command === 'start') {
         for (const u of lanUrls(s)) io.out(`on the LAN: ${u}\n`);
+        return 0;
+      }
+      if (args.command === 'shot') {
+        await takeShot(s, args.file!, args.shot, io);
         return 0;
       }
       const rel = contentUrl(s.contentRoot, args.file!);
