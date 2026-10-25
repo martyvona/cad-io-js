@@ -18,6 +18,12 @@
       font: 12px/18px system-ui, -apple-system, "Segoe UI", sans-serif; border-right: 1px solid #111;
     }
     #tree { position: absolute; inset: 0; }
+    /* The handle that drags the panel's width (side-handle.ts), over its right edge. */
+    #side-handle {
+      position: absolute; top: 0; bottom: 0; right: -4px; width: 7px; z-index: 3; cursor: col-resize;
+      touch-action: none;
+    }
+    #side-handle:hover, #side-handle.dragging { background: rgba(255, 154, 46, 0.5); }
     #view { position: absolute; top: 0; bottom: 0; right: 0; left: var(--side); }
     body.tree-closed #side { display: none; }
     body.tree-closed #view { left: 0; }
@@ -25,8 +31,11 @@
     @media (max-width: 700px) {
       #view { left: 0; }
       #side { width: 85%; z-index: 2; box-shadow: 4px 0 12px rgba(0, 0, 0, 0.5); }
+      #side-handle { display: none; }
     }
     #view canvas { display: block; }
+    /* The controls flush with the right edge (lil-gui leaves 15 pixels; past a notch's safe area on phones). */
+    body .lil-gui.autoPlace { right: env(safe-area-inset-right, 0); }
     #status {
       position: absolute; left: 0; bottom: env(safe-area-inset-bottom, 0); max-width: calc(100% - 16px);
       padding: 4px 8px;

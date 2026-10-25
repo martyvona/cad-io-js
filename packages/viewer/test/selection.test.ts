@@ -207,3 +207,51 @@ test('pick: the nearest drawn thing under a point; hidden things, hidden faces a
   assert.equal(pick(camera, root, new THREE.Vector2(0, 0.03), 0.01, (p) => p.z > 1)?.object, far);
   assert.equal(pick(camera, root, new THREE.Vector2(0.9, 0.9), 0.01, () => true), undefined);
 });
+
+test('pick: the face under the point beats other parts\' lines near it; its own lines and wireframes may win', () => {
+  // Parts as our STEP graph and found edges make them: a group holding a mesh, the mesh's edges its child. A plate
+  // (x -4 to 4, y -4 to 4) with a bracket on it at the same depth (x 1 to 3, y -1 to 1, drawn in front), and a
+  // wireframe part (one curve along y = 3, x -8 to 8), in front of the plate.
+  const root = new THREE.Group();
+  const part = (x0: number, x1: number, y0: number, y1: number, z: number) => {
+    const g = new THREE.Group();
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(x1 - x0, y1 - y0));
+    mesh.position.set((x0 + x1) / 2, (y0 + y1) / 2, z);
+    const [hx, hy] = [(x1 - x0) / 2, (y1 - y0) / 2];
+    const edges = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([[-hx, -hy], [hx, -hy], [hx, -hy],
+      [hx, hy], [hx, hy], [-hx, hy], [-hx, hy], [-hx, -hy]].map(([x, y]) => new THREE.Vector3(x, y, 0))));
+    mesh.add(edges);
+    g.add(mesh);
+    root.add(g);
+    return { mesh, edges };
+  };
+  const plate = part(-4, 4, -4, 4, 0);
+  const bracket = part(1, 3, -1, 1, 0.001);
+  const wire = new THREE.Group();
+  const curve = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-8, 3, 0.5),
+    new THREE.Vector3(8, 3, 0.5)]));
+  wire.add(curve);
+  root.add(wire);
+  root.updateMatrixWorld(true);
+  const camera = new THREE.OrthographicCamera(-10, 10, 10, -10, -100, 100);
+  camera.position.set(0, 0, 20);
+  camera.lookAt(0, 0, 0);
+  camera.updateMatrixWorld();
+  // ndc is world / 10 here; a pixel 0.1, so lines are hit within 0.4.
+  const at = (x: number, y: number) => pick(camera, root, new THREE.Vector2(x / 10, y / 10), 0.1)?.object;
+  // On the plate, 0.3 from the bracket's edge (x = 1): the plate (the bracket's edge won before 2026-10-25).
+  assert.equal(at(0.7, 0), plate.mesh);
+  // On the bracket, 0.3 from its own edge: the edge, so edges can be picked.
+  assert.equal(at(1.3, 0), bracket.edges);
+  // On the plate, 0.3 from its own edge: the plate's edge.
+  assert.equal(at(-3.7, 0), plate.edges);
+  // The wireframe, in front of the plate, within reach: it wins.
+  assert.equal(at(0, 2.8), curve);
+  // No face under the point: the nearest line, or nothing.
+  assert.equal(at(-6, 3.2), curve);
+  assert.equal(at(-6, 0), undefined);
+  // The wireframe behind the plate, beyond the depth tolerance (twice the reach): the plate.
+  curve.position.z = -2;
+  root.updateMatrixWorld(true);
+  assert.equal(at(0, 2.8), plate.mesh);
+});

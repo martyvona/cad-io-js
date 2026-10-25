@@ -651,8 +651,94 @@ await check('sections', async () => {
   expect(a.glError === 0, `WebGL error: ${j}`);
   return undefined;
 });
+// Picks against what's drawn, over a grid of points on as1 and the bicycle: an ID render (each part's meshes in a flat
+// colour of its own, edges off, read back after three frames and two renders) says which part each pixel shows, and
+// pickAt at the pixel's centre must pick that part (its face, or its own edge within reach) wherever a part is drawn
+// and the ray hits it. Off the parts, an edge within reach may be picked, and a wireframe in front (by design); parts
+// thinner than a pixel may be drawn where the ray misses them (at most 2% of the points). Before 2026-10-25, any
+// part's edge within 4 pixels beat the face under the point: 27 of 860 points on parts wrong on as1, 39 of 171 on
+// the bicycle (measured with a 1200 x 800 window).
+const PICK_ORACLE = `(async () => {
+  const m = ui.panel().model, r = viewer.renderer, cam = viewer.camera, canvas = r.domElement;
+  const partOf = (id) => { while (id !== undefined && id >= 0 && m.nodes[id].kind !== 'part') id = m.nodes[id].parent;
+    return id; };
+  const saved = [];
+  viewer.display.updateWorldMatrix(true, true);
+  viewer.display.traverse((o) => {
+    if (!o.isMesh) return;
+    const pid = partOf(m.nodeOf(o));
+    const k = pid === undefined ? 4095 : pid + 1;
+    const first = [o.material].flat()[0];
+    const mat = first.clone();
+    mat.color.setRGB(0, 0, 0);
+    mat.specular?.setRGB(0, 0, 0);
+    mat.emissive.setRGB(((k % 16) * 16 + 8) / 255, ((Math.floor(k / 16) % 16) * 16 + 8) / 255,
+      ((Math.floor(k / 256) % 16) * 16 + 8) / 255, 'srgb');
+    Object.assign(mat, { polygonOffset: false, transparent: false, opacity: 1 });
+    saved.push([o, o.material]);
+    o.material = Array.isArray(o.material) ? o.material.map((x) => Object.assign(mat.clone(), { visible: x.visible }))
+      : mat;
+  });
+  const bg = viewer.scene.background, layers = cam.layers.mask;
+  viewer.scene.background = null;
+  cam.layers.set(0);
+  r.setClearColor(0x000000, 1);
+  for (let f = 0; f < 3; f++) await new Promise((res) => requestAnimationFrame(res));
+  r.render(viewer.scene, cam);
+  r.render(viewer.scene, cam);
+  const rect = canvas.getBoundingClientRect();
+  const gl = r.getContext(), W = gl.drawingBufferWidth, H = gl.drawingBufferHeight;
+  const px = new Uint8Array(W * H * 4);
+  gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, px);
+  for (const [o, mat] of saved) o.material = mat;
+  viewer.scene.background = bg;
+  cam.layers.mask = layers;
+  viewer.redraw();
+  const q = (v) => Math.round((v - 8) / 16);
+  const shown = (x, y) => { const i = 4 * (y * W + x);
+    return px[i] + px[i + 1] + px[i + 2] < 4 ? undefined : q(px[i]) + 16 * q(px[i + 1]) + 256 * q(px[i + 2]) - 1; };
+  const sx = W / rect.width, sy = H / rect.height;
+  let onParts = 0, wrong = 0, subpixel = 0;
+  const examples = [];
+  for (let gy = 1; gy < 40; gy++) for (let gx = 1; gx < 60; gx++) {
+    const ox = Math.floor(W * gx / 60), oy = Math.floor(H * gy / 40);
+    const want = shown(ox, H - 1 - oy);
+    if (want === undefined) continue;
+    onParts++;
+    const hit = viewer.pickAt(rect.left + (ox + 0.5) / sx, rect.top + (oy + 0.5) / sy);
+    const got = hit ? partOf(m.nodeOf(hit.object)) : undefined;
+    if (got === want) continue;
+    // Wireframes (parts with no faces) in front win by design; the ID render doesn't draw them.
+    let gotFaces = false;
+    if (got !== undefined) m.nodes[got].object.traverse((o) => { gotFaces ||= !!o.isMesh; });
+    if (got !== undefined && !gotFaces) continue;
+    // A part thinner than a pixel can be drawn in a pixel whose centre the ray passes beside: wrong only if the ray
+    // does hit the drawn part's face (picking with every other part hidden).
+    const parts = m.nodes.filter((n) => n.kind === 'part' && n.id !== want && n.object?.visible);
+    for (const n of parts) n.object.visible = false;
+    const alone = viewer.pickAt(rect.left + (ox + 0.5) / sx, rect.top + (oy + 0.5) / sy);
+    for (const n of parts) n.object.visible = true;
+    if (!alone || !alone.object.isMesh) { subpixel++; continue; }
+    wrong++;
+    if (examples.length < 5) examples.push({ x: ox, y: oy, want: m.nodes[want]?.name, got: got === undefined ? null :
+      m.nodes[got]?.name, line: hit ? !hit.object.isMesh : null });
+  }
+  return { onParts, wrong, subpixel, examples };
+})()`;
+await check('picks match what is drawn', async () => {
+  const out = [];
+  for (const file of ['as1.stp', 'bicycle.stp']) {
+    const r = await page(`?url=${encodeURIComponent(`/content/${file}`)}&check`, PICK_ORACLE) as
+      { after: { onParts: number; wrong: number; subpixel: number; examples: unknown[] } };
+    const a = r.after;
+    expect(a.onParts > 100 && a.wrong === 0 && a.subpixel <= a.onParts / 50, `${file}: ${JSON.stringify(a)}`);
+    out.push(`${file} ${a.onParts} (${a.subpixel} thinner than a pixel)`);
+  }
+  console.log(`picks match what is drawn: points on parts ${out.join(', ')}`);
+  return undefined;
+});
 // A phone (emulated: narrow, touch): the tree and the controls start closed, the page doesn't scroll or bounce,
-// three workers at most, and a tap (touch events) on a part selects it.
+// three workers at most, no handle for the tree's width, and a tap (touch events) on a part selects it.
 await check('phone', async () => {
   const evaluate = async (sessionId: string, expression: string) => ((await send('Runtime.evaluate', { expression,
     returnByValue: true, awaitPromise: true }, sessionId)) as { result: { value: unknown } }).result.value;
@@ -672,6 +758,7 @@ await check('phone', async () => {
     return { treeClosed: document.body.classList.contains('tree-closed'),
       guiClosed: document.querySelector('.lil-gui.root').classList.contains('closed'),
       overscroll: getComputedStyle(document.body).overscrollBehaviorY, touch: navigator.maxTouchPoints,
+      handle: getComputedStyle(document.getElementById('side-handle')).display,
       workers: viewer.model.meshing?.workers, spot };
   })()`, { phone: true, then: async (sessionId, after) => {
     // A tap: a touch down and up at the spot, as a finger would.
@@ -682,12 +769,12 @@ await check('phone', async () => {
     await send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }, sessionId);
     await new Promise((resolve) => setTimeout(resolve, 200));
     return evaluate(sessionId, '[...ui.selected()]');
-  } }) as { after?: { treeClosed: boolean; guiClosed: boolean; overscroll: string; touch: number; workers: number;
-    spot?: { id: number; x: number; y: number } }; then?: number[] };
+  } }) as { after?: { treeClosed: boolean; guiClosed: boolean; overscroll: string; touch: number; handle: string;
+    workers: number; spot?: { id: number; x: number; y: number } }; then?: number[] };
   const a = r.after!;
   const j = JSON.stringify(a);
   expect(a.treeClosed && a.guiClosed, `closed at first: ${j}`);
-  expect(a.overscroll === 'none' && a.touch > 0 && a.workers <= 3, `phone settings: ${j}`);
+  expect(a.overscroll === 'none' && a.touch > 0 && a.workers <= 3 && a.handle === 'none', `phone settings: ${j}`);
   expect(!!a.spot, `no part to tap: ${j}`);
   expect(r.then?.join() === String(a.spot!.id), `a tap selects: ${JSON.stringify(r.then)}, ${j}`);
   return undefined;
@@ -734,6 +821,81 @@ await check('import worker', async () => {
 await check('no model', async () => {
   const r = await page('?check');
   expect(r.empty === true, `report ${JSON.stringify(r)}`);
+  return undefined;
+});
+// The controls flush right. A new model: the tree panel closed with no model, open once one loads, and kept closed
+// for later models once closed by hand; section planes back to their defaults (all off) for each model, the controls
+// too.
+await check('new model', async () => {
+  const r = await page('?check', `(async () => {
+    const closed = () => document.body.classList.contains('tree-closed');
+    const load = async (name) => viewer.load({ name, bytes: await (await fetch('/content/' + name)).arrayBuffer() });
+    const empty = closed();
+    const gui = document.querySelector('.lil-gui.root').getBoundingClientRect();
+    const flush = Math.abs(gui.right - document.documentElement.clientWidth) < 0.5;
+    await load('as1.glb');
+    const loaded = closed();
+    const control = (name) => [...document.querySelectorAll('.lil-gui .controller')]
+      .find((c) => c.textContent.includes(name)).querySelector('input');
+    control('Show the tree').click();
+    const byHand = closed();
+    control('Cut along X').click();
+    control('Flip Y').click();
+    control('Caps on closed parts').click();
+    const cutting = viewer.sections.get();
+    await load('as1-noedges.glb');
+    const s = viewer.sections.get();
+    const reset = !s.x.on && !s.y.on && !s.z.on && !s.x.flip && !s.y.flip && s.caps &&
+      viewer.renderer.clippingPlanes.length === 0 && !control('Cut along X').checked && !control('Flip Y').checked &&
+      control('Caps on closed parts').checked;
+    return { flush, empty, loaded, byHand, again: closed(), cutting: cutting.x.on && cutting.y.flip && !cutting.caps,
+      reset };
+  })()`) as { after: { flush: boolean; empty: boolean; loaded: boolean; byHand: boolean; again: boolean;
+    cutting: boolean; reset: boolean } };
+  const a = r.after;
+  expect(a.flush && a.empty && !a.loaded && a.byHand && a.again && a.cutting && a.reset, JSON.stringify(a));
+  return undefined;
+});
+// The tree panel's width: its handle dragged 100 pixels right (real mouse events) widens the panel and narrows the
+// view by as much, and is remembered; a double click goes back to the default (300 pixels), forgotten.
+await check('tree width', async () => {
+  const evaluate = async (sessionId: string, expression: string) => ((await send('Runtime.evaluate', { expression,
+    returnByValue: true, awaitPromise: true }, sessionId)) as { result: { value: unknown } }).result.value;
+  const widths = `new Promise((r) => setTimeout(r, 200)).then(() => ({
+    side: document.getElementById('side').getBoundingClientRect().width,
+    view: viewer.renderer.domElement.getBoundingClientRect().width,
+    saved: localStorage.getItem('cad-viewer.side') }))`;
+  type Widths = { side: number; view: number; saved: string | null };
+  const r = await page(`?url=${encodeURIComponent('/content/as1.glb')}&check`, `(() => {
+    localStorage.removeItem('cad-viewer.side');
+    const h = document.getElementById('side-handle').getBoundingClientRect();
+    return { x: h.left + h.width / 2, y: h.top + h.height / 2 };
+  })()`, { then: async (sessionId, after) => {
+    const { x, y } = after as { x: number; y: number };
+    const mouse = (type: string, at: number, extra: object = {}) => send('Input.dispatchMouseEvent', { type, x: at,
+      y, button: 'left', ...extra }, sessionId);
+    const before = await evaluate(sessionId, widths) as Widths;
+    await mouse('mouseMoved', x, { button: 'none' });
+    await mouse('mousePressed', x, { buttons: 1, clickCount: 1 });
+    for (let k = 1; k <= 4; k++) await mouse('mouseMoved', x + 25 * k, { buttons: 1 });
+    await mouse('mouseReleased', x + 100, { clickCount: 1 });
+    const dragged = await evaluate(sessionId, widths) as Widths;
+    const at = x + 100;
+    await mouse('mousePressed', at, { buttons: 1, clickCount: 1 });
+    await mouse('mouseReleased', at, { clickCount: 1 });
+    await mouse('mousePressed', at, { buttons: 1, clickCount: 2 });
+    await mouse('mouseReleased', at, { clickCount: 2 });
+    const reset = await evaluate(sessionId, widths) as Widths;
+    return { before, dragged, reset };
+  } }) as { then: { before: Widths; dragged: Widths; reset: Widths } };
+  const { before, dragged, reset } = r.then;
+  const j = JSON.stringify(r.then);
+  const near = (a: number, b: number) => Math.abs(a - b) <= 1.5;
+  // The panel's box is --side plus its 1-pixel border.
+  expect(before.side === 301 && before.saved === null, `before: ${j}`);
+  expect(dragged.side === 401 && near(dragged.view, before.view - 100) && dragged.saved === '400',
+    `dragged: ${j}`);
+  expect(reset.side === 301 && near(reset.view, before.view) && reset.saved === null, `reset: ${j}`);
   return undefined;
 });
 await check('not a model', async () => {

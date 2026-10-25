@@ -7,8 +7,9 @@ import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
 import { VIEWS, type ViewName } from './camera.ts';
 import type { Source } from './load.ts';
 import { details } from './details.ts';
-import { AXES } from './section.ts';
+import { AXES, DEFAULT_SECTIONS } from './section.ts';
 import { boxOf, Highlighter, instancesOf, nodeForPick, piecesOf, type PickLevel } from './selection.ts';
+import { addSideHandle } from './side-handle.ts';
 import { DEFAULT_SETTINGS } from './tessellation.ts';
 import { TreePanel } from './tree-panel.ts';
 import { fromFiles, fromUrl, pickFiles } from './sources.ts';
@@ -122,7 +123,8 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   document.addEventListener('fullscreenchange', fullscreen);
   fullscreen();
 
-  // Section planes: the sliders span the model's box (with a margin); planes that are off start at its middle.
+  // Section planes: the sliders span the model's box (with a margin); planes that are off start at its middle. A new
+  // model starts with the defaults, every plane off (resetPlanes).
   const cut = viewer.sections.get();
   const sectionFolder = gui.addFolder('Section');
   const sliders = new Map<string, { min(v: number): unknown; max(v: number): unknown; updateDisplay(): unknown }>();
@@ -135,6 +137,13 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   }
   sectionFolder.add(cut, 'caps').name('Caps on closed parts').onChange(recut);
   sectionFolder.close();
+  const resetPlanes = () => {
+    const d = DEFAULT_SECTIONS();
+    for (const a of AXES) Object.assign(cut[a], d[a]);
+    cut.caps = d.caps;
+    for (const c of sectionFolder.controllersRecursive()) c.updateDisplay();
+    recut();
+  };
   const fitPlanes = () => {
     const box = viewer.modelBox();
     if (box.isEmpty()) return;
@@ -180,12 +189,15 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
 
   // The tree panel: a new one for each model; refreshed (at most once a frame) as meshes arrive.
   let panel: TreePanel | undefined;
-  // Narrow screens (phones): the tree and these controls start closed, over the view when opened.
+  // The tree is closed until there's a model, then opens, unless the user has closed it (or on narrow screens,
+  // phones, where it would cover the view: there it and these controls start closed, over the view when opened).
   const narrow = matchMedia('(max-width: 700px)').matches;
   if (narrow) gui.close();
-  const tree = { open: !narrow, detail: false };
+  const tree = { open: false, detail: false, closedByHand: false };
   const setOpen = (open: boolean) => document.body.classList.toggle('tree-closed', !open);
+  addSideHandle(treeElement.parentElement!);
   setOpen(tree.open);
+  let openControl: { setValue(v: boolean): unknown } | undefined;
   // The selection: the tree's and the 3D view's, one; highlighted, described, zoomed to.
   let selected: readonly number[] = [];
   const highlighter = new Highlighter();
@@ -214,8 +226,10 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     highlighter.clear();
     selected = [];
     panel = new TreePanel(treeElement, nodes);
+    resetPlanes();
     panel.onSelect = (ids) => select(ids, true);
     if (tree.detail) panel.setDetail(true);
+    if (!narrow && !tree.closedByHand && !tree.open) openControl?.setValue(true);
     describe();
   };
   let detailControl: { updateDisplay(): unknown } | undefined;
@@ -276,7 +290,10 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     details: () => (viewer.nodes ? details(viewer.nodes, selected) : []),
   };
   const treeFolder = gui.addFolder('Tree');
-  treeFolder.add(tree, 'open').name('Show the tree').onChange(setOpen);
+  openControl = treeFolder.add(tree, 'open').name('Show the tree').onChange((open: boolean) => {
+    setOpen(open);
+    if (!open && viewer.nodes) tree.closedByHand = true;
+  });
   detailControl = treeFolder.add(tree, 'detail').name('Faces, edges, curves')
     .onChange((on: boolean) => panel?.setDetail(on));
   treeFolder.add({ expand: () => panel?.expandAll() }, 'expand').name('Expand all');
