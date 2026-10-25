@@ -4,8 +4,8 @@
 # (packages/viewer, with the backends' WebAssembly modules as built here, which git doesn't hold) from a clean commit
 # that is already on the remote, so the source the build's licenses.md points to is public, and force-pushes the
 # build as the only commit of the gh-pages branch (history doesn't grow by the build's 12 MB each time). .nojekyll
-# keeps Pages from dropping files whose names start with "_". Pages must be set to deploy from the gh-pages branch,
-# its root (the repository's Settings, Pages), once.
+# keeps Pages from dropping files whose names start with "_". The first deploy creates the branch; then, once, set
+# Pages to deploy from it, its root (the repository's Settings, Pages), which can't be chosen before it exists.
 #   scripts/deploy-viewer.sh [--dry-run]   (--dry-run: build and commit, print where, don't push; unpushed allowed)
 
 set -euo pipefail
@@ -58,4 +58,5 @@ rm -rf "$out"
 # git@github.com:owner/repo.git or https://github.com/owner/repo(.git) -> https://owner.github.io/repo/
 slug="$(echo "$url" | sed -E 's#^(git@github\.com:|https://github\.com/)##; s#\.git$##')"
 echo "pushed $branch (built from $commit);" \
-  "Pages serves it at https://${slug%%/*}.github.io/${slug#*/}/ in a minute or so"
+  "Pages serves it at https://${slug%%/*}.github.io/${slug#*/}/ in a minute or so" \
+  "(the first time: Settings, Pages, deploy from the $branch branch, its root)"
