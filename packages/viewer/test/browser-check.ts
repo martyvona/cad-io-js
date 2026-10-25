@@ -129,9 +129,22 @@ const send = (method: string, params: object = {}, sessionId?: string) => new Pr
   });
 
 /** Opens a page and waits for its report; `after`, an expression, is then evaluated there, its value the `after`. */
-async function page(query: string, after?: string): Promise<Record<string, unknown>> {
-  const { targetId } = await send('Target.createTarget', { url: `http://localhost:${port}/${query}` });
+interface PageOptions {
+  /** A phone: 390 x 844 CSS pixels, touch, set before the page loads. */
+  phone?: boolean;
+  /** Driven from here after `after` (with the tab's session and `after`'s value); its value is the report's `then`. */
+  then?: (sessionId: string, after: unknown) => Promise<unknown>;
+}
+
+async function page(query: string, after?: string, opts: PageOptions = {}): Promise<Record<string, unknown>> {
+  const { targetId } = await send('Target.createTarget', { url: 'about:blank' });
   const { sessionId } = await send('Target.attachToTarget', { targetId, flatten: true }) as { sessionId: string };
+  if (opts.phone) {
+    await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true },
+      sessionId);
+    await send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 }, sessionId);
+  }
+  await send('Page.navigate', { url: `http://localhost:${port}/${query}` }, sessionId);
   try {
     for (let t = 0; t < 3000; t++) {
       const r = await send('Runtime.evaluate', { expression: 'document.body?.dataset.report ?? null',
@@ -151,6 +164,7 @@ async function page(query: string, after?: string): Promise<Record<string, unkno
           if (e.exceptionDetails) throw new Error(`in the page: ${e.exceptionDetails.exception?.description}`);
           report.after = e.result.value;
         }
+        if (opts.then) report.then = await opts.then(sessionId, report.after);
         return report;
       }
       await new Promise((resolve) => setTimeout(resolve, 100));
@@ -599,6 +613,47 @@ await check('sections', async () => {
   expect(a.glError === 0, `WebGL error: ${j}`);
   return undefined;
 });
+// A phone (emulated: narrow, touch): the tree and the controls start closed, the page doesn't scroll or bounce,
+// three workers at most, and a tap (touch events) on a part selects it.
+await check('phone', async () => {
+  const evaluate = async (sessionId: string, expression: string) => ((await send('Runtime.evaluate', { expression,
+    returnByValue: true, awaitPromise: true }, sessionId)) as { result: { value: unknown } }).result.value;
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(() => {
+    const m = ui.panel().model, canvas = viewer.renderer.domElement, rect = canvas.getBoundingClientRect();
+    const part = (id) => { while (id >= 0 && m.nodes[id].kind !== 'part') id = m.nodes[id].parent; return id; };
+    let spot;
+    for (const n of m.nodes) {
+      if (spot || n.kind !== 'part') continue;
+      const g = n.object.children[0].geometry; g.computeBoundingBox();
+      const p = g.boundingBox.getCenter(viewer.camera.position.clone()).applyMatrix4(n.object.children[0].matrixWorld)
+        .project(viewer.camera);
+      const x = rect.left + (p.x + 1) / 2 * rect.width, y = rect.top + (1 - p.y) / 2 * rect.height;
+      const hit = viewer.pickAt(x, y);
+      if (hit && part(m.nodeOf(hit.object)) === n.id) spot = { id: n.id, x, y };
+    }
+    return { treeClosed: document.body.classList.contains('tree-closed'),
+      guiClosed: document.querySelector('.lil-gui.root').classList.contains('closed'),
+      overscroll: getComputedStyle(document.body).overscrollBehaviorY, touch: navigator.maxTouchPoints,
+      workers: viewer.tessellation.current?.pool.workers, spot };
+  })()`, { phone: true, then: async (sessionId, after) => {
+    // A tap: a touch down and up at the spot, as a finger would.
+    const spot = (after as { spot?: { x: number; y: number } }).spot;
+    if (!spot) return [];
+    const at = [{ x: spot.x, y: spot.y, id: 1 }];
+    await send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: at }, sessionId);
+    await send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }, sessionId);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    return evaluate(sessionId, '[...ui.selected()]');
+  } }) as { after?: { treeClosed: boolean; guiClosed: boolean; overscroll: string; touch: number; workers: number;
+    spot?: { id: number; x: number; y: number } }; then?: number[] };
+  const a = r.after!;
+  const j = JSON.stringify(a);
+  expect(a.treeClosed && a.guiClosed, `closed at first: ${j}`);
+  expect(a.overscroll === 'none' && a.touch > 0 && a.workers <= 3, `phone settings: ${j}`);
+  expect(!!a.spot, `no part to tap: ${j}`);
+  expect(r.then?.join() === String(a.spot!.id), `a tap selects: ${JSON.stringify(r.then)}, ${j}`);
+  return undefined;
+});
 await check('no model', async () => {
   const r = await page('?check');
   expect(r.empty === true, `report ${JSON.stringify(r)}`);
@@ -614,6 +669,66 @@ await check('missing file', async () => {
   expect(typeof r.error === 'string' && /404/.test(r.error), `report ${JSON.stringify(r)}`);
   return undefined;
 });
+
+// Offline (a build only: the service worker exists only there): once the page is controlled by its service worker,
+// the server is stopped and the page reloaded; it comes back from the cache, and meshes the STEP assembly (given as
+// bytes; the tessellation cache off, so OCCT's module must load from the cache too).
+if (preview) {
+  await check('offline', async () => {
+    const { targetId } = await send('Target.createTarget', { url: 'about:blank' });
+    const { sessionId } = await send('Target.attachToTarget', { targetId, flatten: true }) as { sessionId: string };
+    const evaluate = async (expression: string) => {
+      const e = await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true }, sessionId) as
+        { result: { value: unknown }; exceptionDetails?: { exception?: { description?: string }; text: string } };
+      if (e.exceptionDetails) throw new Error(e.exceptionDetails.exception?.description ?? e.exceptionDetails.text);
+      return e.result.value;
+    };
+    const ready = async () => {
+      for (let t = 0; t < 600; t++) {
+        if (await evaluate('document.body?.dataset.report ?? null').catch(() => null)) return true;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      return false;
+    };
+    try {
+      await send('Page.enable', {}, sessionId);
+      await send('Page.navigate', { url: `http://localhost:${port}/?check` }, sessionId);
+      expect(await ready(), 'the page never reported');
+      // Controlled once the worker has installed (it claims its clients); reload once if it hasn't yet. Within
+      // 20 s: without a service worker, ready never settles.
+      let controlled = await evaluate(`Promise.race([navigator.serviceWorker.ready.then(() => new Promise((r) =>
+        setTimeout(() => r(!!navigator.serviceWorker.controller), 500))), new Promise((r) => setTimeout(() => r(false),
+        20000))])`);
+      if (!controlled) {
+        await send('Page.reload', {}, sessionId);
+        await ready();
+        controlled = await evaluate('!!navigator.serviceWorker.controller');
+      }
+      expect(controlled === true, 'no service worker controls the page');
+      preview!.kill();
+      await new Promise((resolve) => preview!.once('exit', resolve));
+      const down = !(await new Promise<boolean>((resolve) => net.connect(port, '127.0.0.1').once('connect',
+        function (this: net.Socket) { this.destroy(); resolve(true); }).once('error', () => resolve(false))));
+      expect(down, 'the server is still up');
+      await send('Page.reload', {}, sessionId);
+      expect(await ready(), 'the page did not come back offline');
+      const bytes = fs.readFileSync(step).toString('base64');
+      const r = await evaluate(`(async () => {
+        viewer.settings.cache = false;
+        const bin = atob('${bytes}');
+        const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0)).buffer;
+        await viewer.load({ name: 'as1.stp', bytes });
+        return { triangles: viewer.stats().triangles, parts: viewer.model.parts, backend:
+          viewer.tessellation.describe()?.backend };
+      })()`) as { triangles: number; parts: { done: number; failed: number }; backend: string };
+      expect(r.triangles === triangles && r.parts.failed === 0 && /^occt /.test(r.backend),
+        `offline meshing: ${JSON.stringify(r)}`);
+      return undefined;
+    } finally {
+      await send('Target.closeTarget', { targetId });
+    }
+  });
+}
 
 ws.close();
 await new Promise((resolve) => { browser.once('exit', resolve); browser.kill(); });
