@@ -8,6 +8,13 @@
   <meta name="theme-color" content="#1f1f1f">
   <style>
     :root { --side: 300px; }
+    /* A replay's pointer, in real time (recorder.ts). */
+    .replay-pointer { position: fixed; width: 18px; height: 18px; margin: -11px 0 0 -11px; border-radius: 50%;
+      border: 2px solid #ff9a2e; background: rgba(255, 154, 46, 0.35); pointer-events: none; z-index: 1000; }
+    .replay-pointer[hidden] { display: none; }
+    /* A control as a replay changes it. */
+    .replay-flash { animation: replay-flash 1.2s ease-out; }
+    @keyframes replay-flash { from { background: rgba(255, 154, 46, 0.65); } to { background: transparent; } }
     /* No pull-to-refresh or bouncing while dragging the view; the height follows phones' toolbars. */
     html, body { margin: 0; height: 100%; height: 100dvh; overflow: hidden; background: #404040;
       overscroll-behavior: none; }

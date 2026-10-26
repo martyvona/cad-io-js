@@ -359,15 +359,24 @@ function addRecordingControls(ui: Ui, api: CadViewer, recorder: Recorder): void 
     }
     if (recorder.recording) toggle.setValue(false);
     ui.say('replaying...');
+    // At the recording's pace, so what happens can be watched; Stop replay ends it.
+    const stopping = new AbortController();
+    stop.enable();
+    stop.object.stop = () => stopping.abort();
     try {
-      const r = await api.replay(rec, { openModel: (m) => openRecordedModel(ui, m) });
+      const r = await api.replay(rec, { openModel: (m) => openRecordedModel(ui, m), realtime: true,
+        signal: stopping.signal });
+      if (r.aborted === 'stopped') return ui.say(`replay stopped after ${r.applied} of ${r.events} events`);
       if (r.aborted) return ui.say('replay stopped: the recorded model wasn\'t opened', true);
       if (r.divergences.length) console.warn('replay:', r.divergences);
       ui.say(`replayed ${r.applied} of ${r.events} events; ${r.divergences.length ? `${r.divergences.length} ` +
         'divergences (in the console)' : 'as recorded'}`, r.divergences.length > 0);
     } catch (e) {
       ui.say(`replay: ${(e as Error).message}`, true);
+    } finally {
+      stop.disable();
     }
   } }, 'replay').name('Replay recording...');
+  const stop = folder.add({ stop: () => {} }, 'stop').name('Stop replay').disable();
   folder.close();
 }

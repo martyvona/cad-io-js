@@ -6,6 +6,7 @@
 // and `right` follow the aspect ratio. TrackballControls zooms an orthographic camera through `zoom`.
 
 import * as THREE from 'three';
+import type { CameraState } from './view-state.ts';
 
 export type ViewName = 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom' | 'iso';
 
@@ -101,4 +102,28 @@ export function clipTo(camera: THREE.OrthographicCamera, sphere: THREE.Sphere): 
   camera.near = d - r;
   camera.far = d + r;
   camera.updateProjectionMatrix();
+}
+
+const _m = new THREE.Matrix4();
+
+/** A camera's turn: the rotation taking the camera's frame (looking along -Z, Y up) to the state's. */
+function turnOf(s: CameraState): THREE.Quaternion {
+  _m.lookAt(_v.fromArray(s.position), _c.fromArray(s.target), _y.fromArray(s.up));
+  return new THREE.Quaternion().setFromRotationMatrix(_m);
+}
+
+/**
+ * The camera a fraction `f` of the way from `a` to `b` (replaying a drag in real time, recorder.ts): the turn about
+ * the target by the shortest rotation, the target and the distance to it straight, the view's height by ratio (so a
+ * zoom goes at an even pace).
+ */
+export function interpolateCamera(a: CameraState, b: CameraState, f: number): CameraState {
+  const turn = turnOf(a).slerp(turnOf(b), f);
+  const target = _c.fromArray(a.target).lerp(_v.fromArray(b.target), f).clone();
+  const dist = (1 - f) * _x.fromArray(a.position).distanceTo(_z.fromArray(a.target)) +
+    f * _x.fromArray(b.position).distanceTo(_z.fromArray(b.target));
+  const position = new THREE.Vector3(0, 0, dist).applyQuaternion(turn).add(target);
+  const up = new THREE.Vector3(0, 1, 0).applyQuaternion(turn);
+  return { position: position.toArray(), target: target.toArray(), up: up.toArray(),
+    height: a.height * (b.height / a.height) ** f };
 }

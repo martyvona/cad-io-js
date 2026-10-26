@@ -1357,6 +1357,114 @@ await check('replay dialogs', async () => {
   expect(a.urlField === false && a.loadUrl?.title === 'Load URL', `Load URL...: ${j}`);
   return undefined;
 });
+// Replaying in real time (the page's Replay recording...): a recording made here (two control changes 500 ms apart,
+// a drag of 800 ms, a pause of 5.6 s, Mesh again recorded as taking 50 ms, then a control change) keeps the gaps,
+// turns the camera through the drag with the pointer shown, cuts the pause to maxPause (1 s), and starts the control
+// after Mesh again only once its meshing is done, however long that takes, and the next one its full gap after that
+// (not hurrying to catch up); each control shown as it changes (its folder open, the control flashed), the folders
+// closed again at the end; a replay stopped early applies no more.
+await check('replay in real time', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    await cadViewer.ready;
+    await cadViewer.idle();
+    viewer.settings.cache = false;
+    viewer.setView('front');
+    const from = viewer.cameraState();
+    viewer.setView('iso');
+    const to = viewer.cameraState();
+    viewer.setCamera(from);
+    const rect = viewer.renderer.domElement.getBoundingClientRect();
+    const [x, y] = [rect.width * 0.3, rect.height / 2];
+    const p = (t, phase, dx = 0) => ({ t, type: 'pointer', phase, x: x + dx, y, id: 1, pointerType: 'mouse',
+      button: 0, buttons: phase === 'up' ? 0 : 1, mods: '' });
+    const rec = { format: 'cad-viewer-recording', version: 1, started: new Date().toISOString(), userAgent: '',
+      page: location.href, window: { width: innerWidth, height: innerHeight, scale: 1 },
+      view: { width: rect.width, height: rect.height }, events: [
+        { t: 100, type: 'control', path: 'Rendering/Edges', value: false },
+        { t: 600, type: 'control', path: 'Rendering/Edges', value: true },
+        p(1600, 'down'), p(2000, 'move', 40), { t: 2400, type: 'camera', camera: to }, p(2400, 'up', 80),
+        { t: 8000, type: 'control', path: 'Rendering/Ambient occlusion', value: false },
+        { t: 8100, type: 'control', path: 'B-Rep Meshing/Mesh again' },
+        { t: 8150, type: 'control', path: 'Rendering/Antialiasing (SMAA)', value: false },
+        { t: 8650, type: 'control', path: 'Rendering/Shininess', value: 50 },
+      ] };
+    // What happened when: control changes, the camera and the pointer each frame, the meshing done.
+    const log = [];
+    const shown = [];
+    ui.gui.onChange(({ controller, value }) => {
+      log.push([performance.now(), 'control', controller._name, value]);
+      // The recording's controls (not those the viewer sets itself, as Mesh again's Center model).
+      if (rec.events.some((e) => e.path?.endsWith('/' + controller._name))) shown.push(!controller.parent._closed &&
+        controller.domElement.classList.contains('replay-flash'));
+    });
+    const folders = () => ui.gui.foldersRecursive().map((f) => f._closed).join();
+    const foldersBefore = folders();
+    let watching = true;
+    const model = viewer.model;
+    let meshed;
+    const watch = () => {
+      if (!watching) return;
+      const c = viewer.cameraState();
+      log.push([performance.now(), 'camera', c.position, document.querySelector('.replay-pointer')?.hidden === false]);
+      if (meshed === undefined && viewer.model !== model && viewer.model?.meshing) meshed = performance.now();
+      requestAnimationFrame(watch);
+    };
+    requestAnimationFrame(watch);
+    const t0 = performance.now();
+    const report = await cadViewer.replay(rec, { realtime: true, maxPause: 1000 });
+    const end = performance.now();
+    watching = false;
+    const foldersAfter = folders();
+    const showing = [...shown];
+    // Stopped after the first event.
+    const stopping = new AbortController();
+    setTimeout(() => stopping.abort(), 350);
+    const before = log.length;
+    const stopped = await cadViewer.replay(rec, { realtime: true, maxPause: 1000, signal: stopping.signal });
+    const after = log.slice(before).filter((l) => l[1] === 'control').length;
+    // At full speed too, stopped before it starts.
+    const fast = await cadViewer.replay(rec, { signal: AbortSignal.abort() });
+    return { showing, foldersBefore, foldersAfter, fast, t0, end, meshed, log, report, from: from.position,
+      to: to.position, stopped, after,
+      marker: !!document.querySelector('.replay-pointer') };
+  })()`) as { after: { t0: number; end: number; meshed?: number; log: [number, string, unknown, unknown][];
+    report: { applied: number; aborted?: string }; from: number[]; to: number[];
+    stopped: { applied: number; aborted?: string }; after: number; marker: boolean;
+    fast: { applied: number; aborted?: string }; showing: boolean[]; foldersBefore: string;
+    foldersAfter: string } };
+  const a = r.after;
+  const at = (name: string, value?: unknown) => a.log.find((l) => l[1] === 'control' && l[2] === name &&
+    (value === undefined || l[3] === value))?.[0];
+  const rel = (t: number | undefined) => t === undefined ? NaN : Math.round(t - a.t0);
+  const times = { edgesOff: rel(at('Edges', false)), edgesOn: rel(at('Edges', true)), ao: rel(at('Ambient occlusion')),
+    meshed: rel(a.meshed), smaa: rel(at('Antialiasing (SMAA)')), shininess: rel(at('Shininess')), end: rel(a.end) };
+  const j = JSON.stringify({ times, report: a.report, stopped: a.stopped, after: a.after });
+  console.log(`replay in real time: ${j}`);
+  const close = (t: number, want: number) => Math.abs(t - want) <= 150;
+  // The first event no sooner than recorded (later by the replay's own start).
+  expect(times.edgesOff >= 90 && times.edgesOff <= 700 && close(times.edgesOn - times.edgesOff, 500),
+    `the gaps kept: ${j}`);
+  // The drag from 1600 to 2400 ms, the pause after it cut from 5.6 s to 1 s: 2.8 s after the second change, not 7.4.
+  expect(close(times.ao - times.edgesOn, 2800), `the pause cut: ${j}`);
+  // The drag, 1000 to 1800 ms after the second change.
+  const drag = a.log.filter((l) => l[1] === 'camera' && l[0] - a.t0 > times.edgesOn + 1100 &&
+    l[0] - a.t0 < times.edgesOn + 1700);
+  const dist = (p: number[], q: number[]) => Math.hypot(...p.map((v, i) => v - q[i]!));
+  const between = drag.filter((l) => dist(l[2] as number[], a.from) > 1e-3 && dist(l[2] as number[], a.to) > 1e-3);
+  expect(drag.length > 10 && between.length > drag.length * 0.8 && drag.every((l) => l[3] === true),
+    `the camera turning through the drag, the pointer shown (${between.length} of ${drag.length} frames): ${j}`);
+  const last = a.log.filter((l) => l[1] === 'camera').at(-1)!;
+  expect(dist(last[2] as number[], a.to) < 1e-6, `the camera where the drag ended: ${JSON.stringify(last)}`);
+  expect(times.meshed > times.ao && times.smaa >= times.meshed, `the control after Mesh again waits for it: ${j}`);
+  expect(close(times.shininess - times.smaa, 500), `the gap after a late step kept: ${j}`);
+  expect(a.report.applied === 7 && !a.report.aborted && !a.marker, `the replay: ${j}`);
+  expect(a.stopped.aborted === 'stopped' && a.stopped.applied === 1 && a.after === 1, `stopped: ${j}`);
+  expect(a.showing.length === 5 && a.showing.every(Boolean) && a.foldersBefore.includes('true') &&
+    a.foldersAfter === a.foldersBefore, `controls shown: ${JSON.stringify([a.showing, a.foldersBefore,
+    a.foldersAfter])}`);
+  expect(a.fast.aborted === 'stopped' && a.fast.applied === 0, `stopped at full speed: ${JSON.stringify(a.fast)}`);
+  return undefined;
+});
 await check('not a model', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/notes.txt')}&check`);
   expect(typeof r.error === 'string' && /unknown format/.test(r.error), `report ${JSON.stringify(r)}`);
