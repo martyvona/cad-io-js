@@ -5,8 +5,9 @@
 //     unit to the world's Z up and millimetres) -> the loaded model's root
 //
 // The centroid is the centre of the axis-aligned box of all the model's geometry, hidden included, in the world,
-// found when loading finishes (for STEP, when the last part is meshed) and fixed from then on. One model at a time;
-// loading another replaces it, and cancels the meshing of the last if it's still going.
+// found when loading finishes (for STEP, when the last part is meshed) and fixed from then on (meshing the same file
+// again keeps it, as it keeps the view). One model at a time; loading another replaces it, and cancels the meshing of
+// the last if it's still going. STEP files are imported and meshed in a worker (import-worker.ts).
 
 import * as THREE from 'three';
 import { TrackballControls } from 'three/addons/controls/TrackballControls.js';
@@ -23,8 +24,8 @@ import { AXES, Sections, type SectionSettings } from './section.ts';
 import { detectEdges, StepGraph } from './step.ts';
 import { cadStyle, DEFAULT_RENDER, edgeLayer, type RenderSettings } from './style.ts';
 import type { FromImportWorker, ToImportWorker } from './import-worker.ts';
-import { loadStepIn, type Meshing, type StepEvent } from './step-load.ts';
-import { DEFAULT_SETTINGS, Tessellation, workerCount, type TessellationSettings } from './tessellation.ts';
+import type { Meshing, StepEvent } from './step-load.ts';
+import { clearCache, DEFAULT_SETTINGS, workerCount, type TessellationSettings } from './tessellation.ts';
 
 export interface ModelInfo {
   name: string;
@@ -92,6 +93,9 @@ function dispose(root: THREE.Object3D): void {
   });
 }
 
+/** What meshing the same model again carries over from the last load. */
+interface Kept { centroid?: THREE.Vector3; centered: boolean }
+
 export class Viewer {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
@@ -114,10 +118,6 @@ export class Viewer {
   private generation = 0;
   private meshing = false;
   private readonly container: HTMLElement;
-  /** Tessellation when the import runs on the page's thread. */
-  readonly tessellation = new Tessellation();
-  /** Import STEP files in a worker (the default), or on the page's thread (for comparison and debugging). */
-  importInWorker = true;
   private worker?: Worker;
   private readonly importListeners = new Map<number, (m: FromImportWorker) => void>();
   private abortLoad?: () => void;
@@ -256,11 +256,10 @@ export class Viewer {
     return new THREE.Box3().setFromObject(this.frame);
   }
 
-  /** Empties the tessellation cache (IndexedDB, shared with the import worker, whose next load opens it afresh). */
+  /** Empties the tessellation cache (IndexedDB, the import worker's, whose next load opens it afresh). */
   async clearCache(): Promise<void> {
-    this.tessellation.dispose();
     this.worker?.postMessage({ type: 'cancel' } satisfies ToImportWorker);
-    await this.tessellation.clearCache();
+    await clearCache();
   }
 
   /** Redraws soon (after any change to the scene). */
@@ -268,19 +267,22 @@ export class Viewer {
     this.frames.request();
   }
 
-  /** Replaces the model with the source's; for STEP, resolves once every part is meshed (or has failed). */
-  async load(src: Source): Promise<void> {
+  /**
+   * Replaces the model with the source's; for STEP, resolves once every part is meshed (or has failed). `keep`: the
+   * same model again (meshed again), so the camera stays where it is and the centroid and centring carry over.
+   */
+  async load(src: Source, opts: { keep?: boolean } = {}): Promise<void> {
     const format = formatOf(src.name);
     if (!format) throw new Error(`unknown format: ${src.name}`);
     const gen = ++this.generation;
     if (this.meshing) {
       // Stop the last load's meshing (wherever it runs), and end its events.
-      if (this.importInWorker) this.worker?.postMessage({ type: 'cancel' } satisfies ToImportWorker);
-      else this.tessellation.dispose();
+      this.worker?.postMessage({ type: 'cancel' } satisfies ToImportWorker);
       this.meshing = false;
       this.abortLoad?.();
     }
-    if (format === 'step') return this.loadStep(src, gen);
+    const keep = opts.keep && this.model ? { centroid: this.model.centroid, centered: this.centered } : undefined;
+    if (format === 'step') return this.loadStep(src, gen, keep);
     let root: THREE.Object3D;
     try {
       root = await loadThree(src, format);
@@ -291,12 +293,12 @@ export class Viewer {
     detectEdges(root);
     edgeLayer(root);
     if (this.render.cadMaterials) cadStyle(root, this.render.shininess);
-    this.show(root, { name: src.name, format });
+    this.show(root, { name: src.name, format }, undefined, keep);
     this.finished();
-    this.zoomAll();
+    if (!keep) this.zoomAll();
   }
 
-  private show(root: THREE.Object3D, model: ModelInfo, faces?: FaceHiding): void {
+  private show(root: THREE.Object3D, model: ModelInfo, faces?: FaceHiding, keep?: Kept): void {
     this.clear();
     this.root = root;
     this.nodes = new NodeModel(root, faces);
@@ -304,15 +306,18 @@ export class Viewer {
     this.frame.matrix.decompose(this.frame.position, this.frame.quaternion, this.frame.scale);
     this.frame.add(root);
     this.model = model;
-    this.moved = false;
+    this.moved = !!keep;
+    if (keep?.centroid) {
+      model.centroid = keep.centroid;
+      this.centered = keep.centered;
+      if (keep.centered) this.display.position.copy(keep.centroid).multiplyScalar(-1);
+      this.updateBounds();
+    }
     this.sections.invalidate();
     this.onModel?.(this.nodes);
   }
 
-  /**
-   * A load's events, from the import worker (by default) or from the page; they end with 'done', an error, or a
-   * newer load (`abortLoad`).
-   */
+  /** A load's events, from the import worker; they end with 'done', an error, or a newer load (`abortLoad`). */
   private events(bytes: Uint8Array, gen: number): AsyncIterable<StepEvent> {
     const queue: StepEvent[] = [];
     let wake: (() => void) | undefined;
@@ -320,15 +325,10 @@ export class Viewer {
     const push = (e: StepEvent) => { queue.push(e); wake?.(); };
     const fail = (e: Error) => { error = e; wake?.(); };
     this.abortLoad = () => wake?.();
-    if (this.importInWorker) {
-      this.importListeners.set(gen, (m) => (m.type === 'error' ? fail(new Error(m.message)) : push(m)));
-      const msg: ToImportWorker = { type: 'load', load: gen, bytes, settings: { ...this.settings },
-        workers: workerCount() };
-      this.importer().postMessage(msg, [bytes.buffer]);
-    } else {
-      loadStepIn(bytes, this.settings, workerCount(), this.tessellation, push, () => gen !== this.generation)
-        .catch(fail);
-    }
+    this.importListeners.set(gen, (m) => (m.type === 'error' ? fail(new Error(m.message)) : push(m)));
+    const msg: ToImportWorker = { type: 'load', load: gen, bytes, settings: { ...this.settings },
+      workers: workerCount() };
+    this.importer().postMessage(msg, [bytes.buffer]);
     const listeners = this.importListeners;
     const latest = () => gen === this.generation;
     return { async *[Symbol.asyncIterator]() {
@@ -365,9 +365,9 @@ export class Viewer {
     return this.worker;
   }
 
-  private async loadStep(src: Source, gen: number): Promise<void> {
+  private async loadStep(src: Source, gen: number, keep?: Kept): Promise<void> {
     this.onStatus?.(`${src.name}: reading...`);
-    // Let the page show that first (when the import runs on the page's thread, it holds it for a moment).
+    // Let the page show that first.
     await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
     if (gen !== this.generation) return;
     // A copy goes (transferred) to the worker; the source keeps its bytes, to be meshed again.
@@ -392,7 +392,7 @@ export class Viewer {
           const brep = scene.parts.flatMap((p, i) => p.kind === 'brep' && graph!.placements.has(i) ? [i] : []);
           model = { name: src.name, format: 'step', parts: { total: brep.length, done: 0, failed: 0 },
             diagnostics: [...scene.diagnostics] };
-          this.show(graph.root, model, graph);
+          this.show(graph.root, model, graph, keep);
           // Parts already meshes or curves need no tessellation.
           for (const i of graph.placements.keys()) {
             if (scene.parts[i]!.kind === 'brep') continue;

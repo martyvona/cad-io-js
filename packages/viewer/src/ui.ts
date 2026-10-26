@@ -1,6 +1,7 @@
 // The viewer's controls, in lil-gui (the user, 2026-10-24; CLAUDE.md, "The viewer"): opening a local file or a URL
 // (also by dropping files on the page, or ?url= in the page's address), zoom all, the views along the axes,
 // centring the model, full screen, the tree panel and hiding; a status line for what's loading and what went wrong.
+// Every folder starts closed (the user, 2026-10-25).
 
 import * as THREE from 'three';
 import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
@@ -94,7 +95,27 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   const check = new URLSearchParams(location.search).has('check');
   const report = (r: object) => { if (check) document.body.dataset.report = JSON.stringify(r); };
 
-  const open = async (get: () => Promise<Source | undefined>, what: string): Promise<Record<string, unknown>> => {
+  // Meshing again (the same model, other settings) keeps the view: the camera, centring and planes (Viewer.load's
+  // `keep`), and the hidden and selected nodes, by their paths, restored as the nodes they name arrive (faces, edges
+  // and curves only with their part's mesh); what never arrives (a part that fails this time) is dropped. Not the
+  // tree's expansion: the tree is new.
+  let restore: { hidden: Set<string>; selected: string[]; pending: string[] } | undefined;
+  const restoreNodes = () => {
+    const nodes = viewer.nodes;
+    if (!restore || !nodes) return;
+    const hide: number[] = [];
+    restore.pending = restore.pending.filter((p) => {
+      const id = nodes.find(p);
+      if (id !== undefined) hide.push(id);
+      return id === undefined;
+    });
+    if (hide.length) ui.setHidden(hide, true);
+    if (!restore.selected.length) return;
+    const sel = restore.selected.flatMap((p) => nodes.find(p) ?? []);
+    if (sel.length !== selected.length) select(sel);
+  };
+  const open = async (get: () => Promise<Source | undefined>, what: string, keep = false):
+    Promise<Record<string, unknown>> => {
     try {
       say(`loading ${what}...`);
       const src = await get();
@@ -105,14 +126,17 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       const t = performance.now();
       const gen = viewer.nextLoad();
       last = src;
-      await viewer.load(src);
+      if (!keep) restore = undefined;
+      await viewer.load(src, { keep });
       if (!viewer.latest(gen)) return { superseded: true };
+      restoreNodes();
+      restore = undefined;
       fitPlanes();
       const s = viewer.stats()!;
       info.file = src.name;
       info.triangles = s.triangles.toLocaleString();
       info.objects = `${s.objects.toLocaleString()} (${s.meshes.toLocaleString()} meshes)`;
-      centered.setValue(false);
+      centered.setValue(viewer.isCentered());
       centered.enable(viewer.model?.centroid !== undefined);
       const m = viewer.model!;
       const parts = m.parts ? `; ${m.parts.done - m.parts.failed} of ${m.parts.total} parts meshed` +
@@ -167,8 +191,10 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
 
   const view = gui.addFolder('View');
   view.add({ all: () => viewer.zoomAll() }, 'all').name('Zoom all');
+  // Enabled while something is selected.
+  const zoomSelected = view.add({ zoom: () => ui.zoomSelected() }, 'zoom').name('Zoom selected').disable();
   view.add({ copy: () => copyLink() }, 'copy').name('Copy link to this view');
-  const views = view.addFolder('Look along an axis');
+  const views = view.addFolder('Look Along an Axis');
   for (const v of Object.keys(VIEWS) as ViewName[]) {
     views.add({ [v]: () => viewer.setView(v) }, v).name(v[0]!.toUpperCase() + v.slice(1));
   }
@@ -207,7 +233,6 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     sectionFolder.add(cut[a], 'flip').name(`Flip ${a.toUpperCase()}`).onChange(recut);
   }
   sectionFolder.add(cut, 'caps').name('Caps on closed parts').onChange(recut);
-  sectionFolder.close();
   const resetPlanes = () => {
     const d = DEFAULT_SECTIONS();
     for (const a of AXES) Object.assign(cut[a], d[a]);
@@ -242,21 +267,25 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   rendering.add(look, 'edges').name('Edges').onChange(restyle);
   rendering.add(look, 'shininess', 0, 100, 1).name('Shininess').onChange(restyle);
   rendering.add(look, 'cadMaterials').name('Phong for glTF, three.js (next file)');
-  rendering.close();
 
-  const step = gui.addFolder('STEP meshing');
+  const step = gui.addFolder('B-Rep Meshing');
   const settings = viewer.settings;
   step.add(settings, 'backend', ['occt', 'truck']).name('Backend');
   step.add(settings, 'linearDeflection', 0.001, 10).name('Deflection (mm)');
   step.add(settings, 'angularDeflection', 1, 90).name('Angle (degrees)');
   step.add(settings, 'cache').name('Cache (IndexedDB)');
-  step.add(viewer, 'importInWorker').name('Import in a worker');
-  step.add({ reload: () => last && open(async () => last, last.name) }, 'reload').name('Mesh again');
+  step.add({ reload: () => {
+    if (!last) return;
+    const nodes = viewer.nodes;
+    const hidden = nodes ? nodes.nodes.filter((n) => n.hidden).map((n) => nodes.pathOf(n.id)) : [];
+    restore = { hidden: new Set(hidden), selected: nodes ? selected.map((id) => nodes.pathOf(id)) : [],
+      pending: hidden };
+    return open(async () => last, last.name, true);
+  } }, 'reload').name('Mesh again');
   step.add({ defaults: () => { Object.assign(settings, DEFAULT_SETTINGS); step.controllers.forEach((c) =>
     c.updateDisplay()); } }, 'defaults').name('Defaults');
   step.add({ clear: () => viewer.clearCache().then(() => say('cache cleared'),
     (e: Error) => say(`cache: ${e.message}`, true)) }, 'clear').name('Clear cache');
-  step.close();
 
   // The tree panel: a new one for each model; refreshed (at most once a frame) as meshes arrive.
   let panel: TreePanel | undefined;
@@ -288,8 +317,11 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   /** Sets the selection; from the 3D view (or code), the tree follows. */
   const select = (ids: readonly number[], source: 'tree' | 'pick' | 'api' = 'api') => {
     selected = [...new Set(ids)];
+    // A selection made while meshing again replaces the one being restored.
+    if (source !== 'api' && restore) restore.selected = [];
     if (source !== 'tree') panel?.select(selected);
     hooks.onEvent?.({ type: 'select', source, ids: selected });
+    zoomSelected.enable(selected.length > 0);
     highlight();
     describe();
   };
@@ -297,8 +329,14 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     panel?.dispose();
     highlighter.clear();
     selected = [];
+    zoomSelected.disable();
     panel = new TreePanel(treeElement, nodes);
-    resetPlanes();
+    if (restore) {
+      // The file's own hiding gives way to what was hidden before.
+      ui.setHidden(nodes.nodes.filter((n) => n.hidden && !restore!.hidden.has(nodes.pathOf(n.id))).map((n) => n.id),
+        false);
+      restoreNodes();
+    } else resetPlanes();
     panel.onSelect = (ids) => select(ids, 'tree');
     if (tree.detail) panel.setDetail(true);
     if (!narrow && !tree.closedByHand && !tree.open) openControl?.setValue(true);
@@ -325,7 +363,11 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   viewer.onMeshes = () => {
     if (refresh) return;
     refresh = true;
-    requestAnimationFrame(() => { refresh = false; panel?.refresh(); });
+    requestAnimationFrame(() => {
+      refresh = false;
+      restoreNodes();
+      panel?.refresh();
+    });
   };
   // Hiding faces changes materials: the highlight comes off first, and goes back on after.
   const hide = (hidden: boolean, ids: readonly number[] = selected) => {
@@ -427,13 +469,13 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   selFolder.add(selection, 'instances').name('All instances').onChange(highlight);
   selFolder.add(ui, 'selectParent').name('Select parent');
   selFolder.add({ none: () => select([]) }, 'none').name('Select none');
-  selFolder.add(ui, 'zoomSelected').name('Zoom selected');
   selFolder.add(selection, 'details').name('Details').onChange(describe);
 
   const about = gui.addFolder('Model');
   about.add(info, 'file').name('File').disable().listen();
   about.add(info, 'objects').name('Objects').disable().listen();
   about.add(info, 'triangles').name('Triangles').disable().listen();
+  for (const f of gui.foldersRecursive()) f.close();
 
   // Dropped files, anywhere on the page.
   window.addEventListener('dragover', (e) => e.preventDefault());

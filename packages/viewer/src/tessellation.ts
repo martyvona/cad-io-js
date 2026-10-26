@@ -1,6 +1,6 @@
 // Tessellation for our loader: a pool of Web Workers running OCCT or truck (the viewer's own worker entry,
 // tess-worker.ts, so Vite bundles the backends), behind the IndexedDB cache by default; in the import worker (its
-// workers nested in it), or in the page when the import runs there. The pool is made when first
+// workers nested in it). The pool is made when first
 // needed and kept for later files; changing the backend or the cache makes a new one. Cancelling (a new file while
 // one is meshing) terminates the workers, which fails the requests still pending.
 
@@ -82,9 +82,9 @@ export class Tessellation {
     this.current?.tess.dispose();
     this.current = undefined;
   }
+}
 
-  /** Empties the IndexedDB cache. */
-  async clearCache(): Promise<void> {
-    await new IndexedDbStore({ name: CACHE_NAME }).clear();
-  }
+/** Empties the IndexedDB cache. */
+export async function clearCache(): Promise<void> {
+  await new IndexedDbStore({ name: CACHE_NAME }).clear();
 }

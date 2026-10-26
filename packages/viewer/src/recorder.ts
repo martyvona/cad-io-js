@@ -90,7 +90,7 @@ export interface Session {
 
 /** Controls whose changes aren't recorded (the recorder's own), and those replay leaves alone. */
 const UNRECORDED = /^Recording\//;
-const NOT_REPLAYED = /^(File\/|View\/Copy link|View\/(Enter|Exit) full screen|STEP meshing\/Clear cache)/;
+const NOT_REPLAYED = /^(File\/|View\/Copy link|View\/(Enter|Exit) full screen|B-Rep Meshing\/Clear cache)/;
 
 interface Controller {
   _name: string;

@@ -1,5 +1,5 @@
-// Loading a STEP file as a stream of events, the same code wherever it runs (the user, 2026-10-24; CLAUDE.md, "The
-// viewer"): in the import worker (import-worker.ts, the default, so the page never waits on parsing) or in the page.
+// Loading a STEP file as a stream of events (the user, 2026-10-24; CLAUDE.md, "The viewer"), in the import worker
+// (import-worker.ts, so the page never waits on parsing; always there since 2026-10-25, the user).
 // The scene comes first, without its parts' payloads (functions over the parsed file, which can't cross to another
 // thread, and which only meshing needs); then each placed brep part's mesh as tessellation delivers it (the buffers
 // transferable); then the end, with the tessellation's diagnostics and what meshed it.

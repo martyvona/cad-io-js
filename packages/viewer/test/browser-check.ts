@@ -777,43 +777,56 @@ await check('phone', async () => {
   expect(r.then?.join() === String(a.spot!.id), `a tap selects: ${JSON.stringify(r.then)}, ${j}`);
   return undefined;
 });
-// The import worker against the page's thread, on the bicycle: the same triangles either way; in the worker the
-// page's own tessellation is never made, and its longest task (Chrome's long-task timing) is far shorter.
-await check('import worker', async () => {
-  const r = await page('?check', `(async () => {
-    const bytes = await (await fetch('/content/bicycle.stp')).arrayBuffer();
-    // The cache off, so both mesh alike.
+// The import worker, the only way STEP files load (the page has no tessellation of its own); every folder of the
+// controls closed at first; Zoom selected in View, enabled only with a selection; Mesh again (at another deflection,
+// the cache off) keeps the camera, centring, a cut, what's hidden and what's selected, and meshes anew.
+await check('mesh again', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    const folders = ui.gui.foldersRecursive();
+    const allClosed = folders.length > 0 && folders.every((f) => f._closed);
+    const zoom = ui.gui.foldersRecursive().find((f) => f._title === 'View').controllers
+      .find((c) => c._name === 'Zoom selected');
+    const button = (name) => ui.gui.controllersRecursive().find((c) => c._name === name);
+    const disabledEmpty = zoom._disabled;
+    const meshing = viewer.model.meshing;
+    const pageTessellation = 'tessellation' in viewer || 'importInWorker' in viewer;
+    const m = viewer.nodes;
+    const parts = m.nodes.filter((n) => n.kind === 'part');
+    viewer.setView('top');
+    ui.setCentered(true);
+    cadViewer.apply({ cut: { x: { at: 10, flip: false } } });
+    ui.setHidden([parts[0].id], true);
+    ui.select([parts[1].id]);
+    const enabledSelected = !zoom._disabled;
+    const before = cadViewer.state();
+    const triangles = viewer.stats().triangles;
+    const model = viewer.model;
     viewer.settings.cache = false;
-    const run = async (inWorker) => {
-      viewer.importInWorker = inWorker;
-      let longest = 0;
-      const seen = new PerformanceObserver((l) => { for (const e of l.getEntries()) longest = Math.max(longest,
-        e.duration); });
-      seen.observe({ type: 'longtask' });
-      const t = performance.now();
-      await viewer.load({ name: 'bicycle.stp', bytes });
-      const ms = performance.now() - t;
-      await new Promise((r) => setTimeout(r, 200));
-      seen.disconnect();
-      return { longest: Math.round(longest), ms: Math.round(ms), triangles: viewer.stats().triangles,
-        meshing: viewer.model.meshing, pageTessellation: !!viewer.tessellation.describe() };
-    };
-    const byDefault = viewer.importInWorker;
-    const worker = await run(true);
-    const pageThread = await run(false);
-    return { byDefault, worker, pageThread };
-  })()`) as { after?: { byDefault: boolean; worker: { longest: number; ms: number; triangles: number;
-    meshing?: { backend: string };
-    pageTessellation: boolean }; pageThread: { longest: number; ms: number; triangles: number;
-    pageTessellation: boolean } } };
-  const { worker, pageThread } = r.after!;
-  const j = JSON.stringify(r.after);
-  console.log(`import worker: ${j}`);
-  expect(worker.triangles > 0 && worker.triangles === pageThread.triangles, `triangles: ${j}`);
-  expect(!worker.pageTessellation && pageThread.pageTessellation && /^occt /.test(worker.meshing?.backend ?? ''),
-    `where it ran: ${j}`);
-  expect(worker.longest < pageThread.longest, `the page's longest task: ${j}`);
-  expect(r.after!.byDefault === true, `in a worker by default: ${j}`);
+    viewer.settings.linearDeflection = 1;
+    button('Mesh again').$button.click();
+    for (let t = 0; t < 1200 && (viewer.model === model || !viewer.model?.meshing); t++) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    await cadViewer.idle();
+    const after = cadViewer.state();
+    return { allClosed, disabledEmpty, enabledSelected, backend: meshing?.backend, pageTessellation, before, after,
+      triangles: [triangles, viewer.stats().triangles], zoomAfter: !zoom._disabled };
+  })()`) as { after: { allClosed: boolean; disabledEmpty: boolean; enabledSelected: boolean; backend?: string;
+    pageTessellation: boolean; triangles: number[]; zoomAfter: boolean; before: Record<string, unknown>;
+    after: Record<string, unknown> } };
+  const a = r.after;
+  const j = JSON.stringify(a);
+  expect(a.allClosed, `folders closed at first: ${j}`);
+  expect(a.disabledEmpty && a.enabledSelected && a.zoomAfter, `zoom selected: ${j}`);
+  expect(/^occt /.test(a.backend ?? '') && !a.pageTessellation, `the import worker: ${j}`);
+  expect(a.triangles[0]! > 0 && a.triangles[1]! > 0 && a.triangles[0] !== a.triangles[1], `meshed anew: ${j}`);
+  const kept = ['camera', 'centered', 'cut', 'hidden', 'selected'] as const;
+  for (const k of kept) {
+    expect(JSON.stringify(a.before[k]) === JSON.stringify(a.after[k]), `${k} kept: ${JSON.stringify(a.before[k])} `
+      + `then ${JSON.stringify(a.after[k])}`);
+  }
+  expect((a.after.hidden as string[]).length === 1 && (a.after.selected as string[]).length === 1 &&
+    a.after.centered === true && 'x' in (a.after.cut as object), `the state set: ${j}`);
   return undefined;
 });
 await check('no model', async () => {
