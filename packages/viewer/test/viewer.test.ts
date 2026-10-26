@@ -306,7 +306,8 @@ test('cad-viewer: arguments', () => {
   const plainShot = parseArgs(['shot', 'm.stp']);
   assert.ok(typeof plainShot === 'object' && plainShot.shot.width === 1200 && plainShot.shot.height === 800);
   for (const [argv, err] of [[[], /no command/], [['serve'], /unknown command/], [['open'], /one file/],
-    [['shot'], /one file/], [['replay'], /one file/], [['replay', 'a', 'b'], /one file/], [['shot', 'a', '--size', '640'], /--size/], [['shot', 'a', '--size', '8x8'], /--size/],
+    [['shot'], /one file/], [['replay'], /one file/], [['replay', 'a', 'b'], /one file/],
+    [['shot', 'a', '--size', '640'], /--size/], [['shot', 'a', '--size', '8x8'], /--size/],
     [['shot', 'a', '--size', '9000x10'], /--size/],
     [['open', 'a', 'b'], /one file/], [['stop', 'a'], /takes no file/], [['start', '--port', 'x'], /bad port/],
     [['start', '--port'], /needs a value/], [['start', '--https', 'yes'], /self or mkcert/],

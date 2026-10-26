@@ -7,6 +7,7 @@ import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
 import { VIEWS, type ViewName } from './camera.ts';
 import type { Source } from './load.ts';
 import { details } from './details.ts';
+import { askUrl } from './dialog.ts';
 import { AXES, DEFAULT_SECTIONS, type SectionSettings } from './section.ts';
 import { boxOf, Highlighter, instancesOf, nodeForPick, piecesOf, type PickLevel } from './selection.ts';
 import { addSideHandle } from './side-handle.ts';
@@ -32,7 +33,8 @@ export interface Ui {
   /** The details panel's lines. */
   details(): string[];
   /** Opens a model by URL; resolves with what the browser check's report has (`error` if it failed). */
-  openUrl(url: string): Promise<Record<string, unknown>>;
+  /** Loads a model by URL; `fetched`: its bytes already fetched (from `fromUrl`), not fetched again. */
+  openUrl(url: string, fetched?: Source): Promise<Record<string, unknown>>;
   /** Opens a model from local files (with a .gltf's .bin), as picked or dropped. */
   openFiles(files: File[]): Promise<Record<string, unknown>>;
   /** The current model's URL, if it came from one. */
@@ -82,7 +84,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     status.classList.toggle('error', error);
     hooks.onEvent?.({ type: 'status', text, error });
   };
-  const info = { file: '', triangles: '', objects: '', url: '' };
+  const info = { file: '', triangles: '', objects: '' };
   let centered: { enable(on: boolean): unknown; setValue(v: boolean): unknown };
   let last: Source | undefined;
   viewer.onStatus = (text) => say(text);
@@ -148,16 +150,20 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       () => say('link copied'), show);
     else show();
   };
-  const openUrl = (url: string) => {
-    info.url = url;
+  // A model's URL (fetched here, unless the caller has fetched it already: replay checks its hash first).
+  let lastUrl = '';
+  const openUrl = (url: string, fetched?: Source) => {
+    lastUrl = url;
     hooks.onEvent?.({ type: 'load', url });
-    return open(() => fromUrl(url), url);
+    return open(async () => fetched ?? fromUrl(url), url);
   };
 
   const file = gui.addFolder('File');
   file.add({ open: async () => openFiles(await pickFiles()) }, 'open').name('Open file...');
-  file.add(info, 'url').name('URL').listen();
-  file.add({ load: () => info.url && openUrl(info.url) }, 'load').name('Load URL');
+  file.add({ load: async () => {
+    const url = await askUrl({ value: lastUrl });
+    if (url) await openUrl(url);
+  } }, 'load').name('Load URL...');
 
   const view = gui.addFolder('View');
   view.add({ all: () => viewer.zoomAll() }, 'all').name('Zoom all');

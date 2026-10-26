@@ -6,12 +6,15 @@
 //
 // At start it opens ?url= if there is one, then applies the view in the address; `ready` settles after both.
 
+import { sha256 } from 'cad-scene';
 import { VIEWS, type ViewName } from './camera.ts';
+import { askUrl, showDialog } from './dialog.ts';
+import { formatOf } from './formats.ts';
 import { AXES, type SectionSettings } from './section.ts';
-import { Recorder, RECORDING_FORMAT, replay, type Recording, type ReplayOptions, type ReplayReport,
-  type Session } from './recorder.ts';
+import { hex, Recorder, RECORDING_FORMAT, replay, type RecordedModel, type Recording, type ReplayOptions,
+  type ReplayReport, type Session } from './recorder.ts';
 import { nodeForPick } from './selection.ts';
-import { pickFiles } from './sources.ts';
+import { fromUrl, pickFiles } from './sources.ts';
 import type { RenderSettings } from './style.ts';
 import type { Ui } from './ui.ts';
 import { fromQuery, renderChanges, toQuery, type CameraState, type ViewState } from './view-state.ts';
@@ -270,7 +273,63 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
 }
 
 
-/** The controls' Recording folder: record (a switch), download the recording, replay one (and the model's files). */
+const CLOSE = [{ label: 'Close', value: 'close', primary: true }];
+const bytesText = (n: number | undefined) => n === undefined ? 'not recorded' : `${n.toLocaleString('en-US')} byte` +
+  (n === 1 ? '' : 's');
+
+/**
+ * Makes sure the model a recording loaded is open, for replaying it in the page (the user, 2026-10-25): if the model
+ * open has the recorded SHA-256 (the hash alone decides), nothing to do; else a dialog names the model (name, size,
+ * hash, URL) and offers Open file... and Open URL... (its URL filled in, if it had one). What's picked is hashed
+ * before it's loaded: a file with another hash isn't loaded, and an error dialog says both hashes; closing it stops
+ * the replay. With no hash recorded (a URL in a recording made before 2026-10-25), any model picked is taken.
+ */
+async function openRecordedModel(ui: Ui, want: RecordedModel): Promise<boolean> {
+  const current = ui.source();
+  if (current && want.sha256 && hex(await sha256(new Uint8Array(current.bytes))) === want.sha256) return true;
+  const recorded: [string, string][] = [['Name', want.name], ['Size', bytesText(want.size)],
+    ['SHA-256', want.sha256 ?? 'not recorded'], ...(want.url ? [['URL', want.url] as [string, string]] : [])];
+  // True if the bytes are the recorded model's; else says so (the replay then stops).
+  const matches = async (name: string, bytes: ArrayBuffer) => {
+    const got = hex(await sha256(new Uint8Array(bytes)));
+    if (!want.sha256 || got === want.sha256) return true;
+    await showDialog({ title: 'Not the recorded model', error: true, buttons: CLOSE, body: [
+      `${name} isn't the model the recording was made with (their SHA-256 hashes differ), so it wasn't loaded and ` +
+      'the replay stops.', 'The recording\'s model:', recorded, 'The file opened:',
+      [['Name', name], ['Size', bytesText(bytes.byteLength)], ['SHA-256', got]]] });
+    return false;
+  };
+  for (;;) {
+    const r = await showDialog({ title: 'Open the recorded model', body: [current ? 'The recording was made with ' +
+      'another model than the one open. Open it to replay the recording:' : 'Open the model the recording was ' +
+      'made with to replay it:', recorded], buttons: [{ label: 'Open file...', value: 'file', primary: true },
+      { label: 'Open URL...', value: 'url' }, { label: 'Cancel', value: 'cancel' }] });
+    if (r.button === 'file') {
+      const files = await pickFiles();
+      if (!files.length) continue;
+      // Of several files (a .gltf with its .bin), the model's.
+      const model = files.find((f) => formatOf(f.name)) ?? files[0]!;
+      if (!(await matches(model.name, await model.arrayBuffer()))) return false;
+      return !('error' in ((await ui.openFiles(files)) ?? {}));
+    }
+    if (r.button === 'url') {
+      const url = await askUrl({ title: 'Open the recorded model by URL', body: [recorded], value: want.url });
+      if (!url) continue;
+      let src;
+      try {
+        src = await fromUrl(url);
+      } catch (e) {
+        await showDialog({ title: 'Not loaded', error: true, buttons: CLOSE, body: [(e as Error).message] });
+        continue;
+      }
+      if (!(await matches(src.name, src.bytes))) return false;
+      return !('error' in await ui.openUrl(url, src));
+    }
+    return false;
+  }
+}
+
+/** The controls' Recording folder: record (a switch), download the recording, replay one (opening its model). */
 function addRecordingControls(ui: Ui, api: CadViewer, recorder: Recorder): void {
   const folder = ui.gui.addFolder('Recording');
   const state = { on: recorder.recording };
@@ -288,21 +347,21 @@ function addRecordingControls(ui: Ui, api: CadViewer, recorder: Recorder): void 
     setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
   } }, 'download').name('Download recording');
   folder.add({ replay: async () => {
-    // The recording, and the model's files if it opened local ones, picked together.
+    // The recording alone; its models are opened as it loads them (openRecordedModel).
     const files = await pickFiles();
-    let rec: Recording | undefined;
-    const others: File[] = [];
-    for (const f of files) {
-      const parsed = f.name.endsWith('.json') ? await f.text().then((t) => JSON.parse(t) as Recording, () => undefined)
-        : undefined;
-      if (parsed?.format === RECORDING_FORMAT) rec = parsed;
-      else others.push(f);
+    if (!files.length) return;
+    const f = files[0]!;
+    const rec = f.name.toLowerCase().endsWith('.json') ? await f.text().then((t) => JSON.parse(t) as Recording,
+      () => undefined) : undefined;
+    if (rec?.format !== RECORDING_FORMAT) {
+      return void showDialog({ title: 'Not a recording', error: true, buttons: CLOSE, body: [`${f.name} isn't a ` +
+        'cad-viewer recording (the .json file that Download recording saves).'] });
     }
-    if (!rec) return ui.say('no recording among the files picked (pick the .json, with the model\'s files)', true);
     if (recorder.recording) toggle.setValue(false);
     ui.say('replaying...');
     try {
-      const r = await api.replay(rec, { files: others });
+      const r = await api.replay(rec, { openModel: (m) => openRecordedModel(ui, m) });
+      if (r.aborted) return ui.say('replay stopped: the recorded model wasn\'t opened', true);
       if (r.divergences.length) console.warn('replay:', r.divergences);
       ui.say(`replayed ${r.applied} of ${r.events} events; ${r.divergences.length ? `${r.divergences.length} ` +
         'divergences (in the console)' : 'as recorded'}`, r.divergences.length > 0);

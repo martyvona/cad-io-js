@@ -13,18 +13,21 @@
 //   control  a control changed (its folder path and value) or a button pressed (no value)
 //   camera   the camera at the end of each drag or zoom
 //   api      a call through the automation interface (cadViewer.hide, view, apply...): its method and arguments
-//   load     a model opened: its URL, or local files' names, sizes and SHA-256s; loaded: its report
+//   load     a model opened: its URL (with the bytes' size and SHA-256 once loaded), or local files' names, sizes
+//            and SHA-256s; loaded: its report
 //   resize   the view's size, and the tree panel's width if dragged; status: the status line; error: an error in
 //            the page
 //
 // Replaying applies them in order through the same operations, waiting for the viewer to be idle before each: the
-// controls' values and buttons, selections from the tree or the API, loads (local files must be given again, matched
-// by name, size and hash), the camera as it was after each drag or zoom (pointer moves themselves can't be replayed
+// controls' values and buttons, selections from the tree or the API, loads (local files given again, matched by
+// name, size and hash, or, in the page, the model checked by its hash and asked for if it isn't the one open:
+// automation.ts), the camera as it was after each drag or zoom (pointer moves themselves can't be replayed
 // in the page: the controls capture the pointer), and each pick at its recorded pixel through the view's own
 // picking, compared with what was picked then. Divergences are reported: a pick landing elsewhere, a file missing,
 // a control gone, an end state that differs. Pointer and wheel events, statuses and errors are kept for reading.
 
 import { sha256 } from 'cad-scene';
+import { formatOf } from './formats.ts';
 import { nodeForPick } from './selection.ts';
 import { setSideWidth, sideWidth } from './side-handle.ts';
 import type { Ui, UiEvent } from './ui.ts';
@@ -43,7 +46,8 @@ export type RecordedEvent = { t: number } & (
   | { type: 'control'; path: string; value?: unknown }
   | { type: 'camera'; camera: CameraState }
   | { type: 'api'; method: string; args: unknown[] }
-  | { type: 'load'; url?: string; files?: { name: string; size: number; sha256?: string }[] }
+  | { type: 'load'; url?: string; size?: number; sha256?: string; files?: { name: string; size: number;
+    sha256?: string }[] }
   | { type: 'loaded'; report: Record<string, unknown> }
   | { type: 'resize'; width: number; height: number; side?: number }
   | { type: 'status'; text: string; error: boolean }
@@ -69,7 +73,7 @@ export interface Recording {
   /** The window (CSS pixels) and device pixels per CSS pixel; the view's size. */
   window: { width: number; height: number; scale: number };
   view: { width: number; height: number };
-  /** The tree panel's width as dragged (side-handle.ts); absent, the default. Replay sets it, so the view is as wide. */
+  /** The tree panel's width as dragged (side-handle.ts); absent, the default. Replay sets it (the view as wide). */
   side?: number;
   events: RecordedEvent[];
 }
@@ -108,7 +112,7 @@ export function controlPath(c: Controller): string {
   return names.join('/');
 }
 
-const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+export const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
 
 export class Recorder {
   private readonly viewer: Viewer;
@@ -182,11 +186,13 @@ export class Recorder {
       view: { width: canvas.clientWidth, height: canvas.clientHeight }, ...side(), events: [] };
     // The model already open, as a load, so replay opens it first.
     const src = this.ui.source();
-    if (src?.url) this.push({ type: 'load', url: src.url });
-    else if (src) {
+    if (src?.url) {
+      this.push({ type: 'load', url: src.url });
+      this.hashInto(this.rec.events.at(-1) as { size?: number; sha256?: string }, src.bytes);
+    } else if (src) {
       const file: { name: string; size: number; sha256?: string } = { name: src.name, size: src.bytes.byteLength };
       this.push({ type: 'load', files: [file] });
-      void sha256(new Uint8Array(src.bytes)).then((h) => { file.sha256 = hex(h); });
+      this.hashInto(file, src.bytes);
     }
     this.push({ type: 'state', state: this.session.state(), link: this.session.link() });
   }
@@ -210,6 +216,12 @@ export class Recorder {
     return this.rec && structuredClone(this.rec);
   }
 
+  /** A model's size at once, and its SHA-256 when hashed (the event is already in its place). */
+  private hashInto(into: { size?: number; sha256?: string }, bytes: ArrayBuffer): void {
+    into.size = bytes.byteLength;
+    void sha256(new Uint8Array(bytes)).then((h) => { into.sha256 = hex(h); });
+  }
+
   private push(e: Untimed<RecordedEvent>): void {
     if (!this.rec) return;
     this.rec.events.push({ t: Math.round((performance.now() - this.t0) * 10) / 10, ...e } as RecordedEvent);
@@ -227,7 +239,15 @@ export class Recorder {
       e.files?.forEach((f, k) => void f.arrayBuffer().then((b) => sha256(new Uint8Array(b))).then((h) => {
         files![k]!.sha256 = hex(h);
       }));
-    } else if (e.type === 'loaded') this.push({ type: 'loaded', report: e.report });
+    } else if (e.type === 'loaded') {
+      // A model loaded by URL: its bytes' size and hash, now that they're here, into its load event.
+      const load = this.rec.events.findLast((x) => x.type === 'load');
+      const src = this.ui.source();
+      if (load?.type === 'load' && load.url && load.size === undefined && src?.url && !e.report.error) {
+        this.hashInto(load, src.bytes);
+      }
+      this.push({ type: 'loaded', report: e.report });
+    }
     else if (e.type === 'select') this.push({ type: 'select', source: e.source, paths: paths(e.ids) });
     else if (e.type === 'pick') {
       const r = this.viewer.renderer.domElement.getBoundingClientRect();
@@ -237,7 +257,29 @@ export class Recorder {
   }
 }
 
+/**
+ * What a load event opened: the model file's name, size and SHA-256 (as recorded; older recordings of URLs have
+ * neither), and its URL if it came from one.
+ */
+export interface RecordedModel { name: string; size?: number; sha256?: string; url?: string }
+
+/** The model a load event opened (of local files, the one in a model format; the others are its .bin, images). */
+export function recordedModel(e: Extract<RecordedEvent, { type: 'load' }>): RecordedModel {
+  if (e.url) {
+    const name = decodeURIComponent(new URL(e.url, location.href).pathname.split('/').pop() || e.url);
+    return { name, url: e.url, ...(e.size !== undefined ? { size: e.size } : {}),
+      ...(e.sha256 ? { sha256: e.sha256 } : {}) };
+  }
+  const f = e.files?.find((x) => formatOf(x.name)) ?? e.files?.[0];
+  return f ? { ...f } : { name: '' };
+}
+
 export interface ReplayOptions {
+  /**
+   * Opens each model the recording loads, in place of `files` and `urls` (the page's Replay recording...: the model
+   * open already if its hash matches, else asked for in dialogs); false stops the replay, as `aborted`.
+   */
+  openModel?: (model: RecordedModel, at: string) => Promise<boolean>;
   /** Local files the recording opened, given again (matched by name, size and hash). */
   files?: File[];
   /** URLs to use instead of the recorded ones (or for local files, by name): `{ "part.stp": "/content/part.stp" }`. */
@@ -251,6 +293,8 @@ export interface ReplayReport {
   /** Events applied (the others are kept for reading: pointer moves, wheel, statuses...). */
   applied: number;
   divergences: string[];
+  /** Why the replay stopped early (`openModel` declined), if it did. */
+  aborted?: string;
 }
 
 /** Replays a recording in this page (see the file's comment). */
@@ -297,7 +341,10 @@ export async function replay(rec: Recording, viewer: Viewer, ui: Ui, session: Se
     }
     const at = `event ${k} (${e.type}, ${e.t} ms)`;
     if (e.type === 'load') {
-      await open(e, at);
+      if (!opts.openModel) await open(e, at);
+      else if (!(await opts.openModel(recordedModel(e), at))) {
+        return { events: rec.events.length, applied, divergences, aborted: `${at}: the model wasn't opened` };
+      }
       applied++;
     } else if (e.type === 'control') {
       if (NOT_REPLAYED.test(e.path)) continue;

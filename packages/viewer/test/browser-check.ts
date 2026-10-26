@@ -1176,6 +1176,129 @@ await check('recording', async () => {
   }
   return undefined;
 });
+// Replay recording... in the page (the user, 2026-10-25): only the recording is picked (the picker stubbed here); its
+// model is taken as it is if the one open has its hash, else a dialog asks for it (Open file..., Open URL..., the
+// recorded URL filled in); a file with another hash isn't loaded, an error dialog says both hashes, and the replay
+// stops. And the File folder's Load URL... asks in a dialog (no URL field among the controls).
+await check('replay dialogs', async () => {
+  const r = await page('?check', `(async () => {
+    await cadViewer.ready;
+    const until = async (f, what) => {
+      for (const end = Date.now() + 60000; Date.now() < end;) {
+        const v = f();
+        if (v) return v;
+        await new Promise((res) => setTimeout(res, 50));
+      }
+      throw new Error('timed out waiting for ' + what);
+    };
+    const dialog = () => document.querySelector('dialog.cv-dialog[open]');
+    // The open dialog's title and text, then the button pressed (and the field filled first, if given).
+    const answer = async (label, input) => {
+      const d = await until(dialog, 'a dialog');
+      const seen = { title: d.querySelector('h2').textContent, text: d.textContent, input: d.querySelector('input')
+        ?.value, error: d.classList.contains('error') };
+      if (input !== undefined) d.querySelector('input').value = input;
+      [...d.querySelectorAll('button')].find((b) => b.textContent === label).click();
+      await until(() => !d.isConnected, 'the dialog to close');
+      return seen;
+    };
+    const picks = [];
+    window.showOpenFilePicker = async () => {
+      const files = picks.shift();
+      if (!files) throw new DOMException('cancelled', 'AbortError');
+      return files.map((f) => ({ getFile: async () => f }));
+    };
+    const control = (name) => [...document.querySelectorAll('.lil-gui .controller')]
+      .find((c) => c.textContent.trim() === name);
+    const status = () => document.getElementById('status').textContent;
+    const replay = (rec) => {
+      ui.say('');
+      picks.push([new File([JSON.stringify(rec)], 'recording.json')]);
+      control('Replay recording...').querySelector('button').click();
+    };
+    const ended = () => until(() => /^(replayed|replay stopped)/.test(status()) && status(), 'the replay');
+    const bytes = async (url) => (await fetch(url)).arrayBuffer();
+    const glb = new File([await bytes('/content/as1.glb')], 'as1.glb');
+    const other = new File([await bytes('/content/as1-noedges.glb')], 'as1-noedges.glb');
+    const record = async () => {
+      cadViewer.record(true);
+      cadViewer.hide([cadViewer.nodes().find((n) => n.kind === 'part').path]);
+      await until(() => { const l = cadViewer.recording().events.find((e) => e.type === 'load');
+        return l && (l.sha256 || l.files?.[0]?.sha256); }, 'the hash');
+      return cadViewer.record(false);
+    };
+    const out = {};
+    // A recording of a local file, replayed with it open: no dialog.
+    await ui.openFiles([glb]);
+    const local = await record();
+    replay(local);
+    out.same = { status: await ended(), dialog: !!dialog() };
+    // Another model open: asked for; opened by URL.
+    await ui.openFiles([other]);
+    replay(local);
+    out.asked = await answer('Open URL...');
+    out.urlDialog = await answer('Load', '/content/as1.glb');
+    out.byUrl = { status: await ended(), model: cadViewer.state().model?.name };
+    // A file with another hash: not loaded; said; the replay stops.
+    await ui.openFiles([other]);
+    replay(local);
+    picks.push([other]);
+    await answer('Open file...');
+    out.wrong = await answer('Close');
+    out.wrongEnd = { status: await ended(), model: cadViewer.state().model?.name };
+    // Cancelled: stops.
+    replay(local);
+    await answer('Cancel');
+    out.cancelled = await ended();
+    // The right file picked: loaded, replayed.
+    replay(local);
+    picks.push([glb]);
+    await answer('Open file...');
+    out.byFile = { status: await ended(), model: cadViewer.state().model?.name };
+    // A URL loaded while recording: its size and hash recorded (once fetched), the URL filled in.
+    await ui.openFiles([other]);
+    cadViewer.record(true);
+    await ui.openUrl('/content/as1.glb');
+    await until(() => cadViewer.recording().events.find((e) => e.url)?.sha256, 'the hash of the URL');
+    const byUrl = cadViewer.record(false);
+    out.urlLoad = byUrl.events.find((e) => e.url);
+    await ui.openFiles([other]);
+    replay(byUrl);
+    await answer('Open URL...');
+    out.filled = await answer('Load');
+    out.filledEnd = await ended();
+    // Not a recording.
+    picks.push([other]);
+    control('Replay recording...').querySelector('button').click();
+    out.notRecording = await answer('Close');
+    // File: no URL field; Load URL... asks.
+    out.urlField = !!control('URL');
+    control('Load URL...').querySelector('button').click();
+    out.loadUrl = await answer('Load', '/content/as1-noedges.glb');
+    await until(() => cadViewer.state().model?.name === 'as1-noedges.glb', 'the URL loaded');
+    return out;
+  })()`) as { after: Record<string, any> }; // eslint-disable-line @typescript-eslint/no-explicit-any
+  const a = r.after;
+  const j = JSON.stringify(a);
+  expect(!a.error, `the page: ${a.error}`);
+  const asRecorded = (s: string | undefined) => /^replayed \d+ of \d+ events; as recorded/.test(s ?? '');
+  expect(asRecorded(a.same?.status) && !a.same.dialog, `the model open: ${j}`);
+  expect(a.asked?.title === 'Open the recorded model' && /as1\.glb/.test(a.asked.text) && /[0-9a-f]{64}/.test(
+    a.asked.text) && /bytes/.test(a.asked.text) && a.urlDialog?.input === '', `asked for: ${j}`);
+  expect(asRecorded(a.byUrl?.status) && a.byUrl.model === 'as1.glb', `opened by URL: ${j}`);
+  const hashes = (a.wrong?.text ?? '').match(/[0-9a-f]{64}/g) ?? [];
+  expect(a.wrong?.error && a.wrong.title === 'Not the recorded model' && /as1-noedges\.glb/.test(a.wrong.text) &&
+    new Set(hashes).size === 2, `a wrong file: ${j}`);
+  expect(/^replay stopped/.test(a.wrongEnd?.status) && a.wrongEnd.model === 'as1-noedges.glb', `wrong, then: ${j}`);
+  expect(/^replay stopped/.test(a.cancelled), `cancelled: ${j}`);
+  expect(asRecorded(a.byFile?.status) && a.byFile.model === 'as1.glb', `opened by file: ${j}`);
+  expect(/\/content\/as1\.glb$/.test(a.urlLoad?.url) && a.urlLoad.size > 0 && /^[0-9a-f]{64}$/.test(a.urlLoad.sha256),
+    `a URL's size and hash recorded: ${j}`);
+  expect(/\/content\/as1\.glb$/.test(a.filled?.input) && asRecorded(a.filledEnd), `the URL filled in: ${j}`);
+  expect(a.notRecording?.error && a.notRecording.title === 'Not a recording', `not a recording: ${j}`);
+  expect(a.urlField === false && a.loadUrl?.title === 'Load URL', `Load URL...: ${j}`);
+  return undefined;
+});
 await check('not a model', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/notes.txt')}&check`);
   expect(typeof r.error === 'string' && /unknown format/.test(r.error), `report ${JSON.stringify(r)}`);
