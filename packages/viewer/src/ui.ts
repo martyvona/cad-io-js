@@ -97,9 +97,11 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
 
   // Meshing again (the same model, other settings) keeps the view: the camera, centring and planes (Viewer.load's
   // `keep`), and the hidden and selected nodes, by their paths, restored as the nodes they name arrive (faces, edges
-  // and curves only with their part's mesh); what never arrives (a part that fails this time) is dropped. Not the
-  // tree's expansion: the tree is new.
-  let restore: { hidden: Set<string>; selected: string[]; pending: string[] } | undefined;
+  // and curves only with their part's mesh); what never arrives (the faces, edges or curves of a part that fails this
+  // time) is reported in the status line, its paths in the console. The new tree is expanded as the last was, and
+  // scrolled to the same row at its top, again as rows arrive above it, until the user scrolls or clicks in it.
+  let restore: { hidden: Set<string>; selected: string[]; pending: string[]; expanded: string[];
+    top?: { path: string; offset: number } } | undefined;
   const restoreNodes = () => {
     const nodes = viewer.nodes;
     if (!restore || !nodes) return;
@@ -112,7 +114,11 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     if (hide.length) ui.setHidden(hide, true);
     if (!restore.selected.length) return;
     const sel = restore.selected.flatMap((p) => nodes.find(p) ?? []);
-    if (sel.length !== selected.length) select(sel);
+    if (sel.length !== selected.length) select(sel, 'api', false);
+  };
+  const anchorTree = () => {
+    const id = restore?.top && viewer.nodes?.find(restore.top.path);
+    if (id !== undefined && panel) panel.scrollToRow(id, restore!.top!.offset);
   };
   const open = async (get: () => Promise<Source | undefined>, what: string, keep = false):
     Promise<Record<string, unknown>> => {
@@ -130,6 +136,10 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       await viewer.load(src, { keep });
       if (!viewer.latest(gen)) return { superseded: true };
       restoreNodes();
+      panel?.refresh();
+      anchorTree();
+      const lost = restore ? { hidden: restore.pending, selected: restore.selected.filter((p) =>
+        viewer.nodes?.find(p) === undefined) } : { hidden: [], selected: [] };
       restore = undefined;
       fitPlanes();
       const s = viewer.stats()!;
@@ -142,13 +152,19 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       const parts = m.parts ? `; ${m.parts.done - m.parts.failed} of ${m.parts.total} parts meshed` +
         (m.parts.failed ? `, ${m.parts.failed} failed` : '') : '';
       const problems = (m.diagnostics ?? []).filter((d) => d.severity !== 'info').length;
+      const counts = [];
+      if (lost.hidden.length) counts.push(`${lost.hidden.length} hidden`);
+      if (lost.selected.length) counts.push(`${lost.selected.length} selected`);
+      const notRestored = counts.length ? `; ${counts.join(' and ')} not found again (in the console)` : '';
       say(`${src.name}: ${((performance.now() - t) / 1000).toFixed(1)} s${parts}` +
-        (problems ? `; ${problems} warnings and errors (in the console)` : ''));
+        (problems ? `; ${problems} warnings and errors (in the console)` : '') + notRestored);
       if (problems) console.warn(m.diagnostics);
+      if (notRestored) console.warn('meshed again, not found again:', lost);
       const box = visibleBox(viewer.display);
       const r: Record<string, unknown> = { name: src.name, seconds: (performance.now() - t) / 1000, parts: m.parts,
         stats: s, centroid: viewer.model?.centroid?.toArray(), box: [box.min.toArray(), box.max.toArray()],
-        camera: { top: viewer.camera.top, target: viewer.controls.target.toArray() } };
+        camera: { top: viewer.camera.top, target: viewer.controls.target.toArray() },
+        ...(notRestored ? { notRestored: lost } : {}) };
       report(r);
       hooks.onEvent?.({ type: 'loaded', report: r });
       return r;
@@ -278,8 +294,10 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     if (!last) return;
     const nodes = viewer.nodes;
     const hidden = nodes ? nodes.nodes.filter((n) => n.hidden).map((n) => nodes.pathOf(n.id)) : [];
+    const top = panel?.topRow();
     restore = { hidden: new Set(hidden), selected: nodes ? selected.map((id) => nodes.pathOf(id)) : [],
-      pending: hidden };
+      pending: hidden, expanded: nodes && panel ? panel.expanded().map((id) => nodes.pathOf(id)) : [],
+      ...(nodes && top ? { top: { path: nodes.pathOf(top.id), offset: top.offset } } : {}) };
     return open(async () => last, last.name, true);
   } }, 'reload').name('Mesh again');
   step.add({ defaults: () => { Object.assign(settings, DEFAULT_SETTINGS); step.controllers.forEach((c) =>
@@ -315,11 +333,11 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     if (selection.details && viewer.nodes) detailsElement.textContent = details(viewer.nodes, selected).join('\n');
   };
   /** Sets the selection; from the 3D view (or code), the tree follows. */
-  const select = (ids: readonly number[], source: 'tree' | 'pick' | 'api' = 'api') => {
+  const select = (ids: readonly number[], source: 'tree' | 'pick' | 'api' = 'api', reveal = true) => {
     selected = [...new Set(ids)];
     // A selection made while meshing again replaces the one being restored.
     if (source !== 'api' && restore) restore.selected = [];
-    if (source !== 'tree') panel?.select(selected);
+    if (source !== 'tree') panel?.select(selected, reveal);
     hooks.onEvent?.({ type: 'select', source, ids: selected });
     zoomSelected.enable(selected.length > 0);
     highlight();
@@ -331,14 +349,16 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     selected = [];
     zoomSelected.disable();
     panel = new TreePanel(treeElement, nodes);
+    panel.onSelect = (ids) => select(ids, 'tree');
+    if (tree.detail) panel.setDetail(true);
     if (restore) {
       // The file's own hiding gives way to what was hidden before.
       ui.setHidden(nodes.nodes.filter((n) => n.hidden && !restore!.hidden.has(nodes.pathOf(n.id))).map((n) => n.id),
         false);
+      panel.setExpanded(restore.expanded.flatMap((p) => nodes.find(p) ?? []));
       restoreNodes();
+      anchorTree();
     } else resetPlanes();
-    panel.onSelect = (ids) => select(ids, 'tree');
-    if (tree.detail) panel.setDetail(true);
     if (!narrow && !tree.closedByHand && !tree.open) openControl?.setValue(true);
     describe();
   };
@@ -367,8 +387,13 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       refresh = false;
       restoreNodes();
       panel?.refresh();
+      anchorTree();
     });
   };
+  // Scrolling or clicking in the tree while meshing again ends keeping its top row.
+  for (const e of ['wheel', 'pointerdown', 'keydown', 'touchstart'] as const) {
+    treeElement.addEventListener(e, () => { if (restore) delete restore.top; }, { passive: true });
+  }
   // Hiding faces changes materials: the highlight comes off first, and goes back on after.
   const hide = (hidden: boolean, ids: readonly number[] = selected) => {
     if (!panel) return;

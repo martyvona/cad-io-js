@@ -96,9 +96,16 @@ export class HeadlessTreeView implements TreeView {
     this.draw();
   }
 
+  /** The scroller's height for the rows now (drawing sets it too, but only at the next frame). */
+  private fitSpacer(): void {
+    this.spacer.style.height = `${this.tree.getItems().length * this.opts.rowHeight}px`;
+  }
+
   private scrollTo(index: number): void {
     const h = this.opts.rowHeight;
     if (index < 0) return;
+    // So the new rows can be scrolled to before they're drawn.
+    this.fitSpacer();
     if (index * h < this.scroller.scrollTop) this.scroller.scrollTop = index * h;
     else if ((index + 1) * h > this.scroller.scrollTop + this.scroller.clientHeight) {
       this.scroller.scrollTop = (index + 1) * h - this.scroller.clientHeight;
@@ -138,7 +145,7 @@ export class HeadlessTreeView implements TreeView {
   private draw(): void {
     const h = this.opts.rowHeight;
     const items = this.tree.getItems();
-    this.spacer.style.height = `${items.length * h}px`;
+    this.fitSpacer();
     const first = Math.max(0, Math.floor(this.scroller.scrollTop / h) - OVERSCAN);
     const last = Math.min(items.length, Math.ceil((this.scroller.scrollTop + this.scroller.clientHeight) / h) +
       OVERSCAN);
@@ -182,6 +189,31 @@ export class HeadlessTreeView implements TreeView {
     const expanded = new Set([...this.tree.getState().expandedItems ?? [], ...ids]);
     this.tree.applySubStateUpdate('expandedItems', [...expanded]);
     this.tree.rebuildTree();
+    this.schedule();
+  }
+
+  expanded(): string[] {
+    return [...this.tree.getState().expandedItems ?? []];
+  }
+
+  setExpanded(ids: readonly string[]): void {
+    this.tree.applySubStateUpdate('expandedItems', [...ids]);
+    this.tree.rebuildTree();
+    this.schedule();
+  }
+
+  topRow(): { id: string; offset: number } | undefined {
+    const h = this.opts.rowHeight;
+    const index = Math.floor(this.scroller.scrollTop / h);
+    const item = this.tree.getItems()[index];
+    return item && { id: item.getId(), offset: this.scroller.scrollTop - index * h };
+  }
+
+  scrollToRow(id: string, offset: number): void {
+    const index = this.tree.getItems().findIndex((i) => i.getId() === id);
+    if (index < 0) return;
+    this.fitSpacer();
+    this.scroller.scrollTop = index * this.opts.rowHeight + offset;
     this.schedule();
   }
 

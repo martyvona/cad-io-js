@@ -779,7 +779,9 @@ await check('phone', async () => {
 });
 // The import worker, the only way STEP files load (the page has no tessellation of its own); every folder of the
 // controls closed at first; Zoom selected in View, enabled only with a selection; Mesh again (at another deflection,
-// the cache off) keeps the camera, centring, a cut, what's hidden and what's selected, and meshes anew.
+// the cache off) keeps the camera, centring, a cut, what's hidden and what's selected, the tree's expansion (detail
+// on, all expanded but one assembly) and the row at its top (scrolled partway), and meshes anew; meshed again
+// once more with those nodes not coming back (simulated: their paths not found), the status line says so.
 await check('mesh again', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
     const folders = ui.gui.foldersRecursive();
@@ -798,6 +800,20 @@ await check('mesh again', async () => {
     ui.setHidden([parts[0].id], true);
     ui.select([parts[1].id]);
     const enabledSelected = !zoom._disabled;
+    ui.setTree({ open: true, detail: true });
+    ui.panel().expandAll();
+    const assembly = m.nodes.find((n) => n.kind === 'assembly' && n.parent >= 0 && m.nodes[n.parent].parent >= 0);
+    ui.panel().setExpanded(ui.panel().expanded().filter((id) => id !== assembly.id));
+    const scroller = document.querySelector('.tree-scroller');
+    await new Promise((r) => requestAnimationFrame(r));
+    scroller.scrollTop = 20 * 18 + 5;
+    await new Promise((r) => requestAnimationFrame(r));
+    const treeState = () => {
+      const p = ui.panel(), n = viewer.nodes, t = p.topRow();
+      return { expanded: p.expanded().map((id) => n.pathOf(id)).sort(), top: t && [n.pathOf(t.id), t.offset],
+        rows: scroller.scrollHeight > scroller.clientHeight + 20 * 18 };
+    };
+    const treeBefore = treeState();
     const before = cadViewer.state();
     const triangles = viewer.stats().triangles;
     const model = viewer.model;
@@ -809,11 +825,31 @@ await check('mesh again', async () => {
     }
     await cadViewer.idle();
     const after = cadViewer.state();
+    const treeAfter = treeState();
+    const zoomAfter = !zoom._disabled;
+    const lostPaths = [...after.hidden, ...after.selected];
+    const proto = Object.getPrototypeOf(viewer.nodes);
+    const find = proto.find;
+    proto.find = function (p) { return lostPaths.includes(p) ? undefined : find.call(this, p); };
+    const again = viewer.model;
+    try {
+      button('Mesh again').$button.click();
+      for (let t = 0; t < 1200 && (viewer.model === again || !viewer.model?.meshing); t++) {
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      await cadViewer.idle();
+    } finally {
+      proto.find = find;
+    }
+    const lost = { status: document.getElementById('status').textContent,
+      notRestored: JSON.parse(document.body.dataset.report).notRestored, paths: lostPaths };
     return { allClosed, disabledEmpty, enabledSelected, backend: meshing?.backend, pageTessellation, before, after,
-      triangles: [triangles, viewer.stats().triangles], zoomAfter: !zoom._disabled };
+      triangles: [triangles, viewer.stats().triangles], zoomAfter, lost, tree: [treeBefore, treeAfter] };
   })()`) as { after: { allClosed: boolean; disabledEmpty: boolean; enabledSelected: boolean; backend?: string;
     pageTessellation: boolean; triangles: number[]; zoomAfter: boolean; before: Record<string, unknown>;
-    after: Record<string, unknown> } };
+    after: Record<string, unknown>; tree: { expanded: string[]; top?: [string, number]; rows: boolean }[];
+    lost: { status: string; paths: string[];
+    notRestored?: { hidden: string[]; selected: string[] } } } };
   const a = r.after;
   const j = JSON.stringify(a);
   expect(a.allClosed, `folders closed at first: ${j}`);
@@ -827,6 +863,15 @@ await check('mesh again', async () => {
   }
   expect((a.after.hidden as string[]).length === 1 && (a.after.selected as string[]).length === 1 &&
     a.after.centered === true && 'x' in (a.after.cut as object), `the state set: ${j}`);
+  const [tb, ta] = a.tree;
+  expect(tb!.rows && tb!.expanded.length > 3 && tb!.top?.[1] === 5, `the tree set: ${JSON.stringify(tb)}`);
+  expect(JSON.stringify(tb!.expanded) === JSON.stringify(ta!.expanded), `the tree's expansion kept: ${
+    JSON.stringify(a.tree)}`);
+  expect(JSON.stringify(tb!.top) === JSON.stringify(ta!.top), `the tree's top row kept: ${JSON.stringify(a.tree)}`);
+  const l = a.lost;
+  expect(/; 1 hidden and 1 selected not found again \(in the console\)$/.test(l.status) &&
+    l.notRestored?.hidden.join() === l.paths[0] && l.notRestored?.selected.join() === l.paths[1],
+    `not found again: ${JSON.stringify(l)}`);
   return undefined;
 });
 await check('no model', async () => {

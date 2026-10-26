@@ -66,11 +66,31 @@ export class TreePanel {
     return this.selection;
   }
 
-  /** Selects nodes from elsewhere (picking), showing the first. */
-  select(ids: readonly number[]): void {
+  /** Selects nodes from elsewhere (picking), showing the first unless `reveal` is false. */
+  select(ids: readonly number[], reveal = true): void {
     this.selection = [...ids];
     this.view.setSelection(ids.map(String));
-    if (ids.length) this.view.reveal(String(ids[0]));
+    if (ids.length && reveal) this.view.reveal(String(ids[0]));
+  }
+
+  /** The expanded nodes. */
+  expanded(): number[] {
+    return this.view.expanded().map(Number);
+  }
+
+  /** Expands exactly these nodes (instead of the first two levels). */
+  setExpanded(ids: readonly number[]): void {
+    this.view.setExpanded(ids.map(String));
+  }
+
+  /** The node at the top of the view, and how many pixels of its row are scrolled past. */
+  topRow(): { id: number; offset: number } | undefined {
+    const t = this.view.topRow();
+    return t && { id: Number(t.id), offset: t.offset };
+  }
+
+  scrollToRow(id: number, offset: number): void {
+    this.view.scrollToRow(String(id), offset);
   }
 
   /** Parts show their faces, edges, curves and points, or not. */

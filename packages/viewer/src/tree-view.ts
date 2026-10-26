@@ -37,6 +37,14 @@ export interface TreeView {
   setSelection(ids: readonly string[]): void;
   /** Expands these nodes (leaving others as they are). */
   expand(ids: readonly string[]): void;
+  /** The expanded nodes. */
+  expanded(): string[];
+  /** Expands exactly these nodes. */
+  setExpanded(ids: readonly string[]): void;
+  /** The row at the top of the view, and how many pixels of it are scrolled past (none with no rows). */
+  topRow(): { id: string; offset: number } | undefined;
+  /** Scrolls so a row is at the top of the view, scrolled past by `offset` pixels (as `topRow` gave them). */
+  scrollToRow(id: string, offset: number): void;
   /** Expands a node's ancestors and scrolls it into view. */
   reveal(id: string): void;
   expandAll(): void;
