@@ -3,8 +3,8 @@ import { test } from 'node:test';
 import { interpolateCamera } from '../src/camera.ts';
 import type { CameraState } from '../src/view-state.ts';
 
-const near = (a: readonly number[], b: readonly number[], what: string) =>
-  assert.ok(a.every((v, i) => Math.abs(v - b[i]!) < 1e-9), `${what}: ${JSON.stringify(a)}, wanted ${JSON.stringify(b)}`);
+const near = (a: readonly number[], b: readonly number[], what: string) => assert.ok(
+  a.every((v, i) => Math.abs(v - b[i]!) < 1e-9), `${what}: ${JSON.stringify(a)}, wanted ${JSON.stringify(b)}`);
 
 // From the front (looking along +Y, Z up) at 100 mm to the right side (looking along -X) at 300 mm, about another
 // target, zoomed in from a 400 mm view to 100 mm.

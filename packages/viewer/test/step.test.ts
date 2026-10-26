@@ -119,8 +119,10 @@ test('detectEdges: meshes without lines of their own beside them; not instanced 
 });
 
 test('workers: one less than the cores, at most 8, at most 3 on touch devices, at least 1', () => {
-  assert.equal(workerCount(10, false), 8);
-  assert.equal(workerCount(6, false), 5);
-  assert.equal(workerCount(8, true), 3);
-  assert.equal(workerCount(1, false), 1);
+  assert.equal(workerCount('desktop', 10), 8);
+  assert.equal(workerCount('desktop', 6), 5);
+  assert.equal(workerCount('phone', 8), 3);
+  assert.equal(workerCount('tablet', 8), 3);
+  assert.equal(workerCount('tablet', 2), 1);
+  assert.equal(workerCount('desktop', 1), 1);
 });

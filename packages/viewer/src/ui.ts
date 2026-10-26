@@ -13,7 +13,8 @@ import { AXES, DEFAULT_SECTIONS, type SectionSettings } from './section.ts';
 import { boxOf, Highlighter, instancesOf, nodeForPick, piecesOf, type PickLevel } from './selection.ts';
 import { addSideHandle } from './side-handle.ts';
 import type { RenderSettings } from './style.ts';
-import { DEFAULT_SETTINGS } from './tessellation.ts';
+import { DEVICE_PROFILES, setDeviceOverride, type DeviceClass } from './device.ts';
+import { defaultSettings, profileSettings } from './tessellation.ts';
 import { TreePanel } from './tree-panel.ts';
 import { fromFiles, fromUrl, pickFiles } from './sources.ts';
 import { visibleBox, type Viewer } from './viewer.ts';
@@ -281,14 +282,36 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     .onChange(restyle);
   rendering.add(look, 'smaa').name('Antialiasing (SMAA)').onChange(restyle);
   rendering.add(look, 'edges').name('Edges').onChange(restyle);
+  rendering.add(look, 'triangleEdges', { Off: 'off', Selected: 'selected', All: 'all' }).name('Triangle edges')
+    .onChange(restyle);
   rendering.add(look, 'shininess', 0, 100, 1).name('Shininess').onChange(restyle);
   rendering.add(look, 'cadMaterials').name('Phong for glTF, three.js (next file)');
 
   const step = gui.addFolder('B-Rep Meshing');
   const settings = viewer.settings;
+  const shown = () => step.controllers.forEach((c) => c.updateDisplay());
+  // The device's class (device.ts), detected or chosen: choosing one also sets its profile.
+  const device = { choice: (viewer.device === viewer.detectedDevice ? 'auto' : viewer.device) as DeviceClass | 'auto' };
+  step.add(device, 'choice', { [`Auto (${viewer.detectedDevice})`]: 'auto', Phone: 'phone', Tablet: 'tablet',
+    Desktop: 'desktop' }).name('Device').onChange((c: DeviceClass | 'auto') => {
+    setDeviceOverride(c === 'auto' ? undefined : c);
+    viewer.device = c === 'auto' ? viewer.detectedDevice : c;
+    Object.assign(settings, profileSettings(DEVICE_PROFILES[viewer.device]));
+    shown();
+  });
   step.add(settings, 'backend', ['occt', 'truck']).name('Backend');
-  step.add(settings, 'linearDeflection', 0.001, 10).name('Deflection (mm)');
-  step.add(settings, 'angularDeflection', 1, 90).name('Angle (degrees)');
+  step.add(settings, 'profile', { Coarse: 'coarse', Medium: 'medium', Fine: 'fine', Custom: 'custom' })
+    .name('Profile').onChange((p: typeof settings.profile) => {
+      if (p !== 'custom') Object.assign(settings, profileSettings(p));
+      shown();
+    });
+  // Either deflection moved: custom.
+  const custom = () => {
+    settings.profile = 'custom';
+    shown();
+  };
+  step.add(settings, 'linearDeflection', 0.001, 10).name('Deflection (mm)').onChange(custom);
+  step.add(settings, 'angularDeflection', 1, 90).name('Angle (degrees)').onChange(custom);
   step.add(settings, 'cache').name('Cache (IndexedDB)');
   step.add({ reload: () => {
     if (!last) return;
@@ -300,8 +323,10 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       ...(nodes && top ? { top: { path: nodes.pathOf(top.id), offset: top.offset } } : {}) };
     return open(async () => last, last.name, true);
   } }, 'reload').name('Mesh again');
-  step.add({ defaults: () => { Object.assign(settings, DEFAULT_SETTINGS); step.controllers.forEach((c) =>
-    c.updateDisplay()); } }, 'defaults').name('Defaults');
+  step.add({ defaults: () => {
+    Object.assign(settings, defaultSettings(DEVICE_PROFILES[viewer.device]));
+    shown();
+  } }, 'defaults').name('Defaults');
   step.add({ clear: () => viewer.clearCache().then(() => say('cache cleared'),
     (e: Error) => say(`cache: ${e.message}`, true)) }, 'clear').name('Clear cache');
 
@@ -325,7 +350,9 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     if (!nodes) return highlighter.clear();
     const others = selection.instances ? selected.filter((id) => nodes.nodes[id]!.kind === 'part').flatMap(
       (id) => instancesOf(nodes, id)) : [];
-    highlighter.apply(piecesOf(nodes, selected), piecesOf(nodes, others));
+    const pieces = piecesOf(nodes, selected);
+    highlighter.apply(pieces, piecesOf(nodes, others));
+    viewer.triangleEdges.select(pieces);
     viewer.redraw();
   };
   const describe = () => {
@@ -347,6 +374,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     panel?.dispose();
     highlighter.clear();
     selected = [];
+    viewer.triangleEdges.select([]);
     zoomSelected.disable();
     panel = new TreePanel(treeElement, nodes);
     panel.onSelect = (ids) => select(ids, 'tree');

@@ -6,7 +6,7 @@
 //   ?url=<model>&view=iso                      an axis view, fitted (or camera=, exactly)
 //   &camera=px,py,pz,tx,ty,tz,ux,uy,uz,height  position, target, up, and the viewport's height in world mm
 //   &centered=1  &cut=x:12.5  &cut=y:-3:flip  &caps=0
-//   &ao=0  &smaa=0  &edges=0  &shininess=50  &aoIntensity=3  &aoRadius=16  &aoQuality=Low
+//   &ao=0  &smaa=0  &edges=0  &triangleEdges=all  &shininess=50  &aoIntensity=3  &aoRadius=16  &aoQuality=Low
 //   &tree=0  &detail=1  &pick=detail  &instances=1
 //   &hide=<path>  &select=<path>               each repeated
 //
@@ -46,6 +46,7 @@ const VIEW_NAMES: readonly ViewName[] = ['front', 'back', 'left', 'right', 'top'
 const PICKS: readonly PickLevel[] = ['assembly', 'part', 'detail'];
 const QUALITIES: readonly RenderSettings['aoQuality'][] = ['Performance', 'Low', 'Medium', 'High', 'Ultra'];
 const FLAGS = ['ao', 'smaa', 'edges', 'cadMaterials'] as const;
+const TRIANGLE_EDGES: readonly RenderSettings['triangleEdges'][] = ['off', 'selected', 'all'];
 const NUMBERS = ['shininess', 'aoIntensity', 'aoRadius'] as const;
 
 const num = (x: number) => String(Math.round(x * 1e6) / 1e6);
@@ -71,6 +72,7 @@ export function toQuery(s: ViewState): [string, string][] {
   for (const k of FLAGS) if (s.render?.[k] !== undefined) q.push([k, s.render[k] ? '1' : '0']);
   for (const k of NUMBERS) if (s.render?.[k] !== undefined) q.push([k, num(s.render[k]!)]);
   if (s.render?.aoQuality) q.push(['aoQuality', s.render.aoQuality]);
+  if (s.render?.triangleEdges) q.push(['triangleEdges', s.render.triangleEdges]);
   if (s.tree?.open !== undefined) q.push(['tree', s.tree.open ? '1' : '0']);
   if (s.tree?.detail !== undefined) q.push(['detail', s.tree.detail ? '1' : '0']);
   if (s.pick) q.push(['pick', s.pick]);
@@ -131,6 +133,12 @@ export function fromQuery(params: URLSearchParams): { state: ViewState; problems
     if (QUALITIES.includes(quality as RenderSettings['aoQuality'])) render.aoQuality =
       quality as RenderSettings['aoQuality'];
     else problems.push(`aoQuality: not one of ${QUALITIES.join(', ')}: ${quality}`);
+  }
+  const edges = params.get('triangleEdges');
+  if (edges !== null) {
+    if (TRIANGLE_EDGES.includes(edges as RenderSettings['triangleEdges'])) render.triangleEdges =
+      edges as RenderSettings['triangleEdges'];
+    else problems.push(`triangleEdges: not one of ${TRIANGLE_EDGES.join(', ')}: ${edges}`);
   }
   if (Object.keys(render).length) state.render = render;
   const open = bool(params.get('tree'));

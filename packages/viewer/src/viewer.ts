@@ -23,9 +23,11 @@ import { Composer } from './render.ts';
 import { AXES, Sections, type SectionSettings } from './section.ts';
 import { detectEdges, StepGraph } from './step.ts';
 import { cadStyle, DEFAULT_RENDER, edgeLayer, type RenderSettings } from './style.ts';
+import { TriangleEdges } from './triangle-edges.ts';
 import type { FromImportWorker, ToImportWorker } from './import-worker.ts';
 import type { Meshing, StepEvent } from './step-load.ts';
-import { clearCache, DEFAULT_SETTINGS, workerCount, type TessellationSettings } from './tessellation.ts';
+import { clearCache, defaultSettings, workerCount, type TessellationSettings } from './tessellation.ts';
+import { classifyDevice, DEVICE_PROFILES, deviceOverride, deviceSignals, type DeviceClass } from './device.ts';
 
 export interface ModelInfo {
   name: string;
@@ -124,9 +126,16 @@ export class Viewer {
   private readonly composer: Composer;
   /** The section planes and their caps. */
   readonly sections: Sections;
+  /** Every triangle's edges, when the rendering settings say so. */
+  readonly triangleEdges = new TriangleEdges();
   /** The rendering settings; apply changes with setRender. */
   render: RenderSettings = { ...DEFAULT_RENDER };
-  settings: TessellationSettings = { ...DEFAULT_SETTINGS };
+  /** The device's class as detected (device.ts). */
+  readonly detectedDevice: DeviceClass = classifyDevice(deviceSignals());
+  /** The class used: detected, or the user's choice; it caps the workers (from the next load). */
+  device: DeviceClass = deviceOverride() ?? this.detectedDevice;
+  /** The meshing settings: the device's profile at first. */
+  settings: TessellationSettings = defaultSettings(DEVICE_PROFILES[this.device]);
   /** Progress messages while loading. */
   onStatus?: (text: string) => void;
   /** The node model of the model just shown (its tree, hiding). */
@@ -159,7 +168,7 @@ export class Viewer {
     this.camera.add(light);
     this.scene.add(this.camera, this.display);
     this.display.add(this.frame);
-    this.scene.add(this.sections.group);
+    this.scene.add(this.sections.group, this.triangleEdges.group);
     this.camera.up.set(0, 0, 1);
     this.camera.position.set(1, -1, 1);
 
@@ -221,6 +230,8 @@ export class Viewer {
     this.controls.update();
     clipTo(this.camera, this.bounds);
     this.sections.update(this.root ? this.display : undefined);
+    if (this.render.triangleEdges !== 'off' && this.root) this.display.updateWorldMatrix(true, true);
+    this.triangleEdges.update(this.root ? this.display : undefined, this.render.triangleEdges);
     this.composer.render();
     return this.interacting || this.changed;
   }
@@ -307,6 +318,7 @@ export class Viewer {
     this.frame.add(root);
     this.model = model;
     this.moved = !!keep;
+    this.triangleEdges.invalidate();
     if (keep?.centroid) {
       model.centroid = keep.centroid;
       this.centered = keep.centered;
@@ -327,7 +339,7 @@ export class Viewer {
     this.abortLoad = () => wake?.();
     this.importListeners.set(gen, (m) => (m.type === 'error' ? fail(new Error(m.message)) : push(m)));
     const msg: ToImportWorker = { type: 'load', load: gen, bytes, settings: { ...this.settings },
-      workers: workerCount() };
+      workers: workerCount(this.device) };
     this.importer().postMessage(msg, [bytes.buffer]);
     const listeners = this.importListeners;
     const latest = () => gen === this.generation;
@@ -378,6 +390,7 @@ export class Viewer {
     const added = (part: number) => {
       for (const p of graph!.placements.get(part) ?? []) this.nodes?.invalidate(p.group);
       this.sections.invalidate();
+      this.triangleEdges.invalidate();
       this.onMeshes?.();
     };
     const progress = () => this.onStatus?.(`${src.name}: meshed ${model!.parts!.done} of ${model!.parts!.total} ` +

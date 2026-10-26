@@ -36,7 +36,11 @@ fs.mkdirSync(content);
 const { scene } = await importStep(fs.readFileSync(step));
 const occt = new OcctTessellator();
 await occt.init();
-const { meshes } = await tessellateScene(scene, occt, { linearDeflection: 0.1, angularDeflection: 0.5, edges: true });
+// The viewer's meshing on a desktop (the library's default profile, medium); and on a phone, coarse.
+const { meshes } = await tessellateScene(scene, occt, { edges: true });
+const placed = [...partInstances(scene)].filter((p) => p.visible);
+const coarseTriangles = [...(await tessellateScene(scene, occt, { profile: 'coarse' })).meshes].reduce((s, [part, m]) =>
+  s + placed.filter((p) => p.part === part).length * m.indices.length / 3, 0);
 occt.dispose();
 const view = exportView(scene, meshes, { edges: true });
 fs.writeFileSync(path.join(content, 'as1.glb'), (await glb(scene, view)).bytes);
@@ -46,6 +50,8 @@ fs.writeFileSync(path.join(content, 'as1-meshopt.bin'), meshopt.bin);
 fs.writeFileSync(path.join(content, 'as1.json'), threejsJson(scene, view));
 fs.writeFileSync(path.join(content, 'as1.json.extras.json'), threejsJson(scene, view, { extras: true }));
 fs.writeFileSync(path.join(content, 'as1-noedges.glb'), (await glb(scene, exportView(scene, meshes))).bytes);
+// Its parts placed more than once as GPU instances (EXT_mesh_gpu_instancing: three.js InstancedMeshes).
+fs.writeFileSync(path.join(content, 'as1-instanced.glb'), (await glb(scene, view, { instancing: true })).bytes);
 fs.copyFileSync(step, path.join(content, 'as1.stp'));
 // Half transparent everywhere (a copy of the scene's materials at opacity 0.5).
 const clear = { ...scene, materials: scene.materials.map((m) => ({ ...m, opacity: 0.5 })) };
@@ -736,7 +742,8 @@ await check('picks match what is drawn', async () => {
   return undefined;
 });
 // A phone (emulated: narrow, touch): the tree and the controls start closed, the page doesn't scroll or bounce,
-// three workers at most, no handle for the tree's width, and a tap (touch events) on a part selects it.
+// detected as a phone, so three workers at most and the coarse profile, no handle for the tree's width, and a tap
+// (touch events) on a part selects it.
 await check('phone', async () => {
   const evaluate = async (sessionId: string, expression: string) => ((await send('Runtime.evaluate', { expression,
     returnByValue: true, awaitPromise: true }, sessionId)) as { result: { value: unknown } }).result.value;
@@ -757,7 +764,8 @@ await check('phone', async () => {
       guiClosed: document.querySelector('.lil-gui.root').classList.contains('closed'),
       overscroll: getComputedStyle(document.body).overscrollBehaviorY, touch: navigator.maxTouchPoints,
       handle: getComputedStyle(document.getElementById('side-handle')).display,
-      workers: viewer.model.meshing?.workers, spot };
+      workers: viewer.model.meshing?.workers, spot, device: cadViewer.state().device,
+      triangles: viewer.stats().triangles };
   })()`, { phone: true, then: async (sessionId, after) => {
     // A tap: a touch down and up at the spot, as a finger would.
     const spot = (after as { spot?: { x: number; y: number } }).spot;
@@ -768,10 +776,13 @@ await check('phone', async () => {
     await new Promise((resolve) => setTimeout(resolve, 200));
     return evaluate(sessionId, '[...ui.selected()]');
   } }) as { after?: { treeClosed: boolean; guiClosed: boolean; overscroll: string; touch: number; handle: string;
-    workers: number; spot?: { id: number; x: number; y: number } }; then?: number[] };
+    workers: number; spot?: { id: number; x: number; y: number }; triangles: number;
+    device: { detected: string; used: string; profile: string } }; then?: number[] };
   const a = r.after!;
   const j = JSON.stringify(a);
   expect(a.treeClosed && a.guiClosed, `closed at first: ${j}`);
+  expect(a.device.detected === 'phone' && a.device.used === 'phone' && a.device.profile === 'coarse' &&
+    a.triangles === coarseTriangles, `a phone, meshed coarse (${coarseTriangles} triangles): ${j}`);
   expect(a.overscroll === 'none' && a.touch > 0 && a.workers <= 3 && a.handle === 'none', `phone settings: ${j}`);
   expect(!!a.spot, `no part to tap: ${j}`);
   expect(r.then?.join() === String(a.spot!.id), `a tap selects: ${JSON.stringify(r.then)}, ${j}`);
@@ -782,6 +793,63 @@ await check('phone', async () => {
 // the cache off) keeps the camera, centring, a cut, what's hidden and what's selected, the tree's expansion (detail
 // on, all expanded but one assembly) and the row at its top (scrolled partway), and meshes anew; meshed again
 // once more with those nodes not coming back (simulated: their paths not found), the status line says so.
+// The device (a desktop here, headless Chrome): detected so, meshed medium; the Device control overrides it (a tablet:
+// coarse), remembered across pages, and Auto clears that; the Profile control sets the deflections, which, moved,
+// make it custom; Defaults goes back to the device's profile.
+await check('device', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    const c = (name) => ui.gui.controllersRecursive().find((x) => x._name === name);
+    const now = () => ({ ...cadViewer.state().device, mm: viewer.settings.linearDeflection,
+      deg: Math.round(viewer.settings.angularDeflection * 1e6) / 1e6, stored: localStorage.getItem('cad-viewer.device'),
+      auto: c('Device').$select.options[0].text,
+      workers: viewer.model?.meshing?.workers, triangles: viewer.stats()?.triangles });
+    const start = now();
+    c('Device').setValue('tablet');
+    // Meshed again as a tablet: at most 3 workers (a new pool).
+    const model = viewer.model;
+    c('Mesh again').getValue().call(c('Mesh again').object);
+    for (let t = 0; t < 600 && (viewer.model === model || !viewer.model?.meshing); t++) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    const tablet = now();
+    c('Profile').setValue('fine');
+    const fine = now();
+    c('Deflection (mm)').setValue(0.07);
+    const custom = now();
+    c('Defaults').getValue().call(c('Defaults').object);
+    const defaults = now();
+    return { start, tablet, fine, custom, defaults };
+  })()`, { then: async (sessionId) => {
+    // Another page: the override remembered, then cleared by Auto.
+    const evaluate = async (expression: string) => ((await send('Runtime.evaluate', { expression, returnByValue: true,
+      awaitPromise: true }, sessionId)) as { result: { value: unknown } }).result.value;
+    await send('Page.reload', {}, sessionId);
+    await new Promise((res) => setTimeout(res, 1500));
+    return evaluate(`(async () => {
+      await cadViewer.ready;
+      const c = (name) => ui.gui.controllersRecursive().find((x) => x._name === name);
+      const again = { ...cadViewer.state().device, choice: c('Device').getValue() };
+      c('Device').setValue('auto');
+      return { again, auto: { ...cadViewer.state().device, stored: localStorage.getItem('cad-viewer.device') } };
+    })()`);
+  } }) as { after: Record<string, Record<string, unknown>>; then: Record<string, Record<string, unknown>> };
+  const { start, tablet, fine, custom, defaults } = r.after;
+  const j = JSON.stringify({ ...r.after, ...r.then });
+  expect(start!.detected === 'desktop' && start!.used === 'desktop' && start!.profile === 'medium' &&
+    start!.mm === 0.1 && start!.deg === 15 && start!.stored === null && start!.auto === 'Auto (desktop)' &&
+    start!.triangles === triangles, `a desktop, medium: ${j}`);
+  expect(tablet!.used === 'tablet' && tablet!.profile === 'coarse' && tablet!.mm === 0.2 && tablet!.deg === 30 &&
+    tablet!.stored === 'tablet', `overridden as a tablet: ${j}`);
+  expect((start!.workers as number) > 3 && (tablet!.workers as number) <= 3 && tablet!.triangles === coarseTriangles,
+    `meshed again as a tablet: ${j}`);
+  expect(fine!.profile === 'fine' && fine!.mm === 0.05 && fine!.deg === 7.5, `fine: ${j}`);
+  expect(custom!.profile === 'custom' && custom!.mm === 0.07 && custom!.deg === 7.5, `custom: ${j}`);
+  expect(defaults!.profile === 'coarse' && defaults!.mm === 0.2, `the tablet's defaults: ${j}`);
+  const { again, auto } = r.then;
+  expect(again!.used === 'tablet' && again!.detected === 'desktop' && again!.choice === 'tablet' &&
+    auto!.used === 'desktop' && auto!.profile === 'medium' && auto!.stored === null, `remembered, then auto: ${j}`);
+  return undefined;
+});
 await check('mesh again', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
     const folders = ui.gui.foldersRecursive();
@@ -818,6 +886,7 @@ await check('mesh again', async () => {
     const triangles = viewer.stats().triangles;
     const model = viewer.model;
     viewer.settings.cache = false;
+    viewer.settings.profile = 'custom';
     viewer.settings.linearDeflection = 1;
     button('Mesh again').$button.click();
     for (let t = 0; t < 1200 && (viewer.model === model || !viewer.model?.meshing); t++) {
@@ -872,6 +941,107 @@ await check('mesh again', async () => {
   expect(/; 1 hidden and 1 selected not found again \(in the console\)$/.test(l.status) &&
     l.notRestored?.hidden.join() === l.paths[0] && l.notRestored?.selected.join() === l.paths[1],
     `not found again: ${JSON.stringify(l)}`);
+  return undefined;
+});
+// Triangle edges (Rendering): all, a wireframe mesh per drawn mesh, sharing its geometry, outside the model (the node
+// model, statistics and picking unchanged), a hidden part's and a hidden face's edges not drawn, and they show on
+// screen; selected, only the selection's: a part's whole meshes, a face's triangles alone, following the selection.
+await check('triangle edges', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    await cadViewer.ready;
+    await cadViewer.idle();
+    const m = viewer.nodes;
+    const nodes = m.nodes.length, triangles = viewer.stats().triangles, pick = cadViewer.pickAt(0.3, 0.5)?.path;
+    const pixels = async (url) => {
+      const img = new Image();
+      img.src = url;
+      await img.decode();
+      const c = document.createElement('canvas');
+      [c.width, c.height] = [img.width, img.height];
+      const g = c.getContext('2d');
+      g.drawImage(img, 0, 0);
+      return g.getImageData(0, 0, c.width, c.height).data;
+    };
+    const off = await pixels(cadViewer.screenshot());
+    cadViewer.apply({ render: { triangleEdges: 'all' } });
+    await cadViewer.idle();
+    const on = await pixels(cadViewer.screenshot());
+    let changed = 0;
+    for (let i = 0; i < on.length; i += 4) {
+      if (Math.abs(on[i] - off[i]) + Math.abs(on[i + 1] - off[i + 1]) > 30) changed++;
+    }
+    const meshes = [];
+    viewer.display.traverse((o) => { if (o.isMesh && !o.userData.highlight) meshes.push(o); });
+    const wires = [...viewer.triangleEdges.group.children];
+    const shared = wires.length === meshes.length && wires.every((w, i) => w.geometry === meshes[i].geometry &&
+      w.material.wireframe !== false);
+    // Where their meshes are.
+    const placed = wires.every((w, i) => !w.visible || w.matrixWorld.equals(meshes[i].matrixWorld));
+    const unchanged = m.nodes.length === nodes && viewer.stats().triangles === triangles &&
+      cadViewer.pickAt(0.3, 0.5)?.path === pick;
+    // A part hidden: its meshes' edges not drawn, the others' drawn.
+    const part = m.nodes.find((n) => n.kind === 'part');
+    const under = new Set();
+    part.object.traverse((o) => under.add(o));
+    ui.setHidden([part.id], true);
+    await cadViewer.idle();
+    const partHidden = wires.filter((w, i) => under.has(meshes[i])).every((w) => !w.visible) &&
+      wires.some((w, i) => !under.has(meshes[i]) && w.visible) && wires.some((w, i) => under.has(meshes[i]));
+    ui.setHidden([part.id], false);
+    // A face hidden: its group's edges not drawn.
+    ui.setTree({ detail: true });
+    const face = m.children(part.id).map((id) => m.nodes[id]).find((n) => n.kind === 'face');
+    ui.setHidden([face.id], true);
+    await cadViewer.idle();
+    const k = meshes.findIndex((x) => Array.isArray(x.material) && x.material.some((y) => !y.visible));
+    const invisible = (ms) => ms.map((y, i) => y.visible ? -1 : i).filter((i) => i >= 0).join();
+    const faceHidden = k >= 0 && wires[k].visible && invisible(wires[k].material) === invisible(meshes[k].material);
+    ui.setHidden([face.id], false);
+    await cadViewer.idle();
+    // Selected: nothing with nothing selected; a part's meshes whole; a face, its triangles alone.
+    cadViewer.apply({ render: { triangleEdges: 'selected' } });
+    ui.select([]);
+    await cadViewer.idle();
+    const none = viewer.triangleEdges.group.children.length;
+    ui.select([part.id]);
+    await cadViewer.idle();
+    const partMeshes = meshes.filter((x) => under.has(x));
+    const forPart = [...viewer.triangleEdges.group.children];
+    const selectedPart = forPart.length === partMeshes.length && forPart.every((w, i) => w.geometry ===
+      partMeshes[i].geometry);
+    ui.select([face.id]);
+    await cadViewer.idle();
+    const forFace = [...viewer.triangleEdges.group.children];
+    const host = meshes.find((x) => x.userData.faceRanges && under.has(x));
+    const want = host.userData.faceRanges.filter((f) => f.source === face.face.source)
+      .reduce((s, f) => s + f.count, 0);
+    const selectedFace = forFace.length === 1 && forFace[0].geometry !== host.geometry &&
+      forFace[0].geometry.index.count === want && want > 0;
+    ui.select([]);
+    await cadViewer.idle();
+    const cleared = viewer.triangleEdges.group.children.length === 0;
+    // GPU instances: an instanced wireframe on the same instance matrices.
+    await cadViewer.load('/content/as1-instanced.glb');
+    cadViewer.apply({ render: { triangleEdges: 'all' } });
+    await cadViewer.idle();
+    const inst = [];
+    viewer.display.traverse((o) => { if (o.isInstancedMesh) inst.push(o); });
+    const iw = viewer.triangleEdges.group.children.filter((w) => w.isInstancedMesh);
+    const instanced = inst.length > 0 && iw.length === inst.length && iw.every((w, i) =>
+      w.instanceMatrix === inst[i].instanceMatrix && w.count === inst[i].count && w.visible);
+    return { placed, instanced, none, selectedPart, selectedFace, cleared, changed, total: on.length / 4, shared,
+      unchanged, partHidden, faceHidden, wires: wires.length };
+  })()`) as { after: { changed: number; total: number; shared: boolean; unchanged: boolean; partHidden: boolean;
+    faceHidden: boolean; wires: number; none: number; selectedPart: boolean; selectedFace: boolean;
+    cleared: boolean; placed: boolean; instanced: boolean } };
+  const a = r.after;
+  const j = JSON.stringify(a);
+  expect(a.shared && a.wires > 0 && a.placed, `a wireframe per mesh, its geometry shared, where it is: ${j}`);
+  expect(a.instanced, `GPU instances: ${j}`);
+  expect(a.unchanged, `the model, its statistics and picking unchanged: ${j}`);
+  expect(a.partHidden && a.faceHidden, `hidden parts and faces: ${j}`);
+  expect(a.changed > a.total * 0.01, `drawn: ${j}`);
+  expect(a.none === 0 && a.selectedPart && a.selectedFace && a.cleared, `the selection's: ${j}`);
   return undefined;
 });
 await check('no model', async () => {

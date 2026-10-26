@@ -6,13 +6,16 @@
 
 import { dropDegenerate, orientShells } from './mesh.ts';
 import type { Diagnostic, Mesh, Scene } from './scene.ts';
+import { meshDeflections, type MeshProfile } from './profiles.ts';
 import type { TessellationResult, Tessellator } from './tessellator.ts';
 
 export interface TessellateOptions {
-  /** Maximum distance between mesh and surface, in millimetres. */
-  linearDeflection: number;
-  /** Maximum angle between adjacent mesh normals, in radians. */
-  angularDeflection: number;
+  /** The meshing profile (profiles.ts), default DEFAULT_MESH_PROFILE; the deflections below replace its values. */
+  profile?: MeshProfile;
+  /** Maximum distance between mesh and surface, in millimetres (default the profile's). */
+  linearDeflection?: number;
+  /** Maximum angle between adjacent mesh normals, in radians (default the profile's). */
+  angularDeflection?: number;
   edges?: boolean;
   /** Only these parts (indices); default every brep part the backend supports. */
   parts?: readonly number[];
@@ -67,7 +70,8 @@ export function toMesh(r: TessellationResult): Mesh {
 
 /** Tessellate a scene's brep parts, `concurrency` at a time. */
 export async function tessellateScene(scene: Scene, tess: Tessellator,
-  opts: TessellateOptions): Promise<TessellateResult> {
+  opts: TessellateOptions = {}): Promise<TessellateResult> {
+  const { linearDeflection, angularDeflection } = meshDeflections(opts);
   const todo = (opts.parts ?? scene.parts.map((_, i) => i)).filter((i) => {
     const p = scene.parts[i];
     return p?.kind === 'brep' && tess.info.formats.includes(p.format);
@@ -86,7 +90,7 @@ export async function tessellateScene(scene: Scene, tess: Tessellator,
     try {
       const r = await tess.tessellate({
         format: part.format, data: part.payload(), rootId: part.rootId, origin: part.origin,
-        linearDeflection: opts.linearDeflection / part.unit, angularDeflection: opts.angularDeflection,
+        linearDeflection: linearDeflection / part.unit, angularDeflection,
         edges: opts.edges,
       });
       for (const d of r.diagnostics) diagnostics.push(source && !d.source ? { ...d, source } : d);

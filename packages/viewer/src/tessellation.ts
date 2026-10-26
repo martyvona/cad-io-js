@@ -1,10 +1,12 @@
 // Tessellation for our loader: a pool of Web Workers running OCCT or truck (the viewer's own worker entry,
 // tess-worker.ts, so Vite bundles the backends), behind the IndexedDB cache by default; in the import worker (its
-// workers nested in it). The pool is made when first
-// needed and kept for later files; changing the backend or the cache makes a new one. Cancelling (a new file while
-// one is meshing) terminates the workers, which fails the requests still pending.
+// workers nested in it). The pool is made when first needed and kept for later files; changing the backend, the
+// cache or the workers' count makes a new one. Cancelling (a new file while one is meshing) terminates the workers,
+// which fails the requests still pending. The meshing settings are a profile of the library's (cad-scene's
+// profiles.ts), or custom deflections.
 
-import type { Tessellator } from 'cad-scene';
+import { MESH_PROFILES, type MeshProfile, type Tessellator } from 'cad-scene';
+import type { DeviceClass } from './device.ts';
 import { CachedTessellator, IndexedDbStore, type CacheStats } from 'tess-cache/browser';
 import { PoolTessellator, webWorkerHandle } from 'tess-workers/browser';
 
@@ -12,17 +14,34 @@ export type Backend = 'occt' | 'truck';
 
 export interface TessellationSettings {
   backend: Backend;
-  /** Millimetres. */
+  /** A profile (meshed with its values exactly), or the deflections below. */
+  profile: MeshProfile | 'custom';
+  /** Millimetres: the profile's, or custom. */
   linearDeflection: number;
-  /** Degrees. */
+  /** Degrees: the profile's, or custom. */
   angularDeflection: number;
   /** The IndexedDB cache. */
   cache: boolean;
 }
 
-/** stepconv's defaults (0.1 mm, 0.5 rad exactly, shown as 28.6 degrees), OCCT, cached. */
-export const DEFAULT_SETTINGS: TessellationSettings = { backend: 'occt', linearDeflection: 0.1,
-  angularDeflection: 0.5 * 180 / Math.PI, cache: true };
+/** A profile's settings: its deflections shown in millimetres and degrees. */
+export function profileSettings(profile: MeshProfile): Pick<TessellationSettings, 'profile' | 'linearDeflection' |
+  'angularDeflection'> {
+  const p = MESH_PROFILES[profile];
+  return { profile, linearDeflection: p.linearDeflection, angularDeflection: p.angularDeflection * 180 / Math.PI };
+}
+
+/** The defaults: a profile (the device's: device.ts), OCCT, cached. */
+export function defaultSettings(profile: MeshProfile): TessellationSettings {
+  return { backend: 'occt', ...profileSettings(profile), cache: true };
+}
+
+/** What tessellateScene takes for the settings: the profile by name, or the custom deflections (in radians). */
+export function deflectionsOf(s: TessellationSettings): { profile: MeshProfile } | { linearDeflection: number;
+  angularDeflection: number } {
+  return s.profile !== 'custom' ? { profile: s.profile } : { linearDeflection: s.linearDeflection,
+    angularDeflection: s.angularDeflection * Math.PI / 180 };
+}
 
 export const CACHE_NAME = 'cad-viewer';
 
@@ -32,11 +51,11 @@ const BACKENDS: Record<Backend, { module: string; export: string }> = {
 };
 
 /**
- * Workers: one less than the cores, at most 8; at most 3 on touch devices (phones and tablets have less memory, and
+ * Workers: one less than the cores, at most 8; at most 3 on phones and tablets (device.ts: they have less memory, and
  * each worker holds its own backend heap).
  */
-export function workerCount(cores = navigator.hardwareConcurrency || 2, touch = navigator.maxTouchPoints > 0): number {
-  return Math.max(1, Math.min(cores - 1, touch ? 3 : 8));
+export function workerCount(device: DeviceClass, cores = navigator.hardwareConcurrency || 2): number {
+  return Math.max(1, Math.min(cores - 1, device === 'desktop' ? 8 : 3));
 }
 
 export class Tessellation {
@@ -45,11 +64,11 @@ export class Tessellation {
   private pools = 0;
 
   /**
-   * A tessellator for the settings, ready (its workers started). `workers` is given by the page when this runs in a
-   * worker, where touch screens can't be seen.
+   * A tessellator for the settings, ready (its workers started), with `workers` workers (the page's workerCount: this
+   * runs in the import worker, which can't see the screen).
    */
-  async get(s: TessellationSettings, workers = workerCount()): Promise<{ tess: Tessellator; workers: number }> {
-    const key = `${s.backend}:${s.cache}`;
+  async get(s: TessellationSettings, workers: number): Promise<{ tess: Tessellator; workers: number }> {
+    const key = `${s.backend}:${s.cache}:${workers}`;
     if (this.current?.key !== key) {
       this.dispose();
       const pool = new PoolTessellator(

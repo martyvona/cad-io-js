@@ -37,7 +37,7 @@ import { OcctTessellator } from 'tess-occt';
 const { scene } = await importStep(fs.readFileSync('bracket.step'));   // the assembly, parts, colours, ...
 const occt = new OcctTessellator();
 await occt.init();
-const { meshes, diagnostics } = await tessellateScene(scene, occt, { linearDeflection: 0.1, angularDeflection: 0.5 });
+const { meshes, diagnostics } = await tessellateScene(scene, occt);   // the medium profile: 0.1 mm, 15 degrees
 occt.dispose();
 const { bytes } = await glb(scene, exportView(scene, meshes));
 fs.writeFileSync('bracket.glb', bytes);
@@ -211,10 +211,15 @@ Options:
   -o, --output <file>      the output file
   -f, --format <format>    the output format, whatever the extension
   -b, --backend <name>     occt (default) or truck
-  -d, --deflection <mm>    maximum distance between mesh and surface, in millimetres (default 0.1)
+      --coarse, --medium, --fine
+                           the meshing profile (default medium), with its deflections:
+                             coarse  0.2 mm, 30 deg
+                             medium  0.1 mm, 15 deg
+                             fine    0.05 mm, 7.5 deg
+  -d, --deflection <mm>    maximum distance between mesh and surface, in millimetres (default the profile's)
       --angular-deflection <deg>
-                           maximum angle between adjacent mesh normals, in degrees (default 28.6,
-                           0.5 rad; truck ignores it)
+                           maximum angle between adjacent mesh normals, in degrees (default the profile's;
+                           truck ignores it)
       --with-edges         write B-rep edges (not 3MF, which has no lines)
       --with-curves        write wireframe curves and points (not 3MF)
       --unlit-lines        edges, curves and points in a flat colour: glTF with KHR_materials_unlit (three.js
@@ -250,7 +255,9 @@ Options:
 ```
 
 ```sh
-stepconv motor.step -o motor.glb                                        # OCCT, 0.1 mm, faces only, Draco
+stepconv motor.step -o motor.glb                                        # OCCT, medium, faces only, Draco
+stepconv --coarse motor.step -o motor.glb                               # fewer triangles (0.2 mm, 30 degrees)
+stepconv --fine -d 0.02 part.stp -o part.glb                            # fine's angle, a 0.02 mm distance
 stepconv motor.step -o motor.glb --gltf-compression meshopt --extras    # meshopt, with ids for picking
 stepconv motor.step -o motor.glb --gltf-instancing                      # repeated parts as GPU instances
 stepconv motor.step -o motor.json --with-edges --with-curves            # three.js with B-rep edges and wireframes
@@ -266,7 +273,7 @@ The summary, for example:
 
 ```
 1 parts (1 of 1 brep parts tessellated), 1 placed; 5628 triangles; 0.1 MB written
-import 0.0 s, tessellation 0.5 s, export 0.0 s
+import 0.0 s, tessellation 0.5 s (medium: 0.1 mm, 15 deg), export 0.0 s
 0 errors, 0 warnings, 1 notes
 ```
 
@@ -316,9 +323,9 @@ The controls (lil-gui, top right) are in folders, all closed at first:
 - **View** has zoom all, **Zoom selected** (fits the selection in the view; disabled with nothing selected), **Copy link to this view** (see [Driving It](#driving-it)), the views along the axes (front looks along +Y with Z up; top has +Y up, bottom -Y), centring (once the model's centroid is known: the centre of the box around all its geometry, hidden or not) and full screen (disabled where the browser can't, as on iPhone).
 - **Tree**: the tree (on the left, from when a model loads, unless you've closed it; over the view on phones, closed at first) shows the assembly, each placement of a part separately, as placed, down to parts by default. "Faces, edges, curves" shows below each part its faces, one node for its B-rep edges, its curves and its points (for glTF and three.js files, its meshes, lines and points). Click, ctrl/cmd-click and shift-click select rows (the arrow keys move). **Hide selected**, **Show selected** and **Show all** act on them (show all also shows what the file hid). Hidden rows stay in the tree, greyed, as does everything below them. Hiding a face hides it in every placement of its part, as they share their geometry. The handle on the tree's right edge drags its width (remembered in the browser); a double click on it goes back to the default.
 - **Selection**: a click or tap on the model (one that doesn't move the view) picks what's under it at the **Pick** level: an assembly, a part (the default), or a face, B-rep edges, curves or points (which shows them in the tree). Ctrl/cmd/shift-click adds or removes, and the **Multi-select** switch does the same for touch; a click on nothing clears the selection. What's hidden, or cut away, isn't picked. The face under the pointer decides, except that its own part's edges, curves and points within 4 pixels win over it (so they can be picked), as do wireframes in front of it; off the model, an edge or point within 4 pixels is picked. The selection is the tree's too, and is tinted orange (a selected face by an overlay); **All instances** also tints, in blue, every other placement of the selected parts. **Details** shows what's selected: for one node its name, its place in the tree and, for a part, which of its part's placements it is ("Placement 3 of 8"); then the triangles and their area, the line segments (edges, curves) and their length, and points, in millimetres. **Select parent** selects the selection's parents.
-- **Rendering**: Phong faces with their edges, ambient occlusion (N8AO, its radius in screen pixels as models are viewed at every scale; intensity, radius and quality adjustable) and SMAA antialiasing, each of which can be turned off. glTF and three.js files get Phong materials like STEP's (or keep their own, from the next file loaded). Transparent materials are drawn as three.js does, sorted whole objects at a time.
+- **Rendering**: Phong faces with their edges, **Triangle edges** for inspecting the tessellation (every triangle's edges over the faces: off, the selection's only, following it, or all; hidden parts and faces and section cuts apply to them too; `&triangleEdges=selected` or `all` in the address), ambient occlusion (N8AO, its radius in screen pixels as models are viewed at every scale; intensity, radius and quality adjustable) and SMAA antialiasing, each of which can be turned off. glTF and three.js files get Phong materials like STEP's (or keep their own, from the next file loaded). Transparent materials are drawn as three.js does, sorted whole objects at a time.
 - **Section**: up to three planes, one across each world axis, each at a position along it (the sliders span the model) with the side above it cut away (**Flip** for the side below). Where they cut a closed part (one whose triangles close up), a cap in the part's colour, hatched, shows the cut. Picks skip what's cut away, and centring moves the planes with the model. Each model loaded starts with every plane off.
-- **B-Rep Meshing** chooses the backend (OCCT, the default, or truck), the deflections (stepconv's defaults: 0.1 mm and 0.5 rad, shown as 28.6 degrees) and the IndexedDB cache (on by default; it can be cleared), and **Mesh again** meshes the file again with them, keeping the view: the camera, centring, section planes, what's hidden and selected, and the tree's expanded rows and scroll position (the status line says how many hidden or selected nodes weren't found again, such as the faces of a part that failed this time; their paths are in the console). STEP files are always parsed and meshed in a worker, off the page's thread.
+- **B-Rep Meshing** starts with **Device**: the kind of device the viewer thinks it's on, **Auto (phone)**, **Auto (tablet)** or **Auto (desktop)**, from the screen's size (not the window's), the primary pointer and the touch points, which you can override (remembered in this browser) with **Phone**, **Tablet** or **Desktop**. Phones and tablets mesh **coarse** by default, with at most 3 workers; desktops **medium**, the library's default. Then the backend (OCCT, the default, or truck), the **Profile** (coarse, medium, fine, as `stepconv`'s, or custom: moving the deflection or angle makes it custom; **Defaults** goes back to the device's profile), the deflections, and the IndexedDB cache (on by default; it can be cleared), and **Mesh again** meshes the file again with them, keeping the view: the camera, centring, section planes, what's hidden and selected, and the tree's expanded rows and scroll position (the status line says how many hidden or selected nodes weren't found again, such as the faces of a part that failed this time; their paths are in the console). STEP files are always parsed and meshed in a worker, off the page's thread.
 - **Model** shows the file's name, its objects and its triangles.
 
 ### Driving It
@@ -352,7 +359,7 @@ To reproduce a bug, record what you do: **Recording**, **Record** (or `?record` 
 
 ### What the Viewer Does with Files
 
-**STEP files**: a STEP file is parsed in a worker, so the page stays responsive (the bicycle's longest task on the page: 64-116 ms, against 410 ms parsing on the page). Its assembly appears at once and its parts as they are meshed, by a pool of workers (one less than the cores, at most 8; at most 3 on touch devices); the view zooms to the first part, and to the whole when the last is done, unless it has been moved meanwhile. Opening another file while one is meshing stops the meshing. Parts are drawn with their B-rep edges; parts without them (and glTF and three.js meshes without lines of their own) get edges found from their triangles, where faces meet at more than 10 degrees.
+**STEP files**: a STEP file is parsed in a worker, so the page stays responsive (the bicycle's longest task on the page: 64-116 ms, against 410 ms parsing on the page). Its assembly appears at once and its parts as they are meshed, by a pool of workers (one less than the cores, at most 8; at most 3 on phones and tablets, as **Device** says); the view zooms to the first part, and to the whole when the last is done, unless it has been moved meanwhile. Opening another file while one is meshing stops the meshing. Parts are drawn with their B-rep edges; parts without them (and glTF and three.js meshes without lines of their own) get edges found from their triangles, where faces meet at more than 10 degrees.
 
 **Units and axes**: the world is millimetres with Z up. STEP files load as they are (most CAD systems model with Z up, some with Y); glTF and three.js JSON files (metres and Y up at their root, ours included) are turned and scaled to it. The page draws only when something changes, at most 30 frames a second.
 
@@ -672,6 +679,8 @@ console.log(mesh.positions.length / 3, mesh.indices.length / 3, mesh.faces.lengt
   mesh.origin, diagnostics.length);  // 168 156 8 65 [ 5, 10, 1.5 ] 0
 ```
 
+The deflections come from a meshing profile (`MESH_PROFILES` in `cad-scene`, the one place they're defined): `profile: 'coarse'` (0.2 mm, 30 degrees), `'medium'` (0.1 mm, 15 degrees; `DEFAULT_MESH_PROFILE`, used when nothing is given) or `'fine'` (0.05 mm, 7.5 degrees); `linearDeflection` and `angularDeflection`, as in the example, replace the profile's values, one or both (`meshDeflections(opts)` gives the result, `meshProfileOf(deflections)` the profile they match, if any). Over the corpus with OCCT, against 0.1 mm and 28.6 degrees (the default before 2026-10-26): coarse has 0.59 times the triangles, medium 1.25 times (the median part 1.7 times), fine 3.3 times, and fine's tight angle makes 14 parts time out at 60 s.
+
 `tessellateScene` repairs what it can in every mesh, with a diagnostic each time, so every consumer of the scene gets the repaired mesh: triangles with two corners at one position are dropped, and closed shells that are inside out and enclosed by nothing else (so can't be voids) are turned over. `orient: false` and `dropDegenerate: false` keep the backend's meshes as they are, and `parts` limits it to some parts. Also: `identity()`, `multiply(a, b)`, `scaling(s)` for matrices, and `Y_UP_METRES` (millimetres and Z up to metres and Y up, the glTF and three.js exporters' root); `sha256(bytes)` (Web Crypto's, or our own `sha256Js` where Web Crypto is missing, as in pages that aren't a secure context); `weld(positions)` (vertices merged by exact position), `manifoldProblems(positions, triangles)`, `orientShells(mesh)` and `dropDegenerate(mesh)`, the mesh helpers behind the repairs and the 3MF exporter; `partMesh(scene, meshes, part)` (a part's mesh whatever its kind); `TessellationError`, which a backend throws for a failure that is the part's, not the host's.
 
 ### `step-import`
@@ -965,7 +974,9 @@ Known work not yet scheduled; the detail behind each is in `CLAUDE.md`.
 
 **Tessellation**
 
-- A deflection relative to each part's size (absolute 0.1 mm gives a 32 m torus 3.9 M triangles).
+- An adaptive meshing mode: the deflections driven by each part's size (its bounding box's diagonal, say) rather than absolute (absolute 0.1 mm gives a 32 m torus 3.9 M triangles), perhaps as a fourth profile beside coarse, medium and fine.
+- A maximum chord (edge) length, as another CAD system's meshing profiles have (10 m in each); neither backend has one.
+- OCCT at tighter angles: `bug30790.step`'s parts #11-21 and #24 take 0.5 s each at 28.6 degrees, 24-44 s at 15 (medium) and time out at 12.5 and below, whatever the distance; find out why (the same file has the corpus's most unmeshed faces).
 - OCCT: ShapeFix's split of a face whose hole touches its seam (bicycle #23723, left as is); Delabella for faces with thousands of holes (6 times as fast on `bug24024_slow_import.stp`); size cuts (CJK code-page tables, writer code).
 - truck: wireframe curves (`TRIMMED_CURVE`, `COMPOSITE_CURVE`); geometric sets' surfaces; cones, surfaces of revolution and rational B-splines it meshes badly (no workaround short of patching truck).
 

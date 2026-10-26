@@ -54,7 +54,8 @@ test('stepconv: the same file as the library pipeline, in a worker pool and on t
   const tess = new OcctTessellator();
   await tess.init();
   const { scene } = await importStep(fs.readFileSync(assembly));
-  const { meshes } = await tessellateScene(scene, tess, { linearDeflection: 0.1, angularDeflection: 0.5, edges: true });
+  // stepconv's default meshing is the library's (medium).
+  const { meshes } = await tessellateScene(scene, tess, { edges: true });
   tess.dispose();
   const expected = threejsJson(scene, exportView(scene, meshes, { edges: true, curves: true }),
     { name: 'as1-oc-214-mat' });
@@ -63,12 +64,13 @@ test('stepconv: the same file as the library pipeline, in a worker pool and on t
     assert.equal(r.code, 0, r.stderr);
     assert.equal(fs.readFileSync(out, 'utf8'), expected, `workers ${workers}`);
     assert.match(r.stderr, new RegExp(String.raw`^5 parts \(5 of 5 brep parts tessellated\), 18 placed; `
-      + String.raw`5180 triangles; 0\.1 MB written\nimport [\d.]+ s, tessellation [\d.]+ s, export [\d.]+ s\n`
+      + String.raw`8048 triangles; 0\.2 MB written\nimport [\d.]+ s, tessellation [\d.]+ s \(medium: 0\.1 mm, `
+      + String.raw`15 deg\), export [\d.]+ s\n`
       + String.raw`0 errors, 0 warnings, 0 notes\n$`));
   }
   const loaded = load(expected);
   assert.equal(loaded.name, 'as1-oc-214-mat');
-  assert.equal(triangles(loaded), 5180);
+  assert.equal(triangles(loaded), 8048);
   let lines = 0;
   loaded.traverse((x) => { if (x instanceof THREE.LineSegments) lines++; });
   assert.ok(lines > 0);
@@ -96,7 +98,7 @@ test('stepconv: GLB and .gltf with its .bin, the same as the library; hidden ins
   const tess = new OcctTessellator();
   await tess.init();
   const { scene } = await importStep(fs.readFileSync(assembly));
-  const { meshes } = await tessellateScene(scene, tess, { linearDeflection: 0.1, angularDeflection: 0.5, edges: true });
+  const { meshes } = await tessellateScene(scene, tess, { edges: true });
   tess.dispose();
   const view = exportView(scene, meshes, { edges: true });
   const out = path.join(tmp, 'as1.glb');
@@ -303,7 +305,7 @@ test('stepconv: 3MF, the same as the library; --3mf-colorgroup, --3mf-assembly, 
   const tess = new OcctTessellator();
   await tess.init();
   const { scene } = await importStep(fs.readFileSync(assembly));
-  const { meshes } = await tessellateScene(scene, tess, { linearDeflection: 0.1, angularDeflection: 0.5 });
+  const { meshes } = await tessellateScene(scene, tess);
   tess.dispose();
   const out = path.join(tmp, 'as1.3mf');
   const r = await run([assembly, '-o', out, '-j', '2']);
@@ -329,7 +331,7 @@ test('stepconv: 3MF, the same as the library; --3mf-colorgroup, --3mf-assembly, 
   // Open shells: left out with a warning each, or written as surfaces.
   const left = await flags(shells, []);
   assert.match(left.stderr,
-    /\n  warning: #\d+: part 'small_shell' is not a closed, oriented manifold \(26 boundary edges\); left out\n/);
+    /\n  warning: #\d+: part 'small_shell' is not a closed, oriented manifold \(\d+ boundary edges\); left out\n/);
   assert.equal(left.model.items.length, 0);
   const surfaces = await flags(shells, ['--3mf-surfaces']);
   assert.match(surfaces.stderr, /written as a surface object/);
@@ -356,6 +358,32 @@ test('stepconv: 3MF, the same as the library; --3mf-colorgroup, --3mf-assembly, 
     assert.equal(u.code, 1, flag);
     assert.match(u.stderr, new RegExp(`${flag} doesn't apply to 3mf output`));
   }
+});
+
+test('stepconv: --coarse, --medium, --fine, each value replaced by -d or --angular-deflection', { skip }, async () => {
+  const out = path.join(tmp, 'profile.json');
+  const tess = new OcctTessellator();
+  await tess.init();
+  const { scene } = await importStep(fs.readFileSync(assembly));
+  const cases: [string[], Parameters<typeof tessellateScene>[2], string][] = [
+    [['--coarse'], { profile: 'coarse' }, 'coarse: 0.2 mm, 30 deg'],
+    [['--medium'], { profile: 'medium' }, 'medium: 0.1 mm, 15 deg'],
+    [['--fine'], { profile: 'fine' }, 'fine: 0.05 mm, 7.5 deg'],
+    [['--fine', '-d', '0.03'], { profile: 'fine', linearDeflection: 0.03 }, 'custom: 0.03 mm, 7.5 deg'],
+    [['--coarse', '--angular-deflection', '15', '-d', '0.1'], { profile: 'medium' }, 'medium: 0.1 mm, 15 deg'],
+  ];
+  const counts: number[] = [];
+  for (const [flags, opts, label] of cases) {
+    const { meshes } = await tessellateScene(scene, tess, opts);
+    const expected = threejsJson(scene, exportView(scene, meshes, {}), { name: 'as1-oc-214-mat' });
+    const r = await run([assembly, '-o', out, ...flags, '-j', '2']);
+    assert.equal(r.code, 0, r.stderr);
+    assert.equal(fs.readFileSync(out, 'utf8'), expected, flags.join(' '));
+    assert.ok(r.stderr.includes(`(${label})`), `${flags.join(' ')}: ${r.stderr}`);
+    counts.push(triangles(load(expected)));
+  }
+  tess.dispose();
+  assert.ok(counts[0]! < counts[1]! && counts[1]! < counts[2]!, `coarse < medium < fine: ${counts}`);
 });
 
 test('stepconv: --angular-deflection in degrees', { skip }, async () => {
@@ -477,6 +505,7 @@ test('stepconv: usage errors and failures', async () => {
   await usage([cube, '-o', scratch, '-d', '0'], /--deflection must be a positive number/);
   await usage([cube, '-o', scratch, '--angular-deflection', 'x'], /--angular-deflection must be a positive number/);
   await usage([cube, '-o', scratch, '--angular-deflection', '181'], /--angular-deflection must be at most 180 degrees/);
+  await usage([cube, '-o', scratch, '--fine', '--coarse'], /--coarse, --fine: one meshing profile at most/);
   // Options renamed or removed since 0.1.0 are unknown.
   for (const old of ['--edges', '--curves', '--gltf-no-edges', '--gltf-faces-only', '--gltf-unlit-lines']) {
     await usage([cube, '-o', scratch, old], new RegExp(`Unknown option '${old}'`));

@@ -28,6 +28,8 @@ export interface FullState extends Required<Pick<ViewState, 'camera' | 'centered
   cut: NonNullable<ViewState['cut']>;
   render: RenderSettings;
   tree: { open: boolean; detail: boolean };
+  /** The device's class (device.ts), as detected and as used (the user's choice, if any); and the meshing profile. */
+  device: { detected: string; used: string; profile: string };
   /** The model: its file's name and URL (if it came from one), counts, centroid and parts (STEP). */
   model?: { name: string; url?: string; format: string; triangles: number; objects: number; meshes: number;
     centroid?: number[]; parts?: { total: number; done: number; failed: number }; diagnostics: number };
@@ -100,7 +102,9 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
     const stats = viewer.stats();
     return {
       camera: viewer.cameraState() as CameraState, centered: viewer.isCentered(), cut, caps: s.caps,
-      render: { ...viewer.render }, tree: ui.tree(), pick: ui.selection.level, instances: ui.selection.instances,
+      render: { ...viewer.render }, tree: ui.tree(),
+      device: { detected: viewer.detectedDevice, used: viewer.device, profile: viewer.settings.profile },
+      pick: ui.selection.level, instances: ui.selection.instances,
       hidden: model ? model.nodes.filter((n) => n.hidden).map((n) => model.pathOf(n.id)) : [],
       selected: model ? ui.selected().map((id) => model.pathOf(id)) : [],
       ...(m && stats ? { model: { name: m.name, url: ui.currentUrl(), format: m.format, triangles: stats.triangles,

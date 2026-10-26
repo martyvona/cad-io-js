@@ -5,7 +5,10 @@ import { test } from 'node:test';
 import type { Scene, TessellationRequest, TessellationResult, Tessellator } from 'cad-scene';
 import { loadStepIn, meshable, meshBuffers, postable, type StepEvent } from '../src/step-load.ts';
 import { scene as fixture } from './fixtures.ts';
-import { DEFAULT_SETTINGS } from '../src/tessellation.ts';
+import { MESH_PROFILES } from 'cad-scene';
+import { defaultSettings } from '../src/tessellation.ts';
+
+const DEFAULT_SETTINGS = defaultSettings('coarse');
 
 const step = path.resolve(import.meta.dirname,
   '../../../test_corpus/third_party/gkv311-opencascade-dataset/step/as1-oc-214-mat.stp');
@@ -74,9 +77,14 @@ test('loadStepIn: the scene (postable), a mesh per placed brep part, then the en
     assert.equal(requests.length, 5);
     const scene = (events[0] as { scene: Scene }).scene;
     assert.doesNotThrow(() => structuredClone(scene));
-    // Meshes with their buffers to transfer; the deflections from the settings (degrees to radians).
+    // Meshes with their buffers to transfer; a profile's deflections exactly (not through degrees).
     assert.ok(transfers.slice(1, -1).every((t) => t.length === 2));
-    assert.equal(requests[0]!.angularDeflection, DEFAULT_SETTINGS.angularDeflection * Math.PI / 180);
+    assert.equal(requests[0]!.angularDeflection, MESH_PROFILES.coarse.angularDeflection);
+    // Custom: the settings' deflections, degrees to radians.
+    const custom = fake();
+    await loadStepIn(new Uint8Array(fs.readFileSync(step)), { ...DEFAULT_SETTINGS, profile: 'custom',
+      angularDeflection: 10 }, 3, custom.tessellation, () => {}, () => false);
+    assert.equal(custom.requests[0]!.angularDeflection, 10 * Math.PI / 180);
     const done = events.at(-1) as Extract<StepEvent, { type: 'done' }>;
     assert.deepEqual(done.meshing, { backend: 'fake 1', pools: 1, workers: 2 });
   });

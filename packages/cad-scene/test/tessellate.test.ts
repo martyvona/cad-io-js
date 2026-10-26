@@ -80,3 +80,19 @@ test('tessellateScene keeps results with only curves or only points, with their 
     [new Float32Array([0, 0, 0, 1, 0, 0]), [{ source: 7, start: 0, count: 2 }], undefined]);
   assert.deepEqual([b.points, b.pointSources, b.curves], [new Float32Array([1, 2, 3, 4, 5, 6]), [8, null], undefined]);
 });
+
+test('tessellateScene: the meshing profile (default medium), its values replaced by any deflection given', async () => {
+  const requests = async (opts: Parameters<typeof tessellateScene>[2]) => {
+    const t = fake();
+    await tessellateScene(scene(), t, opts);
+    // Part 3 is in inches: its distance is converted, its angle not.
+    const p3 = t.seen.find((q) => q.rootId === 103)!;
+    return [p3.linearDeflection * 25.4, p3.angularDeflection];
+  };
+  const near = (a: number[], b: number[]) => a.every((v, i) => Math.abs(v - b[i]!) < 1e-12);
+  assert.ok(near(await requests(undefined), [0.1, Math.PI / 12]), 'default: medium');
+  assert.ok(near(await requests({ profile: 'coarse' }), [0.2, Math.PI / 6]), 'coarse');
+  assert.ok(near(await requests({ profile: 'fine' }), [0.05, Math.PI / 24]), 'fine');
+  assert.ok(near(await requests({ profile: 'fine', linearDeflection: 0.03 }), [0.03, Math.PI / 24]), 'distance');
+  assert.ok(near(await requests({ angularDeflection: 0.5 }), [0.1, 0.5]), 'angle');
+});

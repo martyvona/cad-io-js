@@ -4,6 +4,7 @@
 // can run in Node's tests.
 
 import * as THREE from 'three';
+import type { TriangleEdgesMode } from './triangle-edges.ts';
 
 /** The layer edges are drawn on (and only on). */
 export const EDGES = 1;
@@ -18,6 +19,8 @@ export interface RenderSettings {
   aoQuality: 'Performance' | 'Low' | 'Medium' | 'High' | 'Ultra';
   smaa: boolean;
   edges: boolean;
+  /** Triangles' edges over the faces (triangle-edges.ts), to inspect the tessellation: none, the selection's, all. */
+  triangleEdges: TriangleEdgesMode;
   /** Phong shininess of faces. */
   shininess: number;
   /** Models loaded by three.js's loaders get Phong materials like ours (from the next file loaded). */
@@ -25,7 +28,7 @@ export interface RenderSettings {
 }
 
 export const DEFAULT_RENDER: RenderSettings = { ao: true, aoIntensity: 5, aoRadius: 32, aoQuality: 'High',
-  smaa: true, edges: true, shininess: 30, cadMaterials: true };
+  smaa: true, edges: true, triangleEdges: 'off', shininess: 30, cadMaterials: true };
 
 /**
  * A Phong material standing for another: its colour, opacity and transparency, sides, vertex colours and colour map;

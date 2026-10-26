@@ -10,7 +10,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { Readable, type Writable } from 'node:stream';
 import { parseArgs } from 'node:util';
-import { exportView, tessellateScene, type Diagnostic, type ExportView, type Scene, type Tessellator } from 'cad-scene';
+import { DEFAULT_MESH_PROFILE, exportView, MESH_PROFILE_NAMES, MESH_PROFILES, meshProfileOf, tessellateScene,
+  type Deflections, type Diagnostic, type ExportView, type Scene, type Tessellator } from 'cad-scene';
 import { threemf } from 'export-3mf';
 import { glb, gltfJson, type Compression, type GltfOptions } from 'export-gltf';
 import { threejsChunks } from 'export-threejs';
@@ -108,13 +109,14 @@ const BACKENDS: Record<string, { module: string; export: string }> = {
 };
 
 const defaultWorkers = () => Math.max(1, os.availableParallelism() - 1);
-/** The library's angular deflection, 0.5 rad, used exactly when --angular-deflection isn't given. */
-const DEFAULT_ANGULAR = 0.5;
 const degrees = (rad: number) => (rad * 180) / Math.PI;
+/** Deflections as the summary and the usage show them: millimetres, and degrees to at most 2 decimals. */
+const describe = (d: Deflections) => `${d.linearDeflection} mm, ${+degrees(d.angularDeflection).toFixed(2)} deg`;
 
 const FORMAT_LINES = Object.entries(FORMATS)
   .map(([k, f]) => `  ${k.padEnd(10)} ${f.extensions.join(', ').padEnd(12)} ${f.description}`).join('\n');
-const DEFAULT_DEGREES = degrees(DEFAULT_ANGULAR).toFixed(1);
+const PROFILE_LINES = MESH_PROFILE_NAMES.map((n) => `${' '.repeat(29)}${n.padEnd(8)}${describe(MESH_PROFILES[n])}`)
+  .join('\n');
 
 const USAGE = `Usage: stepconv [options] <file.stp | file.stpZ | -> -o <output>
 
@@ -128,10 +130,13 @@ Options:
   -o, --output <file>      the output file
   -f, --format <format>    the output format, whatever the extension
   -b, --backend <name>     occt (default) or truck
-  -d, --deflection <mm>    maximum distance between mesh and surface, in millimetres (default 0.1)
+      --coarse, --medium, --fine
+                           the meshing profile (default ${DEFAULT_MESH_PROFILE}), with its deflections:
+${PROFILE_LINES}
+  -d, --deflection <mm>    maximum distance between mesh and surface, in millimetres (default the profile's)
       --angular-deflection <deg>
-                           maximum angle between adjacent mesh normals, in degrees (default ${DEFAULT_DEGREES},
-                           0.5 rad; truck ignores it)
+                           maximum angle between adjacent mesh normals, in degrees (default the profile's;
+                           truck ignores it)
       --with-edges         write B-rep edges (not 3MF, which has no lines)
       --with-curves        write wireframe curves and points (not 3MF)
       --unlit-lines        edges, curves and points in a flat colour: glTF with KHR_materials_unlit (three.js
@@ -180,7 +185,10 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
         output: { type: 'string', short: 'o' },
         format: { type: 'string', short: 'f' },
         backend: { type: 'string', short: 'b', default: 'occt' },
-        deflection: { type: 'string', short: 'd', default: '0.1' },
+        coarse: { type: 'boolean', default: false },
+        medium: { type: 'boolean', default: false },
+        fine: { type: 'boolean', default: false },
+        deflection: { type: 'string', short: 'd' },
         'angular-deflection': { type: 'string' },
         'with-edges': { type: 'boolean', default: false },
         'with-curves': { type: 'boolean', default: false },
@@ -252,11 +260,16 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
       positive ? v > 0 : v >= 0))) bad ??= `--${name} must be a ${positive ? 'positive' : 'non-negative'} number`;
     return v;
   };
-  const deflection = number('deflection', o.deflection, 0.1, true);
+  // A profile's values, each replaced by --deflection or --angular-deflection if given.
+  const named = MESH_PROFILE_NAMES.filter((n) => o[n]);
+  if (named.length > 1) bad ??= `${named.map((n) => `--${n}`).join(', ')}: one meshing profile at most`;
+  const profile = MESH_PROFILES[named[0] ?? DEFAULT_MESH_PROFILE];
+  const deflection = number('deflection', o.deflection, profile.linearDeflection, true);
   const angularText = o['angular-deflection'];
-  const angularDegrees = number('angular-deflection', angularText, degrees(DEFAULT_ANGULAR), true);
+  const angularDegrees = number('angular-deflection', angularText, degrees(profile.angularDeflection), true);
   if (angularDegrees > 180) bad ??= '--angular-deflection must be at most 180 degrees';
-  const angular = angularText === undefined ? DEFAULT_ANGULAR : (angularDegrees * Math.PI) / 180;
+  const angular = angularText === undefined ? profile.angularDeflection : (angularDegrees * Math.PI) / 180;
+  const deflections = { linearDeflection: deflection, angularDeflection: angular };
   const workers = number('workers', o.workers, defaultWorkers(), false);
   const timeout = number('timeout', o.timeout, DEFAULT_TIMEOUT_MS / 1000, false);
   const cacheMb = number('cache-size', o['cache-size'], DEFAULT_FILE_BYTES / 2 ** 20, false);
@@ -328,7 +341,7 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
   let meshes;
   try {
     const r = await tessellateScene(scene, tess, {
-      linearDeflection: deflection, angularDeflection: angular, edges: o['with-edges'],
+      ...deflections, edges: o['with-edges'],
       concurrency: Math.max(1, workers),
       onPart: progress ? (_p, _m, done, total) => io.stderr.write(`\rtessellating ${done}/${total}`) : undefined,
     });
@@ -369,14 +382,16 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
   }
   lap('export');
 
-  if (!o.quiet) io.stderr.write(summary(scene, meshes.size, view, diagnostics, times, written, cached));
+  if (!o.quiet) {
+    io.stderr.write(summary(scene, meshes.size, view, diagnostics, times, written, cached, deflections));
+  }
   const failed = scene.parts.filter((p, i) => p.kind === 'brep' && !meshes.has(i)).length;
   return o.strict && failed ? 3 : 0;
 }
 
 function summary(scene: Scene, meshed: number, view: ExportView, diagnostics: readonly Diagnostic[],
   times: Record<string, number>,
-  written: number, cached: CachedTessellator | undefined): string {
+  written: number, cached: CachedTessellator | undefined, deflections: Deflections): string {
   const brep = scene.parts.filter((p) => p.kind === 'brep').length;
   let placed = 0, triangles = 0;
   const walk = (n: ExportView['roots'][number]) => {
@@ -388,7 +403,8 @@ function summary(scene: Scene, meshed: number, view: ExportView, diagnostics: re
   let text = `${scene.parts.length} parts (${meshed} of ${brep} brep parts tessellated), ${placed} placed; `
     + `${triangles} triangles; `
     + `${(written / 1e6).toFixed(1)} MB written\n`;
-  text += `import ${s(times.import!)}, tessellation ${s(times.tessellate!)}, export ${s(times.export!)}\n`;
+  const meshing = `${meshProfileOf(deflections) ?? 'custom'}: ${describe(deflections)}`;
+  text += `import ${s(times.import!)}, tessellation ${s(times.tessellate!)} (${meshing}), export ${s(times.export!)}\n`;
   if (cached) {
     const c = cached.stats();
     text += `cache: ${c.hits} hits (${c.failureHits} failures), ${c.misses} `

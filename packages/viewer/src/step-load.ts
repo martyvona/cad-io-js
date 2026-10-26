@@ -7,7 +7,7 @@
 import { partInstances, tessellateScene, type Diagnostic, type Mesh, type Scene } from 'cad-scene';
 import { importStep } from 'step-import';
 import type { CacheStats } from 'tess-cache/browser';
-import type { Tessellation, TessellationSettings } from './tessellation.ts';
+import { deflectionsOf, type Tessellation, type TessellationSettings } from './tessellation.ts';
 
 /**
  * What meshed a model: the backend's name and version, the workers, the cache's counts (if it was on), and how many
@@ -56,8 +56,8 @@ export async function loadStepIn(bytes: Uint8Array, settings: TessellationSettin
   if (!brep.length) return emit({ type: 'done', diagnostics: [] });
   const { tess, workers: n } = await tessellation.get(settings, workers);
   if (cancelled()) return;
-  const { diagnostics } = await tessellateScene(scene, tess, { linearDeflection: settings.linearDeflection,
-    angularDeflection: settings.angularDeflection * Math.PI / 180, edges: true, concurrency: n, parts: brep,
+  const { diagnostics } = await tessellateScene(scene, tess, { ...deflectionsOf(settings), edges: true,
+    concurrency: n, parts: brep,
     onPart: (part, mesh) => { if (!cancelled()) emit({ type: 'mesh', part, mesh }, meshBuffers(mesh)); } });
   if (cancelled()) return;
   const d = tessellation.describe();
