@@ -230,7 +230,8 @@ export class Viewer {
     this.changed = false;
     this.controls.update();
     clipTo(this.camera, this.bounds);
-    this.sections.update(this.root ? this.display : undefined);
+    this.sections.update(this.root ? this.display : undefined, () => this.nodes?.nodes.flatMap((n) =>
+      n.kind === 'part' && n.object ? [n.object] : []) ?? []);
     if (this.render.triangleEdges !== 'off' && this.root) this.display.updateWorldMatrix(true, true);
     this.triangleEdges.update(this.root ? this.display : undefined, this.render.triangleEdges);
     this.composer.render();

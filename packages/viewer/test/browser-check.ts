@@ -17,6 +17,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
+import { Document, NodeIO } from '@gltf-transform/core';
 import { exportView, partInstances, tessellateScene } from 'cad-scene';
 import { glb, gltfJson } from 'export-gltf';
 import { threejsJson } from 'export-threejs';
@@ -63,6 +64,25 @@ fs.copyFileSync(bicycle, path.join(content, 'bicycle.stp'));
 fs.copyFileSync(path.join(repo, 'test_corpus/third_party/gkv311-opencascade-dataset/step/r103ec.stp'),
   path.join(content, 'metres.stp'));
 fs.writeFileSync(path.join(content, 'notes.txt'), 'not a model');
+// A box of 10 x 20 x 30 whose faces are each a primitive of one glTF mesh (three.js: a mesh each, under the node), as
+// some CAD systems' glTF files have their parts: closed only as a whole (the caps check).
+{
+  const doc = new Document();
+  const buffer = doc.createBuffer();
+  const mesh = doc.createMesh('box');
+  const c = (i: number, n: number) => (i & n ? 1 : 0);
+  const corner = (i: number) => [10 * c(i, 1), 20 * c(i, 2), 30 * c(i, 4)];
+  // Each face's corners (bit masks of x, y, z), counterclockwise from outside.
+  for (const f of [[0, 2, 3, 1], [4, 5, 7, 6], [0, 1, 5, 4], [2, 6, 7, 3], [0, 4, 6, 2], [1, 3, 7, 5]]) {
+    const position = doc.createAccessor().setType('VEC3').setBuffer(buffer)
+      .setArray(Float32Array.from(f.flatMap(corner)));
+    const indices = doc.createAccessor().setType('SCALAR').setBuffer(buffer).setArray(Uint16Array.from([0, 1, 2, 0, 2,
+      3]));
+    mesh.addPrimitive(doc.createPrimitive().setAttribute('POSITION', position).setIndices(indices));
+  }
+  doc.createScene().addChild(doc.createNode('box').setMesh(mesh));
+  fs.writeFileSync(path.join(content, 'faces.glb'), await new NodeIO().writeBinary(doc));
+}
 // In a directory, with a name that has to be encoded in a URL (the content paths check).
 fs.mkdirSync(path.join(content, 'sub dir'));
 fs.copyFileSync(path.join(content, 'as1.glb'), path.join(content, 'sub dir', 'as1 #1%.glb'));
@@ -1281,8 +1301,8 @@ await check('auto hide and select all', async () => {
     out.statusAt4 = faded(status);
     await wait(1600);
     out.statusAt56 = faded(status);
-    // Gone from the screen once its fade has run.
-    await wait(700);
+    // Gone from the screen once its fade has run (0.6 s; waited for, up to 3 s, as a loaded machine runs it late).
+    for (let t = 0; t < 30 && getComputedStyle(status).opacity !== '0'; t++) await wait(100);
     out.statusOpacity = getComputedStyle(status).opacity;
     ui.say('one');
     out.sameText = faded(status);
@@ -1432,6 +1452,22 @@ await check('theme', async () => {
   expect(fresh.after === 'light', `auto, a light system, from the first paint: ${JSON.stringify(fresh.after)}`);
   const a = again.after.auto;
   expect(as(a, a.systemLight ? 'light' : 'dark') && a.control === 'auto' && a.saved === null, `auto again: ${j}`);
+  return undefined;
+});
+// Caps on a part whose faces are meshes of their own (faces.glb: a box, a primitive per face): capped as one solid,
+// one cap; the cap drawn where the plane cuts it.
+await check('caps on a part of several meshes', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/faces.glb')}&check`, `(async () => {
+    await cadViewer.ready; await cadViewer.idle();
+    const meshes = [];
+    viewer.root.traverse((o) => { if (o.isMesh) meshes.push(o); });
+    const st = viewer.sections.get();
+    st.z.on = true;
+    ui.setSections(st);
+    await cadViewer.idle();
+    return { meshes: meshes.length, caps: viewer.sections.caps.length };
+  })()`) as { after: { meshes: number; caps: number } };
+  expect(r.after.meshes === 6 && r.after.caps === 1, JSON.stringify(r.after));
   return undefined;
 });
 // The automation interface (src/automation.ts) and links: nodes by path, select, hide and show by path, a pick and a

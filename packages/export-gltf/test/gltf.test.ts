@@ -59,7 +59,9 @@ function scene(): Scene {
         parts: [{ part: 0, transform: scaling(25.4) }, { part: 1, transform: identity() }], children: [] },
     ],
     roots: [occ(0, identity())],
-    parts: [{ ...brep('plate', 25.4), material: 1, faceMaterials: [{ face: 7, material: 2 }] }, brep('wire', 1)],
+    // The plate open (as the source would say); the wireframe saying nothing.
+    parts: [{ ...brep('plate', 25.4), material: 1, faceMaterials: [{ face: 7, material: 2 }], closed: false },
+      brep('wire', 1)],
     materials: [{ name: 'red', color: [1, 0, 0], opacity: 0.5, sources: [] },
       { color: [0, 1, 0], opacity: 1, sources: [] }, { color: [0, 0, 1], opacity: 1, sources: [] }],
     layers: [],
@@ -150,7 +152,7 @@ test('GLB: valid; the tree, transforms to metres and Y up, shared accessors, mat
     (await glb(plain, exportView(plain, meshes()))).bytes)).getRoot().listMeshes().length, 1);
   // The part's ids and properties; each primitive's faces as ranges of its own indices.
   assert.deepEqual(plates[0]!.getExtras(),
-    { part: 0, sources: [{ format: 'step', id: 50 }], properties: { pn: 'X-1' } });
+    { part: 0, closed: false, sources: [{ format: 'step', id: 50 }], properties: { pn: 'X-1' } });
   assert.deepEqual(prims(m0).map((p) => p.getExtras()),
     [{ faces: [{ source: 8, start: 0, count: 3 }] }, { faces: [{ source: 7, start: 0, count: 3 }] }]);
 });
@@ -650,7 +652,8 @@ test('instancing: a look placed twice is one node with EXT_mesh_gpu_instancing, 
   inst.getMesh()!.listPrimitives().forEach((p, g) => worlds.forEach((w, i) => assert.ok(sameTriangles(
     worldTriangles(inst, p, w).map((t) => t.tri),
     worldTriangles(plain[i]!, plain[i]!.getMesh()!.listPrimitives()[g]!).map((t) => t.tri), 1e-8))));
-  assert.deepEqual(inst.getExtras(), { part: 0, sources: [{ format: 'step', id: 50 }], properties: { pn: 'X-1' },
+  assert.deepEqual(inst.getExtras(), { part: 0, closed: false, sources: [{ format: 'step', id: 50 }],
+    properties: { pn: 'X-1' },
     instances: [{ path: [0, 0], names: ['asm', 'left'], sources: [{ format: 'step', id: 101 }] },
       { path: [0, 1], names: ['asm', 'sub'], sources: [{ format: 'step', id: 101 }] }] });
   // Without extras, none; the empty tree kept on request.

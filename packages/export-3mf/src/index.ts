@@ -6,8 +6,8 @@
 //     triangles welding made degenerate dropped; then a mesh object per look, its triangles' properties its groups'
 //     materials. Vertices are in the part's unit, relative to its origin, as the scene has them; the transforms
 //     scale and place them (`unit="millimeter"`). A mesh that isn't a closed, oriented manifold of positive volume
-//     (what a `model` object must be) is left out with a warning, or written as a `surface` object (CLAUDE.md,
-//     "Decisions").
+//     (what a `model` object must be), or whose part the source says is open (its `closed` false: an open shell;
+//     the user, 2026-10-27), is left out with a warning, or written as a `surface` object (CLAUDE.md, "Decisions").
 //   build: an item per placed part at its world transform, its path in the instance tree as its part number and, on
 //     request (`extras`), its names in our metadata (decided by the user, 2026-10-21; extras 2026-10-24); or
 //     (`build: 'assembly'`) one item, an object whose components follow the instance tree, identical subtrees
@@ -231,9 +231,11 @@ class Writer {
     for (const [part, problems] of this.failedParts) {
       const p = this.scene.parts[part]!;
       const what = this.opts.nonManifold === 'surface' ? 'written as a surface object' : 'left out';
+      // Said closed, its mesh is what's open (a gap the mesher left).
+      const said = p.closed ? ', though the source says it\'s closed' : '';
       this.diagnostics.push({
         severity: 'warning',
-        message: `part '${p.name}' is not a closed, oriented manifold (${problems.join(', ')}); ${what}`,
+        message: `part '${p.name}' is not a closed, oriented manifold (${problems.join(', ')})${said}; ${what}`,
         ...(p.sources[0] ? { source: p.sources[0] } : {}),
       });
     }
@@ -283,14 +285,20 @@ class Writer {
     return s;
   }
 
+  /** Why a look's part can't be a `model` object: its mesh's problems, and the source saying it's open. */
+  private problems(look: Look): string[] {
+    const open = this.scene.parts[look.part]!.closed === false ? ['an open shell in the source'] : [];
+    return [...open, ...this.solid(look.mesh).problems];
+  }
+
   /** Whether a look has an object: triangles, and a closed manifold unless surfaces are written. */
   private usable(look: number): boolean {
     const l = this.view.looks[look]!;
     if (!l.groups.length) return false;
-    const s = this.solid(l.mesh);
-    if (!s.triangles) return false;
-    if (s.problems.length) {
-      this.failedParts.set(l.part, s.problems);
+    if (!this.solid(l.mesh).triangles) return false;
+    const problems = this.problems(l);
+    if (problems.length) {
+      this.failedParts.set(l.part, problems);
       return this.opts.nonManifold === 'surface';
     }
     return true;
@@ -332,7 +340,8 @@ class Writer {
     const main = look.groups.reduce((a, g) => (g.count > a.count ? g : a));
     const slot = this.slot(main.material);
     const number = this.partNumbers.get(look.part);
-    model.push(`<object id="${id}" type="${s.problems.length ? 'surface' : 'model'}" name="${xmlText(part.name)}"`
+    model.push(`<object id="${id}" type="${this.problems(look).length ? 'surface' : 'model'}" name="${
+      xmlText(part.name)}"`
       + `${number ? ` partnumber="${xmlText(number)}"` : ''} pid="1" pindex="${slot}"><mesh><vertices>\n`);
     const p = s.positions;
     let text = '';

@@ -6,7 +6,8 @@
 //     children are its B-rep edges (LineSegments), wireframe curves (LineSegments) and points (Points).
 //   geometries: one per distinct mesh and grouping, shared by every instance; groups index the Mesh's material array.
 //   materials: one per scene material and kind (MeshStandardMaterial, LineBasicMaterial, PointsMaterial).
-//   userData (on request): source ids, properties and parts; per Mesh its faces' sources as index ranges, for
+//   userData (on request): source ids, properties and parts (and `closed`, where the source says whether a part's
+//     faces bound solids); per Mesh its faces' sources as index ranges, for
 //     picking; the scene's properties, and the unit and up axis below the root, on the root.
 //
 // Tree nodes with nothing to draw beneath them are left out unless `keepEmpty` (the user, 2026-10-24).
@@ -37,9 +38,9 @@ export interface ThreejsOptions {
   /** Name of the root object. */
   name?: string;
   /**
-   * Our userData: source ids, properties and parts on objects, scene material indices on materials, face, edge, curve
-   * and point sources, and the unit and up axis below the root. Default false: other systems don't read them (the
-   * user, 2026-10-24).
+   * Our userData: source ids, properties, parts and whether they're closed (where the source says) on objects, scene
+   * material indices on materials, face, edge, curve and point sources, and the unit and up axis below the root.
+   * Default false: other systems don't read them (the user, 2026-10-24).
    */
   extras?: boolean;
   /** Keep tree nodes with nothing to draw beneath them. Default false. */
@@ -266,7 +267,8 @@ class Writer {
     if (look.edges) lines('edges');
     if (look.curves && look.mesh.curves?.length) lines('curves');
     if (look.curves && look.mesh.pointSources?.length) lines('points');
-    const userData: Json = { part: look.part, ...this.sourced(part.sources, part.properties) };
+    const userData: Json = { part: look.part, ...(part.closed === undefined ? {} : { closed: part.closed }),
+      ...this.sourced(part.sources, part.properties) };
     const o: Json = { uuid: this.uuid(), type: 'Group', name: part.name, matrix: matrix(p.transform) };
     if (look.groups.length) {
       o.type = 'Mesh';

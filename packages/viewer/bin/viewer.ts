@@ -137,10 +137,15 @@ export function parseArgs(argv: string[]): Args | string {
 }
 
 const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
-const listening = (port: number) => new Promise<boolean>((resolve) => {
-  const s = net.connect(port, '127.0.0.1');
-  s.once('connect', () => { s.destroy(); resolve(true); }).once('error', () => resolve(false));
-});
+/**
+ * Whether something listens on a port of either loopback address: Vite listens on what 'localhost' resolves to first,
+ * 127.0.0.1 or ::1, which differs between machines and over time (on this one, ::1 since 2026-10-27).
+ */
+const listening = async (port: number) => (await Promise.all(['127.0.0.1', '::1'].map((host) =>
+  new Promise<boolean>((resolve) => {
+    const s = net.connect(port, host);
+    s.once('connect', () => { s.destroy(); resolve(true); }).once('error', () => resolve(false));
+  })))).some((up) => up);
 const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 function lanUrls(s: State): string[] {

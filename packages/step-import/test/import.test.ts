@@ -345,3 +345,66 @@ test('dangling references: a warning per part naming them, at most 10; one beyon
       + "#906, #907, #908, #909, #910, ...", source: step(10) },
   ]);
 });
+
+// Parts' closed, as the file states it: solids (with voids too) and surface models of closed shells are closed; an
+// open shell, a solid beside one, aren't; a geometric set's surfaces, tessellated faces and parts without faces say
+// nothing; a face shared with another part counts by its shells in each part.
+test('closed: every face in a closed shell; not with an open shell; unknown for a set\'s surfaces or tessellated',
+  async () => {
+    const { scene } = await importStep(parseStep(file(`
+#16=(GEOMETRIC_REPRESENTATION_CONTEXT(3)GLOBAL_UNIT_ASSIGNED_CONTEXT((#10))REPRESENTATION_CONTEXT('mm',''));
+#10=(LENGTH_UNIT()NAMED_UNIT(*)SI_UNIT(.MILLI.,.METRE.));
+#20=CARTESIAN_POINT('',(0.,0.,0.));
+#21=DIRECTION('',(0.,0.,1.));
+#22=DIRECTION('',(1.,0.,0.));
+#23=AXIS2_PLACEMENT_3D('',#20,#21,#22);
+#30=PLANE('',#23);
+#31=ADVANCED_FACE('',(),#30,.T.);
+#32=ADVANCED_FACE('',(),#30,.T.);
+#33=ADVANCED_FACE('',(),#30,.T.);
+#34=ADVANCED_FACE('',(),#30,.T.);
+#35=ADVANCED_FACE('',(),#30,.T.);
+#36=ADVANCED_FACE('',(),#30,.T.);
+#40=CLOSED_SHELL('',(#31,#32));
+#41=MANIFOLD_SOLID_BREP('',#40);
+#42=ADVANCED_BREP_SHAPE_REPRESENTATION('solid',(#41),#16);
+#50=CLOSED_SHELL('',(#33));
+#51=ORIENTED_CLOSED_SHELL('',*,#50,.F.);
+#52=BREP_WITH_VOIDS('',#40,(#51));
+#53=ADVANCED_BREP_SHAPE_REPRESENTATION('voids',(#52),#16);
+#60=CLOSED_SHELL('',(#34));
+#61=SHELL_BASED_SURFACE_MODEL('',(#60));
+#62=MANIFOLD_SURFACE_SHAPE_REPRESENTATION('closed surface',(#61),#16);
+#70=OPEN_SHELL('',(#35));
+#71=SHELL_BASED_SURFACE_MODEL('',(#70));
+#72=MANIFOLD_SURFACE_SHAPE_REPRESENTATION('open surface',(#71),#16);
+#80=OPEN_SHELL('',(#36));
+#81=SHELL_BASED_SURFACE_MODEL('',(#80));
+#82=SHAPE_REPRESENTATION('mixed',(#41,#81),#16);
+#90=GEOMETRIC_SET('',(#30));
+#91=GEOMETRICALLY_BOUNDED_SURFACE_SHAPE_REPRESENTATION('set',(#90),#16);
+#100=COORDINATES_LIST('',3,((0.,0.,0.),(1.,0.,0.),(0.,1.,0.)));
+#101=TRIANGULATED_FACE('',#100,3,(),$,(),((1,2,3)));
+#102=TESSELLATED_SHELL('',(#101),$);
+#103=TESSELLATED_SHAPE_REPRESENTATION('tessellated',(#102),#16);
+#110=GEOMETRIC_SET('',(#20));
+#111=GEOMETRICALLY_BOUNDED_WIREFRAME_SHAPE_REPRESENTATION('points',(#110),#16);
+#120=CLOSED_SHELL('',(#35));
+#121=MANIFOLD_SOLID_BREP('',#120);
+#122=ADVANCED_BREP_SHAPE_REPRESENTATION('sharing a face',(#121),#16);
+#1=APPLICATION_CONTEXT('');
+#2=PRODUCT_CONTEXT('',#1,'mechanical');
+#3=PRODUCT_DEFINITION_CONTEXT('part definition',#1,'design');
+#200=PRODUCT('P','P','',(#2));
+#201=PRODUCT_DEFINITION_FORMATION('','',#200);
+#202=PRODUCT_DEFINITION('','',#201,#3);
+#203=PRODUCT_DEFINITION_SHAPE('','',#202);
+#204=SHAPE_REPRESENTATION('top',(#23),#16);
+#205=SHAPE_DEFINITION_REPRESENTATION(#203,#204);
+${[42, 53, 62, 72, 82, 91, 103, 111, 122].map((r, i) =>
+  `#${300 + i}=SHAPE_REPRESENTATION_RELATIONSHIP('','',#${r},#204);`)
+  .join('\n')}`)));
+    const closed = Object.fromEntries(scene.parts.map((p) => [p.name, p.closed]));
+    assert.deepEqual(closed, { 'solid': true, 'voids': true, 'closed surface': true, 'open surface': false,
+      'mixed': false, 'set': undefined, 'tessellated': undefined, 'points': undefined, 'sharing a face': true });
+  });

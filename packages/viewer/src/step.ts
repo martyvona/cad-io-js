@@ -181,7 +181,8 @@ export class StepGraph implements FaceHiding {
       } else {
         obj = new THREE.Group();
       }
-      obj.userData = { faces: faceSources, faceRanges: mesh.faces };
+      const closed = this.scene.parts[part]!.closed;
+      obj.userData = { faces: faceSources, faceRanges: mesh.faces, ...(closed === undefined ? {} : { closed }) };
       obj.name = group.name;
       obj.position.set(...mesh.origin);
       if (edges) {

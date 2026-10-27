@@ -129,3 +129,102 @@ test('clipped: points on a cut-away side', () => {
   s.set(DEFAULT_SECTIONS());
   assert.equal(s.clipped(new THREE.Vector3(1, 0, 0)), false);
 });
+
+/** A part of six meshes, a box's faces each its own (as some glTF files are), under a part group, moved. */
+function facesPart() {
+  const part = new THREE.Group();
+  part.position.set(0, 50, 0);
+  const box = new THREE.BoxGeometry(2, 4, 6).toNonIndexed();
+  const colours = [0x00ff00, 0x0000ff];
+  // Each face its own vertices (its box only its own).
+  const all = box.getAttribute('position');
+  const faces = [0, 1, 2, 3, 4, 5].map((i) => {
+    const face = new THREE.BufferGeometry();
+    face.setAttribute('position', new THREE.Float32BufferAttribute(Array.from(all.array).slice(18 * i, 18 * i + 18),
+      3));
+    return new THREE.Mesh(face, new THREE.MeshPhongMaterial({ color: colours[i % 2] }));
+  });
+  part.add(...faces);
+  const root = new THREE.Group();
+  root.add(part);
+  root.updateWorldMatrix(true, true);
+  return { root, part, faces };
+}
+
+test('caps: a part\'s meshes closed together are capped as one, none of them closed alone', () => {
+  const { s } = sections();
+  const { root, part, faces } = facesPart();
+  const set = DEFAULT_SECTIONS();
+  set.z = { on: true, at: 1, flip: false };
+  s.set(set);
+  // Each mesh on its own: open, no caps.
+  s.update(root);
+  assert.equal(s.group.children.length, 0);
+  // As a part: every face's back and front in the stencil, in one render order, then one cap over the whole box (x
+  // by y: 2 by 4, with the margin), in the first face's colour.
+  s.invalidate();
+  s.update(root, () => [part]);
+  const kids = s.group.children as THREE.Mesh[];
+  assert.equal(kids.length, 6 * 2 + 1);
+  assert.deepEqual([...new Set(kids.slice(0, 12).map((k) => k.renderOrder))], [1000]);
+  assert.deepEqual(new Set(kids.slice(0, 12).map((k) => k.geometry)), new Set(faces.map((f) => f.geometry)));
+  const cap = kids[12]!;
+  assert.equal(cap.renderOrder, 1001);
+  assert.ok(Math.abs(cap.scale.x - 2.2) < 1e-2 && Math.abs(cap.scale.y - 4.4) < 1e-2, `${cap.scale.toArray()}`);
+  assert.ok(Math.abs(cap.position.y - 50) < 1e-6);
+  assert.equal((cap.material as THREE.MeshBasicMaterial).color.getHex(), 0x00ff00);
+  // A face hidden: the rest is open.
+  faces[3]!.visible = false;
+  s.invalidate();
+  s.update(root, () => [part]);
+  assert.equal(s.group.children.length, 0);
+});
+
+test('caps: a part\'s meshes in frames of their own close up in the part\'s', () => {
+  const { s } = sections();
+  const { root, part, faces } = facesPart();
+  // One face moved off and its mesh moved back: the same place in the part.
+  const f = faces[0]!;
+  f.geometry = f.geometry.clone().translate(10, 0, 0);
+  f.position.set(-10, 0, 0);
+  root.updateWorldMatrix(true, true);
+  const set = DEFAULT_SECTIONS();
+  set.z = { on: true, at: 1, flip: false };
+  s.set(set);
+  s.update(root, () => [part]);
+  assert.equal(s.group.children.length, 6 * 2 + 1);
+  // The face moved away: open, though its geometry and the count are the same.
+  f.position.set(-9, 0, 0);
+  root.updateWorldMatrix(true, true);
+  s.invalidate();
+  s.update(root, () => [part]);
+  assert.equal(s.group.children.length, 0);
+});
+
+test('caps: what the source says of a mesh (userData.closed) decides over its triangles', () => {
+  const { s } = sections();
+  const root = new THREE.Group();
+  // Open, but said to be closed (a solid whose mesher left a gap): capped. Closed, but said to be open: not.
+  const open = new THREE.BoxGeometry();
+  open.setIndex(Array.from(open.index!.array).slice(6));
+  const said = new THREE.Mesh(open, new THREE.MeshPhongMaterial());
+  said.userData.closed = true;
+  const shell = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshPhongMaterial());
+  shell.userData.closed = false;
+  shell.position.set(5, 0, 0);
+  root.add(said, shell);
+  root.updateWorldMatrix(true, true);
+  const set = DEFAULT_SECTIONS();
+  set.z = { on: true, at: 0, flip: false };
+  s.set(set);
+  s.update(root);
+  const kids = s.group.children as THREE.Mesh[];
+  assert.equal(kids.length, 3);
+  assert.equal(kids[0]!.geometry, open);
+  // A part whose meshes don't all say: their triangles decide (a face said closed, the others silent: as before).
+  const { root: r2, part, faces } = facesPart();
+  faces[0]!.userData.closed = false;
+  s.invalidate();
+  s.update(r2, () => [part]);
+  assert.equal(s.group.children.length, 6 * 2 + 1);
+});

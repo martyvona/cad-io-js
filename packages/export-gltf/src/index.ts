@@ -35,7 +35,10 @@ import { Document, Format, Logger, WebIO, type Accessor, type JSONDocument, type
 import { EXTMeshGPUInstancing, EXTMeshoptCompression, KHRDracoMeshCompression, KHRMaterialsUnlit,
   KHRMeshQuantization, KHRNodeVisibility } from '@gltf-transform/extensions';
 import { identity, multiply, pruneView, Y_UP_METRES, type Diagnostic, type ExportNode, type ExportView, type Look,
-  type Mat4, type Mesh, type PropertyValue, type Scene, type SourceId, type Vec3 } from 'cad-scene';
+  type Mat4, type Mesh, type Part, type PropertyValue, type Scene, type SourceId, type Vec3 } from 'cad-scene';
+
+/** A part's `closed` for extras, where the source says it (cad-scene's Part.closed). */
+const closedOf = (part: Part): { closed?: boolean } => (part.closed === undefined ? {} : { closed: part.closed });
 
 export interface GltfOptions {
   /** Colour of faces, curves and points without a material (sRGB). Default light grey. */
@@ -64,8 +67,9 @@ export interface GltfOptions {
    */
   dracoPositionBits?: number;
   /**
-   * Our extras: source ids, properties and parts on nodes, scene material indices on materials, face, edge, curve
-   * and point sources on primitives, and the root's unit and up axis. Default false: other systems don't read them.
+   * Our extras: source ids, properties, parts and whether they're closed (`closed`, where the source says) on nodes,
+   * scene material indices on materials, face, edge, curve and point sources on primitives, and the root's unit and
+   * up axis. Default false: other systems don't read them.
    */
   extras?: boolean;
   /** Each look placed more than once as one node with EXT_mesh_gpu_instancing, out of the tree. Default false. */
@@ -678,8 +682,8 @@ class Writer {
     const look = this.view.looks[lookIndex]!;
     const part = this.scene.parts[look.part]!;
     const node = this.doc.createNode(part.name);
-    if (this.extras) node.setExtras({ part: look.part, ...this.sourced(part.sources, part.properties),
-      ...(instance ? { instance } : {}) });
+    if (this.extras) node.setExtras({ part: look.part, ...closedOf(part), ...this.sourced(part.sources,
+      part.properties), ...(instance ? { instance } : {}) });
     const mesh = faces ? this.mesh(lookIndex) : undefined;
     if (mesh) node.setMesh(mesh);
     for (const what of ['edges', 'curves', 'points'] as const) {
@@ -749,8 +753,8 @@ class Writer {
     const instance = (item: Instances['items'][number]): Json => ({ path: item.node.path, names: item.names,
       ...(item.node.occurrence.sources.length ? { sources: item.node.occurrence.sources.map((x) => ({
         format: x.format, id: x.id })) } : {}) });
-    if (this.extras) node.setExtras({ part: look.part, ...this.sourced(part.sources, part.properties),
-      instances: g.items.map(instance) });
+    if (this.extras) node.setExtras({ part: look.part, ...closedOf(part), ...this.sourced(part.sources,
+      part.properties), instances: g.items.map(instance) });
     if (!g.visible) this.hide(node);
     const out = [node];
     if (look.edges || look.curves) for (const item of g.items) {

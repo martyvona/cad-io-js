@@ -10,7 +10,7 @@
 // model's drawn meshes change (`invalidate`), moved when a plane moves.
 
 import * as THREE from 'three';
-import { INSIDE_OUT, manifoldProblems, weld } from 'cad-scene';
+import { closesUp } from './closure.ts';
 
 export type Axis = 'x' | 'y' | 'z';
 export const AXES: readonly Axis[] = ['x', 'y', 'z'];
@@ -42,32 +42,48 @@ export function planeFor(axis: Axis, s: PlaneSettings): THREE.Plane {
   return s.flip ? new THREE.Plane(UNIT[axis].clone(), -s.at) : new THREE.Plane(UNIT[axis].clone().negate(), s.at);
 }
 
-/**
- * Whether a mesh's triangles close up, once vertices at one position are one: every edge used twice, once each way
- * (an inside-out shell counts: the stencil count works either way). Cached on the geometry.
- */
+/** Whether a mesh's triangles close up (closure.ts). Cached on the geometry. */
 export function isClosed(geometry: THREE.BufferGeometry): boolean {
   const cached = geometry.userData.closed as boolean | undefined;
   if (cached !== undefined) return cached;
-  const pos = geometry.getAttribute('position');
-  let closed = false;
-  if (pos && pos.count >= 4) {
-    const positions = new Float32Array(pos.count * 3);
-    for (let i = 0; i < pos.count; i++) {
-      positions[3 * i] = pos.getX(i);
-      positions[3 * i + 1] = pos.getY(i);
-      positions[3 * i + 2] = pos.getZ(i);
-    }
-    const index = geometry.index;
-    const n = index ? index.count : pos.count;
-    const { remap, positions: welded } = weld(positions);
-    const triangles = new Uint32Array(n - (n % 3));
-    for (let i = 0; i < triangles.length; i++) triangles[i] = remap[index ? index.getX(i) : i]!;
-    closed = triangles.length > 0 && manifoldProblems(welded, triangles).every((p) => p === INSIDE_OUT);
-  }
+  const closed = closedTogether([{ geometry }]);
   geometry.userData.closed = closed;
   return closed;
 }
+
+/**
+ * Whether meshes close up together, each in a frame of one part (`matrix`, from its own to the part's; none: the
+ * same): a glTF part split into a mesh per face closes up only as a whole.
+ */
+function closedTogether(meshes: { geometry: THREE.BufferGeometry; matrix?: THREE.Matrix4 }[]): boolean {
+  let vertices = 0, indices = 0;
+  for (const { geometry: g } of meshes) {
+    const count = g.getAttribute('position')?.count ?? 0;
+    vertices += count;
+    indices += g.index ? g.index.count : count;
+  }
+  const positions = new Float32Array(vertices * 3);
+  const triangles = new Uint32Array(indices);
+  const v = new THREE.Vector3();
+  let base = 0, at = 0;
+  for (const { geometry: g, matrix } of meshes) {
+    const pos = g.getAttribute('position');
+    if (!pos) continue;
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i);
+      if (matrix) v.applyMatrix4(matrix);
+      positions.set([v.x, v.y, v.z], 3 * (base + i));
+    }
+    const index = g.index;
+    const n = index ? index.count : pos.count;
+    // Each mesh's whole triangles only.
+    for (let i = 0; i < n - (n % 3); i++) triangles[at++] = base + (index ? index.getX(i) : i);
+    base += pos.count;
+  }
+  return closesUp(positions, triangles.subarray(0, at));
+}
+
+const IDENTITY = new THREE.Matrix4();
 
 const stencil = (side: THREE.Side, op: THREE.StencilOp) => new THREE.MeshBasicMaterial({ side, colorWrite: false,
   depthWrite: false, depthTest: false, stencilWrite: true, stencilFunc: THREE.AlwaysStencilFunc, stencilFail: op,
@@ -98,6 +114,8 @@ export class Sections {
   private caps: Cap[] = [];
   private dirty = true;
   private readonly capMaterials = new Map<number, THREE.MeshBasicMaterial>();
+  /** Whether parts of several meshes close up, by their geometries and frames. */
+  private readonly closedParts = new Map<string, boolean>();
 
   constructor(renderer: THREE.WebGLRenderer) {
     this.renderer = renderer;
@@ -128,8 +146,11 @@ export class Sections {
     this.dirty = true;
   }
 
-  /** Before drawing: makes the caps again if needed. */
-  update(model: THREE.Object3D | undefined): void {
+  /**
+   * Before drawing: makes the caps again if needed. A part (one of `parts`, the node model's: its meshes capped as one
+   * solid, a mesh per face as a glTF file may have) or else each mesh on its own.
+   */
+  update(model: THREE.Object3D | undefined, parts?: () => Iterable<THREE.Object3D>): void {
     if (!this.dirty) return;
     this.dirty = false;
     for (const c of [...this.group.children]) this.group.remove(c);
@@ -137,28 +158,40 @@ export class Sections {
     const on = AXES.filter((a) => this.settings[a].on);
     if (!model || !on.length || !this.settings.caps) return;
     model.updateWorldMatrix(true, true);
-    const meshes: THREE.Mesh[] = [];
-    const visit = (o: THREE.Object3D) => {
+    const partSet = new Set(parts?.() ?? []);
+    const units = new Map<THREE.Object3D, THREE.Mesh[]>();
+    const visit = (o: THREE.Object3D, part: THREE.Object3D | undefined) => {
       if (!o.visible || o.userData.highlight) return;
+      const within = part ?? (partSet.has(o) ? o : undefined);
       const m = o as THREE.Mesh;
-      if (m.isMesh && !(m as THREE.InstancedMesh).isInstancedMesh && o.layers.isEnabled(0) && isClosed(m.geometry)) {
-        meshes.push(m);
+      if (m.isMesh && !(m as THREE.InstancedMesh).isInstancedMesh && o.layers.isEnabled(0)) {
+        const key = within ?? m;
+        const list = units.get(key);
+        if (list) list.push(m);
+        else units.set(key, [m]);
       }
-      o.children.forEach(visit);
+      for (const c of o.children) visit(c, within);
     };
-    visit(model);
+    visit(model, undefined);
     let order = 1000;
-    for (const mesh of meshes) {
-      mesh.geometry.computeBoundingBox();
-      const box = mesh.geometry.boundingBox!.clone().applyMatrix4(mesh.matrixWorld);
-      const color = this.colorOf(mesh);
+    for (const [part, meshes] of units) {
+      if (!this.closed(part, meshes)) continue;
+      const box = new THREE.Box3();
+      for (const mesh of meshes) {
+        mesh.geometry.computeBoundingBox();
+        box.union(mesh.geometry.boundingBox!.clone().applyMatrix4(mesh.matrixWorld));
+      }
+      const color = this.colorOf(meshes[0]!);
       for (const axis of on) {
-        for (const material of [BACK, FRONT]) {
-          const s = new THREE.Mesh(mesh.geometry, material);
-          s.matrixAutoUpdate = false;
-          s.matrix.copy(mesh.matrixWorld);
-          s.renderOrder = order;
-          this.group.add(s);
+        // A part's meshes count in the stencil together: one render order, one cap.
+        for (const mesh of meshes) {
+          for (const material of [BACK, FRONT]) {
+            const s = new THREE.Mesh(mesh.geometry, material);
+            s.matrixAutoUpdate = false;
+            s.matrix.copy(mesh.matrixWorld);
+            s.renderOrder = order;
+            this.group.add(s);
+          }
         }
         const quad = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), color);
         quad.renderOrder = order + 1;
@@ -169,6 +202,29 @@ export class Sections {
       }
     }
     this.move();
+  }
+
+  /**
+   * Whether a part's visible meshes close up together (one mesh: isClosed, cached on its geometry; several: cached by
+   * their geometries and their frames in the part's).
+   */
+  private closed(part: THREE.Object3D, meshes: THREE.Mesh[]): boolean {
+    // What the source says, when it says it for every mesh (STEP: the scene part's closed); else their triangles.
+    const stated = meshes.map((m) => m.userData.closed as boolean | undefined);
+    if (stated.every((c) => c !== undefined)) return stated.every((c) => c);
+    if (meshes.length === 1) return isClosed(meshes[0]!.geometry);
+    const inverse = part.matrixWorld.clone().invert();
+    const frames = meshes.map((m) => {
+      const matrix = inverse.clone().multiply(m.matrixWorld);
+      return matrix.equals(IDENTITY) ? undefined : matrix;
+    });
+    const key = meshes.map((m, i) => m.geometry.uuid + (frames[i] ? `@${frames[i].elements.join(',')}` : '')).join();
+    let closed = this.closedParts.get(key);
+    if (closed === undefined) {
+      closed = closedTogether(meshes.map((m, i) => ({ geometry: m.geometry, matrix: frames[i] })));
+      this.closedParts.set(key, closed);
+    }
+    return closed;
   }
 
   /** The material for a mesh's caps: its first visible material's colour. */

@@ -46,7 +46,9 @@ function scene(): Scene {
         parts: [{ part: 0, transform: scaling(25.4) }, { part: 1, transform: identity() }], children: [] },
     ],
     roots: [occ(0, identity())],
-    parts: [{ ...brep('plate', 25.4), material: 1, faceMaterials: [{ face: 7, material: 2 }] }, brep('wire', 1)],
+    // The plate open (as the source would say); the wireframe saying nothing.
+    parts: [{ ...brep('plate', 25.4), material: 1, faceMaterials: [{ face: 7, material: 2 }], closed: false },
+      brep('wire', 1)],
     materials: [{ name: 'red', color: [1, 0, 0], opacity: 0.5, sources: [] },
       { color: [0, 1, 0], opacity: 1, sources: [] }, { color: [0, 0, 1], opacity: 1, sources: [] }],
     layers: [],
@@ -107,7 +109,7 @@ test('three.js JSON loads with ObjectLoader: tree, transforms, shared geometry, 
   assert.equal((plates[1]!.material as THREE.Material[])[0]!.name, 'red');
   // The part's ids and properties, and its faces as index ranges for picking.
   assert.deepEqual(plates[0]!.userData, {
-    part: 0, sources: [{ format: 'step', id: 50 }], properties: { pn: 'X-1' },
+    part: 0, closed: false, sources: [{ format: 'step', id: 50 }], properties: { pn: 'X-1' },
     faces: [{ source: 8, start: 0, count: 3 }, { source: 7, start: 3, count: 3 }],
   });
 });

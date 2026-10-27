@@ -330,8 +330,9 @@ test('stepconv: 3MF, the same as the library; --3mf-colorgroup, --3mf-assembly, 
     /<m:colorgroup id="1">/);
   // Open shells: left out with a warning each, or written as surfaces.
   const left = await flags(shells, []);
-  assert.match(left.stderr,
-    /\n  warning: #\d+: part 'small_shell' is not a closed, oriented manifold \(\d+ boundary edges\); left out\n/);
+  // (Open shells in the file: said so too.)
+  assert.match(left.stderr, new RegExp(/\n  warning: #\d+: part 'small_shell' is not a closed, oriented manifold /
+    .source + /\(an open shell in the source, \d+ boundary edges\); left out\n/.source));
   assert.equal(left.model.items.length, 0);
   const surfaces = await flags(shells, ['--3mf-surfaces']);
   assert.match(surfaces.stderr, /written as a surface object/);

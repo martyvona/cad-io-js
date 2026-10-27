@@ -145,17 +145,31 @@ export function sceneFromStep(model: StepModel, sem: Semantics): ImportResult {
       }
     }
     const origin: Vec3 = lo[0] === Infinity ? [0, 0, 0] : [0, 1, 2].map((k) => (lo[k]! + hi[k]!) / 2) as Vec3;
+    // Closed: every face in a closed shell of the part (solids' shells and voids, closed shells of surface models);
+    // open if one is in another shell of the part (an open shell, a face set), which the file then says; otherwise
+    // the file doesn't say: faces in no shell (a geometric set's surfaces, as bug28366_fuselage.stp's, which close up
+    // all the same), tessellated faces (in tessellated shells, not face sets) (the user, 2026-10-27: caps on what the
+    // file says is solid).
+    const inPart = new Set(positions);
+    let closed: boolean | undefined = faces.length ? true : undefined;
+    for (const f of faces) {
+      const shells = model.referrers(f).filter((q) => inPart.has(q) && model.isInstanceOf(q, 'CONNECTED_FACE_SET'));
+      if (shells.some((q) => !model.isInstanceOf(q, 'CLOSED_SHELL'))) {
+        closed = false;
+        break;
+      }
+      if (!shells.length) closed = undefined;
+    }
     const part: Part = {
       kind: 'brep', format: 'step', rootId: rep.id,
       payload: () => buildSubset(file, [root], { exclude }).bytes,
       name: rep.name, sources: [src(rep.id)], properties: { representation: rep.types.join('+') },
-      unit: mmOf(rep.id), origin,
+      unit: mmOf(rep.id), origin, ...(closed === undefined ? {} : { closed }),
     };
     if (s.representations.get(rep.id)?.context?.lengthUnit === undefined) warn(
       'representation without a length unit; read as millimetres', rep.id);
 
     // Face materials: each face's style resolved up through its shell, solid and the representation, within the part.
-    const inPart = new Set(positions);
     const resolved = new Map<number, Style | null>();
     const resolve = (p: number, depth = 0): Style | null => {
       let st = resolved.get(p);

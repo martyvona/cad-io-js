@@ -54,6 +54,12 @@ test('meshes: at the origin in each placement, geometry shared where the colouri
   assert.deepEqual(Array.from(edges[0]!.geometry.index!.array), [0, 1]);
   assert.equal(edges[0]!.layers.mask, 1 << EDGES);
   assert.equal(edges[0]!.geometry, edges[1]!.geometry);
+  // Whether the part is closed, as the scene says (for the caps), or nothing when it doesn't.
+  assert.ok(made.every((m) => !('closed' in m.userData)));
+  const said = scene();
+  said.parts[0]!.closed = true;
+  const saidMade = new StepGraph(said, 'model').addMesh(0, plate()) as THREE.Mesh[];
+  assert.ok(saidMade.every((m) => m.userData.closed === true));
 });
 
 test('meshes: wireframes as curves and points in the instance colour; no faces, no edges', () => {

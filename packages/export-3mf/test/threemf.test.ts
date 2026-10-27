@@ -246,6 +246,29 @@ test('meshes that are not closed manifolds: left out, or written as surface obje
   assert.equal((await read3mf(bytes(inside.chunks))).items.length, 0);
 });
 
+test('what the source says: a part it calls open is no model object, however closed its mesh', async () => {
+  // The cube said to be an open shell: left out, or a surface object.
+  const open = scene();
+  open.parts[0]!.closed = false;
+  const o = write(open, {});
+  assert.equal(messages(o)[0], "part 'cube & co' is not a closed, oriented manifold (an open shell in the source); "
+    + 'left out');
+  assert.equal((await read3mf(bytes(o.chunks))).items.length, 0);
+  const r = await read3mf(bytes(write(open, { nonManifold: 'surface' }).chunks));
+  // (The cube twice: its second placement's colour override makes it another look.)
+  assert.deepEqual([...r.meshes.values()].map((m) => [m.name, m.type]).sort(),
+    [['cube & co', OBJECT_TYPE.surface], ['cube & co', OBJECT_TYPE.surface], ['sheet', OBJECT_TYPE.surface]]);
+  // Said closed: a model as before; and where its mesh isn't one, still left out (3MF's rule), the warning saying
+  // the source calls it closed.
+  const closed = scene();
+  closed.parts[0]!.closed = true;
+  const c = await read3mf(bytes(write(closed, {}).chunks));
+  assert.equal(c.meshes.get(c.items[0]!.object)!.type, OBJECT_TYPE.model);
+  const gap = write(closed, {}, new Map([[0, cube([2])], [1, sheet()]]));
+  assert.equal(messages(gap)[0], "part 'cube & co' is not a closed, oriented manifold (4 misoriented edges), though "
+    + "the source says it's closed; left out");
+});
+
 test('colorgroup: the Materials extension, not required; colours opaque, with a warning', async () => {
   const out = write(scene(), { colors: 'colorgroup' });
   assert.equal(messages(out)[2], '1 transparent material written opaque (colorgroup colours are opaque)');

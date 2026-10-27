@@ -99,6 +99,12 @@ interface PartBase {
   material?: number;
   /** Materials of individual faces, by the face's source id (a STEP ADVANCED_FACE, say); override `material`. */
   faceMaterials?: { face: number; material: number }[];
+  /**
+   * Whether the part's faces bound solids, as the source states it (STEP: every face in a closed shell, a solid's or a
+   * surface model's; false if any is in an open shell); absent when it doesn't say (no faces, faces in no shell,
+   * tessellated faces, a mesh). What a section can be capped on (the viewer), whatever small gaps the meshes have.
+   */
+  closed?: boolean;
 }
 
 /** Exact geometry, tessellated on demand by a backend. */

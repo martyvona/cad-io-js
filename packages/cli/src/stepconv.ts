@@ -160,7 +160,8 @@ ${PROFILE_LINES}
       --3mf-colorgroup     3MF: colours as the Materials extension's colorgroup (print colours, opaque) instead
                            of basematerials (display colours)
       --3mf-assembly       3MF: one build item, the assembly as components, instead of an item per placed part
-      --3mf-surfaces       3MF: meshes that aren't closed manifolds as surface objects instead of left out
+      --3mf-surfaces       3MF: meshes that aren't closed manifolds, and parts the source says are open, as
+                           surface objects instead of left out
   -j, --workers <n>        parts tessellated at once, each in a worker (default ${defaultWorkers()}); 0: one at a time
                            on the main thread, without a timeout
       --timeout <s>        per part, in a worker (default ${DEFAULT_TIMEOUT_MS / 1000}); 0: none
