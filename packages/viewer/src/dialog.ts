@@ -92,7 +92,7 @@ export function showDialog(o: DialogOptions): Promise<DialogResult> {
 export async function askUrl(o: { title?: string; body?: DialogOptions['body']; value?: string } = {}):
   Promise<string | undefined> {
   const r = await showDialog({ title: o.title ?? 'Load URL', body: o.body ?? [],
-    input: { label: 'URL', value: o.value, placeholder: 'https://... or /content/...' },
+    input: { label: 'URL', value: o.value, placeholder: 'https://..., or a path within the content root' },
     buttons: [{ label: 'Load', value: 'load', primary: true }, { label: 'Cancel', value: 'cancel' }] });
   return r.button === 'load' && r.input ? r.input : undefined;
 }

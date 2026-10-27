@@ -8,7 +8,7 @@
 // Run by hand: node packages/viewer/test/browser-check.ts [path to Chrome]   (needs tess-occt built and the corpus;
 // SHOTS=<dir> saves a screenshot of each page there; EXTRA=<file>,... also loads those files and prints what the
 // page reports, with no expectations; BUILD=1 checks a build instead of the dev server, served below a path,
-// /viewer/, by a plain static server, as a build would be deployed)
+// /viewer/, by a plain static server, as a build would be deployed; ONLY=<check>,... runs only the checks named)
 
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -62,6 +62,9 @@ fs.copyFileSync(bicycle, path.join(content, 'bicycle.stp'));
 fs.copyFileSync(path.join(repo, 'test_corpus/third_party/gkv311-opencascade-dataset/step/r103ec.stp'),
   path.join(content, 'metres.stp'));
 fs.writeFileSync(path.join(content, 'notes.txt'), 'not a model');
+// In a directory, with a name that has to be encoded in a URL (the content paths check).
+fs.mkdirSync(path.join(content, 'sub dir'));
+fs.copyFileSync(path.join(content, 'as1.glb'), path.join(content, 'sub dir', 'as1 #1%.glb'));
 
 let triangles = 0;
 let segments = 0;
@@ -113,8 +116,10 @@ if (process.env.BUILD) {
     '.webmanifest': 'application/manifest+json', '.md': 'text/markdown' };
   staticServer = http.createServer((req, res) => {
     const url = decodeURIComponent(new URL(req.url!, 'http://x').pathname);
-    const [dir, rest] = url.startsWith(base) ? [dist, url.slice(base.length)]
+    let [dir, rest] = url.startsWith(base) ? [dist, url.slice(base.length)]
       : url.startsWith('/content/') ? [content, url.slice('/content/'.length)] : [undefined, ''];
+    // The build's own content root (content/ beside the page, where a deployment puts its demo models) is the same.
+    if (dir === dist && rest.startsWith('content/')) [dir, rest] = [content, rest.slice('content/'.length)];
     const file = dir && path.join(dir, rest || 'index.html');
     if (!file || !file.startsWith(dir + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
       res.writeHead(404).end();
@@ -187,8 +192,15 @@ async function page(query: string, after?: string, opts: PageOptions = {}): Prom
 }
 
 const results: [string, string][] = [];
+// ONLY=<name>,<name>: only those checks (for mutation runs).
+const only = process.env.ONLY?.split(',');
 const check = async (name: string, f: () => Promise<string | undefined>) => {
+  if (only && !only.includes(name)) return;
+  // Progress on standard error, so a check that hangs can be told from a slow one.
+  const t0 = Date.now();
+  process.stderr.write(`${name}...`);
   try { results.push([name, (await f()) ?? 'ok']); } catch (e) { results.push([name, `FAIL ${(e as Error).message}`]); }
+  process.stderr.write(` ${((Date.now() - t0) / 1000).toFixed(1)} s\n`);
 };
 const expect = (c: boolean, m: string) => { if (!c) throw new Error(m); };
 
@@ -1196,6 +1208,71 @@ await check('automation', async () => {
     sa.render.ao, sa.hidden, sa.selected, sa.tree]), `linked state: ${JSON.stringify([b, sa])}`);
   return undefined;
 });
+// Models named by their path within the content root (content/ beside the page): ?model= at start (one that leaves
+// the root or has a scheme refused, with the reason in the status line), relative paths in Load URL... (URLs and
+// server paths as before), and Copy link naming such a model by model=.
+await check('content paths', async () => {
+  const status = `document.getElementById('status').textContent`;
+  const bad: string[] = [];
+  for (const m of ['../as1.glb', 'https://example.com/as1.glb', '/content/as1.glb', 'sub/../as1.glb', '']) {
+    const r = await page(`?model=${encodeURIComponent(m)}&url=${encodeURIComponent('/content/as1.glb')}&check`,
+      `cadViewer.ready.then(() => ({ model: cadViewer.state().model?.name, status: ${status} }))`) as
+      { after: { model?: string; status: string } };
+    if (r.after.model || !/not a path within the content root/.test(r.after.status)) bad.push(`${m}: ${
+      JSON.stringify(r.after)}`);
+  }
+  expect(bad.length === 0, `refused: ${bad.join('; ')}`);
+  // In a directory, with characters a URL encodes: loaded, and linked by the same path.
+  const odd = 'sub dir/as1 #1%.glb';
+  const o = await page(`?model=${encodeURIComponent(odd)}&check`, `cadViewer.ready.then(() => ({ model:
+    cadViewer.state().model?.name, link: cadViewer.link(), status: ${status} }))`) as
+    { after: { model?: string; link: string } };
+  expect(o.after.model === 'as1 #1%.glb' && new URL(o.after.link).searchParams.get('model') === odd,
+    `an encoded name: ${JSON.stringify(o.after)}`);
+  const r = await page(`?model=as1.glb&url=${encodeURIComponent('/content/as1-noedges.glb')}&check`, `(async () => {
+    await cadViewer.ready;
+    const out = { start: { model: cadViewer.state().model?.name, url: ui.currentUrl(), status: ${status} },
+      link: cadViewer.link() };
+    const until = async (f, what) => {
+      for (const end = Date.now() + 60000; Date.now() < end;) {
+        const v = f();
+        if (v) return v;
+        await new Promise((res) => setTimeout(res, 50));
+      }
+      throw new Error('timed out waiting for ' + what);
+    };
+    const load = async (typed) => {
+      ui.say('');
+      [...document.querySelectorAll('.lil-gui .controller')].find((c) => c.textContent.trim() === 'Load URL...')
+        .querySelector('button').click();
+      const d = await until(() => document.querySelector('dialog.cv-dialog[open]'), 'the dialog');
+      d.querySelector('input').value = typed;
+      [...d.querySelectorAll('button')].find((b) => b.textContent === 'Load').click();
+      await until(() => !d.isConnected, 'the dialog to close');
+      await cadViewer.idle();
+      return { model: cadViewer.state().model?.name, url: ui.currentUrl(), status: ${status} };
+    };
+    out.relative = await load('as1-noedges.glb');
+    out.server = await load('/content/as1.glb');
+    out.absolute = await load(new URL('content/as1-noedges.glb', document.baseURI).href);
+    out.bad = await load('../as1.glb');
+    return out;
+  })()`) as { after: Record<string, { model?: string; url?: string; status: string }> & { link: string } };
+  const a = r.after;
+  const j = JSON.stringify(a);
+  const root = `http://localhost:${port}${base}content/`;
+  expect(a.start?.model === 'as1.glb' && a.start.url === root + 'as1.glb' &&
+    /model and url both given: url ignored/.test(a.start.status), `?model= at start: ${j}`);
+  expect(new URL(a.link).searchParams.get('model') === 'as1.glb' && !new URL(a.link).searchParams.has('url'),
+    `the link: ${j}`);
+  expect(a.relative?.model === 'as1-noedges.glb' && a.relative.url === root + 'as1-noedges.glb', `relative: ${j}`);
+  expect(a.server?.model === 'as1.glb' && new URL(a.server.url!, root).href ===
+    `http://localhost:${port}/content/as1.glb`, `a server path: ${j}`);
+  expect(a.absolute?.model === 'as1-noedges.glb', `a URL: ${j}`);
+  expect(a.bad?.model === 'as1-noedges.glb' && /not a URL nor a path within the content root/.test(a.bad.status),
+    `refused in Load URL...: ${j}`);
+  return undefined;
+});
 await check('deterministic', async () => {
   const shots = `cadViewer.ready.then(() => cadViewer.idle()).then(() => { cadViewer.view('iso');
     const a = cadViewer.screenshot(), b = cadViewer.screenshot(), c = viewer.renderer.domElement;
@@ -1221,7 +1298,7 @@ if (!staticServer) await check('shot', async () => {
   const report = JSON.parse(fs.readFileSync(json, 'utf8')) as { state: State; link: string };
   // Wider than a phone, where the tree would open with the model unless shot closes it.
   expect(bytes.subarray(1, 4).toString() === 'PNG' && w === 1000 && h === 600, `png ${w}x${h}`);
-  expect(report.state.model?.triangles === triangles && /[?&]url=/.test(report.link),
+  expect(report.state.model?.triangles === triangles && /[?&]model=as1\.stp(&|$)/.test(report.link),
     JSON.stringify(report.state.model));
   return undefined;
 });

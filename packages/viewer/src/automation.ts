@@ -4,7 +4,8 @@
 // nodes by their paths (model.ts), which stay the same from one load to the next. Its interface is meant to stay
 // stable: change it only by adding, and say so in `version`.
 //
-// At start it opens ?url= if there is one, then applies the view in the address; `ready` settles after both.
+// At start it opens ?model= (a path within the content root, sources.ts) or ?url= if there is one, then applies the
+// view in the address; `ready` settles after both.
 
 import { sha256 } from 'cad-scene';
 import { VIEWS, type ViewName } from './camera.ts';
@@ -14,7 +15,7 @@ import { AXES, type SectionSettings } from './section.ts';
 import { hex, Recorder, RECORDING_FORMAT, replay, type RecordedModel, type Recording, type ReplayOptions,
   type ReplayReport, type Session } from './recorder.ts';
 import { nodeForPick } from './selection.ts';
-import { fromUrl, pickFiles } from './sources.ts';
+import { contentPath, contentUrl, fromUrl, pickFiles, typedUrl } from './sources.ts';
 import type { RenderSettings } from './style.ts';
 import type { Ui } from './ui.ts';
 import { fromQuery, renderChanges, toQuery, type CameraState, type ViewState } from './view-state.ts';
@@ -157,8 +158,12 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
       selected: s.selected };
     const url = new URL(location.pathname, location.origin);
     const from = ui.currentUrl();
-    // A model from the same server is linked by its path, so the link works wherever the server is reached.
-    if (from) url.searchParams.set('url', from.startsWith(location.origin) ? from.slice(location.origin.length)
+    // A model below the content root is linked by its path there, so the link works wherever the viewer is served
+    // with that content (the dev server, a deployment's demo models); another from the same server by its path, so
+    // the link works however the server is reached.
+    const model = from && contentPath(from);
+    if (model) url.searchParams.set('model', model);
+    else if (from) url.searchParams.set('url', from.startsWith(location.origin) ? from.slice(location.origin.length)
       : from);
     for (const [k, v] of toQuery(view)) url.searchParams.append(k, v);
     return url.href;
@@ -167,7 +172,17 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
   const start = async () => {
     const params = new URLSearchParams(location.search);
     const { state: st, problems } = fromQuery(params);
-    const url = params.get('url');
+    const model = params.get('model');
+    let url = params.get('url');
+    if (model !== null) {
+      if (url !== null) problems.push('model and url both given: url ignored');
+      url = contentUrl(model) ?? null;
+      if (!url) {
+        ui.empty();
+        ui.say(`the address: model=${model} is not a path within the content root`, true);
+        return;
+      }
+    }
     if (url) {
       const r = await loadUrl(url);
       if (r.error) return;
@@ -317,10 +332,12 @@ async function openRecordedModel(ui: Ui, want: RecordedModel): Promise<boolean> 
       return !('error' in ((await ui.openFiles(files)) ?? {}));
     }
     if (r.button === 'url') {
-      const url = await askUrl({ title: 'Open the recorded model by URL', body: [recorded], value: want.url });
-      if (!url) continue;
+      const typed = await askUrl({ title: 'Open the recorded model by URL', body: [recorded], value: want.url });
+      if (!typed) continue;
+      const url = typedUrl(typed);
       let src;
       try {
+        if (!url) throw new Error(`not a URL nor a path within the content root: ${typed}`);
         src = await fromUrl(url);
       } catch (e) {
         await showDialog({ title: 'Not loaded', error: true, buttons: CLOSE, body: [(e as Error).message] });

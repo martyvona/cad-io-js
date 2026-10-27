@@ -1,10 +1,48 @@
 // Where models come from: a URL (the dev server's /content/, the same server, or another that allows CORS), or local
 // files, picked with the File System Access API where the browser has it (desktop Chrome, in a secure context) and
 // an <input type="file"> elsewhere, or dropped on the page (the user, 2026-10-24; CLAUDE.md, "The viewer"). No
-// handles or files are stored.
+// handles or files are stored. Models below the content root (content/ beside the page: the dev server's /content/,
+// and the demo models in a deployment) can be named by their path within it (the user, 2026-10-26): `?model=`, and a
+// relative path in Load URL...
 
 import { formatOf } from './formats.ts';
 import type { Source } from './load.ts';
+
+/** The content root's URL: content/ beside the page. */
+export const contentRoot = (): string => new URL('content/', document.baseURI).href;
+
+/**
+ * The URL of a path within the content root (`demo/part.step`, a plain path, not URL-encoded), or undefined if it
+ * isn't one: empty, absolute (`/...`, `//host/...`), or with empty, `.` or `..` segments. Each segment is encoded, so
+ * `:` (a scheme), `\`, `?`, `#` and `%` are characters of a name.
+ */
+export function contentUrl(p: string): string | undefined {
+  const segments = p.split('/');
+  if (segments.some((s) => s === '' || s === '.' || s === '..')) return undefined;
+  const url = new URL(segments.map(encodeURIComponent).join('/'), contentRoot()).href;
+  // Always below the root, given the above: a guard.
+  return url.startsWith(contentRoot()) ? url : undefined;
+}
+
+/** A URL's path within the content root, or undefined if it isn't below it (for links: `?model=`). */
+export function contentPath(url: string): string | undefined {
+  const root = contentRoot();
+  if (!url.startsWith(root) || /[?#]/.test(url)) return undefined;
+  try {
+    return url.slice(root.length).split('/').map(decodeURIComponent).join('/');
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * What Load URL... loads for what was typed: a URL (`https://...`, `//host/...`) or a path on the page's server
+ * (`/content/...`) as it is, a relative path within the content root; undefined if it's neither.
+ */
+export function typedUrl(typed: string): string | undefined {
+  if (/^[a-z][a-z0-9+.-]*:/i.test(typed) || typed.startsWith('/')) return typed;
+  return contentUrl(typed);
+}
 
 export async function fromUrl(url: string): Promise<Source> {
   const abs = new URL(url, document.baseURI).href;

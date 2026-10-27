@@ -16,7 +16,7 @@ import type { RenderSettings } from './style.ts';
 import { DEVICE_PROFILES, setDeviceOverride, type DeviceClass } from './device.ts';
 import { defaultSettings, profileSettings } from './tessellation.ts';
 import { TreePanel } from './tree-panel.ts';
-import { fromFiles, fromUrl, pickFiles } from './sources.ts';
+import { fromFiles, fromUrl, pickFiles, typedUrl } from './sources.ts';
 import { visibleBox, type Viewer } from './viewer.ts';
 
 /** What the browser check reaches through `globalThis.ui`. */
@@ -201,9 +201,15 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
 
   const file = gui.addFolder('File');
   file.add({ open: async () => openFiles(await pickFiles()) }, 'open').name('Open file...');
+  // What was typed is shown again next time; what's loaded (and recorded) is the URL it names.
+  let lastTyped = '';
   file.add({ load: async () => {
-    const url = await askUrl({ value: lastUrl });
+    const typed = await askUrl({ value: lastTyped || lastUrl });
+    if (!typed) return;
+    lastTyped = typed;
+    const url = typedUrl(typed);
     if (url) await openUrl(url);
+    else say(`not a URL nor a path within the content root: ${typed}`, true);
   } }, 'load').name('Load URL...');
 
   const view = gui.addFolder('View');

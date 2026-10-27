@@ -8,6 +8,10 @@
 | 60 | `nist-pmi-models/` | NIST MBE PMI validation and conformance models (CTC, FTC, D2MI; AP203 and AP242), eight zip packages from https://www.nist.gov/ctl/smart-connected-systems-division/smart-connected-manufacturing-systems-group/mbe-pmi-0 |
 | 19 | `occt-import-js/` | test files of https://github.com/kovacsv/occt-import-js (`test/testfiles/`) |
 
+## Demo models
+
+`demo/` holds STEP models made by Marsette Vona, licensed under CC BY-SA 4.0 (`demo/LICENSE.txt`, and in each file's header), not Apache-2.0 as the rest of the repository, committed so that the viewer can show them: the GitHub Pages deployment serves them at `content/demo/` (`?model=demo/rpbp-ap242.step`), as the dev server does with its default content root. They are not in `files.txt`, so the corpus checks don't read them.
+
 ## Setup
 
 `third_party/pull.sh` (runnable from any directory) makes the checkouts, or updates them if they exist: the git repositories are shallow-cloned and later fast-forwarded, and each NIST package is downloaded and extracted again only when the server's Last-Modified date changes. About 1.5 GB in all.
