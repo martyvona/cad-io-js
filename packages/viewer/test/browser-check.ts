@@ -703,6 +703,52 @@ await check('sections', async () => {
   expect(a.glError === 0, `WebGL error: ${j}`);
   return undefined;
 });
+// Two planes (the user, 2026-10-27: a cap missing where another plane cuts): the plate cut across X through its
+// middle (the side above cut away) and across Z through its middle, flipped (the side below cut away), seen from
+// +X -Y +Z. On the X cap above the Z plane, the plate's far side along the view lies below it, cut away: the stencil
+// passes counting it must be clipped by their own plane only, or the X cap isn't drawn there.
+await check('two planes', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    await cadViewer.ready; await cadViewer.idle();
+    const gl = viewer.renderer.getContext(), canvas = viewer.renderer.domElement;
+    const plate = ui.panel().model.nodes.find((n) => n.kind === 'part' && n.name === 'plate').object.children[0];
+    plate.geometry.computeBoundingBox();
+    const pb = plate.geometry.boundingBox.clone().applyMatrix4(plate.matrixWorld);
+    const c = pb.getCenter(plate.position.clone());
+    ui.setRender({ capStyle: 'drawing' });
+    cadViewer.view('iso');
+    viewer.zoomTo(pb);
+    const s = viewer.sections.get();
+    s.x = { on: true, at: c.x, flip: false };
+    s.z = { on: true, at: c.z, flip: true };
+    s.caps = true;
+    viewer.setSections(s);
+    // On the X cap, halfway between the Z plane and the plate's top.
+    const p = c.clone().setZ((c.z + pb.max.z) / 2);
+    const colour = async () => {
+      for (let i = 0; i < 3; i++) await new Promise((res) => requestAnimationFrame(res));
+      viewer.composer.render(); viewer.composer.render();
+      const dpr = viewer.renderer.getPixelRatio(), n = 8, q = p.clone().project(viewer.camera);
+      const out = new Uint8Array(4 * n * n);
+      gl.readPixels(Math.round((q.x + 1) / 2 * canvas.clientWidth * dpr) - n / 2,
+        Math.round((q.y + 1) / 2 * canvas.clientHeight * dpr) - n / 2, n, n, gl.RGBA, gl.UNSIGNED_BYTE, out);
+      return [0, 1, 2].map((k) => Math.round(out.filter((_, i) => i % 4 === k).reduce((a, x) => a + x, 0) /
+        (n * n)));
+    };
+    const both = await colour();
+    viewer.setSections({ ...s, z: { ...s.z, on: false } });
+    const alone = await colour();
+    viewer.setSections({ ...s, caps: false });
+    const open = await colour();
+    return { both, alone, open };
+  })()`) as { after: { both: number[]; alone: number[]; open: number[] } };
+  const a = r.after, j = JSON.stringify(a);
+  const beige = ([r, g, b]: number[]) => r! > 120 && g! > 110 && b! > 90 && r! - b! > 15 && r! - b! < 60 &&
+    Math.abs(r! - g!) < 25;
+  expect(beige(a.alone) && !beige(a.open), `the X cap there, X alone; none with caps off: ${j}`);
+  expect(beige(a.both), `the X cap there with the Z plane on too: ${j}`);
+  return undefined;
+});
 // Picks against what's drawn, over a grid of points on as1 and the bicycle: an ID render (each part's meshes in a flat
 // colour of its own, edges off, read back after three frames and two renders) says which part each pixel shows, and
 // pickAt at the pixel's centre must pick that part (its face, or its own edge within reach) wherever a part is drawn

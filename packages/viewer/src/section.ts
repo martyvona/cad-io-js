@@ -10,8 +10,10 @@
 // clipping example, per placed closed part and plane: the part's back faces increment the stencil, its front faces
 // decrement it (both clipped, drawing nothing else), then a quad on the plane over the part draws where the count
 // isn't zero (inside the solid) and clears the stencil. Each part and plane gets its own render order, so they don't
-// mix. These helpers live in a group of their own outside the model (no node, no pick, no box), made again when the
-// model's drawn meshes change (`invalidate`), moved when a plane moves.
+// mix. The counting passes are clipped by their own plane only (a shader of ours, which the renderer's planes don't
+// reach): clipped by another plane too, a solid's far side cut away by it went uncounted, and the cap was missing
+// there (the user, 2026-10-27). These helpers live in a group of their own outside the model (no node, no pick, no
+// box), made again when the model's drawn meshes change (`invalidate`), moved when a plane moves.
 
 import * as THREE from 'three';
 import { closesUp } from './closure.ts';
@@ -89,11 +91,23 @@ function closedTogether(meshes: { geometry: THREE.BufferGeometry; matrix?: THREE
 
 const IDENTITY = new THREE.Matrix4();
 
-const stencil = (side: THREE.Side, op: THREE.StencilOp) => new THREE.MeshBasicMaterial({ side, colorWrite: false,
-  depthWrite: false, depthTest: false, stencilWrite: true, stencilFunc: THREE.AlwaysStencilFunc, stencilFail: op,
-  stencilZFail: op, stencilZPass: op });
-const BACK = stencil(THREE.BackSide, THREE.IncrementWrapStencilOp);
-const FRONT = stencil(THREE.FrontSide, THREE.DecrementWrapStencilOp);
+/**
+ * A counting pass's material, clipped by one plane (`plane`: normal and constant, three.js's sense: what's at a
+ * negative distance is cut away). A ShaderMaterial without three.js's clipping chunks, so the renderer's clipping
+ * planes don't apply to it.
+ */
+function stencil(side: THREE.Side, op: THREE.StencilOp, plane: { value: THREE.Vector4 }): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({ side, colorWrite: false, depthWrite: false, depthTest: false, stencilWrite: true,
+    stencilFunc: THREE.AlwaysStencilFunc, stencilFail: op, stencilZFail: op, stencilZPass: op,
+    uniforms: { plane },
+    vertexShader: 'varying vec3 world;\nvoid main() {\n  vec4 w = modelMatrix * vec4(position, 1.0);\n' +
+      '  world = w.xyz;\n  gl_Position = projectionMatrix * viewMatrix * w;\n}',
+    fragmentShader: 'uniform vec4 plane;\nvarying vec3 world;\nvoid main() {\n' +
+      '  if (dot(plane.xyz, world) + plane.w < 0.0) discard;\n  gl_FragColor = vec4(0.0);\n}' });
+}
+
+/** A plane as the counting passes' uniform. */
+const planeVector = (p: THREE.Plane, v = new THREE.Vector4()) => v.set(p.normal.x, p.normal.y, p.normal.z, p.constant);
 
 /**
  * How caps look: the drawing style (beige, black hatching), or each part's colour, as Onshape draws them (the default,
@@ -188,6 +202,12 @@ export class Sections {
   readonly group = new THREE.Group();
   private settings = DEFAULT_SECTIONS();
   private planes: THREE.Plane[] = [];
+  /** Each plane's counting passes' materials, back faces then front, sharing the plane's uniform. */
+  private readonly counting = Object.fromEntries(AXES.map((a) => {
+    const plane = { value: new THREE.Vector4() };
+    return [a, [stencil(THREE.BackSide, THREE.IncrementWrapStencilOp, plane),
+      stencil(THREE.FrontSide, THREE.DecrementWrapStencilOp, plane)]];
+  })) as Record<Axis, [THREE.ShaderMaterial, THREE.ShaderMaterial]>;
   private readonly renderer: THREE.WebGLRenderer;
   private caps: Cap[] = [];
   private dirty = true;
@@ -213,6 +233,7 @@ export class Sections {
     if (structure(s) !== structure(this.settings)) this.dirty = true;
     this.settings = structuredClone(s);
     this.planes = AXES.filter((a) => s[a].on).map((a) => planeFor(a, s[a]));
+    for (const a of AXES) planeVector(planeFor(a, s[a]), this.counting[a][0].uniforms.plane!.value as THREE.Vector4);
     this.renderer.clippingPlanes = this.planes;
     this.move();
   }
@@ -279,7 +300,7 @@ export class Sections {
       for (const axis of on) {
         // A part's meshes count in the stencil together: one render order, one cap.
         for (const mesh of meshes) {
-          for (const material of [BACK, FRONT]) {
+          for (const material of this.counting[axis]) {
             const s = new THREE.Mesh(mesh.geometry, material);
             s.matrixAutoUpdate = false;
             s.matrix.copy(mesh.matrixWorld);

@@ -73,6 +73,16 @@ test('caps: per visible closed mesh and plane, a back, a front and a quad, each 
   // the plane (z by y: 30 by 20, with a 10% margin); the Z cap on z = 2, flipped (x by y: 10 by 20).
   assert.ok(kids[0]!.matrix.equals(solid.matrixWorld.clone().makeTranslation(100, 0, 0)));
   const capX = kids[2]!;
+  // The counting passes: shaders of ours (the renderer's planes don't reach them), each clipped by its own plane only.
+  const planeOf = (k: THREE.Mesh) => ((k.material as THREE.ShaderMaterial).uniforms.plane!.value as THREE.Vector4)
+    .toArray();
+  const vector = (p: THREE.Plane) => [p.normal.x, p.normal.y, p.normal.z, p.constant];
+  assert.ok(kids.slice(0, 2).every((k) => (k.material as THREE.ShaderMaterial).isShaderMaterial &&
+    !(k.material as THREE.ShaderMaterial).clipping));
+  assert.deepEqual(planeOf(kids[0]!), vector(planeFor('x', set.x)));
+  assert.deepEqual(planeOf(kids[1]!), vector(planeFor('x', set.x)));
+  assert.deepEqual(planeOf(kids[3]!), vector(planeFor('z', set.z)));
+  assert.equal(((kids[0]!.material as THREE.Material).side), THREE.BackSide);
   assert.ok(capX.position.x < 101 && capX.position.x > 100.99);
   assert.ok(Math.abs(capX.scale.x - 33) < 1e-2 && Math.abs(capX.scale.y - 22) < 1e-2, `${capX.scale.toArray()}`);
   const capZ = kids[5]!;
