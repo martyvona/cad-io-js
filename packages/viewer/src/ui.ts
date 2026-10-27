@@ -9,6 +9,7 @@ import { VIEWS, type ViewName } from './camera.ts';
 import type { Source } from './load.ts';
 import { details } from './details.ts';
 import { showAbout } from './about.ts';
+import { VERSION } from './version.ts';
 import { applyTheme, onSystemTheme, themeChoice, type ThemeChoice } from './theme.ts';
 import { askUrl } from './dialog.ts';
 import { AXES, DEFAULT_SECTIONS, type SectionSettings } from './section.ts';
@@ -100,7 +101,7 @@ function autoHide(el: HTMLElement): (stay?: boolean) => void {
 
 export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLElement, detailsElement: HTMLElement):
   Ui {
-  const gui = new GUI({ title: 'cad-io-js CAD viewer' });
+  const gui = new GUI({ title: `cad-io-js ${VERSION}`.trim() });
   // Where events go (ui.onEvent), usable before `ui` exists (say is called while the controls are being built).
   const hooks: { onEvent?: (e: UiEvent) => void } = {};
   const statusShown = autoHide(status);

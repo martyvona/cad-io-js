@@ -1,6 +1,6 @@
 {
   "name": "cad-io-cli",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Command-line tools: step2json and stepconv",
   "license": "Apache-2.0",
   "type": "module",
@@ -12,16 +12,16 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "step-parser": "0.0.0",
-    "cad-scene": "0.0.0",
-    "export-3mf": "0.0.0",
-    "export-gltf": "0.0.0",
-    "export-threejs": "0.0.0",
-    "step-import": "0.0.0",
-    "tess-cache": "0.0.0",
-    "tess-occt": "0.0.0",
-    "tess-truck": "0.0.0",
-    "tess-workers": "0.0.0"
+    "step-parser": "0.1.0",
+    "cad-scene": "0.1.0",
+    "export-3mf": "0.1.0",
+    "export-gltf": "0.1.0",
+    "export-threejs": "0.1.0",
+    "step-import": "0.1.0",
+    "tess-cache": "0.1.0",
+    "tess-occt": "0.1.0",
+    "tess-truck": "0.1.0",
+    "tess-workers": "0.1.0"
   },
   "devDependencies": {
     "@3mfconsortium/lib3mf": "2.5.0-fix.2",

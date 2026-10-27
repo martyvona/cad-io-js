@@ -1,6 +1,6 @@
 {
   "name": "tess-cache",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Caches cad-io-js tessellation results per part, in memory, in a directory (Node) or in IndexedDB (browsers)",
   "license": "Apache-2.0",
   "type": "module",
@@ -12,12 +12,12 @@
     "./browser": "./src/browser.ts"
   },
   "dependencies": {
-    "cad-scene": "0.0.0"
+    "cad-scene": "0.1.0"
   },
   "devDependencies": {
-    "step-import": "0.0.0",
-    "tess-occt": "0.0.0",
-    "tess-truck": "0.0.0",
-    "tess-workers": "0.0.0"
+    "step-import": "0.1.0",
+    "tess-occt": "0.1.0",
+    "tess-truck": "0.1.0",
+    "tess-workers": "0.1.0"
   }
 }

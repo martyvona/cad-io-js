@@ -4,6 +4,7 @@
 // viewer"). Options come from the environment (server/options.ts). Decoders need nothing here: three.js's
 // DRACOLoader names its files by import.meta.url, which Vite bundles.
 
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import basicSsl from '@vitejs/plugin-basic-ssl';
@@ -130,8 +131,30 @@ const pwa = VitePWA({
   },
 });
 
-export default defineConfig({
+/**
+ * The viewer's version, shown in its title (the user, 2026-10-27): the repository's, its root package.json's, and in
+ * a build the commit it's built from, its first 7 hex digits (-dirty with uncommitted changes, which deploy-viewer.sh
+ * refuses), so a deployment says what it is without a release for it. Without git, the version alone.
+ */
+function version(build: boolean): string {
+  const repo = path.resolve(import.meta.dirname, '../..');
+  const git = (...args: string[]) => {
+    try {
+      return execFileSync('git', args, { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    } catch {
+      return undefined;
+    }
+  };
+  const release = (JSON.parse(fs.readFileSync(path.join(repo, 'package.json'), 'utf8')) as { version: string }).version;
+  const hash = build ? git('rev-parse', '--short=7', 'HEAD') : undefined;
+  if (!hash) return release;
+  const dirty = git('status', '--porcelain', '--untracked-files=no') ? '-dirty' : '';
+  return `${release}-${hash}${dirty}`;
+}
+
+export default defineConfig(({ command }) => ({
   root: import.meta.dirname,
+  define: { __CAD_IO_VERSION__: JSON.stringify(version(command === 'build')) },
   base: './',
   resolve: { alias: { 'node:fs/promises': path.join(import.meta.dirname, 'src/no-fs.ts') } },
   plugins: [content(), jsonImports(), unusedDecoders(), licenses(), ...(opts.https === 'self' ? [basicSsl()] : []),
@@ -147,4 +170,4 @@ export default defineConfig({
     license: { fileName: VITE_LICENSES } },
   // Module workers, split into chunks: the import worker loads the schema dictionaries on demand.
   worker: { format: 'es' },
-});
+}));

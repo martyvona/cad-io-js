@@ -10,7 +10,7 @@
 // page reports, with no expectations; BUILD=1 checks a build instead of the dev server, served below a path,
 // /viewer/, by a plain static server, as a build would be deployed; ONLY=<check>,... runs only the checks named)
 
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
@@ -1468,6 +1468,27 @@ await check('caps on a part of several meshes', async () => {
     return { meshes: meshes.length, caps: viewer.sections.caps.length };
   })()`) as { after: { meshes: number; caps: number } };
   expect(r.after.meshes === 6 && r.after.caps === 1, JSON.stringify(r.after));
+  return undefined;
+});
+// The version in the controls' title and in About: the repository's (its root package.json's); a build adds the
+// commit's first 7 hex digits (and -dirty with uncommitted changes).
+await check('version', async () => {
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: repo, encoding: 'utf8' }).trim();
+  const release = (JSON.parse(fs.readFileSync(path.join(repo, 'package.json'), 'utf8')) as { version: string }).version;
+  const want = base === '/' ? release : `${release}-${git('rev-parse', '--short=7', 'HEAD')}${
+    git('status', '--porcelain', '--untracked-files=no') ? '-dirty' : ''}`;
+  const r = await page('?check', `(async () => {
+    await cadViewer.ready;
+    const title = document.querySelector('.lil-gui.root > .title').textContent;
+    ui.gui.controllersRecursive().find((c) => c._name === 'About...').$button.click();
+    const d = await new Promise((res) => { const f = () => { const e = document.querySelector('dialog.cv-dialog[open]');
+      if (e) res(e); else setTimeout(f, 50); }; f(); });
+    const about = d.textContent;
+    d.querySelector('button').click();
+    return { title, about };
+  })()`) as { after: { title: string; about: string } };
+  expect(r.after.title === `cad-io-js ${want}` && r.after.about.includes(`Version ${want}.`),
+    `wanted ${want}: ${JSON.stringify(r.after)}`);
   return undefined;
 });
 // The automation interface (src/automation.ts) and links: nodes by path, select, hide and show by path, a pick and a

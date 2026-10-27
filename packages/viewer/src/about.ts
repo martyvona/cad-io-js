@@ -3,6 +3,7 @@
 /// <reference types="vite/client" />
 
 import { showDialog } from './dialog.ts';
+import { VERSION } from './version.ts';
 
 export const REPOSITORY = 'https://github.com/martyvona/cad-io-js';
 
@@ -13,6 +14,7 @@ export async function showAbout(): Promise<void> {
     body: [
       'Views STEP, glTF and three.js models in the browser: part of cad-io-js, for reading CAD files into memory ' +
         'and converting them, in TypeScript. Nothing you open is uploaded.',
+      ...(VERSION ? [`Version ${VERSION}.`] : []),
       'By Claude (Anthropic) and Marsette Vona.',
       [{ text: 'Licensed under Apache-2.0, except the OCCT tessellation backend, LGPL-2.1 with the Open CASCADE ' +
         'exception; the demo models are CC BY-SA 4.0.' },

@@ -1,6 +1,6 @@
 {
   "name": "cad-scene",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "The format-independent scene model and tessellator interface shared by cad-io-js importers, backends and exporters",
   "license": "Apache-2.0",
   "type": "module",
