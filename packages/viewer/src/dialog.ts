@@ -1,6 +1,6 @@
 // Modal dialogs (the user, 2026-10-25; CLAUDE.md, "The viewer"): the native <dialog> shown with showModal(), so the
 // page behind is inert and Escape closes it, one at a time, removed when closed. A message with buttons, and a URL to
-// type or paste. Styled in index.html (.cv-dialog).
+// type or paste, and About (about.ts). Styled in index.html (.cv-dialog).
 
 export interface DialogButton {
   label: string;
@@ -12,8 +12,11 @@ export interface DialogButton {
 
 export interface DialogOptions {
   title: string;
-  /** Paragraphs: text, or [label, value] rows shown as a table (file names, sizes, hashes: monospace). */
-  body: (string | [string, string][])[];
+  /**
+   * Paragraphs: text, [label, value] rows shown as a table (file names, sizes, hashes: monospace), or text with links
+   * (`{ text, href }` pieces, opened in a new tab).
+   */
+  body: (string | [string, string][] | { text: string; href?: string }[])[];
   buttons: DialogButton[];
   /** Drawn as an error. */
   error?: boolean;
@@ -43,8 +46,25 @@ export function showDialog(o: DialogOptions): Promise<DialogResult> {
       form.append(p);
       continue;
     }
+    if (part.length && !Array.isArray(part[0])) {
+      const p = document.createElement('p');
+      for (const piece of part as { text: string; href?: string }[]) {
+        if (!piece.href) {
+          p.append(piece.text);
+          continue;
+        }
+        const a = document.createElement('a');
+        a.href = piece.href;
+        a.textContent = piece.text;
+        a.target = '_blank';
+        a.rel = 'noopener';
+        p.append(a);
+      }
+      form.append(p);
+      continue;
+    }
     const table = document.createElement('table');
-    for (const [label, value] of part) {
+    for (const [label, value] of part as [string, string][]) {
       const row = table.insertRow();
       row.insertCell().textContent = label;
       row.insertCell().textContent = value;

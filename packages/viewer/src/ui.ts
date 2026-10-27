@@ -8,6 +8,7 @@ import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
 import { VIEWS, type ViewName } from './camera.ts';
 import type { Source } from './load.ts';
 import { details } from './details.ts';
+import { showAbout } from './about.ts';
 import { askUrl } from './dialog.ts';
 import { AXES, DEFAULT_SECTIONS, type SectionSettings } from './section.ts';
 import { boxOf, Highlighter, instancesOf, nodeForPick, piecesOf, type PickLevel } from './selection.ts';
@@ -233,6 +234,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     if (url) await openUrl(url);
     else say(`not a URL nor a path within the content root: ${typed}`, true);
   } }, 'load').name('Load URL...');
+  file.add({ about: () => showAbout() }, 'about').name('About...');
 
   const view = gui.addFolder('View');
   view.add({ all: () => viewer.zoomAll() }, 'all').name('Zoom all');

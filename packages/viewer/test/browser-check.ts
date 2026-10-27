@@ -1325,6 +1325,33 @@ await check('auto hide and select all', async () => {
     JSON.stringify(a.detailParents) === JSON.stringify(a.shownPaths), `detail: ${j}`);
   return undefined;
 });
+// About... (File): the authors, Claude first; the license; the repository's link; in a build, licenses.md's, which
+// is there.
+await check('about', async () => {
+  const r = await page('?check', `(async () => {
+    await cadViewer.ready;
+    ui.gui.controllersRecursive().find((c) => c._name === 'About...').$button.click();
+    const d = await new Promise((res) => { const f = () => { const e = document.querySelector('dialog.cv-dialog[open]');
+      if (e) res(e); else setTimeout(f, 50); }; f(); });
+    const links = [...d.querySelectorAll('a')].map((a) => ({ href: a.href, target: a.target, rel: a.rel }));
+    const licenses = links.find((l) => /licenses\.md$/.test(l.href));
+    const status = licenses ? (await fetch(licenses.href)).status : undefined;
+    const text = d.textContent;
+    d.querySelector('button').click();
+    await new Promise((res) => setTimeout(res, 100));
+    return { title: d.querySelector('h2').textContent, text, links, status, closed: !d.isConnected };
+  })()`) as { after: { title: string; text: string; links: { href: string; target: string; rel: string }[];
+    status?: number; closed: boolean } };
+  const a = r.after;
+  const j = JSON.stringify(a);
+  expect(a.title === 'cad-io-js CAD viewer' && /By Claude \(Anthropic\) and Marsette Vona\./.test(a.text) &&
+    /Apache-2\.0/.test(a.text) && /LGPL-2\.1/.test(a.text) && /CC BY-SA 4\.0/.test(a.text), `the text: ${j}`);
+  expect(a.links.some((l) => l.href === 'https://github.com/martyvona/cad-io-js') &&
+    a.links.every((l) => l.target === '_blank' && l.rel === 'noopener'), `the links: ${j}`);
+  expect(base === '/' ? a.status === undefined : a.status === 200, `licenses.md (a build's only): ${j}`);
+  expect(a.closed, `closed: ${j}`);
+  return undefined;
+});
 // The automation interface (src/automation.ts) and links: nodes by path, select, hide and show by path, a pick and a
 // screenshot; a view (top, a cut, AO off, a hidden part, a selected face) taken as a link and opened in another page
 // gives the same state; with ?deterministic one pixel per CSS pixel at any screen scale, and screenshots that repeat.
