@@ -16,6 +16,7 @@ import http from 'node:http';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import zlib from 'node:zlib';
 import { exportView, partInstances, tessellateScene } from 'cad-scene';
 import { glb, gltfJson } from 'export-gltf';
 import { threejsJson } from 'export-threejs';
@@ -1594,6 +1595,24 @@ await check('deterministic', async () => {
 });
 // cad-viewer shot (the dev server only): a PNG of the size asked for, and the page's state with the scene's
 // triangles.
+/**
+ * A PNG's top-left pixel, [r, g, b] (8-bit RGB or RGBA, as Chrome writes them): whatever a row's filter, its first
+ * pixel's bytes are stored as they are, since the bytes it would be predicted from (left, above) are zero in the
+ * first row.
+ */
+function topLeftPixel(png: Buffer): number[] {
+  const idat: Buffer[] = [];
+  for (let at = 8; at < png.length;) {
+    const length = png.readUInt32BE(at);
+    if (png.toString('latin1', at + 4, at + 8) === 'IDAT') idat.push(png.subarray(at + 8, at + 8 + length));
+    at += 12 + length;
+  }
+  const raw = zlib.inflateSync(Buffer.concat(idat));
+  return [raw[1]!, raw[2]!, raw[3]!];
+}
+
+// cad-viewer shot: dark by default (the viewer's Auto theme, with headless Chrome told the system is dark), light by
+// --theme, or a background of its own by --background (the background in the PNG's corner).
 if (!staticServer) await check('shot', async () => {
   const png = path.join(tmp, 'shot.png'), json = path.join(tmp, 'shot.json');
   const out: string[] = [];
@@ -1608,6 +1627,20 @@ if (!staticServer) await check('shot', async () => {
   expect(bytes.subarray(1, 4).toString() === 'PNG' && w === 1000 && h === 600, `png ${w}x${h}`);
   expect(report.state.model?.triangles === triangles && /[?&]model=as1\.stp(&|$)/.test(report.link),
     JSON.stringify(report.state.model));
+  expect(topLeftPixel(bytes).join() === '64,64,64', `dark by default: ${topLeftPixel(bytes)}`);
+  const lightPng = path.join(tmp, 'shot-light.png');
+  const code2 = await main(['shot', path.join(content, 'as1.stp'), '-o', lightPng, '--size', '400x300', '--theme',
+    'light', '--content-root', content, '--port', String(port)], { ...io, out: (s) => out.push(s),
+    err: (s) => out.push(s) });
+  expect(code2 === 0, `exit ${code2}: ${out.join('')}`);
+  expect(topLeftPixel(fs.readFileSync(lightPng)).join() === '217,217,217', `light: ${
+    topLeftPixel(fs.readFileSync(lightPng))}`);
+  // A background of its own (the README's pictures, on white).
+  const code3 = await main(['shot', path.join(content, 'as1.stp'), '-o', lightPng, '--size', '400x300', '--background',
+    '#ffffff', '--content-root', content, '--port', String(port)], { ...io, out: (s) => out.push(s),
+    err: (s) => out.push(s) });
+  expect(code3 === 0 && topLeftPixel(fs.readFileSync(lightPng)).join() === '255,255,255', `white: ${
+    topLeftPixel(fs.readFileSync(lightPng))}`);
   return undefined;
 });
 // Recording (src/recorder.ts): a session driven by real input (clicks on parts, shift-click, a drag, a wheel zoom)
@@ -1779,13 +1812,18 @@ await check('recording', async () => {
       { ...io, out: (s) => out.push(s), err: (s) => out.push(s) });
     expect(code === 0 && fs.existsSync(png) && /as recorded/.test(out.join('')), `cad-viewer replay: exit ${code}: ${
       out.join('')}`);
+    // Dark by default, as shot; light by --theme (below).
+    expect(topLeftPixel(fs.readFileSync(png)).join() === '64,64,64', `replay, dark: ${topLeftPixel(fs.readFileSync(
+      png))}`);
     // The local file found below the content root, by name and size.
     fs.writeFileSync(json, JSON.stringify(localRec));
     const out2: string[] = [];
-    const code2 = await main(['replay', json, '-o', png, '--content-root', content, '--port', String(port)],
-      { ...io, out: (s) => out2.push(s), err: (s) => out2.push(s) });
+    const code2 = await main(['replay', json, '-o', png, '--theme', 'light', '--content-root', content, '--port',
+      String(port)], { ...io, out: (s) => out2.push(s), err: (s) => out2.push(s) });
     expect(code2 === 0 && /as recorded/.test(out2.join('')), `cad-viewer replay, a local file: exit ${code2}: ${
       out2.join('')}`);
+    expect(topLeftPixel(fs.readFileSync(png)).join() === '217,217,217', `replay, light: ${topLeftPixel(
+      fs.readFileSync(png))}`);
   }
   return undefined;
 });

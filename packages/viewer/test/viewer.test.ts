@@ -296,10 +296,11 @@ test('cad-viewer: arguments', () => {
   assert.ok(typeof s === 'object' && s.given.length === 0 && s.file === undefined);
   assert.equal(parseArgs(['-h']), 'help');
   const shot = parseArgs(['shot', 'm.stp', '-o', 'out.png', '--size', '640x480', '--view', 'top', '--state',
-    '?cut=x:1&ao=0', '--json', '-', '--chrome', '/c']);
+    '?cut=x:1&ao=0', '--json', '-', '--chrome', '/c', '--theme', 'light', '--background',
+    '#FFfFff']);
   assert.ok(typeof shot === 'object');
   assert.deepEqual(shot.shot, { out: path.resolve('out.png'), width: 640, height: 480, view: 'top',
-    state: 'cut=x:1&ao=0', json: '-', chrome: '/c' });
+    state: 'cut=x:1&ao=0', json: '-', chrome: '/c', theme: 'light', background: 0xffffff });
   const rep = parseArgs(['replay', 'r.json', '-o', 'end.png', '--json', 'out.json']);
   assert.ok(typeof rep === 'object' && rep.command === 'replay' && rep.file === path.resolve('r.json') &&
     rep.shot.out === path.resolve('end.png') && rep.shot.json === 'out.json');
@@ -308,7 +309,8 @@ test('cad-viewer: arguments', () => {
   for (const [argv, err] of [[[], /no command/], [['serve'], /unknown command/], [['open'], /one file/],
     [['shot'], /one file/], [['replay'], /one file/], [['replay', 'a', 'b'], /one file/],
     [['shot', 'a', '--size', '640'], /--size/], [['shot', 'a', '--size', '8x8'], /--size/],
-    [['shot', 'a', '--size', '9000x10'], /--size/],
+    [['shot', 'a', '--size', '9000x10'], /--size/], [['shot', 'a', '--theme', 'grey'], /--theme/],
+    [['shot', 'a', '--background', 'white'], /--background/],
     [['open', 'a', 'b'], /one file/], [['stop', 'a'], /takes no file/], [['start', '--port', 'x'], /bad port/],
     [['start', '--port'], /needs a value/], [['start', '--https', 'yes'], /self or mkcert/],
     [['start', '--frob'], /unknown option/]] as [string[], RegExp][]) {

@@ -10,7 +10,7 @@
 
 ## Demo models
 
-`demo/` holds STEP models made by Marsette Vona, with a picture of each (the README's, made with `cad-viewer shot` and trimmed), licensed under CC BY-SA 4.0 (`demo/LICENSE.txt`, and in each file's header), not Apache-2.0 as the rest of the repository, committed so that the viewer can show them: the GitHub Pages deployment serves them at `content/demo/` (`?model=demo/rpbp-ap242.step`), as the dev server does with its default content root. They are not in `files.txt`, so the corpus checks don't read them.
+`demo/` holds STEP models made by Marsette Vona, with a picture of each (the README's: `cad-viewer shot <model> --size 1600x1600 --view iso --background '#ffffff'`, then `magick <png> -fuzz 2% -trim +repage -bordercolor '#ffffff' -border 40 -resize x400 -strip`), licensed under CC BY-SA 4.0 (`demo/LICENSE.txt`, and in each file's header), not Apache-2.0 as the rest of the repository, committed so that the viewer can show them: the GitHub Pages deployment serves them at `content/demo/` (`?model=demo/rpbp-ap242.step`), as the dev server does with its default content root. They are not in `files.txt`, so the corpus checks don't read them.
 
 ## Setup
 

@@ -275,9 +275,23 @@ export class Viewer {
   }
 
   /** Redraws soon (after any change to the scene). */
+  private theme: Theme = 'dark';
+  private background: number | undefined;
+
   /** The view's background for a theme (theme.ts). */
   setTheme(theme: Theme): void {
-    (this.scene.background as THREE.Color).setHex(VIEW_BACKGROUNDS[theme]);
+    this.theme = theme;
+    this.applyBackground();
+  }
+
+  /** A background of the view's own, whatever the theme (`cad-viewer shot --background`), or undefined: the theme's. */
+  setBackground(color: number | undefined): void {
+    this.background = color;
+    this.applyBackground();
+  }
+
+  private applyBackground(): void {
+    (this.scene.background as THREE.Color).setHex(this.background ?? VIEW_BACKGROUNDS[this.theme]);
     this.redraw();
   }
 

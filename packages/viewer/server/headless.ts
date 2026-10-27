@@ -32,6 +32,8 @@ export interface PageOptions {
   scale?: number;
   mobile?: boolean;
   touch?: boolean;
+  /** The system's colour scheme as the page sees it (`prefers-color-scheme`; the viewer's Auto theme follows it). */
+  colorScheme?: 'light' | 'dark';
 }
 
 export interface Headless {
@@ -85,6 +87,8 @@ export async function launchChrome(profile: string, opts: { chrome?: string; arg
         deviceScaleFactor: o.scale ?? 1, mobile: o.mobile ?? false }, sessionId);
     }
     if (o.touch) await send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 }, sessionId);
+    if (o.colorScheme) await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme',
+      value: o.colorScheme }] }, sessionId);
     await send('Page.navigate', { url }, sessionId);
     const evaluate = async (expression: string, timeoutMs = 180_000) => {
       let timer: ReturnType<typeof setTimeout> | undefined;

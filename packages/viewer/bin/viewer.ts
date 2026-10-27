@@ -32,11 +32,13 @@ Commands:
 
 Options for shot:
   -o <png>             where the PNG goes (default: the file's name with .png, in the current directory)
-                       (replay: -o, --json and --chrome too)
+                       (replay: -o, --json, --theme and --chrome too)
   --size <w>x<h>       the view in pixels (default 1200x800; one pixel per CSS pixel)
   --view <name>        front, back, left, right, top, bottom or iso (default: as the page fits it)
   --state <query>      more of the view, as in a link's address: "cut=x:10&hide=as1/plate&ao=0" (README.md)
   --json <file>        also write the page's state, the view's link and its status line there ("-": standard output)
+  --theme <theme>      dark (the default), light, or auto (the viewer's Auto: headless Chrome's preference, light)
+  --background <color> the view's background instead of the theme's, #rrggbb (white for pictures on a white page)
   --chrome <path>      Chrome (default: $CHROME, or where it usually is)
 
 Options (start, open and shot; a running server keeps its own):
@@ -59,6 +61,10 @@ export interface ShotOptions {
   state?: string;
   json?: string;
   chrome?: string;
+  /** dark (the default), light, or auto: headless Chrome's own preference, which the viewer's Auto follows. */
+  theme?: 'dark' | 'light' | 'auto';
+  /** The view's background instead of the theme's (0xrrggbb). */
+  background?: number;
 }
 
 export interface Args {
@@ -104,6 +110,15 @@ export function parseArgs(argv: string[]): Args | string {
       else if (a === '--state') shot.state = value().replace(/^\?/, '');
       else if (a === '--json') shot.json = value();
       else if (a === '--chrome') shot.chrome = value();
+      else if (a === '--theme') {
+        const v = value();
+        if (v !== 'dark' && v !== 'light' && v !== 'auto') return `--theme is dark, light or auto: ${v}`;
+        shot.theme = v;
+      } else if (a === '--background') {
+        const v = value();
+        if (!/^#?[0-9a-f]{6}$/i.test(v)) return `--background is #rrggbb: ${v}`;
+        shot.background = parseInt(v.replace('#', ''), 16);
+      }
       else if (a === '-h' || a === '--help') return 'help';
       else if (a.startsWith('-')) return `unknown option: ${a}`;
       else rest.push(a);
@@ -203,6 +218,13 @@ async function settled(tab: Tab, expression: string, timeoutMs: number): Promise
   }
 }
 
+/**
+ * The colour scheme headless Chrome reports for a shot's theme: the page starts with the viewer's Auto theme (a new
+ * profile remembers no choice), which follows it; auto leaves Chrome's own (light).
+ */
+const scheme = (o: ShotOptions): { colorScheme?: 'light' | 'dark' } => (o.theme ?? 'dark') === 'auto' ? {}
+  : { colorScheme: o.theme === 'light' ? 'light' : 'dark' };
+
 /** A file's `?model=`: its path within the content root, from its URL path below /content/. */
 const modelPath = (rel: string) => rel.slice(CONTENT_PREFIX.length).split('/').map(decodeURIComponent).join('/');
 
@@ -222,12 +244,13 @@ async function takeShot(s: State, file: string, o: ShotOptions, io: Io): Promise
   const headless = await launchChrome(fs.mkdtempSync(path.join(os.tmpdir(), 'cad-viewer-shot-')),
     { chrome: o.chrome, args: s.https === 'none' ? [] : ['--ignore-certificate-errors'] });
   try {
-    const tab = await headless.open(page, { width: o.width, height: o.height, scale: 1 });
+    const tab = await headless.open(page, { width: o.width, height: o.height, scale: 1, ...scheme(o) });
     await settled(tab, 'cadViewer.ready.then(() => cadViewer.idle()).then(() => true)', 600_000);
     const r = await tab.evaluate(`({ state: cadViewer.state(), link: cadViewer.link(),
       status: document.getElementById('status').textContent,
       error: document.getElementById('status').classList.contains('error'),
-      png: cadViewer.state().model ? cadViewer.screenshot() : null })`) as { state: { model?: { name: string;
+      png: cadViewer.state().model ? (${o.background === undefined ? '' : `viewer.setBackground(${o.background}), `
+      }cadViewer.screenshot()) : null })`) as { state: { model?: { name: string;
       triangles: number } }; link: string; status: string; error: boolean; png: string | null };
     const { png, ...report } = r;
     if (o.json) {
@@ -280,7 +303,7 @@ async function replayRecording(s: State, file: string, o: ShotOptions, io: Io): 
     { chrome: o.chrome, args: s.https === 'none' ? [] : ['--ignore-certificate-errors'] });
   try {
     const tab = await headless.open(s.url, { width: rec.window.width, height: rec.window.height,
-      scale: rec.window.scale });
+      scale: rec.window.scale, ...scheme(o) });
     await settled(tab, 'cadViewer.ready.then(() => true)', 600_000);
     const r = await tab.evaluate(`cadViewer.replay(${JSON.stringify(rec)}, { urls: ${JSON.stringify(urls)} })
       .then(async (report) => { await cadViewer.idle(); return { report, state: cadViewer.state(),
