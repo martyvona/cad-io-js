@@ -23,7 +23,8 @@ import { pick, type Pick } from './pick.ts';
 import { Composer } from './render.ts';
 import { AXES, Sections, type SectionSettings } from './section.ts';
 import { detectEdges, StepGraph } from './step.ts';
-import { cadStyle, DEFAULT_RENDER, edgeLayer, type RenderSettings } from './style.ts';
+import { FatEdges } from './fat-edges.ts';
+import { cadStyle, DEFAULT_RENDER, EDGES, edgeLayer, type RenderSettings } from './style.ts';
 import { TriangleEdges } from './triangle-edges.ts';
 import type { FromImportWorker, ToImportWorker } from './import-worker.ts';
 import type { Meshing, StepEvent } from './step-load.ts';
@@ -129,14 +130,21 @@ export class Viewer {
   readonly sections: Sections;
   /** Every triangle's edges, when the rendering settings say so. */
   readonly triangleEdges = new TriangleEdges();
+  readonly fatEdges = new FatEdges(EDGES);
+  private readonly ambient = new THREE.AmbientLight(0xffffff, DEFAULT_RENDER.ambient);
+  private readonly headlight = new THREE.DirectionalLight(0xffffff, DEFAULT_RENDER.light);
   /** The rendering settings; apply changes with setRender. */
-  render: RenderSettings = { ...DEFAULT_RENDER };
   /** The device's class as detected (device.ts). */
   readonly detectedDevice: DeviceClass = classifyDevice(deviceSignals());
   /** The class used: detected, or the user's choice; it caps the workers (from the next load). */
   device: DeviceClass = deviceOverride() ?? this.detectedDevice;
   /** The meshing settings: the device's profile at first. */
   settings: TessellationSettings = defaultSettings(DEVICE_PROFILES[this.device]);
+  /**
+   * Rendering: the defaults, with thin edges on phones and tablets (fat ones, 18 ms a frame against 6-9 thin for the
+   * bicycle on an Apple M4, would cost their GPUs more).
+   */
+  render: RenderSettings = { ...DEFAULT_RENDER, ...(this.device === 'desktop' ? {} : { edgeStyle: 'thin' as const }) };
   /** Progress messages while loading. */
   onStatus?: (text: string) => void;
   /** The node model of the model just shown (its tree, hiding). */
@@ -162,14 +170,13 @@ export class Viewer {
     this.clipped = (p) => this.sections.clipped(p);
     container.appendChild(this.renderer.domElement);
     this.scene.background = new THREE.Color(VIEW_BACKGROUNDS.dark);
-    this.scene.add(new THREE.AmbientLight(0xffffff, 1.5));
+    this.scene.add(this.ambient);
     // A headlight: the light comes from over the viewer's shoulder, whatever the view.
-    const light = new THREE.DirectionalLight(0xffffff, 2);
-    light.position.set(1, 1, 2);
-    this.camera.add(light);
+    this.headlight.position.set(1, 1, 2);
+    this.camera.add(this.headlight);
     this.scene.add(this.camera, this.display);
     this.display.add(this.frame);
-    this.scene.add(this.sections.group, this.triangleEdges.group);
+    this.scene.add(this.sections.group, this.triangleEdges.group, this.fatEdges.group);
     this.camera.up.set(0, 0, 1);
     this.camera.position.set(1, -1, 1);
 
@@ -232,20 +239,35 @@ export class Viewer {
     clipTo(this.camera, this.bounds);
     this.sections.update(this.root ? this.display : undefined, () => this.nodes?.nodes.flatMap((n) =>
       n.kind === 'part' && n.object ? [n.object] : []) ?? []);
-    if (this.render.triangleEdges !== 'off' && this.root) this.display.updateWorldMatrix(true, true);
+    const fat = this.render.edges && this.render.edgeStyle === 'fat';
+    if ((this.render.triangleEdges !== 'off' || fat) && this.root) this.display.updateWorldMatrix(true, true);
     this.triangleEdges.update(this.root ? this.display : undefined, this.render.triangleEdges);
-    this.composer.render();
+    this.fatEdges.update(this.root ? this.display : undefined, fat, this.render.edgeWidth);
+    // Fat edges drawn instead of the thin ones, which stay shown (to the camera's layers, which picking follows) for
+    // picking.
+    if (fat) this.camera.layers.disable(EDGES);
+    try {
+      this.composer.render();
+    } finally {
+      if (fat) this.camera.layers.enable(EDGES);
+    }
     return this.interacting || this.changed;
   }
 
-  /** Applies rendering settings (shininess to every Phong face in the model). */
+  /** Applies rendering settings (shininess and specular to every Phong face in the model, the lights, the caps). */
   setRender(s: RenderSettings): void {
     this.render = { ...s };
     this.composer.set(this.render);
+    this.ambient.intensity = s.ambient;
+    this.headlight.intensity = s.light;
+    this.sections.setStyle(s.capStyle);
     this.display.traverse((o) => {
       const m = (o as THREE.Mesh).material;
       if ((o as THREE.Mesh).isMesh) for (const x of Array.isArray(m) ? m : [m]) {
-        if ((x as THREE.MeshPhongMaterial).isMeshPhongMaterial) (x as THREE.MeshPhongMaterial).shininess = s.shininess;
+        const p = x as THREE.MeshPhongMaterial;
+        if (!p.isMeshPhongMaterial) continue;
+        p.shininess = s.shininess;
+        p.specular.setScalar(s.specular);
       }
     });
     this.redraw();
@@ -325,7 +347,7 @@ export class Viewer {
     if (gen !== this.generation) return;
     detectEdges(root);
     edgeLayer(root);
-    if (this.render.cadMaterials) cadStyle(root, this.render.shininess);
+    if (this.render.cadMaterials) cadStyle(root, this.render.shininess, this.render.specular);
     this.show(root, { name: src.name, format }, undefined, keep);
     this.finished();
     if (!keep) this.zoomAll();
@@ -341,6 +363,7 @@ export class Viewer {
     this.model = model;
     this.moved = !!keep;
     this.triangleEdges.invalidate();
+    this.fatEdges.invalidate();
     if (keep?.centroid) {
       model.centroid = keep.centroid;
       this.centered = keep.centered;
@@ -413,6 +436,7 @@ export class Viewer {
       for (const p of graph!.placements.get(part) ?? []) this.nodes?.invalidate(p.group);
       this.sections.invalidate();
       this.triangleEdges.invalidate();
+    this.fatEdges.invalidate();
       this.onMeshes?.();
     };
     const progress = () => this.onStatus?.(`${src.name}: meshed ${model!.parts!.done} of ${model!.parts!.total} ` +
@@ -423,7 +447,7 @@ export class Viewer {
         if (gen !== this.generation) return;
         if (ev.type === 'scene') {
           const scene = ev.scene;
-          graph = new StepGraph(scene, src.name, this.render.shininess);
+          graph = new StepGraph(scene, src.name, this.render.shininess, this.render.specular);
           const brep = scene.parts.flatMap((p, i) => p.kind === 'brep' && graph!.placements.has(i) ? [i] : []);
           model = { name: src.name, format: 'step', parts: { total: brep.length, done: 0, failed: 0 },
             diagnostics: [...scene.diagnostics] };

@@ -183,6 +183,8 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
       const r = await loadUrl(url);
       if (r.error) return;
     } else ui.empty();
+    // Recorded (?record began before it) as the call it is, so a replay applies the address's view too.
+    if (Object.keys(st).length) recorder.api('apply', [st]);
     problems.push(...apply(st));
     if (problems.length) ui.say(`the address: ${problems.join('; ')}`, true);
   };

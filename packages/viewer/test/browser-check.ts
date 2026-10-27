@@ -68,6 +68,9 @@ fs.writeFileSync(path.join(content, 'notes.txt'), 'not a model');
 // some CAD systems' glTF files have their parts: closed only as a whole (the caps check).
 {
   const doc = new Document();
+  // Written as Onshape writes (its colours sRGB though glTF's are linear): Onshape's orange.
+  doc.getRoot().getAsset().generator = 'ONSHAPE BY PTC INC, 1.222';
+  const orange = doc.createMaterial('orange').setBaseColorFactor([0.9725, 0.5294, 0.0039, 1]);
   const buffer = doc.createBuffer();
   const mesh = doc.createMesh('box');
   const c = (i: number, n: number) => (i & n ? 1 : 0);
@@ -78,7 +81,8 @@ fs.writeFileSync(path.join(content, 'notes.txt'), 'not a model');
       .setArray(Float32Array.from(f.flatMap(corner)));
     const indices = doc.createAccessor().setType('SCALAR').setBuffer(buffer).setArray(Uint16Array.from([0, 1, 2, 0, 2,
       3]));
-    mesh.addPrimitive(doc.createPrimitive().setAttribute('POSITION', position).setIndices(indices));
+    mesh.addPrimitive(doc.createPrimitive().setAttribute('POSITION', position).setIndices(indices)
+      .setMaterial(orange));
   }
   doc.createScene().addChild(doc.createNode('box').setMesh(mesh));
   fs.writeFileSync(path.join(content, 'faces.glb'), await new NodeIO().writeBinary(doc));
@@ -168,6 +172,8 @@ interface PageOptions {
   first?: string;
   /** The system's colour scheme emulated light, before the page loads. */
   light?: boolean;
+  /** The query as it is: not thin edges unless it says (page's default). */
+  asIs?: boolean;
 }
 
 async function page(query: string, after?: string, opts: PageOptions = {}): Promise<Record<string, unknown>> {
@@ -186,7 +192,11 @@ async function page(query: string, after?: string, opts: PageOptions = {}): Prom
     await send('Page.enable', {}, sessionId);
     await send('Page.addScriptToEvaluateOnNewDocument', { source: opts.first }, sessionId);
   }
-  await send('Page.navigate', { url: `http://localhost:${port}${base}${query}` }, sessionId);
+  // Thin edges unless the check asks: fat ones cost several times as much in software rendering (SwiftShader), which
+  // the timing checks would feel (the fat edges check asks for them).
+  const thin = opts.asIs || /[?&]edgeStyle=/.test(query) || !query.startsWith('?') ? query
+    : `${query}&edgeStyle=thin`;
+  await send('Page.navigate', { url: `http://localhost:${port}${base}${thin}` }, sessionId);
   try {
     for (let t = 0; t < 3000; t++) {
       const r = await send('Runtime.evaluate', { expression: 'document.body?.dataset.report ?? null',
@@ -603,16 +613,17 @@ await check('sections', async () => {
       .applyMatrix4(o.matrixWorld); };
     const frames = (n) => new Promise((r) => { const f = () => (n-- > 0 ? requestAnimationFrame(f) : r()); f(); });
     // Colours where world points are drawn, after real frames (the viewer's own drawing makes the caps), rendered
-    // again and read back in one task.
+    // again and read back in one task: each the mean over a square of 16 device pixels a side (caps are hatched).
     const colours = async (points) => {
       await frames(3);
       viewer.composer.render();
       viewer.composer.render();
-      const dpr = viewer.renderer.getPixelRatio();
-      return points.map((v) => { const p = v.clone().project(viewer.camera), out = new Uint8Array(4);
-        gl.readPixels(Math.round((p.x + 1) / 2 * canvas.clientWidth * dpr),
-          Math.round((p.y + 1) / 2 * canvas.clientHeight * dpr), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, out);
-        return [...out.slice(0, 3)]; });
+      const dpr = viewer.renderer.getPixelRatio(), n = 16;
+      return points.map((v) => { const p = v.clone().project(viewer.camera), out = new Uint8Array(4 * n * n);
+        gl.readPixels(Math.round((p.x + 1) / 2 * canvas.clientWidth * dpr) - n / 2,
+          Math.round((p.y + 1) / 2 * canvas.clientHeight * dpr) - n / 2, n, n, gl.RGBA, gl.UNSIGNED_BYTE, out);
+        return [0, 1, 2].map((k) => Math.round(out.filter((_, i) => i % 4 === k).reduce((s, x) => s + x, 0) /
+          (n * n))); });
     };
     // The rod (round, along X) cut through its middle, seen close: its cap's centre is inside it, the corner of the
     // cap's square isn't.
@@ -628,6 +639,10 @@ await check('sections', async () => {
     s.caps = true;
     viewer.setSections(s);
     const [capped, outside] = await colours([centre, corner]);
+    // In the parts style: the part's colour.
+    viewer.setRender({ ...viewer.render, capStyle: 'parts' });
+    const [cappedParts] = await colours([centre]);
+    viewer.setRender({ ...viewer.render, capStyle: 'drawing' });
     // The same without AO (the composer's own render targets, which need their stencil buffer).
     viewer.setRender({ ...viewer.render, ao: false });
     const [cappedPlain, outsidePlain] = await colours([centre, corner]);
@@ -656,23 +671,29 @@ await check('sections', async () => {
     const movedTo = viewer.sections.get().x.at;
     viewer.setCentered(false);
     const back = viewer.sections.get().x.at;
-    return { planes, caps, capped, outside, cappedPlain, outsidePlain, open, kept: kept ? kept.point.x : null,
+    return { planes, caps, capped, cappedParts, outside, cappedPlain, outsidePlain, open,
+      kept: kept ? kept.point.x : null,
       gone: gone ? gone.point.x : null,
       at, flipped, movedTo, expectedMove: at - 10 - cx, back, glError: gl.getError() };
-  })()`) as { after?: { planes: number; caps: number; capped: number[]; outside: number[]; cappedPlain: number[];
+  })()`) as { after?: { planes: number; caps: number; capped: number[]; cappedParts: number[]; outside: number[];
+    cappedPlain: number[];
     outsidePlain: number[]; open: number[];
     kept: number | null; gone: number | null; at: number; flipped: boolean; movedTo: number; expectedMove: number;
     back: number; glError: number } };
   const a = r.after!;
   const j = JSON.stringify(a);
   expect(a.planes === 1 && a.caps > 0, `planes and caps: ${j}`);
-  // The rod is orange (red high, green middling, blue low), hatched; its cap's square outside the circle isn't; with
-  // no caps, the cut shows what's beyond.
+  // The rod is orange (red high, green middling, blue low); its cap beige hatched black (the drawing style, a mean
+  // a quarter black), or orange hatched darker (the parts style); its cap's square outside the circle is neither;
+  // with no caps, the cut shows what's beyond.
   const orange = ([r, g, b]: number[]) => r! > 150 && g! > 40 && g! < 200 && b! < 60 && r! > g! + 40;
-  expect(orange(a.capped), `cap colour: ${j}`);
-  expect(!orange(a.outside), `cap outside the solid: ${j}`);
-  expect(orange(a.cappedPlain) && !orange(a.outsidePlain), `caps without AO: ${j}`);
-  expect(!orange(a.open), `no caps: ${j}`);
+  const beige = ([r, g, b]: number[]) => r! > 120 && g! > 110 && b! > 90 && r! - b! > 15 && r! - b! < 60 &&
+    Math.abs(r! - g!) < 25;
+  expect(beige(a.capped), `cap colour (drawing): ${j}`);
+  expect(orange(a.cappedParts), `cap colour (parts): ${j}`);
+  expect(!beige(a.outside) && !orange(a.outside), `cap outside the solid: ${j}`);
+  expect(beige(a.cappedPlain) && !beige(a.outsidePlain), `caps without AO: ${j}`);
+  expect(!beige(a.open) && !orange(a.open), `no caps: ${j}`);
   expect(a.kept !== null && a.kept <= a.at + 1e-6 && (a.gone === null || a.gone <= a.at + 1e-6),
     `picking across the plane: ${j}`);
   expect(a.flipped, `flip: ${j}`);
@@ -808,8 +829,9 @@ await check('phone', async () => {
       overscroll: getComputedStyle(document.body).overscrollBehaviorY, touch: navigator.maxTouchPoints,
       handle: getComputedStyle(document.getElementById('side-handle')).display,
       workers: viewer.model.meshing?.workers, spot, device: cadViewer.state().device,
+      edgeStyle: viewer.render.edgeStyle,
       triangles: viewer.stats().triangles };
-  })()`, { phone: true, then: async (sessionId, after) => {
+  })()`, { phone: true, asIs: true, then: async (sessionId, after) => {
     // A tap: a touch down and up at the spot, as a finger would.
     const spot = (after as { spot?: { x: number; y: number } }).spot;
     if (!spot) return [];
@@ -840,7 +862,7 @@ await check('phone', async () => {
       number;
     return { selected, opened, dragged, wide };
   } }) as { after?: { treeClosed: boolean; guiClosed: boolean; overscroll: string; touch: number; handle: string;
-    workers: number; spot?: { id: number; x: number; y: number }; triangles: number;
+    workers: number; spot?: { id: number; x: number; y: number }; triangles: number; edgeStyle: string;
     device: { detected: string; used: string; profile: string } }; then?: { selected: number[];
     opened: { side: number; handle: number; saved: string | null }; dragged: { side: number; saved: string | null };
     wide: number } };
@@ -849,7 +871,8 @@ await check('phone', async () => {
   expect(a.treeClosed && a.guiClosed, `closed at first: ${j}`);
   expect(a.device.detected === 'phone' && a.device.used === 'phone' && a.device.profile === 'coarse' &&
     a.triangles === coarseTriangles, `a phone, meshed coarse (${coarseTriangles} triangles): ${j}`);
-  expect(a.overscroll === 'none' && a.touch > 0 && a.workers <= 3 && a.handle === 'block', `phone settings: ${j}`);
+  expect(a.overscroll === 'none' && a.touch > 0 && a.workers <= 3 && a.handle === 'block' && a.edgeStyle === 'thin',
+    `phone settings (thin edges too): ${j}`);
   expect(!!a.spot, `no part to tap: ${j}`);
   expect(r.then?.selected.join() === String(a.spot!.id), `a tap selects: ${JSON.stringify(r.then)}, ${j}`);
   const t = r.then!;
@@ -1465,9 +1488,12 @@ await check('caps on a part of several meshes', async () => {
     st.z.on = true;
     ui.setSections(st);
     await cadViewer.idle();
-    return { meshes: meshes.length, caps: viewer.sections.caps.length };
-  })()`) as { after: { meshes: number; caps: number } };
+    return { meshes: meshes.length, caps: viewer.sections.caps.length,
+      colour: meshes[0].material.color.getHexString('srgb') };
+  })()`) as { after: { meshes: number; caps: number; colour: string } };
   expect(r.after.meshes === 6 && r.after.caps === 1, JSON.stringify(r.after));
+  // Its colour as Onshape shows it: the factor read as sRGB (248, 135, 1), not as linear.
+  expect(r.after.colour === 'f88701', `Onshape's colour: ${JSON.stringify(r.after)}`);
   return undefined;
 });
 // The version in the controls' title and in About: the repository's (its root package.json's); a build adds the
@@ -1489,6 +1515,141 @@ await check('version', async () => {
   })()`) as { after: { title: string; about: string } };
   expect(r.after.title === `cad-io-js ${want}` && r.after.about.includes(`Version ${want}.`),
     `wanted ${want}: ${JSON.stringify(r.after)}`);
+  return undefined;
+});
+// Fat edges (Rendering's Edge lines, the default on desktops): a Wireframe per edge object, outside the model, drawn
+// instead of the thin lines, which stay on their layer for picking; wider than thin ones on screen, and as wide as
+// asked; a selection's tint and a part's hiding followed; none with edges off; the width control only for fat ones.
+await check('fat edges', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check&edgeStyle=fat`, `(async () => {
+    await cadViewer.ready; await cadViewer.idle();
+    const gl = viewer.renderer.getContext(), canvas = viewer.renderer.domElement;
+    // Dark pixels in a frame drawn as the viewer draws it, read back in the same task.
+    const dark = () => {
+      viewer.draw();
+      const w = canvas.width, h = canvas.height, px = new Uint8Array(4 * w * h);
+      gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      let n = 0;
+      for (let i = 0; i < px.length; i += 4) if (px[i] < 40 && px[i + 1] < 40 && px[i + 2] < 40) n++;
+      return n;
+    };
+    const set = (r) => ui.setRender({ ...viewer.render, ...r });
+    const thinEdges = [];
+    viewer.display.traverse((o) => { if (o.isLineSegments && o.layers.isEnabled(1)) thinEdges.push(o); });
+    // (three.js's Vector2, from an object that has one: the page has no THREE.)
+    viewer.draw();
+    const THREE_V2 = viewer.fatEdges.pairs[0].wire.material.resolution.constructor;
+    viewer.draw();
+    const wires = viewer.fatEdges.group.children;
+    // Each where its thin edges are; its lines' resolution the view's (CSS pixels; Wireframe sets it itself).
+    const size = viewer.renderer.getSize(new THREE_V2());
+    const placed = viewer.fatEdges.pairs.every((p) => p.wire.matrixWorld.equals(p.source.matrixWorld) &&
+      p.wire.material.resolution.equals(size));
+    const out = { thinEdges: thinEdges.length, wires: wires.length, shown: viewer.fatEdges.group.visible,
+      layerAfter: viewer.camera.layers.isEnabled(1), fat: dark(), placed };
+    // The view resized: the lines' resolution follows.
+    const was = viewer.renderer.getSize(new THREE_V2());
+    viewer.renderer.setSize(was.x - 100, was.y - 50, false);
+    viewer.draw();
+    out.resized = viewer.fatEdges.pairs.every((p) => p.wire.material.resolution.x === was.x - 100 &&
+      p.wire.material.resolution.y === was.y - 50);
+    viewer.renderer.setSize(was.x, was.y, false);
+    out.wide = (set({ edgeWidth: 6 }), dark());
+    out.thin = (set({ edgeStyle: 'thin', edgeWidth: 1.5 }), dark());
+    out.thinShown = viewer.fatEdges.group.visible;
+    out.widthHidden = ui.gui.controllersRecursive().find((c) => c._name === 'Edge width (pixels)')._hidden;
+    set({ edgeStyle: 'fat' });
+    out.widthShown = !ui.gui.controllersRecursive().find((c) => c._name === 'Edge width (pixels)')._hidden;
+    // A part selected: its edges' fat lines in the tint its thin lines have.
+    const part = viewer.nodes.nodes.find((n) => n.kind === 'part');
+    ui.select([part.id]);
+    viewer.draw();
+    const thinOf = []; part.object.traverse((o) => { if (o.isLineSegments && o.layers.isEnabled(1)) thinOf.push(o); });
+    const wireOf = (t) => viewer.fatEdges.pairs.find((p) => p.source === t).wire;
+    out.tint = thinOf.every((t) => wireOf(t).material.color.equals(t.material.color)) &&
+      thinOf.some((t) => t.material.color.getHex() !== 0);
+    // Hidden: its fat lines too.
+    ui.setHidden([part.id], true);
+    viewer.draw();
+    out.hidden = thinOf.every((t) => !wireOf(t).visible);
+    set({ edges: false });
+    viewer.draw();
+    out.edgesOff = viewer.fatEdges.group.visible;
+    return out;
+  })()`) as { after: Record<string, number | boolean> };
+  const a = r.after;
+  const j = JSON.stringify(a);
+  expect(a.placed === true && a.resized === true, `placed with their edges, at the view's resolution: ${
+    JSON.stringify(a)}`);
+  expect((a.thinEdges as number) > 0 && a.wires === a.thinEdges && a.shown === true && a.layerAfter === true,
+    `a fat line per edge object, the thin ones' layer kept for picking: ${j}`);
+  expect((a.fat as number) > 1.3 * (a.thin as number) && (a.wide as number) > 1.5 * (a.fat as number),
+    `wider on screen, and wider still at 6 pixels: ${j}`);
+  expect(a.thinShown === false && a.widthHidden === true && a.widthShown === true, `thin: none; the width control: ${
+    j}`);
+  expect(a.tint === true && a.hidden === true && a.edgesOff === false, `selection, hiding, edges off: ${j}`);
+  return undefined;
+});
+// The lights and specular (Rendering): the ambient light's and the headlight's intensities and every Phong face's
+// specular follow the settings; a model loaded after takes them too. (The address as it is: rendering settings in it
+// would be applied again after the load, and hide what the meshes were made with.)
+await check('lights and specular', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    await cadViewer.ready; await cadViewer.idle();
+    const look = () => {
+      const lights = []; viewer.scene.traverse((o) => { if (o.isLight) lights.push([o.type, o.intensity]); });
+      const speculars = new Set();
+      viewer.display.traverse((o) => { if (o.isMesh) for (const m of [o.material].flat()) if (m.isMeshPhongMaterial)
+        speculars.add(m.specular.getHex(THREE_LINEAR)); });
+      return { lights: lights.sort(), speculars: [...speculars] };
+    };
+    const THREE_LINEAR = 'srgb-linear';
+    const before = look();
+    ui.setRender({ ...viewer.render, specular: 0.8, ambient: 0.7, light: 3 });
+    const after = look();
+    await cadViewer.load('/content/as1.glb');
+    await cadViewer.idle();
+    return { before, after, loaded: look() };
+  })()`, { asIs: true }) as { after: Record<string, { lights: [string, number][]; speculars: number[] }> };
+  const a = r.after;
+  const j = JSON.stringify(a);
+  const grey = (x: number) => Math.round(x * 255) * 0x010101;
+  expect(JSON.stringify(a.before!.lights) === JSON.stringify([['AmbientLight', 1], ['DirectionalLight', 2.5]]) &&
+    JSON.stringify(a.before!.speculars) === JSON.stringify([grey(0.4)]), `the defaults: ${j}`);
+  expect(JSON.stringify(a.after!.lights) === JSON.stringify([['AmbientLight', 0.7], ['DirectionalLight', 3]]) &&
+    JSON.stringify(a.after!.speculars) === JSON.stringify([grey(0.8)]), `changed: ${j}`);
+  expect(JSON.stringify(a.loaded!.speculars) === JSON.stringify([grey(0.8)]), `a model loaded after: ${j}`);
+  return undefined;
+});
+// Cap hatching, in screen pixels at any pixel ratio: the drawing style's black lines 8 CSS pixels apart at 45
+// degrees, so along a row of the rod's cap 16 device pixels / sin 45 = 22.6 apart at a pixel ratio of 2.
+await check('cap hatching', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    await cadViewer.ready; await cadViewer.idle();
+    const gl = viewer.renderer.getContext(), canvas = viewer.renderer.domElement;
+    const rod = ui.panel().model.nodes.find((n) => n.kind === 'part' && n.name === 'rod').object.children[0];
+    rod.geometry.computeBoundingBox();
+    const rb = rod.geometry.boundingBox.clone().applyMatrix4(rod.matrixWorld), c = rb.getCenter(rod.position.clone());
+    viewer.zoomTo(rb);
+    const s = viewer.sections.get();
+    s.x.on = true; s.x.at = c.x; s.caps = true;
+    viewer.setSections(s);
+    for (let i = 0; i < 3; i++) await new Promise((res) => requestAnimationFrame(res));
+    viewer.draw();
+    const dpr = viewer.renderer.getPixelRatio(), p = c.clone().project(viewer.camera), n = 96;
+    const px = new Uint8Array(4 * n);
+    gl.readPixels(Math.round((p.x + 1) / 2 * canvas.clientWidth * dpr) - n / 2,
+      Math.round((p.y + 1) / 2 * canvas.clientHeight * dpr), n, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    let runs = 0, inRun = false;
+    for (let i = 0; i < n; i++) {
+      const dark = px[4 * i] < 80 && px[4 * i + 1] < 80 && px[4 * i + 2] < 80;
+      if (dark && !inRun) runs++;
+      inRun = dark;
+    }
+    return { dpr, runs };
+  })()`, { scale: 2 }) as { after: { dpr: number; runs: number } };
+  expect(r.after.dpr === 2 && r.after.runs >= 3 && r.after.runs <= 5, `hatch lines in 96 device pixels: ${
+    JSON.stringify(r.after)}`);
   return undefined;
 });
 // The automation interface (src/automation.ts) and links: nodes by path, select, hide and show by path, a pick and a

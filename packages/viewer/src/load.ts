@@ -1,6 +1,7 @@
 // Loading through three.js's own loaders: glTF and GLB (with the Draco and meshopt decoders, both in the build, so
 // offline too; Draco's glTF-only decoder, the smaller, as glTF is all it decodes here) and three.js JSON. Our extras
-// aren't read yet, except a three.js root's unit and up axis (formats.ts). A model comes as its bytes plus a way to
+// aren't read yet, except a three.js root's unit and up axis (formats.ts); Onshape's glTF colours are read as the
+// sRGB they are (srgbColoursFrom). A model comes as its bytes plus a way to
 // find the files it refers to (a .gltf's .bin and images): beside its URL, or among local files picked or dropped with
 // it.
 
@@ -40,5 +41,33 @@ export async function loadThree(src: Source, format: Exclude<Format, 'step'>): P
   }
   const base = src.url ? new URL('.', src.url).href : '';
   const gltf = await gltfLoader(src).parseAsync(src.bytes, base);
+  if (srgbColoursFrom(gltf.asset?.generator)) {
+    readColoursAsSrgb(gltf.scene);
+    gltf.scene.userData.srgbColours = gltf.asset.generator;
+  }
   return gltf.scene;
+}
+
+/**
+ * Whether a glTF writer puts sRGB colours where glTF's are linear (baseColorFactor): Onshape does, its factors the
+ * same numbers as its STEP export's COLOUR_RGB (lightarm, 2026-10-27: 0.9725, 0.5294, 0.0039 in both, the orange
+ * 248, 135, 1), which three.js reads, as the specification says, as linear, so they show washed out (the user,
+ * 2026-10-27: colours as Onshape shows them). By its `asset.generator`, as the STEP importer knows Alibre's placements.
+ */
+export function srgbColoursFrom(generator: string | undefined): boolean {
+  return /^ONSHAPE\b/i.test(generator ?? '');
+}
+
+/** Reads every material colour below a root as sRGB rather than linear (once each, however many meshes share it). */
+export function readColoursAsSrgb(root: THREE.Object3D): void {
+  const done = new Set<THREE.Material>();
+  root.traverse((o) => {
+    const m = (o as THREE.Mesh).material;
+    if (!m) return;
+    for (const x of Array.isArray(m) ? m : [m]) {
+      if (done.has(x)) continue;
+      done.add(x);
+      (x as THREE.MeshStandardMaterial).color?.convertSRGBToLinear();
+    }
+  });
 }

@@ -1,5 +1,7 @@
 // Section planes (the user, 2026-10-24; CLAUDE.md, "The viewer"): up to three, one across each world axis, each at a
-// position along its axis with a side cut away; caps, hatched in the part's colour, where they cut closed parts.
+// position along its axis with a side cut away; caps, hatched, where they cut closed parts: in the drawing style of
+// the cadrender prototype (beige, black hatching, two hatchings alternating by part colour), or in each part's colour
+// hatched darker at an angle and spacing of its own, as Onshape draws them (the user, 2026-10-27).
 //
 // The planes are the renderer's clipping planes, so they cut everything drawn (N8AO's render included); picking
 // skips what they cut away (`clipped`). Caps follow the stencil technique of the cadrender prototype and three.js's
@@ -91,14 +93,52 @@ const stencil = (side: THREE.Side, op: THREE.StencilOp) => new THREE.MeshBasicMa
 const BACK = stencil(THREE.BackSide, THREE.IncrementWrapStencilOp);
 const FRONT = stencil(THREE.FrontSide, THREE.DecrementWrapStencilOp);
 
-/** A cap's material: its part's colour, hatched in screen space (diagonal stripes 4 pixels apart). */
-function capMaterial(color: THREE.Color): THREE.MeshBasicMaterial {
-  const m = new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide, stencilWrite: true, stencilRef: 0,
+/** How caps look: the drawing style (beige, black hatching), or each part's colour, as Onshape draws them. */
+export type CapStyle = 'drawing' | 'parts';
+
+/** A cap's hatching: its ground and its lines' colours, the lines' angle (radians), spacing and width (CSS pixels). */
+export interface Hatch { ground: THREE.Color; ink: THREE.Color; angle: number; spacing: number; width: number }
+
+// The drawing style's two hatchings (the cadrender prototype's beiges, at +45 and -45 degrees); lines a quarter of
+// their spacing wide, in screen pixels, so they read at any zoom.
+const DRAWING: readonly Hatch[] = [0xe9d9b8, 0xf1e9d2].map((ground, i) => ({ ground: new THREE.Color(ground),
+  ink: new THREE.Color(0x000000), angle: (i ? -1 : 1) * Math.PI / 4, spacing: 8, width: 2 }));
+// The parts style's angles and spacings, a part's chosen by a hash of its name and colour; lines one pixel wide.
+const ANGLES = [30, 45, 60, 120, 135, 150].map((d) => d * Math.PI / 180);
+const SPACINGS = [5, 6.5, 8];
+
+/** A hash of a string (FNV-1a, 32 bits). */
+function hash(s: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 0x01000193) >>> 0;
+  return h;
+}
+
+/** A part's hatching in the parts style: its colour, lines a darker shade of it, angle and spacing from its name. */
+export function partHatch(name: string, color: THREE.Color): Hatch {
+  const h = hash(`${name}#${color.getHexString()}`);
+  return { ground: color.clone(), ink: color.clone().multiplyScalar(0.35), angle: ANGLES[h % ANGLES.length]!,
+    spacing: SPACINGS[Math.floor(h / ANGLES.length) % SPACINGS.length]!, width: 1 };
+}
+
+/** A cap's material: its ground hatched in screen space, `pixelRatio` device pixels a CSS pixel. */
+function capMaterial(h: Hatch, pixelRatio: number): THREE.MeshBasicMaterial {
+  const m = new THREE.MeshBasicMaterial({ color: h.ground, side: THREE.DoubleSide, stencilWrite: true, stencilRef: 0,
     stencilFunc: THREE.NotEqualStencilFunc, stencilFail: THREE.ReplaceStencilOp,
     stencilZFail: THREE.ReplaceStencilOp, stencilZPass: THREE.ReplaceStencilOp });
+  m.userData.hatch = h;
   m.onBeforeCompile = (shader) => {
-    shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n' +
-      '  diffuseColor.rgb *= mod(floor((gl_FragCoord.x + gl_FragCoord.y) / 4.0), 2.0) < 0.5 ? 1.0 : 0.7;');
+    shader.uniforms.hatchInk = { value: h.ink };
+    shader.uniforms.hatchDir = { value: new THREE.Vector2(Math.cos(h.angle), Math.sin(h.angle)) };
+    shader.uniforms.hatchSpacing = { value: h.spacing * pixelRatio };
+    shader.uniforms.hatchWidth = { value: h.width * pixelRatio };
+    shader.fragmentShader = 'uniform vec3 hatchInk;\nuniform vec2 hatchDir;\nuniform float hatchSpacing;\n' +
+      'uniform float hatchWidth;\n' + shader.fragmentShader.replace('#include <color_fragment>',
+      '#include <color_fragment>\n' +
+      // The distance in device pixels to the nearest line's centre line; the line's edges smoothed over a pixel.
+      '  float hatchT = abs(fract(dot(gl_FragCoord.xy, hatchDir) / hatchSpacing + 0.5) - 0.5) * hatchSpacing;\n' +
+      '  diffuseColor.rgb = mix(diffuseColor.rgb, hatchInk, 1.0 - smoothstep(0.5 * hatchWidth - 0.5, ' +
+      '0.5 * hatchWidth + 0.5, hatchT));');
   };
   return m;
 }
@@ -113,7 +153,8 @@ export class Sections {
   private readonly renderer: THREE.WebGLRenderer;
   private caps: Cap[] = [];
   private dirty = true;
-  private readonly capMaterials = new Map<number, THREE.MeshBasicMaterial>();
+  private readonly capMaterials = new Map<string, THREE.MeshBasicMaterial>();
+  private style: CapStyle = 'drawing';
   /** Whether parts of several meshes close up, by their geometries and frames. */
   private readonly closedParts = new Map<string, boolean>();
 
@@ -174,6 +215,13 @@ export class Sections {
     };
     visit(model, undefined);
     let order = 1000;
+    // The drawing style: its two hatchings alternate between part colours, in the order met (as cadrender does).
+    const byColour = new Map<number, Hatch>();
+    const drawingHatch = (color: THREE.Color) => {
+      let h = byColour.get(color.getHex());
+      if (!h) byColour.set(color.getHex(), (h = DRAWING[byColour.size % DRAWING.length]!));
+      return h;
+    };
     for (const [part, meshes] of units) {
       if (!this.closed(part, meshes)) continue;
       const box = new THREE.Box3();
@@ -181,7 +229,7 @@ export class Sections {
         mesh.geometry.computeBoundingBox();
         box.union(mesh.geometry.boundingBox!.clone().applyMatrix4(mesh.matrixWorld));
       }
-      const color = this.colorOf(meshes[0]!);
+      const color = this.capFor(part, meshes[0]!, drawingHatch);
       for (const axis of on) {
         // A part's meshes count in the stencil together: one render order, one cap.
         for (const mesh of meshes) {
@@ -227,13 +275,25 @@ export class Sections {
     return closed;
   }
 
-  /** The material for a mesh's caps: its first visible material's colour. */
-  private colorOf(mesh: THREE.Mesh): THREE.MeshBasicMaterial {
+  /** The material for a part's caps, by the cap style: from its first mesh's first visible material's colour. */
+  private capFor(part: THREE.Object3D, mesh: THREE.Mesh, drawing: (c: THREE.Color) => Hatch):
+    THREE.MeshBasicMaterial {
     const first = [mesh.material].flat().find((m) => m.visible) as THREE.MeshBasicMaterial | undefined;
     const color = first?.color ?? new THREE.Color(0.8, 0.8, 0.8);
-    let m = this.capMaterials.get(color.getHex());
-    if (!m) this.capMaterials.set(color.getHex(), (m = capMaterial(color.clone())));
+    // (A STEP placement by its scene part, so every placement of a part hatches alike.)
+    const h = this.style === 'drawing' ? drawing(color) : partHatch(part.userData.part !== undefined ?
+      `part ${part.userData.part}` : part.name || mesh.name, color);
+    const key = [h.ground, h.ink].map((c) => c.getHex()).join() + `,${h.angle},${h.spacing},${h.width}`;
+    let m = this.capMaterials.get(key);
+    if (!m) this.capMaterials.set(key, (m = capMaterial(h, this.renderer.getPixelRatio())));
     return m;
+  }
+
+  /** The cap style; caps made again at the next draw when it changes. */
+  setStyle(style: CapStyle): void {
+    if (style === this.style) return;
+    this.style = style;
+    this.dirty = true;
   }
 
   /**

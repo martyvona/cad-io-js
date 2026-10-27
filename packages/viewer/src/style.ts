@@ -4,6 +4,8 @@
 // can run in Node's tests.
 
 import * as THREE from 'three';
+import type { EdgeStyle } from './fat-edges.ts';
+import type { CapStyle } from './section.ts';
 import type { TriangleEdgesMode } from './triangle-edges.ts';
 
 /** The layer edges are drawn on (and only on). */
@@ -21,26 +23,39 @@ export interface RenderSettings {
   edges: boolean;
   /** Triangles' edges over the faces (triangle-edges.ts), to inspect the tessellation: none, the selection's, all. */
   triangleEdges: TriangleEdgesMode;
+  /** Edges as WebGL lines (one device pixel), or fat lines (fat-edges.ts) `edgeWidth` CSS pixels wide. */
+  edgeStyle: EdgeStyle;
+  edgeWidth: number;
   /** Phong shininess of faces. */
   shininess: number;
+  /** Phong specular colour of faces, a grey from 0 (none) to 1 (white). */
+  specular: number;
+  /** The ambient light's intensity, and the headlight's. */
+  ambient: number;
+  light: number;
+  /** How section caps are drawn (section.ts). */
+  capStyle: CapStyle;
   /** Models loaded by three.js's loaders get Phong materials like ours (from the next file loaded). */
   cadMaterials: boolean;
 }
 
 export const DEFAULT_RENDER: RenderSettings = { ao: true, aoIntensity: 5, aoRadius: 32, aoQuality: 'High',
-  smaa: true, edges: true, triangleEdges: 'off', shininess: 30, cadMaterials: true };
+  smaa: true, edges: true, edgeStyle: 'fat', edgeWidth: 1.5, triangleEdges: 'off', shininess: 30, specular: 0.4,
+  ambient: 1, light: 2.5, capStyle: 'drawing', cadMaterials: true };
 
 /**
  * A Phong material standing for another: its colour, opacity and transparency, sides, vertex colours and colour map;
  * faces a little behind their edges. Lines, points and Phong materials are kept as they are.
  */
-export function phongFor(m: THREE.Material, shininess = DEFAULT_RENDER.shininess): THREE.Material {
+export function phongFor(m: THREE.Material, shininess = DEFAULT_RENDER.shininess,
+  specular = DEFAULT_RENDER.specular): THREE.Material {
   if ((m as THREE.MeshPhongMaterial).isMeshPhongMaterial || (m as THREE.LineBasicMaterial).isLineBasicMaterial ||
     (m as THREE.PointsMaterial).isPointsMaterial || !m.visible) return m;
   const s = m as THREE.MeshStandardMaterial;
   const p = new THREE.MeshPhongMaterial({ color: s.color ?? new THREE.Color(1, 1, 1), opacity: m.opacity,
     transparent: m.transparent, side: m.side, vertexColors: m.vertexColors, map: s.map ?? null,
-    specular: 0x222222, shininess, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
+    specular: new THREE.Color().setScalar(specular), shininess, polygonOffset: true, polygonOffsetFactor: 1,
+    polygonOffsetUnits: 1 });
   p.name = m.name;
   return p;
 }
@@ -51,11 +66,12 @@ export function edgeLayer(root: THREE.Object3D): void {
 }
 
 /** Gives a loaded model's meshes Phong materials (one per original). */
-export function cadStyle(root: THREE.Object3D, shininess = DEFAULT_RENDER.shininess): void {
+export function cadStyle(root: THREE.Object3D, shininess = DEFAULT_RENDER.shininess,
+  specular = DEFAULT_RENDER.specular): void {
   const made = new Map<THREE.Material, THREE.Material>();
   const convert = (m: THREE.Material) => {
     let p = made.get(m);
-    if (!p) made.set(m, (p = phongFor(m, shininess)));
+    if (!p) made.set(m, (p = phongFor(m, shininess, specular)));
     return p;
   };
   root.traverse((o) => {

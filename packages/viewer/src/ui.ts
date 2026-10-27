@@ -325,9 +325,23 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     .onChange(restyle);
   rendering.add(look, 'smaa').name('Antialiasing (SMAA)').onChange(restyle);
   rendering.add(look, 'edges').name('Edges').onChange(restyle);
+  // Fat lines (fat-edges.ts) or WebGL's own, one device pixel; the width only for fat ones.
+  const edgeWidth = rendering.add(look, 'edgeWidth', 0.5, 6, 0.25).name('Edge width (pixels)').onChange(restyle);
+  const edgeStyle = rendering.add(look, 'edgeStyle', { Fat: 'fat', Thin: 'thin' }).name('Edge lines')
+    .onChange((s: string) => {
+      edgeWidth.show(s === 'fat');
+      restyle();
+    });
+  edgeStyle.domElement.parentElement!.insertBefore(edgeStyle.domElement, edgeWidth.domElement);
+  edgeWidth.show(look.edgeStyle === 'fat');
   rendering.add(look, 'triangleEdges', { Off: 'off', Selected: 'selected', All: 'all' }).name('Triangle edges')
     .onChange(restyle);
   rendering.add(look, 'shininess', 0, 100, 1).name('Shininess').onChange(restyle);
+  rendering.add(look, 'specular', 0, 1, 0.05).name('Specular').onChange(restyle);
+  rendering.add(look, 'ambient', 0, 5, 0.05).name('Ambient light').onChange(restyle);
+  rendering.add(look, 'light', 0, 6, 0.05).name('Headlight').onChange(restyle);
+  const capStyle = sectionFolder.add(look, 'capStyle', { 'Drawing (beige)': 'drawing', 'Part colours': 'parts' })
+    .name('Cap style').onChange(restyle);
   rendering.add(look, 'cadMaterials').name('Phong for glTF, three.js (next file)');
 
   const step = gui.addFolder('B-Rep Meshing');
@@ -556,6 +570,8 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     setRender: (r) => {
       Object.assign(look, r);
       for (const c of rendering.controllersRecursive()) c.updateDisplay();
+      capStyle.updateDisplay();
+      edgeWidth.show(look.edgeStyle === 'fat');
       restyle();
     },
     setTree: (t) => {

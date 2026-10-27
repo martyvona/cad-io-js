@@ -18,7 +18,7 @@
 import * as THREE from 'three';
 import { instances, partInstances, type Mat4, type Mesh, type PartInstance, type Scene } from 'cad-scene';
 import type { FaceHiding } from './model.ts';
-import { EDGES } from './style.ts';
+import { DEFAULT_RENDER, EDGES } from './style.ts';
 
 /** sRGB, as the exporters' default: faces, curves and points without a material. */
 export const DEFAULT_COLOR: readonly [number, number, number] = [0.8, 0.8, 0.8];
@@ -77,10 +77,12 @@ export class StepGraph implements FaceHiding {
   private readonly hiddenFaces = new Map<number, Set<number>>();
 
   private readonly shininess: number;
+  private readonly specular: number;
 
-  constructor(scene: Scene, name: string, shininess = 30) {
+  constructor(scene: Scene, name: string, shininess = DEFAULT_RENDER.shininess, specular = DEFAULT_RENDER.specular) {
     this.scene = scene;
     this.shininess = shininess;
+    this.specular = specular;
     this.root.name = name;
     const groups = new Map<string, THREE.Group>();
     for (const inst of instances(scene)) {
@@ -117,7 +119,8 @@ export class StepGraph implements FaceHiding {
     const color = new THREE.Color().setRGB(r, g, b, THREE.SRGBColorSpace);
     const opacity = sm?.opacity ?? 1;
     const common = { color, opacity, transparent: opacity < 1 };
-    m = kind === 'face' ? new THREE.MeshPhongMaterial({ ...common, specular: 0x222222, shininess: this.shininess,
+    m = kind === 'face' ? new THREE.MeshPhongMaterial({ ...common, specular: new THREE.Color().setScalar(this.specular),
+      shininess: this.shininess,
       // Faces a little behind their edges, so edges draw on top.
       polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 })
       : kind === 'curve' ? new THREE.LineBasicMaterial(common) : new THREE.PointsMaterial({ ...common, size: 4,

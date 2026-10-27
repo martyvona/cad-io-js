@@ -11,7 +11,8 @@ test('view state: every field through the query and back; numbers to 6 decimals;
     camera: { position: [1.23456789, -2, 3], target: [0, 0, 0.5], up: [0, 0, 1], height: 125.5 },
     centered: true, cut: { x: { at: 12.5, flip: false }, z: { at: -3, flip: true } }, caps: false,
     render: { ao: false, smaa: true, edges: false, cadMaterials: false, shininess: 50, aoIntensity: 2.5,
-      aoRadius: 16, aoQuality: 'Low' },
+      aoRadius: 16, aoQuality: 'Low', edgeStyle: 'thin', edgeWidth: 2.5, specular: 0.25, ambient: 0.8, light: 3,
+      capStyle: 'parts' },
     tree: { open: false, detail: true }, pick: 'detail', instances: true,
     hidden: ['as1/plate', 'as1/a%2Fb:2/nut'], selected: ['as1/rod/face#78'],
   };
@@ -29,9 +30,9 @@ test('view state: every field through the query and back; numbers to 6 decimals;
 
 test('view state: malformed values left out, each with a message', () => {
   const { state, problems } = fromQuery(new URLSearchParams('view=sideways&camera=1,2,3&cut=w:1&cut=x:a&cut=y:1:up'
-    + '&aoQuality=Best&shininess=-1&pick=face&tree=0'));
+    + '&aoQuality=Best&shininess=-1&pick=face&tree=0&edgeStyle=bold&capStyle=onshape&specular=-1'));
   assert.deepEqual(state, { cut: {}, tree: { open: false } });
-  assert.equal(problems.length, 8, problems.join('\n'));
+  assert.equal(problems.length, 11, problems.join('\n'));
   assert.deepEqual(fromQuery(new URLSearchParams('camera=0,0,1,0,0,0,0,1,0,0')).problems.length, 1);
 });
 

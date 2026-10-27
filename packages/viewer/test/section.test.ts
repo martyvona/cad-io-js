@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as THREE from 'three';
-import { DEFAULT_SECTIONS, isClosed, planeFor, Sections } from '../src/section.ts';
+import { DEFAULT_SECTIONS, isClosed, partHatch, planeFor, Sections, type Hatch } from '../src/section.ts';
 
 test('planes: the side above the position cut away, or below it when flipped', () => {
   const p = planeFor('y', { on: true, at: 5, flip: false });
@@ -35,7 +35,7 @@ test('closed: a box (faces apart, vertices welded), inside out too; not a plane,
 
 /** Sections on a stand-in renderer (only its clipping planes are used, and clearStencil when drawing). */
 function sections() {
-  const renderer = { clippingPlanes: [] as THREE.Plane[] } as unknown as THREE.WebGLRenderer;
+  const renderer = { clippingPlanes: [] as THREE.Plane[], getPixelRatio: () => 2 } as unknown as THREE.WebGLRenderer;
   return { renderer, s: new Sections(renderer) };
 }
 
@@ -78,7 +78,11 @@ test('caps: per visible closed mesh and plane, a back, a front and a quad, each 
   const capZ = kids[5]!;
   assert.ok(capZ.position.z > 2 && capZ.position.z < 2.01);
   assert.ok(Math.abs(capZ.scale.x - 11) < 1e-2 && Math.abs(capZ.scale.y - 22) < 1e-2, `${capZ.scale.toArray()}`);
-  assert.equal((capX.material as THREE.MeshBasicMaterial).color.getHex(), 0xff0000);
+  // The drawing style (the default): beige, black lines at 45 degrees (the first part colour met).
+  const hatch = (m: THREE.Material) => m.userData.hatch as Hatch;
+  assert.equal(hatch(capX.material as THREE.Material).ground.getHex(), 0xe9d9b8);
+  assert.equal(hatch(capX.material as THREE.Material).ink.getHex(), 0);
+  assert.equal(hatch(capX.material as THREE.Material).angle, Math.PI / 4);
   // Each cap clears the stencil after it's drawn, for the next part's count.
   let cleared = 0;
   const r = { clearStencil: () => { cleared++; } } as unknown as THREE.WebGLRenderer;
@@ -172,7 +176,8 @@ test('caps: a part\'s meshes closed together are capped as one, none of them clo
   assert.equal(cap.renderOrder, 1001);
   assert.ok(Math.abs(cap.scale.x - 2.2) < 1e-2 && Math.abs(cap.scale.y - 4.4) < 1e-2, `${cap.scale.toArray()}`);
   assert.ok(Math.abs(cap.position.y - 50) < 1e-6);
-  assert.equal((cap.material as THREE.MeshBasicMaterial).color.getHex(), 0x00ff00);
+  // The drawing style: the first beige.
+  assert.equal(((cap.material as THREE.Material).userData.hatch as Hatch).ground.getHex(), 0xe9d9b8);
   // A face hidden: the rest is open.
   faces[3]!.visible = false;
   s.invalidate();
@@ -227,4 +232,36 @@ test('caps: what the source says of a mesh (userData.closed) decides over its tr
   s.invalidate();
   s.update(r2, () => [part]);
   assert.equal(s.group.children.length, 6 * 2 + 1);
+});
+
+test('cap styles: drawing hatchings alternate by part colour; parts hatch each in its colour, by its name', () => {
+  const { s } = sections();
+  const root = new THREE.Group();
+  const colours = [0xff0000, 0x00ff00, 0xff0000];
+  colours.forEach((c, i) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshPhongMaterial({ color: c }));
+    m.name = `part ${i}`;
+    m.position.set(3 * i, 0, 0);
+    root.add(m);
+  });
+  root.updateWorldMatrix(true, true);
+  const set = DEFAULT_SECTIONS();
+  set.z = { on: true, at: 0, flip: false };
+  s.set(set);
+  s.update(root);
+  const caps = () => (s.group.children as THREE.Mesh[]).filter((k) => k.material instanceof THREE.MeshBasicMaterial &&
+    (k.material as THREE.MeshBasicMaterial).colorWrite).map((k) => (k.material as THREE.Material).userData.hatch as
+    Hatch);
+  assert.deepEqual(caps().map((h) => [h.ground.getHex(), h.angle]), [[0xe9d9b8, Math.PI / 4],
+    [0xf1e9d2, -Math.PI / 4], [0xe9d9b8, Math.PI / 4]]);
+  s.setStyle('parts');
+  s.update(root);
+  const parts = caps();
+  assert.deepEqual(parts.map((h) => h.ground.getHex()), colours.map((c) => new THREE.Color(c).getHex()));
+  // A darker shade of the colour; angle and spacing as the hash of the name gives them, the same each time.
+  assert.ok(parts.every((h, i) => h.ink.r <= h.ground.r && h.ink.g <= h.ground.g && h.ink.b <= h.ground.b &&
+    JSON.stringify(h) === JSON.stringify(partHatch(`part ${i}`, new THREE.Color(colours[i])))));
+  const all = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'].map((n) => partHatch(n, new THREE.Color(0x808080)));
+  assert.ok(new Set(all.map((h) => h.angle)).size > 2 && new Set(all.map((h) => h.spacing)).size > 1,
+    'the angles and spacings vary between parts');
 });

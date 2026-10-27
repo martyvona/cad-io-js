@@ -7,6 +7,7 @@
 //   &camera=px,py,pz,tx,ty,tz,ux,uy,uz,height  position, target, up, and the viewport's height in world mm
 //   &centered=1  &cut=x:12.5  &cut=y:-3:flip  &caps=0
 //   &ao=0  &smaa=0  &edges=0  &triangleEdges=all  &shininess=50  &aoIntensity=3  &aoRadius=16  &aoQuality=Low
+//   &edgeStyle=thin  &edgeWidth=2  &specular=0.3  &ambient=1  &light=2.5  &capStyle=parts
 //   &tree=0  &detail=1  &pick=detail  &instances=1
 //   &hide=<path>  &select=<path>               each repeated
 //
@@ -47,7 +48,9 @@ const PICKS: readonly PickLevel[] = ['assembly', 'part', 'detail'];
 const QUALITIES: readonly RenderSettings['aoQuality'][] = ['Performance', 'Low', 'Medium', 'High', 'Ultra'];
 const FLAGS = ['ao', 'smaa', 'edges', 'cadMaterials'] as const;
 const TRIANGLE_EDGES: readonly RenderSettings['triangleEdges'][] = ['off', 'selected', 'all'];
-const NUMBERS = ['shininess', 'aoIntensity', 'aoRadius'] as const;
+const NUMBERS = ['shininess', 'aoIntensity', 'aoRadius', 'edgeWidth', 'specular', 'ambient', 'light'] as const;
+/** Settings that are one of a few words. */
+const CHOICES = { edgeStyle: ['thin', 'fat'], capStyle: ['drawing', 'parts'] } as const;
 
 const num = (x: number) => String(Math.round(x * 1e6) / 1e6);
 const bool = (s: string | null) => s === null ? undefined : s !== '0' && s !== 'false';
@@ -73,6 +76,7 @@ export function toQuery(s: ViewState): [string, string][] {
   for (const k of NUMBERS) if (s.render?.[k] !== undefined) q.push([k, num(s.render[k]!)]);
   if (s.render?.aoQuality) q.push(['aoQuality', s.render.aoQuality]);
   if (s.render?.triangleEdges) q.push(['triangleEdges', s.render.triangleEdges]);
+  for (const k of Object.keys(CHOICES) as (keyof typeof CHOICES)[]) if (s.render?.[k]) q.push([k, s.render[k]!]);
   if (s.tree?.open !== undefined) q.push(['tree', s.tree.open ? '1' : '0']);
   if (s.tree?.detail !== undefined) q.push(['detail', s.tree.detail ? '1' : '0']);
   if (s.pick) q.push(['pick', s.pick]);
@@ -139,6 +143,12 @@ export function fromQuery(params: URLSearchParams): { state: ViewState; problems
     if (TRIANGLE_EDGES.includes(edges as RenderSettings['triangleEdges'])) render.triangleEdges =
       edges as RenderSettings['triangleEdges'];
     else problems.push(`triangleEdges: not one of ${TRIANGLE_EDGES.join(', ')}: ${edges}`);
+  }
+  for (const [k, words] of Object.entries(CHOICES) as [keyof typeof CHOICES, readonly string[]][]) {
+    const v = params.get(k);
+    if (v === null) continue;
+    if (words.includes(v)) (render as Record<string, string>)[k] = v;
+    else problems.push(`${k}: not one of ${words.join(', ')}: ${v}`);
   }
   if (Object.keys(render).length) state.render = render;
   const open = bool(params.get('tree'));
