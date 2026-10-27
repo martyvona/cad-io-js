@@ -43,10 +43,10 @@
     #view { position: absolute; top: 0; bottom: 0; right: 0; left: var(--side); }
     body.tree-closed #side { display: none; }
     body.tree-closed #view { left: 0; }
-    /* Narrow screens (phones): the tree over the view, when open, narrower by default; dragged at most to 40 pixels
-       from the right edge (side-handle.ts). */
+    /* Narrow screens (phones): the tree over the view, when open, at the narrowest it can be dragged to by default
+       (side-handle.ts's MIN), and at most to 40 pixels from the right edge. */
     @media (max-width: 700px) {
-      :root { --side: 240px; }
+      :root { --side: 140px; }
       #view { left: 0; }
       #side { width: min(var(--side), calc(100% - 40px)); z-index: 2; box-shadow: 4px 0 12px rgba(0, 0, 0, 0.5); }
     }
@@ -78,10 +78,9 @@
     }
     .tree-expander.closed::before { border-left: 6px solid #aaa; border-right: 0; }
     .tree-expander.open::before { border-top: 6px solid #aaa; border-bottom: 0; left: 4px; top: 7px; }
-    .tree-content { display: flex; align-items: center; gap: 4px; overflow: hidden; }
+    .tree-content { display: flex; align-items: center; gap: 4px; flex: none; }
     .tree-icon { display: inline-flex; color: #9bb4cc; }
     .tree-row.hidden .tree-icon { color: #666; }
-    .tree-name { overflow: hidden; text-overflow: ellipsis; }
     /* Modal dialogs (dialog.ts). */
     .cv-dialog {
       max-width: min(560px, calc(100% - 32px)); padding: 16px 20px; color: #ddd; background: #1f1f1f;

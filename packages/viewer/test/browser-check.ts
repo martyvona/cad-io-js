@@ -787,8 +787,8 @@ await check('phone', async () => {
     await send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }, sessionId);
     await new Promise((resolve) => setTimeout(resolve, 200));
     const selected = await evaluate(sessionId, '[...ui.selected()]') as number[];
-    // The tree opened: 240 pixels (and its border) over the view; its handle, 24 pixels for a finger, dragged by one
-    // to 300, and remembered.
+    // The tree opened: 140 pixels, the narrowest (and its border), over the view; its handle, 24 pixels for a finger,
+    // dragged by one to 200, and remembered.
     const widths = `new Promise((r) => setTimeout(r, 200)).then(() => {
       const h = document.getElementById('side-handle').getBoundingClientRect();
       return { side: document.getElementById('side').getBoundingClientRect().width, handle: h.width,
@@ -803,8 +803,10 @@ await check('phone', async () => {
     await touch('touchEnd');
     const dragged = await evaluate(sessionId, widths) as W;
     // A width set where it fit (as before turning the phone upright): capped at 40 pixels from the window's edge.
+    // (The remembered width forgotten again: later pages share this browser's storage.)
     const wide = await evaluate(sessionId, `(document.documentElement.style.setProperty('--side', '500px'),
-      document.getElementById('side').getBoundingClientRect().width)`) as number;
+      localStorage.removeItem('cad-viewer.side'), document.getElementById('side').getBoundingClientRect().width)`) as
+      number;
     return { selected, opened, dragged, wide };
   } }) as { after?: { treeClosed: boolean; guiClosed: boolean; overscroll: string; touch: number; handle: string;
     workers: number; spot?: { id: number; x: number; y: number }; triangles: number;
@@ -820,9 +822,9 @@ await check('phone', async () => {
   expect(!!a.spot, `no part to tap: ${j}`);
   expect(r.then?.selected.join() === String(a.spot!.id), `a tap selects: ${JSON.stringify(r.then)}, ${j}`);
   const t = r.then!;
-  expect(t.opened.side === 241 && t.opened.handle === 24 && t.opened.saved === null, `the tree opened on a phone: ${
+  expect(t.opened.side === 141 && t.opened.handle === 24 && t.opened.saved === null, `the tree opened on a phone: ${
     JSON.stringify(t)}`);
-  expect(t.dragged.side === 301 && t.dragged.saved === '300', `the tree's handle dragged by a finger: ${
+  expect(t.dragged.side === 201 && t.dragged.saved === '200', `the tree's handle dragged by a finger: ${
     JSON.stringify(t)}`);
   expect(t.wide === 390 - 40 + 1, `a width too wide for the window, capped (and its border): ${JSON.stringify(t)}`);
   return undefined;
@@ -1202,6 +1204,54 @@ await check('tree width', async () => {
   expect(dragged.side === 401 && near(dragged.view, before.view - 100) && dragged.saved === '400',
     `dragged: ${j}`);
   expect(reset.side === 301 && near(reset.view, before.view) && reset.saved === null, `reset: ${j}`);
+  return undefined;
+});
+// The tree scrolls sideways when names don't fit: rows as wide as their content (no ellipsis), all as wide as the
+// widest drawn so far (scrolling down and back doesn't change the range); with room enough, no horizontal scroll
+// bar, and rows as wide as the panel.
+await check('tree scrolls sideways', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    await cadViewer.ready;
+    await cadViewer.idle();
+    const frames = async () => { for (let k = 0; k < 3; k++) await new Promise((r) => requestAnimationFrame(r)); };
+    const scroller = document.querySelector('.tree-scroller');
+    const look = () => {
+      const rows = [...scroller.querySelectorAll('.tree-row')].filter((r) => r.style.display !== 'none');
+      const clipped = rows.filter((r) => { const n = r.querySelector('.tree-name'); return n.scrollWidth > n.clientWidth
+        || n.getBoundingClientRect().right > r.getBoundingClientRect().right; }).length;
+      return { overflow: scroller.scrollWidth > scroller.clientWidth, clipped, rows: rows.length,
+        widths: new Set(rows.map((r) => r.offsetWidth)).size, range: scroller.scrollWidth,
+        fill: rows.every((r) => r.offsetWidth >= scroller.clientWidth) };
+    };
+    ui.setTree({ open: true, detail: true });
+    ui.panel().expandAll();
+    document.documentElement.style.setProperty('--side', '140px');
+    await frames();
+    const narrow = look();
+    scroller.scrollLeft = scroller.scrollWidth;
+    await frames();
+    const scrolled = scroller.scrollLeft > 0;
+    // Down the tree and back: the widest so far kept.
+    const ranges = [narrow.range];
+    for (const top of [scroller.scrollHeight / 2, scroller.scrollHeight, 0]) {
+      scroller.scrollTop = top;
+      await frames();
+      ranges.push(look().range);
+    }
+    document.documentElement.style.setProperty('--side', '900px');
+    await frames();
+    return { narrow, scrolled, ranges, wide: look() };
+  })()`) as { after: { narrow: { overflow: boolean; widths: number; clipped: number; rows: number };
+    scrolled: boolean; ranges: number[];
+    wide: { overflow: boolean; widths: number; clipped: number; fill: boolean } } };
+  const a = r.after;
+  const j = JSON.stringify(a);
+  expect(a.narrow.rows > 10 && a.narrow.overflow && a.scrolled && a.narrow.clipped === 0 && a.narrow.widths === 1,
+    `narrow: ${j}`);
+  const rs = a.ranges;
+  expect(rs.every((x, i) => i === 0 || x >= rs[i - 1]!) && new Set(rs).size > 1 && rs.at(-1) === Math.max(...rs),
+    `the range kept while scrolling down and back: ${j}`);
+  expect(!a.wide.overflow && a.wide.clipped === 0 && a.wide.widths === 1 && a.wide.fill, `wide: ${j}`);
   return undefined;
 });
 // The automation interface (src/automation.ts) and links: nodes by path, select, hide and show by path, a pick and a

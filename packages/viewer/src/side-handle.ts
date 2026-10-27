@@ -1,10 +1,11 @@
 // A handle on the tree panel's right edge that drags its width (the user, 2026-10-25): it sets the --side CSS
 // variable, which the panel and the view both follow (each watches its own size); a double click goes back to the
 // default. The width is remembered in this browser (a convenience: without storage it simply starts at the default).
-// On narrow screens (phones; index.html) the panel lies over the view, 240 pixels by default, and may be dragged to
+// On narrow screens (phones; index.html) the panel lies over the view, MIN by default, and may be dragged to
 // 40 pixels from the window's right edge; on touch screens the handle is wider and always shown (2026-10-27).
 
 const KEY = 'cad-viewer.side';
+/** The narrowest; also the default on narrow screens (index.html). */
 const MIN = 140;
 /** As index.html's narrow layout. */
 const NARROW = 700;

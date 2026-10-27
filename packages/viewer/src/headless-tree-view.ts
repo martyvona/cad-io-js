@@ -4,6 +4,9 @@
 // height, rows absolutely placed over a spacer) and applies the props to them. The only file that imports the
 // library. What the spike taught: set the expanded items at once and rebuild (its expandAll is quadratic); its
 // container props set the element's position, hence an inner scroller; a plain click on a folder would toggle it.
+// Rows are as wide as their content, with no ellipsis, and all of them as wide as the widest drawn since this view
+// was made (the user, 2026-10-27: a horizontal scroll bar when names don't fit): only the rows in view are drawn, so
+// that's the widest known, kept so the scroll range doesn't jump as rows scroll in and out of view.
 
 import { createTree, hotkeysCoreFeature, selectionFeature, syncDataLoaderFeature, type FeatureImplementation,
   type ItemInstance, type TreeInstance } from '@headless-tree/core';
@@ -13,6 +16,8 @@ const ROOT = '\u0000root';
 const INDENT = 14;
 /** Rows drawn above and below those in view. */
 const OVERSCAN = 5;
+/** Space after a row's content. */
+const END = 6;
 
 // Plain clicks select and focus; only the expander expands and collapses.
 const clickSelectsOnly: FeatureImplementation<string> = {
@@ -63,6 +68,8 @@ export class HeadlessTreeView implements TreeView {
   private readonly rows: HTMLElement[] = [];
   private selected: readonly string[] = [];
   private scheduled = false;
+  /** The widest row drawn so far (pixels). */
+  private width = 0;
 
   constructor(opts: TreeViewOptions) {
     this.opts = opts;
@@ -123,8 +130,8 @@ export class HeadlessTreeView implements TreeView {
     if (el) return el;
     el = document.createElement('div');
     el.className = 'tree-row';
-    el.style.cssText = `position: absolute; left: 0; right: 0; height: ${this.opts.rowHeight}px; display: flex; ` +
-      'align-items: center; white-space: nowrap;';
+    el.style.cssText = `position: absolute; left: 0; min-width: 100%; height: ${this.opts.rowHeight}px; ` +
+      'display: flex; align-items: center; white-space: nowrap; box-sizing: border-box;';
     const exp = document.createElement('span');
     exp.className = 'tree-expander';
     exp.addEventListener('click', (e) => {
@@ -165,7 +172,16 @@ export class HeadlessTreeView implements TreeView {
       exp.className = `tree-expander${item.isFolder() ? (item.isExpanded() ? ' open' : ' closed') : ''}`;
       this.opts.renderRow(item.getId(), el.lastElementChild as HTMLElement);
     }
-    for (; slot < this.rows.length; slot++) this.rows[slot]!.style.display = 'none';
+    for (let s = slot; s < this.rows.length; s++) this.rows[s]!.style.display = 'none';
+    // Measured once all rows are written (one layout).
+    let widest = this.width;
+    for (let s = 0; s < slot; s++) {
+      const content = this.rows[s]!.lastElementChild as HTMLElement;
+      widest = Math.max(widest, Math.ceil(content.offsetLeft + content.offsetWidth + END));
+    }
+    this.width = widest;
+    // (The rows, absolutely placed, make the scroller as wide; at least as wide as it, for the selection's colour.)
+    for (let s = 0; s < slot; s++) this.rows[s]!.style.width = `${this.width}px`;
   }
 
   refresh(): void {
