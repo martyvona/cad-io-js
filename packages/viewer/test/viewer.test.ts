@@ -349,7 +349,7 @@ test('cad-viewer: start, status, open, conflicting options, stop', { timeout: 60
     assert.match(out, new RegExp(`running http://localhost:${port}/ \\(content root ${content}`));
     // Running: open uses it (no options needed), and refuses files outside its root.
     assert.equal(await run('open', path.join(content, 'm.glb')), 0);
-    assert.equal(out, `http://localhost:${port}/?url=%2Fcontent%2Fm.glb\n`);
+    assert.equal(out, `http://localhost:${port}/?model=m.glb\n`);
     assert.equal(await run('open', path.join(tmp, 'elsewhere.glb')), 1);
     assert.match(err, /isn't below the content root/);
     assert.equal(await run('start', '--port', String(port + 1)), 1);

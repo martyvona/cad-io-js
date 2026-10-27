@@ -19,7 +19,7 @@ test('view state: every field through the query and back; numbers to 6 decimals;
   assert.deepEqual(problems, []);
   assert.deepEqual(state, { ...s, camera: { ...s.camera!, position: [1.234568, -2, 3] } });
   // Through a real address and back (paths with %, /, : survive the URL's own encoding).
-  const url = new URL('http://h/?url=%2Fcontent%2Fas1.stp');
+  const url = new URL('http://h/?model=as1.stp');
   for (const [k, v] of toQuery(s)) url.searchParams.append(k, v);
   assert.deepEqual(fromQuery(new URL(url.href).searchParams).state.hidden, s.hidden);
   // Absent fields stay absent; an empty cut list says every plane is off.

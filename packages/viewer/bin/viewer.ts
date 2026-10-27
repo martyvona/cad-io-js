@@ -11,7 +11,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
-import { contentUrl } from '../server/content.ts';
+import { CONTENT_PREFIX, contentUrl } from '../server/content.ts';
 import { launchChrome, type Tab } from '../server/headless.ts';
 import { DEFAULTS, envFromOptions, type ServerOptions } from '../server/options.ts';
 
@@ -203,12 +203,15 @@ async function settled(tab: Tab, expression: string, timeoutMs: number): Promise
   }
 }
 
+/** A file's `?model=`: its path within the content root, from its URL path below /content/. */
+const modelPath = (rel: string) => rel.slice(CONTENT_PREFIX.length).split('/').map(decodeURIComponent).join('/');
+
 /** Renders a file headlessly: its PNG, and what the page says. */
 async function takeShot(s: State, file: string, o: ShotOptions, io: Io): Promise<void> {
   const rel = contentUrl(s.contentRoot, file);
   if (!rel) throw new Error(`${file} isn't below the content root ${s.contentRoot} (or doesn't exist): ` +
     'stop the server and start it with --content-root');
-  const q = new URLSearchParams({ url: rel });
+  const q = new URLSearchParams({ model: modelPath(rel) });
   q.set('deterministic', '');
   const extra = new URLSearchParams(o.state ?? '');
   // The tree closed, so the view is the whole page, unless the state says otherwise.
@@ -334,7 +337,7 @@ export async function main(argv: string[], io: Io): Promise<number> {
       const rel = contentUrl(s.contentRoot, args.file!);
       if (!rel) throw new Error(`${args.file} isn't below the content root ${s.contentRoot} (or doesn't exist): ` +
         'stop the server and start it with --content-root');
-      const url = `${s.url}?url=${encodeURIComponent(rel)}`;
+      const url = `${s.url}?${new URLSearchParams({ model: modelPath(rel) })}`;
       io.out(`${url}\n`);
       if (!io.noBrowser) openBrowser(url);
     }

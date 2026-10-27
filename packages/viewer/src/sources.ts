@@ -2,8 +2,8 @@
 // files, picked with the File System Access API where the browser has it (desktop Chrome, in a secure context) and
 // an <input type="file"> elsewhere, or dropped on the page (the user, 2026-10-24; CLAUDE.md, "The viewer"). No
 // handles or files are stored. Models below the content root (content/ beside the page: the dev server's /content/,
-// and the demo models in a deployment) can be named by their path within it (the user, 2026-10-26): `?model=`, and a
-// relative path in Load URL...
+// and the demo models in a deployment) can be named by their path within it (the user, 2026-10-26): a relative path
+// in `?model=` and in Load URL..., which read what they're given alike (typedUrl).
 
 import { formatOf } from './formats.ts';
 import type { Source } from './load.ts';
@@ -36,8 +36,8 @@ export function contentPath(url: string): string | undefined {
 }
 
 /**
- * What Load URL... loads for what was typed: a URL (`https://...`, `//host/...`) or a path on the page's server
- * (`/content/...`) as it is, a relative path within the content root; undefined if it's neither.
+ * What `?model=` and Load URL... load for what they're given: a URL (`https://...`, `//host/...`) or a path on the
+ * page's server (`/content/...`) as it is, a relative path within the content root; undefined if it's neither.
  */
 export function typedUrl(typed: string): string | undefined {
   if (/^[a-z][a-z0-9+.-]*:/i.test(typed) || typed.startsWith('/')) return typed;

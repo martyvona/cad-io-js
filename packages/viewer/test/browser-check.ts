@@ -1208,31 +1208,47 @@ await check('automation', async () => {
     sa.render.ao, sa.hidden, sa.selected, sa.tree]), `linked state: ${JSON.stringify([b, sa])}`);
   return undefined;
 });
-// Models named by their path within the content root (content/ beside the page): ?model= at start (one that leaves
-// the root or has a scheme refused, with the reason in the status line), relative paths in Load URL... (URLs and
-// server paths as before), and Copy link naming such a model by model=.
+// ?model= reads its value as Load URL... reads what's typed (sources.ts): a relative path within the content root
+// (content/ beside the page), a path on the server or a URL; refused paths (leaving the root, empty, with empty or
+// `.` segments) said in the status line; ?url= the same, for older links, and model winning when both are given. Copy
+// link names a model by model=, by its path in the content root where it's below it.
 await check('content paths', async () => {
   const status = `document.getElementById('status').textContent`;
   const bad: string[] = [];
-  for (const m of ['../as1.glb', 'https://example.com/as1.glb', '/content/as1.glb', 'sub/../as1.glb', '']) {
+  for (const m of ['../as1.glb', 'sub/../as1.glb', './as1.glb', 'a//as1.glb', '']) {
     const r = await page(`?model=${encodeURIComponent(m)}&url=${encodeURIComponent('/content/as1.glb')}&check`,
       `cadViewer.ready.then(() => ({ model: cadViewer.state().model?.name, status: ${status} }))`) as
       { after: { model?: string; status: string } };
-    if (r.after.model || !/not a path within the content root/.test(r.after.status)) bad.push(`${m}: ${
+    if (r.after.model || !/not a URL nor a path within the content root/.test(r.after.status)) bad.push(`${m}: ${
       JSON.stringify(r.after)}`);
   }
   expect(bad.length === 0, `refused: ${bad.join('; ')}`);
+  const opened = async (q: string) => (await page(`${q}&check`, `cadViewer.ready.then(() => ({ model:
+    cadViewer.state().model?.name, url: ui.currentUrl(), link: cadViewer.link(), status: ${status} }))`) as
+    { after: { model?: string; url?: string; link: string; status: string } }).after;
+  const linked = (a: { link: string }) => new URL(a.link).searchParams;
+  const root = `http://localhost:${port}${base}content/`;
   // In a directory, with characters a URL encodes: loaded, and linked by the same path.
   const odd = 'sub dir/as1 #1%.glb';
-  const o = await page(`?model=${encodeURIComponent(odd)}&check`, `cadViewer.ready.then(() => ({ model:
-    cadViewer.state().model?.name, link: cadViewer.link(), status: ${status} }))`) as
-    { after: { model?: string; link: string } };
-  expect(o.after.model === 'as1 #1%.glb' && new URL(o.after.link).searchParams.get('model') === odd,
-    `an encoded name: ${JSON.stringify(o.after)}`);
-  const r = await page(`?model=as1.glb&url=${encodeURIComponent('/content/as1-noedges.glb')}&check`, `(async () => {
+  const o = await opened(`?model=${encodeURIComponent(odd)}`);
+  expect(o.model === 'as1 #1%.glb' && linked(o).get('model') === odd && !linked(o).has('url'),
+    `an encoded name: ${JSON.stringify(o)}`);
+  // Both given: model wins, said.
+  const both = await opened(`?model=as1.glb&url=${encodeURIComponent('/content/as1-noedges.glb')}`);
+  expect(both.model === 'as1.glb' && both.url === root + 'as1.glb' && /model and url both given: url ignored/.test(
+    both.status), `both: ${JSON.stringify(both)}`);
+  // A path on the server (the dev server's content root, or for a build, outside its own): linked by its path in
+  // the content root where it's below it, else by its path on the server.
+  const server = await opened(`?model=${encodeURIComponent('/content/as1.glb')}`);
+  expect(server.model === 'as1.glb' && linked(server).get('model') === (base === '/' ? 'as1.glb'
+    : '/content/as1.glb'), `a server path: ${JSON.stringify(server)}`);
+  // url= alone: the same reading (a relative path is in the content root).
+  const alias = await opened('?url=as1-noedges.glb');
+  expect(alias.model === 'as1-noedges.glb' && alias.url === root + 'as1-noedges.glb' &&
+    linked(alias).get('model') === 'as1-noedges.glb', `url= alone: ${JSON.stringify(alias)}`);
+  const r = await page('?model=as1.glb&check', `(async () => {
     await cadViewer.ready;
-    const out = { start: { model: cadViewer.state().model?.name, url: ui.currentUrl(), status: ${status} },
-      link: cadViewer.link() };
+    const out = {};
     const until = async (f, what) => {
       for (const end = Date.now() + 60000; Date.now() < end;) {
         const v = f();
@@ -1257,14 +1273,9 @@ await check('content paths', async () => {
     out.absolute = await load(new URL('content/as1-noedges.glb', document.baseURI).href);
     out.bad = await load('../as1.glb');
     return out;
-  })()`) as { after: Record<string, { model?: string; url?: string; status: string }> & { link: string } };
+  })()`) as { after: Record<string, { model?: string; url?: string; status: string }> };
   const a = r.after;
   const j = JSON.stringify(a);
-  const root = `http://localhost:${port}${base}content/`;
-  expect(a.start?.model === 'as1.glb' && a.start.url === root + 'as1.glb' &&
-    /model and url both given: url ignored/.test(a.start.status), `?model= at start: ${j}`);
-  expect(new URL(a.link).searchParams.get('model') === 'as1.glb' && !new URL(a.link).searchParams.has('url'),
-    `the link: ${j}`);
   expect(a.relative?.model === 'as1-noedges.glb' && a.relative.url === root + 'as1-noedges.glb', `relative: ${j}`);
   expect(a.server?.model === 'as1.glb' && new URL(a.server.url!, root).href ===
     `http://localhost:${port}/content/as1.glb`, `a server path: ${j}`);

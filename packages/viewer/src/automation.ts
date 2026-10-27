@@ -4,8 +4,9 @@
 // nodes by their paths (model.ts), which stay the same from one load to the next. Its interface is meant to stay
 // stable: change it only by adding, and say so in `version`.
 //
-// At start it opens ?model= (a path within the content root, sources.ts) or ?url= if there is one, then applies the
-// view in the address; `ready` settles after both.
+// At start it opens ?model= if there is one (as Load URL... reads what's typed: a path within the content root, a
+// path on the server or a URL, sources.ts; ?url= is the same, for older links), then applies the view in the
+// address; `ready` settles after both.
 
 import { sha256 } from 'cad-scene';
 import { VIEWS, type ViewName } from './camera.ts';
@@ -15,7 +16,7 @@ import { AXES, type SectionSettings } from './section.ts';
 import { hex, Recorder, RECORDING_FORMAT, replay, type RecordedModel, type Recording, type ReplayOptions,
   type ReplayReport, type Session } from './recorder.ts';
 import { nodeForPick } from './selection.ts';
-import { contentPath, contentUrl, fromUrl, pickFiles, typedUrl } from './sources.ts';
+import { contentPath, fromUrl, pickFiles, typedUrl } from './sources.ts';
 import type { RenderSettings } from './style.ts';
 import type { Ui } from './ui.ts';
 import { fromQuery, renderChanges, toQuery, type CameraState, type ViewState } from './view-state.ts';
@@ -39,7 +40,7 @@ export interface FullState extends Required<Pick<ViewState, 'camera' | 'centered
 export interface CadViewer {
   /** The interface's version: 1. */
   readonly version: number;
-  /** Settles once the start (?url= and the view in the address) is done. */
+  /** Settles once the start (?model= and the view in the address) is done. */
   readonly ready: Promise<void>;
   /** Opens a model by URL; resolves with its report once it's loaded (STEP: every part meshed), rejects if not. */
   load(url: string): Promise<Record<string, unknown>>;
@@ -161,10 +162,8 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
     // A model below the content root is linked by its path there, so the link works wherever the viewer is served
     // with that content (the dev server, a deployment's demo models); another from the same server by its path, so
     // the link works however the server is reached.
-    const model = from && contentPath(from);
-    if (model) url.searchParams.set('model', model);
-    else if (from) url.searchParams.set('url', from.startsWith(location.origin) ? from.slice(location.origin.length)
-      : from);
+    if (from) url.searchParams.set('model', contentPath(from) ?? (from.startsWith(location.origin + '/')
+      ? from.slice(location.origin.length) : from));
     for (const [k, v] of toQuery(view)) url.searchParams.append(k, v);
     return url.href;
   };
@@ -172,16 +171,13 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
   const start = async () => {
     const params = new URLSearchParams(location.search);
     const { state: st, problems } = fromQuery(params);
-    const model = params.get('model');
-    let url = params.get('url');
-    if (model !== null) {
-      if (url !== null) problems.push('model and url both given: url ignored');
-      url = contentUrl(model) ?? null;
-      if (!url) {
-        ui.empty();
-        ui.say(`the address: model=${model} is not a path within the content root`, true);
-        return;
-      }
+    const given = params.get('model') ?? params.get('url');
+    if (params.has('model') && params.has('url')) problems.push('model and url both given: url ignored');
+    const url = given !== null ? typedUrl(given) : undefined;
+    if (given !== null && !url) {
+      ui.empty();
+      ui.say(`the address: model=${given}: not a URL nor a path within the content root`, true);
+      return;
     }
     if (url) {
       const r = await loadUrl(url);
