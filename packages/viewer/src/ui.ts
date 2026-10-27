@@ -41,6 +41,8 @@ export interface Ui {
   openFiles(files: File[]): Promise<Record<string, unknown>>;
   /** The current model's URL, if it came from one. */
   currentUrl(): string | undefined;
+  /** Settles once the tree, the highlight and the restored state have caught up with the meshes that arrived. */
+  refreshed(): Promise<void>;
   /** The current model's source: its name, bytes and URL (if any). */
   source(): Source | undefined;
   /** These settings take effect through the controls (which follow). */
@@ -351,12 +353,20 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   let selected: readonly number[] = [];
   const highlighter = new Highlighter();
   const selection = { level: 'part' as PickLevel, multi: false, instances: false, details: false };
+  // The objects the highlight covered: a selected part's or face's mesh may arrive after it was selected (always so
+  // when meshing again restores the selection: the selection comes back with the tree, the meshes later, each in a
+  // new object); it's then highlighted (and described) again.
+  let lit: readonly object[] = [];
+  const litChanged = (pieces: readonly { object: object }[]) => pieces.length !== lit.length ||
+    pieces.some((p, i) => p.object !== lit[i]);
   const highlight = () => {
     const nodes = viewer.nodes;
+    lit = [];
     if (!nodes) return highlighter.clear();
     const others = selection.instances ? selected.filter((id) => nodes.nodes[id]!.kind === 'part').flatMap(
       (id) => instancesOf(nodes, id)) : [];
     const pieces = piecesOf(nodes, selected);
+    lit = pieces.map((p) => p.object);
     highlighter.apply(pieces, piecesOf(nodes, others));
     viewer.triangleEdges.select(pieces);
     viewer.redraw();
@@ -413,13 +423,23 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     if (id === undefined) return add ? undefined : select([], 'pick');
     select(!add ? [id] : selected.includes(id) ? selected.filter((s) => s !== id) : [...selected, id], 'pick');
   };
+  // Once a frame while meshes arrive; `refreshed` settles after (for cadViewer.idle).
   let refresh = false;
+  let refreshed = Promise.resolve();
   viewer.onMeshes = () => {
     if (refresh) return;
     refresh = true;
+    let done!: () => void;
+    refreshed = new Promise((resolve) => { done = resolve; });
     requestAnimationFrame(() => {
       refresh = false;
+      // Settled first, so a throw below can't leave idle() waiting; what awaits it runs after this callback anyway.
+      done();
       restoreNodes();
+      if (selected.length && viewer.nodes && litChanged(piecesOf(viewer.nodes, selected))) {
+        highlight();
+        describe();
+      }
       panel?.refresh();
       anchorTree();
     });
@@ -466,6 +486,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     openUrl,
     openFiles: async (files) => (await openFiles(files)) ?? { error: 'no files' },
     currentUrl: () => last?.url,
+    refreshed: () => refreshed,
     source: () => last,
     setSections: (s) => {
       for (const a of AXES) Object.assign(cut[a], s[a]);

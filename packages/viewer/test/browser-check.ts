@@ -786,18 +786,45 @@ await check('phone', async () => {
     await send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: at }, sessionId);
     await send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }, sessionId);
     await new Promise((resolve) => setTimeout(resolve, 200));
-    return evaluate(sessionId, '[...ui.selected()]');
+    const selected = await evaluate(sessionId, '[...ui.selected()]') as number[];
+    // The tree opened: 240 pixels (and its border) over the view; its handle, 24 pixels for a finger, dragged by one
+    // to 300, and remembered.
+    const widths = `new Promise((r) => setTimeout(r, 200)).then(() => {
+      const h = document.getElementById('side-handle').getBoundingClientRect();
+      return { side: document.getElementById('side').getBoundingClientRect().width, handle: h.width,
+        x: h.left + h.width / 2, y: h.top + h.height / 2, saved: localStorage.getItem('cad-viewer.side') }; })`;
+    type W = { side: number; handle: number; x: number; y: number; saved: string | null };
+    const opened = await evaluate(sessionId, `(localStorage.removeItem('cad-viewer.side'), ui.setTree({ open: true }),
+      ${widths})`) as W;
+    const touch = (type: string, x?: number) => send('Input.dispatchTouchEvent', { type, touchPoints: x === undefined
+      ? [] : [{ x, y: opened.y, id: 2 }] }, sessionId);
+    await touch('touchStart', opened.x);
+    for (let k = 1; k <= 4; k++) await touch('touchMove', opened.x + 15 * k);
+    await touch('touchEnd');
+    const dragged = await evaluate(sessionId, widths) as W;
+    // A width set where it fit (as before turning the phone upright): capped at 40 pixels from the window's edge.
+    const wide = await evaluate(sessionId, `(document.documentElement.style.setProperty('--side', '500px'),
+      document.getElementById('side').getBoundingClientRect().width)`) as number;
+    return { selected, opened, dragged, wide };
   } }) as { after?: { treeClosed: boolean; guiClosed: boolean; overscroll: string; touch: number; handle: string;
     workers: number; spot?: { id: number; x: number; y: number }; triangles: number;
-    device: { detected: string; used: string; profile: string } }; then?: number[] };
+    device: { detected: string; used: string; profile: string } }; then?: { selected: number[];
+    opened: { side: number; handle: number; saved: string | null }; dragged: { side: number; saved: string | null };
+    wide: number } };
   const a = r.after!;
   const j = JSON.stringify(a);
   expect(a.treeClosed && a.guiClosed, `closed at first: ${j}`);
   expect(a.device.detected === 'phone' && a.device.used === 'phone' && a.device.profile === 'coarse' &&
     a.triangles === coarseTriangles, `a phone, meshed coarse (${coarseTriangles} triangles): ${j}`);
-  expect(a.overscroll === 'none' && a.touch > 0 && a.workers <= 3 && a.handle === 'none', `phone settings: ${j}`);
+  expect(a.overscroll === 'none' && a.touch > 0 && a.workers <= 3 && a.handle === 'block', `phone settings: ${j}`);
   expect(!!a.spot, `no part to tap: ${j}`);
-  expect(r.then?.join() === String(a.spot!.id), `a tap selects: ${JSON.stringify(r.then)}, ${j}`);
+  expect(r.then?.selected.join() === String(a.spot!.id), `a tap selects: ${JSON.stringify(r.then)}, ${j}`);
+  const t = r.then!;
+  expect(t.opened.side === 241 && t.opened.handle === 24 && t.opened.saved === null, `the tree opened on a phone: ${
+    JSON.stringify(t)}`);
+  expect(t.dragged.side === 301 && t.dragged.saved === '300', `the tree's handle dragged by a finger: ${
+    JSON.stringify(t)}`);
+  expect(t.wide === 390 - 40 + 1, `a width too wide for the window, capped (and its border): ${JSON.stringify(t)}`);
   return undefined;
 });
 // The import worker, the only way STEP files load (the page has no tessellation of its own); every folder of the
@@ -879,6 +906,7 @@ await check('mesh again', async () => {
     cadViewer.apply({ cut: { x: { at: 10, flip: false } } });
     ui.setHidden([parts[0].id], true);
     ui.select([parts[1].id]);
+    button('Details').setValue(true);
     const enabledSelected = !zoom._disabled;
     ui.setTree({ open: true, detail: true });
     ui.panel().expandAll();
@@ -894,7 +922,16 @@ await check('mesh again', async () => {
         rows: scroller.scrollHeight > scroller.clientHeight + 20 * 18 };
     };
     const treeBefore = treeState();
+    // The selection's highlight in the 3D view: a tinted material on the selected part's meshes.
+    const tinted = (path) => {
+      const n = viewer.nodes;
+      let t = false;
+      n.nodes[n.find(path)].object.traverse((o) => { if (o.isMesh && [].concat(o.material).some((x) => x.emissive &&
+        x.emissive.getHex() !== 0)) t = true; });
+      return t;
+    };
     const before = cadViewer.state();
+    const tintedBefore = tinted(before.selected[0]);
     const triangles = viewer.stats().triangles;
     const model = viewer.model;
     viewer.settings.cache = false;
@@ -906,6 +943,10 @@ await check('mesh again', async () => {
     }
     await cadViewer.idle();
     const after = cadViewer.state();
+    const tintedAfter = tinted(after.selected[0]);
+    // The details panel describes the new meshes (its triangles), as a fresh description would.
+    const details = document.getElementById('details');
+    const detailsAfter = { shown: details.textContent, fresh: ui.details().join('\\n') };
     const treeAfter = treeState();
     const zoomAfter = !zoom._disabled;
     const lostPaths = [...after.hidden, ...after.selected];
@@ -924,9 +965,30 @@ await check('mesh again', async () => {
     }
     const lost = { status: document.getElementById('status').textContent,
       notRestored: JSON.parse(document.body.dataset.report).notRestored, paths: lostPaths };
-    return { allClosed, disabledEmpty, enabledSelected, backend: meshing?.backend, pageTessellation, before, after,
-      triangles: [triangles, viewer.stats().triangles], zoomAfter, lost, tree: [treeBefore, treeAfter] };
-  })()`) as { after: { allClosed: boolean; disabledEmpty: boolean; enabledSelected: boolean; backend?: string;
+    // A face selected: after meshing again, its overlay is on the face's new mesh, sharing that mesh's positions.
+    const face = viewer.nodes.nodes.find((n) => n.face && viewer.nodes.nodes[n.parent].object.children[0]?.geometry);
+    const facePath = viewer.nodes.pathOf(face.id);
+    ui.select([face.id]);
+    const faceModel = viewer.model;
+    viewer.settings.linearDeflection = 0.5;
+    button('Mesh again').$button.click();
+    for (let t = 0; t < 1200 && (viewer.model === faceModel || !viewer.model?.meshing); t++) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    await cadViewer.idle();
+    const overlays = [];
+    viewer.display.traverse((o) => { if (o.userData.highlight) overlays.push(o); });
+    const faceAfter = { selected: cadViewer.state().selected, overlays: overlays.length, path: facePath,
+      shared: overlays.every((o) => o.geometry.getAttribute('position') === o.parent.geometry.getAttribute('position'))
+    };
+    return { faceAfter, allClosed, disabledEmpty, enabledSelected, backend: meshing?.backend, pageTessellation,
+      before, after,
+      triangles: [triangles, viewer.stats().triangles], zoomAfter, lost, tree: [treeBefore, treeAfter],
+      tinted: [tintedBefore, tintedAfter], detailsAfter };
+  })()`) as { after: { detailsAfter: { shown: string; fresh: string };
+    faceAfter: { selected: string[]; overlays: number; shared: boolean; path: string };
+    tinted: boolean[]; allClosed: boolean; disabledEmpty: boolean; enabledSelected: boolean;
+    backend?: string;
     pageTessellation: boolean; triangles: number[]; zoomAfter: boolean; before: Record<string, unknown>;
     after: Record<string, unknown>; tree: { expanded: string[]; top?: [string, number]; rows: boolean }[];
     lost: { status: string; paths: string[];
@@ -942,6 +1004,12 @@ await check('mesh again', async () => {
     expect(JSON.stringify(a.before[k]) === JSON.stringify(a.after[k]), `${k} kept: ${JSON.stringify(a.before[k])} `
       + `then ${JSON.stringify(a.after[k])}`);
   }
+  expect(a.detailsAfter.fresh !== '' && a.detailsAfter.shown === a.detailsAfter.fresh, `the details, after: ${
+    JSON.stringify(a.detailsAfter)}`);
+  const f = a.faceAfter;
+  expect(f.selected.join() === f.path && f.overlays === 1 && f.shared, `a selected face, after: ${JSON.stringify(f)}`);
+  expect(a.tinted[0] === true && a.tinted[1] === true, `the selection highlighted in the 3D view, before and after: ${
+    JSON.stringify(a.tinted)}`);
   expect((a.after.hidden as string[]).length === 1 && (a.after.selected as string[]).length === 1 &&
     a.after.centered === true && 'x' in (a.after.cut as object), `the state set: ${j}`);
   const [tb, ta] = a.tree;

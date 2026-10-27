@@ -31,14 +31,24 @@
       touch-action: none;
     }
     #side-handle:hover, #side-handle.dragging { background: rgba(255, 154, 46, 0.5); }
+    /* Touch: no hover to show it, and a finger is wide: a wider grip, always shown. */
+    @media (pointer: coarse) {
+      #side-handle { right: -12px; width: 24px; }
+      #side-handle::after {
+        content: ''; position: absolute; left: 9px; top: 50%; width: 6px; height: 48px; margin-top: -24px;
+        border-radius: 3px; background: rgba(255, 255, 255, 0.35);
+      }
+      #side-handle:hover { background: none; }
+    }
     #view { position: absolute; top: 0; bottom: 0; right: 0; left: var(--side); }
     body.tree-closed #side { display: none; }
     body.tree-closed #view { left: 0; }
-    /* Narrow screens: the tree over the view, when open. */
+    /* Narrow screens (phones): the tree over the view, when open, narrower by default; dragged at most to 40 pixels
+       from the right edge (side-handle.ts). */
     @media (max-width: 700px) {
+      :root { --side: 240px; }
       #view { left: 0; }
-      #side { width: 85%; z-index: 2; box-shadow: 4px 0 12px rgba(0, 0, 0, 0.5); }
-      #side-handle { display: none; }
+      #side { width: min(var(--side), calc(100% - 40px)); z-index: 2; box-shadow: 4px 0 12px rgba(0, 0, 0, 0.5); }
     }
     #view canvas { display: block; }
     /* The controls flush with the right edge (lil-gui leaves 15 pixels; past a notch's safe area on phones). */

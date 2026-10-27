@@ -1,14 +1,20 @@
 // A handle on the tree panel's right edge that drags its width (the user, 2026-10-25): it sets the --side CSS
 // variable, which the panel and the view both follow (each watches its own size); a double click goes back to the
 // default. The width is remembered in this browser (a convenience: without storage it simply starts at the default).
-// Narrow screens, where the panel lies over the view, have no handle (index.html).
+// On narrow screens (phones; index.html) the panel lies over the view, 240 pixels by default, and may be dragged to
+// 40 pixels from the window's right edge; on touch screens the handle is wider and always shown (2026-10-27).
 
 const KEY = 'cad-viewer.side';
 const MIN = 140;
+/** As index.html's narrow layout. */
+const NARROW = 700;
 
-/** The width the panel may have in a window this wide: at least MIN, leaving at least 200 pixels of view. */
+/**
+ * The width the panel may have in a window this wide: at least MIN, leaving at least 200 pixels of view beside it, or
+ * on narrow screens, where it lies over the view, 40.
+ */
 export function clampWidth(width: number, windowWidth: number): number {
-  return Math.round(Math.max(MIN, Math.min(width, windowWidth - 200)));
+  return Math.round(Math.max(MIN, Math.min(width, windowWidth - (windowWidth <= NARROW ? 40 : 200))));
 }
 
 /** The width set by dragging (as --side has it; the panel's box adds its border), or undefined for the default. */

@@ -200,6 +200,7 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
         await b.catch(() => {});
         if (b === busy) break;
       }
+      await ui.refreshed();
       await viewer.frames.whenIdle();
     },
     state,
