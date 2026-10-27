@@ -32,6 +32,8 @@ export interface Ui {
   showAll(): void;
   zoomSelected(): void;
   selectParent(): void;
+  /** Selects everything a click could at the pick level: every part, assembly or face, edge and curve shown. */
+  selectAll(): void;
   /** The details panel's lines. */
   details(): string[];
   /** Opens a model by URL; resolves with what the browser check's report has (`error` if it failed). */
@@ -78,12 +80,30 @@ export type UiEvent =
   | { type: 'pick'; clientX: number; clientY: number; add: boolean; id?: number; point?: number[] }
   | { type: 'status'; text: string; error: boolean };
 
+/** How long the status line, and the details while nothing is selected, stay after they last changed. */
+const HIDE_AFTER = 5000;
+
+/**
+ * Shows an element again (fading it out after HIDE_AFTER with no change, by its `faded` class, unless `stay`): call
+ * it whenever its content changes (the user, 2026-10-27).
+ */
+function autoHide(el: HTMLElement): (stay?: boolean) => void {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return (stay = false) => {
+    clearTimeout(timer);
+    el.classList.remove('faded');
+    timer = stay ? undefined : setTimeout(() => el.classList.add('faded'), HIDE_AFTER);
+  };
+}
+
 export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLElement, detailsElement: HTMLElement):
   Ui {
   const gui = new GUI({ title: 'cad-viewer' });
   // Where events go (ui.onEvent), usable before `ui` exists (say is called while the controls are being built).
   const hooks: { onEvent?: (e: UiEvent) => void } = {};
+  const statusShown = autoHide(status);
   const say = (text: string, error = false) => {
+    if (text !== status.textContent) statusShown();
     status.textContent = text;
     status.classList.toggle('error', error);
     hooks.onEvent?.({ type: 'status', text, error });
@@ -241,6 +261,10 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     // Disabled where the page can't go full screen (iPhone, some embedded browsers).
     enter.enable(document.fullscreenEnabled && !document.fullscreenElement);
     exit.enable(!!document.fullscreenElement);
+    // Leaving full screen, a phone's browser can leave the page scrolled as its toolbar comes back, the top of the
+    // view (the details box) under it (the user, 2026-10-27, on a phone): back to the top, once now and once the
+    // toolbar has settled.
+    if (!document.fullscreenElement) for (const t of [0, 400]) setTimeout(() => window.scrollTo(0, 0), t);
   };
   document.addEventListener('fullscreenchange', fullscreen);
   fullscreen();
@@ -371,9 +395,15 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     viewer.triangleEdges.select(pieces);
     viewer.redraw();
   };
+  // The details stay while they describe a selection, and fade as the status line does while there's none.
+  const detailsShown = autoHide(detailsElement);
   const describe = () => {
+    const was = detailsElement.hidden;
     detailsElement.hidden = !selection.details;
-    if (selection.details && viewer.nodes) detailsElement.textContent = details(viewer.nodes, selected).join('\n');
+    if (!selection.details || !viewer.nodes) return;
+    const text = details(viewer.nodes, selected).join('\n');
+    if (text !== detailsElement.textContent || was) detailsShown(selected.length > 0);
+    detailsElement.textContent = text;
   };
   /** Sets the selection; from the 3D view (or code), the tree follows. */
   const select = (ids: readonly number[], source: 'tree' | 'pick' | 'api' = 'api', reveal = true) => {
@@ -482,6 +512,24 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       if (!nodes) return;
       select(selected.map((id) => nodes.nodes[id]!.parent).filter((p) => p >= 0));
     },
+    selectAll: () => {
+      const nodes = viewer.nodes;
+      if (!nodes || !panel) return;
+      // Faces, edges and curves need their nodes, as picking them does.
+      if (selection.level === 'detail' && !nodes.hasDetail()) {
+        tree.detail = true;
+        panel.setDetail(true);
+        detailControl?.updateDisplay();
+      }
+      // What's hidden can't be clicked, so it isn't selected.
+      const shown = (id: number) => !nodes.hiddenInTree(id);
+      const parts = nodes.nodes.filter((n) => n.kind === 'part' && shown(n.id)).map((n) => n.id);
+      const ids = selection.level === 'part' ? parts : selection.level === 'assembly'
+        ? parts.map((id) => nodes.nodes[id]!.parent >= 0 ? nodes.nodes[id]!.parent : id)
+        : parts.flatMap((id) => nodes.children(id).filter(shown));
+      // Not revealed in the tree: that would open every branch.
+      select(ids, 'api', false);
+    },
     details: () => (viewer.nodes ? details(viewer.nodes, selected) : []),
     openUrl,
     openFiles: async (files) => (await openFiles(files)) ?? { error: 'no files' },
@@ -549,6 +597,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   selFolder.add(selection, 'instances').name('All instances').onChange(highlight);
   selFolder.add(ui, 'selectParent').name('Select parent');
   selFolder.add({ none: () => select([]) }, 'none').name('Select none');
+  selFolder.add(ui, 'selectAll').name('Select all');
   selFolder.add(selection, 'details').name('Details').onChange(describe);
 
   const about = gui.addFolder('Model');

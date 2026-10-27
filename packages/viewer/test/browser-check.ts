@@ -1254,6 +1254,77 @@ await check('tree scrolls sideways', async () => {
   expect(!a.wide.overflow && a.wide.clipped === 0 && a.wide.widths === 1 && a.wide.fill, `wide: ${j}`);
   return undefined;
 });
+// The status line fades 5 s after it last changed, and comes back when it changes; the details too, but only while
+// nothing is selected. Select all (Selection) selects what a click could at the pick level, leaving out what's hidden.
+await check('auto hide and select all', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    await cadViewer.ready;
+    await cadViewer.idle();
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const status = document.getElementById('status'), details = document.getElementById('details');
+    const faded = (el) => el.classList.contains('faded');
+    const button = (name) => ui.gui.controllersRecursive().find((c) => c._name === name);
+    const out = { statusAtFirst: faded(status) };
+    ui.say('one');
+    await wait(4000);
+    out.statusAt4 = faded(status);
+    await wait(1600);
+    out.statusAt56 = faded(status);
+    // Gone from the screen once its fade has run.
+    await wait(700);
+    out.statusOpacity = getComputedStyle(status).opacity;
+    ui.say('one');
+    out.sameText = faded(status);
+    ui.say('two');
+    out.newText = faded(status);
+    button('Details').setValue(true);
+    out.detailsShown = !details.hidden && !faded(details);
+    await wait(5600);
+    out.detailsNothing = faded(details);
+    // Off and on again, faded, the text the same: shown again.
+    button('Details').setValue(false);
+    button('Details').setValue(true);
+    out.detailsReshown = !faded(details);
+    const m = viewer.nodes;
+    const parts = m.nodes.filter((n) => n.kind === 'part');
+    ui.select([parts[0].id]);
+    out.detailsSelected = faded(details);
+    await wait(5600);
+    out.detailsKept = faded(details);
+    // Select all at each level, one part hidden.
+    ui.setHidden([parts[0].id], true);
+    const all = (level) => { ui.setPickLevel(level); button('Select all').$button.click(); return [...ui.selected()]; };
+    const expanded = ui.panel().expanded().length;
+    const part = all('part');
+    out.expandedKept = ui.panel().expanded().length === expanded;
+    const assembly = all('assembly');
+    const detail = all('detail');
+    const n = viewer.nodes;
+    const kinds = [...new Set(detail.map((id) => n.nodes[id].kind))].sort();
+    const shown = parts.slice(1).map((p) => p.id);
+    // (Ids change once the tree has detail: compared by path.)
+    return { ...out, part, shown, assembly, parents: [...new Set(shown.map((id) => m.nodes[id].parent))],
+      detailCount: detail.length, kinds, shownPaths: shown.map((id) => m.pathOf(id)).sort(),
+      detailParents: [...new Set(detail.map((id) => n.pathOf(n.nodes[id].parent)))].sort(),
+      detailHidden: detail.filter((id) => n.hiddenInTree(id)).length, tree: cadViewer.state().tree };
+  })()`) as { after: Record<string, unknown> & { part: number[]; shown: number[]; assembly: number[];
+    parents: number[]; detailCount: number; kinds: string[]; shownPaths: string[]; detailParents: string[];
+    detailHidden: number;
+    tree: { detail: boolean } } };
+  const a = r.after;
+  const j = JSON.stringify({ ...a, part: a.part.length, shown: a.shown.length });
+  expect(a.statusAt4 === false && a.statusAt56 === true && a.statusOpacity === '0' && a.sameText === true &&
+    a.newText === false,
+    `the status line: ${j}`);
+  expect(a.detailsShown === true && a.detailsNothing === true && a.detailsSelected === false &&
+    a.detailsKept === false && a.detailsReshown === true, `the details: ${j}`);
+  expect(a.expandedKept === true, `select all leaves the tree's expansion: ${j}`);
+  expect(JSON.stringify([...a.part].sort()) === JSON.stringify([...a.shown].sort()), `select all, parts: ${j}`);
+  expect(JSON.stringify([...a.assembly].sort()) === JSON.stringify([...a.parents].sort()), `assemblies: ${j}`);
+  expect(a.tree.detail && a.detailCount > a.shown.length && a.kinds.includes('face') && a.detailHidden === 0 &&
+    JSON.stringify(a.detailParents) === JSON.stringify(a.shownPaths), `detail: ${j}`);
+  return undefined;
+});
 // The automation interface (src/automation.ts) and links: nodes by path, select, hide and show by path, a pick and a
 // screenshot; a view (top, a cut, AO off, a hidden part, a selected face) taken as a link and opened in another page
 // gives the same state; with ?deterministic one pixel per CSS pixel at any screen scale, and screenshots that repeat.
