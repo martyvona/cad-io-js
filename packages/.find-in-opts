@@ -1,0 +1,1 @@
+-not -regex .*/(dist|build|node_modules)/.*
