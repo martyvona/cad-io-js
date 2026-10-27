@@ -9,6 +9,7 @@ import { VIEWS, type ViewName } from './camera.ts';
 import type { Source } from './load.ts';
 import { details } from './details.ts';
 import { showAbout } from './about.ts';
+import { applyTheme, onSystemTheme, themeChoice, type ThemeChoice } from './theme.ts';
 import { askUrl } from './dialog.ts';
 import { AXES, DEFAULT_SECTIONS, type SectionSettings } from './section.ts';
 import { boxOf, Highlighter, instancesOf, nodeForPick, piecesOf, type PickLevel } from './selection.ts';
@@ -253,6 +254,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       for (const a of AXES) cut[a].at = moved[a].at;
       fitPlanes();
     }).disable();
+  const setTheme = (c: ThemeChoice) => viewer.setTheme(applyTheme(c));
   const full = {
     enter: () => void document.documentElement.requestFullscreen().catch((e: Error) => say(e.message, true)),
     exit: () => void document.exitFullscreen().catch(() => {}),
@@ -269,6 +271,12 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     if (!document.fullscreenElement) for (const t of [0, 400]) setTimeout(() => window.scrollTo(0, 0), t);
   };
   document.addEventListener('fullscreenchange', fullscreen);
+  const theme = { choice: themeChoice() };
+  setTheme(theme.choice);
+  // Auto follows the system as it changes.
+  onSystemTheme(() => { if (theme.choice === 'auto') setTheme('auto'); });
+  view.add(theme, 'choice', { Auto: 'auto', Light: 'light', Dark: 'dark' }).name('Theme')
+    .onChange((c: ThemeChoice) => setTheme(c));
   fullscreen();
 
   // Section planes: the sliders span the model's box (with a margin); planes that are off start at its middle. A new

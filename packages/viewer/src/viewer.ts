@@ -9,6 +9,7 @@
 // again keeps it, as it keeps the view). One model at a time; loading another replaces it, and cancels the meshing of
 // the last if it's still going. STEP files are imported and meshed in a worker (import-worker.ts).
 
+import { VIEW_BACKGROUNDS, type Theme } from './theme.ts';
 import * as THREE from 'three';
 import { TrackballControls } from 'three/addons/controls/TrackballControls.js';
 import { partMesh, type Diagnostic } from 'cad-scene';
@@ -160,7 +161,7 @@ export class Viewer {
     this.sections = new Sections(this.renderer);
     this.clipped = (p) => this.sections.clipped(p);
     container.appendChild(this.renderer.domElement);
-    this.scene.background = new THREE.Color(0x404040);
+    this.scene.background = new THREE.Color(VIEW_BACKGROUNDS.dark);
     this.scene.add(new THREE.AmbientLight(0xffffff, 1.5));
     // A headlight: the light comes from over the viewer's shoulder, whatever the view.
     const light = new THREE.DirectionalLight(0xffffff, 2);
@@ -274,6 +275,12 @@ export class Viewer {
   }
 
   /** Redraws soon (after any change to the scene). */
+  /** The view's background for a theme (theme.ts). */
+  setTheme(theme: Theme): void {
+    (this.scene.background as THREE.Color).setHex(VIEW_BACKGROUNDS[theme]);
+    this.redraw();
+  }
+
   redraw(): void {
     this.frames.request();
   }

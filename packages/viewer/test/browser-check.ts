@@ -143,6 +143,10 @@ interface PageOptions {
   scale?: number;
   /** Driven from here after `after` (with the tab's session and `after`'s value); its value is the report's `then`. */
   then?: (sessionId: string, after: unknown) => Promise<unknown>;
+  /** Run in the page before any of its own scripts. */
+  first?: string;
+  /** The system's colour scheme emulated light, before the page loads. */
+  light?: boolean;
 }
 
 async function page(query: string, after?: string, opts: PageOptions = {}): Promise<Record<string, unknown>> {
@@ -155,6 +159,12 @@ async function page(query: string, after?: string, opts: PageOptions = {}): Prom
   }
   if (opts.scale) await send('Emulation.setDeviceMetricsOverride', { width: 1200, height: 800,
     deviceScaleFactor: opts.scale, mobile: false }, sessionId);
+  if (opts.light) await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme',
+    value: 'light' }] }, sessionId);
+  if (opts.first) {
+    await send('Page.enable', {}, sessionId);
+    await send('Page.addScriptToEvaluateOnNewDocument', { source: opts.first }, sessionId);
+  }
   await send('Page.navigate', { url: `http://localhost:${port}${base}${query}` }, sessionId);
   try {
     for (let t = 0; t < 3000; t++) {
@@ -1350,6 +1360,77 @@ await check('about', async () => {
     a.links.every((l) => l.target === '_blank' && l.rel === 'noopener'), `the links: ${j}`);
   expect(base === '/' ? a.status === undefined : a.status === 200, `licenses.md (a build's only): ${j}`);
   expect(a.closed, `closed: ${j}`);
+  return undefined;
+});
+// The theme (View's Theme): auto (the default) follows the system's preference as it changes; light and dark hold
+// whatever it is. The page's colours (the tree panel's, lil-gui's), the browser's toolbar colour and the 3D view's
+// background follow, drawn at once; a choice is remembered, so a new page starts with it (index.html's inline
+// script), and auto forgets it.
+await check('theme', async () => {
+  const evaluate = async (sessionId: string, expression: string) => ((await send('Runtime.evaluate', { expression,
+    returnByValue: true, awaitPromise: true }, sessionId)) as { result: { value: unknown } }).result.value;
+  const system = (sessionId: string, light: boolean) => send('Emulation.setEmulatedMedia', { features: [
+    { name: 'prefers-color-scheme', value: light ? 'light' : 'dark' }] }, sessionId);
+  const look = `({ theme: document.documentElement.dataset.theme ?? 'dark',
+    panel: getComputedStyle(document.getElementById('side')).backgroundColor,
+    gui: getComputedStyle(document.querySelector('.lil-gui.root')).backgroundColor,
+    bar: document.querySelector('meta[name="theme-color"]').content,
+    view: viewer.scene.background.getHex(), saved: localStorage.getItem('cad-viewer.theme'),
+    control: ui.gui.controllersRecursive().find((c) => c._name === 'Theme').getValue(),
+    systemLight: matchMedia('(prefers-color-scheme: light)').matches })`;
+  const later = `new Promise((r) => setTimeout(r, 200)).then(() => ${look})`;
+  // (Drawn again at once: the frames drawn after the change counted.)
+  const set = (choice: string) => `(async () => { await cadViewer.idle();
+    let drawn = 0; const draw = viewer.draw; viewer.draw = function () { drawn++; return draw.call(this); };
+    ui.gui.controllersRecursive().find((c) => c._name === 'Theme').setValue('${choice}');
+    await cadViewer.idle(); viewer.draw = draw; return { ...${look}, drawn }; })()`;
+  type Look = { theme: string; panel: string; gui: string; bar: string; view: number; saved: string | null;
+    control: string; systemLight: boolean; drawn?: number };
+  const first = await page('?check', `(async () => { await cadViewer.ready;
+    localStorage.removeItem('cad-viewer.theme'); return ${look}; })()`, { then: async (sid, fresh) => {
+    const out: Record<string, unknown> = {};
+    await system(sid, false);
+    out.autoDark = await evaluate(sid, later);
+    await system(sid, true);
+    out.autoLight = await evaluate(sid, later);
+    out.dark = await evaluate(sid, set('dark'));
+    await system(sid, false);
+    out.light = await evaluate(sid, set('light'));
+    // Last, the opposite of a new page's system (left unemulated), to see it remembered there.
+    out.kept = (fresh as Look).systemLight ? 'dark' : 'light';
+    out.chosen = await evaluate(sid, set(out.kept as string));
+    return out;
+  } }) as { after: Look; then: { autoDark: Look; autoLight: Look; dark: Look; light: Look; kept: string;
+    chosen: Look } };
+  // The theme when the page is parsed, before the app's modules run (index.html's inline script's alone).
+  const early = `document.addEventListener('readystatechange', () => { if (document.readyState === 'interactive')
+    window.earlyTheme = document.documentElement.dataset.theme ?? 'dark'; });`;
+  const again = await page('?check', `(async () => { await cadViewer.ready; return { early: window.earlyTheme,
+    reloaded: ${look}, auto: await ${set('auto')} }; })()`, { first: early }) as { after: { early: string;
+    reloaded: Look; auto: Look } };
+  // A new page, nothing remembered, the system emulated light: light before the modules run.
+  const fresh = await page('?check', `(async () => { await cadViewer.ready; return window.earlyTheme; })()`, {
+    first: early, light: true }) as { after: string };
+  const t = first.then;
+  const j = JSON.stringify({ fresh: first.after, ...t, ...again.after });
+  // (lil-gui's own dark background, #1f1f1f, and its documented light one.)
+  const dark = (l: Look) => l.theme === 'dark' && l.panel === 'rgb(31, 31, 31)' && l.gui === 'rgb(31, 31, 31)' &&
+    l.bar === '#1f1f1f' && l.view === 0x404040;
+  const light = (l: Look) => l.theme === 'light' && l.panel === 'rgb(244, 244, 244)' &&
+    l.gui === 'rgb(246, 246, 246)' && l.bar === '#f4f4f4' && l.view === 0xd9d9d9;
+  const as = (l: Look, theme: string) => theme === 'light' ? light(l) : dark(l);
+  const f = first.after;
+  expect(f.control === 'auto' && f.saved === null && as(f, f.systemLight ? 'light' : 'dark'), `auto at first: ${j}`);
+  expect(dark(t.autoDark) && light(t.autoLight) && t.autoLight.control === 'auto', `auto follows the system: ${j}`);
+  expect(dark(t.dark) && t.dark.saved === 'dark' && t.dark.systemLight && t.dark.drawn! > 0, `dark, the system light: ${
+    j}`);
+  expect(light(t.light) && t.light.saved === 'light' && !t.light.systemLight, `light, the system dark: ${j}`);
+  const r = again.after.reloaded;
+  expect(as(r, t.kept) && r.control === t.kept && r.systemLight === (t.kept === 'dark') &&
+    again.after.early === t.kept, `remembered, from the first paint: ${j}`);
+  expect(fresh.after === 'light', `auto, a light system, from the first paint: ${JSON.stringify(fresh.after)}`);
+  const a = again.after.auto;
+  expect(as(a, a.systemLight ? 'light' : 'dark') && a.control === 'auto' && a.saved === null, `auto again: ${j}`);
   return undefined;
 });
 // The automation interface (src/automation.ts) and links: nodes by path, select, hide and show by path, a pick and a
