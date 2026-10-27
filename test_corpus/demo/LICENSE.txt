@@ -1,4 +1,5 @@
-The models in this directory (ohmm-ap242.step, rpbp-ap242.step):
+The models in this directory (ohmm-ap242.step, rpbp-ap242.step) and their pictures
+(ohmm-ap242.png, rpbp-ap242.png):
 
 Copyright 2026 Marsette Vona <martyvona@gmail.com>
 

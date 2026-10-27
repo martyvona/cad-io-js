@@ -98,7 +98,7 @@ function autoHide(el: HTMLElement): (stay?: boolean) => void {
 
 export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLElement, detailsElement: HTMLElement):
   Ui {
-  const gui = new GUI({ title: 'cad-viewer' });
+  const gui = new GUI({ title: 'cad-io-js CAD viewer' });
   // Where events go (ui.onEvent), usable before `ui` exists (say is called while the controls are being built).
   const hooks: { onEvent?: (e: UiEvent) => void } = {};
   const statusShown = autoHide(status);

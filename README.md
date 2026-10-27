@@ -9,7 +9,11 @@ This file is GitHub-flavoured Markdown: GitHub and browser Markdown viewers rend
 #pagebreak()
 -->
 
-Reading CAD files into memory, and converting them, in TypeScript for Node.js and browsers. Today that means [STEP](./step_tutorial.md) (ISO 10303-21 files of AP203, AP214 and AP242). **[Live demo](https://martyvona.github.io/cad-io-js/)**: the [viewer](#viewer), in the browser, on your own STEP, glTF or three.js files (nothing is uploaded; it works offline once loaded).
+Reading CAD files into memory, and converting them, in TypeScript for Node.js and browsers. Today that means [STEP](./step_tutorial.md) (ISO 10303-21 files of AP203, AP214 and AP242). **[Live demo](https://martyvona.github.io/cad-io-js/)**: the [viewer](#viewer), in the browser, on your own STEP, glTF or three.js files (nothing is uploaded; it works offline once loaded). Or open one of the demo models there (click a picture):
+
+| [![ohmm-ap242.step](test_corpus/demo/ohmm-ap242.png)](https://martyvona.github.io/cad-io-js/?model=demo/ohmm-ap242.step) | [![rpbp-ap242.step](test_corpus/demo/rpbp-ap242.png)](https://martyvona.github.io/cad-io-js/?model=demo/rpbp-ap242.step) |
+|:---:|:---:|
+| [`ohmm-ap242.step`](https://martyvona.github.io/cad-io-js/?model=demo/ohmm-ap242.step): 71 parts | [`rpbp-ap242.step`](https://martyvona.github.io/cad-io-js/?model=demo/rpbp-ap242.step): 50 parts |
 
 In more detail:
 
