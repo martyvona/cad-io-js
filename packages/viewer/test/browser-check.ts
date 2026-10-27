@@ -1462,7 +1462,7 @@ await check('theme', async () => {
   const dark = (l: Look) => l.theme === 'dark' && l.panel === 'rgb(31, 31, 31)' && l.gui === 'rgb(31, 31, 31)' &&
     l.bar === '#1f1f1f' && l.view === 0x404040;
   const light = (l: Look) => l.theme === 'light' && l.panel === 'rgb(244, 244, 244)' &&
-    l.gui === 'rgb(246, 246, 246)' && l.bar === '#f4f4f4' && l.view === 0xfaf8f0;
+    l.gui === 'rgb(246, 246, 246)' && l.bar === '#f4f4f4' && l.view === 0xffffff;
   const as = (l: Look, theme: string) => theme === 'light' ? light(l) : dark(l);
   const f = first.after;
   expect(f.control === 'auto' && f.saved === null && as(f, f.systemLight ? 'light' : 'dark'), `auto at first: ${j}`);
@@ -1504,7 +1504,7 @@ await check('custom background', async () => {
     localStorage.removeItem('cad-viewer.background');
     return { kept, off }; })()`, { first: early }) as { after: { kept: Look & { early: string }; off: Look } };
   const j = JSON.stringify({ ...r.after, ...again.after });
-  const themes: Record<string, number> = { dark: 0x404040, light: 0xfaf8f0 };
+  const themes: Record<string, number> = { dark: 0x404040, light: 0xffffff };
   const { off, pickedOff, on, changed } = r.after as Record<string, Look>;
   const theirs = (l: Look) => l.view === themes[l.theme] && l.css === `#${themes[l.theme]!.toString(16)}`;
   expect(theirs(off!) && !off!.picker, `off at first, the theme's: ${j}`);

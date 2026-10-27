@@ -11,7 +11,7 @@ const KEY = 'cad-viewer.theme';
 const SYSTEM_LIGHT = '(prefers-color-scheme: light)';
 
 /** The 3D view's background (index.html's --view-bg, which shows before the first frame). */
-export const VIEW_BACKGROUNDS: Readonly<Record<Theme, number>> = { dark: 0x404040, light: 0xfaf8f0 };
+export const VIEW_BACKGROUNDS: Readonly<Record<Theme, number>> = { dark: 0x404040, light: 0xffffff };
 /** The browser's toolbar colour (the panels'). */
 const BARS: Readonly<Record<Theme, string>> = { dark: '#1f1f1f', light: '#f4f4f4' };
 

@@ -32,5 +32,5 @@ test('custom background: what this browser remembers, else off with the fallback
     else delete (globalThis as { localStorage?: unknown }).localStorage;
   }
   assert.equal(hexColour(0x00ff0a), '#00ff0a');
-  assert.equal(hexColour(VIEW_BACKGROUNDS.light), '#faf8f0');
+  assert.equal(hexColour(VIEW_BACKGROUNDS.light), '#ffffff');
 });
