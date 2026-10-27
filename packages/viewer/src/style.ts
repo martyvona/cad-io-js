@@ -5,7 +5,7 @@
 
 import * as THREE from 'three';
 import type { EdgeStyle } from './fat-edges.ts';
-import type { CapStyle } from './section.ts';
+import { HATCH_WIDTH, type CapStyle } from './section.ts';
 import type { TriangleEdgesMode } from './triangle-edges.ts';
 
 /** The layer edges are drawn on (and only on). */
@@ -35,13 +35,16 @@ export interface RenderSettings {
   light: number;
   /** How section caps are drawn (section.ts). */
   capStyle: CapStyle;
+  /** The caps' hatching lines' width, CSS pixels at half their ink. */
+  hatchWidth: number;
   /** Models loaded by three.js's loaders get Phong materials like ours (from the next file loaded). */
   cadMaterials: boolean;
 }
 
 export const DEFAULT_RENDER: RenderSettings = { ao: true, aoIntensity: 5, aoRadius: 32, aoQuality: 'High',
   smaa: true, edges: true, edgeStyle: 'fat', edgeWidth: 1.5, triangleEdges: 'off', shininess: 30, specular: 0.4,
-  ambient: 1, light: 2.5, capStyle: 'drawing', cadMaterials: true };
+  ambient: 1, light: 2.5, capStyle: 'parts', hatchWidth: HATCH_WIDTH,
+  cadMaterials: true };
 
 /**
  * A Phong material standing for another: its colour, opacity and transparency, sides, vertex colours and colour map;

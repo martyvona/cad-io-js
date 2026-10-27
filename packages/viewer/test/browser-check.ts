@@ -638,8 +638,9 @@ await check('sections', async () => {
     s.x.at = at;
     s.caps = true;
     viewer.setSections(s);
+    viewer.setRender({ ...viewer.render, capStyle: 'drawing' });
     const [capped, outside] = await colours([centre, corner]);
-    // In the parts style: the part's colour.
+    // In the parts style (the default): the part's colour.
     viewer.setRender({ ...viewer.render, capStyle: 'parts' });
     const [cappedParts] = await colours([centre]);
     viewer.setRender({ ...viewer.render, capStyle: 'drawing' });
@@ -1461,7 +1462,7 @@ await check('theme', async () => {
   const dark = (l: Look) => l.theme === 'dark' && l.panel === 'rgb(31, 31, 31)' && l.gui === 'rgb(31, 31, 31)' &&
     l.bar === '#1f1f1f' && l.view === 0x404040;
   const light = (l: Look) => l.theme === 'light' && l.panel === 'rgb(244, 244, 244)' &&
-    l.gui === 'rgb(246, 246, 246)' && l.bar === '#f4f4f4' && l.view === 0xd9d9d9;
+    l.gui === 'rgb(246, 246, 246)' && l.bar === '#f4f4f4' && l.view === 0xfaf8f0;
   const as = (l: Look, theme: string) => theme === 'light' ? light(l) : dark(l);
   const f = first.after;
   expect(f.control === 'auto' && f.saved === null && as(f, f.systemLight ? 'light' : 'dark'), `auto at first: ${j}`);
@@ -1475,6 +1476,45 @@ await check('theme', async () => {
   expect(fresh.after === 'light', `auto, a light system, from the first paint: ${JSON.stringify(fresh.after)}`);
   const a = again.after.auto;
   expect(as(a, a.systemLight ? 'light' : 'dark') && a.control === 'auto' && a.saved === null, `auto again: ${j}`);
+  return undefined;
+});
+// View's Custom background: off, the theme's; on, the picker's colour (drawn, and the page's --view-bg behind the
+// view), the picker enabled only then; remembered, so a new page starts with it from its first paint (index.html's
+// inline script); off again, the theme's. (Turned off and forgotten at the end: pages share the profile.)
+await check('custom background', async () => {
+  const look = `({ view: viewer.scene.background.getHex(),
+    css: getComputedStyle(document.documentElement).getPropertyValue('--view-bg').trim(),
+    theme: document.documentElement.dataset.theme ?? 'dark',
+    picker: !ui.gui.controllersRecursive().find((c) => c._name === 'Background')._disabled,
+    saved: localStorage.getItem('cad-viewer.background') })`;
+  const control = (name: string, v: unknown) => `ui.gui.controllersRecursive().find((c) => c._name === '${name}')
+    .setValue(${JSON.stringify(v)})`;
+  const r = await page('?check', `(async () => { await cadViewer.ready; await cadViewer.idle();
+    const off = ${look};
+    ${control('Background', '#123abc')}; const pickedOff = ${look};
+    ${control('Custom background', true)}; await cadViewer.idle(); const on = ${look};
+    ${control('Background', '#00ff0a')}; await cadViewer.idle(); const changed = ${look};
+    return { off, pickedOff, on, changed }; })()`) as { after: Record<string, Look> };
+  type Look = { view: number; css: string; theme: string; picker: boolean; saved: string | null };
+  const early = `document.addEventListener('readystatechange', () => { if (document.readyState === 'interactive')
+    window.earlyBg = getComputedStyle(document.documentElement).getPropertyValue('--view-bg').trim(); });`;
+  const again = await page('?check', `(async () => { await cadViewer.ready; await cadViewer.idle();
+    const kept = { ...${look}, early: window.earlyBg };
+    ${control('Custom background', false)}; await cadViewer.idle(); const off = ${look};
+    localStorage.removeItem('cad-viewer.background');
+    return { kept, off }; })()`, { first: early }) as { after: { kept: Look & { early: string }; off: Look } };
+  const j = JSON.stringify({ ...r.after, ...again.after });
+  const themes: Record<string, number> = { dark: 0x404040, light: 0xfaf8f0 };
+  const { off, pickedOff, on, changed } = r.after as Record<string, Look>;
+  const theirs = (l: Look) => l.view === themes[l.theme] && l.css === `#${themes[l.theme]!.toString(16)}`;
+  expect(theirs(off!) && !off!.picker, `off at first, the theme's: ${j}`);
+  expect(theirs(pickedOff!), `a colour picked while off changes nothing: ${j}`);
+  expect(on!.view === 0x123abc && on!.css === '#123abc' && on!.picker, `on, the picker's: ${j}`);
+  expect(changed!.view === 0x00ff0a && changed!.css === '#00ff0a', `the picker followed: ${j}`);
+  const { kept, off: off2 } = again.after;
+  expect(kept.view === 0x00ff0a && kept.early === '#00ff0a' && kept.picker, `remembered, from the first paint: ${j}`);
+  expect(theirs(off2) && !off2.picker && JSON.parse(off2.saved!).color === '#00ff0a',
+    `off again, the theme's (the colour kept): ${j}`);
   return undefined;
 });
 // Caps on a part whose faces are meshes of their own (faces.glb: a box, a primitive per face): capped as one solid,
@@ -1621,35 +1661,146 @@ await check('lights and specular', async () => {
   expect(JSON.stringify(a.loaded!.speculars) === JSON.stringify([grey(0.8)]), `a model loaded after: ${j}`);
   return undefined;
 });
-// Cap hatching, in screen pixels at any pixel ratio: the drawing style's black lines 8 CSS pixels apart at 45
-// degrees, so along a row of the rod's cap 16 device pixels / sin 45 = 22.6 apart at a pixel ratio of 2.
+// Cap hatching, at a pixel ratio of 2: the lines fixed on the model (twice as far apart on the screen zoomed in
+// twice as far) and their width on the screen (the same zoomed in, cadrender's by default, wider as set).
+type Look = { lines: number; width: number; gap: number };
 await check('cap hatching', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
     await cadViewer.ready; await cadViewer.idle();
     const gl = viewer.renderer.getContext(), canvas = viewer.renderer.domElement;
-    const rod = ui.panel().model.nodes.find((n) => n.kind === 'part' && n.name === 'rod').object.children[0];
-    rod.geometry.computeBoundingBox();
-    const rb = rod.geometry.boundingBox.clone().applyMatrix4(rod.matrixWorld), c = rb.getCenter(rod.position.clone());
-    viewer.zoomTo(rb);
+    const plate = ui.panel().model.nodes.find((n) => n.kind === 'part' && n.name === 'plate').object.children[0];
+    plate.geometry.computeBoundingBox();
+    const pb = plate.geometry.boundingBox.clone().applyMatrix4(plate.matrixWorld);
+    const c = pb.getCenter(plate.position.clone());
     const s = viewer.sections.get();
     s.x.on = true; s.x.at = c.x; s.caps = true;
     viewer.setSections(s);
-    for (let i = 0; i < 3; i++) await new Promise((res) => requestAnimationFrame(res));
+    // The drawing style, whose black lines on beige are easy to tell apart (through the controls, as the width below).
+    ui.setRender({ capStyle: 'drawing' });
+    cadViewer.view('right');
     viewer.draw();
-    const dpr = viewer.renderer.getPixelRatio(), p = c.clone().project(viewer.camera), n = 96;
-    const px = new Uint8Array(4 * n);
-    gl.readPixels(Math.round((p.x + 1) / 2 * canvas.clientWidth * dpr) - n / 2,
-      Math.round((p.y + 1) / 2 * canvas.clientHeight * dpr), n, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
-    let runs = 0, inRun = false;
-    for (let i = 0; i < n; i++) {
-      const dark = px[4 * i] < 80 && px[4 * i + 1] < 80 && px[4 * i + 2] < 80;
-      if (dark && !inRun) runs++;
-      inRun = dark;
+    // Zoomed so the widest spacing (1/60 of the model's radius) is 24 CSS pixels: a few lines along the row, zoomed
+    // in twice as far too.
+    viewer.camera.zoom *= viewer.pixelSize() / (viewer.sections.hatch.hatchSize.value / 60 / 24);
+    viewer.camera.updateProjectionMatrix();
+    // Looking at the plate's centre.
+    const shift = c.clone().sub(viewer.controls.target);
+    viewer.camera.position.add(shift); viewer.controls.target.add(shift);
+    const dpr = viewer.renderer.getPixelRatio(), n = 600;
+    // The dark runs between beige pixels along the row through the plate's centre: their widths and the gaps between
+    // their centres, in device pixels.
+    const look = async () => {
+      for (let i = 0; i < 3; i++) await new Promise((res) => requestAnimationFrame(res));
+      viewer.draw();
+      const p = c.clone().project(viewer.camera), px = new Uint8Array(4 * n);
+      gl.readPixels(Math.round((p.x + 1) / 2 * canvas.clientWidth * dpr) - n / 2,
+        Math.round((p.y + 1) / 2 * canvas.clientHeight * dpr), n, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      const kind = (i) => {
+        const [r, g, b] = [px[4 * i], px[4 * i + 1], px[4 * i + 2]];
+        return r < 80 && g < 80 && b < 80 ? 'ink' : r > 180 && r - b > 20 ? 'beige' : 'other';
+      };
+      const widths = [], centres = [];
+      // (An antialiased pixel may lie between ink and beige.)
+      const beige = (i) => [i, i + 1].some((k) => k >= 0 && k < n && kind(k) === 'beige');
+      for (let i = 2; i < n; i++) {
+        if (kind(i) !== 'ink' || kind(i - 1) === 'ink' || !beige(i - 2)) continue;
+        let j = i;
+        while (j < n && kind(j) === 'ink') j++;
+        if (beige(j)) { widths.push(j - i); centres.push((i + j - 1) / 2); }
+      }
+      const gaps = centres.slice(1).map((x, i) => x - centres[i]);
+      const mean = (a) => a.reduce((x, y) => x + y, 0) / Math.max(1, a.length);
+      return { lines: widths.length, width: mean(widths), gap: mean(gaps) };
+    };
+    const before = await look();
+    viewer.camera.zoom *= 2; viewer.camera.updateProjectionMatrix();
+    const zoomed = await look();
+    ui.setRender({ hatchWidth: 4 });
+    const wide = await look();
+    return { dpr, before, zoomed, wide };
+  })()`, { scale: 2 }) as { after: { dpr: number; before: Look; zoomed: Look; wide: Look } };
+  const { dpr, before, zoomed, wide } = r.after;
+  const all = JSON.stringify(r.after);
+  expect(dpr === 2 && before.lines >= 4 && zoomed.lines >= 2, `hatch lines found: ${all}`);
+  // Fixed on the model: twice as far apart zoomed in twice as far; as wide on the screen.
+  expect(Math.abs(zoomed.gap / before.gap - 2) < 0.25, `lines' gap doubled zooming in twice: ${all}`);
+  expect(Math.abs(zoomed.width - before.width) <= 1, `lines as wide zoomed in: ${all}`);
+  // The width as set: 1.33 CSS pixels at half ink (cadrender's), so about 2 to 3 device pixels darker than the
+  // check's threshold; 4 pixels three times that.
+  expect(before.width >= 1.5 && before.width <= 3.5, `the lines' default width: ${all}`);
+  expect(wide.width > 2.4 * before.width, `wider lines with the width set to 4: ${all}`);
+  return undefined;
+});
+// The state's meshing and hidden faces (recordings' snapshots): a face hidden through one placement listed below every
+// placement of its part, its nodes made or not; the controls' meshing settings, and those the model was meshed with
+// apart; a recording begun mid-session replays in a fresh page meshing as the model was (the same triangles), the
+// controls' settings and the hidden faces as they were, with nothing diverging.
+await check('snapshot: meshing and hidden faces', async () => {
+  const first = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    await cadViewer.ready; await cadViewer.idle();
+    // Meshed again coarse (not what a fresh page would mesh with), the controls then changed again.
+    ui.setMeshing({ profile: 'coarse', linearDeflection: 0.2, angularDeflection: 30, cache: false });
+    const before = viewer.model;
+    ui.gui.controllersRecursive().find((c) => c._name === 'Mesh again').$button.click();
+    for (let t = 0; t < 1200 && (viewer.model === before || !viewer.model?.meshing); t++) {
+      await new Promise((r) => setTimeout(r, 100));
     }
-    return { dpr, runs };
-  })()`, { scale: 2 }) as { after: { dpr: number; runs: number } };
-  expect(r.after.dpr === 2 && r.after.runs >= 3 && r.after.runs <= 5, `hatch lines in 96 device pixels: ${
-    JSON.stringify(r.after)}`);
+    await cadViewer.idle();
+    const m = viewer.nodes;
+    const nuts = m.nodes.filter((n) => n.kind === 'part' && n.name === 'nut');
+    const source = nuts[0].object.children[0].userData.faces[0];
+    const facePath = m.pathOf(nuts[0].id) + '/face#' + source;
+    cadViewer.hide([facePath]);
+    ui.setTree({ detail: false });
+    const want = nuts.map((n) => m.pathOf(n.id) + '/face#' + source);
+    const hidden = cadViewer.state().hidden;
+    ui.setMeshing({ profile: 'custom', linearDeflection: 0.5 });
+    const st = cadViewer.state();
+    cadViewer.record(true);
+    cadViewer.view('top');
+    await cadViewer.idle();
+    const rec = cadViewer.record(false);
+    // A face hidden with no node made for it (through the graph), then a state hiding nothing: shown.
+    const bolt = m.nodes.find((n) => n.kind === 'part' && n.name === 'bolt');
+    m.faces.setFaceHidden(bolt.object.userData.part, bolt.object.children[0].userData.faces[0], true);
+    const unmade = cadViewer.state().hidden.filter((p) => p.startsWith(m.pathOf(bolt.id) + '/face#')).length;
+    cadViewer.apply({ hidden: [] });
+    const cleared = cadViewer.state().hidden;
+    return { want, hidden, meshing: st.meshing, meshedWith: st.model.meshedWith, triangles: st.model.triangles, rec,
+      unmade, cleared };
+  })()`) as { after: { want: string[]; hidden: string[]; meshing: { profile: string; linearDeflection: number };
+    meshedWith: { profile: string; linearDeflection: number }; triangles: number;
+    rec: { events: { type: string; state?: { meshing?: { linearDeflection: number } } }[] }; unmade: number;
+    cleared: string[] } };
+  const a = first.after;
+  const j = JSON.stringify({ ...a, rec: undefined });
+  expect(a.want.length > 1 && a.want.every((p) => a.hidden.includes(p)), `the face below every placement: ${j}`);
+  expect(a.meshing.profile === 'custom' && a.meshing.linearDeflection === 0.5 && a.meshedWith.profile === 'coarse',
+    `the controls' meshing apart from the model's: ${j}`);
+  expect(a.unmade === 1 && a.cleared.length === 0, `a hidden face with no node: listed, and shown by a state: ${j}`);
+  // The recording with its end's meshing changed: replay says so.
+  const tampered = structuredClone(a.rec);
+  tampered.events.findLast((e) => e.type === 'state')!.state!.meshing!.linearDeflection = 0.3;
+  const second = await page('?check', `(async () => {
+    await cadViewer.ready;
+    const report = await cadViewer.replay(${JSON.stringify(a.rec)});
+    await cadViewer.idle();
+    const st = cadViewer.state();
+    // The controls show it.
+    const shown = ui.gui.controllersRecursive().find((c) => c._name === 'Deflection (mm)').$input.value;
+    const tampered = await cadViewer.replay(${JSON.stringify(tampered)});
+    return { report, triangles: st.model?.triangles, meshing: st.meshing, meshedWith: st.model?.meshedWith,
+      hidden: st.hidden, tampered: tampered.divergences, shown };
+  })()`) as { after: { report: { divergences: string[] }; triangles: number; meshing: { linearDeflection: number };
+    meshedWith: { profile: string }; hidden: string[]; tampered: string[]; shown: string } };
+  const b = second.after;
+  const k = JSON.stringify(b);
+  expect(b.report.divergences.length === 0, `replayed with nothing diverging: ${k}`);
+  expect(b.triangles === a.triangles && b.meshedWith.profile === 'coarse' && b.meshing.linearDeflection === 0.5 &&
+    Number(b.shown) === 0.5,
+    `meshed as the model was, the controls as they were: ${k}`);
+  expect(a.want.every((p) => b.hidden.includes(p)), `the hidden faces: ${k}`);
+  expect(b.tampered.some((d) => /^the end: meshing is/.test(d)), `a different meshing at the end, said: ${k}`);
   return undefined;
 });
 // The automation interface (src/automation.ts) and links: nodes by path, select, hide and show by path, a pick and a

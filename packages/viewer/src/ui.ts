@@ -10,14 +10,15 @@ import type { Source } from './load.ts';
 import { details } from './details.ts';
 import { showAbout } from './about.ts';
 import { VERSION } from './version.ts';
-import { applyTheme, onSystemTheme, themeChoice, type ThemeChoice } from './theme.ts';
+import { applyCustomBackground, applyTheme, customBackground, hexColour, onSystemTheme, themeChoice, type ThemeChoice,
+  VIEW_BACKGROUNDS } from './theme.ts';
 import { askUrl } from './dialog.ts';
 import { AXES, DEFAULT_SECTIONS, type SectionSettings } from './section.ts';
 import { boxOf, Highlighter, instancesOf, nodeForPick, piecesOf, type PickLevel } from './selection.ts';
 import { addSideHandle } from './side-handle.ts';
 import type { RenderSettings } from './style.ts';
 import { DEVICE_PROFILES, setDeviceOverride, type DeviceClass } from './device.ts';
-import { defaultSettings, profileSettings } from './tessellation.ts';
+import { defaultSettings, profileSettings, type TessellationSettings } from './tessellation.ts';
 import { TreePanel } from './tree-panel.ts';
 import { fromFiles, fromUrl, pickFiles, typedUrl } from './sources.ts';
 import { visibleBox, type Viewer } from './viewer.ts';
@@ -53,6 +54,8 @@ export interface Ui {
   /** These settings take effect through the controls (which follow). */
   setSections(s: SectionSettings): void;
   setRender(r: Partial<RenderSettings>): void;
+  /** The meshing settings (B-Rep Meshing's), for the next model meshed or Mesh again; the controls follow. */
+  setMeshing(s: Partial<TessellationSettings>): void;
   setTree(t: { open?: boolean; detail?: boolean }): void;
   /** Centring, once the centroid is known (false if it isn't yet). */
   setCentered(on: boolean): boolean;
@@ -255,7 +258,11 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       for (const a of AXES) cut[a].at = moved[a].at;
       fitPlanes();
     }).disable();
-  const setTheme = (c: ThemeChoice) => viewer.setTheme(applyTheme(c));
+  const setTheme = (c: ThemeChoice) => {
+    const t = applyTheme(c);
+    viewer.setTheme(t);
+    return t;
+  };
   const full = {
     enter: () => void document.documentElement.requestFullscreen().catch((e: Error) => say(e.message, true)),
     exit: () => void document.exitFullscreen().catch(() => {}),
@@ -273,11 +280,22 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   };
   document.addEventListener('fullscreenchange', fullscreen);
   const theme = { choice: themeChoice() };
-  setTheme(theme.choice);
+  const first = setTheme(theme.choice);
   // Auto follows the system as it changes.
   onSystemTheme(() => { if (theme.choice === 'auto') setTheme('auto'); });
   view.add(theme, 'choice', { Auto: 'auto', Light: 'light', Dark: 'dark' }).name('Theme')
     .onChange((c: ThemeChoice) => setTheme(c));
+  // The view's background: the theme's, or the picker's while Custom background is on (the picker starting at the
+  // theme's colour); remembered in this browser.
+  const background = customBackground(hexColour(VIEW_BACKGROUNDS[first]));
+  const backdrop = () => {
+    picker.enable(background.on);
+    applyCustomBackground(background);
+    viewer.setBackground(background.on ? parseInt(background.color.slice(1), 16) : undefined);
+  };
+  view.add(background, 'on').name('Custom background').onChange(backdrop);
+  const picker = view.addColor(background, 'color').name('Background').onChange(backdrop);
+  backdrop();
   fullscreen();
 
   // Section planes: the sliders span the model's box (with a margin); planes that are off start at its middle. A new
@@ -342,6 +360,8 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   rendering.add(look, 'light', 0, 6, 0.05).name('Headlight').onChange(restyle);
   const capStyle = sectionFolder.add(look, 'capStyle', { 'Drawing (beige)': 'drawing', 'Part colours': 'parts' })
     .name('Cap style').onChange(restyle);
+  const hatchWidth = sectionFolder.add(look, 'hatchWidth', 0.25, 4, 0.01).name('Hatch width (pixels)')
+    .onChange(restyle);
   rendering.add(look, 'cadMaterials').name('Phong for glTF, three.js (next file)');
 
   const step = gui.addFolder('B-Rep Meshing');
@@ -567,10 +587,15 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       for (const c of sectionFolder.controllersRecursive()) c.updateDisplay();
       recut();
     },
+    setMeshing: (m) => {
+      Object.assign(settings, m);
+      shown();
+    },
     setRender: (r) => {
       Object.assign(look, r);
       for (const c of rendering.controllersRecursive()) c.updateDisplay();
       capStyle.updateDisplay();
+      hatchWidth.updateDisplay();
       edgeWidth.show(look.edgeStyle === 'fat');
       restyle();
     },

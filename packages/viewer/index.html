@@ -14,6 +14,13 @@
     if (choice === 'light' || choice !== 'dark' && matchMedia('(prefers-color-scheme: light)').matches) {
       document.documentElement.dataset.theme = 'light';
     }
+    // The view's own background, if one is chosen (theme.ts's applyCustomBackground).
+    try {
+      const b = JSON.parse(localStorage.getItem('cad-viewer.background') ?? 'null');
+      if (b && b.on === true && /^#[0-9a-f]{6}$/i.test(b.color)) {
+        document.documentElement.style.setProperty('--view-bg', b.color);
+      }
+    } catch { /* none */ }
   </script>
   <style>
     :root { --side: 300px; }
@@ -26,7 +33,7 @@
       --button-hover: #3c3c3c; --link: #8ab4f8;
     }
     :root[data-theme="light"] {
-      --view-bg: #d9d9d9; --panel-bg: #f4f4f4; --panel-fg: #222; --panel-border: #c4c4c4; --muted: #999;
+      --view-bg: #faf8f0; --panel-bg: #f4f4f4; --panel-fg: #222; --panel-border: #c4c4c4; --muted: #999;
       --muted-icon: #aaa; --expander: #666; --icon: #4a7096; --row-selected: #b3d4f0; --row-focus: #4a86c5;
       --overlay-fg: #222; --status-bg: rgba(255, 255, 255, 0.75); --details-bg: rgba(255, 255, 255, 0.85);
       --error-fg: #c62828; --grip: rgba(0, 0, 0, 0.3); --input-fg: #111; --input-bg: #fff; --border: #bbb;

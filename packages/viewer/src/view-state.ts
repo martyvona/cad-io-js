@@ -7,7 +7,7 @@
 //   &camera=px,py,pz,tx,ty,tz,ux,uy,uz,height  position, target, up, and the viewport's height in world mm
 //   &centered=1  &cut=x:12.5  &cut=y:-3:flip  &caps=0
 //   &ao=0  &smaa=0  &edges=0  &triangleEdges=all  &shininess=50  &aoIntensity=3  &aoRadius=16  &aoQuality=Low
-//   &edgeStyle=thin  &edgeWidth=2  &specular=0.3  &ambient=1  &light=2.5  &capStyle=parts
+//   &edgeStyle=thin  &edgeWidth=2  &specular=0.3  &ambient=1  &light=2.5  &capStyle=parts  &hatchWidth=2
 //   &tree=0  &detail=1  &pick=detail  &instances=1
 //   &hide=<path>  &select=<path>               each repeated
 //
@@ -16,6 +16,7 @@
 import type { ViewName } from './camera.ts';
 import { AXES, type Axis, type PlaneSettings } from './section.ts';
 import type { PickLevel } from './selection.ts';
+import type { TessellationSettings } from './tessellation.ts';
 import { DEFAULT_RENDER, type RenderSettings } from './style.ts';
 
 export type Vec3 = [number, number, number];
@@ -41,6 +42,11 @@ export interface ViewState {
   instances?: boolean;
   hidden?: string[];
   selected?: string[];
+  /**
+   * The meshing settings (B-Rep Meshing's, as tessellation.ts has them): for the next model meshed or Mesh again,
+   * not the model open. In states (cadViewer.state, recordings), not in addresses.
+   */
+  meshing?: Partial<TessellationSettings>;
 }
 
 const VIEW_NAMES: readonly ViewName[] = ['front', 'back', 'left', 'right', 'top', 'bottom', 'iso'];
@@ -48,7 +54,8 @@ const PICKS: readonly PickLevel[] = ['assembly', 'part', 'detail'];
 const QUALITIES: readonly RenderSettings['aoQuality'][] = ['Performance', 'Low', 'Medium', 'High', 'Ultra'];
 const FLAGS = ['ao', 'smaa', 'edges', 'cadMaterials'] as const;
 const TRIANGLE_EDGES: readonly RenderSettings['triangleEdges'][] = ['off', 'selected', 'all'];
-const NUMBERS = ['shininess', 'aoIntensity', 'aoRadius', 'edgeWidth', 'specular', 'ambient', 'light'] as const;
+const NUMBERS = ['shininess', 'aoIntensity', 'aoRadius', 'edgeWidth', 'specular', 'ambient', 'light',
+  'hatchWidth'] as const;
 /** Settings that are one of a few words. */
 const CHOICES = { edgeStyle: ['thin', 'fat'], capStyle: ['drawing', 'parts'] } as const;
 

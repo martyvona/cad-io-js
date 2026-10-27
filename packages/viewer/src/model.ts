@@ -40,6 +40,8 @@ export interface ViewNode {
 
 /** What the STEP graph does for faces, whose triangles are shared by every placement of their part. */
 export interface FaceHiding {
+  /** Every hidden face, as its part and source id. */
+  hiddenFaceList(): Iterable<[number, number]>;
   isFaceHidden(part: number, source: number): boolean;
   setFaceHidden(part: number, source: number, hidden: boolean): void;
   showAllFaces(): void;
@@ -200,6 +202,24 @@ export class NodeModel {
       siblings = this.detailNodes(found);
     }
     return found;
+  }
+
+  /**
+   * The paths of the hidden faces, below every placement of their parts, whether or not those placements' detail
+   * nodes exist yet (they're made on demand): a face's hiding is its part's.
+   */
+  hiddenFacePaths(): string[] {
+    const byPart = new Map<number, number[]>();
+    for (const [part, source] of this.faces?.hiddenFaceList() ?? []) {
+      byPart.set(part, [...byPart.get(part) ?? [], source]);
+    }
+    if (!byPart.size) return [];
+    const out: string[] = [];
+    for (const n of this.nodes) {
+      const sources = n.kind === 'part' ? byPart.get(n.object?.userData.part as number) : undefined;
+      if (sources) for (const s of sources) out.push(`${this.pathOf(n.id)}/face#${s}`);
+    }
+    return out;
   }
 
   /** The node an object belongs to: the nearest object up its ancestry that is a node's. */

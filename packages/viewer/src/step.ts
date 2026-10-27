@@ -228,6 +228,11 @@ export class StepGraph implements FaceHiding {
     obj.material = runs.map((r) => r.material === 'hidden' ? HIDDEN : this.material(r.material, 'face'));
   }
 
+  /** Every hidden face, as its part and source id. */
+  *hiddenFaceList(): Iterable<[number, number]> {
+    for (const [part, sources] of this.hiddenFaces) for (const source of sources) yield [part, source];
+  }
+
   isFaceHidden(part: number, source: number): boolean {
     return this.hiddenFaces.get(part)?.has(source) ?? false;
   }

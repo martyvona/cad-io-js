@@ -209,3 +209,23 @@ test('paths: same-named siblings numbered from the second; names escaped', () =>
   model.setDetail(true);
   assert.deepEqual(model.children(part).map((i) => model.pathOf(i)), ['top/asm/bolt/mesh']);
 });
+
+test('hiddenFacePaths: a hidden face below every placement of its part, as its face nodes\' paths, made or not', () => {
+  const { graph, model } = stepModel();
+  graph.addMesh(0, plate());
+  assert.deepEqual(model.hiddenFacePaths(), []);
+  // Face 7 of the plate (part 0) hidden: its part is placed three times.
+  graph.setFaceHidden(0, 7, true);
+  const paths = model.hiddenFacePaths();
+  const placements = model.nodes.filter((n) => n.kind === 'part' && n.object?.userData.part === 0);
+  assert.equal(placements.length, 3);
+  assert.deepEqual(paths, placements.map((n) => `${model.pathOf(n.id)}/face#7`));
+  // Each the path of the face node made for it, which is hidden.
+  for (const p of paths) {
+    const id = model.find(p);
+    assert.ok(id !== undefined && model.nodes[id]!.kind === 'face' && model.nodes[id]!.hidden, p);
+    assert.equal(model.pathOf(id!), p);
+  }
+  graph.setFaceHidden(0, 7, false);
+  assert.deepEqual(model.hiddenFacePaths(), []);
+});

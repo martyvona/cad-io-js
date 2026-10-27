@@ -330,6 +330,11 @@ export async function replay(rec: Recording, viewer: Viewer, ui: Ui, session: Se
     for (let i = 0; i < 2; i++) await new Promise((r) => requestAnimationFrame(r));
   };
   await widen(rec.side);
+  // Meshed as it was: the model open when it began with the settings it had been meshed with (or, with none open,
+  // the meshing settings then), set before anything loads; the first state then sets the controls' own.
+  const first = rec.events.find((e) => e.type === 'state') as Extract<RecordedEvent, { type: 'state' }> | undefined;
+  const meshing = (first?.state.model as { meshedWith?: object } | undefined)?.meshedWith ?? first?.state.meshing;
+  if (meshing) session.apply({ meshing });
   const gui = ui.gui as unknown as { controllersRecursive(): Controller[] };
   const resolve = (paths: string[]) => paths.map((p) => viewer.nodes?.find(p)).filter((x) => x !== undefined);
   const open = async (e: Extract<RecordedEvent, { type: 'load' }>, at: string) => {
@@ -432,8 +437,14 @@ export async function replay(rec: Recording, viewer: Viewer, ui: Ui, session: Se
       // The end: the view as it was then.
       await session.idle();
       const now = session.state() as Record<string, unknown>;
-      for (const key of ['centered', 'cut', 'caps', 'render', 'tree', 'pick', 'instances', 'hidden', 'selected']) {
-        if (JSON.stringify(now[key]) !== JSON.stringify(e.state[key])) divergences.push(
+      // (Hidden paths in any order: hidden faces' nodes may be made in another order.)
+      const text = (key: string, v: unknown) => JSON.stringify(key === 'hidden' && Array.isArray(v) ? [...v].sort()
+        : v);
+      for (const key of ['centered', 'cut', 'caps', 'render', 'meshing', 'tree', 'pick', 'instances', 'hidden',
+        'selected']) {
+        // (Recordings before 2026-10-27 have no meshing.)
+        if (e.state[key] === undefined && key === 'meshing') continue;
+        if (text(key, now[key]) !== text(key, e.state[key])) divergences.push(
           `the end: ${key} is ${JSON.stringify(now[key])}, recorded ${JSON.stringify(e.state[key])}`);
       }
       const [a, b] = [now.camera, e.state.camera] as CameraState[];

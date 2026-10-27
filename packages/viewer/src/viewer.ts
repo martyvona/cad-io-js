@@ -42,6 +42,16 @@ export interface ModelInfo {
   diagnostics?: Diagnostic[];
   /** STEP: what meshed it, once done. */
   meshing?: Meshing;
+  /** STEP: the meshing settings it was meshed with (the controls' may have changed since, until Mesh again). */
+  meshedWith?: MeshedWith;
+}
+
+/** The meshing settings that decide a model's meshes. */
+export interface MeshedWith {
+  backend: TessellationSettings['backend'];
+  profile: TessellationSettings['profile'];
+  linearDeflection: number;
+  angularDeflection: number;
 }
 
 export interface Stats { objects: number; meshes: number; triangles: number; segments: number; points: number }
@@ -261,6 +271,7 @@ export class Viewer {
     this.ambient.intensity = s.ambient;
     this.headlight.intensity = s.light;
     this.sections.setStyle(s.capStyle);
+    this.sections.setHatchWidth(s.hatchWidth);
     this.display.traverse((o) => {
       const m = (o as THREE.Mesh).material;
       if ((o as THREE.Mesh).isMesh) for (const x of Array.isArray(m) ? m : [m]) {
@@ -429,6 +440,9 @@ export class Viewer {
     if (gen !== this.generation) return;
     // A copy goes (transferred) to the worker; the source keeps its bytes, to be meshed again.
     const bytes = new Uint8Array(src.bytes.slice(0));
+    // What it's meshed with: the settings now, which the import worker is given.
+    const { backend, profile, linearDeflection, angularDeflection } = this.settings;
+    const meshedWith: MeshedWith = { backend, profile, linearDeflection, angularDeflection };
     let graph: StepGraph | undefined;
     let model: ModelInfo | undefined;
     let zoomed = false;
@@ -450,7 +464,7 @@ export class Viewer {
           graph = new StepGraph(scene, src.name, this.render.shininess, this.render.specular);
           const brep = scene.parts.flatMap((p, i) => p.kind === 'brep' && graph!.placements.has(i) ? [i] : []);
           model = { name: src.name, format: 'step', parts: { total: brep.length, done: 0, failed: 0 },
-            diagnostics: [...scene.diagnostics] };
+            diagnostics: [...scene.diagnostics], meshedWith };
           this.show(graph.root, model, graph, keep);
           // Parts already meshes or curves need no tessellation.
           for (const i of graph.placements.keys()) {

@@ -78,18 +78,20 @@ test('caps: per visible closed mesh and plane, a back, a front and a quad, each 
   const capZ = kids[5]!;
   assert.ok(capZ.position.z > 2 && capZ.position.z < 2.01);
   assert.ok(Math.abs(capZ.scale.x - 11) < 1e-2 && Math.abs(capZ.scale.y - 22) < 1e-2, `${capZ.scale.toArray()}`);
-  // The drawing style (the default): beige, black lines at 45 degrees (the first part colour met).
+  // The parts style (the default): the part's colour, lines a darker shade of it, at the part's angle.
   const hatch = (m: THREE.Material) => m.userData.hatch as Hatch;
-  assert.equal(hatch(capX.material as THREE.Material).ground.getHex(), 0xe9d9b8);
-  assert.equal(hatch(capX.material as THREE.Material).ink.getHex(), 0);
-  assert.equal(hatch(capX.material as THREE.Material).angle, Math.PI / 4);
+  assert.deepEqual(hatch(capX.material as THREE.Material),
+    partHatch(solid.name, (solid.material as THREE.MeshPhongMaterial).color));
+  assert.equal(hatch(capX.material as THREE.Material).ground.getHex(), 0xff0000);
   // Each cap clears the stencil after it's drawn, for the next part's count.
   let cleared = 0;
   const r = { clearStencil: () => { cleared++; } } as unknown as THREE.WebGLRenderer;
   capX.onAfterRender(r, new THREE.Scene(), new THREE.Camera(), capX.geometry, capX.material as THREE.Material,
     null as unknown as THREE.Group);
   assert.equal(cleared, 1);
-  assert.equal(capX.material, capZ.material);
+  // The same hatching on both planes, a material each (the lines lie in the plane).
+  assert.notEqual(capX.material, capZ.material);
+  assert.deepEqual(hatch(capX.material as THREE.Material), hatch(capZ.material as THREE.Material));
   // Moving a plane moves its caps, without making them again.
   set.x.at = 103;
   s.set(set);
@@ -157,6 +159,7 @@ function facesPart() {
 
 test('caps: a part\'s meshes closed together are capped as one, none of them closed alone', () => {
   const { s } = sections();
+  s.setStyle('drawing');
   const { root, part, faces } = facesPart();
   const set = DEFAULT_SECTIONS();
   set.z = { on: true, at: 1, flip: false };
@@ -248,12 +251,19 @@ test('cap styles: drawing hatchings alternate by part colour; parts hatch each i
   const set = DEFAULT_SECTIONS();
   set.z = { on: true, at: 0, flip: false };
   s.set(set);
+  s.setStyle('drawing');
   s.update(root);
   const caps = () => (s.group.children as THREE.Mesh[]).filter((k) => k.material instanceof THREE.MeshBasicMaterial &&
     (k.material as THREE.MeshBasicMaterial).colorWrite).map((k) => (k.material as THREE.Material).userData.hatch as
     Hatch);
-  assert.deepEqual(caps().map((h) => [h.ground.getHex(), h.angle]), [[0xe9d9b8, Math.PI / 4],
-    [0xf1e9d2, -Math.PI / 4], [0xe9d9b8, Math.PI / 4]]);
+  // The drawing style: the beiges alternate by colour, black lines; the angle and spacing as in the parts style.
+  const drawn = caps();
+  assert.deepEqual(drawn.map((h) => [h.ground.getHex(), h.ink.getHex()]), [[0xe9d9b8, 0], [0xf1e9d2, 0],
+    [0xe9d9b8, 0]]);
+  assert.deepEqual(drawn.map((h) => [h.angle, h.spacing]), colours.map((c, i) => {
+    const p = partHatch(`part ${i}`, new THREE.Color(c));
+    return [p.angle, p.spacing];
+  }));
   s.setStyle('parts');
   s.update(root);
   const parts = caps();
@@ -264,4 +274,45 @@ test('cap styles: drawing hatchings alternate by part colour; parts hatch each i
   const all = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'].map((n) => partHatch(n, new THREE.Color(0x808080)));
   assert.ok(new Set(all.map((h) => h.angle)).size > 2 && new Set(all.map((h) => h.spacing)).size > 1,
     'the angles and spacings vary between parts');
+});
+
+test('hatching: on the plane from the model\'s origin, spaced by its size; width and pixel ratio shared', () => {
+  const { s } = sections();
+  const root = new THREE.Group();
+  root.position.set(7, -3, 2);
+  const m = new THREE.Mesh(new THREE.BoxGeometry(6, 8, 4), new THREE.MeshPhongMaterial({ color: 0x00ff00 }));
+  root.add(m);
+  root.updateWorldMatrix(true, true);
+  const set = DEFAULT_SECTIONS();
+  set.x = { on: true, at: 7, flip: false };
+  set.z = { on: true, at: 2, flip: false };
+  s.set(set);
+  s.setHatchWidth(2.5);
+  s.update(root);
+  const quads = (s.group.children as THREE.Mesh[]).filter((k) => k.geometry.type === 'PlaneGeometry');
+  const compiled = quads.map((q) => {
+    const shader = { uniforms: {} as Record<string, { value: unknown }>, vertexShader:
+      'void main() {\n#include <project_vertex>\n}', fragmentShader: 'void main() {\n#include <color_fragment>\n}' };
+    (q.material as THREE.Material).onBeforeCompile(shader as unknown as THREE.WebGLProgramParametersWithUniforms,
+      {} as THREE.WebGLRenderer);
+    return shader;
+  });
+  const [x, z] = compiled as [typeof compiled[0], typeof compiled[0]];
+  assert.ok(x.vertexShader.includes('hatchWorld =') && x.fragmentShader.includes('dFdx(hatchT)'));
+  assert.deepEqual((x.uniforms.hatchOrigin!.value as THREE.Vector3).toArray(), [7, -3, 2]);
+  // The bounding sphere of the 6 x 8 x 4 box: half its diagonal.
+  assert.ok(Math.abs((x.uniforms.hatchSize!.value as number) - Math.sqrt(36 + 64 + 16) / 2) < 1e-9);
+  assert.equal(x.uniforms.hatchWidth!.value, 2.5);
+  assert.equal(x.uniforms.hatchPixelRatio!.value, 2);
+  // Shared, so the width changes without new materials.
+  s.setHatchWidth(1);
+  assert.equal(z.uniforms.hatchWidth!.value, 1);
+  assert.equal(x.uniforms.hatchOrigin, z.uniforms.hatchOrigin);
+  // The lines' normal in each plane at the part's angle: across x from y towards z, across z from x towards y.
+  const a = partHatch(m.name, new THREE.Color(0x00ff00)).angle;
+  const near = (v: unknown, w: number[]) => (v as THREE.Vector3).toArray().every((c, i) =>
+    Math.abs(c - w[i]!) < 1e-12);
+  assert.ok(near(x.uniforms.hatchDir!.value, [0, Math.cos(a), Math.sin(a)]));
+  assert.ok(near(z.uniforms.hatchDir!.value, [Math.cos(a), Math.sin(a), 0]));
+  assert.equal(x.uniforms.hatchSpacing!.value, partHatch(m.name, new THREE.Color(0x00ff00)).spacing);
 });

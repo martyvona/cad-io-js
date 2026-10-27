@@ -20,7 +20,8 @@ import { contentPath, fromUrl, pickFiles, typedUrl } from './sources.ts';
 import type { RenderSettings } from './style.ts';
 import type { Ui } from './ui.ts';
 import { fromQuery, renderChanges, toQuery, type CameraState, type ViewState } from './view-state.ts';
-import type { Viewer } from './viewer.ts';
+import type { TessellationSettings } from './tessellation.ts';
+import type { MeshedWith, Viewer } from './viewer.ts';
 
 export interface NodeInfo { path: string; kind: string; name: string; hidden: boolean }
 
@@ -32,9 +33,15 @@ export interface FullState extends Required<Pick<ViewState, 'camera' | 'centered
   tree: { open: boolean; detail: boolean };
   /** The device's class (device.ts), as detected and as used (the user's choice, if any); and the meshing profile. */
   device: { detected: string; used: string; profile: string };
-  /** The model: its file's name and URL (if it came from one), counts, centroid and parts (STEP). */
+  /** The meshing settings (B-Rep Meshing's), for the next model meshed. */
+  meshing: TessellationSettings;
+  /**
+   * The model: its file's name and URL (if it came from one), counts, centroid and parts (STEP), and (STEP) the
+   * meshing settings it was meshed with.
+   */
   model?: { name: string; url?: string; format: string; triangles: number; objects: number; meshes: number;
-    centroid?: number[]; parts?: { total: number; done: number; failed: number }; diagnostics: number };
+    centroid?: number[]; parts?: { total: number; done: number; failed: number }; diagnostics: number;
+    meshedWith?: MeshedWith };
 }
 
 export interface CadViewer {
@@ -106,12 +113,16 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
       camera: viewer.cameraState() as CameraState, centered: viewer.isCentered(), cut, caps: s.caps,
       render: { ...viewer.render }, tree: ui.tree(),
       device: { detected: viewer.detectedDevice, used: viewer.device, profile: viewer.settings.profile },
+      meshing: { ...viewer.settings },
       pick: ui.selection.level, instances: ui.selection.instances,
-      hidden: model ? model.nodes.filter((n) => n.hidden).map((n) => model.pathOf(n.id)) : [],
+      // Faces hidden whether or not their nodes exist yet (made on demand).
+      hidden: model ? [...new Set([...model.nodes.filter((n) => n.hidden).map((n) => model.pathOf(n.id)),
+        ...model.hiddenFacePaths()])] : [],
       selected: model ? ui.selected().map((id) => model.pathOf(id)) : [],
       ...(m && stats ? { model: { name: m.name, url: ui.currentUrl(), format: m.format, triangles: stats.triangles,
         objects: stats.objects, meshes: stats.meshes, centroid: m.centroid?.toArray(), parts: m.parts,
-        diagnostics: (m.diagnostics ?? []).filter((d) => d.severity !== 'info').length } } : {}),
+        diagnostics: (m.diagnostics ?? []).filter((d) => d.severity !== 'info').length,
+        ...(m.meshedWith ? { meshedWith: { ...m.meshedWith } } : {}) } } : {}),
     };
   };
 
@@ -131,6 +142,7 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
       ui.setSections(s);
     }
     if (st.render) ui.setRender(st.render);
+    if (st.meshing) ui.setMeshing(st.meshing);
     if (st.pick) ui.setPickLevel(st.pick);
     if (st.instances !== undefined) ui.setInstances(st.instances);
     if (st.hidden) {
@@ -141,6 +153,9 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
       if (model) {
         const want = new Set(ids);
         ui.setHidden(model.nodes.filter((n) => n.hidden && !want.has(n.id)).map((n) => n.id), false);
+        // Hidden faces whose nodes weren't made yet, and not listed.
+        const listed = new Set(st.hidden);
+        ui.setHidden(resolve(model.hiddenFacePaths().filter((p) => !listed.has(p))).ids, false);
         ui.setHidden(ids, true);
       }
     }
