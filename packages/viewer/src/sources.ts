@@ -71,6 +71,41 @@ export async function fromFiles(files: readonly File[]): Promise<Source | undefi
   return { name: model.name, bytes: await model.arrayBuffer(), siblings };
 }
 
+interface SaverWindow {
+  showSaveFilePicker?(o: { suggestedName?: string }): Promise<{ createWritable(): Promise<{
+    write(data: ArrayBuffer): Promise<void>; close(): Promise<void> }> }>;
+}
+
+/**
+ * Saves a file's bytes where the user chooses (the user, 2026-10-28: File's Save...): the browser's save dialog
+ * (File System Access, as Open file uses: desktop Chrome in a secure context), its name suggested; elsewhere a
+ * download by that name (the browser's downloads folder, or its asking, as its settings say). Throws if writing
+ * fails.
+ */
+export async function saveFile(name: string, bytes: ArrayBuffer): Promise<'saved' | 'downloaded' | 'cancelled'> {
+  const w = window as SaverWindow;
+  if (w.showSaveFilePicker && window.isSecureContext) {
+    let handle;
+    try {
+      handle = await w.showSaveFilePicker({ suggestedName: name });
+    } catch (e) {
+      if ((e as Error).name === 'AbortError') return 'cancelled';
+      throw e;
+    }
+    const out = await handle.createWritable();
+    await out.write(bytes);
+    await out.close();
+    return 'saved';
+  }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([bytes]));
+  a.download = name;
+  a.click();
+  // (Revoked once the download has surely begun.)
+  setTimeout(() => URL.revokeObjectURL(a.href), 60_000);
+  return 'downloaded';
+}
+
 interface PickerWindow { showOpenFilePicker?(o: { multiple: boolean }): Promise<{ getFile(): Promise<File> }[]> }
 
 /** Asks for local files: the browser's file picker, several allowed (a .gltf with its .bin). Empty if cancelled. */

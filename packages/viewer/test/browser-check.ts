@@ -2724,6 +2724,56 @@ await check('open errors', async () => {
   expect(!!typed?.error && /not a URL, nor a path within the content root/.test(typed.text), `a bad address: ${j}`);
   return undefined;
 });
+// File's Save... (the user, 2026-10-28): disabled with no model; the save dialog (File System Access, stubbed)
+// suggested the file's name (a URL's last segment) and given exactly its bytes; cancelled, nothing said; without the
+// API, a download by that name (the link's click stubbed) with the same bytes; a load that fails before showing
+// its model leaves the last one's file to save; the next model shown, its file.
+await check('save', async () => {
+  const r = await page(`?check`, `(async () => {
+    await cadViewer.ready;
+    const save = ui.gui.controllersRecursive().find((c) => c._name === 'Save...');
+    const before = save._disabled;
+    await ui.openUrl('/content/as1.stp');
+    await cadViewer.idle();
+    const want = new Uint8Array(await (await fetch('/content/as1.stp')).arrayBuffer());
+    const same = (b) => b.length === want.length && b.every((x, i) => x === want[i]);
+    let suggested, written;
+    window.showSaveFilePicker = async (o) => { suggested = o.suggestedName; return { createWritable: async () => ({
+      write: async (d) => { written = new Uint8Array(d); }, close: async () => {} }) }; };
+    await save.getValue().call(save.object);
+    const status = document.getElementById('status').textContent;
+    window.showSaveFilePicker = async () => { throw new DOMException('cancelled', 'AbortError'); };
+    ui.say('before');
+    await save.getValue().call(save.object);
+    const cancelled = document.getElementById('status').textContent;
+    delete window.showSaveFilePicker;
+    let download, blob;
+    const click = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function () { download = this.download;
+      blob = fetch(this.href).then((r) => r.arrayBuffer()); };
+    await save.getValue().call(save.object);
+    HTMLAnchorElement.prototype.click = click;
+    const downloaded = new Uint8Array(await blob), first = download;
+    // A file not found: the model shown stays, and Save... with it; then another shown: its file saved.
+    await ui.openUrl('/content/nothing.glb');
+    const kept = !save._disabled;
+    await ui.openUrl('/content/as1.glb');
+    await cadViewer.idle();
+    HTMLAnchorElement.prototype.click = function () { download = this.download; };
+    await save.getValue().call(save.object);
+    HTMLAnchorElement.prototype.click = click;
+    return { kept, next: download, before, suggested, same: same(written), status, cancelled, download: first,
+      downloadedSame: same(downloaded) };
+  })()`) as { after: { before: boolean; suggested: string; same: boolean; status: string; cancelled: string;
+    download: string; downloadedSame: boolean; kept: boolean; next: string } };
+  const a = r.after, j = JSON.stringify(a);
+  expect(a.before === true, `disabled with no model: ${j}`);
+  expect(a.suggested === 'as1.stp' && a.same && /^saved as1\.stp/.test(a.status), `the save dialog: ${j}`);
+  expect(a.cancelled === 'before', `cancelled: ${j}`);
+  expect(a.download === 'as1.stp' && a.downloadedSame, `a download without the API: ${j}`);
+  expect(a.kept && a.next === 'as1.glb', `the model shown's file: ${j}`);
+  return undefined;
+});
 await check('missing file', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/nothing.glb')}&check`);
   expect(typeof r.error === 'string' && /not found \(404/.test(r.error), `report ${JSON.stringify(r)}`);

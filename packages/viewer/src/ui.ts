@@ -22,7 +22,8 @@ import type { RenderSettings } from './style.ts';
 import { DEVICE_PROFILES, setDeviceOverride, type DeviceClass } from './device.ts';
 import { defaultSettings, profileSettings, type TessellationSettings } from './tessellation.ts';
 import { TreePanel } from './tree-panel.ts';
-import { fromFiles, fromUrl, pickFiles, typedUrl } from './sources.ts';
+import { formatOf } from './formats.ts';
+import { fromFiles, fromUrl, pickFiles, saveFile, typedUrl } from './sources.ts';
 import { visibleBox, type Viewer } from './viewer.ts';
 
 /** What the browser check reaches through `globalThis.ui`. */
@@ -173,6 +174,9 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     const id = restore?.top && viewer.nodes?.find(restore.top.path);
     if (id !== undefined && panel) panel.scrollToRow(id, restore!.top!.offset);
   };
+  // The open model's file, for Save... (its control made with the File folder, below).
+  let saving: Source | undefined;
+  let saveControl: { enable(on?: boolean): unknown; disable(): unknown } | undefined;
   const open = async (get: () => Promise<Source | undefined>, what: string, keep = false):
     Promise<Record<string, unknown>> => {
     try {
@@ -269,6 +273,22 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     if (url) await openUrl(url);
     else failed(typed, 'not a URL, nor a path within the content root');
   } }, 'load').name('Load URL...');
+  // The open model's file as it was read (its bytes, not an export), where the user chooses, its name suggested
+  // (the file's, or the URL's last segment); a .gltf's .bin and images aren't saved with it.
+  saveControl = file.add({ save: async () => {
+    const src = saving;
+    if (!src) return;
+    try {
+      const how = await saveFile(src.name, src.bytes);
+      if (how === 'cancelled') return;
+      const others = formatOf(src.name) === 'gltf' ? ' (only the .gltf: not its .bin or images)' : '';
+      say(`${how === 'saved' ? 'saved' : 'downloaded'} ${src.name}${others}`);
+    } catch (e) {
+      say(`saving ${src.name}: ${(e as Error).message}`, true);
+      void showDialog({ title: `Could not save ${src.name}`, error: true, body: [(e as Error).message],
+        buttons: [{ label: 'OK', value: 'ok', primary: true }] });
+    }
+  } }, 'save').name('Save...').disable();
   // (With the model open: its file, objects and triangles, as they are now.)
   file.add({ about: () => {
     const s = viewer.model && viewer.stats();
@@ -500,6 +520,9 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     describe();
   };
   viewer.onModel = (nodes) => {
+    // Save... saves the file of the model shown (a load that fails before showing its model leaves the last one).
+    saving = last;
+    saveControl?.enable(!!saving);
     panel?.dispose();
     highlighter.clear();
     selected = [];
