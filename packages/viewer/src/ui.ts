@@ -637,19 +637,8 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     set onEvent(f) { hooks.onEvent = f; },
     pickAt: (clientX, clientY, add) => viewer.onPick?.(viewer.pickAt(clientX, clientY), { add, clientX, clientY }),
   };
-  const treeFolder = gui.addFolder('Tree');
-  openControl = treeFolder.add(tree, 'open').name('Show the tree').onChange((open: boolean) => {
-    setOpen(open);
-    if (!open && viewer.nodes) tree.closedByHand = true;
-  });
-  detailControl = treeFolder.add(tree, 'detail').name('Faces, edges, curves')
-    .onChange((on: boolean) => panel?.setDetail(on));
-  treeFolder.add({ expand: () => panel?.expandAll() }, 'expand').name('Expand all');
-  treeFolder.add({ collapse: () => panel?.collapseAll() }, 'collapse').name('Collapse all');
-  treeFolder.add(ui, 'hideSelected').name('Hide selected');
-  treeFolder.add(ui, 'showSelected').name('Show selected');
-  treeFolder.add(ui, 'showAll').name('Show all');
-
+  // Selection holds the tree's controls too (the Tree folder until 2026-10-28, the user): picking and selecting, then
+  // hiding and showing, then the tree panel.
   const selFolder = gui.addFolder('Selection');
   selFolder.add(selection, 'level', { 'Assembly': 'assembly', 'Part': 'part', 'Face, edge, curve': 'detail' })
     .name('Pick');
@@ -659,6 +648,17 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   selFolder.add({ none: () => select([]) }, 'none').name('Select none');
   selFolder.add(ui, 'selectAll').name('Select all');
   selFolder.add(selection, 'details').name('Details').onChange(describe);
+  selFolder.add(ui, 'hideSelected').name('Hide selected');
+  selFolder.add(ui, 'showSelected').name('Show selected');
+  selFolder.add(ui, 'showAll').name('Show all');
+  openControl = selFolder.add(tree, 'open').name('Show the tree').onChange((open: boolean) => {
+    setOpen(open);
+    if (!open && viewer.nodes) tree.closedByHand = true;
+  });
+  detailControl = selFolder.add(tree, 'detail').name('Faces, edges, curves')
+    .onChange((on: boolean) => panel?.setDetail(on));
+  selFolder.add({ expand: () => panel?.expandAll() }, 'expand').name('Expand all');
+  selFolder.add({ collapse: () => panel?.collapseAll() }, 'collapse').name('Collapse all');
 
   for (const f of gui.foldersRecursive()) f.close();
 
