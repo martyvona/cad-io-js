@@ -598,12 +598,12 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     },
     selectAll: () => {
       const ids = everything();
-      // Not revealed in the tree: that would open every branch.
-      if (ids) select(ids, 'api', false);
+      // Shown in the tree, every branch it needs unfolded (the user, 2026-10-28; before, nothing was revealed).
+      if (ids) select(ids);
     },
     invertSelection: () => {
       const now = new Set(selected), ids = everything();
-      if (ids) select([...new Set(ids)].filter((id) => !now.has(id)), 'api', false);
+      if (ids) select([...new Set(ids)].filter((id) => !now.has(id)));
     },
     selectByIds: (text) => {
       const { ids, bad } = parseIds(text);

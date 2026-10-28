@@ -824,6 +824,44 @@ await check('picks unfold the tree', async () => {
   expect(r.after.selected.length === 2 && r.after.unfolded, `both picks shown, their branches unfolded: ${j}`);
   return undefined;
 });
+// Selection's buttons in the tree (the user, 2026-10-28): with every branch folded, Select all, Invert selection,
+// Select parent and Select none each leave every selected node shown, its branches unfolded, and the drawn rows
+// highlighted exactly as the selection is (none stale), the tree scrolled to show a selected row.
+await check('selection buttons in the tree', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    await cadViewer.ready; await cadViewer.idle();
+    const m = viewer.nodes;
+    const press = (name) => ui.gui.controllersRecursive().find((c) => c._name === name).$button.click();
+    const look = async () => {
+      for (let i = 0; i < 2; i++) await new Promise((res) => requestAnimationFrame(res));
+      const s = new Set(ui.selected()), open = new Set(ui.panel().expanded());
+      const unfolded = [...s].every((id) => { for (let p = m.nodes[id].parent; p >= 0; p = m.nodes[p].parent) {
+        if (!open.has(p)) return false; } return true; });
+      const rows = [...document.querySelectorAll('.tree-row')].filter((e) => e.style.display !== 'none');
+      const stale = rows.filter((e) => e.classList.contains('selected') !== s.has(Number(e.dataset.id))).length;
+      const shown = rows.filter((e) => e.classList.contains('selected')).length;
+      return { selected: s.size, unfolded, stale, shown };
+    };
+    const out = {};
+    ui.select([m.nodes.find((n) => n.kind === 'part' && n.name === 'rod').id]);
+    ui.panel().collapseAll();
+    press('Select all'); out.all = await look();
+    ui.panel().collapseAll();
+    ui.select([m.nodes.find((n) => n.kind === 'part' && n.name === 'plate').id]);
+    ui.panel().collapseAll();
+    press('Invert selection'); out.invert = await look();
+    ui.panel().collapseAll();
+    press('Select parent'); out.parent = await look();
+    press('Select none'); out.none = await look();
+    return out;
+  })()`) as { after: Record<string, { selected: number; unfolded: boolean; stale: number; shown: number }> };
+  const a = r.after, j = JSON.stringify(a);
+  for (const k of ['all', 'invert', 'parent']) {
+    expect(a[k]!.selected > 0 && a[k]!.unfolded && a[k]!.stale === 0 && a[k]!.shown > 0, `${k}: ${j}`);
+  }
+  expect(a.none!.selected === 0 && a.none!.stale === 0, `none: ${j}`);
+  return undefined;
+});
 // B-Rep Meshing's Timeout: a limit too short for any part (a millisecond) fails every part, timed out (said in the
 // diagnostics; the cache on, emptied first); then 60 s and Mesh again meshes them all, the cache's timeouts not
 // answering for a longer limit. The model's meshedWith has the timeout.
@@ -1553,9 +1591,7 @@ await check('auto hide and select all', async () => {
     // Select all at each level, one part hidden.
     ui.setHidden([parts[0].id], true);
     const all = (level) => { ui.setPickLevel(level); button('Select all').$button.click(); return [...ui.selected()]; };
-    const expanded = ui.panel().expanded().length;
     const part = all('part');
-    out.expandedKept = ui.panel().expanded().length === expanded;
     // Invert selection: one shown part selected, the other shown ones; inverted again, that one.
     const first = parts[1].id;
     ui.select([first]);
@@ -1584,7 +1620,6 @@ await check('auto hide and select all', async () => {
     `the status line: ${j}`);
   expect(a.detailsShown === true && a.detailsNothing === true && a.detailsSelected === false &&
     a.detailsKept === false && a.detailsReshown === true, `the details: ${j}`);
-  expect(a.expandedKept === true, `select all leaves the tree's expansion: ${j}`);
   expect(a.detailsDefault === true, `details on by default: ${j}`);
   expect(JSON.stringify(a.inverted) === JSON.stringify(a.shown.slice(1).sort()) &&
     JSON.stringify(a.invertedBack) === JSON.stringify([a.shown[0]]), `invert selection: ${j}`);
