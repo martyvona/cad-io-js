@@ -91,7 +91,9 @@ export class StepGraph implements FaceHiding {
         : scene.roots[inst.path[0]!]!;
       const g = new THREE.Group();
       g.name = occ.name ?? scene.components[inst.component]!.name;
-      g.userData = { cad: 'assembly', component: inst.component, path: inst.path };
+      // (Its STEP ids: the occurrence's, then its component's; step-ids.ts.)
+      const sources = [...new Set([...occ.sources, ...scene.components[inst.component]!.sources].map((s) => s.id))];
+      g.userData = { cad: 'assembly', component: inst.component, path: inst.path, sources };
       setMatrix(g, occ.transform);
       (parent ?? this.root).add(g);
       groups.set(inst.path.join('/'), g);
@@ -99,7 +101,8 @@ export class StepGraph implements FaceHiding {
     for (const pi of partInstances(scene)) {
       const g = new THREE.Group();
       g.name = scene.parts[pi.part]!.name;
-      g.userData = { cad: 'part', part: pi.part, path: pi.path };
+      g.userData = { cad: 'part', part: pi.part, path: pi.path,
+        sources: [...new Set(scene.parts[pi.part]!.sources.map((s) => s.id))] };
       g.visible = pi.visible;
       setMatrix(g, pi.ref.transform);
       groups.get(pi.path.join('/'))!.add(g);

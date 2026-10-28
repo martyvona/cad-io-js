@@ -51,7 +51,7 @@ export type RecordedEvent = { t: number } & (
     pointerType: string; button: number; buttons: number; mods: string }
   | { type: 'wheel'; x: number; y: number; deltaY: number; deltaMode: number }
   | { type: 'pick'; x: number; y: number; add: boolean; path: string | null; point?: number[] }
-  | { type: 'select'; source: 'tree' | 'pick' | 'api'; paths: string[] }
+  | { type: 'select'; source: 'tree' | 'pick' | 'api' | 'id'; paths: string[] }
   | { type: 'control'; path: string; value?: unknown }
   | { type: 'camera'; camera: CameraState }
   | { type: 'api'; method: string; args: unknown[] }
@@ -99,7 +99,9 @@ export interface Session {
 
 /** Controls whose changes aren't recorded (the recorder's own), and those replay leaves alone. */
 const UNRECORDED = /^Recording\//;
-const NOT_REPLAYED = /^(File\/|View\/Copy link|View\/(Enter|Exit) full screen|B-Rep Meshing\/Clear cache)/;
+// (Select by ID's dialog isn't replayed; the selection it made is, as a select event.)
+const NOT_REPLAYED = new RegExp('^(File/|View/Copy link|View/(Enter|Exit) full screen|B-Rep Meshing/Clear cache|' +
+  'Selection/Select by ID)');
 
 /** A lil-gui folder (or the top panel, which has no parent), as far as the recorder needs it. */
 interface Folder { _title: string; _closed: boolean; parent?: Folder; open(): unknown; close(): unknown }
@@ -403,7 +405,7 @@ export async function replay(rec: Recording, viewer: Viewer, ui: Ui, session: Se
     } else if (e.type === 'api') {
       await session.call(e.method, e.args);
       applied++;
-    } else if (e.type === 'select' && e.source === 'tree') {
+    } else if (e.type === 'select' && (e.source === 'tree' || e.source === 'id')) {
       // Selections by pick and through the interface come back with their pick and api events.
       ui.select(resolve(e.paths) as number[]);
       applied++;

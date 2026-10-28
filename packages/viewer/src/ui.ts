@@ -12,7 +12,8 @@ import { showAbout } from './about.ts';
 import { VERSION } from './version.ts';
 import { applyCustomBackground, applyTheme, customBackground, hexColour, onSystemTheme, themeChoice, type ThemeChoice,
   VIEW_BACKGROUNDS } from './theme.ts';
-import { askUrl } from './dialog.ts';
+import { askUrl, showDialog } from './dialog.ts';
+import { formatIds, nodesWithIds, parseIds, partsWithFaces, stepIdsOf } from './step-ids.ts';
 import { showProblems } from './problems.ts';
 import { AXES, DEFAULT_SECTIONS, type SectionSettings } from './section.ts';
 import { boxOf, Highlighter, instancesOf, nodeForPick, piecesOf, type PickLevel } from './selection.ts';
@@ -44,6 +45,11 @@ export interface Ui {
    * that Select all wouldn't, at another level or hidden, is let go).
    */
   invertSelection(): void;
+  /**
+   * Selects the nodes with any of the STEP ids in the text (step-ids.ts's parseIds: `#12 345`), every placement;
+   * faces through the tree's detail, turned on when an id is a face's. Says what wasn't found.
+   */
+  selectByIds(text: string): { selected: number; found: number[]; missing: number[]; bad: string[] };
   /** The details panel's lines. */
   details(): string[];
   /** Opens a model by URL; resolves with what the browser check's report has (`error` if it failed). */
@@ -88,7 +94,7 @@ export interface Ui {
 export type UiEvent =
   | { type: 'load'; url?: string; files?: File[] }
   | { type: 'loaded'; report: Record<string, unknown> }
-  | { type: 'select'; source: 'tree' | 'pick' | 'api'; ids: readonly number[] }
+  | { type: 'select'; source: 'tree' | 'pick' | 'api' | 'id'; ids: readonly number[] }
   | { type: 'pick'; clientX: number; clientY: number; add: boolean; id?: number; point?: number[] }
   | { type: 'status'; text: string; error: boolean };
 
@@ -465,7 +471,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     detailsElement.textContent = text;
   };
   /** Sets the selection; from the 3D view (or code), the tree follows. */
-  const select = (ids: readonly number[], source: 'tree' | 'pick' | 'api' = 'api', reveal = true) => {
+  const select = (ids: readonly number[], source: 'tree' | 'pick' | 'api' | 'id' = 'api', reveal = true) => {
     selected = [...new Set(ids)];
     // A selection made while meshing again replaces the one being restored.
     if (source !== 'api' && restore) restore.selected = [];
@@ -598,6 +604,34 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       const now = new Set(selected), ids = everything();
       if (ids) select([...new Set(ids)].filter((id) => !now.has(id)), 'api', false);
     },
+    selectByIds: (text) => {
+      const { ids, bad } = parseIds(text);
+      const nodes = viewer.nodes;
+      if (!nodes || !panel) return { selected: 0, found: [], missing: ids, bad };
+      const wanted = new Set(ids);
+      let found = nodesWithIds(nodes, wanted);
+      const has = new Set(stepIdsOf(nodes, found));
+      // Faces have nodes only with the tree's detail, made per part when first asked for: the detail turned on, and
+      // the nodes made, for the parts with faces of the ids not found.
+      const parts = partsWithFaces(nodes, new Set(ids.filter((id) => !has.has(id))));
+      if (parts.length) {
+        if (!nodes.hasDetail()) {
+          tree.detail = true;
+          panel.setDetail(true);
+          detailControl?.updateDisplay();
+        }
+        for (const p of parts) nodes.children(p);
+        found = nodesWithIds(nodes, wanted);
+      }
+      const hit = new Set(stepIdsOf(nodes, found));
+      select(found, 'id');
+      const missing = ids.filter((id) => !hit.has(id));
+      say(`selected ${found.length} for ${ids.length - missing.length} of ${ids.length} IDs` +
+        (missing.length ? `; not found: ${formatIds(missing, 60)}` : '') +
+        (bad.length ? `; not IDs: ${bad.slice(0, 5).join(' ')}${bad.length > 5 ? ' ...' : ''}` : ''),
+      !!(missing.length || bad.length) && !found.length);
+      return { selected: found.length, found: [...hit], missing, bad };
+    },
     details: () => (viewer.nodes ? details(viewer.nodes, selected) : []),
     openUrl,
     openFiles: async (files) => (await openFiles(files)) ?? { error: 'no files' },
@@ -663,6 +697,14 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   selFolder.add({ none: () => select([]) }, 'none').name('Select none');
   selFolder.add(ui, 'selectAll').name('Select all');
   selFolder.add(ui, 'invertSelection').name('Invert selection');
+  // STEP ids typed or pasted (as the problems dialog's Copy IDs copies them).
+  selFolder.add({ byId: async () => {
+    const r = await showDialog({ title: 'Select by ID', body: ['STEP instance ids, separated by spaces: #123 or ' +
+      '123. Every placement of a part is selected, and faces through the tree\'s detail.'],
+    input: { label: 'IDs', placeholder: '#123 #456 789', lines: 4 },
+    buttons: [{ label: 'Select', value: 'select', primary: true }, { label: 'Cancel', value: 'cancel' }] });
+    if (r.button === 'select' && r.input) ui.selectByIds(r.input);
+  } }, 'byId').name('Select by ID...');
   selFolder.add(selection, 'details').name('Details').onChange(describe);
   selFolder.add(ui, 'hideSelected').name('Hide selected');
   selFolder.add(ui, 'showSelected').name('Show selected');

@@ -738,6 +738,62 @@ await check('problems dialog', async () => {
   expect(quiet.problems > 0 && !quiet.open, `none in plain ?check pages: ${j}`);
   return undefined;
 });
+// STEP ids (step-ids.ts): the problems dialog's Copy IDs copies its rows' ids (the clipboard stubbed), the dialog
+// staying open; Select by ID (Selection) reads what's typed in its dialog: a part's id selects every placement, a
+// face's turns the tree's detail on and selects its face nodes, anything else is said; the details panel lists the
+// selection's ids, cut short past about 50 characters.
+await check('step ids', async () => {
+  const copy = (await page(`?url=${encodeURIComponent('/content/broken.stp')}&check=dialogs`, `(async () => {
+    await cadViewer.ready; await cadViewer.idle();
+    let copied; navigator.clipboard.writeText = async (t) => { copied = t; };
+    await new Promise((r) => setTimeout(r, 200));
+    const d = document.querySelector('dialog.cv-dialog');
+    const b = [...d.querySelectorAll('button')].find((x) => x.textContent === 'Copy IDs');
+    const rows = [...d.querySelectorAll('tr')].map((r) => r.cells[0].textContent);
+    b.click();
+    await new Promise((r) => setTimeout(r, 100));
+    const out = { copied, label: b.textContent, open: d.open, rows };
+    d.querySelector('button.primary').click();
+    return out;
+  })()`) as { after: { copied: string; label: string; open: boolean; rows: string[] } }).after;
+  const sel = (await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    await cadViewer.ready; await cadViewer.idle();
+    const m = viewer.nodes;
+    const nuts = m.nodes.filter((n) => n.kind === 'part' && n.name === 'nut');
+    const partId = nuts[0].object.userData.sources[0];
+    const face = m.nodes.find((n) => n.kind === 'part' && n.name === 'plate').object.children[0].userData.faces[0];
+    const detailBefore = cadViewer.state().tree.detail;
+    ui.gui.controllersRecursive().find((c) => c._name === 'Select by ID...').$button.click();
+    await new Promise((r) => setTimeout(r, 100));
+    const d = document.querySelector('dialog.cv-dialog');
+    d.querySelector('textarea').value = '  #' + partId + '\\n' + face + ' bogus 999999 ';
+    d.querySelector('button.primary').click();
+    await new Promise((r) => setTimeout(r, 100));
+    const status = document.getElementById('status').textContent;
+    const s = ui.selected();
+    const kinds = s.map((id) => m.nodes[id].kind).sort();
+    const parts = s.filter((id) => m.nodes[id].kind === 'part').sort();
+    const lines = ui.details();
+    // Every face of the plate selected: the ids line cut short.
+    ui.selectByIds(m.nodes.find((n) => n.kind === 'part' && n.name === 'plate').object.children[0].userData.faces
+      .join(' '));
+    const all = ui.details().find((l) => l.startsWith('STEP IDs: '));
+    return { partId, face, kinds, parts, nuts: nuts.map((n) => n.id).sort(), detailBefore,
+      detail: cadViewer.state().tree.detail, lines, status, all };
+  })()`) as { after: { partId: number; face: number; kinds: string[]; parts: number[]; nuts: number[];
+    detailBefore: boolean; detail: boolean; lines: string[]; status: string; all: string } }).after;
+  const j = JSON.stringify({ copy, sel });
+  const rowIds = [...new Set(copy.rows.flatMap((r) => r.match(/#(\d+)/)?.[1] ?? []))].map((x) => `#${x}`).join(' ');
+  expect(copy.copied === rowIds && rowIds.length > 0 && copy.open && /^Copied \d+ IDs?$/.test(copy.label),
+    `copy ids: ${j}`);
+  expect(JSON.stringify(sel.parts) === JSON.stringify(sel.nuts) && sel.kinds.includes('face') && !sel.detailBefore &&
+    sel.detail, `select by id: ${j}`);
+  expect(/not found: #999999/.test(sel.status) && /not IDs: bogus/.test(sel.status), `what wasn't found: ${j}`);
+  expect(sel.lines.some((l) => l.startsWith('STEP IDs: ') && l.includes(`#${sel.partId}`) &&
+    l.includes(`#${sel.face}`)), `the details' ids: ${j}`);
+  expect(sel.all.length <= 'STEP IDs: '.length + 50 && sel.all.endsWith(' ...'), `cut short: ${j}`);
+  return undefined;
+});
 // B-Rep Meshing's Timeout: a limit too short for any part (a millisecond) fails every part, timed out (said in the
 // diagnostics; the cache on, emptied first); then 60 s and Mesh again meshes them all, the cache's timeouts not
 // answering for a longer limit. The model's meshedWith has the timeout.

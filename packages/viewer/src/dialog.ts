@@ -8,6 +8,9 @@ export interface DialogButton {
   value: string;
   /** The default (Enter), drawn as such. */
   primary?: boolean;
+  /** Done when it's pressed, the dialog left open (Copy IDs: problems.ts). */
+  action?: (button: HTMLButtonElement) => void;
+  disabled?: boolean;
 }
 
 export interface DialogOptions {
@@ -21,7 +24,9 @@ export interface DialogOptions {
   /** Drawn as an error. */
   error?: boolean;
   /** A text field (its value is what `showDialog` resolves to with, as `input`), for `askUrl`. */
-  input?: { label: string; value?: string; placeholder?: string };
+  input?: { label: string; value?: string; placeholder?: string;
+    /** Several lines (a textarea: pasted lines kept; ctrl/cmd-Enter presses the primary button), for Select by ID. */
+    lines?: number };
 }
 
 export interface DialogResult {
@@ -75,12 +80,25 @@ export function showDialog(o: DialogOptions): Promise<DialogResult> {
     box.append(table);
     form.append(box);
   }
-  let field: HTMLInputElement | undefined;
+  let field: HTMLInputElement | HTMLTextAreaElement | undefined;
   if (o.input) {
     const label = document.createElement('label');
     label.textContent = o.input.label;
-    field = document.createElement('input');
-    field.type = 'text';
+    if (o.input.lines) {
+      const area = document.createElement('textarea');
+      area.rows = o.input.lines;
+      area.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+          e.preventDefault();
+          form.requestSubmit(buttons.querySelector<HTMLButtonElement>('button.primary'));
+        }
+      });
+      field = area;
+    } else {
+      const input = document.createElement('input');
+      input.type = 'text';
+      field = input;
+    }
     field.value = o.input.value ?? '';
     field.placeholder = o.input.placeholder ?? '';
     field.spellcheck = false;
@@ -95,6 +113,12 @@ export function showDialog(o: DialogOptions): Promise<DialogResult> {
     const button = document.createElement('button');
     button.value = b.value;
     button.textContent = b.label;
+    button.disabled = !!b.disabled;
+    if (b.action) {
+      const action = b.action;
+      button.type = 'button';
+      button.addEventListener('click', () => action(button));
+    }
     if (b.primary) button.className = 'primary';
     buttons.append(button);
   }
