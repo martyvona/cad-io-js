@@ -115,7 +115,6 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     status.classList.toggle('error', error);
     hooks.onEvent?.({ type: 'status', text, error });
   };
-  const info = { file: '', triangles: '', objects: '' };
   let centered: { enable(on: boolean): unknown; setValue(v: boolean): unknown };
   let last: Source | undefined;
   viewer.onStatus = (text) => say(text);
@@ -176,9 +175,6 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       restore = undefined;
       fitPlanes();
       const s = viewer.stats()!;
-      info.file = src.name;
-      info.triangles = s.triangles.toLocaleString();
-      info.objects = `${s.objects.toLocaleString()} (${s.meshes.toLocaleString()} meshes)`;
       centered.setValue(viewer.isCentered());
       centered.enable(viewer.model?.centroid !== undefined);
       const m = viewer.model!;
@@ -244,7 +240,13 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     if (url) await openUrl(url);
     else say(`not a URL nor a path within the content root: ${typed}`, true);
   } }, 'load').name('Load URL...');
-  file.add({ about: () => showAbout() }, 'about').name('About...');
+  // (With the model open: its file, objects and triangles, as they are now.)
+  file.add({ about: () => {
+    const s = viewer.model && viewer.stats();
+    return showAbout(viewer.model && s ? [['File', viewer.model.name],
+      ['Objects', `${s.objects.toLocaleString()} (${s.meshes.toLocaleString()} meshes)`],
+      ['Triangles', s.triangles.toLocaleString()]] : undefined);
+  } }, 'about').name('About...');
 
   const view = gui.addFolder('View');
   view.add({ all: () => viewer.zoomAll() }, 'all').name('Zoom all');
@@ -658,10 +660,6 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   selFolder.add(ui, 'selectAll').name('Select all');
   selFolder.add(selection, 'details').name('Details').onChange(describe);
 
-  const about = gui.addFolder('Model');
-  about.add(info, 'file').name('File').disable().listen();
-  about.add(info, 'objects').name('Objects').disable().listen();
-  about.add(info, 'triangles').name('Triangles').disable().listen();
   for (const f of gui.foldersRecursive()) f.close();
 
   // Dropped files, anywhere on the page.

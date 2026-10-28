@@ -1,4 +1,5 @@
-// The About dialog (File's About...; the user, 2026-10-27): who made the viewer, its license, where its source is.
+// The About dialog (File's About...; the user, 2026-10-27): who made the viewer, its license, where its source is;
+// and the model open, its file, objects and triangles (the controls' Model folder until 2026-10-28, the user).
 
 /// <reference types="vite/client" />
 
@@ -7,8 +8,8 @@ import { VERSION } from './version.ts';
 
 export const REPOSITORY = 'https://github.com/martyvona/cad-io-js';
 
-/** Shows it; resolves when it's closed. */
-export async function showAbout(): Promise<void> {
+/** Shows it, with the model open (rows of a table), if any; resolves when it's closed. */
+export async function showAbout(model?: [string, string][]): Promise<void> {
   await showDialog({
     title: 'cad-io-js CAD viewer',
     body: [
@@ -22,6 +23,7 @@ export async function showAbout(): Promise<void> {
       ...(import.meta.env.PROD ? [{ text: ' What the viewer bundles, and under which licenses: ' },
         { text: 'licenses.md', href: new URL('licenses.md', document.baseURI).href }, { text: '.' }] : [])],
       [{ text: 'Source: ' }, { text: REPOSITORY.replace('https://', ''), href: REPOSITORY }],
+      ...(model ? ['The model open:', model] : ['No model open.']),
     ],
     buttons: [{ label: 'Close', value: 'close', primary: true }],
   });

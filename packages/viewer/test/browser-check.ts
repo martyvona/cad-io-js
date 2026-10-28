@@ -1496,10 +1496,10 @@ await check('auto hide and select all', async () => {
   return undefined;
 });
 // About... (File): the authors, Claude first; the license; the repository's link; in a build, licenses.md's, which
-// is there.
+// is there; no model open, or the model's file, objects and triangles (the Model folder until 2026-10-28, gone).
 await check('about', async () => {
-  const r = await page('?check', `(async () => {
-    await cadViewer.ready;
+  const about = (query: string) => page(query, `(async () => {
+    await cadViewer.ready; await cadViewer.idle();
     ui.gui.controllersRecursive().find((c) => c._name === 'About...').$button.click();
     const d = await new Promise((res) => { const f = () => { const e = document.querySelector('dialog.cv-dialog[open]');
       if (e) res(e); else setTimeout(f, 50); }; f(); });
@@ -1507,13 +1507,19 @@ await check('about', async () => {
     const licenses = links.find((l) => /licenses\.md$/.test(l.href));
     const status = licenses ? (await fetch(licenses.href)).status : undefined;
     const text = d.textContent;
+    const rows = [...d.querySelectorAll('tr')].map((r) => [...r.cells].map((c) => c.textContent));
     d.querySelector('button').click();
     await new Promise((res) => setTimeout(res, 100));
-    return { title: d.querySelector('h2').textContent, text, links, status, closed: !d.isConnected };
-  })()`) as { after: { title: string; text: string; links: { href: string; target: string; rel: string }[];
-    status?: number; closed: boolean } };
-  const a = r.after;
-  const j = JSON.stringify(a);
+    return { title: d.querySelector('h2').textContent, text, links, status, closed: !d.isConnected, rows,
+      triangles: viewer.stats()?.triangles, folders: ui.gui.foldersRecursive().map((f) => f._title) };
+  })()`) as Promise<{ after: { title: string; text: string; links: { href: string; target: string; rel: string }[];
+    status?: number; closed: boolean; rows: string[][]; triangles?: number; folders: string[] } }>;
+  const a = (await about('?check')).after;
+  const m = (await about(`?url=${encodeURIComponent('/content/as1.stp')}&check`)).after;
+  const j = JSON.stringify({ a, m });
+  expect(/No model open\./.test(a.text) && !a.rows.length && !a.folders.includes('Model'), `no model: ${j}`);
+  expect(m.rows[0]?.join() === 'File,as1.stp' && m.rows[1]?.[0] === 'Objects' &&
+    m.rows[2]?.join() === `Triangles,${m.triangles!.toLocaleString()}` && m.triangles! > 0, `as1 open: ${j}`);
   expect(a.title === 'cad-io-js CAD viewer' && /By Claude \(Anthropic\) and Marsette Vona\./.test(a.text) &&
     /Apache-2\.0/.test(a.text) && /LGPL-2\.1/.test(a.text) && /CC BY-SA 4\.0/.test(a.text), `the text: ${j}`);
   expect(a.links.some((l) => l.href === 'https://github.com/martyvona/cad-io-js') &&
