@@ -1,3 +1,4 @@
 third_party/*
 !third_party/pull.sh
 subsets/
+models/
