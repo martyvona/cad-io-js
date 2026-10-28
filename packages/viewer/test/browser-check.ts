@@ -1447,6 +1447,9 @@ await check('auto hide and select all', async () => {
     out.sameText = faded(status);
     ui.say('two');
     out.newText = faded(status);
+    // On by default (the user, 2026-10-28).
+    out.detailsDefault = button('Details').getValue();
+    button('Details').setValue(false);
     button('Details').setValue(true);
     out.detailsShown = !details.hidden && !faded(details);
     await wait(5600);
@@ -1467,6 +1470,13 @@ await check('auto hide and select all', async () => {
     const expanded = ui.panel().expanded().length;
     const part = all('part');
     out.expandedKept = ui.panel().expanded().length === expanded;
+    // Invert selection: one shown part selected, the other shown ones; inverted again, that one.
+    const first = parts[1].id;
+    ui.select([first]);
+    button('Invert selection').$button.click();
+    out.inverted = [...ui.selected()].sort();
+    button('Invert selection').$button.click();
+    out.invertedBack = [...ui.selected()];
     const assembly = all('assembly');
     const detail = all('detail');
     const n = viewer.nodes;
@@ -1489,6 +1499,9 @@ await check('auto hide and select all', async () => {
   expect(a.detailsShown === true && a.detailsNothing === true && a.detailsSelected === false &&
     a.detailsKept === false && a.detailsReshown === true, `the details: ${j}`);
   expect(a.expandedKept === true, `select all leaves the tree's expansion: ${j}`);
+  expect(a.detailsDefault === true, `details on by default: ${j}`);
+  expect(JSON.stringify(a.inverted) === JSON.stringify(a.shown.slice(1).sort()) &&
+    JSON.stringify(a.invertedBack) === JSON.stringify([a.shown[0]]), `invert selection: ${j}`);
   expect(JSON.stringify([...a.part].sort()) === JSON.stringify([...a.shown].sort()), `select all, parts: ${j}`);
   expect(JSON.stringify([...a.assembly].sort()) === JSON.stringify([...a.parents].sort()), `assemblies: ${j}`);
   expect(a.tree.detail && a.detailCount > a.shown.length && a.kinds.includes('face') && a.detailHidden === 0 &&

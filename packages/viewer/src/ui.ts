@@ -39,6 +39,11 @@ export interface Ui {
   selectParent(): void;
   /** Selects everything a click could at the pick level: every part, assembly or face, edge and curve shown. */
   selectAll(): void;
+  /**
+   * Inverts the selection at the pick level: selects what Select all would, less what's selected now (what's selected
+   * that Select all wouldn't, at another level or hidden, is let go).
+   */
+  invertSelection(): void;
   /** The details panel's lines. */
   details(): string[];
   /** Opens a model by URL; resolves with what the browser check's report has (`error` if it failed). */
@@ -429,7 +434,8 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   // The selection: the tree's and the 3D view's, one; highlighted, described, zoomed to.
   let selected: readonly number[] = [];
   const highlighter = new Highlighter();
-  const selection = { level: 'part' as PickLevel, multi: false, instances: false, details: false };
+  // Details on by default (the user, 2026-10-28).
+  const selection = { level: 'part' as PickLevel, multi: false, instances: false, details: true };
   // The objects the highlight covered: a selected part's or face's mesh may arrive after it was selected (always so
   // when meshing again restores the selection: the selection comes back with the tree, the meshes later, each in a
   // new object); it's then highlighted (and described) again.
@@ -541,6 +547,24 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     highlight();
     describe();
   };
+  /** What a click could select at the pick level: every part, assembly or face, edge and curve shown (Select all). */
+  const everything = (): number[] | undefined => {
+    const nodes = viewer.nodes;
+    if (!nodes || !panel) return undefined;
+    // Faces, edges and curves need their nodes, as picking them does.
+    if (selection.level === 'detail' && !nodes.hasDetail()) {
+      tree.detail = true;
+      panel.setDetail(true);
+      detailControl?.updateDisplay();
+    }
+    // What's hidden can't be clicked, so it isn't selected.
+    const shown = (id: number) => !nodes.hiddenInTree(id);
+    const parts = nodes.nodes.filter((n) => n.kind === 'part' && shown(n.id)).map((n) => n.id);
+    const ids = selection.level === 'part' ? parts : selection.level === 'assembly'
+      ? parts.map((id) => nodes.nodes[id]!.parent >= 0 ? nodes.nodes[id]!.parent : id)
+      : parts.flatMap((id) => nodes.children(id).filter(shown));
+    return ids;
+  };
   const ui: Ui = {
     panel: () => panel,
     selected: () => selected,
@@ -566,22 +590,13 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       select(selected.map((id) => nodes.nodes[id]!.parent).filter((p) => p >= 0));
     },
     selectAll: () => {
-      const nodes = viewer.nodes;
-      if (!nodes || !panel) return;
-      // Faces, edges and curves need their nodes, as picking them does.
-      if (selection.level === 'detail' && !nodes.hasDetail()) {
-        tree.detail = true;
-        panel.setDetail(true);
-        detailControl?.updateDisplay();
-      }
-      // What's hidden can't be clicked, so it isn't selected.
-      const shown = (id: number) => !nodes.hiddenInTree(id);
-      const parts = nodes.nodes.filter((n) => n.kind === 'part' && shown(n.id)).map((n) => n.id);
-      const ids = selection.level === 'part' ? parts : selection.level === 'assembly'
-        ? parts.map((id) => nodes.nodes[id]!.parent >= 0 ? nodes.nodes[id]!.parent : id)
-        : parts.flatMap((id) => nodes.children(id).filter(shown));
+      const ids = everything();
       // Not revealed in the tree: that would open every branch.
-      select(ids, 'api', false);
+      if (ids) select(ids, 'api', false);
+    },
+    invertSelection: () => {
+      const now = new Set(selected), ids = everything();
+      if (ids) select([...new Set(ids)].filter((id) => !now.has(id)), 'api', false);
     },
     details: () => (viewer.nodes ? details(viewer.nodes, selected) : []),
     openUrl,
@@ -647,6 +662,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   selFolder.add(ui, 'selectParent').name('Select parent');
   selFolder.add({ none: () => select([]) }, 'none').name('Select none');
   selFolder.add(ui, 'selectAll').name('Select all');
+  selFolder.add(ui, 'invertSelection').name('Invert selection');
   selFolder.add(selection, 'details').name('Details').onChange(describe);
   selFolder.add(ui, 'hideSelected').name('Hide selected');
   selFolder.add(ui, 'showSelected').name('Show selected');
