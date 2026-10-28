@@ -394,6 +394,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   };
   step.add(settings, 'linearDeflection', 0.001, 10).name('Deflection (mm)').onChange(custom);
   step.add(settings, 'angularDeflection', 1, 90).name('Angle (degrees)').onChange(custom);
+  step.add(settings, 'timeout', 0, 600, 1).name('Timeout (s, 0: none)');
   step.add(settings, 'cache').name('Cache (IndexedDB)');
   step.add({ reload: () => {
     if (!last) return;

@@ -8,7 +8,7 @@
 import { MESH_PROFILES, type MeshProfile, type Tessellator } from 'cad-scene';
 import type { DeviceClass } from './device.ts';
 import { CachedTessellator, IndexedDbStore, type CacheStats } from 'tess-cache/browser';
-import { PoolTessellator, webWorkerHandle } from 'tess-workers/browser';
+import { DEFAULT_TIMEOUT_MS, PoolTessellator, webWorkerHandle } from 'tess-workers/browser';
 
 export type Backend = 'occt' | 'truck';
 
@@ -22,7 +22,16 @@ export interface TessellationSettings {
   angularDeflection: number;
   /** The IndexedDB cache. */
   cache: boolean;
+  /**
+   * Seconds a part may take before its worker is stopped and the part counted failed; 0: no limit (the user,
+   * 2026-10-28). The pool's default, 60. A timeout cached answers only while the limit is no longer than the one
+   * that ran out, so a longer limit tries the part again.
+   */
+  timeout: number;
 }
+
+/** The default timeout, seconds: the pool's. */
+export const DEFAULT_TIMEOUT = DEFAULT_TIMEOUT_MS / 1000;
 
 /** A profile's settings: its deflections shown in millimetres and degrees. */
 export function profileSettings(profile: MeshProfile): Pick<TessellationSettings, 'profile' | 'linearDeflection' |
@@ -33,7 +42,7 @@ export function profileSettings(profile: MeshProfile): Pick<TessellationSettings
 
 /** The defaults: a profile (the device's: device.ts), OCCT, cached. */
 export function defaultSettings(profile: MeshProfile): TessellationSettings {
-  return { backend: 'occt', ...profileSettings(profile), cache: true };
+  return { backend: 'occt', ...profileSettings(profile), cache: true, timeout: DEFAULT_TIMEOUT };
 }
 
 /** What tessellateScene takes for the settings: the profile by name, or the custom deflections (in radians). */
@@ -68,12 +77,14 @@ export class Tessellation {
    * runs in the import worker, which can't see the screen).
    */
   async get(s: TessellationSettings, workers: number): Promise<{ tess: Tessellator; workers: number }> {
-    const key = `${s.backend}:${s.cache}:${workers}`;
+    // (A new pool for another timeout too: a pool's is fixed.)
+    const timeout = s.timeout ?? DEFAULT_TIMEOUT;
+    const key = `${s.backend}:${s.cache}:${workers}:${timeout}`;
     if (this.current?.key !== key) {
       this.dispose();
       const pool = new PoolTessellator(
         () => webWorkerHandle(new Worker(new URL('./tess-worker.ts', import.meta.url), { type: 'module' })),
-        { backend: BACKENDS[s.backend], workers });
+        { backend: BACKENDS[s.backend], workers, timeoutMs: Math.max(0, timeout) * 1000 });
       const tess = s.cache ? new CachedTessellator(pool, new IndexedDbStore({ name: CACHE_NAME })) : pool;
       this.current = { key, tess, pool };
       this.pools++;

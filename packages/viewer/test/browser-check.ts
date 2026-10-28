@@ -738,6 +738,40 @@ await check('problems dialog', async () => {
   expect(quiet.problems > 0 && !quiet.open, `none in plain ?check pages: ${j}`);
   return undefined;
 });
+// B-Rep Meshing's Timeout: a limit too short for any part (a millisecond) fails every part, timed out (said in the
+// diagnostics; the cache on, emptied first); then 60 s and Mesh again meshes them all, the cache's timeouts not
+// answering for a longer limit. The model's meshedWith has the timeout.
+await check('meshing timeout', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    await cadViewer.ready; await cadViewer.idle();
+    const again = async () => {
+      const before = viewer.model;
+      ui.gui.controllersRecursive().find((c) => c._name === 'Mesh again').$button.click();
+      for (let t = 0; t < 1200 && (viewer.model === before || !viewer.model?.meshing); t++) {
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      await cadViewer.idle();
+      const m = viewer.model;
+      return { parts: m.parts, timedOut: m.diagnostics.filter((d) => /timed out/.test(d.message)).length,
+        timeout: m.meshedWith.timeout };
+    };
+    const control = ui.gui.controllersRecursive().find((c) => c._name.startsWith('Timeout'));
+    // (The cache emptied first: it answers with the meshes made at startup, and pages share it.)
+    await viewer.clearCache();
+    control.setValue(0.001);
+    const short = await again();
+    control.setValue(60);
+    const long = await again();
+    return { short, long };
+  })()`) as { after: { short: Meshed; long: Meshed } };
+  type Meshed = { parts: { total: number; done: number; failed: number }; timedOut: number; timeout: number };
+  const { short, long } = r.after, j = JSON.stringify(r.after);
+  expect(short.parts.total > 0 && short.parts.failed === short.parts.total && short.timedOut >= short.parts.total &&
+    short.timeout === 0.001, `a millisecond: every part timed out: ${j}`);
+  expect(long.parts.failed === 0 && long.parts.done === long.parts.total && long.timedOut === 0 &&
+    long.timeout === 60, `60 s: every part meshed again: ${j}`);
+  return undefined;
+});
 // Two planes (the user, 2026-10-27: a cap missing where another plane cuts): the plate cut across X through its
 // middle (the side above cut away) and across Z through its middle, flipped (the side below cut away), seen from
 // +X -Y +Z. On the X cap above the Z plane, the plate's far side along the view lies below it, cut away: the stencil

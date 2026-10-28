@@ -52,6 +52,8 @@ export interface MeshedWith {
   profile: TessellationSettings['profile'];
   linearDeflection: number;
   angularDeflection: number;
+  /** Seconds a part could take (which decides which parts time out). */
+  timeout: number;
 }
 
 export interface Stats { objects: number; meshes: number; triangles: number; segments: number; points: number }
@@ -441,8 +443,8 @@ export class Viewer {
     // A copy goes (transferred) to the worker; the source keeps its bytes, to be meshed again.
     const bytes = new Uint8Array(src.bytes.slice(0));
     // What it's meshed with: the settings now, which the import worker is given.
-    const { backend, profile, linearDeflection, angularDeflection } = this.settings;
-    const meshedWith: MeshedWith = { backend, profile, linearDeflection, angularDeflection };
+    const { backend, profile, linearDeflection, angularDeflection, timeout } = this.settings;
+    const meshedWith: MeshedWith = { backend, profile, linearDeflection, angularDeflection, timeout };
     let graph: StepGraph | undefined;
     let model: ModelInfo | undefined;
     let zoomed = false;

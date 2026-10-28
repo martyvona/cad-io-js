@@ -444,6 +444,9 @@ export async function replay(rec: Recording, viewer: Viewer, ui: Ui, session: Se
         'selected']) {
         // (Recordings before 2026-10-27 have no meshing.)
         if (e.state[key] === undefined && key === 'meshing') continue;
+        // (The meshing settings recorded only: those before 2026-10-28 have no timeout.)
+        if (key === 'meshing') now[key] = Object.fromEntries(Object.keys(e.state[key] as object).map((k) =>
+          [k, (now[key] as Record<string, unknown>)[k]]));
         if (text(key, now[key]) !== text(key, e.state[key])) divergences.push(
           `the end: ${key} is ${JSON.stringify(now[key])}, recorded ${JSON.stringify(e.state[key])}`);
       }
