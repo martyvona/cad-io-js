@@ -137,6 +137,15 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   // A load's warnings and errors in a modal once it's done (problems.ts), but not in the browser check's pages, whose
   // input it would block, unless one asks for it (?check=dialogs).
   const problemsDialog = !check || new URLSearchParams(location.search).get('check') === 'dialogs';
+  /**
+   * A model that couldn't be opened (the user, 2026-10-28): said in the status line and in an error modal (not in the
+   * browser check's plain ?check pages, as the problems dialog).
+   */
+  const failed = (what: string, message: string) => {
+    say(`${what}: ${message}`, true);
+    if (problemsDialog) void showDialog({ title: `Could not open ${what}`, error: true, body: [message],
+      buttons: [{ label: 'OK', value: 'ok', primary: true }] });
+  };
   const report = (r: object) => { if (check) document.body.dataset.report = JSON.stringify(r); };
 
   // Meshing again (the same model, other settings) keeps the view: the camera, centring and planes (Viewer.load's
@@ -212,7 +221,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       return r;
     } catch (e) {
       console.error(e);
-      say(`${what}: ${(e as Error).message}`, true);
+      failed(what, (e as Error).message);
       report({ error: (e as Error).message });
       hooks.onEvent?.({ type: 'loaded', report: { error: (e as Error).message } });
       return { error: (e as Error).message };
@@ -241,7 +250,15 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   };
 
   const file = gui.addFolder('File');
-  file.add({ open: async () => openFiles(await pickFiles()) }, 'open').name('Open file...');
+  file.add({ open: async () => {
+    let files: File[];
+    try {
+      files = await pickFiles();
+    } catch (e) {
+      return failed('a file', (e as Error).message);
+    }
+    return openFiles(files);
+  } }, 'open').name('Open file...');
   // What was typed is shown again next time; what's loaded (and recorded) is the URL it names.
   let lastTyped = '';
   file.add({ load: async () => {
@@ -250,7 +267,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     lastTyped = typed;
     const url = typedUrl(typed);
     if (url) await openUrl(url);
-    else say(`not a URL nor a path within the content root: ${typed}`, true);
+    else failed(typed, 'not a URL, nor a path within the content root');
   } }, 'load').name('Load URL...');
   // (With the model open: its file, objects and triangles, as they are now.)
   file.add({ about: () => {

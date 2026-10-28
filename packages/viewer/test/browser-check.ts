@@ -2687,9 +2687,46 @@ await check('not a model', async () => {
   expect(typeof r.error === 'string' && /unknown format/.test(r.error), `report ${JSON.stringify(r)}`);
   return undefined;
 });
+// Opening that fails (the user, 2026-10-28): an error modal saying why, besides the status line: a file not found
+// (404), one that isn't a model, a server that can't be reached, a typed address that's neither a URL nor a content
+// path (Load URL...); none in the plain ?check pages.
+await check('open errors', async () => {
+  const dialog = `(async () => { await cadViewer.ready; await cadViewer.idle();
+    for (let t = 0; t < 50 && !document.querySelector('dialog.cv-dialog'); t++) {
+      await new Promise((r) => setTimeout(r, 100)); }
+    const d = document.querySelector('dialog.cv-dialog');
+    const out = d ? { title: d.querySelector('h2').textContent, text: d.textContent,
+      error: d.classList.contains('error') } : null;
+    d?.querySelector('button.primary').click();
+    return out; })()`;
+  type Seen = { title: string; text: string; error: boolean } | null;
+  const at = async (url: string, q = 'check=dialogs') => (await page(`?url=${encodeURIComponent(url)}&${q}`, dialog) as
+    { after: Seen }).after;
+  const missing = await at('/content/nothing.glb');
+  const notModel = await at('/content/notes.txt');
+  const unreachable = await at('http://127.0.0.1:9/model.glb');
+  const quiet = await at('/content/nothing.glb', 'check');
+  const typed = (await page('?check=dialogs', `(async () => { await cadViewer.ready;
+    ui.gui.controllersRecursive().find((c) => c._name === 'Load URL...').$button.click();
+    for (let t = 0; t < 50 && !document.querySelector('dialog.cv-dialog input'); t++) {
+      await new Promise((r) => setTimeout(r, 100)); }
+    const ask = document.querySelector('dialog.cv-dialog');
+    ask.querySelector('input').value = '../outside.glb';
+    ask.querySelector('button.primary').click();
+    await new Promise((r) => setTimeout(r, 200));
+    return ${dialog}; })()`) as { after: Seen }).after;
+  const j = JSON.stringify({ missing, notModel, unreachable, quiet, typed });
+  expect(!!missing?.error && /Could not open/.test(missing.title) && /not found \(404/.test(missing.text),
+    `a file not found: ${j}`);
+  expect(!!notModel?.error && /unknown format/.test(notModel.text), `not a model: ${j}`);
+  expect(!!unreachable?.error && /could not fetch/.test(unreachable.text), `a server not reached: ${j}`);
+  expect(quiet === null, `none in plain ?check pages: ${j}`);
+  expect(!!typed?.error && /not a URL, nor a path within the content root/.test(typed.text), `a bad address: ${j}`);
+  return undefined;
+});
 await check('missing file', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/nothing.glb')}&check`);
-  expect(typeof r.error === 'string' && /404/.test(r.error), `report ${JSON.stringify(r)}`);
+  expect(typeof r.error === 'string' && /not found \(404/.test(r.error), `report ${JSON.stringify(r)}`);
   return undefined;
 });
 

@@ -46,8 +46,16 @@ export function typedUrl(typed: string): string | undefined {
 
 export async function fromUrl(url: string): Promise<Source> {
   const abs = new URL(url, document.baseURI).href;
-  const r = await fetch(abs);
-  if (!r.ok) throw new Error(`${r.status} ${r.statusText}: ${abs}`);
+  let r: Response;
+  try {
+    r = await fetch(abs);
+  } catch (e) {
+    // (The browser says only "Failed to fetch": the server unreachable, or not letting this page read it.)
+    throw new Error(`could not fetch ${abs} (${(e as Error).message}): the server can't be reached, or doesn't let ` +
+      'this page read it (CORS)');
+  }
+  if (!r.ok) throw new Error(`${r.status === 404 ? 'not found' : 'the server refused it'} (${r.status} ` +
+    `${r.statusText}): ${abs}`);
   const name = decodeURIComponent(new URL(abs).pathname.split('/').pop() || abs);
   return { name, bytes: await r.arrayBuffer(), url: abs };
 }
