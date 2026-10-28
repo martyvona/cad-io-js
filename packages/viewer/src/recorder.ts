@@ -407,7 +407,7 @@ export async function replay(rec: Recording, viewer: Viewer, ui: Ui, session: Se
       applied++;
     } else if (e.type === 'select' && (e.source === 'tree' || e.source === 'id')) {
       // Selections by pick and through the interface come back with their pick and api events.
-      ui.select(resolve(e.paths) as number[]);
+      ui.select(resolve(e.paths) as number[], e.source === 'id' ? 'id' : 'api');
       applied++;
     } else if (e.type === 'camera') {
       show?.stopTurning();

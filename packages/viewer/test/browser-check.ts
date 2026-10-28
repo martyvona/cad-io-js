@@ -763,6 +763,8 @@ await check('step ids', async () => {
     const partId = nuts[0].object.userData.sources[0];
     const face = m.nodes.find((n) => n.kind === 'part' && n.name === 'plate').object.children[0].userData.faces[0];
     const detailBefore = cadViewer.state().tree.detail;
+    // (Every branch folded first: the selection must unfold what it needs.)
+    ui.panel().collapseAll();
     ui.gui.controllersRecursive().find((c) => c._name === 'Select by ID...').$button.click();
     await new Promise((r) => setTimeout(r, 100));
     const d = document.querySelector('dialog.cv-dialog');
@@ -771,6 +773,9 @@ await check('step ids', async () => {
     await new Promise((r) => setTimeout(r, 100));
     const status = document.getElementById('status').textContent;
     const s = ui.selected();
+    const open = new Set(ui.panel().expanded());
+    const unfolded = s.every((id) => { for (let p = m.nodes[id].parent; p >= 0; p = m.nodes[p].parent) {
+      if (!open.has(p)) return false; } return true; });
     const kinds = s.map((id) => m.nodes[id].kind).sort();
     const parts = s.filter((id) => m.nodes[id].kind === 'part').sort();
     const lines = ui.details();
@@ -779,19 +784,44 @@ await check('step ids', async () => {
       .join(' '));
     const all = ui.details().find((l) => l.startsWith('STEP IDs: '));
     return { partId, face, kinds, parts, nuts: nuts.map((n) => n.id).sort(), detailBefore,
-      detail: cadViewer.state().tree.detail, lines, status, all };
+      detail: cadViewer.state().tree.detail, lines, status, all, unfolded };
   })()`) as { after: { partId: number; face: number; kinds: string[]; parts: number[]; nuts: number[];
-    detailBefore: boolean; detail: boolean; lines: string[]; status: string; all: string } }).after;
+    detailBefore: boolean; detail: boolean; lines: string[]; status: string; all: string; unfolded: boolean } })
+    .after;
   const j = JSON.stringify({ copy, sel });
   const rowIds = [...new Set(copy.rows.flatMap((r) => r.match(/#(\d+)/)?.[1] ?? []))].map((x) => `#${x}`).join(' ');
   expect(copy.copied === rowIds && rowIds.length > 0 && copy.open && /^Copied \d+ IDs?$/.test(copy.label),
     `copy ids: ${j}`);
   expect(JSON.stringify(sel.parts) === JSON.stringify(sel.nuts) && sel.kinds.includes('face') && !sel.detailBefore &&
     sel.detail, `select by id: ${j}`);
+  expect(sel.unfolded, `every node selected shown in the tree, its branches unfolded: ${j}`);
   expect(/not found: #999999/.test(sel.status) && /not IDs: bogus/.test(sel.status), `what wasn't found: ${j}`);
   expect(sel.lines.some((l) => l.startsWith('STEP IDs: ') && l.includes(`#${sel.partId}`) &&
     l.includes(`#${sel.face}`)), `the details' ids: ${j}`);
   expect(sel.all.length <= 'STEP IDs: '.length + 50 && sel.all.endsWith(' ...'), `cut short: ${j}`);
+  return undefined;
+});
+// Picks unfold the tree (the user, 2026-10-28): with every branch folded, two parts picked in the 3D view (the
+// second added, as ctrl-click does) are both shown selected in the tree, their branches unfolded.
+await check('picks unfold the tree', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    await cadViewer.ready; await cadViewer.idle();
+    const m = viewer.nodes, canvas = viewer.renderer.domElement, rect = canvas.getBoundingClientRect();
+    const centre = (name) => { const o = m.nodes.find((n) => n.kind === 'part' && n.name === name).object.children[0];
+      o.geometry.computeBoundingBox();
+      const p = o.geometry.boundingBox.getCenter(o.position.clone()).applyMatrix4(o.matrixWorld).project(viewer.camera);
+      return [rect.left + (p.x + 1) / 2 * rect.width, rect.top + (1 - p.y) / 2 * rect.height]; };
+    ui.panel().collapseAll();
+    const [rx, ry] = centre('rod'), [px, py] = centre('plate');
+    ui.pickAt(rx, ry, false);
+    ui.pickAt(px, py, true);
+    const s = ui.selected(), open = new Set(ui.panel().expanded());
+    const unfolded = s.every((id) => { for (let p = m.nodes[id].parent; p >= 0; p = m.nodes[p].parent) {
+      if (!open.has(p)) return false; } return true; });
+    return { selected: s.map((id) => m.nodes[id].name), unfolded };
+  })()`) as { after: { selected: string[]; unfolded: boolean } };
+  const j = JSON.stringify(r.after);
+  expect(r.after.selected.length === 2 && r.after.unfolded, `both picks shown, their branches unfolded: ${j}`);
   return undefined;
 });
 // B-Rep Meshing's Timeout: a limit too short for any part (a millisecond) fails every part, timed out (said in the

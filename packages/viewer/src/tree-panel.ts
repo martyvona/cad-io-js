@@ -66,11 +66,14 @@ export class TreePanel {
     return this.selection;
   }
 
-  /** Selects nodes from elsewhere (picking), showing the first unless `reveal` is false. */
+  /**
+   * Selects nodes from elsewhere (picking, Select by ID), showing every one, their branches unfolded, unless
+   * `reveal` is false (the user, 2026-10-28; before, only the first was shown).
+   */
   select(ids: readonly number[], reveal = true): void {
     this.selection = [...ids];
     this.view.setSelection(ids.map(String));
-    if (ids.length && reveal) this.view.reveal(String(ids[0]));
+    if (ids.length && reveal) this.view.reveal(ids.map(String));
   }
 
   /** The expanded nodes. */

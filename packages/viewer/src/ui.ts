@@ -30,7 +30,8 @@ export interface Ui {
   panel(): TreePanel | undefined;
   /** The selected nodes. */
   selected(): readonly number[];
-  select(ids: readonly number[]): void;
+  /** Selects nodes; `source`: the select event's, recorded (`id`: Select by ID's, when replaying it). */
+  select(ids: readonly number[], source?: 'api' | 'id'): void;
   /** The selection settings. */
   selection: { level: PickLevel; multi: boolean; instances: boolean };
   hideSelected(): void;
@@ -574,7 +575,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   const ui: Ui = {
     panel: () => panel,
     selected: () => selected,
-    select: (ids) => select(ids),
+    select: (ids, source = 'api') => select(ids, source),
     selection,
     hideSelected: () => hide(true),
     showSelected: () => hide(false),

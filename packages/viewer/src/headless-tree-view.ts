@@ -233,16 +233,22 @@ export class HeadlessTreeView implements TreeView {
     this.schedule();
   }
 
-  reveal(id: string): void {
-    const up: string[] = [];
-    for (let p = this.opts.data.parent(id); p !== undefined; p = this.opts.data.parent(p)) up.push(p);
+  reveal(id: string | readonly string[]): void {
+    const ids = typeof id === 'string' ? [id] : id;
+    if (!ids.length) return;
+    const up = new Set<string>();
+    for (const i of ids) {
+      for (let p = this.opts.data.parent(i); p !== undefined && !up.has(p); p = this.opts.data.parent(p)) up.add(p);
+    }
     const expanded = new Set(this.tree.getState().expandedItems ?? []);
-    if (up.some((p) => !expanded.has(p))) {
+    if ([...up].some((p) => !expanded.has(p))) {
       for (const p of up) expanded.add(p);
       this.tree.applySubStateUpdate('expandedItems', [...expanded]);
       this.tree.rebuildTree();
     }
-    this.scrollTo(this.tree.getItems().findIndex((i) => i.getId() === id));
+    // (The topmost row of them.)
+    const wanted = new Set(ids);
+    this.scrollTo(this.tree.getItems().findIndex((i) => wanted.has(i.getId())));
     this.schedule();
   }
 

@@ -45,8 +45,11 @@ export interface TreeView {
   topRow(): { id: string; offset: number } | undefined;
   /** Scrolls so a row is at the top of the view, scrolled past by `offset` pixels (as `topRow` gave them). */
   scrollToRow(id: string, offset: number): void;
-  /** Expands a node's ancestors and scrolls it into view. */
-  reveal(id: string): void;
+  /**
+   * Expands a node's ancestors and scrolls it into view; given several, every one's ancestors, scrolled to the
+   * topmost (a selection made outside the tree).
+   */
+  reveal(id: string | readonly string[]): void;
   expandAll(): void;
   collapseAll(): void;
   dispose(): void;
