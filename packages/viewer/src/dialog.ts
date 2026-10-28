@@ -63,13 +63,17 @@ export function showDialog(o: DialogOptions): Promise<DialogResult> {
       form.append(p);
       continue;
     }
+    // (In a box that scrolls, for long lists: problems.ts.)
+    const box = document.createElement('div');
+    box.className = 'table';
     const table = document.createElement('table');
     for (const [label, value] of part as [string, string][]) {
       const row = table.insertRow();
       row.insertCell().textContent = label;
       row.insertCell().textContent = value;
     }
-    form.append(table);
+    box.append(table);
+    form.append(box);
   }
   let field: HTMLInputElement | undefined;
   if (o.input) {

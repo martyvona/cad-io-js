@@ -13,6 +13,7 @@ import { VERSION } from './version.ts';
 import { applyCustomBackground, applyTheme, customBackground, hexColour, onSystemTheme, themeChoice, type ThemeChoice,
   VIEW_BACKGROUNDS } from './theme.ts';
 import { askUrl } from './dialog.ts';
+import { showProblems } from './problems.ts';
 import { AXES, DEFAULT_SECTIONS, type SectionSettings } from './section.ts';
 import { boxOf, Highlighter, instancesOf, nodeForPick, piecesOf, type PickLevel } from './selection.ts';
 import { addSideHandle } from './side-handle.ts';
@@ -122,6 +123,9 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   // With ?check in the address, what happened goes into the body's data-report for the browser check
   // (test/browser-check.ts), which reads the DOM.
   const check = new URLSearchParams(location.search).has('check');
+  // A load's warnings and errors in a modal once it's done (problems.ts), but not in the browser check's pages, whose
+  // input it would block, unless one asks for it (?check=dialogs).
+  const problemsDialog = !check || new URLSearchParams(location.search).get('check') === 'dialogs';
   const report = (r: object) => { if (check) document.body.dataset.report = JSON.stringify(r); };
 
   // Meshing again (the same model, other settings) keeps the view: the camera, centring and planes (Viewer.load's
@@ -188,6 +192,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       say(`${src.name}: ${((performance.now() - t) / 1000).toFixed(1)} s${parts}` +
         (problems ? `; ${problems} warnings and errors (in the console)` : '') + notRestored);
       if (problems) console.warn(m.diagnostics);
+      if (problems && problemsDialog) void showProblems(src.name, m.diagnostics ?? []);
       if (notRestored) console.warn('meshed again, not found again:', lost);
       const box = visibleBox(viewer.display);
       const r: Record<string, unknown> = { name: src.name, seconds: (performance.now() - t) / 1000, parts: m.parts,

@@ -55,6 +55,9 @@ fs.writeFileSync(path.join(content, 'as1-noedges.glb'), (await glb(scene, export
 // Its parts placed more than once as GPU instances (EXT_mesh_gpu_instancing: three.js InstancedMeshes).
 fs.writeFileSync(path.join(content, 'as1-instanced.glb'), (await glb(scene, view, { instancing: true })).bytes);
 fs.copyFileSync(step, path.join(content, 'as1.stp'));
+// OCCT's broken-references file: the importer warns of its dangling references (the problems dialog's check).
+fs.copyFileSync(path.join(repo, 'test_corpus/third_party/gkv311-opencascade-dataset/step/bug31292.stp'),
+  path.join(content, 'broken.stp'));
 // Half transparent everywhere (a copy of the scene's materials at opacity 0.5).
 const clear = { ...scene, materials: scene.materials.map((m) => ({ ...m, opacity: 0.5 })) };
 fs.writeFileSync(path.join(content, 'as1-clear.glb'), (await glb(clear, exportView(clear, meshes))).bytes);
@@ -701,6 +704,38 @@ await check('sections', async () => {
   expect(Math.abs(a.movedTo - a.expectedMove) < 1e-6 && Math.abs(a.back - (a.at - 10)) < 1e-6 && a.movedTo !== a.back,
     `centring: ${j}`);
   expect(a.glError === 0, `WebGL error: ${j}`);
+  return undefined;
+});
+// The problems dialog (problems.ts): a file with warnings, once meshed, shows them in a modal (only with
+// ?check=dialogs among the check's pages), as many rows as the model's warnings and errors, errors first; OK closes
+// it. A file without, and the plain ?check pages, show none.
+await check('problems dialog', async () => {
+  const look = `(async () => { await cadViewer.ready; await cadViewer.idle();
+    await new Promise((r) => setTimeout(r, 200));
+    const d = document.querySelector('dialog.cv-dialog');
+    const problems = (viewer.model?.diagnostics ?? []).filter((x) => x.severity !== 'info');
+    const out = { open: !!d?.open, title: d?.querySelector('h2')?.textContent ?? null,
+      rows: d ? [...d.querySelectorAll('tr')].map((r) => r.cells[0].textContent) : [], problems: problems.length,
+      errors: problems.filter((x) => x.severity === 'error').length };
+    d?.querySelector('button.primary')?.click();
+    await new Promise((r) => setTimeout(r, 100));
+    return { ...out, closed: !document.querySelector('dialog.cv-dialog') };
+  })()`;
+  type Seen = { open: boolean; title: string | null; rows: string[]; problems: number; errors: number;
+    closed: boolean };
+  const broken = (await page(`?url=${encodeURIComponent('/content/broken.stp')}&check=dialogs`, look) as
+    { after: Seen }).after;
+  const clean = (await page(`?url=${encodeURIComponent('/content/as1.stp')}&check=dialogs`, look) as
+    { after: Seen }).after;
+  const quiet = (await page(`?url=${encodeURIComponent('/content/broken.stp')}&check`, look) as { after: Seen }).after;
+  const j = JSON.stringify({ broken, clean, quiet });
+  const firstWarning = broken.rows.findIndex((r) => r.startsWith('warning'));
+  expect(broken.problems > 0 && broken.open && broken.rows.length === Math.min(broken.problems, 500) &&
+    broken.title!.startsWith('broken.stp: ') && broken.rows.slice(0, broken.errors).every((r) =>
+    r.startsWith('error')) && (firstWarning < 0 || firstWarning === broken.errors) && broken.closed,
+  `a file with warnings: ${j}`);
+  expect(clean.problems === 0 && !clean.open, `a file without: ${j}`);
+  expect(quiet.problems > 0 && !quiet.open, `none in plain ?check pages: ${j}`);
   return undefined;
 });
 // Two planes (the user, 2026-10-27: a cap missing where another plane cuts): the plate cut across X through its
