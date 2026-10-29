@@ -120,15 +120,28 @@ export function sceneFromStep(model: StepModel, sem: Semantics): ImportResult {
     partOfPosition.set(root, index);
     for (const q of items) if (!partOfPosition.has(q)) partOfPosition.set(q, index);
 
-    // The origin: the centre of the bounding box of the part's points.
-    const lo: Vec3 = [Infinity, Infinity, Infinity], hi: Vec3 = [-Infinity, -Infinity, -Infinity];
+    // The origin: the centre of the bounding box of the part's vertices, which lie on its shape; else (no vertices:
+    // a geometric set's curves and points, tessellated faces) of all its points. Not of all points whatever: a
+    // B-spline's control points can lie far off (bug24383_224013.stp has some 30 km away from a 32 mm part), and
+    // positions are float32 minus the origin, so its faces lost their triangles to rounding (the user, 2026-10-29).
+    const box = () => ({ lo: [Infinity, Infinity, Infinity] as Vec3, hi: [-Infinity, -Infinity, -Infinity] as Vec3 });
+    const all = box(), vertices = box();
+    const extend = (b: ReturnType<typeof box>, p: number) => {
+      const c = r.attr(p, 'coordinates');
+      const xs = c && (c.k === 'reals' || c.k === 'ints') ? Array.from(c.v as ArrayLike<number>) : undefined;
+      if (xs && xs.length >= 2) for (let k = 0; k < 3; k++) {
+        const x = xs[k] ?? 0;
+        if (x < b.lo[k]!) b.lo[k] = x;
+        if (x > b.hi[k]!) b.hi[k] = x;
+      }
+    };
     const faces: number[] = [];
     for (const q of positions) {
-      if (file.index.typeName(q) === 'CARTESIAN_POINT') {
-        const c = r.attr(q, 'coordinates');
-        const xs = c && (c.k === 'reals' || c.k === 'ints') ? Array.from(c.v as ArrayLike<number>) : undefined;
-        if (xs && xs.length >= 2) for (let k = 0; k < 3; k++) { const x = xs[k] ?? 0; if (x < lo[k]!) lo[k] = x;
-          if (x > hi[k]!) hi[k] = x; }
+      const type = file.index.typeName(q);
+      if (type === 'CARTESIAN_POINT') extend(all, q);
+      else if (type === 'VERTEX_POINT') {
+        const g = r.ref(q, 'vertex_geometry');
+        if (g >= 0 && file.index.typeName(g) === 'CARTESIAN_POINT') extend(vertices, g);
       } else if (model.isInstanceOf(q, 'FACE') || model.isInstanceOf(q, 'TESSELLATED_FACE')) {
         faces.push(q);
         if (!partOfPosition.has(q)) partOfPosition.set(q, index);
@@ -145,6 +158,7 @@ export function sceneFromStep(model: StepModel, sem: Semantics): ImportResult {
         if (!partOfPosition.has(e)) partOfPosition.set(e, index);
       }
     }
+    const { lo, hi } = vertices.lo[0] === Infinity ? all : vertices;
     const origin: Vec3 = lo[0] === Infinity ? [0, 0, 0] : [0, 1, 2].map((k) => (lo[k]! + hi[k]!) / 2) as Vec3;
     // Closed: every face in a closed shell of the part (solids' shells and voids, closed shells of surface models);
     // open if one is in another shell of the part (an open shell, a face set), which the file then says; otherwise

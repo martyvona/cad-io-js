@@ -120,3 +120,32 @@ test('outlines: an arc against its curve\'s sense, a polygon closed, a whole cir
     const none = (await outline([])).o;
     assert.deepEqual([none.faces.length, none.outlines.length, none.positions.length], [4, 0, 0]);
   });
+
+test("the part's origin: its vertices' box centre, a far point (a plane's placement 10 km off) left out", async () => {
+  const far = DATA.replace('#300=FACE_SURFACE(\'\',(#52),#47,.T.);', '#600=CARTESIAN_POINT(\'\',(1.E7,0.,0.));\n' +
+    '#601=AXIS2_PLACEMENT_3D(\'\',#600,#24,#20);\n#602=PLANE(\'\',#601);\n#300=FACE_SURFACE(\'\',(#52),#602,.T.);');
+  assert.notEqual(far, DATA);
+  const { scene } = await importStep(file(far));
+  // Vertices (0,0,0), (10,0,0), (20,10,0), (0,20,0): the box's centre (10,10,0), not (5e6, ...).
+  assert.deepEqual(scene.parts[0]!.origin, [10, 10, 0]);
+});
+
+test("the part's origin without vertices: all its points' box centre", async () => {
+  const points = `
+#1=CARTESIAN_POINT('',(0.,0.,0.));
+#2=CARTESIAN_POINT('',(4.,2.,8.));
+#3=GEOMETRIC_SET('',(#1,#2));
+#70=(GEOMETRIC_REPRESENTATION_CONTEXT(3) GLOBAL_UNIT_ASSIGNED_CONTEXT((#71)) REPRESENTATION_CONTEXT('',''));
+#71=(LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.MILLI.,.METRE.));
+#80=GEOMETRICALLY_BOUNDED_WIREFRAME_SHAPE_REPRESENTATION('',(#3),#70);
+#90=APPLICATION_CONTEXT('');
+#91=PRODUCT_CONTEXT('',#90,'mechanical');
+#92=PRODUCT_DEFINITION_CONTEXT('part definition',#90,'design');
+#93=PRODUCT('P','P','',(#91));
+#94=PRODUCT_DEFINITION_FORMATION('','',#93);
+#95=PRODUCT_DEFINITION('','',#94,#92);
+#96=PRODUCT_DEFINITION_SHAPE('','',#95);
+#97=SHAPE_DEFINITION_REPRESENTATION(#96,#80);`;
+  const { scene } = await importStep(file(points));
+  assert.deepEqual(scene.parts[0]!.origin, [2, 1, 4]);
+});

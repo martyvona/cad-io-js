@@ -706,7 +706,7 @@ for (const c of scene.components) console.log(c.name, c.properties);   // { part
 What it does with the file:
 
 - **Components** from product definitions, with their name, part number, version and description as properties; **occurrences** from the assembly's usage occurrences (and mapped items), with their placements converted to millimetres. Writers' known placement errors are corrected as OCCT does (swapped representations, swapped items), with Alibre's exception.
-- **Parts** from shape representations with geometry (B-rep solids, shells, surface models, wireframes, tessellated geometry); annotations and 2D drawings are skipped with a note. Each part's payload is a STEP subset built on demand, its origin the centre of its points' bounding box, its unit its representation's.
+- **Parts** from shape representations with geometry (B-rep solids, shells, surface models, wireframes, tessellated geometry); annotations and 2D drawings are skipped with a note. Each part's payload is a STEP subset built on demand, its origin the centre of its vertices' bounding box (of all its points when it has no vertices: control points can lie far off), its unit its representation's.
 - **Materials** from styles: per part when every face resolves to one colour, else per face; boundary colours when nothing else colours a face; context-dependent overrides per instance; invisibility.
 - **Layers**, external references (components whose geometry is in another file).
 - **Names**: generic part names (`NONE`, `#123`, blank) take their product's; blank product names their part number.
