@@ -1,0 +1,18 @@
+{
+  "name": "3mf-import",
+  "version": "0.1.0",
+  "description": "3MF importer: core, Materials colours and Production model parts to the cad-scene model, read in pieces",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "cad-scene": "0.1.0",
+    "fflate": "0.8.3"
+  },
+  "devDependencies": {
+    "@3mfconsortium/lib3mf": "2.5.0-fix.2",
+    "export-3mf": "0.1.0"
+  }
+}
