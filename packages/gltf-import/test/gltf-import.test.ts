@@ -3,8 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { Document, WebIO } from '@gltf-transform/core';
-import { exportView, partInstances, pruneView, tessellateScene, validate, viewDifferences, type ExportView,
-  type Scene } from 'cad-scene';
+import { exportView, identity, partInstances, pruneView, tessellateScene, validate, viewDifferences,
+  type ExportView, type Scene } from 'cad-scene';
 import { glb, gltfJson, type GltfOptions } from 'export-gltf';
 import { importStep } from 'step-import';
 import { OcctTessellator } from 'tess-occt';
@@ -135,3 +135,53 @@ test('a STEP assembly through GLB and back, each compression, instanced or not: 
       assert.deepEqual(back.diagnostics, [], JSON.stringify(o));
     }
   });
+
+test('two placements alike in one component stay two; a tree all instanced, made again; a model in feet', async () => {
+  // The plate placed twice at the same transform; the wire left out, so every placement is instanced and the
+  // export keeps no tree node (the assembly's instances alike in name and place); every transform scaled to feet.
+  const s = scene();
+  s.overrides = [];
+  const sub = s.components[1]!;
+  sub.parts = [sub.parts[0]!, { ...sub.parts[0]! }];
+  for (const c of s.components[0]!.children) c.name = 'same';
+  for (const r of sub.parts) r.transform = Float64Array.from(r.transform, (x, i) => (i < 12 ? x * 12 : x));
+  s.roots[0]!.transform = Float64Array.of(304.8, 0, 0, 0, 0, 0, 304.8, 0, 0, -304.8, 0, 0, 1000, 2000, 3000, 1);
+  // And another part at the same place, without lines, placed first: the plate's lines stay the plate's.
+  const other = { ...s.parts[0]!, name: 'other', lods: [{ from: 'tessellated' as const, mesh: { ...s.parts[0]!.lods[0]!
+    .mesh, edges: [] } }] };
+  s.parts.push(other);
+  sub.parts.unshift({ ...sub.parts[0]!, part: 2 });
+  for (const o of [{ compression: 'none', instancing: true }, { compression: 'none' }] as GltfOptions[]) {
+    const view = exportView(s, lines);
+    const back = await importGltf((await glb(s, view, { extras: true, ...o })).bytes);
+    const reach = 1e5;
+    assert.deepEqual(viewDifferences({ scene: s, view: pruneView(view) }, { scene: back.scene,
+      view: exportView(back.scene, lines) }, { tolerance: 8 * reach * 2 ** -24 }), [], JSON.stringify(o));
+    assert.equal([...partInstances(back.scene)].length, [...partInstances(s)].length, JSON.stringify(o));
+  }
+});
+
+test('nodes made again under a component placed twice: one component each, shared by both instances', async () => {
+  // The subassembly holds only the plate, instanced, so its nodes are pruned and made again; the assembly keeps the
+  // wire (never instanced) and is placed twice.
+  const s = scene();
+  s.overrides = [];
+  s.components[1]!.parts = [s.components[1]!.parts[0]!];
+  s.components[0]!.parts.push({ part: 1, transform: identity() });
+  const shifted = identity();
+  shifted[13] = 1000;
+  s.components.push({ name: 'top', sources: [], properties: {}, parts: [], children: [
+    { component: 0, transform: identity(), sources: [], properties: {} },
+    { component: 0, transform: shifted, sources: [], properties: {} }] });
+  s.roots[0]!.component = 2;
+  const view = exportView(s, lines);
+  const back = (await importGltf((await glb(s, view, { extras: true, compression: 'none', instancing: true }))
+    .bytes)).scene;
+  assert.deepEqual(viewDifferences({ scene: s, view: pruneView(view) }, { scene: back,
+    view: exportView(back, lines) }), []);
+  // Every component placed somewhere: the asm's three children, made again, three components.
+  const placed = new Set(back.roots.map((r) => r.component));
+  for (const c of back.components) for (const ch of c.children) placed.add(ch.component);
+  assert.deepEqual(back.components.map((_, i) => placed.has(i)), back.components.map(() => true));
+  assert.equal(back.components.length, 5);
+});

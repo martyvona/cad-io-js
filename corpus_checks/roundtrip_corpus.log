@@ -1,0 +1,7 @@
+517 files (0 over the size limit), 1305 s
+json           517 of 517 the same; 0 invalid, 0 threw; 1018.2 MB, export 18.0 s, import 4.2 s
+glb            517 of 517 the same; 0 invalid, 0 threw; 461.1 MB, export 1.8 s, import 3.2 s
+glb-draco      517 of 517 the same; 0 invalid, 0 threw; 89.7 MB, export 10.7 s, import 6.0 s
+glb-meshopt    517 of 517 the same; 0 invalid, 0 threw; 108.8 MB, export 5.5 s, import 3.8 s
+glb-instanced  517 of 517 the same; 0 invalid, 0 threw; 461.0 MB, export 1.7 s, import 3.1 s
+problems 0

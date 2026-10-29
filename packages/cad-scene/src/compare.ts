@@ -16,7 +16,6 @@ export interface CompareOptions {
   max?: number;
 }
 
-const matrixKey = (m: Mat4) => Array.from(m, (x) => x.toFixed(6)).join(',');
 const apply = (m: Mat4, x: number, y: number, z: number): [number, number, number] => [
   m[0]! * x + m[4]! * y + m[8]! * z + m[12]!, m[1]! * x + m[5]! * y + m[9]! * z + m[13]!,
   m[2]! * x + m[6]! * y + m[10]! * z + m[14]!];
@@ -103,23 +102,32 @@ function unmatched(a: Drawn[], b: Drawn[], tolerance: number): { a: Drawn[]; b: 
     if (!list) grid.set(k, (list = []));
     list.push(d);
   }
-  const used = new Set<Drawn>();
-  const near = (x: number[], y: number[]) => x.length === y.length &&
-    x.every((v, i) => Math.abs(v - y[i]!) <= tolerance);
-  const left: Drawn[] = [];
+  // Every pair within the tolerance, by how far apart (the worse point), then paired nearest first: with items
+  // smaller than the tolerance, the first one near isn't always the right one.
+  const distance = (x: number[], y: number[]) => {
+    if (x.length !== y.length) return Infinity;
+    let worst = 0;
+    for (let i = 0; i < x.length; i++) worst = Math.max(worst, Math.abs(x[i]! - y[i]!));
+    return worst;
+  };
+  const pairs: { d: Drawn; e: Drawn; dist: number }[] = [];
   for (const d of a) {
     const c = centre(d).map((x) => Math.floor(x / cell));
-    let found: Drawn | undefined;
-    for (let dx = -1; dx <= 1 && !found; dx++) for (let dy = -1; dy <= 1 && !found; dy++) {
-      for (let dz = -1; dz <= 1 && !found; dz++) {
-        for (const e of grid.get(`${d.meta}|${c[0]! + dx},${c[1]! + dy},${c[2]! + dz}`) ?? []) {
-          if (!used.has(e) && rotations(d).some((r) => near(r, e.pts))) { found = e; break; }
-        }
+    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
+      for (const e of grid.get(`${d.meta}|${c[0]! + dx},${c[1]! + dy},${c[2]! + dz}`) ?? []) {
+        const dist = Math.min(...rotations(d).map((r) => distance(r, e.pts)));
+        if (dist <= tolerance) pairs.push({ d, e, dist });
       }
     }
-    if (found) used.add(found);
-    else left.push(d);
   }
+  pairs.sort((x, y) => x.dist - y.dist);
+  const used = new Set<Drawn>(), done = new Set<Drawn>();
+  for (const { d, e } of pairs) {
+    if (done.has(d) || used.has(e)) continue;
+    done.add(d);
+    used.add(e);
+  }
+  const left = a.filter((d) => !done.has(d));
   return { a: left, b: b.filter((d) => !used.has(d)) };
 }
 
@@ -132,26 +140,52 @@ export function viewDifferences(a: { scene: Scene; view: ExportView }, b: { scen
   const tolerance = opts.tolerance || 1e-4;
   const out: string[] = [];
   const say = (s: string) => { if (out.length < max) out.push(s); };
-  // (In tree order, and within a node by world transform: an importer may put a node's parts back in another order.)
-  const sorted = (v: ExportView) => placements(v).filter((p) => p.visible || !opts.skipHidden)
-    .map((p, i) => ({ p, i, key: p.names })).sort((x, y) =>
-    (x.key < y.key ? -1 : x.key > y.key ? 1 : 0) || (matrixKey(x.p.world) < matrixKey(y.p.world) ? -1
-      : matrixKey(x.p.world) > matrixKey(y.p.world) ? 1 : x.i - y.i)).map((x) => x.p);
-  const pa = sorted(a.view), pb = sorted(b.view);
+  // Placements paired within each node (the names along the path), by where they're drawn: the centre of their
+  // points in the world, nearest first (an importer may put a node's parts back in another order, and a format may
+  // move a mesh's scale into its placement, as meshopt's quantization does).
+  type P = ReturnType<typeof placements>[number] & { drawn: Drawn[]; lines: Drawn[]; centre: number[] };
+  const of = (side: { scene: Scene; view: ExportView }): P[] => placements(side.view)
+    .filter((p) => p.visible || !opts.skipHidden).map((p) => {
+      const drawn = triangles(side.scene, side.view, p.look, p.world);
+      const ls = lines(side.view, p.look, p.world);
+      const all = [...drawn, ...ls].flatMap((d) => d.pts);
+      const centre = [0, 1, 2].map((k) => {
+        let sum = 0;
+        for (let i = k; i < all.length; i += 3) sum += all[i]!;
+        return all.length ? sum / (all.length / 3) : 0;
+      });
+      return { ...p, drawn, lines: ls, centre };
+    });
+  const pa = of(a), pb = of(b);
   if (pa.length !== pb.length) say(`${pa.length} placed parts against ${pb.length}`);
-  for (let i = 0; i < Math.min(pa.length, pb.length) && out.length < max; i++) {
-    const x = pa[i]!, y = pb[i]!;
-    const where = `placement ${i} (${x.names})`;
-    if (x.names !== y.names) say(`${where}: in ${y.names}`);
-    if (x.visible !== y.visible) say(`${where}: visible ${x.visible} against ${y.visible}`);
-    const ta = triangles(a.scene, a.view, x.look, x.world), tb = triangles(b.scene, b.view, y.look, y.world);
-    const t = unmatched(ta, tb, tolerance);
-    if (t.a.length || t.b.length) say(`${where}: ${ta.length} triangles against ${tb.length}; ${t.a.length} and ` +
-      `${t.b.length} unmatched, first ${describe((t.a[0] ?? t.b[0])!)}`);
-    const la = lines(a.view, x.look, x.world), lb = lines(b.view, y.look, y.world);
-    const l = unmatched(la, lb, tolerance);
-    if (l.a.length || l.b.length) say(`${where}: ${la.length} lines and points against ${lb.length}; ${l.a.length} ` +
-      `and ${l.b.length} unmatched, first ${describe((l.a[0] ?? l.b[0])!)}`);
+  const byNode = new Map<string, P[]>();
+  for (const p of pb) byNode.set(p.names, [...byNode.get(p.names) ?? [], p]);
+  const pairs: [P, P | undefined][] = [];
+  const nodes = new Map<string, P[]>();
+  for (const p of pa) nodes.set(p.names, [...nodes.get(p.names) ?? [], p]);
+  for (const [names, list] of nodes) {
+    const others = byNode.get(names) ?? [];
+    const cand = list.flatMap((x) => others.map((y) => ({ x, y, d: Math.hypot(...x.centre.map((c, k) =>
+      c - y.centre[k]!)) }))).sort((u, v) => u.d - v.d);
+    const done = new Set<P>(), used = new Set<P>();
+    for (const { x, y } of cand) if (!done.has(x) && !used.has(y)) { done.add(x); used.add(y); pairs.push([x, y]); }
+    for (const x of list) if (!done.has(x)) pairs.push([x, undefined]);
+    const extra = others.filter((y) => !used.has(y)).length;
+    if (extra) say(`${names}: ${extra} placed parts more`);
   }
+  for (const names of byNode.keys()) if (!nodes.has(names)) say(`${names}: ${byNode.get(names)!.length} placed parts `
+    + 'only in the second');
+  pairs.forEach(([x, y], i) => {
+    if (out.length >= max) return;
+    const where = `placement ${i} (${x.names})`;
+    if (!y) { say(`${where}: missing`); return; }
+    if (x.visible !== y.visible) say(`${where}: visible ${x.visible} against ${y.visible}`);
+    const t = unmatched(x.drawn, y.drawn, tolerance);
+    if (t.a.length || t.b.length) say(`${where}: ${x.drawn.length} triangles against ${y.drawn.length}; ` +
+      `${t.a.length} and ${t.b.length} unmatched, first ${describe((t.a[0] ?? t.b[0])!)}`);
+    const l = unmatched(x.lines, y.lines, tolerance);
+    if (l.a.length || l.b.length) say(`${where}: ${x.lines.length} lines and points against ${y.lines.length}; ` +
+      `${l.a.length} and ${l.b.length} unmatched, first ${describe((l.a[0] ?? l.b[0])!)}`);
+  });
   return out;
 }

@@ -44,9 +44,11 @@ test('viewDifferences: none for the same drawing however said; each kind of diff
   assert.ok(one(diff((s) => { s.overrides.push({ path: [0], visible: false, sources: [] }); }), /visible true/));
   assert.ok(one(diff((s) => { s.parts[0]!.lods[0]!.mesh.faces[0]!.source = 9; }), /triangles/));
   assert.ok(one(diff((s) => { s.parts[0]!.lods[0]!.mesh.edges = []; }), /lines/));
-  assert.ok(one(diff((s) => { s.components[0]!.name = 'd'; }), /in \/d/));
-  assert.ok(one(diff((s) => { s.components[0]!.parts.push({ part: 0, transform: identity() }); }),
-    /1 placed parts against 2/));
+  const has = (d: string[], pattern: RegExp) => d.some((x) => pattern.test(x));
+  const renamed = diff((s) => { s.components[0]!.name = 'd'; });
+  assert.ok(has(renamed, /\/c\): missing/) && has(renamed, /\/d: 1 placed parts only in the second/), renamed.join());
+  const extra = diff((s) => { s.components[0]!.parts.push({ part: 0, transform: identity() }); });
+  assert.ok(has(extra, /1 placed parts against 2/) && has(extra, /\/c: 1 placed parts more/), extra.join());
   // Within a tolerance: a step of 0.01 mm passes at 0.05 mm (a lossy codec's), not at the default.
   const near = scene();
   near.parts[0]!.lods[0]!.mesh.positions[3] = 1.01;

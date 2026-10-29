@@ -14,7 +14,7 @@
 import { WebIO, type Accessor, type Document, type Material as GltfMaterial, type Node,
   type Primitive } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
-import { identity, multiply, sceneFromTree, type Diagnostic, type Mat4, type Scene, type TreeExtras,
+import { closeTransforms, identity, multiply, sceneFromTree, type Diagnostic, type Mat4, type Scene, type TreeExtras,
   type TreeMaterial, type TreeMesh, type TreeNode, type Vec3 } from 'cad-scene';
 
 export interface GltfImport {
@@ -246,13 +246,20 @@ function restoreInstances(rootNode: Node, root: TreeNode, instanced: (n: Node) =
     n.children.forEach((c) => index(c, w));
   };
   root.children.forEach((c) => index(c, identity()));
-  // The lines of instanced placements, found by path and world transform (to 1e-5 relative: the instances' float32
-  // translation, rotation and scale against the lines' node's matrix).
+  // The lines of instanced placements, found by path and world transform (to 1e-5 of its largest entry: the
+  // instances' float32 translation, rotation and scale against the lines' node's matrix).
   const lines = root.children.filter(isLines);
-  const close = (a: Mat4, b: Mat4) => a.every((x, i) => Math.abs(x - b[i]!) <= 1e-5 * Math.max(1, Math.abs(x),
-    Math.abs(b[i]!)));
-  const own = (path: unknown, m: Mat4) => lines.find((n) => pathKey(obj(n.extras!.instance)!.path) === pathKey(path) &&
-    close(n.matrix, m));
+  const close = closeTransforms;
+  // (Each taken once, the nearest: two placements alike in path and place take one each.)
+  const taken = new Set<TreeNode>();
+  const own = (part: unknown, path: unknown, m: Mat4) => {
+    const fits = lines.filter((n) => !taken.has(n) && n.extras!.part === part &&
+      pathKey(obj(n.extras!.instance)!.path) === pathKey(path) && close(n.matrix, m));
+    const best = fits.sort((a, b) => far(a.matrix, m) - far(b.matrix, m))[0];
+    if (best) taken.add(best);
+    return best;
+  };
+  const far = (a: Mat4, b: Mat4) => a.reduce((s, x, i) => Math.max(s, Math.abs(x - b[i]!)), 0);
   const kept: TreeNode[] = [];
   nodes.forEach((gn, i) => {
     const tn = root.children[i]!;
@@ -293,7 +300,7 @@ function restoreInstances(rootNode: Node, root: TreeNode, instanced: (n: Node) =
         at = parent;
       }
       at.node.children.push({ name: tn.name, matrix: multiply(invert(at.world), world), visible: tn.visible,
-        extras: partExtras, meshes: tn.meshes, children: own(path, world)?.children ?? [] });
+        extras: partExtras, meshes: tn.meshes, children: own(tn.extras!.part, path, world)?.children ?? [] });
     });
   });
   if (nodes.length !== root.children.length) warn('the root\'s nodes and the tree disagree: instances not restored');
