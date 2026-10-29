@@ -771,6 +771,8 @@ class Writer {
     if (this.extras) {
       const extras: Json = { ...this.sourced(n.occurrence.sources, n.occurrence.properties) };
       extras.component = { index: n.component, name: comp.name, ...this.sourced(comp.sources, comp.properties) };
+      // (Its path in the tree, as instanced placements name theirs: where an importer puts them back.)
+      extras.path = n.path;
       if (comp.external) extras.external = { uri: comp.external.uri,
         ...(comp.external.format ? { format: comp.external.format } : {}) };
       node.setExtras(extras);

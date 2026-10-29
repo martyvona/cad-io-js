@@ -76,8 +76,15 @@ const sourcesOf = (v: unknown): SourceId[] => (Array.isArray(v) ? v.flatMap((s) 
     : [];
 }) : []);
 const propertiesOf = (v: unknown): Record<string, PropertyValue> => (obj(v) ?? {}) as Record<string, PropertyValue>;
-/** A transform as a key: equal transforms (to 1e-9) give one key. */
-const matrixKey = (m: Mat4) => Array.from(m, (x) => Math.round(x * 1e9) / 1e9).join(',');
+/**
+ * Transforms equal to 1e-5 relative: one reference or child however its instances' files round it (GPU instances'
+ * float32 translation, rotation and scale make each instance's local transform a little different).
+ */
+const close = (a: Mat4, b: Mat4) => a.every((x, i) => Math.abs(x - b[i]!) <= 1e-5 * Math.max(1, Math.abs(x),
+  Math.abs(b[i]!)));
+/** A part reference or child occurrence: what it places, and where. */
+interface Placed { id: string; matrix: Mat4 }
+const find = (list: Placed[], id: string, m: Mat4) => list.findIndex((k) => k.id === id && close(k.matrix, m));
 
 /** A face's material, and the default (a part's material: what faces without their own take). */
 interface Appearance { material: number | undefined; faces: Map<number, number | undefined> }
@@ -273,7 +280,7 @@ function ourLevel(node: TreeNode, b: Builder): { lod: Lod; appearance: Appearanc
 
 /** Our tree: components by their index, parts by theirs, instances' differences as overrides. */
 function fromOurs(root: TreeNode, b: Builder): Occurrence[] {
-  interface Comp { comp: Component; refKeys: string[]; childKeys: string[] }
+  interface Comp { comp: Component; refKeys: Placed[]; childKeys: Placed[] }
   const comps = new Map<number, Comp>();
   // (By node too: a node without our component index is a component of its own.)
   const byNode = new Map<TreeNode, Comp>();
@@ -283,8 +290,8 @@ function fromOurs(root: TreeNode, b: Builder): Occurrence[] {
   const occurrence = (n: TreeNode, component: number, compName: string): Occurrence => ({ component,
     transform: n.matrix, ...(n.name && n.name !== compName ? { name: n.name } : {}),
     sources: sourcesOf(n.extras?.sources), properties: propertiesOf(n.extras?.properties) });
-  const childKey = (n: TreeNode) => `${compOf(n) ?? n.name}|${n.name}|${matrixKey(n.matrix)}`;
-  const refKey = (n: TreeNode) => `${num(n.extras?.part)}|${matrixKey(n.matrix)}`;
+  const childId = (n: TreeNode) => `${compOf(n) ?? n.name}|${n.name}`;
+  const refId = (n: TreeNode) => `${num(n.extras?.part)}`;
 
   // The component of a tree node (made at its first instance), with the union of its instances' parts and children.
   const component = (n: TreeNode): Comp => {
@@ -304,32 +311,29 @@ function fromOurs(root: TreeNode, b: Builder): Occurrence[] {
     byNode.set(n, c);
     for (const ch of n.children) {
       if (isPart(ch)) {
-        const k = refKey(ch);
-        if (c.refKeys.includes(k)) continue;
+        if (find(c.refKeys, refId(ch), ch.matrix) >= 0) continue;
         const p = b.part(`ours:${num(ch.extras?.part)}`, () => ({ name: ch.name, sources: sourcesOf(ch.extras?.sources),
           properties: propertiesOf(ch.extras?.properties), unit: 1, origin: [0, 0, 0] as Vec3, lods: [],
           ...(typeof ch.extras?.closed === 'boolean' ? { closed: ch.extras.closed } : {}) }));
-        c.refKeys.push(k);
+        c.refKeys.push({ id: refId(ch), matrix: ch.matrix });
         c.comp.parts.push({ part: p, transform: ch.matrix });
       } else {
-        const k = childKey(ch);
-        if (c.childKeys.includes(k)) continue;
+        if (find(c.childKeys, childId(ch), ch.matrix) >= 0) continue;
         const sub = component(ch);
-        c.childKeys.push(k);
+        c.childKeys.push({ id: childId(ch), matrix: ch.matrix });
         c.comp.children.push(occurrence(ch, b.components.indexOf(sub.comp), sub.comp.name));
       }
     }
     return c;
   };
   // The roots, likewise a union (one per root node of the file).
-  const rootKeys: string[] = [];
+  const rootKeys: Placed[] = [];
   const roots: Occurrence[] = [];
   const rootNodes = root.children.filter((n) => !isPart(n));
   for (const n of rootNodes) {
     const c = component(n);
-    const k = childKey(n);
-    if (rootKeys.includes(k)) continue;
-    rootKeys.push(k);
+    if (find(rootKeys, childId(n), n.matrix) >= 0) continue;
+    rootKeys.push({ id: childId(n), matrix: n.matrix });
     roots.push(occurrence(n, b.components.indexOf(c.comp), c.comp.name));
   }
   if (root.children.some(isPart)) b.warn('parts directly under the root: not read');
@@ -340,7 +344,7 @@ function fromOurs(root: TreeNode, b: Builder): Occurrence[] {
     const present = new Set<number>();
     for (const ch of n.children) {
       if (isPart(ch)) {
-        const r = c.refKeys.indexOf(refKey(ch));
+        const r = find(c.refKeys, refId(ch), ch.matrix);
         present.add(r);
         const ref: PartRef = c.comp.parts[r]!;
         const part = b.parts[ref.part]!;
@@ -356,7 +360,7 @@ function fromOurs(root: TreeNode, b: Builder): Occurrence[] {
     const seen = new Set<number>();
     for (const ch of n.children) {
       if (isPart(ch)) continue;
-      const k = c.childKeys.indexOf(childKey(ch));
+      const k = find(c.childKeys, childId(ch), ch.matrix);
       seen.add(k);
       visit(ch, [...path, k]);
     }
@@ -364,7 +368,7 @@ function fromOurs(root: TreeNode, b: Builder): Occurrence[] {
       if (!seen.has(k)) b.overrides.push({ path: [...path, k], visible: false, sources: [] });
     });
   };
-  rootNodes.forEach((n) => visit(n, [rootKeys.indexOf(childKey(n))]));
+  rootNodes.forEach((n) => visit(n, [find(rootKeys, childId(n), n.matrix)]));
   return roots;
 }
 

@@ -1,0 +1,22 @@
+{
+  "name": "gltf-import",
+  "version": "0.1.0",
+  "description": "glTF 2.0 importer: GLB or .gltf (with Draco or meshopt) to the cad-scene model, read with glTF-Transform",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@gltf-transform/core": "4.5.1",
+    "@gltf-transform/extensions": "4.5.1",
+    "cad-scene": "0.1.0",
+    "draco3dgltf": "1.5.9",
+    "meshoptimizer": "1.3.0"
+  },
+  "devDependencies": {
+    "export-gltf": "0.1.0",
+    "step-import": "0.1.0",
+    "tess-occt": "0.1.0"
+  }
+}

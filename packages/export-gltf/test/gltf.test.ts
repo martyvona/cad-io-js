@@ -110,7 +110,8 @@ test('GLB: valid; the tree, transforms to metres and Y up, shared accessors, mat
   assert.deepEqual(asm.listChildren().map((c) => c.getName()), ['left', 'sub']);
   assert.deepEqual(asm.listChildren()[0]!.getExtras(),
     { sources: [{ format: 'step', id: 101 }],
-    component: { index: 1, name: 'sub', sources: [{ format: 'step', id: 7 }], properties: { rev: 'B' } } });
+    component: { index: 1, name: 'sub', sources: [{ format: 'step', id: 7 }], properties: { rev: 'B' } },
+    path: [0, 0] });
 
   // Without edges and curves the wireframe has nothing to draw: a node without a mesh.
   const nodes = root.listNodes();
