@@ -1,6 +1,7 @@
-// Our loader's three.js graph (the user, 2026-10-24; CLAUDE.md, "The viewer"): the assembly tree from the scene at
-// once, then each part's mesh attached to every placement of the part as tessellation delivers it, so the model
-// appears part by part.
+// A model's three.js graph, from its scene whatever the file's format (the user, 2026-10-24; one path for every
+// format since 2026-10-29; CLAUDE.md, "The viewer"): the assembly tree from the scene at once, mesh parts' levels
+// with it, then each B-rep part's mesh attached to every placement of the part as tessellation delivers it, so the
+// model appears part by part.
 //
 //   root -> a Group per component instance (its occurrence's transform) -> ... -> a Group per placed part (the part
 //     reference's transform: the part's own unit to millimetres) -> a Mesh at the mesh's origin, with its B-rep
@@ -8,7 +9,8 @@
 //
 // A part's geometry is shared by its placements: one set of attributes, and one geometry (its groups) per distinct
 // colouring of the faces. Edges are the B-rep's where the backend gave them (shared and free ones, as the exporters
-// write them); a part with triangles and no B-rep edges gets edges found from its triangles instead.
+// write them, and our glTF and three.js files hold); a part with triangles and no edges (a foreign file's) gets edges
+// found from its triangles instead.
 //
 // For the node model (model.ts): component groups have `userData.cad` 'assembly', placed parts' groups 'part', and
 // each placement's Mesh its faces' source ids in `userData.faces` (and their index ranges in `faceRanges`, for
@@ -16,8 +18,8 @@
 // a geometry group of their own with an invisible material.
 
 import * as THREE from 'three';
-import { faceFailures, instances, partInstances, type Mat4, type Mesh, type PartInstance,
-  type Scene } from 'cad-scene';
+import { faceFailures, instances, partInstances, type Mat4, type Mesh, type PartInstance, type Scene,
+  type SourceId } from 'cad-scene';
 import type { FaceHiding } from './model.ts';
 import { DEFAULT_RENDER, EDGES } from './style.ts';
 
@@ -29,6 +31,9 @@ export const EDGE_ANGLE = 10;
 const EDGE_KINDS = new Set(['shared', 'free']);
 
 const matrix = (m: Mat4) => new THREE.Matrix4().fromArray(m);
+/** The STEP entities among sources, each once. */
+const stepIds = (sources: readonly SourceId[]) => [...new Set(sources.flatMap((s) => (s.format === 'step' ? [s.id]
+  : [])))];
 
 function setMatrix(o: THREE.Object3D, m: Mat4): void {
   o.matrix.copy(matrix(m));
@@ -73,7 +78,7 @@ const OUTLINE = new THREE.LineBasicMaterial({ color: FAILED_COLOR });
 /** Hidden faces' triangles: drawn with nothing. */
 const HIDDEN = new THREE.MeshBasicMaterial({ visible: false });
 
-export class StepGraph implements FaceHiding {
+export class SceneGraph implements FaceHiding {
   readonly root = new THREE.Group();
   readonly scene: Scene;
   /** Each part's placements, by part index. */
@@ -102,7 +107,7 @@ export class StepGraph implements FaceHiding {
       const g = new THREE.Group();
       g.name = occ.name ?? scene.components[inst.component]!.name;
       // (Its STEP ids: the occurrence's, then its component's; step-ids.ts.)
-      const sources = [...new Set([...occ.sources, ...scene.components[inst.component]!.sources].map((s) => s.id))];
+      const sources = stepIds([...occ.sources, ...scene.components[inst.component]!.sources]);
       g.userData = { cad: 'assembly', component: inst.component, path: inst.path, sources };
       setMatrix(g, occ.transform);
       (parent ?? this.root).add(g);
@@ -111,8 +116,9 @@ export class StepGraph implements FaceHiding {
     for (const pi of partInstances(scene)) {
       const g = new THREE.Group();
       g.name = scene.parts[pi.part]!.name;
-      g.userData = { cad: 'part', part: pi.part, path: pi.path,
-        sources: [...new Set(scene.parts[pi.part]!.sources.map((s) => s.id))] };
+      // (Its faces' ids STEP's when the part comes from STEP: a foreign file's are numbers of its own.)
+      const sources = stepIds(scene.parts[pi.part]!.sources);
+      g.userData = { cad: 'part', part: pi.part, path: pi.path, sources, stepFaces: sources.length > 0 };
       g.visible = pi.visible;
       setMatrix(g, pi.ref.transform);
       groups.get(pi.path.join('/'))!.add(g);
@@ -251,7 +257,10 @@ export class StepGraph implements FaceHiding {
   private assign(part: number, meshed: MeshedPart, obj: THREE.Mesh, instance: PartInstance): void {
     const hidden = this.hiddenFaces.get(part);
     const runs: { start: number; count: number; material: number | undefined | 'hidden' }[] = [];
-    for (const f of meshed.mesh.faces) {
+    // (A mesh without faces, a foreign file's of one material: all its triangles in the part's.)
+    const faces = meshed.mesh.faces.length ? meshed.mesh.faces : [{ source: null, start: 0,
+      count: meshed.mesh.indices.length }];
+    for (const f of faces) {
       const m = f.source !== null && hidden?.has(f.source) ? 'hidden' as const
         : (f.source !== null ? instance.faceMaterials.get(f.source) : undefined) ?? instance.material;
       const last = runs.at(-1);
@@ -300,30 +309,4 @@ export class StepGraph implements FaceHiding {
       for (const l of this.outlined.get(part) ?? []) l.visible = true;
     }
   }
-}
-
-/**
- * Edges found from the triangles, for meshes loaded by three.js's loaders that have no lines of their own beside
- * them (our exports with B-rep edges put them in children); instanced meshes are left alone (a child would be drawn
- * once, not per instance).
- */
-export function detectEdges(root: THREE.Object3D): number {
-  const material = new THREE.LineBasicMaterial({ color: 0x000000 });
-  const isLine = (o: THREE.Object3D) => (o as THREE.Line).isLine === true;
-  const meshes: THREE.Mesh[] = [];
-  root.traverse((o) => {
-    const m = o as THREE.Mesh;
-    if (!m.isMesh || (m as THREE.InstancedMesh).isInstancedMesh) return;
-    if (m.children.some(isLine) || m.parent?.children.some(isLine)) return;
-    meshes.push(m);
-  });
-  for (const m of meshes) {
-    const e = Object.assign(new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry, EDGE_ANGLE), material),
-      { name: 'edges' });
-    e.layers.set(EDGES);
-    m.add(e);
-    for (const mat of Array.isArray(m.material) ? m.material : [m.material]) Object.assign(mat,
-      { polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
-  }
-  return meshes.length;
 }

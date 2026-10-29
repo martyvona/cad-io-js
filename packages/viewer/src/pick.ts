@@ -30,9 +30,9 @@ function shown(o: THREE.Object3D): boolean {
 
 const isMesh = (o: THREE.Object3D | null | undefined) => !!(o as THREE.Mesh | undefined)?.isMesh;
 
-/** A line or point drawn with a mesh: its child (our edges, curves, points), or its sibling (a glTF node's). */
+/** A line or point drawn with a mesh: its child (the part's edges, curves, points; scene-graph.ts). */
 function ownLine(line: THREE.Object3D, mesh: THREE.Object3D): boolean {
-  return line.parent === mesh || (!!line.parent && line.parent === mesh.parent);
+  return line.parent === mesh;
 }
 
 /** A line or point of a part with no faces: neither its parent nor its siblings are meshes. */

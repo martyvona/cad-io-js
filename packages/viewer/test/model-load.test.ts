@@ -3,8 +3,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import type { Scene, TessellationRequest, TessellationResult, Tessellator } from 'cad-scene';
-import { loadStepIn, meshable, meshBuffers, postable, type StepEvent } from '../src/step-load.ts';
-import { scene as fixture } from './fixtures.ts';
+import { importModel, levelBuffers, loadModelIn, meshable, meshBuffers, postable, type ModelEvent,
+  type ModelInput } from '../src/model-load.ts';
+import { exportView, pruneView, viewDifferences } from 'cad-scene';
+import { glb, gltfJson } from 'export-gltf';
+import { threejsJson } from 'export-threejs';
+import { scene as fixture, plate, wire } from './fixtures.ts';
 import { MESH_PROFILES } from 'cad-scene';
 import { defaultSettings } from '../src/tessellation.ts';
 
@@ -13,6 +17,7 @@ const DEFAULT_SETTINGS = defaultSettings('coarse');
 const step = path.resolve(import.meta.dirname,
   '../../../test_corpus/third_party/gkv311-opencascade-dataset/step/as1-oc-214-mat.stp');
 const skip = fs.existsSync(step) ? false : 'corpus not fetched';
+const stepInput = (): ModelInput => ({ format: 'step', bytes: new Uint8Array(fs.readFileSync(step)) });
 
 /** A stand-in tessellator: a triangle per request, its face the request's root, after `delay` ms. */
 function fake(delay = 0) {
@@ -68,12 +73,12 @@ test("meshBuffers: each array's buffer once", () => {
   assert.deepEqual(meshBuffers(undefined), []);
 });
 
-test('loadStepIn: the scene (postable), a mesh per placed brep part, then the end with what meshed it',
+test('loadModelIn: the scene (postable), a mesh per placed brep part, then the end with what meshed it',
   { skip }, async () => {
     const { requests, tessellation } = fake();
-    const events: StepEvent[] = [];
+    const events: ModelEvent[] = [];
     const transfers: ArrayBuffer[][] = [];
-    await loadStepIn(new Uint8Array(fs.readFileSync(step)), DEFAULT_SETTINGS, 3, tessellation,
+    await loadModelIn(stepInput(), DEFAULT_SETTINGS, 3, tessellation,
       (e, t) => { events.push(e); transfers.push(t ?? []); }, () => false);
     assert.deepEqual(events.map((e) => e.type), ['scene', ...requests.map(() => 'mesh'), 'done']);
     assert.equal(requests.length, 5);
@@ -83,39 +88,77 @@ test('loadStepIn: the scene (postable), a mesh per placed brep part, then the en
     // representation's id, not one of the file's faces, so every face of the file counts as failed: outlined from
     // the file); a profile's deflections exactly (not through degrees).
     assert.ok(transfers.slice(1, -1).every((t) => t.length === 3));
-    const meshes = events.filter((e) => e.type === 'mesh') as Extract<StepEvent, { type: 'mesh' }>[];
+    const meshes = events.filter((e) => e.type === 'mesh') as Extract<ModelEvent, { type: 'mesh' }>[];
     assert.ok(meshes.every((e) => e.mesh!.faceOutlines!.length > 0 && e.mesh!.faces.length > 1));
     assert.equal(requests[0]!.angularDeflection, MESH_PROFILES.coarse.angularDeflection);
     // Custom: the settings' deflections, degrees to radians.
     const custom = fake();
-    await loadStepIn(new Uint8Array(fs.readFileSync(step)), { ...DEFAULT_SETTINGS, profile: 'custom',
-      angularDeflection: 10 }, 3, custom.tessellation, () => {}, () => false);
+    await loadModelIn(stepInput(), { ...DEFAULT_SETTINGS, profile: 'custom', angularDeflection: 10 }, 3,
+      custom.tessellation, () => {}, () => false);
     assert.equal(custom.requests[0]!.angularDeflection, 10 * Math.PI / 180);
-    const done = events.at(-1) as Extract<StepEvent, { type: 'done' }>;
+    const done = events.at(-1) as Extract<ModelEvent, { type: 'done' }>;
     assert.deepEqual(done.meshing, { backend: 'fake 1', pools: 1, workers: 2 });
   });
 
-test('loadStepIn: cancelled, it stops: after the scene, or before meshing', { skip }, async () => {
-  const bytes = new Uint8Array(fs.readFileSync(step));
+test('loadModelIn: cancelled, it stops: after the scene, or before meshing', { skip }, async () => {
+  const bytes = stepInput();
   const { tessellation } = fake(20);
-  const events: StepEvent[] = [];
+  const events: ModelEvent[] = [];
   let stop = false;
-  const run = loadStepIn(bytes, DEFAULT_SETTINGS, 2, tessellation, (e) => {
+  const run = loadModelIn(bytes, DEFAULT_SETTINGS, 2, tessellation, (e) => {
     events.push(e);
     if (e.type === 'mesh') stop = true;
   }, () => stop);
   await run;
   assert.deepEqual(events.map((e) => e.type), ['scene', 'mesh']);
-  const none: StepEvent[] = [];
-  await loadStepIn(bytes, DEFAULT_SETTINGS, 2, fake().tessellation, (e) => none.push(e), () => true);
+  const none: ModelEvent[] = [];
+  await loadModelIn(bytes, DEFAULT_SETTINGS, 2, fake().tessellation, (e) => none.push(e), () => true);
   assert.deepEqual(none, []);
 });
 
-test('loadStepIn: a file with nothing to mesh ends at once', async () => {
-  const bytes = new TextEncoder().encode("ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION((''),'2;1');\n" +
+test('loadModelIn: a file with nothing to mesh ends at once', async () => {
+  const bytes = { format: 'step' as const, bytes: new TextEncoder().encode('ISO-10303-21;\nHEADER;\n' +
+    "FILE_DESCRIPTION((''),'2;1');\n" +
     "FILE_NAME('','',(''),(''),'','','');\nFILE_SCHEMA(('AUTOMOTIVE_DESIGN'));\nENDSEC;\nDATA;\nENDSEC;\n" +
-    'END-ISO-10303-21;\n');
-  const events: StepEvent[] = [];
-  await loadStepIn(bytes, DEFAULT_SETTINGS, 2, fake().tessellation, (e) => events.push(e), () => false);
+    'END-ISO-10303-21;\n') };
+  const events: ModelEvent[] = [];
+  await loadModelIn(bytes, DEFAULT_SETTINGS, 2, fake().tessellation, (e) => events.push(e), () => false);
   assert.deepEqual(events.map((e) => e.type), ['scene', 'done']);
 });
+
+test('importModel and loadModelIn: GLB, .gltf with its .bin, three.js JSON, the scene they were written from',
+  async () => {
+    // The fixture with meshes instead of B-rep (as the exporters take it), written with our extras.
+    const s = fixture();
+    s.parts = s.parts.map(({ brep: _, ...p }, i) => ({ ...p, lods: [{ mesh: i === 0 ? plate() : wire(),
+      from: 'source' as const }] }));
+    const lines = { edges: true, curves: true };
+    const view = exportView(s, lines);
+    const sidecar = await gltfJson(s, view, 'model.bin', { extras: true, compression: 'none', hidden: 'extension' });
+    const inputs: ModelInput[] = [
+      { format: 'glb', bytes: (await glb(s, view, { extras: true, hidden: 'extension' })).bytes },
+      { format: 'gltf', bytes: new TextEncoder().encode(sidecar.json), resources: { 'model.bin': sidecar.bin! } },
+      { format: 'threejs', bytes: new TextEncoder().encode(threejsJson(s, view, { extras: true })) }];
+    for (const input of inputs) {
+      const back = await importModel(input);
+      assert.deepEqual(viewDifferences({ scene: s, view: pruneView(view) }, { scene: back,
+        view: exportView(back, lines) }, { tolerance: 1e-3 }), [], input.format);
+      // Nothing to mesh: the scene, its levels' buffers transferred, then the end; no tessellation asked for.
+      const { requests, tessellation } = fake();
+      const events: ModelEvent[] = [];
+      const transfers: ArrayBuffer[][] = [];
+      await loadModelIn(input, DEFAULT_SETTINGS, 2, tessellation, (e, t) => {
+        events.push(e);
+        transfers.push(t ?? []);
+      }, () => false);
+      assert.deepEqual(events.map((e) => e.type), ['scene', 'done'], input.format);
+      assert.equal(requests.length, 0);
+      const scene = (events[0] as { scene: Scene }).scene;
+      assert.ok(scene.parts.every((p) => p.lods.length === 1 && !p.brep), input.format);
+      assert.deepEqual(transfers[0], levelBuffers(scene));
+      assert.ok(transfers[0]!.length >= 2);
+    }
+    // A .gltf whose .bin isn't given: the importer says so.
+    const missing = await importModel({ format: 'gltf', bytes: new TextEncoder().encode(sidecar.json) });
+    assert.equal(missing.diagnostics[0]?.severity, 'error');
+  });

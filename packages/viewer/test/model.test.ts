@@ -2,12 +2,12 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as THREE from 'three';
 import { NodeModel } from '../src/model.ts';
-import { StepGraph } from '../src/step.ts';
+import { SceneGraph } from '../src/scene-graph.ts';
 import { plate, scene, wire } from './fixtures.ts';
 
 /** The STEP fixture with its meshes, and its node model. */
 function stepModel() {
-  const graph = new StepGraph(scene(), 'model');
+  const graph = new SceneGraph(scene(), 'model');
   const model = new NodeModel(graph.root, graph);
   return { graph, model };
 }
@@ -110,57 +110,6 @@ test("hiding a face: its triangles drawn with nothing in every placement of the 
     assert.ok(meshes.every((m) => (m.material as THREE.Material[]).every((x) => x.visible)));
   });
 
-test("three.js graphs: parts are objects with only drawables below; a part's own drawing hides alone", () => {
-  const root = new THREE.Group();
-  root.name = 'scene';
-  const box = (name: string) => Object.assign(new THREE.Mesh(new THREE.BoxGeometry()), { name });
-  const lines = () => Object.assign(new THREE.LineSegments(), { name: 'edges' });
-  const withLines = box('bracket');
-  withLines.add(lines());
-  const multi = Object.assign(new THREE.Group(), { name: 'two primitives' });
-  multi.add(box(''), box(''));
-  // A group with only a mesh below is a part (a glTF node's primitives); with a group below, an assembly.
-  const sub = Object.assign(new THREE.Group(), { name: 'sub' });
-  const lone = box('lone');
-  lone.visible = false;
-  sub.add(Object.assign(new THREE.Group(), { name: 'holder' }).add(lone));
-  const empty = Object.assign(new THREE.Group(), { name: 'empty' });
-  // A group whose mesh has a group below it: not only drawables below, so an assembly.
-  const deep = Object.assign(new THREE.Group(), { name: 'deep' });
-  deep.add(box('outer').add(Object.assign(new THREE.Group(), { name: 'inner' }).add(box('innermost'))));
-  root.add(withLines, multi, sub, empty, deep);
-  const m = new NodeModel(root);
-  assert.deepEqual(names(m, m.roots), ['assembly:scene']);
-  const top = m.children(m.roots[0]!);
-  assert.deepEqual(names(m, top), ['part:bracket', 'part:two primitives', 'assembly:sub', 'assembly:empty',
-    'assembly:deep']);
-  assert.deepEqual(names(m, m.children(top[2]!)), ['part:holder']);
-  assert.equal(m.nodes[m.children(top[2]!)[0]!]!.hidden, false);
-  // Before detail: an object below a part is the part's.
-  assert.equal(m.nodeOf(withLines.children[0]!), top[0]);
-  m.setDetail(true);
-  const detail = m.children(top[0]!);
-  assert.deepEqual(names(m, detail), ['mesh:bracket (itself)', 'lines:edges']);
-  assert.deepEqual(names(m, m.children(top[1]!)), ['mesh:mesh', 'mesh:mesh']);
-  assert.deepEqual(names(m, m.children(m.children(top[2]!)[0]!)), ['mesh:lone']);
-  assert.equal(m.nodes[m.children(m.children(top[2]!)[0]!)[0]!]!.hidden, true);
-  // The part's own drawing: its layer, so its edges stay.
-  m.setHidden([detail[0]!], true);
-  assert.equal(withLines.layers.isEnabled(0), false);
-  assert.equal(withLines.visible, true);
-  assert.equal(withLines.children[0]!.layers.isEnabled(0), true);
-  m.showAll();
-  assert.equal(withLines.layers.isEnabled(0), true);
-  assert.equal(lone.visible, true);
-  // An object's node: the nearest node at or above it (its own, once detail is built; the part's own drawing has
-  // no node of its own there, so the part's).
-  const own = m.nodeOf(multi.children[1]!)!;
-  assert.equal(m.nodes[own]!.kind, 'mesh');
-  assert.equal(m.nodes[own]!.parent, top[1]);
-  assert.equal(m.nodeOf(new THREE.Object3D()), undefined);
-  assert.equal(m.nodeOf(withLines), top[0]);
-});
-
 test('paths: occurrence names with an index among same-named siblings, detail below parts, found either way', () => {
   const { graph, model } = stepModel();
   graph.addMesh(0, plate());
@@ -188,26 +137,28 @@ test('paths: occurrence names with an index among same-named siblings, detail be
 test('paths: same-named siblings numbered from the second; names escaped', () => {
   const root = new THREE.Group();
   root.name = 'top';
+  // (Placed parts' groups as the scene graph marks them, each with its mesh.)
   const named = (name: string) => {
     const g = new THREE.Group();
     g.name = name;
-    g.add(new THREE.Mesh(new THREE.BoxGeometry()));
+    g.userData = { cad: 'part', part: 0 };
+    g.add(Object.assign(new THREE.Mesh(new THREE.BoxGeometry()), { userData: { faces: [3] } }));
     return g;
   };
   const kids = [named('nut'), named('bolt'), named('nut'), named('a/b:c%d'), named('nut')];
   const asm = new THREE.Group();
   asm.name = 'asm';
   asm.add(...kids, new THREE.Group());
-  root.add(asm, new THREE.Mesh(new THREE.BoxGeometry()));
+  root.add(asm, named('loose'));
   const model = new NodeModel(root);
   const paths = model.children(model.children(model.roots[0]!)[0]!).map((i) => model.pathOf(i));
   assert.deepEqual(paths.slice(0, 5), ['top/asm/nut', 'top/asm/bolt', 'top/asm/nut:2', 'top/asm/a%2Fb%3Ac%25d',
     'top/asm/nut:3']);
   for (const p of paths) assert.equal(model.pathOf(model.find(p)!), p);
-  // A three.js part's drawables below it, and its own drawing.
+  // A part's faces below it.
   const part = model.find('top/asm/bolt')!;
   model.setDetail(true);
-  assert.deepEqual(model.children(part).map((i) => model.pathOf(i)), ['top/asm/bolt/mesh']);
+  assert.deepEqual(model.children(part).map((i) => model.pathOf(i)), ['top/asm/bolt/face#3']);
 });
 
 test('hiddenFacePaths: a hidden face below every placement of its part, as its face nodes\' paths, made or not', () => {

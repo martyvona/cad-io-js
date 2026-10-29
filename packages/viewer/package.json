@@ -2,7 +2,7 @@
   "name": "cad-viewer",
   "version": "0.1.0",
   "private": true,
-  "description": "An interactive three.js viewer for debugging and inspecting models: STEP through cad-io-js, glTF and three.js JSON through three.js's loaders",
+  "description": "An interactive three.js viewer for debugging and inspecting models: STEP, glTF and three.js JSON through cad-io-js's importers",
   "license": "Apache-2.0",
   "type": "module",
   "bin": {
@@ -16,6 +16,8 @@
   "dependencies": {
     "@headless-tree/core": "1.7.0",
     "cad-scene": "0.1.0",
+    "draco3dgltf": "1.5.9",
+    "gltf-import": "0.1.0",
     "n8ao": "2.0.1",
     "postprocessing": "6.39.5",
     "step-import": "0.1.0",
@@ -23,7 +25,8 @@
     "tess-occt": "0.1.0",
     "tess-truck": "0.1.0",
     "tess-workers": "0.1.0",
-    "three": "0.186.1"
+    "three": "0.186.1",
+    "threejs-import": "0.1.0"
   },
   "devDependencies": {
     "@types/three": "0.186.0",

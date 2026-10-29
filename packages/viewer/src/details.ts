@@ -18,7 +18,7 @@ const plural = (n: number, one: string, many = `${one}s`) => `${num(n)} ${n === 
 const KIND_NAMES: Record<Kind, [string, string]> = {
   assembly: ['assembly', 'assemblies'], part: ['part', 'parts'], face: ['face', 'faces'],
   edges: ['set of edges', 'sets of edges'], curves: ['set of curves', 'sets of curves'],
-  points: ['set of points', 'sets of points'], mesh: ['mesh', 'meshes'], lines: ['set of lines', 'sets of lines'],
+  points: ['set of points', 'sets of points'],
 };
 
 export function details(model: NodeModel, ids: readonly number[]): string[] {

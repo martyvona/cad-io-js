@@ -5,11 +5,11 @@ import { details } from '../src/details.ts';
 import { NodeModel } from '../src/model.ts';
 import { pick } from '../src/pick.ts';
 import { boxOf, faceOfTriangle, Highlighter, instancesOf, measure, nodeForPick, piecesOf } from '../src/selection.ts';
-import { StepGraph } from '../src/step.ts';
+import { SceneGraph } from '../src/scene-graph.ts';
 import { plate, scene, wire } from './fixtures.ts';
 
 function stepModel() {
-  const graph = new StepGraph(scene(), 'model');
+  const graph = new SceneGraph(scene(), 'model');
   graph.addMesh(0, plate());
   graph.addMesh(1, wire());
   const model = new NodeModel(graph.root, graph);
@@ -31,17 +31,6 @@ test('pieces: a part whole (its mesh and lines), a face as ranges, a face inside
   assert.deepEqual(piecesOf(model, [face]).map((p) => p.ranges), [[{ start: 3, count: 3 }]]);
   assert.equal(piecesOf(model, [face, plateLeft]).length, 2);
   assert.ok(piecesOf(model, [face, plateLeft]).every((p) => !p.ranges));
-  // A three.js part's own drawing: the object alone, not its lines.
-  const root = new THREE.Group();
-  const bracket = new THREE.Mesh(new THREE.BoxGeometry());
-  bracket.add(new THREE.LineSegments());
-  // (A group beside it, so the root is an assembly.)
-  root.add(bracket, new THREE.Group().add(new THREE.Group()));
-  const m = new NodeModel(root);
-  m.setDetail(true);
-  const own = m.children(m.children(m.roots[0]!)[0]!)[0]!;
-  assert.equal(m.nodes[own]!.self, true);
-  assert.deepEqual(piecesOf(m, [own]).map((p) => p.object), [bracket]);
 });
 
 test("measures in the world's millimetres: triangles' area, segments' length, points", () => {
@@ -106,19 +95,10 @@ test('the node a pick stands for: the part, its assembly, or the face, edges or 
   assert.equal(nodeForPick(model, model.nodes[left]!.object!, undefined, 'part'), left);
 });
 
-test("instances: a STEP part's placements; a three.js part's by its geometries", () => {
+test("instances: a part's placements, by its scene part", () => {
   const { model, left, sub, hidden, partOf } = stepModel();
   assert.deepEqual(instancesOf(model, partOf(sub, 0)), [partOf(left, 0), partOf(sub, 0), partOf(hidden, 0)]);
-  const g = new THREE.BoxGeometry();
-  const root = new THREE.Group();
-  const a = new THREE.Group().add(new THREE.Mesh(g));
-  const b = new THREE.Group().add(new THREE.Mesh(g));
-  const c = new THREE.Group().add(new THREE.Mesh(new THREE.BoxGeometry()));
-  root.add(a, b, c);
-  const m = new NodeModel(root);
-  const parts = m.children(m.roots[0]!);
-  assert.deepEqual(instancesOf(m, parts[0]!), [parts[0], parts[1]]);
-  assert.deepEqual(instancesOf(m, parts[2]!), [parts[2]]);
+  assert.deepEqual(instancesOf(model, partOf(sub, 1)), [partOf(left, 1), partOf(sub, 1), partOf(hidden, 1)]);
 });
 
 test('highlighting: tinted materials swapped in and back, shared; faces as an overlay; other instances lighter', () => {
@@ -174,9 +154,11 @@ test('pick: the nearest drawn thing under a point; hidden things, hidden faces a
   near.geometry.addGroup(0, 6, 0);
   near.position.z = 5;
   const far = new THREE.Mesh(new THREE.PlaneGeometry(10, 10));
-  const edge = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-5, 0.02, 5),
-    new THREE.Vector3(5, 0.02, 5)]));
-  root.add(near, far, edge);
+  // (Its edge its child, as the scene graph has them: at its depth, z 5.)
+  const edge = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-5, 0.02, 0),
+    new THREE.Vector3(5, 0.02, 0)]));
+  near.add(edge);
+  root.add(near, far);
   root.updateMatrixWorld(true);
   const camera = new THREE.OrthographicCamera(-10, 10, 10, -10, -100, 100);
   camera.position.set(0, 0, 20);

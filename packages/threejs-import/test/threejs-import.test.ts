@@ -160,6 +160,7 @@ test('foreign three.js JSON: shared geometry one part, lines and points, materia
   // Not JSON, not three.js JSON: an error, an empty scene.
   assert.equal(importThreejs('{').diagnostics[0]!.severity, 'error');
   assert.equal(importThreejs({ metadata: {} }).diagnostics[0]!.severity, 'error');
+  assert.equal(importThreejs('{').scene.diagnostics[0]!.severity, 'error');
 });
 
 const assembly = path.resolve(import.meta.dirname,
@@ -176,4 +177,33 @@ test('a STEP assembly through three.js JSON and back: the same drawing', { skip:
   assert.deepEqual(diagnostics, []);
   assert.deepEqual(viewDifferences({ scene: s, view: pruneView(view) }, { scene: back, view: exportView(back, opts) }),
     []);
+});
+
+test('foreign three.js JSON: an instanced mesh a placement per instance; an old file of ours in millimetres', () => {
+  const geometry = { uuid: 'g', type: 'BufferGeometry', data: { attributes: { position: { itemSize: 3,
+    type: 'Float32Array', array: [0, 0, 0, 1, 0, 0, 0, 1, 0] } } } };
+  const at = (x: number) => [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, x, 0, 0, 1];
+  const json = (userData: object) => ({ metadata: { version: 4.6, type: 'Object' }, geometries: [geometry],
+    object: { uuid: 'r', type: 'Group', name: 'root', matrix: Array.from(identity()), userData, children: [
+      { uuid: 'i', type: 'InstancedMesh', name: 'many', geometry: 'g', count: 2, matrix: at(5),
+        instanceMatrix: { itemSize: 16, type: 'Float32Array', array: [...at(0), ...at(10)] } }] } });
+  // The first corner of each placement in the world, x only.
+  const xs = (s: Scene) => {
+    const v = exportView(s);
+    const out: number[] = [];
+    const walk = (n: (typeof v.roots)[number], t: Mat4) => {
+      const w = multiply(t, n.transform);
+      for (const p of n.parts) out.push(Math.round(multiply(w, p.transform)[12]!));
+      n.children.forEach((c) => walk(c, w));
+    };
+    v.roots.forEach((r) => walk(r, identity()));
+    return out;
+  };
+  const { scene: s, diagnostics } = importThreejs(JSON.stringify(json({})));
+  assert.deepEqual(diagnostics, []);
+  assert.deepEqual(validate(s), []);
+  // Metres to millimetres: the object at 5 m, its instances 0 and 10 m beyond.
+  assert.deepEqual(xs(s), [5000, 15000]);
+  // Our extras before 2026-10-24: millimetres, no up axis, no root matrix.
+  assert.deepEqual(xs(importThreejs(JSON.stringify(json({ unit: 'millimetre' }))).scene), [5, 15]);
 });

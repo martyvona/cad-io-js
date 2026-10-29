@@ -52,7 +52,7 @@ export interface ViewState {
 const VIEW_NAMES: readonly ViewName[] = ['front', 'back', 'left', 'right', 'top', 'bottom', 'iso'];
 const PICKS: readonly PickLevel[] = ['assembly', 'part', 'detail'];
 const QUALITIES: readonly RenderSettings['aoQuality'][] = ['Performance', 'Low', 'Medium', 'High', 'Ultra'];
-const FLAGS = ['ao', 'smaa', 'edges', 'cadMaterials'] as const;
+const FLAGS = ['ao', 'smaa', 'edges'] as const;
 const TRIANGLE_EDGES: readonly RenderSettings['triangleEdges'][] = ['off', 'selected', 'all'];
 const NUMBERS = ['shininess', 'aoIntensity', 'aoRadius', 'edgeWidth', 'specular', 'ambient', 'light',
   'hatchWidth'] as const;

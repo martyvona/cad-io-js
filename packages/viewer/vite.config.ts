@@ -1,8 +1,8 @@
 // The viewer's Vite config: the content root at /content/ (dev and preview servers), LAN and https by option, and in
 // builds a progressive web app: a service worker that precaches everything the app needs, the OCCT and truck
 // modules included, so a device that loaded it once can use it offline (the user, 2026-10-24; CLAUDE.md, "The
-// viewer"). Options come from the environment (server/options.ts). Decoders need nothing here: three.js's
-// DRACOLoader names its files by import.meta.url, which Vite bundles.
+// viewer"). Options come from the environment (server/options.ts). Draco's decoder (for glTF, in the import
+// worker) is found by its bundled URL (import-worker.ts).
 
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -42,22 +42,6 @@ const jsonImports = (): Plugin => ({
 });
 
 /**
- * Leaves out of a build the Draco decoders three.js's DRACOLoader names but the viewer never loads (it uses the
- * glTF-only one, src/load.ts): the general WebAssembly decoder and the JavaScript one for browsers without
- * WebAssembly, about 1 MB that the service worker would otherwise cache.
- */
-const unusedDecoders = (): Plugin => ({
-  name: 'cad-viewer-unused-decoders',
-  apply: 'build',
-  generateBundle(_, bundle) {
-    const unused = /three\/examples\/jsm\/libs\/draco\/draco_(decoder\.js|decoder\.wasm|wasm_wrapper\.js)$/;
-    for (const [name, out] of Object.entries(bundle)) {
-      if (out.type === 'asset' && out.originalFileNames.some((f) => unused.test(f))) delete bundle[name];
-    }
-  },
-});
-
-/**
  * licenses.md beside index.html: what a build bundles and under which licenses, then Vite's list of the npm packages
  * (their own license texts), then ours in full (OCCT's LGPL among them). Vite's list misses what isn't an npm package
  * in node_modules (our workspace packages, the WebAssembly modules), hence the first part.
@@ -84,9 +68,12 @@ const licenses = (): Plugin => ({
         '(https://github.com/ricosjp/truck), Apache-2.0, with the Rust crates ' +
         '`packages/tess-truck/native/Cargo.lock` lists, each under its own license (MIT or Apache-2.0 for the most ' +
         'part);',
-      '- Draco\'s glTF decoder (`assets/draco_*`, from three.js): Apache-2.0 (https://github.com/google/draco);',
-      '- meshoptimizer\'s decoder (in three.js): MIT;',
-      '- the npm packages Vite lists below.',
+      // (Vite lists only the page's own packages, not the import worker's, which are these.)
+      '- in the import worker, glTF-Transform (`@gltf-transform/core`, `@gltf-transform/extensions`, with ' +
+        '`property-graph` and `ktx-parse`, all MIT; https://github.com/donmccurdy/glTF-Transform), Draco\'s glTF ' +
+        'decoder (draco3dgltf, `assets/draco_*` and `draco3dgltf-*.js`: Apache-2.0; https://github.com/google/draco) ' +
+        'and meshoptimizer\'s decoder (MIT; https://github.com/zeux/meshoptimizer);',
+      '- the npm packages Vite lists below (the page\'s).',
     ];
     fs.writeFileSync(path.join(dir, 'licenses.md'), [
       '# Licenses',
@@ -156,8 +143,9 @@ export default defineConfig(({ command }) => ({
   root: import.meta.dirname,
   define: { __CAD_IO_VERSION__: JSON.stringify(version(command === 'build')) },
   base: './',
-  resolve: { alias: { 'node:fs/promises': path.join(import.meta.dirname, 'src/no-fs.ts') } },
-  plugins: [content(), jsonImports(), unusedDecoders(), licenses(), ...(opts.https === 'self' ? [basicSsl()] : []),
+  resolve: { alias: [{ find: /^node:(fs|fs\/promises|path)$/, replacement: path.join(import.meta.dirname,
+    'src/no-node.ts') }] },
+  plugins: [content(), jsonImports(), licenses(), ...(opts.https === 'self' ? [basicSsl()] : []),
     pwa],
   server: {
     port: opts.port, strictPort: true, host: opts.lan ? '0.0.0.0' : 'localhost', allowedHosts: true,

@@ -8,6 +8,8 @@
 //     (KHR_node_visibility) hidden, and left out ones (hidden instances are by default) restored hidden; instanced
 //     placements (EXT_mesh_gpu_instancing) put back where their extras say (`path`, `names`), with their edges,
 //     curves and points (nodes of their own under the root), the tree nodes left empty by them made again.
+//   other files' GPU instances (EXT_mesh_gpu_instancing): a node per instance (the viewer drew them all before it
+//     read glTF through here; read once, they'd be lost).
 //   materials: base colour factors are linear (glTF's specification), read back to sRGB, except Onshape's, which
 //     are sRGB already (as the viewer found, 2026-10-27); textures aren't supported (said, and ignored).
 
@@ -44,14 +46,14 @@ let meshopt: Promise<unknown> | undefined;
  * The reader, with the decoders a file needs (imported only then), its messages diagnostics (glTF-Transform's own
  * logger prints them).
  */
-async function io(used: readonly string[], diagnostics: Diagnostic[]): Promise<WebIO> {
+async function io(used: readonly string[], diagnostics: Diagnostic[], opts: GltfImportOptions): Promise<WebIO> {
   const say = (severity: Diagnostic['severity']) => (message: string) => diagnostics.push({ severity,
     message: `glTF reader: ${message}` });
   const io = new WebIO().setLogger({ debug: () => {}, info: () => {}, warn: say('info'), error: say('warning') })
     .registerExtensions(ALL_EXTENSIONS);
   const deps: Record<string, unknown> = {};
   if (used.includes('KHR_draco_mesh_compression')) {
-    draco ??= import('draco3dgltf').then((m) => m.default.createDecoderModule());
+    draco ??= import('draco3dgltf').then((m) => m.default.createDecoderModule(opts.draco ?? {}));
     deps['draco3d.decoder'] = await draco;
   }
   if (used.includes('EXT_meshopt_compression')) {
@@ -125,12 +127,33 @@ function trs(t: ArrayLike<number>, r: ArrayLike<number>, s: ArrayLike<number>): 
   return m;
 }
 
+/** A GPU-instanced node's instance transforms (EXT_mesh_gpu_instancing: each attribute optional). */
+function instancesOf(gi: { getAttribute(s: string): Accessor | null }): Mat4[] {
+  const [t, r, s] = ['TRANSLATION', 'ROTATION', 'SCALE'].map((a) => gi.getAttribute(a));
+  const n = Math.max(t?.getCount() ?? 0, r?.getCount() ?? 0, s?.getCount() ?? 0);
+  return Array.from({ length: n }, (_, k) => trs(t ? t.getElement(k, []) : [0, 0, 0], r ? r.getElement(k, [])
+    : [0, 0, 0, 1], s ? s.getElement(k, []) : [1, 1, 1]));
+}
+
+export interface GltfImportOptions {
+  /**
+   * Settings for Draco's decoder module (draco3dgltf's Emscripten module), as a bundled page needs: `wasmBinary`, the
+   * bytes of `draco_decoder_gltf.wasm`, or a `locateFile` finding it. The first decoding call's are kept.
+   */
+  draco?: Record<string, unknown>;
+}
+
 /** Reads a GLB (bytes), or a .gltf's JSON with its resources. Problems in the file are diagnostics. */
-export async function importGltf(input: Uint8Array | GltfJsonInput): Promise<GltfImport> {
+export async function importGltf(input: Uint8Array | GltfJsonInput, opts: GltfImportOptions = {}):
+  Promise<GltfImport> {
   const diagnostics: Diagnostic[] = [];
   const warn = (message: string) => diagnostics.push({ severity: 'warning', message });
-  const empty = () => ({ scene: sceneFromTree({ name: '', matrix: identity(), visible: true, meshes: [],
-    children: [] }).scene, diagnostics });
+  // (Said in the scene too, as the scene's diagnostics are what readers keep.)
+  const empty = () => {
+    const { scene } = sceneFromTree({ name: '', matrix: identity(), visible: true, meshes: [], children: [] });
+    scene.diagnostics.push(...diagnostics);
+    return { scene, diagnostics: scene.diagnostics };
+  };
   let doc: Document;
   // (The writer, from the file's own JSON: glTF-Transform's reader names itself the generator.)
   let generator: string | undefined;
@@ -141,7 +164,7 @@ export async function importGltf(input: Uint8Array | GltfJsonInput): Promise<Glt
         new DataView(input.buffer, input.byteOffset).getUint32(12, true))) : '{}';
       const head = JSON.parse(json) as { extensionsUsed?: string[]; asset?: { generator?: string } };
       generator = head.asset?.generator;
-      doc = await (await io(head.extensionsUsed ?? [], diagnostics)).readBinary(input);
+      doc = await (await io(head.extensionsUsed ?? [], diagnostics, opts)).readBinary(input);
     } else {
       const json = (typeof input.json === 'string' ? JSON.parse(input.json) : input.json) as
         { extensionsUsed?: string[]; buffers?: { uri?: string }[]; asset?: { generator?: string } };
@@ -154,7 +177,13 @@ export async function importGltf(input: Uint8Array | GltfJsonInput): Promise<Glt
           resources[b.uri] = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
         }
       }
-      doc = await (await io(json.extensionsUsed ?? [], diagnostics)).readJSON({ json: json as never,
+      // (glTF-Transform reads a buffer it isn't given as empty, saying nothing.)
+      const missing = (json.buffers ?? []).flatMap((b) => (b.uri && !resources[b.uri] ? [b.uri] : []));
+      if (missing.length) {
+        diagnostics.push({ severity: 'error', message: `files not given: ${missing.join(', ')}` });
+        return empty();
+      }
+      doc = await (await io(json.extensionsUsed ?? [], diagnostics, opts)).readJSON({ json: json as never,
         resources: resources as never });
     }
   } catch (e) {
@@ -202,26 +231,51 @@ export async function importGltf(input: Uint8Array | GltfJsonInput): Promise<Glt
       ...(face ? { vertexFaces: face.getArray() as ArrayLike<number> } : {}) }];
     });
   };
+  // (In other files, a mesh's triangle primitives one tree mesh, a group each: one part, its primitives its faces,
+  // as Onshape writes a primitive per face.)
+  const merged = (list: TreeMesh[]): TreeMesh[] => {
+    const tris = list.filter((m) => m.mode === 'triangles');
+    if (tris.length < 2) return list;
+    const vertices = tris.reduce((n, m) => n + m.positions.length / 3, 0);
+    const positions = new Float32Array(3 * vertices);
+    const normals = tris.every((m) => m.normals) ? new Float32Array(3 * vertices) : undefined;
+    const indices = new Uint32Array(tris.reduce((n, m) => n + m.indices!.length, 0));
+    const groups: TreeMesh['groups'] = [];
+    let v = 0, i = 0;
+    for (const m of tris) {
+      positions.set(m.positions, 3 * v);
+      normals?.set(m.normals!, 3 * v);
+      for (let k = 0; k < m.indices!.length; k++) indices[i + k] = m.indices![k]! + v;
+      groups.push({ ...m.groups[0]!, start: i, count: m.indices!.length });
+      v += m.positions.length / 3;
+      i += m.indices!.length;
+    }
+    const key = tris.map((m) => m.key).join(',');
+    return [{ key, mode: 'triangles', positions, ...(normals ? { normals } : {}), indices, groups },
+      ...list.filter((m) => m.mode !== 'triangles')];
+  };
   const visible = (n: Node) => (n.getExtension('KHR_node_visibility') as { getVisible(): boolean } | null)
     ?.getVisible() !== false;
   const instanced = (n: Node) => n.getExtension('EXT_mesh_gpu_instancing') as {
     getAttribute(s: string): Accessor | null } | null;
-  const tree = (n: Node): TreeNode => ({
-    name: n.getName(), matrix: Float64Array.from(n.getMatrix()), visible: visible(n),
-    ...(Object.keys(n.getExtras()).length ? { extras: n.getExtras() as TreeExtras } : {}),
-    meshes: meshesOf(n), children: n.listChildren().map(tree),
-  });
-
   const scene = root.getDefaultScene() ?? root.listScenes()[0];
   const tops = scene?.listChildren() ?? [];
   // Ours: one root node with our extras; else a root of the scene's nodes.
   const ours = tops.length === 1 && obj(tops[0]!.getExtras())?.unit === 'millimetre';
+  // (In other files, a GPU-instanced node's meshes a child node per instance, at the instance's transform: it comes
+  // before the node's own, NodeWorld x Instance x vertex. Ours are put back by restoreInstances, below.)
+  const tree = (n: Node): TreeNode => {
+    const gi = ours ? null : instanced(n);
+    const meshes = ours ? meshesOf(n) : merged(meshesOf(n));
+    const each = gi && meshes.length ? instancesOf(gi).map((m, k) => ({ name: `${n.getName() || 'instance'} ` +
+      `${k + 1}`, matrix: m, visible: true, meshes, children: [] })) : [];
+    return { name: n.getName(), matrix: Float64Array.from(n.getMatrix()), visible: visible(n),
+      ...(Object.keys(n.getExtras()).length ? { extras: n.getExtras() as TreeExtras } : {}),
+      meshes: each.length ? [] : meshes, children: [...each, ...n.listChildren().map(tree)] };
+  };
   const top: TreeNode = ours ? tree(tops[0]!) : { name: scene?.getName() ?? '', matrix: identity(), visible: true,
     meshes: [], children: tops.map(tree) };
   if (ours) restoreInstances(tops[0]!, top, instanced, warn);
-  else if (tops.some((n) => n.listChildren().some(instanced) || instanced(n))) {
-    warn('GPU instances (EXT_mesh_gpu_instancing) read once each, not at every instance');
-  }
   const built = sceneFromTree(top);
   built.scene.diagnostics.unshift(...diagnostics);
   return { scene: built.scene, diagnostics: built.scene.diagnostics };
@@ -267,12 +321,11 @@ function restoreInstances(rootNode: Node, root: TreeNode, instanced: (n: Node) =
     const items = Array.isArray(tn.extras?.instances) ? tn.extras.instances as unknown[] : undefined;
     if (isLines(tn)) return;
     if (!gi || !items) { kept.push(tn); return; }
-    const [t, r, s] = ['TRANSLATION', 'ROTATION', 'SCALE'].map((a) => gi.getAttribute(a));
+    const each = instancesOf(gi);
     const { instances: _, ...partExtras } = tn.extras!;
     items.forEach((item, k) => {
       const o = obj(item);
-      const world = multiply(tn.matrix, trs(t ? t.getElement(k, []) : [0, 0, 0], r ? r.getElement(k, [])
-        : [0, 0, 0, 1], s ? s.getElement(k, []) : [1, 1, 1]));
+      const world = multiply(tn.matrix, each[k] ?? identity());
       const path = Array.isArray(o?.path) ? o.path as number[] : [];
       const names = Array.isArray(o?.names) ? o.names as string[] : [];
       // The node at the path, or made again from the nearest one above, with the names along the path.

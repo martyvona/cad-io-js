@@ -19,8 +19,6 @@ export const ICONS: Record<Kind, string> = {
   curves: svg('<path d="M1.5 12c3-9 6 3 13-8"/>'),
   points: svg('<circle cx="4" cy="11" r="1.5" fill="currentColor"/>' +
     '<circle cx="8" cy="5" r="1.5" fill="currentColor"/><circle cx="12.5" cy="10" r="1.5" fill="currentColor"/>'),
-  mesh: svg('<path d="M2 13L8 2l6 11z M5 7.5h6M8 2v11"/>'),
-  lines: svg('<path d="M2 13L8 2l6 11"/>'),
 };
 
 /** A node that failed to mesh (model.ts's failure): a shape with a crack, drawn in the failure colour. */

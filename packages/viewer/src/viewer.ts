@@ -1,13 +1,14 @@
-// The viewer's 3D view: renderer, orthographic camera, trackball controls, lights, and the model under two display
-// transforms (the user, 2026-10-24; CLAUDE.md, "The viewer"):
+// The viewer's 3D view: renderer, orthographic camera, trackball controls, lights, and the model under a display
+// transform (the user, 2026-10-24; CLAUDE.md, "The viewer"):
 //
-//   scene -> display (the centring translation, once the centroid is known) -> frame (the format's up axis and
-//     unit to the world's Z up and millimetres) -> the loaded model's root
+//   scene -> display (the centring translation, once the centroid is known) -> the model's root (its scene graph,
+//     scene-graph.ts, in the world's millimetres and Z up whatever the format: the importers convert)
 //
 // The centroid is the centre of the axis-aligned box of all the model's geometry, hidden included, in the world,
 // found when loading finishes (for STEP, when the last part is meshed) and fixed from then on (meshing the same file
 // again keeps it, as it keeps the view). One model at a time; loading another replaces it, and cancels the meshing of
-// the last if it's still going. STEP files are imported and meshed in a worker (import-worker.ts).
+// the last if it's still going. Every format is imported (and STEP meshed) in a worker (import-worker.ts), through
+// the library's importers into the scene model (the user, 2026-10-29: one path for every format).
 
 import { VIEW_BACKGROUNDS, type Theme } from './theme.ts';
 import * as THREE from 'three';
@@ -15,19 +16,19 @@ import { TrackballControls } from 'three/addons/controls/TrackballControls.js';
 import { chooseLod, meshDeflections, type Diagnostic } from 'cad-scene';
 import { clipTo, fit, setAspect, setView, type ViewName } from './camera.ts';
 import type { CameraState } from './view-state.ts';
-import { formatOf, nativeFrame, type Format } from './formats.ts';
+import { formatOf, type Format } from './formats.ts';
 import { Frames } from './frames.ts';
-import { loadThree, type Source } from './load.ts';
 import { NodeModel, type FaceHiding } from './model.ts';
 import { pick, type Pick } from './pick.ts';
 import { Composer } from './render.ts';
 import { AXES, Sections, type SectionSettings } from './section.ts';
-import { detectEdges, StepGraph } from './step.ts';
+import { SceneGraph } from './scene-graph.ts';
 import { FatEdges } from './fat-edges.ts';
-import { cadStyle, DEFAULT_RENDER, EDGES, edgeLayer, type RenderSettings } from './style.ts';
+import { modelInput, type Source } from './sources.ts';
+import { DEFAULT_RENDER, EDGES, type RenderSettings } from './style.ts';
 import { TriangleEdges } from './triangle-edges.ts';
 import type { FromImportWorker, ToImportWorker } from './import-worker.ts';
-import type { Meshing, StepEvent } from './step-load.ts';
+import type { Meshing, ModelEvent, ModelInput } from './model-load.ts';
 import { clearCache, defaultSettings, deflectionsOf, workerCount, type TessellationSettings } from './tessellation.ts';
 import { classifyDevice, DEVICE_PROFILES, deviceOverride, deviceSignals, type DeviceClass } from './device.ts';
 
@@ -36,13 +37,13 @@ export interface ModelInfo {
   format: Format;
   /** The world centroid, once loading has finished. */
   centroid?: THREE.Vector3;
-  /** STEP: the parts to mesh, and how many are done and failed so far. */
+  /** The B-rep parts to mesh (none but in STEP), and how many are done and failed so far. */
   parts?: { total: number; done: number; failed: number };
-  /** STEP: the importer's and the tessellation's diagnostics. */
+  /** The importer's and the tessellation's diagnostics. */
   diagnostics?: Diagnostic[];
-  /** STEP: what meshed it, once done. */
+  /** What meshed it, once done (none without B-rep parts). */
   meshing?: Meshing;
-  /** STEP: the meshing settings it was meshed with (the controls' may have changed since, until Mesh again). */
+  /** The meshing settings it was meshed with (the controls' may have changed since, until Mesh again). */
   meshedWith?: MeshedWith;
 }
 
@@ -68,14 +69,8 @@ export function visibleBox(root: THREE.Object3D): THREE.Box3 {
   const visit = (o: THREE.Object3D) => {
     if (!o.visible) return;
     if (drawable(o)) {
-      const inst = o as THREE.InstancedMesh;
-      if (inst.isInstancedMesh) {
-        if (!inst.boundingBox) inst.computeBoundingBox();
-        part.copy(inst.boundingBox!);
-      } else {
-        if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
-        part.copy(o.geometry.boundingBox!);
-      }
+      if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+      part.copy(o.geometry.boundingBox!);
       if (!part.isEmpty()) box.union(part.applyMatrix4(o.matrixWorld));
     }
     for (const c of o.children) visit(c);
@@ -92,8 +87,7 @@ export function stats(root: THREE.Object3D): Stats {
     if (!drawable(o)) return;
     const g = o.geometry;
     const n = g.index ? g.index.count : (g.getAttribute('position')?.count ?? 0);
-    const copies = (o as THREE.InstancedMesh).isInstancedMesh ? (o as THREE.InstancedMesh).count : 1;
-    if ((o as THREE.Mesh).isMesh) { s.meshes++; s.triangles += copies * Math.floor(n / 3); }
+    if ((o as THREE.Mesh).isMesh) { s.meshes++; s.triangles += Math.floor(n / 3); }
     else if ((o as THREE.LineSegments).isLineSegments) s.segments += Math.floor(n / 2);
     else if ((o as THREE.Line).isLine) s.segments += Math.max(0, n - 1);
     else s.points += n;
@@ -120,13 +114,13 @@ export class Viewer {
   readonly frames: Frames;
   /** The centring translation. */
   readonly display = new THREE.Group();
-  /** The format's frame to the world's. */
-  readonly frame = new THREE.Group();
   model?: ModelInfo;
   private root?: THREE.Object3D;
   private centered = false;
   private bounds = new THREE.Sphere(new THREE.Vector3(), 1);
   private interacting = false;
+  /** The model's materials changed (meshes arrived, a model loaded): is anything transparent? (at the next draw) */
+  private transparencyStale = true;
   private changed = false;
   /** The user has moved the view since the load began: no more automatic zooming. */
   private moved = false;
@@ -187,7 +181,6 @@ export class Viewer {
     this.headlight.position.set(1, 1, 2);
     this.camera.add(this.headlight);
     this.scene.add(this.camera, this.display);
-    this.display.add(this.frame);
     this.scene.add(this.sections.group, this.triangleEdges.group, this.fatEdges.group);
     this.camera.up.set(0, 0, 1);
     this.camera.position.set(1, -1, 1);
@@ -247,6 +240,15 @@ export class Viewer {
 
   private draw(): boolean {
     this.changed = false;
+    if (this.transparencyStale) {
+      this.transparencyStale = false;
+      let any = false;
+      this.display.traverse((o) => {
+        const m = (o as THREE.Mesh).material;
+        if (!any && m) any = (Array.isArray(m) ? m : [m]).some((x) => x.transparent && x.visible);
+      });
+      this.composer.setTransparent(any);
+    }
     this.controls.update();
     clipTo(this.camera, this.bounds);
     this.sections.update(this.root ? this.display : undefined, () => this.nodes?.nodes.flatMap((n) =>
@@ -301,7 +303,7 @@ export class Viewer {
   /** The world box of the whole model, hidden parts included (for the planes' ranges). */
   modelBox(): THREE.Box3 {
     this.display.updateWorldMatrix(true, true);
-    return new THREE.Box3().setFromObject(this.frame);
+    return new THREE.Box3().setFromObject(this.display);
   }
 
   /** Empties the tessellation cache (IndexedDB, the import worker's, whose next load opens it afresh). */
@@ -350,33 +352,19 @@ export class Viewer {
       this.abortLoad?.();
     }
     const keep = opts.keep && this.model ? { centroid: this.model.centroid, centered: this.centered } : undefined;
-    if (format === 'step') return this.loadStep(src, gen, keep);
-    let root: THREE.Object3D;
-    try {
-      root = await loadThree(src, format);
-    } finally {
-      for (const u of src.siblings?.values() ?? []) URL.revokeObjectURL(u);
-    }
-    if (gen !== this.generation) return;
-    detectEdges(root);
-    edgeLayer(root);
-    if (this.render.cadMaterials) cadStyle(root, this.render.shininess, this.render.specular);
-    this.show(root, { name: src.name, format }, undefined, keep);
-    this.finished();
-    if (!keep) this.zoomAll();
+    return this.loadModel(src, format, gen, keep);
   }
 
   private show(root: THREE.Object3D, model: ModelInfo, faces?: FaceHiding, keep?: Kept): void {
     this.clear();
     this.root = root;
     this.nodes = new NodeModel(root, faces);
-    this.frame.matrix.copy(nativeFrame(model.format, root));
-    this.frame.matrix.decompose(this.frame.position, this.frame.quaternion, this.frame.scale);
-    this.frame.add(root);
+    this.display.add(root);
     this.model = model;
     this.moved = !!keep;
     this.triangleEdges.invalidate();
     this.fatEdges.invalidate();
+    this.transparencyStale = true;
     if (keep?.centroid) {
       model.centroid = keep.centroid;
       this.centered = keep.centered;
@@ -388,17 +376,18 @@ export class Viewer {
   }
 
   /** A load's events, from the import worker; they end with 'done', an error, or a newer load (`abortLoad`). */
-  private events(bytes: Uint8Array, gen: number): AsyncIterable<StepEvent> {
-    const queue: StepEvent[] = [];
+  private events(input: ModelInput, gen: number): AsyncIterable<ModelEvent> {
+    const queue: ModelEvent[] = [];
     let wake: (() => void) | undefined;
     let error: Error | undefined;
-    const push = (e: StepEvent) => { queue.push(e); wake?.(); };
+    const push = (e: ModelEvent) => { queue.push(e); wake?.(); };
     const fail = (e: Error) => { error = e; wake?.(); };
     this.abortLoad = () => wake?.();
     this.importListeners.set(gen, (m) => (m.type === 'error' ? fail(new Error(m.message)) : push(m)));
-    const msg: ToImportWorker = { type: 'load', load: gen, bytes, settings: { ...this.settings },
+    const msg: ToImportWorker = { type: 'load', load: gen, input, settings: { ...this.settings },
       workers: workerCount(this.device) };
-    this.importer().postMessage(msg, [bytes.buffer]);
+    this.importer().postMessage(msg, [input.bytes.buffer as ArrayBuffer,
+      ...Object.values(input.resources ?? {}).map((r) => r.buffer as ArrayBuffer)]);
     const listeners = this.importListeners;
     const latest = () => gen === this.generation;
     return { async *[Symbol.asyncIterator]() {
@@ -435,40 +424,45 @@ export class Viewer {
     return this.worker;
   }
 
-  private async loadStep(src: Source, gen: number, keep?: Kept): Promise<void> {
+  private async loadModel(src: Source, format: Format, gen: number, keep?: Kept): Promise<void> {
     this.onStatus?.(`${src.name}: reading...`);
     // Let the page show that first.
     await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
     if (gen !== this.generation) return;
-    // A copy goes (transferred) to the worker; the source keeps its bytes, to be meshed again.
-    const bytes = new Uint8Array(src.bytes.slice(0));
+    // A copy goes (transferred) to the worker, a .gltf's buffers with it; the source keeps its bytes, to be meshed
+    // again.
+    const input = await modelInput(src, format);
+    if (gen !== this.generation) return;
     // What it's meshed with: the settings now, which the import worker is given.
     const { backend, profile, linearDeflection, angularDeflection, timeout } = this.settings;
     const meshedWith: MeshedWith = { backend, profile, linearDeflection, angularDeflection, timeout };
-    let graph: StepGraph | undefined;
+    let graph: SceneGraph | undefined;
     let model: ModelInfo | undefined;
     let zoomed = false;
     const added = (part: number) => {
       for (const p of graph!.placements.get(part) ?? []) this.nodes?.invalidate(p.group);
       this.sections.invalidate();
       this.triangleEdges.invalidate();
-    this.fatEdges.invalidate();
+      this.fatEdges.invalidate();
+      this.transparencyStale = true;
       this.onMeshes?.();
     };
-    const progress = () => this.onStatus?.(`${src.name}: meshed ${model!.parts!.done} of ${model!.parts!.total} ` +
-      `parts${model!.parts!.failed ? `, ${model!.parts!.failed} failed` : ''}`);
+    const progress = () => this.onStatus?.(model!.parts!.total ? `${src.name}: meshed ${model!.parts!.done} of ` +
+      `${model!.parts!.total} parts${model!.parts!.failed ? `, ${model!.parts!.failed} failed` : ''}`
+      : `${src.name}: read`);
     this.meshing = true;
     try {
-      for await (const ev of this.events(bytes, gen)) {
+      for await (const ev of this.events(input, gen)) {
         if (gen !== this.generation) return;
         if (ev.type === 'scene') {
           const scene = ev.scene;
-          graph = new StepGraph(scene, src.name, this.render.shininess, this.render.specular);
+          graph = new SceneGraph(scene, src.name, this.render.shininess, this.render.specular);
           const brep = scene.parts.flatMap((p, i) => p.brep && graph!.placements.has(i) ? [i] : []);
-          model = { name: src.name, format: 'step', parts: { total: brep.length, done: 0, failed: 0 },
+          model = { name: src.name, format, parts: { total: brep.length, done: 0, failed: 0 },
             diagnostics: [...scene.diagnostics], meshedWith };
           this.show(graph.root, model, graph, keep);
-          // Parts without B-rep shown at once, their level for these settings (chooseLod).
+          // Parts without B-rep (every part of a glTF or three.js file) shown at once, their level for these
+          // settings (chooseLod).
           const wanted = meshDeflections(deflectionsOf(this.settings));
           for (const i of graph.placements.keys()) {
             if (scene.parts[i]!.brep) continue;
@@ -484,7 +478,7 @@ export class Viewer {
           model!.parts!.done++;
           const drawn = !!mesh && mesh.indices.length + (mesh.curvePositions?.length ?? 0) +
             (mesh.points?.length ?? 0) > 0;
-          // A part that failed may still come with its faces' outlines (step-load.ts): shown, and counted failed.
+          // A part that failed may still come with its faces' outlines (model-load.ts): shown, and counted failed.
           if (mesh && (drawn || mesh.faceOutlines?.length)) {
             graph!.addMesh(ev.part, mesh);
             added(ev.part);
@@ -511,14 +505,14 @@ export class Viewer {
     if (!this.model || !this.root || this.model.centroid) return;
     this.display.position.set(0, 0, 0);
     this.display.updateWorldMatrix(true, true);
-    const box = new THREE.Box3().setFromObject(this.frame);
+    const box = new THREE.Box3().setFromObject(this.display);
     this.model.centroid = box.isEmpty() ? new THREE.Vector3() : box.getCenter(new THREE.Vector3());
     this.updateBounds();
   }
 
   private clear(): void {
     if (this.root) {
-      this.frame.remove(this.root);
+      this.display.remove(this.root);
       dispose(this.root);
     }
     this.root = undefined;
@@ -530,7 +524,7 @@ export class Viewer {
 
   private updateBounds(): void {
     this.display.updateWorldMatrix(true, true);
-    const box = new THREE.Box3().setFromObject(this.frame);
+    const box = new THREE.Box3().setFromObject(this.display);
     if (box.isEmpty()) this.bounds.set(new THREE.Vector3(), 1);
     else box.getBoundingSphere(this.bounds);
   }

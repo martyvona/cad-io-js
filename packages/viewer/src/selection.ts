@@ -36,7 +36,7 @@ export function piecesOf(model: NodeModel, ids: Iterable<number>): Piece[] {
     const n = model.nodes[id];
     if (!n) continue;
     if (n.face) {
-      // A face that failed to mesh: its outline, whole (step.ts).
+      // A face that failed to mesh: its outline, whole (scene-graph.ts).
       model.nodes[n.parent]!.object!.traverse((o) => {
         if (o.userData.outlineFace === n.face!.source && isDrawable(o)) whole.add(o);
       });
@@ -47,8 +47,6 @@ export function piecesOf(model: NodeModel, ids: Iterable<number>): Piece[] {
         list.push(...ranges.map(({ start, count }) => ({ start, count })));
         partial.set(mesh, list);
       }
-    } else if (n.self) {
-      if (isDrawable(n.object!)) whole.add(n.object);
     } else n.object?.traverse((o) => { if (isDrawable(o) && !o.userData.highlight) whole.add(o); });
   }
   const out: Piece[] = [...whole].map((object) => ({ object }));
@@ -68,7 +66,7 @@ export interface Measures {
   points: number;
 }
 
-/** Counts and sums over pieces, in the world (instanced meshes count once, untransformed by their instances). */
+/** Counts and sums over pieces, in the world. */
 export function measure(pieces: readonly Piece[]): Measures {
   const m: Measures = { meshes: 0, triangles: 0, area: 0, lines: 0, segments: 0, length: 0, points: 0 };
   const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
@@ -108,14 +106,8 @@ export function boxOf(pieces: readonly Piece[]): THREE.Box3 {
   for (const { object, ranges } of pieces) {
     object.updateWorldMatrix(true, false);
     if (!ranges) {
-      const inst = object as THREE.InstancedMesh;
-      if (inst.isInstancedMesh) {
-        inst.computeBoundingBox();
-        box.union(inst.boundingBox!.clone().applyMatrix4(object.matrixWorld));
-      } else {
-        object.geometry.computeBoundingBox();
-        box.union(object.geometry.boundingBox!.clone().applyMatrix4(object.matrixWorld));
-      }
+      object.geometry.computeBoundingBox();
+      box.union(object.geometry.boundingBox!.clone().applyMatrix4(object.matrixWorld));
       continue;
     }
     const pos = object.geometry.getAttribute('position');
@@ -159,7 +151,7 @@ export function nodeForPick(model: NodeModel, object: THREE.Object3D, faceIndex:
   if (level === 'part') return part;
   if (id !== part) return id;
   const children = model.children(part);
-  // A failed face's outline (step.ts) picks its face.
+  // A failed face's outline (scene-graph.ts) picks its face.
   const outlined = object.userData.outlineFace as number | undefined;
   if (outlined !== undefined) return children.find((c) => model.nodes[c]!.face?.source === outlined) ?? part;
   const ranges = object.userData.faceRanges as FaceRange[] | undefined;
@@ -171,15 +163,9 @@ export function nodeForPick(model: NodeModel, object: THREE.Object3D, faceIndex:
   return children.find((c) => model.nodes[c]!.object === object) ?? part;
 }
 
-/** The placements of a part node's part: STEP parts by their scene part, others by their drawables' geometries. */
+/** The placements of a part node's part: the part nodes of the same scene part. */
 export function instancesOf(model: NodeModel, part: number): number[] {
-  const key = (id: number) => {
-    const o = model.nodes[id]!.object!;
-    if (o.userData.cad === 'part') return `step:${o.userData.part}`;
-    const geometries: string[] = [];
-    o.traverse((d) => { if (isDrawable(d)) geometries.push(d.geometry.uuid); });
-    return geometries.length ? geometries.join(',') : `node:${id}`;
-  };
+  const key = (id: number) => model.nodes[id]!.object!.userData.part as number;
   const k = key(part);
   return model.nodes.filter((n) => n.kind === 'part' && key(n.id) === k).map((n) => n.id);
 }

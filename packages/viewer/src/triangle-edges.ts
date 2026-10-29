@@ -1,11 +1,10 @@
 // Triangles' edges over the faces, for inspecting the tessellation (the user, 2026-10-26; Rendering's Triangle
 // edges): off, for the selection only, or for everything. They live in a group of their own outside the model, so
 // picking, the node model, statistics and section caps never see them: a mesh per drawn mesh of the model (or of the
-// selection), sharing its geometry (and, for GPU instancing, its instance matrices), drawn by three.js as wireframe;
-// a selected face's edges a geometry of its triangles alone, sharing the mesh's positions. Before each frame drawn
-// they follow their meshes: placement, visibility (the mesh's and its ancestors', and its layers), and materials, so
-// hidden faces (an invisible material's group) stay hidden. Made again when the model's meshes or the selection
-// change; nothing is made while they're off.
+// selection), sharing its geometry, drawn by three.js as wireframe; a selected face's edges a geometry of its
+// triangles alone, sharing the mesh's positions. Before each frame drawn they follow their meshes: placement,
+// visibility (the mesh's and its ancestors', and its layers), and materials, so hidden faces (an invisible material's
+// group) stay hidden. Made again when the model's meshes or the selection change; nothing is made while they're off.
 
 import * as THREE from 'three';
 import type { Piece } from './selection.ts';
@@ -56,8 +55,6 @@ export class TriangleEdges {
       if (!own) {
         wire.material = Array.isArray(source.material) ? source.material.map(wireFor) : wireFor(source.material);
       }
-      if ((source as THREE.InstancedMesh).isInstancedMesh) (wire as THREE.InstancedMesh).count =
-        (source as THREE.InstancedMesh).count;
     }
   }
 
@@ -85,13 +82,7 @@ export class TriangleEdges {
         for (const r of ranges) for (let i = r.start; i < r.start + r.count; i++) sub.push(index.getX(i));
         own.setIndex(sub);
       }
-      const instanced = source as THREE.InstancedMesh;
-      let wire: THREE.Mesh;
-      if (instanced.isInstancedMesh) {
-        const w = new THREE.InstancedMesh(own ?? source.geometry, WIRE, instanced.count);
-        w.instanceMatrix = instanced.instanceMatrix;
-        wire = w;
-      } else wire = new THREE.Mesh(own ?? source.geometry, WIRE);
+      const wire = new THREE.Mesh(own ?? source.geometry, WIRE);
       wire.matrixAutoUpdate = false;
       wire.matrixWorldAutoUpdate = false;
       wire.raycast = () => {};

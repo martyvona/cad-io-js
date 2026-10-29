@@ -6,7 +6,6 @@
 import * as THREE from 'three';
 import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
 import { VIEWS, type ViewName } from './camera.ts';
-import type { Source } from './load.ts';
 import { details } from './details.ts';
 import { showAbout } from './about.ts';
 import { VERSION } from './version.ts';
@@ -23,7 +22,7 @@ import { DEVICE_PROFILES, setDeviceOverride, type DeviceClass } from './device.t
 import { defaultSettings, profileSettings, type TessellationSettings } from './tessellation.ts';
 import { TreePanel } from './tree-panel.ts';
 import { formatOf } from './formats.ts';
-import { fromFiles, fromUrl, pickFiles, saveFile, typedUrl } from './sources.ts';
+import { fromFiles, fromUrl, pickFiles, saveFile, typedUrl, type Source } from './sources.ts';
 import { visibleBox, type Viewer } from './viewer.ts';
 
 /** What the browser check reaches through `globalThis.ui`. */
@@ -418,7 +417,6 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     .name('Cap style').onChange(restyle);
   const hatchWidth = sectionFolder.add(look, 'hatchWidth', 0.25, 4, 0.01).name('Hatch width (pixels)')
     .onChange(restyle);
-  rendering.add(look, 'cadMaterials').name('Phong for glTF, three.js (next file)');
 
   const step = gui.addFolder('B-Rep Meshing');
   const settings = viewer.settings;

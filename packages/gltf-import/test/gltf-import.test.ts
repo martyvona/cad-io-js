@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { Document, WebIO } from '@gltf-transform/core';
-import { exportView, identity, partInstances, pruneView, tessellateScene, validate, viewDifferences,
+import { exportView, identity, multiply, partInstances, pruneView, tessellateScene, validate, viewDifferences,
   type ExportView, type Scene } from 'cad-scene';
 import { glb, gltfJson, type GltfOptions } from 'export-gltf';
 import { importStep } from 'step-import';
@@ -77,7 +77,8 @@ test('our .gltf, with its .bin and embedded', async () => {
   }
 });
 
-test('a foreign glTF: its tree, a part per primitive, shared meshes, strips, linear colours, textures', async () => {
+test('a foreign glTF: its tree, a part per mesh (its primitives faces), shared, strips, linear colours, textures',
+  async () => {
   const doc = new Document();
   const buffer = doc.createBuffer();
   const acc = (type: 'VEC3' | 'SCALAR', a: Float32Array | Uint16Array) => doc.createAccessor().setType(type)
@@ -98,11 +99,16 @@ test('a foreign glTF: its tree, a part per primitive, shared meshes, strips, lin
   const { scene: s, diagnostics } = await importGltf(await new WebIO().writeBinary(doc));
   assert.deepEqual(validate(s), []);
   assert.deepEqual(diagnostics.map((d) => d.message), ['textures are not supported: ignored']);
-  // The scene's root, a and b, b's child; a part per primitive, shared by a and b; the strip as three segments.
+  // The scene's root, a and b, b's child; a part for the mesh, shared by a and b, its two primitives faces 0 and 1
+  // (the second grey); the strip as three segments.
   assert.deepEqual(s.components.map((c) => [c.name, c.parts.length, c.children.length]),
-    [['world', 0, 2], ['a', 2, 0], ['b', 2, 1], ['line', 1, 0]]);
-  assert.equal(s.parts.length, 3);
-  assert.equal(s.parts[2]!.lods[0]!.mesh.curves!.length, 3);
+    [['world', 0, 2], ['a', 1, 0], ['b', 1, 1], ['line', 1, 0]]);
+  assert.equal(s.parts.length, 2);
+  const two = s.parts[0]!;
+  assert.deepEqual(two.lods[0]!.mesh.faces, [{ source: 0, start: 0, count: 3 }, { source: 1, start: 3, count: 3 }]);
+  assert.deepEqual(Array.from(two.lods[0]!.mesh.indices), [0, 1, 2, 5, 7, 6]);
+  assert.deepEqual([two.material, two.faceMaterials], [0, [{ face: 1, material: 1 }]]);
+  assert.equal(s.parts[1]!.lods[0]!.mesh.curves!.length, 3);
   // Linear colours to sRGB; the root from metres, Y up.
   assert.deepEqual(s.materials.map((m) => [m.name, m.color.map((c) => Math.round(c * 255)), m.opacity]),
     [['orange', [255, 128, 0], 0.5], ['grey', [128, 128, 128], 1]]);
@@ -184,4 +190,78 @@ test('nodes made again under a component placed twice: one component each, share
   for (const c of back.components) for (const ch of c.children) placed.add(ch.component);
   assert.deepEqual(back.components.map((_, i) => placed.has(i)), back.components.map(() => true));
   assert.equal(back.components.length, 5);
+});
+
+test('a foreign glTF with GPU instances: a placement per instance, at its transform after the node\'s', async () => {
+  const doc = new Document();
+  const buffer = doc.createBuffer();
+  const acc = (type: 'VEC3' | 'VEC4', a: Float32Array) => doc.createAccessor().setType(type).setArray(a as never)
+    .setBuffer(buffer);
+  const tri = doc.createMesh('tri').addPrimitive(doc.createPrimitive().setAttribute('POSITION',
+    acc('VEC3', Float32Array.of(0, 0, 0, 1, 0, 0, 0, 1, 0))));
+  const { EXTMeshGPUInstancing } = await import('@gltf-transform/extensions');
+  const ext = doc.createExtension(EXTMeshGPUInstancing).setRequired(true);
+  // Three instances, along x, under a node moved 5 along y (in metres, Y up, as glTF is).
+  const node = doc.createNode('many').setMesh(tri).setTranslation([0, 5, 0]).setExtension('EXT_mesh_gpu_instancing',
+    ext.createInstancedMesh().setAttribute('TRANSLATION', acc('VEC3', Float32Array.of(0, 0, 0, 10, 0, 0, 20, 0, 0)))
+      .setAttribute('ROTATION', acc('VEC4', Float32Array.of(0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1))));
+  doc.createScene('world').addChild(node);
+  const { scene: s, diagnostics } = await importGltf(await new WebIO().registerExtensions([EXTMeshGPUInstancing])
+    .writeBinary(doc));
+  assert.deepEqual(diagnostics, []);
+  assert.deepEqual(validate(s), []);
+  // Each instance's first corner in the world, millimetres and Z up: (10k, 0, 5) m -> (10000k, 0, 5000) mm.
+  const view = exportView(s);
+  const corners: number[][] = [];
+  const walk = (n: ExportView['roots'][number], t: Float64Array) => {
+    const w = Float64Array.from(multiply(t, n.transform));
+    for (const p of n.parts) {
+      const m = multiply(w, p.transform), pos = view.looks[p.look]!.mesh.positions;
+      corners.push([0, 1, 2].map((k) => Math.round(m[k]! * pos[0]! + m[4 + k]! * pos[1]! + m[8 + k]! * pos[2]! +
+        m[12 + k]!)));
+    }
+    n.children.forEach((c) => walk(c, w));
+  };
+  view.roots.forEach((r) => walk(r, identity()));
+  assert.deepEqual(corners, [[0, 0, 5000], [10000, 0, 5000], [20000, 0, 5000]]);
+  assert.equal(s.parts.length, 1);
+});
+
+test('a .gltf without the .bin it names: an error, an empty scene', async () => {
+  const s = scene();
+  const sidecar = await gltfJson(s, exportView(s, lines), 'model.bin', { extras: true, compression: 'none' });
+  const { scene: back, diagnostics } = await importGltf({ json: sidecar.json });
+  assert.deepEqual(diagnostics.map((d) => [d.severity, d.message]), [['error', 'files not given: model.bin']]);
+  assert.equal(back.parts.length, 0);
+  assert.deepEqual(back.diagnostics, diagnostics);
+});
+
+test('our GLB without extras: each part node\'s `edges` child its mesh\'s edges, where they were', async () => {
+  const s = scene();
+  const view = exportView(s, lines);
+  const back = (await importGltf((await glb(s, view, { compression: 'none' })).bytes)).scene;
+  assert.deepEqual(validate(back), []);
+  assert.ok(!back.components.some((c) => c.name === 'edges'));
+  // The plate's one shared edge (its seam not written), a segment, in each of its two visible placements: the same
+  // world corners as the file's own.
+  const corners = (v: ExportView) => {
+    const out: string[] = [];
+    const walk = (n: ExportView['roots'][number], t: Float64Array) => {
+      const w = Float64Array.from(multiply(t, n.transform));
+      for (const p of n.parts) {
+        if (!p.visible) continue;
+        const m = multiply(w, p.transform), look = v.looks[p.look]!, pos = look.mesh.edgePositions;
+        const written = (look.mesh.edges ?? []).filter((e) => e.kind === 'shared' || e.kind === 'free');
+        for (const e of written) for (let k = e.start; k < e.start + e.count; k++) out.push([0, 1, 2]
+          .map((r) => (m[r]! * pos![3 * k]! + m[4 + r]! * pos![3 * k + 1]! + m[8 + r]! * pos![3 * k + 2]! +
+            m[12 + r]! + 0).toFixed(3).replace(/^-(0\.0+)$/, '$1')).join(','));
+      }
+      n.children.forEach((c) => walk(c, w));
+    };
+    v.roots.forEach((r) => walk(r, identity()));
+    return out.sort();
+  };
+  const backView = exportView(back, lines);
+  assert.equal(corners(backView).length, 4);
+  assert.deepEqual(corners(backView), corners(pruneView(view, (p) => p.visible)));
 });

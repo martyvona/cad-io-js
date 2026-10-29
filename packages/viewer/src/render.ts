@@ -5,7 +5,8 @@
 //
 // The AO radius is in screen pixels: CAD models are viewed at every scale. Edges are on a layer of their own (EDGES,
 // style.ts), so showing them is the camera's business, apart from each node's own hidden flag. Transparency is
-// three.js's own: transparent objects sorted back to front, whole; N8AO notices them and works around them itself.
+// three.js's own: transparent objects sorted back to front, whole; N8AO works around them when told there are any
+// (setTransparent: its own detection looks only at single materials, and every face mesh has an array of them).
 
 import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
@@ -56,6 +57,11 @@ export class Composer {
     c.distanceFalloff = 0.2;
     if (s.edges) this.camera.layers.enable(EDGES);
     else this.camera.layers.disable(EDGES);
+  }
+
+  /** Whether the scene has transparent materials, for N8AO (which then renders them apart). */
+  setTransparent(on: boolean): void {
+    this.n8ao.configuration.transparencyAware = on;
   }
 
   setSize(width: number, height: number, pixelRatio: number): void {

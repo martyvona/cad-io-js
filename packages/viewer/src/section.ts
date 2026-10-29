@@ -272,7 +272,7 @@ export class Sections {
       if (!o.visible || o.userData.highlight) return;
       const within = part ?? (partSet.has(o) ? o : undefined);
       const m = o as THREE.Mesh;
-      if (m.isMesh && !(m as THREE.InstancedMesh).isInstancedMesh && o.layers.isEnabled(0)) {
+      if (m.isMesh && o.layers.isEnabled(0)) {
         const key = within ?? m;
         const list = units.get(key);
         if (list) list.push(m);

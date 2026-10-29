@@ -220,11 +220,7 @@ test('visibleBox and stats: hidden objects and their descendants left out of the
   root.position.set(0, 0, 1);
   const b = visibleBox(root);
   assert.deepEqual([b.min.toArray(), b.max.toArray()], [[-1, -1, 0], [1, 5, 11]]);
-  const inst = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), undefined, 3);
-  inst.setMatrixAt(2, new THREE.Matrix4().makeTranslation(0, 0, 50));
-  root.add(inst);
-  assert.equal(visibleBox(root).max.z, 51.5);
-  assert.deepEqual(stats(root), { objects: 7, meshes: 4, triangles: 3 * 12 + 3 * 12, segments: 2, points: 0 });
+  assert.deepEqual(stats(root), { objects: 6, meshes: 3, triangles: 3 * 12, segments: 2, points: 0 });
 });
 
 test('options: from the environment and back; defaults; bad values refused', () => {

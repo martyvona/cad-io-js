@@ -54,7 +54,7 @@ fs.writeFileSync(path.join(content, 'as1-meshopt.bin'), meshopt.bin);
 fs.writeFileSync(path.join(content, 'as1.json'), threejsJson(scene, view));
 fs.writeFileSync(path.join(content, 'as1.json.extras.json'), threejsJson(scene, view, { extras: true }));
 fs.writeFileSync(path.join(content, 'as1-noedges.glb'), (await glb(scene, exportView(scene, medium))).bytes);
-// Its parts placed more than once as GPU instances (EXT_mesh_gpu_instancing: three.js InstancedMeshes).
+// Its parts placed more than once as GPU instances (EXT_mesh_gpu_instancing), which gltf-import puts back.
 fs.writeFileSync(path.join(content, 'as1-instanced.glb'), (await glb(scene, view, { instancing: true })).bytes);
 fs.copyFileSync(step, path.join(content, 'as1.stp'));
 // OCCT's broken-references file: the importer warns of its dangling references (the problems dialog's check).
@@ -576,32 +576,33 @@ await check('rendering', async () => {
   expect(a.faces > 0 && a.shiny === a.faces, `shininess: ${j}`);
   expect(a.hitHidden !== 'edges' && a.hitShown === 'edges', `picking edges shown and hidden: ${j}`);
   expect(a.glError === 0, `WebGL error ${a.glError}`);
-  // The file's own materials: a GLB loaded with CAD materials off keeps glTF-Transform's standard ones.
+  // A GLB (through gltf-import, as every format): Phong faces as STEP's, its edges (our `edges` nodes) on their layer.
   const g = await page(`?url=${encodeURIComponent('/content/as1.glb')}&check`, `(async () => {
-    const kinds = (root) => { const s = new Set(); root.traverse((o) => { if (o.isMesh) for (const m of
-      [o.material].flat()) s.add(m.type); }); return [...s].sort(); };
-    const phong = kinds(viewer.display);
+    const kinds = new Set();
+    viewer.display.traverse((o) => { if (o.isMesh) for (const m of [o.material].flat()) kinds.add(m.type); });
     let edges = 0, onLayer = 0;
     viewer.display.traverse((o) => {
       if (o.isLine && o.name === 'edges') { edges++; if (o.layers.mask === 2) onLayer++; }
     });
-    viewer.render.cadMaterials = false;
-    await viewer.load({ name: 'as1.glb', bytes: await (await fetch('/content/as1.glb')).arrayBuffer() });
-    return { phong, own: kinds(viewer.display), edges, onLayer };
-  })()`) as { after?: { phong: string[]; own: string[]; edges: number; onLayer: number } };
-  expect(g.after!.phong.join() === 'MeshPhongMaterial' && g.after!.own.join() === 'MeshStandardMaterial',
-    `CAD materials: ${JSON.stringify(g.after)}`);
+    return { phong: [...kinds].sort(), edges, onLayer };
+  })()`) as { after?: { phong: string[]; edges: number; onLayer: number } };
+  expect(g.after!.phong.join() === 'MeshPhongMaterial', `Phong faces: ${JSON.stringify(g.after)}`);
   expect(g.after!.edges > 0 && g.after!.onLayer === g.after!.edges, `glTF edges' layer: ${JSON.stringify(g.after)}`);
   // Transparency: three.js's sorting of transparent objects; N8AO aware of them.
   const t = await page(`?url=${encodeURIComponent('/content/as1-clear.glb')}&check`, `(async () => {
     const ms = []; viewer.display.traverse((o) => { if (o.isMesh) ms.push(...[o.material].flat()); });
     await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
-    return { all: ms.length, clear: ms.filter((m) => m.isMeshPhongMaterial && m.transparent && m.opacity === 0.5)
-      .length, aware: viewer.composer.n8ao.configuration.transparencyAware,
+    const out = { all: ms.length, clear: ms.filter((m) => m.isMeshPhongMaterial && m.transparent &&
+      m.opacity === 0.5).length, aware: viewer.composer.n8ao.configuration.transparencyAware,
       sorted: viewer.renderer.sortObjects, glError: viewer.renderer.getContext().getError() };
-  })()`) as { after?: { all: number; clear: number; aware: boolean; sorted: boolean; glError: number } };
+    // An opaque model next: N8AO told so.
+    await cadViewer.load('/content/as1.glb');
+    await cadViewer.idle();
+    return { ...out, opaqueAware: viewer.composer.n8ao.configuration.transparencyAware };
+  })()`) as { after?: { all: number; clear: number; aware: boolean; sorted: boolean; glError: number;
+    opaqueAware: boolean } };
   const ta = t.after!;
-  expect(ta.all > 0 && ta.clear === ta.all && ta.aware && ta.sorted && ta.glError === 0,
+  expect(ta.all > 0 && ta.clear === ta.all && ta.aware && ta.sorted && ta.glError === 0 && !ta.opaqueAware,
     `transparency: ${JSON.stringify(ta)}`);
   return undefined;
 });
@@ -1457,15 +1458,14 @@ await check('triangle edges', async () => {
     ui.select([]);
     await cadViewer.idle();
     const cleared = viewer.triangleEdges.group.children.length === 0;
-    // GPU instances: an instanced wireframe on the same instance matrices.
+    // GPU instances (our GLB's), read back as placements: a wireframe on each, as for any mesh.
     await cadViewer.load('/content/as1-instanced.glb');
     cadViewer.apply({ render: { triangleEdges: 'all' } });
     await cadViewer.idle();
-    const inst = [];
-    viewer.display.traverse((o) => { if (o.isInstancedMesh) inst.push(o); });
-    const iw = viewer.triangleEdges.group.children.filter((w) => w.isInstancedMesh);
-    const instanced = inst.length > 0 && iw.length === inst.length && iw.every((w, i) =>
-      w.instanceMatrix === inst[i].instanceMatrix && w.count === inst[i].count && w.visible);
+    const inst = [], placedMeshes = [];
+    viewer.display.traverse((o) => { if (o.isInstancedMesh) inst.push(o); else if (o.isMesh) placedMeshes.push(o); });
+    const iw = viewer.triangleEdges.group.children;
+    const instanced = inst.length === 0 && placedMeshes.length === 18 && iw.length === placedMeshes.length;
     return { placed, instanced, none, selectedPart, selectedFace, cleared, changed, total: on.length / 4, shared,
       unchanged, partHidden, faceHidden, wires: wires.length };
   })()`) as { after: { changed: number; total: number; shared: boolean; unchanged: boolean; partHidden: boolean;
@@ -1474,7 +1474,7 @@ await check('triangle edges', async () => {
   const a = r.after;
   const j = JSON.stringify(a);
   expect(a.shared && a.wires > 0 && a.placed, `a wireframe per mesh, its geometry shared, where it is: ${j}`);
-  expect(a.instanced, `GPU instances: ${j}`);
+  expect(a.instanced, `GPU instances, as placements: ${j}`);
   expect(a.unchanged, `the model, its statistics and picking unchanged: ${j}`);
   expect(a.partHidden && a.faceHidden, `hidden parts and faces: ${j}`);
   expect(a.changed > a.total * 0.01, `drawn: ${j}`);
@@ -1822,7 +1822,9 @@ await check('custom background', async () => {
   const j = JSON.stringify({ ...r.after, ...again.after });
   const themes: Record<string, number> = { dark: 0x404040, light: 0xffffff };
   const { off, pickedOff, on, changed } = r.after as Record<string, Look>;
-  const theirs = (l: Look) => l.view === themes[l.theme] && l.css === `#${themes[l.theme]!.toString(16)}`;
+  // (A build's CSS writes #ffffff as #fff.)
+  const hex = (css: string) => css.replace(/^#(.)(.)(.)$/, '#$1$1$2$2$3$3');
+  const theirs = (l: Look) => l.view === themes[l.theme] && hex(l.css) === `#${themes[l.theme]!.toString(16)}`;
   expect(theirs(off!) && !off!.picker, `off at first, the theme's: ${j}`);
   expect(theirs(pickedOff!), `a colour picked while off changes nothing: ${j}`);
   expect(on!.view === 0x123abc && on!.css === '#123abc' && on!.picker, `on, the picker's: ${j}`);
@@ -1833,8 +1835,8 @@ await check('custom background', async () => {
     `off again, the theme's (the colour kept): ${j}`);
   return undefined;
 });
-// Caps on a part whose faces are meshes of their own (faces.glb: a box, a primitive per face): capped as one solid,
-// one cap; the cap drawn where the plane cuts it.
+// Caps on a part whose faces are primitives of their own (faces.glb: a box, a primitive per face, as Onshape writes
+// them): one part (gltf-import: a mesh's primitives its faces), capped as one solid, one cap.
 await check('caps on a part of several meshes', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/faces.glb')}&check`, `(async () => {
     await cadViewer.ready; await cadViewer.idle();
@@ -1845,9 +1847,10 @@ await check('caps on a part of several meshes', async () => {
     ui.setSections(st);
     await cadViewer.idle();
     return { meshes: meshes.length, caps: viewer.sections.caps.length,
-      colour: meshes[0].material.color.getHexString('srgb') };
+      colour: [meshes[0].material].flat()[0].color.getHexString('srgb') };
   })()`) as { after: { meshes: number; caps: number; colour: string } };
-  expect(r.after.meshes === 6 && r.after.caps === 1, JSON.stringify(r.after));
+  // (One part: the glTF mesh, its six primitives its faces.)
+  expect(r.after.meshes === 1 && r.after.caps === 1, JSON.stringify(r.after));
   // Its colour as Onshape shows it: the factor read as sRGB (248, 135, 1), not as linear.
   expect(r.after.colour === 'f88701', `Onshape's colour: ${JSON.stringify(r.after)}`);
   return undefined;
@@ -2263,7 +2266,7 @@ await check('content paths', async () => {
   expect(a.server?.model === 'as1.glb' && new URL(a.server.url!, root).href ===
     `http://localhost:${port}/content/as1.glb`, `a server path: ${j}`);
   expect(a.absolute?.model === 'as1-noedges.glb', `a URL: ${j}`);
-  expect(a.bad?.model === 'as1-noedges.glb' && /not a URL nor a path within the content root/.test(a.bad.status),
+  expect(a.bad?.model === 'as1-noedges.glb' && /not a URL, nor a path within the content root/.test(a.bad.status),
     `refused in Load URL...: ${j}`);
   return undefined;
 });
@@ -2318,13 +2321,13 @@ if (!staticServer) await check('shot', async () => {
     'light', '--content-root', content, '--port', String(port)], { ...io, out: (s) => out.push(s),
     err: (s) => out.push(s) });
   expect(code2 === 0, `exit ${code2}: ${out.join('')}`);
-  expect(topLeftPixel(fs.readFileSync(lightPng)).join() === '217,217,217', `light: ${
+  expect(topLeftPixel(fs.readFileSync(lightPng)).join() === '255,255,255', `light: ${
     topLeftPixel(fs.readFileSync(lightPng))}`);
-  // A background of its own (the README's pictures, on white).
+  // A background of its own (the README's pictures, on white: here another colour, as the light theme's is white).
   const code3 = await main(['shot', path.join(content, 'as1.stp'), '-o', lightPng, '--size', '400x300', '--background',
-    '#ffffff', '--content-root', content, '--port', String(port)], { ...io, out: (s) => out.push(s),
+    '#123456', '--content-root', content, '--port', String(port)], { ...io, out: (s) => out.push(s),
     err: (s) => out.push(s) });
-  expect(code3 === 0 && topLeftPixel(fs.readFileSync(lightPng)).join() === '255,255,255', `white: ${
+  expect(code3 === 0 && topLeftPixel(fs.readFileSync(lightPng)).join() === '18,52,86', `its own: ${
     topLeftPixel(fs.readFileSync(lightPng))}`);
   return undefined;
 });
@@ -2507,7 +2510,7 @@ await check('recording', async () => {
       String(port)], { ...io, out: (s) => out2.push(s), err: (s) => out2.push(s) });
     expect(code2 === 0 && /as recorded/.test(out2.join('')), `cad-viewer replay, a local file: exit ${code2}: ${
       out2.join('')}`);
-    expect(topLeftPixel(fs.readFileSync(png)).join() === '217,217,217', `replay, light: ${topLeftPixel(
+    expect(topLeftPixel(fs.readFileSync(png)).join() === '255,255,255', `replay, light: ${topLeftPixel(
       fs.readFileSync(png))}`);
   }
   return undefined;
@@ -2841,18 +2844,18 @@ await check('missing file', async () => {
   return undefined;
 });
 
-// What a build holds (printing nothing as it's made): one Draco decoder (three.js's glTF one: the GLBs above loaded
-// through it), no JavaScript decoder; licenses.md with the npm packages' licenses and OCCT's, not precached by its
-// service worker (which precaches OCCT's module).
+// What a build holds (printing nothing as it's made): one Draco decoder (draco3dgltf's, for gltf-import in the import
+// worker: the GLBs above loaded through it); licenses.md with the npm packages' licenses and OCCT's, not precached by
+// its service worker (which precaches OCCT's module).
 if (staticServer) {
   await check('build', async () => {
     expect(buildOutput.trim() === '', `the build printed: ${buildOutput.slice(0, 1000)}`);
     const assets = fs.readdirSync(path.join(dist, 'assets'));
     const draco = assets.filter((f) => f.startsWith('draco_'));
-    expect(draco.length === 2 && draco.some((f) => /^draco_decoder-.*\.wasm$/.test(f)) &&
-      draco.some((f) => /^draco_wasm_wrapper-.*\.js$/.test(f)), `Draco's files: ${draco}`);
+    expect(draco.length === 1 && /^draco_decoder_gltf-.*\.wasm$/.test(draco[0]!), `Draco's files: ${draco}`);
     const licenses = fs.readFileSync(path.join(dist, 'licenses.md'), 'utf8');
-    expect(['### three - 0.186.1 (MIT)', '### @headless-tree/core', 'Open CASCADE exception (version 1.0)',
+    expect(['### three - 0.186.1 (MIT)', '### @headless-tree/core', '`@gltf-transform/core`', 'draco3dgltf',
+      'meshoptimizer', 'Open CASCADE exception (version 1.0)',
       'GNU LESSER GENERAL PUBLIC LICENSE', 'Apache License'].every((t) => licenses.includes(t)), 'licenses.md');
     expect(!fs.existsSync(path.join(dist, '.vite')), 'Vite\'s own licenses file left');
     const sw = fs.readFileSync(path.join(dist, 'sw.js'), 'utf8');

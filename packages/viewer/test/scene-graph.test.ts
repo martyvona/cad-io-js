@@ -3,14 +3,14 @@ import { test } from 'node:test';
 import * as THREE from 'three';
 import { multiply, scaling, type Mesh } from 'cad-scene';
 import { plate, scene, translation, wire } from './fixtures.ts';
-import { DEFAULT_COLOR, detectEdges, polylineSegments, StepGraph } from '../src/step.ts';
+import { DEFAULT_COLOR, polylineSegments, SceneGraph } from '../src/scene-graph.ts';
 import { EDGES } from '../src/style.ts';
 import { workerCount } from '../src/tessellation.ts';
 
 const close = (a: ArrayLike<number>, b: ArrayLike<number>) => Array.from(a).every((x, i) => Math.abs(x - b[i]!) < 1e-9);
 
 test('the tree: a group per component instance and placed part, with their transforms, names and visibility', () => {
-  const g = new StepGraph(scene(), 'model');
+  const g = new SceneGraph(scene(), 'model');
   assert.equal(g.root.name, 'model');
   const asm = g.root.children[0]!;
   assert.equal(asm.name, 'asm');
@@ -26,7 +26,7 @@ test('the tree: a group per component instance and placed part, with their trans
 });
 
 test('meshes: at the origin in each placement, geometry shared where the colouring is, faces as material runs', () => {
-  const g = new StepGraph(scene(), 'model');
+  const g = new SceneGraph(scene(), 'model');
   const made = g.addMesh(0, plate()) as THREE.Mesh[];
   assert.equal(made.length, 3);
   g.root.updateMatrixWorld(true);
@@ -58,12 +58,17 @@ test('meshes: at the origin in each placement, geometry shared where the colouri
   assert.ok(made.every((m) => !('closed' in m.userData)));
   const said = scene();
   said.parts[0]!.closed = true;
-  const saidMade = new StepGraph(said, 'model').addMesh(0, plate()) as THREE.Mesh[];
+  const saidMade = new SceneGraph(said, 'model').addMesh(0, plate()) as THREE.Mesh[];
   assert.ok(saidMade.every((m) => m.userData.closed === true));
+  // A mesh without faces (a foreign file's): all its triangles drawn, in the placement's colour.
+  const bare = new SceneGraph(scene(), 'model').addMesh(0, { ...plate(), faces: [] }) as THREE.Mesh[];
+  assert.deepEqual(bare[1]!.geometry.groups.map((r) => [r.start, r.count, r.materialIndex]), [[0, 6, 0]]);
+  assert.deepEqual(colours(bare[0]!), [['00ff00', 1, false]]);
+  assert.deepEqual(colours(bare[1]!), [['ff0000', 0.5, true]]);
 });
 
 test('meshes: wireframes as curves and points in the instance colour; no faces, no edges', () => {
-  const g = new StepGraph(scene(), 'model');
+  const g = new SceneGraph(scene(), 'model');
   const [first, second] = g.addMesh(1, wire());
   assert.ok(!(first instanceof THREE.Mesh));
   assert.deepEqual(first!.children.map((c) => c.name), ['curves', 'points']);
@@ -80,7 +85,7 @@ test('meshes: wireframes as curves and points in the instance colour; no faces, 
 });
 
 test('edges found from the triangles only for parts without B-rep edges', () => {
-  const g = new StepGraph(scene(), 'model');
+  const g = new SceneGraph(scene(), 'model');
   const bare = plate();
   delete bare.edges;
   delete bare.edgePositions;
@@ -102,28 +107,6 @@ test('polylineSegments: consecutive pairs within each polyline, none across', ()
   assert.equal(polylineSegments([]).length, 0);
 });
 
-test('detectEdges: meshes without lines of their own beside them; not instanced ones', () => {
-  const root = new THREE.Group();
-  const box = () => new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial());
-  const plain = box();
-  const withChild = box();
-  withChild.add(new THREE.LineSegments());
-  const node = new THREE.Group();
-  const withSibling = box();
-  node.add(withSibling, new THREE.LineSegments());
-  const inst = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial(), 2);
-  root.add(plain, withChild, node, inst);
-  assert.equal(detectEdges(root), 1);
-  const e = plain.children[0] as THREE.LineSegments;
-  assert.ok(e.geometry instanceof THREE.EdgesGeometry);
-  assert.equal(e.layers.mask, 1 << EDGES);
-  assert.equal(e.geometry.getAttribute('position').count / 2, 12);
-  assert.ok((plain.material as THREE.Material).polygonOffset);
-  assert.equal(withChild.children.length, 1);
-  assert.equal(withSibling.children.length, 0);
-  assert.equal(inst.children.length, 0);
-});
-
 test('workers: one less than the cores, at most 8, at most 3 on touch devices, at least 1', () => {
   assert.equal(workerCount('desktop', 10), 8);
   assert.equal(workerCount('desktop', 6), 5);
@@ -137,8 +120,8 @@ test('faces that failed to mesh: outlined in red per placement, marked failed, h
   async () => {
     const { NodeModel } = await import('../src/model.ts');
     const { nodeForPick, piecesOf } = await import('../src/selection.ts');
-    const { FAILED_COLOR } = await import('../src/step.ts');
-    const graph = new StepGraph(scene(), 'model');
+    const { FAILED_COLOR } = await import('../src/scene-graph.ts');
+    const graph = new SceneGraph(scene(), 'model');
     // The plate with face 7 failed (a range of none) and its outline: two polylines.
     const m: Mesh = { ...plate(), indices: Uint32Array.of(0, 1, 2), faces: [{ source: 8, start: 0, count: 3 },
       { source: 7, start: 3, count: 0 }], faceOutlinePositions: Float32Array.of(0, 0, 0, 1, 0, 0, 1, 1, 0, 2, 2, 2,
@@ -174,7 +157,7 @@ test('faces that failed to mesh: outlined in red per placement, marked failed, h
     assert.equal(nodeForPick(model, line, undefined, 'part'), parts[0]!.id);
     assert.ok(piecesOf(model, [failed]).some((p) => p.object === line && !p.ranges));
     // A part whose faces all failed (no triangles: a group, no mesh): failed.
-    const graph2 = new StepGraph(scene(), 'model');
+    const graph2 = new SceneGraph(scene(), 'model');
     graph2.addMesh(0, { origin: [0, 0, 0], positions: new Float32Array(), indices: new Uint32Array(),
       faces: [{ source: 7, start: 0, count: 0 }], faceOutlinePositions: Float32Array.of(0, 0, 0, 1, 0, 0),
       faceOutlines: [{ source: 7, start: 0, count: 2 }] });
@@ -192,7 +175,7 @@ test('a split face with a piece that failed (not a sliver): partly, outlined; a 
     { source: 8, start: 3, count: 0, area: 1e-9 }, { source: 7, start: 3, count: 3 },
     { source: 7, start: 6, count: 0, area: area7 }],
     faceOutlinePositions: Float32Array.of(0, 0, 0, 1, 1, 0), faceOutlines: [{ source: 7, start: 0, count: 2 }] });
-  const graph = new StepGraph(scene(), 'model');
+  const graph = new SceneGraph(scene(), 'model');
   const [obj] = graph.addMesh(0, mesh(0.4));
   assert.deepEqual([obj!.userData.failedFaces, obj!.userData.partlyFailedFaces], [[], [7]]);
   assert.equal(obj!.children.filter((c) => c.name === 'outline').length, 1);
@@ -205,7 +188,7 @@ test('a split face with a piece that failed (not a sliver): partly, outlined; a 
   assert.ok(details(model, [face(7)]).includes('Part of it failed to mesh: outlined in red'));
   assert.ok(details(model, [part]).includes('Of 2 faces, 1 partly (outlined in red)'));
   // The piece a sliver too: nothing failed.
-  const g2 = new StepGraph(scene(), 'model');
+  const g2 = new SceneGraph(scene(), 'model');
   const [o2] = g2.addMesh(0, mesh(0.001));
   assert.deepEqual([o2!.userData.failedFaces, o2!.userData.partlyFailedFaces], [[], []]);
   assert.equal(o2!.children.filter((c) => c.name === 'outline').length, 0);

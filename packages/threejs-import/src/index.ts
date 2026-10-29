@@ -36,8 +36,10 @@ export function importThreejs(input: string | Uint8Array | object): ThreejsImpor
   const root = obj(json?.object);
   if (!json || !root) {
     if (json) diagnostics.push({ severity: 'error', message: 'no object: not three.js JSON (Object Scene format)' });
-    return { scene: sceneFromTree({ name: '', matrix: identity(), visible: true, meshes: [], children: [] }).scene,
-      diagnostics };
+    // (Said in the scene too, as the scene's diagnostics are what readers keep.)
+    const { scene } = sceneFromTree({ name: '', matrix: identity(), visible: true, meshes: [], children: [] });
+    scene.diagnostics.push(...diagnostics);
+    return { scene, diagnostics: scene.diagnostics };
   }
 
   const geometries = new Map<string, Json>();
@@ -107,7 +109,6 @@ export function importThreejs(input: string | Uint8Array | object): ThreejsImpor
           const at = (k: number) => (a.indices ? a.indices[k % count]! : k % count);
           indices = Uint32Array.from({ length: 2 * Math.max(0, n - 1) }, (_, k) => at((k >> 1) + (k & 1)));
         }
-        if (o.type === 'InstancedMesh') warn(`'${String(o.name ?? '')}': instanced mesh read once`);
         const extras = obj(o.userData);
         meshes.push({ key: `${o.geometry}|${(Array.isArray(o.material) ? o.material : [o.material]).join(',')}`, mode,
           positions: a.positions, ...(a.normals ? { normals: a.normals } : {}), ...(indices ? { indices } : {}),
@@ -115,13 +116,25 @@ export function importThreejs(input: string | Uint8Array | object): ThreejsImpor
       }
     }
     const matrix = numbers(o.matrix);
-    return { name: typeof o.name === 'string' ? o.name : '', matrix: matrix && matrix.length === 16
-      ? Float64Array.from(matrix) : identity(), visible: o.visible !== false,
-    ...(obj(o.userData) ? { extras: obj(o.userData) } : {}), meshes,
-    children: (Array.isArray(o.children) ? o.children : []).flatMap((c) => (obj(c) ? [node(obj(c)!)] : [])) };
+    const name = typeof o.name === 'string' ? o.name : '';
+    // An instanced mesh: a child node per instance, at its matrix (applied before the object's own).
+    const instances = o.type === 'InstancedMesh' ? numbers(obj(o.instanceMatrix)?.array) : undefined;
+    const count = Math.min(typeof o.count === 'number' ? o.count : Infinity, (instances?.length ?? 0) / 16);
+    const each: TreeNode[] = instances && meshes.length ? Array.from({ length: count }, (_, k) => ({
+      name: `${name || 'instance'} ${k + 1}`, matrix: Float64Array.from(instances.slice(16 * k, 16 * k + 16)),
+      visible: true, meshes, children: [] })) : [];
+    if (o.type === 'InstancedMesh' && !each.length && meshes.length) warn(`'${name}': instanced mesh without ` +
+      'instance matrices: read once');
+    return { name, matrix: matrix && matrix.length === 16 ? Float64Array.from(matrix) : identity(),
+      visible: o.visible !== false, ...(obj(o.userData) ? { extras: obj(o.userData) } : {}),
+      meshes: each.length ? [] : meshes, children: [...each, ...(Array.isArray(o.children) ? o.children : [])
+        .flatMap((c) => (obj(c) ? [node(obj(c)!)] : []))] };
   };
   const tree = node(root);
-  const { scene } = sceneFromTree(tree);
+  // (Files written with our extras before 2026-10-24 say millimetres and no up axis at their root, and were in
+  // millimetres, the source's axes, with no root matrix: read as they are.)
+  const old = obj(root.userData)?.unit === 'millimetre' && obj(root.userData)?.up === undefined;
+  const { scene } = sceneFromTree(tree, old ? { frame: identity() } : {});
   // The reader's, then the tree's (the scene's own list).
   scene.diagnostics.unshift(...diagnostics);
   return { scene, diagnostics: scene.diagnostics };

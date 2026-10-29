@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { details } from '../src/details.ts';
 import { NodeModel } from '../src/model.ts';
 import { problemIds } from '../src/problems.ts';
-import { StepGraph } from '../src/step.ts';
+import { SceneGraph } from '../src/scene-graph.ts';
 import { formatIds, nodesWithIds, parseIds, partsWithFaces, stepIdsOf } from '../src/step-ids.ts';
 import { plate, scene } from './fixtures.ts';
 
@@ -52,7 +52,7 @@ test('step ids: assemblies (occurrence, then component), parts (representation),
   s.components[0]!.sources = [{ format: 'step', id: 51 }];
   s.components[0]!.children[0]!.sources = [{ format: 'step', id: 60 }];
   s.parts[0]!.sources = [{ format: 'step', id: 70 }];
-  const graph = new StepGraph(s, 'model');
+  const graph = new SceneGraph(s, 'model');
   graph.addMesh(0, plate());
   const model = new NodeModel(graph.root, graph);
   const byName = (name: string) => model.nodes.filter((n) => n.name === name).map((n) => n.id);
@@ -74,4 +74,14 @@ test('step ids: assemblies (occurrence, then component), parts (representation),
   // The details' line.
   assert.ok(details(model, [asm, plates[0]!]).includes('STEP IDs: #50 #51 #70'));
   assert.ok(!details(model, byName('wire')).some((l) => l.startsWith('STEP IDs')));
+  // A part not from STEP (a foreign glTF's: no STEP sources): its faces' numbers aren't STEP ids.
+  const foreign = scene();
+  const fg = new SceneGraph(foreign, 'model');
+  fg.addMesh(0, plate());
+  const fm = new NodeModel(fg.root, fg);
+  fm.setDetail(true);
+  const fplates = fm.nodes.filter((n) => n.name === 'plate').map((n) => n.id);
+  assert.deepEqual(partsWithFaces(fm, new Set([7])), []);
+  const fface = fm.children(fplates[0]!).find((c) => fm.nodes[c]!.kind === 'face')!;
+  assert.deepEqual(stepIdsOf(fm, [fface]), []);
 });

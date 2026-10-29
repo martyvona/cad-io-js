@@ -11,9 +11,10 @@
 // placement alone.
 //
 // Other files (the user, 2026-10-29: nodes as components, meshes as parts): every node a component placed once, its
-// meshes parts shared wherever the file reuses them (a part per material: a face's material needs a face id, which
-// such files don't have), lines and points parts of curves and points; the root from metres, Y up, to millimetres,
-// Z up.
+// meshes parts shared wherever the file reuses them, a mesh's groups of triangles (glTF's primitives, as Onshape
+// writes a face each; three.js's geometry groups) its faces, numbered from 0, with their own materials; lines and
+// points parts of curves and points, except a child named `edges` of only lines beside one triangle mesh, its edges
+// (as our exporters write B-rep edges without extras); the root from metres, Y up, to millimetres, Z up.
 
 import type { Component, Diagnostic, Lod, Mat4, Material, Mesh, Occurrence, Part, PartRef, PropertyValue, Scene,
   SourceId, Vec3 } from './scene.ts';
@@ -41,7 +42,10 @@ export interface TreeMesh {
   normals?: Float32Array;
   /** Triangles or segments (pairs); absent: the vertices in order. */
   indices?: Uint32Array;
-  /** Ranges of the indices and their materials (triangles: one per material; lines and points: one). */
+  /**
+   * Ranges of the indices and their materials (triangles: one per material, or per face in other files: a glTF
+   * mesh's primitives; lines and points: one).
+   */
   groups: { start: number; count: number; material?: TreeMaterial }[];
   /** Our extras: `faces` (ranges of the indices, or with `vertexFaces` sources only), `edges`, `curves`, `points`. */
   extras?: TreeExtras;
@@ -398,25 +402,41 @@ function fromOurs(root: TreeNode, b: Builder): Occurrence[] {
   return roots;
 }
 
-/** A file's own tree: every node a component placed once, its meshes parts (one per material), shared by key. */
-function fromOthers(root: TreeNode, b: Builder): Occurrence[] {
+/**
+ * A file's own tree: every node a component placed once, its meshes parts, shared by key; a mesh's triangle groups
+ * (a glTF mesh's primitives, a three.js geometry's groups) its faces, numbered from 0 in order, each with its
+ * material.
+ */
+function fromOthers(root: TreeNode, b: Builder, frame: Mat4): Occurrence[] {
   const visit = (n: TreeNode, path: number[]): number => {
     const comp: Component = { name: n.name, sources: [], properties: {}, parts: [], children: [] };
     const index = b.components.length;
     b.components.push(comp);
+    // (A child named `edges` holding only lines, as our exporters write a part's B-rep edges without extras: the
+    // edges of the node's one triangle mesh, not a part of its own.)
+    const tris = n.meshes.filter((m) => m.mode === 'triangles');
+    const edgeNodes = tris.length === 1 ? n.children.filter((c) => c.name === 'edges' && !c.children.length &&
+      c.meshes.length > 0 && c.meshes.every((m) => m.mode === 'lines')) : [];
     for (const m of n.meshes) {
-      const groups = m.mode === 'triangles' && m.groups.length > 1 ? m.groups : [{ start: 0,
-        count: m.indices?.length ?? m.positions.length / 3, material: m.groups[0]?.material }];
-      groups.forEach((g, k) => {
-        const key = `${m.key}#${k}`;
-        const part = b.part(key, () => ({ name: n.name || m.mode, sources: [], properties: {}, unit: 1,
-          origin: [0, 0, 0] as Vec3, lods: [{ mesh: otherMesh(m, g), from: 'source' as const }],
-          ...(b.material(g.material) !== undefined ? { material: b.material(g.material)! } : {}) }));
-        comp.parts.push({ part, transform: identity() });
+      const edges = m.mode === 'triangles' ? edgeNodes : [];
+      const key = edges.length ? `${m.key}|${edges.map((c) => c.meshes.map((l) => l.key).join(',')).join(';')}`
+        : m.key;
+      const part = b.part(key, () => {
+        const mesh = otherMesh(m);
+        if (edges.length) Object.assign(mesh, edgesOf(edges));
+        const materials = (m.mode === 'triangles' && m.groups.length > 1 ? m.groups : m.groups.slice(0, 1))
+          .map((g) => b.material(g.material));
+        const material = materials[0];
+        const faceMaterials = materials.flatMap((x, face) => (face > 0 && x !== undefined && x !== material
+          ? [{ face, material: x }] : []));
+        return { name: n.name || m.mode, sources: [], properties: {}, unit: 1, origin: [0, 0, 0] as Vec3,
+          lods: [{ mesh, from: 'source' as const }], ...(material !== undefined ? { material } : {}),
+          ...(faceMaterials.length ? { faceMaterials } : {}) };
       });
+      comp.parts.push({ part, transform: identity() });
     }
     if (!n.visible) b.overrides.push({ path, visible: false, sources: [] });
-    n.children.forEach((c, k) => {
+    n.children.filter((c) => !edgeNodes.includes(c)).forEach((c, k) => {
       const child = visit(c, [...path, k]);
       comp.children.push({ component: child, transform: c.matrix, ...(c.name ? { name: c.name } : {}), sources: [],
         properties: {} });
@@ -424,11 +444,29 @@ function fromOthers(root: TreeNode, b: Builder): Occurrence[] {
     return index;
   };
   const top = visit(root, [0]);
-  return [{ component: top, transform: multiply(MM_Z_UP, root.matrix), sources: [], properties: {} }];
+  return [{ component: top, transform: multiply(frame, root.matrix), sources: [], properties: {} }];
 }
 
-/** A foreign mesh's triangles of one material, or its lines or points, as a level. */
-function otherMesh(m: TreeMesh, g: { start: number; count: number }): Mesh {
+/** Lines nodes' segments as a mesh's edges, in the parent node's frame (each node's matrix applied). */
+function edgesOf(nodes: TreeNode[]): Pick<Mesh, 'edgePositions' | 'edges'> {
+  const out: number[] = [];
+  for (const n of nodes) for (const l of n.meshes) {
+    const ix = l.indices ?? Uint32Array.from({ length: l.positions.length / 3 }, (_, i) => i);
+    const m = n.matrix;
+    for (let k = 0; k + 1 < ix.length; k += 2) for (const v of [ix[k]!, ix[k + 1]!]) {
+      const [x, y, z] = [l.positions[3 * v]!, l.positions[3 * v + 1]!, l.positions[3 * v + 2]!];
+      for (let r = 0; r < 3; r++) out.push(m[r]! * x + m[4 + r]! * y + m[8 + r]! * z + m[12 + r]!);
+    }
+  }
+  return { edgePositions: Float32Array.from(out), edges: Array.from({ length: out.length / 6 }, (_, k) => ({
+    source: null, start: 2 * k, count: 2, kind: 'shared' as const })) };
+}
+
+/**
+ * A foreign mesh as a level: its triangles, a face per group where it has several (in the groups' order), or its
+ * lines or points.
+ */
+function otherMesh(m: TreeMesh): Mesh {
   const ix = m.indices ?? Uint32Array.from({ length: m.positions.length / 3 }, (_, i) => i);
   const empty = { origin: [0, 0, 0] as Vec3, positions: new Float32Array(0), indices: new Uint32Array(0), faces: [] };
   if (m.mode === 'points') return { ...empty, points: m.positions, pointSources: Array<null>(m.positions.length / 3)
@@ -440,18 +478,30 @@ function otherMesh(m: TreeMesh, g: { start: number; count: number }): Mesh {
     for (let k = 0; k < pos.length / 3; k++) pos.set(m.positions.subarray(3 * ix[k]!, 3 * ix[k]! + 3), 3 * k);
     return { ...empty, curvePositions: pos, curves };
   }
-  const mesh: Mesh = { origin: [0, 0, 0], positions: m.positions, indices: Uint32Array.from(ix.subarray(g.start,
-    g.start + g.count)), faces: [] };
+  const groups = m.groups.length > 1 ? m.groups : [{ start: 0, count: ix.length }];
+  const indices = new Uint32Array(groups.reduce((n, g) => n + g.count, 0));
+  const faces: Mesh['faces'] = [];
+  let at = 0;
+  groups.forEach((g, k) => {
+    indices.set(ix.subarray(g.start, g.start + g.count), at);
+    faces.push({ source: k, start: at, count: g.count });
+    at += g.count;
+  });
+  const mesh: Mesh = { origin: [0, 0, 0], positions: m.positions, indices, faces: m.groups.length > 1 ? faces : [] };
   if (m.normals) mesh.normals = m.normals;
   return mesh;
 }
 
-/** The scene a tree holds: ours read back as written, others as their own tree. */
-export function sceneFromTree(root: TreeNode): { scene: Scene; diagnostics: Diagnostic[] } {
+/**
+ * The scene a tree holds: ours read back as written, others as their own tree, `frame` taking the root's frame to
+ * millimetres, Z up (default MM_Z_UP: metres, Y up, as glTF and three.js are).
+ */
+export function sceneFromTree(root: TreeNode, opts: { frame?: Mat4 } = {}): { scene: Scene;
+  diagnostics: Diagnostic[] } {
   const b = new Builder();
   const ours = isOurTree(root);
   b.ours = ours;
-  const roots = ours ? fromOurs(root, b) : fromOthers(root, b);
+  const roots = ours ? fromOurs(root, b) : fromOthers(root, b, opts.frame ?? MM_Z_UP);
   const scene: Scene = {
     unit: 'millimetre', components: b.components, roots, parts: b.parts, materials: b.materials, layers: [],
     overrides: b.overrides, properties: ours ? propertiesOf(root.extras?.properties) : {}, diagnostics: b.diagnostics,
