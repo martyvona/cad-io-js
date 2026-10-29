@@ -4,10 +4,15 @@
 //
 // Coordinates are in the file's units (the root representation's), minus the request's origin, which is subtracted
 // in double precision before the conversion to float (CLAUDE.md, "Decisions").
+#include <BRepAdaptor_Curve.hxx>
+#include <BRepGProp.hxx>
 #include <BRepLib_ToolTriangulatedShape.hxx>
 #include <BRepMesh_IncrementalMesh.hxx>
 #include <DESTEP_Parameters.hxx>
 #include <DE_ShapeFixParameters.hxx>
+#include <GCPnts_TangentialDeflection.hxx>
+#include <GProp_GProps.hxx>
+#include <Standard_Failure.hxx>
 #include <IMeshTools_Parameters.hxx>
 #include <BRep_Tool.hxx>
 #include <Interface_Static.hxx>
@@ -68,6 +73,12 @@ struct Result
   std::vector<int32_t>  curves; // triples: entityId (-1 = unknown), first point, point count
   std::vector<float>    points;
   std::vector<int32_t>  pointIds; // -1 = unknown
+  // Faces (pieces of faces, where shape healing split one) that failed to mesh (the user, 2026-10-28): each face
+  // range's B-rep area (-1 for ranges that meshed), so a host can tell a real failure from an empty sliver, and the
+  // failed pieces' edges as polylines, so it can show where they are.
+  std::vector<float>    faceAreas;
+  std::vector<float>    outlinePositions;
+  std::vector<int32_t>  outlines; // triples: the face's entityId (-1 = unknown), first point, point count
   std::string           diag;  // JSON object text
 };
 Result g;
@@ -204,6 +215,7 @@ int occt_tessellate(const char* data, int len, int rootId, double linDefl, doubl
     BRepMesh_IncrementalMesh mesher(shape, mp);
 
     int nFaces = 0, unmapped = 0, noTri = 0;
+    std::vector<std::pair<TopoDS_Face, int>> failedFaces;
     for (TopExp_Explorer ex(shape, TopAbs_FACE); ex.More(); ex.Next())
     {
       const TopoDS_Face& face = TopoDS::Face(ex.Current());
@@ -219,6 +231,18 @@ int occt_tessellate(const char* data, int len, int rootId, double linDefl, doubl
       {
         ++noTri;
         g.faces.insert(g.faces.end(), {id, (int32_t)first, 0});
+        double area = -1.0;
+        try
+        {
+          GProp_GProps props;
+          BRepGProp::SurfaceProperties(face, props);
+          area = std::abs(props.Mass());
+        }
+        catch (const Standard_Failure&)
+        {
+        }
+        g.faceAreas.push_back((float)area);
+        failedFaces.emplace_back(face, id);
         continue;
       }
       if (!tri->HasNormals())
@@ -245,6 +269,7 @@ int occt_tessellate(const char* data, int len, int rootId, double linDefl, doubl
         g.indices.insert(g.indices.end(), {base + a - 1, base + b - 1, base + c - 1});
       }
       g.faces.insert(g.faces.end(), {id, (int32_t)first, (int32_t)(g.indices.size() - first)});
+      g.faceAreas.push_back(-1.f);
     }
     // Wireframe: edges in no face (a geometric set's or wireframe model's curves) and vertices in no edge (its
     // points). Their ids: an EDGE_CURVE's, else the geometric set's element (a composite curve before its segments'
@@ -416,6 +441,71 @@ int occt_tessellate(const char* data, int len, int rootId, double linDefl, doubl
       g.edgeAngles.push_back(angle);
     }
 
+    // The failed pieces' outlines: each edge (once; degenerate ones left out) from a neighbouring face's
+    // triangulation where it has one (so it meets that face's mesh), else its 3D polygon, else discretized from its
+    // curve (the 3D curve, or the face's pcurve on its surface) at the same deflections.
+    int outlineEdgesNoPolygon = 0;
+    for (const auto& [face, id] : failedFaces)
+    {
+      std::unordered_map<const TopoDS_TShape*, bool> seen;
+      for (TopExp_Explorer ex(face, TopAbs_EDGE); ex.More(); ex.Next())
+      {
+        const TopoDS_Edge& edge = TopoDS::Edge(ex.Current());
+        if (BRep_Tool::Degenerated(edge) || !seen.emplace(edge.TShape().get(), true).second)
+          continue;
+        const uint32_t first = (uint32_t)(g.outlinePositions.size() / 3);
+        auto           push  = [&](const gp_Pnt& p) {
+          g.outlinePositions.insert(g.outlinePositions.end(),
+            {(float)(p.X() - ox), (float)(p.Y() - oy), (float)(p.Z() - oz)});
+        };
+        if (edgeFaces.Contains(edge))
+          for (const TopoDS_Shape& fs : edgeFaces.FindFromKey(edge))
+          {
+            TopLoc_Location                 loc;
+            occ::handle<Poly_Triangulation> tri = BRep_Tool::Triangulation(TopoDS::Face(fs), loc);
+            if (tri.IsNull() || tri->NbTriangles() == 0)
+              continue;
+            occ::handle<Poly_PolygonOnTriangulation> poly = BRep_Tool::PolygonOnTriangulation(edge, tri, loc);
+            if (poly.IsNull())
+              continue;
+            for (int k = 1; k <= poly->NbNodes(); ++k)
+              push(tri->Node(poly->Node(k)).Transformed(loc.Transformation()));
+            break;
+          }
+        if (g.outlinePositions.size() / 3 == first)
+        {
+          TopLoc_Location                    l3;
+          const occ::handle<Poly_Polygon3D>& p3 = BRep_Tool::Polygon3D(edge, l3);
+          if (!p3.IsNull())
+            for (int k = 1; k <= p3->NbNodes(); ++k)
+              push(p3->Nodes().Value(k).Transformed(l3.Transformation()));
+        }
+        if (g.outlinePositions.size() / 3 == first)
+        {
+          try
+          {
+            const BRepAdaptor_Curve curve =
+              BRep_Tool::IsGeometric(edge) ? BRepAdaptor_Curve(edge) : BRepAdaptor_Curve(edge, face);
+            GCPnts_TangentialDeflection points(curve, angDefl, linDefl, 2);
+            for (int k = 1; k <= points.NbPoints(); ++k)
+              push(points.Value(k));
+          }
+          catch (const Standard_Failure&)
+          {
+            g.outlinePositions.resize(first * 3);
+          }
+        }
+        const int32_t count = (int32_t)(g.outlinePositions.size() / 3 - first);
+        if (count < 2)
+        {
+          g.outlinePositions.resize(first * 3);
+          ++outlineEdgesNoPolygon;
+          continue;
+        }
+        g.outlines.insert(g.outlines.end(), {id, (int32_t)first, count});
+      }
+    }
+
     g.diag = "{\"roots\":" + std::to_string(nbRoots) + ",\"stepFaces\":" + std::to_string(stepFaces)
              + ",\"faces\":" + std::to_string(nFaces) + ",\"unmapped\":" + std::to_string(unmapped)
              + ",\"noTriangulation\":" + std::to_string(noTri) + ",\"stepEdges\":" + std::to_string(stepEdges)
@@ -425,6 +515,8 @@ int occt_tessellate(const char* data, int len, int rootId, double linDefl, doubl
              + ",\"curves\":" + std::to_string(g.curves.size() / 3)
              + ",\"curvesUnmapped\":" + std::to_string(curvesUnmapped)
              + ",\"curvesNoPolygon\":" + std::to_string(curvesNoPolygon)
+             + ",\"outlines\":" + std::to_string(g.outlines.size() / 3)
+             + ",\"outlineEdgesNoPolygon\":" + std::to_string(outlineEdgesNoPolygon)
              + ",\"points\":" + std::to_string(g.pointIds.size()) + ",\"unitMm\":" + std::to_string(unitMm) + "}";
     return 0;
   }
@@ -473,6 +565,11 @@ int             occt_num_curves() { return (int)(g.curves.size() / 3); }
 const float*    occt_points() { return g.points.data(); }
 const int32_t*  occt_point_ids() { return g.pointIds.data(); }
 int             occt_num_points() { return (int)g.pointIds.size(); }
+const float*    occt_face_areas() { return g.faceAreas.data(); }
+const float*    occt_outline_positions() { return g.outlinePositions.data(); }
+int             occt_num_outline_points() { return (int)(g.outlinePositions.size() / 3); }
+const int32_t*  occt_outlines() { return g.outlines.data(); }
+int             occt_num_outlines() { return (int)(g.outlines.size() / 3); }
 const char*     occt_diag() { return g.diag.c_str(); }
 void            occt_free() { g = Result(); }
 }

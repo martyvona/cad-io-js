@@ -46,7 +46,11 @@ export interface TessellationResult {
    * Index ranges per source face (STEP: ADVANCED_FACE); they partition `indices`. An entityId may repeat (a backend
    * can split one source face), and is null for ranges with no known source.
    */
-  faces: { entityId: number | null; start: number; count: number }[];
+  faces: {
+    entityId: number | null; start: number; count: number;
+    /** A range with no triangles: its B-rep area, payload units squared, if the backend knows it (OCCT). */
+    area?: number;
+  }[];
   /** B-rep edges as polylines, when requested; points coincide with mesh vertices. All polylines concatenated. */
   edgePositions?: Float32Array;
   edges?: {
@@ -71,6 +75,12 @@ export interface TessellationResult {
     start: number;
     count: number;
   }[];
+  /**
+   * The edges of faces (or pieces of faces) with no triangles, as polylines minus `origin`, if the backend gives them
+   * (OCCT): exact where a split face's piece failed, which the source's own face can't say.
+   */
+  outlinePositions?: Float32Array;
+  outlines?: { entityId: number | null; start: number; count: number }[];
   /** Isolated points (STEP: a geometric set's points), minus `origin`, whenever the part has them. */
   points?: Float32Array;
   /** Each point's source entity (STEP: CARTESIAN_POINT), or null. */

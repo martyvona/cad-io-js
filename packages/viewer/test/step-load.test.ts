@@ -77,8 +77,12 @@ test('loadStepIn: the scene (postable), a mesh per placed brep part, then the en
     assert.equal(requests.length, 5);
     const scene = (events[0] as { scene: Scene }).scene;
     assert.doesNotThrow(() => structuredClone(scene));
-    // Meshes with their buffers to transfer; a profile's deflections exactly (not through degrees).
-    assert.ok(transfers.slice(1, -1).every((t) => t.length === 2));
+    // Meshes with their buffers to transfer: positions, indices, and the faces' outlines (the fake's one face is the
+    // representation's id, not one of the file's faces, so every face of the file counts as failed: outlined from
+    // the file); a profile's deflections exactly (not through degrees).
+    assert.ok(transfers.slice(1, -1).every((t) => t.length === 3));
+    const meshes = events.filter((e) => e.type === 'mesh') as Extract<StepEvent, { type: 'mesh' }>[];
+    assert.ok(meshes.every((e) => e.mesh!.faceOutlines!.length > 0 && e.mesh!.faces.length > 1));
     assert.equal(requests[0]!.angularDeflection, MESH_PROFILES.coarse.angularDeflection);
     // Custom: the settings' deflections, degrees to radians.
     const custom = fake();

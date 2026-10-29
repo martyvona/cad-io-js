@@ -29,15 +29,15 @@
       --view-bg: #404040; --panel-bg: #1f1f1f; --panel-fg: #ddd; --panel-border: #111; --muted: #777;
       --muted-icon: #666; --expander: #aaa; --icon: #9bb4cc; --row-selected: #2c5d87; --row-focus: #6a9fd0;
       --overlay-fg: #ddd; --status-bg: rgba(0, 0, 0, 0.5); --details-bg: rgba(0, 0, 0, 0.7); --error-fg: #ff8a80;
-      --grip: rgba(255, 255, 255, 0.35); --input-fg: #eee; --input-bg: #2a2a2a; --border: #555; --button-bg: #333;
-      --button-hover: #3c3c3c; --link: #8ab4f8;
+      --failed-fg: #ff6b6b; --grip: rgba(255, 255, 255, 0.35); --input-fg: #eee; --input-bg: #2a2a2a; --border: #555;
+      --button-bg: #333; --button-hover: #3c3c3c; --link: #8ab4f8;
     }
     :root[data-theme="light"] {
       --view-bg: #ffffff; --panel-bg: #f4f4f4; --panel-fg: #222; --panel-border: #c4c4c4; --muted: #999;
       --muted-icon: #aaa; --expander: #666; --icon: #4a7096; --row-selected: #b3d4f0; --row-focus: #4a86c5;
       --overlay-fg: #222; --status-bg: rgba(255, 255, 255, 0.75); --details-bg: rgba(255, 255, 255, 0.85);
-      --error-fg: #c62828; --grip: rgba(0, 0, 0, 0.3); --input-fg: #111; --input-bg: #fff; --border: #bbb;
-      --button-bg: #e8e8e8; --button-hover: #dcdcdc; --link: #1a5fb4;
+      --error-fg: #c62828; --failed-fg: #d32f2f; --grip: rgba(0, 0, 0, 0.3); --input-fg: #111; --input-bg: #fff;
+      --border: #bbb; --button-bg: #e8e8e8; --button-hover: #dcdcdc; --link: #1a5fb4;
     }
     /* lil-gui's own light theme (its documentation's). */
     :root[data-theme="light"] .lil-gui {
@@ -122,6 +122,9 @@
     .tree-content { display: flex; align-items: center; gap: 4px; flex: none; }
     .tree-icon { display: inline-flex; color: var(--icon); }
     .tree-row.hidden .tree-icon { color: var(--muted-icon); }
+    /* Failed to mesh (tree-panel.ts): red, a broken icon. */
+    .tree-row.failed, .tree-icon.broken { color: var(--failed-fg); }
+    .tree-row.hidden.failed { opacity: 0.6; }
     /* Modal dialogs (dialog.ts). */
     .cv-dialog {
       max-width: min(560px, calc(100% - 32px)); padding: 16px 20px; color: var(--panel-fg); background: var(--panel-bg);

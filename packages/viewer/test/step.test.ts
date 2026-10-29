@@ -132,3 +132,81 @@ test('workers: one less than the cores, at most 8, at most 3 on touch devices, a
   assert.equal(workerCount('tablet', 2), 1);
   assert.equal(workerCount('desktop', 1), 1);
 });
+
+test('faces that failed to mesh: outlined in red per placement, marked failed, hidden with their face, picked as it',
+  async () => {
+    const { NodeModel } = await import('../src/model.ts');
+    const { nodeForPick, piecesOf } = await import('../src/selection.ts');
+    const { FAILED_COLOR } = await import('../src/step.ts');
+    const graph = new StepGraph(scene(), 'model');
+    // The plate with face 7 failed (a range of none) and its outline: two polylines.
+    const m: Mesh = { ...plate(), indices: Uint32Array.of(0, 1, 2), faces: [{ source: 8, start: 0, count: 3 },
+      { source: 7, start: 3, count: 0 }], faceOutlinePositions: Float32Array.of(0, 0, 0, 1, 0, 0, 1, 1, 0, 2, 2, 2,
+      3, 3, 3), faceOutlines: [{ source: 7, start: 0, count: 3 }, { source: 7, start: 3, count: 2 }] };
+    const objs = graph.addMesh(0, m);
+    assert.equal(objs.length, 3);
+    for (const o of objs) {
+      assert.deepEqual(o.userData.failedFaces, [7]);
+      const lines = o.children.filter((c) => c.name === 'outline') as THREE.LineSegments[];
+      assert.equal(lines.length, 1);
+      assert.equal(lines[0]!.userData.outlineFace, 7);
+      assert.equal((lines[0]!.material as THREE.LineBasicMaterial).color.getHex(), FAILED_COLOR);
+      // Three segments: two in the first polyline, one in the second, none across.
+      assert.deepEqual(Array.from(lines[0]!.geometry.index!.array), [0, 1, 1, 2, 3, 4]);
+      assert.ok(lines[0]!.layers.isEnabled(0) && lines[0]!.layers.isEnabled(EDGES));
+    }
+    const model = new NodeModel(graph.root, graph);
+    model.setDetail(true);
+    const parts = model.nodes.filter((n) => n.kind === 'part' && n.name === 'plate');
+    const faces = model.children(parts[0]!.id).filter((c) => model.nodes[c]!.kind === 'face');
+    const failed = faces.find((c) => model.nodes[c]!.face!.source === 7)!;
+    const ok = faces.find((c) => model.nodes[c]!.face!.source === 8)!;
+    assert.deepEqual([model.failure(failed), model.failure(ok), model.failure(parts[0]!.id)],
+      ['failed', undefined, 'partly']);
+    // Hidden with its face, in every placement; shown again with all faces.
+    model.setHidden([failed], true);
+    assert.ok(objs.every((o) => !o.children.find((c) => c.name === 'outline')!.visible));
+    graph.showAllFaces();
+    assert.ok(objs.every((o) => o.children.find((c) => c.name === 'outline')!.visible));
+    // Picked as its face at the detail level, as its part above; its highlight covers the outline.
+    const line = objs[0]!.children.find((c) => c.name === 'outline')!;
+    assert.equal(nodeForPick(model, line, undefined, 'detail'), failed);
+    assert.equal(nodeForPick(model, line, undefined, 'part'), parts[0]!.id);
+    assert.ok(piecesOf(model, [failed]).some((p) => p.object === line && !p.ranges));
+    // A part whose faces all failed (no triangles: a group, no mesh): failed.
+    const graph2 = new StepGraph(scene(), 'model');
+    graph2.addMesh(0, { origin: [0, 0, 0], positions: new Float32Array(), indices: new Uint32Array(),
+      faces: [{ source: 7, start: 0, count: 0 }], faceOutlinePositions: Float32Array.of(0, 0, 0, 1, 0, 0),
+      faceOutlines: [{ source: 7, start: 0, count: 2 }] });
+    const model2 = new NodeModel(graph2.root, graph2);
+    const part2 = model2.nodes.find((n) => n.kind === 'part' && n.name === 'plate')!;
+    assert.equal(model2.failure(part2.id), 'failed');
+  });
+
+test('a split face with a piece that failed (not a sliver): partly, outlined; a sliver: nothing', async () => {
+  const { NodeModel } = await import('../src/model.ts');
+  const { details } = await import('../src/details.ts');
+  // The plate's face 7 (a triangle of area 0.5) split: a piece of none, area 0.4, its outline; face 8 split with a
+  // sliver of 1e-9.
+  const mesh = (area7: number): Mesh => ({ ...plate(), faces: [{ source: 8, start: 0, count: 3 },
+    { source: 8, start: 3, count: 0, area: 1e-9 }, { source: 7, start: 3, count: 3 },
+    { source: 7, start: 6, count: 0, area: area7 }],
+    faceOutlinePositions: Float32Array.of(0, 0, 0, 1, 1, 0), faceOutlines: [{ source: 7, start: 0, count: 2 }] });
+  const graph = new StepGraph(scene(), 'model');
+  const [obj] = graph.addMesh(0, mesh(0.4));
+  assert.deepEqual([obj!.userData.failedFaces, obj!.userData.partlyFailedFaces], [[], [7]]);
+  assert.equal(obj!.children.filter((c) => c.name === 'outline').length, 1);
+  const model = new NodeModel(graph.root, graph);
+  model.setDetail(true);
+  const part = model.nodes.find((n) => n.kind === 'part' && n.name === 'plate')!.id;
+  const face = (s: number) => model.children(part).find((c) => model.nodes[c]!.face?.source === s)!;
+  assert.deepEqual([model.failure(face(7)), model.failure(face(8)), model.failure(part)],
+    ['partly', undefined, 'partly']);
+  assert.ok(details(model, [face(7)]).includes('Part of it failed to mesh: outlined in red'));
+  assert.ok(details(model, [part]).includes('Of 2 faces, 1 partly (outlined in red)'));
+  // The piece a sliver too: nothing failed.
+  const g2 = new StepGraph(scene(), 'model');
+  const [o2] = g2.addMesh(0, mesh(0.001));
+  assert.deepEqual([o2!.userData.failedFaces, o2!.userData.partlyFailedFaces], [[], []]);
+  assert.equal(o2!.children.filter((c) => c.name === 'outline').length, 0);
+});

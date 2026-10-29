@@ -115,6 +115,13 @@ export interface BrepPart extends PartBase {
   payload: () => Uint8Array;
   /** The root entity within the payload (STEP: the shape representation). */
   rootId?: number;
+  /**
+   * The outlines of the part's faces drawn from the source itself (STEP: their edges along their curves), for faces
+   * that fail to mesh or a part that does (tessellateScene's `outlines`): every face's id, in order, and the outlines
+   * of `faces` (all if absent), in the part's units minus its origin. Optional; like `payload`, a function.
+   */
+  outline?: (o: { linearDeflection: number; angularDeflection: number; faces?: ReadonlySet<number> }) =>
+    { faces: number[]; positions: Float32Array; outlines: { source: number; start: number; count: number }[] };
 }
 
 /** Geometry already tessellated in the source. */
@@ -141,7 +148,11 @@ export interface Mesh {
   /**
    * Index ranges per source face; they partition `indices`. A face may repeat; null for ranges with no known source.
    */
-  faces: { source: number | null; start: number; count: number }[];
+  faces: {
+    source: number | null; start: number; count: number;
+    /** A range with no triangles: its B-rep area, in the part's units squared, if the backend knows it. */
+    area?: number;
+  }[];
   edgePositions?: Float32Array;
   edges?: { source: number | null; start: number; count: number; kind: EdgeKind; dihedral?: number }[];
   /** Wireframe curves (not faces' edges) as polylines, all concatenated; a curve may repeat, null if unknown. */
@@ -150,6 +161,12 @@ export interface Mesh {
   /** Isolated points, and each one's source (or null). */
   points?: Float32Array;
   pointSources?: (number | null)[];
+  /**
+   * Outlines of faces that failed to mesh (faceFailures), from the backend (a failed piece's edges) or else the
+   * source (BrepPart.outline): polylines, all concatenated, one or more a face (its edges).
+   */
+  faceOutlinePositions?: Float32Array;
+  faceOutlines?: { source: number; start: number; count: number }[];
 }
 
 export type EdgeKind = 'shared' | 'seam' | 'free' | 'degenerate';

@@ -22,6 +22,10 @@ const result = (full: boolean, diagnostics: Diagnostic[] = []): TessellationResu
     r.curves = [{ entityId: 40, start: 0, count: 2 }, { entityId: null, start: 2, count: 1 }];
     r.points = new Float32Array([5, 6, 7]);
     r.pointIds = [41];
+    // A face piece that failed: its B-rep area, and its edges' outline.
+    r.faces.push({ entityId: 13, start: 3, count: 0, area: 0.25 });
+    r.outlinePositions = new Float32Array([2, 2, 2, 3, 3, 3]);
+    r.outlines = [{ entityId: 13, start: 0, count: 2 }];
   }
   return r;
 };
@@ -37,6 +41,7 @@ test('a result survives encoding, with or without normals, edges, curves and poi
     assert.equal('normals' in resultOf(back), full);
     assert.equal('edges' in resultOf(back), full);
     assert.equal('curves' in resultOf(back) && 'points' in resultOf(back), full);
+    assert.equal('outlines' in resultOf(back) && 'outlinePositions' in resultOf(back), full);
     resultOf(back).positions[0] = 99;
     assert.equal(resultOf(decodeEntry(bytes)).positions[0], 0);
     // Decoding works on a view into a larger buffer, at any offset.
@@ -44,6 +49,26 @@ test('a result survives encoding, with or without normals, edges, curves and poi
     shifted.set(bytes, 3);
     assert.deepEqual(decodeEntry(shifted.subarray(3)), { at: 1234, result: r });
   }
+});
+
+test('an entry from before outlines (six arrays) still decodes, without them', () => {
+  const r = result(true);
+  const bytes = encodeEntry({ at: 1, result: { ...r, outlinePositions: undefined, outlines: undefined } as never });
+  // Rewritten as an older entry: the header's n without its seventh length.
+  const length = new DataView(bytes.buffer).getUint32(4, true);
+  const header = JSON.parse(new TextDecoder().decode(bytes.subarray(8, 8 + length))) as { n: number[] };
+  assert.equal(header.n.length, 7);
+  header.n = header.n.slice(0, 6);
+  const json = new TextEncoder().encode(JSON.stringify(header));
+  const pad = (n: number) => (n + 3) & ~3;
+  const old = new Uint8Array(pad(8 + json.length) + bytes.length - pad(8 + length));
+  new DataView(old.buffer).setUint32(0, new DataView(bytes.buffer).getUint32(0, true), true);
+  new DataView(old.buffer).setUint32(4, json.length, true);
+  old.set(json, 8);
+  old.set(bytes.subarray(pad(8 + length)), pad(8 + json.length));
+  const back = resultOf(decodeEntry(old));
+  assert.equal(back.outlines, undefined);
+  assert.deepEqual(Array.from(back.points!), [5, 6, 7]);
 });
 
 test('a thrown error survives encoding, with or without its time limit', () => {

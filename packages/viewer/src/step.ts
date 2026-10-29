@@ -16,7 +16,8 @@
 // a geometry group of their own with an invisible material.
 
 import * as THREE from 'three';
-import { instances, partInstances, type Mat4, type Mesh, type PartInstance, type Scene } from 'cad-scene';
+import { faceFailures, instances, partInstances, type Mat4, type Mesh, type PartInstance,
+  type Scene } from 'cad-scene';
 import type { FaceHiding } from './model.ts';
 import { DEFAULT_RENDER, EDGES } from './style.ts';
 
@@ -62,6 +63,13 @@ interface MeshedPart {
   objects: { obj: THREE.Mesh; instance: PartInstance }[];
 }
 
+/**
+ * Faces that failed to mesh: their outlines (Mesh.faceOutlines, from the file), in red (the user, 2026-10-28: so
+ * where they should be can be found). The tree marks their nodes the same red (tree-panel.ts).
+ */
+export const FAILED_COLOR = 0xe02020;
+const OUTLINE = new THREE.LineBasicMaterial({ color: FAILED_COLOR });
+
 /** Hidden faces' triangles: drawn with nothing. */
 const HIDDEN = new THREE.MeshBasicMaterial({ visible: false });
 
@@ -73,6 +81,8 @@ export class StepGraph implements FaceHiding {
   private readonly materials = new Map<string, THREE.Material>();
   private readonly lineMaterial = new THREE.LineBasicMaterial({ color: 0x000000 });
   private readonly meshed = new Map<number, MeshedPart>();
+  /** Failed faces' outline objects, by part, each with its face's source id (userData.outlineFace). */
+  private readonly outlined = new Map<number, THREE.LineSegments[]>();
   /** Hidden faces' source ids, by part. */
   private readonly hiddenFaces = new Map<number, Set<number>>();
 
@@ -176,6 +186,27 @@ export class StepGraph implements FaceHiding {
     const meshed: MeshedPart | undefined = attrs ? { mesh, attrs, geometries, objects: [] } : undefined;
     if (meshed) this.meshed.set(part, meshed);
     const faceSources = [...new Set(mesh.faces.flatMap((f) => f.source === null ? [] : [f.source]))];
+    // Faces that failed (cad-scene's faceFailures: no triangles, or a piece with none that isn't a sliver); an
+    // outline geometry for each that has outlines.
+    const failures = faceFailures(mesh);
+    const failedFaces = faceSources.filter((s) => failures.get(s) === 'failed');
+    const partlyFailedFaces = faceSources.filter((s) => failures.get(s) === 'partly');
+    const outlines = new Map<number, THREE.BufferGeometry>();
+    if (mesh.faceOutlinePositions && mesh.faceOutlines?.length) {
+      const position = new THREE.BufferAttribute(mesh.faceOutlinePositions, 3);
+      const bySource = new Map<number, { start: number; count: number }[]>();
+      // (Only faces that failed: a mesh from elsewhere could outline a sliver.)
+      for (const o of mesh.faceOutlines) {
+        if (failures.has(o.source)) bySource.set(o.source, [...bySource.get(o.source) ?? [], o]);
+      }
+      for (const [source, lines] of bySource) {
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', position);
+        g.setIndex(new THREE.BufferAttribute(polylineSegments(lines), 1));
+        outlines.set(source, g);
+      }
+    }
+    const hiddenFaces = this.hiddenFaces.get(part);
     const made: THREE.Object3D[] = [];
     for (const { group, instance } of placements) {
       let obj: THREE.Object3D;
@@ -188,7 +219,8 @@ export class StepGraph implements FaceHiding {
         obj = new THREE.Group();
       }
       const closed = this.scene.parts[part]!.closed;
-      obj.userData = { faces: faceSources, faceRanges: mesh.faces, ...(closed === undefined ? {} : { closed }) };
+      obj.userData = { faces: faceSources, faceRanges: mesh.faces, failedFaces, partlyFailedFaces,
+        ...(closed === undefined ? {} : { closed }) };
       obj.name = group.name;
       obj.position.set(...mesh.origin);
       if (edges) {
@@ -200,6 +232,15 @@ export class StepGraph implements FaceHiding {
         { name: 'curves' }));
       if (points) obj.add(Object.assign(new THREE.Points(points, this.material(instance.material, 'point')),
         { name: 'points' }));
+      // (On the edges' layer too, so fat edges draw them fat; picked as their face.)
+      for (const [source, g] of outlines) {
+        const l = Object.assign(new THREE.LineSegments(g, OUTLINE), { name: 'outline' });
+        l.userData.outlineFace = source;
+        l.layers.enable(EDGES);
+        l.visible = !hiddenFaces?.has(source);
+        obj.add(l);
+        this.outlined.set(part, [...this.outlined.get(part) ?? [], l]);
+      }
       group.add(obj);
       made.push(obj);
     }
@@ -247,6 +288,7 @@ export class StepGraph implements FaceHiding {
     else set.delete(source);
     const meshed = this.meshed.get(part);
     if (meshed) for (const { obj, instance } of meshed.objects) this.assign(part, meshed, obj, instance);
+    for (const l of this.outlined.get(part) ?? []) if (l.userData.outlineFace === source) l.visible = !hidden;
   }
 
   showAllFaces(): void {
@@ -255,6 +297,7 @@ export class StepGraph implements FaceHiding {
     for (const part of parts) {
       const meshed = this.meshed.get(part);
       if (meshed) for (const { obj, instance } of meshed.objects) this.assign(part, meshed, obj, instance);
+      for (const l of this.outlined.get(part) ?? []) l.visible = true;
     }
   }
 }

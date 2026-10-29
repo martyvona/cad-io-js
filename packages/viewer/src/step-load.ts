@@ -22,7 +22,8 @@ export type StepEvent =
 
 /** The scene without its parts' payload functions: what can be posted to another thread. */
 export function postable(scene: Scene): Scene {
-  return { ...scene, parts: scene.parts.map((p) => (p.kind === 'brep' ? { ...p, payload: undefined as never } : p)) };
+  return { ...scene, parts: scene.parts.map((p) => (p.kind === 'brep' ? { ...p, payload: undefined as never,
+    outline: undefined } : p)) };
 }
 
 /** The brep parts to mesh: those placed somewhere in the tree (others would never be drawn). */
@@ -36,7 +37,8 @@ export function meshable(scene: Scene): number[] {
 export function meshBuffers(mesh: Mesh | undefined): ArrayBuffer[] {
   if (!mesh) return [];
   const out = new Set<ArrayBuffer>();
-  for (const a of [mesh.positions, mesh.normals, mesh.indices, mesh.edgePositions, mesh.curvePositions, mesh.points]) {
+  for (const a of [mesh.positions, mesh.normals, mesh.indices, mesh.edgePositions, mesh.curvePositions, mesh.points,
+    mesh.faceOutlinePositions]) {
     if (a && a.buffer instanceof ArrayBuffer) out.add(a.buffer);
   }
   return [...out];
@@ -56,7 +58,8 @@ export async function loadStepIn(bytes: Uint8Array, settings: TessellationSettin
   if (!brep.length) return emit({ type: 'done', diagnostics: [] });
   const { tess, workers: n } = await tessellation.get(settings, workers);
   if (cancelled()) return;
-  const { diagnostics } = await tessellateScene(scene, tess, { ...deflectionsOf(settings), edges: true,
+  // Faces that fail to mesh, and parts that do (errors, timeouts), outlined from the file (cad-scene's `outlines`).
+  const { diagnostics } = await tessellateScene(scene, tess, { ...deflectionsOf(settings), edges: true, outlines: true,
     concurrency: n, parts: brep,
     onPart: (part, mesh) => { if (!cancelled()) emit({ type: 'mesh', part, mesh }, meshBuffers(mesh)); } });
   if (cancelled()) return;

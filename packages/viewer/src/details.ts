@@ -43,6 +43,19 @@ export function details(model: NodeModel, ids: readonly number[]): string[] {
       if (all.length > 1) out.push(`Placement ${num(all.indexOf(n.id) + 1)} of ${num(all.length)} of this part`);
       else out.push('The only placement of this part');
     }
+    // Meshing failures (model.ts's failure): what failed, and where it's drawn instead.
+    const failure = model.failure(n.id);
+    if (failure === 'failed') out.push(n.face ? 'Failed to mesh: its outline is drawn in red'
+      : "Failed to mesh: its faces' outlines are drawn in red");
+    else if (failure === 'partly' && n.face) out.push('Part of it failed to mesh: outlined in red');
+    else if (failure === 'partly') {
+      const m = n.object!.children.find((c) => (c.userData.failedFaces as number[] | undefined)?.length ||
+        (c.userData.partlyFailedFaces as number[] | undefined)?.length)!;
+      const failed = (m.userData.failedFaces as number[]).length;
+      const partly = (m.userData.partlyFailedFaces as number[]).length;
+      out.push(`Of ${plural((m.userData.faces as number[]).length, 'face')}, ` + [failed ? `${num(failed)} failed to ` +
+        'mesh' : '', partly ? `${num(partly)} partly` : ''].filter((x) => x).join(', ') + ' (outlined in red)');
+    }
     if (n.hidden) out.push('Hidden');
     else if (model.hiddenInTree(n.id)) out.push('Hidden (by an assembly above)');
   }

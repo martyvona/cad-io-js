@@ -35,6 +35,12 @@ interface OcctModule {
   _occt_point_ids(): number;
   _occt_num_points(): number;
   _occt_diag(): number;
+  /** Failed faces' areas and outlines (builds before 2026-10-28 lack them). */
+  _occt_face_areas?(): number;
+  _occt_outline_positions?(): number;
+  _occt_num_outline_points?(): number;
+  _occt_outlines?(): number;
+  _occt_num_outlines?(): number;
   /** Our OCCT patches the build has, comma-separated (builds before 2026-10-25 lack it). */
   _occt_patches?(): number;
   _occt_free(): void;
@@ -209,10 +215,13 @@ export class OcctTessellator implements Tessellator {
     const normals = f32(m._occt_normals(), nv * 3);
     const indices = u32(m._occt_indices(), m._occt_num_indices());
     const faceData = i32(m._occt_faces(), m._occt_num_faces() * 3);
+    // A range with no triangles: its B-rep area, so a host can tell a failure from a sliver (-1: meshed, unknown).
+    const areas = m._occt_face_areas ? f32(m._occt_face_areas(), faceData.length / 3) : undefined;
     const faces: TessellationResult['faces'] = [];
     for (let i = 0; i < faceData.length; i += 3) {
+      const area = areas?.[i / 3];
       faces.push({ entityId: faceData[i]! < 0 ? null : faceData[i]!, start: faceData[i + 1]!,
-        count: faceData[i + 2]! });
+        count: faceData[i + 2]!, ...(area !== undefined && area >= 0 && faceData[i + 2] === 0 ? { area } : {}) });
     }
     const result: TessellationResult = { origin, positions, normals, indices, faces, diagnostics };
     if (req.edges) {
@@ -238,6 +247,16 @@ export class OcctTessellator implements Tessellator {
       for (let i = 0; i < curveData.length; i += 3) {
         result.curves.push({ entityId: curveData[i]! < 0 ? null : curveData[i]!, start: curveData[i + 1]!,
           count: curveData[i + 2]! });
+      }
+    }
+    const no = m._occt_num_outlines?.() ?? 0;
+    if (no) {
+      const outlineData = i32(m._occt_outlines!(), no * 3);
+      result.outlinePositions = f32(m._occt_outline_positions!(), m._occt_num_outline_points!() * 3);
+      result.outlines = [];
+      for (let i = 0; i < outlineData.length; i += 3) {
+        result.outlines.push({ entityId: outlineData[i]! < 0 ? null : outlineData[i]!, start: outlineData[i + 1]!,
+          count: outlineData[i + 2]! });
       }
     }
     const np = m._occt_num_points();

@@ -13,6 +13,7 @@ import {
   type StepSource, type Style,
 } from 'step-parser';
 import type { Component, Diagnostic, Layer, Material, Part, Scene, Vec3 } from 'cad-scene';
+import { faceOutlines } from './outlines.ts';
 
 export interface ImportResult {
   scene: Scene;
@@ -163,6 +164,9 @@ export function sceneFromStep(model: StepModel, sem: Semantics): ImportResult {
     const part: Part = {
       kind: 'brep', format: 'step', rootId: rep.id,
       payload: () => buildSubset(file, [root], { exclude }).bytes,
+      // Faces' outlines from the file, for faces that fail to mesh (outlines.ts).
+      outline: ({ faces: only, ...o }) => ({ faces: faces.map((q) => r.id(q)),
+        ...faceOutlines(r, faces, origin, o, only) }),
       name: rep.name, sources: [src(rep.id)], properties: { representation: rep.types.join('+') },
       unit: mmOf(rep.id), origin, ...(closed === undefined ? {} : { closed }),
     };

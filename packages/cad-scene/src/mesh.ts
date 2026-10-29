@@ -84,6 +84,54 @@ export const INSIDE_OUT = 'inside out (negative volume)';
  * line stay: their long edge is a neighbour's too. Faces keep their entries (with fewer triangles, perhaps none);
  * vertices, normals and edges are shared with the original. Returns the same mesh if nothing was dropped.
  */
+/**
+ * A failed piece counts only past this fraction of its face's area (the meshed pieces' triangles and the failed
+ * pieces' B-rep areas): shape healing can split a face into pieces of which a sliver, rightly, meshes to nothing (the
+ * user, 2026-10-28: no false alarms).
+ */
+export const FAILED_PIECE_FRACTION = 0.01;
+
+/**
+ * Faces that failed to mesh, by source id: `failed` with no triangles in any range (or, `expected`, the part's face
+ * list from the source, given, none at all: a backend may leave a face out), `partly` when a range has none and is
+ * more than FAILED_PIECE_FRACTION of the face's area (its `area`, from the backend; a range without one counts).
+ */
+export function faceFailures(mesh: Mesh, expected?: readonly number[]): Map<number, 'failed' | 'partly'> {
+  const p = mesh.positions, ix = mesh.indices;
+  const triangleArea = (start: number, count: number) => {
+    let a = 0;
+    for (let t = start; t < start + count; t += 3) {
+      const [i, j, k] = [3 * ix[t]!, 3 * ix[t + 1]!, 3 * ix[t + 2]!];
+      const u = [p[j]! - p[i]!, p[j + 1]! - p[i + 1]!, p[j + 2]! - p[i + 2]!];
+      const v = [p[k]! - p[i]!, p[k + 1]! - p[i + 1]!, p[k + 2]! - p[i + 2]!];
+      a += Math.hypot(u[1]! * v[2]! - u[2]! * v[1]!, u[2]! * v[0]! - u[0]! * v[2]!, u[0]! * v[1]! - u[1]! * v[0]!) / 2;
+    }
+    return a;
+  };
+  const byFace = new Map<number, { meshed: number; empty: (number | undefined)[]; triangles: number }>();
+  for (const f of mesh.faces) {
+    if (f.source === null) continue;
+    let e = byFace.get(f.source);
+    if (!e) byFace.set(f.source, (e = { meshed: 0, empty: [], triangles: 0 }));
+    if (f.count) {
+      e.triangles += f.count;
+      e.meshed += triangleArea(f.start, f.count);
+    } else e.empty.push(f.area);
+  }
+  const out = new Map<number, 'failed' | 'partly'>();
+  for (const s of expected ?? []) if (!byFace.has(s)) out.set(s, 'failed');
+  for (const [s, e] of byFace) {
+    if (!e.triangles) {
+      // (Emptied of degenerate triangles only, every range of it: nothing to draw, nothing missing.)
+      if (!e.empty.every((a) => a === 0)) out.set(s, 'failed');
+      continue;
+    }
+    const total = e.meshed + e.empty.reduce<number>((t, a) => t + (a ?? 0), 0);
+    if (e.empty.some((a) => a === undefined || a > FAILED_PIECE_FRACTION * total)) out.set(s, 'partly');
+  }
+  return out;
+}
+
 export function dropDegenerate(mesh: Mesh): { mesh: Mesh; dropped: number } {
   const ix = mesh.indices, p = mesh.positions;
   const same = (a: number, b: number) => a === b || (
@@ -101,9 +149,11 @@ export function dropDegenerate(mesh: Mesh): { mesh: Mesh; dropped: number } {
     return at - from;
   };
   // Faces partition the indices, in order or not; each keeps its place among them.
+  // (A range emptied here meshed, with nothing but degenerate triangles: an area of none, not a failure.)
   const faces = mesh.faces.map((f) => {
     const start = at;
-    return { ...f, start, count: keep(f.start, f.start + f.count) };
+    const count = keep(f.start, f.start + f.count);
+    return { ...f, start, count, ...(f.count && !count ? { area: 0 } : {}) };
   });
   if (!mesh.faces.length) keep(0, ix.length);
   return { mesh: { ...mesh, indices, faces }, dropped };

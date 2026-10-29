@@ -9,7 +9,8 @@ const message = (e: unknown) => (e instanceof Error ? `${e.name}: ${e.message}` 
 
 function buffers(r: TessellationResult): ArrayBuffer[] {
   const out = new Set<ArrayBuffer>();
-  for (const a of [r.positions, r.normals, r.indices, r.edgePositions, r.curvePositions, r.points]) if (
+  for (const a of [r.positions, r.normals, r.indices, r.edgePositions, r.curvePositions, r.points,
+    r.outlinePositions]) if (
     a && a.buffer instanceof ArrayBuffer) out.add(a.buffer);
   return [...out];
 }

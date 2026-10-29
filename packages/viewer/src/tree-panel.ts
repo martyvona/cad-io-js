@@ -23,6 +23,10 @@ export const ICONS: Record<Kind, string> = {
   lines: svg('<path d="M2 13L8 2l6 11"/>'),
 };
 
+/** A node that failed to mesh (model.ts's failure): a shape with a crack, drawn in the failure colour. */
+export const BROKEN_ICON = svg('<path d="M2 12l3-9h4l-1.5 3 2 2-1.5 4z" fill="currentColor" fill-opacity="0.25"/>' +
+  '<path d="M10 3h4l-3 9H8.5l1.5-4-2-2z"/>');
+
 export class TreePanel {
   readonly model: NodeModel;
   private readonly view: TreeView;
@@ -48,10 +52,16 @@ export class TreePanel {
       },
       renderRow: (id, content) => {
         const n = model.nodes[num(id)]!;
-        content.innerHTML = `<span class="tree-icon">${ICONS[n.kind]}</span><span class="tree-name"></span>`;
+        // Failed to mesh: red, with a broken icon; partly (a part some of whose faces failed), the icon only.
+        const failure = model.failure(n.id);
+        content.innerHTML = `<span class="tree-icon${failure ? ' broken' : ''}">${failure ? BROKEN_ICON
+          : ICONS[n.kind]}</span><span class="tree-name"></span>`;
         content.lastElementChild!.textContent = n.name;
-        content.parentElement!.classList.toggle('hidden', model.hiddenInTree(n.id));
-        content.parentElement!.title = `${n.kind}: ${n.name}`;
+        const row = content.parentElement!;
+        row.classList.toggle('hidden', model.hiddenInTree(n.id));
+        row.classList.toggle('failed', failure === 'failed');
+        row.title = `${n.kind}: ${n.name}${failure === 'failed' ? ' (failed to mesh: its outline drawn in red)'
+          : failure === 'partly' ? ' (some faces failed to mesh)' : ''}`;
       },
       onSelectionChange: (ids) => {
         this.selection = ids.map(num);

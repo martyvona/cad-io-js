@@ -36,6 +36,10 @@ export function piecesOf(model: NodeModel, ids: Iterable<number>): Piece[] {
     const n = model.nodes[id];
     if (!n) continue;
     if (n.face) {
+      // A face that failed to mesh: its outline, whole (step.ts).
+      model.nodes[n.parent]!.object!.traverse((o) => {
+        if (o.userData.outlineFace === n.face!.source && isDrawable(o)) whole.add(o);
+      });
       const mesh = placementMesh(model.nodes[n.parent]!.object!);
       const ranges = ((mesh?.userData.faceRanges ?? []) as FaceRange[]).filter((f) => f.source === n.face!.source);
       if (mesh && ranges.length) {
@@ -155,6 +159,9 @@ export function nodeForPick(model: NodeModel, object: THREE.Object3D, faceIndex:
   if (level === 'part') return part;
   if (id !== part) return id;
   const children = model.children(part);
+  // A failed face's outline (step.ts) picks its face.
+  const outlined = object.userData.outlineFace as number | undefined;
+  if (outlined !== undefined) return children.find((c) => model.nodes[c]!.face?.source === outlined) ?? part;
   const ranges = object.userData.faceRanges as FaceRange[] | undefined;
   if (ranges && faceIndex !== undefined) {
     const f = faceOfTriangle(ranges, faceIndex);

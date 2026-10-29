@@ -4,8 +4,8 @@
 // the exporters, has them outward, and triangles with two corners at one position dropped first (both decided by the
 // user, 2026-10-22).
 
-import { dropDegenerate, orientShells } from './mesh.ts';
-import type { Diagnostic, Mesh, Scene } from './scene.ts';
+import { dropDegenerate, faceFailures, orientShells } from './mesh.ts';
+import type { BrepPart, Diagnostic, Mesh, Scene } from './scene.ts';
 import { meshDeflections, type MeshProfile } from './profiles.ts';
 import type { TessellationResult, Tessellator } from './tessellator.ts';
 
@@ -31,6 +31,13 @@ export interface TessellateOptions {
    * false keeps them.
    */
   dropDegenerate?: boolean;
+  /**
+   * Where faces fail to mesh (no triangles), or a whole part does (an error, a timeout), and the part can outline its
+   * faces from the source (BrepPart.outline): the outlines of those faces in the mesh (`faceOutlines`), and for a
+   * part that failed a mesh of its faces with no triangles, only outlines (the user, 2026-10-28: so a viewer can show
+   * where they are). Default false.
+   */
+  outlines?: boolean;
   /** Called after each part, in the order parts finish, for progress reporting. */
   onPart?: (part: number, mesh: Mesh | undefined, done: number, total: number) => void;
 }
@@ -45,7 +52,8 @@ export interface TessellateResult {
 export function toMesh(r: TessellationResult): Mesh {
   const mesh: Mesh = {
     origin: r.origin, positions: r.positions, indices: r.indices,
-    faces: r.faces.map((f) => ({ source: f.entityId, start: f.start, count: f.count })),
+    faces: r.faces.map((f) => ({ source: f.entityId, start: f.start, count: f.count,
+      ...(f.area !== undefined && f.area >= 0 ? { area: f.area } : {}) })),
   };
   if (r.normals) mesh.normals = r.normals;
   if (r.edgePositions && r.edges) {
@@ -65,7 +73,61 @@ export function toMesh(r: TessellationResult): Mesh {
     mesh.points = r.points;
     mesh.pointSources = r.pointIds;
   }
+  if (r.outlinePositions && r.outlines?.length) {
+    mesh.faceOutlinePositions = r.outlinePositions;
+    mesh.faceOutlines = r.outlines.flatMap((o) => o.entityId === null ? [] : [{ source: o.entityId, start: o.start,
+      count: o.count }]);
+  }
   return mesh;
+}
+
+/**
+ * A part's mesh with the outlines of its faces that failed (faceFailures: no triangles, or a piece with none that
+ * isn't a sliver, against the part's own face list from the source where it has one, the faces left out given a
+ * range of none): the backend's outlines of a face where it gave them (a failed piece's own edges), else the
+ * source's (the whole face's); for a part that failed (no mesh), a mesh of its faces with only their outlines. As it
+ * was if nothing failed, less any backend outlines of slivers. Outlining is approximate and must never fail a part:
+ * its errors are diagnostics.
+ */
+function outlined(part: BrepPart, mesh: Mesh | undefined, linearDeflection: number, angularDeflection: number,
+  diagnostics: Diagnostic[], source: Diagnostic['source']): Mesh | undefined {
+  try {
+    const d = { linearDeflection, angularDeflection };
+    // (The face list alone first: outlines of none.)
+    const all = part.outline?.({ ...d, faces: new Set() }).faces;
+    if (!mesh && !all?.length) return mesh;
+    const base: Mesh = mesh ?? { origin: part.origin, positions: new Float32Array(), indices: new Uint32Array(),
+      faces: [] };
+    const failures = faceFailures(base, all);
+    const { faceOutlinePositions: bp, faceOutlines: bo, ...bare } = base;
+    const backend = (bo ?? []).filter((o) => failures.has(o.source));
+    if (!failures.size) return bo ? bare : mesh;
+    const covered = new Set(backend.map((o) => o.source));
+    const fromSource = new Set([...failures.keys()].filter((f) => !covered.has(f)));
+    const o = fromSource.size && part.outline ? part.outline({ ...d, faces: fromSource })
+      : { positions: new Float32Array(), outlines: [] };
+    // The backend's polylines, then the source's, in one array.
+    const counts = backend.reduce((n, l) => n + l.count, 0);
+    const positions = new Float32Array(3 * counts + o.positions.length);
+    const outlines: NonNullable<Mesh['faceOutlines']> = [];
+    let at = 0;
+    for (const l of backend) {
+      positions.set(bp!.subarray(3 * l.start, 3 * (l.start + l.count)), 3 * at);
+      outlines.push({ source: l.source, start: at, count: l.count });
+      at += l.count;
+    }
+    positions.set(o.positions, 3 * at);
+    for (const l of o.outlines) outlines.push({ ...l, start: l.start + at });
+    const end = base.indices.length;
+    const present = new Set(base.faces.map((f) => f.source));
+    const absent = (all ?? []).filter((f) => !present.has(f)).map((f) => ({ source: f, start: end, count: 0 }));
+    return { ...bare, faces: [...base.faces, ...absent],
+      ...(outlines.length ? { faceOutlinePositions: positions, faceOutlines: outlines } : {}) };
+  } catch (e) {
+    diagnostics.push({ severity: 'warning', message: `outlining the faces that failed: ${(e as Error).message}`,
+      ...(source ? { source } : {}) });
+    return mesh;
+  }
 }
 
 /** Tessellate a scene's brep parts, `concurrency` at a time. */
@@ -119,6 +181,8 @@ export async function tessellateScene(scene: Scene, tess: Tessellator,
       diagnostics.push({ severity: 'error', message: `tessellation failed: ${(e as Error).message}`,
         ...(source ? { source } : {}) });
     }
+    if (opts.outlines) mesh = outlined(part, mesh, linearDeflection / part.unit, angularDeflection,
+      diagnostics, source);
     found[k] = mesh;
     opts.onPart?.(i, mesh, ++done, todo.length);
   };

@@ -62,26 +62,31 @@ export type CacheEntry =
   | { at: number; thrown: { message: string; timeoutMs?: number } };
 
 type Header = Partial<Pick<TessellationResult, 'origin' | 'faces' | 'edges' | 'curves' | 'pointIds'
-  | 'diagnostics'>> & {
+  | 'outlines' | 'diagnostics'>> & {
   at: number;
   thrown?: { message: string; timeoutMs?: number };
-  /** Lengths of positions, normals, indices, edgePositions, curvePositions, points (-1: absent). */
-  n: [number, number, number, number, number, number];
+  /**
+   * Lengths of positions, normals, indices, edgePositions, curvePositions, points, outlinePositions (-1: absent; the
+   * last missing in entries before 2026-10-28).
+   */
+  n: [number, number, number, number, number, number, number?];
 };
 
 /**
  * An entry as bytes: the magic number, the JSON header's length, the header, then the result's arrays (positions,
- * normals, indices, edge positions, curve positions, points) 4-byte aligned, in the platform's byte order (a store
- * is local to its machine).
+ * normals, indices, edge positions, curve positions, points, outline positions) 4-byte aligned, in the platform's
+ * byte order (a store is local to its machine).
  */
 export function encodeEntry(e: CacheEntry): Uint8Array {
   const r = 'result' in e ? e.result : undefined;
-  const arrays = [r?.positions, r?.normals, r?.indices, r?.edgePositions, r?.curvePositions, r?.points];
+  const arrays = [r?.positions, r?.normals, r?.indices, r?.edgePositions, r?.curvePositions, r?.points,
+    r?.outlinePositions];
   const header: Header = { at: e.at, n: arrays.map((a) => a?.length ?? -1) as Header['n'] };
   if (r) {
     Object.assign(header, { origin: r.origin, faces: r.faces, diagnostics: r.diagnostics },
       r.edges ? { edges: r.edges } : {});
-    Object.assign(header, r.curves ? { curves: r.curves } : {}, r.pointIds ? { pointIds: r.pointIds } : {});
+    Object.assign(header, r.curves ? { curves: r.curves } : {}, r.pointIds ? { pointIds: r.pointIds } : {},
+      r.outlines ? { outlines: r.outlines } : {});
   }
   else if ('thrown' in e) header.thrown = e.thrown;
   const json = new TextEncoder().encode(JSON.stringify(header));
@@ -107,7 +112,7 @@ export function decodeEntry(bytes: Uint8Array): CacheEntry {
   if (8 + jsonLength > bytes.length) throw new Error('truncated cache entry');
   const header = JSON.parse(new TextDecoder().decode(bytes.subarray(8, 8 + jsonLength))) as Header;
   let offset = align(8 + jsonLength);
-  if (offset + header.n.reduce((s, k) => s + 4 * Math.max(k, 0), 0) !== bytes.length) throw new Error(
+  if (offset + header.n.reduce<number>((s, k) => s + 4 * Math.max(k ?? -1, 0), 0) !== bytes.length) throw new Error(
     'truncated cache entry');
   if (header.thrown) return { at: header.at, thrown: header.thrown };
   const take = <T>(k: number, C: new (b: ArrayBuffer) => T): T | undefined => {
@@ -116,13 +121,14 @@ export function decodeEntry(bytes: Uint8Array): CacheEntry {
     offset += 4 * k;
     return a;
   };
-  const [np, nn, ni, ne, nc, nq] = header.n;
+  const [np, nn, ni, ne, nc, nq, no = -1] = header.n;
   const positions = take(np, Float32Array)!;
   const normals = take(nn, Float32Array);
   const indices = take(ni, Uint32Array)!;
   const edgePositions = take(ne, Float32Array);
   const curvePositions = take(nc, Float32Array);
   const points = take(nq, Float32Array);
+  const outlinePositions = take(no, Float32Array);
   const r: TessellationResult = { origin: header.origin!, positions, indices, faces: header.faces!,
     diagnostics: header.diagnostics! };
   if (normals) r.normals = normals;
@@ -132,6 +138,8 @@ export function decodeEntry(bytes: Uint8Array): CacheEntry {
   if (header.curves) r.curves = header.curves;
   if (points) r.points = points;
   if (header.pointIds) r.pointIds = header.pointIds;
+  if (outlinePositions) r.outlinePositions = outlinePositions;
+  if (header.outlines) r.outlines = header.outlines;
   return { at: header.at, result: r };
 }
 

@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { dropDegenerate, INSIDE_OUT, manifoldProblems, orientShells, tessellateScene, weld, type Mesh, type Scene,
-  type TessellationRequest, type TessellationResult, type Tessellator } from '../src/index.ts';
+import { dropDegenerate, FAILED_PIECE_FRACTION, faceFailures, INSIDE_OUT, manifoldProblems, orientShells,
+  tessellateScene, weld, type Mesh, type Scene, type TessellationRequest, type TessellationResult,
+  type Tessellator } from '../src/index.ts';
 
 // A box's corners and faces, each counter-clockwise seen from outside.
 const CORNERS = [[0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0], [0, 0, 1], [1, 0, 1], [0, 1, 1], [1, 1, 1]];
@@ -146,12 +147,13 @@ test('dropDegenerate: triangles with two corners at one position go, slivers and
   let at = 0;
   for (const f of r.mesh.faces) { assert.equal(f.start, at); at += f.count; }
   assert.equal(at, r.mesh.indices.length);
-  // A face of nothing but degenerate triangles keeps its entry, empty; a mesh without faces loses them too.
+  // A face of nothing but degenerate triangles keeps its entry, empty, with an area of none (no failure:
+  // faceFailures); a mesh without faces loses them too.
   const flat: Mesh = { origin: [0, 0, 0], positions: Float32Array.of(0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0),
     indices: Uint32Array.of(0, 1, 2, 1, 3, 2),
     faces: [{ source: 7, start: 0, count: 3 }, { source: 8, start: 3, count: 3 }] };
   assert.deepEqual(dropDegenerate(flat).mesh.faces,
-    [{ source: 7, start: 0, count: 3 }, { source: 8, start: 3, count: 0 }]);
+    [{ source: 7, start: 0, count: 3 }, { source: 8, start: 3, count: 0, area: 0 }]);
   assert.deepEqual(Array.from(dropDegenerate({ ...flat, faces: [] }).mesh.indices), [0, 1, 2]);
   // A vertex used twice is one position even when that position isn't a number.
   assert.equal(dropDegenerate(
@@ -249,3 +251,25 @@ test('weld: equal coordinates join, -0 and 0 too; others stay apart', () => {
   assert.ok(!Array.from(w.positions).some((x) => Object.is(x, -0)));
 });
 
+
+test('faceFailures: no triangles failed; a piece with none partly, unless a sliver; left out failed; degenerate not',
+  () => {
+  // Three triangles of area 0.5 (one per face 1, 2, 3); face 2 has a piece of 0.004 more (a sliver: under 1%),
+  // face 3 one of 0.5 (half the face), face 4 one of unknown area beside its triangle, face 5 none at all, face 6 a
+  // range emptied of degenerate triangles only.
+  const mesh: Mesh = { origin: [0, 0, 0], positions: Float32Array.of(0, 0, 0, 1, 0, 0, 0, 1, 0),
+    indices: Uint32Array.of(0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2), faces: [
+      { source: 1, start: 0, count: 3 }, { source: 2, start: 3, count: 3 }, { source: 2, start: 6, count: 0,
+        area: 0.004 }, { source: 3, start: 6, count: 3 }, { source: 3, start: 9, count: 0, area: 0.5 },
+      { source: 4, start: 9, count: 3 }, { source: 4, start: 12, count: 0 }, { source: 5, start: 12, count: 0,
+        area: 2 }, { source: 6, start: 12, count: 0, area: 0 }, { source: null, start: 12, count: 0 }] };
+  assert.deepEqual([...faceFailures(mesh)].sort(), [[3, 'partly'], [4, 'partly'], [5, 'failed']]);
+  // Faces the source lists that the mesh leaves out: failed.
+  assert.deepEqual([...faceFailures(mesh, [1, 2, 9])].sort(), [[3, 'partly'], [4, 'partly'], [5, 'failed'],
+    [9, 'failed']]);
+  // Just under and over the fraction.
+  const piece = (area: number) => faceFailures({ ...mesh, faces: [{ source: 1, start: 0, count: 3 },
+    { source: 1, start: 3, count: 0, area }] }).get(1);
+  assert.equal(piece(0.5 * FAILED_PIECE_FRACTION * 0.99), undefined);
+  assert.equal(piece(0.5 * FAILED_PIECE_FRACTION * 1.1), 'partly');
+});

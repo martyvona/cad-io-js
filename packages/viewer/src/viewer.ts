@@ -481,11 +481,15 @@ export class Viewer {
         } else if (ev.type === 'mesh') {
           const mesh = ev.mesh;
           model!.parts!.done++;
-          if (mesh && mesh.indices.length + (mesh.curvePositions?.length ?? 0) + (mesh.points?.length ?? 0)) {
+          const drawn = !!mesh && mesh.indices.length + (mesh.curvePositions?.length ?? 0) +
+            (mesh.points?.length ?? 0) > 0;
+          // A part that failed may still come with its faces' outlines (step-load.ts): shown, and counted failed.
+          if (mesh && (drawn || mesh.faceOutlines?.length)) {
             graph!.addMesh(ev.part, mesh);
             added(ev.part);
             if (!zoomed && !this.moved) { zoomed = true; this.zoomAll(); }
-          } else model!.parts!.failed++;
+          }
+          if (!drawn) model!.parts!.failed++;
           progress();
         } else {
           model?.diagnostics!.push(...ev.diagnostics);

@@ -33,6 +33,11 @@ export interface ViewNode {
   self?: boolean;
   /** STEP faces: the part (scene index) and the face's source id. */
   face?: { part: number; source: number };
+  /**
+   * A STEP face that failed to mesh: no triangles (`failed`), or a piece with none that isn't a sliver (`partly`);
+   * outlined in red (step.ts).
+   */
+  failure?: 'failed' | 'partly';
   hidden: boolean;
   /** Undefined until first asked for (a part's detail). */
   children?: number[];
@@ -100,9 +105,13 @@ export class NodeModel {
       // STEP: the placement's mesh object, with its faces in userData and its lines as children.
       for (const m of o.children) {
         const faces = (m.userData.faces as number[] | undefined) ?? [];
+        const failed = new Set((m.userData.failedFaces as number[] | undefined) ?? []);
+        const partly = new Set((m.userData.partlyFailedFaces as number[] | undefined) ?? []);
         const partIndex = o.userData.part as number;
         for (const source of faces) out.push(this.add({ kind: 'face', name: `face #${source}`, parent: id,
-          face: { part: partIndex, source }, hidden: this.faces?.isFaceHidden(partIndex, source) ?? false }));
+          face: { part: partIndex, source }, ...(failed.has(source) ? { failure: 'failed' as const }
+            : partly.has(source) ? { failure: 'partly' as const } : {}),
+          hidden: this.faces?.isFaceHidden(partIndex, source) ?? false }));
         for (const c of m.children) if (['edges', 'curves', 'points'].includes(c.name)) out.push(this.add(
           { kind: c.name as Kind, name: c.name, parent: id, object: c, hidden: !c.visible }));
       }
@@ -227,6 +236,25 @@ export class NodeModel {
     for (let o: THREE.Object3D | null = object; o; o = o.parent) {
       const id = this.byObject.get(o);
       if (id !== undefined) return id;
+    }
+    return undefined;
+  }
+
+  /**
+   * Meshing failures (the user, 2026-10-28): a STEP face with no triangles, or a part all of whose faces have none,
+   * `failed`; a face with a piece that failed (not a sliver: cad-scene's faceFailures), or a part some of whose faces
+   * failed wholly or partly, `partly`.
+   */
+  failure(id: number): 'failed' | 'partly' | undefined {
+    const n = this.nodes[id];
+    if (!n) return undefined;
+    if (n.face) return n.failure;
+    if (n.kind !== 'part' || n.object?.userData.cad !== 'part') return undefined;
+    for (const m of n.object.children) {
+      const failed = (m.userData.failedFaces as number[] | undefined)?.length ?? 0;
+      const partly = (m.userData.partlyFailedFaces as number[] | undefined)?.length ?? 0;
+      if (failed && failed === (m.userData.faces as number[]).length) return 'failed';
+      if (failed || partly) return 'partly';
     }
     return undefined;
   }

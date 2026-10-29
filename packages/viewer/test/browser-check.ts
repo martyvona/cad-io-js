@@ -862,6 +862,65 @@ await check('selection buttons in the tree', async () => {
   expect(a.none!.selected === 0 && a.none!.stale === 0, `none: ${j}`);
   return undefined;
 });
+// Faces that fail to mesh (the user, 2026-10-28): every part of as1 timed out (a millisecond, the cache emptied)
+// comes with its faces' outlines from the file, red, the parts and their faces marked failed in the tree (red, a
+// broken icon), a click on an outline picking its face (the detail level), the details saying so; the bicycle's
+// faces OCCT fails, outlined and marked, their parts partly failed.
+await check('failed faces', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    await cadViewer.ready; await cadViewer.idle();
+    await viewer.clearCache();
+    ui.setMeshing({ timeout: 0.001 });
+    const before = viewer.model;
+    ui.gui.controllersRecursive().find((c) => c._name === 'Mesh again').$button.click();
+    for (let t = 0; t < 1200 && (viewer.model === before || !viewer.model?.meshing); t++) {
+      await new Promise((r) => setTimeout(r, 100)); }
+    await cadViewer.idle();
+    const m = viewer.nodes, parts = m.nodes.filter((n) => n.kind === 'part');
+    const outlines = [];
+    viewer.display.traverse((o) => { if (o.name === 'outline') outlines.push(o); });
+    const out = { failedCount: viewer.model.parts.failed, total: viewer.model.parts.total, outlines: outlines.length,
+      red: outlines.every((o) => o.material.color.getHex() === 0xe02020),
+      partsFailed: parts.filter((n) => m.failure(n.id) === 'failed').length, parts: parts.length };
+    // A click on an outline's first point: its face.
+    ui.setPickLevel('detail');
+    await cadViewer.idle();
+    const line = outlines.find((o) => o.visible), rect = viewer.renderer.domElement.getBoundingClientRect();
+    const p = line.position.clone().fromBufferAttribute(line.geometry.getAttribute('position'),
+      line.geometry.index.getX(0)).applyMatrix4(line.matrixWorld).project(viewer.camera);
+    ui.pickAt(rect.left + (p.x + 1) / 2 * rect.width, rect.top + (1 - p.y) / 2 * rect.height, false);
+    const picked = ui.selected().map((id) => m.nodes[id]);
+    out.picked = picked.map((n) => n.kind + ':' + n.failure);
+    for (let i = 0; i < 3; i++) await new Promise((res) => requestAnimationFrame(res));
+    const row = document.querySelector('.tree-row.selected');
+    out.row = row ? { failed: row.classList.contains('failed'), broken: !!row.querySelector('.tree-icon.broken'),
+      colour: getComputedStyle(row).color } : null;
+    out.details = ui.details();
+    return out;
+  })()`) as { after: { failedCount: number; total: number; outlines: number; red: boolean; partsFailed: number;
+    parts: number; picked: string[]; row: { failed: boolean; broken: boolean; colour: string } | null;
+    details: string[] } };
+  const a = r.after, j = JSON.stringify(a);
+  expect(a.total > 0 && a.failedCount === a.total && a.outlines > 0 && a.red, `every part outlined in red: ${j}`);
+  expect(a.partsFailed === a.parts, `every part marked failed: ${j}`);
+  expect(a.picked.length === 1 && a.picked[0] === 'face:failed', `an outline picks its face: ${j}`);
+  expect(!!a.row?.failed && a.row.broken && /^rgb\((2[0-9]{2}), [0-9]{1,2}, [0-9]{1,2}\)$/.test(a.row.colour),
+    `its row red, a broken icon: ${j}`);
+  expect(a.details.some((l) => /Failed to mesh: its outline is drawn in red/.test(l)), `the details: ${j}`);
+  const b = (await page(`?url=${encodeURIComponent('/content/bicycle.stp')}&check`, `(async () => {
+    await cadViewer.ready; await cadViewer.idle();
+    const m = viewer.nodes, parts = m.nodes.filter((n) => n.kind === 'part');
+    let outlines = 0;
+    viewer.display.traverse((o) => { if (o.name === 'outline') outlines++; });
+    const partly = parts.filter((n) => m.failure(n.id) === 'partly');
+    ui.setTree({ detail: true });
+    const faces = partly.flatMap((n) => m.children(n.id)).filter((c) => m.failure(c) === 'failed');
+    return { outlines, partly: partly.length, faces: faces.length, failedParts: viewer.model.parts.failed };
+  })()`) as { after: { outlines: number; partly: number; faces: number; failedParts: number } }).after;
+  expect(b.outlines > 0 && b.partly > 0 && b.faces >= b.partly && b.failedParts === 0,
+    `the bicycle's failed faces: ${JSON.stringify(b)}`);
+  return undefined;
+});
 // B-Rep Meshing's Timeout: a limit too short for any part (a millisecond) fails every part, timed out (said in the
 // diagnostics; the cache on, emptied first); then 60 s and Mesh again meshes them all, the cache's timeouts not
 // answering for a longer limit. The model's meshedWith has the timeout.
