@@ -9,7 +9,7 @@ This file is GitHub-flavoured Markdown: GitHub and browser Markdown viewers rend
 #pagebreak()
 -->
 
-Reading CAD files into memory, and converting them, in TypeScript for Node.js and browsers. Today that means [STEP](./step_tutorial.md) (ISO 10303-21 files of AP203, AP214 and AP242). **[Live demo](https://martyvona.github.io/cad-io-js/)**: the [viewer](#viewer), in the browser, on your own STEP, glTF or three.js files (nothing is uploaded; it works offline once loaded). Or open one of the demo models there (click a picture):
+Reading CAD files into memory, and converting them, in TypeScript for Node.js and browsers. Today that means [STEP](./step_tutorial.md) (ISO 10303-21 files of AP203, AP214 and AP242), and glTF/GLB and three.js JSON, read into the same scene model. **[Live demo](https://martyvona.github.io/cad-io-js/)**: the [viewer](#viewer), in the browser, on your own STEP, glTF or three.js files (nothing is uploaded; it works offline once loaded). Or open one of the demo models there (click a picture):
 
 | [![ohmm-ap242.step](test_corpus/demo/ohmm-ap242.png)](https://martyvona.github.io/cad-io-js/?model=demo/ohmm-ap242.step) | [![rpbp-ap242.step](test_corpus/demo/rpbp-ap242.png)](https://martyvona.github.io/cad-io-js/?model=demo/rpbp-ap242.step) |
 |:---:|:---:|
@@ -22,7 +22,7 @@ In more detail:
 - **a STEP parser and writer** in pure TypeScript with no runtime dependencies: lossless, schema-aware, tolerant of real-world files, and fast (about 230 MB/s to index, 140 MB/s to decode);
 - **a scene model**: the assembly tree with transforms and instancing, names, part numbers, units, colours and layers, as the file states them and as well as they can be recovered from imperfect files;
 - **tessellation by WebAssembly backends** behind one per-part interface: our own build of OCCT 8.1 (robust; the default) and truck (Apache-2.0, a seventh of the size and about twice as fast on the parts it meshes, but complete and on OCCT's geometry for only 83.5% of the corpus's parts, and stuck until the timeout on a few), run in a pool of workers with timeouts and an optional cache;
-- **exporters** to three.js JSON, glTF/GLB and 3MF;
+- **exporters** to three.js JSON, glTF/GLB and 3MF, and **importers** of glTF/GLB and three.js JSON: our own files with extras come back as the scene they were written from, other files as their own tree of parts and assemblies;
 - **two command-line tools**, `step2json` (STEP to JSON, lossless or semantic) and `stepconv` (STEP to three.js, glTF or 3MF).
 
 Version 0.1.0, not yet published to npm: the packages run as TypeScript sources under Node 24 (see [Building From Source](#building-from-source)). A browser-based [viewer](#viewer) shows models in three.js, and more input formats are on the [roadmap](#roadmap).
@@ -465,6 +465,20 @@ flowchart TD
 5. **`tessellateScene`** sends one request per brep part (the deflection in the part's unit) through the cache, the worker pool and a backend (`CachedTessellator`, `WorkerTessellator`, `OcctTessellator` or `TruckTessellator`), and gets back meshes: `Float32` positions minus the part's origin, face ranges with STEP face ids, edges, curves and points. It repairs them in memory: degenerate triangles dropped, inside-out shells turned over. With `outlines: true` (the viewer's choice), faces that fail to mesh (no triangles, or left out by the backend) get outlines drawn from the STEP file itself (`step-import`'s `faceOutlines`: their edges along their curves), and a part that fails altogether (an error, a timeout) a mesh of its faces with only their outlines, whatever the backend.
 6. **`exportView`** computes the looks (a part and its materials), the triangle groups by material and the instance tree with transforms; the exporters write `.json`, `.glb` or `.gltf` and `.bin`, or `.3mf` (all of it is what `stepconv` runs).
 
+### From glTF or three.js JSON to the Scene
+
+```mermaid
+flowchart TD
+  gltf["file.glb, .gltf and .bin"] --> gi["gltf-import: glTF-Transform,<br/>Draco, meshopt decoded"]
+  json["file.json (three.js)"] --> ti["threejs-import"]
+  gi --> tree["a neutral tree:<br/>TreeNode, TreeMesh"]
+  ti --> tree
+  tree --> sft["sceneFromTree (cad-scene)"]
+  sft --> scene["the scene: parts with a level<br/>from the file"]
+```
+
+Each importer reads its format into a neutral tree of nodes, meshes and materials, and `cad-scene`'s `sceneFromTree` makes the scene from it. With our extras (`--extras`), the scene is the one the file was written from: components, parts, materials, faces by STEP id, edges, hidden placements and per-placement colours, GPU instances put back in the tree. Without them, every node is a component, every mesh a part (shared where the file reuses it), its primitives or groups its faces. Parts get their meshes as a level of detail from the file (`from: 'source'`) and no B-rep, so there is nothing to tessellate; the viewer, `exportView` and the exporters treat them as they treat a STEP part once it is meshed. `corpus_checks/roundtrip_corpus.ts` takes every corpus file from STEP through each exported form and back, and finds every one drawn the same.
+
 The mesh repairs fix what imperfect files give the backends (shells written inside out, faces that mesh to slivers), so they belong to the scene's meshes rather than to any one exporter: every consumer of `tessellateScene`'s meshes, a viewer included, gets them, each with a diagnostic, and each can be turned off.
 
 ### step-parser
@@ -729,8 +743,8 @@ console.log(viewDifferences({ scene, view: exportView(scene) }, { scene: back, v
 ```
 
 - **Our files with extras** (`--extras`: the root's `userData` says millimetres, Z up below it) come back as the scene they were written from: components by their index, with their names, sources and properties, each placed by its occurrences; parts by theirs, each with one level of detail from the file (`from: 'source'`) holding its faces by STEP face id, its B-rep edges, curves and points, and `closed`; materials by their scene index; and the hidden placements and per-placement colours as overrides (one per placement where it differs from the part's first: `InstanceOverride.ref`). What `exportView` left out (empty nodes) stays out.
-- **Other files** keep their own tree: every object a component placed once (its name and matrix), every mesh a part shared wherever the file reuses its geometry and materials, its geometry's groups (if more than one) its faces, numbered from 0, each with its material (a mesh of one group has no face ids); an instanced mesh a placement per instance; lines (segments, strips, loops) and points parts of curves and points, materials as their colour and opacity; the root from metres, Y up, to millimetres, Z up. A child named `edges` of only lines beside one mesh, as our exporters write B-rep edges without extras, is that mesh's edges. Our files with extras written before 2026-10-24 (millimetres, no up axis, no root matrix) are read in millimetres as they are. Geometries other than `BufferGeometry` (made from parameters) are skipped, and textures ignored, each with a warning.
-- **`cad-scene`'s `sceneFromTree`** does the work from a neutral tree of nodes and meshes (`TreeNode`, `TreeMesh`, `TreeMaterial`), which the glTF importer will use too; `viewDifferences(a, b, {tolerance, skipHidden})` compares what two scenes' export views draw, placement by placement (paired by name along the path and the centre of what each draws): names, visibility, each triangle's corners in the world with its face id and colour, edges, curves and points, each matched to one within the tolerance.
+- **Other files** keep their own tree: every object a component placed once (its name and matrix), every mesh a part shared wherever the file reuses its geometry and materials, its geometry's groups (if more than one) its faces, numbered from 0, each with its material (a mesh of one group has no face ids); an instanced mesh a placement per instance; lines (segments, strips, loops) and points parts of curves and points, materials as their colour and opacity; the root from metres, Y up, to millimetres, Z up. A child named `edges` of only lines beside one mesh, as our exporters write B-rep edges without extras, is that mesh's edges. Our files with extras written before 2026-10-24 (millimetres, no up axis, no root matrix) are read in millimetres as they are, otherwise as other files are (their extras aren't read). Geometries other than `BufferGeometry` (made from parameters) are skipped, and textures ignored, each with a warning.
+- **`cad-scene`'s `sceneFromTree`** does the work from a neutral tree of nodes and meshes (`TreeNode`, `TreeMesh`, `TreeMaterial`), which `gltf-import` uses too; `viewDifferences(a, b, {tolerance, skipHidden})` compares what two scenes' export views draw, placement by placement (paired by name along the path and the centre of what each draws): names, visibility, each triangle's corners in the world with its face id and colour, edges, curves and points, each matched to one within the tolerance.
 
 ### `gltf-import`
 
@@ -936,11 +950,11 @@ A file whose schema has no dictionary is bound with AP242's, with a diagnostic: 
 
 ## Tests
 
-- **`npm test`**: the package tests, 212 of them (`node:test`, in each package's `test/`), on small inline fixtures and a few corpus files. Tests that need a built backend or the corpus skip when it's missing; with everything built, they take about 20 s.
+- **`npm test`**: the package tests, 338 of them (`node:test`, in each package's `test/`), on small inline fixtures and a few corpus files. Tests that need a built backend or the corpus skip when it's missing; with everything built, they take about 20 s.
 - **`npm run typecheck`**: `tsc` over the packages (no output; the sources run as they are).
 - **`cargo test`** in `packages/tess-truck/native`: 3 native tests of the truck wrapper (B-spline clamping, the volume sign guard).
 - **Browser checks**, run by hand: `node packages/tess-workers/test/browser-check.ts` and `node packages/tess-cache/test/browser-check.ts` serve the sources and run the pool's and IndexedDB's scenarios in headless Chrome; `node packages/viewer/test/browser-check.ts` runs the viewer on models in each format (see [Viewer](#viewer)).
-- **Corpus checks** (`corpus_checks/`, 26 scripts, each with its last output committed as a `.log` beside it): every corpus file through each stage of the pipeline (parsing, writing, raw JSON, binding, semantic extraction, import, tessellation, export), compared with OCCT (through `occt-import-js`) and with each output format's own reader or validator. Below.
+- **Corpus checks** (`corpus_checks/`, 27 scripts, each with its last output committed as a `.log` beside it): every corpus file through each stage of the pipeline (parsing, writing, raw JSON, binding, semantic extraction, import, tessellation, export, and import back from each exported form), compared with OCCT (through `occt-import-js`) and with each output format's own reader or validator. Below.
 
 The code was also checked by deliberately breaking it (a few dozen planted bugs for each piece of work, one at a time) and confirming the tests fail; the gaps found that way became tests.
 
@@ -984,7 +998,7 @@ They need the [test corpus](#test-corpus) (and some the backends built or the su
 **Export**
 
 - `export_view.ts` checks the export view against `partInstances` for every file: each drawable part instance once at its path, world transforms with the mesh's origin, visibility, default materials, every triangle with the material the scene resolves for its face, equal instances sharing a look. About 3 min: `node corpus_checks/export_view.ts test_corpus/files.txt 1000`
-- `roundtrip_corpus.ts` exports every file with extras as three.js JSON and as GLB (uncompressed, Draco, meshopt, instanced), reads each back with `threejs-import` and `gltf-import`, and compares it with what was written (`viewDifferences`: placements, names, visibility, every triangle's world corners, face id and colour, every edge, curve and point; lossless forms to 1e-4 mm, the codecs within their step, instancing within float32 rounding); `PLANT=` perturbs the imported scenes to show it fails. `node --max-old-space-size=12000 corpus_checks/roundtrip_corpus.ts test_corpus/files.txt 1000`
+- `roundtrip_corpus.ts` exports every file with extras as three.js JSON and as GLB (uncompressed, Draco, meshopt, instanced), reads each back with `threejs-import` and `gltf-import`, and compares it with what was written (`viewDifferences`: placements, names, visibility, every triangle's world corners, face id and colour, every edge, curve and point; lossless forms to 1e-4 mm, the codecs within their step, instancing within float32 rounding); `PLANT=` perturbs the imported scenes to show it fails. About 21 min: `node --max-old-space-size=12000 corpus_checks/roundtrip_corpus.ts test_corpus/files.txt 1000`
 - `threejs_corpus.ts` exports every file to three.js JSON with edges, curves and extras, loads it with `THREE.ObjectLoader` and compares it with the export view: objects in tree order, world matrices, index counts, every triangle's colour and opacity. About 3.5 min: `node --max-old-space-size=8192 corpus_checks/threejs_corpus.ts test_corpus/files.txt 1000`
 - `gltf_corpus.ts` exports every file as GLB with edges, curves, hidden instances and extras, uncompressed, validates it with the Khronos glTF-Validator (errors are problems), reads it back with glTF-Transform and compares it with the export view: a node per placed part in tree order, visibility, world matrices, triangles and colours, one mesh per look. It also writes each file with Draco and with meshopt and compares the decoded triangles with the view, face by face (Draco's by `_FACE`, meshopt's by range) within what quantization allows, and every line and point vertex; and with instancing, every placement as a tree node or an instance at its world matrix, and no empty nodes. About 4 min: `node --max-old-space-size=8192 corpus_checks/gltf_corpus.ts test_corpus/files.txt 1000`
 - `threemf_corpus.ts` exports every file as 3MF (open meshes as surfaces, hidden instances kept), reads it back with lib3mf in strict mode and compares it with the export view: an item per placed part at its world transform, each object's type against lib3mf's manifold check and its volume's sign, every triangle's corners and colour; and the assembly form composed to the same objects and transforms. About 5.5 min: `node --max-old-space-size=8192 corpus_checks/threemf_corpus.ts test_corpus/files.txt 1000`
@@ -992,7 +1006,7 @@ They need the [test corpus](#test-corpus) (and some the backends built or the su
 
 ## Roadmap
 
-Done (0.1.0): the STEP parser and writer, schema binding and semantic extraction, `step2json`; the scene model and STEP importer; the OCCT and truck backends with workers and caching; the three.js, glTF and 3MF exporters and `stepconv`. Since: the [viewer](#viewer).
+Done (0.1.0): the STEP parser and writer, schema binding and semantic extraction, `step2json`; the scene model and STEP importer; the OCCT and truck backends with workers and caching; the three.js, glTF and 3MF exporters and `stepconv`. Since: the [viewer](#viewer); levels of detail in the scene model; importers of glTF/GLB and three.js JSON, through which the viewer reads every format.
 
 Next, roughly in order:
 
@@ -1015,7 +1029,7 @@ Known work not yet scheduled; the detail behind each is in `CLAUDE.md`.
 
 - PMI, semantic and graphical (`rec_pracs_pmi_v41.pdf` in `third_party/mbx-if-recpractices/`); 2D drawings (`GEOMETRICALLY_BOUNDED_2D_WIREFRAME`, skipped today) go with it.
 - User-defined attributes; materials and densities; kinematics; SHUOs (specified higher-usage occurrences: a style, visibility or replacement that applies to one instance deep in an assembly, named by its path of occurrences; the importer doesn't read them yet, though it does apply per-instance styles given in the context of a chain of occurrences).
-- AP242 tessellated geometry (`TRIANGULATED_FACE`, `COMPLEX_TRIANGULATED_SURFACE_SET`) read by the importer as `mesh` parts. Today such a representation becomes a `brep` part like any other: its STEP subset goes to the OCCT backend, which reads the triangles and returns them as its mesh. That works, but needs OCCT (truck returns nothing for them) and a tessellation step for geometry that is already triangles.
+- AP242 tessellated geometry (`TRIANGULATED_FACE`, `COMPLEX_TRIANGULATED_SURFACE_SET`) read by the importer as parts with a level of detail from the file. Today such a representation becomes a `brep` part like any other: its STEP subset goes to the OCCT backend, which reads the triangles and returns them as its mesh. That works, but needs OCCT (truck returns nothing for them) and a tessellation step for geometry that is already triangles.
 - Per-instance style resolution beyond what the importer does; per-curve colours in mixed parts.
 - Named coordinate systems: placements among a representation's items that nothing uses (shown, not applied).
 - Part 21 edition 3 constant references and anchors (sections skipped with a warning today; no corpus file has any).
@@ -1029,6 +1043,10 @@ Known work not yet scheduled; the detail behind each is in `CLAUDE.md`.
 - OCCT at tighter angles: `bug30790.step`'s parts #11-21 and #24 take 0.5 s each at 28.6 degrees, 24-44 s at 15 (medium) and time out at 12.5 and below, whatever the distance; find out why (the same file has the corpus's most unmeshed faces).
 - OCCT: ShapeFix's split of a face whose hole touches its seam (bicycle #23723, left as is); Delabella for faces with thousands of holes (6 times as fast on `bug24024_slow_import.stp`); size cuts (CJK code-page tables, writer code).
 - truck: wireframe curves (`TRIMMED_CURVE`, `COMPOSITE_CURVE`); geometric sets' surfaces; cones, surfaces of revolution and rational B-splines it meshes badly (no workaround short of patching truck).
+
+**Import**
+
+- Levels of detail in use: the scene holds several per part, but the viewer and the exporters use one at a time (`chooseLod`); no level is chosen by distance yet.
 
 **Export**
 
