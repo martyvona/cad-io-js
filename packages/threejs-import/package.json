@@ -1,0 +1,18 @@
+{
+  "name": "threejs-import",
+  "version": "0.1.0",
+  "description": "three.js JSON importer: Object Scene format 4 to the cad-scene model",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "cad-scene": "0.1.0"
+  },
+  "devDependencies": {
+    "export-threejs": "0.1.0",
+    "step-import": "0.1.0",
+    "tess-occt": "0.1.0"
+  }
+}

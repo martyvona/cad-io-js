@@ -94,8 +94,8 @@ export function toMesh(r: TessellationResult): Mesh {
  * was if nothing failed, less any backend outlines of slivers. Outlining is approximate and must never fail a part:
  * its errors are diagnostics.
  */
-function outlined(part: Part & { brep: NonNullable<Part['brep']> }, mesh: Mesh | undefined, linearDeflection: number, angularDeflection: number,
-  diagnostics: Diagnostic[], source: Diagnostic['source']): Mesh | undefined {
+function outlined(part: Part & { brep: NonNullable<Part['brep']> }, mesh: Mesh | undefined, linearDeflection: number,
+  angularDeflection: number, diagnostics: Diagnostic[], source: Diagnostic['source']): Mesh | undefined {
   try {
     const d = { linearDeflection, angularDeflection };
     // (The face list alone first: outlines of none.)

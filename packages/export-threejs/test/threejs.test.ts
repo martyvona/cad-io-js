@@ -225,3 +225,29 @@ test('tree nodes with nothing to draw beneath them left out, unless keepEmpty', 
   const view = viewOf(s, meshes());
   assert.equal(threejsJson(s, view), threejsJson(s, view, { keepEmpty: true }));
 });
+
+test('extras: each placement\'s face ranges hold its faces\' triangles in the geometry it uses (a reused one too)',
+  () => {
+    // Faces 8, 7, 9 with 7 blue: the first look's groups (green 8 and 9, then blue 7) reorder its triangles; the
+    // second instance's red override makes a look of one material, which reuses that geometry.
+    const s = scene();
+    const m = plate();
+    m.positions = Float32Array.of(0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0.1, 2, 2, 0);
+    m.indices = Uint32Array.of(0, 1, 2, 0, 2, 3, 1, 4, 2);
+    m.faces = [{ source: 8, start: 0, count: 3 }, { source: 7, start: 3, count: 3 }, { source: 9, start: 6,
+      count: 3 }];
+    const view = viewOf(s, new Map([[0, m], [1, wire()]]));
+    const root = load(threejsJson(s, view, { extras: true }));
+    const original = new Map(m.faces.map((f) => [f.source, Array.from(m.indices.subarray(f.start, f.start + f.count))
+      .join()]));
+    const plates = byName(root, 'plate') as THREE.Mesh[];
+    assert.equal(plates.length, 2);
+    assert.equal(plates[0]!.geometry, plates[1]!.geometry);
+    for (const p of plates) {
+      const index = p.geometry.index!.array;
+      for (const f of p.userData.faces as { source: number; start: number; count: number }[]) {
+        assert.equal(Array.from(index.slice(f.start, f.start + f.count)).join(), original.get(f.source),
+          `face ${f.source}`);
+      }
+    }
+  });

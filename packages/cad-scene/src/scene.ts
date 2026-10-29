@@ -202,6 +202,11 @@ export interface Layer {
 export interface InstanceOverride {
   /** Indices from the root: into `Scene.roots`, then into each component's `children`. */
   path: number[];
+  /**
+   * Only this part reference of the component at `path` (an index into its `parts`), not the whole subtree (the user,
+   * 2026-10-29: so importers can say what a format says per placed part). Absent: everything beneath.
+   */
+  ref?: number;
   material?: number;
   visible?: boolean;
   /** Per-face materials of this instance's parts (STEP: context-dependent overriding styles on faces). */

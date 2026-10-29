@@ -106,11 +106,14 @@ export function* partInstances(scene: Scene): Generator<PartInstance> {
     const comp = scene.components[inst.component]!;
     const prefixes = inst.path.map((_, i) => inst.path.slice(0, i + 1).join('/'));
     const chain = prefixes.map((p) => byPath.get(p)!);
-    const pathOverrides = prefixes.flatMap((p) => overrides.get(p) ?? []);
-    const visible = !pathOverrides.some((o) => o.visible === false);
-    const overrideMaterial = [...pathOverrides].reverse().find((o) => o.material !== undefined)?.material;
+    const pathAll = prefixes.flatMap((p) => overrides.get(p) ?? []);
     const componentMaterial = chain.map((c) => scene.components[c.component]!.material).find((m) => m !== undefined);
-    for (const ref of comp.parts) {
+    const here = inst.path.join('/');
+    for (const [r, ref] of comp.parts.entries()) {
+      // Overrides along the path, those for one part reference only where it's this one (at this component).
+      const pathOverrides = pathAll.filter((o) => o.ref === undefined || (o.ref === r && o.path.join('/') === here));
+      const visible = !pathOverrides.some((o) => o.visible === false);
+      const overrideMaterial = [...pathOverrides].reverse().find((o) => o.material !== undefined)?.material;
       const part: Part = scene.parts[ref.part]!;
       const faceMaterials = new Map<number, number>();
       let material = overrideMaterial ?? componentMaterial;
@@ -160,6 +163,18 @@ export function validate(scene: Scene): string[] {
     material(p.material, `parts[${i}]`);
     for (const f of p.faceMaterials ?? []) material(f.material, `parts[${i}].faceMaterials`);
     if (!(p.unit > 0)) problems.push(`parts[${i}]: unit ${p.unit} is not positive`);
+  });
+  // Overrides: a path that leads somewhere, a part reference that's there, materials in range.
+  scene.overrides.forEach((o, i) => {
+    let comp = scene.roots[o.path[0] ?? -1]?.component;
+    for (const k of o.path.slice(1)) {
+      comp = comp === undefined ? undefined : scene.components[comp]?.children[k]?.component;
+    }
+    if (comp === undefined || !o.path.length) problems.push(`overrides[${i}]: path ${o.path.join('/')} leads nowhere`);
+    else if (o.ref !== undefined && !(o.ref >= 0 && o.ref < (scene.components[comp]?.parts.length ?? 0))) problems.push(
+      `overrides[${i}]: part reference ${o.ref} out of range`);
+    material(o.material, `overrides[${i}]`);
+    for (const f of o.faceMaterials ?? []) material(f.material, `overrides[${i}].faceMaterials`);
   });
   // Cycles: a component reachable from itself.
   const state = new Uint8Array(nc); // 0 new, 1 on the stack, 2 done

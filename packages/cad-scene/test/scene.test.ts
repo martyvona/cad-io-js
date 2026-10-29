@@ -95,3 +95,26 @@ test('validate', () => {
   s.components[1]!.parts.pop();
   assert.equal([...instances(s)].length, 5);
 });
+
+test('an override for one part reference: only that placement; validate checks paths and references', () => {
+  const s = scene();
+  // The sub's plate gets a second reference; the second sub's first reference red and the second hidden.
+  s.components[1]!.parts.push({ part: 0, transform: multiply(translation(0, 50, 0), scaling(25.4)) });
+  s.overrides.push({ path: [0, 1], ref: 0, material: 0, sources: [] }, { path: [0, 1], ref: 1, visible: false,
+    sources: [] });
+  const placed = [...partInstances(s)].map((p) => [p.path.join('/'), p.part, p.material, p.visible]);
+  assert.deepEqual(placed, [
+    ['0/0', 0, 1, true], ['0/0', 0, 1, true], ['0/0/0', 1, undefined, true],
+    ['0/1', 0, 0, true], ['0/1', 0, 1, false], ['0/1/0', 1, undefined, true],
+  ]);
+  // Without a reference, the whole subtree, the bolt below included.
+  s.overrides = [{ path: [0, 1], visible: false, sources: [] }];
+  assert.deepEqual([...partInstances(s)].filter((p) => !p.visible).map((p) => p.path.join('/')), ['0/1', '0/1',
+    '0/1/0']);
+  assert.deepEqual(validate(s), []);
+  s.overrides = [{ path: [0, 5], sources: [] }, { path: [0, 1], ref: 2, sources: [] }, { path: [], sources: [] },
+    { path: [0], material: 9, sources: [] }];
+  assert.deepEqual(validate(s), ['overrides[0]: path 0/5 leads nowhere',
+    'overrides[1]: part reference 2 out of range', 'overrides[2]: path  leads nowhere',
+    'overrides[3]: material 9 out of range']);
+});

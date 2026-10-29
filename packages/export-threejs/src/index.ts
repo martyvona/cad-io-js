@@ -141,7 +141,8 @@ class Writer {
   readonly materials: Json[] = [];
   private uuids = 0;
   private materialIds = new Map<string, string>();
-  private faceGeometries = new Map<Mesh, { uuid: string; groups: number; ranges: string; indices: Uint32Array }[]>();
+  private faceGeometries = new Map<Mesh, { uuid: string; groups: number; ranges: string; indices: Uint32Array;
+    faces: Look['faces'] }[]>();
   private lineGeometry = new Map<Mesh, Map<string, { uuid: string; userData: Json } | undefined>>();
   private readonly defaultColor: Vec3;
   private readonly edgeColor: Vec3;
@@ -190,10 +191,12 @@ class Writer {
   }
 
   /**
-   * The geometry for a look's triangles, and how many groups it has. A look with one material reuses any geometry
-   * of its mesh (its material repeated for each group); others share one with the same triangles in the same order.
+   * The geometry for a look's triangles, how many groups it has, and its faces' ranges (the geometry's, which a look
+   * with one material reusing another's has, its triangles in that one's order). A look with one material reuses any
+   * geometry of its mesh (its material repeated for each group); others share one with the same triangles in the
+   * same order.
    */
-  private faceGeometry(look: Look, name: string): { uuid: string; groups: number } {
+  private faceGeometry(look: Look, name: string): { uuid: string; groups: number; faces: Look['faces'] } {
     let list = this.faceGeometries.get(look.mesh);
     if (!list) this.faceGeometries.set(look.mesh, (list = []));
     if (look.groups.length === 1 && list.length) return list[0]!;
@@ -208,7 +211,7 @@ class Writer {
     if (look.groups.length > 1) g.groups = look.groups.map(
       (gr, i) => ({ start: gr.start, count: gr.count, materialIndex: i }));
     this.geometries.push(g);
-    const made = { uuid: g.uuid, groups: look.groups.length, ranges, indices: look.indices };
+    const made = { uuid: g.uuid, groups: look.groups.length, ranges, indices: look.indices, faces: look.faces };
     list.push(made);
     return made;
   }
@@ -276,7 +279,8 @@ class Writer {
       o.geometry = g.uuid;
       const mats = look.groups.map((gr) => this.material('mesh', gr.material));
       o.material = g.groups === 1 ? mats[0] : look.groups.length === 1 ? Array<string>(g.groups).fill(mats[0]!) : mats;
-      userData.faces = look.faces.map((f) => ({ source: f.source, start: f.start, count: f.count }));
+      // (The geometry's ranges: a reused geometry's triangles are in its own order.)
+      userData.faces = g.faces.map((f) => ({ source: f.source, start: f.start, count: f.count }));
     }
     if (!p.visible) o.visible = false;
     if (this.extras) o.userData = userData;
