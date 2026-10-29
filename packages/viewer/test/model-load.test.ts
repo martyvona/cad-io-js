@@ -126,6 +126,44 @@ test('loadModelIn: a file with nothing to mesh ends at once', async () => {
   assert.deepEqual(events.map((e) => e.type), ['scene', 'done']);
 });
 
+test("loadModelIn: STEP's tessellated geometry read and shown, nothing meshed; by the backend when set", async () => {
+  // A triangle in a tessellated shell, the product's only representation.
+  const text = `ISO-10303-21;HEADER;FILE_NAME('','',(''),(''),'','','');FILE_SCHEMA((
+'AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF { 1 0 10303 442 1 1 4 }'));ENDSEC;DATA;
+#10=(LENGTH_UNIT()NAMED_UNIT(*)SI_UNIT(.MILLI.,.METRE.));
+#16=(GEOMETRIC_REPRESENTATION_CONTEXT(3)GLOBAL_UNIT_ASSIGNED_CONTEXT((#10))REPRESENTATION_CONTEXT('',''));
+#1=APPLICATION_CONTEXT('');
+#2=PRODUCT_CONTEXT('',#1,'mechanical');
+#3=PRODUCT_DEFINITION_CONTEXT('part definition',#1,'design');
+#200=PRODUCT('P','P','',(#2));
+#201=PRODUCT_DEFINITION_FORMATION('','',#200);
+#202=PRODUCT_DEFINITION('','',#201,#3);
+#203=PRODUCT_DEFINITION_SHAPE('','',#202);
+#100=COORDINATES_LIST('',3,((0.,0.,0.),(1.,0.,0.),(0.,1.,0.)));
+#101=TRIANGULATED_FACE('',#100,3,(),$,(),((1,2,3)));
+#102=TESSELLATED_SHELL('',(#101),$);
+#103=TESSELLATED_SHAPE_REPRESENTATION('t',(#102),#16);
+#205=SHAPE_DEFINITION_REPRESENTATION(#203,#103);
+ENDSEC;END-ISO-10303-21;`;
+  const input = { format: 'step' as const, bytes: new TextEncoder().encode(text) };
+  const events: ModelEvent[] = [];
+  const transfers: ArrayBuffer[][] = [];
+  const { requests, tessellation } = fake();
+  await loadModelIn(input, DEFAULT_SETTINGS, 2, tessellation, (e, t) => { events.push(e); transfers.push(t ?? []); },
+    () => false);
+  assert.deepEqual(events.map((e) => e.type), ['scene', 'done']);
+  const scene = (events[0] as { scene: Scene }).scene;
+  assert.deepEqual(scene.parts[0]!.lods[0]!.mesh.faces.map((f) => f.source), [101]);
+  assert.equal(transfers[0]!.length > 0, true);
+  assert.equal(requests.length, 0);
+  // By the backend: a B-rep part, meshed.
+  const backend: ModelEvent[] = [];
+  await loadModelIn(input, { ...DEFAULT_SETTINGS, tessellated: 'backend' }, 2, tessellation, (e) => backend.push(e),
+    () => false);
+  assert.deepEqual(backend.map((e) => e.type), ['scene', 'mesh', 'done']);
+  assert.equal(requests.length, 1);
+});
+
 test('importModel and loadModelIn: GLB, .gltf with its .bin, three.js JSON, the scene they were written from',
   async () => {
     // The fixture with meshes instead of B-rep (as the exporters take it), written with our extras.

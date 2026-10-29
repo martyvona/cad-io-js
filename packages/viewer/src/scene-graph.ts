@@ -90,6 +90,8 @@ export class SceneGraph implements FaceHiding {
   private readonly outlined = new Map<number, THREE.LineSegments[]>();
   /** Hidden faces' source ids, by part. */
   private readonly hiddenFaces = new Map<number, Set<number>>();
+  /** The objects addMesh made for each part, one per placement (replaced by its next mesh). */
+  private readonly made = new Map<number, THREE.Object3D[]>();
 
   private readonly shininess: number;
   private readonly specular: number;
@@ -150,12 +152,14 @@ export class SceneGraph implements FaceHiding {
   }
 
   /**
-   * Attaches a part's mesh to each of its placements; nothing for a part without one (it failed, or is empty).
-   * Returns the objects made, one per placement.
+   * Attaches a part's mesh to each of its placements, in place of any it had (the file's own tessellation of a B-rep,
+   * shown until ours comes); nothing for a part without one (it failed, or is empty). Returns the objects made, one
+   * per placement.
    */
   addMesh(part: number, mesh: Mesh): THREE.Object3D[] {
     const placements = this.placements.get(part) ?? [];
     if (!placements.length) return [];
+    this.removeMesh(part);
     const triangles = mesh.indices.length > 0;
     let attrs: { position: THREE.BufferAttribute; normal?: THREE.BufferAttribute; index: THREE.BufferAttribute }
       | undefined;
@@ -250,7 +254,28 @@ export class SceneGraph implements FaceHiding {
       group.add(obj);
       made.push(obj);
     }
+    this.made.set(part, made);
     return made;
+  }
+
+  /** Whether a part has a mesh drawn. */
+  hasMesh(part: number): boolean {
+    return this.made.has(part);
+  }
+
+  /** Takes a part's mesh away from its placements, its geometries disposed. */
+  private removeMesh(part: number): void {
+    const made = this.made.get(part);
+    if (!made) return;
+    for (const obj of made) {
+      obj.removeFromParent();
+      obj.traverse((o) => { if (o instanceof THREE.Mesh || o instanceof THREE.LineSegments || o instanceof THREE.Points)
+        o.geometry.dispose(); });
+    }
+    for (const g of this.meshed.get(part)?.geometries.values() ?? []) g.dispose();
+    this.made.delete(part);
+    this.meshed.delete(part);
+    this.outlined.delete(part);
   }
 
   /** Sets a placement's geometry (shared by grouping) and materials: runs of faces by material, hidden faces apart. */

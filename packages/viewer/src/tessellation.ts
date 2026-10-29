@@ -28,6 +28,11 @@ export interface TessellationSettings {
    * that ran out, so a longer limit tries the part again.
    */
   timeout: number;
+  /**
+   * AP242 tessellated geometry: read as it is (step-import, the default), or meshed by the backend from its STEP
+   * subset as a B-rep is (the importer's `tessellated: 'backend'`, as before 2026-10-29; truck reads none).
+   */
+  tessellated: 'read' | 'backend';
 }
 
 /** The default timeout, seconds: the pool's. */
@@ -42,7 +47,7 @@ export function profileSettings(profile: MeshProfile): Pick<TessellationSettings
 
 /** The defaults: a profile (the device's: device.ts), OCCT, cached. */
 export function defaultSettings(profile: MeshProfile): TessellationSettings {
-  return { backend: 'occt', ...profileSettings(profile), cache: true, timeout: DEFAULT_TIMEOUT };
+  return { backend: 'occt', ...profileSettings(profile), cache: true, timeout: DEFAULT_TIMEOUT, tessellated: 'read' };
 }
 
 /** What tessellateScene takes for the settings: the profile by name, or the custom deflections (in radians). */

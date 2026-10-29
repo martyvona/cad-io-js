@@ -137,6 +137,9 @@ ${PROFILE_LINES}
       --angular-deflection <deg>
                            maximum angle between adjacent mesh normals, in degrees (default the profile's;
                            truck ignores it)
+      --tessellated-by-backend
+                           AP242 tessellated geometry (triangulated faces, surface sets...) meshed by the backend
+                           from its STEP subset, as a B-rep is (default: read as it is; truck reads none)
       --with-edges         write B-rep edges (not 3MF, which has no lines)
       --with-curves        write wireframe curves and points (not 3MF)
       --unlit-lines        edges, curves and points in a flat colour: glTF with KHR_materials_unlit (three.js
@@ -191,6 +194,7 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
         fine: { type: 'boolean', default: false },
         deflection: { type: 'string', short: 'd' },
         'angular-deflection': { type: 'string' },
+        'tessellated-by-backend': { type: 'boolean', default: false },
         'with-edges': { type: 'boolean', default: false },
         'with-curves': { type: 'boolean', default: false },
         'unlit-lines': { type: 'boolean', default: false },
@@ -288,7 +292,7 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
   try {
     const file = await readStep(
       input === '-' ? (Readable.toWeb(io.stdin) as ReadableStream<Uint8Array>) : fs.readFileSync(input));
-    scene = (await importStep(file)).scene;
+    scene = (await importStep(file, { tessellated: o['tessellated-by-backend'] ? 'backend' : 'read' })).scene;
   } catch (e) {
     io.stderr.write(`stepconv: can't read ${input}: ${(e as Error).message}\n`);
     return 2;

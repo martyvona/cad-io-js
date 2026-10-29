@@ -48,14 +48,13 @@ test("STEP detail: a part's faces (once each), its edges, its curves and points;
     model.setDetail(false);
     assert.deepEqual(model.children(platePart!), []);
     assert.equal(model.hasChildren(platePart!), false);
-    // A face split by the backend (two ranges, one source): one node.
+    // A face split by the backend (two ranges, one source): one node. (The new mesh replaces the plate's first.)
     const split = plate();
     split.faces = [{ source: 8, start: 0, count: 3 }, { source: 8, start: 3, count: 3 }];
     graph.addMesh(0, split);
     model.setDetail(true);
     for (const p of graph.placements.get(0)!) model.invalidate(p.group);
-    assert.deepEqual(names(model, model.children(platePart!)).filter((n) => n.startsWith('face')), ['face:face #8',
-      'face:face #7', 'face:face #8']);
+    assert.deepEqual(names(model, model.children(platePart!)).filter((n) => n.startsWith('face')), ['face:face #8']);
   });
 
 test('hiding: objects hidden with their subtrees, shown greyed below; show all shows the file hidden too', () => {

@@ -67,6 +67,21 @@ test('meshes: at the origin in each placement, geometry shared where the colouri
   assert.deepEqual(colours(bare[1]!), [['ff0000', 0.5, true]]);
 });
 
+test("a part's next mesh replaces its first in every placement (the file's tessellation, then ours)", () => {
+  const g = new SceneGraph(scene(), 'model');
+  assert.equal(g.hasMesh(0), false);
+  const first = g.addMesh(0, plate());
+  assert.equal(g.hasMesh(0), true);
+  const next = plate();
+  next.faces = [{ source: 9, start: 0, count: next.indices.length }];
+  const second = g.addMesh(0, next);
+  for (const [i, p] of g.placements.get(0)!.entries()) {
+    assert.deepEqual(p.group.children, [second[i]]);
+    assert.equal(first[i]!.parent, null);
+  }
+  assert.deepEqual(second[0]!.userData.faces, [9]);
+});
+
 test('meshes: wireframes as curves and points in the instance colour; no faces, no edges', () => {
   const g = new SceneGraph(scene(), 'model');
   const [first, second] = g.addMesh(1, wire());

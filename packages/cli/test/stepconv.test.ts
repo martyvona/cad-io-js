@@ -404,6 +404,22 @@ test('stepconv: --angular-deflection in degrees', { skip }, async () => {
   assert.ok(triangles(load(fine)) > triangles(load(fs.readFileSync(out, 'utf8'))));
 });
 
+test('stepconv: AP242 tessellated geometry read as it is, or by the backend with --tessellated-by-backend',
+  { skip }, async () => {
+    // A cube of complex triangulated faces (strips): read, nothing meshed; meshed by OCCT (which winds strips the
+    // other way, so the shell comes back inside out and is turned over, with a warning), the same triangles.
+    const cubeTess = path.join(root, 'test_corpus/third_party/gkv311-opencascade-dataset/step/bug33638.stp');
+    const out = path.join(tmp, 'tess.json');
+    const read = await run([cubeTess, '-o', out, '-j', '0']);
+    assert.equal(read.code, 0);
+    assert.match(read.stderr, /^1 parts \(0 of 0 brep parts tessellated\), 1 placed; 12 triangles/);
+    assert.match(read.stderr, /0 errors, 0 warnings/);
+    assert.equal(triangles(load(fs.readFileSync(out, 'utf8'))), 12);
+    const backend = await run([cubeTess, '-o', out, '-j', '0', '--tessellated-by-backend']);
+    assert.match(backend.stderr, /^1 parts \(1 of 1 brep parts tessellated\), 1 placed; 12 triangles/);
+    assert.match(backend.stderr, /0 errors, 1 warnings/);
+  });
+
 test('stepconv: --strict exits 3 when a part fails, with the output written', { skip }, async () => {
   // The cube with its shell's faces replaced by a reference to nothing: OCCT makes no shape.
   const broken = path.join(tmp, 'broken.stp');

@@ -3,17 +3,30 @@
 //
 //   products        -> components (index for index); their documents -> external references
 //   occurrences     -> each component's children, with transforms converted to millimetres
-//   representations -> parts, one per shape representation holding geometry, with a STEP subset as payload
+//   representations -> parts, one per shape representation holding geometry, with a STEP subset as payload; those
+//                      only tessellated with their triangles as a level of detail instead (tessellated.ts)
 //   styles          -> materials: per part, per face, per component, and per instance (context-dependent styles)
 //   layers          -> layers of parts and faces
 
 import {
   buildSubset, closure, danglingRefs, extractSemantics, math, openModel, productRepresentations, readStep, Reader,
-  type Diagnostic as StepDiagnostic, type OpenOptions, type Semantics, type StepFile, type StepModel,
+  type Diagnostic as StepDiagnostic, type Mat4, type OpenOptions, type Semantics, type StepFile, type StepModel,
   type StepSource, type Style,
 } from 'step-parser';
-import type { Component, Diagnostic, Layer, Material, Part, Scene, Vec3 } from 'cad-scene';
+import type { Component, Diagnostic, Layer, Lod, Material, Part, Scene, Vec3 } from 'cad-scene';
 import { faceOutlines } from './outlines.ts';
+import { moveMesh, readTessellated, tessellatedItems } from './tessellated.ts';
+
+export interface ImportOptions extends OpenOptions {
+  /**
+   * Representations holding only tessellated geometry (AP242's triangulated faces, surface sets, curve sets...):
+   * `'read'` (the default) reads their triangles, curves and points into a level of detail from the source, with no
+   * B-rep, and a product's tessellation of its B-rep into a level of the B-rep's part; `'backend'` makes them B-rep
+   * parts like any other, meshed by a backend from their STEP subset (OCCT reads tessellated geometry; truck doesn't),
+   * as before 2026-10-29.
+   */
+  tessellated?: 'read' | 'backend';
+}
 
 export interface ImportResult {
   scene: Scene;
@@ -24,10 +37,10 @@ export interface ImportResult {
 }
 
 /** Read, bind, extract and import a STEP file. */
-export async function importStep(input: StepSource | StepFile, opts: OpenOptions = {}): Promise<ImportResult> {
+export async function importStep(input: StepSource | StepFile, opts: ImportOptions = {}): Promise<ImportResult> {
   const file = 'index' in input ? input : await readStep(input as StepSource);
   const model = await openModel(file, opts);
-  return sceneFromStep(model, extractSemantics(model));
+  return sceneFromStep(model, extractSemantics(model), opts);
 }
 
 /** Dangling references named in a part's warning; the rest are counted. */
@@ -39,7 +52,7 @@ const ANNOTATION = ['TEXT_LITERAL', 'COMPOSITE_TEXT', 'DRAUGHTING_CALLOUT', 'ANN
 const DRAWING = 'GEOMETRICALLY_BOUNDED_2D_WIREFRAME_REPRESENTATION';
 
 /** Build the scene from a bound model and its Layer 3 semantics. */
-export function sceneFromStep(model: StepModel, sem: Semantics): ImportResult {
+export function sceneFromStep(model: StepModel, sem: Semantics, opts: ImportOptions = {}): ImportResult {
   const file = model.file;
   const r = new Reader(model);
   const s = sem.structure;
@@ -53,6 +66,24 @@ export function sceneFromStep(model: StepModel, sem: Semantics): ImportResult {
     const f = repId === undefined ? undefined : s.representations.get(repId)?.context?.lengthUnit?.factor;
     return f === undefined ? 1 : f * 1000;
   };
+
+  // A tessellation's stated accuracy (AP242 edition 2's ..._WITH_ACCURACY_PARAMETERS), in millimetres and radians.
+  const accuracy = (repId: number, root: number): Partial<Lod> => {
+    const out: Partial<Lod> = {};
+    const radians = s.representations.get(repId)?.context?.planeAngleUnit?.factor ?? 1;
+    const v = r.attr(root, 'tessellation_accuracy_parameters');
+    for (const x of v && v.k === 'list' ? v.v : []) {
+      if (x.k !== 'typed' || (x.v.k !== 'real' && x.v.k !== 'int')) continue;
+      const n = Number(x.v.v);
+      if (x.type === 'CHORDAL_DEVIATION') out.linearDeflection = n * mmOf(repId);
+      else if (x.type === 'ANGULAR_DEVIATION') out.angularDeflection = n * radians;
+    }
+    return out;
+  };
+
+  // Faces as parts' meshes have them: B-rep faces, and tessellated faces and surface sets.
+  const isFace = (q: number) => model.isInstanceOf(q, 'FACE') || model.isInstanceOf(q, 'TESSELLATED_FACE')
+    || model.isInstanceOf(q, 'TESSELLATED_SURFACE_SET');
 
   // Materials, deduplicated by colour and opacity.
   const materials: Material[] = [];
@@ -98,6 +129,12 @@ export function sceneFromStep(model: StepModel, sem: Semantics): ImportResult {
   const parts: Part[] = [];
   const partOf = new Map<number, number>();
   const partOfPosition = new Map<number, number>(); // top-level items, faces and roots -> part
+  // Per part: its representation, and for those read from tessellated geometry, their faces (entities, in mesh order).
+  const partRep: number[] = [];
+  const partGeometry: number[][] = [];
+  const faceCount: number[] = [];
+  const onlyTessellated: boolean[] = []; // read or not
+  const tessellatedFaces = new Map<number, number[]>();
   for (const rep of s.representations.values()) {
     const items = rep.items.map((id) => model.resolve(id));
     if (!items.some((q) => q >= 0 && ![...PLACEMENT_ONLY, ...ANNOTATION].some(
@@ -107,6 +144,14 @@ export function sceneFromStep(model: StepModel, sem: Semantics): ImportResult {
       continue;
     }
     const root = model.resolve(rep.id);
+    // Only tessellated geometry: read here (unless asked for the backend), or, with items this reader doesn't take,
+    // left to the backend as before.
+    const geometry = items.filter((q) => q >= 0 && ![...PLACEMENT_ONLY, ...ANNOTATION].some((e) =>
+      model.isInstanceOf(q, e)));
+    const tessellated = opts.tessellated === 'backend' ? undefined : tessellatedItems(r, geometry);
+    if (tessellated && !tessellated.readable) warn(`tessellated geometry with ${tessellated.type}, which isn't read; `
+      + 'meshed by the backend', rep.id, 'info');
+    const read = tessellated?.readable ? readTessellated(r, geometry, (m, p) => warn(m, r.id(p))) : undefined;
     const exclude = new Set(items.filter((q) => q >= 0 && model.isInstanceOf(q, 'MAPPED_ITEM')));
     const positions = closure(file, [root], exclude);
     const dangling = danglingRefs(file, positions);
@@ -116,6 +161,10 @@ export function sceneFromStep(model: StepModel, sem: Semantics): ImportResult {
         + `file doesn't define: ${shown}${dangling.length > MAX_DANGLING ? ', ...' : ''}`, rep.id);
     }
     const index = parts.length;
+    partRep.push(rep.id);
+    partGeometry.push(geometry);
+    onlyTessellated.push(tessellated !== undefined || geometry.every((q) => model.isInstanceOf(q, 'TESSELLATED_ITEM')));
+    if (read) tessellatedFaces.set(index, read.faces);
     partOf.set(rep.id, index);
     partOfPosition.set(root, index);
     for (const q of items) if (!partOfPosition.has(q)) partOfPosition.set(q, index);
@@ -135,8 +184,9 @@ export function sceneFromStep(model: StepModel, sem: Semantics): ImportResult {
         if (x > b.hi[k]!) b.hi[k] = x;
       }
     };
-    const faces: number[] = [];
-    for (const q of positions) {
+    const faces: number[] = read ? [...read.faces] : [];
+    if (read) for (const q of read.faces) if (!partOfPosition.has(q)) partOfPosition.set(q, index);
+    if (!read) for (const q of positions) {
       const type = file.index.typeName(q);
       if (type === 'CARTESIAN_POINT') extend(all, q);
       else if (type === 'VERTEX_POINT') {
@@ -149,7 +199,7 @@ export function sceneFromStep(model: StepModel, sem: Semantics): ImportResult {
     }
     // A geometric set's surfaces are faces too (a backend makes one face of each, with the surface's id).
     const isFace = new Set(faces);
-    for (const q of positions) {
+    if (!read) for (const q of positions) {
       if (!model.isInstanceOf(q, 'GEOMETRIC_SET')) continue;
       for (const e of r.refs(q, 'elements')) {
         if (!model.isInstanceOf(e, 'SURFACE') || isFace.has(e)) continue;
@@ -159,15 +209,16 @@ export function sceneFromStep(model: StepModel, sem: Semantics): ImportResult {
       }
     }
     const { lo, hi } = vertices.lo[0] === Infinity ? all : vertices;
-    const origin: Vec3 = lo[0] === Infinity ? [0, 0, 0] : [0, 1, 2].map((k) => (lo[k]! + hi[k]!) / 2) as Vec3;
+    const origin: Vec3 = read ? read.mesh.origin
+      : lo[0] === Infinity ? [0, 0, 0] : [0, 1, 2].map((k) => (lo[k]! + hi[k]!) / 2) as Vec3;
     // Closed: every face in a closed shell of the part (solids' shells and voids, closed shells of surface models);
     // open if one is in another shell of the part (an open shell, a face set), which the file then says; otherwise
     // the file doesn't say: faces in no shell (a geometric set's surfaces, as bug28366_fuselage.stp's, which close up
     // all the same), tessellated faces (in tessellated shells, not face sets) (the user, 2026-10-27: caps on what the
     // file says is solid).
     const inPart = new Set(positions);
-    let closed: boolean | undefined = faces.length ? true : undefined;
-    for (const f of faces) {
+    let closed: boolean | undefined = read ? read.closed : faces.length ? true : undefined;
+    if (!read) for (const f of faces) {
       const shells = model.referrers(f).filter((q) => inPart.has(q) && model.isInstanceOf(q, 'CONNECTED_FACE_SET'));
       if (shells.some((q) => !model.isInstanceOf(q, 'CLOSED_SHELL'))) {
         closed = false;
@@ -175,15 +226,16 @@ export function sceneFromStep(model: StepModel, sem: Semantics): ImportResult {
       }
       if (!shells.length) closed = undefined;
     }
+    faceCount.push(faces.length);
     const part: Part = {
-      brep: {
+      ...(read ? {} : { brep: {
         format: 'step', rootId: rep.id,
         payload: () => buildSubset(file, [root], { exclude }).bytes,
         // Faces' outlines from the file, for faces that fail to mesh (outlines.ts).
         outline: ({ faces: only, ...o }) => ({ faces: faces.map((q) => r.id(q)),
           ...faceOutlines(r, faces, origin, o, only) }),
-      },
-      lods: [],
+      } }),
+      lods: read ? [{ mesh: read.mesh, from: 'source', ...accuracy(rep.id, root) }] : [],
       name: rep.name, sources: [src(rep.id)], properties: { representation: rep.types.join('+') },
       unit: mmOf(rep.id), origin, ...(closed === undefined ? {} : { closed }),
     };
@@ -233,6 +285,82 @@ export function sceneFromStep(model: StepModel, sem: Semantics): ImportResult {
     const topStyles = items.map((q) => resolve(q));
     if (topStyles.length && topStyles.every((x) => x?.invisible)) part.properties.invisible = true;
     parts.push(part);
+  }
+
+  if (opts.tessellated !== 'backend') mergeTessellations();
+
+  // A product's tessellation of its B-rep (both its representations) becomes a level of the B-rep's part, from the
+  // source, and its own part goes (decided by the user, 2026-10-29): paired by the tessellation's links to the B-rep
+  // (a solid's to its MANIFOLD_SOLID_BREP, faces' to their faces) where it has them, else with the product's one B-rep
+  // part with faces; with several and no links, or claimed by two products, it stays a part of its own (a warning).
+  // Linked faces take their B-rep face's id, so a face is one face at either level.
+  function mergeTessellations(): void {
+    const target = new Map<number, number | null>(); // tessellated part -> B-rep part (null: conflicting)
+    const moves = new Map<number, Mat4>();
+    s.products.forEach((_, i) => {
+      const reps = productRepresentations(s, i).filter((x) => partOf.has(x.representation));
+      const breps = reps.filter((x) => { const p = partOf.get(x.representation)!;
+        return parts[p]!.brep !== undefined && !onlyTessellated[p] && faceCount[p]! > 0; });
+      for (const t of reps) {
+        const tp = partOf.get(t.representation)!;
+        const faces = tessellatedFaces.get(tp);
+        if (!faces?.length) continue;
+        const links = new Set<number>();
+        for (const q of [...partGeometry[tp]!, ...faces]) {
+          const l = r.ref(q, 'geometric_link');
+          const part = l >= 0 ? partOfPosition.get(l) : undefined;
+          if (part !== undefined && breps.some((x) => partOf.get(x.representation) === part)) links.add(part);
+        }
+        const b = links.size === 1 ? breps.find((x) => partOf.get(x.representation) === [...links][0])
+          : links.size === 0 && breps.length === 1 ? breps[0] : undefined;
+        if (!b) {
+          if (breps.length) warn(`a tessellation beside ${breps.length} B-rep parts, none of which it links to; kept `
+            + 'as a part of its own', t.representation);
+          continue;
+        }
+        const bp = partOf.get(b.representation)!;
+        if (target.has(tp) && target.get(tp) !== bp) { target.set(tp, null); continue; }
+        const inv = math.invertAffine(b.transform);
+        if (!inv) continue;
+        target.set(tp, bp);
+        moves.set(tp, math.multiply(inv, t.transform));
+      }
+    });
+    const merged = [...target].filter(([, b]) => b !== null) as [number, number][];
+    for (const [tp] of target) if (target.get(tp) === null) warn('a tessellation claimed by B-rep parts of two '
+      + 'products; kept as a part of its own', partRep[tp]);
+    if (!merged.length) return;
+    for (const [tp, bp] of merged) {
+      const t = parts[tp]!, b = parts[bp]!;
+      const lod = t.lods[0]!;
+      const mesh = moveMesh(lod.mesh, moves.get(tp)!);
+      // Linked faces as their B-rep face; others keep their own id and colour.
+      const faces = tessellatedFaces.get(tp)!;
+      mesh.faces = mesh.faces.map((f, k) => {
+        const l = r.ref(faces[k]!, 'geometric_link');
+        return l >= 0 && partOfPosition.get(l) === bp && model.isInstanceOf(l, 'FACE') ? { ...f, source: r.id(l) } : f;
+      });
+      const own = new Set(mesh.faces.map((f) => f.source));
+      const colours = new Map((t.faceMaterials ?? []).map((x) => [x.face, x.material]));
+      for (const f of faces) {
+        const id = r.id(f), m = colours.get(id) ?? t.material;
+        if (own.has(id) && m !== undefined && m !== b.material) (b.faceMaterials ??= []).push({ face: id, material: m });
+      }
+      b.lods.push({ ...lod, mesh });
+      b.sources.push(...t.sources);
+      for (const [q, p] of partOfPosition) if (p === tp) partOfPosition.set(q, bp);
+      partOf.delete(partRep[tp]!);
+    }
+    // Renumber the parts left.
+    const gone = new Set(merged.map(([tp]) => tp));
+    const renumber = new Map<number, number>();
+    let n = 0;
+    parts.forEach((_, i) => { if (!gone.has(i)) renumber.set(i, n++); });
+    const kept = parts.filter((_, i) => !gone.has(i));
+    parts.length = 0;
+    parts.push(...kept);
+    for (const [k, p] of partOf) partOf.set(k, renumber.get(p)!);
+    for (const [k, p] of partOfPosition) partOfPosition.set(k, renumber.get(p)!);
   }
 
   // Parts with a generic name (blank, NONE, #123) take the name of the first product that uses them, if it has one
@@ -312,7 +440,7 @@ export function sceneFromStep(model: StepModel, sem: Semantics): ImportResult {
     const material = materialOf(st.style, st.id);
     const ov: Scene['overrides'][number] = { path, sources: [src(st.id)] };
     if (st.style.invisible) ov.visible = false;
-    const face = model.isInstanceOf(target, 'FACE') ? partOfPosition.get(target) : undefined;
+    const face = isFace(target) ? partOfPosition.get(target) : undefined;
     if (face !== undefined) {
       if (material !== undefined) ov.faceMaterials = [{ part: face, face: st.item, material }];
     } else if (material !== undefined) {
@@ -329,7 +457,7 @@ export function sceneFromStep(model: StepModel, sem: Semantics): ImportResult {
       const q = model.resolve(id);
       const part = partOfPosition.get(q);
       if (part === undefined) continue;
-      if (model.isInstanceOf(q, 'FACE')) layer.faces.push({ part, face: id });
+      if (isFace(q)) layer.faces.push({ part, face: id });
       else if (!layer.parts.includes(part)) layer.parts.push(part);
     }
     return layer;

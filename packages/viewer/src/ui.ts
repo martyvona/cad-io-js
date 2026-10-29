@@ -202,7 +202,8 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       centered.setValue(viewer.isCentered());
       centered.enable(viewer.model?.centroid !== undefined);
       const m = viewer.model!;
-      const parts = m.parts ? `; ${m.parts.done - m.parts.failed} of ${m.parts.total} parts meshed` +
+      // (Nothing said of meshing for a model with nothing to mesh: a glTF's, a STEP file's tessellated geometry.)
+      const parts = m.parts?.total ? `; ${m.parts.done - m.parts.failed} of ${m.parts.total} parts meshed` +
         (m.parts.failed ? `, ${m.parts.failed} failed` : '') : '';
       const problems = (m.diagnostics ?? []).filter((d) => d.severity !== 'info').length;
       const counts = [];
@@ -431,6 +432,8 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     shown();
   });
   step.add(settings, 'backend', ['occt', 'truck']).name('Backend');
+  step.add(settings, 'tessellated', { 'Read as it is': 'read', 'By the backend': 'backend' })
+    .name('Tessellated geometry');
   step.add(settings, 'profile', { Coarse: 'coarse', Medium: 'medium', Fine: 'fine', Custom: 'custom' })
     .name('Profile').onChange((p: typeof settings.profile) => {
       if (p !== 'custom') Object.assign(settings, profileSettings(p));

@@ -69,6 +69,20 @@ fs.copyFileSync(bicycle, path.join(content, 'bicycle.stp'));
 fs.copyFileSync(path.join(repo, 'test_corpus/third_party/gkv311-opencascade-dataset/step/r103ec.stp'),
   path.join(content, 'metres.stp'));
 fs.writeFileSync(path.join(content, 'notes.txt'), 'not a model');
+// AP242 tessellated geometry: NIST FTC 08's tessellated solid (272 faces of strips), and a 10 mm cube's B-rep with a
+// tessellation of one of its faces (two triangles) beside it, related to it, which the importer makes a level of the
+// cube's part, shown until OCCT's mesh replaces it.
+fs.copyFileSync(path.join(repo, 'test_corpus/third_party/nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/'
+  + 'nist_ftc_08_asme1_ap242-e1-tg.stp'), path.join(content, 'ftc08-tg.stp'));
+const cubeText = fs.readFileSync(path.join(repo, 'test_corpus/third_party/occt-import-js/test/testfiles/cube-10x10mm/'
+  + 'Cube 10x10.stp'), 'latin1');
+fs.writeFileSync(path.join(content, 'cube-tess.stp'), cubeText.replace(/ENDSEC;(\s*END-ISO-10303-21;)/, `
+#900000=COORDINATES_LIST('',4,((-5.,0.,-5.),(5.,0.,-5.),(5.,0.,5.),(-5.,0.,5.)));
+#900001=COMPLEX_TRIANGULATED_FACE('',#900000,4,(),$,(),((1,2,4,3)),());
+#900002=TESSELLATED_SHELL('',(#900001),$);
+#900003=TESSELLATED_SHAPE_REPRESENTATION('',(#900002),#188);
+#900004=SHAPE_REPRESENTATION_RELATIONSHIP('','',#900003,#12);
+ENDSEC;$1`), 'latin1');
 // A box of 10 x 20 x 30 whose faces are each a primitive of one glTF mesh (three.js: a mesh each, under the node), as
 // some CAD systems' glTF files have their parts: closed only as a whole (the caps check).
 {
@@ -956,6 +970,47 @@ await check('meshing timeout', async () => {
     short.timeout === 0.001, `a millisecond: every part timed out: ${j}`);
   expect(long.parts.failed === 0 && long.parts.done === long.parts.total && long.timedOut === 0 &&
     long.timeout === 60, `60 s: every part meshed again: ${j}`);
+  return undefined;
+});
+// STEP's tessellated geometry (the user, 2026-10-29): read and drawn as it is, nothing meshed, faces by STEP id and
+// edges shared between them; a B-rep's tessellation shown, then replaced by OCCT's mesh (not drawn beside it), kept
+// when meshing fails (a millisecond's timeout); by the backend when chosen, a part of its own, meshed.
+await check('tessellated STEP', async () => {
+  const ftc = await page(`?url=${encodeURIComponent('/content/ftc08-tg.stp')}&check`, `(async () => {
+    await cadViewer.ready; await cadViewer.idle();
+    const m = viewer.model;
+    return { parts: m.parts, status: document.getElementById('status').textContent };
+  })()`) as { stats?: { triangles: number; segments: number }; after: { parts: { total: number }; status: string } };
+  expect(ftc.stats!.triangles === 3368 && ftc.stats!.segments === 1883,
+    `FTC 08: ${JSON.stringify(ftc.stats)}, expected 3368 triangles, 1883 edge segments`);
+  expect(ftc.after.parts.total === 0 && /^ftc08-tg.stp: [\d.]+ s$/.test(ftc.after.status), `FTC 08 meshed: ${JSON.stringify(ftc.after)}`);
+  const r = await page(`?url=${encodeURIComponent('/content/cube-tess.stp')}&check`, `(async () => {
+    await cadViewer.ready; await cadViewer.idle();
+    const again = async () => {
+      const before = viewer.model;
+      ui.gui.controllersRecursive().find((c) => c._name === 'Mesh again').$button.click();
+      for (let t = 0; t < 1200 && (viewer.model === before || !viewer.model?.meshing); t++) {
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      await cadViewer.idle();
+      return { parts: viewer.model.parts, triangles: viewer.stats().triangles };
+    };
+    const first = { parts: viewer.model.parts, triangles: viewer.stats().triangles };
+    const control = (name) => ui.gui.controllersRecursive().find((c) => c._name.startsWith(name));
+    await viewer.clearCache();
+    control('Timeout').setValue(0.001);
+    const failed = await again();
+    control('Timeout').setValue(60);
+    control('Tessellated geometry').setValue('backend');
+    const backend = await again();
+    return { first, failed, backend };
+  })()`) as { after: Record<string, { parts: { total: number; done: number; failed: number }; triangles: number }> };
+  const { first, failed, backend } = r.after, j = JSON.stringify(r.after);
+  expect(first!.parts.total === 1 && first!.parts.failed === 0 && first!.triangles === 12,
+    `the cube meshed: OCCT's 12 triangles in place of the file's 2: ${j}`);
+  expect(failed!.parts.failed === 1 && failed!.triangles === 2, `meshing failed: the file's 2 triangles kept: ${j}`);
+  expect(backend!.parts.total === 2 && backend!.parts.failed === 0 && backend!.triangles === 14,
+    `by the backend: two parts meshed, 12 + 2 triangles: ${j}`);
   return undefined;
 });
 // Two planes (the user, 2026-10-27: a cap missing where another plane cuts): the plate cut across X through its

@@ -9,7 +9,7 @@
 
 import { partInstances, tessellateScene, type Diagnostic, type Mesh, type Scene } from 'cad-scene';
 import { importGltf, type GltfImportOptions } from 'gltf-import';
-import { importStep } from 'step-import';
+import { importStep, type ImportOptions } from 'step-import';
 import { importThreejs } from 'threejs-import';
 import type { Format } from './formats.ts';
 import type { CacheStats } from 'tess-cache/browser';
@@ -28,10 +28,14 @@ export interface ModelInput {
   resources?: Record<string, Uint8Array>;
 }
 
-/** The scene a file holds, by its format's importer (problems in it are the scene's diagnostics). */
-export async function importModel(input: ModelInput, gltf: GltfImportOptions = {}): Promise<Scene> {
+/**
+ * The scene a file holds, by its format's importer (problems in it are the scene's diagnostics); `step` the STEP
+ * importer's options (how tessellated geometry is read).
+ */
+export async function importModel(input: ModelInput, gltf: GltfImportOptions = {},
+  step: Pick<ImportOptions, 'tessellated'> = {}): Promise<Scene> {
   switch (input.format) {
-    case 'step': return (await importStep(input.bytes)).scene;
+    case 'step': return (await importStep(input.bytes, step)).scene;
     case 'glb': return (await importGltf(input.bytes, gltf)).scene;
     case 'gltf': return (await importGltf({ json: new TextDecoder().decode(input.bytes),
       ...(input.resources ? { resources: input.resources } : {}) }, gltf)).scene;
@@ -57,9 +61,12 @@ export function meshable(scene: Scene): number[] {
   return scene.parts.flatMap((p, i) => (p.brep && placed.has(i) ? [i] : []));
 }
 
-/** The buffers of the scene's levels' meshes (its mesh parts': ours come later), once each, to transfer. */
+/**
+ * The buffers of the scene's levels' meshes (the file's own: ours come later, and replace them where a part has a
+ * B-rep too), once each, to transfer.
+ */
 export function levelBuffers(scene: Scene): ArrayBuffer[] {
-  return [...new Set(scene.parts.flatMap((p) => p.brep ? [] : p.lods.flatMap((l) => meshBuffers(l.mesh))))];
+  return [...new Set(scene.parts.flatMap((p) => p.lods.flatMap((l) => meshBuffers(l.mesh))))];
 }
 
 /** The buffers of a mesh's arrays, once each, to transfer rather than copy. */
@@ -80,9 +87,9 @@ export function meshBuffers(mesh: Mesh | undefined): ArrayBuffer[] {
 export async function loadModelIn(input: ModelInput, settings: TessellationSettings, workers: number,
   tessellation: Pick<Tessellation, 'get' | 'describe'>, emit: (e: ModelEvent, transfer?: ArrayBuffer[]) => void,
   cancelled: () => boolean, gltf: GltfImportOptions = {}): Promise<void> {
-  const scene = await importModel(input, gltf);
+  const scene = await importModel(input, gltf, { tessellated: settings.tessellated });
   if (cancelled()) return;
-  // (Mesh parts' arrays transferred: only brep parts are used here from now on.)
+  // (The file's levels transferred: only B-rep payloads are used here from now on.)
   emit({ type: 'scene', scene: postable(scene) }, levelBuffers(scene));
   const brep = meshable(scene);
   if (!brep.length) return emit({ type: 'done', diagnostics: [] });

@@ -55,6 +55,8 @@ export interface MeshedWith {
   angularDeflection: number;
   /** Seconds a part could take (which decides which parts time out). */
   timeout: number;
+  /** How tessellated geometry was read (by us, or meshed by the backend). */
+  tessellated: TessellationSettings['tessellated'];
 }
 
 export interface Stats { objects: number; meshes: number; triangles: number; segments: number; points: number }
@@ -434,8 +436,8 @@ export class Viewer {
     const input = await modelInput(src, format);
     if (gen !== this.generation) return;
     // What it's meshed with: the settings now, which the import worker is given.
-    const { backend, profile, linearDeflection, angularDeflection, timeout } = this.settings;
-    const meshedWith: MeshedWith = { backend, profile, linearDeflection, angularDeflection, timeout };
+    const { backend, profile, linearDeflection, angularDeflection, timeout, tessellated } = this.settings;
+    const meshedWith: MeshedWith = { backend, profile, linearDeflection, angularDeflection, timeout, tessellated };
     let graph: SceneGraph | undefined;
     let model: ModelInfo | undefined;
     let zoomed = false;
@@ -461,11 +463,10 @@ export class Viewer {
           model = { name: src.name, format, parts: { total: brep.length, done: 0, failed: 0 },
             diagnostics: [...scene.diagnostics], meshedWith };
           this.show(graph.root, model, graph, keep);
-          // Parts without B-rep (every part of a glTF or three.js file) shown at once, their level for these
-          // settings (chooseLod).
+          // Parts with a level from the file (every part of a glTF or three.js file, STEP's tessellated geometry)
+          // shown at once, the level for these settings (chooseLod); a B-rep part's until ours comes.
           const wanted = meshDeflections(deflectionsOf(this.settings));
           for (const i of graph.placements.keys()) {
-            if (scene.parts[i]!.brep) continue;
             const mesh = chooseLod(scene.parts[i]!, wanted)?.mesh;
             if (mesh) {
               graph.addMesh(i, mesh);
@@ -478,8 +479,9 @@ export class Viewer {
           model!.parts!.done++;
           const drawn = !!mesh && mesh.indices.length + (mesh.curvePositions?.length ?? 0) +
             (mesh.points?.length ?? 0) > 0;
-          // A part that failed may still come with its faces' outlines (model-load.ts): shown, and counted failed.
-          if (mesh && (drawn || mesh.faceOutlines?.length)) {
+          // A part that failed may still come with its faces' outlines (model-load.ts): shown, and counted failed,
+          // unless the file's own tessellation of it is shown, which stays.
+          if (mesh && (drawn || (mesh.faceOutlines?.length && !graph!.hasMesh(ev.part)))) {
             graph!.addMesh(ev.part, mesh);
             added(ev.part);
             if (!zoomed && !this.moved) { zoomed = true; this.zoomAll(); }
