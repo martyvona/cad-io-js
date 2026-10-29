@@ -22,8 +22,8 @@ test('a 10 mm cube: faces with entity ids, edges, the origin subtracted in doubl
   const { scene } = await importStep(fs.readFileSync(cube));
   assert.equal(scene.parts.length, 1);
   const part = scene.parts[0]!;
-  assert.ok(part.kind === 'brep');
-  const req = { format: 'step' as const, data: part.payload(), rootId: part.rootId, linearDeflection: 0.01,
+  assert.ok(part.brep);
+  const req = { format: 'step' as const, data: part.brep.payload(), rootId: part.brep.rootId, linearDeflection: 0.01,
     angularDeflection: 0.5, edges: true };
   const plain = await tess.tessellate(req);
   assert.deepEqual(plain.diagnostics, []);
@@ -76,13 +76,13 @@ test("OCCT's messages: warnings on the part, never printed", { skip }, async () 
   await tess.init();
   const { scene } = await importStep(fs.readFileSync(cube));
   const part = scene.parts[0]!;
-  assert.ok(part.kind === 'brep');
+  assert.ok(part.brep);
   // A reference to an entity that isn't there: OCCT prints a count of them, and reads the rest.
-  const text = new TextDecoder().decode(part.payload());
+  const text = new TextDecoder().decode(part.brep.payload());
   const end = text.lastIndexOf('ENDSEC;');
   const dangling = new TextEncoder().encode(
     `${text.slice(0, end)}#900000=VERTEX_POINT('',#900001);\n${text.slice(end)}`);
-  const req = { format: 'step' as const, data: dangling, rootId: part.rootId, linearDeflection: 0.01,
+  const req = { format: 'step' as const, data: dangling, rootId: part.brep.rootId, linearDeflection: 0.01,
     angularDeflection: 0.5 };
   const printed: unknown[] = [];
   const restore = [process.stdout, process.stderr].map((s) => {
@@ -93,7 +93,7 @@ test("OCCT's messages: warnings on the part, never printed", { skip }, async () 
   let r, clean;
   try {
     r = await tess.tessellate(req);
-    clean = await tess.tessellate({ ...req, data: part.payload() });
+    clean = await tess.tessellate({ ...req, data: part.brep.payload() });
   } finally {
     for (const f of restore) f();
   }
@@ -129,7 +129,7 @@ test("a geometrically bounded surface representation: the geometric set's surfac
   const { scene } = await importStep(fs.readFileSync(gbssr));
   // The annotation-only representation #62 isn't a part; the wireframe #248 has no faces, only its curve set's
   // B-spline #72, returned without asking for edges.
-  assert.deepEqual(scene.parts.map((p) => (p.kind === 'brep' ? p.rootId : undefined)), [248, 245]);
+  assert.deepEqual(scene.parts.map((p) => p.brep?.rootId), [248, 245]);
   const { meshes, diagnostics } = await tessellateScene(scene, tess, { linearDeflection: 0.1, angularDeflection: 0.5 });
   assert.deepEqual(diagnostics, []);
   const wire = meshes.get(0)!;
@@ -161,10 +161,10 @@ test('a lone boundary on a sphere or torus: the small region in a geometric set,
   await tess.init();
   const areaOf = async (f: string) => {
     const { scene } = await importStep(fs.readFileSync(f));
-    const p = scene.parts.find((q) => q.kind === 'brep' && !/WIREFRAME/.test(String(q.properties.representation)));
-    assert.ok(p?.kind === 'brep');
+    const p = scene.parts.find((q) => !!q.brep && !/WIREFRAME/.test(String(q.properties.representation)));
+    assert.ok(p?.brep);
     return area(await tess.tessellate(
-      { format: 'step', data: p.payload(), rootId: p.rootId, origin: p.origin, linearDeflection: 0.2 / p.unit,
+      { format: 'step', data: p.brep.payload(), rootId: p.brep.rootId, origin: p.origin, linearDeflection: 0.2 / p.unit,
       angularDeflection: 0.3 }));
   };
   // In inches: 9.07 as OCCT 7.6 reads it, matching the other writers' copies of the model (tc 5838 mm^2, md 5756 mm^2);
@@ -186,8 +186,8 @@ test("our patch 0001: a cone whose seam pcurves slope by 3e-14 in U meshed (OCCT
   assert.match(tess.info.version, / \+ patches [^,]*0001-brepmesh-cone-seam-pcurves/);
   const { scene } = await importStep(fs.readFileSync(conical));
   const p = scene.parts[0]!;
-  assert.ok(p.kind === 'brep');
-  const r = await tess.tessellate({ format: 'step', data: p.payload(), rootId: p.rootId, origin: p.origin,
+  assert.ok(p.brep);
+  const r = await tess.tessellate({ format: 'step', data: p.brep.payload(), rootId: p.brep.rootId, origin: p.origin,
     linearDeflection: 0.1 / p.unit, angularDeflection: 0.5 });
   tess.dispose();
   const cone = r.faces.filter((f) => f.entityId === 78);
@@ -205,11 +205,11 @@ test("a solid with a curve set beside it: the set's curves and points, by id, mi
   const tess = new OcctTessellator();
   await tess.init();
   const { scene } = await importStep(fs.readFileSync(mixed));
-  const p = scene.parts.find((q) => q.kind === 'brep' && q.rootId === 830);
-  assert.ok(p?.kind === 'brep');
+  const p = scene.parts.find((q) => q.brep?.rootId === 830);
+  assert.ok(p?.brep);
   const r = await tess.tessellate(
-    { format: 'step', data: p.payload(), rootId: 830, origin: p.origin, linearDeflection: 0.1, angularDeflection: 0.5,
-    edges: true });
+    { format: 'step', data: p.brep.payload(), rootId: 830, origin: p.origin, linearDeflection: 0.1,
+      angularDeflection: 0.5, edges: true });
   assert.ok(r.indices.length > 0);
   assert.ok(r.edges!.length > 0 && r.edges!.every((e) => e.kind !== 'free'));
   // #823's elements: the trimmed lines #807 and #812, and fourteen points.
@@ -231,10 +231,10 @@ test("curve ids: a composite curve's segments take the composite's, an edge-base
   await tess.init();
   const ids = async (f: string, root: number) => {
     const { scene } = await importStep(fs.readFileSync(f));
-    const p = scene.parts.find((q) => q.kind === 'brep' && q.rootId === root);
-    assert.ok(p?.kind === 'brep');
+    const p = scene.parts.find((q) => q.brep?.rootId === root);
+    assert.ok(p?.brep);
     const r = await tess.tessellate(
-      { format: 'step', data: p.payload(), rootId: root, origin: p.origin, linearDeflection: 0.1 / p.unit,
+      { format: 'step', data: p.brep.payload(), rootId: root, origin: p.origin, linearDeflection: 0.1 / p.unit,
       angularDeflection: 0.5 });
     assert.deepEqual(r.diagnostics, []);
     return r.curves!.map((c) => c.entityId);
@@ -254,8 +254,8 @@ test("a host's module: the glue and module given by URL, bytes, factory or compi
   const bytes = fs.readFileSync(wasm);
   const { scene } = await importStep(fs.readFileSync(cube));
   const part = scene.parts[0]!;
-  assert.ok(part.kind === 'brep');
-  const req = { format: 'step' as const, data: part.payload(), rootId: part.rootId, linearDeflection: 0.01,
+  assert.ok(part.brep);
+  const req = { format: 'step' as const, data: part.brep.payload(), rootId: part.brep.rootId, linearDeflection: 0.01,
     angularDeflection: 0.5, edges: true };
   const run = async (opts: OcctInitOptions) => {
     const tess = new OcctTessellator();

@@ -54,8 +54,9 @@ function scene({ override = true } = {}): Scene {
   const occ = (component: number, t: Mat4, name?: string) => (
     { component, transform: t, sources: [], properties: {}, ...(name ? { name } : {}) });
   const brep = (name: string, unit: number) => (
-    { kind: 'brep' as const, name, sources: [{ format: 'step', id: 50 }], properties: {}, unit,
-    origin: [0, 0, 0] as [number, number, number], format: 'step' as const, payload: () => new Uint8Array() });
+    { name, sources: [{ format: 'step', id: 50 }], properties: {}, unit,
+    origin: [0, 0, 0] as [number, number, number], lods: [],
+    brep: { format: 'step' as const, payload: () => new Uint8Array() } });
   return {
     unit: 'millimetre',
     components: [
@@ -78,7 +79,11 @@ function scene({ override = true } = {}): Scene {
   };
 }
 const meshes = () => new Map([[0, cube()], [1, sheet()]]);
-const write = (s: Scene, opts: ThreeMfOptions = {}, m = meshes()) => threemf(s, exportView(s, m), opts);
+/** The export view of a copy of the scene with these meshes as its parts' levels (as tessellateScene adds them). */
+const viewOf = (s: Scene, m: ReadonlyMap<number, Mesh>, o?: Parameters<typeof exportView>[1]) => exportView({ ...s,
+  parts: s.parts.map((p, i) => (m.has(i) ? { ...p, lods: [{ from: 'tessellated' as const, mesh: m.get(i)! }] } : p)) },
+o);
+const write = (s: Scene, opts: ThreeMfOptions = {}, m = meshes()) => threemf(s, viewOf(s, m), opts);
 const bytes = (chunks: Uint8Array[]) => Uint8Array.from(Buffer.concat(chunks));
 const modelXml = (chunks: Uint8Array[]) => strFromU8(unzipSync(bytes(chunks))['3D/3dmodel.model']!);
 const messages = (r: { diagnostics: { message: string }[] }) => r.diagnostics.map((d) => d.message);

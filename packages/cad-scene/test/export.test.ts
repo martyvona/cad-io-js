@@ -29,8 +29,8 @@ function scene(): Scene {
   const occ = (component: number, t: Mat4, name?: string) => (
     { component, transform: t, sources: [], properties: {}, ...(name ? { name } : {}) });
   const brep = (name: string, unit: number) => (
-    { kind: 'brep' as const, name, sources: [], properties: {}, unit, origin: [0, 0, 0] as [number, number, number],
-    format: 'step' as const, payload: () => new Uint8Array() });
+    { name, sources: [], properties: {}, unit, origin: [0, 0, 0] as [number, number, number], lods: [],
+    brep: { format: 'step' as const, payload: () => new Uint8Array() } });
   return {
     unit: 'millimetre',
     components: [
@@ -46,8 +46,9 @@ function scene(): Scene {
     parts: [
       { ...brep('plate', 25.4), material: 1, faceMaterials: [{ face: 7, material: 2 }] },
       brep('bolt', 1),
-      { kind: 'curves', name: 'wire', sources: [], properties: {}, unit: 1, origin: [5, 0, 0],
-        positions: new Float32Array(6), polylines: [{ start: 0, count: 2, source: 9 }] },
+      { name: 'wire', sources: [], properties: {}, unit: 1, origin: [5, 0, 0], lods: [{ from: 'source', mesh: {
+        origin: [5, 0, 0], positions: new Float32Array(0), indices: new Uint32Array(0), faces: [],
+        curvePositions: new Float32Array(6), curves: [{ source: 9, start: 0, count: 2 }] } }] },
       brep('failed', 1),
     ],
     materials: [0, 1, 2, 3].map(
@@ -60,6 +61,10 @@ function scene(): Scene {
   };
 }
 const meshes = () => new Map([[0, plate()], [1, bolt()]]);
+/** The export view of a copy of the scene with these meshes as its parts' levels (as tessellateScene adds them). */
+const viewOf = (s: Scene, m: ReadonlyMap<number, Mesh>, o?: Parameters<typeof exportView>[1]) => exportView({ ...s,
+  parts: s.parts.map((p, i) => (m.has(i) ? { ...p, lods: [{ from: 'tessellated' as const, mesh: m.get(i)! }] } : p)) },
+o);
 
 const flat = (nodes: ExportNode[]): ExportNode[] => nodes.flatMap((n) => [n, ...flat(n.children)]);
 const summary = (nodes: ExportNode[]) => flat(nodes).map(
@@ -67,7 +72,7 @@ const summary = (nodes: ExportNode[]) => flat(nodes).map(
 
 test('exportView: the tree, shared looks, groups by material, origins', () => {
   const s = scene();
-  const v = exportView(s, meshes());
+  const v = viewOf(s, meshes());
   // The failed part and (without `curves`) the wireframe have nothing to draw; both plates share look 0.
   assert.deepEqual(summary(v.roots), [
     ['0', 'asm', [], [0, 0, 0]],
@@ -97,7 +102,7 @@ test('exportView: the tree, shared looks, groups by material, origins', () => {
 test('exportView: overrides make new looks; hidden instances; a face material equal to the default', () => {
   const s = scene();
   s.overrides.push({ path: [0, 1], material: 3, sources: [] }, { path: [0, 1, 0], visible: false, sources: [] });
-  let v = exportView(s, meshes());
+  let v = viewOf(s, meshes());
   assert.deepEqual(summary(v.roots).map((x) => x[2]), [[], [0], [1], [2], [3]]);
   // The overridden plate is white throughout, so one group and the mesh's own order.
   assert.deepEqual(v.looks[2]!.groups, [{ material: 3, start: 0, count: 9 }]);
@@ -107,19 +112,19 @@ test('exportView: overrides make new looks; hidden instances; a face material eq
   assert.equal(v.looks[3]!.material, 3);
   assert.equal(v.roots[0]!.children[1]!.children[0]!.parts[0]!.visible, false);
   // The wireframe has no faces, so only its default material tells its two instances apart.
-  const wires = flat(exportView(s, meshes(), { curves: true }).roots).flatMap(
+  const wires = flat(viewOf(s, meshes(), { curves: true }).roots).flatMap(
     (n) => n.parts.slice(1).map((p) => p.look));
   assert.equal(new Set(wires).size, 2);
   // Face 7 green like the rest: one group.
   s.overrides = [];
   s.parts[0]!.faceMaterials = [{ face: 7, material: 1 }];
-  v = exportView(s, meshes());
+  v = viewOf(s, meshes());
   assert.deepEqual(v.looks[0]!.groups, [{ material: 1, start: 0, count: 9 }]);
 });
 
 test('exportView: edges and curves on request', () => {
   const s = scene();
-  const v = exportView(s, meshes(), { edges: true, curves: true });
+  const v = viewOf(s, meshes(), { edges: true, curves: true });
   assert.deepEqual(summary(v.roots)[2]![2], [1, 2]);
   assert.equal(v.looks[1]!.edges, true);
   // The wireframe: a curves-only mesh, at its origin.
@@ -130,17 +135,17 @@ test('exportView: edges and curves on request', () => {
   const m = meshes();
   m.set(1, { origin: [0, 0, 0], positions: new Float32Array(0), indices: new Uint32Array(0), faces: [],
     points: new Float32Array(3), pointSources: [11] });
-  assert.deepEqual(summary(exportView(s, m).roots)[2]![2], []);
-  const pts = exportView(s, m, { curves: true }).looks[1]!;
+  assert.deepEqual(summary(viewOf(s, m).roots)[2]![2], []);
+  const pts = viewOf(s, m, { curves: true }).looks[1]!;
   assert.deepEqual([pts.part, pts.curves], [1, true]);
 });
 
 test('exportView: a mesh part without faces is one group; a component inside itself', () => {
   const s = scene();
-  s.parts[1] = { kind: 'mesh', name: 'bolt', sources: [], properties: {}, unit: 1, origin: [0, 0, 0], material: 0,
-    lods: [{ ...bolt(), faces: [] }] };
+  s.parts[1] = { name: 'bolt', sources: [], properties: {}, unit: 1, origin: [0, 0, 0], material: 0,
+    lods: [{ from: 'source', mesh: { ...bolt(), faces: [] } }] };
   s.components[2]!.children.push({ component: 1, transform: identity(), sources: [], properties: {} }); // 1 -> 2 -> 1
-  const v = exportView(s, new Map([[0, plate()]]));
+  const v = viewOf(s, new Map([[0, plate()]]));
   assert.deepEqual(v.looks[1]!.groups, [{ material: 0, start: 0, count: 3 }]);
   assert.equal(flat(v.roots).length, 5);
 });
@@ -148,7 +153,7 @@ test('exportView: a mesh part without faces is one group; a component inside its
 test('pruneView: nodes with nothing kept beneath them left out; kept nodes keep all their parts', () => {
   const s = scene();
   // Without the bolt's mesh, the bolt components have nothing to draw.
-  const view = exportView(s, new Map([[0, plate()]]));
+  const view = viewOf(s, new Map([[0, plate()]]));
   const before = JSON.stringify(summary(view.roots));
   const pruned = pruneView(view);
   assert.equal(pruned.looks, view.looks);
@@ -160,5 +165,5 @@ test('pruneView: nodes with nothing kept beneath them left out; kept nodes keep 
   assert.deepEqual(summary(pruneView(view, (p) => second.has(p)).roots).map((n) => n[0]), ['0', '0/1']);
   assert.deepEqual(pruneView(view, () => false).roots, []);
   // Everything with something to draw: unchanged.
-  assert.deepEqual(summary(pruneView(exportView(s, meshes())).roots), summary(exportView(s, meshes()).roots));
+  assert.deepEqual(summary(pruneView(viewOf(s, meshes())).roots), summary(viewOf(s, meshes()).roots));
 });

@@ -46,7 +46,7 @@ for (const f of corpusFiles(process.argv[2])) {
   const { scene } = await importStep(bytes);
   const { meshes } = await tessellateScene(scene, tess,
     { linearDeflection: 0.1, angularDeflection: 0.5, edges: true, concurrency: workers });
-  const view = exportView(scene, meshes, { edges: true, curves: true });
+  const view = exportView(scene, { linearDeflection: 0.1, angularDeflection: 0.5, edges: true, curves: true });
 
   const te = performance.now();
   const chunks: string[] = [];

@@ -9,5 +9,6 @@ export { DEFAULT_MESH_PROFILE, MESH_PROFILE_NAMES, MESH_PROFILES, meshDeflection
   type MeshProfile } from './profiles.ts';
 export { dropDegenerate, FAILED_PIECE_FRACTION, faceFailures, INSIDE_OUT, manifoldProblems, orientShells,
   weld } from './mesh.ts';
-export { exportView, partMesh, pruneView, type ExportNode, type ExportView, type ExportViewOptions,
+export { exportView, pruneView, type ExportNode, type ExportView, type ExportViewOptions,
   type Look } from './export.ts';
+export { addLod, chooseLod, type LodWanted } from './lod.ts';

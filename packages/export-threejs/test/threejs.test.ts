@@ -35,8 +35,9 @@ function scene(): Scene {
     { component, transform: t, sources: [{ format: 'step', id: 100 + component }], properties: {},
     ...(name ? { name } : {}) });
   const brep = (name: string, unit: number) => (
-    { kind: 'brep' as const, name, sources: [{ format: 'step', id: 50 }], properties: { pn: 'X-1' }, unit,
-    origin: [0, 0, 0] as [number, number, number], format: 'step' as const, payload: () => new Uint8Array() });
+    { name, sources: [{ format: 'step', id: 50 }], properties: { pn: 'X-1' }, unit,
+    origin: [0, 0, 0] as [number, number, number], lods: [],
+    brep: { format: 'step' as const, payload: () => new Uint8Array() } });
   return {
     unit: 'millimetre',
     components: [
@@ -58,13 +59,17 @@ function scene(): Scene {
   };
 }
 const meshes = () => new Map([[0, plate()], [1, wire()]]);
+/** The export view of a copy of the scene with these meshes as its parts' levels (as tessellateScene adds them). */
+const viewOf = (s: Scene, m: ReadonlyMap<number, Mesh>, o?: Parameters<typeof exportView>[1]) => exportView({ ...s,
+  parts: s.parts.map((p, i) => (m.has(i) ? { ...p, lods: [{ from: 'tessellated' as const, mesh: m.get(i)! }] } : p)) },
+o);
 const load = (json: string) => new THREE.ObjectLoader().parse(JSON.parse(json));
 const byName = (root: THREE.Object3D, name: string) => { const out: THREE.Object3D[] = [];
   root.traverse((o) => { if (o.name === name) out.push(o); }); return out; };
 
 test('three.js JSON loads with ObjectLoader: tree, transforms, shared geometry, materials, userData', () => {
   const s = scene();
-  const view = exportView(s, meshes());
+  const view = viewOf(s, meshes());
   const json = threejsJson(s, view, { name: 'model', extras: true });
   const root = load(json);
   root.updateMatrixWorld(true);
@@ -117,7 +122,7 @@ test('three.js JSON loads with ObjectLoader: tree, transforms, shared geometry, 
 test('edges and curves on request; edge kinds; hidden instances; colours', () => {
   const s = scene();
   s.overrides.push({ path: [0, 0], visible: false, sources: [] });
-  const view = exportView(s, meshes(), { edges: true, curves: true });
+  const view = viewOf(s, meshes(), { edges: true, curves: true });
   const root = load(threejsJson(s, view, { doubleSided: true, defaultColor: [0, 0.5, 1], edgeColor: [0.2, 0.2, 0.2],
     extras: true }));
   const [p0, p1] = byName(root, 'plate') as THREE.Mesh[];
@@ -157,7 +162,7 @@ test('edges and curves on request; edge kinds; hidden instances; colours', () =>
 
 test('without extras (the default): no userData anywhere, the same objects, geometries and materials', () => {
   const s = scene();
-  const view = exportView(s, meshes(), { edges: true, curves: true });
+  const view = viewOf(s, meshes(), { edges: true, curves: true });
   const plain = JSON.parse(threejsJson(s, view));
   assert.equal(JSON.stringify(plain).includes('"userData"'), false);
   // The same document as with extras, once its userData is taken out.
@@ -178,12 +183,12 @@ test('chunks: one document, deterministic, large arrays split', () => {
   big.normals = undefined;
   big.indices = Uint32Array.from({ length: 60000 }, (_, i) => i % 30000);
   big.faces = [{ source: 8, start: 0, count: 60000 }];
-  const view = exportView(s, new Map([[0, big]]));
+  const view = viewOf(s, new Map([[0, big]]));
   const chunks = [...threejsChunks(s, view)];
   assert.ok(chunks.length > 10);
   const text = chunks.join('');
   assert.equal(text, threejsJson(s, view));
-  assert.equal(threejsJson(s, exportView(s, new Map([[0, big]]))), text);
+  assert.equal(threejsJson(s, viewOf(s, new Map([[0, big]]))), text);
   const g = (load(text).getObjectByName('plate') as THREE.Mesh).geometry;
   assert.deepEqual(Array.from(g.getAttribute('position').array), Array.from(big.positions));
   assert.deepEqual(Array.from(g.index!.array), Array.from(big.indices));
@@ -214,9 +219,9 @@ test('tree nodes with nothing to draw beneath them left out, unless keepEmpty', 
     load(json).traverse((o) => out.push(o.name));
     return out;
   };
-  assert.deepEqual(names(threejsJson(s, exportView(s, new Map()))), ['']);
-  assert.deepEqual(names(threejsJson(s, exportView(s, new Map()), { keepEmpty: true })), ['', 'asm', 'left', 'sub']);
+  assert.deepEqual(names(threejsJson(s, viewOf(s, new Map()))), ['']);
+  assert.deepEqual(names(threejsJson(s, viewOf(s, new Map()), { keepEmpty: true })), ['', 'asm', 'left', 'sub']);
   // With something to draw, the same either way.
-  const view = exportView(s, meshes());
+  const view = viewOf(s, meshes());
   assert.equal(threejsJson(s, view), threejsJson(s, view, { keepEmpty: true }));
 });

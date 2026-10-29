@@ -12,7 +12,7 @@
 import { VIEW_BACKGROUNDS, type Theme } from './theme.ts';
 import * as THREE from 'three';
 import { TrackballControls } from 'three/addons/controls/TrackballControls.js';
-import { partMesh, type Diagnostic } from 'cad-scene';
+import { chooseLod, meshDeflections, type Diagnostic } from 'cad-scene';
 import { clipTo, fit, setAspect, setView, type ViewName } from './camera.ts';
 import type { CameraState } from './view-state.ts';
 import { formatOf, nativeFrame, type Format } from './formats.ts';
@@ -28,7 +28,7 @@ import { cadStyle, DEFAULT_RENDER, EDGES, edgeLayer, type RenderSettings } from 
 import { TriangleEdges } from './triangle-edges.ts';
 import type { FromImportWorker, ToImportWorker } from './import-worker.ts';
 import type { Meshing, StepEvent } from './step-load.ts';
-import { clearCache, defaultSettings, workerCount, type TessellationSettings } from './tessellation.ts';
+import { clearCache, defaultSettings, deflectionsOf, workerCount, type TessellationSettings } from './tessellation.ts';
 import { classifyDevice, DEVICE_PROFILES, deviceOverride, deviceSignals, type DeviceClass } from './device.ts';
 
 export interface ModelInfo {
@@ -464,14 +464,15 @@ export class Viewer {
         if (ev.type === 'scene') {
           const scene = ev.scene;
           graph = new StepGraph(scene, src.name, this.render.shininess, this.render.specular);
-          const brep = scene.parts.flatMap((p, i) => p.kind === 'brep' && graph!.placements.has(i) ? [i] : []);
+          const brep = scene.parts.flatMap((p, i) => p.brep && graph!.placements.has(i) ? [i] : []);
           model = { name: src.name, format: 'step', parts: { total: brep.length, done: 0, failed: 0 },
             diagnostics: [...scene.diagnostics], meshedWith };
           this.show(graph.root, model, graph, keep);
-          // Parts already meshes or curves need no tessellation.
+          // Parts without B-rep shown at once, their level for these settings (chooseLod).
+          const wanted = meshDeflections(deflectionsOf(this.settings));
           for (const i of graph.placements.keys()) {
-            if (scene.parts[i]!.kind === 'brep') continue;
-            const mesh = partMesh(scene, new Map(), i);
+            if (scene.parts[i]!.brep) continue;
+            const mesh = chooseLod(scene.parts[i]!, wanted)?.mesh;
             if (mesh) {
               graph.addMesh(i, mesh);
               added(i);

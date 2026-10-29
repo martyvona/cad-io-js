@@ -7,7 +7,7 @@ import { tessellateScene, type Scene, type TessellationRequest, type Tessellatio
 // finish in reverse order, and fails part 2.
 function scene(): Scene {
   const brep = (i: number) => ({
-    kind: 'brep' as const, format: 'step' as const, payload: () => new Uint8Array([i]), rootId: 100 + i,
+    brep: { format: 'step' as const, payload: () => new Uint8Array([i]), rootId: 100 + i }, lods: [],
     name: `p${i}`, sources: [{ format: 'step', id: 100 + i }], properties: {}, unit: i === 3 ? 25.4 : 1,
     origin: [i, 0, 0] as [number, number, number],
   });
@@ -15,7 +15,7 @@ function scene(): Scene {
     unit: 'millimetre', components: [], roots: [], materials: [], layers: [], overrides: [], properties: {},
     diagnostics: [],
     parts: [brep(0), brep(1), brep(2),
-      { kind: 'mesh', name: 'm', sources: [], properties: {}, unit: 1, origin: [0, 0, 0], lods: [] }, brep(3), brep(4)],
+      { name: 'm', sources: [], properties: {}, unit: 1, origin: [0, 0, 0], lods: [] }, brep(3), brep(4)],
   };
 }
 
@@ -101,9 +101,9 @@ test('tessellateScene outlines: faces with no triangles or no range outlined; a 
   const s = scene();
   const asked: { part: number; faces: number[]; linearDeflection: number }[] = [];
   for (const i of [0, 1, 2, 4]) {
-    const p = s.parts[i] as Extract<Scene['parts'][number], { kind: 'brep' }>;
+    const p = s.parts[i]!;
     // Faces 10, 11, 12 of each brep part; an outline of 2 points for each face asked for.
-    p.outline = ({ faces, linearDeflection }) => {
+    p.brep!.outline = ({ faces, linearDeflection }) => {
       const want = [10, 11, 12].filter((f) => !faces || faces.has(f));
       asked.push({ part: i, faces: want, linearDeflection });
       return { faces: [10, 11, 12], positions: Float32Array.from(want.flatMap((f) => [f, 0, 0, f, 1, 0])),
@@ -153,6 +153,6 @@ test('tessellateScene outlines: faces with no triangles or no range outlined; a 
   const plain = await tessellateScene(s, fake(), { linearDeflection: 0.2 });
   assert.ok(!plain.meshes.has(2) && [...plain.meshes.values()].every((m) => !m.faceOutlines));
   // A part that can't outline: as before.
-  delete (s.parts[2] as { outline?: unknown }).outline;
+  delete s.parts[2]!.brep!.outline;
   assert.ok(!(await tessellateScene(s, fake(), { outlines: true })).meshes.has(2));
 });

@@ -43,9 +43,9 @@ import { OcctTessellator } from 'tess-occt';
 const { scene } = await importStep(fs.readFileSync('bracket.step'));   // the assembly, parts, colours, ...
 const occt = new OcctTessellator();
 await occt.init();
-const { meshes, diagnostics } = await tessellateScene(scene, occt);   // the medium profile: 0.1 mm, 15 degrees
+const { diagnostics } = await tessellateScene(scene, occt);   // the medium profile: 0.1 mm, 15 degrees
 occt.dispose();
-const { bytes } = await glb(scene, exportView(scene, meshes));
+const { bytes } = await glb(scene, exportView(scene));     // each part's finest level: here, ours
 fs.writeFileSync('bracket.glb', bytes);
 ```
 
@@ -499,14 +499,14 @@ flowchart TD
   roots --> comp["Component"]
   comp -->|"children: Occurrence[]"| comp
   comp --> refs["parts: PartRef[]"]
-  refs --> parts["parts: Part[]<br/>brep, mesh or curves"]
+  refs --> parts["parts: Part[]<br/>B-rep, levels of detail"]
   scene --> parts
   scene --> mats["materials, layers, overrides"]
   scene --> props["properties, diagnostics"]
 ```
 
 - **A component** is one product definition, stored once and placed by any number of occurrences (each with the component, a transform and a name); it has its part references (part, transform, material, visibility), its child occurrences, and optionally an external reference, a material, a name, sources and properties.
-- **A part** is a `brep` part (`payload()`, a STEP subset, with its format and root id), a `mesh` part (levels of detail) or a `curves` part (polylines); each is in its own unit, with an origin near its geometry, a material and per-face materials.
+- **A part** has exact geometry (`brep`: its format, `payload()`, a STEP subset, its root id, and `outline` for faces that fail to mesh), meshes (`lods`, levels of detail, finest first: each a mesh of triangles, edges, curves and points, from the source file or made by a tessellator, with its deflections and maker where known), or both; it is in its own unit, with an origin near its geometry, a material and per-face materials. `tessellateScene` adds its meshes as levels; `chooseLod` picks the one the viewer and the exporters use (one at a time, for now).
 - **Materials** are sRGB with opacity; **layers** name parts and faces; **overrides** change one instance's material or visibility, by its occurrence path.
 - **`instances(scene)` and `partInstances(scene)`** expand the tree: each placed part's world transform, material, per-face materials and visibility, resolved top down as the CAx-IF practice has it.
 
@@ -537,7 +537,7 @@ Each layer is itself a `Tessellator`, so they compose, and each can be used alon
 
 ### Exporters
 
-`exportView(scene, meshes, {edges, curves})` computes what every format needs once: **looks** (a part plus the material of each of its faces, so instances that look alike share one mesh), each look's triangles **grouped** by material, and the **instance tree**. Each exporter then only writes its format, in chunks, so a model's output never has to fit in one string.
+`exportView(scene, {edges, curves, linearDeflection, angularDeflection})` computes what every format needs once: **looks** (a part plus the material of each of its faces, so instances that look alike share one mesh), each look's triangles **grouped** by material, and the **instance tree**. Each exporter then only writes its format, in chunks, so a model's output never has to fit in one string.
 
 A placed part's transform in the tree is the one exporters write as the mesh's node or item transform: the part reference's transform (from the part's coordinates, in its own unit, to its component's, in millimetres: so it includes the unit's scale) times a translation by the mesh's origin. The translation is there because a mesh's positions aren't stored in the part's coordinates as they are, but minus a point near the part (`Mesh.origin`), so that `Float32` keeps its precision for parts modelled far from their coordinate system's origin; adding the origin back in the transform, in double precision, puts the vertices where the part's coordinates have them.
 
@@ -643,7 +643,7 @@ console.log(formatReal(1e21), formatReal(-0));               // 1e+21 -0.0
 
 ### `cad-scene`
 
-The scene model every importer produces and every exporter consumes (see [Scene Model](#scene-model-cad-scene)), the `Tessellator` interface backends implement, `tessellateScene` to drive one over a scene, and `exportView` for exporters (see [Exporters](#exporters)). The model's types: `Scene`, `Component`, `Occurrence`, `PartRef`, `Part` (`BrepPart`, `MeshPart`, `CurvesPart`), `Mesh`, `Material`, `Layer`, `InstanceOverride`, `Diagnostic`, `SourceId`; the interface's: `Tessellator`, `TessellatorInfo`, `TessellationRequest`, `TessellationResult`.
+The scene model every importer produces and every exporter consumes (see [Scene Model](#scene-model-cad-scene)), the `Tessellator` interface backends implement, `tessellateScene` to drive one over a scene, and `exportView` for exporters (see [Exporters](#exporters)). The model's types: `Scene`, `Component`, `Occurrence`, `PartRef`, `Part` (with `Brep` and `Lod`), `Mesh`, `Material`, `Layer`, `InstanceOverride`, `Diagnostic`, `SourceId`; the interface's: `Tessellator`, `TessellatorInfo`, `TessellationRequest`, `TessellationResult`.
 
 ```ts
 import fs from 'node:fs';
@@ -666,11 +666,11 @@ for (const c of instances(scene)) console.log('  '.repeat(c.path.length) + scene
 const placed = [...partInstances(scene)];
 const first = placed[0]!;
 const part = scene.parts[first.part]!;
-console.log(placed.length, part.name, part.kind, part.unit, scene.materials[first.material!]);
-// 18 nut brep 1 { color: [ 1, 0, 0 ], opacity: 1, sources: [] }
+console.log(placed.length, part.name, part.brep?.format, part.unit, scene.materials[first.material!]);
+// 18 nut step 1 { color: [ 1, 0, 0 ], opacity: 1, sources: [] }
 
-// Tessellation: one request per brep part (its STEP subset), up to `concurrency` at once (set it to a worker
-// pool's size); here the backend runs on this thread.
+// Tessellation: one request per part with B-rep the backend takes (its STEP subset), up to `concurrency` at once
+// (set it to a worker pool's size); here the backend runs on this thread. Each mesh becomes a level of its part.
 const occt = new OcctTessellator();
 await occt.init();
 const { meshes, diagnostics } = await tessellateScene(scene, occt, {
@@ -680,14 +680,14 @@ const { meshes, diagnostics } = await tessellateScene(scene, occt, {
   onPart: (part, mesh, done, total) => {},   // progress
 });
 occt.dispose();
-const mesh = meshes.get(first.part)!;    // positions minus mesh.origin, in the part's unit; faces by STEP face id
+const mesh = part.lods[0]!.mesh;  // positions minus mesh.origin, in the part's unit; faces by STEP face id
 console.log(mesh.positions.length / 3, mesh.indices.length / 3, mesh.faces.length, mesh.faces[0]!.source,
   mesh.origin, diagnostics.length);  // 168 156 8 65 [ 5, 10, 1.5 ] 0
 ```
 
 The deflections come from a meshing profile (`MESH_PROFILES` in `cad-scene`, the one place they're defined): `profile: 'coarse'` (0.2 mm, 30 degrees), `'medium'` (0.1 mm, 15 degrees; `DEFAULT_MESH_PROFILE`, used when nothing is given) or `'fine'` (0.05 mm, 7.5 degrees); `linearDeflection` and `angularDeflection`, as in the example, replace the profile's values, one or both (`meshDeflections(opts)` gives the result, `meshProfileOf(deflections)` the profile they match, if any). Over the corpus with OCCT, against 0.1 mm and 28.6 degrees (the default before 2026-10-26): coarse has 0.59 times the triangles, medium 1.25 times (the median part 1.7 times), fine 3.3 times, and fine's tight angle makes 14 parts time out at 60 s.
 
-`tessellateScene` repairs what it can in every mesh, with a diagnostic each time, so every consumer of the scene gets the repaired mesh: triangles with two corners at one position are dropped, and closed shells that are inside out and enclosed by nothing else (so can't be voids) are turned over. `orient: false` and `dropDegenerate: false` keep the backend's meshes as they are, and `parts` limits it to some parts. Also: `identity()`, `multiply(a, b)`, `scaling(s)` for matrices, and `Y_UP_METRES` (millimetres and Z up to metres and Y up, the glTF and three.js exporters' root); `sha256(bytes)` (Web Crypto's, or our own `sha256Js` where Web Crypto is missing, as in pages that aren't a secure context); `weld(positions)` (vertices merged by exact position), `manifoldProblems(positions, triangles)`, `orientShells(mesh)` and `dropDegenerate(mesh)`, the mesh helpers behind the repairs and the 3MF exporter; `partMesh(scene, meshes, part)` (a part's mesh whatever its kind); `TessellationError`, which a backend throws for a failure that is the part's, not the host's.
+`tessellateScene` repairs what it can in every mesh, with a diagnostic each time, so every consumer of the scene gets the repaired mesh: triangles with two corners at one position are dropped, and closed shells that are inside out and enclosed by nothing else (so can't be voids) are turned over. `orient: false` and `dropDegenerate: false` keep the backend's meshes as they are, and `parts` limits it to some parts. Also: `identity()`, `multiply(a, b)`, `scaling(s)` for matrices, and `Y_UP_METRES` (millimetres and Z up to metres and Y up, the glTF and three.js exporters' root); `sha256(bytes)` (Web Crypto's, or our own `sha256Js` where Web Crypto is missing, as in pages that aren't a secure context); `weld(positions)` (vertices merged by exact position), `manifoldProblems(positions, triangles)`, `orientShells(mesh)` and `dropDegenerate(mesh)`, the mesh helpers behind the repairs and the 3MF exporter; `addLod(part, lod)` and `chooseLod(part, {linearDeflection, angularDeflection})` (a part's levels: added finest first, and the one used: ours at those settings, else the nearest not coarser, else the finest); `TessellationError`, which a backend throws for a failure that is the part's, not the host's.
 
 ### `step-import`
 
@@ -823,11 +823,13 @@ import { OcctTessellator } from 'tess-occt';
 const { scene } = await importStep(fs.readFileSync('assembly.stp'));
 const occt = new OcctTessellator();
 await occt.init();
-const { meshes } = await tessellateScene(scene, occt, { linearDeflection: 0.1, angularDeflection: 0.5, edges: true });
+const meshing = { linearDeflection: 0.1, angularDeflection: 0.5 };
+await tessellateScene(scene, occt, { ...meshing, edges: true });
 occt.dispose();
 
-// The export view, computed once for any number of exporters; edges and curves only if asked for.
-const view = exportView(scene, meshes, { edges: true });
+// The export view, computed once for any number of exporters (each part's level at these settings); edges and
+// curves only if asked for.
+const view = exportView(scene, { ...meshing, edges: true });
 console.log(view.looks.length, 'looks');                      // 5
 
 // three.js JSON in chunks, so a large model never has to be one string; THREE.ObjectLoader reads the result.

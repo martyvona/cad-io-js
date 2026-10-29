@@ -183,9 +183,9 @@ for (const f of files) {
     const { scene } = await importStep(fs.readFileSync(f));
     const { meshes } = await tessellateScene(scene, tess,
       { linearDeflection: 0.1, angularDeflection: 0.5, concurrency: workers });
-    const view = exportView(scene, meshes, { edges: false, curves: false });
+    const view = exportView(scene, { linearDeflection: 0.1, angularDeflection: 0.5, edges: false, curves: false });
     const placed = placedParts(view);
-    const brep = scene.parts.filter((p) => p.kind === 'brep').length;
+    const brep = scene.parts.filter((p) => p.brep).length;
     let viewPlaced = 0, viewTriangles = 0;
     const walk = (n: ExportNode) => {
       for (const p of n.parts) { viewPlaced++;

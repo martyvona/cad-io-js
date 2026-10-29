@@ -55,7 +55,7 @@ for (const f of corpusFiles(process.argv[2])) {
   const { scene } = await importStep(bytes);
   const { meshes } = await tessellateScene(scene, tess,
     { linearDeflection: 0.1, angularDeflection: 0.5, concurrency: workers });
-  const view = exportView(scene, meshes);
+  const view = exportView(scene, { linearDeflection: 0.1, angularDeflection: 0.5 });
 
   const te = performance.now();
   const out = threemf(scene, view, { nonManifold: 'surface', hidden: 'keep' });

@@ -84,9 +84,13 @@ export interface ExternalReference {
   format?: string;
 }
 
-export type Part = BrepPart | MeshPart | CurvesPart;
-
-interface PartBase {
+/**
+ * A leaf of the scene: geometry with a unit and an origin, as exact geometry a backend can tessellate (`brep`), as
+ * meshes (`lods`), or both (the user, 2026-10-29; CLAUDE.md, "Decisions"): meshes from the source file (glTF, three.js
+ * JSON, JT's levels of detail) or made from the B-rep by a tessellator (tessellateScene adds them). Curves and points
+ * alone are a level whose mesh has no triangles. A part with neither is empty.
+ */
+export interface Part {
   name: string;
   sources: SourceId[];
   properties: Properties;
@@ -105,12 +109,18 @@ interface PartBase {
    * tessellated faces, a mesh). What a section can be capped on (the viewer), whatever small gaps the meshes have.
    */
   closed?: boolean;
+  /** Exact geometry, tessellated on demand by a backend. */
+  brep?: Brep;
+  /** Meshes, finest first (chooseLod picks one). */
+  lods: Lod[];
 }
 
-/** Exact geometry, tessellated on demand by a backend. */
-export interface BrepPart extends PartBase {
-  kind: 'brep';
-  format: 'step' | 'iges' | 'brep';
+/** B-rep formats a part's exact geometry can be in, grown as importers are added (a backend lists those it takes). */
+export type BrepFormat = 'step' | 'iges' | 'brep';
+
+/** A part's exact geometry. */
+export interface Brep {
+  format: BrepFormat;
   /** The tessellation payload (a STEP subset, say). A function, since building it is work only needed on demand. */
   payload: () => Uint8Array;
   /** The root entity within the payload (STEP: the shape representation). */
@@ -124,19 +134,17 @@ export interface BrepPart extends PartBase {
     { faces: number[]; positions: Float32Array; outlines: { source: number; start: number; count: number }[] };
 }
 
-/** Geometry already tessellated in the source. */
-export interface MeshPart extends PartBase {
-  kind: 'mesh';
-  /** Levels of detail, finest first. */
-  lods: Mesh[];
-}
-
-/** Wireframe or edge-only geometry. */
-export interface CurvesPart extends PartBase {
-  kind: 'curves';
-  /** Polylines, in the part's coordinates minus its origin. */
-  positions: Float32Array;
-  polylines: { start: number; count: number; source?: number }[];
+/** One level of detail of a part: a mesh, where it came from, and how fine it is where that's known. */
+export interface Lod {
+  mesh: Mesh;
+  /** The source file's, or made from the B-rep by a tessellator. */
+  from: 'source' | 'tessellated';
+  /** Maximum distance from the surface, millimetres: as tessellated, or as the source states it. */
+  linearDeflection?: number;
+  /** Maximum angle between adjacent normals, radians: likewise. */
+  angularDeflection?: number;
+  /** The tessellator that made it: its name and version. */
+  backend?: string;
 }
 
 /** A triangle mesh, with any wireframe curves and points, in the part's coordinates minus `origin`. */

@@ -11,7 +11,7 @@ import { test } from 'node:test';
 import { gzipSync } from 'node:zlib';
 import { strFromU8, unzipSync } from 'fflate';
 import * as THREE from 'three';
-import { exportView, tessellateScene } from 'cad-scene';
+import { exportView, meshDeflections, tessellateScene } from 'cad-scene';
 import { threemf } from 'export-3mf';
 import { glb, gltfJson } from 'export-gltf';
 import { threejsJson } from 'export-threejs';
@@ -55,9 +55,9 @@ test('stepconv: the same file as the library pipeline, in a worker pool and on t
   await tess.init();
   const { scene } = await importStep(fs.readFileSync(assembly));
   // stepconv's default meshing is the library's (medium).
-  const { meshes } = await tessellateScene(scene, tess, { edges: true });
+  await tessellateScene(scene, tess, { edges: true });
   tess.dispose();
-  const expected = threejsJson(scene, exportView(scene, meshes, { edges: true, curves: true }),
+  const expected = threejsJson(scene, exportView(scene, { ...meshDeflections({}), edges: true, curves: true }),
     { name: 'as1-oc-214-mat' });
   for (const workers of ['2', '0']) {
     const r = await run([assembly, '-o', out, '--with-edges', '--with-curves', '-j', workers]);
@@ -98,9 +98,9 @@ test('stepconv: GLB and .gltf with its .bin, the same as the library; hidden ins
   const tess = new OcctTessellator();
   await tess.init();
   const { scene } = await importStep(fs.readFileSync(assembly));
-  const { meshes } = await tessellateScene(scene, tess, { edges: true });
+  await tessellateScene(scene, tess, { edges: true });
   tess.dispose();
-  const view = exportView(scene, meshes, { edges: true });
+  const view = exportView(scene, { ...meshDeflections({}), edges: true });
   const out = path.join(tmp, 'as1.glb');
   const r = await run([assembly, '-o', out, '--with-edges', '-j', '2']);
   assert.equal(r.code, 0, r.stderr);
@@ -305,14 +305,14 @@ test('stepconv: 3MF, the same as the library; --3mf-colorgroup, --3mf-assembly, 
   const tess = new OcctTessellator();
   await tess.init();
   const { scene } = await importStep(fs.readFileSync(assembly));
-  const { meshes } = await tessellateScene(scene, tess);
+  await tessellateScene(scene, tess);
   tess.dispose();
   const out = path.join(tmp, 'as1.3mf');
   const r = await run([assembly, '-o', out, '-j', '2']);
   assert.equal(r.code, 0, r.stderr);
   const bytes = new Uint8Array(fs.readFileSync(out));
   assert.deepEqual(bytes, Uint8Array.from(
-    Buffer.concat(threemf(scene, exportView(scene, meshes), { name: 'as1-oc-214-mat' }).chunks)));
+    Buffer.concat(threemf(scene, exportView(scene, meshDeflections({})), { name: 'as1-oc-214-mat' }).chunks)));
   const parts = await read3mf(bytes, { full: false });
   assert.deepEqual(parts.warnings, []);
   assert.ok(parts.items.length > 1 && parts.components.size === 0 && parts.colors.size === 1);
@@ -375,8 +375,9 @@ test('stepconv: --coarse, --medium, --fine, each value replaced by -d or --angul
   ];
   const counts: number[] = [];
   for (const [flags, opts, label] of cases) {
-    const { meshes } = await tessellateScene(scene, tess, opts);
-    const expected = threejsJson(scene, exportView(scene, meshes, {}), { name: 'as1-oc-214-mat' });
+    await tessellateScene(scene, tess, opts);
+    // (The scene keeps every level made: the one at these settings.)
+    const expected = threejsJson(scene, exportView(scene, meshDeflections(opts)), { name: 'as1-oc-214-mat' });
     const r = await run([assembly, '-o', out, ...flags, '-j', '2']);
     assert.equal(r.code, 0, r.stderr);
     assert.equal(fs.readFileSync(out, 'utf8'), expected, flags.join(' '));
@@ -392,10 +393,10 @@ test('stepconv: --angular-deflection in degrees', { skip }, async () => {
   const tess = new OcctTessellator();
   await tess.init();
   const { scene } = await importStep(fs.readFileSync(assembly));
-  const { meshes } = await tessellateScene(scene, tess,
-    { linearDeflection: 0.1, angularDeflection: (10 * Math.PI) / 180 });
+  const ten = { linearDeflection: 0.1, angularDeflection: (10 * Math.PI) / 180 };
+  await tessellateScene(scene, tess, ten);
   tess.dispose();
-  const expected = threejsJson(scene, exportView(scene, meshes, {}), { name: 'as1-oc-214-mat' });
+  const expected = threejsJson(scene, exportView(scene, ten), { name: 'as1-oc-214-mat' });
   assert.equal((await run([assembly, '-o', out, '--angular-deflection', '10', '-j', '2'])).code, 0);
   const fine = fs.readFileSync(out, 'utf8');
   assert.equal(fine, expected);

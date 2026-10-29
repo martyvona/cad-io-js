@@ -34,15 +34,17 @@ function fake(delay = 0) {
     describe: () => ({ backend: 'fake 1', pools: 1 }) } };
 }
 
-test('postable: payload functions gone, the rest as it was; a structured clone takes it', () => {
-  const brep = { kind: 'brep', name: 'p', payload: () => new Uint8Array(1), rootId: 7 };
-  const mesh = { kind: 'mesh', name: 'm', lods: [] };
-  const scene = { parts: [brep, mesh], components: [], roots: [] } as unknown as Scene;
+test('postable: the B-rep\'s functions gone, the rest as it was; a structured clone takes it', () => {
+  const part = { name: 'p', lods: [], brep: { format: 'step', payload: () => new Uint8Array(1), rootId: 7,
+    outline: () => ({}) } };
+  const mesh = { name: 'm', lods: [] };
+  const scene = { parts: [part, mesh], components: [], roots: [] } as unknown as Scene;
   const p = postable(scene);
-  assert.equal((p.parts[0] as { payload?: unknown }).payload, undefined);
-  assert.equal((p.parts[0] as { rootId?: number }).rootId, 7);
+  assert.deepEqual(Object.keys(p.parts[0]!.brep!).filter((k) => p.parts[0]!.brep![k as 'payload'] !== undefined),
+    ['format', 'rootId']);
+  assert.equal(p.parts[0]!.brep!.rootId, 7);
   assert.equal(p.parts[1], mesh);
-  assert.equal((scene.parts[0] as { payload?: unknown }).payload, brep.payload);
+  assert.equal(scene.parts[0]!.brep!.payload, part.brep.payload);
   assert.doesNotThrow(() => structuredClone(p));
   assert.throws(() => structuredClone(scene));
 });
@@ -52,7 +54,7 @@ test('meshable: placed brep parts only', () => {
   assert.deepEqual(meshable(s), [0, 1]);
   // A third part, placed nowhere; a mesh part, placed.
   s.parts.push({ ...s.parts[0]!, name: 'spare' });
-  s.parts.push({ kind: 'mesh', name: 'tri', sources: [], properties: {}, unit: 1, origin: [0, 0, 0], lods: [] });
+  s.parts.push({ name: 'tri', sources: [], properties: {}, unit: 1, origin: [0, 0, 0], lods: [] });
   s.components[1]!.parts.push({ part: 3, transform: s.components[1]!.parts[1]!.transform });
   assert.deepEqual(meshable(s), [0, 1]);
 });

@@ -18,7 +18,7 @@ import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { Document, NodeIO } from '@gltf-transform/core';
-import { exportView, partInstances, tessellateScene } from 'cad-scene';
+import { chooseLod, exportView, meshDeflections, partInstances, tessellateScene } from 'cad-scene';
 import { glb, gltfJson } from 'export-gltf';
 import { threejsJson } from 'export-threejs';
 import { importStep } from 'step-import';
@@ -39,19 +39,21 @@ const { scene } = await importStep(fs.readFileSync(step));
 const occt = new OcctTessellator();
 await occt.init();
 // The viewer's meshing on a desktop (the library's default profile, medium); and on a phone, coarse.
-const { meshes } = await tessellateScene(scene, occt, { edges: true });
+await tessellateScene(scene, occt, { edges: true });
+// (The scene holds both levels: exports at the medium profile's, the library's default.)
+const medium = meshDeflections({});
 const placed = [...partInstances(scene)].filter((p) => p.visible);
 const coarseTriangles = [...(await tessellateScene(scene, occt, { profile: 'coarse' })).meshes].reduce((s, [part, m]) =>
   s + placed.filter((p) => p.part === part).length * m.indices.length / 3, 0);
 occt.dispose();
-const view = exportView(scene, meshes, { edges: true });
+const view = exportView(scene, { ...medium, edges: true });
 fs.writeFileSync(path.join(content, 'as1.glb'), (await glb(scene, view)).bytes);
 const meshopt = await gltfJson(scene, view, 'as1-meshopt.bin', { compression: 'meshopt' });
 fs.writeFileSync(path.join(content, 'as1-meshopt.gltf'), meshopt.json);
 fs.writeFileSync(path.join(content, 'as1-meshopt.bin'), meshopt.bin);
 fs.writeFileSync(path.join(content, 'as1.json'), threejsJson(scene, view));
 fs.writeFileSync(path.join(content, 'as1.json.extras.json'), threejsJson(scene, view, { extras: true }));
-fs.writeFileSync(path.join(content, 'as1-noedges.glb'), (await glb(scene, exportView(scene, meshes))).bytes);
+fs.writeFileSync(path.join(content, 'as1-noedges.glb'), (await glb(scene, exportView(scene, medium))).bytes);
 // Its parts placed more than once as GPU instances (EXT_mesh_gpu_instancing: three.js InstancedMeshes).
 fs.writeFileSync(path.join(content, 'as1-instanced.glb'), (await glb(scene, view, { instancing: true })).bytes);
 fs.copyFileSync(step, path.join(content, 'as1.stp'));
@@ -60,7 +62,7 @@ fs.copyFileSync(path.join(repo, 'test_corpus/third_party/gkv311-opencascade-data
   path.join(content, 'broken.stp'));
 // Half transparent everywhere (a copy of the scene's materials at opacity 0.5).
 const clear = { ...scene, materials: scene.materials.map((m) => ({ ...m, opacity: 0.5 })) };
-fs.writeFileSync(path.join(content, 'as1-clear.glb'), (await glb(clear, exportView(clear, meshes))).bytes);
+fs.writeFileSync(path.join(content, 'as1-clear.glb'), (await glb(clear, exportView(clear, medium))).bytes);
 const bicycle = path.join(repo, 'test_corpus/third_party/gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp');
 fs.copyFileSync(bicycle, path.join(content, 'bicycle.stp'));
 // A part in metres (its placement scales by 1000, as every part of a file in metres).
@@ -99,7 +101,7 @@ let segments = 0;
 const lo = [Infinity, Infinity, Infinity];
 const hi = [-Infinity, -Infinity, -Infinity];
 for (const p of partInstances(scene)) {
-  const m = meshes.get(p.part);
+  const m = chooseLod(scene.parts[p.part]!, medium)?.mesh;
   if (!p.visible || !m) continue;
   triangles += m.indices.length / 3;
   for (const e of m.edges ?? []) if (e.kind === 'shared' || e.kind === 'free') segments += e.count - 1;

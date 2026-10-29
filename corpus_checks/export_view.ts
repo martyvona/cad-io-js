@@ -47,7 +47,7 @@ for (const f of corpusFiles(process.argv[2])) {
   const { scene } = await importStep(bytes);
   const { meshes } = await tessellateScene(scene, tess,
     { linearDeflection: 0.1, angularDeflection: 0.5, edges: true, concurrency: workers });
-  const view = exportView(scene, meshes, { edges: true, curves: true });
+  const view = exportView(scene, { linearDeflection: 0.1, angularDeflection: 0.5, edges: true, curves: true });
 
   // The view's placed parts, with world transforms, by path and position among the component's drawn parts.
   const placed = new Map<string, { look: number; world: Mat4; visible: boolean }[]>();
@@ -63,8 +63,7 @@ for (const f of corpusFiles(process.argv[2])) {
   const cursor = new Map<string, number>();
   for (const pi of partInstances(scene)) {
     totals.partInstances++;
-    const mesh = meshes.get(pi.part) ?? (
-      scene.parts[pi.part]!.kind === 'mesh' ? (scene.parts[pi.part] as { lods: never[] }).lods[0] : undefined);
+    const mesh = meshes.get(pi.part) ?? (!scene.parts[pi.part]!.brep ? scene.parts[pi.part]!.lods[0]?.mesh : undefined);
     const drawable = mesh && (
       mesh.indices.length || mesh.edges?.length || mesh.curves?.length || mesh.pointSources?.length);
     if (!drawable) continue;

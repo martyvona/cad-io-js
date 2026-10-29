@@ -34,8 +34,8 @@ export function scene(): Scene {
   const occ = (component: number, t: Mat4, name?: string) => (
     { component, transform: t, sources: [], properties: {}, ...(name ? { name } : {}) });
   const brep = (name: string, unit: number) => (
-    { kind: 'brep' as const, name, sources: [], properties: {}, unit, origin: [0, 0, 0] as [number, number, number],
-    format: 'step' as const, payload: () => new Uint8Array() });
+    { name, sources: [], properties: {}, unit, origin: [0, 0, 0] as [number, number, number], lods: [],
+    brep: { format: 'step' as const, payload: () => new Uint8Array() } });
   return {
     unit: 'millimetre',
     components: [

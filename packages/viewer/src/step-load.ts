@@ -22,15 +22,15 @@ export type StepEvent =
 
 /** The scene without its parts' payload functions: what can be posted to another thread. */
 export function postable(scene: Scene): Scene {
-  return { ...scene, parts: scene.parts.map((p) => (p.kind === 'brep' ? { ...p, payload: undefined as never,
-    outline: undefined } : p)) };
+  return { ...scene, parts: scene.parts.map((p) => (p.brep ? { ...p, brep: { format: p.brep.format,
+    ...(p.brep.rootId === undefined ? {} : { rootId: p.brep.rootId }), payload: undefined as never } } : p)) };
 }
 
 /** The brep parts to mesh: those placed somewhere in the tree (others would never be drawn). */
 export function meshable(scene: Scene): number[] {
   const placed = new Set<number>();
   for (const pi of partInstances(scene)) placed.add(pi.part);
-  return scene.parts.flatMap((p, i) => (p.kind === 'brep' && placed.has(i) ? [i] : []));
+  return scene.parts.flatMap((p, i) => (p.brep && placed.has(i) ? [i] : []));
 }
 
 /** The buffers of a mesh's arrays, once each, to transfer rather than copy. */

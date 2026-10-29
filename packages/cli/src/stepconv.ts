@@ -354,7 +354,8 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
   }
   lap('tessellate');
 
-  const view = exportView(scene, meshes, { edges: o['with-edges'], curves: o['with-curves'] });
+  // Each part's level made at these deflections (the scene holds them, its parts' levels).
+  const view = exportView(scene, { ...deflections, edges: o['with-edges'], curves: o['with-curves'] });
   let written = 0;
   try {
     const w = await format.write(scene, view, {
@@ -386,14 +387,14 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
   if (!o.quiet) {
     io.stderr.write(summary(scene, meshes.size, view, diagnostics, times, written, cached, deflections));
   }
-  const failed = scene.parts.filter((p, i) => p.kind === 'brep' && !meshes.has(i)).length;
+  const failed = scene.parts.filter((p, i) => p.brep && !meshes.has(i)).length;
   return o.strict && failed ? 3 : 0;
 }
 
 function summary(scene: Scene, meshed: number, view: ExportView, diagnostics: readonly Diagnostic[],
   times: Record<string, number>,
   written: number, cached: CachedTessellator | undefined, deflections: Deflections): string {
-  const brep = scene.parts.filter((p) => p.kind === 'brep').length;
+  const brep = scene.parts.filter((p) => p.brep).length;
   let placed = 0, triangles = 0;
   const walk = (n: ExportView['roots'][number]) => {
     for (const p of n.parts) { placed++; triangles += view.looks[p.look]!.indices.length / 3; }

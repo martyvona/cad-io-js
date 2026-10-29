@@ -23,7 +23,7 @@ const occtBuilt = fs.existsSync(path.join(root, 'packages/tess-occt/dist/occt_te
 async function requests(file: string, linear = 0.05, edges = true): Promise<TessellationRequest[]> {
   const { scene } = await importStep(fs.readFileSync(file));
   return scene.parts.flatMap((p) => (
-    p.kind === 'brep' ? [{ format: p.format, data: p.payload(), rootId: p.rootId, origin: p.origin,
+    p.brep ? [{ format: p.brep.format, data: p.brep.payload(), rootId: p.brep.rootId, origin: p.origin,
     linearDeflection: linear / p.unit, angularDeflection: 0.5, edges }] : []));
 }
 

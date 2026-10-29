@@ -6,10 +6,12 @@
 //     are reordered so faces with the same material are contiguous: one group per material.
 //   nodes: the expanded instance tree, with local transforms and each instance's parts as looks.
 
+import { chooseLod, type LodWanted } from './lod.ts';
 import type { Component, Mat4, Mesh, Occurrence, Scene } from './scene.ts';
 import { identity, multiply, partInstances, type PartInstance } from './walk.ts';
 
-export interface ExportViewOptions {
+/** Which of a part's levels each look uses: chooseLod's, for these deflections (none: the finest). */
+export interface ExportViewOptions extends LodWanted {
   /** Keep B-rep edges. Default false (CLAUDE.md, "Decisions"). */
   edges?: boolean;
   /** Keep wireframe curves and isolated points. Default false (CLAUDE.md, "Decisions"). */
@@ -55,32 +57,14 @@ export interface ExportView {
   roots: ExportNode[];
 }
 
-/**
- * A part's mesh: the tessellation from `meshes` for brep parts, the finest level for mesh parts, and the polylines
- * of curves parts as a mesh with curves only.
- */
-export function partMesh(scene: Scene, meshes: ReadonlyMap<number, Mesh>, part: number): Mesh | undefined {
-  const p = scene.parts[part];
-  if (!p) return undefined;
-  if (p.kind === 'mesh') return p.lods[0];
-  if (p.kind === 'curves') {
-    return {
-      origin: p.origin, positions: new Float32Array(0), indices: new Uint32Array(0), faces: [],
-      curvePositions: p.positions,
-      curves: p.polylines.map((l) => ({ source: l.source ?? null, start: l.start, count: l.count })),
-    };
-  }
-  return meshes.get(part);
-}
-
 function translation(v: readonly number[]): Mat4 {
   const m = identity();
   m[12] = v[0]!; m[13] = v[1]!; m[14] = v[2]!;
   return m;
 }
 
-/** The export view of a scene whose brep parts have been tessellated into `meshes` (by part index). */
-export function exportView(scene: Scene, meshes: ReadonlyMap<number, Mesh>, opts: ExportViewOptions = {}): ExportView {
+/** The export view of a scene: each part as its chosen level (chooseLod) draws it. */
+export function exportView(scene: Scene, opts: ExportViewOptions = {}): ExportView {
   const edges = opts.edges ?? false, curves = opts.curves ?? false;
   const looks: Look[] = [];
   const lookByKey = new Map<string, number>();
@@ -88,7 +72,7 @@ export function exportView(scene: Scene, meshes: ReadonlyMap<number, Mesh>, opts
 
   const lookFor = (part: number, material: number | undefined,
     faceMaterials: ReadonlyMap<number, number>): number | undefined => {
-    if (!meshOf.has(part)) meshOf.set(part, partMesh(scene, meshes, part));
+    if (!meshOf.has(part)) meshOf.set(part, scene.parts[part] && chooseLod(scene.parts[part], opts)?.mesh);
     const mesh = meshOf.get(part);
     if (!mesh) return undefined;
     const hasEdges = edges && !!mesh.edges?.length;

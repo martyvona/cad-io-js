@@ -34,13 +34,13 @@ for (const path of corpusFiles(process.argv[2])) {
   t.componentMaterials += scene.components.filter((c) => c.material !== undefined).length;
   for (const p of scene.parts) {
     if (p.faceMaterials?.length) { t.faceMaterialParts++; t.faceMaterials += p.faceMaterials.length; }
-    if (p.kind === 'brep' && checkPayloads) {
-      const bytes = p.payload();
+    if (p.brep && checkPayloads) {
+      const bytes = p.brep.payload();
       t.payloadBytes += bytes.length;
       const sub = parseStep(bytes);
-      if (sub.diagnostics.length) note('payload with diagnostics', `${name} #${p.rootId}`);
-      if (p.rootId === undefined || sub.index.position(p.rootId) < 0) note('payload without its root',
-        `${name} #${p.rootId}`);
+      if (sub.diagnostics.length) note('payload with diagnostics', `${name} #${p.brep.rootId}`);
+      if (p.brep.rootId === undefined || sub.index.position(p.brep.rootId) < 0) note('payload without its root',
+        `${name} #${p.brep.rootId}`);
     }
     if (!p.origin.every(Number.isFinite)) note('non-finite origin', `${name} #${p.sources[0]?.id}`);
   }

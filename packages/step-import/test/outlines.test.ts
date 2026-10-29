@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import type { BrepPart } from 'cad-scene';
 import { importStep } from '../src/index.ts';
 
 const enc = new TextEncoder();
@@ -74,8 +73,8 @@ const DATA = `
 
 const outline = async (faces?: number[]) => {
   const { scene } = await importStep(file(DATA));
-  const part = scene.parts[0] as BrepPart;
-  const o = part.outline!({ linearDeflection: 0.01, angularDeflection: 0.1, ...(faces ? { faces: new Set(faces) } :
+  const part = scene.parts[0]!;
+  const o = part.brep!.outline!({ linearDeflection: 0.01, angularDeflection: 0.1, ...(faces ? { faces: new Set(faces) } :
     {}) });
   // Back in the file's coordinates.
   const pts = (k: number) => Array.from({ length: o.outlines[k]!.count }, (_, i) => [0, 1, 2].map((j) =>

@@ -266,11 +266,10 @@ for (const [fi, f] of files.entries()) {
     continue;
   }
   totals.files++;
-  const parts = scene.parts.flatMap((p, i) => (p.kind === 'brep' ? [{ i, p }] : []));
+  const parts = scene.parts.flatMap((p, i) => (p.brep ? [{ i, p, brep: p.brep }] : []));
   const run = (t: WorkerTessellator, req: TessellationRequest) => t.tessellate(req).catch((e: Error) => e);
-  const results = await Promise.all(parts.map(async ({ i, p }) => {
-    if (p.kind !== 'brep') throw new Error('unreachable');
-    const req: TessellationRequest = { format: p.format, data: p.payload(), rootId: p.rootId, origin: p.origin,
+  const results = await Promise.all(parts.map(async ({ i, p, brep }) => {
+    const req: TessellationRequest = { format: brep.format, data: brep.payload(), rootId: brep.rootId, origin: p.origin,
       linearDeflection: TOL_MM / p.unit, angularDeflection: 0.5, edges: true };
     const [a, b] = await Promise.all([run(truck, req), run(occt, req)]);
     return { i, req, a, b };

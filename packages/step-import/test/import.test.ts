@@ -179,11 +179,11 @@ test('components, parts, units and placements', async () => {
   const box = scene.parts[0]!;
   // The origin: the centre of the points in the box's closure, (0,0,0) and (2,4,6); not the mapped item's, nor the
   // unreferenced vertex #233.
-  assert.deepEqual([box.kind, box.name, box.unit, box.origin, box.sources],
-    ['brep', 'box', 25.4, [1, 2, 3], [{ format: 'step', id: 205 }]]);
+  assert.deepEqual([box.brep?.format, box.lods, box.name, box.unit, box.origin, box.sources],
+    ['step', [], 'box', 25.4, [1, 2, 3], [{ format: 'step', id: 205 }]]);
   assert.deepEqual(scene.parts[1]!.origin, [1000, 0, 0]);
   // The payload: a subset rooted at the box's representation, without the mapped item.
-  const sub = parseStep(box.kind === 'brep' ? box.payload() : new Uint8Array());
+  const sub = parseStep(box.brep ? box.brep.payload() : new Uint8Array());
   assert.deepEqual([...sub.index.ids].includes(240), false);
   assert.ok(sub.index.position(205) >= 0);
   // Placements, in millimetres: box 1 at the origin, box 2 at 0.1 m; an inch is 25.4 mm.
@@ -261,7 +261,7 @@ const SURFACES = `
 test("an annotation-only representation isn't a part; a geometric set's surfaces take their styles as faces",
   async () => {
   const { scene } = await importStep(file(SURFACES));
-  assert.deepEqual(scene.parts.map((p) => (p.kind === 'brep' ? p.rootId : undefined)), [115]);
+  assert.deepEqual(scene.parts.map((p) => p.brep?.rootId), [115]);
   const part = scene.parts[0]!;
   assert.equal(part.material, undefined);
   assert.deepEqual(part.faceMaterials?.map((f) => [f.face, scene.materials[f.material]!.color]), [[112, [1, 0, 0]]]);
@@ -301,7 +301,7 @@ const DRAWING = `
 
 test("a two-dimensional drawing isn't a part, and says so; a wireframe is", async () => {
   const { scene } = await importStep(file(DRAWING));
-  assert.deepEqual(scene.parts.map((p) => (p.kind === 'brep' ? p.rootId : undefined)), [125]);
+  assert.deepEqual(scene.parts.map((p) => p.brep?.rootId), [125]);
   assert.deepEqual(scene.diagnostics.filter((d) => /drawing/.test(d.message)),
     [{ severity: 'info', message: 'a two-dimensional drawing; not imported', source: { format: 'step', id: 112 } }]);
   assert.deepEqual([...partInstances(scene)].map((p) => p.part), [0]);

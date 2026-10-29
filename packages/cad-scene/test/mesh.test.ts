@@ -167,8 +167,9 @@ test('tessellateScene: degenerate triangles dropped and inside-out shells turned
     unit: 'millimetre', components: [], roots: [], materials: [], layers: [], overrides: [], properties: {},
     diagnostics: [],
     parts: ['key', 'cube'].map(
-      (name, i) => ({ kind: 'brep' as const, name, sources: [{ format: 'step', id: 10 + i }], properties: {}, unit: 1,
-      origin: [0, 0, 0] as [number, number, number], format: 'step' as const, payload: () => Uint8Array.of(i) })),
+      (name, i) => ({ name, sources: [{ format: 'step', id: 10 + i }], properties: {}, unit: 1,
+      origin: [0, 0, 0] as [number, number, number], lods: [],
+      brep: { format: 'step' as const, payload: () => Uint8Array.of(i) } })),
   };
   const key = boxes({ turned: true, normals: 'winding' }, { lo: [3, 0, 0], turned: true, normals: 'winding' });
   // The cube with a degenerate triangle in its last face.

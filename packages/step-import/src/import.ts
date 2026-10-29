@@ -176,11 +176,14 @@ export function sceneFromStep(model: StepModel, sem: Semantics): ImportResult {
       if (!shells.length) closed = undefined;
     }
     const part: Part = {
-      kind: 'brep', format: 'step', rootId: rep.id,
-      payload: () => buildSubset(file, [root], { exclude }).bytes,
-      // Faces' outlines from the file, for faces that fail to mesh (outlines.ts).
-      outline: ({ faces: only, ...o }) => ({ faces: faces.map((q) => r.id(q)),
-        ...faceOutlines(r, faces, origin, o, only) }),
+      brep: {
+        format: 'step', rootId: rep.id,
+        payload: () => buildSubset(file, [root], { exclude }).bytes,
+        // Faces' outlines from the file, for faces that fail to mesh (outlines.ts).
+        outline: ({ faces: only, ...o }) => ({ faces: faces.map((q) => r.id(q)),
+          ...faceOutlines(r, faces, origin, o, only) }),
+      },
+      lods: [],
       name: rep.name, sources: [src(rep.id)], properties: { representation: rep.types.join('+') },
       unit: mmOf(rep.id), origin, ...(closed === undefined ? {} : { closed }),
     };

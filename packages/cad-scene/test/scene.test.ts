@@ -25,9 +25,9 @@ function scene(): Scene {
     ],
     roots: [occ(0, identity())],
     parts: [
-      { kind: 'mesh', name: 'plate', sources: [], properties: {}, unit: 25.4, origin: [0, 0, 0], lods: [], material: 1,
+      { name: 'plate', sources: [], properties: {}, unit: 25.4, origin: [0, 0, 0], lods: [], material: 1,
         faceMaterials: [{ face: 7, material: 2 }] },
-      { kind: 'mesh', name: 'bolt', sources: [], properties: {}, unit: 1, origin: [0, 0, 0], lods: [] },
+      { name: 'bolt', sources: [], properties: {}, unit: 1, origin: [0, 0, 0], lods: [] },
     ],
     materials: [0, 1, 2, 3].map(
       (i) => ({ color: [[1, 0, 0], [0, 1, 0], [0, 0, 1], [1, 1, 1]][i] as [number, number, number], opacity: 1,

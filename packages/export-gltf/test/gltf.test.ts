@@ -48,8 +48,9 @@ function scene(): Scene {
     { component, transform: t, sources: [{ format: 'step', id: 100 + component }], properties: {},
     ...(name ? { name } : {}) });
   const brep = (name: string, unit: number) => (
-    { kind: 'brep' as const, name, sources: [{ format: 'step', id: 50 }], properties: { pn: 'X-1' }, unit,
-    origin: [0, 0, 0] as [number, number, number], format: 'step' as const, payload: () => new Uint8Array() });
+    { name, sources: [{ format: 'step', id: 50 }], properties: { pn: 'X-1' }, unit,
+    origin: [0, 0, 0] as [number, number, number], lods: [],
+    brep: { format: 'step' as const, payload: () => new Uint8Array() } });
   return {
     unit: 'millimetre',
     components: [
@@ -71,6 +72,10 @@ function scene(): Scene {
   };
 }
 const meshes = () => new Map([[0, plate()], [1, wire()]]);
+/** The export view of a copy of the scene with these meshes as its parts' levels (as tessellateScene adds them). */
+const viewOf = (s: Scene, m: ReadonlyMap<number, Mesh>, o?: Parameters<typeof exportView>[1]) => exportView({ ...s,
+  parts: s.parts.map((p, i) => (m.has(i) ? { ...p, lods: [{ from: 'tessellated' as const, mesh: m.get(i)! }] } : p)) },
+o);
 const io = new WebIO().registerExtensions([KHRMaterialsUnlit, KHRNodeVisibility, EXTMeshGPUInstancing]);
 
 /** The validator's issues, as code and pointer, for a GLB (or .gltf JSON with its resources). */
@@ -89,7 +94,7 @@ const close = (a: ArrayLike<number>, b: ArrayLike<number>, eps = 1e-9) => a.leng
 
 test('GLB: valid; the tree, transforms to metres and Y up, shared accessors, materials, extras', async () => {
   const s = scene();
-  const out = await glb(s, exportView(s, meshes()), { name: 'model' });
+  const out = await glb(s, viewOf(s, meshes()), { name: 'model' });
   assert.deepEqual(out.diagnostics, []);
   assert.deepEqual(await issues(out.bytes), []);
   const doc = await io.readBinary(out.bytes);
@@ -146,10 +151,10 @@ test('GLB: valid; the tree, transforms to metres and Y up, shared accessors, mat
   const plain = scene();
   plain.overrides = [];
   const shared = byName((await io.readBinary(
-    (await glb(plain, exportView(plain, meshes()))).bytes)).getRoot().listNodes(), 'plate');
+    (await glb(plain, viewOf(plain, meshes()))).bytes)).getRoot().listNodes(), 'plate');
   assert.equal(shared[0]!.getMesh(), shared[1]!.getMesh());
   assert.equal((await io.readBinary(
-    (await glb(plain, exportView(plain, meshes()))).bytes)).getRoot().listMeshes().length, 1);
+    (await glb(plain, viewOf(plain, meshes()))).bytes)).getRoot().listMeshes().length, 1);
   // The part's ids and properties; each primitive's faces as ranges of its own indices.
   assert.deepEqual(plates[0]!.getExtras(),
     { part: 0, closed: false, sources: [{ format: 'step', id: 50 }], properties: { pn: 'X-1' } });
@@ -161,7 +166,7 @@ test('edges, curves and points on request; edge kinds; hidden instances left out
   async () => {
   const s = scene();
   s.overrides.push({ path: [0, 0], visible: false, sources: [] });
-  const view = exportView(s, meshes(), { edges: true, curves: true });
+  const view = viewOf(s, meshes(), { edges: true, curves: true });
   // Hidden instances left out by default, with a warning: one plate and one wire, of the second instance.
   const omitted = await glb(s, view);
   assert.deepEqual(omitted.diagnostics,
@@ -226,7 +231,7 @@ test('edges, curves and points on request; edge kinds; hidden instances left out
 
 test('edges, curves and points left out on request, each or all; unlit on request', async () => {
   const s = scene();
-  const view = exportView(s, meshes(), { edges: true, curves: true });
+  const view = viewOf(s, meshes(), { edges: true, curves: true });
   const names = async (opts: Parameters<typeof glb>[2]) => {
     const doc = await io.readBinary((await glb(s, view, opts)).bytes);
     return [...new Set(doc.getRoot().listNodes().filter(
@@ -240,7 +245,7 @@ test('edges, curves and points left out on request, each or all; unlit on reques
   assert.deepEqual(await names({ exclude: ['edges', 'curves', 'points'] }), []);
   // Curves without points: just the curves.
   const noPoints = new Map([[0, plate()], [1, { ...wire(), points: undefined, pointSources: undefined }]]);
-  const np = await io.readBinary((await glb(s, exportView(s, noPoints, { curves: true }))).bytes);
+  const np = await io.readBinary((await glb(s, viewOf(s, noPoints, { curves: true }))).bytes);
   assert.deepEqual(byName(np.getRoot().listNodes(), 'wire').map((w) => w.listChildren().map((c) => c.getName())),
     [['curves'], ['curves']]);
   // Unlit: edges, curves and points with KHR_materials_unlit (which the validator knows); faces lit.
@@ -260,7 +265,7 @@ test('edges, curves and points left out on request, each or all; unlit on reques
   plain.parts[0] = { ...plain.parts[0]!, material: undefined, faceMaterials: [] } as typeof plain.parts[0];
   plain.overrides = [];
   const d2 = await io.readBinary(
-    (await glb(plain, exportView(plain, meshes(), { curves: true }), { unlitLines: true })).bytes);
+    (await glb(plain, viewOf(plain, meshes(), { curves: true }), { unlitLines: true })).bytes);
   const [pp] = byName(d2.getRoot().listNodes(), 'plate');
   const [ww] = byName(d2.getRoot().listNodes(), 'wire');
   assert.notEqual(pp!.getMesh()!.listPrimitives()[0]!.getMaterial(), linePrim(ww!, 'curves').getMaterial());
@@ -269,7 +274,7 @@ test('edges, curves and points left out on request, each or all; unlit on reques
 test('.gltf: JSON naming its .bin, valid, the same as the GLB; deterministic; 32-bit indices past 65535 vertices',
   async () => {
   const s = scene();
-  const view = exportView(s, meshes(), { edges: true, curves: true });
+  const view = viewOf(s, meshes(), { edges: true, curves: true });
   const out = await gltfJson(s, view, 'model.bin');
   const json = JSON.parse(out.json);
   assert.deepEqual(json.buffers, [{ uri: 'model.bin', byteLength: out.bin.length }]);
@@ -279,7 +284,7 @@ test('.gltf: JSON naming its .bin, valid, the same as the GLB; deterministic; 32
   assert.deepEqual(fromJson.getRoot().listNodes().map((n) => [n.getName(), n.getMatrix()]),
     fromGlb.getRoot().listNodes().map((n) => [n.getName(), n.getMatrix()]));
   assert.deepEqual((await glb(s, view)).bytes,
-    (await glb(s, exportView(s, meshes(), { edges: true, curves: true }))).bytes);
+    (await glb(s, viewOf(s, meshes(), { edges: true, curves: true }))).bytes);
   // Embedded: one JSON with the same buffer as a base64 data URI, valid, read back the same.
   const embedded = await gltfJson(s, view, undefined);
   assert.equal(embedded.bin.length, 0);
@@ -301,7 +306,7 @@ test('.gltf: JSON naming its .bin, valid, the same as the GLB; deterministic; 32
   big.normals = undefined;
   big.indices = Uint32Array.from({ length: n }, (_, i) => i);
   big.faces = [{ source: 8, start: 0, count: n }];
-  const bigOut = await glb(s, exportView(s, new Map([[0, big]])));
+  const bigOut = await glb(s, viewOf(s, new Map([[0, big]])));
   assert.deepEqual(await issues(bigOut.bytes), []);
   const ix = (await io.readBinary(bigOut.bytes)).getRoot().listMeshes()[0]!.listPrimitives()[
     0]!.getIndices()!.getArray()!;
@@ -316,13 +321,13 @@ test('transforms written exactly, however close to identity; a scene with nothin
   const a = 1e-6;
   t[0] = Math.cos(a); t[1] = Math.sin(a); t[4] = -Math.sin(a); t[5] = Math.cos(a); t[12] = 1e-7;
   s.components[0]!.children[0]!.transform = t;
-  const doc = await io.readBinary((await glb(s, exportView(s, meshes()))).bytes);
+  const doc = await io.readBinary((await glb(s, viewOf(s, meshes()))).bytes);
   const left = doc.getRoot().listNodes().find((n) => n.getName() === 'left')!;
   assert.deepEqual(left.getTranslation(), [1e-7, 0, 0]);
   assert.ok(Math.abs(left.getRotation()[2] - Math.sin(a / 2)) < 1e-15);
   // Nothing to draw: the root alone (or with the instance tree, kept), no accessors, no buffer.
   for (const [keepEmpty, names] of [[false, [undefined]], [true, [undefined, 'asm', 'left', 'sub']]] as const) {
-    const empty = await glb(s, exportView(s, new Map()), { keepEmpty });
+    const empty = await glb(s, viewOf(s, new Map()), { keepEmpty });
     assert.deepEqual(await issues(empty.bytes), []);
     const json = (await io.binaryToJSON(empty.bytes)).json;
     assert.deepEqual([json.buffers, json.accessors, json.nodes!.map((n) => n.name)], [undefined, undefined, names]);
@@ -387,7 +392,7 @@ const extrasIn = (json: unknown): number => JSON.stringify(json).split('"extras"
 test('the defaults: Draco, no extras; triangles within 14 bits of the part mesh\'s extent; lines uncompressed',
   async () => {
   const s = scene();
-  const view = exportView(s, meshes(), { edges: true, curves: true });
+  const view = viewOf(s, meshes(), { edges: true, curves: true });
   const out = await glbOf(s, view);
   const json = (await decoding.binaryToJSON(out.bytes)).json;
   assert.deepEqual([json.extensionsUsed, json.extensionsRequired],
@@ -426,7 +431,7 @@ test('the defaults: Draco, no extras; triangles within 14 bits of the part mesh\
 test('Draco with extras: faces by a _FACE vertex attribute, vertices two faces share copied; at most 65535 faces',
   async () => {
   const s = scene();
-  const view = exportView(s, meshes());
+  const view = viewOf(s, meshes());
   const out = await glbOf(s, view, { extras: true });
   const doc = await decoding.readBinary(out.bytes);
   const expected = await plainTriangles(s, view, 'plate');
@@ -464,18 +469,18 @@ test('Draco with extras: faces by a _FACE vertex attribute, vertices two faces s
   one.parts = [{ ...one.parts[0]!, material: undefined, faceMaterials: [] } as typeof one.parts[0]];
   one.components[1]!.parts = [{ part: 0, transform: identity() }];
   one.overrides = [];
-  const atLimit = await glbOf(one, exportView(one, new Map([[0, many(MAX_DRACO_FACES)]])), { extras: true });
+  const atLimit = await glbOf(one, viewOf(one, new Map([[0, many(MAX_DRACO_FACES)]])), { extras: true });
   assert.ok(atLimit.bytes.length > 0);
-  await assert.rejects(glbOf(one, exportView(one, new Map([[0, many(MAX_DRACO_FACES + 1)]])), { extras: true }),
+  await assert.rejects(glbOf(one, viewOf(one, new Map([[0, many(MAX_DRACO_FACES + 1)]])), { extras: true }),
     (e: Error) => e instanceof GltfError && /65536 faces in one primitive/.test(e.message));
   // Without extras, or with meshopt, no limit.
-  await glbOf(one, exportView(one, new Map([[0, many(MAX_DRACO_FACES + 1)]])));
+  await glbOf(one, viewOf(one, new Map([[0, many(MAX_DRACO_FACES + 1)]])));
   assert.equal(MAX_DRACO_FACES, 65535);
 });
 
 test('meshopt: positions in 16 bits, faces reordered within their ranges, the volume in the part node', async () => {
   const s = scene();
-  const view = exportView(s, meshes(), { edges: true, curves: true });
+  const view = viewOf(s, meshes(), { edges: true, curves: true });
   const out = await glbOf(s, view, { compression: 'meshopt', extras: true });
   const json = (await decoding.binaryToJSON(out.bytes)).json;
   assert.deepEqual([json.extensionsUsed!.sort(), json.extensionsRequired!.sort()],
@@ -537,7 +542,7 @@ test('meshopt: vertices renumbered with their normals, faces kept apart, the vol
   one.parts = [{ ...one.parts[0]!, material: undefined, faceMaterials: [] } as typeof one.parts[0]];
   one.components[1]!.parts = [{ part: 0, transform: identity() }];
   one.overrides = [];
-  const view = exportView(one, new Map([[0, strip]]));
+  const view = viewOf(one, new Map([[0, strip]]));
   const doc = await decoding.readBinary((await glbOf(one, view, { compression: 'meshopt', extras: true })).bytes);
   const node = byName(doc.getRoot().listNodes(), 'plate')[0]!;
   const p = node.getMesh()!.listPrimitives()[0]!;
@@ -594,7 +599,7 @@ test('reorderWithinFaces: each face keeps its triangles, reordered', () => {
 
 test('options: an unknown compression, Draco bits out of range', async () => {
   const s = scene();
-  const view = exportView(s, meshes());
+  const view = viewOf(s, meshes());
   await assert.rejects(glbOf(s, view, { compression: 'zip' as 'none' }), GltfError);
   for (const bits of [0, 31, 1.5]) await assert.rejects(glbOf(s, view, { dracoPositionBits: bits }), GltfError);
   await glbOf(s, view, { dracoPositionBits: 30 });
@@ -631,7 +636,7 @@ const topOf = (doc: Awaited<ReturnType<typeof io.readBinary>>) => doc.getRoot().
 
 test('instancing: a look placed twice is one node with EXT_mesh_gpu_instancing, out of the tree; extras', async () => {
   const s = twice();
-  const view = exportView(s, meshes());
+  const view = viewOf(s, meshes());
   const out = await glb(s, view, { instancing: true });
   assert.deepEqual(out.diagnostics, []);
   // The validator knows no instancing: it says so, and sees the instances' accessors as unused.
@@ -671,7 +676,7 @@ test('instancing: a look placed twice is one node with EXT_mesh_gpu_instancing, 
 test('instancing: edges in a node per placement; curves-only parts stay; hidden, mirrored, sheared apart',
   async () => {
   const s = twice();
-  const view = exportView(s, meshes(), { edges: true, curves: true });
+  const view = viewOf(s, meshes(), { edges: true, curves: true });
   const out = await glb(s, view, { instancing: true });
   assert.deepEqual(await issues(out.bytes), ['UNSUPPORTED_EXTENSION /extensionsUsed/0',
     'UNUSED_OBJECT /accessors/9', 'UNUSED_OBJECT /accessors/10', 'UNUSED_OBJECT /accessors/11']);
@@ -696,7 +701,7 @@ test('instancing: edges in a node per placement; curves-only parts stay; hidden,
   // Hidden or not, apart: one instance hidden leaves one of each, so nothing instanced (left out or kept hidden).
   const h = twice();
   h.overrides.push({ path: [0, 0], visible: false, sources: [] });
-  const hv = exportView(h, meshes());
+  const hv = viewOf(h, meshes());
   for (const hidden of ['omit', 'extension'] as const) {
     const json = (await io.binaryToJSON((await glb(h, hv, { instancing: true, hidden })).bytes)).json;
     assert.ok(!json.extensionsUsed?.includes('EXT_mesh_gpu_instancing'), hidden);
@@ -706,7 +711,7 @@ test('instancing: edges in a node per placement; curves-only parts stay; hidden,
   }
   // Two hidden: left out, nothing; kept, instanced, the node and the edges' nodes hidden.
   h.overrides.push({ path: [0, 1], visible: false, sources: [] });
-  const hv2 = exportView(h, meshes(), { edges: true });
+  const hv2 = viewOf(h, meshes(), { edges: true });
   assert.deepEqual((await io.binaryToJSON((await glb(h, hv2, { instancing: true })).bytes)).json.nodes!.map(
     (n) => n.name), [undefined]);
   const hidden = await io.readBinary((await glb(h, hv2, { instancing: true, hidden: 'extension' })).bytes);
@@ -720,7 +725,7 @@ test('instancing: edges in a node per placement; curves-only parts stay; hidden,
     const t = translation(200, 0, 0);
     t[k] = v;
     m.components[0]!.children[1]!.transform = t;
-    const json = (await io.binaryToJSON((await glb(m, exportView(m, meshes()), { instancing: true })).bytes)).json;
+    const json = (await io.binaryToJSON((await glb(m, viewOf(m, meshes()), { instancing: true })).bytes)).json;
     assert.equal(json.extensionsUsed, undefined, `${k}`);
     assert.equal(json.nodes!.filter((n) => n.name === 'plate').length, 2);
   }
@@ -728,7 +733,7 @@ test('instancing: edges in a node per placement; curves-only parts stay; hidden,
 
 test('instancing with Draco and meshopt: each instance\'s triangles in place, within quantization', async () => {
   const s = twice();
-  const view = exportView(s, meshes(), { edges: true });
+  const view = viewOf(s, meshes(), { edges: true });
   const plain = byName((await io.readBinary((await glb(s, view)).bytes)).getRoot().listNodes(), 'plate');
   for (const compression of ['draco', 'meshopt'] as const) {
     const doc = await decoding.readBinary((await glbOf(s, view, { compression, instancing: true })).bytes);
