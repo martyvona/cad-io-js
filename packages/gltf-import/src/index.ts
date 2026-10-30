@@ -16,8 +16,8 @@
 import { WebIO, type Accessor, type Document, type Material as GltfMaterial, type Node,
   type Primitive } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
-import { closeTransforms, identity, multiply, sceneFromTree, type Diagnostic, type Mat4, type Scene, type TreeExtras,
-  type TreeMaterial, type TreeMesh, type TreeNode, type Vec3 } from 'cad-scene';
+import { closeTransforms, dropSourceDegenerate, identity, multiply, sceneFromTree, type Diagnostic, type Mat4,
+  type Scene, type TreeExtras, type TreeMaterial, type TreeMesh, type TreeNode, type Vec3 } from 'cad-scene';
 
 export interface GltfImport {
   scene: Scene;
@@ -141,6 +141,11 @@ export interface GltfImportOptions {
    * bytes of `draco_decoder_gltf.wasm`, or a `locateFile` finding it. The first decoding call's are kept.
    */
   draco?: Record<string, unknown>;
+  /**
+   * Drop triangles with two corners at one position from the file's meshes (cad-scene's dropSourceDegenerate), with
+   * an info diagnostic per part. Default true; false keeps every triangle the file gives.
+   */
+  dropDegenerate?: boolean;
 }
 
 /** Reads a GLB (bytes), or a .gltf's JSON with its resources. Problems in the file are diagnostics. */
@@ -278,6 +283,7 @@ export async function importGltf(input: Uint8Array | GltfJsonInput, opts: GltfIm
   if (ours) restoreInstances(tops[0]!, top, instanced, warn);
   const built = sceneFromTree(top);
   built.scene.diagnostics.unshift(...diagnostics);
+  if (opts.dropDegenerate ?? true) dropSourceDegenerate(built.scene);
   return { scene: built.scene, diagnostics: built.scene.diagnostics };
 }
 

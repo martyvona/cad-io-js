@@ -135,6 +135,16 @@ function unmatched(a: Drawn[], b: Drawn[], tolerance: number): { a: Drawn[]; b: 
   return { a: left, b: b.filter((d) => !used.has(d)) };
 }
 
+/**
+ * A triangle with two corners within `tolerance` of each other: it draws nothing, within the tolerance, so one left
+ * unmatched isn't a difference (the importers drop triangles with two corners at one position, which a codec's
+ * quantization makes of triangles that were written with distinct corners: dropSourceDegenerate).
+ */
+const negligible = (d: Drawn, tolerance: number) => [0, 1, 2].some((k) => {
+  const i = 3 * k, j = 3 * ((k + 1) % 3);
+  return Math.hypot(d.pts[i]! - d.pts[j]!, d.pts[i + 1]! - d.pts[j + 1]!, d.pts[i + 2]! - d.pts[j + 2]!) <= tolerance;
+});
+
 const describe = (d: Drawn) => `${d.meta} at ${d.pts.slice(0, 9).map((x) => x.toFixed(4)).join(',')}`;
 
 /** Differences in what two scenes' export views draw; none if they draw the same. */
@@ -184,7 +194,8 @@ export function viewDifferences(a: { scene: Scene; view: ExportView }, b: { scen
     const where = `placement ${i} (${x.names})`;
     if (!y) { say(`${where}: missing`); return; }
     if (x.visible !== y.visible) say(`${where}: visible ${x.visible} against ${y.visible}`);
-    const t = unmatched(x.drawn, y.drawn, tolerance);
+    const u = unmatched(x.drawn, y.drawn, tolerance);
+    const t = { a: u.a.filter((d) => !negligible(d, tolerance)), b: u.b.filter((d) => !negligible(d, tolerance)) };
     if (t.a.length || t.b.length) say(`${where}: ${x.drawn.length} triangles against ${y.drawn.length}; ` +
       `${t.a.length} and ${t.b.length} unmatched, first ${describe((t.a[0] ?? t.b[0])!)}`);
     const l = unmatched(x.lines, y.lines, tolerance);

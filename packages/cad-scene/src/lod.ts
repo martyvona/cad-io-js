@@ -1,7 +1,8 @@
 // A part's levels of detail (CLAUDE.md, "Decisions": the scene model, 2026-10-29): adding one, and choosing the one
 // the viewer and the exporters use until they can switch levels themselves.
 
-import type { Lod, Part } from './scene.ts';
+import { degenerateMessage, dropDegenerate } from './mesh.ts';
+import type { Lod, Mesh, Part, Scene } from './scene.ts';
 
 /** The deflections a level is wanted at: millimetres and radians. */
 export interface LodWanted {
@@ -50,4 +51,32 @@ export function chooseLod(part: Part, wanted: LodWanted = {}): Lod | undefined {
     return known.reduce((a, b) => (b.linearDeflection! < a.linearDeflection! ? b : a));
   }
   return lods[0];
+}
+
+/**
+ * Drops triangles with two corners at one position (dropDegenerate) from every part's levels from the source, as
+ * tessellateScene does from its own meshes: the importers' repair of the meshes files give (the user, 2026-10-30;
+ * CLAUDE.md, "Decisions"), so every consumer of an imported scene gets it. Such a triangle draws nothing and holds
+ * no gap closed; a codec's quantization makes them (GLBs with Draco or meshopt). Each part dropping any gets an info
+ * diagnostic in the scene's. Returns the triangles dropped.
+ */
+export function dropSourceDegenerate(scene: Scene): number {
+  // (A mesh shared between levels is repaired once.)
+  const done = new Map<Mesh, { mesh: Mesh; dropped: number }>();
+  let total = 0;
+  for (const part of scene.parts) {
+    let n = 0;
+    for (const lod of part.lods ?? []) {
+      if (lod.from !== 'source') continue;
+      let d = done.get(lod.mesh);
+      if (!d) { d = dropDegenerate(lod.mesh); done.set(lod.mesh, d); }
+      lod.mesh = d.mesh;
+      n += d.dropped;
+    }
+    if (!n) continue;
+    total += n;
+    const source = part.sources[0];
+    scene.diagnostics.push({ severity: 'info', message: degenerateMessage(n), ...(source ? { source } : {}) });
+  }
+  return total;
 }

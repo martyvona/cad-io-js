@@ -5,8 +5,8 @@
 // colour (sRGB, as the file holds it) and opacity; textures aren't supported (said, and ignored: the user,
 // 2026-10-29).
 
-import { identity, sceneFromTree, type Diagnostic, type Scene, type TreeMaterial, type TreeMesh,
-  type TreeNode } from 'cad-scene';
+import { dropSourceDegenerate, identity, sceneFromTree, type Diagnostic, type Scene, type TreeMaterial,
+  type TreeMesh, type TreeNode } from 'cad-scene';
 
 export interface ThreejsImport {
   scene: Scene;
@@ -22,8 +22,16 @@ const numbers = (v: unknown): number[] | undefined => (Array.isArray(v) && v.eve
 const MESH_TYPES: Record<string, TreeMesh['mode']> = { Mesh: 'triangles', SkinnedMesh: 'triangles',
   InstancedMesh: 'triangles', LineSegments: 'lines', Line: 'lines', LineLoop: 'lines', Points: 'points' };
 
+export interface ThreejsImportOptions {
+  /**
+   * Drop triangles with two corners at one position from the file's meshes (cad-scene's dropSourceDegenerate), with
+   * an info diagnostic per part. Default true; false keeps every triangle the file gives.
+   */
+  dropDegenerate?: boolean;
+}
+
 /** Reads three.js JSON (its text, bytes or parsed object). Problems in the file are diagnostics. */
-export function importThreejs(input: string | Uint8Array | object): ThreejsImport {
+export function importThreejs(input: string | Uint8Array | object, opts: ThreejsImportOptions = {}): ThreejsImport {
   const diagnostics: Diagnostic[] = [];
   const warn = (message: string) => diagnostics.push({ severity: 'warning', message });
   let json: Json | undefined;
@@ -137,5 +145,6 @@ export function importThreejs(input: string | Uint8Array | object): ThreejsImpor
   const { scene } = sceneFromTree(tree, old ? { frame: identity() } : {});
   // The reader's, then the tree's (the scene's own list).
   scene.diagnostics.unshift(...diagnostics);
+  if (opts.dropDegenerate ?? true) dropSourceDegenerate(scene);
   return { scene, diagnostics: scene.diagnostics };
 }

@@ -5,7 +5,7 @@
 // user, 2026-10-22). The meshes become the parts' tessellated levels of detail (the user, 2026-10-29: the scene holds
 // its geometry, exact and meshed).
 
-import { dropDegenerate, faceFailures, orientShells } from './mesh.ts';
+import { degenerateMessage, dropDegenerate, faceFailures, orientShells } from './mesh.ts';
 import { addLod } from './lod.ts';
 import type { Diagnostic, Mesh, Part, Scene } from './scene.ts';
 import { meshDeflections, type MeshProfile } from './profiles.ts';
@@ -167,10 +167,7 @@ export async function tessellateScene(scene: Scene, tess: Tessellator,
         const d = dropDegenerate(mesh);
         mesh = d.mesh;
         if (d.dropped) {
-          const n = d.dropped;
-          diagnostics.push({ severity: 'info',
-            message: `${n} degenerate ${n === 1 ? 'triangle' : 'triangles'} dropped (two corners at one position)`,
-            ...(source ? { source } : {}) });
+          diagnostics.push({ severity: 'info', message: degenerateMessage(d.dropped), ...(source ? { source } : {}) });
         }
       }
       if (mesh && (opts.orient ?? true)) {

@@ -78,18 +78,15 @@ export function manifoldProblems(positions: Float32Array, triangles: Uint32Array
 export const INSIDE_OUT = 'inside out (negative volume)';
 
 /**
- * The mesh without its triangles that have two corners at one position (exactly, -0 as 0), decided by the user,
- * 2026-10-22: they cover nothing, and in a welded mesh they would join pieces that only touch there. Removing one
- * never opens the mesh, since its two other edges are one edge both ways. Slivers with three distinct corners on a
- * line stay: their long edge is a neighbour's too. Faces keep their entries (with fewer triangles, perhaps none);
- * vertices, normals and edges are shared with the original. Returns the same mesh if nothing was dropped.
- */
-/**
  * A failed piece counts only past this fraction of its face's area (the meshed pieces' triangles and the failed
  * pieces' B-rep areas): shape healing can split a face into pieces of which a sliver, rightly, meshes to nothing (the
  * user, 2026-10-28: no false alarms).
  */
 export const FAILED_PIECE_FRACTION = 0.01;
+
+/** The diagnostic's message for `n` triangles dropped by dropDegenerate. */
+export const degenerateMessage = (n: number) =>
+  `${n} degenerate ${n === 1 ? 'triangle' : 'triangles'} dropped (two corners at one position)`;
 
 /**
  * Faces that failed to mesh, by source id: `failed` with no triangles in any range (or, `expected`, the part's face
@@ -132,6 +129,13 @@ export function faceFailures(mesh: Mesh, expected?: readonly number[]): Map<numb
   return out;
 }
 
+/**
+ * The mesh without its triangles that have two corners at one position (exactly, -0 as 0), decided by the user,
+ * 2026-10-22: they cover nothing, and in a welded mesh they would join pieces that only touch there. Removing one
+ * never opens the mesh, since its two other edges are one edge both ways. Slivers with three distinct corners on a
+ * line stay: their long edge is a neighbour's too. Faces keep their entries (with fewer triangles, perhaps none);
+ * vertices, normals and edges are shared with the original. Returns the same mesh if nothing was dropped.
+ */
 export function dropDegenerate(mesh: Mesh): { mesh: Mesh; dropped: number } {
   const ix = mesh.indices, p = mesh.positions;
   const same = (a: number, b: number) => a === b || (

@@ -14,8 +14,8 @@
 //   properties: an object's or item's type, part number, Production UUID and metadata (by name as written).
 //   our files with extras: the scene they were written from, as far as 3MF holds it (ours.ts).
 
-import { identity, multiply, scaling, type Component, type Diagnostic, type Mat4, type Material, type Occurrence,
-  type Part, type PartRef, type Properties, type Scene, type SourceId } from 'cad-scene';
+import { dropSourceDegenerate, identity, multiply, scaling, type Component, type Diagnostic, type Mat4,
+  type Material, type Occurrence, type Part, type PartRef, type Properties, type Scene, type SourceId } from 'cad-scene';
 import { readModel, type ItemDef, type ModelFile, type ObjectDef } from './model.ts';
 import { oursFromTree } from './ours.ts';
 import { XmlTokenizer } from './xml.ts';
@@ -24,6 +24,11 @@ import { entryText, inflateEntry, partKey, readZip, type ZipEntry } from './zip.
 export interface ThreeMfImportOptions {
   /** Edges between triangles whose normals differ by more than this (radians) shade sharp. Default 30 degrees. */
   creaseAngle?: number;
+  /**
+   * Drop triangles with two corners at one position from the file's meshes (cad-scene's dropSourceDegenerate), with
+   * an info diagnostic per part. Default true; false keeps every triangle the file gives.
+   */
+  dropDegenerate?: boolean;
 }
 
 export interface ThreeMfImport {
@@ -37,6 +42,12 @@ const DEFAULT_ROOT = '3D/3dmodel.model';
 
 /** Reads a 3MF package. Problems in the file are diagnostics. */
 export function import3mf(input: Uint8Array, opts: ThreeMfImportOptions = {}): ThreeMfImport {
+  const r = read(input, opts);
+  if (opts.dropDegenerate ?? true) dropSourceDegenerate(r.scene);
+  return r;
+}
+
+function read(input: Uint8Array, opts: ThreeMfImportOptions): ThreeMfImport {
   const diagnostics: Diagnostic[] = [];
   const scene: Scene = { unit: 'millimetre', components: [], roots: [], parts: [], materials: [], layers: [],
     overrides: [], properties: { format: '3mf' }, diagnostics };

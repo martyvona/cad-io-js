@@ -11,7 +11,7 @@ export { dropDegenerate, FAILED_PIECE_FRACTION, faceFailures, INSIDE_OUT, manifo
   weld } from './mesh.ts';
 export { exportView, pruneView, type ExportNode, type ExportView, type ExportViewOptions,
   type Look } from './export.ts';
-export { addLod, chooseLod, type LodWanted } from './lod.ts';
+export { addLod, chooseLod, dropSourceDegenerate, type LodWanted } from './lod.ts';
 export { closeTransforms, isOurTree, MM_Z_UP, sceneFromTree, type TreeExtras, type TreeMaterial, type TreeMesh,
   type TreeNode } from './tree-import.ts';
 export { viewDifferences, type CompareOptions } from './compare.ts';

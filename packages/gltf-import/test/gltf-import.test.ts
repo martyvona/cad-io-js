@@ -3,8 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { Document, WebIO } from '@gltf-transform/core';
-import { exportView, identity, multiply, partInstances, pruneView, tessellateScene, validate, viewDifferences,
-  type ExportView, type Scene } from 'cad-scene';
+import { addLod, exportView, identity, multiply, partInstances, pruneView, tessellateScene, validate,
+  viewDifferences, type ExportView, type Scene } from 'cad-scene';
 import { glb, gltfJson, type GltfOptions } from 'export-gltf';
 import { importStep } from 'step-import';
 import { OcctTessellator } from 'tess-occt';
@@ -264,4 +264,33 @@ test('our GLB without extras: each part node\'s `edges` child its mesh\'s edges,
   const backView = exportView(back, lines);
   assert.equal(corners(backView).length, 4);
   assert.deepEqual(corners(backView), corners(pruneView(view, (p) => p.visible)));
+});
+
+/** A square (face 5) and a triangle (face 6) whose third corner is where its second is (another vertex). */
+const degenerate = (): Scene => {
+  const s: Scene = { unit: 'millimetre', materials: [], layers: [], overrides: [], properties: {}, diagnostics: [],
+    components: [{ name: 'c', sources: [], properties: {}, parts: [{ part: 0, transform: identity() }],
+      children: [] }],
+    roots: [{ component: 0, transform: identity(), sources: [], properties: {} }],
+    parts: [{ name: 'p', sources: [], properties: {}, unit: 1, origin: [0, 0, 0], lods: [] }] };
+  addLod(s.parts[0]!, { from: 'source', mesh: { origin: [0, 0, 0],
+    positions: Float32Array.of(0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0),
+    indices: Uint32Array.of(0, 1, 2, 0, 2, 3, 0, 2, 4),
+    faces: [{ source: 5, start: 0, count: 6 }, { source: 6, start: 6, count: 3 }] } });
+  return s;
+};
+const DROPPED = '1 degenerate triangle dropped (two corners at one position)';
+/** The triangles of each part's level, and the messages of the info diagnostics. */
+const outcome = (s: Scene) => ({ triangles: s.parts.map((p) => p.lods[0]!.mesh.indices.length / 3),
+  info: s.diagnostics.filter((d) => d.severity === 'info').map((d) => d.message) });
+
+test('triangles with two corners at one position dropped from the file\'s meshes, said; kept on request',
+  async () => {
+  const s = degenerate();
+  for (const extras of [true, false]) {
+    const { bytes } = await glb(s, exportView(s), { extras, compression: 'none' });
+    assert.deepEqual(outcome((await importGltf(bytes)).scene), { triangles: [2], info: [DROPPED] });
+    assert.deepEqual(outcome((await importGltf(bytes, { dropDegenerate: false })).scene),
+      { triangles: [3], info: [] });
+  }
 });

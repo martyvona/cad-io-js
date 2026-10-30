@@ -100,6 +100,18 @@ function hitsNear(o: THREE.Line | THREE.Points, ray: THREE.Ray, reach: number, n
 export function pick(camera: THREE.Camera, root: THREE.Object3D, ndc: THREE.Vector2, pixel: number,
   clipped?: (p: THREE.Vector3) => boolean): Pick | undefined {
   raycaster.setFromCamera(ndc, camera);
+  // three.js starts an orthographic camera's ray at its position and hits nothing behind it, but our near plane is
+  // often negative (clipTo: zoom selected puts the camera just beyond the selection), so what's drawn between the
+  // near plane and the camera wasn't hit (the user's recording, 2026-10-30): the ray starts at the near plane.
+  const ortho = camera as THREE.OrthographicCamera;
+  if (ortho.isOrthographicCamera) {
+    raycaster.ray.origin.addScaledVector(raycaster.ray.direction, ortho.near);
+    raycaster.near = 0;
+    raycaster.far = ortho.far - ortho.near;
+  } else {
+    raycaster.near = 0;
+    raycaster.far = Infinity;
+  }
   // What the camera draws (edges are on a layer of their own, shown or not).
   raycaster.layers.mask = camera.layers.mask;
   const hits: THREE.Intersection[] = [];

@@ -67,3 +67,23 @@ test('viewDifferences: none for the same drawing however said; each kind of diff
   unlined.parts[0]!.material = 1;
   assert.ok(one(viewDifferences(of(scene()), of(unlined), { faceIds: false, lines: false }), /triangles/));
 });
+
+test('viewDifferences: a triangle with two corners within the tolerance, unmatched, is no difference', () => {
+  // The triangle, and another along its edge from (0, 0) to (1, 0) with its third corner at `y` (in the mesh, so
+  // 10 mm on in the world).
+  const extra = (y: number, x = 1) => {
+    const m = tri();
+    m.positions = Float32Array.of(0, 0, 0, 1, 0, 0, 0, 1, 0, x, y, 0);
+    m.indices = Uint32Array.of(0, 1, 2, 0, 1, 3);
+    m.faces[0]!.count = 6;
+    return scene(m);
+  };
+  assert.deepEqual(viewDifferences(of(scene()), of(extra(5e-5))), []);
+  assert.deepEqual(viewDifferences(of(extra(5e-5)), of(scene())), []);
+  // (Its third corner near its first.)
+  assert.deepEqual(viewDifferences(of(scene()), of(extra(5e-5, 0))), []);
+  assert.equal(viewDifferences(of(scene()), of(extra(0.01))).length, 1);
+  assert.deepEqual(viewDifferences(of(scene()), of(extra(0.01)), { tolerance: 0.05 }), []);
+  // A sliver: three corners on a line, none near another, is drawn (as a line, at least): still a difference.
+  assert.equal(viewDifferences(of(scene()), of(extra(0, 0.5))).length, 1);
+});

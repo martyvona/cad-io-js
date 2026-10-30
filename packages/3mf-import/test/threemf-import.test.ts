@@ -572,3 +572,19 @@ test('a STEP assembly through 3MF with extras and back: the same drawing, tree a
       assert.deepEqual(placed(back.scene), placed(s).filter((p) => !p.endsWith('(hidden)')));
     }
   });
+
+test('triangles with two corners at one position dropped, said; kept on request', () => {
+  // A tetrahedron's four faces and a triangle whose third corner is vertex 4, at vertex 1's position.
+  const bytes = pack({ '3D/3dmodel.model': model(`<resources>${mesh(1, 'type="model"',
+    [[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1], [1, 0, 0]], [[0, 2, 1], [0, 1, 3], [1, 2, 3], [0, 3, 2], [0, 1, 4]])
+  }</resources><build><item objectid="1"/></build>`) });
+  const count = (r: { scene: Scene }) => r.scene.parts[0]!.lods[0]!.mesh.indices.length / 3;
+  const info = (r: { diagnostics: { severity: string; message: string }[] }) => r.diagnostics.filter(
+    (d) => d.severity === 'info').map((d) => d.message);
+  const dropped = import3mf(bytes);
+  assert.equal(count(dropped), 4);
+  assert.deepEqual(info(dropped), ['1 degenerate triangle dropped (two corners at one position)']);
+  const kept = import3mf(bytes, { dropDegenerate: false });
+  assert.equal(count(kept), 5);
+  assert.deepEqual(info(kept), []);
+});

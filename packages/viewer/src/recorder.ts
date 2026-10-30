@@ -40,6 +40,7 @@ import { formatOf } from './formats.ts';
 import { nodeForPick } from './selection.ts';
 import { setSideWidth, sideWidth } from './side-handle.ts';
 import type { Ui, UiEvent } from './ui.ts';
+import { isStep, NOT_REPLAYED } from './replay-report.ts';
 import type { CameraState } from './view-state.ts';
 import type { Viewer } from './viewer.ts';
 
@@ -99,9 +100,6 @@ export interface Session {
 
 /** Controls whose changes aren't recorded (the recorder's own), and those replay leaves alone. */
 const UNRECORDED = /^Recording\//;
-// (Select by ID's dialog isn't replayed; the selection it made is, as a select event.)
-const NOT_REPLAYED = new RegExp('^(File/|View/Copy link|View/(Enter|Exit) full screen|B-Rep Meshing/Clear cache|' +
-  'Selection/Select by ID)');
 
 /** A lil-gui folder (or the top panel, which has no parent), as far as the recorder needs it. */
 interface Folder { _title: string; _closed: boolean; parent?: Folder; open(): unknown; close(): unknown }
@@ -310,6 +308,12 @@ export interface ReplayOptions {
 
 export interface ReplayReport {
   events: number;
+  /**
+   * The events replay acts on: loads, controls (but File's and the like), calls, selections in the tree or by id,
+   * cameras, picks, states. The others are kept for reading (pointer moves, the wheel, statuses, the selections a
+   * pick or a control made, which replay makes again).
+   */
+  steps: number;
   /** Events applied (the others are kept for reading: pointer moves, wheel, statuses...). */
   applied: number;
   divergences: string[];
@@ -357,9 +361,10 @@ export async function replay(rec: Recording, viewer: Viewer, ui: Ui, session: Se
     return found.length ? ui.openFiles(found) : undefined;
   };
   const last = rec.events.findLastIndex((e) => e.type === 'state');
+  const steps = rec.events.filter(isStep).length;
   const maxPause = opts.maxPause ?? 3000;
   const signal = opts.signal;
-  const stopped = () => ({ events: rec.events.length, applied, divergences, aborted: 'stopped' });
+  const stopped = () => ({ events: rec.events.length, steps, applied, divergences, aborted: 'stopped' });
   const sleep = (ms: number) => new Promise<void>((done) => {
     const t = setTimeout(done, ms);
     signal?.addEventListener('abort', () => { clearTimeout(t); done(); }, { once: true });
@@ -390,7 +395,8 @@ export async function replay(rec: Recording, viewer: Viewer, ui: Ui, session: Se
     if (e.type === 'load') {
       if (!opts.openModel) await open(e, at);
       else if (!(await opts.openModel(recordedModel(e), at))) {
-        return { events: rec.events.length, applied, divergences, aborted: `${at}: the model wasn't opened` };
+        return { events: rec.events.length, steps, applied, divergences,
+          aborted: `${at}: the model wasn't opened` };
       }
       applied++;
     } else if (e.type === 'control') {
@@ -465,8 +471,10 @@ export async function replay(rec: Recording, viewer: Viewer, ui: Ui, session: Se
   } finally {
     show?.dispose();
   }
-  return { events: rec.events.length, applied, divergences };
+  return { events: rec.events.length, steps, applied, divergences };
 }
+
+
 
 /** The events replay applies (and so waits for the viewer before). */
 const APPLIED = new Set<RecordedEvent['type']>(['load', 'control', 'api', 'select', 'camera', 'pick', 'state']);

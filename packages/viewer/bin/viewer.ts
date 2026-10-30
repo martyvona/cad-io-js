@@ -14,6 +14,7 @@ import { createRequire } from 'node:module';
 import { CONTENT_PREFIX, contentUrl } from '../server/content.ts';
 import { launchChrome, type Tab } from '../server/headless.ts';
 import { DEFAULTS, envFromOptions, type ServerOptions } from '../server/options.ts';
+import { replayed } from '../src/replay-report.ts';
 
 const viewer = path.resolve(import.meta.dirname, '..');
 
@@ -313,7 +314,7 @@ async function replayRecording(s: State, file: string, o: ShotOptions, io: Io): 
     const r = await tab.evaluate(`cadViewer.replay(${JSON.stringify(rec)}, { urls: ${JSON.stringify(urls)} })
       .then(async (report) => { await cadViewer.idle(); return { report, state: cadViewer.state(),
       png: cadViewer.state().model ? cadViewer.screenshot() : null }; })`, 3_600_000) as { report: {
-      events: number; applied: number; divergences: string[] }; state: unknown; png: string | null };
+      events: number; steps: number; applied: number; divergences: string[] }; state: unknown; png: string | null };
     if (o.json) {
       const text = JSON.stringify({ report: r.report, state: r.state }, null, 2) + '\n';
       if (o.json === '-') io.out(text);
@@ -322,7 +323,7 @@ async function replayRecording(s: State, file: string, o: ShotOptions, io: Io): 
     const out = o.out ?? path.resolve(path.basename(file).replace(/\.[^.]*$/, '') + '.png');
     if (r.png) fs.writeFileSync(out, Buffer.from(r.png.replace(/^data:image\/png;base64,/, ''), 'base64'));
     if (o.json !== '-') {
-      io.out(`replayed ${r.report.applied} of ${r.report.events} events${r.png ? `; the end: ${out}` : ''}\n`);
+      io.out(`${replayed(r.report)}${r.png ? `; the end: ${out}` : ''}\n`);
       for (const d of r.report.divergences) io.out(`diverged: ${d}\n`);
       if (!r.report.divergences.length) io.out('as recorded\n');
     }

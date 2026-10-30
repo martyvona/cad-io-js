@@ -1,9 +1,9 @@
-517 files (0 over the size limit), 1870 s
-json           517 of 517 the same; 0 invalid, 0 threw; 1018.6 MB, export 17.4 s, import 4.0 s
-glb            517 of 517 the same; 0 invalid, 0 threw; 461.4 MB, export 1.8 s, import 3.2 s
-glb-draco      517 of 517 the same; 0 invalid, 0 threw; 90.0 MB, export 10.7 s, import 6.2 s
-glb-meshopt    517 of 517 the same; 0 invalid, 0 threw; 108.9 MB, export 5.4 s, import 3.5 s
-glb-instanced  517 of 517 the same; 0 invalid, 0 threw; 461.2 MB, export 1.8 s, import 3.1 s
-3mf            517 of 517 the same; 0 invalid, 0 threw; 220.7 MB, export 44.4 s, import 27.4 s
-3mf-assembly   517 of 517 the same; 0 invalid, 0 threw; 220.1 MB, export 44.0 s, import 23.7 s
+517 files (0 over the size limit), 2010 s
+json           517 of 517 the same; 0 invalid, 0 threw; 1018.6 MB, export 18.0 s, import 4.5 s
+glb            517 of 517 the same; 0 invalid, 0 threw; 461.4 MB, export 1.9 s, import 3.4 s
+glb-draco      517 of 517 the same; 0 invalid, 0 threw; 90.0 MB, export 10.8 s, import 6.7 s
+glb-meshopt    517 of 517 the same; 0 invalid, 0 threw; 108.9 MB, export 6.5 s, import 4.9 s
+glb-instanced  517 of 517 the same; 0 invalid, 0 threw; 461.2 MB, export 2.0 s, import 3.7 s
+3mf            517 of 517 the same; 0 invalid, 0 threw; 220.7 MB, export 52.2 s, import 37.6 s
+3mf-assembly   517 of 517 the same; 0 invalid, 0 threw; 220.1 MB, export 44.0 s, import 23.6 s
 problems 0

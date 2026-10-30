@@ -13,7 +13,8 @@ import {
   type Diagnostic as StepDiagnostic, type Mat4, type OpenOptions, type Semantics, type StepFile, type StepModel,
   type StepSource, type Style,
 } from 'step-parser';
-import type { Component, Diagnostic, Layer, Lod, Material, Part, Scene, Vec3 } from 'cad-scene';
+import { dropSourceDegenerate, type Component, type Diagnostic, type Layer, type Lod, type Material, type Part,
+  type Scene, type Vec3 } from 'cad-scene';
 import { faceOutlines } from './outlines.ts';
 import { moveMesh, readTessellated, tessellatedItems } from './tessellated.ts';
 
@@ -26,6 +27,11 @@ export interface ImportOptions extends OpenOptions {
    * as before 2026-10-29.
    */
   tessellated?: 'read' | 'backend';
+  /**
+   * Drop triangles with two corners at one position from the file's meshes (cad-scene's dropSourceDegenerate), with
+   * an info diagnostic per part. Default true; false keeps every triangle the file gives.
+   */
+  dropDegenerate?: boolean;
 }
 
 export interface ImportResult {
@@ -478,6 +484,7 @@ export function sceneFromStep(model: StepModel, sem: Semantics, opts: ImportOpti
     diagnostics: [...file.diagnostics.map(convert), ...model.diagnostics.map(convert), ...sem.diagnostics.map(convert),
       ...diagnostics],
   };
+  if (opts.dropDegenerate ?? true) dropSourceDegenerate(scene);
   return { scene, model, semantics: sem, partOf };
 }
 

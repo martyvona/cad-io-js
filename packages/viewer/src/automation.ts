@@ -15,6 +15,7 @@ import { formatOf } from './formats.ts';
 import { AXES, type SectionSettings } from './section.ts';
 import { hex, Recorder, RECORDING_FORMAT, replay, type RecordedModel, type Recording, type ReplayOptions,
   type ReplayReport, type Session } from './recorder.ts';
+import { replayed } from './replay-report.ts';
 import { nodeForPick } from './selection.ts';
 import { contentPath, fromUrl, pickFiles, typedUrl } from './sources.ts';
 import type { RenderSettings } from './style.ts';
@@ -269,7 +270,7 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
     screenshot: () => viewer.snapshot(),
     record: () => undefined,
     recording: () => undefined,
-    replay: async () => ({ events: 0, applied: 0, divergences: [] }),
+    replay: async () => ({ events: 0, steps: 0, applied: 0, divergences: [] }),
   };
   // Recording: ?record starts it before anything loads; the controls' Recording folder.
   const session: Session = { state: () => ({ ...state() }), link, apply: (s) => apply(s as ViewState),
@@ -401,10 +402,10 @@ function addRecordingControls(ui: Ui, api: CadViewer, recorder: Recorder): void 
     try {
       const r = await api.replay(rec, { openModel: (m) => openRecordedModel(ui, m), realtime: true,
         signal: stopping.signal });
-      if (r.aborted === 'stopped') return ui.say(`replay stopped after ${r.applied} of ${r.events} events`);
+      if (r.aborted === 'stopped') return ui.say(replayed(r));
       if (r.aborted) return ui.say('replay stopped: the recorded model wasn\'t opened', true);
       if (r.divergences.length) console.warn('replay:', r.divergences);
-      ui.say(`replayed ${r.applied} of ${r.events} events; ${r.divergences.length ? `${r.divergences.length} ` +
+      ui.say(`${replayed(r)}; ${r.divergences.length ? `${r.divergences.length} ` +
         'divergences (in the console)' : 'as recorded'}`, r.divergences.length > 0);
     } catch (e) {
       ui.say(`replay: ${(e as Error).message}`, true);

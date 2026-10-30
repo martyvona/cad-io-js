@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { addLod, chooseLod, exportView, identity, tessellateScene, type Lod, type Mesh, type Part,
-  type Scene } from '../src/index.ts';
+import { addLod, chooseLod, dropSourceDegenerate, exportView, identity, tessellateScene, type Lod, type Mesh,
+  type Part, type Scene } from '../src/index.ts';
 
 const mesh = (n: number): Mesh => ({ origin: [0, 0, 0], positions: new Float32Array(9 * n),
   indices: Uint32Array.from({ length: 3 * n }, (_, i) => i), faces: [] });
@@ -82,4 +82,34 @@ test('exportView uses each part\'s chosen level; tessellateScene adds its meshes
   tess.tessellate = async () => { throw new Error('boom'); };
   await tessellateScene(scene, tess, { ...o, linearDeflection: 0.05 });
   assert.deepEqual(scene.parts[0]!.lods.map((l) => l.linearDeflection), [0.2, undefined]);
+});
+
+test('dropSourceDegenerate: levels from the source lose triangles with two corners at one position, ours keep '
+  + 'theirs; a diagnostic per part', () => {
+  // Faces 7 and 8, the second's triangle with its second corner where vertex 1 is (another vertex).
+  const flat = (): Mesh => ({ origin: [0, 0, 0], positions: Float32Array.of(0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0),
+    indices: Uint32Array.of(0, 1, 2, 1, 3, 2), faces: [{ source: 7, start: 0, count: 3 }, { source: 8, start: 3,
+      count: 3 }] });
+  const shared = flat();
+  const parts: Part[] = [0, 1, 2, 3].map((k) => ({ ...part(), name: `p${k}`, sources: [{ format: 'f', id: k }] }));
+  addLod(parts[0]!, { mesh: shared, from: 'source' });
+  addLod(parts[1]!, { mesh: shared, from: 'source' });
+  addLod(parts[2]!, { mesh: flat(), from: 'tessellated', linearDeflection: 0.1, backend: 'b' });
+  addLod(parts[3]!, { mesh: mesh(1), from: 'source' });
+  parts[3]!.lods[0]!.mesh.positions.set([0, 0, 0, 1, 0, 0, 0, 1, 0]);
+  const scene: Scene = { unit: 'millimetre', materials: [], layers: [], overrides: [], properties: {},
+    diagnostics: [], components: [], roots: [], parts };
+  assert.equal(dropSourceDegenerate(scene), 2);
+  for (const k of [0, 1]) {
+    const m = parts[k]!.lods[0]!.mesh;
+    assert.deepEqual(Array.from(m.indices), [0, 1, 2]);
+    assert.deepEqual(m.faces, [{ source: 7, start: 0, count: 3 }, { source: 8, start: 3, count: 0, area: 0 }]);
+  }
+  // The shared mesh repaired once, for both.
+  assert.equal(parts[0]!.lods[0]!.mesh, parts[1]!.lods[0]!.mesh);
+  assert.equal(triangles(parts[2]!.lods[0]), 2);
+  assert.equal(triangles(parts[3]!.lods[0]), 1);
+  assert.deepEqual(scene.diagnostics, [0, 1].map((id) => ({ severity: 'info',
+    message: '1 degenerate triangle dropped (two corners at one position)', source: { format: 'f', id } })));
+  assert.equal(dropSourceDegenerate(scene), 0);
 });

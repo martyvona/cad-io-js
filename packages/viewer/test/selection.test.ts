@@ -280,3 +280,33 @@ test('pick: lines are hit within the pixels asked under a scaled parent (a file 
   assert.equal(at(0, 3.3), edges);
   assert.equal(at(0, 4), undefined);
 });
+
+test('pick: what\'s drawn in front of the camera\'s position (a negative near plane) is hit, nearest first', () => {
+  // Zoom selected puts the camera just beyond the selection, and the near plane follows the whole model (clipTo),
+  // so other parts lie between the near plane and the camera: drawn, and before 2026-10-30 not hit (three.js starts
+  // an orthographic camera's ray at its position), so a click on them picked what was behind them, or nothing.
+  const root = new THREE.Group();
+  const plane = (z: number) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(2, 2));
+    m.position.z = z;
+    root.add(m);
+    return m;
+  };
+  const behind = plane(-5), front = plane(5), beyond = plane(150);
+  const edge = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(3, -1, 5),
+    new THREE.Vector3(3, 1, 5)]));
+  root.add(edge);
+  root.updateMatrixWorld(true);
+  const camera = new THREE.OrthographicCamera(-10, 10, 10, -10, -100, 100);
+  camera.lookAt(0, 0, -1);
+  camera.updateMatrixWorld();
+  const at = (x: number) => pick(camera, root, new THREE.Vector2(x / 10, 0), 0.1)?.object;
+  assert.equal(at(0), front);
+  assert.equal(at(3), edge);
+  front.visible = false;
+  assert.equal(at(0), behind);
+  // Beyond the near plane: not drawn, not hit.
+  behind.visible = false;
+  assert.equal(at(0), undefined);
+  assert.ok(beyond);
+});

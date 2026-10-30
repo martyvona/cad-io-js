@@ -2707,7 +2707,7 @@ await check('replay dialogs', async () => {
   const a = r.after;
   const j = JSON.stringify(a);
   expect(!a.error, `the page: ${a.error}`);
-  const asRecorded = (s: string | undefined) => /^replayed \d+ of \d+ events; as recorded/.test(s ?? '');
+  const asRecorded = (s: string | undefined) => /^replayed all \d+ steps; as recorded/.test(s ?? '');
   expect(asRecorded(a.same?.status) && !a.same.dialog, `the model open: ${j}`);
   expect(a.asked?.title === 'Open the recorded model' && /as1\.glb/.test(a.asked.text) && /[0-9a-f]{64}/.test(
     a.asked.text) && /bytes/.test(a.asked.text) && a.urlDialog?.input === '', `asked for: ${j}`);

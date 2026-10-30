@@ -334,3 +334,22 @@ test('pairing: by links among several B-rep parts; none without links (a warning
     const kept = await importStep(file(COMMON + PAIR + related([35])), { tessellated: 'backend' });
     assert.equal(kept.scene.parts.length, 2);
   });
+
+test('triangles with two corners at one position (distinct points there) dropped, said; kept on request',
+  async () => {
+  // A square's two triangles, and one whose third point is a second (0, 0, 0).
+  const data = COMMON + `
+#100=COORDINATES_LIST('',5,((0.,0.,0.),(1.,0.,0.),(1.,1.,0.),(0.,1.,0.),(0.,0.,0.)));
+#101=TRIANGULATED_FACE('f',#100,0,(),$,(),((1,2,3),(1,3,4),(1,2,5)));
+#102=TESSELLATED_SHAPE_REPRESENTATION('square',(#101),#16);
+` + related([102]);
+  const count = (s: Scene) => s.parts[0]!.lods[0]!.mesh.indices.length / 3;
+  const info = (s: Scene) => s.diagnostics.filter((d) => d.severity === 'info').map((d) => d.message);
+  const { scene } = await importStep(file(data));
+  assert.equal(count(scene), 2);
+  assert.deepEqual(info(scene), ['1 degenerate triangle dropped (two corners at one position)']);
+  assert.deepEqual(scene.diagnostics.find((d) => d.severity === 'info')!.source, scene.parts[0]!.sources[0]);
+  const kept = (await importStep(file(data), { dropDegenerate: false })).scene;
+  assert.equal(count(kept), 3);
+  assert.deepEqual(info(kept), []);
+});
