@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { dropDegenerate, FAILED_PIECE_FRACTION, faceFailures, INSIDE_OUT, manifoldProblems, orientShells,
-  tessellateScene, weld, type Mesh, type Scene, type TessellationRequest, type TessellationResult,
+import { dropDegenerate, faceFailures, INSIDE_OUT, manifoldProblems, orientShells,
+  tessellateScene, weld, type FaceMeasures, type Mesh, type Scene, type TessellationRequest, type TessellationResult,
   type Tessellator } from '../src/index.ts';
 
 // A box's corners and faces, each counter-clockwise seen from outside.
@@ -147,13 +147,13 @@ test('dropDegenerate: triangles with two corners at one position go, slivers and
   let at = 0;
   for (const f of r.mesh.faces) { assert.equal(f.start, at); at += f.count; }
   assert.equal(at, r.mesh.indices.length);
-  // A face of nothing but degenerate triangles keeps its entry, empty, with an area of none (no failure:
-  // faceFailures); a mesh without faces loses them too.
+  // A face of nothing but degenerate triangles keeps its entry, empty (judged by the part's measures, where it has
+  // them: faceFailures); a mesh without faces loses them too.
   const flat: Mesh = { origin: [0, 0, 0], positions: Float32Array.of(0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0),
     indices: Uint32Array.of(0, 1, 2, 1, 3, 2),
     faces: [{ source: 7, start: 0, count: 3 }, { source: 8, start: 3, count: 3 }] };
   assert.deepEqual(dropDegenerate(flat).mesh.faces,
-    [{ source: 7, start: 0, count: 3 }, { source: 8, start: 3, count: 0, area: 0 }]);
+    [{ source: 7, start: 0, count: 3 }, { source: 8, start: 3, count: 0 }]);
   assert.deepEqual(Array.from(dropDegenerate({ ...flat, faces: [] }).mesh.indices), [0, 1, 2]);
   // A vertex used twice is one position even when that position isn't a number.
   assert.equal(dropDegenerate(
@@ -253,24 +253,68 @@ test('weld: equal coordinates join, -0 and 0 too; others stay apart', () => {
 });
 
 
-test('faceFailures: no triangles failed; a piece with none partly, unless a sliver; left out failed; degenerate not',
+test('faceFailures without measures: no triangles failed (an empty piece beside a meshed one is not); left out failed',
   () => {
-  // Three triangles of area 0.5 (one per face 1, 2, 3); face 2 has a piece of 0.004 more (a sliver: under 1%),
-  // face 3 one of 0.5 (half the face), face 4 one of unknown area beside its triangle, face 5 none at all, face 6 a
-  // range emptied of degenerate triangles only.
+  // Faces 1-3 a triangle each of area 0.5; face 2 also an empty piece; face 4 only empty pieces; null ignored.
   const mesh: Mesh = { origin: [0, 0, 0], positions: Float32Array.of(0, 0, 0, 1, 0, 0, 0, 1, 0),
-    indices: Uint32Array.of(0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2), faces: [
-      { source: 1, start: 0, count: 3 }, { source: 2, start: 3, count: 3 }, { source: 2, start: 6, count: 0,
-        area: 0.004 }, { source: 3, start: 6, count: 3 }, { source: 3, start: 9, count: 0, area: 0.5 },
-      { source: 4, start: 9, count: 3 }, { source: 4, start: 12, count: 0 }, { source: 5, start: 12, count: 0,
-        area: 2 }, { source: 6, start: 12, count: 0, area: 0 }, { source: null, start: 12, count: 0 }] };
-  assert.deepEqual([...faceFailures(mesh)].sort(), [[3, 'partly'], [4, 'partly'], [5, 'failed']]);
+    indices: Uint32Array.of(0, 1, 2, 0, 1, 2, 0, 1, 2), faces: [
+      { source: 1, start: 0, count: 3 }, { source: 2, start: 3, count: 3 }, { source: 2, start: 6, count: 0 },
+      { source: 3, start: 6, count: 3 }, { source: 4, start: 9, count: 0 }, { source: 4, start: 9, count: 0 },
+      { source: null, start: 9, count: 0 }] };
+  assert.deepEqual([...faceFailures(mesh)], [[4, 'failed']]);
   // Faces the source lists that the mesh leaves out: failed.
-  assert.deepEqual([...faceFailures(mesh, [1, 2, 9])].sort(), [[3, 'partly'], [4, 'partly'], [5, 'failed'],
-    [9, 'failed']]);
-  // Just under and over the fraction.
-  const piece = (area: number) => faceFailures({ ...mesh, faces: [{ source: 1, start: 0, count: 3 },
-    { source: 1, start: 3, count: 0, area }] }).get(1);
-  assert.equal(piece(0.5 * FAILED_PIECE_FRACTION * 0.99), undefined);
-  assert.equal(piece(0.5 * FAILED_PIECE_FRACTION * 1.1), 'partly');
+  assert.deepEqual([...faceFailures(mesh, { expected: [1, 9] })].sort(), [[4, 'failed'], [9, 'failed']]);
+});
+
+test('faceFailures with measures: partly, excess, unverified and failed by the face\'s area, the tolerances\' edges',
+  () => {
+  // Face 1 a 10 x 10 square in two triangles (area 100, perimeter 40); face 2 a triangle of area 0.5 (perimeter
+  // 3.41); deflection 0.1, so the boundary allowance is 4 for face 1, 0.341 for face 2, and nothing under 0.01 is
+  // a face to mesh.
+  const mesh: Mesh = { origin: [0, 0, 0], positions: Float32Array.of(0, 0, 0, 10, 0, 0, 10, 10, 0, 0, 10, 0,
+    0, 0, 0, 1, 0, 0, 0, 1, 0), indices: Uint32Array.of(0, 1, 2, 0, 2, 3, 4, 5, 6),
+    faces: [{ source: 1, start: 0, count: 6 }, { source: 2, start: 6, count: 3 }] };
+  const d = 0.1;
+  const judge = (faces: [number, Partial<FaceMeasures>][], m: Mesh = mesh) => faceFailures(m, { measured: {
+    deflection: d, measures: { by: 'test', faces: new Map(faces.map(([s, f]) => [s, { area: 1, perimeter: 1,
+      valid: true, ...f }])) } } });
+  const one = (area: number, perimeter = 40, valid = true) => judge([[1, { area, perimeter, valid }]]).get(1);
+  assert.equal(one(100), undefined);
+  // Short: 4 is the larger of 3 % (3.0-3.3) and the strip (4): 103.9 passes, 104.1 is partly; at 200, 3 % (6) is.
+  assert.equal(one(103.9), undefined);
+  assert.equal(one(104.1), 'partly');
+  assert.equal(one(205.9), 'partly');
+  assert.equal(one(105.9, 400), undefined);
+  // The strip scales with the perimeter: 10 short passes with a perimeter of 101 (allowance 10.1), not with 99.
+  assert.equal(one(110, 101), undefined);
+  assert.equal(one(110, 99), 'partly');
+  // With no strip, the fraction alone: 3 short of 103 passes (3.09 allowed), 3.5 of 103.5 doesn't.
+  assert.equal(one(103, 0), undefined);
+  assert.equal(one(103.5, 0), 'partly');
+  // Over: the larger of 10 % (9.1-9.3) and the strip (4).
+  assert.equal(one(91), undefined);
+  assert.equal(one(90.5), 'excess');
+  // With no strip (a perimeter of 0), the fraction alone: over by 9.05 of 90.95 passes, by 9.15 of 90.85 doesn't.
+  assert.equal(one(90.95, 0), undefined);
+  assert.equal(one(90.85, 0), 'excess');
+  // A small face meshed coarsely: 0.5 of 0.6 is 17 % short, within its strip (0.341 x 2 = 0.68).
+  assert.equal(judge([[2, { area: 0.6, perimeter: 6.83 }]]).get(2), undefined);
+  assert.equal(judge([[2, { area: 0.6, perimeter: 0.5 }]]).get(2), 'partly');
+  // Not to be trusted: unverified with triangles, failed without.
+  assert.equal(one(100, 40, false), 'unverified');
+  for (const area of [NaN, Infinity, -1, 1e21]) assert.equal(one(area), 'unverified', String(area));
+  // (A huge area that's still possible is judged: the mesh is short of it.)
+  assert.equal(one(1e19), 'partly');
+  assert.equal(one(100, NaN), 'unverified');
+  const empty: Mesh = { ...mesh, faces: [{ source: 1, start: 0, count: 0 }, { source: 2, start: 6, count: 3 }] };
+  assert.equal(judge([[1, { area: 100, valid: false }]], empty).get(1), 'failed');
+  // No triangles: failed if there's something to mesh (d x d = 0.01 or more), else nothing missing.
+  assert.equal(judge([[1, { area: 0.0101 }]], empty).get(1), 'failed');
+  assert.equal(judge([[1, { area: 0.0099 }]], empty).get(1), undefined);
+  // A measured face the mesh lacks: failed, or nothing if it has nothing to mesh; a face without measures by the
+  // no-triangles rule alone.
+  assert.equal(judge([[7, { area: 5 }]]).get(7), 'failed');
+  assert.equal(judge([[7, { area: 0.001 }]]).get(7), undefined);
+  assert.equal(judge([[7, { area: 5 }]], empty).get(1), 'failed');
+  assert.equal(judge([[2, { area: 0.5 }]]).get(1), undefined);
 });

@@ -54,6 +54,30 @@ test('a 10 mm cube: faces with entity ids, edges, the origin subtracted in doubl
   assert.equal([...partInstances(scene)].length, 1);
 });
 
+test('measures: each face\'s area, perimeter and soundness when asked for, by its ADVANCED_FACE id', { skip },
+  async () => {
+  const tess = new OcctTessellator();
+  await tess.init();
+  const { scene } = await importStep(fs.readFileSync(cube));
+  const part = scene.parts[0]!;
+  const req = { format: 'step' as const, data: part.brep!.payload(), rootId: part.brep!.rootId,
+    linearDeflection: 0.01, angularDeflection: 0.5 };
+  assert.equal((await tess.tessellate(req)).measures, undefined);
+  const r = await tess.tessellate({ ...req, measures: true });
+  // Six faces of 10 x 10 mm, each bounded by 40 mm, sound; the ids those of the faces' ranges.
+  assert.equal(r.measures!.length, 6);
+  assert.deepEqual(r.measures!.map((m) => m.entityId).sort(), r.faces.map((f) => f.entityId).sort());
+  for (const m of r.measures!) {
+    assert.ok(Math.abs(m.area - 100) < 1e-6 && Math.abs(m.perimeter - 40) < 1e-6 && m.valid, JSON.stringify(m));
+  }
+  // And the next request without them has none (the switch is per request).
+  assert.equal((await tess.tessellate(req)).measures, undefined);
+  // Through the driver: kept on the part, by the backend's name and version.
+  await tessellateScene(scene, tess, { linearDeflection: 0.01, angularDeflection: 0.5 });
+  assert.equal(part.measures!.by, `${tess.info.name} ${tess.info.version}`);
+  assert.equal(part.measures!.faces.size, 6);
+});
+
 test('unreadable input: an error diagnostic, an empty result', { skip: built ? false : 'tess-occt not built' },
   async () => {
   const tess = new OcctTessellator();
@@ -307,4 +331,18 @@ test("a host's module: the glue and module given by URL, bytes, factory or compi
   } finally {
     pool.dispose();
   }
+});
+
+const unsound = path.join(root, 'test_corpus/third_party/gkv311-opencascade-dataset/step/trj3_s1-al-214.stp');
+test('measures: a face OCCT finds unsound is said to be (trj3_s1-al-214.stp #1311), sound ones not', {
+  skip: !built ? 'tess-occt not built' : !fs.existsSync(unsound) ? 'the corpus is missing' : false }, async () => {
+  const tess = new OcctTessellator();
+  await tess.init();
+  const { scene } = await importStep(fs.readFileSync(unsound));
+  const part = scene.parts[0]!;
+  const r = await tess.tessellate({ format: 'step', data: part.brep!.payload(), rootId: part.brep!.rootId,
+    linearDeflection: 0.1, angularDeflection: 0.26, measures: true });
+  const m = new Map(r.measures!.map((x) => [x.entityId, x]));
+  assert.equal(m.get(1311)?.valid, false);
+  assert.ok(r.measures!.filter((x) => x.valid).length > r.measures!.length / 2);
 });

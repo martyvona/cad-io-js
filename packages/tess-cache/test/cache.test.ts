@@ -22,8 +22,10 @@ const result = (full: boolean, diagnostics: Diagnostic[] = []): TessellationResu
     r.curves = [{ entityId: 40, start: 0, count: 2 }, { entityId: null, start: 2, count: 1 }];
     r.points = new Float32Array([5, 6, 7]);
     r.pointIds = [41];
-    // A face piece that failed: its B-rep area, and its edges' outline.
-    r.faces.push({ entityId: 13, start: 3, count: 0, area: 0.25 });
+    // A face piece that failed, its edges' outline; the faces' measures.
+    r.faces.push({ entityId: 13, start: 3, count: 0 });
+    r.measures = [{ entityId: 12, area: 0.5, perimeter: 3.4142135623730951, valid: true },
+      { entityId: 13, area: 0.25, perimeter: 2, valid: false }];
     r.outlinePositions = new Float32Array([2, 2, 2, 3, 3, 3]);
     r.outlines = [{ entityId: 13, start: 0, count: 2 }];
   }
@@ -117,6 +119,8 @@ test('the key changes with the backend, every request option and the payload, an
   assert.equal((await keyPrefix({ ...info, name: '' })).backend, '-_');
   assert.equal((await keyPrefix({ ...info, name: 'a'.repeat(40) })).backend, `${'a'.repeat(32)}_`);
   assert.equal(await cacheKey({ ...info }, { ...req, data: new Uint8Array([1, 2, 3]) }), k);
+  // Measures don't change it (a result with them answers either kind of request).
+  assert.equal(await cacheKey(info, { ...req, measures: true }), k);
   const changed: [TessellatorInfo, TessellationRequest][] = [
     [{ ...info, name: 'other' }, req],
     [{ ...info, version: '2' }, req],
@@ -157,14 +161,36 @@ class Fake implements Tessellator {
     if (mode === 3) throw new TessellationError('bad part');
     if (mode === 4) throw new WebAssembly.RuntimeError('unreachable');
     if (mode === 5) throw new TessellationError('timed out', arg * 10);
-    return result(true, mode === 1 ? [{ severity: 'error', message: 'panicked' }] : [
+    const res = result(true, mode === 1 ? [{ severity: 'error', message: 'panicked' }] : [
       { severity: 'info', message: `call ${this.calls}` }]);
+    // (Measures only when asked for, as OCCT gives them.)
+    if (!r.measures) delete res.measures;
+    return res;
   }
   memoryBytes() { return 42; }
   dispose() { this.disposed = true; }
 }
 
 const r0 = (...extra: number[]) => ({ ...req, data: new Uint8Array([0, ...extra]) });
+
+test('a result without measures doesn\'t answer a request for them; one with them answers both kinds', async () => {
+  const fake = new Fake();
+  const t = new CachedTessellator(fake, new MemoryStore());
+  await t.tessellate(r0());
+  await t.tessellate(r0());
+  assert.equal(fake.calls, 1);
+  const m = await t.tessellate({ ...r0(), measures: true });
+  assert.equal(fake.calls, 2);
+  assert.equal(m.measures?.length, 2);
+  // Now stored with measures: answers either kind.
+  assert.equal((await t.tessellate({ ...r0(), measures: true })).measures?.length, 2);
+  assert.equal((await t.tessellate(r0())).measures?.length, 2);
+  assert.equal(fake.calls, 2);
+  // A cached failure answers a request for measures as it would any other.
+  await t.tessellate({ ...req, data: new Uint8Array([3]) }).catch(() => {});
+  await t.tessellate({ ...req, data: new Uint8Array([3]), measures: true }).catch(() => {});
+  assert.equal(fake.calls, 3);
+});
 
 test('a repeated request is answered from the store, and a different one by the backend', async () => {
   const fake = new Fake();

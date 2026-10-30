@@ -7,11 +7,12 @@ export { identity, multiply, scaling, Y_UP_METRES, instances, partInstances, val
 export { tessellateScene, toMesh, type TessellateOptions, type TessellateResult } from './tessellate.ts';
 export { DEFAULT_MESH_PROFILE, MESH_PROFILE_NAMES, MESH_PROFILES, meshDeflections, meshProfileOf, type Deflections,
   type MeshProfile } from './profiles.ts';
-export { dropDegenerate, FAILED_PIECE_FRACTION, faceFailures, INSIDE_OUT, manifoldProblems, orientShells,
-  weld } from './mesh.ts';
+export { BOUNDARY_SLACK, dropDegenerate, EXCESS_FRACTION, faceFailures, INSIDE_OUT, manifoldProblems,
+  MAX_PLAUSIBLE_AREA, MISSING_FRACTION, orientShells, weld, type FaceFailure } from './mesh.ts';
 export { exportView, pruneView, type ExportNode, type ExportView, type ExportViewOptions,
   type Look } from './export.ts';
 export { addLod, chooseLod, dropSourceDegenerate, type LodWanted } from './lod.ts';
 export { closeTransforms, isOurTree, MM_Z_UP, sceneFromTree, type TreeExtras, type TreeMaterial, type TreeMesh,
   type TreeNode } from './tree-import.ts';
 export { viewDifferences, type CompareOptions } from './compare.ts';
+export { levelFrom, levelJson, measuresFrom, measuresJson, partExtras, unitFrom } from './measures.ts';

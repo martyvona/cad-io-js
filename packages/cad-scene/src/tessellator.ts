@@ -33,6 +33,8 @@ export interface TessellationRequest {
   angularDeflection: number;
   /** Also return B-rep edges as polylines. */
   edges?: boolean;
+  /** Also return each source face's measures on the exact geometry (`measures`), where the backend can. */
+  measures?: boolean;
 }
 
 export interface TessellationResult {
@@ -46,11 +48,12 @@ export interface TessellationResult {
    * Index ranges per source face (STEP: ADVANCED_FACE); they partition `indices`. An entityId may repeat (a backend
    * can split one source face), and is null for ranges with no known source.
    */
-  faces: {
-    entityId: number | null; start: number; count: number;
-    /** A range with no triangles: its B-rep area, payload units squared, if the backend knows it (OCCT). */
-    area?: number;
-  }[];
+  faces: { entityId: number | null; start: number; count: number }[];
+  /**
+   * Each source face's measures on the exact geometry, when requested and the backend can (OCCT): summed over the
+   * pieces it split the face into, in the payload's units; `valid` when the backend found every piece sound.
+   */
+  measures?: { entityId: number; area: number; perimeter: number; valid: boolean }[];
   /** B-rep edges as polylines, when requested; points coincide with mesh vertices. All polylines concatenated. */
   edgePositions?: Float32Array;
   edges?: {

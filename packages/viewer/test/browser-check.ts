@@ -944,10 +944,13 @@ await check('failed faces', async () => {
     viewer.display.traverse((o) => { if (o.name === 'outline') outlines++; });
     const partly = parts.filter((n) => m.failure(n.id) === 'partly');
     ui.setTree({ detail: true });
-    const faces = partly.flatMap((n) => m.children(n.id)).filter((c) => m.failure(c) === 'failed');
-    return { outlines, partly: partly.length, faces: faces.length, failedParts: viewer.model.parts.failed };
-  })()`) as { after: { outlines: number; partly: number; faces: number; failedParts: number } }).after;
-  expect(b.outlines > 0 && b.partly > 0 && b.faces >= b.partly && b.failedParts === 0,
+    // (Each partly failed part has a face that failed: wholly, red, or partly, short of its area.)
+    const faces = partly.flatMap((n) => m.children(n.id)).map((c) => m.failure(c)).filter((f) => f);
+    return { outlines, partly: partly.length, faces: faces.length, red: faces.filter((f) => f === 'failed').length,
+      failedParts: viewer.model.parts.failed };
+  })()`) as { after: { outlines: number; partly: number; faces: number; red: number; failedParts: number } })
+    .after;
+  expect(b.outlines > 0 && b.partly > 0 && b.faces >= b.partly && b.red > 0 && b.failedParts === 0,
     `the bicycle's failed faces: ${JSON.stringify(b)}`);
   return undefined;
 });

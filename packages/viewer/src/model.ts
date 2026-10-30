@@ -31,8 +31,9 @@ export interface ViewNode {
   /** Faces: the part (scene index) and the face's source id. */
   face?: { part: number; source: number };
   /**
-   * A STEP face that failed to mesh: no triangles (`failed`), or a piece with none that isn't a sliver (`partly`);
-   * outlined in red (scene-graph.ts).
+   * A face that failed to mesh (cad-scene's faceFailures, by its part's measures where it has them): `failed` for
+   * one drawn as failed (no triangles, a mesh much larger than the face, or no area to judge it by: the kind is in
+   * its mesh's `faceReport`), `partly` for one short of its area; outlined in red (scene-graph.ts).
    */
   failure?: 'failed' | 'partly';
   hidden: boolean;
@@ -218,9 +219,9 @@ export class NodeModel {
   }
 
   /**
-   * Meshing failures (the user, 2026-10-28): a STEP face with no triangles, or a part all of whose faces have none,
-   * `failed`; a face with a piece that failed (not a sliver: cad-scene's faceFailures), or a part some of whose faces
-   * failed wholly or partly, `partly`.
+   * Meshing failures (the user, 2026-10-28; by measures 2026-10-30): a face drawn as failed, or a part all of whose
+   * faces are, `failed`; a face short of its area (cad-scene's faceFailures), or a part some of whose faces failed in
+   * any way, `partly`.
    */
   failure(id: number): 'failed' | 'partly' | undefined {
     const n = this.nodes[id];

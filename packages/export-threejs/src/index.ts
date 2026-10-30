@@ -18,8 +18,8 @@
 // user, 2026-10-24). Format 4 holds numbers as JSON arrays, so output is produced in chunks: a large model's JSON can
 // exceed V8's maximum string length.
 
-import { pruneView, Y_UP_METRES, type ExportNode, type ExportView, type Look, type Mat4, type Mesh, type PropertyValue,
-  type Scene, type SourceId, type Vec3 } from 'cad-scene';
+import { partExtras, pruneView, Y_UP_METRES, type ExportNode, type ExportView, type Look, type Mat4, type Mesh,
+  type PropertyValue, type Scene, type SourceId, type Vec3 } from 'cad-scene';
 
 /** Millimetres to metres, and Z up to Y up: (x, y, z) mm -> (x, z, -y) m. Column-major (cad-scene's `Y_UP_METRES`). */
 export const ROOT_TRANSFORM: Mat4 = Y_UP_METRES;
@@ -271,7 +271,7 @@ class Writer {
     if (look.curves && look.mesh.curves?.length) lines('curves');
     if (look.curves && look.mesh.pointSources?.length) lines('points');
     const userData: Json = { part: look.part, ...(part.closed === undefined ? {} : { closed: part.closed }),
-      ...this.sourced(part.sources, part.properties) };
+      ...this.sourced(part.sources, part.properties), ...partExtras(part, look.lod) };
     const o: Json = { uuid: this.uuid(), type: 'Group', name: part.name, matrix: matrix(p.transform) };
     if (look.groups.length) {
       o.type = 'Mesh';

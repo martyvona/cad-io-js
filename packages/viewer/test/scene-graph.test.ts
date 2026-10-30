@@ -181,30 +181,56 @@ test('faces that failed to mesh: outlined in red per placement, marked failed, h
     assert.equal(model2.failure(part2.id), 'failed');
   });
 
-test('a split face with a piece that failed (not a sliver): partly, outlined; a sliver: nothing', async () => {
+test('faces judged by their part\'s measures: partly, excess and unverified, all but partly red; Details', async () => {
   const { NodeModel } = await import('../src/model.ts');
   const { details } = await import('../src/details.ts');
-  // The plate's face 7 (a triangle of area 0.5) split: a piece of none, area 0.4, its outline; face 8 split with a
-  // sliver of 1e-9.
-  const mesh = (area7: number): Mesh => ({ ...plate(), faces: [{ source: 8, start: 0, count: 3 },
-    { source: 8, start: 3, count: 0, area: 1e-9 }, { source: 7, start: 3, count: 3 },
-    { source: 7, start: 6, count: 0, area: area7 }],
-    faceOutlinePositions: Float32Array.of(0, 0, 0, 1, 1, 0), faceOutlines: [{ source: 7, start: 0, count: 2 }] });
-  const graph = new SceneGraph(scene(), 'model');
-  const [obj] = graph.addMesh(0, mesh(0.4));
-  assert.deepEqual([obj!.userData.failedFaces, obj!.userData.partlyFailedFaces], [[], [7]]);
-  assert.equal(obj!.children.filter((c) => c.name === 'outline').length, 1);
+  // The plate's faces (the part is in inches): 8 a triangle of area 0.5 (322.6 mm^2), 7 one of 0.505 (325.8); each
+  // outlined. Meshed at 0.001 mm, so the boundary allowance is nothing to speak of. Details in mm^2.
+  const mesh = (): Mesh => ({ ...plate(), faceOutlinePositions: Float32Array.of(0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0),
+    faceOutlines: [{ source: 7, start: 0, count: 2 }, { source: 8, start: 2, count: 2 }] });
+  const measured = (faces: [number, number, boolean][]) => {
+    const sc = scene();
+    sc.parts[0]!.measures = { by: 'test', faces: new Map(faces.map(([s, area, valid]) => [s, { area, perimeter: 3,
+      valid }])) };
+    return sc;
+  };
+  // 8 short of its measured area (partly), 7 well over its (excess).
+  const graph = new SceneGraph(measured([[8, 1, true], [7, 0.3, true]]), 'model');
+  const [obj] = graph.addMesh(0, mesh(), 0.001);
+  assert.deepEqual([obj!.userData.failedFaces, obj!.userData.partlyFailedFaces], [[7], [8]]);
+  assert.equal(obj!.children.filter((c) => c.name === 'outline').length, 2);
   const model = new NodeModel(graph.root, graph);
   model.setDetail(true);
   const part = model.nodes.find((n) => n.kind === 'part' && n.name === 'plate')!.id;
   const face = (s: number) => model.children(part).find((c) => model.nodes[c]!.face?.source === s)!;
   assert.deepEqual([model.failure(face(7)), model.failure(face(8)), model.failure(part)],
-    ['partly', undefined, 'partly']);
-  assert.ok(details(model, [face(7)]).includes('Part of it failed to mesh: outlined in red'));
-  assert.ok(details(model, [part]).includes('Of 2 faces, 1 partly (outlined in red)'));
-  // The piece a sliver too: nothing failed.
-  const g2 = new SceneGraph(scene(), 'model');
-  const [o2] = g2.addMesh(0, mesh(0.001));
-  assert.deepEqual([o2!.userData.failedFaces, o2!.userData.partlyFailedFaces], [[], []]);
-  assert.equal(o2!.children.filter((c) => c.name === 'outline').length, 0);
+    ['failed', 'partly', 'partly']);
+  assert.ok(details(model, [face(8)]).includes('Part of it failed to mesh (322.6 of 645.2 mm^2 meshed): ' +
+    'outlined in red'),
+    details(model, [face(8)]).join('\n'));
+  assert.ok(details(model, [face(7)]).includes('Its mesh is larger than the face (its mesh 325.8 mm^2, the face ' +
+    '193.5 mm^2): outlined in red'), details(model, [face(7)]).join('\n'));
+  assert.ok(details(model, [face(7)]).includes('Area on the exact geometry: 193.5 mm^2'));
+  assert.ok(details(model, [part]).includes('Of 2 faces, 1 meshed larger than the face, 1 partly (outlined in red)'),
+    details(model, [part]).join('\n'));
+  // 8 unsound (unverified, red), 7 as measured; without the deflection, not judged by measures at all.
+  const g2 = new SceneGraph(measured([[8, 0.5, false], [7, 0.505, true]]), 'model');
+  const [o2] = g2.addMesh(0, mesh(), 0.001);
+  assert.deepEqual([o2!.userData.failedFaces, o2!.userData.partlyFailedFaces], [[8], []]);
+  const m2 = new NodeModel(g2.root, g2);
+  m2.setDetail(true);
+  const p2 = m2.nodes.find((n) => n.kind === 'part' && n.name === 'plate')!.id;
+  const f8 = m2.children(p2).find((c) => m2.nodes[c]!.face?.source === 8)!;
+  assert.equal(m2.failure(f8), 'failed');
+  assert.ok(details(m2, [f8]).includes("Its area couldn't be verified (its geometry is unsound): outlined in red"));
+  const [o3] = new SceneGraph(measured([[8, 0.5, false], [7, 9, true]]), 'model').addMesh(0, mesh());
+  assert.deepEqual([o3!.userData.failedFaces, o3!.userData.partlyFailedFaces], [[], []]);
+  // The deflection is in mm, the part in inches: at 2 mm (0.079 in) the strip for face 8 (perimeter 3 in) is 0.24 in^2,
+  // under its 0.5 in^2 shortfall: partly (taken as 2 inches, the strip would hide it).
+  const [o5] = new SceneGraph(measured([[8, 1, true]]), 'model').addMesh(0, mesh(), 2);
+  assert.deepEqual(o5!.userData.partlyFailedFaces, [8]);
+  // A face with no triangles: failed, as before (its outline drawn).
+  const empty: Mesh = { ...mesh(), faces: [{ source: 8, start: 0, count: 3 }, { source: 7, start: 3, count: 0 }] };
+  const [o4] = new SceneGraph(scene(), 'model').addMesh(0, empty);
+  assert.deepEqual([o4!.userData.failedFaces, o4!.userData.partlyFailedFaces], [[7], []]);
 });

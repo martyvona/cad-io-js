@@ -438,6 +438,8 @@ export class Viewer {
     // What it's meshed with: the settings now, which the import worker is given.
     const { backend, profile, linearDeflection, angularDeflection, timeout, tessellated } = this.settings;
     const meshedWith: MeshedWith = { backend, profile, linearDeflection, angularDeflection, timeout, tessellated };
+    // (The deflection the worker meshes with, in mm: faces are judged by it against their measures.)
+    const meshedAt = meshDeflections(deflectionsOf(this.settings)).linearDeflection;
     let graph: SceneGraph | undefined;
     let model: ModelInfo | undefined;
     let zoomed = false;
@@ -467,9 +469,9 @@ export class Viewer {
           // shown at once, the level for these settings (chooseLod); a B-rep part's until ours comes.
           const wanted = meshDeflections(deflectionsOf(this.settings));
           for (const i of graph.placements.keys()) {
-            const mesh = chooseLod(scene.parts[i]!, wanted)?.mesh;
-            if (mesh) {
-              graph.addMesh(i, mesh);
+            const lod = chooseLod(scene.parts[i]!, wanted);
+            if (lod) {
+              graph.addMesh(i, lod.mesh, lod.linearDeflection);
               added(i);
             }
           }
@@ -481,8 +483,10 @@ export class Viewer {
             (mesh.points?.length ?? 0) > 0;
           // A part that failed may still come with its faces' outlines (model-load.ts): shown, and counted failed,
           // unless the file's own tessellation of it is shown, which stays.
+          // (Its measures, which the worker's scene gained in meshing, first: the mesh is judged by them.)
+          if (ev.measures) graph!.scene.parts[ev.part]!.measures = ev.measures;
           if (mesh && (drawn || (mesh.faceOutlines?.length && !graph!.hasMesh(ev.part)))) {
-            graph!.addMesh(ev.part, mesh);
+            graph!.addMesh(ev.part, mesh, meshedAt);
             added(ev.part);
             if (!zoomed && !this.moved) { zoomed = true; this.zoomAll(); }
           }

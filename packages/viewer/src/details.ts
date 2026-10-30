@@ -5,6 +5,7 @@
 // ASCII only (mm^2).
 
 import type { Kind, NodeModel } from './model.ts';
+import type { FaceReport } from './scene-graph.ts';
 import { instancesOf, measure, piecesOf } from './selection.ts';
 import { formatIds, stepIdsOf } from './step-ids.ts';
 
@@ -43,19 +44,32 @@ export function details(model: NodeModel, ids: readonly number[]): string[] {
       if (all.length > 1) out.push(`Placement ${num(all.indexOf(n.id) + 1)} of ${num(all.length)} of this part`);
       else out.push('The only placement of this part');
     }
-    // Meshing failures (model.ts's failure): what failed, and where it's drawn instead.
+    // Meshing failures (model.ts's failure, the kinds from the mesh's faceReport: scene-graph.ts): what failed, and
+    // where it's drawn instead; a face's area on the exact geometry, where its part was measured.
     const failure = model.failure(n.id);
-    if (failure === 'failed') out.push(n.face ? 'Failed to mesh: its outline is drawn in red'
+    const report = n.face ? faceReportOf(model, n.id) : undefined;
+    const areas = report?.area !== undefined ? ` (${mm(report.meshArea)} of ${mm(report.area)} mm^2 meshed)` : '';
+    if (n.face && report?.failure === 'excess') out.push(`Its mesh is larger than the face (its mesh ` +
+      `${mm(report.meshArea)} mm^2, the face ${mm(report.area!)} mm^2): outlined in red`);
+    else if (n.face && report?.failure === 'unverified') out.push(
+      "Its area couldn't be verified (its geometry is unsound): outlined in red");
+    else if (failure === 'failed') out.push(n.face ? 'Failed to mesh: its outline is drawn in red'
       : "Failed to mesh: its faces' outlines are drawn in red");
-    else if (failure === 'partly' && n.face) out.push('Part of it failed to mesh: outlined in red');
+    else if (failure === 'partly' && n.face) out.push(`Part of it failed to mesh${areas}: outlined in red`);
     else if (failure === 'partly') {
       const m = n.object!.children.find((c) => (c.userData.failedFaces as number[] | undefined)?.length ||
         (c.userData.partlyFailedFaces as number[] | undefined)?.length)!;
-      const failed = (m.userData.failedFaces as number[]).length;
-      const partly = (m.userData.partlyFailedFaces as number[]).length;
-      out.push(`Of ${plural((m.userData.faces as number[]).length, 'face')}, ` + [failed ? `${num(failed)} failed to ` +
-        'mesh' : '', partly ? `${num(partly)} partly` : ''].filter((x) => x).join(', ') + ' (outlined in red)');
+      const kinds = new Map<string, number>();
+      for (const r of Object.values((m.userData.faceReport ?? {}) as Record<number, FaceReport>)) {
+        if (r.failure) kinds.set(r.failure, (kinds.get(r.failure) ?? 0) + 1);
+      }
+      const said = { failed: 'failed to mesh', partly: 'partly', excess: 'meshed larger than the face',
+        unverified: "couldn't be verified" } as const;
+      out.push(`Of ${plural((m.userData.faces as number[]).length, 'face')}, ` + (['failed', 'excess', 'unverified',
+        'partly'] as const).flatMap((k) => (kinds.get(k) ? [`${num(kinds.get(k)!)} ${said[k]}`] : [])).join(', ') +
+        ' (outlined in red)');
     }
+    if (report?.area !== undefined) out.push(`Area on the exact geometry: ${mm(report.area)} mm^2`);
     if (n.hidden) out.push('Hidden');
     else if (model.hiddenInTree(n.id)) out.push('Hidden (by an assembly above)');
   }
@@ -65,4 +79,11 @@ export function details(model: NodeModel, ids: readonly number[]): string[] {
   if (m.lines) out.push(`Segments: ${num(m.segments)} in ${plural(m.lines, 'line object')}, length ${mm(m.length)} mm`);
   if (m.points) out.push(`Points: ${num(m.points)}`);
   return out;
+}
+
+/** A face node's report (scene-graph.ts's faceReport), from its part's mesh object. */
+function faceReportOf(model: NodeModel, id: number): FaceReport | undefined {
+  const n = model.nodes[id]!, part = model.nodes[n.parent];
+  const m = part?.object?.children.find((c) => c.userData.faceReport);
+  return (m?.userData.faceReport as Record<number, FaceReport> | undefined)?.[n.face!.source];
 }

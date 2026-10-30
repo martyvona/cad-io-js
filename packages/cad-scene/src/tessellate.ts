@@ -7,7 +7,7 @@
 
 import { degenerateMessage, dropDegenerate, faceFailures, orientShells } from './mesh.ts';
 import { addLod } from './lod.ts';
-import type { Diagnostic, Mesh, Part, Scene } from './scene.ts';
+import type { Diagnostic, Measures, Mesh, Part, Scene } from './scene.ts';
 import { meshDeflections, type MeshProfile } from './profiles.ts';
 import type { TessellationResult, Tessellator } from './tessellator.ts';
 
@@ -40,6 +40,12 @@ export interface TessellateOptions {
    * where they are). Default false.
    */
   outlines?: boolean;
+  /**
+   * Ask the backend for each face's measures on the exact geometry (area, perimeter, soundness) where the part has
+   * none, and keep them (Part.measures), so faces are judged by them (faceFailures). Default true; parts that have
+   * measures (read from one of our exports, or measured before) aren't measured again.
+   */
+  measures?: boolean;
   /** Called after each part, in the order parts finish, for progress reporting. */
   onPart?: (part: number, mesh: Mesh | undefined, done: number, total: number) => void;
 }
@@ -57,8 +63,7 @@ export interface TessellateResult {
 export function toMesh(r: TessellationResult): Mesh {
   const mesh: Mesh = {
     origin: r.origin, positions: r.positions, indices: r.indices,
-    faces: r.faces.map((f) => ({ source: f.entityId, start: f.start, count: f.count,
-      ...(f.area !== undefined && f.area >= 0 ? { area: f.area } : {}) })),
+    faces: r.faces.map((f) => ({ source: f.entityId, start: f.start, count: f.count })),
   };
   if (r.normals) mesh.normals = r.normals;
   if (r.edgePositions && r.edges) {
@@ -87,15 +92,17 @@ export function toMesh(r: TessellationResult): Mesh {
 }
 
 /**
- * A part's mesh with the outlines of its faces that failed (faceFailures: no triangles, or a piece with none that
- * isn't a sliver, against the part's own face list from the source where it has one, the faces left out given a
- * range of none): the backend's outlines of a face where it gave them (a failed piece's own edges), else the
- * source's (the whole face's); for a part that failed (no mesh), a mesh of its faces with only their outlines. As it
- * was if nothing failed, less any backend outlines of slivers. Outlining is approximate and must never fail a part:
- * its errors are diagnostics.
+ * A part's mesh with the outlines of its faces that failed (faceFailures, against the part's own face list from the
+ * source where it has one, the faces left out given a range of none, and by the part's measures where it has them):
+ * a face that failed wholly by the backend's polylines where it gave them (a failed piece's own edges, meeting its
+ * neighbours' meshes), else the source's; one that failed otherwise (partly, excess, unverified) by the source's whole
+ * outline (the user, 2026-10-30). For a part that failed (no mesh), a mesh of its faces with only their outlines. As
+ * it was if nothing failed, less any backend outlines of faces that didn't. Outlining is approximate and must never
+ * fail a part: its errors are diagnostics.
  */
 function outlined(part: Part & { brep: NonNullable<Part['brep']> }, mesh: Mesh | undefined, linearDeflection: number,
-  angularDeflection: number, diagnostics: Diagnostic[], source: Diagnostic['source']): Mesh | undefined {
+  angularDeflection: number, diagnostics: Diagnostic[], source: Diagnostic['source'], measures: Measures | undefined):
+  Mesh | undefined {
   try {
     const d = { linearDeflection, angularDeflection };
     // (The face list alone first: outlines of none.)
@@ -103,9 +110,11 @@ function outlined(part: Part & { brep: NonNullable<Part['brep']> }, mesh: Mesh |
     if (!mesh && !all?.length) return mesh;
     const base: Mesh = mesh ?? { origin: part.origin, positions: new Float32Array(), indices: new Uint32Array(),
       faces: [] };
-    const failures = faceFailures(base, all);
+    const failures = faceFailures(base, { ...(all ? { expected: all } : {}),
+      ...(measures ? { measured: { measures, deflection: linearDeflection } } : {}) });
     const { faceOutlinePositions: bp, faceOutlines: bo, ...bare } = base;
-    const backend = (bo ?? []).filter((o) => failures.has(o.source));
+    // (The backend's outlines are its empty pieces' edges: for a face that failed wholly.)
+    const backend = (bo ?? []).filter((o) => failures.get(o.source) === 'failed');
     if (!failures.size) return bo ? bare : mesh;
     const covered = new Set(backend.map((o) => o.source));
     const fromSource = new Set([...failures.keys()].filter((f) => !covered.has(f)));
@@ -145,6 +154,7 @@ export async function tessellateScene(scene: Scene, tess: Tessellator,
   });
   const perPart: Diagnostic[][] = todo.map(() => []);
   const found: (Mesh | undefined)[] = [];
+  const backend = `${tess.info.name} ${tess.info.version}`;
   let done = 0;
   let next = 0;
   const one = async (k: number) => {
@@ -155,13 +165,17 @@ export async function tessellateScene(scene: Scene, tess: Tessellator,
     const diagnostics = perPart[k]!;
     const source = part.sources[0];
     let mesh: Mesh | undefined;
+    const measure = (opts.measures ?? true) && !part.measures;
     try {
       const r = await tess.tessellate({
         format: brep.format, data: brep.payload(), rootId: brep.rootId, origin: part.origin,
         linearDeflection: linearDeflection / part.unit, angularDeflection,
-        edges: opts.edges,
+        edges: opts.edges, ...(measure ? { measures: true } : {}),
       });
       for (const d of r.diagnostics) diagnostics.push(source && !d.source ? { ...d, source } : d);
+      // (Kept at once, so `onPart` sees them.)
+      if (measure && r.measures?.length) part.measures = { by: backend, faces: new Map(r.measures.map((x) =>
+        [x.entityId, { area: x.area, perimeter: x.perimeter, valid: x.valid }])) };
       if (r.indices.length || r.positions.length || r.curves?.length || r.points?.length) mesh = toMesh(r);
       if (mesh && (opts.dropDegenerate ?? true)) {
         const d = dropDegenerate(mesh);
@@ -185,7 +199,7 @@ export async function tessellateScene(scene: Scene, tess: Tessellator,
         ...(source ? { source } : {}) });
     }
     if (opts.outlines) mesh = outlined({ ...part, brep }, mesh, linearDeflection / part.unit, angularDeflection,
-      diagnostics, source);
+      diagnostics, source, part.measures);
     found[k] = mesh;
     opts.onPart?.(i, mesh, ++done, todo.length);
   };
@@ -194,7 +208,6 @@ export async function tessellateScene(scene: Scene, tess: Tessellator,
   // Both in part order, whatever order the parts finished in. Each mesh a level of its part; a part that failed loses
   // an earlier level of the same backend and settings (it would stand for this run's).
   const meshes = new Map<number, Mesh>();
-  const backend = `${tess.info.name} ${tess.info.version}`;
   todo.forEach((i, k) => {
     const part = scene.parts[i]!;
     const lod = { from: 'tessellated' as const, linearDeflection, angularDeflection, backend };

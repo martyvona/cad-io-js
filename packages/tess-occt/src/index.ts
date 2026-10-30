@@ -10,6 +10,7 @@ interface OcctModule {
   HEAPF32: Float32Array;
   HEAPU32: Uint32Array;
   HEAP32: Int32Array;
+  HEAPF64: Float64Array;
   UTF8ToString(p: number): string;
   _malloc(n: number): number;
   _free(p: number): void;
@@ -35,12 +36,15 @@ interface OcctModule {
   _occt_point_ids(): number;
   _occt_num_points(): number;
   _occt_diag(): number;
-  /** Failed faces' areas and outlines (builds before 2026-10-28 lack them). */
-  _occt_face_areas?(): number;
+  /** Failed faces' outlines (builds before 2026-10-28 lack them). */
   _occt_outline_positions?(): number;
   _occt_num_outline_points?(): number;
   _occt_outlines?(): number;
   _occt_num_outlines?(): number;
+  /** Faces' measures, when switched on (builds before 2026-10-30 lack them): quads of id, area, perimeter, valid. */
+  _occt_set_measures?(on: number): void;
+  _occt_measures?(): number;
+  _occt_num_measures?(): number;
   /** Our OCCT patches the build has, comma-separated (builds before 2026-10-25 lack it). */
   _occt_patches?(): number;
   _occt_free(): void;
@@ -190,6 +194,7 @@ export class OcctTessellator implements Tessellator {
     m.HEAPU8.set(req.data, ptr);
     let rc: number;
     const messages = this.messages = new Messages();
+    m._occt_set_measures?.(req.measures ? 1 : 0);
     try {
       rc = m._occt_tessellate(ptr, req.data.length, req.rootId ?? 0, req.linearDeflection, req.angularDeflection, 0,
         origin[0], origin[1], origin[2]);
@@ -215,15 +220,21 @@ export class OcctTessellator implements Tessellator {
     const normals = f32(m._occt_normals(), nv * 3);
     const indices = u32(m._occt_indices(), m._occt_num_indices());
     const faceData = i32(m._occt_faces(), m._occt_num_faces() * 3);
-    // A range with no triangles: its B-rep area, so a host can tell a failure from a sliver (-1: meshed, unknown).
-    const areas = m._occt_face_areas ? f32(m._occt_face_areas(), faceData.length / 3) : undefined;
     const faces: TessellationResult['faces'] = [];
     for (let i = 0; i < faceData.length; i += 3) {
-      const area = areas?.[i / 3];
       faces.push({ entityId: faceData[i]! < 0 ? null : faceData[i]!, start: faceData[i + 1]!,
-        count: faceData[i + 2]!, ...(area !== undefined && area >= 0 && faceData[i + 2] === 0 ? { area } : {}) });
+        count: faceData[i + 2]! });
     }
     const result: TessellationResult = { origin, positions, normals, indices, faces, diagnostics };
+    const nm = req.measures ? m._occt_num_measures?.() ?? 0 : 0;
+    if (nm) {
+      const at = m._occt_measures!() >> 3;
+      const q = m.HEAPF64.slice(at, at + 4 * nm);
+      result.measures = [];
+      for (let i = 0; i < q.length; i += 4) {
+        result.measures.push({ entityId: q[i]!, area: q[i + 1]!, perimeter: q[i + 2]!, valid: q[i + 3] === 1 });
+      }
+    }
     if (req.edges) {
       const ne = m._occt_num_edges();
       const edgeData = i32(m._occt_edges(), ne * 4);

@@ -294,3 +294,41 @@ test('triangles with two corners at one position dropped from the file\'s meshes
       { triangles: [3], info: [] });
   }
 });
+
+/** The degenerate-triangle scene's part measured, in inches, its level with its settings: as a backend leaves it. */
+const measured = (): Scene => {
+  const s = degenerate();
+  const p = s.parts[0]!;
+  p.unit = 25.4;
+  p.measures = { by: 'OCCT test', faces: new Map([[5, { area: 1, perimeter: 4, valid: true }],
+    [6, { area: 0.25, perimeter: 2.5, valid: false }]]) };
+  Object.assign(p.lods[0]!, { from: 'tessellated', linearDeflection: 0.1, angularDeflection: 0.25,
+    backend: 'OCCT test' });
+  return s;
+};
+const measuresOf = (s: Scene) => ({ unit: s.parts[0]!.unit, measures: s.parts[0]!.measures,
+  level: (({ linearDeflection, angularDeflection, backend }) => ({ linearDeflection, angularDeflection, backend }))(
+    s.parts[0]!.lods[0]!) });
+const WRITTEN = { unit: 25.4, measures: { by: 'OCCT test', faces: new Map([[5, { area: 1, perimeter: 4, valid: true }],
+  [6, { area: 0.25, perimeter: 2.5, valid: false }]]) }, level: { linearDeflection: 0.1, angularDeflection: 0.25,
+  backend: 'OCCT test' } };
+
+test('our extras carry a part\'s measures, its level\'s settings and its unit back; without extras, none', async () => {
+  const s = measured();
+  for (const compression of ['none', 'draco', 'meshopt'] as const) for (const instancing of [false, true]) {
+    const { bytes } = await glb(s, exportView(s), { extras: true, compression, instancing });
+    assert.deepEqual(measuresOf((await importGltf(bytes)).scene), WRITTEN, `${compression} ${instancing}`);
+  }
+  const plain = (await importGltf((await glb(s, exportView(s), { compression: 'none' })).bytes)).scene.parts[0]!;
+  assert.deepEqual([plain.measures, plain.unit, plain.lods[0]!.linearDeflection], [undefined, 1, undefined]);
+  // A part placed several times, written as one GPU-instanced node: its measures with it. (Every instance visible,
+  // so the plate is instanced: three placements of one look.)
+  const t = scene();
+  t.overrides = [];
+  t.parts[0]!.measures = WRITTEN.measures;
+  const { bytes } = await glb(t, exportView(t), { extras: true, compression: 'none', instancing: true });
+  const json = JSON.parse(new TextDecoder().decode(bytes.subarray(20, 20 + new DataView(bytes.buffer,
+    bytes.byteOffset).getUint32(12, true)))) as { extensionsUsed?: string[] };
+  assert.ok(json.extensionsUsed?.includes('EXT_mesh_gpu_instancing'));
+  assert.deepEqual((await importGltf(bytes)).scene.parts.find((p) => p.name === 'plate')!.measures, WRITTEN.measures);
+});

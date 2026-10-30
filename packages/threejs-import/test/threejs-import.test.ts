@@ -237,3 +237,28 @@ test('triangles with two corners at one position dropped from the file\'s meshes
   const faces = importThreejs(threejsJson(s, exportView(s), { extras: true })).scene.parts[0]!.lods[0]!.mesh.faces;
   assert.deepEqual(faces.map((f) => [f.source, f.count]), [[5, 6], [6, 0]]);
 });
+
+/** The degenerate-triangle scene's part measured, in inches, its level with its settings: as a backend leaves it. */
+const measured = (): Scene => {
+  const s = degenerate();
+  const p = s.parts[0]!;
+  p.unit = 25.4;
+  p.measures = { by: 'OCCT test', faces: new Map([[5, { area: 1, perimeter: 4, valid: true }],
+    [6, { area: 0.25, perimeter: 2.5, valid: false }]]) };
+  Object.assign(p.lods[0]!, { from: 'tessellated', linearDeflection: 0.1, angularDeflection: 0.25,
+    backend: 'OCCT test' });
+  return s;
+};
+const measuresOf = (s: Scene) => ({ unit: s.parts[0]!.unit, measures: s.parts[0]!.measures,
+  level: (({ linearDeflection, angularDeflection, backend }) => ({ linearDeflection, angularDeflection, backend }))(
+    s.parts[0]!.lods[0]!) });
+const WRITTEN = { unit: 25.4, measures: { by: 'OCCT test', faces: new Map([[5, { area: 1, perimeter: 4, valid: true }],
+  [6, { area: 0.25, perimeter: 2.5, valid: false }]]) }, level: { linearDeflection: 0.1, angularDeflection: 0.25,
+  backend: 'OCCT test' } };
+
+test('our userData carries a part\'s measures, its level\'s settings and its unit back; without it, none', () => {
+  const s = measured();
+  assert.deepEqual(measuresOf(importThreejs(threejsJson(s, exportView(s), { extras: true })).scene), WRITTEN);
+  const plain = importThreejs(threejsJson(s, exportView(s))).scene.parts[0]!;
+  assert.deepEqual([plain.measures, plain.unit, plain.lods[0]!.linearDeflection], [undefined, 1, undefined]);
+});

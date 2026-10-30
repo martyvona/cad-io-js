@@ -18,6 +18,7 @@
 
 import type { Component, Diagnostic, Lod, Mat4, Material, Mesh, Occurrence, Part, PartRef, PropertyValue, Scene,
   SourceId, Vec3 } from './scene.ts';
+import { levelFrom, measuresFrom, unitFrom } from './measures.ts';
 import { identity, multiply } from './walk.ts';
 
 export type TreeExtras = { [key: string]: unknown };
@@ -331,8 +332,10 @@ function fromOurs(root: TreeNode, b: Builder): Occurrence[] {
         if (r >= 0) { usedRefs.add(r); continue; }
         usedRefs.add(c.refKeys.length);
         const p = b.part(`ours:${num(ch.extras?.part)}`, () => ({ name: ch.name, sources: sourcesOf(ch.extras?.sources),
-          properties: propertiesOf(ch.extras?.properties), unit: 1, origin: [0, 0, 0] as Vec3, lods: [],
-          ...(typeof ch.extras?.closed === 'boolean' ? { closed: ch.extras.closed } : {}) }));
+          properties: propertiesOf(ch.extras?.properties), unit: unitFrom(ch.extras?.unit), origin: [0, 0, 0] as Vec3,
+          lods: [],
+          ...(typeof ch.extras?.closed === 'boolean' ? { closed: ch.extras.closed } : {}),
+          ...(measuresFrom(ch.extras?.measures) ? { measures: measuresFrom(ch.extras?.measures)! } : {}) }));
         c.refKeys.push({ id: refId(ch), matrix: ch.matrix });
         c.comp.parts.push({ part: p, transform: ch.matrix });
       } else {
@@ -374,7 +377,7 @@ function fromOurs(root: TreeNode, b: Builder): Occurrence[] {
         const ref: PartRef = c.comp.parts[r]!;
         const part = b.parts[ref.part]!;
         const level = ourLevel(ch, b);
-        if (!part.lods.length) part.lods.push(level.lod);
+        if (!part.lods.length) part.lods.push({ ...level.lod, ...levelFrom(ch.extras?.level) });
         b.appearance(ref.part, level.appearance, path, r);
         if (!ch.visible) b.overrides.push({ path, ref: r, visible: false, sources: [] });
       }

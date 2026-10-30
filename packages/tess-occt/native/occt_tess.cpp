@@ -5,6 +5,7 @@
 // Coordinates are in the file's units (the root representation's), minus the request's origin, which is subtracted
 // in double precision before the conversion to float (CLAUDE.md, "Decisions").
 #include <BRepAdaptor_Curve.hxx>
+#include <BRepCheck_Analyzer.hxx>
 #include <BRepGProp.hxx>
 #include <BRepLib_ToolTriangulatedShape.hxx>
 #include <BRepMesh_IncrementalMesh.hxx>
@@ -46,12 +47,15 @@
 #include <XSControl_TransferReader.hxx>
 #include <XSControl_WorkSession.hxx>
 
+#include <array>
 #include <cmath>
+#include <map>
 #include <cstdint>
 #include <istream>
 #include <streambuf>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace
@@ -73,12 +77,13 @@ struct Result
   std::vector<int32_t>  curves; // triples: entityId (-1 = unknown), first point, point count
   std::vector<float>    points;
   std::vector<int32_t>  pointIds; // -1 = unknown
-  // Faces (pieces of faces, where shape healing split one) that failed to mesh (the user, 2026-10-28): each face
-  // range's B-rep area (-1 for ranges that meshed), so a host can tell a real failure from an empty sliver, and the
-  // failed pieces' edges as polylines, so it can show where they are.
-  std::vector<float>    faceAreas;
+  // Faces (pieces of faces, where shape healing split one) that failed to mesh (the user, 2026-10-28): the failed
+  // pieces' edges as polylines, so a host can show where they are.
   std::vector<float>    outlinePositions;
   std::vector<int32_t>  outlines; // triples: the face's entityId (-1 = unknown), first point, point count
+  // Each source face's measures on the exact geometry, when asked for (occt_set_measures; the user, 2026-10-30):
+  // quads of entityId, area, perimeter, valid (1 or 0), summed over the pieces shape healing split the face into.
+  std::vector<double>   measures;
   std::string           diag;  // JSON object text
 };
 Result g;
@@ -91,6 +96,7 @@ struct MeshOptions
   bool   controlSurfaceDeflection = true;
 };
 MeshOptions gMesh;
+bool        gMeasures = false;
 
 // Length factor (file unit -> mm) of a representation's context, computed the way STEPControl_ActorRead does.
 double contextLengthFactor(const occ::handle<StepRepr_Representation>& rep)
@@ -231,17 +237,6 @@ int occt_tessellate(const char* data, int len, int rootId, double linDefl, doubl
       {
         ++noTri;
         g.faces.insert(g.faces.end(), {id, (int32_t)first, 0});
-        double area = -1.0;
-        try
-        {
-          GProp_GProps props;
-          BRepGProp::SurfaceProperties(face, props);
-          area = std::abs(props.Mass());
-        }
-        catch (const Standard_Failure&)
-        {
-        }
-        g.faceAreas.push_back((float)area);
         failedFaces.emplace_back(face, id);
         continue;
       }
@@ -269,7 +264,39 @@ int occt_tessellate(const char* data, int len, int rootId, double linDefl, doubl
         g.indices.insert(g.indices.end(), {base + a - 1, base + b - 1, base + c - 1});
       }
       g.faces.insert(g.faces.end(), {id, (int32_t)first, (int32_t)(g.indices.size() - first)});
-      g.faceAreas.push_back(-1.f);
+    }
+    // The faces' measures (the host judges each face's triangles by them: cad-scene's faceFailures): per source face,
+    // its pieces' areas and perimeters summed (BRepGProp: Gauss integration over the face, its edges' lengths), and
+    // whether BRepCheck_Analyzer passes every piece (a face healing left unsound can give any area, 0 for most of a
+    // face among them). Pieces without a source id are left out; a piece in two shells counts once.
+    if (gMeasures)
+    {
+      std::map<int, std::array<double, 3>> byId;
+      std::unordered_set<const TopoDS_TShape*> seen;
+      for (TopExp_Explorer ex(shape, TopAbs_FACE); ex.More(); ex.Next())
+      {
+        const TopoDS_Face& face = TopoDS::Face(ex.Current());
+        auto it = faceIds.find(face.TShape().get());
+        if (it == faceIds.end() || !seen.insert(face.TShape().get()).second)
+          continue;
+        auto& m = byId.emplace(it->second, std::array<double, 3>{0, 0, 1}).first->second;
+        try
+        {
+          GProp_GProps area, length;
+          BRepGProp::SurfaceProperties(face, area);
+          BRepGProp::LinearProperties(face, length);
+          m[0] += std::abs(area.Mass());
+          m[1] += length.Mass();
+          if (!BRepCheck_Analyzer(face).IsValid())
+            m[2] = 0;
+        }
+        catch (const Standard_Failure&)
+        {
+          m[2] = 0;
+        }
+      }
+      for (const auto& [id, m] : byId)
+        g.measures.insert(g.measures.end(), {(double)id, m[0], m[1], m[2]});
     }
     // Wireframe: edges in no face (a geometric set's or wireframe model's curves) and vertices in no edge (its
     // points). Their ids: an EDGE_CURVE's, else the geometric set's element (a composite curve before its segments'
@@ -565,7 +592,9 @@ int             occt_num_curves() { return (int)(g.curves.size() / 3); }
 const float*    occt_points() { return g.points.data(); }
 const int32_t*  occt_point_ids() { return g.pointIds.data(); }
 int             occt_num_points() { return (int)g.pointIds.size(); }
-const float*    occt_face_areas() { return g.faceAreas.data(); }
+const double*   occt_measures() { return g.measures.data(); }
+int             occt_num_measures() { return (int)(g.measures.size() / 4); }
+void            occt_set_measures(int on) { gMeasures = on != 0; }
 const float*    occt_outline_positions() { return g.outlinePositions.data(); }
 int             occt_num_outline_points() { return (int)(g.outlinePositions.size() / 3); }
 const int32_t*  occt_outlines() { return g.outlines.data(); }

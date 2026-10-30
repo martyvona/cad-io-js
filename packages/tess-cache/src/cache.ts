@@ -62,7 +62,7 @@ export type CacheEntry =
   | { at: number; thrown: { message: string; timeoutMs?: number } };
 
 type Header = Partial<Pick<TessellationResult, 'origin' | 'faces' | 'edges' | 'curves' | 'pointIds'
-  | 'outlines' | 'diagnostics'>> & {
+  | 'outlines' | 'measures' | 'diagnostics'>> & {
   at: number;
   thrown?: { message: string; timeoutMs?: number };
   /**
@@ -86,7 +86,7 @@ export function encodeEntry(e: CacheEntry): Uint8Array {
     Object.assign(header, { origin: r.origin, faces: r.faces, diagnostics: r.diagnostics },
       r.edges ? { edges: r.edges } : {});
     Object.assign(header, r.curves ? { curves: r.curves } : {}, r.pointIds ? { pointIds: r.pointIds } : {},
-      r.outlines ? { outlines: r.outlines } : {});
+      r.outlines ? { outlines: r.outlines } : {}, r.measures ? { measures: r.measures } : {});
   }
   else if ('thrown' in e) header.thrown = e.thrown;
   const json = new TextEncoder().encode(JSON.stringify(header));
@@ -140,6 +140,7 @@ export function decodeEntry(bytes: Uint8Array): CacheEntry {
   if (header.pointIds) r.pointIds = header.pointIds;
   if (outlinePositions) r.outlinePositions = outlinePositions;
   if (header.outlines) r.outlines = header.outlines;
+  if (header.measures) r.measures = header.measures;
   return { at: header.at, result: r };
 }
 
@@ -226,7 +227,7 @@ export class CachedTessellator implements Tessellator {
         await this.store.delete(key).catch(() => {});
       }
     }
-    if (entry && this.reusable(entry)) {
+    if (entry && this.reusable(entry, req)) {
       this.counts.hits++;
       if (isFailure(entry)) this.counts.failureHits++;
       return answer(entry);
@@ -256,8 +257,13 @@ export class CachedTessellator implements Tessellator {
     this.inner.dispose();
   }
 
-  private reusable(e: CacheEntry): boolean {
-    if (!isFailure(e)) return true;
+  /**
+   * Whether an entry answers a request: a result, unless the request asks for measures it lacks (measures don't
+   * change the key: a result with them answers requests with or without, one without is meshed again, its measures
+   * then kept); a failure, as the options and time limit say.
+   */
+  private reusable(e: CacheEntry, req: TessellationRequest): boolean {
+    if (!isFailure(e)) return !(req.measures && 'result' in e && !e.result.measures);
     if (this.opts.retryFailures) return false;
     const ran = 'thrown' in e ? e.thrown.timeoutMs : undefined;
     if (ran === undefined) return true;

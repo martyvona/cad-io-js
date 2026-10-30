@@ -112,17 +112,18 @@ test('tessellateScene outlines: faces with no triangles or no range outlined; a 
   }
   const t = fake();
   const tessellate = t.tessellate.bind(t);
-  // Face 10 meshed, 11 a range of none, 12 left out; part 0 all three meshed (11 split, one piece a sliver).
+  // Face 10 meshed, 11 a range of none, 12 left out; part 0 all three meshed (11 split, one piece empty).
   t.tessellate = async (req) => {
     const r = await tessellate(req);
     r.faces = [{ entityId: 10, start: 0, count: 3 }, { entityId: 11, start: 3, count: 0 }];
-    // (Part 0: a triangle of area 0.5 a face; face 11's empty piece a sliver of 0.001.)
+    // (Part 0: a triangle of area 0.5 a face, face 11's second piece empty; no measures.)
     if (req.data[0] === 0) {
       r.indices = Uint32Array.of(0, 1, 2, 0, 1, 2, 0, 1, 2);
       r.faces = [{ entityId: 10, start: 0, count: 3 }, { entityId: 11, start: 3, count: 3 },
-        { entityId: 11, start: 6, count: 0, area: 0.001 }, { entityId: 12, start: 6, count: 3 }];
+        { entityId: 11, start: 6, count: 0 }, { entityId: 12, start: 6, count: 3 }];
     }
-    // The backend's outlines: part 0's sliver (dropped), part 1's face 11 (used instead of the source's).
+    // The backend's outlines: part 0's empty piece (dropped: the face meshed), part 1's face 11 (used instead of the
+    // source's).
     if (req.data[0] === 0 || req.data[0] === 1) {
       r.outlinePositions = Float32Array.of(7, 7, 7, 8, 8, 8);
       r.outlines = [{ entityId: 11, start: 0, count: 2 }];
@@ -130,7 +131,7 @@ test('tessellateScene outlines: faces with no triangles or no range outlined; a 
     return r;
   };
   const r = await tessellateScene(s, t, { linearDeflection: 0.2, angularDeflection: 0.5, outlines: true });
-  // Part 0: nothing failed (11's empty piece a sliver), as it was.
+  // Part 0: nothing failed (without measures, a face with triangles is whole), as it was.
   assert.equal(r.meshes.get(0)!.faceOutlines, undefined);
   assert.equal(r.meshes.get(0)!.faceOutlinePositions, undefined);
   // Part 1: 11 and 12 outlined (11 by the backend); 12 given a range of none at the end.
@@ -155,4 +156,53 @@ test('tessellateScene outlines: faces with no triangles or no range outlined; a 
   // A part that can't outline: as before.
   delete s.parts[2]!.brep!.outline;
   assert.ok(!(await tessellateScene(s, fake(), { outlines: true })).meshes.has(2));
+});
+
+test('tessellateScene measures: asked for and kept per part (who measured), not asked again; failures judged by them',
+  async () => {
+  // Part 0's faces: 10 a unit square (area 1, meshed whole), 11 the same square measured at 2 (half missing), 12
+  // measured but not meshed, 13 invalid (unverified). The backend outlines 11 (its own edges), which a face that
+  // failed only partly doesn't use: the source's whole outline instead.
+  const s = scene();
+  s.parts = [s.parts[0]!, s.parts[1]!];
+  const asked: boolean[] = [];
+  for (const p of s.parts) p.brep!.outline = ({ faces }) => {
+    const want = [10, 11, 12, 13].filter((f) => !faces || faces.has(f));
+    return { faces: [10, 11, 12, 13], positions: Float32Array.from(want.flatMap((f) => [f, 0, 0, f, 1, 0])),
+      outlines: want.map((f, k) => ({ source: f, start: 2 * k, count: 2 })) };
+  };
+  const t = fake();
+  t.tessellate = async (req) => {
+    asked.push(!!req.measures);
+    return { origin: req.origin!, positions: Float32Array.of(0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0),
+      indices: Uint32Array.of(0, 1, 2, 0, 2, 3, 0, 1, 2, 0, 2, 3, 0, 1, 2, 0, 2, 3),
+      faces: [{ entityId: 10, start: 0, count: 6 }, { entityId: 11, start: 6, count: 6 },
+        { entityId: 13, start: 12, count: 6 }],
+      outlinePositions: Float32Array.of(7, 7, 7, 8, 8, 8), outlines: [{ entityId: 11, start: 0, count: 2 }],
+      diagnostics: [], ...(req.measures ? { measures: [{ entityId: 10, area: 1, perimeter: 4, valid: true },
+        { entityId: 11, area: 2, perimeter: 6, valid: true }, { entityId: 12, area: 1, perimeter: 4, valid: true },
+        { entityId: 13, area: 1, perimeter: 4, valid: false }] } : {}) };
+  };
+  // Part 1 has measures already (read from a file, say): not asked for, kept.
+  const theirs = { by: 'source', faces: new Map([[10, { area: 1, perimeter: 4, valid: true }]]) };
+  s.parts[1]!.measures = theirs;
+  const r = await tessellateScene(s, t, { linearDeflection: 0.01, angularDeflection: 0.5, outlines: true });
+  assert.deepEqual(asked, [true, false]);
+  assert.equal(s.parts[0]!.measures!.by, 'fake 1');
+  assert.deepEqual([...s.parts[0]!.measures!.faces.keys()], [10, 11, 12, 13]);
+  assert.equal(s.parts[1]!.measures, theirs);
+  // 11 partly (whole outline from the source, not the backend's), 12 failed (the source's), 13 unverified.
+  const m = r.meshes.get(0)!;
+  assert.deepEqual(m.faceOutlines!.map((o) => o.source).sort(), [11, 12, 13]);
+  assert.ok(!Array.from(m.faceOutlinePositions!).includes(7), 'the backend\'s outline of a partly failed face');
+  assert.deepEqual(m.faces.map((f) => [f.source, f.count]), [[10, 6], [11, 6], [13, 6], [12, 0]]);
+  // Part 1 judged by its own measures: only face 10 measured, meshed whole; the rest by the no-triangles rule.
+  assert.equal(r.meshes.get(1)!.faceOutlines!.map((o) => o.source).join(), '12');
+  // Off: not asked for.
+  asked.length = 0;
+  const plain = scene();
+  plain.parts = [plain.parts[0]!];
+  await tessellateScene(plain, t, { linearDeflection: 0.01, measures: false });
+  assert.deepEqual(asked, [false]);
+  assert.equal(plain.parts[0]!.measures, undefined);
 });

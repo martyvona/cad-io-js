@@ -34,8 +34,9 @@ import { Document, Format, Logger, WebIO, type Accessor, type JSONDocument, type
   type mat4 } from '@gltf-transform/core';
 import { EXTMeshGPUInstancing, EXTMeshoptCompression, KHRDracoMeshCompression, KHRMaterialsUnlit,
   KHRMeshQuantization, KHRNodeVisibility } from '@gltf-transform/extensions';
-import { identity, multiply, pruneView, Y_UP_METRES, type Diagnostic, type ExportNode, type ExportView, type Look,
-  type Mat4, type Mesh, type Part, type PropertyValue, type Scene, type SourceId, type Vec3 } from 'cad-scene';
+import { identity, multiply, partExtras, pruneView, Y_UP_METRES, type Diagnostic, type ExportNode, type ExportView,
+  type Look, type Mat4, type Mesh, type Part, type PropertyValue, type Scene, type SourceId,
+  type Vec3 } from 'cad-scene';
 
 /** A part's `closed` for extras, where the source says it (cad-scene's Part.closed). */
 const closedOf = (part: Part): { closed?: boolean } => (part.closed === undefined ? {} : { closed: part.closed });
@@ -683,7 +684,7 @@ class Writer {
     const part = this.scene.parts[look.part]!;
     const node = this.doc.createNode(part.name);
     if (this.extras) node.setExtras({ part: look.part, ...closedOf(part), ...this.sourced(part.sources,
-      part.properties), ...(instance ? { instance } : {}) });
+      part.properties), ...partExtras(part, look.lod), ...(instance ? { instance } : {}) });
     const mesh = faces ? this.mesh(lookIndex) : undefined;
     if (mesh) node.setMesh(mesh);
     for (const what of ['edges', 'curves', 'points'] as const) {
@@ -754,7 +755,7 @@ class Writer {
       ...(item.node.occurrence.sources.length ? { sources: item.node.occurrence.sources.map((x) => ({
         format: x.format, id: x.id })) } : {}) });
     if (this.extras) node.setExtras({ part: look.part, ...closedOf(part), ...this.sourced(part.sources,
-      part.properties), instances: g.items.map(instance) });
+      part.properties), ...partExtras(part, look.lod), instances: g.items.map(instance) });
     if (!g.visible) this.hide(node);
     const out = [node];
     if (look.edges || look.curves) for (const item of g.items) {

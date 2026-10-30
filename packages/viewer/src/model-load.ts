@@ -8,7 +8,7 @@
 // tessellation delivers it (the buffers transferable); then the end, with the tessellation's diagnostics and what
 // meshed it.
 
-import { partInstances, tessellateScene, type Diagnostic, type Mesh, type Scene } from 'cad-scene';
+import { partInstances, tessellateScene, type Diagnostic, type Measures, type Mesh, type Scene } from 'cad-scene';
 import { import3mf } from '3mf-import';
 import { importGltf, type GltfImportOptions } from 'gltf-import';
 import { importStep, type ImportOptions } from 'step-import';
@@ -48,7 +48,8 @@ export async function importModel(input: ModelInput, gltf: GltfImportOptions = {
 
 export type ModelEvent =
   | { type: 'scene'; scene: Scene }
-  | { type: 'mesh'; part: number; mesh: Mesh | undefined }
+  /** A part meshed, with its measures (Part.measures) where the backend gave them: the page's scene lacks them. */
+  | { type: 'mesh'; part: number; mesh: Mesh | undefined; measures?: Measures }
   | { type: 'done'; diagnostics: Diagnostic[]; meshing?: Meshing };
 
 /** The scene without its parts' payload functions: what can be posted to another thread. */
@@ -101,7 +102,11 @@ export async function loadModelIn(input: ModelInput, settings: TessellationSetti
   // Faces that fail to mesh, and parts that do (errors, timeouts), outlined from the file (cad-scene's `outlines`).
   const { diagnostics } = await tessellateScene(scene, tess, { ...deflectionsOf(settings), edges: true, outlines: true,
     concurrency: n, parts: brep,
-    onPart: (part, mesh) => { if (!cancelled()) emit({ type: 'mesh', part, mesh }, meshBuffers(mesh)); } });
+    onPart: (part, mesh) => {
+      if (cancelled()) return;
+      const measures = scene.parts[part]!.measures;
+      emit({ type: 'mesh', part, mesh, ...(measures ? { measures } : {}) }, meshBuffers(mesh));
+    } });
   if (cancelled()) return;
   const d = tessellation.describe();
   emit({ type: 'done', diagnostics, ...(d ? { meshing: { ...d, workers: n } } : {}) });

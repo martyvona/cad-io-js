@@ -113,6 +113,29 @@ export interface Part {
   brep?: Brep;
   /** Meshes, finest first (chooseLod picks one). */
   lods: Lod[];
+  /**
+   * Its faces' measures on the exact geometry, which meshes are judged by (faceFailures): from a backend that meshed
+   * the B-rep, or read from one of our exports; kept when the B-rep isn't (the user, 2026-10-30).
+   */
+  measures?: Measures;
+}
+
+/** A part's measures on its exact geometry (the user, 2026-10-30; CLAUDE.md, "Decisions"). */
+export interface Measures {
+  /** Who measured: a backend's name and version, or `source` for a file that stated them. */
+  by: string;
+  /** By the face's source id, as `Mesh.faces` and `faceMaterials` are keyed. */
+  faces: Map<number, FaceMeasures>;
+}
+
+/** One face's measures, in the part's units: summed over the pieces a backend's shape healing split it into. */
+export interface FaceMeasures {
+  /** Its surface area, in the part's units squared. */
+  area: number;
+  /** The length of its boundary (every edge of every loop, a seam twice), in the part's units. */
+  perimeter: number;
+  /** The measuring backend found the face's geometry sound (OCCT: BRepCheck_Analyzer); false: not to be trusted. */
+  valid: boolean;
 }
 
 /** B-rep formats a part's exact geometry can be in, grown as importers are added (a backend lists those it takes). */
@@ -156,11 +179,7 @@ export interface Mesh {
   /**
    * Index ranges per source face; they partition `indices`. A face may repeat; null for ranges with no known source.
    */
-  faces: {
-    source: number | null; start: number; count: number;
-    /** A range with no triangles: its B-rep area, in the part's units squared, if the backend knows it. */
-    area?: number;
-  }[];
+  faces: { source: number | null; start: number; count: number }[];
   edgePositions?: Float32Array;
   edges?: { source: number | null; start: number; count: number; kind: EdgeKind; dihedral?: number }[];
   /** Wireframe curves (not faces' edges) as polylines, all concatenated; a curve may repeat, null if unknown. */

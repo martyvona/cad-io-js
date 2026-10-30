@@ -588,3 +588,20 @@ test('triangles with two corners at one position dropped, said; kept on request'
   assert.equal(count(kept), 5);
   assert.deepEqual(info(kept), []);
 });
+
+test('our 3MF with extras carries a part\'s measures, its level\'s settings and its unit back (an item per part)',
+  () => {
+  const s = source();
+  const cube = s.parts[0]!;
+  cube.measures = { by: 'OCCT test', faces: new Map([[10, { area: 1, perimeter: 4, valid: true }],
+    [11, { area: 1.5, perimeter: 5, valid: false }]]) };
+  Object.assign(cube.lods[0]!, { linearDeflection: 0.1, angularDeflection: 0.25, backend: 'OCCT test' });
+  const back = import3mf(exported(s, { extras: true, nonManifold: 'surface' })).scene;
+  const c = back.parts.find((p) => p.name === 'cube')!, sheet = back.parts.find((p) => p.name === 'sheet')!;
+  assert.deepEqual(c.measures, cube.measures);
+  assert.equal(c.unit, 25.4);
+  assert.deepEqual([c.lods[0]!.linearDeflection, c.lods[0]!.angularDeflection, c.lods[0]!.backend],
+    [0.1, 0.25, 'OCCT test']);
+  // The sheet: no measures, millimetres, its level without settings.
+  assert.deepEqual([sheet.measures, sheet.unit, sheet.lods[0]!.linearDeflection], [undefined, 1, undefined]);
+});

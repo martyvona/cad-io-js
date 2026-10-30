@@ -12,8 +12,8 @@
 //     request (`extras`), its names in our metadata (decided by the user, 2026-10-21; extras 2026-10-24), and the
 //     model's metadata the tree itself (`cadio:tree`: each node's name, transform and the extras export-gltf gives
 //     its nodes, each placed part by its item), so 3mf-import rebuilds the scene (the user, 2026-10-29); with extras
-//     in either mode, the colour slots' scene materials (`cadio:materials`: null for the default colour); or (`build: 'assembly'`) one item, an object whose
-//     components follow the instance tree, identical subtrees shared.
+//     in either mode, the colour slots' scene materials (`cadio:materials`: null for the default colour); or
+//     (`build: 'assembly'`) one item, an object whose components follow the instance tree, identical subtrees shared.
 //   faces (with extras): each object's triangles' faces as runs (`cadio:faces`), which 3MF itself can't hold.
 //   colours: one basematerials group (sRGB displaycolor with alpha), or (`colors: 'colorgroup'`) the Materials and
 //     Properties extension's colorgroup (opaque), declared but not required (decided by the user, 2026-10-21).
@@ -22,8 +22,8 @@
 // The model part is written and compressed in pieces, so its size isn't bound by the longest string V8 allows.
 
 import { Zip, ZipDeflate, strToU8 } from 'fflate';
-import { identity, manifoldProblems, multiply, weld, type Diagnostic, type ExportNode, type ExportView, type Look,
-  type Mat4, type Mesh, type PropertyValue, type Scene, type SourceId, type Vec3 } from 'cad-scene';
+import { identity, manifoldProblems, multiply, partExtras, weld, type Diagnostic, type ExportNode, type ExportView,
+  type Look, type Mat4, type Mesh, type PropertyValue, type Scene, type SourceId, type Vec3 } from 'cad-scene';
 
 export interface ThreeMfOptions {
   /** Colour of faces without a material (sRGB). Default light grey. */
@@ -264,7 +264,7 @@ class Writer {
         const look = this.view.looks[p.look]!, part = this.scene.parts[look.part]!;
         return [{ name: part.name, matrix: Array.from(p.transform), item, ...(p.visible ? {} : { visible: false }),
           extras: { part: look.part, ...(part.closed === undefined ? {} : { closed: part.closed }),
-            ...sourced(part.sources, part.properties) } }];
+            ...sourced(part.sources, part.properties), ...partExtras(part, look.lod) } }];
       });
       return { name: n.name, matrix: Array.from(n.transform), extras: {
         ...sourced(n.occurrence.sources, n.occurrence.properties),

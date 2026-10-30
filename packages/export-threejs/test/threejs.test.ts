@@ -112,9 +112,9 @@ test('three.js JSON loads with ObjectLoader: tree, transforms, shared geometry, 
     ['MeshStandardMaterial', 'ff0000', 0.5, true, THREE.FrontSide]]);
   assert.equal((plates[1]!.material as THREE.Material[])[0], (plates[1]!.material as THREE.Material[])[1]);
   assert.equal((plates[1]!.material as THREE.Material[])[0]!.name, 'red');
-  // The part's ids and properties, and its faces as index ranges for picking.
+  // The part's ids, properties and unit (its vertices are in inches), and its faces as index ranges for picking.
   assert.deepEqual(plates[0]!.userData, {
-    part: 0, closed: false, sources: [{ format: 'step', id: 50 }], properties: { pn: 'X-1' },
+    part: 0, closed: false, sources: [{ format: 'step', id: 50 }], properties: { pn: 'X-1' }, unit: 25.4,
     faces: [{ source: 8, start: 0, count: 3 }, { source: 7, start: 3, count: 3 }],
   });
 });

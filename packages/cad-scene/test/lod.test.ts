@@ -103,7 +103,7 @@ test('dropSourceDegenerate: levels from the source lose triangles with two corne
   for (const k of [0, 1]) {
     const m = parts[k]!.lods[0]!.mesh;
     assert.deepEqual(Array.from(m.indices), [0, 1, 2]);
-    assert.deepEqual(m.faces, [{ source: 7, start: 0, count: 3 }, { source: 8, start: 3, count: 0, area: 0 }]);
+    assert.deepEqual(m.faces, [{ source: 7, start: 0, count: 3 }, { source: 8, start: 3, count: 0 }]);
   }
   // The shared mesh repaired once, for both.
   assert.equal(parts[0]!.lods[0]!.mesh, parts[1]!.lods[0]!.mesh);

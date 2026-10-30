@@ -18,8 +18,8 @@
 // a geometry group of their own with an invisible material.
 
 import * as THREE from 'three';
-import { faceFailures, instances, partInstances, type Mat4, type Mesh, type PartInstance, type Scene,
-  type SourceId } from 'cad-scene';
+import { faceFailures, instances, partInstances, type FaceFailure, type Mat4, type Measures, type Mesh,
+  type PartInstance, type Scene, type SourceId } from 'cad-scene';
 import type { FaceHiding } from './model.ts';
 import { DEFAULT_RENDER, EDGES } from './style.ts';
 
@@ -154,9 +154,10 @@ export class SceneGraph implements FaceHiding {
   /**
    * Attaches a part's mesh to each of its placements, in place of any it had (the file's own tessellation of a B-rep,
    * shown until ours comes); nothing for a part without one (it failed, or is empty). Returns the objects made, one
-   * per placement.
+   * per placement. `linearDeflection` (mm) is the one the mesh was made with, where known: with the part's measures,
+   * its faces are judged by their areas (faceFailures).
    */
-  addMesh(part: number, mesh: Mesh): THREE.Object3D[] {
+  addMesh(part: number, mesh: Mesh, linearDeflection?: number): THREE.Object3D[] {
     const placements = this.placements.get(part) ?? [];
     if (!placements.length) return [];
     this.removeMesh(part);
@@ -196,11 +197,16 @@ export class SceneGraph implements FaceHiding {
     const meshed: MeshedPart | undefined = attrs ? { mesh, attrs, geometries, objects: [] } : undefined;
     if (meshed) this.meshed.set(part, meshed);
     const faceSources = [...new Set(mesh.faces.flatMap((f) => f.source === null ? [] : [f.source]))];
-    // Faces that failed (cad-scene's faceFailures: no triangles, or a piece with none that isn't a sliver); an
-    // outline geometry for each that has outlines.
-    const failures = faceFailures(mesh);
-    const failedFaces = faceSources.filter((s) => failures.get(s) === 'failed');
+    // Faces that failed (cad-scene's faceFailures: no triangles; with the part's measures, its triangles short of the
+    // face's area, well over it, or no area to judge them by), all but `partly` drawn as failed (the user,
+    // 2026-10-30: red, the kinds kept apart, in `faceReport`); an outline geometry for each that has outlines.
+    const p = this.scene.parts[part]!;
+    const measured = p.measures && linearDeflection !== undefined
+      ? { measures: p.measures, deflection: linearDeflection / p.unit } : undefined;
+    const failures = faceFailures(mesh, measured ? { measured } : {});
+    const failedFaces = faceSources.filter((s) => failures.has(s) && failures.get(s) !== 'partly');
     const partlyFailedFaces = faceSources.filter((s) => failures.get(s) === 'partly');
+    const faceReport = reportOf(mesh, p.unit, failures, p.measures);
     const outlines = new Map<number, THREE.BufferGeometry>();
     if (mesh.faceOutlinePositions && mesh.faceOutlines?.length) {
       const position = new THREE.BufferAttribute(mesh.faceOutlinePositions, 3);
@@ -229,7 +235,7 @@ export class SceneGraph implements FaceHiding {
         obj = new THREE.Group();
       }
       const closed = this.scene.parts[part]!.closed;
-      obj.userData = { faces: faceSources, faceRanges: mesh.faces, failedFaces, partlyFailedFaces,
+      obj.userData = { faces: faceSources, faceRanges: mesh.faces, failedFaces, partlyFailedFaces, faceReport,
         ...(closed === undefined ? {} : { closed }) };
       obj.name = group.name;
       obj.position.set(...mesh.origin);
@@ -334,4 +340,30 @@ export class SceneGraph implements FaceHiding {
       for (const l of this.outlined.get(part) ?? []) l.visible = true;
     }
   }
+}
+
+/** What Details says of a face: how it failed (faceFailures), and its measured and meshed areas in mm^2. */
+export interface FaceReport { failure?: FaceFailure; area?: number; meshArea: number }
+
+/** Each face's report, by source id (faces with a source only). */
+function reportOf(mesh: Mesh, unit: number, failures: ReadonlyMap<number, FaceFailure>,
+  measures: Measures | undefined): Record<number, FaceReport> {
+  const p = mesh.positions, ix = mesh.indices, out: Record<number, FaceReport> = {};
+  for (const f of mesh.faces) {
+    if (f.source === null) continue;
+    const r = out[f.source] ??= { meshArea: 0 };
+    for (let t = f.start; t < f.start + f.count; t += 3) {
+      const [i, j, k] = [3 * ix[t]!, 3 * ix[t + 1]!, 3 * ix[t + 2]!];
+      const u = [p[j]! - p[i]!, p[j + 1]! - p[i + 1]!, p[j + 2]! - p[i + 2]!];
+      const v = [p[k]! - p[i]!, p[k + 1]! - p[i + 1]!, p[k + 2]! - p[i + 2]!];
+      r.meshArea += Math.hypot(u[1]! * v[2]! - u[2]! * v[1]!, u[2]! * v[0]! - u[0]! * v[2]!,
+        u[0]! * v[1]! - u[1]! * v[0]!) / 2 * unit * unit;
+    }
+  }
+  for (const [s, r] of Object.entries(out)) {
+    const m = measures?.faces.get(Number(s)), failure = failures.get(Number(s));
+    if (m) r.area = m.area * unit * unit;
+    if (failure) r.failure = failure;
+  }
+  return out;
 }

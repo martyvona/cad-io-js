@@ -7,7 +7,7 @@
 //   nodes: the expanded instance tree, with local transforms and each instance's parts as looks.
 
 import { chooseLod, type LodWanted } from './lod.ts';
-import type { Component, Mat4, Mesh, Occurrence, Scene } from './scene.ts';
+import type { Component, Lod, Mat4, Mesh, Occurrence, Scene } from './scene.ts';
 import { identity, multiply, partInstances, type PartInstance } from './walk.ts';
 
 /** Which of a part's levels each look uses: chooseLod's, for these deflections (none: the finest). */
@@ -22,6 +22,8 @@ export interface ExportViewOptions extends LodWanted {
 export interface Look {
   part: number;
   mesh: Mesh;
+  /** The part's level `mesh` is (chooseLod's): its settings, which our extras carry. */
+  lod?: Lod;
   /**
    * The material of faces without one of their own, and of edges, curves and points; undefined: the viewer's default.
    */
@@ -68,12 +70,12 @@ export function exportView(scene: Scene, opts: ExportViewOptions = {}): ExportVi
   const edges = opts.edges ?? false, curves = opts.curves ?? false;
   const looks: Look[] = [];
   const lookByKey = new Map<string, number>();
-  const meshOf = new Map<number, Mesh | undefined>();
+  const lodOf = new Map<number, Lod | undefined>();
 
   const lookFor = (part: number, material: number | undefined,
     faceMaterials: ReadonlyMap<number, number>): number | undefined => {
-    if (!meshOf.has(part)) meshOf.set(part, scene.parts[part] && chooseLod(scene.parts[part], opts)?.mesh);
-    const mesh = meshOf.get(part);
+    if (!lodOf.has(part)) lodOf.set(part, scene.parts[part] && chooseLod(scene.parts[part], opts));
+    const lod = lodOf.get(part), mesh = lod?.mesh;
     if (!mesh) return undefined;
     const hasEdges = edges && !!mesh.edges?.length;
     const hasCurves = curves && (!!mesh.curves?.length || !!mesh.pointSources?.length);
@@ -83,7 +85,7 @@ export function exportView(scene: Scene, opts: ExportViewOptions = {}): ExportVi
     const key = `${part}:${material}:${perFace.join(',')}`;
     const known = lookByKey.get(key);
     if (known !== undefined) return known;
-    const look: Look = { part, mesh, ...group(mesh, perFace, material), edges: hasEdges, curves: hasCurves };
+    const look: Look = { part, mesh, lod, ...group(mesh, perFace, material), edges: hasEdges, curves: hasCurves };
     if (material !== undefined) look.material = material;
     lookByKey.set(key, looks.length);
     looks.push(look);
