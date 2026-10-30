@@ -87,9 +87,16 @@ export function import3mf(input: Uint8Array, opts: ThreeMfImportOptions = {}): T
 
   // Scene materials, one per property group entry used.
   const materials = new Map<string, number | undefined>();
+  // Our files with extras: the colour slots that were the exporter's default colour (no scene material).
+  let slots: unknown;
+  try { slots = JSON.parse(root.metadata['cadio:materials'] ?? 'null'); } catch { slots = null; }
   const material = (f: ModelFile, pid: number, at: number, by: SourceId): number | undefined => {
     const key = `${f.path}#${pid}:${at}`;
     if (materials.has(key)) return materials.get(key);
+    if (f === root && pid === 1 && Array.isArray(slots) && slots[at] === null) {
+      materials.set(key, undefined);
+      return undefined;
+    }
     const g = f.groups.get(pid);
     let m: number | undefined;
     if (!g) warn(`${f.path}: property group ${pid} isn't defined: no colour`, by);
@@ -197,7 +204,23 @@ export function import3mf(input: Uint8Array, opts: ThreeMfImportOptions = {}): T
     const t = target(root, item, 'build item');
     return t ? [{ item, ...t }] : [];
   });
-  if (items.length === 1 && items[0]!.object.components) {
+  // (Our exporter's assembly build wraps several roots in one object without a name: with our extras, they're the
+  // roots; without, the file is read as anyone's.)
+  const ours = /^cad-io-js export-3mf/.test(root.metadata.Application ?? '') && Array.isArray(slots);
+  const wrapper = items.length === 1 && ours && items[0]!.object.components && items[0]!.object.name === undefined
+    ? items[0]! : undefined;
+  if (wrapper) {
+    const { item, file, object } = wrapper;
+    for (const c of object.components!) {
+      const t = target(file, c, 'component');
+      if (!t) continue;
+      const m = multiply(item.transform, c.transform);
+      if (t.object.components) {
+        const k = component(t.file, t.object);
+        if (k !== undefined) scene.roots.push(occurrence(k, t, m, root.unit, c.uuid));
+      } else warn('our assembly\'s wrapper places a mesh object directly: skipped');
+    }
+  } else if (items.length === 1 && items[0]!.object.components) {
     const { item, file, object } = items[0]!;
     const c = component(file, object);
     if (c !== undefined) scene.roots.push(occurrence(c, { file, object }, item.transform, root.unit, item.uuid, item));

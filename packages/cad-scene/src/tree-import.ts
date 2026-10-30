@@ -297,7 +297,7 @@ function fromOurs(root: TreeNode, b: Builder): Occurrence[] {
   const isPart = (n: TreeNode) => num(n.extras?.part) !== undefined;
   const compOf = (n: TreeNode): number | undefined => num(obj(n.extras?.component)?.index);
   const occurrence = (n: TreeNode, component: number, compName: string): Occurrence => ({ component,
-    transform: n.matrix, ...(n.name && n.name !== compName ? { name: n.name } : {}),
+    transform: n.matrix, ...(n.name !== compName ? { name: n.name } : {}),
     sources: sourcesOf(n.extras?.sources), properties: propertiesOf(n.extras?.properties) });
   // (A child's index in its parent component, the last of its path, where it has one: siblings alike in name and
   // place, as nodes made again for instanced placements are, stay apart.)

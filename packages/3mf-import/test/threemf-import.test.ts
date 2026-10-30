@@ -516,6 +516,24 @@ test('our 3MF with extras as components: read as written, with its faces', () =>
     view: exportView(back.scene) }, { lines: false, skipHidden: true }), []);
 });
 
+test('our 3MF with extras as components: two roots (one named ""), a part without a material: as written', () => {
+  const s = source();
+  // A second root placing the subassembly again, named "", and the cube without a material of its own.
+  s.roots.push({ component: 1, transform: translation(0, 500, 0), sources: [], properties: {}, name: '' });
+  delete s.parts[0]!.material;
+  for (const o of [{ extras: true, build: 'assembly' }, { extras: true }] as ThreeMfOptions[]) {
+    const back = import3mf(exported(s, o));
+    assert.deepEqual(messages(back), [], JSON.stringify(o));
+    assert.deepEqual(viewDifferences({ scene: s, view: held(s, o) }, { scene: back.scene,
+      view: exportView(back.scene) }, { lines: false, skipHidden: true }), [], JSON.stringify(o));
+    assert.equal(back.scene.roots.length, 2);
+  }
+  // Without extras, the default colour is a colour, and the wrapper an object of its own.
+  const plain = import3mf(exported(s, { build: 'assembly' }));
+  assert.equal(plain.scene.roots.length, 1);
+  assert.ok(plain.scene.materials.some((m) => m.name === 'default'));
+});
+
 test('our 3MF without extras: read as anyone\'s, the placed parts flat under the root', () => {
   const back = import3mf(exported(source(), {}));
   assert.deepEqual(back.scene.components.map((c) => [c.name, c.parts.length, c.children.length]), [['build', 2, 0]]);

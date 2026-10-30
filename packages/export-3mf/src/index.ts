@@ -11,8 +11,8 @@
 //   build: an item per placed part at its world transform, its path in the instance tree as its part number and, on
 //     request (`extras`), its names in our metadata (decided by the user, 2026-10-21; extras 2026-10-24), and the
 //     model's metadata the tree itself (`cadio:tree`: each node's name, transform and the extras export-gltf gives
-//     its nodes, each placed part by its item) and the colour slots' scene materials (`cadio:materials`), so
-//     3mf-import rebuilds the scene (the user, 2026-10-29); or (`build: 'assembly'`) one item, an object whose
+//     its nodes, each placed part by its item), so 3mf-import rebuilds the scene (the user, 2026-10-29); with extras
+//     in either mode, the colour slots' scene materials (`cadio:materials`: null for the default colour); or (`build: 'assembly'`) one item, an object whose
 //     components follow the instance tree, identical subtrees shared.
 //   faces (with extras): each object's triangles' faces as runs (`cadio:faces`), which 3MF itself can't hold.
 //   colours: one basematerials group (sRGB displaycolor with alpha), or (`colors: 'colorgroup'`) the Materials and
@@ -199,10 +199,10 @@ class Writer {
 
     // Material slots first (the group comes before the objects that use it), then the objects.
     for (const p of placed) for (const g of this.view.looks[p.look]!.groups) this.slot(g.material);
-    if (extras && this.opts.build !== 'assembly') {
+    if (extras) {
       const meta = (name: string, value: unknown) => model.push(`<metadata name="cadio:${name}">${xmlText(
         JSON.stringify(value), true)}</metadata>\n`);
-      meta('tree', this.tree(placed));
+      if (this.opts.build !== 'assembly') meta('tree', this.tree(placed));
       meta('materials', [...this.slots.keys()].map((m) => m ?? null));
     }
     model.push('<resources>\n');

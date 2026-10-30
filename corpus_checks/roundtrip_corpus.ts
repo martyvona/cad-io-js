@@ -11,16 +11,27 @@
 //   glb-meshopt    GLB with meshopt: 16 bits over the largest part mesh's volume
 //   glb-instanced  GLB uncompressed with GPU instancing: within float32 rounding of the instances' transforms at the
 //                  model's reach (8 steps)
+//   3mf            3MF, an item per placed part, open meshes as surfaces, hidden placements kept (the 3MF plan's
+//                  phase 3, 2026-10-29): face ids by our extras, no lines (3MF has none), parts without triangles
+//                  not compared (3MF can't hold them); within 4 float32 steps of the farthest a part mesh's
+//                  coordinates reach from its origin, in the world (the exporter writes the shortest text of each
+//                  float32 vertex, which the importer reads as the decimal it is, up to half a step away)
+//   3mf-assembly   3MF, the assembly as components, open meshes as surfaces, hidden placements left out: read as
+//                  written, likewise compared, hidden placements not; names with their tabs and line breaks as
+//                  spaces (the exporter's, in attributes)
 //
 // PLANT=move|colour|hide|edge perturbs every imported scene (a vertex of its first triangle mesh moved 1 mm, its
-// first material's red changed, its first placed part hidden, an edge dropped), to show the check fails then.
+// first material's red changed, its first placed part hidden, an edge dropped), to show the check fails then (the
+// edge not in the 3MF forms, which compare no lines).
 // Usage: node --max-old-space-size=12000 corpus_checks/roundtrip_corpus.ts [file-list.txt] [max MB, default 2]
 // (progress on standard error)
 
 import fs from 'node:fs';
 import os from 'node:os';
 import { exportView, identity, multiply, pruneView, tessellateScene, validate, viewDifferences, type ExportView,
-  type Mat4, type Scene } from '../packages/cad-scene/src/index.ts';
+  type ExportNode, type Mat4, type Scene } from '../packages/cad-scene/src/index.ts';
+import { import3mf } from '../packages/3mf-import/src/index.ts';
+import { threemf, type ThreeMfOptions } from '../packages/export-3mf/src/index.ts';
 import { glb, type GltfOptions } from '../packages/export-gltf/src/index.ts';
 import { threejsChunks } from '../packages/export-threejs/src/index.ts';
 import { importGltf } from '../packages/gltf-import/src/index.ts';
@@ -39,9 +50,13 @@ const plant = process.env.PLANT;
 const meshing = { linearDeflection: 0.1, angularDeflection: 0.5 };
 const opts = { ...meshing, edges: true, curves: true };
 
-const FORMS = ['json', 'glb', 'glb-draco', 'glb-meshopt', 'glb-instanced'] as const;
+const FORMS = ['json', 'glb', 'glb-draco', 'glb-meshopt', 'glb-instanced', '3mf', '3mf-assembly'] as const;
 type Form = typeof FORMS[number];
-const GLTF: Record<Exclude<Form, 'json'>, GltfOptions> = {
+const THREEMF: Partial<Record<Form, ThreeMfOptions>> = {
+  '3mf': { extras: true, nonManifold: 'surface', hidden: 'keep' },
+  '3mf-assembly': { extras: true, nonManifold: 'surface', build: 'assembly' },
+};
+const GLTF: Partial<Record<Form, GltfOptions>> = {
   'glb': { compression: 'none', hidden: 'extension' },
   'glb-draco': { compression: 'draco' },
   'glb-meshopt': { compression: 'meshopt', hidden: 'extension' },
@@ -57,8 +72,8 @@ let files = 0, skipped = 0;
  * The largest placed part mesh's extent, millimetres in the world (each placement's scale applied), and how far from
  * the origin anything placed reaches.
  */
-function largest(view: ExportView): { extent: number; reach: number } {
-  let most = 0, reach = 0;
+function largest(view: ExportView): { extent: number; reach: number; local: number } {
+  let most = 0, reach = 0, far = 0;
   const walk = (n: ExportView['roots'][number], parent: Mat4) => {
     const t = multiply(parent, n.transform);
     for (const p of n.parts) {
@@ -73,11 +88,12 @@ function largest(view: ExportView): { extent: number; reach: number } {
       most = Math.max(most, scale * Math.max(hi[0]! - lo[0]!, hi[1]! - lo[1]!, hi[2]! - lo[2]!));
       const local = Math.max(...[0, 1, 2].map((k) => Math.max(Math.abs(lo[k]!), Math.abs(hi[k]!))));
       reach = Math.max(reach, Math.hypot(w[12]!, w[13]!, w[14]!) + scale * Math.sqrt(3) * local);
+      far = Math.max(far, scale * local);
     }
     n.children.forEach((c) => walk(c, t));
   };
   view.roots.forEach((r) => walk(r, identity()));
-  return { extent: most, reach };
+  return { extent: most, reach, local: far };
 }
 
 /** The planted bug, if any, in an imported scene. */
@@ -110,7 +126,7 @@ for (const f of corpusFiles(process.argv[2])) {
   await tessellateScene(scene, tess, { ...meshing, edges: true, concurrency: workers });
   const view = exportView(scene, opts);
   if (!view.roots.length) continue;
-  const { extent, reach } = largest(view);
+  const { extent, reach, local } = largest(view);
   for (const form of FORMS) {
     const t = totals[form];
     t.files++;
@@ -128,6 +144,16 @@ for (const f of corpusFiles(process.argv[2])) {
         const ti = performance.now();
         back = importThreejs(chunks.join('')).scene;
         t.importMs += performance.now() - ti;
+      } else if (THREEMF[form]) {
+        const out = threemf(scene, view, THREEMF[form]);
+        const bytes = new Uint8Array(out.chunks.reduce((n, c) => n + c.length, 0));
+        let at = 0;
+        for (const c of out.chunks) { bytes.set(c, at); at += c.length; }
+        t.exportMs += performance.now() - te;
+        t.bytes += bytes.length;
+        const ti = performance.now();
+        back = import3mf(bytes).scene;
+        t.importMs += performance.now() - ti;
       } else {
         const out = await glb(scene, view, { extras: true, ...GLTF[form] });
         t.exportMs += performance.now() - te;
@@ -139,16 +165,26 @@ for (const f of corpusFiles(process.argv[2])) {
       perturb(back);
       const invalid = validate(back);
       if (invalid.length) { t.invalid++; problem(`invalid: ${invalid.slice(0, 3).join('; ')}`); }
-      const o = GLTF[form as Exclude<Form, 'json'>];
-      // What the file was meant to hold: the tree without empty nodes, hidden placements only where written.
-      const written = pruneView(view, o?.hidden === 'extension' || form === 'json' ? undefined : (p) => p.visible);
+      const o = GLTF[form], o3 = THREEMF[form];
+      // What the file was meant to hold: the tree without empty nodes, hidden placements only where written; for
+      // 3MF, only placed parts with triangles (the parts not kept left out of each node, as pruneView doesn't).
+      const has = (p: ExportNode['parts'][number]) => (o3!.hidden === 'keep' || p.visible)
+        && view.looks[p.look]!.mesh.indices.length > 0 && view.looks[p.look]!.groups.length > 0;
+      const only = (n: ExportNode): ExportNode => ({ ...n, parts: n.parts.filter(has),
+        children: n.children.map(only) });
+      const spaced = (n: ExportNode): ExportNode => ({ ...n, name: n.name.replace(/[\t\n\r]/g, ' '),
+        children: n.children.map(spaced) });
+      const kept = o3 ? view.roots.map(only).map(o3.build === 'assembly' ? spaced : (n) => n) : [];
+      const written = o3 ? pruneView({ ...view, roots: kept }, has) : pruneView(view,
+        o?.hidden === 'extension' || form === 'json' ? undefined : (p) => p.visible);
       // Draco's step: 14 bits over a part mesh's extent; meshopt's 16 over its volume; doubled for rounding at both
       // ends, and the default 1e-4 mm for the lossless forms.
       // Instancing's transforms are float32 translation, rotation and scale: a few float32 steps at the model's reach.
       const tolerance = form === 'glb-draco' ? 2 * extent / 16383 : form === 'glb-meshopt' ? 2 * extent / 65535
-        : form === 'glb-instanced' ? Math.max(1e-4, 8 * reach * 2 ** -24) : undefined;
+        : form === 'glb-instanced' ? Math.max(1e-4, 8 * reach * 2 ** -24)
+          : o3 ? Math.max(1e-4, 4 * local * 2 ** -24) : undefined;
       const d = viewDifferences({ scene, view: written }, { scene: back, view: exportView(back, opts) },
-        { tolerance, skipHidden: form === 'glb-draco', max: 3 });
+        { tolerance, skipHidden: form === 'glb-draco' || form === '3mf-assembly', lines: !o3, max: 3 });
       if (d.length) problem(d.join(' | ').slice(0, 600));
       else t.same++;
     } catch (e) {

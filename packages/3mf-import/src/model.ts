@@ -258,7 +258,8 @@ export function readModel(path: string, feed: (piece: (s: string) => void) => vo
         object = { id: id ?? -1, type: attr(attrs, 'type') ?? 'model', metadata: {} };
         for (const k of ['name', 'partnumber'] as const) {
           const v = attr(attrs, k);
-          if (v !== undefined && v !== '') object[k] = v;
+          // (A name given empty stays empty; only a missing one is made up.)
+          if (v !== undefined && (k === 'name' || v !== '')) object[k] = v;
         }
         const uuid = attr(attrs, 'UUID', PRODUCTION);
         if (uuid) object.uuid = uuid;
