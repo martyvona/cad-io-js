@@ -153,17 +153,16 @@ export function partHatch(name: string, color: THREE.Color): Hatch {
     spacing: SPACINGS[Math.floor(h / ANGLES.length) % SPACINGS.length]! };
 }
 
-/** What every cap's hatching shares: where the model is, its size, the lines' width and the pixel ratio. */
+/** What every cap's hatching shares: the model's size, the lines' width and the pixel ratio. */
 interface HatchUniforms {
-  hatchOrigin: { value: THREE.Vector3 };
   hatchSize: { value: number };
   hatchWidth: { value: number };
   hatchPixelRatio: { value: number };
 }
 
 /**
- * A cap's material for a plane: its ground hatched on the plane, the lines' positions fixed on the model (from its
- * origin, in world millimetres) and their width on the screen, with cadrender's profile: full ink to 0.3 of the width
+ * A cap's material for a plane: its ground hatched on the plane, the lines' positions fixed on the model (from the
+ * world's origin, in millimetres: the model doesn't move) and their width on the screen, with cadrender's profile: full ink to 0.3 of the width
  * at 0.8 of full (the width at half ink, `hatchWidth`) from the centre line, none from 0.5 on.
  */
 function capMaterial(h: Hatch, axis: Axis, shared: HatchUniforms): THREE.MeshBasicMaterial {
@@ -179,13 +178,13 @@ function capMaterial(h: Hatch, axis: Axis, shared: HatchUniforms): THREE.MeshBas
       hatchDir: { value: u.clone().multiplyScalar(Math.cos(h.angle)).addScaledVector(v, Math.sin(h.angle)) } });
     shader.vertexShader = 'varying vec3 hatchWorld;\n' + shader.vertexShader.replace('#include <project_vertex>',
       '#include <project_vertex>\n  hatchWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;');
-    shader.fragmentShader = 'varying vec3 hatchWorld;\nuniform vec3 hatchOrigin;\nuniform float hatchSize;\n' +
+    shader.fragmentShader = 'varying vec3 hatchWorld;\nuniform float hatchSize;\n' +
       'uniform float hatchWidth;\nuniform float hatchPixelRatio;\nuniform vec3 hatchInk;\n' +
       'uniform vec3 hatchDir;\nuniform float hatchSpacing;\n' +
       shader.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n' +
       // Across the lines in spacings; the distance to the nearest centre line in CSS pixels, by how fast that
       // changes on the screen.
-      '  float hatchT = dot(hatchWorld - hatchOrigin, hatchDir) / (hatchSpacing * hatchSize);\n' +
+      '  float hatchT = dot(hatchWorld, hatchDir) / (hatchSpacing * hatchSize);\n' +
       '  float hatchPx = abs(fract(hatchT + 0.5) - 0.5) / max(length(vec2(dFdx(hatchT), dFdy(hatchT))), 1e-9) / ' +
       'hatchPixelRatio;\n' +
       '  float hatchW = max(hatchWidth, 0.01) / 0.8;\n' +
@@ -213,7 +212,7 @@ export class Sections {
   private dirty = true;
   private readonly capMaterials = new Map<string, THREE.MeshBasicMaterial>();
   private style: CapStyle = 'parts';
-  private readonly hatch: HatchUniforms = { hatchOrigin: { value: new THREE.Vector3() }, hatchSize: { value: 1 },
+  private readonly hatch: HatchUniforms = { hatchSize: { value: 1 },
     hatchWidth: { value: HATCH_WIDTH }, hatchPixelRatio: { value: 1 } };
   /** Whether parts of several meshes close up, by their geometries and frames. */
   private readonly closedParts = new Map<string, boolean>();
@@ -261,9 +260,7 @@ export class Sections {
     const on = AXES.filter((a) => this.settings[a].on);
     if (!model || !on.length || !this.settings.caps) return;
     model.updateWorldMatrix(true, true);
-    // The lines from the model's origin (so they move with it when centred), spaced by its size (hidden items
-    // included, so hiding doesn't respace them).
-    this.hatch.hatchOrigin.value.setFromMatrixPosition(model.matrixWorld);
+    // The lines spaced by the model's size (hidden items included, so hiding doesn't respace them).
     const radius = new THREE.Box3().setFromObject(model).getBoundingSphere(new THREE.Sphere()).radius;
     this.hatch.hatchSize.value = radius > 0 ? radius : 1;
     const partSet = new Set(parts?.() ?? []);

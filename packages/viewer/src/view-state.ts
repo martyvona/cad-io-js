@@ -1,11 +1,11 @@
-// What a view of a model is, as data (the user, 2026-10-25; CLAUDE.md, "The viewer"): the camera, centring, the
-// section planes, the rendering settings, the tree and the pick level, and which nodes are hidden and selected (by
+// What a view of a model is, as data (the user, 2026-10-25; CLAUDE.md, "The viewer"): the camera, the section
+// planes, the rendering settings, the tree and the pick level, and which nodes are hidden and selected (by
 // their paths, model.ts). The automation interface (automation.ts) reads and applies it, and a page's address
 // carries it, so a link shows what someone else saw:
 //
 //   ?model=<path in the content root or URL>&view=iso  an axis view, fitted (or camera=, exactly)
 //   &camera=px,py,pz,tx,ty,tz,ux,uy,uz,height  position, target, up, and the viewport's height in world mm
-//   &centered=1  &cut=x:12.5  &cut=y:-3:flip  &caps=0
+//   &cut=x:12.5  &cut=y:-3:flip  &caps=0
 //   &ao=0  &smaa=0  &edges=0  &triangleEdges=all  &shininess=50  &aoIntensity=3  &aoRadius=16  &aoQuality=Low
 //   &edgeStyle=thin  &edgeWidth=2  &specular=0.3  &ambient=1  &light=2.5  &capStyle=parts  &hatchWidth=2
 //   &tree=0  &detail=1  &pick=detail  &instances=1
@@ -32,7 +32,6 @@ export interface CameraState {
 export interface ViewState {
   view?: ViewName;
   camera?: CameraState;
-  centered?: boolean;
   /** The planes that are on; the others are off when `cut` is given. */
   cut?: Partial<Record<Axis, Omit<PlaneSettings, 'on'>>>;
   caps?: boolean;
@@ -72,7 +71,6 @@ export function toQuery(s: ViewState): [string, string][] {
     const c = s.camera;
     q.push(['camera', [...c.position, ...c.target, ...c.up, c.height].map(num).join(',')]);
   }
-  if (s.centered !== undefined) q.push(['centered', s.centered ? '1' : '0']);
   for (const a of AXES) {
     const p = s.cut?.[a];
     if (p) q.push(['cut', `${a}:${num(p.at)}${p.flip ? ':flip' : ''}`]);
@@ -111,8 +109,6 @@ export function fromQuery(params: URLSearchParams): { state: ViewState; problems
         height: n[9]! };
     } else problems.push(`camera: 10 numbers expected (position, target, up, height > 0): ${camera}`);
   }
-  const centered = bool(params.get('centered'));
-  if (centered !== undefined) state.centered = centered;
   const cuts = params.getAll('cut');
   if (cuts.length) {
     state.cut = {};

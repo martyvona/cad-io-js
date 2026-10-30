@@ -9,7 +9,7 @@ test('view state: every field through the query and back; numbers to 6 decimals;
   const s: ViewState = {
     view: 'top',
     camera: { position: [1.23456789, -2, 3], target: [0, 0, 0.5], up: [0, 0, 1], height: 125.5 },
-    centered: true, cut: { x: { at: 12.5, flip: false }, z: { at: -3, flip: true } }, caps: false,
+    cut: { x: { at: 12.5, flip: false }, z: { at: -3, flip: true } }, caps: false,
     render: { ao: false, smaa: true, edges: false, shininess: 50, aoIntensity: 2.5,
       aoRadius: 16, aoQuality: 'Low', edgeStyle: 'thin', edgeWidth: 2.5, specular: 0.25, ambient: 0.8, light: 3,
       capStyle: 'parts', hatchWidth: 2.25 },
@@ -26,6 +26,8 @@ test('view state: every field through the query and back; numbers to 6 decimals;
   // Absent fields stay absent; an empty cut list says every plane is off.
   assert.deepEqual(roundTrip({}).state, {});
   assert.deepEqual(roundTrip({ cut: {} }).state, { cut: {} });
+  // Older links' centring (removed, the user, 2026-10-30) is passed over.
+  assert.deepEqual(fromQuery(new URLSearchParams('centered=1&caps=0')), { state: { caps: false }, problems: [] });
 });
 
 test('view state: malformed values left out, each with a message', () => {

@@ -72,8 +72,6 @@ export interface Ui {
   /** The meshing settings (B-Rep Meshing's), for the next model meshed or Mesh again; the controls follow. */
   setMeshing(s: Partial<TessellationSettings>): void;
   setTree(t: { open?: boolean; detail?: boolean }): void;
-  /** Centring, once the centroid is known (false if it isn't yet). */
-  setCentered(on: boolean): boolean;
   setPickLevel(level: PickLevel): void;
   setInstances(on: boolean): void;
   setHidden(ids: readonly number[], hidden: boolean): void;
@@ -129,7 +127,6 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     status.classList.toggle('error', error);
     hooks.onEvent?.({ type: 'status', text, error });
   };
-  let centered: { enable(on: boolean): unknown; setValue(v: boolean): unknown };
   let last: Source | undefined;
   viewer.onStatus = (text) => say(text);
 
@@ -205,8 +202,6 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       restore = undefined;
       fitPlanes();
       const s = viewer.stats()!;
-      centered.setValue(viewer.isCentered());
-      centered.enable(viewer.model?.centroid !== undefined);
       const m = viewer.model!;
       // (Nothing said of meshing for a model with nothing to mesh: a glTF's, a STEP file's tessellated geometry.)
       const parts = m.parts?.total ? `; ${m.parts.done - m.parts.failed} of ${m.parts.total} parts meshed` +
@@ -223,7 +218,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       if (notRestored) console.warn('meshed again, not found again:', lost);
       const box = visibleBox(viewer.display);
       const r: Record<string, unknown> = { name: src.name, seconds: (performance.now() - t) / 1000, parts: m.parts,
-        stats: s, centroid: viewer.model?.centroid?.toArray(), box: [box.min.toArray(), box.max.toArray()],
+        stats: s, box: [box.min.toArray(), box.max.toArray()],
         camera: { top: viewer.camera.top, target: viewer.controls.target.toArray() },
         ...(notRestored ? { notRestored: lost } : {}) };
       report(r);
@@ -312,14 +307,6 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   for (const v of Object.keys(VIEWS) as ViewName[]) {
     views.add({ [v]: () => viewer.setView(v) }, v).name(v[0]!.toUpperCase() + v.slice(1));
   }
-  centered = view.add({ centered: false }, 'centered').name('Center model')
-    .onChange((on: boolean) => {
-      viewer.setCentered(on);
-      // The planes moved with the model: take their positions, and fit the sliders to where the model is now.
-      const moved = viewer.sections.get();
-      for (const a of AXES) cut[a].at = moved[a].at;
-      fitPlanes();
-    }).disable();
   const setTheme = (c: ThemeChoice) => {
     const t = applyTheme(c);
     viewer.setTheme(t);
@@ -708,11 +695,6 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     setTree: (t) => {
       if (t.detail !== undefined && t.detail !== tree.detail) detailControl?.setValue(t.detail);
       if (t.open !== undefined && t.open !== tree.open) openControl?.setValue(t.open);
-    },
-    setCentered: (on) => {
-      if (on && viewer.model?.centroid === undefined) return false;
-      if (on !== viewer.isCentered()) centered.setValue(on);
-      return true;
     },
     setPickLevel: (level) => {
       selection.level = level;

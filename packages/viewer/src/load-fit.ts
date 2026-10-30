@@ -11,7 +11,7 @@ import { grow } from 'cad-scene';
 export interface Bounds { center: readonly number[]; radius: number; from: string }
 
 export class LoadFit {
-  /** The model's sphere, in the display's frame; empty without one. */
+  /** The model's sphere, in the world; empty without one. */
   readonly sphere = new THREE.Sphere().makeEmpty();
   /** What automatic zooming fits: grown with the sphere, never shrunk. */
   private readonly loading = new THREE.Sphere().makeEmpty();
@@ -23,7 +23,7 @@ export class LoadFit {
   private readonly now: () => number;
 
   /**
-   * `zoom` fits a sphere in the display's frame; `moved` says whether the user has moved the view since the load
+   * `zoom` fits a sphere (in the world); `moved` says whether the user has moved the view since the load
    * began; `now` is the clock, in milliseconds.
    */
   constructor(zoom: (s: THREE.Sphere) => void, moved: () => boolean, now = () => performance.now()) {
@@ -47,7 +47,7 @@ export class LoadFit {
     this.fit(true);
   }
 
-  /** A mesh's placed sphere (the display's frame): the spheres grow to hold it, unless the file gave the sphere. */
+  /** A mesh's placed sphere (in the world): the spheres grow to hold it, unless the file gave the sphere. */
   add(s: THREE.Sphere): void {
     if (!this.grows || s.isEmpty()) return;
     let grew = false;

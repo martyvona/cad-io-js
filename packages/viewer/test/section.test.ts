@@ -286,7 +286,7 @@ test('cap styles: drawing hatchings alternate by part colour; parts hatch each i
     'the angles and spacings vary between parts');
 });
 
-test('hatching: on the plane from the model\'s origin, spaced by its size; width and pixel ratio shared', () => {
+test('hatching: on the plane, spaced by the model\'s size; size, width and pixel ratio shared', () => {
   const { s } = sections();
   const root = new THREE.Group();
   root.position.set(7, -3, 2);
@@ -309,7 +309,6 @@ test('hatching: on the plane from the model\'s origin, spaced by its size; width
   });
   const [x, z] = compiled as [typeof compiled[0], typeof compiled[0]];
   assert.ok(x.vertexShader.includes('hatchWorld =') && x.fragmentShader.includes('dFdx(hatchT)'));
-  assert.deepEqual((x.uniforms.hatchOrigin!.value as THREE.Vector3).toArray(), [7, -3, 2]);
   // The bounding sphere of the 6 x 8 x 4 box: half its diagonal.
   assert.ok(Math.abs((x.uniforms.hatchSize!.value as number) - Math.sqrt(36 + 64 + 16) / 2) < 1e-9);
   assert.equal(x.uniforms.hatchWidth!.value, 2.5);
@@ -317,7 +316,7 @@ test('hatching: on the plane from the model\'s origin, spaced by its size; width
   // Shared, so the width changes without new materials.
   s.setHatchWidth(1);
   assert.equal(z.uniforms.hatchWidth!.value, 1);
-  assert.equal(x.uniforms.hatchOrigin, z.uniforms.hatchOrigin);
+  assert.equal(x.uniforms.hatchSize, z.uniforms.hatchSize);
   // The lines' normal in each plane at the part's angle: across x from y towards z, across z from x towards y.
   const a = partHatch(m.name, new THREE.Color(0x00ff00)).angle;
   const near = (v: unknown, w: number[]) => (v as THREE.Vector3).toArray().every((c, i) =>

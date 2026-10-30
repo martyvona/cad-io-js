@@ -1,13 +1,10 @@
-// The viewer's 3D view: renderer, orthographic camera, trackball controls, lights, and the model under a display
-// transform (the user, 2026-10-24; CLAUDE.md, "The viewer"):
+// The viewer's 3D view: renderer, orthographic camera, trackball controls, lights, and the model (the user,
+// 2026-10-24; CLAUDE.md, "The viewer"):
 //
-//   scene -> display (the centring translation, once the centroid is known) -> the model's root (its scene graph,
-//     scene-graph.ts, in the world's millimetres and Z up whatever the format: the importers convert)
+//   scene -> display (the model's place in the scene, kept from one model to the next) -> the model's root (its
+//     scene graph, scene-graph.ts, in the world's millimetres and Z up whatever the format: the importers convert)
 //
-// The centroid is the centre of the axis-aligned box of all the model's geometry, hidden included, in the world,
-// found when loading finishes (for STEP, when the last part is meshed) and fixed from then on (meshing the same file
-// again keeps it, as it keeps the view). One model at a time; loading another replaces it, and cancels the meshing of
-// the last if it's still going. Every format is imported (and STEP meshed) in a worker (import-worker.ts), through
+// One model at a time; loading another replaces it, and cancels the meshing of the last if it's still going. Every format is imported (and STEP meshed) in a worker (import-worker.ts), through
 // the library's importers into the scene model (the user, 2026-10-29: one path for every format).
 
 import { VIEW_BACKGROUNDS, type Theme } from './theme.ts';
@@ -21,7 +18,7 @@ import { Frames } from './frames.ts';
 import { NodeModel, type FaceHiding } from './model.ts';
 import { pick, type Pick } from './pick.ts';
 import { Composer } from './render.ts';
-import { AXES, Sections, type SectionSettings } from './section.ts';
+import { Sections, type SectionSettings } from './section.ts';
 import { SceneGraph } from './scene-graph.ts';
 import { FatEdges } from './fat-edges.ts';
 import { LoadFit } from './load-fit.ts';
@@ -36,8 +33,6 @@ import { classifyDevice, DEVICE_PROFILES, deviceOverride, deviceSignals, type De
 export interface ModelInfo {
   name: string;
   format: Format;
-  /** The world centroid, once loading has finished. */
-  centroid?: THREE.Vector3;
   /** The B-rep parts to mesh (none but in STEP), and how many are done and failed so far. */
   parts?: { total: number; done: number; failed: number };
   /** The importer's and the tessellation's diagnostics. */
@@ -106,24 +101,20 @@ function dispose(root: THREE.Object3D): void {
   });
 }
 
-/** What meshing the same model again carries over from the last load. */
-interface Kept { centroid?: THREE.Vector3; centered: boolean }
-
 export class Viewer {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.OrthographicCamera(-1, 1, 1, -1, -1, 1);
   readonly controls: TrackballControls;
   readonly frames: Frames;
-  /** The centring translation. */
+  /** The model's place in the scene: its root's parent. */
   readonly display = new THREE.Group();
   model?: ModelInfo;
   private root?: THREE.Object3D;
-  private centered = false;
   /** What the near and far planes are kept around (clipTo), in the world: all that's drawn. */
   private bounds = new THREE.Sphere(new THREE.Vector3(), 1);
   /** The model's sphere (zoom all fits it), and zooming to it while it loads (load-fit.ts). */
-  private readonly fit = new LoadFit((s) => this.fitWorld(this.worldSphere(s)), () => this.moved);
+  private readonly fit = new LoadFit((s) => this.fitWorld(s), () => this.moved);
   private interacting = false;
   /** The model's materials changed (meshes arrived, a model loaded): is anything transparent? (at the next draw) */
   private transparencyStale = true;
@@ -345,7 +336,7 @@ export class Viewer {
 
   /**
    * Replaces the model with the source's; for STEP, resolves once every part is meshed (or has failed). `keep`: the
-   * same model again (meshed again), so the camera stays where it is and the centroid and centring carry over.
+   * same model again (meshed again), so the camera stays where it is.
    */
   async load(src: Source, opts: { keep?: boolean } = {}): Promise<void> {
     const format = formatOf(src.name);
@@ -357,27 +348,20 @@ export class Viewer {
       this.meshing = false;
       this.abortLoad?.();
     }
-    const keep = opts.keep && this.model ? { centroid: this.model.centroid, centered: this.centered } : undefined;
-    return this.loadModel(src, format, gen, keep);
+    return this.loadModel(src, format, gen, !!opts.keep && !!this.model);
   }
 
-  private show(root: THREE.Object3D, model: ModelInfo, faces?: FaceHiding, keep?: Kept): void {
+  private show(root: THREE.Object3D, model: ModelInfo, faces: FaceHiding | undefined, keep: boolean): void {
     this.clear();
     this.root = root;
     this.nodes = new NodeModel(root, faces);
     this.display.add(root);
     this.model = model;
-    this.moved = !!keep;
+    this.moved = keep;
     this.fit.start();
     this.triangleEdges.invalidate();
     this.fatEdges.invalidate();
     this.transparencyStale = true;
-    if (keep?.centroid) {
-      model.centroid = keep.centroid;
-      this.centered = keep.centered;
-      if (keep.centered) this.display.position.copy(keep.centroid).multiplyScalar(-1);
-      this.updateBounds();
-    }
     this.sections.invalidate();
     this.onModel?.(this.nodes);
   }
@@ -431,7 +415,7 @@ export class Viewer {
     return this.worker;
   }
 
-  private async loadModel(src: Source, format: Format, gen: number, keep?: Kept): Promise<void> {
+  private async loadModel(src: Source, format: Format, gen: number, keep: boolean): Promise<void> {
     this.onStatus?.(`${src.name}: reading...`);
     // Let the page show that first.
     await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
@@ -473,7 +457,7 @@ export class Viewer {
           this.show(graph.root, model, graph, keep);
           // The model's sphere, the file's or the importer's estimate, fitted before any mesh is drawn.
           this.fit.start(scene.bounds);
-          if (!this.fit.sphere.isEmpty()) this.bounds.copy(this.worldSphere(this.fit.sphere));
+          if (!this.fit.sphere.isEmpty()) this.bounds.copy(this.fit.sphere);
           // Parts with a level from the file (every part of a glTF or three.js file, STEP's tessellated geometry)
           // shown at once, the level for these settings (chooseLod); a B-rep part's until ours comes.
           const wanted = meshDeflections(deflectionsOf(this.settings));
@@ -512,14 +496,13 @@ export class Viewer {
       if (gen === this.generation) this.meshing = false;
     }
     if (gen !== this.generation || !model) return;
-    this.finished();
+    this.updateBounds();
     this.fit.end(ended?.bounds);
   }
 
   /** A part's new mesh grows the clipping sphere and, unless it's the file's, the model's (centres kept). */
   private grow(graph: SceneGraph, part: number, mesh: Mesh): void {
     this.display.updateWorldMatrix(true, true);
-    const toDisplay = new THREE.Matrix4().copy(this.display.matrixWorld).invert();
     const own = mesh.box && around({ min: mesh.box.min.map((x, k) => x + mesh.origin[k]!) as Vec3,
       max: mesh.box.max.map((x, k) => x + mesh.origin[k]!) as Vec3 });
     const box = new THREE.Box3();
@@ -527,14 +510,8 @@ export class Viewer {
       // Everything drawn, the failure outlines too, for the clipping planes.
       if (!box.setFromObject(p.group).isEmpty()) this.bounds.union(box.getBoundingSphere(new THREE.Sphere()));
       if (own) this.fit.add(new THREE.Sphere(new THREE.Vector3(...own.center), own.radius)
-        .applyMatrix4(p.group.matrixWorld).applyMatrix4(toDisplay));
+        .applyMatrix4(p.group.matrixWorld));
     }
-  }
-
-  /** A sphere in the display's frame, in the world (where centring has put it). */
-  private worldSphere(s: THREE.Sphere): THREE.Sphere {
-    this.display.updateWorldMatrix(true, false);
-    return s.clone().applyMatrix4(this.display.matrixWorld);
   }
 
   private fitWorld(s: THREE.Sphere): void {
@@ -544,19 +521,9 @@ export class Viewer {
 
   /** The model's sphere in the world; without one (nothing loaded yet), around what's drawn. */
   modelSphere(): THREE.Sphere {
-    if (!this.fit.sphere.isEmpty()) return this.worldSphere(this.fit.sphere);
+    if (!this.fit.sphere.isEmpty()) return this.fit.sphere.clone();
     const box = visibleBox(this.display);
     return box.isEmpty() ? new THREE.Sphere().makeEmpty() : box.getBoundingSphere(new THREE.Sphere());
-  }
-
-  /** Loading has finished: the centroid is found, once. */
-  private finished(): void {
-    if (!this.model || !this.root || this.model.centroid) return;
-    this.display.position.set(0, 0, 0);
-    this.display.updateWorldMatrix(true, true);
-    const box = new THREE.Box3().setFromObject(this.display);
-    this.model.centroid = box.isEmpty() ? new THREE.Vector3() : box.getCenter(new THREE.Vector3());
-    this.updateBounds();
   }
 
   private clear(): void {
@@ -567,8 +534,6 @@ export class Viewer {
     this.root = undefined;
     this.model = undefined;
     this.nodes = undefined;
-    this.centered = false;
-    this.display.position.set(0, 0, 0);
   }
 
   private updateBounds(): void {
@@ -576,26 +541,6 @@ export class Viewer {
     const box = new THREE.Box3().setFromObject(this.display);
     if (box.isEmpty()) this.bounds.set(new THREE.Vector3(), 1);
     else box.getBoundingSphere(this.bounds);
-  }
-
-  /** Moves the model so its centroid is at the world's origin, or back. */
-  setCentered(on: boolean): void {
-    const c = this.model?.centroid;
-    if (!c) return;
-    this.centered = on;
-    const before = this.display.position.clone();
-    this.display.position.copy(c).multiplyScalar(on ? -1 : 0);
-    // The view follows, so the model doesn't jump on the screen.
-    const shift = this.display.position.clone().sub(before);
-    this.camera.position.add(shift);
-    this.controls.target.add(shift);
-    // The planes move with the model, cutting it where they did.
-    const s = this.sections.get();
-    for (const a of AXES) s[a].at += shift[a];
-    this.sections.set(s);
-    this.sections.invalidate();
-    this.updateBounds();
-    this.redraw();
   }
 
   /** The load that `load` was called for is still the latest (it wasn't replaced by another meanwhile). */
@@ -606,10 +551,6 @@ export class Viewer {
   /** The number the next load will have. */
   nextLoad(): number {
     return this.generation + 1;
-  }
-
-  isCentered(): boolean {
-    return this.centered;
   }
 
   stats(): Stats | undefined {

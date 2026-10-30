@@ -448,7 +448,7 @@ export async function replay(rec: Recording, viewer: Viewer, ui: Ui, session: Se
       // (Hidden paths in any order: hidden faces' nodes may be made in another order.)
       const text = (key: string, v: unknown) => JSON.stringify(key === 'hidden' && Array.isArray(v) ? [...v].sort()
         : v);
-      for (const key of ['centered', 'cut', 'caps', 'render', 'meshing', 'tree', 'pick', 'instances', 'hidden',
+      for (const key of ['cut', 'caps', 'render', 'meshing', 'tree', 'pick', 'instances', 'hidden',
         'selected']) {
         // (Recordings before 2026-10-27 have no meshing.)
         if (e.state[key] === undefined && key === 'meshing') continue;

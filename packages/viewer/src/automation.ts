@@ -27,8 +27,8 @@ import type { MeshedWith, Viewer } from './viewer.ts';
 export interface NodeInfo { path: string; kind: string; name: string; hidden: boolean }
 
 /** Everything about the view and the model, as `state()` gives it. */
-export interface FullState extends Required<Pick<ViewState, 'camera' | 'centered' | 'caps' | 'pick' | 'instances'
-  | 'hidden' | 'selected'>> {
+export interface FullState extends Required<Pick<ViewState, 'camera' | 'caps' | 'pick' | 'instances' | 'hidden'
+  | 'selected'>> {
   cut: NonNullable<ViewState['cut']>;
   render: RenderSettings;
   tree: { open: boolean; detail: boolean };
@@ -37,17 +37,20 @@ export interface FullState extends Required<Pick<ViewState, 'camera' | 'centered
   /** The meshing settings (B-Rep Meshing's), for the next model meshed. */
   meshing: TessellationSettings;
   /**
-   * The model: its file's name and URL (if it came from one), counts, centroid, sphere and parts (STEP), and (STEP) the
+   * The model: its file's name and URL (if it came from one), counts, sphere and parts (STEP), and (STEP) the
    * meshing settings it was meshed with.
    */
   model?: { name: string; url?: string; format: string; triangles: number; objects: number; meshes: number;
-    centroid?: number[]; sphere?: { center: number[]; radius: number };
+    sphere?: { center: number[]; radius: number };
     parts?: { total: number; done: number; failed: number }; diagnostics: number;
     meshedWith?: MeshedWith };
 }
 
 export interface CadViewer {
-  /** The interface's version: 1. */
+  /**
+   * The interface's version: 2 (1 until 2026-10-30, when centring went: `centered` from states, `centroid` from the
+   * model's; otherwise it changes only by additions).
+   */
   readonly version: number;
   /** Settles once the start (?model= and the view in the address) is done. */
   readonly ready: Promise<void>;
@@ -81,7 +84,7 @@ export interface CadViewer {
   replay(recording: Recording, opts?: ReplayOptions): Promise<ReplayReport>;
 }
 
-const VERSION = 1;
+const VERSION = 2;
 
 /** The model's sphere in the world (what zoom all fits), where it has one. */
 const sphereOf = (viewer: Viewer) => {
@@ -118,7 +121,7 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
     const m = viewer.model;
     const stats = viewer.stats();
     return {
-      camera: viewer.cameraState() as CameraState, centered: viewer.isCentered(), cut, caps: s.caps,
+      camera: viewer.cameraState() as CameraState, cut, caps: s.caps,
       render: { ...viewer.render }, tree: ui.tree(),
       device: { detected: viewer.detectedDevice, used: viewer.device, profile: viewer.settings.profile },
       meshing: { ...viewer.settings },
@@ -128,8 +131,7 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
         ...model.hiddenFacePaths()])] : [],
       selected: model ? ui.selected().map((id) => model.pathOf(id)) : [],
       ...(m && stats ? { model: { name: m.name, url: ui.currentUrl(), format: m.format, triangles: stats.triangles,
-        objects: stats.objects, meshes: stats.meshes, centroid: m.centroid?.toArray(), ...sphereOf(viewer),
-        parts: m.parts,
+        objects: stats.objects, meshes: stats.meshes, ...sphereOf(viewer), parts: m.parts,
         diagnostics: (m.diagnostics ?? []).filter((d) => d.severity !== 'info').length,
         ...(m.meshedWith ? { meshedWith: { ...m.meshedWith } } : {}) } } : {}),
     };
@@ -138,7 +140,6 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
   const apply = (st: ViewState): string[] => {
     const problems: string[] = [];
     if (st.tree) ui.setTree(st.tree);
-    if (st.centered !== undefined && !ui.setCentered(st.centered)) problems.push('centered: no centroid yet');
     if (st.camera) viewer.setCamera(st.camera);
     else if (st.view) viewer.setView(st.view);
     if (st.cut || st.caps !== undefined) {
@@ -178,7 +179,7 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
 
   const link = (): string => {
     const s = state();
-    const view: ViewState = { camera: s.camera, centered: s.centered, cut: s.cut, caps: s.caps,
+    const view: ViewState = { camera: s.camera, cut: s.cut, caps: s.caps,
       render: renderChanges(s.render), tree: s.tree, pick: s.pick, instances: s.instances, hidden: s.hidden,
       selected: s.selected };
     const url = new URL(location.pathname, location.origin);

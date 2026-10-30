@@ -3,7 +3,7 @@
 // and a .bin beside it, three.js JSON), served by the dev server (cad-viewer start) and opened in headless Chrome
 // (?url=...&check). What each page reports is compared with what the scene says, computed here independently of the
 // viewer: the triangles, the B-rep edges' segments, and the world box in millimetres with Z up (so each format's
-// frame mapping is checked); and centring. Also: a GLB without edges (edges found from its triangles), the page with
+// frame mapping is checked). Also: a GLB without edges (edges found from its triangles), the page with
 // no model, an unknown file, a missing one.
 // Run by hand: node packages/viewer/test/browser-check.ts [path to Chrome]   (needs tess-occt built and the corpus;
 // SHOTS=<dir> saves a screenshot of each page there; EXTRA=<file>,... also loads those files and prints what the
@@ -290,19 +290,13 @@ if (first.missing) {
   process.exit(1);
 }
 
-// Centring and back, through the page's `viewer`: [display position, target before, target after] each way.
-const CENTER = `(() => { const v = globalThis.viewer; const t0 = v.controls.target.toArray(); v.setCentered(true);
-  const on = [v.display.position.toArray(), t0, v.controls.target.toArray()]; v.setCentered(true); v.setCentered(false);
-  return { on, off: [v.display.position.toArray(), v.controls.target.toArray()] }; })()`;
-
 // Draco quantizes positions to 14 bits over each part mesh's extent, meshopt to 16: well under 0.05 mm here.
 const TOL = 0.05;
 for (const file of ['as1.stp', 'as1.glb', 'as1-meshopt.gltf', 'as1.json', 'as1.json.extras.json', 'as1-noedges.glb',
   'as1.3mf', 'as1-plain.3mf']) {
   await check(file, async () => {
-    const r = await page(`?url=${encodeURIComponent(`/content/${file}`)}&check`, CENTER) as {
-      stats?: { triangles: number; segments: number }; box?: number[][]; centroid?: number[]; error?: string;
-      missing?: string; after?: { on: number[][]; off: number[][] } };
+    const r = await page(`?url=${encodeURIComponent(`/content/${file}`)}&check`) as {
+      stats?: { triangles: number; segments: number }; box?: number[][]; error?: string; missing?: string };
     expect(!r.error && !r.missing, `no model: ${r.error ?? r.missing}`);
     expect(r.stats!.triangles === triangles, `${r.stats!.triangles} triangles, expected ${triangles}`);
     // (3MF has no lines: the viewer finds edges from the triangles, as for a GLB without edges.)
@@ -312,15 +306,6 @@ for (const file of ['as1.stp', 'as1.glb', 'as1-meshopt.gltf', 'as1.json', 'as1.j
     const [min, max] = r.box!;
     for (let k = 0; k < 3; k++) expect(Math.abs(min![k]! - lo[k]!) < TOL && Math.abs(max![k]! - hi[k]!) < TOL,
       `box ${JSON.stringify(r.box)}, expected ${JSON.stringify([lo, hi])}`);
-    for (let k = 0; k < 3; k++) expect(Math.abs(r.centroid![k]! - (lo[k]! + hi[k]!) / 2) < TOL,
-      `centroid ${r.centroid}`);
-    // Centred: the model moved by minus the centroid, and the camera with it; uncentred: both back.
-    const [[d1, t0, t1], [d2, t2]] = [r.after!.on, r.after!.off];
-    for (let k = 0; k < 3; k++) {
-      expect(Math.abs(d1![k]! + r.centroid![k]!) < 1e-9 && Math.abs(t1![k]! - t0![k]! - d1![k]!) < 1e-9,
-        `centred: ${JSON.stringify(r.after)}`);
-      expect(d2![k] === 0 && Math.abs(t2![k]! - t0![k]!) < 1e-9, `uncentred: ${JSON.stringify(r.after)}`);
-    }
     return undefined;
   });
 }
@@ -719,8 +704,7 @@ await check('rendering', async () => {
 });
 // Sections on the STEP assembly: a plane across X through the middle cuts the model (the renderer's clipping
 // planes), caps the closed parts (read back from the drawn frame: the plate's colour where its cut is, the background
-// without caps), keeps picks off the cut-away side; flipping it keeps the other side; centring moves it with the
-// model.
+// without caps), keeps picks off the cut-away side; flipping it keeps the other side.
 await check('sections', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
     const gl = viewer.renderer.getContext(), canvas = viewer.renderer.domElement;
@@ -782,22 +766,14 @@ await check('sections', async () => {
     viewer.setSections({ ...s, x: { ...s.x, flip: true } });
     const flipped = viewer.sections.clipped(c.clone().setX(at - 1)) &&
       !viewer.sections.clipped(c.clone().setX(at + 1));
-    // Centring moves the plane with the model (off the centroid, so the move shows).
-    const cx = viewer.model.centroid.x;
-    viewer.setSections({ ...s, x: { ...s.x, at: at - 10 } });
-    viewer.setCentered(true);
-    const movedTo = viewer.sections.get().x.at;
-    viewer.setCentered(false);
-    const back = viewer.sections.get().x.at;
     return { planes, caps, capped, cappedParts, outside, cappedPlain, outsidePlain, open,
       kept: kept ? kept.point.x : null,
       gone: gone ? gone.point.x : null,
-      at, flipped, movedTo, expectedMove: at - 10 - cx, back, glError: gl.getError() };
+      at, flipped, glError: gl.getError() };
   })()`) as { after?: { planes: number; caps: number; capped: number[]; cappedParts: number[]; outside: number[];
     cappedPlain: number[];
     outsidePlain: number[]; open: number[];
-    kept: number | null; gone: number | null; at: number; flipped: boolean; movedTo: number; expectedMove: number;
-    back: number; glError: number } };
+    kept: number | null; gone: number | null; at: number; flipped: boolean; glError: number } };
   const a = r.after!;
   const j = JSON.stringify(a);
   expect(a.planes === 1 && a.caps > 0, `planes and caps: ${j}`);
@@ -815,8 +791,6 @@ await check('sections', async () => {
   expect(a.kept !== null && a.kept <= a.at + 1e-6 && (a.gone === null || a.gone <= a.at + 1e-6),
     `picking across the plane: ${j}`);
   expect(a.flipped, `flip: ${j}`);
-  expect(Math.abs(a.movedTo - a.expectedMove) < 1e-6 && Math.abs(a.back - (a.at - 10)) < 1e-6 && a.movedTo !== a.back,
-    `centring: ${j}`);
   expect(a.glError === 0, `WebGL error: ${j}`);
   return undefined;
 });
@@ -1344,7 +1318,7 @@ await check('phone', async () => {
 });
 // The import worker, the only way STEP files load (the page has no tessellation of its own); every folder of the
 // controls closed at first; Zoom selected in View, enabled only with a selection; Mesh again (at another deflection,
-// the cache off) keeps the camera, centring, a cut, what's hidden and what's selected, the tree's expansion (detail
+// the cache off) keeps the camera, a cut, what's hidden and what's selected, the tree's expansion (detail
 // on, all expanded but one assembly) and the row at its top (scrolled partway), and meshes anew; meshed again
 // once more with those nodes not coming back (simulated: their paths not found), the status line says so.
 // The device (a desktop here, headless Chrome): detected so, meshed medium; the Device control overrides it (a tablet:
@@ -1417,7 +1391,6 @@ await check('mesh again', async () => {
     const m = viewer.nodes;
     const parts = m.nodes.filter((n) => n.kind === 'part');
     viewer.setView('top');
-    ui.setCentered(true);
     cadViewer.apply({ cut: { x: { at: 10, flip: false } } });
     ui.setHidden([parts[0].id], true);
     ui.select([parts[1].id]);
@@ -1514,7 +1487,7 @@ await check('mesh again', async () => {
   expect(a.disabledEmpty && a.enabledSelected && a.zoomAfter, `zoom selected: ${j}`);
   expect(/^occt /.test(a.backend ?? '') && !a.pageTessellation, `the import worker: ${j}`);
   expect(a.triangles[0]! > 0 && a.triangles[1]! > 0 && a.triangles[0] !== a.triangles[1], `meshed anew: ${j}`);
-  const kept = ['camera', 'centered', 'cut', 'hidden', 'selected'] as const;
+  const kept = ['camera', 'cut', 'hidden', 'selected'] as const;
   for (const k of kept) {
     expect(JSON.stringify(a.before[k]) === JSON.stringify(a.after[k]), `${k} kept: ${JSON.stringify(a.before[k])} `
       + `then ${JSON.stringify(a.after[k])}`);
@@ -1526,7 +1499,7 @@ await check('mesh again', async () => {
   expect(a.tinted[0] === true && a.tinted[1] === true, `the selection highlighted in the 3D view, before and after: ${
     JSON.stringify(a.tinted)}`);
   expect((a.after.hidden as string[]).length === 1 && (a.after.selected as string[]).length === 1 &&
-    a.after.centered === true && 'x' in (a.after.cut as object), `the state set: ${j}`);
+    'x' in (a.after.cut as object), `the state set: ${j}`);
   const [tb, ta] = a.tree;
   expect(tb!.rows && tb!.expanded.length > 3 && tb!.top?.[1] === 5, `the tree set: ${JSON.stringify(tb)}`);
   expect(JSON.stringify(tb!.expanded) === JSON.stringify(ta!.expanded), `the tree's expansion kept: ${
@@ -2348,7 +2321,7 @@ await check('automation', async () => {
     redrawn: boolean } };
   const a = r.after;
   const j = JSON.stringify({ ...a, state: undefined });
-  expect(a.version === 1 && a.count === a.unique && a.parts.length >= 4, `nodes: ${j}`);
+  expect(a.version === 2 && a.count === a.unique && a.parts.length >= 4, `nodes: ${j}`);
   expect(a.missing.length === 1 && /nowhere/.test(a.missing[0]!) && a.selected[0] === a.parts[0], `select: ${j}`);
   expect(a.hidden.includes(a.parts[1]!) && !a.shown.includes(a.parts[1]!), `hide and show: ${j}`);
   expect(!!a.pick && a.pick.path.startsWith(a.parts[0]!.split('/')[0]!), `pick: ${j}`);
@@ -2850,7 +2823,7 @@ await check('replay in real time', async () => {
     const shown = [];
     ui.gui.onChange(({ controller, value }) => {
       log.push([performance.now(), 'control', controller._name, value]);
-      // The recording's controls (not those the viewer sets itself, as Mesh again's Center model).
+      // The recording's controls (not those the viewer sets itself).
       if (rec.events.some((e) => e.path?.endsWith('/' + controller._name))) shown.push(!controller.parent._closed &&
         controller.domElement.classList.contains('replay-flash'));
     });
