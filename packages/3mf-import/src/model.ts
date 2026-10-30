@@ -119,6 +119,21 @@ class Grow<T extends Float64Array | Uint32Array> {
   }
 }
 
+/** Our faces' runs ([source, count], ...) as a face per triangle, or undefined if they aren't `n` triangles'. */
+function facesOf(text: string | undefined, n: number): (number | null)[] | undefined {
+  if (text === undefined) return undefined;
+  let runs: unknown;
+  try { runs = JSON.parse(text); } catch { return undefined; }
+  if (!Array.isArray(runs)) return undefined;
+  const out: (number | null)[] = [];
+  for (const r of runs) {
+    if (!Array.isArray(r) || !(r[0] === null || Number.isInteger(r[0])) || !Number.isInteger(r[1]) || r[1] < 0
+      || out.length + r[1] > n) return undefined;
+    for (let k = 0; k < r[1]; k++) out.push(r[0]);
+  }
+  return out.length === n ? out : undefined;
+}
+
 const get = (attrs: string[], name: string): string | undefined => {
   for (let i = 0; i < attrs.length; i += 2) if (attrs[i] === name) return attrs[i + 1];
   return undefined;
@@ -372,9 +387,28 @@ export function readModel(path: string, feed: (piece: (s: string) => void) => vo
       if (bad.gradients) say('info', `object ${id}: ${bad.gradients} triangles with a property per corner: each `
         + 'given its first corner\'s', id);
       if (out) {
-        const { mesh, faceProperties } = buildMesh({ vertices: v, triangles: t.subarray(0, out),
-          properties: p.subarray(0, out / 3) }, creaseAngle);
-        object.mesh = { mesh, faceProperties: faceProperties.map((k) => propertyList[k]) };
+        // Our files' faces (export-3mf's `cadio:faces`, with extras): each triangle's face and colour its key.
+        const runs = facesOf(object.metadata['cadio:faces'], out / 3);
+        if (object.metadata['cadio:faces'] !== undefined && !runs) say('warning', `object ${id}: our faces `
+          + '(cadio:faces) don\'t match its triangles: faces by colour', id);
+        let keys = p.subarray(0, out / 3), sourceOf: ((k: number) => number | null) | undefined;
+        let colourOf = (k: number) => k;
+        if (runs) {
+          const combined = new Map<string, number>(), list: [number | null, number][] = [];
+          keys = new Uint32Array(out / 3);
+          for (let i = 0; i < keys.length; i++) {
+            const key = `${runs[i]}|${p[i]}`;
+            let k = combined.get(key);
+            if (k === undefined) { combined.set(key, (k = list.length)); list.push([runs[i]!, p[i]!]); }
+            keys[i] = k;
+          }
+          sourceOf = (k) => list[k]![0];
+          colourOf = (k) => list[k]![1];
+        }
+        const { mesh, faceProperties } = buildMesh({ vertices: v, triangles: t.subarray(0, out), properties: keys },
+          creaseAngle);
+        if (sourceOf) mesh.faces.forEach((f, k) => { f.source = sourceOf(faceProperties[k]!); });
+        object.mesh = { mesh, faceProperties: faceProperties.map((k) => propertyList[colourOf(k)]) };
       }
       vertices = undefined;
     } else if (key === 'object') object = undefined;

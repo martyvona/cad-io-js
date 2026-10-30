@@ -12,10 +12,12 @@
 //   colours: basematerials (with alpha) and colorgroup, sRGB; other property groups (textures, composites,
 //     multiproperties) are noted, and what uses them has no colour of its own.
 //   properties: an object's or item's type, part number, Production UUID and metadata (by name as written).
+//   our files with extras: the scene they were written from, as far as 3MF holds it (ours.ts).
 
 import { identity, multiply, scaling, type Component, type Diagnostic, type Mat4, type Material, type Occurrence,
   type Part, type PartRef, type Properties, type Scene, type SourceId } from 'cad-scene';
 import { readModel, type ItemDef, type ModelFile, type ObjectDef } from './model.ts';
+import { oursFromTree } from './ours.ts';
 import { XmlTokenizer } from './xml.ts';
 import { entryText, inflateEntry, partKey, readZip, type ZipEntry } from './zip.ts';
 
@@ -112,9 +114,10 @@ export function import3mf(input: Uint8Array, opts: ThreeMfImportOptions = {}): T
     const src = sourceOf(f, o.id);
     if (!o.mesh) warn(`${f.path}: object ${o.id} has no triangles`, src);
     const own = o.pid !== undefined ? material(f, o.pid, o.pindex ?? 0, src) : undefined;
-    const faceMaterials = (o.mesh?.faceProperties ?? []).flatMap((p, face) => {
+    const faceMaterials = (o.mesh?.faceProperties ?? []).flatMap((p, k) => {
       const m = p ? material(f, p[0], p[1], src) : undefined;
-      return m !== undefined && m !== own ? [{ face, material: m }] : [];
+      const face = o.mesh!.mesh.faces[k]!.source;
+      return m !== undefined && m !== own && face !== null ? [{ face, material: m }] : [];
     });
     const p: Part = { name: o.name ?? `object ${o.id}`, sources: [src], properties: propertiesOf(o), unit: f.unit,
       origin: o.mesh ? [...o.mesh.mesh.origin] : [0, 0, 0], lods: o.mesh ? [{ mesh: o.mesh.mesh, from: 'source' }] : [],
@@ -173,6 +176,21 @@ export function import3mf(input: Uint8Array, opts: ThreeMfImportOptions = {}): T
     uuid: string | undefined, item?: ItemDef): Occurrence => ({ component: child,
     transform: multiply(multiply(scaling(ur), m), scaling(1 / ur)), ...(t.object.name ? { name: t.object.name } : {}),
     sources: [sourceOf(t.file, t.object.id)], properties: item ? propertiesOf(item) : uuid ? { uuid } : {} });
+
+  // Our files with extras: the tree they were written from (ours.ts).
+  if (root.metadata['cadio:tree'] !== undefined) {
+    const ours = oursFromTree(root, (k) => {
+      const item = root.build[k];
+      const t = item ? target(root, item, 'build item') : undefined;
+      return t && !t.object.components ? { object: t.object, matrix: toParent(item!.transform, root.unit,
+        t.file.unit) } : undefined;
+    }, (m) => warn(m));
+    if (ours) {
+      diagnostics.push(...ours.diagnostics);
+      ours.scene.diagnostics = diagnostics;
+      return { scene: ours.scene, diagnostics };
+    }
+  }
 
   // The build: one components item is the root; anything else, a root component holding the items.
   const items = root.build.flatMap((item) => {

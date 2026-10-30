@@ -9,9 +9,12 @@
 //     (what a `model` object must be), or whose part the source says is open (its `closed` false: an open shell;
 //     the user, 2026-10-27), is left out with a warning, or written as a `surface` object (CLAUDE.md, "Decisions").
 //   build: an item per placed part at its world transform, its path in the instance tree as its part number and, on
-//     request (`extras`), its names in our metadata (decided by the user, 2026-10-21; extras 2026-10-24); or
-//     (`build: 'assembly'`) one item, an object whose components follow the instance tree, identical subtrees
-//     shared.
+//     request (`extras`), its names in our metadata (decided by the user, 2026-10-21; extras 2026-10-24), and the
+//     model's metadata the tree itself (`cadio:tree`: each node's name, transform and the extras export-gltf gives
+//     its nodes, each placed part by its item) and the colour slots' scene materials (`cadio:materials`), so
+//     3mf-import rebuilds the scene (the user, 2026-10-29); or (`build: 'assembly'`) one item, an object whose
+//     components follow the instance tree, identical subtrees shared.
+//   faces (with extras): each object's triangles' faces as runs (`cadio:faces`), which 3MF itself can't hold.
 //   colours: one basematerials group (sRGB displaycolor with alpha), or (`colors: 'colorgroup'`) the Materials and
 //     Properties extension's colorgroup (opaque), declared but not required (decided by the user, 2026-10-21).
 //
@@ -20,7 +23,7 @@
 
 import { Zip, ZipDeflate, strToU8 } from 'fflate';
 import { identity, manifoldProblems, multiply, weld, type Diagnostic, type ExportNode, type ExportView, type Look,
-  type Mat4, type Mesh, type Scene, type Vec3 } from 'cad-scene';
+  type Mat4, type Mesh, type PropertyValue, type Scene, type SourceId, type Vec3 } from 'cad-scene';
 
 export interface ThreeMfOptions {
   /** Colour of faces without a material (sRGB). Default light grey. */
@@ -35,7 +38,11 @@ export interface ThreeMfOptions {
   nonManifold?: 'omit' | 'surface';
   /** Hidden part instances: left out (default), or written as ordinary parts. */
   hidden?: 'omit' | 'keep';
-  /** Our metadata: each item's path of names (`cadio:path`). Default false: other systems don't read it. */
+  /**
+   * Our metadata: each item's path of names (`cadio:path`), and with an item per placed part the tree and the colour
+   * slots' materials (`cadio:tree`, `cadio:materials`), from which 3mf-import rebuilds the scene. Default false:
+   * other systems don't read it.
+   */
   extras?: boolean;
 }
 
@@ -188,10 +195,17 @@ class Writer {
     model.push(`<?xml version="1.0" encoding="UTF-8"?>\n<model unit="millimeter" xml:lang="und" xmlns="${CORE}"`
       + `${colorgroup ? ` xmlns:m="${MATERIAL}"` : ''}${extras ? ` xmlns:cadio="${METADATA_NAMESPACE}"` : ''}>\n`);
     if (this.opts.name) model.push(`<metadata name="Title">${xmlText(this.opts.name, true)}</metadata>\n`);
-    model.push('<metadata name="Application">cad-io-js export-3mf</metadata>\n<resources>\n');
+    model.push('<metadata name="Application">cad-io-js export-3mf</metadata>\n');
 
     // Material slots first (the group comes before the objects that use it), then the objects.
     for (const p of placed) for (const g of this.view.looks[p.look]!.groups) this.slot(g.material);
+    if (extras && this.opts.build !== 'assembly') {
+      const meta = (name: string, value: unknown) => model.push(`<metadata name="cadio:${name}">${xmlText(
+        JSON.stringify(value), true)}</metadata>\n`);
+      meta('tree', this.tree(placed));
+      meta('materials', [...this.slots.keys()].map((m) => m ?? null));
+    }
+    model.push('<resources>\n');
     if (this.slots.size) model.push(this.materialGroup(colorgroup));
     for (const p of placed) this.object(p.look, model);
     const items: string[] = [];
@@ -225,6 +239,42 @@ class Writer {
 
     this.report(colorgroup);
     return { chunks, diagnostics: this.diagnostics };
+  }
+
+  /**
+   * Our tree for 3mf-import: the scene's properties, and each root's node (name, transform, the extras export-gltf
+   * gives a tree node), its placed parts that were written (the part's name, its reference's transform, the extras
+   * export-gltf gives a part node, its item's index; `visible: false` for a hidden one kept) and its children.
+   */
+  private tree(placed: { node: ExportNode; index: number }[]): Record<string, unknown> {
+    const items = new Map<ExportNode, Map<number, number>>();
+    placed.forEach((p, k) => {
+      let m = items.get(p.node);
+      if (!m) items.set(p.node, (m = new Map()));
+      m.set(p.index, k);
+    });
+    const sourced = (sources: SourceId[], properties: Record<string, PropertyValue>) => ({
+      ...(sources.length ? { sources: sources.map((s) => ({ format: s.format, id: s.id })) } : {}),
+      ...(Object.keys(properties).length ? { properties } : {}) });
+    const node = (n: ExportNode): Record<string, unknown> => {
+      const comp = this.scene.components[n.component]!;
+      const parts = n.parts.flatMap((p, index) => {
+        const item = items.get(n)?.get(index);
+        if (item === undefined) return [];
+        const look = this.view.looks[p.look]!, part = this.scene.parts[look.part]!;
+        return [{ name: part.name, matrix: Array.from(p.transform), item, ...(p.visible ? {} : { visible: false }),
+          extras: { part: look.part, ...(part.closed === undefined ? {} : { closed: part.closed }),
+            ...sourced(part.sources, part.properties) } }];
+      });
+      return { name: n.name, matrix: Array.from(n.transform), extras: {
+        ...sourced(n.occurrence.sources, n.occurrence.properties),
+        component: { index: n.component, name: comp.name, ...sourced(comp.sources, comp.properties) }, path: n.path,
+        ...(comp.external ? { external: { uri: comp.external.uri,
+          ...(comp.external.format ? { format: comp.external.format } : {}) } } : {}) },
+      parts, children: n.children.map(node) };
+    };
+    return { unit: 'millimetre', up: 'z', ...(Object.keys(this.scene.properties).length
+      ? { properties: this.scene.properties } : {}), roots: this.view.roots.map(node) };
   }
 
   private report(colorgroup: boolean): void {
@@ -342,7 +392,9 @@ class Writer {
     const number = this.partNumbers.get(look.part);
     model.push(`<object id="${id}" type="${this.problems(look).length ? 'surface' : 'model'}" name="${
       xmlText(part.name)}"`
-      + `${number ? ` partnumber="${xmlText(number)}"` : ''} pid="1" pindex="${slot}"><mesh><vertices>\n`);
+      + `${number ? ` partnumber="${xmlText(number)}"` : ''} pid="1" pindex="${slot}">${this.opts.extras
+        ? `<metadatagroup><metadata name="cadio:faces">${JSON.stringify(this.faceRuns(look, s))}</metadata>`
+          + '</metadatagroup>' : ''}<mesh><vertices>\n`);
     const p = s.positions;
     let text = '';
     for (let v = 0; v < p.length; v += 3) {
@@ -362,6 +414,26 @@ class Writer {
       }
     }
     model.push(`${text}</triangles></mesh></object>\n`);
+  }
+
+  /**
+   * Our metadata: the written triangles' faces, in their order, as runs of [face source, count] (null: none), so
+   * 3mf-import gives them back the faces 3MF can't hold.
+   */
+  private faceRuns(look: Look, s: Solid): [number | null, number][] {
+    const faceAt = new Map<number, number | null>();
+    for (const f of look.faces) for (let i = f.start; i < f.start + f.count; i += 3) faceAt.set(i, f.source);
+    const runs: [number | null, number][] = [];
+    for (const g of look.groups) {
+      for (let t = g.start; t < g.start + g.count; t += 3) {
+        const a = s.remap[look.indices[t]!]!, b = s.remap[look.indices[t + 1]!]!, c = s.remap[look.indices[t + 2]!]!;
+        if (a === b || b === c || c === a) continue;
+        const f = faceAt.get(t) ?? null, last = runs.at(-1);
+        if (last && last[0] === f) last[1]++;
+        else runs.push([f, 1]);
+      }
+    }
+    return runs;
   }
 
   /** A components object for a node (assembly build), shared by identical subtrees; undefined if it has nothing. */

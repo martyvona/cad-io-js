@@ -53,4 +53,17 @@ test('viewDifferences: none for the same drawing however said; each kind of diff
   const near = scene();
   near.parts[0]!.lods[0]!.mesh.positions[3] = 1.01;
   assert.equal(viewDifferences(of(scene()), of(near), { tolerance: 0.05 }).length, 0);
+  // For a format without faces or lines (3MF): face ids, or edges, curves and points, left out on request; a
+  // colour or a vertex still counts.
+  const refaced = diff((s) => { s.parts[0]!.lods[0]!.mesh.faces[0]!.source = 9; });
+  assert.ok(one(refaced, /triangles/));
+  const unlined = scene();
+  unlined.parts[0]!.lods[0]!.mesh.edges = [];
+  unlined.parts[0]!.lods[0]!.mesh.faces[0]!.source = 9;
+  assert.equal(viewDifferences(of(scene()), of(unlined)).length, 2);
+  assert.deepEqual(viewDifferences(of(scene()), of(unlined), { faceIds: false, lines: false }), []);
+  assert.equal(viewDifferences(of(scene()), of(unlined), { faceIds: false }).length, 1);
+  assert.equal(viewDifferences(of(scene()), of(unlined), { lines: false }).length, 1);
+  unlined.parts[0]!.material = 1;
+  assert.ok(one(viewDifferences(of(scene()), of(unlined), { faceIds: false, lines: false }), /triangles/));
 });

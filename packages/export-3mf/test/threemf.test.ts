@@ -167,7 +167,14 @@ test('parts build: valid; an item per placed part at its world transform, welded
   assert.deepEqual(p.items.map((i) => [i.partNumber, i.metadata]), [['0.0:0', []], ['0.1:0', []]]);
   assert.doesNotMatch(modelXml(plain.chunks), /cadio/);
   assert.equal(modelXml(plain.chunks), xml.replace(' xmlns:cadio="urn:cad-io-js:3mf"', '').replace(
-    /><metadatagroup>.*?<\/metadatagroup><\/item>/g, '/>'));
+    /<metadatagroup><metadata name="cadio:faces">.*?<\/metadatagroup>/g, '').replace(
+    /><metadatagroup>.*?<\/metadatagroup><\/item>/g, '/>').replace(/<metadata name="cadio:\w+">.*<\/metadata>\n/g, ''));
+  // With extras, the tree for 3mf-import (read by lib3mf strictly above) and the slots' materials: green, blue, red.
+  assert.match(xml, /<metadata name="cadio:tree">\{&quot;unit&quot;:&quot;millimetre&quot;/);
+  assert.match(xml, /<metadata name="cadio:materials">\[1,2,0\]<\/metadata>/);
+  // And each object's triangles' faces, in the order written: the green faces', then face 15's (blue).
+  assert.ok(xml.includes('name="cube &amp; co" partnumber="SUB-1" pid="1" pindex="0"><metadatagroup><metadata '
+    + 'name="cadio:faces">[[10,2],[11,2],[12,2],[13,2],[14,2],[15,2]]</metadata></metadatagroup><mesh>'));
 });
 
 test("an object's property is its largest group's; the others' triangles name theirs", async () => {

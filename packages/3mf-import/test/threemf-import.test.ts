@@ -1,9 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { strToU8, zipSync } from 'fflate';
-import { exportView, identity, multiply, partInstances, scaling, validate, type Mat4, type Mesh,
-  type Scene } from 'cad-scene';
+import fs from 'node:fs';
+import path from 'node:path';
+import { exportView, identity, partInstances, pruneView, scaling, tessellateScene, validate, viewDifferences,
+  type ExportNode, type Mat4, type Mesh, type Scene } from 'cad-scene';
 import { threemf, type ThreeMfOptions } from 'export-3mf';
+import { importStep } from 'step-import';
+import { OcctTessellator } from 'tess-occt';
 import { import3mf } from '../src/index.ts';
 import { XmlTokenizer } from '../src/xml.ts';
 
@@ -456,3 +460,97 @@ test('the tokenizer: the same events however the text is cut', () => {
   // Malformed markup is said and skipped; reading goes on.
   assert.equal(run(['<a><b x=1/><c/></a>']), '<a >! malformed markup at character 3: "<b x=1/>"<c /></a>');
 });
+
+// Our files with extras (phase 2): the tree, components, placements, faces and colours as written.
+
+/** What a 3MF of ours holds of a view: placements written (hidden ones only if kept), parts with triangles. */
+const held = (s: Scene, o: ThreeMfOptions) => {
+  const view = exportView(s);
+  const keep = (p: ExportNode['parts'][number]) => (p.visible || o.hidden === 'keep')
+    && view.looks[p.look]!.groups.length > 0
+    && (o.nonManifold === 'surface' || s.parts[view.looks[p.look]!.part]!.closed !== false);
+  // (pruneView leaves out nodes with nothing kept; the parts not kept, here.)
+  const only = (n: ExportNode): ExportNode => ({ ...n, parts: n.parts.filter(keep), children: n.children.map(only) });
+  return pruneView({ ...view, roots: view.roots.map(only) }, keep);
+};
+const placed = (sc: Scene) => [...partInstances(sc)].map((p) => `${sc.parts[p.part]!.name}${p.visible ? ''
+  : ' (hidden)'}`).sort();
+
+for (const hidden of ['omit', 'keep'] as const) {
+  for (const recoloured of [0, 1]) {
+    test(`our 3MF with extras, hidden ${hidden === 'omit' ? 'left out' : 'kept'}, instance ${recoloured} `
+      + 'recoloured: the scene written', () => {
+      const s = source();
+      s.overrides = [{ path: [0, recoloured], material: 0, sources: [] }];
+      const o: ThreeMfOptions = { extras: true, hidden };
+      const back = import3mf(exported(s, o));
+      assert.deepEqual(messages(back), []);
+      assert.deepEqual(validate(back.scene), []);
+      // Drawn the same, faces by their ids, colours by override where the source has one.
+      assert.deepEqual(viewDifferences({ scene: s, view: held(s, o) }, { scene: back.scene,
+        view: exportView(back.scene) }, { lines: false, skipHidden: hidden === 'omit' }), []);
+      assert.deepEqual(back.scene.components.map((c) => c.name), ['asm', 'sub']);
+      assert.deepEqual(back.scene.roots.map((r) => r.name), ['top']);
+      assert.deepEqual(placed(back.scene), hidden === 'keep' ? ['cube', 'cube', 'cube (hidden)'] : ['cube', 'cube']);
+      const cubePart = back.scene.parts.find((p) => p.name === 'cube')!;
+      assert.equal(cubePart.closed, true);
+      assert.deepEqual(cubePart.lods[0]!.mesh.faces.map((f) => f.source).sort(), [10, 11, 12, 13, 14, 15]);
+      // The source's colours where the first placement is the part's own; else the recoloured one's, the other's
+      // by override.
+      if (recoloured === 1) {
+        assert.equal(cubePart.material, 1);
+        assert.deepEqual(cubePart.faceMaterials?.sort((x, y) => x.face - y.face), [{ face: 11, material: 0 },
+          { face: 15, material: 2 }]);
+      }
+    });
+  }
+}
+
+test('our 3MF with extras as components: read as written, with its faces', () => {
+  const s = source();
+  const back = import3mf(exported(s, { extras: true, build: 'assembly' }));
+  assert.deepEqual(messages(back), []);
+  const cubePart = back.scene.parts.find((p) => p.name === 'cube')!;
+  assert.deepEqual(cubePart.lods[0]!.mesh.faces.map((f) => f.source).sort(), [10, 11, 12, 13, 14, 15]);
+  assert.deepEqual(viewDifferences({ scene: s, view: held(s, {}) }, { scene: back.scene,
+    view: exportView(back.scene) }, { lines: false, skipHidden: true }), []);
+});
+
+test('our 3MF without extras: read as anyone\'s, the placed parts flat under the root', () => {
+  const back = import3mf(exported(source(), {}));
+  assert.deepEqual(back.scene.components.map((c) => [c.name, c.parts.length, c.children.length]), [['build', 2, 0]]);
+  assert.deepEqual(back.scene.parts[0]!.lods[0]!.mesh.faces.map((f) => f.source), [0, 1, 2]);
+});
+
+test('our faces that don\'t match the triangles: faces by colour, said', () => {
+  const [v, t] = SHARED_CUBE;
+  const r = import3mf(pack({ '3D/3dmodel.model': model(`<resources>${mesh(1, 'name="c"', v, t).replace('><mesh>',
+    '><metadatagroup><metadata name="cadio:faces">[[7,5]]</metadata></metadatagroup><mesh>')}</resources>`
+    + '<build><item objectid="1"/></build>') }));
+  assert.deepEqual(messages(r), ['warning: 3D/3dmodel.model: object 1: our faces (cadio:faces) don\'t match its '
+    + 'triangles: faces by colour']);
+  assert.deepEqual(r.scene.parts[0]!.lods[0]!.mesh.faces.map((f) => f.source), [0]);
+});
+
+const assembly = path.resolve(import.meta.dirname,
+  '../../../test_corpus/third_party/gkv311-opencascade-dataset/step/as1-oc-214-mat.stp');
+test('a STEP assembly through 3MF with extras and back: the same drawing, tree and faces',
+  { skip: fs.existsSync(assembly) ? false : 'corpus not fetched' }, async () => {
+    const { scene: s } = await importStep(fs.readFileSync(assembly));
+    const occt = new OcctTessellator();
+    await occt.init();
+    await tessellateScene(s, occt);
+    occt.dispose();
+    for (const o of [{ extras: true, nonManifold: 'surface' }, { extras: true, nonManifold: 'surface',
+      colors: 'colorgroup' }] as ThreeMfOptions[]) {
+      const back = import3mf(exported(s, o));
+      assert.deepEqual(messages(back), [], JSON.stringify(o));
+      assert.deepEqual(validate(back.scene), []);
+      // (colorgroup's colours are opaque: compared where the source's are.)
+      if (s.materials.every((m) => m.opacity === 1) || !o.colors) assert.deepEqual(viewDifferences({ scene: s,
+        view: held(s, o) }, { scene: back.scene, view: exportView(back.scene) }, { lines: false, skipHidden: true }),
+      [], JSON.stringify(o));
+      assert.deepEqual(back.scene.components.map((c) => c.name), s.components.map((c) => c.name));
+      assert.deepEqual(placed(back.scene), placed(s).filter((p) => !p.endsWith('(hidden)')));
+    }
+  });

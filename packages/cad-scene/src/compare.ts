@@ -14,6 +14,10 @@ export interface CompareOptions {
   skipHidden?: boolean;
   /** At most this many differences listed. Default 50. */
   max?: number;
+  /** Triangles' face ids compared (false: only their colours, for a format without faces, as 3MF). Default true. */
+  faceIds?: boolean;
+  /** Edges, curves and points compared (false: left out, for a format without lines, as 3MF). Default true. */
+  lines?: boolean;
 }
 
 const apply = (m: Mat4, x: number, y: number, z: number): [number, number, number] => [
@@ -38,7 +42,7 @@ function placements(view: ExportView): { names: string; world: Mat4; look: numbe
 interface Drawn { meta: string; pts: number[]; triangle: boolean }
 
 /** A placed part's triangles in the world, each with its face id, colour and opacity. */
-function triangles(scene: Scene, view: ExportView, look: number, world: Mat4): Drawn[] {
+function triangles(scene: Scene, view: ExportView, look: number, world: Mat4, faceIds: boolean): Drawn[] {
   const l = view.looks[look]!;
   const p = l.mesh.positions;
   const faceAt = new Map<number, number | null>();
@@ -53,7 +57,7 @@ function triangles(scene: Scene, view: ExportView, look: number, world: Mat4): D
         const v = l.indices[i + k]!;
         return apply(world, p[3 * v]!, p[3 * v + 1]!, p[3 * v + 2]!);
       });
-      out.push({ meta: `face ${faceAt.get(i) ?? '-'} ${colour}`, pts, triangle: true });
+      out.push({ meta: `face ${faceIds ? faceAt.get(i) ?? '-' : '?'} ${colour}`, pts, triangle: true });
     }
   }
   return out;
@@ -146,8 +150,8 @@ export function viewDifferences(a: { scene: Scene; view: ExportView }, b: { scen
   type P = ReturnType<typeof placements>[number] & { drawn: Drawn[]; lines: Drawn[]; centre: number[] };
   const of = (side: { scene: Scene; view: ExportView }): P[] => placements(side.view)
     .filter((p) => p.visible || !opts.skipHidden).map((p) => {
-      const drawn = triangles(side.scene, side.view, p.look, p.world);
-      const ls = lines(side.view, p.look, p.world);
+      const drawn = triangles(side.scene, side.view, p.look, p.world, opts.faceIds ?? true);
+      const ls = opts.lines === false ? [] : lines(side.view, p.look, p.world);
       const all = [...drawn, ...ls].flatMap((d) => d.pts);
       const centre = [0, 1, 2].map((k) => {
         let sum = 0;
