@@ -6,12 +6,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import * as THREE from 'three';
-import { Y_UP_METRES } from 'cad-scene';
 import { main, parseArgs } from '../bin/viewer.ts';
 import { contentFile, contentMiddleware, contentUrl } from '../server/content.ts';
 import { DEFAULTS, envFromOptions, optionsFromEnv } from '../server/options.ts';
 import { clipTo, fit, MARGIN, setView, VIEWS, type ViewName } from '../src/camera.ts';
-import { formatOf, FROM_Y_UP_METRES, nativeFrame } from '../src/formats.ts';
+import { formatOf } from '../src/formats.ts';
 import { Frames } from '../src/frames.ts';
 import { stats, visibleBox } from '../src/viewer.ts';
 
@@ -178,26 +177,9 @@ test('formats: by extension, any case', () => {
   assert.equal(formatOf('a.glb'), 'glb');
   assert.equal(formatOf('a.gltf'), 'gltf');
   assert.equal(formatOf('a.json'), 'threejs');
+  assert.equal(formatOf('a.3MF'), '3mf');
   assert.equal(formatOf('a.bin'), undefined);
   assert.equal(formatOf('README'), undefined);
-});
-
-test("formats: frames to the world's millimetres, Z up; ours read back where they were", () => {
-  // (x, y, z) m, Y up -> (x, -z, y) mm, Z up; written out, not taken from cad-scene.
-  const p = new THREE.Vector3(1, 2, 3).applyMatrix4(FROM_Y_UP_METRES);
-  assert.ok(p.distanceTo(new THREE.Vector3(1000, -3000, 2000)) < 1e-9, `${p.toArray()}`);
-  const group = (userData: object) => Object.assign(new THREE.Group(), { userData });
-  const isFromYUp = (m: THREE.Matrix4) => m.elements.every(
-    (x, i) => Math.abs(x - FROM_Y_UP_METRES.elements[i]!) < 1e-12);
-  assert.ok(isFromYUp(nativeFrame('glb', group({}))));
-  assert.ok(isFromYUp(nativeFrame('gltf', group({ unit: 'millimetre', up: 'z' }))));
-  assert.ok(isFromYUp(nativeFrame('threejs', group({}))));
-  assert.ok(isFromYUp(nativeFrame('threejs', group({ unit: 'millimetre', up: 'z' }))));
-  assert.ok(nativeFrame('threejs', group({ unit: 'millimetre' })).equals(new THREE.Matrix4()));
-  assert.ok(nativeFrame('step', group({})).equals(new THREE.Matrix4()));
-  // Our exporters' root (Y_UP_METRES) undone: the identity.
-  const back = new THREE.Matrix4().fromArray(Y_UP_METRES).premultiply(FROM_Y_UP_METRES);
-  assert.ok(back.elements.every((x, i) => Math.abs(x - new THREE.Matrix4().elements[i]!) < 1e-12));
 });
 
 test('visibleBox and stats: hidden objects and their descendants left out of the box, counted in stats', () => {

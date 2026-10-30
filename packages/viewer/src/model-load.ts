@@ -1,13 +1,15 @@
 // Loading a model as a stream of events (the user, 2026-10-24; CLAUDE.md, "The viewer"), in the import worker
 // (import-worker.ts, so the page never waits on parsing; always there since 2026-10-25, the user). Every format goes
 // through the library's importers into the scene model (the user, 2026-10-29: one path; three.js's loaders dropped):
-// STEP (step-import), glTF and GLB (gltf-import), three.js JSON (threejs-import).
+// STEP (step-import), glTF and GLB (gltf-import), three.js JSON (threejs-import), 3MF (3mf-import; the user,
+// 2026-10-29).
 // The scene comes first, without its parts' payloads (functions over the parsed file, which can't cross to another
 // thread, and which only meshing needs), its mesh parts' levels with it; then each placed brep part's mesh as
 // tessellation delivers it (the buffers transferable); then the end, with the tessellation's diagnostics and what
 // meshed it.
 
 import { partInstances, tessellateScene, type Diagnostic, type Mesh, type Scene } from 'cad-scene';
+import { import3mf } from '3mf-import';
 import { importGltf, type GltfImportOptions } from 'gltf-import';
 import { importStep, type ImportOptions } from 'step-import';
 import { importThreejs } from 'threejs-import';
@@ -40,6 +42,7 @@ export async function importModel(input: ModelInput, gltf: GltfImportOptions = {
     case 'gltf': return (await importGltf({ json: new TextDecoder().decode(input.bytes),
       ...(input.resources ? { resources: input.resources } : {}) }, gltf)).scene;
     case 'threejs': return importThreejs(input.bytes).scene;
+    case '3mf': return import3mf(input.bytes).scene;
   }
 }
 

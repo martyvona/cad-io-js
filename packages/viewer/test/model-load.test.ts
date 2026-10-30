@@ -5,7 +5,8 @@ import { test } from 'node:test';
 import type { Scene, TessellationRequest, TessellationResult, Tessellator } from 'cad-scene';
 import { importModel, levelBuffers, loadModelIn, meshable, meshBuffers, postable, type ModelEvent,
   type ModelInput } from '../src/model-load.ts';
-import { exportView, pruneView, viewDifferences } from 'cad-scene';
+import { exportView, pruneView, viewDifferences, type ExportNode } from 'cad-scene';
+import { threemf } from 'export-3mf';
 import { glb, gltfJson } from 'export-gltf';
 import { threejsJson } from 'export-threejs';
 import { scene as fixture, plate, wire } from './fixtures.ts';
@@ -164,7 +165,7 @@ ENDSEC;END-ISO-10303-21;`;
   assert.equal(requests.length, 1);
 });
 
-test('importModel and loadModelIn: GLB, .gltf with its .bin, three.js JSON, the scene they were written from',
+test('importModel and loadModelIn: GLB, .gltf with its .bin, three.js JSON, 3MF, the scene they were written from',
   async () => {
     // The fixture with meshes instead of B-rep (as the exporters take it), written with our extras.
     const s = fixture();
@@ -196,6 +197,21 @@ test('importModel and loadModelIn: GLB, .gltf with its .bin, three.js JSON, the 
       assert.deepEqual(transfers[0], levelBuffers(scene));
       assert.ok(transfers[0]!.length >= 2);
     }
+    // 3MF with our extras: the plate's triangles with their faces and colours (3MF has no lines, so not the wire),
+    // nothing to mesh.
+    const only = (n: ExportNode): ExportNode => ({ ...n, parts: n.parts.filter((p) => view.looks[p.look]!.mesh.indices
+      .length > 0), children: n.children.map(only) });
+    const tm = threemf(s, view, { extras: true, nonManifold: 'surface', hidden: 'keep' }).chunks;
+    const bytes = new Uint8Array(tm.reduce((n, c) => n + c.length, 0));
+    tm.reduce((at, c) => { bytes.set(c, at); return at + c.length; }, 0);
+    const back = await importModel({ format: '3mf', bytes });
+    assert.deepEqual(viewDifferences({ scene: s, view: pruneView({ ...view, roots: view.roots.map(only) }) },
+      { scene: back, view: exportView(back, lines) }, { lines: false }), []);
+    const { requests, tessellation } = fake();
+    const events: ModelEvent[] = [];
+    await loadModelIn({ format: '3mf', bytes }, DEFAULT_SETTINGS, 2, tessellation, (e) => events.push(e), () => false);
+    assert.deepEqual(events.map((e) => e.type), ['scene', 'done']);
+    assert.equal(requests.length, 0);
     // A .gltf whose .bin isn't given: the importer says so.
     const missing = await importModel({ format: 'gltf', bytes: new TextEncoder().encode(sidecar.json) });
     assert.equal(missing.diagnostics[0]?.severity, 'error');

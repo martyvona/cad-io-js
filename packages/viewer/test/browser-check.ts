@@ -19,6 +19,7 @@ import path from 'node:path';
 import zlib from 'node:zlib';
 import { Document, NodeIO } from '@gltf-transform/core';
 import { chooseLod, exportView, meshDeflections, partInstances, tessellateScene } from 'cad-scene';
+import { threemf, type ThreeMfOptions } from 'export-3mf';
 import { glb, gltfJson } from 'export-gltf';
 import { threejsJson } from 'export-threejs';
 import { importStep } from 'step-import';
@@ -56,6 +57,13 @@ fs.writeFileSync(path.join(content, 'as1.json.extras.json'), threejsJson(scene, 
 fs.writeFileSync(path.join(content, 'as1-noedges.glb'), (await glb(scene, exportView(scene, medium))).bytes);
 // Its parts placed more than once as GPU instances (EXT_mesh_gpu_instancing), which gltf-import puts back.
 fs.writeFileSync(path.join(content, 'as1-instanced.glb'), (await glb(scene, view, { instancing: true })).bytes);
+// 3MF with our extras (the tree, faces) and without (anyone's: flat); open meshes as surfaces, so every part's there.
+const threemfBytes = (o: ThreeMfOptions) => {
+  const chunks = threemf(scene, view, { nonManifold: 'surface', ...o }).chunks;
+  return Buffer.concat(chunks);
+};
+fs.writeFileSync(path.join(content, 'as1.3mf'), threemfBytes({ extras: true }));
+fs.writeFileSync(path.join(content, 'as1-plain.3mf'), threemfBytes({}));
 fs.copyFileSync(step, path.join(content, 'as1.stp'));
 // OCCT's broken-references file: the importer warns of its dangling references (the problems dialog's check).
 fs.copyFileSync(path.join(repo, 'test_corpus/third_party/gkv311-opencascade-dataset/step/bug31292.stp'),
@@ -289,14 +297,17 @@ const CENTER = `(() => { const v = globalThis.viewer; const t0 = v.controls.targ
 
 // Draco quantizes positions to 14 bits over each part mesh's extent, meshopt to 16: well under 0.05 mm here.
 const TOL = 0.05;
-for (const file of ['as1.stp', 'as1.glb', 'as1-meshopt.gltf', 'as1.json', 'as1.json.extras.json', 'as1-noedges.glb']) {
+for (const file of ['as1.stp', 'as1.glb', 'as1-meshopt.gltf', 'as1.json', 'as1.json.extras.json', 'as1-noedges.glb',
+  'as1.3mf', 'as1-plain.3mf']) {
   await check(file, async () => {
     const r = await page(`?url=${encodeURIComponent(`/content/${file}`)}&check`, CENTER) as {
       stats?: { triangles: number; segments: number }; box?: number[][]; centroid?: number[]; error?: string;
       missing?: string; after?: { on: number[][]; off: number[][] } };
     expect(!r.error && !r.missing, `no model: ${r.error ?? r.missing}`);
     expect(r.stats!.triangles === triangles, `${r.stats!.triangles} triangles, expected ${triangles}`);
-    if (file === 'as1-noedges.glb') expect(r.stats!.segments > 0, 'no edges found from the triangles');
+    // (3MF has no lines: the viewer finds edges from the triangles, as for a GLB without edges.)
+    if (file === 'as1-noedges.glb' || file.endsWith('.3mf')) expect(r.stats!.segments > 0,
+      'no edges found from the triangles');
     else expect(r.stats!.segments === segments, `${r.stats!.segments} edge segments, expected ${segments}`);
     const [min, max] = r.box!;
     for (let k = 0; k < 3; k++) expect(Math.abs(min![k]! - lo[k]!) < TOL && Math.abs(max![k]! - hi[k]!) < TOL,
@@ -921,7 +932,9 @@ await check('failed faces', async () => {
   expect(a.total > 0 && a.failedCount === a.total && a.outlines > 0 && a.red, `every part outlined in red: ${j}`);
   expect(a.partsFailed === a.parts, `every part marked failed: ${j}`);
   expect(a.picked.length === 1 && a.picked[0] === 'face:failed', `an outline picks its face: ${j}`);
-  expect(!!a.row?.failed && a.row.broken && /^rgb\((2[0-9]{2}), [0-9]{1,2}, [0-9]{1,2}\)$/.test(a.row.colour),
+  // (Red in either theme: #d32f2f light, #ff6b6b dark, as the system prefers.)
+  const [red, green, blue] = (a.row?.colour.match(/\d+/g) ?? []).map(Number);
+  expect(!!a.row?.failed && a.row.broken && red! >= 200 && red! - Math.max(green!, blue!) >= 80,
     `its row red, a broken icon: ${j}`);
   expect(a.details.some((l) => /Failed to mesh: its outline is drawn in red/.test(l)), `the details: ${j}`);
   const b = (await page(`?url=${encodeURIComponent('/content/bicycle.stp')}&check`, `(async () => {
@@ -2182,6 +2195,25 @@ await check('snapshot: meshing and hidden faces', async () => {
 // gives the same state; with ?deterministic one pixel per CSS pixel at any screen scale, and screenshots that repeat.
 type State = { camera: { position: number[]; target: number[]; up: number[]; height: number }; cut: object;
   render: { ao: boolean }; hidden: string[]; selected: string[]; tree: object; model?: { triangles: number } };
+// 3MF's tree: with our extras the STEP file's (its shown nodes: the export leaves hidden ones out), names and
+// kinds; without, anyone's, the placed parts flat under one root (`build`, below the file's own node).
+await check('3mf tree', async () => {
+  const tree = async (file: string) => (await page(`?url=${encodeURIComponent(`/content/${file}`)}&check`,
+    `(async () => {
+      await cadViewer.ready;
+      await cadViewer.idle();
+      return cadViewer.nodes().filter((n) => !n.hidden).map((n) => n.kind + ' ' + n.path);
+    })()`) as { after: string[] }).after.map((n) => n.replace(file, '<file>'));
+  const [stp, ours, plain] = [await tree('as1.stp'), await tree('as1.3mf'), await tree('as1-plain.3mf')];
+  expect(stp.length > 10 && JSON.stringify(ours) === JSON.stringify(stp), `with extras: ${ours.length} nodes, `
+    + `expected the STEP file's ${stp.length}: ${ours.filter((n) => !stp.includes(n)).slice(0, 3)}`);
+  const parts = stp.filter((n) => n.startsWith('part ')).length;
+  const flat = plain.filter((n) => n.startsWith('part '));
+  expect(flat.length === parts && flat.every((n) => n.split('/').length === 3) && plain.filter((n) =>
+    n.startsWith('assembly ')).length === 2, `without extras: ${JSON.stringify(plain.slice(0, 4))}`);
+  return undefined;
+});
+
 await check('automation', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
     await cadViewer.ready;

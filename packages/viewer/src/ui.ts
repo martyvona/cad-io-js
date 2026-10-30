@@ -233,7 +233,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   };
   const openFiles = (files: File[]) => files.length ? (hooks.onEvent?.({ type: 'load', files }), open(async () => {
     const src = await fromFiles(files);
-    if (!src) throw new Error('no model among the files (.stp, .step, .stpz, .glb, .gltf, .json)');
+    if (!src) throw new Error('no model among the files (.stp, .step, .stpz, .glb, .gltf, .json, .3mf)');
     return src;
   }, files.map((f) => f.name).join(', '))) : undefined;
   // The view's address to the clipboard (where the page may write it: a secure context), else shown to copy.

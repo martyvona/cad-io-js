@@ -72,7 +72,8 @@ const licenses = (): Plugin => ({
       '- in the import worker, glTF-Transform (`@gltf-transform/core`, `@gltf-transform/extensions`, with ' +
         '`property-graph` and `ktx-parse`, all MIT; https://github.com/donmccurdy/glTF-Transform), Draco\'s glTF ' +
         'decoder (draco3dgltf, `assets/draco_*` and `draco3dgltf-*.js`: Apache-2.0; https://github.com/google/draco) ' +
-        'and meshoptimizer\'s decoder (MIT; https://github.com/zeux/meshoptimizer);',
+        'meshoptimizer\'s decoder (MIT; https://github.com/zeux/meshoptimizer) and fflate (3MF\'s zip; MIT; ' +
+        'https://github.com/101arrowz/fflate);',
       '- the npm packages Vite lists below (the page\'s).',
     ];
     fs.writeFileSync(path.join(dir, 'licenses.md'), [
