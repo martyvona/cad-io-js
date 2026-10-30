@@ -16,8 +16,8 @@
 import { WebIO, type Accessor, type Document, type Material as GltfMaterial, type Node,
   type Primitive } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
-import { closeTransforms, dropSourceDegenerate, identity, multiply, sceneFromTree, type Diagnostic, type Mat4,
-  type Scene, type TreeExtras, type TreeMaterial, type TreeMesh, type TreeNode, type Vec3 } from 'cad-scene';
+import { boundScene, closeTransforms, dropSourceDegenerate, identity, multiply, sceneFromTree, type Diagnostic,
+  type Mat4, type Scene, type TreeExtras, type TreeMaterial, type TreeMesh, type TreeNode, type Vec3 } from 'cad-scene';
 
 export interface GltfImport {
   scene: Scene;
@@ -284,6 +284,7 @@ export async function importGltf(input: Uint8Array | GltfJsonInput, opts: GltfIm
   const built = sceneFromTree(top);
   built.scene.diagnostics.unshift(...diagnostics);
   if (opts.dropDegenerate ?? true) dropSourceDegenerate(built.scene);
+  boundScene(built.scene);
   return { scene: built.scene, diagnostics: built.scene.diagnostics };
 }
 

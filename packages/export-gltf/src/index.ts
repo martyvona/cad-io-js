@@ -34,8 +34,8 @@ import { Document, Format, Logger, WebIO, type Accessor, type JSONDocument, type
   type mat4 } from '@gltf-transform/core';
 import { EXTMeshGPUInstancing, EXTMeshoptCompression, KHRDracoMeshCompression, KHRMaterialsUnlit,
   KHRMeshQuantization, KHRNodeVisibility } from '@gltf-transform/extensions';
-import { identity, multiply, partExtras, pruneView, Y_UP_METRES, type Diagnostic, type ExportNode, type ExportView,
-  type Look, type Mat4, type Mesh, type Part, type PropertyValue, type Scene, type SourceId,
+import { boundsJson, identity, multiply, partExtras, pruneView, Y_UP_METRES, type Diagnostic, type ExportNode,
+  type ExportView, type Look, type Mat4, type Mesh, type Part, type PropertyValue, type Scene, type SourceId,
   type Vec3 } from 'cad-scene';
 
 /** A part's `closed` for extras, where the source says it (cad-scene's Part.closed). */
@@ -409,7 +409,8 @@ class Writer {
     const root = this.doc.createNode(this.opts.name ?? '').setMatrix(Array.from(ROOT_TRANSFORM) as mat4);
     // Below the root: millimetres, the source's axes.
     if (this.extras) root.setExtras({ unit: 'millimetre', up: 'z',
-      ...(Object.keys(this.scene.properties).length ? { properties: this.scene.properties } : {}) });
+      ...(Object.keys(this.scene.properties).length ? { properties: this.scene.properties } : {}),
+      ...boundsJson(this.scene) });
     const omit = this.opts.hidden !== 'extension';
     const visit = (n: ExportNode) => {
       for (const p of n.parts) if (!p.visible && omit) this.hiddenLeftOut++;
@@ -684,7 +685,7 @@ class Writer {
     const part = this.scene.parts[look.part]!;
     const node = this.doc.createNode(part.name);
     if (this.extras) node.setExtras({ part: look.part, ...closedOf(part), ...this.sourced(part.sources,
-      part.properties), ...partExtras(part, look.lod), ...(instance ? { instance } : {}) });
+      part.properties), ...partExtras(part, look.lod, { box: false }), ...(instance ? { instance } : {}) });
     const mesh = faces ? this.mesh(lookIndex) : undefined;
     if (mesh) node.setMesh(mesh);
     for (const what of ['edges', 'curves', 'points'] as const) {
@@ -755,7 +756,7 @@ class Writer {
       ...(item.node.occurrence.sources.length ? { sources: item.node.occurrence.sources.map((x) => ({
         format: x.format, id: x.id })) } : {}) });
     if (this.extras) node.setExtras({ part: look.part, ...closedOf(part), ...this.sourced(part.sources,
-      part.properties), ...partExtras(part, look.lod), instances: g.items.map(instance) });
+      part.properties), ...partExtras(part, look.lod, { box: false }), instances: g.items.map(instance) });
     if (!g.visible) this.hide(node);
     const out = [node];
     if (look.edges || look.curves) for (const item of g.items) {

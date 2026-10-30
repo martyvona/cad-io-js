@@ -18,7 +18,7 @@
 
 import type { Component, Diagnostic, Lod, Mat4, Material, Mesh, Occurrence, Part, PartRef, PropertyValue, Scene,
   SourceId, Vec3 } from './scene.ts';
-import { levelFrom, measuresFrom, unitFrom } from './measures.ts';
+import { boundsFrom, levelFrom, measuresFrom, unitFrom } from './measures.ts';
 import { identity, multiply } from './walk.ts';
 
 export type TreeExtras = { [key: string]: unknown };
@@ -509,5 +509,7 @@ export function sceneFromTree(root: TreeNode, opts: { frame?: Mat4 } = {}): { sc
     unit: 'millimetre', components: b.components, roots, parts: b.parts, materials: b.materials, layers: [],
     overrides: b.overrides, properties: ours ? propertiesOf(root.extras?.properties) : {}, diagnostics: b.diagnostics,
   };
+  const bounds = ours ? boundsFrom(root.extras?.bounds) : undefined;
+  if (bounds) scene.bounds = bounds;
   return { scene, diagnostics: b.diagnostics };
 }

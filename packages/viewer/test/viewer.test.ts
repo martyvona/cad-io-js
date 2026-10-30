@@ -9,7 +9,7 @@ import * as THREE from 'three';
 import { main, parseArgs } from '../bin/viewer.ts';
 import { contentFile, contentMiddleware, contentUrl } from '../server/content.ts';
 import { DEFAULTS, envFromOptions, optionsFromEnv } from '../server/options.ts';
-import { clipTo, fit, MARGIN, setView, VIEWS, type ViewName } from '../src/camera.ts';
+import { clipTo, fitSphere, MARGIN, setView, VIEWS, type ViewName } from '../src/camera.ts';
 import { formatOf } from '../src/formats.ts';
 import { Frames } from '../src/frames.ts';
 import { stats, visibleBox } from '../src/viewer.ts';
@@ -88,8 +88,6 @@ const camera = (aspect = 2) => {
   cam.position.set(1, -1, 1);
   return cam;
 };
-const corners = (b: THREE.Box3) => Array.from({ length: 8 }, (_, i) => new THREE.Vector3(
-  i & 1 ? b.max.x : b.min.x, i & 2 ? b.max.y : b.min.y, i & 4 ? b.max.z : b.min.z));
 const ndc = (cam: THREE.OrthographicCamera, p: THREE.Vector3) => {
   cam.updateMatrixWorld();
   return p.clone().project(cam);
@@ -106,7 +104,7 @@ test('views: each looks along its axis with its up; front, back, left and right 
   for (const [v, right, up] of expected) {
     const cam = camera();
     const target = new THREE.Vector3();
-    setView(cam, target, v, box, 2);
+    setView(cam, target, v, box.getBoundingSphere(new THREE.Sphere()), 2);
     assert.ok(target.equals(c), `${v}: target ${target.toArray()}`);
     const d = cam.getWorldDirection(new THREE.Vector3());
     assert.ok(d.distanceTo(new THREE.Vector3(...VIEWS[v].dir).negate()) < 1e-12, `${v}: looks along ${d.toArray()}`);
@@ -117,38 +115,44 @@ test('views: each looks along its axis with its up; front, back, left and right 
   }
 });
 
-test('fit: the box fills the viewport less the margin, in its limiting direction, from any direction', () => {
-  const box = new THREE.Box3(new THREE.Vector3(100, 200, -5), new THREE.Vector3(400, 260, 95));
+test('fitSphere: the sphere fills the viewport less the margin, in its limiting direction, from any direction', () => {
+  const sphere = new THREE.Sphere(new THREE.Vector3(100, 200, -5), 150);
+  // The sphere's outline on the screen: its centre plus its radius along the camera's right and up.
+  const extent = (cam: THREE.OrthographicCamera) => {
+    cam.updateMatrixWorld();
+    const right = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 0);
+    const up = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 1);
+    const c = ndc(cam, sphere.center);
+    assert.ok(Math.abs(c.x) < 1e-9 && Math.abs(c.y) < 1e-9);
+    return [Math.abs(ndc(cam, sphere.center.clone().addScaledVector(right, 150)).x),
+      Math.abs(ndc(cam, sphere.center.clone().addScaledVector(up, 150)).y)];
+  };
   for (const aspect of [0.5, 1, 2.5]) {
     for (const v of Object.keys(VIEWS) as ViewName[]) {
       const cam = camera(aspect);
       const target = new THREE.Vector3();
-      setView(cam, target, v, box, aspect);
+      setView(cam, target, v, sphere, aspect);
       cam.zoom = 3;
-      // Turned a little, then fitted again from there.
+      // Turned a little, then fitted again from there: the same framing.
       cam.position.applyAxisAngle(new THREE.Vector3(0.3, 0.2, 1).normalize(), 0.7);
-      assert.ok(fit(cam, target, box, aspect));
+      assert.ok(fitSphere(cam, target, sphere, aspect));
       assert.equal(cam.zoom, 1);
-      const ps = corners(box).map((p) => ndc(cam, p));
-      const mx = Math.max(...ps.map((p) => Math.abs(p.x)));
-      const my = Math.max(...ps.map((p) => Math.abs(p.y)));
-      assert.ok(mx <= 1 / (1 + 2 * MARGIN) + 1e-9 && my <= 1 / (1 + 2 * MARGIN) + 1e-9, `${v} ${aspect}: ${mx} ${my}`);
-      assert.ok(Math.abs(Math.max(mx, my) - 1 / (1 + 2 * MARGIN)) < 1e-9, `${v} ${aspect}: not filled, ${mx} ${my}`);
+      assert.ok(target.equals(sphere.center));
+      const [mx, my] = extent(cam);
+      assert.ok(Math.abs(Math.max(mx!, my!) - 1 / (1 + 2 * MARGIN)) < 1e-9, `${v} ${aspect}: ${mx} ${my}`);
+      assert.ok(mx! <= 1 / (1 + 2 * MARGIN) + 1e-9 && my! <= 1 / (1 + 2 * MARGIN) + 1e-9);
       assert.ok(Math.abs(cam.right / cam.top - aspect) < 1e-12);
     }
   }
-  // Up along the view (looking straight down with Z up): any right will do, but the frustum must match it.
+  // Up along the view (looking straight down with Z up): any up will do, and the sphere still fills the view.
   const down = camera(2);
   down.position.set(0, 0, 10);
-  const t = new THREE.Vector3();
-  assert.ok(fit(down, t, box, 2));
-  const ps = corners(box).map((p) => ndc(down, p));
-  const m = Math.max(...ps.map((p) => Math.max(Math.abs(p.x), Math.abs(p.y))));
-  assert.ok(Math.abs(m - 1 / (1 + 2 * MARGIN)) < 1e-9, `looking down: ${m}`);
-  // An empty box changes nothing.
+  assert.ok(fitSphere(down, new THREE.Vector3(), sphere, 2));
+  assert.ok(Math.abs(Math.max(...extent(down)) - 1 / (1 + 2 * MARGIN)) < 1e-9);
+  // An empty sphere changes nothing.
   const cam = camera();
   const before = cam.position.clone();
-  assert.equal(fit(cam, new THREE.Vector3(), new THREE.Box3(), 2), false);
+  assert.equal(fitSphere(cam, new THREE.Vector3(), new THREE.Sphere().makeEmpty(), 2), false);
   assert.ok(cam.position.equals(before));
 });
 

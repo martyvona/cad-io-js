@@ -4,7 +4,8 @@ import * as THREE from 'three';
 import { details } from '../src/details.ts';
 import { NodeModel } from '../src/model.ts';
 import { pick } from '../src/pick.ts';
-import { boxOf, faceOfTriangle, Highlighter, instancesOf, measure, nodeForPick, piecesOf } from '../src/selection.ts';
+import { faceOfTriangle, Highlighter, instancesOf, measure, nodeForPick, piecesOf,
+  sphereOf } from '../src/selection.ts';
 import { SceneGraph } from '../src/scene-graph.ts';
 import { plate, scene, wire } from './fixtures.ts';
 
@@ -59,14 +60,30 @@ test("measures in the world's millimetres: triangles' area, segments' length, po
   assert.deepEqual([w.meshes, w.lines, w.segments, w.length, w.points], [0, 1, 2, 2, 1]);
 });
 
-test("boxes: a face's by its vertices, in the world", () => {
+test("spheres: a face's around its vertices' box, in the world; a part and the face together", () => {
   const { model, left, partOf, find } = stepModel();
-  const box = boxOf(piecesOf(model, [find(partOf(left, 0), 'face #8')]));
+  const face = sphereOf(piecesOf(model, [find(partOf(left, 0), 'face #8')]));
   // Face 8: (0,0,0) (1,0,0) (1,1,0) inches, at the plate's origin (1 inch along x), the placement at x 100 and the
-  // root occurrence at z 5.
-  const at = (x: number, y: number) => [100 + 25.4 * (1 + x), 25.4 * y, 5];
-  assert.deepEqual(box.min.toArray().map((x) => +x.toFixed(9)), at(0, 0));
-  assert.deepEqual(box.max.toArray().map((x) => +x.toFixed(9)), at(1, 1));
+  // root occurrence at z 5: its box's centre and half diagonal.
+  assert.deepEqual(face.center.toArray().map((x) => +x.toFixed(9)), [100 + 25.4 * 1.5, 25.4 * 0.5, 5]);
+  assert.ok(Math.abs(face.radius - 25.4 * Math.SQRT1_2) < 1e-9);
+  // With a whole part, the sphere holds both.
+  const both = sphereOf(piecesOf(model, [find(partOf(left, 0), 'face #8'), partOf(left, 1)]));
+  const part = sphereOf(piecesOf(model, [partOf(left, 1)]));
+  // A whole object's: around its vertices' box in its own coordinates, then placed (tighter than around its world
+  // box when it's turned).
+  const [whole] = piecesOf(model, [partOf(left, 0)]);
+  const plate = sphereOf([whole!]);
+  const box = new THREE.Box3();
+  const object = whole!.object;
+  const pos = object.geometry.getAttribute('position');
+  for (let i = 0; i < pos.count; i++) box.expandByPoint(new THREE.Vector3().fromBufferAttribute(pos, i));
+  object.updateWorldMatrix(true, false);
+  const want = box.getBoundingSphere(new THREE.Sphere()).applyMatrix4(object.matrixWorld);
+  assert.ok(object.type === 'Mesh' && plate.center.distanceTo(want.center) < 1e-9 &&
+    Math.abs(plate.radius - want.radius) < 1e-9, `${plate.radius} ${want.radius}`);
+  for (const s of [face, part]) assert.ok(both.center.distanceTo(s.center) + s.radius <= both.radius + 1e-9);
+  assert.ok(sphereOf([]).isEmpty());
 });
 
 test('faceOfTriangle: the range holding a triangle, at the boundaries; none past the end', () => {

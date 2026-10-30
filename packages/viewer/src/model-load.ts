@@ -8,7 +8,8 @@
 // tessellation delivers it (the buffers transferable); then the end, with the tessellation's diagnostics and what
 // meshed it.
 
-import { partInstances, tessellateScene, type Diagnostic, type Measures, type Mesh, type Scene } from 'cad-scene';
+import { partInstances, tessellateScene, type Diagnostic, type Measures, type Mesh, type Scene,
+  type SceneBounds } from 'cad-scene';
 import { import3mf } from '3mf-import';
 import { importGltf, type GltfImportOptions } from 'gltf-import';
 import { importStep, type ImportOptions } from 'step-import';
@@ -50,7 +51,8 @@ export type ModelEvent =
   | { type: 'scene'; scene: Scene }
   /** A part meshed, with its measures (Part.measures) where the backend gave them: the page's scene lacks them. */
   | { type: 'mesh'; part: number; mesh: Mesh | undefined; measures?: Measures }
-  | { type: 'done'; diagnostics: Diagnostic[]; meshing?: Meshing };
+  /** The end; `bounds` the model's sphere made again from the meshes (tessellateScene), where it changed. */
+  | { type: 'done'; diagnostics: Diagnostic[]; meshing?: Meshing; bounds?: SceneBounds };
 
 /** The scene without its parts' payload functions: what can be posted to another thread. */
 export function postable(scene: Scene): Scene {
@@ -109,5 +111,6 @@ export async function loadModelIn(input: ModelInput, settings: TessellationSetti
     } });
   if (cancelled()) return;
   const d = tessellation.describe();
-  emit({ type: 'done', diagnostics, ...(d ? { meshing: { ...d, workers: n } } : {}) });
+  emit({ type: 'done', diagnostics, ...(d ? { meshing: { ...d, workers: n } } : {}),
+    ...(scene.bounds ? { bounds: scene.bounds } : {}) });
 }

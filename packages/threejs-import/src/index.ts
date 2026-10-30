@@ -5,7 +5,7 @@
 // colour (sRGB, as the file holds it) and opacity; textures aren't supported (said, and ignored: the user,
 // 2026-10-29).
 
-import { dropSourceDegenerate, identity, sceneFromTree, type Diagnostic, type Scene, type TreeMaterial,
+import { boundScene, dropSourceDegenerate, identity, sceneFromTree, type Diagnostic, type Scene, type TreeMaterial,
   type TreeMesh, type TreeNode } from 'cad-scene';
 
 export interface ThreejsImport {
@@ -146,5 +146,6 @@ export function importThreejs(input: string | Uint8Array | object, opts: Threejs
   // The reader's, then the tree's (the scene's own list).
   scene.diagnostics.unshift(...diagnostics);
   if (opts.dropDegenerate ?? true) dropSourceDegenerate(scene);
+  boundScene(scene);
   return { scene, diagnostics: scene.diagnostics };
 }

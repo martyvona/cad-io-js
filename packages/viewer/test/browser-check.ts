@@ -336,6 +336,92 @@ for (const extra of process.env.EXTRA?.split(',') ?? []) {
 // Replacing a model while it's meshing: the bicycle's meshing is cancelled once it has begun (its load ends at
 // once: the workers are stopped), the GLB shown alone, and STEP meshes again after (a new pool), from the cache (the
 // assembly was meshed above); and with truck when that's the backend chosen.
+// Zooming while a model loads (the user, 2026-10-30; CLAUDE.md, "Decisions": bounding volumes): the bicycle, meshed
+// without the cache, is fitted to its estimated sphere before its first mesh is drawn, then only zooms out, at most
+// once a second, ending fitted to all that loaded; zoom all then fits the sphere made from the meshes. Moving the
+// view stops it.
+await check('zoom while loading', async () => {
+  const r = await page('?check', `(async () => {
+    const v = globalThis.viewer;
+    v.settings.cache = false;
+    const bytes = await (await fetch('/content/bicycle.stp')).arrayBuffer();
+    const cam = v.camera;
+    const height = () => (cam.top - cam.bottom) / cam.zoom;
+    // The height a sphere is fitted at: its diameter plus the margins, by the narrower side.
+    const fitted = (s) => 2 * s.radius * (1 + 2 * 0.05) * Math.max(1, cam.top / cam.right);
+    const out = { heights: [], at: [] };
+    // At the scene, before any mesh (the status then says none is meshed).
+    let first;
+    const status = v.onStatus;
+    v.onStatus = (t) => {
+      status?.(t);
+      if (!first && / meshed 0 of /.test(t)) first = { height: height(), target: v.controls.target.toArray(),
+        sphere: v.modelSphere().radius, centre: v.modelSphere().center.toArray() };
+    };
+    const before = v.onMeshes;
+    const t0 = performance.now();
+    const timer = setInterval(() => {
+      const h = height();
+      if (h !== out.heights.at(-1)) { out.heights.push(h); out.at.push(performance.now() - t0); }
+    }, 20);
+    await v.load({ name: 'bicycle.stp', bytes: bytes.slice(0) });
+    clearInterval(timer);
+    out.first = first;
+    // Every mesh drawn inside the sphere fitted (from the camera: its target the centre, the view's narrower side
+    // its diameter and margins), in space, not only on the screen.
+    const fittedRadius = height() / (2 * (1 + 2 * 0.05) * Math.max(1, cam.top / cam.right));
+    let outside = 0, meshes = 0;
+    cam.updateMatrixWorld();
+    v.display.updateWorldMatrix(true, true);
+    v.display.traverse((o) => {
+      if (!o.isMesh) return;
+      if (!o.geometry.boundingSphere) o.geometry.computeBoundingSphere();
+      const sp = o.geometry.boundingSphere.clone().applyMatrix4(o.matrixWorld);
+      meshes++;
+      if (sp.center.distanceTo(v.controls.target) + sp.radius > fittedRadius * (1 + 1e-6)) outside++;
+    });
+    out.end = { height: height(), sphere: v.modelSphere().radius, outside, meshes, fitted: fittedRadius };
+    v.zoomAll();
+    out.zoomAll = { height: height(), fitted: fitted(v.modelSphere()), sphere: v.modelSphere().radius };
+    // Moved by the user (as a camera set from outside counts) once the first mesh comes: left there.
+    let moved;
+    v.onMeshes = () => {
+      before?.();
+      if (moved !== undefined) return;
+      v.setCamera({ position: [0, -5000, 0], target: [0, 0, 0], up: [0, 0, 1], height: 123 });
+      moved = height();
+    };
+    await v.load({ name: 'bicycle.stp', bytes: bytes.slice(0) });
+    out.moved = { set: moved, end: height() };
+    v.onMeshes = before;
+    v.onStatus = status;
+    out.duration = performance.now() - t0;
+    return out;
+  })()`) as { after?: { heights: number[]; at: number[]; first: { height: number; target: number[]; sphere: number;
+    centre: number[] }; end: { height: number; sphere: number; outside: number; meshes: number;
+      fitted: number };
+    zoomAll: { height: number; fitted: number; sphere: number }; moved: { set: number; end: number } } };
+  const a = r.after!;
+  const j = JSON.stringify({ ...a, heights: a.heights.length, at: a.at.map((t) => Math.round(t)) });
+  // Fitted before the first mesh: about the final size (the estimate was 1,058 mm against 1,066), centred on it.
+  expect(a.first.height > 0.95 * a.zoomAll.height && a.first.height < 1.05 * a.zoomAll.height,
+    `not fitted before the first mesh: ${j}`);
+  expect(a.first.target.every((x, k) => Math.abs(x - a.first.centre[k]!) < 1e-6 * a.first.sphere),
+    `not centred on the sphere: ${j}`);
+  // Only out, and the changes a second apart (the first two, the empty page's and the estimate's, at once).
+  const loading = a.heights.slice(1);
+  expect(loading.every((h, i) => i === 0 || h >= loading[i - 1]!), `zoomed back in while loading: ${j}`);
+  const times = a.at.slice(2);
+  expect(times.every((t, i) => i === 0 || t - times[i - 1]! > 900), `zoomed more than once a second: ${j}`);
+  // At the end, all that loaded in view; zoom all to the meshes' sphere (made again, so smaller or larger).
+  expect(a.end.meshes > 0 && a.end.outside === 0, `not all in view at the end: ${j}`);
+  // Zoom all fits the sphere made again from the meshes, not the one grown while loading (on this model, larger
+  // by 0.3 mm: Ritter's from scratch against the estimate's centre kept).
+  expect(Math.abs(a.zoomAll.sphere - a.end.fitted) > 1e-3, `zoom all fits the grown sphere: ${j}`);
+  expect(Math.abs(a.zoomAll.height - a.zoomAll.fitted) < 1e-6 * a.zoomAll.fitted, `zoom all: ${j}`);
+  expect(a.moved.set === 123 && a.moved.end === 123, `zoomed after the view was moved: ${j}`);
+  return undefined;
+});
 await check('replaced while meshing', async () => {
   const r = await page('?check', `(async () => {
     const v = globalThis.viewer;
@@ -660,7 +746,7 @@ await check('sections', async () => {
     // cap's square isn't.
     const rod = mesh('rod'), rb = boxOf(rod), c = rb.getCenter(rod.position.clone());
     const at = c.x;
-    viewer.zoomTo(rb);
+    viewer.zoomTo(rb.getBoundingSphere(viewer.modelSphere().clone()));
     const r = Math.min(rb.max.y - rb.min.y, rb.max.z - rb.min.z) / 2;
     // (The corner away from the camera, which looks from +X -Y +Z: behind it, nothing of the rod's kept length.)
     const centre = c.clone(), corner = c.clone().add(rod.position.clone().set(0, 0.9 * r, -0.9 * r));
@@ -1043,7 +1129,7 @@ await check('two planes', async () => {
     const c = pb.getCenter(plate.position.clone());
     ui.setRender({ capStyle: 'drawing' });
     cadViewer.view('iso');
-    viewer.zoomTo(pb);
+    viewer.zoomTo(pb.getBoundingSphere(viewer.modelSphere().clone()));
     const s = viewer.sections.get();
     s.x = { on: true, at: c.x, flip: false };
     s.z = { on: true, at: c.z, flip: true };

@@ -22,7 +22,8 @@
 // The model part is written and compressed in pieces, so its size isn't bound by the longest string V8 allows.
 
 import { Zip, ZipDeflate, strToU8 } from 'fflate';
-import { identity, manifoldProblems, multiply, partExtras, weld, type Diagnostic, type ExportNode, type ExportView,
+import { boundsJson, identity, manifoldProblems, multiply, partExtras, weld, type Diagnostic, type ExportNode,
+  type ExportView,
   type Look, type Mat4, type Mesh, type PropertyValue, type Scene, type SourceId, type Vec3 } from 'cad-scene';
 
 export interface ThreeMfOptions {
@@ -274,7 +275,7 @@ class Writer {
       parts, children: n.children.map(node) };
     };
     return { unit: 'millimetre', up: 'z', ...(Object.keys(this.scene.properties).length
-      ? { properties: this.scene.properties } : {}), roots: this.view.roots.map(node) };
+      ? { properties: this.scene.properties } : {}), ...boundsJson(this.scene), roots: this.view.roots.map(node) };
   }
 
   private report(colorgroup: boolean): void {

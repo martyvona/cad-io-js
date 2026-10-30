@@ -99,6 +99,9 @@ test('loadModelIn: the scene (postable), a mesh per placed brep part, then the e
     assert.equal(custom.requests[0]!.angularDeflection, 10 * Math.PI / 180);
     const done = events.at(-1) as Extract<ModelEvent, { type: 'done' }>;
     assert.deepEqual(done.meshing, { backend: 'fake 1', pools: 1, workers: 2 });
+    // The model's sphere: estimated in the scene event, made again from the meshes in the end's.
+    assert.equal(scene.bounds?.from, 'estimated');
+    assert.equal(done.bounds?.from, 'meshes');
   });
 
 test('loadModelIn: cancelled, it stops: after the scene, or before meshing', { skip }, async () => {

@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { addLod, exportView, identity, multiply, partInstances, pruneView, scaling, tessellateScene, validate,
-  viewDifferences, type Mat4, type Mesh, type Scene } from 'cad-scene';
+import { addLod, boundScene, exportView, identity, multiply, partInstances, pruneView, scaling, tessellateScene,
+  validate, viewDifferences, type Mat4, type Mesh, type Scene } from 'cad-scene';
 import { threejsJson } from 'export-threejs';
 import { importStep } from 'step-import';
 import { OcctTessellator } from 'tess-occt';
@@ -261,4 +261,28 @@ test('our userData carries a part\'s measures, its level\'s settings and its uni
   assert.deepEqual(measuresOf(importThreejs(threejsJson(s, exportView(s), { extras: true })).scene), WRITTEN);
   const plain = importThreejs(threejsJson(s, exportView(s))).scene.parts[0]!;
   assert.deepEqual([plain.measures, plain.unit, plain.lods[0]!.linearDeflection], [undefined, 1, undefined]);
+});
+
+test('the model\'s sphere in the root\'s extras, read back as the file\'s; mesh boxes in the parts\' userData', () => {
+  const s = scene();
+  boundScene(s);
+  assert.equal(s.bounds?.from, 'meshes');
+  s.bounds = { center: [1, 2, 3], radius: 9, from: 'meshes' };
+  const json = threejsJson(s, exportView(s, opts), { extras: true });
+  const o = JSON.parse(json);
+  assert.deepEqual(o.object.userData.bounds, { center: [1, 2, 3], radius: 9 });
+  const boxes: unknown[] = [];
+  const walk = (n: { userData?: { part?: number; box?: unknown }; children?: unknown[] }) => {
+    if (n.userData?.part !== undefined) boxes.push([n.userData.part, n.userData.box]);
+    for (const c of n.children ?? []) walk(c as typeof n);
+  };
+  walk(o.object);
+  const box = (i: number) => { const b = s.parts[i]!.lods[0]!.mesh.box!; return [b.min, b.max]; };
+  assert.ok(boxes.length > 0);
+  for (const [i, b] of boxes as [number, unknown][]) assert.deepEqual(b, box(i));
+  assert.deepEqual(importThreejs(json).scene.bounds, { center: [1, 2, 3], radius: 9, from: 'source' });
+  // Without extras: computed from the meshes read.
+  const plain = importThreejs(threejsJson(s, exportView(s, opts))).scene.bounds!;
+  assert.equal(plain.from, 'meshes');
+  assert.ok(Math.abs(plain.radius - s.bounds.radius) > 0);
 });

@@ -42,33 +42,24 @@ export function setAspect(camera: THREE.OrthographicCamera, aspect: number): voi
 }
 
 /**
- * Fits the box in the viewport from the camera's current direction: the target moves to the box's centre, the
- * frustum's height so the box's projection fills the viewport less the margin, zoom back to 1. False if the box is
- * empty (nothing changes).
+ * Fits a sphere in the viewport from the camera's current direction (the user, 2026-10-30: spheres for zoom all and
+ * zoom selected, so the framing is the same from every direction): the target moves to its centre, the frustum's
+ * smaller side spans its diameter less the margin, zoom back to 1. False if it's empty (nothing changes).
  */
-export function fit(camera: THREE.OrthographicCamera, target: THREE.Vector3, box: THREE.Box3, aspect: number,
-  margin = MARGIN): boolean {
-  if (box.isEmpty()) return false;
+export function fitSphere(camera: THREE.OrthographicCamera, target: THREE.Vector3, sphere: THREE.Sphere,
+  aspect: number, margin = MARGIN): boolean {
+  if (sphere.isEmpty()) return false;
   _z.subVectors(camera.position, target);
   if (_z.lengthSq() === 0) _z.set(...VIEWS.iso.dir);
   _z.normalize();
-  // The camera's right and up, as lookAt makes them (any right will do if up is along the view).
+  // The camera's up, as lookAt would take it (any up will do if it lies along the view).
   _x.crossVectors(camera.up, _z);
   if (_x.lengthSq() < 1e-12) _x.crossVectors(Math.abs(_z.z) < 0.9 ? _v.set(0, 0, 1) : _v.set(0, 1, 0), _z);
-  _x.normalize();
-  _y.crossVectors(_z, _x);
-  box.getCenter(_c);
-  let halfW = 0;
-  let halfH = 0;
-  for (let i = 0; i < 8; i++) {
-    _v.set(i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y, i & 4 ? box.max.z : box.min.z).sub(_c);
-    halfW = Math.max(halfW, Math.abs(_v.dot(_x)));
-    halfH = Math.max(halfH, Math.abs(_v.dot(_y)));
-  }
-  const half = Math.max(halfH, halfW / aspect) * (1 + 2 * margin) || 1;
-  const radius = box.getBoundingSphere(new THREE.Sphere()).radius;
-  target.copy(_c);
-  camera.position.copy(_c).addScaledVector(_z, 2 * radius + 1);
+  _y.crossVectors(_z, _x.normalize());
+  const r = sphere.radius || 1;
+  const half = Math.max(r, r / aspect) * (1 + 2 * margin);
+  target.copy(sphere.center);
+  camera.position.copy(sphere.center).addScaledVector(_z, 2 * r + 1);
   camera.up.copy(_y);
   camera.lookAt(target);
   camera.top = half;
@@ -78,13 +69,13 @@ export function fit(camera: THREE.OrthographicCamera, target: THREE.Vector3, box
   return true;
 }
 
-/** Turns the camera to a view (its direction and up), then fits the box. */
-export function setView(camera: THREE.OrthographicCamera, target: THREE.Vector3, view: ViewName, box: THREE.Box3,
-  aspect: number): void {
+/** Turns the camera to a view (its direction and up), then fits the sphere. */
+export function setView(camera: THREE.OrthographicCamera, target: THREE.Vector3, view: ViewName,
+  sphere: THREE.Sphere, aspect: number): void {
   const { dir, up } = VIEWS[view];
   camera.up.set(...up);
   camera.position.copy(target).add(_v.set(...dir).normalize());
-  if (!fit(camera, target, box, aspect)) {
+  if (!fitSphere(camera, target, sphere, aspect)) {
     camera.lookAt(target);
     camera.updateProjectionMatrix();
   }

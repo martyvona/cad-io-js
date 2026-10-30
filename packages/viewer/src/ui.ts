@@ -15,7 +15,7 @@ import { askUrl, showDialog } from './dialog.ts';
 import { formatIds, nodesWithIds, parseIds, partsWithFaces, stepIdsOf } from './step-ids.ts';
 import { showProblems } from './problems.ts';
 import { AXES, DEFAULT_SECTIONS, type SectionSettings } from './section.ts';
-import { boxOf, Highlighter, instancesOf, nodeForPick, piecesOf, type PickLevel } from './selection.ts';
+import { Highlighter, instancesOf, nodeForPick, piecesOf, sphereOf, type PickLevel } from './selection.ts';
 import { addSideHandle } from './side-handle.ts';
 import type { RenderSettings } from './style.ts';
 import { DEVICE_PROFILES, setDeviceOverride, type DeviceClass } from './device.ts';
@@ -62,6 +62,8 @@ export interface Ui {
   currentUrl(): string | undefined;
   /** Settles once the tree, the highlight and the restored state have caught up with the meshes that arrived. */
   refreshed(): Promise<void>;
+  /** Settles once the last model opened, by any means, has loaded or failed. */
+  opened(): Promise<unknown>;
   /** The current model's source: its name, bytes and URL (if any). */
   source(): Source | undefined;
   /** These settings take effect through the controls (which follow). */
@@ -176,7 +178,11 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   // The open model's file, for Save... (its control made with the File folder, below).
   let saving: Source | undefined;
   let saveControl: { enable(on?: boolean): unknown; disable(): unknown } | undefined;
-  const open = async (get: () => Promise<Source | undefined>, what: string, keep = false):
+  // The last open's, however it began (a control, a dialog, a dropped file, cadViewer), for cadViewer.idle.
+  let opening: Promise<unknown> = Promise.resolve();
+  const open = (get: () => Promise<Source | undefined>, what: string, keep = false):
+    Promise<Record<string, unknown>> => (opening = opened(get, what, keep));
+  const opened = async (get: () => Promise<Source | undefined>, what: string, keep: boolean):
     Promise<Record<string, unknown>> => {
     try {
       say(`loading ${what}...`);
@@ -630,7 +636,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     },
     zoomSelected: () => {
       if (!viewer.nodes || !selected.length) return viewer.zoomAll();
-      viewer.zoomTo(boxOf(piecesOf(viewer.nodes, selected)));
+      viewer.zoomTo(sphereOf(piecesOf(viewer.nodes, selected)));
     },
     selectParent: () => {
       const nodes = viewer.nodes;
@@ -679,6 +685,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     openFiles: async (files) => (await openFiles(files)) ?? { error: 'no files' },
     currentUrl: () => last?.url,
     refreshed: () => refreshed,
+    opened: () => opening,
     source: () => last,
     setSections: (s) => {
       for (const a of AXES) Object.assign(cut[a], s[a]);

@@ -15,4 +15,6 @@ export { addLod, chooseLod, dropSourceDegenerate, type LodWanted } from './lod.t
 export { closeTransforms, isOurTree, MM_Z_UP, sceneFromTree, type TreeExtras, type TreeMaterial, type TreeMesh,
   type TreeNode } from './tree-import.ts';
 export { viewDifferences, type CompareOptions } from './compare.ts';
-export { levelFrom, levelJson, measuresFrom, measuresJson, partExtras, unitFrom } from './measures.ts';
+export { boundsFrom, boundsJson, levelFrom, levelJson, measuresFrom, measuresJson, partExtras,
+  unitFrom } from './measures.ts';
+export { around, boundScene, boxMeshes, enclose, grow, meshBox, placeSphere, sceneBounds } from './bounds.ts';

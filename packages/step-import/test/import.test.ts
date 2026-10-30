@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { partInstances, validate, type Mat4 } from 'cad-scene';
+import { partInstances, sceneBounds, validate, type Mat4 } from 'cad-scene';
 import { parseStep } from 'step-parser';
 import { importStep } from '../src/index.ts';
 
@@ -182,6 +182,10 @@ test('components, parts, units and placements', async () => {
   assert.deepEqual([box.brep?.format, box.lods, box.name, box.unit, box.origin, box.sources],
     ['step', [], 'box', 25.4, [1, 2, 3], [{ format: 'step', id: 205 }]]);
   assert.deepEqual(scene.parts[1]!.origin, [1000, 0, 0]);
+  // Its vertices' box, the origin's: the model's first sphere (estimated, every part from its vertices).
+  assert.deepEqual(box.brep?.vertexBox, { min: [0, 0, 0], max: [2, 4, 6] });
+  assert.equal(scene.bounds?.from, 'estimated');
+  assert.deepEqual(scene.bounds, sceneBounds(scene));
   // The payload: a subset rooted at the box's representation, without the mapped item.
   const sub = parseStep(box.brep ? box.brep.payload() : new Uint8Array());
   assert.deepEqual([...sub.index.ids].includes(240), false);

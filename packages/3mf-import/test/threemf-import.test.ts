@@ -605,3 +605,16 @@ test('our 3MF with extras carries a part\'s measures, its level\'s settings and 
   // The sheet: no measures, millimetres, its level without settings.
   assert.deepEqual([sheet.measures, sheet.unit, sheet.lods[0]!.linearDeflection], [undefined, 1, undefined]);
 });
+
+test('the model\'s sphere in our tree metadata, read back as the file\'s; without extras from the meshes', () => {
+  const s = source();
+  s.bounds = { center: [1, 2, 3], radius: 9, from: 'meshes' };
+  for (const o of [{ extras: true }, { extras: true, build: 'assembly' }] as ThreeMfOptions[]) {
+    const back = import3mf(exported(s, o)).scene;
+    assert.deepEqual(back.bounds, o.build ? { ...back.bounds, from: 'meshes' } : { center: [1, 2, 3], radius: 9,
+      from: 'source' });
+  }
+  const plain = import3mf(exported(s, {})).scene;
+  assert.equal(plain.bounds?.from, 'meshes');
+  assert.ok(plain.parts.every((p) => p.lods.every((l) => l.mesh.box)));
+});

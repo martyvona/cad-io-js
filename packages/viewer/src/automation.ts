@@ -37,11 +37,12 @@ export interface FullState extends Required<Pick<ViewState, 'camera' | 'centered
   /** The meshing settings (B-Rep Meshing's), for the next model meshed. */
   meshing: TessellationSettings;
   /**
-   * The model: its file's name and URL (if it came from one), counts, centroid and parts (STEP), and (STEP) the
+   * The model: its file's name and URL (if it came from one), counts, centroid, sphere and parts (STEP), and (STEP) the
    * meshing settings it was meshed with.
    */
   model?: { name: string; url?: string; format: string; triangles: number; objects: number; meshes: number;
-    centroid?: number[]; parts?: { total: number; done: number; failed: number }; diagnostics: number;
+    centroid?: number[]; sphere?: { center: number[]; radius: number };
+    parts?: { total: number; done: number; failed: number }; diagnostics: number;
     meshedWith?: MeshedWith };
 }
 
@@ -82,6 +83,12 @@ export interface CadViewer {
 
 const VERSION = 1;
 
+/** The model's sphere in the world (what zoom all fits), where it has one. */
+const sphereOf = (viewer: Viewer) => {
+  const s = viewer.modelSphere();
+  return s.isEmpty() ? {} : { sphere: { center: s.center.toArray(), radius: s.radius } };
+};
+
 export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): CadViewer {
   let busy: Promise<unknown> = Promise.resolve();
   const loadUrl = (url: string) => {
@@ -121,7 +128,8 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
         ...model.hiddenFacePaths()])] : [],
       selected: model ? ui.selected().map((id) => model.pathOf(id)) : [],
       ...(m && stats ? { model: { name: m.name, url: ui.currentUrl(), format: m.format, triangles: stats.triangles,
-        objects: stats.objects, meshes: stats.meshes, centroid: m.centroid?.toArray(), parts: m.parts,
+        objects: stats.objects, meshes: stats.meshes, centroid: m.centroid?.toArray(), ...sphereOf(viewer),
+        parts: m.parts,
         diagnostics: (m.diagnostics ?? []).filter((d) => d.severity !== 'info').length,
         ...(m.meshedWith ? { meshedWith: { ...m.meshedWith } } : {}) } } : {}),
     };
@@ -214,9 +222,9 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
       return r;
     },
     idle: async () => {
-      for (let b = busy; ; b = busy) {
-        await b.catch(() => {});
-        if (b === busy) break;
+      for (let b = busy, o = ui.opened(); ; b = busy, o = ui.opened()) {
+        await Promise.all([b.catch(() => {}), o]);
+        if (b === busy && o === ui.opened()) break;
       }
       await ui.refreshed();
       await viewer.frames.whenIdle();

@@ -13,8 +13,8 @@
 import { VIEW_BACKGROUNDS, type Theme } from './theme.ts';
 import * as THREE from 'three';
 import { TrackballControls } from 'three/addons/controls/TrackballControls.js';
-import { chooseLod, meshDeflections, type Diagnostic } from 'cad-scene';
-import { clipTo, fit, setAspect, setView, type ViewName } from './camera.ts';
+import { around, chooseLod, meshDeflections, type Diagnostic, type Mesh, type Vec3 } from 'cad-scene';
+import { clipTo, fitSphere, setAspect, setView, type ViewName } from './camera.ts';
 import type { CameraState } from './view-state.ts';
 import { formatOf, type Format } from './formats.ts';
 import { Frames } from './frames.ts';
@@ -24,6 +24,7 @@ import { Composer } from './render.ts';
 import { AXES, Sections, type SectionSettings } from './section.ts';
 import { SceneGraph } from './scene-graph.ts';
 import { FatEdges } from './fat-edges.ts';
+import { LoadFit } from './load-fit.ts';
 import { modelInput, type Source } from './sources.ts';
 import { DEFAULT_RENDER, EDGES, type RenderSettings } from './style.ts';
 import { TriangleEdges } from './triangle-edges.ts';
@@ -119,7 +120,10 @@ export class Viewer {
   model?: ModelInfo;
   private root?: THREE.Object3D;
   private centered = false;
+  /** What the near and far planes are kept around (clipTo), in the world: all that's drawn. */
   private bounds = new THREE.Sphere(new THREE.Vector3(), 1);
+  /** The model's sphere (zoom all fits it), and zooming to it while it loads (load-fit.ts). */
+  private readonly fit = new LoadFit((s) => this.fitWorld(this.worldSphere(s)), () => this.moved);
   private interacting = false;
   /** The model's materials changed (meshes arrived, a model loaded): is anything transparent? (at the next draw) */
   private transparencyStale = true;
@@ -364,6 +368,7 @@ export class Viewer {
     this.display.add(root);
     this.model = model;
     this.moved = !!keep;
+    this.fit.start();
     this.triangleEdges.invalidate();
     this.fatEdges.invalidate();
     this.transparencyStale = true;
@@ -442,8 +447,8 @@ export class Viewer {
     const meshedAt = meshDeflections(deflectionsOf(this.settings)).linearDeflection;
     let graph: SceneGraph | undefined;
     let model: ModelInfo | undefined;
-    let zoomed = false;
-    const added = (part: number) => {
+    const added = (part: number, mesh: Mesh) => {
+      this.grow(graph!, part, mesh);
       for (const p of graph!.placements.get(part) ?? []) this.nodes?.invalidate(p.group);
       this.sections.invalidate();
       this.triangleEdges.invalidate();
@@ -454,6 +459,7 @@ export class Viewer {
     const progress = () => this.onStatus?.(model!.parts!.total ? `${src.name}: meshed ${model!.parts!.done} of ` +
       `${model!.parts!.total} parts${model!.parts!.failed ? `, ${model!.parts!.failed} failed` : ''}`
       : `${src.name}: read`);
+    let ended: Extract<ModelEvent, { type: 'done' }> | undefined;
     this.meshing = true;
     try {
       for await (const ev of this.events(input, gen)) {
@@ -465,6 +471,9 @@ export class Viewer {
           model = { name: src.name, format, parts: { total: brep.length, done: 0, failed: 0 },
             diagnostics: [...scene.diagnostics], meshedWith };
           this.show(graph.root, model, graph, keep);
+          // The model's sphere, the file's or the importer's estimate, fitted before any mesh is drawn.
+          this.fit.start(scene.bounds);
+          if (!this.fit.sphere.isEmpty()) this.bounds.copy(this.worldSphere(this.fit.sphere));
           // Parts with a level from the file (every part of a glTF or three.js file, STEP's tessellated geometry)
           // shown at once, the level for these settings (chooseLod); a B-rep part's until ours comes.
           const wanted = meshDeflections(deflectionsOf(this.settings));
@@ -472,7 +481,7 @@ export class Viewer {
             const lod = chooseLod(scene.parts[i]!, wanted);
             if (lod) {
               graph.addMesh(i, lod.mesh, lod.linearDeflection);
-              added(i);
+              added(i, lod.mesh);
             }
           }
           progress();
@@ -487,14 +496,15 @@ export class Viewer {
           if (ev.measures) graph!.scene.parts[ev.part]!.measures = ev.measures;
           if (mesh && (drawn || (mesh.faceOutlines?.length && !graph!.hasMesh(ev.part)))) {
             graph!.addMesh(ev.part, mesh, meshedAt);
-            added(ev.part);
-            if (!zoomed && !this.moved) { zoomed = true; this.zoomAll(); }
+            added(ev.part, mesh);
           }
           if (!drawn) model!.parts!.failed++;
           progress();
         } else {
+          ended = ev;
           model?.diagnostics!.push(...ev.diagnostics);
           if (model && ev.meshing) model.meshing = ev.meshing;
+          // Made again from the meshes alone: it may shrink, for the next zoom all (loading's zooms only go out).
         }
         this.redraw();
       }
@@ -503,7 +513,40 @@ export class Viewer {
     }
     if (gen !== this.generation || !model) return;
     this.finished();
-    if (!this.moved) this.zoomAll();
+    this.fit.end(ended?.bounds);
+  }
+
+  /** A part's new mesh grows the clipping sphere and, unless it's the file's, the model's (centres kept). */
+  private grow(graph: SceneGraph, part: number, mesh: Mesh): void {
+    this.display.updateWorldMatrix(true, true);
+    const toDisplay = new THREE.Matrix4().copy(this.display.matrixWorld).invert();
+    const own = mesh.box && around({ min: mesh.box.min.map((x, k) => x + mesh.origin[k]!) as Vec3,
+      max: mesh.box.max.map((x, k) => x + mesh.origin[k]!) as Vec3 });
+    const box = new THREE.Box3();
+    for (const p of graph.placements.get(part) ?? []) {
+      // Everything drawn, the failure outlines too, for the clipping planes.
+      if (!box.setFromObject(p.group).isEmpty()) this.bounds.union(box.getBoundingSphere(new THREE.Sphere()));
+      if (own) this.fit.add(new THREE.Sphere(new THREE.Vector3(...own.center), own.radius)
+        .applyMatrix4(p.group.matrixWorld).applyMatrix4(toDisplay));
+    }
+  }
+
+  /** A sphere in the display's frame, in the world (where centring has put it). */
+  private worldSphere(s: THREE.Sphere): THREE.Sphere {
+    this.display.updateWorldMatrix(true, false);
+    return s.clone().applyMatrix4(this.display.matrixWorld);
+  }
+
+  private fitWorld(s: THREE.Sphere): void {
+    fitSphere(this.camera, this.controls.target, s, this.aspect());
+    this.redraw();
+  }
+
+  /** The model's sphere in the world; without one (nothing loaded yet), around what's drawn. */
+  modelSphere(): THREE.Sphere {
+    if (!this.fit.sphere.isEmpty()) return this.worldSphere(this.fit.sphere);
+    const box = visibleBox(this.display);
+    return box.isEmpty() ? new THREE.Sphere().makeEmpty() : box.getBoundingSphere(new THREE.Sphere());
   }
 
   /** Loading has finished: the centroid is found, once. */
@@ -584,19 +627,20 @@ export class Viewer {
     const r = this.renderer.domElement.getBoundingClientRect();
     const ndc = new THREE.Vector2((clientX - r.left) / r.width * 2 - 1, -((clientY - r.top) / r.height * 2 - 1));
     this.display.updateWorldMatrix(true, true);
+    // The near plane as the next frame will have it (the camera may have moved since the last), where rays start.
+    clipTo(this.camera, this.bounds);
     return pick(this.camera, this.display, ndc, this.pixelSize(), this.clipped);
   }
 
-  /** Fits a box in the viewport, from the current direction; zoom all if it's empty. */
-  zoomTo(box: THREE.Box3): void {
-    if (box.isEmpty()) return this.zoomAll();
-    fit(this.camera, this.controls.target, box, this.aspect());
-    this.redraw();
+  /** Fits a sphere (in the world) in the viewport, from the current direction; zoom all if it's empty. */
+  zoomTo(sphere: THREE.Sphere): void {
+    if (sphere.isEmpty()) return this.zoomAll();
+    this.fitWorld(sphere);
   }
 
+  /** Fits the model's sphere in the viewport, from the current direction. */
   zoomAll(): void {
-    fit(this.camera, this.controls.target, visibleBox(this.display), this.aspect());
-    this.redraw();
+    this.fitWorld(this.modelSphere());
   }
 
   /** The camera exactly: position, target, up, and the viewport's height in world millimetres. */
@@ -629,7 +673,7 @@ export class Viewer {
 
   /** Looks along one of the world's axes, then zooms all. */
   setView(view: ViewName): void {
-    setView(this.camera, this.controls.target, view, visibleBox(this.display), this.aspect());
+    setView(this.camera, this.controls.target, view, this.modelSphere(), this.aspect());
     this.redraw();
   }
 }

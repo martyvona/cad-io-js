@@ -14,8 +14,9 @@
 //   properties: an object's or item's type, part number, Production UUID and metadata (by name as written).
 //   our files with extras: the scene they were written from, as far as 3MF holds it (ours.ts).
 
-import { dropSourceDegenerate, identity, multiply, scaling, type Component, type Diagnostic, type Mat4,
-  type Material, type Occurrence, type Part, type PartRef, type Properties, type Scene, type SourceId } from 'cad-scene';
+import { boundScene, dropSourceDegenerate, identity, multiply, scaling, type Component, type Diagnostic, type Mat4,
+  type Material, type Occurrence, type Part, type PartRef, type Properties, type Scene,
+  type SourceId } from 'cad-scene';
 import { readModel, type ItemDef, type ModelFile, type ObjectDef } from './model.ts';
 import { oursFromTree } from './ours.ts';
 import { XmlTokenizer } from './xml.ts';
@@ -44,6 +45,7 @@ const DEFAULT_ROOT = '3D/3dmodel.model';
 export function import3mf(input: Uint8Array, opts: ThreeMfImportOptions = {}): ThreeMfImport {
   const r = read(input, opts);
   if (opts.dropDegenerate ?? true) dropSourceDegenerate(r.scene);
+  boundScene(r.scene);
   return r;
 }
 

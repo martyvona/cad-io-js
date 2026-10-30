@@ -7,6 +7,7 @@
 
 import { degenerateMessage, dropDegenerate, faceFailures, orientShells } from './mesh.ts';
 import { addLod } from './lod.ts';
+import { meshBox, sceneBounds } from './bounds.ts';
 import type { Diagnostic, Measures, Mesh, Part, Scene } from './scene.ts';
 import { meshDeflections, type MeshProfile } from './profiles.ts';
 import type { TessellationResult, Tessellator } from './tessellator.ts';
@@ -200,6 +201,8 @@ export async function tessellateScene(scene: Scene, tess: Tessellator,
     }
     if (opts.outlines) mesh = outlined({ ...part, brep }, mesh, linearDeflection / part.unit, angularDeflection,
       diagnostics, source, part.measures);
+    const box = mesh && meshBox(mesh);
+    if (box) mesh!.box = box;
     found[k] = mesh;
     opts.onPart?.(i, mesh, ++done, todo.length);
   };
@@ -217,5 +220,7 @@ export async function tessellateScene(scene: Scene, tess: Tessellator,
     } else part.lods = part.lods.filter((l) => !(l.from === 'tessellated' && l.backend === backend &&
       l.linearDeflection === linearDeflection && l.angularDeflection === angularDeflection));
   });
+  // The model's sphere again from the meshes alone, which can shrink an estimate (decision 3); a file's kept.
+  if (scene.bounds?.from !== 'source') scene.bounds = sceneBounds(scene, { meshesOnly: true }) ?? scene.bounds;
   return { meshes, diagnostics: perPart.flat() };
 }

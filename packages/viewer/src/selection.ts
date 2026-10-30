@@ -6,6 +6,7 @@
 // (a STEP face: its index ranges in the placement's mesh). Lengths are the world's millimetres.
 
 import * as THREE from 'three';
+import { enclose, type Sphere } from 'cad-scene';
 import type { NodeModel } from './model.ts';
 
 export type PickLevel = 'assembly' | 'part' | 'detail';
@@ -99,24 +100,33 @@ export function measure(pieces: readonly Piece[]): Measures {
   return m;
 }
 
-/** The world box of pieces: whole objects by their geometry's box, partial ones by their vertices. */
-export function boxOf(pieces: readonly Piece[]): THREE.Box3 {
-  const box = new THREE.Box3();
+/**
+ * The world sphere of pieces (zoom selected; the user, 2026-10-30: spheres, as zoom all): each one's around its box
+ * (a whole object's geometry's, a partial one's vertices'), placed in the world, then combined as the model's are
+ * (cad-scene's enclose). Empty for nothing.
+ */
+export function sphereOf(pieces: readonly Piece[]): THREE.Sphere {
+  const spheres: Sphere[] = [];
   const v = new THREE.Vector3();
   for (const { object, ranges } of pieces) {
     object.updateWorldMatrix(true, false);
+    const box = new THREE.Box3();
     if (!ranges) {
       object.geometry.computeBoundingBox();
-      box.union(object.geometry.boundingBox!.clone().applyMatrix4(object.matrixWorld));
-      continue;
+      box.copy(object.geometry.boundingBox!);
+    } else {
+      const pos = object.geometry.getAttribute('position');
+      const index = object.geometry.index!;
+      for (const r of ranges) for (let i = r.start; i < r.start + r.count; i++) {
+        box.expandByPoint(v.fromBufferAttribute(pos, index.getX(i)));
+      }
     }
-    const pos = object.geometry.getAttribute('position');
-    const index = object.geometry.index!;
-    for (const r of ranges) for (let i = r.start; i < r.start + r.count; i++) {
-      box.expandByPoint(v.fromBufferAttribute(pos, index.getX(i)).applyMatrix4(object.matrixWorld));
-    }
+    if (box.isEmpty()) continue;
+    const s = box.getBoundingSphere(new THREE.Sphere()).applyMatrix4(object.matrixWorld);
+    spheres.push({ center: s.center.toArray(), radius: s.radius });
   }
-  return box;
+  const s = enclose(spheres);
+  return s ? new THREE.Sphere(new THREE.Vector3(...s.center), s.radius) : new THREE.Sphere().makeEmpty();
 }
 
 /** The face (its range in `faceRanges`) a triangle of a STEP placement mesh belongs to: ranges are in order. */

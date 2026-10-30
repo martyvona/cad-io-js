@@ -332,3 +332,16 @@ test('our extras carry a part\'s measures, its level\'s settings and its unit ba
   assert.ok(json.extensionsUsed?.includes('EXT_mesh_gpu_instancing'));
   assert.deepEqual((await importGltf(bytes)).scene.parts.find((p) => p.name === 'plate')!.measures, WRITTEN.measures);
 });
+
+test('the model\'s sphere in the root\'s extras, read back as the file\'s; without extras from the meshes',
+  async () => {
+  const s = scene();
+  s.bounds = { center: [1, 2, 3], radius: 9, from: 'meshes' };
+  for (const compression of ['none', 'draco'] as const) {
+    const { bytes } = await glb(s, exportView(s, lines), { extras: true, compression });
+    assert.deepEqual((await importGltf(bytes)).scene.bounds, { center: [1, 2, 3], radius: 9, from: 'source' });
+  }
+  const plain = (await importGltf((await glb(s, exportView(s, lines), { compression: 'none' })).bytes)).scene;
+  assert.equal(plain.bounds?.from, 'meshes');
+  assert.ok(plain.parts.every((p) => p.lods.every((l) => l.mesh.box)));
+});

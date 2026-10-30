@@ -87,5 +87,6 @@ export function oursFromTree(root: ModelFile, world: (item: number) => { object:
   if (bad) warn(`our tree metadata (cadio:tree): ${bad} nodes or placed parts unreadable or naming no build item, `
     + 'left out');
   return sceneFromTree({ name: '', matrix: identity(), visible: true, extras: { unit: 'millimetre', up: 'z',
-    ...(obj(tree.properties) ? { properties: tree.properties } : {}) }, meshes: [], children: roots });
+    ...(obj(tree.properties) ? { properties: tree.properties } : {}),
+    ...(tree.bounds !== undefined ? { bounds: tree.bounds } : {}) }, meshes: [], children: roots });
 }

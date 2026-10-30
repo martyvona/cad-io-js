@@ -38,9 +38,29 @@ export interface Scene {
   layers: Layer[];
   /** Changes to single instances, identified by their occurrence paths (see `instances`). */
   overrides: InstanceOverride[];
+  /**
+   * The whole model's bounding sphere, in millimetres (bounds.ts): a file's own (our extras), estimated before meshing
+   * from what each placed part has, or from every placed part's mesh box. For fitting a view; approximate.
+   */
+  bounds?: SceneBounds;
   /** File-level metadata. */
   properties: Properties;
   diagnostics: Diagnostic[];
+}
+
+export interface Box {
+  min: Vec3;
+  max: Vec3;
+}
+
+export interface Sphere {
+  center: Vec3;
+  radius: number;
+}
+
+export interface SceneBounds extends Sphere {
+  /** A file's, an estimate (some parts by their B-rep's vertices), or every part's mesh box. */
+  from: 'source' | 'estimated' | 'meshes';
 }
 
 /** A product or assembly definition: its own parts, and occurrences of other components. */
@@ -149,6 +169,11 @@ export interface Brep {
   /** The root entity within the payload (STEP: the shape representation). */
   rootId?: number;
   /**
+   * The box of the part's vertices (STEP: its VERTEX_POINTs, else all its points), in its coordinates: not a bound
+   * (curved faces bulge past their vertices), an estimate of where it is before it's meshed (sceneBounds).
+   */
+  vertexBox?: Box;
+  /**
    * The outlines of the part's faces drawn from the source itself (STEP: their edges along their curves), for faces
    * that fail to mesh or a part that does (tessellateScene's `outlines`): every face's id, in order, and the outlines
    * of `faces` (all if absent), in the part's units minus its origin. Optional; like `payload`, a function.
@@ -173,6 +198,8 @@ export interface Lod {
 /** A triangle mesh, with any wireframe curves and points, in the part's coordinates minus `origin`. */
 export interface Mesh {
   origin: Vec3;
+  /** The box of everything it draws, in its coordinates (positions' frame); none if it draws nothing (meshBox). */
+  box?: Box;
   positions: Float32Array;
   normals?: Float32Array;
   indices: Uint32Array;

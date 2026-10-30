@@ -13,8 +13,8 @@ import {
   type Diagnostic as StepDiagnostic, type Mat4, type OpenOptions, type Semantics, type StepFile, type StepModel,
   type StepSource, type Style,
 } from 'step-parser';
-import { dropSourceDegenerate, type Component, type Diagnostic, type Layer, type Lod, type Material, type Part,
-  type Scene, type Vec3 } from 'cad-scene';
+import { boundScene, dropSourceDegenerate, type Component, type Diagnostic, type Layer, type Lod, type Material,
+  type Part, type Scene, type Vec3 } from 'cad-scene';
 import { faceOutlines } from './outlines.ts';
 import { moveMesh, readTessellated, tessellatedItems } from './tessellated.ts';
 
@@ -236,6 +236,8 @@ export function sceneFromStep(model: StepModel, sem: Semantics, opts: ImportOpti
     const part: Part = {
       ...(read ? {} : { brep: {
         format: 'step', rootId: rep.id,
+        // Where it is before it's meshed (no bound: the model's first sphere, sceneBounds).
+        ...(lo[0] === Infinity ? {} : { vertexBox: { min: [...lo] as Vec3, max: [...hi] as Vec3 } }),
         payload: () => buildSubset(file, [root], { exclude }).bytes,
         // Faces' outlines from the file, for faces that fail to mesh (outlines.ts).
         outline: ({ faces: only, ...o }) => ({ faces: faces.map((q) => r.id(q)),
@@ -350,7 +352,9 @@ export function sceneFromStep(model: StepModel, sem: Semantics, opts: ImportOpti
       const colours = new Map((t.faceMaterials ?? []).map((x) => [x.face, x.material]));
       for (const f of faces) {
         const id = r.id(f), m = colours.get(id) ?? t.material;
-        if (own.has(id) && m !== undefined && m !== b.material) (b.faceMaterials ??= []).push({ face: id, material: m });
+        if (own.has(id) && m !== undefined && m !== b.material) {
+          (b.faceMaterials ??= []).push({ face: id, material: m });
+        }
       }
       b.lods.push({ ...lod, mesh });
       b.sources.push(...t.sources);
@@ -485,6 +489,7 @@ export function sceneFromStep(model: StepModel, sem: Semantics, opts: ImportOpti
       ...diagnostics],
   };
   if (opts.dropDegenerate ?? true) dropSourceDegenerate(scene);
+  boundScene(scene);
   return { scene, model, semantics: sem, partOf };
 }
 

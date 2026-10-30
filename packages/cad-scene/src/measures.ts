@@ -6,10 +6,16 @@
 //   measures: { by: string, faces: { "<face source id>": [area, perimeter, valid (1 or 0)] } }  the part's units
 //   level: { linearDeflection?, angularDeflection?, backend? }   the exported level's (Lod), mm and radians
 //   unit: the part's unit in mm, when it isn't 1: its vertices are written in it, as the scene has them
+//   box: [[x, y, z], [x, y, z]]   the exported mesh's box (Mesh.box), in its coordinates, where the format has no
+//                                 slot for it (glTF has: its accessors' min and max)
+//
+// and at the root, with the scene's properties, the model's sphere (Scene.bounds), in millimetres:
+//
+//   bounds: { center: [x, y, z], radius }
 //
 // so a level read back is judged as it was made (faceFailures needs its deflection in the part's units).
 
-import type { Lod, Measures, Part } from './scene.ts';
+import type { Lod, Measures, Part, Scene, SceneBounds } from './scene.ts';
 
 type Json = Record<string, unknown>;
 
@@ -53,11 +59,28 @@ export function levelFrom(j: unknown): Pick<Lod, 'linearDeflection' | 'angularDe
  * What our extras say of a part beyond its node's own: its measures, its level's settings and its unit, where it has
  * them (the importers read them back with measuresFrom, levelFrom and unitFrom).
  */
-export function partExtras(part: Part, lod: Lod | undefined): Json {
+export function partExtras(part: Part, lod: Lod | undefined, opts: { box?: boolean } = {}): Json {
+  const box = (opts.box ?? true) ? lod?.mesh.box : undefined;
   return { ...(part.measures ? { measures: measuresJson(part.measures) } : {}),
+    ...(box ? { box: [box.min, box.max] } : {}),
     ...(lod && Object.keys(levelJson(lod)).length ? { level: levelJson(lod) } : {}),
     ...(part.unit !== 1 ? { unit: part.unit } : {}) };
 }
 
 /** A part's unit from our extras: a positive number, else 1 (millimetres). */
 export const unitFrom = (j: unknown) => (typeof j === 'number' && Number.isFinite(j) && j > 0 ? j : 1);
+
+/** The model's sphere as our root extras' JSON, where the scene has one. */
+export function boundsJson(scene: Scene): Json {
+  const b = scene.bounds;
+  return b ? { bounds: { center: [...b.center], radius: b.radius } } : {};
+}
+
+/** The model's sphere from our root extras' JSON (`from: 'source'`); undefined if it isn't one. */
+export function boundsFrom(j: unknown): SceneBounds | undefined {
+  const o = j && typeof j === 'object' && !Array.isArray(j) ? j as Json : undefined;
+  const c = o?.center, r = o?.radius;
+  const finite = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x);
+  if (!Array.isArray(c) || c.length !== 3 || !c.every(finite) || !finite(r) || r < 0) return undefined;
+  return { center: [c[0]!, c[1]!, c[2]!], radius: r, from: 'source' };
+}
