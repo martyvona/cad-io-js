@@ -181,6 +181,13 @@ test('fitSphere: the sphere fills the viewport less the margin, in its limiting 
   down.position.set(0, 0, 10);
   assert.ok(fitSphere(down, new THREE.Vector3(), sphere, 2));
   assert.ok(Math.abs(Math.max(...extent(down)) - 1 / (1 + 2 * MARGIN)) < 1e-9);
+  // Fitted in part of the view (the width beside the controls): the frustum keeps the view's aspect (so nothing is
+  // squashed), the sphere sized to the part's.
+  const part = camera(2);
+  assert.ok(fitSphere(part, new THREE.Vector3(), sphere, 2, 0.8));
+  assert.ok(Math.abs(part.right / part.top - 2) < 1e-12);
+  const [px] = extent(part);
+  assert.ok(Math.abs(px! * 2 / 0.8 - 1 / (1 + 2 * MARGIN)) < 1e-9, `${px}`);
   // An empty sphere changes nothing.
   const cam = camera();
   const before = cam.position.clone();

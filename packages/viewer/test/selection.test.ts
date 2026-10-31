@@ -67,11 +67,9 @@ test("spheres: a face's around its vertices' box, in the world; a part and the f
   // root occurrence at z 5: its box's centre and half diagonal.
   assert.deepEqual(face.center.toArray().map((x) => +x.toFixed(9)), [100 + 25.4 * 1.5, 25.4 * 0.5, 5]);
   assert.ok(Math.abs(face.radius - 25.4 * Math.SQRT1_2) < 1e-9);
-  // With a whole part, the sphere holds both.
   const both = sphereOf(piecesOf(model, [find(partOf(left, 0), 'face #8'), partOf(left, 1)]));
   const part = sphereOf(piecesOf(model, [partOf(left, 1)]));
-  // A whole object's: around its vertices' box in its own coordinates, then placed (tighter than around its world
-  // box when it's turned).
+  // A whole object's alone: around its vertices' box in its own coordinates, then placed.
   const [whole] = piecesOf(model, [partOf(left, 0)]);
   const plate = sphereOf([whole!]);
   const box = new THREE.Box3();
@@ -82,7 +80,16 @@ test("spheres: a face's around its vertices' box, in the world; a part and the f
   const want = box.getBoundingSphere(new THREE.Sphere()).applyMatrix4(object.matrixWorld);
   assert.ok(object.type === 'Mesh' && plate.center.distanceTo(want.center) < 1e-9 &&
     Math.abs(plate.radius - want.radius) < 1e-9, `${plate.radius} ${want.radius}`);
-  for (const s of [face, part]) assert.ok(both.center.distanceTo(s.center) + s.radius <= both.radius + 1e-9);
+  // Both: every vertex of the face and of the part inside (the boxes' corners held, not spheres around them).
+  for (const { object: o } of piecesOf(model, [find(partOf(left, 0), 'face #8'), partOf(left, 1)])) {
+    const p = o.geometry.getAttribute('position');
+    for (let i = 0; i < p.count; i++) {
+      const w = new THREE.Vector3().fromBufferAttribute(p, i).applyMatrix4(o.matrixWorld);
+      if (o === whole!.object) continue;
+      assert.ok(both.center.distanceTo(w) <= both.radius + 1e-9);
+    }
+  }
+  assert.ok(both.radius >= Math.max(face.radius, part.radius) - 1e-9);
   assert.ok(sphereOf([]).isEmpty());
 });
 

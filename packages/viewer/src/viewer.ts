@@ -568,7 +568,7 @@ export class Viewer {
   /** Fits a sphere at once (zooming while loading), ending any flight. */
   private fitWorld(s: THREE.Sphere): void {
     this.flight = undefined;
-    fitSphere(this.camera, this.controls.target, s, this.fitAspect());
+    fitSphere(this.camera, this.controls.target, s, this.aspect(), this.fitAspect());
     this.redraw();
   }
 

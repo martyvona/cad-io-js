@@ -44,10 +44,12 @@ export function setAspect(camera: THREE.OrthographicCamera, aspect: number): voi
 /**
  * Fits a sphere in the viewport from the camera's current direction (the user, 2026-10-30: spheres for zoom all and
  * zoom selected, so the framing is the same from every direction): the target moves to its centre, the frustum's
- * smaller side spans its diameter less the margin, zoom back to 1. False if it's empty (nothing changes).
+ * smaller side spans its diameter less the margin, zoom back to 1. `aspect` is the view's, which the frustum takes;
+ * `fitAspect` the part of it to fit in (the width beside the controls: Viewer.fitAspect), the view's if absent.
+ * False if the sphere is empty (nothing changes).
  */
 export function fitSphere(camera: THREE.OrthographicCamera, target: THREE.Vector3, sphere: THREE.Sphere,
-  aspect: number, margin = MARGIN): boolean {
+  aspect: number, fitAspect = aspect, margin = MARGIN): boolean {
   if (sphere.isEmpty()) return false;
   _z.subVectors(camera.position, target);
   if (_z.lengthSq() === 0) _z.set(...VIEWS.iso.dir);
@@ -57,7 +59,7 @@ export function fitSphere(camera: THREE.OrthographicCamera, target: THREE.Vector
   if (_x.lengthSq() < 1e-12) _x.crossVectors(Math.abs(_z.z) < 0.9 ? _v.set(0, 0, 1) : _v.set(0, 1, 0), _z);
   _y.crossVectors(_z, _x.normalize());
   const r = sphere.radius || 1;
-  const half = Math.max(r, r / aspect) * (1 + 2 * margin);
+  const half = Math.max(r, r / fitAspect) * (1 + 2 * margin);
   target.copy(sphere.center);
   camera.position.copy(sphere.center).addScaledVector(_z, 2 * r + 1);
   camera.up.copy(_y);

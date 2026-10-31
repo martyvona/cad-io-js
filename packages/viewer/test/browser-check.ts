@@ -523,6 +523,14 @@ await check('fit beside the controls', async () => {
         hi: px(s.center.clone().addScaledVector(right, s.radius)), target, height: c.height,
         top: c.top + (1 - s.center.clone().project(cam).y) / 2 * c.height };
     };
+    // Not squashed: as many pixels a millimetre across as down, after the load's own fit, zoom all and a view.
+    const scales = () => { const P = cam.projectionMatrix.elements, c = v.renderer.domElement;
+      return P[0] * c.clientWidth / (P[5] * c.clientHeight); };
+    const squash = [scales()];
+    v.zoomAll();
+    squash.push(scales());
+    v.setView('iso');
+    squash.push(scales());
     v.zoomAll();
     const open = fitted();
     // Nothing covered (as when the controls are hidden): the axis back at the view's centre at once.
@@ -545,15 +553,16 @@ await check('fit beside the controls', async () => {
     mesh.geometry.computeBoundingBox();
     const selected = fitted(mesh.geometry.boundingBox.getBoundingSphere(v.modelSphere())
       .applyMatrix4(mesh.matrixWorld));
-    return { open, closed, selected, uncovered };
+    return { open, closed, selected, uncovered, squash };
   })()`;
   type Fitted = { viewLeft: number; viewRight: number; guiLeft: number; centre: number; lo: number; hi: number;
     target: number; height: number; top: number };
   const url = `?url=${encodeURIComponent('/content/as1.stp')}&check`;
   // In a window 1200 pixels wide; in the check's usual one, where the free width would be under half the view's,
   // the whole view (as on phones).
-  const { uncovered, ...a } = (await page(url, script, { scale: 1 }) as { after: Record<string, Fitted> &
-    { uncovered: number } }).after;
+  const { uncovered, squash, ...a } = (await page(url, script, { scale: 1 }) as { after: Record<string, Fitted> &
+    { uncovered: number; squash: number[] } }).after;
+  expect(squash.every((x) => Math.abs(x - 1) < 1e-9), `squashed (across / down): ${squash}`);
   expect(Math.abs(uncovered - (a.open!.viewLeft + a.open!.viewRight) / 2) < 1, `uncovered: ${uncovered}`);
   const narrow = (await page(url, script) as { after: Record<string, Fitted> }).after.open!;
   expect(narrow.guiLeft - narrow.viewLeft < (narrow.viewRight - narrow.viewLeft) / 2 &&

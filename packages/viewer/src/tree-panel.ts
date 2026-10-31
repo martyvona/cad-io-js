@@ -50,7 +50,8 @@ export class TreePanel {
       },
       renderRow: (id, content) => {
         const n = model.nodes[num(id)]!;
-        // Failed to mesh, wholly or partly: red, with a broken icon (the user, 2026-10-30: partly the icon only before).
+        // Failed to mesh, wholly or partly: red, with a broken icon (the user, 2026-10-30; before, partly had the
+        // icon only).
         const failure = model.failure(n.id);
         content.innerHTML = `<span class="tree-icon${failure ? ' broken' : ''}">${failure ? BROKEN_ICON
           : ICONS[n.kind]}</span><span class="tree-name"></span>`;

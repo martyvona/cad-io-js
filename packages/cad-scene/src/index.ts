@@ -17,4 +17,4 @@ export { closeTransforms, isOurTree, MM_Z_UP, sceneFromTree, type TreeExtras, ty
 export { viewDifferences, type CompareOptions } from './compare.ts';
 export { boundsFrom, boundsJson, levelFrom, levelJson, measuresFrom, measuresJson, partExtras,
   unitFrom } from './measures.ts';
-export { around, boundScene, boxMeshes, enclose, grow, meshBox, placeSphere, sceneBounds } from './bounds.ts';
+export { around, boundScene, boxesSphere, boxMeshes, grow, meshBox, sceneBounds } from './bounds.ts';

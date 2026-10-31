@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { around, boundScene, boundsFrom, enclose, grow, identity, meshBox, placeSphere, sceneBounds, tessellateScene,
+import { around, boundScene, boundsFrom, boxesSphere, grow, identity, meshBox, sceneBounds, tessellateScene,
   type Mat4, type Mesh, type Part, type Scene, type Sphere, type TessellationRequest, type TessellationResult,
   type Tessellator, type Vec3 } from '../src/index.ts';
 
@@ -39,46 +39,44 @@ test('meshBox: everything the mesh draws, in its coordinates; none for nothing d
     faceOutlines: [{ source: 1, start: 0, count: 2 }] }), undefined);
 });
 
-test('placeSphere: centre transformed, radius by the largest scale; around a box', () => {
+test('around: the sphere through a box\'s corners; grow keeps the centre', () => {
   assert.deepEqual(around({ min: [0, 0, 0], max: [2, 2, 1] }), { center: [1, 1, 0.5], radius: 1.5 });
-  const m = translate(10, 0, 0);
-  m[5] = 3; // y scaled by 3
-  assert.deepEqual(placeSphere({ center: [1, 1, 0], radius: 2 }, m), { center: [11, 3, 0], radius: 6 });
-  // Turned 90 degrees about z and scaled by 25.4: the radius by 25.4.
-  const r = Float64Array.of(0, 25.4, 0, 0, -25.4, 0, 0, 0, 0, 0, 25.4, 0, 0, 0, 0, 1);
-  const p = placeSphere({ center: [1, 0, 0], radius: 1 }, r);
-  assert.deepEqual(p.center.map((x) => Math.round(x * 1e9) / 1e9), [0, 25.4, 0]);
-  assert.equal(p.radius, 25.4);
-});
-
-test('enclose: holds every sphere; two points exactly; grow keeps the centre', () => {
-  assert.equal(enclose([]), undefined);
-  assert.deepEqual(enclose([{ center: [0, 0, 0], radius: 0 }, { center: [10, 0, 0], radius: 0 }]),
-    { center: [5, 0, 0], radius: 5 });
-  // One sphere: itself.
-  assert.deepEqual(enclose([{ center: [1, 2, 3], radius: 4 }]), { center: [1, 2, 3], radius: 4 });
-  // Random spheres: every one inside, and the result no larger than the trivial bound's double.
-  let seed = 1;
-  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-  for (let n = 0; n < 20; n++) {
-    const ss = Array.from({ length: 1 + n * 7 }, () => ({ center: [rnd() * 100, rnd() * 50, rnd() * 10] as Vec3,
-      radius: rnd() * 5 }));
-    const s = enclose(ss)!;
-    for (const t of ss) assert.ok(holds(s, t), `n ${n}`);
-    assert.ok(s.radius <= Math.hypot(100, 50, 10) + 5);
-  }
-  // A point outside the first two's diameter grows it (Ritter's second pass).
-  const s = enclose([{ center: [0, 0, 0], radius: 0 }, { center: [10, 0, 0], radius: 0 },
-    { center: [5, 9, 0], radius: 0 }])!;
-  // (From (5, 9), the farthest from the first: centre (2.5, 4.5), then grown for (10, 0) to 6.95.)
-  assert.ok(s.radius < 7 && holds(s, { center: [5, 9, 0], radius: 0 }));
-  // A square's corners after its centre: from the farthest from the centre, two opposite corners, exactly.
-  const sq = enclose([[0, 0], [1, 1], [1, -1], [-1, 1], [-1, -1]].map(([x, y]) => ({ center: [x!, y!, 0] as Vec3,
-    radius: 0 })))!;
-  assert.equal(sq.radius, Math.SQRT2);
   const g = { center: [0, 0, 0] as Vec3, radius: 1 };
   assert.equal(grow(g, { center: [0.5, 0, 0], radius: 0.5 }), g);
   assert.deepEqual(grow(g, { center: [3, 0, 0], radius: 1 }), { center: [0, 0, 0], radius: 4 });
+});
+
+test('boxesSphere: the corners placed, the centre their box\'s middle, the radius the farthest corner', () => {
+  assert.equal(boxesSphere([]), undefined);
+  // One box: around it.
+  assert.deepEqual(boxesSphere([{ box: { min: [0, 0, 0], max: [2, 2, 1] } }]), { center: [1, 1, 0.5], radius: 1.5 });
+  // Two, one moved 10 along x and scaled 3 along y: the corners' box x 0..12, y 0..6, z 0..1.
+  const m = translate(10, 0, 0);
+  m[5] = 3;
+  const two = boxesSphere([{ box: { min: [0, 0, 0], max: [2, 2, 1] } }, { box: { min: [0, 0, 0], max: [2, 2, 1] },
+    matrix: m }])!;
+  assert.deepEqual(two.center, [6, 3, 0.5]);
+  assert.ok(Math.abs(two.radius - Math.hypot(6, 3, 0.5)) < 1e-12);
+  // Turned 45 degrees about z: the turned corners' box, not the box of the turned box's box.
+  const c = Math.SQRT1_2;
+  const turned = boxesSphere([{ box: { min: [0, 0, 0], max: [1, 1, 0] },
+    matrix: Float64Array.of(c, c, 0, 0, -c, c, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1) }])!;
+  assert.ok(Math.abs(turned.center[1] - c) < 1e-12 && Math.abs(turned.center[0]) < 1e-12);
+  assert.ok(Math.abs(turned.radius - c) < 1e-12, `${turned.radius}`);
+  // An oblong one turned so: about its own centre, its circumradius.
+  const oblong = boxesSphere([{ box: { min: [0, 0, 0], max: [2, 1, 0] },
+    matrix: Float64Array.of(c, c, 0, 0, -c, c, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1) }])!;
+  assert.ok(Math.abs(oblong.radius - Math.sqrt(5) / 2) < 1e-12, `${oblong.radius}`);
+  // With a point at (3, 0, 0) beside it, the box x -0.71..3 and y 0..2.12 depends on the corner at (-0.71, 0.71).
+  const pair = boxesSphere([{ box: { min: [0, 0, 0], max: [2, 1, 0] },
+    matrix: Float64Array.of(c, c, 0, 0, -c, c, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1) },
+  { box: { min: [3, 0, 0], max: [3, 0, 0] } }])!;
+  assert.ok(Math.abs(pair.center[0] - (3 - c) / 2) < 1e-12 && Math.abs(pair.center[1] - 3 * c / 2) < 1e-12,
+    `${pair.center}`);
+  // Off-centre parts don't pull the centre: a big box and a small one beside it, the centre their box's middle.
+  const lop = boxesSphere([{ box: { min: [0, 0, 0], max: [100, 10, 10] } }, { box: { min: [100, 0, 0],
+    max: [101, 1, 1] } }])!;
+  assert.deepEqual(lop.center, [50.5, 5, 5]);
 });
 
 test('sceneBounds: every placement (hidden too), meshes where boxed, else vertex boxes (estimated)', () => {
@@ -95,9 +93,10 @@ test('sceneBounds: every placement (hidden too), meshes where boxed, else vertex
   assert.deepEqual(p0.lods[0]!.mesh.box, { min: [-1, 0, 0], max: [1, 0, 0] });
   const b = s.bounds!;
   assert.equal(b.from, 'estimated');
-  // The two placements of part 0 (x 0..2 and 100..102) and part 1 (hidden; y 50..151.6, x 0).
-  for (const t of [{ center: [1, 0, 0], radius: 1 }, { center: [101, 0, 0], radius: 1 },
-    { center: [0, 50 + 2 * 25.4, 0], radius: 2 * 25.4 }] as Sphere[]) assert.ok(holds(b, t));
+  // The two placements of part 0 (x 0..2 and 100..102) and part 1 (hidden; y 50..151.6, x 0): their boxes' ends.
+  for (const p of [[0, 0, 0], [2, 0, 0], [100, 0, 0], [102, 0, 0], [0, 50, 0], [0, 50 + 4 * 25.4, 0]]) {
+    assert.ok(holds(b, { center: p as Vec3, radius: 0 }), `${p}`);
+  }
   // Meshes only: part 1 left out, and every placed part's from a mesh.
   const m = sceneBounds(s, { meshesOnly: true })!;
   assert.equal(m.from, 'meshes');
@@ -139,7 +138,8 @@ test('tessellateScene boxes its meshes (before onPart) and makes the sphere from
   assert.deepEqual(seen.filter(Boolean).map((m) => m!.box), [{ min: [0, 0, 0], max: [2, 2, 0] }]);
   // Shrunk from the vertex estimate to the meshes' (part 0's two placements, x 0..102); part 1 failed, left out.
   assert.equal(s.bounds!.from, 'meshes');
-  assert.ok(s.bounds!.radius < 60 && holds(s.bounds!, { center: [101, 1, 0], radius: Math.SQRT2 }));
+  assert.ok(s.bounds!.radius < 60 && holds(s.bounds!, { center: [102, 2, 0], radius: 0 }) &&
+    holds(s.bounds!, { center: [0, 0, 0], radius: 0 }));
   // A file's sphere stays.
   const u = scene([part({ brep: { format: 'step', payload: () => new Uint8Array([0]) } }), part()]);
   u.bounds = { center: [0, 0, 0], radius: 1, from: 'source' };

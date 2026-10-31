@@ -6,7 +6,7 @@
 // (a STEP face: its index ranges in the placement's mesh). Lengths are the world's millimetres.
 
 import * as THREE from 'three';
-import { enclose, type Sphere } from 'cad-scene';
+import { boxesSphere, type Box } from 'cad-scene';
 import { keepBias } from './depth-bias.ts';
 import type { NodeModel } from './model.ts';
 
@@ -102,12 +102,12 @@ export function measure(pieces: readonly Piece[]): Measures {
 }
 
 /**
- * The world sphere of pieces (zoom selected; the user, 2026-10-30: spheres, as zoom all): each one's around its box
- * (a whole object's geometry's, a partial one's vertices'), placed in the world, then combined as the model's are
- * (cad-scene's enclose). Empty for nothing.
+ * The world sphere of pieces (zoom selected; the user, 2026-10-30: spheres, as zoom all): each one's box (a whole
+ * object's geometry's, a partial one's vertices'), placed in the world by its corners, as the model's sphere is made
+ * (cad-scene's boxesSphere). Empty for nothing.
  */
 export function sphereOf(pieces: readonly Piece[]): THREE.Sphere {
-  const spheres: Sphere[] = [];
+  const boxes: { box: Box; matrix: ArrayLike<number> }[] = [];
   const v = new THREE.Vector3();
   for (const { object, ranges } of pieces) {
     object.updateWorldMatrix(true, false);
@@ -122,11 +122,10 @@ export function sphereOf(pieces: readonly Piece[]): THREE.Sphere {
         box.expandByPoint(v.fromBufferAttribute(pos, index.getX(i)));
       }
     }
-    if (box.isEmpty()) continue;
-    const s = box.getBoundingSphere(new THREE.Sphere()).applyMatrix4(object.matrixWorld);
-    spheres.push({ center: s.center.toArray(), radius: s.radius });
+    if (!box.isEmpty()) boxes.push({ box: { min: box.min.toArray(), max: box.max.toArray() },
+      matrix: object.matrixWorld.elements });
   }
-  const s = enclose(spheres);
+  const s = boxesSphere(boxes);
   return s ? new THREE.Sphere(new THREE.Vector3(...s.center), s.radius) : new THREE.Sphere().makeEmpty();
 }
 
