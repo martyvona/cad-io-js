@@ -22,6 +22,7 @@ import { chooseLod, exportView, meshDeflections, partInstances, tessellateScene 
 import { threemf, type ThreeMfOptions } from 'export-3mf';
 import { glb, gltfJson } from 'export-gltf';
 import { threejsJson } from 'export-threejs';
+import { importGltf } from 'gltf-import';
 import { importStep } from 'step-import';
 import { OcctTessellator } from 'tess-occt';
 import { main } from '../bin/viewer.ts';
@@ -3801,10 +3802,140 @@ await check('open errors', async () => {
 // suggested the file's name (a URL's last segment) and given exactly its bytes; cancelled, nothing said; without the
 // API, a download by that name (the link's click stubbed) with the same bytes; a load that fails before showing
 // its model leaves the last one's file to save; the next model shown, its file.
+// Export... (the user, 2026-10-31): the dialog, each format with its options, the save dialog asked with the name and
+// type, the file made in the import worker and written: GLB with Draco and with meshopt (their encoders in the
+// browser), .gltf embedded and with its .bin saved after (a second dialog), three.js JSON with edges, 3MF; the
+// viewer's hiding applied when asked; the choices remembered; Cancel saving nothing; disabled with no model.
+await check('export', async () => {
+  const r = await page(`?check`, `(async () => {
+    await cadViewer.ready;
+    const exp = ui.gui.controllersRecursive().find((c) => c._name === 'Export...');
+    const before = exp._disabled;
+    await ui.openUrl('/content/as1.stp');
+    await cadViewer.idle();
+    const frame = () => new Promise((res) => requestAnimationFrame(() => setTimeout(res, 0)));
+    const files = [];
+    window.showSaveFilePicker = async (o) => {
+      const f = { name: o.suggestedName, accept: Object.values(o.types?.[0]?.accept ?? {}).flat() };
+      files.push(f);
+      return { createWritable: async () => ({ write: async (d) => { f.bytes = new Uint8Array(await d.arrayBuffer()); },
+        close: async () => {} }) };
+    };
+    const waitFor = async (f) => { for (let i = 0; i < 600; i++) { const x = f(); if (x) return x; await frame(); } };
+    // Export... with these choices (the format, checkboxes by their key, compression), then the .bin's dialog.
+    const run = async (format, checks = {}, compression, cancel) => {
+      files.length = 0;
+      const done = exp.getValue().call(exp.object);
+      const d = await waitFor(() => document.querySelector('dialog.cv-dialog'));
+      const sel = d.querySelectorAll('select');
+      sel[0].value = format;
+      sel[0].dispatchEvent(new Event('change'));
+      if (compression) { sel[1].value = compression; sel[1].dispatchEvent(new Event('change')); }
+      for (const [k, v] of Object.entries(checks)) {
+        const box = d.querySelector('input[data-key=' + k + ']');
+        box.checked = v;
+        box.dispatchEvent(new Event('change'));
+      }
+      const shownBoxes = [...d.querySelectorAll('label.check')].filter((l) => !l.hidden)
+        .map((l) => l.querySelector('input').dataset.key);
+      d.querySelector(cancel ? 'button[value=cancel]' : 'button.primary').click();
+      if (format === 'gltf' && checks.embed === false) {
+        const b = await waitFor(() => [...document.querySelectorAll('dialog.cv-dialog')].find((x) =>
+          x.querySelector('h2').textContent === 'Save as1.bin'));
+        b.querySelector('button.primary').click();
+      }
+      await done;
+      return { files: files.map((f) => ({ name: f.name, accept: f.accept, size: f.bytes?.length ?? 0 })),
+        bytes: files.map((f) => f.bytes), shownBoxes, status: document.getElementById('status').textContent };
+    };
+    const text = (b) => new TextDecoder().decode(b);
+    // GLB's JSON chunk.
+    const glbJson = (b) => text(b.subarray(20, 20 + new DataView(b.buffer, b.byteOffset).getUint32(12, true)));
+    const out = {};
+    const pickBefore = cadViewer.pickAt(0.5, 0.5)?.path;
+    let x = await run('glb');
+    // The page's meshes back from the worker (lent for the export): picks, the triangles.
+    let detached = 0, attributes = 0;
+    viewer.scene.traverse((o) => { const g = o.geometry; if (!g?.attributes) return;
+      for (const at of [...Object.values(g.attributes), ...(g.index ? [g.index] : [])]) {
+        attributes++;
+        if (at.array?.buffer && at.array.buffer.byteLength === 0) detached++;
+      } });
+    out.back = { pick: cadViewer.pickAt(0.5, 0.5)?.path === pickBefore && pickBefore !== undefined,
+      positions: viewer.graph.meshes.values().next().value.positions.length > 0, detached, attributes };
+    out.draco = { files: x.files, magic: text(x.bytes[0].subarray(0, 4)), ext: glbJson(x.bytes[0])
+      .includes('KHR_draco_mesh_compression'), boxes: x.shownBoxes, status: x.status };
+    // Uncompressed, for reading back here: the model's own triangles in it.
+    x = await run('glb', { edges: false, curves: false }, 'none');
+    let bin = '';
+    for (let i = 0; i < x.bytes[0].length; i += 8192) bin += String.fromCharCode(...x.bytes[0].subarray(i, i + 8192));
+    out.plain = btoa(bin);
+    out.drawn = viewer.stats().triangles;
+    x = await run('glb', {}, 'meshopt');
+    out.meshopt = glbJson(x.bytes[0]).includes('EXT_meshopt_compression');
+    x = await run('gltf', { embed: true }, 'none');
+    out.embedded = { files: x.files, uri: JSON.parse(text(x.bytes[0])).buffers[0].uri.slice(0, 37) };
+    x = await run('gltf', { embed: false }, 'none');
+    const gj = JSON.parse(text(x.bytes[0]));
+    out.beside = { files: x.files, uri: gj.buffers[0].uri, length: gj.buffers[0].byteLength, bin: x.bytes[1]?.length,
+      status: x.status };
+    x = await run('threejs', { edges: true });
+    const tj = text(x.bytes[0]);
+    out.threejs = { files: x.files, type: JSON.parse(tj).metadata.type, lines: tj.includes('"LineSegments"'),
+      boxes: x.shownBoxes };
+    x = await run('3mf', { edges: false });
+    out.threemf = { files: x.files, magic: text(x.bytes[0].subarray(0, 2)), boxes: x.shownBoxes };
+    // The viewer's hiding: a part hidden, three.js JSON with and without it applied.
+    const m = ui.panel().model;
+    const hiddenCount = (b) => (text(b).match(/"visible":false/g) ?? []).length;
+    ui.setHidden([m.nodes.find((n) => n.kind === 'part').id], true);
+    x = await run('threejs', { shown: false });
+    const without = hiddenCount(x.bytes[0]);
+    x = await run('threejs', { shown: true });
+    out.shown = [without, hiddenCount(x.bytes[0])];
+    ui.showAll();
+    // Remembered: the next dialog starts with the last choice (three.js, applied).
+    exp.getValue().call(exp.object);
+    const d = await waitFor(() => document.querySelector('dialog.cv-dialog'));
+    out.remembered = [d.querySelector('select').value, d.querySelector('input[data-key=shown]').checked];
+    d.querySelector('button[value=cancel]').click();
+    await frame();
+    // Cancelled: nothing asked or saved.
+    x = await run('glb', {}, undefined, true);
+    out.cancelled = x.files.length;
+    return { before, ...out };
+  })()`) as { after: Record<string, any> };
+  const a = r.after, j = JSON.stringify({ ...a, plain: undefined });
+  expect(a.before === true, `disabled with no model: ${j}`);
+  expect(a.draco.files.length === 1 && a.draco.files[0].name === 'as1.glb' && a.draco.files[0].accept.join() ===
+    '.glb' && a.draco.magic === 'glTF' && a.draco.ext && /^exported as1\.glb, /.test(a.draco.status),
+  `GLB with Draco: ${j}`);
+  // (Not empty: the model's meshes in them, 8,048 triangles; the worker had handed its own to the page.)
+  expect([a.draco, a.embedded, a.threejs, a.threemf].every((x) => x.files[0].size > 10_000), `sizes: ${j}`);
+  expect(a.meshopt === true, `GLB with meshopt: ${j}`);
+  // Read back with our importer: as many placed triangles as the viewer draws.
+  const back = (await importGltf(Buffer.from(a.plain, 'base64'))).scene;
+  let placed = 0;
+  for (const pi of partInstances(back)) placed += (back.parts[pi.part]!.lods[0]?.mesh.indices.length ?? 0) / 3;
+  expect(placed === a.drawn && placed > 0, `read back: ${placed} triangles placed, ${a.drawn} drawn`);
+  expect(a.back.pick && a.back.positions && a.back.detached === 0 && a.back.attributes > 50, `the meshes back: ${j}`);
+  expect(a.embedded.files.length === 1 && a.embedded.files[0].name === 'as1.gltf' &&
+    a.embedded.uri === 'data:application/octet-stream;base64,', `.gltf embedded: ${j}`);
+  expect(a.beside.files.map((f: { name: string }) => f.name).join() === 'as1.gltf,as1.bin' &&
+    a.beside.uri === 'as1.bin' && a.beside.bin === a.beside.length && /and as1\.bin/.test(a.beside.status),
+  `.gltf and its .bin: ${j}`);
+  expect(a.threejs.files[0].name === 'as1.json' && a.threejs.type === 'Object' && a.threejs.lines &&
+    !a.threejs.boxes.includes('instancing'), `three.js JSON: ${j}`);
+  expect(a.threemf.files[0].name === 'as1.3mf' && a.threemf.magic === 'PK' && a.threemf.boxes.includes('assembly') &&
+    !a.threemf.boxes.includes('edges'), `3MF: ${j}`);
+  expect(a.shown[1] === a.shown[0] + 1, `the viewer's hiding: ${j}`);
+  expect(a.remembered.join() === 'threejs,true' && a.cancelled === 0, `remembered, cancelled: ${j}`);
+  return undefined;
+});
 await check('save', async () => {
   const r = await page(`?check`, `(async () => {
     await cadViewer.ready;
-    const save = ui.gui.controllersRecursive().find((c) => c._name === 'Save...');
+    const save = ui.gui.controllersRecursive().find((c) => c._name === 'Save original...');
     const before = save._disabled;
     await ui.openUrl('/content/as1.stp');
     await cadViewer.idle();
@@ -3812,7 +3943,7 @@ await check('save', async () => {
     const same = (b) => b.length === want.length && b.every((x, i) => x === want[i]);
     let suggested, written;
     window.showSaveFilePicker = async (o) => { suggested = o.suggestedName; return { createWritable: async () => ({
-      write: async (d) => { written = new Uint8Array(d); }, close: async () => {} }) }; };
+      write: async (d) => { written = new Uint8Array(await d.arrayBuffer()); }, close: async () => {} }) }; };
     await save.getValue().call(save.object);
     const status = document.getElementById('status').textContent;
     window.showSaveFilePicker = async () => { throw new DOMException('cancelled', 'AbortError'); };
@@ -3854,14 +3985,15 @@ await check('missing file', async () => {
 });
 
 // What a build holds (printing nothing as it's made): one Draco decoder (draco3dgltf's, for gltf-import in the import
-// worker: the GLBs above loaded through it); licenses.md with the npm packages' licenses and OCCT's, not precached by
+// worker: the GLBs above loaded through it) and its encoder (for Export..., export-gltf there); licenses.md with the npm packages' licenses and OCCT's, not precached by
 // its service worker (which precaches OCCT's module).
 if (staticServer) {
   await check('build', async () => {
     expect(buildOutput.trim() === '', `the build printed: ${buildOutput.slice(0, 1000)}`);
     const assets = fs.readdirSync(path.join(dist, 'assets'));
     const draco = assets.filter((f) => f.startsWith('draco_'));
-    expect(draco.length === 1 && /^draco_decoder_gltf-.*\.wasm$/.test(draco[0]!), `Draco's files: ${draco}`);
+    expect(draco.length === 2 && draco.some((f) => /^draco_decoder_gltf-.*\.wasm$/.test(f)) &&
+      draco.some((f) => /^draco_encoder-.*\.wasm$/.test(f)), `Draco's files: ${draco}`);
     const licenses = fs.readFileSync(path.join(dist, 'licenses.md'), 'utf8');
     expect(['### three - 0.186.1 (MIT)', '### @headless-tree/core', '`@gltf-transform/core`', 'draco3dgltf',
       'meshoptimizer', 'Open CASCADE exception (version 1.0)',

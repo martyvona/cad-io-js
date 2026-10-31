@@ -93,6 +93,8 @@ export class SceneGraph implements Looks {
    * 2026-10-31), by its PartInstance, so it holds for meshes that arrive later.
    */
   private readonly looks = new Map<PartInstance, PlacementLook>();
+  /** Each part's mesh drawn, as addMesh was given it (lent to the import worker to export: viewer.ts). */
+  readonly meshes = new Map<number, Mesh>();
   /** The objects addMesh made for each part, one per placement (replaced by its next mesh). */
   private readonly made = new Map<number, THREE.Object3D[]>();
 
@@ -186,6 +188,7 @@ export class SceneGraph implements Looks {
     const placements = this.placements.get(part) ?? [];
     if (!placements.length) return [];
     this.removeMesh(part);
+    this.meshes.set(part, mesh);
     const triangles = mesh.indices.length > 0;
     let attrs: { position: THREE.BufferAttribute; normal?: THREE.BufferAttribute; index: THREE.BufferAttribute }
       | undefined;
@@ -286,6 +289,11 @@ export class SceneGraph implements Looks {
     return made;
   }
 
+  /** Every geometry made for parts' faces (each colouring's, shown or not). */
+  forEachGeometry(f: (g: THREE.BufferGeometry) => void): void {
+    for (const m of this.meshed.values()) for (const g of m.geometries.values()) f(g);
+  }
+
   /** Whether a part has a mesh drawn. */
   hasMesh(part: number): boolean {
     return this.made.has(part);
@@ -302,6 +310,7 @@ export class SceneGraph implements Looks {
     }
     for (const g of this.meshed.get(part)?.geometries.values() ?? []) g.dispose();
     this.made.delete(part);
+    this.meshes.delete(part);
     this.meshed.delete(part);
   }
 

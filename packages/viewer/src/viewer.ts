@@ -31,9 +31,19 @@ import { DEFAULT_RENDER, EDGES, type RenderSettings } from './style.ts';
 import { TriangleEdges } from './triangle-edges.ts';
 import type { FromImportWorker, ToImportWorker } from './import-worker.ts';
 import type { Meshing, ModelEvent, ModelInput } from './model-load.ts';
+import type { Exported } from './export-model.ts';
+import type { ExportRequest } from './export-formats.ts';
+
 import type { ImportProgress } from 'step-import';
 import { clearCache, defaultSettings, deflectionsOf, workerCount, type TessellationSettings } from './tessellation.ts';
 import { classifyDevice, DEVICE_PROFILES, deviceOverride, deviceSignals, type DeviceClass } from './device.ts';
+
+/** A mesh's typed arrays (lent to the import worker to export, and taken back: Viewer.exportModel). */
+const MESH_ARRAYS = ['positions', 'normals', 'indices', 'edgePositions', 'curvePositions', 'points',
+  'faceOutlinePositions'] as const;
+
+/** The import worker's messages about a load. */
+type LoadMessage = Exclude<FromImportWorker, { type: 'exported' | 'export-error' }>;
 
 export interface ModelInfo {
   name: string;
@@ -169,9 +179,13 @@ export class Viewer {
   /** Counts loads, so a superseded one's late results are dropped. */
   private generation = 0;
   private meshing = false;
+  /** Whether a model is loading or being meshed (Export waits for it). */
+  get loading(): boolean {
+    return this.meshing;
+  }
   private readonly container: HTMLElement;
   private worker?: Worker;
-  private readonly importListeners = new Map<number, (m: FromImportWorker) => void>();
+  private readonly importListeners = new Map<number, (m: LoadMessage) => void>();
   private abortLoad?: () => void;
   private readonly composer: Composer;
   /** The section planes and their caps. */
@@ -680,15 +694,86 @@ export class Viewer {
     } };
   }
 
+  /** Exports waiting for the import worker's answer, by their number. */
+  private readonly exports = new Map<number, (m: Extract<FromImportWorker, { type: 'exported' | 'export-error' }>)
+    => void>();
+  private exportCount = 0;
+
+  /**
+   * The model exported by the import worker (export-model.ts), as it was imported and meshed: the files' pieces.
+   * The worker handed its meshes' buffers to the page as they came (no copies), so the page lends them back for the
+   * export (the user, 2026-10-31, of three: also the worker keeping copies, or the page copying them over), and they
+   * come back with the files: meanwhile the page has no meshes on the CPU (picking, caps and the like would find
+   * none), so the caller blocks the page (showBusy). Rejects when nothing's loaded there, or the exporter fails; the
+   * meshes come back either way.
+   */
+  exportModel(request: ExportRequest): Promise<Exported> {
+    const id = ++this.exportCount;
+    const meshes = [...this.graph?.meshes ?? []];
+    const buffers = [...new Set(meshes.flatMap(([, m]) => MESH_ARRAYS.flatMap((k) => {
+      const a = m[k] as ArrayBufferView | undefined;
+      return a && a.buffer instanceof ArrayBuffer && a.buffer.byteLength ? [a.buffer] : [];
+    })))];
+    return new Promise((resolve, reject) => {
+      this.exports.set(id, (m) => {
+        this.exports.delete(id);
+        this.takeBack(meshes, m.meshes);
+        if (m.type === 'exported') resolve(m.result);
+        else reject(new Error(m.message));
+      });
+      this.importer().postMessage({ type: 'export', id, request, meshes } satisfies ToImportWorker, buffers);
+    });
+  }
+
+  /**
+   * The lent meshes back: their arrays (new ones, on the buffers the worker returns) in place of the detached ones,
+   * in the meshes themselves and in every three.js attribute that held them.
+   */
+  private takeBack(lent: [number, Mesh][], back: [number, Mesh][]): void {
+    const now = new Map<unknown, ArrayLike<number>>();
+    const returned = new Map(back);
+    for (const [part, mesh] of lent) {
+      const r = returned.get(part);
+      if (!r) continue;
+      for (const k of MESH_ARRAYS) {
+        if (mesh[k] && r[k]) now.set(mesh[k], r[k] as ArrayLike<number>);
+        (mesh as unknown as Record<string, unknown>)[k] = r[k];
+      }
+    }
+    const swap = (a: THREE.BufferAttribute | THREE.InterleavedBufferAttribute | null | undefined) => {
+      if (!a || !(a instanceof THREE.BufferAttribute)) return;
+      const n = now.get(a.array);
+      if (n) a.array = n as typeof a.array;
+    };
+    this.scene.traverse((o) => {
+      const g = (o as THREE.Mesh).geometry as THREE.BufferGeometry | undefined;
+      if (!g?.attributes) return;
+      for (const a of Object.values(g.attributes)) swap(a as THREE.BufferAttribute);
+      swap(g.index);
+    });
+    // (Geometries no object holds now: a part's other colourings, kept for reuse.)
+    this.graph?.forEachGeometry((g) => {
+      for (const a of Object.values(g.attributes)) swap(a as THREE.BufferAttribute);
+      swap(g.index);
+    });
+  }
+
   /** The import worker, started when first needed and kept for later files. */
   private importer(): Worker {
     if (!this.worker) {
       const w = new Worker(new URL('./import-worker.ts', import.meta.url), { type: 'module' });
-      w.onmessage = (e: MessageEvent<FromImportWorker>) => this.importListeners.get(e.data.load)?.(e.data);
+      w.onmessage = (e: MessageEvent<FromImportWorker>) => {
+        const m = e.data;
+        if (m.type === 'exported' || m.type === 'export-error') return this.exports.get(m.id)?.(m);
+        this.importListeners.get(m.load)?.(m);
+      };
       w.onerror = (e) => {
         e.preventDefault();
         for (const l of this.importListeners.values()) l({ type: 'error', message: e.message || 'the import worker '
           + 'failed', load: -1 });
+        // (The lent meshes lost with it: the page's stay without their arrays, so a model should be loaded again.)
+        for (const [id, l] of this.exports) l({ type: 'export-error', id, message: e.message || 'the import worker '
+          + 'failed', meshes: [] });
       };
       this.worker = w;
     }

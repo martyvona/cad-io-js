@@ -262,3 +262,12 @@ test('edgesOf: on 1 um in the world, whatever the mesh\'s unit; placedScales fro
   // The fixture's plate is placed in inches: 25.4 mm a unit.
   assert.ok(Math.abs(placedScales(fixture()).get(0)! - 25.4) < 1e-9);
 });
+
+test('loadModelIn: keep has the scene, its meshes as its parts\' levels once meshed (to export)', { skip }, async () => {
+  const { tessellation } = fake();
+  let kept: Scene | undefined;
+  await loadModelIn(stepInput(), DEFAULT_SETTINGS, 2, tessellation, () => {}, () => false, {}, (s) => { kept = s; });
+  assert.ok(kept);
+  const meshed = kept!.parts.filter((p) => p.brep && p.lods.some((l) => l.from === 'tessellated'));
+  assert.equal(meshed.length, kept!.parts.filter((p) => p.brep).length);
+});

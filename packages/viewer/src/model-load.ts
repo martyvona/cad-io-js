@@ -122,11 +122,11 @@ export function meshBuffers(mesh: Mesh | undefined): ArrayBuffer[] {
 
 /**
  * Imports a model and meshes its placed brep parts, telling `emit` as it goes; stops early, quietly, once
- * `cancelled` says so (the caller stops the tessellation too).
+ * `cancelled` says so (the caller stops the tessellation too). `keep` is given the scene as soon as it's imported.
  */
 export async function loadModelIn(input: ModelInput, settings: TessellationSettings, workers: number,
   tessellation: Pick<Tessellation, 'get' | 'describe'>, emit: (e: ModelEvent, transfer?: ArrayBuffer[]) => void,
-  cancelled: () => boolean, gltf: GltfImportOptions = {}): Promise<void> {
+  cancelled: () => boolean, gltf: GltfImportOptions = {}, keep?: (scene: Scene) => void): Promise<void> {
   // The import's phases as they begin, and its progress through them at most every PROGRESS_MS.
   let told = -Infinity, phase = '';
   const onProgress = (progress: ImportProgress) => {
@@ -137,6 +137,8 @@ export async function loadModelIn(input: ModelInput, settings: TessellationSetti
   };
   const scene = await importModel(input, gltf, { tessellated: settings.tessellated, onProgress });
   if (cancelled()) return;
+  // (Kept by the caller, to export later: the meshes go into its parts' levels as they're made.)
+  keep?.(scene);
   // The levels shown that have no edges of their own get edges found from their triangles, part by part, after the
   // scene goes (edges.ts; the user, 2026-10-31: off the page's thread, and not holding up meshing); those levels'
   // buffers are copied to the page rather than transferred, as they're needed here meanwhile.

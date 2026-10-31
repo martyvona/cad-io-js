@@ -71,9 +71,10 @@ const licenses = (): Plugin => ({
       // (Vite lists only the page's own packages, not the import worker's, which are these.)
       '- in the import worker, glTF-Transform (`@gltf-transform/core`, `@gltf-transform/extensions`, with ' +
         '`property-graph` and `ktx-parse`, all MIT; https://github.com/donmccurdy/glTF-Transform), Draco\'s glTF ' +
-        'decoder (draco3dgltf, `assets/draco_*` and `draco3dgltf-*.js`: Apache-2.0; https://github.com/google/draco) ' +
-        'meshoptimizer\'s decoder (MIT; https://github.com/zeux/meshoptimizer) and fflate (3MF\'s zip; MIT; ' +
-        'https://github.com/101arrowz/fflate);',
+        'decoder and its encoder (draco3dgltf, `assets/draco_*` and `draco3dgltf-*.js`: Apache-2.0; ' +
+        'https://github.com/google/draco), meshoptimizer\'s decoder and encoder (MIT; ' +
+        'https://github.com/zeux/meshoptimizer) and fflate (3MF\'s zip and its reading; MIT; ' +
+        'https://github.com/101arrowz/fflate), with cad-io-js\'s exporters (Export...);',
       '- the npm packages Vite lists below (the page\'s).',
     ];
     fs.writeFileSync(path.join(dir, 'licenses.md'), [

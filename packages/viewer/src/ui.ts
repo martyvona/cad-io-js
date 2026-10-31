@@ -11,7 +11,7 @@ import { showAbout } from './about.ts';
 import { VERSION } from './version.ts';
 import { applyCustomBackground, applyTheme, customBackground, hexColour, onSystemTheme, themeChoice, type ThemeChoice,
   VIEW_BACKGROUNDS } from './theme.ts';
-import { askUrl, showDialog } from './dialog.ts';
+import { askUrl, showBusy, showDialog } from './dialog.ts';
 import { formatIds, nodesWithIds, parseIds, partsWithFaces, stepIdsOf } from './step-ids.ts';
 import { showProblems } from './problems.ts';
 import { AXES, DEFAULT_SECTIONS, type SectionSettings } from './section.ts';
@@ -22,7 +22,10 @@ import { DEVICE_PROFILES, setDeviceOverride, type DeviceClass } from './device.t
 import { defaultSettings, profileSettings, type TessellationSettings } from './tessellation.ts';
 import { TreePanel } from './tree-panel.ts';
 import { formatOf } from './formats.ts';
-import { fromFiles, fromUrl, pickFiles, saveFile, typedUrl, type Source } from './sources.ts';
+import { fromFiles, fromUrl, pickFiles, saveFile, saveTarget, typedUrl, type Source } from './sources.ts';
+import { askExport, rememberedExport } from './export-dialog.ts';
+import { EXPORT_FORMATS } from './export-formats.ts';
+import { shownEdits } from './export-shown.ts';
 import { visibleBox, type Viewer } from './viewer.ts';
 import type { AppearanceOverride, NodeModel, PathOverride, Slot } from './model.ts';
 import { closeAppearance, refreshAppearance, showAppearance } from './appearance-dialog.ts';
@@ -192,9 +195,66 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     const id = restore?.top && viewer.nodes?.find(restore.top.path);
     if (id !== undefined && panel) panel.scrollToRow(id, restore!.top!.offset);
   };
-  // The open model's file, for Save... (its control made with the File folder, below).
+  // The open model's file, for Save original... and Export... (their controls made with the File folder, below).
   let saving: Source | undefined;
   let saveControl: { enable(on?: boolean): unknown; disable(): unknown } | undefined;
+  let exportControl: { enable(on?: boolean): unknown; disable(): unknown } | undefined;
+  const exportFile = async () => {
+    const src = saving;
+    const nodes = viewer.nodes, graph = viewer.graph;
+    if (!src || !nodes || !graph) return;
+    if (viewer.loading) return say(`${src.name}: still loading; export once it's meshed`, true);
+    const choice = await askExport(rememberedExport());
+    if (!choice) return;
+    const { shown, ...options } = choice;
+    const f = EXPORT_FORMATS[choice.format];
+    // The model's name without its extension (.stpZ, .glb, ...).
+    const base = src.name.replace(/\.[^.]*$/, '') || 'model';
+    const name = `${base}${f.ext}`;
+    const fail = (e: unknown) => {
+      say(`exporting ${name}: ${(e as Error).message}`, true);
+      void showDialog({ title: `Could not export ${name}`, error: true, body: [(e as Error).message],
+        buttons: [{ label: 'OK', value: 'ok', primary: true }] });
+    };
+    try {
+      const target = await saveTarget(name, { description: f.label, mime: f.mime, ext: f.ext });
+      if (!target) return;
+      say(`exporting ${name}...`);
+      const edits = shown ? shownEdits(graph.scene, nodes, graph) : undefined;
+      // (The page blocked meanwhile: its meshes are lent to the import worker, Viewer.exportModel.)
+      const done = showBusy(`Exporting ${name}`, 'The view is paused until the file is made.');
+      let r;
+      try {
+        r = await viewer.exportModel({ ...options, name: base, bin: `${base}.bin`,
+          ...(edits ? { shown: { materials: edits.materials, overrides: edits.overrides } } : {}) });
+      } finally {
+        done();
+      }
+      await target.write(r.chunks as BlobPart[]);
+      const size = r.chunks.reduce((n, c) => n + (typeof c === 'string' ? new Blob([c]).size : c.length), 0);
+      const warnings = [...edits?.warnings ?? [], ...r.diagnostics.filter((d) => d.severity !== 'info')
+        .map((d) => d.message)];
+      if (warnings.length) console.warn('export:', warnings);
+      let bin = '';
+      if (r.bin) {
+        // (A second click, for the save dialog of its .bin.)
+        const again = await showDialog({ title: `Save ${base}.bin`, body: [`${name} names its buffer ${base}.bin: ` +
+          'save it beside it, in the same folder.'], buttons: [{ label: 'Save .bin...', value: 'save', primary: true },
+          { label: 'Skip', value: 'skip' }] });
+        const t = again.button === 'save' ? await saveTarget(`${base}.bin`, { description: 'glTF buffer',
+          mime: 'application/octet-stream', ext: '.bin' }) : undefined;
+        if (t) {
+          await t.write([r.bin as BlobPart]);
+          bin = ` and ${base}.bin`;
+        } else bin = ` (not its ${base}.bin)`;
+      }
+      const amount = size < 1e6 ? `${Math.max(1, Math.round(size / 1e3))} KB` : `${(size / 1e6).toFixed(1)} MB`;
+      say(`${target.how === 'saved' ? 'exported' : 'downloaded'} ${name}${bin}, ${amount}` +
+        (warnings.length ? `; ${warnings.length} warnings (in the console): ${warnings[0]}` : ''), warnings.length > 0);
+    } catch (e) {
+      fail(e);
+    }
+  };
   // The last open's, however it began (a control, a dialog, a dropped file, cadViewer), for cadViewer.idle.
   let opening: Promise<unknown> = Promise.resolve();
   const open = (get: () => Promise<Source | undefined>, what: string, keep = false):
@@ -309,7 +369,11 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       void showDialog({ title: `Could not save ${src.name}`, error: true, body: [(e as Error).message],
         buttons: [{ label: 'OK', value: 'ok', primary: true }] });
     }
-  } }, 'save').name('Save...').disable();
+  } }, 'save').name('Save original...').disable();
+  // The model exported (the user, 2026-10-31): a format and its options (export-dialog.ts), where to save it asked at
+  // once (the dialog's click lets the page open the save dialog), then made in the import worker (export-model.ts)
+  // and written; a .gltf with its buffer beside it asks again for the .bin.
+  exportControl = file.add({ export: () => exportFile() }, 'export').name('Export...').disable();
   // (With the model open: its file, objects and triangles, as they are now.)
   file.add({ about: () => {
     const s = viewer.model && viewer.stats();
@@ -536,6 +600,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     // Save... saves the file of the model shown (a load that fails before showing its model leaves the last one).
     saving = last;
     saveControl?.enable(!!saving);
+    exportControl?.enable(!!saving);
     panel?.dispose();
     closeMenu();
     closeAppearance();

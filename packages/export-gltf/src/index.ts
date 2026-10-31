@@ -77,6 +77,11 @@ export interface GltfOptions {
   instancing?: boolean;
   /** Keep tree nodes with nothing to draw beneath them. Default false. */
   keepEmpty?: boolean;
+  /**
+   * Settings for Draco's encoder module (draco3dgltf's Emscripten module), as a bundled page needs: `wasmBinary`, the
+   * bytes of `draco_encoder.wasm`, or a `locateFile` finding it. The first encoding call's are kept.
+   */
+  draco?: Record<string, unknown>;
 }
 
 export type LineKind = 'edges' | 'curves' | 'points';
@@ -117,7 +122,7 @@ export async function gltfDocument(scene: Scene, view: ExportView, opts: GltfOpt
 export async function glb(scene: Scene, view: ExportView, opts: GltfOptions = {}): Promise<{ bytes: Uint8Array;
   diagnostics: Diagnostic[] }> {
   const { document, diagnostics } = await gltfDocument(scene, view, opts);
-  const { json, resources } = await write(document, Format.GLB);
+  const { json, resources } = await write(document, Format.GLB, opts);
   return { bytes: packGlb(json, Object.values(resources)[0]), diagnostics };
 }
 
@@ -131,7 +136,7 @@ export async function gltfJson(scene: Scene, view: ExportView, bin: string | und
   const { document, diagnostics } = await gltfDocument(scene, view, opts);
   const uri = bin ?? 'buffer.bin';
   for (const b of document.getRoot().listBuffers()) b.setURI(uri);
-  const { json, resources } = await write(document, Format.GLTF);
+  const { json, resources } = await write(document, Format.GLTF, opts);
   const bytes = resources[uri] ?? new Uint8Array();
   if (bin !== undefined) return { json: JSON.stringify(json), bin: bytes, diagnostics };
   for (const b of json.buffers ?? []) b.uri = `data:application/octet-stream;base64,${base64(bytes)}`;
@@ -158,11 +163,11 @@ async function meshoptEncoder(): Promise<MeshoptEncoderModule> {
 }
 
 /** The encoders a document's compression needs, loaded once each. */
-async function encoders(document: Document): Promise<Record<string, unknown>> {
+async function encoders(document: Document, opts: GltfOptions): Promise<Record<string, unknown>> {
   const used = document.getRoot().listExtensionsUsed().map((e) => e.extensionName);
   const deps: Record<string, unknown> = {};
   if (used.includes(KHRDracoMeshCompression.EXTENSION_NAME)) {
-    dracoEncoder ??= import('draco3dgltf').then((m) => m.default.createEncoderModule());
+    dracoEncoder ??= import('draco3dgltf').then((m) => m.default.createEncoderModule(opts.draco ?? {}));
     deps['draco3d.encoder'] = await dracoEncoder;
   }
   if (used.includes(EXTMeshoptCompression.EXTENSION_NAME)) deps['meshopt.encoder'] = await meshoptEncoder();
@@ -174,11 +179,11 @@ async function encoders(document: Document): Promise<Record<string, unknown>> {
  * leaves out any within 1e-5 of the default, which drops rotations of up to about 2e-5 rad (20 um a metre away)
  * and scales within 1e-5 of 1 (CLAUDE.md, "JavaScript, Node and the libraries").
  */
-async function write(document: Document, format: Format): Promise<JSONDocument> {
+async function write(document: Document, format: Format, opts: GltfOptions): Promise<JSONDocument> {
   const out = await new WebIO().setLogger(new Logger(Logger.Verbosity.ERROR))
     .registerExtensions([KHRMaterialsUnlit, KHRNodeVisibility, EXTMeshGPUInstancing, KHRDracoMeshCompression,
       EXTMeshoptCompression, KHRMeshQuantization])
-    .registerDependencies(await encoders(document)).writeJSON(document, { format });
+    .registerDependencies(await encoders(document, opts)).writeJSON(document, { format });
   const nodes = document.getRoot().listNodes(); // the writer's order
   out.json.nodes?.forEach((def, i) => {
     const n = nodes[i]!;

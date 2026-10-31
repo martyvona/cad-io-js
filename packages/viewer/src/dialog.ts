@@ -181,6 +181,27 @@ export function draggable(dialog: HTMLElement, handle: HTMLElement): void {
   handle.addEventListener('pointercancel', end);
 }
 
+/**
+ * A modal that blocks the page until it's closed by the caller (Escape doesn't): a title and a line, as while
+ * exporting (the page's meshes lent to the import worker meanwhile: viewer.ts). Returns its close.
+ */
+export function showBusy(title: string, text: string): () => void {
+  const dialog = document.createElement('dialog');
+  dialog.className = 'cv-dialog';
+  const h = document.createElement('h2');
+  h.textContent = title;
+  const p = document.createElement('p');
+  p.textContent = text;
+  dialog.append(h, p);
+  dialog.addEventListener('cancel', (e) => e.preventDefault());
+  document.body.append(dialog);
+  dialog.showModal();
+  return () => {
+    dialog.close();
+    dialog.remove();
+  };
+}
+
 /** Asks for a URL to load (typed or pasted); undefined if cancelled or left empty. */
 export async function askUrl(o: { title?: string; body?: DialogOptions['body']; value?: string } = {}):
   Promise<string | undefined> {

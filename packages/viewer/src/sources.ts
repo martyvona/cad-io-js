@@ -109,38 +109,57 @@ export async function modelInput(src: Source, format: Format): Promise<ModelInpu
 }
 
 interface SaverWindow {
-  showSaveFilePicker?(o: { suggestedName?: string }): Promise<{ createWritable(): Promise<{
-    write(data: ArrayBuffer): Promise<void>; close(): Promise<void> }> }>;
+  showSaveFilePicker?(o: { suggestedName?: string; types?: { description: string; accept: Record<string,
+    string[]> }[] }): Promise<{ createWritable(): Promise<{ write(data: Blob): Promise<void>; close(): Promise<void> }> }>;
+}
+
+/** Where a file goes once it's made: written by the save dialog's choice, or downloaded. */
+export interface SaveTarget {
+  how: 'saved' | 'downloaded';
+  write(parts: BlobPart[]): Promise<void>;
 }
 
 /**
- * Saves a file's bytes where the user chooses (the user, 2026-10-28: File's Save...): the browser's save dialog
- * (File System Access, as Open file uses: desktop Chrome in a secure context), its name suggested; elsewhere a
- * download by that name (the browser's downloads folder, or its asking, as its settings say). Throws if writing
- * fails.
+ * Asks where a file goes (the user, 2026-10-28: File's Save...; 2026-10-31: Export...): the browser's save dialog
+ * (File System Access, as Open file uses: desktop Chrome in a secure context), its name suggested and, given a type,
+ * its extension kept; elsewhere a download by that name when it's written (the browser's downloads folder, or its
+ * asking, as its settings say). Asked first, so a file made afterwards (an export, seconds later) can still be saved:
+ * the dialog needs the page's click. Undefined if cancelled; the target's write throws if writing fails.
  */
-export async function saveFile(name: string, bytes: ArrayBuffer): Promise<'saved' | 'downloaded' | 'cancelled'> {
+export async function saveTarget(name: string, type?: { description: string; mime: string; ext: string }):
+  Promise<SaveTarget | undefined> {
   const w = window as SaverWindow;
   if (w.showSaveFilePicker && window.isSecureContext) {
     let handle;
     try {
-      handle = await w.showSaveFilePicker({ suggestedName: name });
+      handle = await w.showSaveFilePicker({ suggestedName: name,
+        ...(type ? { types: [{ description: type.description, accept: { [type.mime]: [type.ext] } }] } : {}) });
     } catch (e) {
-      if ((e as Error).name === 'AbortError') return 'cancelled';
+      if ((e as Error).name === 'AbortError') return undefined;
       throw e;
     }
-    const out = await handle.createWritable();
-    await out.write(bytes);
-    await out.close();
-    return 'saved';
+    return { how: 'saved', write: async (parts) => {
+      const out = await handle.createWritable();
+      await out.write(new Blob(parts));
+      await out.close();
+    } };
   }
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([bytes]));
-  a.download = name;
-  a.click();
-  // (Revoked once the download has surely begun.)
-  setTimeout(() => URL.revokeObjectURL(a.href), 60_000);
-  return 'downloaded';
+  return { how: 'downloaded', write: async (parts) => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob(parts));
+    a.download = name;
+    a.click();
+    // (Revoked once the download has surely begun.)
+    setTimeout(() => URL.revokeObjectURL(a.href), 60_000);
+  } };
+}
+
+/** Saves a file's bytes where the user chooses (saveTarget). */
+export async function saveFile(name: string, bytes: ArrayBuffer): Promise<'saved' | 'downloaded' | 'cancelled'> {
+  const t = await saveTarget(name);
+  if (!t) return 'cancelled';
+  await t.write([bytes]);
+  return t.how;
 }
 
 interface PickerWindow { showOpenFilePicker?(o: { multiple: boolean }): Promise<{ getFile(): Promise<File> }[]> }
