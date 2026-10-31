@@ -13,7 +13,7 @@ import { VIEW_BACKGROUNDS, type Theme } from './theme.ts';
 import * as THREE from 'three';
 import { TrackballControls } from 'three/addons/controls/TrackballControls.js';
 import { around, chooseLod, meshDeflections, type Diagnostic, type Mesh, type Vec3 } from 'cad-scene';
-import { clipTo, fitCamera, fitSphere, interpolateCamera, setAspect, smoothstep, viewCamera,
+import { clipTo, fitCamera, fitSphere, interpolateCamera, setAspect, smoothstep, viewCamera, VIEWS,
   type ViewName } from './camera.ts';
 import type { CameraState } from './view-state.ts';
 import { formatOf, type Format } from './formats.ts';
@@ -409,6 +409,15 @@ export class Viewer {
     this.display.add(root);
     this.model = model;
     this.moved = keep;
+    // A new model's view starts from the default pose, iso about the origin (the user, 2026-10-30), which the fit
+    // while loading then centres and zooms; meshing the same model again keeps the view.
+    if (!keep) {
+      this.flight = undefined;
+      this.controls.target.set(0, 0, 0);
+      this.camera.up.set(...VIEWS.iso.up);
+      this.camera.position.set(...VIEWS.iso.dir).normalize();
+      this.camera.lookAt(this.controls.target);
+    }
     this.fit.start();
     this.triangleEdges.invalidate();
     this.fatEdges.invalidate();

@@ -412,6 +412,36 @@ await check('zoom while loading', async () => {
 // Camera flights (the user, 2026-10-30): zoom all, zoom selected and the views ease there over a second
 // (smoothstep), from where the camera is; a view turns about the orbit centre, its zoom and pan kept; idle() waits
 // for the flight; the user's own input stops it where it is.
+// A new model starts from the default pose (the user, 2026-10-30): iso, centred on its sphere, however the last was
+// turned and panned; meshing the same model again keeps the view.
+await check('pose on load', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    const v = globalThis.viewer;
+    const src = async (name) => ({ name, bytes: await (await fetch('/content/' + name)).arrayBuffer() });
+    const dir = () => { const s = v.cameraState(); const d = s.position.map((x, k) => x - s.target[k]);
+      const n = Math.hypot(...d); return d.map((x) => x / n); };
+    v.setCamera({ position: [500, 400, 900], target: [300, 200, 100], up: [0, 1, 0], height: 50 });
+    await v.load(await src('as1.glb'));
+    await cadViewer.idle();
+    const loaded = { dir: dir(), up: v.cameraState().up, target: v.cameraState().target,
+      centre: v.modelSphere().center.toArray() };
+    v.setCamera({ position: [500, 400, 900], target: [300, 200, 100], up: [0, 1, 0], height: 50 });
+    const before = v.cameraState();
+    await v.load(await src('as1.stp'), { keep: true });
+    await cadViewer.idle();
+    return { loaded, before, kept: v.cameraState() };
+  })()`) as { after: { loaded: { dir: number[]; up: number[]; target: number[]; centre: number[] };
+    before: Record<string, unknown>; kept: Record<string, unknown> } };
+  const a = r.after;
+  const j = JSON.stringify(a);
+  const iso = 1 / Math.sqrt(3);
+  expect(a.loaded.dir.every((x, k) => Math.abs(x - [iso, -iso, iso][k]!) < 1e-9), `not iso: ${j}`);
+  // (Up as the fit leaves it: across the view, towards +Z.)
+  expect(a.loaded.up[2]! > 0.8 && a.loaded.target.every((x, k) => Math.abs(x - a.loaded.centre[k]!) < 1e-6),
+    `not centred upright: ${j}`);
+  expect(JSON.stringify(a.kept) === JSON.stringify(a.before), `Mesh again moved the view: ${j}`);
+  return undefined;
+});
 await check('camera flights', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
     const v = globalThis.viewer;
