@@ -312,6 +312,38 @@ export class Viewer {
     for (const type of ['pointerup', 'pointercancel'] as const) {
       canvas.addEventListener(type, (e) => touches.delete(e.pointerId));
     }
+    // Safari's pinch on a Mac's touchpad (2026-10-31): WebKit's gesture events, not Chrome's wheel events with ctrl,
+    // each with the fingers' scale since the gesture began, so zoomed by its change, 1:1 with the fingers, about the
+    // point under them. Ctrl-wheel events during one are let go, in case a browser sends both; on iPhone and iPad
+    // the gesture comes with two touches, which the controls already zoom by. Page zoom is prevented either way.
+    let gestureScale = 0;
+    type Gesture = Event & { scale?: number; clientX?: number; clientY?: number };
+    canvas.addEventListener('gesturestart', (e: Gesture) => {
+      e.preventDefault();
+      if (touches.size || !e.scale) return;
+      gestureScale = e.scale;
+      this.zoomAnchor = { x: e.clientX ?? 0, y: e.clientY ?? 0, fresh: true };
+      this.moved = true;
+      this.flight = undefined;
+    });
+    canvas.addEventListener('gesturechange', (e: Gesture) => {
+      e.preventDefault();
+      if (!gestureScale || touches.size || !e.scale) return;
+      const factor = gestureScale / e.scale;
+      gestureScale = e.scale;
+      this.zoomAt(factor, this.controls.minZoom, this.controls.maxZoom);
+      this.frames.request();
+    });
+    canvas.addEventListener('gestureend', (e) => {
+      e.preventDefault();
+      gestureScale = 0;
+    });
+    container.addEventListener('wheel', (e) => {
+      if (gestureScale && e.ctrlKey) {
+        e.stopPropagation();
+        e.preventDefault();
+      }
+    }, { capture: true, passive: false });
 
     this.frames = new Frames(() => this.draw());
     new ResizeObserver(() => this.resize()).observe(container);

@@ -499,6 +499,52 @@ await check('panning', async () => {
 // that line under the cursor (the point picked there stays put); over empty space, the orbit centre stays where it
 // is (2026-10-31; first slid onto the line), the zoom still about the cursor. A touchpad's pinch (ctrl, a few pixels
 // an event) zooms e^(pixels / 100); a click that picks makes the point picked the orbit centre, the view unchanged.
+// Safari's pinch on a Mac's touchpad (WebKit's gesture events, here synthetic: headless Chrome has none): zoomed by
+// the scale's change, 1:1, about the point under the fingers; a ctrl-wheel event during the gesture let go; page zoom
+// prevented.
+await check('safari pinch', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    const v = globalThis.viewer, canvas = v.renderer.domElement, c = canvas.getBoundingClientRect(), cam = v.camera;
+    const rod = ui.panel().model.nodes.find((n) => n.kind === 'part' && n.name === 'rod').object.children[0];
+    rod.geometry.computeBoundingBox();
+    const q = rod.geometry.boundingBox.getCenter(v.controls.target.clone()).applyMatrix4(rod.matrixWorld).project(cam);
+    const at = [Math.round(c.left + (q.x + 1) / 2 * c.width), Math.round(c.top + (1 - q.y) / 2 * c.height)];
+    const px = (p) => { cam.updateMatrixWorld(); const s = p.clone().project(cam); return [c.left + (s.x + 1) / 2 *
+      c.width, c.top + (1 - s.y) / 2 * c.height]; };
+    const hit = v.pickAt(at[0], at[1]).point;
+    const h0 = v.cameraState().height;
+    const gesture = (type, scale) => {
+      const e = new Event(type, { bubbles: true, cancelable: true });
+      Object.assign(e, { scale, clientX: at[0], clientY: at[1] });
+      canvas.dispatchEvent(e);
+      return e.defaultPrevented;
+    };
+    const prevented = [gesture('gesturestart', 1), gesture('gesturechange', 1.5)];
+    await cadViewer.idle();
+    const h1 = v.cameraState().height;
+    // (A ctrl-wheel event mid-gesture, as Chrome sends a pinch: not a second zoom.)
+    canvas.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, ctrlKey: true, deltaY: -50,
+      clientX: at[0], clientY: at[1] }));
+    await cadViewer.idle();
+    const h2 = v.cameraState().height;
+    prevented.push(gesture('gesturechange', 2), gesture('gestureend', 2));
+    await cadViewer.idle();
+    const h3 = v.cameraState().height;
+    // After the gesture, the same wheel event zooms (Chrome's pinch).
+    canvas.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, ctrlKey: true, deltaY: -50,
+      clientX: at[0], clientY: at[1] }));
+    await cadViewer.idle();
+    const h4 = v.cameraState().height;
+    return { at, prevented, ratios: [h0 / h1, h1 / h2, h0 / h3, h3 / h4], hitPx: px(hit) };
+  })()`, { scale: 1 }) as { after: { at: number[]; prevented: boolean[]; ratios: number[]; hitPx: number[] } };
+  const a = r.after;
+  const j = JSON.stringify(a);
+  expect(a.prevented.every((x) => x), `page zoom not prevented: ${j}`);
+  expect(Math.abs(a.ratios[0]! - 1.5) < 1e-9 && Math.abs(a.ratios[1]! - 1) < 1e-12 &&
+    Math.abs(a.ratios[2]! - 2) < 1e-9 && a.ratios[3]! > 1.05, `zoom: ${j}`);
+  expect(Math.hypot(a.hitPx[0]! - a.at[0]!, a.hitPx[1]! - a.at[1]!) < 1, `the point under the fingers moved: ${j}`);
+  return undefined;
+});
 await check('zoom at the cursor', async () => {
   const evaluate = async (sessionId: string, expression: string) => ((await send('Runtime.evaluate', { expression,
     returnByValue: true, awaitPromise: true }, sessionId)) as { result: { value: unknown } }).result.value;
