@@ -933,6 +933,66 @@ await check('override appearance', async () => {
     JSON.stringify(a.overrides), `replayed: ${JSON.stringify(replayed.after)} ${j}`);
   return undefined;
 });
+// Dialogs dragged by their title (the user, 2026-10-31): Override Appearance... moved by a mouse drag of its title,
+// as far as the drag; dragged far off, its title kept in the window; the page behind it not dimmed (About's is).
+await check('dialog drag', async () => {
+  const evaluate = async (sessionId: string, expression: string) => ((await send('Runtime.evaluate', { expression,
+    returnByValue: true, awaitPromise: true }, sessionId)) as { result: { value: unknown } }).result.value;
+  const title = `(() => { const r = document.querySelector('dialog.cv-dialog h2').getBoundingClientRect();
+    return [r.left, r.top, r.right, r.bottom]; })()`;
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    const m = ui.panel().model;
+    ui.select([m.roots[0]]);
+    await new Promise((res) => requestAnimationFrame(() => setTimeout(res, 0)));
+    const row = [...document.querySelectorAll('#tree .tree-row')].find((x) => +x.dataset.id === m.roots[0]);
+    const b = row.getBoundingClientRect();
+    row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: b.left + 20,
+      clientY: b.top + 5 }));
+    document.querySelector('.cv-menu button').click();
+    await new Promise((res) => requestAnimationFrame(() => setTimeout(res, 0)));
+    const d = document.querySelector('dialog.cv-dialog');
+    return { backdrop: getComputedStyle(d, '::backdrop').backgroundColor };
+  })()`, { scale: 1, then: async (sid) => {
+    const drag = async (from: number[], by: number[]) => {
+      await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: from[0], y: from[1], button: 'left',
+        buttons: 1, clickCount: 1 }, sid);
+      for (let k = 1; k <= 5; k++) await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: from[0]! +
+        by[0]! * k / 5, y: from[1]! + by[1]! * k / 5, button: 'left', buttons: 1 }, sid);
+      await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: from[0]! + by[0]!, y: from[1]! + by[1]!,
+        button: 'left', buttons: 0, clickCount: 1 }, sid);
+    };
+    const before = await evaluate(sid, title) as number[];
+    const at = [before[0]! + 30, (before[1]! + before[3]!) / 2];
+    await drag(at, [150, 80]);
+    const moved = await evaluate(sid, title) as number[];
+    // Again, from where it was left.
+    await drag([at[0]! + 150, at[1]! + 80], [-50, -30]);
+    const again = await evaluate(sid, title) as number[];
+    await drag([at[0]! + 100, at[1]! + 50], [-5000, -5000]);
+    const far = await evaluate(sid, title) as number[];
+    const win = await evaluate(sid, '[innerWidth, innerHeight]') as number[];
+    // About's backdrop, for comparison.
+    const about = await evaluate(sid, `(async () => { document.querySelector('dialog.cv-dialog').close();
+      ui.gui.controllersRecursive().find((c) => c._name === 'About...').$button.click();
+      await new Promise((res) => requestAnimationFrame(() => setTimeout(res, 0)));
+      const d = document.querySelector('dialog.cv-dialog');
+      return [d?.querySelector('h2')?.textContent, getComputedStyle(d, '::backdrop').backgroundColor]; })()`);
+    return { before, moved, again, far, win, about };
+  } }) as { after: { backdrop: string }; then: { before: number[]; moved: number[]; again: number[]; far: number[];
+    win: number[];
+    about: [string, string] } };
+  const t = r.then;
+  const j = JSON.stringify(r);
+  expect(Math.abs(t.moved[0]! - t.before[0]! - 150) < 1 && Math.abs(t.moved[1]! - t.before[1]! - 80) < 1,
+    `dragged: ${j}`);
+  expect(Math.abs(t.again[0]! - t.before[0]! - 100) < 1 && Math.abs(t.again[1]! - t.before[1]! - 50) < 1,
+    `dragged again: ${j}`);
+  expect(t.far[2]! >= 40 - 1e-6 && t.far[1]! >= -1e-6 && t.far[0]! <= t.win[0]! && t.far[3]! <= t.win[1]!,
+    `the title kept in the window: ${j}`);
+  expect(r.after.backdrop === 'rgba(0, 0, 0, 0)' && !!t.about[0] && t.about[1] !== r.after.backdrop,
+    `the backdrop: ${j}`);
+  return undefined;
+});
 await check('camera flights', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
     const v = globalThis.viewer;

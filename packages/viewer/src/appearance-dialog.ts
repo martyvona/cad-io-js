@@ -102,7 +102,7 @@ export async function askAppearance(c: AppearanceChoice): Promise<AppearanceOver
   });
   if (c.lines) opacity.disabled = true;
   sync();
-  const r = await showDialog({ title: `Override Appearance: ${c.name}`, body: [], content: box,
+  const r = await showDialog({ title: `Override Appearance: ${c.name}`, body: [], content: box, clear: true,
     buttons: [{ label: 'OK', value: 'ok', primary: true }, { label: 'Cancel', value: 'cancel' }] });
   if (r.button !== 'ok') return undefined;
   return overrideOf(visibility.value as Visibility, opacity.value as Opacity, alpha);

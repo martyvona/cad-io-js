@@ -1,6 +1,7 @@
 // Modal dialogs (the user, 2026-10-25; CLAUDE.md, "The viewer"): the native <dialog> shown with showModal(), so the
 // page behind is inert and Escape closes it, one at a time, removed when closed. A message with buttons, and a URL to
-// type or paste, and About (about.ts), or controls of the caller's own (appearance-dialog.ts). Styled in index.html
+// type or paste, and About (about.ts), or controls of the caller's own (appearance-dialog.ts). Dragged by the title
+// (the user, 2026-10-31: to see what's under it), kept with its title in the window. Styled in index.html
 // (.cv-dialog).
 
 export interface DialogButton {
@@ -26,6 +27,8 @@ export interface DialogOptions {
   error?: boolean;
   /** Controls of the caller's own, after the body (Override Appearance...: appearance-dialog.ts). */
   content?: HTMLElement;
+  /** The page behind not dimmed (Override Appearance..., whose choices the view shows as they're made). */
+  clear?: boolean;
   /** A text field (its value is what `showDialog` resolves to with, as `input`), for `askUrl`. */
   input?: { label: string; value?: string; placeholder?: string;
     /** Several lines (a textarea: pasted lines kept; ctrl/cmd-Enter presses the primary button), for Select by ID. */
@@ -41,12 +44,14 @@ export interface DialogResult {
 /** Shows a modal dialog; resolves when it closes. */
 export function showDialog(o: DialogOptions): Promise<DialogResult> {
   const dialog = document.createElement('dialog');
-  dialog.className = `cv-dialog${o.error ? ' error' : ''}`;
+  dialog.className = `cv-dialog${o.error ? ' error' : ''}${o.clear ? ' clear' : ''}`;
   const form = document.createElement('form');
   form.method = 'dialog';
   const title = document.createElement('h2');
   title.textContent = o.title;
+  title.className = 'drag';
   form.append(title);
+  draggable(dialog, title);
   for (const part of o.body) {
     if (typeof part === 'string') {
       const p = document.createElement('p');
@@ -139,6 +144,42 @@ export function showDialog(o: DialogOptions): Promise<DialogResult> {
     (field ?? o.content?.querySelector<HTMLElement>('select, input') ??
       buttons.querySelector<HTMLButtonElement>('button.primary'))?.focus();
   });
+}
+
+/**
+ * Lets a dialog be moved by dragging its handle (a mouse, a pen or a finger), by a translation from where the browser
+ * centres it, the handle kept in the window.
+ */
+export function draggable(dialog: HTMLElement, handle: HTMLElement): void {
+  let at = { x: 0, y: 0 };
+  let drag: { id: number; x: number; y: number; from: { x: number; y: number } } | undefined;
+  const place = (x: number, y: number) => {
+    at = { x, y };
+    dialog.style.translate = `${x}px ${y}px`;
+  };
+  handle.addEventListener('pointerdown', (e) => {
+    if (e.button > 0) return;
+    drag = { id: e.pointerId, x: e.clientX, y: e.clientY, from: at };
+    try {
+      handle.setPointerCapture(e.pointerId);
+    } catch {
+      // (A pointer the browser doesn't know as active: dragged while it stays over the handle.)
+    }
+    e.preventDefault();
+  });
+  handle.addEventListener('pointermove', (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const x = drag.from.x + e.clientX - drag.x, y = drag.from.y + e.clientY - drag.y;
+    place(x, y);
+    // (The handle kept in the window: at least 40 pixels of it across, all of it down.)
+    const r = handle.getBoundingClientRect();
+    const dx = Math.min(0, innerWidth - 40 - r.left) + Math.max(0, 40 - r.right);
+    const dy = Math.min(0, innerHeight - r.bottom) + Math.max(0, -r.top);
+    if (dx || dy) place(x + dx, y + dy);
+  });
+  const end = (e: PointerEvent) => { if (drag?.id === e.pointerId) drag = undefined; };
+  handle.addEventListener('pointerup', end);
+  handle.addEventListener('pointercancel', end);
 }
 
 /** Asks for a URL to load (typed or pasted); undefined if cancelled or left empty. */
