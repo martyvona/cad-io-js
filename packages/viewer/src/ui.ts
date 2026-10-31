@@ -555,6 +555,8 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       detailControl?.updateDisplay();
     }
     const id = hit && nodeForPick(nodes, hit.object, hit.faceIndex, selection.level);
+    // What's picked is what the view then turns about (the user, 2026-10-31), the view as it is.
+    if (hit) viewer.orbitAbout(hit.point);
     const add = keys.add || selection.multi;
     hooks.onEvent?.({ type: 'pick', clientX: keys.clientX, clientY: keys.clientY, add, ...(id !== undefined ? { id }
       : {}), ...(hit ? { point: hit.point.toArray() } : {}) });

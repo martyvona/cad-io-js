@@ -495,9 +495,10 @@ await check('panning', async () => {
   return undefined;
 });
 // Zooming at the cursor (the user, 2026-10-30): a wheel zoom over a part moves the orbit centre onto the line of
-// sight there, midway between the nearest and farthest of what's drawn along it, and zooms keeping that line under
-// the cursor (the point picked there stays put); over empty space, the orbit centre slides onto the line (along the
-// view's plane, not in depth).
+// sight there, at the nearest of what's drawn along it (2026-10-31; first midway to the farthest), and zooms keeping
+// that line under the cursor (the point picked there stays put); over empty space, the orbit centre stays where it
+// is (2026-10-31; first slid onto the line), the zoom still about the cursor. A touchpad's pinch (ctrl, a few pixels
+// an event) zooms e^(pixels / 100); a click that picks makes the point picked the orbit centre, the view unchanged.
 await check('zoom at the cursor', async () => {
   const evaluate = async (sessionId: string, expression: string) => ((await send('Runtime.evaluate', { expression,
     returnByValue: true, awaitPromise: true }, sessionId)) as { result: { value: unknown } }).result.value;
@@ -536,24 +537,53 @@ await check('zoom at the cursor', async () => {
     const beforeEmpty = await evaluate(sid, where(empty[0]!, empty[1]!)) as Where;
     await wheel(empty[0]!, empty[1]!, 2);
     const zoomedEmpty = await evaluate(sid, where(empty[0]!, empty[1]!)) as Where;
-    return { over, empty, before, zoomed, beforeEmpty, zoomedEmpty };
+    // A pinch: 20 events of 2 pixels in, ctrl held (modifiers 2), as Chrome gives a Mac's touchpad.
+    await new Promise((res) => setTimeout(res, 500));
+    const beforePinch = await evaluate(sid, where(over[0]!, over[1]!)) as Where;
+    for (let k = 0; k < 20; k++) {
+      await send('Input.dispatchMouseEvent', { type: 'mouseWheel', x: over[0]!, y: over[1]!, deltaX: 0, deltaY: -2,
+        modifiers: 2 }, sid);
+      await evaluate(sid, 'new Promise((r) => requestAnimationFrame(() => r()))');
+    }
+    await evaluate(sid, 'cadViewer.idle()');
+    const pinched = await evaluate(sid, where(over[0]!, over[1]!)) as Where;
+    // A click picking a point off the orbit centre: the orbit centre there, everything drawn where it was.
+    const clickAt = [over[0]! + 15, over[1]! + 25];
+    const beforeClick = await evaluate(sid, where(clickAt[0]!, clickAt[1]!)) as Where;
+    for (const type of ['mousePressed', 'mouseReleased']) {
+      await send('Input.dispatchMouseEvent', { type, x: clickAt[0]!, y: clickAt[1]!, button: 'left',
+        buttons: type === 'mousePressed' ? 1 : 0, clickCount: 1 }, sid);
+    }
+    await evaluate(sid, 'cadViewer.idle()');
+    const clicked = await evaluate(sid, where(clickAt[0]!, clickAt[1]!)) as Where;
+    return { over, empty, before, zoomed, beforeEmpty, zoomedEmpty, beforePinch, pinched, at: clickAt, beforeClick,
+      clicked };
   } }) as { then: { over: number[]; empty: number[]; before: Where; zoomed: Where; beforeEmpty: Where;
-    zoomedEmpty: Where } };
+    zoomedEmpty: Where; beforePinch: Where; pinched: Where; at: number[]; beforeClick: Where; clicked: Where } };
   const a = r.then;
   const j = JSON.stringify(a);
   const off = (p: number[] | null, q: number[]) => p ? Math.hypot(p[0]! - q[0]!, p[1]! - q[1]!) : Infinity;
   // Over the rod: zoomed in; the orbit centre drawn at the cursor, at or beyond the surface hit (midway into the
   // part); the point first hit there still under the cursor.
   expect(a.zoomed.height < a.before.height * 0.95, `not zoomed in: ${j}`);
-  expect(off(a.zoomed.targetPx, a.over) < 1 && a.zoomed.depth !== null && a.zoomed.depth < -1,
-    `the orbit centre not on the line of sight, beyond the surface: ${j}`);
+  expect(off(a.zoomed.targetPx, a.over) < 1 && a.zoomed.depth !== null && Math.abs(a.zoomed.depth) < 1e-3,
+    `the orbit centre not on the line of sight, at the surface: ${j}`);
   expect(a.before.hit !== null && off(a.zoomed.hitPx, a.over) < 1 &&
     a.zoomed.hit!.every((x, k) => Math.abs(x - a.before.hit![k]!) < 1e-3), `the point under the cursor moved: ${j}`);
-  // Over empty space: the orbit centre slid onto the line, in the view's plane only.
-  const slid = a.zoomedEmpty.target.map((x, k) => x - a.beforeEmpty.target[k]!);
-  expect(a.beforeEmpty.hit === null && off(a.zoomedEmpty.targetPx, a.empty) < 1 &&
-    Math.abs(slid.reduce((t, x, k) => t + x * a.zoomedEmpty.dir[k]!, 0)) < 1e-6 && Math.hypot(...slid) > 1,
+  // Over empty space: the orbit centre left where it was, the zoom still about the cursor (the orbit centre's
+  // distance from it on the screen scaled by the zoom).
+  const k = a.beforeEmpty.height / a.zoomedEmpty.height;
+  const expected = [0, 1].map((i) => a.empty[i]! + (a.beforeEmpty.targetPx[i]! - a.empty[i]!) * k);
+  expect(a.beforeEmpty.hit === null && k > 1.01 &&
+    a.zoomedEmpty.target.every((x, i) => x === a.beforeEmpty.target[i]) && off(a.zoomedEmpty.targetPx, expected) < 1,
     `over empty space: ${j}`);
+  // The pinch: 40 pixels in, e^0.4 (the controls' own would have been 1 %).
+  const ratio = a.beforePinch.height / a.pinched.height;
+  expect(Math.abs(ratio - Math.exp(0.4)) < 0.02, `the pinch zoomed x${ratio}, wanted e^0.4: ${j}`);
+  // The click: the orbit centre at the point picked, drawn where it was clicked; the rest unmoved.
+  expect(a.beforeClick.hit !== null && a.clicked.target.every((x, k) => Math.abs(x - a.beforeClick.hit![k]!) < 1e-6) &&
+    off(a.clicked.targetPx, a.at) < 1 && Math.abs(a.clicked.height - a.beforeClick.height) < 1e-9 &&
+    off(a.clicked.hitPx, a.beforeClick.hitPx!) < 1e-3, `the click's orbit centre: ${j}`);
   return undefined;
 });
 // Picks on section caps (the user, 2026-10-31): a click where a cap is drawn picks the part cut, at the point on the

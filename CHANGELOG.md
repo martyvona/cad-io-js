@@ -45,6 +45,7 @@
 - `cad-viewer`: zoom all, zoom selected and the views ease the camera there over a second; the views turn about the orbit centre, keeping the zoom and pan, instead of fitting the model.
 - `cad-viewer`: zoom all and zoom selected fit and centre what they show in the width beside the controls (whether open or folded), and the camera turns and zooms about that width's centre.
 - `cad-viewer`: failed faces' red outlines drawn in front of the black edges along them; partly failed rows in the tree red like failed ones.
+- `cad-viewer`: the zoom's orbit centre at the nearest thing under the cursor (left where it is over empty space); a pick makes the point picked the orbit centre; a touchpad's pinch zooms as fast as pinches do elsewhere.
 - `cad-viewer`: a pick on a section cap picks the part it cuts, at the point on the plane.
 - `cad-viewer`: zooming (wheel, touchpad, pinch, middle button) at the cursor, the orbit centre moving to the middle of what's under it.
 - `cad-viewer`: panning follows the pointer one to one at any zoom (it crawled after zoom selected) and leaves the orbit centre where it is on the model; links carry the pan.

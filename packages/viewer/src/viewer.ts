@@ -65,6 +65,9 @@ export const FLIGHT_MS = 1000;
 /** Wheel events further apart than this begin a new zoom gesture (a new orbit centre at the cursor). */
 export const ZOOM_GESTURE_MS = 300;
 
+/** A touchpad pinch's zoom: e^(this x the wheel's pixels). */
+export const PINCH_ZOOM = 0.01;
+
 export interface Stats { objects: number; meshes: number; triangles: number; segments: number; points: number }
 
 const drawable = (o: THREE.Object3D): o is THREE.Mesh | THREE.Line | THREE.Points =>
@@ -139,6 +142,8 @@ export class Viewer {
   /** Where the zoom in progress is about (client pixels), and whether its orbit centre is yet to be found there. */
   private zoomAnchor?: { x: number; y: number; fresh: boolean };
   private lastWheel = -Infinity;
+  /** The last wheel events were a touchpad's pinch (ctrl held, as browsers send them). */
+  private pinching = false;
   /** The pan, in millimetres along the view's right and up (cameraState's `pan`). */
   private readonly pan = new THREE.Vector2();
   /** The user has moved the view since the load began: no more automatic zooming. */
@@ -226,7 +231,12 @@ export class Viewer {
         factor = tc._touchZoomDistanceStart / tc._touchZoomDistanceEnd;
         tc._touchZoomDistanceStart = tc._touchZoomDistanceEnd;
       } else {
-        factor = 1 + (tc._zoomEnd.y - tc._zoomStart.y) * tc.zoomSpeed;
+        // A touchpad's pinch comes as wheel events with ctrl, a pixel or a few each (the controls' 0.00025 a pixel):
+        // eased as pinch zooms are elsewhere, e^(pixels / 100), at most e^0.3 a frame (so ctrl with a mouse wheel's
+        // 100-pixel notches isn't a leap); else the controls' own (a mouse wheel's notch about 3 %).
+        const d = tc._zoomEnd.y - tc._zoomStart.y;
+        factor = this.pinching ? Math.exp(Math.max(-0.3, Math.min(0.3, d / 0.00025 * PINCH_ZOOM)))
+          : 1 + d * tc.zoomSpeed;
         tc._zoomStart.copy(tc._zoomEnd);
       }
       if (factor !== 1 && factor > 0) this.zoomAt(factor, tc.minZoom, tc.maxZoom);
@@ -270,6 +280,7 @@ export class Viewer {
       const now = performance.now();
       if (now - this.lastWheel > ZOOM_GESTURE_MS) this.zoomAnchor = { x: e.clientX, y: e.clientY, fresh: true };
       this.lastWheel = now;
+      this.pinching = e.ctrlKey;
     });
     const touches = new Map<number, [number, number]>();
     canvas.addEventListener('pointerdown', (e) => {
@@ -347,9 +358,9 @@ export class Viewer {
   }
 
   /**
-   * Zooms by `factor` (the view's height times it) at the zoom's anchor (the user, 2026-10-30): when the gesture
-   * begins, the orbit centre moves onto the line of sight through the cursor (centreAt), the view unchanged; then
-   * the zoom keeps the orbit centre where it's drawn, so every point on that line stays under the cursor.
+   * Zooms by `factor` (the view's height times it) at the zoom's anchor (the user, 2026-10-30), the line of sight
+   * through it staying under it: when the gesture begins, the orbit centre moves onto that line where something's
+   * drawn there (centreAt), the view unchanged; without an anchor, about the orbit centre where it's drawn.
    */
   private zoomAt(factor: number, min = 0, max = Infinity): void {
     const a = this.zoomAnchor;
@@ -357,10 +368,15 @@ export class Viewer {
       a.fresh = false;
       this.centreAt(a.x, a.y);
     }
-    const c = this.camera, before = c.zoom;
+    const c = this.camera, mmBefore = this.pixelSize(), before = c.zoom;
     c.zoom = Math.min(max, Math.max(min, before / factor));
-    // (The pan in millimetres for the orbit centre's same place in pixels.)
-    this.pan.multiplyScalar(before / c.zoom);
+    // Screen distances from the anchor scale by k; the pan (where the orbit centre is drawn, from the free width's
+    // centre, in pixels: right and up) with them, about the anchor.
+    const k = c.zoom / before, panPx = this.pan.clone().divideScalar(mmBefore);
+    const r = this.renderer.domElement.getBoundingClientRect();
+    const anchor = a ? new THREE.Vector2(a.x - (r.left + this.freeWidth() / 2), -(a.y - (r.top + r.height / 2)))
+      : panPx.clone();
+    this.pan.copy(anchor.addScaledVector(panPx.sub(anchor), k)).multiplyScalar(mmBefore / k);
     c.updateProjectionMatrix();
     this.shift();
     this.changed = true;
@@ -368,8 +384,9 @@ export class Viewer {
 
   /**
    * Moves the orbit centre onto the line of sight through a point of the view (client pixels), leaving the view as it
-   * is: midway between the nearest and the farthest of what's drawn along it (hitsAlong), or with nothing there, the
-   * point of the line nearest the orbit centre; the camera moves with it and the pan keeps it drawn at the point.
+   * is: the nearest of what's drawn along it (hitsAlong; the user, 2026-10-31, first midway between the nearest and
+   * the farthest), or with nothing there, the orbit centre left where it is (the user, 2026-10-31, first moved onto
+   * the line).
    */
   centreAt(clientX: number, clientY: number): void {
     const r = this.renderer.domElement.getBoundingClientRect();
@@ -377,17 +394,28 @@ export class Viewer {
     this.display.updateWorldMatrix(true, true);
     this.shift();
     clipTo(this.camera, this.bounds);
-    const { hits, ray } = hitsAlong(this.camera, this.display, ndc, this.pixelSize(), this.clipped,
+    const { hits } = hitsAlong(this.camera, this.display, ndc, this.pixelSize(), this.clipped,
       (q) => this.sections.capHits(q));
-    const p = hits.length ? hits[0]!.point.clone().add(hits.at(-1)!.point).multiplyScalar(0.5)
-      : ray.closestPointToPoint(this.controls.target, new THREE.Vector3());
-    const back = new THREE.Vector3().subVectors(this.camera.position, this.controls.target);
-    this.controls.target.copy(p);
-    this.camera.position.copy(p).add(back);
-    const mmPerPixel = this.pixelSize();
-    this.pan.set((clientX - (r.left + this.freeWidth() / 2)) * mmPerPixel,
-      -(clientY - (r.top + r.height / 2)) * mmPerPixel);
+    if (hits.length) this.orbitAbout(hits[0]!.point);
+  }
+
+  /**
+   * Makes a world point the orbit centre, leaving the view as it is: the camera moved with the target, the pan
+   * keeping the point drawn where it is (zooming at the cursor; a pick, the user, 2026-10-31).
+   */
+  orbitAbout(point: THREE.Vector3): void {
+    this.flight = undefined;
     this.shift();
+    this.camera.updateMatrixWorld();
+    const r = this.renderer.domElement.getBoundingClientRect(), q = point.clone().project(this.camera);
+    const [x, y] = [r.left + (q.x + 1) / 2 * r.width, r.top + (1 - q.y) / 2 * r.height];
+    const back = new THREE.Vector3().subVectors(this.camera.position, this.controls.target);
+    this.controls.target.copy(point);
+    this.camera.position.copy(point).add(back);
+    const mmPerPixel = this.pixelSize();
+    this.pan.set((x - (r.left + this.freeWidth() / 2)) * mmPerPixel, -(y - (r.top + r.height / 2)) * mmPerPixel);
+    this.shift();
+    this.redraw();
   }
 
   private resize(): void {
