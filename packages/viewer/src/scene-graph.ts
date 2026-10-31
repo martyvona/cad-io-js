@@ -222,7 +222,9 @@ export class SceneGraph implements FaceHiding {
     const failures = faceFailures(mesh, measured ? { measured } : {});
     const failedFaces = faceSources.filter((s) => failures.has(s) && failures.get(s) !== 'partly');
     const partlyFailedFaces = faceSources.filter((s) => failures.get(s) === 'partly');
-    const faceReport = reportOf(mesh, p.unit, failures, p.measures);
+    // (Each face's areas only when Details asks: measuring every face of a large file took a quarter second.)
+    let report: Record<number, FaceReport> | undefined;
+    const faceReport = () => (report ??= reportOf(mesh, p.unit, failures, p.measures));
     const outlines = new Map<number, THREE.BufferGeometry>();
     if (mesh.faceOutlinePositions && mesh.faceOutlines?.length) {
       const position = new THREE.BufferAttribute(mesh.faceOutlinePositions, 3);
@@ -251,8 +253,9 @@ export class SceneGraph implements FaceHiding {
         obj = new THREE.Group();
       }
       const closed = this.scene.parts[part]!.closed;
-      obj.userData = { faces: faceSources, faceRanges: mesh.faces, failedFaces, partlyFailedFaces, faceReport,
+      obj.userData = { faces: faceSources, faceRanges: mesh.faces, failedFaces, partlyFailedFaces,
         ...(closed === undefined ? {} : { closed }) };
+      Object.defineProperty(obj.userData, 'faceReport', { get: faceReport, enumerable: true });
       obj.name = group.name;
       obj.position.set(...mesh.origin);
       if (edges) {

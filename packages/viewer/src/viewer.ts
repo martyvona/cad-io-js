@@ -65,6 +65,9 @@ export const FLIGHT_MS = 1000;
 /** Wheel events further apart than this begin a new zoom gesture (a new orbit centre at the cursor). */
 export const ZOOM_GESTURE_MS = 300;
 
+/** How long the page works on a load's meshes before letting the browser draw and answer (ms). */
+export const SLICE_MS = 30;
+
 /** A touchpad pinch's zoom: e^(this x the wheel's pixels). */
 export const PINCH_ZOOM = 0.01;
 
@@ -138,6 +141,8 @@ export class Viewer {
    */
   private flight?: { from: CameraState; to: CameraState; start: number };
   flightMs = FLIGHT_MS;
+  /** How long the page works on a load's meshes before yielding (SLICE_MS; the browser check shortens it). */
+  sliceMs = SLICE_MS;
   private covered = 0;
   /** Where the zoom in progress is about (client pixels), and whether its orbit centre is yet to be found there. */
   private zoomAnchor?: { x: number; y: number; fresh: boolean };
@@ -627,7 +632,8 @@ export class Viewer {
   }
 
   private async loadModel(src: Source, format: Format, gen: number, keep: boolean): Promise<void> {
-    this.onStatus?.(`${src.name}: reading...`);
+    this.onStatus?.(`${src.name}: importing${src.bytes.byteLength >= 1e6 ? ` ${Math.round(src.bytes.byteLength / 1e6)} MB`
+      : ''}...`);
     // Let the page show that first.
     await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
     if (gen !== this.generation) return;
@@ -656,9 +662,16 @@ export class Viewer {
       this.transparencyStale = true;
       this.onMeshes?.();
     };
-    const progress = () => this.onStatus?.(model!.parts!.total ? `${src.name}: meshed ${model!.parts!.done} of ` +
-      `${model!.parts!.total} parts${model!.parts!.failed ? `, ${model!.parts!.failed} failed` : ''}`
-      : `${src.name}: read`);
+    // What the load is doing, always (the user, 2026-10-31): meshing, finding edges, or read.
+    const edges = { total: 0, done: 0 };
+    const progress = () => {
+      const p = model!.parts!;
+      const meshing = p.total && p.done < p.total ? `meshed ${p.done} of ${p.total} parts${p.failed ? `, ${p.failed} ` +
+        'failed' : ''}` : '';
+      const finding = edges.done < edges.total ? `found edges for ${edges.done} of ${edges.total} parts` : '';
+      this.onStatus?.(`${src.name}: ${[meshing, finding].filter(Boolean).join('; ') || (p.total ? `meshed ${p.done} ` +
+        `of ${p.total} parts${p.failed ? `, ${p.failed} failed` : ''}` : 'read')}`);
+    };
     let ended: Extract<ModelEvent, { type: 'done' }> | undefined;
     this.meshing = true;
     try {
@@ -676,12 +689,24 @@ export class Viewer {
           if (!this.fit.sphere.isEmpty()) this.bounds.copy(this.fit.sphere);
           // Parts with a level from the file (every part of a glTF or three.js file, STEP's tessellated geometry)
           // shown at once, the level for these settings (chooseLod); a B-rep part's until ours comes.
+          edges.total = ev.edgeParts;
           const wanted = meshDeflections(deflectionsOf(this.settings));
-          for (const i of graph.placements.keys()) {
+          // In slices of about 30 ms, the page drawing and answering in between (the user, 2026-10-31: LMP1's 1,251
+          // parts in one task took a second), the status line counting.
+          const parts = [...graph.placements.keys()];
+          let slice = performance.now();
+          for (const [k, i] of parts.entries()) {
             const lod = chooseLod(scene.parts[i]!, wanted);
             if (lod) {
               graph.addMesh(i, lod.mesh, lod.linearDeflection);
               added(i, lod.mesh);
+            }
+            if (performance.now() - slice > this.sliceMs && k + 1 < parts.length) {
+              this.onStatus?.(`${src.name}: showing ${k + 1} of ${parts.length} parts`);
+              this.redraw();
+              await new Promise((r) => setTimeout(r, 0));
+              if (gen !== this.generation) return;
+              slice = performance.now();
             }
           }
           progress();
@@ -704,6 +729,8 @@ export class Viewer {
         } else if (ev.type === 'edges') {
           // Edges found for a level from the file (model-load.ts), after it was shown.
           if (graph!.setFoundEdges(ev.part, ev.positions).length) edgesAdded(ev.part);
+          edges.done++;
+          progress();
         } else {
           ended = ev;
           model?.diagnostics!.push(...ev.diagnostics);
@@ -722,15 +749,20 @@ export class Viewer {
 
   /** A part's new mesh grows the clipping sphere and, unless it's the file's, the model's (centres kept). */
   private grow(graph: SceneGraph, part: number, mesh: Mesh): void {
-    this.display.updateWorldMatrix(true, true);
     const own = mesh.box && around({ min: mesh.box.min.map((x, k) => x + mesh.origin[k]!) as Vec3,
       max: mesh.box.max.map((x, k) => x + mesh.origin[k]!) as Vec3 });
     const box = new THREE.Box3();
     for (const p of graph.placements.get(part) ?? []) {
-      // Everything drawn, the failure outlines too, for the clipping planes.
-      if (!box.setFromObject(p.group).isEmpty()) this.bounds.union(box.getBoundingSphere(new THREE.Sphere()));
-      if (own) this.fit.add(new THREE.Sphere(new THREE.Vector3(...own.center), own.radius)
-        .applyMatrix4(p.group.matrixWorld));
+      // (Each placement's own world matrix, up its parents: the whole model's for every part was quadratic.)
+      p.group.updateWorldMatrix(true, true);
+      // Everything drawn, for the clipping planes: around the mesh's box (all it draws), placed; a mesh without one
+      // (only failure outlines) by what's drawn (measuring every geometry anew took a fifth of a second on a large
+      // file).
+      const placed = own && new THREE.Sphere(new THREE.Vector3(...own.center), own.radius)
+        .applyMatrix4(p.group.matrixWorld);
+      if (placed) this.bounds.union(placed);
+      else if (!box.setFromObject(p.group).isEmpty()) this.bounds.union(box.getBoundingSphere(new THREE.Sphere()));
+      if (placed) this.fit.add(placed.clone());
     }
   }
 

@@ -130,17 +130,18 @@ export function faceFailures(mesh: Mesh, opts: { expected?: readonly number[];
     }
     return a;
   };
+  const m = opts.measured;
+  // (Areas only where there are measures to judge them by: without, a face fails only with no triangles.)
   const meshed = new Map<number, { area: number; triangles: number }>();
   for (const f of mesh.faces) {
     if (f.source === null) continue;
     const e = meshed.get(f.source) ?? { area: 0, triangles: 0 };
     if (f.count) {
       e.triangles += f.count;
-      e.area += triangleArea(f.start, f.count);
+      if (m) e.area += triangleArea(f.start, f.count);
     }
     meshed.set(f.source, e);
   }
-  const m = opts.measured;
   const faces = new Set([...opts.expected ?? [], ...meshed.keys(), ...m?.measures.faces.keys() ?? []]);
   const out = new Map<number, FaceFailure>();
   for (const s of faces) {

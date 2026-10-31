@@ -50,7 +50,8 @@ export async function importModel(input: ModelInput, gltf: GltfImportOptions = {
 }
 
 export type ModelEvent =
-  | { type: 'scene'; scene: Scene }
+  /** The scene, and how many of its parts' edges are to be found (edges events follow, one each). */
+  | { type: 'scene'; scene: Scene; edgeParts: number }
   /**
    * A part meshed, with its measures (Part.measures) where the backend gave them: the page's scene lacks them; and
    * edges found from its triangles where the backend gave none (edges.ts).
@@ -134,7 +135,8 @@ export async function loadModelIn(input: ModelInput, settings: TessellationSetti
   });
   const kept = new Set(jobs.flatMap((j) => meshBuffers(j.mesh)));
   // (The file's other levels transferred: only B-rep payloads are used here from now on.)
-  emit({ type: 'scene', scene: postable(scene) }, levelBuffers(scene).filter((b) => !kept.has(b)));
+  emit({ type: 'scene', scene: postable(scene), edgeParts: jobs.length },
+    levelBuffers(scene).filter((b) => !kept.has(b)));
   const edges = (async () => {
     for (const { part, mesh, scale } of jobs) {
       await new Promise((r) => setTimeout(r, 0));

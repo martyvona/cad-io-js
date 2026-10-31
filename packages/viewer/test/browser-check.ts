@@ -629,9 +629,14 @@ const vwGlb = path.join(repo, 'test_corpus/models/onshape/VW-medium-uncompressed
 if (fs.existsSync(vwGlb)) await check('edges off the page', async () => {
   fs.copyFileSync(vwGlb, path.join(content, 'vw.glb'));
   const r = await page('?check', `(async () => {
-    const tasks = [];
+    const tasks = [], statuses = [];
     new PerformanceObserver((l) => { for (const e of l.getEntries()) tasks.push(e.duration); })
       .observe({ type: 'longtask', buffered: false });
+    const st = document.getElementById('status');
+    new MutationObserver(() => statuses.push(st.textContent)).observe(st, { childList: true, characterData: true,
+      subtree: true });
+    // (Slices of a millisecond, so the parts are shown a few at a time even here.)
+    viewer.sliceMs = 1;
     const t0 = performance.now();
     await cadViewer.load('/content/vw.glb');
     await cadViewer.idle();
@@ -643,13 +648,18 @@ if (fs.existsSync(vwGlb)) await check('edges off the page', async () => {
       const e = o.children.find((c) => c.name === 'edges');
       if (e) { withEdges++; segments += e.geometry.getAttribute('position').count / 2; }
     });
-    return { ms, longest: Math.max(0, ...tasks), tasks: tasks.length, parts, withEdges, segments };
+    return { ms, longest: Math.max(0, ...tasks), tasks: tasks.length, parts, withEdges, segments,
+      statuses: [...new Set(statuses.map((t) => t.replace(/[0-9]+ of/, 'N of')))] };
   })()`) as { after: { ms: number; longest: number; tasks: number; parts: number; withEdges: number;
-    segments: number } };
+    segments: number; statuses: string[] } };
   const a = r.after;
   console.log(`edges off the page: VW's GLB ${Math.round(a.ms)} ms, ${a.segments} edge segments, longest task ` +
     `${Math.round(a.longest)} ms`);
   expect(a.parts > 0 && a.withEdges === a.parts && a.segments > 100000, `edges not found: ${JSON.stringify(a)}`);
+  // What the load is doing, said all along: importing (with the size), then edges found, counted.
+  expect(a.statuses.some((t) => /^vw\.glb: importing \d+ MB\.\.\.$/.test(t)) &&
+    a.statuses.some((t) => /^vw\.glb: found edges for N of \d+ parts$/.test(t)) &&
+    a.statuses.some((t) => /^vw\.glb: showing N of \d+ parts$/.test(t)), `statuses: ${a.statuses}`);
   // (Here about 280 ms, the scene graph's building; with the edges found on the page about 640.)
   expect(a.longest < 450, `a long task on the page: ${JSON.stringify(a)}`);
   return undefined;
