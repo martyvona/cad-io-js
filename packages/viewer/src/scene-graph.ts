@@ -27,7 +27,6 @@ import { DEFAULT_RENDER, EDGES } from './style.ts';
 /** sRGB, as the exporters' default: faces, curves and points without a material. */
 export const DEFAULT_COLOR: readonly [number, number, number] = [0.8, 0.8, 0.8];
 /** The angle between faces (degrees) above which a part without B-rep edges gets an edge drawn. */
-export const EDGE_ANGLE = 10;
 
 const EDGE_KINDS = new Set(['shared', 'free']);
 
@@ -154,6 +153,25 @@ export class SceneGraph implements FaceHiding {
   }
 
   /**
+   * A part's edges found from its mesh's triangles (edges.ts, in the import worker: model-load.ts), as segments in
+   * the mesh's coordinates, added to each placement of its mesh (in place of any found before). Nothing if the part
+   * has no mesh with triangles now. Returns the objects they were added to.
+   */
+  setFoundEdges(part: number, positions: Float32Array): THREE.Object3D[] {
+    const meshed = this.meshed.get(part);
+    if (!meshed) return [];
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    for (const { obj } of meshed.objects) {
+      for (const old of obj.children.filter((c) => c.name === 'edges')) obj.remove(old);
+      const e = Object.assign(new THREE.LineSegments(g, this.lineMaterial), { name: 'edges' });
+      e.layers.set(EDGES);
+      obj.add(e);
+    }
+    return meshed.objects.map((o) => o.obj);
+  }
+
+  /**
    * Attaches a part's mesh to each of its placements, in place of any it had (the file's own tessellation of a B-rep,
    * shown until ours comes); nothing for a part without one (it failed, or is empty). Returns the objects made, one
    * per placement. `linearDeflection` (mm) is the one the mesh was made with, where known: with the part's measures,
@@ -173,15 +191,11 @@ export class SceneGraph implements FaceHiding {
         1) };
       if (mesh.normals) attrs.normal = new THREE.BufferAttribute(mesh.normals, 3);
       const kept = (mesh.edges ?? []).filter((e) => EDGE_KINDS.has(e.kind));
+      // (A mesh without edges of its own gets edges found from its triangles later: setFoundEdges.)
       if (mesh.edgePositions && kept.length) {
         edges = new THREE.BufferGeometry();
         edges.setAttribute('position', new THREE.BufferAttribute(mesh.edgePositions, 3));
         edges.setIndex(new THREE.BufferAttribute(polylineSegments(kept), 1));
-      } else if (!mesh.edges?.length) {
-        const g = new THREE.BufferGeometry();
-        g.setAttribute('position', attrs.position);
-        g.setIndex(attrs.index);
-        edges = new THREE.EdgesGeometry(g, EDGE_ANGLE);
       }
     }
     let curves: THREE.BufferGeometry | undefined;

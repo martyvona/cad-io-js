@@ -983,7 +983,7 @@ A file whose schema has no dictionary is bound with AP242's, with a diagnostic: 
 
 ## Tests
 
-- **`npm test`**: the package tests, 402 of them (`node:test`, in each package's `test/`), on small inline fixtures and a few corpus files. Tests that need a built backend or the corpus skip when it's missing; with everything built, they take about 20 s.
+- **`npm test`**: the package tests, 405 of them (`node:test`, in each package's `test/`), on small inline fixtures and a few corpus files. Tests that need a built backend or the corpus skip when it's missing; with everything built, they take about 20 s.
 - **`npm run typecheck`**: `tsc` over the packages (no output; the sources run as they are).
 - **`cargo test`** in `packages/tess-truck/native`: 3 native tests of the truck wrapper (B-spline clamping, the volume sign guard).
 - **Browser checks**, run by hand: `node packages/tess-workers/test/browser-check.ts` and `node packages/tess-cache/test/browser-check.ts` serve the sources and run the pool's and IndexedDB's scenarios in headless Chrome; `node packages/viewer/test/browser-check.ts` runs the viewer on models in each format (see [Viewer](#viewer)).

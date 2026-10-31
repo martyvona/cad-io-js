@@ -622,6 +622,38 @@ await check('picks on caps', async () => {
     `the zoom's orbit centre didn't take the cap: ${j}`);
   return undefined;
 });
+// Edges found off the page's thread (the user, 2026-10-31): a GLB of meshes without edges (the user's VW, from
+// Onshape) loads with every part's edges found in the import worker, the page's longest task no longer than the
+// scene graph's own building (finding them on the page made it more than twice as long).
+const vwGlb = path.join(repo, 'test_corpus/models/onshape/VW-medium-uncompressed.glb.glb');
+if (fs.existsSync(vwGlb)) await check('edges off the page', async () => {
+  fs.copyFileSync(vwGlb, path.join(content, 'vw.glb'));
+  const r = await page('?check', `(async () => {
+    const tasks = [];
+    new PerformanceObserver((l) => { for (const e of l.getEntries()) tasks.push(e.duration); })
+      .observe({ type: 'longtask', buffered: false });
+    const t0 = performance.now();
+    await cadViewer.load('/content/vw.glb');
+    await cadViewer.idle();
+    const ms = performance.now() - t0;
+    let parts = 0, withEdges = 0, segments = 0;
+    viewer.display.traverse((o) => {
+      if (!o.isMesh || o.userData.faceRanges === undefined) return;
+      parts++;
+      const e = o.children.find((c) => c.name === 'edges');
+      if (e) { withEdges++; segments += e.geometry.getAttribute('position').count / 2; }
+    });
+    return { ms, longest: Math.max(0, ...tasks), tasks: tasks.length, parts, withEdges, segments };
+  })()`) as { after: { ms: number; longest: number; tasks: number; parts: number; withEdges: number;
+    segments: number } };
+  const a = r.after;
+  console.log(`edges off the page: VW's GLB ${Math.round(a.ms)} ms, ${a.segments} edge segments, longest task ` +
+    `${Math.round(a.longest)} ms`);
+  expect(a.parts > 0 && a.withEdges === a.parts && a.segments > 100000, `edges not found: ${JSON.stringify(a)}`);
+  // (Here about 280 ms, the scene graph's building; with the edges found on the page about 640.)
+  expect(a.longest < 450, `a long task on the page: ${JSON.stringify(a)}`);
+  return undefined;
+});
 await check('camera flights', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
     const v = globalThis.viewer;

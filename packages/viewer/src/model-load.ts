@@ -8,13 +8,15 @@
 // tessellation delivers it (the buffers transferable); then the end, with the tessellation's diagnostics and what
 // meshed it.
 
-import { partInstances, tessellateScene, type Diagnostic, type Measures, type Mesh, type Scene,
+import { chooseLod, meshDeflections, partInstances, tessellateScene, type Diagnostic, type Measures, type Mesh,
+  type Scene,
   type SceneBounds } from 'cad-scene';
 import { import3mf } from '3mf-import';
 import { importGltf, type GltfImportOptions } from 'gltf-import';
 import { importStep, type ImportOptions } from 'step-import';
 import { importThreejs } from 'threejs-import';
 import type { Format } from './formats.ts';
+import { EDGE_ANGLE, EDGE_GRID_MM, findEdges } from './edges.ts';
 import type { CacheStats } from 'tess-cache/browser';
 import { deflectionsOf, type Tessellation, type TessellationSettings } from './tessellation.ts';
 
@@ -49,8 +51,13 @@ export async function importModel(input: ModelInput, gltf: GltfImportOptions = {
 
 export type ModelEvent =
   | { type: 'scene'; scene: Scene }
-  /** A part meshed, with its measures (Part.measures) where the backend gave them: the page's scene lacks them. */
-  | { type: 'mesh'; part: number; mesh: Mesh | undefined; measures?: Measures }
+  /**
+   * A part meshed, with its measures (Part.measures) where the backend gave them: the page's scene lacks them; and
+   * edges found from its triangles where the backend gave none (edges.ts).
+   */
+  | { type: 'mesh'; part: number; mesh: Mesh | undefined; measures?: Measures; foundEdges?: Float32Array }
+  /** Edges found from a part's level from the file, which has none of its own (edges.ts): segments. */
+  | { type: 'edges'; part: number; positions: Float32Array }
   /** The end; `bounds` the model's sphere made again from the meshes (tessellateScene), where it changed. */
   | { type: 'done'; diagnostics: Diagnostic[]; meshing?: Meshing; bounds?: SceneBounds };
 
@@ -58,6 +65,27 @@ export type ModelEvent =
 export function postable(scene: Scene): Scene {
   return { ...scene, parts: scene.parts.map((p) => (p.brep ? { ...p, brep: { format: p.brep.format,
     ...(p.brep.rootId === undefined ? {} : { rootId: p.brep.rootId }), payload: undefined as never } } : p)) };
+}
+
+/** A mesh with triangles and no edges of its own (as the scene graph draws them): its edges are to be found. */
+export const needsEdges = (mesh: Mesh) => mesh.indices.length > 0 && !mesh.edges?.length;
+
+/** A mesh's edges found on a grid of EDGE_GRID_MM in the world, `scale` world millimetres a mesh unit. */
+export const edgesOf = (mesh: Mesh, scale: number) => findEdges(mesh.positions, mesh.indices, EDGE_ANGLE,
+  scale / EDGE_GRID_MM);
+
+/**
+ * Each placed part's scale: world millimetres a unit of its mesh (its first placement's largest axis scale: the
+ * part's unit and the file's frame), so edges are found on one grid in the world whatever the file's unit.
+ */
+export function placedScales(scene: Scene): Map<number, number> {
+  const out = new Map<number, number>();
+  for (const pi of partInstances(scene)) {
+    if (out.has(pi.part)) continue;
+    const m = pi.transform;
+    out.set(pi.part, Math.max(...[0, 4, 8].map((c) => Math.hypot(m[c]!, m[c + 1]!, m[c + 2]!))));
+  }
+  return out;
 }
 
 /** The brep parts to mesh: those placed somewhere in the tree (others would never be drawn). */
@@ -95,10 +123,32 @@ export async function loadModelIn(input: ModelInput, settings: TessellationSetti
   cancelled: () => boolean, gltf: GltfImportOptions = {}): Promise<void> {
   const scene = await importModel(input, gltf, { tessellated: settings.tessellated });
   if (cancelled()) return;
-  // (The file's levels transferred: only B-rep payloads are used here from now on.)
-  emit({ type: 'scene', scene: postable(scene) }, levelBuffers(scene));
+  // The levels shown that have no edges of their own get edges found from their triangles, part by part, after the
+  // scene goes (edges.ts; the user, 2026-10-31: off the page's thread, and not holding up meshing); those levels'
+  // buffers are copied to the page rather than transferred, as they're needed here meanwhile.
+  const scales = placedScales(scene);
+  const wanted = meshDeflections(deflectionsOf(settings));
+  const jobs = scene.parts.flatMap((p, part) => {
+    const mesh = p.brep ? undefined : chooseLod(p, wanted)?.mesh;
+    return mesh && needsEdges(mesh) && scales.has(part) ? [{ part, mesh, scale: scales.get(part)! }] : [];
+  });
+  const kept = new Set(jobs.flatMap((j) => meshBuffers(j.mesh)));
+  // (The file's other levels transferred: only B-rep payloads are used here from now on.)
+  emit({ type: 'scene', scene: postable(scene) }, levelBuffers(scene).filter((b) => !kept.has(b)));
+  const edges = (async () => {
+    for (const { part, mesh, scale } of jobs) {
+      await new Promise((r) => setTimeout(r, 0));
+      if (cancelled()) return;
+      const positions = edgesOf(mesh, scale);
+      emit({ type: 'edges', part, positions }, [positions.buffer as ArrayBuffer]);
+    }
+  })();
   const brep = meshable(scene);
-  if (!brep.length) return emit({ type: 'done', diagnostics: [] });
+  if (!brep.length) {
+    await edges;
+    if (!cancelled()) emit({ type: 'done', diagnostics: [] });
+    return;
+  }
   const { tess, workers: n } = await tessellation.get(settings, workers);
   if (cancelled()) return;
   // Faces that fail to mesh, and parts that do (errors, timeouts), outlined from the file (cad-scene's `outlines`).
@@ -107,8 +157,12 @@ export async function loadModelIn(input: ModelInput, settings: TessellationSetti
     onPart: (part, mesh) => {
       if (cancelled()) return;
       const measures = scene.parts[part]!.measures;
-      emit({ type: 'mesh', part, mesh, ...(measures ? { measures } : {}) }, meshBuffers(mesh));
+      // (A backend that gives no edges, truck: found here, with the mesh.)
+      const found = mesh && needsEdges(mesh) && scales.has(part) ? edgesOf(mesh, scales.get(part)!) : undefined;
+      emit({ type: 'mesh', part, mesh, ...(measures ? { measures } : {}), ...(found ? { foundEdges: found } : {}) },
+        [...meshBuffers(mesh), ...(found ? [found.buffer as ArrayBuffer] : [])]);
     } });
+  await edges;
   if (cancelled()) return;
   const d = tessellation.describe();
   emit({ type: 'done', diagnostics, ...(d ? { meshing: { ...d, workers: n } } : {}),

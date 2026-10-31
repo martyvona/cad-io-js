@@ -642,6 +642,11 @@ export class Viewer {
     const meshedAt = meshDeflections(deflectionsOf(this.settings)).linearDeflection;
     let graph: SceneGraph | undefined;
     let model: ModelInfo | undefined;
+    const edgesAdded = (part: number) => {
+      for (const p of graph!.placements.get(part) ?? []) this.nodes?.invalidate(p.group);
+      this.fatEdges.invalidate();
+      this.onMeshes?.();
+    };
     const added = (part: number, mesh: Mesh) => {
       this.grow(graph!, part, mesh);
       for (const p of graph!.placements.get(part) ?? []) this.nodes?.invalidate(p.group);
@@ -691,10 +696,14 @@ export class Viewer {
           if (ev.measures) graph!.scene.parts[ev.part]!.measures = ev.measures;
           if (mesh && (drawn || (mesh.faceOutlines?.length && !graph!.hasMesh(ev.part)))) {
             graph!.addMesh(ev.part, mesh, meshedAt);
+            if (ev.foundEdges) graph!.setFoundEdges(ev.part, ev.foundEdges);
             added(ev.part, mesh);
           }
           if (!drawn) model!.parts!.failed++;
           progress();
+        } else if (ev.type === 'edges') {
+          // Edges found for a level from the file (model-load.ts), after it was shown.
+          if (graph!.setFoundEdges(ev.part, ev.positions).length) edgesAdded(ev.part);
         } else {
           ended = ev;
           model?.diagnostics!.push(...ev.diagnostics);

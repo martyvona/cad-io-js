@@ -99,18 +99,28 @@ test('meshes: wireframes as curves and points in the instance colour; no faces, 
   assert.equal(g.addMesh(5, wire()).length, 0);
 });
 
-test('edges found from the triangles only for parts without B-rep edges', () => {
+test('edges found later (setFoundEdges) for every placement of a part without B-rep edges; B-rep edges at once', () => {
   const g = new SceneGraph(scene(), 'model');
   const bare = plate();
   delete bare.edges;
   delete bare.edgePositions;
-  const [m] = g.addMesh(0, bare);
-  const e = m!.children.find((c) => c.name === 'edges') as THREE.LineSegments;
-  assert.ok(e.geometry instanceof THREE.EdgesGeometry);
-  assert.equal(e.layers.mask, 1 << EDGES);
-  // The square's outline; not the diagonal, where its two triangles fold by about 8 degrees, under EDGE_ANGLE.
-  assert.equal(e.geometry.getAttribute('position').count / 2, 4);
-  // Only seams: the B-rep has edges, none to draw; none found either.
+  const made = g.addMesh(0, bare);
+  // None until found (model-load.ts finds them in the worker).
+  assert.ok(made.length > 1 && made.every((m) => !m.children.some((c) => c.name === 'edges')));
+  const segments = Float32Array.of(0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0);
+  assert.deepEqual(g.setFoundEdges(0, segments), made);
+  for (const m of made) {
+    const e = m.children.filter((c) => c.name === 'edges') as THREE.LineSegments[];
+    assert.equal(e.length, 1);
+    assert.equal(e[0]!.layers.mask, 1 << EDGES);
+    assert.equal(e[0]!.geometry.getAttribute('position').count, 4);
+  }
+  // Again: in place of the first, not beside it.
+  g.setFoundEdges(0, segments);
+  assert.ok(made.every((m) => m.children.filter((c) => c.name === 'edges').length === 1));
+  // A part with no mesh: nothing.
+  assert.deepEqual(new SceneGraph(scene(), 'model').setFoundEdges(0, segments), []);
+  // Only seams: the B-rep has edges, none to draw.
   const seams = plate();
   seams.edges = [seams.edges![1]!];
   assert.equal(g.addMesh(0, seams)[0]!.children.some((c) => c.name === 'edges'), false);

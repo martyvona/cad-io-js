@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import type { Scene, TessellationRequest, TessellationResult, Tessellator } from 'cad-scene';
-import { importModel, levelBuffers, loadModelIn, meshable, meshBuffers, postable, type ModelEvent,
-  type ModelInput } from '../src/model-load.ts';
+import type { Mesh, Scene, TessellationRequest, TessellationResult, Tessellator } from 'cad-scene';
+import { edgesOf, importModel, levelBuffers, loadModelIn, meshable, meshBuffers, needsEdges, placedScales, postable,
+  type ModelEvent, type ModelInput } from '../src/model-load.ts';
 import { exportView, pruneView, viewDifferences, type ExportNode } from 'cad-scene';
 import { threemf } from 'export-3mf';
 import { glb, gltfJson } from 'export-gltf';
@@ -88,8 +88,10 @@ test('loadModelIn: the scene (postable), a mesh per placed brep part, then the e
     // Meshes with their buffers to transfer: positions, indices, and the faces' outlines (the fake's one face is the
     // representation's id, not one of the file's faces, so every face of the file counts as failed: outlined from
     // the file); a profile's deflections exactly (not through degrees).
-    assert.ok(transfers.slice(1, -1).every((t) => t.length === 3));
+    // (And the edges found from their triangles, as the fake backend gives none: its buffer too.)
+    assert.ok(transfers.slice(1, -1).every((t) => t.length === 4));
     const meshes = events.filter((e) => e.type === 'mesh') as Extract<ModelEvent, { type: 'mesh' }>[];
+    assert.ok(meshes.every((e) => e.foundEdges && e.foundEdges.length > 0));
     assert.ok(meshes.every((e) => e.mesh!.faceOutlines!.length > 0 && e.mesh!.faces.length > 1));
     assert.equal(requests[0]!.angularDeflection, MESH_PROFILES.coarse.angularDeflection);
     // Custom: the settings' deflections, degrees to radians.
@@ -193,6 +195,7 @@ test('importModel and loadModelIn: GLB, .gltf with its .bin, three.js JSON, 3MF,
         events.push(e);
         transfers.push(t ?? []);
       }, () => false);
+      // (Our files carry the plate's B-rep edges: none to find.)
       assert.deepEqual(events.map((e) => e.type), ['scene', 'done'], input.format);
       assert.equal(requests.length, 0);
       const scene = (events[0] as { scene: Scene }).scene;
@@ -212,10 +215,37 @@ test('importModel and loadModelIn: GLB, .gltf with its .bin, three.js JSON, 3MF,
       { scene: back, view: exportView(back, lines) }, { lines: false }), []);
     const { requests, tessellation } = fake();
     const events: ModelEvent[] = [];
-    await loadModelIn({ format: '3mf', bytes }, DEFAULT_SETTINGS, 2, tessellation, (e) => events.push(e), () => false);
-    assert.deepEqual(events.map((e) => e.type), ['scene', 'done']);
+    const sent: ArrayBuffer[][] = [];
+    await loadModelIn({ format: '3mf', bytes }, DEFAULT_SETTINGS, 2, tessellation, (e, t) => {
+      events.push(e);
+      sent.push(t ?? []);
+    }, () => false);
+    // 3MF has no lines: the plate's edges found from its triangles, after the scene, before the end; its level's
+    // buffers kept here for that (copied to the page, not transferred).
+    assert.deepEqual(events.map((e) => e.type), ['scene', 'edges', 'done']);
     assert.equal(requests.length, 0);
+    const found = events[1] as Extract<ModelEvent, { type: 'edges' }>;
+    const sc = (events[0] as { scene: Scene }).scene;
+    assert.ok(found.positions.length > 0 && sc.parts[found.part]!.lods[0]!.mesh.indices.length > 0);
+    assert.deepEqual(sent[0], []);
+    assert.deepEqual(sent[1], [found.positions.buffer]);
     // A .gltf whose .bin isn't given: the importer says so.
     const missing = await importModel({ format: 'gltf', bytes: new TextEncoder().encode(sidecar.json) });
     assert.equal(missing.diagnostics[0]?.severity, 'error');
   });
+
+test('edgesOf: on 1 um in the world, whatever the mesh\'s unit; placedScales from the first placement', () => {
+  // The two triangles of edges.test.ts, the shared edge's ends apart by d: in metres (scale 1000 mm a unit) and in
+  // millimetres (1), 0.4 um apart one vertex (4 segments), 4 um apart two (6).
+  const mesh = (d: number, unit: number): Mesh => ({ origin: [0, 0, 0], faces: [], indices: Uint32Array.of(0, 1, 2,
+    3, 4, 5), positions: Float32Array.from([0, 0, 0, 1, 0, 0, 0, 1, 0, 1 + d, 0, 0, 1, 1, 0, d, 1, 0].map((x) =>
+    x / unit)) });
+  for (const unit of [1000, 1]) {
+    assert.equal(edgesOf(mesh(0.0004, unit), unit).length / 6, 4, `${unit}`);
+    assert.equal(edgesOf(mesh(0.004, unit), unit).length / 6, 6, `${unit}`);
+  }
+  assert.equal(needsEdges(mesh(0, 1)), true);
+  assert.equal(needsEdges({ ...mesh(0, 1), edges: [{ source: 1, start: 0, count: 2, kind: 'shared' }] }), false);
+  // The fixture's plate is placed in inches: 25.4 mm a unit.
+  assert.ok(Math.abs(placedScales(fixture()).get(0)! - 25.4) < 1e-9);
+});
