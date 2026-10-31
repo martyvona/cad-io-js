@@ -350,6 +350,7 @@ The controls (lil-gui, top right) are in folders, all closed at first:
 | `tree=0`, `detail=1`, `pick=assembly\|part\|detail`, `instances=1` | the tree panel, its faces/edges/curves, the pick level, all instances |
 | `hide=<path>`, `select=<path>` | (repeated) exactly these nodes hidden; these selected |
 | `deterministic` | one pixel per CSS pixel whatever the screen, so screenshots compare across machines |
+| `controls=0` | the controls hidden (`cad-viewer shot` asks for it: its picture is of the view alone, so fits centre in the whole view) |
 
 What can't be applied (an unknown path, a malformed value) is said in the status line. Nodes are named by **paths** that stay the same from one load to the next: occurrence names from the top node down, joined by `/`, each followed by `:k` for the k-th sibling of that name (k > 1), with `%`, `/` and `:` in names escaped as in URLs; below a part, `face#<STEP id>` (in glTF and three.js files without our extras, `face#<k>`, the primitive's or group's number), `edges`, `curves`, `points`, as in `as1-oc-214-mat/l-bracket-assembly:2/nut`.
 

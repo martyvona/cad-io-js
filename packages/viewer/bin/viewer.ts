@@ -242,8 +242,10 @@ async function takeShot(s: State, file: string, o: ShotOptions, io: Io): Promise
   const q = new URLSearchParams({ model: modelPath(rel) });
   q.set('deterministic', '');
   const extra = new URLSearchParams(o.state ?? '');
-  // The tree closed, so the view is the whole page, unless the state says otherwise.
+  // The tree closed, so the view is the whole page, unless the state says otherwise; the controls hidden, as the
+  // shot is of the view alone (fits otherwise leave room beside them, off-centre in the picture).
   if (!extra.has('tree')) q.set('tree', '0');
+  if (!extra.has('controls')) q.set('controls', '0');
   if (o.view) q.set('view', o.view);
   for (const [k, v] of extra) q.append(k, v);
   const page = `${s.url}?${q}`;

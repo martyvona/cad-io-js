@@ -2935,7 +2935,15 @@ if (!staticServer) await check('shot', async () => {
   expect(code === 0, `exit ${code}: ${out.join('')}`);
   const bytes = fs.readFileSync(png);
   const [w, h] = [bytes.readUInt32BE(16), bytes.readUInt32BE(20)];
-  const report = JSON.parse(fs.readFileSync(json, 'utf8')) as { state: State; link: string };
+  const report = JSON.parse(fs.readFileSync(json, 'utf8')) as { state: State; link: string; page: string };
+  // The controls hidden (the shot is of the view alone), so nothing covers the view and the model's sphere is drawn
+  // at its centre: shot's page, opened here, fits in the whole width.
+  expect(new URL(report.page).searchParams.get('controls') === '0', `controls shown: ${report.page}`);
+  const shotPage = await page(new URL(report.page).search + '&check', `(() => ({ hidden: ui.gui._hidden,
+    fit: viewer.fitAspect(), aspect: viewer.renderer.domElement.clientWidth / viewer.renderer.domElement.clientHeight
+    }))()`) as { after: { hidden: boolean; fit: number; aspect: number } };
+  expect(shotPage.after.hidden && Math.abs(shotPage.after.fit - shotPage.after.aspect) < 1e-9,
+    `shot's page fits beside the controls: ${JSON.stringify(shotPage.after)}`);
   // Wider than a phone, where the tree would open with the model unless shot closes it.
   expect(bytes.subarray(1, 4).toString() === 'PNG' && w === 1000 && h === 600, `png ${w}x${h}`);
   expect(report.state.model?.triangles === triangles && /[?&]model=as1\.stp(&|$)/.test(report.link),
