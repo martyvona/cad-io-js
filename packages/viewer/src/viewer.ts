@@ -18,7 +18,7 @@ import { clipTo, fitCamera, fitSphere, interpolateCamera, setAspect, smoothstep,
 import type { CameraState } from './view-state.ts';
 import { formatOf, type Format } from './formats.ts';
 import { Frames } from './frames.ts';
-import { NodeModel, type FaceHiding } from './model.ts';
+import { NodeModel, type Looks } from './model.ts';
 import { hitsAlong, pick, type Pick } from './pick.ts';
 import { Composer } from './render.ts';
 import { Sections, type SectionSettings } from './section.ts';
@@ -609,10 +609,10 @@ export class Viewer {
     return this.loadModel(src, format, gen, !!opts.keep && !!this.model);
   }
 
-  private show(root: THREE.Object3D, model: ModelInfo, faces: FaceHiding | undefined, keep: boolean): void {
+  private show(root: THREE.Object3D, model: ModelInfo, looks: Looks | undefined, keep: boolean): void {
     this.clear();
     this.root = root;
-    this.nodes = new NodeModel(root, faces);
+    this.nodes = new NodeModel(root, looks);
     this.display.add(root);
     this.model = model;
     this.moved = keep;

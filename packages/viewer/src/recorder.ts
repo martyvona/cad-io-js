@@ -445,13 +445,13 @@ export async function replay(rec: Recording, viewer: Viewer, ui: Ui, session: Se
       // The end: the view as it was then.
       await session.idle();
       const now = session.state() as Record<string, unknown>;
-      // (Hidden paths in any order: hidden faces' nodes may be made in another order.)
-      const text = (key: string, v: unknown) => JSON.stringify(key === 'hidden' && Array.isArray(v) ? [...v].sort()
-        : v);
-      for (const key of ['cut', 'caps', 'render', 'meshing', 'tree', 'pick', 'instances', 'hidden',
-        'selected']) {
-        // (Recordings before 2026-10-27 have no meshing.)
-        if (e.state[key] === undefined && key === 'meshing') continue;
+      // (Hidden and shown paths in any order.)
+      const text = (key: string, v: unknown) => JSON.stringify((key === 'hidden' || key === 'shown') &&
+        Array.isArray(v) ? [...v].sort() : v);
+      for (const key of ['cut', 'caps', 'render', 'meshing', 'tree', 'pick', 'instances', 'hidden', 'shown',
+        'opacity', 'selected']) {
+        // (Recordings before 2026-10-27 have no meshing, those before 2026-10-31 no shown nor opacity.)
+        if (e.state[key] === undefined && ['meshing', 'shown', 'opacity'].includes(key)) continue;
         // (The meshing settings recorded only: those before 2026-10-28 have no timeout.)
         if (key === 'meshing') now[key] = Object.fromEntries(Object.keys(e.state[key] as object).map((k) =>
           [k, (now[key] as Record<string, unknown>)[k]]));

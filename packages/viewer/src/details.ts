@@ -70,8 +70,10 @@ export function details(model: NodeModel, ids: readonly number[]): string[] {
         ' (outlined in red)');
     }
     if (report?.area !== undefined) out.push(`Area on the exact geometry: ${mm(report.area)} mm^2`);
-    if (n.hidden) out.push('Hidden');
-    else if (model.hiddenInTree(n.id)) out.push('Hidden (by an assembly above)');
+    // Its appearance: its own override, or inherited from a node above (model.ts).
+    const own = model.ownOverride(n.id), look = model.look(n.id);
+    if (look.hidden) out.push(own?.hidden ? 'Hidden' : 'Hidden (by a node above)');
+    if (look.alpha !== 1) out.push(`Opacity ${num(look.alpha)}${own?.alpha === undefined ? ' (from a node above)' : ''}`);
   }
   const m = measure(piecesOf(model, ids));
   if (m.meshes) out.push(`Triangles: ${num(m.triangles)} in ${plural(m.meshes, 'mesh', 'meshes')}, ` +

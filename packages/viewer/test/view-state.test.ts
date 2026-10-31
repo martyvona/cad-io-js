@@ -14,7 +14,8 @@ test('view state: every field through the query and back; numbers to 6 decimals;
       aoRadius: 16, aoQuality: 'Low', edgeStyle: 'thin', edgeWidth: 2.5, specular: 0.25, ambient: 0.8, light: 3,
       capStyle: 'parts', hatchWidth: 2.25 },
     tree: { open: false, detail: true }, pick: 'detail', instances: true,
-    hidden: ['as1/plate', 'as1/a%2Fb:2/nut'], selected: ['as1/rod/face#78'],
+    hidden: ['as1/plate', 'as1/a%2Fb:2/nut'], shown: ['as1/plate/edges'],
+    opacity: [{ path: 'as1/a%2Fb:2/nut', alpha: 0.3 }, { path: 'as1/rod', alpha: 1 }], selected: ['as1/rod/face#78'],
   };
   const { state, problems } = roundTrip(s);
   assert.deepEqual(problems, []);
@@ -23,6 +24,7 @@ test('view state: every field through the query and back; numbers to 6 decimals;
   const url = new URL('http://h/?model=as1.stp');
   for (const [k, v] of toQuery(s)) url.searchParams.append(k, v);
   assert.deepEqual(fromQuery(new URL(url.href).searchParams).state.hidden, s.hidden);
+  assert.deepEqual(fromQuery(new URL(url.href).searchParams).state.opacity, s.opacity);
   // Absent fields stay absent; an empty cut list says every plane is off.
   assert.deepEqual(roundTrip({}).state, {});
   assert.deepEqual(roundTrip({ cut: {} }).state, { cut: {} });
@@ -41,6 +43,9 @@ test('view state: malformed values left out, each with a message', () => {
   assert.deepEqual(state, { cut: {}, tree: { open: false } });
   assert.equal(problems.length, 12, problems.join('\n'));
   assert.deepEqual(fromQuery(new URLSearchParams('camera=0,0,1,0,0,0,0,1,0,0')).problems.length, 1);
+  // Opacities: a number from 0 to 1, then a path.
+  const alpha = fromQuery(new URLSearchParams('alpha=2:a&alpha=x:a&alpha=0.5:&alpha=a&alpha=-0.1:a&alpha=0:a:2'));
+  assert.deepEqual([alpha.state.opacity, alpha.problems.length], [[{ path: 'a:2', alpha: 0 }], 5]);
 });
 
 test('render changes: only what differs from the defaults', () => {

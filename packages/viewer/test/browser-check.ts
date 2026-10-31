@@ -765,11 +765,48 @@ await check('hide others and transparency', async () => {
     button('Restore opacity').$button.click();
     ui.select([]);
     const restored = [mesh.material].flat().map((x) => [x.opacity, x.transparent]);
-    return { all, alone, nut: nut.id, back, nutKept, before, made, restored };
+    // Overrides inherited (the user, 2026-10-31): the nut's assembly hidden, the nut shown within it; the assembly at
+    // 0.5, one of its children back to the file's within it. In the state and the link. (An assembly of several
+    // children: of one, the child would stand for it, NodeModel.cover.)
+    const asm = m.nodes.find((n) => n.kind === 'assembly' && n.parent >= 0 && m.children(n.id).length > 1).id;
+    const one = m.nodes[m.children(asm)[0]];
+    ui.select([asm]);
+    ui.hideSelected();
+    ui.select([one.id]);
+    ui.showSelected();
+    const inAsm = m.children(asm).map((id) => m.nodes[id]);
+    const within = inAsm.map((n) => [n.id === one.id, m.hiddenInTree(n.id)]);
+    ui.select([asm]);
+    button('Opacity').setValue(0.5);
+    button('Make transparent').$button.click();
+    ui.select([one.id]);
+    button('Restore opacity').$button.click();
+    ui.select([]);
+    const alphas = inAsm.map((n) => [n.id === one.id, m.look(n.id).alpha]);
+    const st = cadViewer.state();
+    return { all, alone, nut: nut.id, back, nutKept, before, made, restored, within, alphas, drawn: shown().length,
+      overrides: { hidden: st.hidden, shown: st.shown, opacity: st.opacity }, link: cadViewer.link() };
   })()`) as { after: { all: number; alone: number[]; nut: number; back: number; nutKept: boolean;
-    before: [number, boolean][]; made: [number, boolean][]; restored: [number, boolean][] } };
+    before: [number, boolean][]; made: [number, boolean][]; restored: [number, boolean][];
+    within: [boolean, boolean][]; alphas: [boolean, number][]; drawn: number; overrides: { hidden: string[]; shown: string[];
+      opacity: { path: string; alpha: number }[] }; link: string } };
   const a = r.after;
   const j = JSON.stringify(a);
+  expect(a.within.length > 1 && a.within.every(([isOne, hidden]) => hidden === !isOne) && a.drawn < a.all,
+    `hidden within: ${j}`);
+  expect(a.alphas.every(([isOne, alpha]) => alpha === (isOne ? 1 : 0.5)), `opacity within: ${j}`);
+  const o = a.overrides;
+  expect(o.hidden.length === 1 && o.shown.length === 1 && o.shown[0]!.startsWith(o.hidden[0]! + '/') &&
+    o.opacity.length === 2 && o.opacity[0]!.path === o.hidden[0] && o.opacity[0]!.alpha === 0.5 &&
+    o.opacity[1]!.path === o.shown[0] && o.opacity[1]!.alpha === 1, `the overrides: ${j}`);
+  // The link, opened: the same overrides, drawn so.
+  const at = a.link.indexOf('#');
+  const linked = await page(a.link.slice(a.link.indexOf('?'), at) + '&check' + a.link.slice(at), `cadViewer.ready
+    .then(() => cadViewer.idle()).then(() => { const st = cadViewer.state(), m = ui.panel().model;
+      return { hidden: st.hidden, shown: st.shown, opacity: st.opacity, drawn: m.nodes.filter((n) => n.kind ===
+        'part' && !m.hiddenInTree(n.id)).length }; })`) as { after: typeof o & { drawn: number } };
+  expect(JSON.stringify({ ...linked.after, drawn: undefined }) === JSON.stringify(o) &&
+    linked.after.drawn === a.drawn, `linked: ${JSON.stringify(linked.after)} ${j}`);
   expect(a.all > 3 && a.alone.length === 1 && a.alone[0] === a.nut && a.back === a.all, `hide/show others: ${j}`);
   expect(a.nutKept, `Show others showed the selection: ${j}`);
   expect(a.made.every(([o, t]) => o === 0.4 && t) && JSON.stringify(a.restored) === JSON.stringify(a.before) &&
@@ -1009,7 +1046,8 @@ await check('tree', async () => {
     await frame();
     const hiddenObjects = selected.filter((i) => m.nodes[i].object.visible === false).length;
     const greyed = rows().filter((r) => r.classList.contains('hidden')).length;
-    // A face of the first part, hidden: every placement of that part draws it with nothing.
+    // A face of the first part, hidden: that placement draws it with nothing, the part's others draw it (faces per
+    // placement since 2026-10-31).
     ui.showAll();
     await frame();
     const face = rows().find((r) => m.nodes[+r.dataset.id].kind === 'face');
@@ -1020,7 +1058,7 @@ await check('tree', async () => {
     await frame();
     const same = m.nodes.filter((n) => n.face && n.face.part === faceNode.face.part && n.face.source ===
       faceNode.face.source);
-    const sameHidden = same.filter((n) => n.hidden).length;
+    const sameHidden = same.filter((n) => m.hiddenInTree(n.id)).length;
     let invisibleGroups = 0;
     viewer.display.traverse((o) => { if (o.isMesh && Array.isArray(o.material)) invisibleGroups +=
       o.geometry.groups.filter((g) => !o.material[g.materialIndex].visible).length; });
@@ -1055,7 +1093,7 @@ await check('tree', async () => {
   expect(a.selected === 2 && a.hiddenObjects === 2, `selection and hiding: ${j}`);
   // Each hidden part greys itself and its detail rows (its faces and edges).
   expect(a.greyed > 2, `greyed rows: ${j}`);
-  expect(a.same > 1 && a.sameHidden === a.same && a.invisibleGroups === a.same, `face hiding: ${j}`);
+  expect(a.same > 1 && a.sameHidden === 1 && a.invisibleGroups === 1, `face hiding: ${j}`);
   expect(a.invisibleAfter === 0 && a.greyAfter === 0, `show all: ${j}`);
   return undefined;
 });
@@ -2078,7 +2116,7 @@ await check('mesh again', async () => {
     pageTessellation: boolean; triangles: number[]; zoomAfter: boolean; before: Record<string, unknown>;
     after: Record<string, unknown>; tree: { expanded: string[]; top?: [string, number]; rows: boolean }[];
     lost: { status: string; paths: string[];
-    notRestored?: { hidden: string[]; selected: string[] } } } };
+    notRestored?: { overrides: string[]; selected: string[] } } } };
   const a = r.after;
   const j = JSON.stringify(a);
   expect(a.allClosed, `folders closed at first: ${j}`);
@@ -2104,8 +2142,8 @@ await check('mesh again', async () => {
     JSON.stringify(a.tree)}`);
   expect(JSON.stringify(tb!.top) === JSON.stringify(ta!.top), `the tree's top row kept: ${JSON.stringify(a.tree)}`);
   const l = a.lost;
-  expect(/; 1 hidden and 1 selected not found again \(in the console\)$/.test(l.status) &&
-    l.notRestored?.hidden.join() === l.paths[0] && l.notRestored?.selected.join() === l.paths[1],
+  expect(/; 1 hidden or transparent and 1 selected not found again \(in the console\)$/.test(l.status) &&
+    l.notRestored?.overrides.join() === l.paths[0] && l.notRestored?.selected.join() === l.paths[1],
     `not found again: ${JSON.stringify(l)}`);
   return undefined;
 });
@@ -2796,10 +2834,10 @@ await check('snapshot: meshing and hidden faces', async () => {
     const m = viewer.nodes;
     const nuts = m.nodes.filter((n) => n.kind === 'part' && n.name === 'nut');
     const source = nuts[0].object.children[0].userData.faces[0];
-    const facePath = m.pathOf(nuts[0].id) + '/face#' + source;
-    cadViewer.hide([facePath]);
-    ui.setTree({ detail: false });
+    // (One face in every placement: faces are hidden per placement since 2026-10-31.)
     const want = nuts.map((n) => m.pathOf(n.id) + '/face#' + source);
+    cadViewer.hide(want);
+    ui.setTree({ detail: false });
     const hidden = cadViewer.state().hidden;
     ui.setMeshing({ profile: 'custom', linearDeflection: 0.5 });
     const st = cadViewer.state();
@@ -2807,9 +2845,9 @@ await check('snapshot: meshing and hidden faces', async () => {
     cadViewer.view('top');
     await cadViewer.idle();
     const rec = cadViewer.record(false);
-    // A face hidden with no node made for it (through the graph), then a state hiding nothing: shown.
+    // A face hidden by a state with no node made for it (the tree without detail), then a state hiding nothing.
     const bolt = m.nodes.find((n) => n.kind === 'part' && n.name === 'bolt');
-    m.faces.setFaceHidden(bolt.object.userData.part, bolt.object.children[0].userData.faces[0], true);
+    cadViewer.apply({ hidden: [m.pathOf(bolt.id) + '/face#' + bolt.object.children[0].userData.faces[0]] });
     const unmade = cadViewer.state().hidden.filter((p) => p.startsWith(m.pathOf(bolt.id) + '/face#')).length;
     cadViewer.apply({ hidden: [] });
     const cleared = cadViewer.state().hidden;
@@ -2821,7 +2859,7 @@ await check('snapshot: meshing and hidden faces', async () => {
     cleared: string[] } };
   const a = first.after;
   const j = JSON.stringify({ ...a, rec: undefined });
-  expect(a.want.length > 1 && a.want.every((p) => a.hidden.includes(p)), `the face below every placement: ${j}`);
+  expect(a.want.length > 1 && a.want.every((p) => a.hidden.includes(p)), `the face in every placement: ${j}`);
   expect(a.meshing.profile === 'custom' && a.meshing.linearDeflection === 0.5 && a.meshedWith.profile === 'coarse',
     `the controls' meshing apart from the model's: ${j}`);
   expect(a.unmade === 1 && a.cleared.length === 0, `a hidden face with no node: listed, and shown by a state: ${j}`);
@@ -2882,10 +2920,12 @@ await check('automation', async () => {
     const parts = nodes.filter((n) => n.kind === 'part').map((n) => n.path);
     const missing = cadViewer.select([parts[0], 'nowhere/at/all']);
     const selected = cadViewer.state().selected;
+    // (Hidden as nodes() says: the override may be on the part's occurrence, standing for it, NodeModel.cover.)
+    const hiddenNow = () => cadViewer.nodes().filter((n) => n.hidden).map((n) => n.path);
     cadViewer.hide([parts[1]]);
-    const hidden = cadViewer.state().hidden;
+    const hidden = hiddenNow();
     cadViewer.show([parts[1]]);
-    const shown = cadViewer.state().hidden;
+    const shown = hiddenNow();
     cadViewer.view('iso');
     const pick = cadViewer.pickAt(0.5, 0.5);
     // Off the centre: the point pickAt names is the viewer's at the same place, from the view's top left.
@@ -2919,7 +2959,7 @@ await check('automation', async () => {
     redrawn: boolean } };
   const a = r.after;
   const j = JSON.stringify({ ...a, state: undefined });
-  expect(a.version === 2 && a.count === a.unique && a.parts.length >= 4, `nodes: ${j}`);
+  expect(a.version === 3 && a.count === a.unique && a.parts.length >= 4, `nodes: ${j}`);
   expect(a.missing.length === 1 && /nowhere/.test(a.missing[0]!) && a.selected[0] === a.parts[0], `select: ${j}`);
   expect(a.hidden.includes(a.parts[1]!) && !a.shown.includes(a.parts[1]!), `hide and show: ${j}`);
   expect(!!a.pick && a.pick.path.startsWith(a.parts[0]!.split('/')[0]!), `pick: ${j}`);

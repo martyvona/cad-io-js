@@ -20,9 +20,10 @@ test('STEP: assemblies and parts, the file hidden placement hidden, no detail un
   assert.deepEqual(names(model, model.children(asm!)), ['assembly:left', 'assembly:sub', 'assembly:hidden']);
   const [left, , hidden] = model.children(asm!);
   assert.deepEqual(names(model, model.children(left!)), ['part:plate', 'part:wire']);
-  // The override hides the placed parts below that occurrence.
-  assert.equal(model.nodes[hidden!]!.hidden, false);
-  assert.deepEqual(model.children(hidden!).map((i) => model.nodes[i]!.hidden), [true, true]);
+  // The file's override hides the placed parts below that occurrence: overrides of their own.
+  assert.equal(model.ownOverride(hidden!), undefined);
+  assert.deepEqual(model.children(hidden!).map((i) => model.ownOverride(i)), [{ hidden: true }, { hidden: true }]);
+  assert.ok(model.children(hidden!).every((i) => !model.nodes[i]!.object!.visible));
   assert.equal(model.hiddenInTree(model.children(hidden!)[0]!), true);
   assert.equal(model.hiddenInTree(model.children(left!)[0]!), false);
   // Parts have no children without detail, nor with it before their meshes arrive.
@@ -57,57 +58,160 @@ test("STEP detail: a part's faces (once each), its edges, its curves and points;
     assert.deepEqual(names(model, model.children(platePart!)).filter((n) => n.startsWith('face')), ['face:face #8']);
   });
 
-test('hiding: objects hidden with their subtrees, shown greyed below; show all shows the file hidden too', () => {
-  const { graph, model } = stepModel();
-  graph.addMesh(0, plate());
-  model.setDetail(true);
-  const [left, sub, hidden] = model.children(model.children(model.roots[0]!)[0]!);
-  model.setHidden([left!], true);
-  assert.equal(model.nodes[left!]!.object!.visible, false);
-  const part = model.children(left!)[0]!;
-  assert.equal(model.hiddenInTree(part), true);
-  assert.equal(model.nodes[part]!.hidden, false);
-  // The edges node hides the edges of its placement only.
-  const edges = model.children(model.children(sub!)[0]!).find((i) => model.nodes[i]!.kind === 'edges')!;
-  model.setHidden([edges], true);
-  assert.equal(model.nodes[edges]!.object!.visible, false);
-  const otherEdges = graph.placements.get(0)![0]!.group.children[0]!.children.find((c) => c.name === 'edges')!;
-  assert.equal(otherEdges.visible, true);
-  const hiddenPart = model.children(hidden!)[0]!;
-  model.showAll();
-  assert.ok([left, sub, hidden, edges, hiddenPart].every((i) => !model.nodes[i!]!.hidden));
-  assert.equal(model.nodes[hiddenPart]!.object!.visible, true);
-  assert.equal(model.nodes[edges]!.object!.visible, true);
+/** A placement's mesh's faces drawn: [source, visible, opacity] in face order. */
+const drawn = (m: THREE.Mesh) => (m.userData.faceRanges as { source: number; start: number }[]).map((r) => {
+  const g = m.geometry.groups.find((gr) => gr.start <= r.start && r.start < gr.start + gr.count)!;
+  const mat = (m.material as THREE.Material[])[g.materialIndex!]!;
+  return [r.source, mat.visible, mat.visible ? mat.opacity : 0];
 });
 
-test("hiding a face: its triangles drawn with nothing in every placement of the part; the other placements' nodes too",
+test('hiding: an override inherited below, shown within, cleared below; equal to what it inherits, none', () => {
+  const { graph, model } = stepModel();
+  graph.addMesh(0, plate());
+  const [asm] = model.children(model.roots[0]!);
+  const [left] = model.children(asm!);
+  const [platePart, wirePart] = model.children(left!);
+  const group = (id: number) => model.nodes[id]!.object!;
+  model.set([left!], 'hidden', true);
+  assert.deepEqual(model.ownOverride(left!), { hidden: true });
+  // (Assemblies' groups stay drawn: their parts' are hidden.)
+  assert.ok(group(left!).visible && !group(platePart!).visible && !group(wirePart!).visible);
+  assert.ok(model.hiddenInTree(platePart!) && model.ownOverride(platePart!) === undefined);
+  // Shown within it: an override of its own.
+  model.set([platePart!], 'hidden', false);
+  assert.deepEqual(model.ownOverride(platePart!), { hidden: false });
+  assert.ok(group(platePart!).visible && !group(wirePart!).visible && !model.hiddenInTree(platePart!));
+  // Hiding the assembly again clears it below.
+  model.set([left!], 'hidden', true);
+  assert.equal(model.ownOverride(platePart!), undefined);
+  assert.ok(!group(platePart!).visible);
+  // Shown: what it inherits (shown), so no override at all; only the file's hidden placements' remain.
+  model.set([left!], 'hidden', false);
+  assert.equal(model.ownOverride(left!), undefined);
+  assert.ok(group(platePart!).visible && group(wirePart!).visible);
+  assert.deepEqual(model.overrides().map((o) => [o.path, o.hidden]), [['model/asm/hidden/plate', true],
+    ['model/asm/hidden/wire', true]]);
+  // Show all clears those too.
+  model.showAll();
+  assert.deepEqual(model.overrides(), []);
+  assert.ok(model.nodes.filter((n) => n.kind === 'part').every((n) => n.object!.visible));
+});
+
+test("hiding detail: a placement's edges or faces only; a hidden part's edges shown, its faces drawn with nothing",
   () => {
     const { graph, model } = stepModel();
     const meshes = graph.addMesh(0, plate()) as THREE.Mesh[];
+    for (const p of graph.placements.get(0)!) model.invalidate(p.group);
     model.setDetail(true);
     const [left, sub] = model.children(model.children(model.roots[0]!)[0]!);
-    const face7 = (placement: number) => model.children(model.children(placement)[0]!).find(
-      (i) => model.nodes[i]!.name === 'face #7')!;
-    const a = face7(left!);
-    const b = face7(sub!);
-    model.setHidden([a], true);
-    assert.equal(model.nodes[b]!.hidden, true);
-    for (const m of meshes) {
-      const groups = m.geometry.groups.map((g) => [g.start, g.count, (m.material as THREE.Material[])[
-        g.materialIndex!]!.visible]);
-      // Face 8 (indices 0-2) drawn, face 7 (3-5) not.
-      assert.deepEqual(groups, [[0, 3, true], [3, 3, false]]);
-    }
-    assert.equal(graph.isFaceHidden(0, 7), true);
-    model.showAll();
-    assert.equal(model.nodes[a]!.hidden, false);
-    assert.equal(graph.isFaceHidden(0, 7), false);
-    assert.ok(meshes.every((m) => (m.material as THREE.Material[]).every((x) => x.visible)));
-    // Shown again by its own flag: the same.
-    model.setHidden([a], true);
-    model.setHidden([b], false);
-    assert.ok(meshes.every((m) => (m.material as THREE.Material[]).every((x) => x.visible)));
+    const plateOf = (a: number) => model.children(a!)[0]!;
+    const child = (part: number, name: string) => model.children(part).find((i) => model.nodes[i]!.name === name)!;
+    const edgesObj = (m: THREE.Mesh) => m.children.find((c) => c.name === 'edges')!;
+    // Face 7 hidden under the first placement only (per placement since 2026-10-31).
+    model.set([child(plateOf(left!), 'face #7')], 'hidden', true);
+    assert.deepEqual(drawn(meshes[0]!), [[8, true, 1], [7, false, 0]]);
+    assert.deepEqual(drawn(meshes[1]!).map((f) => f[1]), [true, true]);
+    assert.equal(model.hiddenInTree(child(plateOf(sub!), 'face #7')), false);
+    // The edges of the second placement only.
+    model.set([child(plateOf(sub!), 'edges')], 'hidden', true);
+    assert.ok(edgesObj(meshes[0]!).visible && !edgesObj(meshes[1]!).visible);
+    // The first placement hidden whole clears its face's override; its edges shown within it: the group drawn, its
+    // faces with nothing.
+    model.set([plateOf(left!)], 'hidden', true);
+    assert.equal(model.ownOverride(child(plateOf(left!), 'face #7')), undefined);
+    assert.ok(!meshes[0]!.parent!.visible);
+    model.set([child(plateOf(left!), 'edges')], 'hidden', false);
+    assert.ok(meshes[0]!.parent!.visible && edgesObj(meshes[0]!).visible);
+    assert.deepEqual(drawn(meshes[0]!).map((f) => f[1]), [false, false]);
+    // A face shown within the second placement hidden: the group drawn, that face only (its edges hidden with it).
+    model.set([plateOf(sub!)], 'hidden', true);
+    model.set([child(plateOf(sub!), 'face #8')], 'hidden', false);
+    assert.ok(meshes[1]!.parent!.visible && !edgesObj(meshes[1]!).visible);
+    assert.deepEqual(drawn(meshes[1]!).map((f) => f[1]), [true, false]);
+    model.set([plateOf(sub!)], 'hidden', false);
+    model.set([child(plateOf(sub!), 'edges')], 'hidden', true);
+    // Overrides by path: a part's detail after it, by segment.
+    assert.deepEqual(model.overrides().map((o) => [o.path, o.hidden]), [['model/asm/left/plate', true],
+      ['model/asm/left/plate/edges', false], ['model/asm/sub/plate/edges', true], ['model/asm/hidden/plate', true],
+      ['model/asm/hidden/wire', true]]);
+    // Its detail outlives a new mesh (the nodes are made again).
+    graph.addMesh(0, plate());
+    for (const p of graph.placements.get(0)!) model.invalidate(p.group);
+    const again = graph.placements.get(0)!.map((p) => p.group.children.find((c) => c.userData.faces)! as THREE.Mesh);
+    assert.ok(again[0]!.parent!.visible && edgesObj(again[0]!).visible && !edgesObj(again[1]!).visible);
   });
+
+test('cover: every child given stands for its parent, up the tree; nothing below another given', () => {
+  const { graph, model } = stepModel();
+  graph.addMesh(0, plate());
+  model.setDetail(true);
+  const [asm] = model.children(model.roots[0]!);
+  const [left, sub, hidden] = model.children(asm!);
+  const [platePart, wirePart] = model.children(left!);
+  // A part's whole detail: the part.
+  assert.deepEqual(model.cover(model.children(platePart!)), [platePart]);
+  assert.deepEqual(model.cover(model.children(platePart!).slice(1)), model.children(platePart!).slice(1));
+  // Both parts of a placement: it; all three placements: the assembly, and so the root (its only child).
+  assert.deepEqual(model.cover([platePart!, wirePart!]), [left]);
+  assert.deepEqual(model.cover([left!, sub!, hidden!]), [model.roots[0]]);
+  // Below another given: left out.
+  assert.deepEqual(model.cover([left!, platePart!, sub!]), [left, sub]);
+  // Two parts of different placements: each.
+  assert.deepEqual(model.cover([platePart!, model.children(sub!)[1]!]), [platePart, model.children(sub!)[1]]);
+});
+
+test('opacity: inherited below, a face\'s own winning, per placement; 1 the file\'s, cleared below', () => {
+  const { graph, model } = stepModel();
+  const meshes = graph.addMesh(0, plate()) as THREE.Mesh[];
+  model.setDetail(true);
+  const [left, sub] = model.children(model.children(model.roots[0]!)[0]!);
+  const platePart = model.children(left!)[0]!;
+  const face8 = model.children(platePart).find((i) => model.nodes[i]!.name === 'face #8')!;
+  const before = meshes.map((m) => drawn(m));
+  model.set([left!], 'alpha', 0.3);
+  assert.deepEqual(drawn(meshes[0]!), [[8, true, 0.3], [7, true, 0.3]]);
+  assert.deepEqual(drawn(meshes[1]!), before[1]);
+  model.set([face8], 'alpha', 0.6);
+  assert.deepEqual(drawn(meshes[0]!), [[8, true, 0.6], [7, true, 0.3]]);
+  assert.equal(model.look(face8).alpha, 0.6);
+  // Restored (1, the file's) on the assembly: cleared below, and none of its own (it inherits the file's).
+  model.set([left!], 'alpha', 1);
+  assert.deepEqual([model.ownOverride(left!), model.ownOverride(face8)], [undefined, undefined]);
+  assert.deepEqual(meshes.map((m) => drawn(m)), before);
+  // Restored within a transparent assembly: 1 of its own.
+  model.set([sub!], 'alpha', 0.4);
+  const subPlate = model.children(sub!)[0]!;
+  model.set([subPlate], 'alpha', 1);
+  assert.deepEqual(model.ownOverride(subPlate), { alpha: 1 });
+  assert.deepEqual(drawn(meshes[1]!), before[1]);
+  // Hiding leaves opacity as it is, and show all too.
+  model.set([sub!], 'hidden', true);
+  model.showAll();
+  assert.deepEqual(model.ownOverride(sub!), { alpha: 0.4 });
+});
+
+test('setOverrides: exactly these, of these slots; detail paths before the mesh arrives; paths that name nothing', () => {
+  const a = stepModel();
+  a.graph.addMesh(0, plate());
+  a.model.setDetail(true);
+  const [left, sub] = a.model.children(a.model.children(a.model.roots[0]!)[0]!);
+  a.model.set([left!], 'alpha', 0.3);
+  a.model.set([a.model.children(a.model.children(sub!)[0]!).find((i) => a.model.nodes[i]!.name === 'face #7')!],
+    'hidden', true);
+  const list = a.model.overrides();
+  // A fresh model, its meshes not there yet: the same overrides, the face's drawn so once its mesh is (the second
+  // placement red at 0.5 by the file's override).
+  const b = stepModel();
+  assert.deepEqual(b.model.setOverrides([...list, { path: 'model/nowhere', hidden: true }]), ['model/nowhere']);
+  assert.deepEqual(b.model.overrides(), list);
+  const meshes = b.graph.addMesh(0, plate()) as THREE.Mesh[];
+  for (const p of b.graph.placements.get(0)!) b.model.invalidate(p.group);
+  assert.deepEqual(meshes.slice(0, 2).map((m) => drawn(m)), [[[8, true, 0.3], [7, true, 0.3]],
+    [[8, true, 0.5], [7, false, 0]]]);
+  // Only one slot: the other's overrides kept.
+  b.model.setOverrides([], ['hidden']);
+  assert.deepEqual(b.model.overrides(), [{ path: 'model/asm/left', alpha: 0.3 }]);
+});
 
 test('paths: occurrence names with an index among same-named siblings, detail below parts, found either way', () => {
   const { graph, model } = stepModel();
@@ -160,27 +264,7 @@ test('paths: same-named siblings numbered from the second; names escaped', () =>
   assert.deepEqual(model.children(part).map((i) => model.pathOf(i)), ['top/asm/bolt/face#3']);
 });
 
-test('hiddenFacePaths: a hidden face below every placement of its part, as its face nodes\' paths, made or not', () => {
-  const { graph, model } = stepModel();
-  graph.addMesh(0, plate());
-  assert.deepEqual(model.hiddenFacePaths(), []);
-  // Face 7 of the plate (part 0) hidden: its part is placed three times.
-  graph.setFaceHidden(0, 7, true);
-  const paths = model.hiddenFacePaths();
-  const placements = model.nodes.filter((n) => n.kind === 'part' && n.object?.userData.part === 0);
-  assert.equal(placements.length, 3);
-  assert.deepEqual(paths, placements.map((n) => `${model.pathOf(n.id)}/face#7`));
-  // Each the path of the face node made for it, which is hidden.
-  for (const p of paths) {
-    const id = model.find(p);
-    assert.ok(id !== undefined && model.nodes[id]!.kind === 'face' && model.nodes[id]!.hidden, p);
-    assert.equal(model.pathOf(id!), p);
-  }
-  graph.setFaceHidden(0, 7, false);
-  assert.deepEqual(model.hiddenFacePaths(), []);
-});
-
-test('others: the siblings of the selection and of each ancestor; hiddenOutside: what\'s hidden outside it', () => {
+test('others: the siblings of the selection and of each ancestor', () => {
   const { graph, model } = stepModel();
   graph.addMesh(0, plate());
   model.setDetail(true);
@@ -198,14 +282,4 @@ test('others: the siblings of the selection and of each ancestor; hiddenOutside:
   assert.ok(others.includes(wirePart!) && others.includes(sub!) && others.includes(hidden!));
   // Two selected under one assembly: neither the other's other.
   assert.deepEqual(model.others([platePart!, wirePart!]).sort(), [sub!, hidden!].sort());
-  // Hidden outside: the hidden placement's parts, not the selection's own hiding.
-  model.setHidden([platePart!], true);
-  const outside = model.hiddenOutside([platePart!]);
-  assert.ok(!outside.includes(platePart!) && outside.length > 0 &&
-    outside.every((id) => model.nodes[id]!.hidden && model.nodes[id]!.parent !== left));
-  // A face hidden in the other placements (faces are per part) counts outside a selection elsewhere.
-  model.setHidden([face], true);
-  const faces = model.hiddenOutside([wirePart!]).filter((id) => model.nodes[id]!.name === 'face #8');
-  // (Every placement's node of it, made for the purpose where the tree hadn't made them: three placements.)
-  assert.ok(faces.includes(face) && faces.length === 3, `${faces.length}`);
 });

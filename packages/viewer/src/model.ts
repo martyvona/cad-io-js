@@ -11,10 +11,14 @@
 // path joins the segments from the top node down with `/` (`as1/l-bracket-assembly:2/nut`). A path finds its node
 // whether or not the tree shows detail.
 //
-// One hidden flag per node, the file's hidden state included (a node starts hidden if its object does); a node is
-// shown greyed when it or an ancestor is hidden. Hiding sets the object's `visible` (which hides its subtree too),
-// or for a face the face's triangles in every placement of its part (the geometry is shared: the user,
-// 2026-10-24).
+// Appearance (the user, 2026-10-31: hiding and transparency one mechanism): a node may have an AppearanceOverride,
+// whose slots (hidden, alpha) hold for it and for every node below it that doesn't set the same slot itself; the
+// file's hidden placements start with `hidden: true`. Hide, Show and the opacity buttons collapse the nodes they're
+// given to the fewest that cover them (a node whose children are all given stands for them), set the slot there and
+// clear it below. A placement draws as its overrides resolve: its group and line objects' `visible`, and its faces'
+// materials through the scene graph (Looks), per placement (before 2026-10-31 a face's hiding was its part's, in
+// every placement). Detail nodes' overrides are kept on their part by segment, so they outlast the detail nodes
+// (made again when a mesh arrives) and can be set before the mesh is there.
 
 import * as THREE from 'three';
 
@@ -36,19 +40,42 @@ export interface ViewNode {
    * its mesh's `faceReport`), `partly` for one short of its area; outlined in red (scene-graph.ts).
    */
   failure?: 'failed' | 'partly';
-  hidden: boolean;
+  /** Its own override (assemblies and parts; detail nodes' are their part's `detailOverrides`). */
+  override?: AppearanceOverride;
+  /** A part's detail nodes' overrides, by their path segment (`face#12`, `edges`). */
+  detailOverrides?: Map<string, AppearanceOverride>;
   /** Undefined until first asked for (a part's detail). */
   children?: number[];
 }
 
-/** What the scene graph does for faces, whose triangles are shared by every placement of their part. */
-export interface FaceHiding {
-  /** Every hidden face, as its part and source id. */
-  hiddenFaceList(): Iterable<[number, number]>;
-  isFaceHidden(part: number, source: number): boolean;
-  setFaceHidden(part: number, source: number, hidden: boolean): void;
-  showAllFaces(): void;
+/**
+ * A node's own appearance, each slot inherited by the nodes below it that don't set it: hidden (true) or shown
+ * (false), and an opacity, `alpha` (1 the file's own opacity).
+ */
+export interface AppearanceOverride { hidden?: boolean; alpha?: number }
+
+/** An override as states and links name it: the node's path and its slots. */
+export interface PathOverride extends AppearanceOverride { path: string }
+
+/**
+ * How a placement draws, its overrides resolved: hidden or not, an opacity (absent: the file's), and the faces whose
+ * own overrides make them differ, resolved likewise.
+ */
+export interface PlacementLook {
+  hidden: boolean;
+  alpha?: number;
+  faces?: ReadonlyMap<number, { hidden: boolean; alpha?: number }>;
 }
+
+/** What the scene graph does with a placement's look: its faces' materials (scene-graph.ts). */
+export interface Looks {
+  setLook(group: THREE.Object3D, look: PlacementLook): void;
+}
+
+type Slot = keyof AppearanceOverride;
+const LINES = ['edges', 'curves', 'points'];
+/** A slot's value when nothing sets it. */
+const DEFAULT: Required<AppearanceOverride> = { hidden: false, alpha: 1 };
 
 
 /** A name as a path segment: `%`, `/` and `:` escaped as in URLs. */
@@ -60,13 +87,14 @@ export class NodeModel {
   readonly nodes: ViewNode[] = [];
   readonly roots: number[] = [];
   private readonly byObject = new Map<THREE.Object3D, number>();
-  private readonly faces?: FaceHiding;
+  private readonly looks?: Looks;
   private detail = false;
 
-  constructor(root: THREE.Object3D, faces?: FaceHiding) {
-    this.faces = faces;
+  constructor(root: THREE.Object3D, looks?: Looks) {
+    this.looks = looks;
     // The loaded root itself is the top node.
     this.roots.push(this.build(root, -1));
+    this.applyAll();
   }
 
   private add(n: Omit<ViewNode, 'id'>): number {
@@ -81,7 +109,9 @@ export class NodeModel {
     // (The graph's root, the model, an assembly too.)
     const part = o.userData.cad === 'part';
     const kind: Kind = part ? 'part' : 'assembly';
-    const id = this.add({ kind, name: o.name || 'group', parent, object: o, hidden: !o.visible });
+    // (The file's hidden placements: overrides of their own.)
+    const id = this.add({ kind, name: o.name || 'group', parent, object: o, ...(o.visible ? {} : { override:
+      { hidden: true } }) });
     if (!part) this.nodes[id]!.children = o.children.map((c) => this.build(c, id));
     return id;
   }
@@ -99,10 +129,9 @@ export class NodeModel {
       const partIndex = o.userData.part as number;
       for (const source of faces) out.push(this.add({ kind: 'face', name: `face #${source}`, parent: id,
         face: { part: partIndex, source }, ...(failed.has(source) ? { failure: 'failed' as const }
-          : partly.has(source) ? { failure: 'partly' as const } : {}),
-        hidden: this.faces?.isFaceHidden(partIndex, source) ?? false }));
-      for (const c of m.children) if (['edges', 'curves', 'points'].includes(c.name)) out.push(this.add(
-        { kind: c.name as Kind, name: c.name, parent: id, object: c, hidden: !c.visible }));
+          : partly.has(source) ? { failure: 'partly' as const } : {}) }));
+      for (const c of m.children) if (LINES.includes(c.name)) out.push(this.add(
+        { kind: c.name as Kind, name: c.name, parent: id, object: c }));
     }
     return out;
   }
@@ -133,10 +162,12 @@ export class NodeModel {
     return n.object!.children.length > 0;
   }
 
-  /** A part's detail is stale (its mesh arrived): built again when next asked for. */
+  /** A part's detail is stale (its mesh arrived): built again when next asked for, its look applied again. */
   invalidate(object: THREE.Object3D): void {
     const id = this.byObject.get(object);
-    if (id !== undefined && this.nodes[id]!.kind === 'part') delete this.nodes[id]!.children;
+    if (id === undefined || this.nodes[id]!.kind !== 'part') return;
+    delete this.nodes[id]!.children;
+    this.applyPart(id);
   }
 
   private readonly segments = new Map<number, string>();
@@ -191,24 +222,6 @@ export class NodeModel {
     return found;
   }
 
-  /**
-   * The paths of the hidden faces, below every placement of their parts, whether or not those placements' detail
-   * nodes exist yet (they're made on demand): a face's hiding is its part's.
-   */
-  hiddenFacePaths(): string[] {
-    const byPart = new Map<number, number[]>();
-    for (const [part, source] of this.faces?.hiddenFaceList() ?? []) {
-      byPart.set(part, [...byPart.get(part) ?? [], source]);
-    }
-    if (!byPart.size) return [];
-    const out: string[] = [];
-    for (const n of this.nodes) {
-      const sources = n.kind === 'part' ? byPart.get(n.object?.userData.part as number) : undefined;
-      if (sources) for (const s of sources) out.push(`${this.pathOf(n.id)}/face#${s}`);
-    }
-    return out;
-  }
-
   /** The node an object belongs to: the nearest object up its ancestry that is a node's. */
   nodeOf(object: THREE.Object3D): number | undefined {
     for (let o: THREE.Object3D | null = object; o; o = o.parent) {
@@ -255,49 +268,196 @@ export class NodeModel {
     return out;
   }
 
-  /**
-   * Everything hidden outside a selection (Show others): hidden nodes, faces included whether or not their nodes
-   * were made, none of them the selection nor within it (the selection keeps its own hiding).
-   */
-  hiddenOutside(ids: readonly number[]): number[] {
-    const chosen = new Set(ids);
-    const within = (id: number) => {
-      for (let n = id; n >= 0 && this.nodes[n]; n = this.nodes[n]!.parent) if (chosen.has(n)) return true;
-      return false;
-    };
-    // (Hidden faces' nodes made first, so they can be shown.)
-    for (const p of this.hiddenFacePaths()) this.find(p);
-    return this.nodes.filter((n) => n.hidden && !within(n.id)).map((n) => n.id);
+  /** A node's own override, if it has one (a detail node's from its part). */
+  ownOverride(id: number): AppearanceOverride | undefined {
+    const n = this.nodes[id];
+    if (!n) return undefined;
+    if (n.kind === 'assembly' || n.kind === 'part') return n.override;
+    return this.nodes[n.parent]!.detailOverrides?.get(this.segmentOf(id));
   }
 
-  /** Hidden itself or through an ancestor. */
+  private segmentOf(id: number): string {
+    this.segmentsOf(this.siblingsOf(id));
+    return this.segments.get(id)!;
+  }
+
+  /** Each slot as the node draws with it: its own, else its nearest ancestor's that sets it, else the default. */
+  look(id: number): Required<AppearanceOverride> {
+    const out: AppearanceOverride = {};
+    for (let n = this.nodes[id]; n; n = this.nodes[n.parent]) {
+      const o = this.ownOverride(n.id);
+      out.hidden ??= o?.hidden;
+      out.alpha ??= o?.alpha;
+    }
+    return { hidden: out.hidden ?? DEFAULT.hidden, alpha: out.alpha ?? DEFAULT.alpha };
+  }
+
+  /** Hidden itself or through an ancestor (its look). */
   hiddenInTree(id: number): boolean {
-    for (let n = this.nodes[id]; n; n = this.nodes[n.parent]) if (n.hidden) return true;
-    return false;
+    return this.look(id).hidden;
   }
 
-  setHidden(ids: Iterable<number>, hidden: boolean): void {
-    for (const id of ids) {
-      const n = this.nodes[id];
-      if (!n || n.hidden === hidden) continue;
-      n.hidden = hidden;
-      if (n.face) {
-        // Faces are per part: every placement's node of the same face follows.
-        this.faces?.setFaceHidden(n.face.part, n.face.source, hidden);
-        for (const m of this.nodes) if (m.face && m.face.part === n.face.part && m.face.source === n.face.source) {
-          m.hidden = hidden;
-        }
-      } else if (n.object) n.object.visible = !hidden;
+  /** A node's override, slot by slot (a slot absent removes it; an override with none goes). */
+  private put(id: number, o: AppearanceOverride): void {
+    const n = this.nodes[id]!;
+    const kept = Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as AppearanceOverride;
+    const empty = !Object.keys(kept).length;
+    if (n.kind === 'assembly' || n.kind === 'part') {
+      if (empty) delete n.override;
+      else n.override = kept;
+      return;
+    }
+    const part = this.nodes[n.parent]!, seg = this.segmentOf(id);
+    if (empty) part.detailOverrides?.delete(seg);
+    else (part.detailOverrides ??= new Map()).set(seg, kept);
+  }
+
+  /** A slot cleared from every override below a node (a part's detail included). */
+  private clearBelow(id: number, slot: Slot): void {
+    const n = this.nodes[id]!;
+    if (n.kind === 'assembly') for (const c of n.children ?? []) {
+      const o = this.nodes[c]!.override;
+      if (o) this.put(c, { ...o, [slot]: undefined });
+      this.clearBelow(c, slot);
+    } else if (n.kind === 'part') for (const [seg, o] of [...n.detailOverrides ?? []]) {
+      const kept = { ...o, [slot]: undefined };
+      if (kept.hidden === undefined && kept.alpha === undefined) n.detailOverrides!.delete(seg);
+      else n.detailOverrides!.set(seg, kept);
     }
   }
 
-  /** Shows everything: every node, and every object in the model, hidden by the viewer or by the file. */
+  /**
+   * The fewest nodes covering these (the user, 2026-10-31): none below another given, and wherever every child of a
+   * node is given (a part's: its detail), the node instead, up the tree.
+   */
+  cover(ids: Iterable<number>): number[] {
+    const given = new Set([...ids].filter((id) => this.nodes[id]));
+    const under = (id: number) => {
+      for (let p = this.nodes[id]!.parent; p >= 0; p = this.nodes[p]!.parent) if (given.has(p)) return true;
+      return false;
+    };
+    for (let changed = true; changed;) {
+      changed = false;
+      for (const id of [...given]) if (under(id)) given.delete(id);
+      const parents = new Set([...given].map((id) => this.nodes[id]!.parent).filter((p) => p >= 0));
+      for (const p of parents) {
+        const kids = this.detailNodes(p);
+        if (kids.length && kids.every((k) => given.has(k))) {
+          for (const k of kids) given.delete(k);
+          given.add(p);
+          changed = true;
+        }
+      }
+    }
+    return [...given].sort((a, b) => a - b);
+  }
+
+  /**
+   * Sets a slot on the nodes covering these (`cover`), clearing it below them: hidden true or false, an alpha (1 the
+   * file's). Where a node would inherit the value anyway, its own slot is cleared rather than set, so the overrides
+   * stay the fewest that draw the same.
+   */
+  set<S extends Slot>(ids: Iterable<number>, slot: S, value: Required<AppearanceOverride>[S]): void {
+    const nodes = this.cover(ids);
+    const parts = new Set<number>();
+    for (const id of nodes) {
+      this.clearBelow(id, slot);
+      const n = this.nodes[id]!;
+      const inherited = n.parent >= 0 ? this.look(n.parent)[slot] : DEFAULT[slot];
+      this.put(id, { ...this.ownOverride(id), [slot]: inherited === value ? undefined : value });
+      this.partsUnder(id, parts);
+    }
+    for (const p of parts) this.applyPart(p);
+  }
+
+  /** The parts at or below a node, or a detail node's part. */
+  private partsUnder(id: number, into: Set<number>): void {
+    const n = this.nodes[id]!;
+    if (n.kind === 'part') into.add(id);
+    else if (n.kind === 'assembly') for (const c of n.children ?? []) this.partsUnder(c, into);
+    else into.add(n.parent);
+  }
+
+  /** Shows everything: every hidden slot cleared, the file's hidden placements' included. */
   showAll(): void {
-    for (const n of this.nodes) n.hidden = false;
-    for (const r of this.roots) this.nodes[r]!.object!.traverse((o) => {
-      o.visible = true;
-      o.layers.enable(0);
-    });
-    this.faces?.showAllFaces();
+    for (const n of this.nodes) {
+      if (n.override) this.put(n.id, { ...n.override, hidden: undefined });
+      if (n.kind === 'part') this.clearBelow(n.id, 'hidden');
+    }
+    this.applyAll();
+  }
+
+  /** Every override, by path, in node order (a part's detail after it, by segment). */
+  overrides(): PathOverride[] {
+    const out: PathOverride[] = [];
+    for (const n of this.nodes) {
+      if (n.kind !== 'assembly' && n.kind !== 'part') continue;
+      if (n.override) out.push({ path: this.pathOf(n.id), ...n.override });
+      for (const [seg, o] of [...n.detailOverrides ?? []].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) {
+        out.push({ path: `${this.pathOf(n.id)}/${seg}`, ...o });
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Exactly these overrides (a state's: the others cleared), each set as it is. A path below a part names its detail
+   * by segment, so it can be set before the part's mesh (and so its detail nodes) arrives. Returns the paths that
+   * name nothing.
+   */
+  setOverrides(list: readonly PathOverride[], slots: readonly Slot[] = ['hidden', 'alpha']): string[] {
+    for (const n of this.nodes) {
+      for (const slot of slots) {
+        if (n.override) this.put(n.id, { ...n.override, [slot]: undefined });
+        if (n.kind === 'part') this.clearBelow(n.id, slot);
+      }
+    }
+    const missing: string[] = [];
+    for (const { path, ...o } of list) {
+      const wanted = Object.fromEntries(slots.flatMap((k) => o[k] === undefined ? [] : [[k, o[k]]]));
+      if (!Object.keys(wanted).length) continue;
+      const id = this.find(path);
+      if (id !== undefined) {
+        this.put(id, { ...this.ownOverride(id), ...wanted });
+        continue;
+      }
+      const cut = path.lastIndexOf('/'), seg = path.slice(cut + 1);
+      const part = cut > 0 ? this.find(path.slice(0, cut)) : undefined;
+      if (part !== undefined && this.nodes[part]!.kind === 'part' && (/^face#\d+$/.test(seg) || LINES.includes(seg))) {
+        const map = (this.nodes[part]!.detailOverrides ??= new Map());
+        map.set(seg, { ...map.get(seg), ...wanted });
+      } else missing.push(path);
+    }
+    this.applyAll();
+    return missing;
+  }
+
+  private applyAll(): void {
+    for (const n of this.nodes) if (n.kind === 'part') this.applyPart(n.id);
+  }
+
+  /**
+   * A placement drawn as its overrides resolve: its faces' looks to the scene graph, its edges', curves' and points'
+   * objects shown or hidden, its group hidden only when nothing below it is shown.
+   */
+  private applyPart(id: number): void {
+    const n = this.nodes[id]!, group = n.object!;
+    const look = this.look(id);
+    const alpha = (a: number) => (a === 1 ? {} : { alpha: a });
+    let shown = !look.hidden;
+    const faces = new Map<number, { hidden: boolean; alpha?: number }>();
+    for (const [seg, o] of n.detailOverrides ?? []) {
+      const m = /^face#(\d+)$/.exec(seg);
+      if (!m) continue;
+      const hidden = o.hidden ?? look.hidden;
+      faces.set(Number(m[1]), { hidden, ...alpha(o.alpha ?? look.alpha) });
+      shown ||= !hidden;
+    }
+    for (const m of group.children) for (const c of m.children) if (LINES.includes(c.name)) {
+      c.visible = !(n.detailOverrides?.get(c.name)?.hidden ?? look.hidden);
+      shown ||= c.visible;
+    }
+    group.visible = shown;
+    this.looks?.setLook(group, { hidden: look.hidden, ...alpha(look.alpha), ...(faces.size ? { faces } : {}) });
   }
 }

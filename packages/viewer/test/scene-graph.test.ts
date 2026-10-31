@@ -171,11 +171,13 @@ test('faces that failed to mesh: outlined in red per placement, marked failed, h
     const ok = faces.find((c) => model.nodes[c]!.face!.source === 8)!;
     assert.deepEqual([model.failure(failed), model.failure(ok), model.failure(parts[0]!.id)],
       ['failed', undefined, 'partly']);
-    // Hidden with its face, in every placement; shown again with all faces.
-    model.setHidden([failed], true);
-    assert.ok(objs.every((o) => !o.children.find((c) => c.name === 'outline')!.visible));
-    graph.showAllFaces();
-    assert.ok(objs.every((o) => o.children.find((c) => c.name === 'outline')!.visible));
+    // Hidden with its face, in its placement (the third's hidden with its placement, by the file); shown again by
+    // show all.
+    const outline = (o: THREE.Object3D) => o.children.find((c) => c.name === 'outline')!.visible;
+    model.set([failed], 'hidden', true);
+    assert.deepEqual(objs.map(outline), [false, true, false]);
+    model.showAll();
+    assert.deepEqual(objs.map(outline), [true, true, true]);
     // Picked as its face at the detail level, as its part above; its highlight covers the outline.
     const line = objs[0]!.children.find((c) => c.name === 'outline')!;
     assert.equal(nodeForPick(model, line, undefined, 'detail'), failed);
@@ -186,6 +188,10 @@ test('faces that failed to mesh: outlined in red per placement, marked failed, h
     graph2.addMesh(0, { origin: [0, 0, 0], positions: new Float32Array(), indices: new Uint32Array(),
       faces: [{ source: 7, start: 0, count: 0 }], faceOutlinePositions: Float32Array.of(0, 0, 0, 1, 0, 0),
       faceOutlines: [{ source: 7, start: 0, count: 2 }] });
+    // A look set before the mesh arrives: the failed face's outline hidden with its face from the start.
+    const graph3 = new SceneGraph(scene(), 'model');
+    graph3.setLook(graph3.placements.get(0)![0]!.group, { hidden: false, faces: new Map([[7, { hidden: true }]]) });
+    assert.deepEqual(graph3.addMesh(0, m).map(outline), [false, true, true]);
     const model2 = new NodeModel(graph2.root, graph2);
     const part2 = model2.nodes.find((n) => n.kind === 'part' && n.name === 'plate')!;
     assert.equal(model2.failure(part2.id), 'failed');
@@ -245,28 +251,36 @@ test('faces judged by their part\'s measures: partly, excess and unverified, all
   assert.deepEqual([o4!.userData.failedFaces, o4!.userData.partlyFailedFaces], [[7], []]);
 });
 
-test('opacity: a placement\'s, or a face\'s in every placement (winning), and back to the file\'s', () => {
+test("setLook: a placement's opacity, its faces' own winning, hidden faces; back to the very materials", () => {
   const g = new SceneGraph(scene(), 'model');
   const made = g.addMesh(0, plate()) as THREE.Mesh[];
   const mats = (m: THREE.Mesh) => (m.material as THREE.MeshPhongMaterial[]);
   const before = made.map((m) => [...mats(m)]);
   const opacities = (m: THREE.Mesh) => mats(m).map((x) => [x.opacity, x.transparent]);
   // The first placement at 0.3: its materials, not the others'.
-  g.setPlacementOpacity(made[0]!.parent!, 0.3);
+  g.setLook(made[0]!.parent!, { hidden: false, alpha: 0.3 });
   assert.ok(opacities(made[0]!).every(([o, t]) => o === 0.3 && t === true));
   assert.deepEqual(mats(made[1]!), before[1]);
-  // Face 7 at 0.6 in every placement, over the placement's 0.3; face 8 stays at 0.3 in the first.
-  g.setFaceOpacity(0, 7, 0.6);
   const faceOf = (m: THREE.Mesh, source: number) => {
     const ranges = m.userData.faceRanges as { source: number; start: number }[];
     const start = ranges.find((r) => r.source === source)!.start;
     return mats(m)[m.geometry.groups.find((gr) => gr.start <= start && start < gr.start + gr.count)!.materialIndex!]!;
   };
-  assert.deepEqual(made.map((m) => faceOf(m, 7).opacity), [0.6, 0.6, 0.6]);
-  assert.equal(faceOf(made[0]!, 8).opacity, 0.3);
-  // Back: the face to its placement's, then the placement to the file's, materials as before.
-  g.setFaceOpacity(0, 7, undefined);
-  assert.equal(faceOf(made[0]!, 7).opacity, 0.3);
-  g.setPlacementOpacity(made[0]!.parent!, undefined);
+  // Face 7 at 0.6 over the placement's 0.3, face 8 hidden; another placement's faces alone.
+  g.setLook(made[0]!.parent!, { hidden: false, alpha: 0.3, faces: new Map([[7, { hidden: false, alpha: 0.6 }],
+    [8, { hidden: true }]]) });
+  assert.deepEqual([faceOf(made[0]!, 7).opacity, faceOf(made[0]!, 8).visible], [0.6, false]);
+  assert.deepEqual(mats(made[1]!), before[1]);
+  // A hidden placement with a face shown: only that face drawn.
+  g.setLook(made[1]!.parent!, { hidden: true, faces: new Map([[7, { hidden: false }]]) });
+  assert.deepEqual([faceOf(made[1]!, 7).visible, faceOf(made[1]!, 8).visible], [true, false]);
+  // Back: the file's materials, as before.
+  g.setLook(made[0]!.parent!, { hidden: false });
+  g.setLook(made[1]!.parent!, { hidden: false });
   assert.deepEqual(made.map((m) => mats(m)), before);
+  // A look set before the mesh: the mesh made by it.
+  const g2 = new SceneGraph(scene(), 'model');
+  g2.setLook(g2.placements.get(0)![0]!.group, { hidden: false, alpha: 0.4 });
+  const [m2] = g2.addMesh(0, plate()) as THREE.Mesh[];
+  assert.ok(opacities(m2!).every(([o]) => o === 0.4));
 });

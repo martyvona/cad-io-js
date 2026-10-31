@@ -28,7 +28,7 @@ export interface NodeInfo { path: string; kind: string; name: string; hidden: bo
 
 /** Everything about the view and the model, as `state()` gives it. */
 export interface FullState extends Required<Pick<ViewState, 'camera' | 'caps' | 'pick' | 'instances' | 'hidden'
-  | 'selected'>> {
+  | 'shown' | 'opacity' | 'selected'>> {
   cut: NonNullable<ViewState['cut']>;
   render: RenderSettings;
   tree: { open: boolean; detail: boolean };
@@ -48,8 +48,11 @@ export interface FullState extends Required<Pick<ViewState, 'camera' | 'caps' | 
 
 export interface CadViewer {
   /**
-   * The interface's version: 2 (1 until 2026-10-30, when centring went: `centered` from states, `centroid` from the
-   * model's; otherwise it changes only by additions).
+   * The interface's version: 3 (1 until 2026-10-30, when centring went: `centered` from states, `centroid` from the
+   * model's; 2 until 2026-10-31, when hiding became overrides inherited down the tree: a state's `hidden` lists the
+   * nodes hidden by an override of their own, not every hidden node, a hidden face per placement rather than per
+   * part, with `shown` and `opacity` beside it; nodes' `hidden` whether they're hidden by any; otherwise it changes
+   * only by additions).
    */
   readonly version: number;
   /** Settles once the start (?model= and the view in the address) is done. */
@@ -84,7 +87,7 @@ export interface CadViewer {
   replay(recording: Recording, opts?: ReplayOptions): Promise<ReplayReport>;
 }
 
-const VERSION = 2;
+const VERSION = 3;
 
 /** The model's sphere in the world (what zoom all fits), where it has one. */
 const sphereOf = (viewer: Viewer) => {
@@ -113,6 +116,13 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
     return { ids, missing: missing.map((p) => `no node at ${p}`) };
   };
 
+  const appearance = (): Pick<FullState, 'hidden' | 'shown' | 'opacity'> => {
+    const list = viewer.nodes?.overrides() ?? [];
+    return { hidden: list.filter((o) => o.hidden === true).map((o) => o.path),
+      shown: list.filter((o) => o.hidden === false).map((o) => o.path),
+      opacity: list.flatMap((o) => o.alpha === undefined ? [] : [{ path: o.path, alpha: o.alpha }]) };
+  };
+
   const state = (): FullState => {
     const model = viewer.nodes;
     const s = viewer.sections.get();
@@ -126,9 +136,8 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
       device: { detected: viewer.detectedDevice, used: viewer.device, profile: viewer.settings.profile },
       meshing: { ...viewer.settings },
       pick: ui.selection.level, instances: ui.selection.instances,
-      // Faces hidden whether or not their nodes exist yet (made on demand).
-      hidden: model ? [...new Set([...model.nodes.filter((n) => n.hidden).map((n) => model.pathOf(n.id)),
-        ...model.hiddenFacePaths()])] : [],
+      // The appearance overrides (model.ts), detail nodes' whether or not their nodes exist yet (made on demand).
+      ...appearance(),
       selected: model ? ui.selected().map((id) => model.pathOf(id)) : [],
       ...(m && stats ? { model: { name: m.name, url: ui.currentUrl(), format: m.format, triangles: stats.triangles,
         objects: stats.objects, meshes: stats.meshes, ...sphereOf(viewer), parts: m.parts,
@@ -155,20 +164,12 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
     if (st.meshing) ui.setMeshing(st.meshing);
     if (st.pick) ui.setPickLevel(st.pick);
     if (st.instances !== undefined) ui.setInstances(st.instances);
-    if (st.hidden) {
-      // Exactly these hidden: the others shown (the file's hidden ones included, if not listed).
-      const { ids, missing } = resolve(st.hidden);
-      problems.push(...missing);
-      const model = viewer.nodes;
-      if (model) {
-        const want = new Set(ids);
-        ui.setHidden(model.nodes.filter((n) => n.hidden && !want.has(n.id)).map((n) => n.id), false);
-        // Hidden faces whose nodes weren't made yet, and not listed.
-        const listed = new Set(st.hidden);
-        ui.setHidden(resolve(model.hiddenFacePaths().filter((p) => !listed.has(p))).ids, false);
-        ui.setHidden(ids, true);
-      }
-    }
+    // Exactly these overrides of hiding (hidden and shown), and of opacity: the others gone (the file's hidden
+    // placements' too, if not listed).
+    if (st.hidden || st.shown) problems.push(...ui.setOverrides([...(st.hidden ?? []).map((path) => ({ path,
+      hidden: true })), ...(st.shown ?? []).map((path) => ({ path, hidden: false }))], ['hidden']).map(
+      (p) => `no node at ${p}`));
+    if (st.opacity) problems.push(...ui.setOverrides(st.opacity, ['alpha']).map((p) => `no node at ${p}`));
     if (st.selected) {
       const { ids, missing } = resolve(st.selected);
       problems.push(...missing);
@@ -181,7 +182,7 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
     const s = state();
     const view: ViewState = { camera: s.camera, cut: s.cut, caps: s.caps,
       render: renderChanges(s.render), tree: s.tree, pick: s.pick, instances: s.instances, hidden: s.hidden,
-      selected: s.selected };
+      shown: s.shown, opacity: s.opacity, selected: s.selected };
     const url = new URL(location.pathname, location.origin);
     const from = ui.currentUrl();
     // A model below the content root is linked by its path there, so the link works wherever the viewer is served
@@ -244,7 +245,7 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
       const out: NodeInfo[] = [];
       const visit = (id: number) => {
         const n = model.nodes[id]!;
-        out.push({ path: model.pathOf(id), kind: n.kind, name: n.name, hidden: n.hidden });
+        out.push({ path: model.pathOf(id), kind: n.kind, name: n.name, hidden: model.hiddenInTree(id) });
         model.children(id).forEach(visit);
       };
       model.roots.forEach(visit);

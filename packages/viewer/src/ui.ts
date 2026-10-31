@@ -24,6 +24,7 @@ import { TreePanel } from './tree-panel.ts';
 import { formatOf } from './formats.ts';
 import { fromFiles, fromUrl, pickFiles, saveFile, typedUrl, type Source } from './sources.ts';
 import { visibleBox, type Viewer } from './viewer.ts';
+import type { NodeModel, PathOverride } from './model.ts';
 
 /** What the browser check reaches through `globalThis.ui`. */
 export interface Ui {
@@ -38,12 +39,12 @@ export interface Ui {
   showSelected(): void;
   /** Hides everything but the selection and what holds it (NodeModel.others). */
   hideOthers(): void;
-  /** Shows everything hidden outside the selection (NodeModel.hiddenOutside). */
+  /** Shows what Hide others hides (NodeModel.others), however it was hidden. */
   showOthers(): void;
   showAll(): void;
   /**
-   * The selection made transparent at an opacity (default the Opacity control's), or with `undefined` back to the
-   * file's: placed parts beneath a selected part or assembly, a selected face in every placement of its part.
+   * The selection made transparent at an opacity, or with `undefined` back to the file's: an override of opacity on
+   * the nodes covering it, cleared below them (NodeModel.set).
    */
   setOpacity(alpha: number | undefined): void;
   zoomSelected(): void;
@@ -83,7 +84,10 @@ export interface Ui {
   setTree(t: { open?: boolean; detail?: boolean }): void;
   setPickLevel(level: PickLevel): void;
   setInstances(on: boolean): void;
+  /** Hides or shows nodes: an override of hiding on the nodes covering them, cleared below them (NodeModel.set). */
   setHidden(ids: readonly number[], hidden: boolean): void;
+  /** Exactly these overrides of these slots, by path (a state's: NodeModel.setOverrides); the paths not found. */
+  setOverrides(list: readonly PathOverride[], slots?: readonly ('hidden' | 'alpha')[]): string[];
   /** The tree panel's state. */
   tree(): { open: boolean; detail: boolean };
   /** No model to open at start: says how to open one. */
@@ -165,22 +169,16 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   const report = (r: object) => { if (check) document.body.dataset.report = JSON.stringify(r); };
 
   // Meshing again (the same model, other settings) keeps the view: the camera, centring and planes (Viewer.load's
-  // `keep`), and the hidden and selected nodes, by their paths, restored as the nodes they name arrive (faces, edges
-  // and curves only with their part's mesh); what never arrives (the faces, edges or curves of a part that fails this
+  // `keep`), the appearance overrides by their paths (set with the tree: a part's detail's by segment, before its
+  // mesh is there), and the selected nodes, restored as the nodes they name arrive (faces, edges and curves only with
+  // their part's mesh); what never arrives (a node gone, or a selected face, edge or curve of a part that fails this
   // time) is reported in the status line, its paths in the console. The new tree is expanded as the last was, and
   // scrolled to the same row at its top, again as rows arrive above it, until the user scrolls or clicks in it.
-  let restore: { hidden: Set<string>; selected: string[]; pending: string[]; expanded: string[];
+  let restore: { overrides: PathOverride[]; lost: string[]; selected: string[]; expanded: string[];
     top?: { path: string; offset: number } } | undefined;
   const restoreNodes = () => {
     const nodes = viewer.nodes;
     if (!restore || !nodes) return;
-    const hide: number[] = [];
-    restore.pending = restore.pending.filter((p) => {
-      const id = nodes.find(p);
-      if (id !== undefined) hide.push(id);
-      return id === undefined;
-    });
-    if (hide.length) ui.setHidden(hide, true);
     if (!restore.selected.length) return;
     const sel = restore.selected.flatMap((p) => nodes.find(p) ?? []);
     if (sel.length !== selected.length) select(sel, 'api', false);
@@ -214,8 +212,8 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       restoreNodes();
       panel?.refresh();
       anchorTree();
-      const lost = restore ? { hidden: restore.pending, selected: restore.selected.filter((p) =>
-        viewer.nodes?.find(p) === undefined) } : { hidden: [], selected: [] };
+      const lost = restore ? { overrides: restore.lost, selected: restore.selected.filter((p) =>
+        viewer.nodes?.find(p) === undefined) } : { overrides: [], selected: [] };
       restore = undefined;
       fitPlanes();
       const s = viewer.stats()!;
@@ -225,7 +223,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
         (m.parts.failed ? `, ${m.parts.failed} failed` : '') : '';
       const problems = (m.diagnostics ?? []).filter((d) => d.severity !== 'info').length;
       const counts = [];
-      if (lost.hidden.length) counts.push(`${lost.hidden.length} hidden`);
+      if (lost.overrides.length) counts.push(`${lost.overrides.length} hidden or transparent`);
       if (lost.selected.length) counts.push(`${lost.selected.length} selected`);
       const notRestored = counts.length ? `; ${counts.join(' and ')} not found again (in the console)` : '';
       say(`${src.name}: ${((performance.now() - t) / 1000).toFixed(1)} s${parts}` +
@@ -461,10 +459,9 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   step.add({ reload: () => {
     if (!last) return;
     const nodes = viewer.nodes;
-    const hidden = nodes ? nodes.nodes.filter((n) => n.hidden).map((n) => nodes.pathOf(n.id)) : [];
     const top = panel?.topRow();
-    restore = { hidden: new Set(hidden), selected: nodes ? selected.map((id) => nodes.pathOf(id)) : [],
-      pending: hidden, expanded: nodes && panel ? panel.expanded().map((id) => nodes.pathOf(id)) : [],
+    restore = { overrides: nodes?.overrides() ?? [], lost: [], selected: nodes ? selected.map((id) =>
+      nodes.pathOf(id)) : [], expanded: nodes && panel ? panel.expanded().map((id) => nodes.pathOf(id)) : [],
       ...(nodes && top ? { top: { path: nodes.pathOf(top.id), offset: top.offset } } : {}) };
     return open(async () => last, last.name, true);
   } }, 'reload').name('Mesh again');
@@ -543,9 +540,8 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     panel.onSelect = (ids) => select(ids, 'tree');
     if (tree.detail) panel.setDetail(true);
     if (restore) {
-      // The file's own hiding gives way to what was hidden before.
-      ui.setHidden(nodes.nodes.filter((n) => n.hidden && !restore!.hidden.has(nodes.pathOf(n.id))).map((n) => n.id),
-        false);
+      // Exactly the overrides before (the file's own hiding giving way to them).
+      restore.lost = ui.setOverrides(restore.overrides);
       panel.setExpanded(restore.expanded.flatMap((p) => nodes.find(p) ?? []));
       restoreNodes();
       anchorTree();
@@ -599,15 +595,18 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   }
   // Hiding faces changes materials: the highlight comes off first, and goes back on after.
   const transparency = { opacity: 0.3 };
-  const hide = (hidden: boolean, ids: readonly number[] = selected) => {
+  // A change of the appearance overrides: hiding (what's drawn) or opacity (materials).
+  const appearance = (change: (model: NodeModel) => void) => {
     if (!panel) return;
     highlighter.clear();
-    panel.model.setHidden(ids, hidden);
+    change(panel.model);
     viewer.drawnChanged();
+    viewer.materialsChanged();
     panel.redraw();
     highlight();
     describe();
   };
+  const hide = (hidden: boolean, ids: readonly number[] = selected) => appearance((m) => m.set(ids, 'hidden', hidden));
   /** What a click could select at the pick level: every part, assembly or face, edge and curve shown (Select all). */
   const everything = (): number[] | undefined => {
     const nodes = viewer.nodes;
@@ -639,39 +638,13 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     },
     showOthers: () => {
       const nodes = viewer.nodes;
-      if (nodes && selected.length) hide(false, nodes.hiddenOutside(selected));
+      if (nodes && selected.length) hide(false, nodes.others(selected));
     },
+    // (Edges, curves and points aren't made transparent: a wireframe stays as it is.)
     setOpacity: (alpha) => {
-      const nodes = viewer.nodes, graph = viewer.graph;
-      if (!nodes || !graph || !selected.length) return;
-      // (The highlight's tinted materials come off first and go back on after, as for hiding.)
-      highlighter.clear();
-      const parts = new Set<number>();
-      for (const id of selected) {
-        const n = nodes.nodes[id]!;
-        if (n.face) graph.setFaceOpacity(n.face.part, n.face.source, alpha);
-        else if (n.kind === 'part' || n.kind === 'assembly') {
-          const under = (m: number): void => {
-            const node = nodes.nodes[m]!;
-            if (node.kind === 'part') parts.add(m);
-            else if (node.kind === 'assembly') for (const c of nodes.children(m)) under(c);
-          };
-          under(id);
-        }
-      }
-      for (const p of parts) graph.setPlacementOpacity(nodes.nodes[p]!.object!, alpha);
-      viewer.materialsChanged();
-      highlight();
-      describe();
+      if (selected.length) appearance((m) => m.set(selected, 'alpha', alpha ?? 1));
     },
-    showAll: () => {
-      highlighter.clear();
-      panel?.model.showAll();
-      viewer.drawnChanged();
-      panel?.redraw();
-      highlight();
-      describe();
-    },
+    showAll: () => appearance((m) => m.showAll()),
     zoomSelected: () => {
       if (!viewer.nodes || !selected.length) return viewer.zoomAll();
       viewer.zoomTo(sphereOf(piecesOf(viewer.nodes, selected)));
@@ -757,6 +730,11 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       highlight();
     },
     setHidden: (ids, hidden) => hide(hidden, ids),
+    setOverrides: (list, slots) => {
+      let missing: string[] = [];
+      appearance((m) => { missing = m.setOverrides(list, slots); });
+      return missing;
+    },
     tree: () => ({ open: tree.open, detail: tree.detail }),
     empty: () => {
       say('Open a file (or drop one here), or load one by URL');

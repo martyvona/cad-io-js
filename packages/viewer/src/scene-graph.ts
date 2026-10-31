@@ -14,14 +14,15 @@
 //
 // For the node model (model.ts): component groups have `userData.cad` 'assembly', placed parts' groups 'part', and
 // each placement's Mesh its faces' source ids in `userData.faces` (and their index ranges in `faceRanges`, for
-// picking and selection). Hiding a face (FaceHiding) hides its triangles in every placement of the part: they get
-// a geometry group of their own with an invisible material.
+// picking and selection). Each placement's look (Looks: the node model's overrides resolved, model.ts) sets its faces'
+// materials: a hidden face's triangles get a geometry group of their own with an invisible material, a transparent
+// face's or placement's a material at that opacity.
 
 import * as THREE from 'three';
 import { biasTowardCamera } from './depth-bias.ts';
 import { faceFailures, instances, partInstances, type FaceFailure, type Mat4, type Measures, type Mesh,
   type PartInstance, type Scene, type SourceId } from 'cad-scene';
-import type { FaceHiding } from './model.ts';
+import type { Looks, PlacementLook } from './model.ts';
 import { DEFAULT_RENDER, EDGES } from './style.ts';
 
 /** sRGB, as the exporters' default: faces, curves and points without a material. */
@@ -79,7 +80,7 @@ const OUTLINE = biasTowardCamera(new THREE.LineBasicMaterial({ color: FAILED_COL
 /** Hidden faces' triangles: drawn with nothing. */
 const HIDDEN = new THREE.MeshBasicMaterial({ visible: false });
 
-export class SceneGraph implements FaceHiding {
+export class SceneGraph implements Looks {
   readonly root = new THREE.Group();
   readonly scene: Scene;
   /** Each part's placements, by part index. */
@@ -87,17 +88,11 @@ export class SceneGraph implements FaceHiding {
   private readonly materials = new Map<string, THREE.Material>();
   private readonly lineMaterial = new THREE.LineBasicMaterial({ color: 0x000000 });
   private readonly meshed = new Map<number, MeshedPart>();
-  /** Failed faces' outline objects, by part, each with its face's source id (userData.outlineFace). */
-  private readonly outlined = new Map<number, THREE.LineSegments[]>();
-  /** Hidden faces' source ids, by part. */
-  private readonly hiddenFaces = new Map<number, Set<number>>();
   /**
-   * Opacities set in the viewer (the user, 2026-10-31: selected items made transparent, or back to the file's): a
-   * placement's (a part's or assembly's placed parts), and a face's (every placement of its part, as hiding is),
-   * which wins over its placement's.
+   * Each placement's look (the node model's overrides resolved: hidden and transparent faces, the user,
+   * 2026-10-31), by its PartInstance, so it holds for meshes that arrive later.
    */
-  private readonly placementOpacity = new Map<PartInstance, number>();
-  private readonly faceOpacity = new Map<number, Map<number, number>>();
+  private readonly looks = new Map<PartInstance, PlacementLook>();
   /** The objects addMesh made for each part, one per placement (replaced by its next mesh). */
   private readonly made = new Map<number, THREE.Object3D[]>();
 
@@ -140,7 +135,7 @@ export class SceneGraph implements FaceHiding {
 
   /**
    * The three.js material for a scene material (or the default) and a kind of object; `opacity` in place of the
-   * material's own (the viewer's transparency: setPlacementOpacity, setFaceOpacity).
+   * material's own (the viewer's transparency: setLook).
    */
   private material(index: number | undefined, kind: 'face' | 'curve' | 'point', alpha?: number): THREE.Material {
     const key = `${kind}:${index ?? 'default'}${alpha === undefined ? '' : `@${alpha}`}`;
@@ -250,7 +245,6 @@ export class SceneGraph implements FaceHiding {
         outlines.set(source, g);
       }
     }
-    const hiddenFaces = this.hiddenFaces.get(part);
     const made: THREE.Object3D[] = [];
     for (const { group, instance } of placements) {
       let obj: THREE.Object3D;
@@ -282,9 +276,8 @@ export class SceneGraph implements FaceHiding {
         const l = Object.assign(new THREE.LineSegments(g, OUTLINE), { name: 'outline' });
         l.userData.outlineFace = source;
         l.layers.enable(EDGES);
-        l.visible = !hiddenFaces?.has(source);
+        l.visible = !faceHidden(this.looks.get(instance), source);
         obj.add(l);
-        this.outlined.set(part, [...this.outlined.get(part) ?? [], l]);
       }
       group.add(obj);
       made.push(obj);
@@ -310,21 +303,20 @@ export class SceneGraph implements FaceHiding {
     for (const g of this.meshed.get(part)?.geometries.values() ?? []) g.dispose();
     this.made.delete(part);
     this.meshed.delete(part);
-    this.outlined.delete(part);
   }
 
   /** Sets a placement's geometry (shared by grouping) and materials: runs of faces by material, hidden faces apart. */
   private assign(part: number, meshed: MeshedPart, obj: THREE.Mesh, instance: PartInstance): void {
-    const hidden = this.hiddenFaces.get(part), faceAlpha = this.faceOpacity.get(part);
-    const placed = this.placementOpacity.get(instance);
+    const look = this.looks.get(instance);
     const runs: { start: number; count: number; material: number | undefined | 'hidden'; alpha?: number }[] = [];
     // (A mesh without faces, a foreign file's of one material: all its triangles in the part's.)
     const faces = meshed.mesh.faces.length ? meshed.mesh.faces : [{ source: null, start: 0,
       count: meshed.mesh.indices.length }];
     for (const f of faces) {
-      const m = f.source !== null && hidden?.has(f.source) ? 'hidden' as const
+      const own = f.source !== null ? look?.faces?.get(f.source) : undefined;
+      const m = (own ?? look)?.hidden ? 'hidden' as const
         : (f.source !== null ? instance.faceMaterials.get(f.source) : undefined) ?? instance.material;
-      const alpha = (f.source !== null ? faceAlpha?.get(f.source) : undefined) ?? placed;
+      const alpha = own ? own.alpha : look?.alpha;
       const last = runs.at(-1);
       if (last && last.material === m && last.alpha === alpha && last.start + last.count === f.start) {
         last.count += f.count;
@@ -344,58 +336,29 @@ export class SceneGraph implements FaceHiding {
     obj.material = runs.map((r) => r.material === 'hidden' ? HIDDEN : this.material(r.material, 'face', r.alpha));
   }
 
-  /** A placement's opacity (its part group, a placement's: `undefined` back to the file's). */
-  setPlacementOpacity(group: THREE.Object3D, alpha: number | undefined): void {
+  /**
+   * A placement's look (its part group's: model.ts resolves it), its faces' materials and failed outlines set by it;
+   * a group that's hidden whole keeps its materials until it's shown.
+   */
+  setLook(group: THREE.Object3D, look: PlacementLook): void {
     const part = group.userData.part as number | undefined;
     const p = part === undefined ? undefined : this.placements.get(part)?.find((q) => q.group === group);
     if (!p) return;
-    if (alpha === undefined) this.placementOpacity.delete(p.instance);
-    else this.placementOpacity.set(p.instance, alpha);
+    this.looks.set(p.instance, look);
+    for (const obj of group.children) for (const l of obj.children) {
+      if (l.name === 'outline') l.visible = !faceHidden(look, l.userData.outlineFace as number);
+    }
+    if (!group.visible) return;
     const meshed = this.meshed.get(part!);
     for (const o of meshed?.objects ?? []) {
       if (o.instance === p.instance) this.assign(part!, meshed!, o.obj, o.instance);
     }
   }
-
-  /** A face's opacity, in every placement of its part (`undefined` back to its placement's, or the file's). */
-  setFaceOpacity(part: number, source: number, alpha: number | undefined): void {
-    let map = this.faceOpacity.get(part);
-    if (!map) this.faceOpacity.set(part, (map = new Map()));
-    if (alpha === undefined) map.delete(source);
-    else map.set(source, alpha);
-    const meshed = this.meshed.get(part);
-    if (meshed) for (const { obj, instance } of meshed.objects) this.assign(part, meshed, obj, instance);
-  }
-
-  /** Every hidden face, as its part and source id. */
-  *hiddenFaceList(): Iterable<[number, number]> {
-    for (const [part, sources] of this.hiddenFaces) for (const source of sources) yield [part, source];
-  }
-
-  isFaceHidden(part: number, source: number): boolean {
-    return this.hiddenFaces.get(part)?.has(source) ?? false;
-  }
-
-  setFaceHidden(part: number, source: number, hidden: boolean): void {
-    let set = this.hiddenFaces.get(part);
-    if (!set) this.hiddenFaces.set(part, (set = new Set()));
-    if (hidden) set.add(source);
-    else set.delete(source);
-    const meshed = this.meshed.get(part);
-    if (meshed) for (const { obj, instance } of meshed.objects) this.assign(part, meshed, obj, instance);
-    for (const l of this.outlined.get(part) ?? []) if (l.userData.outlineFace === source) l.visible = !hidden;
-  }
-
-  showAllFaces(): void {
-    const parts = [...this.hiddenFaces.keys()];
-    this.hiddenFaces.clear();
-    for (const part of parts) {
-      const meshed = this.meshed.get(part);
-      if (meshed) for (const { obj, instance } of meshed.objects) this.assign(part, meshed, obj, instance);
-      for (const l of this.outlined.get(part) ?? []) l.visible = true;
-    }
-  }
 }
+
+/** Whether a face is hidden by a placement's look. */
+const faceHidden = (look: PlacementLook | undefined, source: number) => (look?.faces?.get(source) ?? look)?.hidden
+  ?? false;
 
 /** What Details says of a face: how it failed (faceFailures), and its measured and meshed areas in mm^2. */
 export interface FaceReport { failure?: FaceFailure; area?: number; meshArea: number }
