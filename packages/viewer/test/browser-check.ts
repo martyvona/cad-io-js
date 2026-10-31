@@ -442,6 +442,58 @@ await check('pose on load', async () => {
   expect(JSON.stringify(a.kept) === JSON.stringify(a.before), `Mesh again moved the view: ${j}`);
   return undefined;
 });
+// Panning (the user, 2026-10-30): a right-button drag moves the model with the pointer one to one, after zoom
+// selected too (TrackballControls' own pan crawled there), and leaves the orbit centre where it is on the model; a
+// turn afterwards pivots about it, where it's drawn.
+await check('panning', async () => {
+  const evaluate = async (sessionId: string, expression: string) => ((await send('Runtime.evaluate', { expression,
+    returnByValue: true, awaitPromise: true }, sessionId)) as { result: { value: unknown } }).result.value;
+  const where = `(() => { const v = globalThis.viewer, c = v.renderer.domElement.getBoundingClientRect();
+    v.camera.updateMatrixWorld();
+    const px = (p) => { const q = p.clone().project(v.camera); return [c.left + (q.x + 1) / 2 * c.width,
+      c.top + (1 - q.y) / 2 * c.height]; };
+    const corner = v.modelSphere().center.clone().addScalar(10);
+    return { target: v.controls.target.toArray(), targetPx: px(v.controls.target), cornerPx: px(corner),
+      centre: [c.left + c.width / 2, c.top + c.height / 2], pan: v.cameraState().pan ?? null }; })()`;
+  type Where = { target: number[]; targetPx: number[]; cornerPx: number[]; centre: number[]; pan: number[] | null };
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    ui.select([ui.panel().model.nodes.find((n) => n.kind === 'part' && n.name === 'nut').id]);
+    ui.zoomSelected();
+    await cadViewer.idle();
+    return ${where};
+  })()`, { scale: 1, then: async (sid, before) => {
+    const b = before as Where;
+    const drag = async (button: 'left' | 'right', from: number[], dx: number, dy: number) => {
+      const buttons = button === 'left' ? 1 : 2;
+      const m = (type: string, x: number, y: number, extra: object = {}) => send('Input.dispatchMouseEvent',
+        { type, x, y, button, ...extra }, sid);
+      await m('mouseMoved', from[0]!, from[1]!, { button: 'none' });
+      await m('mousePressed', from[0]!, from[1]!, { buttons, clickCount: 1 });
+      for (let k = 1; k <= 6; k++) await m('mouseMoved', from[0]! + dx * k / 6, from[1]! + dy * k / 6, { buttons });
+      await m('mouseReleased', from[0]! + dx, from[1]! + dy, { clickCount: 1 });
+      await evaluate(sid, 'cadViewer.idle()');
+    };
+    const start = [b.centre[0]! - 100, b.centre[1]! - 50];
+    await drag('right', start, 120, 60);
+    const panned = await evaluate(sid, `${where}`) as Where;
+    await drag('left', [panned.targetPx[0]! + 40, panned.targetPx[1]! + 40], 80, 20);
+    const turned = await evaluate(sid, `${where}`) as Where;
+    return { panned, turned };
+  } }) as { after: Where; then: { panned: Where; turned: Where } };
+  const [b, p, t] = [r.after, r.then.panned, r.then.turned];
+  const j = JSON.stringify({ b, p, t });
+  const moved = (from: number[], to: number[]) => [to[0]! - from[0]!, to[1]! - from[1]!];
+  // One to one: the orbit centre and another point of the model moved with the pointer, within a pixel.
+  for (const [m, what] of [[moved(b.targetPx, p.targetPx), 'the orbit centre'], [moved(b.cornerPx, p.cornerPx),
+    'a point of the model']] as const) expect(Math.abs(m[0]! - 120) <= 1 && Math.abs(m[1]! - 60) <= 1,
+    `${what} moved ${m}, the pointer 120, 60: ${j}`);
+  // The orbit centre where it was on the model; the pan in the camera's state.
+  expect(p.target.every((x, k) => x === b.target[k]) && p.pan !== null, `the orbit centre moved: ${j}`);
+  // A turn pivots about it where it's drawn.
+  expect(t.target.every((x, k) => x === b.target[k]) && Math.hypot(...moved(p.targetPx, t.targetPx)) <= 1,
+    `the turn didn't pivot about the orbit centre: ${j}`);
+  return undefined;
+});
 await check('camera flights', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
     const v = globalThis.viewer;

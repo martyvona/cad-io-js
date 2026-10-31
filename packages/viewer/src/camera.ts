@@ -73,14 +73,15 @@ export function fitSphere(camera: THREE.OrthographicCamera, target: THREE.Vector
 
 /**
  * A camera turned to look along a view's axis (its direction and up) about the same target, from the same distance,
- * with the same height (the user, 2026-10-30: the views turn about the orbit centre, leaving zoom and pan alone).
+ * with the same height and pan (the user, 2026-10-30: the views turn about the orbit centre, leaving zoom and pan
+ * alone).
  */
 export function viewCamera(s: CameraState, view: ViewName): CameraState {
   const { dir, up } = VIEWS[view];
   const target = new THREE.Vector3().fromArray(s.target);
   const d = new THREE.Vector3().fromArray(s.position).distanceTo(target) || 1;
   return { position: _v.set(...dir).normalize().multiplyScalar(d).add(target).toArray(), target: s.target,
-    up: [...up], height: s.height };
+    up: [...up], height: s.height, ...(s.pan ? { pan: s.pan } : {}) };
 }
 
 /** The camera `fitSphere` would make from `s` (its direction kept), as a state; `s` itself if the sphere is empty. */
@@ -124,8 +125,8 @@ function turnOf(s: CameraState): THREE.Quaternion {
 
 /**
  * The camera a fraction `f` of the way from `a` to `b` (replaying a drag in real time, recorder.ts): the turn about
- * the target by the shortest rotation, the target and the distance to it straight, the view's height by ratio (so a
- * zoom goes at an even pace).
+ * the target by the shortest rotation, the target, the distance to it and the pan straight, the view's height by
+ * ratio (so a zoom goes at an even pace).
  */
 export function interpolateCamera(a: CameraState, b: CameraState, f: number): CameraState {
   const turn = turnOf(a).slerp(turnOf(b), f);
@@ -134,6 +135,8 @@ export function interpolateCamera(a: CameraState, b: CameraState, f: number): Ca
     f * _x.fromArray(b.position).distanceTo(_z.fromArray(b.target));
   const position = new THREE.Vector3(0, 0, dist).applyQuaternion(turn).add(target);
   const up = new THREE.Vector3(0, 1, 0).applyQuaternion(turn);
+  const pan: [number, number] = [0, 1].map((k) => (1 - f) * (a.pan?.[k] ?? 0) + f * (b.pan?.[k] ?? 0)) as
+    [number, number];
   return { position: position.toArray(), target: target.toArray(), up: up.toArray(),
-    height: a.height * (b.height / a.height) ** f };
+    height: a.height * (b.height / a.height) ** f, ...(pan[0] || pan[1] ? { pan } : {}) };
 }

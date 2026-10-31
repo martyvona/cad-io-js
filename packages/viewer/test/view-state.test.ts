@@ -26,6 +26,11 @@ test('view state: every field through the query and back; numbers to 6 decimals;
   // Absent fields stay absent; an empty cut list says every plane is off.
   assert.deepEqual(roundTrip({}).state, {});
   assert.deepEqual(roundTrip({ cut: {} }).state, { cut: {} });
+  // The camera's pan: two more numbers, read back; ten still read (no pan).
+  const panned = roundTrip({ camera: { ...s.camera!, pan: [12.5, -3] } }).state.camera!;
+  assert.deepEqual(panned.pan, [12.5, -3]);
+  assert.equal(roundTrip({ camera: s.camera! }).state.camera!.pan, undefined);
+  assert.equal(fromQuery(new URLSearchParams('camera=1,2,3,4,5,6,7,8,9,10,11')).problems.length, 1);
   // Older links' centring (removed, the user, 2026-10-30) is passed over.
   assert.deepEqual(fromQuery(new URLSearchParams('centered=1&caps=0')), { state: { caps: false }, problems: [] });
 });

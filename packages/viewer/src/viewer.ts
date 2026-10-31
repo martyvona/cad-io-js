@@ -133,6 +133,8 @@ export class Viewer {
   private flight?: { from: CameraState; to: CameraState; start: number };
   flightMs = FLIGHT_MS;
   private covered = 0;
+  /** The pan, in millimetres along the view's right and up (cameraState's `pan`). */
+  private readonly pan = new THREE.Vector2();
   /** The user has moved the view since the load began: no more automatic zooming. */
   private moved = false;
   /** Counts loads, so a superseded one's late results are dropped. */
@@ -199,6 +201,16 @@ export class Viewer {
     this.controls = new TrackballControls(this.camera, this.renderer.domElement);
     this.controls.rotateSpeed = 4;
     this.controls.staticMoving = true;
+    // Our own pan (panBy) in place of TrackballControls': the drag it measured, in pixels (its private state, three.js
+    // 0.186, pinned; mouse and two-finger touch alike).
+    const tc = this.controls as unknown as { _panStart: THREE.Vector2; _panEnd: THREE.Vector2; _panCamera(): void;
+      screen: { width: number; height: number } };
+    tc._panCamera = () => {
+      const dx = (tc._panEnd.x - tc._panStart.x) * tc.screen.width, dy = (tc._panEnd.y - tc._panStart.y) *
+        tc.screen.height;
+      tc._panStart.copy(tc._panEnd);
+      if (dx || dy) this.panBy(dx, dy);
+    };
     this.controls.addEventListener('start', () => {
       this.interacting = this.moved = true;
       this.flight = undefined;
@@ -263,16 +275,43 @@ export class Viewer {
     this.resize();
   }
 
+  /**
+   * The projection shifted: by half what the controls cover, so the camera's axis (where the orbit centre is drawn)
+   * is at the free width's centre and a fitted model sits centred beside them; and by the pan, in the view's plane
+   * (the user, 2026-10-30: panning slides the view, the orbit centre staying where it is on the model). Again before
+   * each frame and pick, as the pan is in millimetres and the zoom changes how many pixels that is.
+   */
+  private shift(): void {
+    const w = Math.max(1, this.container.clientWidth), h = Math.max(1, this.container.clientHeight);
+    const mmPerPixel = (this.camera.top - this.camera.bottom) / this.camera.zoom / h;
+    const x = (w - this.freeWidth()) / 2 - this.pan.x / mmPerPixel, y = this.pan.y / mmPerPixel;
+    const v = this.camera.view;
+    if (x === 0 && y === 0) {
+      if (v?.enabled) this.camera.clearViewOffset();
+    } else if (!v?.enabled || v.offsetX !== x || v.offsetY !== y || v.fullWidth !== w || v.fullHeight !== h) {
+      this.camera.setViewOffset(w, h, x, y, w, h);
+    }
+  }
+
+  /**
+   * Pans by a drag of `dx`, `dy` CSS pixels (right, down): the view follows the pointer one to one, whatever the zoom
+   * (TrackballControls' own pan scaled by the camera's distance, which an orthographic view doesn't show: after zoom
+   * selected, a crawl), and the orbit centre stays where it is on the model.
+   */
+  private panBy(dx: number, dy: number): void {
+    const mmPerPixel = (this.camera.top - this.camera.bottom) / this.camera.zoom /
+      Math.max(1, this.container.clientHeight);
+    this.pan.x += dx * mmPerPixel;
+    this.pan.y -= dy * mmPerPixel;
+    this.shift();
+    this.changed = true;
+  }
+
   private resize(): void {
     this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
     this.composer.setSize(this.container.clientWidth, this.container.clientHeight, this.renderer.getPixelRatio());
     setAspect(this.camera, this.aspect());
-    // The camera's axis (what it orbits and zooms about) at the free width's centre: the projection shifted by half
-    // what's covered, so a fitted model sits centred beside the controls.
-    const w = Math.max(1, this.container.clientWidth), h = Math.max(1, this.container.clientHeight);
-    const off = (w - this.freeWidth()) / 2;
-    if (off > 0) this.camera.setViewOffset(w, h, off, 0, w, h);
-    else this.camera.clearViewOffset();
+    this.shift();
     this.controls.handleResize();
     this.frames.request();
   }
@@ -296,6 +335,7 @@ export class Viewer {
       else flying = true;
     }
     this.controls.update();
+    this.shift();
     clipTo(this.camera, this.bounds);
     depthBias.value = Math.max(this.pixelSize() * DEPTH_BIAS_PIXELS,
       DEPTH_BIAS_DEFLECTIONS * meshDeflections(deflectionsOf(this.settings)).linearDeflection);
@@ -577,6 +617,7 @@ export class Viewer {
   /** Fits a sphere at once (zooming while loading), ending any flight. */
   private fitWorld(s: THREE.Sphere): void {
     this.flight = undefined;
+    this.pan.set(0, 0);
     fitSphere(this.camera, this.controls.target, s, this.aspect(), this.fitAspect());
     this.redraw();
   }
@@ -640,7 +681,9 @@ export class Viewer {
     const r = this.renderer.domElement.getBoundingClientRect();
     const ndc = new THREE.Vector2((clientX - r.left) / r.width * 2 - 1, -((clientY - r.top) / r.height * 2 - 1));
     this.display.updateWorldMatrix(true, true);
-    // The near plane as the next frame will have it (the camera may have moved since the last), where rays start.
+    // The projection and near plane as the next frame will have them (the camera may have moved since the last),
+    // where rays start.
+    this.shift();
     clipTo(this.camera, this.bounds);
     return pick(this.camera, this.display, ndc, this.pixelSize(), this.clipped);
   }
@@ -661,7 +704,7 @@ export class Viewer {
   cameraState(): CameraState {
     const c = this.camera;
     return { position: c.position.toArray(), target: this.controls.target.toArray(), up: c.up.toArray(),
-      height: (c.top - c.bottom) / c.zoom };
+      height: (c.top - c.bottom) / c.zoom, ...(this.pan.x || this.pan.y ? { pan: [this.pan.x, this.pan.y] } : {}) };
   }
 
   /** Puts the camera exactly so (the aspect ratio stays the viewport's); no more automatic zooming this load. */
@@ -681,7 +724,9 @@ export class Viewer {
     c.top = s.height / 2;
     c.bottom = -s.height / 2;
     c.zoom = 1;
+    this.pan.set(s.pan?.[0] ?? 0, s.pan?.[1] ?? 0);
     setAspect(c, this.aspect());
+    this.shift();
   }
 
   /** The view drawn now, as a PNG data URL (drawn and read in one task, so the buffer still holds it). */

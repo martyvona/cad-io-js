@@ -311,7 +311,7 @@ Parts that fail to tessellate don't fail the run; they are in the summary (with 
 
 ## Viewer
 
-`cad-viewer` (`packages/viewer`, private) is an interactive three.js viewer for debugging, prototyping and inspecting models, not for end users: a single-page web app built with Vite, served by any static server, and usable offline once loaded (a progressive web app); a build is live at <https://martyvona.github.io/cad-io-js/>. It opens every format through our own packages, off the page's thread: STEP files parsed and meshed (by OCCT or truck in Web Workers, cached in IndexedDB, appearing part by part), and glTF, GLB, three.js JSON and 3MF read by `gltf-import`, `threejs-import` and `3mf-import` into the same scene model, so our own exports' extras (names, STEP ids, faces, hidden and instanced placements, closed parts) come back as they were written. It has an orthographic camera with trackball controls (mouse and touch), an assembly tree with hiding, picking and selection with details, a CAD rendering style, section planes, and works on phones and tablets. The plan it was built to, in nine phases, and the decisions behind it are in `CLAUDE.md` ("The viewer").
+`cad-viewer` (`packages/viewer`, private) is an interactive three.js viewer for debugging, prototyping and inspecting models, not for end users: a single-page web app built with Vite, served by any static server, and usable offline once loaded (a progressive web app); a build is live at <https://martyvona.github.io/cad-io-js/>. It opens every format through our own packages, off the page's thread: STEP files parsed and meshed (by OCCT or truck in Web Workers, cached in IndexedDB, appearing part by part), and glTF, GLB, three.js JSON and 3MF read by `gltf-import`, `threejs-import` and `3mf-import` into the same scene model, so our own exports' extras (names, STEP ids, faces, hidden and instanced placements, closed parts) come back as they were written. It has an orthographic camera with trackball controls (mouse and touch: the left button turns about the orbit centre, the right pans with the pointer one to one, leaving the orbit centre where it is on the model, the wheel or middle button zooms), an assembly tree with hiding, picking and selection with details, a CAD rendering style, section planes, and works on phones and tablets. The plan it was built to, in nine phases, and the decisions behind it are in `CLAUDE.md` ("The viewer").
 
 ### Running It
 
@@ -344,7 +344,7 @@ The controls (lil-gui, top right) are in folders, all closed at first:
 | Parameter | Meaning |
 |---|---|
 | `view=iso` | an axis view, turned about the target (at once): front, back, left, right, top, bottom, iso |
-| `camera=px,py,pz,tx,ty,tz,ux,uy,uz,h` | the camera exactly: position, target, up, and the view's height in world millimetres |
+| `camera=px,py,pz,tx,ty,tz,ux,uy,uz,h[,x,y]` | the camera exactly: position, target, up, the view's height in world millimetres, and the pan (millimetres along the view's right and up) |
 | `cut=x:12.5`, `cut=y:-3:flip`, `cut=none`; `caps=0` | section planes (repeated; `flip` cuts away the side below); caps off |
 | `ao=0`, `smaa=0`, `edges=0`, `shininess=50`, `aoIntensity=3`, `aoRadius=16`, `aoQuality=Low` | rendering |
 | `tree=0`, `detail=1`, `pick=assembly\|part\|detail`, `instances=1` | the tree panel, its faces/edges/curves, the pick level, all instances |
@@ -983,7 +983,7 @@ A file whose schema has no dictionary is bound with AP242's, with a diagnostic: 
 
 ## Tests
 
-- **`npm test`**: the package tests, 399 of them (`node:test`, in each package's `test/`), on small inline fixtures and a few corpus files. Tests that need a built backend or the corpus skip when it's missing; with everything built, they take about 20 s.
+- **`npm test`**: the package tests, 400 of them (`node:test`, in each package's `test/`), on small inline fixtures and a few corpus files. Tests that need a built backend or the corpus skip when it's missing; with everything built, they take about 20 s.
 - **`npm run typecheck`**: `tsc` over the packages (no output; the sources run as they are).
 - **`cargo test`** in `packages/tess-truck/native`: 3 native tests of the truck wrapper (B-spline clamping, the volume sign guard).
 - **Browser checks**, run by hand: `node packages/tess-workers/test/browser-check.ts` and `node packages/tess-cache/test/browser-check.ts` serve the sources and run the pool's and IndexedDB's scenarios in headless Chrome; `node packages/viewer/test/browser-check.ts` runs the viewer on models in each format (see [Viewer](#viewer)).

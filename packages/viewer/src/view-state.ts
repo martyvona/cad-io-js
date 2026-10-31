@@ -4,7 +4,8 @@
 // carries it, so a link shows what someone else saw:
 //
 //   ?model=<path in the content root or URL>&view=iso  an axis view, turned about the target (or camera=, exactly)
-//   &camera=px,py,pz,tx,ty,tz,ux,uy,uz,height  position, target, up, and the viewport's height in world mm
+//   &camera=px,py,pz,tx,ty,tz,ux,uy,uz,height[,panx,pany]  position, target, up, the viewport's height in world
+//                                              mm, and the pan (mm along the view's right and up)
 //   &cut=x:12.5  &cut=y:-3:flip  &caps=0
 //   &ao=0  &smaa=0  &edges=0  &triangleEdges=all  &shininess=50  &aoIntensity=3  &aoRadius=16  &aoQuality=Low
 //   &edgeStyle=thin  &edgeWidth=2  &specular=0.3  &ambient=1  &light=2.5  &capStyle=parts  &hatchWidth=2
@@ -27,6 +28,11 @@ export interface CameraState {
   up: Vec3;
   /** The viewport's height in world millimetres (the frustum's height over its zoom). */
   height: number;
+  /**
+   * The pan, in millimetres along the view's right and up: where the orbit centre (target) is drawn, from the view's
+   * centre (the user, 2026-10-30: panning leaves the orbit centre where it is on the model). Absent: none.
+   */
+  pan?: [number, number];
 }
 
 export interface ViewState {
@@ -69,7 +75,7 @@ export function toQuery(s: ViewState): [string, string][] {
   if (s.view) q.push(['view', s.view]);
   if (s.camera) {
     const c = s.camera;
-    q.push(['camera', [...c.position, ...c.target, ...c.up, c.height].map(num).join(',')]);
+    q.push(['camera', [...c.position, ...c.target, ...c.up, c.height, ...c.pan ?? []].map(num).join(',')]);
   }
   for (const a of AXES) {
     const p = s.cut?.[a];
@@ -103,11 +109,11 @@ export function fromQuery(params: URLSearchParams): { state: ViewState; problems
   const camera = params.get('camera');
   if (camera !== null) {
     const v = camera.split(',').map((x) => finite(x));
-    if (v.length === 10 && v.every((x) => x !== undefined) && v[9]! > 0) {
+    if ((v.length === 10 || v.length === 12) && v.every((x) => x !== undefined) && v[9]! > 0) {
       const n = v as number[];
       state.camera = { position: [n[0]!, n[1]!, n[2]!], target: [n[3]!, n[4]!, n[5]!], up: [n[6]!, n[7]!, n[8]!],
-        height: n[9]! };
-    } else problems.push(`camera: 10 numbers expected (position, target, up, height > 0): ${camera}`);
+        height: n[9]!, ...(n.length === 12 ? { pan: [n[10]!, n[11]!] as [number, number] } : {}) };
+    } else problems.push(`camera: 10 or 12 numbers expected (position, target, up, height > 0, pan): ${camera}`);
   }
   const cuts = params.getAll('cut');
   if (cuts.length) {

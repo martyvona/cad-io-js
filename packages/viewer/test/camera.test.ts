@@ -41,3 +41,10 @@ test('interpolateCamera: up stays a unit vector across the view direction, with 
     assert.ok(Math.abs(dir.reduce((s, v, i) => s + v * c.up[i]!, 0) / len) < 1e-9, `up across the view at ${f}`);
   }
 });
+
+test('interpolateCamera: the pan straight, none at either end none between', () => {
+  assert.equal(interpolateCamera(a, b, 0.5).pan, undefined);
+  const c = interpolateCamera({ ...a, pan: [10, -4] }, b, 0.25);
+  near(c.pan!, [7.5, -3], 'pan');
+  near(interpolateCamera(a, { ...b, pan: [0, 8] }, 1).pan!, [0, 8], 'pan at the end');
+});
