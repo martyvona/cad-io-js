@@ -1,0 +1,1 @@
+function e(){throw Error(`no file system in the browser`)}export{e as readFile};
