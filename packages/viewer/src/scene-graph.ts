@@ -91,6 +91,13 @@ export class SceneGraph implements FaceHiding {
   private readonly outlined = new Map<number, THREE.LineSegments[]>();
   /** Hidden faces' source ids, by part. */
   private readonly hiddenFaces = new Map<number, Set<number>>();
+  /**
+   * Opacities set in the viewer (the user, 2026-10-31: selected items made transparent, or back to the file's): a
+   * placement's (a part's or assembly's placed parts), and a face's (every placement of its part, as hiding is),
+   * which wins over its placement's.
+   */
+  private readonly placementOpacity = new Map<PartInstance, number>();
+  private readonly faceOpacity = new Map<number, Map<number, number>>();
   /** The objects addMesh made for each part, one per placement (replaced by its next mesh). */
   private readonly made = new Map<number, THREE.Object3D[]>();
 
@@ -131,15 +138,18 @@ export class SceneGraph implements FaceHiding {
     }
   }
 
-  /** The three.js material for a scene material (or the default) and a kind of object. */
-  private material(index: number | undefined, kind: 'face' | 'curve' | 'point'): THREE.Material {
-    const key = `${kind}:${index ?? 'default'}`;
+  /**
+   * The three.js material for a scene material (or the default) and a kind of object; `opacity` in place of the
+   * material's own (the viewer's transparency: setPlacementOpacity, setFaceOpacity).
+   */
+  private material(index: number | undefined, kind: 'face' | 'curve' | 'point', alpha?: number): THREE.Material {
+    const key = `${kind}:${index ?? 'default'}${alpha === undefined ? '' : `@${alpha}`}`;
     let m = this.materials.get(key);
     if (m) return m;
     const sm = index === undefined ? undefined : this.scene.materials[index];
     const [r, g, b] = sm?.color ?? DEFAULT_COLOR;
     const color = new THREE.Color().setRGB(r, g, b, THREE.SRGBColorSpace);
-    const opacity = sm?.opacity ?? 1;
+    const opacity = alpha ?? sm?.opacity ?? 1;
     const common = { color, opacity, transparent: opacity < 1 };
     m = kind === 'face' ? new THREE.MeshPhongMaterial({ ...common, specular: new THREE.Color().setScalar(this.specular),
       shininess: this.shininess,
@@ -305,19 +315,22 @@ export class SceneGraph implements FaceHiding {
 
   /** Sets a placement's geometry (shared by grouping) and materials: runs of faces by material, hidden faces apart. */
   private assign(part: number, meshed: MeshedPart, obj: THREE.Mesh, instance: PartInstance): void {
-    const hidden = this.hiddenFaces.get(part);
-    const runs: { start: number; count: number; material: number | undefined | 'hidden' }[] = [];
+    const hidden = this.hiddenFaces.get(part), faceAlpha = this.faceOpacity.get(part);
+    const placed = this.placementOpacity.get(instance);
+    const runs: { start: number; count: number; material: number | undefined | 'hidden'; alpha?: number }[] = [];
     // (A mesh without faces, a foreign file's of one material: all its triangles in the part's.)
     const faces = meshed.mesh.faces.length ? meshed.mesh.faces : [{ source: null, start: 0,
       count: meshed.mesh.indices.length }];
     for (const f of faces) {
       const m = f.source !== null && hidden?.has(f.source) ? 'hidden' as const
         : (f.source !== null ? instance.faceMaterials.get(f.source) : undefined) ?? instance.material;
+      const alpha = (f.source !== null ? faceAlpha?.get(f.source) : undefined) ?? placed;
       const last = runs.at(-1);
-      if (last && last.material === m && last.start + last.count === f.start) last.count += f.count;
-      else runs.push({ start: f.start, count: f.count, material: m });
+      if (last && last.material === m && last.alpha === alpha && last.start + last.count === f.start) {
+        last.count += f.count;
+      } else runs.push({ start: f.start, count: f.count, material: m, ...(alpha === undefined ? {} : { alpha }) });
     }
-    const key = runs.map((r) => `${r.start}:${r.material}`).join(',');
+    const key = runs.map((r) => `${r.start}:${r.material}${r.alpha === undefined ? '' : `@${r.alpha}`}`).join(',');
     let g = meshed.geometries.get(key);
     if (!g) {
       g = new THREE.BufferGeometry();
@@ -328,7 +341,30 @@ export class SceneGraph implements FaceHiding {
       meshed.geometries.set(key, g);
     }
     obj.geometry = g;
-    obj.material = runs.map((r) => r.material === 'hidden' ? HIDDEN : this.material(r.material, 'face'));
+    obj.material = runs.map((r) => r.material === 'hidden' ? HIDDEN : this.material(r.material, 'face', r.alpha));
+  }
+
+  /** A placement's opacity (its part group, a placement's: `undefined` back to the file's). */
+  setPlacementOpacity(group: THREE.Object3D, alpha: number | undefined): void {
+    const part = group.userData.part as number | undefined;
+    const p = part === undefined ? undefined : this.placements.get(part)?.find((q) => q.group === group);
+    if (!p) return;
+    if (alpha === undefined) this.placementOpacity.delete(p.instance);
+    else this.placementOpacity.set(p.instance, alpha);
+    const meshed = this.meshed.get(part!);
+    for (const o of meshed?.objects ?? []) {
+      if (o.instance === p.instance) this.assign(part!, meshed!, o.obj, o.instance);
+    }
+  }
+
+  /** A face's opacity, in every placement of its part (`undefined` back to its placement's, or the file's). */
+  setFaceOpacity(part: number, source: number, alpha: number | undefined): void {
+    let map = this.faceOpacity.get(part);
+    if (!map) this.faceOpacity.set(part, (map = new Map()));
+    if (alpha === undefined) map.delete(source);
+    else map.set(source, alpha);
+    const meshed = this.meshed.get(part);
+    if (meshed) for (const { obj, instance } of meshed.objects) this.assign(part, meshed, obj, instance);
   }
 
   /** Every hidden face, as its part and source id. */

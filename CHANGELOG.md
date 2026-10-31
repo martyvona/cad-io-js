@@ -45,6 +45,7 @@
 - `cad-viewer`: zoom all, zoom selected and the views ease the camera there over a second; the views turn about the orbit centre, keeping the zoom and pan, instead of fitting the model.
 - `cad-viewer`: zoom all and zoom selected fit and centre what they show in the width beside the controls (whether open or folded), and the camera turns and zooms about that width's centre.
 - `cad-viewer`: failed faces' red outlines drawn in front of the black edges along them; partly failed rows in the tree red like failed ones.
+- `cad-viewer`: Selection's **Hide others** and **Show others**; **Make transparent** (at an **Opacity**) and **Restore opacity** for the selection.
 - `cad-viewer`: large files load without long pauses on the page (LMP1's GLB: from a 1 s task to 0.2 s), the status line saying what's happening throughout (importing, showing parts, finding edges, meshing).
 - `cad-viewer shot`: models centred again (the controls hidden: `controls=0`).
 - `cad-viewer`: edges found from triangles (meshes without edges of their own) on a 1 um grid in the world rather than three.js's 4 decimal places of the file's unit (far fewer spurious edges), 3-5 times faster, in the import worker rather than on the page, arriving after their meshes.

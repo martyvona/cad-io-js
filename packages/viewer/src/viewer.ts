@@ -126,6 +126,8 @@ export class Viewer {
   /** The model's place in the scene: its root's parent. */
   readonly display = new THREE.Group();
   model?: ModelInfo;
+  /** The model's scene graph (its parts' meshes and materials), once the scene has come. */
+  graph?: SceneGraph;
   private root?: THREE.Object3D;
   /** What the near and far planes are kept around (clipTo), in the world: all that's drawn. */
   private bounds = new THREE.Sphere(new THREE.Vector3(), 1);
@@ -504,6 +506,12 @@ export class Viewer {
     this.redraw();
   }
 
+  /** Materials changed (opacity set): transparency looked for again, fat edges' colours follow at the next draw. */
+  materialsChanged(): void {
+    this.transparencyStale = true;
+    this.drawnChanged();
+  }
+
   /** The world box of the whole model, hidden parts included (for the planes' ranges). */
   modelBox(): THREE.Box3 {
     this.display.updateWorldMatrix(true, true);
@@ -632,8 +640,8 @@ export class Viewer {
   }
 
   private async loadModel(src: Source, format: Format, gen: number, keep: boolean): Promise<void> {
-    this.onStatus?.(`${src.name}: importing${src.bytes.byteLength >= 1e6 ? ` ${Math.round(src.bytes.byteLength / 1e6)} MB`
-      : ''}...`);
+    const mb = src.bytes.byteLength / 1e6;
+    this.onStatus?.(`${src.name}: importing${mb >= 1 ? ` ${Math.round(mb)} MB` : ''}...`);
     // Let the page show that first.
     await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
     if (gen !== this.generation) return;
@@ -684,6 +692,7 @@ export class Viewer {
           model = { name: src.name, format, parts: { total: brep.length, done: 0, failed: 0 },
             diagnostics: [...scene.diagnostics], meshedWith };
           this.show(graph.root, model, graph, keep);
+          this.graph = graph;
           // The model's sphere, the file's or the importer's estimate, fitted before any mesh is drawn.
           this.fit.start(scene.bounds);
           if (!this.fit.sphere.isEmpty()) this.bounds.copy(this.fit.sphere);
@@ -799,6 +808,7 @@ export class Viewer {
     this.root = undefined;
     this.model = undefined;
     this.nodes = undefined;
+    this.graph = undefined;
   }
 
   private updateBounds(): void {

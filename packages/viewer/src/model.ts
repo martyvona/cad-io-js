@@ -237,6 +237,39 @@ export class NodeModel {
     return undefined;
   }
 
+  /**
+   * The others of a selection (Hide others; the user, 2026-10-31): the coarsest nodes that are none of these, none
+   * of their ancestors and none of their descendants, the siblings of each and of each ancestor up to the roots;
+   * hiding them leaves the selection and what holds it (a selected face's part keeps nothing else but its node).
+   */
+  others(ids: readonly number[]): number[] {
+    const chosen = new Set(ids), keep = new Set<number>();
+    for (const id of ids) for (let n = id; n >= 0 && this.nodes[n]; n = this.nodes[n]!.parent) keep.add(n);
+    const out: number[] = [];
+    const visit = (id: number) => {
+      if (chosen.has(id)) return;
+      if (!keep.has(id)) out.push(id);
+      else for (const c of this.children(id)) visit(c);
+    };
+    for (const r of this.roots) visit(r);
+    return out;
+  }
+
+  /**
+   * Everything hidden outside a selection (Show others): hidden nodes, faces included whether or not their nodes
+   * were made, none of them the selection nor within it (the selection keeps its own hiding).
+   */
+  hiddenOutside(ids: readonly number[]): number[] {
+    const chosen = new Set(ids);
+    const within = (id: number) => {
+      for (let n = id; n >= 0 && this.nodes[n]; n = this.nodes[n]!.parent) if (chosen.has(n)) return true;
+      return false;
+    };
+    // (Hidden faces' nodes made first, so they can be shown.)
+    for (const p of this.hiddenFacePaths()) this.find(p);
+    return this.nodes.filter((n) => n.hidden && !within(n.id)).map((n) => n.id);
+  }
+
   /** Hidden itself or through an ancestor. */
   hiddenInTree(id: number): boolean {
     for (let n = this.nodes[id]; n; n = this.nodes[n.parent]) if (n.hidden) return true;

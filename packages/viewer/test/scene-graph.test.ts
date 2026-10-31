@@ -244,3 +244,29 @@ test('faces judged by their part\'s measures: partly, excess and unverified, all
   const [o4] = new SceneGraph(scene(), 'model').addMesh(0, empty);
   assert.deepEqual([o4!.userData.failedFaces, o4!.userData.partlyFailedFaces], [[7], []]);
 });
+
+test('opacity: a placement\'s, or a face\'s in every placement (winning), and back to the file\'s', () => {
+  const g = new SceneGraph(scene(), 'model');
+  const made = g.addMesh(0, plate()) as THREE.Mesh[];
+  const mats = (m: THREE.Mesh) => (m.material as THREE.MeshPhongMaterial[]);
+  const before = made.map((m) => [...mats(m)]);
+  const opacities = (m: THREE.Mesh) => mats(m).map((x) => [x.opacity, x.transparent]);
+  // The first placement at 0.3: its materials, not the others'.
+  g.setPlacementOpacity(made[0]!.parent!, 0.3);
+  assert.ok(opacities(made[0]!).every(([o, t]) => o === 0.3 && t === true));
+  assert.deepEqual(mats(made[1]!), before[1]);
+  // Face 7 at 0.6 in every placement, over the placement's 0.3; face 8 stays at 0.3 in the first.
+  g.setFaceOpacity(0, 7, 0.6);
+  const faceOf = (m: THREE.Mesh, source: number) => {
+    const ranges = m.userData.faceRanges as { source: number; start: number }[];
+    const start = ranges.find((r) => r.source === source)!.start;
+    return mats(m)[m.geometry.groups.find((gr) => gr.start <= start && start < gr.start + gr.count)!.materialIndex!]!;
+  };
+  assert.deepEqual(made.map((m) => faceOf(m, 7).opacity), [0.6, 0.6, 0.6]);
+  assert.equal(faceOf(made[0]!, 8).opacity, 0.3);
+  // Back: the face to its placement's, then the placement to the file's, materials as before.
+  g.setFaceOpacity(0, 7, undefined);
+  assert.equal(faceOf(made[0]!, 7).opacity, 0.3);
+  g.setPlacementOpacity(made[0]!.parent!, undefined);
+  assert.deepEqual(made.map((m) => mats(m)), before);
+});

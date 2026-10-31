@@ -36,7 +36,16 @@ export interface Ui {
   selection: { level: PickLevel; multi: boolean; instances: boolean };
   hideSelected(): void;
   showSelected(): void;
+  /** Hides everything but the selection and what holds it (NodeModel.others). */
+  hideOthers(): void;
+  /** Shows everything hidden outside the selection (NodeModel.hiddenOutside). */
+  showOthers(): void;
   showAll(): void;
+  /**
+   * The selection made transparent at an opacity (default the Opacity control's), or with `undefined` back to the
+   * file's: placed parts beneath a selected part or assembly, a selected face in every placement of its part.
+   */
+  setOpacity(alpha: number | undefined): void;
   zoomSelected(): void;
   selectParent(): void;
   /** Selects everything a click could at the pick level: every part, assembly or face, edge and curve shown. */
@@ -589,6 +598,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     treeElement.addEventListener(e, () => { if (restore) delete restore.top; }, { passive: true });
   }
   // Hiding faces changes materials: the highlight comes off first, and goes back on after.
+  const transparency = { opacity: 0.3 };
   const hide = (hidden: boolean, ids: readonly number[] = selected) => {
     if (!panel) return;
     highlighter.clear();
@@ -623,6 +633,37 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     selection,
     hideSelected: () => hide(true),
     showSelected: () => hide(false),
+    hideOthers: () => {
+      const nodes = viewer.nodes;
+      if (nodes && selected.length) hide(true, nodes.others(selected));
+    },
+    showOthers: () => {
+      const nodes = viewer.nodes;
+      if (nodes && selected.length) hide(false, nodes.hiddenOutside(selected));
+    },
+    setOpacity: (alpha) => {
+      const nodes = viewer.nodes, graph = viewer.graph;
+      if (!nodes || !graph || !selected.length) return;
+      // (The highlight's tinted materials come off first and go back on after, as for hiding.)
+      highlighter.clear();
+      const parts = new Set<number>();
+      for (const id of selected) {
+        const n = nodes.nodes[id]!;
+        if (n.face) graph.setFaceOpacity(n.face.part, n.face.source, alpha);
+        else if (n.kind === 'part' || n.kind === 'assembly') {
+          const under = (m: number): void => {
+            const node = nodes.nodes[m]!;
+            if (node.kind === 'part') parts.add(m);
+            else if (node.kind === 'assembly') for (const c of nodes.children(m)) under(c);
+          };
+          under(id);
+        }
+      }
+      for (const p of parts) graph.setPlacementOpacity(nodes.nodes[p]!.object!, alpha);
+      viewer.materialsChanged();
+      highlight();
+      describe();
+    },
     showAll: () => {
       highlighter.clear();
       panel?.model.showAll();
@@ -749,7 +790,13 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   selFolder.add(selection, 'details').name('Details').onChange(describe);
   selFolder.add(ui, 'hideSelected').name('Hide selected');
   selFolder.add(ui, 'showSelected').name('Show selected');
+  selFolder.add(ui, 'hideOthers').name('Hide others');
+  selFolder.add(ui, 'showOthers').name('Show others');
   selFolder.add(ui, 'showAll').name('Show all');
+  // Transparency (the user, 2026-10-31): the selection at this opacity, or back to the file's.
+  selFolder.add(transparency, 'opacity', 0.05, 1, 0.05).name('Opacity');
+  selFolder.add({ make: () => ui.setOpacity(transparency.opacity) }, 'make').name('Make transparent');
+  selFolder.add({ restore: () => ui.setOpacity(undefined) }, 'restore').name('Restore opacity');
   openControl = selFolder.add(tree, 'open').name('Show the tree').onChange((open: boolean) => {
     setOpen(open);
     if (!open && viewer.nodes) tree.closedByHand = true;

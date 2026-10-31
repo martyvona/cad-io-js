@@ -664,6 +664,51 @@ if (fs.existsSync(vwGlb)) await check('edges off the page', async () => {
   expect(a.longest < 450, `a long task on the page: ${JSON.stringify(a)}`);
   return undefined;
 });
+// Hide others, Show others and transparency (the user, 2026-10-31), through the controls: one of as1's nuts selected,
+// Hide others leaves it alone shown; Show others shows the rest, the nut keeping its own hiding; the rod made
+// transparent at the Opacity control's value and back to the file's.
+await check('hide others and transparency', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    const m = ui.panel().model, button = (name) => ui.gui.controllersRecursive().find((c) => c._name === name);
+    const parts = () => m.nodes.filter((n) => n.kind === 'part');
+    const shown = () => parts().filter((n) => !m.hiddenInTree(n.id)).map((n) => n.id);
+    const nut = parts().find((n) => n.name === 'nut');
+    const all = shown().length;
+    ui.select([nut.id]);
+    button('Hide others').$button.click();
+    const alone = shown();
+    button('Show others').$button.click();
+    const back = shown().length;
+    // The nut hidden itself, then Show others with it selected: the rest shown, the nut not.
+    ui.hideSelected();
+    button('Hide others').$button.click();
+    button('Show others').$button.click();
+    const nutKept = m.hiddenInTree(nut.id) && shown().length === all - 1;
+    ui.showAll();
+    // Transparency: the rod at 0.4 (the Opacity control), then back.
+    const rod = parts().find((n) => n.name === 'rod');
+    const mesh = rod.object.children.find((c) => c.isMesh);
+    const before = [mesh.material].flat().map((x) => [x.opacity, x.transparent]);
+    ui.select([rod.id]);
+    button('Opacity').setValue(0.4);
+    button('Make transparent').$button.click();
+    ui.select([]);
+    const made = [mesh.material].flat().map((x) => [x.opacity, x.transparent]);
+    ui.select([rod.id]);
+    button('Restore opacity').$button.click();
+    ui.select([]);
+    const restored = [mesh.material].flat().map((x) => [x.opacity, x.transparent]);
+    return { all, alone, nut: nut.id, back, nutKept, before, made, restored };
+  })()`) as { after: { all: number; alone: number[]; nut: number; back: number; nutKept: boolean;
+    before: [number, boolean][]; made: [number, boolean][]; restored: [number, boolean][] } };
+  const a = r.after;
+  const j = JSON.stringify(a);
+  expect(a.all > 3 && a.alone.length === 1 && a.alone[0] === a.nut && a.back === a.all, `hide/show others: ${j}`);
+  expect(a.nutKept, `Show others showed the selection: ${j}`);
+  expect(a.made.every(([o, t]) => o === 0.4 && t) && JSON.stringify(a.restored) === JSON.stringify(a.before) &&
+    a.before.every(([o]) => o === 1), `transparency: ${j}`);
+  return undefined;
+});
 await check('camera flights', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
     const v = globalThis.viewer;

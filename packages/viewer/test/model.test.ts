@@ -179,3 +179,33 @@ test('hiddenFacePaths: a hidden face below every placement of its part, as its f
   graph.setFaceHidden(0, 7, false);
   assert.deepEqual(model.hiddenFacePaths(), []);
 });
+
+test('others: the siblings of the selection and of each ancestor; hiddenOutside: what\'s hidden outside it', () => {
+  const { graph, model } = stepModel();
+  graph.addMesh(0, plate());
+  model.setDetail(true);
+  const [asm] = model.children(model.roots[0]!);
+  const [left, sub, hidden] = model.children(asm!);
+  const [platePart, wirePart] = model.children(left!);
+  // A part: its sibling part, and the other placements of the subassembly.
+  assert.deepEqual(model.others([platePart!]).sort(), [wirePart!, sub!, hidden!].sort());
+  // A face: the part's other faces and its edges too.
+  const face = model.children(platePart!).find((c) => model.nodes[c]!.name === 'face #8')!;
+  const others = model.others([face]);
+  assert.ok(!others.includes(face) && !others.includes(platePart!) && !others.includes(left!));
+  assert.deepEqual(names(model, others.filter((c) => model.nodes[c]!.parent === platePart!)),
+    ['face:face #7', 'edges:edges']);
+  assert.ok(others.includes(wirePart!) && others.includes(sub!) && others.includes(hidden!));
+  // Two selected under one assembly: neither the other's other.
+  assert.deepEqual(model.others([platePart!, wirePart!]).sort(), [sub!, hidden!].sort());
+  // Hidden outside: the hidden placement's parts, not the selection's own hiding.
+  model.setHidden([platePart!], true);
+  const outside = model.hiddenOutside([platePart!]);
+  assert.ok(!outside.includes(platePart!) && outside.length > 0 &&
+    outside.every((id) => model.nodes[id]!.hidden && model.nodes[id]!.parent !== left));
+  // A face hidden in the other placements (faces are per part) counts outside a selection elsewhere.
+  model.setHidden([face], true);
+  const faces = model.hiddenOutside([wirePart!]).filter((id) => model.nodes[id]!.name === 'face #8');
+  // (Every placement's node of it, made for the purpose where the tree hadn't made them: three placements.)
+  assert.ok(faces.includes(face) && faces.length === 3, `${faces.length}`);
+});
