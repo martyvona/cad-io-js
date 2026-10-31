@@ -339,7 +339,7 @@ The controls (lil-gui, top right) are in folders, all closed at first:
 
 ### Driving It
 
-**Links**: a page's address carries the view, so **Copy link to this view** (View) gives a link that shows someone else exactly what you see, and a link can be written by hand; the model is linked as `model=`, by its path within the content root where it's below it, so the link works wherever the viewer is served with that content (the dev server, the deployment's demo models), else by its path on the server or its URL. After `model=`, all optional, applied once the model has loaded:
+**Links**: a page's address carries the view, so **Copy link to this view** (View) gives a link that shows someone else exactly what you see, and a link can be written by hand; the model is linked as `model=`, by its path within the content root where it's below it, so the link works wherever the viewer is served with that content (the dev server, the deployment's demo models), else by its path on the server or its URL. The view follows after `#`, which browsers never send to the server, so a link can be as long as a view needs (servers refuse long queries: GitHub Pages one over about 8 KB, the dev server about 16 KB); the same parameters in the query, as older links have them, are read too (the fragment's first where both give one); `deterministic` and `controls=0` are the page's own options and go in the query. All optional, applied once the model has loaded:
 
 | Parameter | Meaning |
 |---|---|

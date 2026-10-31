@@ -2862,7 +2862,11 @@ await check('automation', async () => {
     a.state.render.ao === false && JSON.stringify(a.state.cut) === '{"x":{"at":50,"flip":true}}', `apply: ${j}`);
   expect(JSON.stringify(a.controls) === '[true,true,false]', `the controls: ${j}`);
   // The link, opened in a new page: the same state.
-  const linked = await page(a.link.slice(a.link.indexOf('?')) + '&check', `cadViewer.ready.then(() => cadViewer.idle())
+  // (The view after #, the page's options in the query.)
+  expect(a.link.includes('#') && !/[?&](hide|select|camera)=/.test(a.link.split('#')[0]!) &&
+    /[#&]hide=/.test(a.link), `the view after #: ${a.link}`);
+  const at = a.link.indexOf('#');
+  const linked = await page(a.link.slice(a.link.indexOf('?'), at) + '&check' + a.link.slice(at), `cadViewer.ready.then(() => cadViewer.idle())
     .then(() => cadViewer.state())`) as { after: State };
   const b = linked.after;
   const near = (x: number[], y: number[]) => x.every((v, k) => Math.abs(v - y[k]!) < 1e-4);
@@ -3001,7 +3005,7 @@ if (!staticServer) await check('shot', async () => {
     `shot's page fits beside the controls: ${JSON.stringify(shotPage.after)}`);
   // Wider than a phone, where the tree would open with the model unless shot closes it.
   expect(bytes.subarray(1, 4).toString() === 'PNG' && w === 1000 && h === 600, `png ${w}x${h}`);
-  expect(report.state.model?.triangles === triangles && /[?&]model=as1\.stp(&|$)/.test(report.link),
+  expect(report.state.model?.triangles === triangles && /[?&]model=as1\.stp(&|#|$)/.test(report.link),
     JSON.stringify(report.state.model));
   expect(topLeftPixel(bytes).join() === '64,64,64', `dark by default: ${topLeftPixel(bytes)}`);
   const lightPng = path.join(tmp, 'shot-light.png');

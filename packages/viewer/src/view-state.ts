@@ -1,9 +1,10 @@
 // What a view of a model is, as data (the user, 2026-10-25; CLAUDE.md, "The viewer"): the camera, the section
 // planes, the rendering settings, the tree and the pick level, and which nodes are hidden and selected (by
 // their paths, model.ts). The automation interface (automation.ts) reads and applies it, and a page's address
-// carries it, so a link shows what someone else saw:
+// carries it, so a link shows what someone else saw: the model in the query, the view after # (since 2026-10-31, so
+// no server sees it, however long; older links' view in the query is read too):
 //
-//   ?model=<path in the content root or URL>&view=iso  an axis view, turned about the target (or camera=, exactly)
+//   ?model=<path in the content root or URL>#view=iso  an axis view, turned about the target (or camera=, exactly)
 //   &camera=px,py,pz,tx,ty,tz,ux,uy,uz,height[,panx,pany]  position, target, up, the viewport's height in world
 //                                              mm, and the pan (mm along the view's right and up)
 //   &cut=x:12.5  &cut=y:-3:flip  &caps=0

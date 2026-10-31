@@ -6,7 +6,7 @@
 //
 // At start it opens ?model= if there is one (as Load URL... reads what's typed: a path within the content root, a
 // path on the server or a URL, sources.ts; ?url= is the same, for older links), then applies the view in the
-// address; `ready` settles after both.
+// address (after #, or in the query as older links have it); `ready` settles after both.
 
 import { sha256 } from 'cad-scene';
 import { VIEWS, type ViewName } from './camera.ts';
@@ -189,12 +189,17 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
     // the link works however the server is reached.
     if (from) url.searchParams.set('model', contentPath(from) ?? (from.startsWith(location.origin + '/')
       ? from.slice(location.origin.length) : from));
-    for (const [k, v] of toQuery(view)) url.searchParams.append(k, v);
+    // The view after #, which no server sees (the user, 2026-10-31): a long hide= or select= list would outgrow the
+    // request line servers take (GitHub Pages refuses a query over about 8 KB, Node's dev server about 16 KB).
+    url.hash = new URLSearchParams(toQuery(view)).toString();
     return url.href;
   };
 
   const start = async () => {
-    const params = new URLSearchParams(location.search);
+    // The view from after # (links since 2026-10-31) and from the query (older links, `cad-viewer shot --state`),
+    // the fragment's first where both give one.
+    const params = new URLSearchParams([...new URLSearchParams(location.hash.slice(1)),
+      ...new URLSearchParams(location.search)]);
     const { state: st, problems } = fromQuery(params);
     const given = params.get('model') ?? params.get('url');
     if (params.has('model') && params.has('url')) problems.push('model and url both given: url ignored');
