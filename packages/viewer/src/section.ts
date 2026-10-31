@@ -162,8 +162,9 @@ interface HatchUniforms {
 
 /**
  * A cap's material for a plane: its ground hatched on the plane, the lines' positions fixed on the model (from the
- * world's origin, in millimetres: the model doesn't move) and their width on the screen, with cadrender's profile: full ink to 0.3 of the width
- * at 0.8 of full (the width at half ink, `hatchWidth`) from the centre line, none from 0.5 on.
+ * world's origin, in millimetres: the model doesn't move) and their width on the screen, with cadrender's profile:
+ * full ink to 0.3 of the width at 0.8 of full (the width at half ink, `hatchWidth`) from the centre line, none from
+ * 0.5 on.
  */
 function capMaterial(h: Hatch, axis: Axis, shared: HatchUniforms): THREE.MeshBasicMaterial {
   const m = new THREE.MeshBasicMaterial({ color: h.ground, side: THREE.DoubleSide, stencilWrite: true, stencilRef: 0,

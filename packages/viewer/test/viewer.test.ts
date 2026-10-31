@@ -9,7 +9,8 @@ import * as THREE from 'three';
 import { main, parseArgs } from '../bin/viewer.ts';
 import { contentFile, contentMiddleware, contentUrl } from '../server/content.ts';
 import { DEFAULTS, envFromOptions, optionsFromEnv } from '../server/options.ts';
-import { clipTo, fitSphere, MARGIN, setView, VIEWS, type ViewName } from '../src/camera.ts';
+import type { CameraState } from '../src/view-state.ts';
+import { clipTo, fitCamera, fitSphere, MARGIN, smoothstep, viewCamera, VIEWS, type ViewName } from '../src/camera.ts';
 import { formatOf } from '../src/formats.ts';
 import { Frames } from '../src/frames.ts';
 import { stats, visibleBox } from '../src/viewer.ts';
@@ -93,19 +94,29 @@ const ndc = (cam: THREE.OrthographicCamera, p: THREE.Vector3) => {
   return p.clone().project(cam);
 };
 
-test('views: each looks along its axis with its up; front, back, left and right have Z up, top +Y, bottom -Y', () => {
-  const box = new THREE.Box3(new THREE.Vector3(-10, -20, -30), new THREE.Vector3(50, 40, 30));
+/** A camera put in a state, as the viewer puts it. */
+const placed = (st: { position: number[]; target: number[]; up: number[]; height: number }, aspect = 2) => {
+  const cam = camera(aspect);
+  cam.position.fromArray(st.position);
+  cam.up.fromArray(st.up).normalize();
+  cam.lookAt(new THREE.Vector3().fromArray(st.target));
+  return cam;
+};
+
+test('views: each looks along its axis with its up, turned about the target; distance and height kept', () => {
   const c = new THREE.Vector3(20, 10, 0);
   // [view, the world axis that points right on screen, the one that points up]
   const expected: [ViewName, number[], number[]][] = [
     ['front', [1, 0, 0], [0, 0, 1]], ['back', [-1, 0, 0], [0, 0, 1]], ['left', [0, -1, 0], [0, 0, 1]],
     ['right', [0, 1, 0], [0, 0, 1]], ['top', [1, 0, 0], [0, 1, 0]], ['bottom', [1, 0, 0], [0, -1, 0]],
   ];
+  const from: CameraState = { position: [70, -30, 40], target: c.toArray(), up: [0, 0, 1], height: 33 };
+  const dist = new THREE.Vector3().fromArray(from.position).distanceTo(c);
   for (const [v, right, up] of expected) {
-    const cam = camera();
-    const target = new THREE.Vector3();
-    setView(cam, target, v, box.getBoundingSphere(new THREE.Sphere()), 2);
-    assert.ok(target.equals(c), `${v}: target ${target.toArray()}`);
+    const st = viewCamera(from, v);
+    assert.deepEqual([st.target, st.height], [from.target, 33], v);
+    assert.ok(Math.abs(new THREE.Vector3().fromArray(st.position).distanceTo(c) - dist) < 1e-9, v);
+    const cam = placed(st);
     const d = cam.getWorldDirection(new THREE.Vector3());
     assert.ok(d.distanceTo(new THREE.Vector3(...VIEWS[v].dir).negate()) < 1e-12, `${v}: looks along ${d.toArray()}`);
     const r = ndc(cam, c.clone().add(new THREE.Vector3(...right)));
@@ -113,6 +124,28 @@ test('views: each looks along its axis with its up; front, back, left and right 
     assert.ok(r.x > 0 && Math.abs(r.y) < 1e-9, `${v}: right is ${right}`);
     assert.ok(u.y > 0 && Math.abs(u.x) < 1e-9, `${v}: up is ${up}`);
   }
+  // The camera at its target: a unit distance.
+  const at = viewCamera({ ...from, position: from.target }, 'top');
+  assert.deepEqual(at.position, [20, 10, 1]);
+});
+
+test('smoothstep: 0 to 1, flat at both ends, clamped', () => {
+  assert.deepEqual([-1, 0, 0.5, 1, 2].map(smoothstep), [0, 0, 0.5, 1, 1]);
+  assert.ok(smoothstep(0.01) < 0.001 && smoothstep(0.99) > 0.999 && smoothstep(0.25) < 0.25);
+});
+
+test('fitCamera: the state fitSphere makes, the camera untouched; an empty sphere leaves it', () => {
+  const sphere = new THREE.Sphere(new THREE.Vector3(100, 200, -5), 150);
+  const from: CameraState = { position: [1, -2, 3], target: [0, 0, 0], up: [0, 0, 1], height: 10 };
+  const st = fitCamera(from, sphere, 2);
+  const cam = camera(2);
+  cam.position.set(1, -2, 3);
+  const target = new THREE.Vector3();
+  fitSphere(cam, target, sphere, 2);
+  assert.deepEqual(st, { position: cam.position.toArray(), target: target.toArray(), up: cam.up.toArray(),
+    height: (cam.top - cam.bottom) / cam.zoom });
+  assert.deepEqual(from, { position: [1, -2, 3], target: [0, 0, 0], up: [0, 0, 1], height: 10 });
+  assert.equal(fitCamera(from, new THREE.Sphere().makeEmpty(), 2), from);
 });
 
 test('fitSphere: the sphere fills the viewport less the margin, in its limiting direction, from any direction', () => {
@@ -129,9 +162,8 @@ test('fitSphere: the sphere fills the viewport less the margin, in its limiting 
   };
   for (const aspect of [0.5, 1, 2.5]) {
     for (const v of Object.keys(VIEWS) as ViewName[]) {
-      const cam = camera(aspect);
+      const cam = placed(viewCamera({ position: [1, -1, 1], target: [0, 0, 0], up: [0, 0, 1], height: 2 }, v), aspect);
       const target = new THREE.Vector3();
-      setView(cam, target, v, sphere, aspect);
       cam.zoom = 3;
       // Turned a little, then fitted again from there: the same framing.
       cam.position.applyAxisAngle(new THREE.Vector3(0.3, 0.2, 1).normalize(), 0.7);

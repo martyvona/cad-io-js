@@ -4,14 +4,17 @@
 //   scene -> display (the model's place in the scene, kept from one model to the next) -> the model's root (its
 //     scene graph, scene-graph.ts, in the world's millimetres and Z up whatever the format: the importers convert)
 //
-// One model at a time; loading another replaces it, and cancels the meshing of the last if it's still going. Every format is imported (and STEP meshed) in a worker (import-worker.ts), through
-// the library's importers into the scene model (the user, 2026-10-29: one path for every format).
+// One model at a time; loading another replaces it, and cancels the meshing of the last if it's still going. Every
+// format is imported (and STEP meshed) in a worker (import-worker.ts), through the library's importers into the scene
+// model (the user, 2026-10-29: one path for every format). Zoom all, zoom selected and the views fly the camera
+// there, eased over a second (the user, 2026-10-30); zooming while a model loads doesn't (load-fit.ts).
 
 import { VIEW_BACKGROUNDS, type Theme } from './theme.ts';
 import * as THREE from 'three';
 import { TrackballControls } from 'three/addons/controls/TrackballControls.js';
 import { around, chooseLod, meshDeflections, type Diagnostic, type Mesh, type Vec3 } from 'cad-scene';
-import { clipTo, fitSphere, setAspect, setView, type ViewName } from './camera.ts';
+import { clipTo, fitCamera, fitSphere, interpolateCamera, setAspect, smoothstep, viewCamera,
+  type ViewName } from './camera.ts';
 import type { CameraState } from './view-state.ts';
 import { formatOf, type Format } from './formats.ts';
 import { Frames } from './frames.ts';
@@ -54,6 +57,9 @@ export interface MeshedWith {
   /** How tessellated geometry was read (by us, or meshed by the backend). */
   tessellated: TessellationSettings['tessellated'];
 }
+
+/** How long zoom all, zoom selected and the views take to get there, in milliseconds. */
+export const FLIGHT_MS = 1000;
 
 export interface Stats { objects: number; meshes: number; triangles: number; segments: number; points: number }
 
@@ -119,6 +125,13 @@ export class Viewer {
   /** The model's materials changed (meshes arrived, a model loaded): is anything transparent? (at the next draw) */
   private transparencyStale = true;
   private changed = false;
+  /**
+   * Zoom all, zoom selected and the views fly the camera there (the user, 2026-10-30): eased by smoothstep over
+   * `flightMs` (0: at once), a frame at a time, stopped by the user's own input or a camera set exactly.
+   */
+  private flight?: { from: CameraState; to: CameraState; start: number };
+  flightMs = FLIGHT_MS;
+  private covered = 0;
   /** The user has moved the view since the load began: no more automatic zooming. */
   private moved = false;
   /** Counts loads, so a superseded one's late results are dropped. */
@@ -187,6 +200,7 @@ export class Viewer {
     this.controls.staticMoving = true;
     this.controls.addEventListener('start', () => {
       this.interacting = this.moved = true;
+      this.flight = undefined;
       this.frames.request();
     });
     this.controls.addEventListener('end', () => { this.interacting = false; this.frames.request(); });
@@ -227,10 +241,37 @@ export class Viewer {
     return Math.max(1, this.container.clientWidth) / Math.max(1, this.container.clientHeight);
   }
 
+  /**
+   * The width zoom all and zoom selected fit in (the user, 2026-10-30): the view less what the controls cover at its
+   * right (setCovered), unless that would leave less than half of it (phones, where they cover most of it).
+   */
+  private freeWidth(): number {
+    const w = Math.max(1, this.container.clientWidth);
+    return w - this.covered >= w / 2 ? w - this.covered : w;
+  }
+
+  /** The aspect ratio fits use: the free width's (freeWidth). */
+  fitAspect(): number {
+    return this.freeWidth() / Math.max(1, this.container.clientHeight);
+  }
+
+  /** The CSS pixels at the view's right that the controls cover, however folded: fits leave them out. */
+  setCovered(px: number): void {
+    if (px === this.covered) return;
+    this.covered = px;
+    this.resize();
+  }
+
   private resize(): void {
     this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
     this.composer.setSize(this.container.clientWidth, this.container.clientHeight, this.renderer.getPixelRatio());
     setAspect(this.camera, this.aspect());
+    // The camera's axis (what it orbits and zooms about) at the free width's centre: the projection shifted by half
+    // what's covered, so a fitted model sits centred beside the controls.
+    const w = Math.max(1, this.container.clientWidth), h = Math.max(1, this.container.clientHeight);
+    const off = (w - this.freeWidth()) / 2;
+    if (off > 0) this.camera.setViewOffset(w, h, off, 0, w, h);
+    else this.camera.clearViewOffset();
     this.controls.handleResize();
     this.frames.request();
   }
@@ -245,6 +286,13 @@ export class Viewer {
         if (!any && m) any = (Array.isArray(m) ? m : [m]).some((x) => x.transparent && x.visible);
       });
       this.composer.setTransparent(any);
+    }
+    let flying = false;
+    if (this.flight) {
+      const f = (performance.now() - this.flight.start) / this.flightMs;
+      this.place(f >= 1 ? this.flight.to : interpolateCamera(this.flight.from, this.flight.to, smoothstep(f)));
+      if (f >= 1) this.flight = undefined;
+      else flying = true;
     }
     this.controls.update();
     clipTo(this.camera, this.bounds);
@@ -262,7 +310,7 @@ export class Viewer {
     } finally {
       if (fat) this.camera.layers.enable(EDGES);
     }
-    return this.interacting || this.changed;
+    return this.interacting || this.changed || flying;
   }
 
   /** Applies rendering settings (shininess and specular to every Phong face in the model, the lights, the caps). */
@@ -514,8 +562,20 @@ export class Viewer {
     }
   }
 
+  /** Fits a sphere at once (zooming while loading), ending any flight. */
   private fitWorld(s: THREE.Sphere): void {
-    fitSphere(this.camera, this.controls.target, s, this.aspect());
+    this.flight = undefined;
+    fitSphere(this.camera, this.controls.target, s, this.fitAspect());
+    this.redraw();
+  }
+
+  /** Flies the camera to a state (or puts it there, with `flightMs` 0). */
+  private fly(to: CameraState): void {
+    if (this.flightMs > 0) this.flight = { from: this.cameraState(), to, start: performance.now() };
+    else {
+      this.flight = undefined;
+      this.place(to);
+    }
     this.redraw();
   }
 
@@ -576,12 +636,13 @@ export class Viewer {
   /** Fits a sphere (in the world) in the viewport, from the current direction; zoom all if it's empty. */
   zoomTo(sphere: THREE.Sphere): void {
     if (sphere.isEmpty()) return this.zoomAll();
-    this.fitWorld(sphere);
+    this.fly(fitCamera(this.cameraState(), sphere, this.fitAspect()));
   }
 
   /** Fits the model's sphere in the viewport, from the current direction. */
   zoomAll(): void {
-    this.fitWorld(this.modelSphere());
+    const s = this.modelSphere();
+    if (!s.isEmpty()) this.fly(fitCamera(this.cameraState(), s, this.fitAspect()));
   }
 
   /** The camera exactly: position, target, up, and the viewport's height in world millimetres. */
@@ -593,6 +654,13 @@ export class Viewer {
 
   /** Puts the camera exactly so (the aspect ratio stays the viewport's); no more automatic zooming this load. */
   setCamera(s: CameraState): void {
+    this.flight = undefined;
+    this.place(s);
+    this.moved = true;
+    this.redraw();
+  }
+
+  private place(s: CameraState): void {
     const c = this.camera;
     c.position.fromArray(s.position);
     c.up.fromArray(s.up).normalize();
@@ -602,8 +670,6 @@ export class Viewer {
     c.bottom = -s.height / 2;
     c.zoom = 1;
     setAspect(c, this.aspect());
-    this.moved = true;
-    this.redraw();
   }
 
   /** The view drawn now, as a PNG data URL (drawn and read in one task, so the buffer still holds it). */
@@ -612,9 +678,15 @@ export class Viewer {
     return this.renderer.domElement.toDataURL('image/png');
   }
 
-  /** Looks along one of the world's axes, then zooms all. */
-  setView(view: ViewName): void {
-    setView(this.camera, this.controls.target, view, this.modelSphere(), this.aspect());
+  /**
+   * Looks along one of the world's axes, turning about the orbit centre (zoom and pan kept): flying there, or with
+   * `instant` (a link's or a recording's view) at once.
+   */
+  setView(view: ViewName, opts: { instant?: boolean } = {}): void {
+    const to = viewCamera(this.cameraState(), view);
+    if (!opts.instant) return this.fly(to);
+    this.flight = undefined;
+    this.place(to);
     this.redraw();
   }
 }

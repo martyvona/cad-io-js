@@ -118,6 +118,14 @@ function autoHide(el: HTMLElement): (stay?: boolean) => void {
 export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLElement, detailsElement: HTMLElement):
   Ui {
   const gui = new GUI({ title: `cad-io-js ${VERSION}`.trim() });
+  // What the controls cover of the view's right, however folded (the panel's width is the same): zoom all and zoom
+  // selected fit beside them (Viewer.setCovered).
+  const covered = () => {
+    const v = viewer.renderer.domElement.getBoundingClientRect(), g = gui.domElement.getBoundingClientRect();
+    viewer.setCovered(g.width > 0 && g.left < v.right ? v.right - Math.max(g.left, v.left) : 0);
+  };
+  new ResizeObserver(covered).observe(gui.domElement);
+  new ResizeObserver(covered).observe(viewer.renderer.domElement);
   // Where events go (ui.onEvent), usable before `ui` exists (say is called while the controls are being built).
   const hooks: { onEvent?: (e: UiEvent) => void } = {};
   const statusShown = autoHide(status);

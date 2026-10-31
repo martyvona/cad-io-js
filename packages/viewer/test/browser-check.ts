@@ -239,7 +239,9 @@ async function page(query: string, after?: string, opts: PageOptions = {}): Prom
         const report = JSON.parse(r.result.value) as Record<string, unknown>;
         if (after) {
           // Within 3 minutes: a promise in the page that never settles fails the check rather than hanging it.
-          const e = await Promise.race([send('Runtime.evaluate', { expression: after, returnByValue: true,
+          // (Camera flights at once, as checks read the camera right after zooming: 'camera flights' checks them.)
+          const e = await Promise.race([send('Runtime.evaluate', { expression: `(globalThis.viewer.flightMs = 0, ${
+            after})`, returnByValue: true,
             awaitPromise: true }, sessionId), new Promise<never>((_, reject) => setTimeout(() => reject(new Error(
             'the page did not finish within 3 minutes')), 180_000))]) as { result: { value: unknown };
             exceptionDetails?: { exception?: { description?: string } } };
@@ -333,7 +335,7 @@ await check('zoom while loading', async () => {
     const cam = v.camera;
     const height = () => (cam.top - cam.bottom) / cam.zoom;
     // The height a sphere is fitted at: its diameter plus the margins, by the narrower side.
-    const fitted = (s) => 2 * s.radius * (1 + 2 * 0.05) * Math.max(1, cam.top / cam.right);
+    const fitted = (s) => 2 * s.radius * (1 + 2 * 0.05) * Math.max(1, 1 / v.fitAspect());
     const out = { heights: [], at: [] };
     // At the scene, before any mesh (the status then says none is meshed).
     let first;
@@ -354,7 +356,7 @@ await check('zoom while loading', async () => {
     out.first = first;
     // Every mesh drawn inside the sphere fitted (from the camera: its target the centre, the view's narrower side
     // its diameter and margins), in space, not only on the screen.
-    const fittedRadius = height() / (2 * (1 + 2 * 0.05) * Math.max(1, cam.top / cam.right));
+    const fittedRadius = height() / (2 * (1 + 2 * 0.05) * Math.max(1, 1 / v.fitAspect()));
     let outside = 0, meshes = 0;
     cam.updateMatrixWorld();
     v.display.updateWorldMatrix(true, true);
@@ -405,6 +407,168 @@ await check('zoom while loading', async () => {
   expect(Math.abs(a.zoomAll.sphere - a.end.fitted) > 1e-3, `zoom all fits the grown sphere: ${j}`);
   expect(Math.abs(a.zoomAll.height - a.zoomAll.fitted) < 1e-6 * a.zoomAll.fitted, `zoom all: ${j}`);
   expect(a.moved.set === 123 && a.moved.end === 123, `zoomed after the view was moved: ${j}`);
+  return undefined;
+});
+// Camera flights (the user, 2026-10-30): zoom all, zoom selected and the views ease there over a second
+// (smoothstep), from where the camera is; a view turns about the orbit centre, its zoom and pan kept; idle() waits
+// for the flight; the user's own input stops it where it is.
+await check('camera flights', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    const v = globalThis.viewer;
+    v.flightMs = 1000;
+    const st = () => v.cameraState();
+    const far = { position: [5000, -4000, 3000], target: [400, 300, 200], up: [0, 0, 1], height: 40 };
+    // Where zoom all goes, at once.
+    v.setCamera(far);
+    v.flightMs = 0;
+    v.zoomAll();
+    const goal = st();
+    v.flightMs = 1000;
+    v.setCamera(far);
+    const t0 = performance.now();
+    v.zoomAll();
+    const right = st();
+    const samples = [];
+    const timer = setInterval(() => samples.push([performance.now() - t0, st().height]), 20);
+    await cadViewer.idle();
+    const took = performance.now() - t0;
+    clearInterval(timer);
+    const end = st();
+    // A view: turned about the target, from the same distance and height.
+    const before = st();
+    v.setView('top');
+    await cadViewer.idle();
+    const top = st();
+    // Stopped by the user's input partway.
+    v.setView('front');
+    await new Promise((r) => setTimeout(r, 400));
+    v.controls.dispatchEvent({ type: 'start' });
+    v.controls.dispatchEvent({ type: 'end' });
+    const stopped = st();
+    await new Promise((r) => setTimeout(r, 900));
+    const later = st();
+    // Zoom selected flies too: not there at once.
+    v.setCamera(far);
+    ui.select([ui.panel().model.nodes.find((n) => n.kind === 'part').id]);
+    ui.zoomSelected();
+    const selectedAtOnce = st();
+    await cadViewer.idle();
+    const selectedEnd = st();
+    // A link's view (a state applied) at once; an exact camera set mid-flight ends the flight there.
+    cadViewer.apply({ view: 'left' });
+    const left = st();
+    v.zoomAll();
+    v.setCamera(far);
+    await new Promise((r) => setTimeout(r, 300));
+    const set = st();
+    // A flight of the zoom alone (the camera already where zoom all puts it, only the height off): it goes on.
+    v.setCamera({ ...goal, height: goal.height * 10 });
+    v.zoomAll();
+    await new Promise((r) => setTimeout(r, 500));
+    const zoomHalf = st();
+    await cadViewer.idle();
+    const zoomEnd = st();
+    return { zoomHalf, zoomEnd, far, goal, right, samples, took, end, before, top, stopped, later, selectedAtOnce,
+      selectedEnd, left, set };
+  })()`) as { after?: Record<string, unknown> };
+  type S = { position: number[]; target: number[]; up: number[]; height: number };
+  const a = r.after as { far: S; goal: S; right: S; samples: [number, number][]; took: number; end: S; before: S;
+    top: S; stopped: S; later: S; selectedAtOnce: S; selectedEnd: S; left: S; set: S; zoomHalf: S; zoomEnd: S };
+  const j = JSON.stringify({ ...a, samples: a.samples.length });
+  const same = (p: S, q: S, tol = 1e-6) => [p.position, p.target, p.up].every((x, i) => x.every((c, k) =>
+    Math.abs(c - [q.position, q.target, q.up][i]![k]!) < tol * Math.max(1, q.height))) &&
+    Math.abs(p.height - q.height) < tol * q.height;
+  // Not there at once; there at the end (as zoom all at once puts it), after about a second.
+  expect(same(a.right, a.far), `jumped at once: ${j}`);
+  expect(same(a.end, a.goal), `not where zoom all goes: ${j}`);
+  expect(a.took > 900 && a.took < 1600, `the flight took ${a.took} ms`);
+  // On the way: the height from the start's to the goal's, by ratio, eased (slow at the ends, half at half time).
+  const frac = ([, h]: [number, number]) => Math.log(h / a.far.height) / Math.log(a.goal.height / a.far.height);
+  const mid = a.samples.filter(([t]) => t > 400 && t < 600).map(frac);
+  const early = a.samples.filter(([t]) => t > 50 && t < 150).map(frac);
+  expect(mid.length > 0 && mid.every((f) => f > 0.25 && f < 0.75), `halfway: ${JSON.stringify(mid)}`);
+  expect(early.length > 0 && early.every((f) => f >= 0 && f < 0.12), `eased at the start: ${JSON.stringify(early)}`);
+  expect(a.samples.map(frac).every((f, i, fs) => i === 0 || f >= fs[i - 1]! - 1e-9), `not monotone: ${j}`);
+  // The view: the target and height kept, the distance too, looking down.
+  const dist = (p: S) => Math.hypot(...p.position.map((c, k) => c - p.target[k]!));
+  expect(a.top.target.every((c, k) => Math.abs(c - a.before.target[k]!) < 1e-6) &&
+    Math.abs(a.top.height - a.before.height) < 1e-6 * a.before.height &&
+    Math.abs(dist(a.top) - dist(a.before)) < 1e-6 * dist(a.before) &&
+    Math.abs(a.top.position[2]! - a.top.target[2]! - dist(a.top)) < 1e-6 * dist(a.top), `the top view: ${j}`);
+  // Stopped where it was, partway.
+  expect(same(a.stopped, a.later) && !same(a.stopped, a.top) && Math.abs(a.stopped.position[2]! - a.stopped.target[2]!)
+    < dist(a.stopped) * 0.999, `the flight not stopped by input: ${j}`);
+  expect(same(a.selectedAtOnce, a.far) && !same(a.selectedEnd, a.far), `zoom selected: ${j}`);
+  expect(a.left.position[0]! < a.left.target[0]! && Math.abs(a.left.position[1]! - a.left.target[1]!) < 1e-6 *
+    dist(a.left), `a state's view not at once: ${j}`);
+  expect(same(a.set, a.far), `a camera set didn't end the flight: ${j}`);
+  expect(a.zoomHalf.height < a.goal.height * 9 && a.zoomHalf.height > a.goal.height * 1.1 && same(a.zoomEnd, a.goal),
+    `a zoom alone: ${j}`);
+  return undefined;
+});
+// Fitting beside the controls (the user, 2026-10-30): zoom all and zoom selected fit the sphere in the width between
+// the view's left and the controls' left edge, centred there, however folded the controls are; the camera's axis
+// (what it orbits) there too.
+await check('fit beside the controls', async () => {
+  const script = `(async () => {
+    const v = globalThis.viewer, cam = v.camera;
+    const fitted = (s = v.modelSphere()) => {
+      const c = v.renderer.domElement.getBoundingClientRect(), g = ui.gui.domElement.getBoundingClientRect();
+      cam.updateMatrixWorld();
+      const right = new s.center.constructor().setFromMatrixColumn(cam.matrixWorld, 0);
+      const px = (p) => c.left + (p.clone().project(cam).x + 1) / 2 * c.width;
+      const target = px(v.controls.target);
+      return { viewLeft: c.left, viewRight: c.right, guiLeft: g.left, centre: px(s.center),
+        lo: px(s.center.clone().addScaledVector(right, -s.radius)),
+        hi: px(s.center.clone().addScaledVector(right, s.radius)), target, height: c.height,
+        top: c.top + (1 - s.center.clone().project(cam).y) / 2 * c.height };
+    };
+    v.zoomAll();
+    const open = fitted();
+    // Nothing covered (as when the controls are hidden): the axis back at the view's centre at once.
+    const was = v.covered;
+    v.setCovered(0);
+    const uncovered = fitted().target;
+    v.setCovered(was);
+    ui.gui.close();
+    await new Promise((r) => setTimeout(r, 300));
+    v.setCamera({ ...v.cameraState(), height: 10 });
+    v.zoomAll();
+    const closed = fitted();
+    ui.gui.open();
+    // Zoom selected the same.
+    // (A part's sphere as zoom selected makes it: around its mesh's box, placed.)
+    const part = ui.panel().model.nodes.find((n) => n.kind === 'part' && n.name === 'plate');
+    ui.select([part.id]);
+    ui.zoomSelected();
+    const mesh = part.object.children[0];
+    mesh.geometry.computeBoundingBox();
+    const selected = fitted(mesh.geometry.boundingBox.getBoundingSphere(v.modelSphere())
+      .applyMatrix4(mesh.matrixWorld));
+    return { open, closed, selected, uncovered };
+  })()`;
+  type Fitted = { viewLeft: number; viewRight: number; guiLeft: number; centre: number; lo: number; hi: number;
+    target: number; height: number; top: number };
+  const url = `?url=${encodeURIComponent('/content/as1.stp')}&check`;
+  // In a window 1200 pixels wide; in the check's usual one, where the free width would be under half the view's,
+  // the whole view (as on phones).
+  const { uncovered, ...a } = (await page(url, script, { scale: 1 }) as { after: Record<string, Fitted> &
+    { uncovered: number } }).after;
+  expect(Math.abs(uncovered - (a.open!.viewLeft + a.open!.viewRight) / 2) < 1, `uncovered: ${uncovered}`);
+  const narrow = (await page(url, script) as { after: Record<string, Fitted> }).after.open!;
+  expect(narrow.guiLeft - narrow.viewLeft < (narrow.viewRight - narrow.viewLeft) / 2 &&
+    Math.abs(narrow.target - (narrow.viewLeft + narrow.viewRight) / 2) < 1, `narrow: ${JSON.stringify(narrow)}`);
+  const j = JSON.stringify(a);
+  for (const [k, f] of Object.entries(a)) {
+    const mid = (f.viewLeft + f.guiLeft) / 2;
+    expect(f.guiLeft < f.viewRight - 100, `${k}: the controls aren't over the view: ${j}`);
+    expect(Math.abs(f.target - mid) < 1, `${k}: the axis not centred beside the controls: ${j}`);
+    expect(Math.abs(f.centre - mid) < 1 && f.lo >= f.viewLeft - 1 && f.hi <= f.guiLeft + 1 &&
+      Math.abs(f.top - f.height / 2) < 1, `${k}: not fitted beside the controls: ${j}`);
+    // The narrower side: the free width here (wider than tall would fit the height instead).
+    const free = f.guiLeft - f.viewLeft;
+    if (free < f.height) expect(Math.abs((f.hi - f.lo) - free / 1.1) < 2, `${k}: not filling the width: ${j}`);
+  }
   return undefined;
 });
 await check('replaced while meshing', async () => {
@@ -1227,13 +1391,17 @@ const PICK_ORACLE = `(async () => {
 })()`;
 await check('picks match what is drawn', async () => {
   const out = [];
-  for (const file of ['as1.stp', 'as1.glb', 'bicycle.stp', 'metres.stp']) {
-    const r = await page(`?url=${encodeURIComponent(`/content/${file}`)}&check`, PICK_ORACLE) as
+  // (And as1 in a window 1200 pixels wide, where the projection is shifted beside the controls.)
+  for (const [file, wide] of [['as1.stp', false], ['as1.glb', false], ['bicycle.stp', false], ['metres.stp', false],
+    ['as1.stp', true]] as const) {
+    const r = await page(`?url=${encodeURIComponent(`/content/${file}`)}&check`,
+      wide ? `(viewer.zoomAll(), ${PICK_ORACLE})` : PICK_ORACLE, wide ? { scale: 1 } : {}) as
       { after: { onParts: number; wrong: number; subpixel: number; lines: number; far: number; examples: unknown[] } };
     const a = r.after;
     expect(a.onParts > 100 && a.wrong === 0 && a.subpixel <= a.onParts / 50 && a.lines > 0 && a.far === 0,
       `${file}: ${JSON.stringify(a)}`);
-    out.push(`${file} ${a.onParts} (${a.subpixel} thinner than a pixel; ${a.lines} lines picked)`);
+    out.push(`${file}${wide ? ' (wide)' : ''} ${a.onParts} (${a.subpixel} thinner than a pixel; ${a.lines} lines `
+      + 'picked)');
   }
   console.log(`picks match what is drawn: points on parts ${out.join(', ')}`);
   return undefined;

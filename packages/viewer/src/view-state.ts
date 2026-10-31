@@ -3,7 +3,7 @@
 // their paths, model.ts). The automation interface (automation.ts) reads and applies it, and a page's address
 // carries it, so a link shows what someone else saw:
 //
-//   ?model=<path in the content root or URL>&view=iso  an axis view, fitted (or camera=, exactly)
+//   ?model=<path in the content root or URL>&view=iso  an axis view, turned about the target (or camera=, exactly)
 //   &camera=px,py,pz,tx,ty,tz,ux,uy,uz,height  position, target, up, and the viewport's height in world mm
 //   &cut=x:12.5  &cut=y:-3:flip  &caps=0
 //   &ao=0  &smaa=0  &edges=0  &triangleEdges=all  &shininess=50  &aoIntensity=3  &aoRadius=16  &aoQuality=Low

@@ -69,16 +69,33 @@ export function fitSphere(camera: THREE.OrthographicCamera, target: THREE.Vector
   return true;
 }
 
-/** Turns the camera to a view (its direction and up), then fits the sphere. */
-export function setView(camera: THREE.OrthographicCamera, target: THREE.Vector3, view: ViewName,
-  sphere: THREE.Sphere, aspect: number): void {
+/**
+ * A camera turned to look along a view's axis (its direction and up) about the same target, from the same distance,
+ * with the same height (the user, 2026-10-30: the views turn about the orbit centre, leaving zoom and pan alone).
+ */
+export function viewCamera(s: CameraState, view: ViewName): CameraState {
   const { dir, up } = VIEWS[view];
-  camera.up.set(...up);
-  camera.position.copy(target).add(_v.set(...dir).normalize());
-  if (!fitSphere(camera, target, sphere, aspect)) {
-    camera.lookAt(target);
-    camera.updateProjectionMatrix();
-  }
+  const target = new THREE.Vector3().fromArray(s.target);
+  const d = new THREE.Vector3().fromArray(s.position).distanceTo(target) || 1;
+  return { position: _v.set(...dir).normalize().multiplyScalar(d).add(target).toArray(), target: s.target,
+    up: [...up], height: s.height };
+}
+
+/** The camera `fitSphere` would make from `s` (its direction kept), as a state; `s` itself if the sphere is empty. */
+export function fitCamera(s: CameraState, sphere: THREE.Sphere, aspect: number): CameraState {
+  const cam = new THREE.OrthographicCamera();
+  cam.position.fromArray(s.position);
+  cam.up.fromArray(s.up);
+  const target = new THREE.Vector3().fromArray(s.target);
+  if (!fitSphere(cam, target, sphere, aspect)) return s;
+  return { position: cam.position.toArray(), target: target.toArray(), up: cam.up.toArray(),
+    height: (cam.top - cam.bottom) / cam.zoom };
+}
+
+/** Easing in and out over [0, 1] (3t^2 - 2t^3), clamped. */
+export function smoothstep(t: number): number {
+  const x = Math.min(1, Math.max(0, t));
+  return x * x * (3 - 2 * x);
 }
 
 /**

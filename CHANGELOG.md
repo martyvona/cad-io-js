@@ -42,6 +42,8 @@
 - `cad-viewer`: parts between the camera and the near plane can be picked (after Zoom selected on a small part, nearer parts were drawn but couldn't be picked); replay reports steps, "replayed all 342 steps", rather than every recorded event.
 - Bounding volumes: every mesh has its box (`Mesh.box`, `meshBox`), made by the importers and `tessellateScene`, written in glTF's accessors and our extras elsewhere; the scene its bounding sphere (`Scene.bounds`: our extras', else estimated before meshing from mesh boxes and B-rep vertex boxes, `sceneBounds`, then made again from the meshes), written at the root by every exporter. `cad-viewer` zooms to it as soon as a model is read, then only out as meshes arrive (at most once a second, until the view is moved); zoom all, zoom selected and the views fit spheres.
 - `cad-viewer`: **Center model** removed (zoom all already puts the model in view, and the camera pans and orbits about any point), with the centroid it used, `centered=` in links (older ones still open) and `centered` and `centroid` in `cadViewer.state()`, whose version is now 2.
+- `cad-viewer`: zoom all, zoom selected and the views ease the camera there over a second; the views turn about the orbit centre, keeping the zoom and pan, instead of fitting the model.
+- `cad-viewer`: zoom all and zoom selected fit and centre what they show in the width beside the controls (whether open or folded), and the camera turns and zooms about that width's centre.
 
 - Every tracked text file is ASCII, source code included (comments, messages, test data as escapes), checked by `test/ascii.test.ts`. Semantic JSON unit names are joined with `.` instead of a middle dot (`newton.metre`). Long identifiers in Markdown tables are broken by hand with `<br>`.
 

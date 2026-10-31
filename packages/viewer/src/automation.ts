@@ -141,7 +141,7 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
     const problems: string[] = [];
     if (st.tree) ui.setTree(st.tree);
     if (st.camera) viewer.setCamera(st.camera);
-    else if (st.view) viewer.setView(st.view);
+    else if (st.view) viewer.setView(st.view, { instant: true });
     if (st.cut || st.caps !== undefined) {
       const s: SectionSettings = viewer.sections.get();
       if (st.cut) for (const a of AXES) {
