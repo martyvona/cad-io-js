@@ -13,7 +13,7 @@ import type { CameraState } from '../src/view-state.ts';
 import { clipTo, fitCamera, fitSphere, MARGIN, smoothstep, viewCamera, VIEWS, type ViewName } from '../src/camera.ts';
 import { formatOf } from '../src/formats.ts';
 import { Frames } from '../src/frames.ts';
-import { stats, visibleBox } from '../src/viewer.ts';
+import { importPhase, stats, visibleBox } from '../src/viewer.ts';
 
 /** A stand-in for animation frames at `hz`, with a clock. */
 function fakeClock(hz = 60) {
@@ -387,4 +387,11 @@ test('cad-viewer: start, status, open, conflicting options, stop', { timeout: 60
     await run('stop');
     fs.rmSync(tmp, { recursive: true, force: true });
   }
+});
+
+test("importPhase: the STEP import's phases in the status line, the parts' share in whole percent", () => {
+  assert.deepEqual([importPhase({ phase: 'reading' }), importPhase({ phase: 'structure' }),
+    importPhase({ phase: 'parts', done: 0, total: 3 }), importPhase({ phase: 'parts', done: 2, total: 3 }),
+    importPhase({ phase: 'parts' }), importPhase({ phase: 'assembly' })],
+  ['reading', 'reading its structure', 'making parts, 0 %', 'making parts, 66 %', 'making parts', 'assembling']);
 });

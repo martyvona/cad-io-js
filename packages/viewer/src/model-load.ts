@@ -13,7 +13,7 @@ import { chooseLod, meshDeflections, partInstances, tessellateScene, type Diagno
   type SceneBounds } from 'cad-scene';
 import { import3mf } from '3mf-import';
 import { importGltf, type GltfImportOptions } from 'gltf-import';
-import { importStep, type ImportOptions } from 'step-import';
+import { importStep, type ImportOptions, type ImportProgress } from 'step-import';
 import { importThreejs } from 'threejs-import';
 import type { Format } from './formats.ts';
 import { EDGE_ANGLE, EDGE_GRID_MM, findEdges } from './edges.ts';
@@ -35,10 +35,10 @@ export interface ModelInput {
 
 /**
  * The scene a file holds, by its format's importer (problems in it are the scene's diagnostics); `step` the STEP
- * importer's options (how tessellated geometry is read).
+ * importer's options (how tessellated geometry is read, its progress).
  */
 export async function importModel(input: ModelInput, gltf: GltfImportOptions = {},
-  step: Pick<ImportOptions, 'tessellated'> = {}): Promise<Scene> {
+  step: Pick<ImportOptions, 'tessellated' | 'onProgress'> = {}): Promise<Scene> {
   switch (input.format) {
     case 'step': return (await importStep(input.bytes, step)).scene;
     case 'glb': return (await importGltf(input.bytes, gltf)).scene;
@@ -50,6 +50,8 @@ export async function importModel(input: ModelInput, gltf: GltfImportOptions = {
 }
 
 export type ModelEvent =
+  /** What the import is doing, before the scene (STEP's phases, step-import's ImportProgress). */
+  | { type: 'importing'; progress: ImportProgress }
   /** The scene, and how many of its parts' edges are to be found (edges events follow, one each). */
   | { type: 'scene'; scene: Scene; edgeParts: number }
   /**
@@ -61,6 +63,9 @@ export type ModelEvent =
   | { type: 'edges'; part: number; positions: Float32Array }
   /** The end; `bounds` the model's sphere made again from the meshes (tessellateScene), where it changed. */
   | { type: 'done'; diagnostics: Diagnostic[]; meshing?: Meshing; bounds?: SceneBounds };
+
+/** How often the import's progress is told, in milliseconds, within a phase. */
+export const PROGRESS_MS = 200;
 
 /** The scene without its parts' payload functions: what can be posted to another thread. */
 export function postable(scene: Scene): Scene {
@@ -122,7 +127,15 @@ export function meshBuffers(mesh: Mesh | undefined): ArrayBuffer[] {
 export async function loadModelIn(input: ModelInput, settings: TessellationSettings, workers: number,
   tessellation: Pick<Tessellation, 'get' | 'describe'>, emit: (e: ModelEvent, transfer?: ArrayBuffer[]) => void,
   cancelled: () => boolean, gltf: GltfImportOptions = {}): Promise<void> {
-  const scene = await importModel(input, gltf, { tessellated: settings.tessellated });
+  // The import's phases as they begin, and its progress through them at most every PROGRESS_MS.
+  let told = -Infinity, phase = '';
+  const onProgress = (progress: ImportProgress) => {
+    const now = performance.now();
+    if (cancelled() || progress.phase === phase && now - told < PROGRESS_MS) return;
+    [told, phase] = [now, progress.phase];
+    emit({ type: 'importing', progress });
+  };
+  const scene = await importModel(input, gltf, { tessellated: settings.tessellated, onProgress });
   if (cancelled()) return;
   // The levels shown that have no edges of their own get edges found from their triangles, part by part, after the
   // scene goes (edges.ts; the user, 2026-10-31: off the page's thread, and not holding up meshing); those levels'

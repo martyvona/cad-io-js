@@ -32,6 +32,22 @@ export interface ImportOptions extends OpenOptions {
    * an info diagnostic per part. Default true; false keeps every triangle the file gives.
    */
   dropDegenerate?: boolean;
+  /**
+   * Told what the import is doing (the user, 2026-10-31: a viewer's status line through a large file): each phase
+   * as it begins, and through `parts` the shape representations looked at so far, of all of them.
+   */
+  onProgress?: (p: ImportProgress) => void;
+}
+
+/**
+ * A phase of the import: `reading` the file (the lexical scan and index), `structure` (binding to the schema and
+ * the products, representations and styles), `parts` (each representation made a part, with its subset; most of a
+ * large file's time), `assembly` (components, occurrences, overrides, layers).
+ */
+export interface ImportProgress {
+  phase: 'reading' | 'structure' | 'parts' | 'assembly';
+  done?: number;
+  total?: number;
 }
 
 export interface ImportResult {
@@ -44,7 +60,9 @@ export interface ImportResult {
 
 /** Read, bind, extract and import a STEP file. */
 export async function importStep(input: StepSource | StepFile, opts: ImportOptions = {}): Promise<ImportResult> {
+  if (!('index' in input)) opts.onProgress?.({ phase: 'reading' });
   const file = 'index' in input ? input : await readStep(input as StepSource);
+  opts.onProgress?.({ phase: 'structure' });
   const model = await openModel(file, opts);
   return sceneFromStep(model, extractSemantics(model), opts);
 }
@@ -141,7 +159,10 @@ export function sceneFromStep(model: StepModel, sem: Semantics, opts: ImportOpti
   const faceCount: number[] = [];
   const onlyTessellated: boolean[] = []; // read or not
   const tessellatedFaces = new Map<number, number[]>();
+  const progress = opts.onProgress;
+  let looked = 0;
   for (const rep of s.representations.values()) {
+    progress?.({ phase: 'parts', done: looked++, total: s.representations.size });
     const items = rep.items.map((id) => model.resolve(id));
     if (!items.some((q) => q >= 0 && ![...PLACEMENT_ONLY, ...ANNOTATION].some(
       (e) => model.isInstanceOf(q, e)))) continue;
@@ -295,6 +316,7 @@ export function sceneFromStep(model: StepModel, sem: Semantics, opts: ImportOpti
     parts.push(part);
   }
 
+  progress?.({ phase: 'assembly' });
   if (opts.tessellated !== 'backend') mergeTessellations();
 
   // A product's tessellation of its B-rep (both its representations) becomes a level of the B-rep's part, from the

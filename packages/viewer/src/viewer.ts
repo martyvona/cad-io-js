@@ -31,6 +31,7 @@ import { DEFAULT_RENDER, EDGES, type RenderSettings } from './style.ts';
 import { TriangleEdges } from './triangle-edges.ts';
 import type { FromImportWorker, ToImportWorker } from './import-worker.ts';
 import type { Meshing, ModelEvent, ModelInput } from './model-load.ts';
+import type { ImportProgress } from 'step-import';
 import { clearCache, defaultSettings, deflectionsOf, workerCount, type TessellationSettings } from './tessellation.ts';
 import { classifyDevice, DEVICE_PROFILES, deviceOverride, deviceSignals, type DeviceClass } from './device.ts';
 
@@ -77,6 +78,16 @@ const drawable = (o: THREE.Object3D): o is THREE.Mesh | THREE.Line | THREE.Point
   (o as THREE.Mesh).isMesh === true || (o as THREE.Line).isLine === true || (o as THREE.Points).isPoints === true;
 
 /** The world box of what's drawn: visible objects whose ancestors are visible too. */
+/** An import's phase in the status line: `reading`, `reading its structure`, `making parts, 40 %`, `assembling`. */
+export function importPhase(p: ImportProgress): string {
+  switch (p.phase) {
+    case 'reading': return 'reading';
+    case 'structure': return 'reading its structure';
+    case 'parts': return `making parts${p.total ? `, ${Math.floor(100 * (p.done ?? 0) / p.total)} %` : ''}`;
+    case 'assembly': return 'assembling';
+  }
+}
+
 export function visibleBox(root: THREE.Object3D): THREE.Box3 {
   const box = new THREE.Box3();
   const part = new THREE.Box3();
@@ -641,7 +652,8 @@ export class Viewer {
 
   private async loadModel(src: Source, format: Format, gen: number, keep: boolean): Promise<void> {
     const mb = src.bytes.byteLength / 1e6;
-    this.onStatus?.(`${src.name}: importing${mb >= 1 ? ` ${Math.round(mb)} MB` : ''}...`);
+    const importing = `${src.name}: importing${mb >= 1 ? ` ${Math.round(mb)} MB` : ''}`;
+    this.onStatus?.(`${importing}...`);
     // Let the page show that first.
     await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
     if (gen !== this.generation) return;
@@ -685,6 +697,11 @@ export class Viewer {
     try {
       for await (const ev of this.events(input, gen)) {
         if (gen !== this.generation) return;
+        if (ev.type === 'importing') {
+          // STEP's phases (the user, 2026-10-31: a large file said only "importing" for seconds).
+          this.onStatus?.(`${importing}: ${importPhase(ev.progress)}...`);
+          continue;
+        }
         if (ev.type === 'scene') {
           const scene = ev.scene;
           graph = new SceneGraph(scene, src.name, this.render.shininess, this.render.specular);

@@ -79,8 +79,16 @@ test('loadModelIn: the scene (postable), a mesh per placed brep part, then the e
     const { requests, tessellation } = fake();
     const events: ModelEvent[] = [];
     const transfers: ArrayBuffer[][] = [];
-    await loadModelIn(stepInput(), DEFAULT_SETTINGS, 3, tessellation,
-      (e, t) => { events.push(e); transfers.push(t ?? []); }, () => false);
+    const told: string[] = [];
+    await loadModelIn(stepInput(), DEFAULT_SETTINGS, 3, tessellation, (e, t) => {
+      if (e.type === 'importing') told.push(e.progress.phase);
+      else {
+        events.push(e);
+        transfers.push(t ?? []);
+      }
+    }, () => false);
+    // The import's phases first, each once (a small file: within PROGRESS_MS), before the scene.
+    assert.deepEqual(told, ['reading', 'structure', 'parts', 'assembly']);
     assert.deepEqual(events.map((e) => e.type), ['scene', ...requests.map(() => 'mesh'), 'done']);
     assert.equal(requests.length, 5);
     const scene = (events[0] as { scene: Scene }).scene;
@@ -112,7 +120,7 @@ test('loadModelIn: cancelled, it stops: after the scene, or before meshing', { s
   const events: ModelEvent[] = [];
   let stop = false;
   const run = loadModelIn(bytes, DEFAULT_SETTINGS, 2, tessellation, (e) => {
-    events.push(e);
+    if (e.type !== 'importing') events.push(e);
     if (e.type === 'mesh') stop = true;
   }, () => stop);
   await run;
@@ -128,7 +136,8 @@ test('loadModelIn: a file with nothing to mesh ends at once', async () => {
     "FILE_NAME('','',(''),(''),'','','');\nFILE_SCHEMA(('AUTOMOTIVE_DESIGN'));\nENDSEC;\nDATA;\nENDSEC;\n" +
     'END-ISO-10303-21;\n') };
   const events: ModelEvent[] = [];
-  await loadModelIn(bytes, DEFAULT_SETTINGS, 2, fake().tessellation, (e) => events.push(e), () => false);
+  await loadModelIn(bytes, DEFAULT_SETTINGS, 2, fake().tessellation, (e) => e.type !== 'importing' && events.push(e),
+    () => false);
   assert.deepEqual(events.map((e) => e.type), ['scene', 'done']);
 });
 
@@ -155,8 +164,11 @@ ENDSEC;END-ISO-10303-21;`;
   const events: ModelEvent[] = [];
   const transfers: ArrayBuffer[][] = [];
   const { requests, tessellation } = fake();
-  await loadModelIn(input, DEFAULT_SETTINGS, 2, tessellation, (e, t) => { events.push(e); transfers.push(t ?? []); },
-    () => false);
+  await loadModelIn(input, DEFAULT_SETTINGS, 2, tessellation, (e, t) => {
+    if (e.type === 'importing') return;
+    events.push(e);
+    transfers.push(t ?? []);
+  }, () => false);
   assert.deepEqual(events.map((e) => e.type), ['scene', 'done']);
   const scene = (events[0] as { scene: Scene }).scene;
   assert.deepEqual(scene.parts[0]!.lods[0]!.mesh.faces.map((f) => f.source), [101]);
@@ -164,7 +176,8 @@ ENDSEC;END-ISO-10303-21;`;
   assert.equal(requests.length, 0);
   // By the backend: a B-rep part, meshed.
   const backend: ModelEvent[] = [];
-  await loadModelIn(input, { ...DEFAULT_SETTINGS, tessellated: 'backend' }, 2, tessellation, (e) => backend.push(e),
+  await loadModelIn(input, { ...DEFAULT_SETTINGS, tessellated: 'backend' }, 2, tessellation,
+    (e) => e.type !== 'importing' && backend.push(e),
     () => false);
   assert.deepEqual(backend.map((e) => e.type), ['scene', 'mesh', 'done']);
   assert.equal(requests.length, 1);

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { partInstances, sceneBounds, validate, type Mat4 } from 'cad-scene';
 import { parseStep } from 'step-parser';
-import { importStep } from '../src/index.ts';
+import { importStep, type ImportProgress } from '../src/index.ts';
 
 const enc = new TextEncoder();
 const AP214 = 'AUTOMOTIVE_DESIGN { 1 0 10303 214 1 1 1 1 }';
@@ -161,6 +161,21 @@ test('names: generic part names take the product\'s, blank names are missing', a
   assert.deepEqual(await names('NONE', ' ', ''), { part: 'NONE', component: ' ', occurrence: 'box 1' });
   // A blank occurrence name is no name (the products extractor drops it).
   assert.equal((await names('box', 'Box', 'BOX', '  ')).occurrence, undefined);
+});
+
+test('progress: each phase as it begins, the representations counted through parts', async () => {
+  const told: ImportProgress[] = [];
+  await importStep(file(DATA), { onProgress: (p) => told.push(p) });
+  const phases = told.map((p) => p.phase).filter((p, k, a) => p !== a[k - 1]);
+  assert.deepEqual(phases, ['reading', 'structure', 'parts', 'assembly']);
+  const parts = told.filter((p) => p.phase === 'parts');
+  assert.ok(parts.length > 2);
+  assert.deepEqual(parts.map((p) => p.done), parts.map((_, k) => k));
+  assert.ok(parts.every((p) => p.total === parts.length));
+  // A file already read isn't read again.
+  const again: string[] = [];
+  await importStep(parseStep(file(DATA)), { onProgress: (p) => again.push(p.phase) });
+  assert.equal(again[0], 'structure');
 });
 
 test('components, parts, units and placements', async () => {

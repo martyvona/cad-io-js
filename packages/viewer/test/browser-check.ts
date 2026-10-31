@@ -664,6 +664,27 @@ if (fs.existsSync(vwGlb)) await check('edges off the page', async () => {
   expect(a.longest < 450, `a long task on the page: ${JSON.stringify(a)}`);
   return undefined;
 });
+// A STEP file's import says its phases in the status line as the import worker reaches them (the user, 2026-10-31:
+// "importing" alone for the seconds a large file takes): reading, its structure, the parts by percent, assembling.
+await check('import phases', async () => {
+  const r = await page('?check', `(async () => {
+    const statuses = [];
+    const st = document.getElementById('status');
+    new MutationObserver(() => statuses.push(st.textContent)).observe(st, { childList: true, characterData: true,
+      subtree: true });
+    await cadViewer.load('/content/bicycle.stp');
+    await cadViewer.idle();
+    return { statuses: [...new Set(statuses)] };
+  })()`) as { after: { statuses: string[] } };
+  const s = r.after.statuses;
+  const at = (re: RegExp) => s.findIndex((t) => re.test(t));
+  const order = [/^bicycle\.stp: importing \d+ MB: reading\.\.\.$/,
+    /^bicycle\.stp: importing \d+ MB: reading its structure\.\.\.$/,
+    /^bicycle\.stp: importing \d+ MB: making parts, 0 %\.\.\.$/,
+    /^bicycle\.stp: importing \d+ MB: assembling\.\.\.$/, /^bicycle\.stp: meshed \d+ of \d+ parts/].map(at);
+  expect(order.every((k, i) => k >= 0 && (i === 0 || k > order[i - 1]!)), `statuses: ${JSON.stringify(s)}`);
+  return undefined;
+});
 // Hide others, Show others and transparency (the user, 2026-10-31), through the controls: one of as1's nuts selected,
 // Hide others leaves it alone shown; Show others shows the rest, the nut keeping its own hiding; the rod made
 // transparent at the Opacity control's value and back to the file's.
