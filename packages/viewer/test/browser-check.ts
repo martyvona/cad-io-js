@@ -1170,12 +1170,69 @@ await check('failed faces', async () => {
     ui.setTree({ detail: true });
     // (Each partly failed part has a face that failed: wholly, red, or partly, short of its area.)
     const faces = partly.flatMap((n) => m.children(n.id)).map((c) => m.failure(c)).filter((f) => f);
+    // Rows that failed partly red too, with the broken icon (the user, 2026-10-30): a partly failed part's, and a
+    // face of it short of its area, each selected (so revealed and drawn).
+    const shortFace = partly.flatMap((n) => m.children(n.id)).find((c) => m.failure(c) === 'partly');
+    const rows = [];
+    for (const id of [partly[0].id, ...(shortFace === undefined ? [] : [shortFace])]) {
+      ui.select([id]);
+      for (let i = 0; i < 3; i++) await new Promise((res) => requestAnimationFrame(res));
+      const row = document.querySelector('.tree-row.selected');
+      rows.push(!!row && row.classList.contains('failed') && !!row.querySelector('.tree-icon.broken'));
+    }
+    const rowsRed = rows.filter((x) => x).length;
+    // The outlines drawn red over the black edges along the same B-rep edges (depth-bias.ts), thin and fat: each
+    // outline seen close, the pixels at its segments' midpoints read back.
+    const gl = viewer.renderer.getContext(), canvas = viewer.renderer.domElement;
+    const frames = (n) => new Promise((r) => { const f = () => (n-- > 0 ? requestAnimationFrame(f) : r()); f(); });
+    const lines = [];
+    viewer.display.traverse((o) => { if (o.name === 'outline') lines.push(o); });
+    const drawnRed = async () => {
+      let red = 0, black = 0, all = 0;
+      for (const l of lines) {
+        l.geometry.computeBoundingSphere();
+        viewer.zoomTo(l.geometry.boundingSphere.clone().applyMatrix4(l.matrixWorld));
+        await frames(3);
+        viewer.composer.render();
+        const pos = l.geometry.getAttribute('position'), dpr = viewer.renderer.getPixelRatio();
+        const v = l.geometry.boundingSphere.center.clone(), w = v.clone(), out = new Uint8Array(4 * 9);
+        for (let i = 0; i + 1 < pos.count; i += 2) {
+          v.fromBufferAttribute(pos, i).add(w.fromBufferAttribute(pos, i + 1)).multiplyScalar(0.5)
+            .applyMatrix4(l.matrixWorld).project(viewer.camera);
+          if (Math.abs(v.x) > 0.95 || Math.abs(v.y) > 0.95) continue;
+          // The reddest of the 3 x 3 device pixels around it (a line 1 pixel wide may fall between two).
+          gl.readPixels(Math.round((v.x + 1) / 2 * canvas.clientWidth * dpr) - 1,
+            Math.round((v.y + 1) / 2 * canvas.clientHeight * dpr) - 1, 3, 3, gl.RGBA, gl.UNSIGNED_BYTE, out);
+          let best = -255, dark = 255;
+          for (let k = 0; k < 9; k++) {
+            best = Math.max(best, out[4 * k] - Math.max(out[4 * k + 1], out[4 * k + 2]));
+            dark = Math.min(dark, Math.max(out[4 * k], out[4 * k + 1], out[4 * k + 2]));
+          }
+          all++;
+          if (best > 100) red++;
+          // (Black edges' colour where the outline isn't: lost to the edge along it.)
+          else if (dark < 60) black++;
+        }
+      }
+      return { red, black, all };
+    };
+    const thin = await drawnRed();
+    viewer.setRender({ ...viewer.render, edgeStyle: 'fat' });
+    const fat = await drawnRed();
     return { outlines, partly: partly.length, faces: faces.length, red: faces.filter((f) => f === 'failed').length,
-      failedParts: viewer.model.parts.failed };
-  })()`) as { after: { outlines: number; partly: number; faces: number; red: number; failedParts: number } })
-    .after;
+      failedParts: viewer.model.parts.failed, thin, fat, rows: rows.length, rowsRed };
+  })()`) as { after: { outlines: number; partly: number; faces: number; red: number; failedParts: number;
+    thin: { red: number; black: number; all: number }; fat: { red: number; black: number; all: number };
+    rows: number; rowsRed: number } }).after;
+  console.log(`failed faces: the bicycle's outlines at ${b.thin.all} midpoints: red ${b.thin.red}, black ${b.thin.black} `
+    + `thin; red ${b.fat.red}, black ${b.fat.black} fat`);
+  expect(b.rows > 0 && b.rowsRed === b.rows, `broken rows not all red: ${b.rowsRed} of ${b.rows}`);
   expect(b.outlines > 0 && b.partly > 0 && b.faces >= b.partly && b.red > 0 && b.failedParts === 0,
     `the bicycle's failed faces: ${JSON.stringify(b)}`);
+  // Black where the red outline should be, at its midpoints: without the bias 270 fat and 175 thin of 5,176; with it
+  // 3 and 67 (thin lines lose more to the faces beside them, behind which the file's curve can lie).
+  expect(b.fat.all > 1000 && b.fat.black <= b.fat.all / 500 && b.thin.black <= b.thin.all / 50,
+    `outlines under the black edges: ${JSON.stringify({ thin: b.thin, fat: b.fat })}`);
   return undefined;
 });
 // B-Rep Meshing's Timeout: a limit too short for any part (a millisecond) fails every part, timed out (said in the

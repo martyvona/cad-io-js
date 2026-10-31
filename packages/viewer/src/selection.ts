@@ -7,6 +7,7 @@
 
 import * as THREE from 'three';
 import { enclose, type Sphere } from 'cad-scene';
+import { keepBias } from './depth-bias.ts';
 import type { NodeModel } from './model.ts';
 
 export type PickLevel = 'assembly' | 'part' | 'detail';
@@ -196,7 +197,7 @@ export class Highlighter {
     if (!m.visible) return m;
     let t = this.tints[which]!.get(m);
     if (!t) {
-      t = m.clone();
+      t = keepBias(m, m.clone());
       const color = this.colors[which]!;
       const e = t as THREE.MeshPhongMaterial;
       if (e.emissive) e.emissive.copy(color).multiplyScalar(0.55);

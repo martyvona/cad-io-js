@@ -50,14 +50,14 @@ export class TreePanel {
       },
       renderRow: (id, content) => {
         const n = model.nodes[num(id)]!;
-        // Failed to mesh: red, with a broken icon; partly (a part some of whose faces failed), the icon only.
+        // Failed to mesh, wholly or partly: red, with a broken icon (the user, 2026-10-30: partly the icon only before).
         const failure = model.failure(n.id);
         content.innerHTML = `<span class="tree-icon${failure ? ' broken' : ''}">${failure ? BROKEN_ICON
           : ICONS[n.kind]}</span><span class="tree-name"></span>`;
         content.lastElementChild!.textContent = n.name;
         const row = content.parentElement!;
         row.classList.toggle('hidden', model.hiddenInTree(n.id));
-        row.classList.toggle('failed', failure === 'failed');
+        row.classList.toggle('failed', failure !== undefined);
         row.title = `${n.kind}: ${n.name}${failure === 'failed' ? ' (failed to mesh: its outline drawn in red)'
           : failure === 'partly' ? ' (some faces failed to mesh)' : ''}`;
       },

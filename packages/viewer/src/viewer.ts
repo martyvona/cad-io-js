@@ -25,6 +25,7 @@ import { Sections, type SectionSettings } from './section.ts';
 import { SceneGraph } from './scene-graph.ts';
 import { FatEdges } from './fat-edges.ts';
 import { LoadFit } from './load-fit.ts';
+import { DEPTH_BIAS_DEFLECTIONS, DEPTH_BIAS_PIXELS, depthBias } from './depth-bias.ts';
 import { modelInput, type Source } from './sources.ts';
 import { DEFAULT_RENDER, EDGES, type RenderSettings } from './style.ts';
 import { TriangleEdges } from './triangle-edges.ts';
@@ -296,6 +297,8 @@ export class Viewer {
     }
     this.controls.update();
     clipTo(this.camera, this.bounds);
+    depthBias.value = Math.max(this.pixelSize() * DEPTH_BIAS_PIXELS,
+      DEPTH_BIAS_DEFLECTIONS * meshDeflections(deflectionsOf(this.settings)).linearDeflection);
     this.sections.update(this.root ? this.display : undefined, () => this.nodes?.nodes.flatMap((n) =>
       n.kind === 'part' && n.object ? [n.object] : []) ?? []);
     const fat = this.render.edges && this.render.edgeStyle === 'fat';

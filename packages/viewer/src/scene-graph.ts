@@ -18,6 +18,7 @@
 // a geometry group of their own with an invisible material.
 
 import * as THREE from 'three';
+import { biasTowardCamera } from './depth-bias.ts';
 import { faceFailures, instances, partInstances, type FaceFailure, type Mat4, type Measures, type Mesh,
   type PartInstance, type Scene, type SourceId } from 'cad-scene';
 import type { FaceHiding } from './model.ts';
@@ -73,7 +74,8 @@ interface MeshedPart {
  * where they should be can be found). The tree marks their nodes the same red (tree-panel.ts).
  */
 export const FAILED_COLOR = 0xe02020;
-const OUTLINE = new THREE.LineBasicMaterial({ color: FAILED_COLOR });
+// (Drawn in front of the black edges along the same B-rep edges: depth-bias.ts.)
+const OUTLINE = biasTowardCamera(new THREE.LineBasicMaterial({ color: FAILED_COLOR }));
 
 /** Hidden faces' triangles: drawn with nothing. */
 const HIDDEN = new THREE.MeshBasicMaterial({ visible: false });

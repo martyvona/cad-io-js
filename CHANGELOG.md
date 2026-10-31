@@ -44,6 +44,7 @@
 - `cad-viewer`: **Center model** removed (zoom all already puts the model in view, and the camera pans and orbits about any point), with the centroid it used, `centered=` in links (older ones still open) and `centered` and `centroid` in `cadViewer.state()`, whose version is now 2.
 - `cad-viewer`: zoom all, zoom selected and the views ease the camera there over a second; the views turn about the orbit centre, keeping the zoom and pan, instead of fitting the model.
 - `cad-viewer`: zoom all and zoom selected fit and centre what they show in the width beside the controls (whether open or folded), and the camera turns and zooms about that width's centre.
+- `cad-viewer`: failed faces' red outlines drawn in front of the black edges along them; partly failed rows in the tree red like failed ones.
 
 - Every tracked text file is ASCII, source code included (comments, messages, test data as escapes), checked by `test/ascii.test.ts`. Semantic JSON unit names are joined with `.` instead of a middle dot (`newton.metre`). Long identifiers in Markdown tables are broken by hand with `<br>`.
 

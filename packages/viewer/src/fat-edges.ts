@@ -12,6 +12,7 @@ import * as THREE from 'three';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
 import { Wireframe } from 'three/examples/jsm/lines/Wireframe.js';
+import { keepBias } from './depth-bias.ts';
 
 export type EdgeStyle = 'thin' | 'fat';
 
@@ -92,7 +93,7 @@ export class FatEdges {
     let fat = this.materials.get(m);
     if (!fat) {
       const line = m as THREE.LineBasicMaterial;
-      fat = new LineMaterial({ linewidth: this.width, transparent: m.transparent, opacity: m.opacity });
+      fat = keepBias(m, new LineMaterial({ linewidth: this.width, transparent: m.transparent, opacity: m.opacity }));
       // Both in the working colour space.
       if (line.color) fat.color.copy(line.color);
       fat.visible = m.visible;
