@@ -73,7 +73,7 @@ export interface CadViewer {
   zoomAll(): void;
   zoomSelected(): void;
   /** What's under a point of the view, given as fractions of its width and height from the top left. */
-  pickAt(x: number, y: number): { path: string; point: number[] } | undefined;
+  pickAt(x: number, y: number): { path: string; point: number[]; cap?: string } | undefined;
   /** The view as a PNG data URL, drawn now. */
   screenshot(): string;
   /** Starts recording (recorder.ts), or stops and returns the recording. */
@@ -274,7 +274,8 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
       if (!hit || !model) return undefined;
       // As a click names it, at the pick level.
       const id = nodeForPick(model, hit.object, hit.faceIndex, ui.selection.level);
-      return id === undefined ? undefined : { path: model.pathOf(id), point: hit.point.toArray() };
+      return id === undefined ? undefined : { path: model.pathOf(id), point: hit.point.toArray(),
+        ...(hit.cap ? { cap: hit.cap } : {}) };
     },
     screenshot: () => viewer.snapshot(),
     record: () => undefined,

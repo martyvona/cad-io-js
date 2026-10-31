@@ -325,3 +325,55 @@ test('hatching: on the plane, spaced by the model\'s size; size, width and pixel
   assert.ok(near(z.uniforms.hatchDir!.value, [Math.cos(a), Math.sin(a), 0]));
   assert.equal(x.uniforms.hatchSpacing!.value, partHatch(m.name, new THREE.Color(0x00ff00)).spacing);
 });
+
+test('capHits: a ray into the kept side through a cap, inside the part cut; not elsewhere, nor where cut away', () => {
+  const { s } = sections();
+  const { root, solid } = model();
+  // The solid: x 95..105, y -10..10, z -15..15; cut at x 101 (above cut away), and at z 2 flipped (below cut away).
+  const set = DEFAULT_SECTIONS();
+  set.x = { on: true, at: 101, flip: false };
+  s.set(set);
+  root.updateWorldMatrix(true, true);
+  s.update(root);
+  const ray = (o: number[], d: number[]) => new THREE.Ray(new THREE.Vector3(...o), new THREE.Vector3(...d));
+  // Through the middle of the far face, along the edge its two triangles share: one crossing, a hit.
+  assert.equal(s.capHits(ray([200, 0, 0], [-1, 0, 0])).length, 1);
+  const hits = s.capHits(ray([200, 0, 5], [-1, 0, 0]));
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0]!.object, solid);
+  assert.equal(hits[0]!.cap, 'x');
+  assert.deepEqual([hits[0]!.point.toArray(), hits[0]!.distance], [[101, 0, 5], 99]);
+  // Beside the part, from the other side (into the cut-away side), along the plane: none.
+  assert.equal(s.capHits(ray([200, 15, 5], [-1, 0, 0])).length, 0);
+  assert.equal(s.capHits(ray([0, 0, 5], [1, 0, 0])).length, 0);
+  assert.equal(s.capHits(ray([101, 50, 5], [0, -1, 0])).length, 0);
+  // Slanting in: where it crosses the plane.
+  const slant = s.capHits(ray([111, 0, 5], [-1, 0.5, 0].map((x) => x / Math.hypot(1, 0.5))));
+  assert.equal(slant.length, 1);
+  assert.ok(Math.abs(slant[0]!.point.x - 101) < 1e-9 && Math.abs(slant[0]!.point.y - 5) < 1e-9);
+  // With z cut below 2 too: z 5 still a hit, z 0 cut away by the other plane.
+  set.z = { on: true, at: 2, flip: true };
+  s.set(set);
+  s.update(root);
+  assert.equal(s.capHits(ray([200, 0, 5], [-1, 0, 0])).length, 1);
+  assert.equal(s.capHits(ray([200, 0, 0], [-1, 0, 0])).filter((h) => h.cap === 'x').length, 0);
+  // Caps off: none.
+  s.set({ ...set, caps: false });
+  s.update(root);
+  assert.equal(s.capHits(ray([200, 0, 5], [-1, 0, 0])).length, 0);
+});
+
+test('capHits: inside the part\'s box but not its solid (a ring\'s hole), no hit; in its tube, a hit', () => {
+  const { s } = sections();
+  const root = new THREE.Group();
+  // A ring about z, radius 10, its tube 2; cut across x at 0, looking along -x.
+  root.add(new THREE.Mesh(new THREE.TorusGeometry(10, 2, 16, 48), new THREE.MeshPhongMaterial()));
+  root.updateWorldMatrix(true, true);
+  const set = DEFAULT_SECTIONS();
+  set.x = { on: true, at: 0, flip: false };
+  s.set(set);
+  s.update(root);
+  const ray = (y: number) => new THREE.Ray(new THREE.Vector3(50, y, 0), new THREE.Vector3(-1, 0, 0));
+  assert.equal(s.capHits(ray(0)).length, 0);
+  assert.equal(s.capHits(ray(10)).length, 1);
+});

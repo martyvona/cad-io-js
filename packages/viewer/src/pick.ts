@@ -16,7 +16,13 @@ export interface Pick {
   faceIndex?: number;
   point: THREE.Vector3;
   distance: number;
+  /** On a section's cap (the plane across this axis), not a face: the part cut. */
+  cap?: 'x' | 'y' | 'z';
 }
+
+/** What else a ray meets that raycasting doesn't see: section caps (Sections.capHits). */
+export type ExtraHits = (ray: THREE.Ray) => { object: THREE.Object3D; point: THREE.Vector3; distance: number;
+  cap?: 'x' | 'y' | 'z' }[];
 
 /** Pixels within which a line or point is hit. */
 export const PICK_PIXELS = 4;
@@ -98,7 +104,26 @@ function hitsNear(o: THREE.Line | THREE.Points, ray: THREE.Ray, reach: number, n
  * world units (mm) at the camera's zoom.
  */
 export function pick(camera: THREE.Camera, root: THREE.Object3D, ndc: THREE.Vector2, pixel: number,
-  clipped?: (p: THREE.Vector3) => boolean): Pick | undefined {
+  clipped?: (p: THREE.Vector3) => boolean, extra?: ExtraHits): Pick | undefined {
+  const { hits: kept } = hitsAlong(camera, root, ndc, pixel, clipped, extra);
+  const face = kept.find((h) => isMesh(h.object));
+  const line = face ? kept.find((h) => !isMesh(h.object) && h.distance <= face.distance + 2 * PICK_PIXELS * pixel &&
+    (ownLine(h.object, face.object) || faceless(h.object))) : kept[0];
+  const h = line ?? face;
+  if (!h) return undefined;
+  const cap = (h as { cap?: Pick['cap'] }).cap;
+  return { object: h.object, ...(h.faceIndex !== undefined && h.faceIndex !== null ? { faceIndex: h.faceIndex } : {}),
+    point: h.point, distance: h.distance, ...(cap ? { cap } : {}) };
+}
+
+/**
+ * Everything drawn along the ray through a point of the view (normalized device coordinates), nearest first: shown,
+ * a face's triangles only where the face is drawn, nothing cut away (`clipped`); lines and points within reach of
+ * the ray; and `extra`'s hits (section caps). With the ray (zooming at the cursor, viewer.ts, takes the nearest and
+ * the farthest).
+ */
+export function hitsAlong(camera: THREE.Camera, root: THREE.Object3D, ndc: THREE.Vector2, pixel: number,
+  clipped?: (p: THREE.Vector3) => boolean, extra?: ExtraHits): { hits: THREE.Intersection[]; ray: THREE.Ray } {
   raycaster.setFromCamera(ndc, camera);
   // three.js starts an orthographic camera's ray at its position and hits nothing behind it, but our near plane is
   // often negative (clipTo: zoom selected puts the camera just beyond the selection), so what's drawn between the
@@ -121,14 +146,10 @@ export function pick(camera: THREE.Camera, root: THREE.Object3D, ndc: THREE.Vect
       hitsNear(o as THREE.Line | THREE.Points, raycaster.ray, PICK_PIXELS * pixel, raycaster.near, raycaster.far, hits);
     } else raycaster.intersectObject(o, false, hits);
   });
-  hits.sort((a, b) => a.distance - b.distance);
   const kept = hits.filter((h) => shown(h.object) && (!(h.object as THREE.Mesh).isMesh || drawnFace(h)) &&
     !clipped?.(h.point));
-  const face = kept.find((h) => isMesh(h.object));
-  const line = face ? kept.find((h) => !isMesh(h.object) && h.distance <= face.distance + 2 * PICK_PIXELS * pixel &&
-    (ownLine(h.object, face.object) || faceless(h.object))) : kept[0];
-  const h = line ?? face;
-  if (!h) return undefined;
-  return { object: h.object, ...(h.faceIndex !== undefined && h.faceIndex !== null ? { faceIndex: h.faceIndex } : {}),
-    point: h.point, distance: h.distance };
+  // (Caps lie on their plane, which clipping would count as cut away: not filtered.)
+  kept.push(...(extra?.(raycaster.ray) ?? []) as THREE.Intersection[]);
+  kept.sort((a, b) => a.distance - b.distance);
+  return { hits: kept, ray: raycaster.ray.clone() };
 }

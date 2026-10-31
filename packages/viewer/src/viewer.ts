@@ -19,7 +19,7 @@ import type { CameraState } from './view-state.ts';
 import { formatOf, type Format } from './formats.ts';
 import { Frames } from './frames.ts';
 import { NodeModel, type FaceHiding } from './model.ts';
-import { pick, type Pick } from './pick.ts';
+import { hitsAlong, pick, type Pick } from './pick.ts';
 import { Composer } from './render.ts';
 import { Sections, type SectionSettings } from './section.ts';
 import { SceneGraph } from './scene-graph.ts';
@@ -61,6 +61,9 @@ export interface MeshedWith {
 
 /** How long zoom all, zoom selected and the views take to get there, in milliseconds. */
 export const FLIGHT_MS = 1000;
+
+/** Wheel events further apart than this begin a new zoom gesture (a new orbit centre at the cursor). */
+export const ZOOM_GESTURE_MS = 300;
 
 export interface Stats { objects: number; meshes: number; triangles: number; segments: number; points: number }
 
@@ -133,6 +136,9 @@ export class Viewer {
   private flight?: { from: CameraState; to: CameraState; start: number };
   flightMs = FLIGHT_MS;
   private covered = 0;
+  /** Where the zoom in progress is about (client pixels), and whether its orbit centre is yet to be found there. */
+  private zoomAnchor?: { x: number; y: number; fresh: boolean };
+  private lastWheel = -Infinity;
   /** The pan, in millimetres along the view's right and up (cameraState's `pan`). */
   private readonly pan = new THREE.Vector2();
   /** The user has moved the view since the load began: no more automatic zooming. */
@@ -204,12 +210,26 @@ export class Viewer {
     // Our own pan (panBy) in place of TrackballControls': the drag it measured, in pixels (its private state, three.js
     // 0.186, pinned; mouse and two-finger touch alike).
     const tc = this.controls as unknown as { _panStart: THREE.Vector2; _panEnd: THREE.Vector2; _panCamera(): void;
-      screen: { width: number; height: number } };
+      screen: { width: number; height: number }; _zoomCamera(): void; _zoomStart: THREE.Vector2;
+      _zoomEnd: THREE.Vector2; _touchZoomDistanceStart: number; _touchZoomDistanceEnd: number; state: number;
+      zoomSpeed: number; minZoom: number; maxZoom: number };
     tc._panCamera = () => {
       const dx = (tc._panEnd.x - tc._panStart.x) * tc.screen.width, dy = (tc._panEnd.y - tc._panStart.y) *
         tc.screen.height;
       tc._panStart.copy(tc._panEnd);
       if (dx || dy) this.panBy(dx, dy);
+    };
+    // And our own zoom (zoomAt), at the cursor, its factor as the controls reckon it (their state 4 a pinch).
+    tc._zoomCamera = () => {
+      let factor: number;
+      if (tc.state === 4) {
+        factor = tc._touchZoomDistanceStart / tc._touchZoomDistanceEnd;
+        tc._touchZoomDistanceStart = tc._touchZoomDistanceEnd;
+      } else {
+        factor = 1 + (tc._zoomEnd.y - tc._zoomStart.y) * tc.zoomSpeed;
+        tc._zoomStart.copy(tc._zoomEnd);
+      }
+      if (factor !== 1 && factor > 0) this.zoomAt(factor, tc.minZoom, tc.maxZoom);
     };
     this.controls.addEventListener('start', () => {
       this.interacting = this.moved = true;
@@ -244,6 +264,25 @@ export class Viewer {
         clientX: e.clientX, clientY: e.clientY });
     });
     canvas.addEventListener('pointercancel', (e) => down.delete(e.pointerId));
+    // Where each zoom gesture begins (zoomAt): a run of wheel (or touchpad) events, a middle-button drag, two fingers
+    // down (their midpoint).
+    canvas.addEventListener('wheel', (e) => {
+      const now = performance.now();
+      if (now - this.lastWheel > ZOOM_GESTURE_MS) this.zoomAnchor = { x: e.clientX, y: e.clientY, fresh: true };
+      this.lastWheel = now;
+    });
+    const touches = new Map<number, [number, number]>();
+    canvas.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse' && e.button === 1) this.zoomAnchor = { x: e.clientX, y: e.clientY, fresh: true };
+      if (e.pointerType !== 'touch') return;
+      touches.set(e.pointerId, [e.clientX, e.clientY]);
+      if (touches.size !== 2) return;
+      const [p, q] = [...touches.values()] as [[number, number], [number, number]];
+      this.zoomAnchor = { x: (p[0] + q[0]) / 2, y: (p[1] + q[1]) / 2, fresh: true };
+    });
+    for (const type of ['pointerup', 'pointercancel'] as const) {
+      canvas.addEventListener(type, (e) => touches.delete(e.pointerId));
+    }
 
     this.frames = new Frames(() => this.draw());
     new ResizeObserver(() => this.resize()).observe(container);
@@ -305,6 +344,50 @@ export class Viewer {
     this.pan.y -= dy * mmPerPixel;
     this.shift();
     this.changed = true;
+  }
+
+  /**
+   * Zooms by `factor` (the view's height times it) at the zoom's anchor (the user, 2026-10-30): when the gesture
+   * begins, the orbit centre moves onto the line of sight through the cursor (centreAt), the view unchanged; then
+   * the zoom keeps the orbit centre where it's drawn, so every point on that line stays under the cursor.
+   */
+  private zoomAt(factor: number, min = 0, max = Infinity): void {
+    const a = this.zoomAnchor;
+    if (a?.fresh) {
+      a.fresh = false;
+      this.centreAt(a.x, a.y);
+    }
+    const c = this.camera, before = c.zoom;
+    c.zoom = Math.min(max, Math.max(min, before / factor));
+    // (The pan in millimetres for the orbit centre's same place in pixels.)
+    this.pan.multiplyScalar(before / c.zoom);
+    c.updateProjectionMatrix();
+    this.shift();
+    this.changed = true;
+  }
+
+  /**
+   * Moves the orbit centre onto the line of sight through a point of the view (client pixels), leaving the view as it
+   * is: midway between the nearest and the farthest of what's drawn along it (hitsAlong), or with nothing there, the
+   * point of the line nearest the orbit centre; the camera moves with it and the pan keeps it drawn at the point.
+   */
+  centreAt(clientX: number, clientY: number): void {
+    const r = this.renderer.domElement.getBoundingClientRect();
+    const ndc = new THREE.Vector2((clientX - r.left) / r.width * 2 - 1, -((clientY - r.top) / r.height * 2 - 1));
+    this.display.updateWorldMatrix(true, true);
+    this.shift();
+    clipTo(this.camera, this.bounds);
+    const { hits, ray } = hitsAlong(this.camera, this.display, ndc, this.pixelSize(), this.clipped,
+      (q) => this.sections.capHits(q));
+    const p = hits.length ? hits[0]!.point.clone().add(hits.at(-1)!.point).multiplyScalar(0.5)
+      : ray.closestPointToPoint(this.controls.target, new THREE.Vector3());
+    const back = new THREE.Vector3().subVectors(this.camera.position, this.controls.target);
+    this.controls.target.copy(p);
+    this.camera.position.copy(p).add(back);
+    const mmPerPixel = this.pixelSize();
+    this.pan.set((clientX - (r.left + this.freeWidth() / 2)) * mmPerPixel,
+      -(clientY - (r.top + r.height / 2)) * mmPerPixel);
+    this.shift();
   }
 
   private resize(): void {
@@ -685,7 +768,7 @@ export class Viewer {
     // where rays start.
     this.shift();
     clipTo(this.camera, this.bounds);
-    return pick(this.camera, this.display, ndc, this.pixelSize(), this.clipped);
+    return pick(this.camera, this.display, ndc, this.pixelSize(), this.clipped, (r) => this.sections.capHits(r));
   }
 
   /** Fits a sphere (in the world) in the viewport, from the current direction; zoom all if it's empty. */

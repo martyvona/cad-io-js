@@ -48,6 +48,46 @@ export function planeFor(axis: Axis, s: PlaneSettings): THREE.Plane {
   return s.flip ? new THREE.Plane(UNIT[axis].clone(), -s.at) : new THREE.Plane(UNIT[axis].clone().negate(), s.at);
 }
 
+const BOTH_SIDES = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide });
+const _probe = new THREE.Mesh(undefined, BOTH_SIDES);
+const _rays = new THREE.Raycaster();
+
+const _normal = new THREE.Vector3();
+const _normalMatrix = new THREE.Matrix3();
+
+/**
+ * How many times meshes' triangles (either side) cross a ray from a point on (beyond `eps`): hits at one point
+ * (within `eps`) facing the same way count once (the ray through an edge or a vertex the triangles share, which
+ * raycasting gives once per triangle), facing opposite ways twice (grazing a silhouette, in and straight out).
+ */
+function crossings(meshes: readonly THREE.Mesh[], from: THREE.Vector3, dir: THREE.Vector3, eps: number): number {
+  _rays.set(from, dir);
+  _rays.near = eps;
+  _rays.far = Infinity;
+  const hits: { distance: number; facing: boolean }[] = [];
+  for (const m of meshes) {
+    _probe.geometry = m.geometry;
+    _probe.matrixWorld.copy(m.matrixWorld);
+    _normalMatrix.getNormalMatrix(m.matrixWorld);
+    const found: THREE.Intersection[] = [];
+    _probe.raycast(_rays, found);
+    for (const h of found) {
+      hits.push({ distance: h.distance, facing: !!h.face && _normal.copy(h.face.normal).applyMatrix3(_normalMatrix)
+        .dot(dir) < 0 });
+    }
+  }
+  hits.sort((a, b) => a.distance - b.distance);
+  let n = 0;
+  for (let i = 0; i < hits.length; i++) {
+    const h = hits[i]!;
+    if (hits.slice(Math.max(0, i - 8), i).some((g) => h.distance - g.distance <= eps && g.facing === h.facing)) {
+      continue;
+    }
+    n++;
+  }
+  return n;
+}
+
 /** Whether a mesh's triangles close up (closure.ts). Cached on the geometry. */
 export function isClosed(geometry: THREE.BufferGeometry): boolean {
   const cached = geometry.userData.closed as boolean | undefined;
@@ -210,6 +250,8 @@ export class Sections {
   })) as Record<Axis, [THREE.ShaderMaterial, THREE.ShaderMaterial]>;
   private readonly renderer: THREE.WebGLRenderer;
   private caps: Cap[] = [];
+  /** The parts capped (their visible meshes, their world box), for picks on the caps (capHits). */
+  private capped: { meshes: THREE.Mesh[]; box: THREE.Box3 }[] = [];
   private dirty = true;
   private readonly capMaterials = new Map<string, THREE.MeshBasicMaterial>();
   private style: CapStyle = 'parts';
@@ -238,6 +280,37 @@ export class Sections {
     this.move();
   }
 
+  /**
+   * Where a ray (a pick's, from in front of everything: pick.ts) meets a cap (the user, 2026-10-31: a hit on the
+   * plane's front face is a hit on the part cut): each plane that's on, crossed from its cut-away side into the side
+   * kept, where no other plane cuts it away, inside a capped part's solid (the ray crosses the part's surface an odd
+   * number of times beyond it, both sides of its triangles counted). Each: the part's first mesh, the point, its
+   * distance along the ray, and the plane's axis. None while caps are off.
+   */
+  capHits(ray: THREE.Ray): { object: THREE.Mesh; point: THREE.Vector3; distance: number; cap: Axis }[] {
+    const out: { object: THREE.Mesh; point: THREE.Vector3; distance: number; cap: Axis }[] = [];
+    if (!this.settings.caps || !this.capped.length) return out;
+    for (const axis of AXES) {
+      if (!this.settings[axis].on) continue;
+      const plane = planeFor(axis, this.settings[axis]);
+      if (plane.normal.dot(ray.direction) <= 0) continue;
+      const t = ray.distanceToPlane(plane);
+      if (t === null) continue;
+      const point = ray.at(t, new THREE.Vector3());
+      const size = Math.max(1, ...this.capped.map((c) => c.box.max.distanceTo(c.box.min)));
+      const eps = 1e-7 * size;
+      if (this.planes.some((p) => !(p.normal.equals(plane.normal) && p.constant === plane.constant) &&
+        p.distanceToPoint(point) < -eps)) continue;
+      for (const { meshes, box } of this.capped) {
+        if (!box.containsPoint(point)) continue;
+        if (crossings(meshes, point, ray.direction, eps) % 2 === 1) {
+          out.push({ object: meshes[0]!, point, distance: t, cap: axis });
+        }
+      }
+    }
+    return out;
+  }
+
   /** Whether a world point is cut away. */
   clipped(p: THREE.Vector3): boolean {
     return this.planes.some((pl) => pl.distanceToPoint(p) < 0);
@@ -258,6 +331,7 @@ export class Sections {
     this.dirty = false;
     for (const c of [...this.group.children]) this.group.remove(c);
     this.caps = [];
+    this.capped = [];
     const on = AXES.filter((a) => this.settings[a].on);
     if (!model || !on.length || !this.settings.caps) return;
     model.updateWorldMatrix(true, true);
@@ -294,6 +368,7 @@ export class Sections {
         mesh.geometry.computeBoundingBox();
         box.union(mesh.geometry.boundingBox!.clone().applyMatrix4(mesh.matrixWorld));
       }
+      this.capped.push({ meshes, box });
       const hatch = this.capFor(part, meshes[0]!, drawingHatch);
       for (const axis of on) {
         // A part's meshes count in the stencil together: one render order, one cap.

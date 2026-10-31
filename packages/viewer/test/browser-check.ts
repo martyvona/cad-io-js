@@ -494,6 +494,104 @@ await check('panning', async () => {
     `the turn didn't pivot about the orbit centre: ${j}`);
   return undefined;
 });
+// Zooming at the cursor (the user, 2026-10-30): a wheel zoom over a part moves the orbit centre onto the line of
+// sight there, midway between the nearest and farthest of what's drawn along it, and zooms keeping that line under
+// the cursor (the point picked there stays put); over empty space, the orbit centre slides onto the line (along the
+// view's plane, not in depth).
+await check('zoom at the cursor', async () => {
+  const evaluate = async (sessionId: string, expression: string) => ((await send('Runtime.evaluate', { expression,
+    returnByValue: true, awaitPromise: true }, sessionId)) as { result: { value: unknown } }).result.value;
+  const where = (x: number, y: number) => `(() => { const v = globalThis.viewer, c = v.renderer.domElement
+    .getBoundingClientRect(), cam = v.camera;
+    v.camera.updateMatrixWorld();
+    const px = (p) => { const q = p.clone().project(cam); return [c.left + (q.x + 1) / 2 * c.width,
+      c.top + (1 - q.y) / 2 * c.height]; };
+    const hit = v.pickAt(${x}, ${y});
+    const dir = cam.getWorldDirection(v.controls.target.clone());
+    return { target: v.controls.target.toArray(), targetPx: px(v.controls.target), height: v.cameraState().height,
+      hit: hit ? hit.point.toArray() : null, hitPx: hit ? px(hit.point) : null, dir: dir.toArray(),
+      depth: hit ? hit.point.clone().sub(v.controls.target).dot(dir) : null }; })()`;
+  type Where = { target: number[]; targetPx: number[]; height: number; hit: number[] | null; hitPx: number[] | null;
+    dir: number[]; depth: number | null };
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    const v = globalThis.viewer, c = v.renderer.domElement.getBoundingClientRect(), cam = v.camera;
+    const rod = ui.panel().model.nodes.find((n) => n.kind === 'part' && n.name === 'rod').object.children[0];
+    rod.geometry.computeBoundingBox();
+    const q = rod.geometry.boundingBox.getCenter(v.controls.target.clone()).applyMatrix4(rod.matrixWorld).project(cam);
+    // (Whole pixels, as the mouse events give them.)
+    return { over: [Math.round(c.left + (q.x + 1) / 2 * c.width), Math.round(c.top + (1 - q.y) / 2 * c.height)],
+      empty: [Math.round(c.left + 30), Math.round(c.top + 30)] };
+  })()`, { scale: 1, then: async (sid, at) => {
+    const { over, empty } = at as { over: number[]; empty: number[] };
+    const wheel = async (x: number, y: number, n: number) => {
+      for (let k = 0; k < n; k++) await send('Input.dispatchMouseEvent', { type: 'mouseWheel', x, y, deltaX: 0,
+        deltaY: -100 }, sid);
+      await evaluate(sid, 'cadViewer.idle()');
+    };
+    const before = await evaluate(sid, where(over[0]!, over[1]!)) as Where;
+    await wheel(over[0]!, over[1]!, 3);
+    const zoomed = await evaluate(sid, where(over[0]!, over[1]!)) as Where;
+    // A new gesture over empty space, after a pause.
+    await new Promise((res) => setTimeout(res, 500));
+    const beforeEmpty = await evaluate(sid, where(empty[0]!, empty[1]!)) as Where;
+    await wheel(empty[0]!, empty[1]!, 2);
+    const zoomedEmpty = await evaluate(sid, where(empty[0]!, empty[1]!)) as Where;
+    return { over, empty, before, zoomed, beforeEmpty, zoomedEmpty };
+  } }) as { then: { over: number[]; empty: number[]; before: Where; zoomed: Where; beforeEmpty: Where;
+    zoomedEmpty: Where } };
+  const a = r.then;
+  const j = JSON.stringify(a);
+  const off = (p: number[] | null, q: number[]) => p ? Math.hypot(p[0]! - q[0]!, p[1]! - q[1]!) : Infinity;
+  // Over the rod: zoomed in; the orbit centre drawn at the cursor, at or beyond the surface hit (midway into the
+  // part); the point first hit there still under the cursor.
+  expect(a.zoomed.height < a.before.height * 0.95, `not zoomed in: ${j}`);
+  expect(off(a.zoomed.targetPx, a.over) < 1 && a.zoomed.depth !== null && a.zoomed.depth < -1,
+    `the orbit centre not on the line of sight, beyond the surface: ${j}`);
+  expect(a.before.hit !== null && off(a.zoomed.hitPx, a.over) < 1 &&
+    a.zoomed.hit!.every((x, k) => Math.abs(x - a.before.hit![k]!) < 1e-3), `the point under the cursor moved: ${j}`);
+  // Over empty space: the orbit centre slid onto the line, in the view's plane only.
+  const slid = a.zoomedEmpty.target.map((x, k) => x - a.beforeEmpty.target[k]!);
+  expect(a.beforeEmpty.hit === null && off(a.zoomedEmpty.targetPx, a.empty) < 1 &&
+    Math.abs(slid.reduce((t, x, k) => t + x * a.zoomedEmpty.dir[k]!, 0)) < 1e-6 && Math.hypot(...slid) > 1,
+    `over empty space: ${j}`);
+  return undefined;
+});
+// Picks on section caps (the user, 2026-10-31): a click where a cap is drawn picks the part cut, at the point on the
+// plane, through cadViewer.pickAt and the view's own picking; the zoom at the cursor's orbit centre counts it too.
+await check('picks on caps', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    const v = globalThis.viewer, cam = v.camera, c = v.renderer.domElement.getBoundingClientRect();
+    const rod = ui.panel().model.nodes.find((n) => n.kind === 'part' && n.name === 'rod').object.children[0];
+    rod.geometry.computeBoundingBox();
+    const centre = rod.geometry.boundingBox.getCenter(v.controls.target.clone()).applyMatrix4(rod.matrixWorld);
+    v.setSections({ ...v.sections.get(), x: { on: true, at: centre.x, flip: false }, caps: true });
+    // Looking at the cut face (from +X, the cut-away side).
+    // (The orbit centre 100 mm deeper along the view, which shows the same: off the cap's plane.)
+    v.setCamera({ position: [centre.x + 500, centre.y, centre.z], target: [centre.x - 100, centre.y, centre.z],
+      up: [0, 0, 1], height: 120 });
+    await cadViewer.idle();
+    const q = centre.clone().project(cam);
+    const fx = (q.x + 1) / 2, fy = (1 - q.y) / 2;
+    const picked = cadViewer.pickAt(fx, fy);
+    const off = cadViewer.pickAt(fx, fy) && (v.setSections({ ...v.sections.get(), caps: false }),
+      cadViewer.pickAt(fx, fy));
+    v.setSections({ ...v.sections.get(), caps: true });
+    // The zoom's orbit centre found a little above the rod's centre, on the cap.
+    v.centreAt(c.left + fx * c.width, c.top + fy * c.height - 10);
+    return { picked, off, centre: centre.toArray(), target: v.controls.target.toArray() };
+  })()`) as { after: { picked: { path: string; point: number[]; cap?: string } | undefined;
+    off: { path: string; cap?: string } | undefined; centre: number[]; target: number[] } };
+  const a = r.after;
+  const j = JSON.stringify(a);
+  expect(a.picked?.cap === 'x' && /rod/.test(a.picked.path) && Math.abs(a.picked.point[0]! - a.centre[0]!) < 1e-6,
+    `the cap didn't pick the rod: ${j}`);
+  // Without caps, the cut shows what's beyond: not the rod's cap.
+  expect(a.off?.cap === undefined, `a cap hit with caps off: ${j}`);
+  // (Along the rod's axis the cap is all that's drawn there, the rod's far end facing away: the orbit centre on it.)
+  expect(Math.abs(a.target[0]! - a.centre[0]!) < 1e-6 && a.target[2]! > a.centre[2]! + 1e-3,
+    `the zoom's orbit centre didn't take the cap: ${j}`);
+  return undefined;
+});
 await check('camera flights', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
     const v = globalThis.viewer;
