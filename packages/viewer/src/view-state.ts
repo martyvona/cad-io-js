@@ -11,10 +11,11 @@
 //   &ao=0  &smaa=0  &edges=0  &triangleEdges=all  &shininess=50  &aoIntensity=3  &aoRadius=16  &aoQuality=Low
 //   &edgeStyle=thin  &edgeWidth=2  &specular=0.3  &ambient=1  &light=2.5  &capStyle=parts  &hatchWidth=2
 //   &tree=0  &detail=1  &pick=detail  &instances=1
-//   &hide=<path>  &show=<path>  &alpha=0.3:<path>  &select=<path>     each repeated
+//   &hide=<path>  &show=<path>  &alpha=0.3:<path>  &alpha=default:<path>  &select=<path>     each repeated
 //
 // hide=, show= and alpha= are the appearance overrides (model.ts): a node hidden, shown within something hidden,
-// and its opacity (1 the file's own), each holding for what's below it; together, exactly these (the others gone).
+// and its opacity (`default` the file's own), each holding for what's below it unless overridden there; together,
+// exactly these (the others gone).
 //
 // Everything is optional: what's absent is left as it is. Numbers are written with at most 6 decimals.
 
@@ -53,8 +54,8 @@ export interface ViewState {
   hidden?: string[];
   /** Nodes with an override `hidden: false`: shown within something hidden. */
   shown?: string[];
-  /** Nodes with an opacity override (1 the file's own): exactly these. */
-  opacity?: { path: string; alpha: number }[];
+  /** Nodes with an opacity override (`default` the file's own): exactly these. */
+  opacity?: { path: string; alpha: number | 'default' }[];
   selected?: string[];
   /**
    * The meshing settings (B-Rep Meshing's, as tessellation.ts has them): for the next model meshed or Mesh again,
@@ -103,7 +104,7 @@ export function toQuery(s: ViewState): [string, string][] {
   if (s.instances !== undefined) q.push(['instances', s.instances ? '1' : '0']);
   for (const p of s.hidden ?? []) q.push(['hide', p]);
   for (const p of s.shown ?? []) q.push(['show', p]);
-  for (const o of s.opacity ?? []) q.push(['alpha', `${num(o.alpha)}:${o.path}`]);
+  for (const o of s.opacity ?? []) q.push(['alpha', `${o.alpha === 'default' ? 'default' : num(o.alpha)}:${o.path}`]);
   for (const p of s.selected ?? []) q.push(['select', p]);
   return q;
 }
@@ -188,9 +189,10 @@ export function fromQuery(params: URLSearchParams): { state: ViewState; problems
     state.opacity = [];
     for (const a of params.getAll('alpha')) {
       // (The opacity first: a path may hold `:`.)
-      const k = a.indexOf(':'), alpha = finite(k > 0 ? a.slice(0, k) : null);
-      if (alpha === undefined || alpha < 0 || alpha > 1 || k === a.length - 1) {
-        problems.push(`alpha: <opacity 0 to 1>:<path> expected: ${a}`);
+      const k = a.indexOf(':'), word = k > 0 ? a.slice(0, k) : null;
+      const alpha = word === 'default' ? word : finite(word);
+      if (alpha === undefined || (alpha !== 'default' && (alpha < 0 || alpha > 1)) || k === a.length - 1) {
+        problems.push(`alpha: <opacity 0 to 1, or default>:<path> expected: ${a}`);
       } else state.opacity.push({ path: a.slice(k + 1), alpha });
     }
   }

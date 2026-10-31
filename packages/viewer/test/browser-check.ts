@@ -782,23 +782,23 @@ await check('hide others and transparency', async () => {
     ui.select([one.id]);
     button('Restore opacity').$button.click();
     ui.select([]);
-    const alphas = inAsm.map((n) => [n.id === one.id, m.look(n.id).alpha]);
+    const alphas = inAsm.map((n) => [n.id === one.id, m.look(n.id).alpha ?? 'file']);
     const st = cadViewer.state();
     return { all, alone, nut: nut.id, back, nutKept, before, made, restored, within, alphas, drawn: shown().length,
       overrides: { hidden: st.hidden, shown: st.shown, opacity: st.opacity }, link: cadViewer.link() };
   })()`) as { after: { all: number; alone: number[]; nut: number; back: number; nutKept: boolean;
     before: [number, boolean][]; made: [number, boolean][]; restored: [number, boolean][];
-    within: [boolean, boolean][]; alphas: [boolean, number][]; drawn: number; overrides: { hidden: string[]; shown: string[];
-      opacity: { path: string; alpha: number }[] }; link: string } };
+    within: [boolean, boolean][]; alphas: [boolean, number | 'file'][]; drawn: number; overrides: { hidden: string[];
+      shown: string[]; opacity: { path: string; alpha: number | 'default' }[] }; link: string } };
   const a = r.after;
   const j = JSON.stringify(a);
   expect(a.within.length > 1 && a.within.every(([isOne, hidden]) => hidden === !isOne) && a.drawn < a.all,
     `hidden within: ${j}`);
-  expect(a.alphas.every(([isOne, alpha]) => alpha === (isOne ? 1 : 0.5)), `opacity within: ${j}`);
+  expect(a.alphas.every(([isOne, alpha]) => alpha === (isOne ? 'file' : 0.5)), `opacity within: ${j}`);
   const o = a.overrides;
   expect(o.hidden.length === 1 && o.shown.length === 1 && o.shown[0]!.startsWith(o.hidden[0]! + '/') &&
     o.opacity.length === 2 && o.opacity[0]!.path === o.hidden[0] && o.opacity[0]!.alpha === 0.5 &&
-    o.opacity[1]!.path === o.shown[0] && o.opacity[1]!.alpha === 1, `the overrides: ${j}`);
+    o.opacity[1]!.path === o.shown[0] && o.opacity[1]!.alpha === 'default', `the overrides: ${j}`);
   // The link, opened: the same overrides, drawn so.
   const at = a.link.indexOf('#');
   const linked = await page(a.link.slice(a.link.indexOf('?'), at) + '&check' + a.link.slice(at), `cadViewer.ready
@@ -811,6 +811,126 @@ await check('hide others and transparency', async () => {
   expect(a.nutKept, `Show others showed the selection: ${j}`);
   expect(a.made.every(([o, t]) => o === 0.4 && t) && JSON.stringify(a.restored) === JSON.stringify(a.before) &&
     a.before.every(([o]) => o === 1), `transparency: ${j}`);
+  return undefined;
+});
+// The tree's context menu and Override Appearance... (the user, 2026-10-31): right-click an assembly's row, the
+// menu's one item, the dialog's controls (Inherit at first, the alpha shown and not editable; Transparent starting
+// from it), its override exactly; the eye on the row; a child's dialog showing what it inherits; a long press on a
+// touch screen opening the menu too; recorded and replayed in a fresh page with the same overrides.
+await check('override appearance', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check&record`, `(async () => {
+    const m = ui.panel().model;
+    const frame = () => new Promise((res) => requestAnimationFrame(() => setTimeout(res, 0)));
+    const asm = m.nodes.find((n) => n.kind === 'assembly' && n.parent >= 0 && m.children(n.id).length > 1).id;
+    const child = m.children(asm)[0];
+    const rowOf = async (id) => {
+      ui.select([id]);
+      await frame();
+      return [...document.querySelectorAll('#tree .tree-row')].find((r) => +r.dataset.id === id);
+    };
+    const menuFor = async (id) => {
+      const row = await rowOf(id), b = row.getBoundingClientRect();
+      const allowed = row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true,
+        clientX: b.left + 20, clientY: b.top + 5 }));
+      // (The browser's own menu not shown.)
+      return [...document.querySelectorAll('.cv-menu button')].map((x) => x.textContent).concat(allowed ? ['shown']
+        : []);
+    };
+    const dialog = async (id) => {
+      await menuFor(id);
+      document.querySelector('.cv-menu button').click();
+      await frame();
+      const d = document.querySelector('dialog.cv-dialog');
+      const [visibility, opacity] = d.querySelectorAll('select');
+      const [slider, number] = d.querySelectorAll('.alpha input');
+      return { d, visibility, opacity, slider, number, read: () => ({ visibility: visibility.value,
+        opacity: opacity.value, options: [...visibility.options, ...opacity.options].map((o) => o.text),
+        disabled: slider.disabled && number.disabled, value: number.value }) };
+    };
+    const items = await menuFor(asm);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    const closed = !document.querySelector('.cv-menu');
+    let c = await dialog(asm);
+    const first = c.read();
+    c.opacity.value = 'transparent';
+    c.opacity.dispatchEvent(new Event('change'));
+    const switched = c.read();
+    c.number.value = '0.4';
+    c.number.dispatchEvent(new Event('input'));
+    c.visibility.value = 'hide';
+    c.visibility.dispatchEvent(new Event('change'));
+    // Shown at once, before OK (the user, 2026-10-31).
+    const live = JSON.stringify(m.look(asm));
+    c.d.querySelector('button.primary').click();
+    await frame();
+    const own = m.ownOverride(asm);
+    const eye = !!(await rowOf(asm)).querySelector('.tree-override');
+    const childHidden = m.hiddenInTree(child);
+    c = await dialog(child);
+    const inChild = c.read();
+    c.opacity.value = 'transparent';
+    c.opacity.dispatchEvent(new Event('change'));
+    const childSwitched = c.read();
+    c.opacity.value = 'default';
+    c.opacity.dispatchEvent(new Event('change'));
+    const childDefault = c.read();
+    c.visibility.value = 'show';
+    c.d.querySelector('button.primary').click();
+    await frame();
+    const childOwn = m.ownOverride(child);
+    const childLook = m.look(child);
+    // Cancelled: nothing changes.
+    c = await dialog(child);
+    c.visibility.value = 'inherit';
+    c.visibility.dispatchEvent(new Event('change'));
+    const previewed = m.hiddenInTree(child);
+    c.d.querySelector('button[value=cancel]').click();
+    await frame();
+    const kept = previewed && JSON.stringify(m.ownOverride(child)) === JSON.stringify(childOwn) &&
+      !m.hiddenInTree(child);
+    // A long press with a finger.
+    const row = await rowOf(child), b = row.getBoundingClientRect();
+    row.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch', clientX: b.left + 20,
+      clientY: b.top + 5 }));
+    await new Promise((res) => setTimeout(res, 700));
+    const pressed = [...document.querySelectorAll('.cv-menu button')].map((x) => x.textContent);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    // (The rows were selected here through the interface, which replay doesn't repeat: none at the end.)
+    ui.select([]);
+    const st = cadViewer.state();
+    return { items, closed, first, switched, live, own, eye, childHidden, inChild, childSwitched, childDefault, childOwn,
+      childLook, kept,
+      pressed, overrides: { hidden: st.hidden, shown: st.shown, opacity: st.opacity }, rec: cadViewer.record(false) };
+  })()`) as { after: Record<string, unknown> & { overrides: unknown; rec: { events: { type: string }[] } } };
+  const a = r.after;
+  const j = JSON.stringify({ ...a, rec: undefined });
+  expect(JSON.stringify(a.items) === '["Override Appearance..."]' && !!a.closed, `the menu: ${j}`);
+  const first = a.first as { visibility: string; opacity: string; disabled: boolean; value: string };
+  expect(first.visibility === 'inherit' && first.opacity === 'inherit' && first.disabled && first.value === '1',
+    `the dialog at first: ${j}`);
+  const sw = a.switched as { disabled: boolean; value: string };
+  expect(!sw.disabled && sw.value === '1', `transparent, from the alpha shown: ${j}`);
+  expect(a.live === '{"hidden":true,"alpha":0.4}', `not shown at once: ${j}`);
+  expect(JSON.stringify(a.own) === '{"hidden":true,"transparent":true,"alpha":0.4}' && !!a.eye && !!a.childHidden,
+    `the assembly's override: ${j}`);
+  const ic = a.inChild as { visibility: string; options: string[]; disabled: boolean; value: string };
+  expect(ic.visibility === 'inherit' && ic.options.includes('Inherit (hidden)') && ic.options.includes(
+    'Inherit (0.4)') && ic.disabled && ic.value === '0.4', `the child's dialog: ${j}`);
+  expect((a.childSwitched as { value: string }).value === '0.4', `the child transparent from 0.4: ${j}`);
+  const cd = a.childDefault as { disabled: boolean; value: string };
+  expect(cd.disabled && cd.value === '1', `the child's default, the file's: ${j}`);
+  expect(JSON.stringify(a.childOwn) === '{"hidden":false,"transparent":false}' &&
+    JSON.stringify(a.childLook) === '{"hidden":false}' && !!a.kept, `the child's override: ${j}`);
+  expect(JSON.stringify(a.pressed) === '["Override Appearance..."]', `a long press: ${j}`);
+  expect(a.rec.events.filter((e) => e.type === 'appearance').length === 2, `recorded: ${j}`);
+  const replayed = await page('?check', `(async () => {
+    await cadViewer.ready;
+    const report = await cadViewer.replay(${JSON.stringify(a.rec)});
+    const st = cadViewer.state();
+    return { divergences: report.divergences, overrides: { hidden: st.hidden, shown: st.shown, opacity: st.opacity } };
+  })()`) as { after: { divergences: string[]; overrides: unknown } };
+  expect(replayed.after.divergences.length === 0 && JSON.stringify(replayed.after.overrides) ===
+    JSON.stringify(a.overrides), `replayed: ${JSON.stringify(replayed.after)} ${j}`);
   return undefined;
 });
 await check('camera flights', async () => {

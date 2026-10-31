@@ -24,7 +24,9 @@ import { TreePanel } from './tree-panel.ts';
 import { formatOf } from './formats.ts';
 import { fromFiles, fromUrl, pickFiles, saveFile, typedUrl, type Source } from './sources.ts';
 import { visibleBox, type Viewer } from './viewer.ts';
-import type { NodeModel, PathOverride } from './model.ts';
+import type { AppearanceOverride, NodeModel, PathOverride, Slot } from './model.ts';
+import { askAppearance } from './appearance-dialog.ts';
+import { closeMenu, showMenu } from './context-menu.ts';
 
 /** What the browser check reaches through `globalThis.ui`. */
 export interface Ui {
@@ -44,7 +46,7 @@ export interface Ui {
   showAll(): void;
   /**
    * The selection made transparent at an opacity, or with `undefined` back to the file's: an override of opacity on
-   * the nodes covering it, cleared below them (NodeModel.set).
+   * the nodes covering it (NodeModel.setOpacity).
    */
   setOpacity(alpha: number | undefined): void;
   zoomSelected(): void;
@@ -84,10 +86,12 @@ export interface Ui {
   setTree(t: { open?: boolean; detail?: boolean }): void;
   setPickLevel(level: PickLevel): void;
   setInstances(on: boolean): void;
-  /** Hides or shows nodes: an override of hiding on the nodes covering them, cleared below them (NodeModel.set). */
+  /** Hides or shows nodes: an override of hiding on the nodes covering them (NodeModel.setHidden). */
   setHidden(ids: readonly number[], hidden: boolean): void;
   /** Exactly these overrides of these slots, by path (a state's: NodeModel.setOverrides); the paths not found. */
-  setOverrides(list: readonly PathOverride[], slots?: readonly ('hidden' | 'alpha')[]): string[];
+  setOverrides(list: readonly PathOverride[], slots?: readonly Slot[]): string[];
+  /** One node's override exactly (the tree's Override Appearance...: NodeModel.setOverride), recorded. */
+  setOverride(id: number, o: AppearanceOverride): void;
   /** The tree panel's state. */
   tree(): { open: boolean; detail: boolean };
   /** No model to open at start: says how to open one. */
@@ -110,7 +114,8 @@ export type UiEvent =
   | { type: 'loaded'; report: Record<string, unknown> }
   | { type: 'select'; source: 'tree' | 'pick' | 'api' | 'id'; ids: readonly number[] }
   | { type: 'pick'; clientX: number; clientY: number; add: boolean; id?: number; point?: number[] }
-  | { type: 'status'; text: string; error: boolean };
+  | { type: 'status'; text: string; error: boolean }
+  | { type: 'appearance'; id: number; override: AppearanceOverride };
 
 /** How long the status line, and the details while nothing is selected, stay after they last changed. */
 const HIDE_AFTER = 5000;
@@ -532,12 +537,15 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     saving = last;
     saveControl?.enable(!!saving);
     panel?.dispose();
+    closeMenu();
     highlighter.clear();
     selected = [];
     viewer.triangleEdges.select([]);
     zoomSelected.disable();
     panel = new TreePanel(treeElement, nodes);
     panel.onSelect = (ids) => select(ids, 'tree');
+    panel.onContextMenu = (id, x, y) => showMenu(x, y, [{ label: 'Override Appearance...',
+      action: () => void editAppearance(id) }]);
     if (tree.detail) panel.setDetail(true);
     if (restore) {
       // Exactly the overrides before (the file's own hiding giving way to them).
@@ -595,6 +603,31 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   }
   // Hiding faces changes materials: the highlight comes off first, and goes back on after.
   const transparency = { opacity: 0.3 };
+  /** Override Appearance... (appearance-dialog.ts): one node's override set exactly, as chosen. */
+  const editAppearance = async (id: number) => {
+    const nodes = viewer.nodes, graph = viewer.graph;
+    const n = nodes?.nodes[id];
+    if (!nodes || !n) return;
+    // The file's opacity of what it draws: its part's or its face's material's; below an assembly, the first part's
+    // (and whether its parts differ).
+    const parts: number[] = [];
+    const under = (m: number): void => {
+      const k = nodes.nodes[m]!;
+      if (k.kind === 'part') parts.push(m);
+      else if (k.kind === 'assembly') for (const c of nodes.children(m)) under(c);
+    };
+    under(n.kind === 'assembly' || n.kind === 'part' ? id : n.parent);
+    const alphas = parts.map((p) => graph?.fileOpacity(nodes.nodes[p]!.object!, n.face?.source) ?? 1);
+    // Shown as it's chosen (not recorded); OK sets it (recorded), Cancel puts back what was there.
+    const own = nodes.ownOverride(id);
+    const live = (x: AppearanceOverride) => { if (viewer.nodes === nodes) appearance((m) => m.setOverride(id, x)); };
+    const o = await askAppearance({ name: n.name, own, inherited: nodes.inherited(id),
+      file: { alpha: alphas[0] ?? 1, varies: alphas.some((a) => a !== alphas[0]) },
+      lines: ['edges', 'curves', 'points'].includes(n.kind), preview: live });
+    if (viewer.nodes !== nodes) return;
+    if (o) ui.setOverride(id, o);
+    else live({ ...own });
+  };
   // A change of the appearance overrides: hiding (what's drawn) or opacity (materials).
   const appearance = (change: (model: NodeModel) => void) => {
     if (!panel) return;
@@ -606,7 +639,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     highlight();
     describe();
   };
-  const hide = (hidden: boolean, ids: readonly number[] = selected) => appearance((m) => m.set(ids, 'hidden', hidden));
+  const hide = (hidden: boolean, ids: readonly number[] = selected) => appearance((m) => m.setHidden(ids, hidden));
   /** What a click could select at the pick level: every part, assembly or face, edge and curve shown (Select all). */
   const everything = (): number[] | undefined => {
     const nodes = viewer.nodes;
@@ -642,7 +675,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     },
     // (Edges, curves and points aren't made transparent: a wireframe stays as it is.)
     setOpacity: (alpha) => {
-      if (selected.length) appearance((m) => m.set(selected, 'alpha', alpha ?? 1));
+      if (selected.length) appearance((m) => m.setOpacity(selected, alpha ?? 'default'));
     },
     showAll: () => appearance((m) => m.showAll()),
     zoomSelected: () => {
@@ -730,6 +763,10 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       highlight();
     },
     setHidden: (ids, hidden) => hide(hidden, ids),
+    setOverride: (id, o) => {
+      appearance((m) => m.setOverride(id, o));
+      hooks.onEvent?.({ type: 'appearance', id, override: o });
+    },
     setOverrides: (list, slots) => {
       let missing: string[] = [];
       appearance((m) => { missing = m.setOverrides(list, slots); });

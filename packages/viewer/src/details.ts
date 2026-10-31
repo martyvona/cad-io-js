@@ -73,7 +73,8 @@ export function details(model: NodeModel, ids: readonly number[]): string[] {
     // Its appearance: its own override, or inherited from a node above (model.ts).
     const own = model.ownOverride(n.id), look = model.look(n.id);
     if (look.hidden) out.push(own?.hidden ? 'Hidden' : 'Hidden (by a node above)');
-    if (look.alpha !== 1) out.push(`Opacity ${num(look.alpha)}${own?.alpha === undefined ? ' (from a node above)' : ''}`);
+    if (look.alpha !== undefined) out.push(`Opacity ${num(look.alpha)}${own?.transparent ? '' : ' (from a node above)'}`);
+    else if (own?.transparent === false) out.push("Opacity: the file's");
   }
   const m = measure(piecesOf(model, ids));
   if (m.meshes) out.push(`Triangles: ${num(m.triangles)} in ${plural(m.meshes, 'mesh', 'meshes')}, ` +

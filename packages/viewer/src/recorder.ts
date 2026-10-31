@@ -41,6 +41,7 @@ import { nodeForPick } from './selection.ts';
 import { setSideWidth, sideWidth } from './side-handle.ts';
 import type { Ui, UiEvent } from './ui.ts';
 import { isStep, NOT_REPLAYED } from './replay-report.ts';
+import type { AppearanceOverride } from './model.ts';
 import type { CameraState } from './view-state.ts';
 import type { Viewer } from './viewer.ts';
 
@@ -53,6 +54,8 @@ export type RecordedEvent = { t: number } & (
   | { type: 'wheel'; x: number; y: number; deltaY: number; deltaMode: number }
   | { type: 'pick'; x: number; y: number; add: boolean; path: string | null; point?: number[] }
   | { type: 'select'; source: 'tree' | 'pick' | 'api' | 'id'; paths: string[] }
+  /** A node's appearance override set exactly (the tree's Override Appearance...). */
+  | { type: 'appearance'; path: string; override: AppearanceOverride }
   | { type: 'control'; path: string; value?: unknown }
   | { type: 'camera'; camera: CameraState }
   | { type: 'api'; method: string; args: unknown[] }
@@ -265,6 +268,8 @@ export class Recorder {
       const r = this.viewer.renderer.domElement.getBoundingClientRect();
       this.push({ type: 'pick', x: e.clientX - r.left, y: e.clientY - r.top, add: e.add,
         path: e.id !== undefined && model ? model.pathOf(e.id) : null, ...(e.point ? { point: e.point } : {}) });
+    } else if (e.type === 'appearance') {
+      if (model) this.push({ type: 'appearance', path: model.pathOf(e.id), override: e.override });
     } else this.push({ type: 'status', text: e.text, error: e.error });
   }
 }
@@ -411,6 +416,13 @@ export async function replay(rec: Recording, viewer: Viewer, ui: Ui, session: Se
     } else if (e.type === 'api') {
       await session.call(e.method, e.args);
       applied++;
+    } else if (e.type === 'appearance') {
+      const [id] = resolve([e.path]) as number[];
+      if (id === undefined) divergences.push(`${at}: no node at ${e.path}`);
+      else {
+        ui.setOverride(id, e.override);
+        applied++;
+      }
     } else if (e.type === 'select' && (e.source === 'tree' || e.source === 'id')) {
       // Selections by pick and through the interface come back with their pick and api events.
       ui.select(resolve(e.paths) as number[], e.source === 'id' ? 'id' : 'api');

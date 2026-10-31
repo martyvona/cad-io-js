@@ -125,6 +125,19 @@
     /* Failed to mesh (tree-panel.ts): red, a broken icon. */
     .tree-row.failed, .tree-icon.broken { color: var(--failed-fg); }
     .tree-row.hidden.failed { opacity: 0.6; }
+    /* Appearance overrides (tree-panel.ts): an eye after the name, crossed out for a hidden one. */
+    .tree-override { display: inline-flex; color: var(--icon); opacity: 0.85; }
+    /* Context menus (context-menu.ts). */
+    .cv-menu {
+      position: fixed; z-index: 2000; min-width: 160px; padding: 4px 0; color: var(--panel-fg);
+      background: var(--panel-bg); border: 1px solid var(--border); border-radius: 4px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4); font: 13px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    .cv-menu button {
+      display: block; width: 100%; padding: 4px 14px; color: inherit; background: none; border: 0; font: inherit;
+      text-align: left; cursor: pointer;
+    }
+    .cv-menu button:hover, .cv-menu button:focus { background: var(--button-hover); outline: none; }
     /* Modal dialogs (dialog.ts). */
     .cv-dialog {
       max-width: min(560px, calc(100% - 32px)); padding: 16px 20px; color: var(--panel-fg); background: var(--panel-bg);
@@ -149,6 +162,13 @@
       background: var(--input-bg); border: 1px solid var(--border); border-radius: 3px;
       font: 12px ui-monospace, Menlo, Consolas, monospace;
     }
+    .cv-dialog select { display: block; margin-top: 4px; padding: 4px 6px; color: var(--input-fg);
+      background: var(--input-bg); border: 1px solid var(--border); border-radius: 3px; font: inherit; }
+    .cv-dialog .alpha { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+    .cv-dialog .alpha input[type=range] { flex: 1; width: auto; margin: 0; padding: 0; }
+    .cv-dialog .alpha input[type=number] { flex: none; width: 72px; margin: 0; }
+    .cv-dialog .alpha input:disabled { opacity: 0.6; }
+    .cv-dialog .note { margin: 4px 0 0; font-size: 12px; color: var(--muted); }
     .cv-dialog .buttons { display: flex; flex-direction: row-reverse; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
     .cv-dialog button {
       padding: 5px 14px; color: var(--panel-fg); background: var(--button-bg); border: 1px solid var(--border);

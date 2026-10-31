@@ -1,6 +1,7 @@
 // Modal dialogs (the user, 2026-10-25; CLAUDE.md, "The viewer"): the native <dialog> shown with showModal(), so the
 // page behind is inert and Escape closes it, one at a time, removed when closed. A message with buttons, and a URL to
-// type or paste, and About (about.ts). Styled in index.html (.cv-dialog).
+// type or paste, and About (about.ts), or controls of the caller's own (appearance-dialog.ts). Styled in index.html
+// (.cv-dialog).
 
 export interface DialogButton {
   label: string;
@@ -23,6 +24,8 @@ export interface DialogOptions {
   buttons: DialogButton[];
   /** Drawn as an error. */
   error?: boolean;
+  /** Controls of the caller's own, after the body (Override Appearance...: appearance-dialog.ts). */
+  content?: HTMLElement;
   /** A text field (its value is what `showDialog` resolves to with, as `input`), for `askUrl`. */
   input?: { label: string; value?: string; placeholder?: string;
     /** Several lines (a textarea: pasted lines kept; ctrl/cmd-Enter presses the primary button), for Select by ID. */
@@ -80,6 +83,7 @@ export function showDialog(o: DialogOptions): Promise<DialogResult> {
     box.append(table);
     form.append(box);
   }
+  if (o.content) form.append(o.content);
   let field: HTMLInputElement | HTMLTextAreaElement | undefined;
   if (o.input) {
     const label = document.createElement('label');
@@ -132,7 +136,8 @@ export function showDialog(o: DialogOptions): Promise<DialogResult> {
         ...(field ? { input: field.value.trim() } : {}) });
     });
     dialog.showModal();
-    (field ?? buttons.querySelector<HTMLButtonElement>('button.primary'))?.focus();
+    (field ?? o.content?.querySelector<HTMLElement>('select, input') ??
+      buttons.querySelector<HTMLButtonElement>('button.primary'))?.focus();
   });
 }
 

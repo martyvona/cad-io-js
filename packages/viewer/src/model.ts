@@ -14,8 +14,9 @@
 // Appearance (the user, 2026-10-31: hiding and transparency one mechanism): a node may have an AppearanceOverride,
 // whose slots (hidden, alpha) hold for it and for every node below it that doesn't set the same slot itself; the
 // file's hidden placements start with `hidden: true`. Hide, Show and the opacity buttons collapse the nodes they're
-// given to the fewest that cover them (a node whose children are all given stands for them), set the slot there and
-// clear it below. A placement draws as its overrides resolve: its group and line objects' `visible`, and its faces'
+// given to the fewest that cover them (a node whose children are all given stands for them) and set the slot there,
+// leaving the overrides below as they are (the user, 2026-10-31: first cleared below); the tree's Override
+// Appearance... sets one node's exactly. A placement draws as its overrides resolve: its group and line objects' `visible`, and its faces'
 // materials through the scene graph (Looks), per placement (before 2026-10-31 a face's hiding was its part's, in
 // every placement). Detail nodes' overrides are kept on their part by segment, so they outlast the detail nodes
 // (made again when a mesh arrives) and can be set before the mesh is there.
@@ -50,9 +51,10 @@ export interface ViewNode {
 
 /**
  * A node's own appearance, each slot inherited by the nodes below it that don't set it: hidden (true) or shown
- * (false), and an opacity, `alpha` (1 the file's own opacity).
+ * (false); and opacity: `transparent` true at `alpha` (0 to 1), false the file's own opacity (the user,
+ * 2026-10-31: first `alpha` alone, 1 meaning the file's). Either absent: inherited.
  */
-export interface AppearanceOverride { hidden?: boolean; alpha?: number }
+export interface AppearanceOverride { hidden?: boolean; transparent?: boolean; alpha?: number }
 
 /** An override as states and links name it: the node's path and its slots. */
 export interface PathOverride extends AppearanceOverride { path: string }
@@ -72,10 +74,23 @@ export interface Looks {
   setLook(group: THREE.Object3D, look: PlacementLook): void;
 }
 
-type Slot = keyof AppearanceOverride;
+/** What a node draws with, its overrides resolved: hidden or not, and an opacity (absent: the file's). */
+export interface Look { hidden: boolean; alpha?: number }
+
+/** The slots a change or a state sets: hiding, or opacity (`transparent` with its `alpha`). */
+export type Slot = 'hidden' | 'opacity';
 const LINES = ['edges', 'curves', 'points'];
-/** A slot's value when nothing sets it. */
-const DEFAULT: Required<AppearanceOverride> = { hidden: false, alpha: 1 };
+/** An override's fields of a slot. */
+const FIELDS: Record<Slot, (keyof AppearanceOverride)[]> = { hidden: ['hidden'], opacity: ['transparent', 'alpha'] };
+/** An override without a slot's fields. */
+const without = (o: AppearanceOverride | undefined, slot: Slot): AppearanceOverride => {
+  const out = { ...o };
+  for (const k of FIELDS[slot]) delete out[k];
+  return out;
+};
+/** An override's opacity as a look's: a number, or undefined for the file's; `null` when it doesn't set it. */
+const opacityOf = (o: AppearanceOverride | undefined): number | undefined | null => o?.transparent === undefined ? null
+  : o.transparent ? o.alpha ?? 1 : undefined;
 
 
 /** A name as a path segment: `%`, `/` and `:` escaped as in URLs. */
@@ -281,15 +296,21 @@ export class NodeModel {
     return this.segments.get(id)!;
   }
 
-  /** Each slot as the node draws with it: its own, else its nearest ancestor's that sets it, else the default. */
-  look(id: number): Required<AppearanceOverride> {
-    const out: AppearanceOverride = {};
+  /** What the node draws with: each slot its own, else its nearest ancestor's that sets it, else the file's. */
+  look(id: number): Look {
+    let hidden: boolean | undefined, alpha: number | undefined | null = null;
     for (let n = this.nodes[id]; n; n = this.nodes[n.parent]) {
       const o = this.ownOverride(n.id);
-      out.hidden ??= o?.hidden;
-      out.alpha ??= o?.alpha;
+      hidden ??= o?.hidden;
+      if (alpha === null) alpha = opacityOf(o);
     }
-    return { hidden: out.hidden ?? DEFAULT.hidden, alpha: out.alpha ?? DEFAULT.alpha };
+    return { hidden: hidden ?? false, ...(alpha === null || alpha === undefined ? {} : { alpha }) };
+  }
+
+  /** What a node inherits: its parent's look (the file's, at the top). */
+  inherited(id: number): Look {
+    const p = this.nodes[id]!.parent;
+    return p >= 0 ? this.look(p) : { hidden: false };
   }
 
   /** Hidden itself or through an ancestor (its look). */
@@ -297,10 +318,12 @@ export class NodeModel {
     return this.look(id).hidden;
   }
 
-  /** A node's override, slot by slot (a slot absent removes it; an override with none goes). */
+  /** A node's override, field by field (a field absent removes it; an override with none goes). */
   private put(id: number, o: AppearanceOverride): void {
     const n = this.nodes[id]!;
     const kept = Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as AppearanceOverride;
+    // (An alpha only with transparent: true.)
+    if (kept.transparent !== true) delete kept.alpha;
     const empty = !Object.keys(kept).length;
     if (n.kind === 'assembly' || n.kind === 'part') {
       if (empty) delete n.override;
@@ -312,17 +335,15 @@ export class NodeModel {
     else (part.detailOverrides ??= new Map()).set(seg, kept);
   }
 
-  /** A slot cleared from every override below a node (a part's detail included). */
-  private clearBelow(id: number, slot: Slot): void {
-    const n = this.nodes[id]!;
-    if (n.kind === 'assembly') for (const c of n.children ?? []) {
-      const o = this.nodes[c]!.override;
-      if (o) this.put(c, { ...o, [slot]: undefined });
-      this.clearBelow(c, slot);
-    } else if (n.kind === 'part') for (const [seg, o] of [...n.detailOverrides ?? []]) {
-      const kept = { ...o, [slot]: undefined };
-      if (kept.hidden === undefined && kept.alpha === undefined) n.detailOverrides!.delete(seg);
-      else n.detailOverrides!.set(seg, kept);
+  /** A slot cleared from every override (show all, a state's). */
+  private clearAll(slot: Slot): void {
+    for (const n of this.nodes) {
+      if (n.override) this.put(n.id, without(n.override, slot));
+      for (const [seg, o] of [...n.detailOverrides ?? []]) {
+        const kept = without(o, slot);
+        if (Object.keys(kept).length) n.detailOverrides!.set(seg, kept);
+        else n.detailOverrides!.delete(seg);
+      }
     }
   }
 
@@ -353,20 +374,37 @@ export class NodeModel {
   }
 
   /**
-   * Sets a slot on the nodes covering these (`cover`), clearing it below them: hidden true or false, an alpha (1 the
-   * file's). Where a node would inherit the value anyway, its own slot is cleared rather than set, so the overrides
-   * stay the fewest that draw the same.
+   * Hides or shows the nodes covering these (`cover`), the overrides below them left as they are. Where a node would
+   * inherit the value anyway, its own is cleared rather than set, so the overrides stay the fewest that draw the same.
    */
-  set<S extends Slot>(ids: Iterable<number>, slot: S, value: Required<AppearanceOverride>[S]): void {
-    const nodes = this.cover(ids);
+  setHidden(ids: Iterable<number>, hidden: boolean): void {
+    this.change(ids, 'hidden', (id) => this.inherited(id).hidden === hidden ? {} : { hidden });
+  }
+
+  /**
+   * Makes the nodes covering these transparent at `alpha`, or with 'default' back to the file's opacity, likewise.
+   */
+  setOpacity(ids: Iterable<number>, alpha: number | 'default'): void {
+    const want = alpha === 'default' ? undefined : alpha;
+    this.change(ids, 'opacity', (id) => this.inherited(id).alpha === want ? {}
+      : want === undefined ? { transparent: false } : { transparent: true, alpha: want });
+  }
+
+  private change(ids: Iterable<number>, slot: Slot, value: (id: number) => AppearanceOverride): void {
     const parts = new Set<number>();
-    for (const id of nodes) {
-      this.clearBelow(id, slot);
-      const n = this.nodes[id]!;
-      const inherited = n.parent >= 0 ? this.look(n.parent)[slot] : DEFAULT[slot];
-      this.put(id, { ...this.ownOverride(id), [slot]: inherited === value ? undefined : value });
+    for (const id of this.cover(ids)) {
+      this.put(id, { ...without(this.ownOverride(id), slot), ...value(id) });
       this.partsUnder(id, parts);
     }
+    for (const p of parts) this.applyPart(p);
+  }
+
+  /** One node's override exactly (Override Appearance...: each field as given, absent ones inherited). */
+  setOverride(id: number, o: AppearanceOverride): void {
+    if (!this.nodes[id]) return;
+    this.put(id, o);
+    const parts = new Set<number>();
+    this.partsUnder(id, parts);
     for (const p of parts) this.applyPart(p);
   }
 
@@ -380,10 +418,7 @@ export class NodeModel {
 
   /** Shows everything: every hidden slot cleared, the file's hidden placements' included. */
   showAll(): void {
-    for (const n of this.nodes) {
-      if (n.override) this.put(n.id, { ...n.override, hidden: undefined });
-      if (n.kind === 'part') this.clearBelow(n.id, 'hidden');
-    }
+    this.clearAll('hidden');
     this.applyAll();
   }
 
@@ -401,20 +436,16 @@ export class NodeModel {
   }
 
   /**
-   * Exactly these overrides (a state's: the others cleared), each set as it is. A path below a part names its detail
-   * by segment, so it can be set before the part's mesh (and so its detail nodes) arrives. Returns the paths that
-   * name nothing.
+   * Exactly these overrides of these slots (a state's: the others cleared), each set as it is. A path below a part
+   * names its detail by segment, so it can be set before the part's mesh (and so its detail nodes) arrives. Returns
+   * the paths that name nothing.
    */
-  setOverrides(list: readonly PathOverride[], slots: readonly Slot[] = ['hidden', 'alpha']): string[] {
-    for (const n of this.nodes) {
-      for (const slot of slots) {
-        if (n.override) this.put(n.id, { ...n.override, [slot]: undefined });
-        if (n.kind === 'part') this.clearBelow(n.id, slot);
-      }
-    }
+  setOverrides(list: readonly PathOverride[], slots: readonly Slot[] = ['hidden', 'opacity']): string[] {
+    for (const slot of slots) this.clearAll(slot);
     const missing: string[] = [];
     for (const { path, ...o } of list) {
-      const wanted = Object.fromEntries(slots.flatMap((k) => o[k] === undefined ? [] : [[k, o[k]]]));
+      const wanted = Object.fromEntries(slots.flatMap((k) => FIELDS[k]).flatMap((k) => o[k] === undefined ? []
+        : [[k, o[k]]])) as AppearanceOverride;
       if (!Object.keys(wanted).length) continue;
       const id = this.find(path);
       if (id !== undefined) {
@@ -425,7 +456,9 @@ export class NodeModel {
       const part = cut > 0 ? this.find(path.slice(0, cut)) : undefined;
       if (part !== undefined && this.nodes[part]!.kind === 'part' && (/^face#\d+$/.test(seg) || LINES.includes(seg))) {
         const map = (this.nodes[part]!.detailOverrides ??= new Map());
-        map.set(seg, { ...map.get(seg), ...wanted });
+        const merged = { ...map.get(seg), ...wanted };
+        if (merged.transparent !== true) delete merged.alpha;
+        map.set(seg, merged);
       } else missing.push(path);
     }
     this.applyAll();
@@ -443,14 +476,15 @@ export class NodeModel {
   private applyPart(id: number): void {
     const n = this.nodes[id]!, group = n.object!;
     const look = this.look(id);
-    const alpha = (a: number) => (a === 1 ? {} : { alpha: a });
+    const alpha = (a: number | undefined) => (a === undefined ? {} : { alpha: a });
     let shown = !look.hidden;
     const faces = new Map<number, { hidden: boolean; alpha?: number }>();
     for (const [seg, o] of n.detailOverrides ?? []) {
       const m = /^face#(\d+)$/.exec(seg);
       if (!m) continue;
       const hidden = o.hidden ?? look.hidden;
-      faces.set(Number(m[1]), { hidden, ...alpha(o.alpha ?? look.alpha) });
+      const own = opacityOf(o);
+      faces.set(Number(m[1]), { hidden, ...alpha(own === null ? look.alpha : own) });
       shown ||= !hidden;
     }
     for (const m of group.children) for (const c of m.children) if (LINES.includes(c.name)) {

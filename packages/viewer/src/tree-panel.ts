@@ -1,8 +1,10 @@
 // The assembly tree panel: the node model (model.ts) through the tree view (tree-view.ts), with an icon per kind,
-// hidden nodes greyed, and the selection (the user, 2026-10-24; CLAUDE.md, "The viewer").
+// hidden nodes greyed, and the selection (the user, 2026-10-24; CLAUDE.md, "The viewer"); an eye after the name of a
+// node with an appearance override of its own, and a context menu on a row (right-click, or a long press on a touch
+// screen, where browsers may not send one: iOS) (the user, 2026-10-31).
 
 import { HeadlessTreeView } from './headless-tree-view.ts';
-import type { Kind, NodeModel } from './model.ts';
+import type { AppearanceOverride, Kind, NodeModel } from './model.ts';
 import type { TreeView } from './tree-view.ts';
 
 export const ROW_HEIGHT = 18;
@@ -25,12 +27,31 @@ export const ICONS: Record<Kind, string> = {
 export const BROKEN_ICON = svg('<path d="M2 12l3-9h4l-1.5 3 2 2-1.5 4z" fill="currentColor" fill-opacity="0.25"/>' +
   '<path d="M10 3h4l-3 9H8.5l1.5-4-2-2z"/>');
 
+/** An eye, for a node with an appearance override (crossed out when the override hides it). */
+export const EYE_ICON = svg('<path d="M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8 12.1 12.5 8 12.5 1.5 8 1.5 8z"/>' +
+  '<circle cx="8" cy="8" r="2"/>');
+export const EYE_OFF_ICON = svg('<path d="M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8 12.1 12.5 8 12.5 1.5 8 1.5 8z"/>' +
+  '<path d="M2.5 13.5l11-11"/>');
+
+/** An override in words, for a row's title: `hidden; opacity 0.3`. */
+export function overrideText(o: AppearanceOverride): string {
+  return [o.hidden === true ? 'hidden' : o.hidden === false ? 'shown' : '', o.transparent === true
+    ? `opacity ${o.alpha ?? 1}` : o.transparent === false ? "the file's opacity" : ''].filter(Boolean).join('; ');
+}
+
+/** How long a touch stays on a row, unmoved, to open its context menu (ms). */
+const LONG_PRESS_MS = 550;
+
 export class TreePanel {
   readonly model: NodeModel;
   private readonly view: TreeView;
   private selection: number[] = [];
   /** The selection changed in the tree. */
   onSelect?: (ids: readonly number[]) => void;
+  /** A row's context menu asked for, at a point of the page (client pixels). */
+  onContextMenu?: (id: number, x: number, y: number) => void;
+  private readonly container: HTMLElement;
+  private readonly listeners: [string, EventListener][] = [];
 
   constructor(container: HTMLElement, model: NodeModel) {
     this.model = model;
@@ -56,17 +77,56 @@ export class TreePanel {
         content.innerHTML = `<span class="tree-icon${failure ? ' broken' : ''}">${failure ? BROKEN_ICON
           : ICONS[n.kind]}</span><span class="tree-name"></span>`;
         content.lastElementChild!.textContent = n.name;
+        const own = model.ownOverride(n.id);
+        if (own) content.insertAdjacentHTML('beforeend', `<span class="tree-override">${own.hidden ? EYE_OFF_ICON
+          : EYE_ICON}</span>`);
         const row = content.parentElement!;
         row.classList.toggle('hidden', model.hiddenInTree(n.id));
         row.classList.toggle('failed', failure !== undefined);
         row.title = `${n.kind}: ${n.name}${failure === 'failed' ? ' (failed to mesh: its outline drawn in red)'
-          : failure === 'partly' ? ' (some faces failed to mesh)' : ''}`;
+          : failure === 'partly' ? ' (some faces failed to mesh)' : ''}${own ? ` (appearance overridden: ${
+          overrideText(own)})` : ''}`;
       },
       onSelectionChange: (ids) => {
         this.selection = ids.map(num);
         this.onSelect?.(this.selection);
       },
     });
+    this.container = container;
+    // A row's context menu: right-click, or a long press with a finger.
+    const rowAt = (target: EventTarget | null) => {
+      const row = (target as HTMLElement | null)?.closest?.<HTMLElement>('.tree-row');
+      return row?.dataset.id === undefined ? undefined : Number(row.dataset.id);
+    };
+    const on = (type: string, f: EventListener) => {
+      container.addEventListener(type, f);
+      this.listeners.push([type, f]);
+    };
+    on('contextmenu', (e) => {
+      const id = rowAt(e.target), m = e as MouseEvent;
+      if (id === undefined) return;
+      e.preventDefault();
+      this.onContextMenu?.(id, m.clientX, m.clientY);
+    });
+    let press: { timer: ReturnType<typeof setTimeout>; x: number; y: number } | undefined;
+    const cancel = () => {
+      if (press) clearTimeout(press.timer);
+      press = undefined;
+    };
+    on('pointerdown', (e) => {
+      const p = e as PointerEvent, id = rowAt(e.target);
+      cancel();
+      if (p.pointerType !== 'touch' || id === undefined) return;
+      press = { x: p.clientX, y: p.clientY, timer: setTimeout(() => {
+        press = undefined;
+        this.onContextMenu?.(id, p.clientX, p.clientY);
+      }, LONG_PRESS_MS) };
+    });
+    on('pointermove', (e) => {
+      const p = e as PointerEvent;
+      if (press && Math.hypot(p.clientX - press.x, p.clientY - press.y) > 8) cancel();
+    });
+    for (const type of ['pointerup', 'pointercancel', 'scroll']) on(type, cancel);
     // Two levels open: the file, and what it holds (often one top assembly, whose contents then show).
     this.view.expand([...model.roots, ...model.roots.flatMap((r) => model.children(r))].map(String));
   }
@@ -130,6 +190,7 @@ export class TreePanel {
   }
 
   dispose(): void {
+    for (const [type, f] of this.listeners) this.container.removeEventListener(type, f);
     this.view.dispose();
   }
 }

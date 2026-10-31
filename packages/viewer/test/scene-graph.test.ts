@@ -174,7 +174,7 @@ test('faces that failed to mesh: outlined in red per placement, marked failed, h
     // Hidden with its face, in its placement (the third's hidden with its placement, by the file); shown again by
     // show all.
     const outline = (o: THREE.Object3D) => o.children.find((c) => c.name === 'outline')!.visible;
-    model.set([failed], 'hidden', true);
+    model.setHidden([failed], true);
     assert.deepEqual(objs.map(outline), [false, true, false]);
     model.showAll();
     assert.deepEqual(objs.map(outline), [true, true, true]);

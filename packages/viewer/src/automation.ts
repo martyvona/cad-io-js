@@ -120,7 +120,8 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
     const list = viewer.nodes?.overrides() ?? [];
     return { hidden: list.filter((o) => o.hidden === true).map((o) => o.path),
       shown: list.filter((o) => o.hidden === false).map((o) => o.path),
-      opacity: list.flatMap((o) => o.alpha === undefined ? [] : [{ path: o.path, alpha: o.alpha }]) };
+      opacity: list.flatMap((o) => o.transparent === undefined ? [] : [{ path: o.path,
+        alpha: o.transparent ? o.alpha ?? 1 : 'default' as const }]) };
   };
 
   const state = (): FullState => {
@@ -169,7 +170,9 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
     if (st.hidden || st.shown) problems.push(...ui.setOverrides([...(st.hidden ?? []).map((path) => ({ path,
       hidden: true })), ...(st.shown ?? []).map((path) => ({ path, hidden: false }))], ['hidden']).map(
       (p) => `no node at ${p}`));
-    if (st.opacity) problems.push(...ui.setOverrides(st.opacity, ['alpha']).map((p) => `no node at ${p}`));
+    if (st.opacity) problems.push(...ui.setOverrides(st.opacity.map(({ path, alpha }) => ({ path,
+      ...(alpha === 'default' ? { transparent: false } : { transparent: true, alpha }) })), ['opacity']).map(
+      (p) => `no node at ${p}`));
     if (st.selected) {
       const { ids, missing } = resolve(st.selected);
       problems.push(...missing);

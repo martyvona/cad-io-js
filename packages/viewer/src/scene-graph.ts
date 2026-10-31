@@ -337,6 +337,17 @@ export class SceneGraph implements Looks {
   }
 
   /**
+   * The file's own opacity of a placement (its part group's), or of one of its faces: its material's (1 without one).
+   */
+  fileOpacity(group: THREE.Object3D, source?: number): number {
+    const part = group.userData.part as number | undefined;
+    const p = part === undefined ? undefined : this.placements.get(part)?.find((q) => q.group === group);
+    if (!p) return 1;
+    const m = (source === undefined ? undefined : p.instance.faceMaterials.get(source)) ?? p.instance.material;
+    return m === undefined ? 1 : this.scene.materials[m]?.opacity ?? 1;
+  }
+
+  /**
    * A placement's look (its part group's: model.ts resolves it), its faces' materials and failed outlines set by it;
    * a group that's hidden whole keeps its materials until it's shown.
    */
