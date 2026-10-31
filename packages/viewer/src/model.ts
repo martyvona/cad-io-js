@@ -51,10 +51,16 @@ export interface ViewNode {
 
 /**
  * A node's own appearance, each slot inherited by the nodes below it that don't set it: hidden (true) or shown
- * (false); and opacity: `transparent` true at `alpha` (0 to 1), false the file's own opacity (the user,
- * 2026-10-31: first `alpha` alone, 1 meaning the file's). Either absent: inherited.
+ * (false); opacity: `transparent` true at `alpha` (0 to 1), false the file's own opacity (the user,
+ * 2026-10-31: first `alpha` alone, 1 meaning the file's); and its triangles' edges drawn (true) or not (false), where
+ * Rendering's Triangle edges decides when nothing sets it (the user, 2026-10-31). Absent: inherited.
  */
-export interface AppearanceOverride { hidden?: boolean; transparent?: boolean; alpha?: number }
+export interface AppearanceOverride {
+  hidden?: boolean;
+  transparent?: boolean;
+  alpha?: number;
+  triangleEdges?: boolean;
+}
 
 /** An override as states and links name it: the node's path and its slots. */
 export interface PathOverride extends AppearanceOverride { path: string }
@@ -74,14 +80,25 @@ export interface Looks {
   setLook(group: THREE.Object3D, look: PlacementLook): void;
 }
 
-/** What a node draws with, its overrides resolved: hidden or not, and an opacity (absent: the file's). */
-export interface Look { hidden: boolean; alpha?: number }
+/**
+ * What a node draws with, its overrides resolved: hidden or not, an opacity (absent: the file's), and its triangles'
+ * edges on or off (absent: as Rendering's Triangle edges says).
+ */
+export interface Look { hidden: boolean; alpha?: number; triangleEdges?: boolean }
 
-/** The slots a change or a state sets: hiding, or opacity (`transparent` with its `alpha`). */
-export type Slot = 'hidden' | 'opacity';
+/**
+ * Triangle edges a placement's overrides ask for (the triangle-edges.ts draws them): the placement's own resolved
+ * value (absent: none above it sets it), and its faces' where theirs differ. On its part group's
+ * `userData.triangleEdges`.
+ */
+export interface TriangleEdgesLook { whole?: boolean; faces?: ReadonlyMap<number, boolean> }
+
+/** The slots a change or a state sets: hiding, opacity (`transparent` with its `alpha`), triangle edges. */
+export type Slot = 'hidden' | 'opacity' | 'triangleEdges';
 const LINES = ['edges', 'curves', 'points'];
 /** An override's fields of a slot. */
-const FIELDS: Record<Slot, (keyof AppearanceOverride)[]> = { hidden: ['hidden'], opacity: ['transparent', 'alpha'] };
+const FIELDS: Record<Slot, (keyof AppearanceOverride)[]> = { hidden: ['hidden'], opacity: ['transparent', 'alpha'],
+  triangleEdges: ['triangleEdges'] };
 /** An override without a slot's fields. */
 const without = (o: AppearanceOverride | undefined, slot: Slot): AppearanceOverride => {
   const out = { ...o };
@@ -298,13 +315,21 @@ export class NodeModel {
 
   /** What the node draws with: each slot its own, else its nearest ancestor's that sets it, else the file's. */
   look(id: number): Look {
-    let hidden: boolean | undefined, alpha: number | undefined | null = null;
+    let hidden: boolean | undefined, alpha: number | undefined | null = null, edges: boolean | undefined;
     for (let n = this.nodes[id]; n; n = this.nodes[n.parent]) {
       const o = this.ownOverride(n.id);
       hidden ??= o?.hidden;
+      edges ??= o?.triangleEdges;
       if (alpha === null) alpha = opacityOf(o);
     }
-    return { hidden: hidden ?? false, ...(alpha === null || alpha === undefined ? {} : { alpha }) };
+    return { hidden: hidden ?? false, ...(alpha === null || alpha === undefined ? {} : { alpha }),
+      ...(edges === undefined ? {} : { triangleEdges: edges }) };
+  }
+
+  /** Whether any node sets triangle edges (else Rendering's Triangle edges alone decides: triangle-edges.ts). */
+  hasTriangleEdges(): boolean {
+    return this.nodes.some((n) => n.override?.triangleEdges !== undefined ||
+      [...n.detailOverrides?.values() ?? []].some((o) => o.triangleEdges !== undefined));
   }
 
   /** What a node inherits: its parent's look (the file's, at the top). */
@@ -440,7 +465,8 @@ export class NodeModel {
    * names its detail by segment, so it can be set before the part's mesh (and so its detail nodes) arrives. Returns
    * the paths that name nothing.
    */
-  setOverrides(list: readonly PathOverride[], slots: readonly Slot[] = ['hidden', 'opacity']): string[] {
+  setOverrides(list: readonly PathOverride[],
+    slots: readonly Slot[] = ['hidden', 'opacity', 'triangleEdges']): string[] {
     for (const slot of slots) this.clearAll(slot);
     const missing: string[] = [];
     for (const { path, ...o } of list) {
@@ -479,14 +505,20 @@ export class NodeModel {
     const alpha = (a: number | undefined) => (a === undefined ? {} : { alpha: a });
     let shown = !look.hidden;
     const faces = new Map<number, { hidden: boolean; alpha?: number }>();
+    const edges = new Map<number, boolean>();
     for (const [seg, o] of n.detailOverrides ?? []) {
       const m = /^face#(\d+)$/.exec(seg);
       if (!m) continue;
+      if (o.triangleEdges !== undefined) edges.set(Number(m[1]), o.triangleEdges);
+      if (o.hidden === undefined && o.transparent === undefined) continue;
       const hidden = o.hidden ?? look.hidden;
       const own = opacityOf(o);
       faces.set(Number(m[1]), { hidden, ...alpha(own === null ? look.alpha : own) });
       shown ||= !hidden;
     }
+    const tri: TriangleEdgesLook = { ...(look.triangleEdges === undefined ? {} : { whole: look.triangleEdges }),
+      ...(edges.size ? { faces: edges } : {}) };
+    group.userData.triangleEdges = tri;
     for (const m of group.children) for (const c of m.children) if (LINES.includes(c.name)) {
       c.visible = !(n.detailOverrides?.get(c.name)?.hidden ?? look.hidden);
       shown ||= c.visible;

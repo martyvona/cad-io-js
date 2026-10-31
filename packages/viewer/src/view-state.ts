@@ -11,11 +11,12 @@
 //   &ao=0  &smaa=0  &edges=0  &triangleEdges=all  &shininess=50  &aoIntensity=3  &aoRadius=16  &aoQuality=Low
 //   &edgeStyle=thin  &edgeWidth=2  &specular=0.3  &ambient=1  &light=2.5  &capStyle=parts  &hatchWidth=2
 //   &tree=0  &detail=1  &pick=detail  &instances=1
-//   &hide=<path>  &show=<path>  &alpha=0.3:<path>  &alpha=default:<path>  &select=<path>     each repeated
+//   &hide=<path>  &show=<path>  &alpha=0.3:<path>  &alpha=default:<path>  &tri=on:<path>  &select=<path>
+//                                              each repeated
 //
-// hide=, show= and alpha= are the appearance overrides (model.ts): a node hidden, shown within something hidden,
-// and its opacity (`default` the file's own), each holding for what's below it unless overridden there; together,
-// exactly these (the others gone).
+// hide=, show=, alpha= and tri= are the appearance overrides (model.ts): a node hidden, shown within something
+// hidden, its opacity (`default` the file's own), its triangle edges on or off, each holding for what's below it
+// unless overridden there; together, exactly these (the others gone).
 //
 // Everything is optional: what's absent is left as it is. Numbers are written with at most 6 decimals.
 
@@ -56,6 +57,8 @@ export interface ViewState {
   shown?: string[];
   /** Nodes with an opacity override (`default` the file's own): exactly these. */
   opacity?: { path: string; alpha: number | 'default' }[];
+  /** Nodes with a triangle edges override: exactly these. */
+  triangleEdges?: { path: string; on: boolean }[];
   selected?: string[];
   /**
    * The meshing settings (B-Rep Meshing's, as tessellation.ts has them): for the next model meshed or Mesh again,
@@ -104,6 +107,7 @@ export function toQuery(s: ViewState): [string, string][] {
   if (s.instances !== undefined) q.push(['instances', s.instances ? '1' : '0']);
   for (const p of s.hidden ?? []) q.push(['hide', p]);
   for (const p of s.shown ?? []) q.push(['show', p]);
+  for (const o of s.triangleEdges ?? []) q.push(['tri', `${o.on ? 'on' : 'off'}:${o.path}`]);
   for (const o of s.opacity ?? []) q.push(['alpha', `${o.alpha === 'default' ? 'default' : num(o.alpha)}:${o.path}`]);
   for (const p of s.selected ?? []) q.push(['select', p]);
   return q;
@@ -185,6 +189,15 @@ export function fromQuery(params: URLSearchParams): { state: ViewState; problems
   if (instances !== undefined) state.instances = instances;
   if (params.has('hide')) state.hidden = params.getAll('hide');
   if (params.has('show')) state.shown = params.getAll('show');
+  if (params.has('tri')) {
+    state.triangleEdges = [];
+    for (const t of params.getAll('tri')) {
+      const k = t.indexOf(':'), word = t.slice(0, k);
+      if (k < 0 || (word !== 'on' && word !== 'off') || k === t.length - 1) {
+        problems.push(`tri: <on or off>:<path> expected: ${t}`);
+      } else state.triangleEdges.push({ path: t.slice(k + 1), on: word === 'on' });
+    }
+  }
   if (params.has('alpha')) {
     state.opacity = [];
     for (const a of params.getAll('alpha')) {

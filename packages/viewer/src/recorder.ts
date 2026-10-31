@@ -461,9 +461,10 @@ export async function replay(rec: Recording, viewer: Viewer, ui: Ui, session: Se
       const text = (key: string, v: unknown) => JSON.stringify((key === 'hidden' || key === 'shown') &&
         Array.isArray(v) ? [...v].sort() : v);
       for (const key of ['cut', 'caps', 'render', 'meshing', 'tree', 'pick', 'instances', 'hidden', 'shown',
-        'opacity', 'selected']) {
-        // (Recordings before 2026-10-27 have no meshing, those before 2026-10-31 no shown nor opacity.)
-        if (e.state[key] === undefined && ['meshing', 'shown', 'opacity'].includes(key)) continue;
+        'opacity', 'triangleEdges', 'selected']) {
+        // (Recordings before 2026-10-27 have no meshing, those before 2026-10-31 no shown, opacity nor triangle
+        // edges.)
+        if (e.state[key] === undefined && ['meshing', 'shown', 'opacity', 'triangleEdges'].includes(key)) continue;
         // (The meshing settings recorded only: those before 2026-10-28 have no timeout.)
         if (key === 'meshing') now[key] = Object.fromEntries(Object.keys(e.state[key] as object).map((k) =>
           [k, (now[key] as Record<string, unknown>)[k]]));

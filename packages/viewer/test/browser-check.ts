@@ -814,9 +814,11 @@ await check('hide others and transparency', async () => {
   return undefined;
 });
 // The tree's context menu and Override Appearance... (the user, 2026-10-31): right-click an assembly's row, the
-// menu's one item, the dialog's controls (Inherit at first, the alpha shown and not editable; Transparent starting
-// from it), its override exactly; the eye on the row; a child's dialog showing what it inherits; a long press on a
-// touch screen opening the menu too; recorded and replayed in a fresh page with the same overrides.
+// menu's one item, the panel's controls (Inherit at first, the alpha shown and not editable; Transparent starting
+// from it), each change taking effect at once (no OK or Cancel), the eye on the row; asked for a child while it's
+// open, the same panel showing the child (what it inherits), not a second; changed elsewhere (Hide selected), shown
+// again; triangle edges on through it; not modal, so the page stays usable; closed by its x and by Escape; a
+// long press on a touch screen opening the menu too; recorded and replayed in a fresh page with the same overrides.
 await check('override appearance', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check&record`, `(async () => {
     const m = ui.panel().model;
@@ -836,58 +838,67 @@ await check('override appearance', async () => {
       return [...document.querySelectorAll('.cv-menu button')].map((x) => x.textContent).concat(allowed ? ['shown']
         : []);
     };
-    const dialog = async (id) => {
+    const panel = async (id) => {
       await menuFor(id);
       document.querySelector('.cv-menu button').click();
       await frame();
-      const d = document.querySelector('dialog.cv-dialog');
-      const [visibility, opacity] = d.querySelectorAll('select');
+      const d = document.querySelector('dialog.cv-dialog.floating');
+      const [visibility, opacity, edges] = d.querySelectorAll('select');
       const [slider, number] = d.querySelectorAll('.alpha input');
-      return { d, visibility, opacity, slider, number, read: () => ({ visibility: visibility.value,
-        opacity: opacity.value, options: [...visibility.options, ...opacity.options].map((o) => o.text),
-        disabled: slider.disabled && number.disabled, value: number.value }) };
+      const change = (el, v) => { el.value = v; el.dispatchEvent(new Event('change')); };
+      return { d, visibility, opacity, edges, slider, number, change, read: () => ({ title: d.querySelector('h2')
+        .textContent, visibility: visibility.value, opacity: opacity.value, edges: edges.value,
+        options: [...visibility.options, ...opacity.options, ...edges.options].map((o) => o.text),
+        disabled: slider.disabled && number.disabled, value: number.value,
+        buttons: [...d.querySelectorAll('button')].map((x) => x.getAttribute('aria-label') ?? x.textContent) }) };
     };
     const items = await menuFor(asm);
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     const closed = !document.querySelector('.cv-menu');
-    let c = await dialog(asm);
+    let c = await panel(asm);
     const first = c.read();
-    c.opacity.value = 'transparent';
-    c.opacity.dispatchEvent(new Event('change'));
+    const modal = c.d.matches(':modal');
+    c.change(c.opacity, 'transparent');
     const switched = c.read();
+    // The box typed in: at once, before anything else.
     c.number.value = '0.4';
     c.number.dispatchEvent(new Event('input'));
-    c.visibility.value = 'hide';
-    c.visibility.dispatchEvent(new Event('change'));
-    // Shown at once, before OK (the user, 2026-10-31).
-    const live = JSON.stringify(m.look(asm));
-    c.d.querySelector('button.primary').click();
-    await frame();
+    const live = m.look(asm).alpha;
+    c.number.dispatchEvent(new Event('change'));
+    c.change(c.visibility, 'hide');
     const own = m.ownOverride(asm);
     const eye = !!(await rowOf(asm)).querySelector('.tree-override');
     const childHidden = m.hiddenInTree(child);
-    c = await dialog(child);
+    // The child, the panel open: the same panel, showing the child.
+    c = await panel(child);
+    const panels = document.querySelectorAll('dialog.cv-dialog').length;
     const inChild = c.read();
-    c.opacity.value = 'transparent';
-    c.opacity.dispatchEvent(new Event('change'));
+    c.change(c.opacity, 'transparent');
     const childSwitched = c.read();
-    c.opacity.value = 'default';
-    c.opacity.dispatchEvent(new Event('change'));
+    c.change(c.opacity, 'default');
     const childDefault = c.read();
-    c.visibility.value = 'show';
-    c.d.querySelector('button.primary').click();
-    await frame();
+    c.change(c.visibility, 'show');
+    c.change(c.edges, 'on');
+    // Drawn, Rendering's Triangle edges off: the child's placements' meshes only.
+    await cadViewer.idle();
+    const te = viewer.triangleEdges.group;
+    const wires = te.visible ? te.children.filter((w) => w.visible).length : 0;
+    let childMeshes = 0;
+    m.nodes[child].object.traverse((o) => { if (o.isMesh && o.userData.faceRanges) childMeshes++; });
     const childOwn = m.ownOverride(child);
     const childLook = m.look(child);
-    // Cancelled: nothing changes.
-    c = await dialog(child);
-    c.visibility.value = 'inherit';
-    c.visibility.dispatchEvent(new Event('change'));
-    const previewed = m.hiddenInTree(child);
-    c.d.querySelector('button[value=cancel]').click();
-    await frame();
-    const kept = previewed && JSON.stringify(m.ownOverride(child)) === JSON.stringify(childOwn) &&
-      !m.hiddenInTree(child);
+    // Changed elsewhere, the panel open on the child: shown again (hidden as its assembly is: its own cleared).
+    ui.select([child]);
+    ui.hideSelected();
+    const refreshed = c.read().visibility;
+    ui.showSelected();
+    const reshown = c.read().visibility;
+    // Closed by its x; opened again, by Escape.
+    c.d.querySelector('button.close').click();
+    const xClosed = !document.querySelector('dialog.cv-dialog');
+    c = await panel(child);
+    c.d.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    const escClosed = !document.querySelector('dialog.cv-dialog');
     // A long press with a finger.
     const row = await rowOf(child), b = row.getBoundingClientRect();
     row.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch', clientX: b.left + 20,
@@ -898,43 +909,59 @@ await check('override appearance', async () => {
     // (The rows were selected here through the interface, which replay doesn't repeat: none at the end.)
     ui.select([]);
     const st = cadViewer.state();
-    return { items, closed, first, switched, live, own, eye, childHidden, inChild, childSwitched, childDefault, childOwn,
-      childLook, kept,
-      pressed, overrides: { hidden: st.hidden, shown: st.shown, opacity: st.opacity }, rec: cadViewer.record(false) };
+    return { items, closed, first, modal, switched, live, own, eye, childHidden, panels, inChild, childSwitched,
+      childDefault, childOwn, childLook, wires, childMeshes, refreshed, reshown, xClosed, escClosed, pressed,
+      overrides: { hidden: st.hidden, shown: st.shown, opacity: st.opacity, triangleEdges: st.triangleEdges },
+      rec: cadViewer.record(false) };
   })()`) as { after: Record<string, unknown> & { overrides: unknown; rec: { events: { type: string }[] } } };
   const a = r.after;
   const j = JSON.stringify({ ...a, rec: undefined });
+  type Read = { title: string; visibility: string; opacity: string; edges: string; options: string[];
+    disabled: boolean; value: string; buttons: string[] };
   expect(JSON.stringify(a.items) === '["Override Appearance..."]' && !!a.closed, `the menu: ${j}`);
-  const first = a.first as { visibility: string; opacity: string; disabled: boolean; value: string };
-  expect(first.visibility === 'inherit' && first.opacity === 'inherit' && first.disabled && first.value === '1',
-    `the dialog at first: ${j}`);
-  const sw = a.switched as { disabled: boolean; value: string };
+  const first = a.first as Read;
+  expect(first.visibility === 'inherit' && first.opacity === 'inherit' && first.edges === 'inherit' &&
+    first.disabled && first.value === '1' && first.options.includes("Inherit (Rendering's: off)") &&
+    JSON.stringify(first.buttons) === '["Close"]' && a.modal === false, `the panel at first: ${j}`);
+  const sw = a.switched as Read;
   expect(!sw.disabled && sw.value === '1', `transparent, from the alpha shown: ${j}`);
-  expect(a.live === '{"hidden":true,"alpha":0.4}', `not shown at once: ${j}`);
+  expect(a.live === 0.4, `not at once: ${j}`);
   expect(JSON.stringify(a.own) === '{"hidden":true,"transparent":true,"alpha":0.4}' && !!a.eye && !!a.childHidden,
     `the assembly's override: ${j}`);
-  const ic = a.inChild as { visibility: string; options: string[]; disabled: boolean; value: string };
-  expect(ic.visibility === 'inherit' && ic.options.includes('Inherit (hidden)') && ic.options.includes(
-    'Inherit (0.4)') && ic.disabled && ic.value === '0.4', `the child's dialog: ${j}`);
-  expect((a.childSwitched as { value: string }).value === '0.4', `the child transparent from 0.4: ${j}`);
-  const cd = a.childDefault as { disabled: boolean; value: string };
+  const ic = a.inChild as Read;
+  expect(a.panels === 1 && ic.title.endsWith(String((a.inChild as Read).title.split(': ')[1])) &&
+    ic.title !== first.title && ic.visibility === 'inherit' && ic.options.includes('Inherit (hidden)') &&
+    ic.options.includes('Inherit (0.4)') && ic.disabled && ic.value === '0.4', `the child in the panel: ${j}`);
+  expect((a.childSwitched as Read).value === '0.4', `the child transparent from 0.4: ${j}`);
+  const cd = a.childDefault as Read;
   expect(cd.disabled && cd.value === '1', `the child's default, the file's: ${j}`);
-  expect(JSON.stringify(a.childOwn) === '{"hidden":false,"transparent":false}' &&
-    JSON.stringify(a.childLook) === '{"hidden":false}' && !!a.kept, `the child's override: ${j}`);
+  expect(JSON.stringify(a.childOwn) === '{"hidden":false,"transparent":false,"triangleEdges":true}' &&
+    JSON.stringify(a.childLook) === '{"hidden":false,"triangleEdges":true}', `the child's override: ${j}`);
+  expect(a.refreshed === 'inherit' && a.reshown === 'show', `refreshed: ${j}`);
+  expect((a.childMeshes as number) > 0 && a.wires === a.childMeshes, `the child's triangle edges: ${j}`);
+  expect(!!a.xClosed && !!a.escClosed, `closed: ${j}`);
   expect(JSON.stringify(a.pressed) === '["Override Appearance..."]', `a long press: ${j}`);
-  expect(a.rec.events.filter((e) => e.type === 'appearance').length === 2, `recorded: ${j}`);
+  // Recorded once each change was made (the box's input not, its change yes), Hide and Show selected as buttons.
+  expect(a.rec.events.filter((e) => e.type === 'appearance').length === 7, `recorded: ${JSON.stringify(
+    a.rec.events.filter((e) => e.type === 'appearance'))}`);
   const replayed = await page('?check', `(async () => {
     await cadViewer.ready;
     const report = await cadViewer.replay(${JSON.stringify(a.rec)});
     const st = cadViewer.state();
-    return { divergences: report.divergences, overrides: { hidden: st.hidden, shown: st.shown, opacity: st.opacity } };
-  })()`) as { after: { divergences: string[]; overrides: unknown } };
+    // A state's triangle edges: exactly these (none).
+    cadViewer.apply({ triangleEdges: [] });
+    return { divergences: report.divergences, overrides: { hidden: st.hidden, shown: st.shown, opacity: st.opacity,
+      triangleEdges: st.triangleEdges }, cleared: cadViewer.state().triangleEdges };
+  })()`) as { after: { divergences: string[]; overrides: unknown; cleared: unknown[] } };
   expect(replayed.after.divergences.length === 0 && JSON.stringify(replayed.after.overrides) ===
     JSON.stringify(a.overrides), `replayed: ${JSON.stringify(replayed.after)} ${j}`);
+  expect((a.overrides as { triangleEdges: unknown[] }).triangleEdges.length === 1 &&
+    replayed.after.cleared.length === 0, `a state's triangle edges: ${JSON.stringify(replayed.after)}`);
   return undefined;
 });
 // Dialogs dragged by their title (the user, 2026-10-31): Override Appearance... moved by a mouse drag of its title,
-// as far as the drag; dragged far off, its title kept in the window; the page behind it not dimmed (About's is).
+// as far as the drag, a second from where it was left; dragged far off, its title kept in the window; a modal one
+// (About) too.
 await check('dialog drag', async () => {
   const evaluate = async (sessionId: string, expression: string) => ((await send('Runtime.evaluate', { expression,
     returnByValue: true, awaitPromise: true }, sessionId)) as { result: { value: unknown } }).result.value;
@@ -950,8 +977,7 @@ await check('dialog drag', async () => {
       clientY: b.top + 5 }));
     document.querySelector('.cv-menu button').click();
     await new Promise((res) => requestAnimationFrame(() => setTimeout(res, 0)));
-    const d = document.querySelector('dialog.cv-dialog');
-    return { backdrop: getComputedStyle(d, '::backdrop').backgroundColor };
+    return true;
   })()`, { scale: 1, then: async (sid) => {
     const drag = async (from: number[], by: number[]) => {
       await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: from[0], y: from[1], button: 'left',
@@ -971,26 +997,26 @@ await check('dialog drag', async () => {
     await drag([at[0]! + 100, at[1]! + 50], [-5000, -5000]);
     const far = await evaluate(sid, title) as number[];
     const win = await evaluate(sid, '[innerWidth, innerHeight]') as number[];
-    // About's backdrop, for comparison.
-    const about = await evaluate(sid, `(async () => { document.querySelector('dialog.cv-dialog').close();
+    // A modal one: About, dragged too.
+    const aboutBefore = await evaluate(sid, `(async () => { document.querySelector('dialog.cv-dialog button.close')
+      .click();
       ui.gui.controllersRecursive().find((c) => c._name === 'About...').$button.click();
       await new Promise((res) => requestAnimationFrame(() => setTimeout(res, 0)));
-      const d = document.querySelector('dialog.cv-dialog');
-      return [d?.querySelector('h2')?.textContent, getComputedStyle(d, '::backdrop').backgroundColor]; })()`);
-    return { before, moved, again, far, win, about };
-  } }) as { after: { backdrop: string }; then: { before: number[]; moved: number[]; again: number[]; far: number[];
-    win: number[];
-    about: [string, string] } };
+      return ${title}; })()`) as number[];
+    await drag([aboutBefore[0]! + 30, (aboutBefore[1]! + aboutBefore[3]!) / 2], [40, 20]);
+    const aboutMoved = await evaluate(sid, title) as number[];
+    return { before, moved, again, far, win, aboutBefore, aboutMoved };
+  } }) as { then: { before: number[]; moved: number[]; again: number[]; far: number[]; win: number[];
+    aboutBefore: number[]; aboutMoved: number[] } };
   const t = r.then;
-  const j = JSON.stringify(r);
-  expect(Math.abs(t.moved[0]! - t.before[0]! - 150) < 1 && Math.abs(t.moved[1]! - t.before[1]! - 80) < 1,
-    `dragged: ${j}`);
-  expect(Math.abs(t.again[0]! - t.before[0]! - 100) < 1 && Math.abs(t.again[1]! - t.before[1]! - 50) < 1,
-    `dragged again: ${j}`);
+  const j = JSON.stringify(t);
+  const by = (x: number[], y: number[], dx: number, dy: number) => Math.abs(y[0]! - x[0]! - dx) < 1 &&
+    Math.abs(y[1]! - x[1]! - dy) < 1;
+  expect(by(t.before, t.moved, 150, 80), `dragged: ${j}`);
+  expect(by(t.before, t.again, 100, 50), `dragged again: ${j}`);
   expect(t.far[2]! >= 40 - 1e-6 && t.far[1]! >= -1e-6 && t.far[0]! <= t.win[0]! && t.far[3]! <= t.win[1]!,
     `the title kept in the window: ${j}`);
-  expect(r.after.backdrop === 'rgba(0, 0, 0, 0)' && !!t.about[0] && t.about[1] !== r.after.backdrop,
-    `the backdrop: ${j}`);
+  expect(by(t.aboutBefore, t.aboutMoved, 40, 20), `About dragged: ${j}`);
   return undefined;
 });
 await check('camera flights', async () => {
@@ -2369,8 +2395,11 @@ await check('triangle edges', async () => {
     part.object.traverse((o) => under.add(o));
     ui.setHidden([part.id], true);
     await cadViewer.idle();
-    const partHidden = wires.filter((w, i) => under.has(meshes[i])).every((w) => !w.visible) &&
-      wires.some((w, i) => !under.has(meshes[i]) && w.visible) && wires.some((w, i) => under.has(meshes[i]));
+    // (Made again: every appearance change rebuilds them, model.ts's overrides deciding per face.)
+    const now = () => [...viewer.triangleEdges.group.children];
+    let ws = now();
+    const partHidden = ws.length === meshes.length && ws.filter((w, i) => under.has(meshes[i])).every((w) =>
+      !w.visible) && ws.some((w, i) => !under.has(meshes[i]) && w.visible) && ws.some((w, i) => under.has(meshes[i]));
     ui.setHidden([part.id], false);
     // A face hidden: its group's edges not drawn.
     ui.setTree({ detail: true });
@@ -2379,7 +2408,8 @@ await check('triangle edges', async () => {
     await cadViewer.idle();
     const k = meshes.findIndex((x) => Array.isArray(x.material) && x.material.some((y) => !y.visible));
     const invisible = (ms) => ms.map((y, i) => y.visible ? -1 : i).filter((i) => i >= 0).join();
-    const faceHidden = k >= 0 && wires[k].visible && invisible(wires[k].material) === invisible(meshes[k].material);
+    ws = now();
+    const faceHidden = k >= 0 && ws[k].visible && invisible(ws[k].material) === invisible(meshes[k].material);
     ui.setHidden([face.id], false);
     await cadViewer.idle();
     // Selected: nothing with nothing selected; a part's meshes whole; a face, its triangles alone.

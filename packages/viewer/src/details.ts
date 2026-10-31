@@ -75,6 +75,8 @@ export function details(model: NodeModel, ids: readonly number[]): string[] {
     if (look.hidden) out.push(own?.hidden ? 'Hidden' : 'Hidden (by a node above)');
     if (look.alpha !== undefined) out.push(`Opacity ${num(look.alpha)}${own?.transparent ? '' : ' (from a node above)'}`);
     else if (own?.transparent === false) out.push("Opacity: the file's");
+    if (look.triangleEdges !== undefined) out.push(`Triangle edges ${look.triangleEdges ? 'on' : 'off'}${
+      own?.triangleEdges === undefined ? ' (from a node above)' : ''}`);
   }
   const m = measure(piecesOf(model, ids));
   if (m.meshes) out.push(`Triangles: ${num(m.triangles)} in ${plural(m.meshes, 'mesh', 'meshes')}, ` +

@@ -503,8 +503,10 @@ export class Viewer {
     this.sections.update(this.root ? this.display : undefined, () => this.nodes?.nodes.flatMap((n) =>
       n.kind === 'part' && n.object ? [n.object] : []) ?? []);
     const fat = this.render.edges && this.render.edgeStyle === 'fat';
-    if ((this.render.triangleEdges !== 'off' || fat) && this.root) this.display.updateWorldMatrix(true, true);
-    this.triangleEdges.update(this.root ? this.display : undefined, this.render.triangleEdges);
+    const tri = this.render.triangleEdges !== 'off' || this.triangleEdgesOverridden;
+    if ((tri || fat) && this.root) this.display.updateWorldMatrix(true, true);
+    this.triangleEdges.update(this.root ? this.display : undefined, this.render.triangleEdges,
+      this.triangleEdgesOverridden);
     this.fatEdges.update(this.root ? this.display : undefined, fat, this.render.edgeWidth);
     // Fat edges drawn instead of the thin ones, which stay shown (to the camera's layers, which picking follows) for
     // picking.
@@ -553,6 +555,16 @@ export class Viewer {
   materialsChanged(): void {
     this.transparencyStale = true;
     this.drawnChanged();
+  }
+
+  /** Whether some node's appearance override sets triangle edges (NodeModel.hasTriangleEdges), kept per change. */
+  private triangleEdgesOverridden = false;
+
+  /** The appearance overrides changed (model.ts): drawn, materials and triangle edges again. */
+  appearanceChanged(): void {
+    this.triangleEdgesOverridden = this.nodes?.hasTriangleEdges() ?? false;
+    this.triangleEdges.invalidate();
+    this.materialsChanged();
   }
 
   /** The world box of the whole model, hidden parts included (for the planes' ranges). */
@@ -613,6 +625,7 @@ export class Viewer {
     this.clear();
     this.root = root;
     this.nodes = new NodeModel(root, looks);
+    this.triangleEdgesOverridden = false;
     this.display.add(root);
     this.model = model;
     this.moved = keep;

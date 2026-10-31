@@ -25,7 +25,7 @@ import { formatOf } from './formats.ts';
 import { fromFiles, fromUrl, pickFiles, saveFile, typedUrl, type Source } from './sources.ts';
 import { visibleBox, type Viewer } from './viewer.ts';
 import type { AppearanceOverride, NodeModel, PathOverride, Slot } from './model.ts';
-import { askAppearance } from './appearance-dialog.ts';
+import { closeAppearance, refreshAppearance, showAppearance } from './appearance-dialog.ts';
 import { closeMenu, showMenu } from './context-menu.ts';
 
 /** What the browser check reaches through `globalThis.ui`. */
@@ -538,6 +538,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     saveControl?.enable(!!saving);
     panel?.dispose();
     closeMenu();
+    closeAppearance();
     highlighter.clear();
     selected = [];
     viewer.triangleEdges.select([]);
@@ -545,7 +546,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     panel = new TreePanel(treeElement, nodes);
     panel.onSelect = (ids) => select(ids, 'tree');
     panel.onContextMenu = (id, x, y) => showMenu(x, y, [{ label: 'Override Appearance...',
-      action: () => void editAppearance(id) }]);
+      action: () => editAppearance(id) }]);
     if (tree.detail) panel.setDetail(true);
     if (restore) {
       // Exactly the overrides before (the file's own hiding giving way to them).
@@ -603,41 +604,55 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   }
   // Hiding faces changes materials: the highlight comes off first, and goes back on after.
   const transparency = { opacity: 0.3 };
-  /** Override Appearance... (appearance-dialog.ts): one node's override set exactly, as chosen. */
-  const editAppearance = async (id: number) => {
+  /**
+   * Override Appearance... (appearance-dialog.ts): one node's override set exactly, as chosen, in a panel that stays
+   * open (its node the last asked for).
+   */
+  let fromPanel = false;
+  const editAppearance = (id: number) => {
     const nodes = viewer.nodes, graph = viewer.graph;
     const n = nodes?.nodes[id];
     if (!nodes || !n) return;
-    // The file's opacity of what it draws: its part's or its face's material's; below an assembly, the first part's
-    // (and whether its parts differ).
-    const parts: number[] = [];
-    const under = (m: number): void => {
-      const k = nodes.nodes[m]!;
-      if (k.kind === 'part') parts.push(m);
-      else if (k.kind === 'assembly') for (const c of nodes.children(m)) under(c);
-    };
-    under(n.kind === 'assembly' || n.kind === 'part' ? id : n.parent);
-    const alphas = parts.map((p) => graph?.fileOpacity(nodes.nodes[p]!.object!, n.face?.source) ?? 1);
-    // Shown as it's chosen (not recorded); OK sets it (recorded), Cancel puts back what was there.
-    const own = nodes.ownOverride(id);
-    const live = (x: AppearanceOverride) => { if (viewer.nodes === nodes) appearance((m) => m.setOverride(id, x)); };
-    const o = await askAppearance({ name: n.name, own, inherited: nodes.inherited(id),
-      file: { alpha: alphas[0] ?? 1, varies: alphas.some((a) => a !== alphas[0]) },
-      lines: ['edges', 'curves', 'points'].includes(n.kind), preview: live });
-    if (viewer.nodes !== nodes) return;
-    if (o) ui.setOverride(id, o);
-    else live({ ...own });
+    showAppearance({
+      describe: () => {
+        // The file's opacity of what it draws: its part's or its face's material's; below an assembly, the first
+        // part's (and whether its parts differ).
+        const parts: number[] = [];
+        const under = (m: number): void => {
+          const k = nodes.nodes[m]!;
+          if (k.kind === 'part') parts.push(m);
+          else if (k.kind === 'assembly') for (const c of nodes.children(m)) under(c);
+        };
+        under(n.kind === 'assembly' || n.kind === 'part' ? id : n.parent);
+        const alphas = parts.map((p) => graph?.fileOpacity(nodes.nodes[p]!.object!, n.face?.source) ?? 1);
+        return { name: n.name, own: nodes.ownOverride(id), inherited: nodes.inherited(id),
+          file: { alpha: alphas[0] ?? 1, varies: alphas.some((a) => a !== alphas[0]) },
+          rendering: viewer.render.triangleEdges, lines: ['edges', 'curves', 'points'].includes(n.kind) };
+      },
+      // As the slider moves, shown only; once made, set and recorded.
+      set: (o, final) => {
+        if (viewer.nodes !== nodes) return;
+        fromPanel = true;
+        try {
+          if (final) ui.setOverride(id, o);
+          else appearance((m) => m.setOverride(id, o));
+        } finally {
+          fromPanel = false;
+        }
+      },
+    });
   };
   // A change of the appearance overrides: hiding (what's drawn) or opacity (materials).
   const appearance = (change: (model: NodeModel) => void) => {
     if (!panel) return;
     highlighter.clear();
     change(panel.model);
-    viewer.drawnChanged();
-    viewer.materialsChanged();
+    viewer.appearanceChanged();
     panel.redraw();
     highlight();
     describe();
+    // (The open Override Appearance... shows its node's override as it now is.)
+    if (!fromPanel) refreshAppearance();
   };
   const hide = (hidden: boolean, ids: readonly number[] = selected) => appearance((m) => m.setHidden(ids, hidden));
   /** What a click could select at the pick level: every part, assembly or face, edge and curve shown (Select all). */

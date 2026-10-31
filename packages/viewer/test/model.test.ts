@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import * as THREE from 'three';
 import { NodeModel } from '../src/model.ts';
 import { SceneGraph } from '../src/scene-graph.ts';
+import { TriangleEdges } from '../src/triangle-edges.ts';
 import { plate, scene, wire } from './fixtures.ts';
 
 /** The STEP fixture with its meshes, and its node model. */
@@ -204,6 +205,47 @@ test('opacity: inherited below, a face\'s own winning, per placement; default th
   model.setOverride(subPlate, {});
   assert.equal(model.ownOverride(subPlate), undefined);
   assert.equal(model.look(subPlate).alpha, 0.4);
+});
+
+test('triangle edges: inherited, a face\'s own; the placement\'s look on its group; drawn over the mode', () => {
+  const { graph, model } = stepModel();
+  const meshes = graph.addMesh(0, plate()) as THREE.Mesh[];
+  for (const p of graph.placements.get(0)!) model.invalidate(p.group);
+  model.setDetail(true);
+  const [left, sub] = model.children(model.children(model.roots[0]!)[0]!);
+  const plateOf = (a: number) => model.children(a!)[0]!;
+  const face7 = model.children(plateOf(sub!)).find((i) => model.nodes[i]!.name === 'face #7')!;
+  assert.equal(model.hasTriangleEdges(), false);
+  // (The file's hidden third placement shown, to be drawn.)
+  model.showAll();
+  model.setOverride(left!, { triangleEdges: true });
+  assert.equal(model.hasTriangleEdges(), true);
+  model.setOverride(face7, { triangleEdges: true });
+  model.setOverride(plateOf(sub!), { triangleEdges: false });
+  assert.equal(model.hasTriangleEdges(), true);
+  assert.deepEqual([model.look(plateOf(left!)).triangleEdges, model.look(face7).triangleEdges], [true, true]);
+  assert.deepEqual(meshes[0]!.parent!.userData.triangleEdges, { whole: true });
+  assert.deepEqual(meshes[1]!.parent!.userData.triangleEdges, { whole: false, faces: new Map([[7, true]]) });
+  assert.deepEqual(meshes[2]!.parent!.userData.triangleEdges, {});
+  // Drawn with Rendering's Triangle edges off: the first placement whole, the second's face 7 alone, the third none;
+  // with All, the third too (nothing sets it), the second still its face 7 only.
+  const edges = new TriangleEdges();
+  graph.root.updateWorldMatrix(true, true);
+  const drawnFor = (mode: 'off' | 'all') => {
+    edges.invalidate();
+    edges.update(graph.root, mode, true);
+    return meshes.map((m) => {
+      // (Each wireframe at its mesh's place: the placements share one position buffer.)
+      const wires = edges.group.children.filter((w) => w.matrixWorld.equals(m.matrixWorld)) as THREE.Mesh[];
+      return wires.map((w) => (w.geometry === m.geometry ? 'whole' : Array.from(w.geometry.index!.array).join()));
+    });
+  };
+  // (Face 7 the plate's second triangle, of vertices 0, 2, 3.)
+  assert.deepEqual(drawnFor('off'), [['whole'], ['0,2,3'], []]);
+  assert.deepEqual(drawnFor('all'), [['whole'], ['0,2,3'], ['whole']]);
+  // Nothing set and the mode off: nothing shown.
+  edges.update(graph.root, 'off', false);
+  assert.equal(edges.group.visible, false);
 });
 
 test('setOverrides: exactly these, of these slots; detail paths before the mesh arrives; paths that name nothing', () => {

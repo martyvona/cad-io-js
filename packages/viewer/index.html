@@ -149,7 +149,16 @@
     .cv-dialog h2 { margin: 0 0 8px; font-size: 15px; font-weight: 600; }
     /* Dragged by the title (dialog.ts). */
     .cv-dialog h2.drag { cursor: move; touch-action: none; user-select: none; -webkit-user-select: none; }
-    .cv-dialog.clear::backdrop { background: transparent; }
+    /* A dialog that floats without blocking the page (appearance-dialog.ts), its title with a close button. */
+    .cv-dialog.floating {
+      position: fixed; inset: auto; top: 56px; left: max(16px, calc(50% - 170px)); margin: 0; z-index: 1500;
+      width: 300px;
+    }
+    .cv-dialog h2.drag { display: flex; align-items: center; gap: 8px; }
+    .cv-dialog h2.drag span { flex: 1; }
+    .cv-dialog h2 .close {
+      flex: none; padding: 0 6px; font-size: 18px; line-height: 1; background: none; border: 0; cursor: pointer;
+    }
     .cv-dialog.error h2 { color: var(--error-fg); }
     .cv-dialog a { color: var(--link); }
     .cv-dialog p { margin: 0 0 8px; }

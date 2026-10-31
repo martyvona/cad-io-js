@@ -1,6 +1,6 @@
 // Modal dialogs (the user, 2026-10-25; CLAUDE.md, "The viewer"): the native <dialog> shown with showModal(), so the
 // page behind is inert and Escape closes it, one at a time, removed when closed. A message with buttons, and a URL to
-// type or paste, and About (about.ts), or controls of the caller's own (appearance-dialog.ts). Dragged by the title
+// type or paste, and About (about.ts), or controls of the caller's own. Dragged by the title
 // (the user, 2026-10-31: to see what's under it), kept with its title in the window. Styled in index.html
 // (.cv-dialog).
 
@@ -25,10 +25,8 @@ export interface DialogOptions {
   buttons: DialogButton[];
   /** Drawn as an error. */
   error?: boolean;
-  /** Controls of the caller's own, after the body (Override Appearance...: appearance-dialog.ts). */
+  /** Controls of the caller's own, after the body. */
   content?: HTMLElement;
-  /** The page behind not dimmed (Override Appearance..., whose choices the view shows as they're made). */
-  clear?: boolean;
   /** A text field (its value is what `showDialog` resolves to with, as `input`), for `askUrl`. */
   input?: { label: string; value?: string; placeholder?: string;
     /** Several lines (a textarea: pasted lines kept; ctrl/cmd-Enter presses the primary button), for Select by ID. */
@@ -44,7 +42,7 @@ export interface DialogResult {
 /** Shows a modal dialog; resolves when it closes. */
 export function showDialog(o: DialogOptions): Promise<DialogResult> {
   const dialog = document.createElement('dialog');
-  dialog.className = `cv-dialog${o.error ? ' error' : ''}${o.clear ? ' clear' : ''}`;
+  dialog.className = `cv-dialog${o.error ? ' error' : ''}`;
   const form = document.createElement('form');
   form.method = 'dialog';
   const title = document.createElement('h2');
@@ -158,7 +156,8 @@ export function draggable(dialog: HTMLElement, handle: HTMLElement): void {
     dialog.style.translate = `${x}px ${y}px`;
   };
   handle.addEventListener('pointerdown', (e) => {
-    if (e.button > 0) return;
+    // (Not by a button in it: a close button.)
+    if (e.button > 0 || (e.target as HTMLElement).closest('button')) return;
     drag = { id: e.pointerId, x: e.clientX, y: e.clientY, from: at };
     try {
       handle.setPointerCapture(e.pointerId);

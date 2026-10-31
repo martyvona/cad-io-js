@@ -16,7 +16,8 @@ test('view state: every field through the query and back; numbers to 6 decimals;
     tree: { open: false, detail: true }, pick: 'detail', instances: true,
     hidden: ['as1/plate', 'as1/a%2Fb:2/nut'], shown: ['as1/plate/edges'],
     opacity: [{ path: 'as1/a%2Fb:2/nut', alpha: 0.3 }, { path: 'as1/rod', alpha: 'default' },
-      { path: 'as1/bolt', alpha: 1 }], selected: ['as1/rod/face#78'],
+      { path: 'as1/bolt', alpha: 1 }], triangleEdges: [{ path: 'as1/a%2Fb:2/nut', on: true },
+      { path: 'as1/rod', on: false }], selected: ['as1/rod/face#78'],
   };
   const { state, problems } = roundTrip(s);
   assert.deepEqual(problems, []);
@@ -49,6 +50,8 @@ test('view state: malformed values left out, each with a message', () => {
     '&alpha=default:b&alpha=Default:b'));
   assert.deepEqual([alpha.state.opacity, alpha.problems.length], [[{ path: 'a:2', alpha: 0 },
     { path: 'b', alpha: 'default' }], 6]);
+  const tri = fromQuery(new URLSearchParams('tri=on:a:2&tri=yes:a&tri=off:&tri=a'));
+  assert.deepEqual([tri.state.triangleEdges, tri.problems.length], [[{ path: 'a:2', on: true }], 3]);
 });
 
 test('render changes: only what differs from the defaults', () => {

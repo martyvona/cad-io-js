@@ -5,8 +5,12 @@
 // triangles alone, sharing the mesh's positions. Before each frame drawn they follow their meshes: placement,
 // visibility (the mesh's and its ancestors', and its layers), and materials, so hidden faces (an invisible material's
 // group) stay hidden. Made again when the model's meshes or the selection change; nothing is made while they're off.
+// Appearance overrides (the user, 2026-10-31; model.ts) turn them on or off per placement and face, whatever the mode:
+// a placement's part group carries what its overrides ask (`userData.triangleEdges`), and where a face differs from
+// its mesh, the edges are a geometry of the faces that have them.
 
 import * as THREE from 'three';
+import type { TriangleEdgesLook } from './model.ts';
 import type { Piece } from './selection.ts';
 
 export type TriangleEdgesMode = 'off' | 'selected' | 'all';
@@ -39,11 +43,14 @@ export class TriangleEdges {
     this.selectionChanged = true;
   }
 
-  /** Before a frame: shown or not (`root` the model's top, its world matrices up to date), following the model. */
-  update(root: THREE.Object3D | undefined, mode: TriangleEdgesMode): void {
-    this.group.visible = mode !== 'off' && root !== undefined;
+  /**
+   * Before a frame: shown or not (`root` the model's top, its world matrices up to date), following the model;
+   * `overridden` when some node's appearance override sets them (NodeModel.hasTriangleEdges).
+   */
+  update(root: THREE.Object3D | undefined, mode: TriangleEdgesMode, overridden = false): void {
+    this.group.visible = (mode !== 'off' || overridden) && root !== undefined;
     if (!this.group.visible) return;
-    if (this.stale || this.builtFor !== mode || (mode === 'selected' && this.selectionChanged)) {
+    if (this.stale || this.builtFor !== mode || ((mode === 'selected' || overridden) && this.selectionChanged)) {
       this.rebuild(root!, mode);
     }
     for (const { source, wire, own } of this.pairs) {
@@ -71,8 +78,8 @@ export class TriangleEdges {
       const source = o as THREE.Mesh;
       // Faces only: not the selection's overlays.
       if (!source.isMesh || source.userData.highlight) return;
-      if (mode === 'selected' && !this.selection.has(source)) return;
-      const ranges = mode === 'selected' ? this.selection.get(source) : undefined;
+      const ranges = this.wanted(source, mode);
+      if (ranges === null) return;
       let own: THREE.BufferGeometry | undefined;
       if (ranges) {
         own = new THREE.BufferGeometry();
@@ -92,6 +99,34 @@ export class TriangleEdges {
       this.pairs.push({ source, wire, ...(own ? { own } : {}) });
     });
   }
+
+  /**
+   * Which of a mesh's triangles get edges: all (undefined), some ranges, or none (null). Each face by its own
+   * override, else its placement's, else the mode (all; selected: the selection's ranges of it, or all of it if it's
+   * selected whole). Faces not drawn (hidden) left out where only some are.
+   */
+  private wanted(source: THREE.Mesh, mode: TriangleEdgesMode): Piece['ranges'] | null {
+    const look = source.parent?.userData.triangleEdges as TriangleEdgesLook | undefined;
+    const selected = this.selection.has(source), picked = this.selection.get(source);
+    if (!look?.faces?.size) {
+      const on = look?.whole ?? (mode === 'all' || (mode === 'selected' && selected));
+      return !on ? null : look?.whole === undefined && mode === 'selected' ? picked : undefined;
+    }
+    const faces = (source.userData.faceRanges ?? []) as { source: number | null; start: number; count: number }[];
+    const inSelection = (f: { start: number; count: number }) => selected && (!picked || picked.some((r) =>
+      r.start < f.start + f.count && f.start < r.start + r.count));
+    const out = faces.filter((f) => f.count > 0 && (
+      (f.source === null ? undefined : look.faces!.get(f.source)) ?? look.whole ??
+      (mode === 'all' || (mode === 'selected' && inSelection(f)))) && drawn(source, f.start));
+    return out.length ? out.map(({ start, count }) => ({ start, count })) : null;
+  }
+}
+
+/** Whether the triangles from an index on are drawn (their geometry group's material visible). */
+function drawn(mesh: THREE.Mesh, start: number): boolean {
+  if (!Array.isArray(mesh.material)) return mesh.material.visible;
+  const g = mesh.geometry.groups.find((x) => x.start <= start && start < x.start + x.count);
+  return g === undefined || mesh.material[g.materialIndex!]?.visible !== false;
 }
 
 /** A face material's wireframe: none where the faces aren't drawn (hidden faces). */

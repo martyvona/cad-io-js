@@ -36,7 +36,8 @@ export const EYE_OFF_ICON = svg('<path d="M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8 1
 /** An override in words, for a row's title: `hidden; opacity 0.3`. */
 export function overrideText(o: AppearanceOverride): string {
   return [o.hidden === true ? 'hidden' : o.hidden === false ? 'shown' : '', o.transparent === true
-    ? `opacity ${o.alpha ?? 1}` : o.transparent === false ? "the file's opacity" : ''].filter(Boolean).join('; ');
+    ? `opacity ${o.alpha ?? 1}` : o.transparent === false ? "the file's opacity" : '', o.triangleEdges === true
+    ? 'triangle edges on' : o.triangleEdges === false ? 'triangle edges off' : ''].filter(Boolean).join('; ');
 }
 
 /** How long a touch stays on a row, unmoved, to open its context menu (ms). */
