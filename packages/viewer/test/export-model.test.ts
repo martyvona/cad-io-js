@@ -56,3 +56,11 @@ test("exportModel: the viewer's hiding applied when asked, else the scene's", as
     compression: 'none', ...o }))).chunks).length;
   assert.ok(await size({ shown: shownEdits(s, model, graph) }) < await size({}));
 });
+
+test('exportModel: paused as it goes (the import worker\'s heartbeat), the same files', async () => {
+  for (const format of ['glb', 'gltf', 'threejs', '3mf'] as const) {
+    const plain = await exportModel(meshed(), at, ask({ format, compression: 'none' }));
+    const paused = await exportModel(meshed(), at, ask({ format, compression: 'none' }), {}, async () => {});
+    assert.deepEqual(bytes(paused.chunks), bytes(plain.chunks), format);
+  }
+});

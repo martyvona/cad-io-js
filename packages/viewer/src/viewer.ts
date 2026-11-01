@@ -38,12 +38,23 @@ import type { ImportProgress } from 'step-import';
 import { clearCache, defaultSettings, deflectionsOf, workerCount, type TessellationSettings } from './tessellation.ts';
 import { classifyDevice, DEVICE_PROFILES, deviceOverride, deviceSignals, type DeviceClass } from './device.ts';
 
+/**
+ * An export ended without its meshes coming back: the import worker died, hung or failed outside the export
+ * (Viewer.exportModel). The page's meshes are gone with them; the model must be loaded again (ui.ts does).
+ */
+export class WorkerLost extends Error {
+  override name = 'WorkerLost';
+}
+
+/** The default for Viewer.exportSilenceMs (ms). */
+export const EXPORT_SILENCE_MS = 60_000;
+
 /** A mesh's typed arrays (lent to the import worker to export, and taken back: Viewer.exportModel). */
 const MESH_ARRAYS = ['positions', 'normals', 'indices', 'edgePositions', 'curvePositions', 'points',
   'faceOutlinePositions'] as const;
 
 /** The import worker's messages about a load. */
-type LoadMessage = Exclude<FromImportWorker, { type: 'exported' | 'export-error' }>;
+type LoadMessage = Exclude<FromImportWorker, { type: 'exported' | 'export-error' | 'beat' }>;
 
 export interface ModelInfo {
   name: string;
@@ -698,6 +709,15 @@ export class Viewer {
   private readonly exports = new Map<number, (m: Extract<FromImportWorker, { type: 'exported' | 'export-error' }>)
     => void>();
   private exportCount = 0;
+  /** Each export's last beat from the worker (performance.now). */
+  private readonly beats = new Map<number, number>();
+  /**
+   * How long an export may go without a beat before the worker is taken for lost (ms): longer than the longest
+   * stretch the exporters run without yielding (measured: CLAUDE.md, "Exports survive the import worker").
+   */
+  exportSilenceMs = EXPORT_SILENCE_MS;
+  /** The longest silence between beats of the last export (ms), for measuring. */
+  lastExportSilence = 0;
 
   /**
    * The model exported by the import worker (export-model.ts), as it was imported and meshed: the files' pieces.
@@ -715,14 +735,52 @@ export class Viewer {
       return a && a.buffer instanceof ArrayBuffer && a.buffer.byteLength ? [a.buffer] : [];
     })))];
     return new Promise((resolve, reject) => {
-      this.exports.set(id, (m) => {
+      this.beats.set(id, performance.now());
+      this.lastExportSilence = 0;
+      // The watchdog: no beat for exportSilenceMs, the worker's lost (it died, or hangs), the meshes with it.
+      const watch = setInterval(() => {
+        const silence = performance.now() - (this.beats.get(id) ?? 0);
+        if (silence <= this.exportSilenceMs) return;
+        end();
+        this.loseWorker();
+        reject(new WorkerLost(`the import worker stopped (nothing from it for ${Math.round(silence / 1000)} s)`));
+      }, 250);
+      const end = () => {
+        clearInterval(watch);
         this.exports.delete(id);
-        this.takeBack(meshes, m.meshes);
+        this.beats.delete(id);
+      };
+      const worker = this.importer();
+      this.exports.set(id, (m) => {
+        this.beat(id);
+        end();
+        if (m.meshes.length || !meshes.length) this.takeBack(meshes, m.meshes);
+        else {
+          // (Answered without the meshes: an error the worker didn't catch. They're lost with it.)
+          this.loseWorker();
+          return reject(new WorkerLost(m.type === 'export-error' ? m.message : 'the meshes didn\'t come back'));
+        }
         if (m.type === 'exported') resolve(m.result);
         else reject(new Error(m.message));
       });
-      this.importer().postMessage({ type: 'export', id, request, meshes } satisfies ToImportWorker, buffers);
+      worker.postMessage({ type: 'export', id, request, meshes } satisfies ToImportWorker, buffers);
     });
+  }
+
+  /** A beat of an export (its answer counts as one), the longest silence between them kept. */
+  private beat(id: number): void {
+    const now = performance.now(), last = this.beats.get(id);
+    if (last === undefined) return;
+    this.lastExportSilence = Math.max(this.lastExportSilence, now - last);
+    this.beats.set(id, now);
+  }
+
+  /** The import worker given up on (lost in an export: Viewer.exportModel): stopped; the next load starts another. */
+  private loseWorker(): void {
+    this.worker?.terminate();
+    this.worker = undefined;
+    for (const [id, l] of [...this.exports]) l({ type: 'export-error', id, message: 'the import worker stopped',
+      meshes: [] });
   }
 
   /**
@@ -764,6 +822,7 @@ export class Viewer {
       const w = new Worker(new URL('./import-worker.ts', import.meta.url), { type: 'module' });
       w.onmessage = (e: MessageEvent<FromImportWorker>) => {
         const m = e.data;
+        if (m.type === 'beat') return this.beat(m.id);
         if (m.type === 'exported' || m.type === 'export-error') return this.exports.get(m.id)?.(m);
         this.importListeners.get(m.load)?.(m);
       };

@@ -18,3 +18,4 @@ export { viewDifferences, type CompareOptions } from './compare.ts';
 export { boundsFrom, boundsJson, levelFrom, levelJson, measuresFrom, measuresJson, partExtras,
   unitFrom } from './measures.ts';
 export { around, boundScene, boxesSphere, boxMeshes, grow, meshBox, sceneBounds } from './bounds.ts';
+export { drain, paced } from './steps.ts';

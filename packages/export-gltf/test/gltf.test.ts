@@ -780,3 +780,11 @@ test('decompose: TRS of rotations (every quaternion branch), scales, translation
   const flat = identity(); flat[10] = 0;
   for (const m of [mirror, ...shears, flat]) assert.equal(decompose(m), undefined);
 });
+
+test('a pause given: the same GLB', async () => {
+  const s = scene();
+  const view = viewOf(s, meshes());
+  const a = await glb(s, view, { name: 'model', compression: 'none', pause: async () => {} });
+  const b = await glb(s, view, { name: 'model', compression: 'none' });
+  assert.deepEqual(Buffer.from(a.bytes), Buffer.from(b.bytes));
+});

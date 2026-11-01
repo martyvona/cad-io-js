@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { strFromU8, unzipSync } from 'fflate';
 import { exportView, identity, scaling, type Mat4, type Mesh, type Scene } from 'cad-scene';
-import { float32Text, threemf, transformText, xmlText, type ThreeMfOptions } from '../src/index.ts';
+import { float32Text, threemf, threemfAsync, transformText, xmlText, type ThreeMfOptions } from '../src/index.ts';
 import { OBJECT_TYPE, read3mf, type Read3mf } from './read3mf.ts';
 
 const translation = (x: number, y: number, z: number): Mat4 => {
@@ -358,4 +358,15 @@ test('float32Text, transformText, xmlText', () => {
     '1 0 0 0 1 0 0 0 1 0 0 0');
   assert.equal(xmlText('a&b<c>"d\'\te\n\u0001\ud800x\u{1f600}'), 'a&amp;b&lt;c&gt;&quot;d\' e x\u{1f600}');
   assert.equal(xmlText('a&b\te\r\n\u0001', true), 'a&amp;b\te\r\n');
+});
+
+test('threemfAsync: the same bytes as threemf', async () => {
+  for (const opts of [{}, { build: 'assembly' as const, extras: true }]) {
+    const s = scene();
+    const view = viewOf(s, meshes());
+    const join = (c: Uint8Array[]) => Buffer.concat(c.map((x) => Buffer.from(x)));
+    // (Its pausing is cad-scene's paced, tested there; a small scene is done before the first pause is due.)
+    const a = await threemfAsync(s, view, async () => {}, opts);
+    assert.deepEqual(join(a.chunks), join(threemf(s, view, opts).chunks));
+  }
 });

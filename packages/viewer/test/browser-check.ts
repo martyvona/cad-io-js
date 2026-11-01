@@ -3932,6 +3932,64 @@ await check('export', async () => {
   expect(a.remembered.join() === 'threejs,true' && a.cancelled === 0, `remembered, cancelled: ${j}`);
   return undefined;
 });
+// The import worker lost during an export (the user, 2026-11-01: detected by its heartbeat, the model made again): the
+// export's message swallowed, its meshes handed away all the same (as a dead worker keeps them), the silence
+// allowed 1.5 s: the watchdog says so, an error dialog, the worker stopped, and the model loaded and meshed again as it
+// was, its view and overrides kept, its meshes back (no detached attributes), the controls' meshing as they were.
+await check('export: the worker lost', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    await cadViewer.ready;
+    await cadViewer.idle();
+    const m0 = ui.panel().model;
+    const hidden = m0.nodes.find((n) => n.kind === 'part').id;
+    ui.setHidden([hidden], true);
+    const overrides = JSON.stringify(cadViewer.state().hidden);
+    const triangles = viewer.stats().triangles;
+    // The controls changed without meshing again: the model's own settings used for the rebuild, these back after.
+    ui.setMeshing({ profile: 'custom', linearDeflection: 0.7 });
+    const worker = viewer.importer();
+    const post = worker.postMessage.bind(worker);
+    worker.postMessage = (msg, transfer) => msg.type === 'export' ? new MessageChannel().port1.postMessage(msg, transfer)
+      : post(msg, transfer);
+    viewer.exportSilenceMs = 1500;
+    const statuses = [];
+    const st = document.getElementById('status');
+    new MutationObserver(() => statuses.push(st.textContent)).observe(st, { childList: true, characterData: true,
+      subtree: true });
+    window.showSaveFilePicker = async () => ({ createWritable: async () => ({ write: async () => {},
+      close: async () => {} }) });
+    const exp = ui.gui.controllersRecursive().find((c) => c._name === 'Export...');
+    const done = exp.getValue().call(exp.object);
+    const frame = () => new Promise((res) => requestAnimationFrame(() => setTimeout(res, 0)));
+    let d;
+    for (let i = 0; i < 300 && !(d = document.querySelector('dialog.cv-dialog')); i++) await frame();
+    d.querySelector('button.primary').click();
+    await done;
+    const errorDialog = [...document.querySelectorAll('dialog.cv-dialog.error')].map((x) => x.textContent);
+    const status = statuses.join(' | ');
+    const stopped = viewer.worker === undefined;
+    await cadViewer.idle();
+    let detached = 0;
+    viewer.scene.traverse((o) => { const g = o.geometry; if (!g?.attributes) return;
+      for (const at of [...Object.values(g.attributes), ...(g.index ? [g.index] : [])]) {
+        if (at.array?.buffer && at.array.buffer.byteLength === 0) detached++;
+      } });
+    return { errorDialog, status, stopped, again: viewer.stats().triangles === triangles, newModel: ui.panel().model !== m0,
+      overrides: JSON.stringify(cadViewer.state().hidden) === overrides, detached,
+      controls: viewer.settings.linearDeflection, meshedWith: viewer.model.meshedWith.linearDeflection,
+      pick: !!cadViewer.pickAt(0.5, 0.5) };
+  })()`) as { after: { errorDialog: string[]; status: string; stopped: boolean; again: boolean; newModel: boolean;
+    overrides: boolean; detached: number; controls: number; meshedWith: number; pick: boolean } };
+  const a = r.after, j = JSON.stringify(a);
+  expect(a.errorDialog.length === 1 && /the import worker stopped \(nothing from it for \d s\)/.test(
+    a.errorDialog[0]!) && /loaded and meshed again/.test(a.errorDialog[0]!), `the error said: ${j}`);
+  // (Whatever format was remembered from the checks before.)
+  expect(/exporting as1\.\w+\.\.\. \| loading as1\.stp\.\.\./.test(a.status) && a.stopped,
+    `the worker stopped, loading again: ${j}`);
+  expect(a.newModel && a.again && a.overrides && a.detached === 0 && a.pick, `made again: ${j}`);
+  expect(a.controls === 0.7 && a.meshedWith !== 0.7, `meshed as it was, the controls back: ${j}`);
+  return undefined;
+});
 await check('save', async () => {
   const r = await page(`?check`, `(async () => {
     await cadViewer.ready;

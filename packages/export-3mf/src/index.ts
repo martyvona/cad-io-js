@@ -22,9 +22,9 @@
 // The model part is written and compressed in pieces, so its size isn't bound by the longest string V8 allows.
 
 import { Zip, ZipDeflate, strToU8 } from 'fflate';
-import { boundsJson, identity, manifoldProblems, multiply, partExtras, weld, type Diagnostic, type ExportNode,
-  type ExportView,
-  type Look, type Mat4, type Mesh, type PropertyValue, type Scene, type SourceId, type Vec3 } from 'cad-scene';
+import { boundsJson, drain, identity, manifoldProblems, multiply, paced, partExtras, weld, type Diagnostic,
+  type ExportNode, type ExportView, type Look, type Mat4, type Mesh, type PropertyValue, type Scene, type SourceId,
+  type Vec3 } from 'cad-scene';
 
 export interface ThreeMfOptions {
   /** Colour of faces without a material (sRGB). Default light grey. */
@@ -73,7 +73,16 @@ const PIECE = 1 << 20;
 
 /** The scene's export view as a 3MF package. */
 export function threemf(scene: Scene, view: ExportView, opts: ThreeMfOptions = {}): ThreeMfResult {
-  return new Writer(scene, view, opts).write();
+  return drain(new Writer(scene, view, opts).write());
+}
+
+/**
+ * The same, pausing (`pause`, awaited) now and then between objects, so the thread can do other things meanwhile
+ * (the user, 2026-10-31: the viewer's import worker sends its heartbeat then); the same bytes.
+ */
+export function threemfAsync(scene: Scene, view: ExportView, pause: () => Promise<void>,
+  opts: ThreeMfOptions = {}): Promise<ThreeMfResult> {
+  return paced(new Writer(scene, view, opts).write(), pause);
 }
 
 /** The shortest decimal that reads back as the same float32. */
@@ -163,7 +172,8 @@ class Writer {
     this.opts = opts;
   }
 
-  write(): ThreeMfResult {
+  /** The package, an object at a time (a step each: `drain` or `paced`). */
+  *write(): Generator<void, ThreeMfResult> {
     const chunks: Uint8Array[] = [];
     const zip = new Zip((err, data) => {
       if (err) throw err;
@@ -208,7 +218,10 @@ class Writer {
     }
     model.push('<resources>\n');
     if (this.slots.size) model.push(this.materialGroup(colorgroup));
-    for (const p of placed) this.object(p.look, model);
+    for (const p of placed) {
+      this.object(p.look, model);
+      yield;
+    }
     const items: string[] = [];
     if (this.opts.build === 'assembly') {
       const roots = this.view.roots.map((r) => ({ id: this.assembly(r, model), transform: r.transform })).filter(
@@ -233,7 +246,10 @@ class Writer {
       }
     }
     model.push('</resources>\n<build>\n');
-    for (const i of items) model.push(i);
+    for (const [k, i] of items.entries()) {
+      model.push(i);
+      if (k % 1000 === 999) yield;
+    }
     model.push('</build>\n</model>\n');
     model.flush(true);
     zip.end();

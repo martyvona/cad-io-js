@@ -26,7 +26,7 @@ import { fromFiles, fromUrl, pickFiles, saveFile, saveTarget, typedUrl, type Sou
 import { askExport, rememberedExport } from './export-dialog.ts';
 import { EXPORT_FORMATS } from './export-formats.ts';
 import { shownEdits } from './export-shown.ts';
-import { visibleBox, type Viewer } from './viewer.ts';
+import { visibleBox, WorkerLost, type Viewer } from './viewer.ts';
 import type { AppearanceOverride, NodeModel, PathOverride, Slot } from './model.ts';
 import { closeAppearance, refreshAppearance, showAppearance } from './appearance-dialog.ts';
 import { closeMenu, showMenu } from './context-menu.ts';
@@ -199,6 +199,24 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   let saving: Source | undefined;
   let saveControl: { enable(on?: boolean): unknown; disable(): unknown } | undefined;
   let exportControl: { enable(on?: boolean): unknown; disable(): unknown } | undefined;
+  /**
+   * The model loaded and meshed again, the view kept (Mesh again); `as` the settings to mesh with instead of the
+   * controls' (a model lost with the import worker, made again as it was: the controls back after).
+   */
+  const meshAgain = (as?: Partial<TessellationSettings>) => {
+    if (!last) return;
+    const nodes = viewer.nodes;
+    const top = panel?.topRow();
+    restore = { overrides: nodes?.overrides() ?? [], lost: [], selected: nodes ? selected.map((id) =>
+      nodes.pathOf(id)) : [], expanded: nodes && panel ? panel.expanded().map((id) => nodes.pathOf(id)) : [],
+      ...(nodes && top ? { top: { path: nodes.pathOf(top.id), offset: top.offset } } : {}) };
+    const before = as ? Object.fromEntries(Object.keys(as).map((k) => [k, viewer.settings[k as keyof
+      TessellationSettings]])) as Partial<TessellationSettings> : undefined;
+    if (as) ui.setMeshing(as);
+    const done = open(async () => last, last.name, true);
+    if (before) void done.finally(() => ui.setMeshing(before));
+    return done;
+  };
   const exportFile = async () => {
     const src = saving;
     const nodes = viewer.nodes, graph = viewer.graph;
@@ -213,8 +231,9 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     const name = `${base}${f.ext}`;
     const fail = (e: unknown) => {
       say(`exporting ${name}: ${(e as Error).message}`, true);
-      void showDialog({ title: `Could not export ${name}`, error: true, body: [(e as Error).message],
-        buttons: [{ label: 'OK', value: 'ok', primary: true }] });
+      void showDialog({ title: `Could not export ${name}`, error: true, body: [(e as Error).message,
+        ...(e instanceof WorkerLost ? [`The model's meshes were with it, so ${src.name} is being loaded and meshed ` +
+          'again, the view as it was.'] : [])], buttons: [{ label: 'OK', value: 'ok', primary: true }] });
     };
     try {
       const target = await saveTarget(name, { description: f.label, mime: f.mime, ext: f.ext });
@@ -253,6 +272,9 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
         (warnings.length ? `; ${warnings.length} warnings (in the console): ${warnings[0]}` : ''), warnings.length > 0);
     } catch (e) {
       fail(e);
+      // The import worker lost with the page's meshes (Viewer.exportModel): the model made again as it was.
+      // (The error dialog says so; the status line then follows the load.)
+      if (e instanceof WorkerLost) void meshAgain(viewer.model?.meshedWith);
     }
   };
   // The last open's, however it began (a control, a dialog, a dropped file, cadViewer), for cadViewer.idle.
@@ -525,15 +547,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   step.add(settings, 'angularDeflection', 1, 90).name('Angle (degrees)').onChange(custom);
   step.add(settings, 'timeout', 0, 600, 1).name('Timeout (s, 0: none)');
   step.add(settings, 'cache').name('Cache (IndexedDB)');
-  step.add({ reload: () => {
-    if (!last) return;
-    const nodes = viewer.nodes;
-    const top = panel?.topRow();
-    restore = { overrides: nodes?.overrides() ?? [], lost: [], selected: nodes ? selected.map((id) =>
-      nodes.pathOf(id)) : [], expanded: nodes && panel ? panel.expanded().map((id) => nodes.pathOf(id)) : [],
-      ...(nodes && top ? { top: { path: nodes.pathOf(top.id), offset: top.offset } } : {}) };
-    return open(async () => last, last.name, true);
-  } }, 'reload').name('Mesh again');
+  step.add({ reload: () => meshAgain() }, 'reload').name('Mesh again');
   step.add({ defaults: () => {
     Object.assign(settings, defaultSettings(DEVICE_PROFILES[viewer.device]));
     shown();

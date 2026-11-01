@@ -34,9 +34,9 @@ import { Document, Format, Logger, WebIO, type Accessor, type JSONDocument, type
   type mat4 } from '@gltf-transform/core';
 import { EXTMeshGPUInstancing, EXTMeshoptCompression, KHRDracoMeshCompression, KHRMaterialsUnlit,
   KHRMeshQuantization, KHRNodeVisibility } from '@gltf-transform/extensions';
-import { boundsJson, identity, multiply, partExtras, pruneView, Y_UP_METRES, type Diagnostic, type ExportNode,
-  type ExportView, type Look, type Mat4, type Mesh, type Part, type PropertyValue, type Scene, type SourceId,
-  type Vec3 } from 'cad-scene';
+import { boundsJson, drain, identity, multiply, paced, partExtras, pruneView, Y_UP_METRES, type Diagnostic,
+  type ExportNode, type ExportView, type Look, type Mat4, type Mesh, type Part, type PropertyValue, type Scene,
+  type SourceId, type Vec3 } from 'cad-scene';
 
 /** A part's `closed` for extras, where the source says it (cad-scene's Part.closed). */
 const closedOf = (part: Part): { closed?: boolean } => (part.closed === undefined ? {} : { closed: part.closed });
@@ -82,6 +82,11 @@ export interface GltfOptions {
    * bytes of `draco_encoder.wasm`, or a `locateFile` finding it. The first encoding call's are kept.
    */
   draco?: Record<string, unknown>;
+  /**
+   * Called (and awaited) now and then while the document is made, a placed part at a time, so the thread can do
+   * other things meanwhile (the viewer's import worker: its heartbeat). The encoders' own work doesn't pause.
+   */
+  pause?: () => Promise<void>;
 }
 
 export type LineKind = 'edges' | 'curves' | 'points';
@@ -115,7 +120,8 @@ export async function gltfDocument(scene: Scene, view: ExportView, opts: GltfOpt
   if (!(Number.isInteger(bits) && bits >= 1 && bits <= 30)) throw new GltfError(
     `dracoPositionBits must be a whole number from 1 to 30, not ${bits}`);
   const reorder = compression === 'meshopt' ? (await meshoptEncoder()).reorderMesh : undefined;
-  return new Writer(scene, view, opts, reorder).write();
+  const steps = new Writer(scene, view, opts, reorder).write();
+  return opts.pause ? paced(steps, opts.pause) : drain(steps);
 }
 
 /** The scene's export view as GLB. */
@@ -410,7 +416,8 @@ class Writer {
     this.doc.setLogger(new Logger(Logger.Verbosity.ERROR));
   }
 
-  write(): GltfResult {
+  /** The document, made a placed part at a time (a step each: `drain` or `paced`). */
+  *write(): Generator<void, GltfResult> {
     const root = this.doc.createNode(this.opts.name ?? '').setMatrix(Array.from(ROOT_TRANSFORM) as mat4);
     // Below the root: millimetres, the source's axes.
     if (this.extras) root.setExtras({ unit: 'millimetre', up: 'z',
@@ -425,8 +432,11 @@ class Writer {
     const groups = this.opts.instancing ? this.instances(omit) : [];
     const roots = this.opts.keepEmpty ? this.view.roots : pruneView(this.view,
       (p) => (p.visible || !omit) && !this.instanced.has(p)).roots;
-    for (const n of roots) root.addChild(this.node(n));
-    for (const g of groups) for (const node of this.instancedNodes(g)) root.addChild(node);
+    for (const n of roots) root.addChild(yield* this.node(n));
+    for (const g of groups) {
+      for (const node of this.instancedNodes(g)) root.addChild(node);
+      yield;
+    }
     this.doc.createScene(this.opts.name ?? '').addChild(root);
     // A scene with nothing to draw has no accessors, and an empty buffer isn't valid glTF.
     if (!this.doc.getRoot().listAccessors().length) this.buffer.dispose();
@@ -772,7 +782,7 @@ class Writer {
     return out;
   }
 
-  private node(n: ExportNode): Node {
+  private *node(n: ExportNode): Generator<void, Node> {
     const comp = this.scene.components[n.component]!;
     const node = this.doc.createNode(n.name).setMatrix(Array.from(n.transform) as mat4);
     if (this.extras) {
@@ -784,8 +794,12 @@ class Writer {
         ...(comp.external.format ? { format: comp.external.format } : {}) };
       node.setExtras(extras);
     }
-    for (const p of n.parts) { const c = this.part(p); if (c) node.addChild(c); }
-    for (const c of n.children) node.addChild(this.node(c));
+    for (const p of n.parts) {
+      const c = this.part(p);
+      if (c) node.addChild(c);
+      yield;
+    }
+    for (const c of n.children) node.addChild(yield* this.node(c));
     return node;
   }
 }

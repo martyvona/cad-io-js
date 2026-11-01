@@ -22,12 +22,17 @@ export type ToImportWorker =
 /** Each export's answer, with the lent meshes handed back. */
 export type FromImportWorker = ((ModelEvent | { type: 'error'; message: string }) & { load: number })
   | { type: 'exported'; id: number; result: Exported; meshes: [number, Mesh][] }
+  /** The export still going (Viewer.exportModel's watchdog: none for a while, the worker's lost). */
+  | { type: 'beat'; id: number }
   | { type: 'export-error'; id: number; message: string; meshes: [number, Mesh][] };
 
 const scope = globalThis as unknown as {
   postMessage(msg: FromImportWorker, transfer?: Transferable[]): void;
   onmessage: ((e: MessageEvent<ToImportWorker>) => void) | null;
 };
+
+/** How often an export says it's still going (ms). */
+export const BEAT_MS = 1000;
 
 const tessellation = new Tessellation();
 let current = 0;
@@ -44,6 +49,9 @@ scope.onmessage = async (e) => {
   if (msg.type === 'export') {
     // The lent meshes' buffers, to hand back whatever happens.
     const lent = [...new Set(msg.meshes.flatMap(([, m]) => meshBuffers(m)))];
+    // A beat each second while it goes (between the exporters' steps: their encoders' work doesn't pause).
+    scope.postMessage({ type: 'beat', id: msg.id });
+    const beat = setInterval(() => scope.postMessage({ type: 'beat', id: msg.id }), BEAT_MS);
     try {
       if (!last) throw new Error('no model to export');
       // Each part's level the page shows (chooseLod, as the page chose it), with the page's mesh; parts without one
@@ -55,7 +63,9 @@ scope.onmessage = async (e) => {
         const lod = mesh ? chooseLod(p, wanted) : undefined;
         return { ...p, lods: mesh ? [{ ...(lod ?? { from: 'source' as const }), mesh }] : [] };
       }) };
-      const result = await exportModel(scene, wanted, msg.request, { locateFile: () => dracoEncoderWasm });
+      // (A pause lets the beat's timer run between the exporters' steps.)
+      const result = await exportModel(scene, wanted, msg.request, { locateFile: () => dracoEncoderWasm },
+        () => new Promise((r) => setTimeout(r, 0)));
       const buffers = [...result.chunks, ...(result.bin ? [result.bin] : [])].flatMap((c) =>
         typeof c === 'string' ? [] : [c.buffer as ArrayBuffer]);
       scope.postMessage({ type: 'exported', id: msg.id, result, meshes: msg.meshes },
@@ -63,6 +73,8 @@ scope.onmessage = async (e) => {
     } catch (err) {
       scope.postMessage({ type: 'export-error', id: msg.id, message: (err as Error).message ?? String(err),
         meshes: msg.meshes }, lent);
+    } finally {
+      clearInterval(beat);
     }
     return;
   }
