@@ -2349,9 +2349,129 @@ await check('mesh again', async () => {
     JSON.stringify(a.tree)}`);
   expect(JSON.stringify(tb!.top) === JSON.stringify(ta!.top), `the tree's top row kept: ${JSON.stringify(a.tree)}`);
   const l = a.lost;
-  expect(/; 1 hidden or transparent and 1 selected not found again \(in the console\)$/.test(l.status) &&
+  expect(/; 1 appearance override and 1 selected not found again \(in the console\)$/.test(l.status) &&
     l.notRestored?.overrides.join() === l.paths[0] && l.notRestored?.selected.join() === l.paths[1],
     `not found again: ${JSON.stringify(l)}`);
+  return undefined;
+});
+// Every slot of the appearance overrides drawn alike after Mesh again (the user, 2026-11-01): an assembly hidden
+// with a child shown, a part transparent with one face back to the file's and one hidden, a part's triangle edges on
+// with one face off, a face's on and its part's edges hidden; what's drawn, face by face in every placement (shown,
+// opacity, triangle edges) and every line object, the same after meshing at another deflection, and the state's
+// overrides too.
+await check('overrides after mesh again', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    const button = (name) => ui.gui.controllersRecursive().find((c) => c._name === name);
+    ui.setTree({ open: true, detail: true });
+    let m = viewer.nodes;
+    const under = (id, a) => {
+      for (let n = id; n >= 0; n = m.nodes[n].parent) if (n === a) return true;
+      return false;
+    };
+    // (The smallest assembly of several, so parts enough are left outside it.)
+    const size = (id) => m.nodes[id].kind === 'part' ? 1 : m.children(id).reduce((k, c) => k + size(c), 0);
+    const asm = m.nodes.filter((n) => n.kind === 'assembly' && n.parent >= 0 && m.children(n.id).length > 1)
+      .sort((x, y) => size(x.id) - size(y.id))[0].id;
+    const parts = m.nodes.filter((n) => n.kind === 'part' && !under(n.id, asm) &&
+      m.children(n.id).filter((c) => m.nodes[c].kind === 'face').length >= 2).map((n) => n.id);
+    const [p, q, s] = parts;
+    const faces = (id) => m.children(id).filter((c) => m.nodes[c].kind === 'face');
+    ui.setHidden([asm], true);
+    ui.setHidden([m.children(asm)[0]], false);
+    ui.setOverride(p, { transparent: true, alpha: 0.4 });
+    ui.setOverride(faces(p)[0], { transparent: false });
+    ui.setOverride(faces(p)[1], { hidden: true });
+    ui.setOverride(q, { triangleEdges: true });
+    ui.setOverride(faces(q)[0], { triangleEdges: false });
+    ui.setOverride(faces(s)[0], { triangleEdges: true });
+    const edges = m.children(s).find((c) => m.nodes[c].kind === 'edges');
+    if (edges !== undefined) ui.setOverride(edges, { hidden: true });
+    ui.select([]);
+    await cadViewer.idle();
+    // What's drawn: per placement, its group, its line objects, and per face its material (shown, opacity) and
+    // whether its triangles have edges drawn (triangle-edges.ts's wireframes, whole or of some faces).
+    const drawn = () => {
+      const n = viewer.nodes, out = {};
+      const pairs = viewer.triangleEdges.pairs;
+      for (const node of n.nodes) {
+        if (node.kind !== 'part') continue;
+        // (Drawn: shown with every ancestor; a group hidden whole keeps its materials until shown, scene-graph.ts.)
+        const g = node.object;
+        let on = true;
+        for (let o = g; o; o = o.parent) on &&= o.visible;
+        const rec = { visible: on, lines: {}, faces: {} };
+        for (const obj of g.children) {
+          for (const c of obj.children) {
+            if (['edges', 'curves', 'points'].includes(c.name)) rec.lines[c.name] = on && c.visible;
+          }
+          const pair = pairs.find((x) => x.source === obj);
+          const index = obj.geometry.index?.array;
+          for (const f of obj.userData.faceRanges ?? []) {
+            if (f.source === null || !f.count) continue;
+            const grp = obj.geometry.groups.find((x) => x.start <= f.start && f.start < x.start + x.count);
+            const mat = [].concat(obj.material)[grp ? grp.materialIndex : 0];
+            let tri = false;
+            if (pair && pair.wire.visible) {
+              if (!pair.own) tri = mat.visible;
+              else {
+                const a = pair.own.index.array;
+                for (let i = 0; i < a.length && !tri; i += 3) tri = a[i] === index[f.start] &&
+                  a[i + 1] === index[f.start + 1] && a[i + 2] === index[f.start + 2];
+              }
+            }
+            const shown = on && mat.visible;
+            rec.faces[f.source] = [shown, shown ? +mat.opacity.toFixed(3) : 0, shown && tri];
+          }
+        }
+        out[n.pathOf(node.id)] = rec;
+      }
+      return out;
+    };
+    const slots = (st) => ({ hidden: st.hidden, shown: st.shown, opacity: st.opacity,
+      triangleEdges: st.triangleEdges });
+    const before = { drawn: drawn(), state: slots(cadViewer.state()), triangles: viewer.stats().triangles };
+    const model = viewer.model;
+    viewer.settings.cache = false;
+    viewer.settings.profile = 'custom';
+    viewer.settings.linearDeflection = 1;
+    button('Mesh again').$button.click();
+    for (let t = 0; t < 1200 && (viewer.model === model || !viewer.model?.meshing); t++) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    await cadViewer.idle();
+    const after = { drawn: drawn(), state: slots(cadViewer.state()), triangles: viewer.stats().triangles };
+    const at = (id) => ({ path: m.pathOf(id), faces: faces(id).map((f) => m.nodes[f].face.source) });
+    return { before, after, set: { p: at(p), q: at(q), s: at(s) } };
+  })()`) as { after: Record<string, { drawn: Record<string, { visible: boolean; lines: Record<string, boolean>;
+    faces: Record<string, [boolean, number, boolean]> }>; state: Record<string, unknown[]>; triangles: number }> &
+    { set: Record<'p' | 'q' | 's', { path: string; faces: number[] }> } };
+  const { before, after, set } = r.after;
+  // Each as set, before and after: p at 0.4 but its first face (the file's 1) and its second (hidden); q's triangle
+  // edges but its first face's; s's first face's alone.
+  for (const [when, d] of [['before', before!], ['after', after!]] as const) {
+    type K = 'p' | 'q' | 's';
+    const face = (k: K, i: number) => d.drawn[set[k].path]!.faces[set[k].faces[i]!]!;
+    const rest = (k: K, from: number) => set[k].faces.slice(from).map((f) => d.drawn[set[k].path]!.faces[f]!);
+    const e = `${when}: ${JSON.stringify([set, d.drawn[set.p.path], d.drawn[set.q.path], d.drawn[set.s.path]])}`;
+    expect(JSON.stringify(face('p', 0)) === '[true,1,false]' && !face('p', 1)[0] &&
+      rest('p', 2).every((f) => f[0] && f[1] === 0.4), `p's faces ${e}`);
+    expect(!face('q', 0)[2] && rest('q', 1).every((f) => f[2]), `q's triangle edges ${e}`);
+    expect(face('s', 0)[2] && rest('s', 1).every((f) => !f[2]) && d.drawn[set.s.path]!.lines.edges === false,
+      `s's triangle edges and edges ${e}`);
+  }
+  const all = Object.values(before!.drawn).flatMap((p) => Object.values(p.faces));
+  const j = JSON.stringify(before!.state);
+  // (The overrides make a difference: what's compared is not all alike.)
+  expect(all.some((f) => !f[0]) && all.some((f) => f[0] && f[1] === 0.4) && all.some((f) => f[0] && f[1] !== 0.4) &&
+    all.some((f) => f[2]) && all.some((f) => f[0] && !f[2]) && Object.values(before!.drawn).some((p) => !p.visible) &&
+    Object.values(before!.drawn).some((p) => p.visible && p.lines.edges === false), `the overrides drawn: ${j}`);
+  expect(before!.triangles !== after!.triangles, `meshed anew: ${before!.triangles} then ${after!.triangles}`);
+  expect(JSON.stringify(before!.state) === JSON.stringify(after!.state), `the overrides kept: ${j} then ${
+    JSON.stringify(after!.state)}`);
+  const diffs = Object.keys({ ...before!.drawn, ...after!.drawn }).filter((k) =>
+    JSON.stringify(before!.drawn[k]) !== JSON.stringify(after!.drawn[k]));
+  expect(!diffs.length, `drawn alike after: ${diffs.slice(0, 3).map((k) => `${k}: ${JSON.stringify(
+    before!.drawn[k])} then ${JSON.stringify(after!.drawn[k])}`).join('; ')}`);
   return undefined;
 });
 // Triangle edges (Rendering): all, a wireframe mesh per drawn mesh, sharing its geometry, outside the model (the node

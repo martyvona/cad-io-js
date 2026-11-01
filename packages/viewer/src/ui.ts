@@ -310,7 +310,9 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
         (m.parts.failed ? `, ${m.parts.failed} failed` : '') : '';
       const problems = (m.diagnostics ?? []).filter((d) => d.severity !== 'info').length;
       const counts = [];
-      if (lost.overrides.length) counts.push(`${lost.overrides.length} hidden or transparent`);
+      if (lost.overrides.length) {
+        counts.push(`${lost.overrides.length} appearance override${lost.overrides.length === 1 ? '' : 's'}`);
+      }
       if (lost.selected.length) counts.push(`${lost.selected.length} selected`);
       const notRestored = counts.length ? `; ${counts.join(' and ')} not found again (in the console)` : '';
       say(`${src.name}: ${((performance.now() - t) / 1000).toFixed(1)} s${parts}` +
