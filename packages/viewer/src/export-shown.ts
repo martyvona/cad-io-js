@@ -47,8 +47,11 @@ export function shownEdits(scene: Scene, nodes: NodeModel, graph: SceneGraph): S
     const p = graph.placements.get(part)?.find((q) => q.group === n.object);
     if (!p) continue;
     const pi = p.instance;
-    const component = componentAt(scene, pi.path);
-    const ref = component === undefined ? -1 : scene.components[component]!.parts.indexOf(pi.ref);
+    // (A root part's reference among the scene's root parts, at the empty path.)
+    const component = pi.path.length ? componentAt(scene, pi.path) : undefined;
+    const refs = pi.path.length ? component === undefined ? [] : scene.components[component]!.parts
+      : scene.rootParts ?? [];
+    const ref = refs.indexOf(pi.ref);
     if (ref < 0) continue;
     const look = nodes.look(n.id);
     triangleEdges ||= look.triangleEdges === true;

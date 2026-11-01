@@ -13,11 +13,17 @@
 //
 //   bounds: { center: [x, y, z], radius }
 //
+// and with a placed part, its part reference's own (placementJson):
+//
+//   placement: { index, name?, sources?, properties?, product?: { name, sources?, properties? } }
+//
 // so a level read back is judged as it was made (faceFailures needs its deflection in the part's units).
 
-import type { Lod, Measures, Part, Scene, SceneBounds } from './scene.ts';
+import type { Lod, Measures, Part, PartRef, Properties, Scene, SceneBounds, SourceId } from './scene.ts';
 
 type Json = Record<string, unknown>;
+const obj = (v: unknown): Json | undefined => (v && typeof v === 'object' && !Array.isArray(v) ? v as Json
+  : undefined);
 
 /** A part's measures as our extras' JSON. */
 export function measuresJson(m: Measures): Json {
@@ -71,6 +77,16 @@ export function partExtras(part: Part, lod: Lod | undefined, opts: { box?: boole
 export const unitFrom = (j: unknown) => (typeof j === 'number' && Number.isFinite(j) && j > 0 ? j : 1);
 
 /** The model's sphere as our root extras' JSON, where the scene has one. */
+/**
+ * What our extras say of the whole scene (glTF's scene, three.js's root object, 3MF's `cadio:tree`): its frame
+ * (millimetres, Z up; for 3MF the nodes', its model in the source's unit), its properties, the source's unit and its
+ * sphere.
+ */
+export function sceneJson(scene: Scene): Json {
+  return { unit: 'millimetre', up: 'z', ...(Object.keys(scene.properties).length ? { properties: scene.properties }
+    : {}), ...(scene.sourceUnit !== undefined ? { sourceUnit: scene.sourceUnit } : {}), ...boundsJson(scene) };
+}
+
 export function boundsJson(scene: Scene): Json {
   const b = scene.bounds;
   return b ? { bounds: { center: [...b.center], radius: b.radius } } : {};
@@ -83,4 +99,39 @@ export function boundsFrom(j: unknown): SceneBounds | undefined {
   const finite = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x);
   if (!Array.isArray(c) || c.length !== 3 || !c.every(finite) || !finite(r) || r < 0) return undefined;
   return { center: [c[0]!, c[1]!, c[2]!], radius: r, from: 'source' };
+}
+
+/**
+ * A placed part's own data in our extras (the user, 2026-11-01: a leaf product's placement is a part reference):
+ * its index among its component's part references, its name, sources and properties, and its product's.
+ */
+export function placementJson(ref: PartRef, index: number): Json {
+  const sourced = (sources: SourceId[] | undefined, properties: Properties | undefined): Json => ({
+    ...(sources?.length ? { sources: sources.map((s) => ({ format: s.format, id: s.id })) } : {}),
+    ...(properties && Object.keys(properties).length ? { properties } : {}) });
+  return { index, ...(ref.name !== undefined ? { name: ref.name } : {}), ...sourced(ref.sources, ref.properties),
+    ...(ref.product ? { product: { name: ref.product.name, ...sourced(ref.product.sources,
+      ref.product.properties) } } : {}) };
+}
+
+/** A placement's data from our extras (placementJson): its index, and what a part reference carries. */
+export function placementFrom(j: unknown): { index?: number } & Pick<PartRef, 'name' | 'sources' | 'properties' |
+  'product'> {
+  const o = obj(j);
+  if (!o) return {};
+  const sourcesOf = (v: unknown): SourceId[] => (Array.isArray(v) ? v.flatMap((s) => {
+    const x = obj(s);
+    return x && typeof x.format === 'string' && typeof x.id === 'number' ? [{ format: x.format, id: x.id }] : [];
+  }) : []);
+  const props = (v: unknown): Properties => (obj(v) ?? {}) as Properties;
+  const out: ReturnType<typeof placementFrom> = {};
+  if (typeof o.index === 'number' && Number.isInteger(o.index) && o.index >= 0) out.index = o.index;
+  if (typeof o.name === 'string') out.name = o.name;
+  const sources = sourcesOf(o.sources);
+  if (sources.length) out.sources = sources;
+  if (obj(o.properties)) out.properties = props(o.properties);
+  const p = obj(o.product);
+  if (p) out.product = { name: typeof p.name === 'string' ? p.name : '', sources: sourcesOf(p.sources),
+    properties: props(p.properties) };
+  return out;
 }

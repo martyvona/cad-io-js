@@ -1,9 +1,12 @@
 // Scene model -> three.js JSON Object Scene format 4 (the form Object3D.toJSON writes), loadable with
 // THREE.ObjectLoader. See README.md, "`stepconv`", and CLAUDE.md, "Decisions".
 //
-//   objects: a root Group (its matrix to metres, Y up), a Group per instance-tree node (matrix =
-//     the node's local transform), and per placed part a Mesh (or a Group, for a part without triangles) whose
-//     children are its B-rep edges (LineSegments), wireframe curves (LineSegments) and points (Points).
+//   objects: a Scene holding the scene's roots, each turned to metres and Y up in its own matrix (the user,
+//     2026-11-01: no root group of ours, for a reader to take for an assembly or a frame not the file's). A Group
+//     per instance-tree node (matrix = the node's local transform), and per placed part (a part reference, named as
+//     the placement is, else its product, else its part) a Mesh (or a Group, for a part without triangles) whose
+//     children are its B-rep edges (LineSegments), wireframe curves (LineSegments) and points (Points). The scene's
+//     root parts beside its roots.
 //   geometries: one per distinct mesh and grouping, shared by every instance; groups index the Mesh's material array.
 //   materials: one per scene material and kind (MeshStandardMaterial, LineBasicMaterial, PointsMaterial).
 //   userData (on request): source ids, properties and parts (and `closed`, where the source says whether a part's
@@ -12,14 +15,15 @@
 //
 // Tree nodes with nothing to draw beneath them are left out unless `keepEmpty` (the user, 2026-10-24).
 //
-// The root's matrix turns the scene's millimetres and Z up into metres and Y up (three.js's up axis, glTF's unit and
-// axis), with extras or without, so a file sits the same in any three.js application; below it lengths are
-// millimetres and axes as in the source (CAD files are usually Z-up), which the root's userData says with extras (the
-// user, 2026-10-24). Format 4 holds numbers as JSON arrays, so output is produced in chunks: a large model's JSON can
-// exceed V8's maximum string length.
+// Each top object's matrix turns the scene's millimetres and Z up into metres and Y up (three.js's up axis, glTF's
+// unit and axis), so a file sits the same in any three.js application; below it lengths are millimetres and axes as
+// in the source (CAD files are usually Z-up), which the Scene's userData says with extras (the user, 2026-10-24;
+// in each top object since 2026-11-01, a root group's before). Format 4 holds numbers as JSON arrays, so output is
+// produced in chunks: a large model's JSON can exceed V8's maximum string length.
 
-import { boundsJson, partExtras, pruneView, Y_UP_METRES, type ExportNode, type ExportView, type Look, type Mat4,
-  type Mesh, type PropertyValue, type Scene, type SourceId, type Vec3 } from 'cad-scene';
+import { multiply, partExtras, placedName, placementJson, pruneView, sceneJson, Y_UP_METRES, type ExportNode,
+  type ExportPart, type ExportView, type Look, type Mat4, type Mesh, type PropertyValue, type Scene, type SourceId,
+  type Vec3 } from 'cad-scene';
 
 /** Millimetres to metres, and Z up to Y up: (x, y, z) mm -> (x, z, -y) m. Column-major (cad-scene's `Y_UP_METRES`). */
 export const ROOT_TRANSFORM: Mat4 = Y_UP_METRES;
@@ -255,7 +259,7 @@ class Writer {
     return u;
   }
 
-  private part(p: ExportNode['parts'][number]): Json {
+  private part(p: ExportPart, frame?: Mat4): Json {
     const look = this.view.looks[p.look]!;
     const part = this.scene.parts[look.part]!;
     const children: Json[] = [];
@@ -270,9 +274,12 @@ class Writer {
     if (look.edges) lines('edges');
     if (look.curves && look.mesh.curves?.length) lines('curves');
     if (look.curves && look.mesh.pointSources?.length) lines('points');
-    const userData: Json = { part: look.part, ...(part.closed === undefined ? {} : { closed: part.closed }),
-      ...this.sourced(part.sources, part.properties), ...partExtras(part, look.lod) };
-    const o: Json = { uuid: this.uuid(), type: 'Group', name: part.name, matrix: matrix(p.transform) };
+    const userData: Json = { part: look.part, partName: part.name,
+      ...(part.closed === undefined ? {} : { closed: part.closed }),
+      ...this.sourced(part.sources, part.properties), ...partExtras(part, look.lod),
+      placement: placementJson(p.ref, p.index) as Json };
+    const o: Json = { uuid: this.uuid(), type: 'Group', name: placedName(this.scene, p.ref),
+      matrix: matrix(frame ? multiply(frame, p.transform) : p.transform) };
     if (look.groups.length) {
       o.type = 'Mesh';
       const g = this.faceGeometry(look, part.name);
@@ -288,25 +295,28 @@ class Writer {
     return o;
   }
 
-  private node(n: ExportNode): Json {
+  private node(n: ExportNode, frame?: Mat4): Json {
     const comp = this.scene.components[n.component]!;
     const userData: Json = { ...this.sourced(n.occurrence.sources, n.occurrence.properties) };
     userData.component = { index: n.component, name: comp.name, ...this.sourced(comp.sources, comp.properties) };
     if (comp.external) userData.external = { uri: comp.external.uri,
       ...(comp.external.format ? { format: comp.external.format } : {}) };
     const children = [...n.parts.map((p) => this.part(p)), ...n.children.map((c) => this.node(c))];
-    const o: Json = { uuid: this.uuid(), type: 'Group', name: n.name, matrix: matrix(n.transform),
+    const o: Json = { uuid: this.uuid(), type: 'Group', name: n.name,
+      matrix: matrix(frame ? multiply(frame, n.transform) : n.transform),
       ...(this.extras ? { userData } : {}) };
     if (children.length) o.children = children;
     return o;
   }
 
   root(): Json {
-    const o: Json = { uuid: this.uuid(), type: 'Group', name: this.opts.name ?? '', matrix: matrix(ROOT_TRANSFORM) };
-    if (this.extras) o.userData = { unit: 'millimetre', up: 'z',
-      ...(Object.keys(this.scene.properties).length ? { properties: this.scene.properties } : {}),
-      ...boundsJson(this.scene) };
-    const children = this.view.roots.map((n) => this.node(n));
+    // A Scene of the tops, each turned itself (the user, 2026-11-01: no root group of ours); with extras, the Scene's
+    // userData says what's below that turn.
+    const frame = ROOT_TRANSFORM;
+    const o: Json = { uuid: this.uuid(), type: 'Scene', name: this.opts.name ?? '' };
+    if (this.extras) o.userData = sceneJson(this.scene) as Json;
+    const children = [...this.view.parts.map((p) => this.part(p, frame)), ...this.view.roots.map((n) =>
+      this.node(n, frame))];
     if (children.length) o.children = children;
     return o;
   }

@@ -18,7 +18,8 @@
 
 import type { Component, Diagnostic, Lod, Mat4, Material, Mesh, Occurrence, Part, PartRef, PropertyValue, Scene,
   SourceId, Vec3 } from './scene.ts';
-import { boundsFrom, levelFrom, measuresFrom, unitFrom } from './measures.ts';
+import { boundsFrom, levelFrom, measuresFrom, placementFrom, unitFrom } from './measures.ts';
+import { leafParts } from './leaf.ts';
 import { identity, multiply } from './walk.ts';
 
 export type TreeExtras = { [key: string]: unknown };
@@ -289,8 +290,34 @@ function ourLevel(node: TreeNode, b: Builder): { lod: Lod; appearance: Appearanc
   return { lod: { mesh, from: 'source' }, appearance: { material, faces } };
 }
 
+/** A part node's placement: its part reference's own data from our extras, at the node's transform. */
+function placementOf(ch: TreeNode, part: number): PartRef {
+  const { index: _, ...own } = placementFrom(ch.extras?.placement);
+  return { part, transform: ch.matrix, ...own };
+}
+
+/** Our part node's part, made at its first placement. */
+function ourPart(ch: TreeNode, b: Builder): number {
+  // (The node named as its placement is; the part's own name in our extras, from 2026-11-01.)
+  const name = typeof ch.extras?.partName === 'string' ? ch.extras.partName : ch.name;
+  return b.part(`ours:${num(ch.extras?.part)}`, () => ({ name, sources: sourcesOf(ch.extras?.sources),
+    properties: propertiesOf(ch.extras?.properties), unit: unitFrom(ch.extras?.unit), origin: [0, 0, 0] as Vec3,
+    lods: [],
+    ...(typeof ch.extras?.closed === 'boolean' ? { closed: ch.extras.closed } : {}),
+    ...(measuresFrom(ch.extras?.measures) ? { measures: measuresFrom(ch.extras?.measures)! } : {}) }));
+}
+
+/** A part node's level and appearance at a placement (path and reference), hidden as the node is. */
+function ourPlacement(ch: TreeNode, ref: PartRef, b: Builder, path: number[], r: number): void {
+  const part = b.parts[ref.part]!;
+  const level = ourLevel(ch, b);
+  if (!part.lods.length) part.lods.push({ ...level.lod, ...levelFrom(ch.extras?.level) });
+  b.appearance(ref.part, level.appearance, path, r);
+  if (!ch.visible) b.overrides.push({ path, ref: r, visible: false, sources: [] });
+}
+
 /** Our tree: components by their index, parts by theirs, instances' differences as overrides. */
-function fromOurs(root: TreeNode, b: Builder): Occurrence[] {
+function fromOurs(root: TreeNode, b: Builder): { roots: Occurrence[]; rootParts: PartRef[] } {
   interface Comp { key: string; comp: Component; refKeys: Placed[]; childKeys: Placed[] }
   const comps = new Map<string, Comp>();
   // (By node too, for visiting each instance.)
@@ -304,7 +331,7 @@ function fromOurs(root: TreeNode, b: Builder): Occurrence[] {
   // place, as nodes made again for instanced placements are, stay apart.)
   const childId = (n: TreeNode) => `${compOf(n) ?? n.name}|${n.name}|${Array.isArray(n.extras?.path)
     ? (n.extras.path as unknown[]).at(-1) : ''}`;
-  const refId = (n: TreeNode) => `${num(n.extras?.part)}`;
+  const refId = (n: TreeNode) => `${num(n.extras?.part)}|${placementFrom(n.extras?.placement).index ?? ''}`;
 
   // The component of a tree node (made at its first instance), with the union of its instances' parts and children.
   // A node without our component index (one the export pruned, made again) is one by its slot in its parent's
@@ -331,13 +358,8 @@ function fromOurs(root: TreeNode, b: Builder): Occurrence[] {
         const r = find(c.refKeys, refId(ch), ch.matrix, usedRefs);
         if (r >= 0) { usedRefs.add(r); continue; }
         usedRefs.add(c.refKeys.length);
-        const p = b.part(`ours:${num(ch.extras?.part)}`, () => ({ name: ch.name, sources: sourcesOf(ch.extras?.sources),
-          properties: propertiesOf(ch.extras?.properties), unit: unitFrom(ch.extras?.unit), origin: [0, 0, 0] as Vec3,
-          lods: [],
-          ...(typeof ch.extras?.closed === 'boolean' ? { closed: ch.extras.closed } : {}),
-          ...(measuresFrom(ch.extras?.measures) ? { measures: measuresFrom(ch.extras?.measures)! } : {}) }));
         c.refKeys.push({ id: refId(ch), matrix: ch.matrix });
-        c.comp.parts.push({ part: p, transform: ch.matrix });
+        c.comp.parts.push(placementOf(ch, ourPart(ch, b)));
       } else {
         // (Matched or not, its own references and children joined to its component's.)
         const k = find(c.childKeys, childId(ch), ch.matrix, usedChildren);
@@ -363,7 +385,9 @@ function fromOurs(root: TreeNode, b: Builder): Occurrence[] {
     rootKeys.push({ id: childId(n), matrix: n.matrix });
     roots.push(occurrence(n, b.components.indexOf(c.comp), c.comp.name));
   }
-  if (root.children.some(isPart)) b.warn('parts directly under the root: not read');
+  // The root parts (the scene's: one instance), in order.
+  const rootParts = root.children.filter(isPart).map((ch) => placementOf(ch, ourPart(ch, b)));
+  root.children.filter(isPart).forEach((ch, r) => ourPlacement(ch, rootParts[r]!, b, [], r));
 
   // Each instance: its parts' levels (made at their first placement) and appearances, what it lacks hidden.
   const visit = (n: TreeNode, path: number[]) => {
@@ -374,12 +398,7 @@ function fromOurs(root: TreeNode, b: Builder): Occurrence[] {
         // (Matched as component() matched them: in order, each once.)
         const r = find(c.refKeys, refId(ch), ch.matrix, present);
         present.add(r);
-        const ref: PartRef = c.comp.parts[r]!;
-        const part = b.parts[ref.part]!;
-        const level = ourLevel(ch, b);
-        if (!part.lods.length) part.lods.push({ ...level.lod, ...levelFrom(ch.extras?.level) });
-        b.appearance(ref.part, level.appearance, path, r);
-        if (!ch.visible) b.overrides.push({ path, ref: r, visible: false, sources: [] });
+        ourPlacement(ch, c.comp.parts[r]!, b, path, r);
       }
     }
     c.comp.parts.forEach((_, r) => {
@@ -402,15 +421,100 @@ function fromOurs(root: TreeNode, b: Builder): Occurrence[] {
     rootsSeen.add(k);
     visit(n, [k]);
   }
-  return roots;
+  return { roots, rootParts };
 }
 
 /**
- * A file's own tree: every node a component placed once, its meshes parts, shared by key; a mesh's triangle groups
- * (a glTF mesh's primitives, a three.js geometry's groups) its faces, numbered from 0 in order, each with its
- * material.
+ * A file's own tree (the user, 2026-11-01): a node with meshes and nothing below it but its own `edges`, `curves` and
+ * `points` (as our exporters write a placed part) is a placed part, a part reference in its parent's component, its
+ * meshes one part (merged: shared wherever the file reuses the same meshes); every other node a component placed
+ * once, its own meshes parts. A mesh's triangle groups (a glTF mesh's primitives, a three.js geometry's groups) are
+ * its part's faces, numbered from 0 in order, each with its material. `container`: the root is the file's scene, its
+ * children the roots (glTF's scene, three.js's Scene object), each turned by `frame`; else the root is a node, turned
+ * by it.
  */
-function fromOthers(root: TreeNode, b: Builder, frame: Mat4): Occurrence[] {
+function fromOthers(root: TreeNode, b: Builder, frame: Mat4, container: boolean): { roots: Occurrence[];
+  rootParts: PartRef[] } {
+  /** The part a placed part's node draws (its meshes and its lines children's, merged). */
+  const leafPart = (n: TreeNode): number => {
+    // (One mesh alone: its key, so a component holding the same mesh shares the part.)
+    const key = n.meshes.length === 1 && !n.children.length ? n.meshes[0]!.key : `leaf:${[...n.meshes.map((m) =>
+      m.key), ...n.children.map((c) => `${c.name}:${c.meshes.map((m) => m.key).join(',')}`)].join('|')}`;
+    return b.part(key, () => {
+      const { mesh, materials } = mergedMesh(n);
+      const material = materials[0];
+      const faceMaterials = materials.flatMap((x, face) => (face > 0 && x !== undefined && x !== material
+        ? [{ face, material: x }] : []));
+      return { name: n.name || 'part', sources: [], properties: {}, unit: 1, origin: [0, 0, 0] as Vec3,
+        lods: [{ mesh, from: 'source' as const }], ...(material !== undefined ? { material } : {}),
+        ...(faceMaterials.length ? { faceMaterials } : {}) };
+    });
+    function mergedMesh(node: TreeNode): { mesh: Mesh; materials: (number | undefined)[] } {
+      const tris = node.meshes.filter((m) => m.mode === 'triangles');
+      const lines = [...node.meshes.filter((m) => m.mode === 'lines').map((m) => ({ m, matrix: identity() })),
+        ...node.children.filter((c) => c.name === 'curves').flatMap((c) => c.meshes.map((m) => ({ m,
+          matrix: c.matrix })))];
+      const points = [...node.meshes.filter((m) => m.mode === 'points').map((m) => ({ m, matrix: identity() })),
+        ...node.children.filter((c) => c.name === 'points').flatMap((c) => c.meshes.map((m) => ({ m,
+          matrix: c.matrix })))];
+      const edges = node.children.filter((c) => c.name === 'edges');
+      const materials: (number | undefined)[] = [];
+      let mesh: Mesh;
+      if (tris.length === 1) {
+        mesh = otherMesh(tris[0]!);
+        const groups = tris[0]!.groups;
+        for (const g of groups.length > 1 ? groups : groups.slice(0, 1)) materials.push(b.material(g.material));
+      } else {
+        // (Several meshes: each group of each a face, so their materials stay apart.)
+        const pos: number[] = [], nor: number[] = [], ix: number[] = [];
+        const faces: Mesh['faces'] = [];
+        const normals = tris.length > 0 && tris.every((m) => m.normals);
+        for (const m of tris) {
+          const base = pos.length / 3;
+          pos.push(...m.positions);
+          if (normals) nor.push(...m.normals!);
+          const all = m.indices ?? Uint32Array.from({ length: m.positions.length / 3 }, (_, i) => i);
+          const groups = m.groups.length ? m.groups : [{ start: 0, count: all.length }];
+          for (const g of groups) {
+            faces.push({ source: faces.length, start: ix.length, count: g.count });
+            for (let k = g.start; k < g.start + g.count; k++) ix.push(base + all[k]!);
+            materials.push(b.material((g as { material?: TreeMaterial }).material));
+          }
+        }
+        mesh = { origin: [0, 0, 0], positions: Float32Array.from(pos), indices: Uint32Array.from(ix), faces };
+        if (normals) mesh.normals = Float32Array.from(nor);
+      }
+      if (edges.length && mesh.indices.length) Object.assign(mesh, edgesOf(edges));
+      const placed = (list: { m: TreeMesh; matrix: Mat4 }[], pairs: boolean): number[] => list.flatMap(({ m,
+        matrix }) => {
+        const ix = m.indices ?? Uint32Array.from({ length: m.positions.length / 3 }, (_, i) => i);
+        const out: number[] = [];
+        for (let k = 0; k < (pairs ? ix.length - (ix.length % 2) : ix.length); k++) {
+          const v = ix[k]!;
+          const [x, y, z] = [m.positions[3 * v]!, m.positions[3 * v + 1]!, m.positions[3 * v + 2]!];
+          for (let r = 0; r < 3; r++) {
+            out.push(matrix[r]! * x + matrix[4 + r]! * y + matrix[8 + r]! * z + matrix[12 + r]!);
+          }
+        }
+        return out;
+      });
+      if (lines.length) {
+        const c = placed(lines, true);
+        mesh.curvePositions = Float32Array.from(c);
+        mesh.curves = Array.from({ length: c.length / 6 }, (_, k) => ({ source: null, start: 2 * k, count: 2 }));
+        if (!tris.length) materials.push(b.material(lines[0]!.m.groups[0]?.material));
+      }
+      if (points.length) {
+        const q = placed(points, false);
+        mesh.points = Float32Array.from(q);
+        mesh.pointSources = Array<null>(q.length / 3).fill(null);
+        if (!tris.length && !lines.length) materials.push(b.material(points[0]!.m.groups[0]?.material));
+      }
+      return { mesh, materials };
+    }
+  };
+  const ref = (n: TreeNode, transform: Mat4): PartRef => ({ part: leafPart(n), transform,
+    ...(n.name ? { name: n.name } : {}), ...(n.visible ? {} : { visible: false }) });
   const visit = (n: TreeNode, path: number[]): number => {
     const comp: Component = { name: n.name, sources: [], properties: {}, parts: [], children: [] };
     const index = b.components.length;
@@ -439,15 +543,36 @@ function fromOthers(root: TreeNode, b: Builder, frame: Mat4): Occurrence[] {
       comp.parts.push({ part, transform: identity() });
     }
     if (!n.visible) b.overrides.push({ path, visible: false, sources: [] });
-    n.children.filter((c) => !edgeNodes.includes(c)).forEach((c, k) => {
-      const child = visit(c, [...path, k]);
+    let k = 0;
+    for (const c of n.children.filter((x) => !edgeNodes.includes(x))) {
+      if (isPlacedPart(c)) {
+        comp.parts.push(ref(c, c.matrix));
+        continue;
+      }
+      const child = visit(c, [...path, k++]);
       comp.children.push({ component: child, transform: c.matrix, ...(c.name ? { name: c.name } : {}), sources: [],
         properties: {} });
-    });
+    }
     return index;
   };
-  const top = visit(root, [0]);
-  return [{ component: top, transform: multiply(frame, root.matrix), sources: [], properties: {} }];
+  const roots: Occurrence[] = [], rootParts: PartRef[] = [];
+  for (const n of container ? root.children : [root]) {
+    const transform = multiply(frame, container ? n.matrix : root.matrix);
+    if (isPlacedPart(n)) rootParts.push(ref(n, transform));
+    else {
+      const top = visit(n, [roots.length]);
+      roots.push({ component: top, transform, ...(container && n.name ? { name: n.name } : {}), sources: [],
+        properties: {} });
+    }
+  }
+  return { roots, rootParts };
+}
+
+/** A placed part's node: meshes, and below it only its own `edges`, `curves` and `points` (lines and points). */
+function isPlacedPart(n: TreeNode): boolean {
+  const own = (c: TreeNode) => ['edges', 'curves', 'points'].includes(c.name) && !c.children.length &&
+    c.meshes.length > 0 && c.meshes.every((m) => m.mode !== 'triangles');
+  return n.meshes.length > 0 && n.children.every(own);
 }
 
 /** Lines nodes' segments as a mesh's edges, in the parent node's frame (each node's matrix applied). */
@@ -499,17 +624,28 @@ function otherMesh(m: TreeMesh): Mesh {
  * The scene a tree holds: ours read back as written, others as their own tree, `frame` taking the root's frame to
  * millimetres, Z up (default MM_Z_UP: metres, Y up, as glTF and three.js are).
  */
-export function sceneFromTree(root: TreeNode, opts: { frame?: Mat4 } = {}): { scene: Scene;
+export function sceneFromTree(root: TreeNode, opts: { frame?: Mat4; container?: boolean } = {}): { scene: Scene;
   diagnostics: Diagnostic[] } {
   const b = new Builder();
   const ours = isOurTree(root);
   b.ours = ours;
-  const roots = ours ? fromOurs(root, b) : fromOthers(root, b, opts.frame ?? MM_Z_UP);
+  // (Ours in a container, as written since 2026-11-01: no root node of ours, each top node turned to metres and Y
+  // up itself; turned back here, the rest read as below our old root node.)
+  const tops = ours && opts.container ? { ...root, children: root.children.map((c) => ({ ...c,
+    matrix: multiply(opts.frame ?? MM_Z_UP, c.matrix) })) } : root;
+  const { roots, rootParts } = ours ? fromOurs(tops, b) : fromOthers(root, b, opts.frame ?? MM_Z_UP,
+    opts.container ?? false);
   const scene: Scene = {
-    unit: 'millimetre', components: b.components, roots, parts: b.parts, materials: b.materials, layers: [],
+    unit: 'millimetre', components: b.components, roots, ...(rootParts.length ? { rootParts } : {}), parts: b.parts,
+    materials: b.materials, layers: [],
     overrides: b.overrides, properties: ours ? propertiesOf(root.extras?.properties) : {}, diagnostics: b.diagnostics,
   };
   const bounds = ours ? boundsFrom(root.extras?.bounds) : undefined;
   if (bounds) scene.bounds = bounds;
+  // The source's unit: our extras' (the file we exported from), else the format's (metres; `frame` scales by it).
+  const unit = ours ? num(root.extras?.sourceUnit) : Math.hypot(...Array.from((opts.frame ?? MM_Z_UP).slice(0, 3)));
+  if (unit !== undefined && unit > 0) scene.sourceUnit = unit;
+  // (Our files written before 2026-11-01 placed a leaf product as a component holding its part.)
+  leafParts(scene);
   return { scene, diagnostics: b.diagnostics };
 }

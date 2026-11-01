@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { strToU8, zipSync } from 'fflate';
+import { strToU8, unzipSync, zipSync } from 'fflate';
 import fs from 'node:fs';
 import path from 'node:path';
-import { exportView, identity, partInstances, pruneView, scaling, tessellateScene, validate, viewDifferences,
-  type ExportNode, type Mat4, type Mesh, type Scene } from 'cad-scene';
+import { exportView, identity, leafParts, partInstances, placedName, pruneView, scaling, tessellateScene, validate,
+  viewDifferences, type ExportNode, type Mat4, type Mesh, type Occurrence, type PartRef, type Scene } from 'cad-scene';
 import { threemf, type ThreeMfOptions } from 'export-3mf';
 import { importStep } from 'step-import';
 import { OcctTessellator } from 'tess-occt';
@@ -41,6 +41,12 @@ const sheet = (): Mesh => ({ origin: [0, 0, 0], positions: Float32Array.of(0, 0,
  * 11), the second turned; a sheet (open); a hidden cube. Materials: 0 red, 1 green, 2 blue.
  */
 function source(): Scene {
+  // (Its leaf subassembly placed as part references, as any importer gives it: cad-scene's leafParts.)
+  const s = fixture();
+  leafParts(s);
+  return s;
+}
+function fixture(): Scene {
   const occ = (component: number, t: Mat4, name: string) => ({ component, transform: t, sources: [], properties: {},
     name });
   const part = (name: string, unit: number, mesh: Mesh, closed: boolean) => ({ name, sources: [], properties: {},
@@ -188,9 +194,14 @@ for (const [label, opts] of [['an item per placed part, basematerials', {}],
     assert.equal(back.scene.parts.find((p) => p.name === 'sheet')?.closed, sheetLeftOut ? undefined : false);
     if (opts.build === 'assembly') {
       // Our exporter names its component objects after the tree's nodes.
-      assert.deepEqual(back.scene.components.map((c) => c.name).sort(), ['left', 'right', 'top']);
+      // (The leaf subassembly's placements part references: components naming the cube's object.)
+      assert.deepEqual(back.scene.components.map((c) => c.name).sort(), ['top']);
       assert.equal(back.scene.roots.length, 1);
-    } else assert.deepEqual(back.scene.components.map((c) => c.name), ['build']);
+    } else {
+      // Each item a root part (the user, 2026-11-01: no made-up node holding them).
+      assert.deepEqual(back.scene.components, []);
+      assert.ok(back.scene.rootParts!.length >= 2);
+    }
   });
 }
 
@@ -273,7 +284,9 @@ test('colours: faces by colour wherever their triangles are, per-triangle proper
   assert.deepEqual(box.properties, { type: 'model', partNumber: 'B-1', uuid: 'u-3' });
   assert.equal(box.closed, true);
   assert.equal(r.scene.parts[1]!.closed, undefined);
-  assert.equal(r.scene.components[0]!.name, 'Colours & things');
+  // (Mesh objects' items root parts; the title in the scene's metadata.)
+  assert.deepEqual(r.scene.components, []);
+  assert.deepEqual(r.scene.rootParts!.map((x) => [x.part, x.properties]), [[0, undefined], [1, undefined]]);
   assert.deepEqual(r.scene.properties, { format: '3mf', unit: 'millimeter',
     metadata: { Title: 'Colours & things' } });
   // Every triangle's world colour, against a hand count: 7 grey, 4 translucent blue, 1 red; the other object none.
@@ -489,7 +502,7 @@ for (const hidden of ['omit', 'keep'] as const) {
       // Drawn the same, faces by their ids, colours by override where the source has one.
       assert.deepEqual(viewDifferences({ scene: s, view: held(s, o) }, { scene: back.scene,
         view: exportView(back.scene) }, { lines: false, skipHidden: hidden === 'omit' }), []);
-      assert.deepEqual(back.scene.components.map((c) => c.name), ['asm', 'sub']);
+      assert.deepEqual(back.scene.components.map((c) => c.name), ['asm']);
       assert.deepEqual(back.scene.roots.map((r) => r.name), ['top']);
       assert.deepEqual(placed(back.scene), hidden === 'keep' ? ['cube', 'cube', 'cube (hidden)'] : ['cube', 'cube']);
       const cubePart = back.scene.parts.find((p) => p.name === 'cube')!;
@@ -517,16 +530,18 @@ test('our 3MF with extras as components: read as written, with its faces', () =>
 });
 
 test('our 3MF with extras as components: two roots (one named ""), a part without a material: as written', () => {
-  const s = source();
-  // A second root placing the subassembly again, named "", and the cube without a material of its own.
+  // A second root placing the subassembly again, named "" (a leaf: a root part), and the cube without a material of
+  // its own.
+  const s = fixture();
   s.roots.push({ component: 1, transform: translation(0, 500, 0), sources: [], properties: {}, name: '' });
   delete s.parts[0]!.material;
+  leafParts(s);
   for (const o of [{ extras: true, build: 'assembly' }, { extras: true }] as ThreeMfOptions[]) {
     const back = import3mf(exported(s, o));
     assert.deepEqual(messages(back), [], JSON.stringify(o));
     assert.deepEqual(viewDifferences({ scene: s, view: held(s, o) }, { scene: back.scene,
       view: exportView(back.scene) }, { lines: false, skipHidden: true }), [], JSON.stringify(o));
-    assert.equal(back.scene.roots.length, 2);
+    assert.equal(back.scene.roots.length + (back.scene.rootParts?.length ?? 0), 2);
   }
   // Without extras, the default colour is a colour, and the wrapper an object of its own.
   const plain = import3mf(exported(s, { build: 'assembly' }));
@@ -536,7 +551,8 @@ test('our 3MF with extras as components: two roots (one named ""), a part withou
 
 test('our 3MF without extras: read as anyone\'s, the placed parts flat under the root', () => {
   const back = import3mf(exported(source(), {}));
-  assert.deepEqual(back.scene.components.map((c) => [c.name, c.parts.length, c.children.length]), [['build', 2, 0]]);
+  assert.deepEqual(back.scene.components, []);
+  assert.equal(back.scene.rootParts!.length, 2);
   assert.deepEqual(back.scene.parts[0]!.lods[0]!.mesh.faces.map((f) => f.source), [0, 1, 2]);
 });
 
@@ -552,6 +568,42 @@ test('our faces that don\'t match the triangles: faces by colour, said', () => {
 
 const assembly = path.resolve(import.meta.dirname,
   '../../../test_corpus/third_party/gkv311-opencascade-dataset/step/as1-oc-214-mat.stp');
+
+/** A scene's tree: each node's kind and name, a placed part named as its placement (as the viewer shows it). */
+const tree = (s: Scene): string => {
+  const part = (r: PartRef) => `P ${JSON.stringify(placedName(s, r))}`;
+  const occ = (o: Occurrence): string => {
+    const c = s.components[o.component]!;
+    return `A ${JSON.stringify(o.name ?? c.name)}(${[...c.parts.map(part), ...c.children.map(occ)].join(', ')})`;
+  };
+  return [...(s.rootParts ?? []).map(part), ...s.roots.map(occ)].join(', ');
+};
+/** as1 from STEP, each part a stand-in triangle (the tree is what's compared). */
+const standIns = async () => {
+  const { scene: a } = await importStep(fs.readFileSync(assembly));
+  const tri = { origin: [0, 0, 0] as [number, number, number], positions: Float32Array.of(0, 0, 0, 1, 0, 0, 0, 1, 0),
+    indices: Uint32Array.of(0, 1, 2), faces: [] };
+  for (const p of a.parts) p.lods = [{ mesh: tri, from: 'source' }];
+  return a;
+};
+test('round trips keep the tree: the same through 3MF again and again (an item per part flat without extras)',
+  { skip: fs.existsSync(assembly) ? false : 'corpus not fetched' }, async () => {
+    const a = await standIns();
+    // (A stand-in triangle isn't closed: written as a surface.)
+    for (const o of [{ extras: true }, { extras: true, build: 'assembly' }, { build: 'assembly' }, {}] as
+      ThreeMfOptions[]) {
+      const trip = (s: Scene) => import3mf(bytesOf(threemf(s, exportView(s), { ...o, nonManifold: 'surface' })
+        .chunks)).scene;
+      const b = trip(a), c = trip(b), d = trip(c);
+      const j = JSON.stringify(o);
+      // Without extras an item per placed part is flat (the user, 2026-10-29): the first trip changes the tree.
+      if (o.extras || o.build === 'assembly') assert.equal(tree(b), tree(a), `${j}: the first trip`);
+      else assert.ok(!b.roots.length && b.rootParts!.length === [...partInstances(a)].length, j);
+      assert.equal(tree(c), tree(b), `${j}: the second`);
+      assert.equal(tree(d), tree(c), `${j}: the third`);
+    }
+  });
+
 test('a STEP assembly through 3MF with extras and back: the same drawing, tree and faces',
   { skip: fs.existsSync(assembly) ? false : 'corpus not fetched' }, async () => {
     const { scene: s } = await importStep(fs.readFileSync(assembly));
@@ -617,4 +669,44 @@ test('the model\'s sphere in our tree metadata, read back as the file\'s; withou
   const plain = import3mf(exported(s, {})).scene;
   assert.equal(plain.bounds?.from, 'meshes');
   assert.ok(plain.parts.every((p) => p.lods.every((l) => l.mesh.box)));
+});
+
+test('the source\'s unit: our 3MF in inches where the source was (the user, 2026-11-01), the same drawing back', () => {
+  const s = source();
+  s.sourceUnit = 25.4;
+  for (const o of [{}, { extras: true }, { build: 'assembly' }, { extras: true, build: 'assembly' }] as
+    ThreeMfOptions[]) {
+    const opts = { ...o, nonManifold: 'surface' } as ThreeMfOptions;
+    const bytes = exported(s, opts);
+    const xml = new TextDecoder().decode(unzipSync(bytes)['3D/3dmodel.model']!);
+    assert.match(xml, /<model unit="inch"/);
+    const back = import3mf(bytes);
+    const j = JSON.stringify(o);
+    assert.deepEqual(messages(back), [], j);
+    assert.equal(back.scene.sourceUnit, 25.4, j);
+    // (Compared by what's drawn in the world; without extras faces without a material in the exporter's grey.)
+    assert.deepEqual(canonical(drawn(back.scene)), canonical(drawn(s)).map((t) => o.extras ? t : t.replace(/none$/,
+      '204,204,204,255')), j);
+  }
+  // A unit 3MF has no name for: millimetres.
+  s.sourceUnit = 3.7;
+  assert.match(new TextDecoder().decode(unzipSync(exported(s, {}))['3D/3dmodel.model']!), /<model unit="millimeter"/);
+});
+
+test('an assembly of one placed product, as components without extras: the assembly back, placing the product', () => {
+  // (Its placed product in an object of its own: else the assembly, an object of one mesh object, would read back
+  // as a part placed.)
+  // The placed product named as its part (no occurrence name), so no name of its own calls for an object.
+  const s = fixture();
+  const { name: _, ...unnamed } = s.components[0]!.children[0]!;
+  s.components[0] = { ...s.components[0]!, parts: [], children: [unnamed] };
+  s.components[1]!.name = 'cube';
+  leafParts(s);
+  assert.deepEqual(s.components.map((c) => [c.name, c.parts.map((r) => r.product?.name), c.children.length]),
+    [['asm', ['cube'], 0]]);
+  const back = import3mf(exported(s, { build: 'assembly', nonManifold: 'surface' })).scene;
+  // (3MF's objects named after the tree's nodes: the root occurrence's `top`.)
+  assert.deepEqual(back.components.map((c) => [c.name, c.parts.map((r) => placedName(back, r)),
+    c.children.length]), [['top', ['cube'], 0]]);
+  assert.equal(back.rootParts, undefined);
 });

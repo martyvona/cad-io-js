@@ -7,7 +7,7 @@
 //   nodes: the expanded instance tree, with local transforms and each instance's parts as looks.
 
 import { chooseLod, type LodWanted } from './lod.ts';
-import type { Component, Lod, Mat4, Mesh, Occurrence, Scene } from './scene.ts';
+import type { Component, Lod, Mat4, Mesh, Occurrence, PartRef, Scene } from './scene.ts';
 import { identity, multiply, partInstances, type PartInstance } from './walk.ts';
 
 /** Which of a part's levels each look uses: chooseLod's, for these deflections (none: the finest). */
@@ -50,13 +50,31 @@ export interface ExportNode {
   /** From this node's coordinates to its parent's (or the scene's, for a root), in millimetres. */
   transform: Mat4;
   /** The component's parts that have something to draw. */
-  parts: { look: number; transform: Mat4; visible: boolean }[];
+  parts: ExportPart[];
   children: ExportNode[];
+}
+
+/** A placed part that has something to draw. */
+export interface ExportPart {
+  look: number;
+  /** From the look's mesh coordinates (the part's minus its origin) to the node's (or the scene's, at the top). */
+  transform: Mat4;
+  visible: boolean;
+  /** Its part reference (its name, sources and product: a placed part is a node of its own), and its index. */
+  ref: PartRef;
+  index: number;
 }
 
 export interface ExportView {
   looks: Look[];
+  /** The scene's root parts that have something to draw. */
+  parts: ExportPart[];
   roots: ExportNode[];
+}
+
+/** A placed part's name in a tree: its own, else its product's, else its part's. */
+export function placedName(scene: Scene, ref: PartRef): string {
+  return ref.name ?? ref.product?.name ?? scene.parts[ref.part]?.name ?? '';
 }
 
 function translation(v: readonly number[]): Mat4 {
@@ -101,6 +119,18 @@ export function exportView(scene: Scene, opts: ExportViewOptions = {}): ExportVi
     list.push(pi);
   }
 
+  // A component instance's placed parts (the empty path's: the root parts).
+  const placedParts = (refs: readonly PartRef[], path: number[]): ExportPart[] => {
+    const out: ExportPart[] = [];
+    for (const pi of resolved.get(path.join('/')) ?? []) {
+      const look = lookFor(pi.part, pi.material, pi.faceMaterials);
+      if (look === undefined) continue;
+      out.push({ look, transform: multiply(pi.ref.transform, translation(looks[look]!.mesh.origin)),
+        visible: pi.visible, ref: pi.ref, index: refs.indexOf(pi.ref) });
+    }
+    return out;
+  };
+
   // The tree, as `instances` walks it (a component inside itself isn't expanded again).
   const visit = (occ: Occurrence, path: number[], onPath: Set<number>): ExportNode => {
     const comp: Component = scene.components[occ.component]!;
@@ -108,12 +138,7 @@ export function exportView(scene: Scene, opts: ExportViewOptions = {}): ExportVi
       path, component: occ.component, occurrence: occ, name: occ.name ?? comp.name, transform: occ.transform, parts: [],
       children: [],
     };
-    for (const pi of resolved.get(path.join('/')) ?? []) {
-      const look = lookFor(pi.part, pi.material, pi.faceMaterials);
-      if (look === undefined) continue;
-      node.parts.push({ look, transform: multiply(pi.ref.transform, translation(looks[look]!.mesh.origin)),
-        visible: pi.visible });
-    }
+    node.parts = placedParts(comp.parts, path);
     comp.children.forEach((child, i) => {
       if (onPath.has(child.component)) return;
       onPath.add(child.component);
@@ -122,8 +147,9 @@ export function exportView(scene: Scene, opts: ExportViewOptions = {}): ExportVi
     });
     return node;
   };
+  const parts = placedParts(scene.rootParts ?? [], []);
   const roots = scene.roots.map((occ, i) => visit(occ, [i], new Set([occ.component])));
-  return { looks, roots };
+  return { looks, parts, roots };
 }
 
 /**
@@ -138,7 +164,7 @@ export function pruneView(view: ExportView,
     if (!children.length && !n.parts.some(keep)) return undefined;
     return { ...n, children };
   };
-  return { looks: view.looks, roots: view.roots.map(prune).filter((r) => r !== undefined) };
+  return { looks: view.looks, parts: view.parts, roots: view.roots.map(prune).filter((r) => r !== undefined) };
 }
 
 /**

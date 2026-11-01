@@ -3,7 +3,7 @@
 // part's colours by part, reference or override; its origin in its transform or its mesh). Positions up to a
 // tolerance (lossy compression).
 
-import type { ExportNode, ExportView } from './export.ts';
+import { placedName, type ExportNode, type ExportPart, type ExportView } from './export.ts';
 import type { Mat4, Scene } from './scene.ts';
 import { identity, multiply } from './walk.ts';
 
@@ -24,16 +24,19 @@ const apply = (m: Mat4, x: number, y: number, z: number): [number, number, numbe
   m[0]! * x + m[4]! * y + m[8]! * z + m[12]!, m[1]! * x + m[5]! * y + m[9]! * z + m[13]!,
   m[2]! * x + m[6]! * y + m[10]! * z + m[14]!];
 
-/** Each placed part, in tree order, with its node's path and its world transform. */
-function placements(view: ExportView): { names: string; world: Mat4; look: number; visible: boolean }[] {
+/** Each placed part, in tree order, with its path of names (its own last) and its world transform. */
+function placements(scene: Scene, view: ExportView): { names: string; world: Mat4; look: number;
+  visible: boolean }[] {
   const out: { names: string; world: Mat4; look: number; visible: boolean }[] = [];
+  const place = (p: ExportPart, t: Mat4, here: string) => out.push({ names: `${here}/${placedName(scene, p.ref)}`,
+    world: multiply(t, p.transform), look: p.look, visible: p.visible });
   const walk = (n: ExportNode, parent: Mat4, names: string) => {
     const t = multiply(parent, n.transform);
     const here = `${names}/${n.name}`;
-    for (const p of n.parts) out.push({ names: here, world: multiply(t, p.transform), look: p.look,
-      visible: p.visible });
+    for (const p of n.parts) place(p, t, here);
     for (const c of n.children) walk(c, t, here);
   };
+  for (const p of view.parts) place(p, identity(), '');
   for (const r of view.roots) walk(r, identity(), '');
   return out;
 }
@@ -158,7 +161,7 @@ export function viewDifferences(a: { scene: Scene; view: ExportView }, b: { scen
   // points in the world, nearest first (an importer may put a node's parts back in another order, and a format may
   // move a mesh's scale into its placement, as meshopt's quantization does).
   type P = ReturnType<typeof placements>[number] & { drawn: Drawn[]; lines: Drawn[]; centre: number[] };
-  const of = (side: { scene: Scene; view: ExportView }): P[] => placements(side.view)
+  const of = (side: { scene: Scene; view: ExportView }): P[] => placements(side.scene, side.view)
     .filter((p) => p.visible || !opts.skipHidden).map((p) => {
       const drawn = triangles(side.scene, side.view, p.look, p.world, opts.faceIds ?? true);
       const ls = opts.lines === false ? [] : lines(side.view, p.look, p.world);

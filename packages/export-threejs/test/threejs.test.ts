@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as THREE from 'three';
 import { exportView, identity, multiply, scaling, type Mat4, type Mesh, type Scene } from 'cad-scene';
-import { formatFloat32, threejsChunks, threejsJson } from '../src/index.ts';
+import { formatFloat32, ROOT_TRANSFORM, threejsChunks, threejsJson } from '../src/index.ts';
 
 const translation = (x: number, y: number, z: number): Mat4 => {
   const m = identity();
@@ -75,11 +75,14 @@ test('three.js JSON loads with ObjectLoader: tree, transforms, shared geometry, 
   root.updateMatrixWorld(true);
   assert.equal(root.name, 'model');
   assert.deepEqual(root.userData, { unit: 'millimetre', up: 'z', properties: { schema: 'AP214' } });
-  // The root: millimetres to metres, Z up to Y up, (x, y, z) -> (x, z, -y) / 1000 (written out, not the exporter's).
+  // A Scene of the tops (no root group of ours: the user, 2026-11-01), each turned itself: millimetres to metres,
+  // Z up to Y up, (x, y, z) -> (x, z, -y) / 1000 (written out, not the exporter's).
+  assert.equal(root.type, 'Scene');
   const yUp = Float64Array.of(0.001, 0, 0, 0, 0, 0, -0.001, 0, 0, 0.001, 0, 0, 0, 0, 0, 1);
-  assert.deepEqual(JSON.parse(json).object.matrix, Array.from(yUp));
+  assert.equal(JSON.parse(json).object.matrix, undefined);
+  assert.deepEqual(JSON.parse(json).object.children[0].matrix, Array.from(yUp));
   // (ObjectLoader decomposes matrices and composes them again, so loaded ones differ from the file's by rounding.)
-  root.matrix.elements.forEach((x, i) => assert.ok(Math.abs(x - yUp[i]!) < 1e-15, `root element ${i}`));
+  root.children[0]!.matrix.elements.forEach((x, i) => assert.ok(Math.abs(x - yUp[i]!) < 1e-15, `top element ${i}`));
   assert.deepEqual(root.children.map((c) => c.name), ['asm']);
   assert.deepEqual(root.children[0]!.children.map((c) => c.name), ['left', 'sub']);
   const left = root.children[0]!.children[0]!;
@@ -114,8 +117,8 @@ test('three.js JSON loads with ObjectLoader: tree, transforms, shared geometry, 
   assert.equal((plates[1]!.material as THREE.Material[])[0]!.name, 'red');
   // The part's ids, properties and unit (its vertices are in inches), and its faces as index ranges for picking.
   assert.deepEqual(plates[0]!.userData, {
-    part: 0, closed: false, sources: [{ format: 'step', id: 50 }], properties: { pn: 'X-1' }, unit: 25.4,
-    faces: [{ source: 8, start: 0, count: 3 }, { source: 7, start: 3, count: 3 }],
+    part: 0, partName: 'plate', closed: false, sources: [{ format: 'step', id: 50 }], properties: { pn: 'X-1' },
+    unit: 25.4, placement: { index: 0 }, faces: [{ source: 8, start: 0, count: 3 }, { source: 7, start: 3, count: 3 }],
   });
 });
 
@@ -162,15 +165,26 @@ test('edges and curves on request; edge kinds; hidden instances; colours', () =>
 
 test('without extras (the default): no userData anywhere, the same objects, geometries and materials', () => {
   const s = scene();
+  // (A root part too, named as its placement.)
+  s.rootParts = [{ part: 0, transform: translation(0, 0, 300), name: 'loose' }];
   const view = viewOf(s, meshes(), { edges: true, curves: true });
-  const plain = JSON.parse(threejsJson(s, view));
+  const plain = JSON.parse(threejsJson(s, view)) as { object: { type: string; matrix?: number[];
+    children: { name: string; matrix: number[] }[] } };
   assert.equal(JSON.stringify(plain).includes('"userData"'), false);
-  // The same document as with extras, once its userData is taken out.
+  // The same document as with extras, once its userData is taken out: a Scene of the tops, each turned to metres
+  // and Y up itself (the user, 2026-11-01).
   const strip = (o: unknown): unknown => Array.isArray(o) ? o.map(strip) : o && typeof o === 'object'
     ? Object.fromEntries(Object.entries(o).filter(([k]) => k !== 'userData').map(([k, v]) => [k, strip(v)])) : o;
   const full = JSON.parse(threejsJson(s, view, { extras: true }));
   assert.ok(JSON.stringify(full).includes('"userData"'));
   assert.deepEqual(plain, strip(full));
+  assert.equal(plain.object.type, 'Scene');
+  assert.equal(plain.object.matrix, undefined);
+  assert.deepEqual(plain.object.children.map((c) => c.name), ['loose', 'asm']);
+  // (The root part's: the turn, its reference's place, its mesh's origin.)
+  const origin = meshes().get(0)!.origin;
+  assert.deepEqual(plain.object.children[0]!.matrix, Array.from(multiply(ROOT_TRANSFORM,
+    multiply(translation(0, 0, 300), translation(...origin)))));
   const root = load(JSON.stringify(plain));
   root.traverse((o) => assert.deepEqual(o.userData, {}));
 });

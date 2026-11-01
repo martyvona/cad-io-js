@@ -1,8 +1,9 @@
 // 3MF (core specification, the Materials extension's colours, the Production extension's model parts) to the scene
 // model (the user, 2026-10-29; CLAUDE.md, "Decisions": 3MF import), read by our own zip and XML readers in pieces.
 // The scene is built directly, as 3MF already separates definitions from uses: mesh objects are parts (one level
-// from the source), components objects components, and the build's items the root's placements; a build of one
-// components object is the root itself, else one root component holds the items. Vertices stay in their model
+// from the source), components objects components, and the build's items the roots: a components object's a root
+// occurrence, a mesh object's a root part (the user, 2026-11-01: no made-up node holding them; the item's part
+// number, UUID and metadata its properties). Vertices stay in their model
 // part's unit (the part's `unit`), and transforms carry the conversion to millimetres; a transform is in the unit of
 // the model part it's written in, and an object in another model part (the Production extension) is converted from
 // that part's unit first (the extension doesn't say; each part's `unit` is honoured).
@@ -14,9 +15,8 @@
 //   properties: an object's or item's type, part number, Production UUID and metadata (by name as written).
 //   our files with extras: the scene they were written from, as far as 3MF holds it (ours.ts).
 
-import { boundScene, dropSourceDegenerate, identity, multiply, scaling, type Component, type Diagnostic, type Mat4,
-  type Material, type Occurrence, type Part, type PartRef, type Properties, type Scene,
-  type SourceId } from 'cad-scene';
+import { boundScene, dropSourceDegenerate, leafParts, multiply, scaling, type Component, type Diagnostic,
+  type Mat4, type Material, type Occurrence, type Part, type Properties, type Scene, type SourceId } from 'cad-scene';
 import { readModel, type ItemDef, type ModelFile, type ObjectDef } from './model.ts';
 import { oursFromTree } from './ours.ts';
 import { XmlTokenizer } from './xml.ts';
@@ -44,6 +44,8 @@ const DEFAULT_ROOT = '3D/3dmodel.model';
 /** Reads a 3MF package. Problems in the file are diagnostics. */
 export function import3mf(input: Uint8Array, opts: ThreeMfImportOptions = {}): ThreeMfImport {
   const r = read(input, opts);
+  // (A components object of one mesh object and nothing else a part placed: cad-scene's leafParts.)
+  leafParts(r.scene);
   if (opts.dropDegenerate ?? true) dropSourceDegenerate(r.scene);
   boundScene(r.scene);
   return r;
@@ -231,29 +233,24 @@ function read(input: Uint8Array, opts: ThreeMfImportOptions): ThreeMfImport {
       if (t.object.components) {
         const k = component(t.file, t.object);
         if (k !== undefined) scene.roots.push(occurrence(k, t, m, root.unit, c.uuid));
-      } else warn('our assembly\'s wrapper places a mesh object directly: skipped');
+      } else (scene.rootParts ??= []).push({ part: part(t.file, t.object), transform: toParent(m, root.unit,
+        t.file.unit), ...(c.uuid ? { properties: { uuid: c.uuid } } : {}) });
     }
-  } else if (items.length === 1 && items[0]!.object.components) {
-    const { item, file, object } = items[0]!;
-    const c = component(file, object);
-    if (c !== undefined) scene.roots.push(occurrence(c, { file, object }, item.transform, root.unit, item.uuid, item));
   } else if (items.length) {
-    const top: Component = { name: root.metadata.Title || 'build', sources: [], properties: {}, parts: [],
-      children: [] };
-    const index = scene.components.push(top) - 1;
     for (const { item, file, object } of items) {
       if (object.components) {
         const c = component(file, object);
-        if (c !== undefined) top.children.push(occurrence(c, { file, object }, item.transform, root.unit, item.uuid,
+        if (c !== undefined) scene.roots.push(occurrence(c, { file, object }, item.transform, root.unit, item.uuid,
           item));
       } else {
-        const ref: PartRef = { part: part(file, object), transform: toParent(item.transform, root.unit, file.unit) };
-        top.parts.push(ref);
+        const properties = propertiesOf(item);
+        (scene.rootParts ??= []).push({ part: part(file, object), transform: toParent(item.transform, root.unit,
+          file.unit), ...(Object.keys(properties).length ? { properties } : {}) });
       }
     }
-    scene.roots.push({ component: index, transform: identity(), sources: [], properties: {} });
   } else warn('the build has no items: nothing to show');
 
+  scene.sourceUnit = root.unit;
   scene.properties = { format: '3mf', unit: root.unitName,
     ...(Object.keys(root.metadata).length ? { metadata: root.metadata } : {}),
     ...(root.buildUuid ? { uuid: root.buildUuid } : {}) };

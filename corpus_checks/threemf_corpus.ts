@@ -16,9 +16,9 @@
 //   node corpus_checks/threemf_corpus.ts [file-list.txt] [max MB, default 2]  (progress on standard error)
 import fs from 'node:fs';
 import os from 'node:os';
-import { exportView, identity, multiply, tessellateScene, type ExportNode,
+import { exportView, identity, multiply, scaling, tessellateScene, type ExportNode,
   type Mat4 } from '../packages/cad-scene/src/index.ts';
-import { threemf } from '../packages/export-3mf/src/index.ts';
+import { modelUnit, threemf } from '../packages/export-3mf/src/index.ts';
 import { OBJECT_TYPE, read3mf, type Read3mf } from '../packages/export-3mf/test/read3mf.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
 import { WorkerTessellator } from '../packages/tess-workers/src/node.ts';
@@ -41,7 +41,7 @@ const matrix = (t: number[] | undefined): Mat4 => (
   1) : identity());
 
 const totals = { files: 0, skipped: 0, items: 0, models: 0, surfaces: 0, lib3mfOpen: 0, insideOut: 0, triangles: 0,
-  degenerate: 0, bytes: 0, assemblyBytes: 0, exportMs: 0, readMs: 0, problems: 0 };
+  degenerate: 0, bytes: 0, assemblyBytes: 0, exportMs: 0, readMs: 0, problems: 0, units: new Map<string, number>() };
 const problems: string[] = [];
 const biggest: [number, string, number][] = [];
 const t0 = Date.now();
@@ -79,7 +79,12 @@ for (const f of corpusFiles(process.argv[2])) {
   }
   totals.readMs += performance.now() - tr;
   for (const w of [...read.warnings, ...assembled.warnings]) problem(`lib3mf warning: ${w}`);
-  if (read.unit !== 1) problem(`unit ${read.unit}`);
+  // The model in the source's unit where 3MF names it (the user, 2026-11-01): lib3mf's unit, in its enumeration's
+  // order; the items' transforms in it.
+  const unit = modelUnit(scene.sourceUnit);
+  const unitIndex = ['micron', 'millimeter', 'centimeter', 'inch', 'foot', 'meter'].indexOf(unit.name);
+  totals.units.set(unit.name, (totals.units.get(unit.name) ?? 0) + 1);
+  if (read.unit !== unitIndex) problem(`unit ${read.unit}, expected ${unitIndex} (${unit.name})`);
 
   // Expected, in tree order: each placed part with triangles, its world transform and look.
   const expected: { world: Mat4; look: number }[] = [];
@@ -89,6 +94,9 @@ for (const f of corpusFiles(process.argv[2])) {
       { world: multiply(t, p.transform), look: p.look });
     for (const c of n.children) walk(c, t);
   };
+  // (The scene's root parts first, as the exporter writes them.)
+  for (const p of view.parts) if (view.looks[p.look]!.groups.length) expected.push({ world: p.transform,
+    look: p.look });
   for (const r of view.roots) walk(r, identity());
   // Looks whose meshes weld to no triangle at all (every one degenerate) have no object.
   const objectOf = new Map<number, number>();
@@ -100,7 +108,7 @@ for (const f of corpusFiles(process.argv[2])) {
     const item = items[k++];
     if (!item) { problem(`${items.length} items, expected more`); break; }
     totals.items++;
-    const want = rows(e.world).map(Math.fround);
+    const want = rows(multiply(scaling(1 / unit.mm), e.world)).map(Math.fround);
     const got = item.transform ?? rows(identity());
     const scale = Math.max(1, ...want.map(Math.abs));
     if (!got.every((x, i) => Math.abs(x - want[i]!) <= 1e-6 * scale)) problem(
@@ -121,7 +129,8 @@ for (const f of corpusFiles(process.argv[2])) {
     else problem(`object ${id}: type ${m.type}`);
     // A model: manifold and oriented by lib3mf's check, and of positive volume (lib3mf doesn't check the sign); a
     // surface fails one of them.
-    const solid = m.manifold && volume(m.positions, m.triangles) > 0;
+    // (And not said to be open by the source: then a surface however its mesh closes, the user, 2026-10-27.)
+    const solid = m.manifold && volume(m.positions, m.triangles) > 0 && scene.parts[look.part]!.closed !== false;
     if (!m.manifold && m.type === OBJECT_TYPE.surface) totals.lib3mfOpen++;
     if (m.manifold && m.type === OBJECT_TYPE.surface) totals.insideOut++;
     if ((m.type === OBJECT_TYPE.model) !== solid) problem(
@@ -214,6 +223,7 @@ console.log(`items ${totals.items}, objects: model ${totals.models}, surface ${t
   + `degenerate dropped)`);
 console.log(`3MF ${mb(totals.bytes)} MB (assembly build ${mb(totals.assemblyBytes)} MB); export `
   + `${(totals.exportMs / 1000).toFixed(2)} s; lib3mf read ${(totals.readMs / 1000).toFixed(2)} s`);
+console.log(`units: ${[...totals.units].map(([u, n]) => `${u} ${n}`).join(', ')}`);
 console.log('largest:');
 for (const [n, f, ms] of biggest.sort((a, b) => b[0] - a[0]).slice(0, 5)) console.log(
   `  ${mb(n)} MB, ${(ms / 1000).toFixed(1)} s  ${f}`);

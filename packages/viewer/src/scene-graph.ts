@@ -20,7 +20,7 @@
 
 import * as THREE from 'three';
 import { biasTowardCamera } from './depth-bias.ts';
-import { faceFailures, instances, partInstances, type FaceFailure, type Mat4, type Measures, type Mesh,
+import { faceFailures, instances, partInstances, placedName, type FaceFailure, type Mat4, type Measures, type Mesh,
   type PartInstance, type Scene, type SourceId } from 'cad-scene';
 import type { Looks, PlacementLook } from './model.ts';
 import { DEFAULT_RENDER, EDGES } from './style.ts';
@@ -122,17 +122,27 @@ export class SceneGraph implements Looks {
     }
     for (const pi of partInstances(scene)) {
       const g = new THREE.Group();
-      g.name = scene.parts[pi.part]!.name;
-      // (Its faces' ids STEP's when the part comes from STEP: a foreign file's are numbers of its own.)
-      const sources = stepIds(scene.parts[pi.part]!.sources);
-      g.userData = { cad: 'part', part: pi.part, path: pi.path, sources, stepFaces: sources.length > 0 };
+      // (A placed part a node of its own, named as its placement: the user, 2026-11-01.)
+      g.name = placedName(scene, pi.ref);
+      // Its STEP ids: its placement's (a NAUO), its product's, its part's (the shape representation), as an
+      // assembly's are its occurrence's then its component's; its faces' ids STEP's when the part comes from STEP (a
+      // foreign file's are numbers of its own).
+      const own = stepIds(scene.parts[pi.part]!.sources);
+      const sources = stepIds([...pi.ref.sources ?? [], ...pi.ref.product?.sources ?? [],
+        ...scene.parts[pi.part]!.sources]);
+      g.userData = { cad: 'part', part: pi.part, path: pi.path, sources, stepFaces: own.length > 0 };
       g.visible = pi.visible;
       setMatrix(g, pi.ref.transform);
-      groups.get(pi.path.join('/'))!.add(g);
+      // (A root part's at the top.)
+      (pi.path.length ? groups.get(pi.path.join('/'))! : this.root).add(g);
       let list = this.placements.get(pi.part);
       if (!list) this.placements.set(pi.part, (list = []));
       list.push({ group: g, instance: pi });
     }
+    // (The root parts first, as a component's parts come before its children and the exporters write them.)
+    const tops = this.root.children;
+    tops.splice(0, tops.length, ...tops.filter((o) => o.userData.cad === 'part'),
+      ...tops.filter((o) => o.userData.cad !== 'part'));
   }
 
   /**

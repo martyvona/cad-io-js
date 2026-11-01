@@ -26,8 +26,9 @@ import { KHRDracoMeshCompression, KHRMaterialsUnlit, KHRNodeVisibility } from '@
 import draco3d from 'draco3dgltf';
 import validator from 'gltf-validator';
 import * as THREE from 'three';
-import { exportView, manifoldProblems, tessellateScene, weld, type ExportNode,
-  type ExportView } from '../packages/cad-scene/src/index.ts';
+import { DEFAULT_MESH_PROFILE, exportView, manifoldProblems, meshDeflections, placedName, tessellateScene, weld,
+  type ExportNode, type ExportPart, type ExportView, type PartRef,
+  type Scene } from '../packages/cad-scene/src/index.ts';
 import { stepconv } from '../packages/cli/src/stepconv.ts';
 import { read3mf } from '../packages/export-3mf/test/read3mf.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
@@ -54,6 +55,8 @@ const counts = { files: 0, skipped: 0, placed: 0, hidden: 0, notSolid: 0, triang
   startup: [] as number[], problems: 0 };
 const issues = new Map<string, number>();
 const problems: string[] = [];
+/** Outputs too large to read back (three.js JSON past V8's longest string). */
+const tooLarge: string[] = [];
 const slowest: [number, string, Format][] = [];
 
 /** A stepconv summary's numbers. */
@@ -62,7 +65,8 @@ interface Summary { parts: number; meshed: number; brep: number; placed: number;
 function parseSummary(text: string): Summary | undefined {
   const a = new RegExp(String.raw`^(\d+) parts \((\d+) of (\d+) brep parts tessellated\), (\d+) placed; `
     + String.raw`(\d+) triangles; [\d.]+ MB written$`, 'm').exec(text);
-  const b = /^import ([\d.]+) s, tessellation ([\d.]+) s, export ([\d.]+) s$/m.exec(text);
+  // (The meshing profile or settings in parentheses after the tessellation's time, since 2026-10-26.)
+  const b = /^import ([\d.]+) s, tessellation ([\d.]+) s(?: \([^)]*\))?, export ([\d.]+) s$/m.exec(text);
   if (!a || !b) return undefined;
   const [parts, meshed, brep, placed, triangles] = a.slice(1).map(Number) as [number, number, number, number, number];
   return { parts, meshed, brep, placed, triangles, import: Number(b[1]), tessellate: Number(b[2]),
@@ -77,7 +81,8 @@ function sink(): { stream: Writable; text: () => string } {
 }
 
 /** The placed parts with triangles, in tree order: part index, triangles, visibility, and for 3MF whether a solid. */
-function placedParts(view: ExportView): { part: number; triangles: number; visible: boolean; solid: boolean }[] {
+function placedParts(view: ExportView, scene: Scene): { part: number; ref: PartRef; triangles: number; visible: boolean;
+  solid: boolean }[] {
   const solid = new Map<number, boolean>();
   const isSolid = (l: number) => {
     let s = solid.get(l);
@@ -85,19 +90,24 @@ function placedParts(view: ExportView): { part: number; triangles: number; visib
       const look = view.looks[l]!;
       const w = weld(look.mesh.positions);
       const tris = Uint32Array.from(look.indices, (v) => w.remap[v]!);
-      solid.set(l, (s = manifoldProblems(w.positions, tris).length === 0));
+      // (And not said to be open by the source: then never a model, the user, 2026-10-27.)
+      solid.set(l, (s = manifoldProblems(w.positions, tris).length === 0 &&
+        scene.parts[look.part]!.closed !== false));
     }
     return s;
   };
   const out: ReturnType<typeof placedParts> = [];
+  const place = (p: ExportPart) => {
+    const look = view.looks[p.look]!;
+    if (look.indices.length) out.push({ part: look.part, ref: p.ref, triangles: look.indices.length / 3,
+      visible: p.visible, solid: isSolid(p.look) });
+  };
   const walk = (n: ExportNode) => {
-    for (const p of n.parts) {
-      const look = view.looks[p.look]!;
-      if (look.indices.length) out.push(
-        { part: look.part, triangles: look.indices.length / 3, visible: p.visible, solid: isSolid(p.look) });
-    }
+    n.parts.forEach(place);
     n.children.forEach(walk);
   };
+  // (The scene's root parts first, as the exporters write them.)
+  view.parts.forEach(place);
   view.roots.forEach(walk);
   return out;
 }
@@ -128,9 +138,12 @@ async function validate(bytes: Uint8Array, problem: (m: string) => void,
 }
 
 /** The output's placed parts and triangles, read back with the format's own tools. */
+const STRING_LIMIT = 2 ** 29 - 24;
 async function readBack(format: Format, file: string, problem: (m: string) => void): Promise<{ name?: string;
-  triangles: number; visible?: boolean }[]> {
+  triangles: number; visible?: boolean }[] | undefined> {
   if (format === 'json') {
+    // (A file longer than V8's longest string can't be read back whole: said, not compared.)
+    if (fs.statSync(file).size > STRING_LIMIT) return undefined;
     const root = new THREE.ObjectLoader().parse(JSON.parse(fs.readFileSync(file, 'utf8')));
     const out: { name: string; triangles: number; visible: boolean }[] = [];
     root.traverse((o) => {
@@ -181,21 +194,23 @@ for (const f of files) {
   const problem = (msg: string) => { counts.problems++; if (problems.length < 200) problems.push(`${name}: ${msg}`); };
   try {
     const { scene } = await importStep(fs.readFileSync(f));
-    const { meshes } = await tessellateScene(scene, tess,
-      { linearDeflection: 0.1, angularDeflection: 0.5, concurrency: workers });
-    const view = exportView(scene, { linearDeflection: 0.1, angularDeflection: 0.5, edges: false, curves: false });
-    const placed = placedParts(view);
+    // (As stepconv meshes by default: its default profile, medium, since 2026-10-26.)
+    const deflections = meshDeflections({ profile: DEFAULT_MESH_PROFILE });
+    const { meshes } = await tessellateScene(scene, tess, { ...deflections, concurrency: workers });
+    const view = exportView(scene, { ...deflections, edges: false, curves: false });
+    const placed = placedParts(view, scene);
     const brep = scene.parts.filter((p) => p.brep).length;
     let viewPlaced = 0, viewTriangles = 0;
     const walk = (n: ExportNode) => {
       for (const p of n.parts) { viewPlaced++;
       viewTriangles += view.looks[p.look]!.indices.length / 3; } n.children.forEach(walk); };
-    view.roots.forEach(walk);
+    walk({ parts: view.parts, children: view.roots } as ExportNode);
     counts.placed += placed.length;
     counts.hidden += placed.filter((p) => !p.visible).length;
     counts.notSolid += placed.filter((p) => p.visible && !p.solid).length;
     counts.triangles += viewTriangles;
-    const partName = (p: { part: number }) => scene.parts[p.part]!.name;
+    // (A placed part's node named as its placement: the user, 2026-11-01.)
+    const partName = (p: { ref: PartRef }) => placedName(scene, p.ref);
     const expected: Record<Format, { name?: string; triangles: number; visible?: boolean }[]> = {
       json: placed.map((p) => ({ name: partName(p), triangles: p.triangles, visible: p.visible })),
       glb: placed.filter((p) => p.visible).map((p) => ({ name: partName(p), triangles: p.triangles })),
@@ -226,6 +241,7 @@ for (const f of files) {
       slowest.push([wall, name, format]);
 
       const got = await readBack(format, out, fp);
+      if (!got) { tooLarge.push(`${name} ${format}`); continue; }
       const e = expected[format];
       tt.parts += got.length;
       tt.triangles += got.reduce((n, p) => n + p.triangles, 0);
@@ -279,5 +295,6 @@ for (const [k, n] of [...issues].sort()) console.log(`  ${String(n).padStart(5)}
 console.log('slowest runs of main:');
 for (const [ms, name, format] of slowest.sort((a, b) => b[0] - a[0]).slice(0, 6)) console.log(
   `  ${s1(ms / 1000)}  ${format}  ${name}`);
+if (tooLarge.length) console.log(`too large to read back: ${tooLarge.join(', ')}`);
 console.log(`problems ${counts.problems}`);
 for (const p of problems) console.log(`  ${p}`);

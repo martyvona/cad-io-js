@@ -1,9 +1,12 @@
 // Scene model -> glTF 2.0, written with glTF-Transform: GLB, or .gltf JSON with its buffer as a separate .bin or
 // embedded as base64. See README.md, "`stepconv`", and CLAUDE.md, "Decisions".
 //
-//   nodes: a root node turning the scene's millimetres, Z up, into glTF's metres, Y up; under it a node per
-//     instance-tree node (its local transform), and per placed part a node with the part's faces; its children
-//     `edges`, `curves` and `points` (on request) each have their own mesh, as three.js has child objects.
+//   nodes: the scene's roots, each turning the scene's millimetres, Z up, into glTF's metres, Y up, in its own matrix
+//     (the user, 2026-11-01: no root node of ours, for a reader to take for an assembly or a frame not the file's;
+//     with extras, the glTF scene's extras say what's below that turn). A node per instance-tree node (its local
+//     transform), and per placed part (a part reference, its name the placement's, else its product's, else its
+//     part's) a node with the part's faces; its children `edges`, `curves` and `points` (on request) each have their
+//     own mesh, as three.js has child objects. The scene's root parts beside its roots.
 //   meshes: the faces' mesh one per look, shared by every instance with that look, a TRIANGLES primitive per material
 //     group; B-rep edges and wireframe curves as LINES and isolated points as POINTS, each a mesh shared by the
 //     instances with the same part mesh and colour. Looks of one part mesh share its vertex accessors.
@@ -34,7 +37,8 @@ import { Document, Format, Logger, WebIO, type Accessor, type JSONDocument, type
   type mat4 } from '@gltf-transform/core';
 import { EXTMeshGPUInstancing, EXTMeshoptCompression, KHRDracoMeshCompression, KHRMaterialsUnlit,
   KHRMeshQuantization, KHRNodeVisibility } from '@gltf-transform/extensions';
-import { boundsJson, drain, identity, multiply, paced, partExtras, pruneView, Y_UP_METRES, type Diagnostic,
+import { drain, identity, multiply, paced, partExtras, placedName, placementJson, pruneView,
+  sceneJson, Y_UP_METRES, type Diagnostic,
   type ExportNode, type ExportView, type Look, type Mat4, type Mesh, type Part, type PropertyValue, type Scene,
   type SourceId, type Vec3 } from 'cad-scene';
 
@@ -364,7 +368,8 @@ function dequantization(v: Volume): Mat4 {
 type Json = { [key: string]: PropertyValue | Json | Json[] | number[] | undefined };
 type Placed = ExportNode['parts'][number];
 /** An instanced look's placements, in tree order, with their world transforms (below the root) and tree nodes. */
-interface Instances { look: number; visible: boolean; items: { node: ExportNode; names: string[]; world: Mat4 }[] }
+interface Instances { look: number; visible: boolean; items: { node: ExportNode; names: string[]; world: Mat4;
+  placed: Placed }[] }
 
 class Writer {
   private readonly doc = new Document();
@@ -418,26 +423,39 @@ class Writer {
 
   /** The document, made a placed part at a time (a step each: `drain` or `paced`). */
   *write(): Generator<void, GltfResult> {
-    const root = this.doc.createNode(this.opts.name ?? '').setMatrix(Array.from(ROOT_TRANSFORM) as mat4);
-    // Below the root: millimetres, the source's axes.
-    if (this.extras) root.setExtras({ unit: 'millimetre', up: 'z',
-      ...(Object.keys(this.scene.properties).length ? { properties: this.scene.properties } : {}),
-      ...boundsJson(this.scene) });
+    // No root node of ours (the user, 2026-11-01): each top node turned to glTF's metres and Y up itself; with
+    // extras, what's below that turn (millimetres, the source's axes) said in the scene's extras.
+    const tops: Node[] = [];
+    const top = (node: Node) => {
+      const m = multiply(ROOT_TRANSFORM, Float64Array.from(node.getMatrix()));
+      tops.push(node.setMatrix(Array.from(m) as mat4));
+    };
     const omit = this.opts.hidden !== 'extension';
     const visit = (n: ExportNode) => {
       for (const p of n.parts) if (!p.visible && omit) this.hiddenLeftOut++;
       n.children.forEach(visit);
     };
+    for (const p of this.view.parts) if (!p.visible && omit) this.hiddenLeftOut++;
     this.view.roots.forEach(visit);
     const groups = this.opts.instancing ? this.instances(omit) : [];
     const roots = this.opts.keepEmpty ? this.view.roots : pruneView(this.view,
       (p) => (p.visible || !omit) && !this.instanced.has(p)).roots;
-    for (const n of roots) root.addChild(yield* this.node(n));
-    for (const g of groups) {
-      for (const node of this.instancedNodes(g)) root.addChild(node);
+    for (const p of this.view.parts) {
+      const c = this.part(p);
+      if (c) top(c);
       yield;
     }
-    this.doc.createScene(this.opts.name ?? '').addChild(root);
+    for (const n of roots) top(yield* this.node(n));
+    for (const g of groups) {
+      for (const node of this.instancedNodes(g)) top(node);
+      yield;
+    }
+    // (No scene for nothing: a scene's node list mustn't be empty.)
+    if (tops.length) {
+      const scene = this.doc.createScene(this.opts.name ?? '');
+      for (const n of tops) scene.addChild(n);
+      if (this.extras) scene.setExtras(sceneJson(this.scene));
+    }
     // A scene with nothing to draw has no accessors, and an empty buffer isn't valid glTF.
     if (!this.doc.getRoot().listAccessors().length) this.buffer.dispose();
     else if (this.compression === 'draco') {
@@ -690,17 +708,19 @@ class Writer {
 
   private part(p: Placed): Node | undefined {
     if ((!p.visible && this.opts.hidden !== 'extension') || this.instanced.has(p)) return undefined;
-    return this.partNode(p.look, p.transform, p.visible, true);
+    return this.partNode(p.look, p.transform, p.visible, true, undefined, p);
   }
 
   /** A placed part's node: its faces (unless instanced elsewhere), and its edges, curves and points as children. */
   private partNode(lookIndex: number, transform: Mat4, visible: boolean, faces: boolean,
-    instance?: Json): Node {
+    instance?: Json, placed?: Placed): Node {
     const look = this.view.looks[lookIndex]!;
     const part = this.scene.parts[look.part]!;
-    const node = this.doc.createNode(part.name);
-    if (this.extras) node.setExtras({ part: look.part, ...closedOf(part), ...this.sourced(part.sources,
-      part.properties), ...partExtras(part, look.lod, { box: false }), ...(instance ? { instance } : {}) });
+    const node = this.doc.createNode(placed ? placedName(this.scene, placed.ref) : part.name);
+    if (this.extras) node.setExtras({ part: look.part, partName: part.name, ...closedOf(part),
+      ...this.sourced(part.sources, part.properties), ...partExtras(part, look.lod, { box: false }),
+      ...(instance ? { instance } : {}),
+      ...(placed ? { placement: placementJson(placed.ref, placed.index) as Json } : {}) });
     const mesh = faces ? this.mesh(lookIndex) : undefined;
     if (mesh) node.setMesh(mesh);
     for (const what of ['edges', 'curves', 'points'] as const) {
@@ -740,7 +760,7 @@ class Writer {
         const key = `${p.look}:${p.visible}`;
         let g = groups.get(key);
         if (!g) groups.set(key, (g = { look: p.look, visible: p.visible, items: [], placed: [] }));
-        g.items.push({ node: n, names, world });
+        g.items.push({ node: n, names, world, placed: p });
         g.placed.push(p);
       }
       for (const c of n.children) walk(c, t, names);
@@ -769,13 +789,14 @@ class Writer {
       .setAttribute('SCALE', this.accessor(`${part.name} instance scales`, 'VEC3', s)));
     const instance = (item: Instances['items'][number]): Json => ({ path: item.node.path, names: item.names,
       ...(item.node.occurrence.sources.length ? { sources: item.node.occurrence.sources.map((x) => ({
-        format: x.format, id: x.id })) } : {}) });
-    if (this.extras) node.setExtras({ part: look.part, ...closedOf(part), ...this.sourced(part.sources,
-      part.properties), ...partExtras(part, look.lod, { box: false }), instances: g.items.map(instance) });
+        format: x.format, id: x.id })) } : {}), placement: placementJson(item.placed.ref, item.placed.index) as Json });
+    if (this.extras) node.setExtras({ part: look.part, partName: part.name, ...closedOf(part),
+      ...this.sourced(part.sources, part.properties), ...partExtras(part, look.lod, { box: false }),
+      instances: g.items.map(instance) });
     if (!g.visible) this.hide(node);
     const out = [node];
     if (look.edges || look.curves) for (const item of g.items) {
-      const lines = this.partNode(g.look, item.world, g.visible, false, instance(item));
+      const lines = this.partNode(g.look, item.world, g.visible, false, instance(item), item.placed);
       if (lines.listChildren().length) out.push(lines);
       else lines.dispose();
     }

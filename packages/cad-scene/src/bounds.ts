@@ -7,7 +7,7 @@
 // and made spheres 20-35 % larger than needed). Linear in the placements; it holds every box it's given.
 
 import type { Box, Mat4, Mesh, Part, Scene, SceneBounds, Sphere, Vec3 } from './scene.ts';
-import { instances, multiply } from './walk.ts';
+import { identity, instances, multiply } from './walk.ts';
 
 /** The box of everything a mesh draws (triangles' vertices, edges, curves, points), in its coordinates; else none. */
 export function meshBox(mesh: Mesh): Box | undefined {
@@ -100,8 +100,10 @@ export function sceneBounds(scene: Scene, opts: { meshesOnly?: boolean } = {}): 
   const own = scene.parts.map((p) => partBox(p, opts.meshesOnly ?? false));
   const placed: { box: Box; matrix: Mat4 }[] = [];
   let estimated = false;
-  for (const inst of instances(scene)) {
-    for (const ref of scene.components[inst.component]!.parts) {
+  const tops = { transform: identity(), refs: scene.rootParts ?? [] };
+  for (const inst of [tops, ...[...instances(scene)].map((i) => ({ transform: i.transform,
+    refs: scene.components[i.component]!.parts }))]) {
+    for (const ref of inst.refs) {
       const box = own[ref.part];
       if (!box) continue;
       placed.push({ box, matrix: multiply(inst.transform, ref.transform) });

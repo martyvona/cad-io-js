@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import type { Mesh, Scene, TessellationRequest, TessellationResult, Tessellator } from 'cad-scene';
 import { edgesOf, importModel, levelBuffers, loadModelIn, meshable, meshBuffers, needsEdges, placedScales, postable,
   type ModelEvent, type ModelInput } from '../src/model-load.ts';
-import { exportView, pruneView, viewDifferences, type ExportNode } from 'cad-scene';
+import { exportView, leafParts, pruneView, viewDifferences } from 'cad-scene';
 import { threemf } from 'export-3mf';
 import { glb, gltfJson } from 'export-gltf';
 import { threejsJson } from 'export-threejs';
@@ -218,13 +218,16 @@ test('importModel and loadModelIn: GLB, .gltf with its .bin, three.js JSON, 3MF,
     }
     // 3MF with our extras: the plate's triangles with their faces and colours (3MF has no lines, so not the wire),
     // nothing to mesh.
-    const only = (n: ExportNode): ExportNode => ({ ...n, parts: n.parts.filter((p) => view.looks[p.look]!.mesh.indices
-      .length > 0), children: n.children.map(only) });
     const tm = threemf(s, view, { extras: true, nonManifold: 'surface', hidden: 'keep' }).chunks;
     const bytes = new Uint8Array(tm.reduce((n, c) => n + c.length, 0));
     tm.reduce((at, c) => { bytes.set(c, at); return at + c.length; }, 0);
     const back = await importModel({ format: '3mf', bytes });
-    assert.deepEqual(viewDifferences({ scene: s, view: pruneView({ ...view, roots: view.roots.map(only) }) },
+    // (Without the wire, the subassembly holds the plate alone: a leaf, read as the plate placed, leafParts.)
+    const held = { ...s, components: s.components.map((c) => ({ ...c, parts: c.parts.filter((r) =>
+      s.parts[r.part]!.lods[0]!.mesh.indices.length > 0) })), overrides: [...s.overrides] };
+    leafParts(held);
+    const heldView = exportView(held, lines);
+    assert.deepEqual(viewDifferences({ scene: held, view: pruneView(heldView) },
       { scene: back, view: exportView(back, lines) }, { lines: false }), []);
     const { requests, tessellation } = fake();
     const events: ModelEvent[] = [];

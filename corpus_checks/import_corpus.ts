@@ -11,7 +11,7 @@ import { corpusFiles, shortName as short } from './corpus.ts';
 const problems = new Map<string, { n: number; ex: string }>();
 const note = (k: string, ex: string, n = 1) => { const p = problems.get(k); if (p) p.n += n;
   else problems.set(k, { n, ex }); };
-const t = { files: 0, components: 0, parts: 0, partInstances: 0, hidden: 0, materials: 0, faceMaterialParts: 0,
+const t = { files: 0, components: 0, leafProducts: 0, rootParts: 0, parts: 0, partInstances: 0, hidden: 0, materials: 0, faceMaterialParts: 0,
   faceMaterials: 0, componentMaterials: 0, overrides: 0, layers: 0, external: 0, payloadBytes: 0, time: 0 };
 const checkPayloads = (process.argv[3] ?? 'all') === 'all';
 
@@ -22,8 +22,16 @@ for (const path of corpusFiles(process.argv[2])) {
   t.time += performance.now() - start;
   t.files++;
   for (const p of validate(scene)) note(`invalid scene: ${p.replace(/\d+/g, 'N')}`, name);
-  if (scene.components.length !== semantics.structure.products.length) note('components != products', name);
-  const occurrences = scene.components.reduce((n, c) => n + c.children.length, 0);
+  // Products: the components, and the leaf products placed as part references (each once, by its sources; the user,
+  // 2026-11-01). Occurrences: the components' children and their placed products (a root's placement is no NAUO).
+  const placedProducts = [...scene.components.flatMap((c) => c.parts), ...scene.rootParts ?? []].flatMap((r) =>
+    r.product ? [JSON.stringify(r.product.sources)] : []);
+  const leafPlacements = scene.components.reduce((n, c) => n + c.parts.filter((r) => r.product).length, 0);
+  t.leafProducts += new Set(placedProducts).size;
+  t.rootParts += scene.rootParts?.length ?? 0;
+  if (scene.components.length + new Set(placedProducts).size !== semantics.structure.products.length) note(
+    'components and placed products != products', name);
+  const occurrences = scene.components.reduce((n, c) => n + c.children.length, 0) + leafPlacements;
   if (occurrences !== semantics.structure.occurrences.length) note('occurrences != semantic occurrences', name);
   t.components += scene.components.length;
   t.parts += scene.parts.length;
@@ -50,7 +58,8 @@ for (const path of corpusFiles(process.argv[2])) {
     d.message.startsWith('representation without a length unit') || d.message.startsWith('context-dependent')) note(
     `diagnostic: ${d.message}`, `${name} #${d.source?.id}`);
 }
-console.log(`${t.files} files imported in ${(t.time / 1000).toFixed(1)} s: ${t.components} components, ${t.parts} `
+console.log(`${t.files} files imported in ${(t.time / 1000).toFixed(1)} s: ${t.components} components (and `
+  + `${t.leafProducts} leaf products placed as parts, ${t.rootParts} root parts), ${t.parts} `
   + `parts, ${t.partInstances} part instances (${t.hidden} hidden)`);
 console.log(`${t.materials} materials; ${t.componentMaterials} component materials; ${t.faceMaterialParts} parts with `
   + `per-face materials (${t.faceMaterials} faces); ${t.overrides} instance overrides; ${t.layers} layers; `

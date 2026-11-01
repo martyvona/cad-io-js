@@ -240,9 +240,11 @@ async function page(query: string, after?: string, opts: PageOptions = {}): Prom
         const report = JSON.parse(r.result.value) as Record<string, unknown>;
         if (after) {
           // Within 3 minutes: a promise in the page that never settles fails the check rather than hanging it.
-          // (Camera flights at once, as checks read the camera right after zooming: 'camera flights' checks them.)
-          const e = await Promise.race([send('Runtime.evaluate', { expression: `(globalThis.viewer.flightMs = 0, ${
-            after})`, returnByValue: true,
+          // (Camera flights at once, as checks read the camera right after zooming: 'camera flights' checks them.
+          // `partOf(node)`: a placed part's node's part name, as nodes are named as their placements.)
+          const e = await Promise.race([send('Runtime.evaluate', { expression: `(globalThis.viewer.flightMs = 0, `
+            + 'globalThis.partOf = (n) => viewer.graph.scene.parts[n.object.userData.part].name, '
+            + `${after})`, returnByValue: true,
             awaitPromise: true }, sessionId), new Promise<never>((_, reject) => setTimeout(() => reject(new Error(
             'the page did not finish within 3 minutes')), 180_000))]) as { result: { value: unknown };
             exceptionDetails?: { exception?: { description?: string } } };
@@ -458,7 +460,7 @@ await check('panning', async () => {
       centre: [c.left + c.width / 2, c.top + c.height / 2], pan: v.cameraState().pan ?? null }; })()`;
   type Where = { target: number[]; targetPx: number[]; cornerPx: number[]; centre: number[]; pan: number[] | null };
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
-    ui.select([ui.panel().model.nodes.find((n) => n.kind === 'part' && n.name === 'nut').id]);
+    ui.select([ui.panel().model.nodes.find((n) => n.kind === 'part' && partOf(n) === 'nut').id]);
     ui.zoomSelected();
     await cadViewer.idle();
     return ${where};
@@ -506,7 +508,7 @@ await check('panning', async () => {
 await check('safari pinch', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
     const v = globalThis.viewer, canvas = v.renderer.domElement, c = canvas.getBoundingClientRect(), cam = v.camera;
-    const rod = ui.panel().model.nodes.find((n) => n.kind === 'part' && n.name === 'rod').object.children[0];
+    const rod = ui.panel().model.nodes.find((n) => n.kind === 'part' && partOf(n) === 'rod').object.children[0];
     rod.geometry.computeBoundingBox();
     const q = rod.geometry.boundingBox.getCenter(v.controls.target.clone()).applyMatrix4(rod.matrixWorld).project(cam);
     const at = [Math.round(c.left + (q.x + 1) / 2 * c.width), Math.round(c.top + (1 - q.y) / 2 * c.height)];
@@ -563,7 +565,7 @@ await check('zoom at the cursor', async () => {
     dir: number[]; depth: number | null };
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
     const v = globalThis.viewer, c = v.renderer.domElement.getBoundingClientRect(), cam = v.camera;
-    const rod = ui.panel().model.nodes.find((n) => n.kind === 'part' && n.name === 'rod').object.children[0];
+    const rod = ui.panel().model.nodes.find((n) => n.kind === 'part' && partOf(n) === 'rod').object.children[0];
     rod.geometry.computeBoundingBox();
     const q = rod.geometry.boundingBox.getCenter(v.controls.target.clone()).applyMatrix4(rod.matrixWorld).project(cam);
     // (Whole pixels, as the mouse events give them.)
@@ -638,7 +640,7 @@ await check('zoom at the cursor', async () => {
 await check('picks on caps', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
     const v = globalThis.viewer, cam = v.camera, c = v.renderer.domElement.getBoundingClientRect();
-    const rod = ui.panel().model.nodes.find((n) => n.kind === 'part' && n.name === 'rod').object.children[0];
+    const rod = ui.panel().model.nodes.find((n) => n.kind === 'part' && partOf(n) === 'rod').object.children[0];
     rod.geometry.computeBoundingBox();
     const centre = rod.geometry.boundingBox.getCenter(v.controls.target.clone()).applyMatrix4(rod.matrixWorld);
     v.setSections({ ...v.sections.get(), x: { on: true, at: centre.x, flip: false }, caps: true });
@@ -740,7 +742,7 @@ await check('hide others and transparency', async () => {
     const m = ui.panel().model, button = (name) => ui.gui.controllersRecursive().find((c) => c._name === name);
     const parts = () => m.nodes.filter((n) => n.kind === 'part');
     const shown = () => parts().filter((n) => !m.hiddenInTree(n.id)).map((n) => n.id);
-    const nut = parts().find((n) => n.name === 'nut');
+    const nut = parts().find((n) => partOf(n) === 'nut');
     const all = shown().length;
     ui.select([nut.id]);
     button('Hide others').$button.click();
@@ -754,7 +756,7 @@ await check('hide others and transparency', async () => {
     const nutKept = m.hiddenInTree(nut.id) && shown().length === all - 1;
     ui.showAll();
     // Transparency: the rod at 0.4 (the Opacity control), then back.
-    const rod = parts().find((n) => n.name === 'rod');
+    const rod = parts().find((n) => partOf(n) === 'rod');
     const mesh = rod.object.children.find((c) => c.isMesh);
     const before = [mesh.material].flat().map((x) => [x.opacity, x.transparent]);
     ui.select([rod.id]);
@@ -1154,7 +1156,7 @@ await check('fit beside the controls', async () => {
     ui.gui.open();
     // Zoom selected the same.
     // (A part's sphere as zoom selected makes it: around its mesh's box, placed.)
-    const part = ui.panel().model.nodes.find((n) => n.kind === 'part' && n.name === 'plate');
+    const part = ui.panel().model.nodes.find((n) => n.kind === 'part' && partOf(n) === 'plate');
     ui.select([part.id]);
     ui.zoomSelected();
     const mesh = part.object.children[0];
@@ -1491,7 +1493,7 @@ await check('sections', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
     const gl = viewer.renderer.getContext(), canvas = viewer.renderer.domElement;
     const m = ui.panel().model;
-    const mesh = (name) => m.nodes.find((n) => n.kind === 'part' && n.name === name).object.children[0];
+    const mesh = (name) => m.nodes.find((n) => n.kind === 'part' && partOf(n) === name).object.children[0];
     const boxOf = (o) => { o.geometry.computeBoundingBox(); return o.geometry.boundingBox.clone()
       .applyMatrix4(o.matrixWorld); };
     const frames = (n) => new Promise((r) => { const f = () => (n-- > 0 ? requestAnimationFrame(f) : r()); f(); });
@@ -1629,9 +1631,11 @@ await check('step ids', async () => {
   const sel = (await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
     await cadViewer.ready; await cadViewer.idle();
     const m = viewer.nodes;
-    const nuts = m.nodes.filter((n) => n.kind === 'part' && n.name === 'nut');
-    const partId = nuts[0].object.userData.sources[0];
-    const face = m.nodes.find((n) => n.kind === 'part' && n.name === 'plate').object.children[0].userData.faces[0];
+    const nuts = m.nodes.filter((n) => n.kind === 'part' && partOf(n) === 'nut');
+    // (The part's shape representation: a placed part's ids are its NAUO's, its product's, then its part's.)
+    const partId = viewer.graph.scene.parts[nuts[0].object.userData.part].sources[0].id;
+    const nauo = nuts[0].object.userData.sources[0];
+    const face = m.nodes.find((n) => n.kind === 'part' && partOf(n) === 'plate').object.children[0].userData.faces[0];
     const detailBefore = cadViewer.state().tree.detail;
     // (Every branch folded first: the selection must unfold what it needs.)
     ui.panel().collapseAll();
@@ -1650,13 +1654,17 @@ await check('step ids', async () => {
     const parts = s.filter((id) => m.nodes[id].kind === 'part').sort();
     const lines = ui.details();
     // Every face of the plate selected: the ids line cut short.
-    ui.selectByIds(m.nodes.find((n) => n.kind === 'part' && n.name === 'plate').object.children[0].userData.faces
+    ui.selectByIds(m.nodes.find((n) => n.kind === 'part' && partOf(n) === 'plate').object.children[0].userData.faces
       .join(' '));
     const all = ui.details().find((l) => l.startsWith('STEP IDs: '));
+    // A placement's NAUO selects that placement alone.
+    ui.selectByIds('#' + nauo);
+    const byNauo = ui.selected();
     return { partId, face, kinds, parts, nuts: nuts.map((n) => n.id).sort(), detailBefore,
-      detail: cadViewer.state().tree.detail, lines, status, all, unfolded };
+      detail: cadViewer.state().tree.detail, lines, status, all, unfolded, byNauo, nut: nuts[0].id };
   })()`) as { after: { partId: number; face: number; kinds: string[]; parts: number[]; nuts: number[];
-    detailBefore: boolean; detail: boolean; lines: string[]; status: string; all: string; unfolded: boolean } })
+    detailBefore: boolean; detail: boolean; lines: string[]; status: string; all: string; unfolded: boolean;
+    byNauo: number[]; nut: number } })
     .after;
   const j = JSON.stringify({ copy, sel });
   const rowIds = [...new Set(copy.rows.flatMap((r) => r.match(/#(\d+)/)?.[1] ?? []))].map((x) => `#${x}`).join(' ');
@@ -1669,6 +1677,7 @@ await check('step ids', async () => {
   expect(sel.lines.some((l) => l.startsWith('STEP IDs: ') && l.includes(`#${sel.partId}`) &&
     l.includes(`#${sel.face}`)), `the details' ids: ${j}`);
   expect(sel.all.length <= 'STEP IDs: '.length + 50 && sel.all.endsWith(' ...'), `cut short: ${j}`);
+  expect(JSON.stringify(sel.byNauo) === JSON.stringify([sel.nut]), `a NAUO's placement: ${j}`);
   return undefined;
 });
 // Picks unfold the tree (the user, 2026-10-28): with every branch folded, two parts picked in the 3D view (the
@@ -1677,7 +1686,8 @@ await check('picks unfold the tree', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
     await cadViewer.ready; await cadViewer.idle();
     const m = viewer.nodes, canvas = viewer.renderer.domElement, rect = canvas.getBoundingClientRect();
-    const centre = (name) => { const o = m.nodes.find((n) => n.kind === 'part' && n.name === name).object.children[0];
+    const centre = (name) => {
+      const o = m.nodes.find((n) => n.kind === 'part' && partOf(n) === name).object.children[0];
       o.geometry.computeBoundingBox();
       const p = o.geometry.boundingBox.getCenter(o.position.clone()).applyMatrix4(o.matrixWorld).project(viewer.camera);
       return [rect.left + (p.x + 1) / 2 * rect.width, rect.top + (1 - p.y) / 2 * rect.height]; };
@@ -1713,11 +1723,11 @@ await check('selection buttons in the tree', async () => {
       return { selected: s.size, unfolded, stale, shown };
     };
     const out = {};
-    ui.select([m.nodes.find((n) => n.kind === 'part' && n.name === 'rod').id]);
+    ui.select([m.nodes.find((n) => n.kind === 'part' && partOf(n) === 'rod').id]);
     ui.panel().collapseAll();
     press('Select all'); out.all = await look();
     ui.panel().collapseAll();
-    ui.select([m.nodes.find((n) => n.kind === 'part' && n.name === 'plate').id]);
+    ui.select([m.nodes.find((n) => n.kind === 'part' && partOf(n) === 'plate').id]);
     ui.panel().collapseAll();
     press('Invert selection'); out.invert = await look();
     ui.panel().collapseAll();
@@ -1936,7 +1946,7 @@ await check('two planes', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
     await cadViewer.ready; await cadViewer.idle();
     const gl = viewer.renderer.getContext(), canvas = viewer.renderer.domElement;
-    const plate = ui.panel().model.nodes.find((n) => n.kind === 'part' && n.name === 'plate').object.children[0];
+    const plate = ui.panel().model.nodes.find((n) => n.kind === 'part' && partOf(n) === 'plate').object.children[0];
     plate.geometry.computeBoundingBox();
     const pb = plate.geometry.boundingBox.clone().applyMatrix4(plate.matrixWorld);
     const c = pb.getCenter(plate.position.clone());
@@ -3084,7 +3094,7 @@ await check('cap hatching', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
     await cadViewer.ready; await cadViewer.idle();
     const gl = viewer.renderer.getContext(), canvas = viewer.renderer.domElement;
-    const plate = ui.panel().model.nodes.find((n) => n.kind === 'part' && n.name === 'plate').object.children[0];
+    const plate = ui.panel().model.nodes.find((n) => n.kind === 'part' && partOf(n) === 'plate').object.children[0];
     plate.geometry.computeBoundingBox();
     const pb = plate.geometry.boundingBox.clone().applyMatrix4(plate.matrixWorld);
     const c = pb.getCenter(plate.position.clone());
@@ -3163,7 +3173,7 @@ await check('snapshot: meshing and hidden faces', async () => {
     }
     await cadViewer.idle();
     const m = viewer.nodes;
-    const nuts = m.nodes.filter((n) => n.kind === 'part' && n.name === 'nut');
+    const nuts = m.nodes.filter((n) => n.kind === 'part' && partOf(n) === 'nut');
     const source = nuts[0].object.children[0].userData.faces[0];
     // (One face in every placement: faces are hidden per placement since 2026-10-31.)
     const want = nuts.map((n) => m.pathOf(n.id) + '/face#' + source);
@@ -3177,7 +3187,7 @@ await check('snapshot: meshing and hidden faces', async () => {
     await cadViewer.idle();
     const rec = cadViewer.record(false);
     // A face hidden by a state with no node made for it (the tree without detail), then a state hiding nothing.
-    const bolt = m.nodes.find((n) => n.kind === 'part' && n.name === 'bolt');
+    const bolt = m.nodes.find((n) => n.kind === 'part' && partOf(n) === 'bolt');
     cadViewer.apply({ hidden: [m.pathOf(bolt.id) + '/face#' + bolt.object.children[0].userData.faces[0]] });
     const unmade = cadViewer.state().hidden.filter((p) => p.startsWith(m.pathOf(bolt.id) + '/face#')).length;
     cadViewer.apply({ hidden: [] });
@@ -3225,7 +3235,8 @@ await check('snapshot: meshing and hidden faces', async () => {
 type State = { camera: { position: number[]; target: number[]; up: number[]; height: number }; cut: object;
   render: { ao: boolean }; hidden: string[]; selected: string[]; tree: object; model?: { triangles: number } };
 // 3MF's tree: with our extras the STEP file's (its shown nodes: the export leaves hidden ones out), names and
-// kinds; without, anyone's, the placed parts flat under one root (`build`, below the file's own node).
+// kinds; without, anyone's, the placed parts flat under the file's own node (the build's items root parts: the user,
+// 2026-11-01).
 await check('3mf tree', async () => {
   const tree = async (file: string) => (await page(`?url=${encodeURIComponent(`/content/${file}`)}&check`,
     `(async () => {
@@ -3238,8 +3249,8 @@ await check('3mf tree', async () => {
     + `expected the STEP file's ${stp.length}: ${ours.filter((n) => !stp.includes(n)).slice(0, 3)}`);
   const parts = stp.filter((n) => n.startsWith('part ')).length;
   const flat = plain.filter((n) => n.startsWith('part '));
-  expect(flat.length === parts && flat.every((n) => n.split('/').length === 3) && plain.filter((n) =>
-    n.startsWith('assembly ')).length === 2, `without extras: ${JSON.stringify(plain.slice(0, 4))}`);
+  expect(flat.length === parts && flat.every((n) => n.split('/').length === 2) && plain.filter((n) =>
+    n.startsWith('assembly ')).length === 1, `without extras: ${JSON.stringify(plain.slice(0, 4))}`);
   return undefined;
 });
 
@@ -3290,7 +3301,7 @@ await check('automation', async () => {
     redrawn: boolean } };
   const a = r.after;
   const j = JSON.stringify({ ...a, state: undefined });
-  expect(a.version === 3 && a.count === a.unique && a.parts.length >= 4, `nodes: ${j}`);
+  expect(a.version === 4 && a.count === a.unique && a.parts.length >= 4, `nodes: ${j}`);
   expect(a.missing.length === 1 && /nowhere/.test(a.missing[0]!) && a.selected[0] === a.parts[0], `select: ${j}`);
   expect(a.hidden.includes(a.parts[1]!) && !a.shown.includes(a.parts[1]!), `hide and show: ${j}`);
   expect(!!a.pick && a.pick.path.startsWith(a.parts[0]!.split('/')[0]!), `pick: ${j}`);

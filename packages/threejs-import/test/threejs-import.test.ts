@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { addLod, boundScene, exportView, identity, multiply, partInstances, pruneView, scaling, tessellateScene,
-  validate, viewDifferences, type Mat4, type Mesh, type Scene } from 'cad-scene';
+import { addLod, boundScene, exportView, identity, multiply, partInstances, placedName, pruneView, scaling,
+  tessellateScene, validate, viewDifferences, type Mat4, type Mesh, type Occurrence, type PartRef,
+  type Scene } from 'cad-scene';
 import { threejsJson } from 'export-threejs';
 import { importStep } from 'step-import';
 import { OcctTessellator } from 'tess-occt';
@@ -100,9 +101,10 @@ test('our file without extras: its tree and meshes, a part per material, metres 
   const view = exportView(s, opts);
   const { scene: back } = importThreejs(threejsJson(s, view));
   assert.deepEqual(validate(back), []);
-  // The root, then the tree as written (hidden instances included, as three.js JSON writes them).
+  // The tree as written (hidden instances included, as three.js JSON writes them), with no root of ours (the
+  // file's Scene holds the roots).
   const names = (sc: Scene) => sc.components.map((c) => c.name);
-  assert.deepEqual(names(back).slice(0, 3), ['', 'asm', 'left']);
+  assert.deepEqual(names(back).slice(0, 2), ['asm', 'left']);
   // The world: the same triangles where they were (positions in millimetres, Z up, again).
   const world = (sc: Scene) => {
     const v = exportView(sc);
@@ -165,6 +167,36 @@ test('foreign three.js JSON: shared geometry one part, lines and points, materia
 
 const assembly = path.resolve(import.meta.dirname,
   '../../../test_corpus/third_party/gkv311-opencascade-dataset/step/as1-oc-214-mat.stp');
+
+/** A scene's tree: each node's kind and name, a placed part named as its placement (as the viewer shows it). */
+const tree = (s: Scene): string => {
+  const part = (r: PartRef) => `P ${JSON.stringify(placedName(s, r))}`;
+  const occ = (o: Occurrence): string => {
+    const c = s.components[o.component]!;
+    return `A ${JSON.stringify(o.name ?? c.name)}(${[...c.parts.map(part), ...c.children.map(occ)].join(', ')})`;
+  };
+  return [...(s.rootParts ?? []).map(part), ...s.roots.map(occ)].join(', ');
+};
+/** as1 from STEP, each part a stand-in triangle (the tree is what's compared). */
+const standIns = async () => {
+  const { scene: a } = await importStep(fs.readFileSync(assembly));
+  const tri = { origin: [0, 0, 0] as [number, number, number], positions: Float32Array.of(0, 0, 0, 1, 0, 0, 0, 1, 0),
+    indices: Uint32Array.of(0, 1, 2), faces: [] };
+  for (const p of a.parts) p.lods = [{ mesh: tri, from: 'source' }];
+  return a;
+};
+test('round trips keep the tree: the same through three.js JSON again and again, with extras or without',
+  { skip: fs.existsSync(assembly) ? false : 'corpus not fetched' }, async () => {
+    const a = await standIns();
+    for (const extras of [true, false]) {
+      const trip = (s: Scene) => importThreejs(threejsJson(s, exportView(s), { extras })).scene;
+      const b = trip(a), c = trip(b), d = trip(c);
+      assert.equal(tree(b), tree(a), `extras ${extras}: the first trip`);
+      assert.equal(tree(c), tree(b), `extras ${extras}: the second`);
+      assert.equal(tree(d), tree(c), `extras ${extras}: the third`);
+    }
+  });
+
 test('a STEP assembly through three.js JSON and back: the same drawing', { skip: fs.existsSync(assembly) ? false
   : 'corpus not fetched' }, async () => {
   const { scene: s } = await importStep(fs.readFileSync(assembly));
@@ -177,6 +209,31 @@ test('a STEP assembly through three.js JSON and back: the same drawing', { skip:
   assert.deepEqual(diagnostics, []);
   assert.deepEqual(viewDifferences({ scene: s, view: pruneView(view) }, { scene: back, view: exportView(back, opts) }),
     []);
+});
+
+test('a foreign three.js Scene exported again: its top objects\' frames as they were, with extras or without', () => {
+  // (The user, 2026-11-01: an export's root frame the input's; no turn or group of ours left in it.)
+  const geometry = { uuid: 'g', type: 'BufferGeometry', data: { attributes: { position: { itemSize: 3,
+    type: 'Float32Array', array: [0, 0, 0, 1, 0, 0, 0, 1, 0] } } } };
+  const am = [0.28, 0, -0.96, 0, 0, 1, 0, 0, 0.96, 0, 0.28, 0, 0.1, 0.2, 0.3, 1];
+  const bm = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -1, 0, 0, 1];
+  const json = { metadata: { version: 4.6, type: 'Object' }, geometries: [geometry], materials: [],
+    object: { uuid: 'r', type: 'Scene', name: 's', children: [
+      { uuid: 'a', type: 'Mesh', name: 'a', geometry: 'g', matrix: am },
+      { uuid: 'b', type: 'Group', name: 'b', matrix: bm, children: [
+        { uuid: 'c', type: 'Mesh', name: 'c', geometry: 'g', matrix: Array.from(identity()) },
+        { uuid: 'd', type: 'Mesh', name: 'd', geometry: 'g', matrix: Array.from(identity()) }] }] } };
+  const { scene: s } = importThreejs(JSON.stringify(json));
+  assert.equal(s.sourceUnit, 1000);
+  for (const extras of [false, true]) {
+    const out = JSON.parse(threejsJson(s, exportView(s), { extras })) as { object: { type: string;
+      children: { name: string; matrix: number[] }[] } };
+    assert.equal(out.object.type, 'Scene');
+    assert.deepEqual(out.object.children.map((c) => c.name), ['a', 'b'], `extras ${extras}`);
+    const near = (x: number[], y: number[]) => x.every((v, i) => Math.abs(v - y[i]!) < 1e-12);
+    assert.ok(near(out.object.children[0]!.matrix, am), `a's frame, extras ${extras}`);
+    assert.ok(near(out.object.children[1]!.matrix, bm), `b's frame, extras ${extras}`);
+  }
 });
 
 test('foreign three.js JSON: an instanced mesh a placement per instance; an old file of ours in millimetres', () => {

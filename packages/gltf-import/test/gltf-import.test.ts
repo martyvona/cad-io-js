@@ -3,8 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { Document, WebIO } from '@gltf-transform/core';
-import { addLod, exportView, identity, multiply, partInstances, pruneView, tessellateScene, validate,
-  viewDifferences, type ExportView, type Scene } from 'cad-scene';
+import { addLod, exportView, identity, multiply, partInstances, placedName, pruneView, tessellateScene, validate,
+  viewDifferences, type ExportView, type Occurrence, type PartRef, type Scene } from 'cad-scene';
 import { glb, gltfJson, type GltfOptions } from 'export-gltf';
 import { importStep } from 'step-import';
 import { OcctTessellator } from 'tess-occt';
@@ -36,6 +36,19 @@ test('our GLB with extras, uncompressed, hidden placements written: the scene it
   assert.deepEqual(back.scene.parts.map((p) => [p.name, p.closed, p.lods[0]!.mesh.faces.map((f) => f.source).sort()]),
     [['plate', true, [7, 8, 9]], ['wire', undefined, []]]);
   assert.deepEqual(back.scene.components.map((c) => c.name), ['asm', 'sub']);
+});
+
+test('our GLB with extras and a root part: read back as a root part, its name and level', async () => {
+  // (A part of its own, placed only there: its level comes from that placement alone.)
+  const s = scene();
+  s.parts.push({ ...s.parts[0]!, name: 'lone' });
+  s.rootParts = [{ part: 2, transform: s.components[1]!.parts[0]!.transform, name: 'loose',
+    sources: [{ format: 'step', id: 3 }] }];
+  const { back, differences } = await roundTrip(s, { compression: 'none', hidden: 'extension' });
+  assert.deepEqual(differences, []);
+  assert.deepEqual(validate(back.scene), []);
+  assert.deepEqual(back.scene.rootParts!.map((r) => [r.name, r.sources, back.scene.parts[r.part]!.name]),
+    [['loose', [{ format: 'step', id: 3 }], 'lone']]);
 });
 
 test('our GLB, hidden placements left out (the default): read back, those restored hidden', async () => {
@@ -99,10 +112,12 @@ test('a foreign glTF: its tree, a part per mesh (its primitives faces), shared, 
   const { scene: s, diagnostics } = await importGltf(await new WebIO().writeBinary(doc));
   assert.deepEqual(validate(s), []);
   assert.deepEqual(diagnostics.map((d) => d.message), ['textures are not supported: ignored']);
-  // The scene's root, a and b, b's child; a part for the mesh, shared by a and b, its two primitives faces 0 and 1
+  // The scene's nodes the roots (the user, 2026-11-01): a, with only its mesh, a placed part; b a component of its
+  // mesh, its child a placed part of lines; a part for the mesh, shared by a and b, its two primitives faces 0 and 1
   // (the second grey); the strip as three segments.
-  assert.deepEqual(s.components.map((c) => [c.name, c.parts.length, c.children.length]),
-    [['world', 0, 2], ['a', 1, 0], ['b', 1, 1], ['line', 1, 0]]);
+  assert.deepEqual(s.components.map((c) => [c.name, c.parts.length, c.children.length]), [['b', 2, 0]]);
+  assert.deepEqual(s.rootParts!.map((r) => [r.name, r.part]), [['a', 0]]);
+  assert.deepEqual(s.components[0]!.parts.map((r) => [r.name, r.part]), [[undefined, 0], ['line', 1]]);
   assert.equal(s.parts.length, 2);
   const two = s.parts[0]!;
   assert.deepEqual(two.lods[0]!.mesh.faces, [{ source: 0, start: 0, count: 3 }, { source: 1, start: 3, count: 3 }]);
@@ -114,6 +129,8 @@ test('a foreign glTF: its tree, a part per mesh (its primitives faces), shared, 
     [['orange', [255, 128, 0], 0.5], ['grey', [128, 128, 128], 1]]);
   assert.deepEqual(Array.from(s.roots[0]!.transform).map((x) => Math.round(x)),
     [1000, 0, 0, 0, 0, 0, 1000, 0, 0, -1000, 0, 0, 0, 0, 0, 1]);
+  assert.deepEqual(Array.from(s.rootParts![0]!.transform).map((x) => Math.round(x)),
+    [1000, 0, 0, 0, 0, 0, 1000, 0, 0, -1000, 0, 0, 1000, 0, 0, 1]);
   // Onshape's factors are sRGB already.
   assert.ok(srgbFactorsFrom('Onshape Inc.') && !srgbFactorsFrom('elsewhere'));
   // (glTF-Transform's writer names itself the generator: set in the written JSON.)
@@ -125,8 +142,67 @@ test('a foreign glTF: its tree, a part per mesh (its primitives faces), shared, 
   assert.equal((await importGltf(Uint8Array.of(1, 2, 3))).diagnostics[0]!.severity, 'error');
 });
 
+test('a foreign glTF exported again: its top nodes\' frames as they were (metres, Y up), with extras or without',
+  async () => {
+    // (The user, 2026-11-01: an export's root frame the input's; no turn or node of ours left in it.)
+    const doc = new Document();
+    const buffer = doc.createBuffer();
+    const pos = doc.createAccessor().setType('VEC3').setArray(Float32Array.of(0, 0, 0, 1, 0, 0, 0, 1, 0))
+      .setBuffer(buffer);
+    const mesh = doc.createMesh('m').addPrimitive(doc.createPrimitive().setAttribute('POSITION', pos));
+    const a = doc.createNode('a').setMesh(mesh).setTranslation([0.1, 0.2, 0.3]).setRotation([0, 0.6, 0, 0.8]);
+    const b = doc.createNode('b').setTranslation([-1, 0, 0]).addChild(doc.createNode('c').setMesh(mesh))
+      .addChild(doc.createNode('d').setMesh(mesh).setTranslation([0, 0.5, 0]));
+    doc.createScene('s').addChild(a).addChild(b);
+    const { scene: s } = await importGltf(await new WebIO().writeBinary(doc));
+    assert.equal(s.sourceUnit, 1000);
+    for (const extras of [false, true]) {
+      const back = await new WebIO().readBinary((await glb(s, exportView(s), { extras, compression: 'none' })).bytes);
+      const tops = back.getRoot().listScenes()[0]!.listChildren();
+      assert.deepEqual(tops.map((n) => n.getName()), ['a', 'b'], `extras ${extras}`);
+      const near = (x: number[], y: number[]) => x.every((v, i) => Math.abs(v - y[i]!) < 1e-12);
+      assert.ok(near(tops[0]!.getMatrix(), a.getMatrix()), `a's frame, extras ${extras}: ${tops[0]!.getMatrix()}`);
+      assert.ok(near(tops[1]!.getMatrix(), b.getMatrix()), `b's frame, extras ${extras}: ${tops[1]!.getMatrix()}`);
+      // Below, as they were too.
+      assert.ok(near(tops[1]!.listChildren()[1]!.getMatrix(), b.listChildren()[1]!.getMatrix()), `d, ${extras}`);
+    }
+  });
+
 const assembly = path.resolve(import.meta.dirname,
   '../../../test_corpus/third_party/gkv311-opencascade-dataset/step/as1-oc-214-mat.stp');
+
+/** A scene's tree: each node's kind and name, a placed part named as its placement (as the viewer shows it). */
+const tree = (s: Scene): string => {
+  const part = (r: PartRef) => `P ${JSON.stringify(placedName(s, r))}`;
+  const occ = (o: Occurrence): string => {
+    const c = s.components[o.component]!;
+    return `A ${JSON.stringify(o.name ?? c.name)}(${[...c.parts.map(part), ...c.children.map(occ)].join(', ')})`;
+  };
+  return [...(s.rootParts ?? []).map(part), ...s.roots.map(occ)].join(', ');
+};
+test('round trips keep the tree: a placed product one node, the same through GLB again and again',
+  { skip: fs.existsSync(assembly) ? false : 'corpus not fetched' }, async () => {
+    // (as1's leaf products part references: a nut placed as `nut_3` is one node, not `nut_3` holding `nut`; each
+    // part a stand-in triangle, as the tree is what's compared.)
+    const { scene: a } = await importStep(fs.readFileSync(assembly));
+    const tri = { origin: [0, 0, 0] as [number, number, number], positions: Float32Array.of(0, 0, 0, 1, 0, 0, 0, 1, 0),
+      indices: Uint32Array.of(0, 1, 2), faces: [] };
+    for (const p of a.parts) p.lods = [{ mesh: tri, from: 'source' }];
+    const sameName = (s: Scene) => s.components.filter((c) => !c.children.length && c.parts.length === 1 &&
+      placedName(s, c.parts[0]!) === c.name).length;
+    assert.equal(sameName(a), 0);
+    assert.ok(a.components.length >= 4 && a.components.every((c) => c.children.length + c.parts.length > 1));
+    // (GPU instances with our extras: put back in the tree, each named as its placement.)
+    for (const o of [{ extras: true }, { extras: true, instancing: true }, { extras: false }] as GltfOptions[]) {
+      const trip = async (s: Scene) => (await importGltf((await glb(s, exportView(s), { ...o,
+        compression: 'none' })).bytes)).scene;
+      const b = await trip(a), c = await trip(b), d = await trip(c);
+      const j = JSON.stringify(o);
+      assert.equal(tree(b), tree(a), `${j}: the first trip`);
+      assert.equal(tree(c), tree(b), `${j}: the second`);
+      assert.equal(tree(d), tree(c), `${j}: the third`);
+    }
+  });
 test('a STEP assembly through GLB and back, each compression, instanced or not: the same drawing',
   { skip: fs.existsSync(assembly) ? false : 'corpus not fetched' }, async () => {
     const { scene: s } = await importStep(fs.readFileSync(assembly));
@@ -164,15 +240,23 @@ test('two placements alike in one component stay two; a tree all instanced, made
     assert.deepEqual(viewDifferences({ scene: s, view: pruneView(view) }, { scene: back.scene,
       view: exportView(back.scene, lines) }, { tolerance: 8 * reach * 2 ** -24 }), [], JSON.stringify(o));
     assert.equal([...partInstances(back.scene)].length, [...partInstances(s)].length, JSON.stringify(o));
+    // (Instanced, its top node made again, which the export pruned, so with no transform of its own: the identity,
+    // the file's frame turned back, not turned twice; else the root's own.)
+    const near = (a: ArrayLike<number>, b: ArrayLike<number>) => Array.from(a).every((x, i) => Math.abs(x - b[i]!) <
+      1e-6 * Math.max(1, ...Array.from(b, Math.abs)));
+    assert.ok(near(back.scene.roots[0]!.transform, o.instancing ? identity() : s.roots[0]!.transform),
+      JSON.stringify(o));
   }
 });
 
 test('nodes made again under a component placed twice: one component each, shared by both instances', async () => {
-  // The subassembly holds only the plate, instanced, so its nodes are pruned and made again; the assembly keeps the
-  // wire (never instanced) and is placed twice.
+  // The subassembly holds only the plate, twice, instanced, so its nodes are pruned and made again; the assembly
+  // keeps the wire (never instanced) and is placed twice. (Twice: a component of one part is a leaf, a placed part.)
   const s = scene();
   s.overrides = [];
-  s.components[1]!.parts = [s.components[1]!.parts[0]!];
+  const moved = Float64Array.from(s.components[1]!.parts[0]!.transform);
+  moved[14] = moved[14]! + 50;
+  s.components[1]!.parts = [s.components[1]!.parts[0]!, { ...s.components[1]!.parts[0]!, transform: moved }];
   s.components[0]!.parts.push({ part: 1, transform: identity() });
   const shifted = identity();
   shifted[13] = 1000;

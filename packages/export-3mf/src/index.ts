@@ -5,10 +5,12 @@
 //     coordinates on both faces, and welding within a tolerance merges distinct vertices: the step 5 survey), and the
 //     triangles welding made degenerate dropped; then a mesh object per look, its triangles' properties its groups'
 //     materials. Vertices are in the part's unit, relative to its origin, as the scene has them; the transforms
-//     scale and place them (`unit="millimeter"`). A mesh that isn't a closed, oriented manifold of positive volume
+//     scale and place them, in the source's unit where 3MF has a name for it (`unit="inch"`; the user, 2026-11-01),
+//     else millimetres. A mesh that isn't a closed, oriented manifold of positive volume
 //     (what a `model` object must be), or whose part the source says is open (its `closed` false: an open shell;
 //     the user, 2026-10-27), is left out with a warning, or written as a `surface` object (CLAUDE.md, "Decisions").
-//   build: an item per placed part at its world transform, its path in the instance tree as its part number and, on
+//   build: an item per placed part (the scene's root parts first) at its world transform, its path in the instance
+//     tree as its part number (`<path>:<index>`, the path empty for a root part) and, on
 //     request (`extras`), its names in our metadata (decided by the user, 2026-10-21; extras 2026-10-24), and the
 //     model's metadata the tree itself (`cadio:tree`: each node's name, transform and the extras export-gltf gives
 //     its nodes, each placed part by its item), so 3mf-import rebuilds the scene (the user, 2026-10-29); with extras
@@ -22,9 +24,9 @@
 // The model part is written and compressed in pieces, so its size isn't bound by the longest string V8 allows.
 
 import { Zip, ZipDeflate, strToU8 } from 'fflate';
-import { boundsJson, drain, identity, manifoldProblems, multiply, paced, partExtras, weld, type Diagnostic,
-  type ExportNode, type ExportView, type Look, type Mat4, type Mesh, type PropertyValue, type Scene, type SourceId,
-  type Vec3 } from 'cad-scene';
+import { drain, identity, manifoldProblems, multiply, paced, partExtras, placedName, placementJson, scaling,
+  sceneJson, weld, type Diagnostic, type ExportNode, type ExportPart, type ExportView, type Look, type Mat4, type Mesh,
+  type PropertyValue, type Scene, type SourceId, type Vec3 } from 'cad-scene';
 
 export interface ThreeMfOptions {
   /** Colour of faces without a material (sRGB). Default light grey. */
@@ -151,6 +153,10 @@ class ModelStream {
   }
 }
 
+/** A placed part written: its tree node (none for a root part), the names along its path, and its world transform. */
+type Placed = { node: ExportNode | undefined; names: string[]; index: number; look: number; part: ExportPart;
+  world: Mat4 };
+
 class Writer {
   private readonly diagnostics: Diagnostic[] = [];
   private readonly solids = new Map<Mesh, Solid>();
@@ -183,27 +189,32 @@ class Writer {
       entry(zip, file).push(strToU8(text), true);
     }
 
-    // What gets written: the placed parts (with their world transforms) whose looks have an object.
-    const placed: { node: ExportNode; names: string[]; index: number; look: number; world: Mat4 }[] = [];
+    // What gets written: the placed parts (with their world transforms) whose looks have an object; a root part's
+    // node undefined.
+    const placed: Placed[] = [];
+    const place = (n: ExportNode | undefined, p: ExportPart, t: Mat4, names: string[]) => {
+      const part = this.view.looks[p.look]!.part;
+      // (The part number of the product it places, else of the component holding it.)
+      const props = p.ref.product?.properties ?? (n ? this.scene.components[n.component]!.properties : {});
+      if (typeof props.partNumber === 'string' && !this.partNumbers.has(part)) this.partNumbers.set(part,
+        props.partNumber);
+      if (!p.visible && this.opts.hidden !== 'keep') { this.hiddenLeftOut++; return; }
+      if (this.usable(p.look)) placed.push({ node: n, names, index: p.index, look: p.look, part: p,
+        world: multiply(t, p.transform) });
+    };
     const walk = (n: ExportNode, parent: Mat4, above: string[]) => {
       const t = multiply(parent, n.transform);
       const names = [...above, n.name];
-      const props = this.scene.components[n.component]!.properties;
-      n.parts.forEach((p, index) => {
-        const part = this.view.looks[p.look]!.part;
-        if (typeof props.partNumber === 'string' && !this.partNumbers.has(part)) this.partNumbers.set(part,
-          props.partNumber);
-        if (!p.visible && this.opts.hidden !== 'keep') { this.hiddenLeftOut++; return; }
-        if (this.usable(p.look)) placed.push({ node: n, names, index, look: p.look, world: multiply(t, p.transform) });
-      });
+      for (const p of n.parts) place(n, p, t, names);
       for (const c of n.children) walk(c, t, names);
     };
+    for (const p of this.view.parts) place(undefined, p, identity(), []);
     for (const r of this.view.roots) walk(r, identity(), []);
 
     const colorgroup = this.opts.colors === 'colorgroup';
     const extras = this.opts.extras ?? false;
     const model = new ModelStream(zip);
-    model.push(`<?xml version="1.0" encoding="UTF-8"?>\n<model unit="millimeter" xml:lang="und" xmlns="${CORE}"`
+    model.push(`<?xml version="1.0" encoding="UTF-8"?>\n<model unit="${this.unit.name}" xml:lang="und" xmlns="${CORE}"`
       + `${colorgroup ? ` xmlns:m="${MATERIAL}"` : ''}${extras ? ` xmlns:cadio="${METADATA_NAMESPACE}"` : ''}>\n`);
     if (this.opts.name) model.push(`<metadata name="Title">${xmlText(this.opts.name, true)}</metadata>\n`);
     model.push('<metadata name="Application">cad-io-js export-3mf</metadata>\n');
@@ -224,7 +235,9 @@ class Writer {
     }
     const items: string[] = [];
     if (this.opts.build === 'assembly') {
-      const roots = this.view.roots.map((r) => ({ id: this.assembly(r, model), transform: r.transform })).filter(
+      const roots = [...this.view.parts.flatMap((p) => p.visible || this.opts.hidden === 'keep'
+        ? [{ id: this.placedObject(p, model), transform: this.fromPart(p.transform) }] : []),
+      ...this.view.roots.map((r) => ({ id: this.assembly(r, model), transform: this.between(r.transform) }))].filter(
         (r) => r.id !== undefined);
       let id = roots[0]?.id, transform = roots[0]?.transform;
       if (roots.length > 1) {
@@ -238,10 +251,12 @@ class Writer {
         `<item objectid="${id}"${isIdentity(transform!) ? '' : ` transform="${transformText(transform!)}"`}/>\n`);
     } else {
       for (const p of placed) {
-        const names = [...p.names, this.scene.parts[this.view.looks[p.look]!.part]!.name];
-        const transform = isIdentity(p.world) ? '' : ` transform="${transformText(p.world)}"`;
+        const names = [...p.names, placedName(this.scene, p.part.ref)];
+        const world = this.fromPart(p.world);
+        const transform = isIdentity(world) ? '' : ` transform="${transformText(world)}"`;
         items.push(`<item objectid="${this.lookObjects.get(p.look)}"${transform}`
-          + ` partnumber="${xmlText(`${p.node.path.join('.')}:${p.index}`)}"${extras ? `><metadatagroup><metadata `
+          + ` partnumber="${xmlText(`${p.node?.path.join('.') ?? ''}:${p.index}`)}"${extras
+            ? '><metadatagroup><metadata '
             + `name="cadio:path">${xmlText(names.join(' / '), true)}</metadata></metadatagroup></item>` : '/>'}\n`);
       }
     }
@@ -263,8 +278,8 @@ class Writer {
    * gives a tree node), its placed parts that were written (the part's name, its reference's transform, the extras
    * export-gltf gives a part node, its item's index; `visible: false` for a hidden one kept) and its children.
    */
-  private tree(placed: { node: ExportNode; index: number }[]): Record<string, unknown> {
-    const items = new Map<ExportNode, Map<number, number>>();
+  private tree(placed: Placed[]): Record<string, unknown> {
+    const items = new Map<ExportNode | undefined, Map<number, number>>();
     placed.forEach((p, k) => {
       let m = items.get(p.node);
       if (!m) items.set(p.node, (m = new Map()));
@@ -273,16 +288,19 @@ class Writer {
     const sourced = (sources: SourceId[], properties: Record<string, PropertyValue>) => ({
       ...(sources.length ? { sources: sources.map((s) => ({ format: s.format, id: s.id })) } : {}),
       ...(Object.keys(properties).length ? { properties } : {}) });
+    const partsOf = (n: ExportNode | undefined, list: ExportPart[]) => list.flatMap((p) => {
+      const item = items.get(n)?.get(p.index);
+      if (item === undefined) return [];
+      const look = this.view.looks[p.look]!, part = this.scene.parts[look.part]!;
+      return [{ name: placedName(this.scene, p.ref), matrix: Array.from(p.transform), item,
+        ...(p.visible ? {} : { visible: false }), extras: { part: look.part, partName: part.name,
+          ...(part.closed === undefined ? {}
+          : { closed: part.closed }), ...sourced(part.sources, part.properties), ...partExtras(part, look.lod),
+        placement: placementJson(p.ref, p.index) } }];
+    });
     const node = (n: ExportNode): Record<string, unknown> => {
       const comp = this.scene.components[n.component]!;
-      const parts = n.parts.flatMap((p, index) => {
-        const item = items.get(n)?.get(index);
-        if (item === undefined) return [];
-        const look = this.view.looks[p.look]!, part = this.scene.parts[look.part]!;
-        return [{ name: part.name, matrix: Array.from(p.transform), item, ...(p.visible ? {} : { visible: false }),
-          extras: { part: look.part, ...(part.closed === undefined ? {} : { closed: part.closed }),
-            ...sourced(part.sources, part.properties), ...partExtras(part, look.lod) } }];
-      });
+      const parts = partsOf(n, n.parts);
       return { name: n.name, matrix: Array.from(n.transform), extras: {
         ...sourced(n.occurrence.sources, n.occurrence.properties),
         component: { index: n.component, name: comp.name, ...sourced(comp.sources, comp.properties) }, path: n.path,
@@ -290,8 +308,8 @@ class Writer {
           ...(comp.external.format ? { format: comp.external.format } : {}) } } : {}) },
       parts, children: n.children.map(node) };
     };
-    return { unit: 'millimetre', up: 'z', ...(Object.keys(this.scene.properties).length
-      ? { properties: this.scene.properties } : {}), ...boundsJson(this.scene), roots: this.view.roots.map(node) };
+    return { ...sceneJson(this.scene), parts: partsOf(undefined,
+      this.view.parts), roots: this.view.roots.map(node) };
   }
 
   private report(colorgroup: boolean): void {
@@ -456,17 +474,38 @@ class Writer {
   /** A components object for a node (assembly build), shared by identical subtrees; undefined if it has nothing. */
   private readonly assemblies = new Map<string, number>();
   private assembly(n: ExportNode, model: ModelStream): number | undefined {
-    const parts: string[] = [];
-    for (const p of n.parts) {
-      const id = this.lookObjects.get(p.look);
-      if (id !== undefined && (p.visible || this.opts.hidden === 'keep')) parts.push(component(id, p.transform));
-    }
-    for (const c of n.children) {
+    const children = n.children.flatMap((c) => {
       const id = this.assembly(c, model);
-      if (id !== undefined) parts.push(component(id, c.transform));
-    }
+      return id === undefined ? [] : [component(id, this.between(c.transform))];
+    });
+    const written = n.parts.filter((p) => this.lookObjects.has(p.look) && (p.visible || this.opts.hidden === 'keep'));
+    // (A placed product an assembly holds alone in its own object: else the assembly, an object of one mesh object,
+    // reads back as a part placed, not an assembly placing one; cad-scene's leafParts.)
+    const alone = written.length === 1 && !children.length && !!written[0]!.ref.product;
+    const parts = [...written.map((p) => component(this.placedObject(p, model, alone)!, this.fromPart(p.transform))),
+      ...children];
     if (!parts.length) return undefined;
-    const body = `name="${xmlText(n.name)}"><components>\n${parts.join('')}</components></object>\n`;
+    return this.components(n.name, parts, model);
+  }
+
+  /**
+   * The model's unit (the user, 2026-11-01: the source's, where 3MF has a name for it; else millimetres): a
+   * transform from a part's coordinates to the scene's millimetres made one to the model's unit, and one between two
+   * frames in millimetres made one between the same frames in the model's unit.
+   */
+  private get unit(): { name: string; mm: number } {
+    return modelUnit(this.scene.sourceUnit);
+  }
+  private fromPart(m: Mat4): Mat4 {
+    return this.unit.mm === 1 ? m : multiply(scaling(1 / this.unit.mm), m);
+  }
+  private between(m: Mat4): Mat4 {
+    return this.unit.mm === 1 ? m : multiply(multiply(scaling(1 / this.unit.mm), m), scaling(this.unit.mm));
+  }
+
+  /** A components object, written once for each name and list of components. */
+  private components(name: string, parts: string[], model: ModelStream): number {
+    const body = `name="${xmlText(name)}"><components>\n${parts.join('')}</components></object>\n`;
     let id = this.assemblies.get(body);
     if (id === undefined) {
       this.assemblies.set(body, (id = this.nextId++));
@@ -474,6 +513,28 @@ class Writer {
     }
     return id;
   }
+
+  /**
+   * What a placed part's component names (assembly build): its look's mesh object, or where the placement has a
+   * name of its own (or `wrap`: a placed product its assembly holds alone), a components object of that name
+   * holding it (a 3MF component has no name; 3mf-import reads such an object back as the part placed under that
+   * name, cad-scene's leafParts).
+   */
+  private placedObject(p: ExportPart, model: ModelStream, wrap = false): number | undefined {
+    const id = this.lookObjects.get(p.look);
+    const name = placedName(this.scene, p.ref);
+    if (id === undefined || (!wrap && name === this.scene.parts[this.view.looks[p.look]!.part]!.name)) return id;
+    return this.components(name, [component(id, identity())], model);
+  }
+}
+
+/** 3MF's units, in millimetres. */
+const UNITS: Record<string, number> = { micron: 0.001, millimeter: 1, centimeter: 10, inch: 25.4, foot: 304.8,
+  meter: 1000 };
+/** The 3MF unit of a length in millimetres (to 1e-9 of it), else millimetres. */
+export function modelUnit(mm: number | undefined): { name: string; mm: number } {
+  const found = mm === undefined ? undefined : Object.entries(UNITS).find(([, v]) => Math.abs(v - mm) <= 1e-9 * v);
+  return found ? { name: found[0], mm: found[1] } : { name: 'millimeter', mm: 1 };
 }
 
 /** A compressed zip entry, at the fixed time. */

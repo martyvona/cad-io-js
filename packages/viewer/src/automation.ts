@@ -48,11 +48,12 @@ export interface FullState extends Required<Pick<ViewState, 'camera' | 'caps' | 
 
 export interface CadViewer {
   /**
-   * The interface's version: 3 (1 until 2026-10-30, when centring went: `centered` from states, `centroid` from the
+   * The interface's version: 4 (1 until 2026-10-30, when centring went: `centered` from states, `centroid` from the
    * model's; 2 until 2026-10-31, when hiding became overrides inherited down the tree: a state's `hidden` lists the
    * nodes hidden by an override of their own, not every hidden node, a hidden face per placement rather than per
-   * part, with `shown` and `opacity` beside it; nodes' `hidden` whether they're hidden by any; otherwise it changes
-   * only by additions).
+   * part, with `shown` and `opacity` beside it; nodes' `hidden` whether they're hidden by any; 3 until 2026-11-01,
+   * when a leaf product's placement became one part node, named as the placement, so paths lose a segment there:
+   * `.../nut_3/nut` is `.../nut_3`; otherwise it changes only by additions).
    */
   readonly version: number;
   /** Settles once the start (?model= and the view in the address) is done. */
@@ -87,7 +88,7 @@ export interface CadViewer {
   replay(recording: Recording, opts?: ReplayOptions): Promise<ReplayReport>;
 }
 
-const VERSION = 3;
+const VERSION = 4;
 
 /** The model's sphere in the world (what zoom all fits), where it has one. */
 const sphereOf = (viewer: Viewer) => {

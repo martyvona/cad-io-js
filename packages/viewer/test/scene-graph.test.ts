@@ -25,6 +25,27 @@ test('the tree: a group per component instance and placed part, with their trans
   assert.deepEqual(g.placements.get(1)!.map((p) => p.instance.path), [[0, 0], [0, 1], [0, 2]]);
 });
 
+test('placed parts: named as their placements, STEP ids the placement\'s, product\'s and part\'s; root parts first',
+  () => {
+    const s = scene();
+    s.parts[0]!.sources = [{ format: 'step', id: 30 }];
+    s.components[1]!.parts[0] = { ...s.components[1]!.parts[0]!, name: 'plate.1', sources: [{ format: 'step', id: 10 }],
+      product: { name: 'Plate', sources: [{ format: 'step', id: 20 }], properties: {} } };
+    s.components[1]!.parts[1] = { ...s.components[1]!.parts[1]!, product: { name: 'Wire', sources: [],
+      properties: {} } };
+    s.rootParts = [{ part: 1, transform: translation(0, 0, 50), name: 'loose' }];
+    const g = new SceneGraph(s, 'model');
+    assert.deepEqual(g.root.children.map((c) => [c.name, c.userData.cad]), [['loose', 'part'], ['asm', 'assembly']]);
+    const left = g.root.children[1]!.children[0]!;
+    assert.deepEqual(left.children.map((c) => c.name), ['plate.1', 'Wire']);
+    assert.deepEqual(left.children[0]!.userData.sources, [10, 20, 30]);
+    assert.equal(left.children[0]!.userData.stepFaces, true);
+    // (The wire's part from no STEP source: its faces' numbers aren't STEP ids.)
+    assert.equal(left.children[1]!.userData.stepFaces, false);
+    assert.ok(close(g.root.children[0]!.matrix.elements, translation(0, 0, 50)));
+    assert.deepEqual(g.placements.get(1)!.map((p) => p.instance.path), [[], [0, 0], [0, 1], [0, 2]]);
+  });
+
 test('meshes: at the origin in each placement, geometry shared where the colouring is, faces as material runs', () => {
   const g = new SceneGraph(scene(), 'model');
   const made = g.addMesh(0, plate()) as THREE.Mesh[];

@@ -171,6 +171,9 @@ for (const f of corpusFiles(process.argv[2])) {
       look: p.look, visible: p.visible, path: n.path.join('/'), names });
     for (const c of n.children) walk(c, t, l, names);
   };
+  // (The scene's root parts first, as the exporter writes them.)
+  for (const p of view.parts) expected.push({ world: multiply(ROOT, p.transform), local: p.transform, look: p.look,
+    visible: p.visible, path: '', names: [] });
   for (const r of view.roots) walk(r, ROOT, identity(), []);
   // World matrices: each node's local matrix (from the TRS written) down the tree.
   const found: { node: Node; world: Mat4 }[] = [];
@@ -345,6 +348,8 @@ for (const f of corpusFiles(process.argv[2])) {
     const groups = new Map<string, number[]>();
     expected.forEach((e, k) => {
       if (!view.looks[e.look]!.groups.length) return;
+      // (Root parts aren't instanced: they have no tree path to be put back at.)
+      if (!e.path && !e.names.length) return;
       if (!trs(e.local)) { totals.notTrs++; return; }
       const key = `${e.look}:${e.visible}`;
       (groups.get(key) ?? groups.set(key, []).get(key)!).push(k);

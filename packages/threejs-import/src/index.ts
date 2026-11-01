@@ -142,7 +142,8 @@ export function importThreejs(input: string | Uint8Array | object, opts: Threejs
   // (Files written with our extras before 2026-10-24 say millimetres and no up axis at their root, and were in
   // millimetres, the source's axes, with no root matrix: read as they are.)
   const old = obj(root.userData)?.unit === 'millimetre' && obj(root.userData)?.up === undefined;
-  const { scene } = sceneFromTree(tree, old ? { frame: identity() } : {});
+  // (A Scene object holds the roots, as toJSON writes a scene and our exporter without extras: not an assembly.)
+  const { scene } = sceneFromTree(tree, { ...(old ? { frame: identity() } : {}), container: root.type === 'Scene' });
   // The reader's, then the tree's (the scene's own list).
   scene.diagnostics.unshift(...diagnostics);
   if (opts.dropDegenerate ?? true) dropSourceDegenerate(scene);

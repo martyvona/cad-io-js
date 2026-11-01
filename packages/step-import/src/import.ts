@@ -13,8 +13,8 @@ import {
   type Diagnostic as StepDiagnostic, type Mat4, type OpenOptions, type Semantics, type StepFile, type StepModel,
   type StepSource, type Style,
 } from 'step-parser';
-import { boundScene, dropSourceDegenerate, type Component, type Diagnostic, type Layer, type Lod, type Material,
-  type Part, type Scene, type Vec3 } from 'cad-scene';
+import { boundScene, dropSourceDegenerate, leafParts, type Component, type Diagnostic, type Layer, type Lod,
+  type Material, type Part, type Scene, type Vec3 } from 'cad-scene';
 import { faceOutlines } from './outlines.ts';
 import { moveMesh, readTessellated, tessellatedItems } from './tessellated.ts';
 
@@ -510,6 +510,13 @@ export function sceneFromStep(model: StepModel, sem: Semantics, opts: ImportOpti
     diagnostics: [...file.diagnostics.map(convert), ...model.diagnostics.map(convert), ...sem.diagnostics.map(convert),
       ...diagnostics],
   };
+  // The file's length unit, for exports that can name theirs (3MF; the user, 2026-11-01): its first root product's
+  // main shape representation's, else its first part's.
+  const top = s.roots[0] !== undefined ? s.products[s.roots[0]]?.shapes[0] : undefined;
+  scene.sourceUnit = top !== undefined && s.representations.get(top)?.context?.lengthUnit ? mmOf(top)
+    : parts[0]?.unit ?? 1;
+  // (A product with one shape and nothing else a part reference where it's placed: cad-scene's leafParts.)
+  leafParts(scene);
   if (opts.dropDegenerate ?? true) dropSourceDegenerate(scene);
   boundScene(scene);
   return { scene, model, semantics: sem, partOf };

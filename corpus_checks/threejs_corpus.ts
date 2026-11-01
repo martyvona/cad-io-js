@@ -69,6 +69,8 @@ for (const f of corpusFiles(process.argv[2])) {
     for (const p of n.parts) expected.push({ world: multiply(t, p.transform), look: p.look });
     for (const c of n.children) walk(c, t);
   };
+  // (The scene's root parts first, as the exporter writes them.)
+  for (const p of view.parts) expected.push({ world: multiply(ROOT, p.transform), look: p.look });
   for (const r of view.roots) walk(r, ROOT);
   // The loaded part objects in the same order: objects with userData.part, depth first as written (parts before
   // children).

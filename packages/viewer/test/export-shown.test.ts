@@ -72,3 +72,22 @@ test('shownEdits: a face hidden in a shown placement, triangle edges: written as
   assert.deepEqual([applied(b.s, f)[0]!.visible, f.warnings], [true, ['1 hidden face written shown: the formats ' +
     'have no hiding of one face of a placed part']]);
 });
+
+test('shownEdits: a root part hidden and made transparent, by its reference among the root parts', () => {
+  const s = scene();
+  s.rootParts = [{ part: 0, transform: s.components[1]!.parts[0]!.transform, name: 'loose' }];
+  const graph = new SceneGraph(s, 'model');
+  graph.addMesh(0, plate());
+  const model = new NodeModel(graph.root, graph);
+  for (const p of graph.placements.get(0)!) model.invalidate(p.group);
+  const loose = model.nodes.find((n) => n.kind === 'part' && n.name === 'loose')!.id;
+  model.setOpacity([loose], 0.25);
+  const t = (e: ReturnType<typeof shownEdits>): Scene => ({ ...s, materials: [...s.materials, ...e.materials],
+    overrides: e.overrides });
+  const top = (sc: Scene) => [...partInstances(sc)].find((p) => !p.path.length)!;
+  const faded = t(shownEdits(s, model, graph));
+  assert.equal(faded.materials[top(faded).material!]!.opacity, 0.25);
+  assert.ok(faded.overrides.some((o) => !o.path.length && o.ref === 0));
+  model.setHidden([loose], true);
+  assert.equal(top(t(shownEdits(s, model, graph))).visible, false);
+});

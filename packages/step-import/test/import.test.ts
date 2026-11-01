@@ -205,6 +205,8 @@ test('components, parts, units and placements', async () => {
   const sub = parseStep(box.brep ? box.brep.payload() : new Uint8Array());
   assert.deepEqual([...sub.index.ids].includes(240), false);
   assert.ok(sub.index.position(205) >= 0);
+  // The file's unit, its root's (the assembly in metres), for exports that can name theirs.
+  assert.equal(scene.sourceUnit, 1000);
   // Placements, in millimetres: box 1 at the origin, box 2 at 0.1 m; an inch is 25.4 mm.
   const placed = [...partInstances(scene)].map(
     (p) => [p.path.join('/'), p.part, at(p.transform), Math.round(p.transform[0]! * 1e9) / 1e9]);

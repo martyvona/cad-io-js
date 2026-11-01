@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { strFromU8, unzipSync } from 'fflate';
-import { exportView, identity, scaling, type Mat4, type Mesh, type Scene } from 'cad-scene';
+import { exportView, identity, leafParts, scaling, type Mat4, type Mesh, type Scene } from 'cad-scene';
 import { float32Text, threemf, threemfAsync, transformText, xmlText, type ThreeMfOptions } from '../src/index.ts';
 import { OBJECT_TYPE, read3mf, type Read3mf } from './read3mf.ts';
 
@@ -369,4 +369,20 @@ test('threemfAsync: the same bytes as threemf', async () => {
     const a = await threemfAsync(s, view, async () => {}, opts);
     assert.deepEqual(join(a.chunks), join(threemf(s, view, opts).chunks));
   }
+});
+
+test('placed products (leafParts): the object\'s part number its product\'s; in the assembly form, a named one '
+  + 'a components object of its name; a root part an item `:<index>`', async () => {
+  const s = scene({ override: false });
+  leafParts(s);
+  // (sub, flat and hid are leaves: part references of asm now, the first two named after their occurrences.)
+  assert.deepEqual(s.components.map((c) => c.name), ['asm']);
+  s.rootParts = [{ part: 0, transform: translation(0, 0, 500), name: 'loose' }];
+  const xml = modelXml(write(s).chunks);
+  assert.match(xml, /name="cube &amp; co" partnumber="SUB-1"/);
+  assert.match(xml, /partnumber=":0"/);
+  // The assembly form: `left` and `loose`, names of their own, components objects holding the cube's object.
+  const asm = modelXml(write(s, { build: 'assembly' }).chunks);
+  assert.match(asm, /<object id="\d+" name="left"><components>\n<component objectid="\d+"\/>\n<\/components>/);
+  assert.match(asm, /<object id="\d+" name="loose"><components>/);
 });

@@ -404,7 +404,8 @@ function summary(scene: Scene, meshed: number, view: ExportView, diagnostics: re
     for (const p of n.parts) { placed++; triangles += view.looks[p.look]!.indices.length / 3; }
     n.children.forEach(walk);
   };
-  view.roots.forEach(walk);
+  // (The scene's root parts too: a file of one part has nothing else.)
+  walk({ parts: view.parts, children: view.roots } as unknown as ExportView['roots'][number]);
   const s = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
   let text = `${scene.parts.length} parts (${meshed} of ${brep} brep parts tessellated), ${placed} placed; `
     + `${triangles} triangles; `

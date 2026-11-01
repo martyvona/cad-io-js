@@ -5,6 +5,11 @@
 // subassembly used many times is stored once; `instances` expands the tree on demand. Parts (one per tessellation
 // unit) are likewise defined once and referenced by components. Lengths in the scene are millimetres; each part's
 // geometry stays in its own unit, and the transforms carry the conversion.
+//
+// A leaf product, a component whose only content is one part (STEP: a product and its shape representation), is no
+// component of its own: its part is placed directly by a part reference in its parent's component, or among the
+// roots (`rootParts`), carrying the instance's name, sources and properties and the product's apart (the user,
+// 2026-11-01: one node per placed part, as CAD systems and 3MF show them; `leafParts`, which every importer ends with).
 
 /** A 4x4 matrix, column-major (as three.js and glTF): element (row r, column c) is m[c * 4 + r]. */
 export type Mat4 = Float64Array;
@@ -33,6 +38,8 @@ export interface Scene {
   components: Component[];
   /** The top-level occurrences: the roots of the tree. */
   roots: Occurrence[];
+  /** Parts placed at the top, beside the roots (a file of one part); in the scene's coordinates. */
+  rootParts?: PartRef[];
   parts: Part[];
   materials: Material[];
   layers: Layer[];
@@ -43,6 +50,11 @@ export interface Scene {
    * from what each placed part has, or from every placed part's mesh box. For fitting a view; approximate.
    */
   bounds?: SceneBounds;
+  /**
+   * The source file's length unit, in millimetres (25.4 for inches; glTF's metres 1000), where it has one: what an
+   * export in a format that can name its unit is written in (3MF; the user, 2026-11-01). Absent: millimetres.
+   */
+  sourceUnit?: number;
   /** File-level metadata. */
   properties: Properties;
   diagnostics: Diagnostic[];
@@ -96,6 +108,20 @@ export interface PartRef {
   material?: number;
   /** False: hidden (STEP: an invisible style). */
   visible?: boolean;
+  /** The placement's own name (STEP: its NAUO's), where it has one; else the product's, else the part's. */
+  name?: string;
+  /** The placement's sources (STEP: its NAUO). */
+  sources?: SourceId[];
+  properties?: Properties;
+  /** The leaf product it places (STEP: its product definition), where the source has one: what its component held. */
+  product?: Product;
+}
+
+/** A leaf product, as a part reference places it: what its component would hold besides the part. */
+export interface Product {
+  name: string;
+  sources: SourceId[];
+  properties: Properties;
 }
 
 export interface ExternalReference {
@@ -246,7 +272,10 @@ export interface Layer {
 
 /** A change to one instance in the expanded tree. */
 export interface InstanceOverride {
-  /** Indices from the root: into `Scene.roots`, then into each component's `children`. */
+  /**
+   * Indices from the root: into `Scene.roots`, then into each component's `children`; empty with `ref`, a root part
+   * (an index into `Scene.rootParts`).
+   */
   path: number[];
   /**
    * Only this part reference of the component at `path` (an index into its `parts`), not the whole subtree (the user,

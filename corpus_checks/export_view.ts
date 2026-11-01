@@ -57,6 +57,8 @@ for (const f of corpusFiles(process.argv[2])) {
       n.parts.map((p) => ({ look: p.look, world: multiply(t, p.transform), visible: p.visible })));
     for (const c of n.children) walk(c, t);
   };
+  // (The root parts at the empty path.)
+  placed.set('', view.parts.map((p) => ({ look: p.look, world: p.transform, visible: p.visible })));
   for (const r of view.roots) walk(r, identity());
 
   const lookOf = new Map<string, number>();

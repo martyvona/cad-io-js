@@ -28,8 +28,8 @@
 
 import fs from 'node:fs';
 import os from 'node:os';
-import { exportView, identity, multiply, pruneView, tessellateScene, validate, viewDifferences, type ExportView,
-  type ExportNode, type Mat4, type Scene } from '../packages/cad-scene/src/index.ts';
+import { exportView, identity, leafParts, multiply, placedName, pruneView, tessellateScene, validate, viewDifferences,
+  type ExportView, type ExportNode, type Mat4, type PartRef, type Scene } from '../packages/cad-scene/src/index.ts';
 import { import3mf } from '../packages/3mf-import/src/index.ts';
 import { threemf, type ThreeMfOptions } from '../packages/export-3mf/src/index.ts';
 import { glb, type GltfOptions } from '../packages/export-gltf/src/index.ts';
@@ -92,7 +92,8 @@ function largest(view: ExportView): { extent: number; reach: number; local: numb
     }
     n.children.forEach((c) => walk(c, t));
   };
-  view.roots.forEach((r) => walk(r, identity()));
+  // (The scene's root parts as a node at the top.)
+  walk({ transform: identity(), parts: view.parts, children: view.roots } as unknown as ExportNode, identity());
   return { extent: most, reach, local: far };
 }
 
@@ -125,7 +126,7 @@ for (const f of corpusFiles(process.argv[2])) {
   const { scene } = await importStep(bytes);
   await tessellateScene(scene, tess, { ...meshing, edges: true, concurrency: workers });
   const view = exportView(scene, opts);
-  if (!view.roots.length) continue;
+  if (!view.roots.length && !view.parts.length) continue;
   const { extent, reach, local } = largest(view);
   for (const form of FORMS) {
     const t = totals[form];
@@ -169,21 +170,43 @@ for (const f of corpusFiles(process.argv[2])) {
       // What the file was meant to hold: the tree without empty nodes, hidden placements only where written; for
       // 3MF, only placed parts with triangles (the parts not kept left out of each node, as pruneView doesn't).
       const has = (p: ExportNode['parts'][number]) => (o3!.hidden === 'keep' || p.visible)
-        && view.looks[p.look]!.mesh.indices.length > 0 && view.looks[p.look]!.groups.length > 0;
+        && heldView.looks[p.look]!.mesh.indices.length > 0 && heldView.looks[p.look]!.groups.length > 0;
       const only = (n: ExportNode): ExportNode => ({ ...n, parts: n.parts.filter(has),
         children: n.children.map(only) });
       const spaced = (n: ExportNode): ExportNode => ({ ...n, name: n.name.replace(/[\t\n\r]/g, ' '),
         children: n.children.map(spaced) });
-      const kept = o3 ? view.roots.map(only).map(o3.build === 'assembly' ? spaced : (n) => n) : [];
-      const written = o3 ? pruneView({ ...view, roots: kept }, has) : pruneView(view,
-        o?.hidden === 'extension' || form === 'json' ? undefined : (p) => p.visible);
+      // For 3MF, the scene as the file holds it, read back as any scene is (the user, 2026-11-01): a component left
+      // with one part (another having no triangles, or hidden and left out) is then a leaf, the part placed
+      // (leafParts). (The corpus's scenes have no overrides, which dropping part references would renumber.)
+      const drawn = new Set(view.looks.filter((l) => l.mesh.indices.length > 0 && l.groups.length > 0)
+        .map((l) => l.part));
+      const keepRef = (r: PartRef) => drawn.has(r.part) && (o3?.hidden === 'keep' || r.visible !== false);
+      // The assembly form holds no external references nor line breaks in names (spaces, in attributes).
+      const asm = o3?.build === 'assembly';
+      const named = (r: PartRef): PartRef => (asm ? { ...r, name: placedName(held, r).replace(/[\t\n\r]/g, ' ') }
+        : r);
+      const held: Scene = o3 ? { ...scene, components: scene.components.map(({ external, ...c }) => ({ ...c,
+        ...(external && !asm ? { external } : {}), parts: c.parts.filter(keepRef),
+        children: c.children.map((x) => ({ ...x })) })),
+      roots: scene.roots.map((x) => ({ ...x })), ...(scene.rootParts ? { rootParts:
+        scene.rootParts.filter(keepRef) } : {}) } : scene;
+      if (o3) {
+        leafParts(held);
+        // (Placed parts named as they're read back, once leaves are placed.)
+        for (const c of held.components) c.parts = c.parts.map(named);
+        if (held.rootParts) held.rootParts = held.rootParts.map(named);
+      }
+      const heldView = o3 ? exportView(held, opts) : view;
+      const kept = o3 ? heldView.roots.map(only).map(o3.build === 'assembly' ? spaced : (n) => n) : [];
+      const written = o3 ? pruneView({ ...heldView, parts: heldView.parts.filter(has), roots: kept }, has)
+        : pruneView(view, o?.hidden === 'extension' || form === 'json' ? undefined : (p) => p.visible);
       // Draco's step: 14 bits over a part mesh's extent; meshopt's 16 over its volume; doubled for rounding at both
       // ends, and the default 1e-4 mm for the lossless forms.
       // Instancing's transforms are float32 translation, rotation and scale: a few float32 steps at the model's reach.
       const tolerance = form === 'glb-draco' ? 2 * extent / 16383 : form === 'glb-meshopt' ? 2 * extent / 65535
         : form === 'glb-instanced' ? Math.max(1e-4, 8 * reach * 2 ** -24)
           : o3 ? Math.max(1e-4, 4 * local * 2 ** -24) : undefined;
-      const d = viewDifferences({ scene, view: written }, { scene: back, view: exportView(back, opts) },
+      const d = viewDifferences({ scene: held, view: written }, { scene: back, view: exportView(back, opts) },
         { tolerance, skipHidden: form === 'glb-draco' || form === '3mf-assembly', lines: !o3, max: 3 });
       if (d.length) problem(d.join(' | ').slice(0, 600));
       else t.same++;

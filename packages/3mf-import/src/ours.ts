@@ -67,7 +67,14 @@ export function oursFromTree(root: ModelFile, world: (item: number) => { object:
     const n = obj(j), matrix = matrixOf(n?.matrix);
     if (!n || !matrix) { bad++; return undefined; }
     const w = multiply(parentWorld, matrix);
-    const parts = (Array.isArray(n.parts) ? n.parts : []).flatMap((pj): TreeNode[] => {
+    const parts = partsOf(n.parts, w);
+    const children = (Array.isArray(n.children) ? n.children : []).flatMap((c) => node(c, w) ?? []);
+    return { name: typeof n.name === 'string' ? n.name : '', matrix, visible: true, extras: obj(n.extras),
+      meshes: [], children: [...parts, ...children] };
+  };
+  /** Placed parts' nodes, below a node whose world transform is `w`. */
+  const partsOf = (list: unknown, w: Mat4): TreeNode[] => {
+    return (Array.isArray(list) ? list : []).flatMap((pj): TreeNode[] => {
       const p = obj(pj);
       const placed = typeof p?.item === 'number' ? world(p.item) : undefined;
       if (!p || !placed) { bad++; return []; }
@@ -79,14 +86,13 @@ export function oursFromTree(root: ModelFile, world: (item: number) => { object:
         multiply(placed.matrix, at)), visible: p.visible !== false, extras: obj(p.extras),
       meshes: meshOf(placed.object), children: [] }];
     });
-    const children = (Array.isArray(n.children) ? n.children : []).flatMap((c) => node(c, w) ?? []);
-    return { name: typeof n.name === 'string' ? n.name : '', matrix, visible: true, extras: obj(n.extras),
-      meshes: [], children: [...parts, ...children] };
   };
-  const roots = tree.roots.flatMap((r) => node(r, identity()) ?? []);
+  // (The scene's root parts first, as the exporter writes them.)
+  const roots = [...partsOf(tree.parts, identity()), ...tree.roots.flatMap((r) => node(r, identity()) ?? [])];
   if (bad) warn(`our tree metadata (cadio:tree): ${bad} nodes or placed parts unreadable or naming no build item, `
     + 'left out');
   return sceneFromTree({ name: '', matrix: identity(), visible: true, extras: { unit: 'millimetre', up: 'z',
     ...(obj(tree.properties) ? { properties: tree.properties } : {}),
-    ...(tree.bounds !== undefined ? { bounds: tree.bounds } : {}) }, meshes: [], children: roots });
+    ...(tree.bounds !== undefined ? { bounds: tree.bounds } : {}),
+    ...(tree.sourceUnit !== undefined ? { sourceUnit: tree.sourceUnit } : {}) }, meshes: [], children: roots });
 }

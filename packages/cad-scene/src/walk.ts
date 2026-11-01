@@ -67,7 +67,7 @@ export function* instances(scene: Scene): Generator<ComponentInstance> {
 
 /** One placed part, with its appearance resolved. */
 export interface PartInstance {
-  /** The component instance's path. */
+  /** The component instance's path; empty for a root part (`Scene.rootParts`). */
   path: number[];
   part: number;
   ref: PartRef;
@@ -101,15 +101,17 @@ export function* partInstances(scene: Scene): Generator<PartInstance> {
   }
   // Component instances by path, for the components along each path.
   const byPath = new Map<string, ComponentInstance>();
-  for (const inst of instances(scene)) {
+  // (The root parts first, as a component's parts come before its children; their overrides at the empty path.)
+  const tops = { path: [], component: -1, transform: identity() };
+  for (const inst of [tops, ...instances(scene)]) {
     byPath.set(inst.path.join('/'), inst);
-    const comp = scene.components[inst.component]!;
+    const refs = inst.component < 0 ? scene.rootParts ?? [] : scene.components[inst.component]!.parts;
     const prefixes = inst.path.map((_, i) => inst.path.slice(0, i + 1).join('/'));
     const chain = prefixes.map((p) => byPath.get(p)!);
-    const pathAll = prefixes.flatMap((p) => overrides.get(p) ?? []);
-    const componentMaterial = chain.map((c) => scene.components[c.component]!.material).find((m) => m !== undefined);
     const here = inst.path.join('/');
-    for (const [r, ref] of comp.parts.entries()) {
+    const pathAll = inst.component < 0 ? overrides.get('') ?? [] : prefixes.flatMap((p) => overrides.get(p) ?? []);
+    const componentMaterial = chain.map((c) => scene.components[c.component]!.material).find((m) => m !== undefined);
+    for (const [r, ref] of refs.entries()) {
       // Overrides along the path, those for one part reference only where it's this one (at this component).
       const pathOverrides = pathAll.filter((o) => o.ref === undefined || (o.ref === r && o.path.join('/') === here));
       const visible = !pathOverrides.some((o) => o.visible === false);
@@ -146,6 +148,11 @@ export function validate(scene: Scene): string[] {
     if (!(o.component >= 0 && o.component < nc)) problems.push(`roots[${i}]: component ${o.component} out of range`);
     finite(o.transform, `roots[${i}]`);
   });
+  (scene.rootParts ?? []).forEach((r, k) => {
+    if (!(r.part >= 0 && r.part < np)) problems.push(`rootParts[${k}]: part ${r.part} out of range`);
+    finite(r.transform, `rootParts[${k}]`);
+    material(r.material, `rootParts[${k}]`);
+  });
   scene.components.forEach((c, i) => {
     material(c.material, `components[${i}]`);
     c.children.forEach((o, k) => {
@@ -166,6 +173,13 @@ export function validate(scene: Scene): string[] {
   });
   // Overrides: a path that leads somewhere, a part reference that's there, materials in range.
   scene.overrides.forEach((o, i) => {
+    if (!o.path.length && o.ref !== undefined) {
+      if (!(o.ref !== undefined && o.ref >= 0 && o.ref < (scene.rootParts?.length ?? 0))) problems.push(
+        `overrides[${i}]: root part reference ${o.ref} out of range`);
+      material(o.material, `overrides[${i}]`);
+      for (const f of o.faceMaterials ?? []) material(f.material, `overrides[${i}].faceMaterials`);
+      return;
+    }
     let comp = scene.roots[o.path[0] ?? -1]?.component;
     for (const k of o.path.slice(1)) {
       comp = comp === undefined ? undefined : scene.components[comp]?.children[k]?.component;

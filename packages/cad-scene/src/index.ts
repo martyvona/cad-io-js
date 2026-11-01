@@ -9,13 +9,14 @@ export { DEFAULT_MESH_PROFILE, MESH_PROFILE_NAMES, MESH_PROFILES, meshDeflection
   type MeshProfile } from './profiles.ts';
 export { BOUNDARY_SLACK, dropDegenerate, EXCESS_FRACTION, faceFailures, INSIDE_OUT, manifoldProblems,
   MAX_PLAUSIBLE_AREA, MISSING_FRACTION, orientShells, weld, type FaceFailure } from './mesh.ts';
-export { exportView, pruneView, type ExportNode, type ExportView, type ExportViewOptions,
-  type Look } from './export.ts';
+export { exportView, placedName, pruneView, type ExportNode, type ExportPart, type ExportView,
+  type ExportViewOptions, type Look } from './export.ts';
 export { addLod, chooseLod, dropSourceDegenerate, type LodWanted } from './lod.ts';
 export { closeTransforms, isOurTree, MM_Z_UP, sceneFromTree, type TreeExtras, type TreeMaterial, type TreeMesh,
   type TreeNode } from './tree-import.ts';
 export { viewDifferences, type CompareOptions } from './compare.ts';
-export { boundsFrom, boundsJson, levelFrom, levelJson, measuresFrom, measuresJson, partExtras,
-  unitFrom } from './measures.ts';
+export { boundsFrom, boundsJson, sceneJson, levelFrom, levelJson, measuresFrom, measuresJson, partExtras, placementFrom,
+  placementJson, unitFrom } from './measures.ts';
 export { around, boundScene, boxesSphere, boxMeshes, grow, meshBox, sceneBounds } from './bounds.ts';
 export { drain, paced } from './steps.ts';
+export { isLeaf, leafParts } from './leaf.ts';

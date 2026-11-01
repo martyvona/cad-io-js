@@ -435,8 +435,12 @@ test('stepconv: --strict exits 3 when a part fails, with the output written', { 
   assert.equal((await run([broken, '-o', path.join(tmp, 'empty.gltf'), '-j', '0'])).code, 0);
   assert.equal(JSON.parse(fs.readFileSync(path.join(tmp, 'empty.gltf'), 'utf8')).buffers, undefined);
   assert.ok(!fs.existsSync(path.join(tmp, 'empty.bin')));
-  assert.equal(load(fs.readFileSync(out, 'utf8')).type, 'Group');
-  assert.equal((await run([cube, '-o', out, '-j', '0', '--strict'])).code, 0);
+  // (Without extras, a Scene of the tops: the user, 2026-11-01.)
+  assert.equal(load(fs.readFileSync(out, 'utf8')).type, 'Scene');
+  const whole = await run([cube, '-o', out, '-j', '0', '--strict']);
+  assert.equal(whole.code, 0);
+  // (A file of one part: a root part, counted placed.)
+  assert.match(whole.stderr, /^1 parts \(1 of 1 brep parts tessellated\), 1 placed; 12 triangles/);
 });
 
 test('stepconv: wireframe curves on request; --workers 0 starts no worker',

@@ -46,9 +46,11 @@ test('viewDifferences: none for the same drawing however said; each kind of diff
   assert.ok(one(diff((s) => { s.parts[0]!.lods[0]!.mesh.edges = []; }), /lines/));
   const has = (d: string[], pattern: RegExp) => d.some((x) => pattern.test(x));
   const renamed = diff((s) => { s.components[0]!.name = 'd'; });
-  assert.ok(has(renamed, /\/c\): missing/) && has(renamed, /\/d: 1 placed parts only in the second/), renamed.join());
+  // (Each placement named by its path, its own name last.)
+  assert.ok(has(renamed, /\/c\/p\): missing/) && has(renamed, /\/d\/p: 1 placed parts only in the second/),
+    renamed.join());
   const extra = diff((s) => { s.components[0]!.parts.push({ part: 0, transform: identity() }); });
-  assert.ok(has(extra, /1 placed parts against 2/) && has(extra, /\/c: 1 placed parts more/), extra.join());
+  assert.ok(has(extra, /1 placed parts against 2/) && has(extra, /\/c\/p: 1 placed parts more/), extra.join());
   // Within a tolerance: a step of 0.01 mm passes at 0.05 mm (a lossy codec's), not at the default.
   const near = scene();
   near.parts[0]!.lods[0]!.mesh.positions[3] = 1.01;
@@ -86,4 +88,17 @@ test('viewDifferences: a triangle with two corners within the tolerance, unmatch
   assert.deepEqual(viewDifferences(of(scene()), of(extra(0.01)), { tolerance: 0.05 }), []);
   // A sliver: three corners on a line, none near another, is drawn (as a line, at least): still a difference.
   assert.equal(viewDifferences(of(scene()), of(extra(0, 0.5))).length, 1);
+});
+
+test('viewDifferences: root parts compared, by their own names and what they draw', () => {
+  const withRoot = (name: string, x: number) => {
+    const s = scene();
+    s.rootParts = [{ part: 0, transform: translation(x, 0, 0), name }];
+    return s;
+  };
+  assert.deepEqual(viewDifferences(of(withRoot('loose', 50)), of(withRoot('loose', 50))), []);
+  assert.ok(viewDifferences(of(withRoot('loose', 50)), of(withRoot('loose', 60))).length > 0, 'moved');
+  assert.ok(viewDifferences(of(withRoot('loose', 50)), of(withRoot('other', 50))).some((d) => /\/other/.test(d)),
+    'renamed');
+  assert.ok(viewDifferences(of(withRoot('loose', 50)), of(scene())).length > 0, 'left out');
 });

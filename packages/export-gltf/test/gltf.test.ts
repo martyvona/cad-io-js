@@ -101,12 +101,13 @@ test('GLB: valid; the tree, transforms to metres and Y up, shared accessors, mat
   const root = doc.getRoot();
   assert.equal(root.listScenes().length, 1);
   assert.equal(root.listScenes()[0]!.getName(), 'model');
-  const [top] = root.listScenes()[0]!.listChildren();
-  assert.equal(top!.getName(), 'model');
-  assert.ok(close(top!.getMatrix(), ROOT_TRANSFORM));
-  assert.deepEqual(top!.getExtras(), { unit: 'millimetre', up: 'z', properties: { schema: 'AP214' } });
-  assert.deepEqual(top!.listChildren().map((c) => c.getName()), ['asm']);
-  const asm = top!.listChildren()[0]!;
+  // No root node of ours (the user, 2026-11-01): each top node turned to metres and Y up itself, the scene's
+  // extras saying what's below that turn.
+  const top = root.listScenes()[0]!;
+  assert.deepEqual(top.getExtras(), { unit: 'millimetre', up: 'z', properties: { schema: 'AP214' } });
+  assert.deepEqual(top.listChildren().map((c) => c.getName()), ['asm']);
+  const asm = top.listChildren()[0]!;
+  assert.ok(close(asm.getMatrix(), ROOT_TRANSFORM));
   assert.deepEqual(asm.listChildren().map((c) => c.getName()), ['left', 'sub']);
   assert.deepEqual(asm.listChildren()[0]!.getExtras(),
     { sources: [{ format: 'step', id: 101 }],
@@ -159,9 +160,38 @@ test('GLB: valid; the tree, transforms to metres and Y up, shared accessors, mat
   // The part's ids, properties and unit (its vertices are in inches); each primitive's faces as ranges of its own
   // indices.
   assert.deepEqual(plates[0]!.getExtras(),
-    { part: 0, closed: false, sources: [{ format: 'step', id: 50 }], properties: { pn: 'X-1' }, unit: 25.4 });
+    { part: 0, partName: 'plate', closed: false, sources: [{ format: 'step', id: 50 }], properties: { pn: 'X-1' },
+      unit: 25.4, placement: { index: 0 } });
   assert.deepEqual(prims(m0).map((p) => p.getExtras()),
     [{ faces: [{ source: 8, start: 0, count: 3 }] }, { faces: [{ source: 7, start: 0, count: 3 }] }]);
+});
+
+test('without extras no root node of ours; root parts; a placed part named as its placement', async () => {
+  // The plate placed at the top too, by a part reference with a name of its own, and in the subassembly by one
+  // whose product has a name.
+  const s = scene();
+  s.rootParts = [{ part: 0, transform: translation(0, 0, 300), name: 'loose plate' }];
+  s.components[1]!.parts[0] = { ...s.components[1]!.parts[0]!, product: { name: 'Plate product', sources: [],
+    properties: {} } };
+  const view = viewOf(s, meshes());
+  const withExtras = await io.readBinary((await glb(s, view)).bytes);
+  const plain = await io.readBinary((await glb(s, view, { extras: false })).bytes);
+  // The scene holds the root part and the roots, each turned itself, with extras or without.
+  const tops = (d: typeof plain) => d.getRoot().listScenes()[0]!.listChildren();
+  assert.deepEqual(tops(withExtras).map((n) => n.getName()), ['loose plate', 'asm']);
+  assert.deepEqual(tops(plain).map((n) => n.getName()), ['loose plate', 'asm']);
+  // The same world matrices either way.
+  const worlds = (d: typeof plain) => d.getRoot().listNodes().filter((n) => n.getMesh()).map((n) => [n.getName(),
+    Array.from(n.getWorldMatrix())]);
+  const [a, b] = [worlds(withExtras), worlds(plain)];
+  assert.equal(a.length, 3);
+  a.forEach(([name, m], i) => assert.ok(b[i]![0] === name && close(b[i]![1] as number[], m as number[], 1e-12),
+    String(name)));
+  // Named as the placement, else its product, else its part; the part's own name and the placement in our extras.
+  assert.deepEqual(a.map(([name]) => name), ['loose plate', 'Plate product', 'Plate product']);
+  const loose = byName(withExtras.getRoot().listNodes(), 'loose plate')[0]!;
+  assert.deepEqual([loose.getExtras().partName, loose.getExtras().placement], ['plate', { index: 0,
+    name: 'loose plate' }]);
 });
 
 test('edges, curves and points on request; edge kinds; hidden instances left out or KHR_node_visibility; colours',
@@ -327,12 +357,12 @@ test('transforms written exactly, however close to identity; a scene with nothin
   const left = doc.getRoot().listNodes().find((n) => n.getName() === 'left')!;
   assert.deepEqual(left.getTranslation(), [1e-7, 0, 0]);
   assert.ok(Math.abs(left.getRotation()[2] - Math.sin(a / 2)) < 1e-15);
-  // Nothing to draw: the root alone (or with the instance tree, kept), no accessors, no buffer.
-  for (const [keepEmpty, names] of [[false, [undefined]], [true, [undefined, 'asm', 'left', 'sub']]] as const) {
+  // Nothing to draw: no node (or the instance tree, kept), no accessors, no buffer.
+  for (const [keepEmpty, names] of [[false, undefined], [true, ['asm', 'left', 'sub']]] as const) {
     const empty = await glb(s, viewOf(s, new Map()), { keepEmpty });
     assert.deepEqual(await issues(empty.bytes), []);
     const json = (await io.binaryToJSON(empty.bytes)).json;
-    assert.deepEqual([json.buffers, json.accessors, json.nodes!.map((n) => n.name)], [undefined, undefined, names]);
+    assert.deepEqual([json.buffers, json.accessors, json.nodes?.map((n) => n.name)], [undefined, undefined, names]);
   }
 });
 
@@ -634,7 +664,8 @@ function instanceWorlds(n: Node): Mat4[] {
   return Array.from({ length: t!.getCount() }, (_, i) => multiply(Float64Array.from(n.getWorldMatrix()),
     compose(t!.getElement(i, [0, 0, 0]), r!.getElement(i, [0, 0, 0, 0]), sc!.getElement(i, [0, 0, 0]))));
 }
-const topOf = (doc: Awaited<ReturnType<typeof io.readBinary>>) => doc.getRoot().listScenes()[0]!.listChildren()[0]!;
+/** What holds the tops: the scene (no root node of ours since 2026-11-01). */
+const topOf = (doc: Awaited<ReturnType<typeof io.readBinary>>) => doc.getRoot().listScenes()[0]!;
 
 test('instancing: a look placed twice is one node with EXT_mesh_gpu_instancing, out of the tree; extras', async () => {
   const s = twice();
@@ -659,10 +690,11 @@ test('instancing: a look placed twice is one node with EXT_mesh_gpu_instancing, 
   inst.getMesh()!.listPrimitives().forEach((p, g) => worlds.forEach((w, i) => assert.ok(sameTriangles(
     worldTriangles(inst, p, w).map((t) => t.tri),
     worldTriangles(plain[i]!, plain[i]!.getMesh()!.listPrimitives()[g]!).map((t) => t.tri), 1e-8))));
-  assert.deepEqual(inst.getExtras(), { part: 0, closed: false, sources: [{ format: 'step', id: 50 }],
-    properties: { pn: 'X-1' }, unit: 25.4,
-    instances: [{ path: [0, 0], names: ['asm', 'left'], sources: [{ format: 'step', id: 101 }] },
-      { path: [0, 1], names: ['asm', 'sub'], sources: [{ format: 'step', id: 101 }] }] });
+  assert.deepEqual(inst.getExtras(), { part: 0, partName: 'plate', closed: false,
+    sources: [{ format: 'step', id: 50 }], properties: { pn: 'X-1' }, unit: 25.4,
+    instances: [{ path: [0, 0], names: ['asm', 'left'], sources: [{ format: 'step', id: 101 }],
+      placement: { index: 0 } },
+    { path: [0, 1], names: ['asm', 'sub'], sources: [{ format: 'step', id: 101 }], placement: { index: 0 } }] });
   // Without extras, none; the empty tree kept on request.
   assert.equal(extrasIn((await io.binaryToJSON((await glb(s, view, { instancing: true, extras: false })).bytes)).json),
     0);
@@ -708,14 +740,13 @@ test('instancing: edges in a node per placement; curves-only parts stay; hidden,
     const json = (await io.binaryToJSON((await glb(h, hv, { instancing: true, hidden })).bytes)).json;
     assert.ok(!json.extensionsUsed?.includes('EXT_mesh_gpu_instancing'), hidden);
     // Left out, the hidden plate leaves its node with nothing to draw: left out too.
-    assert.deepEqual(json.nodes!.map((n) => n.name), hidden === 'omit' ? [undefined, 'asm', 'sub', 'plate']
-      : [undefined, 'asm', 'left', 'plate', 'sub', 'plate']);
+    assert.deepEqual(json.nodes!.map((n) => n.name), hidden === 'omit' ? ['asm', 'sub', 'plate']
+      : ['asm', 'left', 'plate', 'sub', 'plate']);
   }
   // Two hidden: left out, nothing; kept, instanced, the node and the edges' nodes hidden.
   h.overrides.push({ path: [0, 1], visible: false, sources: [] });
   const hv2 = viewOf(h, meshes(), { edges: true });
-  assert.deepEqual((await io.binaryToJSON((await glb(h, hv2, { instancing: true })).bytes)).json.nodes!.map(
-    (n) => n.name), [undefined]);
+  assert.equal((await io.binaryToJSON((await glb(h, hv2, { instancing: true })).bytes)).json.nodes, undefined);
   const hidden = await io.readBinary((await glb(h, hv2, { instancing: true, hidden: 'extension' })).bytes);
   const hn = topOf(hidden).listChildren();
   assert.deepEqual(hn.map((c) => [c.getName(), (c.getExtension('KHR_node_visibility') as unknown as
@@ -739,7 +770,8 @@ test('instancing with Draco and meshopt: each instance\'s triangles in place, wi
   const plain = byName((await io.readBinary((await glb(s, view)).bytes)).getRoot().listNodes(), 'plate');
   for (const compression of ['draco', 'meshopt'] as const) {
     const doc = await decoding.readBinary((await glbOf(s, view, { compression, instancing: true })).bytes);
-    const [inst, ...lines] = topOf(doc).listChildren();
+    // (Without extras no root node of ours: the scene's nodes are the tops.)
+    const [inst, ...lines] = doc.getRoot().listScenes()[0]!.listChildren();
     const worlds = instanceWorlds(inst!);
     inst!.getMesh()!.listPrimitives().forEach((p, g) => worlds.forEach((w, i) => assert.ok(sameTriangles(
       worldTriangles(inst!, p, w).map((t) => t.tri),

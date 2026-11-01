@@ -16,7 +16,8 @@
 import { WebIO, type Accessor, type Document, type Material as GltfMaterial, type Node,
   type Primitive } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
-import { boundScene, closeTransforms, dropSourceDegenerate, identity, multiply, sceneFromTree, type Diagnostic,
+import { boundScene, closeTransforms, dropSourceDegenerate, identity, multiply, sceneFromTree, Y_UP_METRES,
+  type Diagnostic,
   type Mat4, type Scene, type TreeExtras, type TreeMaterial, type TreeMesh, type TreeNode, type Vec3 } from 'cad-scene';
 
 export interface GltfImport {
@@ -265,8 +266,11 @@ export async function importGltf(input: Uint8Array | GltfJsonInput, opts: GltfIm
     getAttribute(s: string): Accessor | null } | null;
   const scene = root.getDefaultScene() ?? root.listScenes()[0];
   const tops = scene?.listChildren() ?? [];
-  // Ours: one root node with our extras; else a root of the scene's nodes.
-  const ours = tops.length === 1 && obj(tops[0]!.getExtras())?.unit === 'millimetre';
+  // Ours: the scene's extras ours (each top node turned to metres and Y up itself: the user, 2026-11-01), or before,
+  // one root node with our extras; else a root of the scene's nodes.
+  const sceneExtras = obj(scene?.getExtras());
+  const oursOld = tops.length === 1 && obj(tops[0]!.getExtras())?.unit === 'millimetre';
+  const ours = oursOld || (sceneExtras?.unit === 'millimetre' && sceneExtras.up === 'z');
   // (In other files, a GPU-instanced node's meshes a child node per instance, at the instance's transform: it comes
   // before the node's own, NodeWorld x Instance x vertex. Ours are put back by restoreInstances, below.)
   const tree = (n: Node): TreeNode => {
@@ -278,10 +282,12 @@ export async function importGltf(input: Uint8Array | GltfJsonInput, opts: GltfIm
       ...(Object.keys(n.getExtras()).length ? { extras: n.getExtras() as TreeExtras } : {}),
       meshes: each.length ? [] : meshes, children: [...each, ...n.listChildren().map(tree)] };
   };
-  const top: TreeNode = ours ? tree(tops[0]!) : { name: scene?.getName() ?? '', matrix: identity(), visible: true,
-    meshes: [], children: tops.map(tree) };
-  if (ours) restoreInstances(tops[0]!, top, instanced, warn);
-  const built = sceneFromTree(top);
+  const top: TreeNode = oursOld ? tree(tops[0]!) : { name: scene?.getName() ?? '', matrix: identity(), visible: true,
+    ...(ours ? { extras: sceneExtras } : {}), meshes: [], children: tops.map(tree) };
+  if (ours) restoreInstances(oursOld ? tops[0]!.listChildren() : tops, top, instanced, warn,
+    oursOld ? identity() : Y_UP_METRES);
+  // (The glTF scene holds the roots, not an assembly of its own; our old files' root node is ours.)
+  const built = sceneFromTree(top, { container: !oursOld });
   built.scene.diagnostics.unshift(...diagnostics);
   if (opts.dropDegenerate ?? true) dropSourceDegenerate(built.scene);
   boundScene(built.scene);
@@ -294,9 +300,8 @@ export async function importGltf(input: Uint8Array | GltfJsonInput, opts: GltfIm
  * (made again, empty, where the export left it out), with the edges, curves and points of the placement's own node
  * under the root (its extras' `instance`).
  */
-function restoreInstances(rootNode: Node, root: TreeNode, instanced: (n: Node) => { getAttribute(s: string):
-  Accessor | null } | null, warn: (m: string) => void): void {
-  const nodes = rootNode.listChildren();
+function restoreInstances(nodes: Node[], root: TreeNode, instanced: (n: Node) => { getAttribute(s: string):
+  Accessor | null } | null, warn: (m: string) => void, frame: Mat4): void {
   const isLines = (n: TreeNode) => obj(n.extras?.instance) !== undefined;
   const pathKey = (p: unknown) => (Array.isArray(p) ? p.join('/') : '');
   // The tree nodes by path, and their world transforms below the root.
@@ -343,10 +348,11 @@ function restoreInstances(rootNode: Node, root: TreeNode, instanced: (n: Node) =
         let parent = byPath.get(pathKey(path.slice(0, d)));
         if (!parent) {
           // (The root of the path: a node of the root's.)
-          const made: TreeNode = { name: names[0] ?? '', matrix: identity(), visible: true,
+          // (At the top, turned as the file's top nodes are: `frame`.)
+          const made: TreeNode = { name: names[0] ?? '', matrix: frame, visible: true,
             extras: { path: path.slice(0, 1) }, meshes: [], children: [] };
           kept.push(made);
-          parent = { node: made, world: identity() };
+          parent = { node: made, world: frame };
           byPath.set(pathKey(path.slice(0, 1)), parent);
           d = 1;
         }
@@ -359,10 +365,29 @@ function restoreInstances(rootNode: Node, root: TreeNode, instanced: (n: Node) =
         }
         at = parent;
       }
+      // (Its placement's own data, its name among it, in the instance's extras.)
+      const placement = obj(o?.placement);
       at.node.children.push({ name: tn.name, matrix: multiply(invert(at.world), world), visible: tn.visible,
-        extras: partExtras, meshes: tn.meshes, children: own(tn.extras!.part, path, world)?.children ?? [] });
+        extras: { ...partExtras, ...(placement ? { placement } : {}) }, meshes: tn.meshes,
+        children: own(tn.extras!.part, path, world)?.children ?? [] });
     });
   });
   if (nodes.length !== root.children.length) warn('the root\'s nodes and the tree disagree: instances not restored');
   root.children = kept;
+  // Each node's placed parts in their placements' order (the restored ones were added last), before its children.
+  const placementIndex = (n: TreeNode) => {
+    const i = obj(n.extras?.placement)?.index;
+    return typeof i === 'number' ? i : undefined;
+  };
+  const order = (n: TreeNode) => {
+    const parts = n.children.filter((c) => c.extras?.part !== undefined);
+    if (parts.some((c) => placementIndex(c) !== undefined)) {
+      const sorted = parts.map((c, k) => ({ c, k })).sort((x, y) => (placementIndex(x.c) ?? x.k) -
+        (placementIndex(y.c) ?? y.k) ||
+        x.k - y.k).map((x) => x.c);
+      n.children = [...sorted, ...n.children.filter((c) => c.extras?.part === undefined)];
+    }
+    n.children.forEach(order);
+  };
+  root.children.forEach(order);
 }
