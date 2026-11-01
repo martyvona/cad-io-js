@@ -1,9 +1,9 @@
 {
   "name": "cad-viewer",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "An interactive three.js viewer for debugging and inspecting models: STEP, glTF, three.js JSON and 3MF through cad-io-js's importers",
-  "license": "Apache-2.0",
+  "license": "AGPL-3.0-only",
   "type": "module",
   "bin": {
     "cad-viewer": "./bin/viewer.ts"
@@ -14,23 +14,23 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "3mf-import": "0.1.0",
+    "3mf-import": "0.2.0",
     "@headless-tree/core": "1.7.0",
-    "cad-scene": "0.1.0",
+    "cad-scene": "0.2.0",
     "draco3dgltf": "1.5.9",
-    "export-3mf": "0.1.0",
-    "export-gltf": "0.1.0",
-    "export-threejs": "0.1.0",
-    "gltf-import": "0.1.0",
+    "export-3mf": "0.2.0",
+    "export-gltf": "0.2.0",
+    "export-threejs": "0.2.0",
+    "gltf-import": "0.2.0",
     "n8ao": "2.0.1",
     "postprocessing": "6.39.5",
-    "step-import": "0.1.0",
-    "tess-cache": "0.1.0",
-    "tess-occt": "0.1.0",
-    "tess-truck": "0.1.0",
-    "tess-workers": "0.1.0",
+    "step-import": "0.2.0",
+    "tess-cache": "0.2.0",
+    "tess-occt": "0.2.0",
+    "tess-truck": "0.2.0",
+    "tess-workers": "0.2.0",
     "three": "0.186.1",
-    "threejs-import": "0.1.0"
+    "threejs-import": "0.2.0"
   },
   "devDependencies": {
     "@types/three": "0.186.0",

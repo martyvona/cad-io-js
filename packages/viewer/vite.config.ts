@@ -60,12 +60,12 @@ const licenses = (): Plugin => ({
     const text = (f: string) => fs.readFileSync(path.join(repo, f), 'utf8').trim();
     const packages = vite.replace(/^# Licenses\s*\n/, '').replace(/^(#+) /gm, '#$1 ');
     const bundles = [
-      '- cad-io-js itself: Apache-2.0, below;',
+      '- cad-io-js itself: AGPL-3.0-only, below;',
       '- the OCCT tessellation backend (`assets/occt_tess-*.wasm` and `occt_tess-*.mjs`), which contains ' +
         'Open CASCADE Technology: LGPL-2.1 with the Open CASCADE exception, below (its source, the build scripts ' +
         'included, in cad-io-js\'s `packages/tess-occt`; OCCT\'s at https://github.com/Open-Cascade-SAS/OCCT);',
-      '- the truck tessellation backend (`assets/tess_truck-*.wasm`): cad-io-js\'s wrapper and truck ' +
-        '(https://github.com/ricosjp/truck), Apache-2.0, with the Rust crates ' +
+      '- the truck tessellation backend (`assets/tess_truck-*.wasm`): cad-io-js\'s wrapper (AGPL-3.0-only) and ' +
+        'truck (https://github.com/ricosjp/truck, Apache-2.0), with the Rust crates ' +
         '`packages/tess-truck/native/Cargo.lock` lists, each under its own license (MIT or Apache-2.0 for the most ' +
         'part);',
       // (Vite lists only the page's own packages, not the import worker's, which are these.)
@@ -83,7 +83,7 @@ const licenses = (): Plugin => ({
       bundles.join('\n'),
       '## npm packages',
       packages.trim(),
-      '## cad-io-js (Apache-2.0)',
+      '## cad-io-js (AGPL-3.0-only)',
       text('LICENSE.txt'),
       '## The OCCT tessellation backend (LGPL-2.1 with the Open CASCADE exception)',
       text('packages/tess-occt/LICENSE.txt'),

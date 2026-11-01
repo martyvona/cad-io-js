@@ -17,8 +17,8 @@ export async function showAbout(model?: [string, string][]): Promise<void> {
         'and converting them, in TypeScript. Nothing you open is uploaded.',
       ...(VERSION ? [`Version ${VERSION}.`] : []),
       'By Claude (Anthropic) and Marsette Vona.',
-      [{ text: 'Licensed under Apache-2.0, except the OCCT tessellation backend, LGPL-2.1 with the Open CASCADE ' +
-        'exception; the demo models are CC BY-SA 4.0.' },
+      [{ text: 'Licensed under AGPL-3.0-only, except the OCCT tessellation backend, LGPL-2.1 with the Open ' +
+        'CASCADE exception; the demo models are CC BY-SA 4.0.' },
       // A build has licenses.md beside the page (vite.config.ts); the dev server doesn't.
       ...(import.meta.env.PROD ? [{ text: ' What the viewer bundles, and under which licenses: ' },
         { text: 'licenses.md', href: new URL('licenses.md', document.baseURI).href }, { text: '.' }] : [])],

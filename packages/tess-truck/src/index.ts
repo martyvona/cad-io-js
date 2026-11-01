@@ -87,7 +87,8 @@ async function wasmId(bytes: BufferSource): Promise<string> {
 
 export class TruckTessellator implements Tessellator {
   readonly info: TessellatorInfo = {
-    name: 'truck', version: 'truck 88ed005', license: 'Apache-2.0',
+    // (Our wrapper's license, AGPL-3.0-only, over truck's Apache-2.0: the module as a whole.)
+    name: 'truck', version: 'truck 88ed005', license: 'AGPL-3.0-only',
     formats: ['step'], supportsFaceIds: true, supportsEdges: true, supportsCurves: false,
   };
   private module?: WebAssembly.Module;

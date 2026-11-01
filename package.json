@@ -1,6 +1,6 @@
 {
   "name": "cad-io-js",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Reading CAD files into memory, and converting them, in TypeScript for Node.js and browsers: STEP to a scene model, tessellated by WebAssembly backends (OCCT, truck), exported to three.js, glTF and 3MF, with a browser viewer",
   "keywords": [
     "cad",
@@ -22,7 +22,7 @@
     "type": "git",
     "url": "git+https://github.com/martyvona/cad-io-js.git"
   },
-  "license": "Apache-2.0",
+  "license": "AGPL-3.0-only",
   "contributors": [
     "Claude (Anthropic)",
     "Marsette Vona"

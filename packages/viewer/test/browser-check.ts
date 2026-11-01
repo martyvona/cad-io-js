@@ -2823,7 +2823,7 @@ await check('about', async () => {
   expect(m.rows[0]?.join() === 'File,as1.stp' && m.rows[1]?.[0] === 'Objects' &&
     m.rows[2]?.join() === `Triangles,${m.triangles!.toLocaleString()}` && m.triangles! > 0, `as1 open: ${j}`);
   expect(a.title === 'cad-io-js CAD viewer' && /By Claude \(Anthropic\) and Marsette Vona\./.test(a.text) &&
-    /Apache-2\.0/.test(a.text) && /LGPL-2\.1/.test(a.text) && /CC BY-SA 4\.0/.test(a.text), `the text: ${j}`);
+    /AGPL-3\.0-only/.test(a.text) && /LGPL-2\.1/.test(a.text) && /CC BY-SA 4\.0/.test(a.text), `the text: ${j}`);
   expect(a.links.some((l) => l.href === 'https://github.com/martyvona/cad-io-js') &&
     a.links.every((l) => l.target === '_blank' && l.rel === 'noopener'), `the links: ${j}`);
   expect(base === '/' ? a.status === undefined : a.status === 200, `licenses.md (a build's only): ${j}`);
@@ -4186,7 +4186,8 @@ if (staticServer) {
     const licenses = fs.readFileSync(path.join(dist, 'licenses.md'), 'utf8');
     expect(['### three - 0.186.1 (MIT)', '### @headless-tree/core', '`@gltf-transform/core`', 'draco3dgltf',
       'meshoptimizer', 'Open CASCADE exception (version 1.0)',
-      'GNU LESSER GENERAL PUBLIC LICENSE', 'Apache License'].every((t) => licenses.includes(t)), 'licenses.md');
+      'GNU LESSER GENERAL PUBLIC LICENSE', 'GNU AFFERO GENERAL PUBLIC LICENSE'].every((t) => licenses.includes(t)),
+      'licenses.md');
     expect(!fs.existsSync(path.join(dist, '.vite')), 'Vite\'s own licenses file left');
     const sw = fs.readFileSync(path.join(dist, 'sw.js'), 'utf8');
     expect(sw.includes('occt_tess-') && !sw.includes('licenses.md'), 'the precache list');

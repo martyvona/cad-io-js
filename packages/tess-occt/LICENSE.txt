@@ -1,8 +1,8 @@
 packages/tess-occt, the OCCT tessellation backend of cad-io-js (its wrapper native/occt_tess.cpp, its build scripts,
 its JavaScript adapter, and the WebAssembly module it builds, which contains Open CASCADE Technology), is licensed
 under the GNU Lesser General Public License version 2.1 with the Open CASCADE exception, the license of OCCT itself:
-SPDX LGPL-2.1-only WITH OCCT-exception-1.0. The rest of cad-io-js is licensed under the Apache License 2.0
-(../../LICENSE.txt).
+SPDX LGPL-2.1-only WITH OCCT-exception-1.0. The rest of cad-io-js is licensed under the GNU Affero General Public
+License version 3 only (../../LICENSE.txt).
 
 The exception, then the license, as OCCT distributes them (OCCT_LGPL_EXCEPTION.txt and LICENSE_LGPL_21.txt at
 https://github.com/Open-Cascade-SAS/OCCT, commit 3d097a0328):
