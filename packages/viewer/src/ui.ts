@@ -28,7 +28,7 @@ import { EXPORT_FORMATS } from './export-formats.ts';
 import { shownEdits } from './export-shown.ts';
 import { visibleBox, WorkerLost, type Viewer } from './viewer.ts';
 import type { AppearanceOverride, NodeModel, PathOverride, Slot } from './model.ts';
-import { closeAppearance, refreshAppearance, showAppearance } from './appearance-dialog.ts';
+import { appearanceOpen, closeAppearance, refreshAppearance, showAppearance } from './appearance-dialog.ts';
 import { closeMenu, showMenu } from './context-menu.ts';
 
 /** What the browser check reaches through `globalThis.ui`. */
@@ -607,6 +607,9 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     // A selection made while meshing again replaces the one being restored.
     if (source !== 'api' && restore) restore.selected = [];
     if (source !== 'tree') panel?.select(selected, reveal);
+    // Override Appearance..., if open, follows a selection of one node (the user, 2026-11-06): it shows the node
+    // last right-clicked or last selected alone, whichever came last; none or several selected leave it as it is.
+    if (selected.length === 1 && appearanceOpen()) editAppearance(selected[0]!, false);
     hooks.onEvent?.({ type: 'select', source, ids: selected });
     zoomSelected.enable(selected.length > 0);
     highlight();
@@ -690,7 +693,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
    * open (its node the last asked for).
    */
   let fromPanel = false;
-  const editAppearance = (id: number) => {
+  const editAppearance = (id: number, focus = true) => {
     const nodes = viewer.nodes, graph = viewer.graph;
     const n = nodes?.nodes[id];
     if (!nodes || !n) return;
@@ -721,7 +724,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
           fromPanel = false;
         }
       },
-    });
+    }, focus);
   };
   // A change of the appearance overrides: hiding (what's drawn) or opacity (materials).
   const appearance = (change: (model: NodeModel) => void) => {

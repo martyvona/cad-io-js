@@ -820,8 +820,9 @@ await check('hide others and transparency', async () => {
 // menu's one item, the panel's controls (Inherit at first, the alpha shown and not editable; Transparent starting
 // from it), each change taking effect at once (no OK or Cancel), the eye on the row; asked for a child while it's
 // open, the same panel showing the child (what it inherits), not a second; changed elsewhere (Hide selected), shown
-// again; triangle edges on through it; not modal, so the page stays usable; closed by its x and by Escape; a
-// long press on a touch screen opening the menu too; recorded and replayed in a fresh page with the same overrides.
+// again; following a selection of one node, not of several or none, a right-click winning over the selection;
+// triangle edges on through it; not modal, so the page stays usable; closed by its x and by Escape; a long press on a
+// touch screen opening the menu too; recorded and replayed in a fresh page with the same overrides.
 await check('override appearance', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check&record`, `(async () => {
     const m = ui.panel().model;
@@ -898,6 +899,35 @@ await check('override appearance', async () => {
     const refreshed = c.read().visibility;
     ui.showSelected();
     const reshown = c.read().visibility;
+    // The panel follows a selection of one node; several, or none, leave it; a right-click on a row not selected
+    // shows that row's node (the user, 2026-11-06).
+    const other = m.nodes.find((n) => n.kind === 'part' && n.name !== m.nodes[child].name).id;
+    const titled = () => {
+      const t = c.d.querySelector('h2 span').textContent;
+      return t === 'Override Appearance: ' + m.nodes[other].name ? 'other'
+        : t === 'Override Appearance: ' + m.nodes[child].name ? 'child' : t;
+    };
+    const follows = [];
+    document.activeElement?.blur();
+    ui.select([other]);
+    await frame();
+    // (The focus left where it was: the tree's arrow keys keep moving through the tree.)
+    follows.push(titled(), c.d.contains(document.activeElement) ? 'focus moved' : 'focus kept');
+    ui.select([child, other]);
+    await frame();
+    follows.push(titled());
+    ui.select([]);
+    await frame();
+    follows.push(titled());
+    ui.select([other]);
+    await frame();
+    const childRow = [...document.querySelectorAll('#tree .tree-row')].find((r) => +r.dataset.id === child);
+    const cb = childRow.getBoundingClientRect();
+    childRow.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: cb.left + 20,
+      clientY: cb.top + 5 }));
+    document.querySelector('.cv-menu button').click();
+    await frame();
+    follows.push(titled(), ui.selected().join() === String(other) ? 'other selected' : 'selection changed');
     // Closed by its x; opened again, by Escape.
     c.d.querySelector('button.close').click();
     const xClosed = !document.querySelector('dialog.cv-dialog');
@@ -914,7 +944,7 @@ await check('override appearance', async () => {
     // (The rows were selected here through the interface, which replay doesn't repeat: none at the end.)
     ui.select([]);
     const st = cadViewer.state();
-    return { items, closed, first, modal, focused, switched, live, own, eye, childHidden, panels, inChild,
+    return { items, closed, first, modal, focused, follows, switched, live, own, eye, childHidden, panels, inChild,
       childSwitched, childDefault, childOwn, childLook, wires, childMeshes, refreshed, reshown, xClosed, escClosed,
       pressed,
       overrides: { hidden: st.hidden, shown: st.shown, opacity: st.opacity, triangleEdges: st.triangleEdges },
@@ -945,6 +975,8 @@ await check('override appearance', async () => {
   expect(JSON.stringify(a.childOwn) === '{"hidden":false,"transparent":false,"triangleEdges":true}' &&
     JSON.stringify(a.childLook) === '{"hidden":false,"triangleEdges":true}', `the child's override: ${j}`);
   expect(a.refreshed === 'inherit' && a.reshown === 'show', `refreshed: ${j}`);
+  expect(JSON.stringify(a.follows) === '["other","focus kept","other","other","child","other selected"]', `the panel following `
+    + `the selection: ${JSON.stringify(a.follows)}`);
   expect((a.childMeshes as number) > 0 && a.wires === a.childMeshes, `the child's triangle edges: ${j}`);
   expect(!!a.xClosed && !!a.escClosed, `closed: ${j}`);
   expect(JSON.stringify(a.pressed) === '["Override Appearance..."]', `a long press: ${j}`);

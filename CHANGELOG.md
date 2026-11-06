@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `cad-viewer`: Override Appearance... follows the selection: it shows the node last right-clicked or last selected alone (several or none selected leave it as it is). Its pulldowns are labelled plainly, and on touch screens opening it doesn't open the Visibility pulldown (iOS).
 - `cad-viewer`: the tree starts at the file's own roots, with no node for the file itself (a file with several roots shows them all at the top), so node paths lose their first segment (`as1.stp/as1/plate_1` is `as1/plate_1`); links, states and recordings with the old paths no longer resolve; `cadViewer`'s version 5.
 
 ## 0.2.0 (2026-11-01)

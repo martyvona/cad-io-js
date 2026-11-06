@@ -5,7 +5,7 @@
 // deciding where nothing sets them). The alpha takes input only while Opacity is Transparent; otherwise it shows the
 // alpha the node draws with (inherited, or the file's), and switching to Transparent starts from that. Every change
 // takes effect at once (the slider as it moves), recorded once it's made (the slider let go): no OK or Cancel. One at
-// a time: asked for another node while it's open, it shows that one instead.
+// a time: asked for another node while it's open, or a node selected alone, it shows that one instead.
 
 import { draggable } from './dialog.ts';
 import type { AppearanceOverride, Look } from './model.ts';
@@ -44,11 +44,14 @@ export interface AppearanceBinding {
   set(o: AppearanceOverride, final: boolean): void;
 }
 
-let panel: { bind(b: AppearanceBinding): void; refresh(): void; close(): void } | undefined;
+let panel: { bind(b: AppearanceBinding, focus: boolean): void; refresh(): void; close(): void } | undefined;
 
-/** Shows the panel for a node, or, if it's open, shows that node in it instead. */
-export function showAppearance(b: AppearanceBinding): void {
-  (panel ??= makePanel()).bind(b);
+/**
+ * Shows the panel for a node, or, if it's open, shows that node in it instead; `focus` false leaves the keyboard's
+ * focus where it is (the panel following the selection: the tree's arrow keys keep moving through the tree).
+ */
+export function showAppearance(b: AppearanceBinding, focus = true): void {
+  (panel ??= makePanel()).bind(b, focus);
 }
 
 /** Shows the node's override again, if the panel is open (changed elsewhere: Hide selected, a state). */
@@ -179,9 +182,10 @@ function makePanel(): NonNullable<typeof panel> {
   dialog.show();
   return {
     close: end,
-    bind: (b) => {
+    bind: (b, focus) => {
       binding = b;
       read();
+      if (!focus) return;
       // On a touch screen the panel itself takes the focus (for Escape): iOS opens a <select>'s picker whenever it's
       // focused, so focusing Visibility popped its list open (the user, 2026-11-06). Elsewhere Visibility does, so
       // the keyboard can change it at once.
