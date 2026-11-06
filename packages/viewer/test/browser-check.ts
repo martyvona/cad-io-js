@@ -861,6 +861,8 @@ await check('override appearance', async () => {
     let c = await panel(asm);
     const first = c.read();
     const modal = c.d.matches(':modal');
+    // (On a desktop, Visibility takes the focus, for the keyboard.)
+    const focused = document.activeElement === c.visibility;
     c.change(c.opacity, 'transparent');
     const switched = c.read();
     // The box typed in: at once, before anything else.
@@ -912,8 +914,9 @@ await check('override appearance', async () => {
     // (The rows were selected here through the interface, which replay doesn't repeat: none at the end.)
     ui.select([]);
     const st = cadViewer.state();
-    return { items, closed, first, modal, switched, live, own, eye, childHidden, panels, inChild, childSwitched,
-      childDefault, childOwn, childLook, wires, childMeshes, refreshed, reshown, xClosed, escClosed, pressed,
+    return { items, closed, first, modal, focused, switched, live, own, eye, childHidden, panels, inChild,
+      childSwitched, childDefault, childOwn, childLook, wires, childMeshes, refreshed, reshown, xClosed, escClosed,
+      pressed,
       overrides: { hidden: st.hidden, shown: st.shown, opacity: st.opacity, triangleEdges: st.triangleEdges },
       rec: cadViewer.record(false) };
   })()`) as { after: Record<string, unknown> & { overrides: unknown; rec: { events: { type: string }[] } } };
@@ -924,8 +927,9 @@ await check('override appearance', async () => {
   expect(JSON.stringify(a.items) === '["Override Appearance..."]' && !!a.closed, `the menu: ${j}`);
   const first = a.first as Read;
   expect(first.visibility === 'inherit' && first.opacity === 'inherit' && first.edges === 'inherit' &&
-    first.disabled && first.value === '1' && first.options.includes("Inherit (Rendering's: off)") &&
-    JSON.stringify(first.buttons) === '["Close"]' && a.modal === false, `the panel at first: ${j}`);
+    first.disabled && first.value === '1' && first.options.includes('Inherit') &&
+    first.options.every((o) => !o.includes('(')) && JSON.stringify(first.buttons) === '["Close"]' &&
+    a.modal === false && a.focused === true, `the panel at first: ${j}`);
   const sw = a.switched as Read;
   expect(!sw.disabled && sw.value === '1', `transparent, from the alpha shown: ${j}`);
   expect(a.live === 0.4, `not at once: ${j}`);
@@ -933,8 +937,8 @@ await check('override appearance', async () => {
     `the assembly's override: ${j}`);
   const ic = a.inChild as Read;
   expect(a.panels === 1 && ic.title.endsWith(String((a.inChild as Read).title.split(': ')[1])) &&
-    ic.title !== first.title && ic.visibility === 'inherit' && ic.options.includes('Inherit (hidden)') &&
-    ic.options.includes('Inherit (0.4)') && ic.disabled && ic.value === '0.4', `the child in the panel: ${j}`);
+    ic.title !== first.title && ic.visibility === 'inherit' && ic.options.includes('Inherit') && ic.disabled &&
+    ic.value === '0.4', `the child in the panel: ${j}`);
   expect((a.childSwitched as Read).value === '0.4', `the child transparent from 0.4: ${j}`);
   const cd = a.childDefault as Read;
   expect(cd.disabled && cd.value === '1', `the child's default, the file's: ${j}`);
@@ -2148,15 +2152,31 @@ await check('phone', async () => {
     const wide = await evaluate(sessionId, `(document.documentElement.style.setProperty('--side', '500px'),
       localStorage.removeItem('cad-viewer.side'), document.getElementById('side').getBoundingClientRect().width)`) as
       number;
-    return { selected, opened, dragged, wide };
+    // Override Appearance... on a touch screen: the panel itself focused, not Visibility, whose picker iOS would
+    // open (the user, 2026-11-06).
+    const focus = await evaluate(sessionId, `(async () => {
+      const row = document.querySelector('#tree .tree-row');
+      const b = row.getBoundingClientRect();
+      row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: b.left + 20,
+        clientY: b.top + 5 }));
+      document.querySelector('.cv-menu button').click();
+      await new Promise((res) => requestAnimationFrame(() => setTimeout(res, 0)));
+      const d = document.querySelector('dialog.cv-dialog.floating');
+      const out = { panel: !!d && document.activeElement === d, select: document.activeElement?.tagName === 'SELECT' };
+      d?.querySelector('button')?.click();
+      return out;
+    })()`) as { panel: boolean; select: boolean };
+    return { selected, opened, dragged, wide, focus };
   } }) as { after?: { treeClosed: boolean; guiClosed: boolean; overscroll: string; touch: number; handle: string;
     workers: number; spot?: { id: number; x: number; y: number }; triangles: number; edgeStyle: string;
     device: { detected: string; used: string; profile: string } }; then?: { selected: number[];
     opened: { side: number; handle: number; saved: string | null }; dragged: { side: number; saved: string | null };
-    wide: number } };
+    wide: number; focus: { panel: boolean; select: boolean } } };
   const a = r.after!;
   const j = JSON.stringify(a);
   expect(a.treeClosed && a.guiClosed, `closed at first: ${j}`);
+  expect(r.then?.focus.panel === true && !r.then.focus.select, `Override Appearance's focus on a touch screen: ${
+    JSON.stringify(r.then?.focus)}`);
   expect(a.device.detected === 'phone' && a.device.used === 'phone' && a.device.profile === 'coarse' &&
     a.triangles === coarseTriangles, `a phone, meshed coarse (${coarseTriangles} triangles): ${j}`);
   expect(a.overscroll === 'none' && a.touch > 0 && a.workers <= 3 && a.handle === 'block' && a.edgeStyle === 'thin',

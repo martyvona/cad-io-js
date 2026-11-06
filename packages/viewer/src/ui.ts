@@ -708,7 +708,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
         const alphas = parts.map((p) => graph?.fileOpacity(nodes.nodes[p]!.object!, n.face?.source) ?? 1);
         return { name: n.name, own: nodes.ownOverride(id), inherited: nodes.inherited(id),
           file: { alpha: alphas[0] ?? 1, varies: alphas.some((a) => a !== alphas[0]) },
-          rendering: viewer.render.triangleEdges, lines: ['edges', 'curves', 'points'].includes(n.kind) };
+          lines: ['edges', 'curves', 'points'].includes(n.kind) };
       },
       // As the slider moves, shown only; once made, set and recorded.
       set: (o, final) => {

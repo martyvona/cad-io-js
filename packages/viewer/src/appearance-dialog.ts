@@ -19,8 +19,6 @@ export interface AppearanceChoice {
   inherited: Look;
   /** The file's own opacity of what it draws, and whether that varies below it (the first part's then). */
   file: { alpha: number; varies: boolean };
-  /** Rendering's Triangle edges, what the node's edges follow where nothing sets them. */
-  rendering: string;
   /** Edges, curves and points: no opacity (they aren't made transparent) nor triangle edges. */
   lines?: boolean;
 }
@@ -70,6 +68,8 @@ export function appearanceOpen(): boolean {
 function makePanel(): NonNullable<typeof panel> {
   const dialog = document.createElement('dialog');
   dialog.className = 'cv-dialog floating';
+  // (Focusable itself: touch screens focus the panel rather than a pulldown.)
+  dialog.tabIndex = -1;
   const title = document.createElement('h2');
   title.className = 'drag';
   const text = document.createElement('span');
@@ -136,13 +136,10 @@ function makePanel(): NonNullable<typeof panel> {
   const read = () => {
     c = binding!.describe();
     text.textContent = `Override Appearance: ${c.name}`;
-    const shown = (a: number | undefined) => a === undefined ? "the file's" : String(round(a));
-    options(visibility, [['inherit', `Inherit (${c.inherited.hidden ? 'hidden' : 'shown'})`], ['hide', 'Hide'],
-      ['show', 'Show']]);
-    options(opacity, [['inherit', `Inherit (${shown(c.inherited.alpha)})`], ['transparent', 'Transparent'],
-      ['default', "Default (the file's)"]]);
-    options(edges, [['inherit', `Inherit (${c.inherited.triangleEdges === undefined ? `Rendering's: ${c.rendering}`
-      : c.inherited.triangleEdges ? 'on' : 'off'})`], ['on', 'On'], ['off', 'Off']]);
+    // (Plain labels, the user, 2026-11-06: what Inherit gives shows in the view, and the alpha in its box.)
+    options(visibility, [['inherit', 'Inherit'], ['hide', 'Hide'], ['show', 'Show']]);
+    options(opacity, [['inherit', 'Inherit'], ['transparent', 'Transparent'], ['default', 'Default']]);
+    options(edges, [['inherit', 'Inherit'], ['on', 'On'], ['off', 'Off']]);
     const o = c.own;
     visibility.value = o?.hidden === undefined ? 'inherit' : o.hidden ? 'hide' : 'show';
     opacity.value = o?.transparent === undefined ? 'inherit' : o.transparent ? 'transparent' : 'default';
@@ -185,7 +182,11 @@ function makePanel(): NonNullable<typeof panel> {
     bind: (b) => {
       binding = b;
       read();
-      visibility.focus();
+      // On a touch screen the panel itself takes the focus (for Escape): iOS opens a <select>'s picker whenever it's
+      // focused, so focusing Visibility popped its list open (the user, 2026-11-06). Elsewhere Visibility does, so
+      // the keyboard can change it at once.
+      if (matchMedia('(pointer: coarse)').matches) dialog.focus({ preventScroll: true });
+      else visibility.focus();
     },
     refresh: () => { if (binding) read(); },
   };
