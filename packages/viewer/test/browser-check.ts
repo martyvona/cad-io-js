@@ -3679,15 +3679,32 @@ await check('lights and specular', async () => {
       return { lights: lights.sort(), speculars: [...speculars] };
     };
     const THREE_LINEAR = 'srgb-linear';
+    // The headlight's direction (towards the light) in the camera's frame, as three.js lights with it: from its
+    // target's world position to its own. Over the shoulder, (1, 1, 2), whatever the view and wherever the camera.
+    const shoulder = () => {
+      viewer.draw();
+      const l = viewer.headlight, c = viewer.camera;
+      const d = l.getWorldPosition(c.position.clone()).sub(l.target.getWorldPosition(c.position.clone()));
+      return d.transformDirection(c.matrixWorld.clone().invert()).toArray();
+    };
+    const light = {};
+    for (const v of ['front', 'top', 'iso']) { viewer.setView(v, { instant: true }); light[v] = shoulder(); }
+    // The view moved far from the world's origin (the orbit centre with it).
+    viewer.camera.position.x += 1e5; viewer.controls.target.x += 1e5; viewer.camera.updateMatrixWorld();
+    light.far = shoulder();
+    viewer.zoomAll();
     const before = look();
     ui.setRender({ ...viewer.render, specular: 0.8, ambient: 0.7, light: 3 });
     const after = look();
     await cadViewer.load('/content/as1.glb');
     await cadViewer.idle();
-    return { before, after, loaded: look() };
+    return { before, after, loaded: look(), light };
   })()`, { asIs: true }) as { after: Record<string, { lights: [string, number][]; speculars: number[] }> };
   const a = r.after;
   const j = JSON.stringify(a);
+  const light = a.light as unknown as Record<string, number[]>;
+  expect(Object.values(light).length === 4 && Object.values(light).every((d) => [1, 1, 2].every((w, i) =>
+    Math.abs(d[i]! - w / Math.sqrt(6)) < 1e-6)), `the headlight over the shoulder: ${JSON.stringify(light)}`);
   const grey = (x: number) => Math.round(x * 255) * 0x010101;
   expect(JSON.stringify(a.before!.lights) === JSON.stringify([['AmbientLight', 1], ['DirectionalLight', 2.5]]) &&
     JSON.stringify(a.before!.speculars) === JSON.stringify([grey(0.4)]), `the defaults: ${j}`);

@@ -255,9 +255,12 @@ export class Viewer {
     container.appendChild(this.renderer.domElement);
     this.scene.background = new THREE.Color(VIEW_BACKGROUNDS.dark);
     this.scene.add(this.ambient);
-    // A headlight: the light comes from over the viewer's shoulder, whatever the view.
+    // A headlight: the light comes from over the viewer's shoulder, whatever the view: (1, 1, 2) in the camera's frame,
+    // 35 degrees off the line of sight. Its target in the camera too: three.js's default target is the world's origin
+    // (outside the scene), which turned the light along the line of sight wherever the camera is far from the origin,
+    // so faces square to the view reflected the whole specular highlight.
     this.headlight.position.set(1, 1, 2);
-    this.camera.add(this.headlight);
+    this.camera.add(this.headlight, this.headlight.target);
     this.scene.add(this.camera, this.display);
     this.scene.add(this.sections.group, this.triangleEdges.group, this.fatEdges.group);
     this.camera.up.set(0, 0, 1);
