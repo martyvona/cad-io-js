@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as THREE from 'three';
-import { Gnomon, gnomonShown } from '../src/gnomon.ts';
+import { alongAxis, axisView, backingColour, Gnomon, GNOMON_EXTENT, gnomonShown, LABEL_BOX, layoutLabels, project, sameTurn }
+  from '../src/gnomon.ts';
 
 const near = (a: number, b: number, what: string) => assert.ok(Math.abs(a - b) < 1e-12, `${what}: ${a} vs ${b}`);
 
@@ -62,4 +63,123 @@ test('the gnomon starts shown, unless remembered hidden; off in check and shot p
   assert.equal(gnomonShown('?controls=1', null), true);
   assert.equal(gnomonShown('?check&gnomon=1', '0'), true);
   assert.equal(gnomonShown('?gnomon=0', '1'), false);
+});
+
+/**
+ * Turns of the axes relative to the view: random ones (a fixed sequence), and views along every axis and diagonal at
+ * every 15 degrees of roll, each also mirrored.
+ */
+function sampledTurns(): THREE.Matrix4[] {
+  let seed = 1;
+  const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+  const turns: THREE.Matrix4[] = [];
+  for (let i = 0; i < 50000; i++) {
+    const q = new THREE.Quaternion(rnd() * 2 - 1, rnd() * 2 - 1, rnd() * 2 - 1, rnd() * 2 - 1).normalize();
+    turns.push(new THREE.Matrix4().makeRotationFromQuaternion(q));
+  }
+  for (const a of [-1, 0, 1]) for (const b of [-1, 0, 1]) for (const c of [-1, 0, 1]) {
+    if (!a && !b && !c) continue;
+    const z = new THREE.Vector3(a, b, c).normalize();
+    const up = Math.abs(z.z) < 0.9 ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(0, 1, 0);
+    for (let r = 0; r < 24; r++) {
+      const m = new THREE.Matrix4().lookAt(z, new THREE.Vector3(), up)
+        .premultiply(new THREE.Matrix4().makeRotationAxis(z, r * Math.PI / 12));
+      turns.push(m.invert());
+    }
+  }
+  return turns.flatMap((t) => [t, t.clone().multiply(new THREE.Matrix4().makeScale(-1, 1, 1))]);
+}
+
+test('the labels: no two boxes overlap, the origin\'s never moved, every layout inside GNOMON_EXTENT', () => {
+  const reach = { left: 0, right: 0, down: 0, up: 0 };
+  let overlap = 0, rose = 0;
+  for (const t of sampledTurns()) {
+    const { tips, placements, origin } = project(t);
+    const labels = layoutLabels(placements, origin, LABEL_BOX);
+    const all = [...labels, origin];
+    for (let i = 0; i < 4; i++) for (let j = i + 1; j < 4; j++) {
+      overlap = Math.max(overlap, Math.min(LABEL_BOX - Math.abs(all[i]!.x - all[j]!.x),
+        LABEL_BOX - Math.abs(all[i]!.y - all[j]!.y)));
+    }
+    // (Labels only move sideways.)
+    for (const [k, l] of labels.entries()) rose = Math.max(rose, Math.abs(l.y - placements[k]!.y));
+    // The lines' ends and origin with their width, the boxes' edges.
+    for (const [p, r] of [...[...tips, origin].map((q) => [q, 1] as const), ...labels.map((q) =>
+      [q, LABEL_BOX / 2] as const)]) {
+      reach.left = Math.max(reach.left, r - p.x);
+      reach.right = Math.max(reach.right, p.x + r);
+      reach.down = Math.max(reach.down, r - p.y);
+      reach.up = Math.max(reach.up, p.y + r);
+    }
+  }
+  console.log('reach', reach);
+  assert.ok(overlap <= 1e-6, `boxes overlap by ${overlap}`);
+  assert.equal(rose, 0, 'labels moved up or down');
+  for (const k of ['left', 'right', 'down', 'up'] as const) {
+    assert.ok(reach[k] <= GNOMON_EXTENT[k], `${k}: ${reach[k]} past ${GNOMON_EXTENT[k]}`);
+    // (Not much room to spare: the box is the gnomon's.)
+    assert.ok(reach[k] > GNOMON_EXTENT[k] - 2, `${k}: ${reach[k]} well inside ${GNOMON_EXTENT[k]}`);
+  }
+});
+
+test('the labels: a pair nudged apart evenly, the way their points lie; one off the origin\'s box alone', () => {
+  const o = { x: 100, y: 100 };
+  // x a little right of y, both well away from the origin: each moves half, x to the right.
+  const [x, y, z] = layoutLabels([{ x: 3, y: 0 }, { x: 0, y: 5 }, { x: 50, y: 50 }], o, 14);
+  assert.deepEqual([x!.x, y!.x, z!.x], [3 + 5.5, 0 - 5.5, 50]);
+  // Level: the lower index left.
+  const [a, b] = layoutLabels([{ x: 0, y: 0 }, { x: 0, y: 0 }, { x: 50, y: 50 }], o, 14);
+  assert.deepEqual([a!.x, b!.x], [-7, 7]);
+  // On the origin's box: the label moves the whole way, the way it lies (or left, level), the box not at all.
+  const [p] = layoutLabels([{ x: 2, y: 1 }, { x: -50, y: 0 }, { x: 50, y: 0 }], { x: 0, y: 0 }, 14);
+  assert.deepEqual([p!.x, p!.y], [14, 1]);
+  const [q] = layoutLabels([{ x: 0, y: 0 }, { x: -50, y: 0 }, { x: 50, y: 0 }], { x: 0, y: 0 }, 14);
+  assert.equal(q!.x, -14);
+});
+
+test('the labels: nudged again until nothing overlaps (a pair pushed onto the origin\'s box)', () => {
+  // x and y overlap; parting them pushes x onto the origin's box, which pushes x back into y: more than one pass.
+  const o = { x: -14, y: 0 };
+  const [x, y, z] = layoutLabels([{ x: 0, y: 0 }, { x: 5, y: 0 }, { x: 80, y: 0 }], o, 14);
+  const all = [x!, y!, z!, o];
+  for (let i = 0; i < 4; i++) for (let j = i + 1; j < 4; j++) {
+    assert.ok(Math.abs(all[i]!.x - all[j]!.x) >= 14 - 1e-6, `${i} and ${j} overlap: ${JSON.stringify(all)}`);
+  }
+  assert.ok(o.x < x!.x && x!.x < y!.x, 'their order as their points lie');
+});
+
+test('a label\'s view: its axis at the viewer, or away if it already is; along an axis; the same turn', () => {
+  const world = new THREE.Matrix4();
+  const back = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z).normalize();
+  assert.equal(axisView(0, world, back(0, -1, 0)), 'right');
+  assert.equal(axisView(0, world, back(1, 0, 0)), 'left');
+  assert.equal(axisView(1, world, back(0, -1, 0)), 'back');
+  assert.equal(axisView(1, world, back(0, 1, 0)), 'front');
+  assert.equal(axisView(2, world, back(1, -1, 1)), 'top');
+  assert.equal(axisView(2, world, back(0, 0, 1)), 'bottom');
+  // Within a degree counts as already; two degrees off doesn't.
+  const tilt = (deg: number) => back(0, -Math.sin(deg * Math.PI / 180), Math.cos(deg * Math.PI / 180));
+  assert.equal(axisView(2, world, tilt(0.9)), 'bottom');
+  assert.equal(axisView(2, world, tilt(2)), 'top');
+  // glTF's axes: its y the world's Z, its z the world's -Y.
+  const yUp = new THREE.Matrix4().fromArray([1, 0, 0, 0, 0, 0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1]);
+  assert.equal(axisView(1, yUp, back(0, -1, 0)), 'top');
+  assert.equal(axisView(2, yUp, back(1, 0, 0)), 'front');
+  // Along an axis: either way along any, within a degree.
+  assert.ok(alongAxis(world, back(0, 0, -1)) && alongAxis(world, tilt(0.9)) && !alongAxis(world, tilt(2)));
+  assert.ok(!alongAxis(world, back(1, -1, 1)));
+  const q = new THREE.Quaternion().setFromAxisAngle(back(1, 2, 3), 0.7);
+  assert.ok(sameTurn(q, q.clone().multiply(new THREE.Quaternion().setFromAxisAngle(back(0, 1, 0), 0.015))));
+  assert.ok(!sameTurn(q, q.clone().multiply(new THREE.Quaternion().setFromAxisAngle(back(0, 1, 0), 0.03))));
+  // (q and -q are one turn.)
+  assert.ok(sameTurn(q, new THREE.Quaternion(-q.x, -q.y, -q.z, -q.w)));
+});
+
+test('a label\'s backing: a shade lighter than a dark background, darker than a light one', () => {
+  const dark = new THREE.Color(0x404040), light = new THREE.Color(0xffffff);
+  const [d, l] = [backingColour(dark), backingColour(light)];
+  assert.ok(d.r > dark.r && d.g > dark.g && d.b > dark.b && d.r < 1, `dark: ${d.getHexString()}`);
+  assert.ok(l.r < 1 && l.g < 1 && l.b < 1 && l.r > 0.5, `light: ${l.getHexString()}`);
+  // (The background itself left as it was.)
+  assert.equal(dark.getHex(), 0x404040);
 });

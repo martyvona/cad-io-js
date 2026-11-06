@@ -39,7 +39,7 @@ import type { ExportRequest } from './export-formats.ts';
 import type { ImportProgress } from 'step-import';
 import { clearCache, defaultSettings, deflectionsOf, workerCount, type TessellationSettings } from './tessellation.ts';
 import { classifyDevice, DEVICE_PROFILES, deviceOverride, deviceSignals, type DeviceClass } from './device.ts';
-import { Gnomon } from './gnomon.ts';
+import { alongAxis, axisView, Gnomon, sameTurn, type GnomonTarget } from './gnomon.ts';
 
 /**
  * An export ended without its meshes coming back: the import worker died, hung or failed outside the export
@@ -213,8 +213,22 @@ export class Viewer {
   readonly fatEdges = new FatEdges(EDGES);
   /** The file's axes (gnomon.ts), drawn over the view where `gnomonBox` is while a model is shown and `showGnomon`. */
   readonly gnomon = new Gnomon();
-  gnomonBox?: HTMLElement;
   showGnomon = true;
+  private gnomonElement?: HTMLElement;
+  /** Where the gnomon was last drawn (setViewport's terms), for clicks on it; undefined when it wasn't. */
+  private gnomonDrawn?: { x: number; y: number; width: number; height: number };
+  /** A click on the gnomon asks for a view (the View menu's own button, so recordings have it); else setView. */
+  onGnomonView?: (view: ViewName) => void;
+
+  /** The element that places the gnomon (its lower left corner; sized here to hold it). */
+  get gnomonBox(): HTMLElement | undefined {
+    return this.gnomonElement;
+  }
+
+  set gnomonBox(el: HTMLElement | undefined) {
+    this.gnomonElement = el;
+    if (el) Object.assign(el.style, { width: `${Gnomon.size.width}px`, height: `${Gnomon.size.height}px` });
+  }
   private readonly ambient = new THREE.AmbientLight(0xffffff, DEFAULT_RENDER.ambient);
   private readonly headlight = new THREE.DirectionalLight(0xffffff, DEFAULT_RENDER.light);
   /** The rendering settings; apply changes with setRender. */
@@ -327,10 +341,25 @@ export class Viewer {
       if (!down.size) many = false;
       if (!d || !single || e.button > 0 || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 5 ||
         performance.now() - d.t > 600) return;
+      // On the gnomon: its view (or nothing, if the view is that already), not a pick.
+      const target = this.gnomonTarget(e.clientX, e.clientY);
+      if (target) {
+        const view = this.gnomonView(target);
+        if (view) {
+          if (this.onGnomonView) this.onGnomonView(view);
+          else this.setView(view);
+        }
+        return;
+      }
       this.onPick?.(this.pickAt(e.clientX, e.clientY), { add: e.ctrlKey || e.metaKey || e.shiftKey,
         clientX: e.clientX, clientY: e.clientY });
     });
     canvas.addEventListener('pointercancel', (e) => down.delete(e.pointerId));
+    // A hand over the gnomon's targets.
+    canvas.addEventListener('pointermove', (e) => {
+      if (e.buttons) return;
+      canvas.style.cursor = this.gnomonTarget(e.clientX, e.clientY) ? 'pointer' : '';
+    });
     // Where each zoom gesture begins (zoomAt): a run of wheel (or touchpad) events, a middle-button drag, two fingers
     // down (their midpoint).
     canvas.addEventListener('wheel', (e) => {
@@ -556,16 +585,48 @@ export class Viewer {
       if (fat) this.camera.layers.enable(EDGES);
     }
     const box = gnomon && this.showGnomon && this.root ? this.gnomonViewport() : undefined;
-    if (box) this.gnomon.draw(this.renderer, this.camera, box);
+    if (box) this.gnomon.draw(this.renderer, this.camera, box, this.scene.background as THREE.Color);
+    // (A picture without it keeps the last drawn layout's targets: the screen still shows it.)
+    if (gnomon) this.gnomonDrawn = box;
     return this.interacting || this.changed || flying;
   }
 
-  /** Where `gnomonBox` is over the canvas, as setViewport takes it (CSS pixels from its bottom left); none if hidden. */
-  private gnomonViewport(): { x: number; y: number; size: number } | undefined {
+  /** Where `gnomonBox` is over the canvas, as setViewport takes it (CSS pixels from its bottom left); none hidden. */
+  private gnomonViewport(): { x: number; y: number; width: number; height: number } | undefined {
     const b = this.gnomonBox?.getBoundingClientRect();
     if (!b || b.width <= 0) return undefined;
     const c = this.renderer.domElement.getBoundingClientRect();
-    return { x: b.left - c.left, y: c.bottom - b.bottom, size: b.width };
+    return { x: b.left - c.left, y: c.bottom - b.bottom, width: b.width, height: b.height };
+  }
+
+  /** The view's back (towards the viewer), a unit, in the world. */
+  private back(): THREE.Vector3 {
+    return this.camera.getWorldDirection(new THREE.Vector3()).negate();
+  }
+
+  /**
+   * What of the gnomon is at a point (client pixels) as last drawn: a label, or the origin's box (iso) unless the view
+   * looks along an axis, where that box would sit on the axis's tip.
+   */
+  gnomonTarget(clientX: number, clientY: number): GnomonTarget | undefined {
+    const box = this.gnomonDrawn;
+    if (!box) return undefined;
+    const c = this.renderer.domElement.getBoundingClientRect();
+    return this.gnomon.hit(clientX - c.left - box.x, c.bottom - clientY - box.y,
+      !alongAxis(this.gnomon.axesInWorld, this.back()));
+  }
+
+  /**
+   * The view a click on the gnomon asks for: along the axis clicked, that axis pointing at the viewer (away if it
+   * already does), or iso from the origin's box; undefined if the view is that already (iso) or there's none.
+   */
+  gnomonView(target: GnomonTarget): ViewName | undefined {
+    if (target !== 'iso') return axisView('xyz'.indexOf(target), this.gnomon.axesInWorld, this.back());
+    const to = viewCamera(this.cameraState(), 'iso');
+    const turn = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(
+      new THREE.Vector3().fromArray(to.position), new THREE.Vector3().fromArray(to.target),
+      new THREE.Vector3().fromArray(to.up)));
+    return sameTurn(turn, this.camera.quaternion) ? undefined : 'iso';
   }
 
   /** Applies rendering settings (shininess and specular to every Phong face in the model, the lights, the caps). */

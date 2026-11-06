@@ -1,46 +1,174 @@
 // The axes gnomon (View's Axes): the file's own axes (Scene.fileAxes, turned by the model's place in the world), X red,
-// Y green, Z blue, turning with the view. A scene and camera of its own, drawn after the composed frame into a square
-// viewport over the view (where index.html's #gnomon box is), its depth cleared first and its colour not, so the
-// model shows around the lines, and without the section planes. It turns about the centre of the smallest sphere holding its four points (the origin
-// and the three tips), not about the origin: for perpendicular unit axes that sphere's centre is the tips' centroid
-// and its radius sqrt(6)/3 (the origin lies inside it, sqrt(3)/3 from the centre).
+// Y green, Z blue, turning with the view, each labelled with its lowercase letter beyond its tip. A scene and camera
+// of its own, drawn after the composed frame into a viewport over the view (index.html's #gnomon box, sized here), its
+// depth cleared first and its colour not, so the model shows around it, and without the section planes. It turns about
+// the centre of the smallest sphere holding its four points (the origin and the three tips), not about the origin: for
+// perpendicular unit axes that sphere's centre is the tips' centroid and its radius sqrt(6)/3 (the origin lies inside
+// it, sqrt(3)/3 from the centre).
+//
+// Labels: each centred on its placement point, (1 + LABEL_GAP) along its axis, projected, in a square box of LABEL_BOX
+// pixels (one for every letter, not fitted to it); boxes that overlap are nudged sideways apart (layoutLabels), never
+// the fourth, unlabelled box at the origin, which the others clear. The labels and the origin box are click targets
+// (Viewer: an axis looks along it, the origin box the iso view). The #gnomon box holds every layout the labels can
+// take (GNOMON_EXTENT, checked over sampled turns by the unit test), so nothing leaves it as the gnomon turns.
 
 import * as THREE from 'three';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
+import { VIEWS, type ViewName } from './camera.ts';
 
 /** The axes' colours, X, Y, Z: readable on the dark and the light themes' backgrounds. */
 export const AXIS_COLOURS = [0xff4040, 0x30c030, 0x4080ff] as const;
 /** The lines' width, CSS pixels. */
 const WIDTH = 2;
+/** An axis's length on the screen, CSS pixels. */
+export const AXIS_PIXELS = 34;
+/** How far beyond its tip a label's placement point is, in axis lengths. */
+export const LABEL_GAP = 0.3;
+/** The labels' (and the origin box's) square box, CSS pixels. */
+export const LABEL_BOX = 14;
+/**
+ * How far the gnomon (its lines and every label box however nudged) can reach from its sphere's centre, CSS pixels:
+ * the most over every turn (gnomon.test.ts samples them), rounded up. The #gnomon box is this big, the centre placed
+ * `left` and `down` from its lower left corner.
+ */
+export const GNOMON_EXTENT = { left: 44, right: 44, down: 44, up: 44 };
 /** The sphere's radius, the axes being of unit length. */
 const RADIUS = Math.sqrt(6) / 3;
-/** The sphere's margin in the viewport (a fraction of its half width), room for the lines' width. */
-const MARGIN = 0.08;
+
+/** What a click on the gnomon hits: an axis's label, or the box at its origin. */
+export type GnomonTarget = 'x' | 'y' | 'z' | 'iso';
+
+export interface Point2 {
+  x: number;
+  y: number;
+}
+
+/**
+ * Label centres for the three placement points (screen pixels, any origin, y up) with the fixed box at `origin`, every
+ * box `size` square: boxes that overlap are moved sideways apart, a pair of labels each by half, a label alone from the
+ * origin box; each pair parts the way their placement points lie (lower index left where they're level).
+ */
+export function layoutLabels(points: readonly Point2[], origin: Point2, size: number): Point2[] {
+  const start = [...points, origin];
+  const at = start.map((p) => ({ x: p.x, y: p.y }));
+  const fixed = start.length - 1;
+  for (let pass = 0; pass < 200; pass++) {
+    let moved = false;
+    for (let i = 0; i < at.length; i++) {
+      for (let j = i + 1; j < at.length; j++) {
+        const a = at[i]!, b = at[j]!;
+        if (Math.abs(a.y - b.y) >= size || Math.abs(a.x - b.x) >= size) continue;
+        // i goes to side s of j.
+        const s = Math.sign(start[i]!.x - start[j]!.x) || -1;
+        const need = size - s * (a.x - b.x);
+        if (need <= 1e-9) continue;
+        if (j === fixed) a.x += s * need;
+        else {
+          a.x += s * need / 2;
+          b.x -= s * need / 2;
+        }
+        moved = true;
+      }
+    }
+    if (!moved) break;
+  }
+  return at.slice(0, fixed);
+}
+
+/**
+ * Where the gnomon's points are on the screen for a turn of its axes relative to the view (`axes`, columns the axes in
+ * the camera's frame): the sphere's centre at (0, 0), CSS pixels, y up. `placements` the labels' points, `tips` the
+ * lines' ends, `origin` where they meet.
+ */
+export function project(axes: THREE.Matrix4): { tips: Point2[]; placements: Point2[]; origin: Point2 } {
+  const e = axes.elements;
+  const col = (k: number) => new THREE.Vector3(e[k * 4]!, e[k * 4 + 1]!, e[k * 4 + 2]!);
+  const centre = col(0).add(col(1)).add(col(2)).divideScalar(3);
+  const px = (v: THREE.Vector3) => ({ x: (v.x - centre.x) * AXIS_PIXELS, y: (v.y - centre.y) * AXIS_PIXELS });
+  return { tips: [0, 1, 2].map((k) => px(col(k))), placements: [0, 1, 2].map((k) => px(col(k)
+    .multiplyScalar(1 + LABEL_GAP))), origin: px(new THREE.Vector3()) };
+}
+
+/** How opaque a label's backing is: a little off the view's background (backingColour), veiling what's behind. */
+export const BACKING_OPACITY = 0.75;
+/** How far a backing's colour is from the view's background, towards white on dark ones, black on light ones. */
+const BACKING_TINT = 0.15;
+
+/** A label's backing's colour for a view's background: a shade lighter on a dark one, darker on a light one. */
+export function backingColour(background: THREE.Color): THREE.Color {
+  const dark = background.getHSL({ h: 0, s: 0, l: 0 }, THREE.SRGBColorSpace).l < 0.5;
+  return background.clone().lerp(new THREE.Color(dark ? 0xffffff : 0x000000), BACKING_TINT);
+}
+/** The backing's corners' radius, CSS pixels. */
+const BACKING_RADIUS = 3;
+
+/**
+ * A label's backing: a square of rounded corners, white on transparent, as an alpha map (its green channel). Not as a
+ * colour map: filtering mixes in the transparent texels' black, a dark fringe at every edge once tinted.
+ */
+function backingTexture(): THREE.CanvasTexture {
+  const n = 64, r = n * BACKING_RADIUS / LABEL_BOX;
+  const canvas = Object.assign(document.createElement('canvas'), { width: n, height: n });
+  const g = canvas.getContext('2d')!;
+  g.fillStyle = '#fff';
+  // (arcTo, not roundRect: older Safari lacks it.)
+  g.beginPath();
+  g.moveTo(r, 0);
+  g.arcTo(n, 0, n, n, r);
+  g.arcTo(n, n, 0, n, r);
+  g.arcTo(0, n, 0, 0, r);
+  g.arcTo(0, 0, n, 0, r);
+  g.closePath();
+  g.fill();
+  return new THREE.CanvasTexture(canvas);
+}
+
+/** A letter's alpha map (as the backing's): white on transparent, its x-height centred. */
+function letterTexture(letter: string): THREE.CanvasTexture {
+  const n = 64;
+  const canvas = Object.assign(document.createElement('canvas'), { width: n, height: n });
+  const g = canvas.getContext('2d')!;
+  g.font = `600 ${Math.round(n * 0.8)}px system-ui, -apple-system, "Segoe UI", sans-serif`;
+  g.fillStyle = '#fff';
+  g.textAlign = 'center';
+  g.textBaseline = 'alphabetic';
+  const xHeight = g.measureText('x').actualBoundingBoxAscent;
+  g.fillText(letter, n / 2, n / 2 + xHeight / 2);
+  return new THREE.CanvasTexture(canvas);
+}
 
 export class Gnomon {
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 4);
+  /** The labels, in pixels of the viewport (labelCamera). */
+  private readonly labelScene = new THREE.Scene();
+  private readonly labelCamera = new THREE.OrthographicCamera(0, 1, 1, 0, -1, 1);
+  private labels?: THREE.Object3D[];
+  /** The labels' backings' material, its colour set from the view's background at each draw. */
+  private backing?: THREE.MeshBasicMaterial;
   /** Holds the axes in the world's frame (`set`), moved so the sphere's centre is at the origin. */
   private readonly axes = new THREE.Group();
-  private readonly lines: LineSegments2[] = [];
   /** The file's axes in the world, columns of unit length. */
   private readonly frame = new THREE.Matrix4();
+  /** The last drawn layout's boxes' centres, CSS pixels from the viewport's lower left: x, y, z, then the origin. */
+  private boxes: Point2[] = [];
 
   constructor() {
     for (const [i, colour] of AXIS_COLOURS.entries()) {
       const g = new LineSegmentsGeometry().setPositions([0, 0, 0, i === 0 ? 1 : 0, i === 1 ? 1 : 0, i === 2 ? 1 : 0]);
       const line = new LineSegments2(g, new LineMaterial({ color: colour, linewidth: WIDTH }));
       line.name = 'XYZ'[i]!;
-      this.lines.push(line);
       this.axes.add(line);
     }
     this.axes.matrixAutoUpdate = false;
     this.scene.add(this.axes);
-    const s = RADIUS / (1 - MARGIN);
-    Object.assign(this.camera, { left: -s, right: s, top: s, bottom: -s });
-    this.camera.updateProjectionMatrix();
+  }
+
+  /** The #gnomon box's size, CSS pixels. */
+  static get size(): { width: number; height: number } {
+    return { width: GNOMON_EXTENT.left + GNOMON_EXTENT.right, height: GNOMON_EXTENT.down + GNOMON_EXTENT.up };
   }
 
   /**
@@ -65,19 +193,43 @@ export class Gnomon {
       .applyMatrix4(this.axes.matrix));
   }
 
-  /** The file's axes in the world (unit columns), for checks. */
+  /** The file's axes in the world (unit columns). */
   get axesInWorld(): THREE.Matrix4 {
     return this.frame.clone();
   }
 
+  /** The last drawn boxes' centres (x, y, z, origin), CSS pixels from the viewport's lower left, for checks. */
+  get layout(): Point2[] {
+    return this.boxes.map((b) => ({ ...b }));
+  }
+
+  /**
+   * What's at a point (CSS pixels from the viewport's lower left) in the last drawn layout: a label's box, or the
+   * origin's when `iso` (it's left out in a view along an axis, where it would sit on that axis's tip).
+   */
+  hit(x: number, y: number, iso: boolean): GnomonTarget | undefined {
+    const k = this.boxes.findIndex((b, i) => (i < 3 || iso) && Math.abs(x - b.x) <= LABEL_BOX / 2 &&
+      Math.abs(y - b.y) <= LABEL_BOX / 2);
+    return k < 0 ? undefined : (['x', 'y', 'z', 'iso'] as const)[k];
+  }
+
   /**
    * Draws over what's on the canvas: looking as `view` looks (its turn), into `box` (CSS pixels from the canvas's
-   * bottom left, as setViewport takes them).
+   * bottom left, as setViewport takes them; Gnomon.size), the sphere's centre at GNOMON_EXTENT's left and down; the
+   * labels' backings a shade off `background`, the view's.
    */
-  draw(renderer: THREE.WebGLRenderer, view: THREE.Camera, box: { x: number; y: number; size: number }): void {
+  draw(renderer: THREE.WebGLRenderer, view: THREE.Camera, box: { x: number; y: number; width: number;
+    height: number }, background: THREE.Color): void {
     view.getWorldQuaternion(this.camera.quaternion);
     this.camera.position.set(0, 0, 2).applyQuaternion(this.camera.quaternion);
     this.camera.updateMatrixWorld();
+    // The lines' camera: axis lengths across the viewport, the sphere's centre (the scene's origin) where it belongs.
+    const cx = GNOMON_EXTENT.left, cy = GNOMON_EXTENT.down;
+    Object.assign(this.camera, { left: -cx / AXIS_PIXELS, right: (box.width - cx) / AXIS_PIXELS,
+      bottom: -cy / AXIS_PIXELS, top: (box.height - cy) / AXIS_PIXELS });
+    this.camera.updateProjectionMatrix();
+    this.layOut(box, cx, cy);
+    this.backing!.color.copy(backingColour(background));
     const viewport = renderer.getViewport(new THREE.Vector4());
     const scissor = renderer.getScissor(new THREE.Vector4());
     const scissorTest = renderer.getScissorTest();
@@ -89,11 +241,12 @@ export class Gnomon {
       renderer.clippingPlanes = [];
       renderer.setRenderTarget(null);
       renderer.autoClear = false;
-      renderer.setViewport(box.x, box.y, box.size, box.size);
-      renderer.setScissor(box.x, box.y, box.size, box.size);
+      renderer.setViewport(box.x, box.y, box.width, box.height);
+      renderer.setScissor(box.x, box.y, box.width, box.height);
       renderer.setScissorTest(true);
       renderer.clearDepth();
       renderer.render(this.scene, this.camera);
+      renderer.render(this.labelScene, this.labelCamera);
     } finally {
       renderer.setRenderTarget(target);
       renderer.setViewport(viewport);
@@ -103,6 +256,65 @@ export class Gnomon {
       renderer.clippingPlanes = planes;
     }
   }
+
+  /** The labels' layout for the camera as it is, and their quads there (made the first time: they need a document). */
+  private layOut(box: { width: number; height: number }, cx: number, cy: number): void {
+    // The axes in the camera's frame.
+    const turn = new THREE.Matrix4().makeRotationFromQuaternion(this.camera.quaternion).invert().multiply(this.frame);
+    const { placements, origin } = project(turn);
+    const labels = layoutLabels(placements, origin, LABEL_BOX);
+    this.boxes = [...labels, origin].map((p) => ({ x: p.x + cx, y: p.y + cy }));
+    if (!this.labels) {
+      const quad = new THREE.PlaneGeometry(LABEL_BOX, LABEL_BOX);
+      this.backing = new THREE.MeshBasicMaterial({ alphaMap: backingTexture(), transparent: true, opacity: BACKING_OPACITY,
+        depthTest: false, depthWrite: false });
+      this.labels = AXIS_COLOURS.map((colour, i) => {
+        const label = new THREE.Group();
+        const back = new THREE.Mesh(quad, this.backing);
+        const letter = new THREE.Mesh(quad, new THREE.MeshBasicMaterial({ alphaMap: letterTexture('xyz'[i]!),
+          color: colour, transparent: true, depthTest: false, depthWrite: false }));
+        // (No depth test: drawn in this order, the letter over its backing.)
+        back.renderOrder = 0;
+        letter.renderOrder = 1;
+        label.add(back, letter);
+        this.labelScene.add(label);
+        return label;
+      });
+    }
+    for (const [i, m] of this.labels.entries()) m.position.set(this.boxes[i]!.x, this.boxes[i]!.y, 0);
+    Object.assign(this.labelCamera, { left: 0, right: box.width, bottom: 0, top: box.height });
+    this.labelCamera.updateProjectionMatrix();
+  }
+}
+
+/** How near a view must be to a direction (or the iso view's turn) to count as along it, degrees. */
+export const ALIGNED_DEGREES = 1;
+const ALIGNED = Math.cos(ALIGNED_DEGREES * Math.PI / 180);
+
+/** Whether the view looks along one of the axes (`axes`' columns, in the world; `back` the view's back, a unit). */
+export function alongAxis(axes: THREE.Matrix4, back: THREE.Vector3): boolean {
+  const e = axes.elements;
+  return [0, 1, 2].some((k) => Math.abs(back.x * e[k * 4]! + back.y * e[k * 4 + 1]! + back.z * e[k * 4 + 2]!) >=
+    ALIGNED);
+}
+
+/**
+ * The view a click on axis `k`'s label asks for: the one with that axis pointing at the viewer, or away if it already
+ * does (`back` the view's back, a unit, in the world); undefined where no view is along it (axes turned off the
+ * world's).
+ */
+export function axisView(k: number, axes: THREE.Matrix4, back: THREE.Vector3): ViewName | undefined {
+  const e = axes.elements;
+  const d = new THREE.Vector3(e[k * 4]!, e[k * 4 + 1]!, e[k * 4 + 2]!).normalize();
+  if (d.dot(back) >= ALIGNED) d.negate();
+  // (A view's `dir` is where the camera sits from what it looks at: the axis pointing at it.)
+  return (Object.keys(VIEWS) as ViewName[]).find((v) => v !== 'iso' &&
+    new THREE.Vector3(...VIEWS[v].dir).normalize().dot(d) >= ALIGNED);
+}
+
+/** Whether two cameras' turns are within ALIGNED_DEGREES of each other. */
+export function sameTurn(a: THREE.Quaternion, b: THREE.Quaternion): boolean {
+  return 2 * Math.acos(Math.min(1, Math.abs(a.dot(b)))) <= ALIGNED_DEGREES * Math.PI / 180;
 }
 
 /**

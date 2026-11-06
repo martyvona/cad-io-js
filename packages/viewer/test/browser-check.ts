@@ -3586,6 +3586,48 @@ await check('axes gnomon', async () => {
     const out = {};
     await frames();
     out.iso = { ...axes(), screen: screen() };
+    // The labels in the iso view (none nudged there): predicted from the main camera alone, the sphere's centre 44
+    // pixels in from #gnomon's lower left, an axis 34 pixels, a label 0.3 of one beyond its tip, its box 14 pixels;
+    // each letter's colour inside its box.
+    {
+      const e = viewer.camera.matrixWorld.elements, g = document.getElementById('gnomon').getBoundingClientRect();
+      const proj = (v) => [v[0] * e[0] + v[1] * e[1] + v[2] * e[2], v[0] * e[4] + v[1] * e[5] + v[2] * e[6]];
+      const c = proj([1 / 3, 1 / 3, 1 / 3]);
+      const at = (v, k) => { const p = proj(v); return [44 + (k * p[0] - c[0]) * 34, 44 + (k * p[1] - c[1]) * 34]; };
+      const want = [...[[1, 0, 0], [0, 1, 0], [0, 0, 1]].map((v) => at(v, 1.3)), at([0, 0, 0], 1)];
+      const got = viewer.gnomon.layout;
+      out.labelsPlaced = want.every((w, i) => Math.abs(w[0] - got[i].x) < 0.5 && Math.abs(w[1] - got[i].y) < 0.5);
+      viewer.draw();
+      const w = canvas.width, h = canvas.height, px = new Uint8Array(4 * w * h);
+      gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      const cb = canvas.getBoundingClientRect();
+      // Each letter's ink: its axis's colour within 14 pixels of its box's centre beyond the tip (the line left out),
+      // its count and its centroid less the box's centre (CSS pixels, y up).
+      out.letters = [0, 1, 2].map((k) => {
+        const cxp = g.left - cb.left + want[k][0], cyp = cb.bottom - g.bottom + want[k][1];
+        const tip = at([[1, 0, 0], [0, 1, 0], [0, 0, 1]][k], 1);
+        let n = 0, sx = 0, sy = 0;
+        for (let y = Math.ceil((cyp - 14) * dpr); y < (cyp + 14) * dpr; y++) {
+          for (let x = Math.ceil((cxp - 14) * dpr); x < (cxp + 14) * dpr; x++) {
+            const i = 4 * (y * w + x), X = x / dpr - (g.left - cb.left), Y = y / dpr - (cb.bottom - g.bottom);
+            // (Nearer the tip than the label's centre is: the line's.)
+            if (Math.hypot(X - tip[0], Y - tip[1]) < Math.hypot(X - want[k][0], Y - want[k][1])) continue;
+            if (kind(px[i], px[i + 1], px[i + 2]) === k) { n++; sx += x / dpr; sy += y / dpr; }
+          }
+        }
+        return { n, dx: n ? sx / n - cxp : 99, dy: n ? sy / n - cyp : 99 };
+      });
+      out.labelsJson = JSON.stringify({ want, got });
+      // The x label's backing (over the view's background here): inside its box at mid-height, a shade off the
+      // background (lighter on a dark one, darker on a light one); its very corner rounded off, nearer the background
+      // than its edge at mid-height is (the radius is under a pixel's worth of the corner).
+      const bg = viewer.scene.background.clone().convertLinearToSRGB().toArray().map((v) => Math.round(v * 255));
+      const pixel = (X, Y) => { const i = 4 * (Math.round(Y * dpr) * w + Math.round(X * dpr));
+        return [px[i], px[i + 1], px[i + 2]]; };
+      const bx = g.left - cb.left + want[0][0] - 7, by = cb.bottom - g.bottom + want[0][1] - 7;
+      out.backing = { bg, side: pixel(bx + 1.5, by + 7), edge: pixel(bx + 0.3, by + 7), corner: pixel(bx + 0.3,
+        by + 0.3) };
+    }
     viewer.setView('front', { instant: true });
     await frames();
     out.front = { ...axes(), screen: screen() };
@@ -3629,6 +3671,15 @@ await check('axes gnomon', async () => {
     `iso: every axis drawn, in its box, the view kept around it: ${j}`);
   expect(turned(a.iso!, 0, 1) && turned(a.iso!, 1, 2) && turned(a.iso!, 2, 0), `iso: the axes as the camera turns: ${
     j}`);
+  expect((a as unknown as { labelsPlaced: boolean }).labelsPlaced, `iso: the labels where the camera puts them: ${
+    (a as unknown as { labelsJson: string }).labelsJson}`);
+  const backing = (a as unknown as { backing: Record<'bg' | 'side' | 'edge' | 'corner', number[]> }).backing;
+  const off = (p: number[]) => (backing.bg[0]! < 128 ? 1 : -1) * (p[0]! - backing.bg[0]!);
+  expect(off(backing.side) > 8 && off(backing.corner) < off(backing.edge) - 2 && off(backing.corner) >= 0,
+    `iso: the labels' backing, a shade off the background, rounded: ${JSON.stringify(backing)}`);
+  const letters = (a as unknown as { letters: { n: number; dx: number; dy: number }[] }).letters;
+  expect(letters.every((l) => l.n >= 8 && Math.abs(l.dx) < 1.5 && Math.abs(l.dy) < 3), `iso: each letter drawn ` +
+    `centred in its box: ${JSON.stringify(letters)}`);
   // Front: Y along the line of sight; X and Z.
   expect(counts(a.front!)[0]! > 20 && counts(a.front!)[2]! > 20 && turned(a.front!, 0, 2),
     `front: X right, Z up: ${j}`);
@@ -3637,6 +3688,89 @@ await check('axes gnomon', async () => {
   expect(counts(a.off!).every((n) => n === 0), `View's Axes off: none: ${j}`);
   expect(counts(a.glb!).every((n) => n > 20) && turned(a.glb!, 0, 1) && turned(a.glb!, 1, 2) && turned(a.glb!, 2, 0),
     `GLB: the file's axes, Y up: ${j}`);
+  return undefined;
+});
+// Clicks on the gnomon, by real mouse input: a label looks along its axis, that axis pointing at the viewer, or away
+// when it already does; the origin's box looks iso, does nothing in the iso view, and isn't there in a view along an
+// axis (the click a pick then); each a press of the View menu's button (recorded as that control), never a pick; the
+// pointer a hand over a label. A GLB's labels are its own axes (its y the world's Z). Expectations are the world's
+// directions, the view's back read from the camera.
+await check('axes gnomon clicks', async () => {
+  const evaluate = async (sessionId: string, expression: string) => ((await send('Runtime.evaluate', { expression,
+    returnByValue: true, awaitPromise: true }, sessionId)) as { result: { value: unknown } }).result.value;
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check&gnomon=1`, `(async () => {
+    await cadViewer.ready; await cadViewer.idle();
+    viewer.setView('front', { instant: true });
+    await cadViewer.idle();
+    cadViewer.record(true);
+    return true;
+  })()`, { scale: 1, then: async (sid) => {
+    // A target's centre in client pixels, from #gnomon's box and the layout drawn.
+    const at = async (t: string) => await evaluate(sid, `(() => {
+      const g = document.getElementById('gnomon').getBoundingClientRect();
+      const l = viewer.gnomon.layout['xyzo'.indexOf('${t}')];
+      return [g.left + l.x, g.bottom - l.y]; })()`) as number[];
+    const back = async () => await evaluate(sid, `viewer.camera.getWorldDirection(viewer.camera.position.clone())
+      .negate().toArray().map((v) => Math.round(v * 1000) / 1000)`) as number[];
+    const click = async (t: string) => {
+      const [x, y] = await at(t);
+      const m = (type: string, extra: object = {}) => send('Input.dispatchMouseEvent', { type, x, y, button: 'left',
+        ...extra }, sid);
+      await m('mouseMoved', { button: 'none' });
+      await m('mousePressed', { buttons: 1, clickCount: 1 });
+      await m('mouseReleased', { clickCount: 1 });
+      await evaluate(sid, 'cadViewer.idle()');
+      return back();
+    };
+    const out: Record<string, unknown> = { front: await back() };
+    for (const [k, t] of ['z', 'z', 'x', 'y', 'y'].entries()) out[`${k} ${t}`] = await click(t);
+    // The origin's box in a view along an axis (front): a pick, no view.
+    out.alongPicks = await evaluate(sid, 'cadViewer.recording().events.filter((e) => e.type === "pick").length');
+    out.alongOrigin = await click('o');
+    out.alongPicksAfter = await evaluate(sid,
+      'cadViewer.recording().events.filter((e) => e.type === "pick").length');
+    // A turn off every axis, then the origin: iso; again: nothing.
+    await evaluate(sid, `(() => { const c = viewer.camera, t = viewer.controls.target;
+      const off = c.position.clone().sub(t).applyAxisAngle(c.up.clone().set(0.3, 0.2, 1).normalize(), 0.5);
+      c.position.copy(t).add(off);
+      c.lookAt(t); viewer.redraw(); return cadViewer.idle(); })()`);
+    out.oblique = await back();
+    out.iso = await click('o');
+    const controls = 'cadViewer.recording().events.filter((e) => e.type === "control").length';
+    out.controlsBefore = await evaluate(sid, controls);
+    out.isoAgain = await click('o');
+    out.controlsAfter = await evaluate(sid, controls);
+    // A hand over a label, none away from the gnomon.
+    const [x, y] = await at('x') as [number, number];
+    await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, button: 'none' }, sid);
+    out.hand = await evaluate(sid, 'viewer.renderer.domElement.style.cursor');
+    await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: x + 300, y: y - 300, button: 'none' }, sid);
+    out.away = await evaluate(sid, 'viewer.renderer.domElement.style.cursor');
+    out.recorded = await evaluate(sid, `cadViewer.recording().events.filter((e) => e.type === 'control')
+      .map((e) => e.path)`);
+    out.picks = await evaluate(sid, 'cadViewer.recording().events.filter((e) => e.type === "pick").length');
+    // A GLB: its y the world's Z.
+    await evaluate(sid, `(async () => { await cadViewer.load('/content/as1.glb'); await cadViewer.idle();
+      viewer.setView('front', { instant: true }); await cadViewer.idle(); })()`);
+    out.glbY = await click('y');
+    return out;
+  } }) as { then: Record<string, unknown> };
+  const a = r.then, j = JSON.stringify(a);
+  const is = (v: unknown, w: number[]) => (v as number[]).every((x, i) => Math.abs(x - w[i]!) < 1e-3);
+  const s3 = 1 / Math.sqrt(3);
+  expect(is(a.front, [0, -1, 0]), `front to start: ${j}`);
+  expect(is(a['0 z'], [0, 0, 1]) && is(a['1 z'], [0, 0, -1]), `z: top, then bottom: ${j}`);
+  expect(is(a['2 x'], [1, 0, 0]), `x: right: ${j}`);
+  expect(is(a['3 y'], [0, 1, 0]) && is(a['4 y'], [0, -1, 0]), `y: back, then front: ${j}`);
+  expect(is(a.alongOrigin, [0, -1, 0]) && (a.alongPicksAfter as number) === (a.alongPicks as number) + 1,
+    `the origin's box in a view along an axis: none (a pick): ${j}`);
+  expect(!is(a.oblique, [s3, -s3, s3]) && is(a.iso, [s3, -s3, s3]), `the origin's box: iso: ${j}`);
+  expect(is(a.isoAgain, [s3, -s3, s3]) && a.controlsAfter === a.controlsBefore, `iso again: nothing: ${j}`);
+  expect(a.hand === 'pointer' && a.away === '', `the pointer: ${j}`);
+  const views = ['Top', 'Bottom', 'Right', 'Back', 'Front', 'Iso'].map((v) => `View/Look Along an Axis/${v}`);
+  expect(JSON.stringify(a.recorded) === JSON.stringify(views) && a.picks === 1,
+    `recorded as the views' buttons, one pick (the origin's box along an axis): ${j}`);
+  expect(is(a.glbY, [0, 0, 1]), `a GLB's y: the world's Z, top: ${j}`);
   return undefined;
 });
 // On a phone the tree panel lies over the view: the gnomon's box moves beside it while it's open, following its width,

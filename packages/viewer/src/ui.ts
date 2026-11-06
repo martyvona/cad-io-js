@@ -536,9 +536,13 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     viewer.redraw();
   });
   const views = view.addFolder('Look Along an Axis');
+  const viewButtons = new Map<ViewName, HTMLElement>();
   for (const v of Object.keys(VIEWS) as ViewName[]) {
-    views.add({ [v]: () => viewer.setView(v) }, v).name(v[0]!.toUpperCase() + v.slice(1));
+    const c = views.add({ [v]: () => viewer.setView(v) }, v).name(v[0]!.toUpperCase() + v.slice(1));
+    viewButtons.set(v, (c as unknown as { $button: HTMLElement }).$button);
   }
+  // A click on the gnomon presses the view's button, as the user would (recorded as that control).
+  viewer.onGnomonView = (v) => viewButtons.get(v)!.click();
   const setTheme = (c: ThemeChoice) => {
     const t = applyTheme(c);
     viewer.setTheme(t);
