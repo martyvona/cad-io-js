@@ -3696,10 +3696,10 @@ await check('axes gnomon', async () => {
   return undefined;
 });
 // Clicks on the gnomon, by real mouse input: a label looks along its axis, that axis pointing at the viewer, or away
-// when it already does; the origin's box looks iso, does nothing in the iso view, and isn't there in a view along an
-// axis (the click a pick then); each a press of the View menu's button (recorded as that control), never a pick; the
-// pointer a hand over a label. A GLB's labels are its own axes (its y the world's Z). Expectations are the world's
-// directions, the view's back read from the camera.
+// when it already does; the origin's box looks iso (in a view along an axis too) and does nothing in the iso view;
+// each a press of the View menu's button (recorded as that control), never a pick; the pointer a hand over a label;
+// a finger's tap reaches further than a click. A GLB's labels are its own axes (its y the world's Z). Expectations
+// are the world's directions, the view's back read from the camera.
 await check('axes gnomon clicks', async () => {
   const evaluate = async (sessionId: string, expression: string) => ((await send('Runtime.evaluate', { expression,
     returnByValue: true, awaitPromise: true }, sessionId)) as { result: { value: unknown } }).result.value;
@@ -3729,11 +3729,30 @@ await check('axes gnomon clicks', async () => {
     };
     const out: Record<string, unknown> = { front: await back() };
     for (const [k, t] of ['z', 'z', 'x', 'y', 'y'].entries()) out[`${k} ${t}`] = await click(t);
-    // The origin's box in a view along an axis (front): a pick, no view.
-    out.alongPicks = await evaluate(sid, 'cadViewer.recording().events.filter((e) => e.type === "pick").length');
+    // The origin's box in a view along an axis (front): iso too.
     out.alongOrigin = await click('o');
-    out.alongPicksAfter = await evaluate(sid,
-      'cadViewer.recording().events.filter((e) => e.type === "pick").length');
+    // A finger's tap 12 pixels above the z label (past its drawn box): top; a click there: nothing (a pick).
+    await evaluate(sid, `(async () => { viewer.setView('front', { instant: true }); await cadViewer.idle(); })()`);
+    const above = async () => { const [x, y] = await at('z') as [number, number]; return [x, y - 12]; };
+    {
+      const [x, y] = await above();
+      const m = (type: string) => send('Input.dispatchMouseEvent', { type, x, y, button: 'left', clickCount: 1,
+        buttons: type === 'mousePressed' ? 1 : 0 }, sid);
+      await m('mousePressed');
+      await m('mouseReleased');
+      await evaluate(sid, 'cadViewer.idle()');
+      out.clickNear = await back();
+    }
+    {
+      const [x, y] = await above();
+      await send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 }, sid);
+      await send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] }, sid);
+      await send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }, sid);
+      await send('Emulation.setTouchEmulationEnabled', { enabled: false }, sid);
+      await evaluate(sid, 'cadViewer.idle()');
+      out.tapNear = await back();
+      await evaluate(sid, `(async () => { viewer.setView('front', { instant: true }); await cadViewer.idle(); })()`);
+    }
     // A turn off every axis, then the origin: iso; again: nothing.
     await evaluate(sid, `(() => { const c = viewer.camera, t = viewer.controls.target;
       const off = c.position.clone().sub(t).applyAxisAngle(c.up.clone().set(0.3, 0.2, 1).normalize(), 0.5);
@@ -3767,14 +3786,15 @@ await check('axes gnomon clicks', async () => {
   expect(is(a['0 z'], [0, 0, 1]) && is(a['1 z'], [0, 0, -1]), `z: top, then bottom: ${j}`);
   expect(is(a['2 x'], [1, 0, 0]), `x: right: ${j}`);
   expect(is(a['3 y'], [0, 1, 0]) && is(a['4 y'], [0, -1, 0]), `y: back, then front: ${j}`);
-  expect(is(a.alongOrigin, [0, -1, 0]) && (a.alongPicksAfter as number) === (a.alongPicks as number) + 1,
-    `the origin's box in a view along an axis: none (a pick): ${j}`);
+  expect(is(a.alongOrigin, [s3, -s3, s3]), `the origin's box in a view along an axis: iso: ${j}`);
+  expect(is(a.clickNear, [0, -1, 0]) && is(a.tapNear, [0, 0, 1]), `a tap reaches further than a click: ${j}`);
   expect(!is(a.oblique, [s3, -s3, s3]) && is(a.iso, [s3, -s3, s3]), `the origin's box: iso: ${j}`);
   expect(is(a.isoAgain, [s3, -s3, s3]) && a.controlsAfter === a.controlsBefore, `iso again: nothing: ${j}`);
   expect(a.hand === 'pointer' && a.away === '', `the pointer: ${j}`);
-  const views = ['Top', 'Bottom', 'Right', 'Back', 'Front', 'Iso'].map((v) => `View/Look Along an Axis/${v}`);
+  const views = ['Top', 'Bottom', 'Right', 'Back', 'Front', 'Iso', 'Top', 'Iso'].map((v) =>
+    `View/Look Along an Axis/${v}`);
   expect(JSON.stringify(a.recorded) === JSON.stringify(views) && a.picks === 1,
-    `recorded as the views' buttons, one pick (the origin's box along an axis): ${j}`);
+    `recorded as the views' buttons, one pick (the click near z): ${j}`);
   expect(is(a.glbY, [0, 0, 1]), `a GLB's y: the world's Z, top: ${j}`);
   return undefined;
 });
@@ -3900,7 +3920,14 @@ await check('lights and specular', async () => {
     const after = look();
     await cadViewer.load('/content/as1.glb');
     await cadViewer.idle();
-    return { before, after, loaded: look(), light };
+    const loaded = look();
+    // Reset lighting to defaults: those four back, nothing else (the edges' width, set too, kept); the sliders show it.
+    ui.setRender({ ...viewer.render, shininess: 80, edgeWidth: 3 });
+    const control = (name) => ui.gui.controllersRecursive().find((c) => c._name === name);
+    control('Reset lighting to defaults').$button.click();
+    const reset = { ...look(), shininess: viewer.render.shininess, edgeWidth: viewer.render.edgeWidth,
+      shown: ['Shininess', 'Specular', 'Ambient light', 'Headlight'].map((n) => parseFloat(control(n).$input.value)) };
+    return { before, after, loaded, light, reset };
   })()`, { asIs: true }) as { after: Record<string, { lights: [string, number][]; speculars: number[] }> };
   const a = r.after;
   const j = JSON.stringify(a);
@@ -3913,6 +3940,12 @@ await check('lights and specular', async () => {
   expect(JSON.stringify(a.after!.lights) === JSON.stringify([['AmbientLight', 0.7], ['DirectionalLight', 3]]) &&
     JSON.stringify(a.after!.speculars) === JSON.stringify([grey(0.8)]), `changed: ${j}`);
   expect(JSON.stringify(a.loaded!.speculars) === JSON.stringify([grey(0.8)]), `a model loaded after: ${j}`);
+  const reset = a.reset as unknown as { lights: [string, number][]; speculars: number[]; shininess: number;
+    edgeWidth: number; shown: number[] };
+  expect(JSON.stringify(reset.lights) === JSON.stringify(a.before!.lights) &&
+    JSON.stringify(reset.speculars) === JSON.stringify(a.before!.speculars) && reset.shininess === 30 &&
+    reset.edgeWidth === 3 && JSON.stringify(reset.shown) === JSON.stringify([30, 0.4, 1, 2.5]),
+    `Reset lighting to defaults: ${JSON.stringify(reset)}`);
   return undefined;
 });
 // Cap hatching, at a pixel ratio of 2: the lines fixed on the model (twice as far apart on the screen zoomed in

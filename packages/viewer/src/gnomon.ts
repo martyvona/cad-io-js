@@ -9,7 +9,7 @@
 // Labels: each centred on its placement point, (1 + LABEL_GAP) along its axis, projected, in a square box of LABEL_BOX
 // pixels (one for every letter, not fitted to it); boxes that overlap are nudged sideways apart (layoutLabels), never
 // the fourth, unlabelled box at the origin, which the others clear. The labels and the origin box are click targets
-// (Viewer: an axis looks along it, the origin box the iso view). The #gnomon box holds every layout the labels can
+// (Viewer: an axis looks along it, the origin box the iso view), a finger's reaching further (TOUCH_REACH). The #gnomon box holds every layout the labels can
 // take (GNOMON_EXTENT, checked over sampled turns by the unit test), so nothing leaves it as the gnomon turns.
 //
 // Labels move smoothly: each rides its placement point (which turns with the view, as its tip does), its nudge changing
@@ -32,6 +32,8 @@ export const AXIS_PIXELS = 34;
 export const LABEL_GAP = 0.3;
 /** The labels' (and the origin box's) square box, CSS pixels. */
 export const LABEL_BOX = 14;
+/** How far from a target's centre a finger's tap hits it, CSS pixels (its drawn box's half for a mouse). */
+export const TOUCH_REACH = 20;
 /**
  * How far the gnomon (its lines and every label box however nudged) can reach from its sphere's centre, CSS pixels:
  * the most over every turn (gnomon.test.ts samples them), rounded up. The #gnomon box is this big, the centre placed
@@ -243,13 +245,18 @@ export class Gnomon {
   }
 
   /**
-   * What's at a point (CSS pixels from the viewport's lower left) in the last drawn layout: a label's box, or the
-   * origin's when `iso` (it's left out in a view along an axis, where it would sit on that axis's tip).
+   * What's at a point (CSS pixels from the viewport's lower left) in the last drawn layout: a label's box or the
+   * origin's, reaching `reach` pixels from its centre across and up (its drawn box's half by default; TOUCH_REACH for a
+   * finger), the nearest centre where reaches overlap.
    */
-  hit(x: number, y: number, iso: boolean): GnomonTarget | undefined {
-    const k = this.boxes.findIndex((b, i) => (i < 3 || iso) && Math.abs(x - b.x) <= LABEL_BOX / 2 &&
-      Math.abs(y - b.y) <= LABEL_BOX / 2);
-    return k < 0 ? undefined : (['x', 'y', 'z', 'iso'] as const)[k];
+  hit(x: number, y: number, reach = LABEL_BOX / 2): GnomonTarget | undefined {
+    let best: number | undefined, nearest = Infinity;
+    for (const [k, b] of this.boxes.entries()) {
+      if (Math.abs(x - b.x) > reach || Math.abs(y - b.y) > reach) continue;
+      const d = Math.hypot(x - b.x, y - b.y);
+      if (d < nearest) [best, nearest] = [k, d];
+    }
+    return best === undefined ? undefined : (['x', 'y', 'z', 'iso'] as const)[best];
   }
 
   /**
@@ -353,13 +360,6 @@ export class Gnomon {
 /** How near a view must be to a direction (or the iso view's turn) to count as along it, degrees. */
 export const ALIGNED_DEGREES = 1;
 const ALIGNED = Math.cos(ALIGNED_DEGREES * Math.PI / 180);
-
-/** Whether the view looks along one of the axes (`axes`' columns, in the world; `back` the view's back, a unit). */
-export function alongAxis(axes: THREE.Matrix4, back: THREE.Vector3): boolean {
-  const e = axes.elements;
-  return [0, 1, 2].some((k) => Math.abs(back.x * e[k * 4]! + back.y * e[k * 4 + 1]! + back.z * e[k * 4 + 2]!) >=
-    ALIGNED);
-}
 
 /**
  * The view a click on axis `k`'s label asks for: the one with that axis pointing at the viewer, or away if it already

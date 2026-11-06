@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as THREE from 'three';
-import { alongAxis, axisView, backingColour, Gnomon, GNOMON_EXTENT, gnomonShown, LABEL_BOX, layoutLabels,
-  NUDGE_SPEED, nudgesOf, project, sameTurn, stepNudges }
+import { axisView, backingColour, Gnomon, GNOMON_EXTENT, gnomonShown, LABEL_BOX, layoutLabels,
+  NUDGE_SPEED, TOUCH_REACH, nudgesOf, project, sameTurn, stepNudges }
   from '../src/gnomon.ts';
 
 const near = (a: number, b: number, what: string) => assert.ok(Math.abs(a - b) < 1e-12, `${what}: ${a} vs ${b}`);
@@ -149,7 +149,7 @@ test('the labels: nudged again until nothing overlaps (a pair pushed onto the or
   assert.ok(o.x < x!.x && x!.x < y!.x, 'their order as their points lie');
 });
 
-test('a label\'s view: its axis at the viewer, or away if it already is; along an axis; the same turn', () => {
+test('a label\'s view: its axis at the viewer, or away if it already is; the same turn', () => {
   const world = new THREE.Matrix4();
   const back = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z).normalize();
   assert.equal(axisView(0, world, back(0, -1, 0)), 'right');
@@ -166,9 +166,6 @@ test('a label\'s view: its axis at the viewer, or away if it already is; along a
   const yUp = new THREE.Matrix4().fromArray([1, 0, 0, 0, 0, 0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1]);
   assert.equal(axisView(1, yUp, back(0, -1, 0)), 'top');
   assert.equal(axisView(2, yUp, back(1, 0, 0)), 'front');
-  // Along an axis: either way along any, within a degree.
-  assert.ok(alongAxis(world, back(0, 0, -1)) && alongAxis(world, tilt(0.9)) && !alongAxis(world, tilt(2)));
-  assert.ok(!alongAxis(world, back(1, -1, 1)));
   const q = new THREE.Quaternion().setFromAxisAngle(back(1, 2, 3), 0.7);
   assert.ok(sameTurn(q, q.clone().multiply(new THREE.Quaternion().setFromAxisAngle(back(0, 1, 0), 0.015))));
   assert.ok(!sameTurn(q, q.clone().multiply(new THREE.Quaternion().setFromAxisAngle(back(0, 1, 0), 0.03))));
@@ -262,4 +259,25 @@ test('the labels in a flight: from where they were to the destination\'s places 
   const now = g.layout, other = {};
   g.advance(FRONT, { now: 2000, flight: { id: other, to: ISO, s: 0 } });
   assert.ok(far(g.layout, now) < 1e-9, 'a new flight jumped');
+});
+
+test('hits: a drawn box for a mouse, TOUCH_REACH for a finger, the nearest centre where reaches overlap', () => {
+  const g = new Gnomon();
+  g.set(undefined, new THREE.Matrix4());
+  g.advance(FRONT, { now: 0 });
+  const [, y, z, o] = g.layout as { x: number; y: number }[];
+  // Inside the drawn box, or just off it.
+  assert.equal(g.hit(z!.x + 6, z!.y + 6), 'z');
+  assert.equal(g.hit(z!.x, z!.y + 8), undefined);
+  // A finger reaches further, but not past TOUCH_REACH.
+  assert.equal(g.hit(z!.x, z!.y + 8, TOUCH_REACH), 'z');
+  assert.equal(g.hit(z!.x, z!.y + TOUCH_REACH + 1, TOUCH_REACH), undefined);
+  // The origin's box in a view along an axis too.
+  assert.equal(g.hit(o!.x, o!.y), 'iso');
+  // Between the origin's box and y's beside it (both in a finger's reach): the nearer.
+  assert.ok(Math.abs(Math.abs(y!.x - o!.x) - LABEL_BOX) < 1e-9 && Math.abs(y!.y - o!.y) < 1e-9,
+    `y beside the origin's box: ${JSON.stringify([y, o])}`);
+  const mid = (o!.x + y!.x) / 2, toward = Math.sign(o!.x - y!.x);
+  assert.equal(g.hit(mid + toward, o!.y, TOUCH_REACH), 'iso');
+  assert.equal(g.hit(mid - toward, o!.y, TOUCH_REACH), 'y');
 });

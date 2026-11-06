@@ -18,7 +18,7 @@ import { showProblems } from './problems.ts';
 import { AXES, DEFAULT_SECTIONS, type SectionSettings } from './section.ts';
 import { Highlighter, instancesOf, nodeForPick, piecesOf, sphereOf, type PickLevel } from './selection.ts';
 import { addSideHandle } from './side-handle.ts';
-import type { RenderSettings } from './style.ts';
+import { DEFAULT_RENDER, type RenderSettings } from './style.ts';
 import { DEVICE_PROFILES, setDeviceOverride, type DeviceClass } from './device.ts';
 import { defaultSettings, profileSettings, type TessellationSettings } from './tessellation.ts';
 import { TreePanel } from './tree-panel.ts';
@@ -641,10 +641,16 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   edgeWidth.show(look.edgeStyle === 'fat');
   rendering.add(look, 'triangleEdges', { Off: 'off', Selected: 'selected', All: 'all' }).name('Triangle edges')
     .onChange(restyle);
-  rendering.add(look, 'shininess', 0, 100, 1).name('Shininess').onChange(restyle);
-  rendering.add(look, 'specular', 0, 1, 0.05).name('Specular').onChange(restyle);
-  rendering.add(look, 'ambient', 0, 5, 0.05).name('Ambient light').onChange(restyle);
-  rendering.add(look, 'light', 0, 6, 0.05).name('Headlight').onChange(restyle);
+  const lights = [rendering.add(look, 'shininess', 0, 100, 1).name('Shininess').onChange(restyle),
+    rendering.add(look, 'specular', 0, 1, 0.05).name('Specular').onChange(restyle),
+    rendering.add(look, 'ambient', 0, 5, 0.05).name('Ambient light').onChange(restyle),
+    rendering.add(look, 'light', 0, 6, 0.05).name('Headlight').onChange(restyle)];
+  // The four above back to their defaults, nothing else.
+  rendering.add({ reset: () => {
+    for (const k of ['shininess', 'specular', 'ambient', 'light'] as const) look[k] = DEFAULT_RENDER[k];
+    for (const c of lights) c.updateDisplay();
+    restyle();
+  } }, 'reset').name('Reset lighting to defaults');
   const capStyle = sectionFolder.add(look, 'capStyle', { 'Drawing (beige)': 'drawing', 'Part colours': 'parts' })
     .name('Cap style').onChange(restyle);
   const hatchWidth = sectionFolder.add(look, 'hatchWidth', 0.25, 4, 0.01).name('Hatch width (pixels)')

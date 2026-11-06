@@ -39,7 +39,7 @@ import type { ExportRequest } from './export-formats.ts';
 import type { ImportProgress } from 'step-import';
 import { clearCache, defaultSettings, deflectionsOf, workerCount, type TessellationSettings } from './tessellation.ts';
 import { classifyDevice, DEVICE_PROFILES, deviceOverride, deviceSignals, type DeviceClass } from './device.ts';
-import { alongAxis, axisView, Gnomon, sameTurn, type GnomonTarget } from './gnomon.ts';
+import { axisView, Gnomon, sameTurn, TOUCH_REACH, type GnomonTarget } from './gnomon.ts';
 
 /**
  * An export ended without its meshes coming back: the import worker died, hung or failed outside the export
@@ -342,7 +342,7 @@ export class Viewer {
       if (!d || !single || e.button > 0 || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 5 ||
         performance.now() - d.t > 600) return;
       // On the gnomon: its view (or nothing, if the view is that already), not a pick.
-      const target = this.gnomonTarget(e.clientX, e.clientY);
+      const target = this.gnomonTarget(e.clientX, e.clientY, e.pointerType === 'touch');
       if (target) {
         const view = this.gnomonView(target);
         if (view) {
@@ -611,15 +611,14 @@ export class Viewer {
   }
 
   /**
-   * What of the gnomon is at a point (client pixels) as last drawn: a label, or the origin's box (iso) unless the view
-   * looks along an axis, where that box would sit on the axis's tip.
+   * What of the gnomon is at a point (client pixels) as last drawn: a label, or the origin's box (iso); `touch`, a
+   * finger's tap, which reaches further.
    */
-  gnomonTarget(clientX: number, clientY: number): GnomonTarget | undefined {
+  gnomonTarget(clientX: number, clientY: number, touch = false): GnomonTarget | undefined {
     const box = this.gnomonDrawn;
     if (!box) return undefined;
     const c = this.renderer.domElement.getBoundingClientRect();
-    return this.gnomon.hit(clientX - c.left - box.x, c.bottom - clientY - box.y,
-      !alongAxis(this.gnomon.axesInWorld, this.back()));
+    return this.gnomon.hit(clientX - c.left - box.x, c.bottom - clientY - box.y, touch ? TOUCH_REACH : undefined);
   }
 
   /**
