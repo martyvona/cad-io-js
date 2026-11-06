@@ -117,7 +117,8 @@ export function clipTo(camera: THREE.OrthographicCamera, sphere: THREE.Sphere): 
 const _m = new THREE.Matrix4();
 
 /** A camera's turn: the rotation taking the camera's frame (looking along -Z, Y up) to the state's. */
-function turnOf(s: CameraState): THREE.Quaternion {
+/** A camera state's turn, as a camera's quaternion. */
+export function turnOf(s: CameraState): THREE.Quaternion {
   _m.lookAt(_v.fromArray(s.position), _c.fromArray(s.target), _y.fromArray(s.up));
   return new THREE.Quaternion().setFromRotationMatrix(_m);
 }

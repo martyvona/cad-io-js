@@ -3629,8 +3629,12 @@ await check('axes gnomon', async () => {
         by + 0.3) };
     }
     viewer.setView('front', { instant: true });
+    // (Its labels glide to their places first: idle waits for them.)
+    await cadViewer.idle();
     await frames();
     out.front = { ...axes(), screen: screen() };
+    // The y label (along the line of sight, on the origin's box) all the way clear of it.
+    { const l = viewer.gnomon.layout; out.clear = Math.abs(l[1].x - l[3].x); }
     // Everything cut away: the gnomon stays.
     viewer.setSections({ ...viewer.sections.get(), x: { on: true, at: -1e6, flip: false } });
     await frames();
@@ -3684,6 +3688,7 @@ await check('axes gnomon', async () => {
   expect(counts(a.front!)[0]! > 20 && counts(a.front!)[2]! > 20 && turned(a.front!, 0, 2),
     `front: X right, Z up: ${j}`);
   expect(counts(a.cut!).every((n, i) => n === counts(a.front!)[i]), `the section planes don't cut it: ${j}`);
+  expect((a as unknown as { clear: number }).clear >= 14 - 1e-6, `front: the y label glided clear: ${j}`);
   expect((a.picture as unknown as number) === 0, `not in a picture of the model alone: ${j}`);
   expect(counts(a.off!).every((n) => n === 0), `View's Axes off: none: ${j}`);
   expect(counts(a.glb!).every((n) => n > 20) && turned(a.glb!, 0, 1) && turned(a.glb!, 1, 2) && turned(a.glb!, 2, 0),
@@ -3771,6 +3776,69 @@ await check('axes gnomon clicks', async () => {
   expect(JSON.stringify(a.recorded) === JSON.stringify(views) && a.picks === 1,
     `recorded as the views' buttons, one pick (the origin's box along an axis): ${j}`);
   expect(is(a.glbY, [0, 0, 1]), `a GLB's y: the world's Z, top: ${j}`);
+  return undefined;
+});
+// The gnomon's labels in a flight (iso to front, a second, eased): every frame, each label moves a little (no jump);
+// the y label's nudge (its place less its placement point, predicted from the main camera) blends from none to its
+// final one as the flight goes (about half at half way); at the end they're where they belong, nothing left moving.
+await check('axes gnomon in flight', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check&gnomon=1`, `(async () => {
+    await cadViewer.ready; await cadViewer.idle();
+    viewer.setView('iso', { instant: true });
+    await cadViewer.idle();
+    viewer.flightMs = 1000;
+    const placement = (k) => {
+      const e = viewer.camera.matrixWorld.elements;
+      const proj = (v) => [v[0] * e[0] + v[1] * e[1] + v[2] * e[2], v[0] * e[4] + v[1] * e[5] + v[2] * e[6]];
+      const c = proj([1 / 3, 1 / 3, 1 / 3]), p = proj([0, 1, 2].map((i) => i === k ? 1.3 : 0));
+      return [44 + (p[0] - c[0]) * 34, 44 + (p[1] - c[1]) * 34];
+    };
+    const frames = [];
+    viewer.setView('front');
+    while (frames.length < 200) {
+      await new Promise((res) => requestAnimationFrame(res));
+      const f = viewer.flight;
+      const p = placement(1), l = viewer.gnomon.layout;
+      frames.push({ s: f ? (performance.now() - f.start) / viewer.flightMs : 1, layout: l,
+        nudge: [l[1].x - p[0], l[1].y - p[1]], turn: viewer.camera.quaternion.toArray() });
+      if (!f && !viewer.gnomon.moving) break;
+    }
+    await new Promise((res) => setTimeout(res, 400));
+    viewer.draw();
+    const settledAt = { after: viewer.gnomon.layout, moving: viewer.gnomon.moving };
+    // At once to iso and back to the front, then left alone (no draws of ours): the viewer keeps drawing while the y
+    // label glides, until it's clear of the origin's box (frames in headless Chrome come slowly, so a time won't do).
+    viewer.flightMs = 0;
+    viewer.setView('iso');
+    await new Promise((res) => setTimeout(res, 300));
+    viewer.setView('front');
+    // (Idle once the viewer schedules no more frames of its own.)
+    await cadViewer.idle();
+    const l = viewer.gnomon.layout;
+    return { frames, ...settledAt, glided: Math.abs(l[1].x - l[3].x) };
+  })()`) as { after: { frames: { s: number; layout: { x: number; y: number }[]; nudge: number[];
+    turn: number[] }[]; after: { x: number; y: number }[]; moving: boolean; glided: number } };
+  const { frames, after, moving, glided } = r.after;
+  const far = (a: { x: number; y: number }[], b: { x: number; y: number }[]) =>
+    Math.max(...a.slice(0, 3).map((p, k) => Math.hypot(p.x - b[k]!.x, p.y - b[k]!.y)));
+  let most = 0;
+  for (let k = 1; k < frames.length; k++) most = Math.max(most, far(frames[k]!.layout, frames[k - 1]!.layout));
+  const last = frames[frames.length - 1]!;
+  const final = Math.hypot(...last.nudge);
+  // The nudge as a fraction of its final one against the camera's own progress (the angle turned so far over the whole
+  // turn), through the flight: the same easing.
+  const angle = (a: number[], b: number[]) => 2 * Math.acos(Math.min(1, Math.abs(a.reduce((t, v, i) => t + v *
+    b[i]!, 0))));
+  const whole = angle(frames[0]!.turn, last.turn);
+  const lag = frames.filter((f) => f.s > 0.05 && f.s < 0.95).map((f) => Math.hypot(...f.nudge) / final -
+    angle(frames[0]!.turn, f.turn) / whole);
+  const mids = lag.map((x) => Math.round(x * 1000) / 1000);
+  const j = JSON.stringify({ n: frames.length, most, final, mids, moving });
+  expect(frames.length >= 10 && most < 8, `a jump between frames: ${j}`);
+  expect(final > 10 && mids.length >= 10 && mids.every((m) => Math.abs(m) < 0.06), `the y label's nudge blended ` +
+    `as the camera turns: ${j}`);
+  expect(far(after, last.layout) < 0.01 && !moving, `settled at the flight's end: ${j}`);
+  expect(glided >= 14 - 1e-6, `left alone, the y label glided clear: ${glided}`);
   return undefined;
 });
 // On a phone the tree panel lies over the view: the gnomon's box moves beside it while it's open, following its width,

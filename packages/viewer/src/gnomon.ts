@@ -11,6 +11,10 @@
 // the fourth, unlabelled box at the origin, which the others clear. The labels and the origin box are click targets
 // (Viewer: an axis looks along it, the origin box the iso view). The #gnomon box holds every layout the labels can
 // take (GNOMON_EXTENT, checked over sampled turns by the unit test), so nothing leaves it as the gnomon turns.
+//
+// Labels move smoothly: each rides its placement point (which turns with the view, as its tip does), its nudge changing
+// at most NUDGE_SPEED as the view turns freely, and during a flight (Viewer's eased moves to a view) blended from what
+// it was to the destination's layout as the camera's turn is, so each label ends the flight where it belongs.
 
 import * as THREE from 'three';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
@@ -34,6 +38,10 @@ export const LABEL_BOX = 14;
  * `left` and `down` from its lower left corner.
  */
 export const GNOMON_EXTENT = { left: 44, right: 44, down: 44, up: 44 };
+/** How fast a label's nudge may change while the view turns freely, CSS pixels a second. */
+export const NUDGE_SPEED = 120;
+/** The longest time between frames a nudge's change counts, seconds: after a pause, the next frame isn't a jump. */
+const MAX_STEP = 0.05;
 /** The sphere's radius, the axes being of unit length. */
 const RADIUS = Math.sqrt(6) / 3;
 
@@ -75,6 +83,20 @@ export function layoutLabels(points: readonly Point2[], origin: Point2, size: nu
     if (!moved) break;
   }
   return at.slice(0, fixed);
+}
+
+/** The labels' nudges (where layoutLabels puts them less their placement points) for a projection. */
+export function nudgesOf(p: { placements: Point2[]; origin: Point2 }): Point2[] {
+  return layoutLabels(p.placements, p.origin, LABEL_BOX).map((l, k) => ({ x: l.x - p.placements[k]!.x,
+    y: l.y - p.placements[k]!.y }));
+}
+
+/** Nudges moved from `shown` towards `target`, each by at most `step` pixels. */
+export function stepNudges(shown: readonly Point2[], target: readonly Point2[], step: number): Point2[] {
+  return shown.map((a, k) => {
+    const b = target[k]!, d = Math.hypot(b.x - a.x, b.y - a.y);
+    return d <= step ? { ...b } : { x: a.x + (b.x - a.x) * step / d, y: a.y + (b.y - a.y) * step / d };
+  });
 }
 
 /**
@@ -154,6 +176,17 @@ export class Gnomon {
   private readonly frame = new THREE.Matrix4();
   /** The last drawn layout's boxes' centres, CSS pixels from the viewport's lower left: x, y, z, then the origin. */
   private boxes: Point2[] = [];
+  /**
+   * The labels' nudges as drawn: following the layout's at NUDGE_SPEED as the view turns freely, or blended from what
+   * they were to the destination's during a flight; undefined, the layout's at the next draw (a new model).
+   */
+  private nudges?: Point2[];
+  /** The flight being followed (Viewer's, by identity) and the nudges it goes from and to. */
+  private flight?: { id: object; from: Point2[]; to: Point2[] };
+  /** When the last draw was (performance.now()). */
+  private last = -Infinity;
+  /** The labels are still on their way to the layout's places: more frames wanted. */
+  moving = false;
 
   constructor() {
     for (const [i, colour] of AXIS_COLOURS.entries()) {
@@ -185,6 +218,12 @@ export class Gnomon {
       .divideScalar(3);
     this.axes.matrix.copy(this.frame).premultiply(new THREE.Matrix4().makeTranslation(centre.negate()));
     this.axes.matrixWorldNeedsUpdate = true;
+    this.nudges = undefined;
+  }
+
+  /** The axes in the frame of a camera turned so (columns: each axis's right, up and back there). */
+  private turnFor(q: THREE.Quaternion): THREE.Matrix4 {
+    return new THREE.Matrix4().makeRotationFromQuaternion(q).invert().multiply(this.frame);
   }
 
   /** The origin and the three tips where they're drawn in the gnomon's scene, for checks. */
@@ -216,10 +255,12 @@ export class Gnomon {
   /**
    * Draws over what's on the canvas: looking as `view` looks (its turn), into `box` (CSS pixels from the canvas's
    * bottom left, as setViewport takes them; Gnomon.size), the sphere's centre at GNOMON_EXTENT's left and down; the
-   * labels' backings a shade off `background`, the view's.
+   * labels' backings a shade off `background`, the view's. `motion`: the time, and the flight in progress (its
+   * identity, its destination's turn, and how far it has come, smoothstepped as the camera is).
    */
   draw(renderer: THREE.WebGLRenderer, view: THREE.Camera, box: { x: number; y: number; width: number;
-    height: number }, background: THREE.Color): void {
+    height: number }, background: THREE.Color, motion: { now: number; flight?: { id: object;
+    to: THREE.Quaternion; s: number } } = { now: 0 }): void {
     view.getWorldQuaternion(this.camera.quaternion);
     this.camera.position.set(0, 0, 2).applyQuaternion(this.camera.quaternion);
     this.camera.updateMatrixWorld();
@@ -228,7 +269,8 @@ export class Gnomon {
     Object.assign(this.camera, { left: -cx / AXIS_PIXELS, right: (box.width - cx) / AXIS_PIXELS,
       bottom: -cy / AXIS_PIXELS, top: (box.height - cy) / AXIS_PIXELS });
     this.camera.updateProjectionMatrix();
-    this.layOut(box, cx, cy);
+    this.advance(this.camera.quaternion, motion);
+    this.layOut(box);
     this.backing!.color.copy(backingColour(background));
     const viewport = renderer.getViewport(new THREE.Vector4());
     const scissor = renderer.getScissor(new THREE.Vector4());
@@ -257,17 +299,38 @@ export class Gnomon {
     }
   }
 
-  /** The labels' layout for the camera as it is, and their quads there (made the first time: they need a document). */
-  private layOut(box: { width: number; height: number }, cx: number, cy: number): void {
-    // The axes in the camera's frame.
-    const turn = new THREE.Matrix4().makeRotationFromQuaternion(this.camera.quaternion).invert().multiply(this.frame);
-    const { placements, origin } = project(turn);
-    const labels = layoutLabels(placements, origin, LABEL_BOX);
-    this.boxes = [...labels, origin].map((p) => ({ x: p.x + cx, y: p.y + cy }));
+  /**
+   * The labels for a camera turned `q`: each at its placement point plus its nudge as drawn (`nudges`), in `layout`
+   * (draw's `motion`).
+   */
+  advance(q: THREE.Quaternion, motion: { now: number; flight?: { id: object; to: THREE.Quaternion; s: number } }):
+    void {
+    const now = project(this.turnFor(q));
+    const target = nudgesOf(now);
+    const dt = Math.min(MAX_STEP, Math.max(0, (motion.now - this.last) / 1000));
+    this.last = motion.now;
+    const f = motion.flight;
+    if (!this.nudges) this.nudges = target;
+    else if (f) {
+      if (this.flight?.id !== f.id) this.flight = { id: f.id, from: this.nudges, to: nudgesOf(project(
+        this.turnFor(f.to))) };
+      const { from, to } = this.flight;
+      this.nudges = from.map((a, k) => ({ x: a.x + (to[k]!.x - a.x) * f.s, y: a.y + (to[k]!.y - a.y) * f.s }));
+    } else {
+      this.flight = undefined;
+      this.nudges = stepNudges(this.nudges, target, NUDGE_SPEED * dt);
+    }
+    this.moving = this.nudges.some((n, k) => Math.hypot(n.x - target[k]!.x, n.y - target[k]!.y) > 1e-3);
+    const labels = now.placements.map((p, k) => ({ x: p.x + this.nudges![k]!.x, y: p.y + this.nudges![k]!.y }));
+    this.boxes = [...labels, now.origin].map((p) => ({ x: p.x + GNOMON_EXTENT.left, y: p.y + GNOMON_EXTENT.down }));
+  }
+
+  /** The labels' quads where `layout` says (made the first time: they need a document). */
+  private layOut(box: { width: number; height: number }): void {
     if (!this.labels) {
       const quad = new THREE.PlaneGeometry(LABEL_BOX, LABEL_BOX);
-      this.backing = new THREE.MeshBasicMaterial({ alphaMap: backingTexture(), transparent: true, opacity: BACKING_OPACITY,
-        depthTest: false, depthWrite: false });
+      this.backing = new THREE.MeshBasicMaterial({ alphaMap: backingTexture(), transparent: true,
+        opacity: BACKING_OPACITY, depthTest: false, depthWrite: false });
       this.labels = AXIS_COLOURS.map((colour, i) => {
         const label = new THREE.Group();
         const back = new THREE.Mesh(quad, this.backing);

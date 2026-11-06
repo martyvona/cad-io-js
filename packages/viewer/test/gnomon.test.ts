@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as THREE from 'three';
-import { alongAxis, axisView, backingColour, Gnomon, GNOMON_EXTENT, gnomonShown, LABEL_BOX, layoutLabels, project, sameTurn }
+import { alongAxis, axisView, backingColour, Gnomon, GNOMON_EXTENT, gnomonShown, LABEL_BOX, layoutLabels,
+  NUDGE_SPEED, nudgesOf, project, sameTurn, stepNudges }
   from '../src/gnomon.ts';
 
 const near = (a: number, b: number, what: string) => assert.ok(Math.abs(a - b) < 1e-12, `${what}: ${a} vs ${b}`);
@@ -182,4 +183,83 @@ test('a label\'s backing: a shade lighter than a dark background, darker than a 
   assert.ok(l.r < 1 && l.g < 1 && l.b < 1 && l.r > 0.5, `light: ${l.getHexString()}`);
   // (The background itself left as it was.)
   assert.equal(dark.getHex(), 0x404040);
+});
+
+/** A camera's turn looking from `dir` (from the target) with `up`. */
+const looking = (dir: number[], up: number[]) => new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4()
+  .lookAt(new THREE.Vector3().fromArray(dir), new THREE.Vector3(), new THREE.Vector3().fromArray(up)));
+const ISO = looking([1, -1, 1], [0, 0, 1]), FRONT = looking([0, -1, 0], [0, 0, 1]);
+
+/** The labels' layout as a fresh gnomon gives it at once for a turn (nothing to glide from). */
+function settled(q: THREE.Quaternion): { x: number; y: number }[] {
+  const g = new Gnomon();
+  g.set(undefined, new THREE.Matrix4());
+  g.advance(q, { now: 0 });
+  return g.layout;
+}
+
+const far = (a: { x: number; y: number }[], b: { x: number; y: number }[]) =>
+  Math.max(...a.map((p, k) => Math.hypot(p.x - b[k]!.x, p.y - b[k]!.y)));
+
+test('nudges: stepped at most so far towards their places; the layout\'s less the placement points', () => {
+  assert.deepEqual(stepNudges([{ x: 0, y: 0 }, { x: 1, y: 1 }], [{ x: 6, y: 8 }, { x: 1.5, y: 1 }], 5),
+    [{ x: 3, y: 4 }, { x: 1.5, y: 1 }]);
+  const p = { placements: [{ x: 0, y: 0 }, { x: 3, y: 0 }, { x: 60, y: 60 }], origin: { x: -60, y: -60 } };
+  assert.deepEqual(nudgesOf(p), [{ x: -5.5, y: 0 }, { x: 5.5, y: 0 }, { x: 0, y: 0 }]);
+});
+
+test('the labels turning freely: their nudges change at most NUDGE_SPEED, frames wanted till they\'re placed', () => {
+  const g = new Gnomon();
+  g.set(undefined, new THREE.Matrix4());
+  g.advance(ISO, { now: 0 });
+  assert.equal(g.moving, false);
+  // At once to the front (as a fast drag might): the y label, now on the origin, glides aside.
+  let t = 1000;
+  g.advance(FRONT, { now: t });
+  // (The placement points jump with the turn; the nudges, from the first frame after a pause, MAX_STEP's worth.)
+  assert.ok(g.moving, 'placed at once');
+  let last = g.layout;
+  const want = settled(FRONT);
+  let frames = 0;
+  while (g.moving && frames < 100) {
+    t += 33;
+    g.advance(FRONT, { now: t });
+    const step = far(g.layout, last);
+    assert.ok(step <= NUDGE_SPEED * 0.033 + 1e-9, `frame ${frames}: moved ${step}`);
+    last = g.layout;
+    frames++;
+  }
+  assert.ok(frames >= 3 && frames < 100, `${frames} frames`);
+  assert.ok(far(g.layout, want) < 1e-9, 'not where the layout puts them');
+  // A new model: placed at once.
+  g.set(undefined, new THREE.Matrix4());
+  g.advance(ISO, { now: t + 33 });
+  assert.equal(g.moving, false);
+});
+
+test('the labels in a flight: from where they were to the destination\'s places as it goes; a new flight anew', () => {
+  const g = new Gnomon();
+  g.set(undefined, new THREE.Matrix4());
+  g.advance(ISO, { now: 0 });
+  const start = g.layout;
+  const id = {};
+  const at = (s: number) => {
+    const q = ISO.clone().slerp(FRONT, s);
+    g.advance(q, { now: s * 1000, flight: { id, to: FRONT, s } });
+    return g.layout;
+  };
+  assert.ok(far(at(0), start) < 1e-9, 'not from where they were');
+  // Each label its placement point plus its nudge a fraction s of the way (y's from none to its final one).
+  const end = settled(FRONT);
+  const mid = at(0.5);
+  assert.ok(far(at(1), end) < 1e-9, 'not at the destination\'s places');
+  // A smooth path: small steps all the way.
+  let last = at(0), most = 0;
+  for (let s = 0.02; s <= 1 + 1e-9; s += 0.02) { const l = at(s); most = Math.max(most, far(l, last)); last = l; }
+  assert.ok(most < 3, `a step of ${most}`);
+  assert.ok(far(mid, start) > 1 && far(mid, end) > 1, 'half way, between');
+  // Another flight (another id) starts from where the labels are, not from the first's start.
+  const now = g.layout, other = {};
+  g.advance(FRONT, { now: 2000, flight: { id: other, to: ISO, s: 0 } });
+  assert.ok(far(g.layout, now) < 1e-9, 'a new flight jumped');
 });

@@ -14,7 +14,7 @@ import * as THREE from 'three';
 import { TrackballControls } from 'three/addons/controls/TrackballControls.js';
 import { around, chooseLod, meshDeflections, transformUse, type Diagnostic, type Mesh, type Properties,
   type TransformUse, type Vec3 } from 'cad-scene';
-import { clipTo, fitCamera, fitSphere, interpolateCamera, setAspect, smoothstep, viewCamera, VIEWS,
+import { clipTo, fitCamera, fitSphere, interpolateCamera, setAspect, smoothstep, turnOf, viewCamera, VIEWS,
   type ViewName } from './camera.ts';
 import type { CameraState } from './view-state.ts';
 import { formatOf, type Format } from './formats.ts';
@@ -180,7 +180,7 @@ export class Viewer {
    * Zoom all, zoom selected and the views fly the camera there: eased by smoothstep over `flightMs` (0: at once), a
    * frame at a time, stopped by the user's own input or a camera set exactly.
    */
-  private flight?: { from: CameraState; to: CameraState; start: number };
+  private flight?: { from: CameraState; to: CameraState; start: number; turn: THREE.Quaternion };
   flightMs = FLIGHT_MS;
   /** How long the page works on a load's meshes before yielding (SLICE_MS; the browser check shortens it). */
   sliceMs = SLICE_MS;
@@ -557,9 +557,13 @@ export class Viewer {
       this.composer.setTransparent(any);
     }
     let flying = false;
-    if (this.flight) {
-      const f = (performance.now() - this.flight.start) / this.flightMs;
-      this.place(f >= 1 ? this.flight.to : interpolateCamera(this.flight.from, this.flight.to, smoothstep(f)));
+    // The flight this frame shows, for the gnomon's labels (which blend to the destination's places as it goes).
+    const flight = this.flight;
+    let progress = 0;
+    if (flight) {
+      const f = (performance.now() - flight.start) / this.flightMs;
+      progress = f >= 1 ? 1 : smoothstep(f);
+      this.place(f >= 1 ? flight.to : interpolateCamera(flight.from, flight.to, progress));
       if (f >= 1) this.flight = undefined;
       else flying = true;
     }
@@ -585,10 +589,12 @@ export class Viewer {
       if (fat) this.camera.layers.enable(EDGES);
     }
     const box = gnomon && this.showGnomon && this.root ? this.gnomonViewport() : undefined;
-    if (box) this.gnomon.draw(this.renderer, this.camera, box, this.scene.background as THREE.Color);
+    if (box) this.gnomon.draw(this.renderer, this.camera, box, this.scene.background as THREE.Color, {
+      now: performance.now(), ...(flight ? { flight: { id: flight, to: flight.turn, s: progress } } : {}) });
     // (A picture without it keeps the last drawn layout's targets: the screen still shows it.)
     if (gnomon) this.gnomonDrawn = box;
-    return this.interacting || this.changed || flying;
+    // (Labels still gliding to their places want frames too.)
+    return this.interacting || this.changed || flying || (box !== undefined && this.gnomon.moving);
   }
 
   /** Where `gnomonBox` is over the canvas, as setViewport takes it (CSS pixels from its bottom left); none hidden. */
@@ -1078,7 +1084,7 @@ export class Viewer {
 
   /** Flies the camera to a state (or puts it there, with `flightMs` 0). */
   private fly(to: CameraState): void {
-    if (this.flightMs > 0) this.flight = { from: this.cameraState(), to, start: performance.now() };
+    if (this.flightMs > 0) this.flight = { from: this.cameraState(), to, start: performance.now(), turn: turnOf(to) };
     else {
       this.flight = undefined;
       this.place(to);
