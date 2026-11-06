@@ -3524,6 +3524,147 @@ await check('fat edges', async () => {
   expect(a.tint === true && a.hidden === true && a.edgesOff === false, `selection, hiding, edges off: ${j}`);
   return undefined;
 });
+// The axes gnomon (gnomon.ts): drawn in its box (#gnomon) over the view, X red, Y green, Z blue; each axis's
+// direction on the screen the world's axis as the main camera shows it (from the camera itself, not the gnomon's), in
+// the iso view and after turning to the front; drawn whatever the section planes cut; gone when View's Axes is off;
+// never in pictures of the model alone; a GLB's own axes (Y up).
+await check('axes gnomon', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check&gnomon=1`, `(async () => {
+    await cadViewer.ready; await cadViewer.idle();
+    const gl = viewer.renderer.getContext(), canvas = viewer.renderer.domElement;
+    const dpr = canvas.width / canvas.clientWidth;
+    const frames = async () => { for (let f = 0; f < 3; f++) await new Promise((res) => requestAnimationFrame(res)); };
+    const kind = (r, g, b) => r > 180 && g < 120 && b < 120 ? 0 : g > 140 && r < 110 && b < 110 ? 1
+      : b > 200 && r < 140 && g < 180 ? 2 : -1;
+    // The axes' colours in the whole canvas, as device pixels from its bottom left: each colour's count and centroid in
+    // the box, and how many outside it less as many as the same frame has without the gnomon (the model's own).
+    const axes = () => {
+      const on = drawn(), was = viewer.showGnomon;
+      viewer.showGnomon = false;
+      const off = drawn();
+      viewer.showGnomon = was;
+      // (The box's corners lie outside the gnomon's sphere: as they'd be without it, nothing cleared there.)
+      const kept = on.corners.every((c, i) => c === off.corners[i]);
+      return { axes: on.axes, box: on.box, outside: on.outside - off.outside, kept };
+    };
+    const drawn = () => {
+      viewer.draw();
+      const w = canvas.width, h = canvas.height, px = new Uint8Array(4 * w * h);
+      gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      // The box from #gnomon itself, in device pixels from the canvas's bottom left.
+      const g = document.getElementById('gnomon').getBoundingClientRect(), cr = canvas.getBoundingClientRect();
+      const box = { x0: (g.left - cr.left) * dpr, y0: (cr.bottom - g.bottom) * dpr, x1: (g.right - cr.left) * dpr,
+        y1: (cr.bottom - g.top) * dpr };
+      const out = [0, 1, 2].map(() => ({ n: 0, x: 0, y: 0 }));
+      let outside = 0;
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+        const i = 4 * (y * w + x), k = kind(px[i], px[i + 1], px[i + 2]);
+        if (k < 0) continue;
+        if (x < box.x0 || x >= box.x1 || y < box.y0 || y >= box.y1) { outside++; continue; }
+        out[k].n++; out[k].x += x; out[k].y += y;
+      }
+      for (const o of out) if (o.n) { o.x /= o.n; o.y /= o.n; }
+      const corners = [[box.x0 + 2, box.y0 + 2], [box.x1 - 3, box.y0 + 2], [box.x0 + 2, box.y1 - 3],
+        [box.x1 - 3, box.y1 - 3]].map(([x, y]) => { const i = 4 * (Math.round(y) * w + Math.round(x));
+        return px.slice(i, i + 3).join(); });
+      return { axes: out, outside, box, corners };
+    };
+    // The world's axes on the screen as the main camera shows them (right, up).
+    const screen = () => {
+      const e = viewer.camera.matrixWorld.elements;
+      return [0, 1, 2].map((a) => [e[a], e[4 + a]]);
+    };
+    // The model's file read again as GLB: its own axes (glTF's Y up), X the world's X, Y its Z, Z its -Y.
+    const glbView = async () => {
+      const bytes = await (await fetch('/content/as1.glb')).arrayBuffer();
+      await viewer.load({ name: 'as1.glb', bytes });
+      viewer.setView('iso', { instant: true });
+      await frames();
+      const [x, y, z] = screen();
+      return { ...axes(), screen: [x, z, [-y[0], -y[1]]] };
+    };
+    const out = {};
+    await frames();
+    out.iso = { ...axes(), screen: screen() };
+    viewer.setView('front', { instant: true });
+    await frames();
+    out.front = { ...axes(), screen: screen() };
+    // Everything cut away: the gnomon stays.
+    viewer.setSections({ ...viewer.sections.get(), x: { on: true, at: -1e6, flip: false } });
+    await frames();
+    out.cut = axes();
+    viewer.setSections({ ...viewer.sections.get(), x: { on: false, at: 0, flip: false } });
+    // A picture of the model alone where the gnomon is: none of it.
+    const g = document.getElementById('gnomon').getBoundingClientRect();
+    const crop = { left: g.left, top: g.top, width: g.width, height: g.height };
+    out.picture = 0;
+    for (const transparent of [false, true]) {
+      const pic = viewer.viewImage(crop, g.width, { transparent });
+      const d = pic.getContext('2d').getImageData(0, 0, pic.width, pic.height).data;
+      for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 128 && kind(d[i], d[i + 1], d[i + 2]) >= 0) out.picture++;
+    }
+    // View's Axes off.
+    ui.gui.controllersRecursive().find((c) => c._name === 'Axes').setValue(false);
+    await frames();
+    out.off = drawn();
+    ui.gui.controllersRecursive().find((c) => c._name === 'Axes').setValue(true);
+    out.glb = await glbView();
+    return out;
+  })()`) as { after: Record<string, { axes: { n: number; x: number; y: number }[]; outside: number;
+    screen: number[][] }> };
+  const a = r.after, j = JSON.stringify(a);
+  const counts = (v: { axes: { n: number }[] }) => v.axes.map((x) => x.n);
+  // The direction from one axis's centroid to another's is half the difference of their tips (each line's pixels
+  // centred on its middle), which the main camera's axes give independently.
+  const turned = (v: { axes: { n: number; x: number; y: number }[]; screen: number[][] }, p: number, q: number) => {
+    const got = Math.atan2(v.axes[p]!.y - v.axes[q]!.y, v.axes[p]!.x - v.axes[q]!.x);
+    const want = Math.atan2(v.screen[p]![1]! - v.screen[q]![1]!, v.screen[p]![0]! - v.screen[q]![0]!);
+    const d = Math.abs(Math.atan2(Math.sin(got - want), Math.cos(got - want)));
+    return d < 6 * Math.PI / 180;
+  };
+  const box = (a.iso as unknown as { box: { x0: number; y0: number; x1: number } }).box;
+  expect(box.x0 < 20 && box.y0 >= 24 && box.y0 < 60 && box.x1 - box.x0 >= 60, `the box in the lower left, above a ` +
+    `line of status: ${j}`);
+  expect(counts(a.iso!).every((n) => n > 20) && a.iso!.outside === 0 && (a.iso as unknown as { kept: boolean }).kept,
+    `iso: every axis drawn, in its box, the view kept around it: ${j}`);
+  expect(turned(a.iso!, 0, 1) && turned(a.iso!, 1, 2) && turned(a.iso!, 2, 0), `iso: the axes as the camera turns: ${
+    j}`);
+  // Front: Y along the line of sight; X and Z.
+  expect(counts(a.front!)[0]! > 20 && counts(a.front!)[2]! > 20 && turned(a.front!, 0, 2),
+    `front: X right, Z up: ${j}`);
+  expect(counts(a.cut!).every((n, i) => n === counts(a.front!)[i]), `the section planes don't cut it: ${j}`);
+  expect((a.picture as unknown as number) === 0, `not in a picture of the model alone: ${j}`);
+  expect(counts(a.off!).every((n) => n === 0), `View's Axes off: none: ${j}`);
+  expect(counts(a.glb!).every((n) => n > 20) && turned(a.glb!, 0, 1) && turned(a.glb!, 1, 2) && turned(a.glb!, 2, 0),
+    `GLB: the file's axes, Y up: ${j}`);
+  return undefined;
+});
+// On a phone the tree panel lies over the view: the gnomon's box moves beside it while it's open, following its width,
+// and back to the corner when it closes.
+await check('axes gnomon beside the phone tree', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check&gnomon=1`, `(async () => {
+    await cadViewer.ready; await cadViewer.idle();
+    const at = () => {
+      const g = document.getElementById('gnomon').getBoundingClientRect();
+      const s = document.getElementById('side').getBoundingClientRect();
+      const h = document.getElementById('side-handle').getBoundingClientRect();
+      return { left: g.left, side: s.right, handle: h.right, open: !document.body.classList.contains('tree-closed') };
+    };
+    const set = (open) => ui.gui.controllersRecursive().find((c) => c._name === 'Show the tree').setValue(open);
+    const out = {};
+    set(false); out.closed = at();
+    set(true); out.open = at();
+    document.documentElement.style.setProperty('--side', '200px'); out.wider = at();
+    document.documentElement.style.removeProperty('--side');
+    return out;
+  })()`, { phone: true }) as { after: Record<string, { left: number; side: number; handle: number; open: boolean }> };
+  const a = r.after, j = JSON.stringify(a);
+  expect(!a.closed!.open && a.closed!.left < 10, `closed: in the corner: ${j}`);
+  expect(a.open!.open && a.open!.left >= a.open!.handle, `open: beside the panel and its handle: ${j}`);
+  expect(a.wider!.left - a.open!.left === a.wider!.side - a.open!.side && a.wider!.side > a.open!.side,
+    `following the panel's width: ${j}`);
+  return undefined;
+});
 // The lights and specular (Rendering): the ambient light's and the headlight's intensities and every Phong face's
 // specular follow the settings; a model loaded after takes them too. (The address as it is: rendering settings in it
 // would be applied again after the load, and hide what the meshes were made with.)

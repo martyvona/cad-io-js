@@ -156,8 +156,14 @@ test('a foreign glTF exported again: its top nodes\' frames as they were (metres
     doc.createScene('s').addChild(a).addChild(b);
     const { scene: s } = await importGltf(await new WebIO().writeBinary(doc));
     assert.equal(s.sourceUnit, 1000);
+    // The file's axes, Y up, in the scene's Z up.
+    const yUp = [1, 0, 0, 0, 0, 0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1];
+    assert.deepEqual(Array.from(s.fileAxes ?? []), yUp);
     for (const extras of [false, true]) {
-      const back = await new WebIO().readBinary((await glb(s, exportView(s), { extras, compression: 'none' })).bytes);
+      const bytes = (await glb(s, exportView(s), { extras, compression: 'none' })).bytes;
+      // (Ours too: the file's axes, not carried in our extras.)
+      assert.deepEqual(Array.from((await importGltf(bytes)).scene.fileAxes ?? []), yUp, `extras ${extras}`);
+      const back = await new WebIO().readBinary(bytes);
       const tops = back.getRoot().listScenes()[0]!.listChildren();
       assert.deepEqual(tops.map((n) => n.getName()), ['a', 'b'], `extras ${extras}`);
       const near = (x: number[], y: number[]) => x.every((v, i) => Math.abs(v - y[i]!) < 1e-12);

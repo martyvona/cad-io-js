@@ -55,6 +55,12 @@ export interface Scene {
    * export in a format that can name its unit is written in (3MF). Absent: millimetres.
    */
   sourceUnit?: number;
+  /**
+   * The file's own axes in the scene's, where they differ (glTF's and three.js's Y up): a rotation, column-major, no
+   * scale or translation (the unit is `sourceUnit`'s business). The file read, not the source it was exported from
+   * (not carried in our extras). Absent: the scene's own axes (STEP, 3MF).
+   */
+  fileAxes?: Mat4;
   /** File-level metadata. */
   properties: Properties;
   diagnostics: Diagnostic[];

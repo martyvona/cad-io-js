@@ -87,6 +87,9 @@
       :root { --side: 140px; }
       #view { left: 0; }
       #side { width: min(var(--side), calc(100% - 40px)); z-index: 2; box-shadow: 4px 0 12px rgba(0, 0, 0, 0.5); }
+      /* The gnomon beside the open panel, past its handle (the touch grip reaches 12px beyond its edge); the same
+         width as #side's, the view being the page's width here. */
+      body:not(.tree-closed) #gnomon { left: calc(min(var(--side), 100% - 40px) + 16px); }
     }
     #view canvas { display: block; }
     /* The controls flush with the right edge (lil-gui leaves 15 pixels; past a notch's safe area on phones). */
@@ -119,6 +122,12 @@
       white-space: pre-wrap; border-radius: 4px; pointer-events: none;
     }
     #details[hidden] { display: none; }
+    /* Where the axes gnomon is drawn (gnomon.ts, into the canvas below: this box only places it), just above a line of
+       status. */
+    #gnomon {
+      position: absolute; left: 4px; bottom: calc(env(safe-area-inset-bottom, 0px) + 28px); width: 80px; height: 80px;
+      pointer-events: none;
+    }
     /* Faded after a while with no change (ui.ts's autoHide). */
     #status, #details { transition: opacity 0.6s; }
     #status.faded, #details.faded { opacity: 0; }
@@ -218,7 +227,7 @@
 </head>
 <body>
   <div id="side"><div id="tree"></div></div>
-  <div id="view"><div id="status"></div><div id="details" hidden></div></div>
+  <div id="view"><div id="status"></div><div id="details" hidden></div><div id="gnomon"></div></div>
   <script type="module" src="./src/main.ts"></script>
 </body>
 </html>

@@ -23,6 +23,7 @@ import { DEVICE_PROFILES, setDeviceOverride, type DeviceClass } from './device.t
 import { defaultSettings, profileSettings, type TessellationSettings } from './tessellation.ts';
 import { TreePanel } from './tree-panel.ts';
 import { formatOf } from './formats.ts';
+import { gnomonShown } from './gnomon.ts';
 import { contentUrl, fromFiles, fromUrl, pickFiles, saveFile, saveTarget, typedUrl, type Source } from './sources.ts';
 import { askExport, rememberedExport } from './export-dialog.ts';
 import { EXPORT_FORMATS } from './export-formats.ts';
@@ -141,6 +142,17 @@ function autoHide(el: HTMLElement): (stay?: boolean) => void {
     el.classList.remove('faded');
     timer = stay ? undefined : setTimeout(() => el.classList.add('faded'), HIDE_AFTER);
   };
+}
+
+const GNOMON_KEY = 'cad-viewer.gnomon';
+
+/** What this browser remembers of View's Axes, if anything. */
+function gnomonRemembered(): string | null {
+  try {
+    return localStorage.getItem(GNOMON_KEY);
+  } catch {
+    return null;
+  }
 }
 
 export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLElement, detailsElement: HTMLElement):
@@ -513,6 +525,16 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   // Enabled while something is selected.
   const zoomSelected = view.add({ zoom: () => ui.zoomSelected() }, 'zoom').name('Zoom selected').disable();
   view.add({ copy: () => copyLink() }, 'copy').name('Copy link to this view');
+  // The file's axes over the view (gnomon.ts), shown or not as remembered in this browser (gnomonShown).
+  const axes = { on: gnomonShown(location.search, gnomonRemembered()) };
+  viewer.showGnomon = axes.on;
+  view.add(axes, 'on').name('Axes').onChange((on: boolean) => {
+    viewer.showGnomon = on;
+    try {
+      localStorage.setItem(GNOMON_KEY, on ? '1' : '0');
+    } catch { /* not remembered */ }
+    viewer.redraw();
+  });
   const views = view.addFolder('Look Along an Axis');
   for (const v of Object.keys(VIEWS) as ViewName[]) {
     views.add({ [v]: () => viewer.setView(v) }, v).name(v[0]!.toUpperCase() + v.slice(1));

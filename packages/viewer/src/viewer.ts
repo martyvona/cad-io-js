@@ -39,6 +39,7 @@ import type { ExportRequest } from './export-formats.ts';
 import type { ImportProgress } from 'step-import';
 import { clearCache, defaultSettings, deflectionsOf, workerCount, type TessellationSettings } from './tessellation.ts';
 import { classifyDevice, DEVICE_PROFILES, deviceOverride, deviceSignals, type DeviceClass } from './device.ts';
+import { Gnomon } from './gnomon.ts';
 
 /**
  * An export ended without its meshes coming back: the import worker died, hung or failed outside the export
@@ -210,6 +211,10 @@ export class Viewer {
   /** Every triangle's edges, when the rendering settings say so. */
   readonly triangleEdges = new TriangleEdges();
   readonly fatEdges = new FatEdges(EDGES);
+  /** The file's axes (gnomon.ts), drawn over the view where `gnomonBox` is while a model is shown and `showGnomon`. */
+  readonly gnomon = new Gnomon();
+  gnomonBox?: HTMLElement;
+  showGnomon = true;
   private readonly ambient = new THREE.AmbientLight(0xffffff, DEFAULT_RENDER.ambient);
   private readonly headlight = new THREE.DirectionalLight(0xffffff, DEFAULT_RENDER.light);
   /** The rendering settings; apply changes with setRender. */
@@ -376,7 +381,7 @@ export class Viewer {
       }
     }, { capture: true, passive: false });
 
-    this.frames = new Frames(() => this.draw());
+    this.frames = new Frames(() => this.draw(true));
     new ResizeObserver(() => this.resize()).observe(container);
     this.resize();
   }
@@ -507,7 +512,8 @@ export class Viewer {
     this.frames.request();
   }
 
-  private draw(): boolean {
+  /** `gnomon`: the axes too, if shown (not in pictures of the model alone). */
+  private draw(gnomon = true): boolean {
     this.changed = false;
     if (this.transparencyStale) {
       this.transparencyStale = false;
@@ -546,7 +552,17 @@ export class Viewer {
     } finally {
       if (fat) this.camera.layers.enable(EDGES);
     }
+    const box = gnomon && this.showGnomon && this.root ? this.gnomonViewport() : undefined;
+    if (box) this.gnomon.draw(this.renderer, this.camera, box);
     return this.interacting || this.changed || flying;
+  }
+
+  /** Where `gnomonBox` is over the canvas, as setViewport takes it (CSS pixels from its bottom left); none if hidden. */
+  private gnomonViewport(): { x: number; y: number; size: number } | undefined {
+    const b = this.gnomonBox?.getBoundingClientRect();
+    if (!b || b.width <= 0) return undefined;
+    const c = this.renderer.domElement.getBoundingClientRect();
+    return { x: b.left - c.left, y: c.bottom - b.bottom, size: b.width };
   }
 
   /** Applies rendering settings (shininess and specular to every Phong face in the model, the lights, the caps). */
@@ -904,6 +920,8 @@ export class Viewer {
             diagnostics: [...scene.diagnostics], meshedWith };
           this.show(graph.root, model, graph, keep);
           this.graph = graph;
+          this.display.updateWorldMatrix(true, false);
+          this.gnomon.set(scene.fileAxes, this.display.matrixWorld);
           // The model's sphere, the file's or the importer's estimate, fitted before any mesh is drawn.
           this.fit.start(scene.bounds);
           if (!this.fit.sphere.isEmpty()) this.bounds.copy(this.fit.sphere);
@@ -1137,14 +1155,14 @@ export class Viewer {
     const px = { left: Math.round((crop.left - r.left) * k), top: Math.round((crop.top - r.top) * k),
       width: Math.max(1, Math.round(crop.width * k)), height: Math.max(1, Math.round(crop.height * k)) };
     if (!opts.transparent) {
-      this.draw();
+      this.draw(false);
       return scaledCanvas(canvas, px, width);
     }
     // Drawn on black and on white, each read in the task that drew it, the background put back after (matte).
     const bg = this.scene.background as THREE.Color, was = bg.getHex();
     const on = (hex: number) => {
       bg.setHex(hex);
-      this.draw();
+      this.draw(false);
       const c = Object.assign(document.createElement('canvas'), { width: px.width, height: px.height });
       const g = c.getContext('2d', { willReadFrequently: true })!;
       g.drawImage(canvas, px.left, px.top, px.width, px.height, 0, 0, px.width, px.height);

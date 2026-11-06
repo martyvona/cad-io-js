@@ -46,3 +46,16 @@ test('other files: a node\'s `edges` child of lines its mesh\'s edges, in the no
     assert.deepEqual(contained.components.map((c) => c.name), ['h']);
     assert.deepEqual([...held.components[1]!.parts[1]!.transform].slice(12, 15), [5, 0, 0]);
   });
+
+test('the file\'s axes: a root frame\'s turn alone; none where it only scales and moves', () => {
+  const root: TreeNode = { name: '', matrix: identity(), visible: true, meshes: [], children: [] };
+  // glTF's and three.js's (the default): the file's X the scene's X, its Y the scene's Z, its Z the scene's -Y.
+  assert.deepEqual(Array.from(sceneFromTree(root).scene.fileAxes ?? []), [1, 0, 0, 0, 0, 0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1]);
+  assert.equal(sceneFromTree(root, { frame: identity() }).scene.fileAxes, undefined);
+  const inches = Float64Array.of(25.4, 0, 0, 0, 0, 25.4, 0, 0, 0, 0, 25.4, 0, 7, 8, 9, 1);
+  assert.equal(sceneFromTree(root, { frame: inches }).scene.fileAxes, undefined);
+  // A turn about Z by 90 degrees, in inches and moved: the turn alone, columns of length 1, no translation.
+  const turned = Float64Array.of(0, 25.4, 0, 0, -25.4, 0, 0, 0, 0, 0, 25.4, 0, 7, 8, 9, 1);
+  assert.deepEqual(Array.from(sceneFromTree(root, { frame: turned }).scene.fileAxes ?? []),
+    [0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+});

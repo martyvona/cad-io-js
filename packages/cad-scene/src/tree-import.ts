@@ -624,6 +624,21 @@ function otherMesh(m: TreeMesh): Mesh {
 }
 
 /**
+ * A root frame's turn alone (each column scaled to length 1, no translation), or undefined where it doesn't turn: the
+ * file's axes in the scene's (Scene.fileAxes).
+ */
+export function axesOf(frame: Mat4): Mat4 | undefined {
+  const m = new Float64Array(16);
+  m[15] = 1;
+  for (let c = 0; c < 3; c++) {
+    const len = Math.hypot(frame[c * 4]!, frame[c * 4 + 1]!, frame[c * 4 + 2]!);
+    for (let r = 0; r < 3; r++) m[c * 4 + r] = len > 0 ? frame[c * 4 + r]! / len : 0;
+  }
+  const turns = [0, 1, 2].some((c) => [0, 1, 2].some((r) => Math.abs(m[c * 4 + r]! - (r === c ? 1 : 0)) > 1e-12));
+  return turns ? m : undefined;
+}
+
+/**
  * The scene a tree holds: ours read back as written, others as their own tree, `frame` taking the root's frame to
  * millimetres, Z up (default MM_Z_UP: metres, Y up, as glTF and three.js are). `properties` are the file's own
  * metadata, the scene's; but ours with the properties of the scene we exported have those, the file's own as their
@@ -651,6 +666,8 @@ export function sceneFromTree(root: TreeNode, opts: { frame?: Mat4; container?: 
   // The source's unit: our extras' (the file we exported from), else the format's (metres; `frame` scales by it).
   const unit = ours ? num(root.extras?.sourceUnit) : Math.hypot(...Array.from((opts.frame ?? MM_Z_UP).slice(0, 3)));
   if (unit !== undefined && unit > 0) scene.sourceUnit = unit;
+  const axes = axesOf(opts.frame ?? MM_Z_UP);
+  if (axes) scene.fileAxes = axes;
   // (Our files written before 2026-11-01 placed a leaf product as a component holding its part.)
   leafParts(scene);
   return { scene, diagnostics: b.diagnostics };

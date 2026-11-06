@@ -95,5 +95,5 @@ export function oursFromTree(root: ModelFile, world: (item: number) => { object:
     ...(obj(tree.properties) ? { properties: tree.properties } : {}),
     ...(tree.bounds !== undefined ? { bounds: tree.bounds } : {}),
     ...(tree.sourceUnit !== undefined ? { sourceUnit: tree.sourceUnit } : {}) }, meshes: [], children: roots },
-    { properties: own });
+    { frame: identity(), properties: own });
 }

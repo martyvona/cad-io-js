@@ -7,6 +7,7 @@ import { Viewer } from './viewer.ts';
 // ?deterministic: one pixel per CSS pixel whatever the screen, so screenshots compare across machines.
 const deterministic = new URLSearchParams(location.search).has('deterministic');
 const viewer = new Viewer(document.getElementById('view')!, deterministic ? { pixelRatio: 1 } : {});
+viewer.gnomonBox = document.getElementById('gnomon') ?? undefined;
 const ui = buildUi(viewer, document.getElementById('status')!, document.getElementById('tree')!,
   document.getElementById('details')!);
 // ?controls=0: the controls hidden (cad-viewer shot, which renders the view alone: nothing then covers it, so fits

@@ -684,6 +684,8 @@ test('the source\'s unit: our 3MF in inches where the source was, the same drawi
     const j = JSON.stringify(o);
     assert.deepEqual(messages(back), [], j);
     assert.equal(back.scene.sourceUnit, 25.4, j);
+    // (Z up, as the scene: no axes of the file's own, with our extras or without.)
+    assert.equal(back.scene.fileAxes, undefined, j);
     // (Compared by what's drawn in the world; without extras faces without a material in the exporter's grey.)
     assert.deepEqual(canonical(drawn(back.scene)), canonical(drawn(s)).map((t) => o.extras ? t : t.replace(/none$/,
       '204,204,204,255')), j);

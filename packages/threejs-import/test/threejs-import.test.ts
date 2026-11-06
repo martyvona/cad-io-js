@@ -226,6 +226,8 @@ test('a foreign three.js Scene exported again: its top objects\' frames as they 
         { uuid: 'd', type: 'Mesh', name: 'd', geometry: 'g', matrix: Array.from(identity()) }] }] } };
   const { scene: s } = importThreejs(JSON.stringify(json));
   assert.equal(s.sourceUnit, 1000);
+  // The file's axes, Y up, in the scene's Z up.
+  assert.deepEqual(Array.from(s.fileAxes ?? []), [1, 0, 0, 0, 0, 0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1]);
   for (const extras of [false, true]) {
     const out = JSON.parse(threejsJson(s, exportView(s), { extras })) as { object: { type: string;
       children: { name: string; matrix: number[] }[] } };
@@ -264,6 +266,8 @@ test('foreign three.js JSON: an instanced mesh a placement per instance; an old 
   assert.deepEqual(xs(s), [5000, 15000]);
   // Our extras before 2026-10-24: millimetres, no up axis, no root matrix.
   assert.deepEqual(xs(importThreejs(JSON.stringify(json({ unit: 'millimetre' }))).scene), [5, 15]);
+  // (Their axes the source's, as the scene's.)
+  assert.equal(importThreejs(JSON.stringify(json({ unit: 'millimetre' }))).scene.fileAxes, undefined);
 });
 
 /** A square (face 5) and a triangle (face 6) whose third corner is where its second is (another vertex). */
