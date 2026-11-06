@@ -546,7 +546,8 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   const picker = view.addColor(background, 'color').name('Background').onChange(backdrop);
   backdrop();
   fullscreen();
-  // Filled once what it drives exists (below); View's Details and what follows it are added there too.
+  // Filled once what they drive exists (below), as are View's Details and what follows it.
+  const treeFolder = gui.addFolder('Tree');
   const selFolder = gui.addFolder('Selection');
 
   // Section planes: the sliders span the model's box (with a margin); planes that are off start at its middle. A new
@@ -978,7 +979,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     set onEvent(f) { hooks.onEvent = f; },
     pickAt: (clientX, clientY, add) => viewer.onPick?.(viewer.pickAt(clientX, clientY), { add, clientX, clientY }),
   };
-  // Selection: picking and selecting. View, after its own: Details, hiding and showing, transparency, the tree panel.
+  // Selection: picking and selecting. View, after its own: Details, hiding and showing, transparency. Tree: the panel.
   selFolder.add(selection, 'level', { 'Assembly': 'assembly', 'Part': 'part', 'Face, edge, curve': 'detail' })
     .name('Pick');
   selFolder.add(selection, 'multi').name('Multi-select (touch)');
@@ -1005,14 +1006,14 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   view.add(transparency, 'opacity', 0.05, 1, 0.05).name('Opacity');
   view.add({ make: () => ui.setOpacity(transparency.opacity) }, 'make').name('Make transparent');
   view.add({ restore: () => ui.setOpacity(undefined) }, 'restore').name('Restore opacity');
-  openControl = view.add(tree, 'open').name('Show the tree').onChange((open: boolean) => {
+  openControl = treeFolder.add(tree, 'open').name('Show the tree').onChange((open: boolean) => {
     setOpen(open);
     if (!open && viewer.nodes) tree.closedByHand = true;
   });
-  detailControl = view.add(tree, 'detail').name('Faces, edges, curves')
+  detailControl = treeFolder.add(tree, 'detail').name('Faces, edges, curves')
     .onChange((on: boolean) => panel?.setDetail(on));
-  view.add({ expand: () => panel?.expandAll() }, 'expand').name('Expand all');
-  view.add({ collapse: () => panel?.collapseAll() }, 'collapse').name('Collapse all');
+  treeFolder.add({ expand: () => panel?.expandAll() }, 'expand').name('Expand all');
+  treeFolder.add({ collapse: () => panel?.collapseAll() }, 'collapse').name('Collapse all');
 
   for (const f of gui.foldersRecursive()) f.close();
 
