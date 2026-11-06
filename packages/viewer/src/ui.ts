@@ -733,8 +733,17 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     zoomSelected.disable();
     panel = new TreePanel(treeElement, nodes);
     panel.onSelect = (ids) => select(ids, 'tree');
-    panel.onContextMenu = (id, x, y) => showMenu(x, y, [{ label: 'Override Appearance...',
-      action: () => editAppearance(id) }]);
+    // Hide and Show set the node's own override's visibility, as Override Appearance... would, keeping the rest of
+    // it; Remove Appearance Override (for a node with one) clears it. At once, recorded, the open panel following.
+    panel.onContextMenu = (id, x, y) => {
+      const own = nodes.ownOverride(id);
+      showMenu(x, y, [
+        { label: 'Hide', action: () => ui.setOverride(id, { ...nodes.ownOverride(id), hidden: true }) },
+        { label: 'Show', action: () => ui.setOverride(id, { ...nodes.ownOverride(id), hidden: false }) },
+        { label: 'Override Appearance...', action: () => editAppearance(id) },
+        ...(own ? [{ label: 'Remove Appearance Override', action: () => ui.setOverride(id, {}) }] : []),
+      ]);
+    };
     if (tree.detail) panel.setDetail(true);
     if (restore) {
       // Exactly the overrides before (the file's own hiding giving way to them).

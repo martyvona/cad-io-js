@@ -851,7 +851,8 @@ await check('override appearance', async () => {
     };
     const panel = async (id) => {
       await menuFor(id);
-      document.querySelector('.cv-menu button').click();
+      [...document.querySelectorAll('.cv-menu button')].find((x) => x.textContent === 'Override Appearance...')
+        .click();
       await frame();
       const d = document.querySelector('dialog.cv-dialog.floating');
       const [visibility, opacity, edges] = d.querySelectorAll('select');
@@ -932,7 +933,8 @@ await check('override appearance', async () => {
     const cb = childRow.getBoundingClientRect();
     childRow.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: cb.left + 20,
       clientY: cb.top + 5 }));
-    document.querySelector('.cv-menu button').click();
+    [...document.querySelectorAll('.cv-menu button')].find((x) => x.textContent === 'Override Appearance...')
+      .click();
     await frame();
     follows.push(titled(), ui.selected().join() === String(other) ? 'other selected' : 'selection changed');
     // Closed by its x; opened again, by Escape.
@@ -961,7 +963,7 @@ await check('override appearance', async () => {
   const j = JSON.stringify({ ...a, rec: undefined });
   type Read = { title: string; visibility: string; opacity: string; edges: string; options: string[];
     disabled: boolean; value: string; buttons: string[] };
-  expect(JSON.stringify(a.items) === '["Override Appearance..."]' && !!a.closed, `the menu: ${j}`);
+  expect(JSON.stringify(a.items) === '["Hide","Show","Override Appearance..."]' && !!a.closed, `the menu: ${j}`);
   const first = a.first as Read;
   expect(first.visibility === 'inherit' && first.opacity === 'inherit' && first.edges === 'inherit' &&
     first.disabled && first.value === '1' && first.options.includes('Inherit') &&
@@ -986,7 +988,9 @@ await check('override appearance', async () => {
     + `the selection: ${JSON.stringify(a.follows)}`);
   expect((a.childMeshes as number) > 0 && a.wires === a.childMeshes, `the child's triangle edges: ${j}`);
   expect(!!a.xClosed && !!a.escClosed, `closed: ${j}`);
-  expect(JSON.stringify(a.pressed) === '["Override Appearance..."]', `a long press: ${j}`);
+  // (The child has an override of its own by then.)
+  expect(JSON.stringify(a.pressed) === '["Hide","Show","Override Appearance...","Remove Appearance Override"]',
+    `a long press: ${j}`);
   // Recorded once each change was made (the box's input not, its change yes), Hide and Show selected as buttons.
   expect(a.rec.events.filter((e) => e.type === 'appearance').length === 7, `recorded: ${JSON.stringify(
     a.rec.events.filter((e) => e.type === 'appearance'))}`);
@@ -1005,6 +1009,65 @@ await check('override appearance', async () => {
     replayed.after.cleared.length === 0, `a state's triangle edges: ${JSON.stringify(replayed.after)}`);
   return undefined;
 });
+// The tree's context menu's Hide, Show and Remove Appearance Override: each at once, on the node's own override (the
+// rest of it kept), the open panel following; Remove only for a node with an override; recorded and replayed.
+await check('tree menu hide and show', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check&record`, `(async () => {
+    const m = ui.panel().model;
+    const frame = () => new Promise((res) => requestAnimationFrame(() => setTimeout(res, 0)));
+    const part = m.nodes.find((n) => n.kind === 'part').id;
+    const menu = async (id, choose) => {
+      const row = [...document.querySelectorAll('#tree .tree-row')].find((x) => +x.dataset.id === id);
+      const b = row.getBoundingClientRect();
+      row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: b.left + 20,
+        clientY: b.top + 5 }));
+      const items = [...document.querySelectorAll('.cv-menu button')].map((x) => x.textContent);
+      if (choose) [...document.querySelectorAll('.cv-menu button')].find((x) => x.textContent === choose).click();
+      await frame();
+      return { items, open: !!document.querySelector('.cv-menu'), own: m.ownOverride(part) ?? null,
+        hidden: m.hiddenInTree(part), drawn: viewer.nodes.nodes[part].object.visible };
+    };
+    ui.panel().setExpanded(m.nodes.filter((n) => n.kind === 'assembly').map((n) => n.id));
+    await frame();
+    const plain = await menu(part, 'Hide');
+    const shown = await menu(part, 'Show');
+    // Over an override of more than visibility, kept; the open panel showing the change.
+    ui.setOverride(part, { transparent: true, alpha: 0.5, triangleEdges: true });
+    await menu(part, 'Override Appearance...');
+    const visibility = () => document.querySelector('dialog.cv-dialog.floating select').value;
+    const hidden = { ...await menu(part, 'Hide'), panel: visibility() };
+    const removed = { ...await menu(part, 'Remove Appearance Override'), panel: visibility() };
+    const after = await menu(part);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    const st = cadViewer.state();
+    return { plain, shown, hidden, removed, after,
+      overrides: { hidden: st.hidden, shown: st.shown, opacity: st.opacity, triangleEdges: st.triangleEdges },
+      rec: cadViewer.record(false) };
+  })()`) as { after: Record<string, { items: string[]; open: boolean; own: unknown; hidden: boolean;
+    drawn: boolean; panel?: string }> & { overrides: unknown; rec: { events: { type: string }[] } } };
+  const a = r.after;
+  const j = JSON.stringify({ ...a, rec: undefined });
+  expect(JSON.stringify(a.plain!.items) === '["Hide","Show","Override Appearance..."]' && !a.plain!.open &&
+    JSON.stringify(a.plain!.own) === '{"hidden":true}' && a.plain!.hidden && !a.plain!.drawn, `Hide: ${j}`);
+  expect(JSON.stringify(a.shown!.items) === '["Hide","Show","Override Appearance...","Remove Appearance Override"]'
+    && JSON.stringify(a.shown!.own) === '{"hidden":false}' && !a.shown!.hidden && a.shown!.drawn, `Show: ${j}`);
+  expect(JSON.stringify(a.hidden!.own) === '{"transparent":true,"alpha":0.5,"triangleEdges":true,"hidden":true}' &&
+    a.hidden!.panel === 'hide', `Hide keeping the rest, the panel following: ${j}`);
+  expect(a.removed!.own === null && !a.removed!.hidden && a.removed!.drawn && a.removed!.panel === 'inherit',
+    `removed: ${j}`);
+  expect(JSON.stringify(a.after!.items) === '["Hide","Show","Override Appearance..."]', `no Remove without: ${j}`);
+  expect(a.rec.events.filter((e) => e.type === 'appearance').length === 5, `recorded: ${j}`);
+  const replayed = await page('?check', `(async () => {
+    await cadViewer.ready;
+    const report = await cadViewer.replay(${JSON.stringify(a.rec)});
+    const st = cadViewer.state();
+    return { divergences: report.divergences, overrides: { hidden: st.hidden, shown: st.shown, opacity: st.opacity,
+      triangleEdges: st.triangleEdges } };
+  })()`) as { after: { divergences: string[]; overrides: unknown } };
+  expect(replayed.after.divergences.length === 0 && JSON.stringify(replayed.after.overrides) ===
+    JSON.stringify(a.overrides), `replayed: ${JSON.stringify(replayed.after)} ${j}`);
+  return undefined;
+});
 // Dialogs dragged by their title: Override Appearance... moved by a mouse drag of its title, as far as the drag, a
 // second from where it was left; dragged far off, its title kept in the window; a modal one (About) too.
 await check('dialog drag', async () => {
@@ -1020,7 +1083,8 @@ await check('dialog drag', async () => {
     const b = row.getBoundingClientRect();
     row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: b.left + 20,
       clientY: b.top + 5 }));
-    document.querySelector('.cv-menu button').click();
+    [...document.querySelectorAll('.cv-menu button')].find((x) => x.textContent === 'Override Appearance...')
+      .click();
     await new Promise((res) => requestAnimationFrame(() => setTimeout(res, 0)));
     return true;
   })()`, { scale: 1, then: async (sid) => {
@@ -2211,7 +2275,8 @@ await check('phone', async () => {
       const b = row.getBoundingClientRect();
       row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: b.left + 20,
         clientY: b.top + 5 }));
-      document.querySelector('.cv-menu button').click();
+      [...document.querySelectorAll('.cv-menu button')].find((x) => x.textContent === 'Override Appearance...')
+        .click();
       await new Promise((res) => requestAnimationFrame(() => setTimeout(res, 0)));
       const d = document.querySelector('dialog.cv-dialog.floating');
       const out = { panel: !!d && document.activeElement === d, select: document.activeElement?.tagName === 'SELECT' };

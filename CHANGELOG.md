@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `cad-viewer`: the tree's context menu has **Hide** and **Show** (the node's own visibility, as Override Appearance... sets it) and, for a node with an override, **Remove Appearance Override**, each at once.
 - File metadata: the importers keep all a file says of itself in `Scene.properties` (STEP's whole header, glTF's `asset`, three.js's `metadata`, 3MF's) and set `author` where the format names one, placeholders such as `Author` or `none` left out; our files with extras give back the source's, the file's own as `container`. The exporters write the standard fields always (3MF's `Designer`, `CreationDate` and a 3MF source's `Title`, `Description`, `Copyright`, `LicenseTerms`, `Rating`; glTF's `asset.copyright`) and the rest with extras (3MF's assembly build in `cadio:properties`). `cad-scene`: `authorOf`, `standardMetadata`, `propertiesFrom`.
 - `cad-viewer`: About names the file's author after its name, and its **details** link opens **Model Details**, the file's metadata, read-only and selectable, over About.
 - `cad-viewer`: About's **Load demo model...** closes About and offers the deployed demo models in a list (`content/demo/catalog.json`, fetched each time, each model with its size); `scripts/demo-catalog.ts` writes the catalog, `scripts/deploy-demo.sh` (`npm run deploy-demo`) commits and publishes the demo models alone, and `deploy-viewer.sh` updates and commits the catalog and deploys only committed demo models.
