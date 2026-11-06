@@ -193,6 +193,11 @@ export class HeadlessTreeView implements TreeView {
     this.schedule();
   }
 
+  focus(id: string): void {
+    // (Through setState, which draws again.)
+    this.tree.applySubStateUpdate('focusedItem', id);
+  }
+
   setSelection(ids: readonly string[]): void {
     const sel = [...ids];
     this.selected = sel;

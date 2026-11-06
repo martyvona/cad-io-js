@@ -30,6 +30,7 @@ import { shownEdits } from './export-shown.ts';
 import { visibleBox, WorkerLost, type Viewer } from './viewer.ts';
 import type { AppearanceOverride, NodeModel, PathOverride, Slot } from './model.ts';
 import { appearanceOpen, closeAppearance, refreshAppearance, showAppearance } from './appearance-dialog.ts';
+import { compact } from './compact.ts';
 import { closeMenu, showMenu } from './context-menu.ts';
 import { askScreenshot } from './screenshot-dialog.ts';
 import { canCaptureTab, captureTab, encode, freeArea, modelRect, redrawWindow, snapped, type Rect }
@@ -733,15 +734,27 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     zoomSelected.disable();
     panel = new TreePanel(treeElement, nodes);
     panel.onSelect = (ids) => select(ids, 'tree');
-    // Hide and Show set the node's own override's visibility, as Override Appearance... would, keeping the rest of
-    // it; Remove Appearance Override (for a node with one) clears it. At once, recorded, the open panel following.
+    // Hide and Show set each node's own override's visibility, as Override Appearance... would, keeping the rest of
+    // it; Remove Appearance Override (when one has an override) clears them. Each on the node right-clicked, or on the
+    // whole selection when that node is in it with others; Override Appearance... on the node right-clicked alone.
+    // At once, recorded node by node, the open panel following.
     panel.onContextMenu = (id, x, y) => {
-      const own = nodes.ownOverride(id);
+      const targets = selected.length > 1 && selected.includes(id) ? [...selected] : [id];
+      const each = (o: (t: number) => AppearanceOverride) => {
+        const list = targets.map((t) => [t, o(t)] as const);
+        appearance((m) => { for (const [t, v] of list) m.setOverride(t, v); });
+        for (const [t, v] of list) hooks.onEvent?.({ type: 'appearance', id: t, override: v });
+      };
+      // (On several: how many, `Hide 5`; Remove's those with an override, which it changes.)
+      const many = (label: string, n: number) => (targets.length > 1 ? `${label} ${compact(n)}` : label);
+      const overridden = targets.filter((t) => nodes.ownOverride(t)).length;
       showMenu(x, y, [
-        { label: 'Hide', action: () => ui.setOverride(id, { ...nodes.ownOverride(id), hidden: true }) },
-        { label: 'Show', action: () => ui.setOverride(id, { ...nodes.ownOverride(id), hidden: false }) },
+        { label: many('Hide', targets.length), action: () => each((t) => ({ ...nodes.ownOverride(t), hidden: true })) },
+        { label: many('Show', targets.length), action: () => each((t) => ({ ...nodes.ownOverride(t),
+          hidden: false })) },
         { label: 'Override Appearance...', action: () => editAppearance(id) },
-        ...(own ? [{ label: 'Remove Appearance Override', action: () => ui.setOverride(id, {}) }] : []),
+        ...(overridden ? [{ label: many('Remove Appearance Override', overridden),
+          action: () => each(() => ({})) }] : []),
       ]);
     };
     if (tree.detail) panel.setDetail(true);

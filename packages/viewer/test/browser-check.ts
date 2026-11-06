@@ -1024,7 +1024,9 @@ await check('override appearance', async () => {
   return undefined;
 });
 // The tree's context menu's Hide, Show and Remove Appearance Override: each at once, on the node's own override (the
-// rest of it kept), the open panel following; Remove only for a node with an override; recorded and replayed.
+// rest of it kept), the open panel following; Remove only for a node with an override; on the whole selection when
+// the node right-clicked is in it with others (Override Appearance... still on that node alone); the focus moved to the
+// row right-clicked; recorded and replayed.
 await check('tree menu hide and show', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check&record`, `(async () => {
     const m = ui.panel().model;
@@ -1053,12 +1055,30 @@ await check('tree menu hide and show', async () => {
     const removed = { ...await menu(part, 'Remove Appearance Override'), panel: visibility() };
     const after = await menu(part);
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    // Several selected, one of them right-clicked: Hide, Show and Remove on each (Remove offered as one has an
+    // override); Override Appearance... on the one clicked. Right-clicked outside the selection: that one alone.
+    const [p1, p2, p3] = m.nodes.filter((n) => n.kind === 'part').map((n) => n.id);
+    ui.setOverride(p2, { transparent: true, alpha: 0.5 });
+    ui.select([p1, p2]);
+    await frame();
+    const owns = () => [p1, p2, p3].map((p) => m.ownOverride(p) ?? null);
+    const several = async (id, choose) => ({ ...await menu(id, choose), owns: owns(), selected: ui.selected(),
+      focused: +document.querySelector('#tree .tree-row.focused')?.dataset.id });
+    const multi = { hide: await several(p1, 'Hide 2'), show: await several(p2, 'Show 2'),
+      panel: (await menu(p1, 'Override Appearance...'), document.querySelector('dialog.cv-dialog.floating h2 span')
+        ?.textContent), name: m.nodes[p1].name, remove: await several(p1, 'Remove Appearance Override 2'),
+      outside: await several(p3, 'Hide'), p: [p1, p2, p3] };
+    // (The menu only opened, then closed: the focus still moved, though nothing else is drawn again.)
+    multi.opened = await several(p1);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    document.querySelector('dialog.cv-dialog.floating button.close')?.click();
+    ui.select([]);
     const st = cadViewer.state();
-    return { plain, shown, hidden, removed, after,
+    return { plain, shown, hidden, removed, after, multi,
       overrides: { hidden: st.hidden, shown: st.shown, opacity: st.opacity, triangleEdges: st.triangleEdges },
       rec: cadViewer.record(false) };
   })()`) as { after: Record<string, { items: string[]; open: boolean; own: unknown; hidden: boolean;
-    drawn: boolean; panel?: string }> & { overrides: unknown; rec: { events: { type: string }[] } } };
+    drawn: boolean; panel?: string }> & { overrides: unknown; rec: { events: { type: string }[] }; multi: unknown } };
   const a = r.after;
   const j = JSON.stringify({ ...a, rec: undefined });
   expect(JSON.stringify(a.plain!.items) === '["Hide","Show","Override Appearance..."]' && !a.plain!.open &&
@@ -1070,7 +1090,30 @@ await check('tree menu hide and show', async () => {
   expect(a.removed!.own === null && !a.removed!.hidden && a.removed!.drawn && a.removed!.panel === 'inherit',
     `removed: ${j}`);
   expect(JSON.stringify(a.after!.items) === '["Hide","Show","Override Appearance..."]', `no Remove without: ${j}`);
-  expect(a.rec.events.filter((e) => e.type === 'appearance').length === 5, `recorded: ${j}`);
+  type Several = { items: string[]; open: boolean; owns: unknown[]; selected: number[]; focused: number };
+  const mu = a.multi as unknown as { hide: Several; show: Several; remove: Several; outside: Several; opened: Several;
+    panel: string; name: string; p: number[] };
+  // (How many, on several: Remove's those with an override, one of the two at first.)
+  const all = '["Hide 2","Show 2","Override Appearance...","Remove Appearance Override 1"]';
+  const both = JSON.stringify(mu.p.slice(0, 2));
+  expect(JSON.stringify(mu.hide.items) === all && JSON.stringify(mu.hide.owns) ===
+    '[{"hidden":true},{"transparent":true,"alpha":0.5,"hidden":true},null]' && JSON.stringify(mu.hide.selected) ===
+    both, `Hide on the selection: ${j}`);
+  expect(JSON.stringify(mu.show.owns) === '[{"hidden":false},{"transparent":true,"alpha":0.5,"hidden":false},null]',
+    `Show on the selection: ${j}`);
+  expect(mu.panel === `Override Appearance: ${mu.name}`, `Override Appearance... on the one clicked: ${j}`);
+  expect(JSON.stringify(mu.remove.items) === '["Hide 2","Show 2","Override Appearance...",' +
+    '"Remove Appearance Override 2"]' && JSON.stringify(mu.remove.owns) === '[null,null,null]',
+    `Remove on the selection: ${j}`);
+  expect(JSON.stringify(mu.outside.items) === '["Hide","Show","Override Appearance..."]' &&
+    JSON.stringify(mu.outside.owns) === '[null,null,{"hidden":true}]' && JSON.stringify(mu.outside.selected) === both,
+    `outside the selection, that one alone: ${j}`);
+  // The focus (the outlined row) moved to each row right-clicked, the selection kept.
+  expect(mu.hide.focused === mu.p[0] && mu.show.focused === mu.p[1] && mu.outside.focused === mu.p[2] &&
+    mu.opened.focused === mu.p[0] && mu.opened.open,
+    `the focus on the row right-clicked: ${j}`);
+  // (Each node's change recorded: 5 above, the second part's override, 2 each for Hide, Show and Remove, 1 outside.)
+  expect(a.rec.events.filter((e) => e.type === 'appearance').length === 13, `recorded: ${j}`);
   const replayed = await page('?check', `(async () => {
     await cadViewer.ready;
     const report = await cadViewer.replay(${JSON.stringify(a.rec)});

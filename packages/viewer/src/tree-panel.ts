@@ -93,7 +93,7 @@ export class TreePanel {
       },
     });
     this.container = container;
-    // A row's context menu: right-click, or a long press with a finger.
+    // A row's context menu: right-click, or a long press with a finger; the focus moved to the row (the selection not).
     const rowAt = (target: EventTarget | null) => {
       const row = (target as HTMLElement | null)?.closest?.<HTMLElement>('.tree-row');
       return row?.dataset.id === undefined ? undefined : Number(row.dataset.id);
@@ -106,6 +106,7 @@ export class TreePanel {
       const id = rowAt(e.target), m = e as MouseEvent;
       if (id === undefined) return;
       e.preventDefault();
+      this.view.focus(String(id));
       this.onContextMenu?.(id, m.clientX, m.clientY);
     });
     let press: { timer: ReturnType<typeof setTimeout>; x: number; y: number } | undefined;
@@ -119,6 +120,7 @@ export class TreePanel {
       if (p.pointerType !== 'touch' || id === undefined) return;
       press = { x: p.clientX, y: p.clientY, timer: setTimeout(() => {
         press = undefined;
+        this.view.focus(String(id));
         this.onContextMenu?.(id, p.clientX, p.clientY);
       }, LONG_PRESS_MS) };
     });

@@ -2,6 +2,7 @@
 // and deployed with them) fetched each time the dialog opens, past the browser's cache (asked for, so not traffic of
 // the page's own; the service worker never caches content/), and offered as a list.
 
+import { compact } from './compact.ts';
 import { showDialog } from './dialog.ts';
 import { contentUrl } from './sources.ts';
 
@@ -21,15 +22,7 @@ export function parseCatalog(json: unknown): DemoModel[] {
 
 /** A size as 512B, 8.2k, 23.4M or 8.2G (powers of 1000, as macOS and most file managers count). */
 export function formatSize(bytes: number): string {
-  if (bytes < 1000) return `${Math.round(bytes)}B`;
-  const units = ['k', 'M', 'G', 'T'];
-  let v = bytes / 1000, u = 0;
-  // (Rounded first, so 999,960 bytes is 1.0M, not 1000.0k.)
-  while (Number(v.toFixed(1)) >= 1000 && u < units.length - 1) {
-    v /= 1000;
-    u++;
-  }
-  return `${v.toFixed(1)}${units[u]}`;
+  return bytes < 1000 ? `${Math.round(bytes)}B` : compact(bytes);
 }
 
 /** The catalog, fetched now; throws with what went wrong. */

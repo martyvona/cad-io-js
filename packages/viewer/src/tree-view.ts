@@ -35,6 +35,8 @@ export interface TreeView {
   redraw(): void;
   /** Sets the selection (from elsewhere, as picking in 3D), without reporting it back. */
   setSelection(ids: readonly string[]): void;
+  /** Moves the focus (the outlined row the arrow keys move from) to a node, the selection left as it is. */
+  focus(id: string): void;
   /** Expands these nodes (leaving others as they are). */
   expand(ids: readonly string[]): void;
   /** The expanded nodes. */
