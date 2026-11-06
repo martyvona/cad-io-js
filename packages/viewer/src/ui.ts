@@ -29,6 +29,9 @@ import { visibleBox, WorkerLost, type Viewer } from './viewer.ts';
 import type { AppearanceOverride, NodeModel, PathOverride, Slot } from './model.ts';
 import { appearanceOpen, closeAppearance, refreshAppearance, showAppearance } from './appearance-dialog.ts';
 import { closeMenu, showMenu } from './context-menu.ts';
+import { askScreenshot } from './screenshot-dialog.ts';
+import { canCaptureTab, captureTab, encode, freeArea, modelRect, redrawWindow, snapped, type Rect }
+  from './screenshot.ts';
 
 /** What the browser check reaches through `globalThis.ui`. */
 export interface Ui {
@@ -198,6 +201,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   let saving: Source | undefined;
   let saveControl: { enable(on?: boolean): unknown; disable(): unknown } | undefined;
   let exportControl: { enable(on?: boolean): unknown; disable(): unknown } | undefined;
+  let screenshotControl: { enable(on?: boolean): unknown; disable(): unknown } | undefined;
   /**
    * The model loaded and meshed again, the view kept (Mesh again); `as` the settings to mesh with instead of the
    * controls' (a model lost with the import worker, made again as it was: the controls back after).
@@ -215,6 +219,67 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     const done = open(async () => last, last.name, true);
     if (before) void done.finally(() => ui.setMeshing(before));
     return done;
+  };
+  // The model's box on screen: its sphere's, where it can be seen between the tree panel (when open) and the
+  // controls, in whole pixels; undefined when none of it can.
+  const modelBox = (): Rect | undefined => {
+    const circle = viewer.modelCircle();
+    if (!circle) return undefined;
+    const rect = (e: Element | null) => {
+      const r = e?.getBoundingClientRect();
+      return r ? { left: r.left, top: r.top, width: r.width, height: r.height } : undefined;
+    };
+    const tree = document.body.classList.contains('tree-closed') ? undefined : rect(document.getElementById('side'));
+    const box = modelRect(circle, freeArea(rect(viewer.renderer.domElement)!, tree, rect(gui.domElement)));
+    return box && snapped(box);
+  };
+  // Screenshot...: what to take (screenshot-dialog.ts), where to save it asked while the dialog's click still lets
+  // the page open the save dialog, then taken (the dialog gone) and written. Tab capture asks the browser first, so
+  // it's taken first; if the save dialog then needs a click of its own, a second dialog asks for one.
+  const screenshot = async () => {
+    const model = viewer.model;
+    if (!model) return;
+    const box = modelBox();
+    const choice = await askScreenshot({ model: box, window: { width: window.innerWidth, height: window.innerHeight },
+      tab: canCaptureTab() });
+    if (!choice) return;
+    const ext = choice.format === 'png' ? '.png' : '.jpg';
+    const name = `${model.name.replace(/\.[^.]*$/, '') || 'model'}${ext}`;
+    const type = { description: choice.format === 'png' ? 'PNG image' : 'JPEG image', mime: `image/${choice.format}`,
+      ext };
+    const target = async () => {
+      try {
+        return await saveTarget(name, type);
+      } catch (e) {
+        if (!['SecurityError', 'NotAllowedError'].includes((e as Error).name)) throw e;
+        const r = await showDialog({ title: 'Save the screenshot', body: [`${name} is taken.`],
+          buttons: [{ label: 'Save...', value: 'save', primary: true }, { label: 'Cancel', value: 'cancel' }] });
+        return r.button === 'save' ? saveTarget(name, type) : undefined;
+      }
+    };
+    try {
+      const tab = choice.what === 'window' && choice.how === 'tab';
+      let image = tab ? await captureTab(choice.width) : undefined;
+      const t = await target();
+      if (!t) return;
+      if (!image) {
+        // (The dialog gone from the page before it's taken.)
+        await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+        if (choice.what === 'model') {
+          const now = modelBox();
+          if (!now) throw new Error('the model is out of view');
+          image = viewer.viewImage(now, choice.width, { transparent: choice.transparent && choice.format === 'png' });
+        } else image = await redrawWindow(viewer.renderer.domElement, () => viewer.snapshot(), choice.width);
+      }
+      const bg = getComputedStyle(document.documentElement).getPropertyValue('--view-bg').trim() || '#404040';
+      const blob = await encode(image, choice.format, bg);
+      await t.write([blob]);
+      say(`${t.how} ${name} (${image.width} x ${image.height})`);
+    } catch (e) {
+      say(`screenshot ${name}: ${(e as Error).message}`, true);
+      void showDialog({ title: `Could not take ${name}`, error: true, body: [(e as Error).message],
+        buttons: [{ label: 'OK', value: 'ok', primary: true }] });
+    }
   };
   const exportFile = async () => {
     const src = saving;
@@ -397,6 +462,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   // lets the page open the save dialog), then made in the import worker (export-model.ts) and written; a .gltf with its
   // buffer beside it asks again for the .bin.
   exportControl = file.add({ export: () => exportFile() }, 'export').name('Export...').disable();
+  screenshotControl = file.add({ shot: () => screenshot() }, 'shot').name('Screenshot...').disable();
   // (With the model open: its file, objects and triangles, as they are now.)
   file.add({ about: () => {
     const s = viewer.model && viewer.stats();
@@ -618,6 +684,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     saving = last;
     saveControl?.enable(!!saving);
     exportControl?.enable(!!saving);
+    screenshotControl?.enable(!!saving);
     panel?.dispose();
     closeMenu();
     closeAppearance();

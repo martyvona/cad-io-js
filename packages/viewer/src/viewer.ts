@@ -29,6 +29,7 @@ import { DEPTH_BIAS_DEFLECTIONS, DEPTH_BIAS_PIXELS, depthBias } from './depth-bi
 import { modelInput, type Source } from './sources.ts';
 import { DEFAULT_RENDER, EDGES, type RenderSettings } from './style.ts';
 import { TriangleEdges } from './triangle-edges.ts';
+import { matte, scaledCanvas, type Circle, type Rect } from './screenshot.ts';
 import type { FromImportWorker, ToImportWorker } from './import-worker.ts';
 import type { Meshing, ModelEvent, ModelInput } from './model-load.ts';
 import type { Exported } from './export-model.ts';
@@ -1099,6 +1100,61 @@ export class Viewer {
   snapshot(): string {
     this.draw();
     return this.renderer.domElement.toDataURL('image/png');
+  }
+
+  /**
+   * The model's sphere as the camera shows it, in the window's CSS pixels (an orthographic view: a circle), or
+   * undefined with nothing to show.
+   */
+  modelCircle(): Circle | undefined {
+    const s = this.modelSphere();
+    if (s.isEmpty()) return undefined;
+    this.draw();
+    const r = this.renderer.domElement.getBoundingClientRect();
+    const client = (p: THREE.Vector3) => {
+      const q = p.clone().project(this.camera);
+      return { x: r.left + (q.x + 1) / 2 * r.width, y: r.top + (1 - q.y) / 2 * r.height };
+    };
+    const c = client(s.center);
+    const right = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 0).normalize();
+    const e = client(s.center.clone().addScaledVector(right, s.radius));
+    return { x: c.x, y: c.y, r: Math.hypot(e.x - c.x, e.y - c.y) };
+  }
+
+  /**
+   * Part of the view (`crop`, in the window's CSS pixels) drawn now, `width` pixels wide: read from the canvas at its
+   * own resolution (device pixels) and scaled once, in the task that drew it.
+   */
+  viewImage(crop: Rect, width: number, opts: { transparent?: boolean } = {}): HTMLCanvasElement {
+    const canvas = this.renderer.domElement, r = canvas.getBoundingClientRect();
+    const k = canvas.width / r.width;
+    const px = { left: Math.round((crop.left - r.left) * k), top: Math.round((crop.top - r.top) * k),
+      width: Math.max(1, Math.round(crop.width * k)), height: Math.max(1, Math.round(crop.height * k)) };
+    if (!opts.transparent) {
+      this.draw();
+      return scaledCanvas(canvas, px, width);
+    }
+    // Drawn on black and on white, each read in the task that drew it, the background put back after (matte).
+    const bg = this.scene.background as THREE.Color, was = bg.getHex();
+    const on = (hex: number) => {
+      bg.setHex(hex);
+      this.draw();
+      const c = Object.assign(document.createElement('canvas'), { width: px.width, height: px.height });
+      const g = c.getContext('2d', { willReadFrequently: true })!;
+      g.drawImage(canvas, px.left, px.top, px.width, px.height, 0, 0, px.width, px.height);
+      return g.getImageData(0, 0, px.width, px.height);
+    };
+    let black, white;
+    try {
+      black = on(0x000000);
+      white = on(0xffffff);
+    } finally {
+      bg.setHex(was);
+      this.draw();
+    }
+    const c = Object.assign(document.createElement('canvas'), { width: px.width, height: px.height });
+    c.getContext('2d')!.putImageData(new ImageData(matte(black.data, white.data), px.width, px.height), 0, 0);
+    return scaledCanvas(c, { left: 0, top: 0, width: px.width, height: px.height }, width);
   }
 
   /**

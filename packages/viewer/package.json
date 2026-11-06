@@ -14,14 +14,15 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "3mf-import": "0.2.0",
     "@headless-tree/core": "1.7.0",
+    "3mf-import": "0.2.0",
     "cad-scene": "0.2.0",
     "draco3dgltf": "1.5.9",
     "export-3mf": "0.2.0",
     "export-gltf": "0.2.0",
     "export-threejs": "0.2.0",
     "gltf-import": "0.2.0",
+    "modern-screenshot": "4.7.0",
     "n8ao": "2.0.1",
     "postprocessing": "6.39.5",
     "step-import": "0.2.0",

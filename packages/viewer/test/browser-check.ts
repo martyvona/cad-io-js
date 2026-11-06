@@ -185,7 +185,8 @@ if (process.env.BUILD) {
 } else if (await main(['start', '--content-root', content, '--port', String(port)], io) !== 0) process.exit(1);
 
 // Headless Chrome (server/headless.ts): a tab per page, polled until the page reports.
-const headless = await launchChrome(path.join(tmp, 'chrome'), { chrome });
+// (Tab capture accepted without its prompt, for Screenshot...'s check.)
+const headless = await launchChrome(path.join(tmp, 'chrome'), { chrome, args: ['--auto-accept-this-tab-capture'] });
 const send = headless.send;
 
 /** Opens a page and waits for its report; `after`, an expression, is then evaluated there, its value the `after`. */
@@ -2175,6 +2176,22 @@ await check('phone', async () => {
     for (let k = 1; k <= 4; k++) await touch('touchMove', opened.x + 15 * k);
     await touch('touchEnd');
     const dragged = await evaluate(sessionId, widths) as W;
+    // Screenshot...'s model width with the tree over the view: starting right of the tree.
+    const shotWidth = await evaluate(sessionId, `(async () => {
+      const frame = () => new Promise((res) => requestAnimationFrame(() => setTimeout(res, 0)));
+      const shot = ui.gui.controllersRecursive().find((c) => c._name === 'Screenshot...');
+      const done = shot.getValue().call(shot.object);
+      let d;
+      for (let i = 0; i < 100 && !(d = document.querySelector('dialog.cv-dialog')); i++) await frame();
+      const w = +d.querySelector('input[type=number]').value, what = d.querySelectorAll('select')[1].value;
+      d.querySelector('button[value=cancel]').click();
+      await done;
+      const c = viewer.modelCircle(), cv = viewer.renderer.domElement.getBoundingClientRect();
+      const side = document.getElementById('side').getBoundingClientRect().right;
+      const g = ui.gui.domElement.getBoundingClientRect().left;
+      const left = Math.max(cv.left, side, c.x - c.r), right = Math.min(cv.right, g > left ? g : cv.right, c.x + c.r);
+      return { w, what, side, from: c.x - c.r, expected: Math.round(right) - Math.round(left) };
+    })()`) as { w: number; what: string; side: number; from: number; expected: number };
     // A width set where it fit (as before turning the phone upright): capped at 40 pixels from the window's edge.
     // (The remembered width forgotten again: later pages share this browser's storage.)
     const wide = await evaluate(sessionId, `(document.documentElement.style.setProperty('--side', '500px'),
@@ -2193,15 +2210,19 @@ await check('phone', async () => {
       d?.querySelector('button')?.click();
       return out;
     })()`) as { panel: boolean; select: boolean };
-    return { selected, opened, dragged, wide, focus };
+    return { selected, opened, dragged, wide, focus, shotWidth };
   } }) as { after?: { treeClosed: boolean; guiClosed: boolean; overscroll: string; touch: number; handle: string;
     workers: number; spot?: { id: number; x: number; y: number }; triangles: number; edgeStyle: string;
     device: { detected: string; used: string; profile: string } }; then?: { selected: number[];
     opened: { side: number; handle: number; saved: string | null }; dragged: { side: number; saved: string | null };
-    wide: number; focus: { panel: boolean; select: boolean } } };
+    wide: number; focus: { panel: boolean; select: boolean };
+    shotWidth: { w: number; what: string; side: number; from: number; expected: number } } };
   const a = r.after!;
   const j = JSON.stringify(a);
   expect(a.treeClosed && a.guiClosed, `closed at first: ${j}`);
+  const sw = r.then?.shotWidth;
+  expect(!!sw && sw.what === 'model' && sw.from < sw.side && Math.abs(sw.w - sw.expected) <= 1,
+    `Screenshot...'s model width beside the tree over the view: ${JSON.stringify(sw)}`);
   expect(r.then?.focus.panel === true && !r.then.focus.select, `Override Appearance's focus on a touch screen: ${
     JSON.stringify(r.then?.focus)}`);
   expect(a.device.detected === 'phone' && a.device.used === 'phone' && a.device.profile === 'coarse' &&
@@ -3974,6 +3995,190 @@ await check('open errors', async () => {
   expect(!!unreachable?.error && /could not fetch/.test(unreachable.text), `a server not reached: ${j}`);
   expect(quiet === null, `none in plain ?check pages: ${j}`);
   expect(!!typed?.error && /not a URL, nor a path within the content root/.test(typed.text), `a bad address: ${j}`);
+  return undefined;
+});
+// Screenshot..., between Export... and About...: disabled with no model; the model alone at its default width, the
+// square of its sphere's circle within the view between the tree and the controls (worked out here from the camera),
+// and at twice that, the height in proportion, its pixels the view's there; with a transparent background (over the
+// view's, the opaque image again); JPEG (no transparency offered); the whole window redrawn, as wide as
+// the window, the controls' pixels in it and the view's; the browser's tab capture where headless Chrome gives one; the
+// choices remembered; Cancel saving nothing; the model out of view: only the window offered.
+await check('screenshot', async () => {
+  const r = await page(`?check`, `(async () => {
+    await cadViewer.ready;
+    const all = ui.gui.controllersRecursive();
+    const shot = all.find((c) => c._name === 'Screenshot...');
+    const names = all.map((c) => c._name);
+    const order = [names.indexOf('Export...'), names.indexOf('Screenshot...'), names.indexOf('About...')];
+    const before = shot._disabled;
+    await ui.openUrl('/content/as1.stp');
+    await cadViewer.idle();
+    viewer.flightMs = 0;
+    viewer.zoomAll();
+    await cadViewer.idle();
+    const frame = () => new Promise((res) => requestAnimationFrame(() => setTimeout(res, 0)));
+    const waitFor = async (f) => { for (let i = 0; i < 600; i++) { const x = f(); if (x) return x; await frame(); } };
+    const files = [];
+    window.showSaveFilePicker = async (o) => {
+      const f = { name: o.suggestedName, accept: Object.values(o.types?.[0]?.accept ?? {}).flat() };
+      files.push(f);
+      return { createWritable: async () => ({ write: async (d) => { f.bytes = new Uint8Array(await d.arrayBuffer()); },
+        close: async () => {} }) };
+    };
+    // The image's size, its first bytes, and its pixel at a point (fractions of its width and height).
+    const read = async (bytes, at = []) => {
+      const bm = await createImageBitmap(new Blob([bytes]));
+      const c = Object.assign(document.createElement('canvas'), { width: bm.width, height: bm.height });
+      const g = c.getContext('2d');
+      g.drawImage(bm, 0, 0);
+      return { width: bm.width, height: bm.height, magic: [...bytes.slice(0, 2)],
+        px: at.map(([x, y]) => [...g.getImageData(Math.floor(x * (bm.width - 1)), Math.floor(y * (bm.height - 1)), 1,
+          1).data]) };
+    };
+    // The view drawn now, and its pixel at a point of the window (CSS pixels).
+    const viewPx = async (pts) => {
+      const img = new Image();
+      img.src = viewer.snapshot();
+      await img.decode();
+      const cv = viewer.renderer.domElement, rc = cv.getBoundingClientRect(), k = cv.width / rc.width;
+      const c = Object.assign(document.createElement('canvas'), { width: cv.width, height: cv.height });
+      const g = c.getContext('2d');
+      g.drawImage(img, 0, 0);
+      return pts.map(([x, y]) => [...g.getImageData(Math.floor((x - rc.left) * k), Math.floor((y - rc.top) * k), 1,
+        1).data]);
+    };
+    // Screenshot... with these choices; what the dialog showed, and the file.
+    const run = async (o = {}) => {
+      files.length = 0;
+      const done = shot.getValue().call(shot.object);
+      const d = await waitFor(() => document.querySelector('dialog.cv-dialog'));
+      const [format, what, how] = d.querySelectorAll('select');
+      const width = d.querySelector('input[type=number]');
+      const shown = { format: format.value, what: what.value, how: how.value, modelOffered: !what.options[0].disabled,
+        howShown: !how.closest('label').hidden };
+      if (o.what) { what.value = o.what; what.dispatchEvent(new Event('change')); }
+      if (o.how) { how.value = o.how; how.dispatchEvent(new Event('change')); }
+      if (o.format) { format.value = o.format; format.dispatchEvent(new Event('change')); }
+      const clear = d.querySelector('input[type=checkbox]');
+      shown.clearAtOpen = clear.checked;
+      if (o.transparent !== undefined) clear.checked = o.transparent;
+      shown.transparentShown = !clear.closest('label').hidden;
+      shown.width = +width.value;
+      if (o.width) {
+        width.value = String(o.width);
+        width.dispatchEvent(new Event('input'));
+        width.dispatchEvent(new Event('change'));
+      }
+      shown.height = d.querySelector('p.note').textContent;
+      d.querySelector(o.cancel ? 'button[value=cancel]' : 'button.primary').click();
+      await done;
+      return { shown, file: files[0] };
+    };
+    // The model's box, worked out here: its sphere through the camera, within the tree's right and the controls' left.
+    const s = viewer.modelSphere(), cv = viewer.renderer.domElement.getBoundingClientRect();
+    const toPx = (p) => { const q = p.clone().project(viewer.camera); return [cv.left + (q.x + 1) / 2 * cv.width,
+      cv.top + (1 - q.y) / 2 * cv.height]; };
+    const [cx, cy] = toPx(s.center);
+    const up = s.center.clone().add(viewer.camera.up.clone().normalize().multiplyScalar(s.radius)), [, uy] = toPx(up);
+    const rad = Math.abs(uy - cy);
+    const left = Math.max(cv.left, document.getElementById('side').getBoundingClientRect().right, cx - rad);
+    const right = Math.min(cv.right, ui.gui.domElement.getBoundingClientRect().left, cx + rad);
+    const top = Math.max(cv.top, cy - rad), bottom = Math.min(cv.bottom, cy + rad);
+    const expected = { width: Math.round(right) - Math.round(left), height: Math.round(bottom) - Math.round(top) };
+    const centre = [(left + right) / 2, (top + bottom) / 2];
+    const m1 = await run({ what: 'model', format: 'png' });
+    const model = { ...m1, image: await read(m1.file.bytes, [[0.5, 0.5]]), view: await viewPx([centre]) };
+    // Transparent: over the view's background, the opaque one again, but for a few pixels of the outline, where SMAA's
+    // edge detection depends on the background (at most 0.2 %); the background as it was, after.
+    // (On a background of the view's own, neither black nor white, so putting it back shows.)
+    viewer.setBackground(0x336699);
+    await cadViewer.idle();
+    const o1 = await run({ what: 'model', format: 'png', transparent: false });
+    const bgBefore = viewer.scene.background.getHex();
+    const c1 = await run({ what: 'model', format: 'png', transparent: true });
+    const clear = await (async () => {
+      const [o, t] = await Promise.all([o1.file.bytes, c1.file.bytes].map((b) => createImageBitmap(new Blob([b]))));
+      const fill = (bm, bg) => {
+        const c = Object.assign(document.createElement('canvas'), { width: bm.width, height: bm.height });
+        const g = c.getContext('2d');
+        if (bg) { g.fillStyle = bg; g.fillRect(0, 0, c.width, c.height); }
+        g.drawImage(bm, 0, 0);
+        return g.getImageData(0, 0, c.width, c.height).data;
+      };
+      const opaque = fill(o), raw = fill(t), over = fill(t, '#' + bgBefore.toString(16).padStart(6, '0'));
+      let off = 0, none = 0, full = 0;
+      for (let i = 0; i < opaque.length; i += 4) {
+        let d = 0;
+        for (let k = 0; k < 3; k++) d = Math.max(d, Math.abs(opaque[i + k] - over[i + k]));
+        if (d > 6) off++;
+        if (raw[i + 3] === 0) none++;
+        if (raw[i + 3] === 255) full++;
+      }
+      return { size: [t.width, t.height, o.width, o.height], off, none, full, pixels: opaque.length / 4 };
+    })();
+    const bgAfter = viewer.scene.background.getHex();
+    viewer.setBackground(undefined);
+    await cadViewer.idle();
+    const m2 = await run({ what: 'model', width: 2 * model.shown.width, transparent: false });
+    const twice = { ...m2, image: await read(m2.file.bytes) };
+    const j1 = await run({ what: 'model', format: 'jpeg' });
+    const jpeg = { name: j1.file.name, accept: j1.file.accept, image: await read(j1.file.bytes),
+      transparentShown: j1.shown.transparentShown };
+    // The whole window: a point in the controls' title bar, and one in the view (left of the controls).
+    const gt = ui.gui.domElement.querySelector('.title').getBoundingClientRect();
+    // (Near its right end, clear of the title's text.)
+    const inGui = [(gt.right - 6) / innerWidth, (gt.top + gt.bottom) / 2 / innerHeight];
+    const guiColour = getComputedStyle(ui.gui.domElement.querySelector('.title')).backgroundColor;
+    const w1 = await run({ what: 'window', how: 'redraw', format: 'png' });
+    const win = { ...w1, image: await read(w1.file.bytes, [inGui, [centre[0] / innerWidth, centre[1] / innerHeight]]),
+      view: await viewPx([centre]), guiColour, inner: [innerWidth, innerHeight] };
+    let tab;
+    try {
+      const t1 = await run({ what: 'window', how: 'tab' });
+      tab = t1.file ? { ...t1, image: await read(t1.file.bytes) } : { error: 'no file' };
+    } catch (e) { tab = { error: String(e) }; }
+    const remembered = (await run({ cancel: true })).shown;
+    const cancelled = files.length;
+    // Out of view: only the window.
+    viewer.panBy(5000, 0);
+    await cadViewer.idle();
+    const away = (await run({ cancel: true })).shown;
+    return { order, before, after: shot._disabled, expected, model, clear, bg: [bgBefore, bgAfter],
+      clearShown: c1.shown.transparentShown, twice, jpeg, win, tab, remembered, cancelled,
+      away, status: document.getElementById('status').textContent };
+  })()`) as { after: Record<string, any> };
+  const a = r.after;
+  const j = JSON.stringify({ ...a, model: { ...a.model, file: undefined }, twice: undefined, win: { ...a.win,
+    file: undefined }, tab: { ...a.tab, file: undefined } });
+  const near = (p: number[], q: number[], d: number) => p.slice(0, 3).every((v, k) => Math.abs(v - q[k]!) <= d);
+  expect(a.order[0] >= 0 && a.order[1] === a.order[0] + 1 && a.order[2] === a.order[1] + 1 && a.before === true &&
+    a.after === false, `between Export... and About..., enabled with a model: ${j}`);
+  const m = a.model;
+  expect(m.shown.what === 'model' && Math.abs(m.shown.width - a.expected.width) <= 1 && m.file.name === 'as1.png' &&
+    m.image.width === m.shown.width && Math.abs(m.image.height - a.expected.height) <= 1 &&
+    JSON.stringify(m.image.magic) === '[137,80]', `the model alone, at its box's width: ${j}`);
+  expect(near(m.image.px[0], m.view[0], 24), `the model's pixels the view's: ${j}`);
+  const c = a.clear;
+  expect(a.clearShown && c.size[0] === c.size[2] && c.size[1] === c.size[3] && c.none > c.pixels / 20 &&
+    c.full > c.pixels / 20 && c.off <= c.pixels / 500 && a.bg[0] === a.bg[1] && a.twice.shown.clearAtOpen === true, `a transparent background (over the view's, the `
+    + `opaque image again): ${JSON.stringify(c)} ${JSON.stringify(a.bg)}`);
+  const t = a.twice;
+  expect(t.image.width === 2 * m.image.width && Math.abs(t.image.height - 2 * m.image.height) <= 1,
+    `twice as wide, in proportion: ${t.image.width} x ${t.image.height}`);
+  expect(a.jpeg.name === 'as1.jpg' && a.jpeg.accept.includes('.jpg') && JSON.stringify(a.jpeg.image.magic) ===
+    '[255,216]' && a.jpeg.image.width === m.image.width && !a.jpeg.transparentShown, `JPEG: ${j}`);
+  const w = a.win;
+  const gui = (w.guiColour.match(/\d+/g) ?? []).map(Number);
+  expect(w.shown.width === w.inner[0] && w.image.width === w.inner[0] && w.image.height === w.inner[1],
+    `the whole window, as wide: ${j}`);
+  expect(near(w.image.px[0], gui, 12) && near(w.image.px[1], w.view[0], 24), `the window's controls and view: ${j}`);
+  // (Headless Chrome's tab capture, accepted by its flag, where it gives one.)
+  if (a.tab.error) console.log(`  (tab capture not checked: ${a.tab.error})`);
+  else expect(a.tab.image.width === a.tab.shown.width && a.tab.shown.howShown, `the tab captured: ${j}`);
+  expect(a.remembered.format === 'png' && a.remembered.what === 'window' && (!!a.tab.error || a.remembered.how ===
+    'tab'), `remembered (the last saved: the tab capture's choices): ${j}`);
+  expect(a.cancelled === 0, `cancelled, nothing saved: ${j}`);
+  expect(a.away.what === 'window' && !a.away.modelOffered, `out of view, only the window: ${j}`);
   return undefined;
 });
 // File's Save...: disabled with no model; the save dialog (File System Access, stubbed) suggested the file's name (a
