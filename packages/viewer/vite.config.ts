@@ -91,6 +91,25 @@ const licenses = (): Plugin => ({
   },
 });
 
+/** The repository's documents published as PDFs with a build (About links them), as Markdown and PDF names. */
+export const DOCUMENT_PDFS = [['README.md', 'README.pdf'], ['step_tutorial.md', 'step_tutorial.pdf']] as const;
+
+/**
+ * The documents' PDFs beside index.html (scripts/md2pdf.sh, with Typst, which it fetches the first time). Left out of
+ * the service worker's precache (its patterns), as they're only read online.
+ */
+const documentPdfs = (): Plugin => ({
+  name: 'cad-viewer-document-pdfs',
+  apply: 'build',
+  writeBundle(out) {
+    const repo = path.resolve(import.meta.dirname, '../..');
+    for (const [md, pdf] of DOCUMENT_PDFS) {
+      execFileSync(path.join(repo, 'scripts/md2pdf.sh'), [path.join(repo, md), path.join(out.dir!, pdf)],
+        { stdio: ['ignore', 'ignore', 'inherit'] });
+    }
+  },
+});
+
 /**
  * version.json beside index.html: the version the build was made as (update-check.ts compares it with its own to tell
  * a page that the server has another), and on the dev server the dev version. Left out of the service worker's
@@ -170,7 +189,8 @@ export default defineConfig(({ command }) => {
     base: './',
     resolve: { alias: [{ find: /^node:(fs|fs\/promises|path)$/, replacement: path.join(import.meta.dirname,
       'src/no-node.ts') }] },
-    plugins: [content(), jsonImports(), licenses(), versionFile(v), ...(opts.https === 'self' ? [basicSsl()] : []),
+    plugins: [content(), jsonImports(), licenses(), documentPdfs(), versionFile(v),
+      ...(opts.https === 'self' ? [basicSsl()] : []),
       pwa],
     server: {
       port: opts.port, strictPort: true, host: opts.lan ? '0.0.0.0' : 'localhost', allowedHosts: true,

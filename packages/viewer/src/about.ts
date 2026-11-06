@@ -82,6 +82,10 @@ export async function showAbout(model?: { rows: [string, string][]; properties: 
         ...(import.meta.env.PROD ? [{ text: ' What the viewer bundles, and under which licenses: ' },
           { text: 'licenses.md', href: new URL('licenses.md', document.baseURI).href }, { text: '.' }] : [])],
         [{ text: 'Source: ' }, { text: REPOSITORY.replace('https://', ''), href: REPOSITORY }],
+        // (A build has the README's and the STEP tutorial's PDFs beside the page too: vite.config.ts.)
+        ...(import.meta.env.PROD ? [[{ text: 'PDF documentation', href: new URL('README.pdf', document.baseURI).href },
+          { text: ' and ' }, { text: 'STEP tutorial', href: new URL('step_tutorial.pdf', document.baseURI).href },
+          { text: '.' }]] : []),
         ...(model ? [[{ text: 'Current model (' }, { text: 'details', action: () => void showFileDetails(
           model.properties, model.transforms) }, { text: '):' }], model.rows] : ['No model open.']),
       ],

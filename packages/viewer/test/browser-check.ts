@@ -2953,8 +2953,9 @@ await check('auto hide and select all', async () => {
     JSON.stringify(a.detailParents) === JSON.stringify(a.shownPaths), `detail: ${j}`);
   return undefined;
 });
-// About... (File): the authors, Marsette Vona first; the license; the repository's link; in a build, licenses.md's, which is
-// there; no model open, or the model's file, objects and triangles.
+// About... (File): the authors, Marsette Vona first; the license; the repository's link; in a build, licenses.md's
+// and the README's and STEP tutorial's PDFs, which are there; no model open, or the model's file, objects and
+// triangles.
 await check('about', async () => {
   const about = (query: string) => page(query, `(async () => {
     await cadViewer.ready; await cadViewer.idle();
@@ -2964,16 +2965,22 @@ await check('about', async () => {
     const links = [...d.querySelectorAll('a')].map((a) => ({ href: a.href, target: a.target, rel: a.rel }));
     const licenses = links.find((l) => /licenses\.md$/.test(l.href));
     const status = licenses ? (await fetch(licenses.href)).status : undefined;
+    const pdfs = links.filter((l) => /\.pdf$/.test(l.href));
+    const pdf = pdfs.length ? await Promise.all(pdfs.map((l) => fetch(l.href).then(async (r) => ({
+      name: l.href.split('/').pop(), status: r.status,
+      magic: new TextDecoder().decode((await r.arrayBuffer()).slice(0, 5)) })))) : undefined;
+    const pdfLine = [...d.querySelectorAll('p')].find((p) => p.querySelector('a[href$=".pdf"]'))?.textContent;
     // (The line saying the server has another version hidden, as it hasn't: the update badge check.)
     const text = [...d.querySelectorAll(':is(h2, p, table, .buttons):not([hidden])')].map((e) => e.textContent)
       .join('');
     const rows = [...d.querySelectorAll('tr')].map((r) => [...r.cells].map((c) => c.textContent));
     d.querySelector('.buttons button').click();
     await new Promise((res) => setTimeout(res, 100));
-    return { title: d.querySelector('h2').textContent, text, links, status, closed: !d.isConnected, rows,
+    return { title: d.querySelector('h2').textContent, text, links, status, pdf, pdfLine, closed: !d.isConnected, rows,
       triangles: viewer.stats()?.triangles, folders: ui.gui.foldersRecursive().map((f) => f._title) };
   })()`) as Promise<{ after: { title: string; text: string; links: { href: string; target: string; rel: string }[];
-    status?: number; closed: boolean; rows: string[][]; triangles?: number; folders: string[] } }>;
+    status?: number; pdf?: { name: string; status: number; magic: string }[]; pdfLine?: string; closed: boolean;
+    rows: string[][]; triangles?: number; folders: string[] } }>;
   const a = (await about('?check')).after;
   const m = (await about(`?url=${encodeURIComponent('/content/as1.stp')}&check`)).after;
   const j = JSON.stringify({ a, m });
@@ -2985,6 +2992,9 @@ await check('about', async () => {
   expect(a.links.some((l) => l.href === 'https://github.com/martyvona/cad-io-js') &&
     a.links.every((l) => l.target === '_blank' && l.rel === 'noopener'), `the links: ${j}`);
   expect(base === '/' ? a.status === undefined : a.status === 200, `licenses.md (a build's only): ${j}`);
+  expect(base === '/' ? a.pdf === undefined : a.pdfLine === 'PDF documentation and STEP tutorial.' &&
+    JSON.stringify(a.pdf?.map((p) => p.name)) === '["README.pdf","step_tutorial.pdf"]' &&
+    a.pdf!.every((p) => p.status === 200 && p.magic === '%PDF-'), `the PDFs (a build's only): ${j}`);
   expect(a.closed, `closed: ${j}`);
   return undefined;
 });
@@ -4940,8 +4950,8 @@ await check('missing file', async () => {
 
 // What a build holds (printing nothing as it's made): one Draco decoder (draco3dgltf's, for gltf-import in the import
 // worker: the GLBs above loaded through it) and its encoder (for Export..., export-gltf there); licenses.md with the
-// npm packages' licenses and OCCT's, not precached by its service worker (which precaches OCCT's module), nor is
-// version.json (update-check.ts).
+// npm packages' licenses and OCCT's, not precached by its service worker (which precaches OCCT's module), nor are
+// version.json (update-check.ts) and the documents' PDFs.
 if (staticServer) {
   await check('build', async () => {
     expect(buildOutput.trim() === '', `the build printed: ${buildOutput.slice(0, 1000)}`);
@@ -4956,8 +4966,11 @@ if (staticServer) {
       'licenses.md');
     expect(!fs.existsSync(path.join(dist, '.vite')), 'Vite\'s own licenses file left');
     const sw = fs.readFileSync(path.join(dist, 'sw.js'), 'utf8');
-    expect(sw.includes('occt_tess-') && !sw.includes('licenses.md') && !sw.includes('version.json'),
-      'the precache list');
+    expect(sw.includes('occt_tess-') && !sw.includes('licenses.md') && !sw.includes('version.json') &&
+      !sw.includes('.pdf'), 'the precache list');
+    for (const pdf of ['README.pdf', 'step_tutorial.pdf']) {
+      expect(fs.readFileSync(path.join(dist, pdf)).subarray(0, 5).toString() === '%PDF-', `no ${pdf}`);
+    }
     expect(fs.existsSync(path.join(dist, 'version.json')), 'no version.json');
     return undefined;
   });
