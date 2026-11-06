@@ -1,6 +1,6 @@
-// Selection: what selected nodes cover in the scene, and what's done with it (the user, 2026-10-24;
-// docs/claude/viewer.md): highlighting, details (counts, triangle area, edge and curve length, the placement among the
-// part's placements), the box for zoom selected, and the node a pick at a level stands for.
+// Selection: what selected nodes cover in the scene, and what's done with it (docs/claude/viewer.md): highlighting,
+// details (counts, triangle area, edge and curve length, the placement among the part's placements), the box for zoom
+// selected, and the node a pick at a level stands for.
 //
 // A node covers pieces: drawables whole (an assembly's or part's, or one drawable's), or some of a mesh's triangles
 // (a STEP face: its index ranges in the placement's mesh). Lengths are the world's millimetres.
@@ -102,9 +102,9 @@ export function measure(pieces: readonly Piece[]): Measures {
 }
 
 /**
- * The world sphere of pieces (zoom selected; the user, 2026-10-30: spheres, as zoom all): each one's box (a whole
- * object's geometry's, a partial one's vertices'), placed in the world by its corners, as the model's sphere is made
- * (cad-scene's boxesSphere). Empty for nothing.
+ * The world sphere of pieces (zoom selected: spheres, as zoom all): each one's box (a whole object's geometry's, a
+ * partial one's vertices'), placed in the world by its corners, as the model's sphere is made (cad-scene's
+ * boxesSphere). Empty for nothing.
  */
 export function sphereOf(pieces: readonly Piece[]): THREE.Sphere {
   const boxes: { box: Box; matrix: ArrayLike<number> }[] = [];

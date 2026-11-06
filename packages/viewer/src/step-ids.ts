@@ -1,8 +1,7 @@
-// STEP instance ids in the viewer (the user, 2026-10-28): the ids of the selected nodes in the details panel, Select
-// by ID (Selection), and the problems dialog's Copy IDs (problems.ts), whose list Select by ID reads back. A node's
-// ids: an assembly's occurrence's and its component's (scene-graph.ts's `userData.sources`: NAUOs, product
-// definitions), a part's (its shape representation), a face's (its own, where its part is from STEP); edges, curves
-// and points nodes have none.
+// STEP instance ids in the viewer: the ids of the selected nodes in the details panel, Select by ID (Selection), and
+// the problems dialog's Copy IDs (problems.ts), whose list Select by ID reads back. A node's ids: an assembly's
+// occurrence's and its component's (scene-graph.ts's `userData.sources`: NAUOs, product definitions), a part's (its
+// shape representation), a face's (its own, where its part is from STEP); edges, curves and points nodes have none.
 
 import type { NodeModel } from './model.ts';
 
@@ -20,8 +19,8 @@ export function stepIdsOf(model: NodeModel, ids: readonly number[]): number[] {
 }
 
 /**
- * Ids as text, `#12 #345`; past `max` characters (none: never), the whole ids that fit with ` ...` after them
- * (the user, 2026-10-28: never part of an id), at least the first.
+ * Ids as text, `#12 #345`; past `max` characters (none: never), the whole ids that fit with ` ...` after them (never
+ * part of an id), at least the first.
  */
 export function formatIds(ids: readonly number[], max?: number): string {
   const all = ids.map((id) => `#${id}`);

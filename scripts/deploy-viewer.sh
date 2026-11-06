@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
 
-# Deploys the viewer to GitHub Pages from this machine (the user, 2026-10-25; docs/claude/viewer.md): builds it
-# (packages/viewer, with the backends' WebAssembly modules as built here, which git doesn't hold) from a clean commit
-# that is already on the remote, so the source the build's licenses.md points to is public, and force-pushes the
-# build as the only commit of the gh-pages branch (history doesn't grow by the build's 12 MB each time). .nojekyll
-# keeps Pages from dropping files whose names start with "_". The demo models (test_corpus/demo/, the user's own) go
-# in content/demo/, the build's content root, so ?model=demo/<file> and Load URL... with demo/<file> work there as on
-# the dev server; the service worker doesn't precache them (they're fetched when asked for). The first deploy
-# creates the branch; then, once, set Pages to deploy from it, its root (the repository's Settings, Pages), which
-# can't be chosen before it exists.
+# Deploys the viewer to GitHub Pages from this machine (docs/claude/viewer.md): builds it (packages/viewer, with the
+# backends' WebAssembly modules as built here, which git doesn't hold) from a clean commit that is already on the
+# remote, so the source the build's licenses.md points to is public, and force-pushes the build as the only commit of
+# the gh-pages branch (history doesn't grow by the build's 12 MB each time). .nojekyll keeps Pages from dropping files
+# whose names start with "_". The demo models (test_corpus/demo/, the user's own) go in content/demo/, the build's
+# content root, so ?model=demo/<file> and Load URL... with demo/<file> work there as on the dev server; the service
+# worker doesn't precache them (they're fetched when asked for). The first deploy creates the branch; then, once, set
+# Pages to deploy from it, its root (the repository's Settings, Pages), which can't be chosen before it exists.
 #   scripts/deploy-viewer.sh [--dry-run]   (--dry-run: build and commit, print where, don't push; unpushed allowed)
 
 set -euo pipefail

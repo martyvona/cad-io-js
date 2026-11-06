@@ -1,9 +1,8 @@
-// Driving a tessellator over a scene: one request per brep part, with the part's origin and the deflection
-// converted from the scene's millimetres to the part's units; the results become the parts' meshes, with closed
-// shells that are inside out (and can't be voids' boundaries) turned over, so every consumer of the meshes, not just
-// the exporters, has them outward, and triangles with two corners at one position dropped first (both decided by the
-// user, 2026-10-22). The meshes become the parts' tessellated levels of detail (the user, 2026-10-29: the scene holds
-// its geometry, exact and meshed).
+// Driving a tessellator over a scene: one request per brep part, with the part's origin and the deflection converted
+// from the scene's millimetres to the part's units; the results become the parts' meshes, with closed shells that are
+// inside out (and can't be voids' boundaries) turned over, so every consumer of the meshes, not just the exporters, has
+// them outward, and triangles with two corners at one position dropped first. The meshes become the parts' tessellated
+// levels of detail (the scene holds its geometry, exact and meshed).
 
 import { degenerateMessage, dropDegenerate, faceFailures, orientShells } from './mesh.ts';
 import { addLod } from './lod.ts';
@@ -36,9 +35,8 @@ export interface TessellateOptions {
   dropDegenerate?: boolean;
   /**
    * Where faces fail to mesh (no triangles), or a whole part does (an error, a timeout), and the part can outline its
-   * faces from the source (Brep.outline): the outlines of those faces in the mesh (`faceOutlines`), and for a
-   * part that failed a mesh of its faces with no triangles, only outlines (the user, 2026-10-28: so a viewer can show
-   * where they are). Default false.
+   * faces from the source (Brep.outline): the outlines of those faces in the mesh (`faceOutlines`), and for a part that
+   * failed a mesh of its faces with no triangles, only outlines (so a viewer can show where they are). Default false.
    */
   outlines?: boolean;
   /**
@@ -94,12 +92,12 @@ export function toMesh(r: TessellationResult): Mesh {
 
 /**
  * A part's mesh with the outlines of its faces that failed (faceFailures, against the part's own face list from the
- * source where it has one, the faces left out given a range of none, and by the part's measures where it has them):
- * a face that failed wholly by the backend's polylines where it gave them (a failed piece's own edges, meeting its
+ * source where it has one, the faces left out given a range of none, and by the part's measures where it has them): a
+ * face that failed wholly by the backend's polylines where it gave them (a failed piece's own edges, meeting its
  * neighbours' meshes), else the source's; one that failed otherwise (partly, excess, unverified) by the source's whole
- * outline (the user, 2026-10-30). For a part that failed (no mesh), a mesh of its faces with only their outlines. As
- * it was if nothing failed, less any backend outlines of faces that didn't. Outlining is approximate and must never
- * fail a part: its errors are diagnostics.
+ * outline. For a part that failed (no mesh), a mesh of its faces with only their outlines. As it was if nothing failed,
+ * less any backend outlines of faces that didn't. Outlining is approximate and must never fail a part: its errors are
+ * diagnostics.
  */
 function outlined(part: Part & { brep: NonNullable<Part['brep']> }, mesh: Mesh | undefined, linearDeflection: number,
   angularDeflection: number, diagnostics: Diagnostic[], source: Diagnostic['source'], measures: Measures | undefined):

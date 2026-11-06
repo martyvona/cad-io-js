@@ -79,8 +79,8 @@ for (const f of corpusFiles(process.argv[2])) {
   }
   totals.readMs += performance.now() - tr;
   for (const w of [...read.warnings, ...assembled.warnings]) problem(`lib3mf warning: ${w}`);
-  // The model in the source's unit where 3MF names it (the user, 2026-11-01): lib3mf's unit, in its enumeration's
-  // order; the items' transforms in it.
+  // The model in the source's unit where 3MF names it: lib3mf's unit, in its enumeration's order; the items' transforms
+  // in it.
   const unit = modelUnit(scene.sourceUnit);
   const unitIndex = ['micron', 'millimeter', 'centimeter', 'inch', 'foot', 'meter'].indexOf(unit.name);
   totals.units.set(unit.name, (totals.units.get(unit.name) ?? 0) + 1);
@@ -129,7 +129,7 @@ for (const f of corpusFiles(process.argv[2])) {
     else problem(`object ${id}: type ${m.type}`);
     // A model: manifold and oriented by lib3mf's check, and of positive volume (lib3mf doesn't check the sign); a
     // surface fails one of them.
-    // (And not said to be open by the source: then a surface however its mesh closes, the user, 2026-10-27.)
+    // (And not said to be open by the source: then a surface however its mesh closes.)
     const solid = m.manifold && volume(m.positions, m.triangles) > 0 && scene.parts[look.part]!.closed !== false;
     if (!m.manifold && m.type === OBJECT_TYPE.surface) totals.lib3mfOpen++;
     if (m.manifold && m.type === OBJECT_TYPE.surface) totals.insideOut++;

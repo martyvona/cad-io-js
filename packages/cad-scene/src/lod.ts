@@ -33,9 +33,9 @@ export function addLod(part: Part, lod: Lod): void {
 }
 
 /**
- * The level to use (the user, 2026-10-29): one tessellated at the wanted deflections (the last added, of several
- * backends); else, of those with a linear deflection, the coarsest not coarser than wanted, or if all are coarser the
- * finest of them; else the finest (the first). Undefined for a part with none.
+ * The level to use: one tessellated at the wanted deflections (the last added, of several backends); else, of those
+ * with a linear deflection, the coarsest not coarser than wanted, or if all are coarser the finest of them; else the
+ * finest (the first). Undefined for a part with none.
  */
 export function chooseLod(part: Part, wanted: LodWanted = {}): Lod | undefined {
   const lods = part.lods;
@@ -55,8 +55,8 @@ export function chooseLod(part: Part, wanted: LodWanted = {}): Lod | undefined {
 
 /**
  * Drops triangles with two corners at one position (dropDegenerate) from every part's levels from the source, as
- * tessellateScene does from its own meshes: the importers' repair of the meshes files give (the user, 2026-10-30;
- * docs/claude/scene-formats.md), so every consumer of an imported scene gets it. Such a triangle draws nothing and
+ * tessellateScene does from its own meshes: the importers' repair of the meshes files give
+ * (docs/claude/scene-formats.md), so every consumer of an imported scene gets it. Such a triangle draws nothing and
  * holds no gap closed; a codec's quantization makes them (GLBs with Draco or meshopt). Each part dropping any gets an
  * info diagnostic in the scene's. Returns the triangles dropped.
  */

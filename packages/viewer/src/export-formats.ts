@@ -1,6 +1,5 @@
-// The export formats and options the viewer offers (the user, 2026-10-31: File's Export...), as stepconv's
-// (packages/cli, its FORMATS): no exporter imported here, so the page can use it (the exporters run in the import
-// worker: export-model.ts).
+// The export formats and options the viewer offers (File's Export...), as stepconv's (packages/cli, its FORMATS): no
+// exporter imported here, so the page can use it (the exporters run in the import worker: export-model.ts).
 
 import type { InstanceOverride, Material } from 'cad-scene';
 

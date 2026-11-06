@@ -1,7 +1,6 @@
-// Whether two scenes draw the same (the user, 2026-10-29: the importers checked by reading back what the exporters
-// wrote): their export views compared node for node in tree order, by what's drawn, not how the scene says it (a
-// part's colours by part, reference or override; its origin in its transform or its mesh). Positions up to a
-// tolerance (lossy compression).
+// Whether two scenes draw the same (the importers checked by reading back what the exporters wrote): their export views
+// compared node for node in tree order, by what's drawn, not how the scene says it (a part's colours by part, reference
+// or override; its origin in its transform or its mesh). Positions up to a tolerance (lossy compression).
 
 import { placedName, type ExportNode, type ExportPart, type ExportView } from './export.ts';
 import type { Mat4, Scene } from './scene.ts';

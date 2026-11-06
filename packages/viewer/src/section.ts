@@ -1,19 +1,18 @@
-// Section planes (the user, 2026-10-24; docs/claude/viewer.md): up to three, one across each world axis, each at a
-// position along its axis with a side cut away; caps, hatched, where they cut closed parts: in the drawing style of
-// the cadrender prototype (beige, two beiges alternating by part colour, black lines), or in each part's colour with
-// lines a darker shade of it, as Onshape draws them (the user, 2026-10-27). Either way the lines lie at an angle and
-// spacing of the part's own, fixed on the model (they don't move as it turns), and a width fixed on the screen, as
-// cadrender's (the user, 2026-10-27).
+// Section planes (docs/claude/viewer.md): up to three, one across each world axis, each at a position along its axis
+// with a side cut away; caps, hatched, where they cut closed parts: in the drawing style of the cadrender prototype
+// (beige, two beiges alternating by part colour, black lines), or in each part's colour with lines a darker shade of
+// it, as Onshape draws them. Either way the lines lie at an angle and spacing of the part's own, fixed on the model
+// (they don't move as it turns), and a width fixed on the screen, as cadrender's.
 //
-// The planes are the renderer's clipping planes, so they cut everything drawn (N8AO's render included); picking
-// skips what they cut away (`clipped`). Caps follow the stencil technique of the cadrender prototype and three.js's
-// clipping example, per placed closed part and plane: the part's back faces increment the stencil, its front faces
-// decrement it (both clipped, drawing nothing else), then a quad on the plane over the part draws where the count
-// isn't zero (inside the solid) and clears the stencil. Each part and plane gets its own render order, so they don't
-// mix. The counting passes are clipped by their own plane only (a shader of ours, which the renderer's planes don't
-// reach): clipped by another plane too, a solid's far side cut away by it went uncounted, and the cap was missing
-// there (the user, 2026-10-27). These helpers live in a group of their own outside the model (no node, no pick, no
-// box), made again when the model's drawn meshes change (`invalidate`), moved when a plane moves.
+// The planes are the renderer's clipping planes, so they cut everything drawn (N8AO's render included); picking skips
+// what they cut away (`clipped`). Caps follow the stencil technique of the cadrender prototype and three.js's clipping
+// example, per placed closed part and plane: the part's back faces increment the stencil, its front faces decrement it
+// (both clipped, drawing nothing else), then a quad on the plane over the part draws where the count isn't zero (inside
+// the solid) and clears the stencil. Each part and plane gets its own render order, so they don't mix. The counting
+// passes are clipped by their own plane only (a shader of ours, which the renderer's planes don't reach): clipped by
+// another plane too, a solid's far side cut away by it went uncounted, and the cap was missing there. These helpers
+// live in a group of their own outside the model (no node, no pick, no box), made again when the model's drawn meshes
+// change (`invalidate`), moved when a plane moves.
 
 import * as THREE from 'three';
 import { closesUp } from './closure.ts';
@@ -150,8 +149,7 @@ function stencil(side: THREE.Side, op: THREE.StencilOp, plane: { value: THREE.Ve
 const planeVector = (p: THREE.Plane, v = new THREE.Vector4()) => v.set(p.normal.x, p.normal.y, p.normal.z, p.constant);
 
 /**
- * How caps look: the drawing style (beige, black hatching), or each part's colour, as Onshape draws them (the default,
- * the user, 2026-10-27).
+ * How caps look: the drawing style (beige, black hatching), or each part's colour, as Onshape draws them (the default).
  */
 export type CapStyle = 'drawing' | 'parts';
 
@@ -281,11 +279,11 @@ export class Sections {
   }
 
   /**
-   * Where a ray (a pick's, from in front of everything: pick.ts) meets a cap (the user, 2026-10-31: a hit on the
-   * plane's front face is a hit on the part cut): each plane that's on, crossed from its cut-away side into the side
-   * kept, where no other plane cuts it away, inside a capped part's solid (the ray crosses the part's surface an odd
-   * number of times beyond it, both sides of its triangles counted). Each: the part's first mesh, the point, its
-   * distance along the ray, and the plane's axis. None while caps are off.
+   * Where a ray (a pick's, from in front of everything: pick.ts) meets a cap (a hit on the plane's front face is a hit
+   * on the part cut): each plane that's on, crossed from its cut-away side into the side kept, where no other plane
+   * cuts it away, inside a capped part's solid (the ray crosses the part's surface an odd number of times beyond it,
+   * both sides of its triangles counted). Each: the part's first mesh, the point, its distance along the ray, and the
+   * plane's axis. None while caps are off.
    */
   capHits(ray: THREE.Ray): { object: THREE.Mesh; point: THREE.Vector3; distance: number; cap: Axis }[] {
     const out: { object: THREE.Mesh; point: THREE.Vector3; distance: number; cap: Axis }[] = [];

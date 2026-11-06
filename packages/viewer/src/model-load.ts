@@ -1,8 +1,6 @@
-// Loading a model as a stream of events (the user, 2026-10-24; docs/claude/viewer.md), in the import worker
-// (import-worker.ts, so the page never waits on parsing; always there since 2026-10-25, the user). Every format goes
-// through the library's importers into the scene model (the user, 2026-10-29: one path; three.js's loaders dropped):
-// STEP (step-import), glTF and GLB (gltf-import), three.js JSON (threejs-import), 3MF (3mf-import; the user,
-// 2026-10-29).
+// Loading a model as a stream of events (docs/claude/viewer.md), in the import worker (import-worker.ts, so the page
+// never waits on parsing). Every format goes through the library's importers into the scene model (one path; three.js's
+// loaders dropped): STEP (step-import), glTF and GLB (gltf-import), three.js JSON (threejs-import), 3MF (3mf-import).
 // The scene comes first, without its parts' payloads (functions over the parsed file, which can't cross to another
 // thread, and which only meshing needs), its mesh parts' levels with it; then each placed brep part's mesh as
 // tessellation delivers it (the buffers transferable); then the end, with the tessellation's diagnostics and what
@@ -140,8 +138,8 @@ export async function loadModelIn(input: ModelInput, settings: TessellationSetti
   // (Kept by the caller, to export later: the meshes go into its parts' levels as they're made.)
   keep?.(scene);
   // The levels shown that have no edges of their own get edges found from their triangles, part by part, after the
-  // scene goes (edges.ts; the user, 2026-10-31: off the page's thread, and not holding up meshing); those levels'
-  // buffers are copied to the page rather than transferred, as they're needed here meanwhile.
+  // scene goes (edges.ts: off the page's thread, and not holding up meshing); those levels' buffers are copied to the
+  // page rather than transferred, as they're needed here meanwhile.
   const scales = placedScales(scene);
   const wanted = meshDeflections(deflectionsOf(settings));
   const jobs = scene.parts.flatMap((p, part) => {

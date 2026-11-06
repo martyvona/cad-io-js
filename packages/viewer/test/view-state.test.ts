@@ -35,7 +35,7 @@ test('view state: every field through the query and back; numbers to 6 decimals;
   assert.deepEqual(panned.pan, [12.5, -3]);
   assert.equal(roundTrip({ camera: s.camera! }).state.camera!.pan, undefined);
   assert.equal(fromQuery(new URLSearchParams('camera=1,2,3,4,5,6,7,8,9,10,11')).problems.length, 1);
-  // Older links' centring (removed, the user, 2026-10-30) is passed over.
+  // Older links' centring (removed) is passed over.
   assert.deepEqual(fromQuery(new URLSearchParams('centered=1&caps=0')), { state: { caps: false }, problems: [] });
 });
 
@@ -57,7 +57,7 @@ test('view state: malformed values left out, each with a message', () => {
 test('render changes: only what differs from the defaults', () => {
   assert.deepEqual(renderChanges(DEFAULT_RENDER), {});
   assert.deepEqual(renderChanges({ ...DEFAULT_RENDER, ao: false, shininess: 10 }), { ao: false, shininess: 10 });
-  // Caps in part colours by default (the user, 2026-10-27), so a link to the drawing style says so.
+  // Caps in part colours by default, so a link to the drawing style says so.
   assert.deepEqual(renderChanges({ ...DEFAULT_RENDER, capStyle: 'drawing' }), { capStyle: 'drawing' });
   assert.equal(DEFAULT_RENDER.capStyle, 'parts');
 });

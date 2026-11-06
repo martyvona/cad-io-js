@@ -1,11 +1,11 @@
-// Faces' outlines from the STEP file itself (the user, 2026-10-28): where a face failed to mesh, or a whole part did
-// (an error, or a timeout, whatever the backend), a viewer can still show where its faces are, drawn from their
-// edges. Each face's bounds (FACE_BOUND, FACE_OUTER_BOUND) give its loops: an EDGE_LOOP's edges (EDGE_CURVE, through
-// ORIENTED_EDGE), each a polyline along its curve between its vertices, or a POLY_LOOP's polygon. Curves by ISO
-// 10303-42's definitions: lines; circles and ellipses (an AXIS2_PLACEMENT_3D's x and y, the point at angle t
-// x cos t + y sin t, scaled by the semi-axes); B-splines with knots, rational or not (de Boor's algorithm, Piegl and
-// Tiller), and Bezier curves; polylines; a surface curve's or seam curve's 3D curve, a trimmed curve's basis. Anything
-// else is a straight segment between the edge's vertices. Approximate: these are for finding a face, not meshing it.
+// Faces' outlines from the STEP file itself: where a face failed to mesh, or a whole part did (an error, or a timeout,
+// whatever the backend), a viewer can still show where its faces are, drawn from their edges. Each face's bounds
+// (FACE_BOUND, FACE_OUTER_BOUND) give its loops: an EDGE_LOOP's edges (EDGE_CURVE, through ORIENTED_EDGE), each a
+// polyline along its curve between its vertices, or a POLY_LOOP's polygon. Curves by ISO 10303-42's definitions: lines;
+// circles and ellipses (an AXIS2_PLACEMENT_3D's x and y, the point at angle t x cos t + y sin t, scaled by the
+// semi-axes); B-splines with knots, rational or not (de Boor's algorithm, Piegl and Tiller), and Bezier curves;
+// polylines; a surface curve's or seam curve's 3D curve, a trimmed curve's basis. Anything else is a straight segment
+// between the edge's vertices. Approximate: these are for finding a face, not meshing it.
 
 import { math, placement, point, type Reader, type Vec3 } from 'step-parser';
 

@@ -435,7 +435,7 @@ test('stepconv: --strict exits 3 when a part fails, with the output written', { 
   assert.equal((await run([broken, '-o', path.join(tmp, 'empty.gltf'), '-j', '0'])).code, 0);
   assert.equal(JSON.parse(fs.readFileSync(path.join(tmp, 'empty.gltf'), 'utf8')).buffers, undefined);
   assert.ok(!fs.existsSync(path.join(tmp, 'empty.bin')));
-  // (Without extras, a Scene of the tops: the user, 2026-11-01.)
+  // (Without extras, a Scene of the tops.)
   assert.equal(load(fs.readFileSync(out, 'utf8')).type, 'Scene');
   const whole = await run([cube, '-o', out, '-j', '0', '--strict']);
   assert.equal(whole.code, 0);

@@ -23,14 +23,14 @@ export interface TessellationSettings {
   /** The IndexedDB cache. */
   cache: boolean;
   /**
-   * Seconds a part may take before its worker is stopped and the part counted failed; 0: no limit (the user,
-   * 2026-10-28). The pool's default, 60. A timeout cached answers only while the limit is no longer than the one
-   * that ran out, so a longer limit tries the part again.
+   * Seconds a part may take before its worker is stopped and the part counted failed; 0: no limit. The pool's default,
+   * 60. A timeout cached answers only while the limit is no longer than the one that ran out, so a longer limit tries
+   * the part again.
    */
   timeout: number;
   /**
-   * AP242 tessellated geometry: read as it is (step-import, the default), or meshed by the backend from its STEP
-   * subset as a B-rep is (the importer's `tessellated: 'backend'`, as before 2026-10-29; truck reads none).
+   * AP242 tessellated geometry: read as it is (step-import, the default), or meshed by the backend from its STEP subset
+   * as a B-rep is (the importer's `tessellated: 'backend'`; truck reads none).
    */
   tessellated: 'read' | 'backend';
 }

@@ -1,6 +1,6 @@
-// Export... (the user, 2026-10-31): a modal with the format and its options, stepconv's (export-model.ts), shown for
-// the format chosen, and whether to apply the viewer's hiding and opacity (export-shown.ts); the choices remembered in
-// this browser (`cad-viewer.export`) for next time.
+// Export...: a modal with the format and its options, stepconv's (export-model.ts), shown for the format chosen, and
+// whether to apply the viewer's hiding and opacity (export-shown.ts); the choices remembered in this browser
+// (`cad-viewer.export`) for next time.
 
 import { showDialog } from './dialog.ts';
 import { DEFAULT_EXPORT, EXPORT_FORMATS, type ExportFormat, type ExportRequest } from './export-formats.ts';

@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// cad-viewer: starts and stops the viewer's dev server (Vite, in the background), opens files from its content
-// root in the default browser, and renders them headlessly to PNG (`shot`, through headless Chrome and the page's
-// automation interface, src/automation.ts) (the user, 2026-10-24 and 25; docs/claude/viewer.md; README.md). The running
-// server is described in .run/server.json (its process, URL and options); its output goes to .run/server.log.
+// cad-viewer: starts and stops the viewer's dev server (Vite, in the background), opens files from its content root in
+// the default browser, and renders them headlessly to PNG (`shot`, through headless Chrome and the page's automation
+// interface, src/automation.ts) (docs/claude/viewer.md; README.md). The running server is described in .run/server.json
+// (its process, URL and options); its output goes to .run/server.log.
 
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -139,7 +139,7 @@ export function parseArgs(argv: string[]): Args | string {
 const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 /**
  * Whether something listens on a port of either loopback address: Vite listens on what 'localhost' resolves to first,
- * 127.0.0.1 or ::1, which differs between machines and over time (on this one, ::1 since 2026-10-27).
+ * 127.0.0.1 or ::1, which differs between machines and over time .
  */
 const listening = async (port: number) => (await Promise.all(['127.0.0.1', '::1'].map((host) =>
   new Promise<boolean>((resolve) => {

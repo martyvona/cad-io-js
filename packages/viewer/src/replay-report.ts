@@ -1,6 +1,6 @@
 // What a replay acts on, and its outcome in words (the page's status line, `cad-viewer replay`): steps rather than
-// events, as most events are kept only for reading (the user, 2026-10-30: "replayed 342 of 1340 events" read as a
-// replay cut short). No imports but types, so the command line can use it.
+// events, as most events are kept only for reading ("replayed 342 of 1340 events" read as a replay cut short). No
+// imports but types, so the command line can use it.
 
 import type { RecordedEvent } from './recorder.ts';
 

@@ -4,22 +4,19 @@
 //   meshes: each part mesh's vertices welded by position, exactly (OCCT gives a shared edge's nodes the same
 //     coordinates on both faces, and welding within a tolerance merges distinct vertices: the step 5 survey), and the
 //     triangles welding made degenerate dropped; then a mesh object per look, its triangles' properties its groups'
-//     materials. Vertices are in the part's unit, relative to its origin, as the scene has them; the transforms
-//     scale and place them, in the source's unit where 3MF has a name for it (`unit="inch"`; the user, 2026-11-01),
-//     else millimetres. A mesh that isn't a closed, oriented manifold of positive volume
-//     (what a `model` object must be), or whose part the source says is open (its `closed` false: an open shell;
-//     the user, 2026-10-27), is left out with a warning, or written as a `surface` object
-// (docs/claude/scene-formats.md).
-//   build: an item per placed part (the scene's root parts first) at its world transform, its path in the instance
-//     tree as its part number (`<path>:<index>`, the path empty for a root part) and, on
-//     request (`extras`), its names in our metadata (decided by the user, 2026-10-21; extras 2026-10-24), and the
-//     model's metadata the tree itself (`cadio:tree`: each node's name, transform and the extras export-gltf gives
-//     its nodes, each placed part by its item), so 3mf-import rebuilds the scene (the user, 2026-10-29); with extras
-//     in either mode, the colour slots' scene materials (`cadio:materials`: null for the default colour); or
-//     (`build: 'assembly'`) one item, an object whose components follow the instance tree, identical subtrees shared.
+//     materials. Vertices are in the part's unit, relative to its origin, as the scene has them; the transforms scale
+//     and place them, in the source's unit where 3MF has a name for it (`unit="inch"`), else millimetres. A mesh that
+//     isn't a closed, oriented manifold of positive volume (what a `model` object must be), or whose part the source
+//     says is open (its `closed` false: an open shell), is left out with a warning, or written as a `surface` object.
+//   build: an item per placed part (the scene's root parts first) at its world transform, its path in the instance tree
+//     as its part number (`<path>:<index>`, the path empty for a root part) and, on request (`extras`), its names in
+//     our metadata, and the model's metadata the tree itself (`cadio:tree`: each node's name, transform and the extras
+//     export-gltf gives its nodes, each placed part by its item), so 3mf-import rebuilds the scene; with extras in
+//     either mode, the colour slots' scene materials (`cadio:materials`: null for the default colour); or (`build:
+//     'assembly'`) one item, an object whose components follow the instance tree, identical subtrees shared.
 //   faces (with extras): each object's triangles' faces as runs (`cadio:faces`), which 3MF itself can't hold.
 //   colours: one basematerials group (sRGB displaycolor with alpha), or (`colors: 'colorgroup'`) the Materials and
-//     Properties extension's colorgroup (opaque), declared but not required (decided by the user, 2026-10-21).
+//     Properties extension's colorgroup (opaque), declared but not required.
 //
 // Hidden part instances are left out (3MF has no visibility), or with `hidden: 'keep'` written as ordinary parts.
 // The model part is written and compressed in pieces, so its size isn't bound by the longest string V8 allows.
@@ -80,8 +77,8 @@ export function threemf(scene: Scene, view: ExportView, opts: ThreeMfOptions = {
 }
 
 /**
- * The same, pausing (`pause`, awaited) now and then between objects, so the thread can do other things meanwhile
- * (the user, 2026-10-31: the viewer's import worker sends its heartbeat then); the same bytes.
+ * The same, pausing (`pause`, awaited) now and then between objects, so the thread can do other things meanwhile (the
+ * viewer's import worker sends its heartbeat then); the same bytes.
  */
 export function threemfAsync(scene: Scene, view: ExportView, pause: () => Promise<void>,
   opts: ThreeMfOptions = {}): Promise<ThreeMfResult> {
@@ -490,9 +487,9 @@ class Writer {
   }
 
   /**
-   * The model's unit (the user, 2026-11-01: the source's, where 3MF has a name for it; else millimetres): a
-   * transform from a part's coordinates to the scene's millimetres made one to the model's unit, and one between two
-   * frames in millimetres made one between the same frames in the model's unit.
+   * The model's unit (the source's, where 3MF has a name for it; else millimetres): a transform from a part's
+   * coordinates to the scene's millimetres made one to the model's unit, and one between two frames in millimetres made
+   * one between the same frames in the model's unit.
    */
   private get unit(): { name: string; mm: number } {
     return modelUnit(this.scene.sourceUnit);

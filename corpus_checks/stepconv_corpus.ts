@@ -1,15 +1,15 @@
-// Phase 4 step 6: every corpus file through stepconv, with its defaults, in each format (three.js JSON, GLB, glTF
-// with its .bin, 3MF), as decided by the user (2026-10-22): stepconv's main in this process for every file, and the
-// bin spawned for a sample. Each file is also imported and tessellated here (a tess-workers pool, OCCT, the
-// defaults: 0.1 mm, no edges or curves) for the export view each output should come from; then, per format:
+// Phase 4 step 6: every corpus file through stepconv, with its defaults, in each format (three.js JSON, GLB, glTF with
+// its .bin, 3MF): stepconv's main in this process for every file, and the bin spawned for a sample. Each file is also
+// imported and tessellated here (a tess-workers pool, OCCT, the defaults: 0.1 mm, no edges or curves) for the export
+// view each output should come from; then, per format:
 //   - exit 0, nothing on standard output, and the summary's parts, tessellated parts, placed parts and triangles
 //     those of the scene and the view;
 //   - the output read back with that format's own tools: three.js's ObjectLoader; the Khronos glTF-Validator (its
 //     errors are problems; it knows no Draco) and glTF-Transform with the Draco decoder for GLB and for glTF with its
 //     .bin; lib3mf in strict mode for 3MF;
 //   - its placed parts, in tree order, with their names and triangle counts (the defaults write no extras, so no part
-//     indices, since 2026-10-24), as the format's defaults have them: three.js
-//     every placed part with triangles, hidden ones invisible; glTF the visible ones; 3MF the visible ones whose
+//     indices), as the format's defaults have them: three.js every placed part with triangles, hidden ones invisible;
+//     glTF the visible ones; 3MF the visible ones whose
 //     welded mesh is a closed, oriented manifold of positive volume (the others are left out with warnings);
 //   - in the sample, the bin's outputs byte-identical to main's, its exit code, standard output and summary (but
 //     for times) the same; its wall time against the summary's times gives the startup.
@@ -65,7 +65,7 @@ interface Summary { parts: number; meshed: number; brep: number; placed: number;
 function parseSummary(text: string): Summary | undefined {
   const a = new RegExp(String.raw`^(\d+) parts \((\d+) of (\d+) brep parts tessellated\), (\d+) placed; `
     + String.raw`(\d+) triangles; [\d.]+ MB written$`, 'm').exec(text);
-  // (The meshing profile or settings in parentheses after the tessellation's time, since 2026-10-26.)
+  // (The meshing profile or settings in parentheses after the tessellation's time.)
   const b = /^import ([\d.]+) s, tessellation ([\d.]+) s(?: \([^)]*\))?, export ([\d.]+) s$/m.exec(text);
   if (!a || !b) return undefined;
   const [parts, meshed, brep, placed, triangles] = a.slice(1).map(Number) as [number, number, number, number, number];
@@ -90,7 +90,7 @@ function placedParts(view: ExportView, scene: Scene): { part: number; ref: PartR
       const look = view.looks[l]!;
       const w = weld(look.mesh.positions);
       const tris = Uint32Array.from(look.indices, (v) => w.remap[v]!);
-      // (And not said to be open by the source: then never a model, the user, 2026-10-27.)
+      // (And not said to be open by the source: then never a model.)
       solid.set(l, (s = manifoldProblems(w.positions, tris).length === 0 &&
         scene.parts[look.part]!.closed !== false));
     }
@@ -194,7 +194,7 @@ for (const f of files) {
   const problem = (msg: string) => { counts.problems++; if (problems.length < 200) problems.push(`${name}: ${msg}`); };
   try {
     const { scene } = await importStep(fs.readFileSync(f));
-    // (As stepconv meshes by default: its default profile, medium, since 2026-10-26.)
+    // (As stepconv meshes by default: its default profile, medium.)
     const deflections = meshDeflections({ profile: DEFAULT_MESH_PROFILE });
     const { meshes } = await tessellateScene(scene, tess, { ...deflections, concurrency: workers });
     const view = exportView(scene, { ...deflections, edges: false, curves: false });
@@ -209,7 +209,7 @@ for (const f of files) {
     counts.hidden += placed.filter((p) => !p.visible).length;
     counts.notSolid += placed.filter((p) => p.visible && !p.solid).length;
     counts.triangles += viewTriangles;
-    // (A placed part's node named as its placement: the user, 2026-11-01.)
+    // (A placed part's node named as its placement.)
     const partName = (p: { ref: PartRef }) => placedName(scene, p.ref);
     const expected: Record<Format, { name?: string; triangles: number; visible?: boolean }[]> = {
       json: placed.map((p) => ({ name: partName(p), triangles: p.triangles, visible: p.visible })),

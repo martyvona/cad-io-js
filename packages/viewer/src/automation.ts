@@ -1,8 +1,8 @@
-// The viewer driven from outside (the user, 2026-10-25; docs/claude/viewer.md): `window.cadViewer`, for scripts,
-// the browser check, `cad-viewer shot` and the console, and the view carried in the page's address
-// (view-state.ts). It works through the UI's operations (ui.ts), so the controls follow whatever it does, and names
-// nodes by their paths (model.ts), which stay the same from one load to the next. Its interface is meant to stay
-// stable: change it only by adding, and say so in `version`.
+// The viewer driven from outside (docs/claude/viewer.md): `window.cadViewer`, for scripts, the browser check,
+// `cad-viewer shot` and the console, and the view carried in the page's address (view-state.ts). It works through the
+// UI's operations (ui.ts), so the controls follow whatever it does, and names nodes by their paths (model.ts), which
+// stay the same from one load to the next. Its interface is meant to stay stable: change it only by adding, and say so
+// in `version`.
 //
 // At start it opens ?model= if there is one (as Load URL... reads what's typed: a path within the content root, a
 // path on the server or a URL, sources.ts; ?url= is the same, for older links), then applies the view in the
@@ -199,15 +199,15 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
     // the link works however the server is reached.
     if (from) url.searchParams.set('model', contentPath(from) ?? (from.startsWith(location.origin + '/')
       ? from.slice(location.origin.length) : from));
-    // The view after #, which no server sees (the user, 2026-10-31): a long hide= or select= list would outgrow the
-    // request line servers take (GitHub Pages refuses a query over about 8 KB, Node's dev server about 16 KB).
+    // The view after #, which no server sees: a long hide= or select= list would outgrow the request line servers take
+    // (GitHub Pages refuses a query over about 8 KB, Node's dev server about 16 KB).
     url.hash = new URLSearchParams(toQuery(view)).toString();
     return url.href;
   };
 
   const start = async () => {
-    // The view from after # (links since 2026-10-31) and from the query (older links, `cad-viewer shot --state`),
-    // the fragment's first where both give one.
+    // The view from after # and from the query (older links, `cad-viewer shot --state`), the fragment's first where
+    // both give one.
     const params = new URLSearchParams([...new URLSearchParams(location.hash.slice(1)),
       ...new URLSearchParams(location.search)]);
     const { state: st, problems } = fromQuery(params);
@@ -337,11 +337,11 @@ const bytesText = (n: number | undefined) => n === undefined ? 'not recorded' : 
   (n === 1 ? '' : 's');
 
 /**
- * Makes sure the model a recording loaded is open, for replaying it in the page (the user, 2026-10-25): if the model
- * open has the recorded SHA-256 (the hash alone decides), nothing to do; else a dialog names the model (name, size,
- * hash, URL) and offers Open file... and Open URL... (its URL filled in, if it had one). What's picked is hashed
- * before it's loaded: a file with another hash isn't loaded, and an error dialog says both hashes; closing it stops
- * the replay. With no hash recorded (a URL in a recording made before 2026-10-25), any model picked is taken.
+ * Makes sure the model a recording loaded is open, for replaying it in the page: if the model open has the recorded
+ * SHA-256 (the hash alone decides), nothing to do; else a dialog names the model (name, size, hash, URL) and offers
+ * Open file... and Open URL... (its URL filled in, if it had one). What's picked is hashed before it's loaded: a file
+ * with another hash isn't loaded, and an error dialog says both hashes; closing it stops the replay. With no hash
+ * recorded (a URL in a recording made before 2026-10-25), any model picked is taken.
  */
 async function openRecordedModel(ui: Ui, want: RecordedModel): Promise<boolean> {
   const current = ui.source();

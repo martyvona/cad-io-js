@@ -1,8 +1,8 @@
-// The import worker: models imported and meshed off the page's thread (the user, 2026-10-24; docs/claude/viewer.md), by
-// loadModelIn (model-load.ts), its tessellation pool's workers nested in this one. Draco's decoder (for glTF) is given
-// its WebAssembly by URL, as Vite bundles it. One load at a time; a newer one (or a cancel) stops the last's meshing
-// (and the next load starts a new pool, as after clearing the cache from the page). Messages in: load, cancel, export
-// (the last load's scene, as it was meshed: export-model.ts); out: the load's events and errors, each with the load's
+// The import worker: models imported and meshed off the page's thread (docs/claude/viewer.md), by loadModelIn
+// (model-load.ts), its tessellation pool's workers nested in this one. Draco's decoder (for glTF) is given its
+// WebAssembly by URL, as Vite bundles it. One load at a time; a newer one (or a cancel) stops the last's meshing (and
+// the next load starts a new pool, as after clearing the cache from the page). Messages in: load, cancel, export (the
+// last load's scene, as it was meshed: export-model.ts); out: the load's events and errors, each with the load's
 // number, and each export's files or error by its number.
 
 import dracoWasm from 'draco3dgltf/draco_decoder_gltf.wasm?url';

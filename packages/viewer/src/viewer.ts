@@ -1,13 +1,13 @@
-// The viewer's 3D view: renderer, orthographic camera, trackball controls, lights, and the model (the user,
-// 2026-10-24; docs/claude/viewer.md):
+// The viewer's 3D view: renderer, orthographic camera, trackball controls, lights, and the model
+// (docs/claude/viewer.md):
 //
 //   scene -> display (the model's place in the scene, kept from one model to the next) -> the model's root (its
 //     scene graph, scene-graph.ts, in the world's millimetres and Z up whatever the format: the importers convert)
 //
 // One model at a time; loading another replaces it, and cancels the meshing of the last if it's still going. Every
 // format is imported (and STEP meshed) in a worker (import-worker.ts), through the library's importers into the scene
-// model (the user, 2026-10-29: one path for every format). Zoom all, zoom selected and the views fly the camera
-// there, eased over a second (the user, 2026-10-30); zooming while a model loads doesn't (load-fit.ts).
+// model (one path for every format). Zoom all, zoom selected and the views fly the camera there, eased over a second;
+// zooming while a model loads doesn't (load-fit.ts).
 
 import { VIEW_BACKGROUNDS, type Theme } from './theme.ts';
 import * as THREE from 'three';
@@ -170,8 +170,8 @@ export class Viewer {
   private transparencyStale = true;
   private changed = false;
   /**
-   * Zoom all, zoom selected and the views fly the camera there (the user, 2026-10-30): eased by smoothstep over
-   * `flightMs` (0: at once), a frame at a time, stopped by the user's own input or a camera set exactly.
+   * Zoom all, zoom selected and the views fly the camera there: eased by smoothstep over `flightMs` (0: at once), a
+   * frame at a time, stopped by the user's own input or a camera set exactly.
    */
   private flight?: { from: CameraState; to: CameraState; start: number };
   flightMs = FLIGHT_MS;
@@ -337,10 +337,10 @@ export class Viewer {
     for (const type of ['pointerup', 'pointercancel'] as const) {
       canvas.addEventListener(type, (e) => touches.delete(e.pointerId));
     }
-    // Safari's pinch on a Mac's touchpad (2026-10-31): WebKit's gesture events, not Chrome's wheel events with ctrl,
-    // each with the fingers' scale since the gesture began, so zoomed by its change, 1:1 with the fingers, about the
-    // point under them. Ctrl-wheel events during one are let go, in case a browser sends both; on iPhone and iPad
-    // the gesture comes with two touches, which the controls already zoom by. Page zoom is prevented either way.
+    // Safari's pinch on a Mac's touchpad: WebKit's gesture events, not Chrome's wheel events with ctrl, each with the
+    // fingers' scale since the gesture began, so zoomed by its change, 1:1 with the fingers, about the point under
+    // them. Ctrl-wheel events during one are let go, in case a browser sends both; on iPhone and iPad the gesture comes
+    // with two touches, which the controls already zoom by. Page zoom is prevented either way.
     let gestureScale = 0;
     type Gesture = Event & { scale?: number; clientX?: number; clientY?: number };
     canvas.addEventListener('gesturestart', (e: Gesture) => {
@@ -380,8 +380,8 @@ export class Viewer {
   }
 
   /**
-   * The width zoom all and zoom selected fit in (the user, 2026-10-30): the view less what the controls cover at its
-   * right (setCovered), unless that would leave less than half of it (phones, where they cover most of it).
+   * The width zoom all and zoom selected fit in: the view less what the controls cover at its right (setCovered),
+   * unless that would leave less than half of it (phones, where they cover most of it).
    */
   private freeWidth(): number {
     const w = Math.max(1, this.container.clientWidth);
@@ -401,10 +401,10 @@ export class Viewer {
   }
 
   /**
-   * The projection shifted: by half what the controls cover, so the camera's axis (where the orbit centre is drawn)
-   * is at the free width's centre and a fitted model sits centred beside them; and by the pan, in the view's plane
-   * (the user, 2026-10-30: panning slides the view, the orbit centre staying where it is on the model). Again before
-   * each frame and pick, as the pan is in millimetres and the zoom changes how many pixels that is.
+   * The projection shifted: by half what the controls cover, so the camera's axis (where the orbit centre is drawn) is
+   * at the free width's centre and a fitted model sits centred beside them; and by the pan, in the view's plane
+   * (panning slides the view, the orbit centre staying where it is on the model). Again before each frame and pick, as
+   * the pan is in millimetres and the zoom changes how many pixels that is.
    */
   private shift(): void {
     const w = Math.max(1, this.container.clientWidth), h = Math.max(1, this.container.clientHeight);
@@ -433,9 +433,9 @@ export class Viewer {
   }
 
   /**
-   * Zooms by `factor` (the view's height times it) at the zoom's anchor (the user, 2026-10-30), the line of sight
-   * through it staying under it: when the gesture begins, the orbit centre moves onto that line where something's
-   * drawn there (centreAt), the view unchanged; without an anchor, about the orbit centre where it's drawn.
+   * Zooms by `factor` (the view's height times it) at the zoom's anchor, the line of sight through it staying under it:
+   * when the gesture begins, the orbit centre moves onto that line where something's drawn there (centreAt), the view
+   * unchanged; without an anchor, about the orbit centre where it's drawn.
    */
   private zoomAt(factor: number, min = 0, max = Infinity): void {
     const a = this.zoomAnchor;
@@ -459,9 +459,8 @@ export class Viewer {
 
   /**
    * Moves the orbit centre onto the line of sight through a point of the view (client pixels), leaving the view as it
-   * is: the nearest of what's drawn along it (hitsAlong; the user, 2026-10-31, first midway between the nearest and
-   * the farthest), or with nothing there, the orbit centre left where it is (the user, 2026-10-31, first moved onto
-   * the line).
+   * is: the nearest of what's drawn along it (hitsAlong; first midway between the nearest and the farthest), or with
+   * nothing there, the orbit centre left where it is.
    */
   centreAt(clientX: number, clientY: number): void {
     const r = this.renderer.domElement.getBoundingClientRect();
@@ -475,8 +474,8 @@ export class Viewer {
   }
 
   /**
-   * Makes a world point the orbit centre, leaving the view as it is: the camera moved with the target, the pan
-   * keeping the point drawn where it is (zooming at the cursor; a pick, the user, 2026-10-31).
+   * Makes a world point the orbit centre, leaving the view as it is: the camera moved with the target, the pan keeping
+   * the point drawn where it is (zooming at the cursor; a pick).
    */
   orbitAbout(point: THREE.Vector3): void {
     this.flight = undefined;
@@ -654,8 +653,8 @@ export class Viewer {
     this.display.add(root);
     this.model = model;
     this.moved = keep;
-    // A new model's view starts from the default pose, iso about the origin (the user, 2026-10-30), which the fit
-    // while loading then centres and zooms; meshing the same model again keeps the view.
+    // A new model's view starts from the default pose, iso about the origin, which the fit while loading then centres
+    // and zooms; meshing the same model again keeps the view.
     if (!keep) {
       this.flight = undefined;
       this.controls.target.set(0, 0, 0);
@@ -720,12 +719,11 @@ export class Viewer {
   lastExportSilence = 0;
 
   /**
-   * The model exported by the import worker (export-model.ts), as it was imported and meshed: the files' pieces.
-   * The worker handed its meshes' buffers to the page as they came (no copies), so the page lends them back for the
-   * export (the user, 2026-10-31, of three: also the worker keeping copies, or the page copying them over), and they
-   * come back with the files: meanwhile the page has no meshes on the CPU (picking, caps and the like would find
-   * none), so the caller blocks the page (showBusy). Rejects when nothing's loaded there, or the exporter fails; the
-   * meshes come back either way.
+   * The model exported by the import worker (export-model.ts), as it was imported and meshed: the files' pieces. The
+   * worker handed its meshes' buffers to the page as they came (no copies), so the page lends them back for the export
+   * (also the worker keeping copies, or the page copying them over), and they come back with the files: meanwhile the
+   * page has no meshes on the CPU (picking, caps and the like would find none), so the caller blocks the page
+   * (showBusy). Rejects when nothing's loaded there, or the exporter fails; the meshes come back either way.
    */
   exportModel(request: ExportRequest): Promise<Exported> {
     const id = ++this.exportCount;
@@ -871,7 +869,7 @@ export class Viewer {
       this.transparencyStale = true;
       this.onMeshes?.();
     };
-    // What the load is doing, always (the user, 2026-10-31): meshing, finding edges, or read.
+    // What the load is doing, always: meshing, finding edges, or read.
     const edges = { total: 0, done: 0 };
     const progress = () => {
       const p = model!.parts!;
@@ -887,7 +885,7 @@ export class Viewer {
       for await (const ev of this.events(input, gen)) {
         if (gen !== this.generation) return;
         if (ev.type === 'importing') {
-          // STEP's phases (the user, 2026-10-31: a large file said only "importing" for seconds).
+          // STEP's phases (a large file said only "importing" for seconds).
           this.onStatus?.(`${importing}: ${importPhase(ev.progress)}...`);
           continue;
         }
@@ -906,8 +904,8 @@ export class Viewer {
           // shown at once, the level for these settings (chooseLod); a B-rep part's until ours comes.
           edges.total = ev.edgeParts;
           const wanted = meshDeflections(deflectionsOf(this.settings));
-          // In slices of about 30 ms, the page drawing and answering in between (the user, 2026-10-31: LMP1's 1,251
-          // parts in one task took a second), the status line counting.
+          // In slices of about 30 ms, the page drawing and answering in between (LMP1's 1,251 parts in one task took a
+          // second), the status line counting.
           const parts = [...graph.placements.keys()];
           let slice = performance.now();
           for (const [k, i] of parts.entries()) {

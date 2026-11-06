@@ -82,11 +82,10 @@ export const degenerateMessage = (n: number) =>
   `${n} degenerate ${n === 1 ? 'triangle' : 'triangles'} dropped (two corners at one position)`;
 
 /**
- * How a face failed to mesh (the user, 2026-10-30; docs/claude/backends.md): `failed`, no
- * triangles for a face with something to mesh; `partly`, its triangles short of its area; `excess`, its triangles
- * well over its area (the mesh, or the backend's view of the face, is wrong); `unverified`, triangles but no area to
- * judge them by (the measuring backend found the face's geometry unsound, or gave an impossible area). A viewer shows
- * all but `partly` as failed.
+ * How a face failed to mesh (docs/claude/backends.md): `failed`, no triangles for a face with something to mesh;
+ * `partly`, its triangles short of its area; `excess`, its triangles well over its area (the mesh, or the backend's
+ * view of the face, is wrong); `unverified`, triangles but no area to judge them by (the measuring backend found the
+ * face's geometry unsound, or gave an impossible area). A viewer shows all but `partly` as failed.
  */
 export type FaceFailure = 'failed' | 'partly' | 'excess' | 'unverified';
 
@@ -100,10 +99,10 @@ export type FaceFailure = 'failed' | 'partly' | 'excess' | 'unverified';
  * The fractions are relative tolerances: how far short of (or over) the face's area its triangles may be. The other
  * term is an allowance in area for a legitimate mesh, which may lie up to d inside the true surface along the face's
  * boundary and so lose up to a strip d wide all round it; it decides for small or long, thin faces (a 0.05 mm^2 face
- * meshed as one triangle), the fraction for large ones. Healthy faces sit far inside either: over the corpus the
- * median M / A is 0.9994 (p1 0.987, p99 1.021). A face under d x d has nothing to mesh at that deflection. The values
- * are the user's choice (2026-10-30) from a survey of the corpus checked against truck's meshes: 3 %, 10 % and 1 kept
- * every flag truck confirmed real, with 9 it showed false (docs/claude/backends.md).
+ * meshed as one triangle), the fraction for large ones. Healthy faces sit far inside either: over the corpus the median
+ * M / A is 0.9994 (p1 0.987, p99 1.021). A face under d x d has nothing to mesh at that deflection. The values were
+ * chosen from a survey of the corpus checked against truck's meshes: 3 %, 10 % and 1 kept every flag truck confirmed
+ * real, with 9 it showed false (docs/claude/backends.md).
  */
 export const MISSING_FRACTION = 0.03;
 export const EXCESS_FRACTION = 0.1;
@@ -167,11 +166,11 @@ export function faceFailures(mesh: Mesh, opts: { expected?: readonly number[];
 }
 
 /**
- * The mesh without its triangles that have two corners at one position (exactly, -0 as 0), decided by the user,
- * 2026-10-22: they cover nothing, and in a welded mesh they would join pieces that only touch there. Removing one
- * never opens the mesh, since its two other edges are one edge both ways. Slivers with three distinct corners on a
- * line stay: their long edge is a neighbour's too. Faces keep their entries (with fewer triangles, perhaps none);
- * vertices, normals and edges are shared with the original. Returns the same mesh if nothing was dropped.
+ * The mesh without its triangles that have two corners at one position (exactly, -0 as 0): they cover nothing, and in a
+ * welded mesh they would join pieces that only touch there. Removing one never opens the mesh, since its two other
+ * edges are one edge both ways. Slivers with three distinct corners on a line stay: their long edge is a neighbour's
+ * too. Faces keep their entries (with fewer triangles, perhaps none); vertices, normals and edges are shared with the
+ * original. Returns the same mesh if nothing was dropped.
  */
 export function dropDegenerate(mesh: Mesh): { mesh: Mesh; dropped: number } {
   const ix = mesh.indices, p = mesh.positions;
@@ -208,11 +207,10 @@ const RAYS = [[0.5773, 0.5774, 0.5775], [-0.6123, 0.3521, 0.7081], [0.2281, -0.8
 
 /**
  * The mesh with its inside-out closed shells turned over: each connected piece of the welded mesh that is closed and
- * oriented with negative volume, and that no other piece encloses, so can't be a void's boundary (decided by the
- * user, 2026-10-22). Its triangles' winding is reversed, and its normals too if they followed the winding. A piece
- * counts as enclosed if a ray from one of its vertices crosses a closed piece an odd number of times in any of three
- * directions, or if an open piece's bounding box contains its own; those are left as they are. Returns the same mesh
- * if nothing was turned.
+ * oriented with negative volume, and that no other piece encloses, so can't be a void's boundary. Its triangles'
+ * winding is reversed, and its normals too if they followed the winding. A piece counts as enclosed if a ray from one
+ * of its vertices crosses a closed piece an odd number of times in any of three directions, or if an open piece's
+ * bounding box contains its own; those are left as they are. Returns the same mesh if nothing was turned.
  */
 export function orientShells(mesh: Mesh): { mesh: Mesh; turned: number } {
   const ix = mesh.indices;

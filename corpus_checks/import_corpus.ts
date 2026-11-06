@@ -22,8 +22,8 @@ for (const path of corpusFiles(process.argv[2])) {
   t.time += performance.now() - start;
   t.files++;
   for (const p of validate(scene)) note(`invalid scene: ${p.replace(/\d+/g, 'N')}`, name);
-  // Products: the components, and the leaf products placed as part references (each once, by its sources; the user,
-  // 2026-11-01). Occurrences: the components' children and their placed products (a root's placement is no NAUO).
+  // Products: the components, and the leaf products placed as part references (each once, by its sources). Occurrences:
+  // the components' children and their placed products (a root's placement is no NAUO).
   const placedProducts = [...scene.components.flatMap((c) => c.parts), ...scene.rootParts ?? []].flatMap((r) =>
     r.product ? [JSON.stringify(r.product.sources)] : []);
   const leafPlacements = scene.components.reduce((n, c) => n + c.parts.filter((r) => r.product).length, 0);

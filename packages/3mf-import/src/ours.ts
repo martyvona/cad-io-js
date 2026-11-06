@@ -1,9 +1,9 @@
-// Our own 3MF files with extras (export-3mf's `cadio:tree` and `cadio:materials` metadata) read back as the scene
-// they were written from (the user, 2026-10-29; docs/claude/scene-formats.md): the tree the
-// metadata describes, made a TreeNode tree as glTF and three.js JSON files give one, its placed parts' meshes from
-// their build items' objects, and cad-scene's sceneFromTree the rest (components by our index, parts by ours, what
-// one placement shows differently an override). What 3MF can't hold stays lost: faces are by colour (mesh.ts), and
-// there are no edges, curves or points. Our files without extras are read as anyone's (the user, 2026-10-29).
+// Our own 3MF files with extras (export-3mf's `cadio:tree` and `cadio:materials` metadata) read back as the scene they
+// were written from (docs/claude/scene-formats.md): the tree the metadata describes, made a TreeNode tree as glTF and
+// three.js JSON files give one, its placed parts' meshes from their build items' objects, and cad-scene's sceneFromTree
+// the rest (components by our index, parts by ours, what one placement shows differently an override). What 3MF can't
+// hold stays lost: faces are by colour (mesh.ts), and there are no edges, curves or points. Our files without extras
+// are read as anyone's.
 
 import { identity, multiply, sceneFromTree, type Diagnostic, type Mat4, type Scene, type TreeExtras,
   type TreeMaterial, type TreeMesh, type TreeNode } from 'cad-scene';

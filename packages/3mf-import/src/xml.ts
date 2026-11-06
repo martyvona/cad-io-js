@@ -1,9 +1,9 @@
-// A streaming XML tokenizer: text given in pieces, elements and text handed on as they complete, so no document is
-// held whole (a 3MF model part can be hundreds of megabytes; the user, 2026-10-29: our own reader). Tags are matched
-// by regular expressions (V8 runs them natively, much faster than a loop over characters in JavaScript), with a
-// quote-aware scan only where one fails, to tell a tag cut off at the end of a piece from a malformed one. It reads
-// what 3MF uses: elements, attributes, text with entities and character references, comments, CDATA, processing
-// instructions; a document type declaration is skipped (3MF forbids them). Namespaces are the caller's (`Scopes`).
+// A streaming XML tokenizer: text given in pieces, elements and text handed on as they complete, so no document is held
+// whole (a 3MF model part can be hundreds of megabytes: our own reader). Tags are matched by regular expressions (V8
+// runs them natively, much faster than a loop over characters in JavaScript), with a quote-aware scan only where one
+// fails, to tell a tag cut off at the end of a piece from a malformed one. It reads what 3MF uses: elements,
+// attributes, text with entities and character references, comments, CDATA, processing instructions; a document type
+// declaration is skipped (3MF forbids them). Namespaces are the caller's (`Scopes`).
 
 export interface XmlHandler {
   /** An element's start: its qualified name, its attributes as [name, value, name, value, ...], whether it's empty. */

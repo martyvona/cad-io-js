@@ -101,8 +101,8 @@ test('GLB: valid; the tree, transforms to metres and Y up, shared accessors, mat
   const root = doc.getRoot();
   assert.equal(root.listScenes().length, 1);
   assert.equal(root.listScenes()[0]!.getName(), 'model');
-  // No root node of ours (the user, 2026-11-01): each top node turned to metres and Y up itself, the scene's
-  // extras saying what's below that turn.
+  // No root node of ours: each top node turned to metres and Y up itself, the scene's extras saying what's below that
+  // turn.
   const top = root.listScenes()[0]!;
   assert.deepEqual(top.getExtras(), { unit: 'millimetre', up: 'z', properties: { schema: 'AP214' } });
   assert.deepEqual(top.listChildren().map((c) => c.getName()), ['asm']);

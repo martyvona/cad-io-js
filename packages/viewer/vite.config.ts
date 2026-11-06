@@ -1,8 +1,8 @@
 // The viewer's Vite config: the content root at /content/ (dev and preview servers), LAN and https by option, and in
-// builds a progressive web app: a service worker that precaches everything the app needs, the OCCT and truck
-// modules included, so a device that loaded it once can use it offline (the user, 2026-10-24; docs/claude/viewer.md).
-// Options come from the environment (server/options.ts). Draco's decoder (for glTF, in the import worker) is found by
-// its bundled URL (import-worker.ts).
+// builds a progressive web app: a service worker that precaches everything the app needs, the OCCT and truck modules
+// included, so a device that loaded it once can use it offline (docs/claude/viewer.md). Options come from the
+// environment (server/options.ts). Draco's decoder (for glTF, in the import worker) is found by its bundled URL
+// (import-worker.ts).
 
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -121,9 +121,9 @@ const pwa = VitePWA({
 });
 
 /**
- * The viewer's version, shown in its title (the user, 2026-10-27): the repository's, its root package.json's, and in
- * a build the commit it's built from, its first 7 hex digits (-dirty with uncommitted changes, which deploy-viewer.sh
- * refuses), so a deployment says what it is without a release for it. Without git, the version alone.
+ * The viewer's version, shown in its title: the repository's, its root package.json's, and in a build the commit it's
+ * built from, its first 7 hex digits (-dirty with uncommitted changes, which deploy-viewer.sh refuses), so a deployment
+ * says what it is without a release for it. Without git, the version alone.
  */
 function version(build: boolean): string {
   const repo = path.resolve(import.meta.dirname, '../..');

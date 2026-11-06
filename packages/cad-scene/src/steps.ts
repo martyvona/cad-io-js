@@ -1,6 +1,6 @@
-// Long work in steps (the user, 2026-10-31: exports that pause, so a worker can say it's still going): a generator
-// yields between steps, and runs either straight through or pausing now and then for whatever else the thread
-// has to do (the viewer's import worker sends its heartbeat then).
+// Long work in steps (exports that pause, so a worker can say it's still going): a generator yields between steps, and
+// runs either straight through or pausing now and then for whatever else the thread has to do (the viewer's import
+// worker sends its heartbeat then).
 
 /** A generator's work done at once: its result. */
 export function drain<T>(steps: Generator<unknown, T>): T {

@@ -1,10 +1,9 @@
-// What kind of device the viewer runs on, phone, tablet or desktop (the user, 2026-10-26; docs/claude/viewer.md):
-// it picks the meshing profile by default (coarse on phones and tablets, the library's default elsewhere) and caps the
-// import's workers (tessellation.ts). Detected from the screen's size (not the window's: a narrow desktop window is no
-// phone), the primary pointer and the touch points, as the user proposed, reordered: a fine pointer with no touch
-// first (a desktop, even zoomed so far that its screen is phone-sized in CSS pixels), phones before iPadOS's
-// desktop-like user agent (so an iPhone asking for desktop sites stays a phone). The user can override it (B-Rep
-// Meshing's Device), remembered in this browser.
+// What kind of device the viewer runs on, phone, tablet or desktop (docs/claude/viewer.md): it picks the meshing
+// profile by default (coarse on phones and tablets, the library's default elsewhere) and caps the import's workers
+// (tessellation.ts). Detected from the screen's size (not the window's: a narrow desktop window is no phone), the
+// primary pointer and the touch points: a fine pointer with no touch first (a desktop, even zoomed so far that its
+// screen is phone-sized in CSS pixels), phones before iPadOS's desktop-like user agent (so an iPhone asking for desktop
+// sites stays a phone). The user can override it (B-Rep Meshing's Device), remembered in this browser.
 
 import { DEFAULT_MESH_PROFILE, type MeshProfile } from 'cad-scene';
 

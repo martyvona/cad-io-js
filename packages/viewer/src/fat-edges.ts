@@ -1,12 +1,12 @@
-// Fat edges (the user, 2026-10-27, from the cadrender prototype: Rendering's Edges, Thin or Fat, and Edge width):
-// three.js's Wireframe, LineSegmentsGeometry and LineMaterial, lines a given number of pixels wide, where WebGL's own
-// lines are one device pixel. They live in a group of their own outside the model, as triangle edges do: a Wireframe
-// per edge object of the model (B-rep edges, or edges found from the triangles: LineSegments on the EDGES layer), its
-// segments its source's, made once per geometry. Before each frame drawn they follow their sources: placement,
-// visibility (with every ancestor's), and colour, a LineMaterial per source material (so a selection's tint shows);
-// the lines' resolution Wireframe sets itself, from the renderer's viewport, before each render.
-// The thin edges stay in the model, on their layer, for picking; the Viewer leaves that layer out of the frame while
-// fat edges are drawn. Made again when the model's meshes change; nothing is made while they're thin.
+// Fat edges (Rendering's Edges, Thin or Fat, and Edge width): three.js's Wireframe, LineSegmentsGeometry and
+// LineMaterial, lines a given number of pixels wide, where WebGL's own lines are one device pixel. They live in a group
+// of their own outside the model, as triangle edges do: a Wireframe per edge object of the model (B-rep edges, or edges
+// found from the triangles: LineSegments on the EDGES layer), its segments its source's, made once per geometry. Before
+// each frame drawn they follow their sources: placement, visibility (with every ancestor's), and colour, a LineMaterial
+// per source material (so a selection's tint shows); the lines' resolution Wireframe sets itself, from the renderer's
+// viewport, before each render. The thin edges stay in the model, on their layer, for picking; the Viewer leaves that
+// layer out of the frame while fat edges are drawn. Made again when the model's meshes change; nothing is made while
+// they're thin.
 
 import * as THREE from 'three';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';

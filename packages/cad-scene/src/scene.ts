@@ -7,9 +7,9 @@
 // geometry stays in its own unit, and the transforms carry the conversion.
 //
 // A leaf product, a component whose only content is one part (STEP: a product and its shape representation), is no
-// component of its own: its part is placed directly by a part reference in its parent's component, or among the
-// roots (`rootParts`), carrying the instance's name, sources and properties and the product's apart (the user,
-// 2026-11-01: one node per placed part, as CAD systems and 3MF show them; `leafParts`, which every importer ends with).
+// component of its own: its part is placed directly by a part reference in its parent's component, or among the roots
+// (`rootParts`), carrying the instance's name, sources and properties and the product's apart (one node per placed
+// part, as CAD systems and 3MF show them; `leafParts`, which every importer ends with).
 
 /** A 4x4 matrix, column-major (as three.js and glTF): element (row r, column c) is m[c * 4 + r]. */
 export type Mat4 = Float64Array;
@@ -52,7 +52,7 @@ export interface Scene {
   bounds?: SceneBounds;
   /**
    * The source file's length unit, in millimetres (25.4 for inches; glTF's metres 1000), where it has one: what an
-   * export in a format that can name its unit is written in (3MF; the user, 2026-11-01). Absent: millimetres.
+   * export in a format that can name its unit is written in (3MF). Absent: millimetres.
    */
   sourceUnit?: number;
   /** File-level metadata. */
@@ -132,9 +132,9 @@ export interface ExternalReference {
 
 /**
  * A leaf of the scene: geometry with a unit and an origin, as exact geometry a backend can tessellate (`brep`), as
- * meshes (`lods`), or both (the user, 2026-10-29; docs/claude/scene-formats.md): meshes from the source file (glTF,
- * three.js JSON, JT's levels of detail) or made from the B-rep by a tessellator (tessellateScene adds them). Curves and
- * points alone are a level whose mesh has no triangles. A part with neither is empty.
+ * meshes (`lods`), or both (docs/claude/scene-formats.md): meshes from the source file (glTF, three.js JSON, JT's
+ * levels of detail) or made from the B-rep by a tessellator (tessellateScene adds them). Curves and points alone are a
+ * level whose mesh has no triangles. A part with neither is empty.
  */
 export interface Part {
   name: string;
@@ -161,12 +161,12 @@ export interface Part {
   lods: Lod[];
   /**
    * Its faces' measures on the exact geometry, which meshes are judged by (faceFailures): from a backend that meshed
-   * the B-rep, or read from one of our exports; kept when the B-rep isn't (the user, 2026-10-30).
+   * the B-rep, or read from one of our exports; kept when the B-rep isn't.
    */
   measures?: Measures;
 }
 
-/** A part's measures on its exact geometry (the user, 2026-10-30; docs/claude/scene-formats.md). */
+/** A part's measures on its exact geometry (docs/claude/scene-formats.md). */
 export interface Measures {
   /** Who measured: a backend's name and version, or `source` for a file that stated them. */
   by: string;
@@ -278,8 +278,8 @@ export interface InstanceOverride {
    */
   path: number[];
   /**
-   * Only this part reference of the component at `path` (an index into its `parts`), not the whole subtree (the user,
-   * 2026-10-29: so importers can say what a format says per placed part). Absent: everything beneath.
+   * Only this part reference of the component at `path` (an index into its `parts`), not the whole subtree (so
+   * importers can say what a format says per placed part). Absent: everything beneath.
    */
   ref?: number;
   material?: number;

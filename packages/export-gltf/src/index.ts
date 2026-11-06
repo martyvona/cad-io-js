@@ -2,11 +2,11 @@
 // embedded as base64. See README.md and docs/claude/scene-formats.md.
 //
 //   nodes: the scene's roots, each turning the scene's millimetres, Z up, into glTF's metres, Y up, in its own matrix
-//     (the user, 2026-11-01: no root node of ours, for a reader to take for an assembly or a frame not the file's;
-//     with extras, the glTF scene's extras say what's below that turn). A node per instance-tree node (its local
-//     transform), and per placed part (a part reference, its name the placement's, else its product's, else its
-//     part's) a node with the part's faces; its children `edges`, `curves` and `points` (on request) each have their
-//     own mesh, as three.js has child objects. The scene's root parts beside its roots.
+//     (no root node of ours, for a reader to take for an assembly or a frame not the file's; with extras, the glTF
+//     scene's extras say what's below that turn). A node per instance-tree node (its local transform), and per placed
+//     part (a part reference, its name the placement's, else its product's, else its part's) a node with the part's
+//     faces; its children `edges`, `curves` and `points` (on request) each have their own mesh, as three.js has child
+//     objects. The scene's root parts beside its roots.
 //   meshes: the faces' mesh one per look, shared by every instance with that look, a TRIANGLES primitive per material
 //     group; B-rep edges and wireframe curves as LINES and isolated points as POINTS, each a mesh shared by the
 //     instances with the same part mesh and colour. Looks of one part mesh share its vertex accessors.
@@ -15,22 +15,21 @@
 //     KHR_materials_unlit.
 //   extras (on request): names, source ids and properties; per triangle primitive its faces' sources, as index
 //     ranges, or with Draco (which reorders triangles) as a `_FACE` vertex attribute indexing them, for picking.
-//   compression (decided by the user, 2026-10-24): Draco by default (KHR_draco_mesh_compression, triangles only,
-//     positions to 14 bits over the part mesh's extent, normals to 10), meshopt by option (EXT_meshopt_compression
-//     on every buffer, with KHR_mesh_quantization: positions to 16 bits over each part mesh's extent, the scale and
-//     offset in the part's node, normals to 8-bit octahedral; triangles reordered for the vertex cache only within
-//     each face, so the face ranges hold), or none.
+//   compression: Draco by default (KHR_draco_mesh_compression, triangles only, positions to 14 bits over the part
+//     mesh's extent, normals to 10), meshopt by option (EXT_meshopt_compression on every buffer, with
+//     KHR_mesh_quantization: positions to 16 bits over each part mesh's extent, the scale and offset in the part's
+//     node, normals to 8-bit octahedral; triangles reordered for the vertex cache only within each face, so the face
+//     ranges hold), or none.
 //
 // Hidden part instances are left out (glTF core has no visibility), or with `hidden: 'extension'` written with
-// KHR_node_visibility (decided by the user, 2026-10-21). Tree nodes with nothing to draw beneath them are left out
-// unless `keepEmpty` (the user, 2026-10-24).
+// KHR_node_visibility. Tree nodes with nothing to draw beneath them are left out unless `keepEmpty`.
 //
-// Instancing (by option, decided by the user, 2026-10-24): every look placed more than once (as many times visible or
-// hidden) becomes one node under the root with EXT_mesh_gpu_instancing (required: it has no fallback), its faces'
-// mesh drawn at each placement's world transform; the placements leave the tree, with their occurrence names. Their
-// edges, curves and points stay ordinary nodes, one per placement under the root, as three.js's GLTFLoader (0.186)
-// instances only triangles. Mirrored or sheared placements, which TRS can't hold, stay in the tree. With extras, the
-// instanced node's extras list each instance's tree path, names and occurrence sources in attribute order.
+// Instancing (by option): every look placed more than once (as many times visible or hidden) becomes one node under the
+// root with EXT_mesh_gpu_instancing (required: it has no fallback), its faces' mesh drawn at each placement's world
+// transform; the placements leave the tree, with their occurrence names. Their edges, curves and points stay ordinary
+// nodes, one per placement under the root, as three.js's GLTFLoader (0.186) instances only triangles. Mirrored or
+// sheared placements, which TRS can't hold, stay in the tree. With extras, the instanced node's extras list each
+// instance's tree path, names and occurrence sources in attribute order.
 
 import { Document, Format, Logger, WebIO, type Accessor, type JSONDocument, type Buffer,
   type Material as GltfMaterial, type Mesh as GltfMesh, type Node, type TypedArray,
@@ -423,8 +422,8 @@ class Writer {
 
   /** The document, made a placed part at a time (a step each: `drain` or `paced`). */
   *write(): Generator<void, GltfResult> {
-    // No root node of ours (the user, 2026-11-01): each top node turned to glTF's metres and Y up itself; with
-    // extras, what's below that turn (millimetres, the source's axes) said in the scene's extras.
+    // No root node of ours: each top node turned to glTF's metres and Y up itself; with extras, what's below that turn
+    // (millimetres, the source's axes) said in the scene's extras.
     const tops: Node[] = [];
     const top = (node: Node) => {
       const m = multiply(ROOT_TRANSFORM, Float64Array.from(node.getMatrix()));

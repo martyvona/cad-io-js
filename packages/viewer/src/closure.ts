@@ -1,13 +1,13 @@
-// Whether a mesh closes up well enough to cap where a section plane cuts it (section.ts; the user, 2026-10-27: caps
-// missing on parts of the lightarm assembly). Vertices at one position are one; then every edge must be used twice,
-// once each way (an inside-out shell counts: the stencil count works either way), except along gaps too narrow to
-// see. Meshers leave such gaps: OCCT gave lightarm's planet_pulley 14 boundary edges, slivers 18 um wide between faces
-// whose nodes don't meet, and its stiffener inserts T-junctions (a vertex partway along another face's edge), each a
-// gap of no width. A gap's sides run opposite ways, so each boundary edge's width is its distance to the nearest
-// boundary edge running against it, and their mean, weighted by length, must be under WIDTH of the mesh's size. An
-// opening wide enough to see through has its opposite side across it, and fails. (Per loop of boundary edges, area
-// over perimeter was tried first: a slit joining two openings, a tube's unwelded seam, makes them one loop whose areas
-// cancel.) The stencil can leak only within the gaps.
+// Whether a mesh closes up well enough to cap where a section plane cuts it (section.ts: caps missing on parts of the
+// lightarm assembly). Vertices at one position are one; then every edge must be used twice, once each way (an
+// inside-out shell counts: the stencil count works either way), except along gaps too narrow to see. Meshers leave such
+// gaps: OCCT gave lightarm's planet_pulley 14 boundary edges, slivers 18 um wide between faces whose nodes don't meet,
+// and its stiffener inserts T-junctions (a vertex partway along another face's edge), each a gap of no width. A gap's
+// sides run opposite ways, so each boundary edge's width is its distance to the nearest boundary edge running against
+// it, and their mean, weighted by length, must be under WIDTH of the mesh's size. An opening wide enough to see through
+// has its opposite side across it, and fails. (Per loop of boundary edges, area over perimeter was tried first: a slit
+// joining two openings, a tube's unwelded seam, makes them one loop whose areas cancel.) The stencil can leak only
+// within the gaps.
 
 import { weld } from 'cad-scene';
 

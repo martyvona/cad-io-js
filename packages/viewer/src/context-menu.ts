@@ -1,6 +1,6 @@
-// A context menu (the user, 2026-10-31: right-clicking a tree node for actions on it): a list of buttons at a point
-// of the page, closed by choosing one, Escape, a press elsewhere, scrolling or the window losing focus. One at a time;
-// styled in index.html (.cv-menu).
+// A context menu (right-clicking a tree node for actions on it): a list of buttons at a point of the page, closed by
+// choosing one, Escape, a press elsewhere, scrolling or the window losing focus. One at a time; styled in index.html
+// (.cv-menu).
 
 export interface MenuItem {
   label: string;

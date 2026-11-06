@@ -1,6 +1,6 @@
-// glTF 2.0 (GLB, or .gltf JSON with its buffers) to the scene model (the user, 2026-10-29;
-// docs/claude/scene-formats.md), read with glTF-Transform: the default scene as a tree of nodes and meshes, which
-// cad-scene's sceneFromTree turns into a scene, ours (with our extras) as written, others as their own tree.
+// glTF 2.0 (GLB, or .gltf JSON with its buffers) to the scene model (docs/claude/scene-formats.md), read with
+// glTF-Transform: the default scene as a tree of nodes and meshes, which cad-scene's sceneFromTree turns into a scene,
+// ours (with our extras) as written, others as their own tree.
 //
 //   compression: Draco (KHR_draco_mesh_compression) and meshopt (EXT_meshopt_compression, KHR_mesh_quantization)
 //     decoded on reading; quantized positions read normalized, their scale in the node's matrix.
@@ -10,8 +10,8 @@
 //     curves and points (nodes of their own under the root), the tree nodes left empty by them made again.
 //   other files' GPU instances (EXT_mesh_gpu_instancing): a node per instance (the viewer drew them all before it
 //     read glTF through here; read once, they'd be lost).
-//   materials: base colour factors are linear (glTF's specification), read back to sRGB, except Onshape's, which
-//     are sRGB already (as the viewer found, 2026-10-27); textures aren't supported (said, and ignored).
+//   materials: base colour factors are linear (glTF's specification), read back to sRGB, except Onshape's, which are
+//     sRGB already (as the viewer found); textures aren't supported (said, and ignored).
 
 import { WebIO, type Accessor, type Document, type Material as GltfMaterial, type Node,
   type Primitive } from '@gltf-transform/core';
@@ -266,8 +266,8 @@ export async function importGltf(input: Uint8Array | GltfJsonInput, opts: GltfIm
     getAttribute(s: string): Accessor | null } | null;
   const scene = root.getDefaultScene() ?? root.listScenes()[0];
   const tops = scene?.listChildren() ?? [];
-  // Ours: the scene's extras ours (each top node turned to metres and Y up itself: the user, 2026-11-01), or before,
-  // one root node with our extras; else a root of the scene's nodes.
+  // Ours: the scene's extras ours (each top node turned to metres and Y up itself), or before, one root node with our
+  // extras; else a root of the scene's nodes.
   const sceneExtras = obj(scene?.getExtras());
   const oursOld = tops.length === 1 && obj(tops[0]!.getExtras())?.unit === 'millimetre';
   const ours = oursOld || (sceneExtras?.unit === 'millimetre' && sceneExtras.up === 'z');

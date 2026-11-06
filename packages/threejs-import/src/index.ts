@@ -1,9 +1,8 @@
-// three.js JSON (Object Scene format 4, as Object3D.toJSON and our exporter write it) to the scene model (the user,
-// 2026-10-29; docs/claude/scene-formats.md): the file's objects as a tree of nodes and meshes,
-// which cad-scene's sceneFromTree turns into a scene, ours (with our userData) as written, others as their own tree.
-// Geometries are BufferGeometry (other kinds, made from parameters, are skipped with a warning); materials give a
-// colour (sRGB, as the file holds it) and opacity; textures aren't supported (said, and ignored: the user,
-// 2026-10-29).
+// three.js JSON (Object Scene format 4, as Object3D.toJSON and our exporter write it) to the scene model
+// (docs/claude/scene-formats.md): the file's objects as a tree of nodes and meshes, which cad-scene's sceneFromTree
+// turns into a scene, ours (with our userData) as written, others as their own tree. Geometries are BufferGeometry
+// (other kinds, made from parameters, are skipped with a warning); materials give a colour (sRGB, as the file holds it)
+// and opacity; textures aren't supported (said, and ignored).
 
 import { boundScene, dropSourceDegenerate, identity, sceneFromTree, type Diagnostic, type Scene, type TreeMaterial,
   type TreeMesh, type TreeNode } from 'cad-scene';

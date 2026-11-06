@@ -1,25 +1,23 @@
 // Scene model -> three.js JSON Object Scene format 4 (the form Object3D.toJSON writes), loadable with
 // THREE.ObjectLoader. See README.md and docs/claude/scene-formats.md.
 //
-//   objects: a Scene holding the scene's roots, each turned to metres and Y up in its own matrix (the user,
-//     2026-11-01: no root group of ours, for a reader to take for an assembly or a frame not the file's). A Group
-//     per instance-tree node (matrix = the node's local transform), and per placed part (a part reference, named as
-//     the placement is, else its product, else its part) a Mesh (or a Group, for a part without triangles) whose
-//     children are its B-rep edges (LineSegments), wireframe curves (LineSegments) and points (Points). The scene's
-//     root parts beside its roots.
+//   objects: a Scene holding the scene's roots, each turned to metres and Y up in its own matrix (no root group of
+//     ours, for a reader to take for an assembly or a frame not the file's). A Group per instance-tree node (matrix =
+//     the node's local transform), and per placed part (a part reference, named as the placement is, else its product,
+//     else its part) a Mesh (or a Group, for a part without triangles) whose children are its B-rep edges
+//     (LineSegments), wireframe curves (LineSegments) and points (Points). The scene's root parts beside its roots.
 //   geometries: one per distinct mesh and grouping, shared by every instance; groups index the Mesh's material array.
 //   materials: one per scene material and kind (MeshStandardMaterial, LineBasicMaterial, PointsMaterial).
 //   userData (on request): source ids, properties and parts (and `closed`, where the source says whether a part's
 //     faces bound solids); per Mesh its faces' sources as index ranges, for
 //     picking; the scene's properties, and the unit and up axis below the root, on the root.
 //
-// Tree nodes with nothing to draw beneath them are left out unless `keepEmpty` (the user, 2026-10-24).
+// Tree nodes with nothing to draw beneath them are left out unless `keepEmpty`.
 //
-// Each top object's matrix turns the scene's millimetres and Z up into metres and Y up (three.js's up axis, glTF's
-// unit and axis), so a file sits the same in any three.js application; below it lengths are millimetres and axes as
-// in the source (CAD files are usually Z-up), which the Scene's userData says with extras (the user, 2026-10-24;
-// in each top object since 2026-11-01, a root group's before). Format 4 holds numbers as JSON arrays, so output is
-// produced in chunks: a large model's JSON can exceed V8's maximum string length.
+// Each top object's matrix turns the scene's millimetres and Z up into metres and Y up (three.js's up axis, glTF's unit
+// and axis), so a file sits the same in any three.js application; below it lengths are millimetres and axes as in the
+// source (CAD files are usually Z-up), which the Scene's userData says with extras (in each top object). Format 4 holds
+// numbers as JSON arrays, so output is produced in chunks: a large model's JSON can exceed V8's maximum string length.
 
 import { multiply, partExtras, placedName, placementJson, pruneView, sceneJson, Y_UP_METRES, type ExportNode,
   type ExportPart, type ExportView, type Look, type Mat4, type Mesh, type PropertyValue, type Scene, type SourceId,
@@ -44,7 +42,7 @@ export interface ThreejsOptions {
   /**
    * Our userData: source ids, properties, parts and whether they're closed (where the source says) on objects, scene
    * material indices on materials, face, edge, curve and point sources, and the unit and up axis below the root.
-   * Default false: other systems don't read them (the user, 2026-10-24).
+   * Default false: other systems don't read them.
    */
   extras?: boolean;
   /** Keep tree nodes with nothing to draw beneath them. Default false. */
@@ -310,8 +308,8 @@ class Writer {
   }
 
   root(): Json {
-    // A Scene of the tops, each turned itself (the user, 2026-11-01: no root group of ours); with extras, the Scene's
-    // userData says what's below that turn.
+    // A Scene of the tops, each turned itself (no root group of ours); with extras, the Scene's userData says what's
+    // below that turn.
     const frame = ROOT_TRANSFORM;
     const o: Json = { uuid: this.uuid(), type: 'Scene', name: this.opts.name ?? '' };
     if (this.extras) o.userData = sceneJson(this.scene) as Json;

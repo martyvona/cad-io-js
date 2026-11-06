@@ -1,9 +1,9 @@
-// Leaf products as part references (the user, 2026-11-01; docs/claude/scene-formats.md): a component whose only content
-// is one part reference (no children, no external reference, no material of its own) is the part placed, not a
-// component: each occurrence of it becomes a part reference in its parent's component (or among the scene's root
-// parts), with the occurrence's name, sources and properties, the component's as its `product`. So a placed part is
-// one node in a tree, as CAD systems and 3MF show it, not an assembly holding a part of the same name (the corpus
-// had 3,979 such occurrences). Every importer ends with it, so every file (ours written before, too) reads alike.
+// Leaf products as part references (docs/claude/scene-formats.md): a component whose only content is one part reference
+// (no children, no external reference, no material of its own) is the part placed, not a component: each occurrence of
+// it becomes a part reference in its parent's component (or among the scene's root parts), with the occurrence's name,
+// sources and properties, the component's as its `product`. So a placed part is one node in a tree, as CAD systems and
+// 3MF show it, not an assembly holding a part of the same name (the corpus had 3,979 such occurrences). Every importer
+// ends with it, so every file (ours written before, too) reads alike.
 //
 // The new part references come after the component's own, in the order of the occurrences they replace; the other
 // children keep their order; overrides' paths follow (one that ends at a leaf's occurrence names its part reference);

@@ -1,6 +1,5 @@
-// Recording what someone does in the viewer, to download and replay, so bugs can be reproduced (the user,
-// 2026-10-25; docs/claude/viewer.md). A recording is JSON: when it began, the browser and window, and events, each
-// with `t`, milliseconds since it began:
+// Recording what someone does in the viewer, to download and replay, so bugs can be reproduced (docs/claude/viewer.md).
+// A recording is JSON: when it began, the browser and window, and events, each with `t`, milliseconds since it began:
 //
 //   state    the whole view (automation.ts's state()) and its link: at the start (after a load event for the model
 //            already open, if any) and at the end
@@ -26,13 +25,13 @@
 // picking, compared with what was picked then. Divergences are reported: a pick landing elsewhere, a file missing,
 // a control gone, an end state that differs. Pointer and wheel events, statuses and errors are kept for reading.
 //
-// In real time (the page's Replay recording..., for watching what was recorded: the user, 2026-10-26), events keep
-// their order above all: each starts only once the last is done (a load meshed, a button's work finished), so a step
-// that takes longer than it did makes the replay slower, never out of order. Each then waits for its gap after the
-// last as recorded (time spent on the last counts; a replay running late carries on from where it is rather than
-// hurrying to catch up; pauses capped), the camera turns through each drag over the drag's time
-// (interpolated from where it was to where the drag ended), a marker shows the pointer where it was pressed, and each
-// control is shown as it changes: its folders opened (closed again when the replay ends), scrolled to, flashed.
+// In real time (the page's Replay recording..., for watching what was recorded), events keep their order above all:
+// each starts only once the last is done (a load meshed, a button's work finished), so a step that takes longer than it
+// did makes the replay slower, never out of order. Each then waits for its gap after the last as recorded (time spent
+// on the last counts; a replay running late carries on from where it is rather than hurrying to catch up; pauses
+// capped), the camera turns through each drag over the drag's time (interpolated from where it was to where the drag
+// ended), a marker shows the pointer where it was pressed, and each control is shown as it changes: its folders opened
+// (closed again when the replay ends), scrolled to, flashed.
 
 import { sha256 } from 'cad-scene';
 import { interpolateCamera } from './camera.ts';

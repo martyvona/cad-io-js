@@ -1,11 +1,11 @@
-// Override Appearance... (the user, 2026-10-31; the tree's context menu, tree-panel.ts): one node's appearance
-// override, in a panel that floats over the page without blocking it (the 3D view and the tree still work), dragged by
-// its title, closed by its x or Escape. Visibility (Inherit, Hide, Show), Opacity (Inherit, Transparent, Default: the
-// file's own) with a slider and a box for the alpha, and Triangle edges (Inherit, On, Off; Rendering's Triangle edges
-// deciding where nothing sets them). The alpha takes input only while Opacity is Transparent; otherwise it shows the
-// alpha the node draws with (inherited, or the file's), and switching to Transparent starts from that. Every change
-// takes effect at once (the slider as it moves), recorded once it's made (the slider let go): no OK or Cancel. One at
-// a time: asked for another node while it's open, or a node selected alone, it shows that one instead.
+// Override Appearance... (the tree's context menu, tree-panel.ts): one node's appearance override, in a panel that
+// floats over the page without blocking it (the 3D view and the tree still work), dragged by its title, closed by its x
+// or Escape. Visibility (Inherit, Hide, Show), Opacity (Inherit, Transparent, Default: the file's own) with a slider
+// and a box for the alpha, and Triangle edges (Inherit, On, Off; Rendering's Triangle edges deciding where nothing sets
+// them). The alpha takes input only while Opacity is Transparent; otherwise it shows the alpha the node draws with
+// (inherited, or the file's), and switching to Transparent starts from that. Every change takes effect at once (the
+// slider as it moves), recorded once it's made (the slider let go): no OK or Cancel. One at a time: asked for another
+// node while it's open, or a node selected alone, it shows that one instead.
 
 import { draggable } from './dialog.ts';
 import type { AppearanceOverride, Look } from './model.ts';
@@ -139,7 +139,7 @@ function makePanel(): NonNullable<typeof panel> {
   const read = () => {
     c = binding!.describe();
     text.textContent = `Override Appearance: ${c.name}`;
-    // (Plain labels, the user, 2026-11-06: what Inherit gives shows in the view, and the alpha in its box.)
+    // (Plain labels: what Inherit gives shows in the view, and the alpha in its box.)
     options(visibility, [['inherit', 'Inherit'], ['hide', 'Hide'], ['show', 'Show']]);
     options(opacity, [['inherit', 'Inherit'], ['transparent', 'Transparent'], ['default', 'Default']]);
     options(edges, [['inherit', 'Inherit'], ['on', 'On'], ['off', 'Off']]);
@@ -187,8 +187,8 @@ function makePanel(): NonNullable<typeof panel> {
       read();
       if (!focus) return;
       // On a touch screen the panel itself takes the focus (for Escape): iOS opens a <select>'s picker whenever it's
-      // focused, so focusing Visibility popped its list open (the user, 2026-11-06). Elsewhere Visibility does, so
-      // the keyboard can change it at once.
+      // focused, so focusing Visibility popped its list open. Elsewhere Visibility does, so the keyboard can change it
+      // at once.
       if (matchMedia('(pointer: coarse)').matches) dialog.focus({ preventScroll: true });
       else visibility.focus();
     },

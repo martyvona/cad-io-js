@@ -5,7 +5,7 @@ import { DEFAULT_MESH_PROFILE, MESH_PROFILE_NAMES, MESH_PROFILES, meshDeflection
 
 const degrees = (rad: number) => Math.round(rad * 180 / Math.PI * 1e9) / 1e9;
 
-test('meshing profiles: the user\'s values (2026-10-26), medium by default', () => {
+test('meshing profiles: their values, medium by default', () => {
   assert.deepEqual(MESH_PROFILE_NAMES, ['coarse', 'medium', 'fine']);
   assert.deepEqual(MESH_PROFILE_NAMES.map((n) => [MESH_PROFILES[n].linearDeflection,
     degrees(MESH_PROFILES[n].angularDeflection)]), [[0.2, 30], [0.1, 15], [0.05, 7.5]]);

@@ -112,9 +112,9 @@ test('a foreign glTF: its tree, a part per mesh (its primitives faces), shared, 
   const { scene: s, diagnostics } = await importGltf(await new WebIO().writeBinary(doc));
   assert.deepEqual(validate(s), []);
   assert.deepEqual(diagnostics.map((d) => d.message), ['textures are not supported: ignored']);
-  // The scene's nodes the roots (the user, 2026-11-01): a, with only its mesh, a placed part; b a component of its
-  // mesh, its child a placed part of lines; a part for the mesh, shared by a and b, its two primitives faces 0 and 1
-  // (the second grey); the strip as three segments.
+  // The scene's nodes the roots: a, with only its mesh, a placed part; b a component of its mesh, its child a placed
+  // part of lines; a part for the mesh, shared by a and b, its two primitives faces 0 and 1 (the second grey); the
+  // strip as three segments.
   assert.deepEqual(s.components.map((c) => [c.name, c.parts.length, c.children.length]), [['b', 2, 0]]);
   assert.deepEqual(s.rootParts!.map((r) => [r.name, r.part]), [['a', 0]]);
   assert.deepEqual(s.components[0]!.parts.map((r) => [r.name, r.part]), [[undefined, 0], ['line', 1]]);
@@ -144,7 +144,7 @@ test('a foreign glTF: its tree, a part per mesh (its primitives faces), shared, 
 
 test('a foreign glTF exported again: its top nodes\' frames as they were (metres, Y up), with extras or without',
   async () => {
-    // (The user, 2026-11-01: an export's root frame the input's; no turn or node of ours left in it.)
+    // (an export's root frame the input's; no turn or node of ours left in it.)
     const doc = new Document();
     const buffer = doc.createBuffer();
     const pos = doc.createAccessor().setType('VEC3').setArray(Float32Array.of(0, 0, 0, 1, 0, 0, 0, 1, 0))

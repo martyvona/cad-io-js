@@ -264,7 +264,7 @@ test('pick: the face under the point beats other parts\' lines near it; its own 
 
 test('pick: lines are hit within the pixels asked under a scaled parent (a file in metres)', () => {
   // three.js divides the threshold by the line's own scale only, so under a parent scaling by 1000 a line was hit
-  // within 1000 times the reach: a click in empty space picked the nearest part's edges (2026-10-25).
+  // within 1000 times the reach: a click in empty space picked the nearest part's edges.
   const root = new THREE.Group();
   const metres = new THREE.Group();
   metres.scale.setScalar(1000);

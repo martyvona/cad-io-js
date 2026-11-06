@@ -1,9 +1,9 @@
-// The viewer's hiding and opacity for an export (the user, 2026-10-31: Export's "Apply the viewer's hiding and
-// opacity"), as the scene can say them: each placed part's visibility and materials by an instance override of its
-// part reference (InstanceOverride.ref), in place of the scene's own visibility overrides (the node model already
-// started from them: model.ts); opacity as copies of the placement's materials at the alpha it draws with, its faces'
-// too, and a face's own opacity a per-face material of the placement. What the scene can't say is said instead: a
-// face hidden in a placement still shown (no format here hides one face of a placed part), triangle edges.
+// The viewer's hiding and opacity for an export (Export's "Apply the viewer's hiding and opacity"), as the scene can
+// say them: each placed part's visibility and materials by an instance override of its part reference
+// (InstanceOverride.ref), in place of the scene's own visibility overrides (the node model already started from them:
+// model.ts); opacity as copies of the placement's materials at the alpha it draws with, its faces' too, and a face's
+// own opacity a per-face material of the placement. What the scene can't say is said instead: a face hidden in a
+// placement still shown (no format here hides one face of a placed part), triangle edges.
 
 import type { InstanceOverride, Material, Scene } from 'cad-scene';
 import type { NodeModel } from './model.ts';

@@ -198,7 +198,7 @@ for (const [label, opts] of [['an item per placed part, basematerials', {}],
       assert.deepEqual(back.scene.components.map((c) => c.name).sort(), ['top']);
       assert.equal(back.scene.roots.length, 1);
     } else {
-      // Each item a root part (the user, 2026-11-01: no made-up node holding them).
+      // Each item a root part (no made-up node holding them).
       assert.deepEqual(back.scene.components, []);
       assert.ok(back.scene.rootParts!.length >= 2);
     }
@@ -596,7 +596,7 @@ test('round trips keep the tree: the same through 3MF again and again (an item p
         .chunks)).scene;
       const b = trip(a), c = trip(b), d = trip(c);
       const j = JSON.stringify(o);
-      // Without extras an item per placed part is flat (the user, 2026-10-29): the first trip changes the tree.
+      // Without extras an item per placed part is flat: the first trip changes the tree.
       if (o.extras || o.build === 'assembly') assert.equal(tree(b), tree(a), `${j}: the first trip`);
       else assert.ok(!b.roots.length && b.rootParts!.length === [...partInstances(a)].length, j);
       assert.equal(tree(c), tree(b), `${j}: the second`);
@@ -671,7 +671,7 @@ test('the model\'s sphere in our tree metadata, read back as the file\'s; withou
   assert.ok(plain.parts.every((p) => p.lods.every((l) => l.mesh.box)));
 });
 
-test('the source\'s unit: our 3MF in inches where the source was (the user, 2026-11-01), the same drawing back', () => {
+test('the source\'s unit: our 3MF in inches where the source was, the same drawing back', () => {
   const s = source();
   s.sourceUnit = 25.4;
   for (const o of [{}, { extras: true }, { build: 'assembly' }, { extras: true, build: 'assembly' }] as

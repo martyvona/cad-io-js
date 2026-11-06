@@ -1,6 +1,6 @@
-// The orthographic camera's geometry: the six views along the world's axes (Z up, millimetres), fitting a box in
-// the viewport with a margin ("zoom all", "zoom selected"), and near and far planes that follow the model so it's
-// never clipped by them however the camera turns (the user, 2026-10-24; docs/claude/viewer.md).
+// The orthographic camera's geometry: the six views along the world's axes (Z up, millimetres), fitting a box in the
+// viewport with a margin ("zoom all", "zoom selected"), and near and far planes that follow the model so it's never
+// clipped by them however the camera turns (docs/claude/viewer.md).
 //
 // The frustum is kept in world units: `top` is half the viewport's height in millimetres at zoom 1, and `left`
 // and `right` follow the aspect ratio. TrackballControls zooms an orthographic camera through `zoom`.
@@ -42,11 +42,11 @@ export function setAspect(camera: THREE.OrthographicCamera, aspect: number): voi
 }
 
 /**
- * Fits a sphere in the viewport from the camera's current direction (the user, 2026-10-30: spheres for zoom all and
- * zoom selected, so the framing is the same from every direction): the target moves to its centre, the frustum's
- * smaller side spans its diameter less the margin, zoom back to 1. `aspect` is the view's, which the frustum takes;
- * `fitAspect` the part of it to fit in (the width beside the controls: Viewer.fitAspect), the view's if absent.
- * False if the sphere is empty (nothing changes).
+ * Fits a sphere in the viewport from the camera's current direction (spheres for zoom all and zoom selected, so the
+ * framing is the same from every direction): the target moves to its centre, the frustum's smaller side spans its
+ * diameter less the margin, zoom back to 1. `aspect` is the view's, which the frustum takes; `fitAspect` the part of it
+ * to fit in (the width beside the controls: Viewer.fitAspect), the view's if absent. False if the sphere is empty
+ * (nothing changes).
  */
 export function fitSphere(camera: THREE.OrthographicCamera, target: THREE.Vector3, sphere: THREE.Sphere,
   aspect: number, fitAspect = aspect, margin = MARGIN): boolean {
@@ -73,8 +73,7 @@ export function fitSphere(camera: THREE.OrthographicCamera, target: THREE.Vector
 
 /**
  * A camera turned to look along a view's axis (its direction and up) about the same target, from the same distance,
- * with the same height and pan (the user, 2026-10-30: the views turn about the orbit centre, leaving zoom and pan
- * alone).
+ * with the same height and pan (the views turn about the orbit centre, leaving zoom and pan alone).
  */
 export function viewCamera(s: CameraState, view: ViewName): CameraState {
   const { dir, up } = VIEWS[view];

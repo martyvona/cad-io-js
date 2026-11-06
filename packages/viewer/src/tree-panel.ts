@@ -1,7 +1,7 @@
 // The assembly tree panel: the node model (model.ts) through the tree view (tree-view.ts), with an icon per kind,
-// hidden nodes greyed, and the selection (the user, 2026-10-24; docs/claude/viewer.md); an eye after the name of a
-// node with an appearance override of its own, and a context menu on a row (right-click, or a long press on a touch
-// screen, where browsers may not send one: iOS) (the user, 2026-10-31).
+// hidden nodes greyed, and the selection (docs/claude/viewer.md); an eye after the name of a node with an appearance
+// override of its own, and a context menu on a row (right-click, or a long press on a touch screen, where browsers may
+// not send one: iOS).
 
 import { HeadlessTreeView } from './headless-tree-view.ts';
 import type { AppearanceOverride, Kind, NodeModel } from './model.ts';
@@ -72,8 +72,7 @@ export class TreePanel {
       },
       renderRow: (id, content) => {
         const n = model.nodes[num(id)]!;
-        // Failed to mesh, wholly or partly: red, with a broken icon (the user, 2026-10-30; before, partly had the
-        // icon only).
+        // Failed to mesh, wholly or partly: red, with a broken icon (before, partly had the icon only).
         const failure = model.failure(n.id);
         content.innerHTML = `<span class="tree-icon${failure ? ' broken' : ''}">${failure ? BROKEN_ICON
           : ICONS[n.kind]}</span><span class="tree-name"></span>`;
@@ -137,8 +136,8 @@ export class TreePanel {
   }
 
   /**
-   * Selects nodes from elsewhere (picking, Select by ID), showing every one, their branches unfolded, unless
-   * `reveal` is false (the user, 2026-10-28; before, only the first was shown).
+   * Selects nodes from elsewhere (picking, Select by ID), showing every one, their branches unfolded, unless `reveal`
+   * is false (before, only the first was shown).
    */
   select(ids: readonly number[], reveal = true): void {
     this.selection = [...ids];

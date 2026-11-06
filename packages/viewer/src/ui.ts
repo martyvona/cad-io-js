@@ -1,7 +1,6 @@
-// The viewer's controls, in lil-gui (the user, 2026-10-24; docs/claude/viewer.md): opening a local file or a URL
-// (also by dropping files on the page, or ?model= in the page's address), zoom all, the views along the axes, full
-// screen, the tree panel and hiding; a status line for what's loading and what went wrong.
-// Every folder starts closed (the user, 2026-10-25).
+// The viewer's controls, in lil-gui (docs/claude/viewer.md): opening a local file or a URL (also by dropping files on
+// the page, or ?model= in the page's address), zoom all, the views along the axes, full screen, the tree panel and
+// hiding; a status line for what's loading and what went wrong. Every folder starts closed.
 
 import * as THREE from 'three';
 import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
@@ -124,8 +123,8 @@ export type UiEvent =
 const HIDE_AFTER = 5000;
 
 /**
- * Shows an element again (fading it out after HIDE_AFTER with no change, by its `faded` class, unless `stay`): call
- * it whenever its content changes (the user, 2026-10-27).
+ * Shows an element again (fading it out after HIDE_AFTER with no change, by its `faded` class, unless `stay`): call it
+ * whenever its content changes.
  */
 function autoHide(el: HTMLElement): (stay?: boolean) => void {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -166,8 +165,8 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   // input it would block, unless one asks for it (?check=dialogs).
   const problemsDialog = !check || new URLSearchParams(location.search).get('check') === 'dialogs';
   /**
-   * A model that couldn't be opened (the user, 2026-10-28): said in the status line and in an error modal (not in the
-   * browser check's plain ?check pages, as the problems dialog).
+   * A model that couldn't be opened: said in the status line and in an error modal (not in the browser check's plain
+   * ?check pages, as the problems dialog).
    */
   const failed = (what: string, message: string) => {
     say(`${what}: ${message}`, true);
@@ -394,9 +393,9 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
         buttons: [{ label: 'OK', value: 'ok', primary: true }] });
     }
   } }, 'save').name('Save original...').disable();
-  // The model exported (the user, 2026-10-31): a format and its options (export-dialog.ts), where to save it asked at
-  // once (the dialog's click lets the page open the save dialog), then made in the import worker (export-model.ts)
-  // and written; a .gltf with its buffer beside it asks again for the .bin.
+  // The model exported: a format and its options (export-dialog.ts), where to save it asked at once (the dialog's click
+  // lets the page open the save dialog), then made in the import worker (export-model.ts) and written; a .gltf with its
+  // buffer beside it asks again for the .bin.
   exportControl = file.add({ export: () => exportFile() }, 'export').name('Export...').disable();
   // (With the model open: its file, objects and triangles, as they are now.)
   file.add({ about: () => {
@@ -430,9 +429,8 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     // Disabled where the page can't go full screen (iPhone, some embedded browsers).
     enter.enable(document.fullscreenEnabled && !document.fullscreenElement);
     exit.enable(!!document.fullscreenElement);
-    // Leaving full screen, a phone's browser can leave the page scrolled as its toolbar comes back, the top of the
-    // view (the details box) under it (the user, 2026-10-27, on a phone): back to the top, once now and once the
-    // toolbar has settled.
+    // Leaving full screen, a phone's browser can leave the page scrolled as its toolbar comes back, the top of the view
+    // (the details box) under it (seen on a phone): back to the top, once now and once the toolbar has settled.
     if (!document.fullscreenElement) for (const t of [0, 400]) setTimeout(() => window.scrollTo(0, 0), t);
   };
   document.addEventListener('fullscreenchange', fullscreen);
@@ -571,7 +569,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   // The selection: the tree's and the 3D view's, one; highlighted, described, zoomed to.
   let selected: readonly number[] = [];
   const highlighter = new Highlighter();
-  // Details on by default (the user, 2026-10-28).
+  // Details on by default.
   const selection = { level: 'part' as PickLevel, multi: false, instances: false, details: true };
   // The objects the highlight covered: a selected part's or face's mesh may arrive after it was selected (always so
   // when meshing again restores the selection: the selection comes back with the tree, the meshes later, each in a
@@ -607,8 +605,8 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     // A selection made while meshing again replaces the one being restored.
     if (source !== 'api' && restore) restore.selected = [];
     if (source !== 'tree') panel?.select(selected, reveal);
-    // Override Appearance..., if open, follows a selection of one node (the user, 2026-11-06): it shows the node
-    // last right-clicked or last selected alone, whichever came last; none or several selected leave it as it is.
+    // Override Appearance..., if open, follows a selection of one node: it shows the node last right-clicked or last
+    // selected alone, whichever came last; none or several selected leave it as it is.
     if (selected.length === 1 && appearanceOpen()) editAppearance(selected[0]!, false);
     hooks.onEvent?.({ type: 'select', source, ids: selected });
     zoomSelected.enable(selected.length > 0);
@@ -653,7 +651,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       detailControl?.updateDisplay();
     }
     const id = hit && nodeForPick(nodes, hit.object, hit.faceIndex, selection.level);
-    // What's picked is what the view then turns about (the user, 2026-10-31), the view as it is.
+    // What's picked is what the view then turns about, the view as it is.
     if (hit) viewer.orbitAbout(hit.point);
     const add = keys.add || selection.multi;
     hooks.onEvent?.({ type: 'pick', clientX: keys.clientX, clientY: keys.clientY, add, ...(id !== undefined ? { id }
@@ -788,7 +786,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     },
     selectAll: () => {
       const ids = everything();
-      // Shown in the tree, every branch it needs unfolded (the user, 2026-10-28; before, nothing was revealed).
+      // Shown in the tree, every branch it needs unfolded (before, nothing was revealed).
       if (ids) select(ids);
     },
     invertSelection: () => {
@@ -882,8 +880,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     set onEvent(f) { hooks.onEvent = f; },
     pickAt: (clientX, clientY, add) => viewer.onPick?.(viewer.pickAt(clientX, clientY), { add, clientX, clientY }),
   };
-  // Selection holds the tree's controls too (the Tree folder until 2026-10-28, the user): picking and selecting, then
-  // hiding and showing, then the tree panel.
+  // Selection holds the tree's controls too: picking and selecting, then hiding and showing, then the tree panel.
   const selFolder = gui.addFolder('Selection');
   selFolder.add(selection, 'level', { 'Assembly': 'assembly', 'Part': 'part', 'Face, edge, curve': 'detail' })
     .name('Pick');
@@ -907,7 +904,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   selFolder.add(ui, 'hideOthers').name('Hide others');
   selFolder.add(ui, 'showOthers').name('Show others');
   selFolder.add(ui, 'showAll').name('Show all');
-  // Transparency (the user, 2026-10-31): the selection at this opacity, or back to the file's.
+  // Transparency: the selection at this opacity, or back to the file's.
   selFolder.add(transparency, 'opacity', 0.05, 1, 0.05).name('Opacity');
   selFolder.add({ make: () => ui.setOpacity(transparency.opacity) }, 'make').name('Make transparent');
   selFolder.add({ restore: () => ui.setOpacity(undefined) }, 'restore').name('Restore opacity');

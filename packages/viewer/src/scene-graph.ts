@@ -1,7 +1,6 @@
-// A model's three.js graph, from its scene whatever the file's format (the user, 2026-10-24; one path for every
-// format since 2026-10-29; docs/claude/viewer.md): the assembly tree from the scene at once, mesh parts' levels
-// with it, then each B-rep part's mesh attached to every placement of the part as tessellation delivers it, so the
-// model appears part by part.
+// A model's three.js graph, from its scene whatever the file's format (docs/claude/viewer.md): the assembly tree from
+// the scene at once, mesh parts' levels with it, then each B-rep part's mesh attached to every placement of the part as
+// tessellation delivers it, so the model appears part by part.
 //
 //   root -> a Group per component instance (its occurrence's transform) -> ... -> a Group per placed part (the part
 //     reference's transform: the part's own unit to millimetres) -> a Mesh at the mesh's origin, with its B-rep
@@ -70,8 +69,8 @@ interface MeshedPart {
 }
 
 /**
- * Faces that failed to mesh: their outlines (Mesh.faceOutlines, from the file), in red (the user, 2026-10-28: so
- * where they should be can be found). The tree marks their nodes the same red (tree-panel.ts).
+ * Faces that failed to mesh: their outlines (Mesh.faceOutlines, from the file), in red (so where they should be can be
+ * found). The tree marks their nodes the same red (tree-panel.ts).
  */
 export const FAILED_COLOR = 0xe02020;
 // (Drawn in front of the black edges along the same B-rep edges: depth-bias.ts.)
@@ -89,8 +88,8 @@ export class SceneGraph implements Looks {
   private readonly lineMaterial = new THREE.LineBasicMaterial({ color: 0x000000 });
   private readonly meshed = new Map<number, MeshedPart>();
   /**
-   * Each placement's look (the node model's overrides resolved: hidden and transparent faces, the user,
-   * 2026-10-31), by its PartInstance, so it holds for meshes that arrive later.
+   * Each placement's look (the node model's overrides resolved: hidden and transparent faces), by its PartInstance, so
+   * it holds for meshes that arrive later.
    */
   private readonly looks = new Map<PartInstance, PlacementLook>();
   /** Each part's mesh drawn, as addMesh was given it (lent to the import worker to export: viewer.ts). */
@@ -122,7 +121,7 @@ export class SceneGraph implements Looks {
     }
     for (const pi of partInstances(scene)) {
       const g = new THREE.Group();
-      // (A placed part a node of its own, named as its placement: the user, 2026-11-01.)
+      // (A placed part a node of its own, named as its placement.)
       g.name = placedName(scene, pi.ref);
       // Its STEP ids: its placement's (a NAUO), its product's, its part's (the shape representation), as an
       // assembly's are its occurrence's then its component's; its faces' ids STEP's when the part comes from STEP (a
@@ -232,8 +231,8 @@ export class SceneGraph implements Looks {
     if (meshed) this.meshed.set(part, meshed);
     const faceSources = [...new Set(mesh.faces.flatMap((f) => f.source === null ? [] : [f.source]))];
     // Faces that failed (cad-scene's faceFailures: no triangles; with the part's measures, its triangles short of the
-    // face's area, well over it, or no area to judge them by), all but `partly` drawn as failed (the user,
-    // 2026-10-30: red, the kinds kept apart, in `faceReport`); an outline geometry for each that has outlines.
+    // face's area, well over it, or no area to judge them by), all but `partly` drawn as failed (red, the kinds kept
+    // apart, in `faceReport`); an outline geometry for each that has outlines.
     const p = this.scene.parts[part]!;
     const measured = p.measures && linearDeflection !== undefined
       ? { measures: p.measures, deflection: linearDeflection / p.unit } : undefined;

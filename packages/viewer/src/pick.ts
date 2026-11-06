@@ -1,12 +1,12 @@
-// Picking in the 3D view (the user, 2026-10-24; docs/claude/viewer.md): a ray from the camera through the pointer,
-// brute force over every object (three-mesh-bvh is a backlog item). What isn't drawn isn't picked: hidden objects (or
-// with a hidden ancestor), parts' own drawings hidden by their layer (the raycaster's layers), hidden faces (their
-// geometry group's material), and what the section planes cut away (`clipped`). Lines and points are hit within a
-// few pixels. The face under the point wins, except over its own part's edges, curves and points near it (no farther,
-// give or take those pixels), so they can be picked on it; another part's lines never beat it, however close (they
-// did until 2026-10-25, so on dense models a click picked whatever part had an edge within 4 pixels). Lines and points
-// of parts with no faces (wireframes) win when not behind the face, as nothing else would pick them; with no face
-// under the point, the nearest line or point.
+// Picking in the 3D view (docs/claude/viewer.md): a ray from the camera through the pointer, brute force over every
+// object (three-mesh-bvh is a backlog item). What isn't drawn isn't picked: hidden objects (or with a hidden ancestor),
+// parts' own drawings hidden by their layer (the raycaster's layers), hidden faces (their geometry group's material),
+// and what the section planes cut away (`clipped`). Lines and points are hit within a few pixels. The face under the
+// point wins, except over its own part's edges, curves and points near it (no farther, give or take those pixels), so
+// they can be picked on it; another part's lines never beat it, however close (an earlier version let them, so on dense
+// models a click picked whatever part had an edge within 4 pixels). Lines and points of parts with no faces
+// (wireframes) win when not behind the face, as nothing else would pick them; with no face under the point, the nearest
+// line or point.
 
 import * as THREE from 'three';
 
@@ -60,8 +60,8 @@ const vb = new THREE.Vector3();
 /**
  * The hits on a line or points within `reach` of the ray, measured in the world. three.js's own raycasting turns its
  * threshold into the object's units by the object's own scale alone, not its ancestors', so under a part scaled from
- * metres lines were hit 1000 times too far away, and a click in empty space picked the nearest part's edges
- * (2026-10-25); one threshold can't serve both its culling (in the world) and its test (in the object's units).
+ * metres lines were hit 1000 times too far away, and a click in empty space picked the nearest part's edges; one
+ * threshold can't serve both its culling (in the world) and its test (in the object's units).
  */
 function hitsNear(o: THREE.Line | THREE.Points, ray: THREE.Ray, reach: number, near: number, far: number,
   out: THREE.Intersection[]): void {
@@ -126,8 +126,8 @@ export function hitsAlong(camera: THREE.Camera, root: THREE.Object3D, ndc: THREE
   clipped?: (p: THREE.Vector3) => boolean, extra?: ExtraHits): { hits: THREE.Intersection[]; ray: THREE.Ray } {
   raycaster.setFromCamera(ndc, camera);
   // three.js starts an orthographic camera's ray at its position and hits nothing behind it, but our near plane is
-  // often negative (clipTo: zoom selected puts the camera just beyond the selection), so what's drawn between the
-  // near plane and the camera wasn't hit (the user's recording, 2026-10-30): the ray starts at the near plane.
+  // often negative (clipTo: zoom selected puts the camera just beyond the selection), so what's drawn between the near
+  // plane and the camera wasn't hit (the user's recording): the ray starts at the near plane.
   const ortho = camera as THREE.OrthographicCamera;
   if (ortho.isOrthographicCamera) {
     raycaster.ray.origin.addScaledVector(raycaster.ray.direction, ortho.near);

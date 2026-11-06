@@ -153,9 +153,8 @@ export function exportView(scene: Scene, opts: ExportViewOptions = {}): ExportVi
 }
 
 /**
- * The view without the tree nodes that have nothing beneath them for which `keep` holds (by default any placed
- * part): exporters leave out empty nodes unless asked to keep them (decided by the user, 2026-10-24). Kept nodes keep
- * all their parts.
+ * The view without the tree nodes that have nothing beneath them for which `keep` holds (by default any placed part):
+ * exporters leave out empty nodes unless asked to keep them. Kept nodes keep all their parts.
  */
 export function pruneView(view: ExportView,
   keep: (p: ExportNode['parts'][number]) => boolean = () => true): ExportView {

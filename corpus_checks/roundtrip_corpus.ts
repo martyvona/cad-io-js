@@ -1,8 +1,8 @@
-// Importers' plan, phase 4 (the user, 2026-10-29): every corpus file imported, tessellated with our OCCT backend
-// (a tess-workers pool, 0.1 mm, 0.5 rad, edges), exported with extras in each form below, read back with our
-// importers (threejs-import, gltf-import), and compared with what was written by cad-scene's viewDifferences:
-// placement by placement, names along the tree, visibility, every triangle's corners in the world with its face id
-// and colour, every shared and free edge, curve and point. The imported scene must also be valid.
+// Importers' plan, phase 4: every corpus file imported, tessellated with our OCCT backend (a tess-workers pool, 0.1 mm,
+// 0.5 rad, edges), exported with extras in each form below, read back with our importers (threejs-import, gltf-import),
+// and compared with what was written by cad-scene's viewDifferences: placement by placement, names along the tree,
+// visibility, every triangle's corners in the world with its face id and colour, every shared and free edge, curve and
+// point. The imported scene must also be valid.
 //
 //   json           three.js JSON (lossless: to 1e-4 mm)
 //   glb            GLB uncompressed, hidden placements written (KHR_node_visibility): lossless
@@ -11,11 +11,11 @@
 //   glb-meshopt    GLB with meshopt: 16 bits over the largest part mesh's volume
 //   glb-instanced  GLB uncompressed with GPU instancing: within float32 rounding of the instances' transforms at the
 //                  model's reach (8 steps)
-//   3mf            3MF, an item per placed part, open meshes as surfaces, hidden placements kept (the 3MF plan's
-//                  phase 3, 2026-10-29): face ids by our extras, no lines (3MF has none), parts without triangles
-//                  not compared (3MF can't hold them); within 4 float32 steps of the farthest a part mesh's
-//                  coordinates reach from its origin, in the world (the exporter writes the shortest text of each
-//                  float32 vertex, which the importer reads as the decimal it is, up to half a step away)
+//   3mf 3MF, an item per placed part, open meshes as surfaces, hidden placements kept (the 3MF plan's phase 3): face
+//                  ids by our extras, no lines (3MF has none), parts without triangles not compared (3MF can't hold
+//                  them); within 4 float32 steps of the farthest a part mesh's coordinates reach from its origin, in
+//                  the world (the exporter writes the shortest text of each float32 vertex, which the importer reads as
+//                  the decimal it is, up to half a step away)
 //   3mf-assembly   3MF, the assembly as components, open meshes as surfaces, hidden placements left out: read as
 //                  written, likewise compared, hidden placements not; names with their tabs and line breaks as
 //                  spaces (the exporter's, in attributes)
@@ -175,9 +175,9 @@ for (const f of corpusFiles(process.argv[2])) {
         children: n.children.map(only) });
       const spaced = (n: ExportNode): ExportNode => ({ ...n, name: n.name.replace(/[\t\n\r]/g, ' '),
         children: n.children.map(spaced) });
-      // For 3MF, the scene as the file holds it, read back as any scene is (the user, 2026-11-01): a component left
-      // with one part (another having no triangles, or hidden and left out) is then a leaf, the part placed
-      // (leafParts). (The corpus's scenes have no overrides, which dropping part references would renumber.)
+      // For 3MF, the scene as the file holds it, read back as any scene is: a component left with one part (another
+      // having no triangles, or hidden and left out) is then a leaf, the part placed (leafParts). (The corpus's scenes
+      // have no overrides, which dropping part references would renumber.)
       const drawn = new Set(view.looks.filter((l) => l.mesh.indices.length > 0 && l.groups.length > 0)
         .map((l) => l.part));
       const keepRef = (r: PartRef) => drawn.has(r.part) && (o3?.hidden === 'keep' || r.visible !== false);

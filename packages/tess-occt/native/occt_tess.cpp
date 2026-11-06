@@ -77,12 +77,12 @@ struct Result
   std::vector<int32_t>  curves; // triples: entityId (-1 = unknown), first point, point count
   std::vector<float>    points;
   std::vector<int32_t>  pointIds; // -1 = unknown
-  // Faces (pieces of faces, where shape healing split one) that failed to mesh (the user, 2026-10-28): the failed
-  // pieces' edges as polylines, so a host can show where they are.
+  // Faces (pieces of faces, where shape healing split one) that failed to mesh: the failed pieces' edges as polylines,
+  // so a host can show where they are.
   std::vector<float>    outlinePositions;
   std::vector<int32_t>  outlines; // triples: the face's entityId (-1 = unknown), first point, point count
-  // Each source face's measures on the exact geometry, when asked for (occt_set_measures; the user, 2026-10-30):
-  // quads of entityId, area, perimeter, valid (1 or 0), summed over the pieces shape healing split the face into.
+  // Each source face's measures on the exact geometry, when asked for (occt_set_measures): quads of entityId, area,
+  // perimeter, valid (1 or 0), summed over the pieces shape healing split the face into.
   std::vector<double>   measures;
   std::string           diag;  // JSON object text
 };

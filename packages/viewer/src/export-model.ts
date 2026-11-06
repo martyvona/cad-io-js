@@ -1,8 +1,8 @@
-// Exporting the model (the user, 2026-10-31: File's Export...), in the import worker, which holds the scene as it was
-// imported and meshed (model-load.ts): its export view at the deflections it was meshed with, through the library's
-// exporters, as stepconv writes them (packages/cli, its FORMATS), the same options and defaults. With `shown`, the
-// viewer's hiding and opacity applied first (export-shown.ts, on the page). The files come back as their pieces, for
-// the page to save (a Blob of them).
+// Exporting the model (File's Export...), in the import worker, which holds the scene as it was imported and meshed
+// (model-load.ts): its export view at the deflections it was meshed with, through the library's exporters, as stepconv
+// writes them (packages/cli, its FORMATS), the same options and defaults. With `shown`, the viewer's hiding and opacity
+// applied first (export-shown.ts, on the page). The files come back as their pieces, for the page to save (a Blob of
+// them).
 
 import { drain, exportView, paced, type Deflections, type Diagnostic, type Scene } from 'cad-scene';
 import { threemf, threemfAsync } from 'export-3mf';

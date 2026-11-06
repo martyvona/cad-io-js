@@ -1,9 +1,9 @@
 // Where models come from: a URL (the dev server's /content/, the same server, or another that allows CORS), or local
-// files, picked with the File System Access API where the browser has it (desktop Chrome, in a secure context) and
-// an <input type="file"> elsewhere, or dropped on the page (the user, 2026-10-24; docs/claude/viewer.md). No
-// handles or files are stored. Models below the content root (content/ beside the page: the dev server's /content/,
-// and the demo models in a deployment) can be named by their path within it (the user, 2026-10-26): a relative path
-// in `?model=` and in Load URL..., which read what they're given alike (typedUrl).
+// files, picked with the File System Access API where the browser has it (desktop Chrome, in a secure context) and an
+// <input type="file"> elsewhere, or dropped on the page (docs/claude/viewer.md). No handles or files are stored. Models
+// below the content root (content/ beside the page: the dev server's /content/, and the demo models in a deployment)
+// can be named by their path within it: a relative path in `?model=` and in Load URL..., which read what they're given
+// alike (typedUrl).
 
 import { formatOf, type Format } from './formats.ts';
 import type { ModelInput } from './model-load.ts';
@@ -120,11 +120,11 @@ export interface SaveTarget {
 }
 
 /**
- * Asks where a file goes (the user, 2026-10-28: File's Save...; 2026-10-31: Export...): the browser's save dialog
- * (File System Access, as Open file uses: desktop Chrome in a secure context), its name suggested and, given a type,
- * its extension kept; elsewhere a download by that name when it's written (the browser's downloads folder, or its
- * asking, as its settings say). Asked first, so a file made afterwards (an export, seconds later) can still be saved:
- * the dialog needs the page's click. Undefined if cancelled; the target's write throws if writing fails.
+ * Asks where a file goes (File's Save... and Export...): the browser's save dialog (File System Access, as Open file
+ * uses: desktop Chrome in a secure context), its name suggested and, given a type, its extension kept; elsewhere a
+ * download by that name when it's written (the browser's downloads folder, or its asking, as its settings say). Asked
+ * first, so a file made afterwards (an export, seconds later) can still be saved: the dialog needs the page's click.
+ * Undefined if cancelled; the target's write throws if writing fails.
  */
 export async function saveTarget(name: string, type?: { description: string; mime: string; ext: string }):
   Promise<SaveTarget | undefined> {

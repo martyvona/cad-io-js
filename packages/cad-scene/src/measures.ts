@@ -1,7 +1,7 @@
-// A part's measures (Measures) and its level's settings in our extras, as the exporters write them with a part's
-// node (glTF `extras`, three.js `userData`, 3MF's `cadio:tree`) and the importers read them back (the user,
-// 2026-10-30: kept, exported and used instead of measuring again; docs/claude/scene-formats.md). None of the three
-// formats has a place of its own for a face's area. As JSON:
+// A part's measures (Measures) and its level's settings in our extras, as the exporters write them with a part's node
+// (glTF `extras`, three.js `userData`, 3MF's `cadio:tree`) and the importers read them back (kept, exported and used
+// instead of measuring again; docs/claude/scene-formats.md). None of the three formats has a place of its own for a
+// face's area. As JSON:
 //
 //   measures: { by: string, faces: { "<face source id>": [area, perimeter, valid (1 or 0)] } }  the part's units
 //   level: { linearDeflection?, angularDeflection?, backend? }   the exported level's (Lod), mm and radians
@@ -102,8 +102,8 @@ export function boundsFrom(j: unknown): SceneBounds | undefined {
 }
 
 /**
- * A placed part's own data in our extras (the user, 2026-11-01: a leaf product's placement is a part reference):
- * its index among its component's part references, its name, sources and properties, and its product's.
+ * A placed part's own data in our extras (a leaf product's placement is a part reference): its index among its
+ * component's part references, its name, sources and properties, and its product's.
  */
 export function placementJson(ref: PartRef, index: number): Json {
   const sourced = (sources: SourceId[] | undefined, properties: Properties | undefined): Json => ({

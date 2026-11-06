@@ -1,7 +1,7 @@
 // SHA-256 (FIPS 180-4) that works in every context: Web Crypto's when there is one, else our own. `crypto.subtle`
 // exists only in secure contexts, and a page served over plain http on a LAN (the viewer's default for phones and
 // tablets) isn't one; the backends hash their modules and the cache its keys with this, so both keep the same digests
-// there (the user, 2026-10-24; see docs/claude/backends.md).
+// there (see docs/claude/backends.md).
 
 const K = Uint32Array.of(
   0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,

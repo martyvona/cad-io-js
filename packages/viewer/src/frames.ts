@@ -1,6 +1,5 @@
-// Drawing only on change, at most 30 frames a second (the user, 2026-10-24; docs/claude/viewer.md): a request
-// schedules one frame; a frame whose draw says it isn't finished (controls still moving) schedules the next. Idle,
-// nothing runs.
+// Drawing only on change, at most 30 frames a second (docs/claude/viewer.md): a request schedules one frame; a frame
+// whose draw says it isn't finished (controls still moving) schedules the next. Idle, nothing runs.
 
 export interface FrameClock {
   now(): number;

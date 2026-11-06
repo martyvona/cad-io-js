@@ -33,8 +33,8 @@ export interface ImportOptions extends OpenOptions {
    */
   dropDegenerate?: boolean;
   /**
-   * Told what the import is doing (the user, 2026-10-31: a viewer's status line through a large file): each phase
-   * as it begins, and through `parts` the shape representations looked at so far, of all of them.
+   * Told what the import is doing (a viewer's status line through a large file): each phase as it begins, and through
+   * `parts` the shape representations looked at so far, of all of them.
    */
   onProgress?: (p: ImportProgress) => void;
 }
@@ -113,8 +113,8 @@ export function sceneFromStep(model: StepModel, sem: Semantics, opts: ImportOpti
   const materials: Material[] = [];
   const materialIndex = new Map<string, number>();
   // Faces take surface colours, or failing that a surface style's boundary colour (writers such as Unigraphics colour
-  // solids only through SURFACE_STYLE_BOUNDARY, and mean the faces; decided by the user, 2026-10-17); wireframe and
-  // point parts their curve or point colour.
+  // solids only through SURFACE_STYLE_BOUNDARY, and mean the faces); wireframe and point parts their curve or point
+  // colour.
   const materialOf = (style: Style | undefined, sourceId?: number, surfaceOnly = false): number | undefined => {
     const c = surfaceOnly ? style?.surface ?? style?.boundary : style?.surface ?? style?.curve ?? style?.point;
     if (!c) return undefined;
@@ -196,10 +196,10 @@ export function sceneFromStep(model: StepModel, sem: Semantics, opts: ImportOpti
     partOfPosition.set(root, index);
     for (const q of items) if (!partOfPosition.has(q)) partOfPosition.set(q, index);
 
-    // The origin: the centre of the bounding box of the part's vertices, which lie on its shape; else (no vertices:
-    // a geometric set's curves and points, tessellated faces) of all its points. Not of all points whatever: a
-    // B-spline's control points can lie far off (bug24383_224013.stp has some 30 km away from a 32 mm part), and
-    // positions are float32 minus the origin, so its faces lost their triangles to rounding (the user, 2026-10-29).
+    // The origin: the centre of the bounding box of the part's vertices, which lie on its shape; else (no vertices: a
+    // geometric set's curves and points, tessellated faces) of all its points. Not of all points whatever: a B-spline's
+    // control points can lie far off (bug24383_224013.stp has some 30 km away from a 32 mm part), and positions are
+    // float32 minus the origin, so its faces lost their triangles to rounding.
     const box = () => ({ lo: [Infinity, Infinity, Infinity] as Vec3, hi: [-Infinity, -Infinity, -Infinity] as Vec3 });
     const all = box(), vertices = box();
     const extend = (b: ReturnType<typeof box>, p: number) => {
@@ -239,10 +239,9 @@ export function sceneFromStep(model: StepModel, sem: Semantics, opts: ImportOpti
     const origin: Vec3 = read ? read.mesh.origin
       : lo[0] === Infinity ? [0, 0, 0] : [0, 1, 2].map((k) => (lo[k]! + hi[k]!) / 2) as Vec3;
     // Closed: every face in a closed shell of the part (solids' shells and voids, closed shells of surface models);
-    // open if one is in another shell of the part (an open shell, a face set), which the file then says; otherwise
-    // the file doesn't say: faces in no shell (a geometric set's surfaces, as bug28366_fuselage.stp's, which close up
-    // all the same), tessellated faces (in tessellated shells, not face sets) (the user, 2026-10-27: caps on what the
-    // file says is solid).
+    // open if one is in another shell of the part (an open shell, a face set), which the file then says; otherwise the
+    // file doesn't say: faces in no shell (a geometric set's surfaces, as bug28366_fuselage.stp's, which close up all
+    // the same), tessellated faces (in tessellated shells, not face sets) (caps on what the file says is solid).
     const inPart = new Set(positions);
     let closed: boolean | undefined = read ? read.closed : faces.length ? true : undefined;
     if (!read) for (const f of faces) {
@@ -320,10 +319,10 @@ export function sceneFromStep(model: StepModel, sem: Semantics, opts: ImportOpti
   if (opts.tessellated !== 'backend') mergeTessellations();
 
   // A product's tessellation of its B-rep (both its representations) becomes a level of the B-rep's part, from the
-  // source, and its own part goes (decided by the user, 2026-10-29): paired by the tessellation's links to the B-rep
-  // (a solid's to its MANIFOLD_SOLID_BREP, faces' to their faces) where it has them, else with the product's one B-rep
-  // part with faces; with several and no links, or claimed by two products, it stays a part of its own (a warning).
-  // Linked faces take their B-rep face's id, so a face is one face at either level.
+  // source, and its own part goes: paired by the tessellation's links to the B-rep (a solid's to its
+  // MANIFOLD_SOLID_BREP, faces' to their faces) where it has them, else with the product's one B-rep part with faces;
+  // with several and no links, or claimed by two products, it stays a part of its own (a warning). Linked faces take
+  // their B-rep face's id, so a face is one face at either level.
   function mergeTessellations(): void {
     const target = new Map<number, number | null>(); // tessellated part -> B-rep part (null: conflicting)
     const moves = new Map<number, Mat4>();
@@ -395,8 +394,7 @@ export function sceneFromStep(model: StepModel, sem: Semantics, opts: ImportOpti
     for (const [k, p] of partOfPosition) partOfPosition.set(k, renumber.get(p)!);
   }
 
-  // Parts with a generic name (blank, NONE, #123) take the name of the first product that uses them, if it has one
-  // (decided by the user, 2026-10-22).
+  // Parts with a generic name (blank, NONE, #123) take the name of the first product that uses them, if it has one.
   s.products.forEach((p, i) => {
     for (const { representation } of productRepresentations(s, i)) {
       const part = partOf.get(representation);
@@ -510,8 +508,8 @@ export function sceneFromStep(model: StepModel, sem: Semantics, opts: ImportOpti
     diagnostics: [...file.diagnostics.map(convert), ...model.diagnostics.map(convert), ...sem.diagnostics.map(convert),
       ...diagnostics],
   };
-  // The file's length unit, for exports that can name theirs (3MF; the user, 2026-11-01): its first root product's
-  // main shape representation's, else its first part's.
+  // The file's length unit, for exports that can name theirs (3MF): its first root product's main shape
+  // representation's, else its first part's.
   const top = s.roots[0] !== undefined ? s.products[s.roots[0]]?.shapes[0] : undefined;
   scene.sourceUnit = top !== undefined && s.representations.get(top)?.context?.lengthUnit ? mmOf(top)
     : parts[0]?.unit ?? 1;
@@ -522,7 +520,7 @@ export function sceneFromStep(model: StepModel, sem: Semantics, opts: ImportOpti
   return { scene, model, semantics: sem, partOf };
 }
 
-/** A product's name, else (blank) its part number (decided by the user, 2026-10-22). */
+/** A product's name, else (blank) its part number. */
 function productName(p: { name: string; partNumber: string }): string {
   return p.name.trim() || !p.partNumber.trim() ? p.name : p.partNumber;
 }

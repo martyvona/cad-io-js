@@ -212,7 +212,7 @@ test('a STEP assembly through three.js JSON and back: the same drawing', { skip:
 });
 
 test('a foreign three.js Scene exported again: its top objects\' frames as they were, with extras or without', () => {
-  // (The user, 2026-11-01: an export's root frame the input's; no turn or group of ours left in it.)
+  // (an export's root frame the input's; no turn or group of ours left in it.)
   const geometry = { uuid: 'g', type: 'BufferGeometry', data: { attributes: { position: { itemSize: 3,
     type: 'Float32Array', array: [0, 0, 0, 1, 0, 0, 0, 1, 0] } } } };
   const am = [0.28, 0, -0.96, 0, 0, 1, 0, 0, 0.96, 0, 0.28, 0, 0.1, 0.2, 0.3, 1];

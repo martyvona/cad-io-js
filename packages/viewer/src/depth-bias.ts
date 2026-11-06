@@ -1,9 +1,9 @@
-// Lines drawn in front of the lines and faces they lie on (the user, 2026-10-30: failed faces' red outlines over
-// the black edges along the same B-rep edges). WebGL's polygon offset moves only filled triangles (the faces are
-// pushed back by it), never lines, and the two lines are discretized apart (the file's curves against the mesh's
-// edges), so they cross in depth; a bias in the vertex shader moves the marked lines toward the camera instead, by
-// DEPTH_BIAS_PIXELS of the view's pixels in world units, or DEPTH_BIAS_DEFLECTIONS linear deflections if more (set
-// each frame: the Viewer), so it holds at any zoom.
+// Lines drawn in front of the lines and faces they lie on (failed faces' red outlines over the black edges along the
+// same B-rep edges). WebGL's polygon offset moves only filled triangles (the faces are pushed back by it), never lines,
+// and the two lines are discretized apart (the file's curves against the mesh's edges), so they cross in depth; a bias
+// in the vertex shader moves the marked lines toward the camera instead, by DEPTH_BIAS_PIXELS of the view's pixels in
+// world units, or DEPTH_BIAS_DEFLECTIONS linear deflections if more (set each frame: the Viewer), so it holds at any
+// zoom.
 // Thin lines (LineBasicMaterial) and fat ones (LineMaterial) alike.
 
 import type * as THREE from 'three';

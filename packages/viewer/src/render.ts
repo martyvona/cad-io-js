@@ -1,7 +1,7 @@
-// The rendering style, after the sibling cadrender prototype (the user, 2026-10-24; docs/claude/viewer.md): Phong
-// faces, ambient occlusion by N8AO (with postprocessing, which it imports), SMAA antialiasing, and the faces' edges.
-// Frames are composed by three.js's EffectComposer: N8AO's pass renders the scene and darkens it, SMAA smooths it;
-// without AO, a plain render pass and the output pass (colour space) stand in.
+// The rendering style, after the sibling cadrender prototype (docs/claude/viewer.md): Phong faces, ambient occlusion by
+// N8AO (with postprocessing, which it imports), SMAA antialiasing, and the faces' edges. Frames are composed by
+// three.js's EffectComposer: N8AO's pass renders the scene and darkens it, SMAA smooths it; without AO, a plain render
+// pass and the output pass (colour space) stand in.
 //
 // The AO radius is in screen pixels: CAD models are viewed at every scale. Edges are on a layer of their own (EDGES,
 // style.ts), so showing them is the camera's business, apart from each node's own hidden flag. Transparency is

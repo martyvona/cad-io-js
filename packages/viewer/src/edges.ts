@@ -1,12 +1,12 @@
 // Edges found from a mesh's triangles, for meshes with no edges of their own (a file's meshes without B-rep edges, a
 // backend's without them): three.js's EdgesGeometry (0.186; MIT license, Copyright 2010-2026 three.js authors, which
 // applies to this file's algorithm, as in the build's licenses.md), ported, with its welding precision a grid in the
-// world (the user, 2026-10-31: from their cadrender prototype's MyEdgesGeometry, 5 decimal places rather than
-// three.js's fixed 4, which gave spurious edges; then a fixed distance whatever the file's unit, as fine as quality
-// asks, off the page's thread). Vertices are one where their positions round to the same grid point; an edge is kept
-// where its two triangles' normals differ by more than the threshold angle, or where it has only one triangle. Each
-// vertex is rounded once and edges are keyed by numbers (three.js rounds every triangle's corners into strings):
-// the same edges, in the same order, several times faster. Run in the import worker (model-load.ts), part by part.
+// world (from their cadrender prototype's MyEdgesGeometry, 5 decimal places rather than three.js's fixed 4, which gave
+// spurious edges; then a fixed distance whatever the file's unit, as fine as quality asks, off the page's thread).
+// Vertices are one where their positions round to the same grid point; an edge is kept where its two triangles' normals
+// differ by more than the threshold angle, or where it has only one triangle. Each vertex is rounded once and edges are
+// keyed by numbers (three.js rounds every triangle's corners into strings): the same edges, in the same order, several
+// times faster. Run in the import worker (model-load.ts), part by part.
 
 /** Positions closer than this, in world millimetres, are one vertex (1 um: 6 decimal places of a file in metres). */
 export const EDGE_GRID_MM = 0.001;

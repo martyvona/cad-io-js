@@ -20,7 +20,7 @@ test('format ids: #-prefixed, space-separated; cut at a space with ... past the 
   assert.ok(short.length <= 50 && short.endsWith(' ...') && short.startsWith('#1000 #1001 '), short);
   assert.equal(formatIds(many, 1000).length, formatIds(many).length);
   assert.deepEqual(parseIds(formatIds(many)).ids, many);
-  // Only whole ids, as many as fit, the ... right after the last (the user, 2026-10-28), whatever their lengths.
+  // Only whole ids, as many as fit, the ... right after the last, whatever their lengths.
   for (let seed = 1; seed < 200; seed++) {
     const ids = Array.from({ length: 20 }, (_, i) => (seed * 7919 + i * 104729) % 10 ** (1 + (seed + i) % 9));
     const shown = formatIds(ids, 50);

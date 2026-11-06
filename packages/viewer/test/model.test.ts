@@ -82,7 +82,7 @@ test('hiding: an override inherited below, shown within, kept below; equal to wh
   model.setHidden([platePart!], false);
   assert.deepEqual(model.ownOverride(platePart!), { hidden: false });
   assert.ok(group(platePart!).visible && !group(wirePart!).visible && !model.hiddenInTree(platePart!));
-  // Hiding the assembly again leaves it as it is (the user, 2026-10-31: first cleared below).
+  // Hiding the assembly again leaves it as it is (first cleared below).
   model.setHidden([left!], true);
   assert.deepEqual(model.ownOverride(platePart!), { hidden: false });
   assert.ok(group(platePart!).visible && !group(wirePart!).visible);

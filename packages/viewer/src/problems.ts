@@ -1,6 +1,6 @@
-// The warnings and errors of loading a model (the user, 2026-10-28): the importer's and the meshing's (OCCT's
-// messages, faces that failed to mesh, shells turned over, parts that failed), shown in a modal once meshing is done,
-// besides the status line's count and the console.
+// The warnings and errors of loading a model: the importer's and the meshing's (OCCT's messages, faces that failed to
+// mesh, shells turned over, parts that failed), shown in a modal once meshing is done, besides the status line's count
+// and the console.
 
 import type { Diagnostic } from 'cad-scene';
 import { showDialog } from './dialog.ts';

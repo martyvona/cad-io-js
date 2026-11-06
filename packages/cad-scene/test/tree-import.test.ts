@@ -17,8 +17,8 @@ test('other files: a node\'s `edges` child of lines its mesh\'s edges, in the no
     const part: TreeNode = { name: 'p', matrix: identity(), visible: true, meshes: [tri], children: [edges] };
     const root: TreeNode = { name: '', matrix: identity(), visible: true, meshes: [], children: [part] };
     const { scene } = sceneFromTree(root, { frame: identity() });
-    // One part, placed (the user, 2026-11-01: a node of meshes and its own lines is a placed part; the root's only
-    // content, so a root part), no component for the edges; its segment lifted by the edges node's matrix.
+    // One part, placed (a node of meshes and its own lines is a placed part; the root's only content, so a root part),
+    // no component for the edges; its segment lifted by the edges node's matrix.
     assert.deepEqual(scene.components, []);
     assert.deepEqual(scene.rootParts!.map((r) => [r.name, r.part]), [['p', 0]]);
     const mesh = scene.parts[0]!.lods[0]!.mesh;

@@ -1,15 +1,14 @@
-// The details of a selection, as lines of text (the user, 2026-10-24; docs/claude/viewer.md): how many of each
-// kind; for one node its name, kind, place in the tree and, for a part, which placement of its part it is; then the
-// totals over what the selection covers: meshes and triangles with their area, lines and segments with their
-// length, points; and the selection's STEP ids (step-ids.ts), cut short past about 50 characters. Millimetres;
-// ASCII only (mm^2).
+// The details of a selection, as lines of text (docs/claude/viewer.md): how many of each kind; for one node its name,
+// kind, place in the tree and, for a part, which placement of its part it is; then the totals over what the selection
+// covers: meshes and triangles with their area, lines and segments with their length, points; and the selection's STEP
+// ids (step-ids.ts), cut short past about 50 characters. Millimetres; ASCII only (mm^2).
 
 import type { Kind, NodeModel } from './model.ts';
 import type { FaceReport } from './scene-graph.ts';
 import { instancesOf, measure, piecesOf } from './selection.ts';
 import { formatIds, stepIdsOf } from './step-ids.ts';
 
-/** The STEP ids line's length, beyond which it's cut short (the user, 2026-10-28: about 50). */
+/** The STEP ids line's length, beyond which it's cut short (about 50). */
 export const IDS_SHOWN = 50;
 
 const num = (n: number) => n.toLocaleString('en-US');

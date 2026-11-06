@@ -1,5 +1,5 @@
-// The About dialog (File's About...; the user, 2026-10-27): who made the viewer, its license, where its source is;
-// and the model open, its file, objects and triangles (the controls' Model folder until 2026-10-28, the user).
+// The About dialog (File's About...): who made the viewer, its license, where its source is; and the model open, its
+// file, objects and triangles.
 
 /// <reference types="vite/client" />
 

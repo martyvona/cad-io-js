@@ -9,19 +9,18 @@
 //   - its triangles and, per triangle, its material's base colour (linear) and alpha equal the look's groups';
 //   - one faces' mesh per look; edges, curves and points in child nodes (identity transforms) with meshes of their
 //     own, segment and point counts.
-// That GLB is uncompressed, with extras. The same view is also written with Draco and with meshopt (both with
-// extras), read back with their decoders, and compared with the view in world coordinates (2026-10-24):
+// That GLB is uncompressed, with extras. The same view is also written with Draco and with meshopt (both with extras),
+// read back with their decoders, and compared with the view in world coordinates:
 //   - per placed part, its triangle primitives' count and per primitive its triangles;
 //   - per face (Draco: by its _FACE vertex attribute, all three corners agreeing; meshopt: by its index range), its
 //     triangles, their total area and the mean of their centroids, within what quantization allows (Draco: 14 bits
 //     over the extent of the part mesh's vertex array, which glTF-Transform hands Draco whole for each primitive;
 //     meshopt: 16 bits over the part mesh's extent, every position, the edges' too);
 //   - edges, curves and points: each vertex in place (meshopt, within its 16 bits; Draco leaves them exact).
-// And with instancing (uncompressed, extras, 2026-10-24): the looks placed two or more times (by visibility, with
-// faces, TRS-decomposable: grouped here, not by the exporter's code) are instanced nodes, every other placement a
-// tree node; each instance (found by its extras.instances path) at its world matrix within float32 rounding, each
-// instanced look's edges and curves a node per placement at its world matrix; no node but the root with nothing
-// to draw beneath it.
+// And with instancing (uncompressed, extras): the looks placed two or more times (by visibility, with faces,
+// TRS-decomposable: grouped here, not by the exporter's code) are instanced nodes, every other placement a tree node;
+// each instance (found by its extras.instances path) at its world matrix within float32 rounding, each instanced look's
+// edges and curves a node per placement at its world matrix; no node but the root with nothing to draw beneath it.
 // Prints the GLB sizes and export and validation times. Usage:
 //   node corpus_checks/gltf_corpus.ts [file-list.txt] [max MB, default 2]  (progress on standard error)
 import fs from 'node:fs';

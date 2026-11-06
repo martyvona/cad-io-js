@@ -1,13 +1,13 @@
-// Triangles' edges over the faces, for inspecting the tessellation (the user, 2026-10-26; Rendering's Triangle
-// edges): off, for the selection only, or for everything. They live in a group of their own outside the model, so
-// picking, the node model, statistics and section caps never see them: a mesh per drawn mesh of the model (or of the
-// selection), sharing its geometry, drawn by three.js as wireframe; a selected face's edges a geometry of its
-// triangles alone, sharing the mesh's positions. Before each frame drawn they follow their meshes: placement,
-// visibility (the mesh's and its ancestors', and its layers), and materials, so hidden faces (an invisible material's
-// group) stay hidden. Made again when the model's meshes or the selection change; nothing is made while they're off.
-// Appearance overrides (the user, 2026-10-31; model.ts) turn them on or off per placement and face, whatever the mode:
-// a placement's part group carries what its overrides ask (`userData.triangleEdges`), and where a face differs from
-// its mesh, the edges are a geometry of the faces that have them.
+// Triangles' edges over the faces, for inspecting the tessellation (Rendering's Triangle edges): off, for the selection
+// only, or for everything. They live in a group of their own outside the model, so picking, the node model, statistics
+// and section caps never see them: a mesh per drawn mesh of the model (or of the selection), sharing its geometry,
+// drawn by three.js as wireframe; a selected face's edges a geometry of its triangles alone, sharing the mesh's
+// positions. Before each frame drawn they follow their meshes: placement, visibility (the mesh's and its ancestors',
+// and its layers), and materials, so hidden faces (an invisible material's group) stay hidden. Made again when the
+// model's meshes or the selection change; nothing is made while they're off. Appearance overrides (model.ts) turn them
+// on or off per placement and face, whatever the mode: a placement's part group carries what its overrides ask
+// (`userData.triangleEdges`), and where a face differs from its mesh, the edges are a geometry of the faces that have
+// them.
 
 import * as THREE from 'three';
 import type { TriangleEdgesLook } from './model.ts';

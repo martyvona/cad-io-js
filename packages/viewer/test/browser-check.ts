@@ -326,10 +326,9 @@ for (const extra of process.env.EXTRA?.split(',') ?? []) {
 // Replacing a model while it's meshing: the bicycle's meshing is cancelled once it has begun (its load ends at
 // once: the workers are stopped), the GLB shown alone, and STEP meshes again after (a new pool), from the cache (the
 // assembly was meshed above); and with truck when that's the backend chosen.
-// Zooming while a model loads (the user, 2026-10-30; docs/claude/viewer.md): the bicycle, meshed
-// without the cache, is fitted to its estimated sphere before its first mesh is drawn, then only zooms out, at most
-// once a second, ending fitted to all that loaded; zoom all then fits the sphere made from the meshes. Moving the
-// view stops it.
+// Zooming while a model loads (docs/claude/viewer.md): the bicycle, meshed without the cache, is fitted to its
+// estimated sphere before its first mesh is drawn, then only zooms out, at most once a second, ending fitted to all
+// that loaded; zoom all then fits the sphere made from the meshes. Moving the view stops it.
 await check('zoom while loading', async () => {
   const r = await page('?check', `(async () => {
     const v = globalThis.viewer;
@@ -412,11 +411,11 @@ await check('zoom while loading', async () => {
   expect(a.moved.set === 123 && a.moved.end === 123, `zoomed after the view was moved: ${j}`);
   return undefined;
 });
-// Camera flights (the user, 2026-10-30): zoom all, zoom selected and the views ease there over a second
-// (smoothstep), from where the camera is; a view turns about the orbit centre, its zoom and pan kept; idle() waits
-// for the flight; the user's own input stops it where it is.
-// A new model starts from the default pose (the user, 2026-10-30): iso, centred on its sphere, however the last was
-// turned and panned; meshing the same model again keeps the view.
+// Camera flights: zoom all, zoom selected and the views ease there over a second (smoothstep), from where the camera
+// is; a view turns about the orbit centre, its zoom and pan kept; idle() waits for the flight; the user's own input
+// stops it where it is.
+// A new model starts from the default pose: iso, centred on its sphere, however the last was turned and panned; meshing
+// the same model again keeps the view.
 await check('pose on load', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
     const v = globalThis.viewer;
@@ -445,9 +444,9 @@ await check('pose on load', async () => {
   expect(JSON.stringify(a.kept) === JSON.stringify(a.before), `Mesh again moved the view: ${j}`);
   return undefined;
 });
-// Panning (the user, 2026-10-30): a right-button drag moves the model with the pointer one to one, after zoom
-// selected too (TrackballControls' own pan crawled there), and leaves the orbit centre where it is on the model; a
-// turn afterwards pivots about it, where it's drawn.
+// Panning: a right-button drag moves the model with the pointer one to one, after zoom selected too (TrackballControls'
+// own pan crawled there), and leaves the orbit centre where it is on the model; a turn afterwards pivots about it,
+// where it's drawn.
 await check('panning', async () => {
   const evaluate = async (sessionId: string, expression: string) => ((await send('Runtime.evaluate', { expression,
     returnByValue: true, awaitPromise: true }, sessionId)) as { result: { value: unknown } }).result.value;
@@ -497,13 +496,12 @@ await check('panning', async () => {
     `the turn didn't pivot about the orbit centre: ${j}`);
   return undefined;
 });
-// Zooming at the cursor (the user, 2026-10-30): a wheel zoom over a part moves the orbit centre onto the line of
-// sight there, at the nearest of what's drawn along it (2026-10-31; first midway to the farthest), and zooms keeping
-// that line under the cursor (the point picked there stays put); over empty space, the orbit centre stays where it
-// is (2026-10-31; first slid onto the line), the zoom still about the cursor. A touchpad's pinch (ctrl, a few pixels
-// an event) zooms e^(pixels / 100); a click that picks makes the point picked the orbit centre, the view unchanged.
-// Safari's pinch on a Mac's touchpad (WebKit's gesture events, here synthetic: headless Chrome has none): zoomed by
-// the scale's change, 1:1, about the point under the fingers; a ctrl-wheel event during the gesture let go; page zoom
+// Zooming at the cursor: a wheel zoom over a part moves the orbit centre onto the line of sight there, at the nearest
+// of what's drawn along it, and zooms keeping that line under the cursor (the point picked there stays put); over empty
+// space, the orbit centre stays where it is, the zoom still about the cursor. A touchpad's pinch (ctrl, a few pixels an
+// event) zooms e^(pixels / 100); a click that picks makes the point picked the orbit centre, the view unchanged.
+// Safari's pinch on a Mac's touchpad (WebKit's gesture events, here synthetic: headless Chrome has none): zoomed by the
+// scale's change, 1:1, about the point under the fingers; a ctrl-wheel event during the gesture let go; page zoom
 // prevented.
 await check('safari pinch', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
@@ -635,8 +633,8 @@ await check('zoom at the cursor', async () => {
     off(a.clicked.hitPx, a.beforeClick.hitPx!) < 1e-3, `the click's orbit centre: ${j}`);
   return undefined;
 });
-// Picks on section caps (the user, 2026-10-31): a click where a cap is drawn picks the part cut, at the point on the
-// plane, through cadViewer.pickAt and the view's own picking; the zoom at the cursor's orbit centre counts it too.
+// Picks on section caps: a click where a cap is drawn picks the part cut, at the point on the plane, through
+// cadViewer.pickAt and the view's own picking; the zoom at the cursor's orbit centre counts it too.
 await check('picks on caps', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
     const v = globalThis.viewer, cam = v.camera, c = v.renderer.domElement.getBoundingClientRect();
@@ -671,9 +669,9 @@ await check('picks on caps', async () => {
     `the zoom's orbit centre didn't take the cap: ${j}`);
   return undefined;
 });
-// Edges found off the page's thread (the user, 2026-10-31): a GLB of meshes without edges (the user's VW, from
-// Onshape) loads with every part's edges found in the import worker, the page's longest task no longer than the
-// scene graph's own building (finding them on the page made it more than twice as long).
+// Edges found off the page's thread: a GLB of meshes without edges (the user's VW, from Onshape) loads with every
+// part's edges found in the import worker, the page's longest task no longer than the scene graph's own building
+// (finding them on the page made it more than twice as long).
 const vwGlb = path.join(repo, 'test_corpus/models/onshape/VW-medium-uncompressed.glb.glb');
 if (fs.existsSync(vwGlb)) await check('edges off the page', async () => {
   fs.copyFileSync(vwGlb, path.join(content, 'vw.glb'));
@@ -713,8 +711,8 @@ if (fs.existsSync(vwGlb)) await check('edges off the page', async () => {
   expect(a.longest < 450, `a long task on the page: ${JSON.stringify(a)}`);
   return undefined;
 });
-// A STEP file's import says its phases in the status line as the import worker reaches them (the user, 2026-10-31:
-// "importing" alone for the seconds a large file takes): reading, its structure, the parts by percent, assembling.
+// A STEP file's import says its phases in the status line as the import worker reaches them ("importing" alone for the
+// seconds a large file takes): reading, its structure, the parts by percent, assembling.
 await check('import phases', async () => {
   const r = await page('?check', `(async () => {
     const statuses = [];
@@ -734,9 +732,9 @@ await check('import phases', async () => {
   expect(order.every((k, i) => k >= 0 && (i === 0 || k > order[i - 1]!)), `statuses: ${JSON.stringify(s)}`);
   return undefined;
 });
-// Hide others, Show others and transparency (the user, 2026-10-31), through the controls: one of as1's nuts selected,
-// Hide others leaves it alone shown; Show others shows the rest, the nut keeping its own hiding; the rod made
-// transparent at the Opacity control's value and back to the file's.
+// Hide others, Show others and transparency, through the controls: one of as1's nuts selected, Hide others leaves it
+// alone shown; Show others shows the rest, the nut keeping its own hiding; the rod made transparent at the Opacity
+// control's value and back to the file's.
 await check('hide others and transparency', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
     const m = ui.panel().model, button = (name) => ui.gui.controllersRecursive().find((c) => c._name === name);
@@ -768,9 +766,9 @@ await check('hide others and transparency', async () => {
     button('Restore opacity').$button.click();
     ui.select([]);
     const restored = [mesh.material].flat().map((x) => [x.opacity, x.transparent]);
-    // Overrides inherited (the user, 2026-10-31): the nut's assembly hidden, the nut shown within it; the assembly at
-    // 0.5, one of its children back to the file's within it. In the state and the link. (An assembly of several
-    // children: of one, the child would stand for it, NodeModel.cover.)
+    // Overrides inherited: the nut's assembly hidden, the nut shown within it; the assembly at 0.5, one of its children
+    // back to the file's within it. In the state and the link. (An assembly of several children: of one, the child
+    // would stand for it, NodeModel.cover.)
     const asm = m.nodes.find((n) => n.kind === 'assembly' && n.parent >= 0 && m.children(n.id).length > 1).id;
     const one = m.nodes[m.children(asm)[0]];
     ui.select([asm]);
@@ -816,13 +814,13 @@ await check('hide others and transparency', async () => {
     a.before.every(([o]) => o === 1), `transparency: ${j}`);
   return undefined;
 });
-// The tree's context menu and Override Appearance... (the user, 2026-10-31): right-click an assembly's row, the
-// menu's one item, the panel's controls (Inherit at first, the alpha shown and not editable; Transparent starting
-// from it), each change taking effect at once (no OK or Cancel), the eye on the row; asked for a child while it's
-// open, the same panel showing the child (what it inherits), not a second; changed elsewhere (Hide selected), shown
-// again; following a selection of one node, not of several or none, a right-click winning over the selection;
-// triangle edges on through it; not modal, so the page stays usable; closed by its x and by Escape; a long press on a
-// touch screen opening the menu too; recorded and replayed in a fresh page with the same overrides.
+// The tree's context menu and Override Appearance...: right-click an assembly's row, the menu's one item, the panel's
+// controls (Inherit at first, the alpha shown and not editable; Transparent starting from it), each change taking
+// effect at once (no OK or Cancel), the eye on the row; asked for a child while it's open, the same panel showing the
+// child (what it inherits), not a second; changed elsewhere (Hide selected), shown again; following a selection of one
+// node, not of several or none, a right-click winning over the selection; triangle edges on through it; not modal, so
+// the page stays usable; closed by its x and by Escape; a long press on a touch screen opening the menu too; recorded
+// and replayed in a fresh page with the same overrides.
 await check('override appearance', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check&record`, `(async () => {
     const m = ui.panel().model;
@@ -899,8 +897,8 @@ await check('override appearance', async () => {
     const refreshed = c.read().visibility;
     ui.showSelected();
     const reshown = c.read().visibility;
-    // The panel follows a selection of one node; several, or none, leave it; a right-click on a row not selected
-    // shows that row's node (the user, 2026-11-06).
+    // The panel follows a selection of one node; several, or none, leave it; a right-click on a row not selected shows
+    // that row's node.
     const other = m.nodes.find((n) => n.kind === 'part' && n.name !== m.nodes[child].name).id;
     const titled = () => {
       const t = c.d.querySelector('h2 span').textContent;
@@ -998,9 +996,8 @@ await check('override appearance', async () => {
     replayed.after.cleared.length === 0, `a state's triangle edges: ${JSON.stringify(replayed.after)}`);
   return undefined;
 });
-// Dialogs dragged by their title (the user, 2026-10-31): Override Appearance... moved by a mouse drag of its title,
-// as far as the drag, a second from where it was left; dragged far off, its title kept in the window; a modal one
-// (About) too.
+// Dialogs dragged by their title: Override Appearance... moved by a mouse drag of its title, as far as the drag, a
+// second from where it was left; dragged far off, its title kept in the window; a modal one (About) too.
 await check('dialog drag', async () => {
   const evaluate = async (sessionId: string, expression: string) => ((await send('Runtime.evaluate', { expression,
     returnByValue: true, awaitPromise: true }, sessionId)) as { result: { value: unknown } }).result.value;
@@ -1152,9 +1149,8 @@ await check('camera flights', async () => {
     `a zoom alone: ${j}`);
   return undefined;
 });
-// Fitting beside the controls (the user, 2026-10-30): zoom all and zoom selected fit the sphere in the width between
-// the view's left and the controls' left edge, centred there, however folded the controls are; the camera's axis
-// (what it orbits) there too.
+// Fitting beside the controls: zoom all and zoom selected fit the sphere in the width between the view's left and the
+// controls' left edge, centred there, however folded the controls are; the camera's axis (what it orbits) there too.
 await check('fit beside the controls', async () => {
   const script = `(async () => {
     const v = globalThis.viewer, cam = v.camera;
@@ -1291,8 +1287,8 @@ await check('tree', async () => {
     await frame();
     const hiddenObjects = selected.filter((i) => m.nodes[i].object.visible === false).length;
     const greyed = rows().filter((r) => r.classList.contains('hidden')).length;
-    // A face of the first part, hidden: that placement draws it with nothing, the part's others draw it (faces per
-    // placement since 2026-10-31).
+    // A face of the first part, hidden: that placement draws it with nothing, the part's others draw it (faces are per
+    // placement).
     ui.showAll();
     await frame();
     const face = rows().find((r) => m.nodes[+r.dataset.id].kind === 'face');
@@ -1718,8 +1714,8 @@ await check('step ids', async () => {
   expect(JSON.stringify(sel.byNauo) === JSON.stringify([sel.nut]), `a NAUO's placement: ${j}`);
   return undefined;
 });
-// Picks unfold the tree (the user, 2026-10-28): with every branch folded, two parts picked in the 3D view (the
-// second added, as ctrl-click does) are both shown selected in the tree, their branches unfolded.
+// Picks unfold the tree: with every branch folded, two parts picked in the 3D view (the second added, as ctrl-click
+// does) are both shown selected in the tree, their branches unfolded.
 await check('picks unfold the tree', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
     await cadViewer.ready; await cadViewer.idle();
@@ -1742,9 +1738,9 @@ await check('picks unfold the tree', async () => {
   expect(r.after.selected.length === 2 && r.after.unfolded, `both picks shown, their branches unfolded: ${j}`);
   return undefined;
 });
-// Selection's buttons in the tree (the user, 2026-10-28): with every branch folded, Select all, Invert selection,
-// Select parent and Select none each leave every selected node shown, its branches unfolded, and the drawn rows
-// highlighted exactly as the selection is (none stale), the tree scrolled to show a selected row.
+// Selection's buttons in the tree: with every branch folded, Select all, Invert selection, Select parent and Select
+// none each leave every selected node shown, its branches unfolded, and the drawn rows highlighted exactly as the
+// selection is (none stale), the tree scrolled to show a selected row.
 await check('selection buttons in the tree', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
     await cadViewer.ready; await cadViewer.idle();
@@ -1780,10 +1776,10 @@ await check('selection buttons in the tree', async () => {
   expect(a.none!.selected === 0 && a.none!.stale === 0, `none: ${j}`);
   return undefined;
 });
-// Faces that fail to mesh (the user, 2026-10-28): every part of as1 timed out (a millisecond, the cache emptied)
-// comes with its faces' outlines from the file, red, the parts and their faces marked failed in the tree (red, a
-// broken icon), a click on an outline picking its face (the detail level), the details saying so; the bicycle's
-// faces OCCT fails, outlined and marked, their parts partly failed.
+// Faces that fail to mesh: every part of as1 timed out (a millisecond, the cache emptied) comes with its faces'
+// outlines from the file, red, the parts and their faces marked failed in the tree (red, a broken icon), a click on an
+// outline picking its face (the detail level), the details saying so; the bicycle's faces OCCT fails, outlined and
+// marked, their parts partly failed.
 await check('failed faces', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
     await cadViewer.ready; await cadViewer.idle();
@@ -1836,8 +1832,8 @@ await check('failed faces', async () => {
     ui.setTree({ detail: true });
     // (Each partly failed part has a face that failed: wholly, red, or partly, short of its area.)
     const faces = partly.flatMap((n) => m.children(n.id)).map((c) => m.failure(c)).filter((f) => f);
-    // Rows that failed partly red too, with the broken icon (the user, 2026-10-30): a partly failed part's, and a
-    // face of it short of its area, each selected (so revealed and drawn).
+    // Rows that failed partly red too, with the broken icon: a partly failed part's, and a face of it short of its
+    // area, each selected (so revealed and drawn).
     const shortFace = partly.flatMap((n) => m.children(n.id)).find((c) => m.failure(c) === 'partly');
     const rows = [];
     for (const id of [partly[0].id, ...(shortFace === undefined ? [] : [shortFace])]) {
@@ -1935,9 +1931,9 @@ await check('meshing timeout', async () => {
     long.timeout === 60, `60 s: every part meshed again: ${j}`);
   return undefined;
 });
-// STEP's tessellated geometry (the user, 2026-10-29): read and drawn as it is, nothing meshed, faces by STEP id and
-// edges shared between them; a B-rep's tessellation shown, then replaced by OCCT's mesh (not drawn beside it), kept
-// when meshing fails (a millisecond's timeout); by the backend when chosen, a part of its own, meshed.
+// STEP's tessellated geometry: read and drawn as it is, nothing meshed, faces by STEP id and edges shared between them;
+// a B-rep's tessellation shown, then replaced by OCCT's mesh (not drawn beside it), kept when meshing fails (a
+// millisecond's timeout); by the backend when chosen, a part of its own, meshed.
 await check('tessellated STEP', async () => {
   const ftc = await page(`?url=${encodeURIComponent('/content/ftc08-tg.stp')}&check`, `(async () => {
     await cadViewer.ready; await cadViewer.idle();
@@ -1976,10 +1972,10 @@ await check('tessellated STEP', async () => {
     `by the backend: two parts meshed, 12 + 2 triangles: ${j}`);
   return undefined;
 });
-// Two planes (the user, 2026-10-27: a cap missing where another plane cuts): the plate cut across X through its
-// middle (the side above cut away) and across Z through its middle, flipped (the side below cut away), seen from
-// +X -Y +Z. On the X cap above the Z plane, the plate's far side along the view lies below it, cut away: the stencil
-// passes counting it must be clipped by their own plane only, or the X cap isn't drawn there.
+// Two planes (a cap missing where another plane cuts): the plate cut across X through its middle (the side above cut
+// away) and across Z through its middle, flipped (the side below cut away), seen from +X -Y +Z. On the X cap above the
+// Z plane, the plate's far side along the view lies below it, cut away: the stencil passes counting it must be clipped
+// by their own plane only, or the X cap isn't drawn there.
 await check('two planes', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
     await cadViewer.ready; await cadViewer.idle();
@@ -2026,14 +2022,14 @@ await check('two planes', async () => {
 // colour of its own, edges off, read back after three frames and two renders) says which part each pixel shows, and
 // pickAt at the pixel's centre must pick that part (its face, or its own edge within reach) wherever a part is drawn
 // and the ray hits it. Off the parts, an edge within reach may be picked, and a wireframe in front (by design); parts
-// thinner than a pixel may be drawn where the ray misses them (at most 2% of the points). Before 2026-10-25, any
-// part's edge within 4 pixels beat the face under the point: 27 of 860 points on parts wrong on as1, 39 of 171 on
-// the bicycle (measured with a 1200 x 800 window). Everywhere, on parts or off, a line or point picked must be within
-// reach on the screen (4 pixels, pick.ts, and half a pixel for the sample's centre): under a scaled parent (a STEP
-// file in metres, or any glTF, scaled by the display transform) three.js's thresholds reached 1000 times too far, so
-// a click in empty space picked the nearest part's edges (2026-10-25), which the check, on parts only and on files in
-// millimetres, didn't see; a part in metres is checked too since (our GLB doesn't show it: its millimetre meshes sit
-// under a root scaling by 0.001, which the display transform undoes, so lines are at a world scale of 1).
+// thinner than a pixel may be drawn where the ray misses them (at most 2% of the points). In an earlier version any
+// part's edge within 4 pixels beat the face under the point: 27 of 860 points on parts wrong on as1, 39 of 171 on the
+// bicycle (measured with a 1200 x 800 window). Everywhere, on parts or off, a line or point picked must be within reach
+// on the screen (4 pixels, pick.ts, and half a pixel for the sample's centre): under a scaled parent (a STEP file in
+// metres, or any glTF, scaled by the display transform) three.js's thresholds reached 1000 times too far, so a click in
+// empty space picked the nearest part's edges, which the check, on parts only and on files in millimetres, didn't see;
+// a part in metres is checked too since (our GLB doesn't show it: its millimetre meshes sit under a root scaling by
+// 0.001, which the display transform undoes, so lines are at a world scale of 1).
 const PICK_ORACLE = `(async () => {
   const m = ui.panel().model, r = viewer.renderer, cam = viewer.camera, canvas = r.domElement;
   const partOf = (id) => { while (id !== undefined && id >= 0 && m.nodes[id].kind !== 'part') id = m.nodes[id].parent;
@@ -2184,8 +2180,7 @@ await check('phone', async () => {
     const wide = await evaluate(sessionId, `(document.documentElement.style.setProperty('--side', '500px'),
       localStorage.removeItem('cad-viewer.side'), document.getElementById('side').getBoundingClientRect().width)`) as
       number;
-    // Override Appearance... on a touch screen: the panel itself focused, not Visibility, whose picker iOS would
-    // open (the user, 2026-11-06).
+    // Override Appearance... on a touch screen: the panel itself focused, not Visibility, whose picker iOS would open.
     const focus = await evaluate(sessionId, `(async () => {
       const row = document.querySelector('#tree .tree-row');
       const b = row.getBoundingClientRect();
@@ -2418,11 +2413,10 @@ await check('mesh again', async () => {
     `not found again: ${JSON.stringify(l)}`);
   return undefined;
 });
-// Every slot of the appearance overrides drawn alike after Mesh again (the user, 2026-11-01): an assembly hidden
-// with a child shown, a part transparent with one face back to the file's and one hidden, a part's triangle edges on
-// with one face off, a face's on and its part's edges hidden; what's drawn, face by face in every placement (shown,
-// opacity, triangle edges) and every line object, the same after meshing at another deflection, and the state's
-// overrides too.
+// Every slot of the appearance overrides drawn alike after Mesh again: an assembly hidden with a child shown, a part
+// transparent with one face back to the file's and one hidden, a part's triangle edges on with one face off, a face's
+// on and its part's edges hidden; what's drawn, face by face in every placement (shown, opacity, triangle edges) and
+// every line object, the same after meshing at another deflection, and the state's overrides too.
 await check('overrides after mesh again', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
     const button = (name) => ui.gui.controllersRecursive().find((c) => c._name === name);
@@ -2793,7 +2787,7 @@ await check('auto hide and select all', async () => {
     out.sameText = faded(status);
     ui.say('two');
     out.newText = faded(status);
-    // On by default (the user, 2026-10-28).
+    // On by default.
     out.detailsDefault = button('Details').getValue();
     button('Details').setValue(false);
     button('Details').setValue(true);
@@ -2851,8 +2845,8 @@ await check('auto hide and select all', async () => {
     JSON.stringify(a.detailParents) === JSON.stringify(a.shownPaths), `detail: ${j}`);
   return undefined;
 });
-// About... (File): the authors, Claude first; the license; the repository's link; in a build, licenses.md's, which
-// is there; no model open, or the model's file, objects and triangles (the Model folder until 2026-10-28, gone).
+// About... (File): the authors, Claude first; the license; the repository's link; in a build, licenses.md's, which is
+// there; no model open, or the model's file, objects and triangles.
 await check('about', async () => {
   const about = (query: string) => page(query, `(async () => {
     await cadViewer.ready; await cadViewer.idle();
@@ -3229,7 +3223,7 @@ await check('snapshot: meshing and hidden faces', async () => {
     const m = viewer.nodes;
     const nuts = m.nodes.filter((n) => n.kind === 'part' && partOf(n) === 'nut');
     const source = nuts[0].object.children[0].userData.faces[0];
-    // (One face in every placement: faces are hidden per placement since 2026-10-31.)
+    // (One face in every placement: faces are hidden per placement.)
     const want = nuts.map((n) => m.pathOf(n.id) + '/face#' + source);
     cadViewer.hide(want);
     ui.setTree({ detail: false });
@@ -3288,9 +3282,8 @@ await check('snapshot: meshing and hidden faces', async () => {
 // gives the same state; with ?deterministic one pixel per CSS pixel at any screen scale, and screenshots that repeat.
 type State = { camera: { position: number[]; target: number[]; up: number[]; height: number }; cut: object;
   render: { ao: boolean }; hidden: string[]; selected: string[]; tree: object; model?: { triangles: number } };
-// 3MF's tree: with our extras the STEP file's (its shown nodes: the export leaves hidden ones out), names and
-// kinds; without, anyone's, the placed parts flat at the top of the tree (the build's items root parts: the user,
-// 2026-11-01; no node for the file: the user, 2026-11-06).
+// 3MF's tree: with our extras the STEP file's (its shown nodes: the export leaves hidden ones out), names and kinds;
+// without, anyone's, the placed parts flat at the top of the tree (the build's items root parts; no node for the file).
 await check('3mf tree', async () => {
   const tree = async (file: string) => (await page(`?url=${encodeURIComponent(`/content/${file}`)}&check`,
     `(async () => {
@@ -3710,10 +3703,10 @@ await check('recording', async () => {
   }
   return undefined;
 });
-// Replay recording... in the page (the user, 2026-10-25): only the recording is picked (the picker stubbed here); its
-// model is taken as it is if the one open has its hash, else a dialog asks for it (Open file..., Open URL..., the
-// recorded URL filled in); a file with another hash isn't loaded, an error dialog says both hashes, and the replay
-// stops. And the File folder's Load URL... asks in a dialog (no URL field among the controls).
+// Replay recording... in the page: only the recording is picked (the picker stubbed here); its model is taken as it is
+// if the one open has its hash, else a dialog asks for it (Open file..., Open URL..., the recorded URL filled in); a
+// file with another hash isn't loaded, an error dialog says both hashes, and the replay stops. And the File folder's
+// Load URL... asks in a dialog (no URL field among the controls).
 await check('replay dialogs', async () => {
   const r = await page('?check', `(async () => {
     await cadViewer.ready;
@@ -3946,9 +3939,9 @@ await check('not a model', async () => {
   expect(typeof r.error === 'string' && /unknown format/.test(r.error), `report ${JSON.stringify(r)}`);
   return undefined;
 });
-// Opening that fails (the user, 2026-10-28): an error modal saying why, besides the status line: a file not found
-// (404), one that isn't a model, a server that can't be reached, a typed address that's neither a URL nor a content
-// path (Load URL...); none in the plain ?check pages.
+// Opening that fails: an error modal saying why, besides the status line: a file not found (404), one that isn't a
+// model, a server that can't be reached, a typed address that's neither a URL nor a content path (Load URL...); none in
+// the plain ?check pages.
 await check('open errors', async () => {
   const dialog = `(async () => { await cadViewer.ready; await cadViewer.idle();
     for (let t = 0; t < 50 && !document.querySelector('dialog.cv-dialog'); t++) {
@@ -3983,14 +3976,14 @@ await check('open errors', async () => {
   expect(!!typed?.error && /not a URL, nor a path within the content root/.test(typed.text), `a bad address: ${j}`);
   return undefined;
 });
-// File's Save... (the user, 2026-10-28): disabled with no model; the save dialog (File System Access, stubbed)
-// suggested the file's name (a URL's last segment) and given exactly its bytes; cancelled, nothing said; without the
-// API, a download by that name (the link's click stubbed) with the same bytes; a load that fails before showing
-// its model leaves the last one's file to save; the next model shown, its file.
-// Export... (the user, 2026-10-31): the dialog, each format with its options, the save dialog asked with the name and
-// type, the file made in the import worker and written: GLB with Draco and with meshopt (their encoders in the
-// browser), .gltf embedded and with its .bin saved after (a second dialog), three.js JSON with edges, 3MF; the
-// viewer's hiding applied when asked; the choices remembered; Cancel saving nothing; disabled with no model.
+// File's Save...: disabled with no model; the save dialog (File System Access, stubbed) suggested the file's name (a
+// URL's last segment) and given exactly its bytes; cancelled, nothing said; without the API, a download by that name
+// (the link's click stubbed) with the same bytes; a load that fails before showing its model leaves the last one's file
+// to save; the next model shown, its file.
+// Export...: the dialog, each format with its options, the save dialog asked with the name and type, the file made in
+// the import worker and written: GLB with Draco and with meshopt (their encoders in the browser), .gltf embedded and
+// with its .bin saved after (a second dialog), three.js JSON with edges, 3MF; the viewer's hiding applied when asked;
+// the choices remembered; Cancel saving nothing; disabled with no model.
 await check('export', async () => {
   const r = await page(`?check`, `(async () => {
     await cadViewer.ready;
@@ -4117,10 +4110,10 @@ await check('export', async () => {
   expect(a.remembered.join() === 'threejs,true' && a.cancelled === 0, `remembered, cancelled: ${j}`);
   return undefined;
 });
-// The import worker lost during an export (the user, 2026-11-01: detected by its heartbeat, the model made again): the
-// export's message swallowed, its meshes handed away all the same (as a dead worker keeps them), the silence
-// allowed 1.5 s: the watchdog says so, an error dialog, the worker stopped, and the model loaded and meshed again as it
-// was, its view and overrides kept, its meshes back (no detached attributes), the controls' meshing as they were.
+// The import worker lost during an export (detected by its heartbeat, the model made again): the export's message
+// swallowed, its meshes handed away all the same (as a dead worker keeps them), the silence allowed 1.5 s: the watchdog
+// says so, an error dialog, the worker stopped, and the model loaded and meshed again as it was, its view and overrides
+// kept, its meshes back (no detached attributes), the controls' meshing as they were.
 await check('export: the worker lost', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
     await cadViewer.ready;

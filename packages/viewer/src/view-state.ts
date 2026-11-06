@@ -1,8 +1,8 @@
-// What a view of a model is, as data (the user, 2026-10-25; docs/claude/viewer.md): the camera, the section
-// planes, the rendering settings, the tree and the pick level, and which nodes are hidden and selected (by
-// their paths, model.ts). The automation interface (automation.ts) reads and applies it, and a page's address
-// carries it, so a link shows what someone else saw: the model in the query, the view after # (since 2026-10-31, so
-// no server sees it, however long; older links' view in the query is read too):
+// What a view of a model is, as data (docs/claude/viewer.md): the camera, the section planes, the rendering settings,
+// the tree and the pick level, and which nodes are hidden and selected (by their paths, model.ts). The automation
+// interface (automation.ts) reads and applies it, and a page's address carries it, so a link shows what someone else
+// saw: the model in the query, the view after # (so no server sees it, however long; older links' view in the query is
+// read too):
 //
 //   ?model=<path in the content root or URL>#view=iso  an axis view, turned about the target (or camera=, exactly)
 //   &camera=px,py,pz,tx,ty,tz,ux,uy,uz,height[,panx,pany]  position, target, up, the viewport's height in world
@@ -36,7 +36,7 @@ export interface CameraState {
   height: number;
   /**
    * The pan, in millimetres along the view's right and up: where the orbit centre (target) is drawn, from the view's
-   * centre (the user, 2026-10-30: panning leaves the orbit centre where it is on the model). Absent: none.
+   * centre (panning leaves the orbit centre where it is on the model). Absent: none.
    */
   pan?: [number, number];
 }

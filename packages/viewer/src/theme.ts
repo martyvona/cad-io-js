@@ -1,8 +1,7 @@
-// The viewer's theme (the user, 2026-10-27): View's Theme, Auto (the default: the system's, as it changes), Light or
-// Dark. The page's colours are CSS variables (index.html) chosen by the root's data-theme, set before the first paint
-// by index.html's inline script from what this browser remembers (the same rule as resolveTheme); the 3D view's
-// background is the Viewer's: the theme's, or a colour of the user's own (View's Custom background, the user,
-// 2026-10-27), remembered in this browser too.
+// The viewer's theme: View's Theme, Auto (the default: the system's, as it changes), Light or Dark. The page's colours
+// are CSS variables (index.html) chosen by the root's data-theme, set before the first paint by index.html's inline
+// script from what this browser remembers (the same rule as resolveTheme); the 3D view's background is the Viewer's:
+// the theme's, or a colour of the user's own (View's Custom background), remembered in this browser too.
 
 export type Theme = 'dark' | 'light';
 export type ThemeChoice = 'auto' | Theme;

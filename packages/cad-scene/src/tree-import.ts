@@ -1,6 +1,5 @@
-// A scene from a tree of nodes and meshes, as glTF and three.js JSON files hold one (the user, 2026-10-29;
-// docs/claude/scene-formats.md): the shared core of `gltf-import` and `threejs-import`, which read their files into a
-// TreeNode and leave the rest here.
+// A scene from a tree of nodes and meshes, as glTF and three.js JSON files hold one (docs/claude/scene-formats.md): the
+// shared core of `gltf-import` and `threejs-import`, which read their files into a TreeNode and leave the rest here.
 //
 // Our files (with our extras: the root's says millimetres, Z up below it) are read as the inverse of exportView and
 // the exporters: tree nodes are component instances (`extras.component.index`), part nodes placed parts
@@ -10,11 +9,11 @@
 // what one placement shows differently from the part's first (its colours, hidden) becomes an override for that
 // placement alone.
 //
-// Other files (the user, 2026-10-29: nodes as components, meshes as parts): every node a component placed once, its
-// meshes parts shared wherever the file reuses them, a mesh's groups of triangles (glTF's primitives, as Onshape
-// writes a face each; three.js's geometry groups) its faces, numbered from 0, with their own materials; lines and
-// points parts of curves and points, except a child named `edges` of only lines beside one triangle mesh, its edges
-// (as our exporters write B-rep edges without extras); the root from metres, Y up, to millimetres, Z up.
+// Other files (nodes as components, meshes as parts): every node a component placed once, its meshes parts shared
+// wherever the file reuses them, a mesh's groups of triangles (glTF's primitives, as Onshape writes a face each;
+// three.js's geometry groups) its faces, numbered from 0, with their own materials; lines and points parts of curves
+// and points, except a child named `edges` of only lines beside one triangle mesh, its edges (as our exporters write
+// B-rep edges without extras); the root from metres, Y up, to millimetres, Z up.
 
 import type { Component, Diagnostic, Lod, Mat4, Material, Mesh, Occurrence, Part, PartRef, PropertyValue, Scene,
   SourceId, Vec3 } from './scene.ts';
@@ -425,13 +424,12 @@ function fromOurs(root: TreeNode, b: Builder): { roots: Occurrence[]; rootParts:
 }
 
 /**
- * A file's own tree (the user, 2026-11-01): a node with meshes and nothing below it but its own `edges`, `curves` and
- * `points` (as our exporters write a placed part) is a placed part, a part reference in its parent's component, its
- * meshes one part (merged: shared wherever the file reuses the same meshes); every other node a component placed
- * once, its own meshes parts. A mesh's triangle groups (a glTF mesh's primitives, a three.js geometry's groups) are
- * its part's faces, numbered from 0 in order, each with its material. `container`: the root is the file's scene, its
- * children the roots (glTF's scene, three.js's Scene object), each turned by `frame`; else the root is a node, turned
- * by it.
+ * A file's own tree: a node with meshes and nothing below it but its own `edges`, `curves` and `points` (as our
+ * exporters write a placed part) is a placed part, a part reference in its parent's component, its meshes one part
+ * (merged: shared wherever the file reuses the same meshes); every other node a component placed once, its own meshes
+ * parts. A mesh's triangle groups (a glTF mesh's primitives, a three.js geometry's groups) are its part's faces,
+ * numbered from 0 in order, each with its material. `container`: the root is the file's scene, its children the roots
+ * (glTF's scene, three.js's Scene object), each turned by `frame`; else the root is a node, turned by it.
  */
 function fromOthers(root: TreeNode, b: Builder, frame: Mat4, container: boolean): { roots: Occurrence[];
   rootParts: PartRef[] } {

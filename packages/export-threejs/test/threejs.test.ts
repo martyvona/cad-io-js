@@ -75,8 +75,8 @@ test('three.js JSON loads with ObjectLoader: tree, transforms, shared geometry, 
   root.updateMatrixWorld(true);
   assert.equal(root.name, 'model');
   assert.deepEqual(root.userData, { unit: 'millimetre', up: 'z', properties: { schema: 'AP214' } });
-  // A Scene of the tops (no root group of ours: the user, 2026-11-01), each turned itself: millimetres to metres,
-  // Z up to Y up, (x, y, z) -> (x, z, -y) / 1000 (written out, not the exporter's).
+  // A Scene of the tops (no root group of ours), each turned itself: millimetres to metres, Z up to Y up, (x, y, z) ->
+  // (x, z, -y) / 1000 (written out, not the exporter's).
   assert.equal(root.type, 'Scene');
   const yUp = Float64Array.of(0.001, 0, 0, 0, 0, 0, -0.001, 0, 0, 0.001, 0, 0, 0, 0, 0, 1);
   assert.equal(JSON.parse(json).object.matrix, undefined);
@@ -171,8 +171,8 @@ test('without extras (the default): no userData anywhere, the same objects, geom
   const plain = JSON.parse(threejsJson(s, view)) as { object: { type: string; matrix?: number[];
     children: { name: string; matrix: number[] }[] } };
   assert.equal(JSON.stringify(plain).includes('"userData"'), false);
-  // The same document as with extras, once its userData is taken out: a Scene of the tops, each turned to metres
-  // and Y up itself (the user, 2026-11-01).
+  // The same document as with extras, once its userData is taken out: a Scene of the tops, each turned to metres and Y
+  // up itself.
   const strip = (o: unknown): unknown => Array.isArray(o) ? o.map(strip) : o && typeof o === 'object'
     ? Object.fromEntries(Object.entries(o).filter(([k]) => k !== 'userData').map(([k, v]) => [k, strip(v)])) : o;
   const full = JSON.parse(threejsJson(s, view, { extras: true }));
