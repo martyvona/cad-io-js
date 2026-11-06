@@ -25,6 +25,7 @@ import { threejsJson } from 'export-threejs';
 import { importGltf } from 'gltf-import';
 import { importStep } from 'step-import';
 import { OcctTessellator } from 'tess-occt';
+import { writeCatalog } from '../../../scripts/demo-catalog.ts';
 import { main } from '../bin/viewer.ts';
 import { defaultChrome, launchChrome } from '../server/headless.ts';
 
@@ -2869,7 +2870,7 @@ await check('auto hide and select all', async () => {
     JSON.stringify(a.detailParents) === JSON.stringify(a.shownPaths), `detail: ${j}`);
   return undefined;
 });
-// About... (File): the authors, Claude first; the license; the repository's link; in a build, licenses.md's, which is
+// About... (File): the authors, Marsette Vona first; the license; the repository's link; in a build, licenses.md's, which is
 // there; no model open, or the model's file, objects and triangles.
 await check('about', async () => {
   const about = (query: string) => page(query, `(async () => {
@@ -2902,6 +2903,101 @@ await check('about', async () => {
     a.links.every((l) => l.target === '_blank' && l.rel === 'noopener'), `the links: ${j}`);
   expect(base === '/' ? a.status === undefined : a.status === 200, `licenses.md (a build's only): ${j}`);
   expect(a.closed, `closed: ${j}`);
+  return undefined;
+});
+// Load demo model... (About): About closed, the catalog fetched (each time, past the cache), a model a row with its
+// size; Load loads the chosen one by its content path, which is chosen again next time; Cancel loads nothing; a
+// catalog that can't be fetched or read is said, Load disabled.
+await check('demo models', async () => {
+  // A demo directory of the check's own, its catalog written by the script deploy-viewer.sh and deploy-demo.sh run.
+  const demo = path.join(content, 'demo');
+  fs.mkdirSync(path.join(demo, 'sub'), { recursive: true });
+  fs.copyFileSync(path.join(content, 'as1.glb'), path.join(demo, 'as1.glb'));
+  fs.copyFileSync(step, path.join(demo, 'sub', 'as1 copy.stp'));
+  fs.writeFileSync(path.join(demo, 'notes.txt'), 'not a model');
+  writeCatalog(demo);
+  const catalog = JSON.parse(fs.readFileSync(path.join(demo, 'catalog.json'), 'utf8')) as
+    { models: { path: string; size: number }[] };
+  // (Written independently of formatSize: both are between 1 kB and 1 MB.)
+  const rows = catalog.models.map((m) => {
+    if (m.size < 1e3 || m.size >= 999_950) throw new Error(`a demo model this check can't size: ${m.path}`);
+    return `${m.path} (${(Math.round(m.size / 100) / 10).toFixed(1)}k)`;
+  });
+  expect(JSON.stringify(catalog.models.map((m) => m.path)) === '["as1.glb","sub/as1 copy.stp"]',
+    `the catalog: ${JSON.stringify(catalog)}`);
+  const r = await page('?check', `(async () => {
+    await cadViewer.ready; await cadViewer.idle();
+    const wait = async (f, ms = 60000) => { for (let t = 0; t < ms / 50; t++) { const v = f(); if (v) return v;
+      await new Promise((res) => setTimeout(res, 50)); } return undefined; };
+    const fetched = [];
+    const realFetch = window.fetch.bind(window);
+    let broken;
+    window.fetch = (u, o) => { fetched.push({ url: String(u), cache: o?.cache });
+      return broken ? broken() : realFetch(u, o); };
+    const picker = async () => {
+      ui.gui.controllersRecursive().find((c) => c._name === 'About...').$button.click();
+      const about = await wait(() => document.querySelector('dialog.cv-dialog[open]'));
+      const button = [...about.querySelectorAll('.buttons button')].find((b) => b.textContent === 'Load demo model...');
+      button.click();
+      await wait(() => !about.isConnected);
+      const d = await wait(() => document.querySelector('dialog.cv-dialog[open]'));
+      const select = d.querySelector('select');
+      const load = d.querySelector('.buttons button.primary');
+      const said = () => d.querySelector('p').textContent;
+      const early = { load: load.disabled, select: select.disabled, said: said() };
+      await wait(() => !said().startsWith('Fetching'), 10000);
+      return { aboutClosed: !about.isConnected, title: d.querySelector('h2').textContent, early, d, select, load, said,
+        options: [...select.options].map((o) => o.textContent), value: select.value };
+    };
+    const first = await picker();
+    const chosen = first.select.options[first.select.options.length - 1].value;
+    first.select.value = chosen;
+    first.load.click();
+    const loaded = await wait(() => viewer.model?.name === chosen.split('/').pop() && !viewer.loading);
+    await cadViewer.idle();
+    const again = await picker();
+    const kept = again.value;
+    again.d.querySelector('.buttons button:not(.primary)').click();
+    await wait(() => !again.d.isConnected);
+    // (A load would fetch the model again.)
+    await new Promise((res) => setTimeout(res, 1000));
+    const modelFetches = fetched.filter((f) => f.url.includes('/content/demo/sub/')).length;
+    broken = () => Promise.resolve(new Response('nope', { status: 404 }));
+    const missing = await picker();
+    const missingSaid = { said: missing.said(), load: missing.load.disabled, failed: missing.d.querySelector('p')
+      .classList.contains('failed') };
+    missing.d.querySelector('.buttons button:not(.primary)').click();
+    // (Slow, so the dialog is seen while it waits.)
+    broken = () => new Promise((res) => setTimeout(() => res(new Response('{"no": 1}', { status: 200 })), 500));
+    const garbled = await picker();
+    const garbledSaid = { said: garbled.said(), load: garbled.load.disabled, early: garbled.early };
+    garbled.d.querySelector('.buttons button:not(.primary)').click();
+    window.fetch = realFetch;
+    const catalogs = fetched.filter((f) => f.url.endsWith('/content/demo/catalog.json'));
+    return { first: { aboutClosed: first.aboutClosed, title: first.title, early: first.early, said: first.said(),
+      options: first.options }, chosen, loaded: !!loaded, url: cadViewer.state().model?.url, kept, modelFetches, missingSaid,
+      garbledSaid, catalogs: catalogs.length, noStore: catalogs.every((f) => f.cache === 'no-store') };
+  })()`) as { after: { first: { aboutClosed: boolean; title: string; early: object;
+    said: string; options: string[] }; chosen: string; loaded: boolean; url?: string; kept: string;
+    modelFetches: number;
+    missingSaid: { said: string; load: boolean; failed: boolean }; garbledSaid: { said: string; load: boolean;
+    early: { load: boolean; select: boolean; said: string } };
+    catalogs: number; noStore: boolean } };
+  const a = r.after;
+  const j = JSON.stringify({ a, rows });
+  expect(a.first.aboutClosed && a.first.title === 'Load Demo Model', `the dialog: ${j}`);
+  expect(rows.length > 0 && JSON.stringify(a.first.options) === JSON.stringify(rows) &&
+    a.first.said === `${rows.length} demo models:`, `the list: ${j}`);
+  expect(a.loaded && a.chosen === catalog.models[catalog.models.length - 1]!.path &&
+    String(a.url).endsWith('/content/demo/sub/as1%20copy.stp'), `loaded: ${j}`);
+  expect(a.kept === a.chosen, `chosen again: ${j}`);
+  expect(a.modelFetches === 1, `loaded once, Cancel loading nothing: ${j}`);
+  expect(/^Could not fetch the list of demo models: there is no catalog \(404\)\.$/.test(a.missingSaid.said) &&
+    a.missingSaid.load && a.missingSaid.failed, `no catalog: ${j}`);
+  expect(/not a catalog/.test(a.garbledSaid.said) && a.garbledSaid.load, `not a catalog: ${j}`);
+  expect(a.garbledSaid.early.load && a.garbledSaid.early.select && /^Fetching/.test(a.garbledSaid.early.said),
+    `while fetching: ${j}`);
+  expect(a.catalogs === 4 && a.noStore, `fetched each time, past the cache: ${j}`);
   return undefined;
 });
 // The theme (View's Theme): auto (the default) follows the system's preference as it changes; light and dark hold
@@ -4134,6 +4230,18 @@ await check('screenshot', async () => {
     // (Near its right end, clear of the title's text.)
     const inGui = [(gt.right - 6) / innerWidth, (gt.top + gt.bottom) / 2 / innerHeight];
     const guiColour = getComputedStyle(ui.gui.domElement.querySelector('.title')).backgroundColor;
+    // The details box over the view (a part selected, so it stays): points across it, every other pixel, compared
+    // with the window redrawn again with the box hidden (its background is white over white in the light theme, but
+    // its text shows).
+    cadViewer.select([cadViewer.nodes().find((n) => n.kind === 'part').path]);
+    await cadViewer.idle();
+    const box = document.getElementById('details');
+    const db = box.getBoundingClientRect();
+    const inDetails = [];
+    for (let y = db.top + 1; y < db.bottom - 1; y += 2) for (let x = db.left + 1; x < db.right - 1; x += 2) {
+      inDetails.push([x, y]);
+    }
+    const detailsShown = !box.hidden && !box.classList.contains('faded') && db.width > 0;
     const w1 = await run({ what: 'window', how: 'redraw', format: 'png' });
     const win = { ...w1, image: await read(w1.file.bytes, [inGui, [centre[0] / innerWidth, centre[1] / innerHeight]]),
       view: await viewPx([centre]), guiColour, inner: [innerWidth, innerHeight], detailsShown };
@@ -4186,6 +4294,8 @@ await check('screenshot', async () => {
   expect(w.shown.width === w.inner[0] && w.image.width === w.inner[0] && w.image.height === w.inner[1],
     `the whole window, as wide: ${j}`);
   expect(near(w.image.px[0], gui, 12) && near(w.image.px[1], w.view[0], 24), `the window's controls and view: ${j}`);
+  // (Its text, over the view: nothing where it's missing.)
+  expect(w.detailsShown && w.details.differing > w.details.points / 50, `the details box in the window: ${j}`);
   // (Headless Chrome's tab capture, accepted by its flag, where it gives one.)
   if (a.tab.error) console.log(`  (tab capture not checked: ${a.tab.error})`);
   else expect(a.tab.image.width === a.tab.shown.width && a.tab.shown.howShown, `the tab captured: ${j}`);
@@ -4239,18 +4349,6 @@ await check('update badge', async () => {
     const away = await evaluate(`new Promise((r) => setTimeout(() => r(versionFetches), 300))`);
     // Another tab in front, then this one again.
     const { targetId } = await send('Target.createTarget', { url: 'about:blank' }) as { targetId: string };
-    // The details box over the view (a part selected, so it stays): points across it, every other pixel, compared
-    // with the window redrawn again with the box hidden (its background is white over white in the light theme, but
-    // its text shows).
-    cadViewer.select([cadViewer.nodes().find((n) => n.kind === 'part').path]);
-    await cadViewer.idle();
-    const box = document.getElementById('details');
-    const db = box.getBoundingClientRect();
-    const inDetails = [];
-    for (let y = db.top + 1; y < db.bottom - 1; y += 2) for (let x = db.left + 1; x < db.right - 1; x += 2) {
-      inDetails.push([x, y]);
-    }
-    const detailsShown = !box.hidden && !box.classList.contains('faded') && db.width > 0;
     const other = await send('Target.attachToTarget', { targetId, flatten: true }) as { sessionId: string };
     await send('Page.bringToFront', {}, other.sessionId);
     await new Promise((resolve) => setTimeout(resolve, 300));
@@ -4294,8 +4392,6 @@ await check('update badge', async () => {
       const same = { checking, text: line(), reload: !reload.hidden, badge: !badge.hidden,
         fetched: versionFetches - shown.fetches };
       globalThis.serverVersion = 'down';
-  // (Its text, over the view: nothing where it's missing.)
-  expect(w.detailsShown && w.details.differing > w.details.points / 50, `the details box in the window: ${j}`);
       check.click();
       for (let t = 0; t < 50 && check.disabled; t++) await wait(100);
       const down = { text: line(), badge: !badge.hidden };

@@ -31,7 +31,7 @@ Notes for working on cad-io-js: how work is done here, the decisions every part 
 | `workdir/` | ignored: dated deep dives and measurement records; findings worth keeping go in this file, the notes or the README |
 | `test/` | repository-wide tests (`ascii.test.ts`) |
 | `env.sh` | `source env.sh`: checks and sets up the toolchain |
-| `scripts/` | `deploy-viewer.sh` (to GitHub Pages, from a clean, pushed commit), `md2pdf.sh` (Markdown to PDF with Typst) |
+| `scripts/` | `deploy-viewer.sh` (to GitHub Pages, from a clean, pushed commit), `deploy-demo.sh` (the demo models alone), `demo-catalog.ts` (their `catalog.json`), `md2pdf.sh` (Markdown to PDF with Typst) |
 
 ### Commands
 

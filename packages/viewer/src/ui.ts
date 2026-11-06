@@ -7,6 +7,7 @@ import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
 import { VIEWS, type ViewName } from './camera.ts';
 import { details } from './details.ts';
 import { showAbout } from './about.ts';
+import { askDemo } from './demo.ts';
 import { VERSION } from './version.ts';
 import { documentActivity, onReactivated, UpdateCheck, updateText } from './update-check.ts';
 import { applyCustomBackground, applyTheme, customBackground, hexColour, onSystemTheme, themeChoice, type ThemeChoice,
@@ -22,7 +23,7 @@ import { DEVICE_PROFILES, setDeviceOverride, type DeviceClass } from './device.t
 import { defaultSettings, profileSettings, type TessellationSettings } from './tessellation.ts';
 import { TreePanel } from './tree-panel.ts';
 import { formatOf } from './formats.ts';
-import { fromFiles, fromUrl, pickFiles, saveFile, saveTarget, typedUrl, type Source } from './sources.ts';
+import { contentUrl, fromFiles, fromUrl, pickFiles, saveFile, saveTarget, typedUrl, type Source } from './sources.ts';
 import { askExport, rememberedExport } from './export-dialog.ts';
 import { EXPORT_FORMATS } from './export-formats.ts';
 import { shownEdits } from './export-shown.ts';
@@ -313,7 +314,12 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     const s = viewer.model && viewer.stats();
     return showAbout(viewer.model && s ? [['File', viewer.model.name],
       ['Objects', `${s.objects.toLocaleString()} (${s.meshes.toLocaleString()} meshes)`],
-      ['Triangles', s.triangles.toLocaleString()]] : undefined, updates);
+      ['Triangles', s.triangles.toLocaleString()]] : undefined, updates, () => void loadDemo());
+  };
+  const loadDemo = async () => {
+    const p = await askDemo();
+    const url = p && contentUrl(p);
+    if (url) await openUrl(url);
   };
   const exportFile = async () => {
     const src = saving;

@@ -7,14 +7,18 @@
 # whose names start with "_". The demo models (test_corpus/demo/, the user's own) go in content/demo/, the build's
 # content root, so ?model=demo/<file> and Load URL... with demo/<file> work there as on the dev server; the service
 # worker doesn't precache them (they're fetched when asked for). The first deploy creates the branch; then, once, set
-# Pages to deploy from it, its root (the repository's Settings, Pages), which can't be chosen before it exists.
-#   scripts/deploy-viewer.sh [--dry-run]   (--dry-run: build and commit, print where, don't push; unpushed allowed)
+# Pages to deploy from it, its root (the repository's Settings, Pages), which can't be chosen before it exists. The demo
+# models must be committed (deploy-demo.sh commits and publishes them alone); their catalog (demo-catalog.ts) is updated
+# first, and committed and pushed if it changed.
+#   scripts/deploy-viewer.sh [--dry-run]   (--dry-run: build and commit, print where, don't push; unpushed allowed; the
+#                                          catalog updated but not committed)
 
 set -euo pipefail
 script_dir="$(cd -P "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 root="$(cd "$script_dir/.." && pwd)"
 remote=origin
 branch=gh-pages
+demo=test_corpus/demo
 
 dry=0
 case "${1:-}" in
@@ -29,8 +33,13 @@ for f in packages/tess-occt/dist/occt_tess.wasm packages/tess-occt/dist/occt_tes
   [ -f "$f" ] || { echo "deploy-viewer.sh: no $f (packages/tess-occt/build.sh, packages/tess-truck/build.sh)" >&2;
     exit 1; }
 done
-if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+if [ -n "$(git status --porcelain --untracked-files=no -- . ":!$demo/catalog.json")" ]; then
   echo "deploy-viewer.sh: uncommitted changes; commit or stash them first" >&2
+  exit 1
+fi
+# (The catalog lists the directory as it is, and the build gets what's committed: they must agree.)
+if [ -n "$(git status --porcelain -- "$demo" ":!$demo/catalog.json")" ]; then
+  echo "deploy-viewer.sh: uncommitted demo models in $demo; commit them, or publish them with deploy-demo.sh" >&2
   exit 1
 fi
 commit="$(git rev-parse HEAD)"
@@ -41,13 +50,27 @@ if [ "$dry" = 0 ]; then
     exit 1
   fi
 fi
+node scripts/demo-catalog.ts
+if [ "$dry" = 0 ] && [ -n "$(git status --porcelain -- "$demo/catalog.json")" ]; then
+  git add -- "$demo/catalog.json"
+  git commit --quiet -m "Demo catalog updated" -- "$demo/catalog.json"
+  git push --quiet "$remote" HEAD
+  echo "committed and pushed $(git rev-parse --short HEAD) (the demo catalog)"
+  commit="$(git rev-parse HEAD)"
+fi
 
 out="$(mktemp -d "${TMPDIR:-/tmp}/cad-viewer-deploy.XXXXXX")"
 site="$out/site"
 (cd packages/viewer && node ../../node_modules/vite/bin/vite.js build --outDir "$site" --logLevel warn)
 touch "$site/.nojekyll"
 mkdir -p "$site/content"
-cp -R test_corpus/demo "$site/content/demo"
+if [ "$dry" = 1 ]; then
+  cp -R "$demo" "$site/content/demo"
+else
+  mkdir -p "$out/demo"
+  git archive HEAD "$demo" | tar -x -C "$out/demo"
+  mv "$out/demo/$demo" "$site/content/demo"
+fi
 git -C "$site" init --quiet -b "$branch"
 git -C "$site" add -A
 git -C "$site" commit --quiet -m "cad-viewer, built from $commit"

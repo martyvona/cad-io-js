@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `cad-viewer`: About's **Load demo model...** closes About and offers the deployed demo models in a list (`content/demo/catalog.json`, fetched each time, each model with its size); `scripts/demo-catalog.ts` writes the catalog, `scripts/deploy-demo.sh` (`npm run deploy-demo`) commits and publishes the demo models alone, and `deploy-viewer.sh` updates and commits the catalog and deploys only committed demo models.
+- `cad-viewer`: the controls' folders are File, View, Tree, Selection, Section, Rendering, B-Rep Meshing: **Tree** holds the tree panel's controls, and View ends with Details, hiding and transparency (recordings name them by their new folders). About's Check for updates says its result to the right of the button.
 - `cad-viewer`: Screenshot...'s whole window, redrawn from the page, shows the details box and the status line (the view's image covered them).
 - `cad-viewer`: a badge after the version in the controls' title when the server has another version (`version.json`, checked only when the tab becomes active again, never polled), saying which and to reload; About says so too, with **Check for updates** and Reload buttons. Offline, a server not answering within 10 s, or a download that fails: silent for the badge, said in About. The service worker fetches the new build as soon as it's seen, so one reload shows it.
 - `cad-viewer`: File's **Screenshot...**: PNG or JPEG of the model alone (cropped to its on-screen box, between the tree and the controls) or of the whole window with its controls (redrawn from the page, or the browser's tab capture where it has one), at a width chosen in pixels; the model alone as PNG with a transparent background by option.

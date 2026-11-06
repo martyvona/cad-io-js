@@ -36,6 +36,7 @@
     "test": "node --test 'packages/*/test/**/*.test.ts' 'test/*.test.ts'",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "viewer": "node packages/viewer/bin/viewer.ts",
+    "deploy-demo": "scripts/deploy-demo.sh",
     "deploy-viewer": "scripts/deploy-viewer.sh"
   },
   "engines": {

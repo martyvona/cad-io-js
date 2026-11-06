@@ -3,7 +3,7 @@
 
 /// <reference types="vite/client" />
 
-import { showDialog } from './dialog.ts';
+import { showDialog, type DialogResult } from './dialog.ts';
 import { updateText, type UpdateCheck } from './update-check.ts';
 import { VERSION } from './version.ts';
 
@@ -12,9 +12,11 @@ export const REPOSITORY = 'https://github.com/martyvona/cad-io-js';
 /**
  * Shows it, with the model open (rows of a table), if any, and with `updates` Check for updates (only when pressed:
  * update-check.ts), saying whether the server has another version (`updates`' state, shared with the controls'
- * badge) with Reload; resolves when it's closed.
+ * badge) with Reload; and with `demo` Load demo model..., which closes it and then calls `demo`. Resolves when it's
+ * closed.
  */
-export async function showAbout(model?: [string, string][], updates?: UpdateCheck): Promise<void> {
+export async function showAbout(model?: [string, string][], updates?: UpdateCheck, demo?: () => void): Promise<void> {
+  let r: DialogResult | undefined;
   const update = document.createElement('p');
   update.className = 'update';
   update.hidden = !updates;
@@ -61,7 +63,7 @@ export async function showAbout(model?: [string, string][], updates?: UpdateChec
   };
   updates?.listeners.add(changed);
   try {
-    await showDialog({
+    r = await showDialog({
       title: 'cad-io-js CAD viewer',
       body: [
         'Views STEP, glTF and three.js models in the browser: part of cad-io-js, for reading CAD files into memory ' +
@@ -77,9 +79,11 @@ export async function showAbout(model?: [string, string][], updates?: UpdateChec
         [{ text: 'Source: ' }, { text: REPOSITORY.replace('https://', ''), href: REPOSITORY }],
         ...(model ? ['The model open:', model] : ['No model open.']),
       ],
-      buttons: [{ label: 'Close', value: 'close', primary: true }],
+      buttons: [{ label: 'Close', value: 'close', primary: true },
+        ...(demo ? [{ label: 'Load demo model...', value: 'demo' }] : [])],
     });
   } finally {
     updates?.listeners.delete(changed);
   }
+  if (r?.button === 'demo') demo?.();
 }
