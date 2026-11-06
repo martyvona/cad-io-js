@@ -4,8 +4,8 @@
 // (other kinds, made from parameters, are skipped with a warning); materials give a colour (sRGB, as the file holds it)
 // and opacity; textures aren't supported (said, and ignored).
 
-import { boundScene, dropSourceDegenerate, identity, sceneFromTree, type Diagnostic, type Properties, type Scene,
-  type TreeMaterial, type TreeMesh, type TreeNode } from 'cad-scene';
+import { boundScene, dropSourceDegenerate, identity, sceneFromTree, transformKinds, type Diagnostic,
+  type Properties, type Scene, type TreeMaterial, type TreeMesh, type TreeNode } from 'cad-scene';
 
 export interface ThreejsImport {
   scene: Scene;
@@ -124,6 +124,13 @@ export function importThreejs(input: string | Uint8Array | object, opts: Threejs
     }
     const matrix = numbers(o.matrix);
     const name = typeof o.name === 'string' ? o.name : '';
+    // (three.js's ObjectLoader keeps a matrix as it is only with matrixAutoUpdate false: otherwise it decomposes it
+    // into position, quaternion and scale, which lose a shear. Read as written either way.)
+    if (matrix?.length === 16 && o.matrixAutoUpdate !== false
+      && transformKinds(Float64Array.from(matrix)).includes('shear')) {
+      warn(`${name ? `'${name}'` : 'an object'}: its matrix has a shear, which three.js's own loader drops (its `
+        + 'matrixAutoUpdate isn\'t false): read with it');
+    }
     // An instanced mesh: a child node per instance, at its matrix (applied before the object's own).
     const instances = o.type === 'InstancedMesh' ? numbers(obj(o.instanceMatrix)?.array) : undefined;
     const count = Math.min(typeof o.count === 'number' ? o.count : Infinity, (instances?.length ?? 0) / 16);

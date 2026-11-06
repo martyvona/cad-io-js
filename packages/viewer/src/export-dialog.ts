@@ -3,7 +3,9 @@
 // (`cad-viewer.export`) for next time.
 
 import { showDialog } from './dialog.ts';
-import { DEFAULT_EXPORT, EXPORT_FORMATS, type ExportFormat, type ExportRequest } from './export-formats.ts';
+import type { TransformUse } from 'cad-scene';
+import { DEFAULT_EXPORT, EXPORT_FORMATS, transformsLost, type ExportFormat, type ExportRequest }
+  from './export-formats.ts';
 
 /** The dialog's choices: the request's options, and the viewer's hiding and opacity applied or not. */
 export type ExportChoice = Omit<ExportRequest, 'name' | 'bin' | 'shown'> & { shown: boolean };
@@ -43,8 +45,11 @@ const BOXES: [keyof ExportChoice, string, 'all' | 'lines' | 'gltf' | 'gltfFile' 
   ['shown', "Apply the viewer's hiding and opacity", 'all'],
 ];
 
-/** Asks for a format and its options, starting from `start`; undefined if cancelled. */
-export async function askExport(start: ExportChoice): Promise<ExportChoice | undefined> {
+/**
+ * Asks for a format and its options, starting from `start`; undefined if cancelled. With the model's `transforms`,
+ * says what the format chosen can't hold of them.
+ */
+export async function askExport(start: ExportChoice, transforms?: TransformUse): Promise<ExportChoice | undefined> {
   const c: ExportChoice = { ...start };
   const box = document.createElement('div');
   const format = document.createElement('select');
@@ -78,9 +83,13 @@ export async function askExport(start: ExportChoice): Promise<ExportChoice | und
   const bits = Object.assign(document.createElement('input'), { type: 'number', min: '1', max: '30', step: '1',
     value: String(c.dracoBits) });
   bitsRow.append(bits);
-  box.append(comp, bitsRow);
+  const lost = document.createElement('p');
+  lost.className = 'warning';
+  box.append(comp, bitsRow, lost);
   const show = () => {
     const f = EXPORT_FORMATS[c.format];
+    lost.textContent = transforms ? transformsLost(c.format, transforms) : '';
+    lost.hidden = !lost.textContent;
     for (const { row, when } of rows) row.hidden = !(when === 'all' || (when === 'lines' && f.lines) ||
       (when === 'gltf' && f.gltf) || (when === 'gltfFile' && c.format === 'gltf') || (when === 'threemf' && f.threemf));
     comp.hidden = !f.gltf;

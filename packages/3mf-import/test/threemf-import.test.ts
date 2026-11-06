@@ -3,8 +3,8 @@ import { test } from 'node:test';
 import { strToU8, unzipSync, zipSync } from 'fflate';
 import fs from 'node:fs';
 import path from 'node:path';
-import { exportView, identity, leafParts, partInstances, placedName, pruneView, scaling, tessellateScene, validate,
-  viewDifferences, type ExportNode, type Mat4, type Mesh, type Occurrence, type PartRef, type Scene } from 'cad-scene';
+import { exportView, identity, leafParts, multiply, partInstances, placedName, pruneView, scaling, tessellateScene,
+  validate, viewDifferences, type ExportNode, type Mat4, type Mesh, type Occurrence, type PartRef, type Scene } from 'cad-scene';
 import { threemf, type ThreeMfOptions } from 'export-3mf';
 import { importStep } from 'step-import';
 import { OcctTessellator } from 'tess-occt';
@@ -755,3 +755,20 @@ test('file metadata through our 3MF: the standard names always; with extras, the
     assert.deepEqual(messages(bad), ['warning: our properties metadata (cadio:properties) unreadable: left out']);
     assert.deepEqual(bad.scene.properties, { format: '3mf', unit: 'millimeter' });
   });
+
+test('transforms: a mirror, an uneven scale and a shear through 3MF as they were, with extras or without', () => {
+  const s = source();
+  // (Its subassembly a leaf product: placed parts of the assembly, by their names.)
+  const [left, right] = ['left', 'right'].map((n) => s.components[0]!.parts.find((p) => p.name === n));
+  left!.transform = multiply(left!.transform, Float64Array.of(-1, 0, 0, 0, 0, 3, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1));
+  right!.transform = multiply(right!.transform, Float64Array.of(1, 0, 0, 0, 0.6, 0.8, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1));
+  // Every triangle where it was, its corners in the same order (the sheet, open, left out; faces without a material
+  // in the exporter's grey).
+  const expected = canonical(drawn({ ...s, parts: [s.parts[0]!, { ...s.parts[1]!, lods: [] }] }))
+    .map((t) => t.replace(/none$/, '204,204,204,255'));
+  for (const extras of [false, true]) {
+    const back = import3mf(exported(s, { extras }));
+    assert.deepEqual(messages(back), [], String(extras));
+    assert.deepEqual(canonical(drawn(back.scene)), expected, String(extras));
+  }
+});

@@ -3,7 +3,7 @@
 
 /// <reference types="vite/client" />
 
-import type { Properties } from 'cad-scene';
+import type { Properties, TransformUse } from 'cad-scene';
 import { showDialog, type DialogResult } from './dialog.ts';
 import { showFileDetails } from './file-details.ts';
 import { updateText, type UpdateCheck } from './update-check.ts';
@@ -18,7 +18,8 @@ export const REPOSITORY = 'https://github.com/martyvona/cad-io-js';
  * badge) with Reload; and with `demo` Load demo model..., which closes it and then calls `demo`. Resolves when it's
  * closed.
  */
-export async function showAbout(model?: { rows: [string, string][]; properties: Properties }, updates?: UpdateCheck,
+export async function showAbout(model?: { rows: [string, string][]; properties: Properties;
+  transforms?: TransformUse }, updates?: UpdateCheck,
   demo?: () => void): Promise<void> {
   let r: DialogResult | undefined;
   const update = document.createElement('p');
@@ -82,7 +83,7 @@ export async function showAbout(model?: { rows: [string, string][]; properties: 
           { text: 'licenses.md', href: new URL('licenses.md', document.baseURI).href }, { text: '.' }] : [])],
         [{ text: 'Source: ' }, { text: REPOSITORY.replace('https://', ''), href: REPOSITORY }],
         ...(model ? [[{ text: 'Current model (' }, { text: 'details', action: () => void showFileDetails(
-          model.properties) }, { text: '):' }], model.rows] : ['No model open.']),
+          model.properties, model.transforms) }, { text: '):' }], model.rows] : ['No model open.']),
       ],
       buttons: [{ label: 'Close', value: 'close', primary: true },
         ...(demo ? [{ label: 'Load demo model...', value: 'demo' }] : [])],

@@ -12,7 +12,8 @@
 import { VIEW_BACKGROUNDS, type Theme } from './theme.ts';
 import * as THREE from 'three';
 import { TrackballControls } from 'three/addons/controls/TrackballControls.js';
-import { around, chooseLod, meshDeflections, type Diagnostic, type Mesh, type Properties, type Vec3 } from 'cad-scene';
+import { around, chooseLod, meshDeflections, transformUse, type Diagnostic, type Mesh, type Properties,
+  type TransformUse, type Vec3 } from 'cad-scene';
 import { clipTo, fitCamera, fitSphere, interpolateCamera, setAspect, smoothstep, viewCamera, VIEWS,
   type ViewName } from './camera.ts';
 import type { CameraState } from './view-state.ts';
@@ -62,6 +63,8 @@ export interface ModelInfo {
   format: Format;
   /** The file's metadata (Scene.properties: the source's, for ours with extras). */
   properties: Properties;
+  /** What its transforms do beyond turning, moving and scaling evenly (cad-scene's transforms.ts). */
+  transforms: TransformUse;
   /** The B-rep parts to mesh (none but in STEP), and how many are done and failed so far. */
   parts?: { total: number; done: number; failed: number };
   /** The importer's and the tessellation's diagnostics. */
@@ -896,7 +899,7 @@ export class Viewer {
           const scene = ev.scene;
           graph = new SceneGraph(scene, src.name, this.render.shininess, this.render.specular);
           const brep = scene.parts.flatMap((p, i) => p.brep && graph!.placements.has(i) ? [i] : []);
-          model = { name: src.name, format, properties: scene.properties,
+          model = { name: src.name, format, properties: scene.properties, transforms: transformUse(scene),
             parts: { total: brep.length, done: 0, failed: 0 },
             diagnostics: [...scene.diagnostics], meshedWith };
           this.show(graph.root, model, graph, keep);

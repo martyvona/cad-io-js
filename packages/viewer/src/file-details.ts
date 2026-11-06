@@ -2,7 +2,7 @@
 // 3MF's; for our files with extras, the source's, ours as `container`: cad-scene's file-metadata.ts), shown over About
 // as rows, read-only: its text can be selected and copied, nothing changed.
 
-import type { Properties, PropertyValue } from 'cad-scene';
+import { describeTransforms, type Properties, type PropertyValue, type TransformUse } from 'cad-scene';
 import { showDialog } from './dialog.ts';
 
 /** A key as a label: `originatingSystem` as Originating system; a name with capitals or other marks as it is. */
@@ -40,12 +40,20 @@ export function propertyRows(p: Properties, prefix = ''): [string, string][] {
   return rows;
 }
 
+/** What the transforms do, if anything: the tree's own, and the placed parts' where composition makes them differ. */
+export function transformRows(t: TransformUse): [string, string][] {
+  const own = describeTransforms(t.own), placed = describeTransforms(t.placed);
+  return [...own ? [['Transforms', own] as [string, string]] : [],
+    ...placed && placed !== own ? [['Placed parts', placed] as [string, string]] : []];
+}
+
 /**
- * Shows the model's metadata, over whatever is open, saying when there's nothing but its format (which every importer
- * records); resolves when it's closed.
+ * Shows the model's metadata, over whatever is open, and with `transforms` what they do beyond turning, moving and
+ * scaling evenly (its own, and its placed parts', which composition can shear); saying when there's nothing but its
+ * format (which every importer records). Resolves when it's closed.
  */
-export async function showFileDetails(p: Properties): Promise<void> {
-  const rows = propertyRows(p);
+export async function showFileDetails(p: Properties, transforms?: TransformUse): Promise<void> {
+  const rows = [...propertyRows(p), ...transforms ? transformRows(transforms) : []];
   const more = rows.some(([l]) => l !== 'Format');
   await showDialog({ title: 'Model Details', body: [...(rows.length ? [rows] : []),
     ...(more ? [] : ['No additional details available.'])], buttons: [], closeButton: true });

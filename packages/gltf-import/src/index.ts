@@ -16,9 +16,9 @@
 import { WebIO, type Accessor, type Document, type Material as GltfMaterial, type Node,
   type Primitive } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
-import { boundScene, closeTransforms, dropSourceDegenerate, identity, multiply, sceneFromTree, Y_UP_METRES,
-  type Diagnostic, type Mat4, type Properties, type Scene, type TreeExtras, type TreeMaterial, type TreeMesh,
-  type TreeNode, type Vec3 } from 'cad-scene';
+import { boundScene, closeTransforms, dropSourceDegenerate, identity, multiply, sceneFromTree, transformKinds,
+  Y_UP_METRES, type Diagnostic, type Mat4, type Properties, type Scene, type TreeExtras, type TreeMaterial,
+  type TreeMesh, type TreeNode, type Vec3 } from 'cad-scene';
 
 export interface GltfImport {
   scene: Scene;
@@ -165,6 +165,7 @@ export async function importGltf(input: Uint8Array | GltfJsonInput, opts: GltfIm
   // the file's metadata.)
   let generator: string | undefined;
   let asset: unknown;
+  let nodes: unknown;
   try {
     if (input instanceof Uint8Array) {
       // (The JSON chunk's extensionsUsed, for the decoders to load.)
@@ -173,12 +174,14 @@ export async function importGltf(input: Uint8Array | GltfJsonInput, opts: GltfIm
       const head = JSON.parse(json) as { extensionsUsed?: string[]; asset?: { generator?: string } };
       generator = head.asset?.generator;
       asset = head.asset;
+      nodes = (head as { nodes?: unknown }).nodes;
       doc = await (await io(head.extensionsUsed ?? [], diagnostics, opts)).readBinary(input);
     } else {
       const json = (typeof input.json === 'string' ? JSON.parse(input.json) : input.json) as
         { extensionsUsed?: string[]; buffers?: { uri?: string }[]; asset?: { generator?: string } };
       generator = json.asset?.generator;
       asset = json.asset;
+      nodes = (json as { nodes?: unknown }).nodes;
       // Data URIs as resources (the reader takes files only).
       const resources = { ...input.resources };
       for (const b of json.buffers ?? []) {
@@ -199,6 +202,16 @@ export async function importGltf(input: Uint8Array | GltfJsonInput, opts: GltfIm
   } catch (e) {
     diagnostics.push({ severity: 'error', message: `not glTF, or not readable: ${(e as Error).message}` });
     return empty();
+  }
+  // A node's matrix must be a translation, rotation and scale; the reader decomposes it into them, so a shear is lost.
+  if (Array.isArray(nodes)) {
+    nodes.forEach((n: { matrix?: unknown; name?: unknown }, i) => {
+      const m = n?.matrix;
+      if (!Array.isArray(m) || m.length !== 16 || !m.every((x) => typeof x === 'number')) return;
+      if (transformKinds(Float64Array.from(m as number[])).includes('shear')) warn(`node ${typeof n.name ===
+        'string' && n.name ? `'${n.name}'` : i}: its matrix has a shear, which glTF doesn't allow (a node's matrix `
+        + 'must be a translation, rotation and scale): read without it');
+    });
   }
   const root = doc.getRoot();
   if (root.listTextures().length) warn('textures are not supported: ignored');

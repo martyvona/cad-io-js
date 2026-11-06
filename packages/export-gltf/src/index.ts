@@ -37,7 +37,7 @@ import { Document, Format, Logger, WebIO, type Accessor, type JSONDocument, type
 import { EXTMeshGPUInstancing, EXTMeshoptCompression, KHRDracoMeshCompression, KHRMaterialsUnlit,
   KHRMeshQuantization, KHRNodeVisibility } from '@gltf-transform/extensions';
 import { drain, identity, multiply, paced, partExtras, placedName, placementJson, pruneView,
-  sceneJson, standardMetadata, Y_UP_METRES, type Diagnostic,
+  sceneJson, standardMetadata, transformKinds, Y_UP_METRES, type Diagnostic,
   type ExportNode, type ExportView, type Look, type Mat4, type Mesh, type Part, type PropertyValue, type Scene,
   type SourceId, type Vec3 } from 'cad-scene';
 
@@ -393,6 +393,8 @@ class Writer {
   private orders = new Map<Mesh, Uint32Array>();
   private reordered = new Map<Uint32Array, Uint32Array>();
   private hiddenLeftOut = 0;
+  /** Node matrices with shear, which TRS can't hold (glTF-Transform's setMatrix drops it). */
+  private sheared = 0;
   private readonly defaultColor: Vec3;
   private readonly edgeColor: Vec3;
   private readonly edgeKinds: ReadonlySet<string>;
@@ -469,6 +471,11 @@ class Writer {
       this.doc.createExtension(KHRMeshQuantization).setRequired(true);
       this.doc.createExtension(EXTMeshoptCompression).setRequired(true)
         .setEncoderOptions({ method: EXTMeshoptCompression.EncoderMethod.FILTER });
+    }
+    if (this.sheared) {
+      this.diagnostics.push({ severity: 'warning', message: `${this.sheared} node transform${this.sheared === 1 ? ''
+        : 's'} sheared, which glTF's translation, rotation and scale can't hold: written without the shear, what's `
+        + 'below them misshapen' });
     }
     if (this.hiddenLeftOut) {
       const n = this.hiddenLeftOut;
@@ -730,7 +737,7 @@ class Writer {
       const m = this.lineMesh(look, what);
       if (m) node.addChild(this.doc.createNode(what).setMesh(m));
     }
-    node.setMatrix(Array.from(this.placement(look, transform, !!mesh || node.listChildren().length > 0)) as mat4);
+    this.setMatrix(node, this.placement(look, transform, !!mesh || node.listChildren().length > 0));
     if (!visible) this.hide(node);
     return node;
   }
@@ -806,9 +813,15 @@ class Writer {
     return out;
   }
 
+  /** A node's matrix, as TRS (a mirror a negative scale); a shear counted, as it's lost. */
+  private setMatrix(node: Node, m: Mat4): Node {
+    if (transformKinds(m).includes('shear')) this.sheared++;
+    return node.setMatrix(Array.from(m) as mat4);
+  }
+
   private *node(n: ExportNode): Generator<void, Node> {
     const comp = this.scene.components[n.component]!;
-    const node = this.doc.createNode(n.name).setMatrix(Array.from(n.transform) as mat4);
+    const node = this.setMatrix(this.doc.createNode(n.name), n.transform);
     if (this.extras) {
       const extras: Json = { ...this.sourced(n.occurrence.sources, n.occurrence.properties) };
       extras.component = { index: n.component, name: comp.name, ...this.sourced(comp.sources, comp.properties) };

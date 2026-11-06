@@ -357,3 +357,28 @@ test('file metadata: the file\'s own, its writer and version; ours, the source\'
     version: 4.7, type: 'Object', generator: 'cad-io-js export-threejs' } } });
   assert.deepEqual(importThreejs(threejsJson(s, exportView(s, opts))).scene.properties.format, 'threejs');
 });
+
+test('transforms: a shear read as written; said where three.js\'s own loader would drop it', () => {
+  const sheared = [1, 0, 0, 0, 0.6, 0.8, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+  // Ours, through our exporter (matrixAutoUpdate false; with extras, so the tree is compared): the same drawing,
+  // nothing said.
+  const s = scene();
+  const occ = s.components[0]!.children[0]!;
+  occ.transform = multiply(occ.transform, Float64Array.from(sheared));
+  const view = exportView(s, opts);
+  const back = importThreejs(threejsJson(s, view, { extras: true }));
+  assert.deepEqual(back.diagnostics, []);
+  assert.deepEqual(viewDifferences({ scene: s, view: pruneView(view) }, { scene: back.scene,
+    view: exportView(back.scene, opts) }, { skipHidden: true }), []);
+  // Anyone's: said unless matrixAutoUpdate is false; the matrix kept either way.
+  const file = (o: Record<string, unknown>) => ({ metadata: { version: 4.6 }, object: { type: 'Scene', children: [
+    { type: 'Group', name: 'g', matrix: sheared, ...o, children: [{ type: 'Group', name: 'h',
+      matrix: [-1, 0, 0, 0, 0, 2, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1] }] }] } });
+  const said = importThreejs(file({}));
+  assert.deepEqual(said.diagnostics.map((d) => d.message), ['\'g\': its matrix has a shear, which three.js\'s own ' +
+    'loader drops (its matrixAutoUpdate isn\'t false): read with it']);
+  assert.deepEqual(importThreejs(file({ matrixAutoUpdate: false })).diagnostics, []);
+  assert.deepEqual(importThreejs(file({ matrixAutoUpdate: true, name: '' })).diagnostics.map((d) => d.message),
+    ['an object: its matrix has a shear, which three.js\'s own loader drops (its matrixAutoUpdate isn\'t false): ' +
+    'read with it']);
+});

@@ -19,9 +19,9 @@
 // source (CAD files are usually Z-up), which the Scene's userData says with extras (in each top object). Format 4 holds
 // numbers as JSON arrays, so output is produced in chunks: a large model's JSON can exceed V8's maximum string length.
 
-import { multiply, partExtras, placedName, placementJson, pruneView, sceneJson, Y_UP_METRES, type ExportNode,
-  type ExportPart, type ExportView, type Look, type Mat4, type Mesh, type PropertyValue, type Scene, type SourceId,
-  type Vec3 } from 'cad-scene';
+import { multiply, partExtras, placedName, placementJson, pruneView, sceneJson, transformKinds, Y_UP_METRES,
+  type ExportNode, type ExportPart, type ExportView, type Look, type Mat4, type Mesh, type PropertyValue, type Scene,
+  type SourceId, type Vec3 } from 'cad-scene';
 
 /** Millimetres to metres, and Z up to Y up: (x, y, z) mm -> (x, z, -y) m. Column-major (cad-scene's `Y_UP_METRES`). */
 export const ROOT_TRANSFORM: Mat4 = Y_UP_METRES;
@@ -117,8 +117,12 @@ function* geometryChunks(g: Geometry): Generator<string> {
 }
 
 const hex = (c: Vec3) => c.reduce((h, v) => h * 256 + Math.round(Math.min(1, Math.max(0, v)) * 255), 0);
-/** A matrix as three.js stores it: both are column-major. */
-const matrix = (m: Mat4) => Array.from(m);
+/**
+ * An object's matrix as three.js stores it (both column-major); a sheared one with matrixAutoUpdate false, as
+ * three.js's ObjectLoader otherwise decomposes it into position, quaternion and scale, dropping the shear.
+ */
+const matrix = (m: Mat4): Json => ({ matrix: Array.from(m),
+  ...(transformKinds(m).includes('shear') ? { matrixAutoUpdate: false } : {}) });
 
 /** Segment pairs for a set of polylines, and each polyline's range of index entries. */
 function segments(lines: { start: number; count: number }[]): { index: Uint32Array;
@@ -277,7 +281,7 @@ class Writer {
       ...this.sourced(part.sources, part.properties), ...partExtras(part, look.lod),
       placement: placementJson(p.ref, p.index) as Json };
     const o: Json = { uuid: this.uuid(), type: 'Group', name: placedName(this.scene, p.ref),
-      matrix: matrix(frame ? multiply(frame, p.transform) : p.transform) };
+      ...matrix(frame ? multiply(frame, p.transform) : p.transform) };
     if (look.groups.length) {
       o.type = 'Mesh';
       const g = this.faceGeometry(look, part.name);
@@ -301,7 +305,7 @@ class Writer {
       ...(comp.external.format ? { format: comp.external.format } : {}) };
     const children = [...n.parts.map((p) => this.part(p)), ...n.children.map((c) => this.node(c))];
     const o: Json = { uuid: this.uuid(), type: 'Group', name: n.name,
-      matrix: matrix(frame ? multiply(frame, n.transform) : n.transform),
+      ...matrix(frame ? multiply(frame, n.transform) : n.transform),
       ...(this.extras ? { userData } : {}) };
     if (children.length) o.children = children;
     return o;

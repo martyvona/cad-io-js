@@ -265,3 +265,24 @@ test('extras: each placement\'s face ranges hold its faces\' triangles in the ge
       }
     }
   });
+
+test('transforms: a sheared object with matrixAutoUpdate false, which ObjectLoader then keeps; others decomposed', () => {
+  // (The shear tilts y towards x, keeping its length; the mirror and uneven scale are three.js's position,
+  // quaternion and scale.)
+  const shear = Float64Array.of(1, 0, 0, 0, 0.6, 0.8, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1);
+  const mirror = Float64Array.of(-1, 0, 0, 0, 0, 3, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1);
+  const s = scene();
+  const [left, right] = s.components[0]!.children;
+  left!.transform = multiply(left!.transform, shear);
+  right!.transform = multiply(right!.transform, mirror);
+  const json = threejsJson(s, viewOf(s, meshes()));
+  const objects = JSON.parse(json).object.children[0].children as { name?: string; matrixAutoUpdate?: boolean }[];
+  assert.deepEqual(objects.map((o) => o.matrixAutoUpdate), [false, undefined]);
+  const root = load(json);
+  root.updateMatrixWorld(true);
+  const [l, r] = root.children[0]!.children;
+  assert.equal(l!.matrixAutoUpdate, false);
+  l!.matrix.elements.forEach((x, i) => assert.ok(Math.abs(x - left!.transform[i]!) < 1e-12, `sheared ${i}`));
+  r!.matrix.elements.forEach((x, i) => assert.ok(Math.abs(x - right!.transform[i]!) < 1e-12, `mirrored ${i}`));
+  assert.ok(r!.matrixWorld.determinant() < 0);
+});

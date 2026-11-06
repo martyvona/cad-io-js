@@ -4,7 +4,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { Document, WebIO } from '@gltf-transform/core';
 import { addLod, exportView, identity, multiply, partInstances, placedName, pruneView, tessellateScene, validate,
-  viewDifferences, type ExportView, type Occurrence, type PartRef, type Scene } from 'cad-scene';
+  viewDifferences, type ExportView, type Mat4, type Occurrence, type PartRef, type Scene } from 'cad-scene';
 import { glb, gltfJson, type GltfOptions } from 'export-gltf';
 import { importStep } from 'step-import';
 import { OcctTessellator } from 'tess-occt';
@@ -459,3 +459,60 @@ test('file metadata: a foreign file\'s asset; ours, the source\'s with ours as c
     const copied = (await importGltf((await glb(foreign.scene, exportView(foreign.scene), {})).bytes)).scene;
     assert.deepEqual(copied.properties.asset, { ...ours.asset, copyright: '(c) Them' });
   });
+
+test('transforms: a mirror and an uneven scale through glTF as they were; a shear said, and lost', async () => {
+  const diag = (x: number, y: number, z: number) => Float64Array.of(x, 0, 0, 0, 0, y, 0, 0, 0, 0, z, 0, 0, 0, 0, 1);
+  // (The shear tilts y towards x, keeping its length.)
+  const shear = Float64Array.of(1, 0, 0, 0, 0.6, 0.8, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1);
+  const variant = (left: Mat4) => {
+    const s = scene();
+    const occ = s.components[0]!.children[0]!;
+    occ.transform = multiply(occ.transform, left);
+    return s;
+  };
+  const cases = [['mirror', diag(-1, 1, 1)], ['uneven', diag(1, 3, 0.5)], ['both', diag(2, -1, 1)]] as const;
+  for (const [what, m] of cases) {
+    const s = variant(m);
+    const { back, differences } = await roundTrip(s, { compression: 'none' });
+    assert.deepEqual(back.diagnostics, [], what);
+    assert.deepEqual(differences, [], what);
+    const det = (t: Mat4) => t[0]! * (t[5]! * t[10]! - t[6]! * t[9]!) - t[4]! * (t[1]! * t[10]! - t[2]! * t[9]!)
+      + t[8]! * (t[1]! * t[6]! - t[2]! * t[5]!);
+    const placed = [...partInstances(back.scene)].map((p) => Math.sign(det(p.transform)));
+    assert.equal(placed.filter((d) => d < 0).length, what === 'uneven' ? 0 : 2, what);
+  }
+  // A shear: said, written without it, so the drawing differs there.
+  const s = variant(shear);
+  const { bytes, diagnostics } = await glb(s, exportView(s, lines), { extras: true, compression: 'none',
+    hidden: 'extension' });
+  assert.deepEqual(diagnostics.map((d) => d.message), ['1 node transform sheared, which glTF\'s translation, ' +
+    'rotation and scale can\'t hold: written without the shear, what\'s below them misshapen']);
+  const back = await importGltf(bytes);
+  assert.notDeepEqual(viewDifferences({ scene: s, view: exportView(s, lines) },
+    { scene: back.scene, view: exportView(back.scene, lines) }, { skipHidden: true }), []);
+});
+
+test('a glTF node matrix with a shear (glTF doesn\'t allow one): said, read without it', async () => {
+  const node = (name: string | undefined, matrix: number[]) => ({ ...(name ? { name } : {}), matrix });
+  const json = JSON.stringify({ asset: { version: '2.0' }, scene: 0, scenes: [{ nodes: [0, 1, 2] }], nodes: [
+    node('sheared', [1, 0, 0, 0, 0.6, 0.8, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]), node(undefined, [1, 0, 0, 0, 0.6, 0.8, 0,
+      0, 0, 0, 1, 0, 0, 0, 0, 1]), node('mirrored', [-1, 0, 0, 0, 0, 2, 0, 0, 0, 0, 1, 0, 5, 0, 0, 1])] });
+  // As a .gltf, and as a GLB (its JSON chunk padded with spaces).
+  const text = new TextEncoder().encode(json + ' '.repeat((4 - json.length % 4) % 4));
+  const binary = new Uint8Array(20 + text.length);
+  const v = new DataView(binary.buffer);
+  v.setUint32(0, 0x46546c67, true);
+  v.setUint32(4, 2, true);
+  v.setUint32(8, binary.length, true);
+  v.setUint32(12, text.length, true);
+  v.setUint32(16, 0x4e4f534a, true);
+  binary.set(text, 20);
+  const glbRead = await importGltf(binary);
+  const r = await importGltf({ json });
+  assert.deepEqual(glbRead.diagnostics.map((d) => d.message), r.diagnostics.map((d) => d.message));
+  assert.deepEqual(r.diagnostics.filter((d) => d.severity !== 'info').map((d) => d.message), [
+    'node \'sheared\': its matrix has a shear, which glTF doesn\'t allow (a node\'s matrix must be a translation, ' +
+    'rotation and scale): read without it',
+    'node 1: its matrix has a shear, which glTF doesn\'t allow (a node\'s matrix must be a translation, rotation and ' +
+    'scale): read without it']);
+});

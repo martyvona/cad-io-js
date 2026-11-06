@@ -315,8 +315,8 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     const author = typeof m?.properties.author === 'string' ? ` (${m.properties.author})` : '';
     return showAbout(m && s ? { rows: [['File', m.name + author],
       ['Objects', `${s.objects.toLocaleString()} (${s.meshes.toLocaleString()} meshes)`],
-      ['Triangles', s.triangles.toLocaleString()]], properties: m.properties } : undefined, updates,
-    () => void loadDemo());
+      ['Triangles', s.triangles.toLocaleString()]], properties: m.properties, transforms: m.transforms } : undefined,
+    updates, () => void loadDemo());
   };
   const loadDemo = async () => {
     const p = await askDemo();
@@ -328,7 +328,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     const nodes = viewer.nodes, graph = viewer.graph;
     if (!src || !nodes || !graph) return;
     if (viewer.loading) return say(`${src.name}: still loading; export once it's meshed`, true);
-    const choice = await askExport(rememberedExport());
+    const choice = await askExport(rememberedExport(), viewer.model?.transforms);
     if (!choice) return;
     const { shown, ...options } = choice;
     const f = EXPORT_FORMATS[choice.format];
