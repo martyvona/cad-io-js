@@ -1,5 +1,5 @@
 // The viewer's node model: what the tree shows and what selection and hiding act on, made from the model's scene
-// graph (scene-graph.ts), whatever its format (the user, 2026-10-24; CLAUDE.md, "The viewer"). Kinds:
+// graph (scene-graph.ts), whatever its format (the user, 2026-10-24; docs/claude/viewer.md). Kinds:
 //
 //   assembly, part: the placements (the graph says which groups are which: component instances and placed parts);
 //   below a part, when the tree shows detail (built when first asked for): its faces (those with ids), one node for
@@ -16,10 +16,10 @@
 // file's hidden placements start with `hidden: true`. Hide, Show and the opacity buttons collapse the nodes they're
 // given to the fewest that cover them (a node whose children are all given stands for them) and set the slot there,
 // leaving the overrides below as they are (the user, 2026-10-31: first cleared below); the tree's Override
-// Appearance... sets one node's exactly. A placement draws as its overrides resolve: its group and line objects' `visible`, and its faces'
-// materials through the scene graph (Looks), per placement (before 2026-10-31 a face's hiding was its part's, in
-// every placement). Detail nodes' overrides are kept on their part by segment, so they outlast the detail nodes
-// (made again when a mesh arrives) and can be set before the mesh is there.
+// Appearance... sets one node's exactly. A placement draws as its overrides resolve: its group and line objects'
+// `visible`, and its faces' materials through the scene graph (Looks), per placement (before 2026-10-31 a face's hiding
+// was its part's, in every placement). Detail nodes' overrides are kept on their part by segment, so they outlast the
+// detail nodes (made again when a mesh arrives) and can be set before the mesh is there.
 
 import * as THREE from 'three';
 

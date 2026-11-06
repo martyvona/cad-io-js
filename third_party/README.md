@@ -15,7 +15,7 @@ The test corpus is separate: see `../test_corpus/README.md`. The system tools th
 | `truck/` | https://github.com/ricosjp/truck | `88ed005249` (2026-09-28) | The truck tessellation backend, `../packages/tess-truck` (Cargo `path` dependencies). |
 | `mbx-if-recpractices/` | https://www.mbx-if.org/home/cax/recpractices/ | the 21 file URLs in `pull.sh` | CAx-IF / MBx-IF recommended practices (19 PDFs and two trace-information sample zips): the guide for the semantic extractors (assembly structure, validation properties, PMI, styling). Documents only. |
 
-Licenses: OCCT is LGPL-2.1 with the Open CASCADE exception, which is why the architecture isolates it in the `tess-occt` package; stepcode is BSD-3-Clause; truck is Apache-2.0. See "Licensing and provenance" in `../CLAUDE.md`.
+Licenses: OCCT is LGPL-2.1 with the Open CASCADE exception, which is why the architecture isolates it in the `tess-occt` package; stepcode is BSD-3-Clause; truck is Apache-2.0. See `../CLAUDE.md`.
 
 ## Typst
 
@@ -67,7 +67,7 @@ Licensing: `occt_tess.cpp` is part of `tess-occt`, which is LGPL-2.1 with the Op
 
 ## Reference only (not checked out here)
 
-Read for background, never built against. The commits are the ones reviewed (see "Reference projects and prior art" in `../CLAUDE.md`).
+Read for background, never built against. The commits are the ones reviewed (see `../docs/claude/future.md`).
 
 | Project | Upstream | Commit reviewed | Why |
 |---|---|---|---|

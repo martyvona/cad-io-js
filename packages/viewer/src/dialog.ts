@@ -1,4 +1,4 @@
-// Modal dialogs (the user, 2026-10-25; CLAUDE.md, "The viewer"): the native <dialog> shown with showModal(), so the
+// Modal dialogs (the user, 2026-10-25; docs/claude/viewer.md): the native <dialog> shown with showModal(), so the
 // page behind is inert and Escape closes it, one at a time, removed when closed. A message with buttons, and a URL to
 // type or paste, and About (about.ts), or controls of the caller's own. Dragged by the title
 // (the user, 2026-10-31: to see what's under it), kept with its title in the window. Styled in index.html

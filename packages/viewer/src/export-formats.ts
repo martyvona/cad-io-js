@@ -12,7 +12,7 @@ export type ExportFormat = 'glb' | 'gltf' | 'threejs' | '3mf';
 /** What the export dialog asks for (export-dialog.ts), as stepconv's options. */
 export interface ExportRequest {
   format: ExportFormat;
-  /** The scene's and root node's name. */
+  /** The scene's name. */
   name: string;
   /** B-rep edges, and curves and points (not 3MF). */
   edges: boolean;

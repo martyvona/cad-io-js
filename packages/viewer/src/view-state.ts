@@ -1,4 +1,4 @@
-// What a view of a model is, as data (the user, 2026-10-25; CLAUDE.md, "The viewer"): the camera, the section
+// What a view of a model is, as data (the user, 2026-10-25; docs/claude/viewer.md): the camera, the section
 // planes, the rendering settings, the tree and the pick level, and which nodes are hidden and selected (by
 // their paths, model.ts). The automation interface (automation.ts) reads and applies it, and a page's address
 // carries it, so a link shows what someone else saw: the model in the query, the view after # (since 2026-10-31, so

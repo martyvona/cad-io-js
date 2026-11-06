@@ -1,5 +1,5 @@
 // The viewer's look, apart from how frames are composed (render.ts): edges on a layer of their own, and the
-// rendering settings (the user, 2026-10-24; CLAUDE.md, "The viewer"). Kept apart from render.ts, which imports N8AO
+// rendering settings (the user, 2026-10-24; docs/claude/viewer.md). Kept apart from render.ts, which imports N8AO
 // and postprocessing, so the rest can run in Node's tests.
 
 import type { EdgeStyle } from './fat-edges.ts';

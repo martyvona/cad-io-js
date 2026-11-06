@@ -1,6 +1,6 @@
 // The PDF style for our Markdown documents, compiled by scripts/md2pdf.sh with Typst. The Markdown is rendered by
 // cmarker (CommonMark, GitHub-style heading anchors), its LaTeX math by mitex, its ```mermaid blocks by merman: no
-// pandoc, LaTeX or browser (CLAUDE.md, "Decisions"). The document's `#` heading is its title and `##` headings its
+// pandoc, LaTeX or browser (CLAUDE.md). The document's `#` heading is its title and `##` headings its
 // numbered sections. The PDF-only and Markdown-only parts are cmarker's comments:
 //   <!--raw-typst ...-->  Typst code, run only here (the title page's #outline() and #pagebreak());
 //   <!--typst-begin-exclude--> ... <!--typst-end-exclude-->  left out here (the Markdown's short contents list).

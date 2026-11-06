@@ -1,4 +1,4 @@
-// The viewer driven from outside (the user, 2026-10-25; CLAUDE.md, "The viewer"): `window.cadViewer`, for scripts,
+// The viewer driven from outside (the user, 2026-10-25; docs/claude/viewer.md): `window.cadViewer`, for scripts,
 // the browser check, `cad-viewer shot` and the console, and the view carried in the page's address
 // (view-state.ts). It works through the UI's operations (ui.ts), so the controls follow whatever it does, and names
 // nodes by their paths (model.ts), which stay the same from one load to the next. Its interface is meant to stay

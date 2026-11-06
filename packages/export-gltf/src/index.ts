@@ -1,5 +1,5 @@
 // Scene model -> glTF 2.0, written with glTF-Transform: GLB, or .gltf JSON with its buffer as a separate .bin or
-// embedded as base64. See README.md, "`stepconv`", and CLAUDE.md, "Decisions".
+// embedded as base64. See README.md and docs/claude/scene-formats.md.
 //
 //   nodes: the scene's roots, each turning the scene's millimetres, Z up, into glTF's metres, Y up, in its own matrix
 //     (the user, 2026-11-01: no root node of ours, for a reader to take for an assembly or a frame not the file's;
@@ -56,7 +56,7 @@ export interface GltfOptions {
   edgeKinds?: readonly ('shared' | 'seam' | 'free' | 'degenerate')[];
   /** Materials render both sides of faces. Default false. */
   doubleSided?: boolean;
-  /** Name of the scene and its root node. */
+  /** Name of the scene. */
   name?: string;
   /** Hidden part instances: left out (default), or written hidden with KHR_node_visibility. */
   hidden?: 'omit' | 'extension';
@@ -187,7 +187,7 @@ async function encoders(document: Document, opts: GltfOptions): Promise<Record<s
 /**
  * glTF-Transform's JSON for a document, with each node's translation, rotation and scale as they are: its writer
  * leaves out any within 1e-5 of the default, which drops rotations of up to about 2e-5 rad (20 um a metre away)
- * and scales within 1e-5 of 1 (CLAUDE.md, "JavaScript, Node and the libraries").
+ * and scales within 1e-5 of 1 (docs/claude/scene-formats.md).
  */
 async function write(document: Document, format: Format, opts: GltfOptions): Promise<JSONDocument> {
   const out = await new WebIO().setLogger(new Logger(Logger.Verbosity.ERROR))

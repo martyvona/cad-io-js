@@ -1,5 +1,5 @@
-// Leaf products as part references (the user, 2026-11-01; CLAUDE.md, "Decisions"): a component whose only content is
-// one part reference (no children, no external reference, no material of its own) is the part placed, not a
+// Leaf products as part references (the user, 2026-11-01; docs/claude/scene-formats.md): a component whose only content
+// is one part reference (no children, no external reference, no material of its own) is the part placed, not a
 // component: each occurrence of it becomes a part reference in its parent's component (or among the scene's root
 // parts), with the occurrence's name, sources and properties, the component's as its `product`. So a placed part is
 // one node in a tree, as CAD systems and 3MF show it, not an assembly holding a part of the same name (the corpus

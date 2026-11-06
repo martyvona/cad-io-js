@@ -326,7 +326,7 @@ for (const extra of process.env.EXTRA?.split(',') ?? []) {
 // Replacing a model while it's meshing: the bicycle's meshing is cancelled once it has begun (its load ends at
 // once: the workers are stopped), the GLB shown alone, and STEP meshes again after (a new pool), from the cache (the
 // assembly was meshed above); and with truck when that's the backend chosen.
-// Zooming while a model loads (the user, 2026-10-30; CLAUDE.md, "Decisions": bounding volumes): the bicycle, meshed
+// Zooming while a model loads (the user, 2026-10-30; docs/claude/viewer.md): the bicycle, meshed
 // without the cache, is fitted to its estimated sphere before its first mesh is drawn, then only zooms out, at most
 // once a second, ending fitted to all that loaded; zoom all then fits the sphere made from the meshes. Moving the
 // view stops it.
@@ -4174,8 +4174,8 @@ await check('missing file', async () => {
 });
 
 // What a build holds (printing nothing as it's made): one Draco decoder (draco3dgltf's, for gltf-import in the import
-// worker: the GLBs above loaded through it) and its encoder (for Export..., export-gltf there); licenses.md with the npm packages' licenses and OCCT's, not precached by
-// its service worker (which precaches OCCT's module).
+// worker: the GLBs above loaded through it) and its encoder (for Export..., export-gltf there); licenses.md with the
+// npm packages' licenses and OCCT's, not precached by its service worker (which precaches OCCT's module).
 if (staticServer) {
   await check('build', async () => {
     expect(buildOutput.trim() === '', `the build printed: ${buildOutput.slice(0, 1000)}`);

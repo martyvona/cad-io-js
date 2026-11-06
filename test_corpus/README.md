@@ -24,6 +24,6 @@ The package tests (`npm test`) don't need the corpus.
 
 ## Versions
 
-Updating the checkouts can change the corpus. The results in `../corpus_checks/*.log` (and in `../CLAUDE.md`) used gkv311 at `ead84b5` (2026-10-06), occt-import-js at `41e4708` (2024-12-03), and the NIST packages with the Last-Modified dates `pull.sh` records in `third_party/nist-pmi-models/.<name>.last-modified`.
+Updating the checkouts can change the corpus. The results in `../corpus_checks/*.log` used gkv311 at `ead84b5` (2026-10-06), occt-import-js at `41e4708` (2024-12-03), and the NIST packages with the Last-Modified dates `pull.sh` records in `third_party/nist-pmi-models/.<name>.last-modified`.
 
 Before 2026-10-17, the 19 occt-import-js files came from its npm package, which ships them with CRLF line endings; the git checkout has LF. The content is otherwise identical, and 59 other corpus files use CRLF.

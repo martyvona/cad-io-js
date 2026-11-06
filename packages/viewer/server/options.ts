@@ -1,5 +1,5 @@
 // The dev server's options, passed from `cad-viewer start` to the Vite config through the environment, so that
-// `npx vite` in this package works too. See README.md, "The viewer".
+// `npx vite` in this package works too. See README.md.
 
 import path from 'node:path';
 

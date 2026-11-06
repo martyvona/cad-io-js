@@ -1,5 +1,5 @@
 // The viewer's 3D view: renderer, orthographic camera, trackball controls, lights, and the model (the user,
-// 2026-10-24; CLAUDE.md, "The viewer"):
+// 2026-10-24; docs/claude/viewer.md):
 //
 //   scene -> display (the model's place in the scene, kept from one model to the next) -> the model's root (its
 //     scene graph, scene-graph.ts, in the world's millimetres and Z up whatever the format: the importers convert)
@@ -713,7 +713,7 @@ export class Viewer {
   private readonly beats = new Map<number, number>();
   /**
    * How long an export may go without a beat before the worker is taken for lost (ms): longer than the longest
-   * stretch the exporters run without yielding (measured: CLAUDE.md, "Exports survive the import worker").
+   * stretch the exporters run without yielding (measured: docs/claude/viewer.md).
    */
   exportSilenceMs = EXPORT_SILENCE_MS;
   /** The longest silence between beats of the last export (ms), for measuring. */

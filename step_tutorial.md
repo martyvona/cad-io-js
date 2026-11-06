@@ -55,7 +55,7 @@ The three APs that carry almost all mechanical CAD data:
 | AP214 | `AUTOMOTIVE_DESIGN` | The automotive AP: solids, assemblies, colours, layers, validation properties, kinematics. Very widely used by CAD exporters. |
 | AP242 | `AP242_MANAGED_MODEL_`<br>`BASED_3D_ENGINEERING_`<br>`MIM_LF` | The merger and successor of AP203 and AP214, adding tessellated geometry, semantic PMI (tolerances, datums) and more. Several editions. |
 
-For geometry, topology, assemblies, units and colours the three are nearly the same. The entities and their attributes mostly coincide, and a reader written for one handles the others with small adjustments.
+For geometry, topology, assemblies, units and colours the three are nearly the same. The entities and their attributes mostly coincide, and a reader written for one handles the others with small adjustments. AP242 is close to a superset of AP214 for this data; the two differ mostly in kinematics.
 
 The header names the schema, sometimes with an object identifier giving the edition:
 
@@ -236,7 +236,7 @@ A representation's items usually include an `AXIS2_PLACEMENT_3D` at the origin a
 ### Geometry
 
 - `CARTESIAN_POINT('', (x, y, z))`; `DIRECTION('', (dx, dy, dz))`, not necessarily normalized; `VECTOR('', direction, magnitude)`.
-- **`AXIS2_PLACEMENT_3D('', location, axis, ref_direction)`**, a right-handed frame. Its z axis is `axis` (default (0, 0, 1)). Its x axis is `ref_direction` projected perpendicular to z (default (1, 0, 0), or (0, 1, 0) if z is along x). Its y axis is $z \times x$. As a $4 \times 4$ matrix, the columns are x, y, z and the location. Directions in files are often slightly off unit length or perpendicularity, so normalize and orthogonalize.
+- **`AXIS2_PLACEMENT_3D('', location, axis, ref_direction)`**, a right-handed frame. Its z axis is `axis` (default (0, 0, 1)). Its x axis is `ref_direction` projected perpendicular to z (default (1, 0, 0), or (0, 1, 0) if z is along x). Its y axis is $z \times x$. (A reader that computes $x \times z$ instead gets a left-handed frame. Relative transforms between two such frames still come out right, so the mistake shows only when one placement is checked on its own.) As a $4 \times 4$ matrix, the columns are x, y, z and the location. Directions in files are often slightly off unit length or perpendicularity, so normalize and orthogonalize.
 - Curves: `LINE`, `CIRCLE`, `ELLIPSE` (each positioned by a placement), `B_SPLINE_CURVE_WITH_KNOTS` (degree, control points, form, closed, self-intersect, knot multiplicities, knots, knot type), rational versions as complex instances, `TRIMMED_CURVE`, `COMPOSITE_CURVE`, `POLYLINE`.
 - Surfaces: `PLANE`, `CYLINDRICAL_SURFACE`, `CONICAL_SURFACE`, `SPHERICAL_SURFACE`, `TOROIDAL_SURFACE` (each with a placement), `B_SPLINE_SURFACE_WITH_KNOTS`, `SURFACE_OF_REVOLUTION`, `SURFACE_OF_LINEAR_EXTRUSION`, `OFFSET_SURFACE`.
 
@@ -404,16 +404,16 @@ Presentation comes from ISO 10303-46. A **`STYLED_ITEM`** applies styles to one 
 ```
 
 - **Colours:**
-  - `COLOUR_RGB` has components in [0, 1], interpreted as sRGB. A few writers use 0 to 255.
+  - `COLOUR_RGB` has components in [0, 1], interpreted as sRGB. A few writers use 0 to 255; dividing by the largest component (as OCCT does) recovers the colour.
   - `DRAUGHTING_PRE_DEFINED_COLOUR('red')` comes from a fixed list: black, white, red, green, blue, yellow, cyan, magenta.
 - **Surface styles:** `SURFACE_STYLE_USAGE(side, ...)` with a fill-area colour. Sometimes `SURFACE_STYLE_RENDERING_WITH_PROPERTIES` is added, carrying a colour and `SURFACE_STYLE_TRANSPARENT(t)`. When both are present, the rendering colour is the intended one.
-- **Curve styles:** `CURVE_STYLE(name, font, width, colour)`, for edges and wireframe.
+- **Curve styles:** `CURVE_STYLE(name, font, width, colour)`, for edges and wireframe. A curve style colours curves and edges, never faces: a solid's faces take their colour from surface styles only.
 - **Point styles:** `POINT_STYLE` with a marker.
 - **Boundary styles:** `SURFACE_STYLE_BOUNDARY(curve_style)` colours only a surface's boundary curves. Some writers (Unigraphics among them) colour their solids *only* this way, and they mean the faces; viewers generally show those faces in that colour.
 - **Null style:** `NULL_STYLE(.NULL.)`, written as a typed enumeration among the styles, means "display with the receiver's default".
-- **Inheritance:** styles pass down the topology (from solid to shell to face) and down the assembly (from assembly to components). Per the practice, a colour on an assembly applies to everything in it.
+- **Inheritance:** styles pass down the topology (from solid to shell to face) and down the assembly (from assembly to components). Per the practice, a colour on an assembly applies to everything in it. A surface style on a `GEOMETRIC_SET` or a `CURVE_BOUNDED_SURFACE` colours the surfaces in it.
 - **Overrides:** a face styled differently from its solid should use **`OVER_RIDING_STYLED_ITEM(name, styles, item, over_ridden_style)`**. In practice many writers style faces with plain `STYLED_ITEM`s; viewers then usually let the more specific (face) style win.
-- **Per-instance styles:** `CONTEXT_DEPENDENT_OVER_RIDING_STYLED_ITEM` styles one instance in an assembly. Its `style_context` is the list of representation relationships (the CDSRs' `REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION`s) from the root down to that instance.
+- **Per-instance styles:** `CONTEXT_DEPENDENT_OVER_RIDING_STYLED_ITEM` styles one instance in an assembly. Its `style_context` is the list of representation relationships (the CDSRs' `REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION`s) from the root down to that instance, a chain that can be any depth. The PDM Schema's `SPECIFIED_HIGHER_USAGE_OCCURRENCE` (SHUO) names one instance deep in an assembly (a NAUO as seen through its parents' NAUOs), for properties that apply to that instance only.
 - **Per-view styles:** a `PRESENTATION_STYLE_BY_CONTEXT` applies only in its context (a particular view), not to the default appearance.
 - **Invisibility:** `INVISIBILITY((styled item or layer, ...))` hides what it lists.
 - **Layers:** `PRESENTATION_LAYER_ASSIGNMENT(name, description, (items))` groups representation items (solids, faces, curves).
@@ -460,6 +460,12 @@ AP242 can carry triangle meshes, either instead of exact geometry or alongside i
 
 `TRIANGULATED_FACE` lists triangles explicitly. `COMPLEX_TRIANGULATED_FACE` uses triangle strips and fans. Indices are 1-based into the coordinates list, through the face's `pnindex` when present. A tessellated item may point to the exact face it approximates.
 
+- **Strips and fans:** Part 42 orders a strip's triangles (1, 2, 3), (3, 2, 4), ..., each turning the same way as the first, and a fan's (1, 2, 3), (1, 3, 4), .... A strip repeats a corner where it needs to turn, which makes a degenerate triangle to skip. OCCT 8.1 builds both the other way round, so its meshes of tessellated solids come out inside out; the files' own normals agree with Part 42's order.
+- **Normals:** none, one for the whole face, or one per point.
+- **Links:** a face's `geometric_link` points to the exact face it approximates, and a shell's or solid's `topological_link` to its B-rep counterpart. A part may carry both its B-rep and a tessellation of it, in representations linked as in section 6.
+- **Other items:** `TESSELLATED_SHELL` (closed or open according to its link), `TRIANGULATED_SURFACE_SET`, `TESSELLATED_CURVE_SET` and `TESSELLATED_EDGE` for lines, `TESSELLATED_POINT_SET`, and `REPOSITIONED_TESSELLATED_ITEM`s in a set, each with a placement of its own.
+- **Graphical PMI:** most tessellated items in real files aren't part geometry at all but presentation: the polylines and triangulated text of PMI annotations, in `TESSELLATED_GEOMETRIC_SET`s within annotation or draughting representations. Semantic PMI, by contrast, is tolerances and datums attached to shape aspects. The CAx-IF practices on PMI and on polyline presentation describe both.
+
 ## What real files look like
 
 A survey of several hundred real files (CAx-IF test files, NIST models, a large open-source CAD test set) shows the problems a robust reader must absorb. None of them should make a reader reject a file:
@@ -469,8 +475,11 @@ A survey of several hundred real files (CAx-IF test files, NIST models, a large 
 - **Derived-attribute disagreements.** AP214 derives `NAMED_UNIT.dimensions` for conversion-based units, yet writers give it a value. Other schemas don't derive it, yet writers write `*`.
 - **SELECT values written without their type,** such as a trim parameter `(0.)` instead of `(PARAMETER_VALUE(0.))`, or doubly wrapped values (`BOX_HEIGHT(POSITIVE_RATIO_MEASURE(3.))`).
 - **Kinds mismatched with the schema:** reals where it says INTEGER, integers written without a decimal point where it says REAL, `$` in mandatory attributes (very common for names).
+- **Complex instances with their partial entities out of alphabetical order,** which Part 21 requires.
 - **Lexical problems:**
-  - unescaped apostrophes inside strings (`'Bob's part'`)
+  - unescaped apostrophes inside strings (`'Bob's part'`): an apostrophe that isn't followed by `,` or `)` is most likely part of the string
+  - malformed escapes: `\X2\` runs that aren't a multiple of four hex digits, runs never closed by `\X0\`, a stray `\X0\`, and the non-standard `\N\` and `\T\`; an escape a reader doesn't know is best kept as written, backslash included
+  - an unbalanced quote that swallows the rest of the file; a reader can resynchronize at the next line that starts with `#<digits>=`
   - empty parameters (`EDGE_CURVE('',#1,#2,#3, )`)
   - references to ids that don't exist
   - duplicate ids
@@ -480,6 +489,11 @@ A survey of several hundred real files (CAx-IF test files, NIST models, a large 
 - **Writer-specific assembly conventions** (section 7).
 - **Placements among a representation's items** that no transformation uses, such as a `'MCS2'` machining frame. These are coordinate systems that go with the geometry, not transforms of it. At least one widely used reader moves the geometry by them anyway.
 - **Many unconnected root products** in one file, and products with no shape (material definitions, analysis models).
+- **Names that aren't names:** representations named `NONE` or after their own id (`#609`), where the product's name is the better label. But `SOLID` and `SHELL` are real names in some files.
+- **Representations with nothing to mesh:** only curves and points (wireframes, and "geometrically bounded surface" representations that hold only curves), 2D drawings, only annotations (`TEXT_LITERAL`, callouts), or broken ones. A bare `LINE` in a geometric set is unbounded and can't be drawn.
+- **Missing p-curves.** Most files give an edge only its 3D curve, with no curve in each face's parameter space: in the survey, about 94 % of faces, in nearly every AP242 and AP203 file. A reader that needs p-curves to trim and mesh faces must compute them by projecting the edges onto the surfaces (OCCT leaves this to its shape healing).
+- **Orientation.** A closed shell facing inward with nothing enclosing it is a surface model whose normals follow its winding, best turned outward. A real void (`BREP_WITH_VOIDS`) is a shell inside exactly one other, with negative volume. Some old exports reverse their voids twice.
+- **Tessellated geometry is mostly PMI** (section 10): part geometry carried only as triangles is rare.
 
 ## Complete examples
 

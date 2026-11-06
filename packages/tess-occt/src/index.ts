@@ -55,7 +55,7 @@ const KINDS: EdgeKind[] = ['shared', 'seam', 'free', 'degenerate'];
 /**
  * OCCT's printed messages are kept per part as warnings, at most this many and this many characters in all; the rest
  * are counted. In the corpus a part prints at most 2 (`*** ERR StepReaderData : Unresolved Reference : Fails Count :
- * 13 ***`, `**** ERR StepFile : Incorrect Syntax : ...`); see CLAUDE.md, "OCCT".
+ * 13 ***`, `**** ERR StepFile : Incorrect Syntax : ...`); see docs/claude/backends.md.
  */
 export const MAX_MESSAGES = 10;
 export const MAX_MESSAGE_CHARS = 1000;
@@ -101,7 +101,7 @@ export type OcctFactory = (moduleArg: {
 
 /**
  * Where `OcctTessellator.init` gets its module, for hosts with their own OCCT build that links native/occt_tess.cpp
- * (third_party/README.md, "A custom OCCT build for tess-occt"). The glue and the module must come from the same build.
+ * (third_party/README.md). The glue and the module must come from the same build.
  * In a worker pool (tess-workers), the options are posted to each worker: give URLs or a compiled module, not bytes
  * of a large module or a function, which can't be posted.
  */

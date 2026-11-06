@@ -1,9 +1,8 @@
 #!/usr/bin/env node
 // cad-viewer: starts and stops the viewer's dev server (Vite, in the background), opens files from its content
 // root in the default browser, and renders them headlessly to PNG (`shot`, through headless Chrome and the page's
-// automation interface, src/automation.ts) (the user, 2026-10-24 and 25; CLAUDE.md, "The viewer"; README.md, "The
-// viewer"). The running server is described in .run/server.json (its process, URL and options); its output goes to
-// .run/server.log.
+// automation interface, src/automation.ts) (the user, 2026-10-24 and 25; docs/claude/viewer.md; README.md). The running
+// server is described in .run/server.json (its process, URL and options); its output goes to .run/server.log.
 
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';

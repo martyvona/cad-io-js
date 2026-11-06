@@ -1,4 +1,4 @@
-// The details of a selection, as lines of text (the user, 2026-10-24; CLAUDE.md, "The viewer"): how many of each
+// The details of a selection, as lines of text (the user, 2026-10-24; docs/claude/viewer.md): how many of each
 // kind; for one node its name, kind, place in the tree and, for a part, which placement of its part it is; then the
 // totals over what the selection covers: meshes and triangles with their area, lines and segments with their
 // length, points; and the selection's STEP ids (step-ids.ts), cut short past about 50 characters. Millimetres;

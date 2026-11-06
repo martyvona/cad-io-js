@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Deploys the viewer to GitHub Pages from this machine (the user, 2026-10-25; CLAUDE.md, "The viewer"): builds it
+# Deploys the viewer to GitHub Pages from this machine (the user, 2026-10-25; docs/claude/viewer.md): builds it
 # (packages/viewer, with the backends' WebAssembly modules as built here, which git doesn't hold) from a clean commit
 # that is already on the remote, so the source the build's licenses.md points to is public, and force-pushes the
 # build as the only commit of the gh-pages branch (history doesn't grow by the build's 12 MB each time). .nojekyll

@@ -1,4 +1,4 @@
-// Loading a model as a stream of events (the user, 2026-10-24; CLAUDE.md, "The viewer"), in the import worker
+// Loading a model as a stream of events (the user, 2026-10-24; docs/claude/viewer.md), in the import worker
 // (import-worker.ts, so the page never waits on parsing; always there since 2026-10-25, the user). Every format goes
 // through the library's importers into the scene model (the user, 2026-10-29: one path; three.js's loaders dropped):
 // STEP (step-import), glTF and GLB (gltf-import), three.js JSON (threejs-import), 3MF (3mf-import; the user,

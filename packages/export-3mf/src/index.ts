@@ -1,5 +1,5 @@
-// Scene model -> 3MF (core specification 1.4.0), zipped with fflate. See README.md,
-// "`stepconv`" (what each format holds), and CLAUDE.md, "Decisions" and "JavaScript, Node and the libraries" (lib3mf).
+// Scene model -> 3MF (core specification 1.4.0), zipped with fflate. See README.md (what each format holds) and
+// docs/claude/scene-formats.md.
 //
 //   meshes: each part mesh's vertices welded by position, exactly (OCCT gives a shared edge's nodes the same
 //     coordinates on both faces, and welding within a tolerance merges distinct vertices: the step 5 survey), and the
@@ -8,7 +8,8 @@
 //     scale and place them, in the source's unit where 3MF has a name for it (`unit="inch"`; the user, 2026-11-01),
 //     else millimetres. A mesh that isn't a closed, oriented manifold of positive volume
 //     (what a `model` object must be), or whose part the source says is open (its `closed` false: an open shell;
-//     the user, 2026-10-27), is left out with a warning, or written as a `surface` object (CLAUDE.md, "Decisions").
+//     the user, 2026-10-27), is left out with a warning, or written as a `surface` object
+// (docs/claude/scene-formats.md).
 //   build: an item per placed part (the scene's root parts first) at its world transform, its path in the instance
 //     tree as its part number (`<path>:<index>`, the path empty for a root part) and, on
 //     request (`extras`), its names in our metadata (decided by the user, 2026-10-21; extras 2026-10-24), and the

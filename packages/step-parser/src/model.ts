@@ -1,5 +1,4 @@
-// The raw instance model: Part 21 values exactly as written, with no schema knowledge. See README.md,
-// "step-parser".
+// The raw instance model: Part 21 values exactly as written, with no schema knowledge. See README.md.
 
 export type Value =
   | { k: 'int'; v: number | bigint }

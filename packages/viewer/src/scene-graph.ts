@@ -1,5 +1,5 @@
 // A model's three.js graph, from its scene whatever the file's format (the user, 2026-10-24; one path for every
-// format since 2026-10-29; CLAUDE.md, "The viewer"): the assembly tree from the scene at once, mesh parts' levels
+// format since 2026-10-29; docs/claude/viewer.md): the assembly tree from the scene at once, mesh parts' levels
 // with it, then each B-rep part's mesh attached to every placement of the part as tessellation delivers it, so the
 // model appears part by part.
 //

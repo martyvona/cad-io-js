@@ -1,6 +1,6 @@
-// Every tracked text file is ASCII (CLAUDE.md, "Code conventions"), except CLAUDE.md itself, the corpus checks' logs
-// (program output, which quotes file names and data) and binary files. Non-ASCII test data is written as escapes
-// ('\u00C4', '\uFEFF'), so nothing invisible or easily mangled hides in the source.
+// Every tracked text file is ASCII (a rule of this repository's, in CLAUDE.md), except CLAUDE.md itself, the corpus
+// checks' logs (program output, which quotes file names and data) and binary files. Non-ASCII test data is written as
+// escapes ('\u00C4', '\uFEFF'), so nothing invisible or easily mangled hides in the source.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';

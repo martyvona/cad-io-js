@@ -1,5 +1,5 @@
-// glTF 2.0 (GLB, or .gltf JSON with its buffers) to the scene model (the user, 2026-10-29; CLAUDE.md, "Decisions":
-// importers for every format), read with glTF-Transform: the default scene as a tree of nodes and meshes, which
+// glTF 2.0 (GLB, or .gltf JSON with its buffers) to the scene model (the user, 2026-10-29;
+// docs/claude/scene-formats.md), read with glTF-Transform: the default scene as a tree of nodes and meshes, which
 // cad-scene's sceneFromTree turns into a scene, ours (with our extras) as written, others as their own tree.
 //
 //   compression: Draco (KHR_draco_mesh_compression) and meshopt (EXT_meshopt_compression, KHR_mesh_quantization)

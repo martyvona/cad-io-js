@@ -1,4 +1,4 @@
-Overlay headers for the OCCT build, from phase 0; not used (the user's decision: plain `-Os`; `../../../CLAUDE.md`, "Decisions"), kept to rebuild the variant if that is revisited. Copied over the forwarding stubs in `<build>/include/opencascade/` after configure (`../build-occt.sh Osvb "-Os" "" 1`, into `../build/occt-Osvb/`).
+Overlay headers for the OCCT build, from phase 0; not used (the user's decision: plain `-Os`; `../../../docs/claude/backends.md`), kept to rebuild the variant if that is revisited. Copied over the forwarding stubs in `<build>/include/opencascade/` after configure (`../build-occt.sh Osvb "-Os" "" 1`, into `../build/occt-Osvb/`).
 
 - `AppCont_ContMatrices.pxx`: from OCCT `src/ModelingData/TKGeomBase/AppCont/AppCont_ContMatrices.pxx` at 3d097a0328. `VBernstein` computes Bernstein values at Gauss-Legendre points instead of reading the 840 kB `THE_VBMATRIX_DATA` table. Max abs error against the table: 6.09e-15 over all 104,650 entries.
 
@@ -9,7 +9,7 @@ Overlay headers for the OCCT build, from phase 0; not used (the user's decision:
 - `appcont_test.cpp`, `run.sh`, `compare.py`: an end-to-end `Approx_FitAndDivide` test. `run.sh <build dir> <name>` writes `<name>.txt`, and `compare.py a.txt b.txt` diffs the poles.
 - `results.txt` (patched, control 1 and control 2, each against upstream) and the `.txt` outputs it was made from.
 
-What the tests found is under "OCCT" in `../../../CLAUDE.md`. Rerunning the tests:
+What the tests found is in `../../../docs/claude/backends.md`. Rerunning the tests:
 
 ```sh
 test/run.sh ../../build/occt-Osvb patched

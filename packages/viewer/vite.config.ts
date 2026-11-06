@@ -1,8 +1,8 @@
 // The viewer's Vite config: the content root at /content/ (dev and preview servers), LAN and https by option, and in
 // builds a progressive web app: a service worker that precaches everything the app needs, the OCCT and truck
-// modules included, so a device that loaded it once can use it offline (the user, 2026-10-24; CLAUDE.md, "The
-// viewer"). Options come from the environment (server/options.ts). Draco's decoder (for glTF, in the import
-// worker) is found by its bundled URL (import-worker.ts).
+// modules included, so a device that loaded it once can use it offline (the user, 2026-10-24; docs/claude/viewer.md).
+// Options come from the environment (server/options.ts). Draco's decoder (for glTF, in the import worker) is found by
+// its bundled URL (import-worker.ts).
 
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -95,7 +95,7 @@ function mkcert(): { cert: Buffer; key: Buffer } {
   const cert = path.join(opts.certDir, 'cert.pem');
   const key = path.join(opts.certDir, 'key.pem');
   if (!fs.existsSync(cert) || !fs.existsSync(key)) throw new Error(
-    `no mkcert certificate in ${opts.certDir} (cert.pem, key.pem): see README.md, "Phones, Tablets and https"`);
+    `no mkcert certificate in ${opts.certDir} (cert.pem, key.pem): see README.md`);
   return { cert: fs.readFileSync(cert), key: fs.readFileSync(key) };
 }
 

@@ -1,7 +1,7 @@
 // A part's measures (Measures) and its level's settings in our extras, as the exporters write them with a part's
 // node (glTF `extras`, three.js `userData`, 3MF's `cadio:tree`) and the importers read them back (the user,
-// 2026-10-30: kept, exported and used instead of measuring again; CLAUDE.md, "Decisions"). None of the three formats
-// has a place of its own for a face's area. As JSON:
+// 2026-10-30: kept, exported and used instead of measuring again; docs/claude/scene-formats.md). None of the three
+// formats has a place of its own for a face's area. As JSON:
 //
 //   measures: { by: string, faces: { "<face source id>": [area, perimeter, valid (1 or 0)] } }  the part's units
 //   level: { linearDeflection?, angularDeflection?, backend? }   the exported level's (Lod), mm and radians

@@ -1,4 +1,4 @@
-// What every exporter needs from a scene and its meshes, computed once (README.md, "Exporters"):
+// What every exporter needs from a scene and its meshes, computed once (README.md):
 //
 //   looks: each part as it appears, with its materials resolved. All three formats share geometry between instances,
 //     but a mesh carries its materials, so instances whose resolved materials differ (an assembly's colour applied
@@ -12,9 +12,9 @@ import { identity, multiply, partInstances, type PartInstance } from './walk.ts'
 
 /** Which of a part's levels each look uses: chooseLod's, for these deflections (none: the finest). */
 export interface ExportViewOptions extends LodWanted {
-  /** Keep B-rep edges. Default false (CLAUDE.md, "Decisions"). */
+  /** Keep B-rep edges. Default false (docs/claude/scene-formats.md). */
   edges?: boolean;
-  /** Keep wireframe curves and isolated points. Default false (CLAUDE.md, "Decisions"). */
+  /** Keep wireframe curves and isolated points. Default false (docs/claude/scene-formats.md). */
   curves?: boolean;
 }
 

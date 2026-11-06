@@ -1,5 +1,5 @@
 // Scene model -> three.js JSON Object Scene format 4 (the form Object3D.toJSON writes), loadable with
-// THREE.ObjectLoader. See README.md, "`stepconv`", and CLAUDE.md, "Decisions".
+// THREE.ObjectLoader. See README.md and docs/claude/scene-formats.md.
 //
 //   objects: a Scene holding the scene's roots, each turned to metres and Y up in its own matrix (the user,
 //     2026-11-01: no root group of ours, for a reader to take for an assembly or a frame not the file's). A Group

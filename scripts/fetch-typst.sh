@@ -3,7 +3,7 @@
 # the official release binary for this platform (bin/typst) and the packages, unpacked as Typst's package cache lays
 # them out (packages/preview/<name>/<version>/), so md2pdf.sh never downloads anything itself. Every download is
 # checked against its SHA-256. Running it again does nothing if everything is in place; to move to new versions,
-# change the pins here (third_party/README.md, "Typst").
+# change the pins here (third_party/README.md).
 #   scripts/fetch-typst.sh
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)

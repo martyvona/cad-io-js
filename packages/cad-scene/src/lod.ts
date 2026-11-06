@@ -1,4 +1,4 @@
-// A part's levels of detail (CLAUDE.md, "Decisions": the scene model, 2026-10-29): adding one, and choosing the one
+// A part's levels of detail (docs/claude/scene-formats.md): adding one, and choosing the one
 // the viewer and the exporters use until they can switch levels themselves.
 
 import { degenerateMessage, dropDegenerate } from './mesh.ts';
@@ -56,9 +56,9 @@ export function chooseLod(part: Part, wanted: LodWanted = {}): Lod | undefined {
 /**
  * Drops triangles with two corners at one position (dropDegenerate) from every part's levels from the source, as
  * tessellateScene does from its own meshes: the importers' repair of the meshes files give (the user, 2026-10-30;
- * CLAUDE.md, "Decisions"), so every consumer of an imported scene gets it. Such a triangle draws nothing and holds
- * no gap closed; a codec's quantization makes them (GLBs with Draco or meshopt). Each part dropping any gets an info
- * diagnostic in the scene's. Returns the triangles dropped.
+ * docs/claude/scene-formats.md), so every consumer of an imported scene gets it. Such a triangle draws nothing and
+ * holds no gap closed; a codec's quantization makes them (GLBs with Draco or meshopt). Each part dropping any gets an
+ * info diagnostic in the scene's. Returns the triangles dropped.
  */
 export function dropSourceDegenerate(scene: Scene): number {
   // (A mesh shared between levels is repaired once.)

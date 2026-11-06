@@ -1,12 +1,12 @@
 // The tree view (tree-view.ts) on Headless Tree (`@headless-tree/core`; the user, 2026-10-24, after a spike: see
-// CLAUDE.md, "The viewer", and workdir/2026-10-24_tree_spike/NOTES.md). The library keeps expansion, focus,
-// selection and keys, and gives React-style props per item; this file draws the rows in view itself (a fixed row
-// height, rows absolutely placed over a spacer) and applies the props to them. The only file that imports the
-// library. What the spike taught: set the expanded items at once and rebuild (its expandAll is quadratic); its
-// container props set the element's position, hence an inner scroller; a plain click on a folder would toggle it.
-// Rows are as wide as their content, with no ellipsis, and all of them as wide as the widest drawn since this view
-// was made (the user, 2026-10-27: a horizontal scroll bar when names don't fit): only the rows in view are drawn, so
-// that's the widest known, kept so the scroll range doesn't jump as rows scroll in and out of view.
+// docs/claude/viewer.md, and workdir/2026-10-24_tree_spike/NOTES.md). The library keeps expansion, focus, selection and
+// keys, and gives React-style props per item; this file draws the rows in view itself (a fixed row height, rows
+// absolutely placed over a spacer) and applies the props to them. The only file that imports the library. What the
+// spike taught: set the expanded items at once and rebuild (its expandAll is quadratic); its container props set the
+// element's position, hence an inner scroller; a plain click on a folder would toggle it. Rows are as wide as their
+// content, with no ellipsis, and all of them as wide as the widest drawn since this view was made (the user,
+// 2026-10-27: a horizontal scroll bar when names don't fit): only the rows in view are drawn, so that's the widest
+// known, kept so the scroll range doesn't jump as rows scroll in and out of view.
 
 import { createTree, hotkeysCoreFeature, selectionFeature, syncDataLoaderFeature, type FeatureImplementation,
   type ItemInstance, type TreeInstance } from '@headless-tree/core';

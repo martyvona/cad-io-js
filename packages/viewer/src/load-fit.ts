@@ -1,8 +1,8 @@
-// The model's sphere while it loads, and zooming to it (the user, 2026-10-30; CLAUDE.md, "Decisions": bounding
-// volumes). The sphere is the file's, or the importer's estimate, which grows (its centre kept) as meshes arrive and
-// is made again from the meshes when loading ends, so it can shrink; zoom all fits it. While loading, the view is
-// zoomed to a second sphere that only grows, so it only ever zooms out: at once when the model's sphere comes and when
-// loading ends, else at most once a second, and not at all once the user has moved the view.
+// The model's sphere while it loads, and zooming to it (the user, 2026-10-30; docs/claude/viewer.md). The sphere is the
+// file's, or the importer's estimate, which grows (its centre kept) as meshes arrive and is made again from the meshes
+// when loading ends, so it can shrink; zoom all fits it. While loading, the view is zoomed to a second sphere that only
+// grows, so it only ever zooms out: at once when the model's sphere comes and when loading ends, else at most once a
+// second, and not at all once the user has moved the view.
 
 import * as THREE from 'three';
 import { grow } from 'cad-scene';

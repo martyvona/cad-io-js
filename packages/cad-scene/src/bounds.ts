@@ -1,6 +1,6 @@
-// Bounding volumes (the user, 2026-10-30; CLAUDE.md, "Decisions"): a box per mesh, in its own coordinates, made with
-// the mesh, and one sphere for the whole model, for a viewer to fit before (and while) meshes arrive. The sphere is
-// estimated from what each placed part has: its mesh's box, else its B-rep's vertices' box (Brep.vertexBox, which is
+// Bounding volumes (the user, 2026-10-30; docs/claude/scene-formats.md): a box per mesh, in its own coordinates, made
+// with the mesh, and one sphere for the whole model, for a viewer to fit before (and while) meshes arrive. The sphere
+// is estimated from what each placed part has: its mesh's box, else its B-rep's vertices' box (Brep.vertexBox, which is
 // no bound: curved faces bulge past their vertices, and meshes arriving later grow the sphere): every placed box's 8
 // corners in the world, the centre the middle of their box, the radius the farthest corner (`boxesSphere`; the user,
 // 2026-10-30, after Ritter's algorithm on the placed spheres' centres, the first choice, put rpbp's centre on a leg

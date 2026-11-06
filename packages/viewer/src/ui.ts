@@ -1,6 +1,6 @@
-// The viewer's controls, in lil-gui (the user, 2026-10-24; CLAUDE.md, "The viewer"): opening a local file or a URL
-// (also by dropping files on the page, or ?url= in the page's address), zoom all, the views along the axes,
-// centring the model, full screen, the tree panel and hiding; a status line for what's loading and what went wrong.
+// The viewer's controls, in lil-gui (the user, 2026-10-24; docs/claude/viewer.md): opening a local file or a URL
+// (also by dropping files on the page, or ?model= in the page's address), zoom all, the views along the axes, full
+// screen, the tree panel and hiding; a status line for what's loading and what went wrong.
 // Every folder starts closed (the user, 2026-10-25).
 
 import * as THREE from 'three';
@@ -176,7 +176,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   };
   const report = (r: object) => { if (check) document.body.dataset.report = JSON.stringify(r); };
 
-  // Meshing again (the same model, other settings) keeps the view: the camera, centring and planes (Viewer.load's
+  // Meshing again (the same model, other settings) keeps the view: the camera and the planes (Viewer.load's
   // `keep`), the appearance overrides by their paths (set with the tree: a part's detail's by segment, before its
   // mesh is there), and the selected nodes, restored as the nodes they name arrive (faces, edges and curves only with
   // their part's mesh); what never arrives (a node gone, or a selected face, edge or curve of a part that fails this
@@ -926,6 +926,6 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     void openFiles([...e.dataTransfer?.files ?? []]);
   });
 
-  // Opening ?url= at start is the automation layer's (automation.ts), which then applies the view in the address.
+  // Opening ?model= at start is the automation layer's (automation.ts), which then applies the view in the address.
   return ui;
 }

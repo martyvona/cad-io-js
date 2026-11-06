@@ -8,9 +8,9 @@
 #   build-occt.sh [<name> "<release flags>" ["<extra cxx flags>"] [overlay=1]]   default: Os "-Os"
 # JOBS sets the build parallelism (default: the number of CPUs).
 # overlay=1 copies occt_overlay/*.pxx over the generated include stubs after configure (the VBernstein table
-# computed instead of stored: 1.71 instead of 2.18 MB brotli; not used (CLAUDE.md, "Decisions"); see
+# computed instead of stored: 1.71 instead of 2.18 MB brotli; not used (docs/claude/backends.md); see
 # occt_overlay/README.md).
-# Gotchas (CLAUDE.md, "OCCT"):
+# Gotchas (docs/claude/backends.md):
 #   - -UOCC_CONVERT_SIGNALS, or the link produces invalid WASM;
 #   - CMAKE_CXX_FLAGS_RELEASE set, or OCCT forces -O3; -Os it is, as -O2, -O3 and LTO buy no speed;
 #   - a build directory can't be moved (CMake keeps absolute paths): delete it and build again.
