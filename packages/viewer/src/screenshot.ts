@@ -97,7 +97,8 @@ export function encode(canvas: HTMLCanvasElement, format: ImageFormat, backgroun
 
 /**
  * The whole window redrawn from its elements, `width` pixels wide. `view` gives the 3D view as an image (drawn and
- * read in one task), laid over its canvas while the page is drawn; dialogs are left out.
+ * read in one task), laid over its canvas while the page is drawn, under what's drawn over the view (the details box,
+ * the status line: being positioned, it would hide those that come before it); dialogs are left out.
  */
 export async function redrawWindow(canvas: HTMLCanvasElement, view: () => string, width: number):
   Promise<HTMLCanvasElement> {
@@ -106,7 +107,7 @@ export async function redrawWindow(canvas: HTMLCanvasElement, view: () => string
   img.src = view();
   Object.assign(img.style, { position: 'fixed', left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`,
     height: `${r.height}px`, pointerEvents: 'none', zIndex: '0' });
-  canvas.after(img);
+  canvas.parentElement!.prepend(img);
   try {
     await img.decode();
     const { domToCanvas } = await import('modern-screenshot');

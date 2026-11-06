@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `cad-viewer`: Screenshot...'s whole window, redrawn from the page, shows the details box and the status line (the view's image covered them).
 - `cad-viewer`: a badge after the version in the controls' title when the server has another version (`version.json`, checked only when the tab becomes active again, never polled), saying which and to reload; About says so too, with **Check for updates** and Reload buttons. Offline, a server not answering within 10 s, or a download that fails: silent for the badge, said in About. The service worker fetches the new build as soon as it's seen, so one reload shows it.
 - `cad-viewer`: File's **Screenshot...**: PNG or JPEG of the model alone (cropped to its on-screen box, between the tree and the controls) or of the whole window with its controls (redrawn from the page, or the browser's tab capture where it has one), at a width chosen in pixels; the model alone as PNG with a transparent background by option.
 - `cad-viewer`: Override Appearance... follows the selection: it shows the node last right-clicked or last selected alone (several or none selected leave it as it is). Its pulldowns are labelled plainly, and on touch screens opening it doesn't open the Visibility pulldown (iOS).

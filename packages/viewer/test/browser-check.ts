@@ -4136,7 +4136,16 @@ await check('screenshot', async () => {
     const guiColour = getComputedStyle(ui.gui.domElement.querySelector('.title')).backgroundColor;
     const w1 = await run({ what: 'window', how: 'redraw', format: 'png' });
     const win = { ...w1, image: await read(w1.file.bytes, [inGui, [centre[0] / innerWidth, centre[1] / innerHeight]]),
-      view: await viewPx([centre]), guiColour, inner: [innerWidth, innerHeight] };
+      view: await viewPx([centre]), guiColour, inner: [innerWidth, innerHeight], detailsShown };
+    const at = inDetails.map(([x, y]) => [x / (innerWidth - 1), y / (innerHeight - 1)]);
+    const drawn = (await read(w1.file.bytes, at)).px;
+    box.hidden = true;
+    const w2 = await run({ what: 'window', how: 'redraw', format: 'png' });
+    box.hidden = false;
+    const without = (await read(w2.file.bytes, at)).px;
+    win.details = { points: inDetails.length, differing: drawn.filter((p, i) => p.some((v, k) =>
+      Math.abs(v - without[i][k]) > 64)).length };
+    cadViewer.select([]);
     let tab;
     try {
       const t1 = await run({ what: 'window', how: 'tab' });
@@ -4230,6 +4239,18 @@ await check('update badge', async () => {
     const away = await evaluate(`new Promise((r) => setTimeout(() => r(versionFetches), 300))`);
     // Another tab in front, then this one again.
     const { targetId } = await send('Target.createTarget', { url: 'about:blank' }) as { targetId: string };
+    // The details box over the view (a part selected, so it stays): points across it, every other pixel, compared
+    // with the window redrawn again with the box hidden (its background is white over white in the light theme, but
+    // its text shows).
+    cadViewer.select([cadViewer.nodes().find((n) => n.kind === 'part').path]);
+    await cadViewer.idle();
+    const box = document.getElementById('details');
+    const db = box.getBoundingClientRect();
+    const inDetails = [];
+    for (let y = db.top + 1; y < db.bottom - 1; y += 2) for (let x = db.left + 1; x < db.right - 1; x += 2) {
+      inDetails.push([x, y]);
+    }
+    const detailsShown = !box.hidden && !box.classList.contains('faded') && db.width > 0;
     const other = await send('Target.attachToTarget', { targetId, flatten: true }) as { sessionId: string };
     await send('Page.bringToFront', {}, other.sessionId);
     await new Promise((resolve) => setTimeout(resolve, 300));
@@ -4273,6 +4294,8 @@ await check('update badge', async () => {
       const same = { checking, text: line(), reload: !reload.hidden, badge: !badge.hidden,
         fetched: versionFetches - shown.fetches };
       globalThis.serverVersion = 'down';
+  // (Its text, over the view: nothing where it's missing.)
+  expect(w.detailsShown && w.details.differing > w.details.points / 50, `the details box in the window: ${j}`);
       check.click();
       for (let t = 0; t < 50 && check.disabled; t++) await wait(100);
       const down = { text: line(), badge: !badge.hidden };
