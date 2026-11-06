@@ -43,6 +43,8 @@ export interface Headless {
   open(url: string, opts?: PageOptions): Promise<Tab>;
   /** Chrome stopped (waited for) and its profile removed. */
   close(): Promise<void>;
+  /** Called with every protocol event (its method, params and session). */
+  readonly events: Set<(e: { method: string; params: Record<string, unknown>; sessionId?: string }) => void>;
 }
 
 /** Starts headless Chrome with `profile` as its user data directory (created; removed on close). */
@@ -64,9 +66,12 @@ export async function launchChrome(profile: string, opts: { chrome?: string; arg
   await new Promise((resolve, reject) => { ws.onopen = resolve; ws.onerror = reject; });
   let nextId = 0;
   const pending = new Map<number, (r: { result?: Record<string, unknown>; error?: unknown }) => void>();
+  const events: Headless['events'] = new Set();
   ws.onmessage = (e) => {
-    const m = JSON.parse(String(e.data)) as { id?: number; result?: Record<string, unknown>; error?: unknown };
+    const m = JSON.parse(String(e.data)) as { id?: number; result?: Record<string, unknown>; error?: unknown;
+      method?: string; params?: Record<string, unknown>; sessionId?: string };
     if (m.id !== undefined) pending.get(m.id)?.(m);
+    else if (m.method) for (const f of events) f({ method: m.method, params: m.params ?? {}, sessionId: m.sessionId });
   };
   const send = (method: string, params: object = {}, sessionId?: string) => new Promise<Record<string, unknown>>(
     (resolve, reject) => {
@@ -126,6 +131,7 @@ export async function launchChrome(profile: string, opts: { chrome?: string; arg
   return {
     send,
     open,
+    events,
     close: async () => {
       ws.close();
       if (chrome.exitCode === null) await new Promise((resolve) => { chrome.once('exit', resolve); chrome.kill(); });

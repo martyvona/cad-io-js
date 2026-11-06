@@ -153,8 +153,10 @@ const pwa = VitePWA({
     globIgnores: ['version.json'],
     // OCCT's module is about 7 MB.
     maximumFileSizeToCacheInBytes: 32 * 2 ** 20,
-    // Models from the dev or preview server's content root are fetched, not cached.
-    navigateFallbackDenylist: [/\/content\//],
+    // Navigations the app shell mustn't answer: models from the dev or preview server's content root (fetched, not
+    // cached), and the documents' PDFs (About's links open them in a tab; not precached).
+    navigateFallbackDenylist: [/\/content\//,
+      ...DOCUMENT_PDFS.map(([, pdf]) => new RegExp(`/${pdf.replace('.', '\\.')}$`))],
     clientsClaim: true,
     skipWaiting: true,
   },

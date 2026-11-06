@@ -185,7 +185,7 @@ if (process.env.BUILD) {
   });
   const types: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript',
     '.css': 'text/css', '.wasm': 'application/wasm', '.json': 'application/json', '.svg': 'image/svg+xml',
-    '.webmanifest': 'application/manifest+json', '.md': 'text/markdown' };
+    '.webmanifest': 'application/manifest+json', '.md': 'text/markdown', '.pdf': 'application/pdf' };
   staticServer = http.createServer((req, res) => {
     const url = decodeURIComponent(new URL(req.url!, 'http://x').pathname);
     let [dir, rest] = url.startsWith(base) ? [dist, url.slice(base.length)]
@@ -5150,12 +5150,70 @@ if (staticServer) {
       'licenses.md');
     expect(!fs.existsSync(path.join(dist, '.vite')), 'Vite\'s own licenses file left');
     const sw = fs.readFileSync(path.join(dist, 'sw.js'), 'utf8');
+    // (The PDFs are named in the navigation fallback's denylist, not in the precache list's entries.)
     expect(sw.includes('occt_tess-') && !sw.includes('licenses.md') && !sw.includes('version.json') &&
-      !sw.includes('.pdf'), 'the precache list');
+      !/url:"[^"]*\.pdf"/.test(sw), 'the precache list');
     for (const pdf of ['README.pdf', 'step_tutorial.pdf']) {
       expect(fs.readFileSync(path.join(dist, pdf)).subarray(0, 5).toString() === '%PDF-', `no ${pdf}`);
     }
     expect(fs.existsSync(path.join(dist, 'version.json')), 'no version.json');
+    return undefined;
+  });
+}
+
+// The documents' PDFs (a build only), as About's links open them: navigated to in a tab the service worker controls,
+// the server's PDF, not the app shell (the worker answers navigations it doesn't know with index.html).
+if (staticServer) {
+  await check('document PDFs', async () => {
+    const { targetId } = await send('Target.createTarget', { url: 'about:blank' });
+    const { sessionId } = await send('Target.attachToTarget', { targetId, flatten: true }) as { sessionId: string };
+    const evaluate = async (expression: string) => {
+      const e = await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true }, sessionId) as
+        { result: { value: unknown }; exceptionDetails?: { text: string } };
+      if (e.exceptionDetails) throw new Error(e.exceptionDetails.text);
+      return e.result.value;
+    };
+    const settled = async (want: (v: unknown) => boolean, expression: string) => {
+      let v: unknown;
+      for (let t = 0; t < 300; t++) {
+        v = await evaluate(expression).catch(() => undefined);
+        if (want(v)) return v;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      return v;
+    };
+    try {
+      await send('Page.enable', {}, sessionId);
+      await send('Page.navigate', { url: `http://localhost:${port}${base}?check` }, sessionId);
+      await settled((v) => !!v, 'document.body?.dataset.report ?? null');
+      let controlled = await settled((v) => v === true, '!!navigator.serviceWorker.controller');
+      if (!controlled) {
+        await send('Page.reload', {}, sessionId);
+        controlled = await settled((v) => v === true, '!!navigator.serviceWorker.controller');
+      }
+      expect(controlled === true, 'no service worker controls the page');
+      // Each navigation's response as the tab got it (headless Chrome downloads a PDF rather than showing it, so the
+      // document can't be asked): its type, and whether the service worker answered.
+      const got: Record<string, { mimeType: string; fromServiceWorker: boolean }> = {};
+      const listener = (e: { method: string; params: Record<string, unknown>; sessionId?: string }) => {
+        if (e.sessionId !== sessionId || e.method !== 'Network.responseReceived' || e.params.type !== 'Document') return;
+        const r = e.params.response as { url: string; mimeType: string; fromServiceWorker?: boolean };
+        const name = new URL(r.url).pathname.split('/').pop()!;
+        got[name] = { mimeType: r.mimeType, fromServiceWorker: r.fromServiceWorker === true };
+      };
+      headless.events.add(listener);
+      await send('Network.enable', {}, sessionId);
+      const pdfs = ['README.pdf', 'step_tutorial.pdf'];
+      for (const pdf of pdfs) {
+        await send('Page.navigate', { url: `http://localhost:${port}${base}${pdf}` }, sessionId);
+        for (let t = 0; t < 100 && !got[pdf]; t++) await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      headless.events.delete(listener);
+      expect(pdfs.every((p) => got[p]?.mimeType === 'application/pdf' && !got[p].fromServiceWorker),
+        `the PDFs as opened: ${JSON.stringify(got)}`);
+    } finally {
+      await send('Target.closeTarget', { targetId });
+    }
     return undefined;
   });
 }
