@@ -24,8 +24,8 @@
   },
   "license": "AGPL-3.0-only",
   "contributors": [
-    "Claude (Anthropic)",
-    "Marsette Vona"
+    "Marsette Vona",
+    "Claude (Anthropic)"
   ],
   "private": true,
   "type": "module",

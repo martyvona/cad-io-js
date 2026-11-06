@@ -2896,7 +2896,7 @@ await check('about', async () => {
   expect(/No model open\./.test(a.text) && !a.rows.length && !a.folders.includes('Model'), `no model: ${j}`);
   expect(m.rows[0]?.join() === 'File,as1.stp' && m.rows[1]?.[0] === 'Objects' &&
     m.rows[2]?.join() === `Triangles,${m.triangles!.toLocaleString()}` && m.triangles! > 0, `as1 open: ${j}`);
-  expect(a.title === 'cad-io-js CAD viewer' && /By Claude \(Anthropic\) and Marsette Vona\./.test(a.text) &&
+  expect(a.title === 'cad-io-js CAD viewer' && /By Marsette Vona and Claude \(Anthropic\)\./.test(a.text) &&
     /AGPL-3\.0-only/.test(a.text) && /LGPL-2\.1/.test(a.text) && /CC BY-SA 4\.0/.test(a.text), `the text: ${j}`);
   expect(a.links.some((l) => l.href === 'https://github.com/martyvona/cad-io-js') &&
     a.links.every((l) => l.target === '_blank' && l.rel === 'noopener'), `the links: ${j}`);

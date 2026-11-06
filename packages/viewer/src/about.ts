@@ -68,7 +68,7 @@ export async function showAbout(model?: [string, string][], updates?: UpdateChec
           'and converting them, in TypeScript. Nothing you open is uploaded.',
         ...(VERSION ? [`Version ${VERSION}.`] : []),
         update,
-        'By Claude (Anthropic) and Marsette Vona.',
+        'By Marsette Vona and Claude (Anthropic).',
         [{ text: 'Licensed under AGPL-3.0-only, except the OCCT tessellation backend, LGPL-2.1 with the Open ' +
           'CASCADE exception; the demo models are CC BY-SA 4.0.' },
         // A build has licenses.md beside the page (vite.config.ts); the dev server doesn't.

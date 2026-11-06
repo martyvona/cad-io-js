@@ -11,7 +11,7 @@ It's here *after* the main document heading because it creates extra whitespace 
 -->
 <div style="width: 50em">
 
-Authors: Claude and Marsette Vona <martyvona@gmail.com>, 2026
+Authors: Marsette Vona <martyvona@gmail.com> and Claude, 2026
 
 <!--typst-begin-exclude-->
 __Contents__
