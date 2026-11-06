@@ -47,6 +47,12 @@ git_dep OCCT https://github.com/Open-Cascade-SAS/OCCT.git 3d097a0328e71b826377d4
 git_dep stepcode https://github.com/stepcode/stepcode.git 24783b448511b8f6bce2829286a3f00015430236
 # The truck tessellation backend.
 git_dep truck https://github.com/ricosjp/truck.git 88ed005249e5e3a6b07f62425399435905cd3ab6
+# The 3MF specifications (Markdown), for the 3MF importer and exporter: core 1.4.0, the Materials extension 1.2.1 and
+# the Production extension 1.2.0 (their release tags).
+git_dep 3mf/spec_core https://github.com/3MFConsortium/spec_core.git 997b385e06f3181cf9aae0c578e0b45ccd48ccb2
+git_dep 3mf/spec_materials https://github.com/3MFConsortium/spec_materials.git d4d42dd75ca07da40284dc87e3204b2993d2f862
+git_dep 3mf/spec_production https://github.com/3MFConsortium/spec_production.git \
+  e7b7a5ab7051d1957789ff849233c1a731f1d38f
 
 # CAx-IF / MBx-IF recommended practices (https://www.mbx-if.org/home/cax/recpractices/).
 U=https://www.mbx-if.org/home/wp-content/uploads

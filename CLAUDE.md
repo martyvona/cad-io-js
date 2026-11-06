@@ -27,7 +27,7 @@ Notes for working on cad-io-js: how work is done here, the decisions every part 
 | `packages/step-schemas/` | `dict/` the generated dictionaries (committed), `gen/` their generator |
 | `corpus_checks/` | the corpus checks with committed logs (its README lists them) |
 | `test_corpus/` | `files.txt` (517 files), `third_party/pull.sh` (fetches them), `models/` (the user's Onshape exports), `demo/` (the deployed demo models) |
-| `third_party/` | `pull.sh`: OCCT, stepcode, truck, the MBx-IF practices, the JT specifications (all ignored) |
+| `third_party/` | `pull.sh`: OCCT, stepcode, truck, the 3MF specifications, the MBx-IF practices, the JT specifications (all ignored) |
 | `workdir/` | ignored: dated deep dives and measurement records; findings worth keeping go in this file, the notes or the README |
 | `test/` | repository-wide tests (`ascii.test.ts`) |
 | `env.sh` | `source env.sh`: checks and sets up the toolchain |

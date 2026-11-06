@@ -13,9 +13,10 @@ The test corpus is separate: see `../test_corpus/README.md`. The system tools th
 | `OCCT/` | https://github.com/Open-Cascade-SAS/OCCT | `3d097a0328` (2026-08-24, 8.1.0 development) | The custom Emscripten build of the OCCT tessellation backend: `../packages/tess-occt/build-occt.sh` builds its static libraries (and `occt_overlay/test/` there links against them). |
 | `stepcode/` | https://github.com/stepcode/stepcode | `24783b4485` (2026-09-28) | `data/ap203`, `ap203e2`, `ap214e3`, `ap242`: the EXPRESS schemas `npm run gen -w step-schemas` turns into `packages/step-schemas/dict/`, and that package's freshness test (skipped if the checkout is missing). The dictionaries are committed, so this is needed only to regenerate them. |
 | `truck/` | https://github.com/ricosjp/truck | `88ed005249` (2026-09-28) | The truck tessellation backend, `../packages/tess-truck` (Cargo `path` dependencies). |
+| `3mf/` | https://github.com/3MFConsortium/spec_core, `spec_materials`, `spec_production` | core 1.4.0 `997b385e06`, Materials 1.2.1 `d4d42dd75c`, Production 1.2.0 `e7b7a5ab70` (their release tags) | The 3MF specifications as Markdown, for `../packages/3mf-import` and `../packages/export-3mf` (units, transforms, mesh rules, colours, model parts). Documents only. |
 | `mbx-if-recpractices/` | https://www.mbx-if.org/home/cax/recpractices/ | the 21 file URLs in `pull.sh` | CAx-IF / MBx-IF recommended practices (19 PDFs and two trace-information sample zips): the guide for the semantic extractors (assembly structure, validation properties, PMI, styling). Documents only. |
 
-Licenses: OCCT is LGPL-2.1 with the Open CASCADE exception, which is why the architecture isolates it in the `tess-occt` package; stepcode is BSD-3-Clause; truck is Apache-2.0. See `../CLAUDE.md`.
+Licenses: OCCT is LGPL-2.1 with the Open CASCADE exception, which is why the architecture isolates it in the `tess-occt` package; stepcode is BSD-3-Clause; truck is Apache-2.0; the 3MF specifications BSD-2-Clause. See `../CLAUDE.md`.
 
 ## Typst
 
