@@ -546,6 +546,8 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   const picker = view.addColor(background, 'color').name('Background').onChange(backdrop);
   backdrop();
   fullscreen();
+  // Filled once what it drives exists (below); View's Details and what follows it are added there too.
+  const selFolder = gui.addFolder('Selection');
 
   // Section planes: the sliders span the model's box (with a margin); planes that are off start at its middle. A new
   // model starts with the defaults, every plane off (resetPlanes).
@@ -976,8 +978,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     set onEvent(f) { hooks.onEvent = f; },
     pickAt: (clientX, clientY, add) => viewer.onPick?.(viewer.pickAt(clientX, clientY), { add, clientX, clientY }),
   };
-  // Selection holds the tree's controls too: picking and selecting, then hiding and showing, then the tree panel.
-  const selFolder = gui.addFolder('Selection');
+  // Selection: picking and selecting. View, after its own: Details, hiding and showing, transparency, the tree panel.
   selFolder.add(selection, 'level', { 'Assembly': 'assembly', 'Part': 'part', 'Face, edge, curve': 'detail' })
     .name('Pick');
   selFolder.add(selection, 'multi').name('Multi-select (touch)');
@@ -994,24 +995,24 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     buttons: [{ label: 'Select', value: 'select', primary: true }, { label: 'Cancel', value: 'cancel' }] });
     if (r.button === 'select' && r.input) ui.selectByIds(r.input);
   } }, 'byId').name('Select by ID...');
-  selFolder.add(selection, 'details').name('Details').onChange(describe);
-  selFolder.add(ui, 'hideSelected').name('Hide selected');
-  selFolder.add(ui, 'showSelected').name('Show selected');
-  selFolder.add(ui, 'hideOthers').name('Hide others');
-  selFolder.add(ui, 'showOthers').name('Show others');
-  selFolder.add(ui, 'showAll').name('Show all');
+  view.add(selection, 'details').name('Details').onChange(describe);
+  view.add(ui, 'hideSelected').name('Hide selected');
+  view.add(ui, 'showSelected').name('Show selected');
+  view.add(ui, 'hideOthers').name('Hide others');
+  view.add(ui, 'showOthers').name('Show others');
+  view.add(ui, 'showAll').name('Show all');
   // Transparency: the selection at this opacity, or back to the file's.
-  selFolder.add(transparency, 'opacity', 0.05, 1, 0.05).name('Opacity');
-  selFolder.add({ make: () => ui.setOpacity(transparency.opacity) }, 'make').name('Make transparent');
-  selFolder.add({ restore: () => ui.setOpacity(undefined) }, 'restore').name('Restore opacity');
-  openControl = selFolder.add(tree, 'open').name('Show the tree').onChange((open: boolean) => {
+  view.add(transparency, 'opacity', 0.05, 1, 0.05).name('Opacity');
+  view.add({ make: () => ui.setOpacity(transparency.opacity) }, 'make').name('Make transparent');
+  view.add({ restore: () => ui.setOpacity(undefined) }, 'restore').name('Restore opacity');
+  openControl = view.add(tree, 'open').name('Show the tree').onChange((open: boolean) => {
     setOpen(open);
     if (!open && viewer.nodes) tree.closedByHand = true;
   });
-  detailControl = selFolder.add(tree, 'detail').name('Faces, edges, curves')
+  detailControl = view.add(tree, 'detail').name('Faces, edges, curves')
     .onChange((on: boolean) => panel?.setDetail(on));
-  selFolder.add({ expand: () => panel?.expandAll() }, 'expand').name('Expand all');
-  selFolder.add({ collapse: () => panel?.collapseAll() }, 'collapse').name('Collapse all');
+  view.add({ expand: () => panel?.expandAll() }, 'expand').name('Expand all');
+  view.add({ collapse: () => panel?.collapseAll() }, 'collapse').name('Collapse all');
 
   for (const f of gui.foldersRecursive()) f.close();
 
