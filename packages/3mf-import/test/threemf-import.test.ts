@@ -710,3 +710,48 @@ test('an assembly of one placed product, as components without extras: the assem
     c.children.length]), [['top', ['cube'], 0]]);
   assert.equal(back.rootParts, undefined);
 });
+
+test('file metadata: the core spec\'s names, the Designer the author (not a placeholder); our cadio: left out', () => {
+  const meta = (pairs: [string, string][]) => pairs.map(([k, v]) => `<metadata name="${k}">${v}</metadata>`).join('');
+  const one = mesh(1, 'type="model"', CORNERS.slice(0, 3), [[0, 1, 2]]);
+  const read = (pairs: [string, string][]) => import3mf(pack({ '3D/3dmodel.model': model(
+    `${meta(pairs)}<resources>${one}</resources><build><item objectid="1"/></build>`) })).scene.properties;
+  assert.deepEqual(read([['Title', 'T'], ['Designer', ' Bo '], ['Rating', 'R']]), { format: '3mf',
+    unit: 'millimeter', author: 'Bo', metadata: { Title: 'T', Designer: ' Bo ', Rating: 'R' } });
+  assert.deepEqual(read([['Designer', 'Author'], ['cadio:stray', '1']]), { format: '3mf', unit: 'millimeter',
+    metadata: { Designer: 'Author' } });
+  assert.deepEqual(read([]), { format: '3mf', unit: 'millimeter' });
+});
+
+test('file metadata through our 3MF: the standard names always; with extras, the source\'s, ours their container',
+  () => {
+    const s = source();
+    s.properties = { format: 'step', author: 'Ann B', authors: ['Ann B'], timeStamp: '2026-01-02T03:04:05',
+      container: { format: 'old' } };
+    const std = { Designer: 'Ann B', CreationDate: '2026-01-02T03:04:05', Application: 'cad-io-js export-3mf' };
+    for (const build of ['parts', 'assembly'] as const) {
+      const plain = import3mf(exported(s, { build })).scene.properties;
+      assert.deepEqual(plain, { format: '3mf', unit: 'millimeter', author: 'Ann B', metadata: std }, build);
+      const back = import3mf(exported(s, { build, extras: true }));
+      assert.deepEqual(messages(back), [], build);
+      assert.deepEqual(back.scene.properties, { format: 'step', author: 'Ann B', authors: ['Ann B'],
+        timeStamp: '2026-01-02T03:04:05', container: plain }, build);
+    }
+    // A 3MF source's names carried (its dates of change and application its writer's); a title given first.
+    s.properties = { format: '3mf', author: 'Bo', metadata: { Title: 'T', Designer: 'Bo', Description: 'D',
+      Copyright: 'C', LicenseTerms: 'L', Rating: 'R', CreationDate: 'c', ModificationDate: 'm', Application: 'a' } };
+    assert.deepEqual(import3mf(exported(s, {})).scene.properties.metadata, { Title: 'T', Designer: 'Bo',
+      Description: 'D', Copyright: 'C', LicenseTerms: 'L', Rating: 'R', CreationDate: 'c',
+      Application: 'cad-io-js export-3mf' });
+    assert.equal((import3mf(exported(s, { name: 'Given' })).scene.properties.metadata as { Title: string }).Title,
+      'Given');
+    // Special characters escaped.
+    s.properties = { format: 'step', author: 'A & <B>' };
+    assert.equal(import3mf(exported(s, {})).scene.properties.author, 'A & <B>');
+    // Our properties unreadable: said, left out.
+    const bad = import3mf(pack({ '3D/3dmodel.model': model('<metadata name="cadio:properties">[1</metadata>' +
+      `<resources>${mesh(1, 'type="model"', CORNERS.slice(0, 3), [[0, 1, 2]])}</resources>` +
+      '<build><item objectid="1"/></build>') }));
+    assert.deepEqual(messages(bad), ['warning: our properties metadata (cadio:properties) unreadable: left out']);
+    assert.deepEqual(bad.scene.properties, { format: '3mf', unit: 'millimeter' });
+  });

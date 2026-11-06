@@ -37,7 +37,7 @@ import { Document, Format, Logger, WebIO, type Accessor, type JSONDocument, type
 import { EXTMeshGPUInstancing, EXTMeshoptCompression, KHRDracoMeshCompression, KHRMaterialsUnlit,
   KHRMeshQuantization, KHRNodeVisibility } from '@gltf-transform/extensions';
 import { drain, identity, multiply, paced, partExtras, placedName, placementJson, pruneView,
-  sceneJson, Y_UP_METRES, type Diagnostic,
+  sceneJson, standardMetadata, Y_UP_METRES, type Diagnostic,
   type ExportNode, type ExportView, type Look, type Mat4, type Mesh, type Part, type PropertyValue, type Scene,
   type SourceId, type Vec3 } from 'cad-scene';
 
@@ -415,7 +415,11 @@ class Writer {
     this.compression = opts.compression ?? 'draco';
     this.extras = opts.extras ?? false;
     this.buffer = this.doc.createBuffer();
-    this.doc.getRoot().getAsset().generator = 'cad-io-js export-gltf';
+    const asset = this.doc.getRoot().getAsset();
+    asset.generator = 'cad-io-js export-gltf';
+    // (The source's copyright, the one standard field glTF has, written with or without our extras.)
+    const copyright = standardMetadata(scene.properties).Copyright;
+    if (copyright) asset.copyright = copyright;
     // (The Draco extension notes, through the document's logger, that it leaves lines and points uncompressed.)
     this.doc.setLogger(new Logger(Logger.Verbosity.ERROR));
   }

@@ -309,12 +309,14 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
         buttons: [{ label: 'OK', value: 'ok', primary: true }] });
     }
   };
-  // (With the model open: its file, objects and triangles, as they are now.)
+  // (With the model open: its file and author, objects and triangles, as they are now; its metadata.)
   const about = () => {
-    const s = viewer.model && viewer.stats();
-    return showAbout(viewer.model && s ? [['File', viewer.model.name],
+    const m = viewer.model, s = m && viewer.stats();
+    const author = typeof m?.properties.author === 'string' ? ` (${m.properties.author})` : '';
+    return showAbout(m && s ? { rows: [['File', m.name + author],
       ['Objects', `${s.objects.toLocaleString()} (${s.meshes.toLocaleString()} meshes)`],
-      ['Triangles', s.triangles.toLocaleString()]] : undefined, updates, () => void loadDemo());
+      ['Triangles', s.triangles.toLocaleString()]], properties: m.properties } : undefined, updates,
+    () => void loadDemo());
   };
   const loadDemo = async () => {
     const p = await askDemo();

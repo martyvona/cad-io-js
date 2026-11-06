@@ -5,8 +5,8 @@
 // hold stays lost: faces are by colour (mesh.ts), and there are no edges, curves or points. Our files without extras
 // are read as anyone's.
 
-import { identity, multiply, sceneFromTree, type Diagnostic, type Mat4, type Scene, type TreeExtras,
-  type TreeMaterial, type TreeMesh, type TreeNode } from 'cad-scene';
+import { identity, multiply, sceneFromTree, type Diagnostic, type Mat4, type Properties, type Scene,
+  type TreeExtras, type TreeMaterial, type TreeMesh, type TreeNode } from 'cad-scene';
 import type { ModelFile, ObjectDef } from './model.ts';
 
 /** An affine transform's inverse (its linear part inverted, then the translation). */
@@ -30,7 +30,7 @@ const matrixOf = (v: unknown): Mat4 | undefined => (Array.isArray(v) && v.length
  * item's placement of its object, in millimetres, from the object's numbers.
  */
 export function oursFromTree(root: ModelFile, world: (item: number) => { object: ObjectDef; matrix: Mat4 }
-  | undefined, warn: (m: string) => void): { scene: Scene; diagnostics: Diagnostic[] } | undefined {
+  | undefined, warn: (m: string) => void, own: Properties): { scene: Scene; diagnostics: Diagnostic[] } | undefined {
   let tree: TreeExtras | undefined, slots: unknown[] = [];
   try {
     tree = obj(JSON.parse(root.metadata['cadio:tree']!));
@@ -94,5 +94,6 @@ export function oursFromTree(root: ModelFile, world: (item: number) => { object:
   return sceneFromTree({ name: '', matrix: identity(), visible: true, extras: { unit: 'millimetre', up: 'z',
     ...(obj(tree.properties) ? { properties: tree.properties } : {}),
     ...(tree.bounds !== undefined ? { bounds: tree.bounds } : {}),
-    ...(tree.sourceUnit !== undefined ? { sourceUnit: tree.sourceUnit } : {}) }, meshes: [], children: roots });
+    ...(tree.sourceUnit !== undefined ? { sourceUnit: tree.sourceUnit } : {}) }, meshes: [], children: roots },
+    { properties: own });
 }

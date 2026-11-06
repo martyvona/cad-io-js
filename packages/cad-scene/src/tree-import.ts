@@ -15,8 +15,8 @@
 // and points, except a child named `edges` of only lines beside one triangle mesh, its edges (as our exporters write
 // B-rep edges without extras); the root from metres, Y up, to millimetres, Z up.
 
-import type { Component, Diagnostic, Lod, Mat4, Material, Mesh, Occurrence, Part, PartRef, PropertyValue, Scene,
-  SourceId, Vec3 } from './scene.ts';
+import type { Component, Diagnostic, Lod, Mat4, Material, Mesh, Occurrence, Part, PartRef, Properties, PropertyValue,
+  Scene, SourceId, Vec3 } from './scene.ts';
 import { boundsFrom, levelFrom, measuresFrom, placementFrom, unitFrom } from './measures.ts';
 import { leafParts } from './leaf.ts';
 import { identity, multiply } from './walk.ts';
@@ -81,6 +81,11 @@ const sourcesOf = (v: unknown): SourceId[] => (Array.isArray(v) ? v.flatMap((s) 
     : [];
 }) : []);
 const propertiesOf = (v: unknown): Record<string, PropertyValue> => (obj(v) ?? {}) as Record<string, PropertyValue>;
+
+/** The scene's properties: the source's, from our extras, with the file's own as `container`; else the file's own. */
+export function propertiesFrom(source: Properties, own: Properties): Properties {
+  return Object.keys(source).length ? { ...source, ...(Object.keys(own).length ? { container: own } : {}) } : own;
+}
 /**
  * Transforms equal to 1e-5 of their largest entry: one reference or child however its instances' files round it
  * (GPU instances' float32 translation, rotation and scale make each instance's local transform a little different,
@@ -620,10 +625,12 @@ function otherMesh(m: TreeMesh): Mesh {
 
 /**
  * The scene a tree holds: ours read back as written, others as their own tree, `frame` taking the root's frame to
- * millimetres, Z up (default MM_Z_UP: metres, Y up, as glTF and three.js are).
+ * millimetres, Z up (default MM_Z_UP: metres, Y up, as glTF and three.js are). `properties` are the file's own
+ * metadata, the scene's; but ours with the properties of the scene we exported have those, the file's own as their
+ * `container`.
  */
-export function sceneFromTree(root: TreeNode, opts: { frame?: Mat4; container?: boolean } = {}): { scene: Scene;
-  diagnostics: Diagnostic[] } {
+export function sceneFromTree(root: TreeNode, opts: { frame?: Mat4; container?: boolean; properties?: Properties } =
+  {}): { scene: Scene; diagnostics: Diagnostic[] } {
   const b = new Builder();
   const ours = isOurTree(root);
   b.ours = ours;
@@ -636,7 +643,8 @@ export function sceneFromTree(root: TreeNode, opts: { frame?: Mat4; container?: 
   const scene: Scene = {
     unit: 'millimetre', components: b.components, roots, ...(rootParts.length ? { rootParts } : {}), parts: b.parts,
     materials: b.materials, layers: [],
-    overrides: b.overrides, properties: ours ? propertiesOf(root.extras?.properties) : {}, diagnostics: b.diagnostics,
+    overrides: b.overrides, properties: propertiesFrom(ours ? propertiesOf(root.extras?.properties) : {},
+      opts.properties ?? {}), diagnostics: b.diagnostics,
   };
   const bounds = ours ? boundsFrom(root.extras?.bounds) : undefined;
   if (bounds) scene.bounds = bounds;

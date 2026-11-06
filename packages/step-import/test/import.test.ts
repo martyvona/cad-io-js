@@ -240,8 +240,9 @@ test('materials: part, face, instance override; layers', async () => {
   assert.deepEqual(looks, [['0/0', undefined, faces], ['0/1', [0, 1, 0], []], ['0/3/0', [0, 0, 1], []]]);
   assert.deepEqual(scene.layers.map((l) => [l.name, l.visible, l.parts, l.faces]),
     [['L1', true, [0], [{ part: 0, face: 213 }]]]);
-  assert.deepEqual(scene.properties,
-    { format: 'step', name: 'asm.stp', originatingSystem: 'sys', preprocessorVersion: 'pp', schemas: AP214 });
+  // (The header as written: an author of '' is no author.)
+  assert.deepEqual(scene.properties, { format: 'step', name: 'asm.stp', timeStamp: '', authors: [''],
+    organizations: [''], originatingSystem: 'sys', preprocessorVersion: 'pp', authorization: '', schemas: AP214 });
 });
 
 // A product whose representation holds only an annotation (text and a placement) and, related to it, a geometrically
@@ -429,3 +430,22 @@ ${[42, 53, 62, 72, 82, 91, 103, 111, 122].map((r, i) =>
     assert.deepEqual(closed, { 'solid': true, 'voids': true, 'closed surface': true, 'open surface': false,
       'mixed': false, 'set': undefined, 'tessellated': undefined, 'points': undefined, 'sharing a face': true });
   });
+
+test('the header: every field as written, lists as arrays; the author without placeholders', async () => {
+  const file = (name: string, description = "('d1','d2')") => new TextEncoder().encode('ISO-10303-21;HEADER;' +
+    `FILE_DESCRIPTION(${description},'2;1');FILE_NAME('n.stp','2026-01-02T03:04:05',${name},('Org','Dept'),'pp',` +
+    `'sys','auth');FILE_SCHEMA(('${AP214}'));ENDSEC;DATA;ENDSEC;END-ISO-10303-21;`);
+  const { scene } = await importStep(file("('Author','Ann B','  csmetana ')"));
+  assert.deepEqual(scene.properties, { format: 'step', name: 'n.stp', timeStamp: '2026-01-02T03:04:05',
+    author: 'Ann B, csmetana', authors: ['Author', 'Ann B', '  csmetana '], organizations: ['Org', 'Dept'],
+    originatingSystem: 'sys', preprocessorVersion: 'pp', authorization: 'auth', description: ['d1', 'd2'],
+    implementationLevel: '2;1', schemas: AP214 });
+  // Placeholders only, and no list where one belongs: no author; the rest as written.
+  const none = (await importStep(file("('none','')"))).scene.properties;
+  assert.equal(none.author, undefined);
+  assert.deepEqual(none.authors, ['none', '']);
+  const odd = (await importStep(file("'Ann'", "'d'"))).scene.properties;
+  assert.deepEqual([odd.author, odd.authors, odd.description], [undefined, undefined, undefined]);
+  // (Escaped characters decoded, as every string is.)
+  assert.equal((await importStep(file("('Ren\\X2\\00E9\\X0\\')"))).scene.properties.author, 'Ren\u00e9');
+});

@@ -13,8 +13,8 @@ import {
   type Diagnostic as StepDiagnostic, type Mat4, type OpenOptions, type Semantics, type StepFile, type StepModel,
   type StepSource, type Style,
 } from 'step-parser';
-import { boundScene, dropSourceDegenerate, leafParts, type Component, type Diagnostic, type Layer, type Lod,
-  type Material, type Part, type Scene, type Vec3 } from 'cad-scene';
+import { authorOf, boundScene, dropSourceDegenerate, leafParts, type Component, type Diagnostic, type Layer, type Lod,
+  type Material, type Part, type Properties, type Scene, type Vec3 } from 'cad-scene';
 import { faceOutlines } from './outlines.ts';
 import { moveMesh, readTessellated, tessellatedItems } from './tessellated.ts';
 
@@ -496,15 +496,22 @@ export function sceneFromStep(model: StepModel, sem: Semantics, opts: ImportOpti
   const convert = (d: StepDiagnostic): Diagnostic => (
     d.id === undefined ? { severity: d.severity, message: d.message } : { severity: d.severity, message: d.message,
     source: src(d.id) });
+  // The header as written (FILE_DESCRIPTION, FILE_NAME), lists as arrays of their strings; `author` the names that
+  // aren't placeholders (authorOf).
   const header = (type: string, i: number) => { const v = file.headerEntity(type)?.attrs[i];
     return v?.k === 'str' ? v.v : undefined; };
+  const strings = (type: string, i: number) => { const v = file.headerEntity(type)?.attrs[i];
+    return v?.k === 'list' ? v.v.flatMap((x) => (x.k === 'str' ? [x.v] : [])) : undefined; };
+  const authors = strings('FILE_NAME', 2);
   const scene: Scene = {
     unit: 'millimetre', components, roots, parts, materials, layers, overrides,
     properties: Object.fromEntries(Object.entries({
-      format: 'step', name: header('FILE_NAME', 0), originatingSystem: header('FILE_NAME', 5),
-      preprocessorVersion: header('FILE_NAME', 4),
-      schemas: file.schemaNames.join(', ') || undefined,
-    }).filter(([, v]) => v !== undefined)) as Record<string, string>,
+      format: 'step', name: header('FILE_NAME', 0), timeStamp: header('FILE_NAME', 1),
+      author: authors && authorOf(authors), authors, organizations: strings('FILE_NAME', 3),
+      originatingSystem: header('FILE_NAME', 5), preprocessorVersion: header('FILE_NAME', 4),
+      authorization: header('FILE_NAME', 6), description: strings('FILE_DESCRIPTION', 0),
+      implementationLevel: header('FILE_DESCRIPTION', 1), schemas: file.schemaNames.join(', ') || undefined,
+    }).filter(([, v]) => v !== undefined)) as Properties,
     diagnostics: [...file.diagnostics.map(convert), ...model.diagnostics.map(convert), ...sem.diagnostics.map(convert),
       ...diagnostics],
   };

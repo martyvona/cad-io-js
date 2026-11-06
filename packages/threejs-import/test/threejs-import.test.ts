@@ -84,7 +84,8 @@ test('our file with extras reads back as the scene it was written from: tree, pa
     [['plate', [{ format: 'step', id: 50 }], { pn: 'X-1' }, true, 1, 'source'],
       ['wire', [{ format: 'step', id: 50 }], { pn: 'X-1' }, undefined, 1, 'source']]);
   assert.deepEqual([back.components[1]!.sources, back.components[1]!.properties, back.properties],
-    [[{ format: 'step', id: 7 }], { rev: 'B' }, { schema: 'AP214' }]);
+    [[{ format: 'step', id: 7 }], { rev: 'B' }, { schema: 'AP214', container: { format: 'threejs', metadata: {
+      version: 4.7, type: 'Object', generator: 'cad-io-js export-threejs' } } }]);
   assert.deepEqual(back.components[0]!.children.map((c) => c.name), ['left', undefined, 'hidden']);
   // Faces by their ids, in the mesh's triangles; edges, curves and points with their sources.
   const m = back.parts[0]!.lods[0]!.mesh;
@@ -342,4 +343,17 @@ test('the model\'s sphere in the root\'s extras, read back as the file\'s; mesh 
   const plain = importThreejs(threejsJson(s, exportView(s, opts))).scene.bounds!;
   assert.equal(plain.from, 'meshes');
   assert.ok(Math.abs(plain.radius - s.bounds.radius) > 0);
+});
+
+test('file metadata: the file\'s own, its writer and version; ours, the source\'s with ours as container', () => {
+  const metadata = { version: 4.6, type: 'Object', generator: 'Object3D.toJSON' };
+  const own = importThreejs({ metadata, object: { type: 'Scene', children: [] } }).scene.properties;
+  assert.deepEqual(own, { format: 'threejs', metadata });
+  assert.deepEqual(importThreejs({ object: { type: 'Scene', children: [] } }).scene.properties, { format: 'threejs' });
+  const s = scene();
+  s.properties = { format: 'step', author: 'Ann', container: { format: 'old' } };
+  const back = importThreejs(threejsJson(s, exportView(s, opts), { extras: true })).scene;
+  assert.deepEqual(back.properties, { format: 'step', author: 'Ann', container: { format: 'threejs', metadata: {
+    version: 4.7, type: 'Object', generator: 'cad-io-js export-threejs' } } });
+  assert.deepEqual(importThreejs(threejsJson(s, exportView(s, opts))).scene.properties.format, 'threejs');
 });

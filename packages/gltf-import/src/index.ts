@@ -17,8 +17,8 @@ import { WebIO, type Accessor, type Document, type Material as GltfMaterial, typ
   type Primitive } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
 import { boundScene, closeTransforms, dropSourceDegenerate, identity, multiply, sceneFromTree, Y_UP_METRES,
-  type Diagnostic,
-  type Mat4, type Scene, type TreeExtras, type TreeMaterial, type TreeMesh, type TreeNode, type Vec3 } from 'cad-scene';
+  type Diagnostic, type Mat4, type Properties, type Scene, type TreeExtras, type TreeMaterial, type TreeMesh,
+  type TreeNode, type Vec3 } from 'cad-scene';
 
 export interface GltfImport {
   scene: Scene;
@@ -161,8 +161,10 @@ export async function importGltf(input: Uint8Array | GltfJsonInput, opts: GltfIm
     return { scene, diagnostics: scene.diagnostics };
   };
   let doc: Document;
-  // (The writer, from the file's own JSON: glTF-Transform's reader names itself the generator.)
+  // (The writer, from the file's own JSON: glTF-Transform's reader names itself the generator. Its asset, as written,
+  // the file's metadata.)
   let generator: string | undefined;
+  let asset: unknown;
   try {
     if (input instanceof Uint8Array) {
       // (The JSON chunk's extensionsUsed, for the decoders to load.)
@@ -170,11 +172,13 @@ export async function importGltf(input: Uint8Array | GltfJsonInput, opts: GltfIm
         new DataView(input.buffer, input.byteOffset).getUint32(12, true))) : '{}';
       const head = JSON.parse(json) as { extensionsUsed?: string[]; asset?: { generator?: string } };
       generator = head.asset?.generator;
+      asset = head.asset;
       doc = await (await io(head.extensionsUsed ?? [], diagnostics, opts)).readBinary(input);
     } else {
       const json = (typeof input.json === 'string' ? JSON.parse(input.json) : input.json) as
         { extensionsUsed?: string[]; buffers?: { uri?: string }[]; asset?: { generator?: string } };
       generator = json.asset?.generator;
+      asset = json.asset;
       // Data URIs as resources (the reader takes files only).
       const resources = { ...input.resources };
       for (const b of json.buffers ?? []) {
@@ -287,7 +291,9 @@ export async function importGltf(input: Uint8Array | GltfJsonInput, opts: GltfIm
   if (ours) restoreInstances(oursOld ? tops[0]!.listChildren() : tops, top, instanced, warn,
     oursOld ? identity() : Y_UP_METRES);
   // (The glTF scene holds the roots, not an assembly of its own; our old files' root node is ours.)
-  const built = sceneFromTree(top, { container: !oursOld });
+  const own = { format: input instanceof Uint8Array ? 'glb' : 'gltf',
+    ...(asset && typeof asset === 'object' && !Array.isArray(asset) ? { asset: asset as Properties } : {}) };
+  const built = sceneFromTree(top, { container: !oursOld, properties: own });
   built.scene.diagnostics.unshift(...diagnostics);
   if (opts.dropDegenerate ?? true) dropSourceDegenerate(built.scene);
   boundScene(built.scene);

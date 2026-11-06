@@ -23,8 +23,8 @@
 
 import { Zip, ZipDeflate, strToU8 } from 'fflate';
 import { drain, identity, manifoldProblems, multiply, paced, partExtras, placedName, placementJson, scaling,
-  sceneJson, weld, type Diagnostic, type ExportNode, type ExportPart, type ExportView, type Look, type Mat4, type Mesh,
-  type PropertyValue, type Scene, type SourceId, type Vec3 } from 'cad-scene';
+  sceneJson, standardMetadata, weld, type Diagnostic, type ExportNode, type ExportPart, type ExportView, type Look,
+  type Mat4, type Mesh, type PropertyValue, type Scene, type SourceId, type Vec3 } from 'cad-scene';
 
 export interface ThreeMfOptions {
   /** Colour of faces without a material (sRGB). Default light grey. */
@@ -214,7 +214,15 @@ class Writer {
     const model = new ModelStream(zip);
     model.push(`<?xml version="1.0" encoding="UTF-8"?>\n<model unit="${this.unit.name}" xml:lang="und" xmlns="${CORE}"`
       + `${colorgroup ? ` xmlns:m="${MATERIAL}"` : ''}${extras ? ` xmlns:cadio="${METADATA_NAMESPACE}"` : ''}>\n`);
-    if (this.opts.name) model.push(`<metadata name="Title">${xmlText(this.opts.name, true)}</metadata>\n`);
+    // The core spec's metadata, from the source's (standardMetadata), with or without our extras; the title given
+    // first.
+    const standard = { ...standardMetadata(this.scene.properties),
+      ...(this.opts.name ? { Title: this.opts.name } : {}) };
+    for (const k of ['Title', 'Designer', 'Description', 'Copyright', 'LicenseTerms', 'Rating',
+      'CreationDate'] as const) {
+      const v = standard[k];
+      if (v) model.push(`<metadata name="${k}">${xmlText(v, true)}</metadata>\n`);
+    }
     model.push('<metadata name="Application">cad-io-js export-3mf</metadata>\n');
 
     // Material slots first (the group comes before the objects that use it), then the objects.
@@ -223,6 +231,8 @@ class Writer {
       const meta = (name: string, value: unknown) => model.push(`<metadata name="cadio:${name}">${xmlText(
         JSON.stringify(value), true)}</metadata>\n`);
       if (this.opts.build !== 'assembly') meta('tree', this.tree(placed));
+      // (The tree holds them where it's written.)
+      else if (sceneJson(this.scene).properties) meta('properties', sceneJson(this.scene).properties);
       meta('materials', [...this.slots.keys()].map((m) => m ?? null));
     }
     model.push('<resources>\n');

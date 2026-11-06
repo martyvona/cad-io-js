@@ -3,19 +3,23 @@
 
 /// <reference types="vite/client" />
 
+import type { Properties } from 'cad-scene';
 import { showDialog, type DialogResult } from './dialog.ts';
+import { showFileDetails } from './file-details.ts';
 import { updateText, type UpdateCheck } from './update-check.ts';
 import { VERSION } from './version.ts';
 
 export const REPOSITORY = 'https://github.com/martyvona/cad-io-js';
 
 /**
- * Shows it, with the model open (rows of a table), if any, and with `updates` Check for updates (only when pressed:
+ * Shows it, with the model open (rows of a table, and its metadata behind a details link: file-details.ts), if any,
+ * and with `updates` Check for updates (only when pressed:
  * update-check.ts), saying whether the server has another version (`updates`' state, shared with the controls'
  * badge) with Reload; and with `demo` Load demo model..., which closes it and then calls `demo`. Resolves when it's
  * closed.
  */
-export async function showAbout(model?: [string, string][], updates?: UpdateCheck, demo?: () => void): Promise<void> {
+export async function showAbout(model?: { rows: [string, string][]; properties: Properties }, updates?: UpdateCheck,
+  demo?: () => void): Promise<void> {
   let r: DialogResult | undefined;
   const update = document.createElement('p');
   update.className = 'update';
@@ -77,7 +81,8 @@ export async function showAbout(model?: [string, string][], updates?: UpdateChec
         ...(import.meta.env.PROD ? [{ text: ' What the viewer bundles, and under which licenses: ' },
           { text: 'licenses.md', href: new URL('licenses.md', document.baseURI).href }, { text: '.' }] : [])],
         [{ text: 'Source: ' }, { text: REPOSITORY.replace('https://', ''), href: REPOSITORY }],
-        ...(model ? ['The model open:', model] : ['No model open.']),
+        ...(model ? [[{ text: 'Current model (' }, { text: 'details', action: () => void showFileDetails(
+          model.properties) }, { text: '):' }], model.rows] : ['No model open.']),
       ],
       buttons: [{ label: 'Close', value: 'close', primary: true },
         ...(demo ? [{ label: 'Load demo model...', value: 'demo' }] : [])],

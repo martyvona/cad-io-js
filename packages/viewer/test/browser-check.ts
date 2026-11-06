@@ -67,6 +67,10 @@ const threemfBytes = (o: ThreeMfOptions) => {
 fs.writeFileSync(path.join(content, 'as1.3mf'), threemfBytes({ extras: true }));
 fs.writeFileSync(path.join(content, 'as1-plain.3mf'), threemfBytes({}));
 fs.copyFileSync(step, path.join(content, 'as1.stp'));
+// as1 with an author of its own beside a placeholder, and a model with no metadata but its format (Model Details).
+fs.writeFileSync(path.join(content, 'as1-authored.stp'), fs.readFileSync(step, 'latin1').replace("('Author')",
+  "('Ann B','none')"), 'latin1');
+fs.writeFileSync(path.join(content, 'bare.json'), JSON.stringify({ object: { type: 'Scene', children: [] } }));
 // OCCT's broken-references file: the importer warns of its dangling references (the problems dialog's check).
 fs.copyFileSync(path.join(repo, 'test_corpus/third_party/gkv311-opencascade-dataset/step/bug31292.stp'),
   path.join(content, 'broken.stp'));
@@ -2903,6 +2907,104 @@ await check('about', async () => {
     a.links.every((l) => l.target === '_blank' && l.rel === 'noopener'), `the links: ${j}`);
   expect(base === '/' ? a.status === undefined : a.status === 200, `licenses.md (a build's only): ${j}`);
   expect(a.closed, `closed: ${j}`);
+  return undefined;
+});
+// Model Details (About's details link): the author after the file's name (a placeholder not), the file's metadata
+// over About as rows, read-only (no fields, nothing editable, no button but its x), its text selected by dragging the
+// mouse (the dialog not moved); closed by its x or Escape, About still open; nothing but the format said so.
+await check('model details', async () => {
+  const evaluate = async (sessionId: string, expression: string) => ((await send('Runtime.evaluate', { expression,
+    returnByValue: true, awaitPromise: true }, sessionId)) as { result: { value: unknown } }).result.value;
+  // About opened, and where its details link is (clicked with the mouse: a dialog opened without a user's gesture is
+  // grouped with the one before by Chrome's close watchers, and Escape closes both).
+  const open = `(async () => {
+    await cadViewer.ready; await cadViewer.idle();
+    window.wait = async (f) => { for (let t = 0; t < 400; t++) { const v = f(); if (v) return v;
+      await new Promise((res) => setTimeout(res, 25)); } };
+    ui.gui.controllersRecursive().find((c) => c._name === 'About...').$button.click();
+    const about = await wait(() => document.querySelector('dialog.cv-dialog[open]'));
+    const file = [...about.querySelectorAll('tr')].find((r) => r.cells[0].textContent === 'File')?.cells[1]
+      .textContent;
+    const lead = [...about.querySelectorAll('p')].find((p) => p.querySelector('a[href="#"]'));
+    const l = lead.querySelector('a').getBoundingClientRect();
+    window.details = { about, href: location.href };
+    return { file, lead: lead.textContent, link: { x: (l.left + l.right) / 2, y: (l.top + l.bottom) / 2 } };
+  })()`;
+  const shown = `(async () => {
+    const about = details.about;
+    const d = await wait(() => [...document.querySelectorAll('dialog.cv-dialog[open]')].find((e) => e !== about));
+    const td = [...d.querySelectorAll('tr')].find((r) => r.cells[0].textContent === 'Time stamp')?.cells[1];
+    const r = td?.getBoundingClientRect();
+    details.d = d;
+    details.top = d.getBoundingClientRect().top;
+    return { title: d.querySelector('h2 span').textContent,
+      rows: [...d.querySelectorAll('tr')].map((row) => [...row.cells].map((c) => c.textContent)),
+      texts: [...d.querySelectorAll('p')].map((p) => p.textContent),
+      controls: d.querySelectorAll('input, select, textarea, [contenteditable]').length,
+      buttons: [...d.querySelectorAll('button')].map((b) => b.getAttribute('aria-label') ?? b.textContent),
+      buttonRow: !!d.querySelector('.buttons'), address: location.href === details.href,
+      cell: r ? { x0: r.left + 1, x1: r.right - 1, y: (r.top + r.bottom) / 2, text: td.textContent,
+        onTop: document.elementFromPoint((r.left + r.right) / 2, (r.top + r.bottom) / 2)?.closest('dialog') === d }
+        : null };
+  })()`;
+  type Opened = { file: string; lead: string; link: { x: number; y: number } };
+  type Shown = { title: string; rows: string[][]; texts: string[]; controls: number; buttons: string[];
+    buttonRow: boolean; address: boolean;
+    cell: { x0: number; x1: number; y: number; text: string; onTop: boolean } | null };
+  // Then: the link clicked, what it shows, a drag across a value and what it selected, and the dialog closed (its x,
+  // or Escape).
+  const then = (how: 'x' | 'escape') => async (sessionId: string, after: unknown) => {
+    const mouse = (type: string, x: number, y: number, buttons: number) => send('Input.dispatchMouseEvent', { type,
+      x, y, button: 'left', buttons, clickCount: 1 }, sessionId);
+    const { link } = after as Opened;
+    await mouse('mousePressed', link.x, link.y, 1);
+    await mouse('mouseReleased', link.x, link.y, 0);
+    const s = await evaluate(sessionId, shown) as Shown;
+    const c = s.cell;
+    let selected: string | undefined;
+    if (c) {
+      await mouse('mousePressed', c.x0, c.y, 1);
+      for (let k = 1; k <= 8; k++) await mouse('mouseMoved', c.x0 + (c.x1 - c.x0) * k / 8, c.y, 1);
+      await mouse('mouseReleased', c.x1, c.y, 0);
+      selected = await evaluate(sessionId, 'getSelection().toString()') as string;
+    }
+    const moved = await evaluate(sessionId, 'details.d.getBoundingClientRect().top !== details.top');
+    if (how === 'x') await evaluate(sessionId, `details.d.querySelector('button.close').click()`);
+    else {
+      for (const type of ['keyDown', 'keyUp']) await send('Input.dispatchKeyEvent', { type, key: 'Escape',
+        code: 'Escape', windowsVirtualKeyCode: 27 }, sessionId);
+    }
+    const closed = await evaluate(sessionId, `(async () => { await new Promise((res) => setTimeout(res, 200));
+      return { details: !details.d.isConnected, about: details.about.isConnected && details.about.open }; })()`);
+    return { ...s, selected, moved, closed };
+  };
+  type Then = Shown & { selected?: string; moved: boolean; closed: { details: boolean; about: boolean } };
+  const run = async (file: string, how: 'x' | 'escape') => {
+    const r = await page(`?url=${encodeURIComponent(`/content/${file}`)}&check`, open, { then: then(how) }) as
+      { after: Opened; then: Then };
+    return { ...r.after, ...r.then };
+  };
+  const a = await run('as1-authored.stp', 'x');
+  const p = await run('as1.stp', 'escape');
+  const b = await run('bare.json', 'escape');
+  const j = JSON.stringify({ a, p, b });
+  const row = (r: Shown, l: string) => r.rows.find(([k]) => k === l)?.[1];
+  expect(a.file === 'as1-authored.stp (Ann B)' && p.file === 'as1.stp' && b.file === 'bare.json',
+    `the author after the name: ${j}`);
+  expect(a.lead === 'Current model (details):' && a.title === 'Model Details', `the link and title: ${j}`);
+  expect(row(a, 'Format') === 'step' && row(a, 'Name') === 'Open CASCADE Shape Model' &&
+    row(a, 'Time stamp') === '2017-03-30T11:06:14' && row(a, 'Author') === 'Ann B' &&
+    row(a, 'Authors') === 'Ann B\nnone' && row(a, 'Organizations') === 'Open CASCADE' &&
+    row(a, 'Originating system') === 'Open CASCADE 7.1' && row(a, 'Authorization') === 'Unknown' &&
+    !a.texts.length, `the metadata: ${j}`);
+  expect(row(p, 'Author') === undefined && row(p, 'Authors') === 'Author', `a placeholder author: ${j}`);
+  expect(a.controls === 0 && JSON.stringify(a.buttons) === '["Close"]' && !a.buttonRow, `read-only: ${j}`);
+  // (The link's href, #, not followed: the address holds the view.)
+  expect(a.address && b.address, `the address kept: ${j}`);
+  expect(!!a.cell?.onTop && a.selected === a.cell.text && !a.moved, `its text selected by a drag: ${j}`);
+  expect(a.closed.details && a.closed.about && p.closed.details && p.closed.about, `closed, About still open: ${j}`);
+  expect(JSON.stringify(b.rows) === '[["Format","threejs"]]' &&
+    JSON.stringify(b.texts) === '["No additional details available."]', `nothing but the format: ${j}`);
   return undefined;
 });
 // Load demo model... (About): About closed, the catalog fetched (each time, past the cache), a model a row with its

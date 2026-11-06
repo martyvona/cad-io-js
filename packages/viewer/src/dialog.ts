@@ -17,11 +17,15 @@ export interface DialogButton {
 export interface DialogOptions {
   title: string;
   /**
-   * Paragraphs: text, [label, value] rows shown as a table (file names, sizes, hashes: monospace), or text with links
-   * (`{ text, href }` pieces, opened in a new tab), or elements of the caller's own.
+   * Paragraphs: text, [label, value] rows shown as a table (file names, sizes, hashes: monospace; a value's lines
+   * kept), or text with links (`{ text, href }` pieces, opened in a new tab; `{ text, action }` done on a click, the
+   * dialog left open), or elements of the caller's own.
    */
-  body: (string | HTMLElement | [string, string][] | { text: string; href?: string }[])[];
+  body: (string | HTMLElement | [string, string][] | { text: string; href?: string; action?: () => void }[])[];
+  /** None: no row of buttons (closed by `closeButton` or Escape). */
   buttons: DialogButton[];
+  /** An x at the title's right that closes it (resolving with the button `close`). */
+  closeButton?: boolean;
   /** Drawn as an error. */
   error?: boolean;
   /** Controls of the caller's own, after the body. */
@@ -45,8 +49,15 @@ export function showDialog(o: DialogOptions): Promise<DialogResult> {
   const form = document.createElement('form');
   form.method = 'dialog';
   const title = document.createElement('h2');
-  title.textContent = o.title;
   title.className = 'drag';
+  if (o.closeButton) {
+    const text = document.createElement('span');
+    text.textContent = o.title;
+    const close = Object.assign(document.createElement('button'), { value: 'close', textContent: '\u00D7',
+      className: 'close' });
+    close.setAttribute('aria-label', 'Close');
+    title.append(text, close);
+  } else title.textContent = o.title;
   form.append(title);
   draggable(dialog, title);
   for (const part of o.body) {
@@ -62,16 +73,25 @@ export function showDialog(o: DialogOptions): Promise<DialogResult> {
     }
     if (part.length && !Array.isArray(part[0])) {
       const p = document.createElement('p');
-      for (const piece of part as { text: string; href?: string }[]) {
-        if (!piece.href) {
+      for (const piece of part as { text: string; href?: string; action?: () => void }[]) {
+        if (!piece.href && !piece.action) {
           p.append(piece.text);
           continue;
         }
         const a = document.createElement('a');
-        a.href = piece.href;
         a.textContent = piece.text;
-        a.target = '_blank';
-        a.rel = 'noopener';
+        if (piece.action) {
+          const action = piece.action;
+          a.href = '#';
+          a.addEventListener('click', (e) => {
+            e.preventDefault();
+            action();
+          });
+        } else {
+          a.href = piece.href!;
+          a.target = '_blank';
+          a.rel = 'noopener';
+        }
         p.append(a);
       }
       form.append(p);
@@ -132,7 +152,7 @@ export function showDialog(o: DialogOptions): Promise<DialogResult> {
     if (b.primary) button.className = 'primary';
     buttons.append(button);
   }
-  form.append(buttons);
+  if (o.buttons.length) form.append(buttons);
   dialog.append(form);
   document.body.append(dialog);
   return new Promise((resolve) => {

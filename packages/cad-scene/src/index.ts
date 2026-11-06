@@ -12,11 +12,12 @@ export { BOUNDARY_SLACK, dropDegenerate, EXCESS_FRACTION, faceFailures, INSIDE_O
 export { exportView, placedName, pruneView, type ExportNode, type ExportPart, type ExportView,
   type ExportViewOptions, type Look } from './export.ts';
 export { addLod, chooseLod, dropSourceDegenerate, type LodWanted } from './lod.ts';
-export { closeTransforms, isOurTree, MM_Z_UP, sceneFromTree, type TreeExtras, type TreeMaterial, type TreeMesh,
-  type TreeNode } from './tree-import.ts';
+export { closeTransforms, isOurTree, MM_Z_UP, propertiesFrom, sceneFromTree, type TreeExtras, type TreeMaterial,
+  type TreeMesh, type TreeNode } from './tree-import.ts';
 export { viewDifferences, type CompareOptions } from './compare.ts';
 export { boundsFrom, boundsJson, sceneJson, levelFrom, levelJson, measuresFrom, measuresJson, partExtras, placementFrom,
   placementJson, unitFrom } from './measures.ts';
+export { AUTHOR_PLACEHOLDERS, authorOf, standardMetadata, type StandardMetadata } from './file-metadata.ts';
 export { around, boundScene, boxesSphere, boxMeshes, grow, meshBox, sceneBounds } from './bounds.ts';
 export { drain, paced } from './steps.ts';
 export { isLeaf, leafParts } from './leaf.ts';

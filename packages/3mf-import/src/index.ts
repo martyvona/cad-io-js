@@ -14,8 +14,9 @@
 //   properties: an object's or item's type, part number, Production UUID and metadata (by name as written).
 //   our files with extras: the scene they were written from, as far as 3MF holds it (ours.ts).
 
-import { boundScene, dropSourceDegenerate, leafParts, multiply, scaling, type Component, type Diagnostic,
-  type Mat4, type Material, type Occurrence, type Part, type Properties, type Scene, type SourceId } from 'cad-scene';
+import { authorOf, boundScene, dropSourceDegenerate, leafParts, multiply, propertiesFrom, scaling, type Component,
+  type Diagnostic, type Mat4, type Material, type Occurrence, type Part, type Properties, type Scene,
+  type SourceId } from 'cad-scene';
 import { readModel, type ItemDef, type ModelFile, type ObjectDef } from './model.ts';
 import { oursFromTree } from './ours.ts';
 import { XmlTokenizer } from './xml.ts';
@@ -198,6 +199,13 @@ function read(input: Uint8Array, opts: ThreeMfImportOptions): ThreeMfImport {
     transform: multiply(multiply(scaling(ur), m), scaling(1 / ur)), ...(t.object.name ? { name: t.object.name } : {}),
     sources: [sourceOf(t.file, t.object.id)], properties: item ? propertiesOf(item) : uuid ? { uuid } : {} });
 
+  // The file's metadata (its root model's, by name as written; not our cadio: entries, read below); `author` the
+  // Designer's, if not a placeholder (authorOf).
+  const author = root.metadata.Designer !== undefined ? authorOf([root.metadata.Designer]) : undefined;
+  const metadata = Object.fromEntries(Object.entries(root.metadata).filter(([k]) => !k.startsWith('cadio:')));
+  const own: Properties = { format: '3mf', unit: root.unitName, ...(author ? { author } : {}),
+    ...(Object.keys(metadata).length ? { metadata } : {}),
+    ...(root.buildUuid ? { uuid: root.buildUuid } : {}) };
   // Our files with extras: the tree they were written from (ours.ts).
   if (root.metadata['cadio:tree'] !== undefined) {
     const ours = oursFromTree(root, (k) => {
@@ -205,7 +213,7 @@ function read(input: Uint8Array, opts: ThreeMfImportOptions): ThreeMfImport {
       const t = item ? target(root, item, 'build item') : undefined;
       return t && !t.object.components ? { object: t.object, matrix: toParent(item!.transform, root.unit,
         t.file.unit) } : undefined;
-    }, (m) => warn(m));
+    }, (m) => warn(m), own);
     if (ours) {
       diagnostics.push(...ours.diagnostics);
       ours.scene.diagnostics = diagnostics;
@@ -250,9 +258,12 @@ function read(input: Uint8Array, opts: ThreeMfImportOptions): ThreeMfImport {
   } else warn('the build has no items: nothing to show');
 
   scene.sourceUnit = root.unit;
-  scene.properties = { format: '3mf', unit: root.unitName,
-    ...(Object.keys(root.metadata).length ? { metadata: root.metadata } : {}),
-    ...(root.buildUuid ? { uuid: root.buildUuid } : {}) };
+  // (Our assembly with extras: the scene's properties apart, as there's no tree.)
+  let source: unknown;
+  try { source = JSON.parse(root.metadata['cadio:properties'] ?? 'null'); } catch { source = undefined; }
+  const ok = source && typeof source === 'object' && !Array.isArray(source);
+  if (!ok && source !== null) warn('our properties metadata (cadio:properties) unreadable: left out');
+  scene.properties = propertiesFrom(ok ? source as Properties : {}, own);
   return { scene, diagnostics };
 }
 

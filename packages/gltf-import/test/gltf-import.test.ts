@@ -429,3 +429,33 @@ test('the model\'s sphere in the root\'s extras, read back as the file\'s; witho
   assert.equal(plain.bounds?.from, 'meshes');
   assert.ok(plain.parts.every((p) => p.lods.every((l) => l.mesh.box)));
 });
+
+test('file metadata: a foreign file\'s asset; ours, the source\'s with ours as container; the copyright always',
+  async () => {
+    const doc = new Document();
+    doc.getRoot().getAsset().copyright = '(c) Them';
+    doc.getRoot().getAsset().extras = { by: 'x' };
+    doc.createScene('s');
+    const io = new WebIO();
+    const foreign = await importGltf(await io.writeBinary(doc));
+    // (glTF-Transform writes its own generator.)
+    assert.deepEqual(foreign.scene.properties, { format: 'glb', asset: { ...foreign.scene.properties.asset as object,
+      copyright: '(c) Them', extras: { by: 'x' } } });
+    assert.match(String((foreign.scene.properties.asset as Record<string, unknown>).generator), /glTF-Transform/);
+    const embedded = await importGltf({ json: JSON.stringify({ asset: { version: '2.0', generator: 'g' } }) });
+    assert.deepEqual(embedded.scene.properties, { format: 'gltf', asset: { version: '2.0', generator: 'g' } });
+
+    const s = scene();
+    s.properties = { format: 'step', author: 'Ann', authors: ['Ann'], container: { format: 'old' } };
+    const view = exportView(s, lines);
+    const ours = { format: 'glb', asset: { generator: 'cad-io-js export-gltf', version: '2.0' } };
+    const back = (await importGltf((await glb(s, view, { extras: true })).bytes)).scene;
+    assert.deepEqual(back.properties, { format: 'step', author: 'Ann', authors: ['Ann'], container: ours });
+    // Again: the source's still, its container this file.
+    const again = (await importGltf((await glb(back, exportView(back, lines), { extras: true })).bytes)).scene;
+    assert.deepEqual(again.properties, back.properties);
+    // Without extras: the file's own, the standard field only (a source's copyright).
+    assert.deepEqual((await importGltf((await glb(s, view, {})).bytes)).scene.properties, ours);
+    const copied = (await importGltf((await glb(foreign.scene, exportView(foreign.scene), {})).bytes)).scene;
+    assert.deepEqual(copied.properties.asset, { ...ours.asset, copyright: '(c) Them' });
+  });

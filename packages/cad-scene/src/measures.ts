@@ -79,12 +79,14 @@ export const unitFrom = (j: unknown) => (typeof j === 'number' && Number.isFinit
 /** The model's sphere as our root extras' JSON, where the scene has one. */
 /**
  * What our extras say of the whole scene (glTF's scene, three.js's root object, 3MF's `cadio:tree`): its frame
- * (millimetres, Z up; for 3MF the nodes', its model in the source's unit), its properties, the source's unit and its
- * sphere.
+ * (millimetres, Z up; for 3MF the nodes', its model in the source's unit), its properties (but `container`), the
+ * source's unit and its sphere.
  */
 export function sceneJson(scene: Scene): Json {
-  return { unit: 'millimetre', up: 'z', ...(Object.keys(scene.properties).length ? { properties: scene.properties }
-    : {}), ...(scene.sourceUnit !== undefined ? { sourceUnit: scene.sourceUnit } : {}), ...boundsJson(scene) };
+  // (Not the file the scene was read from, when that was one of ours: its source's are what's carried on.)
+  const { container: _, ...properties } = scene.properties;
+  return { unit: 'millimetre', up: 'z', ...(Object.keys(properties).length ? { properties } : {}),
+    ...(scene.sourceUnit !== undefined ? { sourceUnit: scene.sourceUnit } : {}), ...boundsJson(scene) };
 }
 
 export function boundsJson(scene: Scene): Json {

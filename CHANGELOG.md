@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- File metadata: the importers keep all a file says of itself in `Scene.properties` (STEP's whole header, glTF's `asset`, three.js's `metadata`, 3MF's) and set `author` where the format names one, placeholders such as `Author` or `none` left out; our files with extras give back the source's, the file's own as `container`. The exporters write the standard fields always (3MF's `Designer`, `CreationDate` and a 3MF source's `Title`, `Description`, `Copyright`, `LicenseTerms`, `Rating`; glTF's `asset.copyright`) and the rest with extras (3MF's assembly build in `cadio:properties`). `cad-scene`: `authorOf`, `standardMetadata`, `propertiesFrom`.
+- `cad-viewer`: About names the file's author after its name, and its **details** link opens **Model Details**, the file's metadata, read-only and selectable, over About.
 - `cad-viewer`: About's **Load demo model...** closes About and offers the deployed demo models in a list (`content/demo/catalog.json`, fetched each time, each model with its size); `scripts/demo-catalog.ts` writes the catalog, `scripts/deploy-demo.sh` (`npm run deploy-demo`) commits and publishes the demo models alone, and `deploy-viewer.sh` updates and commits the catalog and deploys only committed demo models.
 - `cad-viewer`: the controls' folders are File, View, Tree, Selection, Section, Rendering, B-Rep Meshing: **Tree** holds the tree panel's controls, and View ends with Details, hiding and transparency (recordings name them by their new folders). About's Check for updates says its result to the right of the button.
 - `cad-viewer`: Screenshot...'s whole window, redrawn from the page, shows the details box and the status line (the view's image covered them).

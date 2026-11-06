@@ -4,8 +4,8 @@
 // (other kinds, made from parameters, are skipped with a warning); materials give a colour (sRGB, as the file holds it)
 // and opacity; textures aren't supported (said, and ignored).
 
-import { boundScene, dropSourceDegenerate, identity, sceneFromTree, type Diagnostic, type Scene, type TreeMaterial,
-  type TreeMesh, type TreeNode } from 'cad-scene';
+import { boundScene, dropSourceDegenerate, identity, sceneFromTree, type Diagnostic, type Properties, type Scene,
+  type TreeMaterial, type TreeMesh, type TreeNode } from 'cad-scene';
 
 export interface ThreejsImport {
   scene: Scene;
@@ -142,7 +142,10 @@ export function importThreejs(input: string | Uint8Array | object, opts: Threejs
   // millimetres, the source's axes, with no root matrix: read as they are.)
   const old = obj(root.userData)?.unit === 'millimetre' && obj(root.userData)?.up === undefined;
   // (A Scene object holds the roots, as toJSON writes a scene and our exporter without extras: not an assembly.)
-  const { scene } = sceneFromTree(tree, { ...(old ? { frame: identity() } : {}), container: root.type === 'Scene' });
+  // (The file's metadata: its writer, the format's version and type.)
+  const own = { format: 'threejs', ...(obj(json.metadata) ? { metadata: obj(json.metadata) as Properties } : {}) };
+  const { scene } = sceneFromTree(tree, { ...(old ? { frame: identity() } : {}), container: root.type === 'Scene',
+    properties: own });
   // The reader's, then the tree's (the scene's own list).
   scene.diagnostics.unshift(...diagnostics);
   if (opts.dropDegenerate ?? true) dropSourceDegenerate(scene);
