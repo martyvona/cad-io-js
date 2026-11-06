@@ -50,7 +50,8 @@ export async function showAbout(model?: [string, string][], updates?: UpdateChec
     });
   });
   const reload = button('Reload', () => location.reload());
-  update.append(text, ' ', check, ' ', reload);
+  // The button first and the result beside it (index.html), so the button never moves as the result changes.
+  update.append(check, text, reload);
   show();
   // (Another version found ends Checking... before its check resolves, which waits for the worker to download it; a
   // change, by this check or the badge's, replaces an error said.)

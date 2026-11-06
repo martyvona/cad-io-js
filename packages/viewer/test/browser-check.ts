@@ -4251,7 +4251,13 @@ await check('update badge', async () => {
       const d = document.querySelector('dialog.cv-dialog');
       const p = d?.querySelector('p.update');
       const [check, reload] = p ? [...p.querySelectorAll('button')] : [];
-      const line = () => p.querySelector('span').textContent;
+      // Where the button is each time the line is read: it mustn't move as the line changes (the line after it).
+      const at = new Set();
+      const line = () => {
+        const b = check.getBoundingClientRect(), s = p.querySelector('span').getBoundingClientRect();
+        at.add(s.width > 0 && s.left < b.right ? 'before' : b.left + ',' + b.top);
+        return p.querySelector('span').textContent;
+      };
       const about = { open: !!d, fetched: versionFetches - shown.fetches, text: p ? line() : null, hidden: p?.hidden,
         reload: reload && !reload.hidden && !reload.disabled, check: check?.textContent,
         folded: title.parentElement.classList.contains('closed') };
@@ -4292,7 +4298,7 @@ await check('update badge', async () => {
         reload: !reload.hidden && !reload.disabled };
       d.querySelector('.buttons button').click();
       return { away: ${JSON.stringify(away)}, behind: ${JSON.stringify(behind)}, shown, about, downSeen, same, down,
-        hang, lost, found };
+        hang, lost, found, at: [...at] };
     })()`);
   } }) as { after?: { version: string; atLoad: number; served: string }; then?: { away: number;
     behind: [string, number]; shown: { fetches: number; hidden: boolean; title: string; ready: boolean;
@@ -4302,7 +4308,7 @@ await check('update badge', async () => {
     badge: boolean; fetched: number }; down: { text: string; badge: boolean };
     hang: { text: string; failed: boolean }; lost: { text: string; badge: boolean; reload: boolean;
     state: { latest?: string; ready: boolean } }; found: { downloading: { text: string; reload: boolean };
-    text: string; badge: string; reload: boolean } }; missing?: string };
+    text: string; badge: string; reload: boolean }; at: string[] }; missing?: string };
   const a = r.after, t = r.then;
   const j = JSON.stringify({ after: a, then: t, missing: r.missing });
   expect(!!a && !!t, `no result: ${j}`);
@@ -4314,6 +4320,7 @@ await check('update badge', async () => {
   expect(t!.about.open && !t!.about.folded && t!.about.fetched === 0 && !t!.about.hidden &&
     !!t!.about.text?.includes('9.9.9-new') && t!.about.reload && t!.about.check === 'Check for updates',
     `About: ${j}`);
+  expect(t!.at.length === 1 && t!.at[0] !== 'before', `Check for updates moved: ${j}`);
   expect(t!.downSeen.text === 'The server could not be reached: no connection.' && t!.downSeen.reload &&
     t!.downSeen.badge, `checked, unreachable with a version seen: ${j}`);
   expect(t!.same.checking === 'Checking...' && t!.same.text === 'This is the latest version.' && !t!.same.reload &&
