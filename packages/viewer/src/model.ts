@@ -124,8 +124,9 @@ export class NodeModel {
 
   constructor(root: THREE.Object3D, looks?: Looks) {
     this.looks = looks;
-    // The loaded root itself is the top node.
-    this.roots.push(this.build(root, -1));
+    // The file's own roots are the top nodes, not a node for the file (the user, 2026-11-06: a file usually has one
+    // root, which a file node would only repeat; several files open at once would want file nodes again).
+    for (const c of root.children) this.roots.push(this.build(c, -1));
     this.applyAll();
   }
 

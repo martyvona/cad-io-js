@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `cad-viewer`: the tree starts at the file's own roots, with no node for the file itself (a file with several roots shows them all at the top), so node paths lose their first segment (`as1.stp/as1/plate_1` is `as1/plate_1`); links, states and recordings with the old paths no longer resolve; `cadViewer`'s version 5.
+
 ## 0.2.0 (2026-11-01)
 
 Tagged `V0.2.0`; not published to npm. Since 0.1.0: importers for glTF/GLB, three.js JSON and 3MF and AP242 tessellated STEP; one scene path for every format in the viewer; B-rep face measures; leaf products placed as parts and round trips that keep the tree; exports in the input's frame; and much of the viewer below. The license is now AGPL-3.0-only.

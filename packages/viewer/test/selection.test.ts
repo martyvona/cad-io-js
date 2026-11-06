@@ -16,7 +16,7 @@ function stepModel() {
   const model = new NodeModel(graph.root, graph);
   model.setDetail(true);
   graph.root.updateMatrixWorld(true);
-  const [left, sub, hidden] = model.children(model.children(model.roots[0]!)[0]!);
+  const [left, sub, hidden] = model.children(model.roots[0]!);
   const partOf = (placement: number, i: number) => model.children(placement)[i]!;
   const find = (part: number, name: string) => model.children(part).find((c) => model.nodes[c]!.name === name)!;
   return { graph, model, left: left!, sub: sub!, hidden: hidden!, partOf, find };
@@ -164,7 +164,7 @@ test("details: counts by kind; one node's name, place, placement; totals", () =>
   const lines = details(model, [partOf(sub, 0)]);
   assert.equal(lines[0], 'Selected: 1 part');
   assert.equal(lines[1], 'Name: plate (part)');
-  assert.equal(lines[2], 'In: model / asm / sub');
+  assert.equal(lines[2], 'In: asm / sub');
   assert.equal(lines[3], 'Placement 2 of 3 of this part');
   assert.match(lines[4]!, /^Triangles: 2 in 1 mesh, area [\d,.]+ mm\^2$/);
   assert.match(lines[5]!, /^Segments: 1 in 1 line object, length 35\.9 mm$/);

@@ -1244,7 +1244,7 @@ await check('tree', async () => {
     const click = (row, ctrlKey = false) => row.dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey }));
     const parts = () => rows().filter((r) => m.nodes[+r.dataset.id].kind === 'part');
     const display = getComputedStyle(rows()[0]).display;
-    const label = rows()[1].getAttribute('aria-label');
+    const label = rows()[0].getAttribute('aria-label');
     click(parts()[0]);
     await frame();
     click(parts()[1], true);
@@ -1293,7 +1293,9 @@ await check('tree', async () => {
     greyAfter: number; display: string; label: string; afterClicks: number; picked: boolean; collapsed: number } };
   const a = r.after!;
   const j = JSON.stringify(a);
-  expect(a.initial.length > 3 && a.initial[0] === 'as1.stp' && a.initial[1] === 'as1', `initial rows: ${j}`);
+  // (The file's root at the top, no row for the file, and its contents open.)
+  expect(a.initial.length > 3 && a.initial[0] === 'as1' && a.initial[1] === 'rod-assembly_1' &&
+    a.initial[2] === 'l-bracket-assembly_1', `initial rows: ${j}`);
   expect(a.all === a.nodes, `rows ${a.all}, nodes ${a.nodes}`);
   expect(a.display === 'flex' && a.label === 'as1', `rows' layout and labels: ${j}`);
   // Clicks select; they don't expand or collapse.
@@ -3235,8 +3237,8 @@ await check('snapshot: meshing and hidden faces', async () => {
 type State = { camera: { position: number[]; target: number[]; up: number[]; height: number }; cut: object;
   render: { ao: boolean }; hidden: string[]; selected: string[]; tree: object; model?: { triangles: number } };
 // 3MF's tree: with our extras the STEP file's (its shown nodes: the export leaves hidden ones out), names and
-// kinds; without, anyone's, the placed parts flat under the file's own node (the build's items root parts: the user,
-// 2026-11-01).
+// kinds; without, anyone's, the placed parts flat at the top of the tree (the build's items root parts: the user,
+// 2026-11-01; no node for the file: the user, 2026-11-06).
 await check('3mf tree', async () => {
   const tree = async (file: string) => (await page(`?url=${encodeURIComponent(`/content/${file}`)}&check`,
     `(async () => {
@@ -3249,8 +3251,8 @@ await check('3mf tree', async () => {
     + `expected the STEP file's ${stp.length}: ${ours.filter((n) => !stp.includes(n)).slice(0, 3)}`);
   const parts = stp.filter((n) => n.startsWith('part ')).length;
   const flat = plain.filter((n) => n.startsWith('part '));
-  expect(flat.length === parts && flat.every((n) => n.split('/').length === 2) && plain.filter((n) =>
-    n.startsWith('assembly ')).length === 1, `without extras: ${JSON.stringify(plain.slice(0, 4))}`);
+  expect(flat.length === parts && flat.every((n) => n.split('/').length === 1) && plain.filter((n) =>
+    n.startsWith('assembly ')).length === 0, `without extras: ${JSON.stringify(plain.slice(0, 4))}`);
   return undefined;
 });
 
@@ -3301,7 +3303,7 @@ await check('automation', async () => {
     redrawn: boolean } };
   const a = r.after;
   const j = JSON.stringify({ ...a, state: undefined });
-  expect(a.version === 4 && a.count === a.unique && a.parts.length >= 4, `nodes: ${j}`);
+  expect(a.version === 5 && a.count === a.unique && a.parts.length >= 4, `nodes: ${j}`);
   expect(a.missing.length === 1 && /nowhere/.test(a.missing[0]!) && a.selected[0] === a.parts[0], `select: ${j}`);
   expect(a.hidden.includes(a.parts[1]!) && !a.shown.includes(a.parts[1]!), `hide and show: ${j}`);
   expect(!!a.pick && a.pick.path.startsWith(a.parts[0]!.split('/')[0]!), `pick: ${j}`);

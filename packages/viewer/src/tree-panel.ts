@@ -128,8 +128,8 @@ export class TreePanel {
       if (press && Math.hypot(p.clientX - press.x, p.clientY - press.y) > 8) cancel();
     });
     for (const type of ['pointerup', 'pointercancel', 'scroll']) on(type, cancel);
-    // Two levels open: the file, and what it holds (often one top assembly, whose contents then show).
-    this.view.expand([...model.roots, ...model.roots.flatMap((r) => model.children(r))].map(String));
+    // The file's roots open (often one top assembly, whose contents then show).
+    this.view.expand(model.roots.map(String));
   }
 
   selected(): readonly number[] {
