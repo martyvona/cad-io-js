@@ -91,6 +91,26 @@ const licenses = (): Plugin => ({
   },
 });
 
+/**
+ * version.json beside index.html: the version the build was made as (update-check.ts compares it with its own to tell
+ * a page that the server has another), and on the dev server the dev version. Left out of the service worker's
+ * precache (globIgnores), which would answer with its own build's.
+ */
+const versionFile = (v: string): Plugin => ({
+  name: 'cad-viewer-version',
+  configureServer(server) {
+    server.middlewares.use((req, res, next) => {
+      if (new URL(req.url ?? '/', 'http://x').pathname !== '/version.json') return next();
+      res.setHeader('content-type', 'application/json');
+      res.setHeader('cache-control', 'no-store');
+      res.end(JSON.stringify({ version: v }) + '\n');
+    });
+  },
+  generateBundle() {
+    this.emitFile({ type: 'asset', fileName: 'version.json', source: JSON.stringify({ version: v }) + '\n' });
+  },
+});
+
 function mkcert(): { cert: Buffer; key: Buffer } {
   const cert = path.join(opts.certDir, 'cert.pem');
   const key = path.join(opts.certDir, 'key.pem');
@@ -111,6 +131,7 @@ const pwa = VitePWA({
   },
   workbox: {
     globPatterns: ['**/*.{js,mjs,css,html,wasm,json,svg}'],
+    globIgnores: ['version.json'],
     // OCCT's module is about 7 MB.
     maximumFileSizeToCacheInBytes: 32 * 2 ** 20,
     // Models from the dev or preview server's content root are fetched, not cached.
@@ -141,23 +162,26 @@ function version(build: boolean): string {
   return `${release}-${hash}${dirty}`;
 }
 
-export default defineConfig(({ command }) => ({
-  root: import.meta.dirname,
-  define: { __CAD_IO_VERSION__: JSON.stringify(version(command === 'build')) },
-  base: './',
-  resolve: { alias: [{ find: /^node:(fs|fs\/promises|path)$/, replacement: path.join(import.meta.dirname,
-    'src/no-node.ts') }] },
-  plugins: [content(), jsonImports(), licenses(), ...(opts.https === 'self' ? [basicSsl()] : []),
-    pwa],
-  server: {
-    port: opts.port, strictPort: true, host: opts.lan ? '0.0.0.0' : 'localhost', allowedHosts: true,
-    ...(opts.https === 'mkcert' ? { https: mkcert() } : {}),
-  },
-  preview: { port: opts.port, strictPort: true, host: opts.lan ? '0.0.0.0' : 'localhost', allowedHosts: true },
-  // three.js alone is about 700 kB minified, and loads at once anyway. Vite's list of the bundled npm packages'
-  // licenses goes into licenses.md (licenses()).
-  build: { outDir: 'dist', emptyOutDir: true, target: 'es2023', chunkSizeWarningLimit: 4000,
-    license: { fileName: VITE_LICENSES } },
-  // Module workers, split into chunks: the import worker loads the schema dictionaries on demand.
-  worker: { format: 'es' },
-}));
+export default defineConfig(({ command }) => {
+  const v = version(command === 'build');
+  return {
+    root: import.meta.dirname,
+    define: { __CAD_IO_VERSION__: JSON.stringify(v) },
+    base: './',
+    resolve: { alias: [{ find: /^node:(fs|fs\/promises|path)$/, replacement: path.join(import.meta.dirname,
+      'src/no-node.ts') }] },
+    plugins: [content(), jsonImports(), licenses(), versionFile(v), ...(opts.https === 'self' ? [basicSsl()] : []),
+      pwa],
+    server: {
+      port: opts.port, strictPort: true, host: opts.lan ? '0.0.0.0' : 'localhost', allowedHosts: true,
+      ...(opts.https === 'mkcert' ? { https: mkcert() } : {}),
+    },
+    preview: { port: opts.port, strictPort: true, host: opts.lan ? '0.0.0.0' : 'localhost', allowedHosts: true },
+    // three.js alone is about 700 kB minified, and loads at once anyway. Vite's list of the bundled npm packages'
+    // licenses goes into licenses.md (licenses()).
+    build: { outDir: 'dist', emptyOutDir: true, target: 'es2023', chunkSizeWarningLimit: 4000,
+      license: { fileName: VITE_LICENSES } },
+    // Module workers, split into chunks: the import worker loads the schema dictionaries on demand.
+    worker: { format: 'es' },
+  };
+});

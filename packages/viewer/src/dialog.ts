@@ -18,9 +18,9 @@ export interface DialogOptions {
   title: string;
   /**
    * Paragraphs: text, [label, value] rows shown as a table (file names, sizes, hashes: monospace), or text with links
-   * (`{ text, href }` pieces, opened in a new tab).
+   * (`{ text, href }` pieces, opened in a new tab), or elements of the caller's own.
    */
-  body: (string | [string, string][] | { text: string; href?: string }[])[];
+  body: (string | HTMLElement | [string, string][] | { text: string; href?: string }[])[];
   buttons: DialogButton[];
   /** Drawn as an error. */
   error?: boolean;
@@ -50,6 +50,10 @@ export function showDialog(o: DialogOptions): Promise<DialogResult> {
   form.append(title);
   draggable(dialog, title);
   for (const part of o.body) {
+    if (part instanceof HTMLElement) {
+      form.append(part);
+      continue;
+    }
     if (typeof part === 'string') {
       const p = document.createElement('p');
       p.textContent = part;

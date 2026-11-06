@@ -91,6 +91,18 @@
     #view canvas { display: block; }
     /* The controls flush with the right edge (lil-gui leaves 15 pixels; past a notch's safe area on phones). */
     body .lil-gui.autoPlace { right: env(safe-area-inset-right, 0); }
+    /* Another version on the server (ui.ts): after the version in the title; dim while it downloads. */
+    .lil-gui .title .update-badge {
+      display: inline-block; margin-left: 6px; vertical-align: -1px; color: #ffb43c; opacity: 0.5; cursor: pointer;
+    }
+    .lil-gui .title .update-badge.ready { opacity: 1; }
+    :root[data-theme="light"] .lil-gui .title .update-badge { color: #c46f00; }
+    .lil-gui .title .update-badge[hidden] { display: none; }
+    .cv-dialog p.update .available { color: #ffb43c; }
+    .cv-dialog p.update .failed { color: #ff6b6b; }
+    :root[data-theme="light"] .cv-dialog p.update .failed { color: #b00020; }
+    :root[data-theme="light"] .cv-dialog p.update .available { color: #a85d00; }
+    .cv-dialog p.update[hidden], .cv-dialog p.update button[hidden] { display: none; }
     #status {
       position: absolute; left: 0; bottom: env(safe-area-inset-bottom, 0); max-width: calc(100% - 16px);
       padding: 4px 8px;

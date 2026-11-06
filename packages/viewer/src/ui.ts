@@ -8,6 +8,7 @@ import { VIEWS, type ViewName } from './camera.ts';
 import { details } from './details.ts';
 import { showAbout } from './about.ts';
 import { VERSION } from './version.ts';
+import { documentActivity, onReactivated, UpdateCheck, updateText } from './update-check.ts';
 import { applyCustomBackground, applyTheme, customBackground, hexColour, onSystemTheme, themeChoice, type ThemeChoice,
   VIEW_BACKGROUNDS } from './theme.ts';
 import { askUrl, showBusy, showDialog } from './dialog.ts';
@@ -35,6 +36,8 @@ import { canCaptureTab, captureTab, encode, freeArea, modelRect, redrawWindow, s
 
 /** What the browser check reaches through `globalThis.ui`. */
 export interface Ui {
+  /** Whether the server has another version (the title's badge, About). */
+  updates: UpdateCheck;
   panel(): TreePanel | undefined;
   /** The selected nodes. */
   selected(): readonly number[];
@@ -141,6 +144,30 @@ function autoHide(el: HTMLElement): (stay?: boolean) => void {
 export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLElement, detailsElement: HTMLElement):
   Ui {
   const gui = new GUI({ title: `cad-io-js ${VERSION}`.trim() });
+  // A badge after the version in the title while the server has another (update-check.ts: checked when the tab becomes
+  // active again), saying which in its tooltip; a click on it opens About (which says so too, as touch screens have no tooltips) and doesn't fold the
+  // controls as the title does. Set lil-gui's title only by this: its title() replaces the badge.
+  const updates = new UpdateCheck();
+  const badge = document.createElement('span');
+  badge.className = 'update-badge';
+  badge.setAttribute('role', 'button');
+  badge.hidden = true;
+  badge.innerHTML = '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" '
+    + 'stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 6.5A5.5 5.5 0 0 0 3.2 4.6"/>'
+    + '<path d="M2.5 9.5a5.5 5.5 0 0 0 10.3 1.9"/><path d="M3 1.8v3h3"/><path d="M13 14.2v-3h-3"/></svg>';
+  (gui as unknown as { $title: HTMLElement }).$title.append(badge);
+  badge.addEventListener('click', (e) => {
+    e.stopPropagation();
+    void about();
+  });
+  updates.listeners.add((s) => {
+    const t = updateText(s);
+    badge.hidden = !t;
+    badge.title = t ?? '';
+    badge.setAttribute('aria-label', t ?? '');
+    badge.classList.toggle('ready', s.ready);
+  });
+  onReactivated(documentActivity(), () => void updates.check());
   // What the controls cover of the view's right, however folded (the panel's width is the same): zoom all and zoom
   // selected fit beside them (Viewer.setCovered).
   const covered = () => {
@@ -280,6 +307,13 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       void showDialog({ title: `Could not take ${name}`, error: true, body: [(e as Error).message],
         buttons: [{ label: 'OK', value: 'ok', primary: true }] });
     }
+  };
+  // (With the model open: its file, objects and triangles, as they are now.)
+  const about = () => {
+    const s = viewer.model && viewer.stats();
+    return showAbout(viewer.model && s ? [['File', viewer.model.name],
+      ['Objects', `${s.objects.toLocaleString()} (${s.meshes.toLocaleString()} meshes)`],
+      ['Triangles', s.triangles.toLocaleString()]] : undefined, updates);
   };
   const exportFile = async () => {
     const src = saving;
@@ -463,13 +497,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   // buffer beside it asks again for the .bin.
   exportControl = file.add({ export: () => exportFile() }, 'export').name('Export...').disable();
   screenshotControl = file.add({ shot: () => screenshot() }, 'shot').name('Screenshot...').disable();
-  // (With the model open: its file, objects and triangles, as they are now.)
-  file.add({ about: () => {
-    const s = viewer.model && viewer.stats();
-    return showAbout(viewer.model && s ? [['File', viewer.model.name],
-      ['Objects', `${s.objects.toLocaleString()} (${s.meshes.toLocaleString()} meshes)`],
-      ['Triangles', s.triangles.toLocaleString()]] : undefined);
-  } }, 'about').name('About...');
+  file.add({ about: () => about() }, 'about').name('About...');
 
   const view = gui.addFolder('View');
   view.add({ all: () => viewer.zoomAll() }, 'all').name('Zoom all');
@@ -823,6 +851,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     return ids;
   };
   const ui: Ui = {
+    updates,
     panel: () => panel,
     selected: () => selected,
     select: (ids, source = 'api') => select(ids, source),

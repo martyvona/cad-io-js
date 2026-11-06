@@ -203,6 +203,8 @@ interface PageOptions {
   light?: boolean;
   /** The query as it is: not thin edges unless it says (page's default). */
   asIs?: boolean;
+  /** The page focused, as a tab in front is (headless Chrome's tabs aren't). */
+  focus?: boolean;
 }
 
 async function page(query: string, after?: string, opts: PageOptions = {}): Promise<Record<string, unknown>> {
@@ -217,6 +219,7 @@ async function page(query: string, after?: string, opts: PageOptions = {}): Prom
     deviceScaleFactor: opts.scale, mobile: false }, sessionId);
   if (opts.light) await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme',
     value: 'light' }] }, sessionId);
+  if (opts.focus) await send('Emulation.setFocusEmulationEnabled', { enabled: true }, sessionId);
   if (opts.first) {
     await send('Page.enable', {}, sessionId);
     await send('Page.addScriptToEvaluateOnNewDocument', { source: opts.first }, sessionId);
@@ -2877,9 +2880,11 @@ await check('about', async () => {
     const links = [...d.querySelectorAll('a')].map((a) => ({ href: a.href, target: a.target, rel: a.rel }));
     const licenses = links.find((l) => /licenses\.md$/.test(l.href));
     const status = licenses ? (await fetch(licenses.href)).status : undefined;
-    const text = d.textContent;
+    // (The line saying the server has another version hidden, as it hasn't: the update badge check.)
+    const text = [...d.querySelectorAll(':is(h2, p, table, .buttons):not([hidden])')].map((e) => e.textContent)
+      .join('');
     const rows = [...d.querySelectorAll('tr')].map((r) => [...r.cells].map((c) => c.textContent));
-    d.querySelector('button').click();
+    d.querySelector('.buttons button').click();
     await new Promise((res) => setTimeout(res, 100));
     return { title: d.querySelector('h2').textContent, text, links, status, closed: !d.isConnected, rows,
       triangles: viewer.stats()?.triangles, folders: ui.gui.foldersRecursive().map((f) => f._title) };
@@ -4189,6 +4194,143 @@ await check('screenshot', async () => {
 // the import worker and written: GLB with Draco and with meshopt (their encoders in the browser), .gltf embedded and
 // with its .bin saved after (a second dialog), three.js JSON with edges, 3MF; the viewer's hiding applied when asked;
 // the choices remembered; Cancel saving nothing; disabled with no model.
+// Another version on the server (update-check.ts), never polled: nothing fetched at load; version.json fetched as it
+// is (the server's, the same as the page's). Then answered by the page's fetch, wrapped to count, with another: the
+// tab sent behind another and brought back checks once, and the badge in the title says which; a click on it opens
+// About (the controls not folded) with the same line and Reload, fetching nothing more. Check for updates there: the
+// server unreachable (said, the version kept), back to the same (both go), unreachable or not answering in time
+// (said), another whose download fails (said, dropped), then another again (the badge back).
+await check('update badge', async () => {
+  const first = `globalThis.versionFetches = 0;
+    const real = globalThis.fetch;
+    globalThis.fetch = (input, init) => {
+      const url = new URL(String(input?.url ?? input), location.href);
+      if (!url.pathname.endsWith('/version.json')) return real(input, init);
+      versionFetches++;
+      if (globalThis.serverVersion === 'hang') return new Promise((_, reject) => init.signal.addEventListener('abort',
+        () => reject(new DOMException('aborted', 'AbortError'))));
+      return globalThis.serverVersion === 'down' ? Promise.reject(new TypeError('Failed to fetch'))
+        : globalThis.serverVersion ? Promise.resolve(new Response(JSON.stringify({ version: serverVersion })))
+        : real(input, init);
+    };`;
+  const r = await page('?check', `(async () => {
+    await new Promise((r) => setTimeout(r, 1000));
+    const title = document.querySelector('.lil-gui .title');
+    const atLoad = versionFetches;
+    const served = (await (await fetch(new URL('version.json', document.baseURI))).json()).version;
+    return { version: title.textContent.replace('cad-io-js ', ''), atLoad, served };
+  })()`, { first, then: async (sessionId) => {
+    const evaluate = async (expression: string) => {
+      const e = await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true }, sessionId) as
+        { result: { value: unknown }; exceptionDetails?: { exception?: { description?: string }; text: string } };
+      if (e.exceptionDetails) throw new Error(e.exceptionDetails.exception?.description ?? e.exceptionDetails.text);
+      return e.result.value;
+    };
+    await evaluate(`globalThis.serverVersion = '9.9.9-new', versionFetches = 0`);
+    const away = await evaluate(`new Promise((r) => setTimeout(() => r(versionFetches), 300))`);
+    // Another tab in front, then this one again.
+    const { targetId } = await send('Target.createTarget', { url: 'about:blank' }) as { targetId: string };
+    const other = await send('Target.attachToTarget', { targetId, flatten: true }) as { sessionId: string };
+    await send('Page.bringToFront', {}, other.sessionId);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const behind = await evaluate('[document.visibilityState, versionFetches]');
+    await send('Page.bringToFront', {}, sessionId);
+    await send('Target.closeTarget', { targetId });
+    return evaluate(`(async () => {
+      const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+      const badge = document.querySelector('.lil-gui .title .update-badge');
+      const title = document.querySelector('.lil-gui .title');
+      for (let t = 0; t < 50 && !ui.updates.state.ready; t++) await wait(100);
+      const b = badge.getBoundingClientRect(), tr = title.getBoundingClientRect();
+      const shown = { fetches: versionFetches, hidden: badge.hidden, title: badge.title, ready: ui.updates.state.ready,
+        inside: b.width > 0 && b.left >= tr.left && b.right <= tr.right && b.top >= tr.top && b.bottom <= tr.bottom };
+      // (Past the gap within which a check is skipped, so one made by opening About would show.)
+      await wait(2100);
+      badge.click();
+      await wait(300);
+      const d = document.querySelector('dialog.cv-dialog');
+      const p = d?.querySelector('p.update');
+      const [check, reload] = p ? [...p.querySelectorAll('button')] : [];
+      const line = () => p.querySelector('span').textContent;
+      const about = { open: !!d, fetched: versionFetches - shown.fetches, text: p ? line() : null, hidden: p?.hidden,
+        reload: reload && !reload.hidden && !reload.disabled, check: check?.textContent,
+        folded: title.parentElement.classList.contains('closed') };
+      // The server down with a version seen: said, the version kept (Reload still there).
+      globalThis.serverVersion = 'down';
+      check.click();
+      for (let t = 0; t < 50 && check.disabled; t++) await wait(100);
+      const downSeen = { text: line(), reload: !reload.hidden && !reload.disabled, badge: !badge.hidden };
+      globalThis.serverVersion = undefined;
+      check.click();
+      const checking = line();
+      for (let t = 0; t < 50 && check.disabled; t++) await wait(100);
+      const same = { checking, text: line(), reload: !reload.hidden, badge: !badge.hidden,
+        fetched: versionFetches - shown.fetches };
+      globalThis.serverVersion = 'down';
+      check.click();
+      for (let t = 0; t < 50 && check.disabled; t++) await wait(100);
+      const down = { text: line(), badge: !badge.hidden };
+      globalThis.serverVersion = 'hang';
+      ui.updates.timeout = 500;
+      check.click();
+      for (let t = 0; t < 50 && check.disabled; t++) await wait(100);
+      const hang = { text: line(), failed: p.querySelector('span').classList.contains('failed') };
+      // A download that fails: said, and the version dropped (the badge goes).
+      ui.updates.updateWorker = () => wait(300).then(() => { throw new Error('offline'); });
+      globalThis.serverVersion = '9.9.9-c';
+      check.click();
+      for (let t = 0; t < 50 && check.disabled; t++) await wait(100);
+      const lost = { text: line(), badge: !badge.hidden, reload: !reload.hidden, state: ui.updates.state };
+      // (The service worker's download made slow: what it says meanwhile.)
+      ui.updates.updateWorker = () => wait(1000);
+      globalThis.serverVersion = '9.9.9-b';
+      check.click();
+      await wait(300);
+      const downloading = { text: line(), reload: !reload.hidden && !reload.disabled };
+      for (let t = 0; t < 50 && check.disabled; t++) await wait(100);
+      const found = { downloading, text: line(), badge: badge.title,
+        reload: !reload.hidden && !reload.disabled };
+      d.querySelector('.buttons button').click();
+      return { away: ${JSON.stringify(away)}, behind: ${JSON.stringify(behind)}, shown, about, downSeen, same, down,
+        hang, lost, found };
+    })()`);
+  } }) as { after?: { version: string; atLoad: number; served: string }; then?: { away: number;
+    behind: [string, number]; shown: { fetches: number; hidden: boolean; title: string; ready: boolean;
+    inside: boolean }; about: { open: boolean; fetched: number; text: string | null; hidden: boolean;
+    reload: boolean; check: string; folded: boolean }; downSeen: { text: string; reload: boolean; badge: boolean };
+    same: { checking: string; text: string; reload: boolean;
+    badge: boolean; fetched: number }; down: { text: string; badge: boolean };
+    hang: { text: string; failed: boolean }; lost: { text: string; badge: boolean; reload: boolean;
+    state: { latest?: string; ready: boolean } }; found: { downloading: { text: string; reload: boolean };
+    text: string; badge: string; reload: boolean } }; missing?: string };
+  const a = r.after, t = r.then;
+  const j = JSON.stringify({ after: a, then: t, missing: r.missing });
+  expect(!!a && !!t, `no result: ${j}`);
+  expect(a!.atLoad === 0, `fetched at load: ${j}`);
+  expect(a!.served === a!.version, `the server's own: ${j}`);
+  expect(t!.away === 0 && t!.behind[0] === 'hidden' && t!.behind[1] === 0, `fetched while staying or behind: ${j}`);
+  expect(t!.shown.fetches === 1 && !t!.shown.hidden && t!.shown.inside && t!.shown.ready &&
+    t!.shown.title.includes('9.9.9-new') && /reload/.test(t!.shown.title), `the badge on coming back: ${j}`);
+  expect(t!.about.open && !t!.about.folded && t!.about.fetched === 0 && !t!.about.hidden &&
+    !!t!.about.text?.includes('9.9.9-new') && t!.about.reload && t!.about.check === 'Check for updates',
+    `About: ${j}`);
+  expect(t!.downSeen.text === 'The server could not be reached: no connection.' && t!.downSeen.reload &&
+    t!.downSeen.badge, `checked, unreachable with a version seen: ${j}`);
+  expect(t!.same.checking === 'Checking...' && t!.same.text === 'This is the latest version.' && !t!.same.reload &&
+    !t!.same.badge && t!.same.fetched === 2, `checked, the same: ${j}`);
+  expect(t!.down.text === 'The server could not be reached: no connection.' && !t!.down.badge,
+    `checked, unreachable: ${j}`);
+  expect(t!.hang.text === 'The server could not be reached: no answer within 0.5 s.' && t!.hang.failed,
+    `checked, no answer: ${j}`);
+  expect(t!.lost.text === 'Version 9.9.9-c could not be downloaded: offline.' && !t!.lost.badge && !t!.lost.reload &&
+    t!.lost.state.latest === undefined, `checked, the download failed: ${j}`);
+  expect(/9\.9\.9-b .*downloading/.test(t!.found.downloading.text) && !t!.found.downloading.reload,
+    `checking, another downloading: ${j}`);
+  expect(t!.found.text.includes('9.9.9-b') && t!.found.badge.includes('9.9.9-b') && t!.found.reload,
+    `checked, another: ${j}`);
+  return undefined;
+});
+
 await check('export', async () => {
   const r = await page(`?check`, `(async () => {
     await cadViewer.ready;
@@ -4427,7 +4569,8 @@ await check('missing file', async () => {
 
 // What a build holds (printing nothing as it's made): one Draco decoder (draco3dgltf's, for gltf-import in the import
 // worker: the GLBs above loaded through it) and its encoder (for Export..., export-gltf there); licenses.md with the
-// npm packages' licenses and OCCT's, not precached by its service worker (which precaches OCCT's module).
+// npm packages' licenses and OCCT's, not precached by its service worker (which precaches OCCT's module), nor is
+// version.json (update-check.ts).
 if (staticServer) {
   await check('build', async () => {
     expect(buildOutput.trim() === '', `the build printed: ${buildOutput.slice(0, 1000)}`);
@@ -4442,8 +4585,104 @@ if (staticServer) {
       'licenses.md');
     expect(!fs.existsSync(path.join(dist, '.vite')), 'Vite\'s own licenses file left');
     const sw = fs.readFileSync(path.join(dist, 'sw.js'), 'utf8');
-    expect(sw.includes('occt_tess-') && !sw.includes('licenses.md'), 'the precache list');
+    expect(sw.includes('occt_tess-') && !sw.includes('licenses.md') && !sw.includes('version.json'),
+      'the precache list');
+    expect(fs.existsSync(path.join(dist, 'version.json')), 'no version.json');
     return undefined;
+  });
+}
+
+// A new deployment (a build only): with the page controlled by its service worker, the build on the server becomes
+// another, as a deployment would make it: its main bundle with another version under another name, index.html and
+// the worker's precache list naming it, version.json saying so. The page's check sees it, and is ready once the new
+// worker has taken over; one reload then shows the new version, which the check then finds the same. Before it, a
+// deployment whose worker can't install (a file missing): the download fails, said, and nothing changes.
+if (staticServer) {
+  await check('new deployment', async () => {
+    const { targetId } = await send('Target.createTarget', { url: 'about:blank' });
+    const { sessionId } = await send('Target.attachToTarget', { targetId, flatten: true }) as { sessionId: string };
+    const evaluate = async (expression: string) => {
+      const e = await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true }, sessionId) as
+        { result: { value: unknown }; exceptionDetails?: { exception?: { description?: string }; text: string } };
+      if (e.exceptionDetails) throw new Error(e.exceptionDetails.exception?.description ?? e.exceptionDetails.text);
+      return e.result.value;
+    };
+    const ready = async () => {
+      for (let t = 0; t < 600; t++) {
+        if (await evaluate('document.body?.dataset.report ?? null').catch(() => null)) return true;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      return false;
+    };
+    const title = "document.querySelector('.lil-gui .title').textContent";
+    try {
+      await send('Page.enable', {}, sessionId);
+      await send('Page.navigate', { url: `http://localhost:${port}${base}?check` }, sessionId);
+      expect(await ready(), 'the page never reported');
+      let controlled = await evaluate(`Promise.race([navigator.serviceWorker.ready.then(() => new Promise((r) =>
+        setTimeout(() => r(!!navigator.serviceWorker.controller), 500))), new Promise((r) => setTimeout(() => r(false),
+        20000))])`);
+      if (!controlled) {
+        await send('Page.reload', {}, sessionId);
+        await ready();
+        controlled = await evaluate('!!navigator.serviceWorker.controller');
+      }
+      expect(controlled === true, 'no service worker controls the page');
+      const old = (JSON.parse(fs.readFileSync(path.join(dist, 'version.json'), 'utf8')) as { version: string }).version;
+      expect(await evaluate(title) === `cad-io-js ${old}`, `the title before: ${await evaluate(title)}`);
+      await evaluate('ui.updates.check(true)');
+      expect(await evaluate('ui.updates.state.latest ?? null') === null, 'an update before the deployment');
+      const html = path.join(dist, 'index.html'), sw = path.join(dist, 'sw.js');
+      // A deployment whose download fails: its worker's precache names a file the server doesn't have, so the new
+      // worker's install fails (it's discarded): the check says so, the version is dropped, the page as it was.
+      const swGood = fs.readFileSync(sw, 'utf8');
+      const swBroken = swGood.replace('precacheAndRoute([',
+        'precacheAndRoute([{url:"assets/missing.js",revision:null},');
+      expect(swBroken !== swGood, 'the broken precache list');
+      fs.writeFileSync(sw, swBroken);
+      fs.writeFileSync(path.join(dist, 'version.json'), JSON.stringify({ version: `${old}-broken` }));
+      const broken = await evaluate(`Promise.race([ui.updates.check(true).then((r) => ({ r, state: ui.updates.state,
+        badge: !document.querySelector('.lil-gui .title .update-badge').hidden })),
+        new Promise((r) => setTimeout(() => r('timed out'), 60000))])`) as { r: { error?: string };
+        state: { latest?: string }; badge: boolean };
+      expect(broken.r.error === `Version ${old}-broken could not be downloaded: its files could not all be fetched.`
+        && broken.state.latest === undefined && !broken.badge, `the broken deployment: ${JSON.stringify(broken)}`);
+      // And one whose worker's script can't be fetched (gone): the same.
+      fs.rmSync(sw);
+      fs.writeFileSync(path.join(dist, 'version.json'), JSON.stringify({ version: `${old}-gone` }));
+      const gone = await evaluate(`ui.updates.check(true).then((r) => ({ r, state: ui.updates.state }))`) as
+        { r: { error?: string }; state: { latest?: string } };
+      expect(gone.r.error === `Version ${old}-gone could not be downloaded: its service worker could not be fetched.`
+        && gone.state.latest === undefined, `the deployment without its worker: ${JSON.stringify(gone)}`);
+      fs.writeFileSync(sw, swGood);
+      // The deployment.
+      const next = `${old}-next`;
+      const main = /assets\/index-[\w-]+\.js/.exec(fs.readFileSync(html, 'utf8'))![0];
+      const renamed = main.replace(/\.js$/, 'n.js');
+      const code = fs.readFileSync(path.join(dist, main), 'utf8');
+      expect(code.includes(old), 'the version in the main bundle');
+      fs.writeFileSync(path.join(dist, renamed), code.split(old).join(next));
+      fs.rmSync(path.join(dist, main));
+      fs.writeFileSync(html, fs.readFileSync(html, 'utf8').split(main).join(renamed));
+      const swText = fs.readFileSync(sw, 'utf8');
+      const swNext = swText.split(main).join(renamed).replace(/(url:"index\.html",revision:")[^"]+/, '$1next');
+      expect(swNext !== swText && swNext.includes('revision:"next"'), 'the precache list rewritten');
+      fs.writeFileSync(sw, swNext);
+      fs.writeFileSync(path.join(dist, 'version.json'), JSON.stringify({ version: next }));
+      const seen = await evaluate(`Promise.race([ui.updates.check(true).then(() => ui.updates.state),
+        new Promise((r) => setTimeout(() => r('timed out'), 60000))])`) as { latest?: string; ready: boolean };
+      expect(seen.latest === next && seen.ready, `seen: ${JSON.stringify(seen)}`);
+      const badge = await evaluate("document.querySelector('.lil-gui .title .update-badge').title") as string;
+      expect(badge.includes(next), `the badge: ${badge}`);
+      await send('Page.reload', {}, sessionId);
+      expect(await ready(), 'the page did not come back');
+      expect(await evaluate(title) === `cad-io-js ${next}`, `after one reload: ${await evaluate(title)}`);
+      await evaluate('ui.updates.check(true)');
+      expect(await evaluate('ui.updates.state.latest ?? null') === null, 'still an update after the reload');
+      return undefined;
+    } finally {
+      await send('Target.closeTarget', { targetId });
+    }
   });
 }
 
