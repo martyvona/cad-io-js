@@ -220,6 +220,8 @@ interface PageOptions {
   first?: string;
   /** The system's colour scheme emulated light, before the page loads. */
   light?: boolean;
+  /** The system's colour scheme emulated dark, before the page loads. */
+  dark?: boolean;
   /** The query as it is: not thin edges unless it says (page's default). */
   asIs?: boolean;
   /** The page focused, as a tab in front is (headless Chrome's tabs aren't). */
@@ -236,8 +238,8 @@ async function page(query: string, after?: string, opts: PageOptions = {}): Prom
   }
   if (opts.scale) await send('Emulation.setDeviceMetricsOverride', { width: 1200, height: 800,
     deviceScaleFactor: opts.scale, mobile: false }, sessionId);
-  if (opts.light) await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme',
-    value: 'light' }] }, sessionId);
+  if (opts.light || opts.dark) await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme',
+    value: opts.light ? 'light' : 'dark' }] }, sessionId);
   if (opts.focus) await send('Emulation.setFocusEmulationEnabled', { enabled: true }, sessionId);
   if (opts.first) {
     await send('Page.enable', {}, sessionId);
@@ -3863,62 +3865,80 @@ await check('axes gnomon in flight', async () => {
 });
 // The symbol of an axis along the line of sight, in the origin's box: front (y away), a ringed cross: green on its
 // ring and on the cross's arms past the dot's reach; back (y at the viewer), a ringed dot: green on the ring and at the
-// centre, nothing where the cross's arm would be; iso, none. Green measured as its excess over red and blue.
+// centre, nothing where the cross's arm would be; inside the ring, the background (the other axes' lines hidden);
+// iso, none. Green measured as its excess over red and blue.
 await check('axes gnomon symbols', async () => {
-  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check&gnomon=1`, `(async () => {
-    await cadViewer.ready; await cadViewer.idle();
-    const gl = viewer.renderer.getContext(), canvas = viewer.renderer.domElement;
-    const dpr = canvas.width / canvas.clientWidth;
-    const sample = async (view, tilt = 0) => {
-      viewer.setView(view, { instant: true });
-      await cadViewer.idle();
-      if (tilt) {
-        // Turned about the view's up through the orbit centre, tilt degrees.
-        const c = viewer.camera, t = viewer.controls.target;
-        const up = c.up.clone().normalize();
-        const off = c.position.clone().sub(t).applyAxisAngle(up, tilt * Math.PI / 180);
-        c.position.copy(t).add(off);
-        c.lookAt(t);
-        viewer.redraw();
+  for (const scheme of ['dark', 'light'] as const) {
+    const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check&gnomon=1`, `(async () => {
+      await cadViewer.ready; await cadViewer.idle();
+      const gl = viewer.renderer.getContext(), canvas = viewer.renderer.domElement;
+      const dpr = canvas.width / canvas.clientWidth;
+      const sample = async (view, tilt = 0) => {
+        viewer.setView(view, { instant: true });
         await cadViewer.idle();
-      }
-      viewer.draw();
-      const w = canvas.width, h = canvas.height, px = new Uint8Array(4 * w * h);
-      gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
-      const g = document.getElementById('gnomon').getBoundingClientRect(), cb = canvas.getBoundingClientRect();
-      const o = viewer.gnomon.layout[3];
-      // Greenness at an offset (CSS pixels, y up) from the origin's box's centre: the most over the pixels there.
-      const green = (dx, dy) => {
-        const X = (g.left - cb.left + o.x + dx) * dpr, Y = (cb.bottom - g.bottom + o.y + dy) * dpr;
-        let best = -255;
-        for (let y = Math.floor(Y - dpr / 2); y <= Math.ceil(Y + dpr / 2) - 1; y++) {
-          for (let x = Math.floor(X - dpr / 2); x <= Math.ceil(X + dpr / 2) - 1; x++) {
-            const i = 4 * (y * w + x);
-            best = Math.max(best, px[i + 1] - (px[i] + px[i + 2]) / 2);
-          }
+        if (tilt) {
+          // Turned about the view's up through the orbit centre, tilt degrees.
+          const c = viewer.camera, t = viewer.controls.target;
+          const up = c.up.clone().normalize();
+          const off = c.position.clone().sub(t).applyAxisAngle(up, tilt * Math.PI / 180);
+          c.position.copy(t).add(off);
+          c.lookAt(t);
+          viewer.redraw();
+          await cadViewer.idle();
         }
-        return Math.round(best);
+        viewer.draw();
+        const w = canvas.width, h = canvas.height, px = new Uint8Array(4 * w * h);
+        gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+        const g = document.getElementById('gnomon').getBoundingClientRect(), cb = canvas.getBoundingClientRect();
+        const o = viewer.gnomon.layout[3];
+        // Greenness at an offset (CSS pixels, y up) from the origin's box's centre: the most over the pixels there.
+        const green = (dx, dy) => {
+          const X = (g.left - cb.left + o.x + dx) * dpr, Y = (cb.bottom - g.bottom + o.y + dy) * dpr;
+          let best = -255;
+          for (let y = Math.floor(Y - dpr / 2); y <= Math.ceil(Y + dpr / 2) - 1; y++) {
+            for (let x = Math.floor(X - dpr / 2); x <= Math.ceil(X + dpr / 2) - 1; x++) {
+              const i = 4 * (y * w + x);
+              best = Math.max(best, px[i + 1] - (px[i] + px[i + 2]) / 2);
+            }
+          }
+          return Math.round(best);
+        };
+        // The colour at an offset, against the background's (its largest difference over the three channels).
+        const bg = viewer.scene.background.clone().convertLinearToSRGB().toArray().map((v) => v * 255);
+        const off = (dx, dy) => {
+          const X = Math.round((g.left - cb.left + o.x + dx) * dpr), Y = Math.round((cb.bottom - g.bottom + o.y + dy) *
+            dpr), i = 4 * (Y * w + X);
+          return Math.round(Math.max(...[0, 1, 2].map((c) => Math.abs(px[i + c] - bg[c]))));
+        };
+        return { symbol: viewer.gnomon.symbol ?? null, drawn: viewer.gnomon.symbolMesh.visible,
+          inside: Math.max(off(3.7, 0), off(-3.7, 0), off(0, 3.7), off(0, -3.7)),
+          ring: Math.min(green(6, 0), green(-6, 0), green(0, 6),
+          green(0, -6)), arm: Math.min(green(2.5, 2.5), green(-2.5, -2.5), green(2.5, -2.5),
+          green(-2.5, 2.5)), centre: green(0, 0),
+          gap: Math.max(green(3.7, 0), green(0, 3.7)) };
       };
-      return { symbol: viewer.gnomon.symbol ?? null, drawn: viewer.gnomon.symbolMesh.visible, ring: Math.min(green(6, 0), green(-6, 0), green(0, 6),
-        green(0, -6)), arm: Math.min(green(2.5, 2.5), green(-2.5, -2.5), green(2.5, -2.5),
-        green(-2.5, 2.5)), centre: green(0, 0),
-        gap: Math.max(green(3.7, 0), green(0, 3.7)) };
-    };
-    return { front: await sample('front'), back: await sample('back'), iso: await sample('iso'),
-      tilted: await sample('front', 6.5) };
-  })()`) as { after: Record<string, { symbol: { axis: number; head: boolean; opacity: number } | null;
-    drawn: boolean; ring: number; arm: number; centre: number; gap: number }> };
-  const a = r.after, j = JSON.stringify(a);
-  const [f, b, i] = [a.front!, a.back!, a.iso!];
-  expect(f.symbol?.axis === 1 && !f.symbol.head && f.ring > 40 && f.arm > 40, `front: a ringed cross: ${j}`);
-  expect(b.symbol?.axis === 1 && b.symbol.head && b.ring > 40 && b.centre > 40 && b.arm < 20, `back: a ringed dot: ${
-    j}`);
-  expect(f.gap < 20 && b.gap < 20, `front and back: nothing between the ring and the middle: ${j}`);
-  expect(i.symbol === null && !i.drawn && i.ring < 20, `iso: none: ${j}`);
-  // 6.5 degrees off the front: half faded in, its ring fainter than straight on.
-  const t = a.tilted!;
-  expect(t.symbol !== null && t.symbol.opacity > 0.2 && t.symbol.opacity < 0.8 && t.ring > 10 &&
-    t.ring < 0.8 * f.ring, `tilted: faded: ${j}`);
+      return { front: await sample('front'), back: await sample('back'), iso: await sample('iso'),
+        tilted: await sample('front', 6.5) };
+    })()`, { [scheme]: true }) as { after: Record<string, { symbol: { axis: number; head: boolean;
+      opacity: number } | null; drawn: boolean; inside: number; ring: number; arm: number; centre: number;
+      gap: number }> };
+    const a = r.after, j = `${scheme}: ${JSON.stringify(a)}`;
+    const [f, b, i] = [a.front!, a.back!, a.iso!];
+    expect(f.symbol?.axis === 1 && !f.symbol.head && f.ring > 40 && f.arm > 40, `front: a ringed cross: ${j}`);
+    expect(b.symbol?.axis === 1 && b.symbol.head && b.ring > 40 && b.centre > 40 && b.arm < 20, `back: a ringed dot: ${
+      j}`);
+    // (Thresholds above the symbol's own antialiasing, which on a white background reads greener.)
+    expect(f.gap < 40 && b.gap < 40, `front and back: nothing between the ring and the middle: ${j}`);
+    // Inside the ring, where the other axes' lines run: the background, opaque (a line there differs by 100 or more).
+    expect(f.inside < 60 && b.inside < 60, `front and back: the ring filled with the background: ${j}`);
+    expect(i.symbol === null && !i.drawn && i.ring < 20, `iso: none: ${j}`);
+    // 6.5 degrees off the front: half faded in, its ring fainter than straight on.
+    const t = a.tilted!;
+    expect(t.symbol !== null && t.symbol.opacity > 0.2 && t.symbol.opacity < 0.8 && t.ring > 10 &&
+      t.ring < 0.8 * f.ring, `tilted: faded: ${j}`);
+    // Its disc faded too: the other axes' lines show through it.
+    expect(t.inside > 40, `tilted: the disc faded with the symbol: ${j}`);
+  }
   return undefined;
 });
 // On a phone the tree panel lies over the view: the gnomon's box moves beside it while it's open, following its width,
@@ -3996,7 +4016,7 @@ await check('lights and specular', async () => {
     Math.abs(d[i]! - w / Math.sqrt(6)) < 1e-6)), `the headlight over the shoulder: ${JSON.stringify(light)}`);
   const grey = (x: number) => Math.round(x * 255) * 0x010101;
   expect(JSON.stringify(a.before!.lights) === JSON.stringify([['AmbientLight', 1], ['DirectionalLight', 2.5]]) &&
-    JSON.stringify(a.before!.speculars) === JSON.stringify([grey(0.4)]), `the defaults: ${j}`);
+    JSON.stringify(a.before!.speculars) === JSON.stringify([grey(0.2)]), `the defaults: ${j}`);
   expect(JSON.stringify(a.after!.lights) === JSON.stringify([['AmbientLight', 0.7], ['DirectionalLight', 3]]) &&
     JSON.stringify(a.after!.speculars) === JSON.stringify([grey(0.8)]), `changed: ${j}`);
   expect(JSON.stringify(a.loaded!.speculars) === JSON.stringify([grey(0.8)]), `a model loaded after: ${j}`);
@@ -4004,7 +4024,7 @@ await check('lights and specular', async () => {
     edgeWidth: number; shown: number[] };
   expect(JSON.stringify(reset.lights) === JSON.stringify(a.before!.lights) &&
     JSON.stringify(reset.speculars) === JSON.stringify(a.before!.speculars) && reset.shininess === 30 &&
-    reset.edgeWidth === 3 && JSON.stringify(reset.shown) === JSON.stringify([30, 0.4, 1, 2.5]),
+    reset.edgeWidth === 3 && JSON.stringify(reset.shown) === JSON.stringify([30, 0.2, 1, 2.5]),
     `Reset lighting to defaults: ${JSON.stringify(reset)}`);
   return undefined;
 });

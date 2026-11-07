@@ -11,7 +11,7 @@
 // the fourth, unlabelled box at the origin, which the others clear. The labels and the origin box are click targets
 // (Viewer: an axis looks along it, the origin box the iso view), a finger's reaching further (TOUCH_REACH).
 // An axis along the line of sight shows as a symbol in the origin's box (axisSymbol): a ringed dot pointing at the
-// viewer, a ringed cross pointing away, fading in over SYMBOL_FADE. The #gnomon box holds every layout the labels can
+// viewer, a ringed cross pointing away, its ring filled with the view's background, fading in over SYMBOL_FADE. The #gnomon box holds every layout the labels can
 // take (GNOMON_EXTENT, checked over sampled turns by the unit test), so nothing leaves it as the gnomon turns.
 //
 // Labels move smoothly: each rides its placement point (which turns with the view, as its tip does), its nudge changing
@@ -185,6 +185,18 @@ function symbolTexture(head: boolean): THREE.CanvasTexture {
   return new THREE.CanvasTexture(canvas);
 }
 
+/** The inside of a symbol's ring, filled, as an alpha map the label box's size (to the ring's middle). */
+function discTexture(): THREE.CanvasTexture {
+  const n = 64, c = n / 2;
+  const canvas = Object.assign(document.createElement('canvas'), { width: n, height: n });
+  const g = canvas.getContext('2d')!;
+  g.fillStyle = '#fff';
+  g.beginPath();
+  g.arc(c, c, SYMBOL.ring * n / LABEL_BOX, 0, 2 * Math.PI);
+  g.fill();
+  return new THREE.CanvasTexture(canvas);
+}
+
 /**
  * The symbol for axes `back` (each axis's part along the view's back, a unit's): the axis within SYMBOL_FADE.from
  * degrees of the line of sight (one at most), whether it points at the viewer, and how much shown.
@@ -240,6 +252,8 @@ export class Gnomon {
   /** The symbol of the axis along the line of sight, if one is (axisSymbol), as last laid out. */
   symbol?: { axis: number; head: boolean; opacity: number };
   private symbolMesh?: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
+  /** Behind the symbol, inside its ring: the view's background, opaque (but as the symbol fades). */
+  private disc?: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
   private symbolMaps?: { head: THREE.Texture; tail: THREE.Texture };
 
   constructor() {
@@ -331,6 +345,7 @@ export class Gnomon {
     this.advance(this.camera.quaternion, motion);
     this.layOut(box);
     this.backing!.color.copy(backingColour(background));
+    this.disc!.material.color.copy(background);
     const viewport = renderer.getViewport(new THREE.Vector4());
     const scissor = renderer.getScissor(new THREE.Vector4());
     const scissorTest = renderer.getScissorTest();
@@ -412,6 +427,12 @@ export class Gnomon {
       // (Made with an alpha map, so its program has one: the maps are swapped, never added.)
       this.symbolMesh = new THREE.Mesh(new THREE.PlaneGeometry(LABEL_BOX, LABEL_BOX), new THREE.MeshBasicMaterial({
         alphaMap: this.symbolMaps.tail, transparent: true, depthTest: false, depthWrite: false }));
+      this.disc = new THREE.Mesh(this.symbolMesh.geometry, new THREE.MeshBasicMaterial({ alphaMap: discTexture(),
+        transparent: true, depthTest: false, depthWrite: false }));
+      // (No depth test: drawn in this order, the disc under the symbol.)
+      this.disc.renderOrder = 0;
+      this.symbolMesh.renderOrder = 1;
+      this.symbolMesh.add(this.disc);
       this.labelScene.add(this.symbolMesh);
     }
     const sym = this.symbol, m = this.symbolMesh;
@@ -419,7 +440,7 @@ export class Gnomon {
     if (sym) {
       m.material.alphaMap = sym.head ? this.symbolMaps!.head : this.symbolMaps!.tail;
       m.material.color.setHex(AXIS_COLOURS[sym.axis]!);
-      m.material.opacity = sym.opacity;
+      m.material.opacity = this.disc!.material.opacity = sym.opacity;
       m.position.set(this.boxes[3]!.x, this.boxes[3]!.y, 0);
     }
     Object.assign(this.labelCamera, { left: 0, right: box.width, bottom: 0, top: box.height });
