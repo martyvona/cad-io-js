@@ -1,4 +1,4 @@
-// The import worker: models imported and meshed off the page's thread (docs/claude/viewer.md), by loadModelIn
+// The import worker: models imported and meshed off the page's thread (docs/viewer.md), by loadModelIn
 // (model-load.ts), its tessellation pool's workers nested in this one. Draco's decoder (for glTF) is given its
 // WebAssembly by URL, as Vite bundles it. One load at a time; a newer one (or a cancel) stops the last's meshing (and
 // the next load starts a new pool, as after clearing the cache from the page). Messages in: load, cancel, export (the

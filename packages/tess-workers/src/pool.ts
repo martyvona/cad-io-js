@@ -19,7 +19,7 @@ export interface PoolOptions {
   maxPartsPerWorker?: number;
   /**
    * Recycle a worker once its backend reports more memory than this after a part (`Tessellator.memoryBytes`). 0:
-   * never. Default 256 MiB, above what all but the heaviest parts need (docs/claude/backends.md).
+   * never. Default 256 MiB, above what all but the heaviest parts need (docs/backends.md).
    */
   maxMemoryBytes?: number;
 }
@@ -43,7 +43,7 @@ interface Slot {
   timer?: ReturnType<typeof setTimeout>;
 }
 
-/** 60 s: the corpus's slowest part takes 28 s with OCCT on an Apple M4 at 0.1 mm (docs/claude/backends.md). */
+/** 60 s: the corpus's slowest part takes 28 s with OCCT on an Apple M4 at 0.1 mm (docs/backends.md). */
 export const DEFAULT_TIMEOUT_MS = 60_000;
 
 export function defaultWorkers(): number {

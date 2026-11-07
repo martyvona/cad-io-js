@@ -1,4 +1,4 @@
-// Section planes (docs/claude/viewer.md): up to three, one across each world axis, each at a position along its axis
+// Section planes (docs/viewer.md): up to three, one across each world axis, each at a position along its axis
 // with a side cut away; caps, hatched, where they cut closed parts: in the drawing style of the cadrender prototype
 // (beige, two beiges alternating by part colour, black lines), or in each part's colour with lines a darker shade of
 // it, as Onshape draws them. Either way the lines lie at an angle and spacing of the part's own, fixed on the model

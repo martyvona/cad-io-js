@@ -17,4 +17,4 @@ A GitHub Action (`.github/workflows/cla.yml`) checks every pull request and asks
 - `source env.sh`, then `npm install`; see the README's "Building From Source".
 - `npm test` and `npm run typecheck` must pass; add tests for what you change.
 - Code lines are at most 120 characters, indented with 2 spaces, and every tracked text file is ASCII (`test/ascii.test.ts` checks).
-- [`CLAUDE.md`](CLAUDE.md) records how work is done here and the decisions behind the design, with topic notes in [`docs/claude/`](docs/claude/); read the parts your change touches.
+- [`CLAUDE.md`](CLAUDE.md) records how work is done here and the decisions behind the design, with topic notes in [`docs/`](docs/); read the parts your change touches.

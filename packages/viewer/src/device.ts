@@ -1,4 +1,4 @@
-// What kind of device the viewer runs on, phone, tablet or desktop (docs/claude/viewer.md): it picks the meshing
+// What kind of device the viewer runs on, phone, tablet or desktop (docs/viewer.md): it picks the meshing
 // profile by default (coarse on phones and tablets, the library's default elsewhere) and caps the import's workers
 // (tessellation.ts). Detected from the screen's size (not the window's: a narrow desktop window is no phone), the
 // primary pointer and the touch points: a fine pointer with no touch first (a desktop, even zoomed so far that its

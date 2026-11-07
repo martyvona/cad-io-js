@@ -1,5 +1,5 @@
 // The scene model: what every importer produces and every exporter (and later the viewer) consumes, independent of
-// the source format. See README.md and docs/claude/scene-formats.md.
+// the source format. See README.md and docs/scene-formats.md.
 //
 // Structure: components (one per product or assembly definition) are defined once and placed by occurrences, so a
 // subassembly used many times is stored once; `instances` expands the tree on demand. Parts (one per tessellation
@@ -138,7 +138,7 @@ export interface ExternalReference {
 
 /**
  * A leaf of the scene: geometry with a unit and an origin, as exact geometry a backend can tessellate (`brep`), as
- * meshes (`lods`), or both (docs/claude/scene-formats.md): meshes from the source file (glTF, three.js JSON, JT's
+ * meshes (`lods`), or both (docs/scene-formats.md): meshes from the source file (glTF, three.js JSON, JT's
  * levels of detail) or made from the B-rep by a tessellator (tessellateScene adds them). Curves and points alone are a
  * level whose mesh has no triangles. A part with neither is empty.
  */
@@ -172,7 +172,7 @@ export interface Part {
   measures?: Measures;
 }
 
-/** A part's measures on its exact geometry (docs/claude/scene-formats.md). */
+/** A part's measures on its exact geometry (docs/scene-formats.md). */
 export interface Measures {
   /** Who measured: a backend's name and version, or `source` for a file that stated them. */
   by: string;

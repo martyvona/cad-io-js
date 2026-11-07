@@ -82,7 +82,7 @@ export const degenerateMessage = (n: number) =>
   `${n} degenerate ${n === 1 ? 'triangle' : 'triangles'} dropped (two corners at one position)`;
 
 /**
- * How a face failed to mesh (docs/claude/backends.md): `failed`, no triangles for a face with something to mesh;
+ * How a face failed to mesh (docs/backends.md): `failed`, no triangles for a face with something to mesh;
  * `partly`, its triangles short of its area; `excess`, its triangles well over its area (the mesh, or the backend's
  * view of the face, is wrong); `unverified`, triangles but no area to judge them by (the measuring backend found the
  * face's geometry unsound, or gave an impossible area). A viewer shows all but `partly` as failed.
@@ -102,7 +102,7 @@ export type FaceFailure = 'failed' | 'partly' | 'excess' | 'unverified';
  * meshed as one triangle), the fraction for large ones. Healthy faces sit far inside either: over the corpus the median
  * M / A is 0.9994 (p1 0.987, p99 1.021). A face under d x d has nothing to mesh at that deflection. The values were
  * chosen from a survey of the corpus checked against truck's meshes: 3 %, 10 % and 1 kept every flag truck confirmed
- * real, with 9 it showed false (docs/claude/backends.md).
+ * real, with 9 it showed false (docs/backends.md).
  */
 export const MISSING_FRACTION = 0.03;
 export const EXCESS_FRACTION = 0.1;

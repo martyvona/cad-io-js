@@ -1,4 +1,4 @@
-// The rendering style, after the sibling cadrender prototype (docs/claude/viewer.md): Phong faces, ambient occlusion by
+// The rendering style, after the sibling cadrender prototype (docs/viewer.md): Phong faces, ambient occlusion by
 // N8AO (with postprocessing, which it imports), SMAA antialiasing, and the faces' edges. Frames are composed by
 // three.js's EffectComposer: N8AO's pass renders the scene and darkens it, SMAA smooths it; without AO, a plain render
 // pass and the output pass (colour space) stand in.

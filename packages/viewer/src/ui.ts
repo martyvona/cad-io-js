@@ -1,4 +1,4 @@
-// The viewer's controls, in lil-gui (docs/claude/viewer.md): opening a local file or a URL (also by dropping files on
+// The viewer's controls, in lil-gui (docs/viewer.md): opening a local file or a URL (also by dropping files on
 // the page, or ?model= in the page's address), zoom all, the views along the axes, full screen, the tree panel and
 // hiding; a status line for what's loading and what went wrong. Every folder starts closed.
 

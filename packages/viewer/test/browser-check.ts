@@ -351,7 +351,7 @@ for (const extra of process.env.EXTRA?.split(',') ?? []) {
 // Replacing a model while it's meshing: the bicycle's meshing is cancelled once it has begun (its load ends at
 // once: the workers are stopped), the GLB shown alone, and STEP meshes again after (a new pool), from the cache (the
 // assembly was meshed above); and with truck when that's the backend chosen.
-// Zooming while a model loads (docs/claude/viewer.md): the bicycle, meshed without the cache, is fitted to its
+// Zooming while a model loads (docs/viewer.md): the bicycle, meshed without the cache, is fitted to its
 // estimated sphere before its first mesh is drawn, then only zooms out, at most once a second, ending fitted to all
 // that loaded; zoom all then fits the sphere made from the meshes. Moving the view stops it.
 await check('zoom while loading', async () => {

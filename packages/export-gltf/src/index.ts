@@ -1,5 +1,5 @@
 // Scene model -> glTF 2.0, written with glTF-Transform: GLB, or .gltf JSON with its buffer as a separate .bin or
-// embedded as base64. See README.md and docs/claude/scene-formats.md.
+// embedded as base64. See README.md and docs/scene-formats.md.
 //
 //   nodes: the scene's roots, each turning the scene's millimetres, Z up, into glTF's metres, Y up, in its own matrix
 //     (no root node of ours, for a reader to take for an assembly or a frame not the file's; with extras, the glTF
@@ -186,7 +186,7 @@ async function encoders(document: Document, opts: GltfOptions): Promise<Record<s
 /**
  * glTF-Transform's JSON for a document, with each node's translation, rotation and scale as they are: its writer
  * leaves out any within 1e-5 of the default, which drops rotations of up to about 2e-5 rad (20 um a metre away)
- * and scales within 1e-5 of 1 (docs/claude/scene-formats.md).
+ * and scales within 1e-5 of 1 (docs/scene-formats.md).
  */
 async function write(document: Document, format: Format, opts: GltfOptions): Promise<JSONDocument> {
   const out = await new WebIO().setLogger(new Logger(Logger.Verbosity.ERROR))

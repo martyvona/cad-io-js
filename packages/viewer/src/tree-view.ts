@@ -1,5 +1,5 @@
 // The tree view as the viewer uses it: deliberately small, so that the library behind it (Headless Tree, in
-// headless-tree-view.ts, the only file that imports it) could be replaced (docs/claude/viewer.md). The viewer gives the
+// headless-tree-view.ts, the only file that imports it) could be replaced (docs/viewer.md). The viewer gives the
 // tree's shape by ids and draws each row's content itself; the view keeps expansion, focus and selection, draws only
 // the rows in view, and reports selection changes. Ids are strings.
 

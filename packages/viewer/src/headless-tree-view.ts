@@ -1,4 +1,4 @@
-// The tree view (tree-view.ts) on Headless Tree (`@headless-tree/core`; after a spike: see docs/claude/viewer.md, and
+// The tree view (tree-view.ts) on Headless Tree (`@headless-tree/core`; after a spike: see docs/viewer.md, and
 // workdir/2026-10-24_tree_spike/NOTES.md). The library keeps expansion, focus, selection and keys, and gives
 // React-style props per item; this file draws the rows in view itself (a fixed row height, rows absolutely placed over
 // a spacer) and applies the props to them. The only file that imports the library. What the spike taught: set the

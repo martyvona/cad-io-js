@@ -1,4 +1,4 @@
-// glTF 2.0 (GLB, or .gltf JSON with its buffers) to the scene model (docs/claude/scene-formats.md), read with
+// glTF 2.0 (GLB, or .gltf JSON with its buffers) to the scene model (docs/scene-formats.md), read with
 // glTF-Transform: the default scene as a tree of nodes and meshes, which cad-scene's sceneFromTree turns into a scene,
 // ours (with our extras) as written, others as their own tree.
 //

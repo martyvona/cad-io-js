@@ -1,4 +1,4 @@
-// Bounding volumes (docs/claude/scene-formats.md): a box per mesh, in its own coordinates, made with the mesh, and one
+// Bounding volumes (docs/scene-formats.md): a box per mesh, in its own coordinates, made with the mesh, and one
 // sphere for the whole model, for a viewer to fit before (and while) meshes arrive. The sphere is estimated from what
 // each placed part has: its mesh's box, else its B-rep's vertices' box (Brep.vertexBox, which is no bound: curved faces
 // bulge past their vertices, and meshes arriving later grow the sphere): every placed box's 8 corners in the world, the

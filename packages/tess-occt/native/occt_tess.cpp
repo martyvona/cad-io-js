@@ -3,7 +3,7 @@
 // Exposes a small C ABI; the JS side (src/index.ts) copies the results out of the heap.
 //
 // Coordinates are in the file's units (the root representation's), minus the request's origin, which is subtracted
-// in double precision before the conversion to float (docs/claude/backends.md).
+// in double precision before the conversion to float (docs/backends.md).
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepCheck_Analyzer.hxx>
 #include <BRepGProp.hxx>
@@ -161,7 +161,7 @@ int occt_tessellate(const char* data, int len, int rootId, double linDefl, doubl
     // A geometric set's curve-bounded surfaces on closed surfaces (spheres, tori): a lone boundary that OCCT doesn't
     // classify as outer is reversed, as OCCT 7.6 did, rather than kept as a hole in the natural bounds (OCCT 8), which
     // gives the rest of the surface. Other writers' copies of the same models agree with 7.6
-    // (docs/claude/backends.md); for faces (topology) OCCT 8's reading is right (its tests bug28414, bug29564).
+    // (docs/backends.md); for faces (topology) OCCT 8's reading is right (its tests bug28414, bug29564).
     if (occ::down_cast<StepShape_GeometricallyBoundedSurfaceShapeRepresentation>(rootRep))
     {
       DE_ShapeFixParameters fix  = DESTEP_Parameters::GetDefaultShapeFixParameters();

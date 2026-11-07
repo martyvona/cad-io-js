@@ -1,5 +1,5 @@
 // 3MF (core specification, the Materials extension's colours, the Production extension's model parts) to the scene
-// model (docs/claude/scene-formats.md), read by our own zip and XML readers in pieces. The scene is built directly, as
+// model (docs/scene-formats.md), read by our own zip and XML readers in pieces. The scene is built directly, as
 // 3MF already separates definitions from uses: mesh objects are parts (one level from the source), components objects
 // components, and the build's items the roots: a components object's a root occurrence, a mesh object's a root part (no
 // made-up node holding them; the item's part number, UUID and metadata its properties). Vertices stay in their model

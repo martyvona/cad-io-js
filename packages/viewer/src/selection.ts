@@ -1,4 +1,4 @@
-// Selection: what selected nodes cover in the scene, and what's done with it (docs/claude/viewer.md): highlighting,
+// Selection: what selected nodes cover in the scene, and what's done with it (docs/viewer.md): highlighting,
 // details (counts, triangle area, edge and curve length, the placement among the part's placements), the box for zoom
 // selected, and the node a pick at a level stands for.
 //

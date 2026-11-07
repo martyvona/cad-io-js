@@ -1,6 +1,6 @@
 // A zip archive's entries, read from its central directory, each inflated in pieces on demand (fflate's streaming
 // Inflate): a 3MF package's model part can be hundreds of megabytes, and is never held whole, as text or bytes
-// (docs/claude/scene-formats.md). Zip64 sizes and offsets are read; encrypted entries and compression other than stored
+// (docs/scene-formats.md). Zip64 sizes and offsets are read; encrypted entries and compression other than stored
 // and deflate are not.
 
 import { Inflate } from 'fflate';

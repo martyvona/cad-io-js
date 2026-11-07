@@ -1,4 +1,4 @@
-// Loading a model as a stream of events (docs/claude/viewer.md), in the import worker (import-worker.ts, so the page
+// Loading a model as a stream of events (docs/viewer.md), in the import worker (import-worker.ts, so the page
 // never waits on parsing). Every format goes through the library's importers into the scene model (one path; three.js's
 // loaders dropped): STEP (step-import), glTF and GLB (gltf-import), three.js JSON (threejs-import), 3MF (3mf-import).
 // The scene comes first, without its parts' payloads (functions over the parsed file, which can't cross to another

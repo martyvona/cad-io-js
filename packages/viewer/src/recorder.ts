@@ -1,4 +1,4 @@
-// Recording what someone does in the viewer, to download and replay, so bugs can be reproduced (docs/claude/viewer.md).
+// Recording what someone does in the viewer, to download and replay, so bugs can be reproduced (docs/viewer.md).
 // A recording is JSON: when it began, the browser and window, and events, each with `t`, milliseconds since it began:
 //
 //   state    the whole view (automation.ts's state()) and its link: at the start (after a load event for the model

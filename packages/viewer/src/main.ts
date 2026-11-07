@@ -1,4 +1,4 @@
-// The viewer's entry point. See README.md and docs/claude/viewer.md.
+// The viewer's entry point. See README.md and docs/viewer.md.
 
 import { buildAutomation } from './automation.ts';
 import { buildUi } from './ui.ts';

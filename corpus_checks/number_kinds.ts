@@ -1,5 +1,5 @@
 // Phase 1 step 4: for every int and real in the corpus, what the schema says the slot holds. Decides whether raw
-// JSON could leave the int/real distinction to schema context (it can't on its own: see docs/claude/step.md), and lists
+// JSON could leave the int/real distinction to schema context (it can't on its own: see docs/step.md), and lists
 // the number-kind violations Layer 2's tolerance policy must absorb.
 // Usage: node corpus_checks/number_kinds.ts [file-list.txt]
 import fs from 'node:fs';

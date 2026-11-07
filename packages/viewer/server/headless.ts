@@ -1,5 +1,5 @@
 // Headless Chrome over the DevTools protocol, for the browser check (test/browser-check.ts) and `cad-viewer shot`
-// (docs/claude/viewer.md): Chrome started with a profile of its own, a tab per page, and expressions evaluated in it.
+// (docs/viewer.md): Chrome started with a profile of its own, a tab per page, and expressions evaluated in it.
 // Real time, polled: --virtual-time-budget doesn't wait for Web Workers (Draco's decoder, our tessellation), and
 // without a GPU WebGL needs SwiftShader.
 

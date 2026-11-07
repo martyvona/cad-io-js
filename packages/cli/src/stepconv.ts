@@ -1,4 +1,4 @@
-// stepconv: STEP (Part 21, or gzipped .stpZ) to a tessellated format. See README.md and docs/claude/scene-formats.md.
+// stepconv: STEP (Part 21, or gzipped .stpZ) to a tessellated format. See README.md and docs/scene-formats.md.
 //
 //   import (step-import) -> tessellate each part (a backend, in a tess-workers pool unless --workers 0, cached with
 //   tess-cache when --cache names a directory) -> the export view (cad-scene) -> an exporter, chosen by the output's

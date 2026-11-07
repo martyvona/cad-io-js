@@ -15,4 +15,4 @@ node_modules/
 
 # The documents as PDFs, made for the viewer's builds (vite.config.ts) and published with them, not committed
 /README.pdf
-/step_tutorial.pdf
+/docs/step_tutorial.pdf

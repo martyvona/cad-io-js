@@ -1,6 +1,6 @@
 // The viewer's Vite config: the content root at /content/ (dev and preview servers), LAN and https by option, and in
 // builds a progressive web app: a service worker that precaches everything the app needs, the OCCT and truck modules
-// included, so a device that loaded it once can use it offline (docs/claude/viewer.md). Options come from the
+// included, so a device that loaded it once can use it offline (docs/viewer.md). Options come from the
 // environment (server/options.ts). Draco's decoder (for glTF, in the import worker) is found by its bundled URL
 // (import-worker.ts).
 
@@ -92,7 +92,7 @@ const licenses = (): Plugin => ({
 });
 
 /** The repository's documents published as PDFs with a build (About links them), as Markdown and PDF names. */
-export const DOCUMENT_PDFS = [['README.md', 'README.pdf'], ['step_tutorial.md', 'step_tutorial.pdf']] as const;
+export const DOCUMENT_PDFS = [['README.md', 'README.pdf'], ['docs/step_tutorial.md', 'step_tutorial.pdf']] as const;
 
 /**
  * The documents' PDFs beside index.html (scripts/md2pdf.sh, with Typst, which it fetches the first time). Left out of

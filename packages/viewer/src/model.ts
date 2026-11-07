@@ -1,5 +1,5 @@
 // The viewer's node model: what the tree shows and what selection and hiding act on, made from the model's scene graph
-// (scene-graph.ts), whatever its format (docs/claude/viewer.md). Kinds:
+// (scene-graph.ts), whatever its format (docs/viewer.md). Kinds:
 //
 //   assembly, part: the placements (the graph says which groups are which: component instances and placed parts);
 //   below a part, when the tree shows detail (built when first asked for): its faces (those with ids), one node for

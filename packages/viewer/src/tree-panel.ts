@@ -1,5 +1,5 @@
 // The assembly tree panel: the node model (model.ts) through the tree view (tree-view.ts), with an icon per kind,
-// hidden nodes greyed, and the selection (docs/claude/viewer.md); an eye after the name of a node with an appearance
+// hidden nodes greyed, and the selection (docs/viewer.md); an eye after the name of a node with an appearance
 // override of its own, and a context menu on a row (right-click, or a long press on a touch screen, where browsers may
 // not send one: iOS).
 

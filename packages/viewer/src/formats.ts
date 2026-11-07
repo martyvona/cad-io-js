@@ -1,5 +1,5 @@
 // Which importer a file goes to, by its extension; each importer gives the scene in millimetres, Z up
-// (docs/claude/scene-formats.md).
+// (docs/scene-formats.md).
 
 export type Format = 'step' | 'gltf' | 'glb' | 'threejs' | '3mf';
 

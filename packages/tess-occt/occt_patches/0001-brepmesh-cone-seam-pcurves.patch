@@ -1,6 +1,6 @@
 BRepMesh: the cone seam amplifier swaps a seam's pcurves when they are lines with the slightest slope in U.
 
-Against OCCT 3d097a0328 (8.1). Found 2026-10-25 (docs/claude/backends.md); not reported upstream.
+Against OCCT 3d097a0328 (8.1). Found 2026-10-25 (docs/backends.md); not reported upstream.
 
 BRepMesh_ModelPreProcessor's SeamEdgeAmplifier adds points to the seams of cones, splitting the edge and both its
 pcurves. It matches the geometric pcurves to the discrete ones by the U of the geometric pcurve's point at

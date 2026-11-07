@@ -1,4 +1,4 @@
-// Picking in the 3D view (docs/claude/viewer.md): a ray from the camera through the pointer, brute force over every
+// Picking in the 3D view (docs/viewer.md): a ray from the camera through the pointer, brute force over every
 // object (three-mesh-bvh is a backlog item). What isn't drawn isn't picked: hidden objects (or with a hidden ancestor),
 // parts' own drawings hidden by their layer (the raycaster's layers), hidden faces (their geometry group's material),
 // and what the section planes cut away (`clipped`). Lines and points are hit within a few pixels. The face under the

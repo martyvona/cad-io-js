@@ -1,6 +1,6 @@
 // The orthographic camera's geometry: the six views along the world's axes (Z up, millimetres), fitting a box in the
 // viewport with a margin ("zoom all", "zoom selected"), and near and far planes that follow the model so it's never
-// clipped by them however the camera turns (docs/claude/viewer.md).
+// clipped by them however the camera turns (docs/viewer.md).
 //
 // The frustum is kept in world units: `top` is half the viewport's height in millimetres at zoom 1, and `left`
 // and `right` follow the aspect ratio. TrackballControls zooms an orthographic camera through `zoom`.

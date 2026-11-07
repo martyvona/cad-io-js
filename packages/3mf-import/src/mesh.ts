@@ -1,4 +1,4 @@
-// A 3MF mesh object's triangles as a scene mesh (docs/claude/scene-formats.md):
+// A 3MF mesh object's triangles as a scene mesh (docs/scene-formats.md):
 //
 //   faces: all of the object's triangles of one property (colour) are one face, regrouped by it, faces numbered from
 //     0 in order of first use (decision 2);

@@ -2,7 +2,7 @@
 // (basematerials, the Materials extension's colorgroup; other groups noted, so what uses them has no colour), objects
 // (a mesh, made a scene mesh as soon as it's read so its raw arrays don't outlive it, or components) and build items,
 // each with its metadata. Elements of extensions that aren't read are skipped, counted and said once a kind
-// (docs/claude/scene-formats.md).
+// (docs/scene-formats.md).
 
 import { identity, type Diagnostic, type Mat4, type Mesh, type Vec3 } from 'cad-scene';
 import { buildMesh } from './mesh.ts';

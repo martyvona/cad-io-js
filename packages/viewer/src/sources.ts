@@ -1,6 +1,6 @@
 // Where models come from: a URL (the dev server's /content/, the same server, or another that allows CORS), or local
 // files, picked with the File System Access API where the browser has it (desktop Chrome, in a secure context) and an
-// <input type="file"> elsewhere, or dropped on the page (docs/claude/viewer.md). No handles or files are stored. Models
+// <input type="file"> elsewhere, or dropped on the page (docs/viewer.md). No handles or files are stored. Models
 // below the content root (content/ beside the page: the dev server's /content/, and the demo models in a deployment)
 // can be named by their path within it: a relative path in `?model=` and in Load URL..., which read what they're given
 // alike (typedUrl).

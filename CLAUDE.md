@@ -6,12 +6,12 @@ Notes for working on cad-io-js: how work is done here, the decisions every part 
 
 | File | For work on |
 |---|---|
-| [`docs/claude/step.md`](docs/claude/step.md) | STEP parsing and import: the importer's rules, AP242 tessellated geometry, the corpus's examples, the STEP backlog; STEP itself and what real files do is in `step_tutorial.md` |
-| [`docs/claude/backends.md`](docs/claude/backends.md) | tessellation: `tessellateScene`, profiles, timeouts, the cache, faces that fail to mesh, OCCT (build, patches, probing, quirks), truck |
-| [`docs/claude/scene-formats.md`](docs/claude/scene-formats.md) | the scene model, the exporters (glTF, three.js, 3MF, `stepconv`), the mesh importers, round trips, those libraries' quirks |
-| [`docs/claude/viewer.md`](docs/claude/viewer.md) | the viewer: loading, export, rendering, sections, camera and input, picking, the tree and appearance overrides, updates, automation and replay, the browser check, three.js/Vite quirks |
-| [`docs/claude/future.md`](docs/claude/future.md) | new input formats (JT, IGES, BREP, FreeCAD), the JT specifications, prior art |
-| [`docs/claude/licensing.md`](docs/claude/licensing.md) | the licenses, the CLA, and clean-room rules for code that could derive from OCCT or others |
+| [`docs/step.md`](docs/step.md) | STEP parsing and import: the importer's rules, AP242 tessellated geometry, the corpus's examples, the STEP backlog; STEP itself and what real files do is in [`docs/step_tutorial.md`](docs/step_tutorial.md) |
+| [`docs/backends.md`](docs/backends.md) | tessellation: `tessellateScene`, profiles, timeouts, the cache, faces that fail to mesh, OCCT (build, patches, probing, quirks), truck |
+| [`docs/scene-formats.md`](docs/scene-formats.md) | the scene model, the exporters (glTF, three.js, 3MF, `stepconv`), the mesh importers, round trips, those libraries' quirks |
+| [`docs/viewer.md`](docs/viewer.md) | the viewer: loading, export, rendering, sections, camera and input, picking, the tree and appearance overrides, updates, automation and replay, the browser check, three.js/Vite quirks |
+| [`docs/future.md`](docs/future.md) | new input formats (JT, IGES, BREP, FreeCAD), the JT specifications, prior art |
+| [`docs/licensing.md`](docs/licensing.md) | the licenses, the CLA, and clean-room rules for code that could derive from OCCT or others |
 
 **History:** every decision since 0.1.0 with its alternatives and measurements is in `git show V0.2.0:CLAUDE.md`; each phase's steps and phase 0's backend comparison in `git show V0.1.0:CLAUDE.md`. Look there before redoing a measurement or reopening a decision.
 
@@ -21,6 +21,7 @@ Notes for working on cad-io-js: how work is done here, the decisions every part 
 
 | Path | What |
 |---|---|
+| `docs/` | the topic notes above, and `step_tutorial.md` (STEP AP203/214/242 in practice, for users too; built as a PDF with the viewer); new notes go here |
 | `packages/*` | the 17 workspace packages (README, "Package APIs"; the viewer, `packages/viewer`, README "Viewer"); tests in each `test/` |
 | `packages/tess-occt/` | `native/occt_tess.cpp`; `build-occt.sh` (OCCT into `build/occt-Os/`, applying `occt_patches/` to `build/occt-src/`); `build.sh` (links `dist/`) |
 | `packages/tess-truck/` | `native/` (the Rust crate), `build.sh` (`dist/tess_truck.wasm`) |
@@ -86,7 +87,7 @@ Notes for working on cad-io-js: how work is done here, the decisions every part 
 The ones every part depends on; the rest are in the topic notes, and the alternatives behind each in `V0.2.0`'s or `V0.1.0`'s version of this file.
 
 - **Scope:** TypeScript as plain ESM, browsers and Node; AP242 XML (`.stpx`) out of scope; a package per format (`step-import`, `gltf-import`, `export-gltf`, ...); the project is cad-io-js, STEP packages keeping their names.
-- **License:** AGPL-3.0-only, except `tess-occt` (LGPL-2.1 with the Open CASCADE exception); contributions under a CLA. **Never translate OCCT's source**, it's a reference and an oracle only: `docs/claude/licensing.md`.
+- **License:** AGPL-3.0-only, except `tess-occt` (LGPL-2.1 with the Open CASCADE exception); contributions under a CLA. **Never translate OCCT's source**, it's a reference and an oracle only: `docs/licensing.md`.
 - **Units and frames:** the scene is millimetres; a part is one shape representation, its positions `Float32` minus a per-part origin computed in double precision; the viewer's world is Z up. Exports use each format's convention (glTF and three.js metres, Y up; 3MF the source unit, Z up) with no root node of ours.
 - **The tessellator interface is per part**; OCCT the primary backend, truck optional; backends take a host's module through `init`.
 - **Importers for every format into the scene model**, one viewer path through them; textures not supported (warned of).

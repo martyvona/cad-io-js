@@ -1,4 +1,4 @@
-// A scene from a tree of nodes and meshes, as glTF and three.js JSON files hold one (docs/claude/scene-formats.md): the
+// A scene from a tree of nodes and meshes, as glTF and three.js JSON files hold one (docs/scene-formats.md): the
 // shared core of `gltf-import` and `threejs-import`, which read their files into a TreeNode and leave the rest here.
 //
 // Our files (with our extras: the root's says millimetres, Z up below it) are read as the inverse of exportView and

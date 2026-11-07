@@ -1,5 +1,5 @@
 // Scene model -> 3MF (core specification 1.4.0), zipped with fflate. See README.md (what each format holds) and
-// docs/claude/scene-formats.md.
+// docs/scene-formats.md.
 //
 //   meshes: each part mesh's vertices welded by position, exactly (OCCT gives a shared edge's nodes the same
 //     coordinates on both faces, and welding within a tolerance merges distinct vertices: the step 5 survey), and the

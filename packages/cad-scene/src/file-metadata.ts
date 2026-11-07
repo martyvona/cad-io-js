@@ -1,4 +1,4 @@
-// File-level metadata (Scene.properties; docs/claude/scene-formats.md): the author a file names, placeholders left
+// File-level metadata (Scene.properties; docs/scene-formats.md): the author a file names, placeholders left
 // out, as the importers set `author`; and the fields formats have a standard place for (3MF's metadata, glTF's
 // asset.copyright), from a scene's properties whatever format they came from, which the exporters write with or
 // without our extras.

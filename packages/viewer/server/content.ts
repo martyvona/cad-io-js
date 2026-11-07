@@ -1,5 +1,5 @@
 // The dev server's content root: every file below one directory (default test_corpus/) served at /content/, for
-// `cad-viewer open` and for loading models by URL in development (docs/claude/viewer.md). Nothing outside the root is
+// `cad-viewer open` and for loading models by URL in development (docs/viewer.md). Nothing outside the root is
 // served, symbolic links included.
 
 import fs from 'node:fs';

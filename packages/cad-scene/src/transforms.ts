@@ -2,7 +2,7 @@
 // determinant, which takes a right-handed frame to a left-handed one), non-uniform scale (axes scaled differently) and
 // shear (axes no longer at right angles: not a turn times a scale per axis, the only form glTF's translation, rotation
 // and scale hold). Some formats can't hold all three, so exporters say what they couldn't write and the viewer warns
-// before exporting (docs/claude/scene-formats.md). Every format we read and the scene itself are right-handed.
+// before exporting (docs/scene-formats.md). Every format we read and the scene itself are right-handed.
 
 import type { Mat4, Scene } from './scene.ts';
 import { partInstances } from './walk.ts';

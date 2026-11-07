@@ -12,9 +12,9 @@ import { identity, multiply, partInstances, type PartInstance } from './walk.ts'
 
 /** Which of a part's levels each look uses: chooseLod's, for these deflections (none: the finest). */
 export interface ExportViewOptions extends LodWanted {
-  /** Keep B-rep edges. Default false (docs/claude/scene-formats.md). */
+  /** Keep B-rep edges. Default false (docs/scene-formats.md). */
   edges?: boolean;
-  /** Keep wireframe curves and isolated points. Default false (docs/claude/scene-formats.md). */
+  /** Keep wireframe curves and isolated points. Default false (docs/scene-formats.md). */
   curves?: boolean;
 }
 

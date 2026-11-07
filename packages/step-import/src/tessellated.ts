@@ -1,4 +1,4 @@
-// AP242 tessellated geometry read into a mesh (docs/claude/step.md; the
+// AP242 tessellated geometry read into a mesh (docs/step.md; the
 // CAx-IF practice rec_prac_3dtess_geo_v11.pdf, sections 4-7): solids, shells, faces and surface sets as triangles,
 // faces by their STEP ids; curve sets, wires, edges, vertices and point sets as curves and points; geometric sets,
 // repositioned items with their placement applied. Edges are the file's tessellated edges where a shell or solid has

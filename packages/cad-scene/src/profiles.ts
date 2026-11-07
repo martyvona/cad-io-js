@@ -1,5 +1,5 @@
 // Meshing profiles: named pairs of deflections, the one place their values and the default are defined
-// (docs/claude/backends.md). Every consumer (tessellateScene, stepconv, the viewer) takes them from here. Measured over
+// (docs/backends.md). Every consumer (tessellateScene, stepconv, the viewer) takes them from here. Measured over
 // the corpus with OCCT against the earlier default, 0.1 mm and 0.5 rad (workdir/2026-10-26_mesh_profiles): coarse 0.59
 // times its triangles, medium 1.25 times (the median part 1.7), fine 3.3 times.
 
