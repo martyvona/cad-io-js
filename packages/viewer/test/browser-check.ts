@@ -3861,6 +3861,66 @@ await check('axes gnomon in flight', async () => {
   expect(glided >= 14 - 1e-6, `left alone, the y label glided clear: ${glided}`);
   return undefined;
 });
+// The symbol of an axis along the line of sight, in the origin's box: front (y away), a ringed cross: green on its
+// ring and on the cross's arms past the dot's reach; back (y at the viewer), a ringed dot: green on the ring and at the
+// centre, nothing where the cross's arm would be; iso, none. Green measured as its excess over red and blue.
+await check('axes gnomon symbols', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check&gnomon=1`, `(async () => {
+    await cadViewer.ready; await cadViewer.idle();
+    const gl = viewer.renderer.getContext(), canvas = viewer.renderer.domElement;
+    const dpr = canvas.width / canvas.clientWidth;
+    const sample = async (view, tilt = 0) => {
+      viewer.setView(view, { instant: true });
+      await cadViewer.idle();
+      if (tilt) {
+        // Turned about the view's up through the orbit centre, tilt degrees.
+        const c = viewer.camera, t = viewer.controls.target;
+        const up = c.up.clone().normalize();
+        const off = c.position.clone().sub(t).applyAxisAngle(up, tilt * Math.PI / 180);
+        c.position.copy(t).add(off);
+        c.lookAt(t);
+        viewer.redraw();
+        await cadViewer.idle();
+      }
+      viewer.draw();
+      const w = canvas.width, h = canvas.height, px = new Uint8Array(4 * w * h);
+      gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      const g = document.getElementById('gnomon').getBoundingClientRect(), cb = canvas.getBoundingClientRect();
+      const o = viewer.gnomon.layout[3];
+      // Greenness at an offset (CSS pixels, y up) from the origin's box's centre: the most over the pixels there.
+      const green = (dx, dy) => {
+        const X = (g.left - cb.left + o.x + dx) * dpr, Y = (cb.bottom - g.bottom + o.y + dy) * dpr;
+        let best = -255;
+        for (let y = Math.floor(Y - dpr / 2); y <= Math.ceil(Y + dpr / 2) - 1; y++) {
+          for (let x = Math.floor(X - dpr / 2); x <= Math.ceil(X + dpr / 2) - 1; x++) {
+            const i = 4 * (y * w + x);
+            best = Math.max(best, px[i + 1] - (px[i] + px[i + 2]) / 2);
+          }
+        }
+        return Math.round(best);
+      };
+      return { symbol: viewer.gnomon.symbol ?? null, drawn: viewer.gnomon.symbolMesh.visible, ring: Math.min(green(6, 0), green(-6, 0), green(0, 6),
+        green(0, -6)), arm: Math.min(green(2.5, 2.5), green(-2.5, -2.5), green(2.5, -2.5),
+        green(-2.5, 2.5)), centre: green(0, 0),
+        gap: Math.max(green(3.7, 0), green(0, 3.7)) };
+    };
+    return { front: await sample('front'), back: await sample('back'), iso: await sample('iso'),
+      tilted: await sample('front', 6.5) };
+  })()`) as { after: Record<string, { symbol: { axis: number; head: boolean; opacity: number } | null;
+    drawn: boolean; ring: number; arm: number; centre: number; gap: number }> };
+  const a = r.after, j = JSON.stringify(a);
+  const [f, b, i] = [a.front!, a.back!, a.iso!];
+  expect(f.symbol?.axis === 1 && !f.symbol.head && f.ring > 40 && f.arm > 40, `front: a ringed cross: ${j}`);
+  expect(b.symbol?.axis === 1 && b.symbol.head && b.ring > 40 && b.centre > 40 && b.arm < 20, `back: a ringed dot: ${
+    j}`);
+  expect(f.gap < 20 && b.gap < 20, `front and back: nothing between the ring and the middle: ${j}`);
+  expect(i.symbol === null && !i.drawn && i.ring < 20, `iso: none: ${j}`);
+  // 6.5 degrees off the front: half faded in, its ring fainter than straight on.
+  const t = a.tilted!;
+  expect(t.symbol !== null && t.symbol.opacity > 0.2 && t.symbol.opacity < 0.8 && t.ring > 10 &&
+    t.ring < 0.8 * f.ring, `tilted: faded: ${j}`);
+  return undefined;
+});
 // On a phone the tree panel lies over the view: the gnomon's box moves beside it while it's open, following its width,
 // and back to the corner when it closes.
 await check('axes gnomon beside the phone tree', async () => {

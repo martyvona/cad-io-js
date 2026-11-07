@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as THREE from 'three';
-import { axisView, backingColour, Gnomon, GNOMON_EXTENT, gnomonShown, LABEL_BOX, layoutLabels,
-  NUDGE_SPEED, TOUCH_REACH, nudgesOf, project, sameTurn, stepNudges }
+import { axisSymbol, axisView, backingColour, Gnomon, GNOMON_EXTENT, gnomonShown, LABEL_BOX, layoutLabels,
+  NUDGE_SPEED, TOUCH_REACH, nudgesOf, project, sameTurn, stepNudges, SYMBOL }
   from '../src/gnomon.ts';
 
 const near = (a: number, b: number, what: string) => assert.ok(Math.abs(a - b) < 1e-12, `${what}: ${a} vs ${b}`);
@@ -280,4 +280,27 @@ test('hits: a drawn box for a mouse, TOUCH_REACH for a finger, the nearest centr
   const mid = (o!.x + y!.x) / 2, toward = Math.sign(o!.x - y!.x);
   assert.equal(g.hit(mid + toward, o!.y, TOUCH_REACH), 'iso');
   assert.equal(g.hit(mid - toward, o!.y, TOUCH_REACH), 'y');
+});
+
+test('an axis along the line of sight: a ringed dot at the viewer, a cross away, faded in from 10 to 3 degrees', () => {
+  const along = (deg: number, sign: number) => {
+    const c = Math.cos(deg * Math.PI / 180);
+    return [0.1, sign * c, Math.sqrt(Math.max(0, 1 - c * c - 0.01))];
+  };
+  assert.deepEqual(axisSymbol([0, 1, 0]), { axis: 1, head: true, opacity: 1 });
+  assert.deepEqual(axisSymbol([0, 0, -1]), { axis: 2, head: false, opacity: 1 });
+  assert.equal(axisSymbol(along(2, -1))!.opacity, 1);
+  const half = axisSymbol(along(6.5, 1))!;
+  assert.ok(half.head && half.opacity > 0.2 && half.opacity < 0.8, `6.5 degrees: ${half.opacity}`);
+  assert.equal(axisSymbol(along(11, 1)), undefined);
+  assert.equal(axisSymbol([Math.SQRT1_2, 0, Math.SQRT1_2]), undefined);
+  // Within the origin's box, which every label clears (the sampled layouts' test): never under a label.
+  assert.ok(SYMBOL.ring + SYMBOL.stroke / 2 <= LABEL_BOX / 2);
+  // The gnomon's: in the front, y away from the viewer; iso, none.
+  const g = new Gnomon();
+  g.set(undefined, new THREE.Matrix4());
+  g.advance(FRONT, { now: 0 });
+  assert.deepEqual(g.symbol, { axis: 1, head: false, opacity: 1 });
+  g.advance(ISO, { now: 0 });
+  assert.equal(g.symbol, undefined);
 });

@@ -9,7 +9,9 @@
 // Labels: each centred on its placement point, (1 + LABEL_GAP) along its axis, projected, in a square box of LABEL_BOX
 // pixels (one for every letter, not fitted to it); boxes that overlap are nudged sideways apart (layoutLabels), never
 // the fourth, unlabelled box at the origin, which the others clear. The labels and the origin box are click targets
-// (Viewer: an axis looks along it, the origin box the iso view), a finger's reaching further (TOUCH_REACH). The #gnomon box holds every layout the labels can
+// (Viewer: an axis looks along it, the origin box the iso view), a finger's reaching further (TOUCH_REACH).
+// An axis along the line of sight shows as a symbol in the origin's box (axisSymbol): a ringed dot pointing at the
+// viewer, a ringed cross pointing away, fading in over SYMBOL_FADE. The #gnomon box holds every layout the labels can
 // take (GNOMON_EXTENT, checked over sampled turns by the unit test), so nothing leaves it as the gnomon turns.
 //
 // Labels move smoothly: each rides its placement point (which turns with the view, as its tip does), its nudge changing
@@ -149,6 +151,52 @@ function backingTexture(): THREE.CanvasTexture {
   return new THREE.CanvasTexture(canvas);
 }
 
+/** The symbol of an axis along the line of sight: its ring's radius, its stroke, its dot's radius, CSS pixels. */
+export const SYMBOL = { ring: 6, stroke: 1.5, dot: 2.25, arm: 3.75 };
+/** How far off the line of sight an axis's symbol starts fading in, and where it's whole, degrees. */
+export const SYMBOL_FADE = { from: 10, whole: 3 };
+
+/**
+ * An axis's symbol along the line of sight, as an alpha map (as the backing's) the label box's size: a ring with a
+ * dot (`head`: the axis points at the viewer, an arrow's head) or a cross (its tail).
+ */
+function symbolTexture(head: boolean): THREE.CanvasTexture {
+  const n = 64, k = n / LABEL_BOX, c = n / 2;
+  const canvas = Object.assign(document.createElement('canvas'), { width: n, height: n });
+  const g = canvas.getContext('2d')!;
+  g.strokeStyle = g.fillStyle = '#fff';
+  g.lineWidth = SYMBOL.stroke * k;
+  g.lineCap = 'round';
+  g.beginPath();
+  g.arc(c, c, SYMBOL.ring * k, 0, 2 * Math.PI);
+  g.stroke();
+  g.beginPath();
+  if (head) {
+    g.arc(c, c, SYMBOL.dot * k, 0, 2 * Math.PI);
+    g.fill();
+  } else {
+    const a = SYMBOL.arm * k / Math.SQRT2;
+    g.moveTo(c - a, c - a);
+    g.lineTo(c + a, c + a);
+    g.moveTo(c - a, c + a);
+    g.lineTo(c + a, c - a);
+    g.stroke();
+  }
+  return new THREE.CanvasTexture(canvas);
+}
+
+/**
+ * The symbol for axes `back` (each axis's part along the view's back, a unit's): the axis within SYMBOL_FADE.from
+ * degrees of the line of sight (one at most), whether it points at the viewer, and how much shown.
+ */
+export function axisSymbol(back: readonly number[]): { axis: number; head: boolean; opacity: number } | undefined {
+  const cos = (deg: number) => Math.cos(deg * Math.PI / 180);
+  const k = back.findIndex((z) => Math.abs(z) > cos(SYMBOL_FADE.from));
+  if (k < 0) return undefined;
+  const t = (Math.abs(back[k]!) - cos(SYMBOL_FADE.from)) / (cos(SYMBOL_FADE.whole) - cos(SYMBOL_FADE.from));
+  return { axis: k, head: back[k]! > 0, opacity: Math.min(1, t) };
+}
+
 /** A letter's alpha map (as the backing's): white on transparent, its x-height centred. */
 function letterTexture(letter: string): THREE.CanvasTexture {
   const n = 64;
@@ -189,6 +237,10 @@ export class Gnomon {
   private last = -Infinity;
   /** The labels are still on their way to the layout's places: more frames wanted. */
   moving = false;
+  /** The symbol of the axis along the line of sight, if one is (axisSymbol), as last laid out. */
+  symbol?: { axis: number; head: boolean; opacity: number };
+  private symbolMesh?: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
+  private symbolMaps?: { head: THREE.Texture; tail: THREE.Texture };
 
   constructor() {
     for (const [i, colour] of AXIS_COLOURS.entries()) {
@@ -312,8 +364,10 @@ export class Gnomon {
    */
   advance(q: THREE.Quaternion, motion: { now: number; flight?: { id: object; to: THREE.Quaternion; s: number } }):
     void {
-    const now = project(this.turnFor(q));
+    const turn = this.turnFor(q);
+    const now = project(turn);
     const target = nudgesOf(now);
+    this.symbol = axisSymbol([0, 1, 2].map((k) => turn.elements[k * 4 + 2]!));
     const dt = Math.min(MAX_STEP, Math.max(0, (motion.now - this.last) / 1000));
     this.last = motion.now;
     const f = motion.flight;
@@ -352,6 +406,22 @@ export class Gnomon {
       });
     }
     for (const [i, m] of this.labels.entries()) m.position.set(this.boxes[i]!.x, this.boxes[i]!.y, 0);
+    // The symbol where the axes meet, in the origin's box, which the labels clear.
+    if (!this.symbolMesh) {
+      this.symbolMaps = { head: symbolTexture(true), tail: symbolTexture(false) };
+      // (Made with an alpha map, so its program has one: the maps are swapped, never added.)
+      this.symbolMesh = new THREE.Mesh(new THREE.PlaneGeometry(LABEL_BOX, LABEL_BOX), new THREE.MeshBasicMaterial({
+        alphaMap: this.symbolMaps.tail, transparent: true, depthTest: false, depthWrite: false }));
+      this.labelScene.add(this.symbolMesh);
+    }
+    const sym = this.symbol, m = this.symbolMesh;
+    m.visible = sym !== undefined;
+    if (sym) {
+      m.material.alphaMap = sym.head ? this.symbolMaps!.head : this.symbolMaps!.tail;
+      m.material.color.setHex(AXIS_COLOURS[sym.axis]!);
+      m.material.opacity = sym.opacity;
+      m.position.set(this.boxes[3]!.x, this.boxes[3]!.y, 0);
+    }
     Object.assign(this.labelCamera, { left: 0, right: box.width, bottom: 0, top: box.height });
     this.labelCamera.updateProjectionMatrix();
   }
