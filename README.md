@@ -91,7 +91,7 @@ None of these comes with the repository. `source env.sh` (below) checks every on
 | a C/C++ toolchain for the host (Xcode command-line tools, or gcc) | any | the truck build: Rust links its build scripts and procedural macros, which run on the host, with the system's linker; also the optional native test of the `VBernstein` patch (`packages/tess-occt/occt_overlay/test/table_test.cpp`, which checks a computed table against the one OCCT stores) |
 | Rust, cargo | 1.85+ (edition 2024), with the `wasm32-unknown-unknown` target | the truck backend |
 | wasm-pack | 0.15.0 | its `wasm-opt` optimizes the truck module |
-| python3 with `venv` | 3.8+, optional | extracting the JT specifications' text; the `VBernstein` patch's tests |
+| python3 with `venv` | 3.8+, optional | extracting the JT and QIF specifications' text; the `VBernstein` patch's tests |
 | Typst | 0.15.1, fetched | `scripts/md2pdf.sh` (PDFs of the Markdown documents); not installed on the system: `scripts/fetch-typst.sh` fetches the official binary and the Typst packages it uses, pinned and checksummed, into `third_party/typst/` (`md2pdf.sh` does so itself on first use) |
 
 The project was built and tested with Node 24.5, Emscripten 6.0.12, Rust 1.99.1 and wasm-pack 0.15.0 on an M-series Mac.

@@ -2,7 +2,7 @@
 
 Source code and documents this project builds against or reads, other than npm packages. Only this README, `pull.sh` and `.gitignore` are committed; the checkouts are git-ignored.
 
-`pull.sh` (runnable from any directory) fetches everything at the pinned versions, or brings existing checkouts to them. To move a dependency to a new version, change its pin in `pull.sh` and run it again. About 400 MB in all.
+`pull.sh` (runnable from any directory) fetches everything at the pinned versions, or brings existing checkouts to them. To move a dependency to a new version, change its pin in `pull.sh` and run it again. About 600 MB in all.
 
 The test corpus is separate: see `../test_corpus/README.md`. The system tools these need (Emscripten, CMake, Rust, ...) are checked by `source ../env.sh`.
 
@@ -14,9 +14,10 @@ The test corpus is separate: see `../test_corpus/README.md`. The system tools th
 | `stepcode/` | https://github.com/stepcode/stepcode | `24783b4485` (2026-09-28) | `data/ap203`, `ap203e2`, `ap214e3`, `ap242`: the EXPRESS schemas `npm run gen -w step-schemas` turns into `packages/step-schemas/dict/`, and that package's freshness test (skipped if the checkout is missing). The dictionaries are committed, so this is needed only to regenerate them. |
 | `truck/` | https://github.com/ricosjp/truck | `88ed005249` (2026-09-28) | The truck tessellation backend, `../packages/tess-truck` (Cargo `path` dependencies). |
 | `3mf/` | https://github.com/3MFConsortium/spec_core, `spec_materials`, `spec_production` | core 1.4.0 `997b385e06`, Materials 1.2.1 `d4d42dd75c`, Production 1.2.0 `e7b7a5ab70` (their release tags) | The 3MF specifications as Markdown, for `../packages/3mf-import` and `../packages/export-3mf` (units, transforms, mesh rules, colours, model parts). Documents only. |
+| `qif/` | https://qifstandards.org (`QIF3.0-2018-ANSI.zip`), https://github.com/QualityInformationFramework/qif-community | the zip's URL in `pull.sh`; `qif-community` `64268c175a` (2026-03-20) | QIF 3.0 (ISO 23952), for a QIF importer (`../docs/claude/future.md`). `standard/`: the ANSI/DMSC QIF 3.0 standard (PDF, with a `.txt` text version) and its XSD schemas, the reference copy. `qif-community/`: DMSC's community repository, with sample files (`samples/NISTmodels/`, six of the NIST test models the corpus has as STEP), test data (`bindings/CPP-Kramer/data/`) and another copy of the XSDs (`bindings/CPP-Kramer/schema/`, edited for its C++ bindings: not identical to the standard's). Documents and data only. |
 | `mbx-if-recpractices/` | https://www.mbx-if.org/home/cax/recpractices/ | the 21 file URLs in `pull.sh` | CAx-IF / MBx-IF recommended practices (19 PDFs and two trace-information sample zips): the guide for the semantic extractors (assembly structure, validation properties, PMI, styling). Documents only. |
 
-Licenses: OCCT is LGPL-2.1 with the Open CASCADE exception, which is why the architecture isolates it in the `tess-occt` package; stepcode is BSD-3-Clause; truck is Apache-2.0; the 3MF specifications BSD-2-Clause. See `../CLAUDE.md`.
+Licenses: OCCT is LGPL-2.1 with the Open CASCADE exception, which is why the architecture isolates it in the `tess-occt` package; stepcode is BSD-3-Clause; truck is Apache-2.0; the 3MF specifications BSD-2-Clause; `qif-community` is under the Boost Software License, and the QIF standard is free from DMSC, its XSDs claiming no proprietary rights. See `../CLAUDE.md`.
 
 ## Typst
 

@@ -196,7 +196,7 @@ _sj_report error wasm-pack "$(_sj_have wasm-pack --version)" 0.15.0 "builds the 
   _sj_fix "cargo install wasm-pack --locked"
 
 # Optional tools.
-# Python: third_party/pull.sh installs pypdf into a local venv (third_party/jt/.venv) to extract the JT documents'
+# Python: third_party/pull.sh installs pypdf into a local venv (third_party/.venv) to extract the JT and QIF documents
 # text (pypdf isn't an npm package); packages/tess-occt/occt_overlay/test/compare.py also uses it.
 _sj_py=$(_sj_have python3 --version)
 if _sj_report warning python3 "$_sj_py" 3.8.0 "optional: JT text extraction in third_party/pull.sh, overlay tests"; then

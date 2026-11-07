@@ -3,10 +3,10 @@
 # those versions. To move a dependency to a new version, change its pin below and run this again.
 # - Git repositories: shallow fetch of the pinned commit, checked out detached. A checkout with local changes is
 #   left alone, with a warning.
-# - MBx-IF recommended practices and the JT specifications: each file is downloaded if missing. New versions have
-#   new URLs. The JT PDFs also get a text version (.txt beside each, for searching), extracted with pypdf (pinned, so
-#   the output is reproducible) in a local virtual environment, jt/.venv/, which needs python3 with the venv module;
-#   without it the PDFs are fetched and the text skipped, with a note.
+# - MBx-IF recommended practices, the JT specifications and the QIF standard: each file is downloaded if missing. New
+#   versions have new URLs. The JT and QIF PDFs also get a text version (.txt beside each, for searching), extracted
+#   with pypdf (pinned, so the output is reproducible) in a local virtual environment, .venv/, which needs python3
+#   with the venv module; without it the PDFs are fetched and the text skipped, with a note.
 # Usage: third_party/pull.sh (from any directory)
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -79,26 +79,39 @@ if [[ ! -f "jt/$JT106_PDF" || ! -f jt/PMIPropertiesStrings_alphabetic_list-JT_V1
   (cd jt && unzip -q -o "$JT106_ZIP" && rm "$JT106_ZIP")
 fi
 
-# Text versions of the JT PDFs (one "=== PAGE n ===" header per page).
+# QIF (ISO 23952), for a QIF importer. The ANSI QIF 3.0 standard, free from DMSC (the ISO text is the same and
+# paywalled): the PDF and its XSD schemas, unzipped into qif/standard/.
+QIF_ZIP=QIF3.0-2018-ANSI.zip
+if [[ ! -f qif/standard/QIF3.0-2018-ANSI.pdf ]]; then
+  download qif/standard "https://qifstandards.org/wp-content/uploads/2014/08/$QIF_ZIP"
+  (cd qif/standard && unzip -q -o "$QIF_ZIP" && rm "$QIF_ZIP")
+fi
+# DMSC's community repository (Boost licence): the same XSDs (bindings/CPP-Kramer/schema/), sample QIF files of the
+# NIST test models (samples/NISTmodels/) and test data (bindings/CPP-Kramer/data/).
+git_dep qif/qif-community https://github.com/QualityInformationFramework/qif-community.git \
+  64268c175a3058d09db29c14869b94b781518709
+
+# Text versions of the JT and QIF PDFs (one "=== PAGE n ===" header per page).
 PYPDF=6.21.0
+PDFS=(jt/*.pdf qif/standard/*.pdf)
 missing=0
-for pdf in jt/*.pdf; do [[ -f ${pdf%.pdf}.txt ]] || missing=1; done
+for pdf in "${PDFS[@]}"; do [[ -f ${pdf%.pdf}.txt ]] || missing=1; done
 [[ $missing == 1 ]] || exit 0
 if ! python3 -c 'import venv' 2>/dev/null; then
-  echo "== jt: no python3 with venv; text versions skipped (see env.sh)" >&2
+  echo "== no python3 with venv; text versions of the PDFs skipped (see env.sh)" >&2
   exit 0
 fi
-if [[ ! -x jt/.venv/bin/python ]] ||
-  ! jt/.venv/bin/python -c "import pypdf, sys; sys.exit(pypdf.__version__ != '$PYPDF')" 2>/dev/null; then
-  echo "== jt/.venv: installing pypdf $PYPDF"
-  python3 -m venv jt/.venv
-  jt/.venv/bin/python -m pip install --quiet --disable-pip-version-check "pypdf==$PYPDF"
+if [[ ! -x .venv/bin/python ]] ||
+  ! .venv/bin/python -c "import pypdf, sys; sys.exit(pypdf.__version__ != '$PYPDF')" 2>/dev/null; then
+  echo "== .venv: installing pypdf $PYPDF"
+  python3 -m venv .venv
+  .venv/bin/python -m pip install --quiet --disable-pip-version-check "pypdf==$PYPDF"
 fi
-for pdf in jt/*.pdf; do
+for pdf in "${PDFS[@]}"; do
   txt=${pdf%.pdf}.txt
   [[ -f $txt ]] && continue
   echo "== $txt: extracting"
-  jt/.venv/bin/python -I - "$pdf" "$txt.part" <<'PY' 2>/dev/null
+  .venv/bin/python -I - "$pdf" "$txt.part" <<'PY' 2>/dev/null
 import sys
 from pypdf import PdfReader
 r = PdfReader(sys.argv[1])
