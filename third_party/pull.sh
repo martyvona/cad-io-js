@@ -95,6 +95,25 @@ git_dep qif/qif-community https://github.com/QualityInformationFramework/qif-com
 # Internet Archive's copy.
 download iges https://web.archive.org/web/20120821190122id_/http://www.uspro.org/documents/IGES5-3_forDownload.pdf
 
+# FreeCAD (.FCStd), for an importer of its assembly tree, shapes and appearance. No specification exists beyond the
+# wiki (CC BY 3.0; each page pinned to a revision, saved as wikitext; the wiki rate-limits, hence the retries) and the
+# source; sample documents from FreeCAD's repository (LGPL-2.1-or-later) at a pinned commit. OCCT's BREP format,
+# which FreeCAD stores each shape in, is specified in OCCT/dox/specification/brep_format.md (ASCII only).
+for page in File_Format_FCStd:1850338 Std_Part:1874955 Std_LinkMake:1857884 Assembly_Workbench:1865502; do
+  f=freecad/wiki/${page%%:*}.wiki
+  [[ -f $f ]] && continue
+  echo "== $f: downloading"
+  mkdir -p freecad/wiki
+  curl -fsSL --retry 5 --retry-delay 10 -o "$f.part" "https://wiki.freecad.org/index.php?oldid=${page#*:}&action=raw"
+  mv "$f.part" "$f"
+  sleep 2
+done
+FC=https://raw.githubusercontent.com/FreeCAD/FreeCAD/b64d77b867ebf3a1277f5f8b4235a3b666bc53a2
+for f in data/examples/AssemblyExample.FCStd data/examples/EngineBlock.FCStd data/examples/PartDesignExample.FCStd \
+  tests/src/Mod/PartDesign/App/TestModels/ModelFromV021.FCStd; do
+  download freecad/samples "$FC/$f"
+done
+
 # Text versions of the JT, QIF and IGES PDFs (one "=== PAGE n ===" header per page).
 PYPDF=6.21.0
 PDFS=(jt/*.pdf qif/standard/*.pdf iges/*.pdf)
