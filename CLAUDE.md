@@ -23,7 +23,8 @@ Notes for working on cad-io-js: how work is done here, the decisions every part 
 | Path | What |
 |---|---|
 | `docs/` | the topic notes above, and `step_tutorial.md` (STEP AP203/214/242 in practice, for users too; built as a PDF with the viewer); new notes go here |
-| `packages/*` | the 17 workspace packages (README, "Package APIs"; the viewer, `packages/viewer`, README "Viewer"); tests in each `test/` |
+| `packages/*` | the 18 workspace packages (README, "Package APIs"; the viewer, `packages/viewer`, README "Viewer"); tests in each `test/` |
+| `packages/cad-brep/` | `src/layout.ts` (the B-rep buffer's format), `include/cad_brep.h` (generated from it by `gen/header.ts`: run it after changing the layout; a test checks it's current) |
 | `packages/tess-occt/` | `native/occt_tess.cpp`; `build-occt.sh` (OCCT into `build/occt-Os/`, applying `occt_patches/` to `build/occt-src/`); `build.sh` (links `dist/`) |
 | `packages/tess-truck/` | `native/` (the Rust crate), `build.sh` (`dist/tess_truck.wasm`) |
 | `packages/step-schemas/` | `dict/` the generated dictionaries (committed), `gen/` their generator |

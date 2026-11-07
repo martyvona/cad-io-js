@@ -42,62 +42,33 @@ These are what every importer, backend and exporter can rely on; each is a decis
 7. **What a source leaves out stays absent** (NaN or -1): 3D curves (JT, IGES parameter-space trims), p-curves, edge parameter ranges (STEP edges are bounded by vertices only), tolerances. Nothing is computed at import that a consumer might do differently.
 8. **Deterministic:** the same source gives the same bytes (entity order: the source's, STEP by closure order sorted by id).
 
-## The data: `BrepData`
+## The data: `BrepData` (built: `packages/cad-brep`)
 
-One `ArrayBuffer` per part: a header of table offsets, then the tables, each a typed array. One buffer is what crosses to a worker (transferred), what is hashed for the cache key, what is copied into a backend's memory, and what a C or Rust reader maps by a published header (`cad_brep.h`, the cross-language contract), so no backend parses JSON or text. Buffers are immutable: an edit (a boolean, a blend) is a client's own form converted back into a new buffer that replaces the part's. TypeScript reads it through views; nothing in it is a JavaScript object, so a large model costs no garbage collection and no per-entity overhead (roadmap: large files in the browser).
+One `ArrayBuffer` per part, the format defined by `packages/cad-brep/src/layout.ts` (tables, columns, kinds, each kind's pool layout) and mirrored for C and C++ by the generated `include/cad_brep.h` (`gen/header.ts`; a test checks it's current and compiles a C and a C++ reader that must see what the TypeScript views see). The buffer: the magic `CBR1` (the digit is the version), a column count, each column's byte offset and element count, then the columns, 8-byte aligned, little-endian. One buffer is what crosses to a worker (transferred), what is hashed for the cache key, what is copied into a backend's memory, and what a C or Rust reader maps, so no backend parses JSON or text. Buffers are immutable: an edit (a boolean, a blend) is a client's own form converted back into a new buffer that replaces the part's. TypeScript reads it through typed views (`d.edge.curve[i]`); nothing in it is a JavaScript object, so a large model costs no garbage collection and no per-entity overhead (roadmap: large files in the browser).
 
-Kinds are small integers fixed by the format (part of the contract, versioned by the header's magic `CBR1`); TypeScript has them as `const` objects (no enums: erasable syntax only).
+- **Tables:** `part` (one row: unit, uncertainty), `pool` (per owning table: `curveReal`, `curveInt`, `surfaceReal`, `surfaceInt`, `loopReal`, `itemReal`), `curve` and `surface` (kind, offsets into their pools, id; curves also `dim`, 2 for p-curves' geometry), `vertex`, `edge`, `coedge`, `loop`, `face`, `shell` with `faceUse`, `body` with `member`, `item` (the part's roots). Variable-length data has a pool per owning table and shells and bodies their own use tables, so the bytes depend only on each table's row order, not on how a builder interleaves tables: the same rows give the same bytes, and a JSON round trip gives them back exactly.
+- **References** are row indices (-1 none); geometry refers only to earlier rows of its own table (so no cycles), surfaces to curves freely (curves never refer to surfaces). A face's loops, a loop's coedges, a shell's face uses and a body's members are contiguous ranges each owned by one row. NaN marks an absent real (ids, tolerances, ranges, trims).
+- **Kinds** are small integers fixed by the format; TypeScript has them as `const` objects (no enums: erasable syntax only).
 
-```ts
-// Sketch, not final. Indices are into the part's own tables; -1 is none, NaN an unset real.
-interface BrepData {
-  buffer: ArrayBuffer;            // everything below views this
-  unit: number;                   // mm per unit
-  uncertainty: number;            // NaN if none
-  reals: Float64Array;            // the real pool: points, directions, radii, knots, weights, parameters
-  ints: Int32Array;               // the integer pool: counts, multiplicities, index lists
-  // Geometry tables: one row each, its kind deciding how many reals and ints it has at its offsets.
-  curves:   { kind: Uint8Array; dim: Uint8Array; flags: Uint8Array; real: Int32Array; int: Int32Array; id: Float64Array };
-  surfaces: { kind: Uint8Array; flags: Uint8Array; real: Int32Array; int: Int32Array; id: Float64Array };
-  // Topology tables: fixed columns.
-  vertices: { xyz: Float64Array /* 3 per */; tolerance: Float64Array; id: Float64Array };
-  edges:    { curve: Int32Array; start: Int32Array; end: Int32Array; sameSense: Uint8Array;
-              range: Float64Array /* 2 per, NaN unknown */; tolerance: Float64Array; flags: Uint8Array; id: Float64Array };
-  coedges:  { edge: Int32Array; orientation: Uint8Array /* forward, reversed, internal, external */;
-              pcurve: Int32Array /* a 2D curve or -1 */; range: Float64Array; id: Float64Array };
-  loops:    { kind: Uint8Array /* edge, vertex, poly */; first: Int32Array; count: Int32Array /* coedges, or the
-              vertex, or poly points in reals */; bound: Uint8Array /* outer, inner, unknown */; sense: Uint8Array;
-              id: Float64Array };
-  faces:    { surface: Int32Array; sameSense: Uint8Array; firstLoop: Int32Array; loopCount: Int32Array;
-              flags: Uint8Array /* advanced, face_surface, natural bounds */; tolerance: Float64Array; id: Float64Array };
-  shells:   { kind: Uint8Array /* closed, open, face set, unsewn */; first: Int32Array; count: Int32Array; id: Float64Array };
-  faceUses: { face: Int32Array; sense: Uint8Array };
-  bodies:   { kind: Uint8Array /* solid, solid with voids, faceted, shell-based surface model, face-based surface model,
-              wireframe, geometric set */; first: Int32Array; count: Int32Array; id: Float64Array };
-  shellUses: { shell: Int32Array; sense: Uint8Array };
-  // The part's roots: bodies, loose curves, points, surfaces (geometric sets), and instances of them.
-  items:    { kind: Uint8Array; ref: Int32Array; transform: Int32Array /* 12 reals, affine, mirrors allowed, or -1 */;
-              id: Float64Array };
-}
-```
+**Curve kinds** (2D or 3D, the same layouts with 2 or 3 per point): line (point, unit direction, magnitude), circle, ellipse, hyperbola, parabola (placement and their Part 42 parameters), B-spline (degree, closed and self-intersecting as Part 42's `LOGICAL`s, its curve form, knots, multiplicities, poles, weights if rational), polyline, trimmed (basis, each trim as a parameter and a point where the source gives them, the master representation, sense), composite (segments with same sense and transition), offset (basis, distance, a reference direction in 3D). A `SURFACE_CURVE`, `SEAM_CURVE` or `INTERSECTION_CURVE` isn't a kind: its 3D curve is the edge's, its p-curves the coedges' (rule 5).
 
-**Curve kinds** (2D or 3D, the same layouts with 2 or 3 per point): line (point, unit direction, magnitude), circle, ellipse, hyperbola, parabola (placement and their Part 42 parameters), B-spline (degree, closed and self-intersecting flags, Part 42's curve form, knots, multiplicities, poles, optional weights), polyline, trimmed (basis, each trim as a parameter and a point where the source gives them, the master representation, sense), composite (segments with same sense and transition), offset 3D (basis, distance, reference direction). A `SURFACE_CURVE`, `SEAM_CURVE` or `INTERSECTION_CURVE` isn't a kind: its 3D curve is the edge's, its p-curves the coedges' (rule 5), its master representation an edge flag.
+**Surface kinds:** plane, cylinder, cone, sphere, torus (a degenerate torus with its `select_outer`), B-spline (degrees, knots and multiplicities both ways, the pole grid u-major, weights if rational, closed flags, form), linear extrusion (swept curve, direction, magnitude), revolution (swept curve, axis), offset (basis, distance, self-intersecting), rectangular trimmed (basis, u1, u2, v1, v2, senses), surface-curve swept and fixed-reference swept (Part 42's swept surfaces carry no parameter range). A `CURVE_BOUNDED_SURFACE` in a geometric set is a face (an item) with its basis surface and its boundaries as loops of edges without vertices.
 
-**Surface kinds:** plane, cylinder, cone, sphere, torus (with the degenerate torus's `select_outer` as a flag), B-spline (degrees, knots and multiplicities both ways, the pole grid, optional weights, closed flags, form), linear extrusion (swept curve, direction, magnitude), revolution (swept curve, axis), offset (basis, distance, self-intersecting flag), rectangular trimmed (basis, u1, u2, v1, v2, senses), surface-curve swept and fixed-reference swept (rare in practice; kept for coverage). A `CURVE_BOUNDED_SURFACE` in a geometric set is a face with its basis surface and its boundaries as loops of edges without vertices.
-
-**Topology:** STEP's, OCCT's, QIF's and IGES MSBO's share one shape (`future.md`): vertex, edge (3D curve, start and end vertices, sense along the curve), coedge (an edge's use in a loop, with orientation and an optional p-curve), loop, face (surface, sense, loops), shell (face uses with senses), body. OCCT's internal and external orientations are coedge orientations; IGES's unsewn trimmed surfaces are faces in an `unsewn` shell, each with edges of its own; a face with no loops is bounded by its surface's extent (natural bounds: QIF `hasOuter` false, OCCT's natural restriction).
+**Topology:** STEP's, OCCT's, QIF's and IGES MSBO's share one shape (`future.md`): vertex, edge (3D curve or none, start and end vertices or none, sense along the curve, a degenerate flag, optional range and tolerance), coedge (an edge's use in a loop: forward, reversed, internal or external, an optional p-curve and range), loop (edge, vertex or poly; outer, inner or unknown bound; sense), face (surface, sense, loops; none: natural bounds, as QIF's `hasOuter` false and OCCT's natural restriction), shell (closed, open or a face set: IGES's unsewn trimmed surfaces are a face set whose faces share no edges), body (a solid's shells, the outer first; a sheet's shells; a wire's edges).
 
 **Instances inside a part:** an item can place another item with a transform (STEP mapped items within a representation; OCCT compounds of located shapes). Locations deeper than items (OCCT can locate any sub-shape) are baked into the geometry at import, a copy per distinct pair of sub-shape and accumulated location (decision 6).
 
-**Outside the buffer:** per-entity strings (names some formats give faces or edges) in a side map by table and row; appearance stays in the scene.
+**Outside the buffer:** per-entity strings (names some formats give faces or edges), when a source needs them, in a side map by table and row; appearance stays in the scene.
 
-## The TypeScript API (`cad-brep`, a new core package with no dependencies)
+## The TypeScript API (`cad-brep`, a core package with no dependencies)
 
-- `BrepBuilder`: what importers write with (`b.circle(placement, r)`, `b.vertex(p, {tol, id})`, `b.edge(...)`, ...; each returns a row index); `finish()` gives `BrepData`, deterministic.
-- Views over `BrepData`: row accessors (`curveKind(i)`, `facesOf(body)`, `coedgesOf(loop)`) without allocation, and `decodeCurve(i)` / `decodeSurface(i)` giving plain objects (`{ kind: 'circle', position, radius }`) for convenience; `toJson` / `fromJson` for tests, debugging and `step2json`-style dumps.
-- `validateBrep`: references in range, loops closed (each coedge's end the next's start), vertices on their edges' curves within tolerance, B-spline knot vectors and pole counts consistent, radii and degrees in range; diagnostics, never throws.
-- Geometry: evaluation of every curve and surface kind (points, derivatives, normals; Piegl and Tiller for B-splines), closed-form inverses for the elementary kinds; on these, `faceOutlines` (from `step-import`'s `outlines.ts`, made format-neutral), the vertex box, and the area oracle (`corpus_checks/area_oracle.ts`, moved onto the model and so onto every format).
-- `hashBrep` (SHA-256 of the buffer, through `cad-scene`'s `sha256`), and transfer helpers.
+Built (phase 1):
+
+- `BrepBuilder`: `addCurve`, `addSurface`, `addVertex`, `addEdge`, `addFace` (with its loops and coedges), `addShell`, `addBody`, `addItem`, each taking the row as a plain object (`types.ts`) and returning its index; `finish()` gives `BrepData`. It throws on what would make the buffer unreadable (references forward or out of range, wrong dimensions, missing values): its caller's bugs.
+- `openBrep` (views of a buffer, header checked), `rowCount`, and the columns themselves for code walking large models; `decode` (`decode.curve(d, i)`, `decode.face(d, i)`, ...) giving the rows back as the objects the builder took; `brepToJson` / `brepFromJson` (every row decoded; not an exchange format).
+- `validateBrep`: the format's rules and Part 42's constraints on values, as diagnostics (at most `MAX_DIAGNOSTICS`), never throwing: references and pool ranges, ownership of every range, loops joined where both vertices are known (internal and external coedges excepted), B-spline knot vectors against their poles and degrees, unit directions and orthonormal placements (`UNIT_TOLERANCE`), radii, angles and the degenerate torus, singular transforms; duplicate source ids are warnings. Not checked: what needs evaluation (vertices on their curves, p-curves on their edges).
+
+To come: geometry (phase 3): evaluation of every curve and surface kind (points, derivatives, normals; Piegl and Tiller for B-splines), closed-form inverses for the elementary kinds; on these, `faceOutlines` (from `step-import`'s `outlines.ts`, made format-neutral), the vertex box, validation of vertices on curves, and the area oracle (`corpus_checks/area_oracle.ts`, moved onto the model and so onto every format). Hashing (phase 5) through `cad-scene`'s `sha256` over the buffer.
 
 ## Scene and tessellator changes
 
@@ -125,7 +96,7 @@ From `step_geometry.log`: faces `ADVANCED_FACE`, `FACE_SURFACE`; surfaces plane,
 
 ## Phases
 
-1. **`cad-brep`:** the layout and `cad_brep.h`, the builder, views, JSON, validation; unit tests on hand-built models (seams, poles, voids, unsewn faces, instances, every kind), mutation checks.
+1. **`cad-brep`** (built): the layout and `cad_brep.h`, the builder, views, JSON, validation; unit tests on hand-built models (a solid with shared edges, a seam with its two p-curves, natural bounds, a vertex loop at a pole, a cone's degenerate apex edge, a void, poly loops, wires, unsewn faces, geometric sets, instances, every kind); a C and a C++ reader; mutation checks (57 mutants, 2 equivalent survivors: decoders differing only on buffers validation rejects).
 2. **STEP -> model** (`step-import`), per shape representation on the closure it already computes, with rules 1-8 and the fixes as diagnostics. Corpus check `brep_corpus.ts`: every part converts; counts by kind equal the census; every face, edge and vertex id is there; `validateBrep` clean or explained; build time and model size against `buildSubset`. Built incrementally, a part at a time with `onProgress`'s `parts` reporting each, yielding between parts so a page or worker can show it. Peak memory and time of the whole import measured on the largest models (LMP1's 271 MB STEP, the corpus's largest files) against today's import; if it crashes or nearly does, ways of trading speed for memory are put to the user then.
 3. **Geometry:** evaluation, outlines and the area oracle on the model; the oracle's results on the model equal its results on the file for all 63,901 trusted faces (an independent check of the conversion: rules 1, 2 and 5 above all).
 4. **STEP writing and OCCT step 1:** the geometry writer; model -> Part 21 -> OCCT against the subset route over the corpus, face by face (ids, triangles, measures, validity, failures, time); every difference classified. The writer is a second source of bugs on this route, so it is checked on its own: (a) unit tests per entity kind with expected text written from the standard, not from the code, and mutation checks; (b) every written subset bound against the AP242 dictionary with value checks, no diagnostics; (c) written and read back, the same model table by table (catches asymmetries between writer and importer, not misconceptions they share, such as a sense inverted both ways); (d) OCCT on the original bytes against OCCT on the written text, independent of both: points at the same parameters, measures, validity, each face's mesh normals (inverted senses). (c) passing with (d) failing points to a shared misconception or a loss in conversion. Once the native builder exists (phase 7), three routes localize a difference: original against written text is the importer or writer, written text against native the builder.

@@ -1,0 +1,10 @@
+{
+  "name": "cad-brep",
+  "version": "0.2.0",
+  "description": "A part's B-rep (curves, surfaces, topology) as one typed buffer: the builder, views, validation and JSON, and a C header for backends and kernels",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}
