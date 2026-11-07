@@ -86,7 +86,7 @@ Notes for working on cad-io-js: how work is done here, the decisions every part 
 
 The ones every part depends on; the rest are in the topic notes, and the alternatives behind each in `V0.2.0`'s or `V0.1.0`'s version of this file.
 
-- **Scope:** TypeScript as plain ESM, browsers and Node; AP242 XML (`.stpx`) out of scope; a package per format (`step-import`, `gltf-import`, `export-gltf`, ...); the project is cad-io-js, STEP packages keeping their names.
+- **Scope:** TypeScript as plain ESM, browsers and Node; AP242 XML (`.stpx`) out of scope; a package per format (`step-import`, `gltf-import`, `export-gltf`, ...); the project is cad-io-js, STEP packages keeping their names. Viewing is one use among several: the scene is to evolve toward geometry processing on loaded B-reps (booleans and other B-rep operations), and conversion is to include B-rep exports (such as STEP), so choices that only suffice for viewing (unsewn faces, approximate geometry) are judged against those uses too.
 - **License:** AGPL-3.0-only, except `tess-occt` (LGPL-2.1 with the Open CASCADE exception); contributions under a CLA. **Never translate OCCT's source**, it's a reference and an oracle only: `docs/licensing.md`.
 - **Units and frames:** the scene is millimetres; a part is one shape representation, its positions `Float32` minus a per-part origin computed in double precision; the viewer's world is Z up. Exports use each format's convention (glTF and three.js metres, Y up; 3MF the source unit, Z up) with no root node of ours.
 - **The tessellator interface is per part**; OCCT the primary backend, truck optional; backends take a host's module through `init`.

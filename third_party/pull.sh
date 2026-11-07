@@ -3,10 +3,10 @@
 # those versions. To move a dependency to a new version, change its pin below and run this again.
 # - Git repositories: shallow fetch of the pinned commit, checked out detached. A checkout with local changes is
 #   left alone, with a warning.
-# - MBx-IF recommended practices, the JT specifications and the QIF standard: each file is downloaded if missing. New
-#   versions have new URLs. The JT and QIF PDFs also get a text version (.txt beside each, for searching), extracted
-#   with pypdf (pinned, so the output is reproducible) in a local virtual environment, .venv/, which needs python3
-#   with the venv module; without it the PDFs are fetched and the text skipped, with a note.
+# - MBx-IF recommended practices, the JT specifications and the QIF and IGES standards: each file is downloaded if
+#   missing. New versions have new URLs. The JT, QIF and IGES PDFs also get a text version (.txt beside each, for
+#   searching), extracted with pypdf (pinned, so the output is reproducible) in a local virtual environment, .venv/,
+#   which needs python3 with the venv module; without it the PDFs are fetched and the text skipped, with a note.
 # Usage: third_party/pull.sh (from any directory)
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -91,9 +91,13 @@ fi
 git_dep qif/qif-community https://github.com/QualityInformationFramework/qif-community.git \
   64268c175a3058d09db29c14869b94b781518709
 
-# Text versions of the JT and QIF PDFs (one "=== PAGE n ===" header per page).
+# IGES 5.3 (1996), the last version, for an IGES importer: US PRO's free download, gone with US PRO (2006), so the
+# Internet Archive's copy.
+download iges https://web.archive.org/web/20120821190122id_/http://www.uspro.org/documents/IGES5-3_forDownload.pdf
+
+# Text versions of the JT, QIF and IGES PDFs (one "=== PAGE n ===" header per page).
 PYPDF=6.21.0
-PDFS=(jt/*.pdf qif/standard/*.pdf)
+PDFS=(jt/*.pdf qif/standard/*.pdf iges/*.pdf)
 missing=0
 for pdf in "${PDFS[@]}"; do [[ -f ${pdf%.pdf}.txt ]] || missing=1; done
 [[ $missing == 1 ]] || exit 0
