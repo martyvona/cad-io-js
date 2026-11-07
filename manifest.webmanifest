@@ -1,0 +1,1 @@
+{"name":"cad-viewer","short_name":"cad-viewer","description":"Views STEP, glTF and three.js models","start_url":"./","display":"standalone","background_color":"#404040","theme_color":"#1f1f1f","lang":"en","scope":"./","icons":[{"src":"icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any"}]}
