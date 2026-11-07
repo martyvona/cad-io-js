@@ -1055,12 +1055,11 @@ Next, roughly in order:
 2. **Large files in the browser:** reading instance bytes on demand instead of holding the file, 64-bit offsets.
 3. **More of STEP:** PMI (semantic and graphical), user-defined attributes, materials, SHUOs, per-curve colours, named coordinate systems.
 4. **More formats** (the scene and tessellator interface were designed for them), by value to a viewer:
-   - **JT** (ISO 14306; Siemens Teamcenter): a pure-TypeScript importer of its meshes (levels of detail, so no tessellation needed), scene graph and properties; v9 and v10 compression both needed; specifications in `third_party/jt/`, free to implement against (the terms are summarized in `CLAUDE.md`);
    - **IGES**: a small parser plus the OCCT backend (`format: 'iges'`, subsets with renumbered pointers);
    - **OCCT BREP** (`.brep`), OCCT documents (`.xbf`) and **FreeCAD** (`.FCStd`, whose `.brp` shapes OCCT reads);
-   - exporting STEP (the writer exists) and JT.
+   - exporting STEP (the writer exists).
 
-Not planned for now: AP242 XML (`.stpx`).
+Not planned for now: AP242 XML (`.stpx`); JT (ISO 14306), whose precise geometry is mostly Parasolid's and whose meshes a file may leave out (`docs/future.md`; its specifications are in `third_party/jt/`).
 
 ## Backlog
 

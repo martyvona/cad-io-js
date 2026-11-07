@@ -10,7 +10,7 @@ Notes for working on cad-io-js: how work is done here, the decisions every part 
 | [`docs/backends.md`](docs/backends.md) | tessellation: `tessellateScene`, profiles, timeouts, the cache, faces that fail to mesh, OCCT (build, patches, probing, quirks), truck |
 | [`docs/scene-formats.md`](docs/scene-formats.md) | the scene model, the exporters (glTF, three.js, 3MF, `stepconv`), the mesh importers, round trips, those libraries' quirks |
 | [`docs/viewer.md`](docs/viewer.md) | the viewer: loading, export, rendering, sections, camera and input, picking, the tree and appearance overrides, updates, automation and replay, the browser check, three.js/Vite quirks |
-| [`docs/future.md`](docs/future.md) | new input formats (JT, IGES, BREP, FreeCAD), the JT specifications, prior art |
+| [`docs/future.md`](docs/future.md) | new input formats (IGES, BREP, FreeCAD, QIF, JT and why it's not a priority), the JT specifications, prior art |
 | [`docs/licensing.md`](docs/licensing.md) | the licenses, the CLA, and clean-room rules for code that could derive from OCCT or others |
 
 **History:** every decision since 0.1.0 with its alternatives and measurements is in `git show V0.2.0:CLAUDE.md`; each phase's steps and phase 0's backend comparison in `git show V0.1.0:CLAUDE.md`. Look there before redoing a measurement or reopening a decision.
