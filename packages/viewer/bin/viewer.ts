@@ -12,7 +12,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { CONTENT_PREFIX, contentUrl } from '../server/content.ts';
 import { launchChrome, type Tab } from '../server/headless.ts';
-import { DEFAULTS, envFromOptions, type ServerOptions } from '../server/options.ts';
+import { DEFAULTS, envFromOptions, withLanHttps, type ServerOptions } from '../server/options.ts';
 import { replayed } from '../src/replay-report.ts';
 
 const viewer = path.resolve(import.meta.dirname, '..');
@@ -44,7 +44,7 @@ Options for shot:
 Options (start, open and shot; a running server keeps its own):
   --content-root <dir> the directory served at /content/ (default: the repository's test_corpus/)
   --port <n>           the port (default ${DEFAULTS.port})
-  --lan                listen on the LAN too, for phones and tablets (not a secure context over plain http)
+  --lan                listen on the LAN too, for phones and tablets; always https (self unless --https mkcert)
   --https <kind>       self (a self-signed certificate) or mkcert (packages/viewer/.cert/cert.pem, key.pem)
   -h, --help           this help
 `;
@@ -133,7 +133,8 @@ export function parseArgs(argv: string[]): Args | string {
   if (takesFile ? file === undefined || extra.length : file !== undefined) {
     return takesFile ? `${command} takes one file` : `${command} takes no file`;
   }
-  return { command, ...(file !== undefined ? { file: path.resolve(file) } : {}), opts, shot, given };
+  return { command, ...(file !== undefined ? { file: path.resolve(file) } : {}), opts: withLanHttps(opts), shot,
+    given };
 }
 
 const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };

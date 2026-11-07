@@ -292,7 +292,7 @@ test("a host's module: the glue and module given by URL, bytes, factory or compi
   assert.match(ours.version, /^OCCT 8\.1 \(3d097a0328\)( \+ patches [0-9a-z,-]+)?, wasm [0-9a-f]{12}, adapter \d+$/);
   assert.equal(id, createHash('sha256').update(bytes).digest('hex').slice(0, 12));
   const patches = / \+ patches [^,]+/.exec(ours.version)?.[0] ?? '';
-  // The same where crypto.subtle is missing (insecure contexts: a page over plain http on a LAN).
+  // The same where crypto.subtle is missing (insecure contexts: a page over plain http, not from localhost).
   const own = Object.getOwnPropertyDescriptor(globalThis, 'crypto')!;
   Object.defineProperty(globalThis, 'crypto', { value: {}, configurable: true });
   try { assert.equal((await run({})).version, ours.version); } finally {

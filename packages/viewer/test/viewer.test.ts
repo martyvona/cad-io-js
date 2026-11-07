@@ -253,6 +253,10 @@ test('options: from the environment and back; defaults; bad values refused', () 
   const o = { port: 6000, lan: true, https: 'mkcert' as const, contentRoot: '/tmp/x', certDir: '/tmp/c' };
   assert.deepEqual(optionsFromEnv(envFromOptions(o)), o);
   assert.equal(optionsFromEnv({ VIEWER_LAN: '0' }).lan, false);
+  // The LAN is always https: a self-signed certificate unless mkcert's is asked for; localhost may stay plain http.
+  assert.equal(optionsFromEnv({ VIEWER_LAN: '1' }).https, 'self');
+  assert.equal(optionsFromEnv({ VIEWER_LAN: '1', VIEWER_HTTPS: 'mkcert' }).https, 'mkcert');
+  assert.equal(optionsFromEnv({ VIEWER_LAN: '0' }).https, 'none');
   assert.throws(() => optionsFromEnv({ VIEWER_PORT: '70000' }), /VIEWER_PORT/);
   assert.throws(() => optionsFromEnv({ VIEWER_HTTPS: 'yes' }), /VIEWER_HTTPS/);
 });
@@ -313,6 +317,9 @@ test('cad-viewer: arguments', () => {
   assert.equal(a.file, path.resolve('x.glb'));
   assert.deepEqual(a.opts, { ...DEFAULTS, port: 6001, lan: true, https: 'self', contentRoot: path.resolve('/tmp') });
   assert.deepEqual(a.given.sort(), ['contentRoot', 'https', 'lan', 'port']);
+  const lan = parseArgs(['start', '--lan']);
+  assert.ok(typeof lan === 'object');
+  assert.deepEqual([lan.opts.lan, lan.opts.https], [true, 'self']);
   const s = parseArgs(['start']);
   assert.ok(typeof s === 'object' && s.given.length === 0 && s.file === undefined);
   assert.equal(parseArgs(['-h']), 'help');

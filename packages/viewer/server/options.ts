@@ -6,9 +6,9 @@ import path from 'node:path';
 export interface ServerOptions {
   /** The port, on localhost or the LAN. Default 5180. */
   port: number;
-  /** Listen on every interface (phones and tablets on the LAN), not only localhost. */
+  /** Listen on every interface (phones and tablets on the LAN), not only localhost; always https (`withLanHttps`). */
   lan: boolean;
-  /** Plain http (the default), a self-signed certificate, or mkcert's (`<certDir>/cert.pem`, `key.pem`). */
+  /** Plain http (localhost's default), a self-signed certificate, or mkcert's (`<certDir>/cert.pem`, `key.pem`). */
   https: 'none' | 'self' | 'mkcert';
   /** The directory served at /content/. Default the repository's test_corpus/. */
   contentRoot: string;
@@ -22,15 +22,24 @@ export const DEFAULTS: ServerOptions = { port: 5180, lan: false, https: 'none',
 
 const HTTPS = ['none', 'self', 'mkcert'] as const;
 
+/**
+ * The options with https on the LAN: a LAN address over plain http isn't a secure context (no service worker, no
+ * File System Access, no `crypto.subtle`, no cross-origin isolation), so `lan` without a certificate takes a
+ * self-signed one. Localhost is a secure context over plain http too.
+ */
+export function withLanHttps(o: ServerOptions): ServerOptions {
+  return o.lan && o.https === 'none' ? { ...o, https: 'self' } : o;
+}
+
 /** The options from VIEWER_PORT, VIEWER_LAN (1), VIEWER_HTTPS, VIEWER_CONTENT_ROOT, VIEWER_CERT_DIR. */
 export function optionsFromEnv(env: Record<string, string | undefined>): ServerOptions {
   const port = env.VIEWER_PORT ? Number(env.VIEWER_PORT) : DEFAULTS.port;
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(`bad VIEWER_PORT: ${env.VIEWER_PORT}`);
   const https = (env.VIEWER_HTTPS || 'none') as ServerOptions['https'];
   if (!HTTPS.includes(https)) throw new Error(`VIEWER_HTTPS must be one of ${HTTPS.join(', ')}: ${env.VIEWER_HTTPS}`);
-  return { port, lan: env.VIEWER_LAN === '1', https,
+  return withLanHttps({ port, lan: env.VIEWER_LAN === '1', https,
     contentRoot: path.resolve(env.VIEWER_CONTENT_ROOT || DEFAULTS.contentRoot),
-    certDir: path.resolve(env.VIEWER_CERT_DIR || DEFAULTS.certDir) };
+    certDir: path.resolve(env.VIEWER_CERT_DIR || DEFAULTS.certDir) });
 }
 
 export function envFromOptions(o: ServerOptions): Record<string, string> {
