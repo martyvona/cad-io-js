@@ -95,7 +95,7 @@ The ones every part depends on; the rest are in the topic notes, and the alterna
 - **Importers for every format into the scene model**, one viewer path through them; textures not supported (warned of).
 - **Extras off by default** in every exporter: exports are mostly for other systems.
 - **Meshing profiles** coarse, medium (the default), fine, defined only in `cad-scene`'s `profiles.ts`; the viewer medium on desktops, coarse on phones and tablets.
-- **SHA-256 everywhere**, our own implementation where Web Crypto is missing (plain http on a LAN).
+- **SHA-256 everywhere**, our own implementation where Web Crypto is missing (a page over plain http, not from localhost: the viewer's build on such a server, or another app's page; our dev server's LAN mode is always https).
 - **Markdown to PDF with Typst** (pinned and checksummed, with cmarker, mitex and merman; Typst's embedded fonts only); no pandoc, LaTeX or browser.
 - **Releases** bump every workspace package (and `tess-truck`'s crate) to the release's version and tag it `V<version>`; the viewer shows it.
 

@@ -393,9 +393,9 @@ npm run build -w cad-viewer          # writes packages/viewer/dist/ (about 12 MB
 
 ### Phones, Tablets and https
 
-`--lan` makes the server listen on every interface, and `start` prints its LAN addresses: open one on the phone or tablet (same network). Over plain http, which is the default, a LAN address isn't a *secure context*, so the browser withholds what needs one: the service worker (so no offline use), the File System Access picker (the plain file picker still works) and Web Crypto (our own SHA-256 stands in, so tessellation and its cache still work). For those, serve https:
+`--lan` makes the server listen on every interface, and `start` prints its LAN addresses: open one on the phone or tablet (same network). On the LAN it always serves https, since over plain http a LAN address isn't a *secure context* and the browser would withhold what needs one (the service worker, so offline use; the File System Access picker; Web Crypto; cross-origin isolation). On localhost it serves plain http unless `--https` asks otherwise (localhost is a secure context anyway). A deployment to GitHub Pages (`npm run deploy-viewer`, above) is often the easier way to try a change on a phone. The certificates:
 
-- **`--https self`**: a self-signed certificate made on first use (`@vitejs/plugin-basic-ssl`). Each browser warns once and must be told to proceed (Chrome: "Advanced", then "Proceed"); Chrome still refuses to register a service worker under a certificate error.
+- **`--https self`** (what `--lan` takes alone): a self-signed certificate made on first use (`@vitejs/plugin-basic-ssl`). Each browser warns once and must be told to proceed (Chrome: "Advanced", then "Proceed"); Chrome still refuses to register a service worker under a certificate error.
 - **`--https mkcert`**: a certificate from a local certificate authority that each device trusts; everything works, at the cost of installing the authority on each device. Once, on the computer running the server:
 
   ```sh
