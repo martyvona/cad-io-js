@@ -4,7 +4,7 @@ Notes for planning new input formats, and the projects reviewed as references. T
 
 ## Future input formats
 
-None is started; the scene (parts with a `brep` of a given format, levels from the source or ours, or both; external references) and the tessellator interface (`format: 'step' | 'iges' | 'brep'`) were designed for them.
+None is started; the format-neutral B-rep model their importers are to build is planned in `brep-model.md`. The scene (parts with a `brep` of a given format, levels from the source or ours, or both; external references) and the tessellator interface (`format: 'step' | 'iges' | 'brep'`) were designed for them.
 
 | Format | Importer | Tessellation | Notes |
 |---|---|---|---|
@@ -56,7 +56,7 @@ OCCT's own shape format, written by `BRepTools` (ASCII, header `CASCADE Topology
 - **Import:** a part whose `brep` payload is the file itself with `format: 'brep'`, read in the OCCT wrapper by `BRepTools` (in `TKBRep`, already linked), meshed as a STEP subset is; face ids by the order OCCT's explorer first meets each face (no STEP ids). Diagnostics for what isn't there (units assumed mm). Its triangulations, where present, could be a source level of detail. Truck can't read it. A parser of our own is needed only for the unified model, or for a backend other than OCCT.
 - **Export:** writing BREP needs, for each face, p-curves and tolerances that STEP files often lack, so either OCCT writes it (the STEP subset read, then `BRepTools` writing, in the wrapper: cheap) or our writer works from the unified model once that has p-curves and tolerances (computing p-curves is projection geometry of our own).
 
-**For the unified B-rep model:** OCCT's ontology is close to the model that model needs: the practical STEP vocabulary as a subset, the tolerances, p-curves, edge regularity and orientations that B-rep operations need, sharing with locations, and exactly what the OCCT backend consumes, so that backend's interface could map one to one. What it lacks would be our extension kinds: XT's implicit curves and blends, polynomial splines, ruled surfaces (all converted before OCCT sees them), and the scene's own names, colours and product structure, kept above the shapes as now. Its concepts can be taken from the specification; its classes and code can't (`licensing.md`).
+**For the unified B-rep model** (planned in `brep-model.md`): OCCT's ontology is close to the model that model needs: the practical STEP vocabulary as a subset, the tolerances, p-curves, edge regularity and orientations that B-rep operations need, sharing with locations, and exactly what the OCCT backend consumes, so that backend's interface could map one to one. What it lacks would be our extension kinds: XT's implicit curves and blends, polynomial splines, ruled surfaces (all converted before OCCT sees them), and the scene's own names, colours and product structure, kept above the shapes as now. Its concepts can be taken from the specification; its classes and code can't (`licensing.md`).
 
 ## FreeCAD
 

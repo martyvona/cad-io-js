@@ -1051,12 +1051,13 @@ Done in 0.1.0: the STEP parser and writer, schema binding and semantic extractio
 
 Next, roughly in order:
 
-1. **Publishing to npm:** emit JavaScript (`rewriteRelativeImportExtensions` is already on), package names and scope, per-package READMEs and licenses, the prebuilt WebAssembly modules in their packages.
-2. **Large files in the browser:** reading instance bytes on demand instead of holding the file, 64-bit offsets.
-3. **More of STEP:** PMI (semantic and graphical), user-defined attributes, materials, SHUOs, per-curve colours, named coordinate systems.
-4. **More formats** (the scene and tessellator interface were designed for them), by value:
+1. **The B-rep model** (in progress; `docs/brep-model.md`): each part's curves, surfaces and topology parsed into a format-neutral buffer at import, replacing STEP subsets, for backends (OCCT rebuilt on it; SMLib to explore), other kernels and exporters.
+2. **Publishing to npm:** emit JavaScript (`rewriteRelativeImportExtensions` is already on), package names and scope, per-package READMEs and licenses, the prebuilt WebAssembly modules in their packages.
+3. **Large files in the browser:** reading instance bytes on demand instead of holding the file, 64-bit offsets.
+4. **More of STEP:** PMI (semantic and graphical), user-defined attributes, materials, SHUOs, per-curve colours, named coordinate systems.
+5. **More formats** (the scene and tessellator interface were designed for them), by value:
    - **OCCT BREP** (`.brep`), OCCT documents (`.xbf`) and **FreeCAD** (`.FCStd`, whose `.brp` shapes OCCT reads);
-   - exporting STEP (the writer exists).
+   - exporting STEP, from the B-rep model (`docs/brep-model.md`).
 
 Not planned for now: AP242 XML (`.stpx`); JT (ISO 14306), whose precise geometry is mostly Parasolid's and whose meshes a file may leave out; IGES, used mostly for legacy data whose unconnected trimmed surfaces need high-quality sewing (both in `docs/future.md`, their specifications in `third_party/`).
 
