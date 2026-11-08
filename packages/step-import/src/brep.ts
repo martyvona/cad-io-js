@@ -8,7 +8,8 @@
 // read is left out (an edge keeps its vertices without a curve it can't read; a face without its surface is dropped).
 
 import {
-  BrepBuilder, type BrepData, type Coedge, type Curve, CURVE_FORMS, type CurveForm, type Edge, type Loop, type Point,
+  BrepBuilder, type BrepData, type Coedge, type Curve, type CurveEvaluator, curveEvaluatorOf, CURVE_FORMS,
+  type CurveForm, type Edge, type Loop, type Point,
   type Surface, SURFACE_FORMS, type SurfaceForm, type Transition, TRANSITIONS,
 } from 'cad-brep';
 import { listItems, numbersOf, placement, type Reader, type Value } from 'step-parser';
@@ -26,7 +27,7 @@ export interface StepBrepResult {
   brep: BrepData;
   /** Rows made, by kind of STEP entity read (face, edge, vertex, curve, surface, shell, body, item). */
   counts: Record<string, number>;
-  /** Seams whose two p-curves weren't given to their uses (needs evaluation: docs/brep-model.md, phase 3). */
+  /** Seams on a face whose two p-curves couldn't be told apart, so neither use has one. */
   seams: number;
 }
 
@@ -86,7 +87,7 @@ export function stepBrep(r: Reader, items: number[], o: StepBrepOptions, warn: W
   const A = o.angle;
   const counts: Record<string, number> = {};
   const count = (k: string) => { counts[k] = (counts[k] ?? 0) + 1; };
-  /** Seams met (edge and surface positions), each counted once whatever its uses. */
+  /** Seams whose p-curves couldn't be given to their uses (edge and surface positions), counted once each. */
   const seamsMet = new Set<string>();
 
   // Problems seen many times are said once, with a count and the first few ids.
@@ -484,7 +485,35 @@ export function stepBrep(r: Reader, items: number[], o: StepBrepOptions, warn: W
     return [q, forward];
   };
 
-  function loop(bound: number, surfaceP: number, hasOuter: boolean, ignoreOuter = false): Loop | undefined {
+  // Evaluators of the curve rows made so far (a seam's p-curves).
+  const evals = new Map<number, CurveEvaluator | undefined>();
+  const evalRow = (row: number): CurveEvaluator | undefined => {
+    if (evals.has(row)) return evals.get(row);
+    evals.set(row, undefined);
+    const e = curveEvaluatorOf(specs[row]!, evalRow);
+    evals.set(row, e);
+    return e;
+  };
+  /**
+   * Which of a seam's two p-curves (rows) a use of it takes. The face lies to the left of each use in (u, v) (Part
+   * 42; to the right where the face's or the bound's sense turns it over), so a use's p-curve is the one with the
+   * other on its left: its direction of travel the p-curve's tangent, turned by the use's orientation and the edge's
+   * same_sense (a p-curve shares its 3D curve's parameter). Undefined where that can't be told.
+   */
+  function seamPcurve(rows: [number, number], forward: boolean, edgeSame: boolean, flip: boolean): number | undefined {
+    const [a, b] = rows.map(evalRow);
+    if (!a || !b) return undefined;
+    const t = Number.isFinite(a.range[0]) && Number.isFinite(a.range[1]) ? (a.range[0] + a.range[1]) / 2 : 0;
+    const pa = a.point(t), pb = b.point(t), tan = a.d1(t);
+    const k = (forward ? 1 : -1) * (edgeSame ? 1 : -1) * (flip ? -1 : 1);
+    const left = [-tan[1]! * k, tan[0]! * k], gap = [pb[0]! - pa[0]!, pb[1]! - pa[1]!];
+    const side = left[0]! * gap[0]! + left[1]! * gap[1]!;
+    if (!(Math.abs(side) > 1e-9 * Math.hypot(...gap) * Math.hypot(...tan))) return undefined;
+    return side > 0 ? rows[0] : rows[1];
+  }
+
+  function loop(bound: number, surfaceP: number, hasOuter: boolean, ignoreOuter: boolean, faceSame: boolean):
+    Loop | undefined {
     const l = r.ref(bound, 'bound');
     const outer = r.is(bound, 'FACE_OUTER_BOUND') && !ignoreOuter;
     const base = { bound: outer ? 'outer' as const : hasOuter ? 'inner' as const : 'unknown' as const,
@@ -498,11 +527,19 @@ export function stepBrep(r: Reader, items: number[], o: StepBrepOptions, warn: W
         const mine = e.pcurves.filter((x) => r.ref(x, 'basis_surface') === surfaceP);
         let pcurve: number | undefined;
         if (mine.length === 1) pcurve = pcurveGeometry(mine[0]!, surfaceP);
-        else if (mine.length > 1) seamsMet.add(`${q}:${surfaceP}`);
+        else if (mine.length === 2) {
+          const rows = mine.map((x) => pcurveGeometry(x, surfaceP));
+          if (rows[0] !== undefined && rows[1] !== undefined) {
+            pcurve = seamPcurve(rows as [number, number], forward, bool(q, 'same_sense'),
+              !faceSame !== !base.sense);
+          }
+          if (pcurve === undefined) seamsMet.add(`${q}:${surfaceP}`);
+        } else if (mine.length > 2) note('an edge with more than two p-curves on one surface (none used)', q);
         coedges.push({ edge: e.row, orientation: forward ? 'forward' : 'reversed',
           ...(pcurve !== undefined ? { pcurve } : {}), ...(oe !== q ? { id: id(oe) } : {}) });
       }
       if (!coedges.length) return note('an empty edge loop (left out)', bound);
+      seamUses.push(...coedges.filter((c) => c.pcurve !== undefined));
       return { kind: 'edge', coedges, ...base };
     }
     if (r.is(l, 'VERTEX_LOOP')) {
@@ -521,6 +558,8 @@ export function stepBrep(r: Reader, items: number[], o: StepBrepOptions, warn: W
   }
 
   const faces = new Map<number, number | null>();
+  /** The current face's coedges with p-curves, to check its seams' two uses took different ones. */
+  const seamUses: Coedge[] = [];
   function face(p: number): number | undefined {
     const known = faces.get(p);
     if (known !== undefined) return known ?? undefined;
@@ -534,9 +573,20 @@ export function stepBrep(r: Reader, items: number[], o: StepBrepOptions, warn: W
         const outers = bounds.filter((q) => r.is(q, 'FACE_OUTER_BOUND')).length;
         // Part 42 allows one outer bound: a face with more (bug30790.step's tubes) has bounds of unknown kind.
         if (outers > 1) note('a face with more than one outer bound (all read as bounds of unknown kind)', p, 'info');
-        const loops = bounds.map((q) => loop(q, sp, outers === 1, outers > 1))
+        seamUses.length = 0;
+        const sameSense = bool(p, 'same_sense');
+        const loops = bounds.map((q) => loop(q, sp, outers === 1, outers > 1, sameSense))
           .filter((x): x is Loop => x !== undefined);
-        row = b.addFace({ surface: s, sameSense: bool(p, 'same_sense'), loops, id: id(p) });
+        // A seam's two uses must take different p-curves; where the rule gave both one, neither keeps it.
+        const byEdge = new Map<number, Coedge[]>();
+        for (const c of seamUses) byEdge.set(c.edge, [...(byEdge.get(c.edge) ?? []), c]);
+        for (const [edgeRow, cs] of byEdge) {
+          if (cs.length === 2 && cs[0]!.pcurve === cs[1]!.pcurve) {
+            for (const c of cs) delete c.pcurve;
+            seamsMet.add(`edge ${edgeRow}:${sp}`);
+          }
+        }
+        row = b.addFace({ surface: s, sameSense, loops, id: id(p) });
         count('face');
       }
     } else if (r.is(p, 'CURVE_BOUNDED_SURFACE')) row = curveBounded(p);
@@ -681,8 +731,8 @@ export function stepBrep(r: Reader, items: number[], o: StepBrepOptions, warn: W
 
   for (const q of items) item(q);
   const seams = seamsMet.size;
-  if (seams) note(`${seams === 1 ? 'a seam' : `${seams} seams`}: two p-curves on one face, not given to their uses`, -1,
-    'info');
+  if (seams) note(`${seams === 1 ? 'a seam' : `${seams} seams`} whose two p-curves on one face couldn't be told apart `
+    + '(neither use has one)', -1, 'info');
   for (const [message, x] of problems) {
     const ids = x.ids.length ? ` (#${x.ids.join(', #')}${x.n > x.ids.length ? ', ...' : ''})` : '';
     warn(`B-rep model: ${x.n === 1 ? '' : `${x.n} x `}${message}${ids}`, x.severity);

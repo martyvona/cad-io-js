@@ -697,7 +697,7 @@ const again = openBrep(d.buffer.slice(0));          // views of a buffer from el
 console.log(decode.face(again, 0).loops.length);    // 1
 ```
 
-`brepToJson` and `brepFromJson` give every row as JSON and back (the same bytes); `validateBrep` checks the format's rules and Part 42's constraints on values (knot vectors, unit directions, radii, joined loops), as diagnostics; `rowCount(d, table)` counts rows. The builder throws on what would make the buffer unreadable (a reference to a row not yet added, a 2D curve as an edge's), its caller's bugs.
+Geometry: `curveEvaluator(d, i)` and `surfaceEvaluator(d, i)` give a row's points and derivatives by Part 42's parameterizations (B-splines rational or not), its ranges and periods, and a point's parameters (in closed form for lines, conics and the elementary surfaces, else `nearestParam` / `nearestParams`); `edgeParams` an edge's parameters from start to end; `faceOutlines(d, origin, { linearDeflection, angularDeflection })` its faces' edges as polylines, for faces that fail to mesh. `brepToJson` and `brepFromJson` give every row as JSON and back (the same bytes); `validateBrep` checks the format's rules and Part 42's constraints on values (knot vectors, unit directions, radii, joined loops), as diagnostics; `rowCount(d, table)` counts rows. The builder throws on what would make the buffer unreadable (a reference to a row not yet added, a 2D curve as an edge's), its caller's bugs.
 
 ### `cad-scene`
 

@@ -309,7 +309,7 @@ test('topology: shared edges, p-curves per face, orientations, voids, loops, ids
   assert.deepEqual(sheet.faces.map((u) => [faces[u.face]!.id, u.sense]), [[75, true], [82, false]]);
 
   // The cylinder: its bottom circle's p-curve the line u = 0..360 degrees, made radians (magnitude 2 pi); the seam's
-  // two p-curves on one face not given to its uses yet.
+  // two p-curves given to its uses with the face on their left: up the seam (forward) at u = 2 pi, down it at u = 0.
   const side = byId(135);
   const ls = side.loops[0]!;
   assert.ok(ls.kind === 'edge');
@@ -317,9 +317,14 @@ test('topology: shared edges, p-curves per face, orientations, voids, loops, ids
   const bottom = decode.curve(d, cs[0]!.pcurve!);
   assert.ok(bottom.kind === 'line');
   assert.ok(close([...bottom.point, ...bottom.direction, bottom.magnitude], [0, 0, 1, 0, 2 * Math.PI]));
-  assert.deepEqual(cs.map((c) => 'pcurve' in c), [true, false, false, false]);
-  assert.equal(seams, 1);
-  assert.ok(warnings.some((w) => /a seam: two p-curves on one face/.test(w)), `${warnings}`);
+  assert.deepEqual(cs.map((c) => 'pcurve' in c), [true, true, false, true]);
+  const u = (c: typeof cs[number]) => {
+    const x = decode.curve(d, c.pcurve!);
+    return x.kind === 'line' ? x.point[0]! : NaN;
+  };
+  assert.ok(close([u(cs[1]!), u(cs[3]!)], [2 * Math.PI, 0]), `${u(cs[1]!)} ${u(cs[3]!)}`);
+  assert.equal(seams, 0);
+  assert.ok(!warnings.some((w) => /seam/.test(w)), `${warnings}`);
 
   // The void: two shells, the second used reversed; natural-bound spheres.
   const solids = Array.from({ length: rowCount(d, 'body') }, (_, k) => decode.body(d, k));
@@ -411,4 +416,46 @@ test('the result counts what it made', async () => {
   const out: StepBrepResult = await convert(TOPOLOGY, [85], 1);
   assert.deepEqual([out.counts.face, out.counts.edge, out.counts.vertex, out.counts.shell, out.counts.body],
     [2, 5, 4, 1, 1]);
+});
+
+test('a seam\'s p-curves swap with the face\'s sense or the bound\'s, and come back with both', async () => {
+  const seamUs = async (data: string) => {
+    const { brep: d, seams } = await convert(data, [137], DEG);
+    const l = decode.face(d, 0).loops[0]!;
+    assert.ok(l.kind === 'edge' && seams === 0);
+    return [l.coedges[1]!, l.coedges[3]!].map((c) => {
+      const x = decode.curve(d, c.pcurve!);
+      return x.kind === 'line' ? Math.round(x.point[0]! * 1e9) / 1e9 : NaN;
+    });
+  };
+  const two = Math.round(2 * Math.PI * 1e9) / 1e9;
+  const face = (s: string) =>
+    TOPOLOGY.replace("#135=ADVANCED_FACE('',(#134),#100,.T.);", `#135=ADVANCED_FACE('',(#134),#100,${s});`);
+  const bound = (data: string, s: string) =>
+    data.replace("#134=FACE_OUTER_BOUND('',#133,.T.);", `#134=FACE_OUTER_BOUND('',#133,${s});`);
+  assert.deepEqual(await seamUs(TOPOLOGY), [two, 0]);
+  assert.deepEqual(await seamUs(face('.F.')), [0, two]);
+  assert.deepEqual(await seamUs(bound(TOPOLOGY, '.F.')), [0, two]);
+  assert.deepEqual(await seamUs(bound(face('.F.'), '.F.')), [two, 0]);
+});
+
+test('a seam edge against its curve gives the same p-curves; uses the rule can\'t tell apart get none', async () => {
+  // The seam's vertices swapped and same_sense false, its uses turned over: the same geometry, the same p-curves.
+  const against = TOPOLOGY.replace("#128=EDGE_CURVE('',#112,#113,#127,.T.);", "#128=EDGE_CURVE('',#113,#112,#127,.F.);")
+    .replace("#130=ORIENTED_EDGE('',*,*,#128,.T.);", "#130=ORIENTED_EDGE('',*,*,#128,.F.);")
+    .replace("#132=ORIENTED_EDGE('',*,*,#128,.F.);", "#132=ORIENTED_EDGE('',*,*,#128,.T.);");
+  const pcurveU = async (data: string) => {
+    const { brep: d, seams } = await convert(data, [137], DEG);
+    const l = decode.face(d, 0).loops[0]!;
+    assert.ok(l.kind === 'edge');
+    return { seams, u: [l.coedges[1]!, l.coedges[3]!].map((c) => {
+      if (c.pcurve === undefined) return undefined;
+      const x = decode.curve(d, c.pcurve);
+      return x.kind === 'line' ? Math.round(x.point[0]! * 1e9) / 1e9 : NaN;
+    }) };
+  };
+  assert.deepEqual(await pcurveU(against), { seams: 0, u: [Math.round(2 * Math.PI * 1e9) / 1e9, 0] });
+  // Both uses forward (no valid loop): the rule gives both one p-curve, so neither keeps it.
+  const both = TOPOLOGY.replace("#132=ORIENTED_EDGE('',*,*,#128,.F.);", "#132=ORIENTED_EDGE('',*,*,#128,.T.);");
+  assert.deepEqual(await pcurveU(both), { seams: 1, u: [undefined, undefined] });
 });

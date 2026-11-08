@@ -1,0 +1,55 @@
+517 files, 3258 B-rep parts
+
+## vertexCurve: 409011 measured
+  <= 1e-7 mm: 395596
+  <= 0.00001 mm: 5954
+  <= 0.001 mm: 6640
+  <= 0.1 mm: 788
+    more mm: 33
+  worst 3.020e+0 mm  gkv311-opencascade-dataset/step/bug25415_part_of_hdrv8w64p254_4x2_1016x502h838p.stp #418 edge #79
+  worst 3.020e+0 mm  gkv311-opencascade-dataset/step/bug25415_part_of_hdrv8w64p254_4x2_1016x502h838p.stp #418 edge #79
+  worst 1.000e+0 mm  gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 edge #784
+  worst 1.000e+0 mm  gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 edge #842
+  worst 1.000e+0 mm  gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 edge #769
+  worst 1.000e+0 mm  gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 edge #771
+  worst 1.000e+0 mm  gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 edge #827
+  worst 1.000e+0 mm  gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 edge #829
+  worst 1.000e+0 mm  gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 edge #778
+  worst 1.000e+0 mm  gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 edge #836
+
+## vertexSurface: 389210 measured
+  <= 1e-7 mm: 367487
+  <= 0.00001 mm: 9518
+  <= 0.001 mm: 11165
+  <= 0.1 mm: 1018
+    more mm: 22
+  skipped: 7890 no parameters (unbounded, no closed form)
+  worst 2.620e+2 mm  gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 face #35147
+  worst 2.000e+2 mm  gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 face #279826
+  worst 1.790e+2 mm  gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 face #311928
+  worst 1.767e+2 mm  gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 face #131755
+  worst 1.633e+2 mm  gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 face #128930
+  worst 1.365e+2 mm  gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 face #334072
+  worst 1.224e+2 mm  gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 face #36207
+  worst 8.357e+1 mm  gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 face #271606
+  worst 1.850e+1 mm  gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 face #195244
+  worst 7.470e+0 mm  gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 face #367230
+
+## pcurve: 18739 measured
+  <= 1e-7 mm: 17722
+  <= 0.00001 mm: 645
+  <= 0.001 mm: 323
+  <= 0.1 mm: 48
+    more mm: 1
+  skipped: 5387 surface without closed-form parameters
+  skipped: 8 p-curve, 3D curve or edge range not evaluated
+  worst 1.324e-1 mm  gkv311-opencascade-dataset/step/OCC8228.stp #10 face #29830 coedge #30452 edge #30453
+  worst 6.589e-2 mm  gkv311-opencascade-dataset/step/OCC8228.stp #10 face #18820 coedge #19277 edge #19278
+  worst 3.049e-2 mm  gkv311-opencascade-dataset/step/ec_soapbox-A.stp #11 face #15809 coedge #15873 edge #13705
+  worst 3.049e-2 mm  gkv311-opencascade-dataset/step/ec_soapbox-A.stp #11 face #17202 coedge #17206 edge #14203
+  worst 3.014e-2 mm  gkv311-opencascade-dataset/step/ec_soapbox-A.stp #11 face #17202 coedge #17208 edge #17209
+  worst 3.014e-2 mm  gkv311-opencascade-dataset/step/ec_soapbox-A.stp #11 face #15809 coedge #15935 edge #15936
+  worst 1.911e-2 mm  gkv311-opencascade-dataset/step/OCC8228.stp #10 face #78815 coedge #78841 edge #78842
+  worst 1.456e-2 mm  gkv311-opencascade-dataset/step/OCC8228.stp #10 face #91496 coedge #91501 edge #80237
+  worst 1.412e-2 mm  gkv311-opencascade-dataset/step/OCC8228.stp #10 face #36344 coedge #36348 edge #22757
+  worst 1.156e-2 mm  gkv311-opencascade-dataset/step/OCC8228.stp #10 face #82808 coedge #82894 edge #76180

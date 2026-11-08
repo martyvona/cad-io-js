@@ -1,4 +1,4 @@
-517 files (0 over the size limit), 3258 parts; 63667 faces compared (trusted by the oracle, at least 0.010 mm^2, measured by OCCT); 4 trusted faces OCCT didn't measure
+517 files (0 over the size limit), 3258 parts; 63665 faces compared (trusted by the oracle, at least 0.010 mm^2, measured by OCCT); 4 trusted faces OCCT didn't measure
 
 The oracle's coverage (every face of every part):
    27278  trusted: plane
@@ -7,7 +7,7 @@ The oracle's coverage (every face of every part):
     5113  unsupported: B_SPLINE_SURFACE_WITH_KNOTS
     4435  trusted: cone
     3251  trusted: torus
-    2097  trusted: sphere
+    2095  trusted: sphere
     1334  unsupported: SURFACE_OF_LINEAR_EXTRUSION
      604  unsupported: SURFACE_OF_REVOLUTION
      216  untrusted: plane, error estimate over 0.000001
@@ -33,14 +33,15 @@ The oracle's coverage (every face of every part):
        4  untrusted: torus, minor-winding, orientation
        3  unsupported: expected a reference
        2  unsupported: complex B_SPLINE_SURFACE+B_SPLINE_SURFACE_WITH_KNOTS+BOUNDED_SURFACE+GEOMETRIC_REPRESENTATION_ITEM+RATIONAL_B_SPLINE_SURFACE+REPRESENTATION_ITEM+SURFACE
+       2  untrusted: sphere, off-surface
        2  untrusted: torus, no-loops
 
-OCCT's measured area against the oracle's, relative difference: <= 1e-9: 49976, <= 1e-6: 8350, <= 1e-4: 3441, <= 1e-3: 949, <= 1e-2: 767, <= 1e-1: 162, <= inf: 22
+OCCT's measured area against the oracle's, relative difference: <= 1e-9: 49975, <= 1e-6: 8350, <= 1e-4: 3440, <= 1e-3: 949, <= 1e-2: 767, <= 1e-1: 162, <= inf: 22
   within 1e-4: 97.0 %
 OCCT's perimeter against the oracle's, planes only: <= 1e-9: 24288, <= 1e-6: 2415, <= 1e-4: 345, <= 1e-3: 45, <= 1e-2: 5, <= 1e-1: 2, <= inf: 5
 
 faceFailures with OCCT's measures (as the library judges) and with the oracle's:
-   63648  OCCT's measures: ok         oracle: ok
+   63646  OCCT's measures: ok         oracle: ok
        6  OCCT's measures: unverified oracle: ok
        5  OCCT's measures: ok         oracle: excess
        3  OCCT's measures: unverified oracle: partly
