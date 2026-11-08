@@ -26,7 +26,7 @@ export function extractSemantics(model: StepModel): Semantics {
   return { structure, styles, validation, diagnostics: r.diagnostics };
 }
 
-export { Reader } from './reader.ts';
+export { Reader, numberOf, numbersOf } from './reader.ts';
 export { Units, type Unit, type UnitKind, type RepresentationContext } from './units.ts';
 export * as math from './math.ts';
 export type { Mat4, Vec3 } from './math.ts';

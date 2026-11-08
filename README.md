@@ -774,6 +774,7 @@ What it does with the file:
 - **Layers**, external references (components whose geometry is in another file).
 - **Names**: generic part names (`NONE`, `#123`, blank) take their product's; blank product names their part number.
 - **Diagnostics**: parts with references to instances the file doesn't define get a warning naming them; representations without a length unit are read as millimetres, with a warning.
+- **The B-rep model** (`importStep(bytes, { models: true })`; off by default): each B-rep part's geometry and topology parsed into a `cad-brep` buffer, `Part.brep.model`, by the rules of `docs/brep-model.md` (angles in radians, placements complete, implicit knots made explicit, p-curves on the uses of edges, STEP ids kept), with diagnostics for what it can't read. It is to replace the subset as what backends mesh and exporters write.
 
 ### `threejs-import`
 

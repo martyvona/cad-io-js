@@ -336,12 +336,23 @@ export function validateBrep(d: BrepData): BrepDiagnostic[] {
   }
 
   const e = d.edge;
+  // An edge with neither a 3D curve nor vertices is defined by its uses' p-curves alone (a curve-bounded surface's
+  // boundary, trims in parameter space): it needs uses, every one with a p-curve.
+  const uses = new Int32Array(n.edge), bare = new Int32Array(n.edge);
+  for (let k = 0; k < n.coedge; k++) {
+    const g = d.coedge.edge[k]!;
+    if (!inRange('edge', g)) continue;
+    uses[g]!++;
+    if (d.coedge.pcurve[k]! < 0) bare[g]!++;
+  }
   for (let k = 0; k < n.edge; k++) {
     const what = name('edge', k, e.id), c = e.curve[k]!, s = e.start[k]!, t = e.end[k]!;
     if (c !== -1 && (!inRange('curve', c) || curveDim(c) !== 3)) say('error', `${what}: curve ${c} not a 3D curve`);
     for (const v of [s, t]) if (v !== -1 && !inRange('vertex', v)) say('error', `${what}: vertex ${v} out of range`);
     if ((s === -1) !== (t === -1)) say('warning', `${what}: one vertex only`);
-    if (c === -1 && s === -1) say('error', `${what}: neither a curve nor vertices`);
+    if (c === -1 && s === -1 && (!uses[k] || bare[k])) {
+      say('error', `${what}: neither a curve nor vertices, and ${uses[k] ? 'a use without a p-curve' : 'no use'}`);
+    }
     if (e.sameSense[k]! > 1) say('error', `${what}: same_sense ${e.sameSense[k]}`);
     if (e.flags[k]! & ~EDGE_FLAGS.degenerate) say('error', `${what}: flags ${e.flags[k]}`);
     pair('edge', k, e.range, e.id);

@@ -14,6 +14,7 @@ Notes for work on `step-parser`, `step-schemas`, `step-import` and STEP files: t
 - `Scene.sourceUnit`: the first root product's main shape representation's length unit, else its first part's.
 - Leaf products (a component whose only content is one part reference) become part references in their parent (`leafParts`, see `scene-formats.md`); a placed part's STEP ids are its NAUO's, its product's, then its shape representation's.
 - `importStep`'s `onProgress` reports `reading`, `structure`, `parts` (`done` of `total` representations), `assembly`.
+- `models` builds each B-rep part's parsed model (`brep.ts`, `Part.brep.model`; `brep-model.md` for its rules), through a `Reader` of its own per part (the shared one's cache of bound instances would keep every part's geometry alive); its diagnostics are the part's, prefixed `B-rep model:`, repeated ones said once with a count. Off by default until the model replaces the subset.
 - `faceOutlines` (`outlines.ts`) discretizes a face's bounds from the file (lines, circles, ellipses, B-splines, polylines; else a straight segment), so failed faces can be drawn whatever the backend.
 
 ## AP242 tessellated geometry read by step-import

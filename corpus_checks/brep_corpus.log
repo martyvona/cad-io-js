@@ -1,0 +1,74 @@
+517 files (0 over 1000 MB skipped), 3258 B-rep parts
+import 8.5 s without models, 15.1 s with; subsets 1.7 s to build
+models 112.9 MB, subsets 323.5 MB
+
+## rows by kind
+     2575 body sheet
+     1236 body solid
+        4 body wire
+    23420 coedges with a p-curve
+   411856 coedges
+     2127 curve 2D bspline rational
+     9560 curve 2D bspline
+      231 curve 2D circle
+        6 curve 2D ellipse
+        9 curve 2D hyperbola
+    13614 curve 2D line
+     1895 curve 2D trimmed
+    11079 curve 3D bspline rational
+    60327 curve 3D bspline
+    66202 curve 3D circle
+      199 curve 3D composite
+     2872 curve 3D ellipse
+       17 curve 3D hyperbola
+    89032 curve 3D line
+        4 curve 3D parabola
+       14 curve 3D polyline
+     9212 curve 3D trimmed
+    14756 edges from curve-bounded surfaces
+       46 edges without a 3D curve
+   219308 edges
+    86141 faces
+     3815 item body
+     3673 item curve
+     3156 item face
+     1056 item point
+       17 item surface
+   110375 loop edge
+      288 loop vertex
+     3087 shell closed
+      986 shell open
+    17096 surface bspline
+     4827 surface cone
+    27341 surface cylinder
+     1317 surface extrusion
+    27905 surface plane
+       22 surface rectangularTrimmed
+      625 surface revolution
+     2196 surface sphere
+     3675 surface torus
+   138828 vertices
+
+## problems
+      154 import info: a face with more than one outer bound (all read as bounds of unknown kind)  e.g. gkv311-opencascade-dataset/step/bug30790.step #2481; gkv311-opencascade-dataset/step/bug30790.step #2478; gkv311-opencascade-dataset/step/bug30790.step #2475
+       46 import info: N seams: two p-curves on one face, not given to their uses  e.g. gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392624; gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392310; gkv311-opencascade-dataset/step/bug32314_corrupted.stp #391996
+       41 import warning: a curve missing from the file  e.g. gkv311-opencascade-dataset/step/bug22871_null-swept-curve.stp #10; gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17525; gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17485
+       22 validate error: loop N (#N): coedge N ends at vertex N, the next starts at N  e.g. gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483; gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483; gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483
+       20 vertices in the closure not in the model  e.g. gkv311-opencascade-dataset/step/bug29478.stp #130 -> #20, #22, #31; gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #329592 -> #14206, #18013, #75744
+       12 edges in the closure not in the model  e.g. gkv311-opencascade-dataset/step/bug29478.stp #130 -> #28, #59, #68; gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #329592 -> #27043, #283476, #324762
+        8 import info: a seam: two p-curves on one face, not given to their uses  e.g. gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938; gkv311-opencascade-dataset/step/ec_exhaust-A.stp #2631; gkv311-opencascade-dataset/step/bug22871_null-swept-curve.stp #10
+        4 faces in the closure not in the model  e.g. gkv311-opencascade-dataset/step/bug22871_null-swept-curve.stp #10 -> #3367, #3485; gkv311-opencascade-dataset/step/bug29478.stp #130 -> #114; gkv311-opencascade-dataset/step/bug24383_224013.stp #11 -> #9869
+        3 import warning: a negative radius (read as its absolute value)  e.g. gkv311-opencascade-dataset/step/bug30014.stp #41105; gkv311-opencascade-dataset/step/bug25287_bad_tess_face_plus.step #2134; gkv311-opencascade-dataset/step/bug32239.STEP #83837
+        3 import warning: a face whose surface can't be read (left out)  e.g. gkv311-opencascade-dataset/step/bug22871_null-swept-curve.stp #10; gkv311-opencascade-dataset/step/bug29478.stp #130; gkv311-opencascade-dataset/step/bug24383_224013.stp #11
+        2 validate warning: body N (#N): shell N not closed  e.g. gkv311-opencascade-dataset/step/bug33665.step #10; gkv311-opencascade-dataset/step/bug25169_box-openshell.stp #10
+        1 import warning: an edge missing from the file  e.g. gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938
+        1 import warning: a loop with an edge that can't be read (the loop left out)  e.g. gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938
+        1 import warning: a face missing from the file  e.g. gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938
+        1 import warning: a vertex missing from the file  e.g. gkv311-opencascade-dataset/step/bug31292.stp #62
+        1 validate warning: edge N (#N): one vertex only  e.g. gkv311-opencascade-dataset/step/bug31292.stp #62
+        1 import warning: an extrusion without its curve or axis  e.g. gkv311-opencascade-dataset/step/bug22871_null-swept-curve.stp #10
+        1 import warning: a B-spline surface without its degrees or a grid of poles  e.g. gkv311-opencascade-dataset/step/bug29478.stp #130
+        1 import warning: an unsupported face (ORIENTED_EDGE)  e.g. gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #329592
+        1 import info: a B-spline with repeated knot values (folded into one, multiplicities summed)  e.g. gkv311-opencascade-dataset/step/bug22680_C5-390.410-63090C-633112134823466595-1.stp #996
+        1 import warning: a line without its point or direction  e.g. gkv311-opencascade-dataset/step/bug24383_224013.stp #11
+        1 import warning: a surface of revolution without its curve or axis  e.g. gkv311-opencascade-dataset/step/bug24383_224013.stp #11

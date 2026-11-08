@@ -1,5 +1,6 @@
 // A B-rep as JSON: every row decoded (types.ts), for tests, debugging and dumps. brepFromJson(brepToJson(d)) gives
-// d's bytes again. Not an exchange format: brepFromJson throws on what the builder refuses.
+// d's bytes again; through JSON text, the same values but for the sign of zero (JSON writes -0 as 0). Not an exchange
+// format: brepFromJson throws on what the builder refuses.
 
 import { BrepBuilder } from './builder.ts';
 import { type BrepData, rowCount } from './data.ts';

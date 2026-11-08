@@ -15,6 +15,7 @@ import {
 } from 'step-parser';
 import { authorOf, boundScene, dropSourceDegenerate, leafParts, type Component, type Diagnostic, type Layer, type Lod,
   type Material, type Part, type Properties, type Scene, type Vec3 } from 'cad-scene';
+import { stepBrep } from './brep.ts';
 import { faceOutlines } from './outlines.ts';
 import { moveMesh, readTessellated, tessellatedItems } from './tessellated.ts';
 
@@ -37,6 +38,11 @@ export interface ImportOptions extends OpenOptions {
    * `parts` the shape representations looked at so far, of all of them.
    */
   onProgress?: (p: ImportProgress) => void;
+  /**
+   * Also build each B-rep part's parsed model (cad-brep, `Part.brep.model`) as it's made, with its diagnostics:
+   * the B-rep model that is to replace the STEP subset (docs/brep-model.md). Default false.
+   */
+  models?: boolean;
 }
 
 /**
@@ -253,8 +259,19 @@ export function sceneFromStep(model: StepModel, sem: Semantics, opts: ImportOpti
       if (!shells.length) closed = undefined;
     }
     faceCount.push(faces.length);
+    const context = s.representations.get(rep.id)?.context;
+    // A reader of its own per part: its cache of bound instances (most of the geometry's) goes with the part.
+    let brepModel;
+    if (!read && opts.models) {
+      const own = new Reader(model);
+      brepModel = stepBrep(own, geometry, { unit: mmOf(rep.id), angle: context?.planeAngleUnit?.factor ?? 1,
+        ...(context?.uncertainty !== undefined ? { uncertainty: context.uncertainty * 1000 / mmOf(rep.id) } : {}) },
+      (message, severity) => warn(message, rep.id, severity)).brep;
+      for (const x of own.diagnostics) warn(`B-rep model: ${x.message}`, x.id ?? rep.id, x.severity);
+    }
     const part: Part = {
       ...(read ? {} : { brep: {
+        ...(brepModel ? { model: brepModel } : {}),
         format: 'step', rootId: rep.id,
         // Where it is before it's meshed (no bound: the model's first sphere, sceneBounds).
         ...(lo[0] === Infinity ? {} : { vertexBox: { min: [...lo] as Vec3, max: [...hi] as Vec3 } }),

@@ -11,6 +11,8 @@
 // (`rootParts`), carrying the instance's name, sources and properties and the product's apart (one node per placed
 // part, as CAD systems and 3MF show them; `leafParts`, which every importer ends with).
 
+import type { BrepData } from 'cad-brep';
+
 /** A 4x4 matrix, column-major (as three.js and glTF): element (row r, column c) is m[c * 4 + r]. */
 export type Mat4 = Float64Array;
 export type Vec3 = [number, number, number];
@@ -195,6 +197,11 @@ export type BrepFormat = 'step' | 'iges' | 'brep';
 
 /** A part's exact geometry. */
 export interface Brep {
+  /**
+   * The parsed B-rep (cad-brep), where the importer built it (step-import's `models`): to replace `payload`
+   * (docs/brep-model.md).
+   */
+  model?: BrepData;
   format: BrepFormat;
   /** The tessellation payload (a STEP subset, say). A function, since building it is work only needed on demand. */
   payload: () => Uint8Array;
