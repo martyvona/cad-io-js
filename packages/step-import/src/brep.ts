@@ -305,6 +305,10 @@ export function stepBrep(r: Reader, items: number[], o: StepBrepOptions, warn: W
 
   // -- Surfaces, and which of their parameters are angles (in the file's unit in p-curves and trims).
   const surfaces = new Map<number, number | null>();
+  /** Tori with a negative major radius (positions): their faces are turned over, their p-curves not read. */
+  const turned = new Set<number>();
+  const isTurned = (p: number): boolean => turned.has(p)
+    || (r.is(p, 'RECTANGULAR_TRIMMED_SURFACE') && isTurned(r.ref(p, 'basis_surface')));
   function surface(p: number): number | undefined {
     const known = surfaces.get(p);
     if (known !== undefined) return known ?? undefined;
@@ -355,9 +359,20 @@ export function stepBrep(r: Reader, items: number[], o: StepBrepOptions, warn: W
       if (r.is(p, 'CONICAL_SURFACE')) return { kind: 'cone', position, radius: len('radius'),
         semiAngle: (num(p, 'semi_angle') ?? NaN) * A };
       if (r.is(p, 'SPHERICAL_SURFACE')) return { kind: 'sphere', position, radius: len('radius') };
-      if (r.is(p, 'TOROIDAL_SURFACE')) return { kind: 'torus', position, majorRadius: len('major_radius'),
-        minorRadius: len('minor_radius'),
+      if (r.is(p, 'TOROIDAL_SURFACE')) {
+        // A negative major radius: the same points from (u + pi, pi - v), so the normal turns over; SolidWorks and
+        // Pro/E write such faces as the other side's (OCCT reads them so, its bug 26376). Read with the radius'
+        // absolute value and its faces turned over (`turned`).
+        const major = num(p, 'major_radius');
+        if (major !== undefined && major < 0) {
+          turned.add(p);
+          note('a torus with a negative major radius (read with its absolute value, its faces turned over)', p);
+          return { kind: 'torus', position, majorRadius: -major, minorRadius: len('minor_radius'),
+            ...(r.is(p, 'DEGENERATE_TOROIDAL_SURFACE') ? { selectOuter: bool(p, 'select_outer') } : {}) };
+        }
+        return { kind: 'torus', position, majorRadius: len('major_radius'), minorRadius: len('minor_radius'),
         ...(r.is(p, 'DEGENERATE_TOROIDAL_SURFACE') ? { selectOuter: bool(p, 'select_outer') } : {}) };
+      }
       return missing('surface', p);
     }
     if (r.is(p, 'B_SPLINE_SURFACE')) {
@@ -429,6 +444,7 @@ export function stepBrep(r: Reader, items: number[], o: StepBrepOptions, warn: W
 
   /** A PCURVE's 2D curve, scaled for its surface; undefined if it isn't 2D or can't be read. */
   function pcurveGeometry(q: number, surfaceP: number): number | undefined {
+    if (isTurned(surfaceP)) return note('a p-curve on a torus with a negative major radius (not read)', q, 'info');
     const c = refsOf(r.attr(r.ref(q, 'reference_to_curve'), 'items')).find((x) => r.is(x, 'CURVE'));
     if (c === undefined) return note('a p-curve without its curve', q);
     const row = curve(c, scaleOf(surfaceP));
@@ -574,7 +590,7 @@ export function stepBrep(r: Reader, items: number[], o: StepBrepOptions, warn: W
         // Part 42 allows one outer bound: a face with more (bug30790.step's tubes) has bounds of unknown kind.
         if (outers > 1) note('a face with more than one outer bound (all read as bounds of unknown kind)', p, 'info');
         seamUses.length = 0;
-        const sameSense = bool(p, 'same_sense');
+        const sameSense = bool(p, 'same_sense') !== isTurned(sp);
         const loops = bounds.map((q) => loop(q, sp, outers === 1, outers > 1, sameSense))
           .filter((x): x is Loop => x !== undefined);
         // A seam's two uses must take different p-curves; where the rule gave both one, neither keeps it.

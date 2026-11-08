@@ -459,3 +459,46 @@ test('a seam edge against its curve gives the same p-curves; uses the rule can\'
   const both = TOPOLOGY.replace("#132=ORIENTED_EDGE('',*,*,#128,.F.);", "#132=ORIENTED_EDGE('',*,*,#128,.T.);");
   assert.deepEqual(await pcurveU(both), { seams: 1, u: [undefined, undefined] });
 });
+
+test('a torus with a negative major radius: its absolute value, its faces turned over, p-curves on it not read',
+  async () => {
+  // The same face on a torus of major radius -5 (directly and trimmed) and of +5; the first two turned over.
+  const data = `
+#1=CARTESIAN_POINT('',(0.,0.,0.));
+#2=DIRECTION('',(0.,0.,1.));
+#3=DIRECTION('',(1.,0.,0.));
+#4=AXIS2_PLACEMENT_3D('',#1,#2,#3);
+#5=TOROIDAL_SURFACE('',#4,-5.,1.);
+#6=TOROIDAL_SURFACE('',#4,5.,1.);
+#7=RECTANGULAR_TRIMMED_SURFACE('',#5,0.,6.,0.,6.,.T.,.T.);
+#10=CARTESIAN_POINT('',(6.,0.,0.));
+#11=VERTEX_POINT('',#10);
+#12=AXIS2_PLACEMENT_3D('',#1,#2,#3);
+#13=CIRCLE('',#12,6.);
+#14=CARTESIAN_POINT('',(0.,0.));
+#15=DIRECTION('',(1.,0.));
+#16=VECTOR('',#15,1.);
+#17=LINE('',#14,#16);
+#18=(GEOMETRIC_REPRESENTATION_CONTEXT(2)PARAMETRIC_REPRESENTATION_CONTEXT()REPRESENTATION_CONTEXT('',''));
+#19=DEFINITIONAL_REPRESENTATION('',(#17),#18);
+#20=PCURVE('',#5,#19);
+#21=SURFACE_CURVE('',#13,(#20),.CURVE_3D.);
+#22=EDGE_CURVE('',#11,#11,#21,.T.);
+#23=ORIENTED_EDGE('',*,*,#22,.T.);
+#24=EDGE_LOOP('',(#23));
+#25=FACE_OUTER_BOUND('',#24,.T.);
+#30=ADVANCED_FACE('',(#25),#5,.T.);
+#31=FACE_SURFACE('',(#25),#7,.F.);
+#32=ADVANCED_FACE('',(#25),#6,.T.);
+#40=OPEN_SHELL('',(#30,#31,#32));
+#41=SHELL_BASED_SURFACE_MODEL('',(#40));`;
+  const { brep, warnings } = await convert(data, [41]);
+  assert.deepEqual([0, 1, 2].map((f) => [brep.face.id[f], brep.face.sameSense[f]]), [[30, 0], [31, 1], [32, 1]]);
+  assert.deepEqual(decode.surface(brep, brep.face.surface[0]!), { kind: 'torus', position: { origin: [0, 0, 0],
+    axis: [0, 0, 1], xDir: [1, 0, 0] }, majorRadius: 5, minorRadius: 1, id: 5 });
+  assert.equal(brep.coedge.pcurve[0], -1);
+  assert.deepEqual(warnings, [
+    'B-rep model: a torus with a negative major radius (read with its absolute value, its faces turned over) (#5)',
+    'B-rep model: a p-curve on a torus with a negative major radius (not read) (#20)',
+  ]);
+});
