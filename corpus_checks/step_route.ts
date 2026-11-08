@@ -32,8 +32,9 @@ if (plant && !['sense', 'angle', 'text'].includes(plant)) {
   throw new Error(`PLANT=${plant}: expected sense, angle or text`);
 }
 
+// A longer time limit than the default 60 s: bug24024_slow_import.stp's largest part takes about 61 s.
 const pool = new WorkerTessellator({ backend: { module: import.meta.resolve('../packages/tess-occt/src/index.ts'),
-  export: 'OcctTessellator' } });
+  export: 'OcctTessellator' }, timeoutMs: 180_000 });
 await pool.init();
 
 const tally = new Map<string, { n: number; ex: string[] }>();

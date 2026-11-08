@@ -335,7 +335,6 @@ test('validateBrep finds each kind of defect', () => {
     ['face loops', cube, (d) => { d.face.loopCount[5] = 2; }, /loops 5 to 6 out of range/],
     ['loop in two faces', cube, (d) => { d.face.firstLoop[1] = 0; }, /loop 0 already belongs/],
     ['loop in none', cube, (d) => { d.face.loopCount[5] = 0; }, /loop 5: in no face/],
-    ['two outer bounds', MODELS.spheres, (d) => { d.loop.bound[1] = 1; }, /2 outer bounds/],
     ['face tolerance', cube, (d) => { d.face.tolerance[0] = -0.1; }, /tolerance -0.1/],
     ['shell kind', cube, (d) => { d.shell.kind[0] = 0; }, /shell 0: kind 0/],
     ['shell face', cube, (d) => { d.faceUse.face[2] = 40; }, /face 40 out of range/],
@@ -379,6 +378,11 @@ test('validateBrep: warnings are warnings, and the count is capped', () => {
   const d = copy(cube().finish());
   d.face.id[3] = 21;
   assert.deepEqual(validateBrep(d).map((x) => x.severity), ['warning']);
+  // Two outer bounds on a face: kept from files that have them, so a warning.
+  const two = copy(MODELS.spheres().finish());
+  two.loop.bound[1] = 1;
+  assert.deepEqual(validateBrep(two).map((x) => [x.severity, x.message]),
+    [['warning', 'face 1: 2 outer bounds (Part 42 allows one)']]);
   const b = new BrepBuilder({ unit: 1 });
   for (let k = 0; k < MAX_DIAGNOSTICS + 5; k++) b.addVertex({ point: [0, 0, 0], tolerance: -1 });
   const ds = validateBrep(b.finish());

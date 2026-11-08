@@ -432,7 +432,8 @@ export function validateBrep(d: BrepData): BrepDiagnostic[] {
     if (!own(loopOwner, 'loop', first, count, what, k)) continue;
     let outer = 0;
     for (let j = first; j < first + count; j++) if (l.bound[j] === BOUND.outer) outer++;
-    if (outer > 1) say('error', `${what}: ${outer} outer bounds`);
+    // Part 42 allows one; files with more are kept as they are, so a warning.
+    if (outer > 1) say('warning', `${what}: ${outer} outer bounds (Part 42 allows one)`);
   }
   for (let j = 0; j < n.loop; j++) if (loopOwner[j] === -1) say('error', `loop ${j}: in no face`);
 

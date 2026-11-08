@@ -528,10 +528,10 @@ export function stepBrep(r: Reader, items: number[], o: StepBrepOptions, warn: W
     return side > 0 ? rows[0] : rows[1];
   }
 
-  function loop(bound: number, surfaceP: number, hasOuter: boolean, ignoreOuter: boolean, faceSame: boolean):
+  function loop(bound: number, surfaceP: number, hasOuter: boolean, faceSame: boolean):
     Loop | undefined {
     const l = r.ref(bound, 'bound');
-    const outer = r.is(bound, 'FACE_OUTER_BOUND') && !ignoreOuter;
+    const outer = r.is(bound, 'FACE_OUTER_BOUND');
     const base = { bound: outer ? 'outer' as const : hasOuter ? 'inner' as const : 'unknown' as const,
       sense: bool(bound, 'orientation'), id: id(bound) };
     if (r.is(l, 'EDGE_LOOP')) {
@@ -587,11 +587,12 @@ export function stepBrep(r: Reader, items: number[], o: StepBrepOptions, warn: W
       else {
         const bounds = refsOf(r.attr(p, 'bounds')).filter((q) => q >= 0);
         const outers = bounds.filter((q) => r.is(q, 'FACE_OUTER_BOUND')).length;
-        // Part 42 allows one outer bound: a face with more (bug30790.step's tubes) has bounds of unknown kind.
-        if (outers > 1) note('a face with more than one outer bound (all read as bounds of unknown kind)', p, 'info');
+        // Part 42 allows one outer bound; a face with more (bug30790.step's tubes) keeps them as the file has them, so
+        // a reader of the file (OCCT) and of the model see the same.
+        if (outers > 1) note('a face with more than one outer bound (kept: Part 42 allows one)', p);
         seamUses.length = 0;
         const sameSense = bool(p, 'same_sense') !== isTurned(sp);
-        const loops = bounds.map((q) => loop(q, sp, outers === 1, outers > 1, sameSense))
+        const loops = bounds.map((q) => loop(q, sp, outers > 0, sameSense))
           .filter((x): x is Loop => x !== undefined);
         // A seam's two uses must take different p-curves; where the rule gave both one, neither keeps it.
         const byEdge = new Map<number, Coedge[]>();

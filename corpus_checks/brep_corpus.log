@@ -1,5 +1,5 @@
 517 files (0 over 1000 MB skipped), 3258 B-rep parts
-import 8.5 s without models, 15.2 s with; subsets 1.7 s to build
+import 8.9 s without models, 15.9 s with; subsets 1.9 s to build
 models 113.0 MB, subsets 323.5 MB
 
 ## rows by kind
@@ -50,7 +50,8 @@ models 113.0 MB, subsets 323.5 MB
    138828 vertices
 
 ## problems
-      154 import info: a face with more than one outer bound (all read as bounds of unknown kind)  e.g. gkv311-opencascade-dataset/step/bug30790.step #2481; gkv311-opencascade-dataset/step/bug30790.step #2478; gkv311-opencascade-dataset/step/bug30790.step #2475
+     3182 validate warning: face N (#N): N outer bounds (Part N allows one)  e.g. gkv311-opencascade-dataset/step/bug30790.step #2481; gkv311-opencascade-dataset/step/bug30790.step #2481; gkv311-opencascade-dataset/step/bug30790.step #2481
+      154 import warning: a face with more than one outer bound (kept: Part N allows one)  e.g. gkv311-opencascade-dataset/step/bug30790.step #2481; gkv311-opencascade-dataset/step/bug30790.step #2478; gkv311-opencascade-dataset/step/bug30790.step #2475
        41 import warning: a curve missing from the file  e.g. gkv311-opencascade-dataset/step/bug22871_null-swept-curve.stp #10; gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17525; gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17485
        22 validate error: loop N (#N): coedge N ends at vertex N, the next starts at N  e.g. gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483; gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483; gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483
        20 vertices in the closure not in the model  e.g. gkv311-opencascade-dataset/step/bug29478.stp #130 -> #20, #22, #31; gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #329592 -> #14206, #18013, #75744

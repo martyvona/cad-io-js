@@ -249,7 +249,8 @@ const TOPOLOGY = `
 #151=VERTEX_LOOP('',#32);
 #152=FACE_OUTER_BOUND('',#150,.T.);
 #153=FACE_OUTER_BOUND('',#151,.T.);
-#154=ADVANCED_FACE('',(#152,#153),#10,.T.);
+#149=FACE_BOUND('',#150,.T.);
+#154=ADVANCED_FACE('',(#152,#153,#149),#10,.T.);
 #155=POLY_LOOP('',(#1,#21,#22));
 #156=FACE_OUTER_BOUND('',#155,.T.);
 #157=FACE_SURFACE('',(#156),#10,.T.);
@@ -332,8 +333,10 @@ test('topology: shared edges, p-curves per face, orientations, voids, loops, ids
   assert.deepEqual([withVoid.kind, withVoid.members.map((m) => m.sense)], ['solid', [true, false]]);
   assert.deepEqual([byId(142).loops, byId(143).loops], [[], []]);
 
-  // Two outer bounds: both read as unknown, said; a poly loop; the face on a missing surface left out, said.
-  assert.deepEqual(byId(154).loops.map((l) => [l.kind, l.bound]), [['vertex', 'unknown'], ['vertex', 'unknown']]);
+  // Two outer bounds: both kept, said, the other bound inner; a poly loop; the face on a missing surface left out,
+  // said.
+  assert.deepEqual(byId(154).loops.map((l) => [l.kind, l.bound]),
+    [['vertex', 'outer'], ['vertex', 'outer'], ['vertex', 'inner']]);
   assert.ok(warnings.some((w) => /more than one outer bound .*\(#154\)/.test(w)), `${warnings}`);
   const poly = byId(157).loops[0]!;
   assert.ok(poly.kind === 'poly');
