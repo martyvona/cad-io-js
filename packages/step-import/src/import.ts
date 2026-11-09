@@ -3,31 +3,23 @@
 //
 //   products        -> components (index for index); their documents -> external references
 //   occurrences     -> each component's children, with transforms converted to millimetres
-//   representations -> parts, one per shape representation holding geometry, with a STEP subset as payload; those
+//   representations -> parts, one per shape representation holding geometry, with its B-rep model (brep.ts); those
 //                      only tessellated with their triangles as a level of detail instead (tessellated.ts)
 //   styles          -> materials: per part, per face, per component, and per instance (context-dependent styles)
 //   layers          -> layers of parts and faces
 
 import {
-  buildSubset, closure, danglingRefs, extractSemantics, math, openModel, productRepresentations, readStep, Reader,
+  closure, danglingRefs, extractSemantics, math, openModel, productRepresentations, readStep, Reader,
   type Diagnostic as StepDiagnostic, type Mat4, type OpenOptions, type Semantics, type StepFile, type StepModel,
   type StepSource, type Style,
 } from 'step-parser';
-import { authorOf, boundScene, dropSourceDegenerate, leafParts, type Component, type Diagnostic, type Layer, type Lod,
-  type Material, type Part, type Properties, type Scene, type Vec3 } from 'cad-scene';
+import { authorOf, boundScene, dropSourceDegenerate, leafParts, type Brep, type Component, type Diagnostic,
+  type Layer, type Lod, type Material, type Part, type Properties, type Scene, type Vec3 } from 'cad-scene';
 import { stepBrep } from './brep.ts';
-import { faceOutlines } from './outlines.ts';
+import { type BrepData, faceOutlines } from 'cad-brep';
 import { moveMesh, readTessellated, tessellatedItems } from './tessellated.ts';
 
 export interface ImportOptions extends OpenOptions {
-  /**
-   * Representations holding only tessellated geometry (AP242's triangulated faces, surface sets, curve sets...):
-   * `'read'` (the default) reads their triangles, curves and points into a level of detail from the source, with no
-   * B-rep, and a product's tessellation of its B-rep into a level of the B-rep's part; `'backend'` makes them B-rep
-   * parts like any other, meshed by a backend from their STEP subset (OCCT reads tessellated geometry; truck doesn't),
-   * as before 2026-10-29.
-   */
-  tessellated?: 'read' | 'backend';
   /**
    * Drop triangles with two corners at one position from the file's meshes (cad-scene's dropSourceDegenerate), with
    * an info diagnostic per part. Default true; false keeps every triangle the file gives.
@@ -38,16 +30,11 @@ export interface ImportOptions extends OpenOptions {
    * `parts` the shape representations looked at so far, of all of them.
    */
   onProgress?: (p: ImportProgress) => void;
-  /**
-   * Also build each B-rep part's parsed model (cad-brep, `Part.brep.model`) as it's made, with its diagnostics:
-   * the B-rep model that is to replace the STEP subset (docs/brep-model.md). Default false.
-   */
-  models?: boolean;
 }
 
 /**
  * A phase of the import: `reading` the file (the lexical scan and index), `structure` (binding to the schema and
- * the products, representations and styles), `parts` (each representation made a part, with its subset; most of a
+ * the products, representations and styles), `parts` (each representation made a part, with its model; most of a
  * large file's time), `assembly` (components, occurrences, overrides, layers).
  */
 export interface ImportProgress {
@@ -181,7 +168,7 @@ export function sceneFromStep(model: StepModel, sem: Semantics, opts: ImportOpti
     // left to the backend as before.
     const geometry = items.filter((q) => q >= 0 && ![...PLACEMENT_ONLY, ...ANNOTATION].some((e) =>
       model.isInstanceOf(q, e)));
-    const tessellated = opts.tessellated === 'backend' ? undefined : tessellatedItems(r, geometry);
+    const tessellated = tessellatedItems(r, geometry);
     if (tessellated && !tessellated.readable) warn(`tessellated geometry with ${tessellated.type}, which isn't read; `
       + 'meshed by the backend', rep.id, 'info');
     const read = tessellated?.readable ? readTessellated(r, geometry, (m, p) => warn(m, r.id(p))) : undefined;
@@ -262,7 +249,7 @@ export function sceneFromStep(model: StepModel, sem: Semantics, opts: ImportOpti
     const context = s.representations.get(rep.id)?.context;
     // A reader of its own per part: its cache of bound instances (most of the geometry's) goes with the part.
     let brepModel;
-    if (!read && opts.models) {
+    if (!read) {
       const own = new Reader(model);
       brepModel = stepBrep(own, geometry, { unit: mmOf(rep.id), angle: context?.planeAngleUnit?.factor ?? 1,
         ...(context?.uncertainty !== undefined ? { uncertainty: context.uncertainty * 1000 / mmOf(rep.id) } : {}) },
@@ -271,14 +258,11 @@ export function sceneFromStep(model: StepModel, sem: Semantics, opts: ImportOpti
     }
     const part: Part = {
       ...(read ? {} : { brep: {
-        ...(brepModel ? { model: brepModel } : {}),
-        format: 'step', rootId: rep.id,
+        model: brepModel!, format: 'step',
         // Where it is before it's meshed (no bound: the model's first sphere, sceneBounds).
         ...(lo[0] === Infinity ? {} : { vertexBox: { min: [...lo] as Vec3, max: [...hi] as Vec3 } }),
-        payload: () => buildSubset(file, [root], { exclude }).bytes,
-        // Faces' outlines from the file, for faces that fail to mesh (outlines.ts).
-        outline: ({ faces: only, ...o }) => ({ faces: faces.map((q) => r.id(q)),
-          ...faceOutlines(r, faces, origin, o, only) }),
+        // Faces' outlines from the model, for faces that fail to mesh (cad-brep's outlines.ts).
+        outline: outlineOf(brepModel!, origin),
       } }),
       lods: read ? [{ mesh: read.mesh, from: 'source', ...accuracy(rep.id, root) }] : [],
       name: rep.name, sources: [src(rep.id)], properties: { representation: rep.types.join('+') },
@@ -333,7 +317,7 @@ export function sceneFromStep(model: StepModel, sem: Semantics, opts: ImportOpti
   }
 
   progress?.({ phase: 'assembly' });
-  if (opts.tessellated !== 'backend') mergeTessellations();
+  mergeTessellations();
 
   // A product's tessellation of its B-rep (both its representations) becomes a level of the B-rep's part, from the
   // source, and its own part goes: paired by the tessellation's links to the B-rep (a solid's to its
@@ -542,6 +526,15 @@ export function sceneFromStep(model: StepModel, sem: Semantics, opts: ImportOpti
   if (opts.dropDegenerate ?? true) dropSourceDegenerate(scene);
   boundScene(scene);
   return { scene, model, semantics: sem, partOf };
+}
+
+/**
+ * A part's `outline`, made here rather than in sceneFromStep: a closure there shares that scope's context with its
+ * other closures, which reach the file, its index and the semantics, so every part's outline would keep them alive
+ * (LMP1: 2.5 GB of heap after the import, against 21 MB).
+ */
+function outlineOf(model: BrepData, origin: Vec3): NonNullable<Brep['outline']> {
+  return ({ faces: only, ...o }) => faceOutlines(model, origin, o, only);
 }
 
 /** A product's name, else (blank) its part number. */

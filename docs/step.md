@@ -6,6 +6,7 @@ Notes for work on `step-parser`, `step-schemas`, `step-import` and STEP files: t
 
 - Raw JSON favours clarity over size; numbers are lexical (as written), since context can't type every number and loading would need the schema.
 - References beyond 2^32 - 1 read as `$` with a warning, as OCCT does. Dangling references are warned of per part.
+- Binding (`step-parser`'s `bind.ts`) leaves an instance whose records don't match the schema's attribute counts unbound, with one exception: a complex instance's `REPRESENTATION_ITEM()` without its name is bound with the name `''`, as OCCT reads it (its test `bugs/step/bug29478`: `bug29478.stp`'s only face is on such a B-spline surface). Its warning is in `BoundInstance.repairs`, which a `Reader` reports (so the importer, as the part's `B-rep model:` diagnostics); `OpenOptions.missingNames: false` leaves such instances unbound. The corpus's other mismatches (`bind_corpus.log`: `DOCUMENT_FILE`, `DESCRIPTIVE_REPRESENTATION_ITEM`, `POSITION_TOLERANCE`) are outside the geometry and stay unbound.
 - Placements: OCCT's rule for swapped representations and items, except Alibre (items kept as written when `originating_system` contains 'Alibre'). Placements among a representation's items that nothing uses are coordinate systems, not transforms (unlike OCCT).
 - Styles: faces show a boundary colour (`SURFACE_STYLE_BOUNDARY`) when nothing more specific colours them; the most specific style wins over a representation's plain style.
 - Names: generic part names (blank, `NONE`, `#digits`) take the first placing product's; blank product names give way to the part number.
@@ -14,13 +15,13 @@ Notes for work on `step-parser`, `step-schemas`, `step-import` and STEP files: t
 - `Scene.sourceUnit`: the first root product's main shape representation's length unit, else its first part's.
 - Leaf products (a component whose only content is one part reference) become part references in their parent (`leafParts`, see `scene-formats.md`); a placed part's STEP ids are its NAUO's, its product's, then its shape representation's.
 - `importStep`'s `onProgress` reports `reading`, `structure`, `parts` (`done` of `total` representations), `assembly`.
-- `models` builds each B-rep part's parsed model (`brep.ts`, `Part.brep.model`; `brep-model.md` for its rules), through a `Reader` of its own per part (the shared one's cache of bound instances would keep every part's geometry alive); its diagnostics are the part's, prefixed `B-rep model:`, repeated ones said once with a count. Off by default until the model replaces the subset.
+- Each B-rep part's parsed model (`brep.ts`, `Part.brep.model`; `brep-model.md` for its rules) is built through a `Reader` of its own per part (the shared one's cache of bound instances would keep every part's geometry alive); its diagnostics are the part's, prefixed `B-rep model:`, repeated ones said once with a count. Nothing the scene keeps refers to the file.
 - A torus with a negative major radius (`bug25287_bad_tess_face_plus.step`, `bug30014.stp`, `bug32239.STEP`) is read with the radius' absolute value and its faces turned over, as OCCT reads it (its bug 26376: SolidWorks and Pro/E write such faces so): the same points come from (u + pi, pi - v), a reflection, so Part 42's normal points the other way. P-curves on such a torus aren't read (they would need that remapping; the corpus has none). Kept as the absolute value, the faces were the rest of the torus (85,598 mm^2 for 14.5).
-- `faceOutlines` (`outlines.ts`) discretizes a face's bounds from the file (lines, circles, ellipses, B-splines, polylines; else a straight segment), so failed faces can be drawn whatever the backend.
+- Failed faces' outlines (`Brep.outline`) come from the model (`cad-brep`'s `faceOutlines`), whatever the backend.
 
 ## AP242 tessellated geometry read by step-import
 
-`tessellated.ts` (`tessellatedItems`, `readTessellated`, `moveMesh`); option `tessellated: 'read' | 'backend'` (`stepconv --tessellated-by-backend`, the viewer's **Tessellated geometry**).
+`tessellated.ts` (`tessellatedItems`, `readTessellated`, `moveMesh`); always read (the option to leave it to the backend went with the subset: `brep-model.md`, decision 10).
 
 - A representation counts as tessellated when every item but placements, mapped items and annotations is a `TESSELLATED_ITEM`; it's read only if every item it reaches is one the reader takes, else it goes to the backend with a note naming the first other (`CUBIC_BEZIER_TRIANGULATED_FACE`).
 - Read: solids, shells, faces (strips and fans in Part 42's order), triangulated surface sets (a face each), tessellated curve sets, wires, edges, point sets, geometric sets with repositioned items. Graphical PMI stays out.

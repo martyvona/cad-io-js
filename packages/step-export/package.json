@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "cad-brep": "0.2.0",
+    "cad-scene": "0.2.0",
     "step-parser": "0.2.0"
   }
 }

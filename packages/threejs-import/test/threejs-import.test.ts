@@ -6,6 +6,7 @@ import { addLod, boundScene, exportView, identity, multiply, partInstances, plac
   tessellateScene, validate, viewDifferences, type Mat4, type Mesh, type Occurrence, type PartRef,
   type Scene } from 'cad-scene';
 import { threejsJson } from 'export-threejs';
+import { StepTessellator } from 'step-export';
 import { importStep } from 'step-import';
 import { OcctTessellator } from 'tess-occt';
 import { importThreejs } from '../src/index.ts';
@@ -203,7 +204,7 @@ test('a STEP assembly through three.js JSON and back: the same drawing', { skip:
   const { scene: s } = await importStep(fs.readFileSync(assembly));
   const occt = new OcctTessellator();
   await occt.init();
-  await tessellateScene(s, occt, { edges: true });
+  await tessellateScene(s, new StepTessellator(occt), { edges: true });
   occt.dispose();
   const view = exportView(s, opts);
   const { scene: back, diagnostics } = importThreejs(threejsJson(s, view, { extras: true }));

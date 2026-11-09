@@ -143,14 +143,17 @@ function outlined(part: Part & { brep: NonNullable<Part['brep']> }, mesh: Mesh |
   }
 }
 
-/** Tessellate a scene's parts with B-rep the backend takes, `concurrency` at a time; their meshes added as levels. */
+/**
+ * Tessellate a scene's B-rep parts, `concurrency` at a time; their meshes added as levels. Requests carry each part's
+ * B-rep model (`cad-brep`): a backend that reads another format goes behind a tessellator that writes it (step-export's
+ * StepTessellator, for STEP); one that takes none of them meshes nothing, with an error saying so.
+ */
 export async function tessellateScene(scene: Scene, tess: Tessellator,
   opts: TessellateOptions = {}): Promise<TessellateResult> {
   const { linearDeflection, angularDeflection } = meshDeflections(opts);
-  const todo = (opts.parts ?? scene.parts.map((_, i) => i)).filter((i) => {
-    const p = scene.parts[i];
-    return !!p?.brep && tess.info.formats.includes(p.brep.format);
-  });
+  const breps = (opts.parts ?? scene.parts.map((_, i) => i)).filter((i) => !!scene.parts[i]?.brep);
+  const takes = tess.info.formats.includes('cad-brep');
+  const todo = takes ? breps : [];
   const perPart: Diagnostic[][] = todo.map(() => []);
   const found: (Mesh | undefined)[] = [];
   const backend = `${tess.info.name} ${tess.info.version}`;
@@ -167,7 +170,7 @@ export async function tessellateScene(scene: Scene, tess: Tessellator,
     const measure = (opts.measures ?? true) && !part.measures;
     try {
       const r = await tess.tessellate({
-        format: brep.format, data: brep.payload(), rootId: brep.rootId, origin: part.origin,
+        format: 'cad-brep', data: new Uint8Array(brep.model.buffer), origin: part.origin,
         linearDeflection: linearDeflection / part.unit, angularDeflection,
         edges: opts.edges, ...(measure ? { measures: true } : {}),
       });
@@ -220,5 +223,8 @@ export async function tessellateScene(scene: Scene, tess: Tessellator,
   });
   // The model's sphere again from the meshes alone, which can shrink an estimate (decision 3); a file's kept.
   if (scene.bounds?.from !== 'source') scene.bounds = sceneBounds(scene, { meshesOnly: true }) ?? scene.bounds;
-  return { meshes, diagnostics: perPart.flat() };
+  const refused: Diagnostic[] = takes || !breps.length ? [] : [{ severity: 'error', message: `${breps.length} B-rep `
+    + `${breps.length === 1 ? 'part' : 'parts'} not meshed: the backend (${backend}) takes ${tess.info.formats
+      .join(', ')}, not B-rep models (cad-brep)` }];
+  return { meshes, diagnostics: [...refused, ...perPart.flat()] };
 }

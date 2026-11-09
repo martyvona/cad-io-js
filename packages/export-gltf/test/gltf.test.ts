@@ -10,6 +10,7 @@ import { exportView, identity, multiply, scaling, type ExportView, type Mat4, ty
   type Scene } from 'cad-scene';
 import { base64, decompose, glb as glbOf, gltfJson as gltfJsonOf, GltfError, MAX_DRACO_FACES, reorderWithinFaces,
   ROOT_TRANSFORM, srgbToLinear, type GltfOptions } from '../src/index.ts';
+import { BrepBuilder } from 'cad-brep';
 
 // Most tests check the structure: uncompressed, with extras (the defaults, compressed and without, are tested last).
 const PLAIN: GltfOptions = { compression: 'none', extras: true };
@@ -50,7 +51,7 @@ function scene(): Scene {
   const brep = (name: string, unit: number) => (
     { name, sources: [{ format: 'step', id: 50 }], properties: { pn: 'X-1' }, unit,
     origin: [0, 0, 0] as [number, number, number], lods: [],
-    brep: { format: 'step' as const, payload: () => new Uint8Array() } });
+    brep: { format: 'step' as const, model: new BrepBuilder({ unit: 1 }).finish() } });
   return {
     unit: 'millimetre',
     components: [

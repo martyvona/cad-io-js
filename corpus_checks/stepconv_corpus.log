@@ -1,26 +1,19 @@
-files 517 (0 over 1000 MB skipped), 2342 s
-placed parts with triangles 4855 (3 hidden; 2084 visible ones not closed solids); triangles placed 32961781
-json: 1721.9 MB, 4828 placed parts, 20439233 triangles; import 6.3 s, tessellation 405.1 s, export 29.2 s, main 440.2 s
-glb: 61.1 MB, 4852 placed parts, 32961599 triangles; import 6.4 s, tessellation 406.8 s, export 12.9 s, main 425.9 s
-gltf: 58.8 MB, 4851 placed parts, 31627834 triangles; import 6.3 s, tessellation 409.4 s, export 12.1 s, main 427.1 s
-3mf: 274.3 MB, 2768 placed parts, 22817548 triangles; import 6.5 s, tessellation 410.6 s, export 56.0 s, main 472.9 s
-bin sample: 20 files x 4 formats; startup (wall time less the summary's times) median 0.9 s, range 0.1 s-1.2 s
+files 517 (0 over 1000 MB skipped), 2634 s
+placed parts with triangles 4855 (3 hidden; 2085 visible ones not closed solids); triangles placed 32964126
+json: 1722.0 MB, 4828 placed parts, 20443051 triangles; import 14.0 s, tessellation 458.6 s, export 27.6 s, main 501.8 s
+glb: 61.1 MB, 4852 placed parts, 32963944 triangles; import 14.0 s, tessellation 458.3 s, export 11.6 s, main 485.1 s
+gltf: 61.1 MB, 4852 placed parts, 32963944 triangles; import 14.2 s, tessellation 461.3 s, export 11.4 s, main 488.6 s
+3mf: 265.2 MB, 2767 placed parts, 22131270 triangles; import 14.1 s, tessellation 462.1 s, export 54.0 s, main 532.5 s
+bin sample: 20 files x 4 formats; startup (wall time less the summary's times) median 1.0 s, range 0.1 s-1.1 s
 validator issues (glb and gltf):
     976 info UNSUPPORTED_EXTENSION
-   6595 info UNUSED_OBJECT
+   6596 info UNUSED_OBJECT
 slowest runs of main:
-  97.4 s  3mf  gkv311-opencascade-dataset/step/bug30790.step
-  88.0 s  json  gkv311-opencascade-dataset/step/bug30790.step
-  84.5 s  gltf  gkv311-opencascade-dataset/step/bug30790.step
-  83.2 s  glb  gkv311-opencascade-dataset/step/bug30790.step
-  60.2 s  glb  gkv311-opencascade-dataset/step/bug24024_slow_import.stp
-  60.2 s  gltf  gkv311-opencascade-dataset/step/bug24024_slow_import.stp
+  120.4 s  glb  gkv311-opencascade-dataset/step/bug24024_slow_import.stp
+  120.4 s  3mf  gkv311-opencascade-dataset/step/bug24024_slow_import.stp
+  120.4 s  json  gkv311-opencascade-dataset/step/bug24024_slow_import.stp
+  120.4 s  gltf  gkv311-opencascade-dataset/step/bug24024_slow_import.stp
+  97.7 s  3mf  gkv311-opencascade-dataset/step/bug30790.step
+  88.8 s  json  gkv311-opencascade-dataset/step/bug30790.step
 too large to read back: gkv311-opencascade-dataset/step/bug30790.step json
-problems 7
-  gkv311-opencascade-dataset/step/bug30790.step: gltf: summary meshed 26, expected 27
-  gkv311-opencascade-dataset/step/bug30790.step: gltf: summary placed 26, expected 27
-  gkv311-opencascade-dataset/step/bug30790.step: gltf: summary triangles 11188783, expected 12522548
-  gkv311-opencascade-dataset/step/bug30790.step: gltf: 26 placed parts, expected 27
-  gkv311-opencascade-dataset/step/bug30790.step: 3mf: summary meshed 26, expected 27
-  gkv311-opencascade-dataset/step/bug30790.step: 3mf: summary placed 26, expected 27
-  gkv311-opencascade-dataset/step/bug30790.step: 3mf: summary triangles 11188783, expected 12522548
+problems 0

@@ -5,12 +5,35 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { partInstances, tessellateScene } from 'cad-scene';
+import { partInstances, type Part, tessellateScene } from 'cad-scene';
+import { buildSubset, parseStep } from 'step-parser';
+import { STEP_WRITER_VERSION, StepTessellator } from 'step-export';
 import { importStep } from 'step-import';
 import { MAX_MESSAGE_CHARS, MAX_MESSAGES, Messages, OcctTessellator, type OcctFactory,
   type OcctInitOptions } from '../src/index.ts';
 
 const root = path.resolve(import.meta.dirname, '../../..');
+
+/** Each loaded part's file: what its STEP subset is cut from (subsetOf). */
+const fileOf = new WeakMap<Part, Uint8Array>();
+async function load(f: string) {
+  const bytes = new Uint8Array(fs.readFileSync(f));
+  const r = await importStep(bytes);
+  for (const p of r.scene.parts) fileOf.set(p, bytes);
+  return r;
+}
+/** A part's shape representation's id. */
+const rootOf = (p: Part) => p.sources[0]!.id;
+/** A part's subset of its file: its representation and what it reaches, mapped items left out (as OCCT gets it). */
+function subsetOf(p: Part): Uint8Array {
+  const file = parseStep(fileOf.get(p)!), rep = file.index.position(rootOf(p));
+  const items = file.instanceAt(rep);
+  const refs = 'type' in items && items.attrs[1] ? items.attrs[1] : undefined;
+  const ids = refs?.k === 'refs' ? Array.from(refs.v) : [];
+  const exclude = new Set(ids.map((id) => file.index.position(id)).filter((q) => q >= 0
+    && file.index.typeName(q) === 'MAPPED_ITEM'));
+  return buildSubset(file, [rep], { exclude }).bytes;
+}
 const cube = path.join(root, 'test_corpus/third_party/occt-import-js/test/testfiles/cube-10x10mm/Cube 10x10.stp');
 const built = fs.existsSync(path.join(import.meta.dirname, '../dist/occt_tess.wasm'));
 const skip = !built ? 'tess-occt not built (run packages/tess-occt/build.sh)' : !fs.existsSync(
@@ -19,11 +42,11 @@ const skip = !built ? 'tess-occt not built (run packages/tess-occt/build.sh)' : 
 test('a 10 mm cube: faces with entity ids, edges, the origin subtracted in double precision', { skip }, async () => {
   const tess = new OcctTessellator();
   await tess.init();
-  const { scene } = await importStep(fs.readFileSync(cube));
+  const { scene } = await load(cube);
   assert.equal(scene.parts.length, 1);
   const part = scene.parts[0]!;
   assert.ok(part.brep);
-  const req = { format: 'step' as const, data: part.brep.payload(), rootId: part.brep.rootId, linearDeflection: 0.01,
+  const req = { format: 'step' as const, data: subsetOf(part), rootId: rootOf(part), linearDeflection: 0.01,
     angularDeflection: 0.5, edges: true };
   const plain = await tess.tessellate(req);
   assert.deepEqual(plain.diagnostics, []);
@@ -47,7 +70,8 @@ test('a 10 mm cube: faces with entity ids, edges, the origin subtracted in doubl
     Math.fround(plain.positions[i]! - origin[i % 3]!));
   assert.equal(shifted.edgePositions![0], Math.fround(plain.edgePositions![0]! - origin[0]));
   // Through the driver: the importer's origin is the cube's centre.
-  const { meshes } = await tessellateScene(scene, tess, { linearDeflection: 0.01, angularDeflection: 0.5 });
+  const { meshes } = await tessellateScene(scene, new StepTessellator(tess),
+    { linearDeflection: 0.01, angularDeflection: 0.5 });
   const mesh = meshes.get(0)!;
   assert.deepEqual(mesh.origin, part.origin);
   assert.ok(mesh.positions.every((x) => Math.abs(x) <= 5 + 1e-6)); // within +/-5 mm of the centre
@@ -58,9 +82,9 @@ test('measures: each face\'s area, perimeter and soundness when asked for, by it
   async () => {
   const tess = new OcctTessellator();
   await tess.init();
-  const { scene } = await importStep(fs.readFileSync(cube));
+  const { scene } = await load(cube);
   const part = scene.parts[0]!;
-  const req = { format: 'step' as const, data: part.brep!.payload(), rootId: part.brep!.rootId,
+  const req = { format: 'step' as const, data: subsetOf(part), rootId: rootOf(part),
     linearDeflection: 0.01, angularDeflection: 0.5 };
   assert.equal((await tess.tessellate(req)).measures, undefined);
   const r = await tess.tessellate({ ...req, measures: true });
@@ -73,8 +97,9 @@ test('measures: each face\'s area, perimeter and soundness when asked for, by it
   // And the next request without them has none (the switch is per request).
   assert.equal((await tess.tessellate(req)).measures, undefined);
   // Through the driver: kept on the part, by the backend's name and version.
-  await tessellateScene(scene, tess, { linearDeflection: 0.01, angularDeflection: 0.5 });
-  assert.equal(part.measures!.by, `${tess.info.name} ${tess.info.version}`);
+  const step = new StepTessellator(tess);
+  await tessellateScene(scene, step, { linearDeflection: 0.01, angularDeflection: 0.5 });
+  assert.equal(part.measures!.by, `${step.info.name} ${tess.info.version}, STEP writer ${STEP_WRITER_VERSION}`);
   assert.equal(part.measures!.faces.size, 6);
 });
 
@@ -98,15 +123,15 @@ test('unreadable input: an error diagnostic, an empty result', { skip: built ? f
 test("OCCT's messages: warnings on the part, never printed", { skip }, async () => {
   const tess = new OcctTessellator();
   await tess.init();
-  const { scene } = await importStep(fs.readFileSync(cube));
+  const { scene } = await load(cube);
   const part = scene.parts[0]!;
   assert.ok(part.brep);
   // A reference to an entity that isn't there: OCCT prints a count of them, and reads the rest.
-  const text = new TextDecoder().decode(part.brep.payload());
+  const text = new TextDecoder().decode(subsetOf(part));
   const end = text.lastIndexOf('ENDSEC;');
   const dangling = new TextEncoder().encode(
     `${text.slice(0, end)}#900000=VERTEX_POINT('',#900001);\n${text.slice(end)}`);
-  const req = { format: 'step' as const, data: dangling, rootId: part.brep.rootId, linearDeflection: 0.01,
+  const req = { format: 'step' as const, data: dangling, rootId: rootOf(part), linearDeflection: 0.01,
     angularDeflection: 0.5 };
   const printed: unknown[] = [];
   const restore = [process.stdout, process.stderr].map((s) => {
@@ -117,7 +142,7 @@ test("OCCT's messages: warnings on the part, never printed", { skip }, async () 
   let r, clean;
   try {
     r = await tess.tessellate(req);
-    clean = await tess.tessellate({ ...req, data: part.brep.payload() });
+    clean = await tess.tessellate({ ...req, data: subsetOf(part) });
   } finally {
     for (const f of restore) f();
   }
@@ -150,11 +175,12 @@ test("a geometrically bounded surface representation: the geometric set's surfac
   + "curve", { skip: skip || (!fs.existsSync(gbssr) && 'corpus not fetched') }, async () => {
   const tess = new OcctTessellator();
   await tess.init();
-  const { scene } = await importStep(fs.readFileSync(gbssr));
+  const { scene } = await load(gbssr);
   // The annotation-only representation #62 isn't a part; the wireframe #248 has no faces, only its curve set's
   // B-spline #72, returned without asking for edges.
-  assert.deepEqual(scene.parts.map((p) => p.brep?.rootId), [248, 245]);
-  const { meshes, diagnostics } = await tessellateScene(scene, tess, { linearDeflection: 0.1, angularDeflection: 0.5 });
+  assert.deepEqual(scene.parts.map((p) => p.brep && rootOf(p)), [248, 245]);
+  const { meshes, diagnostics } = await tessellateScene(scene, new StepTessellator(tess),
+    { linearDeflection: 0.1, angularDeflection: 0.5 });
   assert.deepEqual(diagnostics, []);
   const wire = meshes.get(0)!;
   assert.deepEqual([wire.indices.length, wire.faces, wire.edges, wire.points], [0, [], undefined, undefined]);
@@ -184,11 +210,11 @@ test('a lone boundary on a sphere or torus: the small region in a geometric set,
   const tess = new OcctTessellator();
   await tess.init();
   const areaOf = async (f: string) => {
-    const { scene } = await importStep(fs.readFileSync(f));
+    const { scene } = await load(f);
     const p = scene.parts.find((q) => !!q.brep && !/WIREFRAME/.test(String(q.properties.representation)));
     assert.ok(p?.brep);
     return area(await tess.tessellate(
-      { format: 'step', data: p.brep.payload(), rootId: p.brep.rootId, origin: p.origin, linearDeflection: 0.2 / p.unit,
+      { format: 'step', data: subsetOf(p), rootId: rootOf(p), origin: p.origin, linearDeflection: 0.2 / p.unit,
       angularDeflection: 0.3 }));
   };
   // In inches: 9.07 as OCCT 7.6 reads it, matching the other writers' copies of the model (tc 5838 mm^2, md 5756 mm^2);
@@ -208,10 +234,10 @@ test("our patch 0001: a cone whose seam pcurves slope by 3e-14 in U meshed (OCCT
   const tess = new OcctTessellator();
   await tess.init();
   assert.match(tess.info.version, / \+ patches [^,]*0001-brepmesh-cone-seam-pcurves/);
-  const { scene } = await importStep(fs.readFileSync(conical));
+  const { scene } = await load(conical);
   const p = scene.parts[0]!;
   assert.ok(p.brep);
-  const r = await tess.tessellate({ format: 'step', data: p.brep.payload(), rootId: p.brep.rootId, origin: p.origin,
+  const r = await tess.tessellate({ format: 'step', data: subsetOf(p), rootId: rootOf(p), origin: p.origin,
     linearDeflection: 0.1 / p.unit, angularDeflection: 0.5 });
   tess.dispose();
   const cone = r.faces.filter((f) => f.entityId === 78);
@@ -228,11 +254,11 @@ test("a solid with a curve set beside it: the set's curves and points, by id, mi
   { skip: skip || (!fs.existsSync(mixed) && 'corpus not fetched') }, async () => {
   const tess = new OcctTessellator();
   await tess.init();
-  const { scene } = await importStep(fs.readFileSync(mixed));
-  const p = scene.parts.find((q) => q.brep?.rootId === 830);
+  const { scene } = await load(mixed);
+  const p = scene.parts.find((q) => q.brep && rootOf(q) === 830);
   assert.ok(p?.brep);
   const r = await tess.tessellate(
-    { format: 'step', data: p.brep.payload(), rootId: 830, origin: p.origin, linearDeflection: 0.1,
+    { format: 'step', data: subsetOf(p), rootId: 830, origin: p.origin, linearDeflection: 0.1,
       angularDeflection: 0.5, edges: true });
   assert.ok(r.indices.length > 0);
   assert.ok(r.edges!.length > 0 && r.edges!.every((e) => e.kind !== 'free'));
@@ -254,11 +280,11 @@ test("curve ids: a composite curve's segments take the composite's, an edge-base
   const tess = new OcctTessellator();
   await tess.init();
   const ids = async (f: string, root: number) => {
-    const { scene } = await importStep(fs.readFileSync(f));
-    const p = scene.parts.find((q) => q.brep?.rootId === root);
+    const { scene } = await load(f);
+    const p = scene.parts.find((q) => q.brep && rootOf(q) === root);
     assert.ok(p?.brep);
     const r = await tess.tessellate(
-      { format: 'step', data: p.brep.payload(), rootId: root, origin: p.origin, linearDeflection: 0.1 / p.unit,
+      { format: 'step', data: subsetOf(p), rootId: root, origin: p.origin, linearDeflection: 0.1 / p.unit,
       angularDeflection: 0.5 });
     assert.deepEqual(r.diagnostics, []);
     return r.curves!.map((c) => c.entityId);
@@ -276,10 +302,10 @@ test("a host's module: the glue and module given by URL, bytes, factory or compi
   const glue = new URL('../dist/occt_tess.mjs', import.meta.url);
   const wasm = new URL('../dist/occt_tess.wasm', import.meta.url);
   const bytes = fs.readFileSync(wasm);
-  const { scene } = await importStep(fs.readFileSync(cube));
+  const { scene } = await load(cube);
   const part = scene.parts[0]!;
   assert.ok(part.brep);
-  const req = { format: 'step' as const, data: part.brep.payload(), rootId: part.brep.rootId, linearDeflection: 0.01,
+  const req = { format: 'step' as const, data: subsetOf(part), rootId: rootOf(part), linearDeflection: 0.01,
     angularDeflection: 0.5, edges: true };
   const run = async (opts: OcctInitOptions) => {
     const tess = new OcctTessellator();
@@ -338,9 +364,9 @@ test('measures: a face OCCT finds unsound is said to be (trj3_s1-al-214.stp #131
   skip: !built ? 'tess-occt not built' : !fs.existsSync(unsound) ? 'the corpus is missing' : false }, async () => {
   const tess = new OcctTessellator();
   await tess.init();
-  const { scene } = await importStep(fs.readFileSync(unsound));
+  const { scene } = await load(unsound);
   const part = scene.parts[0]!;
-  const r = await tess.tessellate({ format: 'step', data: part.brep!.payload(), rootId: part.brep!.rootId,
+  const r = await tess.tessellate({ format: 'step', data: subsetOf(part), rootId: rootOf(part),
     linearDeflection: 0.1, angularDeflection: 0.26, measures: true });
   const m = new Map(r.measures!.map((x) => [x.entityId, x]));
   assert.equal(m.get(1311)?.valid, false);

@@ -7,6 +7,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { test } from 'node:test';
 import type { TessellationRequest, TessellationResult } from 'cad-scene';
+import { buildSubset, parseStep } from 'step-parser';
 import { importStep } from 'step-import';
 import { TruckTessellator, WBINDGEN_IMPORTS } from '../src/index.ts';
 
@@ -20,11 +21,23 @@ const skip = !fs.existsSync(wasm) ? 'tess-truck not built (run packages/tess-tru
   cube) ? 'corpus not fetched' : false;
 const occtBuilt = fs.existsSync(path.join(root, 'packages/tess-occt/dist/occt_tess.wasm'));
 
+/**
+ * Each B-rep part's request: its subset of the file (its representation and what it reaches, mapped items left
+ * out).
+ */
 async function requests(file: string, linear = 0.05, edges = true): Promise<TessellationRequest[]> {
-  const { scene } = await importStep(fs.readFileSync(file));
-  return scene.parts.flatMap((p) => (
-    p.brep ? [{ format: p.brep.format, data: p.brep.payload(), rootId: p.brep.rootId, origin: p.origin,
-    linearDeflection: linear / p.unit, angularDeflection: 0.5, edges }] : []));
+  const bytes = new Uint8Array(fs.readFileSync(file));
+  const { scene } = await importStep(bytes);
+  const f = parseStep(bytes);
+  return scene.parts.flatMap((p) => {
+    if (!p.brep) return [];
+    const rootId = p.sources[0]!.id, rep = f.index.position(rootId), inst = f.instanceAt(rep);
+    const items = 'type' in inst && inst.attrs[1]?.k === 'refs' ? Array.from(inst.attrs[1].v) : [];
+    const exclude = new Set(items.map((id) => f.index.position(id)).filter((q) => q >= 0
+      && f.index.typeName(q) === 'MAPPED_ITEM'));
+    return [{ format: 'step' as const, data: buildSubset(f, [rep], { exclude }).bytes, rootId, origin: p.origin,
+      linearDeflection: linear / p.unit, angularDeflection: 0.5, edges }];
+  });
 }
 
 const area = (r: TessellationResult) => {

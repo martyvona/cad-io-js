@@ -69,13 +69,13 @@ for (const path of corpusFiles(process.argv[2])) {
   files++;
   const name = shortName(path);
   process.stderr.write(`${files} ${name}\n`);
-  const { scene } = await importStep(new Uint8Array(fs.readFileSync(path)), { models: true });
+  const { scene } = await importStep(new Uint8Array(fs.readFileSync(path)));
   for (const part of scene.parts) {
     const m0 = part.brep?.model;
     if (!m0) continue;
     parts++;
     const d = plantIn(m0, parts), mm = d.part.unit[0]!, isPlanted = d !== m0;
-    const where = `${name} #${part.brep!.rootId}`;
+    const where = `${name} #${part.sources[0]!.id}`;
     if (isPlanted) plantedAt.push(where);
     const curves = new Map<number, CurveEvaluator | undefined>(), surfaces = new Map<number, SurfaceEvaluator |
       undefined>();

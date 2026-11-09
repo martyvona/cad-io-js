@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { tagged } from './models.ts';
 import { exportView, identity, pruneView, scaling, type ExportNode, type Mat4, type Mesh,
   type Scene } from '../src/index.ts';
 
@@ -30,7 +31,7 @@ function scene(): Scene {
     { component, transform: t, sources: [], properties: {}, ...(name ? { name } : {}) });
   const brep = (name: string, unit: number) => (
     { name, sources: [], properties: {}, unit, origin: [0, 0, 0] as [number, number, number], lods: [],
-    brep: { format: 'step' as const, payload: () => new Uint8Array() } });
+    brep: { format: 'step' as const, model: tagged() } });
   return {
     unit: 'millimetre',
     components: [

@@ -51,7 +51,7 @@ for (const path of corpusFiles(process.argv[2])) {
   process.stderr.write(`${files} ${name}\n`);
   const bytes = new Uint8Array(fs.readFileSync(path));
   const oracle = new AreaOracle(parseStep(bytes));
-  const { scene } = await importStep(bytes, { models: true });
+  const { scene } = await importStep(bytes);
   for (const part of scene.parts) {
     const m0 = part.brep?.model;
     if (!m0) continue;

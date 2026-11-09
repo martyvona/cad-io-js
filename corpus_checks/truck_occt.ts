@@ -17,6 +17,7 @@ import type { Scene, TessellationRequest, TessellationResult } from '../packages
 import { partInstances } from '../packages/cad-scene/src/index.ts';
 import { extractSemantics, openModel, parseStep } from '../packages/step-parser/src/index.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
+import { stepPartBytes } from '../packages/step-export/src/index.ts';
 import { WorkerTessellator } from '../packages/tess-workers/src/node.ts';
 import { corpusFiles, shortName } from './corpus.ts';
 
@@ -269,15 +270,17 @@ for (const [fi, f] of files.entries()) {
   const parts = scene.parts.flatMap((p, i) => (p.brep ? [{ i, p, brep: p.brep }] : []));
   const run = (t: WorkerTessellator, req: TessellationRequest) => t.tessellate(req).catch((e: Error) => e);
   const results = await Promise.all(parts.map(async ({ i, p, brep }) => {
-    const req: TessellationRequest = { format: brep.format, data: brep.payload(), rootId: brep.rootId, origin: p.origin,
+    // The model written as STEP, what both backends read.
+    const w = stepPartBytes(brep.model);
+    const req: TessellationRequest = { format: 'step', data: w.data, rootId: w.rootId, origin: p.origin,
       linearDeflection: TOL_MM / p.unit, angularDeflection: 0.5, edges: true };
     const [a, b] = await Promise.all([run(truck, req), run(occt, req)]);
-    return { i, req, a, b };
+    return { i, req, a, b, repId: p.sources[0]!.id };
   }));
   const meshes = { truck: new Map<number, R>(), occt: new Map<number, R>() };
-  for (const { i, req, a, b } of results) {
+  for (const { i, req, a, b, repId } of results) {
     totals.parts++;
-    const where = `${name} #${req.rootId}`;
+    const where = `${name} #${repId}`;
     if (b instanceof Error || !b.indices.length) { totals.occtEmpty++; continue; }
     meshes.occt.set(i, b);
     totals.compared++;

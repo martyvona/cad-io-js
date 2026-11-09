@@ -15,6 +15,12 @@ export interface OpenOptions {
    * dictionary we ship. Default 'ap242', which defines most entities other schemas' files use; null for none.
    */
   fallback?: string | null;
+  /**
+   * Bind a complex instance whose REPRESENTATION_ITEM partial has no attributes (`REPRESENTATION_ITEM()`, the name
+   * missing) with the name '', as OCCT reads it, with a warning (in BoundInstance.repairs). Default true; false leaves
+   * such instances unbound.
+   */
+  missingNames?: boolean;
 }
 
 /** Load the dictionaries a file needs and bind it. */
@@ -25,7 +31,7 @@ export async function openModel(file: StepFile, opts: OpenOptions = {}): Promise
     id ? loadSchema(id) : undefined,
     fb && fb !== id ? loadSchema(fb) : undefined,
   ]);
-  return new StepModel(file, schema, fallback);
+  return new StepModel(file, schema, fallback, { missingNames: opts.missingNames ?? true });
 }
 
 export interface BindOptions {
@@ -53,16 +59,19 @@ export class BoundInstance {
   /** Every attribute in file order, when bound. */
   readonly attributes?: readonly BoundAttribute[];
   readonly diagnostics: Diagnostic[];
+  /** The diagnostics of what binding repaired (also in `diagnostics`), for a reader of the values to report. */
+  readonly repairs: Diagnostic[];
   private byName?: Map<string, BoundAttribute | null>;
 
   constructor(instance: Instance, position: number, types: readonly string[], schema: Schema | undefined,
-    attributes: BoundAttribute[] | undefined, diagnostics: Diagnostic[]) {
+    attributes: BoundAttribute[] | undefined, diagnostics: Diagnostic[], repairs: Diagnostic[] = []) {
     this.instance = instance;
     this.position = position;
     this.types = types;
     this.schema = schema;
     this.attributes = attributes;
     this.diagnostics = diagnostics;
+    this.repairs = repairs;
   }
 
   get id(): number {
@@ -99,13 +108,15 @@ export class StepModel {
   /** Model-level diagnostics (the schema choice). Per-instance ones come with each BoundInstance. */
   readonly diagnostics: Diagnostic[] = [];
 
+  private readonly missingNames: boolean;
   private complexTypes = new Map<number, readonly string[]>();
   private byType?: Map<string, number[]>;
   private revStarts?: Uint32Array;
   private rev?: Uint32Array;
 
-  constructor(file: StepFile, schema?: Schema, fallback?: Schema) {
+  constructor(file: StepFile, schema?: Schema, fallback?: Schema, opts: { missingNames?: boolean } = {}) {
     this.file = file;
+    this.missingNames = opts.missingNames ?? true;
     this.schema = schema;
     this.fallback = fallback;
     if (!schema) {
@@ -216,8 +227,15 @@ export class StepModel {
       'partials not in alphabetical order', 'info');
 
     const attributes: BoundAttribute[] = [];
-    for (const r of parts) {
+    const repairs: Diagnostic[] = [];
+    for (let r of parts) {
       const slots = parts.length > 1 ? s.partialAttributes(r.type, types) : s.instanceAttributes(r.type);
+      // (Every schema gives REPRESENTATION_ITEM the one attribute, its name.)
+      if (this.missingNames && parts.length > 1 && r.type === 'REPRESENTATION_ITEM' && !r.attrs.length) {
+        warn('REPRESENTATION_ITEM() without its name (read as \'\')');
+        repairs.push(diags[diags.length - 1]!);
+        r = { type: r.type, attrs: [{ k: 'str', v: '' }] };
+      }
       if (slots.length !== r.attrs.length) {
         warn(`${r.type}: ${r.attrs.length} attributes, schema has ${slots.length}`);
         return new BoundInstance(inst, p, types, undefined, undefined, diags);
@@ -240,7 +258,7 @@ export class StepModel {
       }
       new Checker(this, s, where, warn).value(value, slot.type);
     }
-    return new BoundInstance(inst, p, types, s, attributes, diags);
+    return new BoundInstance(inst, p, types, s, attributes, diags, repairs);
   }
 
   /**

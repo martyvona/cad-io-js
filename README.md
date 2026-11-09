@@ -9,7 +9,26 @@ This file is GitHub-flavoured Markdown: GitHub and browser Markdown viewers rend
 #pagebreak()
 -->
 
-Reading CAD files into memory, and converting them, in TypeScript for Node.js and browsers. Today that means [STEP](docs/step_tutorial.md) (ISO 10303-21 files of AP203, AP214 and AP242), and glTF/GLB, three.js JSON and 3MF, read into the same scene model. **[Live demo](https://martyvona.github.io/cad-io-js/)**: the [viewer](#viewer), in the browser, on your own STEP, glTF, three.js or 3MF files. Nothing is uploaded; it works offline once loaded. Or open one of the demo models there (click a picture):
+<!--typst-begin-exclude-->
+Contents:
+
+* [Introduction](#introduction)
+* [Installing](#installing)
+* [Command-Line Tools](#command-line-tools)
+* [Viewer](#viewer)
+* [Architecture](#architecture)
+* [Package APIs](#package-apis)
+* [Test Corpus](#test-corpus)
+* [Tests](#tests)
+* [Roadmap](#roadmap)
+* [Backlog](#backlog)
+* [License](#license)
+<!--typst-end-exclude-->
+
+
+## Introduction
+
+Reading CAD files into memory, and converting them, in TypeScript for Node.js and browsers. Today that means [STEP](docs/step_tutorial.md) (ISO 10303-21 files including AP203, AP214 and AP242), glTF/GLB, three.js JSON and 3MF, read into the same scene model. **[Live demo](https://martyvona.github.io/cad-io-js/)**: the [viewer](#viewer), in the browser, on your own STEP, glTF, three.js or 3MF files. Nothing is uploaded; it works offline once loaded. Or open one of the demo models there (click a picture): 
 
 | [![ohmm-ap242.step](test_corpus/demo/ohmm-ap242.png)](https://martyvona.github.io/cad-io-js/?model=demo/ohmm-ap242.step) | [![rpbp-ap242.step](test_corpus/demo/rpbp-ap242.png)](https://martyvona.github.io/cad-io-js/?model=demo/rpbp-ap242.step) |
 |:---:|:---:|
@@ -24,7 +43,7 @@ In more detail:
 - **a STEP parser and writer** in pure TypeScript with no runtime dependencies: lossless, schema-aware, tolerant of real-world files, and fast (about 230 MB/s to index, 140 MB/s to decode);
 - **a scene model**: the assembly tree with transforms and instancing, names, part numbers, units, colours and layers, as the file states them and as well as they can be recovered from imperfect files;
 - **tessellation by WebAssembly backends** behind one per-part interface: our own build of OCCT 8.1 (robust; the default) and truck (Apache-2.0, a seventh of the size and about twice as fast on the parts it meshes, but complete and on OCCT's geometry for only 83.5% of the corpus's parts, and stuck until the timeout on a few), run in a pool of workers with timeouts and an optional cache;
-- **exporters** to three.js JSON, glTF/GLB and 3MF, and **importers** of glTF/GLB, three.js JSON and 3MF: our own files with extras come back as the scene they were written from, other files as their own tree of parts and assemblies;
+- **exporters** to three.js JSON, glTF/GLB and 3MF, and **importers** of STEP, glTF/GLB, three.js JSON and 3MF: our own files with extras come back as the scene they were written from, other files as their own tree of parts and assemblies;
 - **two command-line tools**, `step2json` (STEP to JSON, lossless or semantic) and `stepconv` (STEP to three.js, glTF or 3MF).
 
 Version 0.2.0, not yet published to npm: the packages run as TypeScript sources under Node 24 (see [Building From Source](#building-from-source)). A browser-based [viewer](#viewer) shows models in three.js, and more input formats are on the [roadmap](#roadmap).
@@ -52,22 +71,6 @@ fs.writeFileSync('bracket.glb', bytes);
 ```
 
 (Until the packages are on npm, code like this runs inside the repository, where the workspace resolves the package names.)
-
-<!--typst-begin-exclude-->
-Contents:
-
-* [Building From Source](#building-from-source)
-* [Installing](#installing)
-* [Command-Line Tools](#command-line-tools)
-* [Viewer](#viewer)
-* [Architecture](#architecture)
-* [Package APIs](#package-apis)
-* [Test Corpus](#test-corpus)
-* [Tests](#tests)
-* [Roadmap](#roadmap)
-* [Backlog](#backlog)
-* [License](#license)
-<!--typst-end-exclude-->
 
 The decisions behind the design and the lessons learned are in [`CLAUDE.md`](CLAUDE.md) and its topic notes in [`docs/`](docs/) (the detailed history is in `CLAUDE.md`'s versions at tags `V0.2.0` and `V0.1.0`); [`CHANGELOG.md`](CHANGELOG.md) lists the releases; [`docs/step_tutorial.md`](docs/step_tutorial.md) is a tutorial on STEP AP203/214/242 in practice.
 
@@ -228,9 +231,6 @@ Options:
       --angular-deflection <deg>
                            maximum angle between adjacent mesh normals, in degrees (default the profile's;
                            truck ignores it)
-      --tessellated-by-backend
-                           AP242 tessellated geometry (triangulated faces, surface sets...) meshed by the backend
-                           from its STEP subset, as a B-rep is (default: read as it is; truck reads none)
       --with-edges         write B-rep edges (not 3MF, which has no lines)
       --with-curves        write wireframe curves and points (not 3MF)
       --unlit-lines        edges, curves and points in a flat colour: glTF with KHR_materials_unlit (three.js
@@ -318,7 +318,7 @@ Parts that fail to tessellate don't fail the run; they are in the summary (with 
 ### Running It
 
 ```sh
-npm run viewer -- start              # the dev server in the background (http://localhost:5180/); or: npx cad-viewer start
+npm run viewer -- start              # a dev server in the background (http://localhost:5180/); or npx cad-viewer start
 npm run viewer -- open part.glb      # starts it if needed, then opens the file in the default browser
 npm run viewer -- shot part.stp -o part.png --view iso   # starts it if needed; renders headlessly to a PNG
 npm run viewer -- status
@@ -337,7 +337,7 @@ The controls (lil-gui, top right) are in folders, all closed at first:
 - **Selection**: a click or tap on the model (one that doesn't move the view) picks what's under it at the **Pick** level: an assembly, a part (the default), or a face, B-rep edges, curves or points (which shows them in the tree). Ctrl/cmd/shift-click adds or removes, and the **Multi-select** switch does the same for touch; a click on nothing clears the selection. What's hidden, or cut away, isn't picked. The face under the pointer decides, except that its own part's edges, curves and points within 4 pixels win over it (so they can be picked), as do wireframes in front of it; off the model, an edge or point within 4 pixels is picked. The selection is the tree's too, and is tinted orange (a selected face by an overlay); **All instances** also tints, in blue, every other placement of the selected parts. **Details** (in **View**, on by default) shows what's selected: for one node its name, its place in the tree and, for a part, which of its part's placements it is ("Placement 3 of 8"); then the triangles and their area, the line segments (edges, curves) and their length, and points, in millimetres (in the view's top left; it fades 5 s after it last changed while it says "Nothing selected."). **Select parent** selects the selection's parents, **Select none** nothing, and **Select all** everything a click could select at the **Pick** level and isn't hidden: every part, every part's assembly, or every face, edges, curves and points; **Invert selection** selects what Select all would, less what's selected now. Every selection made outside the tree (picks, these buttons, Select by ID) shows in the tree, its branches unfolded. **Select by ID...** asks for STEP instance ids, typed or pasted (separated by spaces, commas or lines, each `#123` or `123`), and selects what has them: an assembly by its occurrence or product, a placed part by its occurrence (NAUO), every placement of a part by its product or its shape representation, a face by its own (turning on the tree's faces), each shown selected in the tree, its branches unfolded; the status line says which weren't found. Details lists the selection's STEP ids too (cut short past about 50 characters). The status line (bottom left) says what a load is doing (importing, with a STEP file's phases: reading, reading its structure, making parts with a percentage, assembling; then the parts shown, edges found and parts meshed, counted) and fades 5 s after it last changed.
 - **Section**: up to three planes, one across each world axis, each at a position along it (the sliders span the model) with the side above it cut away (**Flip** for the side below). Where they cut a closed part, a cap shows the cut, hatched with lines at an angle and spacing of the part's own (one of 6 angles and 3 spacings, the widest 1/60 of the model's size), fixed on the model as if painted on it, in a **Cap style**: **Part colours** (each part's colour, lines a darker shade of it, as Onshape draws them; the default) or **Drawing** (beige, two beiges alternating between part colours, black lines, as in a drawing). **Hatch width** sets the lines' width in pixels, the same at any zoom (1.33 by default, as the cadrender prototype draws them). A part is closed as the file says (STEP: every face of the part in a closed shell, a solid's; not if one is in an open shell), or where it doesn't say (glTF and three.js files, a STEP geometric set's surfaces), as its triangles close up (a glTF mesh's primitives are one part, as Onshape writes a primitive per face), up to gaps narrower than 0.1 % of the part's size. Picks skip what's cut away, and a pick on a cap picks the part it cuts (at the point on the plane; `cadViewer.pickAt` says `cap`), as does the zoom at the cursor. Each model loaded starts with every plane off.
 - **Rendering**: Phong faces with their edges, the edges as **Edge lines** **Fat** (three.js's fat lines, **Edge width** CSS pixels wide, 1.5 by default) or **Thin** (WebGL's own, one device pixel; the default on phones and tablets, whose GPUs fat ones would cost more), **Shininess** and **Specular** (the faces' highlights), the **Ambient light** and the **Headlight** (a light from over the viewer's shoulder, turning with the view), **Reset lighting to defaults** (those four only), **Triangle edges** for inspecting the tessellation (every triangle's edges over the faces: off, the selection's only, following it, or all; hidden parts and faces and section cuts apply to them too; `&triangleEdges=selected` or `all` in the address), ambient occlusion (N8AO, its radius in screen pixels as models are viewed at every scale; intensity, radius and quality adjustable) and SMAA antialiasing, each of which can be turned off. Every format gets the same Phong materials (glTF's and three.js's own materials give only their colour and opacity; textures aren't read, and a warning says so). Colours: STEP's are sRGB (the convention every writer follows), glTF's linear as its specification says, except Onshape's glTF files (their `asset.generator`), whose colours are the same sRGB numbers as its STEP files' and are read so, so a model looks the same either way, and as in Onshape. Transparent materials are drawn as three.js does, sorted whole objects at a time.
-- **B-Rep Meshing** starts with **Device**: the kind of device the viewer thinks it's on, **Auto (phone)**, **Auto (tablet)** or **Auto (desktop)**, from the screen's size (not the window's), the primary pointer and the touch points, which you can override (remembered in this browser) with **Phone**, **Tablet** or **Desktop**. Phones and tablets mesh **coarse** by default, with at most 3 workers; desktops **medium**, the library's default. Then the backend (OCCT, the default, or truck), **Tessellated geometry** (AP242's triangulated faces and surface sets: **Read as it is**, the default, or **By the backend**, meshed from the STEP file as a B-rep is), the **Profile** (coarse, medium, fine, as `stepconv`'s, or custom: moving the deflection or angle makes it custom; **Defaults** goes back to the device's profile), the deflections, **Timeout** (the seconds a part may take before its worker is stopped and the part counted failed, 60 by default, 0 for no limit; a part that timed out is tried again with a longer limit, even from the cache), and the IndexedDB cache (on by default; it can be cleared), and **Mesh again** meshes the file again with them, keeping the view: the camera, section planes, what's hidden and selected, and the tree's expanded rows and scroll position (the status line says how many hidden or selected nodes weren't found again, such as the faces of a part that failed this time; their paths are in the console). Files are always read (and STEP files meshed) in a worker, off the page's thread. Once a file is meshed, its warnings and errors (from reading it and from meshing: OCCT's messages, faces that failed to mesh, shells turned over, parts that failed), if any, are listed in a dialog, errors first, each with the STEP instance it came from (at most 500; all of them in the console, and their count in the status line); **Copy IDs** copies those instances' ids (`#12 #345`), for Select by ID.
+- **B-Rep Meshing** starts with **Device**: the kind of device the viewer thinks it's on, **Auto (phone)**, **Auto (tablet)** or **Auto (desktop)**, from the screen's size (not the window's), the primary pointer and the touch points, which you can override (remembered in this browser) with **Phone**, **Tablet** or **Desktop**. Phones and tablets mesh **coarse** by default, with at most 3 workers; desktops **medium**, the library's default. Then the backend (OCCT, the default, or truck), the **Profile** (coarse, medium, fine, as `stepconv`'s, or custom: moving the deflection or angle makes it custom; **Defaults** goes back to the device's profile), the deflections, **Timeout** (the seconds a part may take before its worker is stopped and the part counted failed, 60 by default, 0 for no limit; a part that timed out is tried again with a longer limit, even from the cache), and the IndexedDB cache (on by default; it can be cleared), and **Mesh again** meshes the file again with them, keeping the view: the camera, section planes, what's hidden and selected, and the tree's expanded rows and scroll position (the status line says how many hidden or selected nodes weren't found again, such as the faces of a part that failed this time; their paths are in the console). Files are always read (and STEP files meshed) in a worker, off the page's thread. Once a file is meshed, its warnings and errors (from reading it and from meshing: OCCT's messages, faces that failed to mesh, shells turned over, parts that failed), if any, are listed in a dialog, errors first, each with the STEP instance it came from (at most 500; all of them in the console, and their count in the status line); **Copy IDs** copies those instances' ids (`#12 #345`), for Select by ID.
 
 ### Driving It
 
@@ -421,28 +421,22 @@ An npm workspace of 19 packages. Arrows point from a package to what it uses.
 ```mermaid
 flowchart TD
   cli["cli: step2json, stepconv"]
+  viewer["viewer (cad-viewer):<br/>three.js, Vite"]
   imp["step-import, threejs-import,<br/>gltf-import, 3mf-import"]
+  sexp["step-export"]
+  exp["export-threejs, export-gltf, export-3mf:<br/>glTF-Transform, fflate"]
+  tess["tess-cache, tess-workers, tess-occt, tess-truck:<br/>OCCT 8.1 and truck as WebAssembly"]
+  scene["cad-scene"]
+  brep["cad-brep"]
   parser["step-parser"]
   schemas["step-schemas"]
   ljson["lexical-json"]
-  tess["tess-cache, tess-workers,<br/>tess-occt, tess-truck"]
-  exp["export-threejs, export-gltf,<br/>export-3mf"]
-  scene["cad-scene"]
-  brep["cad-brep"]
-  sexp["step-export"]
-  viewer["viewer (cad-viewer)"]
-  cli --> imp & tess & exp
-  viewer --> imp & tess & scene
-  viewer --> three["three.js, Vite"]
+  cli & viewer --> imp & sexp & exp & tess
   cli --> parser
-  imp --> parser & scene
-  imp --> brep
-  sexp --> brep & parser
+  imp & sexp --> parser & brep
+  imp & sexp & exp & tess --> scene
+  scene --> brep
   parser --> schemas & ljson
-  tess --> scene
-  exp --> scene
-  tess --> wasm["OCCT 8.1, truck<br/>(WebAssembly)"]
-  exp --> libs["glTF-Transform, fflate"]
 ```
 
 - **`step-parser`:** Layers 1 to 3 of STEP reading, the Part 21 writer and raw JSON. **`step-schemas`:** the EXPRESS dictionaries, generated from stepcode's EXPRESS schemas. **`lexical-json`:** JSON that keeps integers and reals apart.
@@ -472,8 +466,8 @@ flowchart TD
 1. **Layer 1** (`step-parser`) scans the bytes once into an `InstanceIndex` (ids, byte ranges, types, references, in typed arrays) and decodes an instance only when asked for it. The writer and raw JSON work at this level.
 2. **Layer 2** (`openModel`) adds the `FILE_SCHEMA`'s dictionary (and AP242's as the fallback): names, types, reverse references, value checks.
 3. **Layer 3** (`extractSemantics`) reads products, occurrences and their placements, units, styles, layers and validation properties; `step2json -m semantic` writes them.
-4. **`step-import`** builds the scene: components placed by occurrences, parts (one per shape representation, each with a STEP subset as its payload and an origin), materials resolved from styles, layers, overrides, names and properties.
-5. **`tessellateScene`** sends one request per brep part (the deflection in the part's unit) through the cache, the worker pool and a backend (`CachedTessellator`, `WorkerTessellator`, `OcctTessellator` or `TruckTessellator`), and gets back meshes: `Float32` positions minus the part's origin, face ranges with STEP face ids, edges, curves and points. It repairs them in memory: degenerate triangles dropped, inside-out shells turned over. It also asks for each face's measures on the exact geometry (OCCT: area, perimeter, and whether the face is sound), keeps them on the part, and judges each face's triangles by them (`faceFailures`). With `outlines: true` (the viewer's choice), faces that fail to mesh (no triangles, too little or too much area, no sound area to judge by) get outlines drawn from the STEP file itself (`step-import`'s `faceOutlines`: their edges along their curves), and a part that fails altogether (an error, a timeout) a mesh of its faces with only their outlines, whatever the backend.
+4. **`step-import`** builds the scene: components placed by occurrences, parts (one per shape representation, each with its B-rep model, the geometry and topology parsed into one buffer, and an origin), materials resolved from styles, layers, overrides, names and properties.
+5. **`tessellateScene`** sends one request per brep part, carrying its model (the deflection in the part's unit), through the cache, the STEP writer, the worker pool and a backend (`CachedTessellator`, `StepTessellator`, `WorkerTessellator`, `OcctTessellator` or `TruckTessellator`; the backends read STEP, written from the model only when the cache misses), and gets back meshes: `Float32` positions minus the part's origin, face ranges with STEP face ids, edges, curves and points. It repairs them in memory: degenerate triangles dropped, inside-out shells turned over. It also asks for each face's measures on the exact geometry (OCCT: area, perimeter, and whether the face is sound), keeps them on the part, and judges each face's triangles by them (`faceFailures`). With `outlines: true` (the viewer's choice), faces that fail to mesh (no triangles, too little or too much area, no sound area to judge by) get outlines drawn from the model (`cad-brep`'s `faceOutlines`: their edges along their curves), and a part that fails altogether (an error, a timeout) a mesh of its faces with only their outlines, whatever the backend.
 6. **`exportView`** computes the looks (a part and its materials), the triangle groups by material and the instance tree with transforms; the exporters write `.json`, `.glb` or `.gltf` and `.bin`, or `.3mf` (all of it is what `stepconv` runs).
 
 ### From glTF, three.js JSON or 3MF to the Scene
@@ -537,7 +531,7 @@ flowchart TD
 
 - **A component** is one product definition, stored once and placed by any number of occurrences (each with the component, a transform and a name); it has its part references, its child occurrences, and optionally an external reference, a material, a name, sources and properties.
 - **A part reference** places a part: its transform, material and visibility, and where it places a leaf product, the placement's own name, sources and properties and the product's (`product`). A leaf product, a product whose only content is one shape (STEP: a product and its shape representation), is no component of its own: each placement of it is a part reference in its parent's component, or among the scene's root parts (`rootParts`), so a placed part is one node in a tree, as CAD systems and 3MF show it, not an assembly holding a part of the same name. Every importer ends with `leafParts`, which makes them so (also in files we wrote before this); `placedName` names a placed part (its own name, else its product's, else its part's).
-- **A part** has exact geometry (`brep`: its format, `payload()`, a STEP subset, its root id, and `outline` for faces that fail to mesh), meshes (`lods`, levels of detail, finest first: each a mesh of triangles, edges, curves and points, from the source file or made by a tessellator, with its deflections and maker where known, and its box), or both; it is in its own unit, with an origin near its geometry, a material and per-face materials, and (`measures`) its faces' areas and perimeters on the exact geometry, by face id, which its meshes are judged by. `tessellateScene` adds its meshes as levels; `chooseLod` picks the one the viewer and the exporters use (one at a time, for now).
+- **A part** has exact geometry (`brep`: its B-rep model, the format it came from, and `outline` for faces that fail to mesh; nothing in it refers to the source file), meshes (`lods`, levels of detail, finest first: each a mesh of triangles, edges, curves and points, from the source file or made by a tessellator, with its deflections and maker where known, and its box), or both; it is in its own unit, with an origin near its geometry, a material and per-face materials, and (`measures`) its faces' areas and perimeters on the exact geometry, by face id, which its meshes are judged by. `tessellateScene` adds its meshes as levels; `chooseLod` picks the one the viewer and the exporters use (one at a time, for now).
 - **File metadata** (`Scene.properties`): each importer's `format` and what the file says of itself: STEP's header (`name`, `timeStamp`, `authors` and `organizations` as written, `originatingSystem`, `preprocessorVersion`, `authorization`, `description`, `implementationLevel`, `schemas`), glTF's `asset`, three.js's `metadata`, 3MF's metadata by name (`unit`, `uuid`); and `author`, the author it names where the format has one (STEP's `FILE_NAME` authors, 3MF's `Designer`), leaving out names writers put where there's none (blank, `Author`, `none`, `User`, `Konstrukteur`, converters' `---` stamps: `cad-scene`'s `AUTHOR_PLACEHOLDERS`). Our files with extras give back the source's, with the file's own as `container`. Exporters write the fields each format has a place for, with or without extras (`standardMetadata`: 3MF's `Designer`, `CreationDate` from STEP's time stamp, a 3MF source's `Title`, `Description`, `Copyright`, `LicenseTerms` and `Rating`; glTF's `asset.copyright`), and with extras all of it.
 - **Bounds:** each mesh has its box (`Mesh.box`, in its own coordinates, over all it draws), and the scene its bounding sphere (`Scene.bounds`, in millimetres: the file's, or estimated by the importer before meshing, or made from the meshes), for fitting a view.
 - **Materials** are sRGB with opacity; **layers** name parts and faces; **overrides** change one instance's material or visibility, by its occurrence path (and a part reference's index; a root part's path is empty).
@@ -555,14 +549,14 @@ flowchart TD
   backend --> result["TessellationResult"]
 ```
 
-- **The request** (`TessellationRequest`): the payload's format and data (the subset), its root id, the origin, and the deflections in the part's unit; `tessellateScene` takes the deflections in millimetres, whether to return edges, and how many requests to keep in flight.
-- **The cache** keys each result by a SHA-256 of the backend's name and version (with its module's hash), the request and the payload; its stores are memory, a directory (Node) or IndexedDB (browsers), least-recently-used within a maximum size (0 turns it off), and failures and timeouts are cached too.
+- **The request** (`TessellationRequest`): the payload's format and data (a part's B-rep model as `cad-brep`; a backend reading STEP gets it written by `step-export`'s `StepTessellator`), a root id for STEP, the origin, and the deflections in the part's unit; `tessellateScene` takes the deflections in millimetres, whether to return edges, and how many requests to keep in flight.
+- **The cache** keys each result by a SHA-256 of the backend's name and version (with its module's hash and the STEP writer's version), the request and the payload (the model); its stores are memory, a directory (Node) or IndexedDB (browsers), least-recently-used within a maximum size (0 turns it off), and failures and timeouts are cached too.
 - **The worker pool** runs one request per worker (`worker_threads` or Web Workers), terminates a worker whose request runs over the time limit, and replaces a worker after a trap or above 256 MiB; results' buffers are transferred, not copied.
 - **The result:** positions, normals, indices, faces (index ranges with STEP face ids), edges (polylines with ids, their kinds (shared, seam, free, degenerate) and dihedral angles), and wireframe curves and points with their ids.
 
 Each layer is itself a `Tessellator`, so they compose, and each can be used alone (a backend on the main thread, a pool without a cache).
 
-**The OCCT backend** (`native/occt_tess.cpp`, C ABI, Emscripten): reads the subset from memory with product mode off (a bare shape representation is a root), sets the system length unit from the root's context so output is in file units, transfers, maps every resulting face back to its `ADVANCED_FACE` through the transfer bindings (faces ShapeFix split included), meshes with `BRepMesh_IncrementalMesh`, subtracts the origin in double precision, and returns faces, edges (each with its polyline on the face triangulation, so edge points are mesh vertices), wireframe curves and points, plus OCCT's printed messages as warnings.
+**The OCCT backend** (`native/occt_tess.cpp`, C ABI, Emscripten): reads the STEP (a part's model as `step-export` writes it) from memory with product mode off (a bare shape representation is a root), sets the system length unit from the root's context so output is in file units, transfers, maps every resulting face back to its `ADVANCED_FACE` through the transfer bindings (faces ShapeFix split included), meshes with `BRepMesh_IncrementalMesh`, subtracts the origin in double precision, and returns faces, edges (each with its polyline on the face triangulation, so edge points are mesh vertices), wireframe curves and points, plus OCCT's printed messages as warnings.
 
 **The truck backend** (`native/src/lib.rs`, plain C ABI, `wasm32-unknown-unknown`): over truck unchanged, it builds the shells itself so every face and edge keeps its STEP id, meshes them, welds truck's per-corner attributes into an indexed mesh, and implements workarounds to improve results on real-world files (listed in `CLAUDE.md`). A panic costs only its part: the instance is re-instantiated.
 
@@ -730,7 +724,7 @@ const part = scene.parts[first.part]!;
 console.log(placed.length, part.name, part.brep?.format, part.unit, scene.materials[first.material!]);
 // 18 nut step 1 { color: [ 1, 0, 0 ], opacity: 1, sources: [] }
 
-// Tessellation: one request per part with B-rep the backend takes (its STEP subset), up to `concurrency` at once
+// Tessellation: one request per part with B-rep (its model), up to `concurrency` at once
 // (set it to a worker pool's size); here the backend runs on this thread. Each mesh becomes a level of its part.
 const occt = new OcctTessellator();
 await occt.init();
@@ -771,13 +765,13 @@ for (const c of scene.components) console.log(c.name, c.properties);   // { part
 What it does with the file:
 
 - **Components** from product definitions, with their name, part number, version and description as properties; **occurrences** from the assembly's usage occurrences (and mapped items), with their placements converted to millimetres. Writers' known placement errors are corrected as OCCT does (swapped representations, swapped items), with Alibre's exception.
-- **Parts** from shape representations with geometry (B-rep solids, shells, surface models, wireframes, tessellated geometry); annotations and 2D drawings are skipped with a note. Each part's payload is a STEP subset built on demand, its origin the centre of its vertices' bounding box (of all its points when it has no vertices: control points can lie far off), its unit its representation's.
-- **Tessellated geometry** (AP242's, as the CAx-IF's practice describes it): a representation holding only tessellated items is read as it is, into a level of detail from the file (`from: 'source'`) with no B-rep, so nothing is meshed: tessellated solids, shells and faces (triangle strips and fans included), triangulated surface sets (a face each), with every face's STEP id; the file's normals, else computed per face; edges from the file's tessellated edges, else each face's boundary, shared where two faces meet; curve sets, wires and edges as curves, vertices and point sets as points; geometric sets with repositioned items, placed; `closed` for solids and for shells linked to a closed or open shell; AP242 edition 2's accuracy parameters as the level's deflections. A product's tessellation of its B-rep becomes a level of the B-rep's part (paired by its links to the B-rep, else with the product's one B-rep part with faces), its linked faces taking their B-rep face's id: shown at once, replaced by the backend's mesh when meshed, kept if that fails. Curved (`CUBIC_BEZIER_...`) triangles and other items it doesn't read leave their representation to the backend, with a note; `importStep(bytes, { tessellated: 'backend' })` (`stepconv --tessellated-by-backend`) sends every tessellated representation to the backend, as before. OCCT 8.1 reads strips and fans wound the other way, so its meshes of strip-built solids come back inside out (and are turned over by `tessellateScene`, with a warning).
+- **Parts** from shape representations with geometry (B-rep solids, shells, surface models, wireframes, tessellated geometry); annotations and 2D drawings are skipped with a note. Each part's geometry is its B-rep model (below), its origin the centre of its vertices' bounding box (of all its points when it has no vertices: control points can lie far off), its unit its representation's.
+- **Tessellated geometry** (AP242's, as the CAx-IF's practice describes it): a representation holding only tessellated items is read as it is, into a level of detail from the file (`from: 'source'`) with no B-rep, so nothing is meshed: tessellated solids, shells and faces (triangle strips and fans included), triangulated surface sets (a face each), with every face's STEP id; the file's normals, else computed per face; edges from the file's tessellated edges, else each face's boundary, shared where two faces meet; curve sets, wires and edges as curves, vertices and point sets as points; geometric sets with repositioned items, placed; `closed` for solids and for shells linked to a closed or open shell; AP242 edition 2's accuracy parameters as the level's deflections. A product's tessellation of its B-rep becomes a level of the B-rep's part (paired by its links to the B-rep, else with the product's one B-rep part with faces), its linked faces taking their B-rep face's id: shown at once, replaced by the backend's mesh when meshed, kept if that fails. Curved (`CUBIC_BEZIER_...`) triangles and other items it doesn't read are left out, with a note (the B-rep model holds no tessellated geometry, and nothing keeps the file for a backend to read them from; the corpus has none).
 - **Materials** from styles: per part when every face resolves to one colour, else per face; boundary colours when nothing else colours a face; context-dependent overrides per instance; invisibility.
 - **Layers**, external references (components whose geometry is in another file).
 - **Names**: generic part names (`NONE`, `#123`, blank) take their product's; blank product names their part number.
 - **Diagnostics**: parts with references to instances the file doesn't define get a warning naming them; representations without a length unit are read as millimetres, with a warning.
-- **The B-rep model** (`importStep(bytes, { models: true })`; off by default): each B-rep part's geometry and topology parsed into a `cad-brep` buffer, `Part.brep.model`, by the rules of `docs/brep-model.md` (angles in radians, placements complete, implicit knots made explicit, p-curves on the uses of edges, STEP ids kept), with diagnostics for what it can't read. It is to replace the subset as what backends mesh and exporters write.
+- **The B-rep model:** each B-rep part's geometry and topology parsed into a `cad-brep` buffer, `Part.brep.model`, by the rules of `docs/brep-model.md` (angles in radians, placements complete, implicit knots made explicit, p-curves on the uses of edges, STEP ids kept), with diagnostics for what it can't read: what backends mesh (through `step-export`'s `StepTessellator` for those that read STEP) and exporters write. Nothing in the scene refers to the file, which the caller can drop once `importStep` returns.
 
 ### `step-export`
 
@@ -859,7 +853,7 @@ console.log(viewDifferences({ scene, view: exportView(scene) }, { scene: back, v
 
 ### `tess-occt`, `tess-truck`
 
-The two backends, each a `Tessellator`: give it one part's STEP subset, get back its triangles with the STEP face each came from.
+The two backends, each a `Tessellator`: give it one part's STEP (a part's model as `step-export` writes it, or a subset of a file), get back its triangles with the STEP face each came from. In a scene, put `step-export`'s `StepTessellator` in front of them (after any cache), since `tessellateScene` sends models.
 
 ```ts
 import fs from 'node:fs';
@@ -924,7 +918,7 @@ In a browser, the backend's module is fetched by each worker, and the pool's res
 
 ### `tess-cache`
 
-A `Tessellator` in front of another that keeps its results, keyed by a SHA-256 of the backend's name and version (which includes its module's hash), the request and the payload: a part asked for again, with the same deflections, is answered from the store. Stores: `MemoryStore(maxBytes)`, `FileStore({dir, maxBytes})` (Node; a directory, so it survives the process) and `IndexedDbStore({name, maxBytes})` (browsers; `tess-cache/browser` names the browser entry for type checking under Node), each least-recently-used within its maximum size, 0 disabling it.
+A `Tessellator` in front of another that keeps its results, keyed by a SHA-256 of the backend's name and version (which includes its module's hash, and the STEP writer's version behind a `StepTessellator`), the request and the payload (a part's model): a part asked for again, with the same deflections, is answered from the store. Stores: `MemoryStore(maxBytes)`, `FileStore({dir, maxBytes})` (Node; a directory, so it survives the process) and `IndexedDbStore({name, maxBytes})` (browsers; `tess-cache/browser` names the browser entry for type checking under Node), each least-recently-used within its maximum size, 0 disabling it.
 
 ```ts
 import fs from 'node:fs';
@@ -1073,7 +1067,7 @@ They need the [test corpus](#test-corpus) (and some the backends built or the su
 - `products_occt.ts` checks product structure and placements against OCCT's assembly reader (`occt-import-js`): every B-rep vertex of every product instance, placed with our transforms, must be among OCCT's mesh vertices. Many minutes, since OCCT tessellates every file: `node corpus_checks/products_occt.ts test_corpus/files.txt 30`
 - `validation_occt.ts` compares the volume, area and centroid validation properties we extract with those computed from OCCT's meshes, for files with one root. Minutes: `node corpus_checks/validation_occt.ts test_corpus/files.txt 5`
 - `subset_corpus.ts` builds a subset for every shape representation the product structure reaches, as the importer does, and checks that it parses cleanly, matches its source instance for instance, and lacks only references dangling in the source. About 10 s: `node corpus_checks/subset_corpus.ts`
-- `import_corpus.ts` imports every file into a scene and checks it (`validate`, agreement with the semantic layer, every part's payload parsed), tallying parts, materials and layers; a second argument `none` skips the payload checks. About 10 s: `node corpus_checks/import_corpus.ts`
+- `import_corpus.ts` imports every file into a scene and checks it (`validate`, agreement with the semantic layer, every B-rep part's model holding items and without `validateBrep` errors), tallying parts, materials and layers; a second argument `none` skips the model checks. About 10 s: `node corpus_checks/import_corpus.ts`
 - `dangling_refs.ts` lists the importer's warnings of dangling references and the scan's references beyond the largest instance id, to compare with OCCT's "Unresolved Reference" messages. About 16 s: `node corpus_checks/dangling_refs.ts`
 
 **Tessellation**
@@ -1130,11 +1124,20 @@ Known work not yet scheduled; the detail behind each is in the topic notes in `d
 - An adaptive meshing mode: the deflections driven by each part's size (its bounding box's diagonal, say) rather than absolute (absolute 0.1 mm gives a 32 m torus 3.9 M triangles), perhaps as a fourth profile beside coarse, medium and fine.
 - A maximum chord (edge) length, as another CAD system's meshing profiles have (10 m in each); neither backend has one.
 - OCCT at tighter angles: `bug30790.step`'s parts #11-21 and #24 take 0.5 s each at 28.6 degrees, 24-44 s at 15 (medium) and time out at 12.5 and below, whatever the distance; find out why (the same file has the corpus's most unmeshed faces).
+- SMLib as a backend reading the B-rep model through `cad_brep.h`, if its evaluation goes on (`backends.md`; `brep-model.md`, Backends): it rebuilds UV trims from 3D edges where p-curves are absent, and its exact face areas would extend the area oracle to B-spline faces.
 - OCCT: ShapeFix's split of a face whose hole touches its seam (bicycle #23723, left as is); Delabella for faces with thousands of holes (6 times as fast on `bug24024_slow_import.stp`); size cuts (CJK code-page tables, writer code).
 - truck: wireframe curves (`TRIMMED_CURVE`, `COMPOSITE_CURVE`); geometric sets' surfaces; cones, surfaces of revolution and rational B-splines it meshes badly (no workaround short of patching truck).
 
+**Corpus checks** (next after the B-rep model's phase 5, before its phase 6; `brep-model.md`)
+
+- Several files at once within a check: file workers importing, meshing and exporting, the main thread merging their results in file order so the logs stay the same; most checks spend most of their time on one thread (parsing, models, export, comparison), the meshing pool idle between parts. A shared runner in `corpus.ts`; 3 or 4 file workers at most in 24 GB (a file's import can peak near 4 GB), fewer for `roundtrip_corpus.ts`; meshing workers per file worker cut so timeouts don't come to depend on load.
+- A shared mesh cache on disk (`tess-cache`, keyed on the model) for the checks that only consume meshes (`export_view`, `gltf_corpus`, `threejs_corpus`, `threemf_corpus`, `weld_survey`, `roundtrip_corpus`, `stepconv_corpus`): only the first meshes the corpus (`stepconv_corpus.ts` alone meshes it five times), and parts near the timeout stop coming and going between runs. Not for the checks of meshing itself (`step_route`, `area_occt`, `scene_occt`, `truck_occt`, `backend_speed`), nor for planted-bug runs unless keyed on the planted model.
+- `brep_geometry.ts` took 79 min in the B-rep model's phase 5 rerun, against about 20 noted in `corpus_checks/README.md`, unexplained: as fast as before the phase on 30 files (55 s against 56 s), which can't rule out one slow file elsewhere, and the machine's load then (about 1.5 of 10 cores) can't explain 4 times. Time it per file, before and after phase 5, first.
+- Meshing profiles instead of 0.1 mm and 0.5 rad (neither profile: medium's distance, coarse's angle): coarse for the checks that only consume meshes (about 0.6 times the triangles: faster, a smaller cache), medium, as users get it, for the checks of meshing itself (1.25 times; `bug24024_slow_import.stp`'s largest part meshes in 29 s at 0.5 rad but not within 600 s at medium). Named through `meshDeflections`, not as numbers. Tolerances that follow the deflection (`scene_occt.ts`'s 4 x deflection) loosen with coarse. In a commit of its own, with no code changes, and a control run at both the old and the new settings, so the logs' differences are the settings'.
+
 **Import**
 
+- OCCT BREP and FreeCAD import and export through the B-rep model: our BREP parser into the model, BREP written by our own writer or by OCCT after the native builder (`brep-model.md`, Exporters; `future.md`); then QIF; IGES MSBO when taken up.
 - Levels of detail in use: the scene holds several per part, but the viewer and the exporters use one at a time (`chooseLod`); no level is chosen by distance yet.
 
 **Export**
@@ -1147,6 +1150,8 @@ Known work not yet scheduled; the detail behind each is in the topic notes in `d
 - An option to switch ambient occlusion from N8AO to three.js's `GTAOPass` (no dependency), to compare.
 - Optional `three-mesh-bvh` for faster picking on large meshes (more complexity; less reliable on some mobile GPUs).
 - Several files open at once, each a top node of the tree named after its file (the viewer opens one model at a time).
+- The page keeping no copy of the file it opened (today its bytes, kept for Save original..., Mesh again and recording: a model's whole size in the page's memory, LMP1's 271 MB). A hash (SHA-256) made of every file as it's loaded. A local file (the file picker, dropped, a .gltf's .bin) kept as its `File`, read again when needed: no memory. A file from a URL fetched again when needed. Either way, read again: compared with the hash, and if it differs (the file changed on disk or on the server), Save original... warns and asks whether to save it anyway; if it can't be read (moved, offline, a link that expired), says so. Recording uses the hash made at load. Mesh again needs no copy once it meshes the import worker's models (`brep-model.md`, phase 8); recovering a lost import worker reads the file again likewise. Measured instead: LMP1 compresses 3.8 times with gzip (71 MB, 1 s with macOS's `gzip -1`), an option for the page's copy if the above falls short.
+- Layers in use: `Scene.layers` is read from STEP (names, visibility, member parts and faces) but nothing uses it yet. The viewer showing layers, hiding the members of invisible layers (as OCCT and CAD viewers do), and the exporters carrying layers in our own extras, so they survive round trips (the importers of glTF, three.js JSON and 3MF give none today).
 
 **Open questions**
 

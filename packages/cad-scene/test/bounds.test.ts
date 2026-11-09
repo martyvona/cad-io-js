@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { tagged, tagOf } from './models.ts';
 import { around, boundScene, boundsFrom, boxesSphere, grow, identity, meshBox, sceneBounds, tessellateScene,
   type Mat4, type Mesh, type Part, type Scene, type Sphere, type TessellationRequest, type TessellationResult,
   type Tessellator, type Vec3 } from '../src/index.ts';
@@ -82,7 +83,7 @@ test('boxesSphere: the corners placed, the centre their box\'s middle, the radiu
 test('sceneBounds: every placement (hidden too), meshes where boxed, else vertex boxes (estimated)', () => {
   // Part 0 a mesh from 0 to 2 on x, its origin 1 on x; part 1 only a B-rep whose vertices span y 0..4 (unit inch).
   const p0 = part({ lods: [{ mesh: mesh([-1, 0, 0, 1, 0, 0, 0, 0, 0], [1, 0, 0]), from: 'source' }] });
-  const p1 = part({ unit: 25.4, brep: { format: 'step', payload: () => new Uint8Array(),
+  const p1 = part({ unit: 25.4, brep: { format: 'step', model: tagged(),
     vertexBox: { min: [0, 0, 0], max: [0, 4, 0] } } });
   const s = scene([p0, p1]);
   // No boxes yet: part 0's mesh has none, so only part 1 counts.
@@ -114,21 +115,22 @@ test('sceneBounds: every placement (hidden too), meshes where boxed, else vertex
 });
 
 test('tessellateScene boxes its meshes (before onPart) and makes the sphere from the meshes', async () => {
-  const p0 = part({ brep: { format: 'step', payload: () => new Uint8Array([0]), vertexBox: { min: [0, 0, 0],
+  const p0 = part({ brep: { format: 'step', model: tagged(0), vertexBox: { min: [0, 0, 0],
     max: [1000, 0, 0] } } });
   // (Part 1 fails; its vertices far off.)
-  const p1 = part({ brep: { format: 'step', payload: () => new Uint8Array([1]), vertexBox: { min: [5000, 0, 0],
+  const p1 = part({ brep: { format: 'step', model: tagged(1), vertexBox: { min: [5000, 0, 0],
     max: [5000, 0, 0] } } });
   const s = scene([p0, p1]);
   boundScene(s);
   assert.ok(s.bounds!.radius > 2500);
   const t: Tessellator = {
-    info: { name: 'fake', version: '1', license: 'x', formats: ['step'], supportsFaceIds: true, supportsEdges: false,
+    info: { name: 'fake', version: '1', license: 'x', formats: ['cad-brep'], supportsFaceIds: true,
+      supportsEdges: false,
       supportsCurves: false },
     async init() {}, dispose() {},
     async tessellate(req: TessellationRequest): Promise<TessellationResult> {
       // Part 1 fails.
-      if (req.data[0] === 1) throw new Error('no');
+      if (tagOf(req.data) === 1) throw new Error('no');
       return { origin: req.origin!, positions: Float32Array.of(0, 0, 0, 2, 0, 0, 0, 2, 0),
         indices: Uint32Array.of(0, 1, 2), faces: [], diagnostics: [] };
     },
@@ -141,7 +143,7 @@ test('tessellateScene boxes its meshes (before onPart) and makes the sphere from
   assert.ok(s.bounds!.radius < 60 && holds(s.bounds!, { center: [102, 2, 0], radius: 0 }) &&
     holds(s.bounds!, { center: [0, 0, 0], radius: 0 }));
   // A file's sphere stays.
-  const u = scene([part({ brep: { format: 'step', payload: () => new Uint8Array([0]) } }), part()]);
+  const u = scene([part({ brep: { format: 'step', model: tagged(0) } }), part()]);
   u.bounds = { center: [0, 0, 0], radius: 1, from: 'source' };
   await tessellateScene(u, t);
   assert.deepEqual(u.bounds, { center: [0, 0, 0], radius: 1, from: 'source' });

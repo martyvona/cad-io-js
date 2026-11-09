@@ -495,14 +495,25 @@ export function stepGeometry(d: BrepData): StepGeometry {
 
   // -- Items, the representation and its context.
   function writeRoot() {
-    // The items in the model's order: loose beside bodies, else a geometric set's elements.
+    // The items in the model's order, each run of geometry (curves, points, surfaces, faces) a geometric set's
+    // elements (a curve set's if only curves and points): readers take curves from sets, not loose (OCCT).
     const items: number[] = [];
-    let bodies = 0, geometric = 0, solidsOnly = true, curvesOnly = true;
+    let bodies = 0, sets = 0, solidsOnly = true, curvesOnly = true;
+    let run: number[] = [], runCurves = true;
+    const flush = () => {
+      if (!run.length) return;
+      items.push(emit(fresh(), runCurves ? 'GEOMETRIC_CURVE_SET' : 'GEOMETRIC_SET', [NAME, refs(run)]));
+      sets++;
+      if (!runCurves) curvesOnly = false;
+      run = [];
+      runCurves = true;
+    };
     for (let k = 0; k < rowCount(d, 'item'); k++) {
       const it = decode.item(d, k);
       if (it.kind === 'instance') { note('an instance item (left out: not written yet)', it.id, 'error'); continue; }
       if (it.transform) { note('an item with a transform (left out: not written yet)', it.id, 'error'); continue; }
       if (it.kind === 'body') {
+        flush();
         items.push(...bodyIds[it.ref]!);
         bodies++;
         if (!bodyAdvanced[it.ref]) solidsOnly = false;
@@ -511,17 +522,13 @@ export function stepGeometry(d: BrepData): StepGeometry {
       const id = it.kind === 'point' ? emit(own(it.id), 'CARTESIAN_POINT', [NAME, reals(it.point)])
         : it.kind === 'curve' ? curveId[it.ref]! : it.kind === 'surface' ? surfaceId[it.ref]! : faceId[it.ref]!;
       if (Number.isNaN(id)) continue;
-      items.push(id);
-      geometric++;
-      if (it.kind !== 'curve' && it.kind !== 'point') curvesOnly = false;
+      run.push(id);
+      if (it.kind !== 'curve' && it.kind !== 'point') runCurves = false;
     }
-    let type: string;
-    if (!bodies && geometric) {
-      items.splice(0, items.length, emit(fresh(), curvesOnly ? 'GEOMETRIC_CURVE_SET' : 'GEOMETRIC_SET',
-        [NAME, refs(items)]));
-      type = curvesOnly ? 'GEOMETRICALLY_BOUNDED_WIREFRAME_SHAPE_REPRESENTATION'
-        : 'GEOMETRICALLY_BOUNDED_SURFACE_SHAPE_REPRESENTATION';
-    } else type = bodies && !geometric && solidsOnly ? 'ADVANCED_BREP_SHAPE_REPRESENTATION' : 'SHAPE_REPRESENTATION';
+    flush();
+    const type = !bodies && sets ? curvesOnly ? 'GEOMETRICALLY_BOUNDED_WIREFRAME_SHAPE_REPRESENTATION'
+      : 'GEOMETRICALLY_BOUNDED_SURFACE_SHAPE_REPRESENTATION'
+      : bodies && !sets && solidsOnly ? 'ADVANCED_BREP_SHAPE_REPRESENTATION' : 'SHAPE_REPRESENTATION';
     if (!items.length) note('a model with no items (an empty representation)');
     writeContext();
     emit(rootId, type, [NAME, refs(items), ref(contextId)]);

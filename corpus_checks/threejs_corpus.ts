@@ -17,6 +17,7 @@ import { exportView, multiply, tessellateScene, type ExportNode,
 import { threejsChunks } from '../packages/export-threejs/src/index.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
 import { WorkerTessellator } from '../packages/tess-workers/src/node.ts';
+import { StepTessellator } from '../packages/step-export/src/index.ts';
 import { corpusFiles, shortName } from './corpus.ts';
 
 const workers = Math.max(1, os.availableParallelism() - 1);
@@ -44,7 +45,7 @@ for (const f of corpusFiles(process.argv[2])) {
   totals.files++;
   const problem = (msg: string) => { totals.problems++; if (problems.length < 200) problems.push(`${name}: ${msg}`); };
   const { scene } = await importStep(bytes);
-  const { meshes } = await tessellateScene(scene, tess,
+  const { meshes } = await tessellateScene(scene, new StepTessellator(tess),
     { linearDeflection: 0.1, angularDeflection: 0.5, edges: true, concurrency: workers });
   const view = exportView(scene, { linearDeflection: 0.1, angularDeflection: 0.5, edges: true, curves: true });
 

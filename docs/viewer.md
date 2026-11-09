@@ -15,7 +15,7 @@ Notes for work on `packages/viewer`: its design rules, how its parts fit, and th
 ## Loading
 
 - One path for every format: the library's importers in the import worker (`model-load.ts`'s `importModel`, `loadModelIn`; `import-worker.ts`), the scene posted with its source levels' buffers transferred, B-rep parts meshed by the pool (nested workers) through the IndexedDB cache. A new file or Clear cache disposes the pool. The page copies a file's bytes before transferring them (kept for Save original and Mesh again).
-- Events: `importing` (STEP's phases, at most every 200 ms), the scene (without payload functions), mesh events (with the part's measures), `edges` events, the end (with the rebuilt sphere and `meshing`).
+- Events: `importing` (STEP's phases, at most every 200 ms), the scene (without the parts' models and outline functions), mesh events (with the part's measures), `edges` events, the end (with the rebuilt sphere and `meshing`).
 - Edges: B-rep edges where the part has them; else found in the worker (`edges.ts`'s `findEdges`, a port of three.js's `EdgesGeometry`, 10 degrees, on a 1 um world grid in each part's units by its first placement's scale), part by part after the scene, yielding between parts.
 - The page adds the scene's meshes in 30 ms slices (`SLICE_MS`) with the status counting; face areas are computed only where measures judge them or Details asks; the clipping sphere grows from mesh boxes. Rule (the user): no task over 500 ms on the page; split it or move it to a worker.
 - `SceneGraph.addMesh` replaces a part's mesh; a source level shows at once and stays if meshing fails.

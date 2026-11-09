@@ -192,21 +192,17 @@ export interface FaceMeasures {
   valid: boolean;
 }
 
-/** B-rep formats a part's exact geometry can be in, grown as importers are added (a backend lists those it takes). */
+/** The formats a part's exact geometry can come from, grown as importers are added. */
 export type BrepFormat = 'step' | 'iges' | 'brep';
 
-/** A part's exact geometry. */
+/**
+ * A part's exact geometry: its B-rep model, parsed at import into one buffer (cad-brep; docs/brep-model.md), what
+ * backends mesh and exporters write. Nothing in it refers to the source file, which its importer's caller can drop.
+ */
 export interface Brep {
-  /**
-   * The parsed B-rep (cad-brep), where the importer built it (step-import's `models`): to replace `payload`
-   * (docs/brep-model.md).
-   */
-  model?: BrepData;
+  model: BrepData;
+  /** The format it came from. */
   format: BrepFormat;
-  /** The tessellation payload (a STEP subset, say). A function, since building it is work only needed on demand. */
-  payload: () => Uint8Array;
-  /** The root entity within the payload (STEP: the shape representation). */
-  rootId?: number;
   /**
    * The box of the part's vertices (STEP: its VERTEX_POINTs, else all its points), in its coordinates: not a bound
    * (curved faces bulge past their vertices), an estimate of where it is before it's meshed (sceneBounds).
@@ -215,7 +211,8 @@ export interface Brep {
   /**
    * The outlines of the part's faces drawn from the source itself (STEP: their edges along their curves), for faces
    * that fail to mesh or a part that does (tessellateScene's `outlines`): every face's id, in order, and the outlines
-   * of `faces` (all if absent), in the part's units minus its origin. Optional; like `payload`, a function.
+   * of `faces` (all if absent), in the part's units minus its origin. Optional; a function, since it's work only needed
+   * on demand.
    */
   outline?: (o: { linearDeflection: number; angularDeflection: number; faces?: ReadonlySet<number> }) =>
     { faces: number[]; positions: Float32Array; outlines: { source: number; start: number; count: number }[] };

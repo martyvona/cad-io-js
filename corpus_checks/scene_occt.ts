@@ -12,10 +12,13 @@ import path from 'node:path';
 import { partInstances, tessellateScene } from '../packages/cad-scene/src/index.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
 import { OcctTessellator } from '../packages/tess-occt/src/index.ts';
+import { StepTessellator } from '../packages/step-export/src/index.ts';
 import { corpusDir, corpusFiles, shortName } from './corpus.ts';
 
 const require = createRequire(import.meta.url);
-const loadOcct = () => require(path.join(corpusDir, 'occt-import-js/dist/occt-import-js.js'))();
+// (OCCT's own messages, such as its reader's ERR counts, to standard error with the progress, not into the log.)
+const loadOcct = () => require(path.join(corpusDir, 'occt-import-js/dist/occt-import-js.js'))(
+  { print: (s: string) => process.stderr.write(`${s}\n`) });
 let occt = await loadOcct();
 const tess = new OcctTessellator();
 await tess.init();
@@ -127,7 +130,8 @@ for (const f of corpusFiles(process.argv[2])) {
     hi[k] = Math.max(hi[k]!, x[k]!); }
   const deflection = RATIO * Math.hypot(...sub(hi, lo));
   const { scene } = await importStep(bytes);
-  const { meshes } = await tessellateScene(scene, tess, { linearDeflection: deflection, angularDeflection: 0.5 });
+  const { meshes } = await tessellateScene(scene, new StepTessellator(tess),
+    { linearDeflection: deflection, angularDeflection: 0.5 });
   totals.parts += scene.parts.length;
   totals.meshes += meshes.size;
   const tol = 4 * deflection + size * 1e-6;

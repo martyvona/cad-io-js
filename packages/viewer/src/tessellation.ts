@@ -9,6 +9,7 @@ import { MESH_PROFILES, type MeshProfile, type Tessellator } from 'cad-scene';
 import type { DeviceClass } from './device.ts';
 import { CachedTessellator, IndexedDbStore, type CacheStats } from 'tess-cache/browser';
 import { DEFAULT_TIMEOUT_MS, PoolTessellator, webWorkerHandle } from 'tess-workers/browser';
+import { StepTessellator } from 'step-export';
 
 export type Backend = 'occt' | 'truck';
 
@@ -24,15 +25,10 @@ export interface TessellationSettings {
   cache: boolean;
   /**
    * Seconds a part may take before its worker is stopped and the part counted failed; 0: no limit. The pool's default,
-   * 60. A timeout cached answers only while the limit is no longer than the one that ran out, so a longer limit tries
+   * 120. A timeout cached answers only while the limit is no longer than the one that ran out, so a longer limit tries
    * the part again.
    */
   timeout: number;
-  /**
-   * AP242 tessellated geometry: read as it is (step-import, the default), or meshed by the backend from its STEP subset
-   * as a B-rep is (the importer's `tessellated: 'backend'`; truck reads none).
-   */
-  tessellated: 'read' | 'backend';
 }
 
 /** The default timeout, seconds: the pool's. */
@@ -47,7 +43,7 @@ export function profileSettings(profile: MeshProfile): Pick<TessellationSettings
 
 /** The defaults: a profile (the device's: device.ts), OCCT, cached. */
 export function defaultSettings(profile: MeshProfile): TessellationSettings {
-  return { backend: 'occt', ...profileSettings(profile), cache: true, timeout: DEFAULT_TIMEOUT, tessellated: 'read' };
+  return { backend: 'occt', ...profileSettings(profile), cache: true, timeout: DEFAULT_TIMEOUT };
 }
 
 /** What tessellateScene takes for the settings: the profile by name, or the custom deflections (in radians). */
@@ -90,7 +86,9 @@ export class Tessellation {
       const pool = new PoolTessellator(
         () => webWorkerHandle(new Worker(new URL('./tess-worker.ts', import.meta.url), { type: 'module' })),
         { backend: BACKENDS[s.backend], workers, timeoutMs: Math.max(0, timeout) * 1000 });
-      const tess = s.cache ? new CachedTessellator(pool, new IndexedDbStore({ name: CACHE_NAME })) : pool;
+      // The backends read STEP: each part's B-rep model written as STEP, after the cache (which keys on the model).
+      const step = new StepTessellator(pool);
+      const tess = s.cache ? new CachedTessellator(step, new IndexedDbStore({ name: CACHE_NAME })) : step;
       this.current = { key, tess, pool };
       this.pools++;
       try {

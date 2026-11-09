@@ -22,6 +22,7 @@ import { modelUnit, threemf } from '../packages/export-3mf/src/index.ts';
 import { OBJECT_TYPE, read3mf, type Read3mf } from '../packages/export-3mf/test/read3mf.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
 import { WorkerTessellator } from '../packages/tess-workers/src/node.ts';
+import { StepTessellator } from '../packages/step-export/src/index.ts';
 import { corpusFiles, shortName } from './corpus.ts';
 
 const workers = Math.max(1, os.availableParallelism() - 1);
@@ -53,7 +54,7 @@ for (const f of corpusFiles(process.argv[2])) {
   totals.files++;
   const problem = (msg: string) => { totals.problems++; if (problems.length < 200) problems.push(`${name}: ${msg}`); };
   const { scene } = await importStep(bytes);
-  const { meshes } = await tessellateScene(scene, tess,
+  const { meshes } = await tessellateScene(scene, new StepTessellator(tess),
     { linearDeflection: 0.1, angularDeflection: 0.5, concurrency: workers });
   const view = exportView(scene, { linearDeflection: 0.1, angularDeflection: 0.5 });
 

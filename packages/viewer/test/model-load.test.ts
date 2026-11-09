@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
+import v8 from 'node:v8';
+import vm from 'node:vm';
 import type { Mesh, Scene, TessellationRequest, TessellationResult, Tessellator } from 'cad-scene';
 import { edgesOf, importModel, levelBuffers, loadModelIn, meshable, meshBuffers, needsEdges, placedScales, postable,
   type ModelEvent, type ModelInput } from '../src/model-load.ts';
@@ -12,6 +14,7 @@ import { threejsJson } from 'export-threejs';
 import { scene as fixture, plate, wire } from './fixtures.ts';
 import { MESH_PROFILES } from 'cad-scene';
 import { defaultSettings } from '../src/tessellation.ts';
+import { BrepBuilder, openBrep, rowCount } from 'cad-brep';
 
 const DEFAULT_SETTINGS = defaultSettings('coarse');
 
@@ -20,19 +23,24 @@ const step = path.resolve(import.meta.dirname,
 const skip = fs.existsSync(step) ? false : 'corpus not fetched';
 const stepInput = (): ModelInput => ({ format: 'step', bytes: new Uint8Array(fs.readFileSync(step)) });
 
-/** A stand-in tessellator: a triangle per request, its face the request's root, after `delay` ms. */
+const firstFace = (data: Uint8Array) => {
+  const d = openBrep(data);
+  return rowCount(d, 'face') ? d.face.id[0]! : null;
+};
+
+/** A stand-in tessellator: a triangle per request, its face the model's first, after `delay` ms. */
 function fake(delay = 0) {
   const requests: TessellationRequest[] = [];
   const tess: Tessellator = {
-    info: { name: 'fake', version: '1', license: 'MIT', formats: ['step'], supportsFaceIds: true, supportsEdges: true,
-      supportsCurves: false },
+    info: { name: 'fake', version: '1', license: 'MIT', formats: ['cad-brep'], supportsFaceIds: true,
+      supportsEdges: true, supportsCurves: false },
     init: async () => {},
     dispose: () => {},
     tessellate: async (req): Promise<TessellationResult> => {
       requests.push(req);
       await new Promise((r) => setTimeout(r, delay));
       return { origin: req.origin ?? [0, 0, 0], positions: Float32Array.of(0, 0, 0, 1, 0, 0, 0, 1, 0),
-        indices: Uint32Array.of(0, 1, 2), faces: [{ entityId: req.rootId ?? null, start: 0, count: 3 }],
+        indices: Uint32Array.of(0, 1, 2), faces: [{ entityId: firstFace(req.data), start: 0, count: 3 }],
         diagnostics: [] };
     },
   };
@@ -40,20 +48,43 @@ function fake(delay = 0) {
     describe: () => ({ backend: 'fake 1', pools: 1 }) } };
 }
 
-test('postable: the B-rep\'s functions gone, the rest as it was; a structured clone takes it', () => {
-  const part = { name: 'p', lods: [], brep: { format: 'step', payload: () => new Uint8Array(1), rootId: 7,
-    outline: () => ({}) } };
+test('postable: the B-rep\'s model and functions gone, the rest as it was; a structured clone takes it', () => {
+  const model = new BrepBuilder({ unit: 1 }).finish();
+  const part = { name: 'p', lods: [], brep: { format: 'step', model, outline: () => ({}) } };
   const mesh = { name: 'm', lods: [] };
   const scene = { parts: [part, mesh], components: [], roots: [] } as unknown as Scene;
   const p = postable(scene);
-  assert.deepEqual(Object.keys(p.parts[0]!.brep!).filter((k) => p.parts[0]!.brep![k as 'payload'] !== undefined),
-    ['format', 'rootId']);
-  assert.equal(p.parts[0]!.brep!.rootId, 7);
+  assert.deepEqual(Object.keys(p.parts[0]!.brep!).filter((k) => p.parts[0]!.brep![k as 'model'] !== undefined),
+    ['format']);
   assert.equal(p.parts[1], mesh);
-  assert.equal(scene.parts[0]!.brep!.payload, part.brep.payload);
+  assert.equal(scene.parts[0]!.brep!.model, model);
   assert.doesNotThrow(() => structuredClone(p));
   assert.throws(() => structuredClone(scene));
 });
+
+test('loadModelIn: the input taken and its bytes collected before meshing; a source already taken refused',
+  { skip }, async () => {
+    v8.setFlagsFromString('--expose-gc');
+    const gc = vm.runInNewContext('gc') as () => void;
+    const source: { input?: ModelInput } = { input: stepInput() };
+    const bytes = new WeakRef(source.input!.bytes);
+    const { tessellation } = fake();
+    const inner = (await tessellation.get()).tess;
+    let freed: boolean | undefined;
+    const tess = { ...inner, tessellate: async (req: TessellationRequest) => {
+      if (freed === undefined) {
+        for (let i = 0; i < 3 && bytes.deref(); i++) { await new Promise((r) => setTimeout(r, 0)); gc(); }
+        freed = bytes.deref() === undefined;
+      }
+      return inner.tessellate(req);
+    } };
+    await loadModelIn(source, DEFAULT_SETTINGS, 2, { ...tessellation, get: async () => ({ tess, workers: 2 }) },
+      () => {}, () => false);
+    assert.equal(source.input, undefined);
+    assert.equal(freed, true);
+    await assert.rejects(loadModelIn(source, DEFAULT_SETTINGS, 2, tessellation, () => {}, () => false),
+      /already taken/);
+  });
 
 test('meshable: placed brep parts only', () => {
   const s = fixture();
@@ -80,7 +111,7 @@ test('loadModelIn: the scene (postable), a mesh per placed brep part, then the e
     const events: ModelEvent[] = [];
     const transfers: ArrayBuffer[][] = [];
     const told: string[] = [];
-    await loadModelIn(stepInput(), DEFAULT_SETTINGS, 3, tessellation, (e, t) => {
+    await loadModelIn({ input: stepInput() }, DEFAULT_SETTINGS, 3, tessellation, (e, t) => {
       if (e.type === 'importing') told.push(e.progress.phase);
       else {
         events.push(e);
@@ -104,7 +135,7 @@ test('loadModelIn: the scene (postable), a mesh per placed brep part, then the e
     assert.equal(requests[0]!.angularDeflection, MESH_PROFILES.coarse.angularDeflection);
     // Custom: the settings' deflections, degrees to radians.
     const custom = fake();
-    await loadModelIn(stepInput(), { ...DEFAULT_SETTINGS, profile: 'custom', angularDeflection: 10 }, 3,
+    await loadModelIn({ input: stepInput() }, { ...DEFAULT_SETTINGS, profile: 'custom', angularDeflection: 10 }, 3,
       custom.tessellation, () => {}, () => false);
     assert.equal(custom.requests[0]!.angularDeflection, 10 * Math.PI / 180);
     const done = events.at(-1) as Extract<ModelEvent, { type: 'done' }>;
@@ -119,14 +150,14 @@ test('loadModelIn: cancelled, it stops: after the scene, or before meshing', { s
   const { tessellation } = fake(20);
   const events: ModelEvent[] = [];
   let stop = false;
-  const run = loadModelIn(bytes, DEFAULT_SETTINGS, 2, tessellation, (e) => {
+  const run = loadModelIn({ input: bytes }, DEFAULT_SETTINGS, 2, tessellation, (e) => {
     if (e.type !== 'importing') events.push(e);
     if (e.type === 'mesh') stop = true;
   }, () => stop);
   await run;
   assert.deepEqual(events.map((e) => e.type), ['scene', 'mesh']);
   const none: ModelEvent[] = [];
-  await loadModelIn(bytes, DEFAULT_SETTINGS, 2, fake().tessellation, (e) => none.push(e), () => true);
+  await loadModelIn({ input: bytes }, DEFAULT_SETTINGS, 2, fake().tessellation, (e) => none.push(e), () => true);
   assert.deepEqual(none, []);
 });
 
@@ -136,12 +167,12 @@ test('loadModelIn: a file with nothing to mesh ends at once', async () => {
     "FILE_NAME('','',(''),(''),'','','');\nFILE_SCHEMA(('AUTOMOTIVE_DESIGN'));\nENDSEC;\nDATA;\nENDSEC;\n" +
     'END-ISO-10303-21;\n') };
   const events: ModelEvent[] = [];
-  await loadModelIn(bytes, DEFAULT_SETTINGS, 2, fake().tessellation, (e) => e.type !== 'importing' && events.push(e),
-    () => false);
+  await loadModelIn({ input: bytes }, DEFAULT_SETTINGS, 2, fake().tessellation,
+    (e) => e.type !== 'importing' && events.push(e), () => false);
   assert.deepEqual(events.map((e) => e.type), ['scene', 'done']);
 });
 
-test("loadModelIn: STEP's tessellated geometry read and shown, nothing meshed; by the backend when set", async () => {
+test("loadModelIn: STEP's tessellated geometry read and shown, nothing meshed", async () => {
   // A triangle in a tessellated shell, the product's only representation.
   const text = `ISO-10303-21;HEADER;FILE_NAME('','',(''),(''),'','','');FILE_SCHEMA((
 'AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF { 1 0 10303 442 1 1 4 }'));ENDSEC;DATA;
@@ -164,7 +195,7 @@ ENDSEC;END-ISO-10303-21;`;
   const events: ModelEvent[] = [];
   const transfers: ArrayBuffer[][] = [];
   const { requests, tessellation } = fake();
-  await loadModelIn(input, DEFAULT_SETTINGS, 2, tessellation, (e, t) => {
+  await loadModelIn({ input }, DEFAULT_SETTINGS, 2, tessellation, (e, t) => {
     if (e.type === 'importing') return;
     events.push(e);
     transfers.push(t ?? []);
@@ -174,13 +205,6 @@ ENDSEC;END-ISO-10303-21;`;
   assert.deepEqual(scene.parts[0]!.lods[0]!.mesh.faces.map((f) => f.source), [101]);
   assert.equal(transfers[0]!.length > 0, true);
   assert.equal(requests.length, 0);
-  // By the backend: a B-rep part, meshed.
-  const backend: ModelEvent[] = [];
-  await loadModelIn(input, { ...DEFAULT_SETTINGS, tessellated: 'backend' }, 2, tessellation,
-    (e) => e.type !== 'importing' && backend.push(e),
-    () => false);
-  assert.deepEqual(backend.map((e) => e.type), ['scene', 'mesh', 'done']);
-  assert.equal(requests.length, 1);
 });
 
 test('importModel and loadModelIn: GLB, .gltf with its .bin, three.js JSON, 3MF, the scene they were written from',
@@ -204,7 +228,7 @@ test('importModel and loadModelIn: GLB, .gltf with its .bin, three.js JSON, 3MF,
       const { requests, tessellation } = fake();
       const events: ModelEvent[] = [];
       const transfers: ArrayBuffer[][] = [];
-      await loadModelIn(input, DEFAULT_SETTINGS, 2, tessellation, (e, t) => {
+      await loadModelIn({ input }, DEFAULT_SETTINGS, 2, tessellation, (e, t) => {
         events.push(e);
         transfers.push(t ?? []);
       }, () => false);
@@ -232,7 +256,7 @@ test('importModel and loadModelIn: GLB, .gltf with its .bin, three.js JSON, 3MF,
     const { requests, tessellation } = fake();
     const events: ModelEvent[] = [];
     const sent: ArrayBuffer[][] = [];
-    await loadModelIn({ format: '3mf', bytes }, DEFAULT_SETTINGS, 2, tessellation, (e, t) => {
+    await loadModelIn({ input: { format: '3mf', bytes } }, DEFAULT_SETTINGS, 2, tessellation, (e, t) => {
       events.push(e);
       sent.push(t ?? []);
     }, () => false);
@@ -269,7 +293,8 @@ test('edgesOf: on 1 um in the world, whatever the mesh\'s unit; placedScales fro
 test('loadModelIn: keep has the scene, its meshes as its parts\' levels once meshed (to export)', { skip }, async () => {
   const { tessellation } = fake();
   let kept: Scene | undefined;
-  await loadModelIn(stepInput(), DEFAULT_SETTINGS, 2, tessellation, () => {}, () => false, {}, (s) => { kept = s; });
+  await loadModelIn({ input: stepInput() }, DEFAULT_SETTINGS, 2, tessellation, () => {}, () => false, {},
+    (s) => { kept = s; });
   assert.ok(kept);
   const meshed = kept!.parts.filter((p) => p.brep && p.lods.some((l) => l.from === 'tessellated'));
   assert.equal(meshed.length, kept!.parts.filter((p) => p.brep).length);

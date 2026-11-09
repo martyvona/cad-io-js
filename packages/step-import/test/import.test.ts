@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import v8 from 'node:v8';
+import vm from 'node:vm';
 import { partInstances, sceneBounds, validate, type Mat4 } from 'cad-scene';
+import { rowCount } from 'cad-brep';
 import { parseStep } from 'step-parser';
 import { importStep, type ImportProgress } from '../src/index.ts';
 
@@ -178,6 +181,22 @@ test('progress: each phase as it begins, the representations counted through par
   assert.equal(again[0], 'structure');
 });
 
+test('the scene keeps nothing of the import: its parts\' outlines hold their models, not the file', async () => {
+  v8.setFlagsFromString('--expose-gc');
+  const gc = vm.runInNewContext('gc') as () => void;
+  let result: Awaited<ReturnType<typeof importStep>> | undefined = await importStep(file(DATA));
+  const held = new WeakRef(result.model), scene = result.scene;
+  result = undefined;
+  for (let i = 0; i < 3 && held.deref(); i++) {
+    await new Promise((r) => setTimeout(r, 0));
+    gc();
+  }
+  assert.equal(held.deref(), undefined);
+  // (The scene in use after: it was alive throughout.)
+  const part = scene.parts.find((p) => p.brep)!;
+  assert.ok(part.brep!.outline!({ linearDeflection: 1, angularDeflection: 1, faces: new Set() }).faces.length);
+});
+
 test('components, parts, units and placements', async () => {
   const { scene, partOf } = await importStep(file(DATA));
   assert.deepEqual(validate(scene), []);
@@ -201,10 +220,11 @@ test('components, parts, units and placements', async () => {
   assert.deepEqual(box.brep?.vertexBox, { min: [0, 0, 0], max: [2, 4, 6] });
   assert.equal(scene.bounds?.from, 'estimated');
   assert.deepEqual(scene.bounds, sceneBounds(scene));
-  // The payload: a subset rooted at the box's representation, without the mapped item.
-  const sub = parseStep(box.brep ? box.brep.payload() : new Uint8Array());
-  assert.deepEqual([...sub.index.ids].includes(240), false);
-  assert.ok(sub.index.position(205) >= 0);
+  // The model: the box's representation's solids, not the mapped item's point.
+  const model = box.brep!.model;
+  assert.deepEqual([rowCount(model, 'body'), rowCount(model, 'face')], [3, 4]);
+  assert.deepEqual(Array.from(model.body.id), [211, 219, 226]);
+  assert.equal(rowCount(model, 'item'), 3);
   // The file's unit, its root's (the assembly in metres), for exports that can name theirs.
   assert.equal(scene.sourceUnit, 1000);
   // Placements, in millimetres: box 1 at the origin, box 2 at 0.1 m; an inch is 25.4 mm.
@@ -283,7 +303,7 @@ const SURFACES = `
 test("an annotation-only representation isn't a part; a geometric set's surfaces take their styles as faces",
   async () => {
   const { scene } = await importStep(file(SURFACES));
-  assert.deepEqual(scene.parts.map((p) => p.brep?.rootId), [115]);
+  assert.deepEqual(scene.parts.map((p) => p.sources[0]?.id), [115]);
   const part = scene.parts[0]!;
   assert.equal(part.material, undefined);
   assert.deepEqual(part.faceMaterials?.map((f) => [f.face, scene.materials[f.material]!.color]), [[112, [1, 0, 0]]]);
@@ -323,7 +343,7 @@ const DRAWING = `
 
 test("a two-dimensional drawing isn't a part, and says so; a wireframe is", async () => {
   const { scene } = await importStep(file(DRAWING));
-  assert.deepEqual(scene.parts.map((p) => p.brep?.rootId), [125]);
+  assert.deepEqual(scene.parts.map((p) => p.sources[0]?.id), [125]);
   assert.deepEqual(scene.diagnostics.filter((d) => /drawing/.test(d.message)),
     [{ severity: 'info', message: 'a two-dimensional drawing; not imported', source: { format: 'step', id: 112 } }]);
   assert.deepEqual([...partInstances(scene)].map((p) => p.part), [0]);

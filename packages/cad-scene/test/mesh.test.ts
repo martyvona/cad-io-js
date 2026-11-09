@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { tagged, tagOf } from './models.ts';
 import { dropDegenerate, faceFailures, INSIDE_OUT, manifoldProblems, orientShells,
   tessellateScene, weld, type FaceMeasures, type Mesh, type Scene, type TessellationRequest, type TessellationResult,
   type Tessellator } from '../src/index.ts';
@@ -169,7 +170,7 @@ test('tessellateScene: degenerate triangles dropped and inside-out shells turned
     parts: ['key', 'cube'].map(
       (name, i) => ({ name, sources: [{ format: 'step', id: 10 + i }], properties: {}, unit: 1,
       origin: [0, 0, 0] as [number, number, number], lods: [],
-      brep: { format: 'step' as const, payload: () => Uint8Array.of(i) } })),
+      brep: { format: 'step' as const, model: tagged(i) } })),
   };
   const key = boxes({ turned: true, normals: 'winding' }, { lo: [3, 0, 0], turned: true, normals: 'winding' });
   // The cube with a degenerate triangle in its last face.
@@ -177,12 +178,13 @@ test('tessellateScene: degenerate triangles dropped and inside-out shells turned
   const cube: Mesh = { ...box, indices: Uint32Array.from([...box.indices, 0, 0, 7]),
     faces: box.faces.map((f, k) => (k === 5 ? { ...f, count: 9 } : f)) };
   const backend: Tessellator = {
-    info: { name: 'fake', version: '1', license: 'x', formats: ['step'], supportsFaceIds: true, supportsEdges: false,
+    info: { name: 'fake', version: '1', license: 'x', formats: ['cad-brep'], supportsFaceIds: true,
+      supportsEdges: false,
       supportsCurves: false },
     async init() {},
     dispose() {},
     async tessellate(req: TessellationRequest): Promise<TessellationResult> {
-      const m = req.data[0] === 0 ? key : cube;
+      const m = tagOf(req.data) === 0 ? key : cube;
       return { origin: [0, 0, 0], positions: m.positions, normals: m.normals!, indices: m.indices,
         faces: m.faces.map((f) => ({ entityId: f.source, start: f.start, count: f.count })), diagnostics: [] };
     },

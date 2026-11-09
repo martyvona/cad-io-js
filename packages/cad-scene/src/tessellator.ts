@@ -1,9 +1,11 @@
 // The tessellator interface: one request per part, its payload parsed by the backend. See README.md. Backends implement
-// it in their own packages (tess-occt, tess-truck).
+// it in their own packages (tess-occt, tess-truck); a part's B-rep model goes as `cad-brep`, which a backend reading
+// STEP takes through step-export's StepTessellator (the model written as STEP).
 
 import type { Diagnostic, EdgeKind, Vec3 } from './scene.ts';
 
-export type PayloadFormat = 'step' | 'iges' | 'brep';
+/** `cad-brep`: a B-rep model's buffer (cad-brep's BrepData.buffer) as bytes. */
+export type PayloadFormat = 'cad-brep' | 'step' | 'iges' | 'brep';
 
 export interface TessellatorInfo {
   name: string;
@@ -18,7 +20,7 @@ export interface TessellatorInfo {
 
 export interface TessellationRequest {
   format: PayloadFormat;
-  /** One part's payload; STEP subsets keep the original #ids. */
+  /** One part's payload (a B-rep model's buffer, a STEP file); faces keep their source ids. */
   data: Uint8Array;
   /** The root entity in the payload (STEP: the shape representation). */
   rootId?: number;

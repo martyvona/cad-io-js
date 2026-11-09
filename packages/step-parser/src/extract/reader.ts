@@ -13,7 +13,10 @@ export class Reader {
     this.model = model;
   }
 
-  /** The bound instance at position p, cached; undefined if it is malformed or p < 0. */
+  /**
+   * The bound instance at position p, cached; undefined if it is malformed or p < 0. What binding repaired goes into
+   * `diagnostics` when first bound.
+   */
   bound(p: number): BoundInstance | undefined {
     if (p < 0) return undefined;
     let b = this.cache.get(p);
@@ -25,6 +28,7 @@ export class Reader {
         b = null;
       }
       this.cache.set(p, b);
+      if (b) this.diagnostics.push(...b.repairs);
     }
     return b ?? undefined;
   }

@@ -15,6 +15,7 @@ import { exportView, meshDeflections, tessellateScene } from 'cad-scene';
 import { threemf } from 'export-3mf';
 import { glb, gltfJson } from 'export-gltf';
 import { threejsJson } from 'export-threejs';
+import { StepTessellator } from 'step-export';
 import { importStep } from 'step-import';
 import { OcctTessellator } from 'tess-occt';
 import { stepconv } from '../src/index.ts';
@@ -55,7 +56,7 @@ test('stepconv: the same file as the library pipeline, in a worker pool and on t
   await tess.init();
   const { scene } = await importStep(fs.readFileSync(assembly));
   // stepconv's default meshing is the library's (medium).
-  await tessellateScene(scene, tess, { edges: true });
+  await tessellateScene(scene, new StepTessellator(tess), { edges: true });
   tess.dispose();
   const expected = threejsJson(scene, exportView(scene, { ...meshDeflections({}), edges: true, curves: true }),
     { name: 'as1-oc-214-mat' });
@@ -98,7 +99,7 @@ test('stepconv: GLB and .gltf with its .bin, the same as the library; hidden ins
   const tess = new OcctTessellator();
   await tess.init();
   const { scene } = await importStep(fs.readFileSync(assembly));
-  await tessellateScene(scene, tess, { edges: true });
+  await tessellateScene(scene, new StepTessellator(tess), { edges: true });
   tess.dispose();
   const view = exportView(scene, { ...meshDeflections({}), edges: true });
   const out = path.join(tmp, 'as1.glb');
@@ -305,7 +306,7 @@ test('stepconv: 3MF, the same as the library; --3mf-colorgroup, --3mf-assembly, 
   const tess = new OcctTessellator();
   await tess.init();
   const { scene } = await importStep(fs.readFileSync(assembly));
-  await tessellateScene(scene, tess);
+  await tessellateScene(scene, new StepTessellator(tess));
   tess.dispose();
   const out = path.join(tmp, 'as1.3mf');
   const r = await run([assembly, '-o', out, '-j', '2']);
@@ -375,7 +376,7 @@ test('stepconv: --coarse, --medium, --fine, each value replaced by -d or --angul
   ];
   const counts: number[] = [];
   for (const [flags, opts, label] of cases) {
-    await tessellateScene(scene, tess, opts);
+    await tessellateScene(scene, new StepTessellator(tess), opts);
     // (The scene keeps every level made: the one at these settings.)
     const expected = threejsJson(scene, exportView(scene, meshDeflections(opts)), { name: 'as1-oc-214-mat' });
     const r = await run([assembly, '-o', out, ...flags, '-j', '2']);
@@ -394,7 +395,7 @@ test('stepconv: --angular-deflection in degrees', { skip }, async () => {
   await tess.init();
   const { scene } = await importStep(fs.readFileSync(assembly));
   const ten = { linearDeflection: 0.1, angularDeflection: (10 * Math.PI) / 180 };
-  await tessellateScene(scene, tess, ten);
+  await tessellateScene(scene, new StepTessellator(tess), ten);
   tess.dispose();
   const expected = threejsJson(scene, exportView(scene, ten), { name: 'as1-oc-214-mat' });
   assert.equal((await run([assembly, '-o', out, '--angular-deflection', '10', '-j', '2'])).code, 0);
@@ -404,10 +405,8 @@ test('stepconv: --angular-deflection in degrees', { skip }, async () => {
   assert.ok(triangles(load(fine)) > triangles(load(fs.readFileSync(out, 'utf8'))));
 });
 
-test('stepconv: AP242 tessellated geometry read as it is, or by the backend with --tessellated-by-backend',
-  { skip }, async () => {
-    // A cube of complex triangulated faces (strips): read, nothing meshed; meshed by OCCT (which winds strips the
-    // other way, so the shell comes back inside out and is turned over, with a warning), the same triangles.
+test('stepconv: AP242 tessellated geometry read as it is', { skip }, async () => {
+    // A cube of complex triangulated faces (strips): read, nothing meshed.
     const cubeTess = path.join(root, 'test_corpus/third_party/gkv311-opencascade-dataset/step/bug33638.stp');
     const out = path.join(tmp, 'tess.json');
     const read = await run([cubeTess, '-o', out, '-j', '0']);
@@ -415,9 +414,6 @@ test('stepconv: AP242 tessellated geometry read as it is, or by the backend with
     assert.match(read.stderr, /^1 parts \(0 of 0 brep parts tessellated\), 1 placed; 12 triangles/);
     assert.match(read.stderr, /0 errors, 0 warnings/);
     assert.equal(triangles(load(fs.readFileSync(out, 'utf8'))), 12);
-    const backend = await run([cubeTess, '-o', out, '-j', '0', '--tessellated-by-backend']);
-    assert.match(backend.stderr, /^1 parts \(1 of 1 brep parts tessellated\), 1 placed; 12 triangles/);
-    assert.match(backend.stderr, /0 errors, 1 warnings/);
   });
 
 test('stepconv: --strict exits 3 when a part fails, with the output written', { skip }, async () => {
@@ -541,7 +537,7 @@ test('stepconv: usage errors and failures', async () => {
   const help = await run(['-h']);
   assert.equal(help.code, 0);
   assert.match(help.stdout, /^Usage: stepconv/);
-  assert.match(help.stdout, /--timeout <s> +per part, in a worker \(default 60\); 0: none/);
+  assert.match(help.stdout, /--timeout <s> +per part, in a worker \(default 120\); 0: none/);
   assert.match(help.stdout, /threejs +\.json/);
   assert.match(help.stdout, /glb +\.glb/);
   assert.match(help.stdout, /gltf +\.gltf/);
@@ -566,11 +562,13 @@ test('stepconv: the bin script', { skip }, () => {
   assert.equal(triangles(load(fs.readFileSync(out, 'utf8'))), 12);
 });
 
-// OCCT prints messages (`*** ERR ...`) for this file: warnings in the summary, never on standard output (which holds
-// the JSON) or printed as they are.
+// A broken file (references to instances it doesn't define): its problems warnings in the summary, never on standard
+// output (which holds the JSON) or printed as OCCT prints them (`*** ERR ...`). (OCCT reads each part's model as
+// written STEP, which has no dangling references, so it prints nothing for this file; tess-occt's tests check that
+// what it prints comes back as warnings.)
 const noisy = path.join(root, 'test_corpus/third_party/gkv311-opencascade-dataset/step/bug32314_corrupted.stp');
 
-test("stepconv: the backend's messages are warnings, not printed",
+test("stepconv: a broken file's problems are warnings, nothing printed but the output",
   { skip: skip || (!fs.existsSync(noisy) && 'corpus not fetched') }, () => {
   for (const workers of ['0', '2']) {
     const r = spawnSync(process.execPath,
@@ -579,10 +577,8 @@ test("stepconv: the backend's messages are warnings, not printed",
     assert.equal(r.status, 0);
     assert.ok(JSON.parse(r.stdout).object, `workers ${workers}`);
     assert.doesNotMatch(r.stderr, /\*\*\*/);
-    assert.match(r.stderr, /\n3 errors, 26 warnings, 0 notes\n/);
+    assert.match(r.stderr, /\n3 errors, 17 warnings, 0 notes\n/);
     assert.match(r.stderr,
       /\n  warning: #392938: 13 references to instances the file doesn't define: #11, #393036, .*, #393179, \.\.\.\n/);
-    assert.match(r.stderr,
-      /\n  warning: #392938: OCCT: ERR StepReaderData : Unresolved Reference : Fails Count : 13\n/);
   }
 });

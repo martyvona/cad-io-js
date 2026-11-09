@@ -13,31 +13,36 @@
 #let md = sys.inputs.at("md")
 #let dir = md.split("/").slice(0, -1).join("/") + "/"
 
-#set page(paper: "us-letter", margin: 0.75in, numbering: "1")
+// Paragraphs 4.5 in wide, about 75 characters of the body font (45-75 is the usual range for reading, 66 its
+// middle); code blocks, diagrams and tables `wide`, out into the margins to 7 in.
+#let wide-by = 1.25in
+#let wide(body) = pad(x: -wide-by, body)
+#set page(paper: "us-letter", margin: (x: 0.75in + wide-by, y: 0.75in), numbering: "1")
 #set text(font: "Libertinus Serif", size: 10.5pt)
 #set par(justify: true)
 #set heading(numbering: "1.1")
 #show title: set align(center)
 #show outline.entry.where(level: 1): set block(above: 1em)
-// Code lines up to 120 characters fit the text width (DejaVu Sans Mono's advance is 0.602 em).
+// Code lines up to 120 characters fit a wide block less its insets (DejaVu Sans Mono's advance is 0.602 em).
 #show raw: set text(font: "DejaVu Sans Mono")
-#show raw.where(block: true): set text(size: 6.9pt)
+#show raw.where(block: true): set text(size: 6.8pt)
 // Long identifiers (SNAKE_CASE entity names) may break after an underscore. (GitHub never breaks inside code, so
 // tables break the longest ones themselves, as code spans joined by <br>.)
 #show raw.where(block: false): it => { show "_": "_" + sym.zws; it }
 #show table: set text(size: 9.5pt)
 #show table: set par(justify: false)
-// Code blocks shaded; ```mermaid blocks drawn as diagrams, at their natural size scaled down to the text width and
-// at most 14 cm tall, labelled in the document's font (merman measures text with fixed estimates, not the font).
+#show table: it => wide(it)
+// Code blocks shaded; ```mermaid blocks drawn as diagrams, at their natural size scaled down to a wide block's width
+// and at most 14 cm tall, labelled in the document's font (merman measures text with fixed estimates, not the font).
 #let diagram(source, ..args) = mermaid(source, typography: (font: ("Libertinus Serif",), size: 10.5pt), ..args)
 #show raw.where(block: true): it => if it.lang == "mermaid" {
-  layout(size => {
+  wide(layout(size => {
     let natural = measure(diagram(it.text))
     let k = calc.min(1, size.width / natural.width, 14cm / natural.height)
     align(center, diagram(it.text, width: natural.width * k))
-  })
+  }))
 } else {
-  block(fill: luma(245), inset: 6pt, radius: 2pt, width: 100%, it)
+  wide(block(fill: luma(245), inset: 6pt, radius: 2pt, width: 100%, it))
 }
 
 #cmarker.render(read(md), math: mitex, h1-level: 0,

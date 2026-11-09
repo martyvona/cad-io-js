@@ -2,6 +2,7 @@
 // test_corpus/third_party/pull.sh checks out the third-party repositories (see test_corpus/README.md).
 import fs from 'node:fs';
 import path from 'node:path';
+import { buildSubset, Reader, type StepModel } from '../packages/step-parser/src/index.ts';
 
 export const repoDir = path.resolve(import.meta.dirname, '..');
 export const corpusDir = path.join(repoDir, 'test_corpus/third_party');
@@ -20,3 +21,14 @@ export function corpusFiles(list = defaultList): string[] {
 
 /** A corpus file's path relative to the corpus root, for reports. */
 export const shortName = (f: string) => path.relative(corpusDir, f);
+
+/**
+ * A part's STEP subset of its file (its shape representation and what it reaches, the representation's mapped items
+ * left out), as the importer gave backends before the B-rep model: for checks comparing with the file's own geometry.
+ */
+export function partSubset(model: StepModel, repId: number): Uint8Array {
+  const root = model.resolve(repId);
+  const exclude = new Set(new Reader(model).refs(root, 'items').filter((q) => q >= 0
+    && model.isInstanceOf(q, 'MAPPED_ITEM')));
+  return buildSubset(model.file, [root], { exclude }).bytes;
+}

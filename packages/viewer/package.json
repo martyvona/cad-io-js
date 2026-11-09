@@ -14,8 +14,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@headless-tree/core": "1.7.0",
     "3mf-import": "0.2.0",
+    "@headless-tree/core": "1.7.0",
     "cad-scene": "0.2.0",
     "draco3dgltf": "1.5.9",
     "export-3mf": "0.2.0",
@@ -25,6 +25,7 @@
     "modern-screenshot": "4.7.0",
     "n8ao": "2.0.1",
     "postprocessing": "6.39.5",
+    "step-export": "0.2.0",
     "step-import": "0.2.0",
     "tess-cache": "0.2.0",
     "tess-occt": "0.2.0",

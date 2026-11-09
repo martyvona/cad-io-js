@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Schema, type SchemaDictionary } from 'step-schemas';
-import { openModel, parseStep, readJson, StepModel, writeJson, fileDocument, type Value } from '../src/index.ts';
+import { openModel, parseStep, Reader, readJson, StepModel, writeJson, fileDocument, type Value } from '../src/index.ts';
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
@@ -222,3 +222,50 @@ test('raw JSON with attribute names; the loader ignores them', async () => {
   assert.ok(lines.includes('{"id":6,"type":"MYSTERY_ENTITY","attrs":[1]},')); // unbound: no names
   assert.deepEqual(readJson(json), readJson(writeJson(fileDocument(f))));
 });
+
+test('a complex instance\'s REPRESENTATION_ITEM() without its name: read as \'\', a repair; missingNames false: unbound',
+  async () => {
+    const data = `#1=CARTESIAN_POINT('',(0.,0.,0.));
+#2=(BOUNDED_SURFACE()B_SPLINE_SURFACE(1,1,((#1,#1),(#1,#1)),.UNSPECIFIED.,.F.,.F.,.F.)
+B_SPLINE_SURFACE_WITH_KNOTS((2),(2),(0.,1.),(0.,1.),.UNSPECIFIED.)GEOMETRIC_REPRESENTATION_ITEM()
+RATIONAL_B_SPLINE_SURFACE(((1.,1.),(1.,1.)))REPRESENTATION_ITEM()SURFACE());
+#3=(BOUNDED_SURFACE()B_SPLINE_SURFACE(1,1,((#1,#1),(#1,#1)),.UNSPECIFIED.,.F.,.F.,.F.)
+B_SPLINE_SURFACE_WITH_KNOTS((2),(2),(0.,1.),(0.,1.),.UNSPECIFIED.)GEOMETRIC_REPRESENTATION_ITEM()
+RATIONAL_B_SPLINE_SURFACE(((1.,1.),(1.,1.)))REPRESENTATION_ITEM('s')SURFACE());
+#4=(GEOMETRIC_REPRESENTATION_ITEM()REPRESENTATION_ITEM()SURFACE()BOUNDED_SURFACE()B_SPLINE_SURFACE(1,1,
+((#1,#1),(#1,#1)),.UNSPECIFIED.,.F.,.F.,.F.)B_SPLINE_SURFACE_WITH_KNOTS((2),(2),(0.,1.),(0.,1.),.UNSPECIFIED.)
+RATIONAL_B_SPLINE_SURFACE(((1.,1.),(1.,1.))));
+#5=REPRESENTATION_ITEM();
+#6=(COLOUR()PRE_DEFINED_COLOUR()PRE_DEFINED_ITEM());`;
+    const m = await openModel(file(AP214, data));
+    const b = m.bind(1);
+    assert.deepEqual(b.get('name'), { k: 'str', v: '' });
+    assert.deepEqual(b.get('u_degree'), { k: 'int', v: 1 });
+    const repaired = [{ severity: 'warning', message: 'REPRESENTATION_ITEM() without its name (read as \'\')', id: 2 }];
+    assert.deepEqual(b.repairs, repaired);
+    assert.deepEqual(b.diagnostics, repaired);
+    // With its name, nothing repaired; out of order, the same repair.
+    assert.deepEqual([m.bind(2).get('name'), m.bind(2).repairs], [{ k: 'str', v: 's' }, []]);
+    assert.deepEqual(m.bind(3).repairs.map((d) => d.id), [4]);
+    assert.deepEqual(m.bind(3).get('name'), { k: 'str', v: '' });
+    // Only a complex instance's partial: a simple one missing its name stays unbound.
+    const simple = m.bind(4);
+    assert.deepEqual([simple.attributes, simple.repairs, messages(simple)],
+      [undefined, [], ['warning: REPRESENTATION_ITEM: 0 attributes, schema has 1']]);
+    // Only REPRESENTATION_ITEM's: another partial missing its name stays unbound.
+    const other = m.bind(5);
+    assert.deepEqual([other.attributes, other.repairs, messages(other)],
+      [undefined, [], ['warning: PRE_DEFINED_ITEM: 0 attributes, schema has 1']]);
+    // A reader reports the repair once, however often it reads the instance.
+    const r = new Reader(m);
+    r.attr(1, 'name');
+    r.attr(1, 'u_degree');
+    r.attr(2, 'name');
+    assert.deepEqual(r.diagnostics, repaired);
+    // The opt-out: unbound, as before.
+    const strict = await openModel(file(AP214, data), { missingNames: false });
+    const u = strict.bind(1);
+    assert.deepEqual([u.attributes, u.repairs, messages(u)],
+      [undefined, [], ['warning: REPRESENTATION_ITEM: 0 attributes, schema has 1']]);
+    assert.deepEqual(new StepModel(file(AP214, data), strict.schema).bind(1).get('name'), { k: 'str', v: '' });
+  });

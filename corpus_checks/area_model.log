@@ -1,4 +1,4 @@
-517 files, 86141 model faces; 63893 trusted by both oracles, 63893 agreeing
+517 files, 86142 model faces; 63893 trusted by both oracles, 63893 agreeing
 largest relative difference where both are trusted: 5.68e-8 (gkv311-opencascade-dataset/step/trj4_pm2-ec-214.stp #38491)
       46 model trusted, file unsupported: vertices against the curve's sense  e.g. gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #9390; gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #12490; gkv311-opencascade-dataset/step/r0901_ec.stp #33698; gkv311-opencascade-dataset/step/r0901_ec.stp #38237
        6 file trusted, model untrusted (error)  e.g. gkv311-opencascade-dataset/step/trj4_k1_top-tu-214.stp #340; gkv311-opencascade-dataset/step/trj4_k1_top-tu-214.stp #922; gkv311-opencascade-dataset/step/trj3_s1-ct-203.stp #5607; gkv311-opencascade-dataset/step/trj3_s1-ct-203.stp #5168

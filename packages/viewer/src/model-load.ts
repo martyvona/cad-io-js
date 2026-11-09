@@ -1,10 +1,10 @@
 // Loading a model as a stream of events (docs/viewer.md), in the import worker (import-worker.ts, so the page
 // never waits on parsing). Every format goes through the library's importers into the scene model (one path; three.js's
 // loaders dropped): STEP (step-import), glTF and GLB (gltf-import), three.js JSON (threejs-import), 3MF (3mf-import).
-// The scene comes first, without its parts' payloads (functions over the parsed file, which can't cross to another
-// thread, and which only meshing needs), its mesh parts' levels with it; then each placed brep part's mesh as
-// tessellation delivers it (the buffers transferable); then the end, with the tessellation's diagnostics and what
-// meshed it.
+// The scene comes first, without its parts' B-rep models and outlines (an outline is a function, which can't cross
+// to another thread; only meshing, here, needs either), its mesh parts' levels with it; then each placed brep part's
+// mesh as tessellation delivers it (the buffers transferable); then the end, with the tessellation's diagnostics and
+// what meshed it.
 
 import { chooseLod, meshDeflections, partInstances, tessellateScene, type Diagnostic, type Measures, type Mesh,
   type Scene,
@@ -33,10 +33,10 @@ export interface ModelInput {
 
 /**
  * The scene a file holds, by its format's importer (problems in it are the scene's diagnostics); `step` the STEP
- * importer's options (how tessellated geometry is read, its progress).
+ * importer's options (its progress).
  */
 export async function importModel(input: ModelInput, gltf: GltfImportOptions = {},
-  step: Pick<ImportOptions, 'tessellated' | 'onProgress'> = {}): Promise<Scene> {
+  step: Pick<ImportOptions, 'onProgress'> = {}): Promise<Scene> {
   switch (input.format) {
     case 'step': return (await importStep(input.bytes, step)).scene;
     case 'glb': return (await importGltf(input.bytes, gltf)).scene;
@@ -45,6 +45,22 @@ export async function importModel(input: ModelInput, gltf: GltfImportOptions = {
     case 'threejs': return importThreejs(input.bytes).scene;
     case '3mf': return import3mf(input.bytes).scene;
   }
+}
+
+/** A load's file, taken out (`input` cleared) as the import begins: only the import needs it. */
+export interface ModelSource { input?: ModelInput }
+
+/**
+ * importModel on a source's input, taken out of the source. In a function of its own, which returns at once: a
+ * suspended async frame (loadModelIn's, the worker's handler's) keeps its locals, even dead ones, so one that had seen
+ * the bytes would keep them through the meshing that follows.
+ */
+function importTaken(source: ModelSource, gltf: GltfImportOptions, step: Pick<ImportOptions, 'onProgress'>):
+  Promise<Scene> {
+  const input = source.input;
+  if (!input) throw new Error('loadModelIn: the source has no input (already taken)');
+  source.input = undefined;
+  return importModel(input, gltf, step);
 }
 
 export type ModelEvent =
@@ -65,10 +81,13 @@ export type ModelEvent =
 /** How often the import's progress is told, in milliseconds, within a phase. */
 export const PROGRESS_MS = 200;
 
-/** The scene without its parts' payload functions: what can be posted to another thread. */
+/**
+ * The scene without its parts' B-rep models and outline functions (the import worker meshes; the page needs neither):
+ * what can be posted to another thread.
+ */
 export function postable(scene: Scene): Scene {
   return { ...scene, parts: scene.parts.map((p) => (p.brep ? { ...p, brep: { format: p.brep.format,
-    ...(p.brep.rootId === undefined ? {} : { rootId: p.brep.rootId }), payload: undefined as never } } : p)) };
+    model: undefined as never } } : p)) };
 }
 
 /** A mesh with triangles and no edges of its own (as the scene graph draws them): its edges are to be found. */
@@ -119,10 +138,11 @@ export function meshBuffers(mesh: Mesh | undefined): ArrayBuffer[] {
 }
 
 /**
- * Imports a model and meshes its placed brep parts, telling `emit` as it goes; stops early, quietly, once
- * `cancelled` says so (the caller stops the tessellation too). `keep` is given the scene as soon as it's imported.
+ * Imports a model (taking `source`'s input) and meshes its placed brep parts, telling `emit` as it goes; stops early,
+ * quietly, once `cancelled` says so (the caller stops the tessellation too). `keep` is given the scene as soon as it's
+ * imported.
  */
-export async function loadModelIn(input: ModelInput, settings: TessellationSettings, workers: number,
+export async function loadModelIn(source: ModelSource, settings: TessellationSettings, workers: number,
   tessellation: Pick<Tessellation, 'get' | 'describe'>, emit: (e: ModelEvent, transfer?: ArrayBuffer[]) => void,
   cancelled: () => boolean, gltf: GltfImportOptions = {}, keep?: (scene: Scene) => void): Promise<void> {
   // The import's phases as they begin, and its progress through them at most every PROGRESS_MS.
@@ -133,7 +153,7 @@ export async function loadModelIn(input: ModelInput, settings: TessellationSetti
     [told, phase] = [now, progress.phase];
     emit({ type: 'importing', progress });
   };
-  const scene = await importModel(input, gltf, { tessellated: settings.tessellated, onProgress });
+  const scene = await importTaken(source, gltf, { onProgress });
   if (cancelled()) return;
   // (Kept by the caller, to export later: the meshes go into its parts' levels as they're made.)
   keep?.(scene);
@@ -147,7 +167,7 @@ export async function loadModelIn(input: ModelInput, settings: TessellationSetti
     return mesh && needsEdges(mesh) && scales.has(part) ? [{ part, mesh, scale: scales.get(part)! }] : [];
   });
   const kept = new Set(jobs.flatMap((j) => meshBuffers(j.mesh)));
-  // (The file's other levels transferred: only B-rep payloads are used here from now on.)
+  // (The file's other levels transferred: only B-rep models are used here from now on.)
   emit({ type: 'scene', scene: postable(scene), edgeParts: jobs.length },
     levelBuffers(scene).filter((b) => !kept.has(b)));
   const edges = (async () => {

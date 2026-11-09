@@ -36,14 +36,14 @@ The oracle's coverage (every face of every part):
        2  untrusted: sphere, off-surface
        2  untrusted: torus, no-loops
 
-OCCT's measured area against the oracle's, relative difference: <= 1e-9: 49975, <= 1e-6: 8350, <= 1e-4: 3440, <= 1e-3: 949, <= 1e-2: 767, <= 1e-1: 162, <= inf: 22
+OCCT's measured area against the oracle's, relative difference: <= 1e-9: 49972, <= 1e-6: 8349, <= 1e-4: 3444, <= 1e-3: 949, <= 1e-2: 767, <= 1e-1: 162, <= inf: 22
   within 1e-4: 97.0 %
 OCCT's perimeter against the oracle's, planes only: <= 1e-9: 24288, <= 1e-6: 2415, <= 1e-4: 345, <= 1e-3: 45, <= 1e-2: 5, <= 1e-1: 2, <= inf: 5
 
 faceFailures with OCCT's measures (as the library judges) and with the oracle's:
-   63646  OCCT's measures: ok         oracle: ok
-       6  OCCT's measures: unverified oracle: ok
+   63647  OCCT's measures: ok         oracle: ok
        5  OCCT's measures: ok         oracle: excess
+       5  OCCT's measures: unverified oracle: ok
        3  OCCT's measures: unverified oracle: partly
        2  OCCT's measures: partly     oracle: partly
        1  OCCT's measures: excess     oracle: excess
@@ -244,11 +244,10 @@ Failures only the oracle finds: the library can't see them (6):
   gkv311-opencascade-dataset/step/trj3_s1-ct-214.stp #1905 (part #2221, sphere): oracle excess; oracle 10788.755, OCCT measured 34449.916, mesh 34385.761 mm^2
   gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/HEAD_BACK.stp #314 (part #593, sphere): oracle excess; oracle 10788.757, OCCT measured 34438.807, mesh 34388.526 mm^2
 
-Failures only OCCT's measures find (7):
+Failures only OCCT's measures find (6):
   gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #295459 (part #174483, plane): OCCT's measures unverified; oracle 3735.6970, OCCT measured 3735.6976 (invalid), mesh 3735.8870 mm^2
   gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #300087 (part #174483, cylinder): OCCT's measures unverified; oracle 9.8719334, OCCT measured 9.8719344 (invalid), mesh 9.8542590 mm^2
   gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #408806 (part #174483, cylinder): OCCT's measures unverified; oracle 49.475182, OCCT measured 49.475182 (invalid), mesh 49.378226 mm^2
   gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #457646 (part #174483, plane): OCCT's measures unverified; oracle 3111.9279, OCCT measured 3111.9279 (invalid), mesh 3111.9278 mm^2
   gkv311-opencascade-dataset/step/trj12_b3-tu-203.stp #26838 (part #27964, plane): OCCT's measures partly; oracle 5654.8668, OCCT measured 5889.8850, mesh 5652.9062 mm^2
-  gkv311-opencascade-dataset/step/bug24383_224013.stp #9940 (part #11, plane): OCCT's measures unverified; oracle 46.910994, OCCT measured 46.910841 (invalid), mesh 46.876269 mm^2
   gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #17467 (part #2022, cylinder): OCCT's measures unverified; oracle 256.56333, OCCT measured 256.55329 (invalid), mesh 256.78214 mm^2

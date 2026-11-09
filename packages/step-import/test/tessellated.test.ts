@@ -242,12 +242,6 @@ test('far from the origin, the mesh keeps its precision (positions less the cent
   assert.deepEqual(triangles(scene).tris[0], [[1e7, 0, 0], [1e7 + 0.01, 0, 0], [1e7, 0.01, 0]]);
 });
 
-test("tessellated: 'backend' keeps the old path: a B-rep part from the subset", async () => {
-  const { scene } = await importStep(file(COMMON + TETRA + related([106])), { tessellated: 'backend' });
-  assert.equal(scene.parts[0]!.brep?.format, 'step');
-  assert.deepEqual(scene.parts[0]!.lods, []);
-});
-
 // A box's B-rep (two of its faces, enough to pair by) in millimetres, and its tessellation in inches placed 1 inch up
 // by a transformation; the tessellated faces linked to the B-rep's (one not, and coloured blue).
 const PAIR = `
@@ -286,7 +280,7 @@ test('a product\'s B-rep and its tessellation: one part, the triangles a level i
     assert.deepEqual(validate(scene), []);
     assert.equal(scene.parts.length, 1);
     const part = scene.parts[0]!;
-    assert.equal(part.brep?.rootId, 35);
+    assert.ok(part.brep?.model);
     assert.deepEqual(part.sources.map((x) => x.id), [35, 105]);
     assert.equal(part.lods.length, 1);
     const m = part.lods[0]!.mesh;
@@ -307,7 +301,7 @@ test('a product\'s B-rep and its tessellation: one part, the triangles a level i
     assert.equal(exportView(scene).looks.length, 1);
   });
 
-test('pairing: by links among several B-rep parts; none without links (a warning); kept apart when asked',
+test('pairing: by links among several B-rep parts; none without links (a warning)',
   async () => {
     const other = `
 #40=ADVANCED_FACE('c',(),#30,.T.);
@@ -330,9 +324,6 @@ test('pairing: by links among several B-rep parts; none without links (a warning
     const one = await importStep(file(COMMON + unlinked + related([35])));
     assert.deepEqual(lods(one.scene), { box: 1 });
     assert.deepEqual(one.scene.parts[0]!.lods[0]!.mesh.faces.map((f) => f.source), [101, 102, 103]);
-    // The backend path keeps both.
-    const kept = await importStep(file(COMMON + PAIR + related([35])), { tessellated: 'backend' });
-    assert.equal(kept.scene.parts.length, 2);
   });
 
 test('triangles with two corners at one position (distinct points there) dropped, said; kept on request',

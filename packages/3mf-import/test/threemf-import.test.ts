@@ -6,6 +6,7 @@ import path from 'node:path';
 import { exportView, identity, leafParts, multiply, partInstances, placedName, pruneView, scaling, tessellateScene,
   validate, viewDifferences, type ExportNode, type Mat4, type Mesh, type Occurrence, type PartRef, type Scene } from 'cad-scene';
 import { threemf, type ThreeMfOptions } from 'export-3mf';
+import { StepTessellator } from 'step-export';
 import { importStep } from 'step-import';
 import { OcctTessellator } from 'tess-occt';
 import { import3mf } from '../src/index.ts';
@@ -609,7 +610,7 @@ test('a STEP assembly through 3MF with extras and back: the same drawing, tree a
     const { scene: s } = await importStep(fs.readFileSync(assembly));
     const occt = new OcctTessellator();
     await occt.init();
-    await tessellateScene(s, occt);
+    await tessellateScene(s, new StepTessellator(occt));
     occt.dispose();
     for (const o of [{ extras: true, nonManifold: 'surface' }, { extras: true, nonManifold: 'surface',
       colors: 'colorgroup' }] as ThreeMfOptions[]) {

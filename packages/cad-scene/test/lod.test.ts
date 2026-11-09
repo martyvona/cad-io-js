@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { tagged } from './models.ts';
 import { addLod, chooseLod, dropSourceDegenerate, exportView, identity, tessellateScene, type Lod, type Mesh,
   type Part, type Scene } from '../src/index.ts';
 
@@ -54,11 +55,11 @@ test('exportView uses each part\'s chosen level; tessellateScene adds its meshes
     components: [{ name: 'c', sources: [], properties: {}, parts: [{ part: 0, transform: identity() }],
       children: [] }],
     roots: [{ component: 0, transform: identity(), sources: [], properties: {} }],
-    parts: [{ ...part(), brep: { format: 'step', payload: () => new Uint8Array() } }],
+    parts: [{ ...part(), brep: { format: 'step', model: tagged() } }],
   };
   addLod(scene.parts[0]!, { mesh: mesh(3), from: 'source' });
   const tess = {
-    info: { name: 'fake', version: '9', license: 'x', formats: ['step' as const], supportsFaceIds: true,
+    info: { name: 'fake', version: '9', license: 'x', formats: ['cad-brep' as const], supportsFaceIds: true,
       supportsEdges: false, supportsCurves: false },
     init: async () => {}, dispose: () => {},
     tessellate: async (req: { linearDeflection: number }) => ({ origin: [0, 0, 0] as [number, number, number],

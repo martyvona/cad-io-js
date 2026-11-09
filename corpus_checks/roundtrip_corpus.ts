@@ -38,6 +38,7 @@ import { importGltf } from '../packages/gltf-import/src/index.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
 import { importThreejs } from '../packages/threejs-import/src/index.ts';
 import { WorkerTessellator } from '../packages/tess-workers/src/node.ts';
+import { StepTessellator } from '../packages/step-export/src/index.ts';
 import { corpusFiles, shortName } from './corpus.ts';
 
 const workers = Math.max(1, os.availableParallelism() - 1);
@@ -67,6 +68,8 @@ const totals = Object.fromEntries(FORMS.map((f) => [f, { files: 0, same: 0, inva
   failed: number; notLoaded: number; exportMs: number; importMs: number; bytes: number }>;
 const problems: string[] = [];
 let files = 0, skipped = 0;
+/** Files with nothing to export (no placed part with a mesh): not compared. */
+const empty: string[] = [];
 
 /**
  * The largest placed part mesh's extent, millimetres in the world (each placement's scale applied), and how far from
@@ -124,9 +127,9 @@ for (const f of corpusFiles(process.argv[2])) {
   process.stderr.write(`${name}\n`);
   files++;
   const { scene } = await importStep(bytes);
-  await tessellateScene(scene, tess, { ...meshing, edges: true, concurrency: workers });
+  await tessellateScene(scene, new StepTessellator(tess), { ...meshing, edges: true, concurrency: workers });
   const view = exportView(scene, opts);
-  if (!view.roots.length && !view.parts.length) continue;
+  if (!view.roots.length && !view.parts.length) { empty.push(name); continue; }
   const { extent, reach, local } = largest(view);
   for (const form of FORMS) {
     const t = totals[form];
@@ -220,6 +223,7 @@ tess.dispose();
 
 console.log(`${files} files (${skipped} over the size limit), ${((Date.now() - t0) / 1000).toFixed(0)} s` +
   (plant ? `, PLANT=${plant}` : ''));
+console.log(`nothing to export (not compared): ${empty.join(', ') || 'none'}`);
 for (const form of FORMS) {
   const t = totals[form];
   console.log(`${form.padEnd(14)} ${t.same} of ${t.files} the same; ${t.invalid} invalid, ${t.failed} threw` +

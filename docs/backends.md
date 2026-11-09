@@ -4,7 +4,7 @@ Notes for work on `cad-scene`'s tessellation, `tess-occt`, `tess-truck`, `tess-w
 
 ## Phase 0
 
-The per-part interface (to be replaced by the B-rep model, `brep-model.md`): faces may repeat an id or have none; the payload is the bare closure of one shape representation with its original `#` ids (`step-parser`'s `buildSubset`); units are file units; the host owns recycling and the watchdog; edges come with kinds and dihedral angles. Subsets are faster and more robust than whole files. OCCT 8.1 (our build) is the primary backend (bare subsets need product mode off; face ids from transfer bindings), truck optional (much smaller and faster, less robust); `occt-import-js` (no face ids, no bare subsets) and monstertruck not adopted. A "load once, tessellate many" session API was rejected.
+The per-part interface: requests carry the part's B-rep model (`cad-brep`; `brep-model.md`), which `step-export`'s `StepTessellator` writes as a bare STEP file (its shape representation, with the source's `#` ids) for backends that read STEP, after the cache; faces may repeat an id or have none; units are file units; the host owns recycling and the watchdog; edges come with kinds and dihedral angles. Bare representations are faster and more robust than whole files. OCCT 8.1 (our build) is the primary backend (bare subsets need product mode off; face ids from transfer bindings), truck optional (much smaller and faster, less robust); `occt-import-js` (no face ids, no bare subsets) and monstertruck not adopted. A "load once, tessellate many" session API was rejected.
 
 ## The host side
 

@@ -18,6 +18,7 @@
     "export-gltf": "0.2.0",
     "export-threejs": "0.2.0",
     "step-import": "0.2.0",
+    "step-export": "0.2.0",
     "tess-cache": "0.2.0",
     "tess-occt": "0.2.0",
     "tess-truck": "0.2.0",

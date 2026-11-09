@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { tessellateScene } from 'cad-scene';
+import { StepTessellator } from 'step-export';
 import { importStep } from 'step-import';
 import { OcctTessellator } from 'tess-occt';
 import { WorkerTessellator } from '../src/node.ts';
@@ -21,7 +22,7 @@ test('an assembly tessellated by OCCT in two workers, a fresh one per part, equa
   const opts = { linearDeflection: 0.5, angularDeflection: 0.5, edges: true };
   const direct = new OcctTessellator();
   await direct.init();
-  const expected = await tessellateScene(scene, direct, opts);
+  const expected = await tessellateScene(scene, new StepTessellator(direct), opts);
   direct.dispose();
   const pool = new WorkerTessellator(
     { backend: { module: import.meta.resolve('tess-occt'), export: 'OcctTessellator' }, workers: 2,
@@ -30,7 +31,8 @@ test('an assembly tessellated by OCCT in two workers, a fresh one per part, equa
   try {
     assert.deepEqual(pool.info, direct.info);
     const done: number[] = [];
-    const got = await tessellateScene(scene, pool, { ...opts, concurrency: 2, onPart: (i) => done.push(i) });
+    const got = await tessellateScene(scene, new StepTessellator(pool), { ...opts, concurrency: 2,
+      onPart: (i) => done.push(i) });
     assert.ok(expected.meshes.size >= 5, `${expected.meshes.size} meshes`);
     assert.deepEqual([...got.meshes.keys()], [...expected.meshes.keys()]);
     assert.deepEqual(got.meshes, expected.meshes);

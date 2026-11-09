@@ -1,10 +1,10 @@
 // Phase 2 step 3: import every corpus file into the scene model; check each scene structurally (cad-scene's
 // validate), check that it agrees with the semantic layer (a component per product, an occurrence per placed
-// occurrence, every part's payload a subset whose root is the part), and tally what the scenes hold.
-// Usage: node corpus_checks/import_corpus.ts [file-list.txt] [payload checks: all | none, default all]
+// occurrence, every B-rep part's model valid by validateBrep's errors and holding something), and tally what the
+// scenes hold. Usage: node corpus_checks/import_corpus.ts [file-list.txt] [model checks: all | none, default all]
 import fs from 'node:fs';
+import { rowCount, validateBrep } from '../packages/cad-brep/src/index.ts';
 import { instances, partInstances, validate } from '../packages/cad-scene/src/index.ts';
-import { parseStep } from '../packages/step-parser/src/index.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
 import { corpusFiles, shortName as short } from './corpus.ts';
 
@@ -12,8 +12,8 @@ const problems = new Map<string, { n: number; ex: string }>();
 const note = (k: string, ex: string, n = 1) => { const p = problems.get(k); if (p) p.n += n;
   else problems.set(k, { n, ex }); };
 const t = { files: 0, components: 0, leafProducts: 0, rootParts: 0, parts: 0, partInstances: 0, hidden: 0, materials: 0, faceMaterialParts: 0,
-  faceMaterials: 0, componentMaterials: 0, overrides: 0, layers: 0, external: 0, payloadBytes: 0, time: 0 };
-const checkPayloads = (process.argv[3] ?? 'all') === 'all';
+  faceMaterials: 0, componentMaterials: 0, overrides: 0, layers: 0, external: 0, modelBytes: 0, time: 0 };
+const checkModels = (process.argv[3] ?? 'all') === 'all';
 
 for (const path of corpusFiles(process.argv[2])) {
   const name = short(path);
@@ -42,13 +42,12 @@ for (const path of corpusFiles(process.argv[2])) {
   t.componentMaterials += scene.components.filter((c) => c.material !== undefined).length;
   for (const p of scene.parts) {
     if (p.faceMaterials?.length) { t.faceMaterialParts++; t.faceMaterials += p.faceMaterials.length; }
-    if (p.brep && checkPayloads) {
-      const bytes = p.brep.payload();
-      t.payloadBytes += bytes.length;
-      const sub = parseStep(bytes);
-      if (sub.diagnostics.length) note('payload with diagnostics', `${name} #${p.brep.rootId}`);
-      if (p.brep.rootId === undefined || sub.index.position(p.brep.rootId) < 0) note('payload without its root',
-        `${name} #${p.brep.rootId}`);
+    if (p.brep && checkModels) {
+      const m = p.brep.model;
+      t.modelBytes += m.buffer.byteLength;
+      if (!rowCount(m, 'item')) note('a model with no items', `${name} #${p.sources[0]?.id}`);
+      if (validateBrep(m).some((x) => x.severity === 'error')) note('a model with errors (validateBrep)',
+        `${name} #${p.sources[0]?.id}`);
     }
     if (!p.origin.every(Number.isFinite)) note('non-finite origin', `${name} #${p.sources[0]?.id}`);
   }
@@ -64,6 +63,6 @@ console.log(`${t.files} files imported in ${(t.time / 1000).toFixed(1)} s: ${t.c
 console.log(`${t.materials} materials; ${t.componentMaterials} component materials; ${t.faceMaterialParts} parts with `
   + `per-face materials (${t.faceMaterials} faces); ${t.overrides} instance overrides; ${t.layers} layers; `
   + `${t.external} external components`);
-if (checkPayloads) console.log(`payloads: ${(t.payloadBytes / 1e6).toFixed(1)} MB, all parsed`);
+if (checkModels) console.log(`models: ${(t.modelBytes / 1e6).toFixed(1)} MB`);
 for (const [k, v] of [...problems].sort((a, b) => b[1].n - a[1].n)) console.log(String(v.n).padStart(7), k,
   ' e.g.', v.ex);

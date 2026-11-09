@@ -1,5 +1,6 @@
 // OCCT meshing each part from the B-rep model written as STEP (step-export) against meshing it from the file's own
-// subset, over the corpus, with the writer checked on its own on the way. Per part:
+// subset (cut from the file: corpus.ts's partSubset), over the corpus, with the writer checked on its own on the way.
+// Per part:
 //   (b) the written file bound against AP242 with every value checked: diagnostics tallied (expected: none but the
 //       writer's own warnings' consequences);
 //   (c) the written file read back by step-import's reader: its model against the original as walks from the items
@@ -7,7 +8,7 @@
 //       rows no item reaches (not written) counted apart;
 //   (d) both files meshed by our OCCT backend (a tess-workers pool, 0.1 mm, 0.5 rad, measures): failures, faces by id
 //       (present in one only, triangles, failed, OCCT's measured area and validity, mesh area, the mesh's mean normal
-//       against the other's: inverted), and time.
+//       against the other's: inverted), wireframe curves by id and points, and time.
 // (c) passing with (d) differing points to OCCT reading the two files differently, or a misconception shared by the
 // writer and the importer. PLANT=sense turns over the first face of every 10th part's model before writing (each such
 // face must show inverted in (d)); PLANT=angle converts every 10th part's cones' semi-angles twice (their areas must
@@ -23,7 +24,7 @@ import { WorkerTessellator } from '../packages/tess-workers/src/node.ts';
 import { stepPartBytes } from '../packages/step-export/src/index.ts';
 import { differences, walk } from '../packages/step-export/test/compare.ts';
 import { readBack } from '../packages/step-export/test/readback.ts';
-import { corpusFiles, shortName } from './corpus.ts';
+import { corpusFiles, partSubset, shortName } from './corpus.ts';
 
 const LINEAR_MM = 0.1, ANGULAR = 0.5, PLANT_EVERY = 10;
 const maxBytes = Number(process.argv[3] ?? 1000) * 1e6;
@@ -122,12 +123,12 @@ for (const path of corpusFiles(process.argv[2])) {
   files++;
   const name = shortName(path);
   process.stderr.write(`${files} ${name}\n`);
-  const { scene } = await importStep(new Uint8Array(bytes), { models: true });
+  const { scene, model } = await importStep(new Uint8Array(bytes));
   for (const part of scene.parts) {
     const m0 = part.brep?.model;
     if (!m0 || part.brep!.format !== 'step') continue;
     parts++;
-    const where = `${name} #${part.brep!.rootId}`;
+    const repId = part.sources[0]!.id, where = `${name} #${repId}`;
     const { m, faces: plantedFaces } = plantModel(m0, parts);
     const t0 = performance.now();
     const w = stepPartBytes(m);
@@ -170,9 +171,9 @@ for (const path of corpusFiles(process.argv[2])) {
     const unit = part.unit;
     const base = { format: 'step' as const, origin: part.origin, linearDeflection: LINEAR_MM / unit,
       angularDeflection: ANGULAR, measures: true };
-    const subset = part.brep!.payload();
+    const subset = partSubset(model, repId);
     subsetBytes += subset.length;
-    const a = await mesh({ ...base, data: subset, rootId: part.brep!.rootId });
+    const a = await mesh({ ...base, data: subset, rootId: repId });
     const b = await mesh({ ...base, data, rootId: w.rootId });
     timeSubset += a.ms;
     timeModel += b.ms;
@@ -184,6 +185,14 @@ for (const path of corpusFiles(process.argv[2])) {
     const nullA = a.r!.faces.filter((f) => f.entityId === null).length, nullB = b.r!.faces.filter((f) =>
       f.entityId === null).length;
     if (nullA !== nullB) note('ranges with no face id: counts differ', `${where}: ${nullA}, ${nullB}`);
+    // Wireframe curves and points (a geometric set's): counts by id.
+    const ids = (xs: (number | null)[] | undefined) => JSON.stringify([...xs ?? []].sort());
+    if (ids(a.r!.curves?.map((c) => c.entityId)) !== ids(b.r!.curves?.map((c) => c.entityId))) {
+      note('wireframe curves differ', `${where}: ${a.r!.curves?.length ?? 0}, ${b.r!.curves?.length ?? 0}`);
+    }
+    if ((a.r!.points?.length ?? 0) !== (b.r!.points?.length ?? 0)) {
+      note('points differ', `${where}: ${(a.r!.points?.length ?? 0) / 3}, ${(b.r!.points?.length ?? 0) / 3}`);
+    }
     for (const [id, x] of fa) {
       const y = fb.get(id);
       const at = `${where} face #${id}`;

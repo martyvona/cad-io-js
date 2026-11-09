@@ -2,6 +2,7 @@
 // third placement hidden) and the parts' meshes.
 
 import { identity, scaling, type Mat4, type Mesh, type Scene } from 'cad-scene';
+import { BrepBuilder } from 'cad-brep';
 
 export const translation = (x: number, y: number, z: number): Mat4 => {
   const m = identity();
@@ -35,7 +36,7 @@ export function scene(): Scene {
     { component, transform: t, sources: [], properties: {}, ...(name ? { name } : {}) });
   const brep = (name: string, unit: number) => (
     { name, sources: [], properties: {}, unit, origin: [0, 0, 0] as [number, number, number], lods: [],
-    brep: { format: 'step' as const, payload: () => new Uint8Array() } });
+    brep: { format: 'step' as const, model: new BrepBuilder({ unit: 1 }).finish() } });
   return {
     unit: 'millimetre',
     components: [

@@ -84,8 +84,6 @@ export interface MeshedWith {
   angularDeflection: number;
   /** Seconds a part could take (which decides which parts time out). */
   timeout: number;
-  /** How tessellated geometry was read (by us, or meshed by the backend). */
-  tessellated: TessellationSettings['tessellated'];
 }
 
 /** How long zoom all, zoom selected and the views take to get there, in milliseconds. */
@@ -940,8 +938,8 @@ export class Viewer {
     const input = await modelInput(src, format);
     if (gen !== this.generation) return;
     // What it's meshed with: the settings now, which the import worker is given.
-    const { backend, profile, linearDeflection, angularDeflection, timeout, tessellated } = this.settings;
-    const meshedWith: MeshedWith = { backend, profile, linearDeflection, angularDeflection, timeout, tessellated };
+    const { backend, profile, linearDeflection, angularDeflection, timeout } = this.settings;
+    const meshedWith: MeshedWith = { backend, profile, linearDeflection, angularDeflection, timeout };
     // (The deflection the worker meshes with, in mm: faces are judged by it against their measures.)
     const meshedAt = meshDeflections(deflectionsOf(this.settings)).linearDeflection;
     let graph: SceneGraph | undefined;

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { tagged, tagOf } from './models.ts';
 import { tessellateScene, type Scene, type TessellationRequest, type TessellationResult,
   type Tessellator } from '../src/index.ts';
 
@@ -7,7 +8,7 @@ import { tessellateScene, type Scene, type TessellationRequest, type Tessellatio
 // finish in reverse order, and fails part 2.
 function scene(): Scene {
   const brep = (i: number) => ({
-    brep: { format: 'step' as const, payload: () => new Uint8Array([i]), rootId: 100 + i }, lods: [],
+    brep: { format: 'step' as const, model: tagged(i) }, lods: [],
     name: `p${i}`, sources: [{ format: 'step', id: 100 + i }], properties: {}, unit: i === 3 ? 25.4 : 1,
     origin: [i, 0, 0] as [number, number, number],
   });
@@ -24,14 +25,14 @@ function fake() {
   let inFlight = 0;
   const t = {
     peak: 0, seen,
-    info: { name: 'fake', version: '1', license: 'x', formats: ['step' as const], supportsFaceIds: true,
+    info: { name: 'fake', version: '1', license: 'x', formats: ['cad-brep' as const], supportsFaceIds: true,
       supportsEdges: false, supportsCurves: false },
     async init() {},
     dispose() {},
     async tessellate(req: TessellationRequest): Promise<TessellationResult> {
       seen.push(req);
       t.peak = Math.max(t.peak, ++inFlight);
-      const i = req.data[0]!;
+      const i = tagOf(req.data);
       await new Promise((r) => setTimeout(r, (5 - i) * 15));
       inFlight--;
       if (i === 2) throw new Error('boom');
@@ -53,7 +54,7 @@ for (const concurrency of [1, 3]) {
     assert.equal(t.peak, concurrency);
     assert.deepEqual([...r.meshes.keys()], [0, 1, 4, 5]);
     assert.deepEqual(r.meshes.get(4)!.origin, [3, 0, 0]);
-    assert.deepEqual(t.seen.map((q) => [q.rootId, q.linearDeflection]).sort(),
+    assert.deepEqual(t.seen.map((q) => [100 + tagOf(q.data), q.linearDeflection]).sort(),
       [[100, 0.254], [101, 0.254], [102, 0.254], [103, 0.01], [104, 0.254]]);
     assert.deepEqual(r.diagnostics.map((d) => [d.message, d.source?.id]),
       [['part 0', 100], ['part 1', 101], ['tessellation failed: boom', 102], ['part 3', 103], ['part 4', 104]]);
@@ -67,7 +68,7 @@ test('tessellateScene keeps results with only curves or only points, with their 
   t.tessellate = async (req: TessellationRequest): Promise<TessellationResult> => {
     const r: TessellationResult = { origin: req.origin!, positions: new Float32Array(), indices: new Uint32Array(),
       faces: [], diagnostics: [] };
-    const i = req.data[0]!;
+    const i = tagOf(req.data);
     if (i === 0) Object.assign(r,
       { curvePositions: new Float32Array([0, 0, 0, 1, 0, 0]), curves: [{ entityId: 7, start: 0, count: 2 }] });
     if (i === 1) Object.assign(r, { points: new Float32Array([1, 2, 3, 4, 5, 6]), pointIds: [8, null] });
@@ -86,7 +87,7 @@ test('tessellateScene: the meshing profile (default medium), its values replaced
     const t = fake();
     await tessellateScene(scene(), t, opts);
     // Part 3 is in inches: its distance is converted, its angle not.
-    const p3 = t.seen.find((q) => q.rootId === 103)!;
+    const p3 = t.seen.find((q) => tagOf(q.data) === 3)!;
     return [p3.linearDeflection * 25.4, p3.angularDeflection];
   };
   const near = (a: number[], b: number[]) => a.every((v, i) => Math.abs(v - b[i]!) < 1e-12);
@@ -117,14 +118,14 @@ test('tessellateScene outlines: faces with no triangles or no range outlined; a 
     const r = await tessellate(req);
     r.faces = [{ entityId: 10, start: 0, count: 3 }, { entityId: 11, start: 3, count: 0 }];
     // (Part 0: a triangle of area 0.5 a face, face 11's second piece empty; no measures.)
-    if (req.data[0] === 0) {
+    if (tagOf(req.data) === 0) {
       r.indices = Uint32Array.of(0, 1, 2, 0, 1, 2, 0, 1, 2);
       r.faces = [{ entityId: 10, start: 0, count: 3 }, { entityId: 11, start: 3, count: 3 },
         { entityId: 11, start: 6, count: 0 }, { entityId: 12, start: 6, count: 3 }];
     }
     // The backend's outlines: part 0's empty piece (dropped: the face meshed), part 1's face 11 (used instead of the
     // source's).
-    if (req.data[0] === 0 || req.data[0] === 1) {
+    if (tagOf(req.data) === 0 || tagOf(req.data) === 1) {
       r.outlinePositions = Float32Array.of(7, 7, 7, 8, 8, 8);
       r.outlines = [{ entityId: 11, start: 0, count: 2 }];
     }
@@ -205,4 +206,18 @@ test('tessellateScene measures: asked for and kept per part (who measured), not 
   await tessellateScene(plain, t, { linearDeflection: 0.01, measures: false });
   assert.deepEqual(asked, [false]);
   assert.equal(plain.parts[0]!.measures, undefined);
+});
+
+test('a backend that takes no B-rep models: nothing meshed, an error saying so', async () => {
+  const t = fake();
+  const r = await tessellateScene(scene(), { ...t, info: { ...t.info, formats: ['step'] } },
+    { linearDeflection: 0.2, angularDeflection: 0.5 });
+  assert.equal(r.meshes.size, 0);
+  assert.equal(t.seen.length, 0);
+  assert.deepEqual(r.diagnostics, [{ severity: 'error',
+    message: '5 B-rep parts not meshed: the backend (fake 1) takes step, not B-rep models (cad-brep)' }]);
+  // A scene without B-rep parts: nothing to say.
+  const none = await tessellateScene({ ...scene(), parts: [scene().parts[3]!] }, { ...t, info: { ...t.info,
+    formats: ['step'] } });
+  assert.deepEqual(none.diagnostics, []);
 });

@@ -402,7 +402,7 @@ test('importStep builds models with the representation\'s units, and says what i
 ${GEOMETRY.replace(/#(\d+)/g, (_, n) => `#${Number(n) + 1000}`)}
 #60=UNKNOWN_THING('');
 `.replace('#24=SHAPE_REPRESENTATION(\'\',(#50),#16);', '#24=SHAPE_REPRESENTATION(\'\',(#1050,#60),#16);');
-  const { scene } = await importStep(file(data), { models: true });
+  const { scene } = await importStep(file(data));
   const d = scene.parts[0]!.brep!.model as BrepData;
   assert.deepEqual(decode.part(d), { unit: 10, uncertainty: 1e-5 });
   const cone = decode.surface(d, 1);
@@ -410,9 +410,6 @@ ${GEOMETRY.replace(/#(\d+)/g, (_, n) => `#${Number(n) + 1000}`)}
   assert.ok(scene.diagnostics.some((x) => x.source?.id === 24 && /^B-rep model: .*negative radius/.test(x.message)));
   assert.ok(scene.diagnostics.some((x) => x.source?.id === 24 && /^B-rep model: an item not in the B-rep model/
     .test(x.message)), JSON.stringify(scene.diagnostics));
-  // Without the option, no model.
-  const plain = await importStep(file(data));
-  assert.equal(plain.scene.parts[0]!.brep!.model, undefined);
 });
 
 test('the result counts what it made', async () => {
@@ -462,6 +459,51 @@ test('a seam edge against its curve gives the same p-curves; uses the rule can\'
   const both = TOPOLOGY.replace("#132=ORIENTED_EDGE('',*,*,#128,.F.);", "#132=ORIENTED_EDGE('',*,*,#128,.T.);");
   assert.deepEqual(await pcurveU(both), { seams: 1, u: [undefined, undefined] });
 });
+
+test('two faces on one surface sharing an edge: its two p-curves, coinciding, both theirs; else told apart as a seam',
+  async () => {
+    // The open shell's two faces both on the plane #10, so the edge #52 they share has both p-curves on it (CATIA's
+    // faces on one closed surface, pr1db.stp).
+    const oneSurface = (second: string) => TOPOLOGY.replace("#50=PCURVE('',#11,#49);", "#50=PCURVE('',#10,#49);")
+      .replace("#82=ADVANCED_FACE('',(#81),#11,.F.);", "#82=ADVANCED_FACE('',(#81),#10,.F.);")
+      .replace("#48=LINE('',#42,#44);", second);
+    const uses = async (data: string) => {
+      const { brep: d, seams } = await convert(data, [85], 1);
+      const pc = [0, 1].map((f) => {
+        const l = decode.face(d, f).loops[0]!;
+        assert.ok(l.kind === 'edge');
+        const c = l.coedges.find((x) => decode.edge(d, x.edge).id === 52)!;
+        if (c.pcurve === undefined) return undefined;
+        const x = decode.curve(d, c.pcurve);
+        return x.kind === 'line' ? [...x.point, ...x.direction] : NaN;
+      });
+      return { seams, pc };
+    };
+    // Coinciding (the same line twice): each face's use takes it.
+    assert.deepEqual(await uses(oneSurface("#48=LINE('',#42,#44);")), { seams: 0, pc: [[0, 0, 1, 0], [0, 0, 1, 0]] });
+    // Apart (v = 0 and v = 1): one each, as a seam's.
+    const apart = await uses(oneSurface("#48=LINE('',#57,#44);"));
+    assert.equal(apart.seams, 0);
+    assert.notDeepEqual(apart.pc[0], apart.pc[1]);
+    assert.ok(apart.pc.every((x) => Array.isArray(x)));
+    // Crossing where the edge's parameter is 0 but apart elsewhere: not one curve; the rule can't tell them apart.
+    const crossing = "#48=LINE('',#42,#90);\n#90=VECTOR('',#91,1.);\n#91=DIRECTION('',(1.,1.));";
+    assert.deepEqual(await uses(oneSurface(crossing)), { seams: 1, pc: [undefined, undefined] });
+    // Close but apart (1e-6): told apart, not taken for one.
+    const close = await uses(oneSurface("#48=LINE('',#92,#44);\n#92=CARTESIAN_POINT('',(0.,1.E-6));"));
+    const [c0, c1] = close.pc as number[][];
+    assert.deepEqual([close.seams, Array.isArray(c0) && Array.isArray(c1), c0![1] !== c1![1]], [0, true, true]);
+    // B-splines (a finite range) from (0, 0) to (1, 0) and from (0, 1) to (1, -1), crossing halfway: not one curve.
+    const spline = (k: number, p: string, q: string) => `#${k}=B_SPLINE_CURVE_WITH_KNOTS('',1,(${p},${q}),`
+      + `.UNSPECIFIED.,.F.,.F.,(2,2),(0.,1.),.UNSPECIFIED.);`;
+    const splines = oneSurface(`${spline(48, '#57', '#94')}\n#93=CARTESIAN_POINT('',(1.,0.));`
+      + `\n#94=CARTESIAN_POINT('',(1.,-1.));`).replace("#45=LINE('',#42,#44);", spline(45, '#42', '#93'));
+    assert.deepEqual(await uses(splines), { seams: 1, pc: [undefined, undefined] });
+    // The same B-spline twice: each face's.
+    const same = await uses(oneSurface(`${spline(48, '#42', '#93')}\n#93=CARTESIAN_POINT('',(1.,0.));`)
+      .replace("#45=LINE('',#42,#44);", spline(45, '#42', '#93')));
+    assert.equal(same.seams, 0);
+  });
 
 test('a torus with a negative major radius: its absolute value, its faces turned over, p-curves on it not read',
   async () => {

@@ -9,6 +9,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import { importStep } from '../packages/step-import/src/index.ts';
+import { stepPartBytes } from '../packages/step-export/src/index.ts';
 import { WorkerTessellator } from '../packages/tess-workers/src/node.ts';
 import { corpusFiles, shortName } from './corpus.ts';
 
@@ -34,7 +35,8 @@ for (const [n, f] of files.entries()) {
   if (fs.statSync(f).size > maxBytes) continue;
   const file = shortName(f);
   const { scene } = await importStep(fs.readFileSync(f));
-  const brep = scene.parts.flatMap((p, i) => (p.brep ? [{ p, i, b: p.brep }] : []));
+  // Each part's model written as STEP (what the backends read) before it's timed: the times are the backends'.
+  const brep = scene.parts.flatMap((p, i) => (p.brep ? [{ p, i, b: stepPartBytes(p.brep.model) }] : []));
   if (!brep.length) continue;
   const rows = brep.map(({ i }) => ({ file, part: i, runs: {} }));
   parts.push(...rows);
@@ -48,7 +50,7 @@ for (const [n, f] of files.entries()) {
         const t = performance.now();
         let status: Status = 'ok', triangles = 0;
         try {
-          const r = await pools[backend].tessellate({ format: b.format, data: b.payload(), rootId: b.rootId,
+          const r = await pools[backend].tessellate({ format: 'step', data: b.data, rootId: b.rootId,
             origin: p.origin, linearDeflection: 0.1 / p.unit, angularDeflection: 0.5 });
           triangles = r.indices.length / 3;
           if (r.diagnostics.some((d) => d.severity === 'error')) status = 'error';

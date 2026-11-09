@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { TessellationError, tessellateScene, type TessellationRequest, type Tessellator } from 'cad-scene';
+import { StepTessellator } from 'step-export';
 import { importStep } from 'step-import';
 import { OcctTessellator } from 'tess-occt';
 import { TruckTessellator } from 'tess-truck';
@@ -26,9 +27,11 @@ test("each backend's results from a directory, in a new process's store, equal t
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const { scene } = await importStep(fs.readFileSync(file));
   for (const C of [OcctTessellator, TruckTessellator]) {
-    const direct: Tessellator = new C();
-    await direct.init();
-    assert.match(direct.info.version, /, wasm [0-9a-f]{12}(, adapter \d+)?$/);
+    const backend: Tessellator = new C();
+    await backend.init();
+    assert.match(backend.info.version, /, wasm [0-9a-f]{12}(, adapter \d+)?$/);
+    // (Models written as STEP, which the backends read.)
+    const direct = new StepTessellator(backend);
     const expected = await tessellateScene(scene, direct, opts);
     assert.ok(expected.meshes.size >= 5, `${direct.info.name}: ${expected.meshes.size} meshes`);
     const first = new CachedTessellator(direct, new FileStore({ dir }));
@@ -47,10 +50,10 @@ test('in front of a worker pool, a cached part never reaches a worker', { skip }
   let sent = 0;
   const counted: Tessellator = { get info() { return pool.info; }, init: () => pool.init(),
     tessellate: (r) => (sent++, pool.tessellate(r)), dispose: () => pool.dispose() };
-  const t = new CachedTessellator(counted, new MemoryStore());
+  const t = new CachedTessellator(new StepTessellator(counted), new MemoryStore());
   await t.init();
   try {
-    assert.match(t.info.version, /^OCCT .*, wasm [0-9a-f]{12}, adapter \d+$/);
+    assert.match(t.info.version, /^OCCT .*, wasm [0-9a-f]{12}, adapter \d+, STEP writer \d+$/);
     const a = await tessellateScene(scene, t, { ...opts, concurrency: 2 });
     const n = sent;
     assert.ok(n >= 5);

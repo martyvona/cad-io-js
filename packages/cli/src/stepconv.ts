@@ -18,6 +18,7 @@ import { importStep } from 'step-import';
 import { readStep } from 'step-parser';
 import { CachedTessellator, FileStore, DEFAULT_FILE_BYTES } from 'tess-cache';
 import { DEFAULT_TIMEOUT_MS, WorkerTessellator } from 'tess-workers';
+import { StepTessellator } from 'step-export';
 import type { Io } from './step2json.ts';
 
 interface Format {
@@ -136,9 +137,6 @@ ${PROFILE_LINES}
       --angular-deflection <deg>
                            maximum angle between adjacent mesh normals, in degrees (default the profile's;
                            truck ignores it)
-      --tessellated-by-backend
-                           AP242 tessellated geometry (triangulated faces, surface sets...) meshed by the backend
-                           from its STEP subset, as a B-rep is (default: read as it is; truck reads none)
       --with-edges         write B-rep edges (not 3MF, which has no lines)
       --with-curves        write wireframe curves and points (not 3MF)
       --unlit-lines        edges, curves and points in a flat colour: glTF with KHR_materials_unlit (three.js
@@ -178,6 +176,14 @@ ${PROFILE_LINES}
  * Run stepconv with these arguments; returns the exit code: 0 success, 1 usage error, 2 failure (nothing written), 3
  * with --strict, parts that failed to tessellate.
  */
+/**
+ * The scene of a STEP file, the file dropped. In a function of its own: a local of stepconv's, though dead, stays in
+ * its suspended frame's registers across the awaits that follow, keeping the file (bytes and index) for the whole run.
+ */
+async function importScene(source: Parameters<typeof readStep>[0]): Promise<Scene> {
+  return (await importStep(await readStep(source))).scene;
+}
+
 export async function stepconv(argv: string[], io: Io): Promise<number> {
   let args;
   try {
@@ -193,7 +199,6 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
         fine: { type: 'boolean', default: false },
         deflection: { type: 'string', short: 'd' },
         'angular-deflection': { type: 'string' },
-        'tessellated-by-backend': { type: 'boolean', default: false },
         'with-edges': { type: 'boolean', default: false },
         'with-curves': { type: 'boolean', default: false },
         'unlit-lines': { type: 'boolean', default: false },
@@ -289,9 +294,8 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
 
   let scene: Scene;
   try {
-    const file = await readStep(
-      input === '-' ? (Readable.toWeb(io.stdin) as ReadableStream<Uint8Array>) : fs.readFileSync(input));
-    scene = (await importStep(file, { tessellated: o['tessellated-by-backend'] ? 'backend' : 'read' })).scene;
+    scene = await importScene(input === '-' ? (Readable.toWeb(io.stdin) as ReadableStream<Uint8Array>)
+      : fs.readFileSync(input));
   } catch (e) {
     io.stderr.write(`stepconv: can't read ${input}: ${(e as Error).message}\n`);
     return 2;
@@ -331,6 +335,8 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
       const mod = (await import(backend.module)) as Record<string, new () => Tessellator>;
       tess = new mod[backend.export]!();
     }
+    // The backends read STEP: each part's B-rep model written as STEP, after the cache (which keys on the model).
+    tess = new StepTessellator(tess);
     if (o.cache !== undefined) tess = cached = new CachedTessellator(tess,
       new FileStore({ dir: o.cache, maxBytes: cacheMb * 2 ** 20 }));
     await tess.init();

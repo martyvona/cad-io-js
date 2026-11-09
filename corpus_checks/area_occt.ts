@@ -18,11 +18,12 @@
 import fs from 'node:fs';
 import { faceFailures, tessellateScene, type FaceFailure, type Mesh, type Scene }
   from '../packages/cad-scene/src/index.ts';
-import { parseStep, type Instance } from '../packages/step-parser/src/index.ts';
+import { parseStep, type Instance, type StepModel } from '../packages/step-parser/src/index.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
 import { WorkerTessellator } from '../packages/tess-workers/src/node.ts';
+import { StepTessellator } from '../packages/step-export/src/index.ts';
 import { AreaOracle, trusted, type OracleResult } from './area_oracle.ts';
-import { corpusFiles, shortName } from './corpus.ts';
+import { corpusFiles, partSubset, shortName } from './corpus.ts';
 
 const LINEAR_MM = 0.1, ANGULAR = 0.5, TRUST = 1e-6, OFF = 0.01, PLANT_EVERY = 50;
 const maxBytes = Number(process.argv[3] ?? 2) * 1e6;
@@ -102,16 +103,21 @@ for (const path of corpusFiles(process.argv[2])) {
   if (bytes.length > maxBytes) { skipped++; continue; }
   const name = shortName(path);
   process.stderr.write(`${name}\n`);
-  let scene: Scene;
-  try { scene = (await importStep(bytes)).scene; } catch (e) { console.log(`${name}: import failed: ${(e as Error).message}`); continue; }
+  let scene: Scene, model: StepModel;
+  try {
+    ({ scene, model } = await importStep(bytes));
+  } catch (e) {
+    console.log(`${name}: import failed: ${(e as Error).message}`);
+    continue;
+  }
   files++;
   const meshes = new Map<number, Mesh | undefined>();
-  await tessellateScene(scene, pool, { linearDeflection: LINEAR_MM, angularDeflection: ANGULAR, measures: true,
-    onPart: (i, m) => { meshes.set(i, m); } });
+  await tessellateScene(scene, new StepTessellator(pool), { linearDeflection: LINEAR_MM, angularDeflection: ANGULAR,
+    measures: true, onPart: (i, m) => { meshes.set(i, m); } });
   for (const [i, part] of scene.parts.entries()) {
     if (!part.brep || part.brep.format !== 'step' || !meshes.has(i)) continue;
     parts++;
-    const sub = parseStep(new Uint8Array(part.brep.payload()));
+    const sub = parseStep(partSubset(model, part.sources[0]!.id));
     const oracle = new AreaOracle(sub);
     const results = new Map<number, OracleResult>();
     for (const inst of sub.instances()) {
@@ -159,7 +165,7 @@ for (const path of corpusFiles(process.argv[2])) {
       const r = results.get(id) as Extract<OracleResult, { ok: true }>;
       const m = measures.get(id);
       if (!m) { unmeasured++; continue; }
-      const where = `${name} #${id} (part #${part.brep.rootId}, ${r.surface})`;
+      const where = `${name} #${id} (part #${part.sources[0]!.id}, ${r.surface})`;
       const mm2 = u * u;
       const ra = rel(m.area, r.area);
       bin(areaHist, ra);

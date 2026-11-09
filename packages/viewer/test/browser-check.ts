@@ -23,6 +23,7 @@ import { threemf, type ThreeMfOptions } from 'export-3mf';
 import { glb, gltfJson } from 'export-gltf';
 import { threejsJson } from 'export-threejs';
 import { importGltf } from 'gltf-import';
+import { StepTessellator } from 'step-export';
 import { importStep } from 'step-import';
 import { OcctTessellator } from 'tess-occt';
 import { writeCatalog } from '../../../scripts/demo-catalog.ts';
@@ -42,11 +43,12 @@ const { scene } = await importStep(fs.readFileSync(step));
 const occt = new OcctTessellator();
 await occt.init();
 // The viewer's meshing on a desktop (the library's default profile, medium); and on a phone, coarse.
-await tessellateScene(scene, occt, { edges: true });
+await tessellateScene(scene, new StepTessellator(occt), { edges: true });
 // (The scene holds both levels: exports at the medium profile's, the library's default.)
 const medium = meshDeflections({});
 const placed = [...partInstances(scene)].filter((p) => p.visible);
-const coarseTriangles = [...(await tessellateScene(scene, occt, { profile: 'coarse' })).meshes].reduce((s, [part, m]) =>
+const coarseTriangles = [...(await tessellateScene(scene, new StepTessellator(occt), { profile: 'coarse' }))
+  .meshes].reduce((s, [part, m]) =>
   s + placed.filter((p) => p.part === part).length * m.indices.length / 3, 0);
 occt.dispose();
 const view = exportView(scene, { ...medium, edges: true });
@@ -2065,7 +2067,7 @@ await check('meshing timeout', async () => {
 });
 // STEP's tessellated geometry: read and drawn as it is, nothing meshed, faces by STEP id and edges shared between them;
 // a B-rep's tessellation shown, then replaced by OCCT's mesh (not drawn beside it), kept when meshing fails (a
-// millisecond's timeout); by the backend when chosen, a part of its own, meshed.
+// millisecond's timeout).
 await check('tessellated STEP', async () => {
   const ftc = await page(`?url=${encodeURIComponent('/content/ftc08-tg.stp')}&check`, `(async () => {
     await cadViewer.ready; await cadViewer.idle();
@@ -2092,16 +2094,12 @@ await check('tessellated STEP', async () => {
     control('Timeout').setValue(0.001);
     const failed = await again();
     control('Timeout').setValue(60);
-    control('Tessellated geometry').setValue('backend');
-    const backend = await again();
-    return { first, failed, backend };
+    return { first, failed };
   })()`) as { after: Record<string, { parts: { total: number; done: number; failed: number }; triangles: number }> };
-  const { first, failed, backend } = r.after, j = JSON.stringify(r.after);
+  const { first, failed } = r.after, j = JSON.stringify(r.after);
   expect(first!.parts.total === 1 && first!.parts.failed === 0 && first!.triangles === 12,
     `the cube meshed: OCCT's 12 triangles in place of the file's 2: ${j}`);
   expect(failed!.parts.failed === 1 && failed!.triangles === 2, `meshing failed: the file's 2 triangles kept: ${j}`);
-  expect(backend!.parts.total === 2 && backend!.parts.failed === 0 && backend!.triangles === 14,
-    `by the backend: two parts meshed, 12 + 2 triangles: ${j}`);
   return undefined;
 });
 // Two planes (a cap missing where another plane cuts): the plate cut across X through its middle (the side above cut

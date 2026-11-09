@@ -6,6 +6,7 @@ import { Document, WebIO } from '@gltf-transform/core';
 import { addLod, exportView, identity, multiply, partInstances, placedName, pruneView, tessellateScene, validate,
   viewDifferences, type ExportView, type Mat4, type Occurrence, type PartRef, type Scene } from 'cad-scene';
 import { glb, gltfJson, type GltfOptions } from 'export-gltf';
+import { StepTessellator } from 'step-export';
 import { importStep } from 'step-import';
 import { OcctTessellator } from 'tess-occt';
 import { importGltf, srgbFactorsFrom } from '../src/index.ts';
@@ -214,7 +215,7 @@ test('a STEP assembly through GLB and back, each compression, instanced or not: 
     const { scene: s } = await importStep(fs.readFileSync(assembly));
     const occt = new OcctTessellator();
     await occt.init();
-    await tessellateScene(s, occt, { edges: true });
+    await tessellateScene(s, new StepTessellator(occt), { edges: true });
     occt.dispose();
     for (const o of [{ compression: 'none' }, { compression: 'draco' }, { compression: 'meshopt' },
       { compression: 'none', instancing: true }] as GltfOptions[]) {

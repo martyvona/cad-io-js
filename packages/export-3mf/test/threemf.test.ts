@@ -4,6 +4,7 @@ import { strFromU8, unzipSync } from 'fflate';
 import { exportView, identity, leafParts, scaling, type Mat4, type Mesh, type Scene } from 'cad-scene';
 import { float32Text, threemf, threemfAsync, transformText, xmlText, type ThreeMfOptions } from '../src/index.ts';
 import { OBJECT_TYPE, read3mf, type Read3mf } from './read3mf.ts';
+import { BrepBuilder } from 'cad-brep';
 
 const translation = (x: number, y: number, z: number): Mat4 => {
   const m = identity();
@@ -56,7 +57,7 @@ function scene({ override = true } = {}): Scene {
   const brep = (name: string, unit: number) => (
     { name, sources: [{ format: 'step', id: 50 }], properties: {}, unit,
     origin: [0, 0, 0] as [number, number, number], lods: [],
-    brep: { format: 'step' as const, payload: () => new Uint8Array() } });
+    brep: { format: 'step' as const, model: new BrepBuilder({ unit: 1 }).finish() } });
   return {
     unit: 'millimetre',
     components: [

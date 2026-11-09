@@ -33,6 +33,7 @@ import { stepconv } from '../packages/cli/src/stepconv.ts';
 import { read3mf } from '../packages/export-3mf/test/read3mf.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
 import { WorkerTessellator } from '../packages/tess-workers/src/node.ts';
+import { StepTessellator } from '../packages/step-export/src/index.ts';
 import { corpusFiles, repoDir, shortName } from './corpus.ts';
 
 const workers = Math.max(1, os.availableParallelism() - 1);
@@ -196,7 +197,8 @@ for (const f of files) {
     const { scene } = await importStep(fs.readFileSync(f));
     // (As stepconv meshes by default: its default profile, medium.)
     const deflections = meshDeflections({ profile: DEFAULT_MESH_PROFILE });
-    const { meshes } = await tessellateScene(scene, tess, { ...deflections, concurrency: workers });
+    const { meshes } = await tessellateScene(scene, new StepTessellator(tess),
+      { ...deflections, concurrency: workers });
     const view = exportView(scene, { ...deflections, edges: false, curves: false });
     const placed = placedParts(view, scene);
     const brep = scene.parts.filter((p) => p.brep).length;

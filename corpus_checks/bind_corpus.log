@@ -1,9 +1,9 @@
-4925008 instances bound (3 malformed); bind+check 5.8 s; reverse index 0.1 s, 5653627 entries; type index 0.6 s
+4925008 instances bound (3 malformed); bind+check 6.0 s; reverse index 0.1 s, 5653627 entries; type index 0.6 s
 ┌────────────────────────────────────────────────────────────────────────────────────┬───────┬─────────┬──────────┬────────────┬─────────┐
 │ (index)                                                                            │ files │ inst    │ bySchema │ byFallback │ unbound │
 ├────────────────────────────────────────────────────────────────────────────────────┼───────┼─────────┼──────────┼────────────┼─────────┤
 │ CONFIG_CONTROL_DESIGN                                                              │ 62    │ 467679  │ 466136   │ 1536       │ 7       │
-│ AUTOMOTIVE_DESIGN                                                                  │ 345   │ 3320556 │ 3320259  │ 157        │ 140     │
+│ AUTOMOTIVE_DESIGN                                                                  │ 345   │ 3320556 │ 3320260  │ 157        │ 139     │
 │ AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF                                    │ 46    │ 674749  │ 674749   │ 0          │ 0       │
 │ none (AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF)                             │ 19    │ 100364  │ 0        │ 78572      │ 21792   │
 │ AP203_CONFIGURATION_CONTROLLED_3D_DESIGN_OF_MECHANICAL_PARTS_AND_ASSEMBLIES_MIM_LF │ 45    │ 361660  │ 361627   │ 33         │ 0       │
@@ -239,7 +239,7 @@
        1    1 warning: GEOMETRIC_SET.elements: reference to SHELL_BASED_SURFACE_MODEL, expected SELECT GEOMETRIC_SET_SELECT  e.g. gkv311-opencascade-dataset/step/bug25166_piston.stp #30603
        1    1 info: DRAUGHTING_MODEL not in CONFIG_CONTROL_DESIGN; bound with AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF  e.g. gkv311-opencascade-dataset/step/trj5_k1-tc-203.stp #5844
        1    1 warning: APPLICATION_PROTOCOL_DEFINITION.application: reference to APPLICATION_PROTOCOL_DEFINITION, expected APPLICATION_CONTEXT  e.g. gkv311-opencascade-dataset/step/bug25176_occ25176.stp #1
-       1    1 warning: REPRESENTATION_ITEM: 0 attributes, schema has 1  e.g. gkv311-opencascade-dataset/step/bug29478.stp #111
+       1    1 warning: REPRESENTATION_ITEM() without its name (read as '')  e.g. gkv311-opencascade-dataset/step/bug29478.stp #111
        1    1 warning: CONNECTED_FACE_SET.cfs_faces: reference to ORIENTED_EDGE, expected FACE  e.g. gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #103322
        1    1 warning: REPRESENTATION.items: reference to TRIMMED_CURVE, expected SELECT DRAUGHTING_MODEL_ITEM_SELECT  e.g. gkv311-opencascade-dataset/step/bug33569.stp #54745
        1    1 warning: FACE.bounds: SET of 0 elements, expected [1:?]  e.g. gkv311-opencascade-dataset/step/bug24283_spheres.stp #7

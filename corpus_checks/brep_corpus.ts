@@ -1,15 +1,15 @@
-// The B-rep model from STEP (step-import's `models`, brep.ts) over the corpus: every file imported with and without
-// models; each B-rep part's model checked by validateBrep, its face, edge and vertex ids against the STEP instances
-// of those kinds in the part's closure (none lost but what a diagnostic says, none made up), a JSON round trip to the
-// same bytes; the rows tallied by kind (to compare with step_geometry.log), the import's B-rep diagnostics by kind;
-// the models' size and the import's extra time against the subsets'. PLANT=face drops one face from every 10th part's
+// The B-rep model from STEP (step-import's brep.ts) over the corpus: every file imported; each B-rep part's model
+// checked by validateBrep, its face, edge and vertex ids against the STEP instances of those kinds in the part's
+// closure (none lost but what a diagnostic says, none made up), a JSON round trip to the same bytes; the rows tallied
+// by kind (to compare with step_geometry.log), the import's B-rep diagnostics by kind; the import's time, and the
+// models' size against the STEP subsets' they replace. PLANT=face drops one face from every 10th part's
 // model (each must show as a lost face), PLANT=edge points one edge of every 10th part at another vertex (each must
 // fail validation).
 // Usage: node --max-old-space-size=12000 corpus_checks/brep_corpus.ts [file-list.txt] [max MB]
 import fs from 'node:fs';
 import { type BrepData, brepFromJson, brepToJson, COLUMNS, CURVE_KIND, decode, ITEM_KIND, LOOP_KIND, openBrep, rowCount,
   SHELL_KIND, SURFACE_KIND, BODY_KIND, validateBrep } from '../packages/cad-brep/src/index.ts';
-import { closure, readStep } from '../packages/step-parser/src/index.ts';
+import { buildSubset, closure, readStep } from '../packages/step-parser/src/index.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
 import { corpusFiles, shortName } from './corpus.ts';
 
@@ -30,7 +30,7 @@ const general = (m: string) => m.replace(/^\d+ x /, '').replace(/ \(#[\d, #.]+\)
 const nameOf = (table: Record<string, number>, n: number) => Object.keys(table).find((k) => table[k] === n) ?? `${n}`;
 
 let files = 0, parts = 0, skipped = 0, plantedParts = 0, plantedCaught = 0;
-let timeWith = 0, timeWithout = 0, subsetTime = 0, subsetBytes = 0, modelBytes = 0;
+let importTime = 0, subsetTime = 0, subsetBytes = 0, modelBytes = 0;
 
 /** A copy of a model with a defect planted (PLANT), and whether it was planted. */
 function planted(d: BrepData, k: number): BrepData | undefined {
@@ -64,13 +64,10 @@ for (const path of corpusFiles(process.argv[2])) {
   const name = shortName(path);
   process.stderr.write(`${files} ${name}\n`);
   const bytes = new Uint8Array(fs.readFileSync(path));
-  let t = performance.now();
-  await importStep(await readStep(bytes));
-  timeWithout += performance.now() - t;
   const file = await readStep(bytes);
-  t = performance.now();
-  const { scene, model } = await importStep(file, { models: true });
-  timeWith += performance.now() - t;
+  let t = performance.now();
+  const { scene, model } = await importStep(file);
+  importTime += performance.now() - t;
   for (const d of scene.diagnostics) {
     if (d.message.startsWith('B-rep model: ')) note(`import ${d.severity}: ${general(d.message.slice(13))}`,
       `${name} #${d.source?.id}`);
@@ -80,12 +77,9 @@ for (const path of corpusFiles(process.argv[2])) {
     const brep = part.brep;
     if (!brep) continue;
     const d = brep.model;
-    if (!d) { note('a B-rep part without a model', `${name} #${brep.rootId}`); continue; }
+    const repId = part.sources[0]!.id;
     parts++;
-    const where = `${name} #${brep.rootId}`;
-    t = performance.now();
-    subsetBytes += brep.payload().length;
-    subsetTime += performance.now() - t;
+    const where = `${name} #${repId}`;
     modelBytes += d.buffer.byteLength;
 
     const check = planted(d, parts) ?? d;
@@ -113,11 +107,15 @@ for (const path of corpusFiles(process.argv[2])) {
 
     // Ids against the closure's instances of each kind: faces (curve-bounded surfaces too), edge curves (curve-bounded
     // surfaces' edges are their boundaries' segments, counted apart), vertices.
-    const root = model.resolve(brep.rootId!);
+    const root = model.resolve(repId);
     // The importer's closure: the representation's own mapped items left out (what they map is placed apart).
     const exclude = new Set<number>();
     for (const q of closure(model.file, [root])) if (model.isInstanceOf(q, 'MAPPED_ITEM')) exclude.add(q);
     const inClosure = closure(model.file, [root], exclude);
+    // The subset this model replaces, for its size.
+    t = performance.now();
+    subsetBytes += buildSubset(model.file, [root], { exclude }).bytes.length;
+    subsetTime += performance.now() - t;
     const want = { face: new Set<number>(), edge: new Set<number>(), vertex: new Set<number>() };
     for (const q of inClosure) {
       const id = model.file.index.ids[q]!;
@@ -172,8 +170,8 @@ for (const path of corpusFiles(process.argv[2])) {
 }
 
 console.log(`${files} files (${skipped} over ${maxMB} MB skipped), ${parts} B-rep parts`);
-console.log(`import ${(timeWithout / 1000).toFixed(1)} s without models, ${(timeWith / 1000).toFixed(1)} s with; `
-  + `subsets ${(subsetTime / 1000).toFixed(1)} s to build`);
+console.log(`import ${(importTime / 1000).toFixed(1)} s (the models built); the subsets they replace `
+  + `${(subsetTime / 1000).toFixed(1)} s to build`);
 console.log(`models ${(modelBytes / 1e6).toFixed(1)} MB, subsets ${(subsetBytes / 1e6).toFixed(1)} MB`);
 if (plant) console.log(`PLANT=${plant}: ${plantedParts} parts planted, ${plantedCaught} caught`);
 console.log('\n## rows by kind');

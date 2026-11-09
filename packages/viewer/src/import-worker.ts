@@ -14,7 +14,7 @@ import { loadModelIn, meshBuffers, type ModelEvent, type ModelInput } from './mo
 import { deflectionsOf, Tessellation, type TessellationSettings } from './tessellation.ts';
 
 export type ToImportWorker =
-  | { type: 'load'; load: number; input: ModelInput; settings: TessellationSettings; workers: number }
+  | { type: 'load'; load: number; input?: ModelInput; settings: TessellationSettings; workers: number }
   | { type: 'cancel' }
   /** The page's meshes lent, by part (Viewer.exportModel): the worker's own were handed to the page. */
   | { type: 'export'; id: number; request: ExportRequest; meshes: [number, Mesh][] };
@@ -82,7 +82,8 @@ scope.onmessage = async (e) => {
   current = load;
   last = undefined;
   try {
-    await loadModelIn(msg.input, msg.settings, msg.workers, tessellation, (ev, transfer) => {
+    // (The message as the source: its input taken by the import, so the file goes once imported.)
+    await loadModelIn(msg, msg.settings, msg.workers, tessellation, (ev, transfer) => {
       if (load === current) scope.postMessage({ ...ev, load }, transfer ?? []);
     }, () => load !== current, { draco: { locateFile: () => dracoWasm } }, (scene) => {
       if (load === current) last = { scene, settings: msg.settings };

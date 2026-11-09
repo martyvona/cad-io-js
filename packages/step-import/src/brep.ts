@@ -514,13 +514,23 @@ export function stepBrep(r: Reader, items: number[], o: StepBrepOptions, warn: W
    * Which of a seam's two p-curves (rows) a use of it takes. The face lies to the left of each use in (u, v) (Part
    * 42; to the right where the face's or the bound's sense turns it over), so a use's p-curve is the one with the
    * other on its left: its direction of travel the p-curve's tangent, turned by the use's orientation and the edge's
-   * same_sense (a p-curve shares its 3D curve's parameter). Undefined where that can't be told.
+   * same_sense (a p-curve shares its 3D curve's parameter). Undefined where that can't be told. Two that coincide
+   * aren't a seam's but one curve given twice (`pr1db.stp`, CATIA: an edge between two faces on one closed surface,
+   * away from its seam line): every use takes the first.
    */
   function seamPcurve(rows: [number, number], forward: boolean, edgeSame: boolean, flip: boolean): number | undefined {
     const [a, b] = rows.map(evalRow);
     if (!a || !b) return undefined;
-    const t = Number.isFinite(a.range[0]) && Number.isFinite(a.range[1]) ? (a.range[0] + a.range[1]) / 2 : 0;
+    const finite = Number.isFinite(a.range[0]) && Number.isFinite(a.range[1]);
+    const t = finite ? (a.range[0] + a.range[1]) / 2 : 0;
     const pa = a.point(t), pb = b.point(t), tan = a.d1(t);
+    const apart = (s: number) => {
+      const x = a.point(s), y = b.point(s);
+      return Math.hypot(x[0]! - y[0]!, x[1]! - y[1]!) > 1e-9 * Math.hypot(...a.d1(s));
+    };
+    const samples = finite ? [0, 0.25, 0.5, 0.75, 1].map((f) => a.range[0] + f * (a.range[1] - a.range[0]))
+      : [-1, 0, 1];
+    if (!samples.some(apart)) return rows[0];
     const k = (forward ? 1 : -1) * (edgeSame ? 1 : -1) * (flip ? -1 : 1);
     const left = [-tan[1]! * k, tan[0]! * k], gap = [pb[0]! - pa[0]!, pb[1]! - pa[1]!];
     const side = left[0]! * gap[0]! + left[1]! * gap[1]!;

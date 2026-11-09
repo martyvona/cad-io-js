@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import * as THREE from 'three';
 import { exportView, identity, multiply, scaling, type Mat4, type Mesh, type Scene } from 'cad-scene';
 import { formatFloat32, ROOT_TRANSFORM, threejsChunks, threejsJson } from '../src/index.ts';
+import { BrepBuilder } from 'cad-brep';
 
 const translation = (x: number, y: number, z: number): Mat4 => {
   const m = identity();
@@ -37,7 +38,7 @@ function scene(): Scene {
   const brep = (name: string, unit: number) => (
     { name, sources: [{ format: 'step', id: 50 }], properties: { pn: 'X-1' }, unit,
     origin: [0, 0, 0] as [number, number, number], lods: [],
-    brep: { format: 'step' as const, payload: () => new Uint8Array() } });
+    brep: { format: 'step' as const, model: new BrepBuilder({ unit: 1 }).finish() } });
   return {
     unit: 'millimetre',
     components: [

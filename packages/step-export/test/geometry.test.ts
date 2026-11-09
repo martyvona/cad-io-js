@@ -474,6 +474,27 @@ test('an edge with p-curves on two faces and no 3D curve: a surface curve with i
   assert.deepEqual(differences(walk(d), walk(back.brep)).filter((x) => !x.bits), []);
 });
 
+test('geometry beside bodies: each run of it a geometric set (a curve set for curves and points), in order', () => {
+  const b = new BrepBuilder({ unit: 1 });
+  const line = (y: number) => b.addCurve({ kind: 'line', point: [0, y, 0], direction: [1, 0, 0], magnitude: 1,
+    id: 10 + y });
+  const plane = b.addSurface({ kind: 'plane', position: P, id: 20 });
+  b.addItem({ kind: 'curve', ref: line(0) });
+  b.addItem({ kind: 'point', point: [1, 2, 3], id: 30 });
+  b.addItem({ kind: 'body', ref: b.addBody({ kind: 'wire', members: [{ ref: b.addEdge({ curve: line(1),
+    start: b.addVertex({ point: [0, 1, 0], id: 40 }), end: b.addVertex({ point: [1, 1, 0], id: 41 }), sameSense: true,
+    id: 42 }), sense: true }], id: 50 }) });
+  b.addItem({ kind: 'surface', ref: plane });
+  b.addItem({ kind: 'curve', ref: line(2) });
+  const w = written(b.finish());
+  const root = w.byId.get(w.rootId)!;
+  assert.ok('type' in root && root.type === 'SHAPE_REPRESENTATION');
+  const keep = new Set([10, 12, 20, 30, 42]);
+  assert.deepEqual((root.attrs[1] as { v: number[] }).v.map((id) => render(w, id, keep)), [
+    'GEOMETRIC_CURVE_SET(\'\',(#10,#30))', 'EDGE_BASED_WIREFRAME_MODEL(\'\',(CONNECTED_EDGE_SET(\'\',(#42))))',
+    'GEOMETRIC_SET(\'\',(#20,#12))']);
+});
+
 test('ids: kept, a repeated one renumbered, rows without one given new ones after the largest', () => {
   const b = new BrepBuilder({ unit: 1 });
   b.addCurve({ kind: 'line', point: [0, 0, 0], direction: [1, 0, 0], magnitude: 1, id: 7 });
