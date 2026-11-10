@@ -39,11 +39,14 @@ if (plant && plant !== 'measure' && plant !== 'mesh') throw new Error(`PLANT=${p
 const inc = (m: Map<string, number>, k: string, n = 1) => m.set(k, (m.get(k) ?? 0) + n);
 const bins = [1e-9, 1e-6, 1e-4, 1e-3, 1e-2, 0.1, Infinity];
 const bin = (h: number[], x: number) => h[bins.findIndex((b) => x <= b)]!++;
-/** A file's tallies, or the run's (addInto); `failed` the files that couldn't be imported. */
+/**
+ * A file's tallies, or the run's (addInto); `failed` the files that couldn't be imported, `meshFailed` the parts that
+ * failed to mesh (a timeout, a backend error), whose faces OCCT doesn't measure.
+ */
 const fresh = () => ({ files: 0, skipped: 0, parts: 0, compared: 0, planted: 0, plantedSeen: 0, plantedSlack: 0,
   unmeasured: 0, coverage: new Map<string, number>(), areaHist: bins.map(() => 0), perimHist: bins.map(() => 0),
   judged: new Map<string, number>(), offRows: [] as string[], undetectedRows: [] as string[],
-  alarmRows: [] as string[], failed: [] as string[], missed: [] as string[] });
+  alarmRows: [] as string[], failed: [] as string[], meshFailed: [] as string[], missed: [] as string[] });
 type Tallies = ReturnType<typeof fresh>;
 const partsOf = (i: Instance) => ('type' in i ? [{ type: i.type, attrs: i.attrs }] : i.parts);
 const rel = (a: number, b: number) => Math.abs(a - b) / b;
@@ -122,8 +125,12 @@ export const check: FileCheck<undefined, Tallies> = {
     }
     T.files++;
     const meshes = new Map<number, Mesh | undefined>();
-    await tessellateScene(scene, new StepTessellator(pool), { linearDeflection: LINEAR_MM, angularDeflection: ANGULAR,
-      measures: true, onPart: (i, m) => { meshes.set(i, m); } });
+    const { diagnostics } = await tessellateScene(scene, new StepTessellator(pool), { linearDeflection: LINEAR_MM,
+      angularDeflection: ANGULAR, measures: true, onPart: (i, m) => { meshes.set(i, m); } });
+    for (const d of diagnostics) {
+      if (d.severity === 'error' && d.message.startsWith('tessellation failed')) T.meshFailed.push(
+        `${name}${d.source ? ` #${d.source.id}` : ''}: ${d.message}`);
+    }
     for (const [i, part] of scene.parts.entries()) {
       if (!part.brep || part.brep.format !== 'step' || !meshes.has(i)) continue;
       T.parts++;
@@ -222,6 +229,8 @@ if (import.meta.main) {
   for (const l of all.failed) console.log(l);
   const pct = (n: number, t: number) => `${(100 * n / Math.max(t, 1)).toFixed(1)} %`;
   console.log(`${files} files (${skipped} over the size limit), ${parts} parts; ${compared} faces compared (trusted by the oracle, at least ${(LINEAR_MM ** 2).toPrecision(2)} mm^2, measured by OCCT)${unmeasured ? `; ${unmeasured} trusted faces OCCT didn't measure` : ''}`);
+  if (all.meshFailed.length) console.log(`${all.meshFailed.length} parts failed to mesh, their faces unmeasured:\n`
+    + all.meshFailed.map((l) => `  ${l}`).join('\n'));
   if (plant) console.log(`PLANT=${plant}: ${planted} faces planted, ${plantedSeen} listed (${plantedSeen === planted ? 'all caught' : 'NOT ALL CAUGHT'})${plantedSlack ? `; ${plantedSlack} more planted within faceFailures' slack (not counted)` : ''}`);
   if (plant && all.missed.length) console.log(`  not listed: ${all.missed.slice(0, 10).join('; ')}`);
   console.log('\nThe oracle\'s coverage (every face of every part):');

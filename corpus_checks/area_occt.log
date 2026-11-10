@@ -1,4 +1,6 @@
 517 files (0 over the size limit), 3258 parts; 61423 faces compared (trusted by the oracle, at least 0.010 mm^2, measured by OCCT); 2246 trusted faces OCCT didn't measure
+1 parts failed to mesh, their faces unmeasured:
+  gkv311-opencascade-dataset/step/bug24024_slow_import.stp #76247: tessellation failed: tessellation timed out after 120000 ms
 
 The oracle's coverage (every face of every part):
    27278  trusted: plane
