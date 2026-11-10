@@ -35,8 +35,11 @@ export interface OracleArea {
 export interface OracleUnsupported { ok: false; reason: string }
 export type OracleResult = OracleArea | OracleUnsupported;
 
-/** An area to rely on: no flags, and the error estimate within `relative` of the area. */
-export function trusted(r: OracleResult, relative = 1e-6): r is OracleArea {
+/**
+ * An area to rely on: no flags, and the error estimate within `relative` of the area. (Its type says only that much:
+ * an untrusted result is still an area or not, which `false` doesn't tell.)
+ */
+export function trusted(r: OracleResult, relative = 1e-6): r is OracleArea & { flags: [] } {
   return r.ok && !r.flags.length && r.error <= relative * r.area;
 }
 

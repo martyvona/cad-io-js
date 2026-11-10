@@ -38,7 +38,7 @@ for (const [n, f] of files.entries()) {
   // Each part's model written as STEP (what the backends read) before it's timed: the times are the backends'.
   const brep = scene.parts.flatMap((p, i) => (p.brep ? [{ p, i, b: stepPartBytes(p.brep.model) }] : []));
   if (!brep.length) continue;
-  const rows = brep.map(({ i }) => ({ file, part: i, runs: {} }));
+  const rows = brep.map(({ i }) => ({ file, part: i, runs: {} as Partial<Record<Backend, Run>> }));
   parts.push(...rows);
   for (const backend of BACKENDS) {
     const t0 = performance.now();

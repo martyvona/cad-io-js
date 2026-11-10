@@ -16,7 +16,8 @@ let occt = await loadOcct();
 const maxBytes = Number(process.argv[3] ?? 5) * 1e6;
 
 const rows: string[] = [];
-const stats = { files: 0, compared: 0, volume: [0, 0], area: [0, 0], centroid: [0, 0] }; // [within tolerance, total]
+const stats = { files: 0, compared: 0, volume: [0, 0] as [number, number], area: [0, 0] as [number, number],
+  centroid: [0, 0] as [number, number] }; // [within tolerance, total]
 for (const f of corpusFiles(process.argv[2])) {
   const bytes = fs.readFileSync(f);
   if (bytes.length > maxBytes) continue;

@@ -1,4 +1,4 @@
-files 517 (0 over 1000 MB skipped), 391 s
+files 517 (0 over 1000 MB skipped), 200 s
 part meshes with triangles 3119, triangles 16795508, vertices 9985599 (8429612 after exact welding)
 exact, by B-rep free edges: closed, free 10; closed, no free 1128; misoriented, free 5; non-manifold, free 11; non-manifold, no free 15; open, free 1942; open, no free 8
 exact: closed 1138, open 1950, misoriented 5, non-manifold 26; degenerate triangles 4865 in 402 parts

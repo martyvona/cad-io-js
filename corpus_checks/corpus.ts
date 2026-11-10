@@ -32,3 +32,13 @@ export function partSubset(model: StepModel, repId: number): Uint8Array {
     && model.isInstanceOf(q, 'MAPPED_ITEM')));
   return buildSubset(model.file, [root], { exclude }).bytes;
 }
+
+/**
+ * Whether a part gets a check's planted bug: about one in `every`, by a hash (FNV-1a) of where it is (its file and
+ * id), so a file's planting doesn't depend on the files before it (they run at once: runner.ts).
+ */
+export function plantedPart(where: string, every = 10): boolean {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < where.length; i++) h = Math.imul(h ^ where.charCodeAt(i), 0x01000193) >>> 0;
+  return h % every === 0;
+}

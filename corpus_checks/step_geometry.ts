@@ -56,7 +56,7 @@ function add(t: Table, key: string, file: string, id: number) {
 function refsIn(values: Value[], out: number[]) {
   for (const v of values) {
     if (v.k === 'ref') out.push(v.v);
-    else if (v.k === 'refs') for (const r of v.v as ArrayLike<number>) out.push(r);
+    else if (v.k === 'refs') for (const r of Array.from(v.v as ArrayLike<number>)) out.push(r);
     else if (v.k === 'list') refsIn(v.v, out);
     else if (v.k === 'typed') refsIn([v.v], out);
   }

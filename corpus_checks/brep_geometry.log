@@ -17,13 +17,13 @@
   worst 1.000e+0 mm  gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 edge #778
   worst 1.000e+0 mm  gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 edge #836
 
-## vertexSurface: 389214 measured
-  <= 1e-7 mm: 367503
+## vertexSurface: 389268 measured
+  <= 1e-7 mm: 367557
   <= 0.00001 mm: 9520
   <= 0.001 mm: 11163
   <= 0.1 mm: 1006
     more mm: 22
-  skipped: 7890 no parameters (unbounded, no closed form)
+  skipped: 8124 no parameters (unbounded, no closed form)
   worst 2.620e+2 mm  gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 face #35147
   worst 2.000e+2 mm  gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 face #279826
   worst 1.790e+2 mm  gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 face #311928

@@ -25,7 +25,7 @@ import { WorkerTessellator } from '../packages/tess-workers/src/node.ts';
 import { stepPartBytes } from '../packages/step-export/src/index.ts';
 import { differences, walk } from '../packages/step-export/test/compare.ts';
 import { readBack } from '../packages/step-export/test/readback.ts';
-import { corpusFiles, partSubset, shortName } from './corpus.ts';
+import { corpusFiles, partSubset, plantedPart, shortName } from './corpus.ts';
 import { runFiles, type FileCheck } from './runner.ts';
 
 const LINEAR_MM = 0.1, ANGULAR = 0.5, PLANT_EVERY = 10;
@@ -68,12 +68,8 @@ function merge(all: Result, r: Result): void {
   for (const k of ['faces', 'seenC', 'seenD'] as const) for (const x of r.planted[k]) all.planted[k].add(x);
 }
 
-/** Whether a part gets the planted bug: about one in PLANT_EVERY, by a hash (FNV-1a) of where it is. */
-function chosen(where: string): boolean {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < where.length; i++) h = Math.imul(h ^ where.charCodeAt(i), 0x01000193) >>> 0;
-  return h % PLANT_EVERY === 0;
-}
+/** Whether a part gets the planted bug: about one in PLANT_EVERY. */
+const chosen = (where: string) => plantedPart(where, PLANT_EVERY);
 
 /** A part's model with a bug planted (PLANT=sense, angle), and the face ids it should show at. */
 function plantModel(m: BrepData, pick: boolean): { m: BrepData; faces: number[] } {

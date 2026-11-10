@@ -24,7 +24,7 @@ for (const id of ids.slice(0, 3)) {
 }
 // which corpus-unknown entities exist in ap242?
 const unk = fs.readFileSync(process.argv[2]!, 'utf8').matchAll(/(ap\w+) unknown entity (\w+)/g);
-const res: Record<string, string[]> = { inAp242: [], notInAp242: [] };
+const res: { inAp242: string[]; notInAp242: string[] } = { inAp242: [], notInAp242: [] };
 for (const m of unk) (ap242.entity(m[2]!) ? res.inAp242 : res.notInAp242).push(`${m[1]}:${m[2]}`);
 console.log('\nunknown in corpus, found in ap242:', res.inAp242.length, '\nnot found in ap242:',
   res.notInAp242.join(' '));

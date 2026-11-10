@@ -9,21 +9,18 @@
 //   - non-manifold: some edge in three or more triangles;
 // each also split by whether the B-rep has free edges (edges of one face: an open shell in the file itself);
 // and triangles that welding made degenerate (two corners merged) are counted and dropped before classifying.
+// Several files at once (runner.ts: CHILDREN, MESH_WORKERS).
 // Usage: node corpus_checks/weld_survey.ts [file-list.txt] [max MB, default 2]  (progress on standard error)
 import fs from 'node:fs';
-import os from 'node:os';
 import { tessellateScene, type Mesh } from '../packages/cad-scene/src/index.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
 import { WorkerTessellator } from '../packages/tess-workers/src/node.ts';
 import { StepTessellator } from '../packages/step-export/src/index.ts';
 import { corpusFiles, shortName } from './corpus.ts';
+import { runFiles, type FileCheck } from './runner.ts';
 
-const workers = Math.max(1, os.availableParallelism() - 1);
-const tess = new WorkerTessellator(
-  { backend: { module: import.meta.resolve('../packages/tess-occt/src/index.ts'),
-  export: 'OcctTessellator' }, workers });
-await tess.init();
-const maxBytes = Number(process.argv[3] ?? 2) * 1e6;
+// The process's own: the size limit (from its command line), its meshing pool and workers.
+let maxBytes = 2e6, tess: WorkerTessellator, workers = 1;
 
 /**
  * Welded vertex per vertex: exact (tol 0) by coordinates, else within tol (a grid of tol-sized cells, 27 neighbours).
@@ -106,55 +103,98 @@ function diag(m: Mesh): number {
   return Math.hypot(hi[0]! - lo[0]!, hi[1]! - lo[1]!, hi[2]! - lo[2]!);
 }
 
-const tally = tolerances.map(() => (
-  { closed: 0, open: 0, misoriented: 0, 'non-manifold': 0, degenerateParts: 0,
-  degenerate: 0 } as Record<string, number>));
-const examples = tolerances.map(() => new Map<string, string[]>());
-let parts = 0, files = 0, skipped = 0, triangles = 0, vertices = 0, welded = 0;
-const t0 = Date.now();
-for (const f of corpusFiles(process.argv[2])) {
-  const bytes = fs.readFileSync(f);
-  if (bytes.length > maxBytes) { skipped++; continue; }
-  const name = shortName(f);
-  process.stderr.write(`${name}\n`);
-  files++;
-  const { scene } = await importStep(bytes);
-  const { meshes } = await tessellateScene(scene, new StepTessellator(tess),
-    { linearDeflection: 0.1, angularDeflection: 0.5, edges: true, concurrency: workers, orient: false,
-    dropDegenerate: false });
-  for (const [part, mesh] of meshes) {
-    if (!mesh.indices.length) continue;
-    parts++;
-    triangles += mesh.indices.length / 3;
-    vertices += mesh.positions.length / 3;
-    tolerances.forEach(([label, tol], k) => {
-      const r = classify(mesh, tol(mesh));
-      if (k === 0) welded += r.vertices;
-      tally[k]![r.kind]!++;
-      const free = mesh.edges?.some((e) => e.kind === 'free') ? 'free' : 'no free';
-      tally[k]![`${r.kind}, ${free}`] = (tally[k]![`${r.kind}, ${free}`] ?? 0) + 1;
-      if (r.degenerate) { tally[k]!.degenerateParts!++; tally[k]!.degenerate! += r.degenerate; }
-      const ex = examples[k]!.get(r.kind) ?? [];
-      if (r.kind !== 'closed' && ex.length < 8) ex.push(
-        `${name} part ${part} (${scene.parts[part]!.name ?? ''}): ${r.boundary} boundary, ${r.nonManifold} `
-        + `non-manifold edges, ${r.degenerate} degenerate`);
-      examples[k]!.set(r.kind, ex);
-      void label;
-    });
-  }
-}
-tess.dispose();
-
-console.log(`files ${files} (${skipped} over ${maxBytes / 1e6} MB skipped), `
-  + `${((Date.now() - t0) / 1000).toFixed(0)} s`);
-console.log(`part meshes with triangles ${parts}, triangles ${triangles}, vertices ${vertices} (${welded} after `
-  + `exact welding)`);
-tolerances.forEach(([label], k) => {
-  const t = tally[k]!;
-  console.log(`${label}, by B-rep free edges: `
-    + `${Object.entries(t).filter(([key]) => key.includes(',')).sort().map(([key, n]) => `${key} ${n}`).join('; ')}`);
-  console.log(`${label}: closed ${t.closed}, open ${t.open}, misoriented ${t.misoriented}, non-manifold `
-    + `${t['non-manifold']}; degenerate triangles ${t.degenerate} in ${t.degenerateParts} parts`);
-  for (const [kind, ex] of examples[k]!) if (ex.length) { console.log(`  ${kind}, e.g.:`);
-    for (const e of ex) console.log(`    ${e}`); }
+/** Examples kept per kind. */
+const EXAMPLES = 8;
+/** A file's results, or the run's (merge). */
+const fresh = () => ({
+  tally: tolerances.map(() => ({ closed: 0, open: 0, misoriented: 0, 'non-manifold': 0, degenerateParts: 0,
+    degenerate: 0 } as Record<string, number>)),
+  examples: tolerances.map(() => new Map<string, string[]>()),
+  parts: 0, files: 0, skipped: 0, triangles: 0, vertices: 0, welded: 0,
 });
+type Result = ReturnType<typeof fresh>;
+
+/** A file's results into the run's: counts summed, the first examples of each kind kept. */
+function merge(all: Result, r: Result): void {
+  for (const k of ['parts', 'files', 'skipped', 'triangles', 'vertices', 'welded'] as const) all[k] += r[k];
+  r.tally.forEach((t, k) => {
+    for (const [key, n] of Object.entries(t)) all.tally[k]![key] = (all.tally[k]![key] ?? 0) + n;
+  });
+  r.examples.forEach((m, k) => {
+    for (const [kind, ex] of m) {
+      const a = all.examples[k]!.get(kind) ?? [];
+      a.push(...ex.slice(0, EXAMPLES - a.length));
+      all.examples[k]!.set(kind, a);
+    }
+  });
+}
+
+export const check: FileCheck<undefined, Result> = {
+  async setup({ meshWorkers, args }) {
+    maxBytes = Number(args[1] ?? 2) * 1e6;
+    workers = meshWorkers;
+    tess = new WorkerTessellator({ backend: { module: import.meta.resolve('../packages/tess-occt/src/index.ts'),
+      export: 'OcctTessellator' }, workers });
+    await tess.init();
+  },
+  async file(f) {
+    const R = fresh(), { tally, examples } = R;
+    const bytes = fs.readFileSync(f);
+    if (bytes.length > maxBytes) { R.skipped++; return R; }
+    const name = shortName(f);
+    R.files++;
+    const { scene } = await importStep(bytes);
+    const { meshes } = await tessellateScene(scene, new StepTessellator(tess),
+      { linearDeflection: 0.1, angularDeflection: 0.5, edges: true, concurrency: workers, orient: false,
+      dropDegenerate: false });
+    for (const [part, mesh] of meshes) {
+      if (!mesh.indices.length) continue;
+      R.parts++;
+      R.triangles += mesh.indices.length / 3;
+      R.vertices += mesh.positions.length / 3;
+      tolerances.forEach(([label, tol], k) => {
+        const r = classify(mesh, tol(mesh));
+        if (k === 0) R.welded += r.vertices;
+        tally[k]![r.kind]!++;
+        const free = mesh.edges?.some((e) => e.kind === 'free') ? 'free' : 'no free';
+        tally[k]![`${r.kind}, ${free}`] = (tally[k]![`${r.kind}, ${free}`] ?? 0) + 1;
+        if (r.degenerate) { tally[k]!.degenerateParts!++; tally[k]!.degenerate! += r.degenerate; }
+        const ex = examples[k]!.get(r.kind) ?? [];
+        if (r.kind !== 'closed' && ex.length < EXAMPLES) ex.push(
+          `${name} part ${part} (${scene.parts[part]!.name ?? ''}): ${r.boundary} boundary, ${r.nonManifold} `
+          + `non-manifold edges, ${r.degenerate} degenerate`);
+        examples[k]!.set(r.kind, ex);
+        void label;
+      });
+    }
+    return R;
+  },
+  teardown() {
+    tess.dispose();
+  },
+};
+
+if (import.meta.main) {
+  const maxMb = Number(process.argv[3] ?? 2);
+  const all = fresh();
+  const t0 = Date.now();
+  await runFiles(import.meta.url, check, corpusFiles(process.argv[2]).map((f) => ({ path: f, job: undefined })),
+    process.argv.slice(2), (f, out) => {
+      if ('error' in out) process.stderr.write(`${shortName(f)}: failed: ${out.error}\n`);
+      else merge(all, out.result);
+    });
+  const { tally, examples, parts, files, skipped, triangles, vertices, welded } = all;
+  console.log(`files ${files} (${skipped} over ${maxMb} MB skipped), `
+    + `${((Date.now() - t0) / 1000).toFixed(0)} s`);
+  console.log(`part meshes with triangles ${parts}, triangles ${triangles}, vertices ${vertices} (${welded} after `
+    + `exact welding)`);
+  tolerances.forEach(([label], k) => {
+    const t = tally[k]!;
+    console.log(`${label}, by B-rep free edges: `
+      + `${Object.entries(t).filter(([key]) => key.includes(',')).sort().map(([key, n]) => `${key} ${n}`).join('; ')}`);
+    console.log(`${label}: closed ${t.closed}, open ${t.open}, misoriented ${t.misoriented}, non-manifold `
+      + `${t['non-manifold']}; degenerate triangles ${t.degenerate} in ${t.degenerateParts} parts`);
+    for (const [kind, ex] of examples[k]!) if (ex.length) { console.log(`  ${kind}, e.g.:`);
+      for (const e of ex) console.log(`    ${e}`); }
+  });
+}

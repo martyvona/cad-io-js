@@ -14,5 +14,5 @@
     "types": ["node"]
   },
   "include": ["packages/*/src", "packages/*/gen", "packages/*/test", "packages/*/bin", "packages/viewer/server",
-    "packages/viewer/vite.config.ts", "test"]
+    "packages/viewer/vite.config.ts", "test", "corpus_checks"]
 }
