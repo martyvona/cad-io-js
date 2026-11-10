@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { runFiles } from '../corpus_checks/runner.ts';
+import { addInto, runFiles } from '../corpus_checks/runner.ts';
 import { check } from './runner-fixture.ts';
 
 const FIXTURE = new URL('./runner-fixture.ts', import.meta.url).href;
@@ -76,4 +76,17 @@ test('runFiles with CHILDREN=0: every file in this process, the same order and o
   } finally {
     process.exit = exit;
   }
+});
+
+test('addInto: numbers, pairs element by element, rows appended, maps by key, objects by field; nothing else', () => {
+  const total = { n: 1, pair: [1, 2], rows: ['a'], none: [] as string[], by: new Map([['x', { k: 1 }]]),
+    deep: { m: 2 } } as Record<string, unknown>;
+  const file = { n: 2, pair: [10, 20], rows: ['b', 'c'], none: ['d'], by: new Map([['x', { k: 4 }], ['y', { k: 1 }]]),
+    deep: { m: 3, extra: 5 } };
+  assert.equal(addInto(total, file), total);
+  assert.deepEqual(total, { n: 3, pair: [11, 22], rows: ['a', 'b', 'c'], none: ['d'],
+    by: new Map([['x', { k: 5 }], ['y', { k: 1 }]]), deep: { m: 5, extra: 5 } });
+  assert.throws(() => addInto({ s: 'a' }, { s: 'b' }), /aren't tallies/);
+  assert.throws(() => addInto({ b: true }, { b: false }), /aren't tallies/);
+  assert.throws(() => addInto({ n: 1 }, { n: [1] } as never), /aren't tallies/);
 });

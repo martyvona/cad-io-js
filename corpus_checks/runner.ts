@@ -109,3 +109,32 @@ export async function runFiles<J, R>(moduleUrl: string, check: FileCheck<J, R>, 
   });
   deliver();
 }
+
+/**
+ * Adds a file's tallies (`delta`) into the totals (`target`, changed in place; returned, for leaves): numbers summed,
+ * arrays of numbers of the same length added element by element, other arrays appended (rows, examples), maps by key
+ * (added, or taken where new), objects field by field. Anything else (a string, a boolean) isn't a tally and throws:
+ * a per-file result of additive tallies only, so files merge in any grouping. A list of numbers to append (times)
+ * would be added element by element instead: keep such lists out, or merge them by hand.
+ */
+export function addInto<T>(target: T, delta: T): T {
+  if (typeof target === 'number' && typeof delta === 'number') return (target + delta) as T;
+  if (Array.isArray(target) && Array.isArray(delta)) {
+    const numbers = (a: unknown[]) => a.length > 0 && a.every((x) => typeof x === 'number');
+    if (numbers(target) && numbers(delta) && target.length === delta.length) {
+      for (let k = 0; k < target.length; k++) target[k] = target[k] + delta[k];
+    } else target.push(...delta);
+    return target;
+  }
+  if (target instanceof Map && delta instanceof Map) {
+    for (const [k, v] of delta) target.set(k, target.has(k) ? addInto(target.get(k), v) : v);
+    return target;
+  }
+  if (target && delta && typeof target === 'object' && typeof delta === 'object' && !Array.isArray(target)
+    && !Array.isArray(delta) && !(target instanceof Map) && !(delta instanceof Map)) {
+    const t = target as Record<string, unknown>, d = delta as Record<string, unknown>;
+    for (const k of Object.keys(d)) t[k] = k in t ? addInto(t[k], d[k]) : d[k];
+    return target;
+  }
+  throw new Error(`addInto: ${JSON.stringify(target)} and ${JSON.stringify(delta)} aren't tallies`);
+}
