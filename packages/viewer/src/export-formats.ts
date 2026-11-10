@@ -7,7 +7,7 @@ import { describeTransforms, TRANSFORM_KINDS, type InstanceOverride, type Materi
 /** glTF's geometry compression (export-gltf's Compression). */
 export type Compression = 'draco' | 'meshopt' | 'none';
 
-export type ExportFormat = 'glb' | 'gltf' | 'threejs' | '3mf';
+export type ExportFormat = 'glb' | 'gltf' | 'threejs' | '3mf' | 'step';
 
 /** What the export dialog asks for (export-dialog.ts), as stepconv's options. */
 export interface ExportRequest {
@@ -32,6 +32,9 @@ export interface ExportRequest {
   colorgroup: boolean;
   assembly: boolean;
   surfaces: boolean;
+  /** STEP: the schema; B-rep parts' meshes beside them (AP242). */
+  stepSchema: 'ap242' | 'ap214';
+  stepMeshes: boolean;
   /** The viewer's hiding and opacity (export-shown.ts): materials added, and the overrides in place of the scene's. */
   shown?: { materials: Material[]; overrides: InstanceOverride[] };
 }
@@ -39,18 +42,20 @@ export interface ExportRequest {
 /**
  * Each format's file extension, MIME type and words, which options it takes, and which kinds of transform it holds
  * (cad-scene's transforms.ts; the export dialog warns of the model's others), of the tree as it is or (`flat`) of each
- * placed part.
+ * placed part. STEP's placements are rigid: it holds none of them.
  */
 export const EXPORT_FORMATS: Record<ExportFormat, { ext: string; mime: string; label: string; lines: boolean;
-  gltf: boolean; threemf: boolean; transforms: readonly TransformKind[]; flat: boolean }> = {
+  gltf: boolean; threemf: boolean; step: boolean; transforms: readonly TransformKind[]; flat: boolean }> = {
   glb: { ext: '.glb', mime: 'model/gltf-binary', label: 'glTF 2.0, binary (GLB)', lines: true, gltf: true,
-    threemf: false, transforms: ['reflection', 'nonUniformScale'], flat: false },
+    threemf: false, step: false, transforms: ['reflection', 'nonUniformScale'], flat: false },
   gltf: { ext: '.gltf', mime: 'model/gltf+json', label: 'glTF 2.0, JSON (.gltf)', lines: true, gltf: true,
-    threemf: false, transforms: ['reflection', 'nonUniformScale'], flat: false },
+    threemf: false, step: false, transforms: ['reflection', 'nonUniformScale'], flat: false },
   threejs: { ext: '.json', mime: 'application/json', label: 'three.js JSON', lines: true, gltf: false,
-    threemf: false, transforms: ['reflection', 'nonUniformScale', 'shear'], flat: false },
-  '3mf': { ext: '.3mf', mime: 'model/3mf', label: '3MF', lines: false, gltf: false, threemf: true,
+    threemf: false, step: false, transforms: ['reflection', 'nonUniformScale', 'shear'], flat: false },
+  '3mf': { ext: '.3mf', mime: 'model/3mf', label: '3MF', lines: false, gltf: false, threemf: true, step: false,
     transforms: ['reflection', 'nonUniformScale', 'shear'], flat: true },
+  step: { ext: '.stp', mime: 'model/step', label: 'STEP (exact geometry)', lines: false, gltf: false, threemf: false,
+    step: true, transforms: [], flat: false },
 };
 
 /** What a format can't hold of a model's transforms, as a sentence; empty if nothing. */
@@ -72,5 +77,5 @@ export function transformsLost(f: ExportFormat, use: TransformUse): string {
 export const DEFAULT_EXPORT: Omit<ExportRequest, 'name'> = {
   format: 'glb', edges: false, curves: false, doubleSided: false, unlitLines: false, keepHidden: false,
   extras: false, keepEmpty: false, compression: 'draco', dracoBits: 14, instancing: false, embed: true,
-  colorgroup: false, assembly: false, surfaces: false,
+  colorgroup: false, assembly: false, surfaces: false, stepSchema: 'ap242', stepMeshes: false,
 };

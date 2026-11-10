@@ -22,14 +22,19 @@ export function rememberedExport(): ExportChoice {
     }
     if (!(base.format in EXPORT_FORMATS)) base.format = DEFAULT_EXPORT.format;
     if (!['draco', 'meshopt', 'none'].includes(base.compression)) base.compression = DEFAULT_EXPORT.compression;
+    if (!['ap242', 'ap214'].includes(base.stepSchema)) base.stepSchema = DEFAULT_EXPORT.stepSchema;
   } catch {
     // (Storage unavailable or unreadable: the defaults.)
   }
   return base;
 }
 
-/** The options the dialog shows, each with the formats it applies to (`lines`: those with lines; gltf; 3mf). */
-const BOXES: [keyof ExportChoice, string, 'all' | 'lines' | 'gltf' | 'gltfFile' | 'threemf'][] = [
+/**
+ * The options the dialog shows, each with the formats it applies to (`lines`: those with lines; gltf; 3mf; `meshes`:
+ * the mesh formats, not STEP; `stepMeshes`: STEP in AP242).
+ */
+const BOXES: [keyof ExportChoice, string, 'all' | 'lines' | 'gltf' | 'gltfFile' | 'threemf' | 'meshes'
+  | 'stepMeshes'][] = [
   ['edges', 'B-rep edges', 'lines'],
   ['curves', 'Curves and points', 'lines'],
   ['doubleSided', 'Double-sided faces', 'lines'],
@@ -39,9 +44,10 @@ const BOXES: [keyof ExportChoice, string, 'all' | 'lines' | 'gltf' | 'gltfFile' 
   ['colorgroup', 'Colours as colorgroup (else basematerials)', 'threemf'],
   ['assembly', 'The assembly as components (else an item per placed part)', 'threemf'],
   ['surfaces', 'Open meshes as surfaces (else left out)', 'threemf'],
-  ['keepHidden', 'Keep hidden instances (written hidden)', 'all'],
+  ['stepMeshes', "B-rep parts' meshes beside them (for readers that can't mesh them)", 'stepMeshes'],
+  ['keepHidden', 'Keep hidden instances (written hidden)', 'meshes'],
   ['keepEmpty', 'Keep empty nodes', 'lines'],
-  ['extras', "Our extras (cad-io-js's metadata)", 'all'],
+  ['extras', "Our extras (cad-io-js's metadata)", 'meshes'],
   ['shown', "Apply the viewer's hiding and opacity", 'all'],
 ];
 
@@ -83,6 +89,16 @@ export async function askExport(start: ExportChoice, transforms?: TransformUse):
   const bits = Object.assign(document.createElement('input'), { type: 'number', min: '1', max: '30', step: '1',
     value: String(c.dracoBits) });
   bitsRow.append(bits);
+  // STEP's schema.
+  const schemaRow = document.createElement('label');
+  schemaRow.textContent = 'Schema';
+  const schema = document.createElement('select');
+  for (const [v, t] of [['ap242', 'AP242'], ['ap214', 'AP214 (older readers; no tessellated geometry)']]) {
+    schema.add(new Option(t, v));
+  }
+  schema.value = c.stepSchema;
+  schemaRow.append(schema);
+  box.append(schemaRow);
   const lost = document.createElement('p');
   lost.className = 'warning';
   box.append(comp, bitsRow, lost);
@@ -91,12 +107,18 @@ export async function askExport(start: ExportChoice, transforms?: TransformUse):
     lost.textContent = transforms ? transformsLost(c.format, transforms) : '';
     lost.hidden = !lost.textContent;
     for (const { row, when } of rows) row.hidden = !(when === 'all' || (when === 'lines' && f.lines) ||
-      (when === 'gltf' && f.gltf) || (when === 'gltfFile' && c.format === 'gltf') || (when === 'threemf' && f.threemf));
+      (when === 'gltf' && f.gltf) || (when === 'gltfFile' && c.format === 'gltf') || (when === 'threemf' && f.threemf)
+      || (when === 'meshes' && !f.step) || (when === 'stepMeshes' && f.step && c.stepSchema === 'ap242'));
+    schemaRow.hidden = !f.step;
     comp.hidden = !f.gltf;
     bitsRow.hidden = !f.gltf || c.compression !== 'draco';
   };
   format.addEventListener('change', () => {
     c.format = format.value as ExportFormat;
+    show();
+  });
+  schema.addEventListener('change', () => {
+    c.stepSchema = schema.value as ExportChoice['stepSchema'];
     show();
   });
   compression.addEventListener('change', () => {

@@ -1,15 +1,18 @@
-// stepconv: STEP (Part 21, or gzipped .stpZ) to a tessellated format. See README.md and docs/scene-formats.md.
+// stepconv: STEP (Part 21, or gzipped .stpZ) to a tessellated format, or to STEP again. See README.md and
+// docs/scene-formats.md.
 //
 //   import (step-import) -> tessellate each part (a backend, in a tess-workers pool unless --workers 0, cached with
 //   tess-cache when --cache names a directory) -> the export view (cad-scene) -> an exporter, chosen by the output's
-//   extension or --format. A summary and the diagnostics go to standard error.
+//   extension or --format. STEP output writes the exact geometry, so nothing is meshed unless --step-meshes asks for
+//   B-rep parts' meshes beside it. A summary and the diagnostics go to standard error.
 
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { Readable, type Writable } from 'node:stream';
 import { parseArgs } from 'node:util';
-import { DEFAULT_MESH_PROFILE, exportView, MESH_PROFILE_NAMES, MESH_PROFILES, meshProfileOf, tessellateScene,
+import { DEFAULT_MESH_PROFILE, exportView, MESH_PROFILE_NAMES, MESH_PROFILES, meshProfileOf, partInstances,
+  tessellateScene,
   type Deflections, type Diagnostic, type ExportView, type Scene, type Tessellator } from 'cad-scene';
 import { threemf } from 'export-3mf';
 import { glb, gltfJson, type Compression, type GltfOptions } from 'export-gltf';
@@ -18,7 +21,7 @@ import { importStep } from 'step-import';
 import { readStep } from 'step-parser';
 import { CachedTessellator, FileStore, DEFAULT_FILE_BYTES } from 'tess-cache';
 import { DEFAULT_TIMEOUT_MS, WorkerTessellator } from 'tess-workers';
-import { StepTessellator } from 'step-export';
+import { exportStep, StepTessellator, type StepSchema } from 'step-export';
 import type { Io } from './step2json.ts';
 
 interface Format {
@@ -30,6 +33,8 @@ interface Format {
   gltf?: boolean;
   /** Takes the --3mf-* options; has no lines (no --with-edges, --with-curves, --unlit-lines), no double-sided faces. */
   threemf?: boolean;
+  /** STEP: the exact geometry, so meshed only with --step-meshes; takes the --step-* options, not the mesh ones. */
+  step?: boolean;
   write(scene: Scene, view: ExportView, opts: FormatOptions): Promise<Written> | Written;
 }
 
@@ -48,12 +53,15 @@ interface FormatOptions {
   dracoBits: number;
   instancing: boolean;
   keepEmpty: boolean;
+  stepSchema: StepSchema;
+  stepMeshes: boolean;
 }
 
 interface Written {
   chunks: Iterable<string | Uint8Array>;
   /** The sidecar's contents, for formats with one. */
   sidecar?: Uint8Array;
+  /** Complete once `chunks` has been read through. */
   diagnostics?: Diagnostic[];
 }
 
@@ -81,6 +89,15 @@ const FORMATS: Record<string, Format> = {
     write: async (scene, view, o) => {
       const r = await gltfJson(scene, view, o.sidecar || undefined, gltfOptions(o));
       return { chunks: [r.json], sidecar: r.bin, diagnostics: r.diagnostics };
+    },
+  },
+  step: {
+    extensions: ['.stp', '.step'],
+    description: 'STEP AP242 (AP214: --step-schema), exact geometry; parts without it tessellated',
+    step: true,
+    write: (scene, _view, o) => {
+      const x = exportStep(scene, { name: o.name, schema: o.stepSchema, meshes: o.stepMeshes });
+      return { chunks: x.chunks, diagnostics: x.diagnostics };
     },
   },
   '3mf': {
@@ -120,8 +137,8 @@ const PROFILE_LINES = MESH_PROFILE_NAMES.map((n) => `${' '.repeat(29)}${n.padEnd
 
 const USAGE = `Usage: stepconv [options] <file.stp | file.stpZ | -> -o <output>
 
-Converts a STEP file to a tessellated format, chosen by the output's extension or --format. '-' reads standard
-input; '-o -' writes standard output (with --format).
+Converts a STEP file to a tessellated format, or to STEP again, chosen by the output's extension or --format. '-'
+reads standard input; '-o -' writes standard output (with --format).
 
 Formats:
 ${FORMAT_LINES}
@@ -162,6 +179,10 @@ ${PROFILE_LINES}
       --3mf-assembly       3MF: one build item, the assembly as components, instead of an item per placed part
       --3mf-surfaces       3MF: meshes that aren't closed manifolds, and parts the source says are open, as
                            surface objects instead of left out
+      --step-schema <ap242|ap214>
+                           STEP: the schema (default ap242; ap214 for older readers, without tessellated geometry)
+      --step-meshes        STEP: B-rep parts meshed, and their meshes written as tessellated geometry beside their
+                           exact geometry, for readers that can't mesh it (AP242)
   -j, --workers <n>        parts tessellated at once, each in a worker (default ${defaultWorkers()}); 0: one at a time
                            on the main thread, without a timeout
       --timeout <s>        per part, in a worker (default ${DEFAULT_TIMEOUT_MS / 1000}); 0: none
@@ -213,6 +234,8 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
         '3mf-colorgroup': { type: 'boolean', default: false },
         '3mf-assembly': { type: 'boolean', default: false },
         '3mf-surfaces': { type: 'boolean', default: false },
+        'step-schema': { type: 'string' },
+        'step-meshes': { type: 'boolean', default: false },
         workers: { type: 'string', short: 'j' },
         timeout: { type: 'string' },
         cache: { type: 'string' },
@@ -257,6 +280,19 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
     (f) => o[f]);
   if (notThreemf && format.threemf) return usage(`--${notThreemf} doesn't apply to 3mf output`);
   if (o['gltf-embed'] && !format.sidecar) return usage('--gltf-embed applies to gltf output (GLB holds its buffer)');
+  const stepGiven = (['step-schema', 'step-meshes'] as const).find((f) => o[f] !== undefined && o[f] !== false);
+  if (stepGiven && !format.step) return usage(`--${stepGiven} applies to step output`);
+  const meshOnly = ['with-edges', 'with-curves', 'unlit-lines', 'double-sided', 'keep-hidden', 'keep-empty',
+    'extras'] as const;
+  const notStep = meshOnly.find((f) => o[f]);
+  if (notStep && format.step) return usage(`--${notStep} doesn't apply to step output`);
+  const stepSchema = (o['step-schema'] ?? 'ap242') as StepSchema;
+  if (!['ap242', 'ap214'].includes(stepSchema)) return usage(
+    `--step-schema must be ap242 or ap214, not '${stepSchema}'`);
+  if (o['step-meshes'] && stepSchema === 'ap214') return usage('--step-meshes needs ap242 (AP214 has no tessellated '
+    + 'geometry)');
+  // Whether parts are meshed: always, but for STEP without --step-meshes.
+  const meshing = !format.step || o['step-meshes'];
   const embed = o['gltf-embed'];
   if (format.sidecar && !embed && o.output === '-') return usage(
     `${formatName} writes a ${format.sidecar} file beside the output, so not to standard output`);
@@ -324,9 +360,9 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
     if (sidecarWritten) fs.rmSync(sidecarPath, { force: true });
   };
 
-  let tess: Tessellator;
+  let tess: Tessellator | undefined;
   let cached: CachedTessellator | undefined;
-  try {
+  if (meshing) try {
     if (workers > 0) {
       tess = new WorkerTessellator(
         { backend: { module: import.meta.resolve(backend.module), export: backend.export }, workers,
@@ -339,7 +375,7 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
     tess = new StepTessellator(tess);
     if (o.cache !== undefined) tess = cached = new CachedTessellator(tess,
       new FileStore({ dir: o.cache, maxBytes: cacheMb * 2 ** 20 }));
-    await tess.init();
+    await tess!.init();
   } catch (e) {
     io.stderr.write(`stepconv: can't start the ${o.backend} backend: ${(e as Error).message}\n`);
     abandon();
@@ -348,8 +384,8 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
 
   const diagnostics: Diagnostic[] = [...scene.diagnostics];
   const progress = !o.quiet && (io.stderr as { isTTY?: boolean }).isTTY === true;
-  let meshes;
-  try {
+  let meshes = new Map<number, unknown>();
+  if (tess) try {
     const r = await tessellateScene(scene, tess, {
       ...deflections, edges: o['with-edges'],
       concurrency: Math.max(1, workers),
@@ -370,9 +406,9 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
     const w = await format.write(scene, view, {
       name, doubleSided: o['double-sided'], keepHidden: o['keep-hidden'], sidecar, unlitLines: o['unlit-lines'],
       colorgroup: o['3mf-colorgroup'], assembly: o['3mf-assembly'], surfaces: o['3mf-surfaces'], extras: o.extras,
-      compression, dracoBits, instancing: o['gltf-instancing'], keepEmpty: o['keep-empty'],
+      compression, dracoBits, instancing: o['gltf-instancing'], keepEmpty: o['keep-empty'], stepSchema,
+      stepMeshes: o['step-meshes'],
     });
-    diagnostics.push(...(w.diagnostics ?? []));
     // (None when embedded, or when there's no buffer: a scene with nothing to draw.)
     if (sidecar && w.sidecar?.length) {
       fs.writeFileSync(sidecarPath, w.sidecar);
@@ -386,6 +422,7 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
     }
     if (out !== io.stdout) await new Promise<void>((resolve) => out.end(() => resolve()));
     if (outError) throw outError;
+    diagnostics.push(...(w.diagnostics ?? []));
   } catch (e) {
     io.stderr.write(`stepconv: can't write ${o.output}: ${(e as Error).message}\n`);
     abandon();
@@ -394,13 +431,15 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
   lap('export');
 
   if (!o.quiet) {
-    io.stderr.write(summary(scene, meshes.size, view, diagnostics, times, written, cached, deflections));
+    io.stderr.write(summary(scene, meshing ? meshes.size : undefined, view, diagnostics, times, written, cached,
+      deflections));
   }
   const failed = scene.parts.filter((p, i) => p.brep && !meshes.has(i)).length;
   return o.strict && failed ? 3 : 0;
 }
 
-function summary(scene: Scene, meshed: number, view: ExportView, diagnostics: readonly Diagnostic[],
+/** The run's summary; `meshed` undefined when nothing was (STEP output). */
+function summary(scene: Scene, meshed: number | undefined, view: ExportView, diagnostics: readonly Diagnostic[],
   times: Record<string, number>,
   written: number, cached: CachedTessellator | undefined, deflections: Deflections): string {
   const brep = scene.parts.filter((p) => p.brep).length;
@@ -412,11 +451,19 @@ function summary(scene: Scene, meshed: number, view: ExportView, diagnostics: re
   // (The scene's root parts too: a file of one part has nothing else.)
   walk({ parts: view.parts, children: view.roots } as unknown as ExportView['roots'][number]);
   const s = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
-  let text = `${scene.parts.length} parts (${meshed} of ${brep} brep parts tessellated), ${placed} placed; `
-    + `${triangles} triangles; `
-    + `${(written / 1e6).toFixed(1)} MB written\n`;
-  const meshing = `${meshProfileOf(deflections) ?? 'custom'}: ${describe(deflections)}`;
-  text += `import ${s(times.import!)}, tessellation ${s(times.tessellate!)} (${meshing}), export ${s(times.export!)}\n`;
+  let text: string;
+  if (meshed === undefined) {
+    text = `${scene.parts.length} parts (${brep} brep parts, not tessellated), ${[...partInstances(scene)].length} `
+      + `placed; ${(written / 1e6).toFixed(1)} MB written\n`
+      + `import ${s(times.import!)}, export ${s(times.export!)}\n`;
+  } else {
+    text = `${scene.parts.length} parts (${meshed} of ${brep} brep parts tessellated), ${placed} placed; `
+      + `${triangles} triangles; `
+      + `${(written / 1e6).toFixed(1)} MB written\n`;
+    const meshing = `${meshProfileOf(deflections) ?? 'custom'}: ${describe(deflections)}`;
+    text += `import ${s(times.import!)}, tessellation ${s(times.tessellate!)} (${meshing}), `
+      + `export ${s(times.export!)}\n`;
+  }
   if (cached) {
     const c = cached.stats();
     text += `cache: ${c.hits} hits (${c.failureHits} failures), ${c.misses} `

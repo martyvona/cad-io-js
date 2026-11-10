@@ -310,6 +310,20 @@ test("an annotation-only representation isn't a part; a geometric set's surfaces
   assert.deepEqual([...partInstances(scene)].map((p) => p.part), [0]);
 });
 
+test('a part is hidden when every item it draws is, a placement among its items (as assemblies refer to) aside',
+  async () => {
+    // The geometric set styled and made invisible; the representation also holds a placement nothing else uses.
+    const hidden = SURFACES.replace("#115=GEOMETRICALLY_BOUNDED_SURFACE_SHAPE_REPRESENTATION('gbssr',(#114),#16);",
+      "#115=GEOMETRICALLY_BOUNDED_SURFACE_SHAPE_REPRESENTATION('gbssr',(#114,#24),#16);")
+      + '\n#24=AXIS2_PLACEMENT_3D(\'origin\',#20,#21,#22);'
+      + '\n#508=STYLED_ITEM(\'\',(#506),#114);\n#509=INVISIBILITY((#508));';
+    const { scene } = await importStep(file(hidden));
+    assert.deepEqual([...partInstances(scene)].map((p) => p.visible), [false]);
+    // Not hidden while the set is visible.
+    const shown = (await importStep(file(hidden.replace('#509=INVISIBILITY((#508));', '')))).scene;
+    assert.deepEqual([...partInstances(shown)].map((p) => p.visible), [true]);
+  });
+
 // A product whose representation holds a placement, with two representations related to it: a two-dimensional drawing
 // (a point in a curve set) and a three-dimensional wireframe (a line segment).
 const DRAWING = `

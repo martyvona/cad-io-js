@@ -1,5 +1,6 @@
 // Exporting the model (File's Export...), in the import worker, which holds the scene as it was imported and meshed
-// (model-load.ts): its export view at the deflections it was meshed with, through the library's exporters, as stepconv
+// (model-load.ts), B-rep models included (STEP writes them): its export view at the deflections it was meshed with,
+// through the library's exporters, as stepconv
 // writes them (packages/cli, its FORMATS), the same options and defaults. With `shown`, the viewer's hiding and opacity
 // applied first (export-shown.ts, on the page). The files come back as their pieces, for the page to save (a Blob of
 // them).
@@ -8,6 +9,7 @@ import { drain, exportView, paced, type Deflections, type Diagnostic, type Scene
 import { threemf, threemfAsync } from 'export-3mf';
 import { glb, gltfJson } from 'export-gltf';
 import { threejsChunks } from 'export-threejs';
+import { exportStep } from 'step-export';
 import { EXPORT_FORMATS, type ExportRequest } from './export-formats.ts';
 
 export interface Exported {
@@ -26,6 +28,12 @@ export async function exportModel(scene: Scene, deflections: Deflections, r: Exp
   draco: Record<string, unknown> = {}, pause?: () => Promise<void>): Promise<Exported> {
   const s: Scene = r.shown ? { ...scene, materials: [...scene.materials, ...r.shown.materials],
     overrides: r.shown.overrides } : scene;
+  if (r.format === 'step') {
+    // The exact geometry (and, by option, the meshes made, at the deflections the scene was meshed with).
+    const x = exportStep(s, { name: r.name, schema: r.stepSchema, meshes: r.stepMeshes && r.stepSchema === 'ap242' });
+    const steps = collect(x.chunks);
+    return { chunks: pause ? await paced(steps, pause) : drain(steps), diagnostics: x.diagnostics };
+  }
   const lines = EXPORT_FORMATS[r.format].lines;
   const view = exportView(s, { ...deflections, edges: lines && r.edges, curves: lines && r.curves });
   const gltf = { name: r.name, doubleSided: r.doubleSided, hidden: r.keepHidden ? 'extension' as const

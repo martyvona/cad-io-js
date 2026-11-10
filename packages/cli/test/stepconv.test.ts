@@ -15,7 +15,7 @@ import { exportView, meshDeflections, tessellateScene } from 'cad-scene';
 import { threemf } from 'export-3mf';
 import { glb, gltfJson } from 'export-gltf';
 import { threejsJson } from 'export-threejs';
-import { StepTessellator } from 'step-export';
+import { exportStep, StepTessellator } from 'step-export';
 import { importStep } from 'step-import';
 import { OcctTessellator } from 'tess-occt';
 import { stepconv } from '../src/index.ts';
@@ -534,6 +534,13 @@ test('stepconv: usage errors and failures', async () => {
   await usage([cube, '-o', scratch, '--timeout=-3'], /--timeout must be a non-negative number/);
   await usage([cube, '-o', scratch, '--cache-size', '5'], /--cache-size needs --cache/);
   await usage([cube, '-o', scratch, '--bogus'], /Unknown option '--bogus'/);
+  const stp = path.join(tmp, 'usage.stp');
+  await usage([cube, '-o', scratch, '--step-meshes'], /--step-meshes applies to step output/);
+  await usage([cube, '-o', scratch, '--step-schema', 'ap214'], /--step-schema applies to step output/);
+  await usage([cube, '-o', stp, '--step-schema', 'ap203'], /--step-schema must be ap242 or ap214, not 'ap203'/);
+  await usage([cube, '-o', stp, '--step-schema', 'ap214', '--step-meshes'], /--step-meshes needs ap242/);
+  for (const o of ['--with-edges', '--with-curves', '--unlit-lines', '--double-sided', '--keep-hidden',
+    '--keep-empty', '--extras']) await usage([cube, '-o', stp, o], new RegExp(`${o} doesn't apply to step output`));
   const help = await run(['-h']);
   assert.equal(help.code, 0);
   assert.match(help.stdout, /^Usage: stepconv/);
@@ -542,6 +549,7 @@ test('stepconv: usage errors and failures', async () => {
   assert.match(help.stdout, /glb +\.glb/);
   assert.match(help.stdout, /gltf +\.gltf/);
   assert.match(help.stdout, /3mf +\.3mf/);
+  assert.match(help.stdout, /step +\.stp, \.step/);
   // Failures: an unreadable input; an output that can't be opened (nothing written).
   const missing = await run([path.join(tmp, 'missing.stp'), '-o', path.join(tmp, 'x.json')]);
   assert.equal(missing.code, 2);
@@ -552,6 +560,29 @@ test('stepconv: usage errors and failures', async () => {
     assert.match(bad.stderr, /^stepconv: can't write .*x\.json: ENOENT/);
   }
 });
+
+test('stepconv: STEP, the same as the library, nothing meshed; --step-meshes meshes; --step-schema ap214', { skip },
+  async () => {
+    const concat = (cs: Iterable<Uint8Array>) => Buffer.concat([...cs]);
+    const { scene } = await importStep(new Uint8Array(fs.readFileSync(assembly)));
+    for (const [ext, schema] of [['.stp', 'ap242'], ['.step', 'ap214']] as const) {
+      const out = path.join(tmp, `as1${ext}`);
+      const r = await run([assembly, '-o', out, ...(schema === 'ap214' ? ['--step-schema', 'ap214'] : []), '-j', '0']);
+      assert.equal(r.code, 0, r.stderr);
+      assert.equal(r.stdout, '');
+      assert.match(r.stderr,
+        /^5 parts \(5 brep parts, not tessellated\), 18 placed; [\d.]+ MB written\nimport [\d.]+ s, export /);
+      assert.deepEqual(fs.readFileSync(out), concat(exportStep(scene, { name: 'as1-oc-214-mat', schema }).chunks));
+    }
+    // With meshes: tessellated (a worker pool), each B-rep part's mesh beside it, read back as a source level.
+    const out = path.join(tmp, 'as1-meshes.stp');
+    const r = await run([assembly, '-o', out, '--step-meshes', '--coarse']);
+    assert.equal(r.code, 0, r.stderr);
+    assert.match(r.stderr, /^5 parts \(5 of 5 brep parts tessellated\), 18 placed;/);
+    const back = (await importStep(new Uint8Array(fs.readFileSync(out)))).scene;
+    assert.ok(back.parts.every((p) => p.brep && p.lods.length === 1 && p.lods[0]!.from === 'source'));
+    assert.equal(back.parts[0]!.lods[0]!.linearDeflection, 0.2);
+  });
 
 test('stepconv: the bin script', { skip }, () => {
   const out = path.join(tmp, 'bin.json');

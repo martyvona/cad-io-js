@@ -23,6 +23,63 @@ export interface StepGeometry {
   instances: Iterable<Instance>;
   /** What couldn't be written as the model has it; complete once `instances` has been read through. */
   diagnostics: Diagnostic[];
+  /**
+   * Each written face's id by its source id (the model's `face.id`), and each surface's (a geometric set's surfaces
+   * are faces to a reader: step-import's); complete once `instances` is read.
+   */
+  faceIds: Map<number, number>;
+  surfaceIds: Map<number, number>;
+  /** The representation's items, its origin placement (`origin`) last; complete once `instances` is read. */
+  items: number[];
+  /** The representation context's id. */
+  contextId: number;
+  /** Each geometric set's elements, by the set's id: a set's style isn't its elements' to every reader (OCCT). */
+  setMembers: Map<number, number[]>;
+}
+
+/** Instance ids shared by several writers into one file: a source id kept unless taken, new ones after the largest. */
+export interface StepIds {
+  /** `id` if it's a positive safe integer not yet taken (it's then taken), else a new one. */
+  claim(id: number | undefined): number;
+  fresh(): number;
+}
+
+/** Ids for one file: source ids up to `largest` kept once each, new ones after it (so never colliding). */
+export function stepIds(largest: number): StepIds {
+  let next = Math.floor(Math.max(largest, 0)) + 1;
+  const used = new Set<number>();
+  return {
+    claim: (x) => {
+      if (x === undefined || !Number.isSafeInteger(x) || x <= 0 || x > largest || used.has(x)) {
+        return next++;
+      }
+      used.add(x);
+      return x;
+    },
+    fresh: () => next++,
+  };
+}
+
+/** The largest source id in a model, for `stepIds`. */
+export function largestId(d: BrepData): number {
+  let largest = 0;
+  for (const t of ['curve', 'surface', 'vertex', 'edge', 'coedge', 'loop', 'face', 'shell', 'body', 'item'] as const) {
+    for (const x of d[t].id) if (x > largest) largest = x;
+  }
+  return largest;
+}
+
+export interface StepGeometryOptions {
+  /** The file's ids, when the representation is one of several in it; by default the model's own (`stepIds`). */
+  ids?: StepIds;
+  /** The representation's name. */
+  name?: string;
+  /** The representation's id, kept if free (`StepIds.claim`): its source's. */
+  id?: number;
+  /** Add an AXIS2_PLACEMENT_3D at the origin to the items: what an assembly's placements of it refer to. */
+  origin?: boolean;
+  /** A conversion-based unit's dimensions written derived (`*`), as AP214 edition 3 has them. */
+  derivedDimensions?: boolean;
 }
 
 /** An SI length unit's prefix by millimetres per unit (null: the metre itself). */
@@ -129,7 +186,7 @@ function reachable(d: BrepData) {
 }
 
 /** The model as STEP: a shape representation with its items. */
-export function stepGeometry(d: BrepData): StepGeometry {
+export function stepGeometry(d: BrepData, opts: StepGeometryOptions = {}): StepGeometry {
   const live = reachable(d);
   const diagnostics: Diagnostic[] = [];
   // Problems said once each, with a count and the first few source ids.
@@ -142,19 +199,13 @@ export function stepGeometry(d: BrepData): StepGeometry {
   };
 
   // Ids: the rows' own, unless taken; new ones after the largest.
-  let largest = 0;
-  for (const t of ['curve', 'surface', 'vertex', 'edge', 'coedge', 'loop', 'face', 'shell', 'body', 'item'] as const) {
-    for (const x of d[t].id) if (x > largest) largest = x;
-  }
-  let next = Math.floor(largest) + 1;
-  const used = new Set<number>();
-  const fresh = () => next++;
-  const own = (x: number | undefined) => {
-    if (x === undefined || Number.isNaN(x) || !Number.isSafeInteger(x) || x <= 0 || used.has(x)) return fresh();
-    used.add(x);
-    return x;
-  };
-  const rootId = fresh(), contextId = fresh();
+  const ids = opts.ids ?? stepIds(largestId(d));
+  const fresh = () => ids.fresh();
+  const own = (x: number | undefined) => ids.claim(x);
+  const rootId = opts.id !== undefined ? own(opts.id) : fresh(), contextId = fresh();
+  const faceIds = new Map<number, number>(), surfaceIds = new Map<number, number>();
+  const setMembers = new Map<number, number[]>();
+  const rootItems: number[] = [];
 
   const out: Instance[] = [];
   const emit = (id: number, type: string, attrs: Value[]) => { out.push({ id, type, attrs }); return id; };
@@ -277,6 +328,7 @@ export function stepGeometry(d: BrepData): StepGeometry {
         ref(curveId[s.directrix]!), ref(direction(s.fixedReference))]); break;
     }
     surfaceId[k] = id;
+    if (s.id !== undefined && !Number.isNaN(s.id) && !surfaceIds.has(s.id)) surfaceIds.set(s.id, id);
   }
 
   // -- P-curves: a 2D curve on a surface, through a definitional representation in the parameter space's context.
@@ -373,6 +425,12 @@ export function stepGeometry(d: BrepData): StepGeometry {
 
   // -- Faces.
   const faceId = new Float64Array(nFaces).fill(NaN);
+  // A face's written id, kept by its source id (the first face with it, if repeated) for styles.
+  const faceIdOf = (source: number | undefined) => {
+    const id = own(source);
+    if (source !== undefined && !Number.isNaN(source) && !faceIds.has(source)) faceIds.set(source, id);
+    return id;
+  };
   const faceAdvanced = new Uint8Array(nFaces);
   const orientation = (o: string, id: number | undefined, range?: [number, number]) => {
     if (o === 'internal' || o === 'external') note(`${o} coedges (written as forward)`, id);
@@ -398,7 +456,7 @@ export function stepGeometry(d: BrepData): StepGeometry {
       && face.loops.every((l) => l.kind === 'vertex' || (l.kind === 'edge'
         && l.coedges.every((c) => advancedEdge[c.edge] === 1)));
     faceAdvanced[f] = advanced ? 1 : 0;
-    faceId[f] = emit(own(face.id), advanced ? 'ADVANCED_FACE' : 'FACE_SURFACE', [NAME, refs(bounds),
+    faceId[f] = emit(faceIdOf(face.id), advanced ? 'ADVANCED_FACE' : 'FACE_SURFACE', [NAME, refs(bounds),
       ref(surfaceId[s]!), bool(face.sameSense)]);
   }
   const sweptAdvanced = (s: Surface) =>
@@ -429,7 +487,7 @@ export function stepGeometry(d: BrepData): StepGeometry {
       boundaries.push(emit(own(l.id), l.bound === 'outer' && !implicitOuter ? 'OUTER_BOUNDARY_CURVE'
         : 'BOUNDARY_CURVE', [NAME, refs(segments), logical(null)]));
     }
-    faceId[f] = emit(own(face.id), 'CURVE_BOUNDED_SURFACE', [NAME, ref(surfaceId[s]!), refs(boundaries),
+    faceId[f] = emit(faceIdOf(face.id), 'CURVE_BOUNDED_SURFACE', [NAME, ref(surfaceId[s]!), refs(boundaries),
       bool(implicitOuter)]);
   }
 
@@ -502,7 +560,9 @@ export function stepGeometry(d: BrepData): StepGeometry {
     let run: number[] = [], runCurves = true;
     const flush = () => {
       if (!run.length) return;
-      items.push(emit(fresh(), runCurves ? 'GEOMETRIC_CURVE_SET' : 'GEOMETRIC_SET', [NAME, refs(run)]));
+      const set = emit(fresh(), runCurves ? 'GEOMETRIC_CURVE_SET' : 'GEOMETRIC_SET', [NAME, refs(run)]);
+      setMembers.set(set, run);
+      items.push(set);
       sets++;
       if (!runCurves) curvesOnly = false;
       run = [];
@@ -526,42 +586,20 @@ export function stepGeometry(d: BrepData): StepGeometry {
       if (it.kind !== 'curve' && it.kind !== 'point') runCurves = false;
     }
     flush();
+    if (opts.origin) items.push(emit(fresh(), 'AXIS2_PLACEMENT_3D', [str('origin'), ref(point([0, 0, 0])),
+      ref(direction([0, 0, 1])), ref(direction([1, 0, 0]))]));
+    rootItems.push(...items);
     const type = !bodies && sets ? curvesOnly ? 'GEOMETRICALLY_BOUNDED_WIREFRAME_SHAPE_REPRESENTATION'
       : 'GEOMETRICALLY_BOUNDED_SURFACE_SHAPE_REPRESENTATION'
       : bodies && !sets && solidsOnly ? 'ADVANCED_BREP_SHAPE_REPRESENTATION' : 'SHAPE_REPRESENTATION';
     if (!items.length) note('a model with no items (an empty representation)');
     writeContext();
-    emit(rootId, type, [NAME, refs(items), ref(contextId)]);
+    emit(rootId, type, [str(opts.name ?? ''), refs(items), ref(contextId)]);
   }
 
   function writeContext() {
     const info = decode.part(d);
-    const si = (prefix: string | null, name: string) => [{ type: 'SI_UNIT', attrs: [prefix ? enu(prefix) : UNSET,
-      enu(name)] }];
-    const named: EntityRecord = { type: 'NAMED_UNIT', attrs: [DERIVED] };
-    let length: number;
-    const prefix = SI_LENGTH.get(info.unit);
-    if (prefix !== undefined) {
-      length = emitComplex(fresh(), [{ type: 'LENGTH_UNIT', attrs: [] }, named, ...si(prefix, 'METRE')]);
-    } else {
-      const mm = emitComplex(fresh(), [{ type: 'LENGTH_UNIT', attrs: [] }, named, ...si('MILLI', 'METRE')]);
-      const factor = emit(fresh(), 'LENGTH_MEASURE_WITH_UNIT', [{ k: 'typed', type: 'LENGTH_MEASURE',
-        v: real(info.unit) }, ref(mm)]);
-      const dims = emit(fresh(), 'DIMENSIONAL_EXPONENTS', [1, 0, 0, 0, 0, 0, 0].map(real));
-      length = emitComplex(fresh(), [{ type: 'CONVERSION_BASED_UNIT', attrs: [str(NAMED_LENGTH.get(info.unit)
-        ?? 'UNIT'), ref(factor)] }, { type: 'LENGTH_UNIT', attrs: [] }, { type: 'NAMED_UNIT', attrs: [ref(dims)] }]);
-    }
-    const angle = emitComplex(fresh(), [named, { type: 'PLANE_ANGLE_UNIT', attrs: [] }, ...si(null, 'RADIAN')]);
-    const solid = emitComplex(fresh(), [named, ...si(null, 'STERADIAN'), { type: 'SOLID_ANGLE_UNIT', attrs: [] }]);
-    const parts: EntityRecord[] = [{ type: 'GEOMETRIC_REPRESENTATION_CONTEXT', attrs: [int(3)] }];
-    if (info.uncertainty !== undefined) {
-      const u = emit(fresh(), 'UNCERTAINTY_MEASURE_WITH_UNIT', [{ k: 'typed', type: 'LENGTH_MEASURE',
-        v: real(info.uncertainty) }, ref(length), str('distance_accuracy_value'), str('confusion accuracy')]);
-      parts.push({ type: 'GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT', attrs: [refs([u])] });
-    }
-    parts.push({ type: 'GLOBAL_UNIT_ASSIGNED_CONTEXT', attrs: [refs([length, angle, solid])] },
-      { type: 'REPRESENTATION_CONTEXT', attrs: [str(), str()] });
-    emitComplex(contextId, parts);
+    out.push(...stepContext(ids, contextId, info.unit, info.uncertainty, opts.derivedDimensions));
   }
 
   function* instances(): Generator<Instance> {
@@ -611,6 +649,48 @@ export function stepGeometry(d: BrepData): StepGeometry {
     }
   }
 
-  return { rootId, instances: instances(), diagnostics };
+  return { rootId, instances: instances(), diagnostics, faceIds, surfaceIds, items: rootItems,
+    contextId, setMembers };
 }
 
+/**
+ * A representation context with its units, as instances: the length unit (millimetres per unit: SI where there's a
+ * prefix for it, else a conversion-based unit, INCH and FOOT by name, its dimensions derived where
+ * `derivedDimensions`, as AP214 edition 3 has them), radians, steradians, and the uncertainty in that unit if given.
+ * `id` is the context's own.
+ */
+export function stepContext(ids: StepIds, id: number, unit: number, uncertainty?: number, derivedDimensions = false):
+  Instance[] {
+  const out: Instance[] = [];
+  const emit = (i: number, type: string, attrs: Value[]) => { out.push({ id: i, type, attrs }); return i; };
+  const emitComplex = (i: number, parts: EntityRecord[]) => { out.push({ id: i, parts }); return i; };
+  const fresh = () => ids.fresh();
+  const si = (prefix: string | null, name: string) => [{ type: 'SI_UNIT', attrs: [prefix ? enu(prefix) : UNSET,
+    enu(name)] }];
+  const named: EntityRecord = { type: 'NAMED_UNIT', attrs: [DERIVED] };
+  let length: number;
+  const prefix = SI_LENGTH.get(unit);
+  if (prefix !== undefined) {
+    length = emitComplex(fresh(), [{ type: 'LENGTH_UNIT', attrs: [] }, named, ...si(prefix, 'METRE')]);
+  } else {
+    const mm = emitComplex(fresh(), [{ type: 'LENGTH_UNIT', attrs: [] }, named, ...si('MILLI', 'METRE')]);
+    const factor = emit(fresh(), 'LENGTH_MEASURE_WITH_UNIT', [{ k: 'typed', type: 'LENGTH_MEASURE',
+      v: real(unit) }, ref(mm)]);
+    const dims = derivedDimensions ? DERIVED : ref(emit(fresh(), 'DIMENSIONAL_EXPONENTS',
+      [1, 0, 0, 0, 0, 0, 0].map(real)));
+    length = emitComplex(fresh(), [{ type: 'CONVERSION_BASED_UNIT', attrs: [str(NAMED_LENGTH.get(unit)
+      ?? 'UNIT'), ref(factor)] }, { type: 'LENGTH_UNIT', attrs: [] }, { type: 'NAMED_UNIT', attrs: [dims] }]);
+  }
+  const angle = emitComplex(fresh(), [named, { type: 'PLANE_ANGLE_UNIT', attrs: [] }, ...si(null, 'RADIAN')]);
+  const solid = emitComplex(fresh(), [named, ...si(null, 'STERADIAN'), { type: 'SOLID_ANGLE_UNIT', attrs: [] }]);
+  const parts: EntityRecord[] = [{ type: 'GEOMETRIC_REPRESENTATION_CONTEXT', attrs: [int(3)] }];
+  if (uncertainty !== undefined) {
+    const u = emit(fresh(), 'UNCERTAINTY_MEASURE_WITH_UNIT', [{ k: 'typed', type: 'LENGTH_MEASURE',
+      v: real(uncertainty) }, ref(length), str('distance_accuracy_value'), str('confusion accuracy')]);
+    parts.push({ type: 'GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT', attrs: [refs([u])] });
+  }
+  parts.push({ type: 'GLOBAL_UNIT_ASSIGNED_CONTEXT', attrs: [refs([length, angle, solid])] },
+    { type: 'REPRESENTATION_CONTEXT', attrs: [str(), str()] });
+  emitComplex(id, parts);
+  return out;
+}

@@ -58,9 +58,36 @@ test("exportModel: the viewer's hiding applied when asked, else the scene's", as
 });
 
 test('exportModel: paused as it goes (the import worker\'s heartbeat), the same files', async () => {
-  for (const format of ['glb', 'gltf', 'threejs', '3mf'] as const) {
+  for (const format of ['glb', 'gltf', 'threejs', '3mf', 'step'] as const) {
     const plain = await exportModel(meshed(), at, ask({ format, compression: 'none' }));
     const paused = await exportModel(meshed(), at, ask({ format, compression: 'none' }), {}, async () => {});
     assert.deepEqual(bytes(paused.chunks), bytes(plain.chunks), format);
   }
 });
+
+test('exportModel: STEP, its B-rep models (empty here), the meshes beside them by option, the viewer\'s hiding',
+  async () => {
+    const step = async (o: Partial<ExportRequest>) => bytes((await exportModel(meshed(), at, ask({ format: 'step',
+      ...o }))).chunks).toString();
+    const plain = await step({});
+    assert.match(plain, /^ISO-10303-21;/);
+    assert.match(plain, /FILE_SCHEMA\(\('AP242_/);
+    assert.match(plain, /FILE_NAME\('model'/);
+    assert.doesNotMatch(plain, /TRIANGULATED_FACE/);
+    assert.match(await step({ stepMeshes: true }), /TRIANGULATED_FACE/);
+    // AP214: no meshes even if asked.
+    const ap214 = await step({ stepSchema: 'ap214', stepMeshes: true });
+    assert.match(ap214, /FILE_SCHEMA\(\('AUTOMOTIVE_DESIGN/);
+    assert.doesNotMatch(ap214, /TRIANGULATED_FACE/);
+    // The viewer's hiding: the plate hidden (an INVISIBILITY).
+    const s = meshed();
+    const graph = new SceneGraph(s, 'model');
+    graph.addMesh(0, plate());
+    const model = new NodeModel(graph.root, graph);
+    model.setHidden([model.nodes.find((n) => n.kind === 'part' && n.name === 'plate')!.id], true);
+    const shown = bytes((await exportModel(s, at, ask({ format: 'step', shown: shownEdits(s, model, graph) })))
+      .chunks).toString();
+    // (The fixture hides something already: more is hidden.)
+    const hidden = (t: string) => (/INVISIBILITY\(\(([^)]*)\)\)/.exec(t)?.[1]?.split(',').length ?? 0);
+    assert.ok(hidden(shown) > hidden(plain), `${hidden(shown)} against ${hidden(plain)}`);
+  });

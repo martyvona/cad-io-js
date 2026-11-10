@@ -311,7 +311,8 @@ export function sceneFromStep(model: StepModel, sem: Semantics, opts: ImportOpti
       const m = materialOf(resolve(root) ?? items.map((q) => resolve(q)).find((x) => x) ?? undefined);
       if (m !== undefined) part.material = m;
     }
-    const topStyles = items.map((q) => resolve(q));
+    // Hidden when every drawn item is (a placement among the items, as an assembly's placements refer to, isn't).
+    const topStyles = geometry.map((q) => resolve(q));
     if (topStyles.length && topStyles.every((x) => x?.invisible)) part.properties.invisible = true;
     parts.push(part);
   }
