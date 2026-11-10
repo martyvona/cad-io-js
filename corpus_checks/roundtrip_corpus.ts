@@ -23,11 +23,11 @@
 // PLANT=move|colour|hide|edge perturbs every imported scene (a vertex of its first triangle mesh moved 1 mm, its
 // first material's red changed, its first placed part hidden, an edge dropped), to show the check fails then (the
 // edge not in the 3MF forms, which compare no lines).
+// Several files at once (runner.ts: CHILDREN, MESH_WORKERS).
 // Usage: node --max-old-space-size=12000 corpus_checks/roundtrip_corpus.ts [file-list.txt] [max MB, default 2]
 // (progress on standard error)
 
 import fs from 'node:fs';
-import os from 'node:os';
 import { exportView, identity, leafParts, multiply, placedName, pruneView, tessellateScene, validate, viewDifferences,
   type ExportView, type ExportNode, type Mat4, type PartRef, type Scene } from '../packages/cad-scene/src/index.ts';
 import { import3mf } from '../packages/3mf-import/src/index.ts';
@@ -40,12 +40,10 @@ import { importThreejs } from '../packages/threejs-import/src/index.ts';
 import { WorkerTessellator } from '../packages/tess-workers/src/node.ts';
 import { StepTessellator } from '../packages/step-export/src/index.ts';
 import { corpusFiles, shortName } from './corpus.ts';
+import { runFiles, type FileCheck } from './runner.ts';
 
-const workers = Math.max(1, os.availableParallelism() - 1);
-const tess = new WorkerTessellator({ backend: { module: import.meta.resolve('../packages/tess-occt/src/index.ts'),
-  export: 'OcctTessellator' }, workers, timeoutMs: 60_000 });
-await tess.init();
-const maxBytes = Number(process.argv[3] ?? 2) * 1e6;
+// The process's own meshing pool and workers.
+let tess: WorkerTessellator, workers = 1;
 const STRING_LIMIT = 2 ** 29 - 24;
 const plant = process.env.PLANT;
 const meshing = { linearDeflection: 0.1, angularDeflection: 0.5 };
@@ -63,13 +61,10 @@ const GLTF: Partial<Record<Form, GltfOptions>> = {
   'glb-meshopt': { compression: 'meshopt', hidden: 'extension' },
   'glb-instanced': { compression: 'none', hidden: 'extension', instancing: true },
 };
-const totals = Object.fromEntries(FORMS.map((f) => [f, { files: 0, same: 0, invalid: 0, failed: 0, notLoaded: 0,
-  exportMs: 0, importMs: 0, bytes: 0 }])) as Record<Form, { files: number; same: number; invalid: number;
-  failed: number; notLoaded: number; exportMs: number; importMs: number; bytes: number }>;
-const problems: string[] = [];
-let files = 0, skipped = 0;
-/** Files with nothing to export (no placed part with a mesh): not compared. */
-const empty: string[] = [];
+const zero = () => ({ files: 0, same: 0, invalid: 0, failed: 0, notLoaded: 0, exportMs: 0, importMs: 0, bytes: 0 });
+type Totals = Record<Form, ReturnType<typeof zero>>;
+/** One file's results: `empty` with nothing to export (no placed part with a mesh), so not compared. */
+interface Result { empty: boolean; totals: Totals; problems: string[] }
 
 /**
  * The largest placed part mesh's extent, millimetres in the world (each placement's scale applied), and how far from
@@ -119,116 +114,152 @@ function perturb(s: Scene): void {
   }
 }
 
-const t0 = Date.now();
-for (const f of corpusFiles(process.argv[2])) {
-  const bytes = fs.readFileSync(f);
-  if (bytes.length > maxBytes) { skipped++; continue; }
-  const name = shortName(f);
-  process.stderr.write(`${name}\n`);
-  files++;
-  const { scene } = await importStep(bytes);
-  await tessellateScene(scene, new StepTessellator(tess), { ...meshing, edges: true, concurrency: workers });
-  const view = exportView(scene, opts);
-  if (!view.roots.length && !view.parts.length) { empty.push(name); continue; }
-  const { extent, reach, local } = largest(view);
+export const check: FileCheck<undefined, Result> = {
+  async setup({ meshWorkers }) {
+    workers = meshWorkers;
+    tess = new WorkerTessellator({ backend: { module: import.meta.resolve('../packages/tess-occt/src/index.ts'),
+      export: 'OcctTessellator' }, workers });
+    await tess.init();
+  },
+  async file(f) {
+    const r: Result = { empty: false, totals: Object.fromEntries(FORMS.map((x) => [x, zero()])) as Totals,
+      problems: [] };
+    const name = shortName(f);
+    const bytes = fs.readFileSync(f);
+    const { scene } = await importStep(bytes);
+    await tessellateScene(scene, new StepTessellator(tess), { ...meshing, edges: true, concurrency: workers });
+    const view = exportView(scene, opts);
+    if (!view.roots.length && !view.parts.length) return { ...r, empty: true };
+    const { extent, reach, local } = largest(view);
+    for (const form of FORMS) {
+      const t = r.totals[form];
+      t.files++;
+      const problem = (msg: string) => { r.problems.push(`${form} ${name}: ${msg}`); };
+      try {
+        let back: Scene;
+        const te = performance.now();
+        if (form === 'json') {
+          const chunks: string[] = [];
+          let length = 0;
+          for (const c of threejsChunks(scene, view, { extras: true })) { chunks.push(c); length += c.length; }
+          t.exportMs += performance.now() - te;
+          t.bytes += length;
+          if (length > STRING_LIMIT) { t.notLoaded++; continue; }
+          const ti = performance.now();
+          back = importThreejs(chunks.join('')).scene;
+          t.importMs += performance.now() - ti;
+        } else if (THREEMF[form]) {
+          const out = threemf(scene, view, THREEMF[form]);
+          const bytes = new Uint8Array(out.chunks.reduce((n, c) => n + c.length, 0));
+          let at = 0;
+          for (const c of out.chunks) { bytes.set(c, at); at += c.length; }
+          t.exportMs += performance.now() - te;
+          t.bytes += bytes.length;
+          const ti = performance.now();
+          back = import3mf(bytes).scene;
+          t.importMs += performance.now() - ti;
+        } else {
+          const out = await glb(scene, view, { extras: true, ...GLTF[form] });
+          t.exportMs += performance.now() - te;
+          t.bytes += out.bytes.length;
+          const ti = performance.now();
+          back = (await importGltf(out.bytes)).scene;
+          t.importMs += performance.now() - ti;
+        }
+        perturb(back);
+        const invalid = validate(back);
+        if (invalid.length) { t.invalid++; problem(`invalid: ${invalid.slice(0, 3).join('; ')}`); }
+        const o = GLTF[form], o3 = THREEMF[form];
+        // What the file was meant to hold: the tree without empty nodes, hidden placements only where written; for
+        // 3MF, only placed parts with triangles (the parts not kept left out of each node, as pruneView doesn't).
+        const has = (p: ExportNode['parts'][number]) => (o3!.hidden === 'keep' || p.visible)
+          && heldView.looks[p.look]!.mesh.indices.length > 0 && heldView.looks[p.look]!.groups.length > 0;
+        const only = (n: ExportNode): ExportNode => ({ ...n, parts: n.parts.filter(has),
+          children: n.children.map(only) });
+        const spaced = (n: ExportNode): ExportNode => ({ ...n, name: n.name.replace(/[\t\n\r]/g, ' '),
+          children: n.children.map(spaced) });
+        // For 3MF, the scene as the file holds it, read back as any scene is: a component left with one part
+        // (another having no triangles, or hidden and left out) is then a leaf, the part placed (leafParts). (The
+        // corpus's scenes have no overrides, which dropping part references would renumber.)
+        const drawn = new Set(view.looks.filter((l) => l.mesh.indices.length > 0 && l.groups.length > 0)
+          .map((l) => l.part));
+        const keepRef = (r: PartRef) => drawn.has(r.part) && (o3?.hidden === 'keep' || r.visible !== false);
+        // The assembly form holds no external references nor line breaks in names (spaces, in attributes).
+        const asm = o3?.build === 'assembly';
+        const named = (r: PartRef): PartRef => (asm ? { ...r, name: placedName(held, r).replace(/[\t\n\r]/g, ' ') }
+          : r);
+        const held: Scene = o3 ? { ...scene, components: scene.components.map(({ external, ...c }) => ({ ...c,
+          ...(external && !asm ? { external } : {}), parts: c.parts.filter(keepRef),
+          children: c.children.map((x) => ({ ...x })) })),
+        roots: scene.roots.map((x) => ({ ...x })), ...(scene.rootParts ? { rootParts:
+          scene.rootParts.filter(keepRef) } : {}) } : scene;
+        if (o3) {
+          leafParts(held);
+          // (Placed parts named as they're read back, once leaves are placed.)
+          for (const c of held.components) c.parts = c.parts.map(named);
+          if (held.rootParts) held.rootParts = held.rootParts.map(named);
+        }
+        const heldView = o3 ? exportView(held, opts) : view;
+        const kept = o3 ? heldView.roots.map(only).map(o3.build === 'assembly' ? spaced : (n) => n) : [];
+        const written = o3 ? pruneView({ ...heldView, parts: heldView.parts.filter(has), roots: kept }, has)
+          : pruneView(view, o?.hidden === 'extension' || form === 'json' ? undefined : (p) => p.visible);
+        // Draco's step: 14 bits over a part mesh's extent; meshopt's 16 over its volume; doubled for rounding at both
+        // ends, and the default 1e-4 mm for the lossless forms.
+        // Instancing's transforms are float32 translation, rotation and scale: a few float32 steps at the model's
+        // reach.
+        const tolerance = form === 'glb-draco' ? 2 * extent / 16383 : form === 'glb-meshopt' ? 2 * extent / 65535
+          : form === 'glb-instanced' ? Math.max(1e-4, 8 * reach * 2 ** -24)
+            : o3 ? Math.max(1e-4, 4 * local * 2 ** -24) : undefined;
+        const d = viewDifferences({ scene: held, view: written }, { scene: back, view: exportView(back, opts) },
+          { tolerance, skipHidden: form === 'glb-draco' || form === '3mf-assembly', lines: !o3, max: 3 });
+        if (d.length) problem(d.join(' | ').slice(0, 600));
+        else t.same++;
+      } catch (e) {
+        t.failed++;
+        problem(`threw: ${(e as Error).stack?.slice(0, 300)}`);
+      }
+    }
+    return r;
+  },
+  teardown() {
+    tess.dispose();
+  },
+};
+
+if (import.meta.main) {
+  const maxBytes = Number(process.argv[3] ?? 2) * 1e6;
+  const all = corpusFiles(process.argv[2]);
+  const list = all.filter((f) => fs.statSync(f).size <= maxBytes);
+  const skipped = all.length - list.length;
+  const totals = Object.fromEntries(FORMS.map((x) => [x, zero()])) as Totals;
+  const problems: string[] = [];
+  const empty: string[] = [];
+  let files = 0;
+  const t0 = Date.now();
+  await runFiles(import.meta.url, check, list.map((f) => ({ path: f, job: undefined })), process.argv.slice(2),
+    (f, out) => {
+      files++;
+      if ('error' in out) {
+        if (problems.length < 300) problems.push(`${shortName(f)}: failed: ${out.error.slice(0, 300)}`);
+        return;
+      }
+      const r = out.result;
+      if (r.empty) empty.push(shortName(f));
+      for (const x of FORMS) for (const k of Object.keys(zero()) as (keyof ReturnType<typeof zero>)[]) {
+        totals[x][k] += r.totals[x][k];
+      }
+      for (const p of r.problems) if (problems.length < 300) problems.push(p);
+    });
+
+  console.log(`${files} files (${skipped} over the size limit), ${((Date.now() - t0) / 1000).toFixed(0)} s` +
+    (plant ? `, PLANT=${plant}` : ''));
+  console.log(`nothing to export (not compared): ${empty.join(', ') || 'none'}`);
   for (const form of FORMS) {
     const t = totals[form];
-    t.files++;
-    const problem = (msg: string) => { if (problems.length < 300) problems.push(`${form} ${name}: ${msg}`); };
-    try {
-      let back: Scene;
-      const te = performance.now();
-      if (form === 'json') {
-        const chunks: string[] = [];
-        let length = 0;
-        for (const c of threejsChunks(scene, view, { extras: true })) { chunks.push(c); length += c.length; }
-        t.exportMs += performance.now() - te;
-        t.bytes += length;
-        if (length > STRING_LIMIT) { t.notLoaded++; continue; }
-        const ti = performance.now();
-        back = importThreejs(chunks.join('')).scene;
-        t.importMs += performance.now() - ti;
-      } else if (THREEMF[form]) {
-        const out = threemf(scene, view, THREEMF[form]);
-        const bytes = new Uint8Array(out.chunks.reduce((n, c) => n + c.length, 0));
-        let at = 0;
-        for (const c of out.chunks) { bytes.set(c, at); at += c.length; }
-        t.exportMs += performance.now() - te;
-        t.bytes += bytes.length;
-        const ti = performance.now();
-        back = import3mf(bytes).scene;
-        t.importMs += performance.now() - ti;
-      } else {
-        const out = await glb(scene, view, { extras: true, ...GLTF[form] });
-        t.exportMs += performance.now() - te;
-        t.bytes += out.bytes.length;
-        const ti = performance.now();
-        back = (await importGltf(out.bytes)).scene;
-        t.importMs += performance.now() - ti;
-      }
-      perturb(back);
-      const invalid = validate(back);
-      if (invalid.length) { t.invalid++; problem(`invalid: ${invalid.slice(0, 3).join('; ')}`); }
-      const o = GLTF[form], o3 = THREEMF[form];
-      // What the file was meant to hold: the tree without empty nodes, hidden placements only where written; for
-      // 3MF, only placed parts with triangles (the parts not kept left out of each node, as pruneView doesn't).
-      const has = (p: ExportNode['parts'][number]) => (o3!.hidden === 'keep' || p.visible)
-        && heldView.looks[p.look]!.mesh.indices.length > 0 && heldView.looks[p.look]!.groups.length > 0;
-      const only = (n: ExportNode): ExportNode => ({ ...n, parts: n.parts.filter(has),
-        children: n.children.map(only) });
-      const spaced = (n: ExportNode): ExportNode => ({ ...n, name: n.name.replace(/[\t\n\r]/g, ' '),
-        children: n.children.map(spaced) });
-      // For 3MF, the scene as the file holds it, read back as any scene is: a component left with one part (another
-      // having no triangles, or hidden and left out) is then a leaf, the part placed (leafParts). (The corpus's scenes
-      // have no overrides, which dropping part references would renumber.)
-      const drawn = new Set(view.looks.filter((l) => l.mesh.indices.length > 0 && l.groups.length > 0)
-        .map((l) => l.part));
-      const keepRef = (r: PartRef) => drawn.has(r.part) && (o3?.hidden === 'keep' || r.visible !== false);
-      // The assembly form holds no external references nor line breaks in names (spaces, in attributes).
-      const asm = o3?.build === 'assembly';
-      const named = (r: PartRef): PartRef => (asm ? { ...r, name: placedName(held, r).replace(/[\t\n\r]/g, ' ') }
-        : r);
-      const held: Scene = o3 ? { ...scene, components: scene.components.map(({ external, ...c }) => ({ ...c,
-        ...(external && !asm ? { external } : {}), parts: c.parts.filter(keepRef),
-        children: c.children.map((x) => ({ ...x })) })),
-      roots: scene.roots.map((x) => ({ ...x })), ...(scene.rootParts ? { rootParts:
-        scene.rootParts.filter(keepRef) } : {}) } : scene;
-      if (o3) {
-        leafParts(held);
-        // (Placed parts named as they're read back, once leaves are placed.)
-        for (const c of held.components) c.parts = c.parts.map(named);
-        if (held.rootParts) held.rootParts = held.rootParts.map(named);
-      }
-      const heldView = o3 ? exportView(held, opts) : view;
-      const kept = o3 ? heldView.roots.map(only).map(o3.build === 'assembly' ? spaced : (n) => n) : [];
-      const written = o3 ? pruneView({ ...heldView, parts: heldView.parts.filter(has), roots: kept }, has)
-        : pruneView(view, o?.hidden === 'extension' || form === 'json' ? undefined : (p) => p.visible);
-      // Draco's step: 14 bits over a part mesh's extent; meshopt's 16 over its volume; doubled for rounding at both
-      // ends, and the default 1e-4 mm for the lossless forms.
-      // Instancing's transforms are float32 translation, rotation and scale: a few float32 steps at the model's reach.
-      const tolerance = form === 'glb-draco' ? 2 * extent / 16383 : form === 'glb-meshopt' ? 2 * extent / 65535
-        : form === 'glb-instanced' ? Math.max(1e-4, 8 * reach * 2 ** -24)
-          : o3 ? Math.max(1e-4, 4 * local * 2 ** -24) : undefined;
-      const d = viewDifferences({ scene: held, view: written }, { scene: back, view: exportView(back, opts) },
-        { tolerance, skipHidden: form === 'glb-draco' || form === '3mf-assembly', lines: !o3, max: 3 });
-      if (d.length) problem(d.join(' | ').slice(0, 600));
-      else t.same++;
-    } catch (e) {
-      t.failed++;
-      problem(`threw: ${(e as Error).stack?.slice(0, 300)}`);
-    }
+    console.log(`${form.padEnd(14)} ${t.same} of ${t.files} the same; ${t.invalid} invalid, ${t.failed} threw` +
+      `${t.notLoaded ? `, ${t.notLoaded} too large to load` : ''}; ${(t.bytes / 1e6).toFixed(1)} MB, export ` +
+      `${(t.exportMs / 1000).toFixed(1)} s, import ${(t.importMs / 1000).toFixed(1)} s`);
   }
+  console.log(`problems ${problems.length}`);
+  for (const p of problems) console.log(`  ${p}`);
 }
-tess.dispose();
-
-console.log(`${files} files (${skipped} over the size limit), ${((Date.now() - t0) / 1000).toFixed(0)} s` +
-  (plant ? `, PLANT=${plant}` : ''));
-console.log(`nothing to export (not compared): ${empty.join(', ') || 'none'}`);
-for (const form of FORMS) {
-  const t = totals[form];
-  console.log(`${form.padEnd(14)} ${t.same} of ${t.files} the same; ${t.invalid} invalid, ${t.failed} threw` +
-    `${t.notLoaded ? `, ${t.notLoaded} too large to load` : ''}; ${(t.bytes / 1e6).toFixed(1)} MB, export ` +
-    `${(t.exportMs / 1000).toFixed(1)} s, import ${(t.importMs / 1000).toFixed(1)} s`);
-}
-console.log(`problems ${problems.length}`);
-for (const p of problems) console.log(`  ${p}`);

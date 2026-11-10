@@ -13,7 +13,9 @@
 //     welded mesh is a closed, oriented manifold of positive volume (the others are left out with warnings);
 //   - in the sample, the bin's outputs byte-identical to main's, its exit code, standard output and summary (but
 //     for times) the same; its wall time against the summary's times gives the startup.
-// Prints, per format, sizes and the summary's import, tessellation and export times. Usage:
+// Prints, per format, sizes and the summary's import, tessellation and export times. Several files at once
+// (runner.ts: CHILDREN, MESH_WORKERS), stepconv given --workers to fit (its outputs don't depend on it; its times do).
+// Usage:
 //   node corpus_checks/stepconv_corpus.ts [file-list.txt] [max MB, default 2] [sample size, default 20]
 //   (progress on standard error)
 import { execFile } from 'node:child_process';
@@ -35,30 +37,24 @@ import { importStep } from '../packages/step-import/src/index.ts';
 import { WorkerTessellator } from '../packages/tess-workers/src/node.ts';
 import { StepTessellator } from '../packages/step-export/src/index.ts';
 import { corpusFiles, repoDir, shortName } from './corpus.ts';
+import { runFiles, type FileCheck } from './runner.ts';
 
-const workers = Math.max(1, os.availableParallelism() - 1);
-const tess = new WorkerTessellator(
-  { backend: { module: import.meta.resolve('../packages/tess-occt/src/index.ts'),
-  export: 'OcctTessellator' }, workers });
-await tess.init();
-const maxBytes = Number(process.argv[3] ?? 2) * 1e6;
-const sampleSize = Number(process.argv[4] ?? 20);
 const BIN = path.join(repoDir, 'packages/cli/bin/stepconv.ts');
-const gltfIo = new NodeIO().registerExtensions([KHRMaterialsUnlit, KHRNodeVisibility, KHRDracoMeshCompression])
-  .registerDependencies({ 'draco3d.decoder': await draco3d.createDecoderModule() });
-const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'stepconv-corpus-'));
-
 const FORMATS = ['json', 'glb', 'gltf', '3mf'] as const;
 type Format = typeof FORMATS[number];
 const zero = () => ({ bytes: 0, import: 0, tessellate: 0, export: 0, wall: 0, parts: 0, triangles: 0 });
-const totals = Object.fromEntries(FORMATS.map((f) => [f, zero()])) as Record<Format, ReturnType<typeof zero>>;
-const counts = { files: 0, skipped: 0, placed: 0, hidden: 0, notSolid: 0, triangles: 0, sampled: 0,
-  startup: [] as number[], problems: 0 };
-const issues = new Map<string, number>();
-const problems: string[] = [];
-/** Outputs too large to read back (three.js JSON past V8's longest string). */
-const tooLarge: string[] = [];
-const slowest: [number, string, Format][] = [];
+
+/** One file's results. */
+interface Result {
+  placed: number; hidden: number; notSolid: number; triangles: number; sampled: number; startup: number[];
+  totals: Record<Format, ReturnType<typeof zero>>; issues: [string, number][]; problems: string[];
+  /** Outputs too large to read back (three.js JSON past V8's longest string). */
+  tooLarge: string[];
+  runs: [number, Format][];
+}
+
+// The process's own: its meshing pool and workers, its glTF reader, its directory for outputs.
+let tess: WorkerTessellator, workers = 1, gltfIo: NodeIO, dir = '', binDir = '';
 
 /** A stepconv summary's numbers. */
 interface Summary { parts: number; meshed: number; brep: number; placed: number; triangles: number; import: number;
@@ -127,7 +123,7 @@ function gltfParts(doc: Document): { name: string; triangles: number }[] {
   return out;
 }
 
-async function validate(bytes: Uint8Array, problem: (m: string) => void,
+async function validate(bytes: Uint8Array, problem: (m: string) => void, issues: Map<string, number>,
   resource?: (uri: string) => Promise<Uint8Array>): Promise<void> {
   const report = await validator.validateBytes(bytes,
     { maxIssues: 0, ignoredIssues: [], ...(resource ? { externalResourceFunction: resource } : {}) });
@@ -140,8 +136,8 @@ async function validate(bytes: Uint8Array, problem: (m: string) => void,
 
 /** The output's placed parts and triangles, read back with the format's own tools. */
 const STRING_LIMIT = 2 ** 29 - 24;
-async function readBack(format: Format, file: string, problem: (m: string) => void): Promise<{ name?: string;
-  triangles: number; visible?: boolean }[] | undefined> {
+async function readBack(format: Format, file: string, problem: (m: string) => void, issues: Map<string, number>):
+  Promise<{ name?: string; triangles: number; visible?: boolean }[] | undefined> {
   if (format === 'json') {
     // (A file longer than V8's longest string can't be read back whole: said, not compared.)
     if (fs.statSync(file).size > STRING_LIMIT) return undefined;
@@ -157,7 +153,7 @@ async function readBack(format: Format, file: string, problem: (m: string) => vo
   if (format === 'glb' || format === 'gltf') {
     const bytes = fs.readFileSync(file);
     const dirOf = path.dirname(file);
-    await validate(bytes, problem,
+    await validate(bytes, problem, issues,
       format === 'gltf' ? async (uri) => new Uint8Array(
       fs.readFileSync(path.join(dirOf, decodeURIComponent(uri)))) : undefined);
     const doc = await gltfIo.read(file);
@@ -179,124 +175,172 @@ function spawn(args: string[]): Promise<{ code: number; stdout: string; stderr: 
   });
 }
 
-const files = corpusFiles(process.argv[2]).filter((f) => fs.statSync(f).size <= maxBytes);
-counts.skipped = corpusFiles(process.argv[2]).length - files.length;
-// The bin writes into a directory of its own, under the same names (a .gltf names its .bin).
-const binDir = path.join(dir, 'bin');
-fs.mkdirSync(binDir);
-// The sample: spread evenly over the list.
-const sample = new Set(Array.from({ length: Math.min(sampleSize, files.length) },
-  (_, k) => files[Math.floor((k * files.length) / Math.min(sampleSize, files.length))]!));
-const t0 = Date.now();
-for (const f of files) {
-  const name = shortName(f);
-  process.stderr.write(`${name}\n`);
-  counts.files++;
-  const problem = (msg: string) => { counts.problems++; if (problems.length < 200) problems.push(`${name}: ${msg}`); };
-  try {
-    const { scene } = await importStep(fs.readFileSync(f));
-    // (As stepconv meshes by default: its default profile, medium.)
-    const deflections = meshDeflections({ profile: DEFAULT_MESH_PROFILE });
-    const { meshes } = await tessellateScene(scene, new StepTessellator(tess),
-      { ...deflections, concurrency: workers });
-    const view = exportView(scene, { ...deflections, edges: false, curves: false });
-    const placed = placedParts(view, scene);
-    const brep = scene.parts.filter((p) => p.brep).length;
-    let viewPlaced = 0, viewTriangles = 0;
-    const walk = (n: ExportNode) => {
-      for (const p of n.parts) { viewPlaced++;
-      viewTriangles += view.looks[p.look]!.indices.length / 3; } n.children.forEach(walk); };
-    walk({ parts: view.parts, children: view.roots } as ExportNode);
-    counts.placed += placed.length;
-    counts.hidden += placed.filter((p) => !p.visible).length;
-    counts.notSolid += placed.filter((p) => p.visible && !p.solid).length;
-    counts.triangles += viewTriangles;
-    // (A placed part's node named as its placement.)
-    const partName = (p: { ref: PartRef }) => placedName(scene, p.ref);
-    const expected: Record<Format, { name?: string; triangles: number; visible?: boolean }[]> = {
-      json: placed.map((p) => ({ name: partName(p), triangles: p.triangles, visible: p.visible })),
-      glb: placed.filter((p) => p.visible).map((p) => ({ name: partName(p), triangles: p.triangles })),
-      gltf: placed.filter((p) => p.visible).map((p) => ({ name: partName(p), triangles: p.triangles })),
-      '3mf': placed.filter((p) => p.visible && p.solid).map((p) => ({ triangles: p.triangles })),
-    };
+export const check: FileCheck<{ sample: boolean }, Result> = {
+  async setup({ meshWorkers }) {
+    workers = meshWorkers;
+    tess = new WorkerTessellator({ backend: { module: import.meta.resolve('../packages/tess-occt/src/index.ts'),
+      export: 'OcctTessellator' }, workers });
+    await tess.init();
+    gltfIo = new NodeIO().registerExtensions([KHRMaterialsUnlit, KHRNodeVisibility, KHRDracoMeshCompression])
+      .registerDependencies({ 'draco3d.decoder': await draco3d.createDecoderModule() });
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'stepconv-corpus-'));
+    // The bin writes into a directory of its own, under the same names (a .gltf names its .bin).
+    binDir = path.join(dir, 'bin');
+    fs.mkdirSync(binDir);
+  },
+  async file(f, job) {
+    const r: Result = { placed: 0, hidden: 0, notSolid: 0, triangles: 0, sampled: 0, startup: [],
+      totals: Object.fromEntries(FORMATS.map((x) => [x, zero()])) as Result['totals'], issues: [], problems: [],
+      tooLarge: [], runs: [] };
+    const issues = new Map<string, number>();
+    const problem = (msg: string) => { r.problems.push(msg); };
+    try {
+      const { scene } = await importStep(fs.readFileSync(f));
+      // (As stepconv meshes by default: its default profile, medium.)
+      const deflections = meshDeflections({ profile: DEFAULT_MESH_PROFILE });
+      const { meshes } = await tessellateScene(scene, new StepTessellator(tess),
+        { ...deflections, concurrency: workers });
+      const view = exportView(scene, { ...deflections, edges: false, curves: false });
+      const placed = placedParts(view, scene);
+      const brep = scene.parts.filter((p) => p.brep).length;
+      let viewPlaced = 0, viewTriangles = 0;
+      const walk = (n: ExportNode) => {
+        for (const p of n.parts) { viewPlaced++;
+        viewTriangles += view.looks[p.look]!.indices.length / 3; } n.children.forEach(walk); };
+      walk({ parts: view.parts, children: view.roots } as ExportNode);
+      r.placed = placed.length;
+      r.hidden = placed.filter((p) => !p.visible).length;
+      r.notSolid = placed.filter((p) => p.visible && !p.solid).length;
+      r.triangles = viewTriangles;
+      // (A placed part's node named as its placement.)
+      const partName = (p: { ref: PartRef }) => placedName(scene, p.ref);
+      const expected: Record<Format, { name?: string; triangles: number; visible?: boolean }[]> = {
+        json: placed.map((p) => ({ name: partName(p), triangles: p.triangles, visible: p.visible })),
+        glb: placed.filter((p) => p.visible).map((p) => ({ name: partName(p), triangles: p.triangles })),
+        gltf: placed.filter((p) => p.visible).map((p) => ({ name: partName(p), triangles: p.triangles })),
+        '3mf': placed.filter((p) => p.visible && p.solid).map((p) => ({ triangles: p.triangles })),
+      };
 
-    for (const format of FORMATS) {
-      const out = path.join(dir, `model.${format}`);
-      const stdout = sink(), stderr = sink();
-      const t = performance.now();
-      const code = await stepconv([f, '-o', out],
-        { stdout: stdout.stream, stderr: stderr.stream, stdin: process.stdin });
-      const wall = performance.now() - t;
-      const fp = (m: string) => problem(`${format}: ${m}`);
-      if (code !== 0) fp(`exit ${code}: ${stderr.text().split('\n')[0]}`);
-      if (stdout.text()) fp('standard output not empty');
-      const s = parseSummary(stderr.text());
-      if (!s) { fp(`no summary: ${stderr.text().slice(0, 200)}`); continue; }
-      const want = { parts: scene.parts.length, meshed: meshes.size, brep, placed: viewPlaced,
-        triangles: viewTriangles };
-      for (const [k, v] of Object.entries(want)) if (s[k as keyof Summary] !== v) fp(
-        `summary ${k} ${s[k as keyof Summary]}, expected ${v}`);
-      const tt = totals[format];
-      tt.import += s.import; tt.tessellate += s.tessellate; tt.export += s.export; tt.wall += wall / 1000;
-      const sidecar = path.join(dir, 'model.bin');
-      tt.bytes += fs.statSync(out).size + (format === 'gltf' && fs.existsSync(sidecar) ? fs.statSync(sidecar).size : 0);
-      slowest.push([wall, name, format]);
+      for (const format of FORMATS) {
+        const out = path.join(dir, `model.${format}`);
+        const stdout = sink(), stderr = sink();
+        const t = performance.now();
+        const code = await stepconv([f, '-o', out, '--workers', String(workers)],
+          { stdout: stdout.stream, stderr: stderr.stream, stdin: process.stdin });
+        const wall = performance.now() - t;
+        const fp = (m: string) => problem(`${format}: ${m}`);
+        if (code !== 0) fp(`exit ${code}: ${stderr.text().split('\n')[0]}`);
+        if (stdout.text()) fp('standard output not empty');
+        const s = parseSummary(stderr.text());
+        if (!s) { fp(`no summary: ${stderr.text().slice(0, 200)}`); continue; }
+        const want = { parts: scene.parts.length, meshed: meshes.size, brep, placed: viewPlaced,
+          triangles: viewTriangles };
+        for (const [k, v] of Object.entries(want)) if (s[k as keyof Summary] !== v) fp(
+          `summary ${k} ${s[k as keyof Summary]}, expected ${v}`);
+        const tt = r.totals[format];
+        tt.import += s.import; tt.tessellate += s.tessellate; tt.export += s.export; tt.wall += wall / 1000;
+        const sidecar = path.join(dir, 'model.bin');
+        tt.bytes += fs.statSync(out).size
+          + (format === 'gltf' && fs.existsSync(sidecar) ? fs.statSync(sidecar).size : 0);
+        r.runs.push([wall, format]);
 
-      const got = await readBack(format, out, fp);
-      if (!got) { tooLarge.push(`${name} ${format}`); continue; }
-      const e = expected[format];
-      tt.parts += got.length;
-      tt.triangles += got.reduce((n, p) => n + p.triangles, 0);
-      if (got.length !== e.length) fp(`${got.length} placed parts, expected ${e.length}`);
-      else got.forEach((g, k) => {
-        const x = e[k]!;
-        if (g.triangles !== x.triangles || g.name !== x.name || g.visible !== x.visible) fp(
-          `placed part ${k}: ${JSON.stringify(g)}, expected ${JSON.stringify(x)}`);
-      });
+        const got = await readBack(format, out, fp, issues);
+        if (!got) { r.tooLarge.push(format); continue; }
+        const e = expected[format];
+        tt.parts += got.length;
+        tt.triangles += got.reduce((n, p) => n + p.triangles, 0);
+        if (got.length !== e.length) fp(`${got.length} placed parts, expected ${e.length}`);
+        else got.forEach((g, k) => {
+          const x = e[k]!;
+          if (g.triangles !== x.triangles || g.name !== x.name || g.visible !== x.visible) fp(
+            `placed part ${k}: ${JSON.stringify(g)}, expected ${JSON.stringify(x)}`);
+        });
 
-      if (sample.has(f)) {
-        const binOut = path.join(binDir, `model.${format}`);
-        const r = await spawn([f, '-o', binOut]);
-        const times = (x: string) => x.replace(/^import .*$/m, '');
-        if (r.code !== code) fp(`bin exit ${r.code}, main ${code}`);
-        if (r.stdout) fp('bin wrote standard output');
-        if (times(r.stderr) !== times(stderr.text())) fp('bin summary differs from main');
-        if (!fs.readFileSync(binOut).equals(fs.readFileSync(out))) fp('bin output differs from main');
-        const binSidecar = path.join(binDir, 'model.bin');
-        if (fs.existsSync(sidecar) !== fs.existsSync(binSidecar)) fp('bin sidecar presence differs');
-        else if (fs.existsSync(sidecar) && !fs.readFileSync(binSidecar).equals(fs.readFileSync(sidecar))) fp(
-          'bin sidecar differs');
-        const rs = parseSummary(r.stderr);
-        if (rs) counts.startup.push(r.ms / 1000 - (rs.import + rs.tessellate + rs.export));
-        if (format === FORMATS[0]) counts.sampled++;
+        if (job.sample) {
+          const binOut = path.join(binDir, `model.${format}`);
+          const b = await spawn([f, '-o', binOut, '--workers', String(workers)]);
+          const times = (x: string) => x.replace(/^import .*$/m, '');
+          if (b.code !== code) fp(`bin exit ${b.code}, main ${code}`);
+          if (b.stdout) fp('bin wrote standard output');
+          if (times(b.stderr) !== times(stderr.text())) fp('bin summary differs from main');
+          if (!fs.readFileSync(binOut).equals(fs.readFileSync(out))) fp('bin output differs from main');
+          const binSidecar = path.join(binDir, 'model.bin');
+          if (fs.existsSync(sidecar) !== fs.existsSync(binSidecar)) fp('bin sidecar presence differs');
+          else if (fs.existsSync(sidecar) && !fs.readFileSync(binSidecar).equals(fs.readFileSync(sidecar))) fp(
+            'bin sidecar differs');
+          const rs = parseSummary(b.stderr);
+          if (rs) r.startup.push(b.ms / 1000 - (rs.import + rs.tessellate + rs.export));
+          if (format === FORMATS[0]) r.sampled++;
+        }
+        for (const d of [dir, binDir]) for (const x of fs.readdirSync(d)) if (x !== 'bin') fs.rmSync(path.join(d, x));
       }
-      for (const d of [dir, binDir]) for (const x of fs.readdirSync(d)) if (x !== 'bin') fs.rmSync(path.join(d, x));
+    } catch (e) {
+      problem(`failed: ${(e as Error).stack ?? e}`);
     }
-  } catch (e) {
-    problem(`failed: ${(e as Error).stack ?? e}`);
-  }
-}
-tess.dispose();
-fs.rmSync(dir, { recursive: true, force: true });
+    r.issues = [...issues];
+    return r;
+  },
+  teardown() {
+    tess.dispose();
+    fs.rmSync(dir, { recursive: true, force: true });
+  },
+};
 
-const s1 = (x: number) => `${x.toFixed(1)} s`;
-console.log(`files ${counts.files} (${counts.skipped} over ${maxBytes / 1e6} MB skipped), `
-  + `${((Date.now() - t0) / 1000).toFixed(0)} s`);
-console.log(`placed parts with triangles ${counts.placed} (${counts.hidden} hidden; ${counts.notSolid} visible ones `
-  + `not closed solids); triangles placed ${counts.triangles}`);
-for (const format of FORMATS) {
-  const t = totals[format];
-  console.log(`${format}: ${(t.bytes / 1e6).toFixed(1)} MB, ${t.parts} placed parts, ${t.triangles} triangles; import `
-    + `${s1(t.import)}, tessellation ${s1(t.tessellate)}, export ${s1(t.export)}, main ${s1(t.wall)}`);
+if (import.meta.main) {
+  const maxBytes = Number(process.argv[3] ?? 2) * 1e6;
+  const sampleSize = Number(process.argv[4] ?? 20);
+  const files = corpusFiles(process.argv[2]).filter((f) => fs.statSync(f).size <= maxBytes);
+  const skipped = corpusFiles(process.argv[2]).length - files.length;
+  // The sample: spread evenly over the list.
+  const sample = new Set(Array.from({ length: Math.min(sampleSize, files.length) },
+    (_, k) => files[Math.floor((k * files.length) / Math.min(sampleSize, files.length))]!));
+  const totals = Object.fromEntries(FORMATS.map((f) => [f, zero()])) as Result['totals'];
+  const counts = { files: 0, skipped, placed: 0, hidden: 0, notSolid: 0, triangles: 0, sampled: 0,
+    startup: [] as number[], problems: 0 };
+  const issues = new Map<string, number>();
+  const problems: string[] = [];
+  const tooLarge: string[] = [];
+  const slowest: [number, string, Format][] = [];
+  const t0 = Date.now();
+  await runFiles(import.meta.url, check, files.map((f) => ({ path: f, job: { sample: sample.has(f) } })),
+    process.argv.slice(2), (f, out) => {
+      const name = shortName(f);
+      counts.files++;
+      const r = 'result' in out ? out.result : undefined;
+      for (const msg of r ? r.problems : [`failed: ${'error' in out ? out.error : ''}`]) {
+        counts.problems++;
+        if (problems.length < 200) problems.push(`${name}: ${msg}`);
+      }
+      if (!r) return;
+      counts.placed += r.placed; counts.hidden += r.hidden; counts.notSolid += r.notSolid;
+      counts.triangles += r.triangles; counts.sampled += r.sampled; counts.startup.push(...r.startup);
+      for (const x of FORMATS) for (const k of Object.keys(zero()) as (keyof ReturnType<typeof zero>)[]) {
+        totals[x][k] += r.totals[x][k];
+      }
+      for (const [k, n] of r.issues) issues.set(k, (issues.get(k) ?? 0) + n);
+      for (const x of r.tooLarge) tooLarge.push(`${name} ${x}`);
+      for (const [ms, x] of r.runs) slowest.push([ms, name, x]);
+    });
+
+  const s1 = (x: number) => `${x.toFixed(1)} s`;
+  console.log(`files ${counts.files} (${counts.skipped} over ${maxBytes / 1e6} MB skipped), `
+    + `${((Date.now() - t0) / 1000).toFixed(0)} s`);
+  console.log(`placed parts with triangles ${counts.placed} (${counts.hidden} hidden; ${counts.notSolid} visible ones `
+    + `not closed solids); triangles placed ${counts.triangles}`);
+  for (const format of FORMATS) {
+    const t = totals[format];
+    console.log(`${format}: ${(t.bytes / 1e6).toFixed(1)} MB, ${t.parts} placed parts, ${t.triangles} triangles; `
+      + `import ${s1(t.import)}, tessellation ${s1(t.tessellate)}, export ${s1(t.export)}, main ${s1(t.wall)}`);
+  }
+  const st = counts.startup.sort((a, b) => a - b);
+  if (st.length) console.log(`bin sample: ${counts.sampled} files x ${FORMATS.length} formats; startup (wall time less `
+    + `the summary's times) median ${s1(st[st.length >> 1]!)}, range ${s1(st[0]!)}-${s1(st[st.length - 1]!)}`);
+  console.log('validator issues (glb and gltf):');
+  for (const [k, n] of [...issues].sort()) console.log(`  ${String(n).padStart(5)} ${k}`);
+  console.log('slowest runs of main:');
+  for (const [ms, name, format] of slowest.sort((a, b) => b[0] - a[0]).slice(0, 6)) console.log(
+    `  ${s1(ms / 1000)}  ${format}  ${name}`);
+  if (tooLarge.length) console.log(`too large to read back: ${tooLarge.join(', ')}`);
+  console.log(`problems ${counts.problems}`);
+  for (const p of problems) console.log(`  ${p}`);
 }
-const st = counts.startup.sort((a, b) => a - b);
-if (st.length) console.log(`bin sample: ${counts.sampled} files x ${FORMATS.length} formats; startup (wall time less `
-  + `the summary's times) median ${s1(st[st.length >> 1]!)}, range ${s1(st[0]!)}-${s1(st[st.length - 1]!)}`);
-console.log('validator issues (glb and gltf):');
-for (const [k, n] of [...issues].sort()) console.log(`  ${String(n).padStart(5)} ${k}`);
-console.log('slowest runs of main:');
-for (const [ms, name, format] of slowest.sort((a, b) => b[0] - a[0]).slice(0, 6)) console.log(
-  `  ${s1(ms / 1000)}  ${format}  ${name}`);
-if (tooLarge.length) console.log(`too large to read back: ${tooLarge.join(', ')}`);
-console.log(`problems ${counts.problems}`);
-for (const p of problems) console.log(`  ${p}`);

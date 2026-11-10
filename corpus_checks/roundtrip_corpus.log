@@ -1,10 +1,10 @@
-517 files (0 over the size limit), 1965 s
+517 files (0 over the size limit), 986 s
 nothing to export (not compared): gkv311-opencascade-dataset/step/bug27333_simple.stp
-json           516 of 516 the same; 0 invalid, 0 threw; 1025.7 MB, export 17.7 s, import 4.3 s
-glb            516 of 516 the same; 0 invalid, 0 threw; 468.5 MB, export 1.9 s, import 3.4 s
-glb-draco      516 of 516 the same; 0 invalid, 0 threw; 97.0 MB, export 10.8 s, import 7.0 s
-glb-meshopt    516 of 516 the same; 0 invalid, 0 threw; 115.9 MB, export 5.6 s, import 4.3 s
-glb-instanced  516 of 516 the same; 0 invalid, 0 threw; 471.2 MB, export 1.8 s, import 3.4 s
-3mf            516 of 516 the same; 0 invalid, 0 threw; 222.6 MB, export 44.2 s, import 27.2 s
-3mf-assembly   516 of 516 the same; 0 invalid, 0 threw; 220.2 MB, export 43.4 s, import 23.8 s
+json           516 of 516 the same; 0 invalid, 0 threw; 1025.7 MB, export 20.8 s, import 4.9 s
+glb            516 of 516 the same; 0 invalid, 0 threw; 468.5 MB, export 2.6 s, import 4.1 s
+glb-draco      516 of 516 the same; 0 invalid, 0 threw; 97.0 MB, export 12.9 s, import 8.0 s
+glb-meshopt    516 of 516 the same; 0 invalid, 0 threw; 115.9 MB, export 6.8 s, import 4.9 s
+glb-instanced  516 of 516 the same; 0 invalid, 0 threw; 471.2 MB, export 2.3 s, import 3.8 s
+3mf            516 of 516 the same; 0 invalid, 0 threw; 222.6 MB, export 54.9 s, import 32.2 s
+3mf-assembly   516 of 516 the same; 0 invalid, 0 threw; 220.2 MB, export 52.1 s, import 27.9 s
 problems 0
