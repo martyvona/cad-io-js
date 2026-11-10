@@ -1,6 +1,6 @@
 // Phase 4 step 1: cad-scene's export view against the scene it is made from. Each corpus file is imported, its parts
-// tessellated with our OCCT backend (in a tess-workers pool, at 0.1 mm), and its export view (with edges and curves)
-// checked against partInstances:
+// tessellated with our OCCT backend (in a tess-workers pool, the coarse profile), and its export view (with edges and
+// curves) checked against partInstances:
 //   - every placed part with something to draw appears once in the view's tree, at the same path;
 //   - its world transform (the view's node transforms multiplied down the tree) is partInstances' transform times
 //     the translation by the mesh's origin;
@@ -10,7 +10,7 @@
 // Several files at once (runner.ts: CHILDREN, MESH_WORKERS).
 // Usage: node corpus_checks/export_view.ts [file-list.txt] [max MB, default 2]  (progress per file on standard error)
 import fs from 'node:fs';
-import { exportView, identity, multiply, partInstances, tessellateScene, type ExportNode,
+import { meshDeflections, exportView, identity, multiply, partInstances, tessellateScene, type ExportNode,
   type Mat4 } from '../packages/cad-scene/src/index.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
 import { WorkerTessellator } from '../packages/tess-workers/src/node.ts';
@@ -18,6 +18,8 @@ import { cachedMesher, reportMeshCache } from './mesh-cache.ts';
 import { corpusFiles, shortName } from './corpus.ts';
 import { addInto, runFiles, type FileCheck } from './runner.ts';
 
+// Coarse: these checks only consume meshes, which need not be fine to check what's done with them.
+const MESHING = meshDeflections({ profile: 'coarse' });
 // The process's own: the size limit (from its command line), its meshing pool and workers.
 let maxBytes = 2e6, tess: WorkerTessellator, workers = 1;
 
@@ -53,8 +55,8 @@ export const check: FileCheck<undefined, Tallies> = {
     const problem = (msg: string) => { totals.problems++; problems.push(`${name}: ${msg}`); };
     const { scene } = await importStep(bytes);
     const { meshes } = await tessellateScene(scene, cachedMesher(tess),
-      { linearDeflection: 0.1, angularDeflection: 0.5, edges: true, concurrency: workers });
-    const view = exportView(scene, { linearDeflection: 0.1, angularDeflection: 0.5, edges: true, curves: true });
+      { ...MESHING, edges: true, concurrency: workers });
+    const view = exportView(scene, { ...MESHING, edges: true, curves: true });
 
     // The view's placed parts, with world transforms, by path and position among the component's drawn parts.
     const placed = new Map<string, { look: number; world: Mat4; visible: boolean }[]>();

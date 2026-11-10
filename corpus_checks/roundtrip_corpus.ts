@@ -1,8 +1,8 @@
-// Importers' plan, phase 4: every corpus file imported, tessellated with our OCCT backend (a tess-workers pool, 0.1 mm,
-// 0.5 rad, edges), exported with extras in each form below, read back with our importers (threejs-import, gltf-import),
-// and compared with what was written by cad-scene's viewDifferences: placement by placement, names along the tree,
-// visibility, every triangle's corners in the world with its face id and colour, every shared and free edge, curve and
-// point. The imported scene must also be valid.
+// Importers' plan, phase 4: every corpus file imported, tessellated with our OCCT backend (a tess-workers pool, the
+// coarse profile, edges), exported with extras in each form below, read back with our importers (threejs-import,
+// gltf-import), and compared with what was written by cad-scene's viewDifferences: placement by placement, names along
+// the tree, visibility, every triangle's corners in the world with its face id and colour, every shared and free edge,
+// curve and point. The imported scene must also be valid.
 //
 //   json           three.js JSON (lossless: to 1e-4 mm)
 //   glb            GLB uncompressed, hidden placements written (KHR_node_visibility): lossless
@@ -28,8 +28,9 @@
 // (progress on standard error)
 
 import fs from 'node:fs';
-import { exportView, identity, leafParts, multiply, placedName, pruneView, tessellateScene, validate, viewDifferences,
-  type ExportView, type ExportNode, type Mat4, type PartRef, type Scene } from '../packages/cad-scene/src/index.ts';
+import { exportView, identity, leafParts, meshDeflections, multiply, placedName, pruneView, tessellateScene, validate,
+  viewDifferences, type ExportView, type ExportNode, type Mat4, type PartRef, type Scene }
+  from '../packages/cad-scene/src/index.ts';
 import { import3mf } from '../packages/3mf-import/src/index.ts';
 import { threemf, type ThreeMfOptions } from '../packages/export-3mf/src/index.ts';
 import { glb, type GltfOptions } from '../packages/export-gltf/src/index.ts';
@@ -46,7 +47,8 @@ import { runFiles, type FileCheck } from './runner.ts';
 let tess: WorkerTessellator, workers = 1;
 const STRING_LIMIT = 2 ** 29 - 24;
 const plant = process.env.PLANT;
-const meshing = { linearDeflection: 0.1, angularDeflection: 0.5 };
+// Coarse: this check only consumes meshes, which need not be fine to check what's done with them.
+const meshing = meshDeflections({ profile: 'coarse' });
 const opts = { ...meshing, edges: true, curves: true };
 
 const FORMS = ['json', 'glb', 'glb-draco', 'glb-meshopt', 'glb-instanced', '3mf', '3mf-assembly'] as const;

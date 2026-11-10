@@ -1,7 +1,7 @@
 // Phase 4 step 5 (3MF), before the exporter: how many of our OCCT backend's part meshes become closed, oriented
 // manifolds when their vertices are welded, as 3MF's model objects must be. Each corpus file is imported and its parts
-// tessellated (a tess-workers pool, 0.1 mm; the meshes as the backend gives them, without tessellateScene's turning
-// of inside-out shells); each part mesh with triangles is welded by position, exactly (equal
+// tessellated (a tess-workers pool, the coarse profile; the meshes as the backend gives them, without tessellateScene's
+// turning of inside-out shells); each part mesh with triangles is welded by position, exactly (equal
 // float32 coordinates) and within tolerances relative to its bounding box's diagonal, and then classified:
 //   - closed: every edge in exactly two triangles, once in each direction;
 //   - open: some edge in one triangle only (a boundary), none in more than two;
@@ -12,13 +12,15 @@
 // Several files at once (runner.ts: CHILDREN, MESH_WORKERS).
 // Usage: node corpus_checks/weld_survey.ts [file-list.txt] [max MB, default 2]  (progress on standard error)
 import fs from 'node:fs';
-import { tessellateScene, type Mesh } from '../packages/cad-scene/src/index.ts';
+import { meshDeflections, tessellateScene, type Mesh } from '../packages/cad-scene/src/index.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
 import { WorkerTessellator } from '../packages/tess-workers/src/node.ts';
 import { cachedMesher, reportMeshCache } from './mesh-cache.ts';
 import { corpusFiles, shortName } from './corpus.ts';
 import { runFiles, type FileCheck } from './runner.ts';
 
+// Coarse: these checks only consume meshes, which need not be fine to check what's done with them.
+const MESHING = meshDeflections({ profile: 'coarse' });
 // The process's own: the size limit (from its command line), its meshing pool and workers.
 let maxBytes = 2e6, tess: WorkerTessellator, workers = 1;
 
@@ -145,7 +147,7 @@ export const check: FileCheck<undefined, Result> = {
     R.files++;
     const { scene } = await importStep(bytes);
     const { meshes } = await tessellateScene(scene, cachedMesher(tess),
-      { linearDeflection: 0.1, angularDeflection: 0.5, edges: true, concurrency: workers, orient: false,
+      { ...MESHING, edges: true, concurrency: workers, orient: false,
       dropDegenerate: false });
     for (const [part, mesh] of meshes) {
       if (!mesh.indices.length) continue;

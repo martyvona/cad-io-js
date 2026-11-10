@@ -1,6 +1,6 @@
 // Our OCCT backend's face areas against the area oracle (area_oracle.ts; its method and limits: docs/backends.md), an
 // area from the file alone for faces on planes, cylinders, cones, spheres and tori. Every part of every file is
-// tessellated as stepconv does it (a tess-workers pool, tessellateScene with measures, 0.1 mm, 0.5 rad) and each of
+// tessellated as stepconv does it (a tess-workers pool, tessellateScene with measures, the medium profile) and each of
 // its faces the oracle trusts (no flags, error estimate within 1e-6) is compared:
 //   - OCCT's measured area (BRepGProp on its healed faces) against the oracle's;
 //   - the mesh judged by faceFailures twice: with OCCT's measures, as the library does, and with the oracle's area and
@@ -18,7 +18,7 @@
 //                  area to match, so faceFailures with OCCT's measures sees nothing: each must be listed as undetected
 // Several files at once (runner.ts: CHILDREN, MESH_WORKERS).
 import fs from 'node:fs';
-import { BOUNDARY_SLACK, faceFailures, MISSING_FRACTION, tessellateScene, type FaceFailure, type Mesh,
+import { meshDeflections, BOUNDARY_SLACK, faceFailures, MISSING_FRACTION, tessellateScene, type FaceFailure, type Mesh,
   type Scene } from '../packages/cad-scene/src/index.ts';
 import { parseStep, type Instance, type StepModel } from '../packages/step-parser/src/index.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
@@ -28,7 +28,9 @@ import { AreaOracle, trusted, type OracleResult } from './area_oracle.ts';
 import { corpusFiles, partSubset, plantedPart, shortName } from './corpus.ts';
 import { addInto, runFiles, type FileCheck } from './runner.ts';
 
-const LINEAR_MM = 0.1, ANGULAR = 0.5, TRUST = 1e-6, OFF = 0.01, PLANT_EVERY = 50;
+// Medium, the default, as users get it.
+const { linearDeflection: LINEAR_MM, angularDeflection: ANGULAR } = meshDeflections({ profile: 'medium' });
+const TRUST = 1e-6, OFF = 0.01, PLANT_EVERY = 50;
 // The process's own: the size limit (from its command line) and its meshing pool.
 let maxBytes = 2e6, pool: WorkerTessellator;
 const plant = process.env.PLANT;

@@ -1,7 +1,7 @@
 // Phase 4 step 5: 3MF for every corpus file, read back with lib3mf (the 3MF Consortium's reader, strict mode) and
 // compared with the export view it was written from. Each file is imported, tessellated with our OCCT backend (a
-// tess-workers pool, 0.1 mm), and exported with open meshes as surface objects and hidden instances kept, so every
-// placed part with triangles is written; then:
+// tess-workers pool, the coarse profile), and exported with open meshes as surface objects and hidden instances kept,
+// so every placed part with triangles is written; then:
 //   - lib3mf's errors and warnings are problems;
 //   - parts build: one item per placed part with triangles, in tree order, at the view's world transform (to
 //     float32, as lib3mf reads transforms);
@@ -16,7 +16,7 @@
 // Prints the 3MF sizes and the export and read times. Usage:
 //   node corpus_checks/threemf_corpus.ts [file-list.txt] [max MB, default 2]  (progress on standard error)
 import fs from 'node:fs';
-import { exportView, identity, multiply, scaling, tessellateScene, type ExportNode,
+import { meshDeflections, exportView, identity, multiply, scaling, tessellateScene, type ExportNode,
   type Mat4 } from '../packages/cad-scene/src/index.ts';
 import { modelUnit, threemf } from '../packages/export-3mf/src/index.ts';
 import { OBJECT_TYPE, read3mf, type Read3mf } from '../packages/export-3mf/test/read3mf.ts';
@@ -26,6 +26,8 @@ import { cachedMesher, reportMeshCache } from './mesh-cache.ts';
 import { corpusFiles, shortName } from './corpus.ts';
 import { addInto, runFiles, type FileCheck } from './runner.ts';
 
+// Coarse: these checks only consume meshes, which need not be fine to check what's done with them.
+const MESHING = meshDeflections({ profile: 'coarse' });
 // The process's own: the size limit (from its command line), its meshing pool and workers.
 let maxBytes = 2e6, tess: WorkerTessellator, workers = 1;
 
@@ -86,8 +88,8 @@ export const check: FileCheck<undefined, Tallies> = {
     const problem = (msg: string) => { totals.problems++; problems.push(`${name}: ${msg}`); };
     const { scene } = await importStep(bytes);
     const { meshes } = await tessellateScene(scene, cachedMesher(tess),
-      { linearDeflection: 0.1, angularDeflection: 0.5, concurrency: workers });
-    const view = exportView(scene, { linearDeflection: 0.1, angularDeflection: 0.5 });
+      { ...MESHING, concurrency: workers });
+    const view = exportView(scene, MESHING);
 
     const te = performance.now();
     const out = threemf(scene, view, { nonManifold: 'surface', hidden: 'keep' });

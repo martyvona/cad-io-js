@@ -1,15 +1,15 @@
-files 517 (0 over 1000 MB skipped), 177 s
-part nodes 5027 (3 hidden), meshes 3125, triangle primitives 5150, triangles 17741539, segments 1978080, points 1064
-GLB 468.5 MB; export 2.06 s; validation 5.75 s
-draco: 97.0 MB (20.7%), export 12.34 s; faces checked 111775
-meshopt: 115.9 MB (24.7%), export 6.34 s; faces checked 111775, line and point vertices 2315467
-instancing: 2155 placements in 424 instanced nodes; 3296 part nodes against 5027; 0 placements not TRS
+files 517 (0 over 1000 MB skipped), 29 s
+part nodes 5026 (3 hidden), meshes 3124, triangle primitives 5149, triangles 10457772, segments 1702247, points 1064
+GLB 299.5 MB; export 1.60 s; validation 4.20 s
+draco: 82.4 MB (27.5%), export 7.95 s; faces checked 111774
+meshopt: 90.0 MB (30.1%), export 4.19 s; faces checked 111774, line and point vertices 2036842
+instancing: 2155 placements in 424 instanced nodes; 3295 part nodes against 5026; 0 placements not TRS
 largest:
-  130.4 MB, 0.4 s  gkv311-opencascade-dataset/step/as1_motor.step
-  93.8 MB, 0.2 s  gkv311-opencascade-dataset/step/bug28366_fuselage.stp
-  17.6 MB, 0.1 s  gkv311-opencascade-dataset/step/trj3_s1-ac-214.stp
-  16.6 MB, 0.1 s  gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp
-  16.0 MB, 0.1 s  gkv311-opencascade-dataset/step/bug29979_firetherm_12.step
+  67.6 MB, 0.2 s  gkv311-opencascade-dataset/step/as1_motor.step
+  47.5 MB, 0.1 s  gkv311-opencascade-dataset/step/bug28366_fuselage.stp
+  13.6 MB, 0.1 s  gkv311-opencascade-dataset/step/bug29979_firetherm_12.step
+  12.6 MB, 0.1 s  gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp
+  11.4 MB, 0.1 s  gkv311-opencascade-dataset/step/bug30790.step
 validator issues (count, files, code, an example):
          3    3 info UNSUPPORTED_EXTENSION  e.g. nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_02_asme1_ap242-e2.stp /extensionsUsed/0: Cannot validate an extension as it is not supported by the validator: 'KHR_node_visibility'.
 problems 0

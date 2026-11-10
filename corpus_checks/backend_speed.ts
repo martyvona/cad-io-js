@@ -1,6 +1,6 @@
 // Tessellation speed of truck against our OCCT backend over the corpus, as stepconv runs them: each file imported
 // once, then every brep part through each backend's worker pool (cores - 1 workers, 120 s timeout, kept warm across
-// files), OCCT then truck, back to back per file; 0.1 mm and 0.5 rad, no edges. Prints each backend's outcomes, run
+// files), OCCT then truck, back to back per file; the medium profile, no edges. Prints each backend's outcomes, run
 // time (with and without the files where truck times out or fails) and time in the workers, and, over the parts both
 // mesh, the time and triangles of each, by OCCT's time per part; then the slowest parts. Timings only mean something
 // on AC power with low power mode off and the CPU otherwise idle.
@@ -8,6 +8,7 @@
 //   (progress on standard error)
 import fs from 'node:fs';
 import os from 'node:os';
+import { meshDeflections } from '../packages/cad-scene/src/index.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
 import { stepPartBytes } from '../packages/step-export/src/index.ts';
 import { WorkerTessellator } from '../packages/tess-workers/src/node.ts';
@@ -15,6 +16,8 @@ import { corpusFiles, shortName } from './corpus.ts';
 
 const maxBytes = Number(process.argv[3] ?? 2) * 1e6;
 const workers = Math.max(1, os.availableParallelism() - 1);
+// Medium, the default, as stepconv runs them.
+const MESHING = meshDeflections({ profile: 'medium' });
 const BACKENDS = ['occt', 'truck'] as const;
 type Backend = (typeof BACKENDS)[number];
 const pools = {
@@ -51,7 +54,8 @@ for (const [n, f] of files.entries()) {
         let status: Status = 'ok', triangles = 0;
         try {
           const r = await pools[backend].tessellate({ format: 'step', data: b.data, rootId: b.rootId,
-            origin: p.origin, linearDeflection: 0.1 / p.unit, angularDeflection: 0.5 });
+            origin: p.origin, linearDeflection: MESHING.linearDeflection / p.unit,
+            angularDeflection: MESHING.angularDeflection });
           triangles = r.indices.length / 3;
           if (r.diagnostics.some((d) => d.severity === 'error')) status = 'error';
           else if (!triangles) status = 'empty';
@@ -77,7 +81,7 @@ const median = (xs: number[]) => { const a = [...xs].sort((x, y) => x - y); cons
 const failedFiles = new Set(parts.filter((p) => ['timeout', 'error', 'throw'].includes(p.runs.truck?.status ?? ''))
   .map((p) => p.file));
 console.log(`${workers} workers; ${new Set(parts.map((p) => p.file)).size} files with brep parts, `
-  + `${parts.length} parts; 0.1 mm, 0.5 rad`);
+  + `${parts.length} parts; the medium profile`);
 for (const b of BACKENDS) {
   const runs = parts.flatMap((p) => (p.runs[b] ? [p.runs[b]!] : []));
   const statuses = Object.entries(Object.groupBy(runs, (r) => r.status)).map(([k, v]) => `${k} ${v!.length}`);

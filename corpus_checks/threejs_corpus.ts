@@ -1,6 +1,6 @@
 // Phase 4 step 2: three.js JSON for every corpus file, loaded back with THREE.ObjectLoader and compared with the
 // export view it was written from. Each file is imported, tessellated with our OCCT backend (a tess-workers pool,
-// 0.1 mm, edges), and exported with edges, curves and extras (userData); then, in the loaded scene:
+// the coarse profile, edges), and exported with edges, curves and extras (userData); then, in the loaded scene:
 //   - one Mesh per placed part with triangles, and one Group per part without, in tree order;
 //   - each Mesh's world matrix equals the view's (the root's, mm Z-up to m Y-up, then node transforms down the tree,
 //     times the part's);
@@ -12,7 +12,7 @@
 // Usage: node corpus_checks/threejs_corpus.ts [file-list.txt] [max MB, default 2]  (progress on standard error)
 import fs from 'node:fs';
 import * as THREE from 'three';
-import { exportView, multiply, tessellateScene, type ExportNode,
+import { meshDeflections, exportView, multiply, tessellateScene, type ExportNode,
   type Mat4 } from '../packages/cad-scene/src/index.ts';
 import { threejsChunks } from '../packages/export-threejs/src/index.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
@@ -21,6 +21,8 @@ import { cachedMesher, reportMeshCache } from './mesh-cache.ts';
 import { corpusFiles, shortName } from './corpus.ts';
 import { addInto, runFiles, type FileCheck } from './runner.ts';
 
+// Coarse: these checks only consume meshes, which need not be fine to check what's done with them.
+const MESHING = meshDeflections({ profile: 'coarse' });
 // The process's own: the size limit (from its command line), its meshing pool and workers.
 let maxBytes = 2e6, tess: WorkerTessellator, workers = 1;
 const STRING_LIMIT = 2 ** 29 - 24; // V8's maximum string length (characters)
@@ -55,8 +57,8 @@ export const check: FileCheck<undefined, Tallies> = {
     const problem = (msg: string) => { totals.problems++; problems.push(`${name}: ${msg}`); };
     const { scene } = await importStep(bytes);
     const { meshes } = await tessellateScene(scene, cachedMesher(tess),
-      { linearDeflection: 0.1, angularDeflection: 0.5, edges: true, concurrency: workers });
-    const view = exportView(scene, { linearDeflection: 0.1, angularDeflection: 0.5, edges: true, curves: true });
+      { ...MESHING, edges: true, concurrency: workers });
+    const view = exportView(scene, { ...MESHING, edges: true, curves: true });
 
     const te = performance.now();
     const chunks: string[] = [];

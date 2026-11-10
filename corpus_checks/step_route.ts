@@ -6,9 +6,9 @@
 //   (c) the written file read back by step-import's reader: its model against the original as walks from the items
 //       (packages/step-export/test/compare.ts): equal but for the last bits of numbers, else each difference tallied;
 //       rows no item reaches (not written) counted apart;
-//   (d) both files meshed by our OCCT backend (a tess-workers pool, 0.1 mm, 0.5 rad, measures): failures, faces by id
-//       (present in one only, triangles, failed, OCCT's measured area and validity, mesh area, the mesh's mean normal
-//       against the other's: inverted), wireframe curves by id and points, and time.
+//   (d) both files meshed by our OCCT backend (a tess-workers pool, the medium profile, measures): failures, faces by
+//       id (present in one only, triangles, failed, OCCT's measured area and validity, mesh area, the mesh's mean
+//       normal against the other's: inverted), wireframe curves by id and points, and time.
 // (c) passing with (d) differing points to OCCT reading the two files differently, or a misconception shared by the
 // writer and the importer. Planted bugs, in about one part in 10 (by a hash of its file and id, so a file's planting
 // doesn't depend on the others): PLANT=sense turns over the first face of the part's model before writing (each such
@@ -18,7 +18,8 @@
 // Usage: node --max-old-space-size=12000 corpus_checks/step_route.ts [file-list.txt] [max MB]
 import fs from 'node:fs';
 import { type BrepData, openBrep, rowCount, SURFACE_KIND } from '../packages/cad-brep/src/index.ts';
-import type { TessellationRequest, TessellationResult } from '../packages/cad-scene/src/index.ts';
+import { meshDeflections, type TessellationRequest, type TessellationResult }
+  from '../packages/cad-scene/src/index.ts';
 import { openModel, parseStep } from '../packages/step-parser/src/index.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
 import { WorkerTessellator } from '../packages/tess-workers/src/node.ts';
@@ -28,7 +29,9 @@ import { readBack } from '../packages/step-export/test/readback.ts';
 import { corpusFiles, partSubset, plantedPart, shortName } from './corpus.ts';
 import { runFiles, type FileCheck } from './runner.ts';
 
-const LINEAR_MM = 0.1, ANGULAR = 0.5, PLANT_EVERY = 10;
+// Medium, the default, as users get it.
+const { linearDeflection: LINEAR_MM, angularDeflection: ANGULAR } = meshDeflections({ profile: 'medium' });
+const PLANT_EVERY = 10;
 const plant = process.env.PLANT;
 if (plant && !['sense', 'angle', 'text'].includes(plant)) {
   throw new Error(`PLANT=${plant}: expected sense, angle or text`);

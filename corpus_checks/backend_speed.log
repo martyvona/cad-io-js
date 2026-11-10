@@ -1,24 +1,24 @@
-9 workers; 487 files with brep parts, 3258 parts; 0.1 mm, 0.5 rad
-occt: ok 3119, empty 138, error 1; run 155.4 s, without the 13 files where truck times out or fails 149.7 s; in the workers 227.9 s; 16795508 triangles
-truck: ok 2996, empty 249, timeout 12, error 1; run 1529.8 s, without the 13 files where truck times out or fails 61.5 s; in the workers 1556.9 s; 9051308 triangles
+9 workers; 487 files with brep parts, 3258 parts; the medium profile
+occt: ok 3117, empty 139, error 1, timeout 1; run 324.7 s, without the 13 files where truck times out or fails 318.4 s; in the workers 810.9 s; 31154888 triangles
+truck: ok 2996, empty 249, timeout 12, error 1; run 1529.8 s, without the 13 files where truck times out or fails 61.7 s; in the workers 1557.5 s; 9051308 triangles
 both mesh (ok): OCCT's time against truck's
-  all: 2995 parts; OCCT 195.0 s, truck 88.0 s: 2.22x, per part median 3.48x; truck faster on 2867; triangles OCCT 12070170, truck 9051094
-  OCCT 0-10 ms: 2169 parts; OCCT 5.3 s, truck 2.4 s: 2.18x, per part median 3.45x; truck faster on 2109; triangles OCCT 157294, truck 256614
-  OCCT 10-100 ms: 627 parts; OCCT 20.4 s, truck 9.0 s: 2.28x, per part median 3.66x; truck faster on 576; triangles OCCT 1722296, truck 1709976
-  OCCT 100-1000 ms: 176 parts; OCCT 53.5 s, truck 29.6 s: 1.80x, per part median 3.31x; truck faster on 160; triangles OCCT 3319608, truck 2905478
-  OCCT 1000-10000 ms: 19 parts; OCCT 42.4 s, truck 16.5 s: 2.57x, per part median 3.20x; truck faster on 18; triangles OCCT 1626760, truck 1514405
-  OCCT 10000-Infinity ms: 4 parts; OCCT 73.4 s, truck 30.5 s: 2.41x, per part median 2.92x; truck faster on 4; triangles OCCT 5244212, truck 2664621
-OCCT ok and truck not: 124; truck ok and OCCT not: 1
+  all: 2993 parts; OCCT 656.1 s, truck 76.2 s: 8.61x, per part median 3.82x; truck faster on 2882; triangles OCCT 26164295, truck 8876967
+  OCCT 0-10 ms: 2111 parts; OCCT 5.4 s, truck 2.2 s: 2.48x, per part median 3.69x; truck faster on 2060; triangles OCCT 233085, truck 210026
+  OCCT 10-100 ms: 656 parts; OCCT 21.6 s, truck 8.2 s: 2.64x, per part median 4.28x; truck faster on 610; triangles OCCT 2111697, truck 1557294
+  OCCT 100-1000 ms: 189 parts; OCCT 58.9 s, truck 27.4 s: 2.15x, per part median 4.32x; truck faster on 176; triangles OCCT 4536339, truck 2987509
+  OCCT 1000-10000 ms: 22 parts; OCCT 49.2 s, truck 18.4 s: 2.67x, per part median 3.57x; truck faster on 21; triangles OCCT 2120814, truck 1584115
+  OCCT 10000-Infinity ms: 15 parts; OCCT 521.0 s, truck 20.0 s: 26.03x, per part median 201.29x; truck faster on 15; triangles OCCT 17162360, truck 2538023
+OCCT ok and truck not: 124; truck ok and OCCT not: 3
 slowest parts:
-  gkv311-opencascade-dataset/step/bug24055_8MTF-75LS05.step part 0: occt 2.1 s ok, truck 120.0 s timeout
-  gkv311-opencascade-dataset/step/trj4_k1_top-id-214.stp part 0: occt 0.1 s ok, truck 120.0 s timeout
+  gkv311-opencascade-dataset/step/bug24024_slow_import.stp part 0: occt 120.0 s timeout, truck 12.6 s ok
+  gkv311-opencascade-dataset/step/bug24055_8MTF-75LS05.step part 0: occt 2.3 s ok, truck 120.0 s timeout
   gkv311-opencascade-dataset/step/trj5_k1-id-214.stp part 0: occt 0.1 s ok, truck 120.0 s timeout
-  gkv311-opencascade-dataset/step/trj2_as1-id-203.stp part 2: occt 0.0 s ok, truck 120.0 s timeout
-  gkv311-opencascade-dataset/step/trj3_as1-id-203.stp part 2: occt 0.0 s ok, truck 120.0 s timeout
-  gkv311-opencascade-dataset/step/nist/bug26689_nist_ctc_02_asme1_ap242-2.stp part 1: occt 0.8 s ok, truck 120.0 s timeout
-  gkv311-opencascade-dataset/step/trj12_b3-tu-203.stp part 0: occt 0.7 s ok, truck 120.0 s timeout
-  gkv311-opencascade-dataset/step/trj6_as1-id-214.stp part 3: occt 0.0 s ok, truck 120.0 s timeout
-  gkv311-opencascade-dataset/step/nist/bug29531_nist_ctc_02_asme1_ap242-2.stp part 1: occt 0.8 s ok, truck 120.0 s timeout
-  gkv311-opencascade-dataset/step/trj6_k1-id-203.stp part 0: occt 0.1 s ok, truck 120.0 s timeout
-  gkv311-opencascade-dataset/step/trj6_b1-ec-214.stp part 0: occt 0.7 s ok, truck 120.0 s timeout
+  gkv311-opencascade-dataset/step/trj4_k1_top-id-214.stp part 0: occt 0.1 s ok, truck 120.0 s timeout
+  gkv311-opencascade-dataset/step/trj12_b3-tu-203.stp part 0: occt 0.8 s ok, truck 120.0 s timeout
   nist-pmi-models/NIST-D2MI-Models/NIST-D2MI-Models/827-9999-904 rev c.stp part 0: occt 0.1 s ok, truck 120.0 s timeout
+  gkv311-opencascade-dataset/step/trj6_b1-ec-214.stp part 0: occt 0.8 s ok, truck 120.0 s timeout
+  gkv311-opencascade-dataset/step/trj2_as1-id-203.stp part 2: occt 0.0 s ok, truck 120.0 s timeout
+  gkv311-opencascade-dataset/step/nist/bug26689_nist_ctc_02_asme1_ap242-2.stp part 1: occt 0.9 s ok, truck 120.0 s timeout
+  gkv311-opencascade-dataset/step/trj3_as1-id-203.stp part 2: occt 0.0 s ok, truck 120.0 s timeout
+  gkv311-opencascade-dataset/step/nist/bug29531_nist_ctc_02_asme1_ap242-2.stp part 1: occt 0.9 s ok, truck 120.0 s timeout
+  gkv311-opencascade-dataset/step/trj6_as1-id-214.stp part 3: occt 0.0 s ok, truck 120.0 s timeout
