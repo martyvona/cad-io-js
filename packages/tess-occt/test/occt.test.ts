@@ -372,3 +372,26 @@ test('measures: a face OCCT finds unsound is said to be (trj3_s1-al-214.stp #131
   assert.equal(m.get(1311)?.valid, false);
   assert.ok(r.measures!.filter((x) => x.valid).length > r.measures!.length / 2);
 });
+
+const asm = path.join(root, 'test_corpus/third_party/gkv311-opencascade-dataset/step/as1-oc-214-mat.stp');
+
+// tess-cache relies on it: one entry serves requests with and without edges.
+test('edges add polylines only: the triangles, normals, faces and measures are the same without them', { skip },
+  async () => {
+    const tess = new OcctTessellator();
+    await tess.init();
+    const { scene } = await load(asm);
+    const parts = scene.parts.filter((p) => p.brep);
+    assert.equal(parts.length, 5);
+    for (const p of parts) {
+      const req = { format: 'step' as const, data: subsetOf(p), rootId: rootOf(p), origin: p.origin,
+        linearDeflection: 0.1 / p.unit, angularDeflection: 0.5, measures: true };
+      const { edges, edgePositions, ...a } = await tess.tessellate({ ...req, edges: true });
+      const b = await tess.tessellate({ ...req, edges: false });
+      assert.ok(edges?.length && edgePositions?.length);
+      assert.ok(!('edges' in b) && !('edgePositions' in b));
+      assert.ok(a.indices.length > 0);
+      assert.deepEqual(b, a);
+    }
+    tess.dispose();
+  });

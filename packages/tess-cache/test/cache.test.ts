@@ -3,8 +3,11 @@ import { createHash } from 'node:crypto';
 import test from 'node:test';
 import { TessellationError, type Diagnostic, type TessellationRequest, type TessellationResult, type Tessellator,
   type TessellatorInfo } from 'cad-scene';
-import { CachedTessellator, cacheKey, decodeEntry, encodeEntry, keyPrefix, MemoryStore, type CacheEntry,
-  type CacheStore } from 'tess-cache';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { CachedTessellator, cacheKey, decodeEntry, encodeEntry, FileStore, FORMAT_TAG, keyPrefix, MemoryStore,
+  type CacheEntry, type CacheStore } from 'tess-cache';
 
 const result = (full: boolean, diagnostics: Diagnostic[] = []): TessellationResult => {
   const r: TessellationResult = {
@@ -37,9 +40,10 @@ const resultOf = (e: CacheEntry) => (e as { result: TessellationResult }).result
 test('a result survives encoding, with or without normals, edges, curves and points, in arrays of its own', () => {
   for (const full of [false, true]) {
     const r = result(full, [{ severity: 'warning', message: 'w', source: { format: 'step', id: 7 } }]);
-    const bytes = encodeEntry({ at: 1234, result: r });
+    const entry = { at: 1234, result: r, edges: full, measures: !full };
+    const bytes = encodeEntry(entry);
     const back = decodeEntry(bytes);
-    assert.deepEqual(back, { at: 1234, result: r });
+    assert.deepEqual(back, entry);
     assert.equal('normals' in resultOf(back), full);
     assert.equal('edges' in resultOf(back), full);
     assert.equal('curves' in resultOf(back) && 'points' in resultOf(back), full);
@@ -49,28 +53,15 @@ test('a result survives encoding, with or without normals, edges, curves and poi
     // Decoding works on a view into a larger buffer, at any offset.
     const shifted = new Uint8Array(bytes.length + 3);
     shifted.set(bytes, 3);
-    assert.deepEqual(decodeEntry(shifted.subarray(3)), { at: 1234, result: r });
+    assert.deepEqual(decodeEntry(shifted.subarray(3)), entry);
   }
 });
 
-test('an entry from before outlines (six arrays) still decodes, without them', () => {
-  const r = result(true);
-  const bytes = encodeEntry({ at: 1, result: { ...r, outlinePositions: undefined, outlines: undefined } as never });
-  // Rewritten as an older entry: the header's n without its seventh length.
-  const length = new DataView(bytes.buffer).getUint32(4, true);
-  const header = JSON.parse(new TextDecoder().decode(bytes.subarray(8, 8 + length))) as { n: number[] };
-  assert.equal(header.n.length, 7);
-  header.n = header.n.slice(0, 6);
-  const json = new TextEncoder().encode(JSON.stringify(header));
-  const pad = (n: number) => (n + 3) & ~3;
-  const old = new Uint8Array(pad(8 + json.length) + bytes.length - pad(8 + length));
-  new DataView(old.buffer).setUint32(0, new DataView(bytes.buffer).getUint32(0, true), true);
-  new DataView(old.buffer).setUint32(4, json.length, true);
-  old.set(json, 8);
-  old.set(bytes.subarray(pad(8 + length)), pad(8 + json.length));
-  const back = resultOf(decodeEntry(old));
-  assert.equal(back.outlines, undefined);
-  assert.deepEqual(Array.from(back.points!), [5, 6, 7]);
+test("an older format's entry doesn't decode", () => {
+  const bytes = encodeEntry({ at: 1, result: result(true), edges: true, measures: true });
+  // Format 3's magic number, "TCR3".
+  new DataView(bytes.buffer).setUint32(0, 0x33524354, true);
+  assert.throws(() => decodeEntry(bytes), /not a cache entry/);
 });
 
 test('a thrown error survives encoding, with or without its time limit', () => {
@@ -80,7 +71,7 @@ test('a thrown error survives encoding, with or without its time limit', () => {
 });
 
 test("bytes that aren't a whole encoded entry don't decode", () => {
-  const bytes = encodeEntry({ at: 0, result: result(true) });
+  const bytes = encodeEntry({ at: 0, result: result(true), edges: true, measures: true });
   assert.throws(() => decodeEntry(bytes.subarray(0, bytes.length - 4)), /truncated/);
   assert.throws(() => decodeEntry(new Uint8Array([...bytes, 0, 0, 0, 0])), /truncated/);
   assert.throws(() => decodeEntry(new Uint8Array(bytes.length)), /not a cache entry/);
@@ -103,24 +94,27 @@ test('keys are the same where crypto.subtle is missing (insecure contexts), and 
     assert.equal(await cacheKey(info, req), k);
     assert.deepEqual(await keyPrefix(info), p);
   } finally { Object.defineProperty(globalThis, 'crypto', own); }
-  const prefix = createHash('sha256').update(JSON.stringify([3, 'fake', '1'])).digest('hex').slice(0, 12);
-  assert.equal(p.version, `fake_${prefix}_`);
+  const prefix = createHash('sha256').update(JSON.stringify([4, 'fake', '1'])).digest('hex').slice(0, 12);
+  assert.equal(p.version, `F4_fake_${prefix}_`);
+  assert.equal(FORMAT_TAG, 'F4_');
 });
 
 test('the key changes with the backend, every request option and the payload, and only with them', async () => {
   const k = await cacheKey(info, req);
-  assert.match(k, /^fake_[0-9a-f]{12}_[0-9a-f]{64}$/);
+  assert.match(k, /^F4_fake_[0-9a-f]{12}_[0-9a-f]{64}$/);
   const p = await keyPrefix(info);
-  assert.equal(p.backend, 'fake_');
+  assert.equal(p.backend, 'F4_fake_');
   assert.ok(k.startsWith(p.version) && p.version.startsWith(p.backend));
-  assert.equal((await keyPrefix({ ...info, version: '2' })).backend, 'fake_');
+  assert.equal((await keyPrefix({ ...info, version: '2' })).backend, 'F4_fake_');
   assert.notEqual((await keyPrefix({ ...info, version: '2' })).version, p.version);
-  assert.equal((await keyPrefix({ ...info, name: 'OCCT 8.1 (x)_y' })).backend, 'occt-8-1-x-y_');
-  assert.equal((await keyPrefix({ ...info, name: '' })).backend, '-_');
-  assert.equal((await keyPrefix({ ...info, name: 'a'.repeat(40) })).backend, `${'a'.repeat(32)}_`);
+  assert.equal((await keyPrefix({ ...info, name: 'OCCT 8.1 (x)_y' })).backend, 'F4_occt-8-1-x-y_');
+  assert.equal((await keyPrefix({ ...info, name: '' })).backend, 'F4_-_');
+  assert.equal((await keyPrefix({ ...info, name: 'a'.repeat(40) })).backend, `F4_${'a'.repeat(32)}_`);
   assert.equal(await cacheKey({ ...info }, { ...req, data: new Uint8Array([1, 2, 3]) }), k);
-  // Measures don't change it (a result with them answers either kind of request).
+  // Nor do edges and measures (an entry records whether its request asked for them).
   assert.equal(await cacheKey(info, { ...req, measures: true }), k);
+  assert.equal(await cacheKey(info, { ...req, edges: false }), k);
+  assert.equal(await cacheKey(info, { ...req, edges: undefined }), k);
   const changed: [TessellatorInfo, TessellationRequest][] = [
     [{ ...info, name: 'other' }, req],
     [{ ...info, version: '2' }, req],
@@ -131,16 +125,14 @@ test('the key changes with the backend, every request option and the payload, an
     [info, { ...req, origin: undefined }],
     [info, { ...req, linearDeflection: 0.2 }],
     [info, { ...req, angularDeflection: 0.4 }],
-    [info, { ...req, edges: false }],
     [info, { ...req, data: new Uint8Array([1, 2, 4]) }],
     [info, { ...req, data: new Uint8Array([1, 2]) }],
   ];
   const keys = await Promise.all(changed.map(([i, r]) => cacheKey(i, r)));
   assert.equal(new Set([k, ...keys]).size, changed.length + 1);
-  // Defaults are spelled out: no origin is (0, 0, 0), no edges is false.
+  // Defaults are spelled out: no origin is (0, 0, 0).
   assert.equal(await cacheKey(info, { ...req, origin: undefined }),
     await cacheKey(info, { ...req, origin: [0, 0, 0] }));
-  assert.equal(await cacheKey(info, { ...req, edges: undefined }), await cacheKey(info, { ...req, edges: false }));
 });
 
 /**
@@ -163,8 +155,9 @@ class Fake implements Tessellator {
     if (mode === 5) throw new TessellationError('timed out', arg * 10);
     const res = result(true, mode === 1 ? [{ severity: 'error', message: 'panicked' }] : [
       { severity: 'info', message: `call ${this.calls}` }]);
-    // (Measures only when asked for, as OCCT gives them.)
-    if (!r.measures) delete res.measures;
+    // (Measures and edges only when asked for, as OCCT gives them; mode 6 a part without faces, nothing measured.)
+    if (!r.measures || mode === 6) delete res.measures;
+    if (!r.edges) { delete res.edges; delete res.edgePositions; }
     return res;
   }
   memoryBytes() { return 42; }
@@ -172,6 +165,69 @@ class Fake implements Tessellator {
 }
 
 const r0 = (...extra: number[]) => ({ ...req, data: new Uint8Array([0, ...extra]) });
+
+test('a result asked for edges answers a request without them, the edges taken off; not the other way round',
+  async () => {
+    const fake = new Fake();
+    const t = new CachedTessellator(fake, new MemoryStore());
+    const withEdges = await t.tessellate(r0());
+    assert.ok(withEdges.edges && withEdges.edgePositions);
+    const without = await t.tessellate({ ...r0(), edges: false });
+    assert.equal(fake.calls, 1);
+    assert.ok(!('edges' in without) && !('edgePositions' in without));
+    assert.deepEqual(without, (({ edges: _e, edgePositions: _p, ...rest }) => rest)(withEdges));
+    // Meshed without edges first: a request with them is meshed again, and the new entry answers both.
+    await t.tessellate({ ...r0(1), edges: false });
+    const again = await t.tessellate(r0(1));
+    assert.equal(fake.calls, 3);
+    assert.ok(again.edges);
+    assert.ok(!('edges' in await t.tessellate({ ...r0(1), edges: false })));
+    assert.ok((await t.tessellate(r0(1))).edges);
+    assert.equal(fake.calls, 3);
+  });
+
+test('a result asked for measures answers a request for them even without any (nothing to measure)', async () => {
+  const fake = new Fake();
+  const t = new CachedTessellator(fake, new MemoryStore());
+  const first = await t.tessellate({ ...r0(), data: new Uint8Array([6]), measures: true });
+  assert.equal(first.measures, undefined);
+  await t.tessellate({ ...r0(), data: new Uint8Array([6]), measures: true });
+  assert.equal(fake.calls, 1);
+});
+
+test('a store holding an older format\'s entries is cleared on first use, once; one without them is kept',
+  async () => {
+    for (const kind of ['memory', 'file'] as const) {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tess-cache-format-'));
+      try {
+        const make = () => kind === 'memory' ? shared : new FileStore({ dir });
+        const shared = new MemoryStore();
+        let store: CacheStore = make();
+        // Another backend's entry of this format, and one of format 3 (lower case, no tag).
+        const other = await cacheKey({ ...info, name: 'other' }, r0());
+        await store.set(other, new Uint8Array(4));
+        const fake = new Fake();
+        await new CachedTessellator(fake, store, { keepOtherVersions: true }).tessellate(r0());
+        assert.ok(await store.get(other), 'kept: nothing old');
+        await store.set('fake_0123456789ab_' + 'c'.repeat(64), new Uint8Array(4));
+        store = make();
+        const t = new CachedTessellator(fake, store, { keepOtherVersions: true });
+        await t.tessellate(r0(1));
+        assert.equal(await store.get(other), undefined, 'cleared');
+        assert.equal(await store.get(await cacheKey(fake.info, r0())), undefined, 'cleared');
+        assert.equal(await store.size(), (await store.get(await cacheKey(fake.info, r0(1))))!.length,
+          'only what was written since');
+        // Once per tessellator: an old entry put back later stays until the next one.
+        await store.set('fake_old', new Uint8Array(4));
+        await t.tessellate(r0(2));
+        assert.ok(await store.get('fake_old'));
+        await new CachedTessellator(fake, make()).tessellate(r0(2));
+        assert.equal(await make().get('fake_old'), undefined);
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  });
 
 test('a result without measures doesn\'t answer a request for them; one with them answers both kinds', async () => {
   const fake = new Fake();
@@ -392,7 +448,8 @@ test("a backend's other versions are deleted when a version is first seen, once;
   const t = new CachedTessellator(v2, counted);
   await Promise.all([t.tessellate(r0(1)), t.tessellate(r0(3))]);
   await t.tessellate(r0(1));
-  assert.equal(pruning, 1);
+  // (One more for the sweep for older formats.)
+  assert.equal(pruning, 2);
   assert.ok(!(await has(k1)) && !(await has(k2)));
   assert.ok((await has(ko)) && (await has(kl)) && (await has(await cacheKey(v2.info, r0(1)))) && (
     await has(await cacheKey(v2.info, r0(3)))));
@@ -400,13 +457,13 @@ test("a backend's other versions are deleted when a version is first seen, once;
   // Back to version 1 in the same tessellator: version 2's entries go.
   v2.info.version = '1';
   await t.tessellate(r0(1));
-  assert.equal(pruning, 2);
+  assert.equal(pruning, 3);
   assert.ok(!(await has(await cacheKey({ ...v2.info, version: '2' }, r0(3)))));
   // A failure to delete is counted, and the request still answered.
   const failing: CacheStore = { ...counted, deleteWhere: () => Promise.reject(new Error('no')) };
   const f = new CachedTessellator(v2, failing);
   assert.equal((await f.tessellate(r0(1))).diagnostics[0]!.severity, 'info');
-  assert.deepEqual(f.stats(), { hits: 1, failureHits: 0, misses: 0, errors: 1 });
+  assert.deepEqual(f.stats(), { hits: 1, failureHits: 0, misses: 0, errors: 2 });
 });
 
 const bytes = (n: number, fill = 0) => new Uint8Array(n).fill(fill);

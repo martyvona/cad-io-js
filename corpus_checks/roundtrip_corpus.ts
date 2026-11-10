@@ -38,7 +38,7 @@ import { importGltf } from '../packages/gltf-import/src/index.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
 import { importThreejs } from '../packages/threejs-import/src/index.ts';
 import { WorkerTessellator } from '../packages/tess-workers/src/node.ts';
-import { StepTessellator } from '../packages/step-export/src/index.ts';
+import { cachedMesher, reportMeshCache } from './mesh-cache.ts';
 import { corpusFiles, shortName } from './corpus.ts';
 import { runFiles, type FileCheck } from './runner.ts';
 
@@ -127,7 +127,7 @@ export const check: FileCheck<undefined, Result> = {
     const name = shortName(f);
     const bytes = fs.readFileSync(f);
     const { scene } = await importStep(bytes);
-    await tessellateScene(scene, new StepTessellator(tess), { ...meshing, edges: true, concurrency: workers });
+    await tessellateScene(scene, cachedMesher(tess), { ...meshing, edges: true, concurrency: workers });
     const view = exportView(scene, opts);
     if (!view.roots.length && !view.parts.length) return { ...r, empty: true };
     const { extent, reach, local } = largest(view);
@@ -222,6 +222,7 @@ export const check: FileCheck<undefined, Result> = {
     return r;
   },
   teardown() {
+    reportMeshCache();
     tess.dispose();
   },
 };

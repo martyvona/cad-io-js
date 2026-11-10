@@ -22,7 +22,7 @@ import { modelUnit, threemf } from '../packages/export-3mf/src/index.ts';
 import { OBJECT_TYPE, read3mf, type Read3mf } from '../packages/export-3mf/test/read3mf.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
 import { WorkerTessellator } from '../packages/tess-workers/src/node.ts';
-import { StepTessellator } from '../packages/step-export/src/index.ts';
+import { cachedMesher, reportMeshCache } from './mesh-cache.ts';
 import { corpusFiles, shortName } from './corpus.ts';
 import { addInto, runFiles, type FileCheck } from './runner.ts';
 
@@ -85,7 +85,7 @@ export const check: FileCheck<undefined, Tallies> = {
     totals.files++;
     const problem = (msg: string) => { totals.problems++; problems.push(`${name}: ${msg}`); };
     const { scene } = await importStep(bytes);
-    const { meshes } = await tessellateScene(scene, new StepTessellator(tess),
+    const { meshes } = await tessellateScene(scene, cachedMesher(tess),
       { linearDeflection: 0.1, angularDeflection: 0.5, concurrency: workers });
     const view = exportView(scene, { linearDeflection: 0.1, angularDeflection: 0.5 });
 
@@ -224,6 +224,7 @@ export const check: FileCheck<undefined, Tallies> = {
     return A;
   },
   teardown() {
+    reportMeshCache();
     tess.dispose();
   },
 };

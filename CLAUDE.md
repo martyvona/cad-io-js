@@ -41,7 +41,7 @@ Notes for working on cad-io-js: how work is done here, the decisions every part 
 
 - `npm test`; `npm run typecheck` (`tsc --noEmit`). **Never `npx tsc -b` at the root**: it writes a `.js` beside every `.ts`.
 - A single package: `node --test packages/<p>/test/*.test.ts`, not `node --test <directory>` (that fails whatever the code, so a mutation run reports every mutant caught).
-- Corpus checks: `node --max-old-space-size=8192 corpus_checks/<check>.ts test_corpus/files.txt 1000` (the list, then the maximum file size in MB); `roundtrip_corpus` needs `--max-old-space-size=12000` (about 31 min).
+- Corpus checks: `node --max-old-space-size=8192 corpus_checks/<check>.ts test_corpus/files.txt 1000` (the list, then the maximum file size in MB); `roundtrip_corpus` needs `--max-old-space-size=12000` (about 16 min). Several at once sharing a fresh mesh cache: `node corpus_checks/round.ts <check> ...` (README, "Corpus Checks").
 - The viewer's browser check and `cad-viewer start|stop|status|open|shot|replay`: README, "Viewer".
 - Rebuilding the backends: `packages/tess-occt/build-occt.sh` (12 minutes) then `build.sh` (seconds); `packages/tess-truck/build.sh`.
 

@@ -35,7 +35,7 @@ import { stepconv } from '../packages/cli/src/stepconv.ts';
 import { read3mf } from '../packages/export-3mf/test/read3mf.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
 import { WorkerTessellator } from '../packages/tess-workers/src/node.ts';
-import { StepTessellator } from '../packages/step-export/src/index.ts';
+import { cachedMesher, reportMeshCache, stepconvCacheArgs } from './mesh-cache.ts';
 import { corpusFiles, repoDir, shortName } from './corpus.ts';
 import { runFiles, type FileCheck } from './runner.ts';
 
@@ -198,7 +198,7 @@ export const check: FileCheck<{ sample: boolean }, Result> = {
       const { scene } = await importStep(fs.readFileSync(f));
       // (As stepconv meshes by default: its default profile, medium.)
       const deflections = meshDeflections({ profile: DEFAULT_MESH_PROFILE });
-      const { meshes } = await tessellateScene(scene, new StepTessellator(tess),
+      const { meshes } = await tessellateScene(scene, cachedMesher(tess),
         { ...deflections, concurrency: workers });
       const view = exportView(scene, { ...deflections, edges: false, curves: false });
       const placed = placedParts(view, scene);
@@ -225,7 +225,7 @@ export const check: FileCheck<{ sample: boolean }, Result> = {
         const out = path.join(dir, `model.${format}`);
         const stdout = sink(), stderr = sink();
         const t = performance.now();
-        const code = await stepconv([f, '-o', out, '--workers', String(workers)],
+        const code = await stepconv([f, '-o', out, '--workers', String(workers), ...stepconvCacheArgs()],
           { stdout: stdout.stream, stderr: stderr.stream, stdin: process.stdin });
         const wall = performance.now() - t;
         const fp = (m: string) => problem(`${format}: ${m}`);
@@ -258,7 +258,7 @@ export const check: FileCheck<{ sample: boolean }, Result> = {
 
         if (job.sample) {
           const binOut = path.join(binDir, `model.${format}`);
-          const b = await spawn([f, '-o', binOut, '--workers', String(workers)]);
+          const b = await spawn([f, '-o', binOut, '--workers', String(workers), ...stepconvCacheArgs()]);
           const times = (x: string) => x.replace(/^import .*$/m, '');
           if (b.code !== code) fp(`bin exit ${b.code}, main ${code}`);
           if (b.stdout) fp('bin wrote standard output');
@@ -281,6 +281,7 @@ export const check: FileCheck<{ sample: boolean }, Result> = {
     return r;
   },
   teardown() {
+    reportMeshCache();
     tess.dispose();
     fs.rmSync(dir, { recursive: true, force: true });
   },

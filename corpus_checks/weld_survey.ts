@@ -15,7 +15,7 @@ import fs from 'node:fs';
 import { tessellateScene, type Mesh } from '../packages/cad-scene/src/index.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
 import { WorkerTessellator } from '../packages/tess-workers/src/node.ts';
-import { StepTessellator } from '../packages/step-export/src/index.ts';
+import { cachedMesher, reportMeshCache } from './mesh-cache.ts';
 import { corpusFiles, shortName } from './corpus.ts';
 import { runFiles, type FileCheck } from './runner.ts';
 
@@ -144,7 +144,7 @@ export const check: FileCheck<undefined, Result> = {
     const name = shortName(f);
     R.files++;
     const { scene } = await importStep(bytes);
-    const { meshes } = await tessellateScene(scene, new StepTessellator(tess),
+    const { meshes } = await tessellateScene(scene, cachedMesher(tess),
       { linearDeflection: 0.1, angularDeflection: 0.5, edges: true, concurrency: workers, orient: false,
       dropDegenerate: false });
     for (const [part, mesh] of meshes) {
@@ -170,6 +170,7 @@ export const check: FileCheck<undefined, Result> = {
     return R;
   },
   teardown() {
+    reportMeshCache();
     tess.dispose();
   },
 };

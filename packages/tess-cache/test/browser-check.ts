@@ -13,7 +13,7 @@ const root = path.resolve(import.meta.dirname, '../../..');
 const chrome = process.argv[2] ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 
 const page = `<!doctype html><meta charset="utf-8"><script type="module">
-import { CachedTessellator, IndexedDbStore } from '/packages/tess-cache/src/browser.ts';
+import { CachedTessellator, FORMAT_TAG, IndexedDbStore } from '/packages/tess-cache/src/browser.ts';
 const results = [];
 const check = async (name, f) => {
   try { results.push([name, (await f()) ?? 'ok']); } catch (e) { results.push([name, 'FAIL ' + e.message]); } };
@@ -159,6 +159,33 @@ await check('the caching tessellator over IndexedDB', async () => {
     q.onsuccess = () => { r.result.close(); res(q.result); }; }; });
   expect(keys.length === 1 && calls === 3, 'old version kept: ' + keys.length);
   s.close();
+});
+await check("a database holding an older format's entries is cleared on first use; one without them kept", async () => {
+  const name = fresh();
+  let calls = 0;
+  const fake = {
+    info: { name: 'fake', version: '1', license: 'MIT', formats: ['step'], supportsFaceIds: true, supportsEdges: false,
+      supportsCurves: false },
+    init: async () => {}, dispose: () => {},
+    tessellate: async () => (calls++, { origin: [0, 0, 0], positions: new Float32Array(9),
+      indices: new Uint32Array([0, 1, 2]), faces: [{ entityId: 3, start: 0, count: 3 }], diagnostics: [] }),
+  };
+  const req = { format: 'step', data: new Uint8Array([1]), linearDeflection: 0.1, angularDeflection: 0.5 };
+  const s = new IndexedDbStore({ name });
+  // Another backend's entry of this format, kept while nothing old is there.
+  await s.set(FORMAT_TAG + 'other_x', bytes(4, 2));
+  await new CachedTessellator(fake, s).tessellate(req);
+  expect((await s.get(FORMAT_TAG + 'other_x')) !== undefined, 'cleared with nothing old');
+  // An entry of format 3 (lower case, no tag): everything goes, as the next page sees it.
+  await s.set('fake_0123456789ab_' + 'c'.repeat(64), bytes(4, 1));
+  s.close();
+  const s2 = new IndexedDbStore({ name });
+  await new CachedTessellator(fake, s2).tessellate({ ...req, data: new Uint8Array([2]) });
+  expect((await s2.get('fake_0123456789ab_' + 'c'.repeat(64))) === undefined, 'old entry kept');
+  expect((await s2.get(FORMAT_TAG + 'other_x')) === undefined, 'not cleared whole');
+  await new CachedTessellator(fake, s2).tessellate(req);
+  expect(calls === 3, 'calls ' + calls);
+  s2.close();
 });
 for (const name of await names()) if (name.startsWith('check-')) indexedDB.deleteDatabase(name);
 await fetch('/done', { method: 'POST', body: JSON.stringify({ userAgent: navigator.userAgent, results }) });

@@ -616,3 +616,20 @@ test("a host's module: bytes or a URL with a version, or compiled with one; in t
     pool.dispose();
   }
 });
+
+// tess-cache relies on it: one entry serves requests with and without edges.
+test('edges add polylines only: the triangles, normals and faces are the same without them', { skip }, async () => {
+  const tess = new TruckTessellator();
+  await tess.init();
+  const [withEdges, without] = [await requests(asm, 0.1, true), await requests(asm, 0.1, false)];
+  assert.equal(withEdges.length, 5);
+  for (let i = 0; i < withEdges.length; i++) {
+    const { edges, edgePositions, ...a } = await tess.tessellate(withEdges[i]!);
+    const b = await tess.tessellate(without[i]!);
+    assert.ok(edges?.length && edgePositions?.length);
+    assert.ok(!('edges' in b) && !('edgePositions' in b));
+    assert.ok(a.indices.length > 0);
+    assert.deepEqual(b, a);
+  }
+  tess.dispose();
+});
