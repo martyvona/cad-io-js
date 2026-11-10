@@ -75,6 +75,7 @@ An area for a STEP face from the file alone, independent of OCCT, truck and ever
 - **Memory:** linear memory never shrinks, but is reused, so the heap grows only to the largest part so far.
 - **`instantiateWasm`:** this Emscripten build ignores `Module.wasmBinary`; hand it the compiled module through the hook (needed to hash the module).
 - **The `VBernstein` patch** (`occt_overlay/`, unused): computes the 840 kB Bernstein table instead of storing it (-468 kB brotli); reached only by `AppCont_LeastSquare`, never by the corpus. If adopted, check the upstream header's hash in the build.
+- **The probe** (`native/occt_probe.cpp`, `build-probe.sh` -> `dist/occt_probe.mjs`, for checks, never the library): OCCT's points on a bare representation's faces and edges at given parameters, by STEP id, read without shape processing (`SetShapeProcessFlags` with no operations); used by `corpus_checks/step_roundtrip.ts` (`brep-model.md`, phase 6).
 - **Probing:** copy `occt_tess.cpp` to the scratchpad, add probes switched by environment variables (through `Module.ENV` in `preRun`), link against `build/occt-Os` (compile 1 s, link 7 s).
 
 ## truck

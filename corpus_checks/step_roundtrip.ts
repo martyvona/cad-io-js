@@ -11,7 +11,14 @@
 //       own, else the mesh's; linear, as OCCT gives them) the scene's for the part of that name (for a mesh OCCT names
 //       otherwise, colours the scene has); (c) OCCT's readings of the two files compared, told apart rather than
 //       failed (OCCT reads some files' placements and colours otherwise than step-import: docs/step.md); files up to
-//       OCCT_MB (default 30);
+//       OCCT_MB (default 30); (d) OCCT's points on every face's surface and every edge's curve at the same parameters
+//       from each B-rep part's representation in both files (tess-occt's probe, build-probe.sh: read without shape
+//       processing, OCCT's parameterizations applying to both alike), the parameters a grid in each face's box (its
+//       vertices projected) and along each edge's range on the original; their distances by bucket, relative to the
+//       part's size, those over 1e-9 listed: this is what sees a geometry the importer and the writer get wrong alike
+//       on surfaces the area oracle doesn't take (B-splines, sweeps). A face or edge whose geometry's placement has no
+//       ref_direction in the original is told apart: OCCT takes its own x axis there, the writer Part 42's
+//       (docs/backends.md), so the same geometry starts its parameters elsewhere;
 //   (3) the area oracle (area_oracle.ts, step-parser alone) on both files, face by face where both trust it.
 // Expected differences are counted apart, not failed: parts without a B-rep in AP214 (no tessellated geometry), what
 // the model doesn't keep (faces the importer drops, which their face colours then name), ids renumbered.
@@ -26,10 +33,10 @@ import { decode, openBrep, rowCount, SURFACE_KIND, type BrepData } from '../pack
 import { partInstances, placedName, type Mat4, type Scene } from '../packages/cad-scene/src/index.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
 import { exportStep, type StepSchema } from '../packages/step-export/src/index.ts';
-import { openModel, parseStep } from '../packages/step-parser/src/index.ts';
+import { openModel, parseStep, Reader, type StepModel } from '../packages/step-parser/src/index.ts';
 import { differences, walk } from '../packages/step-export/test/compare.ts';
 import { AreaOracle, trusted } from './area_oracle.ts';
-import { corpusDir, corpusFiles, plantedPart, shortName } from './corpus.ts';
+import { corpusDir, corpusFiles, partSubset, plantedPart, shortName } from './corpus.ts';
 import { addInto, runFiles, type FileCheck } from './runner.ts';
 
 const EXAMPLES = 3;
@@ -39,7 +46,11 @@ const occtMb = Number(process.env.OCCT_MB ?? 30);
 let maxMB = 1000;
 
 type Tally = Map<string, { n: number; ex: string[] }>;
-const fresh = () => ({ files: 0, skipped: 0, placed: 0, same: 0, parts: 0, modelsSame: 0, bytes: 0, exportMs: 0,
+const PROBE_BINS = [1e-12, 1e-9, 1e-6, 1e-3, Infinity];
+// (probeFarthest: each part's farthest point apart and where, as rows: merged by appending.)
+const fresh = () => ({ probeParts: 0, probePoints: 0, probeHist: PROBE_BINS.map(() => 0),
+  probeFarthest: [] as string[], files: 0, skipped: 0, placed: 0, same: 0, parts: 0, modelsSame: 0, bytes: 0,
+  exportMs: 0,
   occtFiles: 0, occtVertices: 0, occtFound: 0, occtMeshes: 0, occtSame: 0, oracleBoth: 0, oracleAgree: 0, planted: 0,
   plantedSeen: [0, 0, 0], plantedMissed: [] as string[], tally: new Map() as Tally });
 type Result = ReturnType<typeof fresh>;
@@ -92,6 +103,24 @@ function colours(s: Scene): Map<string, string> {
     .join(' ')]]);
 }
 
+/**
+ * Whether a face's surface or an edge's curve (through surface curves and trimmed curves) is placed by an
+ * AXIS2_PLACEMENT without a ref_direction in the original: OCCT's default x axis differs from Part 42's there.
+ */
+function defaultRef(model: StepModel, r: Reader, id: number, face: boolean): boolean {
+  let q = model.resolve(id);
+  if (q < 0) return false;
+  q = r.ref(q, face ? 'face_geometry' : 'edge_geometry');
+  for (let k = 0; k < 4 && q >= 0; k++) {
+    if (r.is(q, 'SURFACE_CURVE')) q = r.ref(q, 'curve_3d');
+    else if (r.is(q, 'TRIMMED_CURVE')) q = r.ref(q, 'basis_curve');
+    else break;
+  }
+  if (q < 0) return false;
+  const pos = r.is(q, 'CONIC') || r.is(q, 'ELEMENTARY_SURFACE') ? r.ref(q, 'position') : -1;
+  return pos >= 0 && r.ref(pos, 'ref_direction') < 0;
+}
+
 /** PLANT=angle: a model's cones' semi-angles converted again. */
 function angled(m: BrepData): BrepData {
   const c = openBrep(m.buffer.slice(0));
@@ -138,6 +167,39 @@ const loadOcct = async () => (occt = await require(path.join(corpusDir, 'occt-im
 interface OcctMesh { name: string; color?: number[]; brep_faces: { first: number; last: number; color?: number[] }[];
   attributes: { position: { array: number[] } }; index: { array: number[] } }
 interface OcctResult { success: boolean; meshes: OcctMesh[] }
+
+// tess-occt's probe (build-probe.sh), if built: OCCT's points on a representation's faces and edges.
+interface ProbeModule { HEAPU8: Uint8Array; HEAPF64: Float64Array; _malloc(n: number): number; _free(p: number): void;
+  _occt_probe_read(p: number, n: number, root: number): number; _occt_probe_faces(): number;
+  _occt_probe_num_faces(): number; _occt_probe_edges(): number; _occt_probe_num_edges(): number;
+  _occt_probe_diag(): number; _occt_probe_eval(q: number, n: number, out: number): void;
+  UTF8ToString(p: number): string }
+let probe: ProbeModule | undefined;
+const PROBE = path.join(import.meta.dirname, '../packages/tess-occt/dist/occt_probe.mjs');
+const loadProbe = async () => {
+  if (fs.existsSync(PROBE)) probe = await ((await import(PROBE)) as { default: () => Promise<ProbeModule> }).default();
+};
+const probeRead = (bytes: Uint8Array, root: number) => {
+  const m = probe!, ptr = m._malloc(bytes.length);
+  m.HEAPU8.set(bytes, ptr);
+  const rc = m._occt_probe_read(ptr, bytes.length, root);
+  m._free(ptr);
+  const f = m._occt_probe_faces() >> 3, e = m._occt_probe_edges() >> 3;
+  return { rc, diag: m.UTF8ToString(m._occt_probe_diag()),
+    faces: Array.from(m.HEAPF64.subarray(f, f + 5 * m._occt_probe_num_faces())),
+    edges: Array.from(m.HEAPF64.subarray(e, e + 3 * m._occt_probe_num_edges())) };
+};
+const probeEval = (qs: number[]): number[] => {
+  const m = probe!, n = qs.length / 4;
+  if (!n) return [];
+  const q = m._malloc(qs.length * 8), o = m._malloc(n * 24);
+  m.HEAPF64.set(qs, q >> 3);
+  m._occt_probe_eval(q, n, o);
+  const out = Array.from(m.HEAPF64.subarray(o >> 3, (o >> 3) + 3 * n));
+  m._free(q);
+  m._free(o);
+  return out;
+};
 const readOcct = async (bytes: Uint8Array): Promise<OcctResult> => {
   try {
     return occt!.ReadStepFile(bytes, { linearUnit: 'millimeter', linearDeflectionType: 'bounding_box_ratio',
@@ -152,6 +214,7 @@ export const check: FileCheck<undefined, Result> = {
   async setup({ args }) {
     maxMB = Number(args[1] ?? 1000);
     await loadOcct();
+    await loadProbe();
   },
   async file(file) {
     const R = fresh();
@@ -165,7 +228,7 @@ export const check: FileCheck<undefined, Result> = {
     if (bytes.length > maxMB * 1e6) { R.skipped++; return R; }
     R.files++;
     const name = shortName(file);
-    const { scene: a } = await importStep(bytes);
+    const { scene: a, model: modelA } = await importStep(bytes);
     const before = placements(a), ours = colours(a);
     const models = new Map(a.parts.flatMap((p) => p.brep ? [[p.sources[0]?.id, p.brep.model] as const] : []));
     const planted = plant !== undefined && plantedPart(name) && planting(a);
@@ -183,7 +246,7 @@ export const check: FileCheck<undefined, Result> = {
     for (let p = 0; p < bound.file.count; p++) for (const d of bound.bind(p, { check: true }).diagnostics) {
       note(`bind ${d.severity}: ${norm(d.message)}`, `${name} #${bound.file.index.ids[p]}`);
     }
-    const { scene: b } = await importStep(written);
+    const { scene: b, model: modelB } = await importStep(written);
     for (const d of b.diagnostics) if (d.severity !== 'info') note(`read back ${d.severity}: ${norm(d.message)}`, name);
 
     // (1) The scenes.
@@ -345,6 +408,65 @@ export const check: FileCheck<undefined, Result> = {
       }
     }
 
+    // (2d) OCCT's points at the same parameters, part by part.
+    if (probe) {
+      const readerA = new Reader(modelA);
+      const fail = (k: string, ex: string) => { if (planted) seen[1] = true; else note(`(2d) ${k}`, ex); };
+      for (const part of a.parts) {
+        const id = part.sources[0]?.id;
+        if (!part.brep || id === undefined || !models.has(id)) continue;
+        const ra = probeRead(partSubset(modelA, id), id);
+        if (ra.rc !== 0) {
+          note(`(2d) the probe can't read the original's part: ${ra.diag}`, `${name} #${id}`);
+          continue;
+        }
+        const qs: number[] = [];
+        for (let k = 0; k < ra.faces.length; k += 5) {
+          const [f, u0, u1, v0, v1] = ra.faces.slice(k, k + 5) as number[];
+          for (const x of [0.2, 0.5, 0.8]) for (const y of [0.3, 0.7]) {
+            qs.push(0, f!, u0! + x * (u1! - u0!), v0! + y * (v1! - v0!));
+          }
+        }
+        for (let k = 0; k < ra.edges.length; k += 3) {
+          const [e, t0, t1] = ra.edges.slice(k, k + 3) as number[];
+          for (const x of [0.1, 0.5, 0.9]) qs.push(1, e!, t0! + x * (t1! - t0!), 0);
+        }
+        const pa = probeEval(qs);
+        const rb = probeRead(partSubset(modelB, id), id);
+        if (rb.rc !== 0) { fail(`the probe can't read the written part: ${rb.diag}`, `${name} #${id}`); continue; }
+        const pb = probeEval(qs);
+        R.probeParts++;
+        let size = 0;
+        for (const v of pa) if (Number.isFinite(v)) size = Math.max(size, Math.abs(v));
+        let over = 0, worst = 0, worstAt = '', defaulted = 0, renumbered = 0;
+        for (let k = 0; k < pa.length; k += 3) {
+          if (!Number.isFinite(pa[k]!) || !Number.isFinite(pa[k + 1]!) || !Number.isFinite(pa[k + 2]!)) continue;
+          // (None in the written part under that id: renumbered, its id another part's: (1) says which.)
+          if (!Number.isFinite(pb[k]!)) { renumbered++; continue; }
+          R.probePoints++;
+          const d = Math.hypot(pa[k]! - pb[k]!, pa[k + 1]! - pb[k + 1]!, pa[k + 2]! - pb[k + 2]!) / Math.max(size, 1);
+          const rel = Number.isNaN(d) ? Infinity : d;
+          R.probeHist[PROBE_BINS.findIndex((x) => rel <= x)]!++;
+          if (rel > 1e-9 && defaultRef(modelA, readerA, qs[(k / 3) * 4 + 1]!, qs[(k / 3) * 4] === 0)) {
+            defaulted++;
+            continue;
+          }
+          if (rel > 1e-9) over++;
+          if (rel > worst) {
+            worst = rel;
+            worstAt = `${qs[(k / 3) * 4] === 0 ? 'face' : 'edge'} #${qs[(k / 3) * 4 + 1]}`;
+          }
+        }
+        if (!planted && worst > 0) R.probeFarthest.push(`${worst.toExponential(1)} ${name} #${id} ${worstAt}`);
+        if (over) fail('points at the same parameters over 1e-9 of the part\'s size apart', `${name} #${id}: ${over} `
+          + `(the farthest ${worst.toExponential(1)} on ${worstAt})`);
+        if (renumbered && !planted) note('(2d) faces or edges the written part has under other ids', `${name} #${id}: `
+          + `${renumbered} points`);
+        if (defaulted && !planted) note('(2d) points apart on geometry placed without a ref_direction (OCCT\'s x axis '
+          + 'there, Part 42\'s written)', `${name} #${id}: ${defaulted}`);
+      }
+    }
+
     // (3) The area oracle on both files.
     const oracleA = new AreaOracle(parseStep(bytes)), oracleB = new AreaOracle(parseStep(written));
     for (const [, m] of models) for (let f = 0; f < rowCount(m, 'face'); f++) {
@@ -392,6 +514,11 @@ if (import.meta.main) {
   console.log(`(2) OCCT on ${all.occtFiles} written files (up to ${occtMb} MB): `
     + `${all.occtFound} of ${all.occtVertices} `
     + `placed B-rep vertices among its meshes'; ${all.occtSame} of ${all.occtMeshes} meshes coloured as the scene`);
+  const hist = all.probeHist.map((n, k) => `<= ${PROBE_BINS[k] === Infinity ? 'inf'
+    : PROBE_BINS[k]!.toExponential(0)}: ${n}`).join(', ');
+  console.log(`(2d) OCCT's points at the same parameters: ${all.probeParts} parts, ${all.probePoints} points; apart by `
+    + `(relative to the part's size) ${hist}; the farthest ${all.probeFarthest.sort((x, y) => parseFloat(y)
+      - parseFloat(x))[0] ?? 'none'}`);
   console.log(`(3) the area oracle: ${all.oracleBoth} faces trusted on both files, ${all.oracleAgree} agreeing`);
   if (plant) {
     console.log(`PLANT=${plant}: ${all.planted} files planted, seen by (1) in ${all.plantedSeen[0]}, (2) in `
