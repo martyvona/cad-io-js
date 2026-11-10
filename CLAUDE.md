@@ -12,6 +12,7 @@ Notes for working on cad-io-js: how work is done here, the decisions every part 
 | [`docs/viewer.md`](docs/viewer.md) | the viewer: loading, export, rendering, sections, camera and input, picking, the tree and appearance overrides, updates, automation and replay, the browser check, three.js/Vite quirks |
 | [`docs/future.md`](docs/future.md) | new input formats (IGES, BREP, FreeCAD, QIF, JT and why it's not a priority), the JT specifications, prior art |
 | [`docs/brep-model.md`](docs/brep-model.md) | the B-rep model that replaced STEP subsets: its rules, the buffer layout, the scene and tessellator changes, backends, exporters, phases and decisions |
+| [`docs/shape-interrogation.md`](docs/shape-interrogation.md) | geometry on exact curves and surfaces: what our code does (evaluation, inversion, nearest points) and how sound it is, what a rigorous implementation needs, the libraries surveyed (SISL ...) |
 | [`docs/licensing.md`](docs/licensing.md) | the licenses, the CLA, and clean-room rules for code that could derive from OCCT or others |
 
 **History:** every decision since 0.1.0 with its alternatives and measurements is in `git show V0.2.0:CLAUDE.md`; each phase's steps and phase 0's backend comparison in `git show V0.1.0:CLAUDE.md`. Look there before redoing a measurement or reopening a decision.
