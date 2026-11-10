@@ -40,6 +40,20 @@ export interface SurfaceEvaluator {
   params?(p: Vec): [number, number] | undefined;
   /** Knot spans in u and v (B-spline surfaces), for nearest-point search's grid. */
   spans?: [number, number];
+  /**
+   * The patches (B-spline surfaces), for nearest-point search: each non-empty knot span's parameter ranges and its
+   * control points' box, which holds the patch (it lies in their convex hull, its weights positive). Undefined where
+   * a weight isn't positive, and for surfaces the boxes don't bound (an offset of a B-spline).
+   */
+  patches?: () => Patch[];
+}
+
+/** A B-spline surface's knot span: its parameter ranges and a box holding its patch. */
+export interface Patch {
+  u: [number, number];
+  v: [number, number];
+  lo: Vec;
+  hi: Vec;
 }
 
 const add = (a: Vec, b: Vec) => a.map((x, i) => x + b[i]!);
@@ -353,7 +367,10 @@ function makeSurface(d: BrepData, s: Surface, cache: Map<number, SurfaceEvaluato
         const c = scale(A, 1 / W);
         return [c, scale(sub(Au, scale(c, Wu)), 1 / W), scale(sub(Av, scale(c, Wv)), 1 / W)];
       };
+      let patches: Patch[] | undefined;
+      const positive = !s.weights || s.weights.every((r) => r.every((w) => w > 0));
       return { u: [U[p]!, U[nu]!], v: [V[q]!, V[nv]!], spans: [s.uKnots.length - 1, s.vKnots.length - 1],
+        ...(positive ? { patches: () => patches ??= bsplinePatches(s.poles, p, q, U, V) } : {}),
         point: (u, v) => at(u, v)[0],
         d1: (u, v) => { const r = at(u, v); return [r[1], r[2]]; } };
     }
@@ -386,7 +403,7 @@ function makeSurface(d: BrepData, s: Surface, cache: Map<number, SurfaceEvaluato
       const h = 1e-7;
       return { ...b, point, d1: (u, v) => [scale(sub(point(u + h, v), point(u - h, v)), 1 / (2 * h)),
         scale(sub(point(u, v + h), point(u, v - h)), 1 / (2 * h))],
-      params: undefined };
+      params: undefined, patches: undefined };
     }
     case 'rectangularTrimmed': {
       const b = surfaceEvaluator(d, s.basis, cache, curves);
@@ -405,15 +422,99 @@ export function normalAt(s: SurfaceEvaluator, u: number, v: number): Vec | undef
   return l > 0 ? scale(n, 1 / l) : undefined;
 }
 
+/** Each non-empty knot span of a B-spline surface (poles by u then v, full knot vectors) with its poles' box. */
+function bsplinePatches(poles: Vec[][], p: number, q: number, U: number[], V: number[]): Patch[] {
+  const out: Patch[] = [];
+  for (let a = p; a < poles.length; a++) {
+    if (!(U[a + 1]! > U[a]!)) continue;
+    for (let b = q; b < poles[0]!.length; b++) {
+      if (!(V[b + 1]! > V[b]!)) continue;
+      const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+      for (let i = a - p; i <= a; i++) for (let j = b - q; j <= b; j++) {
+        const P = poles[i]![j]!;
+        for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k]!, P[k]!); hi[k] = Math.max(hi[k]!, P[k]!); }
+      }
+      out.push({ u: [U[a]!, U[a + 1]!], v: [V[b]!, V[b + 1]!], lo, hi });
+    }
+  }
+  return out;
+}
+
+/** The distance from a point to a box (0 inside it): no point of what the box holds is nearer. */
+function boxDistance(p: Vec, lo: Vec, hi: Vec): number {
+  let s = 0;
+  for (let k = 0; k < 3; k++) {
+    const e = Math.max(lo[k]! - p[k]!, 0, p[k]! - hi[k]!);
+    s += e * e;
+  }
+  return Math.sqrt(s);
+}
+
+/** A tree of boxes over patches, in flat arrays: node k's box, and either its two children or its patch. */
+interface PatchTree { lo: Vec[]; hi: Vec[]; left: Int32Array; right: Int32Array; patch: Int32Array }
+
+/** The patches' tree, split at the median of the longest axis of their boxes' centres. */
+function patchTree(patches: Patch[]): PatchTree {
+  const n = 2 * patches.length - 1;
+  const t: PatchTree = { lo: [], hi: [], left: new Int32Array(n).fill(-1), right: new Int32Array(n).fill(-1),
+    patch: new Int32Array(n).fill(-1) };
+  const centre = (i: number, k: number) => (patches[i]!.lo[k]! + patches[i]!.hi[k]!) / 2;
+  const build = (ids: number[]): number => {
+    const node = t.lo.length;
+    const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+    for (const i of ids) for (let k = 0; k < 3; k++) {
+      lo[k] = Math.min(lo[k]!, patches[i]!.lo[k]!);
+      hi[k] = Math.max(hi[k]!, patches[i]!.hi[k]!);
+    }
+    t.lo.push(lo);
+    t.hi.push(hi);
+    if (ids.length === 1) { t.patch[node] = ids[0]!; return node; }
+    let axis = 0, spread = -1;
+    for (let k = 0; k < 3; k++) {
+      const cs = ids.map((i) => centre(i, k)), w = Math.max(...cs) - Math.min(...cs);
+      if (w > spread) { spread = w; axis = k; }
+    }
+    ids.sort((a, b) => centre(a, axis) - centre(b, axis));
+    const half = ids.length >> 1;
+    t.left[node] = build(ids.slice(0, half));
+    t.right[node] = build(ids.slice(half));
+    return node;
+  };
+  build(patches.map((_, i) => i));
+  return t;
+}
+
+/** Patches past which the search walks a tree of their boxes rather than sorting all of them per point. */
+export const PATCH_TREE_MIN = 256;
+
+/** A surface's search state, kept with its evaluator: its patches within its ranges, their tree, their samples. */
+interface PatchSearch {
+  patches: Patch[];
+  /** Samples each way per patch. */
+  n: [number, number][];
+  samples: (Float64Array | undefined)[];
+  tree?: PatchTree;
+}
+const searches = new WeakMap<SurfaceEvaluator, PatchSearch>();
+
 /**
- * A point's parameters on a surface over finite ranges, nearest first: a grid of samples (8 a knot span on B-spline
- * surfaces, at least `samples` each way), then Gauss-Newton steps kept in range from each of the best few local
- * minima on the grid, the nearest kept. Undefined where a range is unbounded. Closed-form `params` is better where it
- * exists.
+ * A point's parameters on a surface over finite ranges, nearest first. On a B-spline surface with positive weights,
+ * by its patches nearest box first: in each, a grid of samples (8 a knot span each way, at least `samples` over the
+ * whole range, as below), then Gauss-Newton steps from its best few local minima, until the next box is no nearer
+ * than the nearest point found (it holds nothing nearer); the boxes, their tree (past `treeMin` patches) and each
+ * patch's samples kept with the evaluator. Otherwise a grid over the whole ranges (at least `samples` each way, 8 a
+ * knot span), then Gauss-Newton steps from each of the best few local minima on it, the nearest kept. Either way a
+ * local search from samples: it can miss a minimum between them (`shape-interrogation.md`). Undefined where a range
+ * is unbounded. Closed-form `params` is better where it exists.
  */
-export function nearestParams(s: SurfaceEvaluator, p: Vec, samples = 24): [number, number] | undefined {
+export function nearestParams(s: SurfaceEvaluator, p: Vec, samples = 24, treeMin = PATCH_TREE_MIN):
+  [number, number] | undefined {
   const [u0, u1] = s.u, [v0, v1] = s.v;
   if (![u0, u1, v0, v1].every(Number.isFinite)) return undefined;
+  if (s.patches) {
+    const found = byPatches(s, p, samples, treeMin);
+    if (found) return found;
+  }
   const nu = Math.max(samples, 8 * (s.spans?.[0] ?? 0)), nv = Math.max(samples, 8 * (s.spans?.[1] ?? 0));
   const grid: number[][] = [];
   for (let i = 0; i <= nu; i++) {
@@ -421,8 +522,18 @@ export function nearestParams(s: SurfaceEvaluator, p: Vec, samples = 24): [numbe
     for (let j = 0; j <= nv; j++) row.push(norm(sub(s.point(u0 + (u1 - u0) * i / nu, v0 + (v1 - v0) * j / nv), p)));
     grid.push(row);
   }
+  let best: [number, number] = [u0, v0], bestD = Infinity;
+  for (const [i, j] of gridMinima(grid).slice(0, 4)) {
+    const [bu, bv, dd] = refine(s, p, u0 + (u1 - u0) * i / nu, v0 + (v1 - v0) * j / nv);
+    if (dd < bestD) { bestD = dd; best = [bu, bv]; }
+  }
+  return best;
+}
+
+/** A grid's local minima (no 4-neighbour lower), lowest first. */
+function gridMinima(grid: ArrayLike<number>[]): [number, number][] {
   const minima: [number, number][] = [];
-  for (let i = 0; i <= nu; i++) for (let j = 0; j <= nv; j++) {
+  for (let i = 0; i < grid.length; i++) for (let j = 0; j < grid[i]!.length; j++) {
     const g = grid[i]![j]!;
     let low = true;
     for (const [a, b] of [[-1, 0], [1, 0], [0, -1], [0, 1]] as const) {
@@ -431,26 +542,116 @@ export function nearestParams(s: SurfaceEvaluator, p: Vec, samples = 24): [numbe
     }
     if (low) minima.push([i, j]);
   }
-  minima.sort((a, b) => grid[a[0]]![a[1]]! - grid[b[0]]![b[1]]!);
+  return minima.sort((a, b) => grid[a[0]]![a[1]]! - grid[b[0]]![b[1]]!);
+}
+
+/** Gauss-Newton steps from (u, v) toward the point's foot, kept in the surface's ranges: [u, v, distance]. */
+function refine(s: SurfaceEvaluator, p: Vec, u: number, v: number): [number, number, number] {
+  const [u0, u1] = s.u, [v0, v1] = s.v;
   const clamp = (x: number, a: number, b: number) => Math.min(Math.max(x, a), b);
-  let best: [number, number] = [u0, v0], bestD = Infinity;
-  for (const [i, j] of minima.slice(0, 4)) {
-    let bu = u0 + (u1 - u0) * i / nu, bv = v0 + (v1 - v0) * j / nv;
-    for (let k = 0; k < 30; k++) {
-      const r = sub(p, s.point(bu, bv)), [su, sv] = s.d1(bu, bv);
-      const a = dot(su, su), b = dot(su, sv), c = dot(sv, sv), det = a * c - b * b;
-      if (!(Math.abs(det) > 1e-300)) break;
-      const gu = dot(su, r), gv = dot(sv, r);
-      const nu2 = clamp(bu + (c * gu - b * gv) / det, u0, u1), nv2 = clamp(bv + (a * gv - b * gu) / det, v0, v1);
-      if (norm(sub(s.point(nu2, nv2), p)) > norm(r)) break;
-      const done = Math.abs(nu2 - bu) <= 1e-14 * Math.max(1, Math.abs(bu))
-        && Math.abs(nv2 - bv) <= 1e-14 * Math.max(1, Math.abs(bv));
-      bu = nu2;
-      bv = nv2;
-      if (done) break;
+  let bu = u, bv = v;
+  for (let k = 0; k < 30; k++) {
+    const r = sub(p, s.point(bu, bv)), [su, sv] = s.d1(bu, bv);
+    const a = dot(su, su), b = dot(su, sv), c = dot(sv, sv), det = a * c - b * b;
+    if (!(Math.abs(det) > 1e-300)) break;
+    const gu = dot(su, r), gv = dot(sv, r);
+    const nu2 = clamp(bu + (c * gu - b * gv) / det, u0, u1), nv2 = clamp(bv + (a * gv - b * gu) / det, v0, v1);
+    if (norm(sub(s.point(nu2, nv2), p)) > norm(r)) break;
+    const done = Math.abs(nu2 - bu) <= 1e-14 * Math.max(1, Math.abs(bu))
+      && Math.abs(nv2 - bv) <= 1e-14 * Math.max(1, Math.abs(bv));
+    bu = nu2;
+    bv = nv2;
+    if (done) break;
+  }
+  return [bu, bv, norm(sub(s.point(bu, bv), p))];
+}
+
+/** nearestParams by patches (above); undefined if the surface has none within its ranges. */
+function byPatches(s: SurfaceEvaluator, p: Vec, samples: number, treeMin: number): [number, number] | undefined {
+  let st = searches.get(s);
+  if (!st) {
+    const [u0, u1] = s.u, [v0, v1] = s.v;
+    // Within the ranges (a trimmed B-spline's): each patch clipped; its box still holds the clipped piece.
+    const patches = s.patches!().flatMap((q) => {
+      const u: [number, number] = [Math.max(q.u[0], u0), Math.min(q.u[1], u1)];
+      const v: [number, number] = [Math.max(q.v[0], v0), Math.min(q.v[1], v1)];
+      return u[0] < u[1] && v[0] < v[1] ? [{ ...q, u, v }] : [];
+    });
+    // Samples each way: 8 a span, and the patch's share of `samples` over the whole range.
+    const n = patches.map((q): [number, number] => [Math.max(8, Math.ceil(samples * (q.u[1] - q.u[0]) / (u1 - u0))),
+      Math.max(8, Math.ceil(samples * (q.v[1] - q.v[0]) / (v1 - v0)))]);
+    st = { patches, n, samples: new Array(patches.length),
+      ...(patches.length > treeMin ? { tree: patchTree(patches) } : {}) };
+    searches.set(s, st);
+  }
+  const { patches } = st;
+  if (!patches.length) return undefined;
+  let best: [number, number] = [patches[0]!.u[0], patches[0]!.v[0]], bestD = Infinity;
+  const search = (k: number) => {
+    const q = patches[k]!, [nu, nv] = st.n[k]!;
+    let pts = st.samples[k];
+    if (!pts) {
+      pts = st.samples[k] = new Float64Array((nu + 1) * (nv + 1) * 3);
+      for (let i = 0; i <= nu; i++) for (let j = 0; j <= nv; j++) {
+        const at = s.point(q.u[0] + (q.u[1] - q.u[0]) * i / nu, q.v[0] + (q.v[1] - q.v[0]) * j / nv);
+        pts.set(at, 3 * (i * (nv + 1) + j));
+      }
     }
-    const dd = norm(sub(s.point(bu, bv), p));
-    if (dd < bestD) { bestD = dd; best = [bu, bv]; }
+    const grid: Float64Array[] = [];
+    for (let i = 0; i <= nu; i++) {
+      const row = new Float64Array(nv + 1);
+      for (let j = 0; j <= nv; j++) {
+        const o = 3 * (i * (nv + 1) + j);
+        row[j] = Math.hypot(pts[o]! - p[0]!, pts[o + 1]! - p[1]!, pts[o + 2]! - p[2]!);
+      }
+      grid.push(row);
+    }
+    for (const [i, j] of gridMinima(grid).slice(0, 4)) {
+      const [bu, bv, dd] = refine(s, p, q.u[0] + (q.u[1] - q.u[0]) * i / nu, q.v[0] + (q.v[1] - q.v[0]) * j / nv);
+      if (dd < bestD) { bestD = dd; best = [bu, bv]; }
+    }
+  };
+  if (!st.tree) {
+    const order = patches.map((q, k): [number, number] => [boxDistance(p, q.lo, q.hi), k])
+      .sort((a, b) => a[0] - b[0]);
+    for (const [lb, k] of order) {
+      if (lb >= bestD) break;
+      search(k);
+    }
+  } else {
+    // Nodes nearest box first (a binary heap on their boxes' distances).
+    const t = st.tree, heap: [number, number][] = [[boxDistance(p, t.lo[0]!, t.hi[0]!), 0]];
+    const push = (x: [number, number]) => {
+      heap.push(x);
+      for (let i = heap.length - 1; i > 0;) {
+        const up = (i - 1) >> 1;
+        if (heap[up]![0] <= heap[i]![0]) break;
+        [heap[up], heap[i]] = [heap[i]!, heap[up]!];
+        i = up;
+      }
+    };
+    const pop = (): [number, number] => {
+      const top = heap[0]!, last = heap.pop()!;
+      if (heap.length) {
+        heap[0] = last;
+        for (let i = 0; ;) {
+          const l = 2 * i + 1, r = l + 1;
+          let m = i;
+          if (l < heap.length && heap[l]![0] < heap[m]![0]) m = l;
+          if (r < heap.length && heap[r]![0] < heap[m]![0]) m = r;
+          if (m === i) break;
+          [heap[m], heap[i]] = [heap[i]!, heap[m]!];
+          i = m;
+        }
+      }
+      return top;
+    };
+    while (heap.length) {
+      const [lb, node] = pop();
+      if (lb >= bestD) break;
+      if (t.patch[node]! >= 0) search(t.patch[node]!);
+      else for (const c of [t.left[node]!, t.right[node]!]) push([boxDistance(p, t.lo[c]!, t.hi[c]!), c]);
+    }
   }
   return best;
 }

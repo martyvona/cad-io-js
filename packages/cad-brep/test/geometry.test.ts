@@ -263,6 +263,104 @@ test('nearest parameters on a B-spline surface, and none on an unbounded one', a
   assert.equal(nearestParams(surfaceEvaluator(d, 1)!, [1, 2, 3]), undefined);
 });
 
+/** A wavy bicubic B-spline surface of `n` x `m` knot spans (uniform knots, clamped), rational with `weights`. */
+function wavy(n: number, m: number, weights?: (i: number, j: number) => number): Surface {
+  const poles = Array.from({ length: n + 3 }, (_, i) => Array.from({ length: m + 3 },
+    (_, j): Vec => [i, j, Math.sin(i * 1.3) * Math.cos(j * 0.7) + 0.3 * Math.sin(i * j)]));
+  return { kind: 'bspline', uDegree: 3, vDegree: 3, uKnots: Array.from({ length: n + 1 }, (_, k) => k),
+    vKnots: Array.from({ length: m + 1 }, (_, k) => k / 2), uMultiplicities: [4, ...new Array(n - 1).fill(1), 4],
+    vMultiplicities: [4, ...new Array(m - 1).fill(1), 4], poles,
+    ...(weights ? { weights: poles.map((r, i) => r.map((_, j) => weights(i, j))) } : {}),
+    uClosed: false, vClosed: false, selfIntersect: false, form: 'unspecified' };
+}
+
+/** The distance the grid over the whole ranges finds (an evaluator without patches): what patches must match. */
+async function gridNearest(s: import('../src/geometry.ts').SurfaceEvaluator, p: Vec): Promise<number> {
+  const { nearestParams } = await import('../src/geometry.ts');
+  const [u, v] = nearestParams({ ...s, patches: undefined }, p)!;
+  return dist(s.point(u, v), p);
+}
+
+test('nearest parameters by patches: as near as the grid over the whole ranges, tree or not; pruned, samples kept',
+  async () => {
+  const { nearestParams } = await import('../src/geometry.ts');
+  const d = one([], [wavy(12, 10)]);
+  const s = surfaceEvaluator(d, 0)!;
+  assert.equal(s.patches!().length, 120);
+  // Points on the surface: found again (its own point), linear search and tree alike.
+  for (let k = 0; k < 20; k++) {
+    const [u, v] = [rand() * 12, rand() * 5];
+    const p = s.point(u, v);
+    for (const treeMin of [Infinity, 0]) {
+      const [pu, pv] = nearestParams(surfaceEvaluator(d, 0)!, p, 24, treeMin)!;
+      near(s.point(pu, pv), p, 1e-9, `${u}, ${v} (tree past ${treeMin})`);
+    }
+  }
+  // Points off it: as near as the grid over the whole ranges finds, or nearer, tree or not. (Not as near as a dense
+  // search everywhere: off the surface, Gauss-Newton can stop at its first sample, as the grid's does:
+  // shape-interrogation.md.)
+  for (let k = 0; k < 12; k++) {
+    const p = [rand() * 14 - 1, rand() * 12 - 1, rand() * 4 - 2];
+    const grid = await gridNearest(s, p);
+    for (const treeMin of [Infinity, 0]) {
+      const [pu, pv] = nearestParams(surfaceEvaluator(d, 0)!, p, 24, treeMin)!;
+      assert.ok(dist(s.point(pu, pv), p) <= grid + 1e-9, `${p}: ${dist(s.point(pu, pv), p)} vs ${grid}`);
+    }
+  }
+  // Pruned: a point on the surface costs a few patches' samples, not the 120 patches' (81 each); kept: again, fewer.
+  for (const treeMin of [Infinity, 0]) {
+    const e = surfaceEvaluator(d, 0)!;
+    let calls = 0;
+    const counted = { ...e, point: (u: number, v: number) => { calls++; return e.point(u, v); } };
+    const p = e.point(6.3, 2.1);
+    nearestParams(counted, p, 24, treeMin);
+    const first = calls;
+    assert.ok(first < 15 * 81, `${first} evaluations (tree past ${treeMin})`);
+    calls = 0;
+    nearestParams(counted, p, 24, treeMin);
+    assert.ok(calls < first / 2, `again: ${calls} against ${first}`);
+    // At least one patch sampled in full (8 a span each way).
+    assert.ok(first >= 81, `${first} evaluations`);
+    // A point far beyond the surface's end in u: boxes at their distances, all but the near end's pruned.
+    calls = 0;
+    nearestParams({ ...surfaceEvaluator(d, 0)!, point: (u: number, v: number) => { calls++; return e.point(u, v); } },
+      [30, 2.5, 0], 24, treeMin);
+    assert.ok(calls < 30 * 81, `far beyond: ${calls} evaluations (tree past ${treeMin})`);
+  }
+  // A doubled interior knot: no empty span among the patches.
+  const doubled = { ...wavy(4, 3), uKnots: [0, 1, 2, 3], uMultiplicities: [4, 2, 1, 4] } as Surface;
+  (doubled as { poles: Vec[][] }).poles = (doubled as { poles: Vec[][] }).poles.slice(0, 7);
+  const ps = surfaceEvaluator(one([], [doubled]), 0)!.patches!();
+  assert.equal(ps.length, 3 * 3);
+  assert.ok(ps.every((q) => q.u[1] > q.u[0] && q.v[1] > q.v[0]));
+});
+
+test('nearest parameters by patches: rational, trimmed; not for weights below zero nor an offset', async () => {
+  const { nearestParams } = await import('../src/geometry.ts');
+  const d = one([], [wavy(4, 4, (i, j) => 1 + 0.5 * Math.sin(i + j)),
+    wavy(4, 4, (i, j) => (i === 2 && j === 2 ? -1 : 1)),
+    { kind: 'offset', basis: 0, distance: 0.5, selfIntersect: false },
+    { kind: 'rectangularTrimmed', basis: 0, u1: 1.5, u2: 3.2, v1: 0.6, v2: 1.4, uSense: true, vSense: true }]);
+  const ev = (i: number) => surfaceEvaluator(d, i)!;
+  const rational = ev(0), negative = ev(1), offset = ev(2), trimmed = ev(3);
+  // Every rational patch inside its box (sampled densely).
+  for (const q of rational.patches!()) {
+    for (let i = 0; i <= 6; i++) for (let j = 0; j <= 6; j++) {
+      const x = rational.point(q.u[0] + (q.u[1] - q.u[0]) * i / 6, q.v[0] + (q.v[1] - q.v[0]) * j / 6);
+      assert.ok(x.every((c, k) => c >= q.lo[k]! - 1e-12 && c <= q.hi[k]! + 1e-12), `${x} outside its box`);
+    }
+  }
+  const p = rational.point(2.3, 1.1);
+  near(rational.point(...nearestParams(rational, p)!), p, 1e-9, 'rational');
+  assert.equal(negative.patches, undefined);
+  assert.equal(offset.patches, undefined);
+  // Trimmed: within its ranges, a point outside them gives a boundary foot.
+  const t = nearestParams(trimmed, rational.point(2, 1))!;
+  near(trimmed.point(...t), rational.point(2, 1), 1e-9, 'trimmed, inside');
+  const out = nearestParams(trimmed, rational.point(0.5, 0.2))!;
+  assert.ok(out[0] >= 1.5 && out[0] <= 3.2 && out[1] >= 0.6 && out[1] <= 1.4, `${out} outside the trim`);
+});
+
 test('edge parameters: stored ranges, periods by sense, whole turns, closed B-splines', async () => {
   const { edgeParams } = await import('../src/geometry.ts');
   const b = new BrepBuilder({ unit: 1 });

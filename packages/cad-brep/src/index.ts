@@ -8,5 +8,5 @@ export { type BrepJson, brepFromJson, brepToJson } from './json.ts';
 export { type BrepDiagnostic, MAX_DIAGNOSTICS, UNIT_TOLERANCE, validateBrep } from './validate.ts';
 export type * from './types.ts';
 export { curveEvaluator, curveEvaluatorOf, type CurveEvaluator, edgeParams, fullKnots, nearestParam, nearestParams,
-  normalAt, surfaceEvaluator, type SurfaceEvaluator } from './geometry.ts';
+  normalAt, type Patch, PATCH_TREE_MIN, surfaceEvaluator, type SurfaceEvaluator } from './geometry.ts';
 export { faceOutlines, type FaceOutlines, MAX_OUTLINE_POINTS, type OutlineOptions } from './outlines.ts';
