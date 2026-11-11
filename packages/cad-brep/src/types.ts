@@ -115,7 +115,7 @@ interface LoopBase extends Row {
 export type Loop =
   | (LoopBase & { kind: 'edge'; coedges: Coedge[] })
   | (LoopBase & { kind: 'vertex'; vertex: number })
-  | (LoopBase & { kind: 'poly'; points: Point[] });
+  | (LoopBase & { kind: 'poly'; vertices: number[] });
 
 export interface Face extends Row {
   surface: number;

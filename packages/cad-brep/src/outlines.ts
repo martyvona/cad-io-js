@@ -94,8 +94,7 @@ export function faceOutlines(d: BrepData, origin: Vec, o: OutlineOptions, only?:
     const seen = new Set<number>();
     for (let l = d.face.firstLoop[f]!; l < d.face.firstLoop[f]! + d.face.loopCount[f]!; l++) {
       if (d.loop.kind[l] === LOOP_KIND.poly) {
-        const pts = Array.from({ length: d.loop.count[l]! }, (_, k) =>
-          Array.from(d.pool.loopReal.subarray(d.loop.first[l]! + 3 * k, d.loop.first[l]! + 3 * k + 3)));
+        const pts = Array.from({ length: d.loop.count[l]! }, (_, k) => vertex(d.pool.loopInt[d.loop.first[l]! + k]!));
         push(id, [...pts, pts[0]!]);
         continue;
       }

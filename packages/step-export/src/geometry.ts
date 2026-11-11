@@ -119,6 +119,8 @@ const UNSET: Value = { k: 'unset' };
 const NAME = str();
 
 /** Advanced faces' edge curves (and swept surfaces' curves, and p-curves' geometry): Part 42's advanced_face rules. */
+// How a vertex is used (`reachable`'s marks): by edges or vertex loops (a VERTEX_POINT), as a poly loop's corner.
+const VERTEX_USE = 1, CORNER_USE = 2;
 const ADVANCED_CURVES = new Set(['line', 'circle', 'ellipse', 'hyperbola', 'parabola', 'polyline', 'bspline']);
 const ADVANCED_SURFACES = new Set(['plane', 'cylinder', 'cone', 'sphere', 'torus', 'bspline', 'extrusion',
   'revolution']);
@@ -158,14 +160,17 @@ function reachable(d: BrepData) {
     live.edge[k] = 1;
     const e = d.edge;
     if (e.curve[k]! >= 0) curve(e.curve[k]!);
-    for (const v of [e.start[k]!, e.end[k]!]) if (v >= 0) live.vertex[v] = 1;
+    for (const v of [e.start[k]!, e.end[k]!]) if (v >= 0) live.vertex[v]! |= VERTEX_USE;
   };
   const face = (f: number) => {
     if (live.face[f]) return;
     live.face[f] = 1;
     surface(d.face.surface[f]!);
     for (let l = d.face.firstLoop[f]!; l < d.face.firstLoop[f]! + d.face.loopCount[f]!; l++) {
-      if (d.loop.kind[l] === LOOP_KIND.vertex) live.vertex[d.loop.first[l]!] = 1;
+      if (d.loop.kind[l] === LOOP_KIND.vertex) live.vertex[d.loop.first[l]!]! |= VERTEX_USE;
+      if (d.loop.kind[l] === LOOP_KIND.poly) {
+        for (let j = 0; j < d.loop.count[l]!; j++) live.vertex[d.pool.loopInt[d.loop.first[l]! + j]!]! |= CORNER_USE;
+      }
       if (d.loop.kind[l] !== LOOP_KIND.edge) continue;
       for (let c = d.loop.first[l]!; c < d.loop.first[l]! + d.loop.count[l]!; c++) {
         edge(d.coedge.edge[c]!);
@@ -391,6 +396,8 @@ export function stepGeometry(d: BrepData, opts: StepGeometryOptions = {}): StepG
 
   // -- Vertices and edges. An edge without both vertices is written only as a curve-bounded surface's boundary.
   const vertexId = new Float64Array(rowCount(d, 'vertex')).fill(NaN);
+  // Each vertex's point, what poly loops refer to.
+  const cornerId = new Float64Array(rowCount(d, 'vertex')).fill(NaN);
   const edgeId = new Float64Array(rowCount(d, 'edge')).fill(NaN);
   /** Where an edge's 3D geometry is an advanced face's (an EDGE_CURVE whose curve is Part 42's list). */
   const advancedEdge = new Uint8Array(rowCount(d, 'edge'));
@@ -496,7 +503,7 @@ export function stepGeometry(d: BrepData, opts: StepGeometryOptions = {}): StepG
           [NAME, DERIVED, DERIVED, ref(edgeId[c.edge]!), bool(orientation(c.orientation, c.id, c.range))])))]);
       }
       if (l.kind === 'vertex') return emit(fresh(), 'VERTEX_LOOP', [NAME, ref(vertexId[l.vertex]!)]);
-      return emit(fresh(), 'POLY_LOOP', [NAME, refs(l.points.map(point))]);
+      return emit(fresh(), 'POLY_LOOP', [NAME, refs(l.vertices.map((v) => cornerId[v]!))]);
     });
     const advanced = ADVANCED_SURFACES.has(surfaces[s]!.kind) && sweptAdvanced(surfaces[s]!)
       && face.loops.every((l) => l.kind === 'vertex' || (l.kind === 'edge'
@@ -704,7 +711,13 @@ export function stepGeometry(d: BrepData, opts: StepGeometryOptions = {}): StepG
       if (!live.vertex[k]) continue;
       const v = decode.vertex(d, k);
       if (v.tolerance !== undefined) note('vertex tolerances (not written: STEP has none per entity)', v.id, 'info');
-      vertexId[k] = emit(own(v.id), 'VERTEX_POINT', [NAME, ref(point(v.point))]);
+      // A vertex of edges or vertex loops a VERTEX_POINT, a poly loop's corner the point alone (a POLY_LOOP's corners
+      // are CARTESIAN_POINTs), one of both the VERTEX_POINT's point (its own id the VERTEX_POINT's).
+      if (live.vertex[k]! & VERTEX_USE) {
+        const p = point(v.point);
+        vertexId[k] = emit(own(v.id), 'VERTEX_POINT', [NAME, ref(p)]);
+        cornerId[k] = p;
+      } else cornerId[k] = emit(own(v.id), 'CARTESIAN_POINT', [NAME, reals(v.point)]);
       yield* flush();
     }
     for (let k = 0; k < rowCount(d, 'edge'); k++) {

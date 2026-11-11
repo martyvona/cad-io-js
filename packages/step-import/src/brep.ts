@@ -82,6 +82,22 @@ const dimOf = (c: Curve, specs: Curve[]): number => {
 };
 
 /** The B-rep of a shape representation's items (positions), in its unit. */
+/** Each CARTESIAN_POINT that is a VERTEX_POINT's, to the first such VERTEX_POINT: made once per file, when a part has
+ * a poly loop (whose corners are points). */
+const vertexPoints = new WeakMap<Reader['model'], Map<number, number>>();
+function vertexPointsOf(r: Reader): Map<number, number> {
+  let m = vertexPoints.get(r.model);
+  if (!m) {
+    m = new Map();
+    for (const p of r.model.instancesOf('VERTEX_POINT')) {
+      const g = r.ref(p, 'vertex_geometry');
+      if (g >= 0 && !m.has(g)) m.set(g, p);
+    }
+    vertexPoints.set(r.model, m);
+  }
+  return m;
+}
+
 export function stepBrep(r: Reader, items: number[], o: StepBrepOptions, warn: Warn): StepBrepResult {
   const b = new BrepBuilder({ unit: o.unit, ...(o.uncertainty !== undefined ? { uncertainty: o.uncertainty } : {}) });
   const A = o.angle;
@@ -466,6 +482,22 @@ export function stepBrep(r: Reader, items: number[], o: StepBrepOptions, warn: W
     vertices.set(p, row ?? null);
     return row;
   }
+  // A poly loop's corner, a CARTESIAN_POINT, as a vertex: the VERTEX_POINT's on that point where there is one (the
+  // first in the file), so it joins the edges there; else one of its own, by the point, shared by the loops sharing
+  // it, with the point's id.
+  const corners = new Map<number, number | null>();
+  function corner(p: number): number | undefined {
+    const known = corners.get(p);
+    if (known !== undefined) return known ?? undefined;
+    const vp = vertexPointsOf(r).get(p);
+    let row = vp !== undefined ? vertex(vp) : undefined;
+    if (vp === undefined) {
+      const c = r.is(p, 'CARTESIAN_POINT') ? coords(p) : undefined;
+      if (c?.length === 3) row = b.addVertex({ point: c, id: id(p) });
+    }
+    corners.set(p, row ?? null);
+    return row;
+  }
 
   /** Per EDGE_CURVE: its row, and its p-curves (PCURVE positions) for the coedges of faces on their surfaces. */
   const edges = new Map<number, { row: number; pcurves: number[] } | null>();
@@ -574,11 +606,9 @@ export function stepBrep(r: Reader, items: number[], o: StepBrepOptions, warn: W
         : { kind: 'vertex', vertex: v, ...base };
     }
     if (r.is(l, 'POLY_LOOP')) {
-      const pts = points(r.attr(l, 'polygon'));
-      if (!pts || pts.length < 3 || pts.some((x) => x.length !== 3)) {
-        return note('a poly loop without its points', bound);
-      }
-      return { kind: 'poly', points: pts, ...base };
+      const at = r.refs(l, 'polygon').map(corner);
+      if (at.length < 3 || at.some((v) => v === undefined)) return note('a poly loop without its points', bound);
+      return { kind: 'poly', vertices: at as number[], ...base };
     }
     return missing('loop', l);
   }

@@ -78,7 +78,7 @@ test('the bytes depend on each table\'s rows, not on how tables are interleaved'
 test('layout: every column 8-byte aligned, in order, counts as built', () => {
   const d = everyKind().finish();
   const view = new DataView(d.buffer);
-  assert.equal(String.fromCharCode(...new Uint8Array(d.buffer, 0, 4)), 'CBR1');
+  assert.equal(String.fromCharCode(...new Uint8Array(d.buffer, 0, 4)), 'CBR2');
   assert.equal(view.getUint32(4, true), COLUMNS.length);
   let last = 0;
   COLUMNS.forEach((c, k) => {
@@ -96,8 +96,9 @@ test('openBrep: header checks, and a Uint8Array view copied or used', () => {
   const d = cube().finish();
   assert.throws(() => openBrep(new ArrayBuffer(8)), BrepFormatError);
   const bad = d.buffer.slice(0);
-  new Uint8Array(bad)[3] = 0x32;
-  assert.throws(() => openBrep(bad), /magic "CBR2"/);
+  // (The previous format's buffers among them.)
+  new Uint8Array(bad)[3] = 0x31;
+  assert.throws(() => openBrep(bad), /magic "CBR1"/);
   const fewer = d.buffer.slice(0);
   new DataView(fewer).setUint32(4, COLUMNS.length - 1, true);
   assert.throws(() => openBrep(fewer), /columns/);
@@ -328,8 +329,9 @@ test('validateBrep finds each kind of defect', () => {
     ['loop sense', cube, (d) => { d.loop.sense[0] = 2; }, /loop 0: sense 2/],
     ['loop kind', cube, (d) => { d.loop.kind[0] = 7; }, /loop 0: kind 7/],
     ['vertex loop', MODELS.spheres, (d) => { d.loop.first[1] = 9; }, /loop 1: vertex 9/],
-    ['poly loop', MODELS.facetedAndWire, (d) => { d.loop.count[0] = 2; }, /loop 0: 2 points/],
-    ['poly loop NaN', MODELS.facetedAndWire, (d) => { d.pool.loopReal[0] = NaN; }, /points not finite/],
+    ['poly loop', MODELS.facetedAndWire, (d) => { d.loop.count[0] = 2; }, /loop 0: 2 vertices/],
+    ['poly loop vertex', MODELS.facetedAndWire, (d) => { d.pool.loopInt[1] = 40; }, /loop 0: vertex 40/],
+    ['poly loop beyond', MODELS.facetedAndWire, (d) => { d.loop.first[3] = 11; }, /loop 3: 3 vertices at 11/],
     ['face surface', cube, (d) => { d.face.surface[0] = 6; }, /face 0 \(#21\): surface 6 out of range/],
     ['face sense', cube, (d) => { d.face.sameSense[0] = 2; }, /same_sense 2/],
     ['face loops', cube, (d) => { d.face.loopCount[5] = 2; }, /loops 5 to 6 out of range/],

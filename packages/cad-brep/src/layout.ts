@@ -4,7 +4,7 @@
 // The model's rules (Part 42's parameterizations, radians, placements complete, what stays absent): docs/brep-model.md.
 
 /** The first four bytes of every buffer; the digit is the format's version. */
-export const MAGIC = 'CBR1';
+export const MAGIC = 'CBR2';
 
 export type ColumnType = 'u8' | 'i32' | 'f64';
 
@@ -19,7 +19,7 @@ export const TABLES = {
   /** One row: the part's length unit in millimetres, and its uncertainty in that unit (NaN: none). */
   part: [['unit', 'f64', 1], ['uncertainty', 'f64', 1]],
   pool: [['curveReal', 'f64', 1], ['curveInt', 'i32', 1], ['surfaceReal', 'f64', 1], ['surfaceInt', 'i32', 1],
-    ['loopReal', 'f64', 1], ['itemReal', 'f64', 1]],
+    ['loopInt', 'i32', 1], ['itemReal', 'f64', 1]],
   /** Curves, 3D or 2D (p-curves' geometry): `dim` 2 or 3; reals and ints by kind (CURVE_LAYOUTS). */
   curve: [['kind', 'u8', 1], ['dim', 'u8', 1], ['real', 'i32', 1], ['int', 'i32', 1], ['id', 'f64', 1]],
   surface: [['kind', 'u8', 1], ['real', 'i32', 1], ['int', 'i32', 1], ['id', 'f64', 1]],
@@ -36,8 +36,9 @@ export const TABLES = {
     ['id', 'f64', 1]],
   /**
    * `kind` LOOP_KIND: an edge loop's coedges are `count` rows from `first`; a vertex loop's vertex is `first`
-   * (`count` 1); a poly loop's `count` points are 3 reals each from `first` in `pool.loopReal`. `bound` BOUND; `sense`
-   * whether the loop runs as the source wrote it (STEP: FACE_BOUND.orientation). `id` the bound's.
+   * (`count` 1); a poly loop's `count` corners are vertices, by index from `first` in `pool.loopInt` (a vertex shared
+   * by faces' poly loops joins them there, as a source's shared point does). `bound` BOUND; `sense` whether the loop
+   * runs as the source wrote it (STEP: FACE_BOUND.orientation). `id` the bound's.
    */
   loop: [['kind', 'u8', 1], ['bound', 'u8', 1], ['sense', 'u8', 1], ['first', 'i32', 1], ['count', 'i32', 1],
     ['id', 'f64', 1]],

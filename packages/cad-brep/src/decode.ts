@@ -171,7 +171,7 @@ export function loop(d: BrepData, k: number): Loop {
     case 'edge': return { kind: 'edge', coedges: Array.from({ length: count }, (_, j) => coedge(d, first + j)),
       ...base };
     case 'vertex': return { kind: 'vertex', vertex: first, ...base };
-    case 'poly': return { kind: 'poly', points: new Cursor(d.pool.loopReal, first).points(count, 3), ...base };
+    case 'poly': return { kind: 'poly', vertices: Array.from(d.pool.loopInt.subarray(first, first + count)), ...base };
     default: throw new RangeError(`loop ${k}: kind ${l.kind[k]}`);
   }
 }

@@ -414,10 +414,11 @@ export function validateBrep(d: BrepData): BrepDiagnostic[] {
     } else if (kind === 'vertex') {
       if (count !== 1 || !inRange('vertex', first)) say('error', `${what}: vertex ${first} (count ${count})`);
     } else if (kind === 'poly') {
-      if (count < 3 || first < 0 || first + 3 * count > d.pool.loopReal.length) {
-        say('error', `${what}: ${count} points at ${first}`);
-      } else if (!finite(d.pool.loopReal.subarray(first, first + 3 * count))) {
-        say('error', `${what}: points not finite`);
+      if (count < 3 || first < 0 || first + count > d.pool.loopInt.length) {
+        say('error', `${what}: ${count} vertices at ${first}`);
+      } else {
+        const bad = Array.from(d.pool.loopInt.subarray(first, first + count)).find((v) => !inRange('vertex', v));
+        if (bad !== undefined) say('error', `${what}: vertex ${bad}`);
       }
     } else say('error', `${what}: kind ${l.kind[k]}`);
   }

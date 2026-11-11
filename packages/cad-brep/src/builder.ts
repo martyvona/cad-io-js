@@ -276,7 +276,7 @@ export class BrepBuilder {
   /** A face, its loops and their coedges. */
   addFace(f: Face): number {
     const what = `face ${this.counts.face}`;
-    this.pools('loopReal');
+    this.pools('itemReal', 'loopInt');
     this.surfaceRef(f.surface, what);
     const firstLoop = this.counts.loop;
     for (const l of f.loops) {
@@ -295,9 +295,10 @@ export class BrepBuilder {
         first = l.vertex;
         count = 1;
       } else {
-        first = this.real.n;
-        count = l.points.length;
-        this.points(l.points, 3, what);
+        for (const v of l.vertices) this.check('vertex', v, what);
+        first = this.int.n;
+        count = l.vertices.length;
+        this.int.pushAll(l.vertices);
       }
       this.row('loop', { kind: LOOP_KIND[l.kind], bound: BOUND[l.bound], sense: bool(l.sense), first, count,
         id: opt(l.id) });

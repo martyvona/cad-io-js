@@ -139,7 +139,8 @@ test('implicit knots and folding', () => {
 // Topology: two planar faces sharing an edge whose SURFACE_CURVE has a p-curve on each plane (the second face's use
 // nested oriented edges, the face itself used reversed in its shell), an edge whose only geometry is a p-curve; a
 // cylinder's side with circles whose p-curves are lines in degrees and a seam with two p-curves; a solid with a void
-// (natural-bound spheres); a face with two outer bounds; a faceted face; a face on a missing surface; an edge-based
+// (natural-bound spheres); a face with two outer bounds; two faceted faces sharing two points, one of them a
+// vertex's; a face on a missing surface; an edge-based
 // wireframe; a curve-bounded surface.
 const TOPOLOGY = `
 #1=CARTESIAN_POINT('',(0.,0.,0.));
@@ -254,8 +255,14 @@ const TOPOLOGY = `
 #155=POLY_LOOP('',(#1,#21,#22));
 #156=FACE_OUTER_BOUND('',#155,.T.);
 #157=FACE_SURFACE('',(#156),#10,.T.);
+#161=CARTESIAN_POINT('',(1.,1.,0.));
+#165=VERTEX_POINT('',#161);
+#166=VERTEX_POINT('',#161);
+#162=POLY_LOOP('',(#22,#21,#161));
+#163=FACE_OUTER_BOUND('',#162,.T.);
+#164=FACE_SURFACE('',(#163),#10,.T.);
 #158=ADVANCED_FACE('',(),#999,.T.);
-#159=CLOSED_SHELL('',(#154,#157,#158));
+#159=CLOSED_SHELL('',(#154,#157,#164,#158));
 #160=MANIFOLD_SOLID_BREP('',#159);
 #170=CONNECTED_EDGE_SET('',(#54,#62));
 #171=EDGE_BASED_WIREFRAME_MODEL('',(#170));
@@ -338,13 +345,18 @@ test('topology: shared edges, p-curves per face, orientations, voids, loops, ids
   assert.deepEqual(byId(154).loops.map((l) => [l.kind, l.bound]),
     [['vertex', 'outer'], ['vertex', 'outer'], ['vertex', 'inner']]);
   assert.ok(warnings.some((w) => /more than one outer bound .*\(#154\)/.test(w)), `${warnings}`);
-  const poly = byId(157).loops[0]!;
-  assert.ok(poly.kind === 'poly');
-  assert.deepEqual(poly.points, [[0, 0, 0], [1, 0, 0], [0, 1, 0]]);
+  // The faceted faces' corners vertices, shared: by the faces whose loops share a point, and with the VERTEX_POINT on
+  // a point (#31 to #33 on #1, #21, #22), the first in the file of several (#165 and #166 on #161, used by nothing).
+  const poly = byId(157).loops[0]!, other = byId(164).loops[0]!;
+  assert.ok(poly.kind === 'poly' && other.kind === 'poly');
+  const corner = (v: number) => { const x = decode.vertex(d, v); return [x.id, x.point]; };
+  assert.deepEqual(poly.vertices.map(corner), [[31, [0, 0, 0]], [32, [1, 0, 0]], [33, [0, 1, 0]]]);
+  assert.deepEqual(other.vertices.map(corner), [[33, [0, 1, 0]], [32, [1, 0, 0]], [165, [1, 1, 0]]]);
+  assert.deepEqual([other.vertices[0], other.vertices[1]], [poly.vertices[2], poly.vertices[1]]);
   assert.equal(faces.some((f) => f.id === 158), false);
   assert.ok(warnings.some((w) => /a surface missing from the file/.test(w)), `${warnings}`);
   assert.ok(warnings.some((w) => /a face whose surface can't be read \(left out\) \(#158\)/.test(w)), `${warnings}`);
-  assert.equal(decode.shell(d, solids.find((x) => x.id === 160)!.members[0]!.ref).faces.length, 2);
+  assert.equal(decode.shell(d, solids.find((x) => x.id === 160)!.members[0]!.ref).faces.length, 3);
 
   // The wireframe's edges, the same rows as the faces'.
   const wire = solids.find((x) => x.id === 171)!;

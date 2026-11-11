@@ -251,9 +251,8 @@ struct Builder
   std::vector<TopoDS_Vertex>            vertices;
   std::map<int, TopoDS_Edge>            edges; // as the model's edge runs, start to end
   std::map<int, TopoDS_Face>            faces;
-  // Poly loops' vertices and edges, by their points' coordinates (an edge under both orders).
-  std::map<std::array<double, 3>, TopoDS_Vertex> polyVertices;
-  std::map<std::pair<std::array<double, 3>, std::array<double, 3>>, TopoDS_Edge> polyEdges;
+  // Poly loops' edges, by their corners' vertex rows (an edge under both orders).
+  std::map<std::pair<int, int>, TopoDS_Edge> polyEdges;
   // The translator's precision: the part's uncertainty, else the reader's default.
   double precision = DESTEP_Parameters().ReadPrecisionVal;
 
@@ -1239,31 +1238,26 @@ struct Builder
     bb.Add(fc, w);
   }
 
-  // A poly loop, as OCCT's STEP translator makes one: a line between each two points (shared with the faces using the
-  // same two, by their coordinates, as the translator shares them by point), each with its p-curve on fc's surface
-  // from the points' (u, v).
+  // A poly loop, as OCCT's STEP translator makes one: a line between each two corners (shared with the faces using the
+  // same two vertices, as the translator shares them by point), each with its p-curve on fc's surface from the
+  // corners' (u, v). Two corners at one position (one vertex, or two coinciding) make no line.
   TopoDS_Wire polyLoop(const TopoDS_Face& fc, const occ::handle<Geom_Surface>& s, int l)
   {
-    BRep_Builder bb;
-    const int    n = r.i32(CBR_LOOP_COUNT)[l];
-    const double* p = r.f64(CBR_POOL_LOOP_REAL) + r.i32(CBR_LOOP_FIRST)[l];
+    BRep_Builder   bb;
+    const int      n = r.i32(CBR_LOOP_COUNT)[l];
+    const int32_t* corner = r.i32(CBR_POOL_LOOP_INT) + r.i32(CBR_LOOP_FIRST)[l];
+    const double*  point = r.f64(CBR_VERTEX_POINT);
     occ::handle<ShapeAnalysis_Surface> sas = new ShapeAnalysis_Surface(s);
-    auto key = [](const double* q) { return std::array<double, 3>{q[0], q[1], q[2]}; };
-    auto vertex = [&](const double* q) {
-      auto [it, fresh] = polyVertices.try_emplace(key(q));
-      if (fresh)
-        bb.MakeVertex(it->second, pnt(q), Precision::Confusion());
-      return it->second;
-    };
     TopoDS_Wire w;
     bb.MakeWire(w);
     for (int i = 0; i < n; ++i)
     {
-      const double *a = p + 3 * i, *b = p + 3 * ((i + 1) % n);
-      if (key(a) == key(b))
+      const int     ka = corner[i], kb = corner[(i + 1) % n];
+      const double *a = point + 3 * ka, *b = point + 3 * kb;
+      if (ka == kb || pnt(a).Distance(pnt(b)) == 0.)
         continue;
-      TopoDS_Vertex va = vertex(a), vb = vertex(b);
-      auto          found = polyEdges.find({key(a), key(b)});
+      TopoDS_Vertex va = vertices[ka], vb = vertices[kb];
+      auto          found = polyEdges.find({ka, kb});
       TopoDS_Edge   e;
       if (found == polyEdges.end())
       {
@@ -1289,8 +1283,8 @@ struct Builder
         // Kept for the pair from either end, as the face orientation turns it.
         TopoDS_Edge seen = e;
         seen.Orientation(fc.Orientation());
-        polyEdges.emplace(std::make_pair(key(a), key(b)), seen);
-        polyEdges.emplace(std::make_pair(key(b), key(a)), seen);
+        polyEdges.emplace(std::make_pair(ka, kb), seen);
+        polyEdges.emplace(std::make_pair(kb, ka), seen);
       }
       bb.Add(w, e);
     }

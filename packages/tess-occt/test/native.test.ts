@@ -473,10 +473,11 @@ test('the native route, loops and edges as OCCT\'s STEP translator makes them: n
     }
   }
   // A tetrahedron of poly loops, each face on its own plane, one said the other way round: its edges shared by the
-  // faces (by their points), all six of them between two faces.
+  // faces (by their corners, vertices), all six of them between two faces.
   {
     const b = new BrepBuilder({ unit: 1 });
     const p: V3[] = [[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]];
+    const corners = p.map((point) => b.addVertex({ point }));
     const tris = [[0, 2, 1], [0, 1, 3], [1, 2, 3], [0, 3, 2]];
     const sub = (x: V3, y: V3): V3 => [x[0] - y[0], x[1] - y[1], x[2] - y[2]];
     const cross = (x: V3, y: V3): V3 => [x[1] * y[2] - x[2] * y[1], x[2] * y[0] - x[0] * y[2],
@@ -489,7 +490,7 @@ test('the native route, loops and edges as OCCT\'s STEP translator makes them: n
         xDir: x } });
       // (The first face's points the other way round, its loop's sense false: the same face.)
       return b.addFace({ surface: plane, sameSense: true, id: 41 + j, loops: [{ kind: 'poly', bound: 'outer',
-        sense: j !== 0, points: j === 0 ? [d, c, a] : [a, c, d] }] });
+        sense: j !== 0, vertices: (j === 0 ? [...t].reverse() : t).map((k) => corners[k]!) }] });
     });
     sheet(b, faceIds, 'closed');
     const { a, n } = await run(b);
@@ -502,9 +503,9 @@ test('the native route, loops and edges as OCCT\'s STEP translator makes them: n
       const nrm = fn.get(id)!.normal, at = tris[id - 41]!.map((k) => p[k]!)[0]!;
       assert.ok(nrm.reduce((acc, c, k) => acc + c * (at[k]! - 0.25), 0) > 0, `poly face #${id} faces out`);
     }
-    // Six edges, each between two faces; the STEP route's (our writer gives each face its own points) all free.
+    // Six edges, each between two faces, on both routes (the writer shares the faces' points as the model does).
     assert.deepEqual((n.edges ?? []).map((e) => e.kind).sort(), Array(6).fill('shared'));
-    assert.ok((a.edges ?? []).every((e) => e.kind === 'free'));
+    assert.deepEqual((a.edges ?? []).map((e) => e.kind).sort(), Array(6).fill('shared'));
   }
 });
 

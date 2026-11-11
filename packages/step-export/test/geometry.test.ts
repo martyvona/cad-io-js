@@ -661,3 +661,44 @@ function composed(d: BrepData): string[] {
   }
   return out.sort();
 }
+
+test("poly loops' corners: a vertex of edges too its VERTEX_POINT's point, a corner alone a CARTESIAN_POINT with the "
+  + "vertex's id; shared by the loops, read back shared", async () => {
+  // A square face of edges (vertices 1-4) and two triangles of poly loops beside it on its corners 1 and 2, sharing
+  // them and a corner of no edge (9); the triangles first in the shell, so read before the edges' VERTEX_POINTs.
+  const b = new BrepBuilder({ unit: 1 });
+  const corners = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]];
+  const vs = corners.map((point, k) => b.addVertex({ point, id: 1 + k }));
+  const coedges = corners.map((p, k) => ({ edge: b.addEdge({ curve: b.addCurve({ kind: 'line', point: p,
+    direction: corners[(k + 1) % 4]!.map((x, j) => x - p[j]!), magnitude: 1 }), start: vs[k]!, end: vs[(k + 1) % 4]!,
+  sameSense: true, id: 5 + k }), orientation: 'forward' as const }));
+  const plane = (o: number[], axis: number[]) => b.addSurface({ kind: 'plane', position: { origin: o, axis,
+    xDir: [1, 0, 0] } });
+  const square = b.addFace({ surface: plane([0, 0, 0], [0, 0, 1]), sameSense: true, id: 20,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] });
+  const apex = b.addVertex({ point: [0.5, -1, 0], id: 9 });
+  const tri = (vertices: number[], id: number) => b.addFace({ surface: plane([0, 0, 0], [0, 0, 1]), sameSense: true,
+    id, loops: [{ kind: 'poly', bound: 'outer', sense: true, vertices }] });
+  const t1 = tri([vs[0]!, vs[1]!, apex], 21), t2 = tri([vs[1]!, vs[0]!, apex], 22);
+  b.addItem({ kind: 'body', ref: b.addBody({ kind: 'sheet', members: [{ ref: b.addShell({ kind: 'open',
+    faces: [{ face: t1, sense: true }, { face: t2, sense: true }, { face: square, sense: true }] }),
+  sense: true }] }) });
+  const d = b.finish();
+  const w = written(d);
+  const pointOf = (v: number) => Number(new RegExp(`#${v}=VERTEX_POINT\\('',#(\\d+)\\)`).exec(w.text)![1]);
+  // Vertex 9 a point alone; 1 and 2 VERTEX_POINTs, whose points the poly loops use.
+  assert.equal(render(w, 9), "CARTESIAN_POINT('',(0.5,-1.,0.))");
+  const loops = [...w.text.matchAll(/=(POLY_LOOP\(.*\));/g)].map((m) => m[1]);
+  assert.deepEqual(loops, [`POLY_LOOP('',(#${pointOf(1)},#${pointOf(2)},#9))`,
+    `POLY_LOOP('',(#${pointOf(2)},#${pointOf(1)},#9))`]);
+  // Read back: the triangles' corners the square's vertices (with the VERTEX_POINTs' ids, though read first as
+  // points) and one more, shared.
+  const back = (await readBack(w.data, w.rootId)).brep;
+  const faces = Array.from({ length: rowCount(back, 'face') }, (_, k) => decode.face(back, k));
+  const cornerIds = (id: number) => { const l = faces.find((f) => f.id === id)!.loops[0]!;
+    assert.ok(l.kind === 'poly');
+    return l.vertices.map((v) => decode.vertex(back, v).id); };
+  assert.deepEqual([cornerIds(21), cornerIds(22)], [[1, 2, 9], [2, 1, 9]]);
+  assert.equal(rowCount(back, 'vertex'), 5);
+  assert.deepEqual(differences(walk(d), walk(back)), []);
+});

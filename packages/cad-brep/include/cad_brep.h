@@ -10,7 +10,7 @@
 #include <stdint.h>
 #include <string.h>
 
-#define CBR_MAGIC "CBR1"
+#define CBR_MAGIC "CBR2"
 #define CBR_HEADER_BYTES 496
 
 /* The columns in buffer order: table, column, element type and values per row. */
@@ -21,7 +21,7 @@ enum cbr_column {
   CBR_POOL_CURVE_INT, /* int32_t x 1 */
   CBR_POOL_SURFACE_REAL, /* double x 1 */
   CBR_POOL_SURFACE_INT, /* int32_t x 1 */
-  CBR_POOL_LOOP_REAL, /* double x 1 */
+  CBR_POOL_LOOP_INT, /* int32_t x 1 */
   CBR_POOL_ITEM_REAL, /* double x 1 */
   CBR_CURVE_KIND, /* uint8_t x 1 */
   CBR_CURVE_DIM, /* uint8_t x 1 */
@@ -236,7 +236,7 @@ typedef struct {
 /* The columns of a buffer of `size` bytes into `views` (CBR_COLUMN_COUNT of them): 0, or -1 if it isn't one. */
 static inline int cbr_open(const uint8_t* buf, size_t size, cbr_view* views) {
   static const uint8_t bytes[CBR_COLUMN_COUNT] = {
-    8, 8, 8, 4, 8, 4, 8, 8, 1, 1, 4, 4, 8, 1, 4, 4, 8, 8, 8, 8, 4, 4, 4, 1, 1, 8, 8, 8, 4, 1, 4, 8, 8, 1, 1, 1, 4, 4, 8,
+    8, 8, 8, 4, 8, 4, 4, 8, 1, 1, 4, 4, 8, 1, 4, 4, 8, 8, 8, 8, 4, 4, 4, 1, 1, 8, 8, 8, 4, 1, 4, 8, 8, 1, 1, 1, 4, 4, 8,
     4, 1, 4, 4, 8, 8, 1, 4, 4, 8, 1, 4, 4, 8, 4, 1, 4, 1, 1, 4, 4, 8,
   };
   uint32_t n, k;

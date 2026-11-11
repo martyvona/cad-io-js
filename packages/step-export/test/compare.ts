@@ -50,7 +50,7 @@ export function walk(d: BrepData): unknown[] {
     return strip({ ...f, surface: surface(f.surface), loops: f.loops.map((l) => l.kind === 'edge'
       ? { ...l, coedges: l.coedges.map((c) => strip({ ...c, edge: edge(c.edge),
         pcurve: c.pcurve === undefined ? undefined : curve(c.pcurve) })) }
-      : l.kind === 'vertex' ? { ...l, vertex: vertex(l.vertex) } : l) });
+      : l.kind === 'vertex' ? { ...l, vertex: vertex(l.vertex) } : { ...l, vertices: l.vertices.map(vertex) }) });
   });
   const shell = (k: number) => visit('shell', k, () => {
     const s = decode.shell(d, k);

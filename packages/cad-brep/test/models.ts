@@ -166,15 +166,16 @@ export function spheres(): BrepBuilder {
   return b;
 }
 
-/** A tetrahedron of poly loops (a faceted solid), a wire of two edges, and a face set of a face with no shared
- * topology (an unsewn trimmed surface). */
+/** A tetrahedron of poly loops (a faceted solid, its corners vertices 0-3, shared by the faces), a wire of two edges,
+ * and a face set of a face with no shared topology (an unsewn trimmed surface). */
 export function facetedAndWire(): BrepBuilder {
   const b = new BrepBuilder({ unit: 1 });
   const p = [[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]];
+  const corners = p.map((point) => b.addVertex({ point }));
   const tris = [[0, 2, 1], [0, 1, 3], [1, 2, 3], [0, 3, 2]];
   const faces = tris.map((t) => b.addFace({ surface: b.addSurface({ kind: 'plane',
     position: { origin: p[t[0]!]!, axis: [0, 0, 1], xDir: [1, 0, 0] } }), sameSense: true,
-    loops: [{ kind: 'poly', bound: 'outer', sense: true, points: t.map((k) => p[k]!) }] }));
+    loops: [{ kind: 'poly', bound: 'outer', sense: true, vertices: t.map((k) => corners[k]!) }] }));
   const shell = b.addShell({ kind: 'closed', faces: faces.map((face) => ({ face, sense: true })) });
   b.addItem({ kind: 'body', ref: b.addBody({ kind: 'solid', members: [{ ref: shell, sense: true }] }) });
 
@@ -186,10 +187,10 @@ export function facetedAndWire(): BrepBuilder {
   const wire = b.addBody({ kind: 'wire', members: [{ ref: e1, sense: true }, { ref: e2, sense: true }] });
   b.addItem({ kind: 'body', ref: wire });
 
-  const corners = [[10, 0, 0], [11, 0, 0], [11, 1, 0], [10, 1, 0]];
-  const sq = corners.map((point) => b.addVertex({ point }));
-  const sides = corners.map((a, j) => {
-    const c = corners[(j + 1) % 4]!, direction = [c[0]! - a[0]!, c[1]! - a[1]!, 0];
+  const square = [[10, 0, 0], [11, 0, 0], [11, 1, 0], [10, 1, 0]];
+  const sq = square.map((point) => b.addVertex({ point }));
+  const sides = square.map((a, j) => {
+    const c = square[(j + 1) % 4]!, direction = [c[0]! - a[0]!, c[1]! - a[1]!, 0];
     const line = b.addCurve({ kind: 'line', point: a, direction, magnitude: 1 });
     return b.addEdge({ curve: line, start: sq[j]!, end: sq[(j + 1) % 4]!, sameSense: true });
   });
