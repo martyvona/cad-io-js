@@ -261,8 +261,11 @@ export function exportStep(scene: Scene, opts: StepExportOptions = {}): StepExpo
     // `styled`: what a part's own style goes on, its items but geometric sets' elements in their place; `faceRows`
     // its faces alone, which take it too where its items aren't all solids (`solid`).
     type PartRep = { rep: number; origin: number; unit: number; items: number[]; faces: Map<number, number>;
-      context: number; styled: number[]; faceRows: number[]; solid: boolean };
+      context: number; styled: number[]; faceRows: number[]; solid: boolean; copies?: Map<number, number> };
     const partRep = new Map<number, PartRep>();
+    /** A written face and its turned-over copy, if it has one (a face used both ways). */
+    const withCopy = (rep: PartRep, face: number) => { const c = rep.copies?.get(face); return c === undefined ? [face]
+      : [face, c]; };
     for (const i of [...placedParts].sort((a, b) => a - b)) {
       const part = scene.parts[i]!;
       if (!written(i)) continue;
@@ -288,7 +291,8 @@ export function exportStep(scene: Scene, opts: StepExportOptions = {}): StepExpo
         return it.kind === 'body' && decode.body(model, it.ref).kind === 'solid';
       });
       partRep.set(i, { rep: g.rootId, origin: g.items.at(-1)!, unit: part.unit, items, faces, context: g.contextId,
-        styled: items.flatMap((x) => g.setMembers.get(x) ?? [x]), faceRows: [...new Set(g.faceIds.values())], solid });
+        styled: items.flatMap((x) => g.setMembers.get(x) ?? [x]), faceRows: [...new Set(g.faceIds.values())], solid,
+        copies: g.faceCopies });
       // Its mesh beside it, related to it (so a product with either shape has both), its faces linked to the B-rep's.
       const lod = opts.meshes && schemaName === 'ap242' ? meshLevel(part, true) : undefined;
       if (lod) {
@@ -502,12 +506,12 @@ export function exportStep(scene: Scene, opts: StepExportOptions = {}): StepExpo
         const face = rep.faces.get(f.face);
         if (face === undefined) { warn(`part ${i}: a face material for face #${f.face}, which it doesn't have`);
           continue; }
-        baseStyle.set(face, styled(rep.context, styledItem(f.material, face)));
+        for (const x of withCopy(rep, face)) baseStyle.set(x, styled(rep.context, styledItem(f.material, x)));
       }
       // A surface model's or a shell's style isn't its faces' to every reader (OCCT passes a solid's down, not
       // theirs): there the part's colour also on each face without its own.
       if (!rep.solid && m !== undefined) {
-        for (const face of rep.faceRows) {
+        for (const face of rep.faceRows.flatMap((x) => withCopy(rep, x))) {
           if (baseStyle.has(face)) continue;
           baseStyle.set(face, styled(rep.context, styledItem(m, face)));
         }
@@ -571,15 +575,15 @@ export function exportStep(scene: Scene, opts: StepExportOptions = {}): StepExpo
         if (face === undefined) { warn(`an override's face #${f.face} of part ${f.part}, which isn't written`);
           continue; }
         partIndex = f.part;
-        cdorsi(f.material, face);
+        for (const x of withCopy(partRep.get(f.part)!, face)) cdorsi(f.material, x);
       }
       yield* flush();
     }
     // Layers: their parts' items, and faces.
     for (const l of scene.layers) {
       const items = [...l.parts.flatMap((i) => partRep.get(i)?.items ?? []),
-        ...l.faces.flatMap((f) => { const x = partRep.get(f.part)?.faces.get(f.face); return x === undefined ? [] : [x];
-        })];
+        ...l.faces.flatMap((f) => { const r = partRep.get(f.part), x = r?.faces.get(f.face);
+          return x === undefined ? [] : withCopy(r!, x); })];
       if (!items.length) continue;
       const layer = emit(ids.claim(stepSource(l.sources)), 'PRESENTATION_LAYER_ASSIGNMENT', [str(l.name),
         str(l.description ?? ''), refs(items)]);

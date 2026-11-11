@@ -452,3 +452,44 @@ test("a sheet's part: its colour on its surface model and on each face without i
   assert.match(text, /STYLED_ITEM\('color',\(#\d+\),#100\)/);
   sameLooks(s, back);
 });
+
+test('a face used both ways (two sheets, one using it reversed): written twice, both copies styled and layered',
+  async () => {
+  const b = new BrepBuilder({ unit: 1 });
+  const corners = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]];
+  const vs = corners.map((point, k) => b.addVertex({ point, id: 1 + k }));
+  const coedges = corners.map((p, k) => {
+    const q = corners[(k + 1) % 4]!;
+    const line = b.addCurve({ kind: 'line', point: p, direction: q.map((x, j) => x - p[j]!), magnitude: 1 });
+    return { edge: b.addEdge({ curve: line, start: vs[k]!, end: vs[(k + 1) % 4]!, sameSense: true, id: 5 + k }),
+      orientation: 'forward' as const };
+  });
+  const face = b.addFace({ surface: b.addSurface({ kind: 'plane', position: { origin: [0, 0, 0], axis: [0, 0, 1],
+    xDir: [1, 0, 0] } }), sameSense: true, id: 10, loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] });
+  for (const sense of [true, false]) {
+    const shell = b.addShell({ kind: 'open', faces: [{ face, sense }] });
+    b.addItem({ kind: 'body', ref: b.addBody({ kind: 'sheet', members: [{ ref: shell, sense: true }] }) });
+  }
+  const s = sceneOf({ parts: [{ ...part('sheets', b.finish(), 300), faceMaterials: [{ face: 10, material: 0 }] }],
+    materials: [{ color: [0, 0, 1], opacity: 1, sources: [] }] });
+  s.components = [component('top', { parts: [{ part: 0, transform: identity() }] })];
+  s.roots = [{ component: 0, transform: identity(), sources: [], properties: {} }];
+  s.layers = [{ name: 'L', visible: true, parts: [], faces: [{ part: 0, face: 10 }], sources: [] }];
+  const { text, back, bytes, all } = await roundTrip(s);
+  const faces = [...text.matchAll(/#(\d+)=ADVANCED_FACE\('',\(#\d+\),#\d+,\.([TF])\.\)/g)].map((m) => [+m[1]!, m[2]]);
+  assert.deepEqual(faces.map(([, sense]) => sense), ['T', 'F']);
+  assert.equal(faces[0]![0], 10);
+  for (const [id] of faces) assert.match(text, new RegExp(`STYLED_ITEM\\('color',\\(#\\d+\\),#${id}\\)`));
+  assert.match(text, new RegExp(`PRESENTATION_LAYER_ASSIGNMENT\\('L','',\\(#10,#${faces[1]![0]}\\)\\)`));
+  assert.ok(all.some((d) => /a face used both ways/.test(d.message)));
+  assert.deepEqual(await bindProblems(bytes), []);
+  // Read back: two faces, both blue (by their own colour or, every face's being one, the part's), both in the layer.
+  const p = back.parts[0]!, model = p.brep!.model;
+  const ids = Array.from({ length: rowCount(model, 'face') }, (_, k) => decode.face(model, k).id!);
+  assert.deepEqual(ids, [10, faces[1]![0]]);
+  for (const id of ids) {
+    const m = p.faceMaterials?.find((f) => f.face === id)?.material ?? p.material;
+    assert.deepEqual(back.materials[m!]?.color, [0, 0, 1], `face #${id}`);
+  }
+  assert.deepEqual(back.layers[0]!.faces.map((f) => f.face).sort((x, y) => x - y), [10, faces[1]![0]]);
+});

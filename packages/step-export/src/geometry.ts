@@ -29,6 +29,11 @@ export interface StepGeometry {
    */
   faceIds: Map<number, number>;
   surfaceIds: Map<number, number>;
+  /**
+   * A face written twice (used both ways, so once turned over): the other entity, by the first's written id, for
+   * styles and layers to cover both.
+   */
+  faceCopies: Map<number, number>;
   /** The representation's items, its origin placement (`origin`) last; complete once `instances` is read. */
   items: number[];
   /** The representation context's id. */
@@ -204,6 +209,7 @@ export function stepGeometry(d: BrepData, opts: StepGeometryOptions = {}): StepG
   const own = (x: number | undefined) => ids.claim(x);
   const rootId = opts.id !== undefined ? own(opts.id) : fresh(), contextId = fresh();
   const faceIds = new Map<number, number>(), surfaceIds = new Map<number, number>();
+  const faceCopies = new Map<number, number>();
   const setMembers = new Map<number, number[]>();
   const rootItems: number[] = [];
 
@@ -432,6 +438,31 @@ export function stepGeometry(d: BrepData, opts: StepGeometryOptions = {}): StepG
     return id;
   };
   const faceAdvanced = new Uint8Array(nFaces);
+  // Which ways round each shell and face is written: a solid's outer shell turned over where it's used reversed, a
+  // void where it's used forward (shellUse), and a face turned over where its use and its shell's way round differ.
+  const FORWARD = 1, TURNED = 2;
+  const shellNeeds = new Uint8Array(rowCount(d, 'shell')), faceNeeds = new Uint8Array(nFaces);
+  /** Each face's entity as it is ([2f]) and turned over ([2f + 1]), where written. */
+  const faceAs = new Float64Array(2 * nFaces).fill(NaN);
+  for (let k = 0; k < rowCount(d, 'body'); k++) {
+    const kind = d.body.kind[k]!;
+    if (!live.body[k] || kind === BODY_KIND.wire) continue;
+    for (let j = d.body.first[k]!; j < d.body.first[k]! + d.body.count[k]!; j++) {
+      const forward = d.member.sense[j] === 1, outer = j === d.body.first[k];
+      shellNeeds[d.member.ref[j]!]! |= kind !== BODY_KIND.solid || (outer ? forward : !forward) ? FORWARD : TURNED;
+    }
+  }
+  for (let k = 0; k < rowCount(d, 'shell'); k++) {
+    const needs = shellNeeds[k]! || FORWARD;
+    for (let j = d.shell.first[k]!; j < d.shell.first[k]! + d.shell.count[k]!; j++) {
+      const f = d.faceUse.face[j]!, sense = d.faceUse.sense[j] === 1;
+      if (needs & FORWARD) faceNeeds[f]! |= sense ? FORWARD : TURNED;
+      if (needs & TURNED) faceNeeds[f]! |= sense ? TURNED : FORWARD;
+    }
+  }
+  for (let k = 0; k < rowCount(d, 'item'); k++) {
+    if (d.item.kind[k] === ITEM_KIND.face) faceNeeds[d.item.ref[k]!]! |= FORWARD;
+  }
   const orientation = (o: string, id: number | undefined, range?: [number, number]) => {
     if (o === 'internal' || o === 'external') note(`${o} coedges (written as forward)`, id);
     if (range) note('coedge parameter ranges (not written: STEP has none)', id, 'info');
@@ -440,24 +471,43 @@ export function stepGeometry(d: BrepData, opts: StepGeometryOptions = {}): StepG
   function writeFace(f: number) {
     const face = faces[f]!, s = face.surface;
     if (face.tolerance !== undefined) note('face tolerances (not written: STEP has none per entity)', face.id, 'info');
-    if (curveBounded[f]) return writeCurveBounded(f);
+    if (curveBounded[f]) {
+      if (faceNeeds[f]! & TURNED) note('a curve-bounded face used reversed (written as it is)', face.id);
+      writeCurveBounded(f);
+      faceAs[2 * f] = faceAs[2 * f + 1] = faceId[f]!;
+      return;
+    }
     if (!face.loops.length) note('a face without loops (written with none: STEP needs at least one)', face.id);
-    const bounds = face.loops.map((l) => {
-      let loopId: number;
+    const loops = face.loops.map((l) => {
       if (l.kind === 'edge') {
-        loopId = emit(fresh(), 'EDGE_LOOP', [NAME, refs(l.coedges.map((c) => emit(own(c.id), 'ORIENTED_EDGE',
+        return emit(fresh(), 'EDGE_LOOP', [NAME, refs(l.coedges.map((c) => emit(own(c.id), 'ORIENTED_EDGE',
           [NAME, DERIVED, DERIVED, ref(edgeId[c.edge]!), bool(orientation(c.orientation, c.id, c.range))])))]);
-      } else if (l.kind === 'vertex') loopId = emit(fresh(), 'VERTEX_LOOP', [NAME, ref(vertexId[l.vertex]!)]);
-      else loopId = emit(fresh(), 'POLY_LOOP', [NAME, refs(l.points.map(point))]);
-      return emit(own(l.id), l.bound === 'outer' ? 'FACE_OUTER_BOUND' : 'FACE_BOUND', [NAME, ref(loopId),
-        bool(l.sense)]);
+      }
+      if (l.kind === 'vertex') return emit(fresh(), 'VERTEX_LOOP', [NAME, ref(vertexId[l.vertex]!)]);
+      return emit(fresh(), 'POLY_LOOP', [NAME, refs(l.points.map(point))]);
     });
     const advanced = ADVANCED_SURFACES.has(surfaces[s]!.kind) && sweptAdvanced(surfaces[s]!)
       && face.loops.every((l) => l.kind === 'vertex' || (l.kind === 'edge'
         && l.coedges.every((c) => advancedEdge[c.edge] === 1)));
     faceAdvanced[f] = advanced ? 1 : 0;
-    faceId[f] = emit(faceIdOf(face.id), advanced ? 'ADVANCED_FACE' : 'FACE_SURFACE', [NAME, refs(bounds),
-      ref(surfaceId[s]!), bool(face.sameSense)]);
+    // Forward, turned over (its sense and its bounds' negated: the same face the other way round), or both: the
+    // first written keeps the source's ids, the second gets new ones.
+    const needs = faceNeeds[f]! || FORWARD;
+    let first = true;
+    for (const turned of [false, true]) {
+      if (!(needs & (turned ? TURNED : FORWARD))) continue;
+      const bounds = face.loops.map((l, j) => emit(first ? own(l.id) : fresh(),
+        l.bound === 'outer' ? 'FACE_OUTER_BOUND' : 'FACE_BOUND', [NAME, ref(loops[j]!), bool(l.sense !== turned)]));
+      const id = emit(first ? faceIdOf(face.id) : fresh(), advanced ? 'ADVANCED_FACE' : 'FACE_SURFACE',
+        [NAME, refs(bounds), ref(surfaceId[s]!), bool(face.sameSense !== turned)]);
+      faceAs[2 * f + (turned ? 1 : 0)] = id;
+      if (first) faceId[f] = id;
+      else {
+        faceCopies.set(faceId[f]!, id);
+        note('a face used both ways (written twice, turned over the second time, with new ids)', face.id, 'info');
+      }
+      first = false;
+    }
   }
   const sweptAdvanced = (s: Surface) =>
     s.kind !== 'extrusion' && s.kind !== 'revolution' || ADVANCED_CURVES.has(curveKinds[s.curve]!);
@@ -494,17 +544,39 @@ export function stepGeometry(d: BrepData, opts: StepGeometryOptions = {}): StepG
   // -- Shells and bodies.
   const shellId = new Float64Array(rowCount(d, 'shell')).fill(NaN);
   const shellKind: string[] = [];
+  /** Each shell's entity as it is ([2k]) and with every face turned over ([2k + 1]), where written. */
+  const shellAs = new Float64Array(2 * rowCount(d, 'shell')).fill(NaN);
   function writeShell(k: number) {
     const sh = decode.shell(d, k);
     shellKind[k] = sh.kind;
-    const uses = sh.faces.filter((u) => !Number.isNaN(faceId[u.face]!)).map((u) => u.sense ? faceId[u.face]!
-      : emit(fresh(), 'ORIENTED_FACE', [NAME, DERIVED, ref(faceId[u.face]!), bool(false)]));
-    shellId[k] = emit(own(sh.id), sh.kind === 'closed' ? 'CLOSED_SHELL' : sh.kind === 'open' ? 'OPEN_SHELL'
-      : 'CONNECTED_FACE_SET', [NAME, refs(uses)]);
+    const needs = shellNeeds[k]! || FORWARD;
+    let first = true;
+    for (const turned of [false, true]) {
+      if (!(needs & (turned ? TURNED : FORWARD))) continue;
+      // Each face use as the face written its way round (no ORIENTED_FACE: OCCT's reader drops them, and AP242's
+      // advanced B-rep allows only advanced faces in a solid's shells).
+      const uses = sh.faces.map((u) => faceAs[2 * u.face + (u.sense === turned ? 1 : 0)]!)
+        .filter((x) => !Number.isNaN(x));
+      const id = emit(first ? own(sh.id) : fresh(), sh.kind === 'closed' ? 'CLOSED_SHELL'
+        : sh.kind === 'open' ? 'OPEN_SHELL' : 'CONNECTED_FACE_SET', [NAME, refs(uses)]);
+      shellAs[2 * k + (turned ? 1 : 0)] = id;
+      if (first) shellId[k] = id;
+      first = false;
+    }
   }
-  /** A shell used reversed: ORIENTED_CLOSED_SHELL or ORIENTED_OPEN_SHELL (a face set can't be). */
-  const shellUse = (m: { ref: number; sense: boolean }, forceOriented = false) => {
-    if (m.sense && !forceOriented) return shellId[m.ref]!;
+  /**
+   * A shell's use: a sheet's as the model has it (ORIENTED_CLOSED_SHELL or ORIENTED_OPEN_SHELL where reversed; a face
+   * set can't be); a solid's outer shell never oriented (AP242's advanced B-rep forbids it), its faces turned over
+   * where it's used reversed; a void always an ORIENTED_CLOSED_SHELL with orientation false (as AP242 requires), its
+   * faces turned over where it's used forward.
+   */
+  const shellUse = (m: { ref: number; sense: boolean }, role: 'sheet' | 'outer' | 'void' = 'sheet') => {
+    if (role === 'outer') return shellAs[2 * m.ref + (m.sense ? 0 : 1)]!;
+    if (role === 'void') {
+      return emit(fresh(), 'ORIENTED_CLOSED_SHELL', [NAME, DERIVED, ref(shellAs[2 * m.ref + (m.sense ? 1 : 0)]!),
+        bool(false)]);
+    }
+    if (m.sense) return shellId[m.ref]!;
     const kind = shellKind[m.ref];
     if (kind === 'faceSet') {
       note('a face set used reversed (written forward)', d.shell.id[m.ref]);
@@ -522,8 +594,9 @@ export function stepGeometry(d: BrepData, opts: StepGeometryOptions = {}): StepG
       const [outer, ...voids] = b.members;
       if (shellKind[outer!.ref] !== 'closed') note('a solid whose outer shell isn\'t closed', b.id);
       bodyIds[k] = [voids.length
-        ? emit(id, 'BREP_WITH_VOIDS', [NAME, ref(shellUse(outer!)), refs(voids.map((v) => shellUse(v, true)))])
-        : emit(id, 'MANIFOLD_SOLID_BREP', [NAME, ref(shellUse(outer!))])];
+        ? emit(id, 'BREP_WITH_VOIDS', [NAME, ref(shellUse(outer!, 'outer')),
+          refs(voids.map((v) => shellUse(v, 'void')))])
+        : emit(id, 'MANIFOLD_SOLID_BREP', [NAME, ref(shellUse(outer!, 'outer'))])];
     } else if (b.kind === 'sheet') {
       const shells = b.members.filter((m) => shellKind[m.ref] !== 'faceSet');
       const sets = b.members.filter((m) => shellKind[m.ref] === 'faceSet');
@@ -649,7 +722,7 @@ export function stepGeometry(d: BrepData, opts: StepGeometryOptions = {}): StepG
     }
   }
 
-  return { rootId, instances: instances(), diagnostics, faceIds, surfaceIds, items: rootItems,
+  return { rootId, instances: instances(), diagnostics, faceIds, surfaceIds, faceCopies, items: rootItems,
     contextId, setMembers };
 }
 

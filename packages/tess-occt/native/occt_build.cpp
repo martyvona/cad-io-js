@@ -93,7 +93,9 @@
 #include <ShapeBuild_Edge.hxx>
 #include <ShapeExtend_WireData.hxx>
 #include <ShapeFix_EdgeProjAux.hxx>
+#include <ShapeBuild_ReShape.hxx>
 #include <ShapeFix_Wire.hxx>
+#include <TopExp_Explorer.hxx>
 #include <Geom_BoundedSurface.hxx>
 #include <Standard_Failure.hxx>
 #include <StepToTopoDS_GeometricTool.hxx>
@@ -964,6 +966,8 @@ struct Builder
       if (r.u8(CBR_LOOP_KIND)[l] != CBR_LOOP_EDGE)
         continue;
       occ::handle<ShapeExtend_WireData> wd = new ShapeExtend_WireData;
+      // Each segment's edge as made, with its id: kept (alive) until the ids are given to the edges the fixes leave.
+      std::vector<std::pair<TopoDS_Edge, int>> made;
       const int c0 = r.i32(CBR_LOOP_FIRST)[l], cn = r.i32(CBR_LOOP_COUNT)[l];
       for (int c = c0; c < c0 + cn; ++c)
       {
@@ -1009,17 +1013,35 @@ struct Builder
         }
         const double id = r.f64(CBR_EDGE_ID)[e];
         if (std::isfinite(id))
-          out.edgeIds.emplace(ed.TShape().get(), (int)id);
+          made.emplace_back(ed, (int)id);
         wd->Add(r.u8(CBR_COEDGE_ORIENTATION)[c] == CBR_ORIENTATION_REVERSED ? TopoDS::Edge(ed.Reversed()) : ed);
       }
       if (wd->NbEdges() == 0)
         continue;
       occ::handle<ShapeFix_Wire> sfw = new ShapeFix_Wire;
+      // (The fixes replace edges whose vertices they join, recorded in the context: the ids go to the replacements.
+      // Keyed by the edges as made, an id would outlive its edge, and the next edge at that address take it.)
+      occ::handle<ShapeBuild_ReShape> ctx = new ShapeBuild_ReShape;
       sfw->Load(wd);
+      sfw->SetContext(ctx);
       sfw->SetPrecision(precision);
       sfw->ClosedWireMode() = true;
       sfw->FixReorder();
       sfw->FixConnected(precision);
+      for (const auto& [e0, id] : made)
+      {
+        TopoDS_Shape now = e0;
+        // (Replaced again where a fix replaces a replacement: followed to the last.)
+        for (int k = 0; k < 16 && ctx->IsRecorded(now); ++k)
+        {
+          const TopoDS_Shape next = ctx->Value(now);
+          if (next.IsNull() || next.IsSame(now))
+            break;
+          now = next;
+        }
+        for (TopExp_Explorer x(now, TopAbs_EDGE); x.More(); x.Next())
+          out.edgeIds.emplace(x.Current().TShape().get(), id);
+      }
       bb.Add(fc, wd->Wire());
     }
     return fc;

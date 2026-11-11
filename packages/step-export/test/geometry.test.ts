@@ -4,9 +4,10 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { BrepBuilder, type BrepData, type Curve, rowCount, type Surface } from 'cad-brep';
+import { BrepBuilder, type BrepData, type Curve, decode, rowCount, type Surface } from 'cad-brep';
 import { formatValue, type Instance, openModel, parseStep, type Value } from 'step-parser';
-import { cone, cube, everyKind, facetedAndWire, seamCylinder, spheres, withVoid } from '../../cad-brep/test/models.ts';
+import { cone, cube, everyKind, facetedAndWire, reversedUses, seamCylinder, spheres, withVoid }
+  from '../../cad-brep/test/models.ts';
 import { stepPartBytes } from '../src/index.ts';
 import { differences, walk } from './compare.ts';
 import { readBack } from './readback.ts';
@@ -414,7 +415,8 @@ test('cases the fixtures lack: two surfaces\' p-curves, edges against their curv
   const f3 = b.addFace({ surface: s1, sameSense: true, id: 32, loops: [{ kind: 'edge', bound: 'inner', sense: true,
     coedges: [{ edge: hole, orientation: 'forward' }], id: 40 }] });
   const box = (k: number) => b.addShell({ kind: 'closed', faces: [{ face: f1, sense: true }], id: 50 + k });
-  // A solid whose void is used forward: still an ORIENTED_CLOSED_SHELL (BREP_WITH_VOIDS' voids are).
+  // A solid whose void is used forward: written with its faces turned over in an ORIENTED_CLOSED_SHELL of
+  // orientation false (AP242's advanced B-rep requires voids so); its face, also the outer shell's, then twice.
   b.addItem({ kind: 'body', ref: b.addBody({ kind: 'solid', members: [{ ref: box(0), sense: true },
     { ref: box(1), sense: true }], id: 60 }) });
   b.addItem({ kind: 'body', ref: b.addBody({ kind: 'sheet', members: [{ ref: b.addShell({ kind: 'open',
@@ -433,11 +435,17 @@ test('cases the fixtures lack: two surfaces\' p-curves, edges against their curv
     + 'ORIENTED_EDGE(\'\',*,*,#3,.F.),ORIENTED_EDGE(\'\',*,*,#4,.T.))),.T.)),#21,.T.)');
   assert.equal(render(w, 32, keep), 'CURVE_BOUNDED_SURFACE(\'\',#20,(BOUNDARY_CURVE(\'\','
     + '(COMPOSITE_CURVE_SEGMENT(.CONTINUOUS.,.T.,#10)),.U.)),.T.)');
-  assert.equal(render(w, 60, keep), 'BREP_WITH_VOIDS(\'\',#50,(ORIENTED_CLOSED_SHELL(\'\',*,#51,.T.)))');
+  assert.equal(render(w, 60, keep), 'BREP_WITH_VOIDS(\'\',#50,(ORIENTED_CLOSED_SHELL(\'\',*,#51,.F.)))');
+  assert.equal(render(w, 50, new Set([30])), 'CLOSED_SHELL(\'\',(#30))');
+  assert.equal(render(w, 51, new Set([3, 20])), 'CLOSED_SHELL(\'\',(ADVANCED_FACE(\'\',(FACE_OUTER_BOUND(\'\','
+    + 'EDGE_LOOP(\'\',(ORIENTED_EDGE(\'\',*,*,#3,.T.))),.F.)),#20,.F.)))');
+  assert.ok(w.diagnostics.some((x) => /a face used both ways/.test(x.message)));
   assert.equal(render(w, 62, keep), 'EDGE_BASED_WIREFRAME_MODEL(\'\',(CONNECTED_EDGE_SET(\'\','
     + '(ORIENTED_EDGE(\'\',*,*,#3,.F.)))))');
   const back = await readBack(w.data, w.rootId);
-  assert.deepEqual(differences(walk(b.finish()), walk(back.brep)).filter((x) => !x.bits), []);
+  // Read back, the same but the void: its face the turned-over copy, the shell used reversed (equivalent).
+  assert.deepEqual(differences(walk(b.finish()), walk(back.brep)).filter((x) => !x.bits).map((x) => x.path),
+    ['[1].ref.members[1].ref.faces[0].face', '[1].ref.members[1].sense']);
 
   // Curves and points alone: a wireframe's curve set (points are its elements too).
   const c = new BrepBuilder({ unit: 1 });
@@ -548,7 +556,10 @@ test('what STEP can\'t hold: diagnostics, and what can\'t be written left out', 
   assert.match(render(w, 7, new Set([3, 4])), /^FACE_SURFACE\(/);
   assert.equal(render(w, 6, new Set([3])), 'ORIENTED_EDGE(\'\',*,*,#3,.T.)');
   const shell = [...w.byId.values()].find((x) => 'type' in x && x.type === 'OPEN_SHELL')!;
-  assert.match(render(w, shell.id, new Set([5, 7])), /^OPEN_SHELL\('',\(#5,ORIENTED_FACE\('',\*,#7,\.F\.\)\)\)$/);
+  // A face used reversed only: written turned over (its sense and its bound's negated), with its own id.
+  assert.match(render(w, shell.id, new Set([5, 7])), /^OPEN_SHELL\('',\(#5,#7\)\)$/);
+  assert.match(render(w, 7, new Set([3, 4])),
+    /^FACE_SURFACE\('',\(FACE_OUTER_BOUND\('',EDGE_LOOP\(.*\),\.F\.\)\),PLANE\(.*\),\.F\.\)$/);
   // An edge with one vertex: the other unset.
   const b2 = new BrepBuilder({ unit: 1 });
   const v0 = b2.addVertex({ point: [0, 0, 0], id: 1 });
@@ -617,3 +628,36 @@ test('the comparison sees what it should: a real difference, last bits, new ids'
   assert.deepEqual(differences(a, added), []);
   assert.deepEqual(differences(a, [a[0]]).map((x) => x.path), ['.length']);
 });
+
+test('reversed uses written as AP242 has them: no ORIENTED_FACE, a solid\'s outer shell never oriented', async () => {
+  const model = reversedUses().finish();
+  const w = written(model);
+  const text = new TextDecoder().decode(w.data);
+  assert.doesNotMatch(text, /ORIENTED_FACE|ORIENTED_CLOSED_SHELL/);
+  // The first cube's bottom (#21, built inside out, used reversed): written turned over, with its own id.
+  assert.match(render(w, 21, new Set([9, 10, 11, 12])),
+    /^ADVANCED_FACE\('',\(FACE_OUTER_BOUND\('',EDGE_LOOP\(.*\),\.F\.\)\),PLANE\(.*\),\.F\.\)$/);
+  // The second cube's shell, facing in and used reversed: written with every face turned over, used forward.
+  assert.match(render(w, 150), /^MANIFOLD_SOLID_BREP\('',CLOSED_SHELL\(/);
+  // Read back, only the senses differ, and every face and loop faces as it did: its senses composed through its
+  // use and its shell's.
+  const back = (await readBack(w.data, w.rootId)).brep;
+  assert.ok(differences(walk(model), walk(back)).filter((x) => !x.bits)
+    .every((x) => /(sameSense|\.sense)$/.test(x.path)));
+  assert.deepEqual(composed(back), composed(model));
+});
+
+/** Each body's faces' ids with their face's and loops' senses composed through their uses and shells'. */
+function composed(d: BrepData): string[] {
+  const out: string[] = [];
+  for (let k = 0; k < rowCount(d, 'body'); k++) {
+    for (const m of decode.body(d, k).members) {
+      for (const u of decode.shell(d, m.ref).faces) {
+        // (`kept`: the use and the shell's use together leave the face as it is.)
+        const f = decode.face(d, u.face), kept = u.sense === m.sense;
+        out.push(`${f.id}: ${f.sameSense === kept} ${f.loops.map((l) => l.sense === kept).join()}`);
+      }
+    }
+  }
+  return out.sort();
+}

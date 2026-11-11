@@ -33,7 +33,7 @@ import { decode, openBrep, rowCount, SURFACE_KIND, type BrepData } from '../pack
 import { partInstances, placedName, type Mat4, type Scene } from '../packages/cad-scene/src/index.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
 import { exportStep, type StepSchema } from '../packages/step-export/src/index.ts';
-import { openModel, parseStep, Reader, type StepModel } from '../packages/step-parser/src/index.ts';
+import { listItems, openModel, parseStep, Reader, type StepModel } from '../packages/step-parser/src/index.ts';
 import { differences, walk } from '../packages/step-export/test/compare.ts';
 import { AreaOracle, trusted } from './area_oracle.ts';
 import { corpusDir, corpusFiles, partSubset, plantedPart, shortName } from './corpus.ts';
@@ -104,19 +104,27 @@ function colours(s: Scene): Map<string, string> {
 }
 
 /**
- * Whether a face's surface or an edge's curve (through surface curves and trimmed curves) is placed by an
- * AXIS2_PLACEMENT without a ref_direction in the original: OCCT's default x axis differs from Part 42's there.
+ * Whether a face's surface or an edge's curve (an EDGE_CURVE's, or a loose curve item's: through surface curves,
+ * trimmed curves and any segment of a composite curve) is placed by an AXIS2_PLACEMENT without a ref_direction in the
+ * original: OCCT's default x axis differs from Part 42's there.
  */
 function defaultRef(model: StepModel, r: Reader, id: number, face: boolean): boolean {
-  let q = model.resolve(id);
+  const q = model.resolve(id);
   if (q < 0) return false;
-  q = r.ref(q, face ? 'face_geometry' : 'edge_geometry');
-  for (let k = 0; k < 4 && q >= 0; k++) {
-    if (r.is(q, 'SURFACE_CURVE')) q = r.ref(q, 'curve_3d');
-    else if (r.is(q, 'TRIMMED_CURVE')) q = r.ref(q, 'basis_curve');
-    else break;
+  if (face) return placedByDefault(model, r, r.ref(q, 'face_geometry'), 0);
+  return placedByDefault(model, r, r.is(q, 'EDGE_CURVE') ? r.ref(q, 'edge_geometry') : q, 0);
+}
+
+function placedByDefault(model: StepModel, r: Reader, q: number, depth: number): boolean {
+  if (q < 0 || depth > 8) return false;
+  if (r.is(q, 'SURFACE_CURVE')) return placedByDefault(model, r, r.ref(q, 'curve_3d'), depth + 1);
+  if (r.is(q, 'TRIMMED_CURVE')) return placedByDefault(model, r, r.ref(q, 'basis_curve'), depth + 1);
+  if (r.is(q, 'COMPOSITE_CURVE')) {
+    const segments = r.attr(q, 'segments');
+    const items = segments && (segments.k === 'list' || segments.k === 'refs') ? listItems(segments) : [];
+    return items.some((x) => x.k === 'ref' && placedByDefault(model, r,
+      r.ref(model.resolve(x.v as number), 'parent_curve'), depth + 1));
   }
-  if (q < 0) return false;
   const pos = r.is(q, 'CONIC') || r.is(q, 'ELEMENTARY_SURFACE') ? r.ref(q, 'position') : -1;
   return pos >= 0 && r.ref(pos, 'ref_direction') < 0;
 }

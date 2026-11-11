@@ -13,9 +13,12 @@ const unit = (a: V3): V3 => { const l = Math.hypot(...a); return [a[0] / l, a[1]
 /**
  * A box from (0, 0, 0) to `size`, as a closed shell of 6 planes, its 12 edges each shared by two faces (the first use
  * forward, the second reversed), loops counter-clockwise seen from outside. With `void`, a smaller box inside, its
- * shell used reversed (a solid with a void). Source ids after `idBase`: vertices 1-8, edges 9-20, faces 21-26.
+ * shell used reversed (a solid with a void). Source ids after `idBase`: vertices 1-8, edges 9-20, faces 21-26. Faces
+ * for which `inside` is true are built inside out (their plane's normal and their loop turned) and used reversed, so
+ * the shell still faces out, unless `asBuilt` (the shell then faces in where they are).
  */
-export function box(b: BrepBuilder, size: V3 = [1, 2, 3], offset: V3 = [0, 0, 0], idBase = 0): number {
+export function box(b: BrepBuilder, size: V3 = [1, 2, 3], offset: V3 = [0, 0, 0], idBase = 0,
+  inside: (face: number) => boolean = () => false, asBuilt = false): number {
   const corner = (k: number): V3 => [offset[0] + (k & 1 ? size[0] : 0), offset[1] + (k & 2 ? size[1] : 0),
     offset[2] + (k & 4 ? size[2] : 0)];
   const vs = Array.from({ length: 8 }, (_, k) => b.addVertex({ point: corner(k), id: idBase + 1 + k }));
@@ -31,9 +34,12 @@ export function box(b: BrepBuilder, size: V3 = [1, 2, 3], offset: V3 = [0, 0, 0]
       id: idBase + 9 + edges.size }));
     starts.set(key, a);
   }
-  const faces = quads.map((q, j) => {
+  const faces = quads.map((q0, j) => {
+    const q = inside(j) ? [...q0].reverse() : q0;
     const p0 = corner(q[0]!), x = unit(sub(corner(q[1]!), p0)), n = unit(cross(x, sub(corner(q[3]!), p0)));
-    const plane = b.addSurface({ kind: 'plane', position: { origin: p0, axis: n, xDir: x } });
+    // (No -0: JSON, which the round-trip tests go through, has none.)
+    const plane = b.addSurface({ kind: 'plane', position: { origin: p0, axis: n.map((c) => c + 0),
+      xDir: x.map((c) => c + 0) } });
     const coedges = q.map((a, j) => {
       const c = q[(j + 1) % 4]!, key = `${Math.min(a, c)},${Math.max(a, c)}`;
       return { edge: edges.get(key)!, orientation: starts.get(key) === a ? 'forward' as const : 'reversed' as const };
@@ -41,7 +47,20 @@ export function box(b: BrepBuilder, size: V3 = [1, 2, 3], offset: V3 = [0, 0, 0]
     return b.addFace({ surface: plane, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }],
       id: idBase + 21 + j });
   });
-  return b.addShell({ kind: 'closed', faces: faces.map((face) => ({ face, sense: true })) });
+  return b.addShell({ kind: 'closed', faces: faces.map((face, j) => ({ face, sense: asBuilt || !inside(j) })) });
+}
+
+/**
+ * Reversed uses: a unit cube whose bottom face is built inside out and used reversed, and a second cube (ids from 100)
+ * whose faces are all built inside out, its shell then facing in and used reversed by its solid.
+ */
+export function reversedUses(): BrepBuilder {
+  const b = new BrepBuilder({ unit: 1 });
+  const one = box(b, [1, 1, 1], [0, 0, 0], 0, (j) => j === 0);
+  b.addItem({ kind: 'body', ref: b.addBody({ kind: 'solid', members: [{ ref: one, sense: true }], id: 50 }) });
+  const two = box(b, [1, 1, 1], [3, 0, 0], 100, () => true, true);
+  b.addItem({ kind: 'body', ref: b.addBody({ kind: 'solid', members: [{ ref: two, sense: false }], id: 150 }) });
+  return b;
 }
 
 /** A unit cube as a solid (one closed shell of 6 faces), the part's one item. */
@@ -255,4 +274,4 @@ export function cone(): BrepBuilder {
   return b;
 }
 
-export const MODELS = { cube, withVoid, seamCylinder, spheres, facetedAndWire, everyKind, cone };
+export const MODELS = { cube, withVoid, seamCylinder, spheres, facetedAndWire, everyKind, cone, reversedUses };

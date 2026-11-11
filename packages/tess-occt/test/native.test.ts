@@ -98,7 +98,7 @@ test('the native route: the test models it builds meshed as the STEP route meshe
     const { step, native } = await both();
     assert.match(native.info.version, /native builder/);
     assert.deepEqual(native.info.formats, ['cad-brep', 'step']);
-    for (const name of ['cube', 'withVoid', 'seamCylinder'] as const) {
+    for (const name of ['cube', 'withVoid', 'seamCylinder', 'reversedUses'] as const) {
       const req = request(new Uint8Array(MODELS[name]().finish().buffer));
       const a = await step.tessellate(req), b = await native.tessellate(req);
       assert.ok(b.indices.length > 0, name);
@@ -299,10 +299,8 @@ test('the native route: planar faces bounded by each curve kind, every way round
       const r1 = await step.tessellate(req), r2 = await native.tessellate(req);
       assert.ok(r2.indices.length > 0, what);
       assert.deepEqual(r2.diagnostics.filter((x) => x.severity !== 'info'), [], what);
-      // (OCCT's STEP reader leaves out an ORIENTED_FACE, which is how the writer says a face is used reversed: the STEP
-      // route has nothing to compare there.)
-      if (use) same(r1, r2, what, 1e-9, req.data);
-      else assert.equal(r1.faces.length, 0, what);
+      // (A face used reversed is written turned over, which OCCT's STEP reader reads: compared every way round.)
+      same(r1, r2, what, 1e-9, req.data);
       // The face facing +z where its plane does and it's with it, or its plane doesn't and it's against it; the other
       // way where it's used reversed.
       const z = faces(r2).get(5)!.normal[2]!;
@@ -778,7 +776,7 @@ test('the native route, parameters that only loose geometry shows: trimmed and o
     const es = c.map((p, j) => { const q = c[(j + 1) % 4]!;
       return b.addEdge({ curve: b.addCurve({ kind: 'trimmed', basis: b.addCurve({ kind: 'line', point: p,
         direction: [q[0] - p[0], q[1] - p[1], 0], magnitude: 1 }), trim1: { parameter: 0 }, trim2: { parameter: 1 },
-      sense: true, preference: 'parameter' }), sameSense: true }); });
+      sense: true, preference: 'parameter' }), sameSense: true, id: 61 + j }); });
     const face = b.addFace({ surface: b.addSurface({ kind: 'plane', position: XY }), sameSense: true, id: 5,
       loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [2, 0, 3, 1].map((j) => ({ edge: es[j]!,
         orientation: 'forward' as const })) }] });
@@ -786,6 +784,9 @@ test('the native route, parameters that only loose geometry shows: trimmed and o
     const r = await run(b);
     const got = faces(r).get(5)!.area;
     assert.ok(Math.abs(got - 1) < 1e-6, `segments out of order: ${got}`);
+    // Each segment's edge by its id, after the fixes that reorder and join them replace their edges (the ids follow
+    // the replacements: kept by the edges as made, they'd be lost, or go to whatever edge comes next at an address).
+    assert.deepEqual((r.edges ?? []).map((e) => e.entityId).sort(), [61, 62, 63, 64]);
   }
   // A curve-bounded face on a sphere of radius 2 bounded by the circle at z = 1 alone, against the STEP route (whose
   // healing adds no natural bounds there either: the cap, not the rest of the sphere with a hole).
