@@ -110,7 +110,7 @@ npm install                          # dev dependencies (TypeScript, three, the 
 third_party/pull.sh                  # OCCT, stepcode, truck and reference documents, at pinned versions (~400 MB)
 packages/tess-occt/build-occt.sh     # OCCT's static libraries for WebAssembly (~6-12 minutes, ~850 MB)
 packages/tess-occt/build.sh          # our OCCT wrapper, linked: packages/tess-occt/dist/occt_tess.{mjs,wasm}
-packages/tess-occt/build-probe.sh    # (for step_roundtrip.ts) OCCT's points by STEP id: dist/occt_probe.{mjs,wasm}
+packages/tess-occt/build-probe.sh    # (for step_roundtrip.ts, native_route.ts) OCCT's points by id: dist/occt_probe.*
 packages/tess-truck/build.sh         # the truck backend: packages/tess-truck/dist/tess_truck.wasm
 npm test                             # the package tests
 npm run typecheck
@@ -1100,6 +1100,7 @@ Several checks run together as a **round** share one mesh cache: `node corpus_ch
 - `backend_speed.ts` times the two backends against each other as `stepconv` runs them: every file's brep parts through each backend's worker pool, back to back, with the defaults; it prints each backend's outcomes and run time, and, over the parts both mesh, the time and triangles of each by part size, then the slowest parts. About 31 min (truck's timeouts take most of it): `node --max-old-space-size=8192 corpus_checks/backend_speed.ts test_corpus/files.txt 1000`
 - `truck_bench.ts` times truck module variants (the `.wasm` files it's given; default the built one) and our OCCT backend, single-threaded, over the subsets. About 1 min per variant, with the CPU otherwise idle: `node corpus_checks/truck_bench.ts`
 - `cache_check.ts` checks `tess-cache` with each backend over the subsets: every result read back from a new file store, and from a memory store, equals the backend's own; it times the backend alone and a first and second cached run, and checks that a timeout is cached and answered from the store. About 2 min: `node corpus_checks/cache_check.ts`
+- `native_route.ts` gives OCCT each B-rep part both ways the library can, the model built natively (`OcctTessellator({ route: 'native' })`) and written as STEP, and compares them face by face (ids, failures, triangles, OCCT's measures and validity, mesh area, orientation; curves and points by id; time), and, with the probe built (`build-probe.sh`), OCCT's points at the same parameters on every face and edge of the two routes' shapes before healing. `PLANT=angle`, `nudge` and `sense` plant bugs in the native route's model.
 - `weld_survey.ts` welds every part's mesh by position (exactly, and within two tolerances), drops degenerate triangles, and classifies each mesh as closed, open, misoriented or non-manifold (3MF's rules for solids), split by whether the B-rep has free edges. About 4.5 min: `node --max-old-space-size=8192 corpus_checks/weld_survey.ts test_corpus/files.txt 1000`
 
 **Export**

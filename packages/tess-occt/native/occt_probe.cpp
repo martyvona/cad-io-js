@@ -7,7 +7,10 @@
 //   - Faces: a parameter box on each face's surface, from its vertices projected onto it (the faces of most files have
 //     no p-curves, and healing, which adds them, is off), clamped to the surface's own bounds, else those bounds
 //     (infinite ones as [-1, 1]).
-//   - Edges: their 3D curves' ranges, as the translator set them from the vertices; edges without a 3D curve left out.
+//   - Edges (and curve items' edges): their 3D curves' ranges, as the translator set them from the vertices; edges
+//     without a 3D curve left out.
+// occt_probe_build does the same for a part's cad-brep buffer built by the native builder (occt_build.cpp), unhealed,
+// its faces and edges by their source ids (corpus_checks/native_route.ts).
 
 #include <BRep_Tool.hxx>
 #include <DESTEP_Parameters.hxx>
@@ -21,6 +24,7 @@
 #include <Standard_Failure.hxx>
 #include <StepData_Factors.hxx>
 #include <StepData_StepModel.hxx>
+#include <StepGeom_Curve.hxx>
 #include <StepGeom_GeomRepContextAndGlobUnitAssCtxAndGlobUncertaintyAssCtx.hxx>
 #include <StepGeom_GeometricRepresentationContextAndGlobalUnitAssignedContext.hxx>
 #include <StepGeom_Surface.hxx>
@@ -38,6 +42,8 @@
 #include <Transfer_TransientProcess.hxx>
 #include <XSControl_TransferReader.hxx>
 #include <XSControl_WorkSession.hxx>
+
+#include "occt_build.h"
 
 #include <algorithm>
 #include <cmath>
@@ -121,6 +127,31 @@ void faceBox(const TopoDS_Face& face, double box[4])
     box[0] = finite(u0); box[1] = finite(u1); box[2] = finite(v0); box[3] = finite(v1);
   }
 }
+
+// The kept faces' boxes and edges' ranges.
+void boxes()
+{
+  for (const auto& [id, f] : p.faces)
+  {
+    double b[4];
+    try
+    {
+      faceBox(f, b);
+    }
+    catch (const Standard_Failure&)
+    {
+      continue;
+    }
+    p.faceBoxes.insert(p.faceBoxes.end(), {(double)id, b[0], b[1], b[2], b[3]});
+  }
+  for (const auto& [id, e] : p.edges)
+  {
+    double t0, t1;
+    if (BRep_Tool::Curve(e, t0, t1).IsNull())
+      continue;
+    p.edgeRanges.insert(p.edgeRanges.end(), {(double)id, t0, t1});
+  }
+}
 } // namespace
 
 extern "C"
@@ -169,7 +200,9 @@ int occt_probe_read(const char* data, int len, int rootId)
       occ::handle<Standard_Transient> ent = model->Value(i);
       const bool face = ent->IsKind(STANDARD_TYPE(StepShape_FaceSurface))
         || ent->IsKind(STANDARD_TYPE(StepGeom_Surface));
-      const bool edge = !face && ent->IsKind(STANDARD_TYPE(StepShape_EdgeCurve));
+      // (A curve item's: its first edge, as the native builder keeps a composite's.)
+      const bool edge = !face && (ent->IsKind(STANDARD_TYPE(StepShape_EdgeCurve))
+        || ent->IsKind(STANDARD_TYPE(StepGeom_Curve)));
       if (!face && !edge)
         continue;
       TopoDS_Shape s = TransferBRep::ShapeResult(tp, ent);
@@ -184,26 +217,36 @@ int occt_probe_read(const char* data, int len, int rootId)
       else
         p.edges.emplace(id, TopoDS::Edge(ex.Current()));
     }
-    for (const auto& [id, f] : p.faces)
+    boxes();
+    return 0;
+  }
+  catch (const Standard_Failure& e)
+  {
+    p.diag = std::string("exception: ") + e.what();
+    return -3;
+  }
+}
+
+// Builds a part's cad-brep buffer (8-byte aligned) by the native builder, unhealed, and keeps its faces and edges by
+// their source ids (the first of each); 0 on success, -1 where the builder fails (the reason in the diagnostic).
+int occt_probe_build(const uint8_t* buf, int len)
+{
+  p = Probe();
+  try
+  {
+    BuiltPart b = buildPart(buf, (size_t)len);
+    if (!b.error.empty())
     {
-      double b[4];
-      try
-      {
-        faceBox(f, b);
-      }
-      catch (const Standard_Failure&)
-      {
-        continue;
-      }
-      p.faceBoxes.insert(p.faceBoxes.end(), {(double)id, b[0], b[1], b[2], b[3]});
+      p.diag = b.error;
+      return -1;
     }
-    for (const auto& [id, e] : p.edges)
-    {
-      double t0, t1;
-      if (BRep_Tool::Curve(e, t0, t1).IsNull())
-        continue;
-      p.edgeRanges.insert(p.edgeRanges.end(), {(double)id, t0, t1});
-    }
+    for (TopExp_Explorer ex(b.shape, TopAbs_FACE); ex.More(); ex.Next())
+      if (auto it = b.faceIds.find(ex.Current().TShape().get()); it != b.faceIds.end())
+        p.faces.emplace(it->second, TopoDS::Face(ex.Current()));
+    for (TopExp_Explorer ex(b.shape, TopAbs_EDGE); ex.More(); ex.Next())
+      if (auto it = b.edgeIds.find(ex.Current().TShape().get()); it != b.edgeIds.end())
+        p.edges.emplace(it->second, TopoDS::Edge(ex.Current()));
+    boxes();
     return 0;
   }
   catch (const Standard_Failure& e)
