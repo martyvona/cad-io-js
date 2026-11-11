@@ -241,6 +241,14 @@ export const check: FileCheck<undefined, Result> = {
     const name = shortName(file);
     const { scene: a, model: modelA } = await importStep(bytes);
     const before = placements(a), ours = colours(a);
+    // Parts whose model has a body beside loose curves or points, and parts a face of which an instance colours.
+    const solidBeside = a.parts.some((p) => {
+      const m = p.brep?.model;
+      const kinds = m ? new Set(Array.from({ length: rowCount(m, 'item') }, (_, k) => decode.item(m, k).kind)) : null;
+      return !!kinds?.has('body') && (kinds.has('curve') || kinds.has('point'));
+    });
+    const faceOverridden = new Set(a.overrides.flatMap((o) => o.faceMaterials?.map((f) => a.parts[f.part]!.name)
+      ?? []));
     const models = new Map(a.parts.flatMap((p) => p.brep ? [[p.sources[0]?.id, p.brep.model] as const] : []));
     const planted = plant !== undefined && plantedPart(name) && planting(a);
     if (planted) R.planted++;
@@ -375,19 +383,29 @@ export const check: FileCheck<undefined, Result> = {
           }));
           pairs.sort((x, y) => x[0] - y[0] || x[1] - y[1] || x[2] - y[2]);
           const usedA = new Set<number>();
+          const near = 1e-6 * Math.max(size, 1);
           for (const [d, i, j] of pairs) {
             if (usedA.has(i) || partner.has(j)) continue;
             usedA.add(i);
             partner.set(j, i);
             // (Meshes with no points have no box: alike.)
-            if (d > 1e-6 * Math.max(size, 1) && Number.isFinite(d)) moved = true;
+            if (d > near && Number.isFinite(d)) moved = true;
           }
+          // Then those left by their boxes alone, where they coincide: OCCT may decode a name in the original
+          // otherwise than the same name as written (raw non-ASCII bytes: bug31670_russian.stp).
+          const rest: [number, number, number][] = [];
+          oa.meshes.forEach((_, i) => { if (!usedA.has(i)) ob.meshes.forEach((_, j) => { if (!partner.has(j)) {
+            const d = Math.max(...ba[i]!.map((v, k) => Math.abs(v - bb[j]![k]!)));
+            if (d <= near) rest.push([d, i, j]);
+          } }); });
+          rest.sort((x, y) => x[0] - y[0] || x[1] - y[1] || x[2] - y[2]);
+          for (const [, i, j] of rest) if (!usedA.has(i) && !partner.has(j)) { usedA.add(i); partner.set(j, i); }
           if (oa.meshes.length !== ob.meshes.length || usedA.size < oa.meshes.length) moved = true;
         }
         // (2b) Each mesh's faces' colours as our scene colours its part's faces; where not, by the original's reading:
         // agreeing with ours, the writer's fault; with the written file's, OCCT reads both otherwise than step-import.
-        const ourColours = (m: OcctMesh) => {
-          const mine = ours.byName.get(m.name);
+        const ourColours = (m: OcctMesh, name = m.name) => {
+          const mine = ours.byName.get(name);
           return mine !== undefined ? mine.has(distinct(m)) : distinct(m).split(' ').every((c) => ours.every.has(c));
         };
         ob.meshes.forEach((m, j) => {
@@ -396,13 +414,24 @@ export const check: FileCheck<undefined, Result> = {
           if (ourColours(m)) { R.occtSame++; return; }
           const i = partner.get(j), o = i === undefined ? undefined : oa.meshes[i]!;
           // (occt-import-js gives some parts' faces no colours of their own in either file, though both style them:
-          // the mesh's colour only, or none.)
+          // the mesh's colour only, or none, the same in both.)
           const faceless = (x: OcctMesh) => x.brep_faces.every((f) => !f.color);
           const known = distinct(m).split(' ').every((c) => c === '-' || ours.every.has(c));
-          if (o && faceless(o) && faceless(m) && known) {
-            if (!planted) note('(2c) faces OCCT gives no colours of their own in either file', `${name} ${m.name}`);
+          if (o && faceless(o) && faceless(m) && known && (distinct(o) === distinct(m) || distinct(o) === '-')) {
+            if (!planted) note('(2c) faces OCCT gives no colours of their own in either file (the mesh\'s colour the '
+              + 'same in both, or none in the original)', `${name} ${m.name}`);
             else seen[1] = true;
-          } else if (o && !ourColours(o) && distinct(o) === distinct(m)) {
+          } else if (o && faceless(o) && distinct(m) === '-' && distinct(o) !== '-' && solidBeside) {
+            // (OCCT colours a solid styled in a representation holding more than it only when the solid has a label of
+            // its own, which the original may give it by another representation of it alone: docs/step.md.)
+            if (!planted) note('(2c) a solid beside loose curves or points in its representation, which OCCT leaves '
+              + 'uncoloured', `${name} ${m.name}`);
+            else seen[1] = true;
+          } else if (o && distinct(m) === '-' && faceOverridden.has(m.name)) {
+            // (OCCT reads a CONTEXT_DEPENDENT_OVER_RIDING_STYLED_ITEM only on a whole representation.)
+            if (!planted) note('(2c) a face coloured in one instance, which OCCT doesn\'t read', `${name} ${m.name}`);
+            else seen[1] = true;
+          } else if (o && !ourColours(o, m.name) && distinct(o) === distinct(m)) {
             if (!planted) note('(2c) colours OCCT reads in both files otherwise than step-import', `${name} ${m.name}`);
             else seen[1] = true;
           } else fail2('face colours not our scene\'s', `${name} ${m.name}: ${distinct(m)} against `
