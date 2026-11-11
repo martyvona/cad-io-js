@@ -1,10 +1,11 @@
 // OCCT's two routes for a part's B-rep model over the corpus: the native route (tess-occt's builder,
 // native/occt_build.cpp, then the STEP reader's healing) against the STEP route (the model written by step-export and
 // read by OCCT's reader), the library's two ways of giving OCCT a model. Per part:
-//   (a) both meshed by our OCCT backend (a tess-workers pool of the native route's backend, occt-native.ts, which
-//       takes both; the medium profile, measures): failures, faces by id (present in one only, triangles, failed,
-//       OCCT's measured area and validity, mesh area, the mesh's mean normal against the other's: inverted), wireframe
-//       curves by id (points), loose points by id and position, the native route's warnings, and time;
+//   (a) both meshed by our OCCT backend (a tess-workers pool of the native route's backend, which takes both: the
+//       model as cad-brep, the written part as STEP; the medium profile, measures): failures, faces by id (present in
+//       one only, triangles, failed, OCCT's measured area and validity, mesh area, the mesh's mean normal against the
+//       other's: inverted), wireframe curves by id (points), loose points by id and position, the native route's
+//       warnings, and time;
 //   (b) OCCT's points on every face's surface and every edge's curve at the same parameters, unhealed, from both
 //       routes' shapes (tess-occt's probe, build-probe.sh, skipped unbuilt: the written part read without shape
 //       processing, the model built by the builder), apart by bucket relative to the part's size, over 1e-9 listed.
@@ -199,8 +200,8 @@ const norm = (s: string) => s.replace(/#\d+/g, '#').replace(/\d+(\.\d+)?(e[-+]?\
 export const check: FileCheck<undefined, Result> = {
   async setup({ meshWorkers, args }) {
     maxBytes = Number(args[1] ?? 1000) * 1e6;
-    pool = new WorkerTessellator({ backend: { module: import.meta.resolve('./occt-native.ts'),
-      export: 'OcctNativeTessellator' }, workers: meshWorkers });
+    pool = new WorkerTessellator({ backend: { module: import.meta.resolve('../packages/tess-occt/src/index.ts'),
+      export: 'OcctTessellator' }, workers: meshWorkers });
     await pool.init();
     if (fs.existsSync(PROBE)) {
       probe = await ((await import(PROBE)) as { default: () => Promise<ProbeModule> }).default();

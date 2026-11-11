@@ -42,7 +42,7 @@ truck against OCCT, 0.05 mm: 515 files (2 over 30 MB skipped), 3231 brep parts; 
     HYPERBOLA                                      6      1       1
     PCURVE                                         4      2       2
     SEAM_CURVE/RATIONAL_B_SPLINE_CURVE             1      0       0
-  440 s, 3 processes x 1 workers per backend
+  452 s, 3 processes x 1 workers per backend
 
 gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926: 1 of 844 edge points off the mesh
 gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #31440: 1 of 34 edge points off the mesh | area 0.9897 x OCCT's

@@ -608,7 +608,7 @@ test("stepconv: a broken file's problems are warnings, nothing printed but the o
     assert.equal(r.status, 0);
     assert.ok(JSON.parse(r.stdout).object, `workers ${workers}`);
     assert.doesNotMatch(r.stderr, /\*\*\*/);
-    assert.match(r.stderr, /\n3 errors, 17 warnings, 0 notes\n/);
+    assert.match(r.stderr, /\n3 errors, 16 warnings, 0 notes\n/);
     assert.match(r.stderr,
       /\n  warning: #392938: 13 references to instances the file doesn't define: #11, #393036, .*, #393179, \.\.\.\n/);
   }

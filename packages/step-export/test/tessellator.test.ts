@@ -57,7 +57,8 @@ test('the writer\'s diagnostics come first, said to be the writer\'s', async () 
     { severity: 'info', message: 'meshed' }]);
 });
 
-test('other formats pass through; its info names the writer and takes models; the rest is the backend\'s', async () => {
+test('other formats pass through; its info names the writer and takes models (unless the backend does); the rest '
+  + 'is the backend\'s', async () => {
   const inner = backend();
   const t = new StepTessellator(inner);
   const req: TessellationRequest = { format: 'step', data: new Uint8Array([1, 2]), rootId: 5, linearDeflection: 1,
@@ -68,7 +69,7 @@ test('other formats pass through; its info names the writer and takes models; th
     formats: ['cad-brep', 'step'] });
   assert.equal(t.timeoutMs, 1234);
   assert.equal(t.memoryBytes!(), 99);
-  // A backend that takes models itself gets them as they are.
+  // A backend that takes models itself gets them as they are, and its info is its own (no writer to name).
   const models = backend();
   models.info.formats = ['cad-brep', 'step'];
   const m = new StepTessellator(models);
@@ -77,7 +78,7 @@ test('other formats pass through; its info names the writer and takes models; th
     angularDeflection: 1 };
   await m.tessellate(mreq);
   assert.equal(models.seen[0], mreq);
-  assert.deepEqual(m.info.formats, ['cad-brep', 'step']);
+  assert.deepEqual(m.info, models.info);
   // Without memoryBytes, none.
   const bare = backend();
   delete (bare as { memoryBytes?: unknown }).memoryBytes;

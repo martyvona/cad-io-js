@@ -132,15 +132,15 @@ async function wasmId(bytes: BufferSource): Promise<string> {
 }
 
 /**
- * How OCCT gets a part (docs/brep-model.md, phase 7): 'step', the model written as STEP (by step-export's
- * StepTessellator, before this) and read by OCCT's STEP reader; 'native', the model's buffer built into OCCT's shapes
- * by our builder (native/occt_build.cpp), healed as the STEP reader heals. The native builder doesn't build every kind
- * yet: a part it doesn't fails with an error (decision 13).
+ * How OCCT gets a part (docs/brep-model.md, phase 7): 'native', the model's buffer built into OCCT's shapes by our
+ * builder (native/occt_build.cpp), healed as the STEP reader heals; 'step', the model written as STEP (by step-export's
+ * StepTessellator, before this) and read by OCCT's STEP reader, kept as the native route's oracle. A part using a kind
+ * the builder doesn't build fails with an error naming it.
  */
 export type OcctRoute = 'step' | 'native';
 
 export interface OcctOptions {
-  /** Default 'step'. */
+  /** Default 'native'. */
   route?: OcctRoute;
 }
 
@@ -152,7 +152,7 @@ export class OcctTessellator implements Tessellator {
   readonly route: OcctRoute;
 
   constructor(opts: OcctOptions = {}) {
-    this.route = opts.route ?? 'step';
+    this.route = opts.route ?? 'native';
     // (Models straight to this backend: StepTessellator then passes them through.)
     if (this.route === 'native') this.info.formats = ['cad-brep', 'step'];
   }
@@ -207,7 +207,8 @@ export class OcctTessellator implements Tessellator {
     const name = version ?? ours + (patches ? ` + patches ${patches}` : '');
     if (this.route === 'native' && !this.m._occt_tessellate_model) {
       this.m = undefined;
-      throw new Error('tess-occt: the native route needs a module with _occt_tessellate_model (a build since phase 7)');
+      throw new Error('tess-occt: the native route needs a module with _occt_tessellate_model '
+        + "(a build since phase 7); route: 'step' reads STEP with an older one");
     }
     this.info.version = `${name}${id ? `, wasm ${id}` : ''}, adapter ${ADAPTER}`
       + (this.route === 'native' ? ', native builder' : '');

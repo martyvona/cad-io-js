@@ -12,6 +12,7 @@ Notes for working on cad-io-js: how work is done here, the decisions every part 
 | [`docs/viewer.md`](docs/viewer.md) | the viewer: loading, export, rendering, sections, camera and input, picking, the tree and appearance overrides, updates, automation and replay, the browser check, three.js/Vite quirks |
 | [`docs/future.md`](docs/future.md) | new input formats (IGES, BREP, FreeCAD, QIF, JT and why it's not a priority), the JT specifications, prior art |
 | [`docs/brep-model.md`](docs/brep-model.md) | the B-rep model that replaced STEP subsets: its rules, the buffer layout, the scene and tessellator changes, backends, exporters, phases and decisions |
+| [`docs/brep-reference.md`](docs/brep-reference.md) | what the B-rep model holds: every geometry and topology kind, its definition, parameters and orientation, items, real data; writing a tessellation backend for models; creating and editing models in a scene |
 | [`docs/shape-interrogation.md`](docs/shape-interrogation.md) | geometry on exact curves and surfaces: what our code does (evaluation, inversion, nearest points) and how sound it is, what a rigorous implementation needs, the libraries surveyed (SISL ...) |
 | [`docs/licensing.md`](docs/licensing.md) | the licenses, the CLA, and clean-room rules for code that could derive from OCCT or others |
 
@@ -93,7 +94,7 @@ The ones every part depends on; the rest are in the topic notes, and the alterna
 - **The B-rep model:** each part's exact geometry a parsed, format-neutral buffer built at import (Part 42's parameterizations, radians), replacing STEP subsets; backends, exporters and other kernels read it (`docs/brep-model.md`).
 - **License:** AGPL-3.0-only, except `tess-occt` (LGPL-2.1 with the Open CASCADE exception); contributions under a CLA. **Never translate OCCT's source**, it's a reference and an oracle only: `docs/licensing.md`.
 - **Units and frames:** the scene is millimetres; a part is one shape representation, its positions `Float32` minus a per-part origin computed in double precision; the viewer's world is Z up. Exports use each format's convention (glTF and three.js metres, Y up; 3MF the source unit, Z up) with no root node of ours.
-- **The tessellator interface is per part**; OCCT the primary backend, truck optional; backends take a host's module through `init`.
+- **The tessellator interface is per part**; OCCT the primary backend (building each model natively, the STEP route its oracle), truck optional; backends take a host's module through `init`.
 - **Importers for every format into the scene model**, one viewer path through them; textures not supported (warned of).
 - **Extras off by default** in every exporter: exports are mostly for other systems.
 - **Meshing profiles** coarse, medium (the default), fine, defined only in `cad-scene`'s `profiles.ts`; the viewer medium on desktops, coarse on phones and tablets.

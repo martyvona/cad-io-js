@@ -150,7 +150,8 @@ export function faceFailures(mesh: Mesh, opts: { expected?: readonly number[];
       if (!e.triangles) out.set(s, 'failed');
       continue;
     }
-    const { area: a, perimeter } = measures;
+    // (A face meshed once in each shell using it: its triangles against that many times its measures.)
+    const n = measures.uses ?? 1, a = measures.area * n, perimeter = measures.perimeter * n;
     if (!measures.valid || !Number.isFinite(a) || a < 0 || a > MAX_PLAUSIBLE_AREA || !(perimeter >= 0)) {
       out.set(s, e.triangles ? 'unverified' : 'failed');
       continue;

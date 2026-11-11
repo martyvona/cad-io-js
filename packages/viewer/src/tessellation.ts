@@ -86,7 +86,8 @@ export class Tessellation {
       const pool = new PoolTessellator(
         () => webWorkerHandle(new Worker(new URL('./tess-worker.ts', import.meta.url), { type: 'module' })),
         { backend: BACKENDS[s.backend], workers, timeoutMs: Math.max(0, timeout) * 1000 });
-      // The backends read STEP: each part's B-rep model written as STEP, after the cache (which keys on the model).
+      // truck reads STEP: each part's B-rep model written as STEP, after the cache (which keys on the model); OCCT
+      // takes models, passed through.
       const step = new StepTessellator(pool);
       const tess = s.cache ? new CachedTessellator(step, new IndexedDbStore({ name: CACHE_NAME })) : step;
       this.current = { key, tess, pool };

@@ -7,6 +7,7 @@
 import { degenerateMessage, dropDegenerate, faceFailures, orientShells } from './mesh.ts';
 import { addLod } from './lod.ts';
 import { meshBox, sceneBounds } from './bounds.ts';
+import type { BrepData } from 'cad-brep';
 import type { Diagnostic, Measures, Mesh, Part, Scene } from './scene.ts';
 import { meshDeflections, type MeshProfile } from './profiles.ts';
 import type { TessellationResult, Tessellator } from './tessellator.ts';
@@ -143,6 +144,16 @@ function outlined(part: Part & { brep: NonNullable<Part['brep']> }, mesh: Mesh |
   }
 }
 
+/** How many shells use each face, by its id (faces with no id or in no shell left out). */
+function faceUses(d: BrepData): Map<number, number> {
+  const out = new Map<number, number>();
+  for (const f of d.faceUse.face) {
+    const id = d.face.id[f]!;
+    if (!Number.isNaN(id)) out.set(id, (out.get(id) ?? 0) + 1);
+  }
+  return out;
+}
+
 /**
  * Tessellate a scene's B-rep parts, `concurrency` at a time; their meshes added as levels. Requests carry each part's
  * B-rep model (`cad-brep`): a backend that reads another format goes behind a tessellator that writes it (step-export's
@@ -176,8 +187,13 @@ export async function tessellateScene(scene: Scene, tess: Tessellator,
       });
       for (const d of r.diagnostics) diagnostics.push(source && !d.source ? { ...d, source } : d);
       // (Kept at once, so `onPart` sees them.)
-      if (measure && r.measures?.length) part.measures = { by: backend, faces: new Map(r.measures.map((x) =>
-        [x.entityId, { area: x.area, perimeter: x.perimeter, valid: x.valid }])) };
+      if (measure && r.measures?.length) {
+        const uses = faceUses(brep.model);
+        part.measures = { by: backend, faces: new Map(r.measures.map((x) => {
+          const n = uses.get(x.entityId) ?? 1;
+          return [x.entityId, { area: x.area, perimeter: x.perimeter, valid: x.valid, ...(n > 1 ? { uses: n } : {}) }];
+        })) };
+      }
       if (r.indices.length || r.positions.length || r.curves?.length || r.points?.length) mesh = toMesh(r);
       if (mesh && (opts.dropDegenerate ?? true)) {
         const d = dropDegenerate(mesh);

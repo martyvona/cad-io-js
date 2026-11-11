@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { BrepBuilder } from 'cad-brep';
 import { tagged, tagOf } from './models.ts';
 import { tessellateScene, type Scene, type TessellationRequest, type TessellationResult,
   type Tessellator } from '../src/index.ts';
@@ -206,6 +207,38 @@ test('tessellateScene measures: asked for and kept per part (who measured), not 
   await tessellateScene(plain, t, { linearDeflection: 0.01, measures: false });
   assert.deepEqual(asked, [false]);
   assert.equal(plain.parts[0]!.measures, undefined);
+});
+
+test('tessellateScene measures: a face several shells use counted (its uses), so its copies aren\'t excess',
+  async () => {
+  // A unit square (face 10) in two shells, as AP209's solids share faces; the backend meshes it once in each.
+  const b = new BrepBuilder({ unit: 1 });
+  const corners = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]];
+  const vs = corners.map((point) => b.addVertex({ point }));
+  const coedges = corners.map((p, k) => {
+    const q = corners[(k + 1) % 4]!, direction = q.map((x, j) => x - p[j]!);
+    const line = b.addCurve({ kind: 'line', point: p, direction, magnitude: 1 });
+    const edge = b.addEdge({ curve: line, start: vs[k]!, end: vs[(k + 1) % 4]!, sameSense: true });
+    return { edge, orientation: 'forward' as const };
+  });
+  const plane = b.addSurface({ kind: 'plane', position: { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] } });
+  const face = b.addFace({ surface: plane, sameSense: true, id: 10,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] });
+  for (const sense of [true, false]) {
+    const shell = b.addShell({ kind: 'open', faces: [{ face, sense }] });
+    b.addItem({ kind: 'body', ref: b.addBody({ kind: 'sheet', members: [{ ref: shell, sense: true }] }) });
+  }
+  const s = scene();
+  s.parts = [{ ...s.parts[0]!, brep: { format: 'step', model: b.finish(),
+    outline: () => ({ faces: [10], positions: new Float32Array(), outlines: [] }) } }];
+  const t = fake();
+  t.tessellate = async (req) => ({ origin: req.origin!, positions: Float32Array.of(0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0),
+    indices: Uint32Array.of(0, 1, 2, 0, 2, 3, 0, 2, 1, 0, 3, 2),
+    faces: [{ entityId: 10, start: 0, count: 6 }, { entityId: 10, start: 6, count: 6 }], diagnostics: [],
+    ...(req.measures ? { measures: [{ entityId: 10, area: 1, perimeter: 4, valid: true }] } : {}) });
+  const r = await tessellateScene(s, t, { linearDeflection: 0.01, angularDeflection: 0.5, outlines: true });
+  assert.deepEqual(s.parts[0]!.measures!.faces.get(10), { area: 1, perimeter: 4, valid: true, uses: 2 });
+  assert.equal(r.meshes.get(0)!.faceOutlines, undefined);
 });
 
 test('a backend that takes no B-rep models: nothing meshed, an error saying so', async () => {

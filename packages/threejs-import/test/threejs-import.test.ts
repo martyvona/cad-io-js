@@ -307,7 +307,7 @@ const measured = (): Scene => {
   const p = s.parts[0]!;
   p.unit = 25.4;
   p.measures = { by: 'OCCT test', faces: new Map([[5, { area: 1, perimeter: 4, valid: true }],
-    [6, { area: 0.25, perimeter: 2.5, valid: false }]]) };
+    [6, { area: 0.25, perimeter: 2.5, valid: false, uses: 2 }]]) };
   Object.assign(p.lods[0]!, { from: 'tessellated', linearDeflection: 0.1, angularDeflection: 0.25,
     backend: 'OCCT test' });
   return s;
@@ -316,8 +316,8 @@ const measuresOf = (s: Scene) => ({ unit: s.parts[0]!.unit, measures: s.parts[0]
   level: (({ linearDeflection, angularDeflection, backend }) => ({ linearDeflection, angularDeflection, backend }))(
     s.parts[0]!.lods[0]!) });
 const WRITTEN = { unit: 25.4, measures: { by: 'OCCT test', faces: new Map([[5, { area: 1, perimeter: 4, valid: true }],
-  [6, { area: 0.25, perimeter: 2.5, valid: false }]]) }, level: { linearDeflection: 0.1, angularDeflection: 0.25,
-  backend: 'OCCT test' } };
+  [6, { area: 0.25, perimeter: 2.5, valid: false, uses: 2 }]]) },
+  level: { linearDeflection: 0.1, angularDeflection: 0.25, backend: 'OCCT test' } };
 
 test('our userData carries a part\'s measures, its level\'s settings and its unit back; without it, none', () => {
   const s = measured();

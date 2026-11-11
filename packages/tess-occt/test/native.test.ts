@@ -21,7 +21,7 @@ const XY = { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] };
 let routes: Promise<{ step: StepTessellator; native: OcctTessellator }> | undefined;
 function both() {
   return routes ??= (async () => {
-    const step = new StepTessellator(new OcctTessellator()), native = new OcctTessellator({ route: 'native' });
+    const step = new StepTessellator(new OcctTessellator({ route: 'step' })), native = new OcctTessellator();
     await step.init();
     await native.init();
     return { step, native };
@@ -163,10 +163,12 @@ test('the native route: a face on a swept surface (no counterpart in OCCT) left 
     assert.equal(r.diagnostics.filter((d) => d.severity === 'error').length, 0);
   });
 
-test('the native route: formats it doesn\'t take are caller bugs; the STEP route takes no models', { skip },
+test('the native route, the default: formats it doesn\'t take are caller bugs; the STEP route takes no models', { skip },
   async () => {
     const { native } = await both();
-    const step = new OcctTessellator();
+    assert.equal(native.route, 'native');
+    assert.deepEqual(native.info.formats, ['cad-brep', 'step']);
+    const step = new OcctTessellator({ route: 'step' });
     await step.init();
     const req = request(new Uint8Array(MODELS.cube().finish().buffer));
     await assert.rejects(step.tessellate(req), /format 'cad-brep' isn't taken by the step route/);

@@ -3,7 +3,8 @@
 // instead of measuring again; docs/scene-formats.md). None of the three formats has a place of its own for a
 // face's area. As JSON:
 //
-//   measures: { by: string, faces: { "<face source id>": [area, perimeter, valid (1 or 0)] } }  the part's units
+//   measures: { by: string, faces: { "<face source id>": [area, perimeter, valid (1 or 0), uses?] } }  the part's
+//             units; uses (FaceMeasures.uses) only where over 1
 //   level: { linearDeflection?, angularDeflection?, backend? }   the exported level's (Lod), mm and radians
 //   unit: the part's unit in mm, when it isn't 1: its vertices are written in it, as the scene has them
 //   box: [[x, y, z], [x, y, z]]   the exported mesh's box (Mesh.box), in its coordinates, where the format has no
@@ -28,7 +29,7 @@ const obj = (v: unknown): Json | undefined => (v && typeof v === 'object' && !Ar
 /** A part's measures as our extras' JSON. */
 export function measuresJson(m: Measures): Json {
   return { by: m.by, faces: Object.fromEntries([...m.faces].map(([id, f]) => [String(id),
-    [f.area, f.perimeter, f.valid ? 1 : 0]])) };
+    [f.area, f.perimeter, f.valid ? 1 : 0, ...(f.uses ? [f.uses] : [])]])) };
 }
 
 /** Measures from our extras' JSON; undefined if it isn't that (entries that aren't are left out). */
@@ -38,8 +39,11 @@ export function measuresFrom(j: unknown): Measures | undefined {
   if (!o || typeof o.by !== 'string' || !faces) return undefined;
   const out: Measures = { by: o.by, faces: new Map() };
   for (const [id, v] of Object.entries(faces)) {
-    if (!/^\d+$/.test(id) || !Array.isArray(v) || v.length !== 3 || !v.every((x) => typeof x === 'number')) continue;
-    out.faces.set(Number(id), { area: v[0]!, perimeter: v[1]!, valid: v[2] === 1 });
+    if (!/^\d+$/.test(id) || !Array.isArray(v) || (v.length !== 3 && v.length !== 4)
+      || !v.every((x) => typeof x === 'number')) continue;
+    const uses = v[3];
+    out.faces.set(Number(id), { area: v[0]!, perimeter: v[1]!, valid: v[2] === 1,
+      ...(uses !== undefined && Number.isInteger(uses) && uses > 1 ? { uses } : {}) });
   }
   return out;
 }

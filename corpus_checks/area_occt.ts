@@ -180,7 +180,9 @@ export const check: FileCheck<undefined, Tallies> = {
       const base: Mesh = mesh ?? { origin: part.origin, positions: new Float32Array(), indices: new Uint32Array(), faces: [] };
       const byOcct = faceFailures(base, { expected: ids, measured: { measures: { by: 'occt', faces: measures }, deflection: d } });
       const oracleMeasures = new Map(ids.map((id) => { const r = results.get(id) as Extract<OracleResult, { ok: true }>;
-        return [id, { area: r.area, perimeter: r.perimeter, valid: true }]; }));
+        // (A face several shells use is meshed once in each: its uses as OCCT's measures have them.)
+        const uses = measures.get(id)?.uses;
+        return [id, { area: r.area, perimeter: r.perimeter, valid: true, ...(uses ? { uses } : {}) }]; }));
       const byOracle = faceFailures(base, { expected: ids, measured: { measures: { by: 'oracle', faces: oracleMeasures }, deflection: d } });
       const fm = faceMesh(mesh);
       const seenHere = new Set<number>(), verdicts = new Map<number, string>();

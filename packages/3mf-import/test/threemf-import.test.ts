@@ -647,7 +647,7 @@ test('our 3MF with extras carries a part\'s measures, its level\'s settings and 
   const s = source();
   const cube = s.parts[0]!;
   cube.measures = { by: 'OCCT test', faces: new Map([[10, { area: 1, perimeter: 4, valid: true }],
-    [11, { area: 1.5, perimeter: 5, valid: false }]]) };
+    [11, { area: 1.5, perimeter: 5, valid: false, uses: 2 }]]) };
   Object.assign(cube.lods[0]!, { linearDeflection: 0.1, angularDeflection: 0.25, backend: 'OCCT test' });
   const back = import3mf(exported(s, { extras: true, nonManifold: 'surface' })).scene;
   const c = back.parts.find((p) => p.name === 'cube')!, sheet = back.parts.find((p) => p.name === 'sheet')!;

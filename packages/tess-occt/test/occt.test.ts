@@ -96,11 +96,20 @@ test('measures: each face\'s area, perimeter and soundness when asked for, by it
   }
   // And the next request without them has none (the switch is per request).
   assert.equal((await tess.tessellate(req)).measures, undefined);
-  // Through the driver: kept on the part, by the backend's name and version.
-  const step = new StepTessellator(tess);
-  await tessellateScene(scene, step, { linearDeflection: 0.01, angularDeflection: 0.5 });
-  assert.equal(part.measures!.by, `${step.info.name} ${tess.info.version}, STEP writer ${STEP_WRITER_VERSION}`);
+  // Through the driver: kept on the part, by the backend's name and version (and the STEP writer's on the STEP
+  // route).
+  await tessellateScene(scene, tess, { linearDeflection: 0.01, angularDeflection: 0.5 });
+  assert.equal(part.measures!.by, `${tess.info.name} ${tess.info.version}`);
   assert.equal(part.measures!.faces.size, 6);
+  const viaStep = new OcctTessellator({ route: 'step' });
+  await viaStep.init();
+  const step = new StepTessellator(viaStep);
+  const again = (await load(cube)).scene;
+  await tessellateScene(again, step, { linearDeflection: 0.01, angularDeflection: 0.5 });
+  const m = again.parts[0]!.measures!;
+  assert.equal(m.by, `${step.info.name} ${viaStep.info.version}, STEP writer ${STEP_WRITER_VERSION}`);
+  assert.equal(m.faces.size, 6);
+  viaStep.dispose();
 });
 
 test('unreadable input: an error diagnostic, an empty result', { skip: built ? false : 'tess-occt not built' },
@@ -313,9 +322,11 @@ test("a host's module: the glue and module given by URL, bytes, factory or compi
     try { return { version: tess.info.version, result: await tess.tessellate(req) }; } finally { tess.dispose(); }
   };
   const ours = await run({});
-  const [, id, adapter] = /, wasm ([0-9a-f]{12}), (adapter \d+)$/.exec(ours.version)!;
+  // (The adapter's number, then the route: the native one by default.)
+  const [, id, adapter] = /, wasm ([0-9a-f]{12}), (adapter \d+, native builder)$/.exec(ours.version)!;
   // With our OCCT patches named, if the build has any.
-  assert.match(ours.version, /^OCCT 8\.1 \(3d097a0328\)( \+ patches [0-9a-z,-]+)?, wasm [0-9a-f]{12}, adapter \d+$/);
+  assert.match(ours.version,
+    /^OCCT 8\.1 \(3d097a0328\)( \+ patches [0-9a-z,-]+)?, wasm [0-9a-f]{12}, adapter \d+, native builder$/);
   assert.equal(id, createHash('sha256').update(bytes).digest('hex').slice(0, 12));
   const patches = / \+ patches [^,]+/.exec(ours.version)?.[0] ?? '';
   // The same where crypto.subtle is missing (insecure contexts: a page over plain http, not from localhost).

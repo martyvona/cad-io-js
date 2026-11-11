@@ -1,8 +1,8 @@
-files 517 (0 over 1000 MB skipped), 29 s
-part nodes 5026 (3 hidden), meshes 3124, triangle primitives 5149, triangles 10457772, segments 1702247, points 1064
-GLB 299.5 MB; export 1.60 s; validation 4.20 s
-draco: 82.4 MB (27.5%), export 7.95 s; faces checked 111774
-meshopt: 90.0 MB (30.1%), export 4.19 s; faces checked 111774, line and point vertices 2036842
+files 517 (0 over 1000 MB skipped), 30 s
+part nodes 5026 (5 hidden), meshes 3124, triangle primitives 5149, triangles 10459091, segments 1702136, points 1064
+GLB 299.6 MB; export 1.64 s; validation 4.44 s
+draco: 82.4 MB (27.5%), export 8.12 s; faces checked 111775
+meshopt: 90.0 MB (30.1%), export 4.22 s; faces checked 111775, line and point vertices 2036663
 instancing: 2155 placements in 424 instanced nodes; 3295 part nodes against 5026; 0 placements not TRS
 largest:
   67.6 MB, 0.2 s  gkv311-opencascade-dataset/step/as1_motor.step
@@ -11,5 +11,5 @@ largest:
   12.6 MB, 0.1 s  gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp
   11.4 MB, 0.1 s  gkv311-opencascade-dataset/step/bug30790.step
 validator issues (count, files, code, an example):
-         3    3 info UNSUPPORTED_EXTENSION  e.g. nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_02_asme1_ap242-e2.stp /extensionsUsed/0: Cannot validate an extension as it is not supported by the validator: 'KHR_node_visibility'.
+         5    5 info UNSUPPORTED_EXTENSION  e.g. nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_02_asme1_ap242-e2.stp /extensionsUsed/0: Cannot validate an extension as it is not supported by the validator: 'KHR_node_visibility'.
 problems 0

@@ -371,7 +371,8 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
       const mod = (await import(backend.module)) as Record<string, new () => Tessellator>;
       tess = new mod[backend.export]!();
     }
-    // The backends read STEP: each part's B-rep model written as STEP, after the cache (which keys on the model).
+    // truck reads STEP: each part's B-rep model written as STEP, after the cache (which keys on the model); OCCT takes
+    // models, passed through.
     tess = new StepTessellator(tess);
     if (o.cache !== undefined) tess = cached = new CachedTessellator(tess,
       new FileStore({ dir: o.cache, maxBytes: cacheMb * 2 ** 20 }));

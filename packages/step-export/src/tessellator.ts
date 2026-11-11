@@ -1,7 +1,8 @@
 // A tessellator taking B-rep models (`cad-brep` requests) for a backend that reads STEP (OCCT, truck): each model
 // written as STEP (stepPartBytes) on the calling side, then passed on. Chained after the cache (CachedTessellator ->
 // StepTessellator -> a pool or a backend), so the cache keys on the model and only a miss writes STEP; its version
-// names the writer's, so a changed writer misses. The backend stays free of the writer (tess-occt is LGPL, this AGPL).
+// names the writer's, so a changed writer misses. A backend that takes models itself (OCCT's native route) gets them
+// as they are, and the version is its own. The backend stays free of the writer (tess-occt is LGPL, this AGPL).
 
 import { openBrep } from 'cad-brep';
 import type { TessellationRequest, TessellationResult, Tessellator, TessellatorInfo } from 'cad-scene';
@@ -21,8 +22,8 @@ export class StepTessellator implements Tessellator {
 
   get info(): TessellatorInfo {
     const i = this.inner.info;
-    return { ...i, version: `${i.version}, STEP writer ${STEP_WRITER_VERSION}`,
-      formats: i.formats.includes('cad-brep') ? i.formats : ['cad-brep', ...i.formats] };
+    return i.formats.includes('cad-brep') ? i
+      : { ...i, version: `${i.version}, STEP writer ${STEP_WRITER_VERSION}`, formats: ['cad-brep', ...i.formats] };
   }
 
   get timeoutMs(): number | undefined {

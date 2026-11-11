@@ -319,4 +319,9 @@ test('faceFailures with measures: partly, excess, unverified and failed by the f
   assert.equal(judge([[7, { area: 0.001 }]]).get(7), undefined);
   assert.equal(judge([[7, { area: 5 }]], empty).get(1), 'failed');
   assert.equal(judge([[2, { area: 0.5 }]]).get(1), undefined);
+  // A face meshed once in each of two shells (two ranges under its id): judged against its measures times its uses.
+  const twice: Mesh = { ...mesh, faces: [{ source: 1, start: 0, count: 6 }, { source: 1, start: 0, count: 6 }] };
+  assert.equal(judge([[1, { area: 100, perimeter: 40 }]], twice).get(1), 'excess');
+  assert.equal(judge([[1, { area: 100, perimeter: 40, uses: 2 }]], twice).get(1), undefined);
+  assert.equal(judge([[1, { area: 100, perimeter: 40, uses: 2 }]]).get(1), 'partly');
 });

@@ -190,6 +190,11 @@ export interface FaceMeasures {
   perimeter: number;
   /** The measuring backend found the face's geometry sound (OCCT: BRepCheck_Analyzer); false: not to be trusted. */
   valid: boolean;
+  /**
+   * How many times the face is meshed, where more than once: a face several shells use (AP209's solids sharing faces)
+   * is meshed once in each, under its one id, so its triangles are judged against `area` times this.
+   */
+  uses?: number;
 }
 
 /** The formats a part's exact geometry can come from, grown as importers are added. */

@@ -1910,8 +1910,9 @@ await check('selection buttons in the tree', async () => {
   expect(a.none!.selected === 0 && a.none!.stale === 0, `none: ${j}`);
   return undefined;
 });
-// Faces that fail to mesh: every part of as1 timed out (a millisecond, the cache emptied) comes with its faces'
-// outlines from the file, red, the parts and their faces marked failed in the tree (red, a broken icon), a click on an
+// Faces that fail to mesh: every part of as1 timed out (a millisecond, the cache emptied; a part OCCT meshes within it
+// meshed) comes with its faces' outlines from the file, red, the parts and their faces marked failed in the tree (red,
+// a broken icon), the rest not, a click on an
 // outline picking its face (the detail level), the details saying so; the bicycle's faces OCCT fails, outlined and
 // marked, their parts partly failed.
 await check('failed faces', async () => {
@@ -1929,7 +1930,10 @@ await check('failed faces', async () => {
     viewer.display.traverse((o) => { if (o.name === 'outline') outlines.push(o); });
     const out = { failedCount: viewer.model.parts.failed, total: viewer.model.parts.total, outlines: outlines.length,
       red: outlines.every((o) => o.material.color.getHex() === 0xe02020),
-      partsFailed: parts.filter((n) => m.failure(n.id) === 'failed').length, parts: parts.length };
+      partsFailed: parts.filter((n) => m.failure(n.id) === 'failed').length, parts: parts.length,
+      // (Placed parts with triangles drawn, the rest.)
+      meshed: parts.filter((n) => { let t = false; n.object?.traverse((o) => { t ||= !!o.isMesh
+        && (o.geometry.index?.count ?? o.geometry.getAttribute('position')?.count ?? 0) > 0; }); return t; }).length };
     // A click on an outline's first point: its face.
     ui.setPickLevel('detail');
     await cadViewer.idle();
@@ -1946,11 +1950,11 @@ await check('failed faces', async () => {
     out.details = ui.details();
     return out;
   })()`) as { after: { failedCount: number; total: number; outlines: number; red: boolean; partsFailed: number;
-    parts: number; picked: string[]; row: { failed: boolean; broken: boolean; colour: string } | null;
+    parts: number; meshed: number; picked: string[]; row: { failed: boolean; broken: boolean; colour: string } | null;
     details: string[] } };
   const a = r.after, j = JSON.stringify(a);
-  expect(a.total > 0 && a.failedCount === a.total && a.outlines > 0 && a.red, `every part outlined in red: ${j}`);
-  expect(a.partsFailed === a.parts, `every part marked failed: ${j}`);
+  expect(a.total > 0 && a.failedCount > 0 && a.outlines > 0 && a.red, `the failed parts outlined in red: ${j}`);
+  expect(a.partsFailed > 0 && a.partsFailed + a.meshed === a.parts, `every part not meshed marked failed: ${j}`);
   expect(a.picked.length === 1 && a.picked[0] === 'face:failed', `an outline picks its face: ${j}`);
   // (Red in either theme: #d32f2f light, #ff6b6b dark, as the system prefers.)
   const [red, green, blue] = (a.row?.colour.match(/\d+/g) ?? []).map(Number);
@@ -2031,7 +2035,7 @@ await check('failed faces', async () => {
     `outlines under the black edges: ${JSON.stringify({ thin: b.thin, fat: b.fat })}`);
   return undefined;
 });
-// B-Rep Meshing's Timeout: a limit too short for any part (a millisecond) fails every part, timed out (said in the
+// B-Rep Meshing's Timeout: a limit too short for most parts (a millisecond) fails them, timed out (said in the
 // diagnostics; the cache on, emptied first); then 60 s and Mesh again meshes them all, the cache's timeouts not
 // answering for a longer limit. The model's meshedWith has the timeout.
 await check('meshing timeout', async () => {
@@ -2059,8 +2063,9 @@ await check('meshing timeout', async () => {
   })()`) as { after: { short: Meshed; long: Meshed } };
   type Meshed = { parts: { total: number; done: number; failed: number }; timedOut: number; timeout: number };
   const { short, long } = r.after, j = JSON.stringify(r.after);
-  expect(short.parts.total > 0 && short.parts.failed === short.parts.total && short.timedOut >= short.parts.total &&
-    short.timeout === 0.001, `a millisecond: every part timed out: ${j}`);
+  // (A part OCCT meshes within the millisecond meshes.)
+  expect(short.parts.total > 0 && short.parts.failed > 0 && short.timedOut >= short.parts.failed &&
+    short.timeout === 0.001, `a millisecond: the parts it failed timed out: ${j}`);
   expect(long.parts.failed === 0 && long.parts.done === long.parts.total && long.timedOut === 0 &&
     long.timeout === 60, `60 s: every part meshed again: ${j}`);
   return undefined;
