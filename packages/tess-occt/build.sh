@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Build the OCCT tessellation backend: compile native/occt_tess.cpp and link it against OCCT's static toolkits,
+# Build the OCCT tessellation backend: compile native/occt_tess.cpp (the wrapper) and native/occt_build.cpp (the
+# native route's builder) and link them against OCCT's static toolkits,
 # built for Emscripten with -Os by build-occt.sh (which lists the build's gotchas), with its list of our OCCT patches
 # compiled in (occt_patches(), named in the backend's version). Output: dist/occt_tess.mjs and dist/occt_tess.wasm.
 #   B=<OCCT build dir>  default build/occt-Os
@@ -20,11 +21,15 @@ EXPORTS='["_occt_tessellate","_occt_positions","_occt_normals","_occt_num_vertic
 '"_occt_num_outline_points","_occt_outlines","_occt_num_outlines","_malloc","_free"]'
 # The patches the libraries were built with, comma-separated (build-occt.sh writes them; none before it did).
 PATCHES=$(paste -sd, - < "$B/patches.txt" 2>/dev/null || true)
+# -DNo_Exception as OCCT's release libraries are built (BUILD_RELEASE_DISABLE_EXCEPTIONS): its headers' inline checks
+# (a zero gp_Dir2d, an index out of range) then behave in our code as in OCCT's, and the linker can't pick between
+# two differing copies of an inline function.
 for f in occt_tess occt_build; do
-  em++ -Os -fwasm-exceptions -std=c++17 -I"$B/include/opencascade" -I../cad-brep/include -DOCCT_PATCHES="\"$PATCHES\"" \
-    -c native/$f.cpp -o build/$f.o
+  em++ -Os -fwasm-exceptions -std=c++17 -DNo_Exception -I"$B/include/opencascade" -I../cad-brep/include \
+    -DOCCT_PATCHES="\"$PATCHES\"" -c native/$f.cpp -o build/$f.o
 done
-em++ -Os -fwasm-exceptions build/occt_tess.o build/occt_build.o -Wl,--start-group "${LIBS[@]}" -Wl,--end-group -o dist/occt_tess.mjs \
+em++ -Os -fwasm-exceptions build/occt_tess.o build/occt_build.o -Wl,--start-group "${LIBS[@]}" -Wl,--end-group \
+  -o dist/occt_tess.mjs \
   -sMODULARIZE=1 -sEXPORT_ES6=1 -sEXPORT_NAME=occtTess -sENVIRONMENT=web,worker,node \
   -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=32MB -sSTACK_SIZE=4MB \
   -sEXPORTED_FUNCTIONS="$EXPORTS" \

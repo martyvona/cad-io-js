@@ -12,7 +12,9 @@ LIBS=("$B"/lin32/clang/lib/lib*.a)
 mkdir -p dist build
 EXPORTS='["_occt_probe_read","_occt_probe_faces","_occt_probe_num_faces","_occt_probe_edges",'\
 '"_occt_probe_num_edges","_occt_probe_diag","_occt_probe_eval","_occt_probe_free","_malloc","_free"]'
-em++ -Os -fwasm-exceptions -std=c++17 -I"$B/include/opencascade" -c native/occt_probe.cpp -o build/occt_probe.o
+# (-DNo_Exception as OCCT's libraries and build.sh.)
+em++ -Os -fwasm-exceptions -std=c++17 -DNo_Exception -I"$B/include/opencascade" -c native/occt_probe.cpp \
+  -o build/occt_probe.o
 em++ -Os -fwasm-exceptions build/occt_probe.o -Wl,--start-group "${LIBS[@]}" -Wl,--end-group -o dist/occt_probe.mjs \
   -sMODULARIZE=1 -sEXPORT_ES6=1 -sEXPORT_NAME=occtProbe -sENVIRONMENT=node \
   -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=32MB -sSTACK_SIZE=4MB \

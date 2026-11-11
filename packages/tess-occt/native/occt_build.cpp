@@ -11,26 +11,38 @@
 //     (Part 42's is in units of its vector's magnitude); an ellipse's x axis must be its major one (Part 42 allows
 //     either: swapped, the parameter shifts by pi/2); a cone's v runs along the generatrix, v cos(a) along the axis
 //     (Geom_ConicalSurface.hxx's formula); a parabola is O + u^2/(4F) X + u Y (Part 42's C + a(t^2 x + 2t y): u = 2at).
-//     Edges take their vertices' parameters by projection onto OCCT's curve, so they need no mapping.
+//     Edges take their vertices' parameters by projection onto OCCT's curve, so they need no mapping; p-curves are
+//     converted as the translator converts them (a cone's v by GeomConvert_Units).
 //   - An edge running against its curve (same_sense false) is built along the curve from its end to its start and
 //     used reversed; a loop's coedges are its edges oriented by the coedge, the wire reversed when the loop's sense
 //     is; a face against its surface (same_sense false) is built with its wires reversed, then reversed itself, so its
 //     outer wire runs counter-clockwise about the face's normal as Part 42 has it.
-//   - Tolerances: a vertex's the model's, else 1e-7, edges and faces 1e-7 (as the STEP translator builds; healing
-//     raises them where a vertex lies off its edges); the part's uncertainty is healing's tolerance (as the STEP
-//     reader's): with shapes built at it, healing splits a ring on a closed B-spline between two circles into two empty
-//     faces.
-//   - What this step doesn't build yet (p-curves, degenerate edges, vertex and poly loops, edges without a 3D curve,
-//     surfaces other than elementary and B-spline, curves other than lines, conics, B-splines and polylines, items
-//     other than solids and sheets) fails the part with an error naming it (decision 13); faces on Part 42's swept
-//     surfaces, which OCCT's API has no counterpart for, are dropped with a warning.
+//   - Edges, loops and p-curves as the translator makes them (edge(), edgeLoop(), vertexLoop(), polyLoop()); a
+//     degenerate edge (from formats that have them) from its vertex and its coedge's p-curve.
+//   - Tolerances: a vertex's the model's, else 1e-7, edges and faces 1e-7, vertices raised to their distances from
+//     their edges' curves (as the STEP translator builds); the part's uncertainty is healing's tolerance and the
+//     translator's precision (as the STEP reader's): with shapes built at it, healing splits a ring on a closed
+//     B-spline between two circles into two empty faces.
+//   - What the builder doesn't build yet (edges without a 3D curve, trimmed, composite and offset curves and p-curves,
+//     surfaces other than elementary and B-spline, items other than solids and sheets) fails the part with an error
+//     naming it (decision 13); faces on Part 42's swept surfaces, which OCCT's API has no counterpart for, are dropped
+//     with a warning.
 
 #include "occt_build.h"
 
-#include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRep_Builder.hxx>
 #include <BRep_Tool.hxx>
-#include <GeomAPI_ProjectPointOnCurve.hxx>
+#include <BRepBuilderAPI_MakeEdge.hxx>
+#include <BRepBuilderAPI_MakeFace.hxx>
+#include <BRepLib_MakeEdge.hxx>
+#include <DESTEP_Parameters.hxx>
+#include <ElCLib.hxx>
+#include <Geom2d_BSplineCurve.hxx>
+#include <Geom2d_Circle.hxx>
+#include <Geom2d_Ellipse.hxx>
+#include <Geom2d_Hyperbola.hxx>
+#include <Geom2d_Line.hxx>
+#include <Geom2d_Parabola.hxx>
 #include <Geom_BSplineCurve.hxx>
 #include <Geom_BSplineSurface.hxx>
 #include <Geom_Circle.hxx>
@@ -43,22 +55,39 @@
 #include <Geom_Plane.hxx>
 #include <Geom_SphericalSurface.hxx>
 #include <Geom_ToroidalSurface.hxx>
+#include <GeomConvert_Units.hxx>
+#include <gp_Ax2.hxx>
+#include <gp_Ax22d.hxx>
+#include <gp_Ax3.hxx>
+#include <gp_Lin.hxx>
+#include <gp_Vec.hxx>
+#include <gp_Vec2d.hxx>
 #include <NCollection_Array1.hxx>
 #include <NCollection_Array2.hxx>
+#include <Precision.hxx>
 #include <ShapeAlgo.hxx>
 #include <ShapeAlgo_AlgoContainer.hxx>
+#include <ShapeAlgo_ToolContainer.hxx>
+#include <ShapeAnalysis_Curve.hxx>
+#include <ShapeAnalysis_Edge.hxx>
+#include <ShapeAnalysis_Surface.hxx>
+#include <ShapeBuild_Edge.hxx>
+#include <ShapeExtend_WireData.hxx>
+#include <ShapeFix_EdgeProjAux.hxx>
 #include <Standard_Failure.hxx>
+#include <StepToTopoDS_GeometricTool.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Compound.hxx>
 #include <TopoDS_Edge.hxx>
 #include <TopoDS_Face.hxx>
+#include <TopoDS_Iterator.hxx>
 #include <TopoDS_Shell.hxx>
 #include <TopoDS_Solid.hxx>
 #include <TopoDS_Vertex.hxx>
 #include <TopoDS_Wire.hxx>
-#include <gp_Ax2.hxx>
-#include <gp_Ax3.hxx>
+#include <XSAlgo_ShapeProcessor.hxx>
 
+#include <array>
 #include <cmath>
 #include <map>
 #include <string>
@@ -132,6 +161,57 @@ bool periodicKnots(const Knots& k, int poles, int degree)
   return sum != poles + degree + 1 && k.m.front() == k.m.back() && sum - k.m.front() == poles;
 }
 
+// A B-spline curve's data as OCCT's STEP reader takes it: knots merged; an end knot's multiplicity above degree + 1
+// cut to it, the poles it carried beyond dropped; knots in periodic form taken as periodic.
+struct BSplineCurve
+{
+  int                        degree = 0, n = 0;
+  bool                       rational = false, periodic = false, closed = false;
+  std::vector<double>        poles, weights; // n x dim, n
+  NCollection_Array1<double> k;
+  NCollection_Array1<int>    m;
+};
+BSplineCurve bsplineCurve(const double* re, const int32_t* in, int dim)
+{
+  BSplineCurve b;
+  b.degree = in[0];
+  const int n = in[1], nk = in[2];
+  b.rational = in[3] != 0;
+  b.closed   = in[4] == CBR_LOGICAL_TRUE;
+  Knots k    = knots(re, in + 7, nk);
+  int   lead = 0, trail = 0;
+  for (size_t i = 0; i < k.m.size(); ++i)
+    if (k.m[i] > b.degree + 1)
+    {
+      if (i == 0)
+        lead = k.m[i] - b.degree - 1;
+      if (i + 1 == k.m.size())
+        trail = k.m[i] - b.degree - 1;
+      k.m[i] = b.degree + 1;
+    }
+  b.n = n - lead - trail;
+  if (b.n <= 0)
+    throw Unbuilt{"a B-spline curve with no poles left"};
+  for (int i = lead; i < n - trail; ++i)
+  {
+    b.poles.insert(b.poles.end(), re + nk + dim * i, re + nk + dim * (i + 1));
+    b.weights.push_back(b.rational ? re[nk + dim * n + i] : 1.0);
+  }
+  b.periodic = periodicKnots(k, n, b.degree);
+  b.k.Resize(1, (int)k.k.size(), false);
+  b.m.Resize(1, (int)k.m.size(), false);
+  for (size_t i = 0; i < k.k.size(); ++i)
+  {
+    b.k((int)i + 1) = k.k[i];
+    b.m((int)i + 1) = k.m[i];
+  }
+  return b;
+}
+
+gp_Pnt2d pnt2(const double* p) { return gp_Pnt2d(p[0], p[1]); }
+// A Part 42 2D placement as 4 reals: origin, x direction (y is x turned +90 degrees).
+gp_Ax22d ax22(const double* p) { return gp_Ax22d(pnt2(p), gp_Dir2d(p[2], p[3]), true); }
+
 struct Builder
 {
   Reader                                r;
@@ -141,6 +221,11 @@ struct Builder
   std::vector<TopoDS_Vertex>            vertices;
   std::map<int, TopoDS_Edge>            edges; // as the model's edge runs, start to end
   std::map<int, TopoDS_Face>            faces;
+  // Poly loops' vertices and edges, by their points' coordinates (an edge under both orders).
+  std::map<std::array<double, 3>, TopoDS_Vertex> polyVertices;
+  std::map<std::pair<std::array<double, 3>, std::array<double, 3>>, TopoDS_Edge> polyEdges;
+  // The translator's precision: the part's uncertainty, else the reader's default.
+  double precision = DESTEP_Parameters().ReadPrecisionVal;
 
   Builder(BuiltPart& o) : out(o) {}
 
@@ -184,42 +269,19 @@ struct Builder
         break;
       case CBR_CURVE_BSPLINE:
       {
-        const int degree = in[0], n = in[1], nk = in[2], rational = in[3];
-        Knots     k = knots(re, in + 7, nk);
-        // An end knot's multiplicity above degree + 1 cut to it, the poles it carried beyond dropped.
-        int       lead = 0, trail = 0;
-        for (size_t i = 0; i < k.m.size(); ++i)
-          if (k.m[i] > degree + 1)
-          {
-            if (i == 0)
-              lead = k.m[i] - degree - 1;
-            if (i + 1 == k.m.size())
-              trail = k.m[i] - degree - 1;
-            k.m[i] = degree + 1;
-          }
-        const int np = n - lead - trail;
-        if (np <= 0)
-          throw Unbuilt{"a B-spline curve with no poles left"};
-        NCollection_Array1<gp_Pnt> poles(1, np);
-        NCollection_Array1<double> weights(1, np);
-        for (int i = 0; i < np; ++i)
+        const BSplineCurve b = bsplineCurve(re, in, 3);
+        NCollection_Array1<gp_Pnt> poles(1, b.n);
+        NCollection_Array1<double> weights(1, b.n);
+        for (int i = 0; i < b.n; ++i)
         {
-          poles(i + 1) = pnt(re + nk + 3 * (i + lead));
-          weights(i + 1) = rational ? re[nk + 3 * n + i + lead] : 1.0;
+          poles(i + 1) = pnt(&b.poles[3 * i]);
+          weights(i + 1) = b.weights[i];
         }
-        const bool periodic = periodicKnots(k, n, degree);
-        NCollection_Array1<double> kv(1, (int)k.k.size());
-        NCollection_Array1<int>    mv(1, (int)k.m.size());
-        for (size_t i = 0; i < k.k.size(); ++i)
-        {
-          kv((int)i + 1) = k.k[i];
-          mv((int)i + 1) = k.m[i];
-        }
-        occ::handle<Geom_BSplineCurve> bs = rational
-          ? new Geom_BSplineCurve(poles, weights, kv, mv, degree, periodic)
-          : new Geom_BSplineCurve(poles, kv, mv, degree, periodic);
+        occ::handle<Geom_BSplineCurve> bs = b.rational
+          ? new Geom_BSplineCurve(poles, weights, b.k, b.m, b.degree, b.periodic)
+          : new Geom_BSplineCurve(poles, b.k, b.m, b.degree, b.periodic);
         // Said closed and closed: periodic.
-        if (in[4] == CBR_LOGICAL_TRUE && degree > 1 && bs->IsClosed())
+        if (b.closed && b.degree > 1 && bs->IsClosed())
           bs->SetPeriodic();
         c = bs;
         break;
@@ -245,6 +307,83 @@ struct Builder
     }
     curves.emplace(k, c);
     return c;
+  }
+
+  // A p-curve: a 2D curve in its surface's (u, v), Part 42's parameterizations as OCCT's 2D counterparts (as curve()
+  // maps the 3D ones), then as OCCT's STEP translator takes it (GeomConvert_Units::DegreeToRadian with unit factors:
+  // a cone's v along the generatrix, conics on surfaces other than planes as B-splines).
+  occ::handle<Geom2d_Curve> curve2d(int k, const occ::handle<Geom_Surface>& surface)
+  {
+    if (r.u8(CBR_CURVE_DIM)[k] != 2)
+      throw Unbuilt{"a p-curve that isn't 2D"};
+    const int      kind = r.u8(CBR_CURVE_KIND)[k];
+    const double*  re   = r.f64(CBR_POOL_CURVE_REAL) + r.i32(CBR_CURVE_REAL)[k];
+    const int32_t* in   = r.i32(CBR_POOL_CURVE_INT) + r.i32(CBR_CURVE_INT)[k];
+    occ::handle<Geom2d_Curve> c;
+    switch (kind)
+    {
+      case CBR_CURVE_LINE:
+        c = new Geom2d_Line(pnt2(re), gp_Dir2d(re[2], re[3]));
+        break;
+      case CBR_CURVE_CIRCLE:
+        c = new Geom2d_Circle(ax22(re), re[4]);
+        break;
+      case CBR_CURVE_ELLIPSE:
+      {
+        gp_Ax22d a  = ax22(re);
+        double   s1 = re[4], s2 = re[5];
+        // OCCT's x axis is the major one: y as x, turned the same way.
+        if (s1 < s2)
+        {
+          a = gp_Ax22d(a.Location(), a.YDirection(), true);
+          std::swap(s1, s2);
+        }
+        c = new Geom2d_Ellipse(a, s1, s2);
+        break;
+      }
+      case CBR_CURVE_HYPERBOLA:
+        c = new Geom2d_Hyperbola(ax22(re), re[4], re[5]);
+        break;
+      case CBR_CURVE_PARABOLA:
+        c = new Geom2d_Parabola(ax22(re), re[4]);
+        break;
+      case CBR_CURVE_BSPLINE:
+      {
+        const BSplineCurve b = bsplineCurve(re, in, 2);
+        NCollection_Array1<gp_Pnt2d> poles(1, b.n);
+        NCollection_Array1<double>   weights(1, b.n);
+        for (int i = 0; i < b.n; ++i)
+        {
+          poles(i + 1) = pnt2(&b.poles[2 * i]);
+          weights(i + 1) = b.weights[i];
+        }
+        occ::handle<Geom2d_BSplineCurve> bs = b.rational
+          ? new Geom2d_BSplineCurve(poles, weights, b.k, b.m, b.degree, b.periodic)
+          : new Geom2d_BSplineCurve(poles, b.k, b.m, b.degree, b.periodic);
+        if (b.closed && b.degree > 1 && bs->IsClosed())
+          bs->SetPeriodic();
+        c = bs;
+        break;
+      }
+      case CBR_CURVE_POLYLINE:
+      {
+        const int                    n = in[0];
+        NCollection_Array1<gp_Pnt2d> poles(1, n);
+        NCollection_Array1<double>   kn(1, n);
+        NCollection_Array1<int>      mults(1, n);
+        for (int i = 0; i < n; ++i)
+        {
+          poles(i + 1) = pnt2(re + 2 * i);
+          kn(i + 1) = i;
+          mults(i + 1) = i == 0 || i == n - 1 ? 2 : 1;
+        }
+        c = new Geom2d_BSplineCurve(poles, kn, mults, 1);
+        break;
+      }
+      default:
+        throw Unbuilt{std::string("a p-curve that is a ") + curveKindName(kind)};
+    }
+    return GeomConvert_Units::DegreeToRadian(c, surface, 1.0, 1.0);
   }
 
   // A surface, made anew for each face (as the STEP translator makes them): a p-curve is kept per edge and surface, so
@@ -317,23 +456,35 @@ struct Builder
     return s;
   }
 
-  // A parameter of a point on a curve, by projection.
-  double param(const occ::handle<Geom_Curve>& c, const gp_Pnt& p)
-  {
-    GeomAPI_ProjectPointOnCurve proj(p, c);
-    if (proj.NbPoints() == 0)
-      throw Unbuilt{"a vertex that doesn't project onto its edge's curve"};
-    return proj.LowerDistanceParameter();
-  }
-
+  // An edge as OCCT's STEP translator makes one: its vertices' parameters by projection onto its curve, put in order
+  // and within a bounded curve's ends (StepToTopoDS_GeometricTool::UpdateParam3d), the vertices' tolerances raised to
+  // their distances from it, a line off its vertices by the same distance at both ends moved through them; then
+  // BRepLib_MakeEdge, and the translator's ways round its failures. Null for an edge it leaves out (no length, one
+  // vertex). Two vertices at one point (within 1e-7) are one, as the translator merges them.
   TopoDS_Edge edge(int e)
   {
     auto it = edges.find(e);
     if (it != edges.end())
       return it->second;
-    if (r.u8(CBR_EDGE_FLAGS)[e] & CBR_EDGE_DEGENERATE)
-      throw Unbuilt{"a degenerate edge"};
     const int ci = r.i32(CBR_EDGE_CURVE)[e], si = r.i32(CBR_EDGE_START)[e], ei = r.i32(CBR_EDGE_END)[e];
+    const double id = r.f64(CBR_EDGE_ID)[e];
+    const std::string what = "edge #" + std::to_string((long long)id);
+    BRep_Builder bb;
+    if (r.u8(CBR_EDGE_FLAGS)[e] & CBR_EDGE_DEGENERATE)
+    {
+      // At a pole or an apex: its vertex at both ends, no 3D curve; its face gives its p-curve.
+      if (si < 0)
+        throw Unbuilt{"a degenerate edge without a vertex"};
+      TopoDS_Edge ed;
+      bb.MakeEdge(ed);
+      bb.Add(ed, vertices[si].Oriented(TopAbs_FORWARD));
+      bb.Add(ed, vertices[si].Oriented(TopAbs_REVERSED));
+      bb.Degenerated(ed, true);
+      edges.emplace(e, ed);
+      if (std::isfinite(id))
+        out.edgeIds.emplace(ed.TShape().get(), (int)id);
+      return ed;
+    }
     if (ci < 0)
       throw Unbuilt{"an edge without a 3D curve"};
     if (si < 0 || ei < 0)
@@ -341,42 +492,87 @@ struct Builder
     occ::handle<Geom_Curve> c = curve(ci);
     const bool same = r.u8(CBR_EDGE_SAME_SENSE)[e] != 0;
     // Along the curve: from the start to the end, or from the end to the start against it.
-    const int     a = same ? si : ei, b = same ? ei : si;
-    TopoDS_Vertex va = vertices[a], vb = vertices[b];
-    double        ta = param(c, BRep_Tool::Pnt(va)), tb = param(c, BRep_Tool::Pnt(vb));
-    if (c->IsPeriodic())
+    const int a = same ? si : ei, b = same ? ei : si;
+    // The points as the model has them (the vertices may have been merged).
+    const gp_Pnt pa = pnt(r.f64(CBR_VERTEX_POINT) + 3 * a), pb = pnt(r.f64(CBR_VERTEX_POINT) + 3 * b);
+    if (a != b && !vertices[a].IsSame(vertices[b])
+        && BRep_Tool::Pnt(vertices[a]).Distance(BRep_Tool::Pnt(vertices[b])) <= Precision::Confusion())
+      vertices[b] = vertices[a];
+    TopoDS_Vertex       va = vertices[a], vb = vertices[b];
+    ShapeAnalysis_Curve sac;
+    gp_Pnt              proj;
+    double              u1 = 0, u2 = 0;
+    sac.Project(c, pa, precision, proj, u1, false);
+    sac.Project(c, pb, precision, proj, u2, false);
+    StepToTopoDS_GeometricTool::UpdateParam3d(c, u1, u2, precision);
+    const gp_Pnt qa = BRep_Tool::Pnt(va), qb = BRep_Tool::Pnt(vb);
+    double       da = c->Value(u1).Distance(qa), db = c->Value(u2).Distance(qb);
+    if ((da > precision || db > precision) && std::abs(da - db) < precision
+        && std::abs(u2 - u1 - pa.Distance(pb)) < Precision::Confusion() && c->IsKind(STANDARD_TYPE(Geom_Line)))
     {
-      const double period = c->Period();
-      // A closed edge (one vertex) goes all the way round; otherwise the end is after the start.
-      if (a == b)
-        tb = ta + period;
+      // A line beside its vertices by the same distance at both ends: moved through them.
+      gp_Lin l = occ::down_cast<Geom_Line>(c)->Lin();
+      l.SetLocation(pa.XYZ() - l.Position().Direction().XYZ() * u1);
+      c = new Geom_Line(l);
+      out.warnings.push_back(what + ": its line moved through its vertices (as OCCT's STEP reader moves it)");
+    }
+    bb.UpdateVertex(va, 1.000001 * da);
+    bb.UpdateVertex(vb, 1.000001 * db);
+    // Without BRepLib_MakeEdge: the curve, its vertices and their parameters as they are.
+    auto direct = [&](const occ::handle<Geom_Curve>& cc, const TopoDS_Vertex& v1, const TopoDS_Vertex& v2, double t1,
+                      double t2) {
+      TopoDS_Edge ed;
+      bb.MakeEdge(ed, cc, Precision::Confusion());
+      bb.Add(ed, v1.Oriented(TopAbs_FORWARD));
+      bb.Add(ed, v2.Oriented(TopAbs_REVERSED));
+      bb.UpdateVertex(TopoDS::Vertex(v1.Oriented(TopAbs_FORWARD)), t1, ed, 0.);
+      bb.UpdateVertex(TopoDS::Vertex(v2.Oriented(TopAbs_REVERSED)), t2, ed, 0.);
+      return ed;
+    };
+    TopoDS_Edge      ed;
+    BRepLib_MakeEdge me(c, va, vb, u1, u2);
+    if (me.IsDone())
+    {
+      ed = me.Edge();
+      bb.Range(ed, u1, u2);
+    }
+    else if (me.Error() == BRepLib_DifferentPointsOnClosedCurve)
+    {
+      if (c->IsClosed())
+      {
+        // A closed edge with two vertices: one, at both ends.
+        vertices[b] = va;
+        me.Init(c, va, TopoDS::Vertex(va.Reversed()), u1, u2);
+        ed = me.IsDone() ? me.Edge() : direct(c, va, va, u1, u2);
+      }
+      else if (!va.IsSame(vb))
+      {
+        // No length: a line between its vertices.
+        out.warnings.push_back(what + ": of no length along its curve; a line between its vertices (as OCCT's STEP "
+                               "reader makes it)");
+        const gp_Pnt p1 = BRep_Tool::Pnt(va), p2 = BRep_Tool::Pnt(vb);
+        ed = direct(new Geom_Line(p1, gp_Dir(gp_Vec(p1, p2))), va, vb, 0., p1.Distance(p2));
+      }
       else
-        while (tb <= ta)
-          tb += period;
+      {
+        out.warnings.push_back(what + ": of no length, at one vertex; left out (as OCCT's STEP reader leaves it out)");
+        edges.emplace(e, TopoDS_Edge());
+        return TopoDS_Edge();
+      }
     }
-    else if (a == b)
-    {
-      // A closed non-periodic curve (a closed B-spline): its whole range.
-      ta = c->FirstParameter();
-      tb = c->LastParameter();
-    }
-    if (!(tb > ta))
-      throw Unbuilt{"an edge whose vertices are in the wrong order on its curve"};
-    BRep_Builder bb;
-    TopoDS_Edge  ed;
-    bb.MakeEdge(ed, c, tol);
-    bb.Add(ed, va.Oriented(TopAbs_FORWARD));
-    bb.Add(ed, vb.Oriented(TopAbs_REVERSED));
-    bb.Range(ed, ta, tb);
+    else
+      ed = direct(c, va, vb, u1, u2);
     TopoDS_Edge used = same ? ed : TopoDS::Edge(ed.Reversed());
     edges.emplace(e, used);
-    const double id = r.f64(CBR_EDGE_ID)[e];
     if (std::isfinite(id))
       out.edgeIds.emplace(ed.TShape().get(), (int)id);
     return used;
   }
 
-  // A face; null when dropped (its surface one OCCT can't hold).
+  // A face; null when dropped (its surface one OCCT can't hold). Its loops as OCCT's STEP translator makes them
+  // (decision 15): edge loops with the model's p-curves (none on planes), poly loops as lines with their p-curves,
+  // vertex loops as natural bounds or a degenerate edge, by the surface; no loops, no wires (healing adds the natural
+  // bounds).
   TopoDS_Face face(int f)
   {
     auto it = faces.find(f);
@@ -385,51 +581,277 @@ struct Builder
     const int                 si = r.i32(CBR_FACE_SURFACE)[f];
     occ::handle<Geom_Surface> s  = surface(si);
     const double              id = r.f64(CBR_FACE_ID)[f];
+    const std::string         what = "face #" + std::to_string((long long)id);
     if (s.IsNull())
     {
-      out.warnings.push_back("face #" + std::to_string((long long)id) + ": its surface (a "
-                             + surfaceKindName(r.u8(CBR_SURFACE_KIND)[si])
+      out.warnings.push_back(what + ": its surface (a " + surfaceKindName(r.u8(CBR_SURFACE_KIND)[si])
                              + ") has no counterpart in OCCT; left out (as OCCT's STEP reader leaves it out)");
       faces.emplace(f, TopoDS_Face());
       return TopoDS_Face();
     }
     const bool   same = r.u8(CBR_FACE_SAME_SENSE)[f] != 0;
+    const bool   isPlane = s->IsKind(STANDARD_TYPE(Geom_Plane));
     BRep_Builder bb;
     TopoDS_Face  fc;
     bb.MakeFace(fc, s, tol);
     const int first = r.i32(CBR_FACE_FIRST_LOOP)[f], count = r.i32(CBR_FACE_LOOP_COUNT)[f];
-    if (count == 0)
-      throw Unbuilt{"a face bounded by its surface's extent"};
     for (int l = first; l < first + count; ++l)
     {
-      if (r.u8(CBR_LOOP_KIND)[l] != CBR_LOOP_EDGE)
-        throw Unbuilt{r.u8(CBR_LOOP_KIND)[l] == CBR_LOOP_VERTEX ? "a vertex loop" : "a poly loop"};
-      TopoDS_Wire w;
-      bb.MakeWire(w);
-      const int c0 = r.i32(CBR_LOOP_FIRST)[l], cn = r.i32(CBR_LOOP_COUNT)[l];
-      for (int c = c0; c < c0 + cn; ++c)
+      const int  kind  = r.u8(CBR_LOOP_KIND)[l];
+      const bool sense = r.u8(CBR_LOOP_SENSE)[l] != 0;
+      if (kind == CBR_LOOP_VERTEX)
+        vertexLoop(fc, s, l, count, what);
+      else if (kind == CBR_LOOP_POLY)
       {
-        const int o = r.u8(CBR_COEDGE_ORIENTATION)[c];
-        if (o == CBR_ORIENTATION_INTERNAL || o == CBR_ORIENTATION_EXTERNAL)
-          throw Unbuilt{"an internal or external coedge"};
-        if (r.i32(CBR_COEDGE_PCURVE)[c] >= 0)
-        {
-          // P-curves come with step (b); healing makes them meanwhile, as it does for most STEP files.
-        }
-        TopoDS_Edge e = edge(r.i32(CBR_COEDGE_EDGE)[c]);
-        bb.Add(w, o == CBR_ORIENTATION_REVERSED ? e.Reversed() : e);
+        // (The translator turns the face as it will be before a poly loop; its wire is turned by the loop's sense
+        // alone.)
+        fc.Orientation(same ? TopAbs_FORWARD : TopAbs_REVERSED);
+        TopoDS_Wire w = polyLoop(fc, s, l);
+        bb.Add(fc, sense ? w : TopoDS::Wire(w.Reversed()));
       }
-      // The loop's sense, and against a reversed face the other way round (the face is reversed below).
-      const bool reverse = (r.u8(CBR_LOOP_SENSE)[l] == 0) != !same;
-      w.Closed(true);
-      bb.Add(fc, reverse ? w.Reversed() : w);
+      else
+      {
+        // The loop's sense, and against a reversed face the other way round (the face is turned below).
+        const bool reverse = !sense != !same;
+        bb.Add(fc, edgeLoop(fc, s, isPlane, l, reverse));
+      }
     }
-    if (!same)
-      fc.Reverse();
+    fc.Orientation(same ? TopAbs_FORWARD : TopAbs_REVERSED);
     if (std::isfinite(id))
       out.faceIds.emplace(fc.TShape().get(), (int)id);
     faces.emplace(f, fc);
     return fc;
+  }
+
+  // An edge loop's wire, turned as it's to be added (reverse), its edges given the coedges' p-curves on fc's surface
+  // (as OCCT's STEP translator gives them: none on planes; a seam's two, the first for its use that runs forward
+  // through the wire as added; then, where every edge has one, each edge's range on the face from its vertices
+  // projected; then the translator's checks of them).
+  TopoDS_Wire edgeLoop(const TopoDS_Face& fc, const occ::handle<Geom_Surface>& s, bool isPlane, int l, bool reverse)
+  {
+    BRep_Builder bb;
+    TopoDS_Wire  w;
+    bb.MakeWire(w);
+    const int c0 = r.i32(CBR_LOOP_FIRST)[l], cn = r.i32(CBR_LOOP_COUNT)[l];
+    // Each coedge's edge as the wire uses it, and the coedge (edges left out skipped).
+    std::vector<TopoDS_Edge> used;
+    std::vector<int>         coedge;
+    for (int c = c0; c < c0 + cn; ++c)
+    {
+      const int o = r.u8(CBR_COEDGE_ORIENTATION)[c];
+      if (o == CBR_ORIENTATION_INTERNAL || o == CBR_ORIENTATION_EXTERNAL)
+        throw Unbuilt{"an internal or external coedge"};
+      TopoDS_Edge e = edge(r.i32(CBR_COEDGE_EDGE)[c]);
+      if (e.IsNull())
+        continue;
+      used.push_back(o == CBR_ORIENTATION_REVERSED ? TopoDS::Edge(e.Reversed()) : e);
+      coedge.push_back(c);
+      bb.Add(w, used.back());
+    }
+    bool all = true;
+    if (!isPlane)
+    {
+      // An edge's uses by its shape: two in this loop make a seam.
+      std::map<const TopoDS_TShape*, std::vector<int>> uses;
+      for (int j = 0; j < (int)used.size(); ++j)
+        uses[used[j].TShape().get()].push_back(j);
+      for (const auto& [tshape, js] : uses)
+      {
+        std::vector<occ::handle<Geom2d_Curve>> pcs;
+        for (int j : js)
+        {
+          const int pc = r.i32(CBR_COEDGE_PCURVE)[coedge[j]];
+          if (pc < 0)
+            break;
+          pcs.push_back(curve2d(pc, s));
+        }
+        // (The model's degenerate edges: BRepLib_MakeEdge marks some edges of no length so too, which, like the
+        // translator's, get their p-curves from healing.)
+        const int  edgeRow    = r.i32(CBR_COEDGE_EDGE)[coedge[js[0]]];
+        const bool degenerate = (r.u8(CBR_EDGE_FLAGS)[edgeRow] & CBR_EDGE_DEGENERATE) != 0;
+        // A degenerate edge's range on the face: the coedge's, else the p-curve's own; a range running against the
+        // p-curve (the edge from its end to its start) the p-curve reversed, as OCCT's ranges increase.
+        double da = 0, db = 0;
+        if (degenerate && !pcs.empty())
+        {
+          const double* rg = r.f64(CBR_COEDGE_RANGE) + 2 * coedge[js[0]];
+          da = std::isfinite(rg[0]) ? rg[0] : pcs[0]->FirstParameter();
+          db = std::isfinite(rg[1]) ? rg[1] : pcs[0]->LastParameter();
+          if (!std::isfinite(da) || !std::isfinite(db))
+            throw Unbuilt{"a degenerate edge without a range"};
+          if (da > db)
+          {
+            da = pcs[0]->ReversedParameter(da);
+            db = pcs[0]->ReversedParameter(db);
+            pcs[0] = pcs[0]->Reversed();
+          }
+        }
+        if (pcs.size() < js.size())
+        {
+          if (degenerate)
+            throw Unbuilt{"a degenerate edge without a p-curve"};
+          all = false;
+          continue;
+        }
+        TopoDS_Edge e = TopoDS::Edge(used[js[0]].Oriented(TopAbs_FORWARD));
+        if (js.size() == 2)
+        {
+          // The use running forward through the wire as added takes the first.
+          const bool firstForward = (used[js[0]].Orientation() == TopAbs_FORWARD) != reverse;
+          bb.UpdateEdge(e, firstForward ? pcs[0] : pcs[1], firstForward ? pcs[1] : pcs[0], fc, 0.);
+        }
+        else
+          bb.UpdateEdge(e, pcs[0], fc, 0.);
+        if (degenerate)
+          bb.Range(e, fc, da, db);
+      }
+    }
+    else
+      all = false;
+    w.Closed(true);
+    if (all)
+      for (TopoDS_Iterator ei(w); ei.More(); ei.Next())
+      {
+        const TopoDS_Edge& e = TopoDS::Edge(ei.Value());
+        if (BRep_Tool::Degenerated(e))
+          continue;
+        occ::handle<ShapeFix_EdgeProjAux> proj = ShapeAlgo::AlgoContainer()->ToolContainer()->EdgeProjAux();
+        proj->Init(fc, e);
+        proj->Compute(precision);
+        if (proj->IsFirstDone() && proj->IsLastDone())
+        {
+          if (std::abs(proj->FirstParam() - proj->LastParam()) >= Precision::PConfusion())
+            bb.Range(e, fc, proj->FirstParam(), proj->LastParam());
+        }
+        else
+          ShapeBuild_Edge().RemovePCurve(e, fc);
+      }
+    if (!isPlane)
+    {
+      // The translator's checks: an empty range dropped, a bounded p-curve's clamped, a range against a periodic u
+      // shifted, then XSAlgo's check of the p-curve against the edge.
+      occ::handle<ShapeExtend_WireData> wd = new ShapeExtend_WireData(w);
+      for (int i = 1; i <= wd->NbEdges(); ++i)
+      {
+        const TopoDS_Edge&        e = wd->Edge(i);
+        occ::handle<Geom2d_Curve> pc;
+        double                    w1, w2;
+        if (!ShapeAnalysis_Edge().PCurve(e, fc, pc, w1, w2, false))
+          continue;
+        if (w1 == w2)
+        {
+          ShapeBuild_Edge().RemovePCurve(e, fc);
+          continue;
+        }
+        if (!pc->IsPeriodic())
+        {
+          if (w1 < pc->FirstParameter())
+            bb.Range(e, fc, w1 = pc->FirstParameter(), w2);
+          if (w2 > pc->LastParameter())
+            bb.Range(e, fc, w1, w2 = pc->LastParameter());
+        }
+        if (w1 > w2 && s->IsUPeriodic())
+        {
+          double u1, u2, v1, v2;
+          s->Bounds(u1, u2, v1, v2);
+          ElCLib::AdjustPeriodic(u1, u2, std::min(std::abs(w2 - w1) / 2, Precision::PConfusion()), w1, w2);
+          bb.Range(e, fc, w1, w2);
+        }
+        XSAlgo_ShapeProcessor::CheckPCurve(e, fc, precision, wd->IsSeam(i));
+      }
+    }
+    return reverse ? TopoDS::Wire(w.Reversed()) : w;
+  }
+
+  // A vertex loop, as OCCT's STEP translator takes one: left out on a plane or a torus; the face's natural bounds on a
+  // sphere or B-spline surface where it's the face's only loop; otherwise a degenerate edge at its vertex.
+  void vertexLoop(TopoDS_Face& fc, const occ::handle<Geom_Surface>& s, int l, int loops, const std::string& what)
+  {
+    BRep_Builder bb;
+    if (s->IsKind(STANDARD_TYPE(Geom_Plane)) || s->IsKind(STANDARD_TYPE(Geom_ToroidalSurface)))
+    {
+      out.warnings.push_back(what + ": a vertex loop on a " + (s->IsKind(STANDARD_TYPE(Geom_Plane)) ? "plane" : "torus")
+                             + " left out (as OCCT's STEP reader leaves it out)");
+      return;
+    }
+    if ((s->IsKind(STANDARD_TYPE(Geom_SphericalSurface)) || s->IsKind(STANDARD_TYPE(Geom_BSplineSurface)))
+        && loops == 1)
+    {
+      BRepBuilderAPI_MakeFace natural(s, precision);
+      for (TopoDS_Iterator wi(natural.Face()); wi.More(); wi.Next())
+        bb.Add(fc, wi.Value());
+      return;
+    }
+    const int v = r.i32(CBR_LOOP_FIRST)[l];
+    TopoDS_Edge e;
+    bb.MakeEdge(e);
+    bb.Add(e, vertices[v].Oriented(TopAbs_FORWARD));
+    bb.Add(e, vertices[v].Oriented(TopAbs_REVERSED));
+    bb.Degenerated(e, true);
+    TopoDS_Wire w;
+    bb.MakeWire(w);
+    w.Closed(true);
+    bb.Add(w, e);
+    bb.Add(fc, w);
+  }
+
+  // A poly loop, as OCCT's STEP translator makes one: a line between each two points (shared with the faces using the
+  // same two, by their coordinates, as the translator shares them by point), each with its p-curve on fc's surface
+  // from the points' (u, v).
+  TopoDS_Wire polyLoop(const TopoDS_Face& fc, const occ::handle<Geom_Surface>& s, int l)
+  {
+    BRep_Builder bb;
+    const int    n = r.i32(CBR_LOOP_COUNT)[l];
+    const double* p = r.f64(CBR_POOL_LOOP_REAL) + r.i32(CBR_LOOP_FIRST)[l];
+    occ::handle<ShapeAnalysis_Surface> sas = new ShapeAnalysis_Surface(s);
+    auto key = [](const double* q) { return std::array<double, 3>{q[0], q[1], q[2]}; };
+    auto vertex = [&](const double* q) {
+      auto [it, fresh] = polyVertices.try_emplace(key(q));
+      if (fresh)
+        bb.MakeVertex(it->second, pnt(q), Precision::Confusion());
+      return it->second;
+    };
+    TopoDS_Wire w;
+    bb.MakeWire(w);
+    for (int i = 0; i < n; ++i)
+    {
+      const double *a = p + 3 * i, *b = p + 3 * ((i + 1) % n);
+      if (key(a) == key(b))
+        continue;
+      TopoDS_Vertex va = vertex(a), vb = vertex(b);
+      auto          found = polyEdges.find({key(a), key(b)});
+      TopoDS_Edge   e;
+      if (found == polyEdges.end())
+      {
+        const gp_Vec d(pnt(a), pnt(b));
+        bb.MakeEdge(e, new Geom_Line(pnt(a), gp_Dir(d)), Precision::Confusion());
+        bb.Add(e, va.Oriented(TopAbs_FORWARD));
+        bb.Add(e, vb.Oriented(TopAbs_REVERSED));
+        bb.UpdateVertex(TopoDS::Vertex(va.Oriented(TopAbs_FORWARD)), 0., e, 0.);
+        bb.UpdateVertex(TopoDS::Vertex(vb.Oriented(TopAbs_REVERSED)), d.Magnitude(), e, 0.);
+      }
+      else
+      {
+        // Seen from its second face the other way round from its first.
+        e = found->second;
+        if (fc.Orientation() == TopAbs_FORWARD)
+          e.Reverse();
+      }
+      const gp_Pnt2d ua = sas->ValueOfUV(pnt(a), precision), ub = sas->ValueOfUV(pnt(b), precision);
+      const bool     fwd = e.Orientation() == TopAbs_FORWARD;
+      bb.UpdateEdge(e, new Geom2d_Line(fwd ? ua : ub, gp_Dir2d(fwd ? gp_Vec2d(ua, ub) : gp_Vec2d(ub, ua))), fc, 0.);
+      if (found == polyEdges.end())
+      {
+        // Kept for the pair from either end, as the face orientation turns it.
+        TopoDS_Edge seen = e;
+        seen.Orientation(fc.Orientation());
+        polyEdges.emplace(std::make_pair(key(a), key(b)), seen);
+        polyEdges.emplace(std::make_pair(key(b), key(a)), seen);
+      }
+      bb.Add(w, e);
+    }
+    w.Closed(BRep_Tool::IsClosed(w));
+    return w;
   }
 
   TopoDS_Shell shell(int k)
@@ -495,6 +917,8 @@ BuiltPart buildPart(const uint8_t* buf, size_t len)
   b.tol = 1e-7;
   out.unit = b.r.rows(CBR_PART_UNIT) ? b.r.f64(CBR_PART_UNIT)[0] : 1.0;
   out.uncertainty = std::isfinite(unc) && unc > 0 ? unc : NAN;
+  if (std::isfinite(out.uncertainty))
+    b.precision = out.uncertainty;
   try
   {
     BRep_Builder bb;
