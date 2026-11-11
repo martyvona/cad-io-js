@@ -493,3 +493,40 @@ test('a face used both ways (two sheets, one using it reversed): written twice, 
   }
   assert.deepEqual(back.layers[0]!.faces.map((f) => f.face).sort((x, y) => x - y), [10, faces[1]![0]]);
 });
+
+test('a mesh\'s edges as the tessellation practice has them: connecting edges between faces, the rest plain; read '
+  + 'back with their ids and points', async () => {
+  // Faces 7 (corners 0, 1, 2 and 1, 4, 2), 8 (0, 1, 3) and one without an id (1, 5, 4): 21 between 7 and 8, 22 between
+  // 7 and the unnamed, 23 on 7's free boundary, 24 a seam on 7, 25 degenerate at corner 3, 26 on no face.
+  const p = meshPart(), mesh = p.lods[0]!.mesh;
+  const corner = (v: number) => Array.from(mesh.positions.subarray(3 * v, 3 * v + 3));
+  const runs: [number, 'shared' | 'seam' | 'free' | 'degenerate', number[][]][] = [
+    [21, 'shared', [corner(0), corner(1)]], [22, 'shared', [corner(1), corner(4)]],
+    [23, 'free', [corner(0), corner(2)]], [24, 'seam', [corner(2), corner(4)]],
+    [25, 'degenerate', [corner(3), corner(3)]], [26, 'free', [[5, 5, 5], [6, 6, 6]]]];
+  mesh.edgePositions = Float32Array.from(runs.flatMap(([, , pts]) => pts.flat()));
+  mesh.edges = runs.map(([source, kind], k) => ({ source, kind, start: 2 * k, count: 2,
+    ...(kind === 'shared' ? { dihedral: 0.5 } : {}) }));
+  const s = sceneOf({ parts: [p], rootParts: [{ part: 0, transform: identity() }] });
+  const { back, text, bytes, diagnostics } = await roundTrip(s);
+  assert.deepEqual(diagnostics, []);
+  for (const id of [21, 22, 24]) assert.match(text, new RegExp(`#${id}=TESSELLATED_CONNECTING_EDGE\\('',#\\d+,\\$,`));
+  for (const id of [23, 25, 26]) assert.match(text, new RegExp(`#${id}=TESSELLATED_EDGE\\('',#\\d+,\\$,`));
+  // Between 7 and 8, on 7's list (its first face's), unknown smoothness.
+  assert.match(text, /#21=TESSELLATED_CONNECTING_EDGE\('',#\d+,\$,\(\d+,\d+\),\.U\.,#7,#8,\(\d+,\d+\),\(\d+,\d+\)\)/);
+  // Each face's strip into its own list: 22's corners are 7's points 2 and 4, the unnamed face's 1 and 3.
+  assert.match(text, /#22=TESSELLATED_CONNECTING_EDGE\('',#\d+,\$,\(2,4\),\.U\.,#7,#\d+,\(2,4\),\(1,3\)\)/);
+  // A seam: its face twice.
+  assert.match(text, /#24=TESSELLATED_CONNECTING_EDGE\('',#\d+,\$,\(\d+,\d+\),\.U\.,#7,#7,/);
+  assert.match(text, /TESSELLATED_SHELL\('mesh',\(#7,#8,#\d+,#21,#22,#23,#24,#25,#26\),\$\)/);
+  assert.deepEqual(await bindProblems(bytes), []);
+  // Read back: each edge with its id and points, seams as shared and degenerate edges as free (STEP has no kinds for
+  // them).
+  const m = back.parts[0]!.lods[0]!.mesh;
+  // (In the part's coordinates: each mesh has its own origin.)
+  const placed = (xs: ArrayLike<number>, o: number[]) => Array.from(xs, (x, k) => x + o[k % 3]!);
+  const got = (m.edges ?? []).map((e) => [e.source, e.kind,
+    placed(m.edgePositions!.subarray(3 * e.start, 3 * (e.start + e.count)), m.origin)]);
+  assert.deepEqual(got, runs.map(([source, kind, pts]) => [source,
+    kind === 'seam' ? 'shared' : kind === 'degenerate' ? 'free' : kind, placed(pts.flat(), mesh.origin)]));
+});

@@ -4,7 +4,9 @@
 // one TESSELLATED_POINT_SET each; a TESSELLATED_SHAPE_REPRESENTATION (with accuracy parameters where the level has its
 // deflections) in the part's unit. Each face has its own COORDINATES_LIST: one list for a whole part would be one
 // instance, so one string, of up to millions of numbers. Positions are the mesh's plus its origin, in double
-// precision. Edges aren't written: a reader takes the faces' boundaries (shared and free) where a shell has none.
+// precision. The mesh's edges in the shell or solid, as the CAx-IF practice has them (section 5.4.2): an edge between
+// two faces (a seam: one face twice) a TESSELLATED_CONNECTING_EDGE on its faces' coordinates lists (face1's its own),
+// the rest a TESSELLATED_EDGE (STEP has no kind for a seam or a degenerate edge: they read back as shared and free).
 
 import type { Lod, Mesh, Part } from 'cad-scene';
 import { type Instance, makeList, type Value } from 'step-parser';
@@ -26,6 +28,8 @@ const int = (v: number): Value => ({ k: 'int', v });
 const ref = (v: number): Value => ({ k: 'ref', v });
 const list = (vs: Value[]): Value => makeList(vs);
 const UNSET: Value = { k: 'unset' };
+/** Whether faces meet smoothly along an edge: not known to a mesh. */
+const UNKNOWN: Value = { k: 'enum', v: 'U' };
 
 export interface StepMeshOptions {
   ids: StepIds;
@@ -65,6 +69,9 @@ export function stepMesh(part: Part, lod: Lod, opts: StepMeshOptions): StepMesh 
     at = Math.max(at, f.start + f.count);
   }
   const faces: number[] = [];
+  /** Each written face's coordinates list, and its points' indices there by position (an edge's points are on them). */
+  const written: { id: number; list: number; at: Map<string, number> }[] = [];
+  const key = (xs: ArrayLike<number>, v: number) => `${xs[3 * v]},${xs[3 * v + 1]},${xs[3 * v + 2]}`;
   const face = (source: number | null, rs: { start: number; count: number }[]) => {
     const local = new Map<number, number>(), used: number[] = [];
     const tris: Value[] = [];
@@ -84,14 +91,38 @@ export function stepMesh(part: Part, lod: Lod, opts: StepMeshOptions): StepMesh 
       normals, link !== undefined ? ref(link) : UNSET, list([]), list(tris)]);
     if (source !== null && !faceIds.has(source)) faceIds.set(source, id);
     faces.push(id);
+    const at = new Map<string, number>();
+    used.forEach((v, k) => { const x = key(mesh.positions, v); if (!at.has(x)) at.set(x, k + 1); });
+    written.push({ id, list: list_, at });
   };
   for (const [source, rs] of ranges) face(source, rs);
   for (const rs of unnamed) face(null, rs);
 
+  // Edges: by the faces whose points hold all of an edge's (shared: the first two; a seam: its face twice).
+  const edges: number[] = [];
+  const ep = mesh.edgePositions;
+  if (faces.length && ep) for (const e of mesh.edges ?? []) {
+    if (e.count < 2) continue;
+    const pts = Array.from({ length: e.count }, (_, k) => key(ep, e.start + k));
+    const holders = written.filter((f) => pts.every((x) => f.at.has(x)));
+    const strip = (f: { at: Map<string, number> }) => list(pts.map((x) => int(f.at.get(x)!)));
+    const id = ids.claim(e.source ?? undefined);
+    const f1 = holders[0], f2 = e.kind === 'seam' ? holders[0] : holders[1];
+    if ((e.kind === 'shared' || e.kind === 'seam') && f1 && f2) {
+      edges.push(emit(id, 'TESSELLATED_CONNECTING_EDGE', [str(), ref(f1.list), UNSET, strip(f1), UNKNOWN,
+        ref(f1.id), ref(f2.id), strip(f1), strip(f2)]));
+    } else if (f1) edges.push(emit(id, 'TESSELLATED_EDGE', [str(), ref(f1.list), UNSET, strip(f1)]));
+    else {
+      const l = coords(ep, Array.from({ length: e.count }, (_, k) => e.start + k));
+      edges.push(emit(id, 'TESSELLATED_EDGE', [str(), ref(l), UNSET, list(pts.map((_, k) => int(k + 1)))]));
+    }
+  }
+
   const items: number[] = [];
   if (faces.length) {
-    items.push(part.closed ? emit(fresh(), 'TESSELLATED_SOLID', [str(part.name), list(faces.map(ref)), UNSET])
-      : emit(fresh(), 'TESSELLATED_SHELL', [str(part.name), list(faces.map(ref)), UNSET]));
+    const members = list([...faces, ...edges].map(ref));
+    items.push(part.closed ? emit(fresh(), 'TESSELLATED_SOLID', [str(part.name), members, UNSET])
+      : emit(fresh(), 'TESSELLATED_SHELL', [str(part.name), members, UNSET]));
   }
   // Curves and points, one set per source.
   const strips = new Map<number | null, number[][]>();
