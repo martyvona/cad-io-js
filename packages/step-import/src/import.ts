@@ -481,6 +481,55 @@ export function sceneFromStep(model: StepModel, sem: Semantics, opts: ImportOpti
     overrides.push(ov);
   }
 
+  // OCCT's writer gives an instance its own style by an overriding styled item whose PRESENTATION_STYLE_BY_CONTEXT's
+  // context is a shape representation defining the occurrence's placement shape (SDR -> PDS -> NAUO), and its reader
+  // reads them so. Part 46 makes such a style a presentation context's (a view's), and the styling practice doesn't use
+  // it, so it's read so only in files OCCT wrote (FILE_NAME's preprocessor or originating system); elsewhere, and
+  // where the context isn't an occurrence's, the style isn't the default look (ownStyle) and is ignored.
+  const fileName = file.headerEntity('FILE_NAME')?.attrs;
+  const byOcct = [4, 5].some((i) => { const v = fileName?.[i]; return v?.k === 'str' && /open cascade/i.test(v.v); });
+  if (byOcct && styles.styled.some((st) => st.presentationContext && !st.context)) {
+    const occurrenceByNauo = new Map<number, number>();
+    s.occurrences.forEach((o, i) => { if (o.kind === 'nauo') occurrenceByNauo.set(o.id, i); });
+    // Shape representation id -> the occurrence whose placement shape it defines.
+    const occurrenceByRep = new Map<number, number>();
+    for (const p of model.instancesOf('SHAPE_DEFINITION_REPRESENTATION')) {
+      const o = occurrenceByNauo.get(r.id(r.ref(r.ref(p, 'definition'), 'definition')));
+      const rep = r.ref(p, 'used_representation');
+      if (o !== undefined && rep >= 0) occurrenceByRep.set(r.id(rep), o);
+    }
+    // Every path from a root to a component: an occurrence of a component placed several times styles each placement.
+    const pathsTo = (c: number, seen: Set<number> = new Set()): number[][] => {
+      if (seen.has(c)) return [];
+      const next = new Set(seen).add(c);
+      const out = roots.flatMap((x, k) => (x.component === c ? [[k]] : []));
+      s.occurrences.forEach((o, i) => { if (o.child === c && childIndex.has(i)) for (const p of pathsTo(o.parent, next))
+        out.push([...p, childIndex.get(i)!]); });
+      return out;
+    };
+    for (const st of styles.styled) {
+      if (!st.presentationContext || st.context) continue;
+      const occs = [...new Set(st.presentationContext.flatMap((id) => {
+        const o = occurrenceByRep.get(id); return o === undefined ? [] : [o]; }))];
+      if (occs.length !== 1) {
+        warn('presentation style by context whose context is not one occurrence\'s placement shape', st.id); continue; }
+      const o = occs[0]!;
+      const target = model.resolve(st.item);
+      const material = materialOf(st.style, st.id);
+      const face = isFace(target) ? partOfPosition.get(target) : undefined;
+      for (const path of pathsTo(s.occurrences[o]!.parent)) {
+        const ov: Scene['overrides'][number] = { path: [...path, childIndex.get(o)!], sources: [src(st.id)] };
+        if (st.style.invisible) ov.visible = false;
+        if (material !== undefined) {
+          if (face !== undefined) ov.faceMaterials = [{ part: face, face: st.item, material }];
+          else ov.material = material;
+        }
+        overrides.push(ov);
+      }
+      warn('presentation style by context read as its occurrence\'s style, as OCCT writes them', st.id, 'info');
+    }
+  }
+
   // Layers.
   const layers: Layer[] = styles.layers.map((l) => {
     const layer: Layer = { name: l.name, visible: !l.invisible, parts: [], faces: [], sources: [src(l.id)] };

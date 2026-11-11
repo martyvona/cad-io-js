@@ -8,17 +8,17 @@
 //   (2) OCCT, independent of our importer (occt-import-js, its XCAF reader), on the written file: (a) every B-rep
 //       vertex of every placed part, moved to world millimetres by the scene's transforms, among OCCT's mesh vertices
 //       (to 1e-5 of the model's size), as products_occt.ts checks the importer; (b) each mesh's faces' colours (their
-//       own, else the mesh's; linear, as OCCT gives them) the scene's for the part of that name (for a mesh OCCT names
-//       otherwise, colours the scene has); (c) OCCT's readings of the two files compared, told apart rather than
-//       failed (OCCT reads some files' placements and colours otherwise than step-import: docs/step.md); files up to
-//       OCCT_MB (default 30); (d) OCCT's points on every face's surface and every edge's curve at the same parameters
-//       from each B-rep part's representation in both files (tess-occt's probe, build-probe.sh: read without shape
-//       processing, OCCT's parameterizations applying to both alike), the parameters a grid in each face's box (its
-//       vertices projected) and along each edge's range on the original; their distances by bucket, relative to the
-//       part's size, those over 1e-9 listed: this is what sees a geometry the importer and the writer get wrong alike
-//       on surfaces the area oracle doesn't take (B-splines, sweeps). A face or edge whose geometry's placement has no
-//       ref_direction in the original is told apart: OCCT takes its own x axis there, the writer Part 42's
-//       (docs/backends.md), so the same geometry starts its parameters elsewhere;
+//       own, else the mesh's; linear, as OCCT gives them) one instance's of the part of that name (for a mesh OCCT
+//       names otherwise, colours the scene has); (c) OCCT's readings of the two files compared, told apart rather
+//       than failed (OCCT reads some files' placements and colours otherwise than step-import: docs/step.md); files
+//       up to OCCT_MB (default 30); (d) OCCT's points on every face's surface and every edge's curve at the same
+//       parameters from each B-rep part's representation in both files (tess-occt's probe, build-probe.sh: read
+//       without shape processing, OCCT's parameterizations applying to both alike), the parameters a grid in each
+//       face's box (its vertices projected) and along each edge's range on the original; their distances by bucket,
+//       relative to the part's size, those over 1e-9 listed: this is what sees a geometry the importer and the
+//       writer get wrong alike on surfaces the area oracle doesn't take (B-splines, sweeps). A face or edge whose
+//       geometry's placement has no ref_direction in the original is told apart: OCCT takes its own x axis there,
+//       the writer Part 42's (docs/backends.md), so the same geometry starts its parameters elsewhere;
 //   (3) the area oracle (area_oracle.ts, step-parser alone) on both files, face by face where both trust it.
 // Expected differences are counted apart, not failed: parts without a B-rep in AP214 (no tessellated geometry), what
 // the model doesn't keep (faces the importer drops, which their face colours then name), ids renumbered.
@@ -82,25 +82,28 @@ function placements(s: Scene) {
 const linear = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
 
 /**
- * Each part's faces' colours as step-import reads them, by part name, and all of them under '*': linear, 3 decimals,
- * sorted, distinct.
+ * Each part instance's faces' colours as step-import reads them (linear, 3 decimals, sorted, distinct, joined by
+ * spaces), by part name: what one OCCT mesh of that name may have (instances of a part may differ, by instance
+ * styles); and every colour of the scene.
  */
-function colours(s: Scene): Map<string, string> {
-  const out = new Map<string, Set<string>>();
+function colours(s: Scene): { byName: Map<string, Set<string>>; every: Set<string> } {
+  const byName = new Map<string, Set<string>>();
+  const every = new Set<string>();
   for (const i of partInstances(s)) {
     const p = s.parts[i.part]!;
     const ids = p.brep ? Array.from({ length: rowCount(p.brep.model, 'face') }, (_, k) => decode.face(p.brep!.model,
       k).id) : [];
-    const set = out.get(p.name) ?? new Set<string>();
+    const set = new Set<string>();
     for (const f of ids) {
       const m = i.faceMaterials.get(f ?? NaN) ?? i.material;
       set.add(m === undefined ? '-' : s.materials[m]!.color.map((c) => linear(c).toFixed(3)).join(','));
     }
-    out.set(p.name, set);
+    for (const c of set) every.add(c);
+    let looks = byName.get(p.name);
+    if (!looks) byName.set(p.name, (looks = new Set()));
+    looks.add([...set].sort().join(' '));
   }
-  const every = new Set([...out.values()].flatMap((v) => [...v]));
-  return new Map([...[...out].map(([k, v]) => [k, [...v].sort().join(' ')] as const), ['*', [...every].sort()
-    .join(' ')]]);
+  return { byName, every };
 }
 
 /**
@@ -384,9 +387,8 @@ export const check: FileCheck<undefined, Result> = {
         // (2b) Each mesh's faces' colours as our scene colours its part's faces; where not, by the original's reading:
         // agreeing with ours, the writer's fault; with the written file's, OCCT reads both otherwise than step-import.
         const ourColours = (m: OcctMesh) => {
-          const mine = ours.get(m.name);
-          return mine !== undefined ? mine === distinct(m)
-            : distinct(m).split(' ').every((c) => ours.get('*')!.split(' ').includes(c));
+          const mine = ours.byName.get(m.name);
+          return mine !== undefined ? mine.has(distinct(m)) : distinct(m).split(' ').every((c) => ours.every.has(c));
         };
         ob.meshes.forEach((m, j) => {
           if (!m.brep_faces.length) return;
@@ -396,7 +398,7 @@ export const check: FileCheck<undefined, Result> = {
           // (occt-import-js gives some parts' faces no colours of their own in either file, though both style them:
           // the mesh's colour only, or none.)
           const faceless = (x: OcctMesh) => x.brep_faces.every((f) => !f.color);
-          const known = distinct(m).split(' ').every((c) => c === '-' || ours.get('*')!.split(' ').includes(c));
+          const known = distinct(m).split(' ').every((c) => c === '-' || ours.every.has(c));
           if (o && faceless(o) && faceless(m) && known) {
             if (!planted) note('(2c) faces OCCT gives no colours of their own in either file', `${name} ${m.name}`);
             else seen[1] = true;
@@ -404,7 +406,7 @@ export const check: FileCheck<undefined, Result> = {
             if (!planted) note('(2c) colours OCCT reads in both files otherwise than step-import', `${name} ${m.name}`);
             else seen[1] = true;
           } else fail2('face colours not our scene\'s', `${name} ${m.name}: ${distinct(m)} against `
-            + `${ours.get(m.name) ?? 'the scene'}`);
+            + `${ours.byName.has(m.name) ? [...ours.byName.get(m.name)!].join(' or ') : 'the scene'}`);
         });
         // (2c) OCCT's readings of the two files: told apart rather than failed (OCCT reads some files' placements and
         // colours otherwise than step-import: docs/step.md), but for a planted bug.

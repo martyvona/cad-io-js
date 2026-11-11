@@ -1,5 +1,5 @@
-517 files imported in 17.6 s: 788 components (and 2944 leaf products placed as parts, 2123 root parts), 3264 parts, 5036 part instances (3 hidden)
-687 materials; 0 component materials; 118 parts with per-face materials (5486 faces); 0 instance overrides; 3169 layers; 68 external components
+517 files imported in 17.7 s: 788 components (and 2944 leaf products placed as parts, 2123 root parts), 3264 parts, 5036 part instances (8 hidden)
+696 materials; 0 component materials; 118 parts with per-face materials (5486 faces); 14 instance overrides; 3169 layers; 68 external components
 models: 113.0 MB
       2 a model with errors (validateBrep)  e.g. gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483
       1 diagnostic: representation without a length unit; read as millimetres  e.g. gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938

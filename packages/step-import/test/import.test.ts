@@ -265,6 +265,59 @@ test('materials: part, face, instance override; layers', async () => {
     organizations: [''], originatingSystem: 'sys', preprocessorVersion: 'pp', authorization: '', schemas: AP214 });
 });
 
+// Instance styles as OCCT writes them: an overriding styled item whose PRESENTATION_STYLE_BY_CONTEXT's context is a
+// shape representation of an occurrence's placement shape. The subassembly placed a second time, so the style on the
+// box inside it applies in both placements; box 1's face 214 blue; box 2 red and invisible.
+const BY_CONTEXT = `
+#650=NEXT_ASSEMBLY_USAGE_OCCURRENCE('6','sub 2','',#102,#602,$);
+#651=PRODUCT_DEFINITION_SHAPE('','',#650);
+#652=(REPRESENTATION_RELATIONSHIP('','',#604,#104)REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION(#653)SHAPE_REPRESENTATION_RELATIONSHIP());
+#653=ITEM_DEFINED_TRANSFORMATION('','',#26,#25);
+#654=CONTEXT_DEPENDENT_SHAPE_REPRESENTATION(#652,#651);
+#700=SHAPE_DEFINITION_REPRESENTATION(#631,#701);
+#701=SHAPE_REPRESENTATION('',(#26),#17);
+#702=PRESENTATION_STYLE_BY_CONTEXT((#525),#701);
+#703=OVER_RIDING_STYLED_ITEM('',(#702),#211,#507);
+#710=SHAPE_DEFINITION_REPRESENTATION(#251,#711);
+#711=SHAPE_REPRESENTATION('',(#23),#16);
+#712=PRESENTATION_STYLE_BY_CONTEXT((#515),#711);
+#713=OVER_RIDING_STYLED_ITEM('',(#712),#214,#507);
+#720=SHAPE_DEFINITION_REPRESENTATION(#261,#721);
+#721=SHAPE_REPRESENTATION('',(#25),#16);
+#722=OVER_RIDING_STYLED_ITEM('',(#723),#211,#507);
+#723=PRESENTATION_STYLE_BY_CONTEXT((#505),#721);
+#724=INVISIBILITY((#722));`;
+
+test('instance styles by context as OCCT writes them, read only in files OCCT wrote', async () => {
+  const header = (pp: string, sys: string) => enc.encode(
+    `ISO-10303-21;HEADER;FILE_NAME('asm.stp','',(''),(''),'${pp}','${sys}','');FILE_SCHEMA(('${AP214}'));ENDSEC;`
+    + `DATA;\n${DATA}\n${BY_CONTEXT}\nENDSEC;END-ISO-10303-21;`);
+  const read = async (pp: string, sys: string) => {
+    const { scene } = await importStep(header(pp, sys));
+    const color = (m: number | undefined) => (m === undefined ? undefined : scene.materials[m]!.color);
+    const looks = [...partInstances(scene)].filter((p) => p.part === 0).map((p) => [p.path.join('/'),
+      color(p.material), p.visible, [...p.faceMaterials].filter(([f]) => f === 214).map(([, m]) => color(m))[0]]);
+    return { scene, looks };
+  };
+  // Not OCCT's: the styles are a presentation context's, so the instances look as without them (box 2 green by its
+  // context-dependent style, the box in the first subassembly blue by its; an instance's own colour replaces the
+  // part's face colours there).
+  const plain = await read('pp', 'sys');
+  assert.deepEqual(plain.looks, [['0/0', undefined, true, [0, 1, 0]], ['0/1', [0, 1, 0], true, undefined],
+    ['0/3/0', [0, 0, 1], true, undefined], ['0/4/0', undefined, true, [0, 1, 0]]]);
+  assert.equal(plain.scene.diagnostics.filter((d) => /presentation style/.test(d.message)).length, 0);
+  // OCCT's (by preprocessor or originating system): box 1's face blue; box 2 red (the later style) and hidden; the box
+  // in both subassemblies green. Face 213's style by context names the assembly's own representation, no occurrence's.
+  for (const [pp, sys] of [['Open CASCADE STEP processor 7.8', 'FreeCAD'], ['x', 'Open CASCADE 6.6']]) {
+    const occt = await read(pp!, sys!);
+    assert.deepEqual(occt.looks, [['0/0', undefined, true, [0, 0, 1]], ['0/1', [1, 0, 0], false, undefined],
+      ['0/3/0', [0, 1, 0], true, undefined], ['0/4/0', [0, 1, 0], true, undefined]]);
+    assert.deepEqual(occt.scene.diagnostics.filter((d) => /presentation style/.test(d.message)).map(
+      (d) => [d.severity, d.source?.id]), [['warning', 532], ['info', 703], ['info', 713], ['info', 722]]);
+    assert.deepEqual(validate(occt.scene), []);
+  }
+});
+
 // A product whose representation holds only an annotation (text and a placement) and, related to it, a geometrically
 // bounded surface representation: a geometric set of a red curve-bounded surface, an unstyled plane and a point.
 const SURFACES = `
