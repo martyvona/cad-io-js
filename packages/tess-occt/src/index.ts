@@ -47,6 +47,9 @@ interface OcctModule {
   _occt_num_measures?(): number;
   /** Our OCCT patches the build has, comma-separated (builds before 2026-10-25 lack it). */
   _occt_patches?(): number;
+  /** The native route: a part's cad-brep buffer built by the builder (builds before phase 7 lack it). */
+  _occt_tessellate_model?(data: number, len: number, lin: number, ang: number, ox: number, oy: number,
+    oz: number): number;
   _occt_free(): void;
 }
 
@@ -128,11 +131,31 @@ async function wasmId(bytes: BufferSource): Promise<string> {
   return Array.from(hash.subarray(0, 6), (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+/**
+ * How OCCT gets a part (docs/brep-model.md, phase 7): 'step', the model written as STEP (by step-export's
+ * StepTessellator, before this) and read by OCCT's STEP reader; 'native', the model's buffer built into OCCT's shapes
+ * by our builder (native/occt_build.cpp), healed as the STEP reader heals. The native builder doesn't build every kind
+ * yet: a part it doesn't fails with an error (decision 13).
+ */
+export type OcctRoute = 'step' | 'native';
+
+export interface OcctOptions {
+  /** Default 'step'. */
+  route?: OcctRoute;
+}
+
 export class OcctTessellator implements Tessellator {
   readonly info: TessellatorInfo = {
     name: 'occt', version: 'OCCT 8.1 (3d097a0328)', license: 'LGPL-2.1-only WITH OCCT-exception-1.0',
     formats: ['step'], supportsFaceIds: true, supportsEdges: true, supportsCurves: true,
   };
+  readonly route: OcctRoute;
+
+  constructor(opts: OcctOptions = {}) {
+    this.route = opts.route ?? 'step';
+    // (Models straight to this backend: StepTessellator then passes them through.)
+    if (this.route === 'native') this.info.formats = ['cad-brep', 'step'];
+  }
   private m?: OcctModule;
   /** Where OCCT's messages go during a tessellate call; outside one (init) they're dropped. */
   private messages?: Messages;
@@ -182,13 +205,20 @@ export class OcctTessellator implements Tessellator {
     const patches = this.m._occt_patches ? this.m.UTF8ToString(this.m._occt_patches()) : '';
     const ours = glue === undefined && wasm === undefined ? 'OCCT 8.1 (3d097a0328)' : 'OCCT, a host build';
     const name = version ?? ours + (patches ? ` + patches ${patches}` : '');
-    this.info.version = `${name}${id ? `, wasm ${id}` : ''}, adapter ${ADAPTER}`;
+    if (this.route === 'native' && !this.m._occt_tessellate_model) {
+      this.m = undefined;
+      throw new Error('tess-occt: the native route needs a module with _occt_tessellate_model (a build since phase 7)');
+    }
+    this.info.version = `${name}${id ? `, wasm ${id}` : ''}, adapter ${ADAPTER}`
+      + (this.route === 'native' ? ', native builder' : '');
   }
 
   async tessellate(req: TessellationRequest): Promise<TessellationResult> {
     const m = this.m;
     if (!m) throw new Error('OcctTessellator: call init() first');
-    if (req.format !== 'step') throw new Error(`OcctTessellator: format '${req.format}' isn't supported yet`);
+    const native = req.format === 'cad-brep';
+    if (native ? this.route !== 'native' : req.format !== 'step') throw new Error(
+      `OcctTessellator: format '${req.format}' isn't taken by the ${this.route} route`);
     const origin = req.origin ?? [0, 0, 0];
     const ptr = m._malloc(req.data.length);
     m.HEAPU8.set(req.data, ptr);
@@ -196,8 +226,10 @@ export class OcctTessellator implements Tessellator {
     const messages = this.messages = new Messages();
     m._occt_set_measures?.(req.measures ? 1 : 0);
     try {
-      rc = m._occt_tessellate(ptr, req.data.length, req.rootId ?? 0, req.linearDeflection, req.angularDeflection, 0,
-        origin[0], origin[1], origin[2]);
+      rc = native ? m._occt_tessellate_model!(ptr, req.data.length, req.linearDeflection, req.angularDeflection,
+        origin[0], origin[1], origin[2])
+        : m._occt_tessellate(ptr, req.data.length, req.rootId ?? 0, req.linearDeflection, req.angularDeflection, 0,
+          origin[0], origin[1], origin[2]);
     } finally {
       m._free(ptr);
       this.messages = undefined;
@@ -205,10 +237,14 @@ export class OcctTessellator implements Tessellator {
     const diagText = m.UTF8ToString(m._occt_diag());
     const diag = JSON.parse(diagText) as Record<string, unknown>;
     const diagnostics = messages.diagnostics();
+    // The builder's: faces it left out.
+    for (const w of Array.isArray(diag.builder) ? diag.builder as string[] : []) diagnostics.push(
+      { severity: 'warning', message: `native builder: ${w}` });
     if (rc !== 0) {
       m._occt_free();
       diagnostics.push({ severity: 'error',
-        message: `OCCT: ${String(diag.error)}${diag.what ? `: ${String(diag.what)}` : ''}` });
+        message: rc === -5 ? `native builder: ${String(diag.error)}`
+          : `OCCT: ${String(diag.error)}${diag.what ? `: ${String(diag.what)}` : ''}` });
       return { origin, positions: new Float32Array(), indices: new Uint32Array(), faces: [], diagnostics };
     }
     // Copy out of the heap: it can move on the next allocation.

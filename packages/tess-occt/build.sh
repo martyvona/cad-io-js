@@ -16,13 +16,15 @@ EXPORTS='["_occt_tessellate","_occt_positions","_occt_normals","_occt_num_vertic
 '"_occt_edge_positions","_occt_num_edge_points","_occt_edges","_occt_edge_angles","_occt_num_edges",'\
 '"_occt_curve_positions","_occt_num_curve_points","_occt_curves","_occt_num_curves","_occt_points",'\
 '"_occt_point_ids","_occt_num_points","_occt_patches","_occt_measures","_occt_num_measures",'\
-'"_occt_set_measures","_occt_outline_positions",'\
+'"_occt_set_measures","_occt_outline_positions","_occt_tessellate_model",'\
 '"_occt_num_outline_points","_occt_outlines","_occt_num_outlines","_malloc","_free"]'
 # The patches the libraries were built with, comma-separated (build-occt.sh writes them; none before it did).
 PATCHES=$(paste -sd, - < "$B/patches.txt" 2>/dev/null || true)
-em++ -Os -fwasm-exceptions -std=c++17 -I"$B/include/opencascade" -DOCCT_PATCHES="\"$PATCHES\"" \
-  -c native/occt_tess.cpp -o build/occt_tess.o
-em++ -Os -fwasm-exceptions build/occt_tess.o -Wl,--start-group "${LIBS[@]}" -Wl,--end-group -o dist/occt_tess.mjs \
+for f in occt_tess occt_build; do
+  em++ -Os -fwasm-exceptions -std=c++17 -I"$B/include/opencascade" -I../cad-brep/include -DOCCT_PATCHES="\"$PATCHES\"" \
+    -c native/$f.cpp -o build/$f.o
+done
+em++ -Os -fwasm-exceptions build/occt_tess.o build/occt_build.o -Wl,--start-group "${LIBS[@]}" -Wl,--end-group -o dist/occt_tess.mjs \
   -sMODULARIZE=1 -sEXPORT_ES6=1 -sEXPORT_NAME=occtTess -sENVIRONMENT=web,worker,node \
   -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=32MB -sSTACK_SIZE=4MB \
   -sEXPORTED_FUNCTIONS="$EXPORTS" \

@@ -46,11 +46,18 @@
 #include <Transfer_TransientProcess.hxx>
 #include <XSControl_TransferReader.hxx>
 #include <XSControl_WorkSession.hxx>
+#include <XSAlgo_ShapeProcessor.hxx>
+#include <ShapeProcess_ShapeContext.hxx>
+#include <Message_ProgressRange.hxx>
+
+#include "occt_build.h"
 
 #include <array>
+#include <functional>
 #include <cmath>
 #include <map>
 #include <cstdint>
+#include <cstring>
 #include <istream>
 #include <streambuf>
 #include <string>
@@ -88,6 +95,22 @@ struct Result
 };
 Result g;
 
+// A string as JSON string content.
+std::string jsonEscape(const std::string& t)
+{
+  std::string o;
+  for (char c : t)
+  {
+    if (c == '"' || c == '\\')
+      o += '\\', o += c;
+    else if ((unsigned char)c < 0x20)
+      o += ' ';
+    else
+      o += c;
+  }
+  return o;
+}
+
 struct MeshOptions
 {
   int    algo          = -1; // IMeshTools_MeshAlgoType: -1 default (Watson), 0 Watson, 1 Delabella
@@ -120,95 +143,14 @@ double contextLengthFactor(const occ::handle<StepRepr_Representation>& rep)
 }
 } // namespace
 
-extern "C"
+// Meshes a shape into g (faces, measures, points, edges, curves, failed faces' outlines) by its faces' and edges'
+// source ids; the ids of wireframe curves and points (edges in no face, vertices in no edge) asked of `wireframeIds`
+// only if there are any. `meshDiag`: the counts, as JSON fields to append to the caller's.
+using IdMap = std::unordered_map<const TopoDS_TShape*, int>;
+void meshShape(const TopoDS_Shape& shape, const IdMap& faceIds, const IdMap& edgeIds,
+               const std::function<void(bool, bool, IdMap&, IdMap&)>& wireframeIds, double linDefl, double angDefl,
+               double ox, double oy, double oz, std::string& meshDiag)
 {
-// Returns 0 on success, <0 on failure. rootId <= 0: let OCCT choose roots. (ox, oy, oz): the origin to subtract.
-int occt_tessellate(const char* data, int len, int rootId, double linDefl, double angDefl, int productMode,
-                    double ox, double oy, double oz)
-{
-  g = Result();
-  static bool inited = false;
-  if (!inited)
-  {
-    STEPControl_Controller::Init();
-    inited = true;
-  }
-  try
-  {
-    STEPControl_Reader reader;
-    DESTEP_Parameters  params;
-    params.InitFromStatic();
-    params.ReadProductMode = productMode != 0;
-    MemBuf       buf(data, (size_t)len);
-    std::istream in(&buf);
-    if (reader.ReadStream("subset.stp", params, in) != IFSelect_RetDone)
-    {
-      g.diag = "{\"error\":\"read failed\"}";
-      return -1;
-    }
-    occ::handle<StepData_StepModel> model = reader.StepModel();
-
-    // locate the root representation (for units) by its #label
-    occ::handle<StepRepr_Representation> rootRep;
-    const int nbEnt = model->NbEntities();
-    if (rootId > 0)
-      for (int i = 1; i <= nbEnt && rootRep.IsNull(); ++i)
-        if (model->IdentLabel(model->Value(i)) == rootId)
-          rootRep = occ::down_cast<StepRepr_Representation>(model->Value(i));
-    const double unitMm = contextLengthFactor(rootRep);
-    reader.SetSystemLengthUnit(unitMm); // output in file units
-
-    // A geometric set's curve-bounded surfaces on closed surfaces (spheres, tori): a lone boundary that OCCT doesn't
-    // classify as outer is reversed, as OCCT 7.6 did, rather than kept as a hole in the natural bounds (OCCT 8), which
-    // gives the rest of the surface. Other writers' copies of the same models agree with 7.6
-    // (docs/backends.md); for faces (topology) OCCT 8's reading is right (its tests bug28414, bug29564).
-    if (occ::down_cast<StepShape_GeometricallyBoundedSurfaceShapeRepresentation>(rootRep))
-    {
-      DE_ShapeFixParameters fix  = DESTEP_Parameters::GetDefaultShapeFixParameters();
-      fix.FixAddNaturalBoundMode = DE_ShapeFixParameters::FixMode::NotFix;
-      reader.SetShapeFixParameters(fix);
-    }
-    const int nbRoots = reader.NbRootsForTransfer();
-    reader.TransferRoots();
-    TopoDS_Shape shape = reader.OneShape();
-    if (shape.IsNull())
-    {
-      g.diag = "{\"error\":\"no shape\",\"roots\":" + std::to_string(nbRoots) + "}";
-      return -2;
-    }
-
-    // face/edge TShape -> STEP entity label, from the transfer bindings (updated with shape-fix history)
-    occ::handle<Transfer_TransientProcess> tp = reader.WS()->TransferReader()->TransientProcess();
-    std::unordered_map<const TopoDS_TShape*, int> faceIds, edgeIds;
-    int stepFaces = 0, stepEdges = 0;
-    for (int i = 1; i <= nbEnt; ++i)
-    {
-      occ::handle<Standard_Transient> ent = model->Value(i);
-      const bool isFace = ent->IsKind(STANDARD_TYPE(StepShape_FaceSurface));
-      const bool isEdge = !isFace && ent->IsKind(STANDARD_TYPE(StepShape_EdgeCurve));
-      if (!isFace && !isEdge)
-        continue;
-      ++(isFace ? stepFaces : stepEdges);
-      TopoDS_Shape s = TransferBRep::ShapeResult(tp, ent);
-      if (s.IsNull())
-        continue;
-      for (TopExp_Explorer ex(s, isFace ? TopAbs_FACE : TopAbs_EDGE); ex.More(); ex.Next())
-        (isFace ? faceIds : edgeIds).emplace(ex.Current().TShape().get(), model->IdentLabel(ent));
-    }
-    // Faces made from a geometric set's surfaces (GEOMETRICALLY_BOUNDED_SURFACE_SHAPE_REPRESENTATION): OCCT binds each
-    // element's shape to it. After the faces, so that a face entity's id wins.
-    for (int i = 1; i <= nbEnt; ++i)
-    {
-      occ::handle<Standard_Transient> ent = model->Value(i);
-      if (!ent->IsKind(STANDARD_TYPE(StepGeom_Surface)))
-        continue;
-      TopoDS_Shape s = TransferBRep::ShapeResult(tp, ent);
-      if (s.IsNull())
-        continue;
-      for (TopExp_Explorer ex(s, TopAbs_FACE); ex.More(); ex.Next())
-        faceIds.emplace(ex.Current().TShape().get(), model->IdentLabel(ent));
-    }
-
     IMeshTools_Parameters mp;
     mp.Deflection               = linDefl;
     mp.Angle                    = angDefl;
@@ -311,21 +253,8 @@ int occt_tessellate(const char* data, int len, int rootId, double linDefl, doubl
     for (int iv = 1; iv <= vertexEdges.Extent() && !hasPoints; ++iv)
       hasPoints = vertexEdges.FindFromIndex(iv).IsEmpty();
     std::unordered_map<const TopoDS_TShape*, int> curveIds, pointIds;
-    for (int pass = 0; pass < 3 && (hasCurves || hasPoints); ++pass)
-      for (int i = 1; i <= nbEnt; ++i)
-      {
-        occ::handle<Standard_Transient> ent = model->Value(i);
-        const bool composite = ent->IsKind(STANDARD_TYPE(StepGeom_CompositeCurve));
-        if (pass == 0 ? !(hasCurves && composite)
-            : pass == 1 ? !(hasCurves && !composite && ent->IsKind(STANDARD_TYPE(StepGeom_Curve)))
-                        : !(hasPoints && ent->IsKind(STANDARD_TYPE(StepGeom_Point))))
-          continue;
-        TopoDS_Shape sh = TransferBRep::ShapeResult(tp, ent);
-        if (sh.IsNull())
-          continue;
-        for (TopExp_Explorer ex(sh, pass < 2 ? TopAbs_EDGE : TopAbs_VERTEX); ex.More(); ex.Next())
-          (pass < 2 ? curveIds : pointIds).emplace(ex.Current().TShape().get(), model->IdentLabel(ent));
-      }
+    if (hasCurves || hasPoints)
+      wireframeIds(hasCurves, hasPoints, curveIds, pointIds);
     for (int iv = 1; iv <= vertexEdges.Extent(); ++iv)
     {
       if (!vertexEdges.FindFromIndex(iv).IsEmpty())
@@ -533,9 +462,8 @@ int occt_tessellate(const char* data, int len, int rootId, double linDefl, doubl
       }
     }
 
-    g.diag = "{\"roots\":" + std::to_string(nbRoots) + ",\"stepFaces\":" + std::to_string(stepFaces)
-             + ",\"faces\":" + std::to_string(nFaces) + ",\"unmapped\":" + std::to_string(unmapped)
-             + ",\"noTriangulation\":" + std::to_string(noTri) + ",\"stepEdges\":" + std::to_string(stepEdges)
+    meshDiag = ",\"faces\":" + std::to_string(nFaces) + ",\"unmapped\":" + std::to_string(unmapped)
+             + ",\"noTriangulation\":" + std::to_string(noTri)
              + ",\"edges\":" + std::to_string(edgeFaces.Extent())
              + ",\"edgesUnmapped\":" + std::to_string(edgesUnmapped)
              + ",\"edgesNoPolygon\":" + std::to_string(edgesNoPolygon)
@@ -544,12 +472,224 @@ int occt_tessellate(const char* data, int len, int rootId, double linDefl, doubl
              + ",\"curvesNoPolygon\":" + std::to_string(curvesNoPolygon)
              + ",\"outlines\":" + std::to_string(g.outlines.size() / 3)
              + ",\"outlineEdgesNoPolygon\":" + std::to_string(outlineEdgesNoPolygon)
-             + ",\"points\":" + std::to_string(g.pointIds.size()) + ",\"unitMm\":" + std::to_string(unitMm) + "}";
+             + ",\"points\":" + std::to_string(g.pointIds.size());
+}
+
+extern "C"
+{
+// Returns 0 on success, <0 on failure. rootId <= 0: let OCCT choose roots. (ox, oy, oz): the origin to subtract.
+int occt_tessellate(const char* data, int len, int rootId, double linDefl, double angDefl, int productMode,
+                    double ox, double oy, double oz)
+{
+  g = Result();
+  static bool inited = false;
+  if (!inited)
+  {
+    STEPControl_Controller::Init();
+    inited = true;
+  }
+  try
+  {
+    STEPControl_Reader reader;
+    DESTEP_Parameters  params;
+    params.InitFromStatic();
+    params.ReadProductMode = productMode != 0;
+    MemBuf       buf(data, (size_t)len);
+    std::istream in(&buf);
+    if (reader.ReadStream("subset.stp", params, in) != IFSelect_RetDone)
+    {
+      g.diag = "{\"error\":\"read failed\"}";
+      return -1;
+    }
+    occ::handle<StepData_StepModel> model = reader.StepModel();
+
+    // locate the root representation (for units) by its #label
+    occ::handle<StepRepr_Representation> rootRep;
+    const int nbEnt = model->NbEntities();
+    if (rootId > 0)
+      for (int i = 1; i <= nbEnt && rootRep.IsNull(); ++i)
+        if (model->IdentLabel(model->Value(i)) == rootId)
+          rootRep = occ::down_cast<StepRepr_Representation>(model->Value(i));
+    const double unitMm = contextLengthFactor(rootRep);
+    reader.SetSystemLengthUnit(unitMm); // output in file units
+
+    // A geometric set's curve-bounded surfaces on closed surfaces (spheres, tori): a lone boundary that OCCT doesn't
+    // classify as outer is reversed, as OCCT 7.6 did, rather than kept as a hole in the natural bounds (OCCT 8), which
+    // gives the rest of the surface. Other writers' copies of the same models agree with 7.6
+    // (docs/backends.md); for faces (topology) OCCT 8's reading is right (its tests bug28414, bug29564).
+    if (occ::down_cast<StepShape_GeometricallyBoundedSurfaceShapeRepresentation>(rootRep))
+    {
+      DE_ShapeFixParameters fix  = DESTEP_Parameters::GetDefaultShapeFixParameters();
+      fix.FixAddNaturalBoundMode = DE_ShapeFixParameters::FixMode::NotFix;
+      reader.SetShapeFixParameters(fix);
+    }
+    const int nbRoots = reader.NbRootsForTransfer();
+    reader.TransferRoots();
+    TopoDS_Shape shape = reader.OneShape();
+    if (shape.IsNull())
+    {
+      g.diag = "{\"error\":\"no shape\",\"roots\":" + std::to_string(nbRoots) + "}";
+      return -2;
+    }
+
+    // face/edge TShape -> STEP entity label, from the transfer bindings (updated with shape-fix history)
+    occ::handle<Transfer_TransientProcess> tp = reader.WS()->TransferReader()->TransientProcess();
+    std::unordered_map<const TopoDS_TShape*, int> faceIds, edgeIds;
+    int stepFaces = 0, stepEdges = 0;
+    for (int i = 1; i <= nbEnt; ++i)
+    {
+      occ::handle<Standard_Transient> ent = model->Value(i);
+      const bool isFace = ent->IsKind(STANDARD_TYPE(StepShape_FaceSurface));
+      const bool isEdge = !isFace && ent->IsKind(STANDARD_TYPE(StepShape_EdgeCurve));
+      if (!isFace && !isEdge)
+        continue;
+      ++(isFace ? stepFaces : stepEdges);
+      TopoDS_Shape s = TransferBRep::ShapeResult(tp, ent);
+      if (s.IsNull())
+        continue;
+      for (TopExp_Explorer ex(s, isFace ? TopAbs_FACE : TopAbs_EDGE); ex.More(); ex.Next())
+        (isFace ? faceIds : edgeIds).emplace(ex.Current().TShape().get(), model->IdentLabel(ent));
+    }
+    // Faces made from a geometric set's surfaces (GEOMETRICALLY_BOUNDED_SURFACE_SHAPE_REPRESENTATION): OCCT binds each
+    // element's shape to it. After the faces, so that a face entity's id wins.
+    for (int i = 1; i <= nbEnt; ++i)
+    {
+      occ::handle<Standard_Transient> ent = model->Value(i);
+      if (!ent->IsKind(STANDARD_TYPE(StepGeom_Surface)))
+        continue;
+      TopoDS_Shape s = TransferBRep::ShapeResult(tp, ent);
+      if (s.IsNull())
+        continue;
+      for (TopExp_Explorer ex(s, TopAbs_FACE); ex.More(); ex.Next())
+        faceIds.emplace(ex.Current().TShape().get(), model->IdentLabel(ent));
+    }
+
+    // (The wireframe ids: an EDGE_CURVE's, else the geometric set's element (a composite curve before its segments'
+    // curves), else the point's.)
+    auto wireframeIds = [&](bool hasCurves, bool hasPoints, IdMap& curveIds, IdMap& pointIds) {
+      for (int pass = 0; pass < 3 && (hasCurves || hasPoints); ++pass)
+        for (int i = 1; i <= nbEnt; ++i)
+        {
+          occ::handle<Standard_Transient> ent = model->Value(i);
+          const bool composite = ent->IsKind(STANDARD_TYPE(StepGeom_CompositeCurve));
+          if (pass == 0 ? !(hasCurves && composite)
+              : pass == 1 ? !(hasCurves && !composite && ent->IsKind(STANDARD_TYPE(StepGeom_Curve)))
+                          : !(hasPoints && ent->IsKind(STANDARD_TYPE(StepGeom_Point))))
+            continue;
+          TopoDS_Shape sh = TransferBRep::ShapeResult(tp, ent);
+          if (sh.IsNull())
+            continue;
+          for (TopExp_Explorer ex(sh, pass < 2 ? TopAbs_EDGE : TopAbs_VERTEX); ex.More(); ex.Next())
+            (pass < 2 ? curveIds : pointIds).emplace(ex.Current().TShape().get(), model->IdentLabel(ent));
+        }
+    };
+    std::string meshDiag;
+    meshShape(shape, faceIds, edgeIds, wireframeIds, linDefl, angDefl, ox, oy, oz, meshDiag);
+    g.diag = "{\"roots\":" + std::to_string(nbRoots) + ",\"stepFaces\":" + std::to_string(stepFaces)
+             + ",\"stepEdges\":" + std::to_string(stepEdges) + meshDiag + ",\"unitMm\":" + std::to_string(unitMm)
+             + "}";
     return 0;
   }
   catch (const Standard_Failure& e)
   {
     g.diag = std::string("{\"error\":\"Standard_Failure\",\"what\":\"") + e.what() + "\"}";
+    return -3;
+  }
+  catch (...)
+  {
+    g.diag = "{\"error\":\"unknown exception\"}";
+    return -4;
+  }
+}
+
+// The STEP reader's default shape processing, which OCCT keeps protected: the native route heals as the STEP route
+// does (decision 14).
+struct StepDefaults : STEPControl_Reader
+{
+  using STEPControl_Reader::GetDefaultShapeProcessFlags;
+};
+
+// The native route (docs/brep-model.md, phase 7): a part's cad-brep buffer built into OCCT shapes (occt_build.cpp),
+// healed by the STEP reader's default shape processing, its tolerance the part's uncertainty, then meshed as
+// occt_tessellate meshes. Returns 0 on success; -5 for a part the builder doesn't build yet (its reason in the diag).
+int occt_tessellate_model(const uint8_t* data, int len, double linDefl, double angDefl, double ox, double oy,
+                          double oz)
+{
+  g = Result();
+  static bool inited = false;
+  if (!inited)
+  {
+    STEPControl_Controller::Init();
+    inited = true;
+  }
+  try
+  {
+    // (cbr_open reads the buffer in place: 8-byte aligned.)
+    std::vector<double> aligned(((size_t)len + 7) / 8);
+    std::memcpy(aligned.data(), data, (size_t)len);
+    BuiltPart b = buildPart(reinterpret_cast<const uint8_t*>(aligned.data()), (size_t)len);
+    std::string builder = "[";
+    for (size_t i = 0; i < b.warnings.size(); ++i)
+      builder += (i ? ",\"" : "\"") + jsonEscape(b.warnings[i]) + "\"";
+    builder += "]";
+    if (!b.error.empty())
+    {
+      g.diag = "{\"error\":\"" + jsonEscape(b.error) + "\",\"builder\":" + builder + "}";
+      return -5;
+    }
+    DE_ShapeFixParameters fix = DESTEP_Parameters::GetDefaultShapeFixParameters();
+    // Healing's tolerances as the STEP reader sets them: the uncertainty, else its precision; at most its maximum
+    // (or the uncertainty, if larger).
+    DESTEP_Parameters stepDefaults;
+    fix.Tolerance3d    = std::isfinite(b.uncertainty) ? b.uncertainty : stepDefaults.ReadPrecisionVal;
+    fix.MaxTolerance3d = std::max(fix.Tolerance3d, stepDefaults.ReadMaxPrecisionVal);
+    XSAlgo_ShapeProcessor processor(fix);
+    StepDefaults          defaults;
+    TopoDS_Shape shape =
+      processor.ProcessShape(b.shape, defaults.GetDefaultShapeProcessFlags(), Message_ProgressRange());
+    // Faces and edges followed through healing's replacements (a face it split: each piece takes its id).
+    const occ::handle<ShapeProcess_ShapeContext> context = processor.GetContext();
+    auto follow = [&](IdMap& ids, TopAbs_ShapeEnum kind, const std::vector<std::pair<TopoDS_Shape, int>>& built) {
+      for (const auto& [built0, id] : built)
+      {
+        TopoDS_Shape cur = built0;
+        for (int k = 0; k < 16 && !context.IsNull() && context->Map().IsBound(cur); ++k)
+        {
+          const TopoDS_Shape& next = context->Map().Find(cur);
+          if (next.IsSame(cur))
+            break;
+          cur = next;
+        }
+        for (TopExp_Explorer ex(cur, kind); ex.More(); ex.Next())
+          ids.emplace(ex.Current().TShape().get(), id);
+      }
+    };
+    IdMap faceIds, edgeIds;
+    std::vector<std::pair<TopoDS_Shape, int>> faces, edges;
+    for (TopExp_Explorer ex(b.shape, TopAbs_FACE); ex.More(); ex.Next())
+    {
+      auto it = b.faceIds.find(ex.Current().TShape().get());
+      if (it != b.faceIds.end())
+        faces.emplace_back(ex.Current(), it->second);
+    }
+    for (TopExp_Explorer ex(b.shape, TopAbs_EDGE); ex.More(); ex.Next())
+    {
+      auto it = b.edgeIds.find(ex.Current().TShape().get());
+      if (it != b.edgeIds.end())
+        edges.emplace_back(ex.Current(), it->second);
+    }
+    follow(faceIds, TopAbs_FACE, faces);
+    follow(edgeIds, TopAbs_EDGE, edges);
+    auto        none = [](bool, bool, IdMap&, IdMap&) {};
+    std::string meshDiag;
+    meshShape(shape, faceIds, edgeIds, none, linDefl, angDefl, ox, oy, oz, meshDiag);
+    g.diag = "{\"native\":1,\"modelFaces\":" + std::to_string(b.faceIds.size()) + meshDiag + ",\"builder\":" + builder
+             + ",\"unitMm\":" + std::to_string(b.unit) + "}";
+    return 0;
+  }
+  catch (const Standard_Failure& e)
+  {
+    g.diag = std::string("{\"error\":\"Standard_Failure\",\"what\":\"") + jsonEscape(e.what()) + "\"}";
     return -3;
   }
   catch (...)
