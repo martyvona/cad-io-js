@@ -3,7 +3,7 @@
 
 import type { BrepData } from 'cad-brep';
 import { type Diagnostic, makeHeader, type StepDocument, writeChunks, writeStep } from 'step-parser';
-import { AP242_SCHEMA, stepGeometry, type StepGeometry } from './geometry.ts';
+import { AP242_SCHEMA, largestId, stepGeometry, type StepGeometry } from './geometry.ts';
 
 export interface StepPart {
   /** The shape representation's id. */
@@ -24,8 +24,13 @@ export function stepPart(d: BrepData): StepPart {
   return { rootId: g.rootId, chunks: writeChunks(document(g)), diagnostics: g.diagnostics };
 }
 
-/** `stepPart` as one array. */
-export function stepPartBytes(d: BrepData): { data: Uint8Array; rootId: number; diagnostics: Diagnostic[] } {
+/**
+ * `stepPart` as one array, with what to read a reader's ids back by: the model's largest source id (ids above it are
+ * the writer's) and `StepGeometry.sourceIds`.
+ */
+export function stepPartBytes(d: BrepData): { data: Uint8Array; rootId: number; diagnostics: Diagnostic[];
+  largest: number; sourceIds: Map<number, number> } {
   const g = stepGeometry(d);
-  return { data: writeStep(document(g)), rootId: g.rootId, diagnostics: g.diagnostics };
+  const data = writeStep(document(g));
+  return { data, rootId: g.rootId, diagnostics: g.diagnostics, largest: largestId(d), sourceIds: g.sourceIds };
 }

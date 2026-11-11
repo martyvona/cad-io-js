@@ -63,6 +63,37 @@ export function reversedUses(): BrepBuilder {
   return b;
 }
 
+/**
+ * Faces used both ways and entities without source ids: two unit squares, each used forward by one sheet and reversed
+ * by another, the first with no ids at all, the second with ids (vertices 1-4, edges 5-8, face 10); a point without an
+ * id and one with id 30.
+ */
+export function withoutIds(): BrepBuilder {
+  const b = new BrepBuilder({ unit: 1 });
+  for (const named of [false, true]) {
+    const z = named ? 1 : 0;
+    const corners: V3[] = [[0, 0, z], [1, 0, z], [1, 1, z], [0, 1, z]];
+    const id = (x: number) => (named ? { id: x } : {});
+    const vs = corners.map((point, k) => b.addVertex({ point, ...id(1 + k) }));
+    const coedges = corners.map((p, k) => {
+      const d = sub(corners[(k + 1) % 4]!, p);
+      const line = b.addCurve({ kind: 'line', point: p, direction: d, magnitude: 1 });
+      return { edge: b.addEdge({ curve: line, start: vs[k]!, end: vs[(k + 1) % 4]!, sameSense: true, ...id(5 + k) }),
+        orientation: 'forward' as const };
+    });
+    const face = b.addFace({ surface: b.addSurface({ kind: 'plane', position: { origin: [0, 0, z], axis: [0, 0, 1],
+      xDir: [1, 0, 0] } }), sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }],
+      ...id(10) });
+    for (const sense of [true, false]) {
+      const shell = b.addShell({ kind: 'open', faces: [{ face, sense }] });
+      b.addItem({ kind: 'body', ref: b.addBody({ kind: 'sheet', members: [{ ref: shell, sense: true }] }) });
+    }
+  }
+  b.addItem({ kind: 'point', point: [5, 5, 5] });
+  b.addItem({ kind: 'point', point: [6, 6, 6], id: 30 });
+  return b;
+}
+
 /** A unit cube as a solid (one closed shell of 6 faces), the part's one item. */
 export function cube(): BrepBuilder {
   const b = new BrepBuilder({ unit: 1, uncertainty: 1e-6 });
@@ -274,4 +305,5 @@ export function cone(): BrepBuilder {
   return b;
 }
 
-export const MODELS = { cube, withVoid, seamCylinder, spheres, facetedAndWire, everyKind, cone, reversedUses };
+export const MODELS = { cube, withVoid, seamCylinder, spheres, facetedAndWire, everyKind, cone, reversedUses,
+  withoutIds };

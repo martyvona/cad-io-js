@@ -53,13 +53,10 @@ function faces(r: TessellationResult) {
 }
 /** The two routes' results the same face by face: ids, triangles, meshed area, OCCT's measures (to `tol` of a face's
  * area). */
-function same(a: TessellationResult, b: TessellationResult, what: string, tol = 1e-9, data?: Uint8Array) {
-  // Face ids the model hasn't: the STEP route's its writer's, the native route's none.
+function same(a: TessellationResult, b: TessellationResult, what: string, tol = 1e-9, data?: Uint8Array,
+  copiedEdges = 0) {
   const json = data && brepToJson(openBrep(data));
-  const faceIds = json && new Set(json.faces.map((f) => f.id).filter((id) => id !== undefined));
-  const known = (r: TessellationResult) => faceIds ? { ...r, faces: r.faces.map((f) => ({ ...f,
-    entityId: f.entityId !== null && faceIds.has(f.entityId) ? f.entityId : null })) } : r;
-  const fa = faces(known(a)), fb = faces(known(b));
+  const fa = faces(a), fb = faces(b);
   assert.deepEqual([...fb.keys()].map(String).sort(), [...fa.keys()].map(String).sort(), `${what}: face ids`);
   for (const [id, x] of fa) {
     const y = fb.get(id)!;
@@ -68,22 +65,27 @@ function same(a: TessellationResult, b: TessellationResult, what: string, tol = 
     assert.ok(Math.hypot(...y.normal.map((c, k) => c - x.normal[k]!)) <= tol * Math.max(x.area, 1),
       `${what}: face #${id}'s side: ${y.normal} vs ${x.normal}`);
   }
-  // The edges by id, with their kinds and points; the STEP route's ids for the model's edges without one (its
-  // writer's) as the native route's, none; edges without vertices (a curve-bounded face's segments) without ids on
-  // both (OCCT's reader takes ids from EDGE_CURVEs only, the native route keeps the segments').
-  const ids = json && new Set(json.edges.filter((e) => e.start !== undefined).map((e) => e.id)
-    .filter((id) => id !== undefined));
+  // The edges by id, with their kinds and points; edges without vertices (a curve-bounded face's segments) without
+  // ids on both (OCCT's reader takes ids from EDGE_CURVEs only, the native route keeps the segments').
+  const segments = new Set(json?.edges.filter((e) => e.start === undefined).map((e) => e.id));
+  // (`copiedEdges`: edges the STEP route's healing copies, without ids, where sheets share a face.)
   const edges = (r: TessellationResult) => (r.edges ?? []).map((e) =>
-    `${e.entityId !== null && ids?.has(e.entityId) !== false ? e.entityId : null} ${e.kind} ${e.count}`).sort();
-  assert.deepEqual(edges(b), edges(a), `${what}: edges`);
+    `${e.entityId !== null && !segments.has(e.entityId) ? e.entityId : null} ${e.kind} ${e.count}`).sort();
+  const ea = edges(a), eb = edges(b);
+  for (let k = 0; k < copiedEdges; k++) {
+    const j = ea.findIndex((e) => e.startsWith('null free'));
+    assert.ok(j >= 0, `${what}: an edge copied`);
+    ea.splice(j, 1);
+  }
+  assert.deepEqual(eb, ea, `${what}: edges`);
   // Curves (wireframes, geometric sets): their points by id; loose points: ids and positions.
   const curves = (r: TessellationResult) => (r.curves ?? []).map((c) => `${c.entityId} ${c.count}`).sort();
   assert.deepEqual(curves(b), curves(a), `${what}: curves`);
   const points = (r: TessellationResult) => (r.pointIds ?? []).map((id, k) => `${id} `
     + [0, 1, 2].map((c) => r.points![3 * k + c]!.toFixed(4)).join()).sort();
   assert.deepEqual(points(b), points(a), `${what}: points`);
-  // OCCT's measures of the faces with the model's ids (by id: none for the others).
-  const measured = (r: TessellationResult) => (r.measures ?? []).filter((m) => faceIds?.has(m.entityId) !== false);
+  // OCCT's measures by id.
+  const measured = (r: TessellationResult) => r.measures ?? [];
   const ma = new Map(measured(a).map((m) => [m.entityId, m]));
   assert.equal(measured(b).length, measured(a).length, `${what}: measures`);
   for (const m of measured(b)) {
@@ -98,12 +100,13 @@ test('the native route: the test models it builds meshed as the STEP route meshe
     const { step, native } = await both();
     assert.match(native.info.version, /native builder/);
     assert.deepEqual(native.info.formats, ['cad-brep', 'step']);
-    for (const name of ['cube', 'withVoid', 'seamCylinder', 'reversedUses'] as const) {
+    for (const name of ['cube', 'withVoid', 'seamCylinder', 'reversedUses', 'withoutIds'] as const) {
       const req = request(new Uint8Array(MODELS[name]().finish().buffer));
       const a = await step.tessellate(req), b = await native.tessellate(req);
       assert.ok(b.indices.length > 0, name);
       assert.deepEqual(b.diagnostics.filter((d) => d.severity !== 'info'), [], name);
-      same(a, b, name, 1e-9, req.data);
+      // (withoutIds: each square's second sheet, its 4 edges copied by the STEP route's healing.)
+      same(a, b, name, 1e-9, req.data, name === 'withoutIds' ? 8 : 0);
     }
   });
 

@@ -34,6 +34,13 @@ export interface StepGeometry {
    * styles and layers to cover both.
    */
   faceCopies: Map<number, number>;
+  /**
+   * Each id written for a model entity that has a source id but not under it (another entity has the id, or the
+   * entity is written twice): the source id, which is what a reader reports under it means (StepTessellator maps
+   * results back by it). Other new ids are for entities without a source id, or only the writer's. Complete once
+   * `instances` is read.
+   */
+  sourceIds: Map<number, number>;
   /** The representation's items, its origin placement (`origin`) last; complete once `instances` is read. */
   items: number[];
   /** The representation context's id. */
@@ -206,7 +213,12 @@ export function stepGeometry(d: BrepData, opts: StepGeometryOptions = {}): StepG
   // Ids: the rows' own, unless taken; new ones after the largest.
   const ids = opts.ids ?? stepIds(largestId(d));
   const fresh = () => ids.fresh();
-  const own = (x: number | undefined) => ids.claim(x);
+  const sourceIds = new Map<number, number>();
+  const own = (x: number | undefined) => {
+    const id = ids.claim(x);
+    if (id !== x && x !== undefined && Number.isSafeInteger(x) && x > 0) sourceIds.set(id, x);
+    return id;
+  };
   const rootId = opts.id !== undefined ? own(opts.id) : fresh(), contextId = fresh();
   const faceIds = new Map<number, number>(), surfaceIds = new Map<number, number>();
   const faceCopies = new Map<number, number>();
@@ -504,6 +516,7 @@ export function stepGeometry(d: BrepData, opts: StepGeometryOptions = {}): StepG
       if (first) faceId[f] = id;
       else {
         faceCopies.set(faceId[f]!, id);
+        if (face.id !== undefined) sourceIds.set(id, face.id);
         note('a face used both ways (written twice, turned over the second time, with new ids)', face.id, 'info');
       }
       first = false;
@@ -722,7 +735,7 @@ export function stepGeometry(d: BrepData, opts: StepGeometryOptions = {}): StepG
     }
   }
 
-  return { rootId, instances: instances(), diagnostics, faceIds, surfaceIds, faceCopies, items: rootItems,
+  return { rootId, instances: instances(), diagnostics, faceIds, surfaceIds, faceCopies, sourceIds, items: rootItems,
     contextId, setMembers };
 }
 

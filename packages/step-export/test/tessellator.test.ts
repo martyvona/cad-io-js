@@ -5,11 +5,11 @@ import { test } from 'node:test';
 import { BrepBuilder } from 'cad-brep';
 import type { TessellationRequest, TessellationResult, Tessellator } from 'cad-scene';
 import { parseStep } from 'step-parser';
-import { cube, spheres } from '../../cad-brep/test/models.ts';
+import { cube, spheres, withoutIds } from '../../cad-brep/test/models.ts';
 import { STEP_WRITER_VERSION, StepTessellator, stepPartBytes } from '../src/index.ts';
 
-/** A STEP backend that keeps what it was sent. */
-function backend() {
+/** A STEP backend that keeps what it was sent, and answers with `answer` (default: nothing meshed). */
+function backend(answer?: (req: TessellationRequest) => Partial<TessellationResult>) {
   const seen: TessellationRequest[] = [];
   const t: Tessellator & { seen: TessellationRequest[] } = {
     seen,
@@ -22,7 +22,7 @@ function backend() {
     tessellate: async (req): Promise<TessellationResult> => {
       seen.push(req);
       return { origin: req.origin ?? [0, 0, 0], positions: new Float32Array(), indices: new Uint32Array(), faces: [],
-        diagnostics: [{ severity: 'info', message: 'meshed' }] };
+        diagnostics: [{ severity: 'info', message: 'meshed' }], ...answer?.(req) };
     },
   };
   return t;
@@ -83,4 +83,66 @@ test('other formats pass through; its info names the writer and takes models (un
   const bare = backend();
   delete (bare as { memoryBytes?: unknown }).memoryBytes;
   assert.equal(new StepTessellator(bare).memoryBytes, undefined);
+});
+
+test('the writer\'s ids read back as the model\'s: none for an entity without a source id, a face\'s copy its id',
+  async () => {
+  const d = withoutIds().finish();
+  const w = stepPartBytes(d);
+  // The second square's face (10) written twice, the copy under a new id; the first square's entities have no ids.
+  const copy = [...w.sourceIds].find(([, x]) => x === 10)![0];
+  const text = new TextDecoder().decode(w.data);
+  const unnamed = Number(/#(\d+)=ADVANCED_FACE/.exec(text)![1]);
+  const beyond = Math.max(copy, unnamed) + 1000;
+  assert.deepEqual([...w.sourceIds], [[copy, 10]]);
+  assert.ok(copy > w.largest && unnamed > w.largest);
+  const range = (entityId: number | null) => ({ entityId, start: 0, count: 0 });
+  const inner = backend(() => ({
+    faces: [range(10), range(copy), range(unnamed), range(beyond), range(null)],
+    measures: [{ entityId: 10, area: 1, perimeter: 4, valid: true }, { entityId: copy, area: 1, perimeter: 4,
+      valid: false }, { entityId: unnamed, area: 1, perimeter: 4, valid: true }],
+    edges: [{ ...range(5), kind: 'free' }, { ...range(unnamed), kind: 'free' }, { ...range(null), kind: 'seam' }],
+    curves: [range(unnamed), range(3)], outlines: [range(copy)], pointIds: [30, unnamed, null, beyond],
+  }));
+  const r = await new StepTessellator(inner).tessellate({ format: 'cad-brep', data: new Uint8Array(d.buffer),
+    linearDeflection: 0.1, angularDeflection: 0.5 });
+  assert.deepEqual(r.faces.map((f) => f.entityId), [10, 10, null, null, null]);
+  // One measure for face 10 (the face's, not summed over its copies), sound only if both are; none without an id.
+  assert.deepEqual(r.measures, [{ entityId: 10, area: 1, perimeter: 4, valid: false }]);
+  assert.deepEqual(r.edges!.map((e) => [e.entityId, e.kind]), [[5, 'free'], [null, 'free'], [null, 'seam']]);
+  // (An id at or below the model's largest is the model's.)
+  assert.deepEqual(r.curves!.map((c) => c.entityId), [null, 3]);
+  assert.deepEqual(r.outlines!.map((o) => o.entityId), [10]);
+  assert.deepEqual(r.pointIds, [30, null, null, null]);
+  // What the backend leaves out stays out.
+  const bare = await new StepTessellator(backend()).tessellate({ format: 'cad-brep', data: new Uint8Array(d.buffer),
+    linearDeflection: 0.1, angularDeflection: 0.5 });
+  assert.deepEqual(Object.keys(bare).filter((k) => ['edges', 'curves', 'outlines', 'pointIds', 'measures'].includes(k)),
+    []);
+});
+
+test('an entity whose source id another has: written under a new id, read back as its own', async () => {
+  // Two faces with id 7 (a model from a source whose ids aren't unique): the second written under a new id.
+  const b = new BrepBuilder({ unit: 1 });
+  for (const z of [0, 1]) {
+    const corners = [[0, 0, z], [1, 0, z], [1, 1, z], [0, 1, z]];
+    const vs = corners.map((point) => b.addVertex({ point }));
+    const coedges = corners.map((p, k) => ({ edge: b.addEdge({ curve: b.addCurve({ kind: 'line', point: p,
+      direction: corners[(k + 1) % 4]!.map((x, j) => x - p[j]!), magnitude: 1 }), start: vs[k]!, end: vs[(k + 1) % 4]!,
+    sameSense: true }), orientation: 'forward' as const }));
+    const face = b.addFace({ surface: b.addSurface({ kind: 'plane', position: { origin: [0, 0, z], axis: [0, 0, 1],
+      xDir: [1, 0, 0] } }), sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }], id: 7 });
+    b.addItem({ kind: 'body', ref: b.addBody({ kind: 'sheet', members: [{ ref: b.addShell({ kind: 'open',
+      faces: [{ face, sense: true }] }), sense: true }] }) });
+  }
+  const d = b.finish();
+  const w = stepPartBytes(d);
+  const faces = [...new TextDecoder().decode(w.data).matchAll(/#(\d+)=ADVANCED_FACE/g)].map((m) => Number(m[1]));
+  assert.equal(faces.length, 2);
+  assert.equal(faces[0], 7);
+  assert.deepEqual([...w.sourceIds], [[faces[1], 7]]);
+  const inner = backend(() => ({ faces: faces.map((entityId) => ({ entityId, start: 0, count: 0 })) }));
+  const r = await new StepTessellator(inner).tessellate({ format: 'cad-brep', data: new Uint8Array(d.buffer),
+    linearDeflection: 0.1, angularDeflection: 0.5 });
+  assert.deepEqual(r.faces.map((f) => f.entityId), [7, 7]);
 });

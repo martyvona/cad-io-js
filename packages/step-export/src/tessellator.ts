@@ -9,7 +9,7 @@ import type { TessellationRequest, TessellationResult, Tessellator, TessellatorI
 import { stepPartBytes } from './part.ts';
 
 /** Bumped whenever the writer's output for some model changes: cached meshes of the old output then miss. */
-export const STEP_WRITER_VERSION = 1;
+export const STEP_WRITER_VERSION = 2;
 
 export class StepTessellator implements Tessellator {
   readonly memoryBytes?: () => number;
@@ -37,7 +37,8 @@ export class StepTessellator implements Tessellator {
   async tessellate(req: TessellationRequest): Promise<TessellationResult> {
     if (req.format !== 'cad-brep' || this.inner.info.formats.includes('cad-brep')) return this.inner.tessellate(req);
     const w = stepPartBytes(openBrep(req.data));
-    const r = await this.inner.tessellate({ ...req, format: 'step', data: w.data, rootId: w.rootId });
+    const r = sourceIdsOf(await this.inner.tessellate({ ...req, format: 'step', data: w.data, rootId: w.rootId }),
+      (id) => (id === null || id <= w.largest ? id : w.sourceIds.get(id) ?? null));
     return w.diagnostics.length ? { ...r, diagnostics: [...w.diagnostics.map((x) => ({ severity: x.severity,
       message: `writing STEP: ${x.message}` })), ...r.diagnostics] } : r;
   }
@@ -45,4 +46,28 @@ export class StepTessellator implements Tessellator {
   dispose(): void {
     this.inner.dispose();
   }
+}
+
+/**
+ * A result with the writer's ids read back as the model's (`source`): an entity without a source id reported under
+ * none, as a backend reading the model would; measures under none dropped, and a face written twice (used both ways)
+ * measured once, as the face it is (sound if both copies are).
+ */
+function sourceIdsOf(r: TessellationResult, source: (id: number | null) => number | null): TessellationResult {
+  const out: TessellationResult = { ...r, faces: r.faces.map((f) => ({ ...f, entityId: source(f.entityId) })) };
+  if (r.edges) out.edges = r.edges.map((e) => ({ ...e, entityId: source(e.entityId) }));
+  if (r.curves) out.curves = r.curves.map((c) => ({ ...c, entityId: source(c.entityId) }));
+  if (r.outlines) out.outlines = r.outlines.map((o) => ({ ...o, entityId: source(o.entityId) }));
+  if (r.pointIds) out.pointIds = r.pointIds.map(source);
+  if (r.measures) {
+    const by = new Map<number, NonNullable<TessellationResult['measures']>[number]>();
+    for (const m of r.measures) {
+      const id = source(m.entityId);
+      if (id === null) continue;
+      const had = by.get(id);
+      by.set(id, had ? { ...had, valid: had.valid && m.valid } : { ...m, entityId: id });
+    }
+    out.measures = [...by.values()];
+  }
+  return out;
 }

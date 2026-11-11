@@ -1,6 +1,6 @@
-517 files, 3258 parts; written 281.0 MB (subsets 323.5 MB) in 6.0 s
+517 files, 3258 parts; written 281.0 MB (subsets 323.5 MB) in 5.7 s
 (c) read back: 2136 parts the same, 1122 more but for last bits (largest 4.44e-16 relative)
-(d) OCCT: 83904 faces meshed from both, 83401 with the same triangles, areas, measures, validity and orientation; meshing 753.9 s from subsets, 750.8 s from models
+(d) OCCT: 83904 faces meshed from both, 83401 with the same triangles, areas, measures, validity and orientation; meshing 725.2 s from subsets, 724.3 s from models
      467 triangle counts differ  e.g. gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #201; gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #370; gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #413; gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #456
       59 curve rows no item reaches (not written)  e.g. gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938; gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049; gkv311-opencascade-dataset/step/ec_exhaust-A.stp #2743; gkv311-opencascade-dataset/step/ec_exhaust-A.stp #2631
       58 OCCT's measured area differs (over 1e-6)  e.g. gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938 face #393024; gkv311-opencascade-dataset/step/bug27693_cornetta-step.stp #22 face #66; gkv311-opencascade-dataset/step/bug27693_cornetta-step.stp #22 face #74; gkv311-opencascade-dataset/step/bug27693_cornetta-step.stp #22 face #135
