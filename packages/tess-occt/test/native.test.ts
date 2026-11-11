@@ -425,8 +425,8 @@ test('the native route, loops and edges as OCCT\'s STEP translator makes them: n
     assert.deepEqual(warnings(n), []);
     same(a, n, 'spheres', 1e-9, req.data);
   }
-  // A cone's side with a degenerate edge at its apex, its p-curve running against it (range 2 pi to 0), the seam
-  // without p-curves.
+  // A cone's side with a degenerate edge at its apex (its p-curve and range given), the seam without p-curves; its
+  // loop counter-clockwise in (u, v): the apex along v = -1, the seam up, the base back, the seam down.
   {
     const b = new BrepBuilder({ unit: 1 });
     const position = { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] };
@@ -440,17 +440,19 @@ test('the native route, loops and edges as OCCT\'s STEP translator makes them: n
     const eSeam = b.addEdge({ curve: seam, start: va, end: vb, sameSense: true, id: 32 });
     const eApex = b.addEdge({ start: va, end: va, sameSense: true, degenerate: true, id: 33 });
     const face = b.addFace({ surface, sameSense: true, id: 5, loops: [{ kind: 'edge', bound: 'outer', sense: true,
-      coedges: [{ edge: eBase, orientation: 'forward' }, { edge: eSeam, orientation: 'reversed' },
-        { edge: eApex, orientation: 'forward', pcurve: pApex, range: [2 * Math.PI, 0] },
-        { edge: eSeam, orientation: 'forward' }] }] });
+      coedges: [{ edge: eApex, orientation: 'forward', pcurve: pApex, range: [0, 2 * Math.PI] },
+        { edge: eSeam, orientation: 'forward' }, { edge: eBase, orientation: 'reversed' },
+        { edge: eSeam, orientation: 'reversed' }] }] });
     sheet(b, [face]);
-    const { a, n } = await run(b);
+    const { req, a, n } = await run(b);
     assert.deepEqual(warnings(n), []);
-    // (STEP has no degenerate edges: the writer writes it as an edge, which OCCT reads otherwise, so the STEP route
-    // is no oracle for the triangles here; the side's area is: pi r l, l = sqrt 2.)
+    // The degenerate edge left out on both routes (STEP has none: the writer leaves it out), healing making OCCT's
+    // own, without the model's id; so the two alike, the face sound, the side's area pi r l, l = sqrt 2.
+    same(a, n, 'a cone with a degenerate apex', 1e-9, req.data);
     const area = faces(n).get(5)!.area;
     assert.ok(Math.abs(area - Math.PI * Math.SQRT2) < 0.01 * Math.PI * Math.SQRT2, `the cone's side: ${area}`);
-    assert.ok(Math.abs(area - faces(a).get(5)!.area) < 1e-3 * area);
+    assert.deepEqual(n.measures?.map((m) => [m.entityId, m.valid]), [[5, true]]);
+    assert.deepEqual((n.edges ?? []).filter((e) => e.kind === 'degenerate').map((e) => e.entityId), [null]);
   }
   // Vertex loops: on a plane or a torus left out with a warning; on a sphere, the face's only loop, its natural
   // bounds.

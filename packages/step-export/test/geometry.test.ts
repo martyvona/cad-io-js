@@ -384,11 +384,11 @@ test('ADVANCED_FACE only where Part 42 allows it, else FACE_SURFACE', () => {
     direction: [0, 1, 0], magnitude: 1 }))), ['ADVANCED_FACE']);
   assert.deepEqual(faceType(square(line, (b) => b.addSurface({ kind: 'extrusion', curve: trimmed(b),
     direction: [0, 1, 0], magnitude: 1 }))), ['FACE_SURFACE']);
-  // An edge with only a p-curve (OCCT's degenerate edge at an apex): its geometry a PCURVE, the face FACE_SURFACE.
+  // A cone whose apex is a degenerate edge (only a p-curve): the edge left out, so the face advanced.
   const k = written(cone().finish());
-  assert.deepEqual(faceType(k), ['FACE_SURFACE']);
+  assert.deepEqual(faceType(k), ['ADVANCED_FACE']);
   assert.equal([...k.byId.values()].filter((x) => 'type' in x && x.type === 'EDGE_CURVE')
-    .filter((x) => render(k, x.id).includes(',PCURVE(')).length, 1);
+    .filter((x) => render(k, x.id).includes(',PCURVE(')).length, 0);
 });
 
 test('cases the fixtures lack: two surfaces\' p-curves, edges against their curves, inner boundaries, forward voids, '
@@ -529,7 +529,7 @@ test('what STEP can\'t hold: diagnostics, and what can\'t be written left out', 
   const b = new BrepBuilder({ unit: 1 });
   const v = [b.addVertex({ point: [0, 0, 0], tolerance: 1e-3, id: 1 }), b.addVertex({ point: [1, 0, 0], id: 2 })];
   const line = b.addCurve({ kind: 'line', point: [0, 0, 0], direction: [1, 0, 0], magnitude: 1 });
-  const e = b.addEdge({ curve: line, start: v[0]!, end: v[1]!, sameSense: true, degenerate: true, id: 3 });
+  const e = b.addEdge({ curve: line, start: v[0]!, end: v[1]!, sameSense: true, id: 3 });
   const bare = b.addEdge({ start: v[1]!, end: v[0]!, sameSense: true, id: 4 });
   const plane = b.addSurface({ kind: 'plane', position: P });
   const f1 = b.addFace({ surface: plane, sameSense: true, tolerance: 1e-3, id: 5, loops: [{ kind: 'edge',
@@ -544,7 +544,6 @@ test('what STEP can\'t hold: diagnostics, and what can\'t be written left out', 
   const w = written(b.finish());
   assert.deepEqual(w.diagnostics, [
     { severity: 'info', message: 'vertex tolerances (not written: STEP has none per entity) (#1)' },
-    { severity: 'info', message: 'degenerate edges (written as edges: STEP doesn\'t mark them) (#3)' },
     { severity: 'warning', message: 'an edge with neither a curve nor a p-curve (written unset) (#4)' },
     { severity: 'info', message: 'face tolerances (not written: STEP has none per entity) (#5)' },
     { severity: 'warning', message: 'internal coedges (written as forward) (#6)' },
@@ -701,4 +700,38 @@ test("poly loops' corners: a vertex of edges too its VERTEX_POINT's point, a cor
   assert.deepEqual([cornerIds(21), cornerIds(22)], [[1, 2, 9], [2, 1, 9]]);
   assert.equal(rowCount(back, 'vertex'), 5);
   assert.deepEqual(differences(walk(d), walk(back)), []);
+});
+
+test('degenerate edges left out of their loops (STEP has none), a loop of nothing else a VERTEX_LOOP', async () => {
+  // A sphere's upper half: the equator (edge 11, vertex 1) and the pole as a loop of one degenerate edge (12 at
+  // vertex 2); a cone's side with a degenerate apex among its edges (cad-brep's cone).
+  const b = new BrepBuilder({ unit: 1 });
+  const position = { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] };
+  const sphere = b.addSurface({ kind: 'sphere', position, radius: 1 });
+  const v1 = b.addVertex({ point: [1, 0, 0], id: 1 }), v2 = b.addVertex({ point: [0, 0, 1], id: 2 });
+  const equator = b.addEdge({ curve: b.addCurve({ kind: 'circle', position, radius: 1 }), start: v1, end: v1,
+    sameSense: true, id: 11 });
+  const pole = b.addEdge({ start: v2, end: v2, sameSense: true, degenerate: true, id: 12 });
+  const face = b.addFace({ surface: sphere, sameSense: true, id: 20, loops: [
+    { kind: 'edge', bound: 'outer', sense: true, coedges: [{ edge: equator, orientation: 'forward' }] },
+    { kind: 'edge', bound: 'inner', sense: true, coedges: [{ edge: pole, orientation: 'forward', id: 13 }] }] });
+  b.addItem({ kind: 'body', ref: b.addBody({ kind: 'sheet', members: [{ ref: b.addShell({ kind: 'open',
+    faces: [{ face, sense: true }] }), sense: true }] }) });
+  const d = b.finish();
+  const w = written(d);
+  // No edge 12 nor its use; the pole's loop at vertex 2.
+  assert.equal(w.byId.has(12) || w.byId.has(13), false);
+  assert.equal(render(w, 20, new Set([1, 2, 11])).replace(/SPHERICAL_SURFACE\(.*\),1\.\)/, 'S'),
+    "ADVANCED_FACE('',(FACE_OUTER_BOUND('',EDGE_LOOP('',(ORIENTED_EDGE('',*,*,#11,.T.))),.T.),"
+    + "FACE_BOUND('',VERTEX_LOOP('',#2),.T.)),S,.T.)");
+  assert.deepEqual(w.diagnostics.filter((x) => /degenerate/.test(x.message)),
+    [{ severity: 'info', message: 'degenerate edges (left out of their loops: STEP has none, a reader makes its own) '
+      + '(#20)' }]);
+  // Read back: the pole a vertex loop, the rest the model.
+  const back = (await readBack(w.data, w.rootId)).brep;
+  assert.deepEqual(differences(walk(d), walk(back)), []);
+  // The cone: its apex's coedge gone, the seam's two uses and the base kept.
+  const k = written(cone().finish());
+  const loops = [...k.text.matchAll(/EDGE_LOOP\('',\(([^)]*)\)\)/g)].map((m) => m[1]!.split(',').length);
+  assert.deepEqual(loops, [3]);
 });

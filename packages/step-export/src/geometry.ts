@@ -11,8 +11,8 @@
 // external coedges, item transforms and instances; names aren't in the model and are written empty.
 
 import {
-  BODY_KIND, type BrepData, type Curve, decode, type Face, ITEM_KIND, LOOP_KIND, type Logical, type Placement,
-  type Point, rowCount, type Surface,
+  BODY_KIND, type BrepData, type Curve, decode, EDGE_FLAGS, type Face, ITEM_KIND, LOOP_KIND, type Logical,
+  type Placement, type Point, rowCount, type Surface,
 } from 'cad-brep';
 import { type Diagnostic, type EntityRecord, type Instance, makeList, type Value } from 'step-parser';
 
@@ -129,6 +129,12 @@ const ADVANCED_SURFACES = new Set(['plane', 'cylinder', 'cone', 'sphere', 'torus
  * The rows the items reach, per table: what's written (a p-curve no coedge uses, as a seam's whose uses couldn't be
  * told apart, isn't; an unreferenced entity would be a root to a reader).
  */
+/**
+ * Whether an edge is degenerate (at a pole or an apex): STEP has no such edges, so it's left out of loops (readers make
+ * their own where a loop needs one: OCCT's healing does), and a loop of nothing else is a VERTEX_LOOP at its vertex.
+ */
+const isDegenerate = (d: BrepData, e: number) => (d.edge.flags[e]! & EDGE_FLAGS.degenerate) !== 0;
+
 function reachable(d: BrepData) {
   const live = {
     curve: new Uint8Array(rowCount(d, 'curve')), surface: new Uint8Array(rowCount(d, 'surface')),
@@ -172,10 +178,15 @@ function reachable(d: BrepData) {
         for (let j = 0; j < d.loop.count[l]!; j++) live.vertex[d.pool.loopInt[d.loop.first[l]! + j]!]! |= CORNER_USE;
       }
       if (d.loop.kind[l] !== LOOP_KIND.edge) continue;
+      let written = 0;
       for (let c = d.loop.first[l]!; c < d.loop.first[l]! + d.loop.count[l]!; c++) {
+        if (isDegenerate(d, d.coedge.edge[c]!)) continue;
+        written++;
         edge(d.coedge.edge[c]!);
         if (d.coedge.pcurve[c]! >= 0) curve(d.coedge.pcurve[c]!);
       }
+      const v = d.edge.start[d.coedge.edge[d.loop.first[l]!]!]!;
+      if (!written && d.loop.count[l]! && v >= 0) live.vertex[v]! |= VERTEX_USE;
     }
   };
   const shell = (k: number) => {
@@ -405,7 +416,6 @@ export function stepGeometry(d: BrepData, opts: StepGeometryOptions = {}): StepG
     const e = decode.edge(d, k);
     if (e.tolerance !== undefined) note('edge tolerances (not written: STEP has none per entity)', e.id, 'info');
     if (e.range) note('edge parameter ranges (not written: STEP has none)', e.id, 'info');
-    if (e.degenerate) note('degenerate edges (written as edges: STEP doesn\'t mark them)', e.id, 'info');
     if (!edgeCurve[k]) return;
     // What the source lacks (a vertex, a curve it couldn't read) is written unset, as it had it.
     if (e.start === undefined || e.end === undefined) {
@@ -499,7 +509,13 @@ export function stepGeometry(d: BrepData, opts: StepGeometryOptions = {}): StepG
     if (!face.loops.length) note('a face without loops (written with none: STEP needs at least one)', face.id);
     const loops = face.loops.map((l) => {
       if (l.kind === 'edge') {
-        return emit(fresh(), 'EDGE_LOOP', [NAME, refs(l.coedges.map((c) => emit(own(c.id), 'ORIENTED_EDGE',
+        const kept = l.coedges.filter((c) => !isDegenerate(d, c.edge));
+        if (kept.length < l.coedges.length) {
+          note('degenerate edges (left out of their loops: STEP has none, a reader makes its own)', face.id, 'info');
+        }
+        const v = l.coedges.length ? decode.edge(d, l.coedges[0]!.edge).start : undefined;
+        if (!kept.length && v !== undefined) return emit(fresh(), 'VERTEX_LOOP', [NAME, ref(vertexId[v]!)]);
+        return emit(fresh(), 'EDGE_LOOP', [NAME, refs(kept.map((c) => emit(own(c.id), 'ORIENTED_EDGE',
           [NAME, DERIVED, DERIVED, ref(edgeId[c.edge]!), bool(orientation(c.orientation, c.id, c.range))])))]);
       }
       if (l.kind === 'vertex') return emit(fresh(), 'VERTEX_LOOP', [NAME, ref(vertexId[l.vertex]!)]);
@@ -507,7 +523,7 @@ export function stepGeometry(d: BrepData, opts: StepGeometryOptions = {}): StepG
     });
     const advanced = ADVANCED_SURFACES.has(surfaces[s]!.kind) && sweptAdvanced(surfaces[s]!)
       && face.loops.every((l) => l.kind === 'vertex' || (l.kind === 'edge'
-        && l.coedges.every((c) => advancedEdge[c.edge] === 1)));
+        && l.coedges.every((c) => isDegenerate(d, c.edge) || advancedEdge[c.edge] === 1)));
     faceAdvanced[f] = advanced ? 1 : 0;
     // Forward, turned over (its sense and its bounds' negated: the same face the other way round), or both: the
     // first written keeps the source's ids, the second gets new ones.
