@@ -643,6 +643,8 @@ int occt_tessellate_model(const uint8_t* data, int len, double linDefl, double a
     DESTEP_Parameters stepDefaults;
     fix.Tolerance3d    = std::isfinite(b.uncertainty) ? b.uncertainty : stepDefaults.ReadPrecisionVal;
     fix.MaxTolerance3d = std::max(fix.Tolerance3d, stepDefaults.ReadMaxPrecisionVal);
+    if (b.geometricSet)
+      fix.FixAddNaturalBoundMode = DE_ShapeFixParameters::FixMode::NotFix;
     XSAlgo_ShapeProcessor processor(fix);
     StepDefaults          defaults;
     TopoDS_Shape shape =
@@ -680,9 +682,14 @@ int occt_tessellate_model(const uint8_t* data, int len, double linDefl, double a
     }
     follow(faceIds, TopAbs_FACE, faces);
     follow(edgeIds, TopAbs_EDGE, edges);
-    auto        none = [](bool, bool, IdMap&, IdMap&) {};
+    // Loose points' ids, as built (curve items' edges are among the edges'; healing leaves loose vertices alone).
+    auto loose = [&](bool, bool points, IdMap&, IdMap& pointIds) {
+      if (points)
+        for (const auto& [v, id] : b.pointIds)
+          pointIds.emplace(v, id);
+    };
     std::string meshDiag;
-    meshShape(shape, faceIds, edgeIds, none, linDefl, angDefl, ox, oy, oz, meshDiag);
+    meshShape(shape, faceIds, edgeIds, loose, linDefl, angDefl, ox, oy, oz, meshDiag);
     g.diag = "{\"native\":1,\"modelFaces\":" + std::to_string(b.faceIds.size()) + meshDiag + ",\"builder\":" + builder
              + ",\"unitMm\":" + std::to_string(b.unit) + "}";
     return 0;

@@ -14,12 +14,16 @@
 struct BuiltPart
 {
   TopoDS_Shape shape;
-  // Each face's and edge's source id, by the shape it was built as.
-  std::unordered_map<const TopoDS_TShape*, int> faceIds, edgeIds;
+  // Each face's, edge's and loose point's source id, by the shape it was built as (a curve item's edges take the
+  // curve's).
+  std::unordered_map<const TopoDS_TShape*, int> faceIds, edgeIds, pointIds;
   // What was left out (a face on a surface OCCT can't hold), said as warnings.
   std::vector<std::string> warnings;
   // Non-empty: the part wasn't built (a kind the builder doesn't do yet, decision 13), and why.
   std::string error;
+  // Whether the part has face or surface items (a geometric set's: healing adds no natural bounds there, as the STEP
+  // route's doesn't for a geometrically bounded surface representation).
+  bool geometricSet = false;
   // Millimetres per unit; the part's uncertainty (NaN without one).
   double unit = 1.0, uncertainty = NAN;
 };

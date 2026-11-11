@@ -5,12 +5,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { BrepBuilder, brepToJson, openBrep } from 'cad-brep';
+import { BrepBuilder, brepFromJson, brepToJson, openBrep } from 'cad-brep';
 import type { Curve } from 'cad-brep';
 import type { TessellationRequest, TessellationResult } from 'cad-scene';
 import { StepTessellator } from 'step-export';
 import { importStep } from 'step-import';
-import { MODELS } from '../../cad-brep/test/models.ts';
+import { box, MODELS } from '../../cad-brep/test/models.ts';
 import { OcctTessellator } from '../src/index.ts';
 
 const root = path.resolve(import.meta.dirname, '../../..');
@@ -69,11 +69,19 @@ function same(a: TessellationResult, b: TessellationResult, what: string, tol = 
       `${what}: face #${id}'s side: ${y.normal} vs ${x.normal}`);
   }
   // The edges by id, with their kinds and points; the STEP route's ids for the model's edges without one (its
-  // writer's) as the native route's, none.
-  const ids = json && new Set(json.edges.map((e) => e.id).filter((id) => id !== undefined));
+  // writer's) as the native route's, none; edges without vertices (a curve-bounded face's segments) without ids on
+  // both (OCCT's reader takes ids from EDGE_CURVEs only, the native route keeps the segments').
+  const ids = json && new Set(json.edges.filter((e) => e.start !== undefined).map((e) => e.id)
+    .filter((id) => id !== undefined));
   const edges = (r: TessellationResult) => (r.edges ?? []).map((e) =>
     `${e.entityId !== null && ids?.has(e.entityId) !== false ? e.entityId : null} ${e.kind} ${e.count}`).sort();
   assert.deepEqual(edges(b), edges(a), `${what}: edges`);
+  // Curves (wireframes, geometric sets): their points by id; loose points: ids and positions.
+  const curves = (r: TessellationResult) => (r.curves ?? []).map((c) => `${c.entityId} ${c.count}`).sort();
+  assert.deepEqual(curves(b), curves(a), `${what}: curves`);
+  const points = (r: TessellationResult) => (r.pointIds ?? []).map((id, k) => `${id} `
+    + [0, 1, 2].map((c) => r.points![3 * k + c]!.toFixed(4)).join()).sort();
+  assert.deepEqual(points(b), points(a), `${what}: points`);
   // OCCT's measures of the faces with the model's ids (by id: none for the others).
   const measured = (r: TessellationResult) => (r.measures ?? []).filter((m) => faceIds?.has(m.entityId) !== false);
   const ma = new Map(measured(a).map((m) => [m.entityId, m]));
@@ -102,13 +110,29 @@ test('the native route: the test models it builds meshed as the STEP route meshe
 test('the native route: a part with a kind not built yet fails with an error and nothing meshed', { skip },
   async () => {
     const { native } = await both();
-    for (const [name, kind] of [['facetedAndWire', 'a wire body'], ['everyKind', 'a curve item']] as const) {
-      const r = await native.tessellate(request(new Uint8Array(MODELS[name]().finish().buffer)));
-      assert.equal(r.indices.length, 0, name);
-      assert.deepEqual(r.faces, [], name);
-      assert.deepEqual(r.diagnostics.filter((d) => d.severity === 'error').map((d) => d.message),
-        [`native builder: not built yet: ${kind}`], name);
-    }
+    // A square whose first edge's curve is a composite of two lines (not built yet as an edge's curve).
+    const b = new BrepBuilder({ unit: 1 });
+    const c = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]];
+    const vs = c.map((point) => b.addVertex({ point }));
+    const line = (p: number[], q: number[]) => b.addCurve({ kind: 'line', point: p, direction: [q[0]! - p[0]!,
+      q[1]! - p[1]!, 0].map((x) => x / Math.hypot(q[0]! - p[0]!, q[1]! - p[1]!)), magnitude: 1 });
+    const half = (t1: number, t2: number) => b.addCurve({ kind: 'trimmed', basis: line(c[0]!, c[1]!),
+      trim1: { parameter: t1 }, trim2: { parameter: t2 }, sense: true, preference: 'parameter' });
+    const composite = b.addCurve({ kind: 'composite', segments: [{ curve: half(0, 0.5), sameSense: true,
+      transition: 'continuous' }, { curve: half(0.5, 1), sameSense: true, transition: 'continuous' }],
+    selfIntersect: false });
+    const es = c.map((p, j) => b.addEdge({ curve: j === 0 ? composite : line(p, c[(j + 1) % 4]!), start: vs[j]!,
+      end: vs[(j + 1) % 4]!, sameSense: true }));
+    const face = b.addFace({ surface: b.addSurface({ kind: 'plane', position: XY }), sameSense: true,
+      loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: es.map((edge) => ({ edge,
+        orientation: 'forward' as const })) }] });
+    const shell = b.addShell({ kind: 'open', faces: [{ face, sense: true }] });
+    b.addItem({ kind: 'body', ref: b.addBody({ kind: 'sheet', members: [{ ref: shell, sense: true }] }) });
+    const r = await native.tessellate(request(new Uint8Array(b.finish().buffer)));
+    assert.equal(r.indices.length, 0);
+    assert.deepEqual(r.faces, []);
+    assert.deepEqual(r.diagnostics.filter((d) => d.severity === 'error').map((d) => d.message),
+      ['native builder: not built yet: a composite curve']);
   });
 
 test('the native route: a face on a swept surface (no counterpart in OCCT) left out with a warning, the rest meshed',
@@ -154,7 +178,9 @@ test('the native route: formats it doesn\'t take are caller bugs; the STEP route
 // cylinder: a surface each, or their edges' p-curves clash); rational B-splines closed in a direction between two
 // circles (periodic form, or healing splits them into empty faces); an edge of no length, which OCCT marks degenerated
 // (not the model's: healing gives it its p-curve); tori and B-splines whose p-curves the model has (OCCT's healing
-// doesn't make the same ones); lines beside their vertices, moved through them.
+// doesn't make the same ones); lines beside their vertices, moved through them; wireframes and geometric sets (curve,
+// point, surface and curve-bounded face items, wire bodies; lone boundaries on spheres and tori, which healing's
+// natural bounds would turn into the rest of the surface); extrusions, revolutions; trimmed p-curves.
 const corpus = [['gkv311-opencascade-dataset/step/as1-oc-214-mat.stp', 5],
   ['gkv311-opencascade-dataset/step/trj7_k1-ac-203.stp', 1],
   ['nist-pmi-models/NIST_MBE_PMI_FTC_Definitions/NIST_MBE_PMI_FTC_Definitions/nist_ftc_07_asme1_rd.stp', 1],
@@ -162,7 +188,15 @@ const corpus = [['gkv311-opencascade-dataset/step/as1-oc-214-mat.stp', 5],
   ['gkv311-opencascade-dataset/step/trj5_s1-ug-214.stp', 8],
   ['gkv311-opencascade-dataset/step/trj7_k1-id-214.stp', 1],
   ['gkv311-opencascade-dataset/step/r103ec.stp', 1], ['gkv311-opencascade-dataset/step/trj3_s1-db-214.stp', 8],
-  ['gkv311-opencascade-dataset/step/bug25415_part_of_hdrv8w64p254_4x2_1016x502h838p.stp', 1]] as const;
+  ['gkv311-opencascade-dataset/step/bug25415_part_of_hdrv8w64p254_4x2_1016x502h838p.stp', 1],
+  ['gkv311-opencascade-dataset/step/trj8_c2-ac-214.stp', 2], ['gkv311-opencascade-dataset/step/trj9_c2-sy-214.stp', 1],
+  ['gkv311-opencascade-dataset/step/trj10_ch1-tu-203.stp', 1],
+  ['gkv311-opencascade-dataset/step/trj6_c1-ct-214.stp', 3], ['gkv311-opencascade-dataset/step/tr8_ha1_ug.stp', 2],
+  ['gkv311-opencascade-dataset/step/trj4_k1_geo-ac-214.stp', 2],
+  ['gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp', 1], ['gkv311-opencascade-dataset/step/trj7_k1-ec-214.stp', 1],
+  ['gkv311-opencascade-dataset/step/trj3_s1-tc-214.stp', 8],
+  ['gkv311-opencascade-dataset/step/trj4_s1-pe-214.stp', 8],
+  ['gkv311-opencascade-dataset/step/trj4_k1_geo-pe-214.stp', 2]] as const;
 const corpusPath = (f: string) => path.join(root, 'test_corpus/third_party', f);
 test('the native route on corpus files: every part meshed as the STEP route meshes it', {
   skip: skip || (corpus.every(([f]) => fs.existsSync(corpusPath(f))) ? false : 'corpus not fetched') }, async () => {
@@ -528,5 +562,244 @@ test('the native route, edges as OCCT\'s STEP translator makes them: a line besi
       poles: [p, [q[0], q[1] - 1e-3, q[2]]], closed: false, selfIntersect: false, form: 'unspecified' })
       : line(b, p, q));
     await check('a vertex beyond its curve\'s end', b);
+  }
+});
+
+test('the native route, swept and derived surfaces: faces on an extrusion, a revolution, an offset plane, a trimmed '
+  + 'cylinder, meshed as the STEP route meshes them', { skip }, async () => {
+  const { step, native } = await both();
+  type V3 = [number, number, number];
+  // A face over the rectangle u0..u1 x v0..v1 of a surface, its edges the surface's iso-curves as given (3D curves
+  // through the corners in order).
+  const patch = (b: BrepBuilder, surface: number, corners: V3[], sides: number[]) => {
+    const vs = corners.map((point) => b.addVertex({ point }));
+    const es = sides.map((curve, j) => b.addEdge({ curve, start: vs[j]!, end: vs[(j + 1) % 4]!, sameSense: true,
+      id: 11 + j }));
+    const face = b.addFace({ surface, sameSense: true, id: 5, loops: [{ kind: 'edge', bound: 'outer', sense: true,
+      coedges: es.map((edge) => ({ edge, orientation: 'forward' as const })) }] });
+    const shell = b.addShell({ kind: 'open', faces: [{ face, sense: true }] });
+    b.addItem({ kind: 'body', ref: b.addBody({ kind: 'sheet', members: [{ ref: shell, sense: true }] }) });
+  };
+  const line = (b: BrepBuilder, p: V3, q: V3) => {
+    const d = [q[0] - p[0], q[1] - p[1], q[2] - p[2]], l = Math.hypot(...d);
+    return b.addCurve({ kind: 'line', point: p, direction: d.map((x) => x / l), magnitude: 1 });
+  };
+  // (From t1 to t2 the short way: against the basis where t2 < t1.)
+  const trim = (b: BrepBuilder, basis: number, t1: number, t2: number) => b.addCurve({ kind: 'trimmed', basis,
+    trim1: { parameter: t1 }, trim2: { parameter: t2 }, sense: t2 > t1, preference: 'parameter' });
+  const cases: [string, (b: BrepBuilder) => void, number][] = [
+    // A quarter of a circle of radius 1 extruded 2 up (the vector's magnitude 2, its v 0 to 1).
+    ['an extrusion', (b) => {
+      const arc = b.addCurve({ kind: 'circle', position: XY, radius: 1 });
+      const top = b.addCurve({ kind: 'circle', position: { ...XY, origin: [0, 0, 2] }, radius: 1 });
+      const s = b.addSurface({ kind: 'extrusion', curve: arc, direction: [0, 0, 1], magnitude: 2 });
+      patch(b, s, [[1, 0, 0], [0, 1, 0], [0, 1, 2], [1, 0, 2]], [trim(b, arc, 0, Math.PI / 2),
+        line(b, [0, 1, 0], [0, 1, 2]), trim(b, top, Math.PI / 2, 0), line(b, [1, 0, 2], [1, 0, 0])]);
+    }, Math.PI],
+    // The line x = 1, z from 0 to 1, turned a quarter about z: a quarter of a cylinder of radius 1.
+    ['a revolution', (b) => {
+      const gen = b.addCurve({ kind: 'line', point: [1, 0, 0], direction: [0, 0, 1], magnitude: 1 });
+      const s = b.addSurface({ kind: 'revolution', curve: gen, axisOrigin: [0, 0, 0], axisDirection: [0, 0, 1] });
+      const c0 = b.addCurve({ kind: 'circle', position: XY, radius: 1 });
+      const c1 = b.addCurve({ kind: 'circle', position: { ...XY, origin: [0, 0, 1] }, radius: 1 });
+      patch(b, s, [[1, 0, 0], [0, 1, 0], [0, 1, 1], [1, 0, 1]], [trim(b, c0, 0, Math.PI / 2),
+        line(b, [0, 1, 0], [0, 1, 1]), trim(b, c1, Math.PI / 2, 0), line(b, [1, 0, 1], [1, 0, 0])]);
+    }, Math.PI / 2],
+    // The plane z = 0 offset 0.5: the unit square at z = 0.5.
+    ['an offset plane', (b) => {
+      const s = b.addSurface({ kind: 'offset', basis: b.addSurface({ kind: 'plane', position: XY }), distance: 0.5,
+        selfIntersect: false });
+      const c: V3[] = [[0, 0, 0.5], [1, 0, 0.5], [1, 1, 0.5], [0, 1, 0.5]];
+      patch(b, s, c, c.map((p, j) => line(b, p, c[(j + 1) % 4]!)));
+    }, 1],
+    // A cylinder of radius 1 trimmed to u 0..pi/2, v 0..1: the face its quarter.
+    ['a trimmed cylinder', (b) => {
+      const s = b.addSurface({ kind: 'rectangularTrimmed', basis: b.addSurface({ kind: 'cylinder', position: XY,
+        radius: 1 }), u1: 0, u2: Math.PI / 2, v1: 0, v2: 1, uSense: true, vSense: true });
+      const c0 = b.addCurve({ kind: 'circle', position: XY, radius: 1 });
+      const c1 = b.addCurve({ kind: 'circle', position: { ...XY, origin: [0, 0, 1] }, radius: 1 });
+      patch(b, s, [[1, 0, 0], [0, 1, 0], [0, 1, 1], [1, 0, 1]], [trim(b, c0, 0, Math.PI / 2),
+        line(b, [0, 1, 0], [0, 1, 1]), trim(b, c1, Math.PI / 2, 0), line(b, [1, 0, 1], [1, 0, 0])]);
+    }, Math.PI / 2],
+  ];
+  for (const [what, make, area] of cases) {
+    const b = new BrepBuilder({ unit: 1 });
+    make(b);
+    const req = request(new Uint8Array(b.finish().buffer));
+    const r1 = await step.tessellate(req), r2 = await native.tessellate(req);
+    assert.deepEqual(r2.diagnostics.filter((x) => x.severity !== 'info').map((x) => x.message), [], what);
+    same(r1, r2, what, 1e-9, req.data);
+    const got = faces(r2).get(5)!.area;
+    assert.ok(Math.abs(got - area) < 0.01 * area, `${what}'s area: ${got}`);
+  }
+});
+
+test('the native route, items placed: a transform (a rotation, a mirror, a scale, a translation) moves an item; an '
+  + 'instance places another item again, its faces keeping their ids', { skip }, async () => {
+  const { native } = await both();
+  // The unit cube (0..1 each way) as item 1, after a box elsewhere (item 0); item 2 places the cube, x -> 2y,
+  // y -> -2x, z -> -2z (a turn and a mirror, the matrix not symmetric), moved by (10, 0, 0); without the instance,
+  // the cube itself moved so.
+  const columns = [0, 2, 0, -2, 0, 0, 0, 0, -2, 10, 0, 0];
+  const place = (p: number[]) => [-2 * p[1]! + 10, 2 * p[0]!, -2 * p[2]!];
+  for (const instance of [false, true]) {
+    const b = new BrepBuilder({ unit: 1 });
+    b.addItem({ kind: 'body', ref: b.addBody({ kind: 'solid', members: [{ ref: box(b, [1, 1, 1], [50, 50, 50], 1000),
+      sense: true }] }) });
+    b.addItem({ kind: 'body', ref: b.addBody({ kind: 'solid', members: [{ ref: box(b, [1, 1, 1]), sense: true }] }) });
+    const json = brepToJson(b.finish());
+    json.items = instance ? [json.items[0]!, json.items[1]!, { kind: 'instance', ref: 1, transform: columns }]
+      : [json.items[0]!, { ...json.items[1]!, transform: columns }];
+    const r = await native.tessellate(request(new Uint8Array(brepFromJson(json).buffer)));
+    const what = instance ? 'an instance' : 'a transform';
+    assert.deepEqual(r.diagnostics.filter((x) => x.severity !== 'info').map((x) => x.message), [], what);
+    // The box's faces (1021..1026), and the cube's (21..26), twice with the instance.
+    const cube = [21, 22, 23, 24, 25, 26];
+    assert.deepEqual(r.faces.map((f) => f.entityId!).sort((x, y) => x - y), [...cube, ...(instance ? cube : []),
+      ...cube.map((x) => x + 1000)].sort((x, y) => x - y), what);
+    // The placed copy's corners where the transform puts the cube's (the box 10..12 x 0..2 x 0..2), the other copy's
+    // the cube's own.
+    const pts = new Set<string>();
+    for (let k = 0; k < r.positions.length; k += 3) {
+      pts.add([0, 1, 2].map((c) => r.positions[k + c]!.toFixed(4)).join());
+    }
+    const corners = [0, 1].flatMap((x) => [0, 1].flatMap((y) => [0, 1].map((z) => [x, y, z])));
+    for (const c of corners) assert.ok(pts.has(place(c).map((x) => x.toFixed(4)).join()), `${what}: ${place(c)}`);
+    if (instance) for (const c of corners) assert.ok(pts.has(c.map((x) => x.toFixed(4)).join()), `the cube: ${c}`);
+    else assert.ok(!pts.has('0.0000,0.0000,0.0000'), 'the cube moved');
+  }
+});
+
+test('the native route, parameters that only loose geometry shows: trimmed and offset curve items, trimmed surface '
+  + 'items over extrusions, revolutions and offsets, curve-bounded faces, p-curves alone', { skip }, async () => {
+  const { native } = await both();
+  type V3 = [number, number, number];
+  const near = (p: number[], q: number[], tol = 1e-6) => Math.hypot(...p.map((x, k) => x - q[k]!)) < tol;
+  const run = async (b: BrepBuilder) => native.tessellate(request(new Uint8Array(b.finish().buffer)));
+  const noWarnings = (r: TessellationResult, what: string) => assert.deepEqual(r.diagnostics
+    .filter((d) => d.severity !== 'info').map((d) => d.message), [], what);
+  // Curve items, each by its polyline's two ends.
+  const ends = (r: TessellationResult, id: number) => {
+    const c = r.curves!.find((x) => x.entityId === id)!, P = r.curvePositions!;
+    const at = (k: number) => [0, 1, 2].map((j) => P[3 * k + j]!);
+    return [at(c.start), at(c.start + c.count - 1)];
+  };
+  const curveCases: [string, (b: BrepBuilder) => number, V3, V3][] = [
+    // A line of magnitude 2 trimmed 0.5..1.5: 1 to 3 along it.
+    ['a trimmed line', (b) => b.addCurve({ kind: 'trimmed', basis: b.addCurve({ kind: 'line', point: [0, 0, 0],
+      direction: [1, 0, 0], magnitude: 2 }), trim1: { parameter: 0.5 }, trim2: { parameter: 1.5 }, sense: true,
+    preference: 'parameter' }), [1, 0, 0], [3, 0, 0]],
+    // An ellipse whose first semi-axis is the minor one, trimmed 0..pi/2: (1, 0) to (0, 3).
+    ['a trimmed ellipse', (b) => b.addCurve({ kind: 'trimmed', basis: b.addCurve({ kind: 'ellipse', position: XY,
+      semiAxis1: 1, semiAxis2: 3 }), trim1: { parameter: 0 }, trim2: { parameter: Math.PI / 2 }, sense: true,
+    preference: 'parameter' }), [1, 0, 0], [0, 3, 0]],
+    // A parabola a(t^2 x + 2t y), a = 2, trimmed 0..1: (0, 0) to (2, 4).
+    ['a trimmed parabola', (b) => b.addCurve({ kind: 'trimmed', basis: b.addCurve({ kind: 'parabola', position: XY,
+      focalDist: 2 }), trim1: { parameter: 0 }, trim2: { parameter: 1 }, sense: true, preference: 'parameter' }),
+    [0, 0, 0], [2, 4, 0]],
+    // Trims by both, the parameters preferred: 0.1 to 0.9 along a unit line.
+    ['a trim by its parameters', (b) => b.addCurve({ kind: 'trimmed', basis: b.addCurve({ kind: 'line',
+      point: [0, 0, 0], direction: [1, 0, 0], magnitude: 1 }), trim1: { parameter: 0.1, point: [0.25, 0, 0] },
+    trim2: { parameter: 0.9, point: [0.75, 0, 0] }, sense: true, preference: 'parameter' }), [0.1, 0, 0],
+    [0.9, 0, 0]],
+    // Trims by points that the parameters contradict, the points preferred: 0.25 to 0.75 along a unit line.
+    ['a trim by its points', (b) => b.addCurve({ kind: 'trimmed', basis: b.addCurve({ kind: 'line', point: [0, 0, 0],
+      direction: [1, 0, 0], magnitude: 1 }), trim1: { parameter: 0.1, point: [0.25, 0, 0] },
+    trim2: { parameter: 0.9, point: [0.75, 0, 0] }, sense: true, preference: 'cartesian' }), [0.25, 0, 0],
+    [0.75, 0, 0]],
+    // A B-spline 0..1 trimmed -1..2: clamped to its ends.
+    ['a trim beyond its curve', (b) => b.addCurve({ kind: 'trimmed', basis: b.addCurve({ kind: 'bspline', degree: 1,
+      knots: [0, 1], multiplicities: [2, 2], poles: [[0, 0, 0], [1, 1, 0]], closed: false, selfIntersect: false,
+      form: 'unspecified' }), trim1: { parameter: -1 }, trim2: { parameter: 2 }, sense: true,
+    preference: 'parameter' }), [0, 0, 0], [1, 1, 0]],
+    // A line along x trimmed 0..1, offset 1 with reference direction z: T x V = x x z = -y.
+    ['an offset curve', (b) => b.addCurve({ kind: 'offset', basis: b.addCurve({ kind: 'trimmed',
+      basis: b.addCurve({ kind: 'line', point: [0, 0, 0], direction: [1, 0, 0], magnitude: 1 }),
+      trim1: { parameter: 0 }, trim2: { parameter: 1 }, sense: true, preference: 'parameter' }), distance: 1,
+    selfIntersect: false, refDirection: [0, 0, 1] }), [0, -1, 0], [1, -1, 0]],
+  ];
+  for (const [what, make, p, q] of curveCases) {
+    const b = new BrepBuilder({ unit: 1 });
+    b.addItem({ kind: 'curve', ref: make(b), id: 7 });
+    const r = await run(b);
+    noWarnings(r, what);
+    const [a, c] = ends(r, 7);
+    assert.ok((near(a!, p) && near(c!, q)) || (near(a!, q) && near(c!, p)), `${what}: ${a} .. ${c}`);
+  }
+  // Surface items: trimmed surfaces over swept and offset ones, by their faces' areas and places.
+  const surfaceCases: [string, (b: BrepBuilder) => number, number, (r: TessellationResult) => boolean][] = [
+    // A line of magnitude 3 along x extruded up by a vector of magnitude 2, trimmed u, v 0..1: 3 x 2.
+    ['a trimmed extrusion', (b) => b.addSurface({ kind: 'rectangularTrimmed', basis: b.addSurface({ kind: 'extrusion',
+      curve: b.addCurve({ kind: 'line', point: [0, 0, 0], direction: [1, 0, 0], magnitude: 3 }), direction: [0, 0, 1],
+      magnitude: 2 }), u1: 0, u2: 1, v1: 0, v2: 1, uSense: true, vSense: true }), 6, () => true],
+    // The line x = 1 along z, magnitude 2, turned about z, trimmed u 0..pi/2, v 0..1: a quarter cylinder 2 high.
+    ['a trimmed revolution', (b) => b.addSurface({ kind: 'rectangularTrimmed', basis: b.addSurface({
+      kind: 'revolution', curve: b.addCurve({ kind: 'line', point: [1, 0, 0], direction: [0, 0, 1], magnitude: 2 }),
+      axisOrigin: [0, 0, 0], axisDirection: [0, 0, 1] }), u1: 0, u2: Math.PI / 2, v1: 0, v2: 1, uSense: true,
+    vSense: true }), Math.PI, () => true],
+    // The plane z = 0 offset 0.5, trimmed to the unit square: at z = 0.5.
+    ['a trimmed offset plane', (b) => b.addSurface({ kind: 'rectangularTrimmed', basis: b.addSurface({ kind: 'offset',
+      basis: b.addSurface({ kind: 'plane', position: XY }), distance: 0.5, selfIntersect: false }), u1: 0, u2: 1, v1: 0,
+    v2: 1, uSense: true, vSense: true }), 1, (r) => Math.abs(r.positions[2]! - 0.5) < 1e-6],
+  ];
+  for (const [what, make, area, at] of surfaceCases) {
+    const b = new BrepBuilder({ unit: 1 });
+    b.addItem({ kind: 'surface', ref: make(b), id: 5 });
+    const r = await run(b);
+    noWarnings(r, what);
+    const got = faces(r).get(5)?.area ?? 0;
+    // (To 1 %: the mesh's own error on the revolution is about 0.2 %; a wrong map is off by a factor.)
+    assert.ok(Math.abs(got - area) < 1e-2 * area, `${what}'s area: ${got}`);
+    assert.ok(at(r), `${what}'s place`);
+  }
+  // Curve-bounded faces (edges without vertices). A B-spline plane 0..2 square with an implicit outer bound (its
+  // own extent) and a hole of radius 0.5 at its middle; a unit square on a plane, its boundary's segments given out
+  // of order (put in order as the translator does).
+  {
+    const b = new BrepBuilder({ unit: 1 });
+    const s = b.addSurface({ kind: 'bspline', uDegree: 1, vDegree: 1, uKnots: [0, 1], vKnots: [0, 1],
+      uMultiplicities: [2, 2], vMultiplicities: [2, 2], poles: [[[0, 0, 0], [0, 2, 0]], [[2, 0, 0], [2, 2, 0]]],
+      uClosed: false, vClosed: false, selfIntersect: false, form: 'plane_surf' });
+    const hole = b.addEdge({ curve: b.addCurve({ kind: 'circle', position: { ...XY, origin: [1, 1, 0] },
+      radius: 0.5 }), sameSense: true });
+    const face = b.addFace({ surface: s, sameSense: true, id: 5, loops: [{ kind: 'edge', bound: 'inner', sense: true,
+      coedges: [{ edge: hole, orientation: 'reversed' }] }] });
+    b.addItem({ kind: 'face', ref: face, id: 5 });
+    const r = await run(b);
+    noWarnings(r, 'an implicit outer bound');
+    const got = faces(r).get(5)!.area, want = 4 - Math.PI / 4;
+    assert.ok(Math.abs(got - want) < 1e-2, `an implicit outer bound's area: ${got}`);
+  }
+  {
+    const b = new BrepBuilder({ unit: 1 });
+    const c: V3[] = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]];
+    const es = c.map((p, j) => { const q = c[(j + 1) % 4]!;
+      return b.addEdge({ curve: b.addCurve({ kind: 'trimmed', basis: b.addCurve({ kind: 'line', point: p,
+        direction: [q[0] - p[0], q[1] - p[1], 0], magnitude: 1 }), trim1: { parameter: 0 }, trim2: { parameter: 1 },
+      sense: true, preference: 'parameter' }), sameSense: true }); });
+    const face = b.addFace({ surface: b.addSurface({ kind: 'plane', position: XY }), sameSense: true, id: 5,
+      loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [2, 0, 3, 1].map((j) => ({ edge: es[j]!,
+        orientation: 'forward' as const })) }] });
+    b.addItem({ kind: 'face', ref: face, id: 5 });
+    const r = await run(b);
+    const got = faces(r).get(5)!.area;
+    assert.ok(Math.abs(got - 1) < 1e-6, `segments out of order: ${got}`);
+  }
+  // A curve-bounded face on a sphere of radius 2 bounded by the circle at z = 1 alone, against the STEP route (whose
+  // healing adds no natural bounds there either: the cap, not the rest of the sphere with a hole).
+  {
+    const b = new BrepBuilder({ unit: 1 });
+    const edge = b.addEdge({ curve: b.addCurve({ kind: 'circle', position: { ...XY, origin: [0, 0, 1] },
+      radius: Math.sqrt(3) }), sameSense: true });
+    const face = b.addFace({ surface: b.addSurface({ kind: 'sphere', position: XY, radius: 2 }), sameSense: true,
+      id: 5, loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [{ edge, orientation: 'forward' }] }] });
+    b.addItem({ kind: 'face', ref: face, id: 5 });
+    const req = request(new Uint8Array(b.finish().buffer));
+    const { step } = await both();
+    const r1 = await step.tessellate(req), r2 = await native.tessellate(req);
+    same(r1, r2, 'a lone boundary on a sphere', 1e-9, req.data);
+    const got = faces(r2).get(5)!.area;
+    assert.ok(Math.abs(got - 4 * Math.PI) < 0.02 * 4 * Math.PI || Math.abs(got - 12 * Math.PI) < 0.02 * 12 * Math.PI,
+      `a lone boundary on a sphere: ${got}`);
   }
 });

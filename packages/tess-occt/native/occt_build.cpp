@@ -9,8 +9,9 @@
 //     surface put in periodic form where closed (ShapeAlgo's ConvertToPeriodic).
 //   - Parameterizations where OCCT's differ from Part 42's, all affine (Geom_*.hxx): a line's parameter is distance
 //     (Part 42's is in units of its vector's magnitude); an ellipse's x axis must be its major one (Part 42 allows
-//     either: swapped, the parameter shifts by pi/2); a cone's v runs along the generatrix, v cos(a) along the axis
-//     (Geom_ConicalSurface.hxx's formula); a parabola is O + u^2/(4F) X + u Y (Part 42's C + a(t^2 x + 2t y): u = 2at).
+//     either: x then x ^ z, as the translator turns it, and the parameter shifts by pi/2); a cone's v runs along the
+//     generatrix, v cos(a) along the axis (Geom_ConicalSurface.hxx's formula); a parabola is O + u^2/(4F) X + u Y
+//     (Part 42's C + a(t^2 x + 2t y): u = 2at).
 //     Edges take their vertices' parameters by projection onto OCCT's curve, so they need no mapping; p-curves are
 //     converted as the translator converts them (a cone's v by GeomConvert_Units).
 //   - An edge running against its curve (same_sense false) is built along the curve from its end to its start and
@@ -23,10 +24,14 @@
 //     their edges' curves (as the STEP translator builds); the part's uncertainty is healing's tolerance and the
 //     translator's precision (as the STEP reader's): with shapes built at it, healing splits a ring on a closed
 //     B-spline between two circles into two empty faces.
-//   - What the builder doesn't build yet (edges without a 3D curve, trimmed, composite and offset curves and p-curves,
-//     surfaces other than elementary and B-spline, items other than solids and sheets) fails the part with an error
-//     naming it (decision 13); faces on Part 42's swept surfaces, which OCCT's API has no counterpart for, are dropped
-//     with a warning.
+//   - Parameters where the translator doesn't convert them (trims on parabolas; p-curves and trims on extrusions,
+//     revolutions, offset and trimmed surfaces) mapped from Part 42's to OCCT's (curveParam, surfaceParams), as
+//     decision 3 has backends do.
+//   - Items: each built alone, then moved by its transform (a similarity: OCCT holds no other), an instance sharing
+//     the shapes of the item it places.
+//   - What the builder doesn't build yet (composite curves as edges' curves) fails the part with an error naming it
+//     (decision 13); faces on Part 42's swept surfaces, which OCCT's API has no counterpart for, are dropped with a
+//     warning.
 
 #include "occt_build.h"
 
@@ -34,6 +39,8 @@
 #include <BRep_Tool.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
+#include <BRepBuilderAPI_MakeVertex.hxx>
+#include <Geom_TrimmedCurve.hxx>
 #include <BRepLib_MakeEdge.hxx>
 #include <DESTEP_Parameters.hxx>
 #include <ElCLib.hxx>
@@ -43,6 +50,18 @@
 #include <Geom2d_Hyperbola.hxx>
 #include <Geom2d_Line.hxx>
 #include <Geom2d_Parabola.hxx>
+#include <Geom2d_OffsetCurve.hxx>
+#include <Geom2d_TrimmedCurve.hxx>
+#include <Geom2dConvert.hxx>
+#include <Geom_OffsetCurve.hxx>
+#include <Geom_OffsetSurface.hxx>
+#include <Geom_RectangularTrimmedSurface.hxx>
+#include <Geom_SurfaceOfLinearExtrusion.hxx>
+#include <Geom_SurfaceOfRevolution.hxx>
+#include <gp_Ax1.hxx>
+#include <gp_GTrsf2d.hxx>
+#include <gp_Trsf.hxx>
+#include <TopLoc_Location.hxx>
 #include <Geom_BSplineCurve.hxx>
 #include <Geom_BSplineSurface.hxx>
 #include <Geom_Circle.hxx>
@@ -74,6 +93,8 @@
 #include <ShapeBuild_Edge.hxx>
 #include <ShapeExtend_WireData.hxx>
 #include <ShapeFix_EdgeProjAux.hxx>
+#include <ShapeFix_Wire.hxx>
+#include <Geom_BoundedSurface.hxx>
 #include <Standard_Failure.hxx>
 #include <StepToTopoDS_GeometricTool.hxx>
 #include <TopoDS.hxx>
@@ -89,6 +110,7 @@
 
 #include <array>
 #include <cmath>
+#include <cstring>
 #include <map>
 #include <string>
 #include <vector>
@@ -124,6 +146,12 @@ const char* curveKindName(int k)
                                 "trimmed curve", "composite curve", "offset curve"};
   return k >= 0 && k <= 10 ? names[k] : "?";
 }
+// "a B-spline", "an extrusion".
+std::string withArticle(const char* name)
+{
+  return std::string(std::strchr("aeiou", name[0]) ? "an " : "a ") + name;
+}
+
 const char* surfaceKindName(int k)
 {
   static const char* names[] = {"?", "plane", "cylinder", "cone", "sphere", "torus", "B-spline surface",
@@ -229,6 +257,63 @@ struct Builder
 
   Builder(BuiltPart& o) : out(o) {}
 
+  // Part 42's parameter on a curve as OCCT's: t' = f t + shift (a line's times its magnitude, an ellipse's shifted by
+  // pi/2 where OCCT swaps its axes, a parabola's times 2 a; a trimmed curve its basis's); false where not affine.
+  bool curveParam(int k, double& f, double& shift)
+  {
+    f = 1.;
+    shift = 0.;
+    const int     kind = r.u8(CBR_CURVE_KIND)[k], d = r.u8(CBR_CURVE_DIM)[k];
+    const double* re = r.f64(CBR_POOL_CURVE_REAL) + r.i32(CBR_CURVE_REAL)[k];
+    const int     p = d == 3 ? 9 : 4; // a placement's reals
+    switch (kind)
+    {
+      case CBR_CURVE_LINE:
+        f = re[2 * d];
+        return true;
+      case CBR_CURVE_ELLIPSE:
+        if (re[p] < re[p + 1])
+          shift = 0.5 * M_PI;
+        return true;
+      case CBR_CURVE_PARABOLA:
+        f = 2. * re[p];
+        return true;
+      case CBR_CURVE_TRIMMED:
+        return curveParam(r.i32(CBR_POOL_CURVE_INT)[r.i32(CBR_CURVE_INT)[k]], f, shift);
+      case CBR_CURVE_COMPOSITE:
+        return false;
+      default:
+        return true;
+    }
+  }
+
+  // Part 42's (u, v) on a surface as OCCT's: u' = fu u + su, v' = fv v + sv (a cone's v over cos a; an extrusion's u
+  // its curve's and v times its magnitude; a revolution's v its curve's; an offset or trimmed surface its basis's).
+  bool surfaceParams(int k, double& fu, double& su, double& fv, double& sv)
+  {
+    fu = fv = 1.;
+    su = sv = 0.;
+    const int      kind = r.u8(CBR_SURFACE_KIND)[k];
+    const double*  re = r.f64(CBR_POOL_SURFACE_REAL) + r.i32(CBR_SURFACE_REAL)[k];
+    const int32_t* in = r.i32(CBR_POOL_SURFACE_INT) + r.i32(CBR_SURFACE_INT)[k];
+    switch (kind)
+    {
+      case CBR_SURFACE_CONE:
+        fv = 1. / std::cos(re[10]);
+        return true;
+      case CBR_SURFACE_EXTRUSION:
+        fv = re[3];
+        return curveParam(in[0], fu, su);
+      case CBR_SURFACE_REVOLUTION:
+        return curveParam(in[0], fv, sv);
+      case CBR_SURFACE_OFFSET:
+      case CBR_SURFACE_RECTANGULAR_TRIMMED:
+        return surfaceParams(in[0], fu, su, fv, sv);
+      default:
+        return true;
+    }
+  }
+
   occ::handle<Geom_Curve> curve(int k)
   {
     auto it = curves.find(k);
@@ -252,10 +337,11 @@ struct Builder
       {
         gp_Ax2 a = ax2(re);
         double s1 = re[9], s2 = re[10];
-        // OCCT's x axis is the major one.
+        // OCCT's x axis is the major one: x as x ^ z (y's opposite), as the translator turns it, so Part 42's t is
+        // OCCT's t + pi/2 (curveParam).
         if (s1 < s2)
         {
-          a = gp_Ax2(a.Location(), a.Direction(), a.YDirection());
+          a.SetXDirection(a.XDirection() ^ a.Direction());
           std::swap(s1, s2);
         }
         c = new Geom_Ellipse(a, s1, s2);
@@ -302,17 +388,128 @@ struct Builder
         c = new Geom_BSplineCurve(poles, knots, mults, 1);
         break;
       }
+      case CBR_CURVE_TRIMMED:
+        c = trimmed(k, re, in);
+        break;
+      case CBR_CURVE_OFFSET:
+        // C + d (T x V) / |T x V|, V the reference direction: Part 42's and OCCT's alike.
+        c = new Geom_OffsetCurve(curve(in[0]), re[0], dir(re + 1));
+        break;
       default:
-        throw Unbuilt{std::string("a ") + curveKindName(kind)};
+        throw Unbuilt{withArticle(curveKindName(kind))};
     }
     curves.emplace(k, c);
     return c;
   }
 
+  // A trimmed curve as OCCT's STEP translator makes one (StepToGeom::MakeTrimmedCurve): each trim by its parameter
+  // where the master representation says so (or says nothing), by its point projected where cartesian, else by
+  // whichever it has; a parameter mapped to OCCT's on the basis curve (a line's times its magnitude, an ellipse's
+  // shifted by pi/2 where OCCT swaps its axes, a parabola's times 2 a: Part 42's t is OCCT's u / 2a, which the
+  // translator doesn't convert); clamped to a bounded basis curve; equal trims round a periodic or closed one.
+  occ::handle<Geom_Curve> trimmed(int k, const double* re, const int32_t* in)
+  {
+    const int               bi    = in[0];
+    occ::handle<Geom_Curve> basis = curve(bi);
+    const int               bkind = r.u8(CBR_CURVE_KIND)[bi];
+    const double*           bre   = r.f64(CBR_POOL_CURVE_REAL) + r.i32(CBR_CURVE_REAL)[bi];
+    double                  fact = 1., shift = 0.;
+    if (bkind == CBR_CURVE_LINE)
+      fact = bre[6];
+    else if (bkind == CBR_CURVE_ELLIPSE && bre[9] < bre[10])
+      shift = 0.5 * M_PI;
+    else if (bkind == CBR_CURVE_PARABOLA)
+      fact = 2. * bre[9];
+    const int master = in[2]; // TRIM_PREFERENCES: 0 unspecified, 1 parameter, 2 cartesian
+    auto      trim = [&](int j, double& t) {
+      const double  param = re[j];
+      const double* point = re + 2 + 3 * j;
+      const bool    hasParam = std::isfinite(param), hasPoint = std::isfinite(point[0]);
+      auto          project = [&] {
+        ShapeAnalysis_Curve sac;
+        gp_Pnt              proj;
+        sac.Project(basis, pnt(point), Precision::Confusion(), proj, t);
+      };
+      if (master == 1 && hasParam)
+        t = shift + fact * param;
+      else if (master == 2 && hasPoint)
+        project();
+      else if (hasParam)
+        t = shift + fact * param;
+      else if (hasPoint)
+        project();
+      else
+        throw Unbuilt{"a trimmed curve without a trim"};
+    };
+    double t1 = 0, t2 = 0;
+    trim(0, t1);
+    trim(1, t2);
+    const double cf = basis->FirstParameter(), cl = basis->LastParameter();
+    if (!basis->IsPeriodic())
+    {
+      t1 = std::min(std::max(t1, cf), cl);
+      t2 = std::min(std::max(t2, cf), cl);
+    }
+    if (std::abs(t1 - t2) < Precision::PConfusion())
+    {
+      if (basis->IsPeriodic())
+        ElCLib::AdjustPeriodic(cf, cl, Precision::PConfusion(), t1, t2);
+      else if (basis->IsClosed())
+      {
+        if (std::abs(t1 - cf) < Precision::PConfusion())
+          t2 += cl;
+        else
+          t1 -= cl;
+      }
+      else
+        throw Unbuilt{"a trimmed curve of no length"};
+    }
+    (void)k;
+    return in[1] ? occ::handle<Geom_Curve>(new Geom_TrimmedCurve(basis, t1, t2, true))
+                 : occ::handle<Geom_Curve>(new Geom_TrimmedCurve(basis, t2, t1, false));
+  }
+
+  // A curve item as OCCT's STEP translator makes one of a geometric set's: an edge over the curve's whole range (none
+  // where that fails: an unbounded one); a composite curve its segments' edges, each with the composite's id.
+  void curveItem(int k, double id, TopoDS_Compound& all)
+  {
+    BRep_Builder bb;
+    std::vector<std::pair<occ::handle<Geom_Curve>, bool>> segments;
+    if (r.u8(CBR_CURVE_KIND)[k] == CBR_CURVE_COMPOSITE)
+    {
+      const int32_t* in = r.i32(CBR_POOL_CURVE_INT) + r.i32(CBR_CURVE_INT)[k];
+      for (int j = 0; j < in[0]; ++j)
+        segments.emplace_back(curve(in[2 + 3 * j]), in[3 + 3 * j] != 0);
+    }
+    else
+      segments.emplace_back(curve(k), true);
+    for (const auto& [c, sense] : segments)
+    {
+      BRepBuilderAPI_MakeEdge me(c, c->FirstParameter(), c->LastParameter());
+      if (!me.IsDone())
+      {
+        out.warnings.push_back("curve #" + std::to_string((long long)id)
+                               + ": no edge along it (unbounded?); left out (as OCCT's STEP reader leaves it out)");
+        continue;
+      }
+      TopoDS_Edge e = me.Edge();
+      if (std::isfinite(id))
+        out.edgeIds.emplace(e.TShape().get(), (int)id);
+      bb.Add(all, sense ? e : e.Reversed());
+    }
+  }
+
+
   // A p-curve: a 2D curve in its surface's (u, v), Part 42's parameterizations as OCCT's 2D counterparts (as curve()
   // maps the 3D ones), then as OCCT's STEP translator takes it (GeomConvert_Units::DegreeToRadian with unit factors:
   // a cone's v along the generatrix, conics on surfaces other than planes as B-splines).
-  occ::handle<Geom2d_Curve> curve2d(int k, const occ::handle<Geom_Surface>& surface)
+  occ::handle<Geom2d_Curve> curve2d(int k, const occ::handle<Geom_Surface>& surface, int si)
+  {
+    return mapped(plain2d(k), surface, si);
+  }
+
+  // A 2D curve as OCCT's counterpart, unconverted.
+  occ::handle<Geom2d_Curve> plain2d(int k)
   {
     if (r.u8(CBR_CURVE_DIM)[k] != 2)
       throw Unbuilt{"a p-curve that isn't 2D"};
@@ -332,10 +529,10 @@ struct Builder
       {
         gp_Ax22d a  = ax22(re);
         double   s1 = re[4], s2 = re[5];
-        // OCCT's x axis is the major one: y as x, turned the same way.
+        // OCCT's x axis is the major one: y's opposite as x (as in 3D), so Part 42's t is OCCT's t + pi/2.
         if (s1 < s2)
         {
-          a = gp_Ax22d(a.Location(), a.YDirection(), true);
+          a = gp_Ax22d(a.Location(), a.YDirection().Reversed(), true);
           std::swap(s1, s2);
         }
         c = new Geom2d_Ellipse(a, s1, s2);
@@ -380,17 +577,79 @@ struct Builder
         c = new Geom2d_BSplineCurve(poles, kn, mults, 1);
         break;
       }
+      case CBR_CURVE_TRIMMED:
+      {
+        // As the translator makes a trimmed p-curve: a B-spline basis as it is, another trimmed (Part 42's
+        // parameters as OCCT's) and as a B-spline.
+        occ::handle<Geom2d_Curve> basis = plain2d(in[0]);
+        if (basis->IsKind(STANDARD_TYPE(Geom2d_BSplineCurve)))
+        {
+          c = basis;
+          break;
+        }
+        double f, shift;
+        curveParam(in[0], f, shift);
+        if (!std::isfinite(re[0]) || !std::isfinite(re[1]))
+          throw Unbuilt{"a trimmed p-curve trimmed by points"};
+        double t1 = shift + f * re[0], t2 = shift + f * re[1];
+        if (!in[1])
+          std::swap(t1, t2);
+        c = Geom2dConvert::CurveToBSplineCurve(new Geom2d_TrimmedCurve(basis, t1, t2, in[1] != 0));
+        break;
+      }
+      case CBR_CURVE_OFFSET:
+        // C + d N, N the tangent turned -90 degrees: Part 42's and OCCT's alike.
+        c = new Geom2d_OffsetCurve(plain2d(in[0]), re[0]);
+        break;
       default:
-        throw Unbuilt{std::string("a p-curve that is a ") + curveKindName(kind)};
+        throw Unbuilt{std::string("a p-curve that is ") + withArticle(curveKindName(kind))};
     }
-    return GeomConvert_Units::DegreeToRadian(c, surface, 1.0, 1.0);
+    return c;
+  }
+
+  // A p-curve in OCCT's (u, v) on its surface: as the translator converts it (GeomConvert_Units::DegreeToRadian:
+  // a cone's v; conics on surfaces other than planes as B-splines), then where the translator doesn't convert
+  // (extrusions, revolutions, offset and trimmed surfaces), Part 42's (u, v) mapped to OCCT's (surfaceParams).
+  occ::handle<Geom2d_Curve> mapped(const occ::handle<Geom2d_Curve>& c0, const occ::handle<Geom_Surface>& surface,
+                                   int si)
+  {
+    occ::handle<Geom2d_Curve> c = GeomConvert_Units::DegreeToRadian(c0, surface, 1.0, 1.0);
+    const int kind = r.u8(CBR_SURFACE_KIND)[si];
+    if (kind != CBR_SURFACE_EXTRUSION && kind != CBR_SURFACE_REVOLUTION && kind != CBR_SURFACE_OFFSET
+        && kind != CBR_SURFACE_RECTANGULAR_TRIMMED)
+      return c;
+    double fu, su, fv, sv;
+    if (!surfaceParams(si, fu, su, fv, sv))
+      throw Unbuilt{"a p-curve on a surface whose curve has no affine parameterization"};
+    if (fu == 1. && su == 0. && fv == 1. && sv == 0.)
+      return c;
+    gp_GTrsf2d t;
+    t.SetValue(1, 1, fu);
+    t.SetValue(2, 2, fv);
+    t.SetTranslationPart(gp_XY(su, sv));
+    if (auto l = occ::down_cast<Geom2d_Line>(c))
+    {
+      // (A line stays one; its parameter's speed changes, which the edge's range on the face absorbs.)
+      gp_XY o = l->Location().XY(), d = l->Direction().XY();
+      t.Transforms(o);
+      d.SetCoord(fu * d.X(), fv * d.Y());
+      return new Geom2d_Line(gp_Pnt2d(o), gp_Dir2d(d));
+    }
+    occ::handle<Geom2d_BSplineCurve> b = Geom2dConvert::CurveToBSplineCurve(c);
+    for (int i = 1; i <= b->NbPoles(); ++i)
+    {
+      gp_XY q = b->Pole(i).XY();
+      t.Transforms(q);
+      b->SetPole(i, gp_Pnt2d(q));
+    }
+    return b;
   }
 
   // A surface, made anew for each face (as the STEP translator makes them): a p-curve is kept per edge and surface, so
   // two faces on one surface sharing an edge (a hole's two halves on one cylinder) would share the edge's p-curve,
   // and healing turns one of them into the rest of the cylinder. Null for one OCCT's API can't hold (a swept surface:
   // its faces dropped).
-  occ::handle<Geom_Surface> surface(int k)
+  occ::handle<Geom_Surface> surface(int k, bool periodic = true)
   {
     const int      kind = r.u8(CBR_SURFACE_KIND)[k];
     const double*  re   = r.f64(CBR_POOL_SURFACE_REAL) + r.i32(CBR_SURFACE_REAL)[k];
@@ -411,10 +670,38 @@ struct Builder
         s = new Geom_SphericalSurface(ax3(re), re[9]);
         break;
       case CBR_SURFACE_TORUS:
+        // (A degenerate torus as a plain one, select_outer aside, as the translator reads it.)
         if (in[0])
-          throw Unbuilt{"a degenerate torus"};
+          out.warnings.push_back("a degenerate torus read as a plain one (which part of it is meant, select_outer, "
+                                 "set aside, as OCCT's STEP reader sets it aside)");
         s = new Geom_ToroidalSurface(ax3(re), re[9], re[10]);
         break;
+      case CBR_SURFACE_EXTRUSION:
+        s = new Geom_SurfaceOfLinearExtrusion(curve(in[0]), dir(re));
+        break;
+      case CBR_SURFACE_REVOLUTION:
+        s = new Geom_SurfaceOfRevolution(curve(in[0]), gp_Ax1(pnt(re), dir(re + 3)));
+        break;
+      case CBR_SURFACE_OFFSET:
+      {
+        occ::handle<Geom_Surface> basis = surface(in[0], false);
+        if (basis.IsNull())
+          return basis;
+        s = new Geom_OffsetSurface(basis, re[0]);
+        break;
+      }
+      case CBR_SURFACE_RECTANGULAR_TRIMMED:
+      {
+        occ::handle<Geom_Surface> basis = surface(in[0], false);
+        if (basis.IsNull())
+          return basis;
+        double fu, su, fv, sv;
+        if (!surfaceParams(in[0], fu, su, fv, sv))
+          throw Unbuilt{"a trimmed surface whose basis's curve has no affine parameterization"};
+        s = new Geom_RectangularTrimmedSurface(basis, fu * re[0] + su, fu * re[1] + su, fv * re[2] + sv,
+                                               fv * re[3] + sv, in[1] != 0, in[2] != 0);
+        break;
+      }
       case CBR_SURFACE_BSPLINE:
       {
         const int ud = in[0], vd = in[1], nu = in[2], nv = in[3], ku = in[4], kv = in[5], rational = in[6];
@@ -443,6 +730,8 @@ struct Builder
         // In periodic form where closed (as the STEP translator puts a B-spline face's surface): healing adds the
         // missing seam only on a periodic surface, and splits a ring between two circles on a closed one into two
         // empty faces.
+        if (!periodic)
+          break;
         if (occ::handle<Geom_Surface> ps = ShapeAlgo::AlgoContainer()->ConvertToPeriodic(s); !ps.IsNull())
           s = ps;
         break;
@@ -451,7 +740,7 @@ struct Builder
       case CBR_SURFACE_FIXED_REFERENCE_SWEPT:
         return s;
       default:
-        throw Unbuilt{std::string("a ") + surfaceKindName(kind)};
+        throw Unbuilt{withArticle(surfaceKindName(kind))};
     }
     return s;
   }
@@ -485,10 +774,24 @@ struct Builder
         out.edgeIds.emplace(ed.TShape().get(), (int)id);
       return ed;
     }
-    if (ci < 0)
-      throw Unbuilt{"an edge without a 3D curve"};
     if (si < 0 || ei < 0)
       throw Unbuilt{"an edge without a vertex"};
+    if (ci < 0)
+    {
+      // Its p-curves alone (STEP's PCURVE as an edge's geometry): a bare edge between its vertices, as the translator
+      // makes one; its faces give it its p-curves, and healing its 3D curve.
+      const bool same = r.u8(CBR_EDGE_SAME_SENSE)[e] != 0;
+      const int  a = same ? si : ei, b = same ? ei : si;
+      TopoDS_Edge ed;
+      bb.MakeEdge(ed);
+      bb.Add(ed, vertices[a].Oriented(TopAbs_FORWARD));
+      bb.Add(ed, vertices[b].Oriented(TopAbs_REVERSED));
+      TopoDS_Edge used = same ? ed : TopoDS::Edge(ed.Reversed());
+      edges.emplace(e, used);
+      if (std::isfinite(id))
+        out.edgeIds.emplace(ed.TShape().get(), (int)id);
+      return used;
+    }
     occ::handle<Geom_Curve> c = curve(ci);
     const bool same = r.u8(CBR_EDGE_SAME_SENSE)[e] != 0;
     // Along the curve: from the start to the end, or from the end to the start against it.
@@ -584,11 +887,22 @@ struct Builder
     const std::string         what = "face #" + std::to_string((long long)id);
     if (s.IsNull())
     {
-      out.warnings.push_back(what + ": its surface (a " + surfaceKindName(r.u8(CBR_SURFACE_KIND)[si])
+      out.warnings.push_back(what + ": its surface (" + withArticle(surfaceKindName(r.u8(CBR_SURFACE_KIND)[si]))
                              + ") has no counterpart in OCCT; left out (as OCCT's STEP reader leaves it out)");
       faces.emplace(f, TopoDS_Face());
       return TopoDS_Face();
     }
+    const int first0 = r.i32(CBR_FACE_FIRST_LOOP)[f], count0 = r.i32(CBR_FACE_LOOP_COUNT)[f];
+    for (int l = first0; l < first0 + count0; ++l)
+      if (r.u8(CBR_LOOP_KIND)[l] == CBR_LOOP_EDGE && r.i32(CBR_LOOP_COUNT)[l] > 0
+          && r.i32(CBR_EDGE_START)[r.i32(CBR_COEDGE_EDGE)[r.i32(CBR_LOOP_FIRST)[l]]] < 0)
+      {
+        TopoDS_Face fc = curveBounded(f, s);
+        if (std::isfinite(id))
+          out.faceIds.emplace(fc.TShape().get(), (int)id);
+        faces.emplace(f, fc);
+        return fc;
+      }
     const bool   same = r.u8(CBR_FACE_SAME_SENSE)[f] != 0;
     const bool   isPlane = s->IsKind(STANDARD_TYPE(Geom_Plane));
     BRep_Builder bb;
@@ -613,7 +927,7 @@ struct Builder
       {
         // The loop's sense, and against a reversed face the other way round (the face is turned below).
         const bool reverse = !sense != !same;
-        bb.Add(fc, edgeLoop(fc, s, isPlane, l, reverse));
+        bb.Add(fc, edgeLoop(fc, s, si, isPlane, l, reverse));
       }
     }
     fc.Orientation(same ? TopAbs_FORWARD : TopAbs_REVERSED);
@@ -623,11 +937,119 @@ struct Builder
     return fc;
   }
 
+  // A curve-bounded face (its edges without vertices: STEP's CURVE_BOUNDED_SURFACE), as OCCT's STEP translator makes
+  // one: on its surface (a B-spline one in periodic form), the surface's natural bounds first where its loops are all
+  // inner (an implicit outer bound) and the surface is bounded; each loop a wire of an edge per coedge, from its 3D
+  // curve over its whole range with the p-curve added unparameterized, or from its p-curve on the surface alone;
+  // reordered and connected by ShapeFix_Wire.
+  TopoDS_Face curveBounded(int f, const occ::handle<Geom_Surface>& s)
+  {
+    BRep_Builder bb;
+    TopoDS_Face  fc;
+    bb.MakeFace(fc, s, Precision::Confusion());
+    const int first = r.i32(CBR_FACE_FIRST_LOOP)[f], count = r.i32(CBR_FACE_LOOP_COUNT)[f];
+    bool      implicitOuter = count > 0;
+    for (int l = first; l < first + count; ++l)
+      implicitOuter = implicitOuter && r.u8(CBR_LOOP_BOUND)[l] == CBR_BOUND_INNER;
+    const std::string what = "face #" + std::to_string((long long)r.f64(CBR_FACE_ID)[f]);
+    if (implicitOuter)
+    {
+      if (s->IsKind(STANDARD_TYPE(Geom_BoundedSurface)))
+        fc = BRepBuilderAPI_MakeFace(s, Precision::Confusion()).Face();
+      else
+        out.warnings.push_back(what + ": no natural bounds on an unbounded surface (as OCCT's STEP reader makes none)");
+    }
+    for (int l = first; l < first + count; ++l)
+    {
+      if (r.u8(CBR_LOOP_KIND)[l] != CBR_LOOP_EDGE)
+        continue;
+      occ::handle<ShapeExtend_WireData> wd = new ShapeExtend_WireData;
+      const int c0 = r.i32(CBR_LOOP_FIRST)[l], cn = r.i32(CBR_LOOP_COUNT)[l];
+      for (int c = c0; c < c0 + cn; ++c)
+      {
+        const int   e  = r.i32(CBR_COEDGE_EDGE)[c], ci = r.i32(CBR_EDGE_CURVE)[e], pc = r.i32(CBR_COEDGE_PCURVE)[c];
+        TopoDS_Edge ed;
+        try
+        {
+          occ::handle<Geom2d_Curve> c2d =
+            pc >= 0 ? curve2d(pc, s, r.i32(CBR_FACE_SURFACE)[f]) : occ::handle<Geom2d_Curve>();
+          if (ci >= 0)
+          {
+            occ::handle<Geom_Curve> c3 = curve(ci);
+            BRepBuilderAPI_MakeEdge me(c3, c3->FirstParameter(), c3->LastParameter());
+            if (me.IsDone())
+            {
+              ed = me.Edge();
+              if (!c2d.IsNull())
+              {
+                TopLoc_Location loc;
+                bb.UpdateEdge(ed, c2d, s, loc, 0.);
+                bb.Range(ed, s, loc, c2d->FirstParameter(), c2d->LastParameter());
+                bb.SameRange(ed, false);
+                bb.SameParameter(ed, false);
+              }
+            }
+          }
+          else if (!c2d.IsNull())
+          {
+            BRepBuilderAPI_MakeEdge me(c2d, s, c2d->FirstParameter(), c2d->LastParameter());
+            if (me.IsDone())
+              ed = me.Edge();
+          }
+        }
+        catch (const Standard_Failure&)
+        {
+          ed.Nullify();
+        }
+        if (ed.IsNull())
+        {
+          out.warnings.push_back(what + ": a boundary segment that can't be made an edge; left out (as OCCT's STEP "
+                                 "reader leaves it out)");
+          continue;
+        }
+        const double id = r.f64(CBR_EDGE_ID)[e];
+        if (std::isfinite(id))
+          out.edgeIds.emplace(ed.TShape().get(), (int)id);
+        wd->Add(r.u8(CBR_COEDGE_ORIENTATION)[c] == CBR_ORIENTATION_REVERSED ? TopoDS::Edge(ed.Reversed()) : ed);
+      }
+      if (wd->NbEdges() == 0)
+        continue;
+      occ::handle<ShapeFix_Wire> sfw = new ShapeFix_Wire;
+      sfw->Load(wd);
+      sfw->SetPrecision(precision);
+      sfw->ClosedWireMode() = true;
+      sfw->FixReorder();
+      sfw->FixConnected(precision);
+      bb.Add(fc, wd->Wire());
+    }
+    return fc;
+  }
+
+  // A surface item, as OCCT's STEP translator makes a geometric set's: a face over its natural bounds where it's
+  // bounded (its B-spline surface as it is, not in periodic form), else none.
+  TopoDS_Face surfaceItem(int k, double id)
+  {
+    occ::handle<Geom_Surface> s = surface(k, false);
+    if (s.IsNull() || !s->IsKind(STANDARD_TYPE(Geom_BoundedSurface)))
+    {
+      out.warnings.push_back("surface #" + std::to_string((long long)id)
+                             + ": unbounded; left out (as OCCT's STEP reader leaves it out)");
+      return TopoDS_Face();
+    }
+    BRepBuilderAPI_MakeFace mf;
+    mf.Init(s, true, precision);
+    TopoDS_Face fc = mf.Face();
+    if (std::isfinite(id))
+      out.faceIds.emplace(fc.TShape().get(), (int)id);
+    return fc;
+  }
+
   // An edge loop's wire, turned as it's to be added (reverse), its edges given the coedges' p-curves on fc's surface
   // (as OCCT's STEP translator gives them: none on planes; a seam's two, the first for its use that runs forward
   // through the wire as added; then, where every edge has one, each edge's range on the face from its vertices
   // projected; then the translator's checks of them).
-  TopoDS_Wire edgeLoop(const TopoDS_Face& fc, const occ::handle<Geom_Surface>& s, bool isPlane, int l, bool reverse)
+  TopoDS_Wire edgeLoop(const TopoDS_Face& fc, const occ::handle<Geom_Surface>& s, int si, bool isPlane, int l,
+                       bool reverse)
   {
     BRep_Builder bb;
     TopoDS_Wire  w;
@@ -663,7 +1085,7 @@ struct Builder
           const int pc = r.i32(CBR_COEDGE_PCURVE)[coedge[j]];
           if (pc < 0)
             break;
-          pcs.push_back(curve2d(pc, s));
+          pcs.push_back(curve2d(pc, s, si));
         }
         // (The model's degenerate edges: BRepLib_MakeEdge marks some edges of no length so too, which, like the
         // translator's, get their p-curves from healing.)
@@ -898,7 +1320,16 @@ struct Builder
       }
       return c;
     }
-    throw Unbuilt{"a wire body"};
+    // A wire body: its edges (as the translator makes a wireframe model's), loose.
+    TopoDS_Compound c;
+    bb.MakeCompound(c);
+    for (int j = first; j < first + count; ++j)
+    {
+      TopoDS_Edge e = edge(r.i32(CBR_MEMBER_REF)[j]);
+      if (!e.IsNull())
+        bb.Add(c, r.u8(CBR_MEMBER_SENSE)[j] ? e : e.Reversed());
+    }
+    return c;
   }
 };
 } // namespace
@@ -933,16 +1364,78 @@ BuiltPart buildPart(const uint8_t* buf, size_t len)
     TopoDS_Compound all;
     bb.MakeCompound(all);
     const int ni = b.r.rows(CBR_ITEM_KIND);
+    // Each item's shape, for the instances placing it.
+    std::vector<TopoDS_Shape> itemShapes(ni);
     for (int i = 0; i < ni; ++i)
     {
-      const int kind = b.r.u8(CBR_ITEM_KIND)[i], ref = b.r.i32(CBR_ITEM_REF)[i];
-      if (b.r.i32(CBR_ITEM_TRANSFORM)[i] >= 0)
-        throw Unbuilt{"an item with a transform"};
-      if (kind != CBR_ITEM_BODY)
-        throw Unbuilt{kind == CBR_ITEM_FACE ? "a face item" : kind == CBR_ITEM_SURFACE ? "a surface item"
-                      : kind == CBR_ITEM_CURVE ? "a curve item" : kind == CBR_ITEM_POINT ? "a point item"
-                      : "an instance item"};
-      bb.Add(all, b.body(ref));
+      const int    kind = b.r.u8(CBR_ITEM_KIND)[i], ref = b.r.i32(CBR_ITEM_REF)[i];
+      const double id = b.r.f64(CBR_ITEM_ID)[i];
+      TopoDS_Compound one;
+      bb.MakeCompound(one);
+      if (kind == CBR_ITEM_CURVE)
+      {
+        // (An exception from OCCT loses the item alone, as the translator loses a geometric set's element.)
+        try
+        {
+          b.curveItem(ref, id, one);
+        }
+        catch (const Standard_Failure& e)
+        {
+          out.warnings.push_back("curve #" + std::to_string((long long)id) + ": OCCT failed on it (" + e.what()
+                                 + "); left out");
+        }
+      }
+      else if (kind == CBR_ITEM_POINT)
+      {
+        // A vertex at the point (as the translator makes a geometric set's).
+        TopoDS_Vertex v = BRepBuilderAPI_MakeVertex(pnt(b.r.f64(CBR_POOL_ITEM_REAL) + ref)).Vertex();
+        if (std::isfinite(id))
+          out.pointIds.emplace(v.TShape().get(), (int)id);
+        bb.Add(one, v);
+      }
+      else if (kind == CBR_ITEM_FACE || kind == CBR_ITEM_SURFACE)
+      {
+        // A geometric set's (as the translator loses an element, an exception from OCCT loses the item alone).
+        out.geometricSet = true;
+        try
+        {
+          TopoDS_Face fc = kind == CBR_ITEM_FACE ? b.face(ref) : b.surfaceItem(ref, id);
+          if (!fc.IsNull())
+            bb.Add(one, fc);
+        }
+        catch (const Standard_Failure& e)
+        {
+          out.warnings.push_back(std::string(kind == CBR_ITEM_FACE ? "face #" : "surface #")
+                                 + std::to_string((long long)id) + ": OCCT failed on it (" + e.what() + "); left out");
+        }
+      }
+      else if (kind == CBR_ITEM_INSTANCE)
+      {
+        // Another item (before it) placed: its shapes shared, moved by the instance's transform.
+        if (ref < 0 || ref >= i || itemShapes[ref].IsNull())
+          throw Unbuilt{"an instance of an item that isn't before it"};
+        bb.Add(one, itemShapes[ref]);
+      }
+      else
+        bb.Add(one, b.body(ref));
+      TopoDS_Shape placed = one;
+      const int    t = b.r.i32(CBR_ITEM_TRANSFORM)[i];
+      if (t >= 0)
+      {
+        // Column-major x, y, z columns, then the translation; OCCT holds similarities only (a rotation, a mirror, a
+        // uniform scale).
+        const double* m = b.r.f64(CBR_POOL_ITEM_REAL) + t;
+        const gp_Vec  x(m[0], m[1], m[2]), y(m[3], m[4], m[5]), z(m[6], m[7], m[8]);
+        const double  sx = x.Magnitude(), tol = 1e-9 * std::max(sx, 1.);
+        if (std::abs(y.Magnitude() - sx) > tol || std::abs(z.Magnitude() - sx) > tol || std::abs(x.Dot(y)) > tol * sx
+            || std::abs(y.Dot(z)) > tol * sx || std::abs(z.Dot(x)) > tol * sx || sx == 0)
+          throw Unbuilt{"an item's transform that isn't a similarity"};
+        gp_Trsf tr;
+        tr.SetValues(m[0], m[3], m[6], m[9], m[1], m[4], m[7], m[10], m[2], m[5], m[8], m[11]);
+        placed = one.Moved(TopLoc_Location(tr));
+      }
+      itemShapes[i] = placed;
+      bb.Add(all, placed);
     }
     out.shape = all;
   }
