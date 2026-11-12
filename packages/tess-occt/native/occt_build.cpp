@@ -131,10 +131,11 @@ struct Unbuilt
 struct Reader
 {
   cbr_view v[CBR_COLUMN_COUNT];
-  const double*  f64(cbr_column c) const { return CBR_F64(v[c]); }
-  const int32_t* i32(cbr_column c) const { return CBR_I32(v[c]); }
-  const uint8_t* u8(cbr_column c) const { return CBR_U8(v[c]); }
-  int            rows(cbr_column c, int width = 1) const { return (int)(v[c].count / width); }
+  const double*   f64(cbr_column c) const { return CBR_F64(v[c]); }
+  const int32_t*  i32(cbr_column c) const { return CBR_I32(v[c]); }
+  const uint32_t* u32(cbr_column c) const { return CBR_U32(v[c]); }
+  const uint8_t*  u8(cbr_column c) const { return CBR_U8(v[c]); }
+  int             rows(cbr_column c, int width = 1) const { return (int)(v[c].count / width); }
 };
 
 gp_Pnt pnt(const double* p) { return gp_Pnt(p[0], p[1], p[2]); }
@@ -473,7 +474,7 @@ struct Builder
 
   // A curve item as OCCT's STEP translator makes one of a geometric set's: an edge over the curve's whole range (none
   // where that fails: an unbounded one); a composite curve its segments' edges, each with the composite's id.
-  void curveItem(int k, double id, TopoDS_Compound& all)
+  void curveItem(int k, uint32_t id, TopoDS_Compound& all)
   {
     BRep_Builder bb;
     std::vector<std::pair<occ::handle<Geom_Curve>, bool>> segments;
@@ -490,13 +491,13 @@ struct Builder
       BRepBuilderAPI_MakeEdge me(c, c->FirstParameter(), c->LastParameter());
       if (!me.IsDone())
       {
-        out.warnings.push_back("curve #" + std::to_string((long long)id)
+        out.warnings.push_back("curve #" + std::to_string(id)
                                + ": no edge along it (unbounded?); left out (as OCCT's STEP reader leaves it out)");
         continue;
       }
       TopoDS_Edge e = me.Edge();
-      if (std::isfinite(id))
-        out.edgeIds.emplace(e.TShape().get(), (int)id);
+      if (id)
+        out.edgeIds.emplace(e.TShape().get(), id);
       bb.Add(all, sense ? e : e.Reversed());
     }
   }
@@ -672,10 +673,8 @@ struct Builder
         s = new Geom_SphericalSurface(ax3(re), re[9]);
         break;
       case CBR_SURFACE_TORUS:
-        // (A degenerate torus as a plain one, select_outer aside, as the translator reads it.)
-        if (in[0])
-          out.warnings.push_back("a degenerate torus read as a plain one (which part of it is meant, select_outer, "
-                                 "set aside, as OCCT's STEP reader sets it aside)");
+        // (A degenerate torus as a plain one, select_outer aside, as the translator reads it: its parameters reach
+        // each point of either part once, so a face's loops settle which part it's on; face() warns of one without.)
         s = new Geom_ToroidalSurface(ax3(re), re[9], re[10]);
         break;
       case CBR_SURFACE_EXTRUSION:
@@ -758,8 +757,8 @@ struct Builder
     if (it != edges.end())
       return it->second;
     const int ci = r.i32(CBR_EDGE_CURVE)[e], si = r.i32(CBR_EDGE_START)[e], ei = r.i32(CBR_EDGE_END)[e];
-    const double id = r.f64(CBR_EDGE_ID)[e];
-    const std::string what = "edge #" + std::to_string((long long)id);
+    const uint32_t id = r.u32(CBR_EDGE_ID)[e];
+    const std::string what = "edge #" + std::to_string(id);
     BRep_Builder bb;
     // A degenerate edge (at a pole or an apex) left out: healing makes OCCT's own where the wire needs it (one made
     // here, given its coedge's p-curve and range, leaves BRepCheck unable to analyse the face).
@@ -782,8 +781,8 @@ struct Builder
       bb.Add(ed, vertices[b].Oriented(TopAbs_REVERSED));
       TopoDS_Edge used = same ? ed : TopoDS::Edge(ed.Reversed());
       edges.emplace(e, used);
-      if (std::isfinite(id))
-        out.edgeIds.emplace(ed.TShape().get(), (int)id);
+      if (id)
+        out.edgeIds.emplace(ed.TShape().get(), id);
       return used;
     }
     occ::handle<Geom_Curve> c = curve(ci);
@@ -861,8 +860,8 @@ struct Builder
       ed = direct(c, va, vb, u1, u2);
     TopoDS_Edge used = same ? ed : TopoDS::Edge(ed.Reversed());
     edges.emplace(e, used);
-    if (std::isfinite(id))
-      out.edgeIds.emplace(ed.TShape().get(), (int)id);
+    if (id)
+      out.edgeIds.emplace(ed.TShape().get(), id);
     return used;
   }
 
@@ -877,8 +876,8 @@ struct Builder
       return it->second;
     const int                 si = r.i32(CBR_FACE_SURFACE)[f];
     occ::handle<Geom_Surface> s  = surface(si);
-    const double              id = r.f64(CBR_FACE_ID)[f];
-    const std::string         what = "face #" + std::to_string((long long)id);
+    const uint32_t            id = r.u32(CBR_FACE_ID)[f];
+    const std::string         what = "face #" + std::to_string(id);
     if (s.IsNull())
     {
       out.warnings.push_back(what + ": its surface (" + withArticle(surfaceKindName(r.u8(CBR_SURFACE_KIND)[si]))
@@ -892,8 +891,8 @@ struct Builder
           && r.i32(CBR_EDGE_START)[r.i32(CBR_COEDGE_EDGE)[r.i32(CBR_LOOP_FIRST)[l]]] < 0)
       {
         TopoDS_Face fc = curveBounded(f, s);
-        if (std::isfinite(id))
-          out.faceIds.emplace(fc.TShape().get(), (int)id);
+        if (id)
+          out.faceIds.emplace(fc.TShape().get(), id);
         faces.emplace(f, fc);
         return fc;
       }
@@ -924,12 +923,19 @@ struct Builder
         bb.Add(fc, edgeLoop(fc, s, si, isPlane, l, reverse));
       }
     }
+    // (Healing bounds a face without wires by its surface: on a degenerate torus, both its parts.)
+    if (r.u8(CBR_SURFACE_KIND)[si] == CBR_SURFACE_TORUS && degenerateTorus(si) && !TopoDS_Iterator(fc).More())
+      out.warnings.push_back(what + ": bounded by its degenerate torus alone: both of the torus's parts, which part is "
+                                    "meant (select_outer) set aside, as OCCT's STEP reader sets it aside");
     fc.Orientation(same ? TopAbs_FORWARD : TopAbs_REVERSED);
-    if (std::isfinite(id))
-      out.faceIds.emplace(fc.TShape().get(), (int)id);
+    if (id)
+      out.faceIds.emplace(fc.TShape().get(), id);
     faces.emplace(f, fc);
     return fc;
   }
+
+  // Whether torus k is degenerate (Part 42's DEGENERATE_TOROIDAL_SURFACE).
+  bool degenerateTorus(int k) { return r.i32(CBR_POOL_SURFACE_INT)[r.i32(CBR_SURFACE_INT)[k]] != 0; }
 
   // A curve-bounded face (its edges without vertices: STEP's CURVE_BOUNDED_SURFACE), as OCCT's STEP translator makes
   // one: on its surface (a B-spline one in periodic form), the surface's natural bounds first where its loops are all
@@ -945,7 +951,7 @@ struct Builder
     bool      implicitOuter = count > 0;
     for (int l = first; l < first + count; ++l)
       implicitOuter = implicitOuter && r.u8(CBR_LOOP_BOUND)[l] == CBR_BOUND_INNER;
-    const std::string what = "face #" + std::to_string((long long)r.f64(CBR_FACE_ID)[f]);
+    const std::string what = "face #" + std::to_string(r.u32(CBR_FACE_ID)[f]);
     if (implicitOuter)
     {
       if (s->IsKind(STANDARD_TYPE(Geom_BoundedSurface)))
@@ -959,7 +965,7 @@ struct Builder
         continue;
       occ::handle<ShapeExtend_WireData> wd = new ShapeExtend_WireData;
       // Each segment's edge as made, with its id: kept (alive) until the ids are given to the edges the fixes leave.
-      std::vector<std::pair<TopoDS_Edge, int>> made;
+      std::vector<std::pair<TopoDS_Edge, uint32_t>> made;
       const int c0 = r.i32(CBR_LOOP_FIRST)[l], cn = r.i32(CBR_LOOP_COUNT)[l];
       for (int c = c0; c < c0 + cn; ++c)
       {
@@ -1003,9 +1009,9 @@ struct Builder
                                  "reader leaves it out)");
           continue;
         }
-        const double id = r.f64(CBR_EDGE_ID)[e];
-        if (std::isfinite(id))
-          made.emplace_back(ed, (int)id);
+        const uint32_t id = r.u32(CBR_EDGE_ID)[e];
+        if (id)
+          made.emplace_back(ed, id);
         wd->Add(r.u8(CBR_COEDGE_ORIENTATION)[c] == CBR_ORIENTATION_REVERSED ? TopoDS::Edge(ed.Reversed()) : ed);
       }
       if (wd->NbEdges() == 0)
@@ -1041,20 +1047,20 @@ struct Builder
 
   // A surface item, as OCCT's STEP translator makes a geometric set's: a face over its natural bounds where it's
   // bounded (its B-spline surface as it is, not in periodic form), else none.
-  TopoDS_Face surfaceItem(int k, double id)
+  TopoDS_Face surfaceItem(int k, uint32_t id)
   {
     occ::handle<Geom_Surface> s = surface(k, false);
     if (s.IsNull() || !s->IsKind(STANDARD_TYPE(Geom_BoundedSurface)))
     {
-      out.warnings.push_back("surface #" + std::to_string((long long)id)
+      out.warnings.push_back("surface #" + std::to_string(id)
                              + ": unbounded; left out (as OCCT's STEP reader leaves it out)");
       return TopoDS_Face();
     }
     BRepBuilderAPI_MakeFace mf;
     mf.Init(s, true, precision);
     TopoDS_Face fc = mf.Face();
-    if (std::isfinite(id))
-      out.faceIds.emplace(fc.TShape().get(), (int)id);
+    if (id)
+      out.faceIds.emplace(fc.TShape().get(), id);
     return fc;
   }
 
@@ -1353,7 +1359,7 @@ BuiltPart buildPart(const uint8_t* buf, size_t len)
     for (int i = 0; i < ni; ++i)
     {
       const int    kind = b.r.u8(CBR_ITEM_KIND)[i], ref = b.r.i32(CBR_ITEM_REF)[i];
-      const double id = b.r.f64(CBR_ITEM_ID)[i];
+      const uint32_t id = b.r.u32(CBR_ITEM_ID)[i];
       TopoDS_Compound one;
       bb.MakeCompound(one);
       if (kind == CBR_ITEM_CURVE)
@@ -1365,7 +1371,7 @@ BuiltPart buildPart(const uint8_t* buf, size_t len)
         }
         catch (const Standard_Failure& e)
         {
-          out.warnings.push_back("curve #" + std::to_string((long long)id) + ": OCCT failed on it (" + e.what()
+          out.warnings.push_back("curve #" + std::to_string(id) + ": OCCT failed on it (" + e.what()
                                  + "); left out");
         }
       }
@@ -1373,8 +1379,8 @@ BuiltPart buildPart(const uint8_t* buf, size_t len)
       {
         // A vertex at the point (as the translator makes a geometric set's).
         TopoDS_Vertex v = BRepBuilderAPI_MakeVertex(pnt(b.r.f64(CBR_POOL_ITEM_REAL) + ref)).Vertex();
-        if (std::isfinite(id))
-          out.pointIds.emplace(v.TShape().get(), (int)id);
+        if (id)
+          out.pointIds.emplace(v.TShape().get(), id);
         bb.Add(one, v);
       }
       else if (kind == CBR_ITEM_FACE || kind == CBR_ITEM_SURFACE)
@@ -1390,7 +1396,7 @@ BuiltPart buildPart(const uint8_t* buf, size_t len)
         catch (const Standard_Failure& e)
         {
           out.warnings.push_back(std::string(kind == CBR_ITEM_FACE ? "face #" : "surface #")
-                                 + std::to_string((long long)id) + ": OCCT failed on it (" + e.what() + "); left out");
+                                 + std::to_string(id) + ": OCCT failed on it (" + e.what() + "); left out");
         }
       }
       else if (kind == CBR_ITEM_INSTANCE)

@@ -17,7 +17,7 @@ EXPORTS='["_smlib_tessellate_model","_smlib_set_measures","_smlib_set_heal","_sm
 '"_smlib_edge_positions","_smlib_num_edge_points","_smlib_edges","_smlib_edge_angles","_smlib_num_edges",'\
 '"_smlib_measures","_smlib_num_measures","_smlib_curve_positions","_smlib_num_curve_points",'\
 '"_smlib_curves","_smlib_num_curves","_smlib_points","_smlib_point_ids","_smlib_num_points","_smlib_diag",'\
-'"_smlib_free","_malloc","_free"]'
+'"_smlib_ids_u32","_smlib_free","_malloc","_free"]'
 for f in smlib_tess smlib_build; do
   em++ -Os -fwasm-exceptions -std=c++17 -DNDEBUG -DNOMINMAX -w -Inative -I../cad-brep/include -I$S/SM_API/inc \
     -I$S/SMLib/inc -c native/$f.cpp -o build/$f.o

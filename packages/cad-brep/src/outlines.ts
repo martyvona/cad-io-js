@@ -88,7 +88,7 @@ export function faceOutlines(d: BrepData, origin: Vec, o: OutlineOptions, only?:
   };
   const vertex = (v: number) => Array.from(d.vertex.point.subarray(3 * v, 3 * v + 3));
   for (let f = 0; f < rowCount(d, 'face'); f++) {
-    const id = Number.isNaN(d.face.id[f]!) ? f : d.face.id[f]!;
+    const id = d.face.id[f] || f;
     faces.push(id);
     if (only && !only.has(id)) continue;
     const seen = new Set<number>();

@@ -2,7 +2,7 @@
 // make_subsets.ts), with each backend, single-threaded, at 0.05 file units (0.5 rad) with edges: every result through a
 // file store (written, then read by a new store) and the memory store must equal the backend's own; and the time of the
 // backend alone, of a first run through the file store (key, encoding, write), and of a second (key, read, decoding).
-// Results with an error diagnostic are cached too, and read back with a note saying so, which the comparison ignores.
+// Failed parts' results (failedPart) are cached too, and read back with a note saying so, which the comparison ignores.
 // Skips trj2_as1-id-203 #891, which hangs truck (phase 0), except at the end: truck in a one-worker pool with a 10 s
 // timeout, first through the file store (the timeout, cached) and then again (answered from the store). Times are only
 // meaningful with the CPU otherwise idle and not in low power mode. Usage: node corpus_checks/cache_check.ts
@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { TessellationError, type TessellationRequest, type TessellationResult,
+import { failedPart, TessellationError, type TessellationRequest, type TessellationResult,
   type Tessellator } from '../packages/cad-scene/src/index.ts';
 import { CachedTessellator, FileStore, MemoryStore } from '../packages/tess-cache/src/node.ts';
 import { OcctTessellator } from '../packages/tess-occt/src/index.ts';
@@ -55,17 +55,17 @@ for (const C of [TruckTessellator, OcctTessellator]) {
     const mem = new CachedTessellator(backend, new MemoryStore());
     await run(mem);
     const memHit = await run(mem);
-    const errors = direct.results.filter((r) => r.diagnostics.some((d) => d.severity === 'error')).length;
+    const errors = direct.results.filter(failedPart).length;
     for (const [i, r] of direct.results.entries()) {
       assert.deepEqual(miss.results[i], r, `part ${i}`);
       assert.deepEqual(unnoted(hit.results[i]!), r, `part ${i}`);
       assert.deepEqual(unnoted(memHit.results[i]!), r, `part ${i}`);
       assert.equal(hit.results[i]!.diagnostics.length - r.diagnostics.length,
-        r.diagnostics.some((d) => d.severity === 'error') ? 1 : 0);
+        failedPart(r) ? 1 : 0);
     }
     const s = second.stats();
     assert.deepEqual(s, { hits: reqs.length, failureHits: errors, misses: 0, errors: 0 });
-    console.log(`${backend.info.version}: results equal; ${errors} with an error diagnostic (cached too); `
+    console.log(`${backend.info.version}: results equal; ${errors} failed parts (cached too); `
       + `${((await store.size()) / 2 ** 20).toFixed(1)} MB stored`);
     console.log(`  backend ${(direct.ms / 1000).toFixed(2)} s; file store, first run ${(miss.ms / 1000).toFixed(2)} s, `
       + `second ${(hit.ms / 1000).toFixed(2)} s (${s.hits} hits); memory store, second `

@@ -8,7 +8,7 @@
 //   (progress on standard error)
 import fs from 'node:fs';
 import os from 'node:os';
-import { meshDeflections } from '../packages/cad-scene/src/index.ts';
+import { failedPart, meshDeflections } from '../packages/cad-scene/src/index.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
 import { stepPartBytes } from '../packages/step-export/src/index.ts';
 import { WorkerTessellator } from '../packages/tess-workers/src/node.ts';
@@ -57,7 +57,7 @@ for (const [n, f] of files.entries()) {
             origin: p.origin, linearDeflection: MESHING.linearDeflection / p.unit,
             angularDeflection: MESHING.angularDeflection });
           triangles = r.indices.length / 3;
-          if (r.diagnostics.some((d) => d.severity === 'error')) status = 'error';
+          if (failedPart(r)) status = 'error';
           else if (!triangles) status = 'empty';
         } catch (e) {
           status = /timed out/.test(String(e)) ? 'timeout' : 'throw';

@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { partInstances, type Part, tessellateScene } from 'cad-scene';
+import { failedPart, meshDeflections, partInstances, type Part, tessellateScene } from 'cad-scene';
 import { buildSubset, parseStep } from 'step-parser';
 import { STEP_WRITER_VERSION, StepTessellator } from 'step-export';
 import { importStep } from 'step-import';
@@ -258,6 +258,22 @@ test("our patch 0001: a cone whose seam pcurves slope by 3e-14 in U meshed (OCCT
   assert.ok(!r.diagnostics.some((d) => /failed to mesh/.test(d.message)), JSON.stringify(r.diagnostics));
 });
 
+const oneFails = step('trj7_b1-ec-214.stp');
+test('a face that fails to mesh is an error, in a part meshed otherwise (not a failed part)',
+  { skip: skip || (!fs.existsSync(oneFails) && 'corpus not fetched') }, async () => {
+  const tess = new OcctTessellator();
+  await tess.init();
+  const { scene } = await load(oneFails);
+  const p = scene.parts[0]!;
+  assert.equal(rootOf(p), 10);
+  const r = await tess.tessellate({ format: 'cad-brep', data: new Uint8Array(p.brep!.model.buffer), origin: p.origin,
+    ...meshDeflections({ profile: 'medium' }) });
+  tess.dispose();
+  assert.deepEqual(r.diagnostics.filter((d) => /failed to mesh/.test(d.message)),
+    [{ severity: 'error', message: '1 faces failed to mesh' }]);
+  assert.ok(r.indices.length > 0 && !failedPart(r));
+});
+
 const mixed = step('trj6_as1-td-214.stp');
 test("a solid with a curve set beside it: the set's curves and points, by id, minus the origin, apart from the edges",
   { skip: skip || (!fs.existsSync(mixed) && 'corpus not fetched') }, async () => {
@@ -354,6 +370,13 @@ test("a host's module: the glue and module given by URL, bytes, factory or compi
   await assert.rejects(bare.init({ glue: async () => ({ HEAPU8: new Uint8Array(1) }), wasm: module, version: 'x' }),
     /lacks HEAPF32, .*_occt_tessellate, .*is native\/occt_tess\.cpp linked in/);
   await assert.rejects(bare.tessellate(req), /init/);
+  // One built before the id arrays were uint32 (0 for none), lacking the export that says so, is refused too.
+  const old = new OcctTessellator();
+  await assert.rejects(old.init({ glue: async (arg) => {
+    const m = await factory(arg) as Record<string, unknown>;
+    delete m._occt_ids_u32;
+    return m;
+  }, wasm: bytes, version: 'x' }), /lacks _occt_ids_u32:/);
   // The wrong glue for the module: instantiation fails, and init rejects.
   const truck = path.join(root, 'packages/tess-truck/dist/tess_truck.wasm');
   if (fs.existsSync(truck)) await assert.rejects(new OcctTessellator().init({ glue, wasm: fs.readFileSync(truck) }));

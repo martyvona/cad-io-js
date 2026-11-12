@@ -137,7 +137,7 @@ struct Model
   bool faceSameSense(int f) const { return CBR_U8(v[CBR_FACE_SAME_SENSE])[f] != 0; }
   int faceFirstLoop(int f) const { return CBR_I32(v[CBR_FACE_FIRST_LOOP])[f]; }
   int faceLoopCount(int f) const { return CBR_I32(v[CBR_FACE_LOOP_COUNT])[f]; }
-  double faceId(int f) const { return CBR_F64(v[CBR_FACE_ID])[f]; }
+  uint32_t faceId(int f) const { return CBR_U32(v[CBR_FACE_ID])[f]; }
   int shellFirst(int s) const { return CBR_I32(v[CBR_SHELL_FIRST])[s]; }
   int shellCount(int s) const { return CBR_I32(v[CBR_SHELL_COUNT])[s]; }
   int shellKind(int s) const { return CBR_U8(v[CBR_SHELL_KIND])[s]; }
@@ -1508,7 +1508,7 @@ private:
   }
 
   // A loose curve (a curve item, or a composite's segment) as polylines, each with id.
-  void curveItem(int c, double id, const std::vector<double>& tr, int depth = 0)
+  void curveItem(int c, uint32_t id, const std::vector<double>& tr, int depth = 0)
   {
     if (c < 0 || depth > 8) { warn("curve items referring to themselves (left out)"); return; }
     const double* r = m.curveReal(c);
@@ -2043,7 +2043,7 @@ void Builder::buildItem(int i, const std::vector<double>& outer, int depth)
   std::vector<double> own;
   if (m.itemTransform(i) >= 0) own.assign(m.itemReal(m.itemTransform(i)), m.itemReal(m.itemTransform(i)) + 12);
   std::vector<double> tr = compose(own, outer);
-  double id = CBR_F64(m.v[CBR_ITEM_ID])[i];
+  uint32_t id = CBR_U32(m.v[CBR_ITEM_ID])[i];
   switch (m.itemKind(i)) {
   case CBR_ITEM_BODY: {
     int b = m.itemRef(i);
@@ -2055,7 +2055,7 @@ void Builder::buildItem(int i, const std::vector<double>& outer, int depth)
         if (!m.edgeSameSense(ref)) std::swap(s, t);
         EdgeGeom g = edgeGeom(ref, s, t);
         if (!g.curve) { warn(g.error + " (wire edges left out)"); continue; }
-        BuiltPart::Polyline pl{CBR_F64(m.v[CBR_EDGE_ID])[ref], {}, tr};
+        BuiltPart::Polyline pl{CBR_U32(m.v[CBR_EDGE_ID])[ref], {}, tr};
         sampleCurve(g.curve, g.interval, pl.points);
         delete g.curve;
         out.curves.push_back(std::move(pl));
@@ -2074,7 +2074,7 @@ void Builder::buildItem(int i, const std::vector<double>& outer, int depth)
   }
   case CBR_ITEM_FACE: buildSheet({m.itemRef(i)}, tr); break;
   case CBR_ITEM_SURFACE: buildNatural(m.itemRef(i), -1, tr); break;
-  case CBR_ITEM_CURVE: curveItem(m.itemRef(i), CBR_F64(m.v[CBR_CURVE_ID])[m.itemRef(i)], tr); break;
+  case CBR_ITEM_CURVE: curveItem(m.itemRef(i), CBR_U32(m.v[CBR_CURVE_ID])[m.itemRef(i)], tr); break;
   case CBR_ITEM_POINT: {
     const double* p = m.itemReal(m.itemRef(i));
     out.points.push_back({id, {p[0], p[1], p[2]}, tr});
@@ -2113,7 +2113,7 @@ static bool openPart(const uint8_t* buf, size_t len, Model& m, BuiltPart& out, d
   for (int f = 0; f < nf; f++) out.faceIds[f] = m.faceId(f);
   int ne = (int)m.rows(CBR_EDGE_CURVE);
   out.edgeIds.resize(ne);
-  for (int e = 0; e < ne; e++) out.edgeIds[e] = CBR_F64(m.v[CBR_EDGE_ID])[e];
+  for (int e = 0; e < ne; e++) out.edgeIds[e] = CBR_U32(m.v[CBR_EDGE_ID])[e];
   out.edgeFaces.assign(ne, {});
   for (int f = 0; f < nf; f++)
     for (int l = m.faceFirstLoop(f); l < m.faceFirstLoop(f) + m.faceLoopCount(f); l++)

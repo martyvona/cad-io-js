@@ -10,7 +10,7 @@
 #include <stdint.h>
 #include <string.h>
 
-#define CBR_MAGIC "CBR2"
+#define CBR_MAGIC "CBR3"
 #define CBR_HEADER_BYTES 496
 
 /* The columns in buffer order: table, column, element type and values per row. */
@@ -27,14 +27,14 @@ enum cbr_column {
   CBR_CURVE_DIM, /* uint8_t x 1 */
   CBR_CURVE_REAL, /* int32_t x 1 */
   CBR_CURVE_INT, /* int32_t x 1 */
-  CBR_CURVE_ID, /* double x 1 */
+  CBR_CURVE_ID, /* uint32_t x 1 */
   CBR_SURFACE_KIND, /* uint8_t x 1 */
   CBR_SURFACE_REAL, /* int32_t x 1 */
   CBR_SURFACE_INT, /* int32_t x 1 */
-  CBR_SURFACE_ID, /* double x 1 */
+  CBR_SURFACE_ID, /* uint32_t x 1 */
   CBR_VERTEX_POINT, /* double x 3 */
   CBR_VERTEX_TOLERANCE, /* double x 1 */
-  CBR_VERTEX_ID, /* double x 1 */
+  CBR_VERTEX_ID, /* uint32_t x 1 */
   CBR_EDGE_CURVE, /* int32_t x 1 */
   CBR_EDGE_START, /* int32_t x 1 */
   CBR_EDGE_END, /* int32_t x 1 */
@@ -42,32 +42,32 @@ enum cbr_column {
   CBR_EDGE_FLAGS, /* uint8_t x 1 */
   CBR_EDGE_RANGE, /* double x 2 */
   CBR_EDGE_TOLERANCE, /* double x 1 */
-  CBR_EDGE_ID, /* double x 1 */
+  CBR_EDGE_ID, /* uint32_t x 1 */
   CBR_COEDGE_EDGE, /* int32_t x 1 */
   CBR_COEDGE_ORIENTATION, /* uint8_t x 1 */
   CBR_COEDGE_PCURVE, /* int32_t x 1 */
   CBR_COEDGE_RANGE, /* double x 2 */
-  CBR_COEDGE_ID, /* double x 1 */
+  CBR_COEDGE_ID, /* uint32_t x 1 */
   CBR_LOOP_KIND, /* uint8_t x 1 */
   CBR_LOOP_BOUND, /* uint8_t x 1 */
   CBR_LOOP_SENSE, /* uint8_t x 1 */
   CBR_LOOP_FIRST, /* int32_t x 1 */
   CBR_LOOP_COUNT, /* int32_t x 1 */
-  CBR_LOOP_ID, /* double x 1 */
+  CBR_LOOP_ID, /* uint32_t x 1 */
   CBR_FACE_SURFACE, /* int32_t x 1 */
   CBR_FACE_SAME_SENSE, /* uint8_t x 1 */
   CBR_FACE_FIRST_LOOP, /* int32_t x 1 */
   CBR_FACE_LOOP_COUNT, /* int32_t x 1 */
   CBR_FACE_TOLERANCE, /* double x 1 */
-  CBR_FACE_ID, /* double x 1 */
+  CBR_FACE_ID, /* uint32_t x 1 */
   CBR_SHELL_KIND, /* uint8_t x 1 */
   CBR_SHELL_FIRST, /* int32_t x 1 */
   CBR_SHELL_COUNT, /* int32_t x 1 */
-  CBR_SHELL_ID, /* double x 1 */
+  CBR_SHELL_ID, /* uint32_t x 1 */
   CBR_BODY_KIND, /* uint8_t x 1 */
   CBR_BODY_FIRST, /* int32_t x 1 */
   CBR_BODY_COUNT, /* int32_t x 1 */
-  CBR_BODY_ID, /* double x 1 */
+  CBR_BODY_ID, /* uint32_t x 1 */
   CBR_FACE_USE_FACE, /* int32_t x 1 */
   CBR_FACE_USE_SENSE, /* uint8_t x 1 */
   CBR_MEMBER_REF, /* int32_t x 1 */
@@ -75,7 +75,7 @@ enum cbr_column {
   CBR_ITEM_KIND, /* uint8_t x 1 */
   CBR_ITEM_REF, /* int32_t x 1 */
   CBR_ITEM_TRANSFORM, /* int32_t x 1 */
-  CBR_ITEM_ID, /* double x 1 */
+  CBR_ITEM_ID, /* uint32_t x 1 */
   CBR_COLUMN_COUNT
 };
 
@@ -236,8 +236,8 @@ typedef struct {
 /* The columns of a buffer of `size` bytes into `views` (CBR_COLUMN_COUNT of them): 0, or -1 if it isn't one. */
 static inline int cbr_open(const uint8_t* buf, size_t size, cbr_view* views) {
   static const uint8_t bytes[CBR_COLUMN_COUNT] = {
-    8, 8, 8, 4, 8, 4, 4, 8, 1, 1, 4, 4, 8, 1, 4, 4, 8, 8, 8, 8, 4, 4, 4, 1, 1, 8, 8, 8, 4, 1, 4, 8, 8, 1, 1, 1, 4, 4, 8,
-    4, 1, 4, 4, 8, 8, 1, 4, 4, 8, 1, 4, 4, 8, 4, 1, 4, 1, 1, 4, 4, 8,
+    8, 8, 8, 4, 8, 4, 4, 8, 1, 1, 4, 4, 4, 1, 4, 4, 4, 8, 8, 4, 4, 4, 4, 1, 1, 8, 8, 4, 4, 1, 4, 8, 4, 1, 1, 1, 4, 4, 4,
+    4, 1, 4, 4, 8, 4, 1, 4, 4, 4, 1, 4, 4, 4, 4, 1, 4, 1, 1, 4, 4, 4,
   };
   uint32_t n, k;
   if (((uintptr_t)buf & 7) != 0 || size < CBR_HEADER_BYTES || memcmp(buf, CBR_MAGIC, 4) != 0) return -1;
@@ -257,6 +257,7 @@ static inline int cbr_open(const uint8_t* buf, size_t size, cbr_view* views) {
 
 #define CBR_U8(v) ((const uint8_t*)(v).data)
 #define CBR_I32(v) ((const int32_t*)(v).data)
+#define CBR_U32(v) ((const uint32_t*)(v).data)
 #define CBR_F64(v) ((const double*)(v).data)
 
 #endif

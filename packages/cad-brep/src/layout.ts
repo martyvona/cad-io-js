@@ -4,16 +4,17 @@
 // The model's rules (Part 42's parameterizations, radians, placements complete, what stays absent): docs/brep-model.md.
 
 /** The first four bytes of every buffer; the digit is the format's version. */
-export const MAGIC = 'CBR2';
+export const MAGIC = 'CBR3';
 
-export type ColumnType = 'u8' | 'i32' | 'f64';
+export type ColumnType = 'u8' | 'i32' | 'u32' | 'f64';
 
 /**
  * The tables in buffer order, each a list of columns: [name, type, values per row]. Rows of a table have the same
  * count in every column; `pool` is the exception, independent arrays, one pair per table that owns variable-length
  * data (so the bytes don't depend on how a builder interleaves tables). References are row indices into the named
  * table (-1: none); a row's `real` and `int` are offsets into its table's pools (curve: `pool.curveReal`,
- * `pool.curveInt`); ids are source ids (NaN: none); tolerances and ranges NaN where the source doesn't give them.
+ * `pool.curveInt`); ids are source ids, 1 to 2^32 - 1 (0: none); tolerances and ranges NaN where the source doesn't
+ * give them.
  */
 export const TABLES = {
   /** One row: the part's length unit in millimetres, and its uncertainty in that unit (NaN: none). */
@@ -21,19 +22,19 @@ export const TABLES = {
   pool: [['curveReal', 'f64', 1], ['curveInt', 'i32', 1], ['surfaceReal', 'f64', 1], ['surfaceInt', 'i32', 1],
     ['loopInt', 'i32', 1], ['itemReal', 'f64', 1]],
   /** Curves, 3D or 2D (p-curves' geometry): `dim` 2 or 3; reals and ints by kind (CURVE_LAYOUTS). */
-  curve: [['kind', 'u8', 1], ['dim', 'u8', 1], ['real', 'i32', 1], ['int', 'i32', 1], ['id', 'f64', 1]],
-  surface: [['kind', 'u8', 1], ['real', 'i32', 1], ['int', 'i32', 1], ['id', 'f64', 1]],
-  vertex: [['point', 'f64', 3], ['tolerance', 'f64', 1], ['id', 'f64', 1]],
+  curve: [['kind', 'u8', 1], ['dim', 'u8', 1], ['real', 'i32', 1], ['int', 'i32', 1], ['id', 'u32', 1]],
+  surface: [['kind', 'u8', 1], ['real', 'i32', 1], ['int', 'i32', 1], ['id', 'u32', 1]],
+  vertex: [['point', 'f64', 3], ['tolerance', 'f64', 1], ['id', 'u32', 1]],
   /**
    * `curve` a 3D curve or -1 (a source with trims in parameter space only); `start` and `end` vertices or -1 (a
    * curve-bounded surface's boundary); `sameSense` whether start to end runs with the curve's parameter; `range` the
    * curve's parameters at start and end where the source gives them; `flags` EDGE_FLAGS.
    */
   edge: [['curve', 'i32', 1], ['start', 'i32', 1], ['end', 'i32', 1], ['sameSense', 'u8', 1], ['flags', 'u8', 1],
-    ['range', 'f64', 2], ['tolerance', 'f64', 1], ['id', 'f64', 1]],
+    ['range', 'f64', 2], ['tolerance', 'f64', 1], ['id', 'u32', 1]],
   /** An edge's use in a loop: `orientation` ORIENTATION; `pcurve` a 2D curve in the face's surface's (u, v) or -1. */
   coedge: [['edge', 'i32', 1], ['orientation', 'u8', 1], ['pcurve', 'i32', 1], ['range', 'f64', 2],
-    ['id', 'f64', 1]],
+    ['id', 'u32', 1]],
   /**
    * `kind` LOOP_KIND: an edge loop's coedges are `count` rows from `first`; a vertex loop's vertex is `first`
    * (`count` 1); a poly loop's `count` corners are vertices, by index from `first` in `pool.loopInt` (a vertex shared
@@ -41,15 +42,15 @@ export const TABLES = {
    * runs as the source wrote it (STEP: FACE_BOUND.orientation). `id` the bound's.
    */
   loop: [['kind', 'u8', 1], ['bound', 'u8', 1], ['sense', 'u8', 1], ['first', 'i32', 1], ['count', 'i32', 1],
-    ['id', 'f64', 1]],
+    ['id', 'u32', 1]],
   /** Loops `loopCount` rows from `firstLoop` (none: bounded by the surface's own extent). */
   face: [['surface', 'i32', 1], ['sameSense', 'u8', 1], ['firstLoop', 'i32', 1], ['loopCount', 'i32', 1],
-    ['tolerance', 'f64', 1], ['id', 'f64', 1]],
+    ['tolerance', 'f64', 1], ['id', 'u32', 1]],
   /** `kind` SHELL_KIND; its faces are `count` rows of `faceUse` from `first`. */
-  shell: [['kind', 'u8', 1], ['first', 'i32', 1], ['count', 'i32', 1], ['id', 'f64', 1]],
+  shell: [['kind', 'u8', 1], ['first', 'i32', 1], ['count', 'i32', 1], ['id', 'u32', 1]],
   /** `kind` BODY_KIND; members `count` rows of `member` from `first`: a solid's shells (the outer first, then voids),
    * a sheet's shells, a wire's edges. */
-  body: [['kind', 'u8', 1], ['first', 'i32', 1], ['count', 'i32', 1], ['id', 'f64', 1]],
+  body: [['kind', 'u8', 1], ['first', 'i32', 1], ['count', 'i32', 1], ['id', 'u32', 1]],
   /** A face of a shell, and its sense (false: reversed, STEP's ORIENTED_FACE). */
   faceUse: [['face', 'i32', 1], ['sense', 'u8', 1]],
   /** A member of a body, and its sense (false: reversed, STEP's ORIENTED_CLOSED_SHELL). */
@@ -59,7 +60,7 @@ export const TABLES = {
    * before it), or a point's offset of 3 reals in `pool.itemReal`; `transform` an offset of 12 reals there (affine,
    * column-major: the x, y and z columns, then the translation; mirrors and even scales allowed) or -1.
    */
-  item: [['kind', 'u8', 1], ['ref', 'i32', 1], ['transform', 'i32', 1], ['id', 'f64', 1]],
+  item: [['kind', 'u8', 1], ['ref', 'i32', 1], ['transform', 'i32', 1], ['id', 'u32', 1]],
 } as const satisfies Record<string, readonly (readonly [string, ColumnType, number])[]>;
 
 export type TableName = keyof typeof TABLES;

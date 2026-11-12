@@ -9,7 +9,6 @@ interface SmlibModule {
   HEAPU8: Uint8Array;
   HEAPF32: Float32Array;
   HEAPU32: Uint32Array;
-  HEAP32: Int32Array;
   HEAPF64: Float64Array;
   UTF8ToString(p: number): string;
   _malloc(n: number): number;
@@ -43,25 +42,27 @@ interface SmlibModule {
   _smlib_num_points(): number;
   _smlib_diag(): number;
   _smlib_free(): void;
+  /** Present where the id arrays are uint32 with 0 for none (a module built before had int32 with -1). */
+  _smlib_ids_u32(): number;
 }
 
 const KINDS: EdgeKind[] = ['shared', 'seam', 'free', 'degenerate'];
 
 /** Changes when this adapter's results change for the same module, so that cached results from before aren't read. */
-const ADAPTER = 5;
+const ADAPTER = 6;
 
 /** The upstream source the module is built from (third_party/pull.sh). */
 const SOURCE = 'SMLib (usd-brep 1.0.1, 3fd5b95)';
 
 /** What this adapter uses of the module: the wrapper's C functions, the allocator, and the runtime's heap views. */
 export const REQUIRED_EXPORTS: readonly (keyof SmlibModule)[] = [
-  'HEAPU8', 'HEAPF32', 'HEAPU32', 'HEAP32', 'HEAPF64', 'UTF8ToString', '_malloc', '_free', '_smlib_tessellate_model',
+  'HEAPU8', 'HEAPF32', 'HEAPU32', 'HEAPF64', 'UTF8ToString', '_malloc', '_free', '_smlib_tessellate_model',
   '_smlib_set_measures', '_smlib_set_heal', '_smlib_set_scale', '_smlib_set_edges', '_smlib_positions',
   '_smlib_normals', '_smlib_num_vertices',
   '_smlib_indices', '_smlib_num_indices', '_smlib_faces', '_smlib_num_faces', '_smlib_edge_positions',
   '_smlib_num_edge_points', '_smlib_edges', '_smlib_edge_angles', '_smlib_num_edges', '_smlib_measures',
   '_smlib_num_measures', '_smlib_curve_positions', '_smlib_num_curve_points', '_smlib_curves', '_smlib_num_curves',
-  '_smlib_points', '_smlib_point_ids', '_smlib_num_points', '_smlib_diag', '_smlib_free',
+  '_smlib_points', '_smlib_point_ids', '_smlib_num_points', '_smlib_ids_u32', '_smlib_diag', '_smlib_free',
 ];
 
 /** Emscripten's module factory: the default export of the JavaScript glue built with the module. */
@@ -191,15 +192,16 @@ export class SmlibTessellator implements Tessellator {
     }
     const f32 = (p: number, n: number) => m.HEAPF32.slice(p >>> 2, (p >>> 2) + n);
     const u32 = (p: number, n: number) => m.HEAPU32.slice(p >>> 2, (p >>> 2) + n);
-    const i32 = (p: number, n: number) => m.HEAP32.slice(p >>> 2, (p >>> 2) + n);
+    /** A source id, 0 for none. */
+    const id = (x: number) => (x === 0 ? null : x);
     const nv = m._smlib_num_vertices();
     const positions = f32(m._smlib_positions(), nv * 3);
     const normals = f32(m._smlib_normals(), nv * 3);
     const indices = u32(m._smlib_indices(), m._smlib_num_indices());
-    const faceData = i32(m._smlib_faces(), m._smlib_num_faces() * 3);
+    const faceData = u32(m._smlib_faces(), m._smlib_num_faces() * 3);
     const faces: TessellationResult['faces'] = [];
     for (let i = 0; i < faceData.length; i += 3) {
-      faces.push({ entityId: faceData[i]! < 0 ? null : faceData[i]!, start: faceData[i + 1]!,
+      faces.push({ entityId: id(faceData[i]!), start: faceData[i + 1]!,
         count: faceData[i + 2]! });
     }
     const result: TessellationResult = { origin, positions, normals, indices, faces, diagnostics };
@@ -209,19 +211,18 @@ export class SmlibTessellator implements Tessellator {
       const q = m.HEAPF64.slice(at, at + 4 * nm);
       result.measures = [];
       for (let i = 0; i < q.length; i += 4) {
-        if (q[i]! < 0) continue;
         result.measures.push({ entityId: q[i]!, area: q[i + 1]!, perimeter: q[i + 2]!, valid: q[i + 3] === 1 });
       }
     }
     if (req.edges) {
       const ne = m._smlib_num_edges();
-      const edgeData = i32(m._smlib_edges(), ne * 4);
+      const edgeData = u32(m._smlib_edges(), ne * 4);
       const angles = f32(m._smlib_edge_angles(), ne);
       result.edgePositions = f32(m._smlib_edge_positions(), m._smlib_num_edge_points() * 3);
       result.edges = [];
       for (let i = 0; i < ne; i++) {
         const e: NonNullable<TessellationResult['edges']>[number] = {
-          entityId: edgeData[i * 4]! < 0 ? null : edgeData[i * 4]!, start: edgeData[i * 4 + 1]!,
+          entityId: id(edgeData[i * 4]!), start: edgeData[i * 4 + 1]!,
           count: edgeData[i * 4 + 2]!, kind: KINDS[edgeData[i * 4 + 3]!]!,
         };
         if (angles[i]! >= 0) e.dihedral = angles[i]!;
@@ -230,22 +231,22 @@ export class SmlibTessellator implements Tessellator {
     }
     const nc = m._smlib_num_curves();
     if (nc) {
-      const curveData = i32(m._smlib_curves(), nc * 3);
+      const curveData = u32(m._smlib_curves(), nc * 3);
       result.curvePositions = f32(m._smlib_curve_positions(), m._smlib_num_curve_points() * 3);
       result.curves = [];
       for (let i = 0; i < curveData.length; i += 3) {
-        result.curves.push({ entityId: curveData[i]! < 0 ? null : curveData[i]!, start: curveData[i + 1]!,
+        result.curves.push({ entityId: id(curveData[i]!), start: curveData[i + 1]!,
           count: curveData[i + 2]! });
       }
     }
     const np = m._smlib_num_points();
     if (np) {
       result.points = f32(m._smlib_points(), np * 3);
-      result.pointIds = Array.from(i32(m._smlib_point_ids(), np), (id) => (id < 0 ? null : id));
+      result.pointIds = Array.from(u32(m._smlib_point_ids(), np), id);
     }
     m._smlib_free();
     if (diag.failures) {
-      diagnostics.push({ severity: 'warning', message: `${String(diag.failures)} faces failed to mesh` });
+      diagnostics.push({ severity: 'error', message: `${String(diag.failures)} faces failed to mesh` });
     }
     if (diag.retried) {
       diagnostics.push({ severity: 'info', message: `${String(diag.retried)} faces meshed badly in their shells, `

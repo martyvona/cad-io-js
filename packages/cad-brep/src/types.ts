@@ -1,6 +1,6 @@
 // The B-rep's rows as plain objects: what BrepBuilder takes and the decoders (decode.ts) give back, equal both ways,
 // and the JSON form (json.ts). References are row indices into the part's own tables, each to a row added before.
-// Optional fields are absent where the buffer has -1 or NaN. Field names follow Part 42's attributes.
+// Optional fields are absent where the buffer has -1, NaN or (an id) 0. Field names follow Part 42's attributes.
 
 import type { CURVE_FORMS, SURFACE_FORMS, TRANSITIONS, TRIM_PREFERENCES } from './layout.ts';
 

@@ -76,18 +76,19 @@ struct Result
 {
   std::vector<float>    positions, normals;
   std::vector<uint32_t> indices;
-  std::vector<int32_t>  faces; // triples: entityId (-1 = unknown), first index, index count
+  // Ids are source ids, 0 for none (as cad-brep's).
+  std::vector<uint32_t> faces; // triples: entityId (0 = unknown), first index, index count
   std::vector<float>    edgePositions;
-  std::vector<int32_t>  edges;      // quads: entityId (-1 = unknown), first point, point count, kind
+  std::vector<uint32_t> edges;      // quads: entityId (0 = unknown), first point, point count, kind
   std::vector<float>    edgeAngles; // max angle (radians) between adjacent face normals along the edge; -1 if n/a
   std::vector<float>    curvePositions;
-  std::vector<int32_t>  curves; // triples: entityId (-1 = unknown), first point, point count
+  std::vector<uint32_t> curves; // triples: entityId (0 = unknown), first point, point count
   std::vector<float>    points;
-  std::vector<int32_t>  pointIds; // -1 = unknown
+  std::vector<uint32_t> pointIds; // 0 = unknown
   // Faces (pieces of faces, where shape healing split one) that failed to mesh: the failed pieces' edges as polylines,
   // so a host can show where they are.
   std::vector<float>    outlinePositions;
-  std::vector<int32_t>  outlines; // triples: the face's entityId (-1 = unknown), first point, point count
+  std::vector<uint32_t> outlines; // triples: the face's entityId (0 = unknown), first point, point count
   // Each source face's measures on the exact geometry, when asked for (occt_set_measures): quads of entityId, area,
   // perimeter, valid (1 or 0), summed over the pieces shape healing split the face into.
   std::vector<double>   measures;
@@ -146,7 +147,7 @@ double contextLengthFactor(const occ::handle<StepRepr_Representation>& rep)
 // Meshes a shape into g (faces, measures, points, edges, curves, failed faces' outlines) by its faces' and edges'
 // source ids; the ids of wireframe curves and points (edges in no face, vertices in no edge) asked of `wireframeIds`
 // only if there are any. `meshDiag`: the counts, as JSON fields to append to the caller's.
-using IdMap = std::unordered_map<const TopoDS_TShape*, int>;
+using IdMap = std::unordered_map<const TopoDS_TShape*, uint32_t>;
 void meshShape(const TopoDS_Shape& shape, const IdMap& faceIds, const IdMap& edgeIds,
                const std::function<void(bool, bool, IdMap&, IdMap&)>& wireframeIds, double linDefl, double angDefl,
                double ox, double oy, double oz, std::string& meshDiag)
@@ -163,14 +164,14 @@ void meshShape(const TopoDS_Shape& shape, const IdMap& faceIds, const IdMap& edg
     BRepMesh_IncrementalMesh mesher(shape, mp);
 
     int nFaces = 0, unmapped = 0, noTri = 0;
-    std::vector<std::pair<TopoDS_Face, int>> failedFaces;
+    std::vector<std::pair<TopoDS_Face, uint32_t>> failedFaces;
     for (TopExp_Explorer ex(shape, TopAbs_FACE); ex.More(); ex.Next())
     {
       const TopoDS_Face& face = TopoDS::Face(ex.Current());
       ++nFaces;
       auto it = faceIds.find(face.TShape().get());
-      const int id = it == faceIds.end() ? -1 : it->second;
-      if (id < 0)
+      const uint32_t id = it == faceIds.end() ? 0 : it->second;
+      if (!id)
         ++unmapped;
       TopLoc_Location                 loc;
       occ::handle<Poly_Triangulation> tri = BRep_Tool::Triangulation(face, loc);
@@ -178,7 +179,7 @@ void meshShape(const TopoDS_Shape& shape, const IdMap& faceIds, const IdMap& edg
       if (tri.IsNull() || tri->NbTriangles() == 0)
       {
         ++noTri;
-        g.faces.insert(g.faces.end(), {id, (int32_t)first, 0});
+        g.faces.insert(g.faces.end(), {id, first, 0});
         failedFaces.emplace_back(face, id);
         continue;
       }
@@ -205,7 +206,7 @@ void meshShape(const TopoDS_Shape& shape, const IdMap& faceIds, const IdMap& edg
           std::swap(b, c);
         g.indices.insert(g.indices.end(), {base + a - 1, base + b - 1, base + c - 1});
       }
-      g.faces.insert(g.faces.end(), {id, (int32_t)first, (int32_t)(g.indices.size() - first)});
+      g.faces.insert(g.faces.end(), {id, first, (uint32_t)(g.indices.size() - first)});
     }
     // The faces' measures (the host judges each face's triangles by them: cad-scene's faceFailures): per source face,
     // its pieces' areas and perimeters summed (BRepGProp: Gauss integration over the face, its edges' lengths), and
@@ -213,7 +214,7 @@ void meshShape(const TopoDS_Shape& shape, const IdMap& faceIds, const IdMap& edg
     // face among them). Pieces without a source id are left out; a piece in two shells counts once.
     if (gMeasures)
     {
-      std::map<int, std::array<double, 3>> byId;
+      std::map<uint32_t, std::array<double, 3>> byId;
       std::unordered_set<const TopoDS_TShape*> seen;
       for (TopExp_Explorer ex(shape, TopAbs_FACE); ex.More(); ex.Next())
       {
@@ -252,7 +253,7 @@ void meshShape(const TopoDS_Shape& shape, const IdMap& faceIds, const IdMap& edg
       hasCurves = edgeFaces.FindFromIndex(ie).IsEmpty();
     for (int iv = 1; iv <= vertexEdges.Extent() && !hasPoints; ++iv)
       hasPoints = vertexEdges.FindFromIndex(iv).IsEmpty();
-    std::unordered_map<const TopoDS_TShape*, int> curveIds, pointIds;
+    IdMap curveIds, pointIds;
     if (hasCurves || hasPoints)
       wireframeIds(hasCurves, hasPoints, curveIds, pointIds);
     for (int iv = 1; iv <= vertexEdges.Extent(); ++iv)
@@ -263,7 +264,7 @@ void meshShape(const TopoDS_Shape& shape, const IdMap& faceIds, const IdMap& edg
       const gp_Pnt         p  = BRep_Tool::Pnt(v);
       auto                 it = pointIds.find(v.TShape().get());
       g.points.insert(g.points.end(), {(float)(p.X() - ox), (float)(p.Y() - oy), (float)(p.Z() - oz)});
-      g.pointIds.push_back(it == pointIds.end() ? -1 : it->second);
+      g.pointIds.push_back(it == pointIds.end() ? 0 : it->second);
     }
 
     // edges: one polyline per topological edge, taken from a face triangulation so points coincide with mesh vertices
@@ -276,8 +277,8 @@ void meshShape(const TopoDS_Shape& shape, const IdMap& faceIds, const IdMap& edg
       if (adj.IsEmpty())
       {
         // a curve: its 3D polygon, from the mesher's discretization of edges in no face
-        int id = itId == edgeIds.end() ? -1 : itId->second;
-        if (id < 0)
+        uint32_t id = itId == edgeIds.end() ? 0 : itId->second;
+        if (!id)
         {
           auto itCurve = curveIds.find(edge.TShape().get());
           if (itCurve != curveIds.end())
@@ -293,20 +294,20 @@ void meshShape(const TopoDS_Shape& shape, const IdMap& faceIds, const IdMap& edg
             g.curvePositions.insert(g.curvePositions.end(),
               {(float)(p.X() - ox), (float)(p.Y() - oy), (float)(p.Z() - oz)});
           }
-        const int32_t count = (int32_t)(g.curvePositions.size() / 3 - first);
-        if (id < 0)
+        const uint32_t count = (uint32_t)(g.curvePositions.size() / 3 - first);
+        if (!id)
           ++curvesUnmapped;
         if (count == 0)
           ++curvesNoPolygon;
         else
-          g.curves.insert(g.curves.end(), {id, (int32_t)first, count});
+          g.curves.insert(g.curves.end(), {id, first, count});
         continue;
       }
-      const int id = itId == edgeIds.end() ? -1 : itId->second;
-      if (id < 0)
+      const uint32_t id = itId == edgeIds.end() ? 0 : itId->second;
+      if (!id)
         ++edgesUnmapped;
       // kind: 0 shared (2+ faces), 1 seam (closed on its face), 2 free (one face), 3 degenerate
-      int kind = adj.Extent() >= 2 ? 0 : 2;
+      uint32_t kind = adj.Extent() >= 2 ? 0 : 2;
       if (BRep_Tool::Degenerated(edge))
         kind = 3;
       else if (adj.Extent() == 1 && BRep_Tool::IsClosed(edge, TopoDS::Face(adj.First())))
@@ -390,10 +391,10 @@ void meshShape(const TopoDS_Shape& shape, const IdMap& faceIds, const IdMap& edg
             {(float)(p.X() - ox), (float)(p.Y() - oy), (float)(p.Z() - oz)});
         }
       }
-      const int32_t count = (int32_t)(g.edgePositions.size() / 3 - first);
+      const uint32_t count = (uint32_t)(g.edgePositions.size() / 3 - first);
       if (count == 0)
         ++edgesNoPolygon;
-      g.edges.insert(g.edges.end(), {id, (int32_t)first, count, kind});
+      g.edges.insert(g.edges.end(), {id, first, count, kind});
       g.edgeAngles.push_back(angle);
     }
 
@@ -451,14 +452,14 @@ void meshShape(const TopoDS_Shape& shape, const IdMap& faceIds, const IdMap& edg
             g.outlinePositions.resize(first * 3);
           }
         }
-        const int32_t count = (int32_t)(g.outlinePositions.size() / 3 - first);
+        const uint32_t count = (uint32_t)(g.outlinePositions.size() / 3 - first);
         if (count < 2)
         {
           g.outlinePositions.resize(first * 3);
           ++outlineEdgesNoPolygon;
           continue;
         }
-        g.outlines.insert(g.outlines.end(), {id, (int32_t)first, count});
+        g.outlines.insert(g.outlines.end(), {id, first, count});
       }
     }
 
@@ -502,6 +503,8 @@ int occt_tessellate(const char* data, int len, int rootId, double linDefl, doubl
       return -1;
     }
     occ::handle<StepData_StepModel> model = reader.StepModel();
+    // An entity's id (OCCT's labels are positive ints).
+    auto label = [&](const occ::handle<Standard_Transient>& ent) { return (uint32_t)model->IdentLabel(ent); };
 
     // locate the root representation (for units) by its #label
     occ::handle<StepRepr_Representation> rootRep;
@@ -534,7 +537,7 @@ int occt_tessellate(const char* data, int len, int rootId, double linDefl, doubl
 
     // face/edge TShape -> STEP entity label, from the transfer bindings (updated with shape-fix history)
     occ::handle<Transfer_TransientProcess> tp = reader.WS()->TransferReader()->TransientProcess();
-    std::unordered_map<const TopoDS_TShape*, int> faceIds, edgeIds;
+    IdMap faceIds, edgeIds;
     int stepFaces = 0, stepEdges = 0;
     for (int i = 1; i <= nbEnt; ++i)
     {
@@ -548,7 +551,7 @@ int occt_tessellate(const char* data, int len, int rootId, double linDefl, doubl
       if (s.IsNull())
         continue;
       for (TopExp_Explorer ex(s, isFace ? TopAbs_FACE : TopAbs_EDGE); ex.More(); ex.Next())
-        (isFace ? faceIds : edgeIds).emplace(ex.Current().TShape().get(), model->IdentLabel(ent));
+        (isFace ? faceIds : edgeIds).emplace(ex.Current().TShape().get(), label(ent));
     }
     // Faces made from a geometric set's surfaces (GEOMETRICALLY_BOUNDED_SURFACE_SHAPE_REPRESENTATION): OCCT binds each
     // element's shape to it. After the faces, so that a face entity's id wins.
@@ -561,7 +564,7 @@ int occt_tessellate(const char* data, int len, int rootId, double linDefl, doubl
       if (s.IsNull())
         continue;
       for (TopExp_Explorer ex(s, TopAbs_FACE); ex.More(); ex.Next())
-        faceIds.emplace(ex.Current().TShape().get(), model->IdentLabel(ent));
+        faceIds.emplace(ex.Current().TShape().get(), label(ent));
     }
 
     // (The wireframe ids: an EDGE_CURVE's, else the geometric set's element (a composite curve before its segments'
@@ -580,7 +583,7 @@ int occt_tessellate(const char* data, int len, int rootId, double linDefl, doubl
           if (sh.IsNull())
             continue;
           for (TopExp_Explorer ex(sh, pass < 2 ? TopAbs_EDGE : TopAbs_VERTEX); ex.More(); ex.Next())
-            (pass < 2 ? curveIds : pointIds).emplace(ex.Current().TShape().get(), model->IdentLabel(ent));
+            (pass < 2 ? curveIds : pointIds).emplace(ex.Current().TShape().get(), label(ent));
         }
     };
     std::string meshDiag;
@@ -651,7 +654,7 @@ int occt_tessellate_model(const uint8_t* data, int len, double linDefl, double a
       processor.ProcessShape(b.shape, defaults.GetDefaultShapeProcessFlags(), Message_ProgressRange());
     // Faces and edges followed through healing's replacements (a face it split: each piece takes its id).
     const occ::handle<ShapeProcess_ShapeContext> context = processor.GetContext();
-    auto follow = [&](IdMap& ids, TopAbs_ShapeEnum kind, const std::vector<std::pair<TopoDS_Shape, int>>& built) {
+    auto follow = [&](IdMap& ids, TopAbs_ShapeEnum kind, const std::vector<std::pair<TopoDS_Shape, uint32_t>>& built) {
       for (const auto& [built0, id] : built)
       {
         TopoDS_Shape cur = built0;
@@ -667,7 +670,7 @@ int occt_tessellate_model(const uint8_t* data, int len, double linDefl, double a
       }
     };
     IdMap faceIds, edgeIds;
-    std::vector<std::pair<TopoDS_Shape, int>> faces, edges;
+    std::vector<std::pair<TopoDS_Shape, uint32_t>> faces, edges;
     for (TopExp_Explorer ex(b.shape, TopAbs_FACE); ex.More(); ex.Next())
     {
       auto it = b.faceIds.find(ex.Current().TShape().get());
@@ -725,27 +728,29 @@ const float*    occt_normals() { return g.normals.data(); }
 int             occt_num_vertices() { return (int)(g.positions.size() / 3); }
 const uint32_t* occt_indices() { return g.indices.data(); }
 int             occt_num_indices() { return (int)g.indices.size(); }
-const int32_t*  occt_faces() { return g.faces.data(); }
+const uint32_t* occt_faces() { return g.faces.data(); }
 int             occt_num_faces() { return (int)(g.faces.size() / 3); }
 const float*    occt_edge_positions() { return g.edgePositions.data(); }
 int             occt_num_edge_points() { return (int)(g.edgePositions.size() / 3); }
-const int32_t*  occt_edges() { return g.edges.data(); }
+const uint32_t* occt_edges() { return g.edges.data(); }
 const float*    occt_edge_angles() { return g.edgeAngles.data(); }
 int             occt_num_edges() { return (int)g.edgeAngles.size(); }
 const float*    occt_curve_positions() { return g.curvePositions.data(); }
 int             occt_num_curve_points() { return (int)(g.curvePositions.size() / 3); }
-const int32_t*  occt_curves() { return g.curves.data(); }
+const uint32_t* occt_curves() { return g.curves.data(); }
 int             occt_num_curves() { return (int)(g.curves.size() / 3); }
 const float*    occt_points() { return g.points.data(); }
-const int32_t*  occt_point_ids() { return g.pointIds.data(); }
+const uint32_t* occt_point_ids() { return g.pointIds.data(); }
 int             occt_num_points() { return (int)g.pointIds.size(); }
 const double*   occt_measures() { return g.measures.data(); }
 int             occt_num_measures() { return (int)(g.measures.size() / 4); }
 void            occt_set_measures(int on) { gMeasures = on != 0; }
 const float*    occt_outline_positions() { return g.outlinePositions.data(); }
 int             occt_num_outline_points() { return (int)(g.outlinePositions.size() / 3); }
-const int32_t*  occt_outlines() { return g.outlines.data(); }
+const uint32_t* occt_outlines() { return g.outlines.data(); }
 int             occt_num_outlines() { return (int)(g.outlines.size() / 3); }
+// (The id arrays' type: an adapter checks for it, and refuses modules whose ids were int32 with -1 for none.)
+int             occt_ids_u32() { return 1; }
 const char*     occt_diag() { return g.diag.c_str(); }
 void            occt_free() { g = Result(); }
 }

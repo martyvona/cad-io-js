@@ -5,7 +5,8 @@
 
 import { type ColumnType, MAGIC, TABLES, type TableName } from './layout.ts';
 
-type ArrayOf<T extends ColumnType> = T extends 'u8' ? Uint8Array : T extends 'i32' ? Int32Array : Float64Array;
+type ArrayOf<T extends ColumnType> = T extends 'u8' ? Uint8Array : T extends 'i32' ? Int32Array
+  : T extends 'u32' ? Uint32Array : Float64Array;
 type Columns<T extends TableName> = { [C in (typeof TABLES)[T][number] as C[0]]: ArrayOf<C[1]> };
 export type BrepTables = { [T in TableName]: Columns<T> };
 
@@ -24,7 +25,7 @@ export interface ColumnSpec {
 export const COLUMNS: readonly ColumnSpec[] = (Object.entries(TABLES) as [TableName, typeof TABLES[TableName]][])
   .flatMap(([table, cols]) => cols.map(([column, type, width]) => ({ table, column, type, width })));
 
-export const BYTES: Record<ColumnType, number> = { u8: 1, i32: 4, f64: 8 };
+export const BYTES: Record<ColumnType, number> = { u8: 1, i32: 4, u32: 4, f64: 8 };
 export const HEADER_BYTES = 8 + 8 * COLUMNS.length;
 
 /** A buffer that isn't one: wrong magic, column count or offsets. A bug of whoever made it, so thrown. */
@@ -38,7 +39,8 @@ export function rowCount(d: BrepData, table: TableName): number {
 
 const makeView = (type: ColumnType, buffer: ArrayBuffer, offset: number, count: number) =>
   type === 'u8' ? new Uint8Array(buffer, offset, count)
-    : type === 'i32' ? new Int32Array(buffer, offset, count) : new Float64Array(buffer, offset, count);
+    : type === 'i32' ? new Int32Array(buffer, offset, count)
+      : type === 'u32' ? new Uint32Array(buffer, offset, count) : new Float64Array(buffer, offset, count);
 
 /**
  * Views of a buffer made by BrepBuilder (or a writer following cad_brep.h). Checks the header, not the content

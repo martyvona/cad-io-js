@@ -15,8 +15,8 @@ struct BuiltPart
 {
   TopoDS_Shape shape;
   // Each face's, edge's and loose point's source id, by the shape it was built as (a curve item's edges take the
-  // curve's).
-  std::unordered_map<const TopoDS_TShape*, int> faceIds, edgeIds, pointIds;
+  // curve's); those without one aren't in them.
+  std::unordered_map<const TopoDS_TShape*, uint32_t> faceIds, edgeIds, pointIds;
   // What was left out (a face on a surface OCCT can't hold), said as warnings.
   std::vector<std::string> warnings;
   // Non-empty: the part wasn't built (a kind the builder doesn't do yet, decision 13), and why.

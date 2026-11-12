@@ -128,7 +128,7 @@ for (const path of corpusFiles(process.argv[2])) {
       const got = new Set<number>();
       for (let k = 0; k < ids.length; k++) {
         const id = ids[k]!;
-        if (Number.isNaN(id)) { note(`a ${kind} without an id`, where); continue; }
+        if (!id) { note(`a ${kind} without an id`, where); continue; }
         if (want[kind].has(id)) got.add(id);
         else {
           const q = model.resolve(id);

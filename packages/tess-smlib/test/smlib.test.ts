@@ -9,6 +9,7 @@ import { test } from 'node:test';
 import { BrepBuilder, brepFromJson, brepToJson, curveEvaluatorOf, decode, rowCount, surfaceEvaluator } from 'cad-brep';
 import { importStep } from 'step-import';
 import type { BrepData, BrepJson } from 'cad-brep';
+import { failedPart } from 'cad-scene';
 import type { TessellationRequest, TessellationResult } from 'cad-scene';
 import { box, MODELS } from '../../cad-brep/test/models.ts';
 import { SmlibTessellator } from '../src/index.ts';
@@ -753,8 +754,9 @@ async function sameScaled(name: string, d: BrepData, lin = 0.01): Promise<void> 
     assert.deepEqual(ga.map((x) => x[0]), wa.map((x) => x[0]), what);
     for (const [i, [id, area]] of wa.entries()) assert.ok(within(ga[i]![1], area, 0.02)
       || Math.abs(ga[i]![1] - area) < 1e-9, `${what}: face ${id}'s mesh ${ga[i]![1]} for ${area}`);
-    assert.equal(got.measures!.length, want.measures!.length, what);
-    for (const m of want.measures!) {
+    // (None where no face has an id.)
+    assert.equal(got.measures?.length, want.measures?.length, what);
+    for (const m of want.measures ?? []) {
       const g = got.measures!.find((x) => x.entityId === m.entityId)!;
       assert.ok(g.valid === m.valid && (!m.valid || (within(g.area, m.area, 1e-4)
         && within(g.perimeter, m.perimeter, 1e-6))), `${what}: face ${m.entityId}'s measure ${g.area}, `
@@ -1114,4 +1116,43 @@ test('a closed shell is never joined to another shell: its mesh the same with an
       assert.deepEqual(soundness(d, r), { open: [], said: 0, repeated: 0, stray: 0, unjudged: 0, folded: 0 },
         `with the fin at ${lin}`);
     }
+  });
+
+test('ids as the model has them, up to 2^32 - 1, and none: entity ids null, faces without one unmeasured',
+  { skip }, async () => {
+    // A unit cube with ids from 2^32 - 100 (vertices + 1 to 8, edges + 9 to 20, faces + 21 to 26), a loose circle
+    // and point with ids above 2^31, and a second cube whose ids are all none.
+    const b = new BrepBuilder({ unit: 1 }), base = 2 ** 32 - 100;
+    b.addItem({ kind: 'body', ref: b.addBody({ kind: 'solid', members: [{ ref: box(b, [1, 1, 1], [0, 0, 0], base),
+      sense: true }] }) });
+    b.addItem({ kind: 'curve', ref: b.addCurve({ kind: 'circle', position: XY, radius: 2, id: 2 ** 31 + 5 }) });
+    b.addItem({ kind: 'point', point: [9, 8, 7], id: 2 ** 32 - 1 });
+    const strip = <T extends object>(rows: T[]) => rows.map((x) => Object.fromEntries(Object.entries(x)
+      .filter(([k]) => k !== 'id')) as T);
+    const j = brepToJson(MODELS.cube().finish());
+    const nameless = brepFromJson({ ...j, vertices: strip(j.vertices), edges: strip(j.edges), faces: strip(j.faces),
+      shells: strip(j.shells), bodies: strip(j.bodies), items: strip(j.items) });
+    const r = await mesh(b.finish());
+    const faces = Array.from({ length: 6 }, (_, j) => base + 21 + j);
+    assert.deepEqual(r.faces.map((f) => f.entityId).sort(), faces);
+    assert.deepEqual(r.measures!.map((m) => m.entityId).sort(), faces);
+    assert.deepEqual([...new Set(r.edges!.map((e) => e.entityId))].sort(), Array.from({ length: 12 },
+      (_, j) => base + 9 + j));
+    assert.deepEqual(r.curves!.map((c) => c.entityId), [2 ** 31 + 5]);
+    assert.deepEqual(r.pointIds, [2 ** 32 - 1]);
+    // Ids of 0 (none): faces and edges without one, and no measures.
+    const rn = await mesh(nameless);
+    assert.equal(rn.faces.length, 6);
+    assert.ok(rn.faces.every((f) => f.entityId === null) && rn.edges!.every((e) => e.entityId === null));
+    assert.equal(rn.measures, undefined);
+  });
+
+test('a face that fails to mesh is an error; the part, meshed but for it, not failed',
+  { skip: skip || (fs.existsSync(corpus) ? false : 'no corpus (test_corpus/third_party/pull.sh)') }, async () => {
+    const { scene } = await importStep(new Uint8Array(fs.readFileSync(path.join(corpus, 'bug24383_224013.stp'))));
+    const p = scene.parts.find((x) => x.sources[0]!.id === 11)!;
+    const r = await (await backend()).tessellate({ ...request(p.brep!.model, 0.1 / p.unit), origin: p.origin });
+    const failed = r.diagnostics.find((d) => /^\d+ faces failed to mesh$/.test(d.message));
+    assert.equal(failed?.severity, 'error', JSON.stringify(r.diagnostics));
+    assert.ok(r.indices.length > 0 && !failedPart(r));
   });

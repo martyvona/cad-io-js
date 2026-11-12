@@ -90,6 +90,7 @@ export interface TessellationResult {
   points?: Float32Array;
   /** Each point's source entity (STEP: CARTESIAN_POINT), or null. */
   pointIds?: (number | null)[];
+  /** Warnings for what was left out; errors for faces that failed to mesh, or a part that did (`failedPart`). */
   diagnostics: Diagnostic[];
 }
 

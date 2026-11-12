@@ -111,7 +111,7 @@
 *** ERR StepReaderData : Unresolved Reference : Fails Count : 1 ***
 *** ERR StepReaderData : Unresolved Reference : Fails Count : 1 ***
 *** ERR StepReaderData : Unresolved Reference : Fails Count : 2 ***
-517 files (0 over 1000 MB skipped), ap242, 293.6 s; written 287.3 MB in 6.9 s
+517 files (0 over 1000 MB skipped), ap242, 317.0 s; written 287.3 MB in 7.9 s
 (1) 5036 placed parts, 5036 the same (path, names, world transform, visibility, every face's colour); 3258 models, 3258 the same but for last bits and renumbered ids
 (2) OCCT on 511 written files (up to 30 MB): 139447 of 139589 placed B-rep vertices among its meshes'; 5432 of 5692 meshes coloured as the scene
 (2d) OCCT's points at the same parameters: 3257 parts, 1140975 points; apart by (relative to the part's size) <= 1e-12: 1131948, <= 1e-9: 48, <= 1e-6: 6, <= 1e-3: 36, <= inf: 8937; the farthest 4.7e-12 nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_07_asme1_ap242-e3.stp #11020 edge #2266

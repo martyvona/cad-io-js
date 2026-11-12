@@ -16,7 +16,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { TessellationRequest, TessellationResult } from '../packages/cad-scene/src/index.ts';
-import { faceFailures, MESH_PROFILES } from '../packages/cad-scene/src/index.ts';
+import { faceFailures, failedPart, MESH_PROFILES } from '../packages/cad-scene/src/index.ts';
 import { type BrepData, decode, nearestParams, surfaceEvaluator } from '../packages/cad-brep/src/index.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
 import { WorkerTessellator } from '../packages/tess-workers/src/node.ts';
@@ -278,8 +278,8 @@ export const check: FileCheck<undefined, Tallies> = {
       }
       const said = sa.diagnostics.filter((d) => !/^times /.test(d.message)).map((d) => `${d.severity}: ${d.message}`);
       const partLine = (status: string) => lines.push(JSON.stringify({ where, status, faces: of.size, said }));
-      // (An error for open edges comes with the mesh: the part isn't failed.)
-      if (sa.diagnostics.some((d) => d.severity === 'error' && !/^\d+ edges along which/.test(d.message))) {
+      // (Errors with a mesh, faces failed or edges open, don't fail the part.)
+      if (failedPart(sa)) {
         T.status.error++;
         T.facesMissing += of.size;
         partLine('error');

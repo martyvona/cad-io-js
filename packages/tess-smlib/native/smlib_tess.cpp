@@ -37,15 +37,16 @@ struct Result
 {
   std::vector<float> positions, normals;
   std::vector<uint32_t> indices;
-  std::vector<int32_t> faces; // triples: entityId (-1 = unknown), first index, index count
+  // Ids are source ids, 0 for none (as cad-brep's).
+  std::vector<uint32_t> faces; // triples: entityId (0 = unknown), first index, index count
   std::vector<float> edgePositions;
-  std::vector<int32_t> edges;      // quads: entityId (-1 = unknown), first point, point count, kind
+  std::vector<uint32_t> edges;     // quads: entityId (0 = unknown), first point, point count, kind
   std::vector<float> edgeAngles;   // max angle (radians) between adjacent face normals along the edge; -1 if n/a
-  std::vector<double> measures;    // quads: entityId, area, perimeter, valid (1 or 0)
+  std::vector<double> measures;    // quads: entityId, area, perimeter, valid (1 or 0); faces with an id only
   std::vector<float> curvePositions;
-  std::vector<int32_t> curves;     // triples: entityId (-1 = unknown), first point, point count
+  std::vector<uint32_t> curves;    // triples: entityId (0 = unknown), first point, point count
   std::vector<float> points;
-  std::vector<int32_t> pointIds;   // -1 = unknown
+  std::vector<uint32_t> pointIds;  // 0 = unknown
   std::string diag;                // JSON object text
 };
 Result g;
@@ -72,10 +73,9 @@ std::string jsonEscape(const std::string& t)
   return o;
 }
 
-int32_t idOf(const std::vector<double>& ids, long row)
+uint32_t idOf(const std::vector<uint32_t>& ids, long row)
 {
-  if (row < 0 || row >= (long)ids.size() || !std::isfinite(ids[row])) return -1;
-  return (int32_t)ids[row];
+  return row < 0 || row >= (long)ids.size() ? 0 : ids[row];
 }
 
 // An item's transform (12 reals, column-major) on a point and on a normal (by the inverse transpose, up to scale).
@@ -697,7 +697,7 @@ void emitEdges(BuiltPart& part, Sides& sides)
   for (auto& [row, of] : sides)
   {
     if (of.empty()) continue;
-    int32_t id = idOf(part.edgeIds, row);
+    uint32_t id = idOf(part.edgeIds, row);
     // (The kind as the earliest meshing has it, but shared where two faces have it: a face meshed again alone, or one
     // in a shell of its own, has its edges free.)
     const Side* first = &of[0];
@@ -749,7 +749,7 @@ void emitEdges(BuiltPart& part, Sides& sides)
             angle = std::max(angle, std::acos(std::max(-1.0, std::min(1.0, c))));
           }
       }
-      g.edges.insert(g.edges.end(), {id, at0, (int32_t)chain.size(), kind});
+      g.edges.insert(g.edges.end(), {id, (uint32_t)at0, (uint32_t)chain.size(), (uint32_t)kind});
       g.edgeAngles.push_back((float)angle);
     };
     // Open chains from their ends first, then what's left (closed ones).
@@ -1122,6 +1122,7 @@ void meshPart(const uint8_t* buf, size_t len, BuiltPart& part, double linDefl, d
       for (auto& [row, sum] : sums)
       {
         measured.insert(row);
+        if (!idOf(part.faceIds, row)) continue;
         double exact = kept.count(row) ? kept[row].exact : sum.first;
         double perimeter = kept.count(row) ? kept[row].perimeter : sum.second;
         g.measures.insert(g.measures.end(), {(double)idOf(part.faceIds, row), exact * s * s, perimeter * s,
@@ -1137,7 +1138,7 @@ void meshPart(const uint8_t* buf, size_t len, BuiltPart& part, double linDefl, d
     uint32_t base = (uint32_t)(g.positions.size() / 3);
     for (double x : fm.pos) g.positions.push_back((float)x);
     for (double x : fm.nrm) g.normals.push_back((float)x);
-    g.faces.insert(g.faces.end(), {idOf(part.faceIds, row), (int32_t)g.indices.size(), (int32_t)fm.tri.size()});
+    g.faces.insert(g.faces.end(), {idOf(part.faceIds, row), (uint32_t)g.indices.size(), (uint32_t)fm.tri.size()});
     for (uint32_t i : fm.tri) g.indices.push_back(base + i);
   }
   for (long row : seen)
@@ -1184,12 +1185,11 @@ int smlib_tessellate_model(const uint8_t* data, int len, double linDefl, double 
     std::string meshDiag = ",\"msBuild\":" + std::to_string(now() - t0);
     meshPart(reinterpret_cast<const uint8_t*>(aligned.data()), (size_t)len, part, linDefl, angDefl, ox, oy, oz,
       meshDiag);
-    auto finite = [](double id) { return std::isfinite(id) ? (int32_t)id : -1; };
     for (auto& c : part.curves)
     {
       Transform tr(c.transform);
-      g.curves.insert(g.curves.end(), {finite(c.id), (int32_t)(g.curvePositions.size() / 3),
-        (int32_t)(c.points.size() / 3)});
+      g.curves.insert(g.curves.end(), {c.id, (uint32_t)(g.curvePositions.size() / 3),
+        (uint32_t)(c.points.size() / 3)});
       for (size_t k = 0; k < c.points.size(); k += 3)
       {
         double q[3] = {c.points[k], c.points[k + 1], c.points[k + 2]};
@@ -1203,7 +1203,7 @@ int smlib_tessellate_model(const uint8_t* data, int len, double linDefl, double 
       double q[3] = {pt.points[0], pt.points[1], pt.points[2]};
       tr.point(q);
       g.points.insert(g.points.end(), {(float)(q[0] - ox), (float)(q[1] - oy), (float)(q[2] - oz)});
-      g.pointIds.push_back(finite(pt.id));
+      g.pointIds.push_back(pt.id);
     }
     g.diag = "{\"breps\":" + std::to_string(part.breps.size()) + meshDiag + ",\"builder\":" + builder + "}";
     return 0;
@@ -1232,26 +1232,28 @@ void smlib_set_measures(int on) { gMeasures = on != 0; }
 void smlib_set_edges(int on) { gEdges = on != 0; }
 void smlib_set_heal(int on) { gHeal = on != 0; }
 void smlib_set_scale(double scale) { gScale = scale >= 1 ? scale : 1; }
+// Present where the id arrays are uint32 with 0 for none (a module built before had int32 with -1).
+int smlib_ids_u32() { return 1; }
 const float* smlib_positions() { return g.positions.data(); }
 const float* smlib_normals() { return g.normals.data(); }
 int smlib_num_vertices() { return (int)(g.positions.size() / 3); }
 const uint32_t* smlib_indices() { return g.indices.data(); }
 int smlib_num_indices() { return (int)g.indices.size(); }
-const int32_t* smlib_faces() { return g.faces.data(); }
+const uint32_t* smlib_faces() { return g.faces.data(); }
 int smlib_num_faces() { return (int)(g.faces.size() / 3); }
 const float* smlib_edge_positions() { return g.edgePositions.data(); }
 int smlib_num_edge_points() { return (int)(g.edgePositions.size() / 3); }
-const int32_t* smlib_edges() { return g.edges.data(); }
+const uint32_t* smlib_edges() { return g.edges.data(); }
 const float* smlib_edge_angles() { return g.edgeAngles.data(); }
 int smlib_num_edges() { return (int)g.edgeAngles.size(); }
 const double* smlib_measures() { return g.measures.data(); }
 int smlib_num_measures() { return (int)(g.measures.size() / 4); }
 const float* smlib_curve_positions() { return g.curvePositions.data(); }
 int smlib_num_curve_points() { return (int)(g.curvePositions.size() / 3); }
-const int32_t* smlib_curves() { return g.curves.data(); }
+const uint32_t* smlib_curves() { return g.curves.data(); }
 int smlib_num_curves() { return (int)(g.curves.size() / 3); }
 const float* smlib_points() { return g.points.data(); }
-const int32_t* smlib_point_ids() { return g.pointIds.data(); }
+const uint32_t* smlib_point_ids() { return g.pointIds.data(); }
 int smlib_num_points() { return (int)g.pointIds.size(); }
 const char* smlib_diag() { return g.diag.c_str(); }
 void smlib_free() { g = Result(); }

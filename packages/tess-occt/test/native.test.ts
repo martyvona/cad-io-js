@@ -138,6 +138,25 @@ test('the native route: a part with a kind not built yet fails with an error and
       ['native builder: not built yet: a composite curve']);
   });
 
+test('the native route: ids above 2^31 come back as they are (u32), a face or edge without one as null', { skip },
+  async () => {
+    const { native } = await both();
+    const b = new BrepBuilder({ unit: 1 });
+    // Vertices from 2^32 - 30 + 1, edges from + 9, faces + 21 to + 26 (the largest 2^32 - 4).
+    const base = 2 ** 32 - 30;
+    b.addItem({ kind: 'body', ref: b.addBody({ kind: 'solid', members: [{ ref: box(b, [1, 1, 1], [0, 0, 0], base),
+      sense: true }] }) });
+    const d = openBrep(b.finish().buffer.slice(0));
+    d.face.id[0] = 0;
+    d.edge.id[0] = 0;
+    const r = await native.tessellate({ ...request(new Uint8Array(d.buffer)), edges: true });
+    assert.deepEqual([...new Set(r.faces.map((f) => f.entityId))].sort(),
+      [null, ...[22, 23, 24, 25, 26].map((k) => base + k)].sort());
+    assert.ok(r.faces.every((f) => f.count > 0));
+    const edges = new Set(r.edges!.map((e) => e.entityId));
+    assert.deepEqual([...edges].sort(), [null, ...Array.from({ length: 11 }, (_, k) => base + 10 + k)].sort());
+  });
+
 test('the native route: a face on a swept surface (no counterpart in OCCT) left out with a warning, the rest meshed',
   { skip }, async () => {
     const { native } = await both();
@@ -473,6 +492,71 @@ test('the native route, loops and edges as OCCT\'s STEP translator makes them: n
       assert.deepEqual(warnings(n).filter((w) => w.startsWith('native builder')),
         [`native builder: face #5: a vertex loop on a ${kind} left out (as OCCT's STEP reader leaves it out)`]);
     }
+  }
+  // A degenerate torus (the tube through its axis: an outer part and an inner one) bounded by itself alone: no loops,
+  // or a vertex loop left out: healing bounds it by the surface, both parts, select_outer set aside (a warning; none
+  // for the torus not degenerate). Its vertices on both parts: (rho - R)^2 + z^2 = r^2 on the outer, (rho + R)^2 on
+  // the inner.
+  for (const [selectOuter, loop] of [[false, false], [true, true], [undefined, false]] as const) {
+    const b = new BrepBuilder({ unit: 1 });
+    const R = 1, r = 2;
+    const surface = b.addSurface({ kind: 'torus', position: XY, majorRadius: selectOuter === undefined ? 3 : R,
+      minorRadius: r, ...(selectOuter === undefined ? {} : { selectOuter }) });
+    const face = b.addFace({ surface, sameSense: true, id: 5, loops: loop ? [{ kind: 'vertex', bound: 'outer',
+      sense: true, vertex: b.addVertex({ point: [R + r, 0, 0] }) }] : [] });
+    sheet(b, [face]);
+    const n = await native.tessellate(request(new Uint8Array(b.finish().buffer)));
+    const what = `selectOuter ${selectOuter}${loop ? ', a vertex loop' : ''}`;
+    const expected = [...(loop ? ['native builder: face #5: a vertex loop on a torus left out (as OCCT\'s STEP reader '
+      + 'leaves it out)'] : []), ...(selectOuter === undefined ? [] : ['native builder: face #5: bounded by its '
+      + 'degenerate torus alone: both of the torus\'s parts, which part is meant (select_outer) set aside, as OCCT\'s '
+      + 'STEP reader sets it aside'])];
+    assert.deepEqual(warnings(n), expected, what);
+    if (selectOuter === undefined) continue;
+    const parts = new Set<string>();
+    for (let i = 0; i < n.positions.length; i += 3) {
+      const [x, y, z] = [n.positions[i]!, n.positions[i + 1]!, n.positions[i + 2]!], rho = Math.hypot(x, y);
+      if (rho < 1e-3) continue;
+      if (Math.abs(Math.hypot(rho - R, z) - r) < 1e-3) parts.add('outer');
+      else if (Math.abs(Math.hypot(rho + R, z) - r) < 1e-3) parts.add('inner');
+      else parts.add('neither');
+    }
+    assert.deepEqual([...parts].sort(), ['inner', 'outer'], what);
+  }
+  // A real one (the ohmm demo model's roller): its degenerate tori's faces, select_outer false, bounded by their
+  // loops: no warning, and meshed on the inner part alone.
+  {
+    const file = path.join(root, 'test_corpus/demo/ohmm-ap242.step');
+    const { scene } = await importStep(new Uint8Array(fs.readFileSync(file)));
+    const part = scene.parts.find((p) => p.name === 'R76-4CM-ROLLER_half')!;
+    const data = new Uint8Array(part.brep!.model.buffer);
+    const j = brepToJson(openBrep(data));
+    const tori = new Map(j.faces.flatMap((f) => {
+      const t = j.surfaces[f.surface]!;
+      return t.kind === 'torus' && t.selectOuter === false && f.id !== undefined ? [[f.id, t] as const] : [];
+    }));
+    assert.equal(tori.size, 4);
+    const n = await native.tessellate({ ...request(data), origin: part.origin });
+    assert.deepEqual(warnings(n).filter((w) => /torus/.test(w)), []);
+    for (const f of n.faces) {
+      const t = tori.get(f.entityId ?? -1);
+      if (!t) continue;
+      const o = t.position.origin, z = t.position.axis ?? [0, 0, 1];
+      let inner = 0;
+      const tri = n.indices.subarray(f.start, f.start + f.count);
+      for (const i of tri) {
+        const q = [0, 1, 2].map((c) => n.positions[3 * i + c]! + n.origin[c]! - o[c]!);
+        const h = q[0]! * z[0]! + q[1]! * z[1]! + q[2]! * z[2]!;
+        const rho = Math.hypot(...q.map((c, k) => c - h * z[k]!));
+        const tol = 1e-3 * t.minorRadius;
+        assert.ok(Math.abs(Math.hypot(rho + t.majorRadius, h) - t.minorRadius) < tol
+          && Math.abs(Math.hypot(rho - t.majorRadius, h) - t.minorRadius) >= tol, `face #${f.entityId}: off the inner`);
+        inner++;
+      }
+      assert.ok(inner > 0);
+      tori.delete(f.entityId!);
+    }
+    assert.equal(tori.size, 0, 'every torus face meshed');
   }
   // A tetrahedron of poly loops, each face on its own plane, one said the other way round: its edges shared by the
   // faces (by their corners, vertices), all six of them between two faces.

@@ -78,7 +78,7 @@ test('the bytes depend on each table\'s rows, not on how tables are interleaved'
 test('layout: every column 8-byte aligned, in order, counts as built', () => {
   const d = everyKind().finish();
   const view = new DataView(d.buffer);
-  assert.equal(String.fromCharCode(...new Uint8Array(d.buffer, 0, 4)), 'CBR2');
+  assert.equal(String.fromCharCode(...new Uint8Array(d.buffer, 0, 4)), 'CBR3');
   assert.equal(view.getUint32(4, true), COLUMNS.length);
   let last = 0;
   COLUMNS.forEach((c, k) => {
@@ -90,6 +90,11 @@ test('layout: every column 8-byte aligned, in order, counts as built', () => {
   });
   assert.deepEqual([rowCount(d, 'curve'), rowCount(d, 'surface'), rowCount(d, 'part')], [22 + 12, 14 + 6, 1]);
   assert.equal(d.vertex.point.length, 3 * rowCount(d, 'vertex'));
+  // Each column's bytes by its type's size (ids 4, as u32), padded to 8: the buffer's whole length.
+  const size = { u8: 1, i32: 4, u32: 4, f64: 8 } as const, pad = (n: number) => Math.ceil(n / 8) * 8;
+  assert.equal(d.buffer.byteLength, COLUMNS.reduce((n, c) => n + pad((d[c.table] as Record<string,
+    ArrayLike<number>>)[c.column]!.length * size[c.type]), pad(8 + 8 * COLUMNS.length)));
+  assert.ok(d.face.id instanceof Uint32Array && d.item.id instanceof Uint32Array);
 });
 
 test('openBrep: header checks, and a Uint8Array view copied or used', () => {
@@ -97,8 +102,8 @@ test('openBrep: header checks, and a Uint8Array view copied or used', () => {
   assert.throws(() => openBrep(new ArrayBuffer(8)), BrepFormatError);
   const bad = d.buffer.slice(0);
   // (The previous format's buffers among them.)
-  new Uint8Array(bad)[3] = 0x31;
-  assert.throws(() => openBrep(bad), /magic "CBR1"/);
+  new Uint8Array(bad)[3] = 0x32;
+  assert.throws(() => openBrep(bad), /magic "CBR2"/);
   const fewer = d.buffer.slice(0);
   new DataView(fewer).setUint32(4, COLUMNS.length - 1, true);
   assert.throws(() => openBrep(fewer), /columns/);
@@ -184,10 +189,41 @@ test('the builder refuses what would make the buffer unreadable', () => {
       preference: 'unspecified' }), /not added yet/],
     ['a surface placement made of a curve', () => b.addSurface({ kind: 'extrusion', curve: line2,
       direction: [0, 0, 1], magnitude: 1 }), /2D, not 3D/],
+    // Ids a u32 can't hold, and 0 (none): the caller's to leave out.
+    ...[0, -1, 1.5, 2 ** 32, NaN].map((id): [string, () => unknown, RegExp] => [`id ${id}`,
+      () => {
+        const f = new BrepBuilder({ unit: 1 });
+        try {
+          f.addCurve({ kind: 'line', point: [0, 0, 0], direction: [1, 0, 0], magnitude: 1, id });
+        } finally {
+          // (Refused before its pool's values are written.)
+          const d = f.finish();
+          assert.deepEqual([rowCount(d, 'curve'), d.pool.curveReal.length], [0, 0]);
+        }
+      },
+      /source id .*: not 1 to 2\^32 - 1/]),
+    ['a loop\'s id', () => {
+      const f = new BrepBuilder({ unit: 1 });
+      const surface = f.addSurface({ kind: 'plane', position: P }), vertex = f.addVertex({ point: [0, 0, 0] });
+      const edge = f.addEdge({ curve: f.addCurve({ kind: 'circle', position: P, radius: 1 }), start: vertex,
+        end: vertex, sameSense: true });
+      try {
+        f.addFace({ surface, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true, id: 0,
+          coedges: [{ edge, orientation: 'forward' }] }] });
+      } finally {
+        // (No loop or coedge row added.)
+        const d = f.finish();
+        assert.deepEqual([rowCount(d, 'loop'), rowCount(d, 'coedge')], [0, 0]);
+      }
+    }, /source id 0/],
   ];
   for (const [what, f, re] of cases) assert.throws(f, re, what);
+  // The largest id is kept.
+  const top = b.addCurve({ kind: 'line', point: [0, 0, 0], direction: [1, 0, 0], magnitude: 1, id: 2 ** 32 - 1 });
   // Nothing refused was added, and what's left is a valid buffer.
-  assert.equal(rowCount(b.finish(), 'curve'), 2);
+  const d = b.finish();
+  assert.equal(rowCount(d, 'curve'), 3);
+  assert.equal(decode.curve(d, top).id, 2 ** 32 - 1);
   void P;
 });
 

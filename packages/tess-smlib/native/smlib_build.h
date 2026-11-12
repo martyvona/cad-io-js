@@ -35,16 +35,16 @@ enum { EDGE_SHARED = 0, EDGE_SEAM = 1, EDGE_FREE = 2, EDGE_DEGENERATE = 3 };
 struct BuiltPart
 {
   std::vector<BuiltBrep> breps;
-  // Each face row's and edge row's source id (NaN: none), by row; SMLib's edges carry their edge row + 1 as user
+  // Each face row's and edge row's source id (0: none), by row; SMLib's edges carry their edge row + 1 as user
   // index 1.
-  std::vector<double> faceIds, edgeIds;
+  std::vector<uint32_t> faceIds, edgeIds;
   // Each edge row's uses by faces' loops: the face rows, one for each use.
   std::vector<std::vector<int>> edgeFaces;
-  // Wireframe curves (curve items, wire bodies' edges) as polylines with their ids (NaN: none), and loose points (one
+  // Wireframe curves (curve items, wire bodies' edges) as polylines with their ids (0: none), and loose points (one
   // point each), each with its item's transform (12 reals, or none).
   struct Polyline
   {
-    double id;
+    uint32_t id;
     std::vector<double> points; // x, y, z, ...
     std::vector<double> transform;
   };

@@ -1,6 +1,6 @@
-// The warnings and errors of loading a model: the importer's and the meshing's (OCCT's messages, faces that failed to
-// mesh, shells turned over, parts that failed), shown in a modal once meshing is done, besides the status line's count
-// and the console.
+// The errors of loading or meshing a model again (the importer's and the meshing's: parts that failed to build or mesh,
+// or timed out, and faces that failed to mesh), shown in a modal once meshing is done; warnings only in the status
+// line's count and the console.
 
 import type { Diagnostic } from 'cad-scene';
 import { showDialog } from './dialog.ts';
@@ -9,23 +9,20 @@ import { formatIds } from './step-ids.ts';
 /** At most this many listed in the dialog (all of them in the console). */
 export const MAX_LISTED = 500;
 
-/** The warnings and errors among diagnostics (not info), errors first, as rows: where, and the message. */
+const errorsOf = (diagnostics: readonly Diagnostic[]) => diagnostics.filter((d) => d.severity === 'error');
+
+/** The errors among diagnostics, in the order met, as rows: where, and the message. */
 export function problemRows(diagnostics: readonly Diagnostic[], max = MAX_LISTED):
-  { rows: [string, string][]; errors: number; warnings: number; more: number } {
-  const problems = diagnostics.filter((d) => d.severity !== 'info');
-  // (A stable sort: each severity in the order met.)
-  problems.sort((a, b) => Number(b.severity === 'error') - Number(a.severity === 'error'));
-  const errors = problems.filter((d) => d.severity === 'error').length;
-  const rows = problems.slice(0, max).map((d): [string, string] =>
+  { rows: [string, string][]; errors: number; more: number } {
+  const errors = errorsOf(diagnostics);
+  const rows = errors.slice(0, max).map((d): [string, string] =>
     [`${d.severity}${d.source ? ` #${d.source.id}` : ''}`, d.message]);
-  return { rows, errors, warnings: problems.length - errors, more: Math.max(0, problems.length - max) };
+  return { rows, errors: errors.length, more: Math.max(0, errors.length - max) };
 }
 
-/** The STEP ids the warnings and errors came from, each once, in the rows' order (what Copy IDs copies). */
+/** The STEP ids the errors came from, each once, in the rows' order (what Copy IDs copies). */
 export function problemIds(diagnostics: readonly Diagnostic[]): number[] {
-  const problems = diagnostics.filter((d) => d.severity !== 'info');
-  problems.sort((a, b) => Number(b.severity === 'error') - Number(a.severity === 'error'));
-  return [...new Set(problems.flatMap((d) => d.source ? [d.source.id] : []))];
+  return [...new Set(errorsOf(diagnostics).flatMap((d) => d.source ? [d.source.id] : []))];
 }
 
 /** Text to the clipboard where the page may write it (a secure context), else shown in a prompt to copy. */
@@ -42,16 +39,15 @@ export async function copyText(text: string, what: string): Promise<boolean> {
 
 const count = (n: number, what: string) => `${n} ${what}${n === 1 ? '' : 's'}`;
 
-/** Shows a model's warnings and errors in a modal, if it has any; resolves when it's closed. */
+/** Shows a model's errors in a modal, if it has any; resolves when it's closed (at once if none). */
 export async function showProblems(name: string, diagnostics: readonly Diagnostic[]): Promise<void> {
-  const { rows, errors, warnings, more } = problemRows(diagnostics);
+  const { rows, errors, more } = problemRows(diagnostics);
   const ids = problemIds(diagnostics);
   if (!rows.length) return;
-  const counts = [errors ? count(errors, 'error') : '', warnings ? count(warnings, 'warning') : ''].filter((s) => s);
-  await showDialog({ title: `${name}: ${counts.join(' and ')}`, error: errors > 0,
+  await showDialog({ title: `${name}: ${count(errors, 'error')}`, error: true,
     body: ['From reading the file and meshing it; #n is the STEP instance (the part\'s shape representation, or ' +
       'the entity itself) it came from; Copy IDs copies them, for Selection\'s Select by ID. They are in the ' +
-      'console too.', rows,
+      'console, with any warnings.', rows,
       ...(more ? [`And ${more} more, in the console.`] : [])],
     buttons: [{ label: 'OK', value: 'ok', primary: true }, { label: 'Copy IDs', value: 'copy', disabled: !ids.length,
       // The ids, as Selection's Select by ID reads them; the dialog stays open.

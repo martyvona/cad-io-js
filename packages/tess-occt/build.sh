@@ -18,7 +18,7 @@ EXPORTS='["_occt_tessellate","_occt_positions","_occt_normals","_occt_num_vertic
 '"_occt_curve_positions","_occt_num_curve_points","_occt_curves","_occt_num_curves","_occt_points",'\
 '"_occt_point_ids","_occt_num_points","_occt_patches","_occt_measures","_occt_num_measures",'\
 '"_occt_set_measures","_occt_outline_positions","_occt_tessellate_model",'\
-'"_occt_num_outline_points","_occt_outlines","_occt_num_outlines","_malloc","_free"]'
+'"_occt_num_outline_points","_occt_outlines","_occt_num_outlines","_occt_ids_u32","_malloc","_free"]'
 # The patches the libraries were built with, comma-separated (build-occt.sh writes them; none before it did).
 PATCHES=$(paste -sd, - < "$B/patches.txt" 2>/dev/null || true)
 # -DNo_Exception as OCCT's release libraries are built (BUILD_RELEASE_DISABLE_EXCEPTIONS): its headers' inline checks
@@ -33,5 +33,5 @@ em++ -Os -fwasm-exceptions build/occt_tess.o build/occt_build.o -Wl,--start-grou
   -sMODULARIZE=1 -sEXPORT_ES6=1 -sEXPORT_NAME=occtTess -sENVIRONMENT=web,worker,node \
   -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=32MB -sSTACK_SIZE=4MB \
   -sEXPORTED_FUNCTIONS="$EXPORTS" \
-  -sEXPORTED_RUNTIME_METHODS='["HEAPU8","HEAPF32","HEAPU32","HEAP32","HEAPF64","UTF8ToString"]'
+  -sEXPORTED_RUNTIME_METHODS='["HEAPU8","HEAPF32","HEAPU32","HEAPF64","UTF8ToString"]'
 ls -la dist/occt_tess.wasm dist/occt_tess.mjs

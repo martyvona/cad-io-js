@@ -121,7 +121,14 @@ export function stepBrep(r: Reader, items: number[], o: StepBrepOptions, warn: W
       : `an unsupported ${what} (${types(p)})`, p);
 
   // -- Values.
-  const id = (p: number) => r.id(p);
+  // (The model's ids are 1 to 2^32 - 1, 0 for none, and the parser takes none larger. #0 is read as none, an error:
+  // only what the model is built from is asked its id, so the part's geometry depends on it.)
+  const id = (p: number) => {
+    const x = r.id(p);
+    if (x !== 0) return x;
+    note('an instance #0 in the model (its row without a source id: the model\'s ids start at 1)', p, 'error');
+    return undefined;
+  };
   const num = (p: number, name: string) => r.num(p, name);
   const logical = (p: number, name: string): boolean | null => {
     const v = r.attr(p, name);

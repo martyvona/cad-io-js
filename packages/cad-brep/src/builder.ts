@@ -13,8 +13,9 @@ import type { Body, Curve, Edge, Face, Item, Logical, PartInfo, Placement, Point
 
 if (new Uint8Array(new Uint16Array([1]).buffer)[0] !== 1) throw new Error('cad-brep needs a little-endian platform');
 
-type Typed = Uint8Array | Int32Array | Float64Array;
-const CTORS: Record<ColumnType, new (n: number) => Typed> = { u8: Uint8Array, i32: Int32Array, f64: Float64Array };
+type Typed = Uint8Array | Int32Array | Uint32Array | Float64Array;
+const CTORS: Record<ColumnType, new (n: number) => Typed> = { u8: Uint8Array, i32: Int32Array, u32: Uint32Array,
+  f64: Float64Array };
 
 /** A typed array that grows by doubling. */
 class Growable {
@@ -42,6 +43,12 @@ const logical = (x: Logical) => x === null ? LOGICAL.unknown : x ? LOGICAL.true 
 const bool = (x: boolean) => x ? 1 : 0;
 const opt = (x: number | undefined) => x ?? NaN;
 const ref = (x: number | undefined) => x ?? -1;
+/** A source id as stored (0: none); one a u32 can't hold, or 0 itself, is the caller's to have left out. */
+function sourceId(x: number | undefined): number {
+  if (x === undefined) return 0;
+  if (!Number.isInteger(x) || x < 1 || x > 0xffffffff) throw new RangeError(`source id ${x}: not 1 to 2^32 - 1`);
+  return x;
+}
 
 export class BrepBuilder {
   private readonly cols = new Map<string, Growable>(
@@ -117,7 +124,7 @@ export class BrepBuilder {
   }
 
   addCurve(c: Curve): number {
-    const what = `curve ${this.counts.curve} (${c.kind})`;
+    const what = `curve ${this.counts.curve} (${c.kind})`, id = sourceId(c.id);
     this.pools('curveReal', 'curveInt');
     const real = this.real.n, int = this.int.n;
     let dim: number;
@@ -180,13 +187,13 @@ export class BrepBuilder {
     }
     if (dim !== 2 && dim !== 3) throw new RangeError(`${what}: ${dim} dimensions`);
     this.dims.push(dim);
-    return this.row('curve', { kind: CURVE_KIND[c.kind], dim, real, int, id: opt(c.id) });
+    return this.row('curve', { kind: CURVE_KIND[c.kind], dim, real, int, id });
   }
 
   private surfaceRef(i: number, what: string) { this.check('surface', i, what); }
 
   addSurface(s: Surface): number {
-    const what = `surface ${this.counts.surface} (${s.kind})`;
+    const what = `surface ${this.counts.surface} (${s.kind})`, id = sourceId(s.id);
     this.pools('surfaceReal', 'surfaceInt');
     const real = this.real.n, int = this.int.n;
     const place = (p: Placement) => {
@@ -255,12 +262,12 @@ export class BrepBuilder {
         break;
       default: throw new RangeError(`${what}: unknown kind`);
     }
-    return this.row('surface', { kind: SURFACE_KIND[s.kind], real, int, id: opt(s.id) });
+    return this.row('surface', { kind: SURFACE_KIND[s.kind], real, int, id });
   }
 
   addVertex(v: Vertex): number {
     if (v.point.length !== 3) throw new RangeError(`vertex ${this.counts.vertex}: a point of ${v.point.length}`);
-    return this.row('vertex', { point: v.point, tolerance: opt(v.tolerance), id: opt(v.id) });
+    return this.row('vertex', { point: v.point, tolerance: opt(v.tolerance), id: sourceId(v.id) });
   }
 
   addEdge(e: Edge): number {
@@ -270,12 +277,18 @@ export class BrepBuilder {
     this.check('vertex', e.end, what);
     return this.row('edge', { curve: ref(e.curve), start: ref(e.start), end: ref(e.end), sameSense: bool(e.sameSense),
       flags: e.degenerate ? EDGE_FLAGS.degenerate : 0, range: e.range ?? [NaN, NaN], tolerance: opt(e.tolerance),
-      id: opt(e.id) });
+      id: sourceId(e.id) });
   }
 
   /** A face, its loops and their coedges. */
   addFace(f: Face): number {
     const what = `face ${this.counts.face}`;
+    // (Every id first: a refused one adds no rows.)
+    const id = sourceId(f.id);
+    for (const l of f.loops) {
+      sourceId(l.id);
+      if (l.kind === 'edge') for (const c of l.coedges) sourceId(c.id);
+    }
     this.pools('itemReal', 'loopInt');
     this.surfaceRef(f.surface, what);
     const firstLoop = this.counts.loop;
@@ -288,7 +301,7 @@ export class BrepBuilder {
           this.check('edge', c.edge, what);
           if (c.pcurve !== undefined) this.curveRef(c.pcurve, 2, `${what}, a p-curve`);
           this.row('coedge', { edge: c.edge, orientation: ORIENTATION[c.orientation], pcurve: ref(c.pcurve),
-            range: c.range ?? [NaN, NaN], id: opt(c.id) });
+            range: c.range ?? [NaN, NaN], id: sourceId(c.id) });
         }
       } else if (l.kind === 'vertex') {
         this.check('vertex', l.vertex, what);
@@ -301,10 +314,10 @@ export class BrepBuilder {
         this.int.pushAll(l.vertices);
       }
       this.row('loop', { kind: LOOP_KIND[l.kind], bound: BOUND[l.bound], sense: bool(l.sense), first, count,
-        id: opt(l.id) });
+        id: sourceId(l.id) });
     }
     return this.row('face', { surface: f.surface, sameSense: bool(f.sameSense), firstLoop, loopCount: f.loops.length,
-      tolerance: opt(f.tolerance), id: opt(f.id) });
+      tolerance: opt(f.tolerance), id });
   }
 
   addShell(s: Shell): number {
@@ -313,7 +326,7 @@ export class BrepBuilder {
       this.check('face', u.face, `shell ${this.counts.shell}`);
       this.row('faceUse', { face: u.face, sense: bool(u.sense) });
     }
-    return this.row('shell', { kind: SHELL_KIND[s.kind], first, count: s.faces.length, id: opt(s.id) });
+    return this.row('shell', { kind: SHELL_KIND[s.kind], first, count: s.faces.length, id: sourceId(s.id) });
   }
 
   addBody(b: Body): number {
@@ -322,7 +335,7 @@ export class BrepBuilder {
       this.check(b.kind === 'wire' ? 'edge' : 'shell', m.ref, `body ${this.counts.body}`);
       this.row('member', { ref: m.ref, sense: bool(m.sense) });
     }
-    return this.row('body', { kind: BODY_KIND[b.kind], first, count: b.members.length, id: opt(b.id) });
+    return this.row('body', { kind: BODY_KIND[b.kind], first, count: b.members.length, id: sourceId(b.id) });
   }
 
   addItem(it: Item): number {
@@ -343,7 +356,7 @@ export class BrepBuilder {
       transform = this.real.n;
       this.real.pushAll(it.transform);
     }
-    return this.row('item', { kind: ITEM_KIND[it.kind], ref: target, transform, id: opt(it.id) });
+    return this.row('item', { kind: ITEM_KIND[it.kind], ref: target, transform, id: sourceId(it.id) });
   }
 
   /** The buffer, deterministic: the same rows give the same bytes. The builder can go on after it. */
