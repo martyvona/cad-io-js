@@ -7,7 +7,7 @@ Notes for working on cad-io-js: how work is done here, the decisions every part 
 | File | For work on |
 |---|---|
 | [`docs/step.md`](docs/step.md) | STEP parsing and import: the importer's rules, AP242 tessellated geometry, the corpus's examples, the STEP backlog; STEP itself and what real files do is in [`docs/step_tutorial.md`](docs/step_tutorial.md) |
-| [`docs/backends.md`](docs/backends.md) | tessellation: `tessellateScene`, profiles, timeouts, the cache, faces that fail to mesh, the area oracle, OCCT (build, patches, probing, quirks), truck, SMLib (build, builder, quirks), BRL-CAD (evaluated, not pursued), Solid Core (evaluated) |
+| [`docs/backends.md`](docs/backends.md) | tessellation: `tessellateScene`, profiles, timeouts, the cache, faces that fail to mesh, the area oracle, OCCT (build, patches, probing, quirks), truck, SMLib (build, builder, quirks), BRL-CAD (evaluated, not pursued), Solid Core (evaluated), SINTEF's GoTools and SISL (evaluated, not pursued) |
 | [`docs/scene-formats.md`](docs/scene-formats.md) | the scene model, the exporters (glTF, three.js, 3MF, `stepconv`), the mesh importers, round trips, those libraries' quirks |
 | [`docs/viewer.md`](docs/viewer.md) | the viewer: loading, export, rendering, sections, camera and input, picking, the tree and appearance overrides, updates, automation and replay, the browser check, three.js/Vite quirks |
 | [`docs/future.md`](docs/future.md) | new input formats (IGES, BREP, FreeCAD, QIF, JT and why it's not a priority), the JT specifications, prior art |
