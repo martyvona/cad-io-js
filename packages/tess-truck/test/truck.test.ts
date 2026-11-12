@@ -6,8 +6,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { test } from 'node:test';
+import { openBrep, SURFACE_KIND } from 'cad-brep';
 import type { TessellationRequest, TessellationResult } from 'cad-scene';
-import { buildSubset, parseStep } from 'step-parser';
 import { importStep } from 'step-import';
 import { TruckTessellator, WBINDGEN_IMPORTS } from '../src/index.ts';
 
@@ -21,23 +21,25 @@ const skip = !fs.existsSync(wasm) ? 'tess-truck not built (run packages/tess-tru
   cube) ? 'corpus not fetched' : false;
 const occtBuilt = fs.existsSync(path.join(root, 'packages/tess-occt/dist/occt_tess.wasm'));
 
-/**
- * Each B-rep part's request: its subset of the file (its representation and what it reaches, mapped items left
- * out).
- */
-async function requests(file: string, linear = 0.05, edges = true): Promise<TessellationRequest[]> {
-  const bytes = new Uint8Array(fs.readFileSync(file));
+/** A request for each B-rep part of STEP bytes: its model (`rootId` its representation's id, to find it by). */
+async function requestsOf(bytes: Uint8Array, linear = 0.05, edges = true): Promise<TessellationRequest[]> {
   const { scene } = await importStep(bytes);
-  const f = parseStep(bytes);
-  return scene.parts.flatMap((p) => {
-    if (!p.brep) return [];
-    const rootId = p.sources[0]!.id, rep = f.index.position(rootId), inst = f.instanceAt(rep);
-    const items = 'type' in inst && inst.attrs[1]?.k === 'refs' ? Array.from(inst.attrs[1].v) : [];
-    const exclude = new Set(items.map((id) => f.index.position(id)).filter((q) => q >= 0
-      && f.index.typeName(q) === 'MAPPED_ITEM'));
-    return [{ format: 'step' as const, data: buildSubset(f, [rep], { exclude }).bytes, rootId, origin: p.origin,
-      linearDeflection: linear / p.unit, angularDeflection: 0.5, edges }];
-  });
+  return scene.parts.flatMap((p) => p.brep ? [{ format: 'cad-brep' as const,
+    data: new Uint8Array(p.brep.model.buffer), rootId: p.sources[0]!.id, origin: p.origin,
+    linearDeflection: linear / p.unit, angularDeflection: 0.5, edges }] : []);
+}
+
+const requests = (file: string, linear = 0.05, edges = true) =>
+  requestsOf(new Uint8Array(fs.readFileSync(file)), linear, edges);
+
+/** A file's text, to edit as a fixture. */
+const textOf = (file: string) => fs.readFileSync(file, 'latin1');
+
+/** The request for the part `rootId` of edited STEP text (read by step-import, as any file is). */
+async function edited(text: string, rootId: number, linear = 0.05) {
+  const r = (await requestsOf(new Uint8Array(Buffer.from(text, 'latin1')), linear)).find((q) => q.rootId === rootId);
+  assert.ok(r, `no part #${rootId}`);
+  return r;
 }
 
 const area = (r: TessellationResult) => {
@@ -195,13 +197,14 @@ test('against OCCT: face and edge ids, edge kinds, face orientation, area, edge 
   for (const file of fixtures) {
     for (const req of await requests(file)) {
       const a = await truck.tessellate(req), b = await occt.tessellate(req);
+      // (OCCT and truck both read the model.)
       const where = `${path.basename(file)} #${req.rootId}`;
-      const expected = file.includes('tr8_bv1') ? ['shell #310 reversed: as written, this void faces into the material',
-        'shell #460 reversed: as written, this void faces into the material'] : [];
+      // (Shells by their own ids: an ORIENTED_CLOSED_SHELL is its shell used reversed.)
+      const expected = file.includes('tr8_bv1') ? ['shell #309 reversed: as written, this void faces into the material',
+        'shell #459 reversed: as written, this void faces into the material'] : [];
       assert.deepEqual(a.diagnostics.filter(
         (d) => !d.message.startsWith(
-        "representation items truck doesn't mesh: "
-        + "GEOMETRIC_CURVE_SET") && !/SURFACE_CURVEs read by their 3D curve/.test(d.message)).map((d) => d.message),
+        "representation items truck doesn't mesh: a curve")).map((d) => d.message),
         expected, where);
       assert.deepEqual(a.faces.map((f) => f.entityId).sort(), b.faces.map((f) => f.entityId).sort(), where);
       const kinds = (r: TessellationResult) => r.edges!.filter((e) => e.entityId !== null).map(
@@ -225,12 +228,12 @@ test("an ORIENTED_FACE reports its face's id, with the face reversed", { skip },
   await tess.init();
   const [req] = await requests(cube, 0.01);
   const plain = await tess.tessellate(req!);
-  const text = new TextDecoder().decode(req!.data);
+  const text = textOf(cube);
   const shell = /CLOSED_SHELL\('[^']*',\(#(\d+)/.exec(text)!;
   const face = Number(shell[1]);
   const wrapped = text.replace(shell[0], shell[0].replace(`#${face}`, '#999990')).replace(/ENDSEC;(\s*END-ISO)/,
     `#999990=ORIENTED_FACE('',*,#${face},.F.);\nENDSEC;$1`);
-  const r = await tess.tessellate({ ...req!, data: new TextEncoder().encode(wrapped) });
+  const r = await tess.tessellate(await edited(wrapped, req!.rootId!, 0.01));
   assert.deepEqual(r.faces.map((f) => f.entityId), plain.faces.map((f) => f.entityId));
   const normal = (t: TessellationResult) => { const f = t.faces.find((x) => x.entityId === face)!;
     const v = t.indices[f.start]!; return [0, 1, 2].map((c) => t.normals![3 * v + c]!); };
@@ -243,13 +246,13 @@ test('an outer shell that faces inward is reversed', { skip }, async () => {
   await tess.init();
   const [req] = await requests(cube, 0.01);
   const plain = await tess.tessellate(req!);
-  const text = new TextDecoder().decode(req!.data);
+  const text = textOf(cube);
   const solid = /MANIFOLD_SOLID_BREP\('[^']*',#(\d+)\)/.exec(text)!;
   const inside = text.replace(solid[0], solid[0].replace(`#${solid[1]}`, '#999991')).replace(/ENDSEC;(\s*END-ISO)/,
     `#999991=ORIENTED_CLOSED_SHELL('',*,#${solid[1]},.F.);\nENDSEC;$1`);
-  const r = await tess.tessellate({ ...req!, data: new TextEncoder().encode(inside) });
+  const r = await tess.tessellate(await edited(inside, req!.rootId!, 0.01));
   assert.deepEqual(r.diagnostics.map((d) => d.message),
-    ['shell #999991 reversed: as written, this outer shell faces into the material']);
+    [`shell #${solid[1]} reversed: as written, this outer shell faces into the material`]);
   assert.deepEqual(r.normals, plain.normals);
   assert.deepEqual(r.indices, plain.indices);
 });
@@ -258,28 +261,18 @@ test("an open solid shell's orientation is left as written and reported unchecke
   const tess = new TruckTessellator();
   await tess.init();
   const [req] = await requests(cube, 0.01);
-  const text = new TextDecoder().decode(req!.data);
+  const text = textOf(cube);
   // The cube's shell without its first face, inside out: all five faces mesh, but the mesh is open.
   const shell = /CLOSED_SHELL\('([^']*)',\(#\d+,/.exec(text)!;
   const solid = /MANIFOLD_SOLID_BREP\('[^']*',#(\d+)\)/.exec(text)!;
   const open = text.replace(shell[0], `CLOSED_SHELL('${shell[1]}',(`).replace(solid[0],
     solid[0].replace(`#${solid[1]}`, '#999991')).replace(/ENDSEC;(\s*END-ISO)/,
     `#999991=ORIENTED_CLOSED_SHELL('',*,#${solid[1]},.F.);\nENDSEC;$1`);
-  const r = await tess.tessellate({ ...req!, data: new TextEncoder().encode(open) });
+  const r = await tess.tessellate(await edited(open, req!.rootId!, 0.01));
   assert.equal(r.faces.length, 5);
   assert.deepEqual(r.diagnostics.map((d) => d.message),
-    ["orientation of 1 solid shells not checked, since their meshes aren't closed: #999991"]);
+    [`orientation of 1 solid shells not checked, since their meshes aren't closed: #${solid[1]}`]);
   assert.deepEqual(r.edges!.map((e) => e.kind).sort(), [...Array(4).fill('free'), ...Array(8).fill('shared')]);
-});
-
-test('entity ids above 2^31 - 1 come back as null', { skip }, async () => {
-  const tess = new TruckTessellator();
-  await tess.init();
-  const [req] = await requests(cube, 0.01);
-  const big = new TextDecoder().decode(req!.data).replace(/#(\d+)/g, (_, n) => `#${Number(n) + 3e9}`);
-  const r = await tess.tessellate({ ...req!, rootId: req!.rootId! + 3e9, data: new TextEncoder().encode(big) });
-  assert.equal(r.faces.length, 6);
-  assert.ok(r.faces.every((f) => f.entityId === null) && r.edges!.every((e) => e.entityId === null));
 });
 
 const stc07 = path.join(corpus,
@@ -293,9 +286,7 @@ test('faces truck fails to mesh are left out and reported',
   const r = await tess.tessellate(req);
   assert.equal(r.faces.length, 288);
   assert.deepEqual(r.diagnostics.map((d) => d.message.replace(/:.*/s, '')),
-    ['16 faces failed to mesh', "orientation of 1 solid shells not checked, since their meshes aren't closed",
-    '72 AXIS2_PLACEMENT_3Ds along x without a ref_direction given the standard\'s default (0, 1, 0), which '
-    + 'truck lacks']);
+    ['16 faces failed to mesh', "orientation of 1 solid shells not checked, since their meshes aren't closed"]);
   assert.ok(!r.faces.some((f) => f.entityId === 2277));
   assert.match(r.diagnostics[0]!.message, /#2277, #2288,/);
   assert.equal(r.diagnostics[0]!.severity, 'error');
@@ -303,32 +294,33 @@ test('faces truck fails to mesh are left out and reported',
 
 const k1Skip = skip || (!fs.existsSync(k1) && 'corpus file missing');
 
-test('placements along x without a ref_direction get the standard default instead of panicking', { skip: k1Skip },
-  async () => {
+test('placements along x without a ref_direction (completed by the importer, as the standard says) mesh without '
+  + 'panicking', { skip: k1Skip }, async () => {
   const tess = new TruckTessellator();
   await tess.init();
   const req = (await requests(k1)).find((r) => r.rootId === 1926)!;
   const r = await tess.tessellate(req);
   assert.equal(r.faces.length, 58);
-  assert.deepEqual(r.diagnostics.map((d) => d.severity), ['info']);
-  assert.match(r.diagnostics[0]!.message, /^26 AXIS2_PLACEMENT_3Ds along x/);
+  assert.deepEqual(r.diagnostics, []);
 });
 
+const exhaust = gkv('ec_exhaust-A.stp'), s1ug = gkv('trj5_s1-ug-214.stp'), dm1 = gkv('OCC22962-dm1-oc-214.stp'),
+  lemon = gkv('bug25287_bad_tess_face_plus.step');
+
 test('a panic returns an error diagnostic, and the next request runs on a fresh instance',
-  { skip: skip || (!fs.existsSync(asm) && 'corpus file missing') }, async () => {
+  { skip: skip || (!fs.existsSync(lemon) && 'corpus file missing') }, async () => {
   const tess = new TruckTessellator();
   await tess.init();
-  const req = (await requests(asm)).find(
-    (r) => new TextDecoder().decode(r.data).includes('B_SPLINE_CURVE_WITH_KNOTS'))!;
-  // An invalid file, not seen in the corpus: one B-spline's knots in descending order. truck unwraps the error.
-  const text = new TextDecoder().decode(req.data).replace(
-    /(B_SPLINE_CURVE_WITH_KNOTS\([^;]*\(([^()]*)\)\s*,\s*)\(([^()]*)\)(\s*,\s*\.\w+\.\s*\)\s*;)/,
-    (_, head, _m, knots, tail) => `${head}(${knots.split(',').reverse().join(',')})${tail}`);
-  assert.notEqual(text, new TextDecoder().decode(req.data));
-  const bad = await tess.tessellate({ ...req, data: new TextEncoder().encode(text) });
+  const req = (await requests(lemon)).find((q) => q.rootId === 2134)!;
+  // An invalid model (validateBrep's error), not seen in the corpus: a torus's major radius negative, which truck's
+  // Torus::new rejects with a panic.
+  const d = openBrep(req.data.slice().buffer);
+  const k = d.surface.kind.indexOf(SURFACE_KIND.torus);
+  d.pool.surfaceReal[d.surface.real[k]! + 9] = -Math.abs(d.pool.surfaceReal[d.surface.real[k]! + 9]!);
+  const bad = await tess.tessellate({ ...req, data: new Uint8Array(d.buffer) });
   assert.equal(bad.indices.length, 0);
   assert.equal(bad.diagnostics.length, 1);
-  assert.match(bad.diagnostics[0]!.message, /^truck panicked: panicked at .*NotSortedVector/s);
+  assert.match(bad.diagnostics[0]!.message, /^truck panicked: /s);
   // The instance was replaced: its memory is back to a fresh instance's, although meshing had grown it.
   const fresh = new TruckTessellator();
   await fresh.init();
@@ -338,16 +330,14 @@ test('a panic returns an error diagnostic, and the next request runs on a fresh 
   assert.ok(tess.memoryBytes() > fresh.memoryBytes());
 });
 
-const exhaust = gkv('ec_exhaust-A.stp'), s1ug = gkv('trj5_s1-ug-214.stp'), dm1 = gkv('OCC22962-dm1-oc-214.stp'),
-  lemon = gkv('bug25287_bad_tess_face_plus.step');
 
-test("surface curves are read by their 3D curves, where truck's pcurves give NaN",
+
+test("surface curves meshed by their 3D curves (the model's), where truck's pcurves give NaN",
   { skip: skip || (!fs.existsSync(exhaust) && 'corpus file missing') }, async () => {
   const tess = new TruckTessellator();
   await tess.init();
   const r = await tess.tessellate((await requests(exhaust)).find((q) => q.rootId === 3049)!);
-  assert.deepEqual(r.diagnostics.map((d) => d.message),
-    ['26 SURFACE_CURVEs read by their 3D curve instead of a pcurve']);
+  assert.deepEqual(r.diagnostics, []);
   assert.ok(r.indices.length > 0);
 });
 
@@ -417,8 +407,7 @@ test('edges and faces truck evaluates to NaN are left out, instead of running ou
   { skip: skip || (!fs.existsSync(dm1) && 'corpus file missing') }, async () => {
   const tess = new TruckTessellator();
   await tess.init();
-  const req = (await requests(dm1)).find((q) => q.rootId === 37)!;
-  const text = new TextDecoder().decode(req.data);
+  const text = textOf(dm1);
   // Invalid files, not seen in the corpus since clamping: a rational B-spline's first weight 0, so its first point is
   // 0/0. truck would subdivide the curve, or the surface's range edges, without end.
   for (const [re, message] of [
@@ -428,7 +417,7 @@ test('edges and faces truck evaluates to NaN are left out, instead of running ou
   ] as const) {
     const bad = text.replace(re, (x) => x.replace(/1\.$/, '0.'));
     assert.notEqual(bad, text);
-    const r = await tess.tessellate({ ...req, data: new TextEncoder().encode(bad) });
+    const r = await tess.tessellate(await edited(bad, 37));
     const messages = r.diagnostics.map((d) => d.message);
     assert.ok(messages.includes(message), messages.join('; '));
     assert.ok(!messages.some((m) => /edges truck can't convert/.test(m)), messages.join('; '));
@@ -476,7 +465,7 @@ test('a void whose volume is small beside its faces\' parts of it is still rever
   // The void's volume is 3% of the sum of its faces' parts, from its bounding box's centre.
   const r = await tess.tessellate((await requests(gkv('bug31670_russian.stp'))).find((q) => q.rootId === 26312)!);
   assert.ok(r.diagnostics.some(
-    (d) => d.message === 'shell #18476 reversed: as written, this void faces into the material'));
+    (d) => d.message === 'shell #37579 reversed: as written, this void faces into the material'));
 });
 
 test("a face that truck meshes partly along its loops is left as it is",
@@ -509,64 +498,45 @@ test("a closed solid shell whose faces disagree in orientation isn't reversed",
   assert.ok(!messages.some((m) => /reversed/.test(m)));
 });
 
-test('negative torus radii are read as their absolute values',
+test('negative torus radii (made positive by the importer) mesh without panicking',
   { skip: skip || (!fs.existsSync(lemon) && 'corpus file missing') }, async () => {
   const tess = new TruckTessellator();
   await tess.init();
   const r = await tess.tessellate((await requests(lemon)).find((q) => q.rootId === 2134)!);
-  assert.ok(r.diagnostics.some(
-    (d) => d.message === '2 TOROIDAL_SURFACEs with negative radii read with their absolute values'));
   assert.ok(!r.diagnostics.some((d) => /panicked/.test(d.message)));
   assert.ok(r.indices.length > 0);
 });
 
-test("a cone's semi-angle is read in the context's angle unit",
+test("a cone's semi-angle in the context's angle unit (radians in the model) meshes as in radians",
   { skip: skip || (!fs.existsSync(fixtures[5]!) && 'corpus file missing') }, async () => {
   const tess = new TruckTessellator();
   await tess.init();
   const [req] = await requests(fixtures[5]!);
   const plain = await tess.tessellate(req!);
   // The same file in degrees: the angle unit made a conversion-based DEGREE, and the 45 degree cone written as 45.
-  const text = new TextDecoder().decode(req!.data)
+  const text = textOf(fixtures[5]!)
     .replace(/#156=\(\s*NAMED_UNIT\(\*\)\s*PLANE_ANGLE_UNIT\(\)\s*SI_UNIT\(\$,\.RADIAN\.\)\s*\);/,
       "#156=(CONVERSION_BASED_UNIT('DEGREE',#999993)NAMED_UNIT(*)PLANE_ANGLE_UNIT());"
       + "\n#999993=PLANE_ANGLE_MEASURE_WITH_UNIT(PLANE_ANGLE_MEASURE(0.0174532925199433),#999994);"
       + "\n#999994=(NAMED_UNIT(*)PLANE_ANGLE_UNIT()SI_UNIT($,.RADIAN.));")
     .replace('0.785398163397449);', '45.);');
   assert.match(text, /'DEGREE'/);
-  const r = await tess.tessellate({ ...req!, data: new TextEncoder().encode(text) });
-  assert.ok(r.diagnostics.some(
-    (d) => d.message === "1 CONICAL_SURFACE semi-angles converted to radians from the context's angle unit"));
+  const r = await tess.tessellate(await edited(text, req!.rootId!));
   assert.equal(r.positions.length, plain.positions.length);
   assert.ok(r.positions.every((x, i) => Math.abs(x - plain.positions[i]!) < 1e-5));
 });
 
-test("instances truck's parser can't read are left out, and the rest is read", { skip }, async () => {
+test('a buffer that isn\'t a model gives an error diagnostic; other formats, STEP among them, are caller bugs',
+  { skip }, async () => {
   const tess = new TruckTessellator();
   await tess.init();
-  const [req] = await requests(cube, 0.01);
-  const plain = await tess.tessellate(req!);
-  // An empty list, which Part 21 allows and ruststep can't tokenize.
-  const text = new TextDecoder().decode(req!.data).replace(/ENDSEC;(\s*END-ISO)/,
-    `#999992=CARTESIAN_POINT('a;b',());\nENDSEC;$1`);
-  const r = await tess.tessellate({ ...req!, data: new TextEncoder().encode(text) });
-  assert.deepEqual(r.diagnostics.map((d) => d.message), ["1 instances truck's parser can't read (left out): #999992"]);
-  assert.deepEqual(r.indices, plain.indices);
-  assert.deepEqual(r.positions, plain.positions);
-});
-
-test('unreadable input and a missing root give error diagnostics', { skip }, async () => {
-  const tess = new TruckTessellator();
-  await tess.init();
-  const junk = await tess.tessellate(
-    { format: 'step', data: new TextEncoder().encode('not a STEP file'), rootId: 1, linearDeflection: 0.1,
-    angularDeflection: 0.5 });
-  assert.equal(junk.indices.length, 0);
-  assert.match(junk.diagnostics[0]!.message, /^truck: STEP parse error/);
   const [req] = await requests(cube);
-  const missing = await tess.tessellate({ ...req!, rootId: 999999 });
-  assert.deepEqual(missing.diagnostics.map((d) => d.message), ['truck: root #999999 not in the payload']);
-  await assert.rejects(tess.tessellate({ ...req!, format: 'iges' }), /format 'iges' isn't supported/);
+  const junk = await tess.tessellate({ ...req!, data: new TextEncoder().encode('not a model') });
+  assert.equal(junk.indices.length, 0);
+  assert.match(junk.diagnostics[0]!.message, /^truck: not a cad-brep buffer/);
+  for (const format of ['step', 'iges'] as const) {
+    await assert.rejects(tess.tessellate({ ...req!, format }), new RegExp(`format '${format}' isn't taken: models`));
+  }
 });
 
 test('in the worker pool, results equal the direct ones', { skip }, async () => {

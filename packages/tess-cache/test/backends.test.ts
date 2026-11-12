@@ -30,7 +30,7 @@ test("each backend's results from a directory, in a new process's store, equal t
     const backend: Tessellator = new C();
     await backend.init();
     assert.match(backend.info.version, /, wasm [0-9a-f]{12}(, adapter \d+, native builder)?$/);
-    // (Models written as STEP for truck, which reads STEP; OCCT's native route takes them as they are.)
+    // (Models through StepTessellator, which passes them through to both backends' native routes.)
     const direct = new StepTessellator(backend);
     const expected = await tessellateScene(scene, direct, opts);
     assert.ok(expected.meshes.size >= 5, `${direct.info.name}: ${expected.meshes.size} meshes`);

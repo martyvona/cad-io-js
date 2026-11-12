@@ -26,7 +26,7 @@ Notes for working on cad-io-js: how work is done here, the decisions every part 
 |---|---|
 | `docs/` | the topic notes above, and `step_tutorial.md` (STEP AP203/214/242 in practice, for users too; built as a PDF with the viewer); new notes go here |
 | `packages/*` | the 19 workspace packages (README, "Package APIs"; the viewer, `packages/viewer`, README "Viewer"); tests in each `test/` |
-| `packages/cad-brep/` | `src/layout.ts` (the B-rep buffer's format), `include/cad_brep.h` (generated from it by `gen/header.ts`: run it after changing the layout; a test checks it's current) |
+| `packages/cad-brep/` | `src/layout.ts` (the B-rep buffer's format), `include/cad_brep.h` and `include/cad_brep.rs` (generated from it by `gen/header.ts` and `gen/rust.ts`: run both after changing the layout; a test checks they're current) |
 | `packages/tess-occt/` | `native/occt_tess.cpp` (the wrapper), `native/occt_build.cpp` (the native route's builder: a part's model into OCCT's shapes); `build-occt.sh` (OCCT into `build/occt-Os/`, applying `occt_patches/` to `build/occt-src/`); `build.sh` (links `dist/`); `build-probe.sh` (`dist/occt_probe.*`, for checks) |
 | `packages/tess-truck/` | `native/` (the Rust crate), `build.sh` (`dist/tess_truck.wasm`) |
 | `packages/step-schemas/` | `dict/` the generated dictionaries (committed), `gen/` their generator |
@@ -94,7 +94,7 @@ The ones every part depends on; the rest are in the topic notes, and the alterna
 - **The B-rep model:** each part's exact geometry a parsed, format-neutral buffer built at import (Part 42's parameterizations, radians), replacing STEP subsets; backends, exporters and other kernels read it (`docs/brep-model.md`).
 - **License:** AGPL-3.0-only, except `tess-occt` (LGPL-2.1 with the Open CASCADE exception); contributions under a CLA. **Never translate OCCT's source**, it's a reference and an oracle only: `docs/licensing.md`.
 - **Units and frames:** the scene is millimetres; a part is one shape representation, its positions `Float32` minus a per-part origin computed in double precision; the viewer's world is Z up. Exports use each format's convention (glTF and three.js metres, Y up; 3MF the source unit, Z up) with no root node of ours.
-- **The tessellator interface is per part**; OCCT the primary backend (building each model natively, the STEP route its oracle), truck optional; backends take a host's module through `init`.
+- **The tessellator interface is per part**; OCCT the primary backend (building each model natively, the STEP route its oracle), truck optional (models only); backends take a host's module through `init`.
 - **Importers for every format into the scene model**, one viewer path through them; textures not supported (warned of).
 - **Extras off by default** in every exporter: exports are mostly for other systems.
 - **Meshing profiles** coarse, medium (the default), fine, defined only in `cad-scene`'s `profiles.ts`; the viewer medium on desktops, coarse on phones and tablets.

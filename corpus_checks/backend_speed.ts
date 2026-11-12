@@ -10,7 +10,6 @@ import fs from 'node:fs';
 import os from 'node:os';
 import { failedPart, meshDeflections } from '../packages/cad-scene/src/index.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
-import { stepPartBytes } from '../packages/step-export/src/index.ts';
 import { WorkerTessellator } from '../packages/tess-workers/src/node.ts';
 import { corpusFiles, shortName } from './corpus.ts';
 
@@ -38,8 +37,8 @@ for (const [n, f] of files.entries()) {
   if (fs.statSync(f).size > maxBytes) continue;
   const file = shortName(f);
   const { scene } = await importStep(fs.readFileSync(f));
-  // Each part's model written as STEP (what the backends read) before it's timed: the times are the backends'.
-  const brep = scene.parts.flatMap((p, i) => (p.brep ? [{ p, i, b: stepPartBytes(p.brep.model) }] : []));
+  // Each part's model, what both backends read (OCCT's native route, truck's).
+  const brep = scene.parts.flatMap((p, i) => (p.brep ? [{ p, i, b: new Uint8Array(p.brep.model.buffer) }] : []));
   if (!brep.length) continue;
   const rows = brep.map(({ i }) => ({ file, part: i, runs: {} as Partial<Record<Backend, Run>> }));
   parts.push(...rows);
@@ -53,9 +52,8 @@ for (const [n, f] of files.entries()) {
         const t = performance.now();
         let status: Status = 'ok', triangles = 0;
         try {
-          const r = await pools[backend].tessellate({ format: 'step', data: b.data, rootId: b.rootId,
-            origin: p.origin, linearDeflection: MESHING.linearDeflection / p.unit,
-            angularDeflection: MESHING.angularDeflection });
+          const r = await pools[backend].tessellate({ format: 'cad-brep', data: b, origin: p.origin,
+            linearDeflection: MESHING.linearDeflection / p.unit, angularDeflection: MESHING.angularDeflection });
           triangles = r.indices.length / 3;
           if (failedPart(r)) status = 'error';
           else if (!triangles) status = 'empty';

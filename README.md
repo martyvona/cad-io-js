@@ -555,7 +555,7 @@ flowchart TD
   backend --> result["TessellationResult"]
 ```
 
-- **The request** (`TessellationRequest`): the payload's format and data (a part's B-rep model as `cad-brep`; a backend reading STEP gets it written by `step-export`'s `StepTessellator`), a root id for STEP, the origin, and the deflections in the part's unit; `tessellateScene` takes the deflections in millimetres, whether to return edges, and how many requests to keep in flight.
+- **The request** (`TessellationRequest`): the payload's format and data (a part's B-rep model as `cad-brep`; OCCT's STEP route gets it written by `step-export`'s `StepTessellator`), a root id for STEP, the origin, and the deflections in the part's unit; `tessellateScene` takes the deflections in millimetres, whether to return edges, and how many requests to keep in flight.
 - **The cache** keys each result by a SHA-256 of the backend's name and version (with its module's hash and the STEP writer's version), the request and the payload (the model); its stores are memory, a directory (Node) or IndexedDB (browsers), least-recently-used within a maximum size (0 turns it off), and failures and timeouts are cached too.
 - **The worker pool** runs one request per worker (`worker_threads` or Web Workers), terminates a worker whose request runs over the time limit, and replaces a worker after a trap or above 256 MiB; results' buffers are transferred, not copied.
 - **The result:** positions, normals, indices, faces (index ranges with STEP face ids), edges (polylines with ids, their kinds (shared, seam, free, degenerate) and dihedral angles), and wireframe curves and points with their ids.
@@ -564,7 +564,7 @@ Each layer is itself a `Tessellator`, so they compose, and each can be used alon
 
 **The OCCT backend** (`native/occt_tess.cpp`, C ABI, Emscripten): reads the STEP (a part's model as `step-export` writes it) from memory with product mode off (a bare shape representation is a root), sets the system length unit from the root's context so output is in file units, transfers, maps every resulting face back to its `ADVANCED_FACE` through the transfer bindings (faces ShapeFix split included), meshes with `BRepMesh_IncrementalMesh`, subtracts the origin in double precision, and returns faces, edges (each with its polyline on the face triangulation, so edge points are mesh vertices), wireframe curves and points, plus OCCT's printed messages as warnings.
 
-**The truck backend** (`native/src/lib.rs`, plain C ABI, `wasm32-unknown-unknown`): over truck unchanged, it builds the shells itself so every face and edge keeps its STEP id, meshes them, welds truck's per-corner attributes into an indexed mesh, and implements workarounds to improve results on real-world files (listed in `CLAUDE.md`). A panic costs only its part: the instance is re-instantiated.
+**The truck backend** (`native/src/lib.rs`, plain C ABI, `wasm32-unknown-unknown`): over truck unchanged, it builds truck's shells itself from a part's model (`native/src/model.rs`, reading the buffer through `cad-brep`'s generated `cad_brep.rs`; it takes models only), so every face and edge keeps its source id; it meshes them, welds truck's per-corner attributes into an indexed mesh, and implements workarounds to improve results on real-world files (`docs/backends.md`, truck). A panic costs only its part: the instance is re-instantiated.
 
 **OCCT against truck** on the corpus. Quality, part by part at 0.05 mm (`corpus_checks/truck_occt.ts`): truck's meshes are complete and on OCCT's geometry for 2,587 of the 3,098 parts OCCT meshes (83.5%); over all parts, 2.4% of OCCT's faces are missing from truck's meshes (980 failed to mesh, 519 not converted), and some parts come back empty (geometric sets, triangulated faces, surfaces truck doesn't support); cones, surfaces of revolution and rational B-splines are where it goes wrong most. Size: its module is 326 kB brotli against OCCT's 2.18 MB. Speed, with `stepconv`'s defaults (the medium profile, a worker pool; `corpus_checks/backend_speed.ts`), as example timings on a basic laptop (an Apple M4, 9 workers, low power mode off): on the 2,993 parts both mesh, truck takes 76 s of the workers' time against OCCT's 656 s (8.6 times as fast; a median of 3.8 times per part), and makes 66% fewer triangles (it ignores the angular deflection, so medium's 15 degrees cost it nothing); most of OCCT's time is 15 large parts of over 10 s each (521 s together), and its largest part, in `bug24024_slow_import.stp`, times out (120 s). But 12 parts hang truck until the time limit, and one more fails, so converting every file took 1,530 s with truck against 325 s with OCCT; without those 13 files, 62 s against 318 s. truck meshes 121 fewer parts than OCCT, and 3 OCCT doesn't.
 
@@ -676,7 +676,7 @@ console.log(formatReal(1e21), formatReal(-0));               // 1e+21 -0.0
 
 ### `cad-brep`
 
-One part's B-rep as one `ArrayBuffer`: the tables and columns of `src/layout.ts`, read in TypeScript as typed arrays and in C or C++ through `include/cad_brep.h` (generated from the layout by `node packages/cad-brep/gen/header.ts`; a test checks it is current). Curves and surfaces are parameterized as ISO 10303-42 defines them, angles in radians; references are row indices; the same rows give the same bytes. The model's rules and the plan around it: `docs/brep-model.md`.
+One part's B-rep as one `ArrayBuffer`: the tables and columns of `src/layout.ts`, read in TypeScript as typed arrays, in C or C++ through `include/cad_brep.h` and in Rust through `include/cad_brep.rs` (generated from the layout by `node packages/cad-brep/gen/header.ts` and `gen/rust.ts`; a test checks both are current). Curves and surfaces are parameterized as ISO 10303-42 defines them, angles in radians; references are row indices; the same rows give the same bytes. The model's rules and the plan around it: `docs/brep-model.md`.
 
 ```ts
 import { BrepBuilder, decode, openBrep, validateBrep } from 'cad-brep';
@@ -872,7 +872,7 @@ console.log(viewDifferences({ scene, view: exportView(scene) }, { scene: back, v
 
 ### `tess-occt`, `tess-truck`
 
-The two backends, each a `Tessellator`: give it one part's model (OCCT) or STEP (both: a part's model as `step-export` writes it, or a subset of a file), get back its triangles with the face each came from. In a scene, put `step-export`'s `StepTessellator` in front of truck (after any cache), since `tessellateScene` sends models; in front of OCCT it passes them through.
+The two backends, each a `Tessellator`: give it one part's model (OCCT takes STEP too: a part's model as `step-export` writes it, or a subset of a file), get back its triangles with the face each came from. OCCT's STEP route (`route: 'step'`) takes STEP only, kept as its native route's oracle: put `step-export`'s `StepTessellator` in front of it (after any cache), since `tessellateScene` sends models; in front of a backend taking models it passes them through.
 
 ```ts
 import fs from 'node:fs';
@@ -1152,6 +1152,7 @@ Known work not yet scheduled; the detail behind each is in the topic notes in `d
 - SMLib as a backend reading the B-rep model through `cad_brep.h`, if its evaluation goes on (`backends.md`; `brep-model.md`, Backends): it rebuilds UV trims from 3D edges where p-curves are absent, and its exact face areas would extend the area oracle to B-spline faces.
 - OCCT: ShapeFix's split of a face whose hole touches its seam (bicycle #23723, left as is); Delabella for faces with thousands of holes (6 times as fast on `bug24024_slow_import.stp`); size cuts (CJK code-page tables, writer code).
 - truck: wireframe curves (`TRIMMED_CURVE`, `COMPOSITE_CURVE`); geometric sets' surfaces; cones, surfaces of revolution and rational B-splines it meshes badly (no workaround short of patching truck).
+- `backend_speed.ts`'s log rerun on the routes users get: the check now sends both backends the model (`format: 'cad-brep'`: OCCT's native route, truck's only one), but its log is of OCCT's STEP route and truck reading STEP; rerun with low power mode off and the CPU idle, and compared with the last.
 
 **Geometry** (`docs/shape-interrogation.md`)
 

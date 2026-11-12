@@ -2,7 +2,7 @@
 
 What a part's B-rep model (`cad-brep`'s `BrepData`) can hold and what every row means: each geometry and topology kind with its definition, parameterization, orientation and the values a source may leave out, then what a tessellation backend must do with a model and what code that creates or edits models must keep true. Written so that a backend or an editor can be built from this note and `packages/cad-brep` alone, without reading an existing backend. Why the model is as it is (its decisions, phases and alternatives) is in [`brep-model.md`](brep-model.md); OCCT's native builder (`packages/tess-occt/native/occt_build.cpp`) is one complete consumer, cited here only as a reference for how a kernel can take each kind.
 
-The format itself is `packages/cad-brep/src/layout.ts` (tables, columns, kinds, pool layouts), mirrored for C and C++ by the generated `packages/cad-brep/include/cad_brep.h`. The rows as TypeScript objects are `packages/cad-brep/src/types.ts`; the evaluators that define the parameterizations in code are `packages/cad-brep/src/geometry.ts`. Where this note and those files disagree, the files are the format and this note is wrong.
+The format itself is `packages/cad-brep/src/layout.ts` (tables, columns, kinds, pool layouts), mirrored for C and C++ by the generated `packages/cad-brep/include/cad_brep.h` and for Rust by the generated `packages/cad-brep/include/cad_brep.rs` (`Brep::open`, then a typed slice per column: `edge_curve()`). The rows as TypeScript objects are `packages/cad-brep/src/types.ts`; the evaluators that define the parameterizations in code are `packages/cad-brep/src/geometry.ts`. Where this note and those files disagree, the files are the format and this note is wrong.
 
 ## Where models live
 
