@@ -298,6 +298,7 @@ test('faces truck fails to mesh are left out and reported',
     + 'truck lacks']);
   assert.ok(!r.faces.some((f) => f.entityId === 2277));
   assert.match(r.diagnostics[0]!.message, /#2277, #2288,/);
+  assert.equal(r.diagnostics[0]!.severity, 'error');
 });
 
 const k1Skip = skip || (!fs.existsSync(k1) && 'corpus file missing');

@@ -5,7 +5,7 @@
 //       model as cad-brep, the written part as STEP; the medium profile, measures): failures, faces by id (present in
 //       one only, triangles, failed, OCCT's measured area and validity, mesh area, the mesh's mean normal against the
 //       other's: inverted), wireframe curves by id (points), loose points by id and position, the native route's
-//       warnings, and time;
+//       warnings and errors (faces that failed to mesh) where the part meshed, and time;
 //   (b) OCCT's points on every face's surface and every edge's curve at the same parameters, unhealed, from both
 //       routes' shapes (tess-occt's probe, build-probe.sh, skipped unbuilt: the written part read without shape
 //       processing, the model built by the builder), apart by bucket relative to the part's size, over 1e-9 listed.
@@ -21,7 +21,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { type BrepData, openBrep, rowCount, SURFACE_KIND } from '../packages/cad-brep/src/index.ts';
-import { meshDeflections, type TessellationRequest, type TessellationResult }
+import { failedPart, meshDeflections, type TessellationRequest, type TessellationResult }
   from '../packages/cad-scene/src/index.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
 import { WorkerTessellator } from '../packages/tess-workers/src/node.ts';
@@ -189,7 +189,7 @@ async function mesh(req: TessellationRequest): Promise<{ r?: TessellationResult;
   const t0 = performance.now();
   try {
     const r = await pool.tessellate(req);
-    const e = r.diagnostics.find((d) => d.severity === 'error');
+    const e = failedPart(r) ? r.diagnostics.find((d) => d.severity === 'error') : undefined;
     return e ? { error: e.message, ms: performance.now() - t0 } : { r, ms: performance.now() - t0 };
   } catch (e) {
     return { error: (e as Error).message, ms: performance.now() - t0 };
@@ -242,8 +242,9 @@ export const check: FileCheck<undefined, Result> = {
       else if (a.error && !b.error) note(`STEP route fails: ${norm(a.error)}`, where);
       else if (a.error) note(`both fail: STEP route ${norm(a.error)}; native ${norm(b.error!)}`, where);
       if (!b.error) R.built++;
-      for (const d of b.r?.diagnostics ?? []) if (d.severity === 'warning') note(`native warning: ${norm(d.message)}`,
-        where);
+      for (const d of b.r?.diagnostics ?? []) {
+        if (d.severity !== 'info') note(`native ${d.severity}: ${norm(d.message)}`, where);
+      }
       if (a.r && b.r) {
         const fa = faces(a.r), fb = faces(b.r);
         for (const [id, x] of fa) {

@@ -1,6 +1,6 @@
 export type * from './scene.ts';
 export type * from './tessellator.ts';
-export { TessellationError } from './errors.ts';
+export { failedPart, TessellationError } from './errors.ts';
 export { sha256, sha256Js } from './sha256.ts';
 export { identity, multiply, scaling, Y_UP_METRES, instances, partInstances, validate, type ComponentInstance,
   type PartInstance } from './walk.ts';

@@ -316,7 +316,7 @@ export class OcctTessellator implements Tessellator {
     if (diag.unmapped) diagnostics.push(
       { severity: 'info', message: `${String(diag.unmapped)} faces without a STEP entity id` });
     if (diag.noTriangulation) diagnostics.push(
-      { severity: 'warning', message: `${String(diag.noTriangulation)} faces failed to mesh` });
+      { severity: 'error', message: `${String(diag.noTriangulation)} faces failed to mesh` });
     if (diag.curvesUnmapped) diagnostics.push(
       { severity: 'info', message: `${String(diag.curvesUnmapped)} curves without a STEP entity id` });
     if (diag.curvesNoPolygon) diagnostics.push(

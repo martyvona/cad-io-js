@@ -205,7 +205,7 @@ export class TruckTessellator implements Tessellator {
       { severity: 'warning', message: `${diag.unconvertedEdges.length} edges truck can't convert: `
       + `${list(diag.unconvertedEdges)}` });
     if (diag.unmeshedFaces?.length) diagnostics.push(
-      { severity: 'warning', message: `${diag.unmeshedFaces.length} faces failed to mesh: `
+      { severity: 'error', message: `${diag.unmeshedFaces.length} faces failed to mesh: `
       + `${list(diag.unmeshedFaces)}` });
     if (diag.skippedItems?.length) diagnostics.push(
       { severity: 'warning', message: `representation items truck doesn't mesh: `

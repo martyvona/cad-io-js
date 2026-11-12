@@ -153,8 +153,11 @@ class Fake implements Tessellator {
     if (mode === 3) throw new TessellationError('bad part');
     if (mode === 4) throw new WebAssembly.RuntimeError('unreachable');
     if (mode === 5) throw new TessellationError('timed out', arg * 10);
-    const res = result(true, mode === 1 ? [{ severity: 'error', message: 'panicked' }] : [
-      { severity: 'info', message: `call ${this.calls}` }]);
+    const res = result(true, mode === 1 ? [{ severity: 'error', message: 'panicked' }]
+      : mode === 7 ? [{ severity: 'error', message: '1 faces failed to mesh' }]
+      : [{ severity: 'info', message: `call ${this.calls}` }]);
+    // (Mode 1 a failed part, nothing meshed; mode 7 a part with a face that failed, the rest meshed.)
+    if (mode === 1) Object.assign(res, { positions: new Float32Array(), indices: new Uint32Array(), faces: [] });
     // (Measures and edges only when asked for, as OCCT gives them; mode 6 a part without faces, nothing measured.)
     if (!r.measures || mode === 6) delete res.measures;
     if (!r.edges) { delete res.edges; delete res.edgePositions; }
@@ -302,10 +305,16 @@ test("failures are cached: error results, TessellationErrors and traps, each sai
   }
   for (let i = 0; i < 2; i++) await assert.rejects(t.tessellate(data(2)), /^Error: boom$/);
   assert.equal(fake.calls, 5);
-  // A success read back carries no note.
+  // A success read back carries no note, nor does a part only some of whose faces failed (not a failure).
   await t.tessellate(data(0));
   assert.deepEqual((await t.tessellate(data(0))).diagnostics, [{ severity: 'info', message: 'call 6' }]);
-  assert.deepEqual(t.stats(), { hits: 4, failureHits: 3, misses: 6, errors: 0 });
+  // Asked for edges once it's stored without them, it's meshed again, as a success is.
+  await t.tessellate({ ...data(7), edges: false });
+  assert.deepEqual((await t.tessellate({ ...data(7), edges: false })).diagnostics,
+    [{ severity: 'error', message: '1 faces failed to mesh' }]);
+  assert.ok((await t.tessellate(data(7))).edges);
+  assert.equal(fake.calls, 8);
+  assert.deepEqual(t.stats(), { hits: 5, failureHits: 3, misses: 8, errors: 0 });
 });
 
 test('retryFailures sends cached failures to the backend again, and caches what it answers', async () => {

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { BrepBuilder } from 'cad-brep';
 import { tagged, tagOf } from './models.ts';
-import { tessellateScene, type Scene, type TessellationRequest, type TessellationResult,
+import { failedPart, tessellateScene, type Scene, type TessellationRequest, type TessellationResult,
   type Tessellator } from '../src/index.ts';
 
 // Five brep parts (inches for part 3) and a mesh part; the fake backend takes longer for earlier parts, so they
@@ -253,4 +253,14 @@ test('a backend that takes no B-rep models: nothing meshed, an error saying so',
   const none = await tessellateScene({ ...scene(), parts: [scene().parts[3]!] }, { ...t, info: { ...t.info,
     formats: ['step'] } });
   assert.deepEqual(none.diagnostics, []);
+});
+
+test('a failed part: an error and no triangles; faces that failed beside triangles, or no triangles without an error, '
+  + 'are not', () => {
+  const error = { severity: 'error' as const, message: 'm' }, warning = { severity: 'warning' as const, message: 'm' };
+  const none = new Uint32Array(), some = new Uint32Array([0, 1, 2]);
+  assert.equal(failedPart({ indices: none, diagnostics: [warning, error] }), true);
+  assert.equal(failedPart({ indices: some, diagnostics: [error] }), false);
+  assert.equal(failedPart({ indices: none, diagnostics: [warning] }), false);
+  assert.equal(failedPart({ indices: none, diagnostics: [] }), false);
 });

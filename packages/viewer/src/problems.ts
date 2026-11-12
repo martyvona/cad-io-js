@@ -1,6 +1,6 @@
 // The errors of loading or meshing a model again (the importer's and the meshing's: parts that failed to build or mesh,
-// or timed out), shown in a modal once meshing is done; warnings (faces that failed to mesh among them: outlined in
-// the view) only in the status line's count and the console.
+// or timed out, and faces that failed to mesh), shown in a modal once meshing is done; warnings only in the status
+// line's count and the console.
 
 import type { Diagnostic } from 'cad-scene';
 import { showDialog } from './dialog.ts';

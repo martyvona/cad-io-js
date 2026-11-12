@@ -88,11 +88,15 @@ fs.writeFileSync(path.join(content, 'as1-authored.stp'), fs.readFileSync(step, '
   "('Ann B','none')"), 'latin1');
 fs.writeFileSync(path.join(content, 'bare.json'), JSON.stringify({ object: { type: 'Scene', children: [] } }));
 // OCCT's broken-references file: the importer warns of a reference beyond the largest id, and a part fails to mesh
-// (an error; the problems dialog's check). And one with warnings alone (a dangling reference).
+// (an error; the problems dialog's check). And one with warnings alone (as1 with an instance of its own whose
+// reference is beyond the largest id), and one whose only error is a face that fails to mesh (OCCT's), the rest of its
+// part meshed.
 fs.copyFileSync(path.join(repo, 'test_corpus/third_party/gkv311-opencascade-dataset/step/bug31292.stp'),
   path.join(content, 'broken.stp'));
-fs.copyFileSync(path.join(repo, 'test_corpus/third_party/gkv311-opencascade-dataset/step/bug33665.step'),
-  path.join(content, 'warned.stp'));
+fs.copyFileSync(path.join(repo, 'test_corpus/third_party/gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp'),
+  path.join(content, 'face-failed.stp'));
+fs.writeFileSync(path.join(content, 'warned.stp'), fs.readFileSync(step, 'latin1').replace(/\nENDSEC;\s*END-ISO/,
+  "\n#999999=CARTESIAN_POINT('',(0.,0.,#99999999999));\nENDSEC;\nEND-ISO"), 'latin1');
 // Half transparent everywhere (a copy of the scene's materials at opacity 0.5).
 const clear = { ...scene, materials: scene.materials.map((m) => ({ ...m, opacity: 0.5 })) };
 fs.writeFileSync(path.join(content, 'as1-clear.glb'), (await glb(clear, exportView(clear, medium))).bytes);
@@ -1781,8 +1785,8 @@ await check('sections', async () => {
   return undefined;
 });
 // The problems dialog (problems.ts): a file with errors, once meshed, shows them in a modal (only with
-// ?check=dialogs among the check's pages), a row per error and none for its warnings; OK closes it. A file with
-// warnings alone, one without either, and the plain ?check pages, show none.
+// ?check=dialogs among the check's pages), a row per error and none for its warnings; OK closes it. A face that fails
+// to mesh is an error too. A file with warnings alone, one without either, and the plain ?check pages, show none.
 await check('problems dialog', async () => {
   const look = `(async () => { await cadViewer.ready; await cadViewer.idle();
     await new Promise((r) => setTimeout(r, 200));
@@ -1790,27 +1794,32 @@ await check('problems dialog', async () => {
     const diagnostics = viewer.model?.diagnostics ?? [];
     const out = { open: !!d?.open, title: d?.querySelector('h2')?.textContent ?? null,
       rows: d ? [...d.querySelectorAll('tr')].map((r) => r.cells[0].textContent) : [],
+      messages: d ? [...d.querySelectorAll('tr')].map((r) => r.cells[1].textContent) : [],
       warnings: diagnostics.filter((x) => x.severity === 'warning').length,
       errors: diagnostics.filter((x) => x.severity === 'error').length };
     d?.querySelector('button.primary')?.click();
     await new Promise((r) => setTimeout(r, 100));
     return { ...out, closed: !document.querySelector('dialog.cv-dialog') };
   })()`;
-  type Seen = { open: boolean; title: string | null; rows: string[]; warnings: number; errors: number;
-    closed: boolean };
+  type Seen = { open: boolean; title: string | null; rows: string[]; messages: string[]; warnings: number;
+    errors: number; closed: boolean };
   const broken = (await page(`?url=${encodeURIComponent('/content/broken.stp')}&check=dialogs`, look) as
     { after: Seen }).after;
   const clean = (await page(`?url=${encodeURIComponent('/content/as1.stp')}&check=dialogs`, look) as
     { after: Seen }).after;
   const warned = (await page(`?url=${encodeURIComponent('/content/warned.stp')}&check=dialogs`, look) as
     { after: Seen }).after;
+  const face = (await page(`?url=${encodeURIComponent('/content/face-failed.stp')}&check=dialogs`, look) as
+    { after: Seen }).after;
   const quiet = (await page(`?url=${encodeURIComponent('/content/broken.stp')}&check`, look) as { after: Seen }).after;
-  const j = JSON.stringify({ broken, clean, warned, quiet });
+  const j = JSON.stringify({ broken, clean, warned, face, quiet });
   expect(broken.errors > 0 && broken.warnings > 0 && broken.open && broken.rows.length === Math.min(broken.errors,
     500) && broken.title === `broken.stp: ${broken.errors} error${broken.errors === 1 ? '' : 's'}` &&
     broken.rows.every((r) => r.startsWith('error')) && broken.closed, `a file with errors: ${j}`);
   expect(clean.errors + clean.warnings === 0 && !clean.open, `a file without: ${j}`);
   expect(warned.warnings > 0 && warned.errors === 0 && !warned.open, `a file with warnings alone: ${j}`);
+  expect(face.errors === 1 && face.open && face.title === 'face-failed.stp: 1 error' &&
+    face.rows.join() === 'error #10' && face.messages.join() === '1 faces failed to mesh', `a face failed: ${j}`);
   expect(quiet.errors > 0 && !quiet.open, `none in plain ?check pages: ${j}`);
   return undefined;
 });

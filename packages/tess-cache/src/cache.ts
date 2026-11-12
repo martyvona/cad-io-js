@@ -2,8 +2,8 @@
 // by a hash of the payload, the backend's name and version, and the request's meshing options (not edges or measures,
 // which don't change the triangles: an entry records whether its request asked for them). Failures are cached too.
 
-import { sha256 as digest, TessellationError, type TessellationRequest, type TessellationResult, type Tessellator,
-  type TessellatorInfo } from 'cad-scene';
+import { failedPart, sha256 as digest, TessellationError, type TessellationRequest, type TessellationResult,
+  type Tessellator, type TessellatorInfo } from 'cad-scene';
 
 /** Where cached results live: bytes by key, the least recently used evicted beyond `maxBytes`. */
 export interface CacheStore {
@@ -156,8 +156,11 @@ export function decodeEntry(bytes: Uint8Array): CacheEntry {
 
 const align = (n: number) => (n + 3) & ~3;
 
-/** Whether an entry records a failure: a request that threw, or a result with an error diagnostic. */
-export const isFailure = (e: CacheEntry) => 'thrown' in e || e.result.diagnostics.some((d) => d.severity === 'error');
+/**
+ * Whether an entry records a failure: a request that threw, or a failed part's result (cad-scene's failedPart; not one
+ * only some of whose faces failed).
+ */
+export const isFailure = (e: CacheEntry) => 'thrown' in e || failedPart(e.result);
 
 export interface CachedTessellatorOptions {
   /** Send requests whose cached entry is a failure to the backend again (and cache what it answers). Default false. */
@@ -184,7 +187,7 @@ export interface CacheStats {
 }
 
 /**
- * A Tessellator that caches `inner`'s results in `store`, failures included: results with an error diagnostic, and
+ * A Tessellator that caches `inner`'s results in `store`, failures included: failed parts' results (isFailure), and
  * requests that throw a TessellationError (`cad-scene`; the worker pool's timeouts and backend traps) or a WebAssembly
  * trap. Other errors (a worker that died, a pool disposed) aren't the part's, and aren't cached. A cached timeout
  * answers only when `inner`'s time limit (`timeoutMs`) is no longer than the one that ran out; a cached failure says

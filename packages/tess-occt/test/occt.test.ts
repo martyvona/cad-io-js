@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { partInstances, type Part, tessellateScene } from 'cad-scene';
+import { failedPart, meshDeflections, partInstances, type Part, tessellateScene } from 'cad-scene';
 import { buildSubset, parseStep } from 'step-parser';
 import { STEP_WRITER_VERSION, StepTessellator } from 'step-export';
 import { importStep } from 'step-import';
@@ -256,6 +256,22 @@ test("our patch 0001: a cone whose seam pcurves slope by 3e-14 in U meshed (OCCT
     f.start + f.count) }), 0);
   assert.ok(Math.abs(a - 0.69515) < 0.01 * 0.69515, `${a}`);
   assert.ok(!r.diagnostics.some((d) => /failed to mesh/.test(d.message)), JSON.stringify(r.diagnostics));
+});
+
+const oneFails = step('trj7_b1-ec-214.stp');
+test('a face that fails to mesh is an error, in a part meshed otherwise (not a failed part)',
+  { skip: skip || (!fs.existsSync(oneFails) && 'corpus not fetched') }, async () => {
+  const tess = new OcctTessellator();
+  await tess.init();
+  const { scene } = await load(oneFails);
+  const p = scene.parts[0]!;
+  assert.equal(rootOf(p), 10);
+  const r = await tess.tessellate({ format: 'cad-brep', data: new Uint8Array(p.brep!.model.buffer), origin: p.origin,
+    ...meshDeflections({ profile: 'medium' }) });
+  tess.dispose();
+  assert.deepEqual(r.diagnostics.filter((d) => /failed to mesh/.test(d.message)),
+    [{ severity: 'error', message: '1 faces failed to mesh' }]);
+  assert.ok(r.indices.length > 0 && !failedPart(r));
 });
 
 const mixed = step('trj6_as1-td-214.stp');
