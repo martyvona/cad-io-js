@@ -672,10 +672,8 @@ struct Builder
         s = new Geom_SphericalSurface(ax3(re), re[9]);
         break;
       case CBR_SURFACE_TORUS:
-        // (A degenerate torus as a plain one, select_outer aside, as the translator reads it.)
-        if (in[0])
-          out.warnings.push_back("a degenerate torus read as a plain one (which part of it is meant, select_outer, "
-                                 "set aside, as OCCT's STEP reader sets it aside)");
+        // (A degenerate torus as a plain one, select_outer aside, as the translator reads it: its parameters reach
+        // each point of either part once, so a face's loops settle which part it's on; face() warns of one without.)
         s = new Geom_ToroidalSurface(ax3(re), re[9], re[10]);
         break;
       case CBR_SURFACE_EXTRUSION:
@@ -924,12 +922,19 @@ struct Builder
         bb.Add(fc, edgeLoop(fc, s, si, isPlane, l, reverse));
       }
     }
+    // (Healing bounds a face without wires by its surface: on a degenerate torus, both its parts.)
+    if (r.u8(CBR_SURFACE_KIND)[si] == CBR_SURFACE_TORUS && degenerateTorus(si) && !TopoDS_Iterator(fc).More())
+      out.warnings.push_back(what + ": bounded by its degenerate torus alone: both of the torus's parts, which part is "
+                                    "meant (select_outer) set aside, as OCCT's STEP reader sets it aside");
     fc.Orientation(same ? TopAbs_FORWARD : TopAbs_REVERSED);
     if (std::isfinite(id))
       out.faceIds.emplace(fc.TShape().get(), (int)id);
     faces.emplace(f, fc);
     return fc;
   }
+
+  // Whether torus k is degenerate (Part 42's DEGENERATE_TOROIDAL_SURFACE).
+  bool degenerateTorus(int k) { return r.i32(CBR_POOL_SURFACE_INT)[r.i32(CBR_SURFACE_INT)[k]] != 0; }
 
   // A curve-bounded face (its edges without vertices: STEP's CURVE_BOUNDED_SURFACE), as OCCT's STEP translator makes
   // one: on its surface (a B-spline one in periodic form), the surface's natural bounds first where its loops are all
