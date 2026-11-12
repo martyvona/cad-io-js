@@ -1,5 +1,5 @@
 // The cache in front of the real backends, on this thread and in a worker pool (needs the built modules,
-// packages/tess-occt/build.sh and packages/tess-truck/build.sh, and the corpus, test_corpus/third_party/pull.sh;
+// packages/tess-occt/build.sh, packages/tess-truck/build.sh and packages/tess-smlib/build.sh, and the corpus, test_corpus/third_party/pull.sh;
 // skipped without them), and in front of a pool of tess-workers' fake backend.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -10,13 +10,15 @@ import { TessellationError, tessellateScene, type TessellationRequest, type Tess
 import { StepTessellator } from 'step-export';
 import { importStep } from 'step-import';
 import { OcctTessellator } from 'tess-occt';
+import { SmlibTessellator } from 'tess-smlib';
 import { TruckTessellator } from 'tess-truck';
 import { WorkerTessellator } from 'tess-workers';
 import { CachedTessellator, FileStore, MemoryStore } from 'tess-cache';
 
 const root = path.resolve(import.meta.dirname, '../../..');
 const file = path.join(root, 'test_corpus/third_party/gkv311-opencascade-dataset/step/as1-oc-214-mat.stp');
-const built = ['packages/tess-occt/dist/occt_tess.wasm', 'packages/tess-truck/dist/tess_truck.wasm'].every(
+const built = ['packages/tess-occt/dist/occt_tess.wasm', 'packages/tess-truck/dist/tess_truck.wasm',
+  'packages/tess-smlib/dist/smlib_tess.wasm'].every(
   (f) => fs.existsSync(path.join(root, f)));
 const skip = !built ? 'backends not built' : !fs.existsSync(file) ? 'corpus not fetched' : false;
 const opts = { linearDeflection: 0.5, angularDeflection: 0.5, edges: true };
@@ -26,11 +28,11 @@ test("each backend's results from a directory, in a new process's store, equal t
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tess-cache-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const { scene } = await importStep(fs.readFileSync(file));
-  for (const C of [OcctTessellator, TruckTessellator]) {
+  for (const C of [OcctTessellator, TruckTessellator, SmlibTessellator]) {
     const backend: Tessellator = new C();
     await backend.init();
-    assert.match(backend.info.version, /, wasm [0-9a-f]{12}(, adapter \d+, native builder)?$/);
-    // (Models written as STEP for truck, which reads STEP; OCCT's native route takes them as they are.)
+    assert.match(backend.info.version, /, wasm [0-9a-f]{12}(, adapter \d+(, native builder)?)?$/);
+    // (Models written as STEP for truck, which reads STEP; OCCT's native route and SMLib take them as they are.)
     const direct = new StepTessellator(backend);
     const expected = await tessellateScene(scene, direct, opts);
     assert.ok(expected.meshes.size >= 5, `${direct.info.name}: ${expected.meshes.size} meshes`);

@@ -18,6 +18,7 @@ import { threejsJson } from 'export-threejs';
 import { exportStep, StepTessellator } from 'step-export';
 import { importStep } from 'step-import';
 import { OcctTessellator } from 'tess-occt';
+import { SmlibTessellator } from 'tess-smlib';
 import { stepconv } from '../src/index.ts';
 import { OBJECT_TYPE, read3mf } from '../../export-3mf/test/read3mf.ts';
 
@@ -27,6 +28,7 @@ const assembly = path.join(root, 'test_corpus/third_party/gkv311-opencascade-dat
 const wireframe = path.join(root, 'test_corpus/third_party/gkv311-opencascade-dataset/step/trj4_k1_geo-pe-203.stp');
 const occtBuilt = fs.existsSync(path.join(root, 'packages/tess-occt/dist/occt_tess.wasm'));
 const truckBuilt = fs.existsSync(path.join(root, 'packages/tess-truck/dist/tess_truck.wasm'));
+const smlibBuilt = fs.existsSync(path.join(root, 'packages/tess-smlib/dist/smlib_tess.wasm'));
 const skip = !occtBuilt ? 'tess-occt not built' : !fs.existsSync(assembly) ? 'corpus not fetched' : false;
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'stepconv-'));
@@ -493,6 +495,26 @@ test('stepconv: truck', { skip: skip || (!truckBuilt && 'tess-truck not built') 
   const r = await run([cube, '-o', out, '-b', 'truck', '-j', '1']);
   assert.equal(r.code, 0, r.stderr);
   assert.equal(triangles(load(fs.readFileSync(out, 'utf8'))), 12);
+});
+
+// SMLib in a worker pool and on the main thread: the library's pipeline with SMLib, not OCCT's (8048 triangles).
+test('stepconv: smlib', { skip: skip || (!smlibBuilt && 'tess-smlib not built') }, async () => {
+  const tess = new SmlibTessellator();
+  await tess.init();
+  const { scene } = await importStep(fs.readFileSync(assembly));
+  await tessellateScene(scene, new StepTessellator(tess), { edges: true });
+  tess.dispose();
+  const expected = threejsJson(scene, exportView(scene, { ...meshDeflections({}), edges: true }),
+    { name: 'as1-oc-214-mat' });
+  const n = triangles(load(expected));
+  assert.ok(n > 0 && n !== 8048, `${n} triangles`);
+  const out = path.join(tmp, 'as1-smlib.json');
+  for (const workers of ['1', '0']) {
+    const r = await run([assembly, '-o', out, '--with-edges', '-b', 'smlib', '-j', workers]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.match(r.stderr, /^5 parts \(5 of 5 brep parts tessellated\)/);
+    assert.equal(fs.readFileSync(out, 'utf8'), expected, `workers ${workers}`);
+  }
 });
 
 test('stepconv: standard input and output, gzipped input', { skip }, async () => {

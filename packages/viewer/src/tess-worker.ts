@@ -3,6 +3,7 @@
 
 import * as occt from 'tess-occt';
 import * as truck from 'tess-truck';
+import * as smlib from 'tess-smlib';
 import { serveWebWorker } from 'tess-workers/web-worker';
 
-serveWebWorker({ 'tess-occt': occt, 'tess-truck': truck });
+serveWebWorker({ 'tess-occt': occt, 'tess-truck': truck, 'tess-smlib': smlib });

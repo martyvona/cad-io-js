@@ -21,6 +21,7 @@
     "step-export": "0.2.0",
     "tess-cache": "0.2.0",
     "tess-occt": "0.2.0",
+    "tess-smlib": "0.2.0",
     "tess-truck": "0.2.0",
     "tess-workers": "0.2.0"
   },

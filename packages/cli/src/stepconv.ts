@@ -123,6 +123,7 @@ function gltfOptions(o: FormatOptions): GltfOptions {
 const BACKENDS: Record<string, { module: string; export: string }> = {
   occt: { module: 'tess-occt', export: 'OcctTessellator' },
   truck: { module: 'tess-truck', export: 'TruckTessellator' },
+  smlib: { module: 'tess-smlib', export: 'SmlibTessellator' },
 };
 
 const defaultWorkers = () => Math.max(1, os.availableParallelism() - 1);
@@ -146,7 +147,7 @@ ${FORMAT_LINES}
 Options:
   -o, --output <file>      the output file
   -f, --format <format>    the output format, whatever the extension
-  -b, --backend <name>     occt (default) or truck
+  -b, --backend <name>     occt (default), truck or smlib
       --coarse, --medium, --fine
                            the meshing profile (default ${DEFAULT_MESH_PROFILE}), with its deflections:
 ${PROFILE_LINES}
@@ -371,8 +372,8 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
       const mod = (await import(backend.module)) as Record<string, new () => Tessellator>;
       tess = new mod[backend.export]!();
     }
-    // truck reads STEP: each part's B-rep model written as STEP, after the cache (which keys on the model); OCCT takes
-    // models, passed through.
+    // truck reads STEP: each part's B-rep model written as STEP, after the cache (which keys on the model); OCCT and
+    // SMLib take models, passed through.
     tess = new StepTessellator(tess);
     if (o.cache !== undefined) tess = cached = new CachedTessellator(tess,
       new FileStore({ dir: o.cache, maxBytes: cacheMb * 2 ** 20 }));

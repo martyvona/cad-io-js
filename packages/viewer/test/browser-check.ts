@@ -352,7 +352,7 @@ for (const extra of process.env.EXTRA?.split(',') ?? []) {
 }
 // Replacing a model while it's meshing: the bicycle's meshing is cancelled once it has begun (its load ends at
 // once: the workers are stopped), the GLB shown alone, and STEP meshes again after (a new pool), from the cache (the
-// assembly was meshed above); and with truck when that's the backend chosen.
+// assembly was meshed above); and with truck, then SMLib, when that's the backend chosen.
 // Zooming while a model loads (docs/viewer.md): the bicycle, meshed without the cache, is fitted to its
 // estimated sphere before its first mesh is drawn, then only zooms out, at most once a second, ending fitted to all
 // that loaded; zoom all then fits the sphere made from the meshes. Moving the view stops it.
@@ -1374,11 +1374,15 @@ await check('replaced while meshing', async () => {
     v.settings.backend = 'truck';
     await v.load(await src('as1.stp'));
     const truck = { parts: v.model.parts, ...v.model.meshing };
-    return { begun, firstEnded, glb, step, truck };
+    v.settings.backend = 'smlib';
+    await v.load(await src('as1.stp'));
+    const smlib = { parts: v.model.parts, ...v.model.meshing };
+    return { begun, firstEnded, glb, step, truck, smlib };
   })()`) as { after?: { begun: number; firstEnded: number; glb: { name: string; stats: { triangles: number } };
     step: { name: string; stats: { triangles: number }; parts: { done: number; failed: number }; backend: string;
       cache?: { hits: number; misses: number }; pools: number };
-    truck: { parts: { done: number; failed: number }; backend: string } } };
+    truck: { parts: { done: number; failed: number }; backend: string };
+    smlib: { parts: { done: number; failed: number }; backend: string } } };
   const a = r.after!;
   expect(a.begun > 0 && a.begun < 112, `the bicycle wasn't caught meshing: ${a.begun} parts done`);
   expect(a.firstEnded < 1000, `the bicycle's load went on for ${a.firstEnded} ms after it was replaced`);
@@ -1386,6 +1390,8 @@ await check('replaced while meshing', async () => {
   // The bicycle's pool was disposed when it was replaced: the assembly got a new one (the second).
   expect(a.step.pools === 2, `a new pool after replacing: ${JSON.stringify(a.step)}`);
   expect(a.truck.backend.startsWith('truck ') && a.truck.parts.done === 5, `truck: ${JSON.stringify(a.truck)}`);
+  expect(a.smlib.backend.startsWith('smlib ') && a.smlib.parts.done === 5 && a.smlib.parts.failed === 0,
+    `SMLib: ${JSON.stringify(a.smlib)}`);
   expect(a.glb.name === 'as1.glb' && a.glb.stats.triangles === triangles, `after: ${JSON.stringify(a.glb)}`);
   expect(a.step.name === 'as1.stp' && a.step.stats.triangles === triangles && a.step.parts.failed === 0,
     `STEP again: ${JSON.stringify(a.step)}`);
@@ -5469,8 +5475,8 @@ await check('missing file', async () => {
 
 // What a build holds (printing nothing as it's made): one Draco decoder (draco3dgltf's, for gltf-import in the import
 // worker: the GLBs above loaded through it) and its encoder (for Export..., export-gltf there); licenses.md with the
-// npm packages' licenses and OCCT's, not precached by its service worker (which precaches OCCT's module), nor are
-// version.json (update-check.ts) and the documents' PDFs.
+// npm packages' licenses, OCCT's and SMLib's, not precached by its service worker (which precaches the backends'
+// modules), nor are version.json (update-check.ts) and the documents' PDFs.
 if (staticServer) {
   await check('build', async () => {
     expect(buildOutput.trim() === '', `the build printed: ${buildOutput.slice(0, 1000)}`);
@@ -5480,13 +5486,14 @@ if (staticServer) {
       draco.some((f) => /^draco_encoder-.*\.wasm$/.test(f)), `Draco's files: ${draco}`);
     const licenses = fs.readFileSync(path.join(dist, 'licenses.md'), 'utf8');
     expect(['### three - 0.186.1 (MIT)', '### @headless-tree/core', '`@gltf-transform/core`', 'draco3dgltf',
-      'meshoptimizer', 'Open CASCADE exception (version 1.0)',
+      'meshoptimizer', 'Open CASCADE exception (version 1.0)', 'NVIDIA CORPORATION', 'Apache License',
       'GNU LESSER GENERAL PUBLIC LICENSE', 'GNU AFFERO GENERAL PUBLIC LICENSE'].every((t) => licenses.includes(t)),
       'licenses.md');
     expect(!fs.existsSync(path.join(dist, '.vite')), 'Vite\'s own licenses file left');
     const sw = fs.readFileSync(path.join(dist, 'sw.js'), 'utf8');
     // (The PDFs are named in the navigation fallback's denylist, not in the precache list's entries.)
-    expect(sw.includes('occt_tess-') && !sw.includes('licenses.md') && !sw.includes('version.json') &&
+    expect(sw.includes('occt_tess-') && sw.includes('smlib_tess-') && !sw.includes('licenses.md') &&
+      !sw.includes('version.json') &&
       !/url:"[^"]*\.pdf"/.test(sw), 'the precache list');
     for (const pdf of ['README.pdf', 'step_tutorial.pdf']) {
       expect(fs.readFileSync(path.join(dist, pdf)).subarray(0, 5).toString() === '%PDF-', `no ${pdf}`);

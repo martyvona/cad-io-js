@@ -1,6 +1,6 @@
 # Tessellation backends notes
 
-Notes for work on `cad-scene`'s tessellation, `tess-occt`, `tess-truck`, `tess-workers` and `tess-cache`. The full record (measurements, alternatives, checks) is in `git show V0.2.0:CLAUDE.md`; phase 0's backend comparison and spike in `V0.1.0`'s.
+Notes for work on `cad-scene`'s tessellation, `tess-occt`, `tess-truck`, `tess-smlib`, `tess-workers` and `tess-cache`. The full record (measurements, alternatives, checks) is in `git show V0.2.0:CLAUDE.md`; phase 0's backend comparison and spike in `V0.1.0`'s.
 
 ## Phase 0
 
@@ -124,7 +124,8 @@ SMLib is Solid Modeling Solutions' kernel on Piegl and Tiller's NLib, published 
 - **Not built yet** (warned of, the face or item left out): edges without a 3D curve (p-curve only); segments on curves without bounds of their own, and loops mixing edges with and without vertices; hyperbola, parabola, composite and offset edge curves; swept surfaces of Part 42 (`curveSwept`, `fixedReferenceSwept`); degenerate tori; internal and external coedges; unbounded loose curves and surfaces.
 - **Corpus** (`corpus_checks/smlib_occt.log`, the medium profile, against OCCT's native route, 2026-11-11): of 3,117 parts OCCT meshes, SMLib meshes 3,068, 47 empty (all their faces left out: p-curve-only edges, degenerate tori, ...), 2 an exception (`as1_motor.step`); no crash or timeout. 605 of OCCT's 83,907 meshed faces (0.72%) without SMLib triangles. Against the area oracle's 61,526 trusted faces, mesh areas over 5% off on 345 (OCCT's 141). By its own measures `faceFailures` finds 144 failed, 214 partly and 623 excess faces (OCCT's 22, 37, 190): some its exact areas', not yet classified. Of 1,028 faces facing opposite to OCCT's, 422 face against the model face's normal (OCCT's 599 do). Time by SMLib's own clock: build (with healing) 288 s, tessellation 291 s, measures 406 s; OCCT's native route meshes and measures the corpus in about 650 s (`native_route.log`), by different clocks and loads: no benchmark yet. 91.3% of parts complete (no face missing, over 5% off OCCT's area or facing opposite).
 - **Maintenance:** 1.0.0 on 2026-10-08, 1.0.1 on 2026-10-21, nothing since (checked 2026-11-11); no contributions accepted; 50 GitHub issues on 2026-11-07 (tessellator: #12 the chord tolerance ignored on a boolean result, fixed; #20 not met on skins, open).
-- **License:** Apache-2.0, which AGPL-3.0 code may include (`docs/licensing.md`): `tess-smlib` is AGPL, with SMLib's license beside the module (`LICENSE-SMLib.txt`).
+- **Where it's chosen:** `stepconv -b smlib`, the viewer's Backend (its worker bundles the module), any pool by its module and export (`tess-smlib`, `SmlibTessellator`); never the default. It takes models, so `StepTessellator` passes them through.
+- **License:** Apache-2.0, which AGPL-3.0 code may include (`docs/licensing.md`): `tess-smlib` is AGPL, with SMLib's license beside the module (`LICENSE-SMLib.txt`) and in the viewer's `licenses.md`.
 
 ## Solid Core (evaluated, undecided)
 

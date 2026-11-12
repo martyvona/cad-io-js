@@ -1,4 +1,4 @@
-// Tessellation for our loader: a pool of Web Workers running OCCT or truck (the viewer's own worker entry,
+// Tessellation for our loader: a pool of Web Workers running OCCT, truck or SMLib (the viewer's own worker entry,
 // tess-worker.ts, so Vite bundles the backends), behind the IndexedDB cache by default; in the import worker (its
 // workers nested in it). The pool is made when first needed and kept for later files; changing the backend, the
 // cache or the workers' count makes a new one. Cancelling (a new file while one is meshing) terminates the workers,
@@ -11,7 +11,7 @@ import { CachedTessellator, IndexedDbStore, type CacheStats } from 'tess-cache/b
 import { DEFAULT_TIMEOUT_MS, PoolTessellator, webWorkerHandle } from 'tess-workers/browser';
 import { StepTessellator } from 'step-export';
 
-export type Backend = 'occt' | 'truck';
+export type Backend = 'occt' | 'truck' | 'smlib';
 
 export interface TessellationSettings {
   backend: Backend;
@@ -58,6 +58,7 @@ export const CACHE_NAME = 'cad-viewer';
 const BACKENDS: Record<Backend, { module: string; export: string }> = {
   occt: { module: 'tess-occt', export: 'OcctTessellator' },
   truck: { module: 'tess-truck', export: 'TruckTessellator' },
+  smlib: { module: 'tess-smlib', export: 'SmlibTessellator' },
 };
 
 /**
@@ -87,7 +88,7 @@ export class Tessellation {
         () => webWorkerHandle(new Worker(new URL('./tess-worker.ts', import.meta.url), { type: 'module' })),
         { backend: BACKENDS[s.backend], workers, timeoutMs: Math.max(0, timeout) * 1000 });
       // truck reads STEP: each part's B-rep model written as STEP, after the cache (which keys on the model); OCCT
-      // takes models, passed through.
+      // and SMLib take models, passed through.
       const step = new StepTessellator(pool);
       const tess = s.cache ? new CachedTessellator(step, new IndexedDbStore({ name: CACHE_NAME })) : step;
       this.current = { key, tess, pool };

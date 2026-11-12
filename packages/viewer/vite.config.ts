@@ -1,6 +1,6 @@
 // The viewer's Vite config: the content root at /content/ (dev and preview servers), LAN and https by option, and in
-// builds a progressive web app: a service worker that precaches everything the app needs, the OCCT and truck modules
-// included, so a device that loaded it once can use it offline (docs/viewer.md). Options come from the
+// builds a progressive web app: a service worker that precaches everything the app needs, the OCCT, truck and SMLib
+// modules included, so a device that loaded it once can use it offline (docs/viewer.md). Options come from the
 // environment (server/options.ts). Draco's decoder (for glTF, in the import worker) is found by its bundled URL
 // (import-worker.ts).
 
@@ -68,6 +68,9 @@ const licenses = (): Plugin => ({
         'truck (https://github.com/ricosjp/truck, Apache-2.0), with the Rust crates ' +
         '`packages/tess-truck/native/Cargo.lock` lists, each under its own license (MIT or Apache-2.0 for the most ' +
         'part);',
+      '- the SMLib tessellation backend (`assets/smlib_tess-*.wasm` and `smlib_tess-*.mjs`): cad-io-js\'s wrapper ' +
+        '(AGPL-3.0-only) and SMLib, from NVIDIA\'s usd-brep (https://github.com/NVIDIA-Omniverse/usd-brep), ' +
+        'Apache-2.0, below;',
       // (Vite lists only the page's own packages, not the import worker's, which are these.)
       '- in the import worker, glTF-Transform (`@gltf-transform/core`, `@gltf-transform/extensions`, with ' +
         '`property-graph` and `ktx-parse`, all MIT; https://github.com/donmccurdy/glTF-Transform), Draco\'s glTF ' +
@@ -87,6 +90,8 @@ const licenses = (): Plugin => ({
       text('LICENSE.txt'),
       '## The OCCT tessellation backend (LGPL-2.1 with the Open CASCADE exception)',
       text('packages/tess-occt/LICENSE.txt'),
+      '## SMLib, in the SMLib tessellation backend (Apache-2.0)',
+      text('packages/tess-smlib/LICENSE-SMLib.txt'),
     ].join('\n\n') + '\n');
   },
 });
