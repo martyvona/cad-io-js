@@ -7,7 +7,7 @@ Notes for working on cad-io-js: how work is done here, the decisions every part 
 | File | For work on |
 |---|---|
 | [`docs/step.md`](docs/step.md) | STEP parsing and import: the importer's rules, AP242 tessellated geometry, the corpus's examples, the STEP backlog; STEP itself and what real files do is in [`docs/step_tutorial.md`](docs/step_tutorial.md) |
-| [`docs/backends.md`](docs/backends.md) | tessellation: `tessellateScene`, profiles, timeouts, the cache, faces that fail to mesh, the area oracle, OCCT (build, patches, probing, quirks), truck, BRL-CAD (evaluated, not pursued), SMLib and Solid Core (evaluated) |
+| [`docs/backends.md`](docs/backends.md) | tessellation: `tessellateScene`, profiles, timeouts, the cache, faces that fail to mesh, the area oracle, OCCT (build, patches, probing, quirks), truck, SMLib (build, builder, quirks), BRL-CAD (evaluated, not pursued), Solid Core (evaluated) |
 | [`docs/scene-formats.md`](docs/scene-formats.md) | the scene model, the exporters (glTF, three.js, 3MF, `stepconv`), the mesh importers, round trips, those libraries' quirks |
 | [`docs/viewer.md`](docs/viewer.md) | the viewer: loading, export, rendering, sections, camera and input, picking, the tree and appearance overrides, updates, automation and replay, the browser check, three.js/Vite quirks |
 | [`docs/future.md`](docs/future.md) | new input formats (IGES, BREP, FreeCAD, QIF, JT and why it's not a priority), the JT specifications, prior art |
@@ -25,14 +25,15 @@ Notes for working on cad-io-js: how work is done here, the decisions every part 
 | Path | What |
 |---|---|
 | `docs/` | the topic notes above, and `step_tutorial.md` (STEP AP203/214/242 in practice, for users too; built as a PDF with the viewer); new notes go here |
-| `packages/*` | the 19 workspace packages (README, "Package APIs"; the viewer, `packages/viewer`, README "Viewer"); tests in each `test/` |
+| `packages/*` | the 20 workspace packages (README, "Package APIs"; the viewer, `packages/viewer`, README "Viewer"); tests in each `test/` |
 | `packages/cad-brep/` | `src/layout.ts` (the B-rep buffer's format), `include/cad_brep.h` (generated from it by `gen/header.ts`: run it after changing the layout; a test checks it's current) |
 | `packages/tess-occt/` | `native/occt_tess.cpp` (the wrapper), `native/occt_build.cpp` (the native route's builder: a part's model into OCCT's shapes); `build-occt.sh` (OCCT into `build/occt-Os/`, applying `occt_patches/` to `build/occt-src/`); `build.sh` (links `dist/`); `build-probe.sh` (`dist/occt_probe.*`, for checks) |
 | `packages/tess-truck/` | `native/` (the Rust crate), `build.sh` (`dist/tess_truck.wasm`) |
+| `packages/tess-smlib/` | `native/smlib_build.cpp` (a part's model into SMLib's B-rep), `native/smlib_tess.cpp` (the wrapper), `native/tbb/` (oneTBB's serial stand-in); `build-smlib.sh` (SMLib into `build/smlib-wasm/`, or `T=native` `build/smlib-native/` for probes), `build.sh` (links `dist/`) |
 | `packages/step-schemas/` | `dict/` the generated dictionaries (committed), `gen/` their generator |
 | `corpus_checks/` | the corpus checks with committed logs (its README lists them) |
 | `test_corpus/` | `files.txt` (517 files), `third_party/pull.sh` (fetches them), `models/` (the user's Onshape exports), `demo/` (the deployed demo models) |
-| `third_party/` | `pull.sh`: OCCT, stepcode, truck, the 3MF specifications, the MBx-IF practices, the JT specifications (all ignored) |
+| `third_party/` | `pull.sh`: OCCT, stepcode, truck, usd-brep (SMLib), the 3MF specifications, the MBx-IF practices, the JT specifications (all ignored) |
 | `workdir/` | ignored: dated deep dives and measurement records; findings worth keeping go in this file, the notes or the README |
 | `test/` | repository-wide tests (`ascii.test.ts`) |
 | `env.sh` | `source env.sh`: checks and sets up the toolchain |
@@ -44,7 +45,7 @@ Notes for working on cad-io-js: how work is done here, the decisions every part 
 - A single package: `node --test packages/<p>/test/*.test.ts`, not `node --test <directory>` (that fails whatever the code, so a mutation run reports every mutant caught).
 - Corpus checks: `node --max-old-space-size=8192 corpus_checks/<check>.ts test_corpus/files.txt 1000` (the list, then the maximum file size in MB); `roundtrip_corpus` needs `--max-old-space-size=12000` (about 16 min). Several at once sharing a fresh mesh cache: `node corpus_checks/round.ts <check> ...` (README, "Corpus Checks").
 - The viewer's browser check and `cad-viewer start|stop|status|open|shot|replay`: README, "Viewer".
-- Rebuilding the backends: `packages/tess-occt/build-occt.sh` (12 minutes) then `build.sh` (seconds); `packages/tess-truck/build.sh`.
+- Rebuilding the backends: `packages/tess-occt/build-occt.sh` (12 minutes) then `build.sh` (seconds); `packages/tess-truck/build.sh`; `packages/tess-smlib/build-smlib.sh` (1.5 minutes) then `build.sh` (seconds).
 
 ### Code conventions
 

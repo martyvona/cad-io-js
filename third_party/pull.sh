@@ -47,6 +47,8 @@ git_dep OCCT https://github.com/Open-Cascade-SAS/OCCT.git 3d097a0328e71b826377d4
 git_dep stepcode https://github.com/stepcode/stepcode.git 24783b448511b8f6bce2829286a3f00015430236
 # The truck tessellation backend.
 git_dep truck https://github.com/ricosjp/truck.git 88ed005249e5e3a6b07f62425399435905cd3ab6
+# The SMLib tessellation backend: NVIDIA's usd-brep 1.0.1 (source/SMLib, source/SM_API; packages/tess-smlib).
+git_dep usd-brep https://github.com/NVIDIA-Omniverse/usd-brep.git 3fd5b9548d19aa8c12c29bc9637a96d42a06f8a5
 # The 3MF specifications (Markdown), for the 3MF importer and exporter: core 1.4.0, the Materials extension 1.2.1 and
 # the Production extension 1.2.0 (their release tags).
 git_dep 3mf/spec_core https://github.com/3MFConsortium/spec_core.git 997b385e06f3181cf9aae0c578e0b45ccd48ccb2

@@ -6,7 +6,7 @@ A plan, nothing built: a parsed, format-neutral in-memory B-rep per part, to rep
 
 - **What it holds:** a part's curves (3D and 2D), surfaces and topology, parsed: every geometric value a number in a typed array, every reference an index. Not PMI, kinematics, CSG, features, construction history, tessellated geometry (that stays a source level of detail, `step.md`), names or appearance (they stay in the scene, keyed by source ids as now).
 - **Coverage:** everything the corpus's B-rep, surface-model and wireframe representations use, plus what OCCT's BREP, QIF's and IGES's MSBO B-reps hold that the model can hold exactly (`future.md`, "Across formats"), plus the Part 42 kinds modern exporters plausibly write (offsets, swept surfaces, Bezier forms, composite and trimmed curves). Implicit curves and blends (XT, Part 42's implicit curves), locally refined splines, Dupin cyclides: out, an importer approximates them with a diagnostic or drops them.
-- **Consumers:** our backends (OCCT rebuilt to read it; SMLib, truck or BRL-CAD wrappers possibly), kernels outside cad-io-js (booleans, blends: OCCT, SMLib), our exporters (STEP, BREP, FreeCAD, QIF), and our own geometry code (outlines, the area oracle, bounds, checks).
+- **Consumers:** our backends (OCCT and SMLib reading it; truck or BRL-CAD wrappers possibly), kernels outside cad-io-js (booleans, blends: OCCT, SMLib), our exporters (STEP, BREP, FreeCAD, QIF), and our own geometry code (outlines, the area oracle, bounds, checks).
 - **Not a kernel:** the model stores and evaluates; it doesn't heal, sew, intersect or compute p-curves. Repairs of imperfect input go into building it (CLAUDE.md: in memory, each with a diagnostic and an opt-out); what a kernel needs beyond that (p-curves, edge ranges, tolerances) its wrapper computes.
 
 ## The flows
@@ -23,7 +23,7 @@ flowchart TD
   ii --> m
   m --> tess["tessellateScene -> workers"]
   tess --> occt["tess-occt: model -> TopoDS (native builder), or model -> Part 21 -> STEP reader"]
-  tess --> sm["tess-smlib (to explore)"]
+  tess --> sm["tess-smlib"]
   m --> ex["exporters: STEP, BREP / FreeCAD, QIF"]
   m --> geo["cad-brep geometry: evaluation, outlines, area oracle, bounds"]
   m --> ext["other kernels, through the C header or the TS views"]
@@ -91,7 +91,7 @@ Built (phase 5):
 
 - **OCCT, step 1: model -> Part 21 -> its STEP reader.** The STEP exporter's geometry writer (below) writes the model as a bare subset and the existing wrapper meshes it unchanged. No C++ work; every format whose model STEP can hold (QIF, IGES MSBO, BREP without per-entity tolerances) is meshed at once; and comparing it with the subset route over the corpus checks the importer and the writer together.
 - **OCCT, step 2: a native builder.** `occt_tessellate_model` in `occt_tess.cpp` builds the `TopoDS_Shape` from the buffer through OCCT's public API (`Geom_*`, `Geom2d_*`, `BRep_Builder`), then `ShapeFix_Shape` and `BRepMesh` as now. It must do what OCCT's STEP translation does before healing, written by us from the standard and the API's documentation (never from `StepToTopoDS`'s source: `licensing.md`): vertex parameters on curves by projection (`GeomAPI_ProjectPointOnCurve`), edge ranges, the Part 42 -> OCCT cone conversion of p-curves, seams (two coedges of one edge in a face), degenerate edges at poles and apexes for vertex loops, tolerances from the uncertainty or the entities'. It skips Part 21 text and the STEP reader's work, and carries what STEP can't (tolerances per entity, BREP's p-curves). Kept beside the STEP route, which stays the oracle and the fallback.
-- **SMLib (to explore; README backlog, Tessellation):** a C++ wrapper reading the buffer by `cad_brep.h` into SMLib's B-rep; SMLib rebuilds UV trims from 3D edges where p-curves are absent (`backends.md`); its exact face areas (any surface) extend the area oracle to B-spline faces.
+- **SMLib (`tess-smlib`, built):** a C++ wrapper reading the buffer by `cad_brep.h` into SMLib's B-rep tables (`native/smlib_build.cpp`); SMLib rebuilds the trims from 3D edges (p-curves aren't passed), heals, meshes and measures (`backends.md`, SMLib).
 - **truck (optional):** a wrapper reading the buffer instead of ruststep's parse (no more failed parses of `()`); its STEP workarounds (`backends.md`, truck, 2, 7, 8, 10) partly move into the STEP importer as fixes for every consumer.
 
 ## Exporters

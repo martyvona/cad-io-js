@@ -1,0 +1,22 @@
+{
+  "name": "tess-smlib",
+  "version": "0.2.0",
+  "description": "SMLib tessellation backend for cad-io-js (B-rep models to meshes with face and edge ids), as WebAssembly",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "./build.sh"
+  },
+  "dependencies": {
+    "cad-scene": "0.2.0"
+  },
+  "devDependencies": {
+    "cad-brep": "0.2.0",
+    "step-import": "0.2.0",
+    "tess-occt": "0.2.0",
+    "tess-workers": "0.2.0"
+  }
+}
