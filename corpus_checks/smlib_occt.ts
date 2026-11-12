@@ -9,8 +9,12 @@
 //   - triangles and meshing time, and the SMLib builder's warnings.
 // Usage: node corpus_checks/smlib_occt.ts [file-list.txt] [max MB, default 1000]   (progress on standard error)
 //   WORKERS=<n> workers per backend in each process (default: half the process's share, runner.ts)
+//   FACES=<dir>  write every problem face there, a JSON line each in <file>.ndjson: where, its problems, its
+//                surface and edge curve kinds, each backend's mesh and exact areas and the oracle's; parts SMLib
+//                fails or leaves empty and the builder's warnings as lines without a face
 // Several files at once (runner.ts: CHILDREN, MESH_WORKERS).
 import fs from 'node:fs';
+import path from 'node:path';
 import type { TessellationRequest, TessellationResult } from '../packages/cad-scene/src/index.ts';
 import { faceFailures, MESH_PROFILES } from '../packages/cad-scene/src/index.ts';
 import { type BrepData, decode, nearestParams, surfaceEvaluator } from '../packages/cad-brep/src/index.ts';
@@ -112,6 +116,28 @@ function alongModel(d: BrepData, row: number, r: R, id: number, origin: readonly
 
 const bin = (rel: number): Bin => (rel <= 1e-3 ? '0.1%' : rel <= 0.01 ? '1%' : rel <= 0.05 ? '5%' : 'worse');
 type Status = 'ok' | 'error' | 'timeout' | 'crash' | 'empty';
+/** A face's surface kind (a swept or offset one with its basis) and its edges' curve kinds, for FACES. */
+function faceKinds(d: BrepData, row: number): { surface: string; curves: string; loops: number } {
+  const face = decode.face(d, row);
+  const surf = (k: number): string => {
+    const s = decode.surface(d, k) as { kind: string; basis?: number; curve?: number; rational?: boolean };
+    if (s.kind === 'bspline') return s.rational ? 'bspline rational' : 'bspline';
+    if (s.basis !== undefined) return `${s.kind}(${surf(s.basis)})`;
+    if (s.curve !== undefined) return `${s.kind}(${decode.curve(d, s.curve).kind})`;
+    return s.kind;
+  };
+  const kinds = new Set<string>();
+  for (const l of face.loops) {
+    if (!('coedges' in l) || !l.coedges) { kinds.add(l.kind); continue; }
+    for (const c of l.coedges) {
+      const e = decode.edge(d, c.edge);
+      kinds.add((e.curve === undefined || e.curve === null ? 'none' : decode.curve(d, e.curve).kind)
+        + (e.start === undefined || e.start === null ? ' (no vertices)' : ''));
+    }
+  }
+  return { surface: surf(face.surface), curves: [...kinds].sort().join(','), loops: face.loops.length };
+}
+
 const KINDS = ['failed', 'partly', 'excess', 'unverified'] as const;
 const failureTally = () => ({ failed: 0, partly: 0, excess: 0, unverified: 0 });
 
@@ -157,6 +183,8 @@ export const check: FileCheck<undefined, Tallies> = {
     if (bytes.length > maxBytes) { T.skippedBig++; return T; }
     T.files++;
     const name = shortName(f);
+    const lines: string[] = [];
+    const facesDir = process.env.FACES;
     const { scene } = await importStep(new Uint8Array(bytes));
     const parts = scene.parts.filter((p) => p.brep);
     const run = async (t: WorkerTessellator, req: TessellationRequest) => {
@@ -187,6 +215,7 @@ export const check: FileCheck<undefined, Tallies> = {
         T.status[k]++;
         T.facesMissing += of.size;
         note(`SMLib ${k}: ${m.replace(/\d+/g, 'N').slice(0, 120)}`, where);
+        lines.push(JSON.stringify({ where, status: k, message: m.slice(0, 300), faces: of.size }));
         continue;
       }
       const sa = a.r;
@@ -197,14 +226,27 @@ export const check: FileCheck<undefined, Tallies> = {
         if (q) { T.retried += Number(q[1]); T.improved += Number(q[2]); }
         note(`${d.severity}: ${d.message.replace(/\d+/g, 'N')}`, where);
       }
-      if (sa.diagnostics.some((d) => d.severity === 'error')) { T.status.error++; T.facesMissing += of.size; continue; }
-      if (!sa.indices.length) { T.status.empty++; T.facesMissing += of.size; continue; }
+      const said = sa.diagnostics.filter((d) => !/^times /.test(d.message)).map((d) => `${d.severity}: ${d.message}`);
+      const partLine = (status: string) => lines.push(JSON.stringify({ where, status, faces: of.size, said }));
+      if (sa.diagnostics.some((d) => d.severity === 'error')) {
+        T.status.error++;
+        T.facesMissing += of.size;
+        partLine('error');
+        continue;
+      }
+      if (!sa.indices.length) { T.status.empty++; T.facesMissing += of.size; partLine('empty'); continue; }
+      if (said.length) partLine('ok');
       T.status.ok++;
       T.trisSmlib += sa.indices.length / 3;
       const sf = faceAreas(sa);
       const sm = new Map((sa.measures ?? []).map((m) => [m.entityId, m]));
       const om = new Map((ob.measures ?? []).map((m) => [m.entityId, m]));
       let missing = 0, off = 0;
+      // Each problem face's problems, for FACES.
+      const problems = new Map<number, string[]>();
+      const problem = (id: number, what: string) => {
+        if (facesDir) problems.set(id, [...(problems.get(id) ?? []), what]);
+      };
       // The oracle's trusted areas by face id (the model's units).
       const d = p.brep!.model, oracleArea = new Map<number, number>();
       for (let fr = 0; fr < d.face.surface.length; fr++) {
@@ -215,11 +257,20 @@ export const check: FileCheck<undefined, Tallies> = {
       }
       for (const [id, o] of of) {
         const s = sf.get(id);
-        if (!s || !s.tris) { missing++; note('face OCCT meshes, SMLib not', `${where} face #${id}`); continue; }
+        if (!s || !s.tris) {
+          missing++;
+          note('face OCCT meshes, SMLib not', `${where} face #${id}`);
+          problem(id, 'missing');
+          continue;
+        }
         const rel = Math.abs(s.area - o.area) / Math.max(o.area, 1e-12);
         const k = bin(rel);
         T.meshArea[k]++;
-        if (k === 'worse') { off++; note('mesh areas differ by over 5%', `${where} face #${id}`); }
+        if (k === 'worse') {
+          off++;
+          note('mesh areas differ by over 5%', `${where} face #${id}`);
+          problem(id, 'mesh off OCCT');
+        }
         const x = sm.get(id), y = om.get(id), z = oracleArea.get(id);
         if (z !== undefined && z > 0) {
           T.oracle.faces++;
@@ -229,15 +280,28 @@ export const check: FileCheck<undefined, Tallies> = {
           T.oracle.occtExact[ky]++;
           T.oracle.smlibMesh[kxm]++;
           T.oracle.occtMesh[kym]++;
-          if (kx === 'worse') note('SMLib\'s exact area off the oracle\'s by over 5%', `${where} face #${id}`);
-          if (ky === 'worse') note('OCCT\'s measured area off the oracle\'s by over 5%', `${where} face #${id}`);
-          if (kxm === 'worse') note('SMLib\'s mesh area off the oracle\'s by over 5%', `${where} face #${id}`);
+          if (kx === 'worse') {
+            note('SMLib\'s exact area off the oracle\'s by over 5%', `${where} face #${id}`);
+            problem(id, 'exact off oracle');
+          }
+          if (ky === 'worse') {
+            note('OCCT\'s measured area off the oracle\'s by over 5%', `${where} face #${id}`);
+            problem(id, 'OCCT exact off oracle');
+          }
+          if (kxm === 'worse') {
+            note('SMLib\'s mesh area off the oracle\'s by over 5%', `${where} face #${id}`);
+            problem(id, 'mesh off oracle');
+          }
+          if (kym === 'worse') problem(id, 'OCCT mesh off oracle');
         }
         if (!x || !y || !Number.isFinite(x.area) || !Number.isFinite(y.area)) T.exactArea.none++;
         else {
           const kk = bin(Math.abs(x.area - y.area) / Math.max(y.area, 1e-12));
           T.exactArea[kk]++;
-          if (kk === 'worse') note('exact areas (measures) differ by over 5%', `${where} face #${id}`);
+          if (kk === 'worse') {
+            note('exact areas (measures) differ by over 5%', `${where} face #${id}`);
+            problem(id, 'exact off OCCT');
+          }
         }
       }
       for (const id of sf.keys()) {
@@ -249,10 +313,12 @@ export const check: FileCheck<undefined, Tallies> = {
       const rowOf = new Map<number, number>();
       for (let fr = 0; fr < d.face.surface.length; fr++) rowOf.set(d.face.id[fr]!, fr);
       for (const id of flipped) {
-        const a = alongModel(d, rowOf.get(id)!, sa, id, p.origin);
+        const row = rowOf.get(id);
+        const a = row === undefined ? undefined : alongModel(d, row, sa, id, p.origin);
         const who = a === undefined ? 'unknown' : a ? 'occt' : 'smlib';
         T.flippedBy[who]++;
         note(`face facing opposite to OCCT's, against the model's normal: ${who}`, `${where} face #${id}`);
+        problem(id, `flipped: ${who}`);
       }
       for (const [who, r] of [['smlib', sa], ['occt', ob]] as const) {
         const mesh = { positions: r.positions, indices: r.indices,
@@ -263,9 +329,24 @@ export const check: FileCheck<undefined, Tallies> = {
         for (const [id, kind] of fails) {
           T.failures[who][kind]++;
           if (who === 'smlib') note(`SMLib faceFailures: ${String(kind)}`, `${where} face #${id}`);
+          if (id !== null) problem(id as number, `${who === 'smlib' ? '' : 'OCCT '}faceFailures ${String(kind)}`);
         }
       }
+      for (const [id, what] of problems) {
+        const row = rowOf.get(id);
+        // (An id no face row has: a mesh's face without one.)
+        if (row === undefined) { lines.push(JSON.stringify({ where, id, what })); continue; }
+        const num = (x: number | undefined) => (x === undefined || !Number.isFinite(x) ? null : +x.toPrecision(6));
+        lines.push(JSON.stringify({ where, id, row, what, ...faceKinds(d, row), smMesh: num(sf.get(id)?.area),
+          ocMesh: num(of.get(id)?.area), smExact: num(sm.get(id)?.area), ocExact: num(om.get(id)?.area),
+          oracle: num(oracleArea.get(id)), smTris: sf.get(id)?.tris ?? 0, ocTris: of.get(id)?.tris ?? 0 }));
+      }
       if (!missing && !off && !flipped.size) T.partsComplete++;
+    }
+    if (facesDir) {
+      fs.mkdirSync(facesDir, { recursive: true });
+      fs.writeFileSync(path.join(facesDir, `${name.replace(/[^\w.-]+/g, '_')}.ndjson`),
+        lines.length ? lines.join('\n') + '\n' : '');
     }
     return T;
   },

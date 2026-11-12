@@ -47,7 +47,7 @@ interface SmlibModule {
 const KINDS: EdgeKind[] = ['shared', 'seam', 'free', 'degenerate'];
 
 /** Changes when this adapter's results change for the same module, so that cached results from before aren't read. */
-const ADAPTER = 1;
+const ADAPTER = 2;
 
 /** The upstream source the module is built from (third_party/pull.sh). */
 const SOURCE = 'SMLib (usd-brep 1.0.1, 3fd5b95)';
@@ -152,7 +152,8 @@ export class SmlibTessellator implements Tessellator {
     if (!m) throw new Error('SmlibTessellator: call init() first');
     if (req.format !== 'cad-brep') throw new Error(`SmlibTessellator: format '${req.format}' isn't taken`);
     const origin = req.origin ?? [0, 0, 0];
-    const ptr = m._malloc(req.data.length);
+    // (Pointers come back as signed 32-bit numbers: unsigned, as the module's memory may pass 2 GB.)
+    const ptr = m._malloc(req.data.length) >>> 0;
     m.HEAPU8.set(req.data, ptr);
     m._smlib_set_measures(req.measures ? 1 : 0);
     m._smlib_set_heal(this.heal ? 1 : 0);
@@ -164,7 +165,7 @@ export class SmlibTessellator implements Tessellator {
     } finally {
       m._free(ptr);
     }
-    const diag = JSON.parse(m.UTF8ToString(m._smlib_diag())) as Record<string, unknown>;
+    const diag = JSON.parse(m.UTF8ToString(m._smlib_diag() >>> 0)) as Record<string, unknown>;
     const diagnostics: TessellationResult['diagnostics'] = [];
     for (const w of Array.isArray(diag.builder) ? diag.builder as string[] : []) diagnostics.push(
       { severity: 'warning', message: `SMLib builder: ${w}` });
@@ -174,9 +175,9 @@ export class SmlibTessellator implements Tessellator {
         : `SMLib: ${String(diag.error)}` });
       return { origin, positions: new Float32Array(), indices: new Uint32Array(), faces: [], diagnostics };
     }
-    const f32 = (p: number, n: number) => m.HEAPF32.slice(p >> 2, (p >> 2) + n);
-    const u32 = (p: number, n: number) => m.HEAPU32.slice(p >> 2, (p >> 2) + n);
-    const i32 = (p: number, n: number) => m.HEAP32.slice(p >> 2, (p >> 2) + n);
+    const f32 = (p: number, n: number) => m.HEAPF32.slice(p >>> 2, (p >>> 2) + n);
+    const u32 = (p: number, n: number) => m.HEAPU32.slice(p >>> 2, (p >>> 2) + n);
+    const i32 = (p: number, n: number) => m.HEAP32.slice(p >>> 2, (p >>> 2) + n);
     const nv = m._smlib_num_vertices();
     const positions = f32(m._smlib_positions(), nv * 3);
     const normals = f32(m._smlib_normals(), nv * 3);
@@ -190,7 +191,7 @@ export class SmlibTessellator implements Tessellator {
     const result: TessellationResult = { origin, positions, normals, indices, faces, diagnostics };
     const nm = req.measures ? m._smlib_num_measures() : 0;
     if (nm) {
-      const at = m._smlib_measures() >> 3;
+      const at = m._smlib_measures() >>> 3;
       const q = m.HEAPF64.slice(at, at + 4 * nm);
       result.measures = [];
       for (let i = 0; i < q.length; i += 4) {
@@ -234,7 +235,7 @@ export class SmlibTessellator implements Tessellator {
     }
     if (diag.retried) {
       diagnostics.push({ severity: 'info', message: `${String(diag.retried)} faces meshed badly in their shells, `
-        + `meshed again alone and unhealed (${String(diag.improved)} better so)` });
+        + `meshed again alone, unhealed and with shorter edges (${String(diag.improved)} better so)` });
     }
     if (diag.tessError) diagnostics.push({ severity: 'warning', message: `SMLib: ${String(diag.tessError)}` });
     // (SMLib's own times, for corpus_checks/smlib_occt.ts.)

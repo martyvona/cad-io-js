@@ -20,6 +20,8 @@ struct BuiltBrep
   std::unordered_set<const SmFace*> reverse;
   // The item's transform (12 reals, column-major x, y, z, then t), applied to the mesh; empty for none.
   std::vector<double> transform;
+  // The face rows given to SMLib: healing removes some (slivers), which then have no SMLib face.
+  std::vector<int> rows;
 };
 
 // Edge kinds, as the wrapper reports them; an SMLib edge's SM_AI_EDGE_ID attribute is (edge row + 1) x 4 + kind.
@@ -49,18 +51,18 @@ struct BuiltPart
   ~BuiltPart();
 };
 
-// Whether to run SMLib's healer on each B-rep made (MakeTopologyFromData's), and the zone tolerance to build at when
-// the part has no uncertainty.
+// Whether to run SMLib's healer on each B-rep made (MakeTopologyFromData's), and the meshing's deflections.
 struct BuildOptions
 {
   bool heal = true;
-  // Wireframes' sampling (curve items, wire bodies' edges), in the part's unit and radians.
+  // In the part's unit and radians: wireframes' sampling (curve items, wire bodies' edges), and the linear one decides
+  // which surfaces are too large to give SMLib whole (smlib_build.cpp, elementary).
   double linearDeflection = 0.1, angularDeflection = 0.5;
 };
 
 void buildPart(const uint8_t* buf, size_t len, const BuildOptions& options, BuiltPart& out);
 
 // Faces (rows) of a part, each alone in its own B-rep at the transform given (a retry for faces that meshed badly in
-// their shell), unhealed.
+// their shell), unhealed (the options' heal isn't read).
 void buildFaces(const uint8_t* buf, size_t len, const std::vector<int>& faces, const std::vector<double>& transform,
-  BuiltPart& out);
+  const BuildOptions& options, BuiltPart& out);

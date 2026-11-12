@@ -24,7 +24,7 @@ for f in smlib_tess smlib_build; do
 done
 em++ -Os -fwasm-exceptions build/smlib_tess.o build/smlib_build.o $L -o "$D"/smlib_tess.mjs \
   -sMODULARIZE=1 -sEXPORT_ES6=1 -sEXPORT_NAME=smlibTess -sENVIRONMENT=web,worker,node \
-  -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=32MB -sSTACK_SIZE=4MB \
+  -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=32MB -sMAXIMUM_MEMORY=4GB -sSTACK_SIZE=4MB \
   -sEXPORTED_FUNCTIONS="$EXPORTS" \
   -sEXPORTED_RUNTIME_METHODS='["HEAPU8","HEAPF32","HEAPU32","HEAP32","HEAPF64","UTF8ToString"]'
 ls -la "$D"/smlib_tess.wasm "$D"/smlib_tess.mjs

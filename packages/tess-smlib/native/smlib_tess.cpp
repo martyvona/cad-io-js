@@ -159,6 +159,18 @@ double badness(const Judged& j, double lin)
   return 0;
 }
 
+// How far a face's mesh is from its exact area, for choosing between meshes: badness where there is any (so a failing
+// mesh never beats a passing one), else the difference where it is over 5% of the exact area, which the deflection
+// may allow on a small face but a mesh of shorter edges often betters.
+double offBy(const Judged& j, double lin)
+{
+  double by = badness(j, lin);
+  if (by > 0) return j.exact + by;
+  if (!std::isfinite(j.exact) || !(j.exact > 0) || j.polygons == 0) return 0;
+  double d = std::fabs(j.area - j.exact);
+  return d > 0.05 * j.exact ? d : 0;
+}
+
 // A B-rep meshed: its poly B-rep (null where SMLib made none) and each face's judgement.
 struct Meshed
 {
@@ -174,7 +186,8 @@ struct Stats
   std::string firstError;
 };
 
-void tessellate(BuiltBrep& b, double linDefl, double angDefl, Meshed& out, Stats& st)
+// (maxEdge: SMLib's edge-length target, 0 for none.)
+void tessellate(BuiltBrep& b, double linDefl, double angDefl, Meshed& out, Stats& st, double maxEdge = 0)
 {
   SmTArray<SmFace*> smFaces;
   SmApiGetFaces(b.brep, smFaces);
@@ -203,6 +216,7 @@ void tessellate(BuiltBrep& b, double linDefl, double angDefl, Meshed& out, Stats
   p.dChordHeightTol = linDefl;
   p.dCurveAngleTolDeg = angDefl * DEG;
   p.dSurfaceAngleTolDeg = angDefl * DEG;
+  p.dMaxEdgeLength = maxEdge;
   SmTArray<SmTessellationFailure> fails;
   t0 = now();
   SmApiStatus status = SmApiTessellate(b.brep, out.poly, p, TRUE, &fails);
@@ -389,13 +403,34 @@ void meshPart(const uint8_t* buf, size_t len, BuiltPart& part, double linDefl, d
     std::set<SmFace*> chosen;
     std::vector<int> bad;
     std::map<long, double> badBy;
+    // Judged by model face: the SMLib faces healing split one into, together.
+    std::map<long, Judged> whole;
     for (auto& [f, j] : mb.faces)
     {
-      if (j.row >= 0) seen.insert(j.row);
-      double by = badness(j, linDefl);
-      if (by > 0 && j.row >= 0) { bad.push_back((int)j.row); badBy[j.row] = by; }
-      else chosen.insert(f);
+      if (j.row < 0) { chosen.insert(f); continue; }
+      seen.insert(j.row);
+      auto it = whole.find(j.row);
+      if (it == whole.end()) { whole[j.row] = j; continue; }
+      it->second.area += j.area;
+      it->second.exact += j.exact;
+      it->second.perimeter += j.perimeter;
+      it->second.polygons += j.polygons;
     }
+    for (auto& [row, j] : whole)
+    {
+      double by = offBy(j, linDefl);
+      if (by > 0) { bad.push_back((int)row); badBy[row] = by; }
+    }
+    // A face healing removed (a sliver): alone, as any mesh betters none.
+    for (int row : b.rows)
+      if (!whole.count(row))
+      {
+        seen.insert(row);
+        bad.push_back(row);
+        badBy[row] = INFINITY;
+      }
+    for (auto& [f, j] : mb.faces)
+      if (j.row >= 0 && !badBy.count(j.row)) chosen.insert(f);
     std::vector<std::pair<std::unique_ptr<BuiltPart>, std::unique_ptr<Meshed>>> retries;
     // The judgement of the mesh kept, by face row: the retry's where it was better.
     std::map<long, Judged> kept;
@@ -404,23 +439,53 @@ void meshPart(const uint8_t* buf, size_t len, BuiltPart& part, double linDefl, d
       std::sort(bad.begin(), bad.end());
       bad.erase(std::unique(bad.begin(), bad.end()), bad.end());
       auto rp = std::make_unique<BuiltPart>();
-      buildFaces(buf, len, bad, b.transform, *rp);
+      BuildOptions ro;
+      ro.linearDeflection = linDefl;
+      ro.angularDeflection = angDefl;
+      buildFaces(buf, len, bad, b.transform, ro, *rp);
       st.retried += (int)bad.size();
       std::set<long> better;
       for (auto& rb : rp->breps)
       {
-        auto rm = std::make_unique<Meshed>();
-        tessellate(rb, linDefl, angDefl, *rm, st);
-        std::set<SmFace*> rchosen;
-        for (auto& [f, j] : rm->faces)
-          if (badness(j, linDefl) < badBy[j.row] && j.polygons > 0)
+        // The face alone as it is, then, while it is still bad, with SMLib's triangles' edges limited to a half, a
+        // quarter and an eighth of the face's size (the root of its area): SMLib triangulates in (u, v), and on a
+        // face thin in space but not in (u, v) joins boundary points by long edges that leave the surface.
+        std::unique_ptr<Meshed> best;
+        SmFace* bestFace = nullptr;
+        // (No finer than a two-hundredth of the perimeter or twice the deflection: a wrong exact area mustn't ask
+        // for millions of triangles.)
+        double bestBy = INFINITY, size = 0, least = 0;
+        // (Only for a face that fails outright or is over a fifth off, and no further once an attempt gives nothing:
+        // SMLib's edge-length refinement itself runs away on some faces, as on one of bug31711.stp's 8% off.)
+        bool shorter = false;
+        for (int attempt = 0; attempt < 4 && bestBy > 0; attempt++)
+        {
+          if (attempt > 0 && (!(size > 0) || !shorter)) break;
+          auto rm = std::make_unique<Meshed>();
+          tessellate(rb, linDefl, angDefl, *rm, st, attempt == 0 ? 0 : std::max(size / (1 << attempt), least));
+          if (rm->faces.size() != 1) break;
+          auto& [f, j] = *rm->faces.begin();
+          if (attempt == 0)
           {
-            rchosen.insert(f);
-            better.insert(j.row);
-            kept[j.row] = j;
+            size = std::isfinite(j.exact) && j.exact > 0 ? std::sqrt(j.exact) : 0;
+            least = std::max(j.perimeter / 200, 2 * linDefl);
+            bestBy = badBy[j.row];
           }
-        emit(part, rb, *rm, rchosen, meshes, ox, oy, oz, st);
-        retries.emplace_back(nullptr, std::move(rm));
+          double by = offBy(j, linDefl);
+          shorter = j.polygons > 0 && (badness(j, linDefl) > 0 || std::fabs(j.area - j.exact) > 0.2 * j.exact);
+          if (j.polygons > 0 && by < bestBy)
+          {
+            bestBy = by;
+            bestFace = f;
+            best = std::move(rm);
+          }
+        }
+        if (!best) continue;
+        const Judged& j = best->faces[bestFace];
+        better.insert(j.row);
+        kept[j.row] = j;
+        // (Its poly B-rep freed at once: SMLib's take about 6 kB a triangle, and a part may have hundreds retried.)
+        emit(part, rb, *best, {bestFace}, meshes, ox, oy, oz, st);
       }
       st.improved += (int)better.size();
       for (auto& [f, j] : mb.faces)
@@ -431,13 +496,25 @@ void meshPart(const uint8_t* buf, size_t len, BuiltPart& part, double linDefl, d
     if (gMeasures)
     {
       double s = scaleOf(b.transform);
+      // A model face's measure: summed over the SMLib faces it became (healing splits a face at a seam), in the first
+      // B-rep it's in; the retry's where that was kept.
+      std::map<long, std::pair<double, double>> sums;
       for (auto& [f, j0] : mb.faces)
       {
         if (j0.row < 0 || measured.count(j0.row)) continue;
-        measured.insert(j0.row);
-        const Judged& j = kept.count(j0.row) ? kept[j0.row] : j0;
-        g.measures.insert(g.measures.end(), {(double)idOf(part.faceIds, j.row), j.exact * s * s, j.perimeter * s,
-          std::isfinite(j.exact) ? 1.0 : 0.0});
+        auto it = sums.emplace(j0.row, std::make_pair(0.0, 0.0)).first;
+        it->second.first += j0.exact;
+        it->second.second += j0.perimeter;
+      }
+      for (auto& [row, j] : kept)
+        if (!measured.count(row)) sums.emplace(row, std::make_pair(j.exact, j.perimeter));
+      for (auto& [row, sum] : sums)
+      {
+        measured.insert(row);
+        double exact = kept.count(row) ? kept[row].exact : sum.first;
+        double perimeter = kept.count(row) ? kept[row].perimeter : sum.second;
+        g.measures.insert(g.measures.end(), {(double)idOf(part.faceIds, row), exact * s * s, perimeter * s,
+          std::isfinite(exact) ? 1.0 : 0.0});
       }
     }
     // (The retries' B-reps and meshes go before the poly B-rep they replaced faces of: retries before mb.)
@@ -517,6 +594,18 @@ int smlib_tessellate_model(const uint8_t* data, int len, double linDefl, double 
     }
     g.diag = "{\"breps\":" + std::to_string(part.breps.size()) + meshDiag + ",\"builder\":" + builder + "}";
     return 0;
+  }
+  catch (const std::bad_alloc&)
+  {
+    g = Result();
+    g.diag = "{\"error\":\"out of memory\"}";
+    return -3;
+  }
+  catch (const std::exception& e)
+  {
+    g = Result();
+    g.diag = "{\"error\":\"exception: " + jsonEscape(e.what()) + "\"}";
+    return -3;
   }
   catch (...)
   {

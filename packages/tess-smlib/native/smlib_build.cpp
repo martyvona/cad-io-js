@@ -20,9 +20,9 @@
 //   - A face's loops: its outer loop first (SMLib takes the first as outer), vertex loops last.
 //   - Radial order: each edge's uses as mated pairs, alternating in orientation, starting with a use along the edge.
 //
-// Not built yet (each said in a warning, the face or shell left out): surfaces other than planes, cylinders, cones,
-// spheres, tori and B-splines; edges without a 3D curve or vertices; curves other than lines, circles, ellipses,
-// B-splines, polylines and trimmed curves of those; internal and external coedges; wireframe curves and points.
+// Not built (each said in a warning, the face or item left out): Part 42's curve-swept surfaces; edges between two
+// vertices without a 3D curve; composite and offset edge curves; internal and external coedges; unbounded loose curves
+// and surfaces. docs/backends.md has SMLib's quirks behind the rest of what is done here.
 
 #include "smlib_build.h"
 
@@ -119,6 +119,12 @@ struct Model
   int edgeStart(int e) const { return CBR_I32(v[CBR_EDGE_START])[e]; }
   int edgeEnd(int e) const { return CBR_I32(v[CBR_EDGE_END])[e]; }
   bool edgeSameSense(int e) const { return CBR_U8(v[CBR_EDGE_SAME_SENSE])[e] != 0; }
+  // An edge of no length (a pole, an apex): flagged so, or without a 3D curve from a vertex to itself.
+  bool edgeDegenerate(int e) const
+  {
+    return (CBR_U8(v[CBR_EDGE_FLAGS])[e] & CBR_EDGE_DEGENERATE) != 0
+      || (edgeCurve(e) < 0 && edgeStart(e) >= 0 && edgeStart(e) == edgeEnd(e));
+  }
   int coedgeEdge(int c) const { return CBR_I32(v[CBR_COEDGE_EDGE])[c]; }
   int coedgeOrientation(int c) const { return CBR_U8(v[CBR_COEDGE_ORIENTATION])[c]; }
   int loopKind(int l) const { return CBR_U8(v[CBR_LOOP_KIND])[l]; }
@@ -164,6 +170,9 @@ struct EdgeGeom
 {
   SmCurve* curve = nullptr;
   SmExtent1d interval;
+  // The interval runs from the end vertex to the start: an edge whose vertices lie the other way along its curve
+  // (files have them), built from its end to its start.
+  bool swapped = false;
   std::string error;
 };
 
@@ -247,7 +256,9 @@ private:
       if (!(len > 0)) { g.error = "lines of no direction"; return g; }
       d = (1 / len) * d;
       double s0 = dot(p0 - o, d), s1 = dot(p1 - o, d);
-      if (!(s1 > s0)) { g.error = "line edges of no length or against their curve"; return g; }
+      // An edge whose vertices lie the other way along its line (files have them): the line turned round.
+      if (s1 < s0 - zoneTol) { d = -1.0 * d; s0 = -s0; s1 = -s1; }
+      if (!(s1 > s0)) { g.error = "line edges of no length"; return g; }
       SmLine* l = nullptr;
       if (SmLine::CreateCanonical(ctx, sp(o), sv(d), l) != SM_SUCCESS || !l) {
         g.error = "lines SMLib refused";
@@ -301,12 +312,21 @@ private:
       } else if (!(t1 > t0)) {
         // Across a periodic curve's seam: on the curve extended by a period. (A vertex at the seam reads as the
         // range's start or end: its end, then.)
-        if (std::fabs(t1 - nat.GetMin()) <= 1e-9 * (nat.GetMax() - nat.GetMin())) t1 = nat.GetMax();
+        // (Only on a closed curve; elsewhere the vertices lie the other way along it.)
+        SmVector3d c0[1], c1[1];
+        k->Evaluate(nat.GetMin(), 0, FALSE, c0);
+        k->Evaluate(nat.GetMax(), 0, FALSE, c1);
+        bool closedCurve = period > 0 || norm(v3(c0[0]) - v3(c1[0])) <= zoneTol;
+        if (closedCurve && std::fabs(t1 - nat.GetMin()) <= 1e-9 * (nat.GetMax() - nat.GetMin())) t1 = nat.GetMax();
         else if (period > 0) t1 += period;
         if (!(t1 > t0)) {
-          delete k;
-          g.error = "B-spline edges whose vertices aren't in order on their curve";
-          return g;
+          if (!(t0 > t1)) {
+            delete k;
+            g.error = "B-spline edges of no length";
+            return g;
+          }
+          std::swap(t0, t1);
+          g.swapped = true;
         }
       }
       if (t1 > nat.GetMax() + 1e-9 * (nat.GetMax() - nat.GetMin())) {
@@ -317,6 +337,48 @@ private:
       }
       g.curve = k;
       g.interval = SmExtent1d(t0, t1);
+      return g;
+    }
+    case CBR_CURVE_HYPERBOLA:
+    case CBR_CURVE_PARABOLA: {
+      // The arc between the vertices as a rational quadratic Bezier (SMLib has neither conic): its ends, and the
+      // meeting point of their tangents, weighted cosh of half the parameter span (a parabola's 1).
+      // Part 42: C + a cosh t x + b sinh t y; C + f t^2 x + 2 f t y.
+      Frame f = frame(r);
+      bool hyp = m.curveKind(c) == CBR_CURVE_HYPERBOLA;
+      double a = r[9], b = hyp ? r[10] : 0;
+      if (!(a > 0) || (hyp && !(b > 0))) { g.error = "conics of no size"; return g; }
+      auto param = [&](V3 p) { double y = dot(p - f.o, f.y); return hyp ? std::asinh(y / b) : y / (2 * a); };
+      double t0 = param(p0), t1 = param(p1);
+      if (!(t1 > t0)) {
+        g.error = "hyperbola and parabola edges whose vertices aren't in order on their curve";
+        return g;
+      }
+      double mid = 0.5 * (t0 + t1), h = 0.5 * (t1 - t0), w = hyp ? std::cosh(h) : 1;
+      auto at = [&](double x, double y) { return sp(f.o + x * f.x + y * f.y); };
+      SmTArray<SmPoint3d> poles;
+      if (hyp) {
+        poles.Add(at(a * std::cosh(t0), b * std::sinh(t0)));
+        poles.Add(at(a * std::cosh(mid) / w, b * std::sinh(mid) / w));
+        poles.Add(at(a * std::cosh(t1), b * std::sinh(t1)));
+      } else {
+        poles.Add(at(a * t0 * t0, 2 * a * t0));
+        poles.Add(at(a * t0 * t1, a * (t0 + t1)));
+        poles.Add(at(a * t1 * t1, 2 * a * t1));
+      }
+      SmTArray<ULONG> mults;
+      mults.Add(3); mults.Add(3);
+      SmTArray<double> knots, weights;
+      knots.Add(0); knots.Add(1);
+      weights.Add(1); weights.Add(w); weights.Add(1);
+      SmBSplineCurve* k = nullptr;
+      if (SmBSplineCurve::CreateCanonical(ctx, 3, 2, poles, SM_CF_UNSPECIFIED, mults, knots, SM_KT_UNSPECIFIED,
+            hyp ? &weights : nullptr, nullptr, k) != SM_SUCCESS || !k) {
+        g.error = "hyperbola and parabola arcs SMLib refused";
+        return g;
+      }
+      g.curve = k;
+      g.interval = k->GetNaturalInterval();
       return g;
     }
     default:
@@ -526,9 +588,10 @@ private:
     case CBR_SURFACE_PLANE: return f.z;
     case CBR_SURFACE_CYLINDER: return radial;
     case CBR_SURFACE_CONE: {
-      // (R + v tan a)(radial - tan a z): its sign flips past the apex.
+      // (R + v tan a)(cos u x + sin u y - tan a z): past the apex, where the radius is negative, the point lies
+      // across the axis from its u, so the normal still points away from the axis, its part along the axis turned.
       double t = std::tan(r[10]), s = r[9] + dot(d, f.z) * t;
-      return (s < 0 ? -1.0 : 1.0) * (radial + (-t) * f.z);
+      return radial + (s < 0 ? t : -t) * f.z;
     }
     case CBR_SURFACE_SPHERE: return d;
     case CBR_SURFACE_TORUS: return d + (-r[9]) * radial;
@@ -586,10 +649,12 @@ private:
             EdgeGeom g = against ? span(baseCurve(m.edgeCurve(e)), b, a, closed)
                                  : span(baseCurve(m.edgeCurve(e)), a, b, closed);
             if (!g.curve) continue;
+            // (In the coedge's direction: SMLib's edge runs along the basis.)
+            bool back = against == fwd;
             for (int i = 0; i <= 24; i++) {
               SmVector3d pd[1];
-              g.curve->Evaluate(g.interval.GetMin() + i / 24.0 * (g.interval.GetMax() - g.interval.GetMin()), 0, FALSE,
-                pd);
+              double s = (back ? 24 - i : i) / 24.0;
+              g.curve->Evaluate(g.interval.GetMin() + s * (g.interval.GetMax() - g.interval.GetMin()), 0, FALSE, pd);
               pts.push_back(v3(pd[0]));
             }
             delete g.curve;
@@ -601,7 +666,7 @@ private:
           const int N = 24;
           for (int i = 0; i < N; i++) {
             double s = (double)i / N;
-            if (!along) s = 1 - s;
+            if (along == g.swapped) s = 1 - s;
             if (g.curve) {
               SmVector3d pd[1];
               double t = g.interval.GetMin() + s * (g.interval.GetMax() - g.interval.GetMin());
@@ -663,13 +728,38 @@ private:
       double m = 0.01 * (b - a) + 1e-6 * std::max(1.0, std::max(std::fabs(a), std::fabs(b)));
       lo = a - m; hi = b + m;
     };
-    // A periodic direction spans a whole turn from the boundary's least value, in degrees inside [-360, 360].
     // A periodic direction spans a whole turn from the boundary's least value, in degrees inside [-360, 360]. (Spans
     // fitted to the boundary make SMLib's healer abort on some parts.)
-    auto turn = [](double a, double, double& lo, double& hi) {
+    // SMLib's tessellator subdivides the whole of a face's surface domain down to the chord height, so on a surface
+    // very large for the deflection (a torus of 300 m bounding a face of 3 cm took 5.6 GB) the turns are fitted to
+    // the boundary instead: where the pieces round (2 pi over the angle a chord of that height spans, multiplied
+    // where both directions turn) pass 20,000. Only there: fitted spans make SMLib's healer spoil more faces, and
+    // abort on some (in SmSurfOfRevolution::MakeNurbWithSweepParams, on tori; not reproduced alone).
+    auto pieces = [&](double radius) {
+      return radius > 0 && lin > 0 && lin < radius ? PI / std::sqrt(2 * lin / radius) : 1.0;
+    };
+    double cost = 1;
+    switch (kind) {
+    case CBR_SURFACE_CYLINDER: cost = pieces(r[9]); break;
+    case CBR_SURFACE_CONE:
+      cost = pieces(std::max(std::fabs(r[9] + v0 * std::tan(r[10])), std::fabs(r[9] + v1 * std::tan(r[10]))));
+      break;
+    case CBR_SURFACE_SPHERE: cost = pieces(r[9]) * pieces(r[9]) / 2; break;
+    case CBR_SURFACE_TORUS: cost = pieces(r[9] + r[10]) * pieces(r[10]); break;
+    }
+    bool fit = !natural && cost > 20000;
+    auto turnU = [](double a, double b, double& lo, double& hi) {
+      double padDeg = 0.02 * (b - a) * DEG + 1e-3;
+      lo = a * DEG - padDeg; hi = b * DEG + padDeg;
+      while (hi > 360) { lo -= 360; hi -= 360; }
+      while (lo < -360) { lo += 360; hi += 360; }
+    };
+    auto turn = [&](double a, double b, double& lo, double& hi) {
+      if (fit && (b - a) * DEG < 300) { turnU(a, b, lo, hi); return; }
       lo = a * DEG;
       while (lo > 0) lo -= 360;
-      while (lo < -360) lo += 360;
+      // (A start a rounding error above -360 is refused: 0 then.)
+      while (lo < -360 + 1e-6) lo += 360;
       hi = lo + 360;
     };
     if (natural && (kind == CBR_SURFACE_PLANE || kind == CBR_SURFACE_CYLINDER || kind == CBR_SURFACE_CONE)) {
@@ -696,8 +786,11 @@ private:
       // from 0 there; clipped at the apex where the boundary reaches it.
       turn(u0, u1, su0, su1); pad(v0, v1, sv0, sv1);
       double t = std::tan(r[10]), rb = r[9] + sv0 * t, rt = r[9] + sv1 * t;
-      if (rb < 0) { sv0 = -r[9] / t; rb = 0; }
-      if (rt < 0) { sv1 = -r[9] / t; rt = 0; }
+      // (A face past the apex, on the cone's other nappe, where Part 42's radius is negative: the same points at
+      // the radius's size, half a turn round.)
+      if (rb < 0 && rt < 0) { rb = -rb; rt = -rt; }
+      else if (t > 0 && rb < 0) { sv0 = -r[9] / t; rb = 0; }
+      else if (t < 0 && rt < 0) { sv1 = -r[9] / t; rt = 0; }
       Frame cf = fr;
       cf.o = fr.o + sv0 * fr.z;
       double h = sv1 - sv0;
@@ -722,7 +815,7 @@ private:
       SmTorus* p = nullptr;
       if (r[9] > r[10] && r[10] > 0 && SmTorus::CreateCanonical(ctx, placement(fr), r[9], r[10], p) == SM_SUCCESS)
         g.surface = p;
-      else if (!(r[9] > r[10])) { g.error = "degenerate tori"; return g; }
+      else if (r[10] > 0 && r[9] >= 0 && !(r[9] > r[10])) return spindle(r, loops);
       break;
     }
     default:
@@ -809,6 +902,150 @@ private:
     }
     }
     return nullptr;
+  }
+
+  // The surface a B-spline makes turned a whole turn about an axis (through a, along ax), as SMLib's, for a face with
+  // these boundary points: the curve turned first to the boundary's least angle, so the face doesn't cross SMLib's
+  // seam, and a periodic curve (row cb, or -1) with its own seam moved off the face. Takes the curve.
+  FaceGeom revolved(SmBSplineCurve* k, V3 a, V3 ax, const std::vector<std::vector<V3>>& loops, bool natural, int cb)
+  {
+    FaceGeom g;
+    // The curve's own angle about the axis (at its middle), and the boundary's least angle from it.
+    V3 ref;
+    {
+      SmExtent1d iv = k->GetNaturalInterval();
+      SmVector3d pd[1];
+      k->Evaluate(0.5 * (iv.GetMin() + iv.GetMax()), 0, FALSE, pd);
+      V3 q = v3(pd[0]) - a;
+      ref = q + (-dot(q, ax)) * ax;
+    }
+    if (!(norm(ref) > 0)) ref = std::fabs(ax.x) < 0.9 ? cross(ax, V3{1, 0, 0}) : cross(ax, V3{0, 1, 0});
+    ref = (1 / norm(ref)) * ref;
+    V3 refY = cross(ax, ref);
+    // A periodic B-spline's seam moved off the face, as for extrusions: each boundary point turned back into the
+    // curve's half-plane, then placed on the curve.
+    double period = cb >= 0 ? periodOf(cb) : 0;
+    if (period > 0 && !natural) {
+      SmExtent1d nat = k->GetNaturalInterval();
+      double tlo = INFINITY, thi = -INFINITY;
+      for (auto& pts : loops) {
+        double prev = NAN;
+        for (V3 p : pts) {
+          V3 q = p - a;
+          double h = dot(q, ax);
+          V3 radial = q + (-h) * ax;
+          double t, rr = norm(radial);
+          if (!drop(k, nat, a + h * ax + rr * ref, t)) continue;
+          if (!std::isnan(prev)) t += period * std::round((prev - t) / period);
+          prev = t;
+          tlo = std::min(tlo, t);
+          thi = std::max(thi, t);
+        }
+      }
+      if (thi - tlo < period * (1 - 1e-6)) {
+        double s0 = tlo - 0.01 * (period - (thi - tlo));
+        SmExtent1d trim(s0, s0 + period);
+        SmBSplineCurve* moved = bsplineCurve(cb, &trim);
+        if (moved) { delete k; k = moved; }
+      }
+    }
+    double lo = 0;
+    if (!natural) {
+      lo = INFINITY;
+      for (auto& pts : loops) {
+        double prev = NAN;
+        for (V3 p : pts) {
+          V3 q = p - a;
+          double t = std::atan2(dot(q, refY), dot(q, ref));
+          if (!std::isnan(prev)) t += 2 * PI * std::round((prev - t) / (2 * PI));
+          prev = t;
+          lo = std::min(lo, t);
+        }
+      }
+      if (!std::isfinite(lo)) lo = 0;
+    }
+    if (lo != 0) {
+      // Rotate the curve by lo about the axis: p -> a + R (p - a).
+      auto rot = [&](V3 v) {
+        double cs = std::cos(lo), sn = std::sin(lo);
+        return cs * v + sn * cross(ax, v) + ((1 - cs) * dot(ax, v)) * ax;
+      };
+      V3 X = rot({1, 0, 0}), Y = rot({0, 1, 0});
+      V3 o = a + (-1.0) * rot(a);
+      k->Transform(SmAxis2Placement(sp(o), sv(X), sv(Y)));
+    }
+    SmSurfOfRevolution* e = nullptr;
+    if (SmSurfOfRevolution::CreateCanonical(ctx, k, sp(a), sv(ax), e) != SM_SUCCESS || !e) {
+      delete k;
+      g.error = "revolutions SMLib refused";
+      return g;
+    }
+    // (The surface owns the curve now.)
+    g.surface = e;
+    g.domain = e->GetNaturalUVDomain();
+    for (auto& pts : loops) if (!pts.empty()) {
+      V3 q = pts[0] - a;
+      g.flipped = sweptOpposes(e, g.domain, pts[0], cross(ax, q), false);
+      break;
+    }
+    return g;
+  }
+
+  // A face on a spindle torus (major radius R not above the minor r, which SMLib's torus refuses): the tube's circle
+  // crosses the axis, and a face lies on the part outside the crossings (the signed radius R + r cos v positive) or
+  // between them (negative: Part 42's point is then across the axis from its u). Built as the revolution of that part's
+  // arc over the boundary's v range.
+  FaceGeom spindle(const double* r, const std::vector<std::vector<V3>>& loops)
+  {
+    FaceGeom g;
+    Frame f = frame(r);
+    double R = r[9], rr = r[10];
+    // Each boundary point's v on its part: the part by which fits (a vote), v unwrapped along each loop.
+    int outerVotes = 0, n = 0;
+    for (auto& pts : loops) for (V3 p : pts) {
+      V3 d = p - f.o;
+      double rho = std::sqrt(dot(d, f.x) * dot(d, f.x) + dot(d, f.y) * dot(d, f.y)), z = dot(d, f.z);
+      double eo = std::fabs((rho - R) * (rho - R) + z * z - rr * rr);
+      double ei = std::fabs((rho + R) * (rho + R) + z * z - rr * rr);
+      if (eo != ei) outerVotes += eo < ei ? 1 : -1;
+      n++;
+    }
+    if (!n) { g.error = "spindle tori without bounds"; return g; }
+    bool outer = outerVotes >= 0;
+    double v0 = INFINITY, v1 = -INFINITY;
+    for (auto& pts : loops) {
+      double prev = NAN;
+      for (V3 p : pts) {
+        V3 d = p - f.o;
+        double rho = std::sqrt(dot(d, f.x) * dot(d, f.x) + dot(d, f.y) * dot(d, f.y)), z = dot(d, f.z);
+        double v = std::atan2(z, (outer ? rho : -rho) - R);
+        // (The inner part lies about v = pi.)
+        if (!outer && v < 0) v += 2 * PI;
+        if (!std::isnan(prev)) v += 2 * PI * std::round((prev - v) / (2 * PI));
+        prev = v;
+        v0 = std::min(v0, v); v1 = std::max(v1, v);
+      }
+    }
+    // The part's own range, between the crossings at cos v = -R / r.
+    double vc = std::acos(std::max(-1.0, std::min(1.0, -R / rr)));
+    double lo = outer ? -vc : vc, hi = outer ? vc : 2 * PI - vc, pad = 0.01 * (v1 - v0) + 1e-6;
+    v0 = std::max(v0 - pad, lo); v1 = std::min(v1 + pad, hi);
+    if (!(v1 > v0)) { g.error = "spindle torus faces of no extent"; return g; }
+    // The tube's circle in the half-plane of the x direction: its angle is v.
+    Frame cf;
+    cf.o = f.o + R * f.x;
+    cf.x = f.x;
+    cf.y = f.z;
+    cf.z = cross(cf.x, cf.y);
+    SmExtent1d deg(v0 * DEG, v1 * DEG);
+    SmCircle* c = nullptr;
+    SmBSplineCurve* k = nullptr;
+    if (SmCircle::CreateCanonical(ctx, placement(cf), rr, c, &deg) == SM_SUCCESS && c) {
+      c->MakeExactBSplineIfPossible(k);
+      delete c;
+    }
+    if (!k) { g.error = "spindle tori SMLib refused"; return g; }
+    return revolved(k, f.o, f.z, loops, false, -1);
   }
 
   // A surface row as SMLib's for a face with these boundary points (none: the surface's own extent, a natural-bounds
@@ -1035,85 +1272,7 @@ private:
       }
       SmBSplineCurve* k = generator(c, t0, t1);
       if (!k) { g.error = std::string("revolutions of ") + curveKindName(ck) + " curves"; return g; }
-      // The curve's own angle about the axis (at its middle), and the boundary's least angle from it.
-      V3 ref;
-      {
-        SmExtent1d iv = k->GetNaturalInterval();
-        SmVector3d pd[1];
-        k->Evaluate(0.5 * (iv.GetMin() + iv.GetMax()), 0, FALSE, pd);
-        V3 q = v3(pd[0]) - a;
-        ref = q + (-dot(q, ax)) * ax;
-      }
-      if (!(norm(ref) > 0)) ref = std::fabs(ax.x) < 0.9 ? cross(ax, V3{1, 0, 0}) : cross(ax, V3{0, 1, 0});
-      ref = (1 / norm(ref)) * ref;
-      V3 refY = cross(ax, ref);
-      // A periodic B-spline's seam moved off the face, as for extrusions: each boundary point turned back into the
-      // curve's half-plane, then placed on the curve.
-      double period = periodOf(cb);
-      if (period > 0 && !natural) {
-        SmExtent1d nat = k->GetNaturalInterval();
-        double tlo = INFINITY, thi = -INFINITY;
-        for (auto& pts : loops) {
-          double prev = NAN;
-          for (V3 p : pts) {
-            V3 q = p - a;
-            double h = dot(q, ax);
-            V3 radial = q + (-h) * ax;
-            double t, rr = norm(radial);
-            if (!drop(k, nat, a + h * ax + rr * ref, t)) continue;
-            if (!std::isnan(prev)) t += period * std::round((prev - t) / period);
-            prev = t;
-            tlo = std::min(tlo, t);
-            thi = std::max(thi, t);
-          }
-        }
-        if (thi - tlo < period * (1 - 1e-6)) {
-          double s0 = tlo - 0.01 * (period - (thi - tlo));
-          SmExtent1d trim(s0, s0 + period);
-          SmBSplineCurve* moved = bsplineCurve(cb, &trim);
-          if (moved) { delete k; k = moved; }
-        }
-      }
-      double lo = 0;
-      if (!natural) {
-        lo = INFINITY;
-        for (auto& pts : loops) {
-          double prev = NAN;
-          for (V3 p : pts) {
-            V3 q = p - a;
-            double t = std::atan2(dot(q, refY), dot(q, ref));
-            if (!std::isnan(prev)) t += 2 * PI * std::round((prev - t) / (2 * PI));
-            prev = t;
-            lo = std::min(lo, t);
-          }
-        }
-        if (!std::isfinite(lo)) lo = 0;
-      }
-      if (lo != 0) {
-        // Rotate the curve by lo about the axis: p -> a + R (p - a).
-        auto rot = [&](V3 v) {
-          double cs = std::cos(lo), sn = std::sin(lo);
-          return cs * v + sn * cross(ax, v) + ((1 - cs) * dot(ax, v)) * ax;
-        };
-        V3 X = rot({1, 0, 0}), Y = rot({0, 1, 0});
-        V3 o = a + (-1.0) * rot(a);
-        k->Transform(SmAxis2Placement(sp(o), sv(X), sv(Y)));
-      }
-      SmSurfOfRevolution* e = nullptr;
-      if (SmSurfOfRevolution::CreateCanonical(ctx, k, sp(a), sv(ax), e) != SM_SUCCESS || !e) {
-        delete k;
-        g.error = "revolutions SMLib refused";
-        return g;
-      }
-      // (The surface owns the curve now.)
-      g.surface = e;
-      g.domain = e->GetNaturalUVDomain();
-      for (auto& pts : loops) if (!pts.empty()) {
-        V3 q = pts[0] - a;
-        g.flipped = sweptOpposes(e, g.domain, pts[0], cross(ax, q), false);
-        break;
-      }
-      return g;
+      return revolved(k, a, ax, loops, natural, cb);
     }
     }
     if (kind < CBR_SURFACE_PLANE || kind > CBR_SURFACE_TORUS) {
@@ -1121,13 +1280,111 @@ private:
       return g;
     }
     if (natural) return elementary(kind, r, true, 0, 0, 0, 0, loops);
+    std::vector<double> turned;
+    if (kind == CBR_SURFACE_SPHERE && sphereAxis(r, loops, turned)) r = turned.data();
     double u0, u1, v0, v1;
     if (!box(kind, r, loops, u0, u1, v0, v1)) { g.error = "faces with no boundary points"; return g; }
     return elementary(kind, r, false, u0, u1, v0, v1, loops);
   }
 
-  // A face's surface (as surfaceGeom), and each loop's extent: the diagonal of its boundary points' box.
-  FaceGeom faceGeom(int f, std::vector<double>& extents)
+  // A sphere whose face's boundary passes a pole (SMLib can't trim across one: the hemispheres of trj4_s1-ai-214.stp,
+  // bounded by circles about an axis square to the sphere's) is built about another axis, which a sphere allows: the
+  // one of the frame's three and the loops' own (their planes' normals) whose poles the boundary stays farthest from,
+  // loops lying on one latitude not counted (a small circle about a pole is no trouble). False to keep the model's.
+  bool sphereAxis(const double* r, const std::vector<std::vector<V3>>& loops, std::vector<double>& out) const
+  {
+    Frame f = frame(r);
+    auto clear = [&](V3 axis) {
+      double least = PI / 2;
+      for (auto& pts : loops) {
+        double lo = INFINITY, hi = -INFINITY;
+        for (V3 p : pts) {
+          V3 d = p - f.o;
+          double len = norm(d);
+          if (!(len > 0)) continue;
+          double lat = std::asin(std::max(-1.0, std::min(1.0, dot(d, axis) / len)));
+          lo = std::min(lo, lat); hi = std::max(hi, lat);
+        }
+        if (hi - lo < 1e-6) continue;
+        least = std::min(least, PI / 2 - std::max(std::fabs(lo), std::fabs(hi)));
+      }
+      return least;
+    };
+    double best = clear(f.z);
+    if (best > 0.05) return false;
+    V3 axis = f.z;
+    std::vector<V3> candidates{f.x, f.y};
+    for (auto& pts : loops) {
+      // (A loop's plane: Newell's normal of its points.)
+      V3 n{0, 0, 0};
+      for (size_t i = 0; i < pts.size(); i++) {
+        V3 a = pts[i], b = pts[(i + 1) % pts.size()];
+        n = n + V3{(a.y - b.y) * (a.z + b.z), (a.z - b.z) * (a.x + b.x), (a.x - b.x) * (a.y + b.y)};
+      }
+      if (norm(n) > 0) candidates.push_back((1 / norm(n)) * n);
+    }
+    for (V3 c : candidates) {
+      double s = clear(c);
+      if (s > best + 1e-9) { best = s; axis = c; }
+    }
+    if (dot(axis, f.z) == 1) return false;
+    V3 x = std::fabs(dot(axis, f.x)) < 0.9 ? f.x : f.y;
+    x = x + (-dot(x, axis)) * axis;
+    x = (1 / norm(x)) * x;
+    out.assign(r, r + 11);
+    out[3] = axis.x; out[4] = axis.y; out[5] = axis.z;
+    out[6] = x.x; out[7] = x.y; out[8] = x.z;
+    return true;
+  }
+
+  // Which way a loop's points run about SMLib's normal of the surface, in its (u, v): 1 counter-clockwise, -1
+  // clockwise, 0 where that can't be told (points SMLib can't place, no area). Steps of over half the domain between
+  // consecutive points are taken as crossings of a seam.
+  static int winding(const SmSurface* k, const SmExtent2d& domain, const std::vector<V3>& pts)
+  {
+    std::vector<SmPoint2d> uv;
+    for (V3 p : pts) {
+      SmBoolean ok = FALSE, multi = FALSE;
+      SmPoint2d q;
+      double gap = 0;
+      if (k->DropPoint(sp(p), domain, nullptr, ok, q, gap, multi) != SM_SUCCESS || !ok) continue;
+      uv.push_back(q);
+    }
+    if (uv.size() < 3) return 0;
+    double du = domain.GetUMax() - domain.GetUMin(), dv = domain.GetVMax() - domain.GetVMin();
+    for (size_t i = 1; i < uv.size(); i++) {
+      if (du > 0) uv[i].x += du * std::round((uv[i - 1].x - uv[i].x) / du * 0.999);
+      if (dv > 0) uv[i].y += dv * std::round((uv[i - 1].y - uv[i].y) / dv * 0.999);
+    }
+    // (A loop that goes round the surface doesn't close in (u, v): no winding.)
+    if (std::fabs(uv.back().x - uv[0].x) > 0.5 * du || std::fabs(uv.back().y - uv[0].y) > 0.5 * dv) return 0;
+    double area = 0, scale = 0;
+    for (size_t i = 0; i < uv.size(); i++) {
+      const SmPoint2d &a = uv[i], &b = uv[(i + 1) % uv.size()];
+      area += a.x * b.y - b.x * a.y;
+      scale += std::fabs(a.x * b.y) + std::fabs(b.x * a.y);
+    }
+    if (!(std::fabs(area) > 1e-9 * scale)) return 0;
+    // SMLib's normal against S_u x S_v, by differences at the first point.
+    SmVector3d p0[1], pu[1], pv[1], n;
+    double hu = 1e-4 * du * (uv[0].x + 1e-4 * du > domain.GetUMax() ? -1 : 1);
+    double hv = 1e-4 * dv * (uv[0].y + 1e-4 * dv > domain.GetVMax() ? -1 : 1);
+    SmPoint2d at(std::min(std::max(uv[0].x, domain.GetUMin()), domain.GetUMax()),
+      std::min(std::max(uv[0].y, domain.GetVMin()), domain.GetVMax()));
+    // (The first point moved back into the domain where unwrapping can't have moved it: it is the reference.)
+    if (k->Evaluate(at, 0, 0, FALSE, FALSE, FALSE, p0) != SM_SUCCESS
+      || k->Evaluate(SmPoint2d(at.x + hu, at.y), 0, 0, FALSE, FALSE, FALSE, pu) != SM_SUCCESS
+      || k->Evaluate(SmPoint2d(at.x, at.y + hv), 0, 0, FALSE, FALSE, FALSE, pv) != SM_SUCCESS
+      || k->EvaluateNormal(at, FALSE, FALSE, n) != SM_SUCCESS) return 0;
+    double c = dot(cross(v3(pu[0]) - v3(p0[0]), v3(pv[0]) - v3(p0[0])), v3(n)) * hu * hv;
+    if (c == 0) return 0;
+    return (area > 0) == (c > 0) ? 1 : -1;
+  }
+
+  // A face's surface (as surfaceGeom), each loop's extent (the diagonal of its boundary points' box), and for each loop
+  // of segments (edges without vertices, whose direction nothing fixes) its winding as its coedges run.
+  // apex: set to a cone's apex where the face must reach it though no loop does (below).
+  FaceGeom faceGeom(int f, std::vector<double>& extents, std::vector<int>& windings, bool& atApex, V3& apex)
   {
     std::vector<std::vector<V3>> loops;
     boundary(f, loops);
@@ -1139,7 +1396,38 @@ private:
       }
       extents.push_back(pts.empty() ? 0 : norm(hi - lo));
     }
-    return surfaceGeom(m.faceSurface(f), loops);
+    // A cone face whose one loop goes once round the axis without touching the apex: it is closed by the apex itself
+    // (a chamfer's cone cut off by planes; STEP needs no vertex loop there). The apex joins the boundary, so the
+    // surface built reaches it, and the caller gives SMLib a vertex loop there: without one SMLib's exact area of
+    // the face is wrong.
+    atApex = false;
+    int s = m.faceSurface(f);
+    if (s >= 0 && m.surfaceKind(s) == CBR_SURFACE_CONE && loops.size() == 1 && loops[0].size() > 2) {
+      const double* r = m.surfaceReal(s);
+      Frame fr = frame(r);
+      double t = std::tan(r[10]), turned = 0, pu = NAN;
+      apex = fr.o + (-r[9] / t) * fr.z;
+      bool touches = false;
+      for (size_t i = 0; i <= loops[0].size(); i++) {
+        V3 p = loops[0][i % loops[0].size()];
+        if (norm(p - apex) <= zoneTol) touches = true;
+        double u, v;
+        params(CBR_SURFACE_CONE, r, p, u, v);
+        if (!std::isnan(pu)) turned += u - pu - 2 * PI * std::round((u - pu) / (2 * PI));
+        pu = u;
+      }
+      if (!touches && std::fabs(std::fabs(turned) - 2 * PI) < 0.5) {
+        atApex = true;
+        loops.push_back({apex});
+      }
+    }
+    FaceGeom g = surfaceGeom(m.faceSurface(f), loops);
+    for (int l = m.faceFirstLoop(f), i = 0; l < m.faceFirstLoop(f) + m.faceLoopCount(f); l++, i++) {
+      bool segments = m.loopKind(l) == CBR_LOOP_EDGE && m.loopCount(l) > 0
+        && m.edgeStart(m.coedgeEdge(m.loopFirst(l))) < 0;
+      windings.push_back(g.surface && segments ? winding(g.surface, g.domain, loops[i]) : 0);
+    }
+    return g;
   }
 
   SmBSplineSurface* bsplineSurface(int s)
@@ -1341,13 +1629,17 @@ void Builder::buildSheet(const std::vector<int>& faceRows, const std::vector<dou
     FaceOut fo;
     fo.row = f;
     std::vector<double> extents;
-    fo.geom = faceGeom(f, extents);
+    std::vector<int> windings;
+    bool atApex = false;
+    V3 apex;
+    fo.geom = faceGeom(f, extents, windings, atApex, apex);
     if (!fo.geom.surface) { warn(fo.geom.error + " (faces left out)"); continue; }
     // Edge-use direction on SMLib's surface-normal side: the model's loops run counter-clockwise about the face's
     // normal, SMLib's primary side's about the surface's.
     bool keep = m.faceSameSense(f) != fo.geom.flipped;
     std::vector<std::vector<Use>> loops;
     std::vector<double> loopExtent;
+    std::vector<int> loopWinding;
     int outer = -1;
     bool bad = false;
     for (int l = m.faceFirstLoop(f); l < m.faceFirstLoop(f) + m.faceLoopCount(f); l++) {
@@ -1409,8 +1701,11 @@ void Builder::buildSheet(const std::vector<int>& faceRows, const std::vector<dou
           }
         }
       }
+      // Degenerate edges are left out (their neighbours meet at the vertex); a loop of nothing else is a vertex loop.
+      int degenerate = -1;
       for (int k = 0; m.loopKind(l) == CBR_LOOP_EDGE && k < m.loopCount(l); k++) {
         int c = m.loopFirst(l) + k, e = m.coedgeEdge(c), o = m.coedgeOrientation(c);
+        if (m.edgeDegenerate(e)) { degenerate = m.edgeStart(e); continue; }
         if (o != CBR_ORIENTATION_FORWARD && o != CBR_ORIENTATION_REVERSED) {
           warn("internal and external coedges (left out)");
           continue;
@@ -1419,24 +1714,42 @@ void Builder::buildSheet(const std::vector<int>& faceRows, const std::vector<dou
         auto seg = segments.find(e);
         uses.push_back({e, (fwd == m.edgeSameSense(e)) != (seg != segments.end() && seg->second.against)});
       }
+      if (uses.empty() && degenerate >= 0) { fo.vertexLoops.push_back(degenerate); continue; }
+      // A loop of segments runs whichever way its file has it: turned below, once the outer loop is known, by its
+      // winding where that can be told.
+      int w = windings[l - m.faceFirstLoop(f)];
       bool dir = m.loopSense(l) == keep;
-      if (!dir) {
+      if (!dir && w == 0) {
         std::reverse(uses.begin(), uses.end());
         for (auto& u : uses) u.along = !u.along;
       }
       if (m.loopBound(l) == CBR_BOUND_OUTER && outer < 0) outer = (int)loops.size();
+      loopWinding.push_back(w);
       loopExtent.push_back(extents[l - m.faceFirstLoop(f)]);
       loops.push_back(uses);
     }
     if (bad || loops.empty()) {
-      if (!bad) warn("faces with only vertex loops (left out)");
       delete fo.geom.surface;
+      // Only vertex loops: the whole of a closed surface (a ball, a ring), the vertex a point on it.
+      int sk = m.surfaceKind(m.faceSurface(f));
+      if (!bad && (sk == CBR_SURFACE_SPHERE || sk == CBR_SURFACE_TORUS)) buildNatural(m.faceSurface(f), f, transform);
+      else if (!bad) warn("faces with only vertex loops on surfaces that aren't closed (left out)");
       continue;
+    }
+    if (atApex) {
+      fo.vertexLoops.push_back(-2 - (int)synth.size());
+      synth.push_back(apex);
     }
     // The outer loop first (SMLib takes the first as outer): the marked one, unless another reaches farther (files
     // mark holes outer; a face with none marked takes the farthest-reaching).
     int widest = (int)(std::max_element(loopExtent.begin(), loopExtent.end()) - loopExtent.begin());
     if (outer < 0 || loopExtent[outer] < loopExtent[widest] * (1 - 1e-9)) outer = widest;
+    // SMLib's outer loop runs counter-clockwise about its surface's normal, the others clockwise.
+    for (size_t i = 0; i < loops.size(); i++) {
+      if (loopWinding[i] == 0 || (loopWinding[i] > 0) == ((int)i == outer)) continue;
+      std::reverse(loops[i].begin(), loops[i].end());
+      for (auto& u : loops[i]) u.along = !u.along;
+    }
     if (outer > 0) std::swap(loops[0], loops[outer]);
     fo.loops = loops;
     fs.push_back(std::move(fo));
@@ -1569,7 +1882,7 @@ void Builder::buildSheet(const std::vector<int>& faceRows, const std::vector<dou
         d.m_lEUType = 0;
         d.m_lEdge = (ULONG)edgeRow[u.edge];
         d.m_lLoop = li;
-        d.m_bOrientation = u.along ? TRUE : FALSE;
+        d.m_bOrientation = u.along != geoms[edgeRow[u.edge]].swapped ? TRUE : FALSE;
         d.m_lUVCurve = SM_NO_OBJECT;
         d.m_lFlags = d.m_lUserIndex1 = d.m_lUserIndex2 = 0;
         d.m_lMateFlags = d.m_lMateUserIndex1 = d.m_lMateUserIndex2 = 0;
@@ -1606,6 +1919,7 @@ void Builder::buildSheet(const std::vector<int>& faceRows, const std::vector<dou
     }
     int e = edges[k], s, t;
     ends(e, s, t);
+    if (geoms[k].swapped) std::swap(s, t);
     SmEdgeData& ed = edgeData[(ULONG)k];
     ed.ReSet();
     ed.m_sZoneTol3d = zoneTol;
@@ -1653,6 +1967,7 @@ void Builder::buildSheet(const std::vector<int>& faceRows, const std::vector<dou
   built.transform = transform;
   std::unordered_map<int, const FaceOut*> byRow;
   for (auto& fo : kept) byRow[fo.row] = &fo;
+  for (auto& fo : kept) built.rows.push_back(fo.row);
   SmTArray<SmFace*> smFaces;
   brep->GetFaces(smFaces);
   for (ULONG i = 0; i < smFaces.GetSize(); i++)
@@ -1698,6 +2013,7 @@ void Builder::buildNatural(int surface, int face, const std::vector<double>& tra
   BuiltBrep built;
   built.brep = brep;
   built.transform = transform;
+  if (face >= 0) built.rows.push_back(face);
   // A loose surface faces along its own normal.
   if (g.flipped == (face < 0 || m.faceSameSense(face))) built.reverse.insert(f);
   out.breps.push_back(std::move(built));
@@ -1794,12 +2110,12 @@ static bool openPart(const uint8_t* buf, size_t len, Model& m, BuiltPart& out, d
 }
 
 void buildFaces(const uint8_t* buf, size_t len, const std::vector<int>& faces, const std::vector<double>& transform,
-  BuiltPart& out)
+  const BuildOptions& options, BuiltPart& out)
 {
   Model m;
   double tol;
   if (!openPart(buf, len, m, out, tol)) return;
-  BuildOptions opt;
+  BuildOptions opt = options;
   opt.heal = false;
   Builder(m, *SmApiGetOrCreateContext(), tol, opt, out).buildEach(faces, transform);
 }
