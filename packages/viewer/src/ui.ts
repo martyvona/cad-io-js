@@ -244,8 +244,9 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   let exportControl: { enable(on?: boolean): unknown; disable(): unknown } | undefined;
   let screenshotControl: { enable(on?: boolean): unknown; disable(): unknown } | undefined;
   /**
-   * The model loaded and meshed again, the view kept (Mesh again); `as` the settings to mesh with instead of the
-   * controls' (a model lost with the import worker, made again as it was: the controls back after).
+   * The model meshed again, the view kept (Mesh again): from the import worker's models in place, or by loading the
+   * file again where the worker hasn't them; `as` the settings to mesh with instead of the controls' (a model lost
+   * with the import worker, made again as it was: the controls back after).
    */
   const meshAgain = (as?: Partial<TessellationSettings>) => {
     if (!last) return;
@@ -410,10 +411,20 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
         return { cancelled: true };
       }
       const t = performance.now();
-      const gen = viewer.nextLoad();
+      let gen = viewer.nextLoad();
       last = src;
       if (!keep) restore = undefined;
-      await viewer.load(src, { keep });
+      // Mesh again: the import worker's scene meshed again in place where it can, else the file loaded again.
+      let inPlace = false;
+      if (keep) {
+        try {
+          inPlace = await viewer.meshAgain();
+        } catch (e) {
+          console.warn('meshing again from the models failed; loading the file again:', e);
+          gen = viewer.nextLoad();
+        }
+      }
+      if (!inPlace) await viewer.load(src, { keep });
       if (!viewer.latest(gen)) return { superseded: true };
       restoreNodes();
       panel?.refresh();

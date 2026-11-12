@@ -71,6 +71,15 @@ test('step ids: assemblies (occurrence, then component), parts (representation),
   const faces = nodesWithIds(model, new Set([7]));
   assert.ok(faces.length > 0 && faces.every((id) => model.nodes[id]!.kind === 'face'));
   assert.deepEqual(stepIdsOf(model, faces), [7]);
+  // Meshed again without face 7: its nodes dead, found by nothing (before the parts' detail is made again, and
+  // after).
+  const without7 = plate();
+  without7.faces = without7.faces.filter((f) => f.source !== 7);
+  graph.addMesh(0, without7);
+  for (const p of plates) model.invalidate(model.nodes[p]!.object!);
+  assert.deepEqual(nodesWithIds(model, new Set([7])), []);
+  for (const p of plates) model.children(p);
+  assert.deepEqual(nodesWithIds(model, new Set([7])), []);
   // The details' line.
   assert.ok(details(model, [asm, plates[0]!]).includes('STEP IDs: #50 #51 #70'));
   assert.ok(!details(model, byName('wire')).some((l) => l.startsWith('STEP IDs')));

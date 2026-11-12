@@ -46,6 +46,11 @@ export interface ViewNode {
   detailOverrides?: Map<string, AppearanceOverride>;
   /** Undefined until first asked for (a part's detail). */
   children?: number[];
+  /**
+   * A detail node of a part's mesh before it changed, until its part's detail is made again, and then for good if the
+   * new mesh has no counterpart (no face with its source id, no such lines): in no part's children, found by nothing.
+   */
+  dead?: true;
 }
 
 /**
@@ -153,18 +158,35 @@ export class NodeModel {
     const p = this.nodes[id]!;
     const o = p.object!;
     const out: number[] = [];
+    // The ids of the detail it had (invalidate), by segment's base, for nodes with the same base: used again in order.
+    const stale = this.stale.get(id) ?? [];
+    this.stale.delete(id);
+    const base = (n: Omit<ViewNode, 'id'>) => (n.face ? `face#${n.face.source}` : n.kind);
+    const free = new Map<string, number[]>();
+    for (const k of stale) {
+      const n = this.nodes[k]!;
+      free.set(base(n), [...free.get(base(n)) ?? [], k]);
+    }
+    const add = (n: Omit<ViewNode, 'id'>) => {
+      const k = free.get(base(n))?.shift();
+      if (k === undefined) return this.add(n);
+      this.nodes[k] = { id: k, ...n };
+      if (n.object) this.byObject.set(n.object, k);
+      return k;
+    };
     // The placement's mesh object, with its faces in userData and its lines as children.
     for (const m of o.children) {
       const faces = (m.userData.faces as number[] | undefined) ?? [];
       const failed = new Set((m.userData.failedFaces as number[] | undefined) ?? []);
       const partly = new Set((m.userData.partlyFailedFaces as number[] | undefined) ?? []);
       const partIndex = o.userData.part as number;
-      for (const source of faces) out.push(this.add({ kind: 'face', name: `face #${source}`, parent: id,
+      for (const source of faces) out.push(add({ kind: 'face', name: `face #${source}`, parent: id,
         face: { part: partIndex, source }, ...(failed.has(source) ? { failure: 'failed' as const }
           : partly.has(source) ? { failure: 'partly' as const } : {}) }));
-      for (const c of m.children) if (LINES.includes(c.name)) out.push(this.add(
+      for (const c of m.children) if (LINES.includes(c.name)) out.push(add(
         { kind: c.name as Kind, name: c.name, parent: id, object: c }));
     }
+    // (Those with no counterpart now stay dead.)
     return out;
   }
 
@@ -194,13 +216,32 @@ export class NodeModel {
     return n.object!.children.length > 0;
   }
 
-  /** A part's detail is stale (its mesh arrived): built again when next asked for, its look applied again. */
+  /**
+   * A part's detail is stale (its mesh arrived): built again when next asked for, its look applied again. The new
+   * detail nodes take the old ones' ids by segment (the same face, the same lines), so a selection or a row of the
+   * tree holding one still means it; the old ones left over are dead.
+   */
   invalidate(object: THREE.Object3D): void {
     const id = this.byObject.get(object);
     if (id === undefined || this.nodes[id]!.kind !== 'part') return;
+    const old = this.nodes[id]!.children;
+    if (old) {
+      // (Dead until made again: found by nothing meanwhile.)
+      this.stale.set(id, [...this.stale.get(id) ?? [], ...old]);
+      for (const k of old) {
+        const n = this.nodes[k]!;
+        if (n.object) this.byObject.delete(n.object);
+        this.nodes[k] = { id: k, kind: n.kind, name: n.name, parent: n.parent, ...(n.face ? { face: n.face } : {}),
+          dead: true };
+        this.segments.delete(k);
+      }
+    }
     delete this.nodes[id]!.children;
     this.applyPart(id);
   }
+
+  /** A part's detail nodes from before its mesh changed, by part: their ids to use again (detailOf). */
+  private readonly stale = new Map<number, number[]>();
 
   private readonly segments = new Map<number, string>();
 

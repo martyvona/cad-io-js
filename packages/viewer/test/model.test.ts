@@ -59,6 +59,47 @@ test("STEP detail: a part's faces (once each), its edges, its curves and points;
     assert.deepEqual(names(model, model.children(platePart!)).filter((n) => n.startsWith('face')), ['face:face #8']);
   });
 
+test("detail made again for a new mesh (Mesh again): each node keeps its id by segment, the rest dead and found by "
+  + 'nothing', () => {
+  const { graph, model } = stepModel();
+  model.setDetail(true);
+  const platePart = model.children(model.children(model.roots[0]!)[0]!)[0]!;
+  const again = (faces: { source: number; start: number; count: number }[], edges = true) => {
+    const mesh = plate();
+    mesh.faces = faces;
+    if (!edges) delete mesh.edgePositions;
+    graph.addMesh(0, mesh);
+    for (const p of graph.placements.get(0)!) model.invalidate(p.group);
+  };
+  again([{ source: 8, start: 0, count: 3 }, { source: 7, start: 3, count: 3 }]);
+  const first = model.children(platePart);
+  const id = (name: string, ids = model.children(platePart)) => ids.find((k) => model.nodes[k]!.name === name);
+  const [f8, f7, edges] = [id('face #8')!, id('face #7')!, id('edges')!];
+  const path7 = model.pathOf(f7);
+  // Face 7 gone, face 9 new, the edges kept: 8 and the edges keep their ids, 9 a new one, 7's dead.
+  again([{ source: 8, start: 0, count: 3 }, { source: 9, start: 3, count: 3 }]);
+  const second = model.children(platePart);
+  assert.deepEqual(names(model, second), ['face:face #8', 'face:face #9', 'edges:edges']);
+  assert.equal(id('face #8', second), f8);
+  assert.equal(id('edges', second), edges);
+  assert.ok(!first.includes(id('face #9', second)!));
+  assert.equal(model.nodes[f7]!.dead, true);
+  assert.equal(model.find(path7), undefined);
+  assert.equal(model.nodes.filter((n) => !n.dead && n.parent === platePart).length, 3);
+  // The edges' node is the new line object's (hiding it hides that one), found from it (picking).
+  const lines = graph.placements.get(0)![0]!.group.children[0]!.children.find((c) => c.name === 'edges')!;
+  assert.equal(model.nodes[edges]!.object, lines);
+  assert.equal(model.nodeOf(lines), edges);
+  // Before its detail is made again, the old detail is dead already; face 7 back: a new id, the dead one left so.
+  for (const p of graph.placements.get(0)!) model.invalidate(p.group);
+  assert.ok(second.every((k) => model.nodes[k]!.dead));
+  again([{ source: 7, start: 0, count: 3 }, { source: 8, start: 3, count: 3 }]);
+  const third = model.children(platePart);
+  assert.equal(id('face #8', third), f8);
+  assert.notEqual(id('face #7', third), f7);
+  assert.equal(model.nodes[f7]!.dead, true);
+});
+
 /** A placement's mesh's faces drawn: [source, visible, opacity] in face order. */
 const drawn = (m: THREE.Mesh) => (m.userData.faceRanges as { source: number; start: number }[]).map((r) => {
   const g = m.geometry.groups.find((gr) => gr.start <= r.start && r.start < gr.start + gr.count)!;

@@ -62,5 +62,5 @@ export function partsWithFaces(model: NodeModel, ids: ReadonlySet<number>): numb
 
 /** The nodes made so far with any of the ids. */
 export function nodesWithIds(model: NodeModel, ids: ReadonlySet<number>): number[] {
-  return model.nodes.filter((n) => nodeStepIds(model, n.id).some((i) => ids.has(i))).map((n) => n.id);
+  return model.nodes.filter((n) => !n.dead && nodeStepIds(model, n.id).some((i) => ids.has(i))).map((n) => n.id);
 }

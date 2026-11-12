@@ -5,7 +5,8 @@ import { test } from 'node:test';
 import v8 from 'node:v8';
 import vm from 'node:vm';
 import type { Mesh, Scene, TessellationRequest, TessellationResult, Tessellator } from 'cad-scene';
-import { edgesOf, importModel, levelBuffers, loadModelIn, meshable, meshBuffers, needsEdges, placedScales, postable,
+import { edgesOf, importModel, levelBuffers, loadModelIn, meshable, meshBuffers, meshModelIn, needsEdges, placedScales,
+  postable,
   type ModelEvent, type ModelInput } from '../src/model-load.ts';
 import { exportView, leafParts, pruneView, viewDifferences } from 'cad-scene';
 import { threemf } from 'export-3mf';
@@ -118,8 +119,9 @@ test('loadModelIn: the scene (postable), a mesh per placed brep part, then the e
         transfers.push(t ?? []);
       }
     }, () => false);
-    // The import's phases first, each once (a small file: within PROGRESS_MS), before the scene.
-    assert.deepEqual(told, ['reading', 'structure', 'parts', 'assembly']);
+    // The import's phases first, in order, before the scene (each told as it begins, and again only after
+    // PROGRESS_MS within it: how often depends on the machine's speed).
+    assert.deepEqual([...new Set(told)], ['reading', 'structure', 'parts', 'assembly']);
     assert.deepEqual(events.map((e) => e.type), ['scene', ...requests.map(() => 'mesh'), 'done']);
     assert.equal(requests.length, 5);
     const scene = (events[0] as { scene: Scene }).scene;
@@ -290,7 +292,8 @@ test('edgesOf: on 1 um in the world, whatever the mesh\'s unit; placedScales fro
   assert.ok(Math.abs(placedScales(fixture()).get(0)! - 25.4) < 1e-9);
 });
 
-test('loadModelIn: keep has the scene, its meshes as its parts\' levels once meshed (to export)', { skip }, async () => {
+test('loadModelIn: keep has the scene, its meshes as its parts\' levels once meshed (to export)', { skip },
+  async () => {
   const { tessellation } = fake();
   let kept: Scene | undefined;
   await loadModelIn({ input: stepInput() }, DEFAULT_SETTINGS, 2, tessellation, () => {}, () => false, {},
@@ -298,4 +301,32 @@ test('loadModelIn: keep has the scene, its meshes as its parts\' levels once mes
   assert.ok(kept);
   const meshed = kept!.parts.filter((p) => p.brep && p.lods.some((l) => l.from === 'tessellated'));
   assert.equal(meshed.length, kept!.parts.filter((p) => p.brep).length);
+});
+
+test('meshModelIn: the scene kept by a load meshed again (Mesh again): a mesh per placed brep part and the end, '
+  + 'no scene or import', { skip }, async () => {
+  let kept: Scene | undefined;
+  await loadModelIn({ input: stepInput() }, DEFAULT_SETTINGS, 3, fake().tessellation, () => {}, () => false, {},
+    (scene) => { kept = scene; });
+  const { requests, tessellation } = fake();
+  const events: ModelEvent[] = [];
+  const settings = { ...DEFAULT_SETTINGS, profile: 'custom' as const, angularDeflection: 10 };
+  await meshModelIn(kept!, settings, 3, tessellation, (e) => events.push(e), () => false);
+  assert.deepEqual(events.map((e) => e.type), [...requests.map(() => 'mesh'), 'done']);
+  assert.equal(requests.length, 5);
+  assert.equal(requests[0]!.angularDeflection, 10 * Math.PI / 180);
+  // Each part's levels: the first meshing's and this one's.
+  assert.ok(meshable(kept!).every((i) => kept!.parts[i]!.lods.filter((l) => l.from === 'tessellated').length === 2));
+  // The end only after `before` (a load's edges found for its file levels): here done 50 ms after the last mesh.
+  let release!: () => void;
+  const order: string[] = [];
+  await meshModelIn(kept!, settings, 3, fake().tessellation, (e) => {
+    order.push(e.type);
+    if (order.filter((t) => t === 'mesh').length === 5 && e.type === 'mesh') setTimeout(release, 50);
+  }, () => false, new Promise<void>((r) => { release = () => { order.push('before'); r(); }; }));
+  assert.deepEqual(order.slice(-2), ['before', 'done']);
+  // Cancelled at once: nothing.
+  const none: ModelEvent[] = [];
+  await meshModelIn(kept!, settings, 3, fake().tessellation, (e) => none.push(e), () => true);
+  assert.deepEqual(none, []);
 });

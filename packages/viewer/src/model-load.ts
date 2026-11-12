@@ -178,12 +178,24 @@ export async function loadModelIn(source: ModelSource, settings: TessellationSet
       emit({ type: 'edges', part, positions }, [positions.buffer as ArrayBuffer]);
     }
   })();
+  await meshModelIn(scene, settings, workers, tessellation, emit, cancelled, edges);
+}
+
+/**
+ * Meshes a scene's placed brep parts (a load's, or the last load's again: Mesh again), telling `emit` each part's mesh
+ * as it comes, then the end; stops early, quietly, once `cancelled` says so. `before` is waited for before the end
+ * (the load's edges found for its file levels).
+ */
+export async function meshModelIn(scene: Scene, settings: TessellationSettings, workers: number,
+  tessellation: Pick<Tessellation, 'get' | 'describe'>, emit: (e: ModelEvent, transfer?: ArrayBuffer[]) => void,
+  cancelled: () => boolean, before: Promise<unknown> = Promise.resolve()): Promise<void> {
   const brep = meshable(scene);
   if (!brep.length) {
-    await edges;
+    await before;
     if (!cancelled()) emit({ type: 'done', diagnostics: [] });
     return;
   }
+  const scales = placedScales(scene);
   const { tess, workers: n } = await tessellation.get(settings, workers);
   if (cancelled()) return;
   // Faces that fail to mesh, and parts that do (errors, timeouts), outlined from the file (cad-scene's `outlines`).
@@ -197,7 +209,7 @@ export async function loadModelIn(source: ModelSource, settings: TessellationSet
       emit({ type: 'mesh', part, mesh, ...(measures ? { measures } : {}), ...(found ? { foundEdges: found } : {}) },
         [...meshBuffers(mesh), ...(found ? [found.buffer as ArrayBuffer] : [])]);
     } });
-  await edges;
+  await before;
   if (cancelled()) return;
   const d = tessellation.describe();
   emit({ type: 'done', diagnostics, ...(d ? { meshing: { ...d, workers: n } } : {}),
