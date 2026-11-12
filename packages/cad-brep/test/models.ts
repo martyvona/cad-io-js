@@ -295,10 +295,12 @@ export function cone(): BrepBuilder {
   const eBase = b.addEdge({ curve: base, start: vb, end: vb, sameSense: true });
   const eSeam = b.addEdge({ curve: seam, start: va, end: vb, sameSense: true });
   const eApex = b.addEdge({ start: va, end: va, sameSense: true, degenerate: true, tolerance: 1e-7 });
+  // (Counter-clockwise in (u, v), as an outer bound runs: the apex along v = -1, the seam up, the base back, the seam
+  // down.)
   const face = b.addFace({ surface, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [
-    { edge: eBase, orientation: 'forward' }, { edge: eSeam, orientation: 'reversed' },
-    { edge: eApex, orientation: 'forward', pcurve: pApex, range: [2 * Math.PI, 0] },
-    { edge: eSeam, orientation: 'forward' }] }] });
+    { edge: eApex, orientation: 'forward', pcurve: pApex, range: [0, 2 * Math.PI] },
+    { edge: eSeam, orientation: 'forward' }, { edge: eBase, orientation: 'reversed' },
+    { edge: eSeam, orientation: 'reversed' }] }] });
   const shell = b.addShell({ kind: 'open', faces: [{ face, sense: true }] });
   b.addItem({ kind: 'body', ref: b.addBody({ kind: 'sheet', members: [{ ref: shell, sense: true }] }) });
   b.addItem({ kind: 'surface', ref: b.addSurface({ kind: 'torus', position, majorRadius: 1, minorRadius: 3,

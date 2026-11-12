@@ -195,6 +195,8 @@ export class Viewer {
   /** Counts loads, so a superseded one's late results are dropped. */
   private generation = 0;
   private meshing = false;
+  /** The load whose scene is shown whole (every part added): what Mesh again meshes in place. */
+  private shown = 0;
   /** Whether a model is loading or being meshed (Export waits for it). */
   get loading(): boolean {
     return this.meshing;
@@ -759,8 +761,11 @@ export class Viewer {
     this.onModel?.(this.nodes);
   }
 
-  /** A load's events, from the import worker; they end with 'done', an error, or a newer load (`abortLoad`). */
-  private events(input: ModelInput, gen: number): AsyncIterable<ModelEvent> {
+  /**
+   * A load's (or a mesh again's) events, from the import worker; they end with 'done', an error, or a newer load
+   * (`abortLoad`).
+   */
+  private events(gen: number, msg: ToImportWorker, transfer: Transferable[] = []): AsyncIterable<ModelEvent> {
     const queue: ModelEvent[] = [];
     let wake: (() => void) | undefined;
     let error: Error | undefined;
@@ -768,10 +773,7 @@ export class Viewer {
     const fail = (e: Error) => { error = e; wake?.(); };
     this.abortLoad = () => wake?.();
     this.importListeners.set(gen, (m) => (m.type === 'error' ? fail(new Error(m.message)) : push(m)));
-    const msg: ToImportWorker = { type: 'load', load: gen, input, settings: { ...this.settings },
-      workers: workerCount(this.device) };
-    this.importer().postMessage(msg, [input.bytes.buffer as ArrayBuffer,
-      ...Object.values(input.resources ?? {}).map((r) => r.buffer as ArrayBuffer)]);
+    this.importer().postMessage(msg, transfer);
     const listeners = this.importListeners;
     const latest = () => gen === this.generation;
     return { async *[Symbol.asyncIterator]() {
@@ -949,15 +951,7 @@ export class Viewer {
       this.fatEdges.invalidate();
       this.onMeshes?.();
     };
-    const added = (part: number, mesh: Mesh) => {
-      this.grow(graph!, part, mesh);
-      for (const p of graph!.placements.get(part) ?? []) this.nodes?.invalidate(p.group);
-      this.sections.invalidate();
-      this.triangleEdges.invalidate();
-      this.fatEdges.invalidate();
-      this.transparencyStale = true;
-      this.onMeshes?.();
-    };
+    const added = (part: number, mesh: Mesh) => this.partChanged(graph!, part, mesh);
     // What the load is doing, always: meshing, finding edges, or read.
     const edges = { total: 0, done: 0 };
     const progress = () => {
@@ -971,7 +965,10 @@ export class Viewer {
     let ended: Extract<ModelEvent, { type: 'done' }> | undefined;
     this.meshing = true;
     try {
-      for await (const ev of this.events(input, gen)) {
+      const msg: ToImportWorker = { type: 'load', load: gen, input, settings: { ...this.settings },
+        workers: workerCount(this.device) };
+      for await (const ev of this.events(gen, msg, [input.bytes.buffer as ArrayBuffer,
+        ...Object.values(input.resources ?? {}).map((r) => r.buffer as ArrayBuffer)])) {
         if (gen !== this.generation) return;
         if (ev.type === 'importing') {
           // STEP's phases (a large file said only "importing" for seconds).
@@ -1014,6 +1011,7 @@ export class Viewer {
               slice = performance.now();
             }
           }
+          this.shown = gen;
           progress();
         } else if (ev.type === 'mesh') {
           const mesh = ev.mesh;
@@ -1050,6 +1048,94 @@ export class Viewer {
     if (gen !== this.generation || !model) return;
     this.updateBounds();
     this.fit.end(ended?.bounds);
+  }
+
+  /** A part's mesh changed (`mesh` the new one, if any): what depends on it made again. */
+  private partChanged(graph: SceneGraph, part: number, mesh?: Mesh): void {
+    if (mesh) this.grow(graph, part, mesh);
+    for (const p of graph.placements.get(part) ?? []) this.nodes?.invalidate(p.group);
+    this.sections.invalidate();
+    this.triangleEdges.invalidate();
+    this.fatEdges.invalidate();
+    this.transparencyStale = true;
+    this.onMeshes?.();
+  }
+
+  /**
+   * The model meshed again with the settings now, in place, from the import worker's scene (its B-rep models: no
+   * import): each part keeps its mesh until its new one comes; one that fails is then shown as a load shows it (the
+   * file's own level, else its faces' outlines, else nothing). The view stays. Resolves true once every part is meshed
+   * or has failed (or a newer load replaced it); false, having done nothing, where it can't (no model shown whole):
+   * load it again instead. Rejects if the worker can't (it lost the model): load it again.
+   */
+  async meshAgain(): Promise<boolean> {
+    const graph = this.graph, model = this.model;
+    if (!graph || !model || !this.worker || this.shown !== this.generation) return false;
+    const gen = ++this.generation;
+    this.shown = gen;
+    if (this.meshing) {
+      this.worker.postMessage({ type: 'cancel' } satisfies ToImportWorker);
+      this.meshing = false;
+      this.abortLoad?.();
+    }
+    const { backend, profile, linearDeflection, angularDeflection, timeout } = this.settings;
+    model.meshedWith = { backend, profile, linearDeflection, angularDeflection, timeout };
+    const wanted = meshDeflections(deflectionsOf(this.settings));
+    const brep = graph.scene.parts.flatMap((p, i) => (p.brep && graph.placements.has(i) ? [i] : []));
+    const parts = model.parts = { total: brep.length, done: 0, failed: 0 };
+    model.diagnostics = [...graph.scene.diagnostics];
+    delete model.meshing;
+    this.moved = true;
+    const status = () => this.onStatus?.(`${model.name}: meshing again: meshed ${parts.done} of ${parts.total} parts`
+      + (parts.failed ? `, ${parts.failed} failed` : ''));
+    status();
+    let ended: Extract<ModelEvent, { type: 'done' }> | undefined;
+    this.meshing = true;
+    try {
+      const msg: ToImportWorker = { type: 'remesh', load: gen, settings: { ...this.settings },
+        workers: workerCount(this.device) };
+      for await (const ev of this.events(gen, msg)) {
+        if (gen !== this.generation) return true;
+        if (ev.type === 'mesh') {
+          parts.done++;
+          const mesh = ev.mesh, part = graph.scene.parts[ev.part]!;
+          const drawn = !!mesh && mesh.indices.length + (mesh.curvePositions?.length ?? 0) +
+            (mesh.points?.length ?? 0) > 0;
+          if (ev.measures) part.measures = ev.measures;
+          if (drawn) {
+            graph.addMesh(ev.part, mesh, wanted.linearDeflection);
+            if (ev.foundEdges) graph.setFoundEdges(ev.part, ev.foundEdges);
+            this.partChanged(graph, ev.part, mesh);
+          } else {
+            // Failed: as a load shows it.
+            parts.failed++;
+            const own = chooseLod(part, wanted);
+            if (own) {
+              graph.addMesh(ev.part, own.mesh, own.linearDeflection);
+              this.partChanged(graph, ev.part, own.mesh);
+            } else if (mesh?.faceOutlines?.length) {
+              graph.addMesh(ev.part, mesh, wanted.linearDeflection);
+              this.partChanged(graph, ev.part, mesh);
+            } else {
+              graph.clearMesh(ev.part);
+              this.partChanged(graph, ev.part);
+            }
+          }
+          status();
+        } else if (ev.type === 'done') {
+          ended = ev;
+          model.diagnostics.push(...ev.diagnostics);
+          if (ev.meshing) model.meshing = ev.meshing;
+        }
+        this.redraw();
+      }
+    } finally {
+      if (gen === this.generation) this.meshing = false;
+    }
+    if (gen !== this.generation) return true;
+    this.updateBounds();
+    this.fit.end(ended?.bounds);
+    return true;
   }
 
   /** A part's new mesh grows the clipping sphere and, unless it's the file's, the model's (centres kept). */

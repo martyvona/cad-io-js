@@ -18,8 +18,9 @@
 //     used reversed; a loop's coedges are its edges oriented by the coedge, the wire reversed when the loop's sense
 //     is; a face against its surface (same_sense false) is built with its wires reversed, then reversed itself, so its
 //     outer wire runs counter-clockwise about the face's normal as Part 42 has it.
-//   - Edges, loops and p-curves as the translator makes them (edge(), edgeLoop(), vertexLoop(), polyLoop()); a
-//     degenerate edge (from formats that have them) from its vertex and its coedge's p-curve.
+//   - Edges, loops and p-curves as the translator makes them (edge(), edgeLoop(), vertexLoop(), polyLoop()); the
+//     model's degenerate edges (from formats that have them) left out, healing adding its own where a wire needs one,
+//     as it does for the same model written as STEP.
 //   - Tolerances: a vertex's the model's, else 1e-7, edges and faces 1e-7, vertices raised to their distances from
 //     their edges' curves (as the STEP translator builds); the part's uncertainty is healing's tolerance and the
 //     translator's precision (as the STEP reader's): with shapes built at it, healing splits a ring on a closed
@@ -760,20 +761,12 @@ struct Builder
     const double id = r.f64(CBR_EDGE_ID)[e];
     const std::string what = "edge #" + std::to_string((long long)id);
     BRep_Builder bb;
+    // A degenerate edge (at a pole or an apex) left out: healing makes OCCT's own where the wire needs it (one made
+    // here, given its coedge's p-curve and range, leaves BRepCheck unable to analyse the face).
     if (r.u8(CBR_EDGE_FLAGS)[e] & CBR_EDGE_DEGENERATE)
     {
-      // At a pole or an apex: its vertex at both ends, no 3D curve; its face gives its p-curve.
-      if (si < 0)
-        throw Unbuilt{"a degenerate edge without a vertex"};
-      TopoDS_Edge ed;
-      bb.MakeEdge(ed);
-      bb.Add(ed, vertices[si].Oriented(TopAbs_FORWARD));
-      bb.Add(ed, vertices[si].Oriented(TopAbs_REVERSED));
-      bb.Degenerated(ed, true);
-      edges.emplace(e, ed);
-      if (std::isfinite(id))
-        out.edgeIds.emplace(ed.TShape().get(), (int)id);
-      return ed;
+      edges.emplace(e, TopoDS_Edge());
+      return TopoDS_Edge();
     }
     if (si < 0 || ei < 0)
       throw Unbuilt{"an edge without a vertex"};
@@ -1108,31 +1101,8 @@ struct Builder
             break;
           pcs.push_back(curve2d(pc, s, si));
         }
-        // (The model's degenerate edges: BRepLib_MakeEdge marks some edges of no length so too, which, like the
-        // translator's, get their p-curves from healing.)
-        const int  edgeRow    = r.i32(CBR_COEDGE_EDGE)[coedge[js[0]]];
-        const bool degenerate = (r.u8(CBR_EDGE_FLAGS)[edgeRow] & CBR_EDGE_DEGENERATE) != 0;
-        // A degenerate edge's range on the face: the coedge's, else the p-curve's own; a range running against the
-        // p-curve (the edge from its end to its start) the p-curve reversed, as OCCT's ranges increase.
-        double da = 0, db = 0;
-        if (degenerate && !pcs.empty())
-        {
-          const double* rg = r.f64(CBR_COEDGE_RANGE) + 2 * coedge[js[0]];
-          da = std::isfinite(rg[0]) ? rg[0] : pcs[0]->FirstParameter();
-          db = std::isfinite(rg[1]) ? rg[1] : pcs[0]->LastParameter();
-          if (!std::isfinite(da) || !std::isfinite(db))
-            throw Unbuilt{"a degenerate edge without a range"};
-          if (da > db)
-          {
-            da = pcs[0]->ReversedParameter(da);
-            db = pcs[0]->ReversedParameter(db);
-            pcs[0] = pcs[0]->Reversed();
-          }
-        }
         if (pcs.size() < js.size())
         {
-          if (degenerate)
-            throw Unbuilt{"a degenerate edge without a p-curve"};
           all = false;
           continue;
         }
@@ -1145,8 +1115,6 @@ struct Builder
         }
         else
           bb.UpdateEdge(e, pcs[0], fc, 0.);
-        if (degenerate)
-          bb.Range(e, fc, da, db);
       }
     }
     else

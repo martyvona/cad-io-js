@@ -1,20 +1,23 @@
 // The import worker: models imported and meshed off the page's thread (docs/viewer.md), by loadModelIn
 // (model-load.ts), its tessellation pool's workers nested in this one. Draco's decoder (for glTF) is given its
 // WebAssembly by URL, as Vite bundles it. One load at a time; a newer one (or a cancel) stops the last's meshing (and
-// the next load starts a new pool, as after clearing the cache from the page). Messages in: load, cancel, export (the
-// last load's scene, as it was meshed: export-model.ts); out: the load's events and errors, each with the load's
-// number, and each export's files or error by its number.
+// the next load starts a new pool, as after clearing the cache from the page). Messages in: load, remesh (the last
+// load's scene meshed again with other settings, from its B-rep models: Mesh again), cancel, export (the last load's
+// scene, as it was meshed: export-model.ts); out: the load's (or remesh's) events and errors, each with its number,
+// and each export's files or error by its number.
 
 import dracoWasm from 'draco3dgltf/draco_decoder_gltf.wasm?url';
 import dracoEncoderWasm from 'draco3dgltf/draco_encoder.wasm?url';
 import { chooseLod, meshDeflections, type Mesh, type Scene } from 'cad-scene';
 import type { ExportRequest } from './export-formats.ts';
 import { exportModel, type Exported } from './export-model.ts';
-import { loadModelIn, meshBuffers, type ModelEvent, type ModelInput } from './model-load.ts';
+import { loadModelIn, meshBuffers, meshModelIn, type ModelEvent, type ModelInput } from './model-load.ts';
 import { deflectionsOf, Tessellation, type TessellationSettings } from './tessellation.ts';
 
 export type ToImportWorker =
   | { type: 'load'; load: number; input?: ModelInput; settings: TessellationSettings; workers: number }
+  /** The last load's scene meshed again (its mesh events and end under `load`); an error if there's none. */
+  | { type: 'remesh'; load: number; settings: TessellationSettings; workers: number }
   | { type: 'cancel' }
   /** The page's meshes lent, by part (Viewer.exportModel): the worker's own were handed to the page. */
   | { type: 'export'; id: number; request: ExportRequest; meshes: [number, Mesh][] };
@@ -80,6 +83,19 @@ scope.onmessage = async (e) => {
   }
   const load = msg.load;
   current = load;
+  if (msg.type === 'remesh') {
+    try {
+      if (!last) throw new Error('no model to mesh again');
+      // (The settings it's now meshed with, for exports.)
+      last.settings = msg.settings;
+      await meshModelIn(last.scene, msg.settings, msg.workers, tessellation, (ev, transfer) => {
+        if (load === current) scope.postMessage({ ...ev, load }, transfer ?? []);
+      }, () => load !== current);
+    } catch (err) {
+      if (load === current) scope.postMessage({ type: 'error', message: (err as Error).message ?? String(err), load });
+    }
+    return;
+  }
   last = undefined;
   try {
     // (The message as the source: its input taken by the import, so the file goes once imported.)

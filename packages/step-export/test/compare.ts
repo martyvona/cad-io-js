@@ -7,8 +7,9 @@ import { type BrepData, decode, rowCount } from 'cad-brep';
 /**
  * A model as a walk from its items: each row written out where first reached, later uses as its kind and order of
  * reaching; so two models equal up to row order walk the same. Rows no item reaches aren't in it. Left out: what STEP
- * can't hold (tolerances, parameter ranges, degenerate flags, instances), and items' ids but points' (STEP's item is
- * the body, curve, surface or face itself).
+ * can't hold (tolerances, parameter ranges, degenerate edges, instances), and items' ids but points' (STEP's item is
+ * the body, curve, surface or face itself). Degenerate edges are left out of their loops, as the writer leaves them,
+ * a loop of nothing else a vertex loop at the edge's vertex.
  */
 export function walk(d: BrepData): unknown[] {
   const seen = new Map<string, number>();
@@ -47,10 +48,20 @@ export function walk(d: BrepData): unknown[] {
   });
   const face = (k: number) => visit('face', k, () => {
     const f = decode.face(d, k);
-    return strip({ ...f, surface: surface(f.surface), loops: f.loops.map((l) => l.kind === 'edge'
-      ? { ...l, coedges: l.coedges.map((c) => strip({ ...c, edge: edge(c.edge),
-        pcurve: c.pcurve === undefined ? undefined : curve(c.pcurve) })) }
-      : l.kind === 'vertex' ? { ...l, vertex: vertex(l.vertex) } : { ...l, vertices: l.vertices.map(vertex) }) });
+    const degenerate = (e: number) => decode.edge(d, e).degenerate === true;
+    return strip({ ...f, surface: surface(f.surface), loops: f.loops.map((l) => {
+      if (l.kind === 'edge') {
+        const kept = l.coedges.filter((c) => !degenerate(c.edge));
+        const start = l.coedges.length ? decode.edge(d, l.coedges[0]!.edge).start : undefined;
+        if (!kept.length && start !== undefined) {
+          const { coedges: _c, ...rest } = l;
+          return { ...rest, kind: 'vertex', vertex: vertex(start) };
+        }
+        return { ...l, coedges: kept.map((c) => strip({ ...c, edge: edge(c.edge),
+          pcurve: c.pcurve === undefined ? undefined : curve(c.pcurve) })) };
+      }
+      return l.kind === 'vertex' ? { ...l, vertex: vertex(l.vertex) } : { ...l, vertices: l.vertices.map(vertex) };
+    }) });
   });
   const shell = (k: number) => visit('shell', k, () => {
     const s = decode.shell(d, k);

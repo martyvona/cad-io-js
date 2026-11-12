@@ -309,6 +309,11 @@ export class SceneGraph implements Looks {
   }
 
   /** Takes a part's mesh away from its placements, its geometries disposed. */
+  /** A part drawn with nothing (a part meshed again that failed, with nothing else to show). */
+  clearMesh(part: number): void {
+    this.removeMesh(part);
+  }
+
   private removeMesh(part: number): void {
     const made = this.made.get(part);
     if (!made) return;

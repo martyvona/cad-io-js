@@ -1189,64 +1189,88 @@ await check('dialog drag', async () => {
   expect(by(t.aboutBefore, t.aboutMoved, 40, 20), `About dragged: ${j}`);
   return undefined;
 });
+// The page's clock stood in for (performance.now, which flights and frames read), each step drawing a frame at a
+// known time: under load, frames come late, and a check by the real clock reads the camera before it moves.
 await check('camera flights', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
     const v = globalThis.viewer;
-    v.flightMs = 1000;
-    const st = () => v.cameraState();
-    const far = { position: [5000, -4000, 3000], target: [400, 300, 200], up: [0, 0, 1], height: 40 };
-    // Where zoom all goes, at once.
-    v.setCamera(far);
-    v.flightMs = 0;
-    v.zoomAll();
-    const goal = st();
-    v.flightMs = 1000;
-    v.setCamera(far);
-    const t0 = performance.now();
-    v.zoomAll();
-    const right = st();
-    const samples = [];
-    const timer = setInterval(() => samples.push([performance.now() - t0, st().height]), 20);
-    await cadViewer.idle();
-    const took = performance.now() - t0;
-    clearInterval(timer);
-    const end = st();
-    // A view: turned about the target, from the same distance and height.
-    const before = st();
-    v.setView('top');
-    await cadViewer.idle();
-    const top = st();
-    // Stopped by the user's input partway.
-    v.setView('front');
-    await new Promise((r) => setTimeout(r, 400));
-    v.controls.dispatchEvent({ type: 'start' });
-    v.controls.dispatchEvent({ type: 'end' });
-    const stopped = st();
-    await new Promise((r) => setTimeout(r, 900));
-    const later = st();
-    // Zoom selected flies too: not there at once.
-    v.setCamera(far);
-    ui.select([ui.panel().model.nodes.find((n) => n.kind === 'part').id]);
-    ui.zoomSelected();
-    const selectedAtOnce = st();
-    await cadViewer.idle();
-    const selectedEnd = st();
-    // A link's view (a state applied) at once; an exact camera set mid-flight ends the flight there.
-    cadViewer.apply({ view: 'left' });
-    const left = st();
-    v.zoomAll();
-    v.setCamera(far);
-    await new Promise((r) => setTimeout(r, 300));
-    const set = st();
-    // A flight of the zoom alone (the camera already where zoom all puts it, only the height off): it goes on.
-    v.setCamera({ ...goal, height: goal.height * 10 });
-    v.zoomAll();
-    await new Promise((r) => setTimeout(r, 500));
-    const zoomHalf = st();
-    await cadViewer.idle();
-    const zoomEnd = st();
-    return { zoomHalf, zoomEnd, far, goal, right, samples, took, end, before, top, stopped, later, selectedAtOnce,
-      selectedEnd, left, set };
+    const real = performance.now;
+    let now = real.call(performance);
+    performance.now = () => now;
+    // The clock moved on (by more than a frame's interval), and the frame then due drawn.
+    const step = async (ms) => {
+      now += ms;
+      const f = v.frames.frames;
+      while (v.frames.scheduled && v.frames.frames === f) await new Promise((r) => requestAnimationFrame(r));
+    };
+    // Steps until no flight is left and no frame is due.
+    const land = async () => { for (let i = 0; i < 1000 && (v.flight || v.frames.scheduled); i++) await step(40); };
+    try {
+      v.flightMs = 1000;
+      const st = () => v.cameraState();
+      const far = { position: [5000, -4000, 3000], target: [400, 300, 200], up: [0, 0, 1], height: 40 };
+      // Where zoom all goes, at once.
+      v.setCamera(far);
+      v.flightMs = 0;
+      v.zoomAll();
+      await land();
+      const goal = st();
+      v.flightMs = 1000;
+      v.setCamera(far);
+      await land();
+      const t0 = now;
+      v.zoomAll();
+      const right = st();
+      const samples = [];
+      while (v.flight && now - t0 < 5000) {
+        await step(40);
+        samples.push([now - t0, st().height]);
+      }
+      const took = now - t0;
+      await land();
+      const end = st();
+      // A view: turned about the target, from the same distance and height.
+      const before = st();
+      v.setView('top');
+      await land();
+      const top = st();
+      // Stopped by the user's input partway.
+      v.setView('front');
+      await step(400);
+      v.controls.dispatchEvent({ type: 'start' });
+      v.controls.dispatchEvent({ type: 'end' });
+      const stopped = st();
+      await step(900);
+      await land();
+      const later = st();
+      // Zoom selected flies too: not there at once.
+      v.setCamera(far);
+      await land();
+      ui.select([ui.panel().model.nodes.find((n) => n.kind === 'part').id]);
+      ui.zoomSelected();
+      const selectedAtOnce = st();
+      await land();
+      const selectedEnd = st();
+      // A link's view (a state applied) at once; an exact camera set mid-flight ends the flight there.
+      cadViewer.apply({ view: 'left' });
+      const left = st();
+      v.zoomAll();
+      v.setCamera(far);
+      await step(300);
+      await land();
+      const set = st();
+      // A flight of the zoom alone (the camera already where zoom all puts it, only the height off): it goes on.
+      v.setCamera({ ...goal, height: goal.height * 10 });
+      v.zoomAll();
+      await step(500);
+      const zoomHalf = st();
+      await land();
+      const zoomEnd = st();
+      return { zoomHalf, zoomEnd, far, goal, right, samples, took, end, before, top, stopped, later, selectedAtOnce,
+        selectedEnd, left, set };
+    } finally {
+      performance.now = real;
+    }
   })()`) as { after?: Record<string, unknown> };
   type S = { position: number[]; target: number[]; up: number[]; height: number };
   const a = r.after as { far: S; goal: S; right: S; samples: [number, number][]; took: number; end: S; before: S;
@@ -1258,13 +1282,13 @@ await check('camera flights', async () => {
   // Not there at once; there at the end (as zoom all at once puts it), after about a second.
   expect(same(a.right, a.far), `jumped at once: ${j}`);
   expect(same(a.end, a.goal), `not where zoom all goes: ${j}`);
-  expect(a.took > 900 && a.took < 1600, `the flight took ${a.took} ms`);
-  // On the way: the height from the start's to the goal's, by ratio, eased (slow at the ends, half at half time).
+  expect(a.took === 1000, `the flight took ${a.took} ms`);
+  // On the way: the height from the start's to the goal's, by ratio, eased by smoothstep (slow at the ends, half at
+  // half time), written out here.
   const frac = ([, h]: [number, number]) => Math.log(h / a.far.height) / Math.log(a.goal.height / a.far.height);
-  const mid = a.samples.filter(([t]) => t > 400 && t < 600).map(frac);
-  const early = a.samples.filter(([t]) => t > 50 && t < 150).map(frac);
-  expect(mid.length > 0 && mid.every((f) => f > 0.25 && f < 0.75), `halfway: ${JSON.stringify(mid)}`);
-  expect(early.length > 0 && early.every((f) => f >= 0 && f < 0.12), `eased at the start: ${JSON.stringify(early)}`);
+  const eased = (t: number) => (t / 1000) ** 2 * (3 - 2 * t / 1000);
+  const off = a.samples.filter((s) => s[0] < 1000 && Math.abs(frac(s) - eased(s[0])) > 1e-6);
+  expect(a.samples.length === 25 && !off.length, `not eased: ${JSON.stringify(off)} of ${a.samples.length}`);
   expect(a.samples.map(frac).every((f, i, fs) => i === 0 || f >= fs[i - 1]! - 1e-9), `not monotone: ${j}`);
   // The view: the target and height kept, the distance too, looking down.
   const dist = (p: S) => Math.hypot(...p.position.map((c, k) => c - p.target[k]!));
@@ -1926,9 +1950,9 @@ await check('failed faces', async () => {
     await cadViewer.ready; await cadViewer.idle();
     await viewer.clearCache();
     ui.setMeshing({ timeout: 0.001 });
-    const before = viewer.model;
+    const before = viewer.nextLoad();
     ui.gui.controllersRecursive().find((c) => c._name === 'Mesh again').$button.click();
-    for (let t = 0; t < 1200 && (viewer.model === before || !viewer.model?.meshing); t++) {
+    for (let t = 0; t < 1200 && (viewer.nextLoad() === before || !viewer.model?.meshing); t++) {
       await new Promise((r) => setTimeout(r, 100)); }
     await cadViewer.idle();
     const m = viewer.nodes, parts = m.nodes.filter((n) => n.kind === 'part');
@@ -2048,9 +2072,9 @@ await check('meshing timeout', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
     await cadViewer.ready; await cadViewer.idle();
     const again = async () => {
-      const before = viewer.model;
+      const before = viewer.nextLoad();
       ui.gui.controllersRecursive().find((c) => c._name === 'Mesh again').$button.click();
-      for (let t = 0; t < 1200 && (viewer.model === before || !viewer.model?.meshing); t++) {
+      for (let t = 0; t < 1200 && (viewer.nextLoad() === before || !viewer.model?.meshing); t++) {
         await new Promise((r) => setTimeout(r, 100));
       }
       await cadViewer.idle();
@@ -2091,9 +2115,9 @@ await check('tessellated STEP', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/cube-tess.stp')}&check`, `(async () => {
     await cadViewer.ready; await cadViewer.idle();
     const again = async () => {
-      const before = viewer.model;
+      const before = viewer.nextLoad();
       ui.gui.controllersRecursive().find((c) => c._name === 'Mesh again').$button.click();
-      for (let t = 0; t < 1200 && (viewer.model === before || !viewer.model?.meshing); t++) {
+      for (let t = 0; t < 1200 && (viewer.nextLoad() === before || !viewer.model?.meshing); t++) {
         await new Promise((r) => setTimeout(r, 100));
       }
       await cadViewer.idle();
@@ -2384,7 +2408,8 @@ await check('phone', async () => {
 // controls closed at first; Zoom selected in View, enabled only with a selection; Mesh again (at another deflection,
 // the cache off) keeps the camera, a cut, what's hidden and what's selected, the tree's expansion (detail
 // on, all expanded but one assembly) and the row at its top (scrolled partway), and meshes anew; meshed again
-// once more with those nodes not coming back (simulated: their paths not found), the status line says so.
+// once more with the selected node not coming back (simulated: its path not found), the status line says so (the
+// hidden one's override stays on its node, meshed again in place).
 // The device (a desktop here, headless Chrome): detected so, meshed medium; the Device control overrides it (a tablet:
 // coarse), remembered across pages, and Auto clears that; the Profile control sets the deflections, which, moved,
 // make it custom; Defaults goes back to the device's profile.
@@ -2398,9 +2423,9 @@ await check('device', async () => {
     const start = now();
     c('Device').setValue('tablet');
     // Meshed again as a tablet: at most 3 workers (a new pool).
-    const model = viewer.model;
+    const model = viewer.nextLoad();
     c('Mesh again').getValue().call(c('Mesh again').object);
-    for (let t = 0; t < 600 && (viewer.model === model || !viewer.model?.meshing); t++) {
+    for (let t = 0; t < 600 && (viewer.nextLoad() === model || !viewer.model?.meshing); t++) {
       await new Promise((r) => setTimeout(r, 100));
     }
     const tablet = now();
@@ -2485,16 +2510,17 @@ await check('mesh again', async () => {
     const before = cadViewer.state();
     const tintedBefore = tinted(before.selected[0]);
     const triangles = viewer.stats().triangles;
-    const model = viewer.model;
+    const model = viewer.nextLoad();
     viewer.settings.cache = false;
     viewer.settings.profile = 'custom';
     viewer.settings.linearDeflection = 1;
     button('Mesh again').$button.click();
-    for (let t = 0; t < 1200 && (viewer.model === model || !viewer.model?.meshing); t++) {
+    for (let t = 0; t < 1200 && (viewer.nextLoad() === model || !viewer.model?.meshing); t++) {
       await new Promise((r) => setTimeout(r, 100));
     }
     await cadViewer.idle();
     const after = cadViewer.state();
+    const trianglesAfter = viewer.stats().triangles;
     const tintedAfter = tinted(after.selected[0]);
     // The details panel describes the new meshes (its triangles), as a fresh description would.
     const details = document.getElementById('details');
@@ -2505,10 +2531,10 @@ await check('mesh again', async () => {
     const proto = Object.getPrototypeOf(viewer.nodes);
     const find = proto.find;
     proto.find = function (p) { return lostPaths.includes(p) ? undefined : find.call(this, p); };
-    const again = viewer.model;
+    const again = viewer.nextLoad();
     try {
       button('Mesh again').$button.click();
-      for (let t = 0; t < 1200 && (viewer.model === again || !viewer.model?.meshing); t++) {
+      for (let t = 0; t < 1200 && (viewer.nextLoad() === again || !viewer.model?.meshing); t++) {
         await new Promise((r) => setTimeout(r, 100));
       }
       await cadViewer.idle();
@@ -2521,10 +2547,10 @@ await check('mesh again', async () => {
     const face = viewer.nodes.nodes.find((n) => n.face && viewer.nodes.nodes[n.parent].object.children[0]?.geometry);
     const facePath = viewer.nodes.pathOf(face.id);
     ui.select([face.id]);
-    const faceModel = viewer.model;
+    const faceModel = viewer.nextLoad();
     viewer.settings.linearDeflection = 0.5;
     button('Mesh again').$button.click();
-    for (let t = 0; t < 1200 && (viewer.model === faceModel || !viewer.model?.meshing); t++) {
+    for (let t = 0; t < 1200 && (viewer.nextLoad() === faceModel || !viewer.model?.meshing); t++) {
       await new Promise((r) => setTimeout(r, 100));
     }
     await cadViewer.idle();
@@ -2535,7 +2561,7 @@ await check('mesh again', async () => {
     };
     return { faceAfter, allClosed, disabledEmpty, enabledSelected, backend: meshing?.backend, pageTessellation,
       before, after,
-      triangles: [triangles, viewer.stats().triangles], zoomAfter, lost, tree: [treeBefore, treeAfter],
+      triangles: [triangles, trianglesAfter], zoomAfter, lost, tree: [treeBefore, treeAfter],
       tinted: [tintedBefore, tintedAfter], detailsAfter };
   })()`) as { after: { detailsAfter: { shown: string; fresh: string };
     faceAfter: { selected: string[]; overlays: number; shared: boolean; path: string };
@@ -2570,9 +2596,60 @@ await check('mesh again', async () => {
     JSON.stringify(a.tree)}`);
   expect(JSON.stringify(tb!.top) === JSON.stringify(ta!.top), `the tree's top row kept: ${JSON.stringify(a.tree)}`);
   const l = a.lost;
-  expect(/; 1 appearance override and 1 selected not found again \(in the console\)$/.test(l.status) &&
-    l.notRestored?.overrides.join() === l.paths[0] && l.notRestored?.selected.join() === l.paths[1],
+  // (Meshed again in place: the overrides stay on their nodes, never looked for by path; a selection is.)
+  expect(/; 1 selected not found again \(in the console\)$/.test(l.status) &&
+    l.notRestored?.overrides.length === 0 && l.notRestored?.selected.join() === l.paths[1],
     `not found again: ${JSON.stringify(l)}`);
+  return undefined;
+});
+// Mesh again from the import worker's models, in place: no import (the same tree and scene graph, no "importing" in
+// the status line, "meshing again" there), each part keeping its mesh until its new one comes (never fewer parts
+// meshed while it goes), meshed anew (fine: more triangles); then with a millisecond's timeout (the cache off), the
+// parts that fail shown as a load shows them: as1 has no tessellation of its own, so their faces' outlines from the
+// models, counted failed.
+await check('mesh again in place', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    await cadViewer.ready; await cadViewer.idle();
+    const c = (name) => ui.gui.controllersRecursive().find((x) => x._name === name);
+    const statuses = [];
+    const onStatus = viewer.onStatus;
+    viewer.onStatus = (s) => { statuses.push(s); onStatus?.(s); };
+    let least = Infinity;
+    const onMeshes = viewer.onMeshes;
+    viewer.onMeshes = () => { least = Math.min(least, viewer.graph.meshes.size); onMeshes?.(); };
+    const again = async () => {
+      statuses.length = 0;
+      least = Infinity;
+      const before = viewer.nextLoad();
+      c('Mesh again').$button.click();
+      for (let t = 0; t < 1200 && (viewer.nextLoad() === before || !viewer.model?.meshing); t++) {
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      await cadViewer.idle();
+    };
+    const nodes = viewer.nodes, graph = viewer.graph, meshed = graph.meshes.size, triangles = viewer.stats().triangles;
+    ui.setMeshing({ profile: 'fine', cache: false });
+    await again();
+    const fine = { same: viewer.nodes === nodes && viewer.graph === graph, least, meshed: graph.meshes.size,
+      triangles: viewer.stats().triangles, parts: viewer.model.parts,
+      importing: statuses.some((s) => /importing/.test(s)), again: statuses.some((s) => /meshing again/.test(s)) };
+    ui.setMeshing({ timeout: 0.001 });
+    await again();
+    const failed = { same: viewer.nodes === nodes, parts: viewer.model.parts, meshed: graph.meshes.size,
+      outlined: [...graph.meshes.values()].filter((m) => !m.indices.length && m.faceOutlines?.length).length,
+      triangles: viewer.stats().triangles };
+    return { meshed, triangles, fine, failed };
+  })()`) as { after: { meshed: number; triangles: number; fine: { same: boolean; least: number; meshed: number;
+    triangles: number; parts: { total: number; failed: number }; importing: boolean; again: boolean };
+  failed: { same: boolean; parts: { total: number; failed: number }; meshed: number; outlined: number;
+    triangles: number } } };
+  const a = r.after, j = JSON.stringify(a);
+  expect(a.meshed > 0 && a.fine.same && !a.fine.importing && a.fine.again, `in place, no import: ${j}`);
+  expect(a.fine.least >= a.meshed && a.fine.meshed === a.meshed, `every part kept its mesh until its new one: ${j}`);
+  expect(a.fine.triangles > a.triangles && a.fine.parts.failed === 0, `meshed anew, fine: ${j}`);
+  expect(a.failed.same && a.failed.parts.failed > 0 && a.failed.outlined === a.failed.parts.failed &&
+    a.failed.meshed === a.meshed && a.failed.triangles < a.fine.triangles,
+    `the parts that failed outlined, as a load shows them: ${j}`);
   return undefined;
 });
 // Every slot of the appearance overrides drawn alike after Mesh again: an assembly hidden with a child shown, a part
@@ -2650,12 +2727,12 @@ await check('overrides after mesh again', async () => {
     const slots = (st) => ({ hidden: st.hidden, shown: st.shown, opacity: st.opacity,
       triangleEdges: st.triangleEdges });
     const before = { drawn: drawn(), state: slots(cadViewer.state()), triangles: viewer.stats().triangles };
-    const model = viewer.model;
+    const model = viewer.nextLoad();
     viewer.settings.cache = false;
     viewer.settings.profile = 'custom';
     viewer.settings.linearDeflection = 1;
     button('Mesh again').$button.click();
-    for (let t = 0; t < 1200 && (viewer.model === model || !viewer.model?.meshing); t++) {
+    for (let t = 0; t < 1200 && (viewer.nextLoad() === model || !viewer.model?.meshing); t++) {
       await new Promise((r) => setTimeout(r, 100));
     }
     await cadViewer.idle();
@@ -4116,9 +4193,9 @@ await check('snapshot: meshing and hidden faces', async () => {
     await cadViewer.ready; await cadViewer.idle();
     // Meshed again coarse (not what a fresh page would mesh with), the controls then changed again.
     ui.setMeshing({ profile: 'coarse', linearDeflection: 0.2, angularDeflection: 30, cache: false });
-    const before = viewer.model;
+    const before = viewer.nextLoad();
     ui.gui.controllersRecursive().find((c) => c._name === 'Mesh again').$button.click();
-    for (let t = 0; t < 1200 && (viewer.model === before || !viewer.model?.meshing); t++) {
+    for (let t = 0; t < 1200 && (viewer.nextLoad() === before || !viewer.model?.meshing); t++) {
       await new Promise((r) => setTimeout(r, 100));
     }
     await cadViewer.idle();
@@ -4771,13 +4848,13 @@ await check('replay in real time', async () => {
     const folders = () => ui.gui.foldersRecursive().map((f) => f._closed).join();
     const foldersBefore = folders();
     let watching = true;
-    const model = viewer.model;
+    const load = viewer.nextLoad();
     let meshed;
     const watch = () => {
       if (!watching) return;
       const c = viewer.cameraState();
       log.push([performance.now(), 'camera', c.position, document.querySelector('.replay-pointer')?.hidden === false]);
-      if (meshed === undefined && viewer.model !== model && viewer.model?.meshing) meshed = performance.now();
+      if (meshed === undefined && viewer.nextLoad() !== load && viewer.model?.meshing) meshed = performance.now();
       requestAnimationFrame(watch);
     };
     requestAnimationFrame(watch);
