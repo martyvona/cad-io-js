@@ -1189,64 +1189,88 @@ await check('dialog drag', async () => {
   expect(by(t.aboutBefore, t.aboutMoved, 40, 20), `About dragged: ${j}`);
   return undefined;
 });
+// The page's clock stood in for (performance.now, which flights and frames read), each step drawing a frame at a
+// known time: under load, frames come late, and a check by the real clock reads the camera before it moves.
 await check('camera flights', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
     const v = globalThis.viewer;
-    v.flightMs = 1000;
-    const st = () => v.cameraState();
-    const far = { position: [5000, -4000, 3000], target: [400, 300, 200], up: [0, 0, 1], height: 40 };
-    // Where zoom all goes, at once.
-    v.setCamera(far);
-    v.flightMs = 0;
-    v.zoomAll();
-    const goal = st();
-    v.flightMs = 1000;
-    v.setCamera(far);
-    const t0 = performance.now();
-    v.zoomAll();
-    const right = st();
-    const samples = [];
-    const timer = setInterval(() => samples.push([performance.now() - t0, st().height]), 20);
-    await cadViewer.idle();
-    const took = performance.now() - t0;
-    clearInterval(timer);
-    const end = st();
-    // A view: turned about the target, from the same distance and height.
-    const before = st();
-    v.setView('top');
-    await cadViewer.idle();
-    const top = st();
-    // Stopped by the user's input partway.
-    v.setView('front');
-    await new Promise((r) => setTimeout(r, 400));
-    v.controls.dispatchEvent({ type: 'start' });
-    v.controls.dispatchEvent({ type: 'end' });
-    const stopped = st();
-    await new Promise((r) => setTimeout(r, 900));
-    const later = st();
-    // Zoom selected flies too: not there at once.
-    v.setCamera(far);
-    ui.select([ui.panel().model.nodes.find((n) => n.kind === 'part').id]);
-    ui.zoomSelected();
-    const selectedAtOnce = st();
-    await cadViewer.idle();
-    const selectedEnd = st();
-    // A link's view (a state applied) at once; an exact camera set mid-flight ends the flight there.
-    cadViewer.apply({ view: 'left' });
-    const left = st();
-    v.zoomAll();
-    v.setCamera(far);
-    await new Promise((r) => setTimeout(r, 300));
-    const set = st();
-    // A flight of the zoom alone (the camera already where zoom all puts it, only the height off): it goes on.
-    v.setCamera({ ...goal, height: goal.height * 10 });
-    v.zoomAll();
-    await new Promise((r) => setTimeout(r, 500));
-    const zoomHalf = st();
-    await cadViewer.idle();
-    const zoomEnd = st();
-    return { zoomHalf, zoomEnd, far, goal, right, samples, took, end, before, top, stopped, later, selectedAtOnce,
-      selectedEnd, left, set };
+    const real = performance.now;
+    let now = real.call(performance);
+    performance.now = () => now;
+    // The clock moved on (by more than a frame's interval), and the frame then due drawn.
+    const step = async (ms) => {
+      now += ms;
+      const f = v.frames.frames;
+      while (v.frames.scheduled && v.frames.frames === f) await new Promise((r) => requestAnimationFrame(r));
+    };
+    // Steps until no flight is left and no frame is due.
+    const land = async () => { for (let i = 0; i < 1000 && (v.flight || v.frames.scheduled); i++) await step(40); };
+    try {
+      v.flightMs = 1000;
+      const st = () => v.cameraState();
+      const far = { position: [5000, -4000, 3000], target: [400, 300, 200], up: [0, 0, 1], height: 40 };
+      // Where zoom all goes, at once.
+      v.setCamera(far);
+      v.flightMs = 0;
+      v.zoomAll();
+      await land();
+      const goal = st();
+      v.flightMs = 1000;
+      v.setCamera(far);
+      await land();
+      const t0 = now;
+      v.zoomAll();
+      const right = st();
+      const samples = [];
+      while (v.flight && now - t0 < 5000) {
+        await step(40);
+        samples.push([now - t0, st().height]);
+      }
+      const took = now - t0;
+      await land();
+      const end = st();
+      // A view: turned about the target, from the same distance and height.
+      const before = st();
+      v.setView('top');
+      await land();
+      const top = st();
+      // Stopped by the user's input partway.
+      v.setView('front');
+      await step(400);
+      v.controls.dispatchEvent({ type: 'start' });
+      v.controls.dispatchEvent({ type: 'end' });
+      const stopped = st();
+      await step(900);
+      await land();
+      const later = st();
+      // Zoom selected flies too: not there at once.
+      v.setCamera(far);
+      await land();
+      ui.select([ui.panel().model.nodes.find((n) => n.kind === 'part').id]);
+      ui.zoomSelected();
+      const selectedAtOnce = st();
+      await land();
+      const selectedEnd = st();
+      // A link's view (a state applied) at once; an exact camera set mid-flight ends the flight there.
+      cadViewer.apply({ view: 'left' });
+      const left = st();
+      v.zoomAll();
+      v.setCamera(far);
+      await step(300);
+      await land();
+      const set = st();
+      // A flight of the zoom alone (the camera already where zoom all puts it, only the height off): it goes on.
+      v.setCamera({ ...goal, height: goal.height * 10 });
+      v.zoomAll();
+      await step(500);
+      const zoomHalf = st();
+      await land();
+      const zoomEnd = st();
+      return { zoomHalf, zoomEnd, far, goal, right, samples, took, end, before, top, stopped, later, selectedAtOnce,
+        selectedEnd, left, set };
+    } finally {
+      performance.now = real;
+    }
   })()`) as { after?: Record<string, unknown> };
   type S = { position: number[]; target: number[]; up: number[]; height: number };
   const a = r.after as { far: S; goal: S; right: S; samples: [number, number][]; took: number; end: S; before: S;
@@ -1258,13 +1282,13 @@ await check('camera flights', async () => {
   // Not there at once; there at the end (as zoom all at once puts it), after about a second.
   expect(same(a.right, a.far), `jumped at once: ${j}`);
   expect(same(a.end, a.goal), `not where zoom all goes: ${j}`);
-  expect(a.took > 900 && a.took < 1600, `the flight took ${a.took} ms`);
-  // On the way: the height from the start's to the goal's, by ratio, eased (slow at the ends, half at half time).
+  expect(a.took === 1000, `the flight took ${a.took} ms`);
+  // On the way: the height from the start's to the goal's, by ratio, eased by smoothstep (slow at the ends, half at
+  // half time), written out here.
   const frac = ([, h]: [number, number]) => Math.log(h / a.far.height) / Math.log(a.goal.height / a.far.height);
-  const mid = a.samples.filter(([t]) => t > 400 && t < 600).map(frac);
-  const early = a.samples.filter(([t]) => t > 50 && t < 150).map(frac);
-  expect(mid.length > 0 && mid.every((f) => f > 0.25 && f < 0.75), `halfway: ${JSON.stringify(mid)}`);
-  expect(early.length > 0 && early.every((f) => f >= 0 && f < 0.12), `eased at the start: ${JSON.stringify(early)}`);
+  const eased = (t: number) => (t / 1000) ** 2 * (3 - 2 * t / 1000);
+  const off = a.samples.filter((s) => s[0] < 1000 && Math.abs(frac(s) - eased(s[0])) > 1e-6);
+  expect(a.samples.length === 25 && !off.length, `not eased: ${JSON.stringify(off)} of ${a.samples.length}`);
   expect(a.samples.map(frac).every((f, i, fs) => i === 0 || f >= fs[i - 1]! - 1e-9), `not monotone: ${j}`);
   // The view: the target and height kept, the distance too, looking down.
   const dist = (p: S) => Math.hypot(...p.position.map((c, k) => c - p.target[k]!));
