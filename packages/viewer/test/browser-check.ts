@@ -3282,7 +3282,7 @@ await check('transforms', async () => {
     // The export dialog, for each format.
     ui.gui.controllersRecursive().find((c) => c._name === 'Export...').$button.click();
     const e = await wait(() => document.querySelector('dialog.cv-dialog[open]'));
-    const format = e.querySelector('select');
+    const format = e.querySelector('select[data-key=format]');
     const warning = e.querySelector('p.warning');
     const warned = {};
     for (const f of ['glb', 'gltf', 'threejs', '3mf']) {
@@ -5350,10 +5350,15 @@ await check('export', async () => {
       files.length = 0;
       const done = exp.getValue().call(exp.object);
       const d = await waitFor(() => document.querySelector('dialog.cv-dialog'));
-      const sel = d.querySelectorAll('select');
-      sel[0].value = format;
-      sel[0].dispatchEvent(new Event('change'));
-      if (compression) { sel[1].value = compression; sel[1].dispatchEvent(new Event('change')); }
+      // (By key: an option not in a select leaves it with no value, which this throws on.)
+      const choose = (key, value) => {
+        const s = d.querySelector('select[data-key=' + key + ']');
+        s.value = value;
+        if (s.value !== value) throw new Error(key + ' has no ' + value);
+        s.dispatchEvent(new Event('change'));
+      };
+      choose('format', format);
+      if (compression) choose('compression', compression);
       for (const [k, v] of Object.entries(checks)) {
         const box = d.querySelector('input[data-key=' + k + ']');
         box.checked = v;
@@ -5390,12 +5395,14 @@ await check('export', async () => {
       .includes('KHR_draco_mesh_compression'), boxes: x.shownBoxes, status: x.status };
     // Uncompressed, for reading back here: the model's own triangles in it.
     x = await run('glb', { edges: false, curves: false }, 'none');
+    out.none = /KHR_draco_mesh_compression|EXT_meshopt_compression/.test(glbJson(x.bytes[0]));
     let bin = '';
     for (let i = 0; i < x.bytes[0].length; i += 8192) bin += String.fromCharCode(...x.bytes[0].subarray(i, i + 8192));
     out.plain = btoa(bin);
     out.drawn = viewer.stats().triangles;
     x = await run('glb', {}, 'meshopt');
-    out.meshopt = glbJson(x.bytes[0]).includes('EXT_meshopt_compression');
+    out.meshopt = [glbJson(x.bytes[0]).includes('EXT_meshopt_compression'),
+      glbJson(x.bytes[0]).includes('KHR_draco_mesh_compression')];
     x = await run('gltf', { embed: true }, 'none');
     out.embedded = { files: x.files, uri: JSON.parse(text(x.bytes[0])).buffers[0].uri.slice(0, 37) };
     x = await run('gltf', { embed: false }, 'none');
@@ -5420,7 +5427,7 @@ await check('export', async () => {
     // Remembered: the next dialog starts with the last choice (three.js, applied).
     exp.getValue().call(exp.object);
     const d = await waitFor(() => document.querySelector('dialog.cv-dialog'));
-    out.remembered = [d.querySelector('select').value, d.querySelector('input[data-key=shown]').checked];
+    out.remembered = [d.querySelector('select[data-key=format]').value, d.querySelector('input[data-key=shown]').checked];
     d.querySelector('button[value=cancel]').click();
     await frame();
     // Cancelled: nothing asked or saved.
@@ -5435,7 +5442,8 @@ await check('export', async () => {
   `GLB with Draco: ${j}`);
   // (Not empty: the model's meshes in them, 8,048 triangles; the worker had handed its own to the page.)
   expect([a.draco, a.embedded, a.threejs, a.threemf].every((x) => x.files[0].size > 10_000), `sizes: ${j}`);
-  expect(a.meshopt === true, `GLB with meshopt: ${j}`);
+  expect(a.meshopt[0] === true && a.meshopt[1] === false, `GLB with meshopt: ${j}`);
+  expect(a.none === false, `GLB uncompressed: ${j}`);
   // Read back with our importer: as many placed triangles as the viewer draws.
   const back = (await importGltf(Buffer.from(a.plain, 'base64'))).scene;
   let placed = 0;

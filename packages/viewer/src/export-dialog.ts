@@ -61,6 +61,7 @@ export async function askExport(start: ExportChoice, transforms?: TransformUse):
   const format = document.createElement('select');
   for (const [k, f] of Object.entries(EXPORT_FORMATS)) format.add(new Option(f.label, k));
   format.value = c.format;
+  format.dataset.key = 'format';
   const fl = document.createElement('label');
   fl.textContent = 'Format';
   fl.append(format);
@@ -83,6 +84,7 @@ export async function askExport(start: ExportChoice, transforms?: TransformUse):
   for (const [v, t] of [['draco', 'Draco (KHR_draco_mesh_compression)'], ['meshopt', 'meshopt (EXT_meshopt_compression)'],
     ['none', 'None']]) compression.add(new Option(t, v));
   compression.value = c.compression;
+  compression.dataset.key = 'compression';
   comp.append(compression);
   const bitsRow = document.createElement('label');
   bitsRow.textContent = "Draco's position bits (1 to 30)";
@@ -97,6 +99,7 @@ export async function askExport(start: ExportChoice, transforms?: TransformUse):
     schema.add(new Option(t, v));
   }
   schema.value = c.stepSchema;
+  schema.dataset.key = 'stepSchema';
   schemaRow.append(schema);
   box.append(schemaRow);
   const lost = document.createElement('p');
