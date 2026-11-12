@@ -31,6 +31,51 @@ let maxBytes = 1000e6, smlib: WorkerTessellator, occt: WorkerTessellator;
 
 type R = TessellationResult;
 
+/**
+ * The model edges a mesh is open along: edges two or more faces use (by the model) that all have triangles, with a
+ * mesh edge on them that only one triangle has. Vertices are one where their positions are the same numbers; mesh
+ * edges are placed on model edges by the result's edge polylines, so such an edge without one can't be judged
+ * (unjudged). Independent of the backends' own accounts.
+ */
+function openEdges(d: BrepData, r: R): { open: number; unjudged: number } {
+  const users = new Map<number, Set<number>>();
+  for (let f = 0; f < d.face.surface.length; f++) {
+    const face = decode.face(d, f);
+    if (face.id === undefined) continue;
+    for (const l of face.loops) if (l.kind === 'edge') for (const c of l.coedges) {
+      const id = decode.edge(d, c.edge).id;
+      if (id !== undefined) (users.get(id) ?? users.set(id, new Set()).get(id)!).add(face.id);
+    }
+  }
+  const weld = new Map<string, number>();
+  const at = (p: Float32Array, i: number) => {
+    const k = `${p[3 * i]},${p[3 * i + 1]},${p[3 * i + 2]}`;
+    return weld.get(k) ?? (weld.set(k, weld.size), weld.size - 1);
+  };
+  const key = (a: number, b: number) => Math.min(a, b) * 4294967296 + Math.max(a, b);
+  const uses = new Map<number, number>();
+  for (let k = 0; k < r.indices.length; k += 3) for (let j = 0; j < 3; j++) {
+    const e = key(at(r.positions, r.indices[k + j]!), at(r.positions, r.indices[k + (j + 1) % 3]!));
+    uses.set(e, (uses.get(e) ?? 0) + 1);
+  }
+  const meshed = new Set(r.faces.filter((f) => f.count > 0).map((f) => f.entityId));
+  const judged = (id: number | null) => {
+    const us = id === null ? undefined : users.get(id);
+    return !!us && us.size >= 2 && [...us].every((f) => meshed.has(f));
+  };
+  const open = new Set<number>(), drawn = new Set<number>();
+  for (const e of r.edges ?? []) {
+    if (!judged(e.entityId)) continue;
+    drawn.add(e.entityId!);
+    for (let k = e.start; k + 1 < e.start + e.count; k++) {
+      // (A segment from a point to itself, as single precision has some, is no gap.)
+      const a = at(r.edgePositions!, k), z = at(r.edgePositions!, k + 1);
+      if (a !== z && uses.get(key(a, z)) === 1) open.add(e.entityId!);
+    }
+  }
+  return { open: open.size, unjudged: [...users.keys()].filter((id) => judged(id) && !drawn.has(id)).length };
+}
+
 /** Each face id's mesh area and triangle count, over its ranges. */
 function faceAreas(r: R): Map<number, { area: number; tris: number }> {
   const out = new Map<number, { area: number; tris: number }>();
@@ -154,6 +199,9 @@ const fresh = () => ({
   failures: { smlib: failureTally(), occt: failureTally() },
   trisSmlib: 0, trisOcct: 0, msSmlib: 0, msOcct: 0, msBuild: 0, msTess: 0, msMeasures: 0, partsComplete: 0,
   retried: 0, improved: 0,
+  // Parts with open model edges and those edges: by openEdges for each backend, and by SMLib's own error.
+  open: { smlib: { parts: 0, edges: 0, unjudged: 0 }, occt: { parts: 0, edges: 0, unjudged: 0 },
+    said: { parts: 0, edges: 0, unjudged: 0 } },
   tally: new Map<string, { n: number; ex: string[] }>(),
 });
 type Tallies = ReturnType<typeof fresh>;
@@ -194,7 +242,7 @@ export const check: FileCheck<undefined, Tallies> = {
     };
     const results = await Promise.all(parts.map(async (p) => {
       const req: TessellationRequest = { format: 'cad-brep', data: new Uint8Array(p.brep!.model.buffer),
-        origin: p.origin, linearDeflection: LIN_MM / p.unit, angularDeflection: ANG, measures: true };
+        origin: p.origin, linearDeflection: LIN_MM / p.unit, angularDeflection: ANG, measures: true, edges: true };
       const [a, b] = await Promise.all([run(smlib, req), run(occt, req)]);
       return { p, req, a, b };
     }));
@@ -224,11 +272,14 @@ export const check: FileCheck<undefined, Tallies> = {
         if (t) { T.msBuild += Number(t[1]); T.msTess += Number(t[2]); T.msMeasures += Number(t[3]); continue; }
         const q = /^(\d+) faces meshed badly .* \((\d+) better so\)$/.exec(d.message);
         if (q) { T.retried += Number(q[1]); T.improved += Number(q[2]); }
+        const u = /^(\d+) edges along which the meshes/.exec(d.message);
+        if (u) { T.open.said.parts++; T.open.said.edges += Number(u[1]); }
         note(`${d.severity}: ${d.message.replace(/\d+/g, 'N')}`, where);
       }
       const said = sa.diagnostics.filter((d) => !/^times /.test(d.message)).map((d) => `${d.severity}: ${d.message}`);
       const partLine = (status: string) => lines.push(JSON.stringify({ where, status, faces: of.size, said }));
-      if (sa.diagnostics.some((d) => d.severity === 'error')) {
+      // (An error for open edges comes with the mesh: the part isn't failed.)
+      if (sa.diagnostics.some((d) => d.severity === 'error' && !/^\d+ edges along which/.test(d.message))) {
         T.status.error++;
         T.facesMissing += of.size;
         partLine('error');
@@ -238,6 +289,11 @@ export const check: FileCheck<undefined, Tallies> = {
       if (said.length) partLine('ok');
       T.status.ok++;
       T.trisSmlib += sa.indices.length / 3;
+      for (const [who, r] of [['smlib', sa], ['occt', ob]] as const) {
+        const n = openEdges(p.brep!.model, r);
+        if (n.open) { T.open[who].parts++; T.open[who].edges += n.open; }
+        T.open[who].unjudged += n.unjudged;
+      }
       const sf = faceAreas(sa);
       const sm = new Map((sa.measures ?? []).map((m) => [m.entityId, m]));
       const om = new Map((ob.measures ?? []).map((m) => [m.entityId, m]));
@@ -394,7 +450,11 @@ if (import.meta.main) {
   for (const who of ['smlib', 'occt'] as const) console.log(`  faceFailures by its own measures, ${who}: `
     + KINDS.map((k) => `${k} ${T.failures[who][k]}`).join(', '));
   console.log(`  complete (no face missing, off by 5% or flipped): ${pct(T.partsComplete, T.compared)} parts`);
-  console.log(`  faces meshed again alone and unhealed: ${T.retried}, ${T.improved} better so`);
+  console.log(`  faces meshed again alone: ${T.retried}, ${T.improved} better so`);
+  console.log(`  open model edges (edges of two or more meshed faces whose meshes don't meet along them, vertices `
+    + `matched exactly): SMLib ${T.open.smlib.edges} in ${T.open.smlib.parts} parts (its own error: `
+    + `${T.open.said.edges} in ${T.open.said.parts}), OCCT ${T.open.occt.edges} in ${T.open.occt.parts}; shared `
+    + `edges without an edge polyline, not judged: SMLib ${T.open.smlib.unjudged}, OCCT ${T.open.occt.unjudged}`);
   console.log(`  triangles: SMLib ${T.trisSmlib}, OCCT ${T.trisOcct}; meshing ${(T.msSmlib / 1000).toFixed(1)} s `
     + `SMLib, ${(T.msOcct / 1000).toFixed(1)} s OCCT (wall time per request, summed); SMLib's (SMLIB_TIMES): build `
     + `${(T.msBuild / 1000).toFixed(1)} s, tessellate ${(T.msTess / 1000).toFixed(1)} s, measures `

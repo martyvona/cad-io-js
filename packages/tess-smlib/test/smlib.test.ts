@@ -6,9 +6,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { BrepBuilder, curveEvaluatorOf, decode, rowCount, surfaceEvaluator } from 'cad-brep';
+import { BrepBuilder, brepFromJson, brepToJson, curveEvaluatorOf, decode, rowCount, surfaceEvaluator } from 'cad-brep';
 import { importStep } from 'step-import';
-import type { BrepData } from 'cad-brep';
+import type { BrepData, BrepJson } from 'cad-brep';
 import type { TessellationRequest, TessellationResult } from 'cad-scene';
 import { box, MODELS } from '../../cad-brep/test/models.ts';
 import { SmlibTessellator } from '../src/index.ts';
@@ -217,6 +217,7 @@ test('planar faces with holes: square and round, a hole marked as the outer boun
       const a = areas(r).get(1)!;
       assert.ok(Math.abs(a.area - area) < 0.01 * area, `${what}: ${a.area} for ${area}`);
       assert.equal(sides(d, r).against, 0, what);
+      await sameScaled(what, d);
     }
     // The file marks the hole outer (as some do): the face is still the square less the hole.
     const marked = plate([square, round], 1, 1);
@@ -246,6 +247,7 @@ test('a curve-bounded face of trimmed arcs, one trimmed against its circle and u
     assert.ok(a && Math.abs(a.area - 4 * Math.PI) < 0.01 * 4 * Math.PI, `disc ${a?.area}`);
     assert.equal(sides(d, r).against, 0);
     assert.deepEqual(r.diagnostics, []);
+    await sameScaled('the disc', d);
   });
 
 test('extrusions of a closed periodic B-spline: a face reaching its seam, a face across it (edges across it)',
@@ -281,6 +283,7 @@ test('extrusions of a closed periodic B-spline: a face reaching its seam, a face
         b.addItem({ kind: 'body', ref: b.addBody({ kind: 'sheet', members: [{ ref: shell, sense: true }] }) });
       }
       const r = await mesh(b.finish(), 0.001);
+      await sameScaled(`the extrusion ${from} to ${to}`, b.finish(), 0.001);
       // The face's area: the curve's length over its span (summed over fine chords) times the extrusion's 2; the rest
       // of the tube as much again.
       let length = 0;
@@ -440,8 +443,14 @@ test('a real part (trj3_s1-id-203.stp): a face healing spoils, meshed again alon
     const part = scene.parts.find((p) => p.sources[0]!.id === 569)!;
     const t = await backend();
     const r = await t.tessellate({ ...request(part.brep!.model, 0.1 / part.unit), origin: part.origin });
-    assert.ok(r.diagnostics.some((d) => /meshed again alone, unhealed and with shorter edges \([1-9]\d* better so\)/
+    assert.ok(r.diagnostics.some((d) => /meshed again alone, .* or larger \([1-9]\d* better so\)/
       .test(d.message)));
+    // Joined to its neighbours but along two edges, #4742 and #4792, where SMLib puts a corner of their other face
+    // (#5003, a B-spline) 1.7 mm off the model's vertex however it is built: those an error, counted alike.
+    // (There SMLib folds #5003 back on itself, two triangles on the same three points wound opposite ways: removed.)
+    assert.deepEqual(soundness(part.brep!.model, r),
+      { open: [4742, 4792], said: 2, repeated: 0, stray: 0, unjudged: 0, folded: 2 });
+    assert.ok(r.diagnostics.some((d) => d.severity === 'error' && /^2 edges along which/.test(d.message)));
     // Every face's mesh then within what faceFailures allows of its exact area (3% short, 10% over, or the
     // deflection times the perimeter).
     const a = areas(r), d = 0.1 / part.unit;
@@ -672,7 +681,8 @@ test('a small face on a huge torus (its turns fitted to the face), and a strip t
     const r = await mesh(torusPatch(...strip), 0.1);
     const a = areas(r).get(1)!.area, want = torusArea(...strip);
     assert.ok(a > 0.97 * want && a < 1.1 * want, `the strip: ${a} for ${want}`);
-    assert.ok(r.diagnostics.some((x) => /with shorter edges \(1 better so\)/.test(x.message)));
+    assert.ok(r.diagnostics.some((x) => /or larger \(1 better so\)/.test(x.message)));
+    await sameScaled('the strip', torusPatch(...strip), 0.1);
   });
 
 test('real parts: faces the healer removes or splits, spheres bounded through their poles, a whole turn just off',
@@ -705,3 +715,403 @@ test('real parts: faces the healer removes or splits, spheres bounded through th
     assert.ok((got.get(id)?.tris ?? 0) > 0, `face #${id}`);
   }
 });
+
+/** A result's extent: the least and greatest of each coordinate over some positions. */
+function extent(p: Float32Array | undefined): number[] {
+  const e = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
+  for (let i = 0; p && i < p.length; i++) {
+    e[i % 3] = Math.min(e[i % 3]!, p[i]!);
+    e[3 + i % 3] = Math.max(e[3 + i % 3]!, p[i]!);
+  }
+  return e;
+}
+
+const scaledBackends = new Map<number, Promise<SmlibTessellator>>();
+const scaledBackend = (scale: number) => scaledBackends.get(scale) ?? scaledBackends.set(scale, (async () => {
+  const t = new SmlibTessellator({ scale });
+  await t.init();
+  return t;
+})()).get(scale)!;
+
+/**
+ * A model meshed with the scale option, 32 and 1024, against its mesh without: the same diagnostics, faces (those
+ * without ids matched by area), measures, and extents of the mesh, edges, curves and points.
+ */
+async function sameScaled(name: string, d: BrepData, lin = 0.01): Promise<void> {
+  const want = await (await backend()).tessellate(request(d, lin));
+  for (const scale of [32, 1024]) {
+    const what = `${name} x ${scale}`, got = await (await scaledBackend(scale)).tessellate(request(d, lin));
+    assert.deepEqual(got.diagnostics.map((x) => x.message.replace(/\d+ faces meshed badly.*/, '')),
+      want.diagnostics.map((x) => x.message.replace(/\d+ faces meshed badly.*/, '')), what);
+    const byArea = (r: TessellationResult): (readonly [number | string, number])[] => {
+      const all = [...areas(r)].map(([id, f]) => [id, f.area] as const);
+      return [...all.filter((x) => typeof x[0] === 'number').sort((x, y) => (x[0] as number) - (y[0] as number)),
+        ...all.filter((x) => typeof x[0] !== 'number').map((x) => ['none', x[1]] as const)
+          .sort((x, y) => x[1] - y[1])];
+    };
+    const wa = byArea(want), ga = byArea(got);
+    assert.deepEqual(ga.map((x) => x[0]), wa.map((x) => x[0]), what);
+    for (const [i, [id, area]] of wa.entries()) assert.ok(within(ga[i]![1], area, 0.02)
+      || Math.abs(ga[i]![1] - area) < 1e-9, `${what}: face ${id}'s mesh ${ga[i]![1]} for ${area}`);
+    assert.equal(got.measures!.length, want.measures!.length, what);
+    for (const m of want.measures!) {
+      const g = got.measures!.find((x) => x.entityId === m.entityId)!;
+      assert.ok(g.valid === m.valid && (!m.valid || (within(g.area, m.area, 1e-4)
+        && within(g.perimeter, m.perimeter, 1e-6))), `${what}: face ${m.entityId}'s measure ${g.area}, `
+        + `${g.perimeter} for ${m.area}, ${m.perimeter}`);
+    }
+    for (const k of ['positions', 'edgePositions', 'curvePositions', 'points'] as const) {
+      const ge = extent(got[k]), we = extent(want[k]);
+      for (let i = 0; i < 6; i++) assert.ok(ge[i] === we[i] || Math.abs(ge[i]! - we[i]!) < 1.1 * lin,
+        `${what}: the ${k}' extent ${ge} for ${we}`);
+    }
+    assert.deepEqual(got.curves?.map((c) => c.entityId), want.curves?.map((c) => c.entityId), what);
+    // Each curve's own extent (wire bodies' edges are curves too: together they could hide one).
+    for (const [i, c] of (want.curves ?? []).entries()) {
+      const w = extent(want.curvePositions!.subarray(3 * c.start, 3 * (c.start + c.count)));
+      const gc = got.curves![i]!, ge = extent(got.curvePositions!.subarray(3 * gc.start, 3 * (gc.start + gc.count)));
+      for (let k = 0; k < 6; k++) assert.ok(Math.abs(ge[k]! - w[k]!) < 1.1 * lin, `${what}: curve ${i}'s extent ${ge} `
+        + `for ${w}`);
+    }
+    assert.deepEqual(got.pointIds, want.pointIds, what);
+  }
+}
+
+test('the scale option: models built 32 and 1024 times larger give the same results at their own size',
+  { skip }, async () => {
+    // (Not the faceted model: its faces' planes aren't their vertices', and what SMLib makes of that varies.)
+    for (const [name, make] of Object.entries(MODELS)) if (name !== 'facetedAndWire') {
+      await sameScaled(name, make().finish());
+    }
+    await sameScaled('a torus patch', torusPatch(10, 2, 0.2, 1.4, -0.5, 0.9));
+    // A moved cube with a turned instance, and a loose circle.
+    const b = new BrepBuilder({ unit: 1, uncertainty: 1e-4 });
+    const body = b.addItem({ kind: 'body', ref: b.addBody({ kind: 'solid', members: [{ ref: box(b, [1, 2, 3]),
+      sense: true }] }), transform: [1, 0, 0, 0, 1, 0, 0, 0, 1, 5, 0, 0] });
+    b.addItem({ kind: 'instance', ref: body, transform: [0, 1, 0, -1, 0, 0, 0, 0, 1, 0, 7, 0] });
+    b.addItem({ kind: 'curve', ref: b.addCurve({ kind: 'circle', position: XY, radius: 2, id: 900 }) });
+    // A wire of two lines, moved.
+    const v = [[5, 0, 0], [6, 0, 0], [6, 1, 0]].map((point) => b.addVertex({ point }));
+    const wire = [[1, 0, 0], [0, 1, 0]].map((direction, i) => ({ sense: true, ref: b.addEdge({ start: v[i]!,
+      end: v[i + 1]!, sameSense: true, curve: b.addCurve({ kind: 'line', point: [5 + i, 0, 0], direction,
+        magnitude: 3 }) }) }));
+    b.addItem({ kind: 'body', ref: b.addBody({ kind: 'wire', members: wire }),
+      transform: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 40] });
+    // A 2 by 3 piece of a plane off the origin as a loose surface, by its rectangular trim.
+    b.addItem({ kind: 'surface', ref: b.addSurface({ kind: 'rectangularTrimmed', u1: 0, u2: 2, v1: 0, v2: 3,
+      uSense: true, vSense: true, basis: b.addSurface({ kind: 'plane', position: { ...XY, origin: [0, 0, 60] } }) }) });
+    // Trimmed lines as loose curves: by parameter (on a line of magnitude 2) and by points.
+    const basis = b.addCurve({ kind: 'line', point: [0, 0, 80], direction: [1, 0, 0], magnitude: 2 });
+    b.addItem({ kind: 'curve', ref: b.addCurve({ kind: 'trimmed', basis, trim1: { parameter: 0 },
+      trim2: { parameter: 3 }, sense: true, preference: 'parameter' }) });
+    b.addItem({ kind: 'curve', ref: b.addCurve({ kind: 'trimmed', sense: true, preference: 'cartesian',
+      basis: b.addCurve({ kind: 'line', point: [0, 0, 90], direction: [0, 1, 0], magnitude: 1 }),
+      trim1: { point: [0, -4, 90] }, trim2: { point: [0, 9, 90] } }) });
+    await sameScaled('transforms', b.finish());
+    // A cylinder of radius 2 about an axis through (10, 0, 0), as the revolution of a line, between two rings.
+    const c = new BrepBuilder({ unit: 1 });
+    const at = (z: number) => {
+      const p = c.addVertex({ point: [12, 0, z] });
+      return c.addEdge({ start: p, end: p, sameSense: true, curve: c.addCurve({ kind: 'circle', radius: 2,
+        position: { ...XY, origin: [10, 0, z] } }) });
+    };
+    const turned = c.addSurface({ kind: 'revolution', axisOrigin: [10, 0, 3], axisDirection: [0, 0, 1],
+      curve: c.addCurve({ kind: 'line', point: [12, 0, 0], direction: [0, 0, 1], magnitude: 1 }) });
+    const tube = oneFace(c, turned, [[fwd(at(0))], [rev(at(5))]]);
+    assert.ok(within(areas(await mesh(tube)).get(1)?.area, 20 * Math.PI, 0.01));
+    await sameScaled('a revolution off the origin', tube);
+    assert.match((await scaledBackend(1024)).info.version, /, scale 1024$/);
+    for (const scale of [0, 0.5, 3, Infinity]) assert.throws(() => new SmlibTessellator({ scale }), RangeError);
+  });
+
+test('real faces that mesh only another way: alone unhealed, alone healed, 1024 times larger',
+  { skip: skip || (fs.existsSync(corpus) ? false : 'no corpus (test_corpus/third_party/pull.sh)') }, async () => {
+    // One face of a part as a sheet of its own (the part's geometry whole), meshed: its triangles, mesh area and
+    // measure, and how many faces were meshed again and how many of those better.
+    const parts = new Map<string, BrepJson>();
+    const face = async (file: string, part: number, id: number, heal = true, scale = 1, transform?: number[]) => {
+      const key = `${file} ${part}`;
+      if (!parts.has(key)) {
+        const { scene } = await importStep(new Uint8Array(fs.readFileSync(path.join(corpus, file))));
+        parts.set(key, brepToJson(scene.parts.find((x) => x.sources[0]!.id === part)!.brep!.model));
+      }
+      const j = parts.get(key)!;
+      const d = brepFromJson({ ...j, faces: [j.faces.find((f) => f.id === id)!],
+        shells: [{ kind: 'open', faces: [{ face: 0, sense: true }] }],
+        bodies: [{ kind: 'sheet', members: [{ ref: 0, sense: true }] }],
+        items: [{ kind: 'body', ref: 0, ...(transform ? { transform } : {}) }] });
+      const t = heal && scale === 1 ? await backend() : new SmlibTessellator({ heal, scale });
+      await t.init();
+      const r = await t.tessellate(request(d, 0.1 / j.unit));
+      const again = /^(\d+) faces meshed badly.*\((\d+) better so\)$/.exec(r.diagnostics.find((x) =>
+        x.severity === 'info')?.message ?? '');
+      return { tris: r.indices.length / 3, area: areas(r).get(id)?.area, exact: r.measures![0]?.area,
+        box: extent(r.positions),
+        again: again ? [Number(again[1]), Number(again[2])] : [0, 0], lin: 0.1 / j.unit,
+        failed: r.diagnostics.some((x) => /failed to mesh/.test(x.message)) };
+    };
+    // A face smaller than the deflection squared that its healed sheet leaves without a mesh: meshed alone, unhealed.
+    const tiny = await face('bug24383_224013.stp', 11, 12066);
+    assert.ok(tiny.exact! > 0 && tiny.exact! < tiny.lin * tiny.lin, `exact ${tiny.exact}`);
+    assert.ok(tiny.tris > 0 && !tiny.failed && within(tiny.area, tiny.exact!, 0.5), JSON.stringify(tiny));
+    assert.deepEqual(tiny.again, [1, 1]);
+    // A face that meshes only healed: from an unhealed build, healed alone.
+    const healed = await face('bug24383_224013.stp', 11, 12053, false);
+    assert.ok(healed.tris > 0 && !healed.failed, JSON.stringify(healed));
+    assert.deepEqual(healed.again, [1, 1]);
+    // A face on a torus that meshes only larger and unhealed; with the part built so by the options, at once.
+    const torus = await face('OCC5099.stp', 14343, 4306);
+    assert.ok(torus.tris > 0 && !torus.failed && within(torus.area, torus.exact!, 0.03), JSON.stringify(torus));
+    assert.deepEqual(torus.again, [1, 1]);
+    // Moved by its item: the retry larger brought back to the part's size and then moved.
+    const moved = await face('OCC5099.stp', 14343, 4306, true, 1, [1, 0, 0, 0, 1, 0, 0, 0, 1, 100, 200, 300]);
+    assert.deepEqual(moved.again, [1, 1]);
+    for (let i = 0; i < 6; i++) assert.ok(Math.abs(moved.box[i]! - torus.box[i]! - [100, 200, 300][i % 3]!) < 1e-3,
+      `moved ${moved.box} for ${torus.box}`);
+    const large = await face('OCC5099.stp', 14343, 4306, false, 1024);
+    assert.ok(large.tris > 0 && !large.failed && within(large.area, large.exact!, 0.03), JSON.stringify(large));
+    assert.deepEqual(large.again, [0, 0]);
+  });
+
+/**
+ * The model edges (ids) a mesh is open along: edges two or more faces use (by the model) that all have triangles, with
+ * a mesh edge on them that only one triangle has; vertices one where their positions are the same numbers, mesh edges
+ * placed on model edges by the result's edge polylines.
+ */
+function openEdges(d: BrepData, r: TessellationResult): number[] {
+  const users = new Map<number, Set<number>>();
+  for (let f = 0; f < rowCount(d, 'face'); f++) {
+    const face = decode.face(d, f);
+    for (const l of face.loops) if (l.kind === 'edge') for (const c of l.coedges) {
+      const id = decode.edge(d, c.edge).id!;
+      (users.get(id) ?? users.set(id, new Set()).get(id)!).add(face.id!);
+    }
+  }
+  const weld = new Map<string, number>();
+  const at = (p: Float32Array, i: number) => {
+    const k = `${p[3 * i]},${p[3 * i + 1]},${p[3 * i + 2]}`;
+    return weld.get(k) ?? (weld.set(k, weld.size), weld.size - 1);
+  };
+  const key = (a: number, b: number) => `${Math.min(a, b)} ${Math.max(a, b)}`;
+  const uses = new Map<string, number>();
+  for (let k = 0; k < r.indices.length; k += 3) for (let j = 0; j < 3; j++) {
+    const e = key(at(r.positions, r.indices[k + j]!), at(r.positions, r.indices[k + (j + 1) % 3]!));
+    uses.set(e, (uses.get(e) ?? 0) + 1);
+  }
+  const meshed = new Set(r.faces.filter((f) => f.count > 0).map((f) => f.entityId));
+  const open = new Set<number>();
+  for (const e of r.edges!) {
+    const us = e.entityId === null ? undefined : users.get(e.entityId);
+    if (!us || us.size < 2 || ![...us].every((f) => meshed.has(f))) continue;
+    for (let k = e.start; k + 1 < e.start + e.count; k++) {
+      // (A segment from a point to itself, as single precision has some, is no gap.)
+      const a = at(r.edgePositions!, k), z = at(r.edgePositions!, k + 1);
+      if (a !== z && uses.get(key(a, z)) === 1) open.add(e.entityId!);
+    }
+  }
+  return [...open].sort((a, b) => a - b);
+}
+
+/**
+ * A mesh's soundness beside its model, each part independent of the backend's own account: the model edges it is
+ * open along (openEdges), the count of such edges the backend's error gives, triangles repeated within a face (the
+ * same three positions), edge polyline segments that aren't an edge of any triangle, edges two meshed faces use
+ * without an edge polyline (which openEdges can't judge), and the triangles the backend says it removed as folded or
+ * repeated (which would hide a face emitted twice).
+ */
+function soundness(d: BrepData, r: TessellationResult) {
+  const said = Number(/^(\d+) edges along/.exec(r.diagnostics.find((x) => x.severity === 'error')?.message ?? '')?.[1]
+    ?? 0);
+  const P = (p: Float32Array, i: number) => `${p[3 * i]},${p[3 * i + 1]},${p[3 * i + 2]}`;
+  let repeated = 0;
+  const sides = new Set<string>();
+  for (const f of r.faces) {
+    const seen = new Set<string>();
+    for (let t = f.start; t < f.start + f.count; t += 3) {
+      const v = [0, 1, 2].map((j) => P(r.positions, r.indices[t + j]!));
+      const k = [...v].sort().join(' ');
+      if (seen.has(k)) repeated++;
+      seen.add(k);
+      for (let j = 0; j < 3; j++) sides.add([v[j]!, v[(j + 1) % 3]!].sort().join(' '));
+    }
+  }
+  let stray = 0;
+  for (const e of r.edges ?? []) for (let k = e.start; k + 1 < e.start + e.count; k++)
+    if (!sides.has([P(r.edgePositions!, k), P(r.edgePositions!, k + 1)].sort().join(' '))) stray++;
+  const drawn = new Set((r.edges ?? []).map((e) => e.entityId)), meshed = new Set(r.faces.filter((f) => f.count)
+    .map((f) => f.entityId)), users = new Map<number, Set<number>>();
+  for (let f = 0; f < rowCount(d, 'face'); f++) {
+    const face = decode.face(d, f);
+    for (const l of face.loops) if (l.kind === 'edge') for (const c of l.coedges) {
+      const id = decode.edge(d, c.edge).id!;
+      (users.get(id) ?? users.set(id, new Set()).get(id)!).add(face.id!);
+    }
+  }
+  const unjudged = [...users].filter(([id, us]) => us.size >= 2 && [...us].every((f) => meshed.has(f))
+    && !drawn.has(id)).length;
+  const folded = Number(/^(\d+) triangles SMLib made twice/.exec(r.diagnostics.find((x) => /made twice/
+    .test(x.message))?.message ?? '')?.[1] ?? 0);
+  return { open: openEdges(d, r), said, repeated, stray, unjudged, folded };
+}
+
+/**
+ * Faces of a torus side by side in one open shell (or each in a shell of its own, of one body): between consecutive
+ * tube angles vs, over u0 to u1, each sharing its latitude edges (ids 100 + i at vs[i]) and their ends with its
+ * neighbours; face ids 1, 2, ... With `instance`, the body placed again by it; with `twice`, the first face in another
+ * shell of the body too.
+ */
+function torusBands(R: number, r: number, u0: number, u1: number, vs: readonly number[], transform?: number[],
+  apart = false, instance?: number[], twice = false): BrepData {
+  const b = new BrepBuilder({ unit: 1 });
+  const P = (u: number, v: number) => [(R + r * Math.cos(v)) * Math.cos(u), (R + r * Math.cos(v)) * Math.sin(u),
+    r * Math.sin(v)];
+  const torus = b.addSurface({ kind: 'torus', position: XY, majorRadius: R, minorRadius: r });
+  const ends = vs.map((v) => [b.addVertex({ point: P(u0, v) }), b.addVertex({ point: P(u1, v) })] as const);
+  const latitudes = vs.map((v, i) => b.addEdge({ id: 100 + i, curve: b.addCurve({ kind: 'circle',
+    position: { ...XY, origin: [0, 0, r * Math.sin(v)] }, radius: R + r * Math.cos(v) }), start: ends[i]![0],
+  end: ends[i]![1], sameSense: true }));
+  const meridian = (u: number, a: number, z: number, id: number) => b.addEdge({ id, curve: b.addCurve({
+    kind: 'circle', position: { origin: [R * Math.cos(u), R * Math.sin(u), 0], axis: [Math.sin(u), -Math.cos(u), 0],
+      xDir: [Math.cos(u), Math.sin(u), 0] }, radius: r }), start: a, end: z, sameSense: true });
+  const faces = vs.slice(1).map((_, i) => ({ sense: true, face: b.addFace({ id: i + 1, surface: torus,
+    sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [fwd(latitudes[i]!),
+      fwd(meridian(u1, ends[i]![1], ends[i + 1]![1], 200 + i)), rev(latitudes[i + 1]!),
+      rev(meridian(u0, ends[i]![0], ends[i + 1]![0], 300 + i))] }] }) }));
+  const shells = apart ? faces.map((f) => b.addShell({ kind: 'open', faces: [f] })) : [b.addShell({ kind: 'open',
+    faces })];
+  if (twice) shells.push(b.addShell({ kind: 'open', faces: [faces[0]!] }));
+  const item = b.addItem({ kind: 'body', ref: b.addBody({ kind: 'sheet', members: shells.map((ref) => ({ sense: true,
+    ref })) }), ...(transform ? { transform } : {}) });
+  if (instance) b.addItem({ kind: 'instance', ref: item, transform: instance });
+  return b.finish();
+}
+
+test('a face meshed again alone meets its neighbours exactly: shared edges with the same points on both sides',
+  { skip }, async () => {
+    // The thin strip (29 mm by 0.5 mm inside a torus of 56 and 2, meshed again with shorter edges) between two wider
+    // faces: its latitude edges' points and theirs made one set, so no mesh edge along them is one triangle's alone.
+    const args = [56, 2, 0, 0.54, [Math.PI - 1, Math.PI - 0.125, Math.PI + 0.125, Math.PI + 1]] as const;
+    const d = torusBands(...args), r = await mesh(d, 0.1);
+    assert.ok(r.diagnostics.some((x) => /^[1-3] faces meshed badly .*\([1-3] better so\)$/.test(x.message)),
+      JSON.stringify(r.diagnostics));
+    assert.ok(!r.diagnostics.some((x) => x.severity !== 'info'), JSON.stringify(r.diagnostics));
+    assert.deepEqual(soundness(d, r), { open: [], said: 0, repeated: 0, stray: 0, unjudged: 0, folded: 0 });
+    // Mirrored (x to -x) by the item's transform: the triangles wound the other way round, the same joins.
+    const m = torusBands(...args, [-1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]), rm = await mesh(m, 0.1);
+    assert.ok(rm.diagnostics.some((x) => /^[1-3] faces meshed badly/.test(x.message)));
+    assert.deepEqual(soundness(m, rm), { open: [], said: 0, repeated: 0, stray: 0, unjudged: 0, folded: 0 });
+    assert.equal(sides(m, rm).against, 0);
+    // Each face in a shell of its own (one SMLib B-rep each): joined along the edges the shells share, with the strip
+    // meshed again and without any face meshed again.
+    for (const vs of [args[4], [Math.PI - 1, Math.PI - 0.5, Math.PI, Math.PI + 1]]) {
+      const apart = torusBands(56, 2, 0, 0.54, vs, undefined, true), ra = await mesh(apart, 0.1);
+      assert.deepEqual(soundness(apart, ra), { open: [], said: 0, repeated: 0, stray: 0, unjudged: 0, folded: 0 },
+        `bands ${vs}`);
+      for (const id of [101, 102]) assert.deepEqual(ra.edges!.filter((e) => e.entityId === id).map((e) => e.kind),
+        ['shared'], `bands ${vs}: edge ${id}`);
+    }
+    // Placed again by an instance (8 up): each placement joined in itself, not to the other.
+    const once = await mesh(torusBands(...args, undefined, true), 0.1);
+    const placed = torusBands(...args, undefined, true, [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 8]);
+    const rp = await mesh(placed, 0.1);
+    assert.deepEqual(soundness(placed, rp), { open: [], said: 0, repeated: 0, stray: 0, unjudged: 0, folded: 0 });
+    assert.equal(rp.indices.length, 2 * once.indices.length);
+    // The first face in a second shell too: measured once.
+    const twice = torusBands(...args, undefined, true, undefined, true), rt = await mesh(twice, 0.1);
+    assert.deepEqual(rt.measures!.map((m) => [m.entityId, +m.area.toFixed(9)]),
+      once.measures!.map((m) => [m.entityId, +m.area.toFixed(9)]));
+    const got = areas(r);
+    for (const [i, id] of [1, 2, 3].entries()) {
+      const want = torusArea(56, 2, 0, 0.54, args[4][i]!, args[4][i + 1]!), a = got.get(id)!.area;
+      assert.ok(a > 0.97 * want && a < 1.1 * want, `face ${id}: ${a} for ${want}`);
+    }
+    // The shared edges once each, as shared ones, their points mesh vertices.
+    const at = new Set<string>();
+    for (let i = 0; i < r.positions.length; i += 3) at.add(`${r.positions[i]},${r.positions[i + 1]},`
+      + `${r.positions[i + 2]}`);
+    for (const id of [101, 102]) {
+      const es = r.edges!.filter((e) => e.entityId === id);
+      assert.deepEqual(es.map((e) => e.kind), ['shared'], `edge ${id}`);
+      for (let k = es[0]!.start; k < es[0]!.start + es[0]!.count; k++) assert.ok(at.has(`${r.edgePositions![3 * k]},`
+        + `${r.edgePositions![3 * k + 1]},${r.edgePositions![3 * k + 2]}`), `edge ${id} point ${k}`);
+    }
+    // Triangles still wound along the faces' normals after the splits (outward from the tube's centre line).
+    assert.equal(sides(d, r).against, 0);
+  });
+
+test('real parts joined exactly: corners moved and triangles split along shared edges, folds and repeats removed',
+  { skip: skip || (fs.existsSync(corpus) ? false : 'no corpus (test_corpus/third_party/pull.sh)') }, async () => {
+    const part = async (file: string, id: number) => {
+      const { scene } = await importStep(new Uint8Array(fs.readFileSync(path.join(corpus, file))));
+      const p = scene.parts.find((x) => x.sources[0]!.id === id)!;
+      const r = await (await backend()).tessellate({ ...request(p.brep!.model, 0.1 / p.unit), origin: p.origin });
+      return { d: p.brep!.model, r, lin: 0.1 / p.unit };
+    };
+    // A face meshed again alone whose corners SMLib puts elsewhere than its neighbours' (moved to theirs), on edges
+    // where both sides' triangles are split, among them triangles with two sides on the edge: watertight.
+    const joined = await part('trj3_s1-tc-214.stp', 2536);
+    assert.ok(joined.r.diagnostics.some((x) => /^1 faces meshed badly .*\(1 better so\)$/.test(x.message)));
+    assert.deepEqual(soundness(joined.d, joined.r), { open: [], said: 0, repeated: 0, stray: 0, unjudged: 0,
+      folded: 0 });
+    assert.equal(sides(joined.d, joined.r).against, 0);
+    // Corners SMLib puts 0.018 apart in a face's shell and alone, moved to one: watertight.
+    const corners = await part('trj3_s1-db-214.stp', 2117);
+    assert.deepEqual(soundness(corners.d, corners.r), { open: [], said: 0, repeated: 0, stray: 0, unjudged: 0,
+      folded: 0 });
+    // One sheet body of 58 open shells of a face each, sharing 14 edges: joined along them.
+    const shells = await part('trj4_k1_top-ct-203.stp', 121);
+    assert.equal(rowCount(shells.d, 'shell'), 58);
+    assert.deepEqual(soundness(shells.d, shells.r), { open: [], said: 0, repeated: 0, stray: 0, unjudged: 0,
+      folded: 0 });
+    // SMLib's mesh with triangles on the same three points, both wound alike: one of each kept, none repeated.
+    const repeats = await part('trj9_ap209-mp.stp', 462);
+    const s = soundness(repeats.d, repeats.r);
+    assert.ok(s.folded > 0 && s.repeated === 0, JSON.stringify(s));
+    assert.equal(areas(repeats.r).size, rowCount(repeats.d, 'face'));
+  });
+
+/**
+ * A closed cylinder (radius 2, height 5: its side, id 1, and two discs, 2 and 3) in a sheet body, and with `fin` an
+ * annulus (id 4, radius 2 to 4) on its top circle (edge 11) in an open shell of the same body.
+ */
+function finned(fin: boolean): BrepData {
+  const b = new BrepBuilder({ unit: 1 });
+  const ring = (z: number, r: number, id: number) => {
+    const v = b.addVertex({ point: [r, 0, z] });
+    return b.addEdge({ id, start: v, end: v, sameSense: true, curve: b.addCurve({ kind: 'circle', radius: r,
+      position: { ...XY, origin: [0, 0, z] } }) });
+  };
+  const bottom = ring(0, 2, 10), top = ring(5, 2, 11);
+  const plane = (z: number, up: boolean) => b.addSurface({ kind: 'plane', position: { origin: [0, 0, z],
+    axis: [0, 0, up ? 1 : -1], xDir: [1, 0, 0] } });
+  const loop = (...coedges: Coedge[]) => ({ kind: 'edge' as const, bound: 'unknown' as const, sense: true, coedges });
+  const side = b.addFace({ id: 1, surface: b.addSurface({ kind: 'cylinder', position: XY, radius: 2 }),
+    sameSense: true, loops: [loop(fwd(bottom)), loop(rev(top))] });
+  const cap = b.addFace({ id: 2, surface: plane(5, true), sameSense: true, loops: [loop(fwd(top))] });
+  const base = b.addFace({ id: 3, surface: plane(0, false), sameSense: true, loops: [loop(rev(bottom))] });
+  const shells = [b.addShell({ kind: 'closed', faces: [side, cap, base].map((face) => ({ face, sense: true })) })];
+  if (fin) {
+    const f = b.addFace({ id: 4, surface: plane(5, true), sameSense: true,
+      loops: [loop(fwd(ring(5, 4, 12))), loop(rev(top))] });
+    shells.push(b.addShell({ kind: 'open', faces: [{ face: f, sense: true }] }));
+  }
+  b.addItem({ kind: 'body', ref: b.addBody({ kind: 'sheet', members: shells.map((ref) => ({ ref, sense: true })) }) });
+  return b.finish();
+}
+
+test('a closed shell is never joined to another shell: its mesh the same with an open shell on one of its edges',
+  { skip }, async () => {
+    // Each face's triangles as their points, in order.
+    const points = (r: TessellationResult, ids: number[]) => r.faces.filter((f) => ids.includes(f.entityId!))
+      .map((f) => Array.from(r.indices.subarray(f.start, f.start + f.count), (v) => `${r.positions[3 * v]},`
+        + `${r.positions[3 * v + 1]},${r.positions[3 * v + 2]}`).join(';'));
+    for (const lin of [0.1, 0.01, 0.003]) {
+      const alone = await mesh(finned(false), lin), d = finned(true), r = await mesh(d, lin);
+      assert.deepEqual(points(r, [1, 2, 3]), points(alone, [1, 2, 3]), `at ${lin}`);
+      assert.deepEqual(soundness(finned(false), alone),
+        { open: [], said: 0, repeated: 0, stray: 0, unjudged: 0, folded: 0 }, `alone at ${lin}`);
+      // (The fin meets the cylinder all the same: SMLib puts the same points on the circle from both shells.)
+      assert.deepEqual(soundness(d, r), { open: [], said: 0, repeated: 0, stray: 0, unjudged: 0, folded: 0 },
+        `with the fin at ${lin}`);
+    }
+  });

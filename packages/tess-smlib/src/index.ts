@@ -18,6 +18,7 @@ interface SmlibModule {
     oz: number): number;
   _smlib_set_measures(on: number): void;
   _smlib_set_heal(on: number): void;
+  _smlib_set_scale(scale: number): void;
   _smlib_set_edges(on: number): void;
   _smlib_positions(): number;
   _smlib_normals(): number;
@@ -47,7 +48,7 @@ interface SmlibModule {
 const KINDS: EdgeKind[] = ['shared', 'seam', 'free', 'degenerate'];
 
 /** Changes when this adapter's results change for the same module, so that cached results from before aren't read. */
-const ADAPTER = 2;
+const ADAPTER = 5;
 
 /** The upstream source the module is built from (third_party/pull.sh). */
 const SOURCE = 'SMLib (usd-brep 1.0.1, 3fd5b95)';
@@ -55,8 +56,8 @@ const SOURCE = 'SMLib (usd-brep 1.0.1, 3fd5b95)';
 /** What this adapter uses of the module: the wrapper's C functions, the allocator, and the runtime's heap views. */
 export const REQUIRED_EXPORTS: readonly (keyof SmlibModule)[] = [
   'HEAPU8', 'HEAPF32', 'HEAPU32', 'HEAP32', 'HEAPF64', 'UTF8ToString', '_malloc', '_free', '_smlib_tessellate_model',
-  '_smlib_set_measures', '_smlib_set_heal', '_smlib_set_edges', '_smlib_positions', '_smlib_normals',
-  '_smlib_num_vertices',
+  '_smlib_set_measures', '_smlib_set_heal', '_smlib_set_scale', '_smlib_set_edges', '_smlib_positions',
+  '_smlib_normals', '_smlib_num_vertices',
   '_smlib_indices', '_smlib_num_indices', '_smlib_faces', '_smlib_num_faces', '_smlib_edge_positions',
   '_smlib_num_edge_points', '_smlib_edges', '_smlib_edge_angles', '_smlib_num_edges', '_smlib_measures',
   '_smlib_num_measures', '_smlib_curve_positions', '_smlib_num_curve_points', '_smlib_curves', '_smlib_num_curves',
@@ -86,6 +87,13 @@ export interface SmlibInitOptions {
 export interface SmlibOptions {
   /** Run SMLib's healer on each B-rep built (default true). */
   heal?: boolean;
+  /**
+   * Build each part with its lengths times this, a power of two from 1 (the default) up; results are at the part's
+   * own size all the same. SMLib has absolute constants, so which faces mesh depends on the numbers' size: small
+   * parts can mesh more faces larger. (Not below 1: SMLib traps on parts made small. A power of two, so that points
+   * come back as they were.)
+   */
+  scale?: number;
 }
 
 async function fetchBytes(url: URL): Promise<BufferSource> {
@@ -104,10 +112,15 @@ export class SmlibTessellator implements Tessellator {
     supportsEdges: true, supportsCurves: true,
   };
   readonly heal: boolean;
+  readonly scale: number;
   private m?: SmlibModule;
   /** SMLib's printed messages during a call: dropped (it prints debugging text only). */
   constructor(opts: SmlibOptions = {}) {
     this.heal = opts.heal ?? true;
+    this.scale = opts.scale ?? 1;
+    if (!(this.scale >= 1 && Number.isFinite(this.scale) && Number.isInteger(Math.log2(this.scale)))) {
+      throw new RangeError('SmlibTessellator: scale must be a power of two, 1 or more');
+    }
   }
 
   async init(opts: SmlibInitOptions = {}): Promise<void> {
@@ -144,7 +157,7 @@ export class SmlibTessellator implements Tessellator {
         + 'the exports packages/tess-smlib/build.sh lists?');
     }
     this.info.version = `${version ?? SOURCE}${id ? `, wasm ${id}` : ''}, adapter ${ADAPTER}`
-      + (this.heal ? '' : ', unhealed');
+      + (this.heal ? '' : ', unhealed') + (this.scale === 1 ? '' : `, scale ${String(this.scale)}`);
   }
 
   async tessellate(req: TessellationRequest): Promise<TessellationResult> {
@@ -157,6 +170,7 @@ export class SmlibTessellator implements Tessellator {
     m.HEAPU8.set(req.data, ptr);
     m._smlib_set_measures(req.measures ? 1 : 0);
     m._smlib_set_heal(this.heal ? 1 : 0);
+    m._smlib_set_scale(this.scale);
     m._smlib_set_edges(req.edges ? 1 : 0);
     let rc: number;
     try {
@@ -235,7 +249,16 @@ export class SmlibTessellator implements Tessellator {
     }
     if (diag.retried) {
       diagnostics.push({ severity: 'info', message: `${String(diag.retried)} faces meshed badly in their shells, `
-        + `meshed again alone, unhealed and with shorter edges (${String(diag.improved)} better so)` });
+        + `meshed again alone, unhealed, healed, with shorter edges or larger (${String(diag.improved)} `
+        + 'better so)' });
+    }
+    if (diag.folded) {
+      diagnostics.push({ severity: 'info', message: `${String(diag.folded)} triangles SMLib made twice or folded back `
+        + 'on themselves removed' });
+    }
+    if (diag.unjoined) {
+      diagnostics.push({ severity: 'error', message: `${String(diag.unjoined)} edges along which the meshes of the `
+        + "faces they join don't meet: the mesh is open there" });
     }
     if (diag.tessError) diagnostics.push({ severity: 'warning', message: `SMLib: ${String(diag.tessError)}` });
     // (SMLib's own times, for corpus_checks/smlib_occt.ts.)

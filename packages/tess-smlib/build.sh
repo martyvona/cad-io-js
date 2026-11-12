@@ -11,7 +11,7 @@ L=build/smlib-wasm/libsmlib.a
 [ -f $L ] || { echo "no SMLib build at $L: run build-smlib.sh" >&2; exit 1; }
 D=${D:-dist}
 mkdir -p "$D" build
-EXPORTS='["_smlib_tessellate_model","_smlib_set_measures","_smlib_set_heal","_smlib_set_edges",'\
+EXPORTS='["_smlib_tessellate_model","_smlib_set_measures","_smlib_set_heal","_smlib_set_scale","_smlib_set_edges",'\
 '"_smlib_positions","_smlib_normals","_smlib_num_vertices","_smlib_indices","_smlib_num_indices","_smlib_faces",'\
 '"_smlib_num_faces",'\
 '"_smlib_edge_positions","_smlib_num_edge_points","_smlib_edges","_smlib_edge_angles","_smlib_num_edges",'\

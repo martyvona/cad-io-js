@@ -22,6 +22,11 @@ struct BuiltBrep
   std::vector<double> transform;
   // The face rows given to SMLib: healing removes some (slivers), which then have no SMLib face.
   std::vector<int> rows;
+  // The B-rep's lengths are the model's times this; the transform brings its meshes back to the part's size.
+  double scale = 1;
+  // The placed item it is of (each placement of an item through instances its own; a closed shell one of its own):
+  // the B-reps of one, each open shell of a body; their faces' meshes are joined along the edges they share.
+  int group = 0;
 };
 
 // Edge kinds, as the wrapper reports them; an SMLib edge's SM_AI_EDGE_ID attribute is (edge row + 1) x 4 + kind.
@@ -33,6 +38,8 @@ struct BuiltPart
   // Each face row's and edge row's source id (NaN: none), by row; SMLib's edges carry their edge row + 1 as user
   // index 1.
   std::vector<double> faceIds, edgeIds;
+  // Each edge row's uses by faces' loops: the face rows, one for each use.
+  std::vector<std::vector<int>> edgeFaces;
   // Wireframe curves (curve items, wire bodies' edges) as polylines with their ids (NaN: none), and loose points (one
   // point each), each with its item's transform (12 reals, or none).
   struct Polyline
@@ -46,8 +53,6 @@ struct BuiltPart
   std::vector<std::string> warnings;
   // Non-empty: the part wasn't built, and why.
   std::string error;
-  // Millimetres per unit; the part's uncertainty (NaN without one).
-  double unit = 1.0, uncertainty = 0.0 / 0.0;
   ~BuiltPart();
 };
 
@@ -60,9 +65,12 @@ struct BuildOptions
   double linearDeflection = 0.1, angularDeflection = 0.5;
 };
 
-void buildPart(const uint8_t* buf, size_t len, const BuildOptions& options, BuiltPart& out);
+// scale: the model built with its lengths times this (SMLib has absolute constants; 1 or more, as SMLib traps
+// on parts made small), the options' linear deflection too; what's built is brought back to the part's size by its
+// transforms.
+void buildPart(const uint8_t* buf, size_t len, const BuildOptions& options, double scale, BuiltPart& out);
 
 // Faces (rows) of a part, each alone in its own B-rep at the transform given (a retry for faces that meshed badly in
-// their shell), unhealed (the options' heal isn't read).
+// their shell), the transform from the model's own coordinates; scale as buildPart's.
 void buildFaces(const uint8_t* buf, size_t len, const std::vector<int>& faces, const std::vector<double>& transform,
-  const BuildOptions& options, BuiltPart& out);
+  const BuildOptions& options, double scale, BuiltPart& out);

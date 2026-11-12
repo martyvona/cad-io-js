@@ -140,6 +140,7 @@ struct Model
   double faceId(int f) const { return CBR_F64(v[CBR_FACE_ID])[f]; }
   int shellFirst(int s) const { return CBR_I32(v[CBR_SHELL_FIRST])[s]; }
   int shellCount(int s) const { return CBR_I32(v[CBR_SHELL_COUNT])[s]; }
+  int shellKind(int s) const { return CBR_U8(v[CBR_SHELL_KIND])[s]; }
   int faceUseFace(int u) const { return CBR_I32(v[CBR_FACE_USE_FACE])[u]; }
   int bodyKind(int b) const { return CBR_U8(v[CBR_BODY_KIND])[b]; }
   int bodyFirst(int b) const { return CBR_I32(v[CBR_BODY_FIRST])[b]; }
@@ -1578,6 +1579,8 @@ public:
 private:
   // An item, at a transform (its own composed onto an instance's).
   void buildItem(int i, const std::vector<double>& outer, int depth);
+  // The placed item being built, and how many have been.
+  int group = 0, groups = 0;
 
   // One SMLib B-rep from faces (rows), in the open-sheet form.
   void buildSheet(const std::vector<int>& faces, const std::vector<double>& transform);
@@ -1992,6 +1995,7 @@ void Builder::buildSheet(const std::vector<int>& faceRows, const std::vector<dou
     long kind = e->IsSeam() ? EDGE_SEAM : e->IsLamina() ? EDGE_FREE : EDGE_SHARED;
     e->AddAttribute(new (ctx) SmLongAttribute(SM_AI_EDGE_ID, (long)e->GetUserIndex1() * 4 + kind));
   }
+  built.group = group;
   out.breps.push_back(std::move(built));
 }
 
@@ -2016,6 +2020,7 @@ void Builder::buildNatural(int surface, int face, const std::vector<double>& tra
   if (face >= 0) built.rows.push_back(face);
   // A loose surface faces along its own normal.
   if (g.flipped == (face < 0 || m.faceSameSense(face))) built.reverse.insert(f);
+  built.group = group;
   out.breps.push_back(std::move(built));
 }
 
@@ -2034,6 +2039,7 @@ static std::vector<double> compose(const std::vector<double>& a, const std::vect
 
 void Builder::buildItem(int i, const std::vector<double>& outer, int depth)
 {
+  group = ++groups;
   std::vector<double> own;
   if (m.itemTransform(i) >= 0) own.assign(m.itemReal(m.itemTransform(i)), m.itemReal(m.itemTransform(i)) + 12);
   std::vector<double> tr = compose(own, outer);
@@ -2057,7 +2063,12 @@ void Builder::buildItem(int i, const std::vector<double>& outer, int depth)
       }
       std::vector<int> faces;
       for (int u = m.shellFirst(ref); u < m.shellFirst(ref) + m.shellCount(ref); u++) faces.push_back(m.faceUseFace(u));
+      // (A closed shell a group of its own: never joined to another shell along an edge they share, which would make
+      // it no longer closed. Open shells sharing edges are one surface the file split.)
+      int open = group;
+      if (m.shellKind(ref) == CBR_SHELL_CLOSED) group = ++groups;
       buildSheet(faces, tr);
+      group = open;
     }
     break;
   }
@@ -2096,34 +2107,152 @@ static bool openPart(const uint8_t* buf, size_t len, Model& m, BuiltPart& out, d
     out.error = "not a cad-brep buffer of this version";
     return false;
   }
-  out.unit = CBR_F64(m.v[CBR_PART_UNIT])[0];
-  out.uncertainty = CBR_F64(m.v[CBR_PART_UNCERTAINTY])[0];
+  const double unit = CBR_F64(m.v[CBR_PART_UNIT])[0], uncertainty = CBR_F64(m.v[CBR_PART_UNCERTAINTY])[0];
   int nf = (int)m.rows(CBR_FACE_SURFACE);
   out.faceIds.resize(nf);
   for (int f = 0; f < nf; f++) out.faceIds[f] = m.faceId(f);
   int ne = (int)m.rows(CBR_EDGE_CURVE);
   out.edgeIds.resize(ne);
   for (int e = 0; e < ne; e++) out.edgeIds[e] = CBR_F64(m.v[CBR_EDGE_ID])[e];
+  out.edgeFaces.assign(ne, {});
+  for (int f = 0; f < nf; f++)
+    for (int l = m.faceFirstLoop(f); l < m.faceFirstLoop(f) + m.faceLoopCount(f); l++)
+    {
+      if (m.loopKind(l) != CBR_LOOP_EDGE) continue;
+      for (int k = 0; k < m.loopCount(l); k++)
+      {
+        int e = m.coedgeEdge(m.loopFirst(l) + k);
+        if (e >= 0 && e < ne) out.edgeFaces[e].push_back(f);
+      }
+    }
   // The part's uncertainty as SMLib's zone tolerance; without one, 1e-5 of SMLib's default in millimetres.
-  tol = std::isnan(out.uncertainty) || !(out.uncertainty > 0) ? 1e-5 / out.unit : out.uncertainty;
+  tol = std::isnan(uncertainty) || !(uncertainty > 0) ? 1e-5 / unit : uncertainty;
   return true;
 }
 
-void buildFaces(const uint8_t* buf, size_t len, const std::vector<int>& faces, const std::vector<double>& transform,
-  const BuildOptions& options, BuiltPart& out)
+// A model's lengths times s, in place (the buffer a writable copy): what the builder reads for faces. Parameters keep
+// their values (a line's magnitude and an extrusion's scale with the lengths) but a rectangular trim's on a plane and
+// along a cylinder or cone, which are lengths. Not scaled: 2D curves, which the builder doesn't read.
+static void scaleModel(Model& m, double s)
 {
-  Model m;
-  double tol;
-  if (!openPart(buf, len, m, out, tol)) return;
-  BuildOptions opt = options;
-  opt.heal = false;
-  Builder(m, *SmApiGetOrCreateContext(), tol, opt, out).buildEach(faces, transform);
+  auto f64 = [&](int c) { return const_cast<double*>(CBR_F64(m.v[c])); };
+  auto times = [&](double* p, size_t n) { for (size_t i = 0; i < n; i++) p[i] *= s; };
+  f64(CBR_PART_UNIT)[0] /= s;
+  f64(CBR_PART_UNCERTAINTY)[0] *= s;
+  times(f64(CBR_VERTEX_POINT), m.v[CBR_VERTEX_POINT].count);
+  times(f64(CBR_VERTEX_TOLERANCE), m.v[CBR_VERTEX_TOLERANCE].count);
+  times(f64(CBR_EDGE_TOLERANCE), m.v[CBR_EDGE_TOLERANCE].count);
+  times(f64(CBR_FACE_TOLERANCE), m.v[CBR_FACE_TOLERANCE].count);
+  // (Rows may share a pool entry: each scaled once.)
+  std::unordered_set<int32_t> done;
+  for (int i = 0; i < (int)m.rows(CBR_CURVE_KIND); i++)
+  {
+    if (m.curveDim(i) != 3 || !done.insert(CBR_I32(m.v[CBR_CURVE_REAL])[i]).second) continue;
+    double* r = const_cast<double*>(m.curveReal(i));
+    const int32_t* n = m.curveInt(i);
+    switch (m.curveKind(i))
+    {
+    case CBR_CURVE_LINE: times(r, 3); r[6] *= s; break;
+    case CBR_CURVE_CIRCLE:
+    case CBR_CURVE_PARABOLA: times(r, 3); r[9] *= s; break;
+    case CBR_CURVE_ELLIPSE:
+    case CBR_CURVE_HYPERBOLA: times(r, 3); times(r + 9, 2); break;
+    case CBR_CURVE_BSPLINE: times(r + n[2], 3 * (size_t)n[1]); break;
+    case CBR_CURVE_POLYLINE: times(r, 3 * (size_t)n[0]); break;
+    case CBR_CURVE_TRIMMED: times(r + 2, 6); break;
+    case CBR_CURVE_OFFSET: r[0] *= s; break;
+    }
+  }
+  done.clear();
+  for (int i = 0; i < (int)m.rows(CBR_SURFACE_KIND); i++)
+  {
+    if (!done.insert(CBR_I32(m.v[CBR_SURFACE_REAL])[i]).second) continue;
+    double* r = const_cast<double*>(m.surfaceReal(i));
+    const int32_t* n = m.surfaceInt(i);
+    switch (m.surfaceKind(i))
+    {
+    case CBR_SURFACE_PLANE: times(r, 3); break;
+    case CBR_SURFACE_CYLINDER:
+    case CBR_SURFACE_CONE:
+    case CBR_SURFACE_SPHERE: times(r, 3); r[9] *= s; break;
+    case CBR_SURFACE_TORUS: times(r, 3); times(r + 9, 2); break;
+    case CBR_SURFACE_BSPLINE: times(r + n[4] + n[5], 3 * (size_t)n[2] * (size_t)n[3]); break;
+    case CBR_SURFACE_EXTRUSION: r[3] *= s; break;
+    case CBR_SURFACE_REVOLUTION: times(r, 3); break;
+    case CBR_SURFACE_OFFSET: r[0] *= s; break;
+    case CBR_SURFACE_RECTANGULAR_TRIMMED: {
+      int basis = m.surfaceKind(n[0]);
+      if (basis == CBR_SURFACE_PLANE) times(r, 4);
+      else if (basis == CBR_SURFACE_CYLINDER || basis == CBR_SURFACE_CONE) times(r + 2, 2);
+      break;
+    }
+    }
+  }
+  done.clear();
+  double* ir = const_cast<double*>(m.itemReal(0));
+  for (int i = 0; i < (int)m.rows(CBR_ITEM_KIND); i++)
+  {
+    if (m.itemKind(i) == CBR_ITEM_POINT && done.insert(m.itemRef(i)).second) times(ir + m.itemRef(i), 3);
+    int t = m.itemTransform(i);
+    if (t >= 0 && done.insert(t + 9).second) times(ir + t + 9, 3);
+  }
 }
 
-void buildPart(const uint8_t* buf, size_t len, const BuildOptions& options, BuiltPart& out)
+// A copy of a part's buffer with its lengths times scale, opened as m; false if it isn't a model. (Doubles: the
+// columns are 8-byte aligned.)
+static bool scaledCopy(const uint8_t* buf, size_t len, double scale, std::vector<double>& copy, Model& m)
+{
+  copy.assign((len + 7) / 8, 0.0);
+  std::memcpy(copy.data(), buf, len);
+  if (cbr_open(reinterpret_cast<const uint8_t*>(copy.data()), len, m.v) != 0) return false;
+  scaleModel(m, scale);
+  return true;
+}
+
+// After a build at a scale: each B-rep's scale.
+static void scaledBack(BuiltPart& out, double scale)
+{
+  for (auto& b : out.breps) b.scale = scale;
+}
+
+void buildFaces(const uint8_t* buf, size_t len, const std::vector<int>& faces, const std::vector<double>& transform,
+  const BuildOptions& options, double scale, BuiltPart& out)
 {
   Model m;
   double tol;
-  if (!openPart(buf, len, m, out, tol)) return;
-  Builder(m, *SmApiGetOrCreateContext(), tol, options, out).build();
+  std::vector<double> copy;
+  if (scale != 1 && !scaledCopy(buf, len, scale, copy, m)) return;
+  if (!openPart(scale != 1 ? reinterpret_cast<const uint8_t*>(copy.data()) : buf, len, m, out, tol)) return;
+  BuildOptions opt = options;
+  opt.linearDeflection *= scale;
+  std::vector<double> back = transform;
+  if (scale != 1)
+  {
+    if (back.size() != 12) back = {1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0};
+    for (int i = 0; i < 9; i++) back[i] /= scale;
+  }
+  Builder(m, *SmApiGetOrCreateContext(), tol, opt, out).buildEach(faces, back);
+  scaledBack(out, scale);
+}
+
+void buildPart(const uint8_t* buf, size_t len, const BuildOptions& options, double scale, BuiltPart& out)
+{
+  Model m;
+  double tol;
+  std::vector<double> copy;
+  if (scale != 1 && !scaledCopy(buf, len, scale, copy, m)) return;
+  if (!openPart(scale != 1 ? reinterpret_cast<const uint8_t*>(copy.data()) : buf, len, m, out, tol)) return;
+  BuildOptions opt = options;
+  opt.linearDeflection *= scale;
+  Builder(m, *SmApiGetOrCreateContext(), tol, opt, out).build();
+  scaledBack(out, scale);
+  if (scale == 1) return;
+  // The items' transforms (their translations scaled with the model) made to bring the meshes back to the part's size.
+  auto back = [&](std::vector<double>& t) {
+    if (t.size() != 12) t = {1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0};
+    for (double& x : t) x /= scale;
+  };
+  for (auto& b : out.breps) back(b.transform);
+  for (auto& c : out.curves) back(c.transform);
+  for (auto& c : out.points) back(c.transform);
 }
