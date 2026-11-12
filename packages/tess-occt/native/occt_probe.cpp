@@ -64,11 +64,11 @@ struct MemBuf : std::streambuf
 struct Probe
 {
   // The first face and edge read for each STEP id.
-  std::map<int, TopoDS_Face> faces;
-  std::map<int, TopoDS_Edge> edges;
-  std::vector<double>        faceBoxes; // id, u0, u1, v0, v1
-  std::vector<double>        edgeRanges; // id, t0, t1
-  std::string                diag;
+  std::map<uint32_t, TopoDS_Face> faces;
+  std::map<uint32_t, TopoDS_Edge> edges;
+  std::vector<double>             faceBoxes; // id, u0, u1, v0, v1
+  std::vector<double>             edgeRanges; // id, t0, t1
+  std::string                     diag;
 };
 Probe p;
 
@@ -208,7 +208,7 @@ int occt_probe_read(const char* data, int len, int rootId)
       TopoDS_Shape s = TransferBRep::ShapeResult(tp, ent);
       if (s.IsNull())
         continue;
-      const int id = model->IdentLabel(ent);
+      const uint32_t id = (uint32_t)model->IdentLabel(ent);
       TopExp_Explorer ex(s, face ? TopAbs_FACE : TopAbs_EDGE);
       if (!ex.More())
         continue;
@@ -271,7 +271,7 @@ void occt_probe_eval(const double* queries, int n, double* out)
     const double* q   = queries + 4 * k;
     double*       o   = out + 3 * k;
     o[0] = o[1] = o[2] = NaN;
-    const int id = (int)q[1];
+    const uint32_t id = (uint32_t)q[1];
     try
     {
       gp_Pnt pt;

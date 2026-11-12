@@ -22,7 +22,7 @@ test('a C and a C++ reader see through the header what the views see', { skip: !
   () => {
     const dir = mkdtempSync(join(tmpdir(), 'cad-brep-'));
     try {
-      const types = COLUMNS.map((c) => ({ u8: 'b', i32: 'i', f64: 'f' })[c.type]).join('');
+      const types = COLUMNS.map((c) => ({ u8: 'b', i32: 'i', u32: 'u', f64: 'f' })[c.type]).join('');
       for (const [cc, std, x, lang] of compilers) {
         const exe = join(dir, `reader-${lang}`);
         execFileSync(cc!, [std!, '-Wall', '-Wextra', '-Werror', '-pedantic', x!, lang!, join(here, 'reader.c'), '-o',

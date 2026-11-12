@@ -9,7 +9,6 @@ interface OcctModule {
   HEAPU8: Uint8Array;
   HEAPF32: Float32Array;
   HEAPU32: Uint32Array;
-  HEAP32: Int32Array;
   HEAPF64: Float64Array;
   UTF8ToString(p: number): string;
   _malloc(n: number): number;
@@ -35,6 +34,8 @@ interface OcctModule {
   _occt_points(): number;
   _occt_point_ids(): number;
   _occt_num_points(): number;
+  /** Present where the id arrays are uint32 with 0 for none (a module built before had int32 with -1). */
+  _occt_ids_u32(): number;
   _occt_diag(): number;
   /** Failed faces' outlines (builds before 2026-10-28 lack them). */
   _occt_outline_positions?(): number;
@@ -88,11 +89,11 @@ export class Messages {
 
 /** What this adapter uses of the module: the wrapper's C functions, the allocator, and the runtime's heap views. */
 export const REQUIRED_EXPORTS: readonly (keyof OcctModule)[] = [
-  'HEAPU8', 'HEAPF32', 'HEAPU32', 'HEAP32', 'UTF8ToString', '_malloc', '_free', '_occt_tessellate', '_occt_positions',
+  'HEAPU8', 'HEAPF32', 'HEAPU32', 'UTF8ToString', '_malloc', '_free', '_occt_tessellate', '_occt_positions',
   '_occt_normals', '_occt_num_vertices', '_occt_indices', '_occt_num_indices', '_occt_faces', '_occt_num_faces',
   '_occt_edge_positions', '_occt_num_edge_points', '_occt_edges', '_occt_edge_angles', '_occt_num_edges',
   '_occt_curve_positions', '_occt_num_curve_points', '_occt_curves', '_occt_num_curves', '_occt_points',
-  '_occt_point_ids', '_occt_num_points', '_occt_diag', '_occt_free',
+  '_occt_point_ids', '_occt_num_points', '_occt_ids_u32', '_occt_diag', '_occt_free',
 ];
 
 /** Emscripten's module factory: the default export of the JavaScript glue built with the module. */
@@ -251,15 +252,16 @@ export class OcctTessellator implements Tessellator {
     // Copy out of the heap: it can move on the next allocation.
     const f32 = (p: number, n: number) => m.HEAPF32.slice(p >> 2, (p >> 2) + n);
     const u32 = (p: number, n: number) => m.HEAPU32.slice(p >> 2, (p >> 2) + n);
-    const i32 = (p: number, n: number) => m.HEAP32.slice(p >> 2, (p >> 2) + n);
+    /** A source id, 0 for none. */
+    const id = (x: number) => (x === 0 ? null : x);
     const nv = m._occt_num_vertices();
     const positions = f32(m._occt_positions(), nv * 3);
     const normals = f32(m._occt_normals(), nv * 3);
     const indices = u32(m._occt_indices(), m._occt_num_indices());
-    const faceData = i32(m._occt_faces(), m._occt_num_faces() * 3);
+    const faceData = u32(m._occt_faces(), m._occt_num_faces() * 3);
     const faces: TessellationResult['faces'] = [];
     for (let i = 0; i < faceData.length; i += 3) {
-      faces.push({ entityId: faceData[i]! < 0 ? null : faceData[i]!, start: faceData[i + 1]!,
+      faces.push({ entityId: id(faceData[i]!), start: faceData[i + 1]!,
         count: faceData[i + 2]! });
     }
     const result: TessellationResult = { origin, positions, normals, indices, faces, diagnostics };
@@ -274,13 +276,13 @@ export class OcctTessellator implements Tessellator {
     }
     if (req.edges) {
       const ne = m._occt_num_edges();
-      const edgeData = i32(m._occt_edges(), ne * 4);
+      const edgeData = u32(m._occt_edges(), ne * 4);
       const angles = f32(m._occt_edge_angles(), ne);
       result.edgePositions = f32(m._occt_edge_positions(), m._occt_num_edge_points() * 3);
       result.edges = [];
       for (let i = 0; i < ne; i++) {
         const e: NonNullable<TessellationResult['edges']>[number] = {
-          entityId: edgeData[i * 4]! < 0 ? null : edgeData[i * 4]!, start: edgeData[i * 4 + 1]!,
+          entityId: id(edgeData[i * 4]!), start: edgeData[i * 4 + 1]!,
           count: edgeData[i * 4 + 2]!, kind: KINDS[edgeData[i * 4 + 3]!]!,
         };
         if (angles[i]! >= 0) e.dihedral = angles[i]!;
@@ -289,28 +291,28 @@ export class OcctTessellator implements Tessellator {
     }
     const nc = m._occt_num_curves();
     if (nc) {
-      const curveData = i32(m._occt_curves(), nc * 3);
+      const curveData = u32(m._occt_curves(), nc * 3);
       result.curvePositions = f32(m._occt_curve_positions(), m._occt_num_curve_points() * 3);
       result.curves = [];
       for (let i = 0; i < curveData.length; i += 3) {
-        result.curves.push({ entityId: curveData[i]! < 0 ? null : curveData[i]!, start: curveData[i + 1]!,
+        result.curves.push({ entityId: id(curveData[i]!), start: curveData[i + 1]!,
           count: curveData[i + 2]! });
       }
     }
     const no = m._occt_num_outlines?.() ?? 0;
     if (no) {
-      const outlineData = i32(m._occt_outlines!(), no * 3);
+      const outlineData = u32(m._occt_outlines!(), no * 3);
       result.outlinePositions = f32(m._occt_outline_positions!(), m._occt_num_outline_points!() * 3);
       result.outlines = [];
       for (let i = 0; i < outlineData.length; i += 3) {
-        result.outlines.push({ entityId: outlineData[i]! < 0 ? null : outlineData[i]!, start: outlineData[i + 1]!,
+        result.outlines.push({ entityId: id(outlineData[i]!), start: outlineData[i + 1]!,
           count: outlineData[i + 2]! });
       }
     }
     const np = m._occt_num_points();
     if (np) {
       result.points = f32(m._occt_points(), np * 3);
-      result.pointIds = Array.from(i32(m._occt_point_ids(), np), (id) => (id < 0 ? null : id));
+      result.pointIds = Array.from(u32(m._occt_point_ids(), np), id);
     }
     m._occt_free();
     if (diag.unmapped) diagnostics.push(

@@ -1,7 +1,7 @@
 /* A reader of cad-brep buffers through cad_brep.h, for header.test.ts, compiled as C and as C++: prints, per column,
  * its element count, the sum of its finite values and how many aren't finite; exits 2 if cbr_open refuses the
- * buffer. The columns' element types come from the test (CBR_TYPES, a letter per column: b uint8, i int32, f double),
- * since the header says them only in comments. */
+ * buffer. The columns' element types come from the test (CBR_TYPES, a letter per column: b uint8, i int32, u uint32,
+ * f double), since the header says them only in comments. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -27,7 +27,7 @@ int main(int argc, char** argv) {
     unsigned bad = 0, j;
     for (j = 0; j < views[k].count; j++) {
       double x = types[k] == 'b' ? CBR_U8(views[k])[j] : types[k] == 'i' ? CBR_I32(views[k])[j]
-        : CBR_F64(views[k])[j];
+        : types[k] == 'u' ? CBR_U32(views[k])[j] : CBR_F64(views[k])[j];
       if (x - x == 0) sum += x;
       else bad++;
     }

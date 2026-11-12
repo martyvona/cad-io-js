@@ -20,6 +20,12 @@ test('a cube: every face\'s four edges, straight, from vertex to vertex, minus t
   const only = faceOutlines(cube().finish(), [0, 0, 0], O, new Set([23]));
   assert.deepEqual([...new Set(only.outlines.map((x) => x.source))], [23]);
   assert.equal(only.faces.length, 6);
+  // A face without an id (0) goes by its row.
+  const d = cube().finish();
+  d.face.id[2] = 0;
+  const unnamed = faceOutlines(d, [0, 0, 0], O);
+  assert.deepEqual(unnamed.faces, [21, 22, 2, 24, 25, 26]);
+  assert.equal(unnamed.outlines.filter((x) => x.source === 2).length, 4);
 });
 
 test('a cylinder\'s circles stepped by the deflections, on the circle, through the vertices; the seam once', () => {

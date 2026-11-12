@@ -510,7 +510,7 @@ export const check: FileCheck<undefined, Result> = {
     const oracleA = new AreaOracle(parseStep(bytes)), oracleB = new AreaOracle(parseStep(written));
     for (const [, m] of models) for (let f = 0; f < rowCount(m, 'face'); f++) {
       const id = m.face.id[f]!;
-      if (Number.isNaN(id)) continue;
+      if (!id) continue;
       const p = oracleA.faceArea(id), q = oracleB.faceArea(id);
       if (!trusted(p)) continue;
       if (!trusted(q)) {

@@ -149,7 +149,7 @@ function faceUses(d: BrepData): Map<number, number> {
   const out = new Map<number, number>();
   for (const f of d.faceUse.face) {
     const id = d.face.id[f]!;
-    if (!Number.isNaN(id)) out.set(id, (out.get(id) ?? 0) + 1);
+    if (id) out.set(id, (out.get(id) ?? 0) + 1);
   }
   return out;
 }

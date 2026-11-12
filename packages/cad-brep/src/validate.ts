@@ -29,8 +29,7 @@ export function validateBrep(d: BrepData): BrepDiagnostic[] {
   };
   const n = Object.fromEntries((['curve', 'surface', 'vertex', 'edge', 'coedge', 'loop', 'face', 'shell', 'body',
     'faceUse', 'member', 'item'] as TableName[]).map((t) => [t, rowCount(d, t)])) as Record<TableName, number>;
-  const name = (t: TableName, k: number, ids?: Float64Array) =>
-    `${t} ${k}${ids && !Number.isNaN(ids[k]!) ? ` (#${ids[k]})` : ''}`;
+  const name = (t: TableName, k: number, ids?: Uint32Array) => `${t} ${k}${ids?.[k] ? ` (#${ids[k]})` : ''}`;
   const finite = (xs: ArrayLike<number>) => {
     for (let i = 0; i < xs.length; i++) if (!Number.isFinite(xs[i]!)) return false;
     return true;
@@ -318,10 +317,10 @@ export function validateBrep(d: BrepData): BrepDiagnostic[] {
     report(what, r);
   }
 
-  const tolerance = (t: TableName, k: number, x: number, ids: Float64Array) => {
+  const tolerance = (t: TableName, k: number, x: number, ids: Uint32Array) => {
     if (!Number.isNaN(x) && !(x >= 0 && Number.isFinite(x))) say('error', `${name(t, k, ids)}: tolerance ${x}`);
   };
-  const pair = (t: TableName, k: number, r: Float64Array, ids: Float64Array) => {
+  const pair = (t: TableName, k: number, r: Float64Array, ids: Uint32Array) => {
     const a = r[2 * k]!, b = r[2 * k + 1]!;
     if (!(Number.isNaN(a) && Number.isNaN(b)) && !(Number.isFinite(a) && Number.isFinite(b))) {
       say('error', `${name(t, k, ids)}: range ${a}, ${b}`);
@@ -492,11 +491,11 @@ export function validateBrep(d: BrepData): BrepDiagnostic[] {
     }
   }
 
-  const sourced: [TableName, Float64Array][] = [['vertex', d.vertex.id], ['edge', d.edge.id], ['face', d.face.id]];
+  const sourced: [TableName, Uint32Array][] = [['vertex', d.vertex.id], ['edge', d.edge.id], ['face', d.face.id]];
   for (const [t, ids] of sourced) {
     const seen = new Map<number, number>();
     ids.forEach((x, k) => {
-      if (Number.isNaN(x)) return;
+      if (x === 0) return;
       const was = seen.get(x);
       if (was !== undefined) say('warning', `${t} ${k}: source id #${x}, as ${t} ${was}`);
       else seen.set(x, k);

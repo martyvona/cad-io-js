@@ -370,6 +370,13 @@ test("a host's module: the glue and module given by URL, bytes, factory or compi
   await assert.rejects(bare.init({ glue: async () => ({ HEAPU8: new Uint8Array(1) }), wasm: module, version: 'x' }),
     /lacks HEAPF32, .*_occt_tessellate, .*is native\/occt_tess\.cpp linked in/);
   await assert.rejects(bare.tessellate(req), /init/);
+  // One built before the id arrays were uint32 (0 for none), lacking the export that says so, is refused too.
+  const old = new OcctTessellator();
+  await assert.rejects(old.init({ glue: async (arg) => {
+    const m = await factory(arg) as Record<string, unknown>;
+    delete m._occt_ids_u32;
+    return m;
+  }, wasm: bytes, version: 'x' }), /lacks _occt_ids_u32:/);
   // The wrong glue for the module: instantiation fails, and init rejects.
   const truck = path.join(root, 'packages/tess-truck/dist/tess_truck.wasm');
   if (fs.existsSync(truck)) await assert.rejects(new OcctTessellator().init({ glue, wasm: fs.readFileSync(truck) }));

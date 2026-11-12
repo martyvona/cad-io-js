@@ -80,7 +80,7 @@ export const check: FileCheck<undefined, Result> = {
       const curves = new Map<number, CurveEvaluator | undefined>();
       for (let f = 0; f < rowCount(d, 'face'); f++) {
         const id = d.face.id[f]!;
-        if (Number.isNaN(id)) continue;
+        if (!id) continue;
         R.faces++;
         const where = `${name} #${id}`;
         const a = oracle.faceArea(id), b = modelFaceArea(d, f, curves);

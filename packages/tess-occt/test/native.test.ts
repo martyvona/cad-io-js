@@ -138,6 +138,25 @@ test('the native route: a part with a kind not built yet fails with an error and
       ['native builder: not built yet: a composite curve']);
   });
 
+test('the native route: ids above 2^31 come back as they are (u32), a face or edge without one as null', { skip },
+  async () => {
+    const { native } = await both();
+    const b = new BrepBuilder({ unit: 1 });
+    // Vertices from 2^32 - 30 + 1, edges from + 9, faces + 21 to + 26 (the largest 2^32 - 4).
+    const base = 2 ** 32 - 30;
+    b.addItem({ kind: 'body', ref: b.addBody({ kind: 'solid', members: [{ ref: box(b, [1, 1, 1], [0, 0, 0], base),
+      sense: true }] }) });
+    const d = openBrep(b.finish().buffer.slice(0));
+    d.face.id[0] = 0;
+    d.edge.id[0] = 0;
+    const r = await native.tessellate({ ...request(new Uint8Array(d.buffer)), edges: true });
+    assert.deepEqual([...new Set(r.faces.map((f) => f.entityId))].sort(),
+      [null, ...[22, 23, 24, 25, 26].map((k) => base + k)].sort());
+    assert.ok(r.faces.every((f) => f.count > 0));
+    const edges = new Set(r.edges!.map((e) => e.entityId));
+    assert.deepEqual([...edges].sort(), [null, ...Array.from({ length: 11 }, (_, k) => base + 10 + k)].sort());
+  });
+
 test('the native route: a face on a swept surface (no counterpart in OCCT) left out with a warning, the rest meshed',
   { skip }, async () => {
     const { native } = await both();

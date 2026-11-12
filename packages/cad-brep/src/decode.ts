@@ -20,7 +20,7 @@ export function nameOf<K extends string>(table: Record<K, number>, n: number): K
 
 const logical = (x: number): Logical => x === LOGICAL.unknown ? null : x === LOGICAL.true;
 /** Optional fields: present only when the buffer has a value. */
-const id = (x: number) => Number.isNaN(x) ? {} : { id: x };
+const id = (x: number) => x === 0 ? {} : { id: x };
 
 /** Reads the pools from an offset on. */
 class Cursor {

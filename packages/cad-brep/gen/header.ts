@@ -6,7 +6,7 @@ import { COLUMNS, HEADER_BYTES } from '../src/data.ts';
 import * as L from '../src/layout.ts';
 
 const snake = (s: string) => s.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toUpperCase();
-const C_TYPES = { u8: 'uint8_t', i32: 'int32_t', f64: 'double' } as const;
+const C_TYPES = { u8: 'uint8_t', i32: 'int32_t', u32: 'uint32_t', f64: 'double' } as const;
 
 /** A comment's text word-wrapped to lines of at most 120 characters, each starting with `lead`. */
 function wrap(text: string, lead: string): string[] {
@@ -90,7 +90,7 @@ export function headerText(): string {
     '/* The columns of a buffer of `size` bytes into `views` (CBR_COLUMN_COUNT of them): 0, or -1 if it isn\'t one. */',
     'static inline int cbr_open(const uint8_t* buf, size_t size, cbr_view* views) {',
     '  static const uint8_t bytes[CBR_COLUMN_COUNT] = {',
-    ...wrap(COLUMNS.map((c) => `${({ u8: 1, i32: 4, f64: 8 })[c.type]},`).join(' '), '    '),
+    ...wrap(COLUMNS.map((c) => `${({ u8: 1, i32: 4, u32: 4, f64: 8 })[c.type]},`).join(' '), '    '),
     '  };',
     '  uint32_t n, k;',
     '  if (((uintptr_t)buf & 7) != 0 || size < CBR_HEADER_BYTES || memcmp(buf, CBR_MAGIC, 4) != 0) return -1;',
@@ -110,6 +110,7 @@ export function headerText(): string {
     '',
     '#define CBR_U8(v) ((const uint8_t*)(v).data)',
     '#define CBR_I32(v) ((const int32_t*)(v).data)',
+    '#define CBR_U32(v) ((const uint32_t*)(v).data)',
     '#define CBR_F64(v) ((const double*)(v).data)',
     '',
     '#endif',

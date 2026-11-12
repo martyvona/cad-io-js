@@ -559,3 +559,32 @@ test('a torus with a negative major radius: its absolute value, its faces turned
     'B-rep model: a p-curve on a torus with a negative major radius (not read) (#20)',
   ]);
 });
+
+test('an instance #0 in the model gets no id (its ids are 1 to 2^32 - 1, 0 for none), an error; one it doesn\'t use '
+  + 'none', async () => {
+  const data = `
+#1=CARTESIAN_POINT('',(0.,0.,0.));
+#2=DIRECTION('',(0.,0.,1.));
+#3=DIRECTION('',(1.,0.,0.));
+#4=AXIS2_PLACEMENT_3D('',#1,#2,#3);
+#0=CIRCLE('',#4,2.);
+#4294967295=CIRCLE('',#4,3.);`;
+  const run = async (ids: number[]) => {
+    const model = await openModel(parseStep(file(data)));
+    const said: [string, string | undefined][] = [];
+    const out = stepBrep(new Reader(model), ids.map((id) => model.resolve(id)), { unit: 1, angle: 1 },
+      (m, severity) => said.push([m, severity]));
+    return { d: out.brep, said };
+  };
+  const { d, said } = await run([0, 4294967295]);
+  assert.deepEqual(Array.from(d.curve.id), [0, 4294967295]);
+  assert.equal(decode.curve(d, 0).id, undefined);
+  assert.equal(decode.curve(d, 1).id, 4294967295);
+  // (Two rows from it: the curve, and the item placing it.)
+  assert.deepEqual(Array.from(d.item.id), [0, 4294967295]);
+  assert.deepEqual(said.filter(([m]) => /#0/.test(m)), [['B-rep model: 2 x an instance #0 in the model (its row '
+    + 'without a source id: the model\'s ids start at 1) (#0, #0)', 'error']]);
+  // (#0 in the file, not reached by the model: nothing said.)
+  const other = await run([4294967295]);
+  assert.deepEqual([Array.from(other.d.curve.id), other.said], [[4294967295], []]);
+});
