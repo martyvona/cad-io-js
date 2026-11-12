@@ -1380,13 +1380,20 @@ await check('fit beside the controls', async () => {
   }
   return undefined;
 });
+// The cache as the check needs it, whatever the checks before left: empty, so the bicycle meshes slowly enough to be
+// caught (from the cache, it could end before it's replaced, and nothing would be cancelled); then the assembly in it,
+// so loading it again hits. The assembly's pool serves the bicycle too (the same settings).
 await check('replaced while meshing', async () => {
   const r = await page('?check', `(async () => {
     const v = globalThis.viewer;
     const src = async (name) => ({ name, bytes: await (await fetch('/content/' + name)).arrayBuffer() });
+    await v.clearCache();
+    await v.load(await src('as1.stp'));
     const first = v.load(await src('bicycle.stp'));
-    for (let t = 0; t < 3000 && !(v.model?.parts?.done > 0); t++) await new Promise((r) => setTimeout(r, 10));
-    const begun = v.model?.parts?.done ?? 0;
+    // (The bicycle's model, not the assembly's still shown.)
+    const bike = () => (v.model?.name === 'bicycle.stp' ? v.model.parts?.done ?? 0 : 0);
+    for (let t = 0; t < 3000 && !(bike() > 0); t++) await new Promise((r) => setTimeout(r, 10));
+    const begun = bike();
     await v.load(await src('as1.glb'));
     const t = performance.now();
     await first;
