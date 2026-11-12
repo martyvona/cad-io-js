@@ -87,9 +87,12 @@ fs.copyFileSync(step, path.join(content, 'as1.stp'));
 fs.writeFileSync(path.join(content, 'as1-authored.stp'), fs.readFileSync(step, 'latin1').replace("('Author')",
   "('Ann B','none')"), 'latin1');
 fs.writeFileSync(path.join(content, 'bare.json'), JSON.stringify({ object: { type: 'Scene', children: [] } }));
-// OCCT's broken-references file: the importer warns of its dangling references (the problems dialog's check).
+// OCCT's broken-references file: the importer warns of a reference beyond the largest id, and a part fails to mesh
+// (an error; the problems dialog's check). And one with warnings alone (a dangling reference).
 fs.copyFileSync(path.join(repo, 'test_corpus/third_party/gkv311-opencascade-dataset/step/bug31292.stp'),
   path.join(content, 'broken.stp'));
+fs.copyFileSync(path.join(repo, 'test_corpus/third_party/gkv311-opencascade-dataset/step/bug33665.step'),
+  path.join(content, 'warned.stp'));
 // Half transparent everywhere (a copy of the scene's materials at opacity 0.5).
 const clear = { ...scene, materials: scene.materials.map((m) => ({ ...m, opacity: 0.5 })) };
 fs.writeFileSync(path.join(content, 'as1-clear.glb'), (await glb(clear, exportView(clear, medium))).bytes);
@@ -1777,36 +1780,38 @@ await check('sections', async () => {
   expect(a.glError === 0, `WebGL error: ${j}`);
   return undefined;
 });
-// The problems dialog (problems.ts): a file with warnings, once meshed, shows them in a modal (only with
-// ?check=dialogs among the check's pages), as many rows as the model's warnings and errors, errors first; OK closes
-// it. A file without, and the plain ?check pages, show none.
+// The problems dialog (problems.ts): a file with errors, once meshed, shows them in a modal (only with
+// ?check=dialogs among the check's pages), a row per error and none for its warnings; OK closes it. A file with
+// warnings alone, one without either, and the plain ?check pages, show none.
 await check('problems dialog', async () => {
   const look = `(async () => { await cadViewer.ready; await cadViewer.idle();
     await new Promise((r) => setTimeout(r, 200));
     const d = document.querySelector('dialog.cv-dialog');
-    const problems = (viewer.model?.diagnostics ?? []).filter((x) => x.severity !== 'info');
+    const diagnostics = viewer.model?.diagnostics ?? [];
     const out = { open: !!d?.open, title: d?.querySelector('h2')?.textContent ?? null,
-      rows: d ? [...d.querySelectorAll('tr')].map((r) => r.cells[0].textContent) : [], problems: problems.length,
-      errors: problems.filter((x) => x.severity === 'error').length };
+      rows: d ? [...d.querySelectorAll('tr')].map((r) => r.cells[0].textContent) : [],
+      warnings: diagnostics.filter((x) => x.severity === 'warning').length,
+      errors: diagnostics.filter((x) => x.severity === 'error').length };
     d?.querySelector('button.primary')?.click();
     await new Promise((r) => setTimeout(r, 100));
     return { ...out, closed: !document.querySelector('dialog.cv-dialog') };
   })()`;
-  type Seen = { open: boolean; title: string | null; rows: string[]; problems: number; errors: number;
+  type Seen = { open: boolean; title: string | null; rows: string[]; warnings: number; errors: number;
     closed: boolean };
   const broken = (await page(`?url=${encodeURIComponent('/content/broken.stp')}&check=dialogs`, look) as
     { after: Seen }).after;
   const clean = (await page(`?url=${encodeURIComponent('/content/as1.stp')}&check=dialogs`, look) as
     { after: Seen }).after;
+  const warned = (await page(`?url=${encodeURIComponent('/content/warned.stp')}&check=dialogs`, look) as
+    { after: Seen }).after;
   const quiet = (await page(`?url=${encodeURIComponent('/content/broken.stp')}&check`, look) as { after: Seen }).after;
-  const j = JSON.stringify({ broken, clean, quiet });
-  const firstWarning = broken.rows.findIndex((r) => r.startsWith('warning'));
-  expect(broken.problems > 0 && broken.open && broken.rows.length === Math.min(broken.problems, 500) &&
-    broken.title!.startsWith('broken.stp: ') && broken.rows.slice(0, broken.errors).every((r) =>
-    r.startsWith('error')) && (firstWarning < 0 || firstWarning === broken.errors) && broken.closed,
-  `a file with warnings: ${j}`);
-  expect(clean.problems === 0 && !clean.open, `a file without: ${j}`);
-  expect(quiet.problems > 0 && !quiet.open, `none in plain ?check pages: ${j}`);
+  const j = JSON.stringify({ broken, clean, warned, quiet });
+  expect(broken.errors > 0 && broken.warnings > 0 && broken.open && broken.rows.length === Math.min(broken.errors,
+    500) && broken.title === `broken.stp: ${broken.errors} error${broken.errors === 1 ? '' : 's'}` &&
+    broken.rows.every((r) => r.startsWith('error')) && broken.closed, `a file with errors: ${j}`);
+  expect(clean.errors + clean.warnings === 0 && !clean.open, `a file without: ${j}`);
+  expect(warned.warnings > 0 && warned.errors === 0 && !warned.open, `a file with warnings alone: ${j}`);
+  expect(quiet.errors > 0 && !quiet.open, `none in plain ?check pages: ${j}`);
   return undefined;
 });
 // STEP ids (step-ids.ts): the problems dialog's Copy IDs copies its rows' ids (the clipboard stubbed), the dialog

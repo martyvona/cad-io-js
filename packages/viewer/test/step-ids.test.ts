@@ -39,11 +39,12 @@ test('format ids: #-prefixed, space-separated; cut at a space with ... past the 
   assert.equal(formatIds([12345678901, 2], 10), '#12345678901 ...');
 });
 
-test('problem ids: warnings and errors only, errors first, each once', () => {
+test('problem ids: errors only, in order, each once', () => {
   const src = (id: number) => ({ format: 'step', id });
   assert.deepEqual(problemIds([{ severity: 'warning', message: 'a', source: src(3) },
     { severity: 'info', message: 'b', source: src(9) }, { severity: 'error', message: 'c', source: src(5) },
-    { severity: 'warning', message: 'd', source: src(3) }, { severity: 'warning', message: 'e' }]), [5, 3]);
+    { severity: 'error', message: 'd', source: src(7) }, { severity: 'error', message: 'e', source: src(5) },
+    { severity: 'error', message: 'f' }]), [5, 7]);
 });
 
 test('step ids: assemblies (occurrence, then component), parts (representation), faces; selected and found', () => {

@@ -205,8 +205,8 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   // With ?check in the address, what happened goes into the body's data-report for the browser check
   // (test/browser-check.ts), which reads the DOM.
   const check = new URLSearchParams(location.search).has('check');
-  // A load's warnings and errors in a modal once it's done (problems.ts), but not in the browser check's pages, whose
-  // input it would block, unless one asks for it (?check=dialogs).
+  // A load's errors in a modal once it's done (problems.ts; its warnings only counted), but not in the browser check's
+  // pages, whose input it would block, unless one asks for it (?check=dialogs).
   const problemsDialog = !check || new URLSearchParams(location.search).get('check') === 'dialogs';
   /**
    * A model that couldn't be opened: said in the status line and in an error modal (not in the browser check's plain
