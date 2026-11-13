@@ -35,6 +35,24 @@ From [`brep-model.md`](brep-model.md), "Rules the model fixes"; every importer m
 7. **What a source leaves out stays absent:** 3D curves, p-curves, edge ranges, tolerances.
 8. **Deterministic.**
 
+## The canonical model
+
+What every model holds beyond the rules above, so consumers need not handle the forms a source may use for the same shape (`brep-model.md`, phase 14). Each is exact: the importer rewrites rows without a tolerance or an evaluation beyond what import does already (ends of curves at their trims, knot insertion), and `validateBrep` reports a model that breaks one as an error. What would need a tolerance (sewing coincident edges, merging nearby vertices, removing small edges and slivers, orienting closed shells by volume) is healing, not here.
+
+1. **Loops run as listed.** Every loop runs in the order of its coedges, each in its orientation; a source's loop used against itself (STEP's `FACE_BOUND.orientation` false) is written reversed: its coedges in reverse order, each orientation turned. There is no loop sense.
+2. **Faces are used forward.** A face's normal (its surface's, turned where `sameSense` is false) is its normal in every shell and body that uses it: a source's reversed face use (`ORIENTED_FACE`) or reversed shell (`ORIENTED_CLOSED_SHELL`, a void's) is baked into its faces' `sameSense` and loops. A face a source uses both ways (a wall two solids share) becomes two faces, the second a copy with a fresh id in the copy table. There are no use or member senses.
+3. **No poly loops.** A source's polygon is an edge loop of line edges, one edge per pair of corner vertices, shared by every face whose polygon has those two corners consecutive (either order).
+4. **An edge's curve is a basis curve.** Never a trimmed curve (its trims are the edge's vertices; the edge's `sameSense` turned where the trim runs against the basis) nor a composite curve (an edge per segment, a vertex at each join). Both kinds remain for curve items and as parts of other curves (an offset's basis, a surface's profile).
+5. **A face's surface is no wrapper.** A face with loops is never on a rectangular trimmed surface (its basis instead, `sameSense` turned where a trim reverses one direction); an offset of a plane, cylinder, cone, sphere or torus is the analytic surface it is (a plane moved, a radius changed, a cone's apex moved), `sameSense` turned where the offset passes through the axis.
+6. **B-splines are clamped.** Every B-spline curve and surface has end knots of full multiplicity (degree + 1), unclamped ones clamped to their valid range by knot insertion; knots are otherwise as the source gives them.
+7. **No degenerate edges in loops.** An edge of no length (a pole's, an apex's) is left out of its loop; a loop of nothing else becomes a vertex loop at its point. Kernels that need them make their own. There is no degenerate flag.
+8. **Shells by topology.** A shell's faces are connected through shared edges; a body's open shells sharing edges are one shell. A shell is `closed` exactly when every edge its faces use is used exactly twice within it, once each way; else `open`. The source's claim is kept as `shell.declared` (`SHELL_DECLARED`: closed, open, a face set, or none).
+9. **The outer loop first.** Where exactly one of a face's loops is `outer`, it is the face's first; otherwise the source's labels stand (several outer on bands of closed surfaces, all unknown), and a consumer finds the outer loop where it needs one (decision 40).
+10. **Curve-bounded faces joined where they meet.** Consecutive boundary segments of a curve-bounded face whose ends meet within the part's uncertainty share a vertex, at the point between the ends, its tolerance the gap; edges without vertices remain only where a join is farther apart (warned of at import; decision 41).
+11. **Closed sheets are solids.** A sheet body whose shells are all closed (rule 8) is a solid; the source's kind is kept as `body.declared` (decision 42).
+
+Kept as sources give them: a face against its surface (`face.sameSense`) and an edge against its curve (`edge.sameSense`), since dropping them would reparameterize surfaces and curves and remap every p-curve; coedges' orientations; faces bounded by their surface alone; vertex loops at poles; edges with p-curves and no 3D curve.
+
 ## Geometry
 
 ### Conventions
