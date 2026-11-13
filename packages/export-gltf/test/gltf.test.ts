@@ -6,7 +6,7 @@ import { EXTMeshGPUInstancing, EXTMeshoptCompression, KHRDracoMeshCompression, K
 import draco3d from 'draco3dgltf';
 import validator from 'gltf-validator';
 import { MeshoptDecoder, MeshoptEncoder } from 'meshoptimizer';
-import { exportView, identity, multiply, scaling, type ExportView, type Mat4, type Mesh,
+import { exportView, identity, multiply, type ExportView, type Mat4, type Mesh,
   type Scene } from 'cad-scene';
 import { base64, decompose, glb as glbOf, gltfJson as gltfJsonOf, GltfError, MAX_DRACO_FACES, reorderWithinFaces,
   ROOT_TRANSFORM, srgbToLinear, type GltfOptions } from '../src/index.ts';
@@ -23,6 +23,8 @@ const translation = (x: number, y: number, z: number): Mat4 => {
   m[12] = x; m[13] = y; m[14] = z;
   return m;
 };
+// A quarter turn about z: x to y.
+const turn = (): Mat4 => Float64Array.of(0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1);
 
 // The plate: two triangles (faces 7 and 8) on a unit square, with normals; one shared edge and one seam.
 const plate = (): Mesh => ({
@@ -58,7 +60,7 @@ function scene(): Scene {
       { name: 'asm', sources: [], properties: {}, parts: [],
         children: [occ(1, translation(100, 0, 0), 'left'), occ(1, translation(200, 0, 0))] },
       { name: 'sub', sources: [{ format: 'step', id: 7 }], properties: { rev: 'B' },
-        parts: [{ part: 0, transform: scaling(25.4) }, { part: 1, transform: identity() }], children: [] },
+        parts: [{ part: 0, transform: turn() }, { part: 1, transform: identity() }], children: [] },
     ],
     roots: [occ(0, identity())],
     // The plate open (as the source would say); the wireframe saying nothing.
@@ -120,8 +122,8 @@ test('GLB: valid; the tree, transforms to metres and Y up, shared accessors, mat
   const plates = byName(nodes, 'plate');
   assert.equal(plates.length, 2);
   assert.ok(byName(nodes, 'wire').every((w) => w.getMesh() === null));
-  // World: metres and Y up, the instance's translation, inches to mm, the mesh's origin (1 inch along x).
-  const expected = multiply(multiply(multiply(ROOT_TRANSFORM, translation(100, 0, 0)), scaling(25.4)),
+  // World: metres and Y up, the instance's translation, the part's turn, the mesh's origin (1 along x).
+  const expected = multiply(multiply(multiply(ROOT_TRANSFORM, translation(100, 0, 0)), turn()),
     translation(1, 0, 0));
   assert.ok(close(plates[0]!.getWorldMatrix(), expected, 1e-12));
   // 1 mm along x, y (back) and z (up) in the root's space is 1 mm along x, -z and y (up) in glTF's metres: a
@@ -708,7 +710,7 @@ test('instancing: a look placed twice is one node with EXT_mesh_gpu_instancing, 
   assert.deepEqual((await glb(s, view, { instancing: true })).bytes, out.bytes);
 });
 
-test('instancing: edges in a node per placement; curves-only parts stay; hidden, mirrored, sheared apart',
+test('instancing: edges in a node per placement; curves-only parts stay; hidden apart; non-rigid scenes refused',
   async () => {
   const s = twice();
   const view = viewOf(s, meshes(), { edges: true, curves: true });
@@ -753,15 +755,14 @@ test('instancing: edges in a node per placement; curves-only parts stay; hidden,
   assert.deepEqual(hn.map((c) => [c.getName(), (c.getExtension('KHR_node_visibility') as unknown as
     { getVisible(): boolean } | null)?.getVisible()]), [['plate', false], ['plate', false], ['plate', false]]);
 
-  // A mirrored or sheared placement can't be TRS: it stays in the tree, and the other alone isn't instanced.
+  // A mirrored or sheared placement (which TRS can't hold): the scene refused, by the view and by the writer.
   for (const [k, v] of [[0, -1], [4, 0.5]] as const) {
     const m = twice();
-    const t = translation(200, 0, 0);
-    t[k] = v;
-    m.components[0]!.children[1]!.transform = t;
-    const json = (await io.binaryToJSON((await glb(m, viewOf(m, meshes()), { instancing: true })).bytes)).json;
-    assert.equal(json.extensionsUsed, undefined, `${k}`);
-    assert.equal(json.nodes!.filter((n) => n.name === 'plate').length, 2);
+    const v0 = viewOf(m, meshes());
+    m.components[0]!.children[1]!.transform[k] = v;
+    assert.throws(() => viewOf(m, meshes()), /component 0 \(asm\), child 1: a transform that isn't a rotation/);
+    await assert.rejects(glb(m, v0, { instancing: true }), /isn't a rotation and a translation/);
+    await assert.rejects(gltfJson(m, v0, undefined), /isn't a rotation and a translation/);
   }
 });
 

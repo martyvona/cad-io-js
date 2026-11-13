@@ -18,10 +18,10 @@
 //     CONTEXT_DEPENDENT_OVER_RIDING_STYLED_ITEMs whose context is the chain of placement relationships from the top;
 //     transparency as SURFACE_STYLE_TRANSPARENT; layers as PRESENTATION_LAYER_ASSIGNMENTs. Styled items go in a
 //     MECHANICAL_DESIGN_GEOMETRIC_PRESENTATION_REPRESENTATION per representation context.
-// Placements are rigid in STEP: a transform that mirrors or scales is written as its rotation with a warning.
+// Placements are rigid in STEP, as in the scene (a scene whose placements aren't is refused: a throw).
 // Deterministic: the same scene gives the same bytes (no time stamp unless given).
 
-import { instances as componentInstances, type Component, type Diagnostic, type InstanceOverride, type Lod,
+import { assertRigid, instances as componentInstances, type Component, type Diagnostic, type InstanceOverride, type Lod,
   type Mat4, type Occurrence, type Part, type PartRef, type Scene } from 'cad-scene';
 import { decode, rowCount } from 'cad-brep';
 import { type EntityRecord, type Instance, makeHeader, makeList, type StepDocument, type Value,
@@ -94,8 +94,9 @@ function meshLevel(part: Part, tessellatedFirst = false): Lod | undefined {
 /** A style to write per placement: an instance override, the scene's or made from a part reference. */
 type Override = Omit<InstanceOverride, 'sources'> & { sources?: InstanceOverride['sources'] };
 
-/** The scene as a STEP file. */
+/** The scene as a STEP file. Throws unless the scene's placements are rigid. */
 export function exportStep(scene: Scene, opts: StepExportOptions = {}): StepExport {
+  assertRigid(scene);
   const diagnostics: Diagnostic[] = [];
   const schemaName = opts.schema ?? 'ap242';
   const schema = SCHEMAS[schemaName];
@@ -337,9 +338,8 @@ export function exportStep(scene: Scene, opts: StepExportOptions = {}): StepExpo
 
     // A placement: the child's origin onto a placement in the parent's representation (made by `placement`, which
     // must be among its items), as its relationship's transformation.
-    const placement = (t: Mat4, parentUnit: number, what: string, id?: number) => {
-      const r = rigid(t);
-      if (!r.ok) warn(`${what}: a transform that ${r.why}; written as its rotation`, id);
+    const placement = (t: Mat4, parentUnit: number) => {
+      const r = axesOf(t);
       return axes([t[12]! / parentUnit, t[13]! / parentUnit, t[14]! / parentUnit], r.z, r.x);
     };
     const relationship = (child: { rep: number; origin: number }, parentRep: number, placed: number) => {
@@ -412,18 +412,17 @@ export function exportStep(scene: Scene, opts: StepExportOptions = {}): StepExpo
       const origin = axes([0, 0, 0], [0, 0, 1], [1, 0, 0], 'origin');
       const placed: { at: number; place: () => void }[] = [];
       comp.children.forEach((o, k) => {
-        const at = placement(o.transform, unit, `${comp.name}'s child ${k}`, stepSource(o.sources));
+        const at = placement(o.transform, unit);
         placed.push({ at, place: () => occurrence(d!, kids[k]!, at, o) });
       });
       // Its own parts unmoved by a plain shape representation relationship (readers follow no transformation outside
       // an occurrence: OCCT reads nothing of such a part), the others as placed products (leafRefs).
       const own: number[] = [];
-      comp.parts.forEach((r, k) => {
+      comp.parts.forEach((r) => {
         const rep = partRep.get(r.part);
         if (!rep) return;
         if (!r.product && !leafRefs.has(r)) { own.push(rep.rep); return; }
-        const at = placement(r.transform, unit, `${comp.name}'s part ${k}`,
-          stepSource(r.sources));
+        const at = placement(r.transform, unit);
         const leaf = leafOf(r)!;
         placed.push({ at, place: () => occurrence(d!, leaf, at, r) });
       });
@@ -449,9 +448,8 @@ export function exportStep(scene: Scene, opts: StepExportOptions = {}): StepExpo
       const leafs = rootParts.map((r) => leafOf(r)!);
       const pd = product(name, {}, undefined);
       const origin = axes([0, 0, 0], [0, 0, 1], [1, 0, 0], 'origin');
-      const ats = [...roots.map((o, k) => placement(o.transform, unit, `root ${k}`)),
-        ...rootParts.map((r, k) => placement(r.transform, unit,
-          `root part ${k}`))];
+      const ats = [...roots.map((o) => placement(o.transform, unit)),
+        ...rootParts.map((r) => placement(r.transform, unit))];
       const rep = emit(fresh(), 'SHAPE_REPRESENTATION', [str(name), refs([origin, ...ats]), ref(assemblyContext())]);
       shape(pd, rep);
       const top: Definition = { pd, rep, origin };
@@ -622,21 +620,16 @@ function isIdentity(t: Mat4): boolean {
 }
 
 /**
- * A transform's axes as a placement's: z and x its third and first columns, normalized, x made orthogonal to z;
- * `ok` false (with why) where the transform isn't a rotation: a mirror, a scale, a shear.
+ * A rotation's axes as a placement's: z and x its third and first columns, normalized, x made orthogonal to z (a
+ * rotation to TRANSFORM_TOLERANCE written as the nearest).
  */
-function rigid(t: Mat4): { ok: true; x: number[]; z: number[] } | { ok: false; why: string; x: number[];
-  z: number[] } {
+function axesOf(t: Mat4): { x: number[]; z: number[] } {
   const col = (j: number) => [t[4 * j]!, t[4 * j + 1]!, t[4 * j + 2]!];
-  const [a, b, c] = [col(0), col(1), col(2)];
+  const [a, c] = [col(0), col(2)];
   const len = (v: number[]) => Math.hypot(v[0]!, v[1]!, v[2]!);
   const dot = (u: number[], v: number[]) => u[0]! * v[0]! + u[1]! * v[1]! + u[2]! * v[2]!;
-  const det = a[0]! * (b[1]! * c[2]! - b[2]! * c[1]!) - a[1]! * (b[0]! * c[2]! - b[2]! * c[0]!)
-    + a[2]! * (b[0]! * c[1]! - b[1]! * c[0]!);
   const z = c.map((x) => x / (len(c) || 1));
   const xp = a.map((x, i) => x - dot(a, z) * z[i]!);
   const x = xp.map((v) => v / (len(xp) || 1));
-  const why = det < 0 ? 'mirrors' : [a, b, c].some((v) => Math.abs(len(v) - 1) > 1e-6) ? 'scales'
-    : Math.abs(dot(a, b)) + Math.abs(dot(b, c)) + Math.abs(dot(a, c)) > 1e-6 ? 'shears' : undefined;
-  return why ? { ok: false, why, x, z } : { ok: true, x, z };
+  return { x, z };
 }

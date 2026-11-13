@@ -19,7 +19,10 @@ export { viewDifferences, type CompareOptions } from './compare.ts';
 export { boundsFrom, boundsJson, sceneJson, levelFrom, levelJson, measuresFrom, measuresJson, partExtras, placementFrom,
   placementJson, unitFrom } from './measures.ts';
 export { countTransform, describeTransforms, noTransformCounts, TRANSFORM_KINDS, TRANSFORM_TOLERANCE, transformKinds,
-  transformUse, type TransformCounts, type TransformKind, type TransformUse } from './transforms.ts';
+  transformUse, describeStretched, stretchWords, type TransformCounts, type TransformKind, type TransformUse } from
+  './transforms.ts';
+export { rigidPart, rigidPlacements, stretchMesh } from './rigid.ts';
+export { assertRigid, isRigid, SceneBuilder } from './scene-builder.ts';
 export { AUTHOR_PLACEHOLDERS, authorOf, standardMetadata, type StandardMetadata } from './file-metadata.ts';
 export { around, boundScene, boxesSphere, boxMeshes, grow, meshBox, sceneBounds } from './bounds.ts';
 export { drain, paced } from './steps.ts';

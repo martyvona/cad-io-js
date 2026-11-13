@@ -28,17 +28,18 @@
 // Instancing (by option): every look placed more than once (as many times visible or hidden) becomes one node under the
 // root with EXT_mesh_gpu_instancing (required: it has no fallback), its faces' mesh drawn at each placement's world
 // transform; the placements leave the tree, with their occurrence names. Their edges, curves and points stay ordinary
-// nodes, one per placement under the root, as three.js's GLTFLoader (0.186) instances only triangles. Mirrored or
-// sheared placements, which TRS can't hold, stay in the tree. With extras, the instanced node's extras list each
-// instance's tree path, names and occurrence sources in attribute order.
+// nodes, one per placement under the root, as three.js's GLTFLoader (0.186) instances only triangles. A placement
+// whose world transform TRS can't hold to 1e-9 (a rotation rounded to float32) stays in the tree. With extras, the
+// instanced node's extras list each instance's tree path, names and occurrence sources in attribute order. The scene's
+// placements must be rigid (else a throw), so every node's matrix is a TRS.
 
 import { Document, Format, Logger, WebIO, type Accessor, type JSONDocument, type Buffer,
   type Material as GltfMaterial, type Mesh as GltfMesh, type Node, type TypedArray,
   type mat4 } from '@gltf-transform/core';
 import { EXTMeshGPUInstancing, EXTMeshoptCompression, KHRDracoMeshCompression, KHRMaterialsUnlit,
   KHRMeshQuantization, KHRNodeVisibility } from '@gltf-transform/extensions';
-import { drain, identity, multiply, paced, partExtras, placedName, placementJson, pruneView,
-  sceneJson, standardMetadata, transformKinds, Y_UP_METRES, yUpFrame, type Diagnostic,
+import { assertRigid, drain, identity, multiply, paced, partExtras, placedName, placementJson, pruneView,
+  sceneJson, standardMetadata, Y_UP_METRES, yUpFrame, type Diagnostic,
   type ExportNode, type ExportView, type Look, type Mat4, type Mesh, type Part, type PropertyValue, type Scene,
   type SourceId, type Vec3 } from 'cad-scene';
 
@@ -123,6 +124,7 @@ export const ROOT_TRANSFORM: Mat4 = Y_UP_METRES;
  * only with their encoders registered (`draco3d.encoder` from draco3dgltf, `meshopt.encoder` from meshoptimizer).
  */
 export async function gltfDocument(scene: Scene, view: ExportView, opts: GltfOptions = {}): Promise<GltfResult> {
+  assertRigid(scene);
   const compression = opts.compression ?? 'draco';
   if (!['draco', 'meshopt', 'none'].includes(compression)) throw new GltfError(`unknown compression '${compression}'`);
   const bits = opts.dracoPositionBits ?? 14;
@@ -272,6 +274,11 @@ export function decompose(m: Mat4): { t: Vec3; r: [number, number, number, numbe
   return { t: [m[12]!, m[13]!, m[14]!], r: q.map((x) => x / n) as typeof q, s };
 }
 
+/** A node's matrix (glTF-Transform keeps it as TRS: a shear would be lost, which rigid placements don't have). */
+function setMatrix(node: Node, m: Mat4): Node {
+  return node.setMatrix(Array.from(m) as mat4);
+}
+
 /** sRGB to linear, as glTF's base colour factor is linear. */
 export function srgbToLinear(c: number): number {
   const v = Math.min(1, Math.max(0, c));
@@ -399,8 +406,6 @@ class Writer {
   private orders = new Map<Mesh, Uint32Array>();
   private reordered = new Map<Uint32Array, Uint32Array>();
   private hiddenLeftOut = 0;
-  /** Node matrices with shear, which TRS can't hold (glTF-Transform's setMatrix drops it). */
-  private sheared = 0;
   private readonly defaultColor: Vec3;
   private readonly edgeColor: Vec3;
   private readonly edgeKinds: ReadonlySet<string>;
@@ -485,11 +490,6 @@ class Writer {
       this.doc.createExtension(KHRMeshQuantization).setRequired(true);
       this.doc.createExtension(EXTMeshoptCompression).setRequired(true)
         .setEncoderOptions({ method: EXTMeshoptCompression.EncoderMethod.FILTER });
-    }
-    if (this.sheared) {
-      this.diagnostics.push({ severity: 'warning', message: `${this.sheared} node transform${this.sheared === 1 ? ''
-        : 's'} sheared, which glTF's translation, rotation and scale can't hold: written without the shear, what's `
-        + 'below them misshapen' });
     }
     if (this.hiddenLeftOut) {
       const n = this.hiddenLeftOut;
@@ -751,7 +751,7 @@ class Writer {
       const m = this.lineMesh(look, what);
       if (m) node.addChild(this.doc.createNode(what).setMesh(m));
     }
-    this.setMatrix(node, this.placement(look, transform, !!mesh || node.listChildren().length > 0));
+    setMatrix(node, this.placement(look, transform, !!mesh || node.listChildren().length > 0));
     if (!visible) this.hide(node);
     return node;
   }
@@ -827,15 +827,9 @@ class Writer {
     return out;
   }
 
-  /** A node's matrix, as TRS (a mirror a negative scale); a shear counted, as it's lost. */
-  private setMatrix(node: Node, m: Mat4): Node {
-    if (transformKinds(m).includes('shear')) this.sheared++;
-    return node.setMatrix(Array.from(m) as mat4);
-  }
-
   private *node(n: ExportNode): Generator<void, Node> {
     const comp = this.scene.components[n.component]!;
-    const node = this.setMatrix(this.doc.createNode(n.name), n.transform);
+    const node = setMatrix(this.doc.createNode(n.name), n.transform);
     if (this.extras) {
       const extras: Json = { ...this.sourced(n.occurrence.sources, n.occurrence.properties) };
       extras.component = { index: n.component, name: comp.name, ...this.sourced(comp.sources, comp.properties) };

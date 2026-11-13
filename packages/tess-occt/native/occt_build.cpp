@@ -61,7 +61,6 @@
 #include <Geom_SurfaceOfRevolution.hxx>
 #include <gp_Ax1.hxx>
 #include <gp_GTrsf2d.hxx>
-#include <gp_Trsf.hxx>
 #include <TopLoc_Location.hxx>
 #include <Geom_BSplineCurve.hxx>
 #include <Geom_BSplineSurface.hxx>
@@ -1353,8 +1352,6 @@ BuiltPart buildPart(const uint8_t* buf, size_t len)
     TopoDS_Compound all;
     bb.MakeCompound(all);
     const int ni = b.r.rows(CBR_ITEM_KIND);
-    // Each item's shape, for the instances placing it.
-    std::vector<TopoDS_Shape> itemShapes(ni);
     for (int i = 0; i < ni; ++i)
     {
       const int    kind = b.r.u8(CBR_ITEM_KIND)[i], ref = b.r.i32(CBR_ITEM_REF)[i];
@@ -1398,33 +1395,9 @@ BuiltPart buildPart(const uint8_t* buf, size_t len)
                                  + std::to_string(id) + ": OCCT failed on it (" + e.what() + "); left out");
         }
       }
-      else if (kind == CBR_ITEM_INSTANCE)
-      {
-        // Another item (before it) placed: its shapes shared, moved by the instance's transform.
-        if (ref < 0 || ref >= i || itemShapes[ref].IsNull())
-          throw Unbuilt{"an instance of an item that isn't before it"};
-        bb.Add(one, itemShapes[ref]);
-      }
       else
         bb.Add(one, b.body(ref));
-      TopoDS_Shape placed = one;
-      const int    t = b.r.i32(CBR_ITEM_TRANSFORM)[i];
-      if (t >= 0)
-      {
-        // Column-major x, y, z columns, then the translation; OCCT holds similarities only (a rotation, a mirror, a
-        // uniform scale).
-        const double* m = b.r.f64(CBR_POOL_ITEM_REAL) + t;
-        const gp_Vec  x(m[0], m[1], m[2]), y(m[3], m[4], m[5]), z(m[6], m[7], m[8]);
-        const double  sx = x.Magnitude(), tol = 1e-9 * std::max(sx, 1.);
-        if (std::abs(y.Magnitude() - sx) > tol || std::abs(z.Magnitude() - sx) > tol || std::abs(x.Dot(y)) > tol * sx
-            || std::abs(y.Dot(z)) > tol * sx || std::abs(z.Dot(x)) > tol * sx || sx == 0)
-          throw Unbuilt{"an item's transform that isn't a similarity"};
-        gp_Trsf tr;
-        tr.SetValues(m[0], m[3], m[6], m[9], m[1], m[4], m[7], m[10], m[2], m[5], m[8], m[11]);
-        placed = one.Moved(TopLoc_Location(tr));
-      }
-      itemShapes[i] = placed;
-      bb.Add(all, placed);
+      bb.Add(all, one);
     }
     out.shape = all;
   }

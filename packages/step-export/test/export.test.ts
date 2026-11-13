@@ -180,15 +180,14 @@ test('the top: roots and root parts as top products; moved, inside one assembly 
     assert.equal(placed.product?.name, 'block');
   });
 
-test('a placement that mirrors or scales: written as its rotation, with a warning', async () => {
+test('a placement that mirrors or scales: refused, nothing written', () => {
   const s = assembly();
   const m = identity();
   m[0] = -1;
   s.components[0]!.children[0]!.transform = m;
-  const { diagnostics } = await roundTrip(s);
-  assert.match(diagnostics.map((d) => d.message).join('\n'), /mirrors; written as its rotation/);
+  assert.throws(() => exportStep(s), /component 0 \(top\), child 0: a transform that isn't a rotation/);
   m[0] = 2;
-  assert.match((await roundTrip(s)).diagnostics.map((d) => d.message).join('\n'), /scales; written as its rotation/);
+  assert.throws(() => exportStep(s), /isn't a rotation and a translation/);
 });
 
 /** The assembly with colours: the block red with one face blue, the plate half transparent and hidden everywhere. */

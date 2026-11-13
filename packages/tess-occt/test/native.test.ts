@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { BrepBuilder, brepFromJson, brepToJson, openBrep } from 'cad-brep';
+import { BrepBuilder, brepFromJson, brepToJson, openBrep, rowCount } from 'cad-brep';
 import type { Curve } from 'cad-brep';
 import type { TessellationRequest, TessellationResult } from 'cad-scene';
 import { StepTessellator } from 'step-export';
@@ -724,8 +724,9 @@ test('the native route, swept and derived surfaces: faces on an extrusion, a rev
   }
 });
 
-test('the native route, items placed: a transform (a rotation, a mirror, a scale, a translation) moves an item; an '
-  + 'instance places another item again, its faces keeping their ids', { skip }, async () => {
+test('the native route, items placed (baked by the builder): a transform (a rotation, a mirror, a scale, a '
+  + 'translation) moves an item; an instance places another item again, both copies under fresh ids', { skip },
+async () => {
   const { native } = await both();
   // The unit cube (0..1 each way) as item 1, after a box elsewhere (item 0); item 2 places the cube, x -> 2y,
   // y -> -2x, z -> -2z (a turn and a mirror, the matrix not symmetric), moved by (10, 0, 0); without the instance,
@@ -740,13 +741,19 @@ test('the native route, items placed: a transform (a rotation, a mirror, a scale
     const json = brepToJson(b.finish());
     json.items = instance ? [json.items[0]!, json.items[1]!, { kind: 'instance', ref: 1, transform: columns }]
       : [json.items[0]!, { ...json.items[1]!, transform: columns }];
-    const r = await native.tessellate(request(new Uint8Array(brepFromJson(json).buffer)));
+    const d = brepFromJson(json);
+    const r = await native.tessellate(request(new Uint8Array(d.buffer)));
     const what = instance ? 'an instance' : 'a transform';
     assert.deepEqual(r.diagnostics.filter((x) => x.severity !== 'info').map((x) => x.message), [], what);
-    // The box's faces (1021..1026), and the cube's (21..26), twice with the instance.
-    const cube = [21, 22, 23, 24, 25, 26];
-    assert.deepEqual(r.faces.map((f) => f.entityId!).sort((x, y) => x - y), [...cube, ...(instance ? cube : []),
-      ...cube.map((x) => x + 1000)].sort((x, y) => x - y), what);
+    // The box's faces (1021..1026), and the cube's (21..26); with the instance the cube's two copies under fresh ids,
+    // each a copy of one of 21..26.
+    const cube = [21, 22, 23, 24, 25, 26], ids = r.faces.map((f) => f.entityId!);
+    const source = new Map(Array.from({ length: rowCount(d, 'copy') }, (_, k) => [d.copy.id[k]!, d.copy.source[k]!]));
+    assert.deepEqual(ids.filter((x) => x > 1000 && x <= 1026).sort((x, y) => x - y), cube.map((x) => x + 1000), what);
+    const rest = ids.filter((x) => !(x > 1000 && x <= 1026));
+    assert.equal(new Set(rest).size, instance ? 12 : 6, what);
+    assert.deepEqual(rest.map((x) => source.get(x) ?? x).sort((x, y) => x - y), [...cube, ...(instance ? cube : [])]
+      .sort((x, y) => x - y), what);
     // The placed copy's corners where the transform puts the cube's (the box 10..12 x 0..2 x 0..2), the other copy's
     // the cube's own.
     const pts = new Set<string>();

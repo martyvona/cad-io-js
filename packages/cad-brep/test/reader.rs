@@ -18,7 +18,7 @@ fn main() {
     println!("edge.curve {}", d.edge_curve().iter().map(|x| x.to_string()).collect::<Vec<_>>().join(","));
     println!("face.id {}", d.face_id().iter().map(|x| x.to_string()).collect::<Vec<_>>().join(","));
     println!("kinds {} {} {} {}", cad_brep::curve_kind::OFFSET, cad_brep::surface_kind::FIXED_REFERENCE_SWEPT,
-        cad_brep::item_kind::INSTANCE, cad_brep::trim_preference::CARTESIAN);
+        cad_brep::item_kind::POINT, cad_brep::trim_preference::CARTESIAN);
 }
 
 /// Like C's %.17g, enough for the test to read the value back exactly.

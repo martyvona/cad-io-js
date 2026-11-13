@@ -118,8 +118,6 @@ function expectations(d: BrepData, k: number, note: Report) {
   }
   for (let t = 0; t < rowCount(d, 'item'); t++) {
     if (d.item.kind[t] === ITEM_KIND.point) set(item, d.item.ref[t]!, 3, k);
-    const at = d.item.transform[t]!;
-    if (at >= 0) { set(item, at, 9, 1); set(item, at + 9, 3, k); }
   }
   return { curve, surface, item, lines2d, unused };
 }

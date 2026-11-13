@@ -10,8 +10,8 @@
 #include <stdint.h>
 #include <string.h>
 
-#define CBR_MAGIC "CBR4"
-#define CBR_HEADER_BYTES 488
+#define CBR_MAGIC "CBR5"
+#define CBR_HEADER_BYTES 520
 
 /* The columns in buffer order: table, column, element type and values per row. */
 enum cbr_column {
@@ -22,6 +22,7 @@ enum cbr_column {
   CBR_POOL_SURFACE_INT, /* int32_t x 1 */
   CBR_POOL_LOOP_INT, /* int32_t x 1 */
   CBR_POOL_ITEM_REAL, /* double x 1 */
+  CBR_POOL_COPY_PATH, /* uint32_t x 1 */
   CBR_CURVE_KIND, /* uint8_t x 1 */
   CBR_CURVE_DIM, /* uint8_t x 1 */
   CBR_CURVE_REAL, /* int32_t x 1 */
@@ -73,8 +74,11 @@ enum cbr_column {
   CBR_MEMBER_SENSE, /* uint8_t x 1 */
   CBR_ITEM_KIND, /* uint8_t x 1 */
   CBR_ITEM_REF, /* int32_t x 1 */
-  CBR_ITEM_TRANSFORM, /* int32_t x 1 */
   CBR_ITEM_ID, /* uint32_t x 1 */
+  CBR_COPY_ID, /* uint32_t x 1 */
+  CBR_COPY_SOURCE, /* uint32_t x 1 */
+  CBR_COPY_FIRST, /* int32_t x 1 */
+  CBR_COPY_COUNT, /* int32_t x 1 */
   CBR_COLUMN_COUNT
 };
 
@@ -153,7 +157,6 @@ enum cbr_item_kind {
   CBR_ITEM_SURFACE = 3,
   CBR_ITEM_FACE = 4,
   CBR_ITEM_POINT = 5,
-  CBR_ITEM_INSTANCE = 6,
 };
 
 enum cbr_curve_form {
@@ -235,8 +238,8 @@ typedef struct {
 /* The columns of a buffer of `size` bytes into `views` (CBR_COLUMN_COUNT of them): 0, or -1 if it isn't one. */
 static inline int cbr_open(const uint8_t* buf, size_t size, cbr_view* views) {
   static const uint8_t bytes[CBR_COLUMN_COUNT] = {
-    8, 8, 4, 8, 4, 4, 8, 1, 1, 4, 4, 4, 1, 4, 4, 4, 8, 8, 4, 4, 4, 4, 1, 1, 8, 8, 4, 4, 1, 4, 8, 4, 1, 1, 1, 4, 4, 4, 4,
-    1, 4, 4, 8, 4, 1, 4, 4, 4, 1, 4, 4, 4, 4, 1, 4, 1, 1, 4, 4, 4,
+    8, 8, 4, 8, 4, 4, 8, 4, 1, 1, 4, 4, 4, 1, 4, 4, 4, 8, 8, 4, 4, 4, 4, 1, 1, 8, 8, 4, 4, 1, 4, 8, 4, 1, 1, 1, 4, 4, 4,
+    4, 1, 4, 4, 8, 4, 1, 4, 4, 4, 1, 4, 4, 4, 4, 1, 4, 1, 1, 4, 4, 4, 4, 4, 4,
   };
   uint32_t n, k;
   if (((uintptr_t)buf & 7) != 0 || size < CBR_HEADER_BYTES || memcmp(buf, CBR_MAGIC, 4) != 0) return -1;

@@ -1,5 +1,5 @@
 517 files (0 over 1000 MB skipped), 3258 B-rep parts
-import 16.8 s (the models built); the subsets they replace 1.6 s to build
+import 25.1 s (the models built); the subsets they replace 2.5 s to build
 models 107.7 MB, subsets 323.5 MB
 
 ## rows by kind

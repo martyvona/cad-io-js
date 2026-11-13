@@ -9,6 +9,8 @@ const translation = (x: number, y: number, z: number): Mat4 => {
   return m;
 };
 const at = (m: Mat4) => [m[12], m[13], m[14]];
+// A quarter turn about z: its m[1] (x's y) 1.
+const turn = (): Mat4 => Float64Array.of(0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1);
 
 // An assembly (0) with two occurrences of a subassembly (1), each holding a part in inches (part 0) and a bolt
 // component (2, part 1). Materials: 0 red, 1 green, 2 blue, 3 white.
@@ -19,7 +21,7 @@ function scene(): Scene {
     components: [
       { name: 'asm', sources: [{ format: 'step', id: 1 }], properties: {}, parts: [],
         children: [occ(1, translation(100, 0, 0)), occ(1, translation(200, 0, 0))] },
-      { name: 'sub', sources: [], properties: {}, parts: [{ part: 0, transform: scaling(25.4) }],
+      { name: 'sub', sources: [], properties: {}, parts: [{ part: 0, transform: turn() }],
         children: [occ(2, translation(0, 10, 0))] },
       { name: 'bolt', sources: [], properties: {}, parts: [{ part: 1, transform: identity() }], children: [] },
     ],
@@ -46,9 +48,9 @@ test('instances: the expanded tree with world transforms', () => {
     ['0/1/0', 2, [200, 10, 0]],
   ]);
   const parts = [...partInstances(s)];
-  assert.deepEqual(parts.map((p) => [p.path.join('/'), p.part, at(p.transform), p.transform[0]]), [
-    ['0/0', 0, [100, 0, 0], 25.4], ['0/0/0', 1, [100, 10, 0], 1], ['0/1', 0, [200, 0, 0], 25.4],
-    ['0/1/0', 1, [200, 10, 0], 1],
+  assert.deepEqual(parts.map((p) => [p.path.join('/'), p.part, at(p.transform), p.transform[1]]), [
+    ['0/0', 0, [100, 0, 0], 1], ['0/0/0', 1, [100, 10, 0], 0], ['0/1', 0, [200, 0, 0], 1],
+    ['0/1/0', 1, [200, 10, 0], 0],
   ]);
   assert.deepEqual(at(multiply(translation(1, 2, 3), translation(10, 20, 30))), [11, 22, 33]);
 });
@@ -89,6 +91,14 @@ test('validate', () => {
     'components[1].parts[1]: material 9 out of range',
     'component 1 contains itself',
   ]);
+  // Placements are rigid: a scale, a mirror said.
+  s.components[1]!.parts[1]!.transform = scaling(2);
+  s.roots[0]!.transform = Float64Array.of(-1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1);
+  assert.deepEqual(validate(s).filter((x) => /rotation/.test(x)), [
+    'roots[0]: transform isn\'t a rotation and a translation',
+    'components[1].parts[1]: transform isn\'t a rotation and a translation',
+  ]);
+  s.roots[0]!.transform = identity();
   // The cycle doesn't make the walk loop.
   s.components[1]!.parts.pop();
   assert.equal([...instances(s)].length, 5);
@@ -97,7 +107,7 @@ test('validate', () => {
 test('an override for one part reference: only that placement; validate checks paths and references', () => {
   const s = scene();
   // The sub's plate gets a second reference; the second sub's first reference red and the second hidden.
-  s.components[1]!.parts.push({ part: 0, transform: multiply(translation(0, 50, 0), scaling(25.4)) });
+  s.components[1]!.parts.push({ part: 0, transform: multiply(translation(0, 50, 0), turn()) });
   s.overrides.push({ path: [0, 1], ref: 0, material: 0, sources: [] }, { path: [0, 1], ref: 1, visible: false,
     sources: [] });
   const placed = [...partInstances(s)].map((p) => [p.path.join('/'), p.part, p.material, p.visible]);

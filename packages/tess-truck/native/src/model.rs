@@ -4,8 +4,8 @@
 //! that route was removed, checked over the corpus face by face); kinds truck has no geometry for (trimmed, composite
 //! and offset curves, offset, trimmed and swept surfaces, vertex and poly loops, edges without vertices) leave their
 //! faces out, reported. An edge with p-curves and no 3D curve is its first p-curve (by row) on that face's surface, as
-//! truck-stepio reads a surface curve whose master is its first p-curve. Items other than untransformed solid and
-//! sheet bodies are listed as skipped.
+//! truck-stepio reads a surface curve whose master is its first p-curve. Items other than solid and sheet bodies are
+//! listed as skipped.
 
 use crate::cad_brep::{self, body_kind, curve_kind, item_kind, orientation, surface_kind, Brep};
 use crate::{clamp_curve, clamp_surface, finite_curve, finite_surface, Built, Diag, Role};
@@ -388,7 +388,7 @@ impl Model {
         for k in 0..d.item_kind().len() {
             let (kind, r, id) = (d.item_kind()[k], d.item_ref()[k], d.item_id()[k]);
             let what = match kind {
-                item_kind::BODY if d.item_transform()[k] < 0 => {
+                item_kind::BODY => {
                     let b = r as usize;
                     let (first, count) = (d.body_first()[b] as usize, d.body_count()[b] as usize);
                     match d.body_kind()[b] {
@@ -405,12 +405,11 @@ impl Model {
                         _ => "a wire body",
                     }
                 }
-                item_kind::BODY => "a body with a transform",
                 item_kind::CURVE => "a curve",
                 item_kind::SURFACE => "a surface",
                 item_kind::FACE => "a face",
                 item_kind::POINT => "a point",
-                _ => "an instance",
+                _ => "an item of another kind",
             };
             diag.skipped_items.push(format!("{what} #{id}"));
         }

@@ -8,7 +8,7 @@ import {
   SURFACE_FORMS, SURFACE_KIND, TRANSITIONS, TRIM_PREFERENCES,
 } from './layout.ts';
 import type {
-  Body, Bound, BodyKind, Coedge, Curve, Edge, Face, Item, Logical, Loop, Orientation, PartInfo, Placement, Point,
+  Body, Bound, BodyKind, Coedge, Copy, Curve, Edge, Face, Item, Logical, Loop, Orientation, PartInfo, Placement, Point,
   Shell, ShellKind, Surface, Vertex,
 } from './types.ts';
 
@@ -196,11 +196,13 @@ export function body(d: BrepData, k: number): Body {
 }
 
 export function item(d: BrepData, k: number): Item {
-  const it = d.item, t = it.transform[k]!, kind = nameOf(ITEM_KIND, it.kind[k]!);
-  const transform = t < 0 ? {} : { transform: Array.from(d.pool.itemReal.subarray(t, t + 12)) };
-  if (kind === 'point') {
-    return { kind, point: new Cursor(d.pool.itemReal, it.ref[k]!).reals(3), ...transform, ...id(it.id[k]!) };
-  }
+  const it = d.item, kind = nameOf(ITEM_KIND, it.kind[k]!);
+  if (kind === 'point') return { kind, point: new Cursor(d.pool.itemReal, it.ref[k]!).reals(3), ...id(it.id[k]!) };
   if (!kind) throw new RangeError(`item ${k}: kind ${it.kind[k]}`);
-  return { kind, ref: it.ref[k]!, ...transform, ...id(it.id[k]!) };
+  return { kind, ref: it.ref[k]!, ...id(it.id[k]!) };
+}
+
+export function copy(d: BrepData, k: number): Copy {
+  const c = d.copy, first = c.first[k]!;
+  return { id: c.id[k]!, source: c.source[k]!, path: Array.from(d.pool.copyPath.subarray(first, first + c.count[k]!)) };
 }

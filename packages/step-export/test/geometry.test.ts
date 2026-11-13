@@ -538,17 +538,13 @@ test('what STEP can\'t hold: diagnostics, and what can\'t be written left out', 
     coedges: [{ edge: e, orientation: 'forward' }, { edge: bare, orientation: 'forward' }] }] });
   const sh = b.addShell({ kind: 'open', faces: [{ face: f1, sense: true }, { face: f2, sense: false }] });
   const body = b.addBody({ kind: 'sheet', members: [{ ref: sh, sense: true }] });
-  const it = b.addItem({ kind: 'body', ref: body, id: 8 });
-  b.addItem({ kind: 'instance', ref: it, transform: [1, 0, 0, 0, 1, 0, 0, 0, 1, 5, 0, 0], id: 9 });
-  b.addItem({ kind: 'point', point: [1, 1, 1], transform: [1, 0, 0, 0, 1, 0, 0, 0, 1, 5, 0, 0], id: 10 });
+  b.addItem({ kind: 'body', ref: body, id: 8 });
   const w = written(b.finish());
   assert.deepEqual(w.diagnostics, [
     { severity: 'info', message: 'vertex tolerances (not written: STEP has none per entity) (#1)' },
     { severity: 'warning', message: 'an edge with neither a curve nor a p-curve (written unset) (#4)' },
     { severity: 'info', message: 'face tolerances (not written: STEP has none per entity) (#5)' },
     { severity: 'warning', message: 'internal coedges (written as forward) (#6)' },
-    { severity: 'error', message: 'an instance item (left out: not written yet) (#9)' },
-    { severity: 'error', message: 'an item with a transform (left out: not written yet) (#10)' },
   ]);
   // What the source lacked written unset, not repaired; the face using it kept (FACE_SURFACE: not advanced).
   assert.equal(render(w, 4, new Set([1, 2])), 'EDGE_CURVE(\'\',#2,#1,$,.T.)');
@@ -582,10 +578,17 @@ test('read back by step-import, each model is itself up to row order and what ST
     // Units and uncertainties pass through metres, directions are normalized again: only last bits may differ.
     assert.deepEqual(differences(walk(d), walk(back.brep)).filter((x) => !x.bits), [], name);
   }
-  // everyKind's instance is left out.
-  const d = everyKind().finish();
+  // A baked instance (a cube and its mirror image): each copy written as entities of its own, under its fresh ids.
+  const b = cube();
+  b.addItem({ kind: 'instance', ref: 0, transform: [-1, 0, 0, 0, 1, 0, 0, 0, 1, 5, 0, 0], id: 900 });
+  const d = b.finish();
+  assert.equal(rowCount(d, 'copy') > 0 && rowCount(d, 'body'), 2);
   const w = stepPartBytes(d);
-  assert.equal(rowCount((await readBack(w.data, w.rootId)).brep, 'item'), rowCount(d, 'item') - 1);
+  const back = await readBack(w.data, w.rootId);
+  assert.deepEqual(back.warnings, []);
+  assert.deepEqual(differences(walk(d), walk(back.brep)).filter((x) => !x.bits), []);
+  assert.deepEqual([...back.brep.face.id].sort(), [...d.face.id].sort());
+  assert.ok([...d.face.id].every((x) => x > 900), 'the copies\' ids fresh');
 });
 
 test('every written model binds against AP242 with its values checked, without a diagnostic', async () => {

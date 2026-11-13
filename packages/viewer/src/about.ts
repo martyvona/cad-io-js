@@ -3,7 +3,7 @@
 
 /// <reference types="vite/client" />
 
-import type { Properties, TransformUse } from 'cad-scene';
+import type { Properties } from 'cad-scene';
 import { showDialog, type DialogResult } from './dialog.ts';
 import { showFileDetails } from './file-details.ts';
 import { updateText, type UpdateCheck } from './update-check.ts';
@@ -19,7 +19,7 @@ export const REPOSITORY = 'https://github.com/martyvona/cad-io-js';
  * closed.
  */
 export async function showAbout(model?: { rows: [string, string][]; properties: Properties;
-  transforms?: TransformUse }, updates?: UpdateCheck,
+  stretched?: string }, updates?: UpdateCheck,
   demo?: () => void): Promise<void> {
   let r: DialogResult | undefined;
   const update = document.createElement('p');
@@ -87,7 +87,7 @@ export async function showAbout(model?: { rows: [string, string][]; properties: 
           { text: ' and ' }, { text: 'STEP tutorial', href: new URL('step_tutorial.pdf', document.baseURI).href },
           { text: '.' }]] : []),
         ...(model ? [[{ text: 'Current model (' }, { text: 'details', action: () => void showFileDetails(
-          model.properties, model.transforms) }, { text: '):' }], model.rows] : ['No model open.']),
+          model.properties, model.stretched) }, { text: '):' }], model.rows] : ['No model open.']),
       ],
       buttons: [{ label: 'Close', value: 'close', primary: true },
         ...(demo ? [{ label: 'Load demo model...', value: 'demo' }] : [])],

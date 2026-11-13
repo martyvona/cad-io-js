@@ -148,6 +148,13 @@ export type Item = Row & { transform?: Transform } & (
   | { kind: 'point'; point: Point }
 );
 
+/** A baked copy's fresh id: the source id it copies and the instances it came through, outermost first. */
+export interface Copy {
+  id: number;
+  source: number;
+  path: number[];
+}
+
 export interface PartInfo {
   /** The source's uncertainty, in millimetres. */
   uncertainty?: number;

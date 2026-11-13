@@ -19,8 +19,8 @@
 
 import * as THREE from 'three';
 import { biasTowardCamera } from './depth-bias.ts';
-import { faceFailures, instances, partInstances, placedName, type FaceFailure, type Mat4, type Measures, type Mesh,
-  type PartInstance, type Scene, type SourceId } from 'cad-scene';
+import { faceFailures, instances, partInstances, placedName, stretchWords, type FaceFailure, type Mat4, type Measures,
+  type Mesh, type PartInstance, type Scene, type SourceId } from 'cad-scene';
 import type { Looks, PlacementLook } from './model.ts';
 import { DEFAULT_RENDER, EDGES } from './style.ts';
 
@@ -129,7 +129,12 @@ export class SceneGraph implements Looks {
       const own = stepIds(scene.parts[pi.part]!.sources);
       const sources = stepIds([...pi.ref.sources ?? [], ...pi.ref.product?.sources ?? [],
         ...scene.parts[pi.part]!.sources]);
-      g.userData = { cad: 'part', part: pi.part, path: pi.path, sources, stepFaces: own.length > 0 };
+      // What a placement's stretch baked into its part made it (cad-scene's rigid.ts), for Details.
+      const st = scene.parts[pi.part]!.stretched, words = st ? stretchWords(st.stretch).join(' and ') : '';
+      const stretched = !words ? undefined : st!.of === undefined ? words
+        : `a ${words} copy of ${scene.parts[st!.of]?.name || 'a part'}`;
+      g.userData = { cad: 'part', part: pi.part, path: pi.path, sources, stepFaces: own.length > 0,
+        ...(stretched ? { stretched } : {}) };
       g.visible = pi.visible;
       setMatrix(g, pi.ref.transform);
       // (A root part's at the top.)

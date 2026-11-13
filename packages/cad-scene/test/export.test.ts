@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { tagged } from './models.ts';
-import { exportView, identity, pruneView, scaling, type ExportNode, type Mat4, type Mesh,
+import { exportView, identity, pruneView, type ExportNode, type Mat4, type Mesh,
   type Scene } from '../src/index.ts';
 
 const translation = (x: number, y: number, z: number): Mat4 => {
@@ -10,6 +10,8 @@ const translation = (x: number, y: number, z: number): Mat4 => {
   return m;
 };
 const at = (m: Mat4) => [m[12], m[13], m[14]];
+// A quarter turn about z: x to y.
+const turn = (): Mat4 => Float64Array.of(0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1);
 
 // The plate: three faces of one triangle each, in the order face 8, face 7, an unknown face.
 const plate = (): Mesh => ({
@@ -38,7 +40,7 @@ function scene(): Scene {
       { name: 'asm', sources: [], properties: {}, parts: [],
         children: [occ(1, translation(100, 0, 0), 'left'), occ(1, translation(200, 0, 0))] },
       { name: 'sub', sources: [], properties: {},
-        parts: [{ part: 0, transform: scaling(25.4) }, { part: 3, transform: identity() }],
+        parts: [{ part: 0, transform: turn() }, { part: 3, transform: identity() }],
         children: [occ(2, translation(0, 10, 0))] },
       { name: 'bolt', sources: [], properties: {},
         parts: [{ part: 1, transform: identity() }, { part: 2, transform: identity() }], children: [] },
@@ -93,10 +95,10 @@ test('exportView: the tree, shared looks, groups by material, origins', () => {
   assert.deepEqual(b!.groups, [{ material: undefined, start: 0, count: 3 }]);
   assert.equal(b!.indices, b!.mesh.indices);
   assert.equal(b!.edges, false);
-  // The plate's transform includes its origin, in inches: 1 inch along x.
+  // The plate's transform includes its origin, 1 along x, turned to y.
   const node = v.roots[0]!.children[0]!;
-  assert.deepEqual(at(node.parts[0]!.transform), [25.4, 0, 0]);
-  assert.equal(node.parts[0]!.transform[0], 25.4);
+  assert.deepEqual(at(node.parts[0]!.transform), [0, 1, 0]);
+  assert.equal(node.parts[0]!.transform[1], 1);
   assert.equal(node.parts[0]!.visible, true);
 });
 

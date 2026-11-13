@@ -33,7 +33,7 @@ int main(int argc, char** argv) {
     }
     printf("%d %u %.17g %u\n", k, views[k].count, sum, bad);
   }
-  printf("kinds %d %d %d %d\n", CBR_CURVE_OFFSET, CBR_SURFACE_FIXED_REFERENCE_SWEPT, CBR_ITEM_INSTANCE,
+  printf("kinds %d %d %d %d\n", CBR_CURVE_OFFSET, CBR_SURFACE_FIXED_REFERENCE_SWEPT, CBR_ITEM_POINT,
     CBR_TRIM_CARTESIAN);
   free(buf);
   return 0;

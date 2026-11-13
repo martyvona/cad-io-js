@@ -3,8 +3,8 @@
 // (`cad-viewer.export`) for next time.
 
 import { showDialog } from './dialog.ts';
-import { LENGTH_UNITS, type TransformUse } from 'cad-scene';
-import { DEFAULT_EXPORT, EXPORT_FORMATS, transformsLost, type ExportFormat, type ExportRequest }
+import { LENGTH_UNITS } from 'cad-scene';
+import { DEFAULT_EXPORT, EXPORT_FORMATS, type ExportFormat, type ExportRequest }
   from './export-formats.ts';
 
 /** The dialog's choices: the request's options, and the viewer's hiding and opacity applied or not. */
@@ -52,11 +52,8 @@ const BOXES: [keyof ExportChoice, string, 'all' | 'lines' | 'gltf' | 'gltfFile' 
   ['shown', "Apply the viewer's hiding and opacity", 'all'],
 ];
 
-/**
- * Asks for a format and its options, starting from `start`; undefined if cancelled. With the model's `transforms`,
- * says what the format chosen can't hold of them.
- */
-export async function askExport(start: ExportChoice, transforms?: TransformUse): Promise<ExportChoice | undefined> {
+/** Asks for a format and its options, starting from `start`; undefined if cancelled. */
+export async function askExport(start: ExportChoice): Promise<ExportChoice | undefined> {
   const c: ExportChoice = { ...start };
   const box = document.createElement('div');
   const format = document.createElement('select');
@@ -118,14 +115,9 @@ export async function askExport(start: ExportChoice, transforms?: TransformUse):
   unitNote.className = 'warning';
   unitNote.dataset.key = 'unitNote';
   box.append(unitRow, unitNote);
-  const lost = document.createElement('p');
-  lost.className = 'warning';
-  lost.dataset.key = 'transformsLost';
-  box.append(comp, bitsRow, lost);
+  box.append(comp, bitsRow);
   const show = () => {
     const f = EXPORT_FORMATS[c.format];
-    lost.textContent = transforms ? transformsLost(c.format, transforms) : '';
-    lost.hidden = !lost.textContent;
     for (const { row, when } of rows) row.hidden = !(when === 'all' || (when === 'lines' && f.lines) ||
       (when === 'gltf' && f.gltf) || (when === 'gltfFile' && c.format === 'gltf') || (when === 'threemf' && f.threemf)
       || (when === 'meshes' && !f.step) || (when === 'stepMeshes' && f.step && c.stepSchema === 'ap242'));

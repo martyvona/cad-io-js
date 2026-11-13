@@ -179,7 +179,7 @@ ${PROFILE_LINES}
                            Draco's position quantization, bits over each part mesh's extent (default 14)
       --gltf-instancing    each part placed more than once as one node with EXT_mesh_gpu_instancing (required),
                            out of the assembly tree, losing its occurrence names (edges, curves and points stay
-                           a node per placement); mirrored or sheared placements stay in the tree
+                           a node per placement)
       --gltf-embed         .gltf: the buffer embedded as base64 instead of a .bin beside it (a third bigger)
       --3mf-colorgroup     3MF: colours as the Materials extension's colorgroup (print colours, opaque) instead
                            of basematerials (display colours)

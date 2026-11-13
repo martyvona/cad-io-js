@@ -332,13 +332,13 @@ test('kinds truck has no geometry for leave their faces out, said; items not bod
     const solid = b.addBody({ kind: 'solid', members: [{ ref: box(b, [1, 1, 1], [5, 0, 0], 100), sense: true }] });
     b.addItem({ kind: 'body', ref: solid });
     b.addItem({ kind: 'curve', ref: line([0, 0, 0], [0, 0, 1]), id: 90 });
-    b.addItem({ kind: 'body', ref: solid, transform: [1, 0, 0, 0, 1, 0, 0, 0, 1, 9, 0, 0], id: 91 });
+    b.addItem({ kind: 'point', point: [9, 0, 0], id: 91 });
     const r = await native.tessellate(request(b));
     assert.deepEqual([...faces(r).keys()].sort(), [121, 122, 123, 124, 125, 126]);
     const said = r.diagnostics.map((d) => d.message);
     assert.ok(said.includes('1 faces truck can\'t convert (left out): #80'), said.join('\n'));
     assert.ok(said.includes('1 edges truck can\'t convert: #70'), said.join('\n'));
-    assert.ok(said.includes('representation items truck doesn\'t mesh: a curve #90, a body with a transform #91'),
+    assert.ok(said.includes('representation items truck doesn\'t mesh: a curve #90, a point #91'),
       said.join('\n'));
   });
 
@@ -361,7 +361,7 @@ test('a buffer that isn\'t a model is refused with an error', { skip }, async ()
   const { native } = await both();
   const r = await native.tessellate({ ...request(MODELS.cube()), data: new Uint8Array(64) });
   assert.deepEqual([r.indices.length, r.diagnostics.map((d) => [d.severity, d.message])],
-    [0, [['error', 'truck: not a cad-brep buffer of this format (CBR4)']]]);
+    [0, [['error', 'truck: not a cad-brep buffer of this format (CBR5)']]]);
 });
 
 test('parabola and hyperbola edges on their curves (truck-stepio converts both wrongly), their '

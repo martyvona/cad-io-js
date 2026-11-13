@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { strFromU8, unzipSync } from 'fflate';
-import { exportView, identity, leafParts, scaling, type Mat4, type Mesh, type Scene } from 'cad-scene';
+import { exportView, identity, leafParts, type Mat4, type Mesh, type Scene } from 'cad-scene';
 import { float32Text, threemf, threemfAsync, transformText, xmlText, type ThreeMfOptions } from '../src/index.ts';
 import { OBJECT_TYPE, read3mf, type Read3mf } from './read3mf.ts';
 import { BrepBuilder } from 'cad-brep';
@@ -63,7 +63,7 @@ function scene({ override = true } = {}): Scene {
     components: [
       { name: 'asm', sources: [], properties: {}, parts: [],
         children: [occ(1, translation(100, 0, 0), 'left'), occ(1, turn(200)), occ(2, identity()), occ(3, identity())] },
-      { name: 'sub', sources: [], properties: { partNumber: 'SUB-1' }, parts: [{ part: 0, transform: scaling(25.4) }],
+      { name: 'sub', sources: [], properties: { partNumber: 'SUB-1' }, parts: [{ part: 0, transform: turn(0) }],
         children: [] },
       { name: 'flat', sources: [], properties: {}, parts: [{ part: 1, transform: identity() }], children: [] },
       { name: 'hid', sources: [], properties: { partNumber: 'HID-1' },
@@ -148,8 +148,8 @@ test('parts build: valid; an item per placed part at its world transform, welded
   // Items: the two cube instances (the sheet open, the hidden one left out), at their world transforms.
   assert.equal(r.items.length, 2);
   const [left, right] = r.items;
-  assert.deepEqual(left!.transform, f32([25.4, 0, 0, 0, 25.4, 0, 0, 0, 25.4, 125.4, 0, 0]));
-  assert.deepEqual(right!.transform, f32([0, 25.4, 0, -25.4, 0, 0, 0, 0, 25.4, 200, 25.4, 0]));
+  assert.deepEqual(left!.transform, f32([0, 1, 0, -1, 0, 0, 0, 0, 1, 100, 1, 0]));
+  assert.deepEqual(right!.transform, f32([-1, 0, 0, 0, -1, 0, 0, 0, 1, 199, 0, 0]));
   assert.deepEqual([left!.partNumber, right!.partNumber], ['0.0:0', '0.1:0']);
   assert.deepEqual(left!.metadata, [{ name: 'path', namespace: 'urn:cad-io-js:3mf', value: 'asm / left / cube & co' }]);
   assert.deepEqual(right!.metadata[0]!.value, 'asm / sub / cube & co');
@@ -210,7 +210,7 @@ test('assembly build: one item, components following the tree, identical subtree
   assert.equal(top.components[0]!.object, top.components[1]!.object);
   const sub = r.components.get(top.components[0]!.object)!;
   assert.deepEqual(sub, { name: 'sub',
-    components: [{ object: cubeId, transform: f32([25.4, 0, 0, 0, 25.4, 0, 0, 0, 25.4, 25.4, 0, 0]) }] });
+    components: [{ object: cubeId, transform: f32([0, 1, 0, -1, 0, 0, 0, 0, 1, 0, 1, 0]) }] });
   assert.equal(r.components.size, 2);
 
   // Named, two objects (an object has one name).
@@ -370,6 +370,14 @@ test('threemfAsync: the same bytes as threemf', async () => {
     const a = await threemfAsync(s, view, async () => {}, opts);
     assert.deepEqual(join(a.chunks), join(threemf(s, view, opts).chunks));
   }
+});
+
+test('a scene with a placement that isn\'t rigid: refused, sync and async', async () => {
+  const s = scene();
+  const view = viewOf(s, meshes());
+  s.components[0]!.children[1]!.transform[0] = -1;
+  assert.throws(() => threemf(s, view), /component 0 \(asm\), child 1: a transform that isn't a rotation/);
+  await assert.rejects(threemfAsync(s, view, async () => {}), /isn't a rotation and a translation/);
 });
 
 test('placed products (leafParts): the object\'s part number its product\'s; in the assembly form, a named one '

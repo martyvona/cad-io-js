@@ -39,7 +39,6 @@ test('JSON round trip: the same bytes, and decoding gives what was built', () =>
   assert.ok(c6.kind === 'bspline');
   assert.deepEqual([c6.weights, c6.closed, c6.selfIntersect], [[1, 0.5, 2, 1], false, null]);
   assert.equal('weights' in decode.curve(d, 5), false);
-  assert.deepEqual(decode.item(d, rowCount(d, 'item') - 1).transform, [-1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 0, 0]);
   assert.deepEqual(decode.part(d), { uncertainty: 1e-5 });
   assert.deepEqual(decode.curve(d, 10), { kind: 'offset', basis: 5, distance: 0.25, selfIntersect: null,
     refDirection: [0, 1, 0] });
@@ -78,7 +77,7 @@ test('the bytes depend on each table\'s rows, not on how tables are interleaved'
 test('layout: every column 8-byte aligned, in order, counts as built', () => {
   const d = everyKind().finish();
   const view = new DataView(d.buffer);
-  assert.equal(String.fromCharCode(...new Uint8Array(d.buffer, 0, 4)), 'CBR4');
+  assert.equal(String.fromCharCode(...new Uint8Array(d.buffer, 0, 4)), 'CBR5');
   assert.equal(view.getUint32(4, true), COLUMNS.length);
   let last = 0;
   COLUMNS.forEach((c, k) => {
@@ -182,6 +181,7 @@ test('the builder refuses what would make the buffer unreadable', () => {
       /edge 3 not added yet/],
     ['an instance of a later item', () => b.addItem({ kind: 'instance', ref: 0, transform: [] }),
       /item 0 not added yet/],
+    ['a copy without its source', () => b.addCopy({ id: 5, source: 0, path: [] }), /source id 0/],
     ['a short transform', () => b.addItem({ kind: 'point', point: [0, 0, 0], transform: [1, 0, 0] }),
       /transform of 3/],
     ['a 2D curve item', () => b.addItem({ kind: 'curve', ref: line2 }), /2D, not 3D/],
@@ -243,6 +243,14 @@ test('validateBrep finds each kind of defect', () => {
   };
   const C = at('curve', false), CI = at('curve', true), S = at('surface', false), SI = at('surface', true);
   const E = everyKind;
+  // A box drawn twice (an instance): its rows' copies in the copies table.
+  const INST = () => {
+    const b = new BrepBuilder();
+    const it = b.addItem({ kind: 'body', ref: b.addBody({ kind: 'solid', members: [{ ref: box(b, [1, 1, 1], [0, 0, 0],
+      10), sense: true }] }) });
+    b.addItem({ kind: 'instance', ref: it, transform: [1, 0, 0, 0, 1, 0, 0, 0, 1, 2, 0, 0], id: 77 });
+    return b;
+  };
   const cases: Case[] = [
     ['uncertainty', E, (d) => { d.part.uncertainty[0] = -1; }, /part: uncertainty -1/],
     ['line direction', E, C(0, 3, 1), /curve 0 \(#501\) \(line\): direction not of unit length/],
@@ -391,10 +399,11 @@ test('validateBrep finds each kind of defect', () => {
     ['item kind', cube, (d) => { d.item.kind[0] = 0; }, /item 0 \(#101\): kind 0/],
     ['item body', cube, (d) => { d.item.ref[0] = 1; }, /body 1 out of range/],
     ['item point', E, (d) => { d.item.ref[26] = d.pool.itemReal.length; }, /point at/],
-    ['instance forward', E, (d) => { d.item.ref[28] = 28; }, /item 28 not an earlier item/],
-    ['instance without transform', E, (d) => { d.item.transform[28] = -1; }, /instance without a transform/],
-    ['singular transform', E, (d) => { d.pool.itemReal.fill(0, 3, 15); }, /singular or not finite/],
-    ['transform range', E, (d) => { d.item.transform[28] = 1e6; }, /out of range/],
+    ['copy without id', INST, (d) => { d.copy.id[0] = 0; }, /copy 0: no id or no source id/],
+    ['copy without source', INST, (d) => { d.copy.source[1] = 0; }, /copy 1: no id or no source id/],
+    ['copy id twice', INST, (d) => { d.copy.id[1] = d.copy.id[0]!; }, /copy 1: id #\d+ given twice/],
+    ['copy path range', INST, (d) => { d.copy.count[0] = 99; }, /copy 0: path \d+, 99 out of range/],
+    ['copy path id', INST, (d) => { d.pool.copyPath[0] = 0; }, /copy \d+: a path with an instance without an id/],
     ['duplicate face ids', cube, (d) => { d.face.id[3] = 21; }, /face 3: source id #21, as face 0/],
     ['duplicate edge ids', cube, (d) => { d.edge.id[3] = 9; }, /edge 3: source id #9, as edge 0/],
     ['duplicate vertex ids', cube, (d) => { d.vertex.id[7] = 1; }, /vertex 7: source id #1, as vertex 0/],

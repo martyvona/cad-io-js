@@ -1,5 +1,5 @@
 // Hand-built B-reps for the tests: each the smallest that has the feature named (a solid's shared edges, a seam with
-// its two p-curves, natural bounds, a vertex loop at a pole, a void, poly loops, wires, geometric sets, instances,
+// its two p-curves, natural bounds, a vertex loop at a pole, a void, poly loops, wires, geometric sets,
 // every curve and surface kind).
 
 import { BrepBuilder } from '../src/builder.ts';
@@ -203,7 +203,7 @@ export function facetedAndWire(): BrepBuilder {
 }
 
 /** Every curve and surface kind once (2D curves too), as loose geometry items, with a curve-bounded face (edges
- * without vertices), a point, and an instance placing the cube mirrored. */
+ * without vertices), a point and a cube. */
 export function everyKind(): BrepBuilder {
   const b = new BrepBuilder({ uncertainty: 1e-5 });
   const P = { origin: [1, 2, 3], axis: [0, 0, 1], xDir: [1, 0, 0] };
@@ -268,8 +268,7 @@ export function everyKind(): BrepBuilder {
     coedges: [{ edge: e, orientation: 'forward', pcurve: 12 }] }] });
   b.addItem({ kind: 'face', ref: f, id: 700 });
   b.addItem({ kind: 'point', point: [9, 8, 7], id: 701 });
-  const body = b.addItem({ kind: 'body', ref: box2(b) });
-  b.addItem({ kind: 'instance', ref: body, transform: [-1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 0, 0] });
+  b.addItem({ kind: 'body', ref: box2(b) });
   return b;
 }
 

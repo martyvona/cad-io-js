@@ -1,0 +1,61 @@
+484 files (up to 3 MB), 927 parts x 3 transforms, 100311 faces compared
+   1951  OCCT's measured area not s^2 times
+           gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 (mirror, turn, scale 0.3) face #1476: 0.441463540264598, 0.4414640696051428
+           gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 (mirror, turn, scale 0.3) face #1840: 22.748972556989603, 22.74878177784825
+           gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 (mirror, turn, scale 0.3) face #1862: 22.748972557977304, 22.74878177883425
+           gkv311-opencascade-dataset/step/trj2_as1-tc-214.stp #1879 (turn, scale 2.5, move) face #1694: 1963.4930156776709, 1963.4954084887036
+    584  facing the other way (loose geometry)
+           gkv311-opencascade-dataset/step/trj8_c2-ac-214.stp #245 (mirror) face #235: -1.0000
+           gkv311-opencascade-dataset/step/trj8_c2-ac-214.stp #245 (mirror, turn, scale 0.3) face #235: -1.0000
+           gkv311-opencascade-dataset/step/tr8_ha1_ug.stp #2510 (mirror) face #2420: -1.0000
+           gkv311-opencascade-dataset/step/tr8_ha1_ug.stp #2510 (mirror, turn, scale 0.3) face #2420: -1.0000
+    108  facing the other way
+           gkv311-opencascade-dataset/step/trj5_s1-in-214.stp #1106 (mirror) face #818: -1.0000
+           gkv311-opencascade-dataset/step/trj5_s1-in-214.stp #1106 (mirror) face #859: -1.0000
+           gkv311-opencascade-dataset/step/trj5_s1-in-214.stp #1106 (mirror) face #910: -1.0000
+           gkv311-opencascade-dataset/step/trj5_s1-in-214.stp #1106 (mirror) face #935: -1.0000
+     71  OCCT's measured area not s^2 times (loose geometry)
+           gkv311-opencascade-dataset/step/trj4_k1_geo-ac-214.stp #10298 (turn, scale 2.5, move) face #1037: 1.1685765806357367, 1.1685680432062142
+           gkv311-opencascade-dataset/step/trj4_k1_geo-ac-214.stp #10298 (turn, scale 2.5, move) face #1312: 1.1685765806362067, 1.1685680432813212
+           gkv311-opencascade-dataset/step/trj4_k1_geo-ac-214.stp #10298 (turn, scale 2.5, move) face #8490: 0.07113156494172689, 0.07113170467115319
+           gkv311-opencascade-dataset/step/trj4_k1_geo-ac-214.stp #10298 (turn, scale 2.5, move) face #8650: 0.07113155796499822, 0.07113169537540197
+     39  mesh areas over 2% apart
+           gkv311-opencascade-dataset/step/trj10_b2-oc-214.stp #10 (turn, scale 2.5, move) face #1703: 0.0000037769495975226164, 0.0000026341103351414213
+           gkv311-opencascade-dataset/step/trj10_b2-oc-214.stp #10 (turn, scale 2.5, move) face #5038: 0.0000037769495975226164, 0.0000030466305016527077
+           gkv311-opencascade-dataset/step/trj10_b2-oc-214.stp #10 (mirror, turn, scale 0.3) face #1703: 5.4388074204325656e-8, 9.06673534709345e-8
+           gkv311-opencascade-dataset/step/trj10_b2-oc-214.stp #10 (mirror, turn, scale 0.3) face #5038: 5.4388074204325656e-8, 1.9651074669667595e-8
+     21  centroids apart
+           gkv311-opencascade-dataset/step/bug28118_18547.stp #11 (mirror, turn, scale 0.3) face #561: 9.03e-2
+           gkv311-opencascade-dataset/step/trj5_s1-in-214.stp #1106 (mirror) face #1095: 5.55e+1
+           gkv311-opencascade-dataset/step/trj5_s1-in-214.stp #1106 (mirror, turn, scale 0.3) face #818: 1.66e+1
+           gkv311-opencascade-dataset/step/trj5_s1-in-214.stp #1106 (mirror, turn, scale 0.3) face #1095: 1.66e+1
+     11  mean normals apart
+           gkv311-opencascade-dataset/step/trj10_b2-oc-214.stp #10 (turn, scale 2.5, move) face #1703: 0.9210
+           gkv311-opencascade-dataset/step/trj10_b2-oc-214.stp #10 (turn, scale 2.5, move) face #5038: 0.9889
+           gkv311-opencascade-dataset/step/trj10_b2-oc-214.stp #10 (mirror, turn, scale 0.3) face #1703: 0.8903
+           gkv311-opencascade-dataset/step/trj10_b2-oc-214.stp #10 (mirror, turn, scale 0.3) face #5038: 0.4373
+     10  centroids apart (loose geometry)
+           gkv311-opencascade-dataset/step/trj4_k1_geo-pe-203.stp #6268 (mirror) face #4646: 3.78e+0
+           gkv311-opencascade-dataset/step/trj4_k1_geo-pe-203.stp #6268 (mirror, turn, scale 0.3) face #4646: 1.14e+0
+           gkv311-opencascade-dataset/step/trj4_k1_geo-pe-214.stp #6272 (mirror) face #4650: 3.78e+0
+           gkv311-opencascade-dataset/step/trj4_k1_geo-pe-214.stp #6272 (mirror, turn, scale 0.3) face #4650: 1.14e+0
+      5  validity: false, baked true
+           gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 (turn, scale 2.5, move) face #16311
+           gkv311-opencascade-dataset/step/Checking_Fixture_Clamping.STEP #5594 (mirror) face #8428
+           gkv311-opencascade-dataset/step/Checking_Fixture_Clamping.STEP #5594 (mirror) face #8454
+           gkv311-opencascade-dataset/step/Checking_Fixture_Clamping.STEP #5594 (mirror, turn, scale 0.3) face #8428
+      4  mesh areas over 2% apart (loose geometry)
+           gkv311-opencascade-dataset/step/trj4_k1_geo-tu-214.stp #2080 (mirror) face #331: 163.6206078231066, 217.68047992917334
+           gkv311-opencascade-dataset/step/trj4_k1_geo-tu-214.stp #2080 (mirror) face #611: 92.40100795958786, 98.19773919081354
+           gkv311-opencascade-dataset/step/trj4_k1_geo-tu-214.stp #2080 (mirror, turn, scale 0.3) face #331: 14.725854704079588, 19.591248729597684
+           gkv311-opencascade-dataset/step/trj4_k1_geo-tu-214.stp #2080 (mirror, turn, scale 0.3) face #611: 8.316090716362904, 8.837801037122032
+      3  validity: true, baked false
+           gkv311-opencascade-dataset/step/ec_turbine-A.stp #11 (turn, scale 2.5, move) face #384
+           gkv311-opencascade-dataset/step/ec_turbine-A.stp #11 (mirror, turn, scale 0.3) face #384
+           gkv311-opencascade-dataset/step/nist/bug28444_nist_ftc_06_asme1_ct5240_rd.stp #7107 (turn, scale 2.5, move) face #5854
+      2  meshed baked only
+           gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 (turn, scale 2.5, move) face #18168
+           gkv311-opencascade-dataset/step/trj10_b2-oc-214.stp #10 (turn, scale 2.5, move) face #5079
+      2  meshed as it is only
+           gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 (mirror, turn, scale 0.3) face #1297
+           gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 (mirror, turn, scale 0.3) face #1298

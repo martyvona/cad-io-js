@@ -5,7 +5,7 @@
 // docs/brep-model.md; which reals are lengths: docs/brep-reference.md.
 
 /** The first four bytes of every buffer; the digit is the format's version. */
-export const MAGIC = 'CBR4';
+export const MAGIC = 'CBR5';
 
 export type ColumnType = 'u8' | 'i32' | 'u32' | 'f64';
 
@@ -21,7 +21,7 @@ export const TABLES = {
   /** One row: the part's uncertainty in millimetres (NaN: none). Every length in the buffer is in millimetres. */
   part: [['uncertainty', 'f64', 1]],
   pool: [['curveReal', 'f64', 1], ['curveInt', 'i32', 1], ['surfaceReal', 'f64', 1], ['surfaceInt', 'i32', 1],
-    ['loopInt', 'i32', 1], ['itemReal', 'f64', 1]],
+    ['loopInt', 'i32', 1], ['itemReal', 'f64', 1], ['copyPath', 'u32', 1]],
   /** Curves, 3D or 2D (p-curves' geometry): `dim` 2 or 3; reals and ints by kind (CURVE_LAYOUTS). */
   curve: [['kind', 'u8', 1], ['dim', 'u8', 1], ['real', 'i32', 1], ['int', 'i32', 1], ['id', 'u32', 1]],
   surface: [['kind', 'u8', 1], ['real', 'i32', 1], ['int', 'i32', 1], ['id', 'u32', 1]],
@@ -57,11 +57,16 @@ export const TABLES = {
   /** A member of a body, and its sense (false: reversed, STEP's ORIENTED_CLOSED_SHELL). */
   member: [['ref', 'i32', 1], ['sense', 'u8', 1]],
   /**
-   * The part's roots. `kind` ITEM_KIND; `ref` the body, curve, surface, face or item placed (an instance's item comes
-   * before it), or a point's offset of 3 reals in `pool.itemReal`; `transform` an offset of 12 reals there (affine,
-   * column-major: the x, y and z columns, then the translation; mirrors and even scales allowed) or -1.
+   * The part's roots, in the model's one coordinate system (no transforms: a source's are baked into copies of the
+   * rows, docs/brep-reference.md, "Transforms"). `kind` ITEM_KIND; `ref` the body, curve, surface or face, or a
+   * point's offset of 3 reals in `pool.itemReal`.
    */
-  item: [['kind', 'u8', 1], ['ref', 'i32', 1], ['transform', 'i32', 1], ['id', 'u32', 1]],
+  item: [['kind', 'u8', 1], ['ref', 'i32', 1], ['id', 'u32', 1]],
+  /**
+   * Baked copies' fresh ids: `id` a copy's, `source` the id it copies; the instances it came through,
+   * outermost first, `count` ids in `pool.copyPath` from `first`.
+   */
+  copy: [['id', 'u32', 1], ['source', 'u32', 1], ['first', 'i32', 1], ['count', 'i32', 1]],
 } as const satisfies Record<string, readonly (readonly [string, ColumnType, number])[]>;
 
 export type TableName = keyof typeof TABLES;
@@ -75,7 +80,7 @@ export const BOUND = { unknown: 0, outer: 1, inner: 2 } as const;
 /** `faceSet`: neither said closed nor open (STEP's CONNECTED_FACE_SET; faces with no shared topology). */
 export const SHELL_KIND = { closed: 1, open: 2, faceSet: 3 } as const;
 export const BODY_KIND = { solid: 1, sheet: 2, wire: 3 } as const;
-export const ITEM_KIND = { body: 1, curve: 2, surface: 3, face: 4, point: 5, instance: 6 } as const;
+export const ITEM_KIND = { body: 1, curve: 2, surface: 3, face: 4, point: 5 } as const;
 
 export const CURVE_KIND = {
   line: 1, circle: 2, ellipse: 3, hyperbola: 4, parabola: 5, bspline: 6, polyline: 7, trimmed: 8, composite: 9,

@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { addLod, boundScene, exportView, identity, multiply, partInstances, placedName, pruneView, scaling,
-  tessellateScene, validate, viewDifferences, type Mat4, type Mesh, type Occurrence, type PartRef,
+import { addLod, boundScene, exportView, identity, multiply, partInstances, placedName, pruneView, rigidPlacements,
+  scaleMesh, scaling, tessellateScene, validate, viewDifferences, type Mat4, type Mesh, type Occurrence, type PartRef,
   type Scene } from 'cad-scene';
 import { threejsJson } from 'export-threejs';
 import { StepTessellator } from 'step-export';
@@ -50,8 +50,8 @@ function scene(): Scene {
         children: [occ(1, translation(100, 0, 0), 'left'), occ(1, translation(200, 0, 0)),
           occ(1, translation(300, 0, 0), 'hidden')] },
       { name: 'sub', sources: [{ format: 'step', id: 7 }], properties: { rev: 'B' },
-        parts: [{ part: 0, transform: scaling(25.4) }, { part: 0, transform: multiply(translation(0, 50, 0),
-          scaling(25.4)), visible: false }, { part: 1, transform: identity() }], children: [] },
+        parts: [{ part: 0, transform: identity() }, { part: 0, transform: translation(0, 50, 0), visible: false },
+          { part: 1, transform: identity() }], children: [] },
     ],
     roots: [occ(0, translation(0, 0, 5))],
     parts: [{ ...part('plate'), material: 1, faceMaterials: [{ face: 7, material: 2 }], closed: true },
@@ -63,7 +63,8 @@ function scene(): Scene {
     properties: { schema: 'AP214' },
     diagnostics: [],
   };
-  addLod(s.parts[0]!, { mesh: plate(), from: 'tessellated' });
+  // (The plate an inch across, in millimetres: placements are rigid.)
+  addLod(s.parts[0]!, { mesh: scaleMesh(plate(), 25.4), from: 'tessellated' });
   addLod(s.parts[1]!, { mesh: wire(), from: 'tessellated' });
   return s;
 }
@@ -155,10 +156,11 @@ test('foreign three.js JSON: shared geometry one part, lines and points, materia
     [[[255, 128, 0], 0.5], [[0, 0, 0], 1]]);
   const line = s.parts[1]!.lods[0]!.mesh;
   assert.equal(line.curves!.length, 2);
-  assert.deepEqual(Array.from(line.curvePositions!), [0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0]);
-  // The root from metres, Y up: (1, 0, 0) m is (1000, 0, 0) mm; b hidden.
-  assert.deepEqual(Array.from(s.roots[0]!.transform).map((x) => Math.round(x)),
-    [1000, 0, 0, 0, 0, 0, 1000, 0, 0, -1000, 0, 0, 0, 0, 0, 1]);
+  // Metres made millimetres in the meshes (a placement holds no scale: cad-scene's rigid.ts); the root turned from Y
+  // up; b hidden.
+  assert.deepEqual(Array.from(line.curvePositions!), [0, 0, 0, 1000, 0, 0, 1000, 0, 0, 1000, 1000, 0]);
+  assert.deepEqual(Array.from(s.roots[0]!.transform).map((x) => Math.round(x) + 0),
+    [1, 0, 0, 0, 0, 0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1]);
   assert.deepEqual([...partInstances(s)].map((p) => [s.parts[p.part]!.name, p.visible]),
     [['a', true], ['a', false], ['c', true]]);
   // Not JSON, not three.js JSON: an error, an empty scene.
@@ -213,8 +215,10 @@ test('a STEP assembly through three.js JSON and back: the same drawing', { skip:
     []);
 });
 
-test('a foreign three.js Scene exported again: its top objects\' frames as they were, with extras or without', () => {
-  // (an export's root frame the input's; no turn or group of ours left in it.)
+test('a foreign three.js Scene exported again: its top objects\' frames as they were but for the meshes, now in '
+  + 'millimetres, with extras or without', () => {
+  // (an export's root frame the input's, its turn by 1/1000 for the meshes in millimetres; no turn or group of ours
+  // left in it.)
   const geometry = { uuid: 'g', type: 'BufferGeometry', data: { attributes: { position: { itemSize: 3,
     type: 'Float32Array', array: [0, 0, 0, 1, 0, 0, 0, 1, 0] } } } };
   const am = [0.28, 0, -0.96, 0, 0, 1, 0, 0, 0.96, 0, 0.28, 0, 0.1, 0.2, 0.3, 1];
@@ -235,8 +239,9 @@ test('a foreign three.js Scene exported again: its top objects\' frames as they 
     assert.equal(out.object.type, 'Scene');
     assert.deepEqual(out.object.children.map((c) => c.name), ['a', 'b'], `extras ${extras}`);
     const near = (x: number[], y: number[]) => x.every((v, i) => Math.abs(v - y[i]!) < 1e-12);
-    assert.ok(near(out.object.children[0]!.matrix, am), `a's frame, extras ${extras}`);
-    assert.ok(near(out.object.children[1]!.matrix, bm), `b's frame, extras ${extras}`);
+    const top = (m: number[]) => m.map((v, i) => i < 12 && i % 4 < 3 ? v / 1000 : v);
+    assert.ok(near(out.object.children[0]!.matrix, top(am)), `a's frame, extras ${extras}`);
+    assert.ok(near(out.object.children[1]!.matrix, top(bm)), `b's frame, extras ${extras}`);
   }
 });
 
@@ -333,7 +338,9 @@ test('ours of earlier versions, a part in a unit of its own (userData unit): its
   // The part's object said to be in inches, as our earlier versions wrote a part whose unit wasn't 1.
   const objects = (o: Json): Json[] => [o, ...((o.children ?? []) as Json[]).flatMap(objects)];
   const partObject = objects(written.object).find((o) => typeof (o.userData as Json | undefined)?.part === 'number')!;
+  // (And placed scaled by it, as they wrote such a part: the reader unscales it to match.)
   (partObject.userData as Json).unit = 25.4;
+  partObject.matrix = (partObject.matrix as number[]).map((x, i) => i < 12 && i % 4 < 3 ? x * 25.4 : x);
   const old = importThreejs(JSON.stringify(written)).scene, now = importThreejs(JSON.stringify({ ...written,
     object: JSON.parse(threejsJson(s, exportView(s), { extras: true })).object })).scene;
   const a = old.parts[0]!, b = now.parts[0]!;
@@ -342,9 +349,9 @@ test('ours of earlier versions, a part in a unit of its own (userData unit): its
   assert.deepEqual(a.lods[0]!.mesh.origin, b.lods[0]!.mesh.origin.map((x) => x * 25.4));
   assert.deepEqual([...a.measures!.faces].map(([f, m]) => [f, m.area, m.perimeter]),
     [...b.measures!.faces].map(([f, m]) => [f, m.area * 25.4 * 25.4, m.perimeter * 25.4]));
-  // The same points in the world: the mesh's scale taken out of its placements.
+  // The mesh's scale taken out of its placements: they're as now's (rigid).
   const world = (sc: Scene) => [...partInstances(sc)].map((pi) => Array.from(pi.transform)
-    .map((x, k) => k < 12 && k % 4 !== 3 && sc === old ? x * 25.4 : x).map((x) => Math.round(x * 1e9) / 1e9));
+    .map((x) => Math.round(x * 1e9) / 1e9 + 0));
   assert.deepEqual(world(old), world(now));
   assert.equal(validate(old).length, 0);
 });
@@ -393,6 +400,8 @@ test('transforms: a shear read as written; said where three.js\'s own loader wou
   const s = scene();
   const occ = s.components[0]!.children[0]!;
   occ.transform = multiply(occ.transform, Float64Array.from(sheared));
+  // (Rigid, as an importer gives every scene: the shear in copies of the parts.)
+  rigidPlacements(s);
   const view = exportView(s, opts);
   const back = importThreejs(threejsJson(s, view, { extras: true }));
   assert.deepEqual(back.diagnostics, []);
@@ -428,14 +437,26 @@ const worldPoints = (sc: Scene, k = 1) => [...new Set([...partInstances(sc)].fla
   return out;
 }))].sort();
 
+/**
+ * Two lists of world points (worldPoints') the same to `tol` (mm): each of each within it of one of the other (float32
+ * meshes scaled at import round in their last bits).
+ */
+function samePoints(got: string[], want: string[], tol: number, what: string) {
+  const pts = (xs: string[]) => xs.map((x) => x.split(' ').map(Number));
+  const g = pts(got), w = pts(want);
+  const near = (p: number[], q: number[]) => Math.hypot(p[0]! - q[0]!, p[1]! - q[1]!, p[2]! - q[2]!) <= tol;
+  for (const p of g) assert.ok(w.some((q) => near(p, q)), `${what}: ${p} got, not wanted`);
+  for (const q of w) assert.ok(g.some((p) => near(p, q)), `${what}: ${q} wanted, not got`);
+}
+
 test('a unit other than metres: the top objects turned into it; ours read back as written, others take it for metres',
   () => {
   const s = scene();
   for (const unit of [1, 25.4]) {
-    assert.deepEqual(worldPoints(importThreejs(threejsJson(s, exportView(s), { unit, extras: true })).scene),
-      worldPoints(s), `${unit}`);
+    samePoints(worldPoints(importThreejs(threejsJson(s, exportView(s), { unit, extras: true })).scene),
+      worldPoints(s), 1e-4, `${unit}`);
     const plain = importThreejs(threejsJson(s, exportView(s), { unit })).scene;
-    assert.deepEqual(worldPoints(plain), worldPoints(s, 1000 / unit), `${unit}`);
+    samePoints(worldPoints(plain), worldPoints(s, 1000 / unit), 1e-4 * 1000 / unit, `${unit}`);
   }
   assert.equal((JSON.parse(threejsJson(s, exportView(s), { extras: true })) as { object: { userData: Json } })
     .object.userData.fileUnit, undefined);

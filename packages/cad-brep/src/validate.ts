@@ -28,7 +28,7 @@ export function validateBrep(d: BrepData): BrepDiagnostic[] {
     else more++;
   };
   const n = Object.fromEntries((['curve', 'surface', 'vertex', 'edge', 'coedge', 'loop', 'face', 'shell', 'body',
-    'faceUse', 'member', 'item'] as TableName[]).map((t) => [t, rowCount(d, t)])) as Record<TableName, number>;
+    'faceUse', 'member', 'item', 'copy'] as TableName[]).map((t) => [t, rowCount(d, t)])) as Record<TableName, number>;
   const name = (t: TableName, k: number, ids?: Uint32Array) => `${t} ${k}${ids?.[k] ? ` (#${ids[k]})` : ''}`;
   const finite = (xs: ArrayLike<number>) => {
     for (let i = 0; i < xs.length; i++) if (!Number.isFinite(xs[i]!)) return false;
@@ -470,23 +470,26 @@ export function validateBrep(d: BrepData): BrepDiagnostic[] {
 
   const it = d.item, ir = d.pool.itemReal;
   for (let k = 0; k < n.item; k++) {
-    const what = name('item', k, it.id), kind = nameOf(ITEM_KIND, it.kind[k]!), ref = it.ref[k]!, t = it.transform[k]!;
+    const what = name('item', k, it.id), kind = nameOf(ITEM_KIND, it.kind[k]!), ref = it.ref[k]!;
     if (!kind) { say('error', `${what}: kind ${it.kind[k]}`); continue; }
     if (kind === 'point') {
       if (!(ref >= 0 && ref + 3 <= ir.length) || !finite(ir.subarray(ref, ref + 3))) {
         say('error', `${what}: point at ${ref}`);
       }
-    } else if (kind === 'instance') {
-      if (!(ref >= 0 && ref < k)) say('error', `${what}: item ${ref} not an earlier item`);
-      if (t === -1) say('error', `${what}: an instance without a transform`);
     } else if (!inRange(kind, ref)) say('error', `${what}: ${kind} ${ref} out of range`);
-    if (t !== -1) {
-      const m = t >= 0 && t + 12 <= ir.length ? Array.from(ir.subarray(t, t + 12)) : undefined;
-      const det = m && m[0]! * (m[4]! * m[8]! - m[5]! * m[7]!) - m[3]! * (m[1]! * m[8]! - m[2]! * m[7]!)
-        + m[6]! * (m[1]! * m[5]! - m[2]! * m[4]!);
-      if (!m || !finite(m) || !det) {
-        say('error', `${what}: transform at ${t} ${m ? 'singular or not finite' : 'out of range'}`);
-      }
+  }
+
+  // Copies: each fresh id once, a source and a path in range.
+  const cp = d.copy, freshSeen = new Set<number>();
+  for (let k = 0; k < n.copy; k++) {
+    const what = `copy ${k}`, first = cp.first[k]!, count = cp.count[k]!;
+    if (!cp.id[k] || !cp.source[k]) say('error', `${what}: no id or no source id`);
+    if (freshSeen.has(cp.id[k]!)) say('error', `${what}: id #${cp.id[k]} given twice`);
+    freshSeen.add(cp.id[k]!);
+    if (!(first >= 0 && count >= 0 && first + count <= d.pool.copyPath.length)) {
+      say('error', `${what}: path ${first}, ${count} out of range`);
+    } else if (d.pool.copyPath.subarray(first, first + count).some((x) => x === 0)) {
+      say('error', `${what}: a path with an instance without an id`);
     }
   }
 

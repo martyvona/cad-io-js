@@ -6,7 +6,7 @@ import path from 'node:path';
 import { exportView, identity, leafParts, multiply, partInstances, placedName, pruneView, scaleMesh, scaling,
   tessellateScene, validate, viewDifferences, type ExportNode, type Mat4, type Mesh, type Occurrence, type PartRef,
   type Scene } from 'cad-scene';
-import { float32Text, threemf, type ThreeMfOptions } from 'export-3mf';
+import { float32Text, threemf, transformText, type ThreeMfOptions } from 'export-3mf';
 import { StepTessellator } from 'step-export';
 import { importStep } from 'step-import';
 import { OcctTessellator } from 'tess-occt';
@@ -57,9 +57,9 @@ function fixture(): Scene {
     unit: 'millimetre',
     components: [
       { name: 'asm', sources: [], properties: {}, parts: [{ part: 1, transform: translation(0, 0, -10) },
-        { part: 0, transform: scaling(25.4), visible: false }],
+        { part: 0, transform: identity(), visible: false }],
       children: [occ(1, translation(100, 0, 0), 'left'), occ(1, turn(200), 'right')] },
-      { name: 'sub', sources: [], properties: {}, parts: [{ part: 0, transform: scaling(25.4) }], children: [] },
+      { name: 'sub', sources: [], properties: {}, parts: [{ part: 0, transform: identity() }], children: [] },
     ],
     roots: [occ(0, translation(0, 0, 5), 'top')],
     parts: [{ ...part('cube', cube(), true), material: 1, faceMaterials: [{ face: 15, material: 2 },
@@ -72,20 +72,26 @@ function fixture(): Scene {
 
 interface Drawn { pts: number[]; colour: string }
 /** Every visible placed triangle in the world with its colour (8-bit, alpha), degenerate ones left out. */
-function drawn(scene: Scene, { opaque = false } = {}): Drawn[] {
+/**
+ * Every placed triangle in the world, with its colour; `faceOut`: those a mirror placed turned over (their corners
+ * reversed), as a mirror baked into a copy faces them out (cad-scene's rigid.ts).
+ */
+function drawn(scene: Scene, { opaque = false, faceOut = false } = {}): Drawn[] {
   const out: Drawn[] = [];
   for (const pi of partInstances(scene)) {
     if (!pi.visible) continue;
     const mesh = scene.parts[pi.part]!.lods[0]?.mesh;
     if (!mesh) continue;
     const m = pi.transform, o = mesh.origin, p = mesh.positions;
+    const turn = faceOut && m[0]! * (m[5]! * m[10]! - m[6]! * m[9]!) - m[4]! * (m[1]! * m[10]! - m[2]! * m[9]!)
+      + m[8]! * (m[1]! * m[6]! - m[2]! * m[5]!) < 0;
     for (const f of mesh.faces) {
       const mi = (f.source === null ? undefined : pi.faceMaterials.get(f.source)) ?? pi.material;
       const mat = mi === undefined ? undefined : scene.materials[mi]!;
       const colour = mat ? [...mat.color, opaque ? 1 : mat.opacity].map((c) => Math.round(c * 255)).join(',')
         : 'none';
       for (let i = f.start; i < f.start + f.count; i += 3) {
-        const pts = [0, 1, 2].flatMap((k) => {
+        const pts = (turn ? [0, 2, 1] : [0, 1, 2]).flatMap((k) => {
           const v = mesh.indices[i + k]!, x = p[3 * v]! + o[0], y = p[3 * v + 1]! + o[1], z = p[3 * v + 2]! + o[2];
           return [m[0]! * x + m[4]! * y + m[8]! * z + m[12]!, m[1]! * x + m[5]! * y + m[9]! * z + m[13]!,
             m[2]! * x + m[6]! * y + m[10]! * z + m[14]!];
@@ -771,20 +777,42 @@ test('file metadata through our 3MF: the standard names always; with extras, the
     assert.deepEqual(bad.scene.properties, { format: '3mf', unit: 'millimeter' });
   });
 
-test('transforms: a mirror, an uneven scale and a shear through 3MF as they were, with extras or without', () => {
+test('transforms: a mirror, an uneven scale and a shear in a 3MF: read back rigid, the stretches baked into copies '
+  + 'facing out, every triangle where it was, with extras or without', () => {
   const s = source();
   // (Its subassembly a leaf product: placed parts of the assembly, by their names.)
-  const [left, right] = ['left', 'right'].map((n) => s.components[0]!.parts.find((p) => p.name === n));
-  left!.transform = multiply(left!.transform, Float64Array.of(-1, 0, 0, 0, 0, 3, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1));
-  right!.transform = multiply(right!.transform, Float64Array.of(1, 0, 0, 0, 0.6, 0.8, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1));
-  // Every triangle where it was, its corners in the same order (the sheet, open, left out; faces without a material
-  // in the exporter's grey).
-  const expected = canonical(drawn({ ...s, parts: [s.parts[0]!, { ...s.parts[1]!, lods: [] }] }))
+  const [left, right] = ['left', 'right'].map((n) => s.components[0]!.parts.find((p) => p.name === n)!);
+  const stretch = new Map<PartRef, Mat4>([[left!, Float64Array.of(-1, 0, 0, 0, 0, 3, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)],
+    [right!, Float64Array.of(1, 0, 0, 0, 0.6, 0.8, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)]]);
+  // Our exporter writes rigid placements only: the file's items stretched here (each item's transform its placed
+  // part's world transform, then its mesh's origin).
+  const worlds = [...partInstances(s)].filter((pi) => stretch.has(pi.ref)).map((pi) => {
+    const o = translation(...(s.parts[pi.part]!.lods[0]!.mesh.origin as [number, number, number]));
+    return [multiply(pi.transform, o), multiply(multiply(pi.transform, stretch.get(pi.ref)!), o)] as const;
+  });
+  const stretched = (bytes: Uint8Array) => {
+    const files = unzipSync(bytes);
+    let text = strFromU8(files['3D/3dmodel.model']!);
+    for (const [was, is] of worlds) {
+      const at = `transform="${transformText(was)}"`;
+      assert.equal(text.split(at).length, 2, at);
+      text = text.replace(at, `transform="${transformText(is)}"`);
+    }
+    return zipSync({ ...files, '3D/3dmodel.model': strToU8(text) });
+  };
+  // Every triangle where it was, those a mirror placed turned over (the sheet, open, left out; faces without a
+  // material in the exporter's grey).
+  const rigid = new Map([...stretch.keys()].map((ref) => [ref, ref.transform]));
+  for (const [ref, m] of stretch) ref.transform = multiply(ref.transform, m);
+  const expected = canonical(drawn({ ...s, parts: [s.parts[0]!, { ...s.parts[1]!, lods: [] }] }, { faceOut: true }))
     .map((t) => t.replace(/none$/, '204,204,204,255'));
+  for (const [ref, t] of rigid) ref.transform = t;
   for (const extras of [false, true]) {
-    const back = import3mf(exported(s, { extras }));
-    assert.deepEqual(messages(back), [], String(extras));
+    const back = import3mf(stretched(exported(s, { extras })));
+    assert.equal(messages(back).length, 1, String(extras));
+    assert.match(messages(back)[0]!, /^info: \d+ placements mirrored, scaled or sheared: their stretches baked/);
     assert.deepEqual(canonical(drawn(back.scene)), expected, String(extras));
+    assert.deepEqual(validate(back.scene), [], `${extras}: rigid`);
   }
 });
 

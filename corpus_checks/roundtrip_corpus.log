@@ -1,12 +1,12 @@
-517 files (0 over the size limit), 923 s
-nothing to export (not compared): gkv311-opencascade-dataset/step/bug24024_slow_import.stp, gkv311-opencascade-dataset/step/bug27333_simple.stp
-json           515 of 515 the same; 0 invalid, 0 threw; 611.0 MB, export 20.0 s, import 5.0 s
-glb            515 of 515 the same; 0 invalid, 0 threw; 289.1 MB, export 3.3 s, import 5.0 s
-glb-draco      515 of 515 the same; 0 invalid, 0 threw; 79.2 MB, export 14.1 s, import 8.7 s
-glb-meshopt    515 of 515 the same; 0 invalid, 0 threw; 87.9 MB, export 8.2 s, import 6.6 s
-glb-instanced  515 of 515 the same; 0 invalid, 0 threw; 291.8 MB, export 2.8 s, import 4.9 s
-3mf            514 of 515 the same; 0 invalid, 0 threw; 124.8 MB, export 56.5 s, import 31.9 s
-3mf-assembly   514 of 515 the same; 0 invalid, 0 threw; 122.4 MB, export 52.3 s, import 24.6 s
+517 files (0 over the size limit), 790 s
+nothing to export (not compared): gkv311-opencascade-dataset/step/bug27333_simple.stp
+json           516 of 516 the same; 0 invalid, 0 threw; 628.1 MB, export 17.9 s, import 4.6 s
+glb            516 of 516 the same; 0 invalid, 0 threw; 299.9 MB, export 2.8 s, import 4.1 s
+glb-draco      516 of 516 the same; 0 invalid, 0 threw; 82.3 MB, export 11.0 s, import 9.2 s
+glb-meshopt    516 of 516 the same; 0 invalid, 0 threw; 90.1 MB, export 6.5 s, import 7.9 s
+glb-instanced  516 of 516 the same; 0 invalid, 0 threw; 302.5 MB, export 2.6 s, import 3.9 s
+3mf            515 of 516 the same; 0 invalid, 0 threw; 126.8 MB, export 48.5 s, import 30.2 s
+3mf-assembly   515 of 516 the same; 0 invalid, 0 threw; 124.4 MB, export 44.1 s, import 22.5 s
 problems 2
   3mf gkv311-opencascade-dataset/step/bug25381_test_assembly_invisible.step: placement 4 (/ASSEMBLY/=>[0:1:1:5]): 2 triangles against 2; 2 and 2 unmatched, first face 791 0,0,255@255 at 100.0000,100.0000,75.0000,0.0000,100.0000,75.0000,0.0000,0.0000,75.0000
   3mf-assembly gkv311-opencascade-dataset/step/bug25381_test_assembly_invisible.step: placement 3 (/ASSEMBLY/=>[0:1:1:5]): 2 triangles against 2; 2 and 2 unmatched, first face 791 0,0,255@255 at 100.0000,100.0000,75.0000,0.0000,100.0000,75.0000,0.0000,0.0000,75.0000

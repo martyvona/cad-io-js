@@ -20,7 +20,7 @@
 // source (CAD files are usually Z-up), which the Scene's userData says with extras (in each top object). Format 4 holds
 // numbers as JSON arrays, so output is produced in chunks: a large model's JSON can exceed V8's maximum string length.
 
-import { multiply, partExtras, placedName, placementJson, pruneView, sceneJson, transformKinds, Y_UP_METRES, yUpFrame,
+import { assertRigid, multiply, partExtras, placedName, placementJson, pruneView, sceneJson, Y_UP_METRES, yUpFrame,
   type ExportNode, type ExportPart, type ExportView, type Look, type Mat4, type Mesh, type PropertyValue, type Scene,
   type SourceId, type Vec3 } from 'cad-scene';
 
@@ -58,8 +58,16 @@ export interface ThreejsOptions {
 const DOUBLE_SIDE = 2; // THREE.DoubleSide
 const NUMBERS_PER_CHUNK = 16384;
 
-/** The scene's export view as three.js JSON, in chunks; concatenated, they are one JSON document. */
-export function* threejsChunks(scene: Scene, view: ExportView, opts: ThreejsOptions = {}): Generator<string> {
+/**
+ * The scene's export view as three.js JSON, in chunks; concatenated, they are one JSON document. Throws, before the
+ * first chunk, unless the scene's placements are rigid.
+ */
+export function threejsChunks(scene: Scene, view: ExportView, opts: ThreejsOptions = {}): Generator<string> {
+  assertRigid(scene);
+  return chunks(scene, view, opts);
+}
+
+function* chunks(scene: Scene, view: ExportView, opts: ThreejsOptions): Generator<string> {
   const w = new Writer(scene, opts.keepEmpty ? view : pruneView(view), opts);
   const root = w.root();
   yield `{"metadata":{"version":4.7,"type":"Object","generator":"cad-io-js export-threejs"},"geometries":[`;
@@ -124,11 +132,10 @@ function* geometryChunks(g: Geometry): Generator<string> {
 
 const hex = (c: Vec3) => c.reduce((h, v) => h * 256 + Math.round(Math.min(1, Math.max(0, v)) * 255), 0);
 /**
- * An object's matrix as three.js stores it (both column-major); a sheared one with matrixAutoUpdate false, as
- * three.js's ObjectLoader otherwise decomposes it into position, quaternion and scale, dropping the shear.
+ * An object's matrix as three.js stores it (both column-major). ObjectLoader decomposes it into position, quaternion
+ * and scale, which holds it as placements are rigid.
  */
-const matrix = (m: Mat4): Json => ({ matrix: Array.from(m),
-  ...(transformKinds(m).includes('shear') ? { matrixAutoUpdate: false } : {}) });
+const matrix = (m: Mat4): Json => ({ matrix: Array.from(m) });
 
 /** Segment pairs for a set of polylines, and each polyline's range of index entries. */
 function segments(lines: { start: number; count: number }[]): { index: Uint32Array;

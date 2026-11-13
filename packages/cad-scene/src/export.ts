@@ -8,6 +8,7 @@
 
 import { chooseLod, type LodWanted } from './lod.ts';
 import type { Component, Lod, Mat4, Mesh, Occurrence, PartRef, Scene } from './scene.ts';
+import { assertRigid } from './scene-builder.ts';
 import { identity, multiply, partInstances, type PartInstance } from './walk.ts';
 
 /** Which of a part's levels each look uses: chooseLod's, for these deflections (none: the finest). */
@@ -83,8 +84,12 @@ function translation(v: readonly number[]): Mat4 {
   return m;
 }
 
-/** The export view of a scene: each part as its chosen level (chooseLod) draws it. */
+/**
+ * The export view of a scene: each part as its chosen level (chooseLod) draws it. Throws unless the scene's
+ * placements are rigid (assertRigid).
+ */
 export function exportView(scene: Scene, opts: ExportViewOptions = {}): ExportView {
+  assertRigid(scene);
   const edges = opts.edges ?? false, curves = opts.curves ?? false;
   const looks: Look[] = [];
   const lookByKey = new Map<string, number>();

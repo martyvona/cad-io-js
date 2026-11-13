@@ -58,19 +58,34 @@ fs.writeFileSync(path.join(content, 'as1-meshopt.gltf'), meshopt.json);
 fs.writeFileSync(path.join(content, 'as1-meshopt.bin'), meshopt.bin);
 fs.writeFileSync(path.join(content, 'as1.json'), threejsJson(scene, view));
 fs.writeFileSync(path.join(content, 'as1.json.extras.json'), threejsJson(scene, view, { extras: true }));
-// as1 with nut_1 mirrored in x about its own middle (so it stays where it was) and the plate sheared, through our
-// three.js export (which keeps the shear): picking what's drawn, Model Details' transforms, the export dialog's warning.
+// as1 with nut_1 mirrored in x about its own middle (so it stays where it was) and the plate sheared, in a three.js
+// file (our exporter writes rigid placements only: the stretches put into the objects' matrices here): read with the
+// stretches baked into copies of the parts (rigid placements), picking what's drawn, Details and Model Details saying
+// what's stretched.
 {
-  const components = scene.components.map((c) => ({ ...c, parts: c.parts.map((p) => ({ ...p })) }));
-  const nut = components.flatMap((c) => c.parts).find((p) => p.name === 'nut_1')!;
+  const nut = scene.components.flatMap((c) => c.parts).find((p) => p.name === 'nut_1')!;
   const nutMesh = scene.parts[nut.part]!.lods[0]!.mesh;
   const cx = nutMesh.origin[0] + (nutMesh.box!.min[0] + nutMesh.box!.max[0]) / 2;
-  nut.transform = multiply(nut.transform, Float64Array.of(-1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 2 * cx, 0, 0, 1));
-  const plate = components.flatMap((c) => c.parts).find((p) => p.name === 'plate_1')!;
-  plate.transform = multiply(plate.transform, Float64Array.of(1, 0, 0, 0, 0.6, 0.8, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1));
-  const s = { ...scene, components };
-  fs.writeFileSync(path.join(content, 'as1-transforms.json'), threejsJson(s, exportView(s, { ...medium, edges: true }),
-    { extras: true }));
+  const plate = scene.components.flatMap((c) => c.parts).find((p) => p.name === 'plate_1')!;
+  const move = (o: readonly number[], k: number) => Float64Array.of(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, k * o[0]!,
+    k * o[1]!, k * o[2]!, 1);
+  // Each object's matrix is its placement's then its mesh's origin: the stretch goes between them.
+  const stretches = new Map([[nut, Float64Array.of(-1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 2 * cx, 0, 0, 1)],
+    [plate, Float64Array.of(1, 0, 0, 0, 0.6, 0.8, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)]]);
+  const json = JSON.parse(threejsJson(scene, exportView(scene, { ...medium, edges: true }), { extras: true }));
+  for (const [ref, m] of stretches) {
+    const o = scene.parts[ref.part]!.lods[0]!.mesh.origin;
+    const found: { matrix: number[] }[] = [];
+    const walk = (x: { name?: string; matrix: number[]; children?: unknown[] }) => {
+      if (x.name === ref.name) found.push(x);
+      for (const c of x.children ?? []) walk(c as typeof x);
+    };
+    walk(json.object);
+    if (found.length !== 1) throw new Error(`${ref.name}: ${found.length} objects`);
+    found[0]!.matrix = Array.from(multiply(Float64Array.from(found[0]!.matrix), multiply(move(o, -1),
+      multiply(m, move(o, 1)))));
+  }
+  fs.writeFileSync(path.join(content, 'as1-transforms.json'), JSON.stringify(json));
 }
 fs.writeFileSync(path.join(content, 'as1-noedges.glb'), (await glb(scene, exportView(scene, medium))).bytes);
 // Its parts placed more than once as GPU instances (EXT_mesh_gpu_instancing), which gltf-import puts back.
@@ -3242,9 +3257,10 @@ await check('model details', async () => {
     JSON.stringify(b.texts) === '["No additional details available."]', `nothing but the format: ${j}`);
   return undefined;
 });
-// Mirrored and sheared placements (as1-transforms.json): a mirrored part picked on its near side where it's drawn, as
-// an unmirrored one is (wrong culling would meet its far side); Model Details saying what the transforms do; the export
-// dialog warning of the shear for glTF only.
+// Mirrored and sheared placements (as1-transforms.json), read rigid, their stretches baked into copies of the parts:
+// a mirrored part picked on its near side where it's drawn, as an unmirrored one is, its placement a rotation (this
+// file's parts are drawn both sides: the copy's winding is cad-scene's rigid.test.ts's); its Details and Model Details
+// saying what's stretched; the export dialog warning of nothing.
 await check('transforms', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1-transforms.json')}&check`, `(async () => {
     await cadViewer.ready; await cadViewer.idle();
@@ -3263,10 +3279,13 @@ await check('transforms', async () => {
       const at = c.clone().project(viewer.camera);
       const hit = cadViewer.pickAt((at.x + 1) / 2, (1 - at.y) / 2);
       const depth = hit && c.clone().set(...hit.point).project(viewer.camera).z;
+      ui.selection.details = true;
+      const stretched = ui.details().find((l) => l.startsWith('Stretched: ')) ?? null;
       ui.showAll();
       ui.select([]);
       await cadViewer.idle();
-      return { det: Math.sign(o.matrixWorld.determinant()), path: hit?.path, near: hit ? depth < at.z : null };
+      return { det: Math.sign(o.matrixWorld.determinant()), path: hit?.path, near: hit ? depth < at.z : null,
+        stretched };
     };
     const mirrored = await near('nut_1'), plain = await near('nut_2');
     // Model Details.
@@ -3275,7 +3294,7 @@ await check('transforms', async () => {
     [...about.querySelectorAll('a')].find((a) => a.textContent === 'details').click();
     const d = await wait(() => [...document.querySelectorAll('dialog.cv-dialog[open]')].find((e) => e !== about));
     const rows = [...d.querySelectorAll('tr')].map((row) => [...row.cells].map((c) => c.textContent))
-      .filter(([k]) => k === 'Transforms' || k === 'Placed parts');
+      .filter(([k]) => k === 'Stretched parts' || k === 'Transforms');
     d.close();
     about.close();
     await new Promise((res) => setTimeout(res, 50));
@@ -3283,27 +3302,26 @@ await check('transforms', async () => {
     ui.gui.controllersRecursive().find((c) => c._name === 'Export...').$button.click();
     const e = await wait(() => document.querySelector('dialog.cv-dialog[open]'));
     const format = e.querySelector('select[data-key=format]');
-    const warning = e.querySelector('p.warning[data-key=transformsLost]');
     const warned = {};
     for (const f of ['glb', 'gltf', 'threejs', '3mf']) {
       format.value = f;
       format.dispatchEvent(new Event('change'));
-      warned[f] = warning.hidden ? null : warning.textContent;
+      warned[f] = [...e.querySelectorAll('p.warning')].filter((p) => !p.hidden).map((p) => p.textContent).join(' ')
+        || null;
     }
     [...e.querySelectorAll('.buttons button')].find((b) => b.textContent === 'Cancel').click();
     return { mirrored, plain, rows, warned };
-  })()`) as { after: { mirrored: { det: number; path?: string; near: boolean | null };
-    plain: { det: number; path?: string; near: boolean | null }; rows: string[][];
+  })()`) as { after: { mirrored: { det: number; path?: string; near: boolean | null; stretched: string | null };
+    plain: { det: number; path?: string; near: boolean | null; stretched: string | null }; rows: string[][];
     warned: Record<string, string | null> } };
   const a = r.after;
   const j = JSON.stringify(a);
-  expect(a.mirrored.det < 0 && !!a.mirrored.path?.endsWith('nut_1') && a.mirrored.near === true &&
+  expect(a.mirrored.det > 0 && !!a.mirrored.path?.endsWith('nut_1') && a.mirrored.near === true &&
     a.plain.det > 0 && !!a.plain.path?.endsWith('nut_2') && a.plain.near === true, `picked where drawn: ${j}`);
-  expect(JSON.stringify(a.rows) === '[["Transforms","1 mirrored, 1 sheared"]]', `Model Details: ${j}`);
-  const glTF = 'This model has 1 sheared transform, which glTF can\'t hold: written without the shear, what\'s ' +
-    'below it misshapen.';
-  expect(a.warned.glb === glTF && a.warned.gltf === glTF && a.warned.threejs === null && a.warned['3mf'] === null,
-    `the export dialog: ${j}`);
+  expect(/^Stretched: a mirrored copy of \S/.test(a.mirrored.stretched ?? '') && a.plain.stretched === null,
+    `Details: ${j}`);
+  expect(JSON.stringify(a.rows) === '[["Stretched parts","1 mirrored, 1 sheared"]]', `Model Details: ${j}`);
+  expect(Object.values(a.warned).every((w) => w === null), `the export dialog: ${j}`);
   return undefined;
 });
 // Load demo model... (About): About closed, the catalog fetched (each time, past the cache), a model a row with its

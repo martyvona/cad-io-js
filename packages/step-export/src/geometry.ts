@@ -11,7 +11,8 @@
 // uses have p-curves, faces as ADVANCED_FACE where Part 42's rules for one hold (else FACE_SURFACE), a face whose edges
 // all lack vertices as a CURVE_BOUNDED_SURFACE. What the source lacked (an edge's vertex or curve) is written unset, as
 // it had it, not repaired. What STEP can't hold is a diagnostic: tolerances per entity, parameter ranges, internal and
-// external coedges, item transforms and instances; names aren't in the model and are written empty.
+// external coedges; names aren't in the model and are written empty. A baked copy is written as entities of its own,
+// under its fresh id (the model has no instancing to write back).
 
 import {
   BODY_KIND, type BrepData, type Curve, decode, EDGE_FLAGS, type Face, ITEM_KIND, LOOP_KIND, type Logical,
@@ -784,8 +785,6 @@ export function stepGeometry(d: BrepData, opts: StepGeometryOptions = {}): StepG
     };
     for (let k = 0; k < rowCount(d, 'item'); k++) {
       const it = decode.item(d, k);
-      if (it.kind === 'instance') { note('an instance item (left out: not written yet)', it.id, 'error'); continue; }
-      if (it.transform) { note('an item with a transform (left out: not written yet)', it.id, 'error'); continue; }
       if (it.kind === 'body') {
         flush();
         items.push(...bodyIds[it.ref]!);

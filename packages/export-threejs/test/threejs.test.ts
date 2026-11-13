@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as THREE from 'three';
-import { exportView, identity, multiply, scaling, type Mat4, type Mesh, type Scene } from 'cad-scene';
+import { exportView, identity, multiply, type Mat4, type Mesh, type Scene } from 'cad-scene';
 import { formatFloat32, ROOT_TRANSFORM, threejsChunks, threejsJson } from '../src/index.ts';
 import { BrepBuilder } from 'cad-brep';
 
@@ -10,7 +10,8 @@ const translation = (x: number, y: number, z: number): Mat4 => {
   m[12] = x; m[13] = y; m[14] = z;
   return m;
 };
-
+// A quarter turn about z: x to y.
+const turn = (): Mat4 => Float64Array.of(0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1);
 // The plate: two triangles (faces 7 and 8) on a unit square, with normals; one shared edge and one seam.
 const plate = (): Mesh => ({
   origin: [1, 0, 0],
@@ -45,7 +46,7 @@ function scene(): Scene {
       { name: 'asm', sources: [], properties: {}, parts: [],
         children: [occ(1, translation(100, 0, 0), 'left'), occ(1, translation(200, 0, 0))] },
       { name: 'sub', sources: [{ format: 'step', id: 7 }], properties: { rev: 'B' },
-        parts: [{ part: 0, transform: scaling(25.4) }, { part: 1, transform: identity() }], children: [] },
+        parts: [{ part: 0, transform: turn() }, { part: 1, transform: identity() }], children: [] },
     ],
     roots: [occ(0, identity())],
     // The plate open (as the source would say); the wireframe saying nothing.
@@ -95,8 +96,8 @@ test('three.js JSON loads with ObjectLoader: tree, transforms, shared geometry, 
   const plates = byName(root, 'plate') as THREE.Mesh[];
   assert.equal(plates.length, 2);
   assert.ok(plates.every((p) => p instanceof THREE.Mesh) && byName(root, 'wire').length === 0);
-  // World transform: the root's, the instance's translation, inches to mm, and the mesh's origin (1 inch along x).
-  const expected = multiply(multiply(multiply(yUp, translation(100, 0, 0)), scaling(25.4)), translation(1, 0, 0));
+  // World transform: the root's, the instance's translation, the part's turn, and the mesh's origin (1 along x).
+  const expected = multiply(multiply(multiply(yUp, translation(100, 0, 0)), turn()), translation(1, 0, 0));
   plates[0]!.matrixWorld.elements.forEach((x, i) => assert.ok(Math.abs(x - expected[i]!) < 1e-9, `element ${i}`));
   // One geometry for both instances (same triangles and ranges), with groups for the two materials.
   assert.equal(plates[0]!.geometry, plates[1]!.geometry);
@@ -267,23 +268,22 @@ test('extras: each placement\'s face ranges hold its faces\' triangles in the ge
     }
   });
 
-test('transforms: a sheared object with matrixAutoUpdate false, which ObjectLoader then keeps; others decomposed', () => {
-  // (The shear tilts y towards x, keeping its length; the mirror and uneven scale are three.js's position,
-  // quaternion and scale.)
-  const shear = Float64Array.of(1, 0, 0, 0, 0.6, 0.8, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1);
-  const mirror = Float64Array.of(-1, 0, 0, 0, 0, 3, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1);
+test('transforms: placements as ObjectLoader decomposes them; a scene with one not rigid refused, before any chunk',
+  () => {
   const s = scene();
   const [left, right] = s.components[0]!.children;
-  left!.transform = multiply(left!.transform, shear);
-  right!.transform = multiply(right!.transform, mirror);
-  const json = threejsJson(s, viewOf(s, meshes()));
-  const objects = JSON.parse(json).object.children[0].children as { name?: string; matrixAutoUpdate?: boolean }[];
-  assert.deepEqual(objects.map((o) => o.matrixAutoUpdate), [false, undefined]);
-  const root = load(json);
+  left!.transform = multiply(left!.transform, Float64Array.of(0.6, 0.8, 0, 0, -0.8, 0.6, 0, 0, 0, 0, 1, 0, 0, 0, 5, 1));
+  const root = load(threejsJson(s, viewOf(s, meshes())));
   root.updateMatrixWorld(true);
   const [l, r] = root.children[0]!.children;
-  assert.equal(l!.matrixAutoUpdate, false);
-  l!.matrix.elements.forEach((x, i) => assert.ok(Math.abs(x - left!.transform[i]!) < 1e-12, `sheared ${i}`));
-  r!.matrix.elements.forEach((x, i) => assert.ok(Math.abs(x - right!.transform[i]!) < 1e-12, `mirrored ${i}`));
-  assert.ok(r!.matrixWorld.determinant() < 0);
+  l!.matrix.elements.forEach((x, i) => assert.ok(Math.abs(x - left!.transform[i]!) < 1e-12, `turned ${i}`));
+  r!.matrix.elements.forEach((x, i) => assert.ok(Math.abs(x - right!.transform[i]!) < 1e-12, `moved ${i}`));
+  // A shear, a mirror: refused (three.js's position, quaternion and scale can't hold a shear).
+  const view = viewOf(s, meshes());
+  for (const [k, v] of [[4, 0.6], [0, -1]] as const) {
+    const t = scene();
+    t.components[0]!.children[0]!.transform[k] = v;
+    assert.throws(() => threejsChunks(t, view), /component 0 \(asm\), child 0: a transform that isn't a rotation/);
+    assert.throws(() => threejsJson(t, view), /isn't a rotation and a translation/);
+  }
 });

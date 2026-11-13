@@ -1,7 +1,7 @@
 // The test scene, as threejs-import's: a part placed twice in one component (once hidden by its reference), three
 // instances of that component (one recoloured by override, one hidden), faces, edges, a curve and a point.
 
-import { addLod, identity, multiply, scaling, type Mat4, type Mesh, type Scene } from 'cad-scene';
+import { addLod, identity, scaleMesh, type Mat4, type Mesh, type Scene } from 'cad-scene';
 
 const translation = (x: number, y: number, z: number): Mat4 => {
   const m = identity();
@@ -39,8 +39,8 @@ export function scene(): Scene {
         children: [occ(1, translation(100, 0, 0), 'left'), occ(1, translation(200, 0, 0)),
           occ(1, translation(300, 0, 0), 'hidden')] },
       { name: 'sub', sources: [{ format: 'step', id: 7 }], properties: { rev: 'B' },
-        parts: [{ part: 0, transform: scaling(25.4) }, { part: 0, transform: multiply(translation(0, 50, 0),
-          scaling(25.4)), visible: false }, { part: 1, transform: identity() }], children: [] },
+        parts: [{ part: 0, transform: identity() }, { part: 0, transform: translation(0, 50, 0), visible: false },
+          { part: 1, transform: identity() }], children: [] },
     ],
     roots: [occ(0, translation(0, 0, 5))],
     parts: [{ ...part('plate'), material: 1, faceMaterials: [{ face: 7, material: 2 }], closed: true },
@@ -52,7 +52,8 @@ export function scene(): Scene {
     properties: { schema: 'AP214' },
     diagnostics: [],
   };
-  addLod(s.parts[0]!, { mesh: plate(), from: 'tessellated' });
+  // (The plate an inch across, in millimetres: placements are rigid.)
+  addLod(s.parts[0]!, { mesh: scaleMesh(plate(), 25.4), from: 'tessellated' });
   addLod(s.parts[1]!, { mesh: wire(), from: 'tessellated' });
   return s;
 }

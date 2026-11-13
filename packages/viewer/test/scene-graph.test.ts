@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as THREE from 'three';
-import { identity, multiply, scaleMesh, scaling, type Mesh } from 'cad-scene';
+import { identity, multiply, type Mesh } from 'cad-scene';
 import { plate, scene, translation, wire } from './fixtures.ts';
 import { DEFAULT_COLOR, polylineSegments, SceneGraph } from '../src/scene-graph.ts';
 import { EDGES } from '../src/style.ts';
@@ -18,7 +18,7 @@ test('the tree: a group per component instance and placed part, with their trans
   assert.deepEqual(asm.children[0]!.children.map((c) => c.name), ['plate', 'wire']);
   assert.ok(close(asm.matrix.elements, translation(0, 0, 5)));
   assert.ok(close(asm.children[1]!.matrix.elements, translation(200, 0, 0)));
-  assert.ok(close(asm.children[0]!.children[0]!.matrix.elements, scaling(25.4)));
+  assert.ok(close(asm.children[0]!.children[0]!.matrix.elements, identity()));
   // Placements by part, in tree order; the third instance's are hidden.
   assert.equal(g.placements.get(0)!.length, 3);
   assert.deepEqual(g.placements.get(0)!.map((p) => p.group.visible), [true, true, false]);
@@ -51,9 +51,8 @@ test('meshes: at the origin in each placement, geometry shared where the colouri
   const made = g.addMesh(0, plate()) as THREE.Mesh[];
   assert.equal(made.length, 3);
   g.root.updateMatrixWorld(true);
-  // World: the root occurrence, the instance, inches to mm, the mesh's origin.
-  const expected = multiply(multiply(multiply(translation(0, 0, 5), translation(100, 0, 0)), scaling(25.4)),
-    translation(1, 0, 0));
+  // World: the root occurrence, the instance, the mesh's origin (an inch along x).
+  const expected = multiply(multiply(translation(0, 0, 5), translation(100, 0, 0)), translation(25.4, 0, 0));
   assert.ok(close(made[0]!.matrixWorld.elements, expected));
   // The first and third instances colour alike (green, face 7 blue): one geometry; the second is all red.
   assert.equal(made[0]!.geometry, made[2]!.geometry);
@@ -221,18 +220,13 @@ test('faces that failed to mesh: outlined in red per placement, marked failed, h
 test('faces judged by their part\'s measures: partly, excess and unverified, all but partly red; Details', async () => {
   const { NodeModel } = await import('../src/model.ts');
   const { details } = await import('../src/details.ts');
-  // The plate an inch square, in millimetres (the fixture's scaled, its placements unscaled to match): face 8 a
-  // triangle of 0.5 in^2 (322.6 mm^2), 7 one of 0.505 in^2 (325.8); each outlined. Meshed at 0.001 mm, so the boundary
-  // allowance is nothing to speak of. Measures given in square inches, held and shown in mm^2.
-  const mesh = (): Mesh => scaleMesh({ ...plate(), faceOutlinePositions: Float32Array.of(0, 0, 0, 1, 1, 0, 0, 0, 0,
-    1, 0, 0), faceOutlines: [{ source: 7, start: 0, count: 2 }, { source: 8, start: 2, count: 2 }] }, 25.4);
-  const inMm = () => {
-    const sc = scene();
-    sc.components[1]!.parts[0]!.transform = identity();
-    return sc;
-  };
+  // The plate an inch square: face 8 a triangle of 0.5 in^2 (322.6 mm^2), 7 one of 0.505 in^2 (325.8); each outlined.
+  // Meshed at 0.001 mm, so the boundary allowance is nothing to speak of. Measures given in square inches, held and
+  // shown in mm^2.
+  const mesh = (): Mesh => ({ ...plate(), faceOutlinePositions: Float32Array.of(0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0)
+    .map((x) => x * 25.4), faceOutlines: [{ source: 7, start: 0, count: 2 }, { source: 8, start: 2, count: 2 }] });
   const measured = (faces: [number, number, boolean][]) => {
-    const sc = inMm();
+    const sc = scene();
     sc.parts[0]!.measures = { by: 'test', faces: new Map(faces.map(([s, area, valid]) => [s, { area: area * 645.16,
       perimeter: 3 * 25.4, valid }])) };
     return sc;
@@ -274,7 +268,7 @@ test('faces judged by their part\'s measures: partly, excess and unverified, all
   assert.deepEqual(o5!.userData.partlyFailedFaces, [8]);
   // A face with no triangles: failed, as before (its outline drawn).
   const empty: Mesh = { ...mesh(), faces: [{ source: 8, start: 0, count: 3 }, { source: 7, start: 3, count: 0 }] };
-  const [o4] = new SceneGraph(inMm(), 'model').addMesh(0, empty);
+  const [o4] = new SceneGraph(scene(), 'model').addMesh(0, empty);
   assert.deepEqual([o4!.userData.failedFaces, o4!.userData.partlyFailedFaces], [[7], []]);
 });
 
