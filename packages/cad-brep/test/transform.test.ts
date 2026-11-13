@@ -286,9 +286,10 @@ test('under a mirror: loops turn, faces where the surface keeps (u, v), p-curves
     const last = baked.loop.first[lb]! + baked.loop.count[lb]! - 1;
     assert.notEqual(original.coedge.orientation[original.loop.first[lo]!], baked.coedge.orientation[last]);
   }
-  // (Of the offsets, the cylinder's isn't turned, the B-spline's is; `turned` keeps the last of each kind.)
+  // (Of the offsets, the cylinder's isn't turned, the B-spline's is; `turned` keeps the last of each kind. The face on
+  // a rectangular trim is on its basis, the builder's canonical form.)
   assert.deepEqual(Object.fromEntries(turned), { plane: true, cylinder: false, cone: false, sphere: false,
-    torus: false, bspline: true, extrusion: true, revolution: true, offset: true, rectangularTrimmed: false });
+    torus: false, bspline: true, extrusion: true, revolution: true, offset: true });
   // A pure mirror keeps the plane's (u, v): its circle and offset p-curves kept, nothing said.
   assert.deepEqual(b.diagnostics, []);
   // A conic on a cylinder: run the other way round, left out with a warning.

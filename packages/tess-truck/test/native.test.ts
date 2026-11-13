@@ -318,15 +318,16 @@ test('a face bounded by its surface alone meshed over its natural bounds; a vert
 test('kinds truck has no geometry for leave their faces out, said; items not bodies skipped',
   { skip }, async () => {
     const { native } = await both();
-    // A square whose first edge's curve is trimmed (truck has no trimmed curve), beside a box.
+    // A square whose first edge's curve is an offset (truck has no offset curve; a trimmed one the builder unwraps),
+    // beside a box.
     const b = new BrepBuilder();
     const c = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]];
     const vs = c.map((point) => b.addVertex({ point }));
     const line = (p: number[], q: number[]) => b.addCurve({ kind: 'line', point: p, direction: [q[0]! - p[0]!,
       q[1]! - p[1]!, 0].map((x) => x / Math.hypot(q[0]! - p[0]!, q[1]! - p[1]!)), magnitude: 1 });
-    const trimmed = b.addCurve({ kind: 'trimmed', basis: line(c[0]!, c[1]!), trim1: { parameter: 0 },
-      trim2: { parameter: 1 }, sense: true, preference: 'parameter' });
-    const es = c.map((p, j) => b.addEdge({ curve: j === 0 ? trimmed : line(p, c[(j + 1) % 4]!), start: vs[j]!,
+    const offset = b.addCurve({ kind: 'offset', basis: line(c[0]!, c[1]!), distance: 0, selfIntersect: false,
+      refDirection: [0, 0, 1] });
+    const es = c.map((p, j) => b.addEdge({ curve: j === 0 ? offset : line(p, c[(j + 1) % 4]!), start: vs[j]!,
       end: vs[(j + 1) % 4]!, sameSense: true, id: 70 + j }));
     const face = b.addFace({ surface: b.addSurface({ kind: 'plane', position: XY }), sameSense: true, id: 80,
       loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: es.map((edge) => ({ edge,

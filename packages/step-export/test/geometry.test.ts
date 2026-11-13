@@ -372,7 +372,10 @@ test('ADVANCED_FACE only where Part 42 allows it, else FACE_SURFACE', () => {
   // An edge's curve a trimmed curve, a composite curve, an offset curve: not an advanced face's.
   const trimmed = (b: BrepBuilder) => b.addCurve({ kind: 'trimmed', basis: line(b), trim1: { parameter: 0 },
     trim2: { parameter: 1 }, sense: true, preference: 'parameter' });
-  assert.deepEqual(faceType(square(trimmed)), ['FACE_SURFACE']);
+  // (A trimmed one the builder unwraps to its basis: advanced then.)
+  assert.deepEqual(faceType(square(trimmed)), ['ADVANCED_FACE']);
+  assert.deepEqual(faceType(square((b) => b.addCurve({ kind: 'offset', basis: line(b), distance: 0,
+    selfIntersect: false, refDirection: [0, 0, 1] }))), ['FACE_SURFACE']);
   assert.deepEqual(faceType(square((b) => b.addCurve({ kind: 'composite', segments: [{ curve: line(b),
     sameSense: true, transition: 'continuous' }], selfIntersect: false }))), ['FACE_SURFACE']);
   // A p-curve that's a trimmed curve: not either.
@@ -381,8 +384,11 @@ test('ADVANCED_FACE only where Part 42 allows it, else FACE_SURFACE', () => {
   // trimmed curve not.
   assert.deepEqual(faceType(square(line, (b, plane) => b.addSurface({ kind: 'offset', basis: plane, distance: 1,
     selfIntersect: false }))), ['FACE_SURFACE']);
+  // (A rectangular trim the builder unwraps where it keeps both directions; one reversing a direction kept.)
   assert.deepEqual(faceType(square(line, (b, plane) => b.addSurface({ kind: 'rectangularTrimmed', basis: plane,
-    u1: 0, u2: 1, v1: 0, v2: 1, uSense: true, vSense: true }))), ['FACE_SURFACE']);
+    u1: 0, u2: 1, v1: 0, v2: 1, uSense: true, vSense: false }))), ['FACE_SURFACE']);
+  assert.deepEqual(faceType(square(line, (b, plane) => b.addSurface({ kind: 'rectangularTrimmed', basis: plane,
+    u1: 0, u2: 1, v1: 0, v2: 1, uSense: true, vSense: true }))), ['ADVANCED_FACE']);
   assert.deepEqual(faceType(square(line, (b) => b.addSurface({ kind: 'extrusion', curve: line(b),
     direction: [0, 1, 0], magnitude: 1 }))), ['ADVANCED_FACE']);
   assert.deepEqual(faceType(square(line, (b) => b.addSurface({ kind: 'extrusion', curve: trimmed(b),

@@ -5,6 +5,7 @@
 // knots, unit directions, closed loops) are validateBrep's.
 
 import { canonical } from './canonical.ts';
+import { clampCurve, clampSurface } from './clamp.ts';
 import { Copier, type Draw } from './copy.ts';
 import { BYTES, COLUMNS, type BrepData, HEADER_BYTES, openBrep, rowCount } from './data.ts';
 import * as dec from './decode.ts';
@@ -90,6 +91,9 @@ export class BrepBuilder {
   private readonly faces: Face[] = [];
   private readonly shells: Shell[] = [];
   private readonly bodies: Body[] = [];
+  /** Curves and surfaces as written (B-splines clamped), for `finish`'s rules on them. */
+  private readonly curveRows: Curve[] = [];
+  private readonly surfaceRows: Surface[] = [];
   /** The first fresh id after those `write` gave faces it copied. */
   private nextFresh = 0;
 
@@ -168,7 +172,10 @@ export class BrepBuilder {
     else for (let k = 0; k < dim; k++) this.real.push(NaN);
   }
 
-  addCurve(c: Curve): number {
+  /** A curve; a B-spline one clamped (canonical.ts, clamp.ts). */
+  addCurve(given: Curve): number {
+    const c = given.kind === 'bspline' && given.poles.length && given.knots.length === given.multiplicities.length
+      ? { ...given, ...clampCurve(given) } : given;
     const what = `curve ${this.counts.curve} (${c.kind})`, id = this.sid(c.id);
     this.pools('curveReal', 'curveInt');
     const real = this.real.n, int = this.int.n;
@@ -232,12 +239,17 @@ export class BrepBuilder {
     }
     if (dim !== 2 && dim !== 3) throw new RangeError(`${what}: ${dim} dimensions`);
     this.dims.push(dim);
+    this.curveRows.push(c);
     return this.row('curve', { kind: CURVE_KIND[c.kind], dim, real, int, id });
   }
 
   private surfaceRef(i: number, what: string) { this.check('surface', i, what); }
 
-  addSurface(s: Surface): number {
+  /** A surface; a B-spline one clamped (clamp.ts). */
+  addSurface(given: Surface): number {
+    const s = given.kind === 'bspline' && given.poles.length && given.poles[0]?.length
+      && given.uKnots.length === given.uMultiplicities.length && given.vKnots.length === given.vMultiplicities.length
+      && given.poles.every((r) => r.length === given.poles[0]!.length) ? { ...given, ...clampSurface(given) } : given;
     const what = `surface ${this.counts.surface} (${s.kind})`, id = this.sid(s.id);
     this.pools('surfaceReal', 'surfaceInt');
     const real = this.real.n, int = this.int.n;
@@ -307,6 +319,7 @@ export class BrepBuilder {
         break;
       default: throw new RangeError(`${what}: unknown kind`);
     }
+    this.surfaceRows.push(s);
     return this.row('surface', { kind: SURFACE_KIND[s.kind], real, int, id });
   }
 
@@ -455,7 +468,7 @@ export class BrepBuilder {
         const d = b.map((x, i) => x - a[i]!), n = Math.hypot(...d);
         return this.addCurve({ kind: 'line', point: a, direction: n ? d.map((x) => x / n) : [1, 0, 0],
           magnitude: n || 1 });
-      }, fresh });
+      }, fresh, curve: (k) => this.curveRows[k]!, surface: (k) => this.surfaceRows[k]! });
     for (const e of c.edges) {
       this.row('edge', { curve: ref(e.curve), start: ref(e.start), end: ref(e.end), sameSense: bool(e.sameSense),
         range: e.range ?? [NaN, NaN], tolerance: opt(e.tolerance), id: sourceId(e.id) });
@@ -497,6 +510,7 @@ export class BrepBuilder {
     for (const [k, g] of this.cols) g.n = ns.get(k)!;
     Object.assign(this.counts, counts);
     this.dims.length = dims;
+    this.curveRows.length = counts.curve;
     this.maxId = maxId;
     return d;
   }

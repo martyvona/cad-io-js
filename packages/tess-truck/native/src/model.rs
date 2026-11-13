@@ -8,7 +8,7 @@
 //! listed as skipped.
 
 use crate::cad_brep::{self, body_kind, curve_kind, item_kind, orientation, surface_kind, Brep};
-use crate::{clamp_curve, clamp_surface, finite_curve, finite_surface, Built, Diag, Role};
+use crate::{finite_curve, finite_surface, Built, Diag, Role};
 use std::collections::HashMap;
 use std::f64::consts::PI;
 use truck_geometry::prelude::{
@@ -463,9 +463,8 @@ impl Builder<'_> {
             }
             let same = d.edge_same_sense()[e] != 0;
             let (pa, pb) = (self.m.point(a), self.m.point(b));
-            let mut curve =
+            let curve =
                 if c < 0 { self.m.pcurve_edge(e, pa, pb, same)? } else { self.m.edge_curve(c as usize, pa, pb, same)? };
-            diag.clamped_edges += clamp_curve(&mut curve) as usize;
             if !finite_curve(&curve) {
                 diag.nonfinite_edges.push(id);
                 return None;
@@ -509,7 +508,6 @@ impl Builder<'_> {
         let d = &self.m.d;
         let id = id64(d.face_id()[f]);
         let surface = self.m.surface(d.face_surface()[f] as usize).map(|mut s| {
-            diag.clamped_faces += clamp_surface(&mut s) as usize;
             if d.face_same_sense()[f] == 0 {
                 s.invert();
             }

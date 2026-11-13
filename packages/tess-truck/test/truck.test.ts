@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { test } from 'node:test';
-import { openBrep, SURFACE_KIND } from 'cad-brep';
+import { decode, openBrep, rowCount, SURFACE_KIND } from 'cad-brep';
 import type { TessellationRequest, TessellationResult } from 'cad-scene';
 import { importStep } from 'step-import';
 import { TruckTessellator, WBINDGEN_IMPORTS } from '../src/index.ts';
@@ -393,7 +393,7 @@ function within(x: TessellationResult, y: TessellationResult, d: number): number
   return near / n;
 }
 
-test("unclamped B-splines are clamped to their valid range, and mesh on OCCT's faces",
+test("unclamped B-splines (clamped to their valid range by the model's builder) mesh on OCCT's faces",
   { skip: skip || (!occtBuilt && 'tess-occt not built') || (
   ![s1ug, dm1].every((f) => fs.existsSync(f)) && 'corpus files missing') }, async () => {
   const { OcctTessellator } = await import('tess-occt');
@@ -401,17 +401,21 @@ test("unclamped B-splines are clamped to their valid range, and mesh on OCCT's f
   const occt = new OcctTessellator();
   await truck.init();
   await occt.init();
-  // Without clamping, truck evaluated these outside their valid range, to NaN, and they were left out. They now lie on
+  // Unclamped, truck evaluated these outside their valid range, to NaN, and they were left out. Clamped, they lie on
   // OCCT's faces, but truck meshes some of these periodic faces with overlapping triangles (#40, #628: up to 18% more
   // area) or a few stray ones (#40, #637), as it does other faces on closed surfaces.
-  for (const [file, rootId, edges, faces, ids] of [[s1ug, 80, 0, 2, [628, 637]],
-    [dm1, 37, 8, 4, [40, 207, 374, 531]]] as const) {
+  for (const [file, rootId, ids] of [[s1ug, 80, [628, 637]], [dm1, 37, [40, 207, 374, 531]]] as const) {
     const req = (await requests(file)).find((q) => q.rootId === rootId)!;
+    // (Every B-spline in the model clamped: end knots of full multiplicity.)
+    const d = openBrep(req.data.slice().buffer);
+    for (let k = 0; k < rowCount(d, 'curve'); k++) {
+      const c = decode.curve(d, k);
+      if (c.kind === 'bspline') {
+        assert.deepEqual([c.multiplicities[0], c.multiplicities.at(-1)], [c.degree + 1, c.degree + 1], `curve ${k}`);
+      }
+    }
     const a = await truck.tessellate(req), b = await occt.tessellate(req);
     const messages = a.diagnostics.map((d) => d.message);
-    assert.ok(messages.includes(
-      `B-splines with unclamped knot vectors clamped to their valid range, which truck lacks: ${edges} edge curves, `
-      + `${faces} face surfaces`), messages.join('; '));
     assert.ok(!messages.some((m) => /NaN|can't convert/.test(m)), messages.join('; '));
     for (const id of ids) {
       const [fa, fb] = [only(a, id), only(b, id)];

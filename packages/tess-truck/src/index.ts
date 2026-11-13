@@ -30,8 +30,6 @@ interface Diag {
   uncheckedShells?: number[];
   inconsistentShells?: number[];
   unclearShells?: number[];
-  clampedEdges?: number;
-  clampedFaces?: number;
   flippedFaces?: number[];
 }
 
@@ -226,9 +224,6 @@ export class TruckTessellator implements Tessellator {
     if (diag.uncheckedShells?.length) diagnostics.push(
       { severity: 'info', message: `orientation of ${diag.uncheckedShells.length} solid shells not checked, since `
       + `their meshes aren't closed: ${list(diag.uncheckedShells)}` });
-    if (diag.clampedEdges || diag.clampedFaces) diagnostics.push(
-      { severity: 'info', message: `B-splines with unclamped knot vectors clamped to their valid range, which truck `
-      + `lacks: ${diag.clampedEdges ?? 0} edge curves, ${diag.clampedFaces ?? 0} face surfaces` });
     return result;
   }
 

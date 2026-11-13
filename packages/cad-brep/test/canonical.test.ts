@@ -366,3 +366,143 @@ test('fresh ids: the builder\'s face copies and a bake\'s copies never share one
   const eids = Array.from({ length: rowCount(e, 'copy') }, (_, k) => decode.copy(e, k).id);
   assert.ok(eids.every((x) => x >= 1000) && new Set(eids).size === eids.length, `${eids}`);
 });
+
+test('rule 4: an edge with both vertices on a trimmed curve is on its basis, turned where the trim runs against it',
+  () => {
+  const b = new BrepBuilder();
+  const { vs, plane } = square(b);
+  const line = b.addCurve({ kind: 'line', point: [0, 0, 0], direction: [1, 0, 0], magnitude: 1, id: 5 });
+  const back = b.addCurve({ kind: 'trimmed', basis: line, trim1: { parameter: 1 }, trim2: { parameter: 0 },
+    sense: false, preference: 'parameter' });
+  const twice = b.addCurve({ kind: 'trimmed', basis: back, trim1: { parameter: 1 }, trim2: { parameter: 0 },
+    sense: true, preference: 'parameter' });
+  const e = [b.addEdge({ curve: back, start: vs[1]!, end: vs[0]!, sameSense: true, range: [1, 0] }),
+    b.addEdge({ curve: twice, start: vs[1]!, end: vs[0]!, sameSense: false }),
+    b.addEdge({ curve: back, sameSense: true })];
+  b.addItem({ kind: 'face', ref: b.addFace({ surface: plane, sameSense: true, loops: [{ kind: 'edge',
+    bound: 'outer', sense: true, coedges: [{ edge: e[0]!, orientation: 'forward' }, { edge: e[1]!,
+      orientation: 'reversed' }] }, { kind: 'edge', bound: 'inner', sense: true, coedges: [{ edge: e[2]!,
+      orientation: 'forward' }] }] }) });
+  const d = b.finish();
+  assert.deepEqual(errors(d), []);
+  // The range stays (the trim's parameters are the basis's); an edge without vertices keeps its trim, its bound.
+  assert.deepEqual(decode.edge(d, e[0]!), { curve: line, start: vs[1], end: vs[0], sameSense: false, range: [1, 0] });
+  assert.deepEqual(decode.edge(d, e[1]!), { curve: line, start: vs[1], end: vs[0], sameSense: true });
+  assert.deepEqual(decode.edge(d, e[2]!), { curve: back, sameSense: true });
+});
+
+test('rule 5: a face with loops on a rectangular trim is on its basis; a trim reversing a direction, or a face '
+  + 'without loops, kept', () => {
+  const b = new BrepBuilder();
+  const { es, plane } = square(b);
+  const trim = (uSense: boolean) => b.addSurface({ kind: 'rectangularTrimmed', basis: plane, u1: 0, u2: 1, v1: 0,
+    v2: 1, uSense, vSense: true });
+  const kept = trim(true), against = trim(false);
+  const twice = b.addSurface({ kind: 'rectangularTrimmed', basis: kept, u1: 0, u2: 1, v1: 0, v2: 1, uSense: true,
+    vSense: true });
+  const loops = (): Loop[] => [{ kind: 'edge', bound: 'outer', sense: true, coedges: forward(es) }];
+  for (const surface of [kept, twice, against]) b.addItem({ kind: 'face', ref: b.addFace({ surface, sameSense: true,
+    loops: loops() }) });
+  b.addItem({ kind: 'face', ref: b.addFace({ surface: kept, sameSense: true, loops: [] }) });
+  // A face on the trim used both ways: its copy on the basis too.
+  const both = b.addFace({ surface: kept, sameSense: true, loops: loops() });
+  for (const sense of [true, false]) {
+    b.addItem({ kind: 'body', ref: b.addBody({ kind: 'sheet', members: [{ ref: b.addShell({ kind: 'open',
+      faces: [{ face: both, sense }] }), sense: true }] }) });
+  }
+  const d = b.finish();
+  assert.deepEqual(Array.from({ length: 6 }, (_, k) => decode.face(d, k).surface),
+    [plane, plane, against, kept, plane, plane]);
+});
+
+/** A B-spline's point at t, by the Cox-de Boor recursion over its flat knots (rational: weights). */
+function deBoor(p: number, u: number[], poles: number[][], t: number, w?: number[]): number[] {
+  const N = (i: number, k: number): number => {
+    if (k === 0) {
+      // The last nonempty span closed on the right, so the range's end evaluates.
+      const last = u.findLastIndex((x) => x < u[u.length - 1]!);
+      return (u[i]! <= t && t < u[i + 1]!) || (i === last && t === u[i + 1]) ? 1 : 0;
+    }
+    const a = u[i + k]! > u[i]! ? (t - u[i]!) / (u[i + k]! - u[i]!) * N(i, k - 1) : 0;
+    const z = u[i + k + 1]! > u[i + 1]! ? (u[i + k + 1]! - t) / (u[i + k + 1]! - u[i + 1]!) * N(i + 1, k - 1) : 0;
+    return a + z;
+  };
+  const out = poles[0]!.map(() => 0);
+  let den = 0;
+  poles.forEach((q, i) => {
+    const n = N(i, p) * (w ? w[i]! : 1);
+    den += n;
+    q.forEach((x, j) => { out[j]! += n * x; });
+  });
+  return out.map((x) => x / den);
+}
+
+test('rule 6: an unclamped B-spline clamped to its valid range, the same curve or surface there', () => {
+  const b = new BrepBuilder();
+  // A degree 1 curve on uniform knots 0..4: valid on [1, 3], its poles already the points there.
+  const lin = b.addCurve({ kind: 'bspline', degree: 1, knots: [0, 1, 2, 3, 4], multiplicities: [1, 1, 1, 1, 1],
+    poles: [[0, 0, 0], [1, 2, 0], [3, 1, 0]], closed: false, selfIntersect: false, form: 'unspecified' });
+  // A rational cubic on uniform knots, and one already clamped at one end.
+  const poles = [[0, 0, 0], [1, 2, 0], [3, 2, 1], [4, 0, 0], [5, -1, 2], [7, 0, 1]];
+  const weights = [1, 0.5, 2, 1, 0.7, 1.3];
+  const flat = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+  const cubic = b.addCurve({ kind: 'bspline', degree: 3, knots: flat, multiplicities: flat.map(() => 1), poles,
+    weights, closed: false, selfIntersect: false, form: 'unspecified' });
+  const half = b.addCurve({ kind: 'bspline', degree: 3, knots: [0, 1, 2, 3, 4, 5], multiplicities: [4, 1, 1, 1, 1, 1],
+    poles: poles.slice(0, 5), closed: false, selfIntersect: false, form: 'unspecified' });
+  const s = b.addSurface({ kind: 'bspline', uDegree: 2, vDegree: 1, uKnots: [0, 1, 2, 3, 4, 5, 6],
+    vKnots: [0, 1], uMultiplicities: [1, 1, 1, 1, 1, 1, 1], vMultiplicities: [2, 2],
+    poles: [0, 1, 2, 3].map((i) => [0, 1].map((j) => [i, j, (i * 7 + j * 3) % 4])), uClosed: false, vClosed: false,
+    selfIntersect: false, form: 'unspecified' });
+  // A surface unclamped in v only, and a curve whose knots don't fit its poles (left as given, validation's to say).
+  const sv = b.addSurface({ kind: 'bspline', uDegree: 1, vDegree: 2, uKnots: [0, 1], vKnots: [0, 1, 2, 3, 4, 5, 6],
+    uMultiplicities: [2, 2], vMultiplicities: [1, 1, 1, 1, 1, 1, 1],
+    poles: [0, 1].map((i) => [0, 1, 2, 3].map((j) => [i, j, (i * 3 + j * 7) % 4])), uClosed: false, vClosed: false,
+    selfIntersect: false, form: 'unspecified' });
+  const bad = b.addCurve({ kind: 'bspline', degree: 1, knots: [0, 1, 2, 3, 4, 5], multiplicities: [1, 1, 1, 1, 1, 1],
+    poles: [[0, 0, 0], [1, 0, 0], [2, 0, 0]], closed: false, selfIntersect: false, form: 'unspecified' });
+  const d = b.finish();
+  // (Valid, but for the curve given so: knots and poles fit.)
+  assert.deepEqual(errors(d).map((x) => x.message.split(':')[0]), [`curve ${bad} (bspline)`]);
+  const cb = decode.curve(d, bad);
+  assert.ok(cb.kind === 'bspline');
+  assert.deepEqual([cb.knots, cb.multiplicities], [[0, 1, 2, 3, 4, 5], [1, 1, 1, 1, 1, 1]]);
+  const y = decode.surface(d, sv);
+  assert.ok(y.kind === 'bspline');
+  assert.deepEqual([y.uKnots, y.uMultiplicities, y.vKnots, y.vMultiplicities, y.poles.length, y.poles[0]!.length],
+    [[0, 1], [2, 2], [2, 3, 4], [3, 1, 3], 2, 4]);
+  const c0 = decode.curve(d, lin);
+  assert.ok(c0.kind === 'bspline');
+  assert.deepEqual([c0.knots, c0.multiplicities, c0.poles], [[1, 2, 3], [2, 1, 2], [[0, 0, 0], [1, 2, 0], [3, 1, 0]]]);
+  const near = (a: number[], z: number[]) => Math.hypot(...a.map((x, i) => x - z[i]!)) < 1e-12;
+  for (const [k, given] of [[cubic, { u: flat, poles, weights }], [half, { u: [0, 0, 0, 0, 1, 2, 3, 4, 5],
+    poles: poles.slice(0, 5) }]] as const) {
+    const c = decode.curve(d, k);
+    assert.ok(c.kind === 'bspline');
+    assert.deepEqual([c.multiplicities[0], c.multiplicities.at(-1)], [4, 4]);
+    const u = c.knots.flatMap((x, i) => Array<number>(c.multiplicities[i]!).fill(x));
+    const [a, z] = [u[0]!, u.at(-1)!];
+    assert.deepEqual([a, z], k === cubic ? [3, 6] : [0, 2]);
+    for (let i = 0; i <= 30; i++) {
+      const t = a + (z - a) * i / 30;
+      assert.ok(near(deBoor(3, u, c.poles, t, c.weights), deBoor(3, [...given.u], given.poles.map((x) => [...x]), t,
+        'weights' in given ? [...given.weights] : undefined)), `curve ${k} at ${t}`);
+    }
+  }
+  const x = decode.surface(d, s);
+  assert.ok(x.kind === 'bspline');
+  assert.deepEqual([x.uKnots, x.uMultiplicities, x.vKnots, x.vMultiplicities], [[2, 3, 4], [3, 1, 3], [0, 1], [2, 2]]);
+  const uf = [2, 2, 2, 3, 4, 4, 4], given = [0, 1, 2, 3, 4, 5, 6];
+  for (let i = 0; i <= 20; i++) {
+    for (const v of [0, 0.4, 1]) {
+      const t = 2 + 2 * i / 20;
+      // (At v: each column's u curve's points, then the line between them.)
+      const at = (pts: number[][][], knots: number[]) => {
+        const cols = [0, 1].map((j) => deBoor(2, knots, pts.map((r) => r[j]!), t));
+        return cols[0]!.map((c, k) => c * (1 - v) + cols[1]![k]! * v);
+      };
+      assert.ok(near(at(x.poles, uf), at([0, 1, 2, 3].map((r) => [0, 1].map((j) => [r, j, (r * 7 + j * 3) % 4])),
+        given)), `surface at ${t}, ${v}`);
+    }
+  }
+});

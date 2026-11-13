@@ -82,7 +82,8 @@ test('geometry: angles to radians, implicit and folded knots, rows shared, ids k
   const k = (x: ReturnType<typeof c>) => x.kind === 'bspline' ? [x.degree, x.knots, x.multiplicities] : undefined;
   assert.deepEqual(k(c(4)), [2, [0, 1, 2], [3, 1, 3]]);
   assert.deepEqual(k(c(5)), [3, [0, 1], [4, 4]]);
-  assert.deepEqual(k(c(6)), [1, [0, 1, 2, 3, 4], [1, 1, 1, 1, 1]]);
+  // (Uniform knots 0 to 4, as STEP's uniform form implies, clamped by the builder to their valid range, 1 to 3.)
+  assert.deepEqual(k(c(6)), [1, [1, 2, 3], [2, 1, 2]]);
   assert.deepEqual(k(c(7)), [2, [0, 0.5, 1], [3, 1, 3]]);
   const q = c(4), u = c(6), rat = c(8);
   assert.ok(q.kind === 'bspline' && u.kind === 'bspline' && rat.kind === 'bspline');

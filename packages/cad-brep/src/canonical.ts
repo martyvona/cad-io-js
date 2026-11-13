@@ -1,12 +1,12 @@
-// The canonical model's topology (docs/brep-reference.md, "The canonical model", rules 1-3, 7-9 and 11): what
+// The canonical model's topology (docs/brep-reference.md, "The canonical model", rules 1-5, 7-9 and 11): what
 // BrepBuilder.finish writes in place of the forms a source may use. Loops run as listed (a loop's sense and a face's
 // reversed uses baked in, a face used both ways copied), poly loops as edge loops of shared line edges, degenerate
 // edges out of loops, the outer loop first, shells by topology, a sheet of one closed shell a solid. Exact: no
 // tolerances, no evaluation. Works on the builder's row objects (types.ts); face, edge and body rows keep their
 // indices (new edges and face copies after them), shells are made anew.
 
-import type { Body, BodyKind, Bound, Coedge, Edge, Face, Loop, Orientation, Point, Shell, ShellKind } from
-  './types.ts';
+import type { Body, BodyKind, Bound, Coedge, Curve, Edge, Face, Loop, Orientation, Point, Shell, ShellKind, Surface }
+  from './types.ts';
 
 export interface CanonicalCoedge extends Omit<Coedge, 'orientation'> {
   orientation: Orientation;
@@ -51,12 +51,26 @@ export interface CanonicalInput {
   addLine: (a: Point, b: Point) => number;
   /** A fresh id for a copy of the row with source id `id` (the copy table told), or undefined. */
   fresh: (id: number | undefined) => number | undefined;
+  /** Curve and surface rows as given. */
+  curve: (k: number) => Curve;
+  surface: (k: number) => Surface;
 }
 
 const turn = (o: Orientation): Orientation => o === 'forward' ? 'reversed' : o === 'reversed' ? 'forward' : o;
 
 export function canonical(x: CanonicalInput): Canonical {
-  const edges = [...x.edges];
+  // Rule 4: an edge with both vertices on a trimmed curve is on its basis (the vertices bound it; the trim's
+  // parameters are the basis's, so ranges and p-curves stand), its sense turned where the trim runs against the basis.
+  const edges = x.edges.map((e) => {
+    if (e.curve === undefined || e.start === undefined || e.end === undefined) return e;
+    let curve = e.curve, sameSense = e.sameSense, c = x.curve(curve);
+    while (c.kind === 'trimmed') {
+      curve = c.basis;
+      if (!c.sense) sameSense = !sameSense;
+      c = x.curve(curve);
+    }
+    return curve === e.curve ? e : { ...e, curve, sameSense };
+  });
   // Rule 3: a poly loop's sides as line edges, one per pair of corner rows, shared by every loop that has it.
   const sides = new Map<string, number>();
   const side = (a: number, b: number): CanonicalCoedge => {
@@ -115,9 +129,20 @@ export function canonical(x: CanonicalInput): Canonical {
   };
   const faces: CanonicalFace[] = [];
   const reversedRow: number[] = [];
+  // Rule 5: a face with loops on a rectangular trim is on its basis (its loops bound it; the trim's parameters are
+  // the basis's). A trim reversing a direction kept: none seen, so nothing to check its reading against.
+  const basisOf = (f: Face): number => {
+    let k = f.surface, s = x.surface(k);
+    while (f.loops.length && s.kind === 'rectangularTrimmed' && s.uSense && s.vSense) {
+      k = s.basis;
+      s = x.surface(k);
+    }
+    return k;
+  };
   x.faces.forEach((f, k) => {
     const u = uses[k]!, turned = u.reversed && !u.forward;
-    faces.push({ ...f, sameSense: turned ? !f.sameSense : f.sameSense, loops: loopsOf(f, turned, false) });
+    faces.push({ ...f, surface: basisOf(f), sameSense: turned ? !f.sameSense : f.sameSense,
+      loops: loopsOf(f, turned, false) });
     reversedRow[k] = k;
   });
   x.faces.forEach((f, k) => {
@@ -126,7 +151,7 @@ export function canonical(x: CanonicalInput): Canonical {
     const id = x.fresh(f.id);
     const { id: _, ...rest } = f;
     reversedRow[k] = faces.length;
-    faces.push({ ...rest, sameSense: !f.sameSense, loops: loopsOf(f, true, true),
+    faces.push({ ...rest, surface: basisOf(f), sameSense: !f.sameSense, loops: loopsOf(f, true, true),
       ...(id === undefined ? {} : { id }) });
   });
   const faceFor = (face: number, forward: boolean) => forward ? face : reversedRow[face]!;
