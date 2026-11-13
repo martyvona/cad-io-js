@@ -13,6 +13,7 @@ import type { Diagnostic, Measures, Mesh, Part, Scene } from './scene.ts';
 import { meshDeflections, type MeshProfile } from './profiles.ts';
 import type { TessellationResult, Tessellator } from './tessellator.ts';
 import { ORACLE_DISAGREE } from './area-oracle.ts';
+import { fillResult } from './fill.ts';
 import { joinResult } from './join.ts';
 
 export interface TessellateOptions {
@@ -63,6 +64,13 @@ export interface TessellateOptions {
    * by, which the meshes keep only if `edges` asks. Default true; false keeps the meshes as the backend gave them.
    */
   join?: boolean;
+  /**
+   * Fill the faces no backend meshed that are narrower than the deflection (fillFaces: triangles between their rim's
+   * points, their neighbours', so they meet them exactly; kept only where their area agrees with the face's exact
+   * one), with a warning per part naming them; the faces-failed error then counts those left. The backend is asked
+   * for edges (the rims), which the meshes keep only if `edges` asks. Default true; false leaves those faces out.
+   */
+  fill?: boolean;
   /** Called after each part, in the order parts finish, for progress reporting. */
   onPart?: (part: number, mesh: Mesh | undefined, done: number, total: number) => void;
 }
@@ -208,14 +216,15 @@ export async function tessellateScene(scene: Scene, tess: Tessellator,
     let by = backend;
     const measure = (opts.measures ?? true) && !part.measures;
     try {
-      const join = opts.join ?? true;
+      const join = opts.join ?? true, fill = opts.fill ?? true;
       let r = await tess.tessellate({
         format: 'cad-brep', data: new Uint8Array(brep.model.buffer), origin: part.origin,
         linearDeflection, angularDeflection,
-        edges: join || opts.edges, ...(measure ? { measures: true } : {}),
+        edges: join || fill || opts.edges, ...(measure ? { measures: true } : {}),
       });
       if (join) r = joinResult(brep.model, r, linearDeflection);
-      if (join && !opts.edges) { r = { ...r }; delete r.edges; delete r.edgePositions; }
+      if (fill) r = fillResult(brep.model, r, linearDeflection);
+      if ((join || fill) && !opts.edges) { r = { ...r }; delete r.edges; delete r.edgePositions; }
       by = r.backend ?? backend;
       for (const d of r.diagnostics) diagnostics.push(source && !d.source ? { ...d, source } : d);
       // (Kept at once, so `onPart` sees them.)

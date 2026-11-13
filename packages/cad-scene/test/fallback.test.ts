@@ -147,11 +147,11 @@ test('fallback: a sound part is the primary\'s alone; the fallback isn\'t asked'
   assert.equal(r.measures, undefined);
   assert.equal(r.oracle, undefined);
   assert.equal((await t.tessellate(request({ measures: true }))).measures!.length, 6);
-  // Edges asked for, to join by, and dropped as not asked for; with join off, not asked for.
+  // Edges asked for, to join and fill by, and dropped as not asked for; with both off, not asked for.
   assert.equal(a.seen[1]!.edges, true);
   assert.equal(r.edges, undefined);
   assert.equal(r.edgePositions, undefined);
-  const plain = fake('a', sound), off = new FallbackTessellator(plain, fake('b', sound), { join: false });
+  const plain = fake('a', sound), off = new FallbackTessellator(plain, fake('b', sound), { join: false, fill: false });
   await off.init();
   await off.tessellate(request());
   assert.equal(plain.seen[0]!.edges, undefined);

@@ -3,15 +3,10 @@
 // composite is to be joined (joinResult) before it's used.
 
 import type { BrepData } from 'cad-brep';
+import { failedMessage } from './fill.ts';
 import { edgeUsers, openEdges, openEdgesCount, openEdgesMessage } from './open-edges.ts';
 import type { Diagnostic } from './scene.ts';
 import type { TessellationResult } from './tessellator.ts';
-
-/** Faces failed to mesh, as the backends say it (the ids listed, at most 10). */
-function failedMessage(ids: readonly number[]): string {
-  return `${ids.length} faces failed to mesh: ${ids.slice(0, 10).map((i) => `#${i}`).join(', ')}`
-    + (ids.length > 10 ? ', ...' : '');
-}
 
 /**
  * `a` with the faces `faces` (by id) meshed as in `b`: their triangles, measures and edges' polylines `b`'s (an edge

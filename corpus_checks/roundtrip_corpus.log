@@ -1,12 +1,12 @@
-517 files (0 over the size limit), 650 s
+517 files (0 over the size limit), 484 s
 nothing to export (not compared): gkv311-opencascade-dataset/step/bug27333_simple.stp
-json           516 of 516 the same; 0 invalid, 0 threw; 628.1 MB, export 23.1 s, import 5.6 s
-glb            516 of 516 the same; 0 invalid, 0 threw; 299.9 MB, export 3.3 s, import 4.9 s
-glb-draco      516 of 516 the same; 0 invalid, 0 threw; 82.3 MB, export 13.5 s, import 9.6 s
-glb-meshopt    516 of 516 the same; 0 invalid, 0 threw; 90.1 MB, export 7.2 s, import 5.6 s
-glb-instanced  516 of 516 the same; 0 invalid, 0 threw; 302.5 MB, export 3.0 s, import 4.5 s
-3mf            515 of 516 the same; 0 invalid, 0 threw; 126.8 MB, export 48.8 s, import 31.6 s
-3mf-assembly   515 of 516 the same; 0 invalid, 0 threw; 124.4 MB, export 45.1 s, import 24.7 s
+json           516 of 516 the same; 0 invalid, 0 threw; 628.1 MB, export 14.9 s, import 3.7 s
+glb            516 of 516 the same; 0 invalid, 0 threw; 299.9 MB, export 2.0 s, import 3.0 s
+glb-draco      516 of 516 the same; 0 invalid, 0 threw; 82.3 MB, export 8.4 s, import 5.8 s
+glb-meshopt    516 of 516 the same; 0 invalid, 0 threw; 90.1 MB, export 4.7 s, import 3.5 s
+glb-instanced  516 of 516 the same; 0 invalid, 0 threw; 302.5 MB, export 1.9 s, import 2.8 s
+3mf            515 of 516 the same; 0 invalid, 0 threw; 126.8 MB, export 35.9 s, import 22.1 s
+3mf-assembly   515 of 516 the same; 0 invalid, 0 threw; 124.4 MB, export 33.7 s, import 17.9 s
 problems 2
   3mf gkv311-opencascade-dataset/step/bug25381_test_assembly_invisible.step: placement 4 (/ASSEMBLY/=>[0:1:1:5]): 2 triangles against 2; 2 and 2 unmatched, first face 791 0,0,255@255 at 100.0000,100.0000,75.0000,0.0000,100.0000,75.0000,0.0000,0.0000,75.0000
   3mf-assembly gkv311-opencascade-dataset/step/bug25381_test_assembly_invisible.step: placement 3 (/ASSEMBLY/=>[0:1:1:5]): 2 triangles against 2; 2 and 2 unmatched, first face 791 0,0,255@255 at 100.0000,100.0000,75.0000,0.0000,100.0000,75.0000,0.0000,0.0000,75.0000

@@ -1,12 +1,12 @@
-files 517 (0 over 1000 MB skipped), 48 s
-part nodes 5026 (8 hidden), meshes 3129, triangle primitives 5149, triangles 10479131, segments 1701737, points 1064
-GLB 299.9 MB; export 2.72 s; validation 6.98 s
-draco: 82.4 MB (27.5%), export 12.67 s; faces checked 111768
-meshopt: 90.1 MB (30.0%), export 6.76 s; faces checked 111768, line and point vertices 2036349
+files 517 (0 over 1000 MB skipped), 31 s
+part nodes 5026 (8 hidden), meshes 3129, triangle primitives 5149, triangles 10479213, segments 1701737, points 1064
+GLB 299.9 MB; export 1.63 s; validation 4.37 s
+draco: 82.4 MB (27.5%), export 8.28 s; faces checked 111768
+meshopt: 90.1 MB (30.0%), export 4.33 s; faces checked 111768, line and point vertices 2036349
 instancing: 2146 placements in 421 instanced nodes; 3301 part nodes against 5026; 0 placements not TRS
 largest:
-  67.6 MB, 0.4 s  gkv311-opencascade-dataset/step/as1_motor.step
-  47.5 MB, 0.2 s  gkv311-opencascade-dataset/step/bug28366_fuselage.stp
+  67.6 MB, 0.2 s  gkv311-opencascade-dataset/step/as1_motor.step
+  47.5 MB, 0.1 s  gkv311-opencascade-dataset/step/bug28366_fuselage.stp
   13.6 MB, 0.1 s  gkv311-opencascade-dataset/step/bug29979_firetherm_12.step
   12.6 MB, 0.1 s  gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp
   11.7 MB, 0.1 s  gkv311-opencascade-dataset/step/bug30790.step

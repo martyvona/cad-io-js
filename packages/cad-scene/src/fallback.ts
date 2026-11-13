@@ -7,6 +7,7 @@ import { type FaceArea, oracleAreas } from './area-oracle.ts';
 import { failedPart } from './errors.ts';
 import { faceFailures } from './mesh.ts';
 import { composeResults } from './compose.ts';
+import { fillResult } from './fill.ts';
 import { joinEdges, joinResult } from './join.ts';
 import { openEdgesCount } from './open-edges.ts';
 import type { Diagnostic } from './scene.ts';
@@ -64,8 +65,9 @@ export function judgeResult(r: TessellationResult | Error, model: BrepData | und
 
 /**
  * The faces of the model a result meshes wrongly, by id: without triangles (any face, however small), meshed only in
- * part or over their area (faceFailures; unverified ones aren't counted, as nothing tells). A face's area is the oracle's where it has one
- * (`given`, else the result's `oracle`, else made from `model` here), else the result's own measure.
+ * part or over their area (faceFailures; unverified ones aren't counted, as nothing tells). A face's area is the
+ * oracle's where it has one (`given`, else the result's `oracle`, else made from `model` here), else the result's own
+ * measure.
  */
 export function badFaces(r: TessellationResult, model: BrepData | undefined, deflection: number,
   given?: ReadonlyMap<number, FaceArea>): Map<number, 'failed' | 'partly' | 'excess'> {
@@ -98,11 +100,13 @@ const described = (i: TessellatorInfo) => `${i.name} ${i.version}`;
 
 /**
  * The primary tessellator, and where its result for a part isn't sound (judgeResult), the fallback's for the whole
- * part, whichever is the better (compareVerdicts: kind by kind, a face missing worst; the primary's on a tie). The
+ * part, whichever is the better (compareVerdicts: kind by kind, a face missing worst; the primary's on a tie), or the
+ * primary's with the faces it meshes wrongly the fallback's (the per-face fallback, unless `perFace` is false). The
  * result says which (`backend`), with a warning naming what was wrong with the primary's, or an info diagnostic where
- * the fallback's was no better. Each result is joined (joinResult) before it's judged, unless `join` is false. Both
- * are asked for measures (to judge by) and edges (to join by), which the result keeps only if the request asked. Both
- * start at init (a worker pool starts one worker then, the rest as requests come).
+ * the fallback's was no better. Each result is joined (joinResult) and its sliver faces filled (fillResult) before
+ * it's judged, unless `join` or `fill` is false. Both are asked for measures (to judge by) and edges (to join by),
+ * which the result keeps only if the request asked. Both start at init (a worker pool starts one worker then, the rest
+ * as requests come).
  */
 export class FallbackTessellator implements Tessellator {
   readonly primary: Tessellator;
@@ -112,12 +116,16 @@ export class FallbackTessellator implements Tessellator {
   readonly join: boolean;
   /** Whether a part's faces the primary meshes wrongly may be the fallback's alone (composeResults). */
   readonly perFace: boolean;
+  /** Whether faces no backend meshed are filled where slivers (fillResult) before results are judged. */
+  readonly fill: boolean;
 
-  constructor(primary: Tessellator, fallback: Tessellator, opts: { join?: boolean; perFace?: boolean } = {}) {
+  constructor(primary: Tessellator, fallback: Tessellator,
+    opts: { join?: boolean; perFace?: boolean; fill?: boolean } = {}) {
     this.primary = primary;
     this.fallback = fallback;
     this.join = opts.join ?? true;
     this.perFace = opts.perFace ?? true;
+    this.fill = opts.fill ?? true;
   }
 
   get info(): TessellatorInfo {
@@ -143,9 +151,13 @@ export class FallbackTessellator implements Tessellator {
   async tessellate(req: TessellationRequest): Promise<TessellationResult> {
     // (Edges to join by, and measures to judge by: both kept only if the request asked.)
     const model = req.format === 'cad-brep' ? openBrep(req.data) : undefined;
-    const ask = { ...req, measures: true, ...(this.join && model ? { edges: true } : {}) };
-    const run = (t: Tessellator) => t.tessellate(ask).then((r) => (this.join && model
-      ? joinResult(model, r, req.linearDeflection) : r)).catch((e: unknown) => e instanceof Error ? e
+    const ask = { ...req, measures: true, ...((this.join || this.fill) && model ? { edges: true } : {}) };
+    const tidy = (r: TessellationResult) => {
+      if (!model) return r;
+      const j = this.join ? joinResult(model, r, req.linearDeflection) : r;
+      return this.fill ? fillResult(model, j, req.linearDeflection) : j;
+    };
+    const run = (t: Tessellator) => t.tessellate(ask).then(tidy).catch((e: unknown) => e instanceof Error ? e
       : new Error(String(e)));
     const a = await run(this.primary);
     // (The oracle's areas from the results, computed beside the meshing: ours are cached with them.)
@@ -167,7 +179,7 @@ export class FallbackTessellator implements Tessellator {
       const swapped = [...want].filter((x) => meshedB.has(x) && !badB.has(x)).sort((x, y) => x - y);
       if (swapped.length) {
         const composed = composeResults(model, a, b, new Set(swapped));
-        const c = this.join ? joinResult(model, composed, D) : composed;
+        const c = tidy(composed);
         const vc = judgeResult(c, model, D);
         if (compareVerdicts(vc, va) < 0 && compareVerdicts(vc, vb) <= 0) {
           const n = swapped.length, ids = swapped.slice(0, 10).map((x) => `#${x}`).join(', ')

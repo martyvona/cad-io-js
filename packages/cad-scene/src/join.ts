@@ -95,7 +95,9 @@ export function joinEdges(d: BrepData, r: TessellationResult, deflection: number
     if (!faces || faces.length < 2 || faces.some((f) => !tris.get(f)?.length)) { skipped.set(id, 'faces'); continue; }
     // The edge's polylines chained into one, end to end within the deflection (reversed as needed); unchainable
     // ones aren't joined.
-    const mine = edges.flatMap((e, k) => (e.entityId === id ? [k] : []));
+    // (Its polylines with points: a backend gives one of none for an edge it couldn't draw.)
+    const mine = edges.flatMap((e, k) => (e.entityId === id && e.count > 0 ? [k] : []));
+    if (!mine.length) { skipped.set(id, 'no polyline'); continue; }
     const pts = (k: number): V3[] => { const a = edgePoints[k]!, out: V3[] = [];
       for (let i = 0; i + 2 < a.length; i += 3) out.push([a[i]!, a[i + 1]!, a[i + 2]!]); return out; };
     let P = pts(mine[0]!);

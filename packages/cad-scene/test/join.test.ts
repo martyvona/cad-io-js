@@ -235,9 +235,9 @@ test('tessellateScene joins each part (edges asked for, kept only if asked), the
   assert.ok(left > 0);
   assert.deepEqual(r3.diagnostics.map((x) => [x.severity, x.message]),
     [['info', joinedMessage(1)], ['error', openEdgesMessage(left)]]);
-  // Opted out: as the backend gave it, edges not asked for.
+  // Opted out (and the fill): as the backend gave it, edges not asked for.
   const off = backend(tj), s4 = scene();
-  const r4 = await tessellateScene(s4, off, { measures: false, linearDeflection: D, join: false });
+  const r4 = await tessellateScene(s4, off, { measures: false, linearDeflection: D, join: false, fill: false });
   assert.equal(off.asked[0]!.edges, undefined);
   assert.deepEqual(r4.diagnostics.map((x) => x.message), [openEdgesMessage(1)]);
 });
@@ -329,4 +329,11 @@ test('join: at a corner, the walk goes along the edge, not along the next one wh
   const ids = edgesOf(d, 21);
   const j = joinEdges(d, r, D);
   assert.deepEqual([j.joined.sort((a, b) => a - b), j.open], [[ids[0]!, ids[3]!].sort((a, b) => a - b), []]);
+});
+
+test('join: a polyline of no points (an edge a backend couldn\'t draw) is none', () => {
+  const [sd] = edgesOf(d, 21);
+  const r = withPoint(quads(d), 21, 0);
+  const extra = { ...r, edges: [{ entityId: sd!, start: 0, count: 0, kind: 'shared' as const }, ...r.edges!] };
+  assert.deepEqual(joinEdges(d, extra, D).joined, [sd]);
 });

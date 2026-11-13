@@ -1,5 +1,5 @@
 465 files compared (15 over the size limit, 37 without OCCT meshes); 1098 of 1099 parts tessellated
-vertices on OCCT's surface: 181658 of 183234; colours matching: 133276 of 135943
+vertices on OCCT's surface: 181659 of 183235; colours matching: 133282 of 135949
    gkv311-opencascade-dataset/step/bug32049_sp7_04dx_242.stp: 0 of 127 vertices off OCCT's surface; 2 of 1138 colour samples differ
    gkv311-opencascade-dataset/step/trj3_s1-id-203.stp: 0 of 1188 vertices off OCCT's surface; 3 of 353 colour samples differ
    gkv311-opencascade-dataset/step/trj3_s1-tc-214.stp: 0 of 1234 vertices off OCCT's surface; 6 of 530 colour samples differ
@@ -48,7 +48,7 @@ vertices on OCCT's surface: 181658 of 183234; colours matching: 133276 of 135943
    gkv311-opencascade-dataset/step/trj3_s1-ct-214.stp: 0 of 1208 vertices off OCCT's surface; 15 of 490 colour samples differ
    gkv311-opencascade-dataset/step/trj4_k1_geo-tu-214.stp: 0 of 104 vertices off OCCT's surface; 115 of 115 colour samples differ
    gkv311-opencascade-dataset/step/trj4_s1-ug-214.stp: 0 of 1331 vertices off OCCT's surface; 3 of 375 colour samples differ
-   gkv311-opencascade-dataset/step/trj6_b1-ec-214.stp: 0 of 101 vertices off OCCT's surface; 6 of 846 colour samples differ
+   gkv311-opencascade-dataset/step/trj6_b1-ec-214.stp: 0 of 102 vertices off OCCT's surface; 6 of 849 colour samples differ
    gkv311-opencascade-dataset/step/nist/bug26689_nist_ctc_04_asme1_ap242.stp: 0 of 127 vertices off OCCT's surface; 2 of 1474 colour samples differ
    nist-pmi-models/NIST_MBE_PMI_CTC_Definitions/NIST_MBE_PMI_CTC_Definitions/nist_ctc_04_asme1_rd.stp: 0 of 127 vertices off OCCT's surface; 3 of 1474 colour samples differ
    gkv311-opencascade-dataset/step/cax_stepLib/s1_pe_214/head_front_prt.stp: 0 of 103 vertices off OCCT's surface; 6 of 15 colour samples differ
