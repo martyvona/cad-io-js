@@ -6,6 +6,7 @@
 
 import { canonical } from './canonical.ts';
 import { clampCurve, clampSurface } from './clamp.ts';
+import { curveEvaluator, surfaceEvaluator } from './geometry.ts';
 import { Copier, type Draw } from './copy.ts';
 import { BYTES, COLUMNS, type BrepData, HEADER_BYTES, openBrep, rowCount } from './data.ts';
 import * as dec from './decode.ts';
@@ -64,6 +65,9 @@ export interface BuilderOptions {
    */
   firstFreshId?: number;
 }
+
+/** How far apart a curve-bounded face's segments' ends may be and be joined in a part without an uncertainty, in mm. */
+const DEFAULT_JOIN = 1e-6;
 
 /** A builder item: written as a row, or (a transform or an instance) kept to be baked by `finish`. */
 type ItemInfo = { row: number } | { pending: Item };
@@ -458,6 +462,31 @@ export class BrepBuilder {
       return next++;
     };
     const points = this.col('vertex', 'point');
+    // (The geometry, packed as it stands, to evaluate curve-bounded faces' segments' ends.)
+    let geo: BrepData | undefined;
+    const geometry = () => (geo ??= this.pack());
+    const ends = (e: Edge, pcurve: number | undefined, surface: number): [Point, Point] | undefined => {
+      const d = geometry();
+      const at = e.curve !== undefined ? curveEvaluator(d, e.curve) : undefined;
+      const pc = e.curve === undefined && pcurve !== undefined ? curveEvaluator(d, pcurve) : undefined;
+      const se = pc ? surfaceEvaluator(d, surface) : undefined;
+      const ev = at ?? pc;
+      if (!ev || (pc && !se)) return undefined;
+      // (The edge runs along its curve as Part 42 orients it, a trim's sense included; an evaluator's range is the
+      // basis's parameters, in increasing order.)
+      let same = e.sameSense;
+      for (let k = e.curve, c = k === undefined ? undefined : this.curveRows[k]; c?.kind === 'trimmed';
+        k = c.basis, c = this.curveRows[k]) if (!c.sense) same = !same;
+      const r = e.range ?? (same ? ev.range : [ev.range[1], ev.range[0]]);
+      if (!r.every(Number.isFinite)) return undefined;
+      const point = (t: number) => {
+        if (at) return at.point(t);
+        const q = pc!.point(t);
+        return se!.point(q[0]!, q[1]!);
+      };
+      const out = [point(r[0]), point(r[1])] as [Point, Point];
+      return out.every((q) => q.every(Number.isFinite)) ? out : undefined;
+    };
     const itemFaces = this.items.flatMap((x) => {
       if ('pending' in x) return x.pending.kind === 'face' ? [x.pending.ref] : [];
       return this.col('item', 'kind').a[x.row] === ITEM_KIND.face ? [this.col('item', 'ref').a[x.row]!] : [];
@@ -468,7 +497,11 @@ export class BrepBuilder {
         const d = b.map((x, i) => x - a[i]!), n = Math.hypot(...d);
         return this.addCurve({ kind: 'line', point: a, direction: n ? d.map((x) => x / n) : [1, 0, 0],
           magnitude: n || 1 });
-      }, fresh, curve: (k) => this.curveRows[k]!, surface: (k) => this.surfaceRows[k]! });
+      }, fresh, curve: (k) => this.curveRows[k]!, surface: (k) => this.surfaceRows[k]!,
+      curveRange: (k) => curveEvaluator(geometry(), k)?.range, ends,
+      addVertex: (point, tolerance) => this.addVertex({ point, ...(tolerance === undefined ? {} : { tolerance }) }),
+      joinTolerance: Number.isFinite(this.part.uncertainty) ? this.part.uncertainty! : DEFAULT_JOIN,
+      note: (message) => this.diagnostics.push({ severity: 'warning', message }) });
     for (const e of c.edges) {
       this.row('edge', { curve: ref(e.curve), start: ref(e.start), end: ref(e.end), sameSense: bool(e.sameSense),
         range: e.range ?? [NaN, NaN], tolerance: opt(e.tolerance), id: sourceId(e.id) });

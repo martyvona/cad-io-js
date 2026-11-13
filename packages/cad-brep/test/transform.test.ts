@@ -302,8 +302,10 @@ test('under a mirror: loops turn, faces where the surface keeps (u, v), p-curves
   c.addItem({ kind: 'face', ref: c.addFace({ surface: cyl, sameSense: true, loops: [{ kind: 'edge', bound: 'outer',
     sense: true, coedges: [{ edge: e, orientation: 'forward', pcurve: pc }] }] }), transform: TRANSFORMS[0]![1] });
   const d = c.finish();
-  assert.deepEqual(c.diagnostics.map((x) => x.severity), ['warning']);
-  assert.match(c.diagnostics[0]!.message, /curve #77: a conic in \(u, v\) that a mirror would run the other way/);
+  // (Its segment an untrimmed line, so no curve-bounded face's joins: said too.)
+  const mirrored = c.diagnostics.filter((x) => !/no ends of its own/.test(x.message));
+  assert.deepEqual(mirrored.map((x) => x.severity), ['warning']);
+  assert.match(mirrored[0]!.message, /curve #77: a conic in \(u, v\) that a mirror would run the other way/);
   assert.equal(d.coedge.pcurve[0], -1);
   // Under a mirror and a scale the cylinder's map is unequal: the offset left out too.
   const o = new BrepBuilder();

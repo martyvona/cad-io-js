@@ -815,5 +815,7 @@ export function stepBrep(r: Reader, items: number[], o: StepBrepOptions, warn: W
     const ids = x.ids.length ? ` (#${x.ids.join(', #')}${x.n > x.ids.length ? ', ...' : ''})` : '';
     warn(`B-rep model: ${x.n === 1 ? '' : `${x.n} x `}${message}${ids}`, x.severity);
   }
-  return { brep: b.finish(), counts, seams };
+  const brep = b.finish();
+  for (const x of b.diagnostics) warn(`B-rep model: ${x.message}`, x.severity);
+  return { brep, counts, seams };
 }

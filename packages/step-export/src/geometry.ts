@@ -15,8 +15,8 @@
 // under its fresh id (the model has no instancing to write back).
 
 import {
-  BODY_KIND, type BrepData, type Curve, decode, type Face, ITEM_KIND, LOOP_KIND, type Logical,
-  type Placement, type Point, rowCount, type Surface, SURFACE_KIND,
+  BODY_KIND, type BrepData, type Curve, curveEvaluator, decode, edgeParams, type Face, ITEM_KIND, LOOP_KIND,
+  type Logical, type Placement, type Point, rowCount, type Surface, SURFACE_KIND,
 } from 'cad-brep';
 import { type Diagnostic, type EntityRecord, type Instance, makeList, type Value } from 'step-parser';
 
@@ -139,11 +139,37 @@ const ADVANCED_SURFACES = new Set(['plane', 'cylinder', 'cone', 'sphere', 'torus
   'revolution']);
 
 /**
+ * Each face written as a CURVE_BOUNDED_SURFACE, its loops boundary curves of segments: a face whose edges all lack
+ * vertices, and a loose face (a face item in no shell, its loops edge loops), which a geometric set can hold only so
+ * (STEP has no face in one; OCCT's reader drops one). Their edges are written as segments only, their vertices not
+ * at all.
+ */
+function curveBoundedFaces(d: BrepData): Uint8Array {
+  const n = rowCount(d, 'face'), out = new Uint8Array(n), item = new Uint8Array(n), inShell = new Uint8Array(n);
+  for (let k = 0; k < rowCount(d, 'item'); k++) if (d.item.kind[k] === ITEM_KIND.face) item[d.item.ref[k]!] = 1;
+  for (let j = 0; j < rowCount(d, 'faceUse'); j++) inShell[d.faceUse.face[j]!] = 1;
+  for (let f = 0; f < n; f++) {
+    let edges = 0, bare = true, all = d.face.loopCount[f]! > 0;
+    for (let l = d.face.firstLoop[f]!; l < d.face.firstLoop[f]! + d.face.loopCount[f]!; l++) {
+      if (d.loop.kind[l] !== LOOP_KIND.edge) { all = false; continue; }
+      for (let c = d.loop.first[l]!; c < d.loop.first[l]! + d.loop.count[l]!; c++) {
+        edges++;
+        const e = d.coedge.edge[c]!;
+        if (d.edge.start[e]! >= 0 || d.edge.end[e]! >= 0) bare = false;
+      }
+    }
+    out[f] = edges && (bare || (all && item[f] && !inShell[f])) ? 1 : 0;
+  }
+  return out;
+}
+
+/**
  * The rows the items reach, per table: what's written (a p-curve no coedge uses, as a seam's whose uses couldn't be
  * told apart, isn't; an unreferenced entity would be a root to a reader).
  */
 
 function reachable(d: BrepData) {
+  const asCurveBounded = curveBoundedFaces(d);
   const live = {
     curve: new Uint8Array(rowCount(d, 'curve')), surface: new Uint8Array(rowCount(d, 'surface')),
     vertex: new Uint8Array(rowCount(d, 'vertex')), edge: new Uint8Array(rowCount(d, 'edge')),
@@ -183,14 +209,16 @@ function reachable(d: BrepData) {
     for (let l = d.face.firstLoop[f]!; l < d.face.firstLoop[f]! + d.face.loopCount[f]!; l++) {
       if (d.loop.kind[l] === LOOP_KIND.vertex) live.vertex[d.loop.first[l]!]! |= VERTEX_USE;
       if (d.loop.kind[l] !== LOOP_KIND.edge) continue;
-      let written = 0;
       for (let c = d.loop.first[l]!; c < d.loop.first[l]! + d.loop.count[l]!; c++) {
-        written++;
-        edge(d.coedge.edge[c]!);
+        const e = d.coedge.edge[c]!;
+        // (A curve-bounded face's segments: their curves, not their vertices.)
+        if (!asCurveBounded[f]) edge(e);
+        else {
+          live.edge[e] = 1;
+          if (d.edge.curve[e]! >= 0) curve(d.edge.curve[e]!);
+        }
         if (d.coedge.pcurve[c]! >= 0) curve(d.coedge.pcurve[c]!);
       }
-      const v = d.edge.start[d.coedge.edge[d.loop.first[l]!]!]!;
-      if (!written && d.loop.count[l]! && v >= 0) live.vertex[v]! |= VERTEX_USE;
     }
   };
   const shell = (k: number) => {
@@ -470,8 +498,7 @@ export function stepGeometry(d: BrepData, opts: StepGeometryOptions = {}): StepG
   const edgePcurves = new Map<number, [number, number][]>();
   const nFaces = rowCount(d, 'face');
   const faces: Face[] = [];
-  const curveBounded = new Uint8Array(nFaces), edgeCurve = new Uint8Array(rowCount(d, 'edge'));
-  const noVertex = (e: number) => d.edge.start[e]! < 0 && d.edge.end[e]! < 0;
+  const curveBounded = curveBoundedFaces(d), edgeCurve = new Uint8Array(rowCount(d, 'edge'));
   for (let k = 0; k < rowCount(d, 'body'); k++) {
     if (d.body.kind[k] !== BODY_KIND.wire) continue;
     for (let j = d.body.first[k]!; j < d.body.first[k]! + d.body.count[k]!; j++) edgeCurve[d.member.ref[j]!] = 1;
@@ -479,7 +506,6 @@ export function stepGeometry(d: BrepData, opts: StepGeometryOptions = {}): StepG
   for (let f = 0; f < nFaces; f++) {
     const face = faces[f] = decode.face(d, f);
     const edges = face.loops.flatMap((l) => l.kind === 'edge' ? l.coedges.map((c) => c.edge) : []);
-    curveBounded[f] = edges.length && edges.every(noVertex) ? 1 : 0;
     if (!curveBounded[f]) for (const e of edges) edgeCurve[e] = 1;
     for (const l of face.loops) {
       if (l.kind !== 'edge') continue;
@@ -500,8 +526,8 @@ export function stepGeometry(d: BrepData, opts: StepGeometryOptions = {}): StepG
   function writeEdge(k: number) {
     const e = decode.edge(d, k);
     if (e.tolerance !== undefined) note('edge tolerances (not written: STEP has none per entity)', e.id, 'info');
-    if (e.range) note('edge parameter ranges (not written: STEP has none)', e.id, 'info');
     if (!edgeCurve[k]) return;
+    if (e.range) note('edge parameter ranges (not written: STEP has none)', e.id, 'info');
     // What the source lacks (a vertex, a curve it couldn't read) is written unset, as it had it.
     if (e.start === undefined || e.end === undefined) {
       note('an edge without its start or end vertex (written unset)', e.id, 'warning');
@@ -642,11 +668,23 @@ export function stepGeometry(d: BrepData, opts: StepGeometryOptions = {}): StepG
       const segments = l.coedges.map((c) => {
         const e = decode.edge(d, c.edge);
         const g = c.pcurve === undefined ? undefined : pcurveGeometry(s, c.pcurve);
+        // An edge with vertices (a loose face's): its 3D curve trimmed to its range, from its start to its end, so
+        // the segment runs with it as its use does (the range the edge's, else its vertices' parameters); its
+        // p-curve, whose parameter is the curve's, beside it.
+        let c3 = e.curve === undefined ? -1 : curveId(e.curve);
+        if (e.curve !== undefined && e.start !== undefined && e.end !== undefined) {
+          const ev = curveEvaluator(d, e.curve);
+          const r = e.range ?? (ev ? edgeParams(d, c.edge, ev) : undefined);
+          if (r && r.every(Number.isFinite)) {
+            const at = (x: number): Value => list([{ k: 'typed', type: 'PARAMETER_VALUE', v: real(x) }]);
+            c3 = emit(fresh(), 'TRIMMED_CURVE', [NAME, ref(c3), at(r[0]), at(r[1]), bool(e.sameSense),
+              enu('PARAMETER')]);
+          } else note('a loose face\'s edge whose range can\'t be told (its segment written untrimmed)', e.id);
+        }
         let parent: number;
         if (e.curve === undefined) parent = g === undefined ? -1 : pcurve(s, g);
-        else if (g === undefined) parent = curveId(e.curve);
-        else parent = emit(fresh(), 'SURFACE_CURVE', [NAME, ref(curveId(e.curve)), refs([pcurve(s, g)]),
-          enu('CURVE_3D')]);
+        else if (g === undefined) parent = c3;
+        else parent = emit(fresh(), 'SURFACE_CURVE', [NAME, ref(c3), refs([pcurve(s, g)]), enu('CURVE_3D')]);
         if (parent < 0) {
           note('a curve-bounded face\'s boundary segment with neither a 3D curve nor a p-curve it can be written '
             + 'with (written unset)', e.id);

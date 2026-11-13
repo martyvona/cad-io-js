@@ -1,4 +1,4 @@
-// The canonical model's topology (docs/brep-reference.md, "The canonical model", rules 1-5, 7-9 and 11): what
+// The canonical model's topology (docs/brep-reference.md, "The canonical model", rules 1-5 and 7-11): what
 // BrepBuilder.finish writes in place of the forms a source may use. Loops run as listed (a loop's sense and a face's
 // reversed uses baked in, a face used both ways copied), poly loops as edge loops of shared line edges, degenerate
 // edges out of loops, the outer loop first, shells by topology, a sheet of one closed shell a solid. Exact: no
@@ -54,22 +54,90 @@ export interface CanonicalInput {
   /** Curve and surface rows as given. */
   curve: (k: number) => Curve;
   surface: (k: number) => Surface;
+  /** A curve's range as its evaluator has it (a trimmed curve's from its trims), or undefined. */
+  curveRange: (k: number) => [number, number] | undefined;
+  /**
+   * An edge without vertices: its points at its start and its end (its 3D curve over its range, else its use's
+   * p-curve on the face's surface), or undefined where they don't evaluate.
+   */
+  ends: (e: Edge, pcurve: number | undefined, surface: number) => [Point, Point] | undefined;
+  /** A vertex at a point, its row. */
+  addVertex: (point: Point, tolerance: number | undefined) => number;
+  /** How far apart a curve-bounded face's segments' ends may be and be joined: the part's uncertainty. */
+  joinTolerance: number;
+  /** A problem with the source, said (with the face's id). */
+  note: (message: string) => void;
 }
 
 const turn = (o: Orientation): Orientation => o === 'forward' ? 'reversed' : o === 'reversed' ? 'forward' : o;
 
 export function canonical(x: CanonicalInput): Canonical {
+  // Rule 10: a curve-bounded face's segments (edges without vertices) share a vertex at each join where their ends
+  // meet within the tolerance, at the point between them, its tolerance the gap; a face with a join farther apart
+  // left as it is, said. Its loops all inner (the surface's extent its outer bound, STEP's implicit_outer) left too:
+  // a face of edges with vertices can't say so.
+  const joined = [...x.edges];
+  for (const f of x.faces) {
+    const bare = (c: Coedge) => joined[c.edge]!.start === undefined && joined[c.edge]!.end === undefined;
+    if (!f.loops.length || !f.loops.every((l) => l.kind === 'edge' && l.coedges.length && l.coedges.every(bare))) {
+      continue;
+    }
+    if (f.loops.every((l) => l.bound === 'inner')) continue;
+    // (Each loop: 'ends' where a segment's ends don't evaluate, 'apart' where a join is wider than the tolerance.)
+    const why = f.loops.map((l) => {
+      if (l.kind !== 'edge') return 'ends';
+      const seg = l.coedges.map((c): [Point, Point] | undefined => {
+        const ends = x.ends(joined[c.edge]!, c.pcurve, f.surface);
+        return ends && (c.orientation === 'reversed' ? [ends[1], ends[0]] : ends);
+      });
+      if (seg.some((q) => !q) || new Set(l.coedges.map((c) => c.edge)).size < l.coedges.length) return 'ends';
+      const n = seg.length;
+      const gaps = seg.map((q, i) => Math.hypot(...q![1].map((v, j) => v - seg[(i + 1) % n]![0][j]!)));
+      return gaps.every((g) => g <= x.joinTolerance) ? '' : 'apart';
+    });
+    if (why.some(Boolean)) {
+      const id = f.id ? ` (#${f.id})` : '';
+      x.note(why.includes('apart')
+        ? `a curve-bounded face whose boundary's segments don't meet within the uncertainty (left as segments)${id}`
+        : `a curve-bounded face with a segment of no ends of its own (an unbounded curve, untrimmed: left as `
+          + `segments)${id}`);
+      continue;
+    }
+    for (const l of f.loops) {
+      if (l.kind !== 'edge') continue;
+      const seg = l.coedges.map((c): [Point, Point] => {
+        const ends = x.ends(joined[c.edge]!, c.pcurve, f.surface)!;
+        return c.orientation === 'reversed' ? [ends[1], ends[0]] : ends;
+      });
+      const n = seg.length;
+      // Vertex i: where segment i ends and segment i + 1 starts.
+      const v = seg.map((q, i) => {
+        const a = q[1], b = seg[(i + 1) % n]![0], g = Math.hypot(...a.map((t, j) => t - b[j]!));
+        return x.addVertex(a.map((t, j) => (t + b[j]!) / 2), g > 0 ? g : undefined);
+      });
+      l.coedges.forEach((c, i) => {
+        const before = v[(i + n - 1) % n]!, after = v[i]!;
+        const [start, end] = c.orientation === 'reversed' ? [after, before] : [before, after];
+        joined[c.edge] = { ...joined[c.edge]!, start, end };
+      });
+    }
+  }
   // Rule 4: an edge with both vertices on a trimmed curve is on its basis (the vertices bound it; the trim's
-  // parameters are the basis's, so ranges and p-curves stand), its sense turned where the trim runs against the basis.
-  const edges = x.edges.map((e) => {
+  // parameters are the basis's, so ranges and p-curves stand), its sense turned where the trim runs against the basis;
+  // without a range, the trim's as its range.
+  const edges = joined.map((e) => {
     if (e.curve === undefined || e.start === undefined || e.end === undefined) return e;
     let curve = e.curve, sameSense = e.sameSense, c = x.curve(curve);
+    const trimmed = c.kind === 'trimmed' ? x.curveRange(curve) : undefined;
     while (c.kind === 'trimmed') {
       curve = c.basis;
       if (!c.sense) sameSense = !sameSense;
       c = x.curve(curve);
     }
-    return curve === e.curve ? e : { ...e, curve, sameSense };
+    if (curve === e.curve) return e;
+    const range = e.range ?? (trimmed && trimmed.every(Number.isFinite)
+      ? (sameSense ? trimmed : [trimmed[1], trimmed[0]] as [number, number]) : undefined);
+    return { ...e, curve, sameSense, ...(range ? { range } : {}) };
   });
   // Rule 3: a poly loop's sides as line edges, one per pair of corner rows, shared by every loop that has it.
   const sides = new Map<string, number>();

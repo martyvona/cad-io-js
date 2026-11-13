@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { BrepBuilder, brepFromJson, brepToJson, openBrep, rowCount } from 'cad-brep';
+import { BrepBuilder, brepFromJson, brepToJson, ITEM_KIND, LOOP_KIND, openBrep, rowCount } from 'cad-brep';
 import type { Curve } from 'cad-brep';
 import type { TessellationRequest, TessellationResult } from 'cad-scene';
 import { StepTessellator } from 'step-export';
@@ -65,9 +65,23 @@ function same(a: TessellationResult, b: TessellationResult, what: string, tol = 
     assert.ok(Math.hypot(...y.normal.map((c, k) => c - x.normal[k]!)) <= tol * Math.max(x.area, 1),
       `${what}: face #${id}'s side: ${y.normal} vs ${x.normal}`);
   }
-  // The edges by id, with their kinds and points; edges without vertices (a curve-bounded face's segments) without
-  // ids on both (OCCT's reader takes ids from EDGE_CURVEs only, the native route keeps the segments').
+  // The edges by id, with their kinds and points; a curve-bounded face's segments (edges without vertices, and a
+  // loose face's edges, which the writer writes as its boundaries' segments) without ids on both (OCCT's reader takes
+  // ids from EDGE_CURVEs only, the native route keeps the segments').
   const segments = new Set(json?.edges.filter((e) => e.start === undefined).map((e) => e.id));
+  if (data) {
+    const d = openBrep(data), inShell = new Set(Array.from(d.faceUse.face));
+    for (let k = 0; k < rowCount(d, 'item'); k++) {
+      const f = d.item.ref[k]!;
+      if (d.item.kind[k] !== ITEM_KIND.face || inShell.has(f)) continue;
+      for (let l = d.face.firstLoop[f]!; l < d.face.firstLoop[f]! + d.face.loopCount[f]!; l++) {
+        if (d.loop.kind[l] !== LOOP_KIND.edge) continue;
+        for (let c = d.loop.first[l]!; c < d.loop.first[l]! + d.loop.count[l]!; c++) {
+          segments.add(d.edge.id[d.coedge.edge[c]!]!);
+        }
+      }
+    }
+  }
   // (`copiedEdges`: edges the STEP route's healing copies, without ids, where sheets share a face.)
   const edges = (r: TessellationResult) => (r.edges ?? []).map((e) =>
     `${e.entityId !== null && !segments.has(e.entityId) ? e.entityId : null} ${edgeKinds ? e.kind : '?'} ${e.count}`)

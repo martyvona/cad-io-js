@@ -354,7 +354,8 @@ test('validateBrep finds each kind of defect', () => {
     ['edge one vertex', cube, (d) => { d.edge.end[1] = -1; }, /edge 1 \(#10\): one vertex only/],
     ['edge nothing', cube, (d) => { d.edge.curve[0] = -1; d.edge.start[0] = d.edge.end[0] = -1; },
       /edge 0 \(#9\): neither a curve nor vertices, and a use without a p-curve/],
-    ['edge nothing, unused', E, (d) => { d.edge.curve[0] = -1; d.coedge.edge[0] = 1; },
+    ['edge nothing, unused', E, (d) => { d.edge.curve[0] = -1; d.edge.start[0] = d.edge.end[0] = -1;
+      d.coedge.edge[0] = 1; },
       /edge 0: neither a curve nor vertices, and no use/],
     ['edge sense', cube, (d) => { d.edge.sameSense[0] = 2; }, /same_sense 2/],
     ['edge range', cube, (d) => { d.edge.range[1] = NaN; }, /range 0, NaN/],

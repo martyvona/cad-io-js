@@ -387,8 +387,7 @@ test('topology: shared edges, p-curves per face, orientations, voids, loops, ids
   const wire = solids.find((x) => x.id === 171)!;
   assert.deepEqual(wire.members.map((m) => decode.edge(d, m.ref).id), [54, 62]);
 
-  // The curve-bounded surface: a face item, one outer loop of one edge with no vertices or 3D curve, its p-curve the
-  // 2D circle.
+  // The curve-bounded surface: a face item, one outer loop of one edge with no 3D curve, its p-curve the 2D circle.
   const items = Array.from({ length: rowCount(d, 'item') }, (_, k) => decode.item(d, k));
   const cbs = items.find((x) => x.kind === 'face')!;
   assert.ok(cbs.kind === 'face');
@@ -398,7 +397,8 @@ test('topology: shared edges, p-curves per face, orientations, voids, loops, ids
   assert.ok(lc.kind === 'edge');
   assert.deepEqual([lc.bound, lc.coedges.length], ['outer', 1]);
   const ce = decode.edge(d, lc.coedges[0]!.edge);
-  assert.deepEqual([ce.id, 'curve' in ce, 'start' in ce], [184, false, false]);
+  // (Its one segment's ends meeting: the builder joins them at a vertex, the edge closed.)
+  assert.deepEqual([ce.id, 'curve' in ce, ce.start !== undefined && ce.start === ce.end], [184, false, true]);
   assert.equal(decode.curve(d, lc.coedges[0]!.pcurve!).kind, 'circle');
   assert.deepEqual(items.map((x) => x.id), [85, 88, 137, 147, 160, 171, 191, 186, 200]);
   // A face used reversed twice over is used forward (#82 itself); a face set's shell (its kind by topology, the
@@ -793,8 +793,12 @@ test('in a file of another unit, every length is millimetres and nothing else ch
   // the edges' two vertices and the poly loop's third corner; the geometric set's 23 elements and the surface model.
   assert.deepEqual([rowCount(a, 'curve'), rowCount(a, 'surface'), rowCount(a, 'face'), rowCount(a, 'vertex'),
     rowCount(a, 'item')], [31, 12, 5, 3, 24]);
+  // (The three curve-bounded faces carry every kind of p-curve as segments that don't make a closed boundary: left
+  // as segments, said.)
   assert.deepEqual(mm.diagnostics.filter((d) => d.severity !== 'info').map((d) => d.message).filter((m) =>
-    !/negative major radius/.test(m)), []);
+    !/negative major radius/.test(m)), [...[350, 351].map((id) => 'B-rep model: a curve-bounded face with a segment '
+    + `of no ends of its own (an unbounded curve, untrimmed: left as segments) (#${id})`), 'B-rep model: a '
+    + 'curve-bounded face whose boundary\'s segments don\'t meet within the uncertainty (left as segments) (#352)']);
   for (const [k, text] of [[10, ALL_KINDS.replace('.MILLI.', '.CENTI.')], [25.4, inch]] as const) {
     const scene = (await importStep(file(text))).scene;
     const problems: string[] = [];

@@ -377,7 +377,7 @@ test('rule 4: an edge with both vertices on a trimmed curve is on its basis, tur
   const twice = b.addCurve({ kind: 'trimmed', basis: back, trim1: { parameter: 1 }, trim2: { parameter: 0 },
     sense: true, preference: 'parameter' });
   const e = [b.addEdge({ curve: back, start: vs[1]!, end: vs[0]!, sameSense: true, range: [1, 0] }),
-    b.addEdge({ curve: twice, start: vs[1]!, end: vs[0]!, sameSense: false }),
+    b.addEdge({ curve: twice, start: vs[1]!, end: vs[0]!, sameSense: true }),
     b.addEdge({ curve: back, sameSense: true })];
   b.addItem({ kind: 'face', ref: b.addFace({ surface: plane, sameSense: true, loops: [{ kind: 'edge',
     bound: 'outer', sense: true, coedges: [{ edge: e[0]!, orientation: 'forward' }, { edge: e[1]!,
@@ -385,9 +385,10 @@ test('rule 4: an edge with both vertices on a trimmed curve is on its basis, tur
       orientation: 'forward' }] }] }) });
   const d = b.finish();
   assert.deepEqual(errors(d), []);
-  // The range stays (the trim's parameters are the basis's); an edge without vertices keeps its trim, its bound.
+  // The range stays (the trim's parameters are the basis's); without one, the trim's, from start to end; an edge
+  // without vertices keeps its trim, its bound.
   assert.deepEqual(decode.edge(d, e[0]!), { curve: line, start: vs[1], end: vs[0], sameSense: false, range: [1, 0] });
-  assert.deepEqual(decode.edge(d, e[1]!), { curve: line, start: vs[1], end: vs[0], sameSense: true });
+  assert.deepEqual(decode.edge(d, e[1]!), { curve: line, start: vs[1], end: vs[0], sameSense: false, range: [1, 0] });
   assert.deepEqual(decode.edge(d, e[2]!), { curve: back, sameSense: true });
 });
 
@@ -505,4 +506,88 @@ test('rule 6: an unclamped B-spline clamped to its valid range, the same curve o
         given)), `surface at ${t}, ${v}`);
     }
   }
+});
+
+test('rule 10: a curve-bounded face\'s segments joined where their ends meet within the uncertainty, a vertex between '
+  + 'them; their trims unwrapped to ranges', () => {
+  const b = new BrepBuilder({ uncertainty: 0.01 });
+  const plane = b.addSurface({ kind: 'plane', position: XY });
+  // (A line from p, parameter 1 at q.)
+  const line = (p: number[], q: number[]) => {
+    const v = q.map((x, j) => x - p[j]!), n = Math.hypot(...v);
+    return b.addCurve({ kind: 'line', point: p, direction: v.map((x) => x / n), magnitude: n });
+  };
+  const trim = (c: number, t1: number, t2: number, sense = true) => b.addCurve({ kind: 'trimmed', basis: c,
+    trim1: { parameter: t1 }, trim2: { parameter: t2 }, sense, preference: 'parameter' });
+  // A triangle of three segments: the second trimmed against its line and used reversed, the third 0.004 short of
+  // the first's start.
+  const s0 = trim(line([0, 0, 0], [1, 0, 0]), 0, 1), s1 = trim(line([1, 0, 0], [0, 1, 0]), 1, 0, false);
+  const s2 = trim(line([0, 1, 0], [0, 0, 0]), 0, 0.996);
+  const e = [s0, s1, s2].map((curve, k) => b.addEdge({ curve, sameSense: true, id: 10 + k }));
+  b.addItem({ kind: 'face', ref: b.addFace({ surface: plane, sameSense: true, id: 20, loops: [{ kind: 'edge',
+    bound: 'outer', sense: true, coedges: [{ edge: e[0]!, orientation: 'forward' }, { edge: e[1]!,
+      orientation: 'reversed' }, { edge: e[2]!, orientation: 'forward' }] }] }) });
+  // A circle of one segment, the loop's ends one point.
+  const circle = b.addCurve({ kind: 'circle', position: { ...XY, origin: [5, 0, 0] }, radius: 1 });
+  const ring = b.addEdge({ curve: trim(circle, 0, 2 * Math.PI), sameSense: true });
+  b.addItem({ kind: 'face', ref: b.addFace({ surface: plane, sameSense: true, loops: [{ kind: 'edge',
+    bound: 'outer', sense: true, coedges: [{ edge: ring, orientation: 'forward' }] }] }) });
+  const d = b.finish();
+  assert.deepEqual(errors(d), []);
+  assert.deepEqual(b.diagnostics, []);
+  const ed = e.map((k) => decode.edge(d, k)), pt = (v: number | undefined) => decode.vertex(d, v!);
+  // Corners: (1, 0, 0) where 0 meets 1 (exactly), (0, 1, 0) where 1 meets 2, the midpoint of (0, 0.004, 0) and
+  // (0, 0, 0) where 2 meets 0, its tolerance the gap.
+  assert.deepEqual([pt(ed[0]!.end).point, pt(ed[0]!.end).tolerance], [[1, 0, 0], undefined]);
+  assert.deepEqual([ed[0]!.start, ed[1]!.end, ed[1]!.start, ed[2]!.start, ed[2]!.end],
+    [ed[2]!.end, ed[0]!.end, ed[2]!.start, ed[1]!.start, ed[0]!.start]);
+  const c = pt(ed[0]!.start);
+  assert.ok(Math.abs(c.point[1]! - 0.002) < 1e-15 && Math.abs(c.tolerance! - 0.004) < 1e-15, JSON.stringify(c));
+  // On their lines now, ranges from the trims: the second against its line, from 1 to 0; ids kept.
+  assert.deepEqual(ed.map((x) => [decode.curve(d, x.curve!).kind, x.sameSense, x.range, x.id]), [
+    ['line', true, [0, 1], 10], ['line', false, [1, 0], 11], ['line', true, [0, 0.996], 12]]);
+  const r = decode.edge(d, ring);
+  assert.deepEqual([r.start === r.end, decode.curve(d, r.curve!).kind, r.range], [true, 'circle', [0, 2 * Math.PI]]);
+  sameBytes(d, rebuilt(d));
+});
+
+test('rule 10: segments farther apart than the uncertainty, of no ends of their own, or bounding a face whose loops '
+  + 'are all inner: left as they are, said (but the last)', () => {
+  const b = new BrepBuilder({ uncertainty: 0.001 });
+  const plane = b.addSurface({ kind: 'plane', position: XY });
+  const seg = (p: number[], q: number[], bounded = true) => {
+    const l = b.addCurve({ kind: 'line', point: p, direction: q.map((x, j) => x - p[j]!), magnitude: 1 });
+    return b.addEdge({ curve: bounded ? b.addCurve({ kind: 'trimmed', basis: l, trim1: { parameter: 0 },
+      trim2: { parameter: 1 }, sense: true, preference: 'parameter' }) : l, sameSense: true });
+  };
+  const face = (es: number[], bound: 'outer' | 'inner', id: number) => b.addItem({ kind: 'face', ref: b.addFace({
+    surface: plane, sameSense: true, id, loops: [{ kind: 'edge', bound, sense: true, coedges: forward(es) }] }) });
+  face([seg([0, 0, 0], [1, 0, 0]), seg([1, 0, 0], [0, 0.002, 0])], 'outer', 1);
+  face([seg([0, 0, 0], [1, 0, 0]), seg([1, 0, 0], [0, 0, 0], false)], 'outer', 2);
+  face([seg([0, 0, 0], [1, 0, 0]), seg([1, 0, 0], [0, 0, 0])], 'inner', 3);
+  const d = b.finish();
+  for (let e = 0; e < rowCount(d, 'edge'); e++) assert.equal(decode.edge(d, e).start, undefined, `edge ${e}`);
+  assert.deepEqual(b.diagnostics.map((x) => x.message), [
+    'a curve-bounded face whose boundary\'s segments don\'t meet within the uncertainty (left as segments) (#1)',
+    'a curve-bounded face with a segment of no ends of its own (an unbounded curve, untrimmed: left as segments) '
+      + '(#2)']);
+});
+
+test('rule 10: a segment with only a p-curve: its ends the p-curve\'s on the surface', () => {
+  const b = new BrepBuilder({ uncertainty: 1e-6 });
+  const cyl = b.addSurface({ kind: 'cylinder', position: XY, radius: 2 });
+  // On the cylinder, u along the circle, v up: a quarter turn at v = 0 and back down a line at u = pi/2... as one
+  // closed loop: u from 0 to pi/2 at v = 0, then v 0 to 1, then back along u, then down.
+  const p2 = (point: number[], direction: number[], magnitude: number) => b.addCurve({ kind: 'trimmed', basis:
+    b.addCurve({ kind: 'line', point, direction, magnitude }), trim1: { parameter: 0 }, trim2: { parameter: 1 },
+    sense: true, preference: 'parameter' });
+  const pcs = [p2([0, 0], [1, 0], Math.PI / 2), p2([Math.PI / 2, 0], [0, 1], 1), p2([Math.PI / 2, 1], [-1, 0],
+    Math.PI / 2), p2([0, 1], [0, -1], 1)];
+  const es = pcs.map(() => b.addEdge({ sameSense: true }));
+  b.addItem({ kind: 'face', ref: b.addFace({ surface: cyl, sameSense: true, loops: [{ kind: 'edge', bound: 'outer',
+    sense: true, coedges: es.map((edge, k) => ({ edge, orientation: 'forward' as const, pcurve: pcs[k] })) }] }) });
+  const d = b.finish();
+  assert.deepEqual(b.diagnostics, []);
+  const corners = es.map((e) => decode.vertex(d, decode.edge(d, e).start!).point.map((x) => +x.toFixed(12) + 0));
+  assert.deepEqual(corners, [[2, 0, 0], [0, 2, 0], [0, 2, 1], [2, 0, 1]]);
 });

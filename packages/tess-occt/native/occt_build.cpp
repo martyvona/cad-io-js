@@ -257,6 +257,60 @@ struct Builder
 
   Builder(BuiltPart& o) : out(o) {}
 
+  // Faces built as curve-bounded surfaces (curveBounded): the loose faces (a face item in no shell, its loops edge
+  // loops), which the STEP writer writes as CURVE_BOUNDED_SURFACEs as STEP has them, and faces whose edges all lack
+  // vertices. Made on first use.
+  std::vector<char> looseFaces;
+  bool curveBoundedFace(int f)
+  {
+    if (looseFaces.empty())
+    {
+      const int n = r.rows(CBR_FACE_SURFACE);
+      looseFaces.assign(n, 0);
+      std::vector<char> inShell(n, 0);
+      for (int j = 0; j < r.rows(CBR_FACE_USE_FACE); ++j)
+        inShell[r.i32(CBR_FACE_USE_FACE)[j]] = 1;
+      for (int k = 0; k < r.rows(CBR_ITEM_KIND); ++k)
+        if (r.u8(CBR_ITEM_KIND)[k] == CBR_ITEM_FACE && !inShell[r.i32(CBR_ITEM_REF)[k]])
+          looseFaces[r.i32(CBR_ITEM_REF)[k]] = 1;
+    }
+    const int first = r.i32(CBR_FACE_FIRST_LOOP)[f], count = r.i32(CBR_FACE_LOOP_COUNT)[f];
+    if (count == 0)
+      return false;
+    bool bare = true;
+    for (int l = first; l < first + count; ++l)
+    {
+      if (r.u8(CBR_LOOP_KIND)[l] != CBR_LOOP_EDGE || r.i32(CBR_LOOP_COUNT)[l] == 0)
+        return false;
+      for (int c = r.i32(CBR_LOOP_FIRST)[l]; c < r.i32(CBR_LOOP_FIRST)[l] + r.i32(CBR_LOOP_COUNT)[l]; ++c)
+        if (r.i32(CBR_EDGE_START)[r.i32(CBR_COEDGE_EDGE)[c]] >= 0)
+          bare = false;
+    }
+    return bare || looseFaces[f];
+  }
+
+  // A curve-bounded face's segment as the translator trims its TRIMMED_CURVE: an edge with a range on its basis
+  // (the model's, the trim unwrapped) trimmed over it, running from its start to its end; else the edge's curve.
+  occ::handle<Geom_Curve> segmentCurve(int e)
+  {
+    const int     ci = r.i32(CBR_EDGE_CURVE)[e];
+    const double* range = r.f64(CBR_EDGE_RANGE) + 2 * e;
+    occ::handle<Geom_Curve> basis = curve(ci);
+    double f = 1., shift = 0.;
+    if (r.u8(CBR_CURVE_KIND)[ci] == CBR_CURVE_TRIMMED || !std::isfinite(range[0]) || !std::isfinite(range[1])
+        || !curveParam(ci, f, shift))
+      return basis;
+    double t1 = shift + f * range[0], t2 = shift + f * range[1];
+    const double cf = basis->FirstParameter(), cl = basis->LastParameter();
+    if (!basis->IsPeriodic())
+    {
+      t1 = std::min(std::max(t1, cf), cl);
+      t2 = std::min(std::max(t2, cf), cl);
+    }
+    return r.u8(CBR_EDGE_SAME_SENSE)[e] ? occ::handle<Geom_Curve>(new Geom_TrimmedCurve(basis, t1, t2, true))
+                                       : occ::handle<Geom_Curve>(new Geom_TrimmedCurve(basis, t2, t1, false));
+  }
+
   // Part 42's parameter on a curve as OCCT's: t' = f t + shift (a line's times its magnitude, an ellipse's shifted by
   // pi/2 where OCCT swaps its axes, a parabola's times 2 a; a trimmed curve its basis's); false where not affine.
   bool curveParam(int k, double& f, double& shift)
@@ -856,8 +910,9 @@ struct Builder
   }
 
   // A face; null when dropped (its surface one OCCT can't hold). Its loops as OCCT's STEP translator makes them
-  // (decision 15): edge loops with the model's p-curves (none on planes), vertex loops as natural bounds or a degenerate
-  // edge, by the surface; no loops, no wires (healing adds the natural bounds).
+  // (decision 15): edge loops with the model's p-curves (none on planes), vertex loops as natural bounds or a
+  // degenerate edge, by the surface; no loops, no wires (healing adds the natural bounds); a curve-bounded face's
+  // (curveBoundedFace) as the translator makes a CURVE_BOUNDED_SURFACE's.
   TopoDS_Face face(int f)
   {
     auto it = faces.find(f);
@@ -874,10 +929,7 @@ struct Builder
       faces.emplace(f, TopoDS_Face());
       return TopoDS_Face();
     }
-    const int first0 = r.i32(CBR_FACE_FIRST_LOOP)[f], count0 = r.i32(CBR_FACE_LOOP_COUNT)[f];
-    for (int l = first0; l < first0 + count0; ++l)
-      if (r.u8(CBR_LOOP_KIND)[l] == CBR_LOOP_EDGE && r.i32(CBR_LOOP_COUNT)[l] > 0
-          && r.i32(CBR_EDGE_START)[r.i32(CBR_COEDGE_EDGE)[r.i32(CBR_LOOP_FIRST)[l]]] < 0)
+    if (curveBoundedFace(f))
       {
         TopoDS_Face fc = curveBounded(f, s);
         if (id)
@@ -953,7 +1005,7 @@ struct Builder
             pc >= 0 ? curve2d(pc, s, r.i32(CBR_FACE_SURFACE)[f]) : occ::handle<Geom2d_Curve>();
           if (ci >= 0)
           {
-            occ::handle<Geom_Curve> c3 = curve(ci);
+            occ::handle<Geom_Curve> c3 = segmentCurve(e);
             BRepBuilderAPI_MakeEdge me(c3, c3->FirstParameter(), c3->LastParameter());
             if (me.IsDone())
             {

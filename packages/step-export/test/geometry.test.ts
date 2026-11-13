@@ -940,3 +940,57 @@ test('in a unit, a conic or offset p-curve on a cylinder (unequal scale) is left
     ['6 x a conic or offset p-curve on a surface whose parameters scale unequally to the unit written (left out: no '
       + 'exact form)']);
 });
+
+test('a loose face (a face item in no shell) written as a CURVE_BOUNDED_SURFACE, its edges segments trimmed to their '
+  + 'ranges, no vertices; read back the same; a face in a shell too an ordinary face', async () => {
+  const b = new BrepBuilder({ uncertainty: 1e-6 });
+  const c = [[0, 0, 0], [2, 0, 0], [2, 1, 0], [0, 1, 0]];
+  const plane = b.addSurface({ kind: 'plane', position: P });
+  // A square of four segments on lines trimmed 0 to 1 (the third against its line, from 1 to 0): the builder joins
+  // them, each edge then on its line with its range.
+  const es = c.map((p, k) => {
+    const q = c[(k + 1) % 4]!, against = k === 2;
+    const [a, z] = against ? [q, p] : [p, q];
+    const v = z.map((x, j) => x - a[j]!), n = Math.hypot(...v);
+    const line = b.addCurve({ kind: 'line', point: a, direction: v.map((x) => x / n), magnitude: n });
+    const t = b.addCurve({ kind: 'trimmed', basis: line, trim1: { parameter: against ? 1 : 0 },
+      trim2: { parameter: against ? 0 : 1 }, sense: !against, preference: 'parameter' });
+    return b.addEdge({ curve: t, sameSense: true, id: 10 + k });
+  });
+  const f = b.addFace({ surface: plane, sameSense: true, id: 20, loops: [{ kind: 'edge', bound: 'outer', sense: true,
+    coedges: es.map((edge) => ({ edge, orientation: 'forward' as const })) }] });
+  b.addItem({ kind: 'face', ref: f });
+  const d = b.finish();
+  assert.deepEqual(b.diagnostics, []);
+  const model = Array.from({ length: 4 }, (_, k) => decode.edge(d, es[k]!));
+  assert.ok(model.every((e) => e.start !== undefined && e.range), JSON.stringify(model));
+  const w = written(d);
+  assert.doesNotMatch(w.text, /VERTEX_POINT|EDGE_CURVE|ADVANCED_FACE|FACE_SURFACE/);
+  assert.match(w.text, /CURVE_BOUNDED_SURFACE\(/);
+  const trim = /TRIMMED_CURVE\('',#\d+,\(PARAMETER_VALUE\(([^)]*)\)\),\(PARAMETER_VALUE\(([^)]*)\)\),\.([TF])\./g;
+  const trims = [...w.text.matchAll(trim)].map((m) => [Number(m[1]), Number(m[2]), m[3]]);
+  assert.deepEqual(trims, [[0, 1, 'T'], [0, 1, 'T'], [1, 0, 'F'], [0, 1, 'T']]);
+  // Read back and joined again: the same edges, ranges and all.
+  const back = (await readBack(w.data, w.rootId)).brep;
+  const again = Array.from({ length: rowCount(back, 'edge') }, (_, k) => decode.edge(back, k));
+  const shape = (e: ReturnType<typeof decode.edge>, m: typeof d) => [e.id, e.sameSense, e.range,
+    decode.vertex(m, e.start!).point, decode.vertex(m, e.end!).point];
+  assert.deepEqual(again.map((e) => shape(e, back)), model.map((e) => shape(e, d)));
+
+  // The face also in a shell: an ordinary face there.
+  const s = new BrepBuilder();
+  const vs = c.map((point) => s.addVertex({ point }));
+  const edges = c.map((p, k) => {
+    const q = c[(k + 1) % 4]!, v = q.map((x, j) => x - p[j]!), n = Math.hypot(...v);
+    return s.addEdge({ curve: s.addCurve({ kind: 'line', point: p, direction: v.map((x) => x / n), magnitude: n }),
+      start: vs[k]!, end: vs[(k + 1) % 4]!, sameSense: true });
+  });
+  const g = s.addFace({ surface: s.addSurface({ kind: 'plane', position: P }), sameSense: true, id: 30,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: edges.map((edge) => ({ edge,
+      orientation: 'forward' as const })) }] });
+  s.addItem({ kind: 'body', ref: s.addBody({ kind: 'sheet', members: [{ ref: s.addShell({ kind: 'open',
+    faces: [{ face: g, sense: true }] }), sense: true }] }) });
+  s.addItem({ kind: 'face', ref: g });
+  const ws = written(s.finish());
+  assert.match(render(ws, 30, new Set([0])), /^ADVANCED_FACE\(/);
+});
