@@ -5,7 +5,7 @@
 // applied first (export-shown.ts, on the page). The files come back as their pieces, for the page to save (a Blob of
 // them).
 
-import { drain, exportView, paced, type Deflections, type Diagnostic, type Scene } from 'cad-scene';
+import { drain, exportView, LENGTH_UNITS, paced, type Deflections, type Diagnostic, type Scene } from 'cad-scene';
 import { threemf, threemfAsync } from 'export-3mf';
 import { glb, gltfJson } from 'export-gltf';
 import { threejsChunks } from 'export-threejs';
@@ -28,9 +28,12 @@ export async function exportModel(scene: Scene, deflections: Deflections, r: Exp
   draco: Record<string, unknown> = {}, pause?: () => Promise<void>): Promise<Exported> {
   const s: Scene = r.shown ? { ...scene, materials: [...scene.materials, ...r.shown.materials],
     overrides: r.shown.overrides } : scene;
+  // (Absent: each format's default.)
+  const unit = r.unit === 'default' || r.unit === undefined ? {} : { unit: LENGTH_UNITS[r.unit] };
   if (r.format === 'step') {
     // The exact geometry (and, by option, the meshes made, at the deflections the scene was meshed with).
-    const x = exportStep(s, { name: r.name, schema: r.stepSchema, meshes: r.stepMeshes && r.stepSchema === 'ap242' });
+    const x = exportStep(s, { name: r.name, schema: r.stepSchema, meshes: r.stepMeshes && r.stepSchema === 'ap242',
+      ...unit });
     const steps = collect(x.chunks);
     return { chunks: pause ? await paced(steps, pause) : drain(steps), diagnostics: x.diagnostics };
   }
@@ -39,7 +42,7 @@ export async function exportModel(scene: Scene, deflections: Deflections, r: Exp
   const gltf = { name: r.name, doubleSided: r.doubleSided, hidden: r.keepHidden ? 'extension' as const
     : 'omit' as const, unlitLines: r.unlitLines, extras: r.extras, compression: r.compression,
   dracoPositionBits: r.dracoBits, instancing: r.instancing, keepEmpty: r.keepEmpty, draco,
-  ...(pause ? { pause } : {}) };
+  ...(pause ? { pause } : {}), ...unit };
   switch (r.format) {
     case 'glb': {
       const o = await glb(s, view, gltf);
@@ -52,13 +55,13 @@ export async function exportModel(scene: Scene, deflections: Deflections, r: Exp
     case 'threejs': {
       // (Its pieces as they're made, a step each.)
       const steps = collect(threejsChunks(s, view, { name: r.name, doubleSided: r.doubleSided, extras: r.extras,
-        keepEmpty: r.keepEmpty }));
+        keepEmpty: r.keepEmpty, ...unit }));
       return { chunks: pause ? await paced(steps, pause) : drain(steps), diagnostics: [] };
     }
     case '3mf': {
       const opts = { name: r.name, colors: r.colorgroup ? 'colorgroup' as const : 'basematerials' as const,
         build: r.assembly ? 'assembly' as const : 'parts' as const, nonManifold: r.surfaces ? 'surface' as const
-          : 'omit' as const, hidden: r.keepHidden ? 'keep' as const : 'omit' as const, extras: r.extras };
+          : 'omit' as const, hidden: r.keepHidden ? 'keep' as const : 'omit' as const, extras: r.extras, ...unit };
       const o = pause ? await threemfAsync(s, view, pause, opts) : threemf(s, view, opts);
       return { chunks: [...o.chunks], diagnostics: o.diagnostics };
     }

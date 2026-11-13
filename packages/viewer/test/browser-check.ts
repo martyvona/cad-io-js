@@ -3308,8 +3308,8 @@ await check('transforms', async () => {
     // The export dialog, for each format.
     ui.gui.controllersRecursive().find((c) => c._name === 'Export...').$button.click();
     const e = await wait(() => document.querySelector('dialog.cv-dialog[open]'));
-    const format = e.querySelector('select');
-    const warning = e.querySelector('p.warning');
+    const format = e.querySelector('select[data-key=format]');
+    const warning = e.querySelector('p.warning[data-key=transformsLost]');
     const warned = {};
     for (const f of ['glb', 'gltf', 'threejs', '3mf']) {
       format.value = f;
@@ -5371,15 +5371,22 @@ await check('export', async () => {
         close: async () => {} }) };
     };
     const waitFor = async (f) => { for (let i = 0; i < 600; i++) { const x = f(); if (x) return x; await frame(); } };
-    // Export... with these choices (the format, checkboxes by their key, compression), then the .bin's dialog.
-    const run = async (format, checks = {}, compression, cancel) => {
+    // Export... with these choices (the format, checkboxes by their key, compression, the unit), then the .bin's
+    // dialog; the dialog's warnings shown as it was left.
+    const run = async (format, checks = {}, compression, cancel, unit) => {
       files.length = 0;
       const done = exp.getValue().call(exp.object);
       const d = await waitFor(() => document.querySelector('dialog.cv-dialog'));
-      const sel = d.querySelectorAll('select');
-      sel[0].value = format;
-      sel[0].dispatchEvent(new Event('change'));
-      if (compression) { sel[1].value = compression; sel[1].dispatchEvent(new Event('change')); }
+      // (By key: an option not in a select leaves it with no value, which this throws on.)
+      const choose = (key, value) => {
+        const s = d.querySelector('select[data-key=' + key + ']');
+        s.value = value;
+        if (s.value !== value) throw new Error(key + ' has no ' + value);
+        s.dispatchEvent(new Event('change'));
+      };
+      choose('format', format);
+      if (compression) choose('compression', compression);
+      if (unit) choose('unit', unit);
       for (const [k, v] of Object.entries(checks)) {
         const box = d.querySelector('input[data-key=' + k + ']');
         box.checked = v;
@@ -5387,6 +5394,8 @@ await check('export', async () => {
       }
       const shownBoxes = [...d.querySelectorAll('label.check')].filter((l) => !l.hidden)
         .map((l) => l.querySelector('input').dataset.key);
+      const warning = [...d.querySelectorAll('p.warning')].filter((p) => !p.hidden).map((p) => p.textContent)
+        .join(' ');
       d.querySelector(cancel ? 'button[value=cancel]' : 'button.primary').click();
       if (format === 'gltf' && checks.embed === false) {
         const b = await waitFor(() => [...document.querySelectorAll('dialog.cv-dialog')].find((x) =>
@@ -5395,7 +5404,7 @@ await check('export', async () => {
       }
       await done;
       return { files: files.map((f) => ({ name: f.name, accept: f.accept, size: f.bytes?.length ?? 0 })),
-        bytes: files.map((f) => f.bytes), shownBoxes, status: document.getElementById('status').textContent };
+        bytes: files.map((f) => f.bytes), shownBoxes, warning, status: document.getElementById('status').textContent };
     };
     const text = (b) => new TextDecoder().decode(b);
     // GLB's JSON chunk.
@@ -5416,12 +5425,14 @@ await check('export', async () => {
       .includes('KHR_draco_mesh_compression'), boxes: x.shownBoxes, status: x.status };
     // Uncompressed, for reading back here: the model's own triangles in it.
     x = await run('glb', { edges: false, curves: false }, 'none');
+    out.none = /KHR_draco_mesh_compression|EXT_meshopt_compression/.test(glbJson(x.bytes[0]));
     let bin = '';
     for (let i = 0; i < x.bytes[0].length; i += 8192) bin += String.fromCharCode(...x.bytes[0].subarray(i, i + 8192));
     out.plain = btoa(bin);
     out.drawn = viewer.stats().triangles;
     x = await run('glb', {}, 'meshopt');
-    out.meshopt = glbJson(x.bytes[0]).includes('EXT_meshopt_compression');
+    out.meshopt = [glbJson(x.bytes[0]).includes('EXT_meshopt_compression'),
+      glbJson(x.bytes[0]).includes('KHR_draco_mesh_compression')];
     x = await run('gltf', { embed: true }, 'none');
     out.embedded = { files: x.files, uri: JSON.parse(text(x.bytes[0])).buffers[0].uri.slice(0, 37) };
     x = await run('gltf', { embed: false }, 'none');
@@ -5446,12 +5457,23 @@ await check('export', async () => {
     // Remembered: the next dialog starts with the last choice (three.js, applied).
     exp.getValue().call(exp.object);
     const d = await waitFor(() => document.querySelector('dialog.cv-dialog'));
-    out.remembered = [d.querySelector('select').value, d.querySelector('input[data-key=shown]').checked];
+    out.remembered = [d.querySelector('select[data-key=format]').value, d.querySelector('input[data-key=shown]').checked];
     d.querySelector('button[value=cancel]').click();
     await frame();
     // Cancelled: nothing asked or saved.
     x = await run('glb', {}, undefined, true);
     out.cancelled = x.files.length;
+    // The unit: glTF in centimetres (said: its readers take metres), its top node turned by 1 / 10; STEP in inches
+    // (nothing said); back to each format's own.
+    x = await run('glb', {}, 'none', false, 'cm');
+    const g = JSON.parse(glbJson(x.bytes[0])), top = g.nodes[g.scenes[0].nodes[0]];
+    out.glbCm = { warning: x.warning, scale: top.matrix ? Math.hypot(...top.matrix.slice(0, 3)) : top.scale?.[0] ?? 1 };
+    x = await run('step', {}, undefined, false, 'in');
+    out.stepIn = { inch: text(x.bytes[0]).includes("CONVERSION_BASED_UNIT('INCH'"), warning: x.warning };
+    x = await run('step', {}, undefined, false, 'default');
+    // (An inch is defined by millimetres, so millimetres alone mean no inch written.)
+    out.stepDefault = text(x.bytes[0]).includes('SI_UNIT(.MILLI.,.METRE.)')
+      && !text(x.bytes[0]).includes('CONVERSION_BASED_UNIT');
     return { before, ...out };
   })()`) as { after: Record<string, any> };
   const a = r.after, j = JSON.stringify({ ...a, plain: undefined });
@@ -5461,7 +5483,8 @@ await check('export', async () => {
   `GLB with Draco: ${j}`);
   // (Not empty: the model's meshes in them, 8,048 triangles; the worker had handed its own to the page.)
   expect([a.draco, a.embedded, a.threejs, a.threemf].every((x) => x.files[0].size > 10_000), `sizes: ${j}`);
-  expect(a.meshopt === true, `GLB with meshopt: ${j}`);
+  expect(a.meshopt[0] === true && a.meshopt[1] === false, `GLB with meshopt: ${j}`);
+  expect(a.none === false, `GLB uncompressed: ${j}`);
   // Read back with our importer: as many placed triangles as the viewer draws.
   const back = (await importGltf(Buffer.from(a.plain, 'base64'))).scene;
   let placed = 0;
@@ -5479,6 +5502,9 @@ await check('export', async () => {
     !a.threemf.boxes.includes('edges'), `3MF: ${j}`);
   expect(a.shown[1] === a.shown[0] + 1, `the viewer's hiding: ${j}`);
   expect(a.remembered.join() === 'threejs,true' && a.cancelled === 0, `remembered, cancelled: ${j}`);
+  expect(/glTF readers take lengths for metres/.test(a.glbCm.warning) && Math.abs(a.glbCm.scale - 0.1) < 1e-6,
+    `glTF in centimetres: ${j}`);
+  expect(a.stepIn.inch && a.stepIn.warning === '' && a.stepDefault, `STEP in inches, then its default: ${j}`);
   return undefined;
 });
 // The import worker lost during an export (detected by its heartbeat, the model made again): the export's message

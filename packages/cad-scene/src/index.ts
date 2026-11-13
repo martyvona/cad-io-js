@@ -2,7 +2,8 @@ export type * from './scene.ts';
 export type * from './tessellator.ts';
 export { failedPart, TessellationError } from './errors.ts';
 export { sha256, sha256Js } from './sha256.ts';
-export { identity, multiply, scaling, Y_UP_METRES, instances, partInstances, validate, type ComponentInstance,
+export { identity, multiply, scaling, Y_UP_METRES, yUpFrame, LENGTH_UNITS, type LengthUnitName, instances,
+  partInstances, validate, type ComponentInstance,
   type PartInstance } from './walk.ts';
 export { compareVerdicts, FallbackTessellator, judgeResult, type Verdict } from './fallback.ts';
 export { type FaceArea, modelFaceArea, OFF_SURFACE, ORACLE_DENSITY, ORACLE_DISAGREE, ORACLE_RELATIVE, oracleAreas,
@@ -14,7 +15,7 @@ export { tessellateScene, toMesh, type TessellateOptions, type TessellateResult 
 export { DEFAULT_MESH_PROFILE, MESH_PROFILE_NAMES, MESH_PROFILES, meshDeflections, meshProfileOf, type Deflections,
   type MeshProfile } from './profiles.ts';
 export { BOUNDARY_SLACK, dropDegenerate, EXCESS_FRACTION, faceFailures, INSIDE_OUT, manifoldProblems,
-  MAX_PLAUSIBLE_AREA, MISSING_FRACTION, orientShells, weld, type FaceFailure } from './mesh.ts';
+  MAX_PLAUSIBLE_AREA, MISSING_FRACTION, orientShells, scaleMesh, scalePart, weld, type FaceFailure } from './mesh.ts';
 export { exportView, placedName, pruneView, type ExportNode, type ExportPart, type ExportView,
   type ExportViewOptions, type Look } from './export.ts';
 export { addLod, chooseLod, dropSourceDegenerate, type LodWanted } from './lod.ts';

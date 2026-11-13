@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { strToU8, unzipSync, zipSync } from 'fflate';
+import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 import fs from 'node:fs';
 import path from 'node:path';
-import { exportView, identity, leafParts, multiply, partInstances, placedName, pruneView, scaling, tessellateScene,
-  validate, viewDifferences, type ExportNode, type Mat4, type Mesh, type Occurrence, type PartRef, type Scene } from 'cad-scene';
-import { threemf, type ThreeMfOptions } from 'export-3mf';
+import { exportView, identity, leafParts, multiply, partInstances, placedName, pruneView, scaleMesh, scaling,
+  tessellateScene, validate, viewDifferences, type ExportNode, type Mat4, type Mesh, type Occurrence, type PartRef,
+  type Scene } from 'cad-scene';
+import { float32Text, threemf, type ThreeMfOptions } from 'export-3mf';
 import { StepTessellator } from 'step-export';
 import { importStep } from 'step-import';
 import { OcctTessellator } from 'tess-occt';
@@ -38,8 +39,8 @@ const sheet = (): Mesh => ({ origin: [0, 0, 0], positions: Float32Array.of(0, 0,
   indices: Uint32Array.of(0, 1, 2, 0, 2, 3), faces: [{ source: 20, start: 0, count: 6 }] });
 
 /**
- * An assembly: two instances of a subassembly holding the cube (inches, green, face 15 blue, half opaque red face
- * 11), the second turned; a sheet (open); a hidden cube. Materials: 0 red, 1 green, 2 blue.
+ * An assembly: two instances of a subassembly holding the cube (scaled to inches by its placements, green, face 15
+ * blue, half opaque red face 11), the second turned; a sheet (open); a hidden cube. Materials: 0 red, 1 green, 2 blue.
  */
 function source(): Scene {
   // (Its leaf subassembly placed as part references, as any importer gives it: cad-scene's leafParts.)
@@ -50,8 +51,8 @@ function source(): Scene {
 function fixture(): Scene {
   const occ = (component: number, t: Mat4, name: string) => ({ component, transform: t, sources: [], properties: {},
     name });
-  const part = (name: string, unit: number, mesh: Mesh, closed: boolean) => ({ name, sources: [], properties: {},
-    unit, origin: [0, 0, 0] as [number, number, number], lods: [{ mesh, from: 'tessellated' as const }], closed });
+  const part = (name: string, mesh: Mesh, closed: boolean) => ({ name, sources: [], properties: {},
+    origin: [0, 0, 0] as [number, number, number], lods: [{ mesh, from: 'tessellated' as const }], closed });
   return {
     unit: 'millimetre',
     components: [
@@ -61,8 +62,8 @@ function fixture(): Scene {
       { name: 'sub', sources: [], properties: {}, parts: [{ part: 0, transform: scaling(25.4) }], children: [] },
     ],
     roots: [occ(0, translation(0, 0, 5), 'top')],
-    parts: [{ ...part('cube', 25.4, cube(), true), material: 1, faceMaterials: [{ face: 15, material: 2 },
-      { face: 11, material: 0 }] }, part('sheet', 1, sheet(), false)],
+    parts: [{ ...part('cube', cube(), true), material: 1, faceMaterials: [{ face: 15, material: 2 },
+      { face: 11, material: 0 }] }, part('sheet', sheet(), false)],
     materials: [{ name: 'red', color: [1, 0, 0], opacity: 0.6, sources: [] },
       { name: 'green', color: [0, 1, 0], opacity: 1, sources: [] }, { color: [0, 0, 1], opacity: 1, sources: [] }],
     layers: [], overrides: [], properties: {}, diagnostics: [],
@@ -135,6 +136,17 @@ const mesh = (id: number, attrs: string, vertices: number[][], triangles: (numbe
   + `</vertices><triangles>${triangles.map((t) => typeof t === 'string' ? t
     : `<triangle v1="${t[0]}" v2="${t[1]}" v3="${t[2]}"/>`).join('')}</triangles></mesh></object>`;
 /** The unit cube with 8 shared vertices, 12 triangles wound outward. */
+/** A mesh's extent along x, y and z, to 1e-6. */
+function extent(m: Mesh): number[] {
+  return [0, 1, 2].map((k) => {
+    let lo = Infinity, hi = -Infinity;
+    for (let i = k; i < m.positions.length; i += 3) {
+      lo = Math.min(lo, m.positions[i]!);
+      hi = Math.max(hi, m.positions[i]!);
+    }
+    return Math.round((hi - lo) * 1e6) / 1e6;
+  });
+}
 const SHARED_CUBE: [number[][], number[][]] = [CORNERS, QUADS.flatMap(([a, b, c, d]) => [[a!, b!, c!], [a!, c!, d!]])];
 /**
  * A zip rewritten in zip64 form: every entry's sizes and offset in its zip64 extra field (the 32-bit ones all ones),
@@ -188,7 +200,6 @@ for (const [label, opts] of [['an item per placed part, basematerials', {}],
     // Parts: the cube, closed, its faces by colour (green, blue, red); the sheet, if written, open.
     const cubePart = back.scene.parts.find((p) => p.name === 'cube')!;
     assert.equal(cubePart.closed, true);
-    assert.equal(cubePart.unit, 1);
     const faces = cubePart.lods[0]!.mesh.faces;
     assert.deepEqual(faces.map((f) => f.source), [0, 1, 2]);
     assert.deepEqual(faces.map((f) => f.count / 3).sort(), [2, 2, 8]);
@@ -317,7 +328,8 @@ test('structure: a components object used twice, nested; the build of one item i
   assert.deepEqual(scene.components.map((c) => [c.name, c.parts.length, c.children.length]), [['top', 0, 2],
     ['pair', 2, 0]]);
   assert.equal(scene.parts.length, 1);
-  assert.equal(scene.parts[0]!.unit, 10);
+  // The cube's mesh in millimetres: its unit-cube corners 10 mm apart.
+  assert.deepEqual(extent(scene.parts[0]!.lods[0]!.mesh), [10, 10, 10]);
   assert.deepEqual(scene.roots.map((o) => [o.name, o.properties]), [['top', { partNumber: 'T' }]]);
   assert.deepEqual(scene.components[1]!.properties, { type: 'model', metadata: { 'x:kind': 'Assembly' } });
   // The four cubes' lowest corners in the world, in millimetres: the row-vector transforms composed, then x 10.
@@ -346,17 +358,18 @@ test('the Production extension: objects in other model parts, in their own unit;
     + '(/3D/3dmodel.model), which only the root model may do: skipped',
   'warning: model part /3D/missing.model is not in the package']);
   const { scene } = r;
-  assert.deepEqual(scene.parts.map((p) => [p.name, p.unit, p.sources]), [['inch cube', 25.4,
-    [{ format: '3mf:/3D/Other Part.model', id: 7 }]]]);
+  assert.deepEqual(scene.parts.map((p) => [p.name, extent(p.lods[0]!.mesh), p.sources]), [['inch cube',
+    [25.4, 25.4, 25.4], [{ format: '3mf:/3D/Other Part.model', id: 7 }]]]);
   // The holder's cube 10 mm along (the root's unit), the nested one's at 0; the build's other item, the same cube.
   const placed = [...partInstances(scene)].map((pi) => {
     const p = [0, 0, 0].map((_, k) => pi.transform[12 + k]! + [0, 1, 2].reduce((s, j) => s + pi.transform[4 * j + k]!
       * scene.parts[pi.part]!.lods[0]!.mesh.origin[j]!, 0));
     return [pi.transform[0], ...p.map((x) => Math.round(x * 1e6) / 1e6)];
   });
-  // Each placement's cube centre: (0.5, 0.5, 0.5) inches, so 12.7 mm; the holder's 10 mm along. The build's item
-  // first (the root's own part), then the holder's, then the nested one's.
-  assert.deepEqual(placed, [[25.4, 12.7, 12.7, 12.7], [25.4, 22.7, 12.7, 12.7], [25.4, 12.7, 12.7, 12.7]]);
+  // Each placement's cube centre: (0.5, 0.5, 0.5) inches, so 12.7 mm; the holder's 10 mm along; no placement scales
+  // (the mesh is in millimetres). The build's item first (the root's own part), then the holder's, then the nested
+  // one's.
+  assert.deepEqual(placed, [[1, 12.7, 12.7, 12.7], [1, 22.7, 12.7, 12.7], [1, 12.7, 12.7, 12.7]]);
 });
 
 test('problems are diagnostics: indices, references, cycles, groups, extensions, units, XML', () => {
@@ -642,7 +655,7 @@ test('triangles with two corners at one position dropped, said; kept on request'
   assert.deepEqual(info(kept), []);
 });
 
-test('our 3MF with extras carries a part\'s measures, its level\'s settings and its unit back (an item per part)',
+test('our 3MF with extras carries a part\'s measures and its level\'s settings back (an item per part)',
   () => {
   const s = source();
   const cube = s.parts[0]!;
@@ -652,11 +665,10 @@ test('our 3MF with extras carries a part\'s measures, its level\'s settings and 
   const back = import3mf(exported(s, { extras: true, nonManifold: 'surface' })).scene;
   const c = back.parts.find((p) => p.name === 'cube')!, sheet = back.parts.find((p) => p.name === 'sheet')!;
   assert.deepEqual(c.measures, cube.measures);
-  assert.equal(c.unit, 25.4);
   assert.deepEqual([c.lods[0]!.linearDeflection, c.lods[0]!.angularDeflection, c.lods[0]!.backend],
     [0.1, 0.25, 'OCCT test']);
-  // The sheet: no measures, millimetres, its level without settings.
-  assert.deepEqual([sheet.measures, sheet.unit, sheet.lods[0]!.linearDeflection], [undefined, 1, undefined]);
+  // The sheet: no measures, its level without settings.
+  assert.deepEqual([sheet.measures, sheet.lods[0]!.linearDeflection], [undefined, undefined]);
 });
 
 test('the model\'s sphere in our tree metadata, read back as the file\'s; without extras from the meshes', () => {
@@ -774,4 +786,54 @@ test('transforms: a mirror, an uneven scale and a shear through 3MF as they were
     assert.deepEqual(messages(back), [], String(extras));
     assert.deepEqual(canonical(drawn(back.scene)), expected, String(extras));
   }
+});
+
+test('the model\'s unit: the source\'s by default, else as asked; vertices in it, placements unscaled; read back the '
+  + 'same', () => {
+  // An inch cube, in millimetres (as the scene holds every mesh), placed 10 mm along.
+  const s = source();
+  s.components = [];
+  s.roots = [];
+  s.parts = [{ ...s.parts[0]!, lods: [{ mesh: scaleMesh(cube(), 25.4), from: 'tessellated' }] }];
+  s.rootParts = [{ part: 0, transform: translation(10, 0, 0) }];
+  s.sourceUnit = 25.4;
+  const xml = (b: Uint8Array) => strFromU8(unzipSync(b)['3D/3dmodel.model']!);
+  for (const [unit, name, side] of [[undefined, 'inch', '1'], [1, 'millimeter', '25.4'], [10, 'centimeter', '2.54'],
+    [1000, 'meter', '0.0254'], [0.001, 'micron', '25400'], [304.8, 'foot', '0.083333336']] as const) {
+    const bytes = exported(s, { ...(unit === undefined ? {} : { unit }), nonManifold: 'surface' });
+    const text = xml(bytes);
+    assert.match(text, new RegExp(`<model unit="${name}"`), `${unit}`);
+    // The cube's vertices 0 or one inch from its corner, in the unit (to float32's precision: the mesh's 25.4 mm isn't
+    // exact in float32); no scale in the item's transform.
+    const coords = [...text.matchAll(/ [xyz]="([^"]+)"/g)].map((m) => m[1]!);
+    assert.ok(coords.every((x) => x === '0' || Math.abs(Number(x) - Number(side)) <= 1e-7 * Number(side)), `${unit}: ${
+      [...new Set(coords)]}`);
+    // Each the shortest text of the float32 written (the mesh's float32 divided, rounded to a float32).
+    const one = float32Text(Math.fround(Math.fround(25.4) / (unit ?? 25.4)));
+    assert.deepEqual([...new Set(coords)].sort(), ['0', one].sort(), `${unit}`);
+    const transform = /<item [^>]*transform="([^"]+)"/.exec(text)![1]!.split(' ').map(Number);
+    assert.deepEqual(transform.slice(0, 9), [1, 0, 0, 0, 1, 0, 0, 0, 1], `${unit}`);
+    const back = import3mf(bytes).scene;
+    assert.equal(back.sourceUnit, unit ?? 25.4);
+    assert.deepEqual(canonical(drawn(back)).map((t) => t.replace(/ \S+$/, '')),
+      canonical(drawn(s)).map((t) => t.replace(/ \S+$/, '')), `${unit}`);
+  }
+  // Not one of 3MF's units: refused.
+  assert.throws(() => exported(s, { unit: 2 }), /unit 2: not one of 3MF's/);
+});
+
+test('our 3MF of earlier versions with a part\'s unit in its tree: the mesh read in the model\'s unit, not scaled '
+  + 'again', () => {
+  const s = source();
+  const bytes = exported(s, { extras: true, nonManifold: 'surface' });
+  const files = unzipSync(bytes);
+  const model = strFromU8(files['3D/3dmodel.model']!);
+  // Every placed part's extras given the unit our earlier versions wrote for a part in inches.
+  const old = model.replace(/&quot;extras&quot;:\{/g, '&quot;extras&quot;:{&quot;unit&quot;:25.4,');
+  assert.notEqual(old, model);
+  const back = import3mf(zipSync({ ...files, '3D/3dmodel.model': strToU8(old) })).scene, now = import3mf(bytes).scene;
+  assert.deepEqual(canonical(drawn(back)), canonical(drawn(now)));
+  // The meshes themselves too (scaled, with their placements scaled back, they'd draw the same).
+  assert.deepEqual(back.parts.map((p) => [p.origin, Array.from(p.lods[0]?.mesh.positions ?? [])]),
+    now.parts.map((p) => [p.origin, Array.from(p.lods[0]?.mesh.positions ?? [])]));
 });

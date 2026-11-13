@@ -1,12 +1,13 @@
 // Scene model -> glTF 2.0, written with glTF-Transform: GLB, or .gltf JSON with its buffer as a separate .bin or
 // embedded as base64. See README.md and docs/scene-formats.md.
 //
-//   nodes: the scene's roots, each turning the scene's millimetres, Z up, into glTF's metres, Y up, in its own matrix
-//     (no root node of ours, for a reader to take for an assembly or a frame not the file's; with extras, the glTF
-//     scene's extras say what's below that turn). A node per instance-tree node (its local transform), and per placed
-//     part (a part reference, its name the placement's, else its product's, else its part's) a node with the part's
-//     faces; its children `edges`, `curves` and `points` (on request) each have their own mesh, as three.js has child
-//     objects. The scene's root parts beside its roots.
+//   nodes: the scene's roots, each turning the scene's millimetres, Z up, into glTF's metres (or the unit asked for,
+//     which other readers will take for metres), Y up, in its own matrix (no root node of ours, for a reader to take
+//     for an assembly or a frame not the file's; with extras, the glTF scene's extras say what's below that turn). A
+//     node per instance-tree node (its local transform), and per placed part (a part reference, its name the
+//     placement's, else its product's, else its part's) a node with the part's faces; its children `edges`, `curves`
+//     and `points` (on request) each have their own mesh, as three.js has child objects. The scene's root parts beside
+//     its roots.
 //   meshes: the faces' mesh one per look, shared by every instance with that look, a TRIANGLES primitive per material
 //     group; B-rep edges and wireframe curves as LINES and isolated points as POINTS, each a mesh shared by the
 //     instances with the same part mesh and colour. Looks of one part mesh share its vertex accessors.
@@ -37,7 +38,7 @@ import { Document, Format, Logger, WebIO, type Accessor, type JSONDocument, type
 import { EXTMeshGPUInstancing, EXTMeshoptCompression, KHRDracoMeshCompression, KHRMaterialsUnlit,
   KHRMeshQuantization, KHRNodeVisibility } from '@gltf-transform/extensions';
 import { drain, identity, multiply, paced, partExtras, placedName, placementJson, pruneView,
-  sceneJson, standardMetadata, transformKinds, Y_UP_METRES, type Diagnostic,
+  sceneJson, standardMetadata, transformKinds, Y_UP_METRES, yUpFrame, type Diagnostic,
   type ExportNode, type ExportView, type Look, type Mat4, type Mesh, type Part, type PropertyValue, type Scene,
   type SourceId, type Vec3 } from 'cad-scene';
 
@@ -57,6 +58,11 @@ export interface GltfOptions {
   doubleSided?: boolean;
   /** Name of the scene. */
   name?: string;
+  /**
+   * The length unit written, in millimetres per unit. Default 1000, glTF's metres: any other makes a file readers
+   * take for metres all the same (ours with extras read it back as written).
+   */
+  unit?: number;
   /** Hidden part instances: left out (default), or written hidden with KHR_node_visibility. */
   hidden?: 'omit' | 'extension';
   /** Leave these out even when the view has them. */
@@ -404,11 +410,19 @@ class Writer {
   private readonly view: ExportView;
   private readonly opts: GltfOptions;
   private readonly reorderMesh?: ReorderMesh;
+  /** The unit written (millimetres per it), and the top nodes' turn into it. */
+  private readonly unit: number;
+  private readonly frame: Mat4;
 
   constructor(scene: Scene, view: ExportView, opts: GltfOptions, reorderMesh?: ReorderMesh) {
     this.scene = scene;
     this.view = view;
     this.opts = opts;
+    this.unit = opts.unit ?? 1000;
+    if (!(this.unit > 0) || !Number.isFinite(this.unit)) {
+      throw new RangeError(`unit ${this.unit}: not a positive number of millimetres`);
+    }
+    this.frame = this.unit === 1000 ? ROOT_TRANSFORM : yUpFrame(this.unit);
     this.reorderMesh = reorderMesh;
     this.defaultColor = opts.defaultColor ?? [0.8, 0.8, 0.8];
     this.edgeColor = opts.edgeColor ?? [0, 0, 0];
@@ -432,7 +446,7 @@ class Writer {
     // (millimetres, the source's axes) said in the scene's extras.
     const tops: Node[] = [];
     const top = (node: Node) => {
-      const m = multiply(ROOT_TRANSFORM, Float64Array.from(node.getMatrix()));
+      const m = multiply(this.frame, Float64Array.from(node.getMatrix()));
       tops.push(node.setMatrix(Array.from(m) as mat4));
     };
     const omit = this.opts.hidden !== 'extension';
@@ -459,7 +473,7 @@ class Writer {
     if (tops.length) {
       const scene = this.doc.createScene(this.opts.name ?? '');
       for (const n of tops) scene.addChild(n);
-      if (this.extras) scene.setExtras(sceneJson(this.scene));
+      if (this.extras) scene.setExtras(sceneJson(this.scene, this.unit !== 1000 ? { fileUnit: this.unit } : {}));
     }
     // A scene with nothing to draw has no accessors, and an empty buffer isn't valid glTF.
     if (!this.doc.getRoot().listAccessors().length) this.buffer.dispose();

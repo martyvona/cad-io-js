@@ -4,10 +4,23 @@
 import type { Mat4, Part, PartRef, Scene } from './scene.ts';
 
 /**
- * The scene's millimetres, Z up, to metres, Y up (glTF's convention, and three.js's): (x, y, z) mm -> (x, z, -y) m.
- * Column-major. The glTF and three.js exporters put it on their root.
+ * The scene's millimetres, Z up, to `unit` (millimetres per it), Y up: (x, y, z) mm -> (x, z, -y) / unit. Column-major.
+ * The glTF and three.js exporters put it on their top nodes.
  */
-export const Y_UP_METRES: Mat4 = Float64Array.of(0.001, 0, 0, 0, 0, 0, -0.001, 0, 0, 0.001, 0, 0, 0, 0, 0, 1);
+export function yUpFrame(unit: number): Mat4 {
+  const k = 1 / unit;
+  return Float64Array.of(k, 0, 0, 0, 0, 0, -k, 0, 0, k, 0, 0, 0, 0, 0, 1);
+}
+
+/**
+ * The length units an export can be asked for, in millimetres per unit: what stepconv's --unit and the viewer's export
+ * dialog offer. Each exporter's `unit` option takes the number; absent, its format's default.
+ */
+export const LENGTH_UNITS = { mm: 1, cm: 10, m: 1000, in: 25.4, ft: 304.8 } as const;
+export type LengthUnitName = keyof typeof LENGTH_UNITS;
+
+/** Millimetres, Z up, to metres, Y up: glTF's convention, and three.js's. */
+export const Y_UP_METRES: Mat4 = yUpFrame(1000);
 
 export function identity(): Mat4 {
   const m = new Float64Array(16);
@@ -71,7 +84,7 @@ export interface PartInstance {
   path: number[];
   part: number;
   ref: PartRef;
-  /** From the part's coordinates (its own unit) to the scene's, in millimetres. */
+  /** From the part's coordinates to the scene's. */
   transform: Mat4;
   /** The material of faces without one of their own; undefined: the viewer's default. */
   material?: number;
@@ -169,7 +182,6 @@ export function validate(scene: Scene): string[] {
   scene.parts.forEach((p, i) => {
     material(p.material, `parts[${i}]`);
     for (const f of p.faceMaterials ?? []) material(f.material, `parts[${i}].faceMaterials`);
-    if (!(p.unit > 0)) problems.push(`parts[${i}]: unit ${p.unit} is not positive`);
   });
   // Overrides: a path that leads somewhere, a part reference that's there, materials in range.
   scene.overrides.forEach((o, i) => {

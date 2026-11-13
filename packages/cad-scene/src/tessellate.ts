@@ -1,7 +1,7 @@
-// Driving a tessellator over a scene: one request per brep part, with the part's origin and the deflection converted
-// from the scene's millimetres to the part's units; the results become the parts' meshes, with closed shells that are
-// inside out (and can't be voids' boundaries) turned over, so every consumer of the meshes, not just the exporters, has
-// them outward, and triangles with two corners at one position dropped first. The meshes become the parts' tessellated
+// Driving a tessellator over a scene: one request per brep part, with the part's origin and the deflection (all in
+// millimetres, as the models are); the results become the parts' meshes, with closed shells that are inside out (and
+// can't be voids' boundaries) turned over, so every consumer of the meshes, not just the exporters, has them outward,
+// and triangles with two corners at one position dropped first. The meshes become the parts' tessellated
 // levels of detail (the scene holds its geometry, exact and meshed).
 
 import { degenerateMessage, dropDegenerate, faceFailures, orientShells } from './mesh.ts';
@@ -201,7 +201,7 @@ export async function tessellateScene(scene: Scene, tess: Tessellator,
     try {
       const r = await tess.tessellate({
         format: 'cad-brep', data: new Uint8Array(brep.model.buffer), origin: part.origin,
-        linearDeflection: linearDeflection / part.unit, angularDeflection,
+        linearDeflection, angularDeflection,
         edges: opts.edges, ...(measure ? { measures: true } : {}),
       });
       by = r.backend ?? backend;
@@ -256,12 +256,11 @@ export async function tessellateScene(scene: Scene, tess: Tessellator,
     // Faces meshed short of or over their area (by the part's measures): errors, as faces that fail to mesh are.
     // (Faces without triangles are the backend's to say.)
     if (mesh && part.measures) {
-      const off = [...faceFailures(mesh, { measured: { measures: part.measures,
-        deflection: linearDeflection / part.unit } })].filter(([, k]) => k === 'partly' || k === 'excess')
-        .map(([id]) => id).sort((a, b) => a - b);
+      const off = [...faceFailures(mesh, { measured: { measures: part.measures, deflection: linearDeflection } })]
+        .filter(([, k]) => k === 'partly' || k === 'excess').map(([id]) => id).sort((a, b) => a - b);
       if (off.length) diagnostics.push({ severity: 'error', message: areaMessage(off), ...(source ? { source } : {}) });
     }
-    if (opts.outlines) mesh = outlined({ ...part, brep }, mesh, linearDeflection / part.unit, angularDeflection,
+    if (opts.outlines) mesh = outlined({ ...part, brep }, mesh, linearDeflection, angularDeflection,
       diagnostics, source, part.measures);
     const box = mesh && meshBox(mesh);
     if (box) mesh!.box = box;

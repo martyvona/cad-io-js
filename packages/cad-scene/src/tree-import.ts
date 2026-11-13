@@ -19,7 +19,8 @@ import type { Component, Diagnostic, Lod, Mat4, Material, Mesh, Occurrence, Part
   Scene, SourceId, Vec3 } from './scene.ts';
 import { boundsFrom, levelFrom, measuresFrom, placementFrom, unitFrom } from './measures.ts';
 import { leafParts } from './leaf.ts';
-import { identity, multiply } from './walk.ts';
+import { identity, multiply, scaling } from './walk.ts';
+import { scalePart } from './mesh.ts';
 
 export type TreeExtras = { [key: string]: unknown };
 
@@ -71,6 +72,8 @@ export function isOurTree(root: TreeNode): boolean {
 
 /** Metres, Y up, to millimetres, Z up: (x, y, z) m -> (x, -z, y) mm (the inverse of cad-scene's Y_UP_METRES). */
 export const MM_Z_UP: Mat4 = Float64Array.of(1000, 0, 0, 0, 0, 0, 1000, 0, 0, -1000, 0, 0, 0, 0, 0, 1);
+/** `unit` (millimetres per it), Y up, to millimetres, Z up: yUpFrame's inverse. */
+const zUpFrame = (unit: number): Mat4 => Float64Array.of(unit, 0, 0, 0, 0, 0, unit, 0, 0, -unit, 0, 0, 0, 0, 0, 1);
 
 const num = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
 const obj = (v: unknown): TreeExtras | undefined => (v && typeof v === 'object' && !Array.isArray(v)
@@ -115,6 +118,8 @@ class Builder {
   private readonly partOf = new Map<string, number>();
   /** Ours: a material without our index is the exporters' default (no scene material). */
   ours = false;
+  /** Ours of earlier versions: parts in a unit of their own (millimetres per it), to be made millimetres. */
+  readonly partUnits = new Map<number, number>();
   /** Each part's appearance in its first placement: what other placements are compared with. */
   private readonly base = new Map<number, Appearance>();
 
@@ -304,11 +309,13 @@ function placementOf(ch: TreeNode, part: number): PartRef {
 function ourPart(ch: TreeNode, b: Builder): number {
   // (The node named as its placement is; the part's own name in our extras, from 2026-11-01.)
   const name = typeof ch.extras?.partName === 'string' ? ch.extras.partName : ch.name;
-  return b.part(`ours:${num(ch.extras?.part)}`, () => ({ name, sources: sourcesOf(ch.extras?.sources),
-    properties: propertiesOf(ch.extras?.properties), unit: unitFrom(ch.extras?.unit), origin: [0, 0, 0] as Vec3,
-    lods: [],
+  const i = b.part(`ours:${num(ch.extras?.part)}`, () => ({ name, sources: sourcesOf(ch.extras?.sources),
+    properties: propertiesOf(ch.extras?.properties), origin: [0, 0, 0] as Vec3, lods: [],
     ...(typeof ch.extras?.closed === 'boolean' ? { closed: ch.extras.closed } : {}),
     ...(measuresFrom(ch.extras?.measures) ? { measures: measuresFrom(ch.extras?.measures)! } : {}) }));
+  const unit = unitFrom(ch.extras?.unit);
+  if (unit !== 1) b.partUnits.set(i, unit);
+  return i;
 }
 
 /** A part node's level and appearance at a placement (path and reference), hidden as the node is. */
@@ -448,7 +455,7 @@ function fromOthers(root: TreeNode, b: Builder, frame: Mat4, container: boolean)
       const material = materials[0];
       const faceMaterials = materials.flatMap((x, face) => (face > 0 && x !== undefined && x !== material
         ? [{ face, material: x }] : []));
-      return { name: n.name || 'part', sources: [], properties: {}, unit: 1, origin: [0, 0, 0] as Vec3,
+      return { name: n.name || 'part', sources: [], properties: {}, origin: [0, 0, 0] as Vec3,
         lods: [{ mesh, from: 'source' as const }], ...(material !== undefined ? { material } : {}),
         ...(faceMaterials.length ? { faceMaterials } : {}) };
     });
@@ -539,7 +546,7 @@ function fromOthers(root: TreeNode, b: Builder, frame: Mat4, container: boolean)
         const material = materials[0];
         const faceMaterials = materials.flatMap((x, face) => (face > 0 && x !== undefined && x !== material
           ? [{ face, material: x }] : []));
-        return { name: n.name || m.mode, sources: [], properties: {}, unit: 1, origin: [0, 0, 0] as Vec3,
+        return { name: n.name || m.mode, sources: [], properties: {}, origin: [0, 0, 0] as Vec3,
           lods: [{ mesh, from: 'source' as const }], ...(material !== undefined ? { material } : {}),
           ...(faceMaterials.length ? { faceMaterials } : {}) };
       });
@@ -649,10 +656,12 @@ export function sceneFromTree(root: TreeNode, opts: { frame?: Mat4; container?: 
   const b = new Builder();
   const ours = isOurTree(root);
   b.ours = ours;
+  // (Ours written in a unit not the format's metres says so: its top nodes turn to that.)
+  const fileUnit = ours ? num(root.extras?.fileUnit) : undefined;
   // (Ours in a container, as written since 2026-11-01: no root node of ours, each top node turned to metres and Y
   // up itself; turned back here, the rest read as below our old root node.)
   const tops = ours && opts.container ? { ...root, children: root.children.map((c) => ({ ...c,
-    matrix: multiply(opts.frame ?? MM_Z_UP, c.matrix) })) } : root;
+    matrix: multiply(fileUnit !== undefined ? zUpFrame(fileUnit) : opts.frame ?? MM_Z_UP, c.matrix) })) } : root;
   const { roots, rootParts } = ours ? fromOurs(tops, b) : fromOthers(root, b, opts.frame ?? MM_Z_UP,
     opts.container ?? false);
   const scene: Scene = {
@@ -661,6 +670,13 @@ export function sceneFromTree(root: TreeNode, opts: { frame?: Mat4; container?: 
     overrides: b.overrides, properties: propertiesFrom(ours ? propertiesOf(root.extras?.properties) : {},
       opts.properties ?? {}), diagnostics: b.diagnostics,
   };
+  // Parts in a unit of their own (ours of earlier versions) made millimetres, their placements turned to match.
+  for (const [i, k] of b.partUnits) scalePart(b.parts[i]!, k);
+  const unscale = (r: PartRef) => {
+    const k = b.partUnits.get(r.part);
+    if (k !== undefined) r.transform = multiply(r.transform, scaling(1 / k));
+  };
+  if (b.partUnits.size) for (const r of [...b.components.flatMap((c) => c.parts), ...rootParts]) unscale(r);
   const bounds = ours ? boundsFrom(root.extras?.bounds) : undefined;
   if (bounds) scene.bounds = bounds;
   // The source's unit: our extras' (the file we exported from), else the format's (metres; `frame` scales by it).

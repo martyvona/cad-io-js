@@ -1,18 +1,18 @@
-files 517 (0 over 1000 MB skipped), 658 s
-placed parts with triangles 4865 (7 hidden; 2117 visible ones not closed solids); triangles placed 21120224
-json: 1062.5 MB, 4865 placed parts, 21120224 triangles; import 23.3 s, tessellation 151.2 s, export 29.7 s, main 213.0 s
-glb: 40.5 MB, 4858 placed parts, 21118544 triangles; import 23.3 s, tessellation 150.4 s, export 12.1 s, main 194.4 s
-gltf: 40.5 MB, 4858 placed parts, 21118544 triangles; import 22.9 s, tessellation 150.5 s, export 11.5 s, main 193.9 s
-3mf: 218.4 MB, 2741 placed parts, 18756230 triangles; import 23.2 s, tessellation 150.8 s, export 67.1 s, main 248.5 s
-bin sample: 20 files x 4 formats; startup (wall time less the summary's times) median 0.3 s, range 0.1 s-0.4 s
+files 517 (0 over 1000 MB skipped), 685 s
+placed parts with triangles 4865 (7 hidden; 2117 visible ones not closed solids); triangles placed 21114054
+json: 1058.6 MB, 4865 placed parts, 21114054 triangles; import 25.7 s, tessellation 154.6 s, export 30.9 s, main 219.2 s
+glb: 40.4 MB, 4858 placed parts, 21112374 triangles; import 25.7 s, tessellation 153.4 s, export 12.5 s, main 199.8 s
+gltf: 40.4 MB, 4858 placed parts, 21112374 triangles; import 25.1 s, tessellation 152.4 s, export 12.1 s, main 198.8 s
+3mf: 218.2 MB, 2741 placed parts, 18750360 triangles; import 25.6 s, tessellation 152.5 s, export 71.8 s, main 258.2 s
+bin sample: 20 files x 4 formats; startup (wall time less the summary's times) median 0.2 s, range 0.1 s-0.4 s
 validator issues (glb and gltf):
     978 info UNSUPPORTED_EXTENSION
    6598 info UNUSED_OBJECT
 slowest runs of main:
-  22.6 s  3mf  gkv311-opencascade-dataset/step/as1_motor.step
-  18.9 s  3mf  gkv311-opencascade-dataset/step/bug28366_fuselage.stp
-  10.5 s  json  gkv311-opencascade-dataset/step/bug28366_fuselage.stp
+  25.6 s  3mf  gkv311-opencascade-dataset/step/as1_motor.step
+  19.4 s  3mf  gkv311-opencascade-dataset/step/bug28366_fuselage.stp
+  10.9 s  json  gkv311-opencascade-dataset/step/bug28366_fuselage.stp
   10.2 s  json  gkv311-opencascade-dataset/step/as1_motor.step
-  8.2 s  glb  gkv311-opencascade-dataset/step/bug28366_fuselage.stp
   8.0 s  gltf  gkv311-opencascade-dataset/step/bug28366_fuselage.stp
+  7.9 s  glb  gkv311-opencascade-dataset/step/bug28366_fuselage.stp
 problems 0

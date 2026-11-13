@@ -20,6 +20,8 @@
 //                  written, likewise compared, hidden placements not; names with their tabs and line breaks as
 //                  spaces (the exporter's, in attributes)
 //
+// UNIT=mm|cm|m|in|ft writes every form in that unit (each format's default without it: 3MF the source's, the others
+// metres), read back as written (our extras say a glTF's or three.js's unit).
 // PLANT=move|colour|hide|edge perturbs every imported scene (a vertex of its first triangle mesh moved 1 mm, its
 // first material's red changed, its first placed part hidden, an edge dropped), to show the check fails then (the
 // edge not in the 3MF forms, which compare no lines).
@@ -28,8 +30,8 @@
 // (progress on standard error)
 
 import fs from 'node:fs';
-import { exportView, identity, leafParts, meshDeflections, multiply, placedName, pruneView, tessellateScene, validate,
-  viewDifferences, type ExportView, type ExportNode, type Mat4, type PartRef, type Scene }
+import { exportView, identity, LENGTH_UNITS, leafParts, meshDeflections, multiply, placedName, pruneView,
+  tessellateScene, validate, viewDifferences, type ExportView, type ExportNode, type Mat4, type PartRef, type Scene }
   from '../packages/cad-scene/src/index.ts';
 import { import3mf } from '../packages/3mf-import/src/index.ts';
 import { threemf, type ThreeMfOptions } from '../packages/export-3mf/src/index.ts';
@@ -47,6 +49,10 @@ import { runFiles, type FileCheck } from './runner.ts';
 let tess: WorkerTessellator, workers = 1;
 const STRING_LIMIT = 2 ** 29 - 24;
 const plant = process.env.PLANT;
+const unitName = process.env.UNIT;
+if (unitName !== undefined && !Object.hasOwn(LENGTH_UNITS, unitName)) throw new Error(`UNIT=${unitName}: not one of `
+  + Object.keys(LENGTH_UNITS).join(', '));
+const unit = unitName === undefined ? {} : { unit: LENGTH_UNITS[unitName as keyof typeof LENGTH_UNITS] };
 // Coarse: this check only consumes meshes, which need not be fine to check what's done with them.
 const meshing = meshDeflections({ profile: 'coarse' });
 const opts = { ...meshing, edges: true, curves: true };
@@ -143,7 +149,7 @@ export const check: FileCheck<undefined, Result> = {
         if (form === 'json') {
           const chunks: string[] = [];
           let length = 0;
-          for (const c of threejsChunks(scene, view, { extras: true })) { chunks.push(c); length += c.length; }
+          for (const c of threejsChunks(scene, view, { extras: true, ...unit })) { chunks.push(c); length += c.length; }
           t.exportMs += performance.now() - te;
           t.bytes += length;
           if (length > STRING_LIMIT) { t.notLoaded++; continue; }
@@ -151,7 +157,7 @@ export const check: FileCheck<undefined, Result> = {
           back = importThreejs(chunks.join('')).scene;
           t.importMs += performance.now() - ti;
         } else if (THREEMF[form]) {
-          const out = threemf(scene, view, THREEMF[form]);
+          const out = threemf(scene, view, { ...THREEMF[form], ...unit });
           const bytes = new Uint8Array(out.chunks.reduce((n, c) => n + c.length, 0));
           let at = 0;
           for (const c of out.chunks) { bytes.set(c, at); at += c.length; }
@@ -161,7 +167,7 @@ export const check: FileCheck<undefined, Result> = {
           back = import3mf(bytes).scene;
           t.importMs += performance.now() - ti;
         } else {
-          const out = await glb(scene, view, { extras: true, ...GLTF[form] });
+          const out = await glb(scene, view, { extras: true, ...GLTF[form], ...unit });
           t.exportMs += performance.now() - te;
           t.bytes += out.bytes.length;
           const ti = performance.now();

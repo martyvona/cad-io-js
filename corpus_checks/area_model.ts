@@ -72,10 +72,13 @@ export const check: FileCheck<undefined, Result> = {
     const name = shortName(path);
     const bytes = new Uint8Array(fs.readFileSync(path));
     const oracle = new AreaOracle(parseStep(bytes));
-    const { scene } = await importStep(bytes);
+    const { scene, semantics } = await importStep(bytes);
     for (const part of scene.parts) {
       const m0 = part.brep?.model;
       if (!m0) continue;
+      // (The file's oracle measures in the part's unit, the model is in millimetres.)
+      const u = (semantics.structure.representations.get(part.sources[0]!.id)?.context?.lengthUnit?.factor ?? 1e-3)
+        * 1000;
       const { d, rows } = planted(m0, plantedPart(`${name} #${part.sources[0]!.id}`));
       const curves = new Map<number, CurveEvaluator | undefined>();
       for (let f = 0; f < rowCount(d, 'face'); f++) {
@@ -83,7 +86,8 @@ export const check: FileCheck<undefined, Result> = {
         if (!id) continue;
         R.faces++;
         const where = `${name} #${id}`;
-        const a = oracle.faceArea(id), b = modelFaceArea(d, f, { curves });
+        const a0 = oracle.faceArea(id), b = modelFaceArea(d, f, { curves });
+        const a = a0.ok ? { ...a0, area: a0.area * u * u, error: a0.error * u * u, perimeter: a0.perimeter * u } : a0;
         const ta = trusted(a), tb = trusted(b);
         if (rows.has(f) && ta) R.plantedFaces++;
         if (ta && tb) {

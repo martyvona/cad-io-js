@@ -242,7 +242,7 @@ export const check: FileCheck<undefined, Tallies> = {
     };
     const results = await Promise.all(parts.map(async (p) => {
       const req: TessellationRequest = { format: 'cad-brep', data: new Uint8Array(p.brep!.model.buffer),
-        origin: p.origin, linearDeflection: LIN_MM / p.unit, angularDeflection: ANG, measures: true, edges: true };
+        origin: p.origin, linearDeflection: LIN_MM, angularDeflection: ANG, measures: true, edges: true };
       const [a, b] = await Promise.all([run(smlib, req), run(occt, req)]);
       return { p, req, a, b };
     }));
@@ -303,7 +303,7 @@ export const check: FileCheck<undefined, Tallies> = {
       const problem = (id: number, what: string) => {
         if (facesDir) problems.set(id, [...(problems.get(id) ?? []), what]);
       };
-      // The oracle's trusted areas by face id (the model's units).
+      // The oracle's trusted areas by face id (millimetres, as the model is).
       const d = p.brep!.model, oracleArea = new Map<number, number>();
       for (let fr = 0; fr < d.face.surface.length; fr++) {
         const id = d.face.id[fr]!;

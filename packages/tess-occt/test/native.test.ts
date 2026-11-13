@@ -114,7 +114,7 @@ test('the native route: a part with a kind not built yet fails with an error and
   async () => {
     const { native } = await both();
     // A square whose first edge's curve is a composite of two lines (not built yet as an edge's curve).
-    const b = new BrepBuilder({ unit: 1 });
+    const b = new BrepBuilder();
     const c = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]];
     const vs = c.map((point) => b.addVertex({ point }));
     const line = (p: number[], q: number[]) => b.addCurve({ kind: 'line', point: p, direction: [q[0]! - p[0]!,
@@ -141,7 +141,7 @@ test('the native route: a part with a kind not built yet fails with an error and
 test('the native route: ids above 2^31 come back as they are (u32), a face or edge without one as null', { skip },
   async () => {
     const { native } = await both();
-    const b = new BrepBuilder({ unit: 1 });
+    const b = new BrepBuilder();
     // Vertices from 2^32 - 30 + 1, edges from + 9, faces + 21 to + 26 (the largest 2^32 - 4).
     const base = 2 ** 32 - 30;
     b.addItem({ kind: 'body', ref: b.addBody({ kind: 'solid', members: [{ ref: box(b, [1, 1, 1], [0, 0, 0], base),
@@ -161,7 +161,7 @@ test('the native route: a face on a swept surface (no counterpart in OCCT) left 
   { skip }, async () => {
     const { native } = await both();
     // A face set: a unit square in z = 0, and a face on a curve-swept surface sharing its edges.
-    const b = new BrepBuilder({ unit: 1 });
+    const b = new BrepBuilder();
     const corners = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]];
     const vs = corners.map((point) => b.addVertex({ point }));
     const sides = corners.map((a, j) => {
@@ -230,7 +230,7 @@ test('the native route on corpus files: every part meshed as the STEP route mesh
     let n = 0;
     for (const p of scene.parts) {
       if (!p.brep) continue;
-      const req = { ...request(new Uint8Array(p.brep.model.buffer), p.unit), origin: p.origin };
+      const req = { ...request(new Uint8Array(p.brep.model.buffer)), origin: p.origin };
       // (To 1e-5: where healing adds an edge at a sphere's pole, last-bit differences between the model and OCCT's
       // reading of its text move the p-curves' ends there, u being undefined at a pole; nist_ctc_04 face #11486.)
       same(await step.tessellate(req), await native.tessellate(req), `${path.basename(f)} part #${p.sources[0]!.id}`,
@@ -282,7 +282,7 @@ test('the native route: planar faces bounded by each curve kind, every way round
     for (const k of kinds) for (const [edgeAlong, loopSense, faceSame, use] of ways) {
       const what = `${k.name} (edge ${edgeAlong ? 'along' : 'against'} its curve, loop sense ${loopSense}, `
         + `face ${faceSame ? 'with' : 'against'} its plane, used ${use ? 'as it is' : 'reversed'})`;
-      const b = new BrepBuilder({ unit: 1 });
+      const b = new BrepBuilder();
       const a = k.at(k.t[0]), c = k.at(k.t[1]);
       const va = b.addVertex({ point: a }), vc = b.addVertex({ point: c });
       const curve = b.addCurve(k.curve);
@@ -348,7 +348,7 @@ test('the native route: closed B-splines, a surface in periodic form, a sphere c
   // A planar face bounded by one closed B-spline edge: OCCT's periodic form (no end multiplicities, the poles going
   // round: degree 2 over a hexagon), and a clamped curve said closed whose ends meet.
   for (const periodic of [true, false]) {
-    const b = new BrepBuilder({ unit: 1 });
+    const b = new BrepBuilder();
     const hex: V3[] = Array.from({ length: 6 }, (_, j) => [2 * Math.cos(j * Math.PI / 3), 2 * Math.sin(j * Math.PI / 3),
       0]);
     const curve: Curve = periodic
@@ -368,7 +368,7 @@ test('the native route: closed B-splines, a surface in periodic form, a sphere c
   // A square prism's side as one face: a B-spline surface of degree 1, in periodic form round the square (OCCT's), its
   // two ends closed polylines, a vertex each.
   {
-    const b = new BrepBuilder({ unit: 1 });
+    const b = new BrepBuilder();
     const sq: V3[] = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]];
     const at = (z: number) => sq.map(([x, y]) => [x, y, z] as V3);
     const surface = b.addSurface({ kind: 'bspline', uDegree: 1, vDegree: 1, uKnots: [0, 1], vKnots: [0, 1, 2, 3, 4],
@@ -385,7 +385,7 @@ test('the native route: closed B-splines, a surface in periodic form, a sphere c
   }
   // A sphere of radius 2 cut by a circle at z = 1: the cap above it, or below, by the loop's sense.
   for (const sense of [true, false]) {
-    const b = new BrepBuilder({ unit: 1 });
+    const b = new BrepBuilder();
     const r = Math.sqrt(3), v = b.addVertex({ point: [r, 0, 1] });
     const edge = b.addEdge({ curve: b.addCurve({ kind: 'circle', position: { ...XY, origin: [0, 0, 1] }, radius: r }),
       start: v, end: v, sameSense: true });
@@ -395,7 +395,7 @@ test('the native route: closed B-splines, a surface in periodic form, a sphere c
   }
   // A unit square whose corner (1, 1) lies 1e-3 off its two edges' lines (each line through the exact corner).
   {
-    const b = new BrepBuilder({ unit: 1 });
+    const b = new BrepBuilder();
     const exact: V3[] = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]];
     const vs = exact.map((p, j) => b.addVertex({ point: j === 2 ? [1 + 1e-3, 1 + 1e-3, 0] : p }));
     const edges = exact.map((p, j) => {
@@ -447,7 +447,7 @@ test('the native route, loops and edges as OCCT\'s STEP translator makes them: n
   // A cone's side with a degenerate edge at its apex (its p-curve and range given), the seam without p-curves; its
   // loop counter-clockwise in (u, v): the apex along v = -1, the seam up, the base back, the seam down.
   {
-    const b = new BrepBuilder({ unit: 1 });
+    const b = new BrepBuilder();
     const position = { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] };
     const surface = b.addSurface({ kind: 'cone', position, radius: 1, semiAngle: Math.PI / 4 });
     const base = b.addCurve({ kind: 'circle', position, radius: 1 });
@@ -476,7 +476,7 @@ test('the native route, loops and edges as OCCT\'s STEP translator makes them: n
   // Vertex loops: on a plane or a torus left out with a warning; on a sphere, the face's only loop, its natural
   // bounds.
   for (const kind of ['plane', 'torus', 'sphere'] as const) {
-    const b = new BrepBuilder({ unit: 1 });
+    const b = new BrepBuilder();
     const v = b.addVertex({ point: kind === 'plane' ? [0, 0, 0] : kind === 'torus' ? [3, 0, 0] : [0, 0, 2] });
     const surface = b.addSurface(kind === 'plane' ? { kind, position: XY } : kind === 'torus'
       ? { kind, position: XY, majorRadius: 2, minorRadius: 1 } : { kind, position: XY, radius: 2 });
@@ -498,7 +498,7 @@ test('the native route, loops and edges as OCCT\'s STEP translator makes them: n
   // for the torus not degenerate). Its vertices on both parts: (rho - R)^2 + z^2 = r^2 on the outer, (rho + R)^2 on
   // the inner.
   for (const [selectOuter, loop] of [[false, false], [true, true], [undefined, false]] as const) {
-    const b = new BrepBuilder({ unit: 1 });
+    const b = new BrepBuilder();
     const R = 1, r = 2;
     const surface = b.addSurface({ kind: 'torus', position: XY, majorRadius: selectOuter === undefined ? 3 : R,
       minorRadius: r, ...(selectOuter === undefined ? {} : { selectOuter }) });
@@ -561,7 +561,7 @@ test('the native route, loops and edges as OCCT\'s STEP translator makes them: n
   // A tetrahedron of poly loops, each face on its own plane, one said the other way round: its edges shared by the
   // faces (by their corners, vertices), all six of them between two faces.
   {
-    const b = new BrepBuilder({ unit: 1 });
+    const b = new BrepBuilder();
     const p: V3[] = [[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]];
     const corners = p.map((point) => b.addVertex({ point }));
     const tris = [[0, 2, 1], [0, 1, 3], [1, 2, 3], [0, 3, 2]];
@@ -626,7 +626,7 @@ test('the native route, edges as OCCT\'s STEP translator makes them: a line besi
   };
   // The bottom edge's line 0.01 below its vertices, along them.
   {
-    const b = new BrepBuilder({ unit: 1 });
+    const b = new BrepBuilder();
     square(b, (j, p, q) => line(b, p, q, j === 0 ? [0, -0.01, 0] : [0, 0, 0]));
     const f = await check('a line beside its vertices', b,
       /^native builder: edge #11: its line moved through its vertices/);
@@ -634,7 +634,7 @@ test('the native route, edges as OCCT\'s STEP translator makes them: a line besi
   }
   // A full circle bounding a disc, its edge's two ends two vertices at one point.
   {
-    const b = new BrepBuilder({ unit: 1 });
+    const b = new BrepBuilder();
     const v1 = b.addVertex({ point: [1, 0, 0] }), v2 = b.addVertex({ point: [1, 0, 0] });
     const edge = b.addEdge({ curve: b.addCurve({ kind: 'circle', position: XY, radius: 1 }), start: v1, end: v2,
       sameSense: true, id: 11 });
@@ -647,7 +647,7 @@ test('the native route, edges as OCCT\'s STEP translator makes them: a line besi
   }
   // The right edge a B-spline ending 1e-3 short of its end vertex (the vertex beyond the curve's end).
   {
-    const b = new BrepBuilder({ unit: 1 });
+    const b = new BrepBuilder();
     square(b, (j, p, q) => j === 1 ? b.addCurve({ kind: 'bspline', degree: 1, knots: [0, 1], multiplicities: [2, 2],
       poles: [p, [q[0], q[1] - 1e-3, q[2]]], closed: false, selfIntersect: false, form: 'unspecified' })
       : line(b, p, q));
@@ -713,7 +713,7 @@ test('the native route, swept and derived surfaces: faces on an extrusion, a rev
     }, Math.PI / 2],
   ];
   for (const [what, make, area] of cases) {
-    const b = new BrepBuilder({ unit: 1 });
+    const b = new BrepBuilder();
     make(b);
     const req = request(new Uint8Array(b.finish().buffer));
     const r1 = await step.tessellate(req), r2 = await native.tessellate(req);
@@ -733,7 +733,7 @@ test('the native route, items placed: a transform (a rotation, a mirror, a scale
   const columns = [0, 2, 0, -2, 0, 0, 0, 0, -2, 10, 0, 0];
   const place = (p: number[]) => [-2 * p[1]! + 10, 2 * p[0]!, -2 * p[2]!];
   for (const instance of [false, true]) {
-    const b = new BrepBuilder({ unit: 1 });
+    const b = new BrepBuilder();
     b.addItem({ kind: 'body', ref: b.addBody({ kind: 'solid', members: [{ ref: box(b, [1, 1, 1], [50, 50, 50], 1000),
       sense: true }] }) });
     b.addItem({ kind: 'body', ref: b.addBody({ kind: 'solid', members: [{ ref: box(b, [1, 1, 1]), sense: true }] }) });
@@ -809,7 +809,7 @@ test('the native route, parameters that only loose geometry shows: trimmed and o
     selfIntersect: false, refDirection: [0, 0, 1] }), [0, -1, 0], [1, -1, 0]],
   ];
   for (const [what, make, p, q] of curveCases) {
-    const b = new BrepBuilder({ unit: 1 });
+    const b = new BrepBuilder();
     b.addItem({ kind: 'curve', ref: make(b), id: 7 });
     const r = await run(b);
     noWarnings(r, what);
@@ -833,7 +833,7 @@ test('the native route, parameters that only loose geometry shows: trimmed and o
     v2: 1, uSense: true, vSense: true }), 1, (r) => Math.abs(r.positions[2]! - 0.5) < 1e-6],
   ];
   for (const [what, make, area, at] of surfaceCases) {
-    const b = new BrepBuilder({ unit: 1 });
+    const b = new BrepBuilder();
     b.addItem({ kind: 'surface', ref: make(b), id: 5 });
     const r = await run(b);
     noWarnings(r, what);
@@ -846,7 +846,7 @@ test('the native route, parameters that only loose geometry shows: trimmed and o
   // own extent) and a hole of radius 0.5 at its middle; a unit square on a plane, its boundary's segments given out
   // of order (put in order as the translator does).
   {
-    const b = new BrepBuilder({ unit: 1 });
+    const b = new BrepBuilder();
     const s = b.addSurface({ kind: 'bspline', uDegree: 1, vDegree: 1, uKnots: [0, 1], vKnots: [0, 1],
       uMultiplicities: [2, 2], vMultiplicities: [2, 2], poles: [[[0, 0, 0], [0, 2, 0]], [[2, 0, 0], [2, 2, 0]]],
       uClosed: false, vClosed: false, selfIntersect: false, form: 'plane_surf' });
@@ -861,7 +861,7 @@ test('the native route, parameters that only loose geometry shows: trimmed and o
     assert.ok(Math.abs(got - want) < 1e-2, `an implicit outer bound's area: ${got}`);
   }
   {
-    const b = new BrepBuilder({ unit: 1 });
+    const b = new BrepBuilder();
     const c: V3[] = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]];
     const es = c.map((p, j) => { const q = c[(j + 1) % 4]!;
       return b.addEdge({ curve: b.addCurve({ kind: 'trimmed', basis: b.addCurve({ kind: 'line', point: p,
@@ -881,7 +881,7 @@ test('the native route, parameters that only loose geometry shows: trimmed and o
   // A curve-bounded face on a sphere of radius 2 bounded by the circle at z = 1 alone, against the STEP route (whose
   // healing adds no natural bounds there either: the cap, not the rest of the sphere with a hole).
   {
-    const b = new BrepBuilder({ unit: 1 });
+    const b = new BrepBuilder();
     const edge = b.addEdge({ curve: b.addCurve({ kind: 'circle', position: { ...XY, origin: [0, 0, 1] },
       radius: Math.sqrt(3) }), sameSense: true });
     const face = b.addFace({ surface: b.addSurface({ kind: 'sphere', position: XY, radius: 2 }), sameSense: true,

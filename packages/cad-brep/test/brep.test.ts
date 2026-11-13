@@ -40,7 +40,7 @@ test('JSON round trip: the same bytes, and decoding gives what was built', () =>
   assert.deepEqual([c6.weights, c6.closed, c6.selfIntersect], [[1, 0.5, 2, 1], false, null]);
   assert.equal('weights' in decode.curve(d, 5), false);
   assert.deepEqual(decode.item(d, rowCount(d, 'item') - 1).transform, [-1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 0, 0]);
-  assert.deepEqual(decode.part(d), { unit: 1, uncertainty: 1e-5 });
+  assert.deepEqual(decode.part(d), { uncertainty: 1e-5 });
   assert.deepEqual(decode.curve(d, 10), { kind: 'offset', basis: 5, distance: 0.25, selfIntersect: null,
     refDirection: [0, 1, 0] });
 
@@ -64,7 +64,7 @@ test('JSON round trip: the same bytes, and decoding gives what was built', () =>
 });
 
 test('the bytes depend on each table\'s rows, not on how tables are interleaved', () => {
-  const a = new BrepBuilder({ unit: 1 }), b = new BrepBuilder({ unit: 1 });
+  const a = new BrepBuilder(), b = new BrepBuilder();
   const circle = { kind: 'circle' as const, position: { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] },
     radius: 1 };
   const plane = { kind: 'plane' as const, position: circle.position };
@@ -78,7 +78,7 @@ test('the bytes depend on each table\'s rows, not on how tables are interleaved'
 test('layout: every column 8-byte aligned, in order, counts as built', () => {
   const d = everyKind().finish();
   const view = new DataView(d.buffer);
-  assert.equal(String.fromCharCode(...new Uint8Array(d.buffer, 0, 4)), 'CBR3');
+  assert.equal(String.fromCharCode(...new Uint8Array(d.buffer, 0, 4)), 'CBR4');
   assert.equal(view.getUint32(4, true), COLUMNS.length);
   let last = 0;
   COLUMNS.forEach((c, k) => {
@@ -119,7 +119,7 @@ test('openBrep: header checks, and a Uint8Array view copied or used', () => {
   new DataView(rows).setUint32(12 + 8 * k, 7, true);
   assert.throws(() => openBrep(rows), /vertex: columns of 8, 7/);
   const parts = d.buffer.slice(0);
-  for (const c of ['unit', 'uncertainty']) {
+  for (const c of ['uncertainty']) {
     new DataView(parts).setUint32(12 + 8 * COLUMNS.findIndex((x) => x.table === 'part' && x.column === c), 0, true);
   }
   assert.throws(() => openBrep(parts), /one part row/);
@@ -137,7 +137,7 @@ test('openBrep: header checks, and a Uint8Array view copied or used', () => {
 });
 
 test('the builder refuses what would make the buffer unreadable', () => {
-  const b = new BrepBuilder({ unit: 1 });
+  const b = new BrepBuilder();
   const P = { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] };
   const line2 = b.addCurve({ kind: 'line', point: [0, 0], direction: [1, 0], magnitude: 1 });
   const line3 = b.addCurve({ kind: 'line', point: [0, 0, 0], direction: [1, 0, 0], magnitude: 1 });
@@ -192,7 +192,7 @@ test('the builder refuses what would make the buffer unreadable', () => {
     // Ids a u32 can't hold, and 0 (none): the caller's to leave out.
     ...[0, -1, 1.5, 2 ** 32, NaN].map((id): [string, () => unknown, RegExp] => [`id ${id}`,
       () => {
-        const f = new BrepBuilder({ unit: 1 });
+        const f = new BrepBuilder();
         try {
           f.addCurve({ kind: 'line', point: [0, 0, 0], direction: [1, 0, 0], magnitude: 1, id });
         } finally {
@@ -203,7 +203,7 @@ test('the builder refuses what would make the buffer unreadable', () => {
       },
       /source id .*: not 1 to 2\^32 - 1/]),
     ['a loop\'s id', () => {
-      const f = new BrepBuilder({ unit: 1 });
+      const f = new BrepBuilder();
       const surface = f.addSurface({ kind: 'plane', position: P }), vertex = f.addVertex({ point: [0, 0, 0] });
       const edge = f.addEdge({ curve: f.addCurve({ kind: 'circle', position: P, radius: 1 }), start: vertex,
         end: vertex, sameSense: true });
@@ -244,7 +244,6 @@ test('validateBrep finds each kind of defect', () => {
   const C = at('curve', false), CI = at('curve', true), S = at('surface', false), SI = at('surface', true);
   const E = everyKind;
   const cases: Case[] = [
-    ['unit', E, (d) => { d.part.unit[0] = 0; }, /part: unit 0/],
     ['uncertainty', E, (d) => { d.part.uncertainty[0] = -1; }, /part: uncertainty -1/],
     ['line direction', E, C(0, 3, 1), /curve 0 \(#501\) \(line\): direction not of unit length/],
     ['line point', E, C(0, 0, NaN), /line\): point not finite/],
@@ -421,7 +420,7 @@ test('validateBrep: warnings are warnings, and the count is capped', () => {
   two.loop.bound[1] = 1;
   assert.deepEqual(validateBrep(two).map((x) => [x.severity, x.message]),
     [['warning', 'face 1: 2 outer bounds (Part 42 allows one)']]);
-  const b = new BrepBuilder({ unit: 1 });
+  const b = new BrepBuilder();
   for (let k = 0; k < MAX_DIAGNOSTICS + 5; k++) b.addVertex({ point: [0, 0, 0], tolerance: -1 });
   const ds = validateBrep(b.finish());
   assert.equal(ds.length, MAX_DIAGNOSTICS + 1);
@@ -429,7 +428,7 @@ test('validateBrep: warnings are warnings, and the count is capped', () => {
 });
 
 test('internal and external coedges needn\'t join', () => {
-  const b = new BrepBuilder({ unit: 1 });
+  const b = new BrepBuilder();
   const shell = box(b, [1, 1, 1]);
   b.addItem({ kind: 'body', ref: b.addBody({ kind: 'solid', members: [{ ref: shell, sense: true }] }) });
   const d = copy(b.finish());
@@ -442,7 +441,7 @@ test('internal and external coedges needn\'t join', () => {
 });
 
 test('joining is checked only where both vertices are known', () => {
-  const b = new BrepBuilder({ unit: 1 });
+  const b = new BrepBuilder();
   const circle = b.addCurve({ kind: 'circle', position: { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] },
     radius: 1 });
   const v = [b.addVertex({ point: [1, 0, 0] }), b.addVertex({ point: [-1, 0, 0] })];

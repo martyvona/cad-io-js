@@ -5,7 +5,7 @@ import { BrepBuilder, type BrepData, openBrep } from 'cad-brep';
 
 /** A model tagged `tag`. */
 export function tagged(tag = 0): BrepData {
-  const b = new BrepBuilder({ unit: 1 });
+  const b = new BrepBuilder();
   b.addItem({ kind: 'point', point: [tag, 0, 0] });
   return b.finish();
 }

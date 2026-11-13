@@ -13,8 +13,8 @@ import path from 'node:path';
 import { Readable, type Writable } from 'node:stream';
 import { parseArgs } from 'node:util';
 import { DEFAULT_MESH_PROFILE, exportView, FallbackTessellator, MESH_PROFILE_NAMES, MESH_PROFILES, meshProfileOf,
-  partInstances, tessellateScene,
-  type Deflections, type Diagnostic, type ExportView, type Scene, type Tessellator } from 'cad-scene';
+  partInstances, LENGTH_UNITS, tessellateScene, type Deflections, type Diagnostic, type ExportView,
+  type LengthUnitName, type Scene, type Tessellator } from 'cad-scene';
 import { threemf } from 'export-3mf';
 import { glb, gltfJson, type Compression, type GltfOptions } from 'export-gltf';
 import { threejsChunks } from 'export-threejs';
@@ -56,6 +56,8 @@ interface FormatOptions {
   keepEmpty: boolean;
   stepSchema: StepSchema;
   stepMeshes: boolean;
+  /** Millimetres per unit written; absent: the format's default. */
+  unit?: number;
 }
 
 interface Written {
@@ -71,7 +73,7 @@ const FORMATS: Record<string, Format> = {
     extensions: ['.json'],
     description: 'three.js JSON Object Scene format 4 (THREE.ObjectLoader)',
     write: (scene, view, o) => ({ chunks: threejsChunks(scene, view, { name: o.name, doubleSided: o.doubleSided,
-      extras: o.extras, keepEmpty: o.keepEmpty }) }),
+      extras: o.extras, keepEmpty: o.keepEmpty, ...(o.unit !== undefined ? { unit: o.unit } : {}) }) }),
   },
   glb: {
     extensions: ['.glb'],
@@ -97,7 +99,8 @@ const FORMATS: Record<string, Format> = {
     description: 'STEP AP242 (AP214: --step-schema), exact geometry; parts without it tessellated',
     step: true,
     write: (scene, _view, o) => {
-      const x = exportStep(scene, { name: o.name, schema: o.stepSchema, meshes: o.stepMeshes });
+      const x = exportStep(scene, { name: o.name, schema: o.stepSchema, meshes: o.stepMeshes,
+        ...(o.unit !== undefined ? { unit: o.unit } : {}) });
       return { chunks: x.chunks, diagnostics: x.diagnostics };
     },
   },
@@ -109,6 +112,7 @@ const FORMATS: Record<string, Format> = {
       const r = threemf(scene, view, {
         name: o.name, colors: o.colorgroup ? 'colorgroup' : 'basematerials', build: o.assembly ? 'assembly' : 'parts',
         nonManifold: o.surfaces ? 'surface' : 'omit', hidden: o.keepHidden ? 'keep' : 'omit', extras: o.extras,
+        ...(o.unit !== undefined ? { unit: o.unit } : {}),
       });
       return { chunks: r.chunks, diagnostics: r.diagnostics };
     },
@@ -118,7 +122,7 @@ const FORMATS: Record<string, Format> = {
 function gltfOptions(o: FormatOptions): GltfOptions {
   return { name: o.name, doubleSided: o.doubleSided, hidden: o.keepHidden ? 'extension' : 'omit',
     unlitLines: o.unlitLines, extras: o.extras, compression: o.compression, dracoPositionBits: o.dracoBits,
-    instancing: o.instancing, keepEmpty: o.keepEmpty };
+    instancing: o.instancing, keepEmpty: o.keepEmpty, ...(o.unit !== undefined ? { unit: o.unit } : {}) };
 }
 
 const BACKENDS: Record<string, { module: string; export: string }> = {
@@ -159,6 +163,9 @@ ${PROFILE_LINES}
       --angular-deflection <deg>
                            maximum angle between adjacent mesh normals, in degrees (default the profile's;
                            truck ignores it)
+      --unit <mm|cm|m|in|ft>
+                           the length unit written (default: STEP and 3MF the source's, else mm; glTF and three.js
+                           m, their convention, which other readers assume whatever is written)
       --with-edges         write B-rep edges (not 3MF, which has no lines)
       --with-curves        write wireframe curves and points (not 3MF)
       --unlit-lines        edges, curves and points in a flat colour: glTF with KHR_materials_unlit (three.js
@@ -243,6 +250,7 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
         '3mf-surfaces': { type: 'boolean', default: false },
         'step-schema': { type: 'string' },
         'step-meshes': { type: 'boolean', default: false },
+        unit: { type: 'string' },
         workers: { type: 'string', short: 'j' },
         timeout: { type: 'string' },
         cache: { type: 'string' },
@@ -299,6 +307,10 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
     `--step-schema must be ap242 or ap214, not '${stepSchema}'`);
   if (o['step-meshes'] && stepSchema === 'ap214') return usage('--step-meshes needs ap242 (AP214 has no tessellated '
     + 'geometry)');
+  const unitName = o.unit;
+  if (unitName !== undefined && !Object.hasOwn(LENGTH_UNITS, unitName)) return usage(
+    `--unit must be one of ${Object.keys(LENGTH_UNITS).join(', ')}, not '${unitName}'`);
+  const unit = unitName === undefined ? undefined : LENGTH_UNITS[unitName as LengthUnitName];
   // Whether parts are meshed: always, but for STEP without --step-meshes.
   const meshing = !format.step || o['step-meshes'];
   const embed = o['gltf-embed'];
@@ -390,8 +402,8 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
         const mod = (await import(b.module)) as Record<string, new () => Tessellator>;
         t = new mod[b.export]!();
       }
-      // truck reads STEP: each part's B-rep model written as STEP, after the cache (which keys on the model); OCCT
-      // and SMLib take models, passed through.
+      // (Every backend here takes models, which StepTessellator passes through, adding the open-edge error and the
+      // oracle's areas; OCCT's STEP route would get them written as STEP. After the cache, which keys on the model.)
       t = new StepTessellator(t);
       if (store) {
         const c = new CachedTessellator(t, store);
@@ -435,7 +447,7 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
       name, doubleSided: o['double-sided'], keepHidden: o['keep-hidden'], sidecar, unlitLines: o['unlit-lines'],
       colorgroup: o['3mf-colorgroup'], assembly: o['3mf-assembly'], surfaces: o['3mf-surfaces'], extras: o.extras,
       compression, dracoBits, instancing: o['gltf-instancing'], keepEmpty: o['keep-empty'], stepSchema,
-      stepMeshes: o['step-meshes'],
+      stepMeshes: o['step-meshes'], ...(unit !== undefined ? { unit } : {}),
     });
     // (None when embedded, or when there's no buffer: a scene with nothing to draw.)
     if (sidecar && w.sidecar?.length) {

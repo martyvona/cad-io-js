@@ -4,6 +4,7 @@ import { type BrepData, decode, rowCount, validateBrep } from 'cad-brep';
 import { openModel, parseStep, Reader } from 'step-parser';
 import { foldKnots, implicitKnots, stepBrep, type StepBrepResult } from '../src/brep.ts';
 import { importStep } from '../src/index.ts';
+import { compareScaled } from './unit-oracle.ts';
 
 const enc = new TextEncoder();
 const file = (data: string) => enc.encode(`ISO-10303-21;HEADER;FILE_NAME('t.stp','',(''),(''),'','','');`
@@ -15,7 +16,7 @@ async function convert(data: string, ids: number[], angle = 1) {
   const model = await openModel(parseStep(file(data)));
   const r = new Reader(model);
   const warnings: string[] = [];
-  const out = stepBrep(r, ids.map((id) => model.resolve(id)), { unit: 1, angle }, (m) => warnings.push(m));
+  const out = stepBrep(r, ids.map((id) => model.resolve(id)), { length: 1, angle }, (m) => warnings.push(m));
   return { ...out, warnings };
 }
 const close = (a: number[], b: number[]) => a.length === b.length && a.every((x, i) => Math.abs(x - b[i]!) < 1e-12);
@@ -416,9 +417,37 @@ ${GEOMETRY.replace(/#(\d+)/g, (_, n) => `#${Number(n) + 1000}`)}
 `.replace('#24=SHAPE_REPRESENTATION(\'\',(#50),#16);', '#24=SHAPE_REPRESENTATION(\'\',(#1050,#60),#16);');
   const { scene } = await importStep(file(data));
   const d = scene.parts[0]!.brep!.model as BrepData;
-  assert.deepEqual(decode.part(d), { unit: 10, uncertainty: 1e-5 });
-  const cone = decode.surface(d, 1);
-  assert.ok(cone.kind === 'cone' && Math.abs(cone.semiAngle - Math.PI / 6) < 1e-12);
+  // In millimetres: lengths times 10 (the uncertainty, radii, magnitudes, a trim's v on a cylinder), angles in
+  // radians, parameters as they were.
+  const near = (a: number, b: number) => Math.abs(a - b) <= 1e-12 * Math.max(1, Math.abs(b));
+  assert.ok(near(decode.part(d).uncertainty!, 1e-4));
+  const surfaces = Array.from({ length: rowCount(d, 'surface') }, (_, k) => decode.surface(d, k));
+  const curves = Array.from({ length: rowCount(d, 'curve') }, (_, k) => decode.curve(d, k));
+  const cone = surfaces.find((s) => s.kind === 'cone')!;
+  assert.ok(cone.kind === 'cone' && near(cone.semiAngle, Math.PI / 6) && near(cone.radius, 10));
+  const cyl = surfaces.find((s) => s.kind === 'cylinder')!;
+  assert.ok(cyl.kind === 'cylinder' && near(cyl.radius, 20));
+  const trim = surfaces.find((s) => s.kind === 'rectangularTrimmed')!;
+  assert.ok(trim.kind === 'rectangularTrimmed' && near(trim.u1, Math.PI / 2) && near(trim.u2, Math.PI)
+    && near(trim.v1, 0) && near(trim.v2, 50), JSON.stringify(trim));
+  const torus = surfaces.find((s) => s.kind === 'torus')!;
+  assert.ok(torus.kind === 'torus' && near(torus.majorRadius, 50) && near(torus.minorRadius, 10));
+  const offset = surfaces.find((s) => s.kind === 'offset')!;
+  assert.ok(offset.kind === 'offset' && near(offset.distance, 5));
+  const extrusion = surfaces.find((s) => s.kind === 'extrusion')!;
+  assert.ok(extrusion.kind === 'extrusion' && near(extrusion.magnitude, 30));
+  const line = curves.find((c) => c.kind === 'line')!;
+  assert.ok(line.kind === 'line' && near(line.magnitude, 40) && line.point.every((x) => x === 0));
+  const trimmed = curves.find((c) => c.kind === 'trimmed' && c.trim1.parameter === 2)!;
+  assert.ok(trimmed.kind === 'trimmed' && trimmed.trim2.point!.every((x) => x === 0));
+  const arc = curves.find((c) => c.kind === 'trimmed' && c.trim1.parameter !== 2)!;
+  assert.ok(arc.kind === 'trimmed' && near(arc.trim1.parameter!, Math.PI / 2));
+  const bspline = curves.find((c) => c.kind === 'bspline' && c.weights)!;
+  assert.ok(bspline.kind === 'bspline' && near(bspline.poles[1]![0]!, 10) && bspline.weights![1] === 0.5
+    && bspline.knots[1] === 0.5);
+  assert.ok(near((curves.find((c) => c.kind === 'circle') as { radius: number }).radius, 20));
+  const offsetCurve = curves.find((c) => c.kind === 'offset')!;
+  assert.ok(offsetCurve.kind === 'offset' && near(offsetCurve.distance, 2.5));
   assert.ok(scene.diagnostics.some((x) => x.source?.id === 24 && /^B-rep model: .*negative radius/.test(x.message)));
   assert.ok(scene.diagnostics.some((x) => x.source?.id === 24 && /^B-rep model: an item not in the B-rep model/
     .test(x.message)), JSON.stringify(scene.diagnostics));
@@ -572,7 +601,7 @@ test('an instance #0 in the model gets no id (its ids are 1 to 2^32 - 1, 0 for n
   const run = async (ids: number[]) => {
     const model = await openModel(parseStep(file(data)));
     const said: [string, string | undefined][] = [];
-    const out = stepBrep(new Reader(model), ids.map((id) => model.resolve(id)), { unit: 1, angle: 1 },
+    const out = stepBrep(new Reader(model), ids.map((id) => model.resolve(id)), { length: 1, angle: 1 },
       (m, severity) => said.push([m, severity]));
     return { d: out.brep, said };
   };
@@ -587,4 +616,168 @@ test('an instance #0 in the model gets no id (its ids are 1 to 2^32 - 1, 0 for n
   // (#0 in the file, not reached by the model: nothing said.)
   const other = await run([4294967295]);
   assert.deepEqual([Array.from(other.d.curve.id), other.said], [[4294967295], []]);
+});
+
+// Every kind at once, in millimetres, away from the origin (scaling 0 changes nothing): curves 3D and 2D, every
+// surface, p-curves of every 2D kind on a plane, a cylinder and a sphere (curve-bounded surfaces), a face with an edge
+// loop and vertices, a poly loop, a torus with a negative major radius, a loose point. (Each surface's 2D curves its
+// own: in another unit, one 2D curve on surfaces that scale apart is a row per scale, and the rows wouldn't pair.)
+const ALL_KINDS = `
+#1=APPLICATION_CONTEXT('');
+#2=PRODUCT_CONTEXT('',#1,'mechanical');
+#3=PRODUCT_DEFINITION_CONTEXT('part definition',#1,'design');
+#10=(LENGTH_UNIT()NAMED_UNIT(*)SI_UNIT(.MILLI.,.METRE.));
+#11=(NAMED_UNIT(*)PLANE_ANGLE_UNIT()SI_UNIT($,.RADIAN.));
+#15=UNCERTAINTY_MEASURE_WITH_UNIT(LENGTH_MEASURE(1.E-5),#10,'','');
+#16=(GEOMETRIC_REPRESENTATION_CONTEXT(3)GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT((#15))GLOBAL_UNIT_ASSIGNED_CONTEXT((#10,#11))REPRESENTATION_CONTEXT('',''));
+#17=(GEOMETRIC_REPRESENTATION_CONTEXT(2)PARAMETRIC_REPRESENTATION_CONTEXT()REPRESENTATION_CONTEXT('',''));
+#20=PRODUCT('P','P','',(#2));
+#21=PRODUCT_DEFINITION_FORMATION('','',#20);
+#22=PRODUCT_DEFINITION('','',#21,#3);
+#23=PRODUCT_DEFINITION_SHAPE('','',#22);
+#24=SHAPE_REPRESENTATION('',(#500,#600),#16);
+#25=SHAPE_DEFINITION_REPRESENTATION(#23,#24);
+#100=CARTESIAN_POINT('',(1.,2.,3.));
+#101=DIRECTION('',(0.,0.,1.));
+#102=DIRECTION('',(1.,0.,0.));
+#103=AXIS2_PLACEMENT_3D('',#100,#101,#102);
+#104=CARTESIAN_POINT('',(4.,-5.,6.));
+#105=CARTESIAN_POINT('',(7.,8.,-9.));
+#106=CARTESIAN_POINT('',(-2.,3.,5.));
+#110=VECTOR('',#101,2.5);
+#111=LINE('',#104,#110);
+#112=CIRCLE('',#103,2.);
+#113=ELLIPSE('',#103,3.,1.5);
+#114=HYPERBOLA('',#103,1.,2.);
+#115=PARABOLA('',#103,0.75);
+#116=B_SPLINE_CURVE_WITH_KNOTS('',2,(#104,#105,#106),.UNSPECIFIED.,.F.,.F.,(3,3),(0.,2.),.UNSPECIFIED.);
+#117=(BOUNDED_CURVE()B_SPLINE_CURVE(2,(#104,#105,#106),.UNSPECIFIED.,.F.,.F.)B_SPLINE_CURVE_WITH_KNOTS((3,3),(1.,4.),.UNSPECIFIED.)CURVE()GEOMETRIC_REPRESENTATION_ITEM()RATIONAL_B_SPLINE_CURVE((1.,0.5,2.))REPRESENTATION_ITEM(''));
+#118=POLYLINE('',(#104,#105,#106));
+#119=TRIMMED_CURVE('',#111,(#104,PARAMETER_VALUE(0.)),(#105,PARAMETER_VALUE(1.5)),.T.,.PARAMETER.);
+#120=COMPOSITE_CURVE('',(#121),.F.);
+#121=COMPOSITE_CURVE_SEGMENT(.CONTINUOUS.,.T.,#116);
+#122=OFFSET_CURVE_3D('',#116,0.25,.F.,#101);
+#130=PLANE('',#103);
+#131=CYLINDRICAL_SURFACE('',#103,4.);
+#132=CONICAL_SURFACE('',#103,1.5,0.4);
+#133=SPHERICAL_SURFACE('',#103,6.);
+#134=TOROIDAL_SURFACE('',#103,5.,1.);
+#135=TOROIDAL_SURFACE('',#103,-7.,2.);
+#136=B_SPLINE_SURFACE_WITH_KNOTS('',1,1,((#104,#105),(#106,#100)),.UNSPECIFIED.,.F.,.F.,.F.,(2,2),(2,2),(0.,1.),(0.,3.),.UNSPECIFIED.);
+#137=SURFACE_OF_LINEAR_EXTRUSION('',#116,#110);
+#138=SURFACE_OF_REVOLUTION('',#111,#139);
+#139=AXIS1_PLACEMENT('',#105,#102);
+#140=OFFSET_SURFACE('',#131,0.5,.F.);
+#141=RECTANGULAR_TRIMMED_SURFACE('',#130,-1.,2.,-3.,4.,.T.,.T.);
+#142=RECTANGULAR_TRIMMED_SURFACE('',#131,0.5,2.,-1.,3.,.T.,.F.);
+#200=CARTESIAN_POINT('',(1.,2.));
+#201=DIRECTION('',(0.6,0.8));
+#202=VECTOR('',#201,2.);
+#203=LINE('',#200,#202);
+#204=AXIS2_PLACEMENT_2D('',#200,#201);
+#205=CIRCLE('',#204,1.5);
+#206=ELLIPSE('',#204,2.,1.);
+#207=HYPERBOLA('',#204,1.,3.);
+#208=PARABOLA('',#204,-0.5);
+#209=CARTESIAN_POINT('',(3.,1.));
+#210=CARTESIAN_POINT('',(4.,5.));
+#211=B_SPLINE_CURVE_WITH_KNOTS('',2,(#200,#209,#210),.UNSPECIFIED.,.F.,.F.,(3,3),(0.,1.),.UNSPECIFIED.);
+#212=POLYLINE('',(#200,#209,#210));
+#213=TRIMMED_CURVE('',#203,(#200,PARAMETER_VALUE(0.)),(PARAMETER_VALUE(1.)),.T.,.PARAMETER.);
+#214=OFFSET_CURVE_2D('',#211,0.3,.F.);
+#215=COMPOSITE_CURVE('',(#216),.F.);
+#216=COMPOSITE_CURVE_SEGMENT(.CONTINUOUS.,.T.,#211);
+#230=DEFINITIONAL_REPRESENTATION('',(#203),#17);
+#231=DEFINITIONAL_REPRESENTATION('',(#205),#17);
+#232=DEFINITIONAL_REPRESENTATION('',(#206),#17);
+#233=DEFINITIONAL_REPRESENTATION('',(#207),#17);
+#234=DEFINITIONAL_REPRESENTATION('',(#208),#17);
+#235=DEFINITIONAL_REPRESENTATION('',(#211),#17);
+#236=DEFINITIONAL_REPRESENTATION('',(#212),#17);
+#237=DEFINITIONAL_REPRESENTATION('',(#213),#17);
+#238=DEFINITIONAL_REPRESENTATION('',(#214),#17);
+#239=DEFINITIONAL_REPRESENTATION('',(#215),#17);
+#250=LINE('',#200,#202);
+#251=B_SPLINE_CURVE_WITH_KNOTS('',2,(#200,#209,#210),.UNSPECIFIED.,.F.,.F.,(3,3),(0.,1.),.UNSPECIFIED.);
+#252=POLYLINE('',(#200,#209,#210));
+#253=TRIMMED_CURVE('',#250,(#200,PARAMETER_VALUE(0.)),(PARAMETER_VALUE(1.)),.T.,.PARAMETER.);
+#254=CIRCLE('',#204,1.5);
+#255=B_SPLINE_CURVE_WITH_KNOTS('',2,(#200,#209,#210),.UNSPECIFIED.,.F.,.F.,(3,3),(0.,1.),.UNSPECIFIED.);
+#256=OFFSET_CURVE_2D('',#255,0.3,.F.);
+#260=DEFINITIONAL_REPRESENTATION('',(#250),#17);
+#261=DEFINITIONAL_REPRESENTATION('',(#251),#17);
+#262=DEFINITIONAL_REPRESENTATION('',(#252),#17);
+#263=DEFINITIONAL_REPRESENTATION('',(#253),#17);
+#264=DEFINITIONAL_REPRESENTATION('',(#254),#17);
+#265=DEFINITIONAL_REPRESENTATION('',(#256),#17);
+#300=PCURVE('',#130,#230);
+#301=PCURVE('',#130,#231);
+#302=PCURVE('',#130,#232);
+#303=PCURVE('',#130,#233);
+#304=PCURVE('',#130,#234);
+#305=PCURVE('',#130,#235);
+#306=PCURVE('',#130,#236);
+#307=PCURVE('',#130,#237);
+#308=PCURVE('',#130,#238);
+#309=PCURVE('',#130,#239);
+#310=PCURVE('',#131,#260);
+#311=PCURVE('',#131,#261);
+#312=PCURVE('',#131,#262);
+#313=PCURVE('',#131,#263);
+#314=PCURVE('',#133,#264);
+#315=PCURVE('',#133,#265);
+${[...Array(16).keys()].map((k) => `#${320 + k}=COMPOSITE_CURVE_SEGMENT(.CONTINUOUS.,.T.,#${300 + k});`).join('\n')}
+#340=BOUNDARY_CURVE('',(#320,#321,#322,#323,#324,#325,#326,#327,#328,#329),.U.);
+#341=BOUNDARY_CURVE('',(#330,#331,#332,#333),.U.);
+#342=BOUNDARY_CURVE('',(#334,#335),.U.);
+#350=CURVE_BOUNDED_SURFACE('',#130,(#340),.F.);
+#351=CURVE_BOUNDED_SURFACE('',#131,(#341),.F.);
+#352=CURVE_BOUNDED_SURFACE('',#133,(#342),.F.);
+#400=VERTEX_POINT('',#104);
+#401=VERTEX_POINT('',#105);
+#402=EDGE_CURVE('',#400,#401,#111,.T.);
+#403=EDGE_CURVE('',#401,#400,#118,.T.);
+#404=ORIENTED_EDGE('',*,*,#402,.T.);
+#405=ORIENTED_EDGE('',*,*,#403,.T.);
+#406=EDGE_LOOP('',(#404,#405));
+#407=FACE_OUTER_BOUND('',#406,.T.);
+#408=ADVANCED_FACE('',(#407),#136,.T.);
+#409=POLY_LOOP('',(#104,#105,#106));
+#410=FACE_OUTER_BOUND('',#409,.T.);
+#411=FACE_SURFACE('',(#410),#130,.T.);
+#412=OPEN_SHELL('',(#408,#411));
+#500=SHELL_BASED_SURFACE_MODEL('',(#412));
+#600=GEOMETRIC_SET('',(#111,#112,#113,#114,#115,#116,#117,#118,#119,#120,#122,#132,#134,#135,#137,#138,#140,#141,#142,#350,#351,#352,#105));
+`;
+
+test('in a file of another unit, every length is millimetres and nothing else changes: the oracle, on every kind',
+  async () => {
+  // The file in millimetres, then the same text in centimetres (every length 10 times as long), and in inches.
+  const inch = ALL_KINDS.replace('#10=(LENGTH_UNIT()NAMED_UNIT(*)SI_UNIT(.MILLI.,.METRE.));',
+    '#10=(LENGTH_UNIT()NAMED_UNIT(*)SI_UNIT(.MILLI.,.METRE.));#9=(LENGTH_UNIT()CONVERSION_BASED_UNIT(\'INCH\',#8)'
+    + 'NAMED_UNIT(*));#8=LENGTH_MEASURE_WITH_UNIT(LENGTH_MEASURE(25.4),#10);')
+    .replace('GLOBAL_UNIT_ASSIGNED_CONTEXT((#10,#11))', 'GLOBAL_UNIT_ASSIGNED_CONTEXT((#9,#11))')
+    .replace("UNCERTAINTY_MEASURE_WITH_UNIT(LENGTH_MEASURE(1.E-5),#10,'','')",
+      "UNCERTAINTY_MEASURE_WITH_UNIT(LENGTH_MEASURE(1.E-5),#9,'','')");
+  const mm = (await importStep(file(ALL_KINDS))).scene;
+  const a = mm.parts[0]!.brep!.model;
+  // What the model holds: 11 3D curves, the plane's 10 2D ones, the cylinder's 4 (a line, a B-spline, a polyline, a
+  // trim of the line), the sphere's 3 (a circle, an offset of its own B-spline); 12 surfaces; the edge-loop face, the
+  // poly-loop face and three curve-bounded ones; the edges' two vertices and the poly loop's third corner; the
+  // geometric set's 23 elements and the surface model.
+  assert.deepEqual([rowCount(a, 'curve'), rowCount(a, 'surface'), rowCount(a, 'face'), rowCount(a, 'vertex'),
+    rowCount(a, 'item')], [28, 12, 5, 3, 24]);
+  assert.deepEqual(mm.diagnostics.filter((d) => d.severity !== 'info').map((d) => d.message).filter((m) =>
+    !/negative major radius/.test(m)), []);
+  for (const [k, text] of [[10, ALL_KINDS.replace('.MILLI.', '.CENTI.')], [25.4, inch]] as const) {
+    const scene = (await importStep(file(text))).scene;
+    const problems: string[] = [];
+    const r = compareScaled(a, scene.parts[0]!.brep!.model, k, `x ${k}`, (what, ex) => problems.push(
+      `${what}: ${ex}`));
+    assert.deepEqual(problems, [], `x ${k}`);
+    assert.ok(r.ok && r.checked > 300, `x ${k}: ${r.checked}`);
+    // (The origin a box's centre, from scaled ends: to the last bits.)
+    scene.parts[0]!.origin.forEach((x, j) => assert.ok(Math.abs(x - mm.parts[0]!.origin[j]! * k) < 1e-12 * 100 * k));
+    assert.equal(scene.sourceUnit, k);
+  }
 });

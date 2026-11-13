@@ -1,11 +1,11 @@
 // Phase 3 step 3: the truck backend against our OCCT backend, part by part. Every brep part of every corpus file is
-// tessellated by both (tess-truck and tess-occt, each in a tess-workers pool, so a hang costs only its timeout), at
-// 0.05 mm (phase 0's tolerance; OCCT also at 0.5 rad), and compared:
+// tessellated by both from its model (tess-truck and tess-occt, each in a tess-workers pool, so a hang costs only its
+// timeout), at 0.05 mm (phase 0's tolerance; OCCT also at 0.5 rad), and compared:
 //   - status: truck ok, panicked, timed out, failed or empty, when OCCT meshes the part;
 //   - faces: OCCT's face ids that truck lacks (failed to mesh, couldn't convert, other) or adds;
 //   - edges: the kind of each STEP edge both report; edge points that aren't mesh vertices;
 //   - area: truck's against OCCT's; faces whose sampled triangles face opposite to OCCT's;
-//   - truck's workaround diagnostics (placements fixed, shells reversed or unchecked).
+//   - truck's workaround diagnostics (B-splines clamped, NaN geometry left out, shells reversed or unchecked).
 // For files with one root product and a surface area validation property, both backends' placed totals are also
 // compared with the property: a check independent of either backend.
 // Usage: node corpus_checks/truck_occt.ts [file-list.txt] [max MB, default 30]   (progress on standard error)
@@ -240,9 +240,9 @@ const fresh = () => ({
       area: { '0.1%': 0, '1%': 0, '5%': 0, worse: 0 } as Record<string, number>,
       facesOcct: 0, facesMissing: 0, facesUnmeshed: 0, facesUnconverted: 0, facesExtra: 0,
       edgesCompared: 0, edgeKindDiff: 0, edgePoints: 0, edgePointsOff: 0, partsOffMesh: 0,
-      partsFlipped: 0, facesFlipped: 0, placementsFixed: 0, partsPlacementsFixed: 0, shellsReversed: 0, shellsOpen: 0,
+      partsFlipped: 0, facesFlipped: 0, shellsReversed: 0, shellsOpen: 0,
       shellsInconsistent: 0, shellsUnclear: 0, facesLoopFlipped: 0, clampedEdges: 0, clampedFaces: 0,
-      curves3d: 0, tori: 0, cones: 0, nanEdges: 0, nanFaces: 0, unread: 0, partsComplete: 0,
+      nanEdges: 0, nanFaces: 0, partsComplete: 0,
       validation: { files: 0, truck: [0, 0], occt: [0, 0] } as { files: number; truck: number[]; occt: number[] },
     },
   byFaceType: new Map<string, { faces: number; missing: number; ok: number; wrong: number; short: number;
@@ -282,15 +282,15 @@ export const check: FileCheck<undefined, Tallies> = {
     const parts = scene.parts.flatMap((p, i) => (p.brep ? [{ i, p, brep: p.brep }] : []));
     const run = (t: WorkerTessellator, req: TessellationRequest) => t.tessellate(req).catch((e: Error) => e);
     const results = await Promise.all(parts.map(async ({ i, p, brep }) => {
-      // The model written as STEP, what both backends read.
+      // The model, what both backends read; written as STEP too, for its entities' types (and the dump).
       const w = stepPartBytes(brep.model);
-      const req: TessellationRequest = { format: 'step', data: w.data, rootId: w.rootId, origin: p.origin,
-        linearDeflection: TOL_MM / p.unit, angularDeflection: 0.5, edges: true };
+      const req: TessellationRequest = { format: 'cad-brep', data: new Uint8Array(brep.model.buffer), origin: p.origin,
+        linearDeflection: TOL_MM, angularDeflection: 0.5, edges: true };
       const [a, b] = await Promise.all([run(truck, req), run(occt, req)]);
-      return { i, req, a, b, repId: p.sources[0]!.id };
+      return { i, req, w, a, b, repId: p.sources[0]!.id };
     }));
     const meshes = { truck: new Map<number, R>(), occt: new Map<number, R>() };
-    for (const { i, req, a, b, repId } of results) {
+    for (const { i, req, w, a, b, repId } of results) {
       totals.parts++;
       const where = `${name} #${repId}`;
       if (b instanceof Error || !b.indices.length) { totals.occtEmpty++; continue; }
@@ -348,7 +348,7 @@ export const check: FileCheck<undefined, Tallies> = {
         if (bucket === '5%' || bucket === 'worse') problems.push(`area ${ratio.toFixed(4)} x OCCT's`);
         const flipped = flippedFaces(a, b);
         // Per face and per edge, by type.
-        const ins = instances(new TextDecoder('latin1').decode(req.data));
+        const ins = instances(new TextDecoder('latin1').decode(w.data));
         const faceArea = (r: R) => { const m = new Map<number, number>();
           for (const fc of r.faces) {
             if (fc.entityId !== null) m.set(fc.entityId, (m.get(fc.entityId) ?? 0) + area(r, fc));
@@ -417,8 +417,6 @@ export const check: FileCheck<undefined, Tallies> = {
           problems.push(`${flipped.length} faces facing opposite to OCCT's: `
           + `${flipped.slice(0, 5).map((x) => `#${x}`).join(', ')}`); }
         // Workarounds.
-        const fixed = num(a, /^(\d+) AXIS2_PLACEMENT_3Ds/);
-        totals.placementsFixed += fixed; if (fixed) totals.partsPlacementsFixed++;
         const reversed = a.diagnostics.filter((d) => /^shell #\d+ reversed/.test(d.message));
         totals.shellsReversed += reversed.length;
         if (reversed.length) problems.push(reversed.map((d) => d.message).join('; '));
@@ -428,11 +426,8 @@ export const check: FileCheck<undefined, Tallies> = {
         totals.facesLoopFlipped += num(a, /^(\d+) faces reversed, since truck meshed them against all their loops/);
       }
       if (!(a instanceof Error)) {
-        totals.curves3d += num(a, /^(\d+) SURFACE_CURVEs read/); totals.tori += num(a,
-          /^(\d+) TOROIDAL_SURFACEs/); totals.cones += num(a, /^(\d+) CONICAL_SURFACE semi-angles/);
         totals.nanEdges += num(a, /^(\d+) edges whose curves truck evaluates to NaN/); totals.nanFaces += num(a,
           /^(\d+) faces whose surfaces truck evaluates to NaN/);
-        totals.unread += num(a, /^(\d+) instances truck's parser can't read/);
         const clamped = new RegExp('^B-splines with unclamped knot vectors clamped .*: (\\d+) edge curves, (\\d+) '
           + 'face surfaces$').exec(
           a.diagnostics.find((d) => /^B-splines with unclamped/.test(d.message))?.message ?? '');
@@ -441,7 +436,7 @@ export const check: FileCheck<undefined, Tallies> = {
       if (status === 'ok' && !problems.some((x) => /missing|off OCCT's geometry/.test(x))) totals.partsComplete++;
       if (problems.length) {
         rows.push(`${where}: ${problems.join(' | ')}`);
-        if (dump) fs.writeFileSync(path.join(dump, `${path.basename(name)}.${req.rootId}.stp`), req.data);
+        if (dump) fs.writeFileSync(path.join(dump, `${path.basename(name)}.${w.rootId}.stp`), w.data);
       }
     }
     // The validation property, for files with one root.
@@ -519,10 +514,8 @@ if (import.meta.main) {
   console.log(`  orientation: ${T.facesFlipped} faces in ${T.partsFlipped} parts facing opposite to OCCT's`);
   console.log(`  complete and on OCCT's geometry (truck ok, no face missing or off): `
     + `${pct(T.partsComplete, T.compared)} parts`);
-  console.log(`  workarounds: ${T.placementsFixed} placements fixed in ${T.partsPlacementsFixed} parts; ${T.curves3d} `
-    + `surface curves read by their 3D curve; ${T.tori} tori with negative radii; ${T.cones} cone angles converted to `
-    + `radians; ${T.unread} unreadable instances left out`);
-  console.log(`    ${T.clampedEdges} edge curves and ${T.clampedFaces} face surfaces clamped; ${T.nanEdges} edges and `
+  console.log(`  workarounds: ${T.clampedEdges} edge curves and ${T.clampedFaces} face surfaces clamped; `
+    + `${T.nanEdges} edges and `
     + `${T.nanFaces} faces evaluating to NaN left out; ${T.facesLoopFlipped} faces reversed to their loops`);
   console.log(`    ${T.shellsReversed} shells reversed; solid shells not checked: ${T.shellsOpen} open meshes, `
     + `${T.shellsInconsistent} with faces disagreeing, ${T.shellsUnclear} with unclear volumes`);

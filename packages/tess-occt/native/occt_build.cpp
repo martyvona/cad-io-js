@@ -1336,7 +1336,6 @@ BuiltPart buildPart(const uint8_t* buf, size_t len)
   const double unc = b.r.rows(CBR_PART_UNCERTAINTY) ? b.r.f64(CBR_PART_UNCERTAINTY)[0] : NAN;
   // Built at 1e-7, as the STEP translator builds; the uncertainty (else NaN) is healing's.
   b.tol = 1e-7;
-  out.unit = b.r.rows(CBR_PART_UNIT) ? b.r.f64(CBR_PART_UNIT)[0] : 1.0;
   out.uncertainty = std::isfinite(unc) && unc > 0 ? unc : NAN;
   if (std::isfinite(out.uncertainty))
     b.precision = out.uncertainty;

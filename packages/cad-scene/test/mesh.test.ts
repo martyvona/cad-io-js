@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { tagged, tagOf } from './models.ts';
-import { dropDegenerate, faceFailures, INSIDE_OUT, manifoldProblems, orientShells,
-  tessellateScene, weld, type FaceMeasures, type Mesh, type Scene, type TessellationRequest, type TessellationResult,
-  type Tessellator } from '../src/index.ts';
+import { dropDegenerate, faceFailures, INSIDE_OUT, manifoldProblems, orientShells, scaleMesh, scalePart,
+  tessellateScene, weld, type FaceMeasures, type Mesh, type Part, type Scene, type TessellationRequest,
+  type TessellationResult, type Tessellator } from '../src/index.ts';
 
 // A box's corners and faces, each counter-clockwise seen from outside.
 const CORNERS = [[0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0], [0, 0, 1], [1, 0, 1], [0, 1, 1], [1, 1, 1]];
@@ -324,4 +324,34 @@ test('faceFailures with measures: partly, excess, unverified and failed by the f
   assert.equal(judge([[1, { area: 100, perimeter: 40 }]], twice).get(1), 'excess');
   assert.equal(judge([[1, { area: 100, perimeter: 40, uses: 2 }]], twice).get(1), undefined);
   assert.equal(judge([[1, { area: 100, perimeter: 40, uses: 2 }]]).get(1), 'partly');
+});
+
+test('scaleMesh: positions of every kind, origin and box times k, normals and the rest as they are; scalePart', () => {
+  const m: Mesh = { origin: [1, -2, 3], box: { min: [-1, -1, 0], max: [2, 1, 1] },
+    positions: Float32Array.of(0, 0, 0, 1, 0, 0, 0, 1, 0), normals: Float32Array.of(0, 0, 1, 0, 0, 1, 0, 0, 1),
+    indices: Uint32Array.of(0, 1, 2), faces: [{ source: 4, start: 0, count: 3 }],
+    edgePositions: Float32Array.of(0, 0, 0, 1, 0, 0), edges: [{ source: 5, start: 0, count: 2, kind: 'free' }],
+    curvePositions: Float32Array.of(2, 0, 0, 2, 1, 0), curves: [{ source: 6, start: 0, count: 2 }],
+    points: Float32Array.of(-1, 1, 0.5), pointSources: [7],
+    faceOutlinePositions: Float32Array.of(0, 0, 0, 0, 1, 0), faceOutlines: [{ source: 4, start: 0, count: 2 }] };
+  const s = scaleMesh(m, 10);
+  assert.deepEqual(s.origin, [10, -20, 30]);
+  assert.deepEqual(s.box, { min: [-10, -10, 0], max: [20, 10, 10] });
+  for (const k of ['positions', 'edgePositions', 'curvePositions', 'points', 'faceOutlinePositions'] as const) {
+    assert.deepEqual(Array.from(s[k]!), Array.from(m[k]!, (x) => x * 10), k);
+  }
+  assert.equal(s.normals, m.normals);
+  assert.equal(s.indices, m.indices);
+  assert.deepEqual([s.faces, s.edges, s.curves, s.pointSources, s.faceOutlines],
+    [m.faces, m.edges, m.curves, m.pointSources, m.faceOutlines]);
+  assert.equal(scaleMesh(m, 1), m);
+  // A part: its origin, its levels' meshes, its measures (areas times k^2, perimeters times k); deflections not.
+  const part: Part = { name: 'p', sources: [], properties: {}, origin: [5, 0, -1],
+    lods: [{ mesh: m, from: 'source', linearDeflection: 0.1 }],
+    measures: { by: 't', faces: new Map([[4, { area: 2, perimeter: 3, valid: true, uses: 2 }]]) } };
+  scalePart(part, 10);
+  assert.deepEqual(part.origin, [50, 0, -10]);
+  assert.deepEqual(part.lods[0]!.mesh.origin, [10, -20, 30]);
+  assert.equal(part.lods[0]!.linearDeflection, 0.1);
+  assert.deepEqual(part.measures!.faces.get(4), { area: 200, perimeter: 30, valid: true, uses: 2 });
 });

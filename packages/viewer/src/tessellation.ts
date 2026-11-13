@@ -99,8 +99,8 @@ export class Tessellation {
         const pool = new PoolTessellator(
           () => webWorkerHandle(new Worker(new URL('./tess-worker.ts', import.meta.url), { type: 'module' })),
           { backend: BACKENDS[b], workers, timeoutMs: Math.max(0, timeout) * 1000 });
-        // truck reads STEP: each part's B-rep model written as STEP, after the cache (which keys on the model); OCCT
-        // and SMLib take models, passed through.
+        // (Every backend here takes models, which StepTessellator passes through, adding the open-edge error and the
+        // oracle's areas; OCCT's STEP route would get them written as STEP. After the cache, which keys on the model.)
         const step = new StepTessellator(pool);
         const cached = store && new CachedTessellator(step, store);
         if (cached) caches.push(cached);

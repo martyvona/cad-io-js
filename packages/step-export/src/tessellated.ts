@@ -2,7 +2,7 @@
 // it: each source face a TRIANGULATED_FACE (its source id kept where free, ranges of one face together), in a
 // TESSELLATED_SOLID where the part is closed, else a TESSELLATED_SHELL; curves a TESSELLATED_CURVE_SET each, points
 // one TESSELLATED_POINT_SET each; a TESSELLATED_SHAPE_REPRESENTATION (with accuracy parameters where the level has its
-// deflections) in the part's unit. Each face has its own COORDINATES_LIST: one list for a whole part would be one
+// deflections) in the unit asked for. Each face has its own COORDINATES_LIST: one list for a whole part would be one
 // instance, so one string, of up to millions of numbers. Positions are the mesh's plus its origin, in double
 // precision. The mesh's edges in the shell or solid, as the CAx-IF practice has them (section 5.4.2): an edge between
 // two faces (a seam: one face twice) a TESSELLATED_CONNECTING_EDGE on its faces' coordinates lists (face1's its own),
@@ -38,6 +38,8 @@ export interface StepMeshOptions {
   id?: number;
   /** Faces of a B-rep the mesh is of: each face's geometric link, by its source id. */
   links?: Map<number, number>;
+  /** The length unit written, in millimetres per unit. Default 1. */
+  unit?: number;
 }
 
 /** A level of a part as a tessellated shape representation. */
@@ -48,9 +50,10 @@ export function stepMesh(part: Part, lod: Lod, opts: StepMeshOptions): StepMesh 
   const emit = (id: number, type: string, attrs: Value[]) => { out.push({ id, type, attrs }); return id; };
   const fresh = () => ids.fresh();
   const rootId = opts.id !== undefined ? ids.claim(opts.id) : fresh(), contextId = fresh();
-  const o = mesh.origin;
+  const o = mesh.origin, U = opts.unit ?? 1;
   const coords = (xs: ArrayLike<number>, at: number[]) => emit(fresh(), 'COORDINATES_LIST', [str(), int(at.length),
-    list(at.map((v) => list([0, 1, 2].map((k) => real(xs[3 * v + k]! + o[k]!)))))]);
+    list(at.map((v) => list([0, 1, 2].map((k) => real(U === 1 ? xs[3 * v + k]! + o[k]!
+      : (xs[3 * v + k]! + o[k]!) / U)))))]);
 
   // Faces: the ranges of each source face together, in the order they first appear.
   const faceIds = new Map<number, number>();
@@ -152,10 +155,10 @@ export function stepMesh(part: Part, lod: Lod, opts: StepMeshOptions): StepMesh 
     ref(emit(fresh(), 'DIRECTION', [str(), list([0, 0, 1].map(real))])),
     ref(emit(fresh(), 'DIRECTION', [str(), list([1, 0, 0].map(real))]))]);
   items.push(origin);
-  out.push(...stepContext(ids, contextId, part.unit));
+  out.push(...stepContext(ids, contextId, U));
   const accuracy: Value[] = [];
   if (lod.linearDeflection !== undefined) accuracy.push({ k: 'typed', type: 'CHORDAL_DEVIATION',
-    v: real(lod.linearDeflection / part.unit) });
+    v: real(lod.linearDeflection / U) });
   if (lod.angularDeflection !== undefined) accuracy.push({ k: 'typed', type: 'ANGULAR_DEVIATION',
     v: real(lod.angularDeflection) });
   const head = [str(opts.name ?? part.name), list(items.map(ref)), ref(contextId)];

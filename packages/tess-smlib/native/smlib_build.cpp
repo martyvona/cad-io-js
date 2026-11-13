@@ -2100,6 +2100,9 @@ BuiltPart::~BuiltPart()
   for (auto& b : breps) delete b.brep;
 }
 
+// SMLib's zone tolerance for a part without an uncertainty, in millimetres (SMLib's default).
+static const double DEFAULT_TOLERANCE = 1e-5;
+
 // The part's row ids and zone tolerance, into out; false if the buffer isn't a model.
 static bool openPart(const uint8_t* buf, size_t len, Model& m, BuiltPart& out, double& tol)
 {
@@ -2107,7 +2110,7 @@ static bool openPart(const uint8_t* buf, size_t len, Model& m, BuiltPart& out, d
     out.error = "not a cad-brep buffer of this version";
     return false;
   }
-  const double unit = CBR_F64(m.v[CBR_PART_UNIT])[0], uncertainty = CBR_F64(m.v[CBR_PART_UNCERTAINTY])[0];
+  const double uncertainty = CBR_F64(m.v[CBR_PART_UNCERTAINTY])[0];
   int nf = (int)m.rows(CBR_FACE_SURFACE);
   out.faceIds.resize(nf);
   for (int f = 0; f < nf; f++) out.faceIds[f] = m.faceId(f);
@@ -2125,8 +2128,8 @@ static bool openPart(const uint8_t* buf, size_t len, Model& m, BuiltPart& out, d
         if (e >= 0 && e < ne) out.edgeFaces[e].push_back(f);
       }
     }
-  // The part's uncertainty as SMLib's zone tolerance; without one, 1e-5 of SMLib's default in millimetres.
-  tol = std::isnan(uncertainty) || !(uncertainty > 0) ? 1e-5 / unit : uncertainty;
+  // The part's uncertainty as SMLib's zone tolerance; without one, SMLib's default (the model's millimetres).
+  tol = std::isnan(uncertainty) || !(uncertainty > 0) ? DEFAULT_TOLERANCE : uncertainty;
   return true;
 }
 
@@ -2137,8 +2140,10 @@ static void scaleModel(Model& m, double s)
 {
   auto f64 = [&](int c) { return const_cast<double*>(CBR_F64(m.v[c])); };
   auto times = [&](double* p, size_t n) { for (size_t i = 0; i < n; i++) p[i] *= s; };
-  f64(CBR_PART_UNIT)[0] /= s;
-  f64(CBR_PART_UNCERTAINTY)[0] *= s;
+  // (Without an uncertainty, the default tolerance the builder would take, so that it scales too.)
+  double& unc = f64(CBR_PART_UNCERTAINTY)[0];
+  if (std::isnan(unc) || !(unc > 0)) unc = DEFAULT_TOLERANCE;
+  unc *= s;
   times(f64(CBR_VERTEX_POINT), m.v[CBR_VERTEX_POINT].count);
   times(f64(CBR_VERTEX_TOLERANCE), m.v[CBR_VERTEX_TOLERANCE].count);
   times(f64(CBR_EDGE_TOLERANCE), m.v[CBR_EDGE_TOLERANCE].count);

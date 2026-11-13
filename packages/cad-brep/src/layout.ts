@@ -1,10 +1,11 @@
 // The layout of a B-rep buffer (BrepData): its tables and columns, the kinds and enumerations, and what each kind keeps
 // in the pools. This file is the format: the builder, the views, validation and the generated C header
 // (include/cad_brep.h, from gen/header.ts) all follow it, so a change here is a change of format (bump MAGIC).
-// The model's rules (Part 42's parameterizations, radians, placements complete, what stays absent): docs/brep-model.md.
+// The model's rules (Part 42's parameterizations, millimetres and radians, placements complete, what stays absent):
+// docs/brep-model.md; which reals are lengths: docs/brep-reference.md.
 
 /** The first four bytes of every buffer; the digit is the format's version. */
-export const MAGIC = 'CBR3';
+export const MAGIC = 'CBR4';
 
 export type ColumnType = 'u8' | 'i32' | 'u32' | 'f64';
 
@@ -17,8 +18,8 @@ export type ColumnType = 'u8' | 'i32' | 'u32' | 'f64';
  * give them.
  */
 export const TABLES = {
-  /** One row: the part's length unit in millimetres, and its uncertainty in that unit (NaN: none). */
-  part: [['unit', 'f64', 1], ['uncertainty', 'f64', 1]],
+  /** One row: the part's uncertainty in millimetres (NaN: none). Every length in the buffer is in millimetres. */
+  part: [['uncertainty', 'f64', 1]],
   pool: [['curveReal', 'f64', 1], ['curveInt', 'i32', 1], ['surfaceReal', 'f64', 1], ['surfaceInt', 'i32', 1],
     ['loopInt', 'i32', 1], ['itemReal', 'f64', 1]],
   /** Curves, 3D or 2D (p-curves' geometry): `dim` 2 or 3; reals and ints by kind (CURVE_LAYOUTS). */

@@ -363,7 +363,7 @@ const degenerate = (): Scene => {
     components: [{ name: 'c', sources: [], properties: {}, parts: [{ part: 0, transform: identity() }],
       children: [] }],
     roots: [{ component: 0, transform: identity(), sources: [], properties: {} }],
-    parts: [{ name: 'p', sources: [], properties: {}, unit: 1, origin: [0, 0, 0], lods: [] }] };
+    parts: [{ name: 'p', sources: [], properties: {}, origin: [0, 0, 0], lods: [] }] };
   addLod(s.parts[0]!, { from: 'source', mesh: { origin: [0, 0, 0],
     positions: Float32Array.of(0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0),
     indices: Uint32Array.of(0, 1, 2, 0, 2, 3, 0, 2, 4),
@@ -386,32 +386,31 @@ test('triangles with two corners at one position dropped from the file\'s meshes
   }
 });
 
-/** The degenerate-triangle scene's part measured, in inches, its level with its settings: as a backend leaves it. */
+/** The degenerate-triangle scene's part measured, its level with its settings: as a backend leaves it. */
 const measured = (): Scene => {
   const s = degenerate();
   const p = s.parts[0]!;
-  p.unit = 25.4;
   p.measures = { by: 'OCCT test', faces: new Map([[5, { area: 1, perimeter: 4, valid: true }],
     [6, { area: 0.25, perimeter: 2.5, valid: false, uses: 2 }]]) };
   Object.assign(p.lods[0]!, { from: 'tessellated', linearDeflection: 0.1, angularDeflection: 0.25,
     backend: 'OCCT test' });
   return s;
 };
-const measuresOf = (s: Scene) => ({ unit: s.parts[0]!.unit, measures: s.parts[0]!.measures,
+const measuresOf = (s: Scene) => ({ measures: s.parts[0]!.measures,
   level: (({ linearDeflection, angularDeflection, backend }) => ({ linearDeflection, angularDeflection, backend }))(
     s.parts[0]!.lods[0]!) });
-const WRITTEN = { unit: 25.4, measures: { by: 'OCCT test', faces: new Map([[5, { area: 1, perimeter: 4, valid: true }],
+const WRITTEN = { measures: { by: 'OCCT test', faces: new Map([[5, { area: 1, perimeter: 4, valid: true }],
   [6, { area: 0.25, perimeter: 2.5, valid: false, uses: 2 }]]) },
   level: { linearDeflection: 0.1, angularDeflection: 0.25, backend: 'OCCT test' } };
 
-test('our extras carry a part\'s measures, its level\'s settings and its unit back; without extras, none', async () => {
+test('our extras carry a part\'s measures and its level\'s settings back; without extras, none', async () => {
   const s = measured();
   for (const compression of ['none', 'draco', 'meshopt'] as const) for (const instancing of [false, true]) {
     const { bytes } = await glb(s, exportView(s), { extras: true, compression, instancing });
     assert.deepEqual(measuresOf((await importGltf(bytes)).scene), WRITTEN, `${compression} ${instancing}`);
   }
   const plain = (await importGltf((await glb(s, exportView(s), { compression: 'none' })).bytes)).scene.parts[0]!;
-  assert.deepEqual([plain.measures, plain.unit, plain.lods[0]!.linearDeflection], [undefined, 1, undefined]);
+  assert.deepEqual([plain.measures, plain.lods[0]!.linearDeflection], [undefined, undefined]);
   // A part placed several times, written as one GPU-instanced node: its measures with it. (Every instance visible,
   // so the plate is instanced: three placements of one look.)
   const t = scene();
@@ -522,4 +521,60 @@ test('a glTF node matrix with a shear (glTF doesn\'t allow one): said, read with
     'rotation and scale): read without it',
     'node 1: its matrix has a shear, which glTF doesn\'t allow (a node\'s matrix must be a translation, rotation and ' +
     'scale): read without it']);
+});
+
+/**
+ * Where visibly placed mesh vertices are in the world, to 1e-6 mm, once each, sorted (`k`: a factor every coordinate
+ * is taken by). (Once each: a reader may split vertices between primitives.)
+ */
+const worldPoints = (sc: Scene, k = 1) => [...new Set([...partInstances(sc)].flatMap((pi) => {
+  const mesh = sc.parts[pi.part]!.lods[0]?.mesh;
+  if (!mesh || !pi.visible) return [];
+  const m = pi.transform, o = mesh.origin, p = mesh.positions, out: string[] = [];
+  for (let v = 0; v < p.length; v += 3) {
+    const x = p[v]! + o[0], y = p[v + 1]! + o[1], z = p[v + 2]! + o[2];
+    out.push([m[0]! * x + m[4]! * y + m[8]! * z + m[12]!, m[1]! * x + m[5]! * y + m[9]! * z + m[13]!,
+      m[2]! * x + m[6]! * y + m[10]! * z + m[14]!].map((c) => (Math.round(c * k * 1e6) / 1e6 + 0).toFixed(6))
+      .join(' '));
+  }
+  return out;
+}))].sort();
+
+test('a unit other than metres: the top nodes turned into it; ours read back as written, others take it for metres',
+  async () => {
+  const s = scene();
+  const want = worldPoints(s);
+  for (const unit of [1, 25.4]) {
+    for (const compression of ['none', 'draco'] as const) {
+      const { bytes } = await glb(s, exportView(s), { unit, extras: true, compression });
+      const got = worldPoints((await importGltf(bytes)).scene);
+      if (compression === 'none') assert.deepEqual(got, want, `${unit}`);
+      else {
+        // (Draco quantizes positions, 14 bits over the plate's 25.4 mm: each point within 0.01 mm of one wanted.)
+        const pts = (xs: string[]) => xs.map((x) => x.split(' ').map(Number));
+        const w = pts(want);
+        for (const p of pts(got)) {
+          assert.ok(w.some((q) => Math.hypot(p[0]! - q[0]!, p[1]! - q[1]!, p[2]! - q[2]!) < 0.01), `${unit}: ${p}`);
+        }
+        assert.ok(got.length >= w.length, `${unit} draco`);
+      }
+    }
+    // Without our extras, read as any glTF is: in metres, so the model 1000 / unit times its size.
+    const { bytes } = await glb(s, exportView(s), { unit, compression: 'none' });
+    const plain = (await importGltf(bytes)).scene;
+    assert.deepEqual(worldPoints(plain), worldPoints(s, 1000 / unit), `${unit}`);
+    const json = JSON.parse(new TextDecoder().decode(bytes.subarray(20, 20 + new DataView(bytes.buffer,
+      bytes.byteOffset).getUint32(12, true)))) as { nodes: { matrix?: number[]; scale?: number[] }[];
+      scenes: { nodes: number[] }[] };
+    // The top node's scale: 1 / unit (a matrix's first column's length, else its TRS scale).
+    const top = json.nodes[json.scenes[0]!.nodes[0]!]!;
+    const scale = top.matrix ? Math.hypot(top.matrix[0]!, top.matrix[1]!, top.matrix[2]!) : top.scale?.[0] ?? 1;
+    assert.ok(Math.abs(scale - 1 / unit) < 1e-7 / unit, `${unit}: ${JSON.stringify(top)}`);
+  }
+  // The default is metres: no fileUnit in our extras.
+  const { bytes } = await glb(s, exportView(s), { extras: true, compression: 'none' });
+  const json = JSON.parse(new TextDecoder().decode(bytes.subarray(20, 20 + new DataView(bytes.buffer,
+    bytes.byteOffset).getUint32(12, true)))) as { scenes: { extras: Record<string, unknown> }[] };
+  assert.equal(json.scenes[0]!.extras.fileUnit, undefined);
+  await assert.rejects(glb(s, exportView(s), { unit: -1 }), /unit -1/);
 });

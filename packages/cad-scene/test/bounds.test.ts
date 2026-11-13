@@ -14,16 +14,16 @@ const translate = (x: number, y: number, z: number, s = 1): Mat4 => {
 const mesh = (positions: number[], origin: Vec3 = [0, 0, 0]): Mesh => ({ origin,
   positions: Float32Array.from(positions), indices: Uint32Array.from({ length: positions.length / 3 }, (_, i) => i),
   faces: [] });
-const part = (o: Partial<Part> = {}): Part => ({ name: 'p', sources: [], properties: {}, unit: 1, origin: [0, 0, 0],
+const part = (o: Partial<Part> = {}): Part => ({ name: 'p', sources: [], properties: {}, origin: [0, 0, 0],
   lods: [], ...o });
-// Part 0 placed at the root twice (x 0 and x 100) by component 0; part 1 once in component 1 (y 50), from inches.
+// Part 0 placed at the root twice (x 0 and x 100) by component 0; part 1 once in component 1 (y 50).
 function scene(parts: Part[]): Scene {
   return { unit: 'millimetre', materials: [], layers: [], overrides: [], properties: {}, diagnostics: [], parts,
     components: [
       { name: 'a', sources: [], properties: {}, parts: [{ part: 0, transform: identity() },
         { part: 0, transform: translate(100, 0, 0) }], children: [{ component: 1, transform: translate(0, 50, 0),
         sources: [], properties: {} }] },
-      { name: 'b', sources: [], properties: {}, parts: [{ part: 1, transform: translate(0, 0, 0, 25.4),
+      { name: 'b', sources: [], properties: {}, parts: [{ part: 1, transform: translate(0, 0, 0),
         visible: false }],
         children: [] }],
     roots: [{ component: 0, transform: identity(), sources: [], properties: {} }] };
@@ -81,10 +81,10 @@ test('boxesSphere: the corners placed, the centre their box\'s middle, the radiu
 });
 
 test('sceneBounds: every placement (hidden too), meshes where boxed, else vertex boxes (estimated)', () => {
-  // Part 0 a mesh from 0 to 2 on x, its origin 1 on x; part 1 only a B-rep whose vertices span y 0..4 (unit inch).
+  // Part 0 a mesh from 0 to 2 on x, its origin 1 on x; part 1 only a B-rep whose vertices span y 0..101.6 (4 inches).
   const p0 = part({ lods: [{ mesh: mesh([-1, 0, 0, 1, 0, 0, 0, 0, 0], [1, 0, 0]), from: 'source' }] });
-  const p1 = part({ unit: 25.4, brep: { format: 'step', model: tagged(),
-    vertexBox: { min: [0, 0, 0], max: [0, 4, 0] } } });
+  const p1 = part({ brep: { format: 'step', model: tagged(),
+    vertexBox: { min: [0, 0, 0], max: [0, 101.6, 0] } } });
   const s = scene([p0, p1]);
   // No boxes yet: part 0's mesh has none, so only part 1 counts.
   const before = sceneBounds(s)!;

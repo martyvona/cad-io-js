@@ -149,8 +149,6 @@ export type Item = Row & { transform?: Transform } & (
 );
 
 export interface PartInfo {
-  /** The part's length unit in millimetres. */
-  unit: number;
-  /** The source's uncertainty, in the part's unit. */
+  /** The source's uncertainty, in millimetres. */
   uncertainty?: number;
 }

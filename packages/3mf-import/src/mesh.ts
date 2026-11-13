@@ -7,7 +7,8 @@
 //     surfaces shade smooth and edges sharper than the angle stay sharp (decision 3; as three.js's
 //     toCreasedNormals, but corners with the same normal keep sharing a vertex); vertices at one position count as
 //     one (a writer that gives each triangle its own vertices still shades smooth);
-//   positions relative to the centre of the box of the vertices the triangles use, subtracted in double precision.
+//   positions in millimetres, relative to the centre of the box of the vertices the triangles use, scaled and
+//     subtracted in double precision.
 
 import { weld, type Mesh, type Vec3 } from 'cad-scene';
 
@@ -20,8 +21,8 @@ export interface RawMesh {
   properties: Uint32Array;
 }
 
-/** The scene mesh, and each face's property (by index into the object's list). */
-export function buildMesh(raw: RawMesh, creaseAngle: number): { mesh: Mesh; faceProperties: number[] } {
+/** The scene mesh, in millimetres (`unit`: millimetres per the file's), and each face's property (by index). */
+export function buildMesh(raw: RawMesh, creaseAngle: number, unit = 1): { mesh: Mesh; faceProperties: number[] } {
   const { vertices: v, triangles: tri, properties: prop } = raw;
   const n = tri.length / 3;
 
@@ -45,10 +46,10 @@ export function buildMesh(raw: RawMesh, creaseAngle: number): { mesh: Mesh; face
     const a = 3 * tri[i]!;
     for (let k = 0; k < 3; k++) { const x = v[a + k]!; if (x < lo[k]!) lo[k] = x; if (x > hi[k]!) hi[k] = x; }
   }
-  const origin: Vec3 = n ? [(lo[0]! + hi[0]!) / 2, (lo[1]! + hi[1]!) / 2, (lo[2]! + hi[2]!) / 2] : [0, 0, 0];
+  const origin: Vec3 = n ? [0, 1, 2].map((k) => (lo[k]! + hi[k]!) / 2 * unit) as Vec3 : [0, 0, 0];
   const local = new Float32Array(v.length);
   for (let i = 0; i < v.length; i += 3) {
-    for (let k = 0; k < 3; k++) local[i + k] = v[i + k]! - origin[k]!;
+    for (let k = 0; k < 3; k++) local[i + k] = v[i + k]! * unit - origin[k]!;
   }
 
   // Each triangle's unit normal and its angle at each corner (in doubles, from the file's positions).

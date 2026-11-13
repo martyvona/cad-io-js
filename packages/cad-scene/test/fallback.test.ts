@@ -208,7 +208,7 @@ test('fallback: info joins both; timeout the primary\'s; dispose both; tessellat
   assert.equal(t.timeoutMs, 1000);
   assert.equal(new FallbackTessellator(fake('a', sound), fake('a', sound)).info.license, 'A');
   const scene: Scene = { unit: 'millimetre', components: [], roots: [], materials: [], layers: [], overrides: [],
-    properties: {}, diagnostics: [], parts: [{ name: 'p', sources: [{ format: 'step', id: 7 }], properties: {}, unit: 1,
+    properties: {}, diagnostics: [], parts: [{ name: 'p', sources: [{ format: 'step', id: 7 }], properties: {},
       origin: [0, 0, 0], lods: [], brep: { format: 'step', model } }] };
   const r = await tessellateScene(scene, t);
   assert.equal(scene.parts[0]!.lods[0]!.backend, 'b 1');

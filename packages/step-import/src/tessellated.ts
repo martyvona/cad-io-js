@@ -67,11 +67,12 @@ interface FaceData {
 }
 
 /**
- * Read tessellated items into a mesh in their representation's unit, less its own origin (the centre of the points'
- * box). `faceSource(p)` gives a face's source id (default: the face's own id). Problems go to `warn`.
+ * Read tessellated items into a mesh in millimetres (`length`: millimetres per the representation's unit), less its
+ * own origin (the centre of the points' box). `faceSource(p)` gives a face's source id (default: the face's own id).
+ * Problems go to `warn`.
  */
 export function readTessellated(r: Reader, items: number[], warn: (message: string, p: number) => void,
-  faceSource: (p: number) => number = (p) => r.id(p)): TessellatedMesh {
+  faceSource: (p: number) => number = (p) => r.id(p), length = 1): TessellatedMesh {
   const coordsCache = new Map<number, Float64Array>();
   const coordsOf = (p: number): Float64Array => {
     let c = coordsCache.get(p);
@@ -97,9 +98,10 @@ export function readTessellated(r: Reader, items: number[], warn: (message: stri
     anyFace = true;
   };
 
+  // A point placed (in the file's unit, as placements' translations are), then in millimetres.
   const apply = (m: Mat4 | undefined, x: number, y: number, z: number): number[] => (m ? [
     m[0]! * x + m[4]! * y + m[8]! * z + m[12]!, m[1]! * x + m[5]! * y + m[9]! * z + m[13]!,
-    m[2]! * x + m[6]! * y + m[10]! * z + m[14]!] : [x, y, z]);
+    m[2]! * x + m[6]! * y + m[10]! * z + m[14]!] : [x, y, z]).map((c) => c * length);
   const rotate = (m: Mat4 | undefined, n: number[]): number[] => (m ? [m[0]! * n[0]! + m[4]! * n[1]! + m[8]! * n[2]!,
     m[1]! * n[0]! + m[5]! * n[1]! + m[9]! * n[2]!, m[2]! * n[0]! + m[6]! * n[1]! + m[10]! * n[2]!] : n);
   // A point of a coordinates list by its 1-based index, placed; undefined (with a warning) when out of range.

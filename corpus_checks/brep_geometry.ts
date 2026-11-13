@@ -82,7 +82,7 @@ export const check: FileCheck<undefined, Result> = {
       if (!m0) continue;
       R.parts++;
       const where = `${name} #${part.sources[0]!.id}`;
-      const d = plantIn(m0, plantedPart(where)), mm = d.part.unit[0]!, isPlanted = d !== m0;
+      const d = plantIn(m0, plantedPart(where)), isPlanted = d !== m0;
       if (isPlanted) { R.planted++; R.plantedAt.push(where); }
       const curves = new Map<number, CurveEvaluator | undefined>(), surfaces = new Map<number, SurfaceEvaluator |
         undefined>();
@@ -90,8 +90,8 @@ export const check: FileCheck<undefined, Result> = {
         curves);
       const vtx = (v: number) => Array.from(d.vertex.point.subarray(3 * v, 3 * v + 3));
       const off = (h: Hist, x: number, at: string) => {
-        record(h, x * mm, at);
-        if (isPlanted && x * mm > 1e-3) caught.add(where);
+        record(h, x, at);
+        if (isPlanted && x > 1e-3) caught.add(where);
       };
 
       // Vertices on their edges' curves.

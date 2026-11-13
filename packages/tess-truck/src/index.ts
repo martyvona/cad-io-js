@@ -1,6 +1,7 @@
 // The truck tessellation backend: implements cad-scene's Tessellator over the WebAssembly build of native/ (build
-// with ./build.sh). truck panics on some inputs; a panic traps the module, so the instance is replaced and the
-// request returns an error diagnostic. truck can also hang: run it in tess-workers' pool for a timeout.
+// with ./build.sh), taking a part's model (native/src/model.rs). truck panics on some
+// inputs; a panic traps the module, so the instance is replaced and the request returns an error diagnostic. truck
+// can also hang: run it in tess-workers' pool for a timeout.
 
 import type { Diagnostic, EdgeKind, TessellationRequest, TessellationResult, Tessellator,
   TessellatorInfo } from 'cad-scene';
@@ -11,8 +12,7 @@ interface Exports {
   tess_init(): void;
   tess_alloc(len: number): number;
   tess_dealloc(ptr: number, len: number): void;
-  tess_run(ptr: number, len: number, root: number, tol: number, ox: number, oy: number, oz: number,
-    edges: number): number;
+  tess_run_model(ptr: number, len: number, tol: number, ox: number, oy: number, oz: number, edges: number): number;
   tess_ptr(which: number): number;
   tess_len(which: number): number;
   tess_free(): void;
@@ -24,13 +24,8 @@ interface Diag {
   unconvertedEdges?: number[];
   unmeshedFaces?: number[];
   skippedItems?: string[];
-  fixedPlacements?: number;
-  curves3d?: number;
-  tori?: number;
-  cones?: number;
   nonfiniteEdges?: number[];
   nonfiniteFaces?: number[];
-  unreadInstances?: number[];
   reversedShells?: [number, boolean][];
   uncheckedShells?: number[];
   inconsistentShells?: number[];
@@ -53,7 +48,8 @@ export const WBINDGEN_IMPORTS: Record<string, string[]> = {
   __wbindgen_externref_xform__: ['__wbindgen_externref_table_set_null', '__wbindgen_externref_table_grow'],
 };
 
-const list = (ids: number[], n = 10) => ids.slice(0, n).map((i) => `#${i}`).join(', ')
+/** Ids as the diagnostics list them (0: a row of the model without one). */
+const list = (ids: number[], n = 10) => ids.slice(0, n).map((i) => (i ? `#${i}` : '(no id)')).join(', ')
   + (ids.length > n ? ', ...' : '');
 
 /**
@@ -91,7 +87,8 @@ export class TruckTessellator implements Tessellator {
   readonly info: TessellatorInfo = {
     // (Our wrapper's license, AGPL-3.0-only, over truck's Apache-2.0: the module as a whole.)
     name: 'truck', version: 'truck 88ed005', license: 'AGPL-3.0-only',
-    formats: ['step'], supportsFaceIds: true, supportsEdges: true, supportsCurves: false,
+    // (Models only: StepTessellator passes them through.)
+    formats: ['cad-brep'], supportsFaceIds: true, supportsEdges: true, supportsCurves: false,
   };
   private module?: WebAssembly.Module;
   private x?: Exports;
@@ -132,12 +129,17 @@ export class TruckTessellator implements Tessellator {
     };
     const instance = new WebAssembly.Instance(this.module!, { ...stubs, env });
     this.x = instance.exports as unknown as Exports;
+    if (!this.x.tess_run_model) {
+      this.x = undefined;
+      throw new Error('tess-truck: the module has no tess_run_model (a build that read STEP only): rebuild it');
+    }
     this.x.tess_init();
   }
 
   async tessellate(req: TessellationRequest): Promise<TessellationResult> {
     if (!this.x) throw new Error('TruckTessellator: call init() first');
-    if (req.format !== 'step') throw new Error(`TruckTessellator: format '${req.format}' isn't supported`);
+    if (req.format !== 'cad-brep') throw new Error(
+      `TruckTessellator: format '${req.format}' isn't taken: models only`);
     const x = this.x;
     const origin = req.origin ?? [0, 0, 0];
     const empty = (diagnostics: Diagnostic[]): TessellationResult => (
@@ -147,7 +149,7 @@ export class TruckTessellator implements Tessellator {
       const ptr = x.tess_alloc(req.data.length);
       new Uint8Array(x.memory.buffer, ptr, req.data.length).set(req.data);
       try {
-        rc = x.tess_run(ptr, req.data.length, req.rootId ?? 0, req.linearDeflection, origin[0], origin[1], origin[2],
+        rc = x.tess_run_model(ptr, req.data.length, req.linearDeflection, origin[0], origin[1], origin[2],
           req.edges ? 1 : 0);
       } finally {
         x.tess_dealloc(ptr, req.data.length);
@@ -170,20 +172,22 @@ export class TruckTessellator implements Tessellator {
       x.tess_free();
       return empty([{ severity: 'error', message: `truck: ${diag.error ?? 'failed'}` }]);
     }
-    const faceData = view(Int32Array, FACES);
+    // (Ids 0 for none.)
+    const id = (x: number) => (x === 0 ? null : x);
+    const faceData = view(Uint32Array, FACES);
     const faces: TessellationResult['faces'] = [];
     for (let i = 0; i < faceData.length; i += 3) faces.push(
-      { entityId: faceData[i]! < 0 ? null : faceData[i]!, start: faceData[i + 1]!, count: faceData[i + 2]! });
+      { entityId: id(faceData[i]!), start: faceData[i + 1]!, count: faceData[i + 2]! });
     const result: TessellationResult = { origin, positions: view(Float32Array, POSITIONS),
       normals: view(Float32Array, NORMALS), indices: view(Uint32Array, INDICES), faces, diagnostics };
     if (req.edges) {
-      const edgeData = view(Int32Array, EDGES);
+      const edgeData = view(Uint32Array, EDGES);
       const angles = view(Float32Array, EDGE_ANGLES);
       result.edgePositions = view(Float32Array, EDGE_POSITIONS);
       result.edges = [];
       for (let i = 0; i < angles.length; i++) {
         const e: NonNullable<TessellationResult['edges']>[number] = {
-          entityId: edgeData[i * 4]! < 0 ? null : edgeData[i * 4]!, start: edgeData[i * 4 + 1]!,
+          entityId: id(edgeData[i * 4]!), start: edgeData[i * 4 + 1]!,
           count: edgeData[i * 4 + 2]!, kind: KINDS[edgeData[i * 4 + 3]!]!,
         };
         if (angles[i]! >= 0) e.dihedral = angles[i]!;
@@ -191,9 +195,6 @@ export class TruckTessellator implements Tessellator {
       }
     }
     x.tess_free();
-    if (diag.unreadInstances?.length) diagnostics.push(
-      { severity: 'warning', message: `${diag.unreadInstances.length} instances truck's parser can't read (left out): `
-      + `${list(diag.unreadInstances)}` });
     if (diag.nonfiniteFaces?.length) diagnostics.push(
       { severity: 'warning', message: `${diag.nonfiniteFaces.length} faces whose surfaces truck evaluates to NaN (left `
       + `out): ${list(diag.nonfiniteFaces)}` });
@@ -218,8 +219,8 @@ export class TruckTessellator implements Tessellator {
       { severity: 'info', message: `${diag.flippedFaces.length} faces reversed, since truck meshed them against all `
       + `their loops: ${list(diag.flippedFaces)}` });
     for (const [id, isVoid] of diag.reversedShells ?? []) diagnostics.push(
-      { severity: 'info', message: `shell #${id} reversed: as written, this ${isVoid ? 'void' : 'outer shell'} faces `
-      + `into the material` });
+      { severity: 'info', message: `shell ${list([id])} reversed: as written, this ${isVoid ? 'void' : 'outer shell'} `
+      + 'faces into the material' });
     if (diag.inconsistentShells?.length) diagnostics.push(
       { severity: 'info', message: `orientation of ${diag.inconsistentShells.length} solid shells not checked, since `
       + `their faces disagree in orientation: ${list(diag.inconsistentShells)}` });
@@ -229,20 +230,9 @@ export class TruckTessellator implements Tessellator {
     if (diag.uncheckedShells?.length) diagnostics.push(
       { severity: 'info', message: `orientation of ${diag.uncheckedShells.length} solid shells not checked, since `
       + `their meshes aren't closed: ${list(diag.uncheckedShells)}` });
-    if (diag.curves3d) diagnostics.push(
-      { severity: 'info', message: `${diag.curves3d} SURFACE_CURVEs read by their 3D curve instead of a pcurve` });
-    if (diag.cones) diagnostics.push(
-      { severity: 'info', message: `${diag.cones} CONICAL_SURFACE semi-angles converted to radians from the context's `
-      + `angle unit` });
-    if (diag.tori) diagnostics.push(
-      { severity: 'info', message: `${diag.tori} TOROIDAL_SURFACEs with negative radii read with their `
-      + `absolute values` });
     if (diag.clampedEdges || diag.clampedFaces) diagnostics.push(
       { severity: 'info', message: `B-splines with unclamped knot vectors clamped to their valid range, which truck `
       + `lacks: ${diag.clampedEdges ?? 0} edge curves, ${diag.clampedFaces ?? 0} face surfaces` });
-    if (diag.fixedPlacements) diagnostics.push(
-      { severity: 'info', message: `${diag.fixedPlacements} AXIS2_PLACEMENT_3Ds along x without a ref_direction given `
-      + `the standard's default (0, 1, 0), which truck lacks` });
     return result;
   }
 

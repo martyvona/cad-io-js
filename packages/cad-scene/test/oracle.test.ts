@@ -13,7 +13,7 @@ const FACES = [21, 22, 23, 24, 25, 26];
 /** A one-part scene of the cube, its measures `measures` if given (as read from one of our exports). */
 function scene(measures?: Scene['parts'][number]['measures']): Scene {
   return { unit: 'millimetre', components: [], roots: [], materials: [], layers: [], overrides: [], properties: {},
-    diagnostics: [], parts: [{ name: 'p', sources: [{ format: 'step', id: 7 }], properties: {}, unit: 1,
+    diagnostics: [], parts: [{ name: 'p', sources: [{ format: 'step', id: 7 }], properties: {},
       origin: [0, 0, 0], lods: [], brep: { format: 'step', model }, ...(measures ? { measures } : {}) }] };
 }
 
@@ -110,7 +110,7 @@ test('the area error names at most 10 faces, in order', () => {
 });
 
 test('the oracle on a disc bounded by two arcs of one circle: each edge its own parameters', () => {
-  const b = new BrepBuilder({ unit: 1 });
+  const b = new BrepBuilder();
   const position = { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] };
   const circle = b.addCurve({ kind: 'circle', position, radius: 2 });
   const v0 = b.addVertex({ point: [2, 0, 0] }), v1 = b.addVertex({ point: [-2, 0, 0] });
@@ -127,7 +127,7 @@ test('the oracle on a disc bounded by two arcs of one circle: each edge its own 
 });
 
 test('the oracle leaves out faces sharing an id (which of them it measured can\'t be told)', () => {
-  const b = new BrepBuilder({ unit: 1 });
+  const b = new BrepBuilder();
   for (const x of [0, 3]) {
     const shell = box(b, [1, 1, 1], [x, 0, 0]);
     b.addItem({ kind: 'body', ref: b.addBody({ kind: 'solid', members: [{ ref: shell, sense: true }] }) });

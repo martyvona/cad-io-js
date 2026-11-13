@@ -582,6 +582,7 @@ test('stepconv: usage errors and failures', async () => {
   await usage([cube, '-o', scratch, '--angular-deflection', 'x'], /--angular-deflection must be a positive number/);
   await usage([cube, '-o', scratch, '--angular-deflection', '181'], /--angular-deflection must be at most 180 degrees/);
   await usage([cube, '-o', scratch, '--fine', '--coarse'], /--coarse, --fine: one meshing profile at most/);
+  await usage([cube, '-o', scratch, '--unit', 'furlong'], /--unit must be one of mm, cm, m, in, ft, not 'furlong'/);
   // Options renamed or removed since 0.1.0 are unknown.
   for (const old of ['--edges', '--curves', '--gltf-no-edges', '--gltf-faces-only', '--gltf-unlit-lines']) {
     await usage([cube, '-o', scratch, old], new RegExp(`Unknown option '${old}'`));
@@ -641,6 +642,25 @@ test('stepconv: STEP, the same as the library, nothing meshed; --step-meshes mes
     assert.ok(back.parts.every((p) => p.brep && p.lods.length === 1 && p.lods[0]!.from === 'source'));
     assert.equal(back.parts[0]!.lods[0]!.linearDeflection, 0.2);
   });
+
+test('stepconv: --unit, as the library writes it; the format\'s default without it', { skip }, async () => {
+  const concat = (cs: Iterable<Uint8Array>) => Buffer.concat([...cs]);
+  const { scene } = await importStep(new Uint8Array(fs.readFileSync(assembly)));
+  const out = path.join(tmp, 'as1-in.stp');
+  const r = await run([assembly, '-o', out, '--unit', 'in', '-j', '0']);
+  assert.equal(r.code, 0, r.stderr);
+  assert.deepEqual(fs.readFileSync(out), concat(exportStep(scene, { name: 'as1-oc-214-mat', unit: 25.4 }).chunks));
+  assert.match(fs.readFileSync(out, 'latin1'), /CONVERSION_BASED_UNIT\('INCH'/);
+  // glTF in millimetres: its top nodes scale by 1 / 1 instead of 1 / 1000.
+  const glbOut = path.join(tmp, 'cube-mm.glb');
+  assert.equal((await run([cube, '-o', glbOut, '--unit', 'mm', '-j', '0', '--gltf-compression', 'none'])).code, 0);
+  const bytes = fs.readFileSync(glbOut);
+  const json = JSON.parse(bytes.subarray(20, 20 + bytes.readUInt32LE(12)).toString('utf8')) as
+    { nodes: { matrix?: number[]; scale?: number[] }[]; scenes: { nodes: number[] }[] };
+  const top = json.nodes[json.scenes[0]!.nodes[0]!]!;
+  const scale = top.matrix ? Math.hypot(top.matrix[0]!, top.matrix[1]!, top.matrix[2]!) : top.scale?.[0] ?? 1;
+  assert.ok(Math.abs(scale - 1) < 1e-9, JSON.stringify(top));
+});
 
 test('stepconv: the bin script', { skip }, () => {
   const out = path.join(tmp, 'bin.json');

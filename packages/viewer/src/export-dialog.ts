@@ -3,7 +3,7 @@
 // (`cad-viewer.export`) for next time.
 
 import { showDialog } from './dialog.ts';
-import type { TransformUse } from 'cad-scene';
+import { LENGTH_UNITS, type TransformUse } from 'cad-scene';
 import { DEFAULT_EXPORT, EXPORT_FORMATS, transformsLost, type ExportFormat, type ExportRequest }
   from './export-formats.ts';
 
@@ -23,6 +23,7 @@ export function rememberedExport(): ExportChoice {
     if (!(base.format in EXPORT_FORMATS)) base.format = DEFAULT_EXPORT.format;
     if (!['draco', 'meshopt', 'none'].includes(base.compression)) base.compression = DEFAULT_EXPORT.compression;
     if (!['ap242', 'ap214'].includes(base.stepSchema)) base.stepSchema = DEFAULT_EXPORT.stepSchema;
+    if (base.unit !== 'default' && !Object.hasOwn(LENGTH_UNITS, base.unit)) base.unit = DEFAULT_EXPORT.unit;
   } catch {
     // (Storage unavailable or unreadable: the defaults.)
   }
@@ -61,6 +62,7 @@ export async function askExport(start: ExportChoice, transforms?: TransformUse):
   const format = document.createElement('select');
   for (const [k, f] of Object.entries(EXPORT_FORMATS)) format.add(new Option(f.label, k));
   format.value = c.format;
+  format.dataset.key = 'format';
   const fl = document.createElement('label');
   fl.textContent = 'Format';
   fl.append(format);
@@ -83,6 +85,7 @@ export async function askExport(start: ExportChoice, transforms?: TransformUse):
   for (const [v, t] of [['draco', 'Draco (KHR_draco_mesh_compression)'], ['meshopt', 'meshopt (EXT_meshopt_compression)'],
     ['none', 'None']]) compression.add(new Option(t, v));
   compression.value = c.compression;
+  compression.dataset.key = 'compression';
   comp.append(compression);
   const bitsRow = document.createElement('label');
   bitsRow.textContent = "Draco's position bits (1 to 30)";
@@ -97,10 +100,27 @@ export async function askExport(start: ExportChoice, transforms?: TransformUse):
     schema.add(new Option(t, v));
   }
   schema.value = c.stepSchema;
+  schema.dataset.key = 'stepSchema';
   schemaRow.append(schema);
   box.append(schemaRow);
+  // The length unit: the format's default (STEP's and 3MF's the source's, glTF's and three.js's metres), or one chosen.
+  const unitRow = document.createElement('label');
+  unitRow.textContent = 'Unit';
+  const unit = document.createElement('select');
+  unit.add(new Option('Default', 'default'));
+  const unitNames: Record<string, string> = { mm: 'millimetre', cm: 'centimetre', m: 'metre', in: 'inch',
+    ft: 'foot' };
+  for (const k of Object.keys(LENGTH_UNITS)) unit.add(new Option(`${unitNames[k] ?? k} (${k})`, k));
+  unit.value = c.unit;
+  unit.dataset.key = 'unit';
+  unitRow.append(unit);
+  const unitNote = document.createElement('p');
+  unitNote.className = 'warning';
+  unitNote.dataset.key = 'unitNote';
+  box.append(unitRow, unitNote);
   const lost = document.createElement('p');
   lost.className = 'warning';
+  lost.dataset.key = 'transformsLost';
   box.append(comp, bitsRow, lost);
   const show = () => {
     const f = EXPORT_FORMATS[c.format];
@@ -110,6 +130,12 @@ export async function askExport(start: ExportChoice, transforms?: TransformUse):
       (when === 'gltf' && f.gltf) || (when === 'gltfFile' && c.format === 'gltf') || (when === 'threemf' && f.threemf)
       || (when === 'meshes' && !f.step) || (when === 'stepMeshes' && f.step && c.stepSchema === 'ap242'));
     schemaRow.hidden = !f.step;
+    const metres = f.gltf || c.format === 'threejs';
+    unit.options[0]!.text = metres ? 'Default: metre (the format\'s)' : 'Default: the source\'s, else millimetre';
+    unitNote.textContent = metres && c.unit !== 'default' && c.unit !== 'm' ? `${f.gltf ? 'glTF' : 'three.js'} `
+      + 'readers take lengths for metres whatever is written: other applications will show the model at the wrong '
+      + 'size.' : '';
+    unitNote.hidden = !unitNote.textContent;
     comp.hidden = !f.gltf;
     bitsRow.hidden = !f.gltf || c.compression !== 'draco';
   };
@@ -119,6 +145,10 @@ export async function askExport(start: ExportChoice, transforms?: TransformUse):
   });
   schema.addEventListener('change', () => {
     c.stepSchema = schema.value as ExportChoice['stepSchema'];
+    show();
+  });
+  unit.addEventListener('change', () => {
+    c.unit = unit.value as ExportChoice['unit'];
     show();
   });
   compression.addEventListener('change', () => {

@@ -38,9 +38,9 @@ The oracle's coverage (every face of every part):
        2  untrusted: sphere, off-surface
        2  untrusted: torus, no-loops
 
-OCCT's measured area against the oracle's, relative difference: <= 1e-9: 47728, <= 1e-6: 8354, <= 1e-4: 3445, <= 1e-3: 949, <= 1e-2: 763, <= 1e-1: 162, <= inf: 22
+OCCT's measured area against the oracle's, relative difference: <= 1e-9: 47734, <= 1e-6: 8348, <= 1e-4: 3445, <= 1e-3: 933, <= 1e-2: 763, <= 1e-1: 178, <= inf: 22
   within 1e-4: 96.9 %
-OCCT's perimeter against the oracle's, planes only: <= 1e-9: 24278, <= 1e-6: 2415, <= 1e-4: 345, <= 1e-3: 45, <= 1e-2: 5, <= 1e-1: 2, <= inf: 5
+OCCT's perimeter against the oracle's, planes only: <= 1e-9: 24280, <= 1e-6: 2413, <= 1e-4: 345, <= 1e-3: 45, <= 1e-2: 5, <= 1e-1: 2, <= inf: 5
 
 faceFailures with OCCT's measures (as the library judges) and with the oracle's:
    61404  OCCT's measures: ok         oracle: ok
@@ -53,7 +53,7 @@ faceFailures with OCCT's measures (as the library judges) and with the oracle's:
        1  OCCT's measures: ok         oracle: partly
        1  OCCT's measures: partly     oracle: ok
 
-OCCT's measured area more than 1 % off the oracle's (184):
+OCCT's measured area more than 1 % off the oracle's (200):
   gkv311-opencascade-dataset/step/bug25281_tess_infloop_extract.step #61662 (part #11, plane): oracle 169.08036, OCCT measured 165.95082, mesh 169.08023 mm^2
   gkv311-opencascade-dataset/step/trj10_b2-oc-214.stp #8554 (part #10, cylinder): oracle 176.77246, OCCT measured 174.13506, mesh 176.77833 mm^2
   gkv311-opencascade-dataset/step/bug24593_285330.stp #262 (part #13, torus): oracle 0.024765195, OCCT measured 0.027696860, mesh 0.025050380 mm^2
@@ -72,7 +72,7 @@ OCCT's measured area more than 1 % off the oracle's (184):
   gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #20345 (part #15715, cone): oracle 0.84961416, OCCT measured 0.87521527, mesh 0.86630006 mm^2
   gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #19783 (part #14310, cone): oracle 0.84961416, OCCT measured 0.87521527, mesh 0.86630006 mm^2
   gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #18413 (part #10885, torus): oracle 5.6158290, OCCT measured 5.8954454, mesh 5.6853280 mm^2
-  gkv311-opencascade-dataset/step/trj4_k1_top-tu-214.stp #794 (part #2402, plane): oracle 35.469523, OCCT measured 36.172961, mesh 35.401328 mm^2
+  gkv311-opencascade-dataset/step/trj4_k1_top-tu-214.stp #794 (part #2402, plane): oracle 35.469523, OCCT measured 36.172961, mesh 35.401327 mm^2
   gkv311-opencascade-dataset/step/OCC5099.stp #8845 (part #14343, cylinder): oracle 0.011266275, OCCT measured 0.011813264, mesh 0.011813320 mm^2
   gkv311-opencascade-dataset/step/OCC5099.stp #8885 (part #14343, cylinder): oracle 0.024805024, OCCT measured 0.025336368, mesh 0.024963085 mm^2
   gkv311-opencascade-dataset/step/OCC5099.stp #9324 (part #14343, cylinder): oracle 0.017638733, OCCT measured 0.018790164, mesh 0.018790177 mm^2
@@ -105,9 +105,25 @@ OCCT's measured area more than 1 % off the oracle's (184):
   gkv311-opencascade-dataset/step/trj12_b3-tu-203.stp #25691 (part #27964, cylinder): oracle 0.39289937, OCCT measured 0.39710137, mesh 0.39434905 mm^2
   gkv311-opencascade-dataset/step/trj12_b3-tu-203.stp #26388 (part #27964, plane): oracle 23133.303, OCCT measured 23444.174, mesh 23135.171 mm^2
   gkv311-opencascade-dataset/step/trj12_b3-tu-203.stp #26838 (part #27964, plane): oracle 5654.8668, OCCT measured 5889.8850, mesh 5652.9062 mm^2
-  gkv311-opencascade-dataset/step/OCC5157.stp #4613 (part #11, cylinder): oracle 7.7992673, OCCT measured 7.7017556, mesh 7.7927893 mm^2
+  gkv311-opencascade-dataset/step/OCC5157.stp #4613 (part #11, cylinder): oracle 7.7992673, OCCT measured 7.7017556, mesh 7.7927899 mm^2
   gkv311-opencascade-dataset/step/OCC5157.stp #4748 (part #11, cylinder): oracle 1.5995772, OCCT measured 1.6295118, mesh 1.5983222 mm^2
-  gkv311-opencascade-dataset/step/OCC5157.stp #4759 (part #11, cylinder): oracle 0.76060011, OCCT measured 0.77630938, mesh 0.76011130 mm^2
+  gkv311-opencascade-dataset/step/OCC5157.stp #4759 (part #11, cylinder): oracle 0.76060011, OCCT measured 0.77630938, mesh 0.76011002 mm^2
+  gkv311-opencascade-dataset/step/OCC5157.stp #4761 (part #11, sphere): oracle 0.33831338, OCCT measured 0.30830505, mesh 0.33631540 mm^2
+  gkv311-opencascade-dataset/step/OCC5157.stp #4762 (part #11, sphere): oracle 0.33831338, OCCT measured 0.30830478, mesh 0.33632093 mm^2
+  gkv311-opencascade-dataset/step/OCC5157.stp #4765 (part #11, sphere): oracle 0.33831338, OCCT measured 0.30830505, mesh 0.33634247 mm^2
+  gkv311-opencascade-dataset/step/OCC5157.stp #4766 (part #11, sphere): oracle 0.33831338, OCCT measured 0.30830478, mesh 0.33634489 mm^2
+  gkv311-opencascade-dataset/step/OCC5157.stp #4769 (part #11, sphere): oracle 0.33831338, OCCT measured 0.30830478, mesh 0.33632040 mm^2
+  gkv311-opencascade-dataset/step/OCC5157.stp #4770 (part #11, sphere): oracle 0.33831338, OCCT measured 0.30830505, mesh 0.33631461 mm^2
+  gkv311-opencascade-dataset/step/OCC5157.stp #4773 (part #11, sphere): oracle 0.33831338, OCCT measured 0.30830478, mesh 0.33634508 mm^2
+  gkv311-opencascade-dataset/step/OCC5157.stp #4774 (part #11, sphere): oracle 0.33831338, OCCT measured 0.30830505, mesh 0.33634241 mm^2
+  gkv311-opencascade-dataset/step/OCC5157.stp #4777 (part #11, sphere): oracle 0.33831338, OCCT measured 0.30830505, mesh 0.33631575 mm^2
+  gkv311-opencascade-dataset/step/OCC5157.stp #4778 (part #11, sphere): oracle 0.33831338, OCCT measured 0.30830478, mesh 0.33632125 mm^2
+  gkv311-opencascade-dataset/step/OCC5157.stp #4781 (part #11, sphere): oracle 0.33831338, OCCT measured 0.30830505, mesh 0.33634237 mm^2
+  gkv311-opencascade-dataset/step/OCC5157.stp #4782 (part #11, sphere): oracle 0.33831338, OCCT measured 0.30830478, mesh 0.33634478 mm^2
+  gkv311-opencascade-dataset/step/OCC5157.stp #4785 (part #11, sphere): oracle 0.33831338, OCCT measured 0.30830505, mesh 0.33631564 mm^2
+  gkv311-opencascade-dataset/step/OCC5157.stp #4786 (part #11, sphere): oracle 0.33831338, OCCT measured 0.30830478, mesh 0.33632141 mm^2
+  gkv311-opencascade-dataset/step/OCC5157.stp #4789 (part #11, sphere): oracle 0.33831338, OCCT measured 0.30830505, mesh 0.33634276 mm^2
+  gkv311-opencascade-dataset/step/OCC5157.stp #4790 (part #11, sphere): oracle 0.33831338, OCCT measured 0.30830478, mesh 0.33634546 mm^2
   gkv311-opencascade-dataset/step/trj3_s1-ct-203.stp #1939 (part #2255, sphere): oracle 10788.755, OCCT measured 34449.916, mesh 34386.217 mm^2
   gkv311-opencascade-dataset/step/bug31711.stp #22314 (part #11, plane): oracle 381.47142, OCCT measured 385.52027, mesh 380.90133 mm^2
   gkv311-opencascade-dataset/step/bug31711.stp #22315 (part #11, plane): oracle 803.47448, OCCT measured 817.47275, mesh 803.56980 mm^2
@@ -115,12 +131,12 @@ OCCT's measured area more than 1 % off the oracle's (184):
   gkv311-opencascade-dataset/step/bug31711.stp #22393 (part #11, plane): oracle 381.47141, OCCT measured 385.52026, mesh 380.90134 mm^2
   gkv311-opencascade-dataset/step/bug31711.stp #22394 (part #11, plane): oracle 803.47448, OCCT measured 817.47275, mesh 803.56970 mm^2
   gkv311-opencascade-dataset/step/bug31711.stp #22397 (part #11, plane): oracle 286.69808, OCCT measured 275.12494, mesh 287.00539 mm^2
-  gkv311-opencascade-dataset/step/bug32239.STEP #113836 (part #116154, cylinder): oracle 18.337671, OCCT measured 14.139173, mesh 18.328546 mm^2
+  gkv311-opencascade-dataset/step/bug32239.STEP #113836 (part #116154, cylinder): oracle 18.337671, OCCT measured 14.139173, mesh 18.328544 mm^2
   gkv311-opencascade-dataset/step/bug32239.STEP #121719 (part #116154, cylinder): oracle 18.340025, OCCT measured 26.854660, mesh 18.330883 mm^2
-  gkv311-opencascade-dataset/step/bug32239.STEP #33504 (part #109721, cylinder): oracle 18.349696, OCCT measured 24.478532, mesh 18.340626 mm^2
+  gkv311-opencascade-dataset/step/bug32239.STEP #33504 (part #109721, cylinder): oracle 18.349696, OCCT measured 24.478532, mesh 18.340625 mm^2
   gkv311-opencascade-dataset/step/bug32239.STEP #58405 (part #109721, cylinder): oracle 18.349696, OCCT measured 24.478532, mesh 18.340625 mm^2
-  gkv311-opencascade-dataset/step/bug32239.STEP #42230 (part #89905, cylinder): oracle 3.9346152, OCCT measured 3.9740232, mesh 3.9334573 mm^2
-  gkv311-opencascade-dataset/step/bug32239.STEP #113768 (part #70862, cylinder): oracle 6.3982215, OCCT measured 8.0274227, mesh 6.3953461 mm^2
+  gkv311-opencascade-dataset/step/bug32239.STEP #42230 (part #89905, cylinder): oracle 3.9346152, OCCT measured 3.9740232, mesh 3.9334575 mm^2
+  gkv311-opencascade-dataset/step/bug32239.STEP #113768 (part #70862, cylinder): oracle 6.3982215, OCCT measured 8.0274227, mesh 6.3953455 mm^2
   gkv311-opencascade-dataset/step/ec_turbine-A.stp #11034 (part #11, sphere): oracle 1003.7157, OCCT measured 658.18677, mesh 654.26391 mm^2
   gkv311-opencascade-dataset/step/bug24383_224013.stp #9870 (part #11, cylinder): oracle 0.53850119, OCCT measured 0.52433778, mesh 0.53921411 mm^2
   gkv311-opencascade-dataset/step/bug24383_224013.stp #9872 (part #11, sphere): oracle 1.8852867, OCCT measured 1.8599062, mesh 1.8776148 mm^2
@@ -233,10 +249,10 @@ OCCT's measured area more than 1 % off the oracle's (184):
   nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_11_asme1_ap242-e2.stp #1228 (part #466, plane): oracle 0.18152691, OCCT measured 0.18709522, mesh 0.18152689 mm^2
   nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_11_asme1_ap242-e2.stp #1230 (part #466, plane): oracle 0.29502571, OCCT measured 0.30407557, mesh 0.29502563 mm^2
   nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_11_asme1_ap242-e2.stp #1232 (part #466, plane): oracle 0.22065792, OCCT measured 0.22331645, mesh 0.22065785 mm^2
-  nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_07_asme1_ap242-e2.stp #1745 (part #13541, sphere): oracle 1.7905399, OCCT measured 1.8975921, mesh 1.7929438 mm^2
-  nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_07_asme1_ap242-e2.stp #1789 (part #13541, sphere): oracle 1.7905549, OCCT measured 1.6833302, mesh 1.7803459 mm^2
-  nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_07_asme1_ap242-e2.stp #3915 (part #13541, sphere): oracle 1.7905603, OCCT measured 1.6832910, mesh 1.7808591 mm^2
-  nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_07_asme1_ap242-e2.stp #4021 (part #13541, sphere): oracle 1.7905603, OCCT measured 1.6832910, mesh 1.7807041 mm^2
+  nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_07_asme1_ap242-e2.stp #1745 (part #13541, sphere): oracle 1.7905399, OCCT measured 1.8975921, mesh 1.7929571 mm^2
+  nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_07_asme1_ap242-e2.stp #1789 (part #13541, sphere): oracle 1.7905549, OCCT measured 1.6833302, mesh 1.7803443 mm^2
+  nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_07_asme1_ap242-e2.stp #3915 (part #13541, sphere): oracle 1.7905603, OCCT measured 1.6832910, mesh 1.7808555 mm^2
+  nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_07_asme1_ap242-e2.stp #4021 (part #13541, sphere): oracle 1.7905603, OCCT measured 1.6832910, mesh 1.7806996 mm^2
   gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/HEAD_BACK.stp #314 (part #593, sphere): oracle 10788.757, OCCT measured 34438.807, mesh 34389.009 mm^2
 
 Failures only the oracle finds: the library can't see them (6):

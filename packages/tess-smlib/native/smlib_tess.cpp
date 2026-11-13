@@ -2,8 +2,8 @@
 // meshed by SMLib's tessellator (SmApiTessellate), with per-face and per-edge ids. Exposes a small C ABI; the JS side
 // (src/index.ts) copies the results out of the heap.
 //
-// Coordinates are in the part's unit, minus the request's origin, subtracted in double precision before the conversion
-// to float (docs/backends.md).
+// Coordinates are in millimetres (the model's), minus the request's origin, subtracted in double precision before the
+// conversion to float (docs/backends.md).
 #include "smlib_build.h"
 
 #include "SmApiBrep.h"
@@ -190,7 +190,7 @@ struct Stats
   std::string firstError;
 };
 
-// (maxEdge: SMLib's edge-length target, 0 for none.) Lengths in and the judgements out are in the part's unit, whatever
+// (maxEdge: SMLib's edge-length target, 0 for none.) Lengths in and the judgements out are in millimetres, whatever
 // the B-rep's scale.
 void tessellate(BuiltBrep& b, double linDefl, double angDefl, Meshed& out, Stats& st, double maxEdge = 0)
 {

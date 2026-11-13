@@ -1,11 +1,13 @@
 // A STEP shape representation's geometry and topology to a B-rep buffer (cad-brep), by the model's rules
 // (docs/brep-model.md): Part 42's parameterizations with angles in radians (trim parameters on circles and ellipses,
 // cone semi-angles, p-curves' angular coordinates and rectangular trims on angular surfaces, converted from the file's
-// plane angle unit), placements complete (Part 42's build_axes, step-parser's `placement`), directions unit with
-// magnitudes kept, uniform, quasi-uniform and Bezier B-splines with their knots made explicit (as OCCT reads them),
-// p-curves on the coedges of the faces whose surfaces they lie on, every row's id its STEP instance's. A
-// SURFACE_CURVE is its 3D curve's row. Problems are diagnostics, repeated ones said once with a count; what can't be
-// read is left out (an edge keeps its vertices without a curve it can't read; a face without its surface is dropped).
+// plane angle unit), lengths in millimetres (docs/brep-reference.md lists them: among them p-curves' coordinates and
+// rectangular trims on a surface's length parameters, a plane's u and v, a cylinder's and cone's v), placements
+// complete (Part 42's build_axes, step-parser's `placement`), directions unit with magnitudes kept, uniform,
+// quasi-uniform and Bezier B-splines with their knots made explicit (as OCCT reads them), p-curves on the coedges of
+// the faces whose surfaces they lie on, every row's id its STEP instance's. A SURFACE_CURVE is its 3D curve's row.
+// Problems are diagnostics, repeated ones said once with a count; what can't be read is left out (an edge keeps its
+// vertices without a curve it can't read; a face without its surface is dropped).
 
 import {
   BrepBuilder, type BrepData, type Coedge, type Curve, type CurveEvaluator, curveEvaluatorOf, CURVE_FORMS,
@@ -15,11 +17,11 @@ import {
 import { listItems, numbersOf, placement, type Reader, type Value } from 'step-parser';
 
 export interface StepBrepOptions {
-  /** The part's length unit in millimetres. */
-  unit: number;
+  /** Millimetres per the representation's length unit (1 for millimetres). */
+  length: number;
   /** Radians per the file's plane angle unit (1 for radians). */
   angle: number;
-  /** The context's uncertainty in the part's unit, if it gives one. */
+  /** The context's uncertainty in millimetres, if it gives one. */
   uncertainty?: number;
 }
 
@@ -41,6 +43,9 @@ const MAX_IDS = 5;
 
 type Scale = [number, number];
 const ONE: Scale = [1, 1];
+/** What can't be read exactly where a surface's parameters scale unequally (docs/brep-model.md). */
+const UNEQUAL = (what: string) => `${what} on a surface whose parameters scale unequally to radians and millimetres `
+  + '(no exact form; left out)';
 
 /** Part 42's implicit knots for a B-spline form, from its poles and degree, as OCCT reads them (StepToGeom). */
 export function implicitKnots(form: 'uniform' | 'quasi' | 'bezier', poles: number, degree: number):
@@ -99,8 +104,8 @@ function vertexPointsOf(r: Reader): Map<number, number> {
 }
 
 export function stepBrep(r: Reader, items: number[], o: StepBrepOptions, warn: Warn): StepBrepResult {
-  const b = new BrepBuilder({ unit: o.unit, ...(o.uncertainty !== undefined ? { uncertainty: o.uncertainty } : {}) });
-  const A = o.angle;
+  const b = new BrepBuilder(o.uncertainty !== undefined ? { uncertainty: o.uncertainty } : {});
+  const A = o.angle, L = o.length;
   const counts: Record<string, number> = {};
   const count = (k: string) => { counts[k] = (counts[k] ?? 0) + 1; };
   /** Seams whose p-curves couldn't be given to their uses (edge and surface positions), counted once each. */
@@ -182,11 +187,13 @@ export function stepBrep(r: Reader, items: number[], o: StepBrepOptions, warn: W
     const m = num(p, 'magnitude');
     return d && m !== undefined && m > 0 && Number.isFinite(m) ? { direction: d, magnitude: m } : undefined;
   };
-  const scaled = (c: number[], s: Scale) => c.length === 2 ? [c[0]! * s[0], c[1]! * s[1]] : c;
+  /** A point in millimetres: 3D by the length unit, 2D (in a surface's (u, v)) by its surface's scale. */
+  const scaled = (c: number[], s: Scale) => c.length === 2 ? [c[0]! * s[0], c[1]! * s[1]] : c.map((x) => x * L);
   const isOne = (s: Scale) => s[0] === 1 && s[1] === 1;
 
-  // -- Curves. A 2D curve (a p-curve's geometry) may be scaled, its coordinates times (su, sv) to make radians of an
-  // angular surface's parameters: such a curve is a row of its own per scale.
+  // -- Curves. A 2D curve (a p-curve's geometry) is scaled, its coordinates times (su, sv), to make radians and
+  // millimetres of its surface's parameters (scaleOf): such a curve is a row of its own per scale. 3D curves' lengths
+  // are times L.
   const curves = new Map<string, number | null>();
   const specs: Curve[] = [];
   function curve(p: number, s: Scale = ONE): number | undefined {
@@ -210,7 +217,9 @@ export function stepBrep(r: Reader, items: number[], o: StepBrepOptions, warn: W
     if (r.is(p, 'LINE')) {
       const pt = coords(r.ref(p, 'pnt')), v = vector(r.ref(p, 'dir'));
       if (!pt || !v || v.direction.length !== pt.length) return note('a line without its point or direction', p);
-      if (pt.length === 3) return { kind: 'line', point: pt, direction: v.direction, magnitude: v.magnitude };
+      if (pt.length === 3) {
+        return { kind: 'line', point: scaled(pt, s), direction: v.direction, magnitude: v.magnitude * L };
+      }
       // The parameter stays the file's: the magnitude takes the direction's change of length.
       const d = scaled(v.direction, s), l = Math.hypot(...d);
       return { kind: 'line', point: scaled(pt, s), direction: d.map((x) => x / l), magnitude: v.magnitude * l };
@@ -219,10 +228,8 @@ export function stepBrep(r: Reader, items: number[], o: StepBrepOptions, warn: W
       const pos = r.ref(p, 'position'), dim = r.is(pos, 'AXIS2_PLACEMENT_2D') ? 2 : 3;
       const position = place(pos, dim);
       if (!position) return note('a conic without its placement', p);
-      if (dim === 2 && s[0] !== s[1]) {
-        return note('a conic p-curve on an angular surface in degrees (no exact form)', p);
-      }
-      const k = dim === 2 ? s[0] : 1;
+      if (dim === 2 && s[0] !== s[1]) return note(UNEQUAL('a conic p-curve'), p);
+      const k = dim === 2 ? s[0] : L;
       position.origin = scaled(position.origin, s);
       const len = (name: string) => (num(p, name) ?? NaN) * k;
       if (r.is(p, 'CIRCLE')) return { kind: 'circle', position, radius: len('radius') };
@@ -293,12 +300,13 @@ export function stepBrep(r: Reader, items: number[], o: StepBrepOptions, warn: W
       return { kind: 'composite', segments, selfIntersect: logical(p, 'self_intersect') };
     }
     if (r.is(p, 'OFFSET_CURVE_3D') || r.is(p, 'OFFSET_CURVE_2D')) {
-      if (!isOne(s)) return note('an offset p-curve on an angular surface in degrees (no exact form)', p);
-      const basis = curve(r.ref(p, 'basis_curve')), distance = num(p, 'distance');
-      if (basis === undefined || distance === undefined) {
+      // (Uniform scales keep an offset an offset, its distance scaled.)
+      if (s[0] !== s[1]) return note(UNEQUAL('an offset p-curve'), p);
+      const basis = curve(r.ref(p, 'basis_curve'), s), d0 = num(p, 'distance');
+      if (basis === undefined || d0 === undefined) {
         return note('an offset curve without its basis or distance', p);
       }
-      const three = dimOf(specs[basis]!, specs) === 3;
+      const three = dimOf(specs[basis]!, specs) === 3, distance = d0 * (three ? L : s[0]);
       const ref = three ? dir(r.ref(p, 'ref_direction')) : undefined;
       if (three && ref?.length !== 3) return note('a 3D offset curve without its reference direction', p);
       return { kind: 'offset', basis, distance, selfIntersect: logical(p, 'self_intersect'),
@@ -326,7 +334,7 @@ export function stepBrep(r: Reader, items: number[], o: StepBrepOptions, warn: W
       + 'poles don\'t fit its degree', p);
   }
 
-  // -- Surfaces, and which of their parameters are angles (in the file's unit in p-curves and trims).
+  // -- Surfaces, and which of their parameters are angles and lengths (in the file's units in p-curves and trims).
   const surfaces = new Map<number, number | null>();
   /** Tori with a negative major radius (positions): their faces are turned over, their p-curves not read. */
   const turned = new Set<number>();
@@ -345,37 +353,42 @@ export function stepBrep(r: Reader, items: number[], o: StepBrepOptions, warn: W
     surfaces.set(p, row ?? null);
     return row;
   }
-  const angularOf = new Map<number, [boolean, boolean]>();
-  function angular(p: number): [boolean, boolean] {
-    const known = angularOf.get(p);
+  // What each of a surface's parameters is: 'a' an angle, 'l' a length, '' neither (docs/brep-reference.md).
+  type Param = 'a' | 'l' | '';
+  const paramsOf = new Map<number, [Param, Param]>();
+  function params(p: number): [Param, Param] {
+    const known = paramsOf.get(p);
     if (known) return known;
-    let a: [boolean, boolean] = [false, false];
-    angularOf.set(p, a); // a cycle ends here
-    if (r.is(p, 'CYLINDRICAL_SURFACE') || r.is(p, 'CONICAL_SURFACE') || r.is(p, 'SURFACE_OF_REVOLUTION')) {
-      a = [true, false];
-    } else if (r.is(p, 'SPHERICAL_SURFACE') || r.is(p, 'TOROIDAL_SURFACE')) a = [true, true];
+    let a: [Param, Param] = ['', ''];
+    paramsOf.set(p, a); // a cycle ends here
+    if (r.is(p, 'PLANE')) a = ['l', 'l'];
+    else if (r.is(p, 'CYLINDRICAL_SURFACE') || r.is(p, 'CONICAL_SURFACE')) a = ['a', 'l'];
+    else if (r.is(p, 'SURFACE_OF_REVOLUTION')) a = ['a', ''];
+    else if (r.is(p, 'SPHERICAL_SURFACE') || r.is(p, 'TOROIDAL_SURFACE')) a = ['a', 'a'];
     else if (r.is(p, 'RECTANGULAR_TRIMMED_SURFACE') || r.is(p, 'OFFSET_SURFACE')) {
-      a = angular(r.ref(p, 'basis_surface'));
+      a = params(r.ref(p, 'basis_surface'));
     }
-    angularOf.set(p, a);
+    paramsOf.set(p, a);
     return a;
   }
+  const factor = (x: Param) => x === 'a' ? A : x === 'l' ? L : 1;
   const scaleOf = (p: number): Scale => {
-    const [u, v] = angular(p);
-    return A !== 1 && (u || v) ? [u ? A : 1, v ? A : 1] : ONE;
+    const [u, v] = params(p);
+    return [factor(u), factor(v)];
   };
 
   function readSurface(p: number): Surface | undefined {
     if (r.is(p, 'ELEMENTARY_SURFACE')) {
       const position = place(r.ref(p, 'position'), 3);
       if (!position) return note('a surface without its placement', p);
+      position.origin = scaled(position.origin, ONE);
       const len = (name: string) => {
         const x = num(p, name);
         if (x !== undefined && x < 0) {
           note('a negative radius (read as its absolute value)', p);
-          return -x;
+          return -x * L;
         }
-        return x ?? NaN;
+        return (x ?? NaN) * L;
       };
       if (r.is(p, 'PLANE')) return { kind: 'plane', position };
       if (r.is(p, 'CYLINDRICAL_SURFACE')) return { kind: 'cylinder', position, radius: len('radius') };
@@ -390,7 +403,7 @@ export function stepBrep(r: Reader, items: number[], o: StepBrepOptions, warn: W
         if (major !== undefined && major < 0) {
           turned.add(p);
           note('a torus with a negative major radius (read with its absolute value, its faces turned over)', p);
-          return { kind: 'torus', position, majorRadius: -major, minorRadius: len('minor_radius'),
+          return { kind: 'torus', position, majorRadius: -major * L, minorRadius: len('minor_radius'),
             ...(r.is(p, 'DEGENERATE_TOROIDAL_SURFACE') ? { selectOuter: bool(p, 'select_outer') } : {}) };
         }
         return { kind: 'torus', position, majorRadius: len('major_radius'), minorRadius: len('minor_radius'),
@@ -415,7 +428,8 @@ export function stepBrep(r: Reader, items: number[], o: StepBrepOptions, warn: W
       }
       const form = r.enum(p, 'surface_form')?.toLowerCase() ?? '';
       return { kind: 'bspline', uDegree: ud, vDegree: vd, uKnots: uk.knots, vKnots: vk.knots,
-        uMultiplicities: uk.multiplicities, vMultiplicities: vk.multiplicities, poles, ...(weights ? { weights } : {}),
+        uMultiplicities: uk.multiplicities, vMultiplicities: vk.multiplicities,
+        poles: poles.map((row) => row.map((q) => scaled(q, ONE))), ...(weights ? { weights } : {}),
         uClosed: logical(p, 'u_closed'), vClosed: logical(p, 'v_closed'), selfIntersect: logical(p, 'self_intersect'),
         form: (SURFACE_FORMS as readonly string[]).includes(form) ? form as SurfaceForm : 'unspecified' };
     }
@@ -426,7 +440,7 @@ export function stepBrep(r: Reader, items: number[], o: StepBrepOptions, warn: W
     if (r.is(p, 'SURFACE_OF_LINEAR_EXTRUSION')) {
       const c = curve3(r.ref(p, 'swept_curve')), v = vector(r.ref(p, 'extrusion_axis'));
       if (c === undefined || v?.direction.length !== 3) return note('an extrusion without its curve or axis', p);
-      return { kind: 'extrusion', curve: c, direction: v.direction, magnitude: v.magnitude };
+      return { kind: 'extrusion', curve: c, direction: v.direction, magnitude: v.magnitude * L };
     }
     if (r.is(p, 'SURFACE_OF_REVOLUTION')) {
       const c = curve3(r.ref(p, 'swept_curve')), ax = r.ref(p, 'axis_position');
@@ -435,12 +449,12 @@ export function stepBrep(r: Reader, items: number[], o: StepBrepOptions, warn: W
       if (c === undefined || origin?.length !== 3 || axis?.length !== 3) {
         return note('a surface of revolution without its curve or axis', p);
       }
-      return { kind: 'revolution', curve: c, axisOrigin: origin, axisDirection: axis };
+      return { kind: 'revolution', curve: c, axisOrigin: scaled(origin, ONE), axisDirection: axis };
     }
     if (r.is(p, 'OFFSET_SURFACE')) {
       const basis = surface(r.ref(p, 'basis_surface')), distance = num(p, 'distance');
       if (basis === undefined || distance === undefined) return note('an offset surface without its basis', p);
-      return { kind: 'offset', basis, distance, selfIntersect: logical(p, 'self_intersect') };
+      return { kind: 'offset', basis, distance: distance * L, selfIntersect: logical(p, 'self_intersect') };
     }
     if (r.is(p, 'RECTANGULAR_TRIMMED_SURFACE')) {
       const bp = r.ref(p, 'basis_surface'), basis = surface(bp), [su, sv] = scaleOf(bp);
@@ -483,7 +497,7 @@ export function stepBrep(r: Reader, items: number[], o: StepBrepOptions, warn: W
     const c = r.is(p, 'VERTEX_POINT') ? coords(r.ref(p, 'vertex_geometry')) : undefined;
     let row: number | undefined;
     if (c?.length === 3) {
-      row = b.addVertex({ point: c, id: id(p) });
+      row = b.addVertex({ point: scaled(c, ONE), id: id(p) });
       count('vertex');
     } else note(p < 0 ? 'a vertex missing from the file' : 'a vertex without a 3D point', p);
     vertices.set(p, row ?? null);
@@ -500,7 +514,7 @@ export function stepBrep(r: Reader, items: number[], o: StepBrepOptions, warn: W
     let row = vp !== undefined ? vertex(vp) : undefined;
     if (vp === undefined) {
       const c = r.is(p, 'CARTESIAN_POINT') ? coords(p) : undefined;
-      if (c?.length === 3) row = b.addVertex({ point: c, id: id(p) });
+      if (c?.length === 3) row = b.addVertex({ point: scaled(c, ONE), id: id(p) });
     }
     corners.set(p, row ?? null);
     return row;
@@ -780,7 +794,7 @@ export function stepBrep(r: Reader, items: number[], o: StepBrepOptions, warn: W
     if (r.is(q, 'CARTESIAN_POINT')) {
       const c = coords(q);
       if (c?.length !== 3) return void note('a point that isn\'t 3D', q);
-      b.addItem({ kind: 'point', point: c, id: id(q) });
+      b.addItem({ kind: 'point', point: scaled(c, ONE), id: id(q) });
       count('item');
     } else if (r.is(q, 'CURVE_BOUNDED_SURFACE') || r.is(q, 'FACE_SURFACE')) add('face', face(q), q);
     else if (r.is(q, 'SURFACE')) add('surface', surface(q), q);

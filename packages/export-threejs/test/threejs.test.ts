@@ -35,10 +35,10 @@ function scene(): Scene {
   const occ = (component: number, t: Mat4, name?: string) => (
     { component, transform: t, sources: [{ format: 'step', id: 100 + component }], properties: {},
     ...(name ? { name } : {}) });
-  const brep = (name: string, unit: number) => (
-    { name, sources: [{ format: 'step', id: 50 }], properties: { pn: 'X-1' }, unit,
+  const brep = (name: string) => (
+    { name, sources: [{ format: 'step', id: 50 }], properties: { pn: 'X-1' },
     origin: [0, 0, 0] as [number, number, number], lods: [],
-    brep: { format: 'step' as const, model: new BrepBuilder({ unit: 1 }).finish() } });
+    brep: { format: 'step' as const, model: new BrepBuilder().finish() } });
   return {
     unit: 'millimetre',
     components: [
@@ -49,8 +49,8 @@ function scene(): Scene {
     ],
     roots: [occ(0, identity())],
     // The plate open (as the source would say); the wireframe saying nothing.
-    parts: [{ ...brep('plate', 25.4), material: 1, faceMaterials: [{ face: 7, material: 2 }], closed: false },
-      brep('wire', 1)],
+    parts: [{ ...brep('plate'), material: 1, faceMaterials: [{ face: 7, material: 2 }], closed: false },
+      brep('wire')],
     materials: [{ name: 'red', color: [1, 0, 0], opacity: 0.5, sources: [] },
       { color: [0, 1, 0], opacity: 1, sources: [] }, { color: [0, 0, 1], opacity: 1, sources: [] }],
     layers: [],
@@ -116,10 +116,10 @@ test('three.js JSON loads with ObjectLoader: tree, transforms, shared geometry, 
     ['MeshStandardMaterial', 'ff0000', 0.5, true, THREE.FrontSide]]);
   assert.equal((plates[1]!.material as THREE.Material[])[0], (plates[1]!.material as THREE.Material[])[1]);
   assert.equal((plates[1]!.material as THREE.Material[])[0]!.name, 'red');
-  // The part's ids, properties and unit (its vertices are in inches), and its faces as index ranges for picking.
+  // The part's ids and properties, and its faces as index ranges for picking.
   assert.deepEqual(plates[0]!.userData, {
     part: 0, partName: 'plate', closed: false, sources: [{ format: 'step', id: 50 }], properties: { pn: 'X-1' },
-    unit: 25.4, placement: { index: 0 }, faces: [{ source: 8, start: 0, count: 3 }, { source: 7, start: 3, count: 3 }],
+    placement: { index: 0 }, faces: [{ source: 8, start: 0, count: 3 }, { source: 7, start: 3, count: 3 }],
   });
 });
 

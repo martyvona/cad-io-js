@@ -16,7 +16,7 @@ const scene = (mesh = tri(), origin: [number, number, number] = [0, 0, 0]): Scen
     components: [{ name: 'c', sources: [], properties: {}, parts: [{ part: 0, transform: translation(...origin) }],
       children: [] }],
     roots: [{ component: 0, transform: translation(10, 0, 0), sources: [], properties: {} }],
-    parts: [{ name: 'p', sources: [], properties: {}, unit: 1, origin: [0, 0, 0], lods: [], material: 0 }] };
+    parts: [{ name: 'p', sources: [], properties: {}, origin: [0, 0, 0], lods: [], material: 0 }] };
   addLod(s.parts[0]!, { mesh, from: 'source' });
   return s;
 };

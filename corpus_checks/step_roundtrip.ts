@@ -1,5 +1,6 @@
 // The STEP exporter's round trip over the corpus (docs/brep-model.md, phase 6): every file imported (A), written by
-// step-export (AP242, or SCHEMA=ap214), the file bound against its schema with every value checked, and read back (B);
+// step-export (AP242, or SCHEMA=ap214; in the scene's source unit, or UNIT=mm, cm, m, in or ft), the file bound
+// against its schema with every value checked, and read back (B);
 // then checked in three layers, since a check of the model against itself is blind to what the importer and the
 // writer get wrong alike:
 //   (1) the scenes: every placed part at the same path with the same names and world transform (within 1e-12 of its
@@ -19,7 +20,8 @@
 //       writer get wrong alike on surfaces the area oracle doesn't take (B-splines, sweeps). A face or edge whose
 //       geometry's placement has no ref_direction in the original is told apart: OCCT takes its own x axis there,
 //       the writer Part 42's (docs/backends.md), so the same geometry starts its parameters elsewhere;
-//   (3) the area oracle (area_oracle.ts, step-parser alone) on both files, face by face where both trust it.
+//   (3) the area oracle (area_oracle.ts, step-parser alone) on both files, face by face where both trust it, each
+//       file's areas in millimetres by its representation's unit.
 // Expected differences are counted apart, not failed: parts without a B-rep in AP214 (no tessellated geometry), what
 // the model doesn't keep (faces the importer drops, which their face colours then name), ids renumbered.
 // PLANT=move moves a placement 1 mm, PLANT=colour changes a part's colour, PLANT=angle converts cones' semi-angles
@@ -29,8 +31,8 @@
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
-import { decode, openBrep, rowCount, SURFACE_KIND, type BrepData } from '../packages/cad-brep/src/index.ts';
-import { partInstances, placedName, type Mat4, type Scene } from '../packages/cad-scene/src/index.ts';
+import { CURVE_KIND, decode, openBrep, rowCount, SURFACE_KIND, type BrepData } from '../packages/cad-brep/src/index.ts';
+import { LENGTH_UNITS, partInstances, placedName, type Mat4, type Scene } from '../packages/cad-scene/src/index.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
 import { exportStep, type StepSchema } from '../packages/step-export/src/index.ts';
 import { listItems, openModel, parseStep, Reader, type StepModel } from '../packages/step-parser/src/index.ts';
@@ -42,6 +44,10 @@ import { addInto, runFiles, type FileCheck } from './runner.ts';
 const EXAMPLES = 3;
 const plant = process.env.PLANT;
 const schema = (process.env.SCHEMA ?? 'ap242') as StepSchema;
+const unitName = process.env.UNIT;
+if (unitName !== undefined && !Object.hasOwn(LENGTH_UNITS, unitName)) throw new Error(`UNIT=${unitName}: not one of `
+  + Object.keys(LENGTH_UNITS).join(', '));
+const unit = unitName === undefined ? undefined : LENGTH_UNITS[unitName as keyof typeof LENGTH_UNITS];
 const occtMb = Number(process.env.OCCT_MB ?? 30);
 let maxMB = 1000;
 
@@ -179,6 +185,56 @@ interface OcctMesh { name: string; color?: number[]; brep_faces: { first: number
   attributes: { position: { array: number[] } }; index: { array: number[] } }
 interface OcctResult { success: boolean; meshes: OcctMesh[] }
 
+/** Whether OCCT's parameter on a model's curve is a length: a line's, a parabola's; trims' and offsets' basis's. */
+function curveIsLength(m: BrepData, c: number): boolean {
+  const kind = m.curve.kind[c];
+  if (kind === CURVE_KIND.line || kind === CURVE_KIND.parabola) return true;
+  if (kind === CURVE_KIND.trimmed || kind === CURVE_KIND.offset) {
+    return curveIsLength(m, m.pool.curveInt[m.curve.int[c]!]!);
+  }
+  return false;
+}
+
+/**
+ * Which of OCCT's parameters on a model's surface are lengths: a plane's u and v, a cylinder's and cone's v, an
+ * extrusion's v and its curve's u, a revolution's curve's v; trims and offsets their basis's.
+ */
+function surfaceLengths(m: BrepData, s: number): [boolean, boolean] {
+  const kind = m.surface.kind[s], first = m.pool.surfaceInt[m.surface.int[s]!]!;
+  if (kind === SURFACE_KIND.plane) return [true, true];
+  if (kind === SURFACE_KIND.cylinder || kind === SURFACE_KIND.cone) return [false, true];
+  if (kind === SURFACE_KIND.extrusion) return [curveIsLength(m, first), true];
+  if (kind === SURFACE_KIND.revolution) return [false, curveIsLength(m, first)];
+  if (kind === SURFACE_KIND.offset || kind === SURFACE_KIND.rectangularTrimmed) return surfaceLengths(m, first);
+  return [false, false];
+}
+
+/** Each model's face, edge and curve rows by source id (the first of each). */
+const rowsById = new WeakMap<BrepData, { faces: Map<number, number>; edges: Map<number, number>;
+  curves: Map<number, number> }>();
+
+/**
+ * For a probe query (0 face, 1 edge or curve item, by source id): whether its first and second parameters are
+ * lengths.
+ */
+function paramLengths(m: BrepData, kind: number, id: number): [boolean, boolean] {
+  let rows = rowsById.get(m);
+  if (!rows) {
+    rows = { faces: new Map(), edges: new Map(), curves: new Map() };
+    for (let f = rowCount(m, 'face') - 1; f >= 0; f--) rows.faces.set(m.face.id[f]!, f);
+    for (let e = rowCount(m, 'edge') - 1; e >= 0; e--) rows.edges.set(m.edge.id[e]!, e);
+    for (let c = rowCount(m, 'curve') - 1; c >= 0; c--) rows.curves.set(m.curve.id[c]!, c);
+    rowsById.set(m, rows);
+  }
+  if (kind === 0) {
+    const f = rows.faces.get(id);
+    return f === undefined ? [false, false] : surfaceLengths(m, m.face.surface[f]!);
+  }
+  // (An edge's 3D curve; else a curve item's own, the probe's edge along it carrying the curve's id.)
+  const e = rows.edges.get(id), c = e !== undefined ? m.edge.curve[e]! : rows.curves.get(id) ?? -1;
+  return [c >= 0 && curveIsLength(m, c), false];
+}
+
 // tess-occt's probe (build-probe.sh), if built: OCCT's points on a representation's faces and edges.
 interface ProbeModule { HEAPU8: Uint8Array; HEAPF64: Float64Array; _malloc(n: number): number; _free(p: number): void;
   _occt_probe_read(p: number, n: number, root: number): number; _occt_probe_faces(): number;
@@ -239,7 +295,7 @@ export const check: FileCheck<undefined, Result> = {
     if (bytes.length > maxMB * 1e6) { R.skipped++; return R; }
     R.files++;
     const name = shortName(file);
-    const { scene: a, model: modelA } = await importStep(bytes);
+    const { scene: a, model: modelA, semantics: semA } = await importStep(bytes);
     const before = placements(a), ours = colours(a);
     // Parts whose model has a body beside loose curves or points, and parts a face of which an instance colours.
     const solidBeside = a.parts.some((p) => {
@@ -255,7 +311,7 @@ export const check: FileCheck<undefined, Result> = {
     const seen = [false, false, false];
 
     const t0 = performance.now();
-    const x = exportStep(a, { schema });
+    const x = exportStep(a, { schema, ...(unit !== undefined ? { unit } : {}) });
     const written = concat(x.chunks);
     R.exportMs += performance.now() - t0;
     R.bytes += written.length;
@@ -473,13 +529,37 @@ export const check: FileCheck<undefined, Result> = {
         const pa = probeEval(qs);
         const rb = probeRead(partSubset(modelB, id), id);
         if (rb.rc !== 0) { fail(`the probe can't read the written part: ${rb.diag}`, `${name} #${id}`); continue; }
-        const pb = probeEval(qs);
+        // The written part may be in another unit (UNIT, or the source unit where the part's was another): OCCT's
+        // parameters that are lengths (paramLengths) and its points scale by the ratio.
+        const ka = (semA.structure.representations.get(id)?.context?.lengthUnit?.factor ?? 1e-3) * 1000;
+        const kb = unit ?? b.sourceUnit ?? 1, ratio = ka / kb;
+        const pb = probeEval(ratio === 1 ? qs : qs.map((x, j) => {
+          const at = j - (j % 4);
+          if (j % 4 < 2) return x;
+          return paramLengths(models.get(id)!, qs[at]!, qs[at + 1]!)[j % 4 - 2] ? x * ratio : x;
+        }));
+        for (let j = 0; j < pa.length; j++) { pa[j]! *= ka; pb[j]! *= kb; }
         R.probeParts++;
+        // (A composite curve item's segments are edges sharing its id, and the probe keeps one edge per id: which one
+        // OCCT gives first may differ between the files, so their points aren't compared.)
+        const mp = models.get(id)!, composite = new Set<number>(), skipped = new Set<number>();
+        for (let c = 0; c < rowCount(mp, 'curve'); c++) {
+          if (mp.curve.kind[c] === CURVE_KIND.composite && mp.curve.id[c]) composite.add(mp.curve.id[c]!);
+        }
         let size = 0;
         for (const v of pa) if (Number.isFinite(v)) size = Math.max(size, Math.abs(v));
         let over = 0, worst = 0, worstAt = '', defaulted = 0, renumbered = 0;
         for (let k = 0; k < pa.length; k += 3) {
           if (!Number.isFinite(pa[k]!) || !Number.isFinite(pa[k + 1]!) || !Number.isFinite(pa[k + 2]!)) continue;
+          const qid = qs[(k / 3) * 4 + 1]!;
+          if (qs[(k / 3) * 4] === 1 && composite.has(qid)) {
+            if (!skipped.has(qid) && !planted) {
+              note('(2d) composite curve items not compared (their segments\' edges share its id)', `${name} #${id} `
+                + `edge #${qid}`);
+            }
+            skipped.add(qid);
+            continue;
+          }
           // (None in the written part under that id: renumbered, its id another part's: (1) says which.)
           if (!Number.isFinite(pb[k]!)) { renumbered++; continue; }
           R.probePoints++;
@@ -508,10 +588,17 @@ export const check: FileCheck<undefined, Result> = {
 
     // (3) The area oracle on both files.
     const oracleA = new AreaOracle(parseStep(bytes)), oracleB = new AreaOracle(parseStep(written));
-    for (const [, m] of models) for (let f = 0; f < rowCount(m, 'face'); f++) {
+    // Millimetres per unit of a part's representation in the original (in the written file, every one is the
+    // export's unit).
+    const mmIn = (rep: number | undefined) => (rep === undefined ? undefined
+      : semA.structure.representations.get(rep)?.context?.lengthUnit?.factor) ?? 1e-3;
+    for (const [rep, m] of models) for (let f = 0; f < rowCount(m, 'face'); f++) {
       const id = m.face.id[f]!;
       if (!id) continue;
-      const p = oracleA.faceArea(id), q = oracleB.faceArea(id);
+      const [ka, kb] = [mmIn(rep) * 1000, unit ?? b.sourceUnit ?? 1];
+      const p0 = oracleA.faceArea(id), q0 = oracleB.faceArea(id);
+      const mm2 = (r: typeof p0, k: number) => r.ok ? { ...r, area: r.area * k * k, error: r.error * k * k } : r;
+      const p = mm2(p0, ka), q = mm2(q0, kb);
       if (!trusted(p)) continue;
       if (!trusted(q)) {
         if (planted) seen[2] = true;

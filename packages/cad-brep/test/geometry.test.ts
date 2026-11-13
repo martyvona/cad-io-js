@@ -12,7 +12,7 @@ const rand = () => ((seed = (Math.imul(seed, 1103515245) + 12345) >>> 0) / 2 ** 
 
 /** One curve or surface in a buffer of its own (bases first). */
 function one(curves: Curve[], surfaces: Surface[] = []): BrepData {
-  const b = new BrepBuilder({ unit: 1 });
+  const b = new BrepBuilder();
   for (const c of curves) b.addCurve(c);
   for (const s of surfaces) b.addSurface(s);
   return b.finish();
@@ -363,7 +363,7 @@ test('nearest parameters by patches: rational, trimmed; not for weights below ze
 
 test('edge parameters: stored ranges, periods by sense, whole turns, closed B-splines', async () => {
   const { edgeParams } = await import('../src/geometry.ts');
-  const b = new BrepBuilder({ unit: 1 });
+  const b = new BrepBuilder();
   const P = { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] };
   const circle = b.addCurve({ kind: 'circle', position: P, radius: 1 });
   const at = (a: number) => b.addVertex({ point: [Math.cos(a), Math.sin(a), 0] });
@@ -416,7 +416,7 @@ test('nearest-point search over a curve with many near approaches finds the near
 
 test('a vertex at a closed B-spline\'s junction takes the end the edge\'s sense needs', async () => {
   const { edgeParams } = await import('../src/geometry.ts');
-  const b = new BrepBuilder({ unit: 1 });
+  const b = new BrepBuilder();
   const ring = [[1, 0, 0], [1, 1, 0], [-1, 1, 0], [-1, -1, 0], [1, -1, 0], [1, 0, 0]];
   const c = b.addCurve({ kind: 'bspline', degree: 2, knots: [0, 1, 2, 3, 4], multiplicities: [3, 1, 1, 1, 3],
     poles: ring, closed: true, selfIntersect: false, form: 'unspecified' });

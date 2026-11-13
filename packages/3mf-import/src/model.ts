@@ -407,7 +407,7 @@ export function readModel(path: string, feed: (piece: (s: string) => void) => vo
           colourOf = (k) => list[k]![1];
         }
         const { mesh, faceProperties } = buildMesh({ vertices: v, triangles: t.subarray(0, out), properties: keys },
-          creaseAngle);
+          creaseAngle, file.unit);
         if (sourceOf) mesh.faces.forEach((f, k) => { f.source = sourceOf(faceProperties[k]!); });
         object.mesh = { mesh, faceProperties: faceProperties.map((k) => propertyList[colourOf(k)]) };
       }

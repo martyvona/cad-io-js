@@ -143,7 +143,7 @@ test('faces against their surfaces (sameSense false) on every elementary surface
   { skip }, async () => {
     // A square on z = 0 facing down (its plane's normal up), a cylinder band facing in, a sphere cap facing in.
     for (const same of [true, false]) {
-      const b = new BrepBuilder({ unit: 1 });
+      const b = new BrepBuilder();
       const P = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]];
       const v = P.map((point) => b.addVertex({ point }));
       // Counter-clockwise about the face's normal: about +z when the face is the plane's way round.
@@ -164,7 +164,7 @@ test('faces against their surfaces (sameSense false) on every elementary surface
     }
     // A closed box built inside out (every face facing in, used as built): healing makes it a solid, and the
     // tessellator turns over the faces whose upper side bounds it; each still faces along its face's normal.
-    const b = new BrepBuilder({ unit: 1 });
+    const b = new BrepBuilder();
     const shell = box(b, [1, 1, 1], [0, 0, 0], 0, () => true, true);
     b.addItem({ kind: 'body', ref: b.addBody({ kind: 'solid', members: [{ ref: shell, sense: true }] }) });
     const d = b.finish(), r = await mesh(d);
@@ -177,7 +177,7 @@ test('faces against their surfaces (sameSense false) on every elementary surface
  * first, the others inner. */
 function plate(loops: ({ corners: number[][] } | { centre: number[]; radius: number })[], scale = 1, marked = 0):
   BrepData {
-  const b = new BrepBuilder({ unit: 1 });
+  const b = new BrepBuilder();
   const built = loops.map((l, i) => {
     const inner = i > 0;
     if ('corners' in l) {
@@ -234,7 +234,7 @@ test('a curve-bounded face of trimmed arcs, one trimmed against its circle and u
   async () => {
     // A disc of radius 2 on z = 0 facing +z: the upper half of its circle (0 to pi, with it), then the lower half,
     // trimmed from 2 pi to pi against the circle (so from (2, 0) to (-2, 0) clockwise) and used reversed.
-    const b = new BrepBuilder({ unit: 1 });
+    const b = new BrepBuilder();
     const circle = b.addCurve({ kind: 'circle', position: XY, radius: 2 });
     const upper = b.addCurve({ kind: 'trimmed', basis: circle, trim1: { parameter: 0 }, trim2: { parameter: Math.PI },
       sense: true, preference: 'parameter' });
@@ -267,7 +267,7 @@ test('extrusions of a closed periodic B-spline: a face reaching its seam, a face
     const ev = curveEvaluatorOf(spline(1), () => undefined)!;
     const point = (t: number) => ev.point(t > 11 ? t - 8 : t);
     for (const [from, to] of [[7, 11], [9, 13]] as const) {
-      const b = new BrepBuilder({ unit: 1 });
+      const b = new BrepBuilder();
       const curveAt = (z: number) => b.addCurve(spline(z));
       const generator = curveAt(1), top = curveAt(1), bottom = curveAt(-1);
       const surface = b.addSurface({ kind: 'extrusion', curve: generator, direction: [0, 0, -1], magnitude: 1 });
@@ -396,7 +396,7 @@ test('loose geometry and instances: curve items drawn, the point placed, an inst
 test('transforms composed: an item\'s own, then its instance\'s; curves sampled within the deflection', { skip },
   async () => {
     // A unit cube moved by (5, 0, 0) as its item, placed again by an instance turning it a quarter about z.
-    const b = new BrepBuilder({ unit: 1 });
+    const b = new BrepBuilder();
     const body = b.addItem({ kind: 'body', ref: b.addBody({ kind: 'solid', members: [{ ref: box(b, [1, 1, 1]),
       sense: true }] }), transform: [1, 0, 0, 0, 1, 0, 0, 0, 1, 5, 0, 0] });
     b.addItem({ kind: 'instance', ref: body, transform: [0, 1, 0, -1, 0, 0, 0, 0, 1, 0, 0, 0] });
@@ -427,7 +427,7 @@ test('a real part (trj7_k1-sd-214.stp): tori, spheres, cylinders, and extrusions
     const { scene } = await importStep(new Uint8Array(fs.readFileSync(path.join(corpus, 'trj7_k1-sd-214.stp'))));
     const part = scene.parts.find((p) => p.sources[0]!.id === 30730)!;
     const t = await backend();
-    const r = await t.tessellate({ ...request(part.brep!.model, 0.1 / part.unit), origin: part.origin });
+    const r = await t.tessellate({ ...request(part.brep!.model, 0.1), origin: part.origin });
     const a = areas(r);
     // OCCT's measured areas, which the area oracle confirms for the elementary faces.
     const expected: [number, number][] = [[8550, 11.94], [13080, 11.94], [13260, 48.64], [29690, 201.29],
@@ -446,7 +446,7 @@ test('a real part (trj3_s1-id-203.stp): a face healing spoils, meshed again alon
     const { scene } = await importStep(new Uint8Array(fs.readFileSync(path.join(corpus, 'trj3_s1-id-203.stp'))));
     const part = scene.parts.find((p) => p.sources[0]!.id === 569)!;
     const t = await backend();
-    const r = await t.tessellate({ ...request(part.brep!.model, 0.1 / part.unit), origin: part.origin });
+    const r = await t.tessellate({ ...request(part.brep!.model, 0.1), origin: part.origin });
     assert.ok(r.diagnostics.some((d) => /meshed again alone, .* or larger \([1-9]\d* better so\)/
       .test(d.message)));
     // Joined to its neighbours but along two edges, #4742 and #4792, where SMLib puts a corner of their other face
@@ -457,7 +457,7 @@ test('a real part (trj3_s1-id-203.stp): a face healing spoils, meshed again alon
     assert.ok(r.diagnostics.some((d) => d.severity === 'error' && /^2 edges along which/.test(d.message)));
     // Every face's mesh then within what faceFailures allows of its exact area (3% short, 10% over, or the
     // deflection times the perimeter).
-    const a = areas(r), d = 0.1 / part.unit;
+    const a = areas(r), d = 0.1;
     for (const m of r.measures!) {
       const f = a.get(m.entityId), diff = (f?.area ?? 0) - m.area, slack = d * m.perimeter;
       assert.ok(f && -diff <= Math.max(0.03 * m.area, slack) && diff <= Math.max(0.1 * m.area, slack),
@@ -515,7 +515,7 @@ test('curve-bounded faces whose boundaries run the wrong way round: wound by the
     for (const [what, outer, hole, area] of [['clockwise', 'reversed', undefined, 4 * Math.PI],
       ['a hole counter-clockwise', 'forward', 'forward', 3 * Math.PI],
       ['both the wrong way', 'reversed', 'forward', 3 * Math.PI]] as const) {
-      const b = new BrepBuilder({ unit: 1 });
+      const b = new BrepBuilder();
       const seg = (radius: number) => b.addEdge({ curve: b.addCurve({ kind: 'circle', position: XY, radius }),
         sameSense: true });
       const loops: Coedge[][] = [[{ edge: seg(2), orientation: outer }]];
@@ -535,7 +535,7 @@ test('spindle tori (major radius below the minor): faces on the outer and the in
     const R = 1, r = 3;
     for (const [what, v0, v1, selectOuter] of [['outer', -1, 1, true],
       ['inner', Math.PI - 0.5, Math.PI + 0.5, false]] as const) {
-      const b = new BrepBuilder({ unit: 1 });
+      const b = new BrepBuilder();
       const at = (v: number) => ring(b, r * Math.sin(v), Math.abs(R + r * Math.cos(v)));
       const lo = at(selectOuter ? v0 : v1), hi = at(selectOuter ? v1 : v0);
       // (Counter-clockwise about the normal: the lower ring with its circle where the normal points away from the
@@ -564,7 +564,7 @@ test('edges on parabolas and hyperbolas, and edges whose vertices lie backwards 
         8 * 1.5 * 1.5 / 3],
       ['hyperbola', { kind: 'hyperbola', position: XY, semiAxis: 1, semiImagAxis: 2 },
         (t: number) => [Math.cosh(t), 2 * Math.sinh(t), 0], 2 * (Math.sinh(1) * Math.cosh(1) - 1)]] as const) {
-      const b = new BrepBuilder({ unit: 1 });
+      const b = new BrepBuilder();
       const lo = b.addVertex({ point: p(-1) }), hi = b.addVertex({ point: p(1) });
       const arc = b.addEdge({ curve: b.addCurve(curve), start: lo, end: hi, sameSense: true });
       const chord = b.addEdge({ curve: b.addCurve({ kind: 'line', point: p(-1), direction: [0, 1, 0], magnitude: 1 }),
@@ -578,7 +578,7 @@ test('edges on parabolas and hyperbolas, and edges whose vertices lie backwards 
     for (const [what, curve] of [['line', { kind: 'line', point: [0, 0, 0], direction: [1, 0, 0], magnitude: 1 }],
       ['B-spline', { kind: 'bspline', degree: 2, knots: [0, 1], multiplicities: [3, 3],
         poles: [[0, 0, 0], [2, 0, 0], [4, 0, 0]] }]] as const) {
-      const b = new BrepBuilder({ unit: 1 });
+      const b = new BrepBuilder();
       const P = [[0, 0, 0], [4, 0, 0], [4, 4, 0], [0, 4, 0]], v = P.map((point) => b.addVertex({ point }));
       const side = (k: number) => b.addEdge({ curve: b.addCurve({ kind: 'line', point: P[k]!,
         direction: P[(k + 1) % 4]!.map((x, j) => x - P[k]![j]!), magnitude: 1 }), start: v[k]!, end: v[(k + 1) % 4]!,
@@ -605,14 +605,14 @@ test('whole closed surfaces by a vertex loop, and cones: past the apex, closed b
       ['sphere', { kind: 'sphere', position: XY, radius: 2 }, [2, 0, 0], 16 * Math.PI],
       ['torus', { kind: 'torus', position: XY, majorRadius: 3, minorRadius: 1 }, [4, 0, 0], 12 * Math.PI ** 2],
     ] as const) {
-      const b = new BrepBuilder({ unit: 1 });
+      const b = new BrepBuilder();
       const d = oneFace(b, b.addSurface(surface as never), [{ vertex: b.addVertex({ point: [...point] }) }]);
       await faceIs(what, d, area, 0.005);
     }
     {
       // Half a sphere about z, the half x < 0, bounded by the great circle about x: its boundary passes both poles,
       // so the sphere is built about another axis.
-      const b = new BrepBuilder({ unit: 1 });
+      const b = new BrepBuilder();
       const v = b.addVertex({ point: [0, 2, 0] });
       const great = b.addEdge({ curve: b.addCurve({ kind: 'circle', position: { origin: [0, 0, 0], axis: [1, 0, 0],
         xDir: [0, 1, 0] }, radius: 2 }), start: v, end: v, sameSense: true });
@@ -626,21 +626,21 @@ test('whole closed surfaces by a vertex loop, and cones: past the apex, closed b
     {
       // Past the apex, between z = -3 (radius 2) and z = -2 (radius 1), where Part 42's radius is negative and its
       // normal points away from the axis and upward: pi (r1 + r2) times the slant.
-      const b = new BrepBuilder({ unit: 1 });
+      const b = new BrepBuilder();
       const d = oneFace(b, cone(b), [[fwd(ring(b, -3, 2))], [rev(ring(b, -2, 1))]]);
       const r = await faceIs('past the apex', d, 3 * Math.PI * Math.SQRT2);
       assert.equal(sides(d, r).against, 0, 'past the apex');
     }
     {
       // From the apex to the ring at z = 0, bounded by the ring alone (the apex closes it): pi r times the slant.
-      const b = new BrepBuilder({ unit: 1 });
+      const b = new BrepBuilder();
       const d = oneFace(b, cone(b), [[rev(ring(b, 0, 1))]]);
       const r = await faceIs('closed by the apex', d, Math.PI * Math.SQRT2);
       assert.equal(sides(d, r).against, 0, 'closed by the apex');
     }
     {
       // The same face with a seam from the apex, used both ways (healing splits such a face in two: measured whole).
-      const b = new BrepBuilder({ unit: 1 });
+      const b = new BrepBuilder();
       const va = b.addVertex({ point: [0, 0, -1] }), vb = b.addVertex({ point: [1, 0, 0] });
       const base = b.addEdge({ curve: b.addCurve({ kind: 'circle', position: XY, radius: 1 }), start: vb, end: vb,
         sameSense: true });
@@ -654,7 +654,7 @@ test('whole closed surfaces by a vertex loop, and cones: past the apex, closed b
 
 // A patch of a torus over u0..u1 and v0..v1 (its four arcs as edges), facing along the torus's normal.
 function torusPatch(R: number, r: number, u0: number, u1: number, v0: number, v1: number): BrepData {
-  const b = new BrepBuilder({ unit: 1 });
+  const b = new BrepBuilder();
   const P = (u: number, v: number) => [(R + r * Math.cos(v)) * Math.cos(u), (R + r * Math.cos(v)) * Math.sin(u),
     r * Math.sin(v)];
   const corner = (u: number, v: number) => b.addVertex({ point: P(u, v) });
@@ -694,7 +694,7 @@ test('real parts: faces the healer removes or splits, spheres bounded through th
   const part = async (file: string, id: number) => {
     const { scene } = await importStep(new Uint8Array(fs.readFileSync(path.join(corpus, file))));
     const p = scene.parts.find((x) => x.sources[0]!.id === id)!;
-    return { p, r: await (await backend()).tessellate({ ...request(p.brep!.model, 0.1 / p.unit), origin: p.origin }) };
+    return { p, r: await (await backend()).tessellate({ ...request(p.brep!.model, 0.1), origin: p.origin }) };
   };
   // Two slivers the healer removes from their shell: meshed alone.
   const slivers = await part('bug25415_part_of_hdrv8w64p254_4x2_1016x502h838p.stp', 418);
@@ -790,7 +790,7 @@ test('the scale option: models built 32 and 1024 times larger give the same resu
     }
     await sameScaled('a torus patch', torusPatch(10, 2, 0.2, 1.4, -0.5, 0.9));
     // A moved cube with a turned instance, and a loose circle.
-    const b = new BrepBuilder({ unit: 1, uncertainty: 1e-4 });
+    const b = new BrepBuilder({ uncertainty: 1e-4 });
     const body = b.addItem({ kind: 'body', ref: b.addBody({ kind: 'solid', members: [{ ref: box(b, [1, 2, 3]),
       sense: true }] }), transform: [1, 0, 0, 0, 1, 0, 0, 0, 1, 5, 0, 0] });
     b.addItem({ kind: 'instance', ref: body, transform: [0, 1, 0, -1, 0, 0, 0, 0, 1, 0, 7, 0] });
@@ -814,7 +814,7 @@ test('the scale option: models built 32 and 1024 times larger give the same resu
       trim1: { point: [0, -4, 90] }, trim2: { point: [0, 9, 90] } }) });
     await sameScaled('transforms', b.finish());
     // A cylinder of radius 2 about an axis through (10, 0, 0), as the revolution of a line, between two rings.
-    const c = new BrepBuilder({ unit: 1 });
+    const c = new BrepBuilder();
     const at = (z: number) => {
       const p = c.addVertex({ point: [12, 0, z] });
       return c.addEdge({ start: p, end: p, sameSense: true, curve: c.addCurve({ kind: 'circle', radius: 2,
@@ -847,12 +847,12 @@ test('real faces that mesh only another way: alone unhealed, alone healed, 1024 
         items: [{ kind: 'body', ref: 0, ...(transform ? { transform } : {}) }] });
       const t = heal && scale === 1 ? await backend() : new SmlibTessellator({ heal, scale });
       await t.init();
-      const r = await t.tessellate(request(d, 0.1 / j.unit));
+      const r = await t.tessellate(request(d, 0.1));
       const again = /^(\d+) faces meshed badly.*\((\d+) better so\)$/.exec(r.diagnostics.find((x) =>
         x.severity === 'info')?.message ?? '');
       return { tris: r.indices.length / 3, area: areas(r).get(id)?.area, exact: r.measures![0]?.area,
         box: extent(r.positions),
-        again: again ? [Number(again[1]), Number(again[2])] : [0, 0], lin: 0.1 / j.unit,
+        again: again ? [Number(again[1]), Number(again[2])] : [0, 0], lin: 0.1,
         failed: r.diagnostics.some((x) => /failed to mesh/.test(x.message)) };
     };
     // A face smaller than the deflection squared that its healed sheet leaves without a mesh: meshed alone, unhealed.
@@ -967,7 +967,7 @@ function soundness(d: BrepData, r: TessellationResult) {
  */
 function torusBands(R: number, r: number, u0: number, u1: number, vs: readonly number[], transform?: number[],
   apart = false, instance?: number[], twice = false): BrepData {
-  const b = new BrepBuilder({ unit: 1 });
+  const b = new BrepBuilder();
   const P = (u: number, v: number) => [(R + r * Math.cos(v)) * Math.cos(u), (R + r * Math.cos(v)) * Math.sin(u),
     r * Math.sin(v)];
   const torus = b.addSurface({ kind: 'torus', position: XY, majorRadius: R, minorRadius: r });
@@ -1049,8 +1049,8 @@ test('real parts joined exactly: corners moved and triangles split along shared 
     const part = async (file: string, id: number) => {
       const { scene } = await importStep(new Uint8Array(fs.readFileSync(path.join(corpus, file))));
       const p = scene.parts.find((x) => x.sources[0]!.id === id)!;
-      const r = await (await backend()).tessellate({ ...request(p.brep!.model, 0.1 / p.unit), origin: p.origin });
-      return { d: p.brep!.model, r, lin: 0.1 / p.unit };
+      const r = await (await backend()).tessellate({ ...request(p.brep!.model, 0.1), origin: p.origin });
+      return { d: p.brep!.model, r, lin: 0.1 };
     };
     // A face meshed again alone whose corners SMLib puts elsewhere than its neighbours' (moved to theirs), on edges
     // where both sides' triangles are split, among them triangles with two sides on the edge: watertight.
@@ -1080,7 +1080,7 @@ test('real parts joined exactly: corners moved and triangles split along shared 
  * annulus (id 4, radius 2 to 4) on its top circle (edge 11) in an open shell of the same body.
  */
 function finned(fin: boolean): BrepData {
-  const b = new BrepBuilder({ unit: 1 });
+  const b = new BrepBuilder();
   const ring = (z: number, r: number, id: number) => {
     const v = b.addVertex({ point: [r, 0, z] });
     return b.addEdge({ id, start: v, end: v, sameSense: true, curve: b.addCurve({ kind: 'circle', radius: r,
@@ -1125,7 +1125,7 @@ test('ids as the model has them, up to 2^32 - 1, and none: entity ids null, face
   { skip }, async () => {
     // A unit cube with ids from 2^32 - 100 (vertices + 1 to 8, edges + 9 to 20, faces + 21 to 26), a loose circle
     // and point with ids above 2^31, and a second cube whose ids are all none.
-    const b = new BrepBuilder({ unit: 1 }), base = 2 ** 32 - 100;
+    const b = new BrepBuilder(), base = 2 ** 32 - 100;
     b.addItem({ kind: 'body', ref: b.addBody({ kind: 'solid', members: [{ ref: box(b, [1, 1, 1], [0, 0, 0], base),
       sense: true }] }) });
     b.addItem({ kind: 'curve', ref: b.addCurve({ kind: 'circle', position: XY, radius: 2, id: 2 ** 31 + 5 }) });
@@ -1155,7 +1155,7 @@ test('faces the builder leaves out are counted among the faces that failed to me
     const { scene } = await importStep(new Uint8Array(fs.readFileSync(path.join(corpus,
       'bug22871_null-swept-curve.stp'))));
     const p = scene.parts.find((x) => x.sources[0]!.id === 10)!;
-    const r = await (await backend()).tessellate({ ...request(p.brep!.model, 0.1 / p.unit), origin: p.origin });
+    const r = await (await backend()).tessellate({ ...request(p.brep!.model, 0.1), origin: p.origin });
     // Four of its seven faces left out (edges without a 3D curve), none of the others failing.
     const ids = [...p.brep!.model.face.id].filter((x) => x);
     const meshed = new Set(r.faces.filter((f) => f.count > 0).map((f) => f.entityId));
@@ -1168,7 +1168,7 @@ test('a face that fails to mesh is an error; the part, meshed but for it, not fa
   { skip: skip || (fs.existsSync(corpus) ? false : 'no corpus (test_corpus/third_party/pull.sh)') }, async () => {
     const { scene } = await importStep(new Uint8Array(fs.readFileSync(path.join(corpus, 'bug24383_224013.stp'))));
     const p = scene.parts.find((x) => x.sources[0]!.id === 11)!;
-    const r = await (await backend()).tessellate({ ...request(p.brep!.model, 0.1 / p.unit), origin: p.origin });
+    const r = await (await backend()).tessellate({ ...request(p.brep!.model, 0.1), origin: p.origin });
     const failed = r.diagnostics.find((d) => /^\d+ faces failed to mesh$/.test(d.message));
     assert.equal(failed?.severity, 'error', JSON.stringify(r.diagnostics));
     assert.ok(r.indices.length > 0 && !failedPart(r));

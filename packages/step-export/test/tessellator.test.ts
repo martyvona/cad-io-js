@@ -75,7 +75,7 @@ test('other formats pass through; its info names the writer and takes models (un
   const models = backend();
   models.info.formats = ['cad-brep', 'step'];
   const m = new StepTessellator(models);
-  const d = new BrepBuilder({ unit: 1 }).finish();
+  const d = new BrepBuilder().finish();
   const mreq: TessellationRequest = { format: 'cad-brep', data: new Uint8Array(d.buffer), linearDeflection: 1,
     angularDeflection: 1 };
   await m.tessellate(mreq);
@@ -150,7 +150,7 @@ test('the mesh judged for open edges by the model: edges asked of the backend al
 
 test('an entity whose source id another has: written under a new id, read back as its own', async () => {
   // Two faces with id 7 (a model from a source whose ids aren't unique): the second written under a new id.
-  const b = new BrepBuilder({ unit: 1 });
+  const b = new BrepBuilder();
   for (const z of [0, 1]) {
     const corners = [[0, 0, z], [1, 0, z], [1, 1, z], [0, 1, z]];
     const vs = corners.map((point) => b.addVertex({ point }));

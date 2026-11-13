@@ -19,9 +19,18 @@ const fileOf = new WeakMap<Part, Uint8Array>();
 async function load(f: string) {
   const bytes = new Uint8Array(fs.readFileSync(f));
   const r = await importStep(bytes);
-  for (const p of r.scene.parts) fileOf.set(p, bytes);
+  for (const p of r.scene.parts) {
+    fileOf.set(p, bytes);
+    const factor = r.semantics.structure.representations.get(rootOf(p))?.context?.lengthUnit?.factor;
+    unitOf.set(p, (factor ?? 1e-3) * 1000);
+  }
   return r;
 }
+/** Millimetres per the unit of a part's representation in its file: its subset's unit (the scene's are mm). */
+const unitOf = new Map<Part, number>();
+const fileUnit = (p: Part) => unitOf.get(p)!;
+/** A part's origin in its subset's unit. */
+const fileOrigin = (p: Part) => p.origin.map((x) => x / fileUnit(p)) as [number, number, number];
 /** A part's shape representation's id. */
 const rootOf = (p: Part) => p.sources[0]!.id;
 /** A part's subset of its file: its representation and what it reaches, mapped items left out (as OCCT gets it). */
@@ -223,7 +232,8 @@ test('a lone boundary on a sphere or torus: the small region in a geometric set,
     const p = scene.parts.find((q) => !!q.brep && !/WIREFRAME/.test(String(q.properties.representation)));
     assert.ok(p?.brep);
     return area(await tess.tessellate(
-      { format: 'step', data: subsetOf(p), rootId: rootOf(p), origin: p.origin, linearDeflection: 0.2 / p.unit,
+      { format: 'step', data: subsetOf(p), rootId: rootOf(p), origin: fileOrigin(p),
+      linearDeflection: 0.2 / fileUnit(p),
       angularDeflection: 0.3 }));
   };
   // In inches: 9.07 as OCCT 7.6 reads it, matching the other writers' copies of the model (tc 5838 mm^2, md 5756 mm^2);
@@ -246,8 +256,8 @@ test("our patch 0001: a cone whose seam pcurves slope by 3e-14 in U meshed (OCCT
   const { scene } = await load(conical);
   const p = scene.parts[0]!;
   assert.ok(p.brep);
-  const r = await tess.tessellate({ format: 'step', data: subsetOf(p), rootId: rootOf(p), origin: p.origin,
-    linearDeflection: 0.1 / p.unit, angularDeflection: 0.5 });
+  const r = await tess.tessellate({ format: 'step', data: subsetOf(p), rootId: rootOf(p), origin: fileOrigin(p),
+    linearDeflection: 0.1 / fileUnit(p), angularDeflection: 0.5 });
   tess.dispose();
   const cone = r.faces.filter((f) => f.entityId === 78);
   assert.ok(cone.length && cone.every((f) => f.count > 0), JSON.stringify(r.faces));
@@ -362,7 +372,7 @@ test("curve ids: a composite curve's segments take the composite's, an edge-base
     const p = scene.parts.find((q) => q.brep && rootOf(q) === root);
     assert.ok(p?.brep);
     const r = await tess.tessellate(
-      { format: 'step', data: subsetOf(p), rootId: root, origin: p.origin, linearDeflection: 0.1 / p.unit,
+      { format: 'step', data: subsetOf(p), rootId: root, origin: fileOrigin(p), linearDeflection: 0.1 / fileUnit(p),
       angularDeflection: 0.5 });
     assert.deepEqual(r.diagnostics, []);
     return r.curves!.map((c) => c.entityId);
@@ -471,8 +481,8 @@ test('edges add polylines only: the triangles, normals, faces and measures are t
     const parts = scene.parts.filter((p) => p.brep);
     assert.equal(parts.length, 5);
     for (const p of parts) {
-      const req = { format: 'step' as const, data: subsetOf(p), rootId: rootOf(p), origin: p.origin,
-        linearDeflection: 0.1 / p.unit, angularDeflection: 0.5, measures: true };
+      const req = { format: 'step' as const, data: subsetOf(p), rootId: rootOf(p), origin: fileOrigin(p),
+        linearDeflection: 0.1 / fileUnit(p), angularDeflection: 0.5, measures: true };
       const { edges, edgePositions, ...a } = await tess.tessellate({ ...req, edges: true });
       const b = await tess.tessellate({ ...req, edges: false });
       assert.ok(edges?.length && edgePositions?.length);

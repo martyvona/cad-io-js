@@ -25,9 +25,9 @@ function scene(): Scene {
     ],
     roots: [occ(0, identity())],
     parts: [
-      { name: 'plate', sources: [], properties: {}, unit: 25.4, origin: [0, 0, 0], lods: [], material: 1,
+      { name: 'plate', sources: [], properties: {}, origin: [0, 0, 0], lods: [], material: 1,
         faceMaterials: [{ face: 7, material: 2 }] },
-      { name: 'bolt', sources: [], properties: {}, unit: 1, origin: [0, 0, 0], lods: [] },
+      { name: 'bolt', sources: [], properties: {}, origin: [0, 0, 0], lods: [] },
     ],
     materials: [0, 1, 2, 3].map(
       (i) => ({ color: [[1, 0, 0], [0, 1, 0], [0, 0, 1], [1, 1, 1]][i] as [number, number, number], opacity: 1,
@@ -83,12 +83,10 @@ test('validate', () => {
   assert.deepEqual(validate(s), []);
   s.components[2]!.children.push({ component: 1, transform: identity(), sources: [], properties: {} }); // 1 -> 2 -> 1
   s.components[1]!.parts.push({ part: 5, transform: new Float64Array(16).fill(NaN), material: 9 });
-  s.parts[1]!.unit = 0;
   assert.deepEqual(validate(s), [
     'components[1].parts[1]: part 5 out of range',
     'components[1].parts[1]: transform is not 16 finite numbers',
     'components[1].parts[1]: material 9 out of range',
-    'parts[1]: unit 0 is not positive',
     'component 1 contains itself',
   ]);
   // The cycle doesn't make the walk loop.
