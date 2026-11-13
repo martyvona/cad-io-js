@@ -495,26 +495,33 @@ test('stepconv: the cache answers a second run', { skip }, async () => {
 });
 
 const opensUp = path.join(root, 'test_corpus/third_party/gkv311-opencascade-dataset/step/bug28118_18547.stp');
-test('stepconv: --fallback: the part OCCT leaves open meshed by SMLib (the default), or not with none; bad choices',
-  { skip: skip || (!smlibBuilt && 'tess-smlib not built') || (!fs.existsSync(opensUp) && 'corpus not fetched') },
+const overArea = path.join(root, 'test_corpus/third_party/gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/'
+  + 'HEAD_BACK.stp');
+test('stepconv: --fallback: a part OCCT meshes badly meshed by SMLib (the default), or not with none; bad choices',
+  { skip: skip || (!smlibBuilt && 'tess-smlib not built') || (!fs.existsSync(overArea) && 'corpus not fetched') },
   async () => {
   const out = path.join(tmp, 'fallback.json');
-  const fell = new RegExp('warning: #11: meshed by the fallback backend \\(smlib\\), since occt\'s mesh had problems: '
-    + 'open along 2 edges');
-  const open = /error: #11: 2 edges along which the meshes of the faces they join don't meet/;
-  const r = await run([opensUp, '-o', out, '-j', '1']);
+  // HEAD_BACK.stp #593: OCCT meshes face #314 over its area, SMLib meshes it right.
+  const fell = new RegExp('warning: #593: meshed by the fallback backend \\(smlib\\), since occt\'s mesh had problems: '
+    + '1 face meshed over its area');
+  const over = /error: #593: 1 face meshed short of or over its measured area: #314/;
+  const r = await run([overArea, '-o', out, '-j', '1']);
   assert.equal(r.code, 0, r.stderr);
   assert.match(r.stderr, fell);
-  assert.doesNotMatch(r.stderr, open);
-  const none = await run([opensUp, '-o', out, '-j', '1', '--fallback', 'none']);
-  assert.match(none.stderr, open);
+  assert.doesNotMatch(r.stderr, over);
+  const none = await run([overArea, '-o', out, '-j', '1', '--fallback', 'none']);
+  assert.match(none.stderr, over);
   assert.doesNotMatch(none.stderr, fell);
-  // Its note listed only with --verbose.
+  // Its notes listed only with --verbose.
   assert.doesNotMatch(none.stderr, /\n {2}info: /);
-  const verbose = await run([opensUp, '-o', out, '-j', '1', '--fallback', 'none', '-v']);
-  assert.match(verbose.stderr, /1 errors, 0 warnings, 1 notes\n {2}error: #11: .*\n {2}info: .*\n$/);
+  const verbose = await run([overArea, '-o', out, '-j', '1', '--fallback', 'none', '-v']);
+  assert.match(verbose.stderr, /1 errors, 1 warnings, 1 notes\n {2}error: #593: .*\n {2}warning: .*\n {2}info: .*\n$/);
+  // bug28118_18547.stp #11: OCCT leaves 2 edges open that the join closes, so it isn't sent to the fallback.
+  const joined = await run([opensUp, '-o', out, '-j', '1', '-v']);
+  assert.match(joined.stderr, /\n {2}info: #11: 2 edges joined exactly/);
+  assert.doesNotMatch(joined.stderr, /error:|fallback/);
   // SMLib's fallback is OCCT by default; a fallback that is the backend, or unknown, is refused.
-  const sm = await run([opensUp, '-o', out, '-j', '1', '-b', 'smlib']);
+  const sm = await run([overArea, '-o', out, '-j', '1', '-b', 'smlib']);
   assert.equal(sm.code, 0, sm.stderr);
   assert.doesNotMatch(sm.stderr, /error:|fallback/);
   for (const [args, msg] of [[['--fallback', 'occt'], /the fallback backend can't be the backend \(occt\)/],

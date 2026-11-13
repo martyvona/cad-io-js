@@ -4,8 +4,8 @@ import { BrepBuilder } from 'cad-brep';
 import { box, cube } from '../../cad-brep/test/models.ts';
 import { quads } from './meshes.ts';
 import { areaMessage } from '../src/tessellate.ts';
-import { FallbackTessellator, ORACLE_DISAGREE, oracleAreas, oracleMeasures, tessellateScene, type Scene, type TessellateOptions,
-  type TessellationResult, type Tessellator } from '../src/index.ts';
+import { FallbackTessellator, ORACLE_DISAGREE, oracleAreas, oracleMeasures, tessellateScene, type Scene,
+  type TessellateOptions, type TessellationResult, type Tessellator } from '../src/index.ts';
 
 const model = cube().finish();
 const FACES = [21, 22, 23, 24, 25, 26];

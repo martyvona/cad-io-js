@@ -25,7 +25,7 @@ export function openEdgesCount(diagnostics: readonly Diagnostic[]): number {
 }
 
 /** Each edge id's faces, by id, as the model's loops use them (faces and edges without an id left out). */
-function edgeUsers(d: BrepData): Map<number, number[]> {
+export function edgeUsers(d: BrepData): Map<number, number[]> {
   const users = new Map<number, number[]>();
   const f = d.face, l = d.loop, c = d.coedge;
   for (let row = 0; row < f.surface.length; row++) {

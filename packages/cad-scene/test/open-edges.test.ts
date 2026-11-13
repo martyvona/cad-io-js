@@ -81,7 +81,8 @@ test('open edges: the error, its count read back, and the diagnostic from the mo
   assert.equal(openEdgesCount([]), 0);
 });
 
-test('open edges: free edges (one face\'s) are never open; a polyline segment no triangle has isn\'t judged open', () => {
+test('open edges: free edges (one face\'s) are never open; a polyline segment no triangle has isn\'t judged open',
+  () => {
   // Two unit squares used as sheets, each edge one face's: one triangle has each boundary segment.
   const sheets = withoutIds().finish();
   assert.deepEqual(openEdges(sheets, quads(sheets)).open, []);

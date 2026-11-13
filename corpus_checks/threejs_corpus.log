@@ -1,10 +1,10 @@
-files 517 (0 over 1000 MB skipped; 0 too large to load), 17 s
-meshes 4856 (geometries 3124), groups 5149, triangles 10479131, segments 1701739, points 1064
-JSON 628.1 M characters; export 12.25 s; JSON.parse + ObjectLoader 1.63 s
+files 517 (0 over 1000 MB skipped; 0 too large to load), 27 s
+meshes 4856 (geometries 3124), groups 5149, triangles 10479131, segments 1701737, points 1064
+JSON 628.1 M characters; export 18.71 s; JSON.parse + ObjectLoader 2.46 s
 largest:
-  148.0 M characters, 3.1 s  gkv311-opencascade-dataset/step/as1_motor.step
-  101.9 M characters, 1.7 s  gkv311-opencascade-dataset/step/bug28366_fuselage.stp
-  30.8 M characters, 0.7 s  gkv311-opencascade-dataset/step/bug30790.step
-  27.8 M characters, 0.5 s  gkv311-opencascade-dataset/step/bug29979_firetherm_12.step
-  27.0 M characters, 0.5 s  gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp
+  148.0 M characters, 4.6 s  gkv311-opencascade-dataset/step/as1_motor.step
+  101.9 M characters, 2.3 s  gkv311-opencascade-dataset/step/bug28366_fuselage.stp
+  30.8 M characters, 1.1 s  gkv311-opencascade-dataset/step/bug30790.step
+  27.8 M characters, 0.8 s  gkv311-opencascade-dataset/step/bug29979_firetherm_12.step
+  27.0 M characters, 0.8 s  gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp
 problems 0

@@ -6,6 +6,7 @@ import { type BrepData, openBrep } from 'cad-brep';
 import { type FaceArea, oracleAreas } from './area-oracle.ts';
 import { failedPart } from './errors.ts';
 import { faceFailures } from './mesh.ts';
+import { joinResult } from './join.ts';
 import { openEdgesCount } from './open-edges.ts';
 import type { Diagnostic } from './scene.ts';
 import { faceUses } from './tessellate.ts';
@@ -81,18 +82,23 @@ const described = (i: TessellatorInfo) => `${i.name} ${i.version}`;
 
 /**
  * The primary tessellator, and where its result for a part isn't sound (judgeResult), the fallback's for the whole
- * part, whichever is the better (compareVerdicts: kind by kind, a face missing worst; the primary's on a tie). The result says which (`backend`), with a warning
- * naming what was wrong with the primary's, or an info diagnostic where the fallback's was no better. Both are asked
- * for measures (to judge by), which the result keeps only if the request asked. Both start at init (a worker pool
- * starts one worker then, the rest as requests come).
+ * part, whichever is the better (compareVerdicts: kind by kind, a face missing worst; the primary's on a tie). The
+ * result says which (`backend`), with a warning naming what was wrong with the primary's, or an info diagnostic where
+ * the fallback's was no better. Each result is joined (joinResult) before it's judged, unless `join` is false. Both
+ * are asked for measures (to judge by) and edges (to join by), which the result keeps only if the request asked. Both
+ * start at init (a worker pool starts one worker then, the rest as requests come).
  */
 export class FallbackTessellator implements Tessellator {
   readonly primary: Tessellator;
   readonly fallback: Tessellator;
 
-  constructor(primary: Tessellator, fallback: Tessellator) {
+  /** Whether results are joined (joinResult) before they're judged; tessellateScene's `join` should agree. */
+  readonly join: boolean;
+
+  constructor(primary: Tessellator, fallback: Tessellator, opts: { join?: boolean } = {}) {
     this.primary = primary;
     this.fallback = fallback;
+    this.join = opts.join ?? true;
   }
 
   get info(): TessellatorInfo {
@@ -116,9 +122,11 @@ export class FallbackTessellator implements Tessellator {
   }
 
   async tessellate(req: TessellationRequest): Promise<TessellationResult> {
-    const ask = { ...req, measures: true };
+    // (Edges to join by, and measures to judge by: both kept only if the request asked.)
     const model = req.format === 'cad-brep' ? openBrep(req.data) : undefined;
-    const run = (t: Tessellator) => t.tessellate(ask).catch((e: unknown) => e instanceof Error ? e
+    const ask = { ...req, measures: true, ...(this.join && model ? { edges: true } : {}) };
+    const run = (t: Tessellator) => t.tessellate(ask).then((r) => (this.join && model
+      ? joinResult(model, r, req.linearDeflection) : r)).catch((e: unknown) => e instanceof Error ? e
       : new Error(String(e)));
     const a = await run(this.primary);
     // (The oracle's areas from the results, computed beside the meshing: ours are cached with them.)
@@ -128,8 +136,9 @@ export class FallbackTessellator implements Tessellator {
     const b = await run(this.fallback);
     const vb = judgeResult(b, model, req.linearDeflection);
     const why = va.problems.join('; ');
-    if (compareVerdicts(vb, va) < 0) return this.finish(b as TessellationResult, this.fallback, req, [{ severity: 'warning',
-      message: `meshed by the fallback backend (${f}), since ${p}'s mesh had problems: ${why}` }]);
+    if (compareVerdicts(vb, va) < 0) return this.finish(b as TessellationResult, this.fallback, req,
+      [{ severity: 'warning', message: `meshed by the fallback backend (${f}), since ${p}'s mesh had problems: `
+        + why }]);
     if (a instanceof Error) throw a;
     return this.finish(a, this.primary, req, [{ severity: 'info', message: `the fallback backend (${f}) did no `
       + `better than ${p} (${vb.problems.join('; ')}), so ${p}'s mesh is kept` }]);
@@ -141,6 +150,7 @@ export class FallbackTessellator implements Tessellator {
     const out: TessellationResult = { ...r, backend: r.backend ?? described(by.info),
       diagnostics: [...notes, ...r.diagnostics] };
     if (!req.measures) { delete out.measures; delete out.oracle; }
+    if (!req.edges) { delete out.edges; delete out.edgePositions; }
     return out;
   }
 

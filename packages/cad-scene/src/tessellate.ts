@@ -1,7 +1,8 @@
 // Driving a tessellator over a scene: one request per brep part, with the part's origin and the deflection (all in
-// millimetres, as the models are); the results become the parts' meshes, with closed shells that are inside out (and
-// can't be voids' boundaries) turned over, so every consumer of the meshes, not just the exporters, has them outward,
-// and triangles with two corners at one position dropped first. The meshes become the parts' tessellated
+// millimetres, as the models are); the results become the parts' meshes, their faces joined exactly along the model
+// edges where only their points differ (join.ts), with closed shells that are inside out (and can't be voids'
+// boundaries) turned over, so every consumer of the meshes, not just the exporters, has them outward, and triangles
+// with two corners at one position dropped first. The meshes become the parts' tessellated
 // levels of detail (the scene holds its geometry, exact and meshed).
 
 import { degenerateMessage, dropDegenerate, faceFailures, orientShells } from './mesh.ts';
@@ -12,6 +13,7 @@ import type { Diagnostic, Measures, Mesh, Part, Scene } from './scene.ts';
 import { meshDeflections, type MeshProfile } from './profiles.ts';
 import type { TessellationResult, Tessellator } from './tessellator.ts';
 import { ORACLE_DISAGREE } from './area-oracle.ts';
+import { joinResult } from './join.ts';
 
 export interface TessellateOptions {
   /** The meshing profile (profiles.ts), default DEFAULT_MESH_PROFILE; the deflections below replace its values. */
@@ -54,6 +56,13 @@ export interface TessellateOptions {
    * backend's.
    */
   oracle?: boolean;
+  /**
+   * Join the meshes of faces along the model edges where they don't meet but each reaches the whole edge (joinEdges:
+   * the faces' points along it made the same, T-junctions split, points within JOIN_SNAP of the deflection one),
+   * with a note per part; the open-edge error then counts the edges still open. The backend is asked for edges to join
+   * by, which the meshes keep only if `edges` asks. Default true; false keeps the meshes as the backend gave them.
+   */
+  join?: boolean;
   /** Called after each part, in the order parts finish, for progress reporting. */
   onPart?: (part: number, mesh: Mesh | undefined, done: number, total: number) => void;
 }
@@ -199,11 +208,14 @@ export async function tessellateScene(scene: Scene, tess: Tessellator,
     let by = backend;
     const measure = (opts.measures ?? true) && !part.measures;
     try {
-      const r = await tess.tessellate({
+      const join = opts.join ?? true;
+      let r = await tess.tessellate({
         format: 'cad-brep', data: new Uint8Array(brep.model.buffer), origin: part.origin,
         linearDeflection, angularDeflection,
-        edges: opts.edges, ...(measure ? { measures: true } : {}),
+        edges: join || opts.edges, ...(measure ? { measures: true } : {}),
       });
+      if (join) r = joinResult(brep.model, r, linearDeflection);
+      if (join && !opts.edges) { r = { ...r }; delete r.edges; delete r.edgePositions; }
       by = r.backend ?? backend;
       for (const d of r.diagnostics) diagnostics.push(source && !d.source ? { ...d, source } : d);
       // (Kept at once, so `onPart` sees them.)

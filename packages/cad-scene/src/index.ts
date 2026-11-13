@@ -10,7 +10,8 @@ export { type FaceArea, modelFaceArea, OFF_SURFACE, ORACLE_DENSITY, ORACLE_DISAG
   oracleMeasures,
   type OracleArea, type OracleFlag, type OracleOptions, type OracleResult, type OracleSurface, type OracleUnsupported,
   trustedArea } from './area-oracle.ts';
-export { openEdges, openEdgesCount, openEdgesDiagnostic, openEdgesMessage } from './open-edges.ts';
+export { edgeUsers, openEdges, openEdgesCount, openEdgesDiagnostic, openEdgesMessage } from './open-edges.ts';
+export { JOIN_SNAP, joinedMessage, joinEdges, joinResult, type Joined } from './join.ts';
 export { tessellateScene, toMesh, type TessellateOptions, type TessellateResult } from './tessellate.ts';
 export { DEFAULT_MESH_PROFILE, MESH_PROFILE_NAMES, MESH_PROFILES, meshDeflections, meshProfileOf, type Deflections,
   type MeshProfile } from './profiles.ts';

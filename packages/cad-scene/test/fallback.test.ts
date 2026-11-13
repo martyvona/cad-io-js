@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { cube } from '../../cad-brep/test/models.ts';
 import { quads } from './meshes.ts';
-import { FallbackTessellator, judgeResult, openEdgesMessage, oracleAreas, oracleMeasures, tessellateScene, type Scene, type TessellationRequest,
-  type TessellationResult, type Tessellator } from '../src/index.ts';
+import { FallbackTessellator, judgeResult, openEdgesMessage, oracleAreas, oracleMeasures, tessellateScene, type Scene,
+  type TessellationRequest, type TessellationResult, type Tessellator } from '../src/index.ts';
 
 const model = cube().finish();
 const FACES = [21, 22, 23, 24, 25, 26];
@@ -81,7 +81,8 @@ test('judge: a sound result passes; each problem is counted, ranked and said', (
   assert.deepEqual(judgeResult(big, model, 0.01).problems, ['1 face meshed over its area']);
   // Open edges, from the backend's error, by its count; another error by its message, one each.
   const open = { ...sound(), diagnostics: [{ severity: 'error' as const, message: openEdgesMessage(3) },
-    { severity: 'error' as const, message: 'something else' }, { severity: 'warning' as const, message: 'a warning' }] };
+    { severity: 'error' as const, message: 'something else' },
+    { severity: 'warning' as const, message: 'a warning' }] };
   assert.deepEqual(judgeResult(open, model, 0.01), { ok: false, problems: ['open along 3 edges', 'something else'],
     rank: [0, 0, 0, 0, 3, 1] });
   // "Faces failed to mesh" is counted by the faces, not again as an error.
@@ -143,7 +144,14 @@ test('fallback: a sound part is the primary\'s alone; the fallback isn\'t asked'
   assert.equal(r.measures, undefined);
   assert.equal(r.oracle, undefined);
   assert.equal((await t.tessellate(request({ measures: true }))).measures!.length, 6);
-  assert.equal(a.seen[1]!.edges, undefined);
+  // Edges asked for, to join by, and dropped as not asked for; with join off, not asked for.
+  assert.equal(a.seen[1]!.edges, true);
+  assert.equal(r.edges, undefined);
+  assert.equal(r.edgePositions, undefined);
+  const plain = fake('a', sound), off = new FallbackTessellator(plain, fake('b', sound), { join: false });
+  await off.init();
+  await off.tessellate(request());
+  assert.equal(plain.seen[0]!.edges, undefined);
 });
 
 test('fallback: a part the primary fails is the fallback\'s where it has fewer problems, with a warning', async () => {
