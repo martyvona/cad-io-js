@@ -169,7 +169,7 @@ test('fill: a polyline of no points (an edge a backend couldn\'t draw) is none',
   const loop = decode.face(d, [...d.face.id].indexOf(side)).loops[0]!;
   const first = loop.kind === 'edge' ? decode.edge(d, loop.coedges[0]!.edge).id : 0;
   // An empty polyline for that edge besides its own: filled all the same; in place of its own: not drawn.
-  const extra = { ...r, edges: [...r.edges!, { entityId: first, start: 0, count: 0, kind: 'shared' as const }] };
+  const extra = { ...r, edges: [...r.edges!, { entityId: first ?? null, start: 0, count: 0, kind: 'shared' as const }] };
   assert.deepEqual(fillFaces(d, extra, 0.1).filled, [side]);
   const only = { ...r, edges: r.edges!.map((e) => (e.entityId === first ? { ...e, count: 0 } : e)) };
   assert.equal(fillFaces(d, only, 0.1).skipped.get(side), 'an edge of it not drawn');

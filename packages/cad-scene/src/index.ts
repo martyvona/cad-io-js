@@ -13,7 +13,7 @@ export { type FaceArea, modelFaceArea, OFF_SURFACE, ORACLE_DENSITY, ORACLE_DISAG
 export { edgeUsers, openEdges, openEdgesCount, openEdgesDiagnostic, openEdgesMessage } from './open-edges.ts';
 export { composeResults } from './compose.ts';
 export { failedMessage, FILL_WIDTH, filledMessage, fillFaces, fillResult, type Filled } from './fill.ts';
-export { JOIN_SNAP, joinedMessage, joinEdges, joinResult, type Joined } from './join.ts';
+export { JOIN_CORNER, JOIN_SNAP, joinedMessage, joinEdges, joinResult, type Joined } from './join.ts';
 export { tessellateScene, toMesh, type TessellateOptions, type TessellateResult } from './tessellate.ts';
 export { DEFAULT_MESH_PROFILE, MESH_PROFILE_NAMES, MESH_PROFILES, meshDeflections, meshProfileOf, type Deflections,
   type MeshProfile } from './profiles.ts';

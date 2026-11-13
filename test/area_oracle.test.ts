@@ -286,11 +286,14 @@ test('spheres: a hemisphere, a cap, and lunes through both poles', async () => {
     const b = new Builder();
     const N = b.vtx(0, 0, R), S = b.vtx(0, 0, -R);
     // From u 0 to u 3 pi/2 (the yz plane through -y): wider than pi, so the jump in u at the south pole is taken the
-    // short way, by 4 pi R^2 too little, and the area is right only modulo the sphere's.
+    // short way, by 4 pi R^2 too little, and the area is right only modulo the sphere's. Over a hemisphere: its loop
+    // bounds its complement alike, so it's flagged (the area right all the same).
     const m0 = b.edge(N, S, b.circle(b.ax([0, 0, 0], [0, -1, 0], [1, 0, 0]), R), false);
     const m1 = b.edge(S, N, b.circle(b.ax([0, 0, 0], [-1, 0, 0], [0, -1, 0]), R), true);
     const f = b.face([b.bound([b.oe(m1), b.oe(m0)])], b.add(`SPHERICAL_SURFACE('',#${b.ax([0, 0, 0])},${R}.)`));
-    close(await area(b, f), 3 * Math.PI * R * R, 1e-8);
+    const r = await area(b, f);
+    assert.ok(r.ok && Math.abs(r.area - 3 * Math.PI * R * R) <= 1e-8 * 3 * Math.PI * R * R, JSON.stringify(r));
+    assert.deepEqual(r.flags, ['sphere-side']);
   }
 });
 

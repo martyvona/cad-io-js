@@ -3,7 +3,8 @@
 // the edge is found from its triangles (mesh edges one of its triangles has, near the edge's polyline); the points of
 // all of them, in order along the edge, are the joined edge's: points closer than the snap distance one (moved to one
 // of them, everywhere it is), and each face's boundary segments split at the points it lacks, the triangle on each
-// into a fan from its third corner. A split that would turn a triangle over leaves the edge as it was. Edges where a
+// into a fan from its third corner. The faces' points are moved onto the edge's polyline first, or where that would
+// turn a triangle over kept where they are; where both would, the edge is left as it was. Edges where a
 // face's boundary stops short of the edge, leaves it, or puts a corner elsewhere aren't joined: no splitting can close
 // them. The edge's polylines become one, the joined points.
 
@@ -14,6 +15,8 @@ import type { TessellationResult } from './tessellator.ts';
 
 /** Points closer than this fraction of the linear deflection are one point of the joined edge. */
 export const JOIN_SNAP = 0.01;
+/** A face's corner within this fraction of the linear deflection of the edge's end is moved onto it. */
+export const JOIN_CORNER = 0.5;
 
 export interface Joined {
   /** The result, joined (`r` itself where nothing was). */
@@ -34,15 +37,16 @@ const dot = (a: V3, b: V3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const cross = (a: V3, b: V3): V3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 const dist = (a: V3, b: V3) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 
-/** The parameter (arc length from the start) of q's nearest point on polyline P, and its distance from it. */
-function project(P: readonly V3[], cum: readonly number[], q: V3): { t: number; d: number } {
-  if (P.length === 1) return { t: 0, d: dist(P[0]!, q) };
-  let best = { t: 0, d: Infinity };
+/** The parameter (arc length from the start) of q's nearest point on polyline P, its distance, and the point. */
+function project(P: readonly V3[], cum: readonly number[], q: V3): { t: number; d: number; at: V3 } {
+  if (P.length === 1) return { t: 0, d: dist(P[0]!, q), at: P[0]! };
+  let best = { t: 0, d: Infinity, at: P[0]! };
   for (let i = 0; i + 1 < P.length; i++) {
     const a = P[i]!, ab = sub(P[i + 1]!, a), l2 = dot(ab, ab);
     const s = l2 > 0 ? Math.max(0, Math.min(1, dot(sub(q, a), ab) / l2)) : 0;
-    const d = dist(q, [a[0] + s * ab[0], a[1] + s * ab[1], a[2] + s * ab[2]]);
-    if (d < best.d) best = { t: cum[i]! + s * Math.sqrt(l2), d };
+    const x: V3 = [a[0] + s * ab[0], a[1] + s * ab[1], a[2] + s * ab[2]];
+    const d = dist(q, x);
+    if (d < best.d) best = { t: cum[i]! + s * Math.sqrt(l2), d, at: x };
   }
   return best;
 }
@@ -143,11 +147,9 @@ export function joinEdges(d: BrepData, r: TessellationResult, deflection: number
         (nbrs.get(ka) ?? nbrs.set(ka, []).get(ka)!).push({ k: kb, a, b });
         (nbrs.get(kb) ?? nbrs.set(kb, []).get(kb)!).push({ k: ka, a: b, b: a });
       }
-      // Walked from its point nearest the edge's start to its point nearest the edge's end, each step to the
-      // neighbour that goes on along the edge (within the deflection of it, advancing along it by 0.5 to 1.5 times
-      // the step's length: not off along another edge at a corner, nor round a closed edge the wrong way) nearest it.
-      // On a closed edge (its ends one point) a step onto the end point is the end, whatever its projection (the
-      // start's).
+      // Walked along its boundary loop from its point nearest the edge's start to its point nearest the edge's end,
+      // each way round, every point within the deflection of the edge's polyline: the way that gets there (the
+      // shorter; on a closed edge, whose ends are one point, both do: the one setting off along the polyline).
       const nearest = (q: V3) => {
         let best: { k: string; i: number; d: number } | undefined;
         for (const [k, ns] of nbrs) {
@@ -157,107 +159,162 @@ export function joinEdges(d: BrepData, r: TessellationResult, deflection: number
         return best;
       };
       const from = nearest(P[0]!), to = nearest(P[P.length - 1]!);
-      const segs: Seg[] = [];
+      let segs: Seg[] = [];
       let why = !from || !to || from.d > tol || to.d > tol ? 'a face\'s corner off the edge\'s end' : '';
       if (!why) {
-        let cur = from!.k, t = 0;
-        for (let steps = 0; steps <= nbrs.size && (cur !== to!.k || !segs.length); steps++) {
-          let next: { k: string; a: number; b: number; t: number; d: number } | undefined;
-          for (const n of nbrs.get(cur)!) {
-            const pr = project(P, cum, at(n.b));
-            const tn = n.k === to!.k && segs.length ? L : pr.t;
-            const step = dist(at(n.a), at(n.b)), along = tn - t >= 0.5 * step && tn - t <= 1.5 * step + snap;
-            if (pr.d <= tol && along && (!next || pr.d < next.d || (pr.d === next.d && tn < next.t))) {
-              next = { ...n, t: tn, d: pr.d };
-            }
+        let best: Seg[] | undefined;
+        for (const first of nbrs.get(from!.k)!) {
+          const path: Seg[] = [];
+          let prev = from!.k, step = first, t = 0, gone = false;
+          for (let n = 0; n <= nbrs.size; n++) {
+            const pr = project(P, cum, at(step.b));
+            if (pr.d > tol) { gone = true; break; }
+            const tb = step.k === to!.k ? L : pr.t;
+            path.push({ a: step.a, b: step.b, ta: t, tb });
+            t = tb;
+            if (step.k === to!.k) break;
+            // On along the loop: the neighbour not come from (where several, the nearest the polyline).
+            const on = nbrs.get(step.k)!.filter((x) => x.k !== prev);
+            if (!on.length) { gone = true; break; }
+            prev = step.k;
+            step = on.length === 1 ? on[0]! : on.reduce((m, x) => (project(P, cum, at(x.b)).d
+              < project(P, cum, at(m.b)).d ? x : m));
           }
-          if (!next) break;
-          segs.push({ a: next.a, b: next.b, ta: t, tb: next.t });
-          cur = next.k; t = next.t;
+          if (gone || path[path.length - 1]?.b === undefined || key(path[path.length - 1]!.b) !== to!.k) continue;
+          if (!best || path.length < best.length
+            || (path.length === best.length && project(P, cum, at(path[0]!.b)).t < project(P, cum, at(best[0]!.b)).t)) {
+            best = path;
+          }
         }
-        // (Its ends then within the deflection of the edge's: where they are with the other faces' is below.)
-        why = cur !== to!.k || !segs.length ? 'a face\'s boundary leaves the edge' : '';
+        if (best) segs = best;
+        else why = 'a face\'s boundary leaves the edge';
       }
       if (why) { skipped.set(id, why); culprits.set(id, f); ok = false; break; }
       paths.push({ face: f, segs });
     }
     if (!ok) continue;
-    // The joined points: every face's, in order along the edge, those within the snap distance of a point one (it
-    // standing for them: the first along the edge, then by the faces' order in the model).
-    const all: { t: number; p: V3; face: number }[] = [];
-    for (const { face, segs } of paths) {
-      all.push({ t: segs[0]!.ta, p: at(segs[0]!.a), face });
-      for (const s of segs) all.push({ t: s.tb, p: at(s.b), face });
-    }
-    all.sort((x, y) => x.t - y.t || faces.indexOf(x.face) - faces.indexOf(y.face));
-    const clusters: { t: number; p: V3; members: V3[] }[] = [];
-    for (const x of all) {
-      const last = clusters[clusters.length - 1];
-      if (last && dist(last.p, x.p) <= snap) last.members.push(x.p);
-      else clusters.push({ t: x.t, p: x.p, members: [x.p] });
-    }
-    // Each face's points their clusters, in order along its path (on a closed edge, its first and last points are one
-    // position in the first and the last cluster); its ends the first and last (its corners the same as the others').
-    const has = (c: (typeof clusters)[number], p: V3) => c.members.some((m) => m[0] === p[0] && m[1] === p[1]
-      && m[2] === p[2]);
-    const placed = new Map<Seg, [number, number]>();
-    let apart = false;
+    // Each face's corners moved onto the edge's ends where within JOIN_CORNER of them.
+    const corners = new Map<string, V3>();
+    let corner = false;
     for (const { segs } of paths) {
-      let ci = has(clusters[0]!, at(segs[0]!.a)) ? 0 : -1;
-      for (const sg of segs) {
-        if (ci < 0) break;
-        let cb = ci;
-        while (cb < clusters.length && !has(clusters[cb]!, at(sg.b))) cb++;
-        if (cb === clusters.length) { ci = -1; break; }
-        placed.set(sg, [ci, cb]);
-        ci = cb;
+      for (const [i, end] of [[segs[0]!.a, P[0]!], [segs[segs.length - 1]!.b, P[P.length - 1]!]] as const) {
+        const dd = dist(at(i), end);
+        if (dd > snap && dd <= JOIN_CORNER * deflection) corners.set(key(i), end);
+        else if (dd > snap) corner = true;
       }
-      if (ci !== clusters.length - 1) { apart = true; break; }
     }
-    if (apart) {
-      skipped.set(id, 'the faces\' corners apart by more than the snap distance');
-      continue;
-    }
-    // The plan: points moved onto their cluster's, and each face's segments split at the clusters between their ends.
-    const moves = new Map<string, V3>();
-    for (const c of clusters) for (const m of c.members) {
-      if (m[0] !== c.p[0] || m[1] !== c.p[1] || m[2] !== c.p[2]) moves.set(`${m[0] + 0},${m[1] + 0},${m[2] + 0}`, c.p);
-    }
-    const moved = (i: number): V3 => moves.get(key(i)) ?? at(i);
-    const plan: { face: number; tri: number; fan: (number | V3)[][] }[] = [];
-    let flips = false;
-    for (const { face, segs } of paths) {
-      const t = tris.get(face)!;
-      for (const s of segs) {
-        const [ca, cb] = placed.get(s)!;
-        if (cb - ca <= 1) continue;
-        const inner = clusters.slice(ca + 1, cb).map((c) => c.p);
-        // The triangle with this boundary segment, and its winding along it.
-        let tri = -1, forward = true, c = -1;
-        for (let k = 0; k < t.length && tri < 0; k += 3) for (let j = 0; j < 3; j++) {
-          const x = t[k + j]!, y = t[k + (j + 1) % 3]!;
-          if ((x === s.a && y === s.b) || (x === s.b && y === s.a)) {
-            tri = k; forward = x === s.a; c = t[k + (j + 2) % 3]!; break;
+    if (corner) { skipped.set(id, 'the faces\' corners apart by more than the corner distance'); continue; }
+    // Joined one of two ways, the first that turns no triangle over: each face's points between its ends moved onto
+    // the polyline where off it by more than the snap distance (within the deflection: the walk's), so that splitting
+    // a neighbour at them can't turn its thin triangles over; else the points kept where they are, which moving can
+    // (a face's own thin triangles along the edge).
+    const plan = (onto: boolean) => {
+      // (Single precision, as they'll be stored.)
+      const f32 = (p: V3): V3 => [Math.fround(p[0]), Math.fround(p[1]), Math.fround(p[2])];
+      const pre = new Map(corners);
+      if (onto) for (const { segs } of paths) for (let k = 0; k + 1 < segs.length; k++) {
+        const pr = project(P, cum, at(segs[k]!.b));
+        if (pr.d > snap) pre.set(key(segs[k]!.b), f32(pr.at));
+      }
+      const ppos = (i: number): V3 => pre.get(key(i)) ?? at(i);
+      // The joined points: every face's, in order along the edge, those within the snap distance of a point one (it
+      // standing for them: the first along the edge, then by the faces' order in the model).
+      const all: { t: number; p: V3; face: number }[] = [];
+      for (const { face, segs } of paths) {
+        all.push({ t: segs[0]!.ta, p: ppos(segs[0]!.a), face });
+        for (const s of segs) all.push({ t: s.tb, p: ppos(s.b), face });
+      }
+      all.sort((x, y) => x.t - y.t || faces.indexOf(x.face) - faces.indexOf(y.face));
+      const clusters: { t: number; p: V3; members: V3[] }[] = [];
+      for (const x of all) {
+        const last = clusters[clusters.length - 1];
+        if (last && dist(last.p, x.p) <= snap) last.members.push(x.p);
+        else clusters.push({ t: x.t, p: x.p, members: [x.p] });
+      }
+      // Each face's points their clusters, in order along its path (on a closed edge, its first and last points are one
+      // position in the first and the last cluster); its ends the first and last (its corners the same as the others').
+      const has = (c: (typeof clusters)[number], p: V3) => c.members.some((m) => m[0] === p[0] && m[1] === p[1]
+        && m[2] === p[2]);
+      const placed = new Map<Seg, [number, number]>();
+      let apart = false;
+      for (const { segs } of paths) {
+        let ci = has(clusters[0]!, ppos(segs[0]!.a)) ? 0 : -1;
+        for (const sg of segs) {
+          if (ci < 0) break;
+          let cb = ci;
+          while (cb < clusters.length && !has(clusters[cb]!, ppos(sg.b))) cb++;
+          if (cb === clusters.length) { ci = -1; break; }
+          placed.set(sg, [ci, cb]);
+          ci = cb;
+        }
+        if (ci !== clusters.length - 1) { apart = true; break; }
+      }
+      if (apart) return 'the faces\' corners apart by more than the snap distance';
+      // The plan: points moved onto their cluster's (by their positions before any move), and each face's segments
+      // split at the clusters between their ends.
+      const moves = new Map<string, V3>();
+      for (const { segs } of paths) {
+        const ends = [segs[0]!.a, ...segs.map((x) => x.b)];
+        for (const i of ends) {
+          const p = ppos(i), c = clusters.find((x) => has(x, p))!;
+          if (c.p[0] !== at(i)[0] || c.p[1] !== at(i)[1] || c.p[2] !== at(i)[2]) moves.set(key(i), c.p);
+        }
+      }
+      const moved = (i: number): V3 => moves.get(key(i)) ?? at(i);
+      const fans: { face: number; tri: number; fan: (number | V3)[][] }[] = [];
+      let flips = false;
+      for (const { face, segs } of paths) {
+        const t = tris.get(face)!;
+        for (const s of segs) {
+          const [ca, cb] = placed.get(s)!;
+          if (cb - ca <= 1) continue;
+          const inner = clusters.slice(ca + 1, cb).map((c) => c.p);
+          // The triangle with this boundary segment, and its winding along it.
+          let tri = -1, forward = true, c = -1;
+          for (let k = 0; k < t.length && tri < 0; k += 3) for (let j = 0; j < 3; j++) {
+            const x = t[k + j]!, y = t[k + (j + 1) % 3]!;
+            if ((x === s.a && y === s.b) || (x === s.b && y === s.a)) {
+              tri = k; forward = x === s.a; c = t[k + (j + 2) % 3]!; break;
+            }
           }
+          if (tri < 0) { flips = true; break; }
+          const chain: (number | V3)[] = [s.a, ...inner, s.b];
+          if (!forward) chain.reverse();
+          const fan = chain.slice(0, -1).map((p, k) => [p, chain[k + 1]!, c]);
+          // None turned over against the triangle it replaces (or made of no area).
+          const pos = (p: number | V3) => (typeof p === 'number' ? moved(p) : p);
+          const n0 = cross(sub(pos(t[tri + 1]!), pos(t[tri]!)), sub(pos(t[tri + 2]!), pos(t[tri]!)));
+          for (const [p, q, o] of fan) {
+            const n = cross(sub(pos(q!), pos(p!)), sub(pos(o!), pos(p!)));
+            if (!(dot(n, n0) > 0)) flips = true;
+          }
+          fans.push({ face, tri, fan });
         }
-        if (tri < 0) { flips = true; break; }
-        const chain: (number | V3)[] = [s.a, ...inner, s.b];
-        if (!forward) chain.reverse();
-        const fan = chain.slice(0, -1).map((p, k) => [p, chain[k + 1]!, c]);
-        // None turned over against the triangle it replaces (or made of no area).
-        const pos = (p: number | V3) => (typeof p === 'number' ? moved(p) : p);
-        const n0 = cross(sub(pos(t[tri + 1]!), pos(t[tri]!)), sub(pos(t[tri + 2]!), pos(t[tri]!)));
-        for (const [p, q, o] of fan) {
-          const n = cross(sub(pos(q!), pos(p!)), sub(pos(o!), pos(p!)));
-          if (!(dot(n, n0) > 0)) flips = true;
-        }
-        plan.push({ face, tri, fan });
+        if (flips) break;
       }
-      if (flips) break;
-    }
-    // (Two splits in one triangle, a corner on the edge twice: not joined.)
-    if (new Set(plan.map((x) => `${x.face} ${x.tri}`)).size < plan.length) flips = true;
-    if (flips) { skipped.set(id, 'a split would turn a triangle over'); continue; }
+      // Nor any triangle a moved point is a corner of (in any face: a corner's position moves everywhere it is).
+      if (!flips && moves.size) {
+        for (const t of tris.values()) {
+          for (let k = 0; k < t.length && !flips; k += 3) {
+            const c3 = [t[k]!, t[k + 1]!, t[k + 2]!];
+            if (!c3.some((i) => moves.has(key(i)))) continue;
+            const n0 = cross(sub(at(c3[1]!), at(c3[0]!)), sub(at(c3[2]!), at(c3[0]!)));
+            const n1 = cross(sub(moved(c3[1]!), moved(c3[0]!)), sub(moved(c3[2]!), moved(c3[0]!)));
+            // (Turned over; one made of no area, as points merged within the snap distance make, is dropped later.)
+            if (dot(n0, n1) < 0) flips = true;
+          }
+          if (flips) break;
+        }
+      }
+      // (Two splits in one triangle, a corner on the edge twice: not joined.)
+      if (new Set(fans.map((x) => `${x.face} ${x.tri}`)).size < fans.length) flips = true;
+      if (flips) return 'a split would turn a triangle over';
+      return { clusters, moves, fans };
+    };
+    let done = plan(true);
+    if (typeof done === 'string') done = plan(false);
+    if (typeof done === 'string') { skipped.set(id, done); continue; }
+    const { clusters, moves, fans } = done;
     // Applied: moves everywhere the point is, then the fans (each new point a new vertex at the cluster's point).
     if (moves.size) {
       const vs = vertices();
@@ -269,8 +326,8 @@ export function joinEdges(d: BrepData, r: TessellationResult, deflection: number
       for (const k of moves.keys()) vs.delete(k);
     }
     // (Fans replace their triangles from the last in each face, so earlier offsets stay right.)
-    plan.sort((x, y) => x.face - y.face || y.tri - x.tri);
-    for (const { face, tri, fan } of plan) {
+    fans.sort((x, y) => x.face - y.face || y.tri - x.tri);
+    for (const { face, tri, fan } of fans) {
       const t = tris.get(face)!;
       const old = [t[tri]!, t[tri + 1]!, t[tri + 2]!];
       const flat: number[] = [];

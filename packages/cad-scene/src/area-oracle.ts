@@ -20,7 +20,7 @@ export type OracleSurface = 'plane' | 'cylinder' | 'cone' | 'sphere' | 'torus';
  * periodic in v, so the seam the face then spans, which no loop runs along, would count); `no-loops`, a face with no
  * edge loops (area 0 reported).
  */
-export type OracleFlag = 'orientation' | 'minor-winding' | 'no-loops' | 'off-surface';
+export type OracleFlag = 'orientation' | 'minor-winding' | 'no-loops' | 'off-surface' | 'sphere-side';
 export interface OracleArea {
   ok: true;
   /** In the file's length unit squared. */
@@ -117,8 +117,10 @@ export function elementarySurf(kind: OracleSurface, F: { o: V3; x: V3; y: V3; z:
       const t = Math.tan(a), s = Math.sin(a);
       if (Math.abs(s) < 1e-15) throw new OracleUnsupportedError('cone with zero semi-angle');
       return { kind: 'cone', modulus: 0, periodicV: false,
+        // (The apex where within SAME_POINT of the axis relative to the cone's extent from its origin to its apex: a
+        // thin cone's radius at v = 0 is no scale for its points, which miss the apex by its length's last digits.)
         uv: (p) => { const q = local(p);
-          return [Math.hypot(q[0], q[1]) < SAME_POINT * (1 + Math.abs(r)) ? NaN : angle(q), q[2]]; },
+          return [Math.hypot(q[0], q[1]) < SAME_POINT * (1 + Math.abs(r) + Math.abs(r / t)) ? NaN : angle(q), q[2]]; },
         // Both nappes (rho either sign): the nearer of the two generators in the point's half-plane, z from the apex.
         off: (p) => { const q = local(p), h = Math.hypot(q[0], q[1]), z = q[2] + r / t, c = Math.cos(a);
           return Math.min(Math.abs(h * c - z * s), Math.abs(h * c + z * s)); },
@@ -206,7 +208,13 @@ export function faceIntegral(S: Surf, same: boolean, loops: OracleLoop[], curves
   const [a1] = total(1), [a2, l2] = total(2), [a4, l4] = total(4);
   const r12 = (4 * a2 - a1) / 3, r24 = (4 * a4 - a2) / 3;
   let area = r24;
-  if (S.modulus) area = ((area % S.modulus) + S.modulus) % S.modulus;
+  if (S.modulus) {
+    area = ((area % S.modulus) + S.modulus) % S.modulus;
+    // A sphere's loops bound a face and its complement alike; reduced modulo the sphere, the area is the face's only
+    // where its loops run as Part 42 has them, which nothing here can check (a file's loop the other way gives the
+    // complement). Over a hemisphere it's flagged: the smaller side is the more likely face.
+    if (area > (S.modulus / 2) * (1 + 1e-9)) flags.add('sphere-side');
+  }
   else if (area < 0) { flags.add('orientation'); area = -area; }
   const size = Math.hypot(hi[0]! - lo[0]!, hi[1]! - lo[1]!, hi[2]! - lo[2]!);
   const offSurface = loops.length ? off / Math.max(size, 1e-300) : 0;

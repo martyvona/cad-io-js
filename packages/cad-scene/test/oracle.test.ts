@@ -152,3 +152,58 @@ test('a face without triangles isn\'t an area error (the backend says it failed 
     ? { ...f, count: 0 } : f)) }));
   assert.deepEqual(diagnostics.filter((d) => d.severity === 'error'), []);
 });
+
+test('the oracle on a thin cone to its apex, the apex vertex a little off the axis (its points miss by more)',
+  async () => {
+  // A cone of radius 0.3 at v = 0 and semi-angle 0.5 degrees (its apex 34.4 from the origin), a face from the apex
+  // to an arc of 2 radians of the circle at v = 0, the apex vertex 3e-9 off the axis: its area r^2 / (2 sin a) * 2.
+  const { modelFaceArea } = await import('../src/index.ts');
+  const r = 0.3, a = 0.5 * Math.PI / 180, apex = -r / Math.tan(a), du = 2;
+  const b = new BrepBuilder();
+  const position = { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] };
+  const cone = b.addSurface({ kind: 'cone', position, radius: r, semiAngle: a });
+  const A = b.addVertex({ point: [3e-9, 0, apex] }), B = b.addVertex({ point: [r, 0, 0] });
+  const C = b.addVertex({ point: [r * Math.cos(du), r * Math.sin(du), 0] });
+  const line = (p: number[], q: number[]) => b.addCurve({ kind: 'line', point: p,
+    direction: q.map((x, i) => x - p[i]!), magnitude: 1 });
+  const ab = b.addEdge({ curve: line([0, 0, apex], [r, 0, 0]), start: A, end: B, sameSense: true, id: 1 });
+  const ac = b.addEdge({ curve: line([0, 0, apex], [r * Math.cos(du), r * Math.sin(du), 0]), start: A, end: C,
+    sameSense: true, id: 2 });
+  const arc = b.addEdge({ curve: b.addCurve({ kind: 'circle', position, radius: r }), start: B, end: C,
+    sameSense: true, id: 3 });
+  const face = (orientations: ('forward' | 'reversed')[]) => b.addFace({ surface: cone, sameSense: true, id: 9,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [{ edge: ab, orientation: orientations[0]! },
+      { edge: ac, orientation: orientations[1]! }, { edge: arc, orientation: orientations[2]! }] }] });
+  const f = face(['reversed', 'forward', 'reversed']);
+  b.addItem({ kind: 'face', ref: f });
+  const m = b.finish();
+  const got = modelFaceArea(m, [...m.face.id].indexOf(9));
+  const want = (r * r) / (2 * Math.sin(a)) * du;
+  assert.ok(got.ok && Math.abs(got.area - want) < 1e-6 * want, JSON.stringify({ got, want }));
+});
+
+test('the oracle on a sphere: a face over a hemisphere flagged (its loops bound its complement alike)', async () => {
+  const { modelFaceArea } = await import('../src/index.ts');
+  // A unit sphere's face bounded by the circle at latitude -0.5, its loop either way round: one side 2 pi (1 - sin
+  // 0.5) = 3.27, trusted; the other 2 pi (1 + sin 0.5) = 9.30, over a hemisphere, flagged.
+  const areas = (['forward', 'reversed'] as const).map((o) => {
+    const b = new BrepBuilder();
+    const z = -Math.sin(0.5), rr = Math.cos(0.5);
+    const sphere = b.addSurface({ kind: 'sphere', position: { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] },
+      radius: 1 });
+    const v = b.addVertex({ point: [rr, 0, z] });
+    const e = b.addEdge({ curve: b.addCurve({ kind: 'circle', position: { origin: [0, 0, z], axis: [0, 0, 1],
+      xDir: [1, 0, 0] }, radius: rr }), start: v, end: v, sameSense: true, id: 1 });
+    const f = b.addFace({ surface: sphere, sameSense: true, id: 9, loops: [{ kind: 'edge', bound: 'outer',
+      sense: true, coedges: [{ edge: e, orientation: o }] }] });
+    b.addItem({ kind: 'face', ref: f });
+    const m = b.finish();
+    return modelFaceArea(m, [...m.face.id].indexOf(9));
+  });
+  const small = 2 * Math.PI * (1 - Math.sin(0.5)), big = 2 * Math.PI * (1 + Math.sin(0.5));
+  const byArea = [...areas].sort((x, y) => (x.ok ? x.area : 0) - (y.ok ? y.area : 0));
+  assert.ok(byArea[0]!.ok && Math.abs(byArea[0]!.area - small) < 1e-6 && byArea[0]!.flags.length === 0,
+    JSON.stringify(byArea[0]));
+  assert.ok(byArea[1]!.ok && Math.abs(byArea[1]!.area - big) < 1e-6 && byArea[1]!.flags.includes('sphere-side'),
+    JSON.stringify(byArea[1]));
+});

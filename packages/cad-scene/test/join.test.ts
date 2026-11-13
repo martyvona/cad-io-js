@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { BrepBuilder, type BrepData, decode } from 'cad-brep';
-import { cube } from '../../cad-brep/test/models.ts';
+import { box, cube } from '../../cad-brep/test/models.ts';
 import { quads, withPoint, withPolygon } from './meshes.ts';
-import { FallbackTessellator, JOIN_SNAP, joinedMessage, joinEdges, openEdges, openEdgesMessage, tessellateScene,
-  type Scene, type TessellationRequest, type TessellationResult, type Tessellator } from '../src/index.ts';
+import { FallbackTessellator, JOIN_CORNER, JOIN_SNAP, joinedMessage, joinEdges, openEdges, openEdgesMessage,
+  tessellateScene, type Scene, type TessellationRequest, type TessellationResult, type Tessellator }
+  from '../src/index.ts';
 
 const d = cube().finish();
 const D = 0.1;
@@ -81,7 +82,7 @@ test('join: a point off the side within the deflection is a point of both; beyon
   assert.equal(k.result, far);
 });
 
-test('join: a corner within the snap distance moved onto the other faces\' everywhere; beyond it, not joined',
+test('join: a corner within the snap distance or JOIN_CORNER moved onto the edge\'s end everywhere; beyond, not joined',
   () => {
   const ids = edgesOf(d, 21);
   const at = [ids[0]!, ids[3]!].sort((a, b) => a - b);
@@ -92,11 +93,15 @@ test('join: a corner within the snap distance moved onto the other faces\' every
   const j = joinEdges(d, small, D);
   assert.deepEqual([j.joined.sort((a, b) => a - b), j.open], [at, []]);
   assert.deepEqual(openEdges(d, j.result).open, []);
-  // Beyond it (within the deflection): the corners apart, not joined.
-  const big = quads(d, { face: 21, corner: 0, by: [0, 0, 2 * JOIN_SNAP * D] });
+  // Beyond it, within JOIN_CORNER of the deflection: the corner moved onto the edge's end (everywhere), joined.
+  const near = quads(d, { face: 21, corner: 0, by: [0, 0, 0.9 * JOIN_CORNER * D] });
+  const j2 = joinEdges(d, near, D);
+  assert.deepEqual([j2.joined.sort((a, b) => a - b), j2.open], [at, []]);
+  // Beyond that (within the deflection): the corners apart, not joined.
+  const big = quads(d, { face: 21, corner: 0, by: [0, 0, 1.1 * JOIN_CORNER * D] });
   const k = joinEdges(d, big, D);
   assert.deepEqual(k.joined, []);
-  assert.equal(k.skipped.get(ids[0]!), 'the faces\' corners apart by more than the snap distance');
+  assert.equal(k.skipped.get(ids[0]!), 'the faces\' corners apart by more than the corner distance');
   // Beyond the deflection: the corner off the edge's end.
   const off = joinEdges(d, quads(d, { face: 21, corner: 0, by: [0, 0, 2 * D] }), D);
   assert.equal(off.skipped.get(ids[0]!), 'a face\'s corner off the edge\'s end');
@@ -162,36 +167,83 @@ test('join: normals for the new points; a face in two ranges made one; faces wit
   assert.equal(out.faces.reduce((n, f) => n + f.count, 0), out.indices.length);
 });
 
-test('join: a split that would turn a triangle over leaves the edge as it was', () => {
+/**
+ * The cube's result with face 21 bulging out past its first side: a point of its own 0.3 (of the cube's size) out
+ * from the side's middle, and inside the bulge a vertex 0.1 out, every triangle of the face a corner of it; the
+ * neighbour along the side lacks the point (open). Moving the point onto the side carries it past that vertex,
+ * turning a triangle of face 21 over. With `toward`, the point is also that far into the neighbour's side of the
+ * edge, and the neighbour a fan around a vertex 0.1 in from the side's middle, so inserting the point there turns
+ * one of its triangles over too. With `corner`, face 21's corner at the side's start is that far past it along the
+ * side (of the cube's size).
+ */
+function bulge(toward = 0, corner = 0) {
   const [side] = edgesOf(d, 21);
-  const base = quads(d);
-  const neighbour = [...d.face.id].find((f) => f !== 21 && edgesOf(d, f).includes(side!))!;
-  // The neighbour made thin along the side: its copies of its two corners off the side moved to 0.2 from it; then
-  // face 21's own point 0.5 into the neighbour's plane, beyond them (the deflection 1, so within it).
-  const nb = base.faces.find((f) => f.entityId === neighbour)!;
-  const sidePts = polyline(base, side!);
-  const same = (i: number, o: number) => [0, 1, 2].every((k) => base.positions[3 * i + k] === sidePts[o + k]);
-  const onSide = (i: number) => same(i, 0) || same(i, 3);
-  const positions = Float32Array.from(base.positions);
-  const corners = [...new Set(base.indices.subarray(nb.start, nb.start + nb.count))];
-  const inner = corners.filter((i) => !onSide(i)), outer = corners.filter(onSide);
-  const gap = (x: number, i: number) => Math.hypot(...[0, 1, 2].map((k) => positions[3 * x + k]!
-    - positions[3 * i + k]!));
-  for (const i of inner) {
-    // (Towards the side along the face: 0.8 of the way from the corner off it to the nearer corner on it.)
-    const near = gap(outer[0]!, i) < gap(outer[1]!, i) ? outer[0]! : outer[1]!;
-    for (let k = 0; k < 3; k++) {
-      positions[3 * i + k] = positions[3 * i + k]! + 0.8 * (positions[3 * near + k]! - positions[3 * i + k]!);
-    }
-  }
-  const thin = { ...base, positions };
-  const into = [0, 1, 2].map((k) => positions[3 * inner[0]! + k]! - sidePts[k]!);
-  const len = Math.hypot(...into);
-  const r = withPoint(thin, 21, 0, 0.5, into.map((x) => 0.5 * x / len) as [number, number, number]);
-  const j = joinEdges(d, r, 1);
-  assert.equal(j.skipped.get(side!), 'a split would turn a triangle over');
-  assert.ok(!j.joined.includes(side!));
+  const base = quads(d), f21 = base.faces.find((f) => f.entityId === 21)!;
+  const vtx = (i: number) => Array.from(base.positions.subarray(3 * i, 3 * i + 3));
+  const c = (k: number) => vtx(base.indices[f21.start + k]!);
+  const [c0, c1, c2, , c3] = [0, 1, 2, 0, 5].map(c);
+  const out = c1!.map((x, i) => x - c2![i]!);
+  const mid = c0!.map((x, i) => (x + c1![i]!) / 2);
+  // Into the neighbour: from the side to its corner off it, square to the side.
+  const nbr = [...d.face.id].find((f) => f !== 21 && edgesOf(d, f).includes(side!))!;
+  const fn = base.faces.find((f) => f.entityId === nbr)!;
+  const ring = [0, 1, 2, 5].map((k) => base.indices[fn.start + k]!);
+  const u = c1!.map((x, i) => x - c0![i]!), uu = u.reduce((s, x) => s + x * x, 0);
+  const off = vtx(ring.find((i) => vtx(i).some((x, j) => Math.abs(x - c0![j]!) > 1e-9)
+    && vtx(i).some((x, j) => Math.abs(x - c1![j]!) > 1e-9))!).map((x, i) => x - c0![i]!);
+  const along = off.reduce((s, x, i) => s + x * u[i]!, 0) / uu;
+  const into = off.map((x, i) => x - along * u[i]!);
+  const m = mid.map((x, i) => x + 0.3 * out[i]! + toward * into[i]!), q = mid.map((x, i) => x + 0.1 * out[i]!);
+  const qn = mid.map((x, i) => x + 0.1 * into[i]!);
+  const n = base.positions.length / 3;
+  const c0s = c0!.map((x, i) => x - corner * u[i]!);
+  const positions = Float32Array.from([...base.positions, ...c0s, ...m, ...c1!, ...c2!, ...c3!, ...q, ...qn]);
+  const [C0, M, C1, C2, C3, Q, QN] = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6];
+  const fan = [C0, M, Q, M, C1, Q, C1, C2, Q, C2, C3, Q, C3, C0, Q];
+  const nfan = ring.flatMap((i, k) => [i, ring[(k + 1) % 4]!, QN]);
+  const indices: number[] = [];
+  const faces = base.faces.map((f) => {
+    const start = indices.length;
+    if (f.entityId === 21) indices.push(...fan);
+    else if (f.entityId === nbr && toward) indices.push(...nfan);
+    else indices.push(...base.indices.subarray(f.start, f.start + f.count));
+    return { ...f, start, count: indices.length - start };
+  });
+  return { side: side!, nbr, m, r: { ...base, positions, indices: Uint32Array.from(indices), faces } };
+}
+
+test('join: where moving a point onto the edge would turn a triangle over, the point is kept and the neighbour split '
+  + 'at it', () => {
+  const { side, nbr, m, r } = bulge();
+  assert.deepEqual(openEdges(d, r).open, [side]);
+  const j = joinEdges(d, r, 0.5);
+  assert.deepEqual([j.joined, j.open], [[side], []]);
+  // The point where it was, on the joined polyline and a corner of the neighbour's.
+  const pl = polyline(j.result, side);
+  assert.equal(pl.length, 9);
+  assert.deepEqual(pl.slice(3, 6), Array.from(Float32Array.from(m)));
+  const nf = j.result.faces.find((f) => f.entityId === nbr)!;
+  const has = [...j.result.indices.subarray(nf.start, nf.start + nf.count)].some((i) => [0, 1, 2]
+    .every((k) => j.result.positions[3 * i + k] === Math.fround(m[k]!)));
+  assert.ok(has);
+  assert.equal(areas(j.result).turned, 0);
+  // So with its corner off the edge's end within JOIN_CORNER of the deflection, the corner moved onto it (its other
+  // edge there open too, and joined).
+  const k = bulge(0, 0.2);
+  assert.ok(0.2 < JOIN_CORNER * 0.5);
+  const jk = joinEdges(d, k.r, 0.5);
+  assert.ok(jk.joined.includes(k.side));
+  assert.deepEqual([jk.open, jk.skipped], [[], new Map()]);
 });
+
+test('join: where moving the point would turn a triangle over and inserting it would too, the edge is left', () => {
+  const { side, r } = bulge(0.3);
+  assert.deepEqual(openEdges(d, r).open, [side]);
+  const j = joinEdges(d, r, 0.5);
+  assert.equal(j.skipped.get(side), 'a split would turn a triangle over');
+  assert.ok(!j.joined.includes(side));
+});
+
 
 /** A one-part scene of the cube. */
 const scene = (): Scene => ({ unit: 'millimetre', components: [], roots: [], materials: [], layers: [], overrides: [],
@@ -336,4 +388,98 @@ test('join: a polyline of no points (an edge a backend couldn\'t draw) is none',
   const r = withPoint(quads(d), 21, 0);
   const extra = { ...r, edges: [{ entityId: sd!, start: 0, count: 0, kind: 'shared' as const }, ...r.edges!] };
   assert.deepEqual(joinEdges(d, extra, D).joined, [sd]);
+});
+
+test('join: a face\'s boundary zig-zagging across the edge (within the deflection) joined, its points moved onto it',
+  () => {
+  // Face 21's first side as 11 points of its own, 0.05 either side of it in turn (steps 0.083 along, 0.1 across):
+  // walked along its loop, moved onto the side, the neighbour split at them.
+  const [side] = edgesOf(d, 21);
+  const base = quads(d), f21 = base.faces.find((f) => f.entityId === 21)!;
+  const c = (k: number) => Array.from(base.positions.subarray(3 * base.indices[f21.start + k]!,
+    3 * base.indices[f21.start + k]! + 3));
+  const [c0, c1, c2, , c3] = [0, 1, 2, 0, 5].map(c);
+  const inward = c2!.map((x, i) => x - c1![i]!);
+  const zig = Array.from({ length: 11 }, (_, k) => c0!.map((x, i) => x + ((k + 1) / 12) * (c1![i]! - x)
+    + (k % 2 ? -0.05 : 0.05) * inward[i]!));
+  const r = withPolygon(base, 21, [c2!, c3!, c0!, ...zig, c1!]);
+  assert.deepEqual(openEdges(d, r).open, [side]);
+  const j = joinEdges(d, r, D);
+  assert.deepEqual([j.joined, j.open], [[side], []]);
+  assert.equal(areas(j.result).turned, 0);
+  // Every point of the joined polyline on the side (moved onto it, to single precision).
+  const pl = polyline(j.result, side!);
+  for (let k = 0; k < pl.length; k += 3) {
+    const p = pl.slice(k, k + 3), t = p.map((x, i) => x - c0![i]!), along = c1!.map((x, i) => x - c0![i]!);
+    const s2 = t.reduce((sum, x, i) => sum + x * along[i]!, 0) / along.reduce((sum, x) => sum + x * x, 0);
+    assert.ok(Math.hypot(...t.map((x, i) => x - s2 * along[i]!)) < 1e-6);
+  }
+  assert.equal(pl.length / 3, 13);
+});
+
+test('join: two faces\' points within the snap distance one point of the joined edge', () => {
+  // Face 21's point on its first side's middle, and the neighbour's own point half the snap distance from it along
+  // the side.
+  const [side] = edgesOf(d, 21);
+  const neighbour = [...d.face.id].find((f) => f !== 21 && edgesOf(d, f).includes(side!))!;
+  const r1 = withPoint(quads(d), 21, 0);
+  const pl = polyline(r1, side!), a = pl.slice(0, 3), b = pl.slice(3, 6);
+  const nb = r1.faces.find((f) => f.entityId === neighbour)!;
+  const corners = [...new Set(r1.indices.subarray(nb.start, nb.start + nb.count))];
+  const P = (i: number) => Array.from(r1.positions.subarray(3 * i, 3 * i + 3));
+  const k = (p: number[]) => p.join();
+  const onA = corners.findIndex((i) => k(P(i)) === k(a)), onB = corners.findIndex((i) => k(P(i)) === k(b));
+  // (The neighbour's corners in its loop's order: its point between the two on the side.)
+  const loop = [...corners];
+  const ia = loop.indexOf(corners[onA]!), ib = loop.indexOf(corners[onB]!);
+  const order = ib === (ia + 1) % 4 ? loop.slice(ia).concat(loop.slice(0, ia))
+    : loop.slice(ib).concat(loop.slice(0, ib));
+  const m21 = Array.from(r1.positions.subarray(r1.positions.length - 3));
+  const ab = b.map((x, i) => x - a[i]!), len = Math.hypot(...ab);
+  const mid = m21.map((x, i) => x + 0.5 * JOIN_SNAP * D * ab[i]! / len);
+  const pts = order.map(P);
+  const r2 = withPolygon(r1, neighbour, [pts[0]!, mid, ...pts.slice(1)]);
+  // The side's polyline through face 21's point (as a backend draws it from one of its faces).
+  const e = r2.edges!.findIndex((x) => x.entityId === side), n = r2.edgePositions!.length / 3;
+  const r = { ...r2, edgePositions: Float32Array.from([...r2.edgePositions!, ...a, ...m21, ...b]),
+    edges: r2.edges!.map((x, i) => (i === e ? { ...x, start: n, count: 3 } : x)) };
+  assert.deepEqual(openEdges(d, r).open, [side]);
+  const j = joinEdges(d, r, D);
+  assert.deepEqual([j.joined, j.open], [[side], []]);
+  assert.equal(polyline(j.result, side!).length, 9);
+});
+
+test('join: a sliver face (all its boundary within the deflection of the edge) walked the short way', () => {
+  // A box 1 x 1 x 0.05: its side faces 0.05 wide; the top face with a point of its own on its edge with a side.
+  const b = new BrepBuilder();
+  const shell = box(b, [1, 1, 0.05]);
+  b.addItem({ kind: 'body', ref: b.addBody({ kind: 'solid', members: [{ ref: shell, sense: true }] }) });
+  const m = b.finish();
+  const big = [...m.face.id].find((f) => {
+    const row = [...m.face.id].indexOf(f), lp = decode.face(m, row).loops[0]!;
+    if (lp.kind !== 'edge') return false;
+    const ps = lp.coedges.map((c) => { const e = decode.edge(m, c.edge); return Array.from(m.vertex.point.subarray(
+      3 * e.start!, 3 * e.start! + 3)); });
+    return ps.every((p) => p[2] === ps[0]![2]);
+  })!;
+  const e = edgesOf(m, big)[0]!;
+  const r = withPoint(quads(m), big, 0);
+  assert.deepEqual(openEdges(m, r).open, [e]);
+  const j = joinEdges(m, r, D);
+  assert.deepEqual([j.joined, j.open], [[e], []]);
+  assert.equal(polyline(j.result, e).length, 9);
+});
+
+test('join: a closed edge joined whichever way round its boundary the walk meets first', () => {
+  for (const reversed of [false, true]) {
+    const { m, r } = discs(2, 0);
+    // The triangles listed backwards: the walk's first neighbour the other one.
+    const tris: number[][] = [];
+    for (let k = 0; k < r.indices.length; k += 3) tris.push([...r.indices.subarray(k, k + 3)]);
+    const faces = r.faces.map((f) => ({ ...f }));
+    const list = reversed ? r.faces.flatMap((f) => tris.slice(f.start / 3, (f.start + f.count) / 3).reverse())
+      : tris;
+    const j = joinEdges(m, { ...r, faces, indices: Uint32Array.from(list.flat()) }, 0.5);
+    assert.deepEqual([j.joined, j.open], [[1], []], `reversed ${reversed}`);
+  }
 });
