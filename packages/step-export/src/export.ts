@@ -6,9 +6,9 @@
 //     between two AXIS2_PLACEMENT_3Ds, each in its representation's items (the common practice; step-parser's
 //     products.ts reads it); a component's own parts (references without a product) by a shape representation
 //     relationship with a transformation.
-//   - Each part's B-rep model by geometry.ts as its own shape representation, in its own unit, source ids kept
-//     (`StepIds`); a leaf product's shape is its part's representation. Assemblies' representations are in the
-//     scene's source unit (else millimetres).
+//   - Each part's B-rep model by geometry.ts as its own shape representation, source ids kept (`StepIds`); a leaf
+//     product's shape is its part's representation. Every representation is in one unit, the option's (by default
+//     the scene's source unit, else millimetres).
 //   - The top: each root and root part a top product, unless one of them is moved or styled per placement (which STEP
 //     can't say without a parent), when they all go into one assembly made for them, named after the file.
 //   - Styles (the CAx-IF's practices, as step-import reads them): a part's material on its representation's items,
@@ -26,7 +26,7 @@ import { instances as componentInstances, type Component, type Diagnostic, type 
 import { decode, rowCount } from 'cad-brep';
 import { type EntityRecord, type Instance, makeHeader, makeList, type StepDocument, type Value,
   writeChunks } from 'step-parser';
-import { AP242_SCHEMA, largestId, stepContext, stepGeometry, stepIds } from './geometry.ts';
+import { AP242_SCHEMA, largestId, NAMED_UNITS, stepContext, stepGeometry, stepIds } from './geometry.ts';
 import { stepMesh } from './tessellated.ts';
 
 /** AP214 edition 3's FILE_SCHEMA. */
@@ -46,6 +46,11 @@ export interface StepExportOptions {
    * faces linked to the B-rep's, for readers that can't mesh B-reps. AP242 only. Default false.
    */
   meshes?: boolean;
+  /**
+   * The length unit written, in millimetres per unit (25.4: inches; SI units by prefix, others as conversion-based
+   * units, inches and feet by name). Default the scene's `sourceUnit`, else 1.
+   */
+  unit?: number;
 }
 
 export interface StepExport {
@@ -94,6 +99,8 @@ export function exportStep(scene: Scene, opts: StepExportOptions = {}): StepExpo
   const diagnostics: Diagnostic[] = [];
   const schemaName = opts.schema ?? 'ap242';
   const schema = SCHEMAS[schemaName];
+  const unit = namedUnit(opts.unit ?? scene.sourceUnit ?? 1);
+  if (!(unit > 0) || !Number.isFinite(unit)) throw new RangeError(`unit ${unit}: not a positive number of millimetres`);
   const p = scene.properties;
   const header = makeHeader({
     description: strings(p.description) ?? [''], implementationLevel: '2;1',
@@ -176,9 +183,8 @@ export function exportStep(scene: Scene, opts: StepExportOptions = {}): StepExpo
       // product too: a shape representation relationship has no name or transformation (readers follow none outside
       // an occurrence), and a reader takes one representation once.
       for (const r of comp.parts) {
-        const unit = scene.parts[r.part]?.unit ?? 1;
         if (r.name !== undefined || comp.parts.filter((x) => x.part === r.part).length > 1
-          || !isIdentity(unscaled(r.transform, unit))) leafRefs.add(r);
+          || !isIdentity(r.transform)) leafRefs.add(r);
       }
       comp.parts.forEach((r, k) => {
         const o = written(r.part) ? refOverride(r) : undefined;
@@ -208,7 +214,7 @@ export function exportStep(scene: Scene, opts: StepExportOptions = {}): StepExpo
     // assembly made for them.
     const topStyled = overrides.some((o) => o.path.length === 0 || (o.path.length === 1 && o.ref === undefined));
     const moved = roots.some((o) => !isIdentity(o.transform))
-      || rootParts.some((r) => !isIdentity(unscaled(r.transform, scene.parts[r.part]!.unit)));
+      || rootParts.some((r) => !isIdentity(r.transform));
     const wrapped = moved || topStyled;
 
     // Ids: every source id the file will keep, then new ones after the largest.
@@ -260,7 +266,7 @@ export function exportStep(scene: Scene, opts: StepExportOptions = {}): StepExpo
     // -- Parts' representations, each with an origin placement for its placements to refer to.
     // `styled`: what a part's own style goes on, its items but geometric sets' elements in their place; `faceRows`
     // its faces alone, which take it too where its items aren't all solids (`solid`).
-    type PartRep = { rep: number; origin: number; unit: number; items: number[]; faces: Map<number, number>;
+    type PartRep = { rep: number; origin: number; items: number[]; faces: Map<number, number>;
       context: number; styled: number[]; faceRows: number[]; solid: boolean; copies?: Map<number, number> };
     const partRep = new Map<number, PartRep>();
     /** A written face and its turned-over copy, if it has one (a face used both ways). */
@@ -270,16 +276,16 @@ export function exportStep(scene: Scene, opts: StepExportOptions = {}): StepExpo
       const part = scene.parts[i]!;
       if (!written(i)) continue;
       if (!part.brep) {
-        const m = stepMesh(part, meshLevel(part)!, { ids, id: stepSource(part.sources) });
+        const m = stepMesh(part, meshLevel(part)!, { ids, id: stepSource(part.sources), unit });
         out.push(...m.instances);
-        partRep.set(i, { rep: m.rootId, origin: m.items.at(-1)!, unit: part.unit, items: m.items.slice(0, -1),
+        partRep.set(i, { rep: m.rootId, origin: m.items.at(-1)!, items: m.items.slice(0, -1),
           faces: m.faceIds, context: m.contextId, styled: m.items.slice(0, -1), faceRows: [...m.faceIds.values()],
           solid: part.closed === true });
         yield* flush();
         continue;
       }
       const g = stepGeometry(part.brep.model, { ids, name: part.name, id: stepSource(part.sources), origin: true,
-        derivedDimensions: schemaName === 'ap214' });
+        derivedDimensions: schemaName === 'ap214', unit });
       yield* g.instances;
       for (const d of g.diagnostics) warn(`part ${i} (${part.name}): ${d.message}`, stepSource(part.sources),
         d.severity);
@@ -290,13 +296,13 @@ export function exportStep(scene: Scene, opts: StepExportOptions = {}): StepExpo
         const it = decode.item(model, k);
         return it.kind === 'body' && decode.body(model, it.ref).kind === 'solid';
       });
-      partRep.set(i, { rep: g.rootId, origin: g.items.at(-1)!, unit: part.unit, items, faces, context: g.contextId,
+      partRep.set(i, { rep: g.rootId, origin: g.items.at(-1)!, items, faces, context: g.contextId,
         styled: items.flatMap((x) => g.setMembers.get(x) ?? [x]), faceRows: [...new Set(g.faceIds.values())], solid,
         copies: g.faceCopies });
       // Its mesh beside it, related to it (so a product with either shape has both), its faces linked to the B-rep's.
       const lod = opts.meshes && schemaName === 'ap242' ? meshLevel(part, true) : undefined;
       if (lod) {
-        const m = stepMesh(part, lod, { ids, links: faces });
+        const m = stepMesh(part, lod, { ids, links: faces, unit });
         out.push(...m.instances);
         emit(fresh(), 'SHAPE_REPRESENTATION_RELATIONSHIP', [str(), str(), ref(m.rootId), ref(g.rootId)]);
         yield* flush();
@@ -305,9 +311,8 @@ export function exportStep(scene: Scene, opts: StepExportOptions = {}): StepExpo
     }
 
     // -- Products.
-    const assemblyUnit = scene.sourceUnit ?? 1;
     const products: number[] = [];
-    type Definition = { pd: number; rep: number; origin: number; unit: number };
+    type Definition = { pd: number; rep: number; origin: number };
     const product = (name: string, props: Record<string, unknown>, sources: Component['sources'] | undefined) => {
       const prod = emit(ids.claim(stepSource(sources, 1)), 'PRODUCT', [str(text(props.partNumber) ?? name), str(name),
         str(text(props.description) ?? ''), refs([productContext])]);
@@ -393,7 +398,7 @@ export function exportStep(scene: Scene, opts: StepExportOptions = {}): StepExpo
     const assemblyContext = () => {
       if (assemblyCtx === undefined) {
         assemblyCtx = fresh();
-        out.push(...stepContext(ids, assemblyCtx, assemblyUnit, undefined, schemaName === 'ap214'));
+        out.push(...stepContext(ids, assemblyCtx, unit, undefined, schemaName === 'ap214'));
       }
       return assemblyCtx;
     };
@@ -407,7 +412,7 @@ export function exportStep(scene: Scene, opts: StepExportOptions = {}): StepExpo
       const origin = axes([0, 0, 0], [0, 0, 1], [1, 0, 0], 'origin');
       const placed: { at: number; place: () => void }[] = [];
       comp.children.forEach((o, k) => {
-        const at = placement(o.transform, assemblyUnit, `${comp.name}'s child ${k}`, stepSource(o.sources));
+        const at = placement(o.transform, unit, `${comp.name}'s child ${k}`, stepSource(o.sources));
         placed.push({ at, place: () => occurrence(d!, kids[k]!, at, o) });
       });
       // Its own parts unmoved by a plain shape representation relationship (readers follow no transformation outside
@@ -417,7 +422,7 @@ export function exportStep(scene: Scene, opts: StepExportOptions = {}): StepExpo
         const rep = partRep.get(r.part);
         if (!rep) return;
         if (!r.product && !leafRefs.has(r)) { own.push(rep.rep); return; }
-        const at = placement(unscaled(r.transform, rep.unit), assemblyUnit, `${comp.name}'s part ${k}`,
+        const at = placement(r.transform, unit, `${comp.name}'s part ${k}`,
           stepSource(r.sources));
         const leaf = leafOf(r)!;
         placed.push({ at, place: () => occurrence(d!, leaf, at, r) });
@@ -426,7 +431,7 @@ export function exportStep(scene: Scene, opts: StepExportOptions = {}): StepExpo
         ref(assemblyContext())]);
       for (const x of own) emit(fresh(), 'SHAPE_REPRESENTATION_RELATIONSHIP', [str(), str(), ref(x), ref(rep)]);
       shape(pd, rep);
-      d = { pd, rep, origin, unit: assemblyUnit };
+      d = { pd, rep, origin };
       defined.set(c, d);
       for (const x of placed) x.place();
       return d;
@@ -444,12 +449,12 @@ export function exportStep(scene: Scene, opts: StepExportOptions = {}): StepExpo
       const leafs = rootParts.map((r) => leafOf(r)!);
       const pd = product(name, {}, undefined);
       const origin = axes([0, 0, 0], [0, 0, 1], [1, 0, 0], 'origin');
-      const ats = [...roots.map((o, k) => placement(o.transform, assemblyUnit, `root ${k}`)),
-        ...rootParts.map((r, k) => placement(unscaled(r.transform, scene.parts[r.part]!.unit), assemblyUnit,
+      const ats = [...roots.map((o, k) => placement(o.transform, unit, `root ${k}`)),
+        ...rootParts.map((r, k) => placement(r.transform, unit,
           `root part ${k}`))];
       const rep = emit(fresh(), 'SHAPE_REPRESENTATION', [str(name), refs([origin, ...ats]), ref(assemblyContext())]);
       shape(pd, rep);
-      const top: Definition = { pd, rep, origin, unit: assemblyUnit };
+      const top: Definition = { pd, rep, origin };
       roots.forEach((o, k) => occurrence(top, kids[k]!, ats[k]!, o));
       rootParts.forEach((r, k) => occurrence(top, leafs[k]!, ats[roots.length + k]!, r));
       yield* flush();
@@ -597,15 +602,15 @@ export function exportStep(scene: Scene, opts: StepExportOptions = {}): StepExpo
   }
 }
 
-/** A part reference's transform without its part's unit (from the part's millimetres, not its units). */
-function unscaled(t: Mat4, unit: number): Mat4 {
-  if (unit === 1) return t;
-  const m = new Float64Array(t);
-  for (let k = 0; k < 12; k++) if (k % 4 !== 3) m[k] = t[k]! / unit;
-  return m;
-}
-
 const TOLERANCE = 1e-9;
+
+/**
+ * A unit within 1e-9 of one STEP has a name for (SI by prefix, inches, feet) as that one: a source's unit computed from
+ * its file's (25.400000000000002, from 0.0254 m) is written as INCH, not as a conversion-based unit of its own.
+ */
+function namedUnit(mm: number): number {
+  return NAMED_UNITS.find((x) => Math.abs(x - mm) <= TOLERANCE * x) ?? mm;
+}
 
 /** Whether a transform is the identity (to rounding). */
 function isIdentity(t: Mat4): boolean {

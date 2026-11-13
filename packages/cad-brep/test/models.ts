@@ -55,7 +55,7 @@ export function box(b: BrepBuilder, size: V3 = [1, 2, 3], offset: V3 = [0, 0, 0]
  * whose faces are all built inside out, its shell then facing in and used reversed by its solid.
  */
 export function reversedUses(): BrepBuilder {
-  const b = new BrepBuilder({ unit: 1 });
+  const b = new BrepBuilder();
   const one = box(b, [1, 1, 1], [0, 0, 0], 0, (j) => j === 0);
   b.addItem({ kind: 'body', ref: b.addBody({ kind: 'solid', members: [{ ref: one, sense: true }], id: 50 }) });
   const two = box(b, [1, 1, 1], [3, 0, 0], 100, () => true, true);
@@ -69,7 +69,7 @@ export function reversedUses(): BrepBuilder {
  * id and one with id 30.
  */
 export function withoutIds(): BrepBuilder {
-  const b = new BrepBuilder({ unit: 1 });
+  const b = new BrepBuilder();
   for (const named of [false, true]) {
     const z = named ? 1 : 0;
     const corners: V3[] = [[0, 0, z], [1, 0, z], [1, 1, z], [0, 1, z]];
@@ -96,7 +96,7 @@ export function withoutIds(): BrepBuilder {
 
 /** A unit cube as a solid (one closed shell of 6 faces), the part's one item. */
 export function cube(): BrepBuilder {
-  const b = new BrepBuilder({ unit: 1, uncertainty: 1e-6 });
+  const b = new BrepBuilder({ uncertainty: 1e-6 });
   const shell = box(b, [1, 1, 1]);
   const solid = b.addBody({ kind: 'solid', members: [{ ref: shell, sense: true }], id: 100 });
   b.addItem({ kind: 'body', ref: solid, id: 101 });
@@ -105,7 +105,7 @@ export function cube(): BrepBuilder {
 
 /** A box with a box-shaped void: the void's shell used reversed. */
 export function withVoid(): BrepBuilder {
-  const b = new BrepBuilder({ unit: 25.4 });
+  const b = new BrepBuilder();
   const outer = box(b, [4, 4, 4]);
   const inner = box(b, [1, 1, 1], [1, 1, 1], 1000);
   const solid = b.addBody({ kind: 'solid', members: [{ ref: outer, sense: true }, { ref: inner, sense: false }] });
@@ -118,7 +118,7 @@ export function withVoid(): BrepBuilder {
  * reversed, each use with its own p-curve (u = 0 and u = 2 pi), the circles' p-curves the lines v = 0 and v = 5.
  */
 export function seamCylinder(): BrepBuilder {
-  const b = new BrepBuilder({ unit: 1 });
+  const b = new BrepBuilder();
   const axis = { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] };
   const bottom = b.addCurve({ kind: 'circle', position: axis, radius: 2 });
   const top = b.addCurve({ kind: 'circle', position: { ...axis, origin: [0, 0, 5] }, radius: 2 });
@@ -147,7 +147,7 @@ export function seamCylinder(): BrepBuilder {
 /** A whole sphere with no loops (natural bounds), and a hemisphere bounded by its equator and a vertex loop at its
  * pole; a sheet each. */
 export function spheres(): BrepBuilder {
-  const b = new BrepBuilder({ unit: 1 });
+  const b = new BrepBuilder();
   const position = { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] };
   const whole = b.addFace({ surface: b.addSurface({ kind: 'sphere', position, radius: 1 }), sameSense: true,
     loops: [] });
@@ -169,7 +169,7 @@ export function spheres(): BrepBuilder {
 /** A tetrahedron of poly loops (a faceted solid, its corners vertices 0-3, shared by the faces), a wire of two edges,
  * and a face set of a face with no shared topology (an unsewn trimmed surface). */
 export function facetedAndWire(): BrepBuilder {
-  const b = new BrepBuilder({ unit: 1 });
+  const b = new BrepBuilder();
   const p = [[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]];
   const corners = p.map((point) => b.addVertex({ point }));
   const tris = [[0, 2, 1], [0, 1, 3], [1, 2, 3], [0, 3, 2]];
@@ -205,7 +205,7 @@ export function facetedAndWire(): BrepBuilder {
 /** Every curve and surface kind once (2D curves too), as loose geometry items, with a curve-bounded face (edges
  * without vertices), a point, and an instance placing the cube mirrored. */
 export function everyKind(): BrepBuilder {
-  const b = new BrepBuilder({ unit: 1, uncertainty: 1e-5 });
+  const b = new BrepBuilder({ uncertainty: 1e-5 });
   const P = { origin: [1, 2, 3], axis: [0, 0, 1], xDir: [1, 0, 0] };
   const P2 = { origin: [1, 2], xDir: [0, 1] };
   const bs = (dim: 2 | 3, rational: boolean): Curve => ({ kind: 'bspline', degree: 2, knots: [0, 0.5, 1],
@@ -283,7 +283,7 @@ function box2(b: BrepBuilder): number {
  * degenerate edge at the apex (no curve, its p-curve the line v = -1); and a degenerate torus with `selectOuter` false.
  */
 export function cone(): BrepBuilder {
-  const b = new BrepBuilder({ unit: 1 });
+  const b = new BrepBuilder();
   const position = { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] };
   const surface = b.addSurface({ kind: 'cone', position, radius: 1, semiAngle: Math.PI / 4 });
   const base = b.addCurve({ kind: 'circle', position, radius: 1 });

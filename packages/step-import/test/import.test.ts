@@ -211,13 +211,13 @@ test('components, parts, units and placements', async () => {
   // Two parts: the box's representation, and the one its mapped item places (a part of its own, referenced by the box).
   assert.deepEqual([...partOf], [[205, 0], [242, 1]]);
   const box = scene.parts[0]!;
-  // The origin: the centre of the points in the box's closure, (0,0,0) and (2,4,6); not the mapped item's, nor the
-  // unreferenced vertex #233.
-  assert.deepEqual([box.brep?.format, box.lods, box.name, box.unit, box.origin, box.sources],
-    ['step', [], 'box', 25.4, [1, 2, 3], [{ format: 'step', id: 205 }]]);
-  assert.deepEqual(scene.parts[1]!.origin, [1000, 0, 0]);
+  // The origin, in millimetres: the centre of the points in the box's closure, (0,0,0) and (2,4,6) inches; not the
+  // mapped item's, nor the unreferenced vertex #233.
+  assert.deepEqual([box.brep?.format, box.lods, box.name, box.origin, box.sources],
+    ['step', [], 'box', [1 * 25.4, 2 * 25.4, 3 * 25.4], [{ format: 'step', id: 205 }]]);
+  assert.deepEqual(scene.parts[1]!.origin, [1000 * 25.4, 0, 0]);
   // Its vertices' box, the origin's: the model's first sphere (estimated, every part from its vertices).
-  assert.deepEqual(box.brep?.vertexBox, { min: [0, 0, 0], max: [2, 4, 6] });
+  assert.deepEqual(box.brep?.vertexBox, { min: [0, 0, 0], max: [2 * 25.4, 4 * 25.4, 6 * 25.4] });
   assert.equal(scene.bounds?.from, 'estimated');
   assert.deepEqual(scene.bounds, sceneBounds(scene));
   // The model: the box's representation's solids, not the mapped item's point.
@@ -227,13 +227,14 @@ test('components, parts, units and placements', async () => {
   assert.equal(rowCount(model, 'item'), 3);
   // The file's unit, its root's (the assembly in metres), for exports that can name theirs.
   assert.equal(scene.sourceUnit, 1000);
-  // Placements, in millimetres: box 1 at the origin, box 2 at 0.1 m; an inch is 25.4 mm.
+  // Placements, in millimetres: box 1 at the origin, box 2 at 0.1 m; rigid (the parts in inches are in millimetres
+  // themselves, not scaled by their placements).
   const placed = [...partInstances(scene)].map(
     (p) => [p.path.join('/'), p.part, at(p.transform), Math.round(p.transform[0]! * 1e9) / 1e9]);
   assert.deepEqual(placed, [
-    ['0/0', 0, [0, 0, 0], 25.4], ['0/0', 1, [0, 0, 0], 25.4], ['0/1', 0, [100, 0, 0], 25.4],
-    ['0/1', 1, [100, 0, 0], 25.4],
-    ['0/3/0', 0, [0, 0, 0], 25.4], ['0/3/0', 1, [0, 0, 0], 25.4],
+    ['0/0', 0, [0, 0, 0], 1], ['0/0', 1, [0, 0, 0], 1], ['0/1', 0, [100, 0, 0], 1],
+    ['0/1', 1, [100, 0, 0], 1],
+    ['0/3/0', 0, [0, 0, 0], 1], ['0/3/0', 1, [0, 0, 0], 1],
   ]);
 });
 
@@ -535,4 +536,13 @@ test('the header: every field as written, lists as arrays; the author without pl
   assert.deepEqual([odd.author, odd.authors, odd.description], [undefined, undefined, undefined]);
   // (Escaped characters decoded, as every string is.)
   assert.equal((await importStep(file("('Ren\\X2\\00E9\\X0\\')"))).scene.properties.author, 'Ren\u00e9');
+});
+
+test('the source unit: the root product\'s representation\'s, else (none there) the first part\'s', async () => {
+  // The assembly's context without its unit (metres): its parts' inches are what the file says.
+  const data = DATA.replace("#16=(GEOMETRIC_REPRESENTATION_CONTEXT(3)GLOBAL_UNIT_ASSIGNED_CONTEXT((#10))"
+    + "REPRESENTATION_CONTEXT('m',''));", "#16=(GEOMETRIC_REPRESENTATION_CONTEXT(3)REPRESENTATION_CONTEXT('m',''));");
+  assert.notEqual(data, DATA);
+  const { scene } = await importStep(file(data));
+  assert.equal(scene.sourceUnit, 25.4);
 });

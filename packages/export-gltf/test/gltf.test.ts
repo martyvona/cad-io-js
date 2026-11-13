@@ -48,10 +48,10 @@ function scene(): Scene {
   const occ = (component: number, t: Mat4, name?: string) => (
     { component, transform: t, sources: [{ format: 'step', id: 100 + component }], properties: {},
     ...(name ? { name } : {}) });
-  const brep = (name: string, unit: number) => (
-    { name, sources: [{ format: 'step', id: 50 }], properties: { pn: 'X-1' }, unit,
+  const brep = (name: string) => (
+    { name, sources: [{ format: 'step', id: 50 }], properties: { pn: 'X-1' },
     origin: [0, 0, 0] as [number, number, number], lods: [],
-    brep: { format: 'step' as const, model: new BrepBuilder({ unit: 1 }).finish() } });
+    brep: { format: 'step' as const, model: new BrepBuilder().finish() } });
   return {
     unit: 'millimetre',
     components: [
@@ -62,8 +62,8 @@ function scene(): Scene {
     ],
     roots: [occ(0, identity())],
     // The plate open (as the source would say); the wireframe saying nothing.
-    parts: [{ ...brep('plate', 25.4), material: 1, faceMaterials: [{ face: 7, material: 2 }], closed: false },
-      brep('wire', 1)],
+    parts: [{ ...brep('plate'), material: 1, faceMaterials: [{ face: 7, material: 2 }], closed: false },
+      brep('wire')],
     materials: [{ name: 'red', color: [1, 0, 0], opacity: 0.5, sources: [] },
       { color: [0, 1, 0], opacity: 1, sources: [] }, { color: [0, 0, 1], opacity: 1, sources: [] }],
     layers: [],
@@ -158,11 +158,11 @@ test('GLB: valid; the tree, transforms to metres and Y up, shared accessors, mat
   assert.equal(shared[0]!.getMesh(), shared[1]!.getMesh());
   assert.equal((await io.readBinary(
     (await glb(plain, viewOf(plain, meshes()))).bytes)).getRoot().listMeshes().length, 1);
-  // The part's ids, properties and unit (its vertices are in inches); each primitive's faces as ranges of its own
+  // The part's ids and properties; each primitive's faces as ranges of its own
   // indices.
   assert.deepEqual(plates[0]!.getExtras(),
     { part: 0, partName: 'plate', closed: false, sources: [{ format: 'step', id: 50 }], properties: { pn: 'X-1' },
-      unit: 25.4, placement: { index: 0 } });
+      placement: { index: 0 } });
   assert.deepEqual(prims(m0).map((p) => p.getExtras()),
     [{ faces: [{ source: 8, start: 0, count: 3 }] }, { faces: [{ source: 7, start: 0, count: 3 }] }]);
 });
@@ -692,7 +692,7 @@ test('instancing: a look placed twice is one node with EXT_mesh_gpu_instancing, 
     worldTriangles(inst, p, w).map((t) => t.tri),
     worldTriangles(plain[i]!, plain[i]!.getMesh()!.listPrimitives()[g]!).map((t) => t.tri), 1e-8))));
   assert.deepEqual(inst.getExtras(), { part: 0, partName: 'plate', closed: false,
-    sources: [{ format: 'step', id: 50 }], properties: { pn: 'X-1' }, unit: 25.4,
+    sources: [{ format: 'step', id: 50 }], properties: { pn: 'X-1' },
     instances: [{ path: [0, 0], names: ['asm', 'left'], sources: [{ format: 'step', id: 101 }],
       placement: { index: 0 } },
     { path: [0, 1], names: ['asm', 'sub'], sources: [{ format: 'step', id: 101 }], placement: { index: 0 } }] });

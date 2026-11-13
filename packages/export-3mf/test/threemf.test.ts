@@ -54,10 +54,10 @@ const sheet = (): Mesh => ({
 function scene({ override = true } = {}): Scene {
   const occ = (component: number, t: Mat4, name?: string) => (
     { component, transform: t, sources: [], properties: {}, ...(name ? { name } : {}) });
-  const brep = (name: string, unit: number) => (
-    { name, sources: [{ format: 'step', id: 50 }], properties: {}, unit,
+  const brep = (name: string) => (
+    { name, sources: [{ format: 'step', id: 50 }], properties: {},
     origin: [0, 0, 0] as [number, number, number], lods: [],
-    brep: { format: 'step' as const, model: new BrepBuilder({ unit: 1 }).finish() } });
+    brep: { format: 'step' as const, model: new BrepBuilder().finish() } });
   return {
     unit: 'millimetre',
     components: [
@@ -70,7 +70,7 @@ function scene({ override = true } = {}): Scene {
         parts: [{ part: 0, transform: identity(), visible: false }], children: [] },
     ],
     roots: [occ(0, identity())],
-    parts: [{ ...brep('cube & co', 25.4), material: 1, faceMaterials: [{ face: 15, material: 2 }] }, brep('sheet', 1)],
+    parts: [{ ...brep('cube & co'), material: 1, faceMaterials: [{ face: 15, material: 2 }] }, brep('sheet')],
     materials: [{ name: 'red', color: [1, 0, 0], opacity: 0.5, sources: [] },
       { name: 'green', color: [0, 1, 0], opacity: 1, sources: [] }, { color: [0, 0, 1], opacity: 1, sources: [] }],
     layers: [],

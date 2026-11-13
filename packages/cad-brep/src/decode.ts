@@ -47,7 +47,7 @@ class Cursor {
 
 export function part(d: BrepData): PartInfo {
   const u = d.part.uncertainty[0]!;
-  return { unit: d.part.unit[0]!, ...(Number.isNaN(u) ? {} : { uncertainty: u }) };
+  return Number.isNaN(u) ? {} : { uncertainty: u };
 }
 
 export function curve(d: BrepData, k: number): Curve {

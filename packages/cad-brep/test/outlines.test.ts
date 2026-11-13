@@ -44,7 +44,7 @@ test('a cylinder\'s circles stepped by the deflections, on the circle, through t
 });
 
 test('B-spline edges within the deflection; poly loops closed; a p-curve-only edge on its surface', () => {
-  const b = new BrepBuilder({ unit: 1 });
+  const b = new BrepBuilder();
   const poles = [[0, 0, 0], [1, 2, 0], [3, 2, 0], [4, 0, 0]];
   const c = b.addCurve({ kind: 'bspline', degree: 3, knots: [0, 1], multiplicities: [4, 4], poles, closed: false,
     selfIntersect: false, form: 'unspecified' });
@@ -85,7 +85,7 @@ test('B-spline edges within the deflection; poly loops closed; a p-curve-only ed
 });
 
 test('outlines end at the vertices themselves; ellipses stepped by their larger semi-axis', () => {
-  const b = new BrepBuilder({ unit: 1 });
+  const b = new BrepBuilder();
   const P = { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] };
   const ellipse = b.addCurve({ kind: 'ellipse', position: P, semiAxis1: 4, semiAxis2: 1 });
   // The vertex off the ellipse: the outline starts at it, not at the curve's point.

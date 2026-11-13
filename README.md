@@ -233,6 +233,9 @@ Options:
       --angular-deflection <deg>
                            maximum angle between adjacent mesh normals, in degrees (default the profile's;
                            truck ignores it)
+      --unit <mm|cm|m|in|ft>
+                           the length unit written (default: STEP and 3MF the source's, else mm; glTF and three.js
+                           m, their convention, which other readers assume whatever is written)
       --with-edges         write B-rep edges (not 3MF, which has no lines)
       --with-curves        write wireframe curves and points (not 3MF)
       --unlit-lines        edges, curves and points in a flat colour: glTF with KHR_materials_unlit (three.js
@@ -301,7 +304,7 @@ What each format holds:
 |---|---|---|---|
 | Tree | an `Object3D` tree following the assembly; a `Mesh` per placed part | a node tree following the assembly; a node per placed part (with `--gltf-instancing`, a node per repeated part, under the root) | by default a build item per placed part at its world transform (slicers may rearrange them), the instance path as its part number; `--3mf-assembly`: one item, nested component objects |
 | Sharing | geometries shared by the instances of a part (and look) | a mesh per look, shared across nodes | a mesh object per look |
-| Units, axes | metres and Y up, in each top object's matrix (a `Scene` holds them; no root group of ours) | metres and Y up, in each top node's matrix (no root node of ours) | the source's unit where 3MF has a name for it (`unit="inch"`), else millimetres |
+| Units, axes | metres (or `--unit`'s, which readers take for metres) and Y up, in each top object's matrix (a `Scene` holds them; no root group of ours) | metres (or `--unit`'s, likewise) and Y up, in each top node's matrix (no root node of ours) | the source's unit where 3MF has a name for it (`unit="inch"`), else millimetres, or `--unit`'s |
 | Colours | `MeshStandardMaterial`, sRGB | `pbrMetallicRoughness`, linear base colour, alpha blending | `basematerials` with alpha; `--3mf-colorgroup` the Materials extension (opaque) |
 | Metadata | names; with `--extras`, STEP ids, properties (the file's too), per-face ranges in `userData` | names; the source's copyright in `asset.copyright`; with `--extras`, the same as three.js in `extras` (with Draco, faces as a `_FACE` vertex attribute) | names, part numbers, the instance path as the item's part number; the core spec's metadata from the source (`Designer`, `CreationDate`, and a 3MF source's `Title`, `Description`, `Copyright`, `LicenseTerms`, `Rating`); with `--extras`, its names in `cadio:path` and the file's properties |
 | Compression | none | Draco (`KHR_draco_mesh_compression`, the triangles), or meshopt (`EXT_meshopt_compression` with `KHR_mesh_quantization`, every buffer), or none | deflate (zip) |
@@ -473,7 +476,7 @@ flowchart TD
 2. **Layer 2** (`openModel`) adds the `FILE_SCHEMA`'s dictionary (and AP242's as the fallback): names, types, reverse references, value checks.
 3. **Layer 3** (`extractSemantics`) reads products, occurrences and their placements, units, styles, layers and validation properties; `step2json -m semantic` writes them.
 4. **`step-import`** builds the scene: components placed by occurrences, parts (one per shape representation, each with its B-rep model, the geometry and topology parsed into one buffer, and an origin), materials resolved from styles, layers, overrides, names and properties.
-5. **`tessellateScene`** sends one request per brep part, carrying its model (the deflection in the part's unit), through the cache, the STEP writer, the worker pool and a backend (`CachedTessellator`, `StepTessellator`, `WorkerTessellator`, `OcctTessellator` or `TruckTessellator`; OCCT builds the model itself; truck reads STEP, written from the model only when the cache misses), and gets back meshes: `Float32` positions minus the part's origin, face ranges with STEP face ids, edges, curves and points. It repairs them in memory: degenerate triangles dropped, inside-out shells turned over. It also asks for each face's measures on the exact geometry (OCCT: area, perimeter, and whether the face is sound), keeps them on the part, and judges each face's triangles by them (`faceFailures`). With `outlines: true` (the viewer's choice), faces that fail to mesh (no triangles, too little or too much area, no sound area to judge by) get outlines drawn from the model (`cad-brep`'s `faceOutlines`: their edges along their curves), and a part that fails altogether (an error, a timeout) a mesh of its faces with only their outlines, whatever the backend.
+5. **`tessellateScene`** sends one request per brep part, carrying its model (millimetres, as the deflection is), through the cache, the STEP writer, the worker pool and a backend (`CachedTessellator`, `StepTessellator`, `WorkerTessellator`, `OcctTessellator` or `TruckTessellator`; OCCT builds the model itself; truck reads STEP, written from the model only when the cache misses), and gets back meshes: `Float32` positions minus the part's origin, face ranges with STEP face ids, edges, curves and points. It repairs them in memory: degenerate triangles dropped, inside-out shells turned over. It also asks for each face's measures on the exact geometry (OCCT: area, perimeter, and whether the face is sound), keeps them on the part, and judges each face's triangles by them (`faceFailures`). With `outlines: true` (the viewer's choice), faces that fail to mesh (no triangles, too little or too much area, no sound area to judge by) get outlines drawn from the model (`cad-brep`'s `faceOutlines`: their edges along their curves), and a part that fails altogether (an error, a timeout) a mesh of its faces with only their outlines, whatever the backend.
 6. **`exportView`** computes the looks (a part and its materials), the triangle groups by material and the instance tree with transforms; the exporters write `.json`, `.glb` or `.gltf` and `.bin`, or `.3mf` (all of it is what `stepconv` runs).
 
 ### From glTF, three.js JSON or 3MF to the Scene
@@ -543,7 +546,7 @@ flowchart TD
 - **Materials** are sRGB with opacity; **layers** name parts and faces; **overrides** change one instance's material or visibility, by its occurrence path (and a part reference's index; a root part's path is empty).
 - **`instances(scene)` and `partInstances(scene)`** expand the tree: each placed part's world transform, material, per-face materials and visibility, resolved top down as the CAx-IF practice has it.
 
-A part is one shape representation with geometry, the unit of tessellation and caching; a product spanning several representations has several part references. Lengths are millimetres; each part's geometry stays in its own unit and the transforms convert. Meshes (`Mesh`) are `Float32` positions minus the part's origin, chosen from the part's own points so that parts far from their origin keep their precision.
+A part is one shape representation with geometry, the unit of tessellation and caching; a product spanning several representations has several part references. Lengths are millimetres, parts' geometry included: importers scale what they read in other units, so a part has no unit and transforms carry none (`Scene.sourceUnit` keeps the file's, for exports). Meshes (`Mesh`) are `Float32` positions minus the part's origin, chosen from the part's own points so that parts far from their origin keep their precision.
 
 ### Tessellation
 
@@ -572,7 +575,7 @@ Each layer is itself a `Tessellator`, so they compose, and each can be used alon
 
 `exportView(scene, {edges, curves, linearDeflection, angularDeflection})` computes what every format needs once: **looks** (a part plus the material of each of its faces, so instances that look alike share one mesh), each look's triangles **grouped** by material, and the **instance tree**. Each exporter then only writes its format, in chunks, so a model's output never has to fit in one string.
 
-A placed part's transform in the tree is the one exporters write as the mesh's node or item transform: the part reference's transform (from the part's coordinates, in its own unit, to its component's, in millimetres: so it includes the unit's scale) times a translation by the mesh's origin. The translation is there because a mesh's positions aren't stored in the part's coordinates as they are, but minus a point near the part (`Mesh.origin`), so that `Float32` keeps its precision for parts modelled far from their coordinate system's origin; adding the origin back in the transform, in double precision, puts the vertices where the part's coordinates have them.
+A placed part's transform in the tree is the one exporters write as the mesh's node or item transform: the part reference's transform (from the part's coordinates to its component's, both millimetres) times a translation by the mesh's origin. The translation is there because a mesh's positions aren't stored in the part's coordinates as they are, but minus a point near the part (`Mesh.origin`), so that `Float32` keeps its precision for parts modelled far from their coordinate system's origin; adding the origin back in the transform, in double precision, puts the vertices where the part's coordinates have them.
 
 ## Package APIs
 
@@ -682,7 +685,7 @@ One part's B-rep as one `ArrayBuffer`: the tables and columns of `src/layout.ts`
 import { BrepBuilder, decode, openBrep, validateBrep } from 'cad-brep';
 
 // A disc: a plane bounded by a circle, as one face (in millimetres).
-const b = new BrepBuilder({ unit: 1 });
+const b = new BrepBuilder();  // millimetres
 const position = { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] };
 const circle = b.addCurve({ kind: 'circle', position, radius: 5, id: 12 });
 const v = b.addVertex({ point: [5, 0, 0] });
@@ -722,26 +725,26 @@ for (const c of instances(scene)) console.log('  '.repeat(c.path.length) + scene
 //     rod-assembly
 //       nut ...
 
-// Every placed part: its transform from its own coordinates and unit to the scene's millimetres, its material and
+// Every placed part: its transform from its own coordinates to the scene's, its material and
 // per-face materials as the styles resolve for that instance, and whether it's visible.
 const placed = [...partInstances(scene)];
 const first = placed[0]!;
 const part = scene.parts[first.part]!;
-console.log(placed.length, part.name, part.brep?.format, part.unit, scene.materials[first.material!]);
-// 18 nut step 1 { color: [ 1, 0, 0 ], opacity: 1, sources: [] }
+console.log(placed.length, part.name, part.brep?.format, scene.materials[first.material!]);
+// 18 nut step { color: [ 1, 0, 0 ], opacity: 1, sources: [] }
 
 // Tessellation: one request per part with B-rep (its model), up to `concurrency` at once
 // (set it to a worker pool's size); here the backend runs on this thread. Each mesh becomes a level of its part.
 const occt = new OcctTessellator();
 await occt.init();
 const { meshes, diagnostics } = await tessellateScene(scene, occt, {
-  linearDeflection: 0.1,            // millimetres, converted to each part's unit
+  linearDeflection: 0.1,            // millimetres, as every model is
   angularDeflection: 0.5,           // radians
   edges: true,                      // B-rep edges as polylines too, with their kinds and dihedral angles
   onPart: (part, mesh, done, total) => {},   // progress
 });
 occt.dispose();
-const mesh = part.lods[0]!.mesh;  // positions minus mesh.origin, in the part's unit; faces by STEP face id
+const mesh = part.lods[0]!.mesh;  // positions minus mesh.origin, in millimetres; faces by STEP face id
 console.log(mesh.positions.length / 3, mesh.indices.length / 3, mesh.faces.length, mesh.faces[0]!.source,
   mesh.origin, diagnostics.length);  // 168 156 8 65 [ 5, 10, 1.5 ] 0
 ```
@@ -781,7 +784,7 @@ What it does with the file:
 
 ### `step-export`
 
-A part's B-rep model (`cad-brep`) as STEP: `stepPart(model)` writes it as a Part 21 file holding one shape representation of its items, with its context (the part's length unit, radians, the uncertainty), in chunks as they are pulled; `stepPartBytes` as one array; `stepGeometry` gives the instances themselves. It is what a backend that reads STEP (OCCT) meshes in place of the source file's subset, and the geometry the STEP exporter writes (`docs/brep-model.md`, phases 4 and 6). The model's rows keep their source `#` ids; new entities (points, placements, surface curves, loops, units) are numbered after the largest; Part 42's general forms are written (explicit knots, `SURFACE_CURVE` and `SEAM_CURVE` where edges' uses have p-curves, `ADVANCED_FACE` where its rules hold, else `FACE_SURFACE`, `CURVE_BOUNDED_SURFACE` for faces whose edges have no vertices). What the source lacked (an edge's vertex or curve) is written unset, as it had it; what STEP can't hold (tolerances per entity, parameter ranges, item transforms) is a diagnostic. The same model gives the same bytes.
+A part's B-rep model (`cad-brep`) as STEP: `stepPart(model)` writes it as a Part 21 file holding one shape representation of its items, with its context (millimetres, or `{ unit }`'s, radians, the uncertainty), in chunks as they are pulled; `stepPartBytes` as one array; `stepGeometry` gives the instances themselves. It is what a backend that reads STEP (OCCT) meshes in place of the source file's subset, and the geometry the STEP exporter writes (`docs/brep-model.md`, phases 4 and 6). The model's rows keep their source `#` ids; new entities (points, placements, surface curves, loops, units) are numbered after the largest; Part 42's general forms are written (explicit knots, `SURFACE_CURVE` and `SEAM_CURVE` where edges' uses have p-curves, `ADVANCED_FACE` where its rules hold, else `FACE_SURFACE`, `CURVE_BOUNDED_SURFACE` for faces whose edges have no vertices). What the source lacked (an edge's vertex or curve) is written unset, as it had it; what STEP can't hold (tolerances per entity, parameter ranges, item transforms) is a diagnostic. The same model gives the same bytes.
 
 ```ts
 import { stepPartBytes } from 'step-export';
@@ -794,7 +797,7 @@ console.log(rootId, data.length, diagnostics);  // 31 1187 []
 // #31=GEOMETRICALLY_BOUNDED_SURFACE_SHAPE_REPRESENTATION('',(#48),#32);
 ```
 
-`exportStep(scene, opts)` writes a whole scene as a STEP file, what `step-import` reads written back, so a file read, written and read again keeps its tree, names, placements, colours and hidden placements: AP242 (`schema: 'ap214'` for older readers), a product per component and per leaf product, placements as assembly occurrences (`NEXT_ASSEMBLY_USAGE_OCCURRENCE`, its `CONTEXT_DEPENDENT_SHAPE_REPRESENTATION` and an `ITEM_DEFINED_TRANSFORMATION`), each part's B-rep model in its own unit with its source ids, colours as the CAx-IF practices have them (parts', faces', transparency, per-placement colours and visibility as context-dependent styles, layers, `INVISIBILITY`), external references, the header from the scene's file metadata; parts without a B-rep (from a mesh format, or a STEP file's tessellated geometry) as AP242 tessellated geometry, and with `meshes: true` each B-rep part's mesh beside it. Placements are rigid in STEP: a mirror or a scale is written as its rotation, with a warning. In chunks, deterministic (no time stamp unless given); its diagnostics complete once the chunks are read. Its rules and checks: `docs/brep-model.md`, phase 6.
+`exportStep(scene, opts)` writes a whole scene as a STEP file, what `step-import` reads written back, so a file read, written and read again keeps its tree, names, placements, colours and hidden placements: AP242 (`schema: 'ap214'` for older readers), a product per component and per leaf product, placements as assembly occurrences (`NEXT_ASSEMBLY_USAGE_OCCURRENCE`, its `CONTEXT_DEPENDENT_SHAPE_REPRESENTATION` and an `ITEM_DEFINED_TRANSFORMATION`), each part's B-rep model with its source ids, everything in one length unit (`unit`, millimetres per unit: by default the scene's `sourceUnit`, else millimetres), colours as the CAx-IF practices have them (parts', faces', transparency, per-placement colours and visibility as context-dependent styles, layers, `INVISIBILITY`), external references, the header from the scene's file metadata; parts without a B-rep (from a mesh format, or a STEP file's tessellated geometry) as AP242 tessellated geometry, and with `meshes: true` each B-rep part's mesh beside it. Placements are rigid in STEP: a mirror or a scale is written as its rotation, with a warning. In chunks, deterministic (no time stamp unless given); its diagnostics complete once the chunks are read. Its rules and checks: `docs/brep-model.md`, phase 6.
 
 ```ts
 import fs from 'node:fs';
@@ -1011,9 +1014,9 @@ await pipeline(Readable.from(r.chunks), fs.createWriteStream('assembly.3mf'));
 
 Options:
 
-- **three.js** (`threejsChunks`, `threejsJson`): `name` (the root object's), `doubleSided`, `defaultColor` (faces without a material; sRGB), `edgeColor`, `edgeKinds` (which B-rep edges to write: by default shared and free ones, not seams or degenerate edges), `extras` (our `userData`: source ids, properties, parts and `closed` where the source says whether a part's faces bound solids, scene material indices, face, edge, curve and point sources, and on the root the unit and up axis below it, millimetres and Z; default false); the root is a `Scene` holding the top objects, each turning millimetres and Z up into metres and Y up in its own matrix, as glTF's top nodes do, `keepEmpty` (keep tree nodes with nothing to draw beneath them; default false).
-- **glTF** (`glb`, `gltfJson`, `gltfDocument`): the same, with `extras` for glTF's `extras`, plus `hidden` (`'omit'`, the default, or `'extension'` for `KHR_node_visibility`), `unlitLines` (`KHR_materials_unlit` on edges, curves and points), `exclude` (leave edges, curves or points out even when the view has them), `compression` (`'draco'`, the default, `'meshopt'` or `'none'`), `dracoPositionBits` (default 14), `instancing` (`EXT_mesh_gpu_instancing`; default false) and `keepEmpty`. A primitive with more faces than `MAX_DRACO_FACES` (65,535) with Draco and extras throws a `GltfError`. The encoders (WebAssembly) are imported when first used. `gltfJson(scene, view, 'model.bin', opts)` gives the JSON and the buffer it names; with `undefined` for the name, the buffer is embedded as base64.
-- **3MF** (`threemf`): `name`, `defaultColor`, `colors` (`'basematerials'`, the default, or the Materials extension's `'colorgroup'`), `build` (`'parts'`, an item per placed part, or `'assembly'`), `nonManifold` (`'omit'` or `'surface'`: for meshes that aren't closed manifolds, and parts whose `closed` is false), `hidden` (`'omit'` or `'keep'`), `extras` (each item's names as `cadio:path` metadata; default false). The model is in the scene's source unit (`Scene.sourceUnit`: a STEP file's root product's, a 3MF's, glTF's metres) where 3MF has a name for it, else millimetres. Meshes are welded by exact position (3MF wants shared vertices), and a mesh that isn't a closed, consistently oriented manifold isn't written as a solid.
+- **three.js** (`threejsChunks`, `threejsJson`): `name` (the root object's), `doubleSided`, `defaultColor` (faces without a material; sRGB), `edgeColor`, `edgeKinds` (which B-rep edges to write: by default shared and free ones, not seams or degenerate edges), `extras` (our `userData`: source ids, properties, parts and `closed` where the source says whether a part's faces bound solids, scene material indices, face, edge, curve and point sources, and on the root the unit and up axis below it, millimetres and Z; default false); the root is a `Scene` holding the top objects, each turning millimetres and Z up into metres and Y up in its own matrix, as glTF's top nodes do, `keepEmpty` (keep tree nodes with nothing to draw beneath them; default false), `unit` (millimetres per the unit written, default 1000: metres, three.js's convention; any other scales the top objects' turn, which applications take for metres all the same, said in our extras as `fileUnit` so ours read back as written).
+- **glTF** (`glb`, `gltfJson`, `gltfDocument`): the same, with `extras` for glTF's `extras`, plus `hidden` (`'omit'`, the default, or `'extension'` for `KHR_node_visibility`), `unlitLines` (`KHR_materials_unlit` on edges, curves and points), `exclude` (leave edges, curves or points out even when the view has them), `compression` (`'draco'`, the default, `'meshopt'` or `'none'`), `dracoPositionBits` (default 14), `instancing` (`EXT_mesh_gpu_instancing`; default false), `keepEmpty` and `unit` (as three.js's: default metres, glTF's convention). A primitive with more faces than `MAX_DRACO_FACES` (65,535) with Draco and extras throws a `GltfError`. The encoders (WebAssembly) are imported when first used. `gltfJson(scene, view, 'model.bin', opts)` gives the JSON and the buffer it names; with `undefined` for the name, the buffer is embedded as base64.
+- **3MF** (`threemf`): `name`, `defaultColor`, `colors` (`'basematerials'`, the default, or the Materials extension's `'colorgroup'`), `build` (`'parts'`, an item per placed part, or `'assembly'`), `nonManifold` (`'omit'` or `'surface'`: for meshes that aren't closed manifolds, and parts whose `closed` is false), `hidden` (`'omit'` or `'keep'`), `extras` (each item's names as `cadio:path` metadata; default false). The model is in `unit` (millimetres per unit, one of 3MF's six: micron 0.001 to metre 1000), by default the scene's source unit (`Scene.sourceUnit`: a STEP file's root product's, a 3MF's, glTF's metres) where 3MF has a name for it, else millimetres: vertices divided by it, transforms' translations too. Meshes are welded by exact position (3MF wants shared vertices), and a mesh that isn't a closed, consistently oriented manifold isn't written as a solid.
 
 ### `cli` (`cad-io-cli`)
 
@@ -1111,7 +1114,8 @@ Several checks run together as a **round** share one mesh cache: `node corpus_ch
 - `gltf_corpus.ts` exports every file as GLB with edges, curves, hidden instances and extras, uncompressed, validates it with the Khronos glTF-Validator (errors are problems), reads it back with glTF-Transform and compares it with the export view: a node per placed part in tree order, visibility, world matrices, triangles and colours, one mesh per look. It also writes each file with Draco and with meshopt and compares the decoded triangles with the view, face by face (Draco's by `_FACE`, meshopt's by range) within what quantization allows, and every line and point vertex; and with instancing, every placement as a tree node or an instance at its world matrix, and no empty nodes. About 4 min: `node --max-old-space-size=8192 corpus_checks/gltf_corpus.ts test_corpus/files.txt 1000`
 - `threemf_corpus.ts` exports every file as 3MF (open meshes as surfaces, hidden instances kept), reads it back with lib3mf in strict mode and compares it with the export view: an item per placed part at its world transform, each object's type against lib3mf's manifold check and its volume's sign, every triangle's corners and colour; and the assembly form composed to the same objects and transforms. About 5.5 min: `node --max-old-space-size=8192 corpus_checks/threemf_corpus.ts test_corpus/files.txt 1000`
 - `stepconv_corpus.ts` runs `stepconv` with its defaults on every file in each format, in process, and spawns the command for a sample (third argument, default 20 files), reading each output back with its format's tools (glTF through the Draco decoder) and comparing it with the export view (part names and triangle counts in tree order, and no extras); the command's outputs must be byte-identical to the in-process ones. About 20 min: `node --max-old-space-size=8192 corpus_checks/stepconv_corpus.ts test_corpus/files.txt 1000`
-- `step_roundtrip.ts` takes every file through `exportStep` (AP242, or `SCHEMA=ap214`) and reads it back, binding the written file with every value checked, in three layers: (1) the scenes (every placed part's path, names, world transform, visibility and face colours; every model, table by table); (2) OCCT (`occt-import-js`) on the written file: every placed B-rep vertex where our transforms put it, every mesh's face colours ours, and its reading of the original compared, told apart where OCCT reads that otherwise than we do; and OCCT's points on every face's surface and every edge's curve at the same parameters from both files (`tess-occt`'s probe, `build-probe.sh`); (3) the area oracle on both files, face by face. `PLANT=move|colour|angle` plants a bug in about one file in 10, which the layers must see. About 5 min: `node --max-old-space-size=12000 corpus_checks/step_roundtrip.ts test_corpus/files.txt 1000`
+- `unit_scale.ts` reads every file twice, the second time with its length unit changed in its text, and holds every B-rep model, origin, mesh and placement to an oracle of what's a length (`docs/brep-reference.md`): the check that the scene is millimetres whatever the file's unit.
+- `step_roundtrip.ts` takes every file through `exportStep` (AP242, or `SCHEMA=ap214`; `UNIT=` another unit than the source's) and reads it back, binding the written file with every value checked, in three layers: (1) the scenes (every placed part's path, names, world transform, visibility and face colours; every model, table by table); (2) OCCT (`occt-import-js`) on the written file: every placed B-rep vertex where our transforms put it, every mesh's face colours ours, and its reading of the original compared, told apart where OCCT reads that otherwise than we do; and OCCT's points on every face's surface and every edge's curve at the same parameters from both files (`tess-occt`'s probe, `build-probe.sh`); (3) the area oracle on both files, face by face. `PLANT=move|colour|angle` plants a bug in about one file in 10, which the layers must see. About 5 min: `node --max-old-space-size=12000 corpus_checks/step_roundtrip.ts test_corpus/files.txt 1000`
 
 ## Roadmap
 
@@ -1162,9 +1166,11 @@ Known work not yet scheduled; the detail behind each is in the topic notes in `d
 
 - OCCT BREP and FreeCAD import and export through the B-rep model: our BREP parser into the model, BREP written by our own writer or by OCCT after the native builder (`brep-model.md`, Exporters; `future.md`); then QIF; IGES MSBO when taken up.
 - Levels of detail in use: the scene holds several per part, but the viewer and the exporters use one at a time (`chooseLod`); no level is chosen by distance yet.
+- Conic p-curves on surfaces whose parameters scale unequally (a cylinder's or cone's in a file not in millimetres; an angular surface's in degrees) converted exactly, in place of dropped with a warning: a stretched conic is still a conic, an ellipse or hyperbola with its parameter shifted, a parabola's mapped affinely, the map carried into trim parameters on it (`brep-model.md`, decision 34; none in the corpus).
 
 **Export**
 
+- `roundtrip_corpus`'s 3MF forms of `bug25381_test_assembly_invisible.step`: placement 4 (`/ASSEMBLY/=>[0:1:1:5]`, a box in a subassembly) read back with its 2 triangles unmatched; the log of `acadb1b` had none, `6a0f062` has it; the cause not found.
 - The 3MF Production extension.
 - Exporting STL and OBJ (the mesh helpers are there).
 
@@ -1175,6 +1181,10 @@ Known work not yet scheduled; the detail behind each is in the topic notes in `d
 - Several files open at once, each a top node of the tree named after its file (the viewer opens one model at a time).
 - The page keeping no copy of the file it opened (today its bytes, kept for Save original..., recording, and loading the file again when the import worker is lost: a model's whole size in the page's memory, LMP1's 271 MB). A hash (SHA-256) made of every file as it's loaded. A local file (the file picker, dropped, a .gltf's .bin) kept as its `File`, read again when needed: no memory. A file from a URL fetched again when needed. Either way, read again: compared with the hash, and if it differs (the file changed on disk or on the server), Save original... warns and asks whether to save it anyway; if it can't be read (moved, offline, a link that expired), says so. Recording uses the hash made at load. Mesh again needs no copy once it meshes the import worker's models (`brep-model.md`, phase 9); recovering a lost import worker reads the file again likewise. Measured instead: LMP1 compresses 3.8 times with gzip (71 MB, 1 s with macOS's `gzip -1`), an option for the page's copy if the above falls short.
 - Layers in use: `Scene.layers` is read from STEP (names, visibility, member parts and faces) but nothing uses it yet. The viewer showing layers, hiding the members of invisible layers (as OCCT and CAD viewers do), and the exporters carrying layers in our own extras, so they survive round trips (the importers of glTF, three.js JSON and 3MF give none today).
+
+**Tests**
+
+- Checks that pass or fail with the machine's load, to be made deterministic (a condition waited for, not a time; or timings measured relative to a calibration): the viewer's browser check "zoom while loading" ("zoomed more than once a second") and "step ids" ("select by id") failed in a full run under load and passed alone; "replay in real time" ("the pause cut", its steps late against the recording's times) failed alone under load, at `6a0f062` too, not yet run on an idle machine. Corpus checks whose meshing times out under load give other counts from run to run (`roundtrip_corpus`'s `bug24024_slow_import.stp` "nothing to export", `truck_occt`'s timeouts).
 
 **Open questions**
 

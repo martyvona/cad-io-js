@@ -9,7 +9,7 @@ import { test } from 'node:test';
 import { BrepBuilder, type BrepData, decode, rowCount } from 'cad-brep';
 import { exportView, identity, multiply, partInstances, placedName, scaling, viewDifferences, type Component, type Lod,
   type Mat4, type Part, type Scene } from 'cad-scene';
-import { openModel, parseStep } from 'step-parser';
+import { formatReal as real, openModel, parseStep } from 'step-parser';
 import { box } from '../../cad-brep/test/models.ts';
 import { importStep } from '../../step-import/src/index.ts';
 import { AP214_SCHEMA, AP242_SCHEMA, exportStep, type StepExportOptions } from '../src/index.ts';
@@ -21,10 +21,11 @@ const concat = (cs: Iterable<Uint8Array>) => {
   for (const c of all) { out.set(c, at); at += c.length; }
   return out;
 };
-/** A unit cube as a solid, in `unit`, its faces' ids `idBase` + 21 to 26. */
-function cubeModel(idBase = 0, unit = 1): BrepData {
-  const b = new BrepBuilder({ unit, uncertainty: 1e-6 });
-  const solid = b.addBody({ kind: 'solid', members: [{ ref: box(b, [1, 1, 1], [0, 0, 0], idBase), sense: true }],
+/** A cube of side `size` (millimetres) as a solid, its faces' ids `idBase` + 21 to 26. */
+function cubeModel(idBase = 0, size = 1): BrepData {
+  const b = new BrepBuilder({ uncertainty: 1e-6 });
+  const solid = b.addBody({ kind: 'solid', members: [{ ref: box(b, [size, size, size], [0, 0, 0], idBase),
+    sense: true }],
     id: idBase + 100 });
   b.addItem({ kind: 'body', ref: solid, id: idBase + 101 });
   return b.finish();
@@ -55,8 +56,8 @@ const translate = (x: number, y: number, z: number, m: Mat4 = identity()) => {
 };
 /** A turn by 90 degrees about z: x to y. */
 const quarter = (): Mat4 => { const m = identity(); m[0] = 0; m[1] = 1; m[4] = -1; m[5] = 0; return m; };
-const part = (name: string, model: BrepData, id: number, unit = 1): Part => ({ name, sources: [{ format: 'step', id }],
-  properties: {}, unit, origin: [0.5, 0.5, 0.5], brep: { model, format: 'step' }, lods: [] });
+const part = (name: string, model: BrepData, id: number): Part => ({ name, sources: [{ format: 'step', id }],
+  properties: {}, origin: [0.5, 0.5, 0.5], brep: { model, format: 'step' }, lods: [] });
 const component = (name: string, c: Partial<Component> = {}): Component => ({ name, sources: [], properties: {},
   parts: [], children: [], ...c });
 const sceneOf = (s: Partial<Scene>): Scene => ({ unit: 'millimetre', components: [], roots: [], parts: [],
@@ -281,7 +282,7 @@ function meshPart(): Part {
     curvePositions: new Float32Array([0, 0, 5, 1, 0, 5, 1, 1, 5]), curves: [{ source: 9, start: 0, count: 3 }],
     points: new Float32Array([3, 3, 3, 4, 4, 4]), pointSources: [10, 10],
   } };
-  return { name: 'mesh', sources: [{ format: 'step', id: 50 }], properties: {}, unit: 1, origin: [100, 0, 0],
+  return { name: 'mesh', sources: [{ format: 'step', id: 50 }], properties: {}, origin: [100, 0, 0],
     lods: [lod] };
 }
 
@@ -309,6 +310,26 @@ test('a part without a B-rep: AP242 tessellated geometry, its faces by id, curve
   assert.deepEqual(viewDifferences({ scene: s, view: exportView(s, o) }, { scene: back, view: exportView(back, o) },
     { faceIds: false }), []);
   assert.deepEqual([...new Set(l.mesh.faces.map((f) => f.source))].slice(0, 2), [7, 8]);
+});
+
+test('a part without a B-rep in another unit: its positions and chordal deviation in it, read back the same',
+  async () => {
+  const s = sceneOf({ parts: [meshPart()], rootParts: [{ part: 0, transform: identity() }] });
+  const { back, text, diagnostics } = await roundTrip(s, { unit: 25.4 });
+  assert.deepEqual(diagnostics, []);
+  // The tessellated representation's context (the file's only: a root part unmoved has no assembly) in inches, its
+  // corner (102, 0, 0) mm and its deviation in them.
+  assert.equal(text.match(/CONVERSION_BASED_UNIT\('INCH'/g)?.length, 1);
+  assert.ok(text.includes(`(${real(102 / 25.4)},0.,0.)`), 'corner');
+  assert.ok(text.includes(`CHORDAL_DEVIATION(${real(0.2 / 25.4)})`), 'deviation');
+  const l = back.parts[0]!.lods[0]!;
+  assert.ok(Math.abs(l.linearDeflection! - 0.2) < 1e-12);
+  const m = back.parts[0]!.lods[0]!.mesh, src = s.parts[0]!.lods[0]!.mesh;
+  // The same points, in millimetres (the origins added back; once each: the reader gives each face its own), to 1e-4.
+  const world = (x: typeof m) => [...new Set(Array.from({ length: x.positions.length / 3 }, (_, v) => [0, 1, 2]
+    .map((k) => (Math.round((x.positions[3 * v + k]! + x.origin[k]!) * 1e4) / 1e4 + 0).toFixed(4)).join(' ')))]
+    .sort();
+  assert.deepEqual(world(m), world(src));
 });
 
 test('a closed mesh part as a TESSELLATED_SOLID; a mesh without face ranges as one face', async () => {
@@ -346,8 +367,7 @@ test('AP214: its schema; a component\'s colour as overrides; mesh-only parts lef
   s.components[1]!.material = 4;
   s.parts.push(meshPart());
   s.components[0]!.parts.push({ part: 2, transform: identity() });
-  s.parts[1] = { ...part('plate', cubeModel(1000, 25.4), 301, 25.4), material: 2 };
-  s.components[0]!.parts[0]!.transform = scaling(25.4);
+  s.parts[1] = { ...part('plate', cubeModel(1000, 25.4), 301), material: 2 };
   const { text, back, bytes, diagnostics } = await roundTrip(s, { schema: 'ap214' });
   assert.match(text, new RegExp(`FILE_SCHEMA\\(\\('${AP214_SCHEMA.replace(/[{}]/g, '\\$&')}'\\)\\)`));
   assert.match(text, /APPLICATION_PROTOCOL_DEFINITION\('international standard','automotive_design'/);
@@ -378,21 +398,33 @@ test('a scene from a mesh format: named references, a part placed twice in a com
     assert.ok(near([...partInstances(back)][1]!.transform, translate(10, 0, 0)));
   });
 
-test('a part in inches placed in a millimetre assembly keeps its unit and placement', async () => {
+test('the unit written: the source\'s by default, else the one asked for; every length in it, read back the same',
+  async () => {
   const s = assembly();
-  s.sourceUnit = 1;
-  s.parts[1] = part('plate', cubeModel(1000, 25.4), 301, 25.4);
-  s.components[0]!.parts[0]!.transform = multiply(translate(7, 0, 0), scaling(25.4));
-  const { back, diagnostics } = await roundTrip(s);
-  assert.deepEqual(diagnostics, []);
-  sameLooks(s, back);
-  assert.equal(back.parts.find((p) => p.name === 'plate')!.unit, 25.4);
-  // At the top, unmoved: a top product, not inside an assembly.
-  const top = sceneOf({ parts: [s.parts[1]!], rootParts: [{ part: 0, transform: scaling(25.4) }] });
-  const t = await roundTrip(top);
-  assert.deepEqual(t.all.filter((d) => /moved|scales|mirrors/.test(d.message)), []);
-  assert.equal(t.back.roots.length, 0);
-  sameLooks(top, t.back);
+  // A cube 25.4 mm (an inch) on a side, placed 7 mm along.
+  s.parts[1] = part('plate', cubeModel(1000, 25.4), 301);
+  s.components[0]!.parts[0]!.transform = translate(7, 0, 0);
+  for (const [unit, name] of [[undefined, 'INCH'], [1, '.MILLI.'], [1000, '$,.METRE.'], [304.8, 'FOOT']] as const) {
+    const { back, diagnostics, text } = await roundTrip(s, unit === undefined ? {} : { unit });
+    assert.deepEqual(diagnostics, [], `${unit}`);
+    sameLooks(s, back);
+    assert.equal(back.sourceUnit, unit ?? 25.4);
+    assert.ok(text.includes(name), `${unit}: ${name}`);
+    // The plate's far corner, (1, 1, 1) inches, in the unit written; the placement's 7 mm likewise.
+    const k = 25.4 / (unit ?? 25.4);
+    assert.ok(text.includes(`CARTESIAN_POINT('',(${[k, k, k].map(real).join(',')}))`), `${unit}: corner`);
+    assert.ok(text.includes(`CARTESIAN_POINT('',(${[7 / (unit ?? 25.4), 0, 0].map(real).join(',')}))`),
+      `${unit}: placement`);
+    // Each part's geometry read back in millimetres: its vertices where they were.
+    const plate = back.parts.find((p) => p.name === 'plate')!.brep!.model;
+    const far = Math.max(...plate.vertex.point);
+    assert.ok(Math.abs(far - 25.4) < 1e-12, `${unit}: ${far}`);
+  }
+  // A source unit within 1e-9 of a named one written as that (a file's inches, from 0.0254 m, are 25.400000000000002).
+  const t = assembly();
+  t.sourceUnit = 25.400000000000002;
+  assert.ok((await roundTrip(t)).text.includes("CONVERSION_BASED_UNIT('INCH'"));
+  assert.throws(() => exportStep(s, { unit: 0 }), /unit 0/);
 });
 
 test('a part whose every reference has the same colour: that colour as the part\'s style, no override', async () => {
@@ -418,7 +450,7 @@ test("an override of a component's own part reference (no product): the referenc
 
 test("a geometric set's part: its colour on the set's elements (a set's style isn't its elements' to OCCT)",
   async () => {
-    const b = new BrepBuilder({ unit: 1 });
+    const b = new BrepBuilder();
     const position = { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] };
     b.addItem({ kind: 'surface', ref: b.addSurface({ kind: 'plane', position, id: 40 }) });
     b.addItem({ kind: 'curve', ref: b.addCurve({ kind: 'circle', position, radius: 1, id: 41 }) });
@@ -439,7 +471,7 @@ test("a geometric set's part: its colour on the set's elements (a set's style is
 
 test("a sheet's part: its colour on its surface model and on each face without its own (OCCT passes only a solid's "
   + 'down)', async () => {
-  const b = new BrepBuilder({ unit: 1 });
+  const b = new BrepBuilder();
   const sheet = b.addBody({ kind: 'sheet', members: [{ ref: box(b, [1, 1, 1]), sense: true }], id: 100 });
   b.addItem({ kind: 'body', ref: sheet, id: 101 });
   const s = sceneOf({ parts: [{ ...part('sheet', b.finish(), 30), material: 0, faceMaterials: [{ face: 22,
@@ -455,7 +487,7 @@ test("a sheet's part: its colour on its surface model and on each face without i
 
 test('a face used both ways (two sheets, one using it reversed): written twice, both copies styled and layered',
   async () => {
-  const b = new BrepBuilder({ unit: 1 });
+  const b = new BrepBuilder();
   const corners = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]];
   const vs = corners.map((point, k) => b.addVertex({ point, id: 1 + k }));
   const coedges = corners.map((p, k) => {

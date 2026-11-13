@@ -15,8 +15,8 @@ export async function readBack(data: Uint8Array, rootId: number):
   const context = new Units(r).ofRepresentation(root);
   const mm = (context?.lengthUnit?.factor ?? 0.001) * 1000;
   const warnings: string[] = [];
-  const { brep } = stepBrep(r, r.refs(root, 'items'), { unit: mm, angle: context?.planeAngleUnit?.factor ?? 1,
-    ...(context?.uncertainty !== undefined ? { uncertainty: context.uncertainty * 1000 / mm } : {}) },
+  const { brep } = stepBrep(r, r.refs(root, 'items'), { length: mm, angle: context?.planeAngleUnit?.factor ?? 1,
+    ...(context?.uncertainty !== undefined ? { uncertainty: context.uncertainty * 1000 } : {}) },
   (m) => warnings.push(m));
   return { brep, warnings, diagnostics: [...model.diagnostics, ...r.diagnostics] };
 }

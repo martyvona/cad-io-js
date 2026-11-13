@@ -20,7 +20,7 @@
 // Usage: node --max-old-space-size=12000 corpus_checks/native_route.ts [file-list.txt] [max MB]
 import fs from 'node:fs';
 import path from 'node:path';
-import { type BrepData, openBrep, rowCount, SURFACE_KIND } from '../packages/cad-brep/src/index.ts';
+import { type BrepData, CURVE_KIND, openBrep, rowCount, SURFACE_KIND } from '../packages/cad-brep/src/index.ts';
 import { failedPart, meshDeflections, type TessellationRequest, type TessellationResult }
   from '../packages/cad-scene/src/index.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
@@ -232,7 +232,7 @@ export const check: FileCheck<undefined, Result> = {
       const native = new Uint8Array(m.buffer);
 
       // (a) Both meshed.
-      const base = { origin: part.origin, linearDeflection: LINEAR_MM / part.unit, angularDeflection: ANGULAR,
+      const base = { origin: part.origin, linearDeflection: LINEAR_MM, angularDeflection: ANGULAR,
         measures: true };
       const a = await mesh({ ...base, format: 'step', data: w.data, rootId: w.rootId });
       const b = await mesh({ ...base, format: 'cad-brep', data: native });
@@ -325,12 +325,25 @@ export const check: FileCheck<undefined, Result> = {
       const rb = new Set([...readIds(pn.faces, 5, 0), ...readIds(pn.edges, 3, 1)]);
       const pb = probeEval(qs);
       R.probeParts++;
+      // (A composite curve item's segments are edges sharing its id, and the probe keeps one edge per id: which one
+      // each route's shape gives first may differ, so their points aren't compared.)
+      const composite = new Set<number>();
+      for (let c = 0; c < rowCount(m0, 'curve'); c++) {
+        if (m0.curve.kind[c] === CURVE_KIND.composite && m0.curve.id[c]) composite.add(m0.curve.id[c]!);
+      }
+      const skipped = new Set<number>();
       let size = 0;
       for (const v of pa) if (Number.isFinite(v)) size = Math.max(size, Math.abs(v));
       let over = 0, worst = 0, worstAt = '', missing = 0;
       for (let k = 0; k < pa.length; k += 3) {
         if (![0, 1, 2].every((c) => Number.isFinite(pa[k + c]!))) continue;
         const kind = qs[(k / 3) * 4]!, id = qs[(k / 3) * 4 + 1]!;
+        if (kind === 1 && composite.has(id)) {
+          if (!skipped.has(id)) note('(b) composite curve items not compared (their segments\' edges share its id)',
+            `${where} edge #${id}`);
+          skipped.add(id);
+          continue;
+        }
         if (![0, 1, 2].every((c) => Number.isFinite(pb[k + c]!))) {
           if (rb.has(kind * 1e12 + id)) note('(b) a point the native route\'s shape can\'t evaluate', `${where} `
             + `${kind ? 'edge' : 'face'} #${id}`);

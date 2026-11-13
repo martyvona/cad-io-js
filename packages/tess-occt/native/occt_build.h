@@ -1,4 +1,4 @@
-// The native builder's interface (occt_build.cpp): a part's cad-brep buffer as OCCT shapes, in the part's unit.
+// The native builder's interface (occt_build.cpp): a part's cad-brep buffer as OCCT shapes, in millimetres.
 #pragma once
 
 #include <TopoDS_Shape.hxx>
@@ -24,8 +24,8 @@ struct BuiltPart
   // Whether the part has face or surface items (a geometric set's: healing adds no natural bounds there, as the STEP
   // route's doesn't for a geometrically bounded surface representation).
   bool geometricSet = false;
-  // Millimetres per unit; the part's uncertainty (NaN without one).
-  double unit = 1.0, uncertainty = NAN;
+  // The part's uncertainty (NaN without one).
+  double uncertainty = NAN;
 };
 
 BuiltPart buildPart(const uint8_t* buf, size_t len);

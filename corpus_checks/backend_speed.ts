@@ -53,7 +53,7 @@ for (const [n, f] of files.entries()) {
         let status: Status = 'ok', triangles = 0;
         try {
           const r = await pools[backend].tessellate({ format: 'cad-brep', data: b, origin: p.origin,
-            linearDeflection: MESHING.linearDeflection / p.unit, angularDeflection: MESHING.angularDeflection });
+            linearDeflection: MESHING.linearDeflection, angularDeflection: MESHING.angularDeflection });
           triangles = r.indices.length / 3;
           if (failedPart(r)) status = 'error';
           else if (!triangles) status = 'empty';

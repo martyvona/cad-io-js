@@ -285,7 +285,7 @@ export const check: FileCheck<undefined, Tallies> = {
       // The model, what both backends read; written as STEP too, for its entities' types (and the dump).
       const w = stepPartBytes(brep.model);
       const req: TessellationRequest = { format: 'cad-brep', data: new Uint8Array(brep.model.buffer), origin: p.origin,
-        linearDeflection: TOL_MM / p.unit, angularDeflection: 0.5, edges: true };
+        linearDeflection: TOL_MM, angularDeflection: 0.5, edges: true };
       const [a, b] = await Promise.all([run(truck, req), run(occt, req)]);
       return { i, req, w, a, b, repId: p.sources[0]!.id };
     }));

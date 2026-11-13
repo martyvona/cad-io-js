@@ -36,8 +36,7 @@ export function validateBrep(d: BrepData): BrepDiagnostic[] {
   };
   const inRange = (t: TableName, i: number) => Number.isInteger(i) && i >= 0 && i < n[t];
 
-  const unit = d.part.unit[0]!, uncertainty = d.part.uncertainty[0]!;
-  if (!(unit > 0) || !Number.isFinite(unit)) say('error', `part: unit ${unit}`);
+  const uncertainty = d.part.uncertainty[0]!;
   if (!Number.isNaN(uncertainty) && !(uncertainty > 0 && Number.isFinite(uncertainty))) {
     say('error', `part: uncertainty ${uncertainty}`);
   }

@@ -12,7 +12,7 @@ import { curveEvaluator, type CurveEvaluator, edgeParams, surfaceEvaluator, type
 import { LOOP_KIND } from './layout.ts';
 
 export interface OutlineOptions {
-  /** Maximum distance between a polyline and its curve, in the part's units. */
+  /** Maximum distance between a polyline and its curve, in millimetres. */
   linearDeflection: number;
   /** Maximum angle a segment turns through on a circle or ellipse, radians. */
   angularDeflection: number;

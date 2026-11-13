@@ -3,13 +3,14 @@
 // tess-workers pool, the coarse profile), and exported with open meshes as surface objects and hidden instances kept,
 // so every placed part with triangles is written; then:
 //   - lib3mf's errors and warnings are problems;
-//   - parts build: one item per placed part with triangles, in tree order, at the view's world transform (to
-//     float32, as lib3mf reads transforms);
+//   - parts build: one item per placed part with triangles, in tree order, at the view's world transform in the
+//     model's unit (its translation divided by it; to float32, as lib3mf reads transforms);
 //   - each mesh object: 'model' exactly when lib3mf's check finds it manifold and oriented and it has positive volume
 //     (which lib3mf doesn't check), else 'surface';
 //     its triangles, in order, those of the look that aren't degenerate after welding, every corner at the mesh's
-//     exact position, every triangle in its group's colour (the material's sRGB and opacity, else the default);
-//     and none of the look's triangles degenerate (tessellateScene dropped those);
+//     position in the model's unit (the float32 of it divided, as written), every triangle in its group's colour
+//     (the material's sRGB and opacity, else the default); and none of the look's triangles degenerate
+//     (tessellateScene dropped those);
 //   - assembly build: one item; composing its components gives the same objects at the same world transforms, in the
 //     same order, as the parts build's items.
 // Several files at once (runner.ts: CHILDREN, MESH_WORKERS).
@@ -85,7 +86,12 @@ export const check: FileCheck<undefined, Tallies> = {
     if (bytes.length > maxBytes) { totals.skipped++; return A; }
     const name = shortName(f);
     totals.files++;
-    const problem = (msg: string) => { totals.problems++; problems.push(`${name}: ${msg}`); };
+    // (At most 100 listed a file: a file wrong throughout would list every triangle.)
+    let listed = 0;
+    const problem = (msg: string) => {
+      totals.problems++;
+      if (listed++ < 100) problems.push(`${name}: ${msg}`);
+    };
     const { scene } = await importStep(bytes);
     const { meshes } = await tessellateScene(scene, cachedMesher(tess),
       { ...MESHING, concurrency: workers });
@@ -142,7 +148,9 @@ export const check: FileCheck<undefined, Tallies> = {
       const item = items[k++];
       if (!item) { problem(`${items.length} items, expected more`); break; }
       totals.items++;
-      const want = rows(multiply(scaling(1 / unit.mm), e.world)).map(Math.fround);
+      const world = Float64Array.from(e.world);
+      for (const j of [12, 13, 14]) world[j]! /= unit.mm;
+      const want = rows(world).map(Math.fround);
       const got = item.transform ?? rows(identity());
       const scale = Math.max(1, ...want.map(Math.abs));
       if (!got.every((x, i) => Math.abs(x - want[i]!) <= 1e-6 * scale)) problem(
@@ -181,7 +189,7 @@ export const check: FileCheck<undefined, Tallies> = {
           for (let corner = 0; corner < 3; corner++) {
             const v = m.triangles[3 * t + corner]!;
             for (let axis = 0; axis < 3; axis++) {
-              if (m.positions[3 * v + axis] !== p[3 * tri[corner]! + axis]! + 0) {
+              if (m.positions[3 * v + axis] !== Math.fround(p[3 * tri[corner]! + axis]! / unit.mm) + 0) {
                 problem(`object ${id} (part ${look.part}) triangle ${t}: corner ${corner} moved`); corner = 3; break; }
             }
           }

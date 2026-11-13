@@ -28,15 +28,15 @@ export const wire = (): Mesh => ({
   points: Float32Array.of(5, 5, 5), pointSources: [11],
 });
 
-// An assembly with two instances of a subassembly holding the plate (in inches; green, face 7 blue; 50% opaque red
-// for its second instance by override) and the wireframe; a third, hidden instance. Materials: 0 red half opaque,
-// 1 green, 2 blue.
+// An assembly with two instances of a subassembly holding the plate (scaled to inches by its placement; green, face 7
+// blue; 50% opaque red for its second instance by override) and the wireframe; a third, hidden instance. Materials:
+// 0 red half opaque, 1 green, 2 blue.
 export function scene(): Scene {
   const occ = (component: number, t: Mat4, name?: string) => (
     { component, transform: t, sources: [], properties: {}, ...(name ? { name } : {}) });
-  const brep = (name: string, unit: number) => (
-    { name, sources: [], properties: {}, unit, origin: [0, 0, 0] as [number, number, number], lods: [],
-    brep: { format: 'step' as const, model: new BrepBuilder({ unit: 1 }).finish() } });
+  const brep = (name: string) => (
+    { name, sources: [], properties: {}, origin: [0, 0, 0] as [number, number, number], lods: [],
+    brep: { format: 'step' as const, model: new BrepBuilder().finish() } });
   return {
     unit: 'millimetre',
     components: [
@@ -47,7 +47,7 @@ export function scene(): Scene {
         parts: [{ part: 0, transform: scaling(25.4) }, { part: 1, transform: identity() }], children: [] },
     ],
     roots: [occ(0, translation(0, 0, 5))],
-    parts: [{ ...brep('plate', 25.4), material: 1, faceMaterials: [{ face: 7, material: 2 }] }, brep('wire', 1)],
+    parts: [{ ...brep('plate'), material: 1, faceMaterials: [{ face: 7, material: 2 }] }, brep('wire')],
     materials: [{ name: 'red', color: [1, 0, 0], opacity: 0.5, sources: [] },
       { color: [0, 1, 0], opacity: 1, sources: [] }, { color: [0, 0, 1], opacity: 1, sources: [] }],
     layers: [],

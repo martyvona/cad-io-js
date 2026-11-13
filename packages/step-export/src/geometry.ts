@@ -1,18 +1,21 @@
-// A part's B-rep model (cad-brep) as STEP geometry and topology (Part 42, as AP242 has it): one shape representation
-// of the model's items, with its context (length unit, radians, uncertainty), as step-parser's instances. The model's
-// rows keep their source ids (`#` ids), new entities (points, directions, placements, surface curves, loops, units)
-// are numbered after the largest, and a row whose id is taken (repeated ids) gets a new one. Only rows the items reach
-// are written, in table order (curves, surfaces, vertices, edges, faces, shells, bodies, items), each after what it
-// refers to, since the model's rows refer only to rows before them. Part 42's general forms: explicit knots, rational
-// B-splines as complex instances, SURFACE_CURVE (SEAM_CURVE for two p-curves on one surface) where an edge's uses have
-// p-curves, faces as ADVANCED_FACE where Part 42's rules for one hold (else FACE_SURFACE), a face whose edges all lack
-// vertices as a CURVE_BOUNDED_SURFACE. What the source lacked (an edge's vertex or curve) is written unset, as it had
-// it, not repaired. What STEP can't hold is a diagnostic: tolerances per entity, parameter ranges, internal and
+// A part's B-rep model (cad-brep) as STEP geometry and topology (Part 42, as AP242 has it): one shape representation of
+// the model's items, with its context (length unit, radians, uncertainty), as step-parser's instances. Lengths are
+// written in the unit asked for (the model's millimetres divided by it; docs/brep-reference.md lists them), p-curves
+// scaled as their surfaces' parameters are: a 2D curve is written once per scale its uses need, a conic or offset
+// p-curve whose surface's parameters scale unequally (a cylinder's or cone's, in a unit not millimetres) left out. The
+// model's rows keep their source ids (`#` ids), new entities (points, directions, placements, surface curves, loops,
+// units) are numbered after the largest, and a row whose id is taken (repeated ids) gets a new one. Only rows the items
+// reach are written, in table order (curves, surfaces, vertices, edges, faces, shells, bodies, items), each after what
+// it refers to, since the model's rows refer only to rows before them. Part 42's general forms: explicit knots,
+// rational B-splines as complex instances, SURFACE_CURVE (SEAM_CURVE for two p-curves on one surface) where an edge's
+// uses have p-curves, faces as ADVANCED_FACE where Part 42's rules for one hold (else FACE_SURFACE), a face whose edges
+// all lack vertices as a CURVE_BOUNDED_SURFACE. What the source lacked (an edge's vertex or curve) is written unset, as
+// it had it, not repaired. What STEP can't hold is a diagnostic: tolerances per entity, parameter ranges, internal and
 // external coedges, item transforms and instances; names aren't in the model and are written empty.
 
 import {
   BODY_KIND, type BrepData, type Curve, decode, EDGE_FLAGS, type Face, ITEM_KIND, LOOP_KIND, type Logical,
-  type Placement, type Point, rowCount, type Surface,
+  type Placement, type Point, rowCount, type Surface, SURFACE_KIND,
 } from 'cad-brep';
 import { type Diagnostic, type EntityRecord, type Instance, makeList, type Value } from 'step-parser';
 
@@ -92,6 +95,8 @@ export interface StepGeometryOptions {
   origin?: boolean;
   /** A conversion-based unit's dimensions written derived (`*`), as AP214 edition 3 has them. */
   derivedDimensions?: boolean;
+  /** The length unit written, in millimetres per unit (25.4: inches). Default 1. */
+  unit?: number;
 }
 
 /** An SI length unit's prefix by millimetres per unit (null: the metre itself). */
@@ -99,6 +104,8 @@ const SI_LENGTH = new Map<number, string | null>([[1e6, 'KILO'], [1e3, null], [1
   [1, 'MILLI'], [1e-3, 'MICRO'], [1e-6, 'NANO']]);
 /** Names of conversion-based length units by millimetres per unit. */
 const NAMED_LENGTH = new Map<number, string>([[25.4, 'INCH'], [304.8, 'FOOT']]);
+/** The length units STEP has a name for (SI prefixes, INCH, FOOT), in millimetres per unit. */
+export const NAMED_UNITS: readonly number[] = [...SI_LENGTH.keys(), ...NAMED_LENGTH.keys()];
 /** The FILE_SCHEMA of what `stepFile` writes. */
 export const AP242_SCHEMA = 'AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF { 1 0 10303 442 1 1 4 }';
 
@@ -115,6 +122,11 @@ const reals = (xs: readonly number[]): Value => list(xs.map(real));
 const ints = (xs: readonly number[]): Value => list(xs.map(int));
 const refs = (xs: readonly number[]): Value => list(xs.map(ref));
 const DERIVED: Value = { k: 'derived' };
+/** Divisors of a 2D curve's (u, v) coordinates: its surface's parameters in the written unit. */
+type Scale = readonly [number, number];
+const ONE: Scale = [1, 1];
+const UNEQUAL = 'a conic or offset p-curve on a surface whose parameters scale unequally to the unit written (left '
+  + 'out: no exact form)';
 const UNSET: Value = { k: 'unset' };
 const NAME = str();
 
@@ -236,6 +248,10 @@ export function stepGeometry(d: BrepData, opts: StepGeometryOptions = {}): StepG
     return id;
   };
   const rootId = opts.id !== undefined ? own(opts.id) : fresh(), contextId = fresh();
+  const U = opts.unit ?? 1;
+  if (!(U > 0) || !Number.isFinite(U)) throw new RangeError(`unit ${U}: not a positive number of millimetres`);
+  /** A length written. */
+  const len = (x: number) => U === 1 ? x : x / U;
   const faceIds = new Map<number, number>(), surfaceIds = new Map<number, number>();
   const faceCopies = new Map<number, number>();
   const setMembers = new Map<number, number[]>();
@@ -245,33 +261,100 @@ export function stepGeometry(d: BrepData, opts: StepGeometryOptions = {}): StepG
   const emit = (id: number, type: string, attrs: Value[]) => { out.push({ id, type, attrs }); return id; };
   const emitComplex = (id: number, parts: EntityRecord[]) => { out.push({ id, parts }); return id; };
 
-  // -- Points, directions, placements.
-  const point = (p: Point) => emit(fresh(), 'CARTESIAN_POINT', [NAME, reals(p)]);
+  // -- Points, directions, placements. A point is written in the unit: 3D its lengths, 2D (in a surface's (u, v)) each
+  // coordinate divided by its surface's divisor (`Scale`).
+  const at = (p: Point, sc: Scale): Point => p.length === 2 ? (sc === ONE ? p : [p[0]! / sc[0], p[1]! / sc[1]])
+    : U === 1 ? p : p.map(len);
+  const point = (p: Point, sc: Scale = ONE) => emit(fresh(), 'CARTESIAN_POINT', [NAME, reals(at(p, sc))]);
   const direction = (p: Point) => emit(fresh(), 'DIRECTION', [NAME, reals(p)]);
   const vector = (dir: Point, magnitude: number) =>
     emit(fresh(), 'VECTOR', [NAME, ref(direction(dir)), real(magnitude)]);
-  const placement = (pl: Placement) => pl.axis
+  const placement = (pl: Placement, sc: Scale = ONE) => pl.axis
     ? emit(fresh(), 'AXIS2_PLACEMENT_3D', [NAME, ref(point(pl.origin)), ref(direction(pl.axis)),
       ref(direction(pl.xDir))])
-    : emit(fresh(), 'AXIS2_PLACEMENT_2D', [NAME, ref(point(pl.origin)), ref(direction(pl.xDir))]);
+    : emit(fresh(), 'AXIS2_PLACEMENT_2D', [NAME, ref(point(pl.origin, sc)), ref(direction(pl.xDir))]);
 
-  // -- Curves.
-  const curveId = new Float64Array(rowCount(d, 'curve')).fill(NaN);
+  // -- Curves: each row once per scale (3D curves: one, ONE), the first under the row's id, the others under new ones
+  // (`own`: an id taken gets a new one, which `sourceIds` names).
+  const curveIds = new Map<string, number | null>();
   const curveKinds: Curve['kind'][] = [];
   const curveForm = (f: string) => enu(f.toUpperCase());
-  function writeCurve(k: number) {
-    const c = decode.curve(d, k), id = own(c.id);
+  /** A curve's written id at a scale; undefined where it can't be written so (a conic or offset, or made of one, in 2D
+   * at an unequal scale). */
+  function curveAt(k: number, sc: Scale = ONE): number | undefined {
+    const key = sc === ONE || d.curve.dim[k] === 3 ? `${k}` : `${k}:${sc[0]}:${sc[1]}`;
+    const known = curveIds.get(key);
+    if (known !== undefined) return known ?? undefined;
+    const id = writeCurve(k, d.curve.dim[k] === 3 ? ONE : sc);
+    curveIds.set(key, id ?? null);
+    return id;
+  }
+  /** The id of a 3D curve, written by now (rows refer only to rows before them). */
+  const curveId = (k: number) => curveAt(k)!;
+  /** A surface's divisors of its (u, v) in the unit: the unit on a length parameter (a plane's u and v, a cylinder's
+   * and cone's v, an offset's or trim's as its basis's), else 1. */
+  const surfaceScales: (Scale | undefined)[] = [];
+  const scaleOf = (k: number): Scale => {
+    let sc = surfaceScales[k];
+    if (sc) return sc;
+    const kind = d.surface.kind[k]!;
+    if (kind === SURFACE_KIND.offset || kind === SURFACE_KIND.rectangularTrimmed) {
+      sc = scaleOf(d.pool.surfaceInt[d.surface.int[k]!]!);
+    } else if (U === 1) sc = ONE;
+    else if (kind === SURFACE_KIND.plane) sc = [U, U];
+    else if (kind === SURFACE_KIND.cylinder || kind === SURFACE_KIND.cone) sc = [1, U];
+    else sc = ONE;
+    surfaceScales[k] = sc;
+    return sc;
+  };
+  // Each 2D row's scale where it's first written (in table order): its first use's (coedges in face order), handed
+  // down to the curves it's made of; another scale's copy is written where it's used.
+  const primary: (Scale | undefined)[] = [];
+  const hand = (k: number, sc: Scale) => {
+    if (primary[k] || d.curve.dim[k] !== 2) return;
+    primary[k] = sc;
+    const c = decode.curve(d, k);
+    const parts = c.kind === 'trimmed' || c.kind === 'offset' ? [c.basis]
+      : c.kind === 'composite' ? c.segments.map((x) => x.curve) : [];
+    for (const j of parts) hand(j, sc);
+  };
+  if (U !== 1) for (let f = 0; f < rowCount(d, 'face'); f++) {
+    const face = decode.face(d, f);
+    for (const l of face.loops) if (l.kind === 'edge') {
+      for (const c of l.coedges) if (c.pcurve !== undefined) hand(c.pcurve, scaleOf(face.surface));
+    }
+  }
+  function writeCurve(k: number, sc: Scale): number | undefined {
+    const c = decode.curve(d, k);
     curveKinds[k] = c.kind;
+    const two = d.curve.dim[k] === 2, uniform = sc[0] === sc[1];
+    if (two && !uniform && (c.kind === 'circle' || c.kind === 'ellipse' || c.kind === 'hyperbola'
+      || c.kind === 'parabola' || c.kind === 'offset')) return undefined;
+    // Lengths of this curve: a 2D one's in its (uniform) scale's divisor.
+    const size = (x: number) => two ? x / sc[0] : len(x);
+    const sub = (j: number) => curveAt(j, sc);
+    const parts = c.kind === 'trimmed' || c.kind === 'offset' ? [c.basis]
+      : c.kind === 'composite' ? c.segments.map((x) => x.curve) : [];
+    const subIds = parts.map(sub);
+    if (subIds.some((x) => x === undefined)) return undefined;
+    const id = own(c.id);
     switch (c.kind) {
-      case 'line': emit(id, 'LINE', [NAME, ref(point(c.point)), ref(vector(c.direction, c.magnitude))]); break;
-      case 'circle': emit(id, 'CIRCLE', [NAME, ref(placement(c.position)), real(c.radius)]); break;
-      case 'ellipse': emit(id, 'ELLIPSE', [NAME, ref(placement(c.position)), real(c.semiAxis1), real(c.semiAxis2)]);
+      case 'line': {
+        // (A 2D line keeps its parameter: the magnitude takes its direction's change of length.)
+        const dir = two && !uniform ? [c.direction[0]! / sc[0], c.direction[1]! / sc[1]] : c.direction;
+        const l = two && !uniform ? Math.hypot(...dir) : 1;
+        const m = two ? (uniform ? c.magnitude / sc[0] : c.magnitude * l) : len(c.magnitude);
+        emit(id, 'LINE', [NAME, ref(point(c.point, sc)), ref(vector(dir.map((x) => x / l), m))]);
         break;
-      case 'hyperbola': emit(id, 'HYPERBOLA', [NAME, ref(placement(c.position)), real(c.semiAxis),
-        real(c.semiImagAxis)]); break;
-      case 'parabola': emit(id, 'PARABOLA', [NAME, ref(placement(c.position)), real(c.focalDist)]); break;
+      }
+      case 'circle': emit(id, 'CIRCLE', [NAME, ref(placement(c.position, sc)), real(size(c.radius))]); break;
+      case 'ellipse': emit(id, 'ELLIPSE', [NAME, ref(placement(c.position, sc)), real(size(c.semiAxis1)),
+        real(size(c.semiAxis2))]); break;
+      case 'hyperbola': emit(id, 'HYPERBOLA', [NAME, ref(placement(c.position, sc)), real(size(c.semiAxis)),
+        real(size(c.semiImagAxis))]); break;
+      case 'parabola': emit(id, 'PARABOLA', [NAME, ref(placement(c.position, sc)), real(size(c.focalDist))]); break;
       case 'bspline': {
-        const poles = refs(c.poles.map(point));
+        const poles = refs(c.poles.map((q) => point(q, sc)));
         const head = [int(c.degree), poles, curveForm(c.form), logical(c.closed), logical(c.selfIntersect)];
         const knots = [ints(c.multiplicities), reals(c.knots), enu('UNSPECIFIED')];
         if (!c.weights) emit(id, 'B_SPLINE_CURVE_WITH_KNOTS', [NAME, ...head, ...knots]);
@@ -285,32 +368,33 @@ export function stepGeometry(d: BrepData, opts: StepGeometryOptions = {}): StepG
         }
         break;
       }
-      case 'polyline': emit(id, 'POLYLINE', [NAME, refs(c.points.map(point))]); break;
+      case 'polyline': emit(id, 'POLYLINE', [NAME, refs(c.points.map((q) => point(q, sc)))]); break;
       case 'trimmed': {
         const parameter = (x: number): Value => ({ k: 'typed', type: 'PARAMETER_VALUE', v: real(x) });
         const trim = (t: { parameter?: number; point?: Point }) => list([
-          ...(t.point ? [ref(point(t.point))] : []), ...(t.parameter !== undefined ? [parameter(t.parameter)] : []),
+          ...(t.point ? [ref(point(t.point, sc))] : []),
+          ...(t.parameter !== undefined ? [parameter(t.parameter)] : []),
         ]);
-        emit(id, 'TRIMMED_CURVE', [NAME, ref(curveId[c.basis]!), trim(c.trim1), trim(c.trim2), bool(c.sense),
+        emit(id, 'TRIMMED_CURVE', [NAME, ref(subIds[0]!), trim(c.trim1), trim(c.trim2), bool(c.sense),
           enu(c.preference.toUpperCase())]);
         break;
       }
       case 'composite': {
-        const segs = c.segments.map((s) => emit(fresh(), 'COMPOSITE_CURVE_SEGMENT', [enu(s.transition.toUpperCase()),
-          bool(s.sameSense), ref(curveId[s.curve]!)]));
+        const segs = c.segments.map((s, j) => emit(fresh(), 'COMPOSITE_CURVE_SEGMENT',
+          [enu(s.transition.toUpperCase()), bool(s.sameSense), ref(subIds[j]!)]));
         emit(id, 'COMPOSITE_CURVE', [NAME, refs(segs), logical(c.selfIntersect)]);
         break;
       }
       case 'offset':
         if (c.refDirection) {
-          emit(id, 'OFFSET_CURVE_3D', [NAME, ref(curveId[c.basis]!), real(c.distance), logical(c.selfIntersect),
+          emit(id, 'OFFSET_CURVE_3D', [NAME, ref(subIds[0]!), real(size(c.distance)), logical(c.selfIntersect),
             ref(direction(c.refDirection))]);
         } else {
-          emit(id, 'OFFSET_CURVE_2D', [NAME, ref(curveId[c.basis]!), real(c.distance), logical(c.selfIntersect)]);
+          emit(id, 'OFFSET_CURVE_2D', [NAME, ref(subIds[0]!), real(size(c.distance)), logical(c.selfIntersect)]);
         }
         break;
     }
-    curveId[k] = id;
+    return id;
   }
 
   // -- Surfaces.
@@ -319,20 +403,21 @@ export function stepGeometry(d: BrepData, opts: StepGeometryOptions = {}): StepG
   function writeSurface(k: number) {
     const s = decode.surface(d, k), id = own(s.id);
     surfaces[k] = s;
+    const r = (x: number) => real(len(x));
     switch (s.kind) {
       case 'plane': emit(id, 'PLANE', [NAME, ref(placement(s.position))]); break;
-      case 'cylinder': emit(id, 'CYLINDRICAL_SURFACE', [NAME, ref(placement(s.position)), real(s.radius)]); break;
-      case 'cone': emit(id, 'CONICAL_SURFACE', [NAME, ref(placement(s.position)), real(s.radius), real(s.semiAngle)]);
+      case 'cylinder': emit(id, 'CYLINDRICAL_SURFACE', [NAME, ref(placement(s.position)), r(s.radius)]); break;
+      case 'cone': emit(id, 'CONICAL_SURFACE', [NAME, ref(placement(s.position)), r(s.radius), real(s.semiAngle)]);
         break;
-      case 'sphere': emit(id, 'SPHERICAL_SURFACE', [NAME, ref(placement(s.position)), real(s.radius)]); break;
+      case 'sphere': emit(id, 'SPHERICAL_SURFACE', [NAME, ref(placement(s.position)), r(s.radius)]); break;
       case 'torus': {
-        const a = [NAME, ref(placement(s.position)), real(s.majorRadius), real(s.minorRadius)];
+        const a = [NAME, ref(placement(s.position)), r(s.majorRadius), r(s.minorRadius)];
         if (s.selectOuter === undefined) emit(id, 'TOROIDAL_SURFACE', a);
         else emit(id, 'DEGENERATE_TOROIDAL_SURFACE', [...a, bool(s.selectOuter)]);
         break;
       }
       case 'bspline': {
-        const grid = list(s.poles.map((row) => refs(row.map(point))));
+        const grid = list(s.poles.map((row) => refs(row.map((q) => point(q)))));
         const head = [int(s.uDegree), int(s.vDegree), grid, enu(s.form.toUpperCase()), logical(s.uClosed),
           logical(s.vClosed), logical(s.selfIntersect)];
         const knots = [ints(s.uMultiplicities), ints(s.vMultiplicities), reals(s.uKnots), reals(s.vKnots),
@@ -347,19 +432,23 @@ export function stepGeometry(d: BrepData, opts: StepGeometryOptions = {}): StepG
         }
         break;
       }
-      case 'extrusion': emit(id, 'SURFACE_OF_LINEAR_EXTRUSION', [NAME, ref(curveId[s.curve]!),
-        ref(vector(s.direction, s.magnitude))]); break;
-      case 'revolution': emit(id, 'SURFACE_OF_REVOLUTION', [NAME, ref(curveId[s.curve]!),
+      case 'extrusion': emit(id, 'SURFACE_OF_LINEAR_EXTRUSION', [NAME, ref(curveId(s.curve)),
+        ref(vector(s.direction, len(s.magnitude)))]); break;
+      case 'revolution': emit(id, 'SURFACE_OF_REVOLUTION', [NAME, ref(curveId(s.curve)),
         ref(emit(fresh(), 'AXIS1_PLACEMENT', [NAME, ref(point(s.axisOrigin)), ref(direction(s.axisDirection))]))]);
         break;
-      case 'offset': emit(id, 'OFFSET_SURFACE', [NAME, ref(surfaceId[s.basis]!), real(s.distance),
+      case 'offset': emit(id, 'OFFSET_SURFACE', [NAME, ref(surfaceId[s.basis]!), r(s.distance),
         logical(s.selfIntersect)]); break;
-      case 'rectangularTrimmed': emit(id, 'RECTANGULAR_TRIMMED_SURFACE', [NAME, ref(surfaceId[s.basis]!), real(s.u1),
-        real(s.u2), real(s.v1), real(s.v2), bool(s.uSense), bool(s.vSense)]); break;
-      case 'curveSwept': emit(id, 'SURFACE_CURVE_SWEPT_SURFACE', [NAME, ref(curveId[s.curve]!),
-        ref(curveId[s.directrix]!), ref(surfaceId[s.referenceSurface]!)]); break;
-      case 'fixedReferenceSwept': emit(id, 'FIXED_REFERENCE_SWEPT_SURFACE', [NAME, ref(curveId[s.curve]!),
-        ref(curveId[s.directrix]!), ref(direction(s.fixedReference))]); break;
+      case 'rectangularTrimmed': {
+        const [du, dv] = scaleOf(k);
+        emit(id, 'RECTANGULAR_TRIMMED_SURFACE', [NAME, ref(surfaceId[s.basis]!), real(s.u1 / du), real(s.u2 / du),
+          real(s.v1 / dv), real(s.v2 / dv), bool(s.uSense), bool(s.vSense)]);
+        break;
+      }
+      case 'curveSwept': emit(id, 'SURFACE_CURVE_SWEPT_SURFACE', [NAME, ref(curveId(s.curve)),
+        ref(curveId(s.directrix)), ref(surfaceId[s.referenceSurface]!)]); break;
+      case 'fixedReferenceSwept': emit(id, 'FIXED_REFERENCE_SWEPT_SURFACE', [NAME, ref(curveId(s.curve)),
+        ref(curveId(s.directrix)), ref(direction(s.fixedReference))]); break;
     }
     surfaceId[k] = id;
     if (s.id !== undefined && !Number.isNaN(s.id) && !surfaceIds.has(s.id)) surfaceIds.set(s.id, id);
@@ -367,13 +456,19 @@ export function stepGeometry(d: BrepData, opts: StepGeometryOptions = {}): StepG
 
   // -- P-curves: a 2D curve on a surface, through a definitional representation in the parameter space's context.
   let context2d = -1;
-  const pcurve = (surface: number, curve: number) => {
+  /** A 2D curve's id as a p-curve on a surface, at the surface's scale; undefined where it can't be written (said). */
+  const pcurveGeometry = (surface: number, curve: number) => {
+    const id = curveAt(curve, scaleOf(surface));
+    if (id === undefined) note(UNEQUAL, d.curve.id[curve] || NaN);
+    return id;
+  };
+  const pcurve = (surface: number, geometry: number) => {
     if (context2d < 0) {
       context2d = emitComplex(fresh(), [{ type: 'GEOMETRIC_REPRESENTATION_CONTEXT', attrs: [int(2)] },
         { type: 'PARAMETRIC_REPRESENTATION_CONTEXT', attrs: [] },
         { type: 'REPRESENTATION_CONTEXT', attrs: [str('2D SPACE'), str()] }]);
     }
-    const rep = emit(fresh(), 'DEFINITIONAL_REPRESENTATION', [NAME, refs([curveId[curve]!]), ref(context2d)]);
+    const rep = emit(fresh(), 'DEFINITIONAL_REPRESENTATION', [NAME, refs([geometry]), ref(context2d)]);
     return emit(fresh(), 'PCURVE', [NAME, ref(surfaceId[surface]!), ref(rep)]);
   };
 
@@ -421,23 +516,26 @@ export function stepGeometry(d: BrepData, opts: StepGeometryOptions = {}): StepG
     if (e.start === undefined || e.end === undefined) {
       note('an edge without its start or end vertex (written unset)', e.id, 'warning');
     }
-    // In row order: a reader makes a seam's two rows in the order its SURFACE_CURVE lists them.
-    let pcs = [...edgePcurves.get(k) ?? []].sort((a, b) => a[1] - b[1]);
+    // In row order: a reader makes a seam's two rows in the order its SURFACE_CURVE lists them. Each with its written
+    // geometry, those that can't be written in the unit left out.
+    let pcs = [...edgePcurves.get(k) ?? []].sort((a, b) => a[1] - b[1])
+      .map(([s, p]) => [s, p, pcurveGeometry(s, p)] as const)
+      .filter((x): x is readonly [number, number, number] => x[2] !== undefined);
     let geometry: number;
     if (e.curve !== undefined) {
       if (pcs.length > 2) {
         note('an edge with p-curves on more than two surfaces (the first two written)', e.id);
         pcs = pcs.slice(0, 2);
       }
-      if (!pcs.length) geometry = curveId[e.curve]!;
+      if (!pcs.length) geometry = curveId(e.curve);
       else {
         const seam = pcs.length === 2 && pcs[0]![0] === pcs[1]![0];
-        geometry = emit(fresh(), seam ? 'SEAM_CURVE' : 'SURFACE_CURVE', [NAME, ref(curveId[e.curve]!),
-          refs(pcs.map(([s, p]) => pcurve(s, p))), enu('CURVE_3D')]);
+        geometry = emit(fresh(), seam ? 'SEAM_CURVE' : 'SURFACE_CURVE', [NAME, ref(curveId(e.curve)),
+          refs(pcs.map(([s, , g]) => pcurve(s, g))), enu('CURVE_3D')]);
       }
       advancedEdge[k] = e.start !== undefined && e.end !== undefined && ADVANCED_CURVES.has(curveKinds[e.curve]!)
         && pcs.every(([, p]) => ADVANCED_CURVES.has(curveKinds[p]!)) ? 1 : 0;
-    } else if (pcs.length === 1) geometry = pcurve(pcs[0]![0], pcs[0]![1]);
+    } else if (pcs.length === 1) geometry = pcurve(pcs[0]![0], pcs[0]![2]);
     else if (pcs.length) {
       // P-curves on two faces and no 3D curve (the source's unreadable): a surface curve without its curve, its
       // p-curves the master representation.
@@ -448,7 +546,7 @@ export function stepGeometry(d: BrepData, opts: StepGeometryOptions = {}): StepG
       }
       const seam = pcs[0]![0] === pcs[1]![0];
       geometry = emit(fresh(), seam ? 'SEAM_CURVE' : 'SURFACE_CURVE', [NAME, UNSET,
-        refs(pcs.map(([s, p]) => pcurve(s, p))), enu('PCURVE_S1')]);
+        refs(pcs.map(([s, , g]) => pcurve(s, g))), enu('PCURVE_S1')]);
     } else {
       note('an edge with neither a curve nor a p-curve (written unset)', e.id, 'warning');
       geometry = -1;
@@ -562,11 +660,18 @@ export function stepGeometry(d: BrepData, opts: StepGeometryOptions = {}): StepG
       if (!l.sense) note('a curve-bounded face\'s loop against its sense (written with it)', face.id);
       const segments = l.coedges.map((c) => {
         const e = decode.edge(d, c.edge);
+        const g = c.pcurve === undefined ? undefined : pcurveGeometry(s, c.pcurve);
         let parent: number;
-        if (e.curve === undefined) parent = pcurve(s, c.pcurve!);
-        else if (c.pcurve === undefined) parent = curveId[e.curve]!;
-        else parent = emit(fresh(), 'SURFACE_CURVE', [NAME, ref(curveId[e.curve]!), refs([pcurve(s, c.pcurve)]),
+        if (e.curve === undefined) parent = g === undefined ? -1 : pcurve(s, g);
+        else if (g === undefined) parent = curveId(e.curve);
+        else parent = emit(fresh(), 'SURFACE_CURVE', [NAME, ref(curveId(e.curve)), refs([pcurve(s, g)]),
           enu('CURVE_3D')]);
+        if (parent < 0) {
+          note('a curve-bounded face\'s boundary segment with neither a 3D curve nor a p-curve it can be written '
+            + 'with (written unset)', e.id);
+          return emit(own(e.id), 'COMPOSITE_CURVE_SEGMENT', [enu('CONTINUOUS'),
+            bool(orientation(c.orientation, c.id, c.range)), UNSET]);
+        }
         return emit(own(e.id), 'COMPOSITE_CURVE_SEGMENT', [enu('CONTINUOUS'),
           bool(orientation(c.orientation, c.id, c.range)), ref(parent)]);
       });
@@ -688,8 +793,8 @@ export function stepGeometry(d: BrepData, opts: StepGeometryOptions = {}): StepG
         if (!bodyAdvanced[it.ref]) solidsOnly = false;
         continue;
       }
-      const id = it.kind === 'point' ? emit(own(it.id), 'CARTESIAN_POINT', [NAME, reals(it.point)])
-        : it.kind === 'curve' ? curveId[it.ref]! : it.kind === 'surface' ? surfaceId[it.ref]! : faceId[it.ref]!;
+      const id = it.kind === 'point' ? emit(own(it.id), 'CARTESIAN_POINT', [NAME, reals(at(it.point, ONE))])
+        : it.kind === 'curve' ? curveId(it.ref) : it.kind === 'surface' ? surfaceId[it.ref]! : faceId[it.ref]!;
       if (Number.isNaN(id)) continue;
       run.push(id);
       if (it.kind !== 'curve' && it.kind !== 'point') runCurves = false;
@@ -708,14 +813,15 @@ export function stepGeometry(d: BrepData, opts: StepGeometryOptions = {}): StepG
 
   function writeContext() {
     const info = decode.part(d);
-    out.push(...stepContext(ids, contextId, info.unit, info.uncertainty, opts.derivedDimensions));
+    out.push(...stepContext(ids, contextId, U, info.uncertainty === undefined ? undefined : len(info.uncertainty),
+      opts.derivedDimensions));
   }
 
   function* instances(): Generator<Instance> {
     const flush = function* () { yield* out; out.length = 0; };
     for (let k = 0; k < rowCount(d, 'curve'); k++) {
       if (!live.curve[k]) continue;
-      writeCurve(k);
+      curveAt(k, primary[k] ?? ONE);
       yield* flush();
     }
     for (let k = 0; k < rowCount(d, 'surface'); k++) {
@@ -733,7 +839,7 @@ export function stepGeometry(d: BrepData, opts: StepGeometryOptions = {}): StepG
         const p = point(v.point);
         vertexId[k] = emit(own(v.id), 'VERTEX_POINT', [NAME, ref(p)]);
         cornerId[k] = p;
-      } else cornerId[k] = emit(own(v.id), 'CARTESIAN_POINT', [NAME, reals(v.point)]);
+      } else cornerId[k] = emit(own(v.id), 'CARTESIAN_POINT', [NAME, reals(at(v.point, ONE))]);
       yield* flush();
     }
     for (let k = 0; k < rowCount(d, 'edge'); k++) {

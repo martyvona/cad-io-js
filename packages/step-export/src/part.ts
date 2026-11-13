@@ -18,9 +18,9 @@ const header = makeHeader({ description: ['a B-rep model'], timeStamp: '', schem
   preprocessorVersion: 'cad-io-js step-export' });
 const document = (g: StepGeometry): StepDocument => ({ header, data: [{ instances: g.instances }] });
 
-/** A part's model as a Part 21 file holding its shape representation alone. */
-export function stepPart(d: BrepData): StepPart {
-  const g = stepGeometry(d);
+/** A part's model as a Part 21 file holding its shape representation alone (in millimetres, or `unit`). */
+export function stepPart(d: BrepData, opts: { unit?: number } = {}): StepPart {
+  const g = stepGeometry(d, opts);
   return { rootId: g.rootId, chunks: writeChunks(document(g)), diagnostics: g.diagnostics };
 }
 
@@ -28,9 +28,9 @@ export function stepPart(d: BrepData): StepPart {
  * `stepPart` as one array, with what to read a reader's ids back by: the model's largest source id (ids above it are
  * the writer's) and `StepGeometry.sourceIds`.
  */
-export function stepPartBytes(d: BrepData): { data: Uint8Array; rootId: number; diagnostics: Diagnostic[];
-  largest: number; sourceIds: Map<number, number> } {
-  const g = stepGeometry(d);
+export function stepPartBytes(d: BrepData, opts: { unit?: number } = {}): { data: Uint8Array; rootId: number;
+  diagnostics: Diagnostic[]; largest: number; sourceIds: Map<number, number> } {
+  const g = stepGeometry(d, opts);
   const data = writeStep(document(g));
   return { data, rootId: g.rootId, diagnostics: g.diagnostics, largest: largestId(d), sourceIds: g.sourceIds };
 }

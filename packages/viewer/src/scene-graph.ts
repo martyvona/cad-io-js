@@ -235,13 +235,13 @@ export class SceneGraph implements Looks {
     // apart, in `faceReport`); an outline geometry for each that has outlines.
     const p = this.scene.parts[part]!;
     const measured = p.measures && linearDeflection !== undefined
-      ? { measures: p.measures, deflection: linearDeflection / p.unit } : undefined;
+      ? { measures: p.measures, deflection: linearDeflection } : undefined;
     const failures = faceFailures(mesh, measured ? { measured } : {});
     const failedFaces = faceSources.filter((s) => failures.has(s) && failures.get(s) !== 'partly');
     const partlyFailedFaces = faceSources.filter((s) => failures.get(s) === 'partly');
     // (Each face's areas only when Details asks: measuring every face of a large file took a quarter second.)
     let report: Record<number, FaceReport> | undefined;
-    const faceReport = () => (report ??= reportOf(mesh, p.unit, failures, p.measures));
+    const faceReport = () => (report ??= reportOf(mesh, failures, p.measures));
     const outlines = new Map<number, THREE.BufferGeometry>();
     if (mesh.faceOutlinePositions && mesh.faceOutlines?.length) {
       const position = new THREE.BufferAttribute(mesh.faceOutlinePositions, 3);
@@ -398,7 +398,7 @@ const faceHidden = (look: PlacementLook | undefined, source: number) => (look?.f
 export interface FaceReport { failure?: FaceFailure; area?: number; meshArea: number }
 
 /** Each face's report, by source id (faces with a source only). */
-function reportOf(mesh: Mesh, unit: number, failures: ReadonlyMap<number, FaceFailure>,
+function reportOf(mesh: Mesh, failures: ReadonlyMap<number, FaceFailure>,
   measures: Measures | undefined): Record<number, FaceReport> {
   const p = mesh.positions, ix = mesh.indices, out: Record<number, FaceReport> = {};
   for (const f of mesh.faces) {
@@ -409,12 +409,12 @@ function reportOf(mesh: Mesh, unit: number, failures: ReadonlyMap<number, FaceFa
       const u = [p[j]! - p[i]!, p[j + 1]! - p[i + 1]!, p[j + 2]! - p[i + 2]!];
       const v = [p[k]! - p[i]!, p[k + 1]! - p[i + 1]!, p[k + 2]! - p[i + 2]!];
       r.meshArea += Math.hypot(u[1]! * v[2]! - u[2]! * v[1]!, u[2]! * v[0]! - u[0]! * v[2]!,
-        u[0]! * v[1]! - u[1]! * v[0]!) / 2 * unit * unit;
+        u[0]! * v[1]! - u[1]! * v[0]!) / 2;
     }
   }
   for (const [s, r] of Object.entries(out)) {
     const m = measures?.faces.get(Number(s)), failure = failures.get(Number(s));
-    if (m) r.area = m.area * unit * unit;
+    if (m) r.area = m.area;
     if (failure) r.failure = failure;
   }
   return out;

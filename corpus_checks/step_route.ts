@@ -1,5 +1,6 @@
-// OCCT meshing each part from the B-rep model written as STEP (step-export) against meshing it from the file's own
-// subset (cut from the file: corpus.ts's partSubset), over the corpus, with the writer checked on its own on the way.
+// OCCT meshing each part from the B-rep model written as STEP (step-export, in the part's own length unit) against
+// meshing it from the file's own subset (cut from the file: corpus.ts's partSubset), over the corpus, with the writer
+// checked on its own on the way.
 // Per part:
 //   (b) the written file bound against AP242 with every value checked: diagnostics tallied (expected: none but the
 //       writer's own warnings' consequences);
@@ -18,7 +19,7 @@
 // Usage: node --max-old-space-size=12000 corpus_checks/step_route.ts [file-list.txt] [max MB]
 import fs from 'node:fs';
 import { type BrepData, openBrep, rowCount, SURFACE_KIND } from '../packages/cad-brep/src/index.ts';
-import { meshDeflections, type TessellationRequest, type TessellationResult }
+import { meshDeflections, type TessellationRequest, type TessellationResult, type Vec3 }
   from '../packages/cad-scene/src/index.ts';
 import { openModel, parseStep } from '../packages/step-parser/src/index.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
@@ -103,7 +104,8 @@ function plantText(data: Uint8Array, pick: boolean): { data: Uint8Array; face?: 
 }
 
 /** Per face id: triangles, mesh area, the area-weighted normal, OCCT's measures. */
-function faces(r: TessellationResult) {
+/** Each face's mesh and measures, in millimetres (`k`: millimetres per the result's unit). */
+function faces(r: TessellationResult, k = 1) {
   const out = new Map<number, { tris: number; area: number; n: [number, number, number]; measured?: number;
     valid?: boolean }>();
   const p = r.positions, ix = r.indices;
@@ -115,15 +117,15 @@ function faces(r: TessellationResult) {
       const u = [p[b]! - p[a]!, p[b + 1]! - p[a + 1]!, p[b + 2]! - p[a + 2]!];
       const v = [p[c]! - p[a]!, p[c + 1]! - p[a + 1]!, p[c + 2]! - p[a + 2]!];
       const n = [u[1]! * v[2]! - u[2]! * v[1]!, u[2]! * v[0]! - u[0]! * v[2]!, u[0]! * v[1]! - u[1]! * v[0]!];
-      x.area += Math.hypot(n[0]!, n[1]!, n[2]!) / 2;
-      for (let i = 0; i < 3; i++) x.n[i]! += n[i]!;
+      x.area += Math.hypot(n[0]!, n[1]!, n[2]!) / 2 * k * k;
+      for (let i = 0; i < 3; i++) x.n[i]! += n[i]! * k * k;
     }
     x.tris += f.count / 3;
     out.set(f.entityId, x);
   }
   for (const m of r.measures ?? []) {
     const x = out.get(m.entityId) ?? { tris: 0, area: 0, n: [0, 0, 0] as [number, number, number] };
-    x.measured = m.area;
+    x.measured = m.area * k * k;
     x.valid = m.valid;
     out.set(m.entityId, x);
   }
@@ -160,15 +162,17 @@ export const check: FileCheck<undefined, Result> = {
     if (bytes.length > maxBytes) return R;
     R.files++;
     const name = shortName(path);
-    const { scene, model } = await importStep(new Uint8Array(bytes));
+    const { scene, model, semantics } = await importStep(new Uint8Array(bytes));
     for (const part of scene.parts) {
       const m0 = part.brep?.model;
       if (!m0 || part.brep!.format !== 'step') continue;
       R.parts++;
       const repId = part.sources[0]!.id, where = `${name} #${repId}`;
       const { m, faces: plantedFaces } = plantModel(m0, chosen(where));
+      // (Written in the part's own unit, as its subset is: OCCT's meshing isn't scale-invariant.)
+      const unit = (semantics.structure.representations.get(repId)?.context?.lengthUnit?.factor ?? 1e-3) * 1000;
       const t0 = performance.now();
-      const w = stepPartBytes(m);
+      const w = stepPartBytes(m, { unit });
       R.timeWrite += performance.now() - t0;
       const { data, face: textFace } = plantText(w.data, chosen(where));
       const plantedHere = [...plantedFaces, ...(textFace !== undefined ? [textFace] : [])];
@@ -204,21 +208,21 @@ export const check: FileCheck<undefined, Result> = {
         if (n < 0) note(`${t} rows: more read back`, where, -n);
       }
 
-      // (d) OCCT on both.
-      const unit = part.unit;
-      const base = { format: 'step' as const, origin: part.origin, linearDeflection: LINEAR_MM / unit,
-        angularDeflection: ANGULAR, measures: true };
+      // (d) OCCT on both, each in the part's unit (the deflection and origin scaled to it, measures back to mm).
+      const base = { format: 'step' as const, angularDeflection: ANGULAR, measures: true };
       const subset = partSubset(model, repId);
       R.subsetBytes += subset.length;
-      const a = await mesh({ ...base, data: subset, rootId: repId });
-      const b = await mesh({ ...base, data, rootId: w.rootId });
+      const a = await mesh({ ...base, data: subset, rootId: repId, origin: part.origin.map((x) => x / unit) as Vec3,
+        linearDeflection: LINEAR_MM / unit });
+      const b = await mesh({ ...base, data, rootId: w.rootId, origin: part.origin.map((x) => x / unit) as Vec3,
+        linearDeflection: LINEAR_MM / unit });
       R.timeSubset += a.ms;
       R.timeModel += b.ms;
       if (a.error || b.error) {
         note(`OCCT failed: subset ${a.error ?? 'ok'}, model ${b.error ?? 'ok'}`.slice(0, 160), where);
         continue;
       }
-      const fa = faces(a.r!), fb = faces(b.r!);
+      const fa = faces(a.r!, unit), fb = faces(b.r!, unit);
       const nullA = a.r!.faces.filter((f) => f.entityId === null).length, nullB = b.r!.faces.filter((f) =>
         f.entityId === null).length;
       if (nullA !== nullB) note('ranges with no face id: counts differ', `${where}: ${nullA}, ${nullB}`);

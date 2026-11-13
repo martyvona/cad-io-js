@@ -32,7 +32,7 @@ function scene(): Scene {
       { ...one('coloured', 2), material: 0 },
     ],
     roots: [occ(0, identity()), occ(2, translation(0, 0, 100), 'top', 4)],
-    parts: ['plate', 'bolt', 'plain'].map((name) => ({ name, sources: [], properties: {}, unit: 1,
+    parts: ['plate', 'bolt', 'plain'].map((name) => ({ name, sources: [], properties: {},
       origin: [0, 0, 0] as [number, number, number], lods: [] })),
     materials: [{ color: [1, 0, 0], opacity: 1, sources: [] }, { color: [0, 1, 0], opacity: 1, sources: [] }],
     layers: [],
@@ -116,7 +116,7 @@ test('leafParts: an assembly of one placed product stays an assembly, a second p
       { name: 'leaf', sources: [], properties: {}, parts: [{ part: 0, transform: identity() }], children: [] },
     ],
     roots: [{ component: 0, transform: identity(), sources: [], properties: {} }],
-    parts: [{ name: 'p', sources: [], properties: {}, unit: 1, origin: [0, 0, 0], lods: [] }],
+    parts: [{ name: 'p', sources: [], properties: {}, origin: [0, 0, 0], lods: [] }],
     materials: [], layers: [], overrides: [], properties: {}, diagnostics: [],
   };
   leafParts(s);

@@ -1,8 +1,8 @@
 // The export formats and options the viewer offers (File's Export...), as stepconv's (packages/cli, its FORMATS): no
 // exporter imported here, so the page can use it (the exporters run in the import worker: export-model.ts).
 
-import { describeTransforms, TRANSFORM_KINDS, type InstanceOverride, type Material, type TransformKind,
-  type TransformUse } from 'cad-scene';
+import { describeTransforms, TRANSFORM_KINDS, type InstanceOverride, type LengthUnitName, type Material,
+  type TransformKind, type TransformUse } from 'cad-scene';
 
 /** glTF's geometry compression (export-gltf's Compression). */
 export type Compression = 'draco' | 'meshopt' | 'none';
@@ -35,6 +35,8 @@ export interface ExportRequest {
   /** STEP: the schema; B-rep parts' meshes beside them (AP242). */
   stepSchema: 'ap242' | 'ap214';
   stepMeshes: boolean;
+  /** The length unit written (cad-scene's LENGTH_UNITS); 'default': the format's (exporters' `unit` absent). */
+  unit: 'default' | LengthUnitName;
   /** The viewer's hiding and opacity (export-shown.ts): materials added, and the overrides in place of the scene's. */
   shown?: { materials: Material[]; overrides: InstanceOverride[] };
 }
@@ -77,5 +79,5 @@ export function transformsLost(f: ExportFormat, use: TransformUse): string {
 export const DEFAULT_EXPORT: Omit<ExportRequest, 'name'> = {
   format: 'glb', edges: false, curves: false, doubleSided: false, unlitLines: false, keepHidden: false,
   extras: false, keepEmpty: false, compression: 'draco', dracoBits: 14, instancing: false, embed: true,
-  colorgroup: false, assembly: false, surfaces: false, stepSchema: 'ap242', stepMeshes: false,
+  colorgroup: false, assembly: false, surfaces: false, stepSchema: 'ap242', stepMeshes: false, unit: 'default',
 };

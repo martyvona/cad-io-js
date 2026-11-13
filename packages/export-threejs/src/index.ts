@@ -1,11 +1,12 @@
 // Scene model -> three.js JSON Object Scene format 4 (the form Object3D.toJSON writes), loadable with
 // THREE.ObjectLoader. See README.md and docs/scene-formats.md.
 //
-//   objects: a Scene holding the scene's roots, each turned to metres and Y up in its own matrix (no root group of
-//     ours, for a reader to take for an assembly or a frame not the file's). A Group per instance-tree node (matrix =
-//     the node's local transform), and per placed part (a part reference, named as the placement is, else its product,
-//     else its part) a Mesh (or a Group, for a part without triangles) whose children are its B-rep edges
-//     (LineSegments), wireframe curves (LineSegments) and points (Points). The scene's root parts beside its roots.
+//   objects: a Scene holding the scene's roots, each turned to metres (or the unit asked for) and Y up in its own
+//     matrix (no root group of ours, for a reader to take for an assembly or a frame not the file's). A Group per
+//     instance-tree node (matrix = the node's local transform), and per placed part (a part reference, named as the
+//     placement is, else its product, else its part) a Mesh (or a Group, for a part without triangles) whose children
+//     are its B-rep edges (LineSegments), wireframe curves (LineSegments) and points (Points). The scene's root parts
+//     beside its roots.
 //   geometries: one per distinct mesh and grouping, shared by every instance; groups index the Mesh's material array.
 //   materials: one per scene material and kind (MeshStandardMaterial, LineBasicMaterial, PointsMaterial).
 //   userData (on request): source ids, properties and parts (and `closed`, where the source says whether a part's
@@ -19,7 +20,7 @@
 // source (CAD files are usually Z-up), which the Scene's userData says with extras (in each top object). Format 4 holds
 // numbers as JSON arrays, so output is produced in chunks: a large model's JSON can exceed V8's maximum string length.
 
-import { multiply, partExtras, placedName, placementJson, pruneView, sceneJson, transformKinds, Y_UP_METRES,
+import { multiply, partExtras, placedName, placementJson, pruneView, sceneJson, transformKinds, Y_UP_METRES, yUpFrame,
   type ExportNode, type ExportPart, type ExportView, type Look, type Mat4, type Mesh, type PropertyValue, type Scene,
   type SourceId, type Vec3 } from 'cad-scene';
 
@@ -47,6 +48,11 @@ export interface ThreejsOptions {
   extras?: boolean;
   /** Keep tree nodes with nothing to draw beneath them. Default false. */
   keepEmpty?: boolean;
+  /**
+   * The length unit written, in millimetres per unit. Default 1000, metres (three.js's convention, as glTF's): any
+   * other makes a file applications take for metres all the same (ours with extras read it back as written).
+   */
+  unit?: number;
 }
 
 const DOUBLE_SIDE = 2; // THREE.DoubleSide
@@ -314,9 +320,13 @@ class Writer {
   root(): Json {
     // A Scene of the tops, each turned itself (no root group of ours); with extras, the Scene's userData says what's
     // below that turn.
-    const frame = ROOT_TRANSFORM;
+    const unit = this.opts.unit ?? 1000;
+    if (!(unit > 0) || !Number.isFinite(unit)) {
+      throw new RangeError(`unit ${unit}: not a positive number of millimetres`);
+    }
+    const frame = unit === 1000 ? ROOT_TRANSFORM : yUpFrame(unit);
     const o: Json = { uuid: this.uuid(), type: 'Scene', name: this.opts.name ?? '' };
-    if (this.extras) o.userData = sceneJson(this.scene) as Json;
+    if (this.extras) o.userData = sceneJson(this.scene, unit !== 1000 ? { fileUnit: unit } : {}) as Json;
     const children = [...this.view.parts.map((p) => this.part(p, frame)), ...this.view.roots.map((n) =>
       this.node(n, frame))];
     if (children.length) o.children = children;

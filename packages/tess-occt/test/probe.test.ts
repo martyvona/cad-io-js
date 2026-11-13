@@ -84,7 +84,7 @@ test('the probe on a box 1 x 2 x 3: each face\'s box corners its corners (u and 
     const { BrepBuilder } = await import('cad-brep');
     const { box } = await import('../../cad-brep/test/models.ts');
     const { stepPartBytes } = await import('step-export');
-    const b = new BrepBuilder({ unit: 1 });
+    const b = new BrepBuilder();
     b.addItem({ kind: 'body', ref: b.addBody({ kind: 'solid', members: [{ ref: box(b, [1, 2, 3]), sense: true }] }) });
     const w = stepPartBytes(b.finish());
     const m = await ((await import(probePath)) as { default: () => Promise<Probe> }).default();
@@ -124,7 +124,7 @@ test('the probe on a box\'s model and a curve item built natively: its faces and
   const { BrepBuilder } = await import('cad-brep');
   const { box } = await import('../../cad-brep/test/models.ts');
   const { stepPartBytes } = await import('step-export');
-  const b = new BrepBuilder({ unit: 1 });
+  const b = new BrepBuilder();
   b.addItem({ kind: 'body', ref: b.addBody({ kind: 'solid', members: [{ ref: box(b, [1, 2, 3]), sense: true }] }) });
   // And a curve item (a wireframe's; the item and its curve one STEP entity): read and built as an edge with its id.
   b.addItem({ kind: 'curve', ref: b.addCurve({ kind: 'line', point: [0, 0, 5], direction: [1, 0, 0], magnitude: 1,
@@ -185,7 +185,7 @@ test('the probe on a box\'s model and a curve item built natively: its faces and
     }
   }
   // A kind the builder doesn't build: a composite curve as an edge's curve.
-  const c = new BrepBuilder({ unit: 1 });
+  const c = new BrepBuilder();
   const v0 = c.addVertex({ point: [0, 0, 0] }), v1 = c.addVertex({ point: [1, 0, 0] });
   const line = c.addCurve({ kind: 'line', point: [0, 0, 0], direction: [1, 0, 0], magnitude: 1 });
   const half = (t1: number, t2: number) => ({ curve: c.addCurve({ kind: 'trimmed', basis: line,

@@ -3,10 +3,11 @@
 // instead of measuring again; docs/scene-formats.md). None of the three formats has a place of its own for a
 // face's area. As JSON:
 //
-//   measures: { by: string, faces: { "<face source id>": [area, perimeter, valid (1 or 0), uses?] } }  the part's
-//             units; uses (FaceMeasures.uses) only where over 1
+//   measures: { by: string, faces: { "<face source id>": [area, perimeter, valid (1 or 0), uses?] } }  mm^2 and mm;
+//             uses (FaceMeasures.uses) only where over 1
 //   level: { linearDeflection?, angularDeflection?, backend? }   the exported level's (Lod), mm and radians
-//   unit: the part's unit in mm, when it isn't 1: its vertices are written in it, as the scene has them
+//   unit: not written; files of earlier versions have it, the part's unit in mm where it isn't 1, its vertices,
+//         measures and node transforms in that unit (read: unitFrom, the part then scaled to mm)
 //   box: [[x, y, z], [x, y, z]]   the exported mesh's box (Mesh.box), in its coordinates, where the format has no
 //                                 slot for it (glTF has: its accessors' min and max)
 //
@@ -18,7 +19,7 @@
 //
 //   placement: { index, name?, sources?, properties?, product?: { name, sources?, properties? } }
 //
-// so a level read back is judged as it was made (faceFailures needs its deflection in the part's units).
+// so a level read back is judged as it was made (faceFailures needs its deflection).
 
 import type { Lod, Measures, Part, PartRef, Properties, Scene, SceneBounds, SourceId } from './scene.ts';
 
@@ -66,30 +67,31 @@ export function levelFrom(j: unknown): Pick<Lod, 'linearDeflection' | 'angularDe
 }
 
 /**
- * What our extras say of a part beyond its node's own: its measures, its level's settings and its unit, where it has
- * them (the importers read them back with measuresFrom, levelFrom and unitFrom).
+ * What our extras say of a part beyond its node's own: its measures and its level's settings, where it has them (the
+ * importers read them back with measuresFrom and levelFrom).
  */
 export function partExtras(part: Part, lod: Lod | undefined, opts: { box?: boolean } = {}): Json {
   const box = (opts.box ?? true) ? lod?.mesh.box : undefined;
   return { ...(part.measures ? { measures: measuresJson(part.measures) } : {}),
     ...(box ? { box: [box.min, box.max] } : {}),
-    ...(lod && Object.keys(levelJson(lod)).length ? { level: levelJson(lod) } : {}),
-    ...(part.unit !== 1 ? { unit: part.unit } : {}) };
+    ...(lod && Object.keys(levelJson(lod)).length ? { level: levelJson(lod) } : {}) };
 }
 
-/** A part's unit from our extras: a positive number, else 1 (millimetres). */
+/** A part's unit from our extras of earlier versions: a positive number, else 1 (millimetres). */
 export const unitFrom = (j: unknown) => (typeof j === 'number' && Number.isFinite(j) && j > 0 ? j : 1);
 
 /** The model's sphere as our root extras' JSON, where the scene has one. */
 /**
  * What our extras say of the whole scene (glTF's scene, three.js's root object, 3MF's `cadio:tree`): its frame
- * (millimetres, Z up; for 3MF the nodes', its model in the source's unit), its properties (but `container`), the
- * source's unit and its sphere.
+ * (millimetres, Z up; for 3MF the nodes', its model in the model's unit), the unit the file's top nodes turn to where
+ * it isn't the format's (glTF's and three.js's metres; `fileUnit`, millimetres per it), its properties (but
+ * `container`), the source's unit and its sphere.
  */
-export function sceneJson(scene: Scene): Json {
+export function sceneJson(scene: Scene, opts: { fileUnit?: number } = {}): Json {
   // (Not the file the scene was read from, when that was one of ours: its source's are what's carried on.)
   const { container: _, ...properties } = scene.properties;
-  return { unit: 'millimetre', up: 'z', ...(Object.keys(properties).length ? { properties } : {}),
+  return { unit: 'millimetre', up: 'z', ...(opts.fileUnit !== undefined ? { fileUnit: opts.fileUnit } : {}),
+    ...(Object.keys(properties).length ? { properties } : {}),
     ...(scene.sourceUnit !== undefined ? { sourceUnit: scene.sourceUnit } : {}), ...boundsJson(scene) };
 }
 

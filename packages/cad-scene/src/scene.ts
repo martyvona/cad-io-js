@@ -3,8 +3,8 @@
 //
 // Structure: components (one per product or assembly definition) are defined once and placed by occurrences, so a
 // subassembly used many times is stored once; `instances` expands the tree on demand. Parts (one per tessellation
-// unit) are likewise defined once and referenced by components. Lengths in the scene are millimetres; each part's
-// geometry stays in its own unit, and the transforms carry the conversion.
+// unit) are likewise defined once and referenced by components. Lengths in the scene are millimetres, parts' geometry
+// (B-rep models and meshes) included: importers scale what they read in other units.
 //
 // A leaf product, a component whose only content is one part (STEP: a product and its shape representation), is no
 // component of its own: its part is placed directly by a part reference in its parent's component, or among the roots
@@ -111,7 +111,7 @@ export interface Occurrence {
 export interface PartRef {
   /** Index into `Scene.parts`. */
   part: number;
-  /** From the part's coordinates (in its own unit) to the component's, in millimetres. */
+  /** From the part's coordinates to the component's. */
   transform: Mat4;
   material?: number;
   /** False: hidden (STEP: an invisible style). */
@@ -139,7 +139,7 @@ export interface ExternalReference {
 }
 
 /**
- * A leaf of the scene: geometry with a unit and an origin, as exact geometry a backend can tessellate (`brep`), as
+ * A leaf of the scene: geometry with an origin, as exact geometry a backend can tessellate (`brep`), as
  * meshes (`lods`), or both (docs/scene-formats.md): meshes from the source file (glTF, three.js JSON, JT's
  * levels of detail) or made from the B-rep by a tessellator (tessellateScene adds them). Curves and points alone are a
  * level whose mesh has no triangles. A part with neither is empty.
@@ -148,8 +148,6 @@ export interface Part {
   name: string;
   sources: SourceId[];
   properties: Properties;
-  /** The part's length unit, in millimetres (25.4 for inches). */
-  unit: number;
   /**
    * A point near the part's geometry, in its own coordinates: tessellators subtract it before converting to Float32.
    */
@@ -182,11 +180,11 @@ export interface Measures {
   faces: Map<number, FaceMeasures>;
 }
 
-/** One face's measures, in the part's units: summed over the pieces a backend's shape healing split it into. */
+/** One face's measures, in millimetres: summed over the pieces a backend's shape healing split it into. */
 export interface FaceMeasures {
-  /** Its surface area, in the part's units squared. */
+  /** Its surface area, in square millimetres. */
   area: number;
-  /** The length of its boundary (every edge of every loop, a seam twice), in the part's units. */
+  /** The length of its boundary (every edge of every loop, a seam twice), in millimetres. */
   perimeter: number;
   /** The measuring backend found the face's geometry sound (OCCT: BRepCheck_Analyzer); false: not to be trusted. */
   valid: boolean;
@@ -216,7 +214,7 @@ export interface Brep {
   /**
    * The outlines of the part's faces drawn from the source itself (STEP: their edges along their curves), for faces
    * that fail to mesh or a part that does (tessellateScene's `outlines`): every face's id, in order, and the outlines
-   * of `faces` (all if absent), in the part's units minus its origin. Optional; a function, since it's work only needed
+   * of `faces` (all if absent), minus the part's origin. Optional; a function, since it's work only needed
    * on demand.
    */
   outline?: (o: { linearDeflection: number; angularDeflection: number; faces?: ReadonlySet<number> }) =>

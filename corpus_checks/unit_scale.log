@@ -1,0 +1,15 @@
+517 files, 517 with a length unit changed (x 10: 467, x 0.1: 35, x 1000: 15); 3264 parts, 3258 B-rep models as the oracle says; 16328866 reals checked
+     58  2D rows no coedge uses (their surface unknown: not checked)
+           gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049
+           gkv311-opencascade-dataset/step/ec_exhaust-A.stp #2743
+           gkv311-opencascade-dataset/step/ec_exhaust-A.stp #2631
+           gkv311-opencascade-dataset/step/trj2_f1-db-214.stp #785
+      4  parts whose factor isn't the file's (a representation's unit not the one changed)
+           gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938
+           nist-pmi-models/NIST_MBE_PMI_FTC_Definitions/NIST_MBE_PMI_FTC_Definitions/nist_ftc_07_asme1_rd.stp #7830
+           nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ftc_07_asme1_rd.stp #7830
+           nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/FTC Definitions/nist_ftc_07_asme1_rd.stp #7830
+      3  files of several length units, some not changed: placements and the source unit not checked
+           nist-pmi-models/NIST_MBE_PMI_FTC_Definitions/NIST_MBE_PMI_FTC_Definitions/nist_ftc_07_asme1_rd.stp
+           nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ftc_07_asme1_rd.stp
+           nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/FTC Definitions/nist_ftc_07_asme1_rd.stp

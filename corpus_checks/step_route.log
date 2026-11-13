@@ -1,31 +1,31 @@
-517 files, 3258 parts; written 281.0 MB (subsets 323.5 MB) in 5.7 s
-(c) read back: 2136 parts the same, 1122 more but for last bits (largest 4.44e-16 relative)
-(d) OCCT: 83904 faces meshed from both, 83401 with the same triangles, areas, measures, validity and orientation; meshing 725.2 s from subsets, 724.3 s from models
-     467 triangle counts differ  e.g. gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #201; gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #370; gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #413; gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #456
+517 files, 3258 parts; written 281.3 MB (subsets 323.5 MB) in 13.0 s
+(c) read back: 2105 parts the same, 1153 more but for last bits (largest 4.44e-16 relative)
+(d) OCCT: 83904 faces meshed from both, 83225 with the same triangles, areas, measures, validity and orientation; meshing 1368.1 s from subsets, 1408.9 s from models
+     621 triangle counts differ  e.g. gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #201; gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #370; gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #413; gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #456
+      86 OCCT's measured area differs (over 1e-6)  e.g. gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938 face #393024; gkv311-opencascade-dataset/step/bug27693_cornetta-step.stp #22 face #66; gkv311-opencascade-dataset/step/bug27693_cornetta-step.stp #22 face #74; gkv311-opencascade-dataset/step/bug27693_cornetta-step.stp #22 face #135
       59 curve rows no item reaches (not written)  e.g. gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938; gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049; gkv311-opencascade-dataset/step/ec_exhaust-A.stp #2743; gkv311-opencascade-dataset/step/ec_exhaust-A.stp #2631
-      58 OCCT's measured area differs (over 1e-6)  e.g. gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938 face #393024; gkv311-opencascade-dataset/step/bug27693_cornetta-step.stp #22 face #66; gkv311-opencascade-dataset/step/bug27693_cornetta-step.stp #22 face #74; gkv311-opencascade-dataset/step/bug27693_cornetta-step.stp #22 face #135
       41 read back: B-rep model: a curve missing from the file  e.g. gkv311-opencascade-dataset/step/bug22871_null-swept-curve.stp #10; gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17525; gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17485; gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17475
       40 writer warning: an edge with neither a curve nor a p-curve (written unset) (#)  e.g. gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17525; gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17485; gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17475; gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17415
       40 bind info: EDGE_CURVE.edge_geometry: $ in a mandatory attribute  e.g. gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17525 #78766; gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17485 #78735; gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17475 #78729; gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17415 #78681
+      29 mesh areas differ  e.g. gkv311-opencascade-dataset/step/bug30790.step #2433 face #3627; gkv311-opencascade-dataset/step/bug30790.step #2433 face #5541; gkv311-opencascade-dataset/step/bug30790.step #2427 face #4977; gkv311-opencascade-dataset/step/bug30790.step #2427 face #5167
       28 read back: B-rep model: 2 x a face with more than one outer bound (kept: Part 42 allows one) (#, #)  e.g. gkv311-opencascade-dataset/step/bug32239.STEP #85521; gkv311-opencascade-dataset/step/2.stp #317; gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #3171; gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #3163
       23 read back: B-rep model: 3 x a face with more than one outer bound (kept: Part 42 allows one) (#, #, #)  e.g. gkv311-opencascade-dataset/step/bug24601_216523_2_03.stp #79; gkv311-opencascade-dataset/step/Checking_Fixture_Clamping.STEP #5594; gkv311-opencascade-dataset/step/bug32239.STEP #64347; gkv311-opencascade-dataset/step/bug32239.STEP #83837
       21 read back: B-rep model: a face with more than one outer bound (kept: Part 42 allows one) (#)  e.g. gkv311-opencascade-dataset/step/bug32239.STEP #49969; gkv311-opencascade-dataset/step/bug32239.STEP #96775; gkv311-opencascade-dataset/step/bug32239.STEP #57866; gkv311-opencascade-dataset/step/2.stp #342
-      13 mesh areas differ  e.g. gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 face #80357; gkv311-opencascade-dataset/step/OCC5099.stp #14343 face #20515; gkv311-opencascade-dataset/step/OCC5099.stp #14343 face #21250; gkv311-opencascade-dataset/step/OCC5099.stp #14343 face #22481
+      18 failed from the model only  e.g. gkv311-opencascade-dataset/step/bug30790.step #2445 face #7147; gkv311-opencascade-dataset/step/bug30790.step #2445 face #5551; gkv311-opencascade-dataset/step/bug30790.step #2445 face #2501; gkv311-opencascade-dataset/step/bug30790.step #2445 face #4403
+      12 failed from the subset only  e.g. gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938 face #393024; gkv311-opencascade-dataset/step/bug30790.step #2445 face #5031; gkv311-opencascade-dataset/step/bug30790.step #2442 face #4981; gkv311-opencascade-dataset/step/bug30790.step #2439 face #6577
       12 read back: B-rep model: 86 x a face with more than one outer bound (kept: Part 42 allows one) (#, #, #, #, #, ...)  e.g. gkv311-opencascade-dataset/step/bug30790.step #2481; gkv311-opencascade-dataset/step/bug30790.step #2478; gkv311-opencascade-dataset/step/bug30790.step #2475; gkv311-opencascade-dataset/step/bug30790.step #2472
       12 read back: B-rep model: 103 x a face with more than one outer bound (kept: Part 42 allows one) (#, #, #, #, #, ...)  e.g. gkv311-opencascade-dataset/step/bug30790.step #2448; gkv311-opencascade-dataset/step/bug30790.step #2445; gkv311-opencascade-dataset/step/bug30790.step #2442; gkv311-opencascade-dataset/step/bug30790.step #2439
       12 read back: B-rep model: 4 x a face with more than one outer bound (kept: Part 42 allows one) (#, #, #, #)  e.g. gkv311-opencascade-dataset/step/bug32239.STEP #109721; gkv311-opencascade-dataset/step/bug32239.STEP #70862; gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #3151; gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2769
-       9 failed from the subset only  e.g. gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938 face #393024; gkv311-opencascade-dataset/step/bug30790.step #2448 face #5291; gkv311-opencascade-dataset/step/bug30790.step #2445 face #5031; gkv311-opencascade-dataset/step/bug30790.step #2445 face #4201
-       9 failed from the model only  e.g. gkv311-opencascade-dataset/step/bug30790.step #2445 face #7147; gkv311-opencascade-dataset/step/bug30790.step #2445 face #4403; gkv311-opencascade-dataset/step/bug30790.step #2436 face #5445; gkv311-opencascade-dataset/step/bug30790.step #2430 face #4195
        8 read back: B-rep model: 7 x a face with more than one outer bound (kept: Part 42 allows one) (#, #, #, #, #, ...)  e.g. gkv311-opencascade-dataset/step/OCC2368.stp #13; gkv311-opencascade-dataset/step/bug32239.STEP #133946; gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2781; gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1954
        7 read back: B-rep model: 5 x a face with more than one outer bound (kept: Part 42 allows one) (#, #, #, #, #)  e.g. gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #3063; gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2941; gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2751; gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2104
        5 read back: B-rep model: 11 x a face with more than one outer bound (kept: Part 42 allows one) (#, #, #, #, #, ...)  e.g. gkv311-opencascade-dataset/step/bug24601_216523_2_03.stp #90; gkv311-opencascade-dataset/step/2.stp #332; gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #3157; gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2775
+       4 inverted  e.g. gkv311-opencascade-dataset/step/bug30790.step #2436 face #5419; gkv311-opencascade-dataset/step/bug30790.step #2427 face #7025; gkv311-opencascade-dataset/step/bug30790.step #2421 face #3339; gkv311-opencascade-dataset/step/bug30790.step #2421 face #4457
        4 read back: B-rep model: 6 x a face with more than one outer bound (kept: Part 42 allows one) (#, #, #, #, #, ...)  e.g. gkv311-opencascade-dataset/step/bug32239.STEP #72569; gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2787; gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1336; gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1209
        3 writer warning: a face without loops (written with none: STEP needs at least one) (#)  e.g. gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938; gkv311-opencascade-dataset/step/bug24283_spheres.stp #8; gkv311-opencascade-dataset/step/bug33665.step #10
        3 bind warning: FACE.bounds: SET of 0 elements, expected [1:?]  e.g. gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938 #393024; gkv311-opencascade-dataset/step/bug24283_spheres.stp #8 #7; gkv311-opencascade-dataset/step/bug33665.step #10 #17
        3 read back: B-rep model: 8 x a face with more than one outer bound (kept: Part 42 allows one) (#, #, #, #, #, ...)  e.g. gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #3126; gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1596; gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1531
        2 validity: subset false, model true  e.g. gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938 face #393024; gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #9940
        2 validity: subset true, model false  e.g. gkv311-opencascade-dataset/step/bug30790.step #2430 face #4195; gkv311-opencascade-dataset/step/bug30790.step #2430 face #4467
-       2 inverted  e.g. gkv311-opencascade-dataset/step/bug30790.step #2421 face #3339; gkv311-opencascade-dataset/step/bug30790.step #2421 face #4457
        2 bind info: SURFACE_CURVE.curve_3d: $ in a mandatory attribute  e.g. gkv311-opencascade-dataset/step/bug22871_null-swept-curve.stp #10 #6715; gkv311-opencascade-dataset/step/bug22871_null-swept-curve.stp #10 #6725
        2 writer warning: a solid whose outer shell isn't closed (#)  e.g. gkv311-opencascade-dataset/step/bug33665.step #10; gkv311-opencascade-dataset/step/bug25169_box-openshell.stp #10
        2 bind warning: MANIFOLD_SOLID_BREP.outer: reference to OPEN_SHELL, expected CLOSED_SHELL  e.g. gkv311-opencascade-dataset/step/bug33665.step #10 #15; gkv311-opencascade-dataset/step/bug25169_box-openshell.stp #10 #15
@@ -53,6 +53,172 @@
        1 read back: B-rep model: 9 x a face with more than one outer bound (kept: Part 42 allows one) (#, #, #, #, #, ...)  e.g. gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1362
 
 (d) faces differing, by file:
+     165 gkv311-opencascade-dataset/step/bug30790.step
+            #5649 triangle counts differ
+            #2643 triangle counts differ
+            #6767 triangle counts differ
+            #2597 triangle counts differ
+            #3543 triangle counts differ
+            #4983 triangle counts differ
+            #3233 triangle counts differ
+            #5371 triangle counts differ
+            #4727 triangle counts differ
+            #2737 triangle counts differ
+            #2621 triangle counts differ
+            #5909 triangle counts differ
+            #4265 triangle counts differ
+            #6049 triangle counts differ
+            #6293 OCCT's measured area differs (over 1e-6), triangle counts differ
+            #7147 failed from the model only, OCCT's measured area differs (over 1e-6), triangle counts differ
+            #6423 triangle counts differ
+            #4817 triangle counts differ
+            #5827 OCCT's measured area differs (over 1e-6), triangle counts differ
+            #5551 failed from the model only, OCCT's measured area differs (over 1e-6), triangle counts differ
+            #2529 triangle counts differ
+            #7051 triangle counts differ
+            #6567 OCCT's measured area differs (over 1e-6), triangle counts differ
+            #6735 triangle counts differ
+            #6737 OCCT's measured area differs (over 1e-6), triangle counts differ
+            #2501 failed from the model only, OCCT's measured area differs (over 1e-6), triangle counts differ
+            #6301 triangle counts differ
+            #4925 triangle counts differ
+            #6681 OCCT's measured area differs (over 1e-6), triangle counts differ
+            #4403 failed from the model only, OCCT's measured area differs (over 1e-6), triangle counts differ
+            #5165 triangle counts differ
+            #7067 triangle counts differ
+            #5043 triangle counts differ
+            #5031 failed from the subset only, OCCT's measured area differs (over 1e-6), triangle counts differ
+            #5681 triangle counts differ
+            #4595 OCCT's measured area differs (over 1e-6), triangle counts differ
+            #5129 OCCT's measured area differs (over 1e-6), triangle counts differ
+            #6949 failed from the model only, OCCT's measured area differs (over 1e-6), triangle counts differ
+            #3677 triangle counts differ
+            #3171 triangle counts differ
+            #3819 triangle counts differ
+            #2703 triangle counts differ
+            #4455 triangle counts differ
+            #2971 triangle counts differ
+            #6305 triangle counts differ
+            #4981 failed from the subset only, OCCT's measured area differs (over 1e-6), triangle counts differ
+            #3487 triangle counts differ
+            #4567 OCCT's measured area differs (over 1e-6), triangle counts differ
+            #6033 failed from the model only, OCCT's measured area differs (over 1e-6), triangle counts differ
+            #5085 triangle counts differ
+            #4759 triangle counts differ
+            #4349 OCCT's measured area differs (over 1e-6), triangle counts differ
+            #5933 triangle counts differ
+            #4477 triangle counts differ
+            #7135 triangle counts differ
+            #4331 triangle counts differ
+            #5075 triangle counts differ
+            #6577 failed from the subset only, OCCT's measured area differs (over 1e-6), triangle counts differ
+            #3279 OCCT's measured area differs (over 1e-6), triangle counts differ
+            #7029 failed from the model only, OCCT's measured area differs (over 1e-6), triangle counts differ
+            #3225 triangle counts differ
+            #5419 inverted
+            #3133 triangle counts differ
+            #5361 OCCT's measured area differs (over 1e-6), triangle counts differ
+            #5445 failed from the model only, OCCT's measured area differs (over 1e-6), triangle counts differ
+            #4979 triangle counts differ
+            #3515 triangle counts differ
+            #3353 triangle counts differ
+            #2893 triangle counts differ
+            #6349 triangle counts differ
+            #4669 triangle counts differ
+            #3545 triangle counts differ
+            #3987 triangle counts differ
+            #6285 triangle counts differ
+            #6917 triangle counts differ
+            #3367 triangle counts differ
+            #3627 mesh areas differ
+            #5541 mesh areas differ
+            #2525 triangle counts differ
+            #6641 OCCT's measured area differs (over 1e-6), triangle counts differ
+            #4195 failed from the model only, OCCT's measured area differs (over 1e-6), validity: subset true, model false, triangle counts differ
+            #4467 failed from the model only, OCCT's measured area differs (over 1e-6), validity: subset true, model false, triangle counts differ
+            #3687 triangle counts differ
+            #6025 OCCT's measured area differs (over 1e-6), triangle counts differ
+            #4829 failed from the model only, OCCT's measured area differs (over 1e-6), triangle counts differ
+            #3209 triangle counts differ
+            #6003 OCCT's measured area differs (over 1e-6), triangle counts differ
+            #5843 failed from the model only, OCCT's measured area differs (over 1e-6), triangle counts differ
+            #5281 triangle counts differ
+            #6621 OCCT's measured area differs (over 1e-6), triangle counts differ
+            #3577 OCCT's measured area differs (over 1e-6), triangle counts differ
+            #5125 triangle counts differ
+            #4329 triangle counts differ
+            #3959 triangle counts differ
+            #5947 OCCT's measured area differs (over 1e-6), triangle counts differ
+            #6163 triangle counts differ
+            #5631 triangle counts differ
+            #5069 failed from the subset only, OCCT's measured area differs (over 1e-6), triangle counts differ
+            #4789 failed from the subset only, OCCT's measured area differs (over 1e-6), triangle counts differ
+            #5027 failed from the subset only, OCCT's measured area differs (over 1e-6), triangle counts differ
+            #6063 OCCT's measured area differs (over 1e-6), triangle counts differ
+            #5567 failed from the model only, OCCT's measured area differs (over 1e-6), triangle counts differ
+            #5413 triangle counts differ
+            #6855 OCCT's measured area differs (over 1e-6), triangle counts differ
+            #7013 failed from the model only, OCCT's measured area differs (over 1e-6), triangle counts differ
+            #4797 triangle counts differ
+            #5593 OCCT's measured area differs (over 1e-6), triangle counts differ
+            #4977 mesh areas differ
+            #2881 triangle counts differ
+            #4583 OCCT's measured area differs (over 1e-6), triangle counts differ
+            #7055 failed from the model only, OCCT's measured area differs (over 1e-6), triangle counts differ
+            #4757 triangle counts differ
+            #5761 triangle counts differ
+            #6821 failed from the subset only, OCCT's measured area differs (over 1e-6), triangle counts differ
+            #5525 triangle counts differ
+            #7025 inverted
+            #6635 triangle counts differ
+            #5167 mesh areas differ
+            #3767 triangle counts differ
+            #3305 triangle counts differ
+            #4067 triangle counts differ
+            #4603 OCCT's measured area differs (over 1e-6), triangle counts differ
+            #2591 failed from the model only, OCCT's measured area differs (over 1e-6), triangle counts differ
+            #2987 triangle counts differ
+            #3905 triangle counts differ
+            #6743 triangle counts differ
+            #4857 OCCT's measured area differs (over 1e-6), triangle counts differ
+            #6733 failed from the model only, OCCT's measured area differs (over 1e-6), triangle counts differ
+            #4453 triangle counts differ
+            #3325 triangle counts differ
+            #3033 triangle counts differ
+            #6309 triangle counts differ
+            #5647 OCCT's measured area differs (over 1e-6), triangle counts differ
+            #6513 triangle counts differ
+            #3805 OCCT's measured area differs (over 1e-6), triangle counts differ
+            #3291 failed from the model only, OCCT's measured area differs (over 1e-6), triangle counts differ
+            #4631 triangle counts differ
+            #3525 OCCT's measured area differs (over 1e-6), triangle counts differ
+            #3743 failed from the subset only, OCCT's measured area differs (over 1e-6), triangle counts differ
+            #3065 triangle counts differ
+            #3339 inverted
+            #6011 OCCT's measured area differs (over 1e-6), triangle counts differ
+            #6919 triangle counts differ
+            #4881 triangle counts differ
+            #5549 triangle counts differ
+            #4457 inverted
+            #6727 failed from the subset only, OCCT's measured area differs (over 1e-6), triangle counts differ
+            #5749 failed from the subset only, OCCT's measured area differs (over 1e-6), triangle counts differ
+            #5097 mesh areas differ
+            #3787 OCCT's measured area differs (over 1e-6), triangle counts differ
+            #3089 triangle counts differ
+            #4491 triangle counts differ
+            #7091 triangle counts differ
+            #2719 triangle counts differ
+            #4219 triangle counts differ
+            #6843 failed from the subset only, OCCT's measured area differs (over 1e-6), triangle counts differ
+            #5877 triangle counts differ
+            #6857 triangle counts differ
+            #6059 triangle counts differ
+            #2745 triangle counts differ
+            #2593 triangle counts differ
+            #5359 triangle counts differ
+            #4035 triangle counts differ
+            #6031 triangle counts differ
+            #6389 triangle counts differ
       76 nist-pmi-models/NIST_MBE_PMI_CTC_Definitions/NIST_MBE_PMI_CTC_Definitions/nist_ctc_04_asme1_rd.stp
             #413 triangle counts differ
             #430 triangle counts differ
@@ -284,81 +450,31 @@
             #9048 triangle counts differ
             #10890 OCCT's measured area differs (over 1e-6)
             #11486 OCCT's measured area differs (over 1e-6)
-      74 gkv311-opencascade-dataset/step/bug30790.step
-            #3233 triangle counts differ
-            #2621 triangle counts differ
-            #5909 OCCT's measured area differs (over 1e-6), triangle counts differ
-            #3811 triangle counts differ
-            #4265 triangle counts differ
-            #5291 failed from the subset only, OCCT's measured area differs (over 1e-6), triangle counts differ
-            #6293 OCCT's measured area differs (over 1e-6), triangle counts differ
-            #7147 failed from the model only, OCCT's measured area differs (over 1e-6), triangle counts differ
-            #6423 triangle counts differ
-            #6567 OCCT's measured area differs (over 1e-6), triangle counts differ
-            #6735 triangle counts differ
-            #4925 triangle counts differ
-            #6681 OCCT's measured area differs (over 1e-6), triangle counts differ
-            #4403 failed from the model only, OCCT's measured area differs (over 1e-6), triangle counts differ
-            #5165 triangle counts differ
-            #5043 OCCT's measured area differs (over 1e-6), triangle counts differ
-            #3565 triangle counts differ
-            #5031 failed from the subset only, OCCT's measured area differs (over 1e-6), triangle counts differ
-            #4201 failed from the subset only, OCCT's measured area differs (over 1e-6), triangle counts differ
-            #2703 triangle counts differ
-            #4759 triangle counts differ
-            #5933 triangle counts differ
-            #5075 triangle counts differ
-            #5361 OCCT's measured area differs (over 1e-6), triangle counts differ
-            #5445 failed from the model only, OCCT's measured area differs (over 1e-6), triangle counts differ
-            #4979 triangle counts differ
-            #3353 triangle counts differ
-            #6349 triangle counts differ
-            #3545 triangle counts differ
-            #6285 triangle counts differ
-            #6917 triangle counts differ
-            #3367 triangle counts differ
-            #2525 triangle counts differ
-            #6641 OCCT's measured area differs (over 1e-6), triangle counts differ
-            #4195 failed from the model only, OCCT's measured area differs (over 1e-6), validity: subset true, model false, triangle counts differ
-            #4467 failed from the model only, OCCT's measured area differs (over 1e-6), validity: subset true, model false, triangle counts differ
-            #3687 triangle counts differ
-            #6025 OCCT's measured area differs (over 1e-6), triangle counts differ
-            #4829 failed from the model only, OCCT's measured area differs (over 1e-6), triangle counts differ
-            #3209 triangle counts differ
-            #6003 OCCT's measured area differs (over 1e-6), triangle counts differ
-            #5843 failed from the model only, OCCT's measured area differs (over 1e-6), triangle counts differ
-            #5281 triangle counts differ
-            #6621 OCCT's measured area differs (over 1e-6), triangle counts differ
-            #3577 OCCT's measured area differs (over 1e-6), triangle counts differ
-            #4329 triangle counts differ
-            #5069 failed from the subset only, OCCT's measured area differs (over 1e-6), triangle counts differ
-            #5027 failed from the subset only, OCCT's measured area differs (over 1e-6), triangle counts differ
-            #5593 triangle counts differ
-            #4583 OCCT's measured area differs (over 1e-6), triangle counts differ
-            #7055 failed from the model only, OCCT's measured area differs (over 1e-6), triangle counts differ
-            #4757 triangle counts differ
-            #4603 OCCT's measured area differs (over 1e-6), triangle counts differ
-            #2591 failed from the model only, OCCT's measured area differs (over 1e-6), triangle counts differ
-            #2987 triangle counts differ
-            #3325 triangle counts differ
-            #6309 triangle counts differ
-            #3525 OCCT's measured area differs (over 1e-6), triangle counts differ
-            #3743 failed from the subset only, OCCT's measured area differs (over 1e-6), triangle counts differ
-            #3065 triangle counts differ
-            #3339 inverted
-            #6011 OCCT's measured area differs (over 1e-6), triangle counts differ
-            #6919 OCCT's measured area differs (over 1e-6), triangle counts differ
-            #5365 triangle counts differ
-            #4881 triangle counts differ
-            #5549 triangle counts differ
-            #4457 inverted
-            #4923 failed from the subset only, OCCT's measured area differs (over 1e-6), triangle counts differ
-            #5749 failed from the subset only, OCCT's measured area differs (over 1e-6), triangle counts differ
-            #4491 triangle counts differ
-            #6857 triangle counts differ
-            #6059 triangle counts differ
-            #5359 triangle counts differ
-            #6389 triangle counts differ
+      12 gkv311-opencascade-dataset/step/trj3_s1-al-214.stp
+            #1286 mesh areas differ
+            #1290 mesh areas differ
+            #1293 OCCT's measured area differs (over 1e-6)
+            #1294 OCCT's measured area differs (over 1e-6)
+            #1320 triangle counts differ
+            #1335 triangle counts differ
+            #1337 triangle counts differ
+            #1346 mesh areas differ
+            #1351 triangle counts differ
+            #1355 OCCT's measured area differs (over 1e-6)
+            #1357 OCCT's measured area differs (over 1e-6)
+            #1366 mesh areas differ
+      11 gkv311-opencascade-dataset/step/OCC5157.stp
+            #4310 triangle counts differ
+            #4369 mesh areas differ
+            #4376 triangle counts differ
+            #4379 triangle counts differ
+            #4381 mesh areas differ
+            #4614 triangle counts differ
+            #4619 triangle counts differ
+            #4620 triangle counts differ
+            #4621 triangle counts differ
+            #4701 triangle counts differ
+            #4716 mesh areas differ
       10 gkv311-opencascade-dataset/step/trj6_k1-ct-214.stp
             #933 triangle counts differ
             #1138 triangle counts differ
@@ -463,6 +579,14 @@
             #20515 mesh areas differ
             #21250 mesh areas differ
             #22481 mesh areas differ
+       7 gkv311-opencascade-dataset/step/bug32239.STEP
+            #74906 triangle counts differ
+            #125496 triangle counts differ
+            #15261 triangle counts differ
+            #84129 triangle counts differ
+            #3437 triangle counts differ
+            #93339 triangle counts differ
+            #115502 triangle counts differ
        7 gkv311-opencascade-dataset/step/bug24383_224013.stp
             #9898 triangle counts differ
             #9940 validity: subset false, model true, triangle counts differ
@@ -487,6 +611,13 @@
             #15884 OCCT's measured area differs (over 1e-6)
             #15932 OCCT's measured area differs (over 1e-6)
             #16052 OCCT's measured area differs (over 1e-6)
+       6 gkv311-opencascade-dataset/step/trj5_s1-in-214.stp
+            #2646 triangle counts differ
+            #1869 triangle counts differ
+            #2113 triangle counts differ
+            #1333 triangle counts differ
+            #1398 triangle counts differ
+            #1478 triangle counts differ
        6 gkv311-opencascade-dataset/step/trj2_as1-md-214.stp
             #1217 triangle counts differ
             #1521 triangle counts differ
@@ -515,11 +646,52 @@
             #1065 triangle counts differ
             #1096 triangle counts differ
             #1123 triangle counts differ
+       5 gkv311-opencascade-dataset/step/bug28366_fuselage.stp
+            #131 triangle counts differ
+            #207 triangle counts differ
+            #247 triangle counts differ
+            #287 triangle counts differ
+            #327 triangle counts differ
+       5 gkv311-opencascade-dataset/step/trj3_s1-pe-203.stp
+            #2148 triangle counts differ
+            #2419 triangle counts differ
+            #754 triangle counts differ
+            #791 triangle counts differ
+            #960 mesh areas differ
+       5 nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_07_asme1_ap242-e2.stp
+            #1566 triangle counts differ
+            #1633 triangle counts differ
+            #2305 triangle counts differ
+            #2545 triangle counts differ
+            #5953 triangle counts differ
+       5 nist-pmi-models/NIST_MBE_PMI_FTC_Definitions/NIST_MBE_PMI_FTC_Definitions/nist_ftc_07_asme1_rd.stp
+            #3222 triangle counts differ
+            #3287 triangle counts differ
+            #3690 triangle counts differ
+            #3877 triangle counts differ
+            #4503 triangle counts differ
+       5 nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ftc_07_asme1_rd.stp
+            #3222 triangle counts differ
+            #3287 triangle counts differ
+            #3690 triangle counts differ
+            #3877 triangle counts differ
+            #4503 triangle counts differ
+       5 nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/FTC Definitions/nist_ftc_07_asme1_rd.stp
+            #3222 triangle counts differ
+            #3287 triangle counts differ
+            #3690 triangle counts differ
+            #3877 triangle counts differ
+            #4503 triangle counts differ
        4 gkv311-opencascade-dataset/step/trj4_k1_geo-ac-214.stp
             #2423 triangle counts differ
             #2621 triangle counts differ
             #5302 triangle counts differ
             #5446 triangle counts differ
+       4 gkv311-opencascade-dataset/step/trj3_s1-md-214.stp
+            #934 triangle counts differ
+            #978 triangle counts differ
+            #1067 triangle counts differ
+            #411 triangle counts differ
        4 gkv311-opencascade-dataset/step/nist/bug26689_nist_ctc_02_asme1_ap242-2.stp
             #62946 triangle counts differ
             #78976 triangle counts differ
@@ -530,26 +702,11 @@
             #78976 triangle counts differ
             #81496 triangle counts differ
             #94461 triangle counts differ
-       4 nist-pmi-models/NIST_MBE_PMI_FTC_Definitions/NIST_MBE_PMI_FTC_Definitions/nist_ftc_08_asme1_rc.stp
-            #6004 triangle counts differ
-            #6011 triangle counts differ
-            #6178 triangle counts differ
-            #6185 triangle counts differ
        4 gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/FOOT_BACK_000.stp
             #322 triangle counts differ
             #353 triangle counts differ
             #408 triangle counts differ
             #423 triangle counts differ
-       4 nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ftc_08_asme1_rc.stp
-            #6004 triangle counts differ
-            #6011 triangle counts differ
-            #6178 triangle counts differ
-            #6185 triangle counts differ
-       4 nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/FTC Definitions/nist_ftc_08_asme1_rc.stp
-            #6004 triangle counts differ
-            #6011 triangle counts differ
-            #6178 triangle counts differ
-            #6185 triangle counts differ
        4 occt-import-js/test/testfiles/cax-if/sg1-c5-214.stp
             #177 triangle counts differ
             #189 triangle counts differ
@@ -559,6 +716,10 @@
             #66 OCCT's measured area differs (over 1e-6)
             #74 OCCT's measured area differs (over 1e-6)
             #135 OCCT's measured area differs (over 1e-6)
+       3 gkv311-opencascade-dataset/step/t4mec.stp
+            #472 triangle counts differ
+            #825 triangle counts differ
+            #1825 triangle counts differ
        3 gkv311-opencascade-dataset/step/bug3883_xr2-ct-214_plate.stp
             #576 triangle counts differ
             #720 triangle counts differ
@@ -567,15 +728,33 @@
             #128930 OCCT's measured area differs (over 1e-6)
             #279826 OCCT's measured area differs (over 1e-6)
             #80357 mesh areas differ
+       3 nist-pmi-models/NIST_MBE_PMI_FTC_Definitions/NIST_MBE_PMI_FTC_Definitions/nist_ftc_08_asme1_rc.stp
+            #1135 triangle counts differ
+            #6004 triangle counts differ
+            #6185 triangle counts differ
+       3 nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ftc_08_asme1_rc.stp
+            #1135 triangle counts differ
+            #6004 triangle counts differ
+            #6185 triangle counts differ
+       3 nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/FTC Definitions/nist_ftc_08_asme1_rc.stp
+            #1135 triangle counts differ
+            #6004 triangle counts differ
+            #6185 triangle counts differ
        2 gkv311-opencascade-dataset/step/bug22871_null-swept-curve.stp
             #3441 OCCT's measured area differs (over 1e-6), triangle counts differ
             #3620 OCCT's measured area differs (over 1e-6), triangle counts differ
+       2 gkv311-opencascade-dataset/step/OCC22459-TEST2.stp
+            #58 triangle counts differ
+            #60 triangle counts differ
        2 gkv311-opencascade-dataset/step/as1_motor.step
             #7575 triangle counts differ
             #1808 triangle counts differ
        2 gkv311-opencascade-dataset/step/bug33261.stp
             #35248 triangle counts differ
             #35261 triangle counts differ
+       2 gkv311-opencascade-dataset/step/trj5_s1-ac-214.stp
+            #1070 triangle counts differ
+            #237 triangle counts differ
        2 gkv311-opencascade-dataset/step/nist/bug26689_nist_ctc_04_asme1_ap242.stp
             #10766 OCCT's measured area differs (over 1e-6)
             #11323 OCCT's measured area differs (over 1e-6)
@@ -588,16 +767,37 @@
        2 gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_BACK.stp
             #1344 triangle counts differ
             #1361 triangle counts differ
+       2 gkv311-opencascade-dataset/step/cax_stepLib/s1_pe_214/main_body_back_prt.stp
+            #443 triangle counts differ
+            #645 triangle counts differ
        1 gkv311-opencascade-dataset/step/bug32314_corrupted.stp
             #393024 failed from the subset only, OCCT's measured area differs (over 1e-6), validity: subset false, model true, triangle counts differ
+       1 gkv311-opencascade-dataset/step/trj3_s1-id-203.stp
+            #2996 triangle counts differ
+       1 gkv311-opencascade-dataset/step/trj3_s1-tc-214.stp
+            #5346 triangle counts differ
+       1 gkv311-opencascade-dataset/step/trj6_k1-id-203.stp
+            #996 mesh areas differ
+       1 gkv311-opencascade-dataset/step/trj4_k1_top-id-214.stp
+            #954 mesh areas differ
+       1 gkv311-opencascade-dataset/step/trj5_k1-id-214.stp
+            #954 mesh areas differ
+       1 gkv311-opencascade-dataset/step/trj10_ch1-id-chs.stp
+            #282 triangle counts differ
+       1 gkv311-opencascade-dataset/step/bm2_ec_t4-A.stp
+            #1304 triangle counts differ
        1 gkv311-opencascade-dataset/step/bug31685_1.stp
             #19539 triangle counts differ
-       1 gkv311-opencascade-dataset/step/OCC5157.stp
-            #4380 triangle counts differ
+       1 gkv311-opencascade-dataset/step/trj3_t2-db-214.stp
+            #637 triangle counts differ
        1 gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp
             #21423 triangle counts differ
        1 nist-pmi-models/NIST_MBE_PMI_CTC_Definitions/NIST_MBE_PMI_CTC_Definitions/nist_ctc_02_asme1_rc.stp
             #13024 mesh areas differ
+       1 gkv311-opencascade-dataset/step/cax_stepLib/s1_pe_214/main_body_front_prt.stp
+            #1019 triangle counts differ
+       1 nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_05_asme1_ap203.stp
+            #575 triangle counts differ
        1 nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_02_asme1_ap203.stp
             #1555 mesh areas differ
        1 nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ctc_02_asme1_rc.stp

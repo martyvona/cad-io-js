@@ -22,6 +22,15 @@ export function invertAffine(m: Mat4): Mat4 {
 
 const obj = (v: unknown): TreeExtras | undefined => (v && typeof v === 'object' && !Array.isArray(v)
   ? v as TreeExtras : undefined);
+/**
+ * A part node's extras without the part's unit our earlier versions wrote: a 3MF model's vertices are read in its
+ * unit, to millimetres, whatever the part's was.
+ */
+const meshExtras = (e: TreeExtras | undefined): TreeExtras | undefined => {
+  if (e?.unit === undefined) return e;
+  const { unit: _, ...rest } = e;
+  return rest;
+};
 const matrixOf = (v: unknown): Mat4 | undefined => (Array.isArray(v) && v.length === 16 && v.every(Number.isFinite)
   ? Float64Array.from(v as number[]) : undefined);
 
@@ -83,7 +92,7 @@ export function oursFromTree(root: ModelFile, world: (item: number) => { object:
       const at = identity();
       at[12] = o[0]; at[13] = o[1]; at[14] = o[2];
       return [{ name: typeof p.name === 'string' ? p.name : '', matrix: multiply(invertAffine(w),
-        multiply(placed.matrix, at)), visible: p.visible !== false, extras: obj(p.extras),
+        multiply(placed.matrix, at)), visible: p.visible !== false, extras: meshExtras(obj(p.extras)),
       meshes: meshOf(placed.object), children: [] }];
     });
   };

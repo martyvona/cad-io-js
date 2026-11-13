@@ -20,7 +20,7 @@
 import fs from 'node:fs';
 import { meshDeflections, BOUNDARY_SLACK, faceFailures, MISSING_FRACTION, tessellateScene, type FaceFailure, type Mesh,
   type Scene } from '../packages/cad-scene/src/index.ts';
-import { parseStep, type Instance, type StepModel } from '../packages/step-parser/src/index.ts';
+import { parseStep, type Instance, type Semantics, type StepModel } from '../packages/step-parser/src/index.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
 import { WorkerTessellator } from '../packages/tess-workers/src/node.ts';
 import { StepTessellator } from '../packages/step-export/src/index.ts';
@@ -116,9 +116,9 @@ export const check: FileCheck<undefined, Tallies> = {
     const bytes = fs.readFileSync(path);
     if (bytes.length > maxBytes) { T.skipped++; return T; }
     const name = shortName(path);
-    let scene: Scene, model: StepModel;
+    let scene: Scene, model: StepModel, semantics: Semantics;
     try {
-      ({ scene, model } = await importStep(bytes));
+      ({ scene, model, semantics } = await importStep(bytes));
     } catch (e) {
       T.failed.push(`${name}: import failed: ${(e as Error).message}`);
       return T;
@@ -135,17 +135,21 @@ export const check: FileCheck<undefined, Tallies> = {
       if (!part.brep || part.brep.format !== 'step' || !meshes.has(i)) continue;
       T.parts++;
       const sub = parseStep(partSubset(model, part.sources[0]!.id));
+      const u = (semantics.structure.representations.get(part.sources[0]!.id)?.context?.lengthUnit?.factor ?? 1e-3)
+        * 1000;
       const oracle = new AreaOracle(sub);
       const results = new Map<number, OracleResult>();
       for (const inst of sub.instances()) {
         if (!partsOf(inst).some((q) => q.type === 'ADVANCED_FACE' || q.type === 'FACE_SURFACE')) continue;
-        const r = oracle.faceArea(inst.id);
+        // (In millimetres, as the scene is: the oracle's from the file's unit.)
+        const r0 = oracle.faceArea(inst.id);
+        const r = r0.ok ? { ...r0, area: r0.area * u * u, error: r0.error * u * u, perimeter: r0.perimeter * u } : r0;
         results.set(inst.id, r);
         inc(coverage, !r.ok ? `unsupported: ${r.reason.replace(/#\d+/g, '#')}`
           : trusted(r, TRUST) ? `trusted: ${r.surface}` : r.flags.length ? `untrusted: ${r.surface}, ${r.flags.join(', ')}`
           : `untrusted: ${r.surface}, error estimate over ${TRUST}`);
       }
-      const u = part.unit, d = LINEAR_MM / u;
+      const d = LINEAR_MM;
       const occtMeasures = part.measures?.faces;
       // The faces compared, in id order (deterministic planting).
       const ids = [...results.keys()].filter((id) => { const r = results.get(id)!;
@@ -191,12 +195,12 @@ export const check: FileCheck<undefined, Tallies> = {
         const m = measures.get(id);
         if (!m) { T.unmeasured++; continue; }
         const where = `${name} #${id} (part #${part.sources[0]!.id}, ${r.surface})`;
-        const mm2 = u * u;
         const ra = rel(m.area, r.area);
         bin(areaHist, ra);
         if (r.surface === 'plane' && m.perimeter >= 0) bin(perimHist, rel(m.perimeter, r.perimeter));
-        const meshArea = (fm.get(id)?.area ?? 0) * mm2;
-        const detail = `oracle ${(r.area * mm2).toPrecision(8)}, OCCT measured ${(m.area * mm2).toPrecision(8)}${m.valid ? '' : ' (invalid)'}, mesh ${meshArea.toPrecision(8)} mm^2`;
+        const meshArea = fm.get(id)?.area ?? 0;
+        const detail = `oracle ${r.area.toPrecision(8)}, OCCT measured ${m.area.toPrecision(8)}${
+          m.valid ? '' : ' (invalid)'}, mesh ${meshArea.toPrecision(8)} mm^2`;
         if (ra > OFF) { offRows.push(`  ${where}: ${detail}`); if (plantedHere.has(id) && plant === 'measure') { T.plantedSeen++; seenHere.add(id); } }
         const o: FaceFailure | 'ok' = byOcct.get(id) ?? 'ok', q: FaceFailure | 'ok' = byOracle.get(id) ?? 'ok';
         inc(judged, `OCCT's measures: ${o.padEnd(10)} oracle: ${q}`);

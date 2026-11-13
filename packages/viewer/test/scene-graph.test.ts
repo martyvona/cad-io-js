@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as THREE from 'three';
-import { multiply, scaling, type Mesh } from 'cad-scene';
+import { identity, multiply, scaleMesh, scaling, type Mesh } from 'cad-scene';
 import { plate, scene, translation, wire } from './fixtures.ts';
 import { DEFAULT_COLOR, polylineSegments, SceneGraph } from '../src/scene-graph.ts';
 import { EDGES } from '../src/style.ts';
@@ -221,14 +221,20 @@ test('faces that failed to mesh: outlined in red per placement, marked failed, h
 test('faces judged by their part\'s measures: partly, excess and unverified, all but partly red; Details', async () => {
   const { NodeModel } = await import('../src/model.ts');
   const { details } = await import('../src/details.ts');
-  // The plate's faces (the part is in inches): 8 a triangle of area 0.5 (322.6 mm^2), 7 one of 0.505 (325.8); each
-  // outlined. Meshed at 0.001 mm, so the boundary allowance is nothing to speak of. Details in mm^2.
-  const mesh = (): Mesh => ({ ...plate(), faceOutlinePositions: Float32Array.of(0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0),
-    faceOutlines: [{ source: 7, start: 0, count: 2 }, { source: 8, start: 2, count: 2 }] });
-  const measured = (faces: [number, number, boolean][]) => {
+  // The plate an inch square, in millimetres (the fixture's scaled, its placements unscaled to match): face 8 a
+  // triangle of 0.5 in^2 (322.6 mm^2), 7 one of 0.505 in^2 (325.8); each outlined. Meshed at 0.001 mm, so the boundary
+  // allowance is nothing to speak of. Measures given in square inches, held and shown in mm^2.
+  const mesh = (): Mesh => scaleMesh({ ...plate(), faceOutlinePositions: Float32Array.of(0, 0, 0, 1, 1, 0, 0, 0, 0,
+    1, 0, 0), faceOutlines: [{ source: 7, start: 0, count: 2 }, { source: 8, start: 2, count: 2 }] }, 25.4);
+  const inMm = () => {
     const sc = scene();
-    sc.parts[0]!.measures = { by: 'test', faces: new Map(faces.map(([s, area, valid]) => [s, { area, perimeter: 3,
-      valid }])) };
+    sc.components[1]!.parts[0]!.transform = identity();
+    return sc;
+  };
+  const measured = (faces: [number, number, boolean][]) => {
+    const sc = inMm();
+    sc.parts[0]!.measures = { by: 'test', faces: new Map(faces.map(([s, area, valid]) => [s, { area: area * 645.16,
+      perimeter: 3 * 25.4, valid }])) };
     return sc;
   };
   // 8 short of its measured area (partly), 7 well over its (excess).
@@ -262,13 +268,13 @@ test('faces judged by their part\'s measures: partly, excess and unverified, all
   assert.ok(details(m2, [f8]).includes("Its area couldn't be verified (its geometry is unsound): outlined in red"));
   const [o3] = new SceneGraph(measured([[8, 0.5, false], [7, 9, true]]), 'model').addMesh(0, mesh());
   assert.deepEqual([o3!.userData.failedFaces, o3!.userData.partlyFailedFaces], [[], []]);
-  // The deflection is in mm, the part in inches: at 2 mm (0.079 in) the strip for face 8 (perimeter 3 in) is 0.24 in^2,
-  // under its 0.5 in^2 shortfall: partly (taken as 2 inches, the strip would hide it).
+  // At 2 mm the strip for face 8 (perimeter 76.2 mm) is 152.4 mm^2, under its 322.6 mm^2 shortfall: partly (were the
+  // deflection taken in inches, 2 in, the strip would hide it).
   const [o5] = new SceneGraph(measured([[8, 1, true]]), 'model').addMesh(0, mesh(), 2);
   assert.deepEqual(o5!.userData.partlyFailedFaces, [8]);
   // A face with no triangles: failed, as before (its outline drawn).
   const empty: Mesh = { ...mesh(), faces: [{ source: 8, start: 0, count: 3 }, { source: 7, start: 3, count: 0 }] };
-  const [o4] = new SceneGraph(scene(), 'model').addMesh(0, empty);
+  const [o4] = new SceneGraph(inMm(), 'model').addMesh(0, empty);
   assert.deepEqual([o4!.userData.failedFaces, o4!.userData.partlyFailedFaces], [[7], []]);
 });
 

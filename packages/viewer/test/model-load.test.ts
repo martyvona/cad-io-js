@@ -50,7 +50,7 @@ function fake(delay = 0) {
 }
 
 test('postable: the B-rep\'s model and functions gone, the rest as it was; a structured clone takes it', () => {
-  const model = new BrepBuilder({ unit: 1 }).finish();
+  const model = new BrepBuilder().finish();
   const part = { name: 'p', lods: [], brep: { format: 'step', model, outline: () => ({}) } };
   const mesh = { name: 'm', lods: [] };
   const scene = { parts: [part, mesh], components: [], roots: [] } as unknown as Scene;
@@ -92,7 +92,7 @@ test('meshable: placed brep parts only', () => {
   assert.deepEqual(meshable(s), [0, 1]);
   // A third part, placed nowhere; a mesh part, placed.
   s.parts.push({ ...s.parts[0]!, name: 'spare' });
-  s.parts.push({ name: 'tri', sources: [], properties: {}, unit: 1, origin: [0, 0, 0], lods: [] });
+  s.parts.push({ name: 'tri', sources: [], properties: {}, origin: [0, 0, 0], lods: [] });
   s.components[1]!.parts.push({ part: 3, transform: s.components[1]!.parts[1]!.transform });
   assert.deepEqual(meshable(s), [0, 1]);
 });

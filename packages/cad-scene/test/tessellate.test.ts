@@ -5,19 +5,19 @@ import { tagged, tagOf } from './models.ts';
 import { failedPart, tessellateScene, type Scene, type TessellationRequest, type TessellationResult,
   type Tessellator } from '../src/index.ts';
 
-// Five brep parts (inches for part 3) and a mesh part; the fake backend takes longer for earlier parts, so they
+// Five brep parts and a mesh part; the fake backend takes longer for earlier parts, so they
 // finish in reverse order, and fails part 2.
 function scene(): Scene {
   const brep = (i: number) => ({
     brep: { format: 'step' as const, model: tagged(i) }, lods: [],
-    name: `p${i}`, sources: [{ format: 'step', id: 100 + i }], properties: {}, unit: i === 3 ? 25.4 : 1,
+    name: `p${i}`, sources: [{ format: 'step', id: 100 + i }], properties: {},
     origin: [i, 0, 0] as [number, number, number],
   });
   return {
     unit: 'millimetre', components: [], roots: [], materials: [], layers: [], overrides: [], properties: {},
     diagnostics: [],
     parts: [brep(0), brep(1), brep(2),
-      { name: 'm', sources: [], properties: {}, unit: 1, origin: [0, 0, 0], lods: [] }, brep(3), brep(4)],
+      { name: 'm', sources: [], properties: {}, origin: [0, 0, 0], lods: [] }, brep(3), brep(4)],
   };
 }
 
@@ -56,7 +56,7 @@ for (const concurrency of [1, 3]) {
     assert.deepEqual([...r.meshes.keys()], [0, 1, 4, 5]);
     assert.deepEqual(r.meshes.get(4)!.origin, [3, 0, 0]);
     assert.deepEqual(t.seen.map((q) => [100 + tagOf(q.data), q.linearDeflection]).sort(),
-      [[100, 0.254], [101, 0.254], [102, 0.254], [103, 0.01], [104, 0.254]]);
+      [[100, 0.254], [101, 0.254], [102, 0.254], [103, 0.254], [104, 0.254]]);
     assert.deepEqual(r.diagnostics.map((d) => [d.message, d.source?.id]),
       [['part 0', 100], ['part 1', 101], ['tessellation failed: boom', 102], ['part 3', 103], ['part 4', 104]]);
     if (concurrency > 1) assert.notDeepEqual(finished, [0, 1, 2, 4, 5]);
@@ -87,9 +87,9 @@ test('tessellateScene: the meshing profile (default medium), its values replaced
   const requests = async (opts: Parameters<typeof tessellateScene>[2]) => {
     const t = fake();
     await tessellateScene(scene(), t, opts);
-    // Part 3 is in inches: its distance is converted, its angle not.
+    // (Models are millimetres, as the deflections are: passed as they are.)
     const p3 = t.seen.find((q) => tagOf(q.data) === 3)!;
-    return [p3.linearDeflection * 25.4, p3.angularDeflection];
+    return [p3.linearDeflection, p3.angularDeflection];
   };
   const near = (a: number[], b: number[]) => a.every((v, i) => Math.abs(v - b[i]!) < 1e-12);
   assert.ok(near(await requests(undefined), [0.1, Math.PI / 12]), 'default: medium');
@@ -150,8 +150,8 @@ test('tessellateScene outlines: faces with no triangles or no range outlined; a 
   assert.deepEqual(m2.faceOutlines!.map((o) => o.source), [10, 11, 12]);
   assert.deepEqual(m2.origin, [2, 0, 0]);
   assert.ok(r.diagnostics.some((d) => d.severity === 'error' && /boom/.test(d.message)));
-  // In the part's units, as the backend's request (scene part 4 is in inches).
-  assert.ok(asked.every((a) => a.linearDeflection === (a.part === 4 ? 0.2 / 25.4 : 0.2)), JSON.stringify(asked));
+  // The deflection asked for, as the backend's request.
+  assert.ok(asked.every((a) => a.linearDeflection === 0.2), JSON.stringify(asked));
   // Off by default: no outlines, failed parts absent.
   const plain = await tessellateScene(s, fake(), { linearDeflection: 0.2 });
   assert.ok(!plain.meshes.has(2) && [...plain.meshes.values()].every((m) => !m.faceOutlines));
@@ -212,7 +212,7 @@ test('tessellateScene measures: asked for and kept per part (who measured), not 
 test('tessellateScene measures: a face several shells use counted (its uses), so its copies aren\'t excess',
   async () => {
   // A unit square (face 10) in two shells, as AP209's solids share faces; the backend meshes it once in each.
-  const b = new BrepBuilder({ unit: 1 });
+  const b = new BrepBuilder();
   const corners = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]];
   const vs = corners.map((point) => b.addVertex({ point }));
   const coedges = corners.map((p, k) => {

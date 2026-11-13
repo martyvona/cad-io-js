@@ -83,6 +83,14 @@ export function sceneFromStep(model: StepModel, sem: Semantics, opts: ImportOpti
     const f = repId === undefined ? undefined : s.representations.get(repId)?.context?.lengthUnit?.factor;
     return f === undefined ? 1 : f * 1000;
   };
+  // A transform from one representation's unit to another's as one from millimetres to millimetres: the scalings at
+  // either end folded in as one ratio, so a transform between representations of one unit keeps its every bit.
+  const rescaled = (t: Mat4, outMm: number, inMm: number): Mat4 => {
+    const k = outMm / inMm, m = Float64Array.from(t);
+    for (const j of [0, 1, 2, 4, 5, 6, 8, 9, 10]) m[j]! *= k;
+    for (const j of [12, 13, 14]) m[j]! *= outMm;
+    return m;
+  };
 
   // A tessellation's stated accuracy (AP242 edition 2's ..._WITH_ACCURACY_PARAMETERS), in millimetres and radians.
   const accuracy = (repId: number, root: number): Partial<Lod> => {
@@ -171,7 +179,9 @@ export function sceneFromStep(model: StepModel, sem: Semantics, opts: ImportOpti
     const tessellated = tessellatedItems(r, geometry);
     if (tessellated && !tessellated.readable) warn(`tessellated geometry with ${tessellated.type}, which isn't read; `
       + 'meshed by the backend', rep.id, 'info');
-    const read = tessellated?.readable ? readTessellated(r, geometry, (m, p) => warn(m, r.id(p))) : undefined;
+    const mm = mmOf(rep.id);
+    const read = tessellated?.readable ? readTessellated(r, geometry, (m, p) => warn(m, r.id(p)), undefined, mm)
+      : undefined;
     const exclude = new Set(items.filter((q) => q >= 0 && model.isInstanceOf(q, 'MAPPED_ITEM')));
     const positions = closure(file, [root], exclude);
     const dangling = danglingRefs(file, positions);
@@ -199,7 +209,7 @@ export function sceneFromStep(model: StepModel, sem: Semantics, opts: ImportOpti
       const c = r.attr(p, 'coordinates');
       const xs = c && (c.k === 'reals' || c.k === 'ints') ? Array.from(c.v as ArrayLike<number>) : undefined;
       if (xs && xs.length >= 2) for (let k = 0; k < 3; k++) {
-        const x = xs[k] ?? 0;
+        const x = (xs[k] ?? 0) * mm;
         if (x < b.lo[k]!) b.lo[k] = x;
         if (x > b.hi[k]!) b.hi[k] = x;
       }
@@ -251,8 +261,8 @@ export function sceneFromStep(model: StepModel, sem: Semantics, opts: ImportOpti
     let brepModel;
     if (!read) {
       const own = new Reader(model);
-      brepModel = stepBrep(own, geometry, { unit: mmOf(rep.id), angle: context?.planeAngleUnit?.factor ?? 1,
-        ...(context?.uncertainty !== undefined ? { uncertainty: context.uncertainty * 1000 / mmOf(rep.id) } : {}) },
+      brepModel = stepBrep(own, geometry, { length: mm, angle: context?.planeAngleUnit?.factor ?? 1,
+        ...(context?.uncertainty !== undefined ? { uncertainty: context.uncertainty * 1000 } : {}) },
       (message, severity) => warn(message, rep.id, severity)).brep;
       for (const x of own.diagnostics) warn(`B-rep model: ${x.message}`, x.id ?? rep.id, x.severity);
     }
@@ -266,7 +276,7 @@ export function sceneFromStep(model: StepModel, sem: Semantics, opts: ImportOpti
       } }),
       lods: read ? [{ mesh: read.mesh, from: 'source', ...accuracy(rep.id, root) }] : [],
       name: rep.name, sources: [src(rep.id)], properties: { representation: rep.types.join('+') },
-      unit: mmOf(rep.id), origin, ...(closed === undefined ? {} : { closed }),
+      origin, ...(closed === undefined ? {} : { closed }),
     };
     if (s.representations.get(rep.id)?.context?.lengthUnit === undefined) warn(
       'representation without a length unit; read as millimetres', rep.id);
@@ -354,7 +364,7 @@ export function sceneFromStep(model: StepModel, sem: Semantics, opts: ImportOpti
         const inv = math.invertAffine(b.transform);
         if (!inv) continue;
         target.set(tp, bp);
-        moves.set(tp, math.multiply(inv, t.transform));
+        moves.set(tp, rescaled(math.multiply(inv, t.transform), mmOf(b.representation), mmOf(t.representation)));
       }
     });
     const merged = [...target].filter(([, b]) => b !== null) as [number, number][];
@@ -419,7 +429,7 @@ export function sceneFromStep(model: StepModel, sem: Semantics, opts: ImportOpti
     for (const { representation, transform } of productRepresentations(s, i)) {
       const part = partOf.get(representation);
       if (part === undefined) continue;
-      const ref: Component['parts'][number] = { part, transform: math.multiply(math.scaling(mainMm), transform) };
+      const ref: Component['parts'][number] = { part, transform: rescaled(transform, mainMm, mmOf(representation)) };
       if (parts[part]!.properties.invisible) ref.visible = false;
       c.parts.push(ref);
     }
@@ -438,8 +448,7 @@ export function sceneFromStep(model: StepModel, sem: Semantics, opts: ImportOpti
   const childIndex = new Map<number, number>(); // occurrence index -> index in its parent's children
   s.occurrences.forEach((o, i) => {
     const parentMm = mmOf(s.products[o.parent]!.shapes[0]), childMm = mmOf(s.products[o.child]!.shapes[0]);
-    const t = math.multiply(math.multiply(math.scaling(parentMm), o.transform ?? math.identity()),
-      math.scaling(1 / childMm));
+    const t = rescaled(o.transform ?? math.identity(), parentMm, childMm);
     const props: Record<string, string> = { kind: o.kind };
     if (o.occurrenceId) props.occurrenceId = o.occurrenceId;
     if (o.referenceDesignator) props.referenceDesignator = o.referenceDesignator;
@@ -569,8 +578,7 @@ export function sceneFromStep(model: StepModel, sem: Semantics, opts: ImportOpti
   // The file's length unit, for exports that can name theirs (3MF): its first root product's main shape
   // representation's, else its first part's.
   const top = s.roots[0] !== undefined ? s.products[s.roots[0]]?.shapes[0] : undefined;
-  scene.sourceUnit = top !== undefined && s.representations.get(top)?.context?.lengthUnit ? mmOf(top)
-    : parts[0]?.unit ?? 1;
+  scene.sourceUnit = mmOf(top !== undefined && s.representations.get(top)?.context?.lengthUnit ? top : partRep[0]);
   // (A product with one shape and nothing else a part reference where it's placed: cad-scene's leafParts.)
   leafParts(scene);
   if (opts.dropDegenerate ?? true) dropSourceDegenerate(scene);

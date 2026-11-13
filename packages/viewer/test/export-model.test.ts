@@ -91,3 +91,33 @@ test('exportModel: STEP, its B-rep models (empty here), the meshes beside them b
     const hidden = (t: string) => (/INVISIBILITY\(\(([^)]*)\)\)/.exec(t)?.[1]?.split(',').length ?? 0);
     assert.ok(hidden(shown) > hidden(plain), `${hidden(shown)} against ${hidden(plain)}`);
   });
+
+test('exportModel: the unit asked for reaches every exporter, the format\'s default without it', async () => {
+  const s = meshed();
+  s.sourceUnit = 25.4;
+  const text = async (o: Partial<ExportRequest>) => bytes((await exportModel(s, at, ask(o))).chunks).toString('latin1');
+  // three.js: its top objects' matrices scale by 1 / unit (metres by default).
+  const scaleOf = (json: string) => {
+    const m = (JSON.parse(json) as { object: { children: { matrix: number[] }[] } }).object.children[0]!.matrix;
+    return Math.hypot(m[0]!, m[1]!, m[2]!);
+  };
+  assert.ok(Math.abs(scaleOf(await text({ format: 'threejs' })) - 1e-3) < 1e-12);
+  assert.ok(Math.abs(scaleOf(await text({ format: 'threejs', unit: 'cm' })) - 0.1) < 1e-12);
+  // STEP: the source's by default (inches), else the one asked for.
+  assert.match(await text({ format: 'step' }), /CONVERSION_BASED_UNIT\('INCH'/);
+  assert.match(await text({ format: 'step', unit: 'ft' }), /CONVERSION_BASED_UNIT\('FOOT'/);
+  assert.match(await text({ format: 'step', unit: 'mm' }), /SI_UNIT\(\.MILLI\.,\.METRE\.\)/);
+  // 3MF: the model's unit attribute; glTF: the top node's scale.
+  const { unzipSync, strFromU8 } = await import('fflate');
+  const model = async (o: Partial<ExportRequest>) => strFromU8(unzipSync((await exportModel(s, at,
+    ask({ format: '3mf', ...o }))).chunks.reduce((a: Buffer, c) => Buffer.concat([a, Buffer.from(c)]),
+    Buffer.alloc(0)))['3D/3dmodel.model']!);
+  assert.match(await model({}), /<model unit="inch"/);
+  assert.match(await model({ unit: 'm' }), /<model unit="meter"/);
+  const g = bytes((await exportModel(s, at, ask({ format: 'glb', compression: 'none', unit: 'cm' }))).chunks);
+  const json = JSON.parse(g.subarray(20, 20 + g.readUInt32LE(12)).toString()) as
+    { nodes: { matrix?: number[]; scale?: number[] }[]; scenes: { nodes: number[] }[] };
+  const top = json.nodes[json.scenes[0]!.nodes[0]!]!;
+  assert.ok(Math.abs((top.matrix ? Math.hypot(...top.matrix.slice(0, 3)) : top.scale?.[0] ?? 1) - 0.1) < 1e-7,
+    JSON.stringify(top));
+});

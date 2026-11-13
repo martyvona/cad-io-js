@@ -119,7 +119,7 @@ function onModel(name: string, d: BrepData, r: TessellationResult): number {
 async function alike(name: string, b: BrepBuilder, linearDeflection = 0.01) {
   const { native } = await both();
   const d = b.finish();
-  const r = await native.tessellate({ ...request(new BrepBuilder({ unit: 1 }), linearDeflection),
+  const r = await native.tessellate({ ...request(new BrepBuilder(), linearDeflection),
     data: new Uint8Array(d.buffer) });
   assert.ok(r.faces.length > 0, name);
   assert.ok(onModel(name, d, r) > 0, `${name}: nothing checked`);
@@ -165,14 +165,14 @@ test('kinds the test models lack, on their geometry and of the right areas: an e
     `${what}: ${x}, not ${want}`);
   {
     // An ellipse (a = 2, b = 1) as one closed edge against its curve (clockwise), used reversed (counter-clockwise).
-    const b = new BrepBuilder({ unit: 1 });
+    const b = new BrepBuilder();
     const e = b.addCurve({ kind: 'ellipse', position: XY, semiAxis1: 2, semiAxis2: 1 });
     sheet(b, b.addSurface({ kind: 'plane', position: XY }), [[e, [2, 0, 0], [2, 0, 0], false, true]]);
     near(area(await alike('ellipse', b)), 2 * Math.PI, 0.01, 'ellipse');
   }
   {
     // A frustum of a cone (radius 1 at z = 0, semi-angle 30 degrees) up to z = 1, bounded by its circles and a seam.
-    const b = new BrepBuilder({ unit: 1 });
+    const b = new BrepBuilder();
     const t = Math.tan(Math.PI / 6), R = 1 + t;
     const cone = b.addSurface({ kind: 'cone', position: XY, radius: 1, semiAngle: Math.PI / 6 });
     const low = b.addCurve({ kind: 'circle', position: at(0), radius: 1 });
@@ -184,7 +184,7 @@ test('kinds the test models lack, on their geometry and of the right areas: an e
   }
   {
     // A quarter disc bounded by a rational quadratic arc (exactly the circle).
-    const b = new BrepBuilder({ unit: 1 });
+    const b = new BrepBuilder();
     const arc = b.addCurve({ kind: 'bspline', degree: 2, knots: [0, 1], multiplicities: [3, 3],
       poles: [[1, 0, 0], [1, 1, 0], [0, 1, 0]], weights: [1, Math.SQRT1_2, 1], closed: false, selfIntersect: false,
       form: 'circular_arc' });
@@ -194,7 +194,7 @@ test('kinds the test models lack, on their geometry and of the right areas: an e
   }
   {
     // A bilinear B-spline surface of 3 x 2 poles, folded along x = 1; its u boundaries polylines.
-    const b = new BrepBuilder({ unit: 1 });
+    const b = new BrepBuilder();
     const pole = (i: number, j: number) => [i, j, i === 1 ? 0.5 : 0];
     const s = b.addSurface({ kind: 'bspline', uDegree: 1, vDegree: 1, uKnots: [0, 1, 2], vKnots: [0, 1],
       uMultiplicities: [2, 1, 2], vMultiplicities: [2, 2], poles: [0, 1, 2].map((i) => [0, 1].map((j) => pole(i, j))),
@@ -208,7 +208,7 @@ test('kinds the test models lack, on their geometry and of the right areas: an e
   {
     // A square on a plane facing -z (the face against its surface), its loop clockwise about +z; and a triangle whose
     // loop runs against its bound (three edges, so their order matters, not only their directions).
-    const b = new BrepBuilder({ unit: 1 });
+    const b = new BrepBuilder();
     const down = b.addSurface({ kind: 'plane', position: XY });
     const sq = [[0, 0, 0], [0, 1, 0], [1, 1, 0], [1, 0, 0]];
     const edges = sq.map((p, j): [number, number[], number[], boolean] => [line(b, p, sq[(j + 1) % 4]!), p,
@@ -236,7 +236,7 @@ test('kinds the test models lack, on their geometry and of the right areas: an e
   }
   {
     // A quarter of a cylinder of radius 1 and height 1 as a rational B-spline surface (quadratic arcs in u, exact).
-    const b = new BrepBuilder({ unit: 1 });
+    const b = new BrepBuilder();
     const w = Math.SQRT1_2, arc = [[1, 0], [1, 1], [0, 1]];
     const s = b.addSurface({ kind: 'bspline', uDegree: 2, vDegree: 1, uKnots: [0, 1], vKnots: [0, 1],
       uMultiplicities: [3, 3], vMultiplicities: [2, 2], poles: arc.map(([x, y]) => [0, 1].map((z) => [x!, y!, z])),
@@ -248,7 +248,7 @@ test('kinds the test models lack, on their geometry and of the right areas: an e
   }
   {
     // A cylinder about a tilted axis, its placement's directions orthonormal only to rounding (as a file's are).
-    const b = new BrepBuilder({ unit: 1 });
+    const b = new BrepBuilder();
     const z = [1, 2, 3].map((x) => x / Math.hypot(1, 2, 3)), x0 = [3, 0, -1].map((x) => x / Math.hypot(3, 0, -1));
     const position = { origin: [0.1, 0.2, 0.3], axis: z, xDir: x0 };
     const y = [z[1]! * x0[2]! - z[2]! * x0[1]!, z[2]! * x0[0]! - z[0]! * x0[2]!, z[0]! * x0[1]! - z[1]! * x0[0]!];
@@ -264,7 +264,7 @@ test('kinds the test models lack, on their geometry and of the right areas: an e
   {
     // A unit square on z = 0 whose last edge has no 3D curve, only a p-curve: a line in the plane's parameters (its u
     // and v are x and y), the edge running against it.
-    const b = new BrepBuilder({ unit: 1 });
+    const b = new BrepBuilder();
     const plane = b.addSurface({ kind: 'plane', position: XY });
     const sq = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]];
     const vs = sq.map((point) => b.addVertex({ point }));
@@ -285,7 +285,7 @@ test('kinds the test models lack, on their geometry and of the right areas: an e
   for (const kind of ['extrusion', 'revolution'] as const) {
     // A quarter of a cylinder of radius 1 and height 2: a circle extruded by 2 along z, or a line of length 2
     // revolved about z; bounded by quarter arcs at z = 0 and 2 and the lines between them.
-    const b = new BrepBuilder({ unit: 1 });
+    const b = new BrepBuilder();
     const surface = kind === 'extrusion'
       ? b.addSurface({ kind, curve: b.addCurve({ kind: 'circle', position: XY, radius: 1 }), direction: [0, 0, 1],
         magnitude: 2 })
@@ -315,7 +315,7 @@ test('kinds truck has no geometry for leave their faces out, said; items not bod
   { skip }, async () => {
     const { native } = await both();
     // A square whose first edge's curve is trimmed (truck has no trimmed curve), beside a box.
-    const b = new BrepBuilder({ unit: 1 });
+    const b = new BrepBuilder();
     const c = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]];
     const vs = c.map((point) => b.addVertex({ point }));
     const line = (p: number[], q: number[]) => b.addCurve({ kind: 'line', point: p, direction: [q[0]! - p[0]!,
@@ -344,14 +344,14 @@ test('kinds truck has no geometry for leave their faces out, said; items not bod
 
 test('ids up to 2^32 - 1 as they are, a face or edge without one as null', { skip }, async () => {
   const { native } = await both();
-  const b = new BrepBuilder({ unit: 1 });
+  const b = new BrepBuilder();
   const base = 2 ** 32 - 30;
   b.addItem({ kind: 'body', ref: b.addBody({ kind: 'solid', members: [{ ref: box(b, [1, 1, 1], [0, 0, 0], base),
     sense: true }] }) });
   const d = openBrep(b.finish().buffer.slice(0));
   d.face.id[0] = 0;
   d.edge.id[0] = 0;
-  const r = await native.tessellate({ ...request(new BrepBuilder({ unit: 1 })), data: new Uint8Array(d.buffer) });
+  const r = await native.tessellate({ ...request(new BrepBuilder()), data: new Uint8Array(d.buffer) });
   assert.deepEqual([...faces(r).keys()].sort(), [null, ...[22, 23, 24, 25, 26].map((k) => base + k)].sort());
   assert.deepEqual([...new Set(r.edges!.map((e) => e.entityId))].sort(),
     [null, ...Array.from({ length: 11 }, (_, k) => base + 10 + k)].sort());
@@ -361,7 +361,7 @@ test('a buffer that isn\'t a model is refused with an error', { skip }, async ()
   const { native } = await both();
   const r = await native.tessellate({ ...request(MODELS.cube()), data: new Uint8Array(64) });
   assert.deepEqual([r.indices.length, r.diagnostics.map((d) => [d.severity, d.message])],
-    [0, [['error', 'truck: not a cad-brep buffer of this format (CBR3)']]]);
+    [0, [['error', 'truck: not a cad-brep buffer of this format (CBR4)']]]);
 });
 
 test('parabola and hyperbola edges on their curves (truck-stepio converts both wrongly), their '
@@ -378,7 +378,7 @@ test('parabola and hyperbola edges on their curves (truck-stepio converts both w
       area: 2 * Math.sinh(1) * Math.cosh(1) - (Math.sinh(1) * Math.cosh(1) + Math.asinh(Math.sinh(1))) },
   ];
   for (const k of cases) {
-    const b = new BrepBuilder({ unit: 1 });
+    const b = new BrepBuilder();
     const [p, q] = [k.at(-1), k.at(1)].map((x) => b.addVertex({ point: [x[0]!, x[1]!, 0] }));
     const chord = b.addCurve({ kind: 'line', point: [...k.at(1), 0], direction: [0, -1, 0], magnitude: 1 });
     const arc = b.addEdge({ curve: b.addCurve(k.curve), start: p!, end: q!, sameSense: true, id: 1 });

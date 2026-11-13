@@ -13,8 +13,8 @@ import { differences, walk } from './compare.ts';
 import { readBack } from './readback.ts';
 
 /** A model written: its instances by id, the root, the diagnostics. */
-function written(d: BrepData) {
-  const w = stepPartBytes(d);
+function written(d: BrepData, unit = 1) {
+  const w = stepPartBytes(d, { unit });
   const byId = new Map<number, Instance>();
   for (const inst of parseStep(w.data).instances()) byId.set(inst.id, inst);
   return { ...w, byId, text: new TextDecoder().decode(w.data) };
@@ -45,7 +45,7 @@ const bs = (dim: 2 | 3, rational: boolean, id?: number): Curve => ({ kind: 'bspl
   ...(id ? { id } : {}) });
 
 test('3D curves: each kind in Part 42\'s attribute order', () => {
-  const b = new BrepBuilder({ unit: 1 });
+  const b = new BrepBuilder();
   const curves: Curve[] = [
     { kind: 'line', point: [0, 0, 0], direction: [0, 0.6, 0.8], magnitude: 2.5, id: 11 },
     { kind: 'circle', position: P, radius: 2, id: 12 },
@@ -91,7 +91,7 @@ test('3D curves: each kind in Part 42\'s attribute order', () => {
 });
 
 test('2D curves as p-curves: each kind, through a PCURVE in the parameter space\'s context', () => {
-  const b = new BrepBuilder({ unit: 1 });
+  const b = new BrepBuilder();
   const P2 = { origin: [1, 2], xDir: [0, 1] };
   const curves: Curve[] = [
     { kind: 'line', point: [0, 0], direction: [1, 0], magnitude: 1, id: 31 },
@@ -149,7 +149,7 @@ test('2D curves as p-curves: each kind, through a PCURVE in the parameter space\
 });
 
 test('surfaces: each kind in Part 42\'s attribute order', () => {
-  const b = new BrepBuilder({ unit: 1 });
+  const b = new BrepBuilder();
   const line = b.addCurve({ kind: 'line', point: [0, 0, 0], direction: [1, 0, 0], magnitude: 1, id: 1 });
   const ellipse = b.addCurve({ kind: 'ellipse', position: P, semiAxis1: 3, semiAxis2: 1, id: 2 });
   const spline = b.addCurve(bs(3, false, 3));
@@ -238,7 +238,7 @@ test('a solid: vertices, edges, oriented edges, loops, faces, a closed shell, an
 });
 
 test('a void: BREP_WITH_VOIDS, its void an ORIENTED_CLOSED_SHELL; inches as a conversion-based unit', () => {
-  const w = written(withVoid().finish());
+  const w = written(withVoid().finish(), 25.4);
   const solid = [...w.byId.values()].find((x) => 'type' in x && x.type === 'BREP_WITH_VOIDS')!;
   const keep = new Set([...w.byId.values()].filter((x) => 'type' in x && x.type === 'CLOSED_SHELL').map((x) => x.id));
   const [outer, inner] = [...keep];
@@ -255,9 +255,9 @@ test('a void: BREP_WITH_VOIDS, its void an ORIENTED_CLOSED_SHELL; inches as a co
 
 test('length units: SI prefixes where the unit is one, else conversion-based', () => {
   const unitOf = (mm: number) => {
-    const b = new BrepBuilder({ unit: mm });
+    const b = new BrepBuilder();
     b.addItem({ kind: 'point', point: [0, 0, 0] });
-    const w = written(b.finish());
+    const w = written(b.finish(), mm);
     const root = w.byId.get(w.rootId)!;
     const ctxId = ((root as { attrs: Value[] }).attrs[2] as { v: number }).v;
     const ctx = w.byId.get(ctxId) as { parts: { attrs: Value[] }[] };
@@ -344,7 +344,7 @@ test('ADVANCED_FACE only where Part 42 allows it, else FACE_SURFACE', () => {
   /** A square face on a plane whose first side's curve is `side`; its surface `surface` if given. */
   const square = (side: (b: BrepBuilder) => number, surface?: (b: BrepBuilder, plane: number) => number,
     pcurve?: boolean) => {
-    const b = new BrepBuilder({ unit: 1 });
+    const b = new BrepBuilder();
     const c = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]];
     const vs = c.map((point) => b.addVertex({ point }));
     const first = side(b);
@@ -393,7 +393,7 @@ test('ADVANCED_FACE only where Part 42 allows it, else FACE_SURFACE', () => {
 
 test('cases the fixtures lack: two surfaces\' p-curves, edges against their curves, inner boundaries, forward voids, '
   + 'reversed wire members, curves with points, faces mixing edges with and without vertices', async () => {
-  const b = new BrepBuilder({ unit: 1 });
+  const b = new BrepBuilder();
   const v = [[0, 0, 0], [1, 0, 0]].map((point, k) => b.addVertex({ point, id: 1 + k }));
   // Edge 3 runs against its line (sense false), shared by faces on two planes, a p-curve on each.
   const line = b.addCurve({ kind: 'line', point: [0, 0, 0], direction: [1, 0, 0], magnitude: 1, id: 10 });
@@ -448,7 +448,7 @@ test('cases the fixtures lack: two surfaces\' p-curves, edges against their curv
     ['[1].ref.members[1].ref.faces[0].face', '[1].ref.members[1].sense']);
 
   // Curves and points alone: a wireframe's curve set (points are its elements too).
-  const c = new BrepBuilder({ unit: 1 });
+  const c = new BrepBuilder();
   c.addItem({ kind: 'curve', ref: c.addCurve({ kind: 'line', point: [0, 0, 0], direction: [1, 0, 0], magnitude: 1 }) });
   c.addItem({ kind: 'point', point: [1, 2, 3], id: 9 });
   const wc = written(c.finish());
@@ -459,7 +459,7 @@ test('cases the fixtures lack: two surfaces\' p-curves, edges against their curv
 });
 
 test('an edge with p-curves on two faces and no 3D curve: a surface curve with its curve unset', async () => {
-  const b = new BrepBuilder({ unit: 1 });
+  const b = new BrepBuilder();
   const v = [[0, 0, 0], [1, 0, 0]].map((point, k) => b.addVertex({ point, id: 1 + k }));
   const e = b.addEdge({ start: v[0]!, end: v[1]!, sameSense: true, id: 3 });
   const p1 = b.addCurve({ kind: 'line', point: [0, 0], direction: [1, 0], magnitude: 1, id: 11 });
@@ -483,7 +483,7 @@ test('an edge with p-curves on two faces and no 3D curve: a surface curve with i
 });
 
 test('geometry beside bodies: each run of it a geometric set (a curve set for curves and points), in order', () => {
-  const b = new BrepBuilder({ unit: 1 });
+  const b = new BrepBuilder();
   const line = (y: number) => b.addCurve({ kind: 'line', point: [0, y, 0], direction: [1, 0, 0], magnitude: 1,
     id: 10 + y });
   const plane = b.addSurface({ kind: 'plane', position: P, id: 20 });
@@ -504,7 +504,7 @@ test('geometry beside bodies: each run of it a geometric set (a curve set for cu
 });
 
 test('ids: kept, a repeated one renumbered, rows without one given new ones after the largest', () => {
-  const b = new BrepBuilder({ unit: 1 });
+  const b = new BrepBuilder();
   b.addCurve({ kind: 'line', point: [0, 0, 0], direction: [1, 0, 0], magnitude: 1, id: 7 });
   b.addCurve({ kind: 'line', point: [0, 1, 0], direction: [1, 0, 0], magnitude: 1, id: 7 });
   b.addCurve({ kind: 'line', point: [0, 2, 0], direction: [1, 0, 0], magnitude: 1 });
@@ -526,7 +526,7 @@ test('ids: kept, a repeated one renumbered, rows without one given new ones afte
 });
 
 test('what STEP can\'t hold: diagnostics, and what can\'t be written left out', () => {
-  const b = new BrepBuilder({ unit: 1 });
+  const b = new BrepBuilder();
   const v = [b.addVertex({ point: [0, 0, 0], tolerance: 1e-3, id: 1 }), b.addVertex({ point: [1, 0, 0], id: 2 })];
   const line = b.addCurve({ kind: 'line', point: [0, 0, 0], direction: [1, 0, 0], magnitude: 1 });
   const e = b.addEdge({ curve: line, start: v[0]!, end: v[1]!, sameSense: true, id: 3 });
@@ -560,7 +560,7 @@ test('what STEP can\'t hold: diagnostics, and what can\'t be written left out', 
   assert.match(render(w, 7, new Set([3, 4])),
     /^FACE_SURFACE\('',\(FACE_OUTER_BOUND\('',EDGE_LOOP\(.*\),\.F\.\)\),PLANE\(.*\),\.F\.\)$/);
   // An edge with one vertex: the other unset.
-  const b2 = new BrepBuilder({ unit: 1 });
+  const b2 = new BrepBuilder();
   const v0 = b2.addVertex({ point: [0, 0, 0], id: 1 });
   const l = b2.addCurve({ kind: 'line', point: [0, 0, 0], direction: [1, 0, 0], magnitude: 1 });
   b2.addBody({ kind: 'wire', members: [{ ref: b2.addEdge({ curve: l, start: v0, sameSense: true, id: 2 }),
@@ -665,7 +665,7 @@ test("poly loops' corners: a vertex of edges too its VERTEX_POINT's point, a cor
   + "vertex's id; shared by the loops, read back shared", async () => {
   // A square face of edges (vertices 1-4) and two triangles of poly loops beside it on its corners 1 and 2, sharing
   // them and a corner of no edge (9); the triangles first in the shell, so read before the edges' VERTEX_POINTs.
-  const b = new BrepBuilder({ unit: 1 });
+  const b = new BrepBuilder();
   const corners = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]];
   const vs = corners.map((point, k) => b.addVertex({ point, id: 1 + k }));
   const coedges = corners.map((p, k) => ({ edge: b.addEdge({ curve: b.addCurve({ kind: 'line', point: p,
@@ -705,7 +705,7 @@ test("poly loops' corners: a vertex of edges too its VERTEX_POINT's point, a cor
 test('degenerate edges left out of their loops (STEP has none), a loop of nothing else a VERTEX_LOOP', async () => {
   // A sphere's upper half: the equator (edge 11, vertex 1) and the pole as a loop of one degenerate edge (12 at
   // vertex 2); a cone's side with a degenerate apex among its edges (cad-brep's cone).
-  const b = new BrepBuilder({ unit: 1 });
+  const b = new BrepBuilder();
   const position = { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] };
   const sphere = b.addSurface({ kind: 'sphere', position, radius: 1 });
   const v1 = b.addVertex({ point: [1, 0, 0], id: 1 }), v2 = b.addVertex({ point: [0, 0, 1], id: 2 });
@@ -734,4 +734,215 @@ test('degenerate edges left out of their loops (STEP has none), a loop of nothin
   const k = written(cone().finish());
   const loops = [...k.text.matchAll(/EDGE_LOOP\('',\(([^)]*)\)\)/g)].map((m) => m[1]!.split(',').length);
   assert.deepEqual(loops, [3]);
+});
+
+// -- The unit written. The expectation is the standard's: which attributes are lengths, by entity (Part 42), and a
+// p-curve's coordinates scaled as its surface's parameters are (a plane's u and v, a cylinder's and cone's v), not the
+// writer's tables.
+
+/** Every 2D kind as p-curves on `surface`'s face: each an edge without vertices (a curve-bounded face's loops). */
+function pcurvesOn(b: BrepBuilder, surface: number, rows: number[], line3d: number) {
+  const loops = rows.map((p) => ({ kind: 'edge' as const, bound: 'unknown' as const, sense: true,
+    coedges: [{ edge: b.addEdge({ curve: line3d, sameSense: true }), orientation: 'forward' as const, pcurve: p }] }));
+  b.addItem({ kind: 'face', ref: b.addFace({ surface, sameSense: true, loops }) });
+}
+
+/** A plane, a cylinder, a cone and a sphere, each with p-curves: on the plane every 2D kind; on the cylinder and cone
+ * all but conics and offsets (no exact form under their unequal scale), the plane's line and B-spline rows used there
+ * too; on the sphere conics and an offset (its scale uniform, and 1). */
+function pcurveModel(withConics = false): BrepData {
+  const b = new BrepBuilder({ uncertainty: 1e-5 });
+  const P2 = { origin: [1, 2], xDir: [0.6, 0.8] };
+  const at = (c: Curve) => b.addCurve(c);
+  const line = at({ kind: 'line', point: [1, 2], direction: [0.6, 0.8], magnitude: 2 });
+  const spline = at(bs(2, false)), rational = at(bs(2, true));
+  const poly = at({ kind: 'polyline', points: [[0, 0], [1, 1], [3, 1]] });
+  const trimmed = at({ kind: 'trimmed', basis: line, trim1: { parameter: 0.5, point: [1.6, 2.8] },
+    trim2: { parameter: 2 }, sense: true, preference: 'parameter' });
+  const composite = at({ kind: 'composite', segments: [{ curve: spline, sameSense: true,
+    transition: 'continuous' }], selfIntersect: null });
+  const circle = at({ kind: 'circle', position: P2, radius: 1.5 });
+  const conics = [circle, at({ kind: 'ellipse', position: P2, semiAxis1: 2, semiAxis2: 1 }),
+    at({ kind: 'hyperbola', position: P2, semiAxis: 1, semiImagAxis: 3 }),
+    at({ kind: 'parabola', position: P2, focalDist: -0.5 }),
+    at({ kind: 'offset', basis: spline, distance: 0.25, selfIntersect: false }),
+    at({ kind: 'trimmed', basis: circle, trim1: { parameter: 0 }, trim2: { parameter: 1, point: [1, 3.5] },
+      sense: false, preference: 'unspecified' })];
+  const plain = [line, spline, rational, poly, trimmed, composite];
+  const line3d = at({ kind: 'line', point: [0, 0, 0], direction: [1, 0, 0], magnitude: 1 });
+  const P = { origin: [1, 2, 3], axis: [0, 0, 1], xDir: [1, 0, 0] };
+  pcurvesOn(b, b.addSurface({ kind: 'plane', position: P }), [...plain, ...conics], line3d);
+  const cyl = b.addSurface({ kind: 'cylinder', position: P, radius: 2 });
+  pcurvesOn(b, cyl, [...plain, ...(withConics ? conics : [])], line3d);
+  pcurvesOn(b, b.addSurface({ kind: 'cone', position: P, radius: 1, semiAngle: 0.3 }), [line, spline], line3d);
+  // A sphere's parameters are angles (no length): its conics' and offsets' sizes as they are, in any unit.
+  const onSphere = [at({ kind: 'circle', position: P2, radius: 0.5 }), at({ kind: 'ellipse', position: P2,
+    semiAxis1: 0.4, semiAxis2: 0.2 }), at({ kind: 'offset', basis: at(bs(2, false)), distance: 0.1,
+    selfIntersect: false })];
+  pcurvesOn(b, b.addSurface({ kind: 'sphere', position: P, radius: 5 }), onSphere, line3d);
+  // A trim of the cylinder: u an angle, v a length; and of the plane: both lengths.
+  b.addItem({ kind: 'surface', ref: b.addSurface({ kind: 'rectangularTrimmed', basis: cyl, u1: 0.5, u2: 2, v1: -1,
+    v2: 3, uSense: true, vSense: true }) });
+  b.addItem({ kind: 'surface', ref: b.addSurface({ kind: 'rectangularTrimmed', basis: 0, u1: -1, u2: 2, v1: -3,
+    v2: 4, uSense: true, vSense: false }) });
+  return b.finish();
+}
+
+type Div = readonly [number, number];
+/**
+ * The second file is the first written in a unit of `u` millimetres: walked from the roots side by side, every real
+ * as the standard makes it (lengths divided by `u`, 2D coordinates by their surface's divisors, the rest the same);
+ * representation contexts (their units) left out. Returns the reals compared.
+ */
+function sameButUnit(a: Written, b: Written, u: number): number {
+  const typeOf = (w: Written, id: number) => { const i = w.byId.get(id)!; return 'type' in i ? i.type : ''; };
+  const attrs = (w: Written, id: number) => { const i = w.byId.get(id)!; return 'type' in i ? i.attrs : []; };
+  // A surface's divisors of (u, v) in the first file.
+  // (Spheres and tori: angles, divisors 1.)
+  const divisors = (id: number): Div => {
+    const t = typeOf(a, id);
+    if (t === 'PLANE') return [u, u];
+    if (t === 'CYLINDRICAL_SURFACE' || t === 'CONICAL_SURFACE') return [1, u];
+    if (t === 'RECTANGULAR_TRIMMED_SURFACE' || t === 'OFFSET_SURFACE') {
+      return divisors((attrs(a, id)[1] as { v: number }).v);
+    }
+    return [1, 1];
+  };
+  const LENGTHS: Record<string, number[]> = { CIRCLE: [2], ELLIPSE: [2, 3], HYPERBOLA: [2, 3], PARABOLA: [2],
+    CYLINDRICAL_SURFACE: [2], CONICAL_SURFACE: [2], SPHERICAL_SURFACE: [2], TOROIDAL_SURFACE: [2, 3],
+    DEGENERATE_TOROIDAL_SURFACE: [2, 3], OFFSET_SURFACE: [2], OFFSET_CURVE_3D: [2], OFFSET_CURVE_2D: [2],
+    VECTOR: [2], UNCERTAINTY_MEASURE_WITH_UNIT: [0] };
+  let compared = 0;
+  const seen = new Set<string>();
+  const real = (x: number, y: number, d: number, at: string) => {
+    compared++;
+    assert.ok(Math.abs(y - x / d) <= 1e-12 * Math.max(1, Math.abs(x / d)), `${at}: ${y}, expected ${x} / ${d}`);
+  };
+  const reals = (v: Value) => v.k === 'reals' ? Array.from(v.v)
+    : v.k === 'list' ? v.v.map((x) => (x as { v: number }).v) : [];
+  const walkPair = (x: number, y: number, two: Div | undefined) => {
+    const key = `${x}:${y}:${two}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    const ia = a.byId.get(x)!, ib = b.byId.get(y)!;
+    if ('parts' in ia || 'parts' in ib) {
+      assert.ok('parts' in ia && 'parts' in ib, `#${x}, #${y}: complex in one only`);
+      if (ia.parts.some((p) => /CONTEXT|UNIT/.test(p.type))) return;
+      assert.deepEqual(ib.parts.map((p) => p.type), ia.parts.map((p) => p.type), `#${x}`);
+      ia.parts.forEach((p, k) => values(p.type, p.attrs, ib.parts[k]!.attrs, two, `#${x} ${p.type}`));
+      return;
+    }
+    assert.equal(ib.type, ia.type, `#${x} -> #${y}`);
+    values(ia.type, ia.attrs, ib.attrs, two, `#${x} ${ia.type}`);
+  };
+  const values = (type: string, va: Value[], vb: Value[], two: Div | undefined, at: string) => {
+    assert.equal(vb.length, va.length, at);
+    // A 2D line's vector: its direction times its magnitude, each coordinate divided.
+    if (type === 'LINE' && two) {
+      const vec = (w: Written, id: number) => {
+        const [, d, m] = attrs(w, id);
+        return reals(attrs(w, (d as { v: number }).v)[1]!).map((c) => c * (m as { v: number }).v);
+      };
+      walkPair((va[1] as { v: number }).v, (vb[1] as { v: number }).v, two);
+      const [p, q] = [vec(a, (va[2] as { v: number }).v), vec(b, (vb[2] as { v: number }).v)];
+      p.forEach((c, k) => real(c, q[k]!, two[k]!, `${at} vector`));
+      return;
+    }
+    va.forEach((v, k) => {
+      const w = vb[k]!;
+      if (type === 'CARTESIAN_POINT' && k === 1) {
+        const p = reals(v), q = reals(w);
+        assert.equal(q.length, p.length, at);
+        if (p.length === 2) assert.ok(two, `${at}: a 2D point outside a p-curve`);
+        p.forEach((c, j) => real(c, q[j]!, p.length === 2 ? two![j]! : u, at));
+        return;
+      }
+      if (type === 'RECTANGULAR_TRIMMED_SURFACE' && k >= 2 && k <= 5) {
+        const [du, dv] = divisors((va[1] as { v: number }).v);
+        return real((v as { v: number }).v, (w as { v: number }).v, k <= 3 ? du : dv, `${at} [${k}]`);
+      }
+      const len = LENGTHS[type]?.includes(k);
+      const sub = (p: Value, q: Value) => {
+        assert.equal(q.k, p.k, `${at} [${k}]`);
+        if (p.k === 'real' || (p.k === 'typed' && (p.v.k === 'real'))) {
+          const x = p.k === 'real' ? p.v : (p.v as { v: number }).v;
+          const yv = q.k === 'real' ? q.v : (q as { v: { v: number } }).v.v;
+          if (len) real(x, yv, two && type !== 'VECTOR' ? two[0] : u, `${at} [${k}]`);
+          else { compared++; assert.equal(yv, x, `${at} [${k}]`); }
+        } else if (p.k === 'reals') {
+          assert.deepEqual(Array.from((q as { v: number[] }).v), Array.from(p.v), `${at} [${k}]`);
+        } else if (p.k === 'ref') {
+          // Into a p-curve's geometry: its surface's divisors.
+          const into = type === 'PCURVE' && k === 2 ? divisors((va[1] as { v: number }).v) : two;
+          if (type === 'DEFINITIONAL_REPRESENTATION' && k === 2) return;
+          walkPair(p.v, (q as { v: number }).v, into);
+        } else if (p.k === 'refs') {
+          const into = two;
+          Array.from(p.v).forEach((r, j) => walkPair(r, (q as { v: number[] }).v[j]!, into));
+        } else if (p.k === 'list') {
+          assert.equal((q as { v: Value[] }).v.length, p.v.length, `${at} [${k}]`);
+          p.v.forEach((e, j) => sub(e, (q as { v: Value[] }).v[j]!));
+        } else assert.deepEqual(q, p, `${at} [${k}]`);
+      };
+      sub(v, w);
+    });
+  };
+  walkPair(a.rootId, b.rootId, undefined);
+  return compared;
+}
+
+test('written in a unit: every length divided by it, p-curves as their surfaces\' parameters, nothing else', () => {
+  for (const [name, d] of Object.entries({ pcurves: pcurveModel(), everyKind: everyKind().finish(),
+    cube: cube().finish(), withVoid: withVoid().finish(), seamCylinder: seamCylinder().finish(),
+    spheres: spheres().finish(), cone: cone().finish(), facetedAndWire: facetedAndWire().finish() })) {
+    const mm = written(d);
+    for (const u of [10, 25.4, 1000]) {
+      const w = written(d, u);
+      assert.deepEqual(w.diagnostics.filter((x) => x.severity !== 'info'), mm.diagnostics.filter((x) =>
+        x.severity !== 'info'), `${name} ${u}`);
+      assert.ok(sameButUnit(mm, w, u) > 0, `${name} ${u}: reals compared`);
+      // The context's uncertainty (left out of the walk with the context): in the unit too.
+      const uncertainty = (x: Written) => [...x.byId.values()].flatMap((i) => 'type' in i
+        && i.type === 'UNCERTAINTY_MEASURE_WITH_UNIT' ? [((i.attrs[0] as { v: { v: number } }).v.v)] : []);
+      assert.deepEqual(uncertainty(w), uncertainty(mm).map((x) => x / u), `${name} ${u}: uncertainty`);
+    }
+  }
+});
+
+test('in a unit, a 2D row used on surfaces of two scales is written once for each, the first under its id', () => {
+  const d = pcurveModel();
+  const count = (w: Written, type: string) => [...w.byId.values()].filter((x) => 'type' in x && x.type === type)
+    .length;
+  const mm = written(d), inch = written(d, 25.4);
+  // The 2D line and B-splines used on the plane and on the cylinder or cone: one row each in millimetres; in inches
+  // one for the plane's scale and one for the cylinder's and cone's (the same): a copy each of the line, the B-spline
+  // and the rational B-spline.
+  assert.equal(count(inch, 'B_SPLINE_CURVE_WITH_KNOTS') - count(mm, 'B_SPLINE_CURVE_WITH_KNOTS'), 1);
+  assert.equal(count(inch, 'LINE') - count(mm, 'LINE'), 1);
+  assert.equal([...inch.byId.values()].filter((x) => 'parts' in x && x.parts.some((p) =>
+    p.type === 'RATIONAL_B_SPLINE_CURVE')).length - [...mm.byId.values()].filter((x) => 'parts' in x
+    && x.parts.some((p) => p.type === 'RATIONAL_B_SPLINE_CURVE')).length, 1);
+  // The copies' new ids name their row's source id (none here: new ids are the writer's).
+  assert.equal(inch.sourceIds.size, 0);
+  const ided = new BrepBuilder();
+  const row = ided.addCurve({ kind: 'line', point: [0, 0], direction: [1, 0], magnitude: 1, id: 900 });
+  const l3 = ided.addCurve({ kind: 'line', point: [0, 0, 0], direction: [1, 0, 0], magnitude: 1 });
+  pcurvesOn(ided, ided.addSurface({ kind: 'plane', position: P }), [row], l3);
+  pcurvesOn(ided, ided.addSurface({ kind: 'cylinder', position: P, radius: 1 }), [row], l3);
+  const w = written(ided.finish(), 25.4);
+  assert.ok(w.byId.has(900));
+  assert.deepEqual([...w.sourceIds.values()], [900]);
+});
+
+test('in a unit, a conic or offset p-curve on a cylinder (unequal scale) is left out, said; in millimetres kept',
+  () => {
+  const d = pcurveModel(true);
+  const pcurves = (w: Written) => [...w.byId.values()].filter((x) => 'type' in x && x.type === 'PCURVE').length;
+  const mm = written(d), inch = written(d, 25.4);
+  assert.deepEqual(mm.diagnostics.filter((x) => /unequally/.test(x.message)), []);
+  // The cylinder's six conics and offsets (the trimmed circle among them).
+  assert.equal(pcurves(mm) - pcurves(inch), 6);
+  assert.deepEqual(inch.diagnostics.filter((x) => /unequally/.test(x.message)).map((x) => x.message),
+    ['6 x a conic or offset p-curve on a surface whose parameters scale unequally to the unit written (left out: no '
+      + 'exact form)']);
 });

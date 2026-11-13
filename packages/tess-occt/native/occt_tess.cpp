@@ -694,7 +694,7 @@ int occt_tessellate_model(const uint8_t* data, int len, double linDefl, double a
     std::string meshDiag;
     meshShape(shape, faceIds, edgeIds, loose, linDefl, angDefl, ox, oy, oz, meshDiag);
     g.diag = "{\"native\":1,\"modelFaces\":" + std::to_string(b.faceIds.size()) + meshDiag + ",\"builder\":" + builder
-             + ",\"unitMm\":" + std::to_string(b.unit) + "}";
+             + "}";
     return 0;
   }
   catch (const Standard_Failure& e)

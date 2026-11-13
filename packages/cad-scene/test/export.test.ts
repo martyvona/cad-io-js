@@ -29,8 +29,8 @@ const bolt = (): Mesh => ({
 function scene(): Scene {
   const occ = (component: number, t: Mat4, name?: string) => (
     { component, transform: t, sources: [], properties: {}, ...(name ? { name } : {}) });
-  const brep = (name: string, unit: number) => (
-    { name, sources: [], properties: {}, unit, origin: [0, 0, 0] as [number, number, number], lods: [],
+  const brep = (name: string) => (
+    { name, sources: [], properties: {}, origin: [0, 0, 0] as [number, number, number], lods: [],
     brep: { format: 'step' as const, model: tagged() } });
   return {
     unit: 'millimetre',
@@ -45,12 +45,12 @@ function scene(): Scene {
     ],
     roots: [occ(0, identity())],
     parts: [
-      { ...brep('plate', 25.4), material: 1, faceMaterials: [{ face: 7, material: 2 }] },
-      brep('bolt', 1),
-      { name: 'wire', sources: [], properties: {}, unit: 1, origin: [5, 0, 0], lods: [{ from: 'source', mesh: {
+      { ...brep('plate'), material: 1, faceMaterials: [{ face: 7, material: 2 }] },
+      brep('bolt'),
+      { name: 'wire', sources: [], properties: {}, origin: [5, 0, 0], lods: [{ from: 'source', mesh: {
         origin: [5, 0, 0], positions: new Float32Array(0), indices: new Uint32Array(0), faces: [],
         curvePositions: new Float32Array(6), curves: [{ source: 9, start: 0, count: 2 }] } }] },
-      brep('failed', 1),
+      brep('failed'),
     ],
     materials: [0, 1, 2, 3].map(
       (i) => ({ color: [[1, 0, 0], [0, 1, 0], [0, 0, 1], [1, 1, 1]][i] as [number, number, number], opacity: 1,
@@ -143,7 +143,7 @@ test('exportView: edges and curves on request', () => {
 
 test('exportView: a mesh part without faces is one group; a component inside itself', () => {
   const s = scene();
-  s.parts[1] = { name: 'bolt', sources: [], properties: {}, unit: 1, origin: [0, 0, 0], material: 0,
+  s.parts[1] = { name: 'bolt', sources: [], properties: {}, origin: [0, 0, 0], material: 0,
     lods: [{ from: 'source', mesh: { ...bolt(), faces: [] } }] };
   s.components[2]!.children.push({ component: 1, transform: identity(), sources: [], properties: {} }); // 1 -> 2 -> 1
   const v = viewOf(s, new Map([[0, plate()]]));

@@ -30,7 +30,7 @@ const wire = (): Mesh => ({
 export function scene(): Scene {
   const occ = (component: number, t: Mat4, name?: string) => ({ component, transform: t,
     sources: [{ format: 'step', id: 100 + component }], properties: {}, ...(name ? { name } : {}) });
-  const part = (name: string) => ({ name, sources: [{ format: 'step', id: 50 }], properties: { pn: 'X-1' }, unit: 1,
+  const part = (name: string) => ({ name, sources: [{ format: 'step', id: 50 }], properties: { pn: 'X-1' },
     origin: [0, 0, 0] as [number, number, number], lods: [] });
   const s: Scene = {
     unit: 'millimetre',

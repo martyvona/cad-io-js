@@ -3283,7 +3283,7 @@ await check('transforms', async () => {
     ui.gui.controllersRecursive().find((c) => c._name === 'Export...').$button.click();
     const e = await wait(() => document.querySelector('dialog.cv-dialog[open]'));
     const format = e.querySelector('select[data-key=format]');
-    const warning = e.querySelector('p.warning');
+    const warning = e.querySelector('p.warning[data-key=transformsLost]');
     const warned = {};
     for (const f of ['glb', 'gltf', 'threejs', '3mf']) {
       format.value = f;
@@ -5345,8 +5345,9 @@ await check('export', async () => {
         close: async () => {} }) };
     };
     const waitFor = async (f) => { for (let i = 0; i < 600; i++) { const x = f(); if (x) return x; await frame(); } };
-    // Export... with these choices (the format, checkboxes by their key, compression), then the .bin's dialog.
-    const run = async (format, checks = {}, compression, cancel) => {
+    // Export... with these choices (the format, checkboxes by their key, compression, the unit), then the .bin's
+    // dialog; the dialog's warnings shown as it was left.
+    const run = async (format, checks = {}, compression, cancel, unit) => {
       files.length = 0;
       const done = exp.getValue().call(exp.object);
       const d = await waitFor(() => document.querySelector('dialog.cv-dialog'));
@@ -5359,6 +5360,7 @@ await check('export', async () => {
       };
       choose('format', format);
       if (compression) choose('compression', compression);
+      if (unit) choose('unit', unit);
       for (const [k, v] of Object.entries(checks)) {
         const box = d.querySelector('input[data-key=' + k + ']');
         box.checked = v;
@@ -5366,6 +5368,8 @@ await check('export', async () => {
       }
       const shownBoxes = [...d.querySelectorAll('label.check')].filter((l) => !l.hidden)
         .map((l) => l.querySelector('input').dataset.key);
+      const warning = [...d.querySelectorAll('p.warning')].filter((p) => !p.hidden).map((p) => p.textContent)
+        .join(' ');
       d.querySelector(cancel ? 'button[value=cancel]' : 'button.primary').click();
       if (format === 'gltf' && checks.embed === false) {
         const b = await waitFor(() => [...document.querySelectorAll('dialog.cv-dialog')].find((x) =>
@@ -5374,7 +5378,7 @@ await check('export', async () => {
       }
       await done;
       return { files: files.map((f) => ({ name: f.name, accept: f.accept, size: f.bytes?.length ?? 0 })),
-        bytes: files.map((f) => f.bytes), shownBoxes, status: document.getElementById('status').textContent };
+        bytes: files.map((f) => f.bytes), shownBoxes, warning, status: document.getElementById('status').textContent };
     };
     const text = (b) => new TextDecoder().decode(b);
     // GLB's JSON chunk.
@@ -5433,6 +5437,17 @@ await check('export', async () => {
     // Cancelled: nothing asked or saved.
     x = await run('glb', {}, undefined, true);
     out.cancelled = x.files.length;
+    // The unit: glTF in centimetres (said: its readers take metres), its top node turned by 1 / 10; STEP in inches
+    // (nothing said); back to each format's own.
+    x = await run('glb', {}, 'none', false, 'cm');
+    const g = JSON.parse(glbJson(x.bytes[0])), top = g.nodes[g.scenes[0].nodes[0]];
+    out.glbCm = { warning: x.warning, scale: top.matrix ? Math.hypot(...top.matrix.slice(0, 3)) : top.scale?.[0] ?? 1 };
+    x = await run('step', {}, undefined, false, 'in');
+    out.stepIn = { inch: text(x.bytes[0]).includes("CONVERSION_BASED_UNIT('INCH'"), warning: x.warning };
+    x = await run('step', {}, undefined, false, 'default');
+    // (An inch is defined by millimetres, so millimetres alone mean no inch written.)
+    out.stepDefault = text(x.bytes[0]).includes('SI_UNIT(.MILLI.,.METRE.)')
+      && !text(x.bytes[0]).includes('CONVERSION_BASED_UNIT');
     return { before, ...out };
   })()`) as { after: Record<string, any> };
   const a = r.after, j = JSON.stringify({ ...a, plain: undefined });
@@ -5461,6 +5476,9 @@ await check('export', async () => {
     !a.threemf.boxes.includes('edges'), `3MF: ${j}`);
   expect(a.shown[1] === a.shown[0] + 1, `the viewer's hiding: ${j}`);
   expect(a.remembered.join() === 'threejs,true' && a.cancelled === 0, `remembered, cancelled: ${j}`);
+  expect(/glTF readers take lengths for metres/.test(a.glbCm.warning) && Math.abs(a.glbCm.scale - 0.1) < 1e-6,
+    `glTF in centimetres: ${j}`);
+  expect(a.stepIn.inch && a.stepIn.warning === '' && a.stepDefault, `STEP in inches, then its default: ${j}`);
   return undefined;
 });
 // The import worker lost during an export (detected by its heartbeat, the model made again): the export's message

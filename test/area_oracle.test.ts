@@ -62,7 +62,7 @@ async function areaOf(file: StepFile, face: number): Promise<OracleResult> {
   const model = await openModel(file);
   const q = model.resolve(face);
   if (q < 0) return r;
-  const { brep } = stepBrep(new Reader(model), [q], { unit: 1, angle: planeAngleUnit(file) }, () => {});
+  const { brep } = stepBrep(new Reader(model), [q], { length: 1, angle: planeAngleUnit(file) }, () => {});
   const m = modelFaceArea(brep, 0);
   // What the file's oracle can't compute the model's can't either (the same rules, on the same geometry).
   if (!r.ok) assert.ok(!m.ok, `the model's oracle computed what the file's didn't (${r.reason})`);

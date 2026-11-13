@@ -63,10 +63,10 @@ export class BrepBuilder {
   private real: Growable;
   private int: Growable;
 
-  constructor(part: PartInfo) {
+  constructor(part: PartInfo = {}) {
     this.real = this.col('pool', 'curveReal');
     this.int = this.col('pool', 'curveInt');
-    this.row('part', { unit: part.unit, uncertainty: opt(part.uncertainty) });
+    this.row('part', { uncertainty: opt(part.uncertainty) });
   }
 
   private pools(real: string, int = 'curveInt') {

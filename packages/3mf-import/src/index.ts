@@ -14,7 +14,7 @@
 //   properties: an object's or item's type, part number, Production UUID and metadata (by name as written).
 //   our files with extras: the scene they were written from, as far as 3MF holds it (ours.ts).
 
-import { authorOf, boundScene, dropSourceDegenerate, leafParts, multiply, propertiesFrom, scaling, type Component,
+import { authorOf, boundScene, dropSourceDegenerate, leafParts, multiply, propertiesFrom, type Component,
   type Diagnostic, type Mat4, type Material, type Occurrence, type Part, type Properties, type Scene,
   type SourceId } from 'cad-scene';
 import { readModel, type ItemDef, type ModelFile, type ObjectDef } from './model.ts';
@@ -141,7 +141,7 @@ function read(input: Uint8Array, opts: ThreeMfImportOptions): ThreeMfImport {
       const face = o.mesh!.mesh.faces[k]!.source;
       return m !== undefined && m !== own && face !== null ? [{ face, material: m }] : [];
     });
-    const p: Part = { name: o.name ?? `object ${o.id}`, sources: [src], properties: propertiesOf(o), unit: f.unit,
+    const p: Part = { name: o.name ?? `object ${o.id}`, sources: [src], properties: propertiesOf(o),
       origin: o.mesh ? [...o.mesh.mesh.origin] : [0, 0, 0], lods: o.mesh ? [{ mesh: o.mesh.mesh, from: 'source' }] : [],
       ...(own !== undefined ? { material: own } : {}), ...(faceMaterials.length ? { faceMaterials } : {}),
       ...(o.type === 'model' ? { closed: true } : o.type === 'surface' ? { closed: false } : {}) };
@@ -168,8 +168,15 @@ function read(input: Uint8Array, opts: ThreeMfImportOptions): ThreeMfImport {
     }
     return { file: tf, object: o };
   };
-  /** A part's placement: from its numbers (unit `ut`) to the referring part's unit, through M, to millimetres. */
-  const toParent = (m: Mat4, ur: number, ut: number) => multiply(multiply(scaling(ur), m), scaling(ut / ur));
+  /**
+   * A placement in a model part's unit (`u` millimetres per it) as one in millimetres: its translation scaled (as
+   * scaling(u) M scaling(1 / u), with every bit of the rest kept). Meshes are millimetres whatever their file's unit.
+   */
+  const inMm = (m: Mat4, u: number): Mat4 => {
+    const out = Float64Array.from(m);
+    for (const j of [12, 13, 14]) out[j]! *= u;
+    return out;
+  };
 
   const components = new Map<ObjectDef, number>();
   const building = new Set<ObjectDef>();
@@ -189,14 +196,14 @@ function read(input: Uint8Array, opts: ThreeMfImportOptions): ThreeMfImport {
       if (t.object.components) {
         const child = component(t.file, t.object);
         if (child !== undefined) comp.children.push(occurrence(child, t, c.transform, f.unit, c.uuid));
-      } else comp.parts.push({ part: part(t.file, t.object), transform: toParent(c.transform, f.unit, t.file.unit) });
+      } else comp.parts.push({ part: part(t.file, t.object), transform: inMm(c.transform, f.unit) });
     }
     building.delete(o);
     return index;
   };
   const occurrence = (child: number, t: { file: ModelFile; object: ObjectDef }, m: Mat4, ur: number,
     uuid: string | undefined, item?: ItemDef): Occurrence => ({ component: child,
-    transform: multiply(multiply(scaling(ur), m), scaling(1 / ur)), ...(t.object.name ? { name: t.object.name } : {}),
+    transform: inMm(m, ur), ...(t.object.name ? { name: t.object.name } : {}),
     sources: [sourceOf(t.file, t.object.id)], properties: item ? propertiesOf(item) : uuid ? { uuid } : {} });
 
   // The file's metadata (its root model's, by name as written; not our cadio: entries, read below); `author` the
@@ -211,8 +218,7 @@ function read(input: Uint8Array, opts: ThreeMfImportOptions): ThreeMfImport {
     const ours = oursFromTree(root, (k) => {
       const item = root.build[k];
       const t = item ? target(root, item, 'build item') : undefined;
-      return t && !t.object.components ? { object: t.object, matrix: toParent(item!.transform, root.unit,
-        t.file.unit) } : undefined;
+      return t && !t.object.components ? { object: t.object, matrix: inMm(item!.transform, root.unit) } : undefined;
     }, (m) => warn(m), own);
     if (ours) {
       diagnostics.push(...ours.diagnostics);
@@ -240,8 +246,8 @@ function read(input: Uint8Array, opts: ThreeMfImportOptions): ThreeMfImport {
       if (t.object.components) {
         const k = component(t.file, t.object);
         if (k !== undefined) scene.roots.push(occurrence(k, t, m, root.unit, c.uuid));
-      } else (scene.rootParts ??= []).push({ part: part(t.file, t.object), transform: toParent(m, root.unit,
-        t.file.unit), ...(c.uuid ? { properties: { uuid: c.uuid } } : {}) });
+      } else (scene.rootParts ??= []).push({ part: part(t.file, t.object), transform: inMm(m, root.unit),
+        ...(c.uuid ? { properties: { uuid: c.uuid } } : {}) });
     }
   } else if (items.length) {
     for (const { item, file, object } of items) {
@@ -251,8 +257,8 @@ function read(input: Uint8Array, opts: ThreeMfImportOptions): ThreeMfImport {
           item));
       } else {
         const properties = propertiesOf(item);
-        (scene.rootParts ??= []).push({ part: part(file, object), transform: toParent(item.transform, root.unit,
-          file.unit), ...(Object.keys(properties).length ? { properties } : {}) });
+        (scene.rootParts ??= []).push({ part: part(file, object), transform: inMm(item.transform, root.unit),
+          ...(Object.keys(properties).length ? { properties } : {}) });
       }
     }
   } else warn('the build has no items: nothing to show');

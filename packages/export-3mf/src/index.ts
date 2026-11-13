@@ -4,8 +4,8 @@
 //   meshes: each part mesh's vertices welded by position, exactly (OCCT gives a shared edge's nodes the same
 //     coordinates on both faces, and welding within a tolerance merges distinct vertices: the step 5 survey), and the
 //     triangles welding made degenerate dropped; then a mesh object per look, its triangles' properties its groups'
-//     materials. Vertices are in the part's unit, relative to its origin, as the scene has them; the transforms scale
-//     and place them, in the source's unit where 3MF has a name for it (`unit="inch"`), else millimetres. A mesh that
+//     materials. Vertices are in the model's unit (the option's, by default the source's where 3MF has a name for it,
+//     `unit="inch"`, else millimetres), relative to the part's origin; the transforms place them. A mesh that
 //     isn't a closed, oriented manifold of positive volume (what a `model` object must be), or whose part the source
 //     says is open (its `closed` false: an open shell), is left out with a warning, or written as a `surface` object.
 //   build: an item per placed part (the scene's root parts first) at its world transform, its path in the instance tree
@@ -22,7 +22,7 @@
 // The model part is written and compressed in pieces, so its size isn't bound by the longest string V8 allows.
 
 import { Zip, ZipDeflate, strToU8 } from 'fflate';
-import { drain, identity, manifoldProblems, multiply, paced, partExtras, placedName, placementJson, scaling,
+import { drain, identity, manifoldProblems, multiply, paced, partExtras, placedName, placementJson,
   sceneJson, standardMetadata, weld, type Diagnostic, type ExportNode, type ExportPart, type ExportView, type Look,
   type Mat4, type Mesh, type PropertyValue, type Scene, type SourceId, type Vec3 } from 'cad-scene';
 
@@ -45,6 +45,11 @@ export interface ThreeMfOptions {
    * other systems don't read it.
    */
   extras?: boolean;
+  /**
+   * The model's unit, in millimetres per unit: one of 3MF's (micron 0.001, millimeter 1, centimeter 10, inch 25.4,
+   * foot 304.8, meter 1000). Default the scene's `sourceUnit` where it's one of those, else millimetres.
+   */
+  unit?: number;
 }
 
 export interface ThreeMfResult {
@@ -167,6 +172,8 @@ class Writer {
   private readonly scene: Scene;
   private readonly view: ExportView;
   private readonly opts: ThreeMfOptions;
+  /** The model's unit. */
+  private readonly unit: { name: string; mm: number };
   /** A part number per part: its first placing component's. */
   private readonly partNumbers = new Map<number, string>();
 
@@ -174,6 +181,11 @@ class Writer {
     this.scene = scene;
     this.view = view;
     this.opts = opts;
+    if (opts.unit !== undefined) {
+      const u = modelUnit(opts.unit);
+      if (Math.abs(u.mm - opts.unit) > 1e-9 * opts.unit) throw new RangeError(`unit ${opts.unit}: not one of 3MF's`);
+    }
+    this.unit = modelUnit(opts.unit ?? this.scene.sourceUnit);
   }
 
   /** The package, an object at a time (a step each: `drain` or `paced`). */
@@ -244,7 +256,7 @@ class Writer {
     const items: string[] = [];
     if (this.opts.build === 'assembly') {
       const roots = [...this.view.parts.flatMap((p) => p.visible || this.opts.hidden === 'keep'
-        ? [{ id: this.placedObject(p, model), transform: this.fromPart(p.transform) }] : []),
+        ? [{ id: this.placedObject(p, model), transform: this.between(p.transform) }] : []),
       ...this.view.roots.map((r) => ({ id: this.assembly(r, model), transform: this.between(r.transform) }))].filter(
         (r) => r.id !== undefined);
       let id = roots[0]?.id, transform = roots[0]?.transform;
@@ -260,7 +272,7 @@ class Writer {
     } else {
       for (const p of placed) {
         const names = [...p.names, placedName(this.scene, p.part.ref)];
-        const world = this.fromPart(p.world);
+        const world = this.between(p.world);
         const transform = isIdentity(world) ? '' : ` transform="${transformText(world)}"`;
         items.push(`<item objectid="${this.lookObjects.get(p.look)}"${transform}`
           + ` partnumber="${xmlText(`${p.node?.path.join('.') ?? ''}:${p.index}`)}"${extras
@@ -438,10 +450,12 @@ class Writer {
       + `${number ? ` partnumber="${xmlText(number)}"` : ''} pid="1" pindex="${slot}">${this.opts.extras
         ? `<metadatagroup><metadata name="cadio:faces">${JSON.stringify(this.faceRuns(look, s))}</metadata>`
           + '</metadatagroup>' : ''}<mesh><vertices>\n`);
-    const p = s.positions;
+    const p = s.positions, mm = this.unit.mm;
     let text = '';
     for (let v = 0; v < p.length; v += 3) {
-      text += `<vertex x="${float32Text(p[v]!)}" y="${float32Text(p[v + 1]!)}" z="${float32Text(p[v + 2]!)}"/>\n`;
+      // (float32Text wants a float32: the quotient rounded to one, so its shortest text is written.)
+      text += `<vertex x="${float32Text(Math.fround(p[v]! / mm))}" y="${float32Text(Math.fround(p[v + 1]! / mm))}" z="${
+        float32Text(Math.fround(p[v + 2]! / mm))}"/>\n`;
       if (text.length >= PIECE) { model.push(text); text = ''; }
     }
     text += '</vertices><triangles>\n';
@@ -490,25 +504,21 @@ class Writer {
     // (A placed product an assembly holds alone in its own object: else the assembly, an object of one mesh object,
     // reads back as a part placed, not an assembly placing one; cad-scene's leafParts.)
     const alone = written.length === 1 && !children.length && !!written[0]!.ref.product;
-    const parts = [...written.map((p) => component(this.placedObject(p, model, alone)!, this.fromPart(p.transform))),
+    const parts = [...written.map((p) => component(this.placedObject(p, model, alone)!, this.between(p.transform))),
       ...children];
     if (!parts.length) return undefined;
     return this.components(n.name, parts, model);
   }
 
   /**
-   * The model's unit (the source's, where 3MF has a name for it; else millimetres): a transform from a part's
-   * coordinates to the scene's millimetres made one to the model's unit, and one between two frames in millimetres made
-   * one between the same frames in the model's unit.
+   * A transform between two frames in millimetres made one between the same frames in the model's unit (`unit`): its
+   * translation divided by it, the rest as it is (scaling(1 / u) M scaling(u)).
    */
-  private get unit(): { name: string; mm: number } {
-    return modelUnit(this.scene.sourceUnit);
-  }
-  private fromPart(m: Mat4): Mat4 {
-    return this.unit.mm === 1 ? m : multiply(scaling(1 / this.unit.mm), m);
-  }
   private between(m: Mat4): Mat4 {
-    return this.unit.mm === 1 ? m : multiply(multiply(scaling(1 / this.unit.mm), m), scaling(this.unit.mm));
+    if (this.unit.mm === 1) return m;
+    const out = Float64Array.from(m);
+    for (const j of [12, 13, 14]) out[j]! /= this.unit.mm;
+    return out;
   }
 
   /** A components object, written once for each name and list of components. */

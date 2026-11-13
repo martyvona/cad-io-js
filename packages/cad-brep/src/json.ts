@@ -30,7 +30,7 @@ export function brepToJson(d: BrepData): BrepJson {
 
 export function brepFromJson(j: BrepJson): BrepData {
   if (j.format !== 'cad-brep') throw new TypeError(`format ${JSON.stringify(j.format)}, not cad-brep`);
-  const b = new BrepBuilder({ unit: j.unit, ...(j.uncertainty === undefined ? {} : { uncertainty: j.uncertainty }) });
+  const b = new BrepBuilder(j.uncertainty === undefined ? {} : { uncertainty: j.uncertainty });
   for (const c of j.curves) b.addCurve(c);
   for (const s of j.surfaces) b.addSurface(s);
   for (const v of j.vertices) b.addVertex(v);

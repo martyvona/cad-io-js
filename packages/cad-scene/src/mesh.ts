@@ -1,9 +1,37 @@
 // Mesh topology shared by the exporters: vertices welded by position, whether a welded mesh is a closed, oriented
 // manifold of positive volume (what 3MF's model objects must be), triangles with two corners at one position
 // dropped, and closed shells turned outward when they are inside out and can't be the boundaries of voids (the last
-// two are input fixes made in memory: CLAUDE.md).
+// two are input fixes made in memory: CLAUDE.md); meshes and measures scaled to millimetres, for importers reading
+// other units.
 
-import type { Measures, Mesh } from './scene.ts';
+import type { Measures, Mesh, Part } from './scene.ts';
+
+/** A mesh scaled by `k` (millimetres per its unit): positions, origin and box; normals as they are. */
+export function scaleMesh(mesh: Mesh, k: number): Mesh {
+  if (k === 1) return mesh;
+  const times = (a: Float32Array) => a.map((x) => x * k);
+  const out: Mesh = { ...mesh, origin: mesh.origin.map((x) => x * k) as Mesh['origin'],
+    positions: times(mesh.positions) };
+  if (mesh.box) out.box = { min: mesh.box.min.map((x) => x * k) as Mesh['origin'],
+    max: mesh.box.max.map((x) => x * k) as Mesh['origin'] };
+  if (mesh.edgePositions) out.edgePositions = times(mesh.edgePositions);
+  if (mesh.curvePositions) out.curvePositions = times(mesh.curvePositions);
+  if (mesh.points) out.points = times(mesh.points);
+  if (mesh.faceOutlinePositions) out.faceOutlinePositions = times(mesh.faceOutlinePositions);
+  return out;
+}
+
+/**
+ * A part read in another unit made millimetres (`k` millimetres per that unit): its levels' meshes and its measures;
+ * its placements are the caller's (each transform times scaling(1 / k)). Levels' deflections are millimetres already.
+ */
+export function scalePart(part: Part, k: number): void {
+  if (k === 1) return;
+  part.origin = part.origin.map((x) => x * k) as Part['origin'];
+  for (const lod of part.lods) lod.mesh = scaleMesh(lod.mesh, k);
+  if (part.measures) part.measures = { ...part.measures, faces: new Map([...part.measures.faces].map(([f, x]) =>
+    [f, { ...x, area: x.area * k * k, perimeter: x.perimeter * k }])) };
+}
 
 /** Welded vertices: each vertex's index among the distinct positions, and those positions. */
 export function weld(positions: Float32Array): { remap: Uint32Array; positions: Float32Array } {
@@ -91,7 +119,7 @@ export type FaceFailure = 'failed' | 'partly' | 'excess' | 'unverified';
 
 /**
  * The tolerances a face's mesh area M is judged by against its measured area A (FaceMeasures; d the linear
- * deflection the mesh was made with, P the face's perimeter, all in the part's units):
+ * deflection the mesh was made with, P the face's perimeter, all in millimetres):
  *
  *   partly when  A - M > max(MISSING_FRACTION x A, BOUNDARY_SLACK x d x P)
  *   excess when  M - A > max(EXCESS_FRACTION x A, BOUNDARY_SLACK x d x P)
@@ -113,7 +141,7 @@ export const MAX_PLAUSIBLE_AREA = 1e20;
 /**
  * Faces that failed to mesh, by source id. Without measures, a face fails only with no triangles in any range (or,
  * `expected` the part's face list from the source, none at all: a backend may leave a face out). With `measured`
- * (the part's measures and the linear deflection the mesh was made with, in the part's units), each face is judged
+ * (the part's measures and the linear deflection the mesh was made with, in millimetres), each face is judged
  * by its measured area as FaceFailure and the tolerances above say, and a measured face the mesh lacks counts too.
  */
 export function faceFailures(mesh: Mesh, opts: { expected?: readonly number[];

@@ -26,7 +26,7 @@ async function requestsOf(bytes: Uint8Array, linear = 0.05, edges = true): Promi
   const { scene } = await importStep(bytes);
   return scene.parts.flatMap((p) => p.brep ? [{ format: 'cad-brep' as const,
     data: new Uint8Array(p.brep.model.buffer), rootId: p.sources[0]!.id, origin: p.origin,
-    linearDeflection: linear / p.unit, angularDeflection: 0.5, edges }] : []);
+    linearDeflection: linear, angularDeflection: 0.5, edges }] : []);
 }
 
 const requests = (file: string, linear = 0.05, edges = true) =>
@@ -447,14 +447,16 @@ test("a shell whose volume truck's mesh can't tell isn't reversed: a thin solid,
   const tess = new TruckTessellator();
   await tess.init();
   // trj4: truck meshes face #803 about 3% too large, inside its closed boundary, and the faces' parts of the volume
-  // nearly cancel: by the signed volume alone, the outer shell faced inward. trj3: truck's face meshes leave gaps, so
-  // the volume's sign depends on the point it's measured from. OCCT has both as written.
-  for (const [file, rootId, shell] of [['trj4_s1-pe-203.stp', 1138, 1118],
-    ['trj3_s1-id-203.stp', 408, 4195]] as const) {
+  // nearly cancel: by the signed volume alone, the outer shell faced inward. trj3 (in centimetres): truck's face
+  // meshes leave gaps and, in millimetres, disagree in orientation, so its volume can't be trusted either. OCCT has
+  // both as written. (truck's meshes depend on the scale: trj3's numbers meshed as centimetres gave its faces ten times
+  // the triangles, which leave gaps but agree.)
+  for (const [file, rootId, shell, why] of [['trj4_s1-pe-203.stp', 1138, 1118,
+    'their meshes\' volumes are too small or uncertain to tell'],
+  ['trj3_s1-id-203.stp', 408, 4195, 'their faces disagree in orientation']] as const) {
     const r = await tess.tessellate((await requests(gkv(file))).find((q) => q.rootId === rootId)!);
     assert.deepEqual(r.diagnostics.map((d) => d.message),
-      [`orientation of 1 solid shells not checked, since their meshes' volumes are too small or uncertain to tell: `
-      + `#${shell}`], file);
+      [`orientation of 1 solid shells not checked, since ${why}: #${shell}`], file);
   }
 });
 

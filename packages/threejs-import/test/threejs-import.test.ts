@@ -41,7 +41,7 @@ const wire = (): Mesh => ({
 function scene(): Scene {
   const occ = (component: number, t: Mat4, name?: string) => ({ component, transform: t,
     sources: [{ format: 'step', id: 100 + component }], properties: {}, ...(name ? { name } : {}) });
-  const part = (name: string) => ({ name, sources: [{ format: 'step', id: 50 }], properties: { pn: 'X-1' }, unit: 1,
+  const part = (name: string) => ({ name, sources: [{ format: 'step', id: 50 }], properties: { pn: 'X-1' },
     origin: [0, 0, 0] as [number, number, number], lods: [] });
   const s: Scene = {
     unit: 'millimetre',
@@ -277,7 +277,7 @@ const degenerate = (): Scene => {
     components: [{ name: 'c', sources: [], properties: {}, parts: [{ part: 0, transform: identity() }],
       children: [] }],
     roots: [{ component: 0, transform: identity(), sources: [], properties: {} }],
-    parts: [{ name: 'p', sources: [], properties: {}, unit: 1, origin: [0, 0, 0], lods: [] }] };
+    parts: [{ name: 'p', sources: [], properties: {}, origin: [0, 0, 0], lods: [] }] };
   addLod(s.parts[0]!, { from: 'source', mesh: { origin: [0, 0, 0],
     positions: Float32Array.of(0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0),
     indices: Uint32Array.of(0, 1, 2, 0, 2, 3, 0, 2, 4),
@@ -301,29 +301,52 @@ test('triangles with two corners at one position dropped from the file\'s meshes
   assert.deepEqual(faces.map((f) => [f.source, f.count]), [[5, 6], [6, 0]]);
 });
 
-/** The degenerate-triangle scene's part measured, in inches, its level with its settings: as a backend leaves it. */
+/** The degenerate-triangle scene's part measured, its level with its settings: as a backend leaves it. */
 const measured = (): Scene => {
   const s = degenerate();
   const p = s.parts[0]!;
-  p.unit = 25.4;
   p.measures = { by: 'OCCT test', faces: new Map([[5, { area: 1, perimeter: 4, valid: true }],
     [6, { area: 0.25, perimeter: 2.5, valid: false, uses: 2 }]]) };
   Object.assign(p.lods[0]!, { from: 'tessellated', linearDeflection: 0.1, angularDeflection: 0.25,
     backend: 'OCCT test' });
   return s;
 };
-const measuresOf = (s: Scene) => ({ unit: s.parts[0]!.unit, measures: s.parts[0]!.measures,
+const measuresOf = (s: Scene) => ({ measures: s.parts[0]!.measures,
   level: (({ linearDeflection, angularDeflection, backend }) => ({ linearDeflection, angularDeflection, backend }))(
     s.parts[0]!.lods[0]!) });
-const WRITTEN = { unit: 25.4, measures: { by: 'OCCT test', faces: new Map([[5, { area: 1, perimeter: 4, valid: true }],
+const WRITTEN = { measures: { by: 'OCCT test', faces: new Map([[5, { area: 1, perimeter: 4, valid: true }],
   [6, { area: 0.25, perimeter: 2.5, valid: false, uses: 2 }]]) },
   level: { linearDeflection: 0.1, angularDeflection: 0.25, backend: 'OCCT test' } };
 
-test('our userData carries a part\'s measures, its level\'s settings and its unit back; without it, none', () => {
+test('our userData carries a part\'s measures and its level\'s settings back; without it, none', () => {
   const s = measured();
   assert.deepEqual(measuresOf(importThreejs(threejsJson(s, exportView(s), { extras: true })).scene), WRITTEN);
   const plain = importThreejs(threejsJson(s, exportView(s))).scene.parts[0]!;
-  assert.deepEqual([plain.measures, plain.unit, plain.lods[0]!.linearDeflection], [undefined, 1, undefined]);
+  assert.deepEqual([plain.measures, plain.lods[0]!.linearDeflection], [undefined, undefined]);
+});
+
+type Json = Record<string, unknown>;
+test('ours of earlier versions, a part in a unit of its own (userData unit): its mesh and measures made millimetres, '
+  + 'its placements unscaled to match', () => {
+  const s = measured();
+  const written = JSON.parse(threejsJson(s, exportView(s), { extras: true })) as { object: Json };
+  // The part's object said to be in inches, as our earlier versions wrote a part whose unit wasn't 1.
+  const objects = (o: Json): Json[] => [o, ...((o.children ?? []) as Json[]).flatMap(objects)];
+  const partObject = objects(written.object).find((o) => typeof (o.userData as Json | undefined)?.part === 'number')!;
+  (partObject.userData as Json).unit = 25.4;
+  const old = importThreejs(JSON.stringify(written)).scene, now = importThreejs(JSON.stringify({ ...written,
+    object: JSON.parse(threejsJson(s, exportView(s), { extras: true })).object })).scene;
+  const a = old.parts[0]!, b = now.parts[0]!;
+  assert.deepEqual(Array.from(a.lods[0]!.mesh.positions), Array.from(b.lods[0]!.mesh.positions,
+    (x) => Math.fround(x * 25.4)));
+  assert.deepEqual(a.lods[0]!.mesh.origin, b.lods[0]!.mesh.origin.map((x) => x * 25.4));
+  assert.deepEqual([...a.measures!.faces].map(([f, m]) => [f, m.area, m.perimeter]),
+    [...b.measures!.faces].map(([f, m]) => [f, m.area * 25.4 * 25.4, m.perimeter * 25.4]));
+  // The same points in the world: the mesh's scale taken out of its placements.
+  const world = (sc: Scene) => [...partInstances(sc)].map((pi) => Array.from(pi.transform)
+    .map((x, k) => k < 12 && k % 4 !== 3 && sc === old ? x * 25.4 : x).map((x) => Math.round(x * 1e9) / 1e9));
+  assert.deepEqual(world(old), world(now));
+  assert.equal(validate(old).length, 0);
 });
 
 test('the model\'s sphere in the root\'s extras, read back as the file\'s; mesh boxes in the parts\' userData', () => {
@@ -386,4 +409,35 @@ test('transforms: a shear read as written; said where three.js\'s own loader wou
   assert.deepEqual(importThreejs(file({ matrixAutoUpdate: true, name: '' })).diagnostics.map((d) => d.message),
     ['an object: its matrix has a shear, which three.js\'s own loader drops (its matrixAutoUpdate isn\'t false): ' +
     'read with it']);
+});
+
+/**
+ * Where visibly placed mesh vertices are in the world, to 1e-6 mm, once each, sorted (`k`: a factor every coordinate
+ * is taken by). (Once each: a reader may split vertices between primitives.)
+ */
+const worldPoints = (sc: Scene, k = 1) => [...new Set([...partInstances(sc)].flatMap((pi) => {
+  const mesh = sc.parts[pi.part]!.lods[0]?.mesh;
+  if (!mesh || !pi.visible) return [];
+  const m = pi.transform, o = mesh.origin, p = mesh.positions, out: string[] = [];
+  for (let v = 0; v < p.length; v += 3) {
+    const x = p[v]! + o[0], y = p[v + 1]! + o[1], z = p[v + 2]! + o[2];
+    out.push([m[0]! * x + m[4]! * y + m[8]! * z + m[12]!, m[1]! * x + m[5]! * y + m[9]! * z + m[13]!,
+      m[2]! * x + m[6]! * y + m[10]! * z + m[14]!].map((c) => (Math.round(c * k * 1e6) / 1e6 + 0).toFixed(6))
+      .join(' '));
+  }
+  return out;
+}))].sort();
+
+test('a unit other than metres: the top objects turned into it; ours read back as written, others take it for metres',
+  () => {
+  const s = scene();
+  for (const unit of [1, 25.4]) {
+    assert.deepEqual(worldPoints(importThreejs(threejsJson(s, exportView(s), { unit, extras: true })).scene),
+      worldPoints(s), `${unit}`);
+    const plain = importThreejs(threejsJson(s, exportView(s), { unit })).scene;
+    assert.deepEqual(worldPoints(plain), worldPoints(s, 1000 / unit), `${unit}`);
+  }
+  assert.equal((JSON.parse(threejsJson(s, exportView(s), { extras: true })) as { object: { userData: Json } })
+    .object.userData.fileUnit, undefined);
+  assert.throws(() => threejsJson(s, exportView(s), { unit: 0 }), /unit 0/);
 });

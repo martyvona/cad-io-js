@@ -6,7 +6,7 @@ import { addLod, chooseLod, dropSourceDegenerate, exportView, identity, tessella
 
 const mesh = (n: number): Mesh => ({ origin: [0, 0, 0], positions: new Float32Array(9 * n),
   indices: Uint32Array.from({ length: 3 * n }, (_, i) => i), faces: [] });
-const part = (): Part => ({ name: 'p', sources: [], properties: {}, unit: 1, origin: [0, 0, 0], lods: [] });
+const part = (): Part => ({ name: 'p', sources: [], properties: {}, origin: [0, 0, 0], lods: [] });
 const triangles = (l: Lod | undefined) => (l ? l.mesh.indices.length / 3 : 0);
 
 test('addLod: finest first, those without a deflection after; ours replace ours at the same settings', () => {
