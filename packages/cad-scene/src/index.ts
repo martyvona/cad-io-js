@@ -4,6 +4,12 @@ export { failedPart, TessellationError } from './errors.ts';
 export { sha256, sha256Js } from './sha256.ts';
 export { identity, multiply, scaling, Y_UP_METRES, instances, partInstances, validate, type ComponentInstance,
   type PartInstance } from './walk.ts';
+export { compareVerdicts, FallbackTessellator, judgeResult, type Verdict } from './fallback.ts';
+export { type FaceArea, modelFaceArea, OFF_SURFACE, ORACLE_DENSITY, ORACLE_DISAGREE, ORACLE_RELATIVE, oracleAreas,
+  oracleMeasures,
+  type OracleArea, type OracleFlag, type OracleOptions, type OracleResult, type OracleSurface, type OracleUnsupported,
+  trustedArea } from './area-oracle.ts';
+export { openEdges, openEdgesCount, openEdgesDiagnostic, openEdgesMessage } from './open-edges.ts';
 export { tessellateScene, toMesh, type TessellateOptions, type TessellateResult } from './tessellate.ts';
 export { DEFAULT_MESH_PROFILE, MESH_PROFILE_NAMES, MESH_PROFILES, meshDeflections, meshProfileOf, type Deflections,
   type MeshProfile } from './profiles.ts';

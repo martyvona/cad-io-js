@@ -79,6 +79,7 @@ export interface ModelInfo {
 /** The meshing settings that decide a model's meshes. */
 export interface MeshedWith {
   backend: TessellationSettings['backend'];
+  fallback: TessellationSettings['fallback'];
   profile: TessellationSettings['profile'];
   linearDeflection: number;
   angularDeflection: number;
@@ -940,8 +941,8 @@ export class Viewer {
     const input = await modelInput(src, format);
     if (gen !== this.generation) return;
     // What it's meshed with: the settings now, which the import worker is given.
-    const { backend, profile, linearDeflection, angularDeflection, timeout } = this.settings;
-    const meshedWith: MeshedWith = { backend, profile, linearDeflection, angularDeflection, timeout };
+    const { backend, fallback, profile, linearDeflection, angularDeflection, timeout } = this.settings;
+    const meshedWith: MeshedWith = { backend, fallback, profile, linearDeflection, angularDeflection, timeout };
     // (The deflection the worker meshes with, in mm: faces are judged by it against their measures.)
     const meshedAt = meshDeflections(deflectionsOf(this.settings)).linearDeflection;
     let graph: SceneGraph | undefined;
@@ -1078,8 +1079,8 @@ export class Viewer {
       this.meshing = false;
       this.abortLoad?.();
     }
-    const { backend, profile, linearDeflection, angularDeflection, timeout } = this.settings;
-    model.meshedWith = { backend, profile, linearDeflection, angularDeflection, timeout };
+    const { backend, fallback, profile, linearDeflection, angularDeflection, timeout } = this.settings;
+    model.meshedWith = { backend, fallback, profile, linearDeflection, angularDeflection, timeout };
     const wanted = meshDeflections(deflectionsOf(this.settings));
     const brep = graph.scene.parts.flatMap((p, i) => (p.brep && graph.placements.has(i) ? [i] : []));
     const parts = model.parts = { total: brep.length, done: 0, failed: 0 };

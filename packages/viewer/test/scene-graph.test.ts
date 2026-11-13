@@ -5,7 +5,7 @@ import { multiply, scaling, type Mesh } from 'cad-scene';
 import { plate, scene, translation, wire } from './fixtures.ts';
 import { DEFAULT_COLOR, polylineSegments, SceneGraph } from '../src/scene-graph.ts';
 import { EDGES } from '../src/style.ts';
-import { workerCount } from '../src/tessellation.ts';
+import { defaultSettings, fallbackOf, workerCount } from '../src/tessellation.ts';
 
 const close = (a: ArrayLike<number>, b: ArrayLike<number>) => Array.from(a).every((x, i) => Math.abs(x - b[i]!) < 1e-9);
 
@@ -160,6 +160,17 @@ test('workers: one less than the cores, at most 8, at most 3 on touch devices, a
   assert.equal(workerCount('tablet', 8), 3);
   assert.equal(workerCount('tablet', 2), 1);
   assert.equal(workerCount('desktop', 1), 1);
+});
+
+test('the fallback: SMLib for OCCT by default; none, the backend itself or none given mean none', () => {
+  const d = defaultSettings('medium');
+  assert.deepEqual([d.backend, d.fallback], ['occt', 'smlib']);
+  assert.equal(fallbackOf(d), 'smlib');
+  assert.equal(fallbackOf({ backend: 'truck', fallback: 'occt' }), 'occt');
+  assert.equal(fallbackOf({ backend: 'smlib', fallback: 'smlib' }), undefined);
+  assert.equal(fallbackOf({ backend: 'occt', fallback: 'none' }), undefined);
+  // (A recording's settings from before there was a fallback.)
+  assert.equal(fallbackOf({ backend: 'occt' } as Parameters<typeof fallbackOf>[0]), undefined);
 });
 
 test('faces that failed to mesh: outlined in red per placement, marked failed, hidden with their face, picked as it',

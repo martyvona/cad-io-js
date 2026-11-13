@@ -1424,10 +1424,11 @@ await check('replaced while meshing', async () => {
   const a = r.after!;
   expect(a.begun > 0 && a.begun < 112, `the bicycle wasn't caught meshing: ${a.begun} parts done`);
   expect(a.firstEnded < 1000, `the bicycle's load went on for ${a.firstEnded} ms after it was replaced`);
-  expect(a.step.backend.startsWith('occt ') && a.step.cache!.hits >= 5, `STEP again: ${JSON.stringify(a.step)}`);
+  expect(a.step.backend.startsWith('occt+smlib ') && a.step.cache!.hits >= 5, `STEP again: ${JSON.stringify(a.step)}`);
   // The bicycle's pool was disposed when it was replaced: the assembly got a new one (the second).
   expect(a.step.pools === 2, `a new pool after replacing: ${JSON.stringify(a.step)}`);
-  expect(a.truck.backend.startsWith('truck ') && a.truck.parts.done === 5, `truck: ${JSON.stringify(a.truck)}`);
+  expect(a.truck.backend.startsWith('truck+smlib ') && a.truck.parts.done === 5, `truck: ${JSON.stringify(a.truck)}`);
+  // (SMLib's fallback SMLib: none.)
   expect(a.smlib.backend.startsWith('smlib ') && a.smlib.parts.done === 5 && a.smlib.parts.failed === 0,
     `SMLib: ${JSON.stringify(a.smlib)}`);
   expect(a.glb.name === 'as1.glb' && a.glb.stats.triangles === triangles, `after: ${JSON.stringify(a.glb)}`);
@@ -1815,6 +1816,8 @@ await check('problems dialog', async () => {
     { after: Seen }).after;
   const warned = (await page(`?url=${encodeURIComponent('/content/warned.stp')}&check=dialogs`, look) as
     { after: Seen }).after;
+  // (OCCT fails a face of it, meshes ten over their area and leaves an edge open; the fallback, SMLib, leaves out
+  // three, a builder's error, which ranks worse: OCCT's mesh kept, its three errors listed.)
   const face = (await page(`?url=${encodeURIComponent('/content/face-failed.stp')}&check=dialogs`, look) as
     { after: Seen }).after;
   const quiet = (await page(`?url=${encodeURIComponent('/content/broken.stp')}&check`, look) as { after: Seen }).after;
@@ -1824,8 +1827,11 @@ await check('problems dialog', async () => {
     broken.rows.every((r) => r.startsWith('error')) && broken.closed, `a file with errors: ${j}`);
   expect(clean.errors + clean.warnings === 0 && !clean.open, `a file without: ${j}`);
   expect(warned.warnings > 0 && warned.errors === 0 && !warned.open, `a file with warnings alone: ${j}`);
-  expect(face.errors === 1 && face.open && face.title === 'face-failed.stp: 1 error' &&
-    face.rows.join() === 'error #10' && face.messages.join() === '1 faces failed to mesh', `a face failed: ${j}`);
+  expect(face.errors === 3 && face.open && face.title === 'face-failed.stp: 3 errors' &&
+    face.rows.join() === 'error #10,error #10,error #10' && face.messages.join('|') === '1 edges along which the '
+    + 'meshes of the faces they join don\'t meet: the mesh is open there|1 faces failed to mesh|10 faces meshed short '
+    + 'of or over their measured area: #3420, #4950, #5736, #5826, #6054, #7291, #7475, #8708, #8791, #17500',
+    `a face failed: ${j}`);
   expect(quiet.errors > 0 && !quiet.open, `none in plain ?check pages: ${j}`);
   return undefined;
 });
@@ -1966,6 +1972,17 @@ await check('selection buttons in the tree', async () => {
 // a broken icon), the rest not, a click on an
 // outline picking its face (the detail level), the details saying so; the bicycle's faces OCCT fails, outlined and
 // marked, their parts partly failed.
+// The model shown meshed again without a fallback (OCCT's meshes alone): for checks of drawing and picking whose
+// numbers were measured on them (the bicycle's parts the fallback meshes with SMLib change its outlines and slivers).
+const WITHOUT_FALLBACK = `(async () => {
+  await cadViewer.ready; await cadViewer.idle();
+  ui.setMeshing({ fallback: 'none' });
+  const before = viewer.nextLoad();
+  ui.gui.controllersRecursive().find((c) => c._name === 'Mesh again').$button.click();
+  for (let t = 0; t < 1200 && (viewer.nextLoad() === before || !viewer.model?.meshing); t++) {
+    await new Promise((r) => setTimeout(r, 100)); }
+  await cadViewer.idle();
+})()`;
 await check('failed faces', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
     await cadViewer.ready; await cadViewer.idle();
@@ -2013,7 +2030,7 @@ await check('failed faces', async () => {
     `its row red, a broken icon: ${j}`);
   expect(a.details.some((l) => /Failed to mesh: its outline is drawn in red/.test(l)), `the details: ${j}`);
   const b = (await page(`?url=${encodeURIComponent('/content/bicycle.stp')}&check`, `(async () => {
-    await cadViewer.ready; await cadViewer.idle();
+    await ${WITHOUT_FALLBACK};
     const m = viewer.nodes, parts = m.nodes.filter((n) => n.kind === 'part');
     let outlines = 0;
     viewer.display.traverse((o) => { if (o.name === 'outline') outlines++; });
@@ -2080,9 +2097,10 @@ await check('failed faces', async () => {
   expect(b.rows > 0 && b.rowsRed === b.rows, `broken rows not all red: ${b.rowsRed} of ${b.rows}`);
   expect(b.outlines > 0 && b.partly > 0 && b.faces >= b.partly && b.red > 0 && b.failedParts === 0,
     `the bicycle's failed faces: ${JSON.stringify(b)}`);
-  // Black where the red outline should be, at its midpoints: without the bias 270 fat and 175 thin of 5,176; with it
-  // 3 and 67 (thin lines lose more to the faces beside them, behind which the file's curve can lie).
-  expect(b.fat.all > 1000 && b.fat.black <= b.fat.all / 500 && b.thin.black <= b.thin.all / 50,
+  // Black where the red outline should be, at its midpoints (OCCT's meshes, its measures replaced by the area
+  // oracle's where they disagree): without the bias 242 fat and 110 thin of 2,011; with it 6 and 12 (thin lines lose
+  // more to the faces beside them, behind which the file's curve can lie).
+  expect(b.fat.all > 1000 && b.fat.black <= b.fat.all / 250 && b.thin.black <= b.thin.all / 50,
     `outlines under the black edges: ${JSON.stringify({ thin: b.thin, fat: b.fat })}`);
   return undefined;
 });
@@ -2299,8 +2317,10 @@ await check('picks match what is drawn', async () => {
   // (And as1 in a window 1200 pixels wide, where the projection is shifted beside the controls.)
   for (const [file, wide] of [['as1.stp', false], ['as1.glb', false], ['bicycle.stp', false], ['metres.stp', false],
     ['as1.stp', true]] as const) {
+    const oracle = file === 'bicycle.stp' ? `(async () => { await ${WITHOUT_FALLBACK}; return ${PICK_ORACLE}; })()`
+      : PICK_ORACLE;
     const r = await page(`?url=${encodeURIComponent(`/content/${file}`)}&check`,
-      wide ? `(viewer.zoomAll(), ${PICK_ORACLE})` : PICK_ORACLE, wide ? { scale: 1 } : {}) as
+      wide ? `(viewer.zoomAll(), ${oracle})` : oracle, wide ? { scale: 1 } : {}) as
       { after: { onParts: number; wrong: number; subpixel: number; lines: number; far: number; examples: unknown[] } };
     const a = r.after;
     expect(a.onParts > 100 && a.wrong === 0 && a.subpixel <= a.onParts / 50 && a.lines > 0 && a.far === 0,
@@ -2596,7 +2616,7 @@ await check('mesh again', async () => {
   const j = JSON.stringify(a);
   expect(a.allClosed, `folders closed at first: ${j}`);
   expect(a.disabledEmpty && a.enabledSelected && a.zoomAfter, `zoom selected: ${j}`);
-  expect(/^occt /.test(a.backend ?? '') && !a.pageTessellation, `the import worker: ${j}`);
+  expect(/^occt\+smlib /.test(a.backend ?? '') && !a.pageTessellation, `the import worker: ${j}`);
   expect(a.triangles[0]! > 0 && a.triangles[1]! > 0 && a.triangles[0] !== a.triangles[1], `meshed anew: ${j}`);
   const kept = ['camera', 'cut', 'hidden', 'selected'] as const;
   for (const k of kept) {
@@ -5802,7 +5822,7 @@ if (staticServer) {
         return { triangles: viewer.stats().triangles, parts: viewer.model.parts, backend:
           viewer.model.meshing?.backend };
       })()`) as { triangles: number; parts: { done: number; failed: number }; backend: string };
-      expect(r.triangles === triangles && r.parts.failed === 0 && /^occt /.test(r.backend),
+      expect(r.triangles === triangles && r.parts.failed === 0 && /^occt\+smlib /.test(r.backend),
         `offline meshing: ${JSON.stringify(r)}`);
       return undefined;
     } finally {

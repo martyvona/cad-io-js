@@ -680,6 +680,8 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     shown();
   });
   step.add(settings, 'backend', ['occt', 'truck', 'smlib']).name('Backend');
+  // (For the parts the backend fails; the backend itself counts as none.)
+  step.add(settings, 'fallback', ['none', 'occt', 'truck', 'smlib']).name('Fallback');
   step.add(settings, 'profile', { Coarse: 'coarse', Medium: 'medium', Fine: 'fine', Custom: 'custom' })
     .name('Profile').onChange((p: typeof settings.profile) => {
       if (p !== 'custom') Object.assign(settings, profileSettings(p));

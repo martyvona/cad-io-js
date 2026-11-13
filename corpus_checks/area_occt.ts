@@ -1,7 +1,8 @@
 // Our OCCT backend's face areas against the area oracle (area_oracle.ts; its method and limits: docs/backends.md), an
 // area from the file alone for faces on planes, cylinders, cones, spheres and tori. Every part of every file is
-// tessellated as stepconv does it (a tess-workers pool, tessellateScene with measures, the medium profile) and each of
-// its faces the oracle trusts (no flags, error estimate within 1e-6) is compared:
+// tessellated as stepconv does it (a tess-workers pool, tessellateScene with measures, the medium profile), but by OCCT
+// alone and with OCCT's measures kept (tessellateScene's oracle option off: it would put the oracle's in place of those
+// this check finds wrong), and each of its faces the oracle trusts (no flags, error estimate within 1e-6) is compared:
 //   - OCCT's measured area (BRepGProp on its healed faces) against the oracle's;
 //   - the mesh judged by faceFailures twice: with OCCT's measures, as the library does, and with the oracle's area and
 //     perimeter in their place. Faces where only the oracle finds a failure are ones the library can't see (OCCT's
@@ -126,7 +127,7 @@ export const check: FileCheck<undefined, Tallies> = {
     T.files++;
     const meshes = new Map<number, Mesh | undefined>();
     const { diagnostics } = await tessellateScene(scene, new StepTessellator(pool), { linearDeflection: LINEAR_MM,
-      angularDeflection: ANGULAR, measures: true, onPart: (i, m) => { meshes.set(i, m); } });
+      angularDeflection: ANGULAR, measures: true, oracle: false, onPart: (i, m) => { meshes.set(i, m); } });
     for (const d of diagnostics) {
       if (d.severity === 'error' && d.message.startsWith('tessellation failed')) T.meshFailed.push(
         `${name}${d.source ? ` #${d.source.id}` : ''}: ${d.message}`);

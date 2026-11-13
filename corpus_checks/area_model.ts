@@ -83,7 +83,7 @@ export const check: FileCheck<undefined, Result> = {
         if (!id) continue;
         R.faces++;
         const where = `${name} #${id}`;
-        const a = oracle.faceArea(id), b = modelFaceArea(d, f, curves);
+        const a = oracle.faceArea(id), b = modelFaceArea(d, f, { curves });
         const ta = trusted(a), tb = trusted(b);
         if (rows.has(f) && ta) R.plantedFaces++;
         if (ta && tb) {

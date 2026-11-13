@@ -2,7 +2,8 @@
 // docs/scene-formats.md.
 //
 //   import (step-import) -> tessellate each part (a backend, in a tess-workers pool unless --workers 0, cached with
-//   tess-cache when --cache names a directory) -> the export view (cad-scene) -> an exporter, chosen by the output's
+//   tess-cache when --cache names a directory; a fallback backend, its own pool and cache, for the parts the first
+//   fails: cad-scene's FallbackTessellator) -> the export view (cad-scene) -> an exporter, chosen by the output's
 //   extension or --format. STEP output writes the exact geometry, so nothing is meshed unless --step-meshes asks for
 //   B-rep parts' meshes beside it. A summary and the diagnostics go to standard error.
 
@@ -11,8 +12,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { Readable, type Writable } from 'node:stream';
 import { parseArgs } from 'node:util';
-import { DEFAULT_MESH_PROFILE, exportView, MESH_PROFILE_NAMES, MESH_PROFILES, meshProfileOf, partInstances,
-  tessellateScene,
+import { DEFAULT_MESH_PROFILE, exportView, FallbackTessellator, MESH_PROFILE_NAMES, MESH_PROFILES, meshProfileOf,
+  partInstances, tessellateScene,
   type Deflections, type Diagnostic, type ExportView, type Scene, type Tessellator } from 'cad-scene';
 import { threemf } from 'export-3mf';
 import { glb, gltfJson, type Compression, type GltfOptions } from 'export-gltf';
@@ -148,6 +149,9 @@ Options:
   -o, --output <file>      the output file
   -f, --format <format>    the output format, whatever the extension
   -b, --backend <name>     occt (default), truck or smlib
+      --fallback <name>    the backend for parts the first fails (faces without triangles or wrong by their
+                           measures, open edges, errors): occt, truck, smlib or none (default smlib, occt for
+                           smlib); the part keeps the better mesh (a face missing worst)
       --coarse, --medium, --fine
                            the meshing profile (default ${DEFAULT_MESH_PROFILE}), with its deflections:
 ${PROFILE_LINES}
@@ -190,6 +194,7 @@ ${PROFILE_LINES}
       --cache <dir>        cache tessellations in this directory
       --cache-size <MB>    the cache's maximum size (default ${DEFAULT_FILE_BYTES / 2 ** 20})
       --strict             exit 3 if a part fails to tessellate (the output is written all the same)
+  -v, --verbose            the summary lists every error, warning and note, not the first 20 errors and warnings
   -q, --quiet              no summary on standard error
   -h, --help               show this help
 `;
@@ -216,6 +221,7 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
         output: { type: 'string', short: 'o' },
         format: { type: 'string', short: 'f' },
         backend: { type: 'string', short: 'b', default: 'occt' },
+        fallback: { type: 'string' },
         coarse: { type: 'boolean', default: false },
         medium: { type: 'boolean', default: false },
         fine: { type: 'boolean', default: false },
@@ -242,6 +248,7 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
         cache: { type: 'string' },
         'cache-size': { type: 'string' },
         strict: { type: 'boolean', default: false },
+        verbose: { type: 'boolean', short: 'v', default: false },
         quiet: { type: 'boolean', short: 'q', default: false },
         help: { type: 'boolean', short: 'h', default: false },
       },
@@ -299,6 +306,12 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
     `${formatName} writes a ${format.sidecar} file beside the output, so not to standard output`);
   const backend = BACKENDS[o.backend];
   if (!backend) return usage(`unknown backend '${o.backend}'`);
+  const fallbackName = o.fallback ?? (o.backend === 'smlib' ? 'occt' : 'smlib');
+  const fallback = fallbackName === 'none' ? undefined : BACKENDS[fallbackName];
+  if (fallbackName !== 'none' && !fallback) return usage(`unknown fallback backend '${fallbackName}'`);
+  if (fallbackName === o.backend) {
+    return usage(`the fallback backend can't be the backend (${o.backend}); none for none`);
+  }
   let bad: string | undefined;
   const number = (name: string, text: string | undefined, fallback: number, positive: boolean) => {
     const v = text === undefined ? fallback : Number(text);
@@ -322,6 +335,7 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
   if (bad) return usage(bad);
   if (!Number.isInteger(workers)) return usage('--workers must be a whole number');
   if (o['cache-size'] !== undefined && o.cache === undefined) return usage('--cache-size needs --cache');
+  if (o.verbose && o.quiet) return usage('--verbose and --quiet together');
 
   const input = args.positionals[0]!;
   const name = input === '-' ? 'stdin' : path.basename(input).replace(/\.(stp|step|p21|stpz)$/i, '');
@@ -362,24 +376,36 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
   };
 
   let tess: Tessellator | undefined;
-  let cached: CachedTessellator | undefined;
+  // Each backend's cache, by its name; one store for both.
+  const cached = new Map<string, CachedTessellator>();
   if (meshing) try {
-    if (workers > 0) {
-      tess = new WorkerTessellator(
-        { backend: { module: import.meta.resolve(backend.module), export: backend.export }, workers,
-        ...(o.timeout === undefined ? {} : { timeoutMs: timeout * 1000 }) });  // else the pool's default
-    } else {
-      const mod = (await import(backend.module)) as Record<string, new () => Tessellator>;
-      tess = new mod[backend.export]!();
-    }
-    // truck reads STEP: each part's B-rep model written as STEP, after the cache (which keys on the model); OCCT and
-    // SMLib take models, passed through.
-    tess = new StepTessellator(tess);
-    if (o.cache !== undefined) tess = cached = new CachedTessellator(tess,
-      new FileStore({ dir: o.cache, maxBytes: cacheMb * 2 ** 20 }));
-    await tess!.init();
+    const store = o.cache === undefined ? undefined : new FileStore({ dir: o.cache, maxBytes: cacheMb * 2 ** 20 });
+    const make = async (name: string, b: { module: string; export: string }): Promise<Tessellator> => {
+      let t: Tessellator;
+      if (workers > 0) {
+        t = new WorkerTessellator(
+          { backend: { module: import.meta.resolve(b.module), export: b.export }, workers,
+          ...(o.timeout === undefined ? {} : { timeoutMs: timeout * 1000 }) });  // else the pool's default
+      } else {
+        const mod = (await import(b.module)) as Record<string, new () => Tessellator>;
+        t = new mod[b.export]!();
+      }
+      // truck reads STEP: each part's B-rep model written as STEP, after the cache (which keys on the model); OCCT
+      // and SMLib take models, passed through.
+      t = new StepTessellator(t);
+      if (store) {
+        const c = new CachedTessellator(t, store);
+        cached.set(name, c);
+        t = c;
+      }
+      return t;
+    };
+    tess = await make(o.backend, backend);
+    if (fallback) tess = new FallbackTessellator(tess, await make(fallbackName, fallback));
+    await tess.init();
   } catch (e) {
-    io.stderr.write(`stepconv: can't start the ${o.backend} backend: ${(e as Error).message}\n`);
+    io.stderr.write(`stepconv: can't start the ${o.backend}${fallback ? ` or ${fallbackName}` : ''} backend: `
+      + `${(e as Error).message}\n`);
     abandon();
     return 2;
   }
@@ -434,7 +460,7 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
 
   if (!o.quiet) {
     io.stderr.write(summary(scene, meshing ? meshes.size : undefined, view, diagnostics, times, written, cached,
-      deflections));
+      deflections, o.verbose));
   }
   const failed = scene.parts.filter((p, i) => p.brep && !meshes.has(i)).length;
   return o.strict && failed ? 3 : 0;
@@ -442,8 +468,8 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
 
 /** The run's summary; `meshed` undefined when nothing was (STEP output). */
 function summary(scene: Scene, meshed: number | undefined, view: ExportView, diagnostics: readonly Diagnostic[],
-  times: Record<string, number>,
-  written: number, cached: CachedTessellator | undefined, deflections: Deflections): string {
+  times: Record<string, number>, written: number, cached: ReadonlyMap<string, CachedTessellator>,
+  deflections: Deflections, verbose: boolean): string {
   const brep = scene.parts.filter((p) => p.brep).length;
   let placed = 0, triangles = 0;
   const walk = (n: ExportView['roots'][number]) => {
@@ -466,15 +492,26 @@ function summary(scene: Scene, meshed: number | undefined, view: ExportView, dia
     text += `import ${s(times.import!)}, tessellation ${s(times.tessellate!)} (${meshing}), `
       + `export ${s(times.export!)}\n`;
   }
-  if (cached) {
-    const c = cached.stats();
-    text += `cache: ${c.hits} hits (${c.failureHits} failures), ${c.misses} `
+  for (const [name, t] of cached) {
+    const c = t.stats();
+    text += `cache${cached.size > 1 ? ` (${name})` : ''}: ${c.hits} hits (${c.failureHits} failures), ${c.misses} `
       + `misses${c.errors ? `, ${c.errors} errors` : ''}\n`;
   }
   const count = (sev: Diagnostic['severity']) => diagnostics.filter((d) => d.severity === sev).length;
   text += `${count('error')} errors, ${count('warning')} warnings, ${count('info')} notes\n`;
-  const shown = diagnostics.filter((d) => d.severity !== 'info').slice(0, 20);
+  return text + listed(diagnostics, verbose);
+}
+
+/**
+ * The summary's list of problems: the first 20 errors and warnings, errors first (a file's warnings, one or more a
+ * part, can be many), each kind in the order found, "..." where there are more; `all` (--verbose) every one, the notes
+ * last.
+ */
+export function listed(diagnostics: readonly Diagnostic[], all = false): string {
+  const kinds: Diagnostic['severity'][] = all ? ['error', 'warning', 'info'] : ['error', 'warning'];
+  const listing = kinds.flatMap((k) => diagnostics.filter((d) => d.severity === k));
+  const shown = all ? listing : listing.slice(0, 20);
+  let text = '';
   for (const d of shown) text += `  ${d.severity}: ${d.source ? `#${d.source.id}: ` : ''}${d.message}\n`;
-  if (shown.length < count('error') + count('warning')) text += '  ...\n';
-  return text;
+  return shown.length < listing.length ? `${text}  ...\n` : text;
 }

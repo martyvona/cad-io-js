@@ -1143,7 +1143,14 @@ void meshPart(const uint8_t* buf, size_t len, BuiltPart& part, double linDefl, d
   }
   for (long row : seen)
     if (!meshes.count(row) || meshes[row].tri.empty()) failed++;
+  // Faces the builder left out (warned of, with why): the model's faces with an id never given to SMLib nor judged.
+  std::set<long> given(seen.begin(), seen.end());
+  for (const BuiltBrep& b : part.breps) given.insert(b.rows.begin(), b.rows.end());
+  int leftOut = 0;
+  for (size_t row = 0; row < part.faceIds.size(); row++)
+    if (part.faceIds[row] && !given.count((long)row)) leftOut++;
   diag += ",\"faces\":" + std::to_string(st.faces) + ",\"failures\":" + std::to_string(failed)
+    + ",\"leftOut\":" + std::to_string(leftOut)
     + ",\"polygons\":" + std::to_string(st.polygons) + ",\"tessErrors\":" + std::to_string(st.tessErrors)
     + ",\"unjoined\":" + std::to_string(st.unjoined) + ",\"folded\":" + std::to_string(st.folded)
     + ",\"retried\":" + std::to_string(st.retried)

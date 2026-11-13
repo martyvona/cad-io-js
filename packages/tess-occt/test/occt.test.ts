@@ -5,9 +5,9 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { failedPart, meshDeflections, partInstances, type Part, tessellateScene } from 'cad-scene';
+import { failedPart, meshDeflections, openEdgesMessage, partInstances, type Part, tessellateScene } from 'cad-scene';
 import { buildSubset, parseStep } from 'step-parser';
-import { STEP_WRITER_VERSION, StepTessellator } from 'step-export';
+import { STEP_ADAPTER, STEP_WRITER_VERSION, StepTessellator } from 'step-export';
 import { importStep } from 'step-import';
 import { MAX_MESSAGE_CHARS, MAX_MESSAGES, Messages, OcctTessellator, type OcctFactory,
   type OcctInitOptions } from '../src/index.ts';
@@ -107,7 +107,7 @@ test('measures: each face\'s area, perimeter and soundness when asked for, by it
   const again = (await load(cube)).scene;
   await tessellateScene(again, step, { linearDeflection: 0.01, angularDeflection: 0.5 });
   const m = again.parts[0]!.measures!;
-  assert.equal(m.by, `${step.info.name} ${viaStep.info.version}, STEP writer ${STEP_WRITER_VERSION}`);
+  assert.equal(m.by, `${step.info.name} ${viaStep.info.version}, STEP writer ${STEP_WRITER_VERSION}, adapter ${STEP_ADAPTER}`);
   assert.equal(m.faces.size, 6);
   viaStep.dispose();
 });
@@ -272,6 +272,59 @@ test('a face that fails to mesh is an error, in a part meshed otherwise (not a f
   assert.deepEqual(r.diagnostics.filter((d) => /failed to mesh/.test(d.message)),
     [{ severity: 'error', message: '1 faces failed to mesh' }]);
   assert.ok(r.indices.length > 0 && !failedPart(r));
+});
+
+test('with measures, the area oracle\'s areas (cad-scene\'s), by face id; none without, or on the STEP route',
+  { skip }, async () => {
+  const tess = new OcctTessellator();
+  await tess.init();
+  const q = (await load(cube)).scene.parts.find((x) => x.brep)!;
+  const req = { format: 'cad-brep' as const, data: new Uint8Array(q.brep!.model.buffer), origin: q.origin,
+    ...meshDeflections({ profile: 'medium' }) };
+  const r = await tess.tessellate({ ...req, measures: true });
+  const none = await tess.tessellate(req);
+  tess.dispose();
+  // The 10 mm cube's six faces.
+  assert.equal(r.oracle!.length, 6);
+  for (const o of r.oracle!) {
+    assert.ok(Math.abs(o.area - 100) < 1e-9 && Math.abs(o.perimeter - 40) < 1e-9, JSON.stringify(o));
+    assert.ok(r.measures!.some((m) => m.entityId === o.entityId));
+  }
+  assert.equal(none.oracle, undefined);
+});
+
+const open = step('bug28118_18547.stp');
+test('faces whose meshes miss each other along 2 edges: an error saying so, edges asked for or not, both routes',
+  { skip: skip || (!fs.existsSync(open) && 'corpus not fetched') }, async () => {
+  const { scene } = await load(open);
+  const p = scene.parts.find((q) => q.brep && rootOf(q) === 11)!;
+  const want = { severity: 'error', message: openEdgesMessage(2) };
+  const req = { format: 'cad-brep' as const, data: new Uint8Array(p.brep!.model.buffer), origin: p.origin,
+    ...meshDeflections({ profile: 'medium' }) };
+  const native = new OcctTessellator();
+  await native.init();
+  for (const edges of [true, false]) {
+    const r = await native.tessellate({ ...req, edges });
+    assert.deepEqual(r.diagnostics.filter((d) => d.severity === 'error'), [want]);
+    assert.equal(r.edges !== undefined, edges);
+    assert.ok(r.indices.length > 0 && !failedPart(r));
+  }
+  native.dispose();
+  // The STEP route: judged by StepTessellator, on the model's ids (OCCT's own are the file's).
+  const viaStep = new OcctTessellator({ route: 'step' });
+  await viaStep.init();
+  const r = await new StepTessellator(viaStep).tessellate(req);
+  viaStep.dispose();
+  assert.deepEqual(r.diagnostics.filter((d) => d.severity === 'error'), [want]);
+  assert.equal(r.edges, undefined);
+  // A closed part (the cube): none.
+  const closed = new OcctTessellator();
+  await closed.init();
+  const q = (await load(cube)).scene.parts.find((x) => x.brep)!;
+  const rq = await closed.tessellate({ ...req, data: new Uint8Array(q.brep!.model.buffer), origin: q.origin });
+  closed.dispose();
+  assert.ok(rq.indices.length > 0);
+  assert.deepEqual(rq.diagnostics.filter((d) => d.severity === 'error'), []);
 });
 
 const mixed = step('trj6_as1-td-214.stp');

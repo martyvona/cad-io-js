@@ -2,14 +2,19 @@
 // written as STEP (stepPartBytes) on the calling side, then passed on. Chained after the cache (CachedTessellator ->
 // StepTessellator -> a pool or a backend), so the cache keys on the model and only a miss writes STEP; its version
 // names the writer's, so a changed writer misses. A backend that takes models itself (OCCT's native route) gets them
-// as they are, and the version is its own. The backend stays free of the writer (tess-occt is LGPL, this AGPL).
+// as they are, and the version is its own. The backend stays free of the writer (tess-occt is LGPL, this AGPL). The
+// result is judged against the model for open edges (cad-scene's openEdges: an error), as such a backend can't be,
+// and with measures gets the area oracle's (oracleMeasures).
 
 import { openBrep } from 'cad-brep';
-import type { TessellationRequest, TessellationResult, Tessellator, TessellatorInfo } from 'cad-scene';
+import { openEdgesDiagnostic, oracleMeasures, type TessellationRequest, type TessellationResult, type Tessellator,
+  type TessellatorInfo } from 'cad-scene';
 import { stepPartBytes } from './part.ts';
 
 /** Bumped whenever the writer's output for some model changes: cached meshes of the old output then miss. */
 export const STEP_WRITER_VERSION = 2;
+/** Bumped whenever this tessellator's results change otherwise, for the same reason. */
+export const STEP_ADAPTER = 1;
 
 export class StepTessellator implements Tessellator {
   readonly memoryBytes?: () => number;
@@ -23,7 +28,8 @@ export class StepTessellator implements Tessellator {
   get info(): TessellatorInfo {
     const i = this.inner.info;
     return i.formats.includes('cad-brep') ? i
-      : { ...i, version: `${i.version}, STEP writer ${STEP_WRITER_VERSION}`, formats: ['cad-brep', ...i.formats] };
+      : { ...i, version: `${i.version}, STEP writer ${STEP_WRITER_VERSION}, adapter ${STEP_ADAPTER}`,
+        formats: ['cad-brep', ...i.formats] };
   }
 
   get timeoutMs(): number | undefined {
@@ -36,11 +42,16 @@ export class StepTessellator implements Tessellator {
 
   async tessellate(req: TessellationRequest): Promise<TessellationResult> {
     if (req.format !== 'cad-brep' || this.inner.info.formats.includes('cad-brep')) return this.inner.tessellate(req);
-    const w = stepPartBytes(openBrep(req.data));
-    const r = sourceIdsOf(await this.inner.tessellate({ ...req, format: 'step', data: w.data, rootId: w.rootId }),
-      (id) => (id === null || id <= w.largest ? id : w.sourceIds.get(id) ?? null));
-    return w.diagnostics.length ? { ...r, diagnostics: [...w.diagnostics.map((x) => ({ severity: x.severity,
-      message: `writing STEP: ${x.message}` })), ...r.diagnostics] } : r;
+    const model = openBrep(req.data);
+    const w = stepPartBytes(model);
+    // (Edges always, to judge the mesh by; dropped after if not asked for.)
+    const r = sourceIdsOf(await this.inner.tessellate({ ...req, format: 'step', data: w.data, rootId: w.rootId,
+      edges: true }), (id) => (id === null || id <= w.largest ? id : w.sourceIds.get(id) ?? null));
+    const open = openEdgesDiagnostic(model, r);
+    if (req.measures) r.oracle = oracleMeasures(model);
+    if (!req.edges) { delete r.edges; delete r.edgePositions; }
+    const notes = w.diagnostics.map((x) => ({ severity: x.severity, message: `writing STEP: ${x.message}` }));
+    return notes.length || open ? { ...r, diagnostics: [...notes, ...r.diagnostics, ...open ? [open] : []] } : r;
   }
 
   dispose(): void {

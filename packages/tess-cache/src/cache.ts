@@ -70,7 +70,7 @@ export type CacheEntry =
   | { at: number; thrown: { message: string; timeoutMs?: number } };
 
 type Header = Partial<Pick<TessellationResult, 'origin' | 'faces' | 'edges' | 'curves' | 'pointIds'
-  | 'outlines' | 'measures' | 'diagnostics'>> & {
+  | 'outlines' | 'measures' | 'oracle' | 'diagnostics'>> & {
   at: number;
   /** What a result's request asked for. */
   asked?: { edges: boolean; measures: boolean };
@@ -96,7 +96,8 @@ export function encodeEntry(e: CacheEntry): Uint8Array {
     Object.assign(header, { origin: r.origin, faces: r.faces, diagnostics: r.diagnostics },
       r.edges ? { edges: r.edges } : {});
     Object.assign(header, r.curves ? { curves: r.curves } : {}, r.pointIds ? { pointIds: r.pointIds } : {},
-      r.outlines ? { outlines: r.outlines } : {}, r.measures ? { measures: r.measures } : {});
+      r.outlines ? { outlines: r.outlines } : {}, r.measures ? { measures: r.measures } : {},
+      r.oracle ? { oracle: r.oracle } : {});
   }
   else if ('thrown' in e) header.thrown = e.thrown;
   const json = new TextEncoder().encode(JSON.stringify(header));
@@ -151,6 +152,7 @@ export function decodeEntry(bytes: Uint8Array): CacheEntry {
   if (outlinePositions) r.outlinePositions = outlinePositions;
   if (header.outlines) r.outlines = header.outlines;
   if (header.measures) r.measures = header.measures;
+  if (header.oracle) r.oracle = header.oracle;
   return { at: header.at, result: r, edges: header.asked!.edges, measures: header.asked!.measures };
 }
 

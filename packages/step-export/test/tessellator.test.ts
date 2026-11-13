@@ -3,10 +3,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { BrepBuilder } from 'cad-brep';
-import type { TessellationRequest, TessellationResult, Tessellator } from 'cad-scene';
+import { openEdgesMessage, oracleMeasures, type TessellationRequest, type TessellationResult, type Tessellator } from
+  'cad-scene';
 import { parseStep } from 'step-parser';
 import { cube, spheres, withoutIds } from '../../cad-brep/test/models.ts';
-import { STEP_WRITER_VERSION, StepTessellator, stepPartBytes } from '../src/index.ts';
+import { quads } from '../../cad-scene/test/meshes.ts';
+import { STEP_ADAPTER, STEP_WRITER_VERSION, StepTessellator, stepPartBytes } from '../src/index.ts';
 
 /** A STEP backend that keeps what it was sent, and answers with `answer` (default: nothing meshed). */
 function backend(answer?: (req: TessellationRequest) => Partial<TessellationResult>) {
@@ -65,7 +67,7 @@ test('other formats pass through; its info names the writer and takes models (un
     angularDeflection: 1 };
   await t.tessellate(req);
   assert.equal(inner.seen[0], req);
-  assert.deepEqual(t.info, { ...inner.info, version: `3, STEP writer ${STEP_WRITER_VERSION}`,
+  assert.deepEqual(t.info, { ...inner.info, version: `3, STEP writer ${STEP_WRITER_VERSION}, adapter ${STEP_ADAPTER}`,
     formats: ['cad-brep', 'step'] });
   assert.equal(t.timeoutMs, 1234);
   assert.equal(t.memoryBytes!(), 99);
@@ -105,7 +107,7 @@ test('the writer\'s ids read back as the model\'s: none for an entity without a 
     curves: [range(unnamed), range(3)], outlines: [range(copy)], pointIds: [30, unnamed, null, beyond],
   }));
   const r = await new StepTessellator(inner).tessellate({ format: 'cad-brep', data: new Uint8Array(d.buffer),
-    linearDeflection: 0.1, angularDeflection: 0.5 });
+    linearDeflection: 0.1, angularDeflection: 0.5, edges: true });
   assert.deepEqual(r.faces.map((f) => f.entityId), [10, 10, null, null, null]);
   // One measure for face 10 (the face's, not summed over its copies), sound only if both are; none without an id.
   assert.deepEqual(r.measures, [{ entityId: 10, area: 1, perimeter: 4, valid: false }]);
@@ -119,6 +121,31 @@ test('the writer\'s ids read back as the model\'s: none for an entity without a 
     linearDeflection: 0.1, angularDeflection: 0.5 });
   assert.deepEqual(Object.keys(bare).filter((k) => ['edges', 'curves', 'outlines', 'pointIds', 'measures'].includes(k)),
     []);
+});
+
+test('the mesh judged for open edges by the model: edges asked of the backend always, kept only if asked for',
+  async () => {
+  const d = cube().finish();
+  const moved = quads(d, { face: 21, corner: 0, by: [0, 0, 1e-3] });
+  const inner = backend(() => moved);
+  const t = new StepTessellator(inner);
+  for (const edges of [false, true]) {
+    const r = await t.tessellate({ format: 'cad-brep', data: new Uint8Array(d.buffer), linearDeflection: 0.1,
+      angularDeflection: 0.5, edges });
+    assert.equal(inner.seen.at(-1)!.edges, true);
+    assert.deepEqual(r.diagnostics.filter((x) => x.severity === 'error'),
+      [{ severity: 'error', message: openEdgesMessage(2) }]);
+    assert.equal(r.edges !== undefined && r.edgePositions !== undefined, edges);
+  }
+  // Closed: no error. With measures, the area oracle's areas (none without).
+  const sound = await new StepTessellator(backend(() => quads(d))).tessellate({ format: 'cad-brep',
+    data: new Uint8Array(d.buffer), linearDeflection: 0.1, angularDeflection: 0.5 });
+  assert.deepEqual(sound.diagnostics.filter((x) => x.severity === 'error'), []);
+  assert.equal(sound.oracle, undefined);
+  const measured = await new StepTessellator(backend(() => quads(d))).tessellate({ format: 'cad-brep',
+    data: new Uint8Array(d.buffer), linearDeflection: 0.1, angularDeflection: 0.5, measures: true });
+  assert.deepEqual(measured.oracle, oracleMeasures(d));
+  assert.equal(measured.oracle!.length, 6);
 });
 
 test('an entity whose source id another has: written under a new id, read back as its own', async () => {

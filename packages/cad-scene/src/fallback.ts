@@ -1,0 +1,155 @@
+// A fallback backend: each part meshed by the primary tessellator, and again by the fallback where the primary's result
+// fails (judgeResult), keeping the better result (compareVerdicts). Each side may be cached on its own (tess-cache), so
+// a part the primary fails is meshed by the fallback once.
+
+import { type BrepData, openBrep } from 'cad-brep';
+import { type FaceArea, oracleAreas } from './area-oracle.ts';
+import { failedPart } from './errors.ts';
+import { faceFailures } from './mesh.ts';
+import { openEdgesCount } from './open-edges.ts';
+import type { Diagnostic } from './scene.ts';
+import { faceUses } from './tessellate.ts';
+import type { TessellationRequest, TessellationResult, Tessellator, TessellatorInfo } from './tessellator.ts';
+
+/** What judgeResult found wrong with a result. */
+export interface Verdict {
+  /** Whether nothing is: the part needs no fallback. */
+  ok: boolean;
+  /** What is, in words (empty when ok). */
+  problems: string[];
+  /**
+   * How bad, to choose between two results (compareVerdicts), kind by kind, the worst kind first: whether the request
+   * threw (or timed out), whether the part has no triangles, then the faces without triangles, the faces short of or
+   * over their area, the open edges, the other errors. A face missing outweighs any number of edges open.
+   */
+  rank: [number, number, number, number, number, number];
+}
+
+/** Negative where `a` is the better (the lesser rank, kind by kind), positive where `b` is, 0 where they're alike. */
+export function compareVerdicts(a: Verdict, b: Verdict): number {
+  for (let k = 0; k < a.rank.length; k++) if (a.rank[k] !== b.rank[k]) return a.rank[k]! - b.rank[k]!;
+  return 0;
+}
+
+/**
+ * Whether a backend's result for a part (or the error its request threw) is sound: the request didn't throw, the part
+ * has triangles, no error diagnostic (faces that failed to mesh, open edges: every backend gives both), and no face of
+ * the model missing or wrong by its area (faceFailures: failed, partly, excess; unverified isn't counted, as nothing
+ * tells). A face's area is the oracle's where it has one (`given`, else the result's `oracle`, else made from
+ * `model` on this thread: oracleAreas), else the result's own measure: a backend can mesh a face wrongly and measure
+ * it just as wrongly (OCCT a sphere face as its complement), which only an independent area shows. `model` the part's
+ * B-rep (the request's payload), for its faces; `deflection` the request's linear deflection, which faceFailures
+ * judges by.
+ */
+export function judgeResult(r: TessellationResult | Error, model: BrepData | undefined, deflection: number,
+  given?: ReadonlyMap<number, FaceArea>): Verdict {
+  if (r instanceof Error) return { ok: false, problems: [`failed: ${r.message}`], rank: [1, 0, 0, 0, 0, 0] };
+  const errors = r.diagnostics.filter((d) => d.severity === 'error');
+  if (failedPart(r)) return { ok: false, problems: errors.map((d) => d.message), rank: [0, 1, 0, 0, 0, 0] };
+  const expected: number[] = [];
+  if (model) for (const id of model.face.id) if (id) expected.push(id);
+  const uses = model ? faceUses(model) : new Map<number, number>();
+  // Each face's area: the oracle's, else the result's measure.
+  const faces = new Map<number, { area: number; perimeter: number; valid: boolean; uses?: number }>();
+  const add = (id: number, m: { area: number; perimeter: number; valid: boolean }) => {
+    const n = uses.get(id) ?? 1;
+    faces.set(id, { ...m, ...(n > 1 ? { uses: n } : {}) });
+  };
+  for (const m of r.measures ?? []) add(m.entityId, m);
+  const oracle = given ?? (r.oracle ? new Map(r.oracle.map((o) => [o.entityId, o])) : model && oracleAreas(model));
+  for (const [id, o] of oracle ?? []) add(id, { area: o.area, perimeter: o.perimeter, valid: true });
+  const measures = faces.size ? { measures: { by: '', faces }, deflection } : undefined;
+  const mesh = { origin: r.origin, positions: r.positions, indices: r.indices,
+    faces: r.faces.map((f) => ({ source: f.entityId, start: f.start, count: f.count })) };
+  const kinds = { failed: 0, partly: 0, excess: 0 };
+  for (const k of faceFailures(mesh, { expected, ...(measures ? { measured: measures } : {}) }).values()) {
+    if (k !== 'unverified') kinds[k]++;
+  }
+  const open = openEdgesCount(r.diagnostics);
+  // (Faces that failed and open edges are counted above, whatever their errors say.)
+  const others = errors.filter((d) => !/^\d+ faces failed to mesh/.test(d.message) && openEdgesCount([d]) === 0);
+  const problems: string[] = [];
+  for (const [k, n] of Object.entries(kinds)) if (n) problems.push(`${n} ${n === 1 ? 'face' : 'faces'} ${k === 'failed'
+    ? 'without triangles' : k === 'partly' ? 'meshed only in part' : `meshed over ${n === 1 ? 'its' : 'their'} area`}`);
+  if (open) problems.push(`open along ${open} ${open === 1 ? 'edge' : 'edges'}`);
+  for (const d of others) problems.push(d.message);
+  return { ok: !problems.length, problems,
+    rank: [0, 0, kinds.failed, kinds.partly + kinds.excess, open, others.length] };
+}
+
+const described = (i: TessellatorInfo) => `${i.name} ${i.version}`;
+
+/**
+ * The primary tessellator, and where its result for a part isn't sound (judgeResult), the fallback's for the whole
+ * part, whichever is the better (compareVerdicts: kind by kind, a face missing worst; the primary's on a tie). The result says which (`backend`), with a warning
+ * naming what was wrong with the primary's, or an info diagnostic where the fallback's was no better. Both are asked
+ * for measures (to judge by), which the result keeps only if the request asked. Both start at init (a worker pool
+ * starts one worker then, the rest as requests come).
+ */
+export class FallbackTessellator implements Tessellator {
+  readonly primary: Tessellator;
+  readonly fallback: Tessellator;
+
+  constructor(primary: Tessellator, fallback: Tessellator) {
+    this.primary = primary;
+    this.fallback = fallback;
+  }
+
+  get info(): TessellatorInfo {
+    const p = this.primary.info, f = this.fallback.info;
+    return {
+      name: `${p.name}+${f.name}`, version: `${p.version}; fallback ${f.name} ${f.version}`,
+      license: p.license === f.license ? p.license : `${p.license}; ${f.license}`,
+      formats: p.formats.filter((x) => f.formats.includes(x)),
+      supportsFaceIds: p.supportsFaceIds && f.supportsFaceIds, supportsEdges: p.supportsEdges && f.supportsEdges,
+      supportsCurves: p.supportsCurves && f.supportsCurves,
+    };
+  }
+
+  get timeoutMs(): number | undefined {
+    return this.primary.timeoutMs;
+  }
+
+  /** Starts both: `opts` the primary's (a backend's options are its own; a pool's come with its backend). */
+  async init(opts?: Record<string, unknown>): Promise<void> {
+    await Promise.all([this.primary.init(opts), this.fallback.init()]);
+  }
+
+  async tessellate(req: TessellationRequest): Promise<TessellationResult> {
+    const ask = { ...req, measures: true };
+    const model = req.format === 'cad-brep' ? openBrep(req.data) : undefined;
+    const run = (t: Tessellator) => t.tessellate(ask).catch((e: unknown) => e instanceof Error ? e
+      : new Error(String(e)));
+    const a = await run(this.primary);
+    // (The oracle's areas from the results, computed beside the meshing: ours are cached with them.)
+    const va = judgeResult(a, model, req.linearDeflection);
+    if (va.ok) return this.finish(a as TessellationResult, this.primary, req, []);
+    const p = this.primary.info.name, f = this.fallback.info.name;
+    const b = await run(this.fallback);
+    const vb = judgeResult(b, model, req.linearDeflection);
+    const why = va.problems.join('; ');
+    if (compareVerdicts(vb, va) < 0) return this.finish(b as TessellationResult, this.fallback, req, [{ severity: 'warning',
+      message: `meshed by the fallback backend (${f}), since ${p}'s mesh had problems: ${why}` }]);
+    if (a instanceof Error) throw a;
+    return this.finish(a, this.primary, req, [{ severity: 'info', message: `the fallback backend (${f}) did no `
+      + `better than ${p} (${vb.problems.join('; ')}), so ${p}'s mesh is kept` }]);
+  }
+
+  /** The result as the request asked for it, saying who made it, with `notes` first. */
+  private finish(r: TessellationResult, by: Tessellator, req: TessellationRequest, notes: Diagnostic[]):
+    TessellationResult {
+    const out: TessellationResult = { ...r, backend: r.backend ?? described(by.info),
+      diagnostics: [...notes, ...r.diagnostics] };
+    if (!req.measures) { delete out.measures; delete out.oracle; }
+    return out;
+  }
+
+  memoryBytes(): number {
+    return (this.primary.memoryBytes?.() ?? 0) + (this.fallback.memoryBytes?.() ?? 0);
+  }
+
+  dispose(): void {
+    this.primary.dispose();
+    this.fallback.dispose();
+  }
+}

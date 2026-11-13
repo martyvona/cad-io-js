@@ -94,6 +94,9 @@ test('the test models: faces by id, with their areas, exact measures and sides',
   for (const [id, f] of a) assert.ok(Math.abs(f.area - 1) < 1e-9 && f.tris === 2, `cube face #${id}`);
   assert.deepEqual(r.measures!.map((m) => [m.entityId, +m.area.toFixed(9), +m.perimeter.toFixed(9), m.valid]).sort(),
     [21, 22, 23, 24, 25, 26].map((id) => [id, 1, 4, true]));
+  // With the measures, the area oracle's (cad-scene's oracleMeasures).
+  assert.deepEqual(r.oracle!.map((m) => [m.entityId, +m.area.toFixed(9), +m.perimeter.toFixed(9)]).sort(),
+    [21, 22, 23, 24, 25, 26].map((id) => [id, 1, 4]));
   assert.deepEqual(r.diagnostics, []);
   const s = sides(cube, r);
   assert.ok(s.checked === 12 && s.against === 0, JSON.stringify(s));
@@ -1145,6 +1148,20 @@ test('ids as the model has them, up to 2^32 - 1, and none: entity ids null, face
     assert.equal(rn.faces.length, 6);
     assert.ok(rn.faces.every((f) => f.entityId === null) && rn.edges!.every((e) => e.entityId === null));
     assert.equal(rn.measures, undefined);
+  });
+
+test('faces the builder leaves out are counted among the faces that failed to mesh, beside the warning why',
+  { skip: skip || (fs.existsSync(corpus) ? false : 'no corpus (test_corpus/third_party/pull.sh)') }, async () => {
+    const { scene } = await importStep(new Uint8Array(fs.readFileSync(path.join(corpus,
+      'bug22871_null-swept-curve.stp'))));
+    const p = scene.parts.find((x) => x.sources[0]!.id === 10)!;
+    const r = await (await backend()).tessellate({ ...request(p.brep!.model, 0.1 / p.unit), origin: p.origin });
+    // Four of its seven faces left out (edges without a 3D curve), none of the others failing.
+    const ids = [...p.brep!.model.face.id].filter((x) => x);
+    const meshed = new Set(r.faces.filter((f) => f.count > 0).map((f) => f.entityId));
+    assert.equal(ids.filter((id) => !meshed.has(id)).length, 4);
+    assert.deepEqual(r.diagnostics.filter((d) => d.severity !== 'info').map((d) => [d.severity, d.message]),
+      [['warning', 'SMLib builder: edges without a 3D curve (faces left out)'], ['error', '4 faces failed to mesh']]);
   });
 
 test('a face that fails to mesh is an error; the part, meshed but for it, not failed',

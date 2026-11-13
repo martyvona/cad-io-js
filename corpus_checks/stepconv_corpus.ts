@@ -1,7 +1,7 @@
 // Phase 4 step 6: every corpus file through stepconv, with its defaults, in each format (three.js JSON, GLB, glTF with
 // its .bin, 3MF): stepconv's main in this process for every file, and the bin spawned for a sample. Each file is also
-// imported and tessellated here (a tess-workers pool, OCCT, the defaults: 0.1 mm, no edges or curves) for the export
-// view each output should come from; then, per format:
+// imported and tessellated here (as stepconv's defaults: tess-workers pools of OCCT with SMLib its fallback, each
+// cached, the medium profile, no edges or curves) for the export view each output should come from; then, per format:
 //   - exit 0, nothing on standard output, and the summary's parts, tessellated parts, placed parts and triangles
 //     those of the scene and the view;
 //   - the output read back with that format's own tools: three.js's ObjectLoader; the Khronos glTF-Validator (its
@@ -28,8 +28,8 @@ import { KHRDracoMeshCompression, KHRMaterialsUnlit, KHRNodeVisibility } from '@
 import draco3d from 'draco3dgltf';
 import validator from 'gltf-validator';
 import * as THREE from 'three';
-import { DEFAULT_MESH_PROFILE, exportView, manifoldProblems, meshDeflections, placedName, tessellateScene, weld,
-  type ExportNode, type ExportPart, type ExportView, type PartRef,
+import { DEFAULT_MESH_PROFILE, exportView, FallbackTessellator, manifoldProblems, meshDeflections, placedName,
+  tessellateScene, weld, type ExportNode, type ExportPart, type ExportView, type PartRef,
   type Scene } from '../packages/cad-scene/src/index.ts';
 import { stepconv } from '../packages/cli/src/stepconv.ts';
 import { read3mf } from '../packages/export-3mf/test/read3mf.ts';
@@ -54,7 +54,7 @@ interface Result {
 }
 
 // The process's own: its meshing pool and workers, its glTF reader, its directory for outputs.
-let tess: WorkerTessellator, workers = 1, gltfIo: NodeIO, dir = '', binDir = '';
+let tess: FallbackTessellator, workers = 1, gltfIo: NodeIO, dir = '', binDir = '';
 
 /** A stepconv summary's numbers. */
 interface Summary { parts: number; meshed: number; brep: number; placed: number; triangles: number; import: number;
@@ -178,8 +178,9 @@ function spawn(args: string[]): Promise<{ code: number; stdout: string; stderr: 
 export const check: FileCheck<{ sample: boolean }, Result> = {
   async setup({ meshWorkers }) {
     workers = meshWorkers;
-    tess = new WorkerTessellator({ backend: { module: import.meta.resolve('../packages/tess-occt/src/index.ts'),
-      export: 'OcctTessellator' }, workers });
+    const pool = (p: string, e: string) => cachedMesher(new WorkerTessellator({ backend: {
+      module: import.meta.resolve(`../packages/${p}/src/index.ts`), export: e }, workers }));
+    tess = new FallbackTessellator(pool('tess-occt', 'OcctTessellator'), pool('tess-smlib', 'SmlibTessellator'));
     await tess.init();
     gltfIo = new NodeIO().registerExtensions([KHRMaterialsUnlit, KHRNodeVisibility, KHRDracoMeshCompression])
       .registerDependencies({ 'draco3d.decoder': await draco3d.createDecoderModule() });
@@ -198,7 +199,7 @@ export const check: FileCheck<{ sample: boolean }, Result> = {
       const { scene } = await importStep(fs.readFileSync(f));
       // (As stepconv meshes by default: its default profile, medium.)
       const deflections = meshDeflections({ profile: DEFAULT_MESH_PROFILE });
-      const { meshes } = await tessellateScene(scene, cachedMesher(tess),
+      const { meshes } = await tessellateScene(scene, tess,
         { ...deflections, concurrency: workers });
       const view = exportView(scene, { ...deflections, edges: false, curves: false });
       const placed = placedParts(view, scene);

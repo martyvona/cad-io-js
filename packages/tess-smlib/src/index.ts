@@ -3,7 +3,7 @@
 // each part's B-rep model, heals it and meshes it; our wrapper is AGPL-3.0-only, as the module is as a whole.
 
 import type { EdgeKind, TessellationRequest, TessellationResult, Tessellator, TessellatorInfo } from 'cad-scene';
-import { sha256 } from 'cad-scene';
+import { oracleMeasures, sha256 } from 'cad-scene';
 
 interface SmlibModule {
   HEAPU8: Uint8Array;
@@ -49,7 +49,7 @@ interface SmlibModule {
 const KINDS: EdgeKind[] = ['shared', 'seam', 'free', 'degenerate'];
 
 /** Changes when this adapter's results change for the same module, so that cached results from before aren't read. */
-const ADAPTER = 6;
+const ADAPTER = 7;
 
 /** The upstream source the module is built from (third_party/pull.sh). */
 const SOURCE = 'SMLib (usd-brep 1.0.1, 3fd5b95)';
@@ -214,6 +214,8 @@ export class SmlibTessellator implements Tessellator {
         result.measures.push({ entityId: q[i]!, area: q[i + 1]!, perimeter: q[i + 2]!, valid: q[i + 3] === 1 });
       }
     }
+    // (With the measures, the area oracle's, on the model as given, whatever `scale` builds it at.)
+    if (req.measures) result.oracle = oracleMeasures(req.data);
     if (req.edges) {
       const ne = m._smlib_num_edges();
       const edgeData = u32(m._smlib_edges(), ne * 4);
@@ -245,9 +247,10 @@ export class SmlibTessellator implements Tessellator {
       result.pointIds = Array.from(u32(m._smlib_point_ids(), np), id);
     }
     m._smlib_free();
-    if (diag.failures) {
-      diagnostics.push({ severity: 'error', message: `${String(diag.failures)} faces failed to mesh` });
-    }
+    // (The faces the builder left out among them: a face without triangles is a failure, whatever the cause, which
+    // the builder's warnings say.)
+    const failures = Number(diag.failures ?? 0) + Number(diag.leftOut ?? 0);
+    if (failures) diagnostics.push({ severity: 'error', message: `${failures} faces failed to mesh` });
     if (diag.retried) {
       diagnostics.push({ severity: 'info', message: `${String(diag.retried)} faces meshed badly in their shells, `
         + `meshed again alone, unhealed, healed, with shorter edges or larger (${String(diag.improved)} `

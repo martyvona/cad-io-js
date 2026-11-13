@@ -41,6 +41,8 @@ interface Diag {
 }
 
 const KINDS: EdgeKind[] = ['shared', 'seam', 'free', 'degenerate'];
+/** Changes when this adapter's results change for the same module, so that cached results from before aren't read. */
+const ADAPTER = 1;
 const [POSITIONS, NORMALS, INDICES, FACES, EDGE_POSITIONS, EDGES, EDGE_ANGLES, DIAG] = [0, 1, 2, 3, 4, 5, 6, 7];
 
 /** The wasm-bindgen runtime imports truck's dependencies leave in the module (chrono, getrandom). Nothing on our
@@ -107,11 +109,11 @@ export class TruckTessellator implements Tessellator {
         if (version === undefined) throw new TypeError(
           'tess-truck: init({wasm}) with a compiled WebAssembly.Module needs a version, since it has no bytes to hash');
         this.module = wasm;
-        this.info.version = version;
+        this.info.version = `${version}, adapter ${ADAPTER}`;
       } else {
         const bytes = await wasmBytes(wasm);
         this.module = await WebAssembly.compile(bytes);
-        this.info.version = `${version ?? 'truck 88ed005'}, wasm ${await wasmId(bytes)}`;
+        this.info.version = `${version ?? 'truck 88ed005'}, wasm ${await wasmId(bytes)}, adapter ${ADAPTER}`;
       }
     }
     this.instantiate();
@@ -204,9 +206,11 @@ export class TruckTessellator implements Tessellator {
     if (diag.unconvertedEdges?.length) diagnostics.push(
       { severity: 'warning', message: `${diag.unconvertedEdges.length} edges truck can't convert: `
       + `${list(diag.unconvertedEdges)}` });
-    if (diag.unmeshedFaces?.length) diagnostics.push(
-      { severity: 'error', message: `${diag.unmeshedFaces.length} faces failed to mesh: `
-      + `${list(diag.unmeshedFaces)}` });
+    // (The faces left out among them, which the warnings above say why of: a face without triangles is a failure.)
+    const failed = [...new Set([...diag.unmeshedFaces ?? [], ...diag.unconvertedFaces ?? [],
+      ...diag.nonfiniteFaces ?? []])].sort((a, b) => a - b);
+    if (failed.length) diagnostics.push(
+      { severity: 'error', message: `${failed.length} faces failed to mesh: ${list(failed)}` });
     if (diag.skippedItems?.length) diagnostics.push(
       { severity: 'warning', message: `representation items truck doesn't mesh: `
       + `${diag.skippedItems.slice(0, 10).join(', ')}${diag.skippedItems.length > 10 ? ', ...' : ''}` });

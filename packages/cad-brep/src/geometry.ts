@@ -145,7 +145,49 @@ function bsplineCurve(degree: number, U: number[], poles: Vec[], weights?: numbe
     const c = scale(A, 1 / W);
     return [c, scale(sub(Ad, scale(c, Wd)), 1 / W)];
   };
-  return { range: [U[p]!, U[n]!] as [number, number], at };
+  // The point alone, as `at` computes it (the same operations in the same order, so the same numbers) without the
+  // derivative or allocations but the result: most of the time of nearest-point searches and sampling.
+  const ndu = new Float64Array((p + 1) * (p + 1)), left = new Float64Array(p + 1), right = new Float64Array(p + 1);
+  const N = new Float64Array(p + 1);
+  const dim = poles[0]?.length ?? 3;
+  const point = (t: number): Vec => {
+    const span = findSpan(n, p, t, U);
+    ndu.fill(0);
+    left.fill(0);
+    right.fill(0);
+    ndu[0] = 1;
+    for (let j = 1; j <= p; j++) {
+      left[j] = t - U[span + 1 - j]!;
+      right[j] = U[span + j]! - t;
+      let saved = 0;
+      for (let r = 0; r < j; r++) {
+        ndu[j * (p + 1) + r] = right[r + 1]! + left[j - r]!;
+        const temp = ndu[r * (p + 1) + j - 1]! / ndu[j * (p + 1) + r]!;
+        ndu[r * (p + 1) + j] = saved + right[r + 1]! * temp;
+        saved = left[j - r]! * temp;
+      }
+      ndu[j * (p + 1) + j] = saved;
+    }
+    for (let j = 0; j <= p; j++) N[j] = ndu[j * (p + 1) + p]!;
+    const out = new Array<number>(dim).fill(0);
+    if (!weights) {
+      for (let k = 0; k <= p; k++) {
+        const q = poles[span - p + k]!;
+        for (let i = 0; i < dim; i++) out[i]! += N[k]! * q[i]!;
+      }
+      return out;
+    }
+    let W = 0;
+    for (let k = 0; k <= p; k++) W = W + N[k]! * weights[span - p + k]!;
+    for (let k = 0; k <= p; k++) {
+      const q = poles[span - p + k]!, c = N[k]! * weights[span - p + k]!;
+      for (let i = 0; i < dim; i++) out[i]! += c * q[i]!;
+    }
+    const inv = 1 / W;
+    for (let i = 0; i < dim; i++) out[i] = out[i]! * inv;
+    return out;
+  };
+  return { range: [U[p]!, U[n]!] as [number, number], at, point };
 }
 
 /**
@@ -231,8 +273,7 @@ export function curveEvaluatorOf(c: Curve, resolve: (row: number) => CurveEvalua
     }
     case 'bspline': {
       const s = bsplineCurve(c.degree, fullKnots(c.knots, c.multiplicities), c.poles, c.weights);
-      const e = { dim: c.poles[0]!.length, range: s.range, point: (t: number) => s.at(t)[0],
-        d1: (t: number) => s.at(t)[1] };
+      const e = { dim: c.poles[0]!.length, range: s.range, point: s.point, d1: (t: number) => s.at(t)[1] };
       // Searched by its spans: 32 samples a span (at least 256).
       const n = Math.max(256, 32 * (c.knots.length - 1));
       return { ...e, param: (p) => nearestParam(e, p, s.range, n) };
