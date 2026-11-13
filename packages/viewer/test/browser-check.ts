@@ -1816,8 +1816,9 @@ await check('problems dialog', async () => {
     { after: Seen }).after;
   const warned = (await page(`?url=${encodeURIComponent('/content/warned.stp')}&check=dialogs`, look) as
     { after: Seen }).after;
-  // (OCCT fails a face of it, meshes ten over their area and leaves an edge open; the fallback, SMLib, leaves out
-  // three, a builder's error, which ranks worse: OCCT's mesh kept, its three errors listed.)
+  // (OCCT fails a face of it, meshes ten over their area and leaves an edge open; SMLib, the fallback, meshes those
+  // ten but leaves out three, one the face OCCT fails: the per-face fallback's mix, OCCT's mesh with SMLib's ten,
+  // still without that face and open along an edge between the two.)
   const face = (await page(`?url=${encodeURIComponent('/content/face-failed.stp')}&check=dialogs`, look) as
     { after: Seen }).after;
   const quiet = (await page(`?url=${encodeURIComponent('/content/broken.stp')}&check`, look) as { after: Seen }).after;
@@ -1827,11 +1828,9 @@ await check('problems dialog', async () => {
     broken.rows.every((r) => r.startsWith('error')) && broken.closed, `a file with errors: ${j}`);
   expect(clean.errors + clean.warnings === 0 && !clean.open, `a file without: ${j}`);
   expect(warned.warnings > 0 && warned.errors === 0 && !warned.open, `a file with warnings alone: ${j}`);
-  expect(face.errors === 3 && face.open && face.title === 'face-failed.stp: 3 errors' &&
-    face.rows.join() === 'error #10,error #10,error #10' && face.messages.join('|') === '1 edges along which the '
-    + 'meshes of the faces they join don\'t meet: the mesh is open there|1 faces failed to mesh|10 faces meshed short '
-    + 'of or over their measured area: #3420, #4950, #5736, #5826, #6054, #7291, #7475, #8708, #8791, #17500',
-    `a face failed: ${j}`);
+  expect(face.errors === 2 && face.open && face.title === 'face-failed.stp: 2 errors' &&
+    face.rows.join() === 'error #10,error #10' && face.messages.join('|') === '1 faces failed to mesh: #18168|1 '
+    + 'edges along which the meshes of the faces they join don\'t meet: the mesh is open there', `a face failed: ${j}`);
   expect(quiet.errors > 0 && !quiet.open, `none in plain ?check pages: ${j}`);
   return undefined;
 });

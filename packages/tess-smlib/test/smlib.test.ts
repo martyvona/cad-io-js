@@ -1173,3 +1173,28 @@ test('a face that fails to mesh is an error; the part, meshed but for it, not fa
     assert.equal(failed?.severity, 'error', JSON.stringify(r.diagnostics));
     assert.ok(r.indices.length > 0 && !failedPart(r));
   });
+
+/** Edge polylines that come back to a point they had (not the next: single precision makes repeats), by id. */
+function backtracking(r: TessellationResult): number[] {
+  const P = (i: number) => `${r.edgePositions![3 * i]},${r.edgePositions![3 * i + 1]},${r.edgePositions![3 * i + 2]}`;
+  const out: number[] = [];
+  for (const e of r.edges!) {
+    const pts: string[] = [];
+    for (let k = e.start; k < e.start + e.count; k++) if (P(k) !== pts[pts.length - 1]) pts.push(P(k));
+    const inner = pts.length > 1 && pts[0] === pts[pts.length - 1] ? pts.slice(0, -1) : pts;
+    if (new Set(inner).size !== inner.length) out.push(e.entityId!);
+  }
+  return out;
+}
+
+test('an edge SMLib\'s join can\'t join (2.stp #322\'s #21160): its polyline one face\'s side, one path',
+  { skip: skip || (fs.existsSync(corpus) ? false : 'no corpus (test_corpus/third_party/pull.sh)') }, async () => {
+  const { scene } = await importStep(new Uint8Array(fs.readFileSync(path.join(corpus, '2.stp'))));
+  const part = scene.parts.find((p) => p.sources[0]!.id === 322)!;
+  const r = await (await backend()).tessellate({ ...request(part.brep!.model, 0.1), origin: part.origin });
+  assert.deepEqual(soundness(part.brep!.model, r).open, [21160]);
+  // (The sides together come back along the edge: the polyline of them doubled back.)
+  assert.deepEqual(backtracking(r), []);
+  const ids = r.edges!.map((e) => e.entityId);
+  assert.equal(new Set(ids).size, ids.length);
+});

@@ -100,6 +100,8 @@ test('join: a corner within the snap distance moved onto the other faces\' every
   // Beyond the deflection: the corner off the edge's end.
   const off = joinEdges(d, quads(d, { face: 21, corner: 0, by: [0, 0, 2 * D] }), D);
   assert.equal(off.skipped.get(ids[0]!), 'a face\'s corner off the edge\'s end');
+  // (The face whose corner it is named for each edge it leaves open.)
+  assert.equal(off.culprits.get(ids[0]!), 21);
 });
 
 test('join: an edge\'s polyline in pieces (either way round) made one; nothing open, the result itself', () => {
@@ -125,7 +127,8 @@ test('join: an edge\'s polyline in pieces (either way round) made one; nothing o
   const plain = quads(d);
   assert.equal(joinEdges(d, plain, D).result, plain);
   const bare = { ...r, edges: undefined, edgePositions: undefined };
-  assert.deepEqual(joinEdges(d, bare, D), { result: bare, joined: [], open: [], skipped: new Map() });
+  assert.deepEqual(joinEdges(d, bare, D),
+    { result: bare, joined: [], open: [], skipped: new Map(), culprits: new Map() });
 });
 
 test('join: normals for the new points; a face in two ranges made one; faces without an id kept as they are', () => {

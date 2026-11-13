@@ -49,7 +49,7 @@ interface SmlibModule {
 const KINDS: EdgeKind[] = ['shared', 'seam', 'free', 'degenerate'];
 
 /** Changes when this adapter's results change for the same module, so that cached results from before aren't read. */
-const ADAPTER = 7;
+const ADAPTER = 8;
 
 /** The upstream source the module is built from (third_party/pull.sh). */
 const SOURCE = 'SMLib (usd-brep 1.0.1, 3fd5b95)';

@@ -140,7 +140,7 @@ test('the measures name the backend that made the result, the oracle with it whe
   // The primary leaves face 23 out; the fallback ("b") measures face 22 at 3, which the oracle replaces.
   const named = (name: string, t: Tessellator): Tessellator => ({ ...t, info: { ...t.info, name } });
   const a = named('a', fake({}, { faces: quads(model).faces.filter((f) => f.entityId !== 23) }));
-  const t = new FallbackTessellator(a, named('b', fake({ 22: 3 })));
+  const t = new FallbackTessellator(a, named('b', fake({ 22: 3 })), { perFace: false });
   await t.init();
   const { part } = await run(t);
   assert.equal(part.measures!.by, 'b 1, the area oracle\'s for 1 face');

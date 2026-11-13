@@ -690,8 +690,9 @@ int openRows(const BuiltPart& part, Sides& sides, const std::map<long, FaceMesh>
   return open;
 }
 
-// The model's edges as polylines, from the sides' segments (by position, so the faces along an edge share its points),
-// with their kinds and dihedral angles.
+// The model's edges as polylines, each the earliest meshing's side of it alone (where stitch joined the sides, all have
+// its points; where it couldn't, the sides together would branch, and cad-scene's join wants one path), with their
+// kinds and dihedral angles (from every side's normals).
 void emitEdges(BuiltPart& part, Sides& sides)
 {
   for (auto& [row, of] : sides)
@@ -716,7 +717,7 @@ void emitEdges(BuiltPart& part, Sides& sides)
       for (auto& seg : s.segs)
       {
         P3 a = at(*s.fm, seg[0]), z = at(*s.fm, seg[1]);
-        if (!(a == z)) adj[a].insert(z), adj[z].insert(a);
+        if (!(a == z) && &s == first) adj[a].insert(z), adj[z].insert(a);
         for (uint32_t i : seg)
           if (seen.insert(i).second)
             normals[at(*s.fm, i)].push_back({s.fm->nrm[3 * i], s.fm->nrm[3 * i + 1], s.fm->nrm[3 * i + 2]});

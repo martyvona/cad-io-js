@@ -24,6 +24,8 @@ export interface Joined {
   open: number[];
   /** Why each open edge wasn't joined, by id. */
   skipped: Map<number, string>;
+  /** For edges not joined for one face's boundary (its corner off the edge's end, or leaving the edge): that face. */
+  culprits: Map<number, number>;
 }
 
 type V3 = [number, number, number];
@@ -51,10 +53,10 @@ function project(P: readonly V3[], cum: readonly number[], q: V3): { t: number; 
  * are one. A result without edge polylines, or without open edges, comes back as it is.
  */
 export function joinEdges(d: BrepData, r: TessellationResult, deflection: number): Joined {
-  const skipped = new Map<number, string>();
-  if (!r.edges || !r.edgePositions) return { result: r, joined: [], open: [], skipped };
+  const skipped = new Map<number, string>(), culprits = new Map<number, number>();
+  if (!r.edges || !r.edgePositions) return { result: r, joined: [], open: [], skipped, culprits };
   const open = openEdges(d, r).open.sort((a, b) => a - b);
-  if (!open.length) return { result: r, joined: [], open: [], skipped };
+  if (!open.length) return { result: r, joined: [], open: [], skipped, culprits };
   const users = edgeUsers(d);
   const tol = deflection, snap = JOIN_SNAP * deflection;
   // Mutable copies: positions (grown as points are added), normals, each face's triangles (its ranges as one).
@@ -174,7 +176,7 @@ export function joinEdges(d: BrepData, r: TessellationResult, deflection: number
         // (Its ends then within the deflection of the edge's: where they are with the other faces' is below.)
         why = cur !== to!.k || !segs.length ? 'a face\'s boundary leaves the edge' : '';
       }
-      if (why) { skipped.set(id, why); ok = false; break; }
+      if (why) { skipped.set(id, why); culprits.set(id, f); ok = false; break; }
       paths.push({ face: f, segs });
     }
     if (!ok) continue;
@@ -290,7 +292,7 @@ export function joinEdges(d: BrepData, r: TessellationResult, deflection: number
     edgePoints = edgePoints.filter((_, k) => !drop.has(k));
     joined.push(id);
   }
-  if (!joined.length) return { result: r, joined, open, skipped };
+  if (!joined.length) return { result: r, joined, open, skipped, culprits };
   // Rebuilt: each face's triangles at its first range (its later ranges dropped), the edges' polylines in order.
   const indices: number[] = [], outFaces: TessellationResult['faces'] = [], seen = new Set<number>();
   for (const f of r.faces) {
@@ -307,7 +309,7 @@ export function joinEdges(d: BrepData, r: TessellationResult, deflection: number
     ...(normals ? { normals: normals.slice(0, 3 * used) } : {}) };
   const still = openEdges(d, result).open.sort((a, b) => a - b);
   for (const id of joined) if (still.includes(id)) skipped.set(id, 'joined, still open');
-  return { result, joined: joined.filter((id) => !still.includes(id)), open: still, skipped };
+  return { result, joined: joined.filter((id) => !still.includes(id)), open: still, skipped, culprits };
 }
 
 /** The note for edges joined. */

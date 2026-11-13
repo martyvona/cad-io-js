@@ -6,7 +6,8 @@ import { type BrepData, openBrep } from 'cad-brep';
 import { type FaceArea, oracleAreas } from './area-oracle.ts';
 import { failedPart } from './errors.ts';
 import { faceFailures } from './mesh.ts';
-import { joinResult } from './join.ts';
+import { composeResults } from './compose.ts';
+import { joinEdges, joinResult } from './join.ts';
 import { openEdgesCount } from './open-edges.ts';
 import type { Diagnostic } from './scene.ts';
 import { faceUses } from './tessellate.ts';
@@ -47,10 +48,30 @@ export function judgeResult(r: TessellationResult | Error, model: BrepData | und
   if (r instanceof Error) return { ok: false, problems: [`failed: ${r.message}`], rank: [1, 0, 0, 0, 0, 0] };
   const errors = r.diagnostics.filter((d) => d.severity === 'error');
   if (failedPart(r)) return { ok: false, problems: errors.map((d) => d.message), rank: [0, 1, 0, 0, 0, 0] };
+  const kinds = { failed: 0, partly: 0, excess: 0 };
+  for (const k of badFaces(r, model, deflection, given).values()) kinds[k]++;
+  const open = openEdgesCount(r.diagnostics);
+  // (Faces that failed and open edges are counted above, whatever their errors say.)
+  const others = errors.filter((d) => !/^\d+ faces failed to mesh/.test(d.message) && openEdgesCount([d]) === 0);
+  const problems: string[] = [];
+  for (const [k, n] of Object.entries(kinds)) if (n) problems.push(`${n} ${n === 1 ? 'face' : 'faces'} ${k === 'failed'
+    ? 'without triangles' : k === 'partly' ? 'meshed only in part' : `meshed over ${n === 1 ? 'its' : 'their'} area`}`);
+  if (open) problems.push(`open along ${open} ${open === 1 ? 'edge' : 'edges'}`);
+  for (const d of others) problems.push(d.message);
+  return { ok: !problems.length, problems,
+    rank: [0, 0, kinds.failed, kinds.partly + kinds.excess, open, others.length] };
+}
+
+/**
+ * The faces of the model a result meshes wrongly, by id: without triangles (any face, however small), meshed only in
+ * part or over their area (faceFailures; unverified ones aren't counted, as nothing tells). A face's area is the oracle's where it has one
+ * (`given`, else the result's `oracle`, else made from `model` here), else the result's own measure.
+ */
+export function badFaces(r: TessellationResult, model: BrepData | undefined, deflection: number,
+  given?: ReadonlyMap<number, FaceArea>): Map<number, 'failed' | 'partly' | 'excess'> {
   const expected: number[] = [];
   if (model) for (const id of model.face.id) if (id) expected.push(id);
   const uses = model ? faceUses(model) : new Map<number, number>();
-  // Each face's area: the oracle's, else the result's measure.
   const faces = new Map<number, { area: number; perimeter: number; valid: boolean; uses?: number }>();
   const add = (id: number, m: { area: number; perimeter: number; valid: boolean }) => {
     const n = uses.get(id) ?? 1;
@@ -62,20 +83,15 @@ export function judgeResult(r: TessellationResult | Error, model: BrepData | und
   const measures = faces.size ? { measures: { by: '', faces }, deflection } : undefined;
   const mesh = { origin: r.origin, positions: r.positions, indices: r.indices,
     faces: r.faces.map((f) => ({ source: f.entityId, start: f.start, count: f.count })) };
-  const kinds = { failed: 0, partly: 0, excess: 0 };
-  for (const k of faceFailures(mesh, { expected, ...(measures ? { measured: measures } : {}) }).values()) {
-    if (k !== 'unverified') kinds[k]++;
+  const out = new Map<number, 'failed' | 'partly' | 'excess'>();
+  for (const [id, k] of faceFailures(mesh, { expected, ...(measures ? { measured: measures } : {}) })) {
+    if (k !== 'unverified') out.set(id, k);
   }
-  const open = openEdgesCount(r.diagnostics);
-  // (Faces that failed and open edges are counted above, whatever their errors say.)
-  const others = errors.filter((d) => !/^\d+ faces failed to mesh/.test(d.message) && openEdgesCount([d]) === 0);
-  const problems: string[] = [];
-  for (const [k, n] of Object.entries(kinds)) if (n) problems.push(`${n} ${n === 1 ? 'face' : 'faces'} ${k === 'failed'
-    ? 'without triangles' : k === 'partly' ? 'meshed only in part' : `meshed over ${n === 1 ? 'its' : 'their'} area`}`);
-  if (open) problems.push(`open along ${open} ${open === 1 ? 'edge' : 'edges'}`);
-  for (const d of others) problems.push(d.message);
-  return { ok: !problems.length, problems,
-    rank: [0, 0, kinds.failed, kinds.partly + kinds.excess, open, others.length] };
+  // Every face without triangles, however small (faceFailures doesn't judge faces under the deflection squared: a
+  // backend that leaves them out, where another meshes them, has still failed them).
+  const meshed = new Set(r.faces.filter((f) => f.count > 0).map((f) => f.entityId));
+  for (const id of expected) if (!meshed.has(id)) out.set(id, 'failed');
+  return out;
 }
 
 const described = (i: TessellatorInfo) => `${i.name} ${i.version}`;
@@ -94,11 +110,14 @@ export class FallbackTessellator implements Tessellator {
 
   /** Whether results are joined (joinResult) before they're judged; tessellateScene's `join` should agree. */
   readonly join: boolean;
+  /** Whether a part's faces the primary meshes wrongly may be the fallback's alone (composeResults). */
+  readonly perFace: boolean;
 
-  constructor(primary: Tessellator, fallback: Tessellator, opts: { join?: boolean } = {}) {
+  constructor(primary: Tessellator, fallback: Tessellator, opts: { join?: boolean; perFace?: boolean } = {}) {
     this.primary = primary;
     this.fallback = fallback;
     this.join = opts.join ?? true;
+    this.perFace = opts.perFace ?? true;
   }
 
   get info(): TessellatorInfo {
@@ -136,6 +155,30 @@ export class FallbackTessellator implements Tessellator {
     const b = await run(this.fallback);
     const vb = judgeResult(b, model, req.linearDeflection);
     const why = va.problems.join('; ');
+    const D = req.linearDeflection;
+    // The per-face fallback: the primary's mesh with the faces it meshes wrongly, and those its open edges are left
+    // open for, the fallback's where the fallback meshes them right; joined. Kept where better than both (than the
+    // fallback's whole mesh, or as good: it keeps the rest of the primary's).
+    if (this.perFace && model && !(a instanceof Error) && !(b instanceof Error) && !failedPart(a)) {
+      const want = new Set(badFaces(a, model, D).keys());
+      for (const face of joinEdges(model, a, D).culprits.values()) want.add(face);
+      const badB = badFaces(b, model, D);
+      const meshedB = new Set(b.faces.filter((x) => x.count > 0).map((x) => x.entityId));
+      const swapped = [...want].filter((x) => meshedB.has(x) && !badB.has(x)).sort((x, y) => x - y);
+      if (swapped.length) {
+        const composed = composeResults(model, a, b, new Set(swapped));
+        const c = this.join ? joinResult(model, composed, D) : composed;
+        const vc = judgeResult(c, model, D);
+        if (compareVerdicts(vc, va) < 0 && compareVerdicts(vc, vb) <= 0) {
+          const n = swapped.length, ids = swapped.slice(0, 10).map((x) => `#${x}`).join(', ')
+            + (n > 10 ? ', ...' : '');
+          return this.finish({ ...c, backend: `${described(this.primary.info)}, with ${n} ${n === 1 ? 'face' : 'faces'}`
+            + ` by ${described(this.fallback.info)}` }, this.primary, req, [{ severity: 'warning', message: `${n} `
+            + `${n === 1 ? 'face' : 'faces'} meshed by the fallback backend (${f}), since ${p}'s mesh had problems: `
+            + `${why}: ${ids}` }]);
+        }
+      }
+    }
     if (compareVerdicts(vb, va) < 0) return this.finish(b as TessellationResult, this.fallback, req,
       [{ severity: 'warning', message: `meshed by the fallback backend (${f}), since ${p}'s mesh had problems: `
         + why }]);

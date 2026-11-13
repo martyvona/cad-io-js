@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { cube } from '../../cad-brep/test/models.ts';
-import { quads } from './meshes.ts';
+import { quads, withPoint } from './meshes.ts';
 import { FallbackTessellator, judgeResult, openEdgesMessage, oracleAreas, oracleMeasures, tessellateScene, type Scene,
   type TessellationRequest, type TessellationResult, type Tessellator } from '../src/index.ts';
+
+/** The whole-part rules alone (the per-face fallback off). */
+const whole = { perFace: false };
 
 const model = cube().finish();
 const FACES = [21, 22, 23, 24, 25, 26];
@@ -156,7 +159,7 @@ test('fallback: a sound part is the primary\'s alone; the fallback isn\'t asked'
 
 test('fallback: a part the primary fails is the fallback\'s where it has fewer problems, with a warning', async () => {
   const a = fake('a', () => withoutFace(sound(), 23)), b = fake('b', sound);
-  const t = new FallbackTessellator(a, b);
+  const t = new FallbackTessellator(a, b, whole);
   await t.init();
   const r = await t.tessellate(request({ edges: true }));
   assert.equal(r.backend, 'b 1');
@@ -194,7 +197,7 @@ test('fallback: both with problems: the better kind by kind, a tie the primary\'
     [() => opened(9), () => opened(2), 'b 1'],
   ];
   for (const [ra, rb, want] of cases) {
-    const t = new FallbackTessellator(fake('a', ra), fake('b', rb));
+    const t = new FallbackTessellator(fake('a', ra), fake('b', rb), whole);
     await t.init();
     const r = await t.tessellate(request());
     assert.equal(r.backend, want);
@@ -209,7 +212,7 @@ test('fallback: both with problems: the better kind by kind, a tie the primary\'
 
 test('fallback: info joins both; timeout the primary\'s; dispose both; tessellateScene names who meshed', async () => {
   const a = fake('a', () => withoutFace(sound(), 23)), b = fake('b', sound);
-  const t = new FallbackTessellator(a, b);
+  const t = new FallbackTessellator(a, b, whole);
   await t.init();
   assert.deepEqual(t.info, { name: 'a+b', version: '1; fallback b 1', license: 'A; B', formats: ['cad-brep'],
     supportsFaceIds: true, supportsEdges: true, supportsCurves: false });
@@ -225,8 +228,146 @@ test('fallback: info joins both; timeout the primary\'s; dispose both; tessellat
   t.dispose();
   assert.deepEqual([a.disposed(), b.disposed()], [1, 1]);
   // Nested: the inner one's result says which of its backends made it.
-  const inner = new FallbackTessellator(fake('b', () => withoutFace(sound(), 23)), fake('c', sound));
-  const outer = new FallbackTessellator(fake('a', () => withoutFace(withoutFace(sound(), 23), 24)), inner);
+  const inner = new FallbackTessellator(fake('b', () => withoutFace(sound(), 23)), fake('c', sound), whole);
+  const outer = new FallbackTessellator(fake('a', () => withoutFace(withoutFace(sound(), 23), 24)), inner, whole);
   await outer.init();
   assert.equal((await outer.tessellate(request())).backend, 'c 1');
+});
+
+test('per face: a face the primary leaves out is the fallback\'s alone, the rest the primary\'s', async () => {
+  const a = fake('a', () => withoutFace(sound(), 23)), b = fake('b', sound);
+  const t = new FallbackTessellator(a, b);
+  await t.init();
+  const r = await t.tessellate(request());
+  assert.equal(r.backend, 'a 1, with 1 face by b 1');
+  assert.deepEqual(r.diagnostics, [{ severity: 'warning', message: '1 face meshed by the fallback backend (b), since '
+    + 'a\'s mesh had problems: 1 face without triangles: #23' }, { severity: 'info', message: 'a meshed' }]);
+  assert.ok(judgeResult(r, model, 0.01).ok);
+  // Face 23's triangles the fallback's (its vertices after the primary's), the others the primary's.
+  const n = sound().positions.length / 3;
+  for (const f of r.faces) {
+    const vs = [...r.indices.subarray(f.start, f.start + f.count)];
+    assert.ok(vs.length && vs.every((v) => (f.entityId === 23 ? v >= n : v < n)), `face ${f.entityId}`);
+  }
+  // Off: the fallback's whole mesh.
+  const w = new FallbackTessellator(fake('a', () => withoutFace(sound(), 23)), fake('b', sound), whole);
+  await w.init();
+  assert.equal((await w.tessellate(request())).backend, 'b 1');
+});
+
+test('per face: a face meshed over its area, its edges open, the fallback\'s; not where the fallback\'s is as bad',
+  async () => {
+  // Face 23's first corner pulled out by 0.5: over its area, the two edges at the corner open beyond any join.
+  const pulled = () => ({ ...quads(model, { face: 23, corner: 0, by: [0.5, 0.5, 0.5] }), measures: sound().measures,
+    oracle: sound().oracle });
+  const t = new FallbackTessellator(fake('a', pulled), fake('b', sound));
+  await t.init();
+  const r = await t.tessellate(request());
+  assert.equal(r.backend, 'a 1, with 1 face by b 1');
+  assert.ok(judgeResult(r, model, 0.01).ok, JSON.stringify(judgeResult(r, model, 0.01)));
+  // The fallback as bad on that face: no face of it taken; the whole-part rules (a tie: the primary's).
+  const u = new FallbackTessellator(fake('a', pulled), fake('b', pulled));
+  await u.init();
+  const k = await u.tessellate(request());
+  assert.equal(k.backend, 'a 1');
+  // The fallback's face not meeting the primary's (its whole mesh elsewhere): its whole mesh, better than the mix.
+  const away = () => { const s = sound(); return { ...s, positions: s.positions.map((x) => x + 0.05) }; };
+  const v = new FallbackTessellator(fake('a', pulled), fake('b', away));
+  await v.init();
+  assert.equal((await v.tessellate(request())).backend, 'b 1');
+});
+
+/** Each edge id's faces, by id, from the model's loops. */
+function edgeFaces(): Map<number, number[]> {
+  const users = new Map<number, number[]>();
+  for (const f of FACES) {
+    const row = [...model.face.id].indexOf(f);
+    for (let k = model.face.firstLoop[row]!; k < model.face.firstLoop[row]! + model.face.loopCount[row]!; k++) {
+      for (let j = model.loop.first[k]!; j < model.loop.first[k]! + model.loop.count[k]!; j++) {
+        const e = model.edge.id[model.coedge.edge[j]!]!;
+        users.set(e, [...(users.get(e) ?? []), f]);
+      }
+    }
+  }
+  return users;
+}
+const sharesEdge = (f: number, g: number) => [...edgeFaces().values()].some((us) => us.includes(f) && us.includes(g));
+
+test('composeResults: the faces\' triangles, measures and edges the second\'s; failed faces and open edges told again',
+  async () => {
+  const { composeResults } = await import('../src/index.ts');
+  const a = { ...withoutFace(sound(), 24), normals: new Float32Array(sound().positions.length),
+    diagnostics: [{ severity: 'error' as const, message: '1 faces failed to mesh: #24' },
+      { severity: 'error' as const, message: openEdgesMessage(4) }, { severity: 'warning' as const, message: 'x' }] };
+  const s = sound();
+  const b = { ...s, measures: s.measures!.map((m) => ({ ...m, area: 7 })), edges: s.edges!.map((e) => ({ ...e,
+    kind: 'seam' as const })), diagnostics: [{ severity: 'warning' as const, message: 'y' }] };
+  // (Faces 21 and the face across its first edge: that edge only they use.)
+  const across = [...model.face.id].find((f) => f !== 21 && sharesEdge(21, f))!;
+  const c = composeResults(model, a, b, new Set([21, across]));
+  assert.deepEqual(c.measures!.filter((m) => m.area === 7).map((m) => m.entityId).sort(), [21, across].sort());
+  assert.equal(c.measures!.filter((m) => m.entityId === 21).length, 1);
+  // The edge only those two faces use the second's polyline; every other edge the first's.
+  const users = edgeFaces();
+  for (const e of c.edges!) {
+    const us = users.get(e.entityId!)!;
+    assert.equal(e.kind, us.every((f) => f === 21 || f === across) ? 'seam' : 'shared', `edge ${e.entityId}`);
+  }
+  assert.ok(c.edges!.some((e) => e.kind === 'seam'));
+  assert.equal(c.edges!.length, 12);
+  // Normals only where both have them; diagnostics the first's, its failed faces and open edges counted again.
+  assert.equal(c.normals, undefined);
+  assert.deepEqual(c.diagnostics, [{ severity: 'warning', message: 'x' },
+    { severity: 'error', message: '1 faces failed to mesh: #24' }]);
+  assert.equal(c.faces.reduce((n, f) => n + f.count, 0), c.indices.length);
+});
+
+test('per face: the face a join can\'t close an edge for, the fallback\'s; its faces joined to the primary\'s',
+  async () => {
+  // Face 23's corner 0.05 off the edge's end, with the deflection 0.04: too little off its area to judge it, too far
+  // to join.
+  const req = request({ linearDeflection: 0.04 });
+  const off = () => ({ ...sound(), ...quads(model, { face: 23, corner: 0, by: [0, 0, 0.05] }),
+    measures: sound().measures, diagnostics: [{ severity: 'error' as const, message: openEdgesMessage(2) }] });
+  assert.deepEqual(judgeResult(off(), model, 0.04).rank, [0, 0, 0, 0, 2, 0]);
+  const t = new FallbackTessellator(fake('a', off), fake('b', sound));
+  await t.init();
+  assert.equal((await t.tessellate(req)).backend, 'a 1, with 1 face by b 1');
+  // The fallback's face 23 with a point of its own on a side (a T-junction with the primary's neighbour there):
+  // the composite joined, then sound.
+  const tj = () => ({ ...sound(), ...withPoint(quads(model), 23, 0) });
+  const u = new FallbackTessellator(fake('a', () => withoutFace(sound(), 23)), fake('b', tj));
+  await u.init();
+  const r = await u.tessellate(request());
+  assert.equal(r.backend, 'a 1, with 1 face by b 1');
+  assert.ok(judgeResult(r, model, 0.01).ok);
+});
+
+test('per face: not a face the fallback meshes wrongly too; not a mix worse than the primary\'s mesh', async () => {
+  // The primary without face 23, the fallback with it over its area (and so open at its corner): the fallback's whole
+  // mesh, not the mix (as good, but with the fallback's bad face).
+  const pulled = () => ({ ...sound(), ...quads(model, { face: 23, corner: 0, by: [0.5, 0.5, 0.5] }),
+    measures: sound().measures, diagnostics: [{ severity: 'error' as const, message: openEdgesMessage(2) }] });
+  const t = new FallbackTessellator(fake('a', () => withoutFace(sound(), 23)), fake('b', pulled));
+  await t.init();
+  assert.equal((await t.tessellate(request())).backend, 'b 1');
+  // The primary open at face 23's corner (0.05 off, the deflection 0.04); the fallback without faces 25 and 26 and
+  // everywhere 0.05 away, so its face 23 meets the primary's faces nowhere: the mix (more edges open) worse than the
+  // primary's, the fallback's worse still: the primary's kept.
+  const req = request({ linearDeflection: 0.04 });
+  const off = () => ({ ...sound(), ...quads(model, { face: 23, corner: 0, by: [0, 0, 0.05] }),
+    measures: sound().measures, diagnostics: [{ severity: 'error' as const, message: openEdgesMessage(2) }] });
+  const away = () => { const s = withoutFace(withoutFace(sound(), 25), 26);
+    return { ...s, positions: s.positions.map((x) => x + 0.05) }; };
+  const u = new FallbackTessellator(fake('a', off), fake('b', away));
+  await u.init();
+  assert.equal((await u.tessellate(req)).backend, 'a 1');
+});
+
+test('judge: a face without triangles is failed however small (faceFailures doesn\'t judge faces under d^2)', () => {
+  // Face 23 (area 1) left out, judged at a deflection of 2: under the deflection squared, failed all the same.
+  assert.deepEqual(judgeResult(withoutFace(sound(), 23), model, 2).rank, [0, 0, 1, 0, 0, 0]);
+  // A face the result has no range for at all: the same.
+  const left = { ...sound(), faces: sound().faces.filter((f) => f.entityId !== 23) };
+  assert.deepEqual(judgeResult(left, model, 2).rank, [0, 0, 1, 0, 0, 0]);
 });
