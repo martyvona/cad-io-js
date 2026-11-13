@@ -103,16 +103,18 @@ test('outlines: every face listed; a face\'s edges in loop order, each from its 
   assert.ok(near(pts(3)[0]!, [0, 20, 0]) && near(pts(3)[1]!, [0, 0, 0]));
 });
 
-test('outlines: an arc against its curve\'s sense, a polygon closed, a whole circle; only the faces asked for',
+test('outlines: an arc against its curve\'s sense, a polygon\'s sides, a whole circle; only the faces asked for',
   async () => {
     const { o, pts } = await outline([200, 300, 400]);
-    assert.deepEqual(o.outlines.map((x) => x.source), [200, 300, 400]);
+    // (The polygon's three sides line edges, the builder's canonical form: an outline each.)
+    assert.deepEqual(o.outlines.map((x) => x.source), [200, 300, 300, 300, 400]);
     const back = pts(0);
     assert.ok(near(back[0]!, [20, 10, 0]) && near(back.at(-1)!, [10, 0, 0]));
     assert.ok(back.every((p) => Math.abs(r10(p) - 10) < 1e-4 && p[0]! >= 10 - 1e-4 && p[1]! <= 10 + 1e-4),
       'the short way back');
-    assert.deepEqual(pts(1).map((p) => p.map((x) => Math.round(x))), [[0, 0, 0], [10, 0, 0], [20, 20, 0], [0, 0, 0]]);
-    const round = pts(2);
+    const side = (k: number) => pts(k).map((p) => p.map((x) => Math.round(x)).join()).sort().join(' ');
+    assert.deepEqual([side(1), side(2), side(3)].sort(), ['0,0,0 10,0,0', '0,0,0 20,20,0', '10,0,0 20,20,0']);
+    const round = pts(4);
     assert.ok(near(round[0]!, [10, 0, 0]) && near(round.at(-1)!, [10, 0, 0]) && round.length > 40);
     assert.ok(round.some((p) => near(p, [10, 20, 0]) || Math.hypot(p[0]! - 10, p[1]! - 20) < 0.5), 'all round');
     // None asked for: the face list alone.

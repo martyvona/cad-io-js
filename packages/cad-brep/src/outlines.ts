@@ -2,7 +2,7 @@
 // does, a viewer can still show where its faces are. Each face's edges (once each per face) as polylines along their
 // 3D curves from start to end (`edgeParams`); circles and ellipses stepped by the deflections, other curves subdivided
 // until each segment's midpoint is within the linear deflection; an edge without a 3D curve along its p-curve on the
-// face's surface where both evaluate, else straight between its vertices; a poly loop's polygon. Approximate: for
+// face's surface where both evaluate, else straight between its vertices. Approximate: for
 // finding a face, not meshing it. The shape of Brep.outline in cad-scene.
 
 import { type BrepData, rowCount } from './data.ts';
@@ -23,7 +23,7 @@ export interface FaceOutlines {
   faces: number[];
   /** Polylines, minus the origin, all concatenated. */
   positions: Float32Array;
-  /** One per edge of a face (or poly loop): the face's id, and its points in `positions`. */
+  /** One per edge of a face: the face's id, and its points in `positions`. */
   outlines: { source: number; start: number; count: number }[];
 }
 
@@ -93,11 +93,6 @@ export function faceOutlines(d: BrepData, origin: Vec, o: OutlineOptions, only?:
     if (only && !only.has(id)) continue;
     const seen = new Set<number>();
     for (let l = d.face.firstLoop[f]!; l < d.face.firstLoop[f]! + d.face.loopCount[f]!; l++) {
-      if (d.loop.kind[l] === LOOP_KIND.poly) {
-        const pts = Array.from({ length: d.loop.count[l]! }, (_, k) => vertex(d.pool.loopInt[d.loop.first[l]! + k]!));
-        push(id, [...pts, pts[0]!]);
-        continue;
-      }
       if (d.loop.kind[l] !== LOOP_KIND.edge) continue;
       for (let k = d.loop.first[l]!; k < d.loop.first[l]! + d.loop.count[l]!; k++) {
         const e = d.coedge.edge[k]!;

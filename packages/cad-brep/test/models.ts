@@ -173,9 +173,13 @@ export function facetedAndWire(): BrepBuilder {
   const p = [[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]];
   const corners = p.map((point) => b.addVertex({ point }));
   const tris = [[0, 2, 1], [0, 1, 3], [1, 2, 3], [0, 3, 2]];
-  const faces = tris.map((t) => b.addFace({ surface: b.addSurface({ kind: 'plane',
-    position: { origin: p[t[0]!]!, axis: [0, 0, 1], xDir: [1, 0, 0] } }), sameSense: true,
-    loops: [{ kind: 'poly', bound: 'outer', sense: true, vertices: t.map((k) => corners[k]!) }] }));
+  // (Each triangle on its own plane, its normal from its corners' winding: outward.)
+  const faces = tris.map((t) => {
+    const [a, c, e] = t.map((k) => p[k]! as V3) as [V3, V3, V3], x = unit(sub(c, a));
+    return b.addFace({ surface: b.addSurface({ kind: 'plane', position: { origin: a,
+      axis: unit(cross(x, sub(e, a))).map((v) => v + 0), xDir: x.map((v) => v + 0) } }), sameSense: true,
+    loops: [{ kind: 'poly', bound: 'outer', sense: true, vertices: t.map((k) => corners[k]!) }] });
+  });
   const shell = b.addShell({ kind: 'closed', faces: faces.map((face) => ({ face, sense: true })) });
   b.addItem({ kind: 'body', ref: b.addBody({ kind: 'solid', members: [{ ref: shell, sense: true }] }) });
 

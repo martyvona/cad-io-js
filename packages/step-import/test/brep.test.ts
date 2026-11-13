@@ -297,7 +297,12 @@ test('topology: shared edges, p-curves per face, orientations, voids, loops, ids
   const faces = Array.from({ length: rowCount(d, 'face') }, (_, k) => decode.face(d, k));
   const byId = (id: number) => faces.find((f) => f.id === id)!;
   // The shared edge #52: one row, a p-curve per face; #61's only geometry is a p-curve.
-  const a = byId(75), b = byId(82);
+  // #82 is used both ways (reversed in #84's shell, reversed twice over in #87's): the builder copies it, the copy
+  // (a fresh id, in the copies table) the one used reversed, turned over.
+  const sheet = decode.shell(d, 0);
+  const a = byId(75), b = faces[sheet.faces[1]!.face]!;
+  const copies = Array.from({ length: rowCount(d, 'copy') }, (_, k) => decode.copy(d, k));
+  assert.ok(copies.some((c) => c.id === b.id && c.source === 82 && !c.path.length), `${b.id}`);
   const la = a.loops[0]!, lb = b.loops[0]!;
   assert.ok(la.kind === 'edge' && lb.kind === 'edge');
   const [ca, cb] = [la.coedges, lb.coedges];
@@ -305,17 +310,22 @@ test('topology: shared edges, p-curves per face, orientations, voids, loops, ids
   assert.equal(decode.edge(d, ca[0]!.edge).id, 52);
   assert.deepEqual(decode.curve(d, ca[0]!.pcurve!).id, 45);
   assert.deepEqual(decode.curve(d, cb[2]!.pcurve!).id, 48);
-  // #79 is #78 (forward) reversed: a reversed use, with the outer oriented edge's id.
-  assert.deepEqual([cb[2]!.orientation, cb[2]!.id], ['reversed', 79]);
+  // #79 is #78 (forward) reversed: a reversed use, with (on the copy) a copy of the outer oriented edge's id.
+  assert.equal(cb[2]!.orientation, 'reversed');
+  assert.ok(copies.some((c) => c.id === cb[2]!.id && c.source === 79), `${cb[2]!.id}`);
   assert.deepEqual(ca.map((c) => c.orientation), ['forward', 'forward', 'forward']);
   const e61 = decode.edge(d, ca[2]!.edge);
   assert.deepEqual([e61.id, 'curve' in e61, decode.curve(d, ca[2]!.pcurve!).id], [61, false, 58]);
   assert.equal(la.bound, 'outer');
-  assert.deepEqual([lb.bound, lb.sense, b.sameSense], ['unknown', false, false]);
-  // The second face used reversed in its shell.
-  const sheet = decode.shell(d, 0);
-  assert.deepEqual(sheet.kind, 'open');
-  assert.deepEqual(sheet.faces.map((u) => [faces[u.face]!.id, u.sense]), [[75, true], [82, false]]);
+  // The face against its surface, its bound against its loop, used reversed: turned over (with its surface now), its
+  // loop twice (so as listed, #79 still reversed). The face itself, used forward, its loop the other way round.
+  assert.deepEqual([lb.bound, b.sameSense], ['unknown', true]);
+  assert.deepEqual([sheet.kind, sheet.declared], ['open', 'open']);
+  assert.deepEqual(sheet.faces.map((u) => faces[u.face]!.id), [75, b.id]);
+  const f82 = byId(82), l82 = f82.loops[0]!;
+  assert.ok(l82.kind === 'edge');
+  assert.deepEqual([f82.sameSense, l82.coedges.map((c) => [c.id, c.orientation])],
+    [false, [[79, 'forward'], [77, 'reversed'], [76, 'reversed']]]);
 
   // The cylinder: its bottom circle's p-curve the line u = 0..360 degrees, made radians (magnitude 2 pi); the seam's
   // two p-curves given to its uses with the face on their left: up the seam (forward) at u = 2 pi, down it at u = 0.
@@ -335,11 +345,14 @@ test('topology: shared edges, p-curves per face, orientations, voids, loops, ids
   assert.equal(seams, 0);
   assert.ok(!warnings.some((w) => /seam/.test(w)), `${warnings}`);
 
-  // The void: two shells, the second used reversed; natural-bound spheres.
+  // The void: two shells, the second used reversed (its face turned over by the builder: facing into the void);
+  // natural-bound spheres, each a closed shell.
   const solids = Array.from({ length: rowCount(d, 'body') }, (_, k) => decode.body(d, k));
   const withVoid = solids.find((x) => x.id === 147)!;
-  assert.deepEqual([withVoid.kind, withVoid.members.map((m) => m.sense)], ['solid', [true, false]]);
+  assert.deepEqual([withVoid.kind, withVoid.members.map((m) => decode.shell(d, m.ref).kind)],
+    ['solid', ['closed', 'closed']]);
   assert.deepEqual([byId(142).loops, byId(143).loops], [[], []]);
+  assert.deepEqual([byId(142).sameSense, byId(143).sameSense], [true, false]);
 
   // Two outer bounds: both kept, said, the other bound inner; a poly loop; the face on a missing surface left out,
   // said.
@@ -348,16 +361,26 @@ test('topology: shared edges, p-curves per face, orientations, voids, loops, ids
   assert.ok(warnings.some((w) => /more than one outer bound .*\(#154\)/.test(w)), `${warnings}`);
   // The faceted faces' corners vertices, shared: by the faces whose loops share a point, and with the VERTEX_POINT on
   // a point (#31 to #33 on #1, #21, #22), the first in the file of several (#165 and #166 on #161, used by nothing).
+  // (Poly loops as edge loops of line edges, the builder's canonical form: a side shared where the corners are.)
   const poly = byId(157).loops[0]!, other = byId(164).loops[0]!;
-  assert.ok(poly.kind === 'poly' && other.kind === 'poly');
-  const corner = (v: number) => { const x = decode.vertex(d, v); return [x.id, x.point]; };
-  assert.deepEqual(poly.vertices.map(corner), [[31, [0, 0, 0]], [32, [1, 0, 0]], [33, [0, 1, 0]]]);
-  assert.deepEqual(other.vertices.map(corner), [[33, [0, 1, 0]], [32, [1, 0, 0]], [165, [1, 1, 0]]]);
-  assert.deepEqual([other.vertices[0], other.vertices[1]], [poly.vertices[2], poly.vertices[1]]);
+  assert.ok(poly.kind === 'edge' && other.kind === 'edge');
+  const corners = (l: typeof poly) => l.kind === 'edge' ? l.coedges.map((c) => {
+    const e = decode.edge(d, c.edge), v = c.orientation === 'forward' ? e.start! : e.end!, x = decode.vertex(d, v);
+    return [x.id, x.point];
+  }) : [];
+  assert.deepEqual(corners(poly), [[31, [0, 0, 0]], [32, [1, 0, 0]], [33, [0, 1, 0]]]);
+  assert.deepEqual(corners(other), [[33, [0, 1, 0]], [32, [1, 0, 0]], [165, [1, 1, 0]]]);
+  assert.ok(poly.kind === 'edge' && other.kind === 'edge');
+  assert.equal(other.coedges[0]!.edge, poly.coedges[1]!.edge);
+  assert.deepEqual([other.coedges[0]!.orientation, poly.coedges[1]!.orientation].sort(), ['forward', 'reversed']);
   assert.equal(faces.some((f) => f.id === 158), false);
   assert.ok(warnings.some((w) => /a surface missing from the file/.test(w)), `${warnings}`);
   assert.ok(warnings.some((w) => /a face whose surface can't be read \(left out\) \(#158\)/.test(w)), `${warnings}`);
-  assert.equal(decode.shell(d, solids.find((x) => x.id === 160)!.members[0]!.ref).faces.length, 3);
+  // #159's three faces in two pieces (shells by topology): #154 alone (vertex loops: no edges, so the source's
+  // closed stands), the two faceted faces sharing a side (open).
+  assert.deepEqual(solids.find((x) => x.id === 160)!.members.map((m) => decode.shell(d, m.ref)).map((sh) =>
+    [sh.faces.map((u) => faces[u.face]!.id), sh.kind, sh.declared]), [[[154], 'closed', 'closed'],
+    [[157, 164], 'open', 'closed']]);
 
   // The wireframe's edges, the same rows as the faces'.
   const wire = solids.find((x) => x.id === 171)!;
@@ -377,10 +400,11 @@ test('topology: shared edges, p-curves per face, orientations, voids, loops, ids
   assert.deepEqual([ce.id, 'curve' in ce, 'start' in ce], [184, false, false]);
   assert.equal(decode.curve(d, lc.coedges[0]!.pcurve!).kind, 'circle');
   assert.deepEqual(items.map((x) => x.id), [85, 88, 137, 147, 160, 171, 191, 186, 200]);
-  // A face used reversed twice over is used forward; a face set's shell.
+  // A face used reversed twice over is used forward (#82 itself); a face set's shell (its kind by topology, the
+  // source's declared).
   const shells = Array.from({ length: rowCount(d, 'shell') }, (_, k) => decode.shell(d, k));
-  assert.deepEqual(shells.find((x) => x.id === 87)!.faces.map((u) => [faces[u.face]!.id, u.sense]), [[82, true]]);
-  assert.equal(shells.find((x) => x.id === 190)!.kind, 'faceSet');
+  assert.deepEqual(shells.find((x) => x.id === 87)!.faces.map((u) => faces[u.face]!.id), [82]);
+  assert.equal(shells.find((x) => x.id === 190)!.declared, 'faceSet');
   // A curve-bounded sphere in degrees: its boundary an inner loop (implicit outer), its segment reversed, its circle
   // p-curve scaled to radians (a sphere's u and v are both angles).
   const sphere = decode.face(d, (items.find((x) => x.id === 200) as { ref: number }).ref);
@@ -464,7 +488,8 @@ test('a seam\'s p-curves swap with the face\'s sense or the bound\'s, and come b
     const { brep: d, seams } = await convert(data, [137], DEG);
     const l = decode.face(d, 0).loops[0]!;
     assert.ok(l.kind === 'edge' && seams === 0);
-    return [l.coedges[1]!, l.coedges[3]!].map((c) => {
+    // (The seam's uses by their ids, #130 up and #132 down: the builder reverses a loop against its bound.)
+    return [130, 132].map((id) => l.coedges.find((c) => c.id === id)!).map((c) => {
       const x = decode.curve(d, c.pcurve!);
       return x.kind === 'line' ? Math.round(x.point[0]! * 1e9) / 1e9 : NaN;
     });
@@ -762,11 +787,11 @@ test('in a file of another unit, every length is millimetres and nothing else ch
   const mm = (await importStep(file(ALL_KINDS))).scene;
   const a = mm.parts[0]!.brep!.model;
   // What the model holds: 11 3D curves, the plane's 10 2D ones, the cylinder's 4 (a line, a B-spline, a polyline, a
-  // trim of the line), the sphere's 3 (a circle, an offset of its own B-spline); 12 surfaces; the edge-loop face, the
-  // poly-loop face and three curve-bounded ones; the edges' two vertices and the poly loop's third corner; the
-  // geometric set's 23 elements and the surface model.
+  // trim of the line), the sphere's 3 (a circle, an offset of its own B-spline), and the poly loop's 3 sides as lines
+  // (the builder's canonical form); 12 surfaces; the edge-loop face, the poly-loop face and three curve-bounded ones;
+  // the edges' two vertices and the poly loop's third corner; the geometric set's 23 elements and the surface model.
   assert.deepEqual([rowCount(a, 'curve'), rowCount(a, 'surface'), rowCount(a, 'face'), rowCount(a, 'vertex'),
-    rowCount(a, 'item')], [28, 12, 5, 3, 24]);
+    rowCount(a, 'item')], [31, 12, 5, 3, 24]);
   assert.deepEqual(mm.diagnostics.filter((d) => d.severity !== 'info').map((d) => d.message).filter((m) =>
     !/negative major radius/.test(m)), []);
   for (const [k, text] of [[10, ALL_KINDS.replace('.MILLI.', '.CENTI.')], [25.4, inch]] as const) {

@@ -1,5 +1,7 @@
-// The B-rep's rows as plain objects: what BrepBuilder takes and the decoders (decode.ts) give back, equal both ways,
-// and the JSON form (json.ts). References are row indices into the part's own tables, each to a row added before.
+// The B-rep's rows as plain objects: what BrepBuilder takes, in a source's forms, and the decoders (decode.ts) give
+// back in the canonical ones (docs/brep-reference.md, "The canonical model": no senses on loops and uses, no poly
+// loops or degenerate edges, shells' and bodies' kinds by topology beside what the source declared), and the JSON
+// form (json.ts). References are row indices into the part's own tables, each to a row added before.
 // Optional fields are absent where the buffer has -1, NaN or (an id) 0. Field names follow Part 42's attributes.
 
 import type { CURVE_FORMS, SURFACE_FORMS, TRANSITIONS, TRIM_PREFERENCES } from './layout.ts';
@@ -87,6 +89,7 @@ export interface Edge extends Row {
   end?: number;
   /** Start to end runs with the curve's parameter. */
   sameSense: boolean;
+  /** Of no length (a pole's, an apex's): left out of loops by the builder. */
   degenerate?: boolean;
   /** The curve's parameters at start and end. */
   range?: [number, number];
@@ -108,8 +111,8 @@ export interface Coedge extends Row {
 
 interface LoopBase extends Row {
   bound: Bound;
-  /** Whether the loop runs as the source wrote it (STEP: FACE_BOUND.orientation). */
-  sense: boolean;
+  /** False: the loop runs against its coedges' order (STEP: FACE_BOUND.orientation); the builder reverses it. */
+  sense?: boolean;
 }
 
 export type Loop =
@@ -120,24 +123,33 @@ export type Loop =
 export interface Face extends Row {
   surface: number;
   sameSense: boolean;
-  /** None: bounded by the surface's own extent. */
+  /** None: bounded by the surface's own extent. A poly loop's sides become shared line edges in the builder. */
   loops: Loop[];
   tolerance?: number;
 }
 
 export type ShellKind = 'closed' | 'open' | 'faceSet';
 
+/**
+ * Given to the builder, `kind` is the source's claim (or `declared`, where given); decoded, `kind` is by topology
+ * (closed or open) and `declared` the source's. A use with `sense` false is a face used reversed.
+ */
 export interface Shell extends Row {
   kind: ShellKind;
-  faces: { face: number; sense: boolean }[];
+  declared?: ShellKind;
+  faces: { face: number; sense?: boolean }[];
 }
 
 export type BodyKind = 'solid' | 'sheet' | 'wire';
 
-/** A solid's members are shells, the outer first, a sheet's shells, a wire's edges. */
+/**
+ * A solid's members are shells, the outer first, a sheet's shells, a wire's edges; `sense` false a shell used
+ * reversed. Decoded, `declared` is the source's kind (a sheet of one closed shell is a solid).
+ */
 export interface Body extends Row {
   kind: BodyKind;
-  members: { ref: number; sense: boolean }[];
+  declared?: BodyKind;
+  members: { ref: number; sense?: boolean }[];
 }
 
 /** 12 numbers, affine, column-major: the x, y and z columns, then the translation. */

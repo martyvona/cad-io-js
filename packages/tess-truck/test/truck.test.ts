@@ -237,7 +237,8 @@ test("an ORIENTED_FACE reports its face's id, with the face reversed", { skip },
   assert.deepEqual(r.faces.map((f) => f.entityId), plain.faces.map((f) => f.entityId));
   const normal = (t: TessellationResult) => { const f = t.faces.find((x) => x.entityId === face)!;
     const v = t.indices[f.start]!; return [0, 1, 2].map((c) => t.normals![3 * v + c]!); };
-  assert.deepEqual(normal(r), normal(plain).map((x) => -x));
+  // (Signed zeros folded: the face turned over by the builder or by truck, the same normal.)
+  assert.deepEqual(normal(r).map((x) => x + 0), normal(plain).map((x) => -x + 0));
   assert.equal(windingMismatches(r), 0);
 });
 
@@ -253,9 +254,26 @@ test('an outer shell that faces inward is reversed', { skip }, async () => {
   const r = await tess.tessellate(await edited(inside, req!.rootId!, 0.01));
   assert.deepEqual(r.diagnostics.map((d) => d.message),
     [`shell #${solid[1]} reversed: as written, this outer shell faces into the material`]);
-  assert.deepEqual(r.normals, plain.normals);
-  assert.deepEqual(r.indices, plain.indices);
+  assert.deepEqual(Array.from(r.normals!, (x) => x + 0), Array.from(plain.normals!, (x) => x + 0));
+  // (The same faces and areas; each quad's diagonal may differ, its loop starting elsewhere once turned over.)
+  assert.deepEqual(faceAreas(r), faceAreas(plain));
+  assert.equal(windingMismatches(r), 0);
 });
+
+/** Each face's id and mesh area, to 1e-9. */
+function faceAreas(t: TessellationResult): [number | null, number][] {
+  const P = (i: number) => [0, 1, 2].map((c) => t.positions[3 * i + c]!);
+  return t.faces.map((f) => {
+    let area = 0;
+    for (let k = f.start; k < f.start + f.count; k += 3) {
+      const a = P(t.indices[k]!), b = P(t.indices[k + 1]!), c = P(t.indices[k + 2]!);
+      const u = b.map((x, i) => x - a[i]!), v = c.map((x, i) => x - a[i]!);
+      area += Math.hypot(u[1]! * v[2]! - u[2]! * v[1]!, u[2]! * v[0]! - u[0]! * v[2]!,
+        u[0]! * v[1]! - u[1]! * v[0]!) / 2;
+    }
+    return [f.entityId, Math.round(area * 1e9) / 1e9];
+  });
+}
 
 test("an open solid shell's orientation is left as written and reported unchecked", { skip }, async () => {
   const tess = new TruckTessellator();
@@ -301,7 +319,10 @@ test('placements along x without a ref_direction (completed by the importer, as 
   const req = (await requests(k1)).find((r) => r.rootId === 1926)!;
   const r = await tess.tessellate(req);
   assert.equal(r.faces.length, 58);
-  assert.deepEqual(r.diagnostics, []);
+  // (A sheet of one closed shell, so a solid in the model: its faces' meshes disagree in orientation, so truck says
+  // it can't check the shell's.)
+  assert.deepEqual(r.diagnostics.map((d) => [d.severity, d.message]), [['info', 'orientation of 1 solid shells not '
+    + 'checked, since their faces disagree in orientation: #22']]);
 });
 
 const exhaust = gkv('ec_exhaust-A.stp'), s1ug = gkv('trj5_s1-ug-214.stp'), dm1 = gkv('OCC22962-dm1-oc-214.stp'),

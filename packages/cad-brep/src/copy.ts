@@ -183,7 +183,7 @@ export class Copier {
       const loops: Loop[] = f.loops.map((l, j) => {
         const id = this.id('loop', firstLoop + j, l.id);
         // (A mirror turns the face's left to its right: the loop runs the other way.)
-        const sense = mirror && l.kind !== 'vertex' ? !l.sense : l.sense;
+        const sense = mirror && l.kind !== 'vertex' ? l.sense === false : l.sense !== false;
         if (l.kind === 'vertex') return { ...l, vertex: this.vertex(l.vertex), sense, id };
         if (l.kind === 'poly') return { ...l, vertices: l.vertices.map((v) => this.vertex(v)), sense, id };
         const first = this.src.loop.first[firstLoop + j]!;

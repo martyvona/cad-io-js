@@ -224,8 +224,9 @@ test('tessellateScene measures: a face several shells use counted (its uses), so
   const plane = b.addSurface({ kind: 'plane', position: { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] } });
   const face = b.addFace({ surface: plane, sameSense: true, id: 10,
     loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] });
-  for (const sense of [true, false]) {
-    const shell = b.addShell({ kind: 'open', faces: [{ face, sense }] });
+  // (Both the same way round: a face used both ways is two faces, the builder copying it.)
+  for (let k = 0; k < 2; k++) {
+    const shell = b.addShell({ kind: 'open', faces: [{ face, sense: true }] });
     b.addItem({ kind: 'body', ref: b.addBody({ kind: 'sheet', members: [{ ref: shell, sense: true }] }) });
   }
   const s = scene();

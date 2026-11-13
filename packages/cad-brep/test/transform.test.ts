@@ -81,12 +81,11 @@ const samples = (r: [number, number]) => {
   return [0.13, 0.5, 0.81].map((x) => a + x * (b - a));
 };
 
-/** A coedge's direction of travel: its edge's curve's derivative, signed by its uses. */
-function travel(d: BrepData, loop: number, co: number, t: number): V | undefined {
+/** A coedge's direction of travel: its edge's curve's derivative, signed by its uses (loops run as listed). */
+function travel(d: BrepData, co: number, t: number): V | undefined {
   const e = d.coedge.edge[co]!, c = d.edge.curve[e]!;
   if (c < 0) return undefined;
-  const sign = (d.edge.sameSense[e] ? 1 : -1) * (d.coedge.orientation[co] === 0 ? 1 : -1)
-    * (d.loop.sense[loop] ? 1 : -1);
+  const sign = (d.edge.sameSense[e] ? 1 : -1) * (d.coedge.orientation[co] === 0 ? 1 : -1);
   return curveEvaluator(d, c)!.d1(t).map((x) => x * sign);
 }
 
@@ -175,7 +174,7 @@ function checkBaked(a: BrepData, b: BrepData, t: Transform, where: string): numb
           if (!n0 || !n1) continue;
           const want = unit(linear(t, n0.map((y) => y * na))), got = unit(n1.map((y) => y * nb));
           assert.ok(near(want, got, 1e-5), `${where}: face ${f}'s normal at ${x}: ${got} for ${want}`);
-          const ta = travel(a, l, co, x), tb = travel(b, lb, cob, x);
+          const ta = travel(a, co, x), tb = travel(b, cob, x);
           if (ta && tb && Math.hypot(...cross(n0, ta)) > 1e-9) {
             const left0 = unit(linear(t, cross(n0.map((y) => y * na), ta))), left1 = unit(cross(got, tb));
             assert.ok(near(left0, left1, 1e-5), `${where}: face ${f}'s side of coedge ${co} at ${x}`);
@@ -282,7 +281,10 @@ test('under a mirror: loops turn, faces where the surface keeps (u, v), p-curves
     const f = [...Array(rowCount(original, 'face')).keys()].find((x) => original.face.id[x] === baked.face.id[g])!;
     const kind = dec.surface(original, original.face.surface[f]!).kind;
     turned.set(kind, original.face.sameSense[f] !== baked.face.sameSense[g]);
-    assert.notEqual(original.loop.sense[original.face.firstLoop[f]!], baked.loop.sense[baked.face.firstLoop[g]!]);
+    // The loop the other way round: in reverse order, each use turned (the original's first the baked one's last).
+    const lo = original.face.firstLoop[f]!, lb = baked.face.firstLoop[g]!;
+    const last = baked.loop.first[lb]! + baked.loop.count[lb]! - 1;
+    assert.notEqual(original.coedge.orientation[original.loop.first[lo]!], baked.coedge.orientation[last]);
   }
   // (Of the offsets, the cylinder's isn't turned, the B-spline's is; `turned` keeps the last of each kind.)
   assert.deepEqual(Object.fromEntries(turned), { plane: true, cylinder: false, cone: false, sphere: false,

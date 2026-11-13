@@ -579,7 +579,7 @@ function modelFace(d: BrepData, f: number, cache: Map<number, CurveEvaluator | u
       curves.add(e.kind);
       edges.push({ sample: e.sample, forward: d.coedge.orientation[k] !== 1 });
     }
-    loops.push({ edges, forward: d.loop.sense[l] === 1 });
+    loops.push({ edges, forward: true });
   }
   return faceIntegral(S, d.face.sameSense[f] === 1, loops, curves);
 }

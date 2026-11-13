@@ -157,7 +157,7 @@ export function compareScaled(a: BrepData, b: BrepData, k: number, where: string
       }
     }
   }
-  for (const pool of ['curveInt', 'surfaceInt', 'loopInt'] as const) {
+  for (const pool of ['curveInt', 'surfaceInt'] as const) {
     const x = a.pool[pool], y = b.pool[pool];
     if (x.length !== y.length || x.some((v, j) => v !== y[j])) bad(`pool.${pool} differs`, '');
   }

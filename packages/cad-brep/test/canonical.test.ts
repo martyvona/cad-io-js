@@ -1,0 +1,368 @@
+// The builder's canonical topology (docs/brep-reference.md, "The canonical model"): each rule on a model built in a
+// source's forms, against what the rule says the rows become; the result valid, and itself again when built anew.
+
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { BrepBuilder, type BrepData, decode, openBrep, rowCount, validateBrep } from '../src/index.ts';
+import type { Coedge, Loop } from '../src/types.ts';
+
+const XY = { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] };
+/** A square's corners, its sides as line edges (k from corner k to k + 1), ids 1-4 and 11-14 from `base`. */
+function square(b: BrepBuilder, z = 0, base = 0) {
+  const c = [[0, 0, z], [1, 0, z], [1, 1, z], [0, 1, z]];
+  const vs = c.map((point, k) => b.addVertex({ point, id: base + 1 + k }));
+  const es = c.map((p, k) => {
+    const q = c[(k + 1) % 4]!;
+    const line = b.addCurve({ kind: 'line', point: p, direction: q.map((x, j) => x - p[j]!), magnitude: 1 });
+    return b.addEdge({ curve: line, start: vs[k]!, end: vs[(k + 1) % 4]!, sameSense: true, id: base + 11 + k });
+  });
+  return { vs, es, plane: b.addSurface({ kind: 'plane', position: { ...XY, origin: [0, 0, z] } }) };
+}
+const forward = (es: number[], ids: number[] = []): Coedge[] => es.map((edge, k) => ({ edge,
+  orientation: 'forward', ...(ids[k] ? { id: ids[k] } : {}) }));
+const errors = (d: BrepData) => validateBrep(d).filter((x) => x.severity === 'error');
+const uses = (l: Loop) => l.kind === 'edge' ? l.coedges.map((c) => [c.edge, c.orientation, c.id]) : l.kind;
+/** The model given to a builder again, row by row: the same bytes if canonical. */
+function rebuilt(d: BrepData): BrepData {
+  const b = new BrepBuilder(decode.part(d));
+  for (let k = 0; k < rowCount(d, 'curve'); k++) b.addCurve(decode.curve(d, k));
+  for (let k = 0; k < rowCount(d, 'surface'); k++) b.addSurface(decode.surface(d, k));
+  for (let k = 0; k < rowCount(d, 'vertex'); k++) b.addVertex(decode.vertex(d, k));
+  for (let k = 0; k < rowCount(d, 'edge'); k++) b.addEdge(decode.edge(d, k));
+  for (let k = 0; k < rowCount(d, 'face'); k++) b.addFace(decode.face(d, k));
+  for (let k = 0; k < rowCount(d, 'shell'); k++) b.addShell(decode.shell(d, k));
+  for (let k = 0; k < rowCount(d, 'body'); k++) b.addBody(decode.body(d, k));
+  for (let k = 0; k < rowCount(d, 'item'); k++) b.addItem(decode.item(d, k));
+  for (let k = 0; k < rowCount(d, 'copy'); k++) b.addCopy(decode.copy(d, k));
+  return b.finish();
+}
+const sameBytes = (a: BrepData, b: BrepData) => assert.deepEqual(new Uint8Array(b.buffer), new Uint8Array(a.buffer));
+
+test('rule 1: a loop against its bound runs as listed: its coedges in reverse order, each turned; ids kept', () => {
+  const b = new BrepBuilder();
+  const { es, plane } = square(b);
+  const f = b.addFace({ surface: plane, sameSense: true, id: 30, loops: [{ kind: 'edge', bound: 'outer', sense: false,
+    coedges: [...forward(es.slice(0, 3), [41, 42, 43]), { edge: es[3]!, orientation: 'internal', id: 44 }],
+    id: 40 }] });
+  b.addItem({ kind: 'face', ref: f });
+  const d = b.finish();
+  const l = decode.face(d, 0).loops[0]!;
+  assert.deepEqual([uses(l), l.id], [[[es[3], 'internal', 44], [es[2], 'reversed', 43], [es[1], 'reversed', 42],
+    [es[0], 'reversed', 41]], 40]);
+  assert.deepEqual(errors(d), []);
+  sameBytes(d, rebuilt(d));
+});
+
+test('rule 2: reversed uses baked into the faces; a face used both ways copied, the copy under a fresh id', () => {
+  const b = new BrepBuilder();
+  const { es, plane } = square(b);
+  const loop = (): Loop => ({ kind: 'edge', bound: 'outer', sense: true, coedges: forward(es, [41, 42, 43, 44]),
+    id: 40 });
+  // Face 0 used reversed only (through a reversed member: a shell used reversed), face 1 both ways.
+  const f0 = b.addFace({ surface: plane, sameSense: true, loops: [loop()], id: 30 });
+  const f1 = b.addFace({ surface: plane, sameSense: false, loops: [loop()], id: 31 });
+  const s0 = b.addShell({ kind: 'open', faces: [{ face: f0, sense: true }], id: 50 });
+  const s1 = b.addShell({ kind: 'open', faces: [{ face: f1, sense: false }], id: 51 });
+  b.addItem({ kind: 'body', ref: b.addBody({ kind: 'sheet', members: [{ ref: s0, sense: false }], id: 60 }) });
+  b.addItem({ kind: 'body', ref: b.addBody({ kind: 'sheet', members: [{ ref: s1, sense: true }], id: 61 }) });
+  b.addItem({ kind: 'face', ref: f1, id: 70 });
+  const d = b.finish();
+  assert.deepEqual(errors(d), []);
+  const turned = [[es[3], 'reversed', 44], [es[2], 'reversed', 43], [es[1], 'reversed', 42], [es[0], 'reversed', 41]];
+  const g0 = decode.face(d, 0), g1 = decode.face(d, 1);
+  assert.deepEqual([g0.id, g0.sameSense, uses(g0.loops[0]!)], [30, false, turned]);
+  // Face 1 itself as given (the item's, forward), its copy turned over with fresh ids above the largest (70).
+  assert.deepEqual([g1.id, g1.sameSense, uses(g1.loops[0]!)], [31, false, forward(es, [41, 42, 43, 44]).map((c) =>
+    [c.edge, c.orientation, c.id])]);
+  assert.equal(rowCount(d, 'face'), 3);
+  const g2 = decode.face(d, 2), l2 = g2.loops[0]!;
+  assert.ok(l2.kind === 'edge');
+  const fresh = [g2.id, l2.id, ...l2.coedges.map((c) => c.id)];
+  // (The coedges' taken in the source's order, then the loop turned.)
+  assert.deepEqual(fresh, [71, 72, 76, 75, 74, 73]);
+  assert.deepEqual([g2.sameSense, l2.coedges.map((c) => [c.edge, c.orientation])],
+    [true, turned.map(([e, o]) => [e, o])]);
+  // Each fresh id a copy of its source (no instances: an empty path).
+  const copies = Array.from({ length: rowCount(d, 'copy') }, (_, k) => decode.copy(d, k));
+  assert.deepEqual(copies.map((c) => [c.id, c.source, c.path]), [[71, 31, []], [72, 40, []], [73, 41, []],
+    [74, 42, []], [75, 43, []], [76, 44, []]]);
+  // The shells: forward uses only, the second sheet's of the copy.
+  const shells = Array.from({ length: rowCount(d, 'shell') }, (_, k) => decode.shell(d, k));
+  assert.deepEqual(shells.map((s) => [s.faces.map((u) => u.face), s.id]), [[[0], 50], [[2], 51]]);
+  sameBytes(d, rebuilt(d));
+});
+
+test('rule 2: a solid\'s void, its shell used reversed: its faces turned over, facing into the void', () => {
+  const b = new BrepBuilder();
+  const box = (z: number, base: number) => {
+    // A flat box of two squares facing apart (top up, bottom down), their sides shared: closed by its edges.
+    const { es, plane } = square(b, z, base);
+    const top = b.addFace({ surface: plane, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true,
+      coedges: forward(es) }], id: base + 21 });
+    const bottom = b.addFace({ surface: plane, sameSense: false, loops: [{ kind: 'edge', bound: 'outer',
+      sense: false, coedges: forward(es) }], id: base + 22 });
+    return b.addShell({ kind: 'closed', faces: [{ face: top, sense: true }, { face: bottom, sense: true }] });
+  };
+  const outer = box(0, 0), inner = box(5, 100);
+  b.addItem({ kind: 'body', ref: b.addBody({ kind: 'solid', members: [{ ref: outer, sense: true },
+    { ref: inner, sense: false }] }) });
+  const d = b.finish();
+  assert.deepEqual(errors(d), []);
+  const faces = Array.from({ length: rowCount(d, 'face') }, (_, k) => decode.face(d, k));
+  assert.deepEqual(faces.map((f) => [f.id, f.sameSense]), [[21, true], [22, false], [121, false], [122, true]]);
+  const shells = Array.from({ length: rowCount(d, 'shell') }, (_, k) => decode.shell(d, k).kind);
+  assert.deepEqual(shells, ['closed', 'closed']);
+  sameBytes(d, rebuilt(d));
+});
+
+test('rule 3: poly loops as edge loops of line edges, one per pair of corners, shared by the faces that have it',
+  () => {
+  const b = new BrepBuilder();
+  const p = [[0, 0, 0], [2, 0, 0], [0, 3, 0], [0, 0, 4]];
+  const v = p.map((point, k) => b.addVertex({ point, id: 1 + k }));
+  const plane = b.addSurface({ kind: 'plane', position: XY });
+  const tri = (t: number[], sense = true) => b.addFace({ surface: plane, sameSense: true, loops: [{ kind: 'poly',
+    bound: 'outer', sense, vertices: t.map((k) => v[k]!) }] });
+  // Two triangles sharing corners 0 and 1 (the second the other way along that side), one against its bound.
+  const f = [tri([0, 2, 1]), tri([0, 1, 3]), tri([1, 2, 3], false)];
+  b.addItem({ kind: 'body', ref: b.addBody({ kind: 'sheet', members: [{ ref: b.addShell({ kind: 'open',
+    faces: f.map((face) => ({ face, sense: true })) }), sense: true }] }) });
+  const d = b.finish();
+  assert.deepEqual(errors(d), []);
+  // Each side: a line from its lower vertex row to its higher, parameter 0 to 1 (magnitude its length).
+  const sides = new Map<string, number>();
+  for (let e = 0; e < rowCount(d, 'edge'); e++) {
+    const x = decode.edge(d, e), c = decode.curve(d, x.curve!);
+    assert.ok(c.kind === 'line' && x.start! < x.end! && x.sameSense);
+    const a = p[x.start!]!, z = p[x.end!]!, len = Math.hypot(...z.map((q, i) => q - a[i]!));
+    assert.deepEqual([c.point, c.magnitude], [a, len]);
+    assert.ok(c.direction.every((q, i) => Math.abs(q - (z[i]! - a[i]!) / len) < 1e-15));
+    sides.set(`${x.start}-${x.end}`, e);
+  }
+  assert.deepEqual([...sides.keys()].sort(), ['0-1', '0-2', '0-3', '1-2', '1-3', '2-3']);
+  const corners = (k: number) => {
+    const l = decode.face(d, k).loops[0]!;
+    assert.ok(l.kind === 'edge');
+    return l.coedges.map((c) => {
+      const x = decode.edge(d, c.edge);
+      return c.orientation === 'forward' ? `${x.start}>${x.end}` : `${x.end}>${x.start}`;
+    });
+  };
+  assert.deepEqual([corners(0), corners(1)], [['0>2', '2>1', '1>0'], ['0>1', '1>3', '3>0']]);
+  // Against its bound: the polygon the other way round.
+  assert.deepEqual(corners(2), ['1>3', '3>2', '2>1']);
+  sameBytes(d, rebuilt(d));
+});
+
+test('rule 7: a degenerate edge out of its loop; a loop of nothing else a vertex loop at its vertex', () => {
+  const b = new BrepBuilder();
+  const { vs, es, plane } = square(b);
+  const pole = b.addEdge({ start: vs[2]!, end: vs[2]!, sameSense: true, degenerate: true, id: 9 });
+  const f = b.addFace({ surface: plane, sameSense: true, loops: [
+    { kind: 'edge', bound: 'outer', sense: true, coedges: [...forward(es.slice(0, 2)), { edge: pole,
+      orientation: 'forward' }, ...forward(es.slice(2))] },
+    { kind: 'edge', bound: 'inner', sense: true, coedges: [{ edge: pole, orientation: 'reversed' }], id: 8 }] });
+  b.addItem({ kind: 'face', ref: f });
+  const d = b.finish();
+  assert.deepEqual(errors(d), []);
+  const [outer, inner] = decode.face(d, 0).loops;
+  assert.deepEqual(uses(outer!), forward(es).map((c) => [c.edge, c.orientation, undefined]));
+  assert.deepEqual(inner, { kind: 'vertex', vertex: vs[2], bound: 'inner', id: 8 });
+  // (The edge's row kept, used by nothing, without its flag.)
+  assert.deepEqual(decode.edge(d, pole), { start: vs[2], end: vs[2], sameSense: true, id: 9 });
+  sameBytes(d, rebuilt(d));
+});
+
+test('rule 9: the one outer loop first; several outer, or none, as given', () => {
+  const b = new BrepBuilder();
+  const { vs, plane } = square(b);
+  const vl = (vertex: number, bound: 'outer' | 'inner' | 'unknown'): Loop => ({ kind: 'vertex', bound, sense: true,
+    vertex });
+  const face = (loops: Loop[]) => b.addItem({ kind: 'face', ref: b.addFace({ surface: plane, sameSense: true,
+    loops }) });
+  face([vl(vs[0]!, 'inner'), vl(vs[1]!, 'outer'), vl(vs[2]!, 'inner')]);
+  face([vl(vs[0]!, 'inner'), vl(vs[1]!, 'outer'), vl(vs[2]!, 'outer')]);
+  face([vl(vs[0]!, 'unknown'), vl(vs[1]!, 'unknown')]);
+  const d = b.finish();
+  const order = (k: number) => decode.face(d, k).loops.map((l) => l.kind === 'vertex' ? l.vertex : -1);
+  assert.deepEqual([order(0), order(1), order(2)], [[1, 0, 2], [0, 1, 2], [0, 1]]);
+  sameBytes(d, rebuilt(d));
+});
+
+test('rule 8: shells by topology: open shells sharing edges merged, a shell in pieces split, closed by its edges',
+  () => {
+  const b = new BrepBuilder();
+  // Two squares side by side sharing an edge (x = 1), a third apart; a fourth square's face against itself twice
+  // over makes no shell closed.
+  const c = [[0, 0, 0], [1, 0, 0], [2, 0, 0], [0, 1, 0], [1, 1, 0], [2, 1, 0]];
+  const v = c.map((point) => b.addVertex({ point }));
+  const edge = (i: number, j: number) => b.addEdge({ curve: b.addCurve({ kind: 'line', point: c[i]!,
+    direction: c[j]!.map((x, k) => x - c[i]![k]!), magnitude: 1 }), start: v[i]!, end: v[j]!, sameSense: true });
+  const [e01, e14, e43, e30, e12, e25, e54] = [edge(0, 1), edge(1, 4), edge(4, 3), edge(3, 0), edge(1, 2),
+    edge(2, 5), edge(5, 4)];
+  const plane = b.addSurface({ kind: 'plane', position: XY });
+  const quad = (coedges: Coedge[], id: number) => b.addFace({ surface: plane, sameSense: true, id,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] });
+  const left = quad(forward([e01, e14, e43, e30]), 1);
+  const right = quad([{ edge: e12, orientation: 'forward' }, { edge: e25, orientation: 'forward' },
+    { edge: e54, orientation: 'forward' }, { edge: e14, orientation: 'reversed' }], 2);
+  const sq = square(b, 5, 100);
+  const apart = quad(forward(sq.es), 3);
+  // One sheet: left alone and right with the face apart, each said open; they share e14, so left and right merge,
+  // the face apart its own piece.
+  const s1 = b.addShell({ kind: 'open', faces: [{ face: left, sense: true }], id: 50 });
+  const s2 = b.addShell({ kind: 'faceSet', faces: [{ face: right, sense: true }, { face: apart, sense: true }],
+    id: 51 });
+  b.addItem({ kind: 'body', ref: b.addBody({ kind: 'sheet', members: [{ ref: s1, sense: true },
+    { ref: s2, sense: true }] }) });
+  // A shell said closed whose edges aren't: open by them, the source's claim kept as declared.
+  const s3 = b.addShell({ kind: 'closed', faces: [{ face: apart, sense: true }], id: 52 });
+  b.addItem({ kind: 'body', ref: b.addBody({ kind: 'solid', members: [{ ref: s3, sense: true }] }) });
+  const d = b.finish();
+  assert.deepEqual(errors(d), []);
+  const shells = Array.from({ length: rowCount(d, 'shell') }, (_, k) => decode.shell(d, k));
+  assert.deepEqual(shells.map((s) => [s.faces.map((u) => decode.face(d, u.face).id), s.kind, s.declared, s.id]), [
+    [[1, 2], 'open', 'open', 50], [[3], 'open', 'faceSet', 51], [[3], 'open', 'closed', 52]]);
+  const bodies = Array.from({ length: rowCount(d, 'body') }, (_, k) => decode.body(d, k));
+  assert.deepEqual(bodies.map((x) => [x.kind, x.members.map((m) => m.ref)]), [['sheet', [0, 1]], ['solid', [2]]]);
+  sameBytes(d, rebuilt(d));
+});
+
+test('rule 11: a sheet of one closed shell is a solid, the source\'s kind declared; of two, a sheet', () => {
+  const b = new BrepBuilder();
+  const box = (z: number, base: number) => {
+    const { es, plane } = square(b, z, base);
+    const top = b.addFace({ surface: plane, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true,
+      coedges: forward(es) }] });
+    const bottom = b.addFace({ surface: plane, sameSense: false, loops: [{ kind: 'edge', bound: 'outer',
+      sense: false, coedges: forward(es) }] });
+    return b.addShell({ kind: 'open', faces: [{ face: top, sense: true }, { face: bottom, sense: true }] });
+  };
+  b.addItem({ kind: 'body', ref: b.addBody({ kind: 'sheet', members: [{ ref: box(0, 0), sense: true }], id: 60 }) });
+  b.addItem({ kind: 'body', ref: b.addBody({ kind: 'sheet', members: [{ ref: box(3, 100), sense: true },
+    { ref: box(6, 200), sense: true }], id: 61 }) });
+  const d = b.finish();
+  assert.deepEqual(errors(d), []);
+  const bodies = Array.from({ length: rowCount(d, 'body') }, (_, k) => decode.body(d, k));
+  assert.deepEqual(bodies.map((x) => [x.id, x.kind, x.declared, x.members.map((m) => decode.shell(d, m.ref).kind)]),
+    [[60, 'solid', 'sheet', ['closed']], [61, 'sheet', 'sheet', ['closed', 'closed']]]);
+  sameBytes(d, rebuilt(d));
+});
+
+test('the builder can go on after finish: the same rows, the same canonical bytes', () => {
+  const b = new BrepBuilder();
+  const { es, plane } = square(b);
+  const f = b.addFace({ surface: plane, sameSense: true, id: 30, loops: [{ kind: 'poly', bound: 'outer', sense: false,
+    vertices: [0, 1, 2] }] });
+  b.addItem({ kind: 'face', ref: f });
+  // (A face used both ways too: its copy's fresh id the same each time.)
+  const g = b.addFace({ surface: plane, sameSense: true, id: 31, loops: [{ kind: 'edge', bound: 'outer',
+    sense: true, coedges: forward(es) }] });
+  for (const sense of [true, false]) {
+    b.addItem({ kind: 'body', ref: b.addBody({ kind: 'sheet', members: [{ ref: b.addShell({ kind: 'open',
+      faces: [{ face: g, sense }] }), sense: true }] }) });
+  }
+  const once = b.finish(), twice = b.finish();
+  assert.equal(rowCount(once, 'copy'), 1);
+  sameBytes(once, twice);
+  // And more after it: the rows given before keep their places.
+  b.addItem({ kind: 'face', ref: b.addFace({ surface: plane, sameSense: true, loops: [{ kind: 'edge', bound: 'outer',
+    sense: true, coedges: forward(es) }] }) });
+  const more = b.finish();
+  assert.equal(rowCount(more, 'face'), 4);
+  assert.deepEqual(decode.face(more, 0), decode.face(once, 0));
+});
+
+test('rule 8, closed exactly: every edge once each way (not twice the same way), internal uses aside; faces without '
+  + 'edges keep the source\'s claim', () => {
+  const b = new BrepBuilder();
+  const { es, plane } = square(b);
+  const face = (sameSense: boolean, coedges: Coedge[]) => b.addFace({ surface: plane, sameSense,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] });
+  const turned = es.map((edge) => ({ edge, orientation: 'reversed' as const })).reverse();
+  // Two faces back to back (closed), with an internal use on one; two using every edge the same way (open).
+  const top = face(true, [...forward(es), { edge: es[0]!, orientation: 'internal' }]), bottom = face(false, turned);
+  const again = face(true, forward(es)), same = face(true, forward(es));
+  const shell = (faces: number[], kind: 'closed' | 'open') => b.addShell({ kind, faces: faces.map((f) => ({ face: f,
+    sense: true })) });
+  // Whole spheres (no loops): their shells as the source says.
+  const sphere = b.addSurface({ kind: 'sphere', position: XY, radius: 1 });
+  const whole = () => b.addFace({ surface: sphere, sameSense: true, loops: [] });
+  for (const [faces, kind] of [[[top, bottom], 'closed'], [[again, same], 'closed'], [[whole()], 'open'],
+    [[whole()], 'closed']] as const) {
+    b.addItem({ kind: 'body', ref: b.addBody({ kind: 'sheet', members: [{ ref: shell([...faces], kind), sense: true },
+      { ref: shell([whole()], 'open'), sense: true }] }) });
+  }
+  const d = b.finish();
+  assert.deepEqual(errors(d), []);
+  const kinds = Array.from({ length: rowCount(d, 'body') }, (_, k) => decode.body(d, k).members.map((m) =>
+    decode.shell(d, m.ref).kind)[0]);
+  assert.deepEqual(kinds, ['closed', 'open', 'open', 'closed']);
+});
+
+test('rule 8, ids: a shell split keeps its id on its first piece only', () => {
+  const b = new BrepBuilder();
+  const a = square(b, 0, 0), z = square(b, 5, 100);
+  const face = (s: typeof a) => b.addFace({ surface: s.plane, sameSense: true, loops: [{ kind: 'edge', bound: 'outer',
+    sense: true, coedges: forward(s.es) }] });
+  const f = [face(a), face(z), face(a), face(z)];
+  for (const kind of ['open', 'closed'] as const) {
+    const pair = kind === 'open' ? [f[0]!, f[1]!] : [f[2]!, f[3]!];
+    b.addItem({ kind: 'body', ref: b.addBody({ kind: 'sheet', members: [{ ref: b.addShell({ kind, id: kind === 'open'
+      ? 50 : 51, faces: pair.map((face) => ({ face, sense: true })) }), sense: true }] }) });
+  }
+  const d = b.finish();
+  const ids = Array.from({ length: rowCount(d, 'shell') }, (_, k) => decode.shell(d, k).id);
+  assert.deepEqual(ids, [50, undefined, 51, undefined]);
+});
+
+test('validateBrep: a body\'s open shells sharing an edge (they\'d be one)', () => {
+  const b = new BrepBuilder();
+  const { es, plane } = square(b);
+  // (Two faces sharing one edge, an open shell; their loops left unclosed, which validation says too.)
+  const f = [0, 1].map((k) => b.addFace({ surface: plane, sameSense: true, loops: [{ kind: 'edge', bound: 'outer',
+    sense: true, coedges: k === 0 ? forward(es.slice(0, 2)) : [{ edge: es[1]!, orientation: 'reversed' },
+      { edge: es[2]!, orientation: 'forward' }] }] }));
+  const apart = square(b, 5, 100);
+  const g = b.addFace({ surface: apart.plane, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true,
+    coedges: forward(apart.es) }] });
+  b.addItem({ kind: 'body', ref: b.addBody({ kind: 'sheet', members: [{ ref: b.addShell({ kind: 'open',
+    faces: [...f, g].map((face) => ({ face, sense: true })) }), sense: true }] }) });
+  const d = b.finish();
+  // Its two shells (the pair, the square apart): the square swapped with one of the pair, they share edges.
+  assert.equal(rowCount(d, 'shell'), 2);
+  const copy = openBrep(d.buffer.slice(0));
+  [copy.faceUse.face[1], copy.faceUse.face[2]] = [copy.faceUse.face[2]!, copy.faceUse.face[1]!];
+  assert.ok(validateBrep(copy).some((v) => /body 0: open shells 0 and 1 share edge/.test(v.message)),
+    JSON.stringify(validateBrep(copy)));
+});
+
+test('fresh ids: the builder\'s face copies and a bake\'s copies never share one', () => {
+  const b = new BrepBuilder();
+  const { es, plane } = square(b, 0, 0);
+  const f = b.addFace({ surface: plane, sameSense: true, id: 30, loops: [{ kind: 'edge', bound: 'outer', sense: true,
+    coedges: forward(es) }] });
+  for (const sense of [true, false]) {
+    const it = b.addItem({ kind: 'body', ref: b.addBody({ kind: 'sheet', members: [{ ref: b.addShell({ kind: 'open',
+      faces: [{ face: f, sense }] }), sense: true }] }) });
+    if (sense) b.addItem({ kind: 'instance', ref: it, transform: [1, 0, 0, 0, 1, 0, 0, 0, 1, 5, 0, 0], id: 90 });
+  }
+  const d = b.finish();
+  assert.deepEqual(validateBrep(d), []);
+  const ids = Array.from({ length: rowCount(d, 'copy') }, (_, k) => decode.copy(d, k).id);
+  assert.equal(new Set(ids).size, ids.length);
+  // From a first fresh id given: the same.
+  const c = new BrepBuilder({}, { firstFreshId: 1000 });
+  const s = square(c, 0, 0);
+  const h = c.addFace({ surface: s.plane, sameSense: true, id: 30, loops: [{ kind: 'edge', bound: 'outer',
+    sense: true, coedges: forward(s.es) }] });
+  for (const sense of [true, false]) {
+    const it = c.addItem({ kind: 'body', ref: c.addBody({ kind: 'sheet', members: [{ ref: c.addShell({ kind: 'open',
+      faces: [{ face: h, sense }] }), sense: true }] }) });
+    if (sense) c.addItem({ kind: 'instance', ref: it, transform: [1, 0, 0, 0, 1, 0, 0, 0, 1, 5, 0, 0], id: 90 });
+  }
+  const e = c.finish();
+  assert.deepEqual(validateBrep(e), []);
+  const eids = Array.from({ length: rowCount(e, 'copy') }, (_, k) => decode.copy(e, k).id);
+  assert.ok(eids.every((x) => x >= 1000) && new Set(eids).size === eids.length, `${eids}`);
+});

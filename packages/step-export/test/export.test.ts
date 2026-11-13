@@ -471,7 +471,9 @@ test("a geometric set's part: its colour on the set's elements (a set's style is
 test("a sheet's part: its colour on its surface model and on each face without its own (OCCT passes only a solid's "
   + 'down)', async () => {
   const b = new BrepBuilder();
-  const sheet = b.addBody({ kind: 'sheet', members: [{ ref: box(b, [1, 1, 1]), sense: true }], id: 100 });
+  // (Two boxes' shells: a sheet of one closed shell would be a solid, the builder's canonical form.)
+  const sheet = b.addBody({ kind: 'sheet', members: [{ ref: box(b, [1, 1, 1]), sense: true },
+    { ref: box(b, [1, 1, 1], [3, 0, 0], 100), sense: true }], id: 100 });
   b.addItem({ kind: 'body', ref: sheet, id: 101 });
   const s = sceneOf({ parts: [{ ...part('sheet', b.finish(), 30), material: 0, faceMaterials: [{ face: 22,
     material: 1 }] }], materials: [{ color: [1, 0, 0], opacity: 1, sources: [] },
@@ -484,7 +486,8 @@ test("a sheet's part: its colour on its surface model and on each face without i
   sameLooks(s, back);
 });
 
-test('a face used both ways (two sheets, one using it reversed): written twice, both copies styled and layered',
+test('a face used both ways (two sheets, one using it reversed; copied by the builder): two faces, both styled and '
+  + 'layered',
   async () => {
   const b = new BrepBuilder();
   const corners = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]];
@@ -501,18 +504,22 @@ test('a face used both ways (two sheets, one using it reversed): written twice, 
     const shell = b.addShell({ kind: 'open', faces: [{ face, sense }] });
     b.addItem({ kind: 'body', ref: b.addBody({ kind: 'sheet', members: [{ ref: shell, sense: true }] }) });
   }
-  const s = sceneOf({ parts: [{ ...part('sheets', b.finish(), 300), faceMaterials: [{ face: 10, material: 0 }] }],
-    materials: [{ color: [0, 0, 1], opacity: 1, sources: [] }] });
+  // The builder copies the face (a fresh id, in the copies table), the copy the one used reversed; given its own
+  // material and layer here (a scene's consumers don't yet look a copy's up by its source id).
+  const d = b.finish(), copy = decode.copy(d, 0).id;
+  assert.equal(decode.copy(d, 0).source, 10);
+  const s = sceneOf({ parts: [{ ...part('sheets', d, 300), faceMaterials: [{ face: 10, material: 0 },
+    { face: copy, material: 0 }] }], materials: [{ color: [0, 0, 1], opacity: 1, sources: [] }] });
   s.components = [component('top', { parts: [{ part: 0, transform: identity() }] })];
   s.roots = [{ component: 0, transform: identity(), sources: [], properties: {} }];
-  s.layers = [{ name: 'L', visible: true, parts: [], faces: [{ part: 0, face: 10 }], sources: [] }];
-  const { text, back, bytes, all } = await roundTrip(s);
+  s.layers = [{ name: 'L', visible: true, parts: [], faces: [{ part: 0, face: 10 }, { part: 0, face: copy }],
+    sources: [] }];
+  const { text, back, bytes } = await roundTrip(s);
   const faces = [...text.matchAll(/#(\d+)=ADVANCED_FACE\('',\(#\d+\),#\d+,\.([TF])\.\)/g)].map((m) => [+m[1]!, m[2]]);
   assert.deepEqual(faces.map(([, sense]) => sense), ['T', 'F']);
   assert.equal(faces[0]![0], 10);
   for (const [id] of faces) assert.match(text, new RegExp(`STYLED_ITEM\\('color',\\(#\\d+\\),#${id}\\)`));
   assert.match(text, new RegExp(`PRESENTATION_LAYER_ASSIGNMENT\\('L','',\\(#10,#${faces[1]![0]}\\)\\)`));
-  assert.ok(all.some((d) => /a face used both ways/.test(d.message)));
   assert.deepEqual(await bindProblems(bytes), []);
   // Read back: two faces, both blue (by their own colour or, every face's being one, the part's), both in the layer.
   const p = back.parts[0]!, model = p.brep!.model;

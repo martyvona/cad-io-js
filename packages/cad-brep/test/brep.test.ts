@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   BrepBuilder, type BrepData, BrepFormatError, brepFromJson, brepToJson, COLUMNS, decode, MAX_DIAGNOSTICS, openBrep,
-  rowCount, validateBrep,
+  rowCount, SHELL_KIND, validateBrep,
 } from '../src/index.ts';
 import { box, cone, cube, everyKind, MODELS, seamCylinder } from './models.ts';
 
@@ -44,8 +44,11 @@ test('JSON round trip: the same bytes, and decoding gives what was built', () =>
     refDirection: [0, 1, 0] });
 
   const k = cone().finish();
-  assert.deepEqual(decode.edge(k, 2), { start: 1, end: 1, sameSense: true, degenerate: true, tolerance: 1e-7 });
-  assert.equal('degenerate' in decode.edge(k, 1), false);
+  // (The degenerate edge out of the loop: the builder's canonical form, its row kept.)
+  assert.deepEqual(decode.edge(k, 2), { start: 1, end: 1, sameSense: true, tolerance: 1e-7 });
+  const kl = decode.face(k, 0).loops[0]!;
+  assert.ok(kl.kind === 'edge');
+  assert.deepEqual(kl.coedges.map((c) => [c.edge, c.orientation]), [[1, 'forward'], [0, 'reversed'], [1, 'reversed']]);
   assert.deepEqual(decode.surface(k, 1), { kind: 'torus', position: { origin: [0, 0, 0], axis: [0, 0, 1],
     xDir: [1, 0, 0] }, majorRadius: 1, minorRadius: 3, selectOuter: false });
 
@@ -77,7 +80,7 @@ test('the bytes depend on each table\'s rows, not on how tables are interleaved'
 test('layout: every column 8-byte aligned, in order, counts as built', () => {
   const d = everyKind().finish();
   const view = new DataView(d.buffer);
-  assert.equal(String.fromCharCode(...new Uint8Array(d.buffer, 0, 4)), 'CBR5');
+  assert.equal(String.fromCharCode(...new Uint8Array(d.buffer, 0, 4)), 'CBR6');
   assert.equal(view.getUint32(4, true), COLUMNS.length);
   let last = 0;
   COLUMNS.forEach((c, k) => {
@@ -354,7 +357,6 @@ test('validateBrep finds each kind of defect', () => {
     ['edge nothing, unused', E, (d) => { d.edge.curve[0] = -1; d.coedge.edge[0] = 1; },
       /edge 0: neither a curve nor vertices, and no use/],
     ['edge sense', cube, (d) => { d.edge.sameSense[0] = 2; }, /same_sense 2/],
-    ['edge flags', cube, (d) => { d.edge.flags[0] = 4; }, /flags 4/],
     ['edge range', cube, (d) => { d.edge.range[1] = NaN; }, /range 0, NaN/],
     ['edge tolerance', cube, (d) => { d.edge.tolerance[2] = Infinity; }, /tolerance Infinity/],
     ['coedge edge', cube, (d) => { d.coedge.edge[0] = 12; }, /coedge 0: edge 12 out of range/],
@@ -369,12 +371,8 @@ test('validateBrep finds each kind of defect', () => {
     ['first coedge in none', cube, (d) => { d.loop.first[0] = 1; d.loop.count[0] = 3; }, /coedge 0: in no edge loop/],
     ['empty edge loop', cube, (d) => { d.loop.count[5] = 0; }, /loop 5: 0 coedges/],
     ['loop bound', cube, (d) => { d.loop.bound[0] = 3; }, /bound 3/],
-    ['loop sense', cube, (d) => { d.loop.sense[0] = 2; }, /loop 0: sense 2/],
     ['loop kind', cube, (d) => { d.loop.kind[0] = 7; }, /loop 0: kind 7/],
     ['vertex loop', MODELS.spheres, (d) => { d.loop.first[1] = 9; }, /loop 1: vertex 9/],
-    ['poly loop', MODELS.facetedAndWire, (d) => { d.loop.count[0] = 2; }, /loop 0: 2 vertices/],
-    ['poly loop vertex', MODELS.facetedAndWire, (d) => { d.pool.loopInt[1] = 40; }, /loop 0: vertex 40/],
-    ['poly loop beyond', MODELS.facetedAndWire, (d) => { d.loop.first[3] = 11; }, /loop 3: 3 vertices at 11/],
     ['face surface', cube, (d) => { d.face.surface[0] = 6; }, /face 0 \(#21\): surface 6 out of range/],
     ['face sense', cube, (d) => { d.face.sameSense[0] = 2; }, /same_sense 2/],
     ['face loops', cube, (d) => { d.face.loopCount[5] = 2; }, /loops 5 to 6 out of range/],
@@ -385,15 +383,28 @@ test('validateBrep finds each kind of defect', () => {
     ['shell face', cube, (d) => { d.faceUse.face[2] = 40; }, /face 40 out of range/],
     ['shell range', cube, (d) => { d.shell.count[0] = 9; }, /faceUses 0 to 8 out of range/],
     ['face use in none', cube, (d) => { d.shell.count[0] = 5; }, /faceUse 5: in no shell/],
-    ['face use sense', cube, (d) => { d.faceUse.sense[0] = 3; }, /faceUse 0: sense 3/],
     ['face use in two shells', MODELS.spheres, (d) => { d.shell.first[1] = 0; }, /faceUse 0 already belongs/],
     ['body kind', cube, (d) => { d.body.kind[0] = 9; }, /body 0 \(#100\): kind 9/],
     ['body members', cube, (d) => { d.body.count[0] = 0; }, /no members/],
     ['body shell', cube, (d) => { d.member.ref[0] = 1; }, /shell 1 out of range/],
     ['solid of an open shell', cube, (d) => { d.shell.kind[0] = 2; }, /shell 0 not closed/],
+    ['shell open by kind, closed by its edges', cube, (d) => { d.shell.kind[0] = 2; },
+      /shell 0: open, but its edges say otherwise/],
+    ['shell closed by kind, open by its edges', cube, (d) => { d.coedge.orientation[0] = 2; },
+      /shell 0: closed, but its edges say otherwise/],
+    ['shell declared', cube, (d) => { d.shell.declared[0] = 9; }, /shell 0: declared 9/],
+    ['shell in pieces', MODELS.spheres, (d) => { d.shell.count[0] = 2; d.shell.count[1] = 0; },
+      /shell 0( \(#\d+\))?: 2 pieces not sharing edges/],
+    ['body declared', cube, (d) => { d.body.declared[0] = 9; }, /body 0 \(#100\): declared 9/],
+    ['a sheet of one closed shell', cube, (d) => { d.body.kind[0] = 2; },
+      /body 0 \(#100\): a sheet of one closed shell/],
+    ['outer loop not first', MODELS.spheres, (d) => {
+      const f = d.face.firstLoop[1]!;
+      d.loop.bound[f] = 2;
+      d.loop.bound[f + 1] = 1;
+    }, /face 1( \(#\d+\))?: its outer loop not first/],
     ['member in two bodies', MODELS.spheres, (d) => { d.body.first[1] = 0; }, /member 0 already belongs/],
     ['member in none', MODELS.spheres, (d) => { d.body.count[1] = 0; }, /member 1: in no body/],
-    ['member sense', cube, (d) => { d.member.sense[0] = 2; }, /member 0: sense 2/],
     ['member range', cube, (d) => { d.body.first[0] = 3; }, /members 3 to 3 out of range/],
     ['wire edge', MODELS.facetedAndWire, (d) => { d.member.ref[1] = 99; }, /edge 99 out of range/],
     ['item kind', cube, (d) => { d.item.kind[0] = 0; }, /item 0 \(#101\): kind 0/],
@@ -446,7 +457,9 @@ test('internal and external coedges needn\'t join', () => {
   assert.deepEqual([d.coedge.orientation[8], d.coedge.orientation[10]], [1, 1]);
   d.coedge.orientation[8] = 2;
   d.coedge.orientation[10] = 3;
-  assert.deepEqual(validateBrep(d), []);
+  // (The shell then open by its edges: those uses bound nothing.)
+  d.shell.kind[0] = SHELL_KIND.open;
+  assert.deepEqual(validateBrep(d).filter((x) => x.severity === 'error'), []);
 });
 
 test('joining is checked only where both vertices are known', () => {

@@ -54,7 +54,7 @@ function faces(r: TessellationResult) {
 /** The two routes' results the same face by face: ids, triangles, meshed area, OCCT's measures (to `tol` of a face's
  * area). */
 function same(a: TessellationResult, b: TessellationResult, what: string, tol = 1e-9, data?: Uint8Array,
-  copiedEdges = 0) {
+  copiedEdges = 0, edgeKinds = true) {
   const json = data && brepToJson(openBrep(data));
   const fa = faces(a), fb = faces(b);
   assert.deepEqual([...fb.keys()].map(String).sort(), [...fa.keys()].map(String).sort(), `${what}: face ids`);
@@ -70,10 +70,11 @@ function same(a: TessellationResult, b: TessellationResult, what: string, tol = 
   const segments = new Set(json?.edges.filter((e) => e.start === undefined).map((e) => e.id));
   // (`copiedEdges`: edges the STEP route's healing copies, without ids, where sheets share a face.)
   const edges = (r: TessellationResult) => (r.edges ?? []).map((e) =>
-    `${e.entityId !== null && !segments.has(e.entityId) ? e.entityId : null} ${e.kind} ${e.count}`).sort();
+    `${e.entityId !== null && !segments.has(e.entityId) ? e.entityId : null} ${edgeKinds ? e.kind : '?'} ${e.count}`)
+    .sort();
   const ea = edges(a), eb = edges(b);
   for (let k = 0; k < copiedEdges; k++) {
-    const j = ea.findIndex((e) => e.startsWith('null free'));
+    const j = ea.findIndex((e) => e.startsWith(edgeKinds ? 'null free' : 'null ?'));
     assert.ok(j >= 0, `${what}: an edge copied`);
     ea.splice(j, 1);
   }
@@ -105,8 +106,9 @@ test('the native route: the test models it builds meshed as the STEP route meshe
       const a = await step.tessellate(req), b = await native.tessellate(req);
       assert.ok(b.indices.length > 0, name);
       assert.deepEqual(b.diagnostics.filter((d) => d.severity !== 'info'), [], name);
-      // (withoutIds: each square's second sheet, its 4 edges copied by the STEP route's healing.)
-      same(a, b, name, 1e-9, req.data, name === 'withoutIds' ? 8 : 0);
+      // (withoutIds: each square's face and its copy, used reversed by a second sheet, share their 4 edges natively
+      // (shared), the STEP route's healing copying them per shell (each free): their kinds not compared.)
+      same(a, b, name, 1e-9, req.data, name === 'withoutIds' ? 8 : 0, name !== 'withoutIds');
     }
   });
 

@@ -6,7 +6,7 @@
 import { type BrepData, rowCount } from './data.ts';
 import { nameOf } from './decode.ts';
 import {
-  BODY_KIND, BOUND, CURVE_FORMS, CURVE_KIND, EDGE_FLAGS, ITEM_KIND, LOGICAL, LOOP_KIND, ORIENTATION, SHELL_KIND,
+  BODY_KIND, BOUND, CURVE_FORMS, CURVE_KIND, ITEM_KIND, LOGICAL, LOOP_KIND, ORIENTATION, SHELL_DECLARED, SHELL_KIND,
   SURFACE_FORMS, SURFACE_KIND, TRANSITIONS, TRIM_PREFERENCES, type TableName,
 } from './layout.ts';
 
@@ -352,7 +352,6 @@ export function validateBrep(d: BrepData): BrepDiagnostic[] {
       say('error', `${what}: neither a curve nor vertices, and ${uses[k] ? 'a use without a p-curve' : 'no use'}`);
     }
     if (e.sameSense[k]! > 1) say('error', `${what}: same_sense ${e.sameSense[k]}`);
-    if (e.flags[k]! & ~EDGE_FLAGS.degenerate) say('error', `${what}: flags ${e.flags[k]}`);
     pair('edge', k, e.range, e.id);
     tolerance('edge', k, e.tolerance[k]!, e.id);
   }
@@ -392,7 +391,6 @@ export function validateBrep(d: BrepData): BrepDiagnostic[] {
   for (let k = 0; k < n.loop; k++) {
     const what = name('loop', k, l.id), kind = nameOf(LOOP_KIND, l.kind[k]!), first = l.first[k]!, count = l.count[k]!;
     if (l.bound[k]! > BOUND.inner) say('error', `${what}: bound ${l.bound[k]}`);
-    if (l.sense[k]! > 1) say('error', `${what}: sense ${l.sense[k]}`);
     if (kind === 'edge') {
       if (count < 1) { say('error', `${what}: ${count} coedges`); continue; }
       if (!own(coedgeOwner, 'coedge', first, count, what, k)) continue;
@@ -411,13 +409,6 @@ export function validateBrep(d: BrepData): BrepDiagnostic[] {
       }
     } else if (kind === 'vertex') {
       if (count !== 1 || !inRange('vertex', first)) say('error', `${what}: vertex ${first} (count ${count})`);
-    } else if (kind === 'poly') {
-      if (count < 3 || first < 0 || first + count > d.pool.loopInt.length) {
-        say('error', `${what}: ${count} vertices at ${first}`);
-      } else {
-        const bad = Array.from(d.pool.loopInt.subarray(first, first + count)).find((v) => !inRange('vertex', v));
-        if (bad !== undefined) say('error', `${what}: vertex ${bad}`);
-      }
     } else say('error', `${what}: kind ${l.kind[k]}`);
   }
   for (let j = 0; j < n.coedge; j++) if (coedgeOwner[j] === -1) say('error', `coedge ${j}: in no edge loop`);
@@ -431,18 +422,63 @@ export function validateBrep(d: BrepData): BrepDiagnostic[] {
     if (!own(loopOwner, 'loop', first, count, what, k)) continue;
     let outer = 0;
     for (let j = first; j < first + count; j++) if (l.bound[j] === BOUND.outer) outer++;
-    // Part 42 allows one; files with more are kept as they are, so a warning.
+    // Part 42 allows one; files with more are kept as they are, so a warning. The one outer bound comes first.
     if (outer > 1) say('warning', `${what}: ${outer} outer bounds (Part 42 allows one)`);
+    if (outer === 1 && count > 0 && l.bound[first] !== BOUND.outer) say('error', `${what}: its outer loop not first`);
   }
   for (let j = 0; j < n.loop; j++) if (loopOwner[j] === -1) say('error', `loop ${j}: in no face`);
 
+  /** A shell's edges (the ones its faces bound with), whether it's closed by them, and its connected pieces. */
+  const shellEdges = (k: number): { edges: Set<number>; closed: boolean; pieces: number } | undefined => {
+    const sh = d.shell, uses = new Map<number, [number, number]>(), parent: number[] = [];
+    const find = (i: number): number => parent[i] === i ? i : (parent[i] = find(parent[i]!));
+    const byEdge = new Map<number, number>();
+    let i = 0;
+    for (let j = sh.first[k]!; j < sh.first[k]! + sh.count[k]!; j++, i++) {
+      parent[i] = i;
+      const fc = d.faceUse.face[j]!;
+      if (!inRange('face', fc)) return undefined;
+      for (let lp = f.firstLoop[fc]!; lp < f.firstLoop[fc]! + f.loopCount[fc]!; lp++) {
+        if (!inRange('loop', lp) || l.kind[lp] !== LOOP_KIND.edge) continue;
+        for (let q = l.first[lp]!; q < l.first[lp]! + l.count[lp]!; q++) {
+          if (!inRange('coedge', q)) return undefined;
+          const g = c.edge[q]!, o = c.orientation[q]!;
+          const prev = byEdge.get(g);
+          if (prev === undefined) byEdge.set(g, i);
+          else parent[find(i)] = find(prev);
+          if (o > ORIENTATION.reversed) continue;
+          const u = uses.get(g) ?? [0, 0];
+          u[o === ORIENTATION.forward ? 0 : 1]++;
+          uses.set(g, u);
+        }
+      }
+    }
+    const roots = new Set(parent.map((_, j) => find(j)));
+    // (Faces that bound with no edge: the source's claim stands.)
+    const closed = uses.size ? [...uses.values()].every(([a, z]) => a === 1 && z === 1)
+      : sh.kind[k] === SHELL_KIND.closed;
+    return { edges: new Set(byEdge.keys()), closed, pieces: byEdge.size ? roots.size : 1 };
+  };
   const s = d.shell;
   for (let k = 0; k < n.shell; k++) {
     const what = name('shell', k, s.id), first = s.first[k]!, count = s.count[k]!;
     if (!nameOf(SHELL_KIND, s.kind[k]!)) say('error', `${what}: kind ${s.kind[k]}`);
+    if (!nameOf(SHELL_DECLARED, s.declared[k]!)) say('error', `${what}: declared ${s.declared[k]}`);
     if (!own(faceUseOwner, 'faceUse', first, count, what, k)) continue;
+    let faces = true;
     for (let j = first; j < first + count; j++) {
-      if (!inRange('face', d.faceUse.face[j]!)) say('error', `${what}: face ${d.faceUse.face[j]} out of range`);
+      if (!inRange('face', d.faceUse.face[j]!)) {
+        say('error', `${what}: face ${d.faceUse.face[j]} out of range`);
+        faces = false;
+      }
+    }
+    if (!faces) continue;
+    // By topology: its faces connected through shared edges; closed exactly when every edge they bound with is used
+    // twice, once each way.
+    const edges = shellEdges(k);
+    if (edges && edges.pieces > 1) say('error', `${what}: ${edges.pieces} pieces not sharing edges`);
+    if (edges && (s.kind[k] === SHELL_KIND.closed) !== edges.closed) {
+      say('error', `${what}: ${s.kind[k] === SHELL_KIND.closed ? 'closed' : 'open'}, but its edges say otherwise`);
     }
   }
   const b = d.body;
@@ -450,6 +486,10 @@ export function validateBrep(d: BrepData): BrepDiagnostic[] {
     const what = name('body', k, b.id), first = b.first[k]!, count = b.count[k]!;
     const kind = nameOf(BODY_KIND, b.kind[k]!);
     if (!kind) { say('error', `${what}: kind ${b.kind[k]}`); continue; }
+    if (!nameOf(BODY_KIND, b.declared[k]!)) say('error', `${what}: declared ${b.declared[k]}`);
+    if (kind === 'sheet' && count === 1 && s.kind[d.member.ref[first]!] === SHELL_KIND.closed) {
+      say('error', `${what}: a sheet of one closed shell (a solid)`);
+    }
     if (count < 1) say('error', `${what}: no members`);
     if (!own(memberOwner, 'member', first, count, what, k)) continue;
     const table: TableName = kind === 'wire' ? 'edge' : 'shell';
@@ -459,13 +499,24 @@ export function validateBrep(d: BrepData): BrepDiagnostic[] {
       else if (kind === 'solid' && s.kind[m] !== SHELL_KIND.closed) say('warning', `${what}: shell ${m} not closed`);
     }
   }
-  for (let j = 0; j < n.faceUse; j++) {
-    if (faceUseOwner[j] === -1) say('error', `faceUse ${j}: in no shell`);
-    if (d.faceUse.sense[j]! > 1) say('error', `faceUse ${j}: sense ${d.faceUse.sense[j]}`);
-  }
-  for (let j = 0; j < n.member; j++) {
-    if (memberOwner[j] === -1) say('error', `member ${j}: in no body`);
-    if (d.member.sense[j]! > 1) say('error', `member ${j}: sense ${d.member.sense[j]}`);
+  for (let j = 0; j < n.faceUse; j++) if (faceUseOwner[j] === -1) say('error', `faceUse ${j}: in no shell`);
+  for (let j = 0; j < n.member; j++) if (memberOwner[j] === -1) say('error', `member ${j}: in no body`);
+  // A body's open shells share no edge (they'd be one).
+  for (let k = 0; k < n.body; k++) {
+    if (b.kind[k] === BODY_KIND.wire) continue;
+    const seen = new Map<number, number>();
+    for (let j = b.first[k]!; j < b.first[k]! + b.count[k]!; j++) {
+      const m = d.member.ref[j]!;
+      if (!inRange('shell', m) || s.kind[m] !== SHELL_KIND.open) continue;
+      for (const g of shellEdges(m)?.edges ?? []) {
+        const other = seen.get(g);
+        if (other !== undefined && other !== m) {
+          say('error', `${name('body', k, b.id)}: open shells ${other} and ${m} share edge ${g}`);
+          break;
+        }
+        seen.set(g, m);
+      }
+    }
   }
 
   const it = d.item, ir = d.pool.itemReal;

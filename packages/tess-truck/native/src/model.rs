@@ -416,17 +416,17 @@ impl Model {
         out
     }
 
-    /// The shell a body member uses, built: its faces (each once per use, turned as the use and the member say),
+    /// The shell a body member uses, built: its faces (each once per use, forward: the model has no reversed uses),
     /// edges and vertices shared within it.
     pub fn build_shell(&self, member: usize, diag: &mut Diag) -> (Built, u64) {
         let d = &self.d;
-        let (s, flip) = (d.member_ref()[member] as usize, d.member_sense()[member] == 0);
+        let s = d.member_ref()[member] as usize;
         let empty = CompressedShell { vertices: vec![], edges: vec![], faces: vec![] };
         let mut b = Builder { m: self, out: Built { shell: empty, face_ids: vec![], edge_ids: vec![] },
             vertices: HashMap::new(), edges: HashMap::new() };
         let first = d.shell_first()[s] as usize;
         for u in first..first + d.shell_count()[s] as usize {
-            b.face(d.face_use_face()[u] as usize, (d.face_use_sense()[u] == 0) != flip, diag);
+            b.face(d.face_use_face()[u] as usize, diag);
         }
         (b.out, id64(d.shell_id()[s]))
     }
@@ -482,8 +482,8 @@ impl Builder<'_> {
         k
     }
 
-    /// A face's loops as truck's boundaries (each edge loop's coedges in order, turned where the loop runs against
-    /// its bound); None if a loop isn't an edge loop or an edge didn't convert.
+    /// A face's loops as truck's boundaries (each edge loop's coedges in order: the model's loops run as listed);
+    /// None if a loop isn't an edge loop or an edge didn't convert.
     fn boundaries(&mut self, f: usize, diag: &mut Diag) -> Option<Vec<Vec<CompressedEdgeIndex>>> {
         let d = &self.m.d;
         let first = d.face_first_loop()[f] as usize;
@@ -492,24 +492,20 @@ impl Builder<'_> {
             if d.loop_kind()[l] != cad_brep::loop_kind::EDGE {
                 return None;
             }
-            let sense = d.loop_sense()[l] != 0;
             let c0 = d.loop_first()[l] as usize;
             let mut wire = Vec::new();
             for c in c0..c0 + d.loop_count()[l] as usize {
                 let index = self.edge(d.coedge_edge()[c] as usize, diag)?;
                 let forward = d.coedge_orientation()[c] != orientation::REVERSED;
-                wire.push(CompressedEdgeIndex { index, orientation: forward == sense });
-            }
-            if !sense {
-                wire.reverse();
+                wire.push(CompressedEdgeIndex { index, orientation: forward });
             }
             out.push(wire);
         }
         Some(out)
     }
 
-    /// A face, used reversed if `reversed`.
-    fn face(&mut self, f: usize, reversed: bool, diag: &mut Diag) {
+    /// A face, used forward.
+    fn face(&mut self, f: usize, diag: &mut Diag) {
         let d = &self.m.d;
         let id = id64(d.face_id()[f]);
         let surface = self.m.surface(d.face_surface()[f] as usize).map(|mut s| {
@@ -525,7 +521,7 @@ impl Builder<'_> {
         }
         match (surface, self.boundaries(f, diag)) {
             (Some(surface), Some(boundaries)) => {
-                self.out.shell.faces.push(CompressedFace { surface, boundaries, orientation: !reversed });
+                self.out.shell.faces.push(CompressedFace { surface, boundaries, orientation: true });
                 self.out.face_ids.push(id);
             }
             _ => diag.unconverted_faces.push(id),

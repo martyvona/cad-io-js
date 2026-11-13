@@ -10,8 +10,8 @@
 #include <stdint.h>
 #include <string.h>
 
-#define CBR_MAGIC "CBR5"
-#define CBR_HEADER_BYTES 520
+#define CBR_MAGIC "CBR6"
+#define CBR_HEADER_BYTES 496
 
 /* The columns in buffer order: table, column, element type and values per row. */
 enum cbr_column {
@@ -20,7 +20,6 @@ enum cbr_column {
   CBR_POOL_CURVE_INT, /* int32_t x 1 */
   CBR_POOL_SURFACE_REAL, /* double x 1 */
   CBR_POOL_SURFACE_INT, /* int32_t x 1 */
-  CBR_POOL_LOOP_INT, /* int32_t x 1 */
   CBR_POOL_ITEM_REAL, /* double x 1 */
   CBR_POOL_COPY_PATH, /* uint32_t x 1 */
   CBR_CURVE_KIND, /* uint8_t x 1 */
@@ -39,7 +38,6 @@ enum cbr_column {
   CBR_EDGE_START, /* int32_t x 1 */
   CBR_EDGE_END, /* int32_t x 1 */
   CBR_EDGE_SAME_SENSE, /* uint8_t x 1 */
-  CBR_EDGE_FLAGS, /* uint8_t x 1 */
   CBR_EDGE_RANGE, /* double x 2 */
   CBR_EDGE_TOLERANCE, /* double x 1 */
   CBR_EDGE_ID, /* uint32_t x 1 */
@@ -50,7 +48,6 @@ enum cbr_column {
   CBR_COEDGE_ID, /* uint32_t x 1 */
   CBR_LOOP_KIND, /* uint8_t x 1 */
   CBR_LOOP_BOUND, /* uint8_t x 1 */
-  CBR_LOOP_SENSE, /* uint8_t x 1 */
   CBR_LOOP_FIRST, /* int32_t x 1 */
   CBR_LOOP_COUNT, /* int32_t x 1 */
   CBR_LOOP_ID, /* uint32_t x 1 */
@@ -61,17 +58,17 @@ enum cbr_column {
   CBR_FACE_TOLERANCE, /* double x 1 */
   CBR_FACE_ID, /* uint32_t x 1 */
   CBR_SHELL_KIND, /* uint8_t x 1 */
+  CBR_SHELL_DECLARED, /* uint8_t x 1 */
   CBR_SHELL_FIRST, /* int32_t x 1 */
   CBR_SHELL_COUNT, /* int32_t x 1 */
   CBR_SHELL_ID, /* uint32_t x 1 */
   CBR_BODY_KIND, /* uint8_t x 1 */
+  CBR_BODY_DECLARED, /* uint8_t x 1 */
   CBR_BODY_FIRST, /* int32_t x 1 */
   CBR_BODY_COUNT, /* int32_t x 1 */
   CBR_BODY_ID, /* uint32_t x 1 */
   CBR_FACE_USE_FACE, /* int32_t x 1 */
-  CBR_FACE_USE_SENSE, /* uint8_t x 1 */
   CBR_MEMBER_REF, /* int32_t x 1 */
-  CBR_MEMBER_SENSE, /* uint8_t x 1 */
   CBR_ITEM_KIND, /* uint8_t x 1 */
   CBR_ITEM_REF, /* int32_t x 1 */
   CBR_ITEM_ID, /* uint32_t x 1 */
@@ -116,10 +113,6 @@ enum cbr_logical {
   CBR_LOGICAL_UNKNOWN = 2,
 };
 
-enum cbr_edge_flags {
-  CBR_EDGE_DEGENERATE = 1,
-};
-
 enum cbr_orientation {
   CBR_ORIENTATION_FORWARD = 0,
   CBR_ORIENTATION_REVERSED = 1,
@@ -130,7 +123,6 @@ enum cbr_orientation {
 enum cbr_loop_kind {
   CBR_LOOP_EDGE = 1,
   CBR_LOOP_VERTEX = 2,
-  CBR_LOOP_POLY = 3,
 };
 
 enum cbr_bound {
@@ -142,7 +134,12 @@ enum cbr_bound {
 enum cbr_shell_kind {
   CBR_SHELL_CLOSED = 1,
   CBR_SHELL_OPEN = 2,
-  CBR_SHELL_FACE_SET = 3,
+};
+
+enum cbr_shell_declared {
+  CBR_SHELL_DECLARED_CLOSED = 1,
+  CBR_SHELL_DECLARED_OPEN = 2,
+  CBR_SHELL_DECLARED_FACE_SET = 3,
 };
 
 enum cbr_body_kind {
@@ -238,8 +235,8 @@ typedef struct {
 /* The columns of a buffer of `size` bytes into `views` (CBR_COLUMN_COUNT of them): 0, or -1 if it isn't one. */
 static inline int cbr_open(const uint8_t* buf, size_t size, cbr_view* views) {
   static const uint8_t bytes[CBR_COLUMN_COUNT] = {
-    8, 8, 4, 8, 4, 4, 8, 4, 1, 1, 4, 4, 4, 1, 4, 4, 4, 8, 8, 4, 4, 4, 4, 1, 1, 8, 8, 4, 4, 1, 4, 8, 4, 1, 1, 1, 4, 4, 4,
-    4, 1, 4, 4, 8, 4, 1, 4, 4, 4, 1, 4, 4, 4, 4, 1, 4, 1, 1, 4, 4, 4, 4, 4, 4,
+    8, 8, 4, 8, 4, 8, 4, 1, 1, 4, 4, 4, 1, 4, 4, 4, 8, 8, 4, 4, 4, 4, 1, 8, 8, 4, 4, 1, 4, 8, 4, 1, 1, 4, 4, 4, 4, 1, 4,
+    4, 8, 4, 1, 1, 4, 4, 4, 1, 1, 4, 4, 4, 4, 4, 1, 4, 4, 4, 4, 4, 4,
   };
   uint32_t n, k;
   if (((uintptr_t)buf & 7) != 0 || size < CBR_HEADER_BYTES || memcmp(buf, CBR_MAGIC, 4) != 0) return -1;

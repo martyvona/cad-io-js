@@ -87,9 +87,15 @@ test('other formats pass through; its info names the writer and takes models (un
 
 test('the writer\'s ids read back as the model\'s: none for an entity without a source id, a face\'s copy its id',
   async () => {
-  const d = withoutIds().finish();
+  // The second square's face (10) also the outer and the void shell of a solid: the writer writes it twice (a void's
+  // faces turned over in an ORIENTED_CLOSED_SHELL), the copy under a new id; the first square's entities have no ids.
+  // (Its reversed use in a sheet is the builder's copy, with an id of its own.)
+  const b = withoutIds();
+  const shell = () => b.addShell({ kind: 'closed', faces: [{ face: 1, sense: true }] });
+  b.addItem({ kind: 'body', ref: b.addBody({ kind: 'solid', members: [{ ref: shell(), sense: true },
+    { ref: shell(), sense: true }] }) });
+  const d = b.finish();
   const w = stepPartBytes(d);
-  // The second square's face (10) written twice, the copy under a new id; the first square's entities have no ids.
   const copy = [...w.sourceIds].find(([, x]) => x === 10)![0];
   const text = new TextDecoder().decode(w.data);
   const unnamed = Number(/#(\d+)=ADVANCED_FACE/.exec(text)![1]);

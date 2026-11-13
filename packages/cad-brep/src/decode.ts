@@ -1,10 +1,11 @@
-// Rows of a BrepData as plain objects (types.ts), equal to what the builder was given: for convenience, tests and
-// JSON. They allocate; code walking large models reads the columns directly (layout.ts). They assume a valid buffer
-// (validateBrep): on an invalid one they return garbage rather than throw.
+// Rows of a BrepData as plain objects (types.ts), in the canonical forms (what the builder wrote of what it was given;
+// given back to a builder, the same model): for convenience, tests and JSON. They allocate; code walking large models
+// reads the columns directly (layout.ts). They assume a valid buffer (validateBrep): on an invalid one they return
+// garbage rather than throw.
 
 import type { BrepData } from './data.ts';
 import {
-  BODY_KIND, BOUND, CURVE_FORMS, CURVE_KIND, EDGE_FLAGS, ITEM_KIND, LOGICAL, LOOP_KIND, ORIENTATION, SHELL_KIND,
+  BODY_KIND, BOUND, CURVE_FORMS, CURVE_KIND, ITEM_KIND, LOGICAL, LOOP_KIND, ORIENTATION, SHELL_DECLARED, SHELL_KIND,
   SURFACE_FORMS, SURFACE_KIND, TRANSITIONS, TRIM_PREFERENCES,
 } from './layout.ts';
 import type {
@@ -154,8 +155,7 @@ export function vertex(d: BrepData, k: number): Vertex {
 export function edge(d: BrepData, k: number): Edge {
   const e = d.edge;
   return { ...refOpt(e.curve[k]!, 'curve'), ...refOpt(e.start[k]!, 'start'), ...refOpt(e.end[k]!, 'end'),
-    sameSense: e.sameSense[k] === 1, ...(e.flags[k]! & EDGE_FLAGS.degenerate ? { degenerate: true } : {}),
-    ...range(e.range, k), ...num(e.tolerance[k]!, 'tolerance'), ...id(e.id[k]!) };
+    sameSense: e.sameSense[k] === 1, ...range(e.range, k), ...num(e.tolerance[k]!, 'tolerance'), ...id(e.id[k]!) };
 }
 
 export function coedge(d: BrepData, k: number): Coedge {
@@ -166,12 +166,11 @@ export function coedge(d: BrepData, k: number): Coedge {
 
 export function loop(d: BrepData, k: number): Loop {
   const l = d.loop, first = l.first[k]!, count = l.count[k]!;
-  const base = { bound: nameOf(BOUND, l.bound[k]!) as Bound, sense: l.sense[k] === 1, ...id(l.id[k]!) };
+  const base = { bound: nameOf(BOUND, l.bound[k]!) as Bound, ...id(l.id[k]!) };
   switch (nameOf(LOOP_KIND, l.kind[k]!)) {
     case 'edge': return { kind: 'edge', coedges: Array.from({ length: count }, (_, j) => coedge(d, first + j)),
       ...base };
     case 'vertex': return { kind: 'vertex', vertex: first, ...base };
-    case 'poly': return { kind: 'poly', vertices: Array.from(d.pool.loopInt.subarray(first, first + count)), ...base };
     default: throw new RangeError(`loop ${k}: kind ${l.kind[k]}`);
   }
 }
@@ -185,14 +184,18 @@ export function face(d: BrepData, k: number): Face {
 
 export function shell(d: BrepData, k: number): Shell {
   const first = d.shell.first[k]!;
-  return { kind: nameOf(SHELL_KIND, d.shell.kind[k]!) as ShellKind, faces: Array.from({ length: d.shell.count[k]! },
-    (_, j) => ({ face: d.faceUse.face[first + j]!, sense: d.faceUse.sense[first + j] === 1 })), ...id(d.shell.id[k]!) };
+  return { kind: nameOf(SHELL_KIND, d.shell.kind[k]!) as ShellKind,
+    declared: nameOf(SHELL_DECLARED, d.shell.declared[k]!) as ShellKind,
+    faces: Array.from({ length: d.shell.count[k]! }, (_, j) => ({ face: d.faceUse.face[first + j]! })),
+    ...id(d.shell.id[k]!) };
 }
 
 export function body(d: BrepData, k: number): Body {
   const first = d.body.first[k]!;
-  return { kind: nameOf(BODY_KIND, d.body.kind[k]!) as BodyKind, members: Array.from({ length: d.body.count[k]! },
-    (_, j) => ({ ref: d.member.ref[first + j]!, sense: d.member.sense[first + j] === 1 })), ...id(d.body.id[k]!) };
+  return { kind: nameOf(BODY_KIND, d.body.kind[k]!) as BodyKind,
+    declared: nameOf(BODY_KIND, d.body.declared[k]!) as BodyKind,
+    members: Array.from({ length: d.body.count[k]! }, (_, j) => ({ ref: d.member.ref[first + j]! })),
+    ...id(d.body.id[k]!) };
 }
 
 export function item(d: BrepData, k: number): Item {

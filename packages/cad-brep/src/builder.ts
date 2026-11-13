@@ -1,13 +1,15 @@
 // BrepBuilder: what importers write a part's B-rep with, a row at a time (each add returns the row's index), packed
-// into one buffer by `finish`. It checks what would make the buffer unreadable (references forward or out of range,
+// into one buffer by `finish`, which writes the topology in the canonical model's forms (canonical.ts) whatever forms
+// it was given in. It checks what would make the buffer unreadable (references forward or out of range,
 // wrong dimensions, missing values) and throws, those being its caller's bugs; values a source can get wrong (radii,
 // knots, unit directions, closed loops) are validateBrep's.
 
+import { canonical } from './canonical.ts';
 import { Copier, type Draw } from './copy.ts';
 import { BYTES, COLUMNS, type BrepData, HEADER_BYTES, openBrep, rowCount } from './data.ts';
 import * as dec from './decode.ts';
 import {
-  BODY_KIND, BOUND, CURVE_FORMS, CURVE_KIND, EDGE_FLAGS, ITEM_KIND, LOGICAL, LOOP_KIND, MAGIC, ORIENTATION,
+  BODY_KIND, BOUND, CURVE_FORMS, CURVE_KIND, ITEM_KIND, LOGICAL, LOOP_KIND, MAGIC, ORIENTATION, SHELL_DECLARED,
   SHELL_KIND, SURFACE_FORMS, SURFACE_KIND, TRANSITIONS, TRIM_PREFERENCES, type ColumnType, type TableName,
 } from './layout.ts';
 import { compose, IDENTITY, type Similarity, similarity } from './transform.ts';
@@ -83,6 +85,13 @@ export class BrepBuilder {
   private readonly options: BuilderOptions;
   private readonly items: ItemInfo[] = [];
   private maxId = 0;
+  /** The topology as given, written (canonical) by `finish`: rows keep these indices. */
+  private readonly edges: Edge[] = [];
+  private readonly faces: Face[] = [];
+  private readonly shells: Shell[] = [];
+  private readonly bodies: Body[] = [];
+  /** The first fresh id after those `write` gave faces it copied. */
+  private nextFresh = 0;
 
   constructor(part: PartInfo = {}, options: BuilderOptions = {}) {
     this.part = part;
@@ -118,10 +127,16 @@ export class BrepBuilder {
     return this.counts[table]++;
   }
 
+  /** Rows added so far: the topology's as given. */
+  private added(table: TableName): number {
+    return table === 'edge' ? this.edges.length : table === 'face' ? this.faces.length
+      : table === 'shell' ? this.shells.length : table === 'body' ? this.bodies.length : this.counts[table];
+  }
+
   private check(table: TableName, i: number | undefined, what: string) {
     if (i === undefined) return;
-    if (!Number.isInteger(i) || i < 0 || i >= this.counts[table]) {
-      throw new RangeError(`${what}: ${table} ${i} not added yet (${this.counts[table]} so far)`);
+    if (!Number.isInteger(i) || i < 0 || i >= this.added(table)) {
+      throw new RangeError(`${what}: ${table} ${i} not added yet (${this.added(table)} so far)`);
     }
   }
 
@@ -301,71 +316,57 @@ export class BrepBuilder {
   }
 
   addEdge(e: Edge): number {
-    const what = `edge ${this.counts.edge}`;
+    const what = `edge ${this.edges.length}`;
     if (e.curve !== undefined) this.curveRef(e.curve, 3, what);
     this.check('vertex', e.start, what);
     this.check('vertex', e.end, what);
-    return this.row('edge', { curve: ref(e.curve), start: ref(e.start), end: ref(e.end), sameSense: bool(e.sameSense),
-      flags: e.degenerate ? EDGE_FLAGS.degenerate : 0, range: e.range ?? [NaN, NaN], tolerance: opt(e.tolerance),
-      id: this.sid(e.id) });
+    this.sid(e.id);
+    this.edges.push({ ...e });
+    return this.edges.length - 1;
   }
 
   /** A face, its loops and their coedges. */
   addFace(f: Face): number {
-    const what = `face ${this.counts.face}`;
-    // (Every id first: a refused one adds no rows.)
-    const id = this.sid(f.id);
+    const what = `face ${this.faces.length}`;
+    // (Every id first: a refused one adds nothing.)
+    this.sid(f.id);
     for (const l of f.loops) {
       this.sid(l.id);
       if (l.kind === 'edge') for (const c of l.coedges) this.sid(c.id);
     }
-    this.pools('itemReal', 'loopInt');
     this.surfaceRef(f.surface, what);
-    const firstLoop = this.counts.loop;
     for (const l of f.loops) {
-      let first: number, count: number;
       if (l.kind === 'edge') {
-        first = this.counts.coedge;
-        count = l.coedges.length;
         for (const c of l.coedges) {
           this.check('edge', c.edge, what);
+          if (ORIENTATION[c.orientation] === undefined) throw new RangeError(`${what}: orientation ${c.orientation}`);
           if (c.pcurve !== undefined) this.curveRef(c.pcurve, 2, `${what}, a p-curve`);
-          this.row('coedge', { edge: c.edge, orientation: ORIENTATION[c.orientation], pcurve: ref(c.pcurve),
-            range: c.range ?? [NaN, NaN], id: this.sid(c.id) });
         }
-      } else if (l.kind === 'vertex') {
-        this.check('vertex', l.vertex, what);
-        first = l.vertex;
-        count = 1;
-      } else {
-        for (const v of l.vertices) this.check('vertex', v, what);
-        first = this.int.n;
-        count = l.vertices.length;
-        this.int.pushAll(l.vertices);
-      }
-      this.row('loop', { kind: LOOP_KIND[l.kind], bound: BOUND[l.bound], sense: bool(l.sense), first, count,
-        id: this.sid(l.id) });
+      } else if (l.kind === 'vertex') this.check('vertex', l.vertex, what);
+      else if (l.kind === 'poly') for (const v of l.vertices) this.check('vertex', v, what);
+      else throw new RangeError(`${what}: a loop of kind ${(l as { kind: string }).kind}`);
     }
-    return this.row('face', { surface: f.surface, sameSense: bool(f.sameSense), firstLoop, loopCount: f.loops.length,
-      tolerance: opt(f.tolerance), id });
+    this.faces.push({ ...f, loops: f.loops.map((l) => l.kind === 'edge' ? { ...l, coedges: l.coedges.map((c) =>
+      ({ ...c })) } : l.kind === 'poly' ? { ...l, vertices: [...l.vertices] } : { ...l }) });
+    return this.faces.length - 1;
   }
 
   addShell(s: Shell): number {
-    const first = this.counts.faceUse;
-    for (const u of s.faces) {
-      this.check('face', u.face, `shell ${this.counts.shell}`);
-      this.row('faceUse', { face: u.face, sense: bool(u.sense) });
+    for (const u of s.faces) this.check('face', u.face, `shell ${this.shells.length}`);
+    if (SHELL_DECLARED[s.declared ?? s.kind] === undefined) {
+      throw new RangeError(`shell ${this.shells.length}: kind ${s.declared ?? s.kind}`);
     }
-    return this.row('shell', { kind: SHELL_KIND[s.kind], first, count: s.faces.length, id: this.sid(s.id) });
+    this.sid(s.id);
+    this.shells.push({ ...s, faces: s.faces.map((u) => ({ ...u })) });
+    return this.shells.length - 1;
   }
 
   addBody(b: Body): number {
-    const first = this.counts.member;
-    for (const m of b.members) {
-      this.check(b.kind === 'wire' ? 'edge' : 'shell', m.ref, `body ${this.counts.body}`);
-      this.row('member', { ref: m.ref, sense: bool(m.sense) });
-    }
-    return this.row('body', { kind: BODY_KIND[b.kind], first, count: b.members.length, id: this.sid(b.id) });
+    for (const m of b.members) this.check(b.kind === 'wire' ? 'edge' : 'shell', m.ref, `body ${this.bodies.length}`);
+    if (BODY_KIND[b.kind] === undefined) throw new RangeError(`body ${this.bodies.length}: kind ${b.kind}`);
+    this.sid(b.id);
+    this.bodies.push({ ...b, members: b.members.map((m) => ({ ...m })) });
+    return this.bodies.length - 1;
   }
 
   /**
@@ -420,11 +421,88 @@ export class BrepBuilder {
   finish(): BrepData {
     this.diagnostics = [];
     if (this.items.some((x) => 'pending' in x)) return this.bake();
-    return this.pack();
+    return this.write();
+  }
+
+  /**
+   * The buffer: the rows as added, the topology written canonical (canonical.ts) into the columns and packed, then
+   * taken back out, so the builder can go on.
+   */
+  private write(): BrepData {
+    const ns = new Map([...this.cols].map(([k, g]) => [k, g.n])), counts = { ...this.counts }, dims = this.dims.length;
+    const maxId = this.maxId;
+    let next = this.options.firstFreshId ?? this.maxId + 1, exhausted = false;
+    const fresh = (id: number | undefined) => {
+      if (!id) return undefined;
+      if (next > 0xffffffff) {
+        if (!exhausted) {
+          this.diagnostics.push({ severity: 'warning', message: 'copies past id 2^32 - 1 left without ids' });
+        }
+        exhausted = true;
+        return undefined;
+      }
+      this.addCopy({ id: next, source: id, path: [] });
+      return next++;
+    };
+    const points = this.col('vertex', 'point');
+    const itemFaces = this.items.flatMap((x) => {
+      if ('pending' in x) return x.pending.kind === 'face' ? [x.pending.ref] : [];
+      return this.col('item', 'kind').a[x.row] === ITEM_KIND.face ? [this.col('item', 'ref').a[x.row]!] : [];
+    });
+    const c = canonical({ edges: this.edges, faces: this.faces, shells: this.shells, bodies: this.bodies, itemFaces,
+      vertexPoint: (v) => Array.from(points.a.subarray(3 * v, 3 * v + 3)),
+      addLine: (a, b) => {
+        const d = b.map((x, i) => x - a[i]!), n = Math.hypot(...d);
+        return this.addCurve({ kind: 'line', point: a, direction: n ? d.map((x) => x / n) : [1, 0, 0],
+          magnitude: n || 1 });
+      }, fresh });
+    for (const e of c.edges) {
+      this.row('edge', { curve: ref(e.curve), start: ref(e.start), end: ref(e.end), sameSense: bool(e.sameSense),
+        range: e.range ?? [NaN, NaN], tolerance: opt(e.tolerance), id: sourceId(e.id) });
+    }
+    for (const f of c.faces) {
+      const firstLoop = this.counts.loop;
+      for (const l of f.loops) {
+        let first: number, count: number;
+        if (l.kind === 'edge') {
+          first = this.counts.coedge;
+          count = l.coedges.length;
+          for (const k of l.coedges) {
+            this.row('coedge', { edge: k.edge, orientation: ORIENTATION[k.orientation], pcurve: ref(k.pcurve),
+              range: k.range ?? [NaN, NaN], id: sourceId(k.id) });
+          }
+        } else {
+          first = l.vertex;
+          count = 1;
+        }
+        this.row('loop', { kind: LOOP_KIND[l.kind], bound: BOUND[l.bound], first, count, id: sourceId(l.id) });
+      }
+      this.row('face', { surface: f.surface, sameSense: bool(f.sameSense), firstLoop, loopCount: f.loops.length,
+        tolerance: opt(f.tolerance), id: sourceId(f.id) });
+    }
+    for (const sh of c.shells) {
+      const first = this.counts.faceUse;
+      for (const face of sh.faces) this.row('faceUse', { face });
+      this.row('shell', { kind: SHELL_KIND[sh.kind], declared: SHELL_DECLARED[sh.declared], first,
+        count: sh.faces.length, id: sourceId(sh.id) });
+    }
+    for (const b of c.bodies) {
+      const first = this.counts.member;
+      for (const m of b.members) this.row('member', { ref: m });
+      this.row('body', { kind: BODY_KIND[b.kind], declared: BODY_KIND[b.declared], first, count: b.members.length,
+        id: sourceId(b.id) });
+    }
+    const d = this.pack();
+    this.nextFresh = next;
+    for (const [k, g] of this.cols) g.n = ns.get(k)!;
+    Object.assign(this.counts, counts);
+    this.dims.length = dims;
+    this.maxId = maxId;
+    return d;
   }
 
   private bake(): BrepData {
-    const base = this.pack(), notes: BrepDiagnostic[] = [];
+    const base = this.write(), notes: BrepDiagnostic[] = [...this.diagnostics];
     type Resolved = Draw & { path: number[] };
     const resolved: (Resolved | null)[] = [];
     const target = (it: Item) => it.kind === 'point' ? { point: it.point } : { ref: it.ref };
@@ -472,7 +550,7 @@ export class BrepBuilder {
     const out = new BrepBuilder(dec.part(base));
     // (Copies the model already had, its rows' fresh ids among those copied again.)
     for (let k = 0; k < rowCount(base, 'copy'); k++) out.addCopy(dec.copy(base, k));
-    let next = this.options.firstFreshId ?? this.maxId + 1, exhausted = false;
+    let next = this.nextFresh, exhausted = false;
     const copiers = new Map<string, Copier>();
     for (const r of resolved) {
       if (!r) continue;

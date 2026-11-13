@@ -5,7 +5,7 @@
 // docs/brep-model.md; which reals are lengths: docs/brep-reference.md.
 
 /** The first four bytes of every buffer; the digit is the format's version. */
-export const MAGIC = 'CBR5';
+export const MAGIC = 'CBR6';
 
 export type ColumnType = 'u8' | 'i32' | 'u32' | 'f64';
 
@@ -21,7 +21,7 @@ export const TABLES = {
   /** One row: the part's uncertainty in millimetres (NaN: none). Every length in the buffer is in millimetres. */
   part: [['uncertainty', 'f64', 1]],
   pool: [['curveReal', 'f64', 1], ['curveInt', 'i32', 1], ['surfaceReal', 'f64', 1], ['surfaceInt', 'i32', 1],
-    ['loopInt', 'i32', 1], ['itemReal', 'f64', 1], ['copyPath', 'u32', 1]],
+    ['itemReal', 'f64', 1], ['copyPath', 'u32', 1]],
   /** Curves, 3D or 2D (p-curves' geometry): `dim` 2 or 3; reals and ints by kind (CURVE_LAYOUTS). */
   curve: [['kind', 'u8', 1], ['dim', 'u8', 1], ['real', 'i32', 1], ['int', 'i32', 1], ['id', 'u32', 1]],
   surface: [['kind', 'u8', 1], ['real', 'i32', 1], ['int', 'i32', 1], ['id', 'u32', 1]],
@@ -29,33 +29,35 @@ export const TABLES = {
   /**
    * `curve` a 3D curve or -1 (a source with trims in parameter space only); `start` and `end` vertices or -1 (a
    * curve-bounded surface's boundary); `sameSense` whether start to end runs with the curve's parameter; `range` the
-   * curve's parameters at start and end where the source gives them; `flags` EDGE_FLAGS.
+   * curve's parameters at start and end where the source gives them.
    */
-  edge: [['curve', 'i32', 1], ['start', 'i32', 1], ['end', 'i32', 1], ['sameSense', 'u8', 1], ['flags', 'u8', 1],
-    ['range', 'f64', 2], ['tolerance', 'f64', 1], ['id', 'u32', 1]],
+  edge: [['curve', 'i32', 1], ['start', 'i32', 1], ['end', 'i32', 1], ['sameSense', 'u8', 1], ['range', 'f64', 2],
+    ['tolerance', 'f64', 1], ['id', 'u32', 1]],
   /** An edge's use in a loop: `orientation` ORIENTATION; `pcurve` a 2D curve in the face's surface's (u, v) or -1. */
   coedge: [['edge', 'i32', 1], ['orientation', 'u8', 1], ['pcurve', 'i32', 1], ['range', 'f64', 2],
     ['id', 'u32', 1]],
   /**
-   * `kind` LOOP_KIND: an edge loop's coedges are `count` rows from `first`; a vertex loop's vertex is `first`
-   * (`count` 1); a poly loop's `count` corners are vertices, by index from `first` in `pool.loopInt` (a vertex shared
-   * by faces' poly loops joins them there, as a source's shared point does). `bound` BOUND; `sense` whether the loop
-   * runs as the source wrote it (STEP: FACE_BOUND.orientation). `id` the bound's.
+   * `kind` LOOP_KIND: an edge loop's coedges are `count` rows from `first`, run as listed; a vertex loop's vertex is
+   * `first` (`count` 1). `bound` BOUND. `id` the bound's.
    */
-  loop: [['kind', 'u8', 1], ['bound', 'u8', 1], ['sense', 'u8', 1], ['first', 'i32', 1], ['count', 'i32', 1],
-    ['id', 'u32', 1]],
+  loop: [['kind', 'u8', 1], ['bound', 'u8', 1], ['first', 'i32', 1], ['count', 'i32', 1], ['id', 'u32', 1]],
   /** Loops `loopCount` rows from `firstLoop` (none: bounded by the surface's own extent). */
   face: [['surface', 'i32', 1], ['sameSense', 'u8', 1], ['firstLoop', 'i32', 1], ['loopCount', 'i32', 1],
     ['tolerance', 'f64', 1], ['id', 'u32', 1]],
-  /** `kind` SHELL_KIND; its faces are `count` rows of `faceUse` from `first`. */
-  shell: [['kind', 'u8', 1], ['first', 'i32', 1], ['count', 'i32', 1], ['id', 'u32', 1]],
-  /** `kind` BODY_KIND; members `count` rows of `member` from `first`: a solid's shells (the outer first, then voids),
-   * a sheet's shells, a wire's edges. */
-  body: [['kind', 'u8', 1], ['first', 'i32', 1], ['count', 'i32', 1], ['id', 'u32', 1]],
-  /** A face of a shell, and its sense (false: reversed, STEP's ORIENTED_FACE). */
-  faceUse: [['face', 'i32', 1], ['sense', 'u8', 1]],
-  /** A member of a body, and its sense (false: reversed, STEP's ORIENTED_CLOSED_SHELL). */
-  member: [['ref', 'i32', 1], ['sense', 'u8', 1]],
+  /**
+   * `kind` SHELL_KIND, by topology (closed: every edge its faces bound used exactly twice, once each way); `declared`
+   * SHELL_DECLARED, the source's claim. Its faces are `count` rows of `faceUse` from `first`, each used forward.
+   */
+  shell: [['kind', 'u8', 1], ['declared', 'u8', 1], ['first', 'i32', 1], ['count', 'i32', 1], ['id', 'u32', 1]],
+  /**
+   * `kind` BODY_KIND, `declared` the source's (a sheet of one closed shell is a solid); members `count` rows of
+   * `member` from `first`: a solid's shells (the outer first, then voids), a sheet's shells, a wire's edges.
+   */
+  body: [['kind', 'u8', 1], ['declared', 'u8', 1], ['first', 'i32', 1], ['count', 'i32', 1], ['id', 'u32', 1]],
+  /** A face of a shell. */
+  faceUse: [['face', 'i32', 1]],
+  /** A member of a body. */
+  member: [['ref', 'i32', 1]],
   /**
    * The part's roots, in the model's one coordinate system (no transforms: a source's are baked into copies of the
    * rows, docs/brep-reference.md, "Transforms"). `kind` ITEM_KIND; `ref` the body, curve, surface or face, or a
@@ -73,12 +75,12 @@ export type TableName = keyof typeof TABLES;
 
 /** Three-valued: STEP's LOGICAL (closed, self-intersecting), unknown included. */
 export const LOGICAL = { false: 0, true: 1, unknown: 2 } as const;
-export const EDGE_FLAGS = { degenerate: 1 } as const;
 export const ORIENTATION = { forward: 0, reversed: 1, internal: 2, external: 3 } as const;
-export const LOOP_KIND = { edge: 1, vertex: 2, poly: 3 } as const;
+export const LOOP_KIND = { edge: 1, vertex: 2 } as const;
 export const BOUND = { unknown: 0, outer: 1, inner: 2 } as const;
-/** `faceSet`: neither said closed nor open (STEP's CONNECTED_FACE_SET; faces with no shared topology). */
-export const SHELL_KIND = { closed: 1, open: 2, faceSet: 3 } as const;
+export const SHELL_KIND = { closed: 1, open: 2 } as const;
+/** `faceSet`: neither said closed nor open (STEP's CONNECTED_FACE_SET). */
+export const SHELL_DECLARED = { closed: 1, open: 2, faceSet: 3 } as const;
 export const BODY_KIND = { solid: 1, sheet: 2, wire: 3 } as const;
 export const ITEM_KIND = { body: 1, curve: 2, surface: 3, face: 4, point: 5 } as const;
 

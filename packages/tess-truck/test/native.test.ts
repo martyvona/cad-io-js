@@ -46,13 +46,12 @@ function faces(r: TessellationResult) {
 
 /**
  * The mesh against the model's geometry: each face's points on its surface (within 1e-5 of the part's size; the
- * points are single precision), each normal within 8 degrees of the surface's there, turned by the face's sense, its
- * use's and its shell member's; each edge's points on its curve within the edge's parameters, from its start vertex
- * to its end. How many points it
+ * points are single precision), each normal within 8 degrees of the surface's there, turned by the face's sense;
+ * each edge's points on its curve within the edge's parameters, from its start vertex to its end. How many points it
  * checked (a surface without a closed form or finite ranges, an extrusion, isn't checked by points).
  */
 function onModel(name: string, d: BrepData, r: TessellationResult): number {
-  // Each face's ways of facing, over its uses (a face used both ways, in two shells, meshes both ways under one id).
+  // Each face's way of facing (every use forward: the face's own).
   const signs = new Map<number, Set<number>>();
   for (let m = 0; m < rowCount(d, 'member'); m++) {
     const s = d.member.ref[m]!, first = d.shell.first[s]!;
@@ -60,7 +59,7 @@ function onModel(name: string, d: BrepData, r: TessellationResult): number {
     for (let u = first; u < first + d.shell.count[s]!; u++) {
       const f = d.faceUse.face[u]!;
       if (!signs.has(f)) signs.set(f, new Set());
-      signs.get(f)!.add((d.face.sameSense[f] ? 1 : -1) * (d.faceUse.sense[u] ? 1 : -1) * (d.member.sense[m] ? 1 : -1));
+      signs.get(f)!.add(d.face.sameSense[f] ? 1 : -1);
     }
   }
   const byId = (ids: Uint32Array, id: number | null) => (id === null ? -1 : ids.indexOf(id));
@@ -297,8 +296,8 @@ test('kinds the test models lack, on their geometry and of the right areas: an e
   }
 });
 
-test('a face bounded by its surface alone meshed over its natural bounds; a vertex loop\'s face, poly loops and a '
-  + 'wire left out, said', { skip }, async () => {
+test('a face bounded by its surface alone meshed over its natural bounds; a vertex loop\'s face and a wire left out, '
+  + 'said; poly loops meshed (edge loops in the model)', { skip }, async () => {
   const { native } = await both();
   const s = await native.tessellate(request(MODELS.spheres(), 0.002));
   // The whole sphere (no loops: no id), radius 1: its area 4 pi, less what the sag of 0.002 takes off (under 1 %).
@@ -307,8 +306,13 @@ test('a face bounded by its surface alone meshed over its natural bounds; a vert
   assert.match(s.diagnostics.map((d) => d.message).join('\n'), /1 faces truck can't convert \(left out\): \(no id\)/);
   const f = await native.tessellate(request(MODELS.facetedAndWire()));
   const said = f.diagnostics.map((d) => d.message).join('\n');
-  assert.match(said, /4 faces truck can't convert \(left out\): \(no id\), \(no id\), \(no id\), \(no id\)/);
+  assert.doesNotMatch(said, /can't convert/);
   assert.match(said, /representation items truck doesn't mesh: a wire body #0/);
+  // The tetrahedron's faces (three right triangles and one of side sqrt 2), without ids. (The square, against its
+  // plane with its loop counter-clockwise about the plane's normal, so clockwise about its own: a hole in an unbounded
+  // face, nothing meshed.)
+  const all = faces(f).get(null)!;
+  assert.ok(Math.abs(all[1] - (1.5 + Math.sqrt(3) / 2)) < 1e-6, String(all));
 });
 
 test('kinds truck has no geometry for leave their faces out, said; items not bodies skipped',
@@ -361,7 +365,7 @@ test('a buffer that isn\'t a model is refused with an error', { skip }, async ()
   const { native } = await both();
   const r = await native.tessellate({ ...request(MODELS.cube()), data: new Uint8Array(64) });
   assert.deepEqual([r.indices.length, r.diagnostics.map((d) => [d.severity, d.message])],
-    [0, [['error', 'truck: not a cad-brep buffer of this format (CBR5)']]]);
+    [0, [['error', 'truck: not a cad-brep buffer of this format (CBR6)']]]);
 });
 
 test('parabola and hyperbola edges on their curves (truck-stepio converts both wrongly), their '
