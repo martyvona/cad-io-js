@@ -1,17 +1,24 @@
-517 files, 3258 parts; written 281.3 MB (subsets 323.5 MB) in 9.1 s
-(c) read back: 2105 parts the same, 1153 more but for last bits (largest 4.44e-16 relative)
-(d) OCCT: 83904 faces meshed from both, 83225 with the same triangles, areas, measures, validity and orientation; meshing 986.6 s from subsets, 986.5 s from models
-     621 triangle counts differ  e.g. gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #201; gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #370; gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #413; gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #456
-      86 OCCT's measured area differs (over 1e-6)  e.g. gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938 face #393024; gkv311-opencascade-dataset/step/bug27693_cornetta-step.stp #22 face #66; gkv311-opencascade-dataset/step/bug27693_cornetta-step.stp #22 face #74; gkv311-opencascade-dataset/step/bug27693_cornetta-step.stp #22 face #135
-      59 curve rows no item reaches (not written)  e.g. gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938; gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049; gkv311-opencascade-dataset/step/ec_exhaust-A.stp #2743; gkv311-opencascade-dataset/step/ec_exhaust-A.stp #2631
+517 files, 3258 parts; written 282.2 MB (subsets 323.5 MB) in 6.3 s
+(c) read back: 2103 parts the same, 1150 more but for last bits (largest 6.92e-16 relative)
+(d) OCCT: 83904 faces meshed from both, 82850 with the same triangles, areas, measures, validity and orientation; meshing 748.4 s from subsets, 752.5 s from models
+    9328 curve rows: more read back  e.g. gkv311-opencascade-dataset/step/trj8_c2-ac-214.stp #245; gkv311-opencascade-dataset/step/trj4_k1_geo-md-203.stp #542; gkv311-opencascade-dataset/step/trj4_k1_geo-ac-214.stp #10298; gkv311-opencascade-dataset/step/trj7_c2-ac-214.stp #259
+     642 triangle counts differ  e.g. gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #201; gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #370; gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #413; gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #456
+     410 inverted  e.g. gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #120; gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #161; gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #201; gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #218
+     121 read back differs: [].ref.loops[].coedges[].edge.end.point[]  e.g. gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #98359; gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #98359; gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #98359; gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #98359
+      95 read back differs: [].ref.loops[].coedges[].edge.start.point[]  e.g. gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #98359; gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #98359; gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #98359; gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #98359
+      91 OCCT's measured area differs (over 1e-6)  e.g. gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938 face #393024; gkv311-opencascade-dataset/step/bug27693_cornetta-step.stp #22 face #66; gkv311-opencascade-dataset/step/bug27693_cornetta-step.stp #22 face #74; gkv311-opencascade-dataset/step/bug27693_cornetta-step.stp #22 face #135
+      61 curve rows no item reaches (not written)  e.g. gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938; gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049; gkv311-opencascade-dataset/step/ec_exhaust-A.stp #2743; gkv311-opencascade-dataset/step/ec_exhaust-A.stp #2631
       41 read back: B-rep model: a curve missing from the file  e.g. gkv311-opencascade-dataset/step/bug22871_null-swept-curve.stp #10; gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17525; gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17485; gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17475
       40 writer warning: an edge with neither a curve nor a p-curve (written unset) (#)  e.g. gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17525; gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17485; gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17475; gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17415
       40 bind info: EDGE_CURVE.edge_geometry: $ in a mandatory attribute  e.g. gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17525 #78766; gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17485 #78735; gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17475 #78729; gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17415 #78681
-      29 mesh areas differ  e.g. gkv311-opencascade-dataset/step/bug30790.step #2433 face #3627; gkv311-opencascade-dataset/step/bug30790.step #2433 face #5541; gkv311-opencascade-dataset/step/bug30790.step #2427 face #4977; gkv311-opencascade-dataset/step/bug30790.step #2427 face #5167
+      31 mesh areas differ  e.g. gkv311-opencascade-dataset/step/bug30790.step #2433 face #3627; gkv311-opencascade-dataset/step/bug30790.step #2433 face #5541; gkv311-opencascade-dataset/step/bug30790.step #2427 face #4977; gkv311-opencascade-dataset/step/bug30790.step #2427 face #5167
       28 read back: B-rep model: 2 x a face with more than one outer bound (kept: Part 42 allows one) (#, #)  e.g. gkv311-opencascade-dataset/step/bug32239.STEP #85521; gkv311-opencascade-dataset/step/2.stp #317; gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #3171; gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #3163
       23 read back: B-rep model: 3 x a face with more than one outer bound (kept: Part 42 allows one) (#, #, #)  e.g. gkv311-opencascade-dataset/step/bug24601_216523_2_03.stp #79; gkv311-opencascade-dataset/step/Checking_Fixture_Clamping.STEP #5594; gkv311-opencascade-dataset/step/bug32239.STEP #64347; gkv311-opencascade-dataset/step/bug32239.STEP #83837
+      22 surface rows no item reaches (not written)  e.g. gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp #5203
       21 read back: B-rep model: a face with more than one outer bound (kept: Part 42 allows one) (#)  e.g. gkv311-opencascade-dataset/step/bug32239.STEP #49969; gkv311-opencascade-dataset/step/bug32239.STEP #96775; gkv311-opencascade-dataset/step/bug32239.STEP #57866; gkv311-opencascade-dataset/step/2.stp #342
+      19 read back: B-rep model: a curve-bounded face whose boundary's segments don't meet within the uncertainty (left as segments) (#)  e.g. gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877; gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877; gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877; gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877
       18 failed from the model only  e.g. gkv311-opencascade-dataset/step/bug30790.step #2445 face #7147; gkv311-opencascade-dataset/step/bug30790.step #2445 face #5551; gkv311-opencascade-dataset/step/bug30790.step #2445 face #2501; gkv311-opencascade-dataset/step/bug30790.step #2445 face #4403
+      12 writer warning: a solid with a shell its edges don't close (written as a closed shell) (#)  e.g. gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938; gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049; gkv311-opencascade-dataset/step/ec_exhaust-A.stp #2631; gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11
       12 failed from the subset only  e.g. gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938 face #393024; gkv311-opencascade-dataset/step/bug30790.step #2445 face #5031; gkv311-opencascade-dataset/step/bug30790.step #2442 face #4981; gkv311-opencascade-dataset/step/bug30790.step #2439 face #6577
       12 read back: B-rep model: 86 x a face with more than one outer bound (kept: Part 42 allows one) (#, #, #, #, #, ...)  e.g. gkv311-opencascade-dataset/step/bug30790.step #2481; gkv311-opencascade-dataset/step/bug30790.step #2478; gkv311-opencascade-dataset/step/bug30790.step #2475; gkv311-opencascade-dataset/step/bug30790.step #2472
       12 read back: B-rep model: 103 x a face with more than one outer bound (kept: Part 42 allows one) (#, #, #, #, #, ...)  e.g. gkv311-opencascade-dataset/step/bug30790.step #2448; gkv311-opencascade-dataset/step/bug30790.step #2445; gkv311-opencascade-dataset/step/bug30790.step #2442; gkv311-opencascade-dataset/step/bug30790.step #2439
@@ -19,7 +26,6 @@
        8 read back: B-rep model: 7 x a face with more than one outer bound (kept: Part 42 allows one) (#, #, #, #, #, ...)  e.g. gkv311-opencascade-dataset/step/OCC2368.stp #13; gkv311-opencascade-dataset/step/bug32239.STEP #133946; gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2781; gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1954
        7 read back: B-rep model: 5 x a face with more than one outer bound (kept: Part 42 allows one) (#, #, #, #, #)  e.g. gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #3063; gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2941; gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2751; gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2104
        5 read back: B-rep model: 11 x a face with more than one outer bound (kept: Part 42 allows one) (#, #, #, #, #, ...)  e.g. gkv311-opencascade-dataset/step/bug24601_216523_2_03.stp #90; gkv311-opencascade-dataset/step/2.stp #332; gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #3157; gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2775
-       4 inverted  e.g. gkv311-opencascade-dataset/step/bug30790.step #2436 face #5419; gkv311-opencascade-dataset/step/bug30790.step #2427 face #7025; gkv311-opencascade-dataset/step/bug30790.step #2421 face #3339; gkv311-opencascade-dataset/step/bug30790.step #2421 face #4457
        4 read back: B-rep model: 6 x a face with more than one outer bound (kept: Part 42 allows one) (#, #, #, #, #, ...)  e.g. gkv311-opencascade-dataset/step/bug32239.STEP #72569; gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2787; gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1336; gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1209
        3 writer warning: a face without loops (written with none: STEP needs at least one) (#)  e.g. gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938; gkv311-opencascade-dataset/step/bug24283_spheres.stp #8; gkv311-opencascade-dataset/step/bug33665.step #10
        3 bind warning: FACE.bounds: SET of 0 elements, expected [1:?]  e.g. gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938 #393024; gkv311-opencascade-dataset/step/bug24283_spheres.stp #8 #7; gkv311-opencascade-dataset/step/bug33665.step #10 #17
@@ -27,8 +33,7 @@
        2 validity: subset false, model true  e.g. gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938 face #393024; gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #9940
        2 validity: subset true, model false  e.g. gkv311-opencascade-dataset/step/bug30790.step #2430 face #4195; gkv311-opencascade-dataset/step/bug30790.step #2430 face #4467
        2 bind info: SURFACE_CURVE.curve_3d: $ in a mandatory attribute  e.g. gkv311-opencascade-dataset/step/bug22871_null-swept-curve.stp #10 #6715; gkv311-opencascade-dataset/step/bug22871_null-swept-curve.stp #10 #6725
-       2 writer warning: a solid whose outer shell isn't closed (#)  e.g. gkv311-opencascade-dataset/step/bug33665.step #10; gkv311-opencascade-dataset/step/bug25169_box-openshell.stp #10
-       2 bind warning: MANIFOLD_SOLID_BREP.outer: reference to OPEN_SHELL, expected CLOSED_SHELL  e.g. gkv311-opencascade-dataset/step/bug33665.step #10 #15; gkv311-opencascade-dataset/step/bug25169_box-openshell.stp #10 #15
+       2 writer warning: a solid with a shell its edges don't close (written as a closed shell) (#, #)  e.g. gkv311-opencascade-dataset/step/trj9_ap209-mp.stp #463; gkv311-opencascade-dataset/step/trj9_ap209-mp.stp #462
        2 read back: B-rep model: 20 x a face with more than one outer bound (kept: Part 42 allows one) (#, #, #, #, #, ...)  e.g. gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #3117; gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1821
        2 read back: B-rep model: 47 x a face with more than one outer bound (kept: Part 42 allows one) (#, #, #, #, #, ...)  e.g. gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2935; gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1653
        2 read back: B-rep model: 14 x a face with more than one outer bound (kept: Part 42 allows one) (#, #, #, #, #, ...)  e.g. gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2757; gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1632
@@ -39,7 +44,9 @@
        1 bind info: EDGE.edge_end: $ in a mandatory attribute  e.g. gkv311-opencascade-dataset/step/bug31292.stp #62 #69
        1 read back: B-rep model: a vertex missing from the file  e.g. gkv311-opencascade-dataset/step/bug31292.stp #62
        1 writer warning: an edge with p-curves and no 3D curve (written as a surface curve with its curve unset) (#, #)  e.g. gkv311-opencascade-dataset/step/bug22871_null-swept-curve.stp #10
+       1 writer info: edge parameter ranges (not written: STEP has none) (#, #)  e.g. gkv311-opencascade-dataset/step/bug29478.stp #130
        1 read back: B-rep model: 17 x a face with more than one outer bound (kept: Part 42 allows one) (#, #, #, #, #, ...)  e.g. gkv311-opencascade-dataset/step/bug32596_abc_0_13.step #113
+       1 read back differs: [].ref.members[].ref.kind  e.g. gkv311-opencascade-dataset/step/bug33665.step #10
        1 OCCT failed: subset tessellation timed out after 120000 ms, model tessellation timed out after 120000 ms  e.g. gkv311-opencascade-dataset/step/bug24024_slow_import.stp #76247
        1 read back: B-rep model: 30 x a face with more than one outer bound (kept: Part 42 allows one) (#, #, #, #, #, ...)  e.g. gkv311-opencascade-dataset/step/bug32239.STEP #116154
        1 read back: B-rep model: 35 x a face with more than one outer bound (kept: Part 42 allows one) (#, #, #, #, #, ...)  e.g. gkv311-opencascade-dataset/step/2.stp #322
@@ -450,6 +457,419 @@
             #9048 triangle counts differ
             #10890 OCCT's measured area differs (over 1e-6)
             #11486 OCCT's measured area differs (over 1e-6)
+      58 gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp
+            #120 inverted
+            #161 inverted
+            #201 inverted, triangle counts differ
+            #218 inverted
+            #296 inverted
+            #327 inverted
+            #339 inverted
+            #370 inverted, triangle counts differ
+            #382 inverted
+            #413 inverted, triangle counts differ
+            #425 inverted
+            #456 inverted, triangle counts differ
+            #468 inverted
+            #496 inverted, triangle counts differ
+            #561 inverted
+            #573 inverted, triangle counts differ
+            #596 inverted
+            #627 inverted
+            #779 inverted
+            #803 inverted
+            #948 inverted
+            #954 inverted, triangle counts differ
+            #971 inverted
+            #988 inverted
+            #1005 inverted
+            #1017 inverted
+            #1034 inverted
+            #1051 inverted
+            #1068 inverted
+            #1085 inverted
+            #1097 inverted
+            #1114 inverted
+            #1126 inverted
+            #1143 inverted
+            #1155 inverted
+            #1167 inverted
+            #1179 inverted
+            #1196 inverted
+            #1203 inverted
+            #1281 inverted
+            #1367 inverted
+            #1417 inverted
+            #1437 inverted
+            #1459 inverted
+            #1476 inverted
+            #1502 inverted
+            #1528 inverted
+            #1619 inverted
+            #1693 inverted
+            #1738 inverted
+            #1767 inverted
+            #1803 inverted
+            #1840 inverted, triangle counts differ
+            #1862 inverted
+            #1884 inverted
+            #1901 inverted
+            #1913 inverted
+            #1925 inverted
+      58 gkv311-opencascade-dataset/step/trj7_k1-ct-203.stp
+            #140 inverted
+            #181 inverted
+            #221 inverted, triangle counts differ
+            #238 inverted
+            #316 inverted
+            #347 inverted
+            #359 inverted
+            #390 inverted, triangle counts differ
+            #402 inverted
+            #433 inverted, triangle counts differ
+            #445 inverted
+            #476 inverted, triangle counts differ
+            #488 inverted
+            #516 inverted, triangle counts differ
+            #581 inverted
+            #593 inverted, triangle counts differ
+            #616 inverted
+            #647 inverted
+            #799 inverted
+            #823 inverted
+            #968 inverted
+            #974 inverted, triangle counts differ
+            #991 inverted
+            #1008 inverted
+            #1025 inverted
+            #1037 inverted
+            #1054 inverted
+            #1071 inverted
+            #1088 inverted
+            #1105 inverted
+            #1117 inverted
+            #1134 inverted
+            #1146 inverted
+            #1163 inverted
+            #1175 inverted
+            #1187 inverted
+            #1199 inverted
+            #1216 inverted
+            #1223 inverted
+            #1301 inverted
+            #1387 inverted
+            #1437 inverted
+            #1457 inverted
+            #1479 inverted
+            #1496 inverted
+            #1522 inverted
+            #1548 inverted
+            #1639 inverted
+            #1713 inverted
+            #1758 inverted
+            #1787 inverted
+            #1823 inverted
+            #1860 inverted, triangle counts differ
+            #1882 inverted
+            #1904 inverted
+            #1921 inverted
+            #1933 inverted
+            #1945 inverted
+      58 gkv311-opencascade-dataset/step/trj8_k1-ct-203.stp
+            #140 inverted
+            #212 inverted
+            #252 inverted, triangle counts differ
+            #274 inverted
+            #352 inverted
+            #383 inverted
+            #400 inverted
+            #431 inverted, triangle counts differ
+            #448 inverted
+            #479 inverted, triangle counts differ
+            #496 inverted
+            #527 inverted, triangle counts differ
+            #544 inverted
+            #572 inverted, triangle counts differ
+            #637 inverted
+            #654 inverted, triangle counts differ
+            #677 inverted
+            #708 inverted
+            #860 inverted
+            #884 inverted
+            #1029 inverted
+            #1040 inverted, triangle counts differ
+            #1057 inverted
+            #1074 inverted
+            #1091 inverted
+            #1108 inverted
+            #1125 inverted
+            #1142 inverted
+            #1159 inverted
+            #1176 inverted
+            #1193 inverted
+            #1210 inverted
+            #1227 inverted
+            #1244 inverted
+            #1261 inverted
+            #1278 inverted
+            #1295 inverted
+            #1312 inverted
+            #1324 inverted
+            #1402 inverted
+            #1488 inverted
+            #1538 inverted
+            #1563 inverted
+            #1585 inverted
+            #1602 inverted
+            #1628 inverted
+            #1654 inverted
+            #1745 inverted
+            #1850 inverted
+            #1895 inverted
+            #1929 inverted
+            #1970 inverted
+            #2007 inverted, triangle counts differ
+            #2034 inverted
+            #2056 inverted
+            #2073 inverted
+            #2085 inverted
+            #2097 inverted
+      58 gkv311-opencascade-dataset/step/trj8_k1-ct-214.stp
+            #112 inverted
+            #184 inverted
+            #224 inverted, triangle counts differ
+            #246 inverted
+            #324 inverted
+            #355 inverted
+            #372 inverted
+            #403 inverted, triangle counts differ
+            #420 inverted
+            #451 inverted, triangle counts differ
+            #468 inverted
+            #499 inverted, triangle counts differ
+            #516 inverted
+            #544 inverted, triangle counts differ
+            #609 inverted
+            #626 inverted, triangle counts differ
+            #649 inverted
+            #680 inverted
+            #832 inverted
+            #856 inverted
+            #1001 inverted
+            #1012 inverted, triangle counts differ
+            #1029 inverted
+            #1046 inverted
+            #1063 inverted
+            #1080 inverted
+            #1097 inverted
+            #1114 inverted
+            #1131 inverted
+            #1148 inverted
+            #1165 inverted
+            #1182 inverted
+            #1199 inverted
+            #1216 inverted
+            #1233 inverted
+            #1250 inverted
+            #1267 inverted
+            #1284 inverted
+            #1296 inverted
+            #1374 inverted
+            #1460 inverted
+            #1510 inverted
+            #1535 inverted
+            #1557 inverted
+            #1574 inverted
+            #1600 inverted
+            #1626 inverted
+            #1717 inverted
+            #1822 inverted
+            #1867 inverted
+            #1901 inverted
+            #1942 inverted
+            #1979 inverted, triangle counts differ
+            #2006 inverted
+            #2028 inverted
+            #2045 inverted
+            #2057 inverted
+            #2069 inverted
+      58 gkv311-opencascade-dataset/step/trj4_k1_top-ct-203.stp
+            #119 inverted
+            #152 inverted
+            #193 inverted, triangle counts differ
+            #211 inverted
+            #276 inverted
+            #308 inverted
+            #321 inverted
+            #353 inverted, triangle counts differ
+            #366 inverted
+            #398 inverted, triangle counts differ
+            #411 inverted
+            #443 inverted, triangle counts differ
+            #456 inverted
+            #485 inverted, triangle counts differ
+            #551 inverted
+            #564 inverted, triangle counts differ
+            #588 inverted
+            #620 inverted
+            #773 inverted
+            #798 inverted
+            #944 inverted
+            #951 inverted, triangle counts differ
+            #969 inverted
+            #987 inverted
+            #1005 inverted
+            #1018 inverted
+            #1036 inverted
+            #1054 inverted
+            #1072 inverted
+            #1090 inverted
+            #1103 inverted
+            #1121 inverted
+            #1134 inverted
+            #1152 inverted
+            #1165 inverted
+            #1178 inverted
+            #1191 inverted
+            #1209 inverted
+            #1217 inverted
+            #1282 inverted
+            #1363 inverted
+            #1408 inverted
+            #1430 inverted
+            #1453 inverted
+            #1471 inverted
+            #1499 inverted
+            #1527 inverted
+            #1614 inverted
+            #1689 inverted
+            #1735 inverted
+            #1766 inverted
+            #1797 inverted
+            #1835 inverted, triangle counts differ
+            #1858 inverted
+            #1881 inverted
+            #1899 inverted
+            #1912 inverted
+            #1925 inverted
+      58 gkv311-opencascade-dataset/step/trj5_k1-ct-203.stp
+            #248 inverted
+            #281 inverted
+            #322 inverted, triangle counts differ
+            #340 inverted
+            #404 inverted
+            #436 inverted
+            #449 inverted
+            #481 inverted, triangle counts differ
+            #494 inverted
+            #526 inverted, triangle counts differ
+            #539 inverted
+            #571 inverted, triangle counts differ
+            #584 inverted
+            #613 inverted, triangle counts differ
+            #679 inverted
+            #692 inverted, triangle counts differ
+            #716 inverted
+            #748 inverted
+            #901 inverted
+            #926 inverted
+            #1072 inverted
+            #1079 inverted, triangle counts differ
+            #1097 inverted
+            #1115 inverted
+            #1133 inverted
+            #1146 inverted
+            #1164 inverted
+            #1182 inverted
+            #1200 inverted
+            #1218 inverted
+            #1231 inverted
+            #1249 inverted
+            #1262 inverted
+            #1280 inverted
+            #1293 inverted
+            #1306 inverted
+            #1319 inverted
+            #1337 inverted
+            #1345 inverted
+            #1409 inverted
+            #1490 inverted
+            #1535 inverted
+            #1557 inverted
+            #1580 inverted
+            #1598 inverted
+            #1626 inverted
+            #1654 inverted
+            #1740 inverted
+            #1815 inverted
+            #1861 inverted
+            #1892 inverted
+            #1923 inverted
+            #1961 inverted, triangle counts differ
+            #1984 inverted
+            #2007 inverted
+            #2025 inverted
+            #2038 inverted
+            #2051 inverted
+      58 gkv311-opencascade-dataset/step/trj5_k1-ct-214.stp
+            #219 inverted
+            #297 inverted
+            #334 inverted, triangle counts differ
+            #382 inverted
+            #407 inverted
+            #478 inverted
+            #517 inverted
+            #537 inverted, triangle counts differ
+            #576 inverted
+            #596 inverted, triangle counts differ
+            #635 inverted
+            #655 inverted, triangle counts differ
+            #694 inverted
+            #714 inverted, triangle counts differ
+            #750 inverted
+            #823 inverted, triangle counts differ
+            #843 inverted
+            #874 inverted
+            #913 inverted
+            #1073 inverted
+            #1105 inverted
+            #1258 inverted, triangle counts differ
+            #1272 inverted
+            #1297 inverted
+            #1322 inverted
+            #1347 inverted
+            #1367 inverted
+            #1392 inverted
+            #1417 inverted
+            #1442 inverted
+            #1467 inverted
+            #1487 inverted
+            #1512 inverted
+            #1532 inverted
+            #1557 inverted
+            #1577 inverted
+            #1597 inverted
+            #1617 inverted
+            #1642 inverted
+            #1657 inverted
+            #1728 inverted
+            #1816 inverted
+            #1868 inverted
+            #1897 inverted
+            #1927 inverted
+            #1952 inverted
+            #1987 inverted
+            #2022 inverted
+            #2115 inverted
+            #2197 inverted
+            #2250 inverted
+            #2288 inverted
+            #2326 inverted, triangle counts differ
+            #2371 inverted
+            #2401 inverted
+            #2431 inverted
+            #2456 inverted
+            #2476 inverted
       12 gkv311-opencascade-dataset/step/trj3_s1-al-214.stp
             #1286 mesh areas differ
             #1290 mesh areas differ
@@ -508,69 +928,6 @@
             #8778 triangle counts differ
             #8891 triangle counts differ
             #10594 triangle counts differ
-       8 gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp
-            #201 triangle counts differ
-            #370 triangle counts differ
-            #413 triangle counts differ
-            #456 triangle counts differ
-            #496 triangle counts differ
-            #573 triangle counts differ
-            #954 triangle counts differ
-            #1840 triangle counts differ
-       8 gkv311-opencascade-dataset/step/trj7_k1-ct-203.stp
-            #221 triangle counts differ
-            #390 triangle counts differ
-            #433 triangle counts differ
-            #476 triangle counts differ
-            #516 triangle counts differ
-            #593 triangle counts differ
-            #974 triangle counts differ
-            #1860 triangle counts differ
-       8 gkv311-opencascade-dataset/step/trj8_k1-ct-203.stp
-            #252 triangle counts differ
-            #431 triangle counts differ
-            #479 triangle counts differ
-            #527 triangle counts differ
-            #572 triangle counts differ
-            #654 triangle counts differ
-            #1040 triangle counts differ
-            #2007 triangle counts differ
-       8 gkv311-opencascade-dataset/step/trj8_k1-ct-214.stp
-            #224 triangle counts differ
-            #403 triangle counts differ
-            #451 triangle counts differ
-            #499 triangle counts differ
-            #544 triangle counts differ
-            #626 triangle counts differ
-            #1012 triangle counts differ
-            #1979 triangle counts differ
-       8 gkv311-opencascade-dataset/step/trj4_k1_top-ct-203.stp
-            #193 triangle counts differ
-            #353 triangle counts differ
-            #398 triangle counts differ
-            #443 triangle counts differ
-            #485 triangle counts differ
-            #564 triangle counts differ
-            #951 triangle counts differ
-            #1835 triangle counts differ
-       8 gkv311-opencascade-dataset/step/trj5_k1-ct-203.stp
-            #322 triangle counts differ
-            #481 triangle counts differ
-            #526 triangle counts differ
-            #571 triangle counts differ
-            #613 triangle counts differ
-            #692 triangle counts differ
-            #1079 triangle counts differ
-            #1961 triangle counts differ
-       8 gkv311-opencascade-dataset/step/trj5_k1-ct-214.stp
-            #334 triangle counts differ
-            #537 triangle counts differ
-            #596 triangle counts differ
-            #655 triangle counts differ
-            #714 triangle counts differ
-            #823 triangle counts differ
-            #1258 triangle counts differ
-            #2326 triangle counts differ
        7 gkv311-opencascade-dataset/step/OCC5099.stp
             #7832 triangle counts differ
             #7855 triangle counts differ
@@ -595,6 +952,14 @@
             #11334 triangle counts differ
             #11872 triangle counts differ
             #11874 triangle counts differ
+       7 gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp
+            #21423 triangle counts differ
+            #23029 mesh areas differ
+            #14957 triangle counts differ
+            #24709 triangle counts differ
+            #15737 mesh areas differ
+            #22935 triangle counts differ
+            #22011 triangle counts differ
        7 gkv311-opencascade-dataset/step/wgehaeuse_surface.stp
             #32179 triangle counts differ
             #36159 mesh areas differ
@@ -658,6 +1023,12 @@
             #754 triangle counts differ
             #791 triangle counts differ
             #960 mesh areas differ
+       5 gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp
+            #962 OCCT's measured area differs (over 1e-6), triangle counts differ
+            #1477 OCCT's measured area differs (over 1e-6), triangle counts differ
+            #1597 OCCT's measured area differs (over 1e-6), triangle counts differ
+            #2028 OCCT's measured area differs (over 1e-6)
+            #4241 OCCT's measured area differs (over 1e-6)
        5 nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_07_asme1_ap242-e2.stp
             #1566 triangle counts differ
             #1633 triangle counts differ
@@ -682,6 +1053,11 @@
             #3690 triangle counts differ
             #3877 triangle counts differ
             #4503 triangle counts differ
+       4 gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp
+            #14450 triangle counts differ
+            #29880 triangle counts differ
+            #29980 triangle counts differ
+            #30200 triangle counts differ
        4 gkv311-opencascade-dataset/step/trj4_k1_geo-ac-214.stp
             #2423 triangle counts differ
             #2621 triangle counts differ
@@ -692,6 +1068,11 @@
             #978 triangle counts differ
             #1067 triangle counts differ
             #411 triangle counts differ
+       4 gkv311-opencascade-dataset/step/trj6_k1-sd-214.stp
+            #14450 triangle counts differ
+            #29250 triangle counts differ
+            #29370 triangle counts differ
+            #29780 triangle counts differ
        4 gkv311-opencascade-dataset/step/nist/bug26689_nist_ctc_02_asme1_ap242-2.stp
             #62946 triangle counts differ
             #78976 triangle counts differ
@@ -707,6 +1088,11 @@
             #353 triangle counts differ
             #408 triangle counts differ
             #423 triangle counts differ
+       4 nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_02_asme1_ap203.stp
+            #1473 triangle counts differ
+            #1474 triangle counts differ
+            #1475 triangle counts differ
+            #1555 mesh areas differ
        4 occt-import-js/test/testfiles/cax-if/sg1-c5-214.stp
             #177 triangle counts differ
             #189 triangle counts differ
@@ -740,6 +1126,9 @@
             #1135 triangle counts differ
             #6004 triangle counts differ
             #6185 triangle counts differ
+       2 gkv311-opencascade-dataset/step/bug25823_280612.stp
+            #122 triangle counts differ
+            #139 triangle counts differ
        2 gkv311-opencascade-dataset/step/bug22871_null-swept-curve.stp
             #3441 OCCT's measured area differs (over 1e-6), triangle counts differ
             #3620 OCCT's measured area differs (over 1e-6), triangle counts differ
@@ -786,20 +1175,18 @@
             #282 triangle counts differ
        1 gkv311-opencascade-dataset/step/bm2_ec_t4-A.stp
             #1304 triangle counts differ
+       1 gkv311-opencascade-dataset/step/bug26889_export.step
+            #1854 triangle counts differ
        1 gkv311-opencascade-dataset/step/bug31685_1.stp
             #19539 triangle counts differ
        1 gkv311-opencascade-dataset/step/trj3_t2-db-214.stp
             #637 triangle counts differ
-       1 gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp
-            #21423 triangle counts differ
        1 nist-pmi-models/NIST_MBE_PMI_CTC_Definitions/NIST_MBE_PMI_CTC_Definitions/nist_ctc_02_asme1_rc.stp
             #13024 mesh areas differ
        1 gkv311-opencascade-dataset/step/cax_stepLib/s1_pe_214/main_body_front_prt.stp
             #1019 triangle counts differ
        1 nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_05_asme1_ap203.stp
             #575 triangle counts differ
-       1 nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_02_asme1_ap203.stp
-            #1555 mesh areas differ
        1 nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ctc_02_asme1_rc.stp
             #13024 mesh areas differ
        1 nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/CTC Definitions/nist_ctc_02_asme1_rc.stp

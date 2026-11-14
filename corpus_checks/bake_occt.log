@@ -4,7 +4,7 @@
            gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 (mirror, turn, scale 0.3) face #1840: 22.748972556989603, 22.74878177784825
            gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 (mirror, turn, scale 0.3) face #1862: 22.748972557977304, 22.74878177883425
            gkv311-opencascade-dataset/step/trj2_as1-tc-214.stp #1879 (turn, scale 2.5, move) face #1694: 1963.4930156776709, 1963.4954084887036
-    584  facing the other way (loose geometry)
+    570  facing the other way (loose geometry)
            gkv311-opencascade-dataset/step/trj8_c2-ac-214.stp #245 (mirror) face #235: -1.0000
            gkv311-opencascade-dataset/step/trj8_c2-ac-214.stp #245 (mirror, turn, scale 0.3) face #235: -1.0000
            gkv311-opencascade-dataset/step/tr8_ha1_ug.stp #2510 (mirror) face #2420: -1.0000
@@ -29,26 +29,31 @@
            gkv311-opencascade-dataset/step/trj5_s1-in-214.stp #1106 (mirror) face #1095: 5.55e+1
            gkv311-opencascade-dataset/step/trj5_s1-in-214.stp #1106 (mirror, turn, scale 0.3) face #818: 1.66e+1
            gkv311-opencascade-dataset/step/trj5_s1-in-214.stp #1106 (mirror, turn, scale 0.3) face #1095: 1.66e+1
+     21  baking said warning: a curve-bounded face whose boundary's segments don't meet within the uncertainty (left as segments) (#)
+           gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 (mirror)
+           gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 (mirror)
+           gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 (mirror)
+           gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 (mirror)
      11  mean normals apart
            gkv311-opencascade-dataset/step/trj10_b2-oc-214.stp #10 (turn, scale 2.5, move) face #1703: 0.9210
            gkv311-opencascade-dataset/step/trj10_b2-oc-214.stp #10 (turn, scale 2.5, move) face #5038: 0.9889
            gkv311-opencascade-dataset/step/trj10_b2-oc-214.stp #10 (mirror, turn, scale 0.3) face #1703: 0.8903
            gkv311-opencascade-dataset/step/trj10_b2-oc-214.stp #10 (mirror, turn, scale 0.3) face #5038: 0.4373
-     10  centroids apart (loose geometry)
-           gkv311-opencascade-dataset/step/trj4_k1_geo-pe-203.stp #6268 (mirror) face #4646: 3.78e+0
-           gkv311-opencascade-dataset/step/trj4_k1_geo-pe-203.stp #6268 (mirror, turn, scale 0.3) face #4646: 1.14e+0
-           gkv311-opencascade-dataset/step/trj4_k1_geo-pe-214.stp #6272 (mirror) face #4650: 3.78e+0
-           gkv311-opencascade-dataset/step/trj4_k1_geo-pe-214.stp #6272 (mirror, turn, scale 0.3) face #4650: 1.14e+0
       5  validity: false, baked true
            gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 (turn, scale 2.5, move) face #16311
            gkv311-opencascade-dataset/step/Checking_Fixture_Clamping.STEP #5594 (mirror) face #8428
            gkv311-opencascade-dataset/step/Checking_Fixture_Clamping.STEP #5594 (mirror) face #8454
            gkv311-opencascade-dataset/step/Checking_Fixture_Clamping.STEP #5594 (mirror, turn, scale 0.3) face #8428
+      4  centroids apart (loose geometry)
+           gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp #5203 (mirror) face #2028: 3.58e+0
+           gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp #5203 (mirror) face #4241: 3.58e+0
+           gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp #5203 (mirror, turn, scale 0.3) face #2028: 1.07e+0
+           gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp #5203 (mirror, turn, scale 0.3) face #4241: 1.07e+0
       4  mesh areas over 2% apart (loose geometry)
-           gkv311-opencascade-dataset/step/trj4_k1_geo-tu-214.stp #2080 (mirror) face #331: 163.6206078231066, 217.68047992917334
-           gkv311-opencascade-dataset/step/trj4_k1_geo-tu-214.stp #2080 (mirror) face #611: 92.40100795958786, 98.19773919081354
-           gkv311-opencascade-dataset/step/trj4_k1_geo-tu-214.stp #2080 (mirror, turn, scale 0.3) face #331: 14.725854704079588, 19.591248729597684
-           gkv311-opencascade-dataset/step/trj4_k1_geo-tu-214.stp #2080 (mirror, turn, scale 0.3) face #611: 8.316090716362904, 8.837801037122032
+           gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp #5203 (mirror) face #2028: 45.4717735802523, 136.47750460326094
+           gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp #5203 (mirror) face #4241: 45.48782015500891, 136.45962443814628
+           gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp #5203 (mirror, turn, scale 0.3) face #2028: 4.092459622222705, 12.284703537525733
+           gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp #5203 (mirror, turn, scale 0.3) face #4241: 4.0939038139508, 12.284836019382446
       3  validity: true, baked false
            gkv311-opencascade-dataset/step/ec_turbine-A.stp #11 (turn, scale 2.5, move) face #384
            gkv311-opencascade-dataset/step/ec_turbine-A.stp #11 (mirror, turn, scale 0.3) face #384

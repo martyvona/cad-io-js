@@ -1,9 +1,24 @@
-517 files, 517 with a length unit changed (x 10: 467, x 0.1: 35, x 1000: 15); 3264 parts, 3258 B-rep models as the oracle says; 16317149 reals checked
+517 files, 517 with a length unit changed (x 10: 467, x 0.1: 35, x 1000: 15); 3264 parts, 3257 B-rep models as the oracle says; 15952344 reals checked
      58  2D rows no coedge uses (their surface unknown: not checked)
            gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049
            gkv311-opencascade-dataset/step/ec_exhaust-A.stp #2743
            gkv311-opencascade-dataset/step/ec_exhaust-A.stp #2631
            gkv311-opencascade-dataset/step/trj2_f1-db-214.stp #785
+     31  vertex.tolerance within 1e-12 of the model's size only (rounding near zero)
+           gkv311-opencascade-dataset/step/trj4_k1_geo-md-203.stp #542: [11] 2.5757174171303632e-14, 2.5579538487363607e-13
+           gkv311-opencascade-dataset/step/trj4_k1_geo-ac-214.stp #10298: [18] 2.7755575615628914e-17, 1.790180836524724e-15
+           gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704: [153] 9.379479978248483e-13, 9.947642357013074e-14
+           gkv311-opencascade-dataset/step/trj4_k1_geo-pe-203.stp #6268: [0] 9.9121238893586e-13, 9.913616919456797e-12
+     17  vertex.point within 1e-12 of the model's size only (rounding near zero)
+           gkv311-opencascade-dataset/step/trj4_k1_geo-md-203.stp #542: [316] 0.000004770043025718625, 0.000047700430257075235
+           gkv311-opencascade-dataset/step/trj4_k1_geo-pe-203.stp #6268: [4] -5.075939668586216e-13, -5.076827847005916e-12
+           gkv311-opencascade-dataset/step/trj4_k1_geo-pe-214.stp #6272: [4] -5.075939668586216e-13, -5.076827847005916e-12
+           gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #98359: [830] 1.965094753586527e-14, 1.9628743075372768e-13
+     12  pool.curveReal within 1e-12 of the model's size only (rounding near zero)
+           gkv311-opencascade-dataset/step/trj4_k1_geo-md-203.stp #542: [1789] 0.0000047700430262365145 x 10, 0.0000477004302621431
+           gkv311-opencascade-dataset/step/2.stp #332: [2254] -3.9968028886505635e-15 x 10, -4.04121180963557e-14
+           gkv311-opencascade-dataset/step/2.stp #312: [1244] -6.426740112308593e-10 x 10, -6.426740140064169e-9
+           gkv311-opencascade-dataset/step/2.stp #262: [51] -1.970645868709653e-15 x 10, -1.9761969838327786e-14
       4  parts whose factor isn't the file's (a representation's unit not the one changed)
            gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938
            nist-pmi-models/NIST_MBE_PMI_FTC_Definitions/NIST_MBE_PMI_FTC_Definitions/nist_ftc_07_asme1_rd.stp #7830
@@ -13,3 +28,5 @@
            nist-pmi-models/NIST_MBE_PMI_FTC_Definitions/NIST_MBE_PMI_FTC_Definitions/nist_ftc_07_asme1_rd.stp
            nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ftc_07_asme1_rd.stp
            nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/FTC Definitions/nist_ftc_07_asme1_rd.stp
+      1  vertex rows differ in number
+           gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp #5203: 300, 260

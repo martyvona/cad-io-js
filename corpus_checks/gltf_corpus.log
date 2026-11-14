@@ -1,14 +1,14 @@
-files 517 (0 over 1000 MB skipped), 52 s
-part nodes 5026 (8 hidden), meshes 3129, triangle primitives 5149, triangles 10479131, segments 1701739, points 1064
-GLB 299.9 MB; export 2.85 s; validation 7.52 s
-draco: 82.4 MB (27.5%), export 12.85 s; faces checked 111768
-meshopt: 90.1 MB (30.0%), export 7.06 s; faces checked 111768, line and point vertices 2036354
+files 517 (0 over 1000 MB skipped), 30 s
+part nodes 5026 (8 hidden), meshes 3129, triangle primitives 5149, triangles 10478945, segments 1701739, points 1064
+GLB 299.9 MB; export 1.55 s; validation 4.28 s
+draco: 82.4 MB (27.5%), export 7.86 s; faces checked 111769
+meshopt: 90.1 MB (30.0%), export 4.18 s; faces checked 111769, line and point vertices 2036354
 instancing: 2146 placements in 421 instanced nodes; 3301 part nodes against 5026; 0 placements not TRS
 largest:
-  67.6 MB, 0.4 s  gkv311-opencascade-dataset/step/as1_motor.step
-  47.5 MB, 0.2 s  gkv311-opencascade-dataset/step/bug28366_fuselage.stp
+  67.6 MB, 0.2 s  gkv311-opencascade-dataset/step/as1_motor.step
+  47.5 MB, 0.1 s  gkv311-opencascade-dataset/step/bug28366_fuselage.stp
   13.6 MB, 0.1 s  gkv311-opencascade-dataset/step/bug29979_firetherm_12.step
-  12.6 MB, 0.2 s  gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp
+  12.6 MB, 0.1 s  gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp
   11.7 MB, 0.1 s  gkv311-opencascade-dataset/step/bug30790.step
 validator issues (count, files, code, an example):
          7    7 info UNSUPPORTED_EXTENSION  e.g. gkv311-opencascade-dataset/step/trj12_is1-oc-214.stp /extensionsUsed/0: Cannot validate an extension as it is not supported by the validator: 'KHR_node_visibility'.
