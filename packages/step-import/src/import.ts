@@ -13,8 +13,8 @@ import {
   type Diagnostic as StepDiagnostic, type Mat4, type OpenOptions, type Semantics, type StepFile, type StepModel,
   type StepSource, type Style,
 } from 'step-parser';
-import { authorOf, boundScene, dropSourceDegenerate, leafParts, rigidPlacements, type Brep, type Component,
-  type Diagnostic, type Layer, type Lod, type Material, type Part, type Properties, type Scene,
+import { authorOf, boundScene, dropEmptyAssemblies, dropSourceDegenerate, leafParts, rigidPlacements, type Brep,
+  type Component, type Diagnostic, type Layer, type Lod, type Material, type Part, type Properties, type Scene,
   type Vec3 } from 'cad-scene';
 import { stepBrep } from './brep.ts';
 import { type BrepData, faceOutlines } from 'cad-brep';
@@ -584,6 +584,7 @@ export function sceneFromStep(model: StepModel, sem: Semantics, opts: ImportOpti
   leafParts(scene);
   // Placements a rotation and a translation, their stretches baked into copies (cad-scene's rigid.ts).
   rigidPlacements(scene);
+  dropEmptyAssemblies(scene);
   if (opts.dropDegenerate ?? true) dropSourceDegenerate(scene);
   boundScene(scene);
   return { scene, model, semantics: sem, partOf };
