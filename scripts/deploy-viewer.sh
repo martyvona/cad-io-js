@@ -29,9 +29,10 @@ esac
 cd "$root"
 
 for f in packages/tess-occt/dist/occt_tess.wasm packages/tess-occt/dist/occt_tess.mjs \
-  packages/tess-truck/dist/tess_truck.wasm; do
-  [ -f "$f" ] || { echo "deploy-viewer.sh: no $f (packages/tess-occt/build.sh, packages/tess-truck/build.sh)" >&2;
-    exit 1; }
+  packages/tess-truck/dist/tess_truck.wasm packages/tess-smlib/dist/smlib_tess.wasm \
+  packages/tess-smlib/dist/smlib_tess.mjs; do
+  [ -f "$f" ] || { echo "deploy-viewer.sh: no $f (packages/tess-occt/build.sh, packages/tess-truck/build.sh," \
+    "packages/tess-smlib/build-smlib.sh and build.sh)" >&2; exit 1; }
 done
 if [ -n "$(git status --porcelain --untracked-files=no -- . ":!$demo/catalog.json")" ]; then
   echo "deploy-viewer.sh: uncommitted changes; commit or stash them first" >&2
