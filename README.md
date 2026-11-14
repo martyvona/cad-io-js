@@ -46,7 +46,7 @@ In more detail:
 - **exporters** to three.js JSON, glTF/GLB and 3MF, and **importers** of STEP, glTF/GLB, three.js JSON and 3MF: our own files with extras come back as the scene they were written from, other files as their own tree of parts and assemblies;
 - **two command-line tools**, `step2json` (STEP to JSON, lossless or semantic) and `stepconv` (STEP to three.js, glTF or 3MF).
 
-Version 0.2.0, not yet published to npm: the packages run as TypeScript sources under Node 24 (see [Building From Source](#building-from-source)). A browser-based [viewer](#viewer) shows models in three.js, and more input formats are on the [roadmap](#roadmap).
+Version 0.3.0, not yet published to npm: the packages run as TypeScript sources under Node 24 (see [Building From Source](#building-from-source)). A browser-based [viewer](#viewer) shows models in three.js, and more input formats are on the [roadmap](#roadmap).
 
 ```sh
 stepconv bracket.step -o bracket.glb          # STEP to GLB, OCCT, 0.1 mm, all cores
@@ -1135,16 +1135,15 @@ Several checks run together as a **round** share one mesh cache: `node corpus_ch
 
 ## Roadmap
 
-Done in 0.1.0: the STEP parser and writer, schema binding and semantic extraction, `step2json`; the scene model and STEP importer; the OCCT and truck backends with workers and caching; the three.js, glTF and 3MF exporters and `stepconv`. Done in 0.2.0: the [viewer](#viewer); levels of detail in the scene model; importers of glTF/GLB, three.js JSON and 3MF, through which the viewer reads every format; AP242 tessellated geometry read as it is; B-rep face measures; leaf products as placed parts, so round trips keep the tree; exports in the input's frame.
+Done in 0.1.0: the STEP parser and writer, schema binding and semantic extraction, `step2json`; the scene model and STEP importer; the OCCT and truck backends with workers and caching; the three.js, glTF and 3MF exporters and `stepconv`. Done in 0.2.0: the [viewer](#viewer); levels of detail in the scene model; importers of glTF/GLB, three.js JSON and 3MF, through which the viewer reads every format; AP242 tessellated geometry read as it is; B-rep face measures; leaf products as placed parts, so round trips keep the tree; exports in the input's frame. Done in 0.3.0: the B-rep model (phases 1-14, `docs/brep-model.md`), each part's curves, surfaces and topology parsed into a format-neutral buffer at import, replacing STEP subsets, read natively by OCCT, truck and SMLib and written back to STEP; millimetres throughout; rigid placements; the canonical model; the SMLib backend and the fallback backend, with the exact join, the per-face fallback and the sliver fill; the area oracle; reproducible WebAssembly modules from pinned toolchains, and Linux.
 
 Next, roughly in order:
 
-1. **The B-rep model** (built, phases 1-14; `docs/brep-model.md`): each part's curves, surfaces and topology parsed into a format-neutral buffer at import, replacing STEP subsets, for backends (OCCT and SMLib reading it), other kernels and exporters.
-2. **Publishing to npm:** emit JavaScript (`rewriteRelativeImportExtensions` is already on), package names and scope, per-package READMEs and licenses, the prebuilt WebAssembly modules in their packages.
-3. **Large files in the browser:** reading instance bytes on demand instead of holding the file, 64-bit offsets.
-4. **More of STEP:** PMI (semantic and graphical), user-defined attributes, materials, SHUOs, per-curve colours, named coordinate systems.
-5. **Our own tessellator and a full oracle** (`docs/own-tessellator.md`): shape interrogation (inversion, projection to p-curves, fitting, intersection, bounds), analysis and healing, exact lengths, areas and volumes for every kind, then a mesher that meshes each edge once and every face against it.
-6. **More formats** (the scene and tessellator interface were designed for them), by value:
+1. **Publishing to npm:** emit JavaScript (`rewriteRelativeImportExtensions` is already on), package names and scope, per-package READMEs and licenses, the prebuilt WebAssembly modules in their packages.
+2. **Large files in the browser:** reading instance bytes on demand instead of holding the file, 64-bit offsets.
+3. **More of STEP:** PMI (semantic and graphical), user-defined attributes, materials, SHUOs, per-curve colours, named coordinate systems.
+4. **Our own tessellator and a full oracle** (`docs/own-tessellator.md`): shape interrogation (inversion, projection to p-curves, fitting, intersection, bounds), analysis and healing, exact lengths, areas and volumes for every kind, then a mesher that meshes each edge once and every face against it.
+5. **More formats** (the scene and tessellator interface were designed for them), by value:
    - **OCCT BREP** (`.brep`), OCCT documents (`.xbf`) and **FreeCAD** (`.FCStd`, whose `.brp` shapes OCCT reads).
 
 Not planned for now: AP242 XML (`.stpx`); JT (ISO 14306), whose precise geometry is mostly Parasolid's and whose meshes a file may leave out; IGES, used mostly for legacy data whose unconnected trimmed surfaces need high-quality sewing (both in `docs/future.md`, their specifications in `third_party/`).

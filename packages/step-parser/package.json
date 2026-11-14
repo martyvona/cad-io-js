@@ -1,6 +1,6 @@
 {
   "name": "step-parser",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "ISO 10303-21 (STEP Part 21) parser and writer",
   "license": "AGPL-3.0-only",
   "type": "module",
@@ -8,7 +8,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "lexical-json": "0.2.0",
-    "step-schemas": "0.2.0"
+    "lexical-json": "0.3.0",
+    "step-schemas": "0.3.0"
   }
 }

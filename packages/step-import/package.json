@@ -1,6 +1,6 @@
 {
   "name": "step-import",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "STEP importer: a parsed STEP file to the cad-scene model",
   "license": "AGPL-3.0-only",
   "type": "module",
@@ -8,8 +8,8 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "cad-brep": "0.2.0",
-    "cad-scene": "0.2.0",
-    "step-parser": "0.2.0"
+    "cad-brep": "0.3.0",
+    "cad-scene": "0.3.0",
+    "step-parser": "0.3.0"
   }
 }

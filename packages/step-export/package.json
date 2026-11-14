@@ -1,6 +1,6 @@
 {
   "name": "step-export",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "STEP writer: a part's B-rep model (cad-brep) as Part 42 geometry and topology in Part 21",
   "license": "AGPL-3.0-only",
   "type": "module",
@@ -8,8 +8,8 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "cad-brep": "0.2.0",
-    "cad-scene": "0.2.0",
-    "step-parser": "0.2.0"
+    "cad-brep": "0.3.0",
+    "cad-scene": "0.3.0",
+    "step-parser": "0.3.0"
   }
 }

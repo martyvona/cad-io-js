@@ -1,6 +1,6 @@
 {
   "name": "cad-scene",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "The format-independent scene model and tessellator interface shared by cad-io-js importers, backends and exporters",
   "license": "AGPL-3.0-only",
   "type": "module",
@@ -8,6 +8,6 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "cad-brep": "0.2.0"
+    "cad-brep": "0.3.0"
   }
 }

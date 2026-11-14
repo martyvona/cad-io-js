@@ -88,6 +88,7 @@ Notes for working on cad-io-js: how work is done here, the decisions every part 
 | 3 | workers, truck, caching, wireframe curves | |
 | 4 | the export view, three.js, glTF, 3MF, `stepconv` | `V0.1.0` (2026-10-23) |
 | after 4 | the viewer, the mesh and AP242 tessellated importers, face measures, leaf products as placed parts, exports in the input's frame, AGPL and a CLA | `V0.2.0` (2026-11-01) |
+| after 0.2.0 | the B-rep model (its phases 1-14: the buffer, OCCT's native route, truck and SMLib reading it, the STEP writer, millimetres, rigid placements, the canonical model), the SMLib backend, the fallback, the exact join, the sliver fill, the area oracle, reproducible modules, Linux | `V0.3.0` (2026-11-14) |
 
 ## Decisions
 
