@@ -1,0 +1,6 @@
+# The Rust every build of the truck backend uses (packages/tess-truck/build.sh), on every host, so its module is the
+# same bytes everywhere; rustup installs it on first use. To move to a new version, change it here.
+[toolchain]
+channel = "1.100.0"
+targets = ["wasm32-unknown-unknown"]
+profile = "minimal"

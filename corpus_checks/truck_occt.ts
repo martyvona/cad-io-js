@@ -19,7 +19,7 @@ import { partInstances } from '../packages/cad-scene/src/index.ts';
 import { extractSemantics, openModel, parseStep } from '../packages/step-parser/src/index.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
 import { stepPartBytes } from '../packages/step-export/src/index.ts';
-import { WorkerTessellator } from '../packages/tess-workers/src/node.ts';
+import { DEFAULT_TIMEOUT_MS, WorkerTessellator } from '../packages/tess-workers/src/node.ts';
 import { corpusFiles, shortName } from './corpus.ts';
 import { addInto, division, runFiles, type FileCheck } from './runner.ts';
 import { hostLine } from '../scripts/host.ts';
@@ -263,7 +263,7 @@ export const check: FileCheck<undefined, Tallies> = {
     const pool = (pkg: string, cls: string, timeoutMs: number) =>
       new WorkerTessellator({ backend: { module: import.meta.resolve(`../packages/${pkg}/src/index.ts`), export: cls },
         workers, timeoutMs });
-    truck = pool('tess-truck', 'TruckTessellator', 60_000);
+    truck = pool('tess-truck', 'TruckTessellator', DEFAULT_TIMEOUT_MS);
     occt = pool('tess-occt', 'OcctTessellator', 300_000);
     await Promise.all([truck.init(), occt.init()]);
   },

@@ -28,7 +28,7 @@ Notes for working on cad-io-js: how work is done here, the decisions every part 
 | `packages/*` | the 19 workspace packages (README, "Package APIs"; the viewer, `packages/viewer`, README "Viewer"); tests in each `test/` |
 | `packages/cad-brep/` | `src/layout.ts` (the B-rep buffer's format), `include/cad_brep.h` and `include/cad_brep.rs` (generated from it by `gen/header.ts` and `gen/rust.ts`: run both after changing the layout; a test checks they're current) |
 | `packages/tess-occt/` | `native/occt_tess.cpp` (the wrapper), `native/occt_build.cpp` (the native route's builder: a part's model into OCCT's shapes); `build-occt.sh` (OCCT into `build/occt-Os/`, applying `occt_patches/` to `build/occt-src/`); `build.sh` (links `dist/`); `build-probe.sh` (`dist/occt_probe.*`, for checks) |
-| `packages/tess-truck/` | `native/` (the Rust crate), `build.sh` (`dist/tess_truck.wasm`) |
+| `packages/tess-truck/` | `native/` (the Rust crate; its Cargo workspace and `Cargo.lock` at the repository root, so builds don't depend on the path), `build.sh` (`dist/tess_truck.wasm`) |
 | `packages/step-schemas/` | `dict/` the generated dictionaries (committed), `gen/` their generator |
 | `corpus_checks/` | the corpus checks with committed logs (its README lists them) |
 | `test_corpus/` | `files.txt` (517 files), `third_party/pull.sh` (fetches them), `models/` (the user's Onshape exports), `demo/` (the deployed demo models) |
@@ -36,7 +36,7 @@ Notes for working on cad-io-js: how work is done here, the decisions every part 
 | `workdir/` | ignored: dated deep dives and measurement records; findings worth keeping go in this file, the notes or the README |
 | `test/` | repository-wide tests (`ascii.test.ts`) |
 | `env.sh` | `source env.sh`: checks and sets up the toolchain |
-| `scripts/` | `deploy-viewer.sh` (to GitHub Pages, from a clean, pushed commit), `deploy-demo.sh` (the demo models alone), `demo-catalog.ts` (their `catalog.json`), `md2pdf.sh` (Markdown to PDF with Typst) |
+| `scripts/` | `deploy-viewer.sh` (to GitHub Pages, from a clean, pushed commit), `deploy-demo.sh` (the demo models alone), `demo-catalog.ts` (their `catalog.json`), `md2pdf.sh` (Markdown to PDF with Typst), `fetch-emsdk.sh` (the pinned Emscripten into `third_party/emsdk/`, which `emsdk-env.sh` puts on PATH for `env.sh` and the build scripts) |
 
 ### Commands
 
@@ -44,7 +44,7 @@ Notes for working on cad-io-js: how work is done here, the decisions every part 
 - A single package: `node --test packages/<p>/test/*.test.ts`, not `node --test <directory>` (that fails whatever the code, so a mutation run reports every mutant caught).
 - Corpus checks: `node --max-old-space-size=8192 corpus_checks/<check>.ts test_corpus/files.txt 1000` (the list, then the maximum file size in MB); `roundtrip_corpus` needs `--max-old-space-size=12000` (about 16 min). Several at once sharing a fresh mesh cache: `node corpus_checks/round.ts <check> ...` (README, "Corpus Checks").
 - The viewer's browser check and `cad-viewer start|stop|status|open|shot|replay`: README, "Viewer".
-- Rebuilding the backends: `packages/tess-occt/build-occt.sh` (12 minutes) then `build.sh` (seconds); `packages/tess-truck/build.sh`.
+- Rebuilding the backends: `packages/tess-occt/build-occt.sh` (12 minutes) then `build.sh` (seconds); `packages/tess-truck/build.sh`. The toolchains are pinned exactly (`scripts/fetch-emsdk.sh`, `rust-toolchain.toml`), so a module's bytes are the same on every host for the same sources: a module that differs means the sources or a pin differ (`docs/backends.md`).
 
 ### Code conventions
 

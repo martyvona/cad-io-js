@@ -13,14 +13,18 @@
 # Gotchas (docs/backends.md):
 #   - -UOCC_CONVERT_SIGNALS, or the link produces invalid WASM;
 #   - CMAKE_CXX_FLAGS_RELEASE set, or OCCT forces -O3; -Os it is, as -O2, -O3 and LTO buy no speed;
-#   - a build directory can't be moved (CMake keeps absolute paths): delete it and build again.
+#   - a build directory can't be moved (CMake keeps absolute paths): delete it and build again;
+#   - -ffile-prefix-map, or assertion messages (__FILE__) hold the source's absolute path and the module differs by
+#     where the repository is.
 # Grown from phase 0's occt_variant_build.sh (phase0_tessellation_spike/ at tag V0.1.0).
 set -e
+# Globs sort by the locale's collation (the libraries' link order, the patches' order), which changes the module.
+export LC_ALL=C
 HERE=$(cd "$(dirname "$0")" && pwd)
 OCCT=$(cd "$HERE/../../third_party/OCCT" && pwd)
 SRC=$HERE/build/occt-src
-# Emscripten's environment, as in env.sh at the repo root.
-command -v em++ >/dev/null || source "${EMSDK:-$HOME/emsdk}/emsdk_env.sh" >/dev/null 2>&1
+# The project's Emscripten (scripts/emsdk-env.sh), whatever emcc the shell has.
+. "$HERE/../../scripts/emsdk-env.sh" "$(cd "$HERE/../.." && pwd)"
 NAME=${1:-Os}; REL=${2:--Os}; EXTRA=${3:-}; OVERLAY=${4:-0}
 D=$HERE/build/occt-$NAME
 
@@ -38,9 +42,11 @@ for p in "$HERE"/occt_patches/*.patch; do
   basename "$p" .patch >> "$D/patches.txt"
 done
 
-# A build directory configured from another source (as before build/occt-src existed) can't be reused.
-if [ -f "$D/CMakeCache.txt" ] && ! grep -q "^CMAKE_HOME_DIRECTORY:INTERNAL=$SRC\$" "$D/CMakeCache.txt"; then
-  echo "$D was configured from another source: building it afresh" >&2
+# A build directory configured from another source (as before build/occt-src existed), or with another Emscripten
+# (CMake keeps the compiler it was configured with), can't be reused.
+if [ -f "$D/CMakeCache.txt" ] && { ! grep -q "^CMAKE_HOME_DIRECTORY:INTERNAL=$SRC\$" "$D/CMakeCache.txt" ||
+  ! grep -q "^CMAKE_TOOLCHAIN_FILE:[A-Z]*=$EMSDK/" "$D/CMakeCache.txt"; }; then
+  echo "$D was configured from another source or Emscripten: building it afresh" >&2
   find "$D" -mindepth 1 ! -name patches.txt -delete
 fi
 cd "$D"
@@ -48,8 +54,8 @@ emcmake cmake "$SRC" -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release \
   -DBUILD_LIBRARY_TYPE=Static -DINSTALL_DIR="$D-install" -DBUILD_MODULE_Draw=OFF \
   -DUSE_FREETYPE=OFF -DUSE_TK=OFF -DUSE_TCL=OFF -DUSE_GLES2=OFF -DUSE_OPENGL=OFF \
   -DBUILD_GTEST=OFF -DBUILD_DOC_Overview=OFF \
-  -DCMAKE_CXX_FLAGS="-fwasm-exceptions -UOCC_CONVERT_SIGNALS $EXTRA" \
-  -DCMAKE_C_FLAGS="-fwasm-exceptions -UOCC_CONVERT_SIGNALS $EXTRA" \
+  -DCMAKE_CXX_FLAGS="-fwasm-exceptions -UOCC_CONVERT_SIGNALS -ffile-prefix-map=$SRC/=occt/ $EXTRA" \
+  -DCMAKE_C_FLAGS="-fwasm-exceptions -UOCC_CONVERT_SIGNALS -ffile-prefix-map=$SRC/=occt/ $EXTRA" \
   -DCMAKE_CXX_FLAGS_RELEASE="$REL -DNDEBUG" -DCMAKE_C_FLAGS_RELEASE="$REL -DNDEBUG" > configure.log 2>&1
 if [ "$OVERLAY" = 1 ]; then
   for f in "$HERE"/occt_overlay/*.pxx; do cp "$f" include/opencascade/; done

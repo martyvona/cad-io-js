@@ -33,6 +33,10 @@ Licenses: OCCT is LGPL-2.1 with the Open CASCADE exception, which is why the arc
 
 They are build tools for documentation only; nothing ships with the packages. To move to new versions, change the pins (versions and digests) in `fetch-typst.sh`; the Typst release's digests are on its GitHub release page, the packages' are those of `https://packages.typst.org/preview/<name>-<version>.tar.gz`. cmarker and merman need Typst 0.15 or later.
 
+## Emscripten
+
+`../scripts/fetch-emsdk.sh` installs the Emscripten SDK into `emsdk/` here (git-ignored, about 1.7 GB): emsdk (https://github.com/emscripten-core/emsdk, MIT) at a pinned commit, whose manifest pins the archives it downloads, and Emscripten 6.0.12 installed and activated inside it, its config naming its tools relative to the directory. `../env.sh` and the backends' build scripts put it first on PATH (`../scripts/emsdk-env.sh`), whatever `emcc` the shell has, and stop if it holds another version, so every host compiles OCCT with the same Emscripten, clang and binaryen, and optimizes truck's module with the same `wasm-opt`. To move to a new version, change `COMMIT` and `VERSION` in `fetch-emsdk.sh` (an emsdk commit that knows the version) and run it again; OCCT then rebuilds afresh (`build-occt.sh` reconfigures a build directory made with another Emscripten).
+
 ## A custom OCCT build for tess-occt
 
 The OCCT backend (`../packages/tess-occt`) is our wrapper, `native/occt_tess.cpp`, and OCCT compiled together into one Emscripten module; its TypeScript side calls the wrapper's C functions, not OCCT's classes. A host that builds OCCT itself (to bind more of OCCT for its own use, to pin another commit, to ship one module instead of two) can have the backend use that build instead of ours, as long as the wrapper is linked into it. An OCCT module without the wrapper (`occt-import-js`, `opencascade.js`, a host's own bindings) can't be used: the wrapper's work could in principle be redone from JavaScript through bindings of the same OCCT classes, but that was decided against (2026-10-23), for the speed of copying meshes out one node at a time and the per-object memory management.

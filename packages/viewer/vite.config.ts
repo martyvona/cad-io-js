@@ -66,7 +66,7 @@ const licenses = (): Plugin => ({
         'included, in cad-io-js\'s `packages/tess-occt`; OCCT\'s at https://github.com/Open-Cascade-SAS/OCCT);',
       '- the truck tessellation backend (`assets/tess_truck-*.wasm`): cad-io-js\'s wrapper (AGPL-3.0-only) and ' +
         'truck (https://github.com/ricosjp/truck, Apache-2.0), with the Rust crates ' +
-        '`packages/tess-truck/native/Cargo.lock` lists, each under its own license (MIT or Apache-2.0 for the most ' +
+        'cad-io-js\'s `Cargo.lock` lists, each under its own license (MIT or Apache-2.0 for the most ' +
         'part);',
       // (Vite lists only the page's own packages, not the import worker's, which are these.)
       '- in the import worker, glTF-Transform (`@gltf-transform/core`, `@gltf-transform/extensions`, with ' +

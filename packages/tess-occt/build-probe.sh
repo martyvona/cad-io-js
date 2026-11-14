@@ -5,8 +5,11 @@
 # dist/occt_probe.mjs and dist/occt_probe.wasm.
 #   B=<OCCT build dir>  default build/occt-Os
 set -e
-command -v em++ >/dev/null || source "${EMSDK:-$HOME/emsdk}/emsdk_env.sh" >/dev/null 2>&1
+# Globs sort by the locale's collation (the libraries' link order, the patches' order), which changes the module.
+export LC_ALL=C
 cd "$(dirname "$0")"
+# The project's Emscripten (scripts/emsdk-env.sh), whatever emcc the shell has.
+. ../../scripts/emsdk-env.sh "$(cd ../.. && pwd)"
 B=${B:-build/occt-Os}
 [ -d "$B/include/opencascade" ] || { echo "no OCCT build at $B: run build-occt.sh" >&2; exit 1; }
 LIBS=("$B"/lin32/clang/lib/lib*.a)

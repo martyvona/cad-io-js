@@ -1,0 +1,13 @@
+# The Cargo workspace of the truck backend's crate (packages/tess-truck/native), rooted here so that cargo hashes
+# truck's path dependencies (third_party/truck, its own workspace, so excluded) by their path relative to the
+# repository, not the absolute one: the module is then the same bytes wherever the repository is.
+[workspace]
+members = ["packages/tess-truck/native"]
+exclude = ["third_party"]
+resolver = "2"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"

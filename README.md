@@ -90,14 +90,13 @@ None of these comes with the repository. `source env.sh` (below) checks every on
 | curl, unzip | any | the fetch scripts (the NIST corpus packages are zips) |
 | CMake | 3.10+ | configuring the OCCT build |
 | make | any | building OCCT |
-| Emscripten (emsdk) | 6.0.12 | compiling OCCT and our wrapper to WebAssembly (`~/emsdk`, or `$EMSDK`); it brings its own clang, so the OCCT build needs no other C++ compiler |
+| Emscripten (emsdk) | 6.0.12 exactly, fetched | compiling OCCT and our wrapper to WebAssembly, and its `wasm-opt` optimizes the truck module; it brings its own clang, so the OCCT build needs no other C++ compiler. Not installed on the system: `scripts/fetch-emsdk.sh` installs the pinned emsdk and Emscripten into `third_party/emsdk/` (about 1.7 GB), which `env.sh` and the build scripts use whatever `emcc` the shell has |
 | a C/C++ toolchain for the host (Xcode command-line tools, or gcc) | any | the truck build: Rust links its build scripts and procedural macros, which run on the host, with the system's linker; also the optional native test of the `VBernstein` patch (`packages/tess-occt/occt_overlay/test/table_test.cpp`, which checks a computed table against the one OCCT stores) |
-| Rust, cargo | 1.85+ (edition 2024), with the `wasm32-unknown-unknown` target | the truck backend |
-| wasm-pack | 0.15.0 | its `wasm-opt` optimizes the truck module |
+| Rust, cargo (through rustup) | 1.100.0 exactly, with the `wasm32-unknown-unknown` target | the truck backend; `rust-toolchain.toml` pins the version, which rustup installs on first use in the repository |
 | python3 with `venv` | 3.8+, optional | extracting the JT, QIF and IGES specifications' text; the `VBernstein` patch's tests |
 | Typst | 0.15.1, fetched | `scripts/md2pdf.sh` (PDFs of the Markdown documents); not installed on the system: `scripts/fetch-typst.sh` fetches the official binary and the Typst packages it uses, pinned and checksummed, into `third_party/typst/` (`md2pdf.sh` does so itself on first use) |
 
-The project was built and tested with Node 24.5, Emscripten 6.0.12, Rust 1.99.1 and wasm-pack 0.15.0 on an M-series Mac, and with Node 24.22, Emscripten 6.0.12, Rust 1.100 and wasm-pack 0.15.0 on Debian 13 (x86-64). On Linux without root, Node and CMake run from their official tarballs unpacked anywhere on `PATH`, and Debian's python3 lacks `ensurepip` (package `python3-venv`), so the optional PDF text step is skipped.
+The toolchains that make the WebAssembly modules are pinned exactly, so every host builds the same bytes from the same sources (`docs/backends.md`). The project was built and tested with Node 24.5 on an M-series Mac, and with Node 24.22 on Debian 13 (x86-64). On Linux without root, Node and CMake run from their official tarballs unpacked anywhere on `PATH`, and Debian's python3 lacks `ensurepip` (package `python3-venv`), so the optional PDF text step is skipped.
 
 ### Steps
 
@@ -108,6 +107,7 @@ source env.sh                        # checks the tools; sets up Rust's and Emsc
                                      # and puts node_modules/.bin (stepconv, step2json) on PATH
 npm install                          # dev dependencies (TypeScript, three, the validators) and the workspace links
 third_party/pull.sh                  # OCCT, stepcode, truck and reference documents, at pinned versions (~400 MB)
+scripts/fetch-emsdk.sh               # the pinned Emscripten into third_party/emsdk/ (~1.7 GB)
 packages/tess-occt/build-occt.sh     # OCCT's static libraries for WebAssembly (~6-12 minutes, ~850 MB)
 packages/tess-occt/build.sh          # our OCCT wrapper, linked: packages/tess-occt/dist/occt_tess.{mjs,wasm}
 packages/tess-occt/build-probe.sh    # (for step_roundtrip.ts, native_route.ts) OCCT's points by id: dist/occt_probe.*
@@ -923,7 +923,7 @@ new WorkerTessellator({ backend: { module: import.meta.resolve('tess-occt'), exp
 
 ### `tess-workers`
 
-Any backend in a pool of workers: `worker_threads` in Node, module Web Workers in browsers (the package's export conditions choose). Each worker loads the backend from `backend.module` (a URL or resolvable specifier) and `backend.export` (the class name), with `backend.options` passed to its `init`. A request that takes longer than `timeoutMs` terminates its worker and fails with a `TessellationError`; the part fails alone, and a fresh worker takes its place. Workers are also replaced after a backend trap, after `maxPartsPerWorker` parts, or when the backend's memory grows beyond `maxMemoryBytes` (WebAssembly memory never shrinks). Defaults: cores - 1 workers, 60 s timeout, recycling above 256 MiB, no limit on parts.
+Any backend in a pool of workers: `worker_threads` in Node, module Web Workers in browsers (the package's export conditions choose). Each worker loads the backend from `backend.module` (a URL or resolvable specifier) and `backend.export` (the class name), with `backend.options` passed to its `init`. A request that takes longer than `timeoutMs` terminates its worker and fails with a `TessellationError`; the part fails alone, and a fresh worker takes its place. Workers are also replaced after a backend trap, after `maxPartsPerWorker` parts, or when the backend's memory grows beyond `maxMemoryBytes` (WebAssembly memory never shrinks). Defaults: cores - 1 workers, 120 s timeout, recycling above 256 MiB, no limit on parts.
 
 ```ts
 import fs from 'node:fs';

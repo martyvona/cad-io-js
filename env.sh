@@ -1,14 +1,15 @@
 # no shebang, this script is designed only to be sourced
 
 # cad-io-js development environment: checks that the tools this repository expects are installed and recent enough,
-# and sets up their environment (Rust's ~/.cargo/env, Emscripten's emsdk_env.sh) in the current shell.
+# and sets up their environment (Rust's ~/.cargo/env, the project's Emscripten SDK) in the current shell.
 # Prints the commands to install or update anything that's missing or too old, for macOS or Linux.
 #
 # Usage: source env.sh    (bash or zsh; running it as a script only checks, since it can't change your shell)
 #
-# Minimum versions are known requirements where there is one (Node 24 from package.json, CMake 3.10 from OCCT, Rust
-# 1.85 for edition 2024), and otherwise the versions the builds were validated with (Emscripten 6.0.12, wasm-pack
-# 0.15.0).
+# Minimum versions are known requirements (Node 24 from package.json, CMake 3.10 from OCCT). The toolchains that make
+# the WebAssembly modules are exact, so every host builds the same bytes: Rust as rust-toolchain.toml pins it (rustup
+# installs it), Emscripten (with the wasm-opt truck's build uses) the project's own, third_party/emsdk, as
+# scripts/fetch-emsdk.sh pins it.
 
 script_dir="$(cd -P "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 
@@ -75,11 +76,19 @@ _sj_fix_pkg() {
   esac
 }
 
-# Report one tool: <error|warning> <name> <found version or empty> <minimum or empty> <what it's for>.
-# Returns 0 if it's present and recent enough.
+# Report one tool: <error|warning> <name> <found version or empty> <minimum, =exact or empty> <what it's for>.
+# Returns 0 if it's present and recent enough (or the exact version).
 _sj_report() {
   if [ -z "$3" ]; then
     printf '  %-8s %-12s %s\n' "$(if [ $1 = error ]; then echo MISSING; else echo missing; fi)" "$2" "($5)"
+  elif [ "${4#=}" != "$4" ]; then
+    if [ "$3" != "${4#=}" ]; then
+      printf '  %-8s %-12s %s\n' "$(if [ $1 = error ]; then echo WRONG; else echo wrong; fi)" "$2" \
+        "$3, need ${4#=} ($5)"
+    else
+      printf '  %-8s %-12s %s\n' ok "$2" "$3"
+      return 0
+    fi
   elif [ -n "$4" ] && ! _sj_ge "$3" "$4"; then
     printf '  %-8s %-12s %s\n' "$(if [ $1 = error ]; then echo TOO-OLD; else echo too-old; fi)" "$2" \
       "$3, need >= $4 ($5)"
@@ -108,18 +117,8 @@ if ! command -v node >/dev/null 2>&1 && [ -s "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ]; 
   . "${NVM_DIR:-$HOME/.nvm}/nvm.sh"
 fi
 
-# Emscripten: use the emsdk named by $EMSDK, else ~/emsdk, unless emcc is already set up.
-_sj_emsdk=
-if [ -n "${EMSDK:-}" ] && command -v emcc >/dev/null 2>&1; then
-  _sj_emsdk=$EMSDK
-elif [ -n "${EMSDK:-}" ] && [ -f "$EMSDK/emsdk_env.sh" ]; then
-  _sj_emsdk=$EMSDK
-elif ! command -v emcc >/dev/null 2>&1 && [ -f "$HOME/emsdk/emsdk_env.sh" ]; then
-  _sj_emsdk=$HOME/emsdk
-fi
-if [ -n "$_sj_emsdk" ] && ! command -v emcc >/dev/null 2>&1; then
-  EMSDK_QUIET=1 . "$_sj_emsdk/emsdk_env.sh" >/dev/null 2>&1
-fi
+# Emscripten: the project's SDK, third_party/emsdk, first on PATH whatever emcc the shell has (checked below).
+. "$_sj_repo/scripts/emsdk-env.sh" "$_sj_repo" 2>/dev/null
 
 # The workspace's tools (stepconv, step2json), which npm install links into node_modules/.bin. Appended, so the dev
 # dependencies' tools there (tsc, ...) don't shadow ones already installed; added once however often this is sourced.
@@ -155,45 +154,38 @@ _sj_report error cmake "$(_sj_have cmake --version)" 3.10.0 "configures the OCCT
 _sj_report error make "$(_sj_have make --version)" "" "builds OCCT (Unix Makefiles generator)" ||
   _sj_fix_pkg make "xcode-select --install" make make
 
-_sj_emcc=$(_sj_have emcc --version)
-_sj_report error emscripten "$_sj_emcc" 6.0.12 "compiles OCCT to WebAssembly${EMSDK:+; emsdk at $EMSDK}" || {
-  _sj_d=${_sj_emsdk:-${EMSDK:-$HOME/emsdk}}
-  if [ -f "$_sj_d/emsdk" ]; then
-    _sj_fix "cd \"$_sj_d\" && git pull && ./emsdk install 6.0.12 && ./emsdk activate 6.0.12 && cd - && source env.sh"
-  elif [ -n "$_sj_emcc" ]; then
-    _sj_fix "# emcc $(command -v emcc) isn't from an emsdk; install one at ~/emsdk (below), then re-run: source env.sh"
-    _sj_fix "git clone https://github.com/emscripten-core/emsdk.git ~/emsdk"\
-" && (cd ~/emsdk && ./emsdk install 6.0.12 && ./emsdk activate 6.0.12) && source env.sh"
-  else
-    _sj_fix "git clone https://github.com/emscripten-core/emsdk.git ~/emsdk"\
-" && (cd ~/emsdk && ./emsdk install 6.0.12 && ./emsdk activate 6.0.12) && source env.sh"
-  fi
-}
+_sj_emcc=$(tr -d '"' 2>/dev/null < "$_sj_repo/third_party/emsdk/upstream/emscripten/emscripten-version.txt")
+_sj_report error emscripten "$_sj_emcc" "=$(sed -nE 's/^VERSION=//p' "$_sj_repo/scripts/fetch-emsdk.sh")" \
+  "compiles OCCT; its wasm-opt optimizes truck (third_party/emsdk)" ||
+  _sj_fix "\"$_sj_repo/scripts/fetch-emsdk.sh\" && source \"$_sj_repo/env.sh\""
 
+# Rust: the version rust-toolchain.toml pins, which rustup selects (and installs) inside the repository. The version
+# only from a --version that succeeds: rustup's error for a toolchain it lacks names that toolchain's version.
+_sj_rust=$(sed -nE 's/^channel = "(.*)"/\1/p' "$_sj_repo/rust-toolchain.toml")
 _sj_rust_fix() {
   if command -v rustup >/dev/null 2>&1; then
-    _sj_fix "rustup update stable"
+    _sj_fix "(cd \"$_sj_repo\" && rustup toolchain install)"
   else
     _sj_fix "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && . \"\$HOME/.cargo/env\""
   fi
 }
-_sj_report error rustc "$(_sj_have rustc --version)" 1.85.0 "builds the truck backends; edition 2024" || _sj_rust_fix
-_sj_report error cargo "$(_sj_have cargo --version)" 1.85.0 "Rust package manager" || _sj_rust_fix
+_sj_report error rustc "$(cd "$_sj_repo" && rustc --version 2>/dev/null | cut -d" " -f2)" "=$_sj_rust" \
+  "builds the truck backend" || _sj_rust_fix
+_sj_report error cargo "$(cd "$_sj_repo" && cargo --version 2>/dev/null | cut -d" " -f2)" "=$_sj_rust" \
+  "Rust package manager" || _sj_rust_fix
 if command -v rustup >/dev/null 2>&1; then
-  if rustup target list --installed 2>/dev/null | grep -qx wasm32-unknown-unknown; then
+  if (cd "$_sj_repo" && rustup target list --installed 2>/dev/null) | grep -qx wasm32-unknown-unknown; then
     printf '  %-8s %-12s %s\n' ok wasm32 "rustup target wasm32-unknown-unknown"
   else
-    printf '  %-8s %-12s %s\n' MISSING wasm32 "(rustup target wasm32-unknown-unknown, for wasm-pack builds)"
+    printf '  %-8s %-12s %s\n' MISSING wasm32 "(rustup target wasm32-unknown-unknown, for the truck backend)"
     _sj_errors=$((_sj_errors + 1))
-    _sj_fix "rustup target add wasm32-unknown-unknown"
+    _sj_fix "(cd \"$_sj_repo\" && rustup toolchain install)"
   fi
 elif command -v rustc >/dev/null 2>&1; then
-  printf '  %-8s %-12s %s\n' missing rustup "(rustc isn't managed by rustup; can't check the wasm32 target)"
+  printf '  %-8s %-12s %s\n' missing rustup "(rustc isn't managed by rustup, which rust-toolchain.toml needs)"
   _sj_warnings=$((_sj_warnings + 1))
   _sj_fix "# replace the system Rust with rustup: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
 fi
-_sj_report error wasm-pack "$(_sj_have wasm-pack --version)" 0.15.0 "builds the Rust backends as WebAssembly" ||
-  _sj_fix "cargo install wasm-pack --locked"
 
 # Optional tools.
 # Python: third_party/pull.sh installs pypdf into a local venv (third_party/.venv) to extract the JT, QIF and IGES
@@ -256,7 +248,7 @@ fi
 
 _sj_status=$((_sj_errors > 0))
 unset -f _sj_version _sj_ge _sj_fix _sj_fix_pkg _sj_report _sj_have _sj_rust_fix
-unset _sj_os _sj_pkg _sj_errors _sj_warnings _sj_fixes _sj_emsdk _sj_emcc _sj_d _sj_repo _sj_py _sj_typst
+unset _sj_os _sj_pkg _sj_errors _sj_warnings _sj_fixes _sj_emcc _sj_rust _sj_repo _sj_py _sj_typst
 if [ $_sj_sourced = 1 ]; then
   unset _sj_sourced
   return $_sj_status 2>/dev/null || true
