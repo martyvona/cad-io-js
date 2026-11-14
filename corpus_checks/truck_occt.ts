@@ -22,6 +22,7 @@ import { stepPartBytes } from '../packages/step-export/src/index.ts';
 import { WorkerTessellator } from '../packages/tess-workers/src/node.ts';
 import { corpusFiles, shortName } from './corpus.ts';
 import { addInto, division, runFiles, type FileCheck } from './runner.ts';
+import { hostLine } from '../scripts/host.ts';
 
 const dump = process.env.DUMP;
 if (dump) fs.mkdirSync(dump, { recursive: true });
@@ -489,6 +490,7 @@ export const check: FileCheck<undefined, Tallies> = {
 
 
 if (import.meta.main) {
+  console.log(await hostLine());
   maxBytes = Number(process.argv[3] ?? 30) * 1e6;
   const all = fresh(), { totals, byFaceType, byEdgeType, rows, panics } = all;
   const { children, meshWorkers } = division();

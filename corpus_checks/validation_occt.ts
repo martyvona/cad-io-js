@@ -9,6 +9,9 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { extractSemantics, openModel, parseStep } from '../packages/step-parser/src/index.ts';
 import { corpusDir, corpusFiles, shortName } from './corpus.ts';
+import { hostLine } from '../scripts/host.ts';
+
+console.log(await hostLine());
 
 const require = createRequire(import.meta.url);
 const loadOcct = () => require(path.join(corpusDir, 'occt-import-js/dist/occt-import-js.js'))();

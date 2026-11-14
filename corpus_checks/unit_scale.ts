@@ -19,6 +19,9 @@ import { partInstances, type Scene } from '../packages/cad-scene/src/index.ts';
 import { compareScaled } from '../packages/step-import/test/unit-oracle.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
 import { corpusFiles, plantedPart, shortName } from './corpus.ts';
+import { hostLine } from '../scripts/host.ts';
+
+console.log(await hostLine());
 
 const maxMB = Number(process.argv[3] ?? 1000);
 const plant = process.env.PLANT;

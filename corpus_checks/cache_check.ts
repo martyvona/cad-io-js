@@ -19,6 +19,9 @@ import { OcctTessellator } from '../packages/tess-occt/src/index.ts';
 import { TruckTessellator } from '../packages/tess-truck/src/index.ts';
 import { WorkerTessellator } from '../packages/tess-workers/src/node.ts';
 import { corpusFiles, repoDir } from './corpus.ts';
+import { hostLine } from '../scripts/host.ts';
+
+console.log(await hostLine());
 
 const SKIP = /trj2_as1-id-203\.stp\.absr\.891\./;
 /**

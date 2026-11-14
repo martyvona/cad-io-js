@@ -29,6 +29,7 @@ import { differences, walk } from '../packages/step-export/test/compare.ts';
 import { readBack } from '../packages/step-export/test/readback.ts';
 import { corpusFiles, partSubset, plantedPart, shortName } from './corpus.ts';
 import { runFiles, type FileCheck } from './runner.ts';
+import { hostLine } from '../scripts/host.ts';
 
 // Medium, the default, as users get it.
 const { linearDeflection: LINEAR_MM, angularDeflection: ANGULAR } = meshDeflections({ profile: 'medium' });
@@ -270,6 +271,7 @@ export const check: FileCheck<undefined, Result> = {
 };
 
 if (import.meta.main) {
+  console.log(await hostLine());
   const all = fresh();
   await runFiles(import.meta.url, check, corpusFiles(process.argv[2]).map((f) => ({ path: f, job: undefined })),
     process.argv.slice(2), (f, out) => {

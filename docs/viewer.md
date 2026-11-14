@@ -87,6 +87,7 @@ Notes for work on `packages/viewer`: its design rules, how its parts fit, and th
 - Picking is checked against an independent oracle (an ID render, each part a flat colour, against `pickAt` on a grid) on several models, including one in metres.
 - Reading pixels back (`gl.readPixels` after `composer.render()`) is reliable only after a few real animation frames since the scene changed; wait three and render twice.
 - Headless Chrome takes the system's colour scheme: don't expect one theme's exact colours.
+- Checks hold on any host: fonts (macOS's system font, Noto Sans on Debian) and frame times (SwiftShader on a slower thread) differ, so a check's premise is made by its fixture, not found in the host's metrics. The tree's scroll check names a row three levels down long enough to be the widest in any font (`as1-long-name.stp`), and checks the premise (not drawn at first); the real-time replay check times the cut pause from the frame the drag ended in, since a replay runs late by its events' waits and doesn't catch up (on a 2018 i9 the drag ended 150 ms late). `ONLY=<name>,...` runs some checks alone.
 
 ## Libraries and the browser
 

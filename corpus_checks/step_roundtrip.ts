@@ -40,6 +40,7 @@ import { differences, walk } from '../packages/step-export/test/compare.ts';
 import { AreaOracle, trusted } from './area_oracle.ts';
 import { corpusDir, corpusFiles, partSubset, plantedPart, shortName } from './corpus.ts';
 import { addInto, runFiles, type FileCheck } from './runner.ts';
+import { hostLine } from '../scripts/host.ts';
 
 const EXAMPLES = 3;
 const plant = process.env.PLANT;
@@ -622,6 +623,7 @@ export const check: FileCheck<undefined, Result> = {
 };
 
 if (import.meta.main) {
+  console.log(await hostLine());
   maxMB = Number(process.argv[3] ?? 1000);
   const all = fresh();
   const t = performance.now();

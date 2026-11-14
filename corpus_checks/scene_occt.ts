@@ -16,6 +16,7 @@ import { OcctTessellator } from '../packages/tess-occt/src/index.ts';
 import { StepTessellator } from '../packages/step-export/src/index.ts';
 import { corpusDir, corpusFiles, shortName } from './corpus.ts';
 import { addInto, runFiles, type FileCheck } from './runner.ts';
+import { hostLine } from '../scripts/host.ts';
 
 const require = createRequire(import.meta.url);
 // (OCCT's own messages, such as its reader's ERR counts, to standard error with the progress, not into the log.)
@@ -190,6 +191,7 @@ export const check: FileCheck<undefined, Tallies> = {
 };
 
 if (import.meta.main) {
+  console.log(await hostLine());
   const all = fresh(), { totals, rows } = all;
   await runFiles(import.meta.url, check, corpusFiles(process.argv[2]).map((f) => ({ path: f, job: undefined })),
     process.argv.slice(2), (f, out) => {

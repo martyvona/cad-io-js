@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { addInto, runFiles } from '../corpus_checks/runner.ts';
+import { addInto, division, runFiles } from '../corpus_checks/runner.ts';
 import { check } from './runner-fixture.ts';
 
 const FIXTURE = new URL('./runner-fixture.ts', import.meta.url).href;
@@ -90,3 +90,30 @@ test('addInto: numbers, pairs element by element, rows appended, maps by key, ob
   assert.throws(() => addInto({ b: true }, { b: false }), /aren't tallies/);
   assert.throws(() => addInto({ n: 1 }, { n: [1] } as never), /aren't tallies/);
 });
+
+test('division: a third of the threads as children, fewer where memory is short; CHILDREN and MESH_WORKERS override',
+  () => {
+    const GiB = 2 ** 30, saved = { c: process.env.CHILDREN, m: process.env.MESH_WORKERS };
+    delete process.env.CHILDREN;
+    delete process.env.MESH_WORKERS;
+    try {
+      // An Apple M4 (10 threads), a 14-core i9 with 28, 8 threads (a third rounded down), a 64-thread machine short of
+      // memory, the smallest.
+      assert.deepEqual(division(10, 16 * GiB), { children: 3, meshWorkers: 2 });
+      assert.deepEqual(division(28, 62.5 * GiB), { children: 9, meshWorkers: 2 });
+      assert.deepEqual(division(8, 16 * GiB), { children: 2, meshWorkers: 2 });
+      assert.deepEqual(division(64, 32 * GiB), { children: 8, meshWorkers: 6 });
+      assert.deepEqual(division(64, 31.9 * GiB), { children: 7, meshWorkers: 8 });
+      assert.deepEqual(division(1, 1 * GiB), { children: 1, meshWorkers: 1 });
+      process.env.CHILDREN = '0';
+      assert.deepEqual(division(28, 62.5 * GiB), { children: 0, meshWorkers: 26 });
+      process.env.CHILDREN = '5';
+      process.env.MESH_WORKERS = '7';
+      assert.deepEqual(division(28, 62.5 * GiB), { children: 5, meshWorkers: 7 });
+    } finally {
+      for (const [k, v] of [['CHILDREN', saved.c], ['MESH_WORKERS', saved.m]] as const) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
+  });

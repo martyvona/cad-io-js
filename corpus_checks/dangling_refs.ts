@@ -5,6 +5,9 @@
 import fs from 'node:fs';
 import { importStep } from '../packages/step-import/src/index.ts';
 import { corpusFiles, shortName } from './corpus.ts';
+import { hostLine } from '../scripts/host.ts';
+
+console.log(await hostLine());
 
 const totals = { files: 0, filesWith: 0, parts: 0, partsWith: 0, beyond: 0 };
 const t0 = Date.now();

@@ -4,6 +4,9 @@ import fs from 'node:fs';
 import { parseStep, type Value } from '../packages/step-parser/src/index.ts';
 import { Schema, dictionaryForFileSchema, type SchemaDictionary } from '../packages/step-schemas/src/index.ts';
 import { corpusFiles, repoDir, shortName as short } from './corpus.ts';
+import { hostLine } from '../scripts/host.ts';
+
+console.log(await hostLine());
 
 const schemas: Record<string, Schema> = {};
 for (const id of ['ap203', 'ap203e2', 'ap214e3', 'ap242'])

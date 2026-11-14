@@ -44,6 +44,7 @@ import { WorkerTessellator } from '../packages/tess-workers/src/node.ts';
 import { cachedMesher, reportMeshCache } from './mesh-cache.ts';
 import { corpusFiles, shortName } from './corpus.ts';
 import { runFiles, type FileCheck } from './runner.ts';
+import { hostLine } from '../scripts/host.ts';
 
 // The process's own meshing pool and workers.
 let tess: WorkerTessellator, workers = 1;
@@ -236,6 +237,7 @@ export const check: FileCheck<undefined, Result> = {
 };
 
 if (import.meta.main) {
+  console.log(await hostLine());
   const maxBytes = Number(process.argv[3] ?? 2) * 1e6;
   const all = corpusFiles(process.argv[2]);
   const list = all.filter((f) => fs.statSync(f).size <= maxBytes);

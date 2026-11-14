@@ -27,6 +27,7 @@ import { StepTessellator } from '../packages/step-export/src/index.ts';
 import { AreaOracle, trusted, type OracleResult } from './area_oracle.ts';
 import { corpusFiles, partSubset, plantedPart, shortName } from './corpus.ts';
 import { addInto, runFiles, type FileCheck } from './runner.ts';
+import { hostLine } from '../scripts/host.ts';
 
 // Medium, the default, as users get it.
 const { linearDeflection: LINEAR_MM, angularDeflection: ANGULAR } = meshDeflections({ profile: 'medium' });
@@ -223,6 +224,7 @@ export const check: FileCheck<undefined, Tallies> = {
 };
 
 if (import.meta.main) {
+  console.log(await hostLine());
   const all = fresh();
   await runFiles(import.meta.url, check, corpusFiles(process.argv[2]).map((f) => ({ path: f, job: undefined })),
     process.argv.slice(2), (f, out) => {

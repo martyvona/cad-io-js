@@ -3,6 +3,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { parseStep } from '../packages/step-parser/src/index.ts';
 import { corpusDir } from './corpus.ts';
+import { hostLine } from '../scripts/host.ts';
+
+console.log(await hostLine());
+
 // Usage: node corpus_checks/parser_bench.ts gkv311-opencascade-dataset/step/bug31711.stp ... (paths relative to
 // test_corpus/third_party)
 for (const f of process.argv.slice(2)) {

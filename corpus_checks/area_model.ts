@@ -14,6 +14,7 @@ import { importStep } from '../packages/step-import/src/index.ts';
 import { AreaOracle, modelFaceArea, trusted } from './area_oracle.ts';
 import { corpusFiles, plantedPart, shortName } from './corpus.ts';
 import { runFiles, type FileCheck } from './runner.ts';
+import { hostLine } from '../scripts/host.ts';
 
 // The process's own size limit (from its command line).
 let maxMB = 1000;
@@ -118,6 +119,7 @@ export const check: FileCheck<undefined, Result> = {
 };
 
 if (import.meta.main) {
+  console.log(await hostLine());
   maxMB = Number(process.argv[3] ?? 1000);
   const all = fresh();
   await runFiles(import.meta.url, check, corpusFiles(process.argv[2]).map((f) => ({ path: f, job: undefined })),

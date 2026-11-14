@@ -7,6 +7,9 @@ import { rowCount, validateBrep } from '../packages/cad-brep/src/index.ts';
 import { instances, partInstances, validate } from '../packages/cad-scene/src/index.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
 import { corpusFiles, shortName as short } from './corpus.ts';
+import { hostLine } from '../scripts/host.ts';
+
+console.log(await hostLine());
 
 const problems = new Map<string, { n: number; ex: string }>();
 const note = (k: string, ex: string, n = 1) => { const p = problems.get(k); if (p) p.n += n;

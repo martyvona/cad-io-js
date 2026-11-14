@@ -27,9 +27,11 @@ import { StepTessellator } from 'step-export';
 import { importStep } from 'step-import';
 import { OcctTessellator } from 'tess-occt';
 import { writeCatalog } from '../../../scripts/demo-catalog.ts';
+import { hostLine } from '../../../scripts/host.ts';
 import { main } from '../bin/viewer.ts';
 import { defaultChrome, launchChrome } from '../server/headless.ts';
 
+console.log(await hostLine());
 const repo = path.resolve(import.meta.dirname, '../../..');
 const chrome = process.argv[2] ?? defaultChrome();
 const step = path.join(repo, 'test_corpus/third_party/gkv311-opencascade-dataset/step/as1-oc-214-mat.stp');
@@ -98,6 +100,16 @@ const threemfBytes = (o: ThreeMfOptions) => {
 fs.writeFileSync(path.join(content, 'as1.3mf'), threemfBytes({ extras: true }));
 fs.writeFileSync(path.join(content, 'as1-plain.3mf'), threemfBytes({}));
 fs.copyFileSync(step, path.join(content, 'as1.stp'));
+// as1 with its nut-bolt assemblies' nut (its occurrence: the tree's name for it, three levels down, so no row of it is
+// drawn before the tree is expanded, and the first below the first screen once it is) named long enough to be the
+// widest row in any font (the tree check).
+const longName = 'nut_3-with-a-name-long-enough-to-be-the-widest-row-in-any-font';
+{
+  const text = fs.readFileSync(step, 'latin1'), occurrence = "NEXT_ASSEMBLY_USAGE_OCCURRENCE('6','nut_3'";
+  if (text.split(occurrence).length !== 2) throw new Error(`as1: not one ${occurrence}`);
+  fs.writeFileSync(path.join(content, 'as1-long-name.stp'),
+    text.replace(occurrence, `NEXT_ASSEMBLY_USAGE_OCCURRENCE('6','${longName}'`), 'latin1');
+}
 // as1 with an author of its own beside a placeholder, and a model with no metadata but its format (Model Details).
 fs.writeFileSync(path.join(content, 'as1-authored.stp'), fs.readFileSync(step, 'latin1').replace("('Author')",
   "('Ann B','none')"), 'latin1');
@@ -2986,10 +2998,11 @@ await check('tree width', async () => {
   return undefined;
 });
 // The tree scrolls sideways when names don't fit: rows as wide as their content (no ellipsis), all as wide as the
-// widest drawn so far (scrolling down and back doesn't change the range); with room enough, no horizontal scroll
-// bar, and rows as wide as the panel.
+// widest drawn so far (scrolling down to a wider row widens the range, and back doesn't narrow it); with room enough,
+// no horizontal scroll bar, and rows as wide as the panel. The widest row, the nut's long name, is one the tree
+// doesn't draw until scrolled to, whatever the font.
 await check('tree scrolls sideways', async () => {
-  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1-long-name.stp')}&check`, `(async () => {
     await cadViewer.ready;
     await cadViewer.idle();
     const frames = async () => { for (let k = 0; k < 3; k++) await new Promise((r) => requestAnimationFrame(r)); };
@@ -3000,7 +3013,8 @@ await check('tree scrolls sideways', async () => {
         || n.getBoundingClientRect().right > r.getBoundingClientRect().right; }).length;
       return { overflow: scroller.scrollWidth > scroller.clientWidth, clipped, rows: rows.length,
         widths: new Set(rows.map((r) => r.offsetWidth)).size, range: scroller.scrollWidth,
-        fill: rows.every((r) => r.offsetWidth >= scroller.clientWidth) };
+        fill: rows.every((r) => r.offsetWidth >= scroller.clientWidth),
+        long: rows.some((r) => r.querySelector('.tree-name').textContent.includes(${JSON.stringify(longName)})) };
     };
     ui.setTree({ open: true, detail: true });
     ui.panel().expandAll();
@@ -3011,25 +3025,29 @@ await check('tree scrolls sideways', async () => {
     await frames();
     const scrolled = scroller.scrollLeft > 0;
     // Down the tree and back: the widest so far kept.
-    const ranges = [narrow.range];
+    const ranges = [narrow.range], longs = [narrow.long];
     for (const top of [scroller.scrollHeight / 2, scroller.scrollHeight, 0]) {
       scroller.scrollTop = top;
       await frames();
-      ranges.push(look().range);
+      const l = look();
+      ranges.push(l.range);
+      longs.push(l.long);
     }
     document.documentElement.style.setProperty('--side', '900px');
     await frames();
-    return { narrow, scrolled, ranges, wide: look() };
+    return { narrow, scrolled, ranges, longs, wide: look() };
   })()`) as { after: { narrow: { overflow: boolean; widths: number; clipped: number; rows: number };
-    scrolled: boolean; ranges: number[];
+    scrolled: boolean; ranges: number[]; longs: boolean[];
     wide: { overflow: boolean; widths: number; clipped: number; fill: boolean } } };
   const a = r.after;
   const j = JSON.stringify(a);
   expect(a.narrow.rows > 10 && a.narrow.overflow && a.scrolled && a.narrow.clipped === 0 && a.narrow.widths === 1,
     `narrow: ${j}`);
+  // (The fixture: the long name not drawn at first, drawn once scrolled to.)
+  expect(!a.longs[0] && a.longs.some((x) => x), `the long name drawn only when scrolled to: ${j}`);
   const rs = a.ranges;
-  expect(rs.every((x, i) => i === 0 || x >= rs[i - 1]!) && new Set(rs).size > 1 && rs.at(-1) === Math.max(...rs),
-    `the range kept while scrolling down and back: ${j}`);
+  expect(rs.at(-1)! > rs[0]! && rs.every((x, i) => i === 0 || x >= rs[i - 1]!) && rs.at(-1) === Math.max(...rs),
+    `the range widened by the long name and kept while scrolling down and back: ${j}`);
   expect(!a.wide.overflow && a.wide.clipped === 0 && a.wide.widths === 1 && a.wide.fill, `wide: ${j}`);
   return undefined;
 });
@@ -4925,12 +4943,17 @@ await check('replay in real time', async () => {
   // The first event no sooner than recorded (later by the replay's own start).
   expect(times.edgesOff >= 90 && times.edgesOff <= 700 && close(times.edgesOn - times.edgesOff, 500),
     `the gaps kept: ${j}`);
-  // The drag from 1600 to 2400 ms, the pause after it cut from 5.6 s to 1 s: 2.8 s after the second change, not 7.4.
-  expect(close(times.ao - times.edgesOn, 2800), `the pause cut: ${j}`);
+  // The drag from 1600 to 2400 ms, the pause after it cut from 5.6 s to 1 s: 1 s from the frame the drag ended in (the
+  // camera where it ended), not 5.6 s. (From there: the replay doesn't catch up, so the drag's own events, each waiting
+  // for the viewer, may end it later than recorded, by more on a slower host.)
+  const dist = (p: number[], q: number[]) => Math.hypot(...p.map((v, i) => v - q[i]!));
+  const ended = rel(a.log.find((l) => l[1] === 'camera' && l[0] - a.t0 > times.edgesOn &&
+    dist(l[2] as number[], a.to) < 1e-6)?.[0]);
+  expect(ended - times.edgesOn >= 1800 - 150 && close(times.ao - ended, 1000), `the pause cut: ${JSON.stringify(
+    { ended })} ${j}`);
   // The drag, 1000 to 1800 ms after the second change.
   const drag = a.log.filter((l) => l[1] === 'camera' && l[0] - a.t0 > times.edgesOn + 1100 &&
     l[0] - a.t0 < times.edgesOn + 1700);
-  const dist = (p: number[], q: number[]) => Math.hypot(...p.map((v, i) => v - q[i]!));
   const between = drag.filter((l) => dist(l[2] as number[], a.from) > 1e-3 && dist(l[2] as number[], a.to) > 1e-3);
   expect(drag.length > 10 && between.length > drag.length * 0.8 && drag.every((l) => l[3] === true),
     `the camera turning through the drag, the pointer shown (${between.length} of ${drag.length} frames): ${j}`);

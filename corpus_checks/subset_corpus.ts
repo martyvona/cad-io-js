@@ -8,6 +8,9 @@ import { isDeepStrictEqual } from 'node:util';
 import { buildSubset, extractSemantics, listItems, makeList, openModel, parseStep, type Instance,
   type Value } from '../packages/step-parser/src/index.ts';
 import { corpusFiles, shortName as short } from './corpus.ts';
+import { hostLine } from '../scripts/host.ts';
+
+console.log(await hostLine());
 
 const problems = new Map<string, { n: number; ex: string }>();
 const note = (k: string, ex: string) => { const p = problems.get(k); if (p) p.n++;

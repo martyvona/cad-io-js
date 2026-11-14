@@ -10,6 +10,7 @@ import type { Curve } from 'cad-brep';
 import type { TessellationRequest, TessellationResult } from 'cad-scene';
 import { StepTessellator } from 'step-export';
 import { importStep } from 'step-import';
+import { WorkerTessellator } from 'tess-workers';
 import { box, MODELS } from '../../cad-brep/test/models.ts';
 import { OcctTessellator } from '../src/index.ts';
 
@@ -240,20 +241,31 @@ const corpus = [['gkv311-opencascade-dataset/step/as1-oc-214-mat.stp', 5],
 const corpusPath = (f: string) => path.join(root, 'test_corpus/third_party', f);
 test('the native route on corpus files: every part meshed as the STEP route meshes it', {
   skip: skip || (corpus.every(([f]) => fs.existsSync(corpusPath(f))) ? false : 'corpus not fetched') }, async () => {
-  const { step, native } = await both();
-  for (const [f, parts] of corpus) {
-    const { scene } = await importStep(new Uint8Array(fs.readFileSync(corpusPath(f))));
-    let n = 0;
-    for (const p of scene.parts) {
-      if (!p.brep) continue;
-      const req = { ...request(new Uint8Array(p.brep.model.buffer)), origin: p.origin };
-      // (To 1e-5: where healing adds an edge at a sphere's pole, last-bit differences between the model and OCCT's
-      // reading of its text move the p-curves' ends there, u being undefined at a pole; nist_ctc_04 face #11486.)
-      same(await step.tessellate(req), await native.tessellate(req), `${path.basename(f)} part #${p.sources[0]!.id}`,
-        1e-5, req.data);
-      n++;
+  // Every part at once in a pool the size of the machine (the native route's backend takes STEP too, so one pool
+  // serves both routes): one after another on this thread, this test alone outlasts the rest of npm test.
+  const pool = new WorkerTessellator({ backend: { module: import.meta.resolve('tess-occt'), export: 'OcctTessellator' },
+    timeoutMs: 0 });
+  await pool.init();
+  try {
+    const step = new StepTessellator(pool);
+    const checks: Promise<void>[] = [];
+    for (const [f, parts] of corpus) {
+      const { scene } = await importStep(new Uint8Array(fs.readFileSync(corpusPath(f))));
+      let n = 0;
+      for (const p of scene.parts) {
+        if (!p.brep) continue;
+        const req = { ...request(new Uint8Array(p.brep.model.buffer)), origin: p.origin };
+        // (To 1e-5: where healing adds an edge at a sphere's pole, last-bit differences between the model and OCCT's
+        // reading of its text move the p-curves' ends there, u being undefined at a pole; nist_ctc_04 face #11486.)
+        checks.push(Promise.all([step.tessellate(req), pool.tessellate(req)]).then(([a, b]) => same(a, b,
+          `${path.basename(f)} part #${p.sources[0]!.id}`, 1e-5, req.data)));
+        n++;
+      }
+      assert.equal(n, parts, f);
     }
-    assert.equal(n, parts, f);
+    await Promise.all(checks);
+  } finally {
+    pool.dispose();
   }
 });
 

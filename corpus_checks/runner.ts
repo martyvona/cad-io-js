@@ -6,15 +6,17 @@
 // The largest files are handed out first, so the slowest start early and the rest fill in around them (the log is
 // the same: results still go to the check in file order).
 //
-// The machine is divided so no thread waits for a core: CHILDREN children (default 3), each with MESH_WORKERS meshing
-// workers of its own (default: what's left of the cores but one, shared out). A part can still take longer than with
-// one check alone: an Apple M4's 10 cores include 6 efficiency cores, slower than the 4 a lone meshing worker would
-// get (bug24024_slow_import.stp's largest part took 29 s in one run, 64 s in another). So timeouts need room: the
-// pool's default 120 s, not less (that part timed out at 60 s). CHILDREN=0 runs every file in the main process, as
-// before (for debugging and timing).
+// The machine is divided so no thread waits for a core: CHILDREN children, each with MESH_WORKERS meshing workers of
+// its own (default: what's left of the threads but one, shared out). CHILDREN defaults to a third of the hardware
+// threads (more gain little: the files' main-thread work and the largest parts set the time), and to no more than fit
+// in memory at CHILD_MEMORY each. A part can still take longer than with one check alone: an Apple M4's 10 cores
+// include 6 efficiency cores, slower than the 4 a lone meshing worker would get (bug24024_slow_import.stp's largest
+// part took 29 s in one run, 64 s in another). So timeouts need room: the pool's default 120 s, not less (that part
+// timed out at 60 s). CHILDREN=0 runs every file in the main process (for debugging and timing).
 import { fork, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
+import { usableMemory } from '../scripts/host.ts';
 import { shortName } from './corpus.ts';
 
 /** A check's per-file part, run in the children. */
@@ -27,12 +29,19 @@ export interface FileCheck<J, R> {
   teardown?(): void | Promise<void>;
 }
 
-/** How the machine is divided (above). */
-export function division(): { children: number; meshWorkers: number } {
-  const cores = os.availableParallelism();
-  const children = Math.max(0, Number(process.env.CHILDREN ?? 3));
+/**
+ * The memory a child is given room for: roundtrip_corpus's children, the heaviest, peak at 2-3 GiB but for its largest
+ * file (5.75 GiB), and 9 of them used at most 21 GiB together.
+ */
+export const CHILD_MEMORY = 4 * 2 ** 30;
+
+/** How the machine is divided (above): `threads` and `memory` (bytes) the host's, by default this one's. */
+export function division(threads = os.availableParallelism(), memory = usableMemory()):
+  { children: number; meshWorkers: number } {
+  const fallback = Math.max(1, Math.min(Math.floor(threads / 3), Math.floor(memory / CHILD_MEMORY)));
+  const children = Math.max(0, Number(process.env.CHILDREN ?? fallback));
   const meshWorkers = Number(process.env.MESH_WORKERS ?? Math.max(1,
-    Math.floor((cores - 1 - Math.max(1, children)) / Math.max(1, children))));
+    Math.floor((threads - 1 - Math.max(1, children)) / Math.max(1, children))));
   return { children, meshWorkers };
 }
 
@@ -44,6 +53,7 @@ export function division(): { children: number; meshWorkers: number } {
 export async function runFiles<J, R>(moduleUrl: string, check: FileCheck<J, R>, files: { path: string; job: J }[],
   args: string[], merge: (path: string, r: { result: R } | { error: string }) => void): Promise<void> {
   const { children, meshWorkers } = division();
+  const peak = new Peak();
   if (children === 0) {
     await check.setup?.({ meshWorkers, args });
     for (const f of files) {
@@ -55,6 +65,8 @@ export async function runFiles<J, R>(moduleUrl: string, check: FileCheck<J, R>, 
       }
     }
     await check.teardown?.();
+    peak.note(process.resourceUsage().maxRSS * 1024, files.at(-1)?.path);
+    peak.report(children, meshWorkers);
     return;
   }
   const done: ({ result: R } | { error: string } | undefined)[] = new Array(files.length);
@@ -84,8 +96,14 @@ export async function runFiles<J, R>(moduleUrl: string, check: FileCheck<J, R>, 
         process.stderr.write(`${shortName(files[current]!.path)}\n`);
         c.send({ type: 'file', path: files[current]!.path, job: files[current]!.job });
       };
-      c.on('message', (m: { type: 'ready' } | { type: 'result'; result: R } | { type: 'error'; error: string }) => {
+      c.on('message', (m: { type: 'ready' } | { type: 'stats'; maxRss: number }
+        | { type: 'result'; result: R; maxRss: number } | { type: 'error'; error: string; maxRss: number }) => {
+        if (m.type === 'stats') {
+          peak.note(m.maxRss);
+          return;
+        }
         if (m.type !== 'ready') {
+          peak.note(m.maxRss, files[current]!.path);
           done[current] = m.type === 'result' ? { result: m.result } : { error: m.error };
           current = -1;
           deliver();
@@ -108,6 +126,25 @@ export async function runFiles<J, R>(moduleUrl: string, check: FileCheck<J, R>, 
     if (!files.length) resolve();
   });
   deliver();
+  peak.report(children, meshWorkers);
+}
+
+/** The largest peak resident memory of a process running files, and the file it rose to it on, for sizing CHILDREN. */
+class Peak {
+  bytes = 0;
+  file: string | undefined;
+  /** A process's peak so far, after `file` (a rise to a new peak is put down to it). */
+  note(bytes: number, file?: string) {
+    if (bytes > this.bytes) {
+      this.bytes = bytes;
+      if (file !== undefined) this.file = file;
+    }
+  }
+  report(children: number, meshWorkers: number) {
+    process.stderr.write(`runner: ${children ? `${children} children, ${meshWorkers} meshing workers each; a ` +
+      `child's` : `in process, ${meshWorkers} meshing workers; the`} peak memory ` +
+      `${(this.bytes / 2 ** 30).toFixed(2)} GiB${this.file ? ` (after ${shortName(this.file)})` : ''}\n`);
+  }
 }
 
 /**

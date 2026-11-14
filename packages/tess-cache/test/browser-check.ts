@@ -1,6 +1,7 @@
 // The IndexedDB store in a real browser, which `npm test` can't reach: serves the repo's TypeScript with its types
 // stripped, runs the store's scenarios in headless Chrome, and prints what the page reports.
-// Run by hand: node packages/tess-cache/test/browser-check.ts [path to Chrome]
+// Run by hand: node packages/tess-cache/test/browser-check.ts [path to Chrome; default $CHROME, else
+// headless.ts's per-platform default]
 
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -8,9 +9,10 @@ import http from 'node:http';
 import { stripTypeScriptTypes } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
+import { defaultChrome } from '../../viewer/server/headless.ts';
 
 const root = path.resolve(import.meta.dirname, '../../..');
-const chrome = process.argv[2] ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const chrome = process.argv[2] ?? defaultChrome();
 
 const page = `<!doctype html><meta charset="utf-8"><script type="module">
 import { CachedTessellator, FORMAT_TAG, IndexedDbStore } from '/packages/tess-cache/src/browser.ts';
@@ -209,9 +211,10 @@ const server = http.createServer((q, s) => {
   const file = path.join(root, url.pathname);
   if (!file.startsWith(root + path.sep) || !file.endsWith('.ts') || !fs.existsSync(
     file)) return void s.writeHead(404).end();
-  // The one bare specifier the sources import as a value; a bundler resolves it in an application.
-  const js = stripTypeScriptTypes(fs.readFileSync(file, 'utf8')).replace(/from 'cad-scene'/g,
-    "from '/packages/cad-scene/src/index.ts'");
+  // Bare specifiers of workspace packages (cad-scene, cad-brep, ...) to their sources, as a bundler resolves them.
+  const js = stripTypeScriptTypes(fs.readFileSync(file, 'utf8')).replace(/from '([a-z][\w-]*)'/g,
+    (m, name: string) => fs.existsSync(path.join(root, 'packages', name, 'src/index.ts'))
+      ? `from '/packages/${name}/src/index.ts'` : m);
   s.writeHead(200, { 'content-type': 'text/javascript' }).end(js);
 });
 

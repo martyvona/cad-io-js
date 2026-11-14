@@ -28,6 +28,7 @@ import { WorkerTessellator } from '../packages/tess-workers/src/node.ts';
 import { stepPartBytes } from '../packages/step-export/src/index.ts';
 import { corpusFiles, plantedPart, shortName } from './corpus.ts';
 import { runFiles, type FileCheck } from './runner.ts';
+import { hostLine } from '../scripts/host.ts';
 
 const { linearDeflection: LINEAR_MM, angularDeflection: ANGULAR } = meshDeflections({ profile: 'medium' });
 const PLANT_EVERY = 10;
@@ -383,6 +384,7 @@ export const check: FileCheck<undefined, Result> = {
 };
 
 if (import.meta.main) {
+  console.log(await hostLine());
   const all = fresh();
   await runFiles(import.meta.url, check, corpusFiles(process.argv[2]).map((f) => ({ path: f, job: undefined })),
     process.argv.slice(2), (f, out) => {

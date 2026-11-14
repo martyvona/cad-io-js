@@ -18,6 +18,9 @@ import { point } from '../packages/step-parser/src/extract/placement.ts';
 import { Reader } from '../packages/step-parser/src/extract/reader.ts';
 import { Units } from '../packages/step-parser/src/extract/units.ts';
 import { corpusDir, corpusFiles, shortName } from './corpus.ts';
+import { hostLine } from '../scripts/host.ts';
+
+console.log(await hostLine());
 
 const require = createRequire(import.meta.url);
 const loadOcct = () => require(path.join(corpusDir, 'occt-import-js/dist/occt-import-js.js'))();

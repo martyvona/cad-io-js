@@ -71,9 +71,9 @@ Notes for working on cad-io-js: how work is done here, the decisions every part 
 - **No upstream reports or forks** of any project: workarounds go in our wrappers, understood OCCT bugs in `occt_patches/`.
 - **Fixes for imperfect input go into the in-memory scene and meshes** (the importer, `tessellateScene`) so every consumer gets them, never into an exporter; each with a diagnostic and an opt-out. The library is for loading CAD data into memory with names, orientations, hierarchy and transforms recovered as well as possible, not only for converting files.
 - **Ask before deleting** anything you didn't just create; prefer moving to the scratchpad. **Don't search the whole disk.**
-- **Benchmarks only with low power mode off** and the CPU otherwise idle: check the mode in effect with `pmset -g | grep -i powermode` (`lowpowermode 0`; with High Power Mode, `powermode` 0 automatic, 1 low, 2 high), not the power source; record it with timings; compare A and B only back to back. Low power mode about halves the speed. After mutation runs with hanging fake backends, look for stray `node --test` processes.
+- **Benchmarks in the host's standard power state**, the CPU otherwise idle: `node scripts/host.ts` prints the host's class, power state, load and speed (the line every log with timings starts with; record it with any other timings). macOS: low power mode off (`lowpowermode 0`; with High Power Mode, `powermode` 0 automatic, 1 low, 2 high), checked by the mode in effect, not the power source; low power mode about halves the speed. Linux desktop: intel_pstate's `powersave` governor (dynamic, the default) with turbo on; not `performance`. Compare A and B only back to back, on one host. After mutation runs with hanging fake backends, look for stray `node --test` processes.
 - Long corpus runs print progress on standard error and run in the background; don't edit a script while it runs (run a copy). Edit scripts that assert several replacements write nothing if one fails: check the result.
-- The shell is zsh: an unquoted `$VAR` of several words isn't split, `echo ====` is an error, an unmatched glob is an error.
+- The shell is zsh on macOS (an unquoted `$VAR` of several words isn't split, `echo ====` is an error, an unmatched glob is an error), bash on Linux.
 
 ## History
 

@@ -17,6 +17,7 @@ import { WorkerTessellator } from '../packages/tess-workers/src/node.ts';
 import { cachedMesher, reportMeshCache } from './mesh-cache.ts';
 import { corpusFiles, shortName } from './corpus.ts';
 import { addInto, runFiles, type FileCheck } from './runner.ts';
+import { hostLine } from '../scripts/host.ts';
 
 // Coarse: these checks only consume meshes, which need not be fine to check what's done with them.
 const MESHING = meshDeflections({ profile: 'coarse' });
@@ -144,6 +145,7 @@ export const check: FileCheck<undefined, Tallies> = {
 };
 
 if (import.meta.main) {
+  console.log(await hostLine());
   const maxMb = Number(process.argv[3] ?? 2);
   const all = fresh(), { totals } = all;
   const t0 = Date.now();

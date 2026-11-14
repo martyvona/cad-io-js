@@ -8,6 +8,9 @@
 import fs from 'node:fs';
 import { parseStep, type Value } from '../packages/step-parser/src/index.ts';
 import { corpusFiles, shortName } from './corpus.ts';
+import { hostLine } from '../scripts/host.ts';
+
+console.log(await hostLine());
 
 /** The curve and surface types tallied: Part 42's, as AP242 includes them, including those no corpus file uses. */
 const GEOMETRY = new Set([

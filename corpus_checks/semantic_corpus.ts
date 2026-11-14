@@ -4,6 +4,9 @@
 import fs from 'node:fs';
 import { extractSemantics, openModel, parseStep } from '../packages/step-parser/src/index.ts';
 import { corpusFiles, shortName as short } from './corpus.ts';
+import { hostLine } from '../scripts/host.ts';
+
+console.log(await hostLine());
 
 const tally = new Map<string, { n: number; files: Set<string>; ex: string }>();
 const note = (k: string, file: string, ex: string, n = 1) => {

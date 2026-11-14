@@ -120,8 +120,9 @@ PDFS=(jt/*.pdf qif/standard/*.pdf iges/*.pdf)
 missing=0
 for pdf in "${PDFS[@]}"; do [[ -f ${pdf%.pdf}.txt ]] || missing=1; done
 [[ $missing == 1 ]] || exit 0
-if ! python3 -c 'import venv' 2>/dev/null; then
-  echo "== no python3 with venv; text versions of the PDFs skipped (see env.sh)" >&2
+# Debian's python3 has the venv module without ensurepip (python3-venv), so venv would make a .venv without pip.
+if ! python3 -c 'import venv, ensurepip' 2>/dev/null; then
+  echo "== no python3 with venv and ensurepip; text versions of the PDFs skipped (see env.sh)" >&2
   exit 0
 fi
 if [[ ! -x .venv/bin/python ]] ||

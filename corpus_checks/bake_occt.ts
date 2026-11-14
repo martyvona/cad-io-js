@@ -18,6 +18,9 @@ import type { TessellationResult } from '../packages/cad-scene/src/index.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
 import { OcctTessellator } from '../packages/tess-occt/src/index.ts';
 import { corpusFiles, plantedPart, shortName } from './corpus.ts';
+import { hostLine } from '../scripts/host.ts';
+
+console.log(await hostLine());
 
 const maxMB = Number(process.argv[3] ?? 3);
 const plant = process.env.PLANT;

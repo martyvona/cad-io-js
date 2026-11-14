@@ -7,6 +7,10 @@ import { listItems, parseStep, type Value } from '../packages/step-parser/src/in
 import { Schema, dictionaryForFileSchema, type SchemaDictionary,
   type TypeRef } from '../packages/step-schemas/src/index.ts';
 import { corpusFiles, repoDir, shortName } from './corpus.ts';
+import { hostLine } from '../scripts/host.ts';
+
+console.log(await hostLine());
+
 const schemas: Record<string, Schema> = {};
 for (const id of ['ap203', 'ap203e2', 'ap214e3', 'ap242']) schemas[id] = new Schema(
   JSON.parse(fs.readFileSync(`${repoDir}/packages/step-schemas/dict/${id}.json`, 'utf8')) as SchemaDictionary);

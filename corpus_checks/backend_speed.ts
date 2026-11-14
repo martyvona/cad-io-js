@@ -12,6 +12,9 @@ import { failedPart, meshDeflections } from '../packages/cad-scene/src/index.ts'
 import { importStep } from '../packages/step-import/src/index.ts';
 import { WorkerTessellator } from '../packages/tess-workers/src/node.ts';
 import { corpusFiles, shortName } from './corpus.ts';
+import { hostLine } from '../scripts/host.ts';
+
+console.log(await hostLine());
 
 const maxBytes = Number(process.argv[3] ?? 2) * 1e6;
 const workers = Math.max(1, os.availableParallelism() - 1);

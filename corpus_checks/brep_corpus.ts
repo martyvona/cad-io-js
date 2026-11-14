@@ -12,6 +12,9 @@ import { type BrepData, brepFromJson, brepToJson, COLUMNS, CURVE_KIND, decode, I
 import { buildSubset, closure, readStep } from '../packages/step-parser/src/index.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
 import { corpusFiles, shortName } from './corpus.ts';
+import { hostLine } from '../scripts/host.ts';
+
+console.log(await hostLine());
 
 const maxMB = Number(process.argv[3] ?? 1000);
 const plant = process.env.PLANT;

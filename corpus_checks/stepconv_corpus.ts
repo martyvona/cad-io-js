@@ -38,6 +38,7 @@ import { WorkerTessellator } from '../packages/tess-workers/src/node.ts';
 import { cachedMesher, reportMeshCache, stepconvCacheArgs } from './mesh-cache.ts';
 import { corpusFiles, repoDir, shortName } from './corpus.ts';
 import { runFiles, type FileCheck } from './runner.ts';
+import { hostLine } from '../scripts/host.ts';
 
 const BIN = path.join(repoDir, 'packages/cli/bin/stepconv.ts');
 const FORMATS = ['json', 'glb', 'gltf', '3mf'] as const;
@@ -288,6 +289,7 @@ export const check: FileCheck<{ sample: boolean }, Result> = {
 };
 
 if (import.meta.main) {
+  console.log(await hostLine());
   const maxBytes = Number(process.argv[3] ?? 2) * 1e6;
   const sampleSize = Number(process.argv[4] ?? 20);
   const files = corpusFiles(process.argv[2]).filter((f) => fs.statSync(f).size <= maxBytes);
