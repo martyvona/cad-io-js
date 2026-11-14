@@ -83,15 +83,15 @@ The phases below break these into work that up to four agents can do at once.
 ### How parallel work is organized
 
 - **A phase starts with its contracts.** One agent (the phase's lead) writes the interfaces its lanes meet at (TypeScript types or headers, function signatures, the data each lane produces and consumes, the error and provenance fields) and a stub or reference implementation of each, small and obviously right if slow (a dense sampling where the lane will write a search), committed before the lanes start. Lanes then code against the contract and test against the stubs, so none waits for another.
-- **Each lane owns its files.** A lane works in its own git worktree and branch and touches only its own module and tests; shared files (the package index, `CLAUDE.md`, the README, this note) change only at the merge, by the lead. So lanes merge without conflicts but in the index.
+- **Each lane owns its files.** A lane works in its own checkout (a sandbox, on this machine or another) and branch and touches only its own module and tests; it commits and pushes its branch to GitHub often, so no work lives on one disk, and others fetch it from there; shared files (the package index, `CLAUDE.md`, the README, this note) change only at the merge, by the lead. So lanes merge without conflicts but in the index.
 - **Each lane delivers checked work:** unit tests on shapes with closed-form answers, planted bugs one at a time (survivors closed or explained), a corpus check where the lane's function meets real data, and a provenance header per module (the paper, specification or summary it's written from: "Independence and clean room").
 - **The merge** is the lead's: lanes merged one at a time, the whole test suite and the phase's corpus checks after each, the contract amended where a lane found it wrong (the other lanes told, their work adjusted before they merge).
 - **Lanes are independent by construction, not by hope:** where one lane's output is another's input, the second works from the stub until the merge, and the merge replaces the stub. Phases overlap where noted: a lane of the next phase can start once the contract it needs exists.
 
 ### Phase T0: foundations (one agent)
 
-- **Decisions put to the user first:** the language (TypeScript, or C++ or Rust to WebAssembly) and the rigor (certified bounds, or floating point with error estimates), since every lane depends on them; where derived values live ("The input": A, B or C).
-- **The packages:** a home for the interrogation core, the oracle, analysis and healing, and the tessellator (names and boundaries decided with the user), with their build and test wiring.
+- **Decisions put to the user first:** the rigor (certified bounds, or floating point with error estimates), since every lane depends on it; where derived values live ("The input": A, B or C). The language is decided ("Decisions to make").
+- **The packages:** `tess-cadio` for the tessellator and what it's built on (C++ under `native/`, built to WebAssembly as `tess-occt` and `tess-smlib` are, its TypeScript layers beside it); whether the core, the oracle and healing are packages of their own decided with the user; their build and test wiring.
 - **The shared types:** curve and surface queries (evaluation with derivatives, bounds, inversion results with how sure they are), 2D loops in (u, v), the derived data and its provenance (given, measured, healed), error bounds.
 - **The reference shapes:** a test library of models with closed-form answers (lengths, areas, volumes, normals, parameters) for every curve and surface kind, at several scales, mirrored and moved (the existing `cad-brep` test models extended), and the catalogue of degenerate and ambiguous cases ("Degenerate and ambiguous cases") with the answers each query must give, which every lane tests against.
 - **The result types for degeneracy:** in, out and on; crossings, tangencies and overlap intervals; inversions with their certainty and alternatives; the record of shared decisions.
@@ -243,7 +243,7 @@ Licensing duties to carry: Apache-2.0 dependencies' NOTICE files and patent term
 
 Each to be put to the user when its step comes, with these alternatives and what's measured by then:
 
-- **Language:** TypeScript (one language throughout, no build step, the evaluators already there) or C++ compiled to WebAssembly (speed, operator overloading for interval or exact arithmetic, as the interrogation note says rigorous work suggests; a toolchain we already use for OCCT and SMLib).
+- **Language (decided):** C++ compiled to WebAssembly, with TypeScript layers where they fit, in the package `tess-cadio`: libraries for the subfunctions (Eigen, MPL-2.0, for any significant linear algebra), operator overloading (interval or exact arithmetic), speed, a toolchain we already use for OCCT and SMLib. The alternative was TypeScript throughout (one language, no build step, the evaluators already there).
 - **Rigor:** certified results (interval arithmetic, bounds that hold), or floating point with a posteriori error estimates (faster, simpler, the oracle's way today).
 - **Where healing changes the model:** an opt-in pass producing a healed model (what every consumer and exporter could use), or inside the tessellator only (meshes healed, the model left as the source gives it, as `orientResult` does today).
 - **The triangulator:** our own constrained Delaunay mesher, or a library (Spade, geogram's `CDT_2d`; "Dependencies").
