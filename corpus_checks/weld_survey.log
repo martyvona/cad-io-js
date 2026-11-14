@@ -1,5 +1,5 @@
-files 517 (0 over 1000 MB skipped), 69 s
-part meshes with triangles 3118, triangles 9687663, vertices 6208097 (4870383 after exact welding)
+files 517 (0 over 1000 MB skipped), 35 s
+part meshes with triangles 3118, triangles 9687477, vertices 6208004 (4870290 after exact welding)
 exact, by B-rep free edges: closed, free 12; closed, no free 1127; misoriented, free 5; non-manifold, free 11; non-manifold, no free 15; open, free 1939; open, no free 9
 exact: closed 1139, open 1948, misoriented 5, non-manifold 26; degenerate triangles 4798 in 402 parts
   open, e.g.:
@@ -27,7 +27,7 @@ exact: closed 1139, open 1948, misoriented 5, non-manifold 26; degenerate triang
     gkv311-opencascade-dataset/step/wgehaeuse_surface.stp part 23 (DB_320376): 0 boundary, 0 non-manifold edges, 0 degenerate
     gkv311-opencascade-dataset/step/wgehaeuse_surface.stp part 27 (DB_320384): 0 boundary, 0 non-manifold edges, 0 degenerate
 1e-7 diag, by B-rep free edges: closed, free 13; closed, no free 1127; misoriented, free 23; non-manifold, free 12; non-manifold, no free 16; open, free 1919; open, no free 8
-1e-7 diag: closed 1140, open 1927, misoriented 23, non-manifold 28; degenerate triangles 5707 in 403 parts
+1e-7 diag: closed 1140, open 1927, misoriented 23, non-manifold 28; degenerate triangles 5711 in 403 parts
   open, e.g.:
     gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp part 0 (small_shell): 24 boundary, 0 non-manifold edges, 2 degenerate
     gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp part 1 (big_shell): 24 boundary, 0 non-manifold edges, 0 degenerate
@@ -56,7 +56,7 @@ exact: closed 1139, open 1948, misoriented 5, non-manifold 26; degenerate triang
     gkv311-opencascade-dataset/step/wgehaeuse_surface.stp part 4 (DB_320371): 0 boundary, 0 non-manifold edges, 0 degenerate
     gkv311-opencascade-dataset/step/wgehaeuse_surface.stp part 5 (DB_319531): 0 boundary, 0 non-manifold edges, 0 degenerate
 1e-5 diag, by B-rep free edges: closed, free 8; closed, no free 1122; misoriented, free 25; non-manifold, free 26; non-manifold, no free 22; open, free 1908; open, no free 7
-1e-5 diag: closed 1130, open 1915, misoriented 25, non-manifold 48; degenerate triangles 24657 in 419 parts
+1e-5 diag: closed 1130, open 1915, misoriented 25, non-manifold 48; degenerate triangles 24699 in 419 parts
   open, e.g.:
     gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp part 0 (small_shell): 24 boundary, 0 non-manifold edges, 2 degenerate
     gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp part 1 (big_shell): 24 boundary, 0 non-manifold edges, 0 degenerate

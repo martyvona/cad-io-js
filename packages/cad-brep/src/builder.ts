@@ -465,7 +465,8 @@ export class BrepBuilder {
     // (The geometry, packed as it stands, to evaluate curve-bounded faces' segments' ends.)
     let geo: BrepData | undefined;
     const geometry = () => (geo ??= this.pack());
-    const ends = (e: Edge, pcurve: number | undefined, surface: number): [Point, Point] | undefined => {
+    const ends = (e: Edge, pcurve: number | undefined, surface: number):
+      { points: [Point, Point]; range: [number, number] } | undefined => {
       const d = geometry();
       const at = e.curve !== undefined ? curveEvaluator(d, e.curve) : undefined;
       const pc = e.curve === undefined && pcurve !== undefined ? curveEvaluator(d, pcurve) : undefined;
@@ -485,7 +486,7 @@ export class BrepBuilder {
         return se!.point(q[0]!, q[1]!);
       };
       const out = [point(r[0]), point(r[1])] as [Point, Point];
-      return out.every((q) => q.every(Number.isFinite)) ? out : undefined;
+      return out.every((q) => q.every(Number.isFinite)) ? { points: out, range: [r[0], r[1]] } : undefined;
     };
     const itemFaces = this.items.flatMap((x) => {
       if ('pending' in x) return x.pending.kind === 'face' ? [x.pending.ref] : [];

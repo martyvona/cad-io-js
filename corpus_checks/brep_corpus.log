@@ -1,10 +1,10 @@
 517 files (0 over 1000 MB skipped), 3258 B-rep parts
-import 25.1 s (the models built); the subsets they replace 2.5 s to build
+import 16.2 s (the models built); the subsets they replace 1.6 s to build
 models 107.7 MB, subsets 323.5 MB
 
 ## rows by kind
-     2575 body sheet
-     1236 body solid
+     2552 body sheet
+     1259 body solid
         4 body wire
     24220 coedges with a p-curve
    411860 coedges
@@ -36,8 +36,8 @@ models 107.7 MB, subsets 323.5 MB
        17 item surface
    110376 loop edge
       288 loop vertex
-     3087 shell closed
-      986 shell open
+     1322 shell closed
+     2634 shell open
     17097 surface bspline
      4827 surface cone
     27341 surface cylinder
@@ -47,20 +47,22 @@ models 107.7 MB, subsets 323.5 MB
       625 surface revolution
      2196 surface sphere
      3675 surface torus
-   138832 vertices
+   153507 vertices
 
 ## problems
+    14675 a vertex without an id  e.g. gkv311-opencascade-dataset/step/trj8_c2-ac-214.stp #245; gkv311-opencascade-dataset/step/trj8_c2-ac-214.stp #245; gkv311-opencascade-dataset/step/trj8_c2-ac-214.stp #245
      3182 validate warning: face N (#N): N outer bounds (Part N allows one)  e.g. gkv311-opencascade-dataset/step/bug30790.step #2481; gkv311-opencascade-dataset/step/bug30790.step #2481; gkv311-opencascade-dataset/step/bug30790.step #2481
       154 import warning: a face with more than one outer bound (kept: Part N allows one)  e.g. gkv311-opencascade-dataset/step/bug30790.step #2481; gkv311-opencascade-dataset/step/bug30790.step #2478; gkv311-opencascade-dataset/step/bug30790.step #2475
        41 import warning: a curve missing from the file  e.g. gkv311-opencascade-dataset/step/bug22871_null-swept-curve.stp #10; gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17525; gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17485
        22 validate error: loop N (#N): coedge N ends at vertex N, the next starts at N  e.g. gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483; gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483; gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483
+       19 import warning: a curve-bounded face whose boundary's segments don't meet within the uncertainty (left as segments)  e.g. gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877; gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877; gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877
+       17 validate warning: body N (#N): shell N not closed  e.g. gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938; gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049; gkv311-opencascade-dataset/step/ec_exhaust-A.stp #2631
        16 vertices in the closure not in the model  e.g. gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #329592 -> #14206, #18013, #75744
         8 edges in the closure not in the model  e.g. gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #329592 -> #27043, #283476, #324762
         3 import info: N seams whose two p-curves on one face couldn't be told apart (neither use has one)  e.g. gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049; gkv311-opencascade-dataset/step/ec_exhaust-A.stp #2743; gkv311-opencascade-dataset/step/ec_turbine-A.stp #11
         3 import warning: a torus with a negative major radius (read with its absolute value, its faces turned over)  e.g. gkv311-opencascade-dataset/step/bug30014.stp #41105; gkv311-opencascade-dataset/step/bug25287_bad_tess_face_plus.step #2134; gkv311-opencascade-dataset/step/bug32239.STEP #83837
         3 faces in the closure not in the model  e.g. gkv311-opencascade-dataset/step/bug22871_null-swept-curve.stp #10 -> #3367, #3485; gkv311-opencascade-dataset/step/bug24383_224013.stp #11 -> #9869
         2 import warning: a face whose surface can't be read (left out)  e.g. gkv311-opencascade-dataset/step/bug22871_null-swept-curve.stp #10; gkv311-opencascade-dataset/step/bug24383_224013.stp #11
-        2 validate warning: body N (#N): shell N not closed  e.g. gkv311-opencascade-dataset/step/bug33665.step #10; gkv311-opencascade-dataset/step/bug25169_box-openshell.stp #10
         1 import warning: an edge missing from the file  e.g. gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938
         1 import warning: a loop with an edge that can't be read (the loop left out)  e.g. gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938
         1 import warning: a face missing from the file  e.g. gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938

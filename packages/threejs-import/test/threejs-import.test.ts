@@ -148,8 +148,9 @@ test('foreign three.js JSON: shared geometry one part, lines and points, materia
   };
   const { scene: s, diagnostics } = importThreejs(JSON.stringify(json));
   assert.deepEqual(validate(s), []);
+  // (The node whose geometry isn't read draws nothing: an empty assembly, left out.)
   assert.deepEqual(diagnostics.map((d) => d.message), ['textures are not supported: ignored',
-    'geometries of type BoxGeometry: not read']);
+    'geometries of type BoxGeometry: not read', 'an empty assembly (nothing drawn beneath) left out']);
   // One part for the mesh both nodes draw; the line a part of curves (a strip as two segments).
   assert.equal(s.parts.length, 2);
   assert.deepEqual(s.materials.map((m) => [m.color.map((c) => Math.round(c * 255)), m.opacity]),
@@ -159,8 +160,10 @@ test('foreign three.js JSON: shared geometry one part, lines and points, materia
   // Metres made millimetres in the meshes (a placement holds no scale: cad-scene's rigid.ts); the root turned from Y
   // up; b hidden.
   assert.deepEqual(Array.from(line.curvePositions!), [0, 0, 0, 1000, 0, 0, 1000, 0, 0, 1000, 1000, 0]);
-  assert.deepEqual(Array.from(s.roots[0]!.transform).map((x) => Math.round(x) + 0),
-    [1, 0, 0, 0, 0, 0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1]);
+  // (The meshes are root parts; the root's one occurrence held the box's node, which drew nothing: dropped.)
+  assert.deepEqual(s.roots, []);
+  assert.deepEqual(Array.from([...partInstances(s)][0]!.transform).map((x) => Math.round(x) + 0),
+    [1, 0, 0, 0, 0, 0, 1, 0, 0, -1, 0, 0, 1000, 0, 0, 1]);
   assert.deepEqual([...partInstances(s)].map((p) => [s.parts[p.part]!.name, p.visible]),
     [['a', true], ['a', false], ['c', true]]);
   // Not JSON, not three.js JSON: an error, an empty scene.
@@ -411,11 +414,13 @@ test('transforms: a shear read as written; said where three.js\'s own loader wou
   const file = (o: Record<string, unknown>) => ({ metadata: { version: 4.6 }, object: { type: 'Scene', children: [
     { type: 'Group', name: 'g', matrix: sheared, ...o, children: [{ type: 'Group', name: 'h',
       matrix: [-1, 0, 0, 0, 0, 2, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1] }] }] } });
+  // (Its groups draw nothing: empty assemblies, left out and said, which these don't look at.)
+  const told = (r: ReturnType<typeof importThreejs>) => r.diagnostics.filter((d) => !/empty assembl/.test(d.message));
   const said = importThreejs(file({}));
-  assert.deepEqual(said.diagnostics.map((d) => d.message), ['\'g\': its matrix has a shear, which three.js\'s own ' +
+  assert.deepEqual(told(said).map((d) => d.message), ['\'g\': its matrix has a shear, which three.js\'s own ' +
     'loader drops (its matrixAutoUpdate isn\'t false): read with it']);
-  assert.deepEqual(importThreejs(file({ matrixAutoUpdate: false })).diagnostics, []);
-  assert.deepEqual(importThreejs(file({ matrixAutoUpdate: true, name: '' })).diagnostics.map((d) => d.message),
+  assert.deepEqual(told(importThreejs(file({ matrixAutoUpdate: false }))), []);
+  assert.deepEqual(told(importThreejs(file({ matrixAutoUpdate: true, name: '' }))).map((d) => d.message),
     ['an object: its matrix has a shear, which three.js\'s own loader drops (its matrixAutoUpdate isn\'t false): ' +
     'read with it']);
 });

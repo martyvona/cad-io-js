@@ -148,7 +148,8 @@ test('stepconv: --gltf-instancing; --keep-empty', { skip }, async () => {
     assert.equal(r.code, 1);
     assert.match(r.stderr, message);
   }
-  // three.js: empty nodes left out, or kept (dm1's tree has 3 nodes with nothing to draw beneath them).
+  // three.js: dm1's tree has 3 assemblies with nothing beneath them, which the importer drops: nothing for
+  // --keep-empty to keep (the exporters' own tests keep nodes meshing leaves empty).
   const dm1 = path.join(root, 'test_corpus/third_party/occt-import-js/test/testfiles/cax-if/dm1-pe-214.stp');
   const three = async (args: string[]) => {
     const r = await run([dm1, '-o', path.join(tmp, 'i.json'), '-j', '2', '-q', ...args]);
@@ -157,5 +158,5 @@ test('stepconv: --gltf-instancing; --keep-empty', { skip }, async () => {
   };
   const objects = (o: { children?: object[] }): number => 1 + (o.children ?? []).reduce(
     (a: number, c) => a + objects(c), 0);
-  assert.ok(objects((await three(['--keep-empty'])).object) > objects((await three([])).object));
+  assert.equal(objects((await three(['--keep-empty'])).object), objects((await three([])).object));
 });

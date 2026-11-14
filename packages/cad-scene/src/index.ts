@@ -22,6 +22,7 @@ export { countTransform, describeTransforms, noTransformCounts, TRANSFORM_KINDS,
   transformUse, describeStretched, stretchWords, type TransformCounts, type TransformKind, type TransformUse } from
   './transforms.ts';
 export { rigidPart, rigidPlacements, stretchMesh } from './rigid.ts';
+export { dropEmptyAssemblies, dropEmptyComponents } from './empty.ts';
 export { assertRigid, isRigid, SceneBuilder } from './scene-builder.ts';
 export { AUTHOR_PLACEHOLDERS, authorOf, standardMetadata, type StandardMetadata } from './file-metadata.ts';
 export { around, boundScene, boxesSphere, boxMeshes, grow, meshBox, sceneBounds } from './bounds.ts';

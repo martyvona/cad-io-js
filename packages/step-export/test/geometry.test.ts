@@ -994,3 +994,28 @@ test('a loose face (a face item in no shell) written as a CURVE_BOUNDED_SURFACE,
   const ws = written(s.finish());
   assert.match(render(ws, 30, new Set([0])), /^ADVANCED_FACE\(/);
 });
+
+test('a loose face whose segments meet a little apart, untrimmed: read back the same, its vertices where they were',
+  async () => {
+  const b = new BrepBuilder({ uncertainty: 0.01 });
+  const plane = b.addSurface({ kind: 'plane', position: P });
+  // Three B-spline segments, untrimmed (knots 2 to 5), each ending a little short of the next's start: joined at
+  // midpoints, off every curve.
+  const corners = [[0, 0, 0], [2, 0, 0], [2, 1, 0]];
+  const es = corners.map((p, k) => {
+    const q = corners[(k + 1) % 3]!.map((x, j) => x + (j === 2 ? 0.003 * (k + 1) : 0));
+    return b.addEdge({ curve: b.addCurve({ kind: 'bspline', degree: 1, knots: [2, 5], multiplicities: [2, 2],
+      poles: [p, q], form: 'unspecified', closed: false, selfIntersect: false }), sameSense: true, id: 10 + k });
+  });
+  b.addItem({ kind: 'face', ref: b.addFace({ surface: plane, sameSense: true, id: 20, loops: [{ kind: 'edge',
+    bound: 'outer', sense: true, coedges: es.map((edge) => ({ edge, orientation: 'forward' as const })) }] }) });
+  const d = b.finish();
+  assert.deepEqual(b.diagnostics, []);
+  let m = d;
+  // Twice round: the vertices don't move.
+  for (let round = 0; round < 2; round++) {
+    const w = written(m);
+    m = (await readBack(w.data, w.rootId)).brep;
+    assert.deepEqual(differences(walk(d), walk(m)), [], `round ${round}`);
+  }
+});

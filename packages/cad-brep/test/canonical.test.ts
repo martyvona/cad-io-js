@@ -316,6 +316,40 @@ test('rule 8, ids: a shell split keeps its id on its first piece only', () => {
   assert.deepEqual(ids, [50, undefined, 51, undefined]);
 });
 
+test('rule 8, a second pass: a closed shell split into an open piece then a closed one, given again, the same', () => {
+  const b = new BrepBuilder();
+  const { es, plane } = square(b);
+  const sphere = b.addSurface({ kind: 'sphere', position: { ...XY, origin: [9, 0, 0] }, radius: 1 });
+  const flat = b.addFace({ surface: plane, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true,
+    coedges: forward(es) }] }), ball = b.addFace({ surface: sphere, sameSense: true, loops: [] });
+  b.addItem({ kind: 'body', ref: b.addBody({ kind: 'solid', members: [{ ref: b.addShell({ kind: 'closed', id: 7,
+    faces: [{ face: flat, sense: true }, { face: ball, sense: true }] }), sense: true }] }) });
+  const d = b.finish();
+  const shells = () => Array.from({ length: rowCount(d, 'shell') }, (_, k) => decode.shell(d, k));
+  assert.deepEqual(shells().map((s) => [s.kind, s.declared, s.id]), [['open', 'closed', 7],
+    ['closed', 'closed', undefined]]);
+  sameBytes(d, rebuilt(d));
+});
+
+test('rule 8: a shell the source calls closed isn\'t merged with an open one it shares an edge with', () => {
+  const b = new BrepBuilder();
+  const { es, plane } = square(b);
+  const turned = es.map((edge) => ({ edge, orientation: 'reversed' as const })).reverse();
+  const top = b.addFace({ surface: plane, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true,
+    coedges: forward(es) }] });
+  const bottom = b.addFace({ surface: plane, sameSense: false, loops: [{ kind: 'edge', bound: 'outer', sense: true,
+    coedges: turned }] });
+  const flap = b.addFace({ surface: plane, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true,
+    coedges: forward(es) }] });
+  const shell = (kind: 'closed' | 'open', faces: number[]) => b.addShell({ kind, faces: faces.map((face) => ({ face,
+    sense: true })) });
+  b.addItem({ kind: 'body', ref: b.addBody({ kind: 'sheet', members: [{ ref: shell('closed', [top, bottom]),
+    sense: true }, { ref: shell('open', [flap]), sense: true }] }) });
+  const d = b.finish();
+  assert.deepEqual(Array.from({ length: rowCount(d, 'shell') }, (_, k) => decode.shell(d, k)).map((x) => [x.kind,
+    x.faces.length]), [['closed', 2], ['open', 1]]);
+});
+
 test('validateBrep: a body\'s open shells sharing an edge (they\'d be one)', () => {
   const b = new BrepBuilder();
   const { es, plane } = square(b);
@@ -573,6 +607,26 @@ test('rule 10: segments farther apart than the uncertainty, of no ends of their 
       + '(#2)']);
 });
 
+test('rule 10: an untrimmed segment joined takes the range its ends were taken at; a second pass the same', () => {
+  const b = new BrepBuilder({ uncertainty: 0.01 });
+  const plane = b.addSurface({ kind: 'plane', position: XY });
+  // Two B-spline segments, untrimmed, knots from 2 to 5: across and back, the second ending 0.004 short.
+  const spline = (p: number[], q: number[]) => b.addCurve({ kind: 'bspline', degree: 1, knots: [2, 5],
+    multiplicities: [2, 2], poles: [p, q], form: 'unspecified', closed: false, selfIntersect: false });
+  const es = [spline([0, 0, 0], [1, 0, 0]), spline([1, 0, 0], [0, 0.004, 0])].map((curve) => b.addEdge({ curve,
+    sameSense: true }));
+  b.addItem({ kind: 'face', ref: b.addFace({ surface: plane, sameSense: true, loops: [{ kind: 'edge', bound: 'outer',
+    sense: true, coedges: forward(es) }] }) });
+  const d = b.finish();
+  assert.deepEqual(b.diagnostics, []);
+  const ed = es.map((e) => decode.edge(d, e));
+  assert.deepEqual(ed.map((e) => e.range), [[2, 5], [2, 5]]);
+  // The corner between the second's end and the first's start: their midpoint, the ends where the ranges put them.
+  assert.deepEqual(decode.vertex(d, ed[0]!.start!).point, [0, 0.002, 0]);
+  // (Given again, the ends are the same and so is the vertex; a range found from the vertices would move them.)
+  sameBytes(d, rebuilt(d));
+});
+
 test('rule 10: a segment with only a p-curve: its ends the p-curve\'s on the surface', () => {
   const b = new BrepBuilder({ uncertainty: 1e-6 });
   const cyl = b.addSurface({ kind: 'cylinder', position: XY, radius: 2 });
@@ -590,4 +644,9 @@ test('rule 10: a segment with only a p-curve: its ends the p-curve\'s on the sur
   assert.deepEqual(b.diagnostics, []);
   const corners = es.map((e) => decode.vertex(d, decode.edge(d, e).start!).point.map((x) => +x.toFixed(12) + 0));
   assert.deepEqual(corners, [[2, 0, 0], [0, 2, 0], [0, 2, 1], [2, 0, 1]]);
+  // Each use's range where the ends were taken (the edge has no curve of its own to range over).
+  const loop = decode.face(d, 0).loops[0]!;
+  assert.deepEqual(loop.kind === 'edge' && loop.coedges.map((c) => c.range), [[0, 1], [0, 1], [0, 1], [0, 1]]);
+  assert.deepEqual(es.map((e) => decode.edge(d, e).range), [undefined, undefined, undefined, undefined]);
+  sameBytes(d, rebuilt(d));
 });

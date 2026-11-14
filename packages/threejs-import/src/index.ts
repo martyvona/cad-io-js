@@ -4,8 +4,9 @@
 // (other kinds, made from parameters, are skipped with a warning); materials give a colour (sRGB, as the file holds it)
 // and opacity; textures aren't supported (said, and ignored).
 
-import { boundScene, dropSourceDegenerate, rigidPlacements, identity, sceneFromTree, transformKinds, type Diagnostic,
-  type Properties, type Scene, type TreeMaterial, type TreeMesh, type TreeNode } from 'cad-scene';
+import { boundScene, dropEmptyAssemblies, dropSourceDegenerate, rigidPlacements, identity, sceneFromTree,
+  transformKinds, type Diagnostic, type Properties, type Scene, type TreeMaterial, type TreeMesh, type TreeNode }
+  from 'cad-scene';
 
 export interface ThreejsImport {
   scene: Scene;
@@ -157,6 +158,7 @@ export function importThreejs(input: string | Uint8Array | object, opts: Threejs
   scene.diagnostics.unshift(...diagnostics);
   // Placements a rotation and a translation, their stretches baked into copies (cad-scene's rigid.ts).
   rigidPlacements(scene, { keepMeasures: true });
+  dropEmptyAssemblies(scene);
   if (opts.dropDegenerate ?? true) dropSourceDegenerate(scene);
   boundScene(scene);
   return { scene, diagnostics: scene.diagnostics };

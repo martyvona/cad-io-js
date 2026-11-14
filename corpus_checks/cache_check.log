@@ -1,6 +1,6 @@
-161 parts, 10.5 MB of payload (26 subsets left out: their representations are no part of their files' scenes)
-truck 88ed005, wasm e830df560b09: results equal; 0 failed parts (cached too); 44.5 MB stored
-  backend 17.64 s; file store, first run 13.49 s, second 0.12 s (161 hits); memory store, second 0.04 s
-OCCT 8.1 (3d097a0328) + patches 0001-brepmesh-cone-seam-pcurves, wasm 77f87519b3b2, adapter 2, native builder: results equal; 0 failed parts (cached too); 38.3 MB stored
-  backend 32.10 s; file store, first run 41.17 s, second 0.20 s (161 hits); memory store, second 0.12 s
-truck in a pool, trj2_as1-id-203 #891 (hangs): first run 10.00 s (tessellation timed out after 10000 ms), second 0.002 s, from the store
+161 parts, 10.4 MB of payload (26 subsets left out: their representations are no part of their files' scenes)
+truck 88ed005, wasm 5506bfb37e5c: results equal; 0 failed parts (cached too); 44.5 MB stored
+  backend 7.37 s; file store, first run 7.33 s, second 0.06 s (161 hits); memory store, second 0.03 s
+OCCT 8.1 (3d097a0328) + patches 0001-brepmesh-cone-seam-pcurves, wasm cf6e5fbbafa0, adapter 2, native builder: results equal; 0 failed parts (cached too); 38.3 MB stored
+  backend 20.26 s; file store, first run 19.73 s, second 0.06 s (161 hits); memory store, second 0.03 s
+truck in a pool, trj2_as1-id-203 #891 (hangs): first run 10.00 s (tessellation timed out after 10000 ms), second 0.001 s, from the store
