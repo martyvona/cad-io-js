@@ -154,7 +154,10 @@ _sj_report error cmake "$(_sj_have cmake --version)" 3.10.0 "configures the OCCT
 _sj_report error make "$(_sj_have make --version)" "" "builds OCCT (Unix Makefiles generator)" ||
   _sj_fix_pkg make "xcode-select --install" make make
 
-_sj_emcc=$(tr -d '"' 2>/dev/null < "$_sj_repo/third_party/emsdk/upstream/emscripten/emscripten-version.txt")
+_sj_emcc=
+# (Tested first: zsh reports a missing file in a `<` redirection whatever 2>/dev/null says.)
+_sj_emv=$_sj_repo/third_party/emsdk/upstream/emscripten/emscripten-version.txt
+[ -f "$_sj_emv" ] && _sj_emcc=$(tr -d '"' < "$_sj_emv")
 _sj_report error emscripten "$_sj_emcc" "=$(sed -nE 's/^VERSION=//p' "$_sj_repo/scripts/fetch-emsdk.sh")" \
   "compiles OCCT; its wasm-opt optimizes truck (third_party/emsdk)" ||
   _sj_fix "\"$_sj_repo/scripts/fetch-emsdk.sh\" && source \"$_sj_repo/env.sh\""
@@ -248,7 +251,7 @@ fi
 
 _sj_status=$((_sj_errors > 0))
 unset -f _sj_version _sj_ge _sj_fix _sj_fix_pkg _sj_report _sj_have _sj_rust_fix
-unset _sj_os _sj_pkg _sj_errors _sj_warnings _sj_fixes _sj_emcc _sj_rust _sj_repo _sj_py _sj_typst
+unset _sj_os _sj_pkg _sj_errors _sj_warnings _sj_fixes _sj_emcc _sj_emv _sj_rust _sj_repo _sj_py _sj_typst
 if [ $_sj_sourced = 1 ]; then
   unset _sj_sourced
   return $_sj_status 2>/dev/null || true

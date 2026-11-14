@@ -5,7 +5,10 @@
 #   . scripts/emsdk-env.sh <repo>
 _ee_dir=$1/third_party/emsdk
 _ee_want=$(sed -nE 's/^VERSION=//p' "$1/scripts/fetch-emsdk.sh")
-_ee_have=$(tr -d '"' 2>/dev/null < "$_ee_dir/upstream/emscripten/emscripten-version.txt" || true)
+# (Tested first: zsh reports a missing file in a `<` redirection whatever 2>/dev/null says.)
+_ee_have=
+[ -f "$_ee_dir/upstream/emscripten/emscripten-version.txt" ] &&
+  _ee_have=$(tr -d '"' < "$_ee_dir/upstream/emscripten/emscripten-version.txt")
 if [ "$_ee_have" != "$_ee_want" ]; then
   echo "Emscripten $_ee_want isn't in third_party/emsdk${_ee_have:+ (it has $_ee_have)}: run scripts/fetch-emsdk.sh" >&2
   unset _ee_dir _ee_want _ee_have
