@@ -90,7 +90,7 @@ The phases below break these into work that up to four agents can do at once.
 
 ### Phase T0: foundations (one agent)
 
-- **Decisions put to the user first:** where derived values live ("The input": A, B or C). The language and the rigor are decided ("Decisions to make").
+- **Decided before T0:** the language, the rigor and where derived values live ("Decisions to make").
 - **The packages:** `tess-cadio` for the tessellator and what it's built on (C++ under `native/`, built to WebAssembly as `tess-occt` and `tess-smlib` are, its TypeScript layers beside it); whether the core, the oracle and healing are packages of their own decided with the user; their build and test wiring.
 - **The shared types:** curve and surface queries (evaluation with derivatives, bounds, inversion results with how sure they are), 2D loops in (u, v), the derived data and its provenance (given, measured, healed), error bounds.
 - **The reference shapes:** a test library of models with closed-form answers (lengths, areas, volumes, normals, parameters) for every curve and surface kind, at several scales, mirrored and moved (the existing `cad-brep` test models extended), and the catalogue of degenerate and ambiguous cases ("Degenerate and ambiguous cases") with the answers each query must give, which every lane tests against.
@@ -178,7 +178,7 @@ The tessellator (and the oracle and healing) take a part's B-rep model (`brep-re
 - **Results with their accuracy:** the oracle's measures, a shell's orientation sign, each with its error bound.
 - **Provenance on every derived value:** given (from the source), measured (by analysis), or set by healing, so nothing computed passes for the source's.
 
-Where the derived values live is a decision to make:
+They live in a companion analysis buffer (decided, (B) below), its rows keyed by the model's and tied by the model's hash to exactly the model it describes, so an edited or healed model never keeps stale analysis. The alternatives were:
 
 - **(A) Analysis tables in the model's buffer:** optional tables, empty until a model is analysed; one format and one generated header for every consumer (C, Rust, TypeScript), a format version (`MAGIC`) bump.
 - **(B) A companion analysis buffer**, its rows keyed by the model's: the canonical format untouched, the analysis versioned apart; consumers take two buffers.
@@ -250,7 +250,7 @@ Each to be put to the user when its step comes, with these alternatives and what
 - **Each dependency** as its step comes: adopt, or write our own, by the table above.
 - **The oracle's area method for free-form surfaces:** the iterated boundary integral, or cubature over (u, v) cells.
 - **Ray classification or volume sign** for orienting shells on the model, once both exist.
-- **Where derived values live** ("The input"): analysis tables in the model's buffer, a companion buffer, or computed in each consumer.
+- **Where derived values live (decided):** a companion analysis buffer keyed by the model's rows and tied to it by the model's hash ("The input": B), so the canonical model stays exactly as imported and the oracle, healing and the tessellator share one record. The alternatives were analysis tables in the model's buffer (A: one object, but source and derived facts in one format and a format bump per new analysis) and values computed in each consumer (C: no format work, nothing shared outside the module).
 
 ## What exists to build on
 
