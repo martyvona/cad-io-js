@@ -16,8 +16,8 @@
 import { WebIO, type Accessor, type Document, type Material as GltfMaterial, type Node,
   type Primitive } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
-import { boundScene, closeTransforms, dropSourceDegenerate, identity, multiply, rigidPlacements, sceneFromTree,
-  transformKinds, Y_UP_METRES, type Diagnostic, type Mat4, type Properties, type Scene, type TreeExtras,
+import { boundScene, closeTransforms, dropEmptyAssemblies, dropSourceDegenerate, identity, multiply, rigidPlacements,
+  sceneFromTree, transformKinds, Y_UP_METRES, type Diagnostic, type Mat4, type Properties, type Scene, type TreeExtras,
   type TreeMaterial, type TreeMesh, type TreeNode, type Vec3 } from 'cad-scene';
 
 export interface GltfImport {
@@ -310,6 +310,7 @@ export async function importGltf(input: Uint8Array | GltfJsonInput, opts: GltfIm
   built.scene.diagnostics.unshift(...diagnostics);
   // Placements a rotation and a translation, their stretches baked into copies (cad-scene's rigid.ts).
   rigidPlacements(built.scene, { keepMeasures: true });
+  dropEmptyAssemblies(built.scene);
   if (opts.dropDegenerate ?? true) dropSourceDegenerate(built.scene);
   boundScene(built.scene);
   return { scene: built.scene, diagnostics: built.scene.diagnostics };

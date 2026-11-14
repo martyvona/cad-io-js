@@ -6,7 +6,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { BrepBuilder, brepFromJson, brepToJson, curveEvaluatorOf, decode, rowCount, surfaceEvaluator } from 'cad-brep';
+import { BrepBuilder, brepFromJson, brepToJson, curveEvaluatorOf, decode, rowCount, surfaceEvaluator, transformBrep }
+  from 'cad-brep';
 import { importStep } from 'step-import';
 import type { BrepData, BrepJson } from 'cad-brep';
 import { failedPart } from 'cad-scene';
@@ -380,6 +381,18 @@ test('the deflection: honoured, and finer meshes finer; the same bytes the same 
   assert.deepEqual(a.positions, b.positions);
   assert.deepEqual(a.indices, b.indices);
   assert.deepEqual(a.faces, b.faces);
+  // Whatever the module built before: a part 0.01 times the test model's size (the healer's smallest bands) alone in
+  // a fresh module, and after one 1,000 times it (its largest) in another.
+  const k = (s: number) => transformBrep(MODELS.everyKind().finish(), [s, 0, 0, 0, s, 0, 0, 0, s, 0, 0, 0]).data;
+  const small = k(0.01), fresh = async () => { const t = new SmlibTessellator(); await t.init(); return t; };
+  const t1 = await fresh(), alone = await t1.tessellate(request(small, 0.0005));
+  const t2 = await fresh();
+  await t2.tessellate(request(k(1000), 0.0005));
+  const after = await t2.tessellate(request(small, 0.0005));
+  for (const t of [t1, t2]) t.dispose();
+  assert.deepEqual(after.positions, alone.positions);
+  assert.deepEqual(after.indices, alone.indices);
+  assert.deepEqual(after.measures, alone.measures);
 });
 
 test('what the builder leaves out is warned of, the rest meshed; other formats are caller bugs', { skip }, async () => {

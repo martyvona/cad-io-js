@@ -1,6 +1,6 @@
 161 parts, 10.4 MB of payload (26 subsets left out: their representations are no part of their files' scenes)
 truck 88ed005, wasm d8a1a46e5385, adapter 1: results equal; 0 failed parts (cached too); 44.5 MB stored
-  backend 7.55 s; file store, first run 7.30 s, second 0.06 s (161 hits); memory store, second 0.03 s
+  backend 7.47 s; file store, first run 7.32 s, second 0.06 s (161 hits); memory store, second 0.03 s
 OCCT 8.1 (3d097a0328) + patches 0001-brepmesh-cone-seam-pcurves, wasm 4d43b32aa653, adapter 4, native builder: results equal; 0 failed parts (cached too); 38.3 MB stored
-  backend 20.36 s; file store, first run 19.30 s, second 0.06 s (161 hits); memory store, second 0.02 s
+  backend 20.01 s; file store, first run 20.06 s, second 0.06 s (161 hits); memory store, second 0.02 s
 truck in a pool, trj2_as1-id-203 #891 (hangs): first run 10.00 s (tessellation timed out after 10000 ms), second 0.001 s, from the store

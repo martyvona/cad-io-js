@@ -1,6 +1,7 @@
 // The builder: a part's cad-brep buffer (cad_brep.h) as SMLib B-reps, through SMLib's flattened B-rep tables
-// (SmBrepData) and SmBrep::MakeTopologyFromData, which links the topology, makes each coedge's (u, v) trim from its 3D
-// edge and the face's surface, and heals. Written from docs/brep-reference.md (the model) and SMLib's headers and
+// (SmBrepData) and SmBrep::MakeTopologyFromData, which links the topology and heals, the healer's last steps making
+// each coedge's (u, v) trim from its 3D edge and the face's surface (unhealed, the tessellator makes them as it needs
+// them; docs/healing.md). Written from docs/brep-reference.md (the model) and SMLib's headers and
 // documentation (third_party/usd-brep: source/SMLib/inc, .agents/skills/smlib-brep-model).
 //
 // What SMLib needs that the model doesn't say, and how it's made here:
@@ -172,12 +173,28 @@ struct EdgeGeom
   std::string error;
 };
 
+// The shared context back to its default model size estimate and zone tolerance. SMLib's healer writes the band it
+// picks for a B-rep (from its longest edge) into the context, where it stays for whatever is built next: reset before
+// each build and each B-rep, so a part's result doesn't depend on what the worker built before it (docs/healing.md).
+// (The context's setter is for SmBrep alone, and SmBrep's protected: through a B-rep of a class made for it.)
+struct ContextResetter : SmBrep
+{
+  void reset() { SetThisModelSizeEstimate(); }
+};
+static void resetContext(const SmContext& ctx)
+{
+  ContextResetter* b = new (ctx) ContextResetter();
+  b->reset();
+  delete b;
+}
+
 class Builder
 {
 public:
   Builder(const Model& m, const SmContext& ctx, double zoneTol, const BuildOptions& opt, BuiltPart& out)
     : m(m), ctx(ctx), zoneTol(zoneTol), heal(opt.heal), lin(opt.linearDeflection), ang(opt.angularDeflection), out(out)
   {
+    resetContext(ctx);
   }
 
   void build();
@@ -1959,6 +1976,7 @@ void Builder::buildSheet(const std::vector<int>& faceRows, const std::vector<dou
     }
   }
 
+  resetContext(ctx);
   SmBrep* brep = new (ctx) SmBrep();
   SmTArray<SmAttribute*> attrs;
   SmStatus st = brep->MakeTopologyFromData(bd, attrs, TRUE, FALSE, TRUE, FALSE, FALSE, heal ? TRUE : FALSE);
@@ -2009,6 +2027,7 @@ void Builder::buildNatural(int surface, int face, const std::vector<double>& tra
     warn(g.error + (face >= 0 ? " (faces without loops left out)" : " (loose surfaces left out)"));
     return;
   }
+  resetContext(ctx);
   SmBrep* brep = new (ctx) SmBrep();
   SmFace* f = nullptr;
   if (brep->CreateFaceFromSurface(g.surface, g.domain, f) != SM_SUCCESS || !f) {

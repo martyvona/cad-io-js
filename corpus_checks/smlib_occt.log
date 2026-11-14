@@ -1,23 +1,23 @@
 SMLib against OCCT (native route), medium profile: 517 files (0 over 1000 MB skipped), 3258 B-rep parts; OCCT meshes 3117 (141 empty or failed, not compared)
   SMLib status: ok 3110, error 5, timeout 0, crash 2, empty 0
-  faces: 156 of 83907 (0.19%) of OCCT's without SMLib triangles; 0 extra; 994 facing opposite to OCCT's (against the model face's normal: SMLib's 14, OCCT's 938, not told 42)
-  mesh area against OCCT's (faces both mesh): within 0.1% 55246, within 1% 24290, within 5% 3361, > 5% 854
-  exact area (SMLib's measure) against OCCT's measure: within 0.1% 79896, within 1% 2743, within 5% 486, > 5% 626, unmeasured 0
+  faces: 157 of 83907 (0.19%) of OCCT's without SMLib triangles; 0 extra; 994 facing opposite to OCCT's (against the model face's normal: SMLib's 14, OCCT's 938, not told 42)
+  mesh area against OCCT's (faces both mesh): within 0.1% 55246, within 1% 24290, within 5% 3361, > 5% 853
+  exact area (SMLib's measure) against OCCT's measure: within 0.1% 79896, within 1% 2743, within 5% 486, > 5% 625, unmeasured 0
   against the area oracle (61596 faces both mesh it trusts): smlibExact 0.1% 61482 1% 63 5% 18 >5% 33; occtExact 0.1% 60605 1% 778 5% 161 >5% 52; smlibMesh 0.1% 29288 1% 29964 5% 2174 >5% 170; occtMesh 0.1% 46451 1% 14332 5% 669 >5% 144
   faceFailures by its own measures, smlib: failed 44, partly 6, excess 38, unverified 0
   faceFailures by its own measures, occt: failed 91, partly 37, excess 195, unverified 36
   complete (no face missing, off by 5% or flipped): 2953 of 3117 (94.74%) parts
-  faces meshed again alone: 1053, 657 better so
+  faces meshed again alone: 1052, 656 better so
   open model edges (edges of two or more meshed faces whose meshes don't meet along them, vertices matched exactly): SMLib 74 in 12 parts (its own error: 76 in 13), OCCT 60 in 13; shared edges without an edge polyline, not judged: SMLib 64, OCCT 4
-  triangles: SMLib 7271407, OCCT 31831680; meshing 57545.2 s SMLib, 18358.4 s OCCT (wall time per request, summed); SMLib's (SMLIB_TIMES): build 0.0 s, tessellate 0.0 s, measures 0.0 s
-  722 s, 3 processes x 1 workers per backend
+  triangles: SMLib 7271406, OCCT 31831680; meshing 45554.9 s SMLib, 15717.8 s OCCT (wall time per request, summed); SMLib's (SMLIB_TIMES): build 0.0 s, tessellate 0.0 s, measures 0.0 s
+  551 s, 3 processes x 1 workers per backend
 
      938 face facing opposite to OCCT's, against the model's normal: occt  e.g. gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #201; gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #218; gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #327; gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #339
-     854 mesh areas differ by over 5%  e.g. gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #2241; gkv311-opencascade-dataset/step/trj3_s1-tc-214.stp #2536 face #2501; gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #11657; gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #5150
-     626 exact areas (measures) differ by over 5%  e.g. gkv311-opencascade-dataset/step/trj3_s1-tc-214.stp #2536 face #2501; gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #7475; gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #17500; gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #8708
+     853 mesh areas differ by over 5%  e.g. gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #2241; gkv311-opencascade-dataset/step/trj3_s1-tc-214.stp #2536 face #2501; gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #11657; gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #5150
+     625 exact areas (measures) differ by over 5%  e.g. gkv311-opencascade-dataset/step/trj3_s1-tc-214.stp #2536 face #2501; gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #7475; gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #17500; gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #8708
      170 SMLib's mesh area off the oracle's by over 5%  e.g. gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #5150; gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #3585; gkv311-opencascade-dataset/step/trj10_b2-oc-214.stp #10 face #2304; gkv311-opencascade-dataset/step/trj10_b2-oc-214.stp #10 face #5079
      132 info: N faces meshed badly in their shells, meshed again alone, unhealed, healed, with shorter edges or larger (N better so)  e.g. gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049; gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11; gkv311-opencascade-dataset/step/trj3_s1-id-203.stp #569; gkv311-opencascade-dataset/step/trj3_s1-tc-214.stp #2536
-      85 face OCCT meshes, SMLib not  e.g. gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049 face #3141; gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049 face #3504; gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #11845; gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #16311
+      86 face OCCT meshes, SMLib not  e.g. gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049 face #3141; gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049 face #3504; gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #11845; gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #16311
       56 warning: SMLib: SmApiTessellate status N  e.g. gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049; gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11; gkv311-opencascade-dataset/step/trj3_s1-tc-214.stp #2536; gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10
       52 OCCT's measured area off the oracle's by over 5%  e.g. gkv311-opencascade-dataset/step/bug24593_285330.stp #13 face #262; gkv311-opencascade-dataset/step/bug24593_285330.stp #13 face #263; gkv311-opencascade-dataset/step/bug30014.stp #41105 face #65200; gkv311-opencascade-dataset/step/OCC5099.stp #14343 face #9324
       44 SMLib faceFailures: failed  e.g. gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049 face #3141; gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049 face #3504; gkv311-opencascade-dataset/step/trj5_k1-sh-203.stp #1489 face #1446; gkv311-opencascade-dataset/step/trj5_k1-sh-203.stp #1489 face #1481

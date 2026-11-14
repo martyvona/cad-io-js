@@ -9,7 +9,7 @@ import { formatValue, type Instance, openModel, parseStep, type Value } from 'st
 import { cone, cube, everyKind, facetedAndWire, reversedUses, seamCylinder, spheres, withVoid }
   from '../../cad-brep/test/models.ts';
 import { stepPartBytes } from '../src/index.ts';
-import { differences, walk } from './compare.ts';
+import { differences, modelSize, walk } from './compare.ts';
 import { readBack } from './readback.ts';
 
 /** A model written: its instances by id, the root, the diagnostics. */
@@ -635,6 +635,28 @@ test('the comparison sees what it should: a real difference, last bits, new ids'
   const small = JSON.parse(JSON.stringify(a));
   small[1].ref.direction[2] = 1e-17;
   assert.deepEqual(differences(a, small).map((x) => x.bits), [true]);
+  // A point's coordinate: within NEAR of the model's size where one is given, else its own last bits.
+  const near = JSON.parse(JSON.stringify(a)), zero = JSON.parse(JSON.stringify(a));
+  zero[1].ref.point[2] = 1e-13;
+  near[1].ref.point[2] = 1e-13 + 2e-16;
+  assert.deepEqual(differences(zero, near).map((x) => [x.bits, x.nearZero]), [[false, undefined]]);
+  assert.deepEqual(differences(zero, near, '', [], 100).map((x) => [x.bits, x.nearZero]), [[true, true]]);
+  assert.deepEqual(differences(zero, near, '', [], 1e-4).map((x) => x.bits), [false]);
+  // Near the bound, 1e-10 on a model 100 across: 0.9e-10 apart within it, 1.1e-10 not.
+  const at = JSON.parse(JSON.stringify(a)), past = JSON.parse(JSON.stringify(a));
+  at[1].ref.point[0] = 1 + 0.9e-10;
+  past[1].ref.point[0] = 1 + 1.1e-10;
+  assert.deepEqual(differences(a, at, '', [], 100).map((x) => x.bits), [true]);
+  assert.deepEqual(differences(a, past, '', [], 100).map((x) => x.bits), [false]);
+  // Only points: a direction or another number near zero isn't measured against the model's size.
+  const r0 = [{ kind: 'curve', ref: { kind: 'circle', radius: 1e-13 } }], r1 = [{ kind: 'curve', ref: { kind: 'circle',
+    radius: 1e-13 + 2e-16 } }];
+  assert.deepEqual(differences(r0, r1, '', [], 100).map((x) => x.bits), [false]);
+  // The largest coordinate's magnitude, a negative one too.
+  const sized = new BrepBuilder();
+  sized.addVertex({ point: [1, 0, 0] });
+  sized.addVertex({ point: [0, -5, 2] });
+  assert.equal(modelSize(sized.finish()), 5);
   const lost = JSON.parse(JSON.stringify(a));
   delete lost[1].ref.id;
   assert.deepEqual(differences(a, lost).map((x) => x.path), ['[1].ref.id']);
@@ -993,4 +1015,29 @@ test('a loose face (a face item in no shell) written as a CURVE_BOUNDED_SURFACE,
   s.addItem({ kind: 'face', ref: g });
   const ws = written(s.finish());
   assert.match(render(ws, 30, new Set([0])), /^ADVANCED_FACE\(/);
+});
+
+test('a loose face whose segments meet a little apart, untrimmed: read back the same, its vertices where they were',
+  async () => {
+  const b = new BrepBuilder({ uncertainty: 0.01 });
+  const plane = b.addSurface({ kind: 'plane', position: P });
+  // Three B-spline segments, untrimmed (knots 2 to 5), each ending a little short of the next's start: joined at
+  // midpoints, off every curve.
+  const corners = [[0, 0, 0], [2, 0, 0], [2, 1, 0]];
+  const es = corners.map((p, k) => {
+    const q = corners[(k + 1) % 3]!.map((x, j) => x + (j === 2 ? 0.003 * (k + 1) : 0));
+    return b.addEdge({ curve: b.addCurve({ kind: 'bspline', degree: 1, knots: [2, 5], multiplicities: [2, 2],
+      poles: [p, q], form: 'unspecified', closed: false, selfIntersect: false }), sameSense: true, id: 10 + k });
+  });
+  b.addItem({ kind: 'face', ref: b.addFace({ surface: plane, sameSense: true, id: 20, loops: [{ kind: 'edge',
+    bound: 'outer', sense: true, coedges: es.map((edge) => ({ edge, orientation: 'forward' as const })) }] }) });
+  const d = b.finish();
+  assert.deepEqual(b.diagnostics, []);
+  let m = d;
+  // Twice round: the vertices don't move.
+  for (let round = 0; round < 2; round++) {
+    const w = written(m);
+    m = (await readBack(w.data, w.rootId)).brep;
+    assert.deepEqual(differences(walk(d), walk(m)), [], `round ${round}`);
+  }
 });

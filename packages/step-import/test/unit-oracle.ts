@@ -124,7 +124,11 @@ function expectations(d: BrepData, k: number, note: Report) {
 
 /**
  * A model against the same model read from the same file with its length unit `k` times as long: problems to
- * `note` (kind of problem, example), and whether it agrees, with the count of values checked.
+ * `note` (kind of problem, example), and whether it agrees, with the count of values checked. A length off by more
+ * than its own last bits but within 1e-12 of the model's size (its largest vertex coordinate) is noted apart and
+ * agrees: a value the builder computes (a joined vertex, its gap as its tolerance, a clamped B-spline's poles) rounds
+ * relative to the model, and one near zero then isn't times k to its own last bits (a gap of rounding alone may be
+ * exactly 0 at one scale, so no tolerance).
  */
 export function compareScaled(a: BrepData, b: BrepData, k: number, where: string, note: Report):
   { ok: boolean; checked: number } {
@@ -139,6 +143,21 @@ export function compareScaled(a: BrepData, b: BrepData, k: number, where: string
   }
   const near = (x: number, y: number) => Object.is(x, y) || (Number.isNaN(x) && Number.isNaN(y))
     || Math.abs(x - y) <= 1e-12 * Math.max(Math.abs(x), Math.abs(y), 1e-300);
+  let size = 0;
+  for (const x of a.vertex.point) if (Number.isFinite(x)) size = Math.max(size, Math.abs(x));
+  const rounded = new Set<string>();
+  // A length (f k) near as the model's rounding goes, noted once per kind; a tolerance absent (NaN) as none, against
+  // a gap the builder found that's only rounding.
+  const nearLength = (x: number, y: number, f: number, what: string, ex: string) => {
+    if (near(x * f, y)) return true;
+    const z = (v: number) => Number.isNaN(v) ? 0 : v;
+    if (f === 1 || !(Math.abs(z(x) * f - z(y)) <= 1e-12 * size * k)) return false;
+    if (!rounded.has(what)) {
+      rounded.add(what);
+      note(`${what} within 1e-12 of the model's size only (rounding near zero)`, `${where}: ${ex}`);
+    }
+    return true;
+  };
   // Columns: ints the same; reals by what they are (vertex points, tolerances, the uncertainty lengths; ranges not).
   const LENGTH_COLUMNS = new Set(['vertex.point', 'vertex.tolerance', 'edge.tolerance', 'face.tolerance',
     'part.uncertainty']);
@@ -150,7 +169,7 @@ export function compareScaled(a: BrepData, b: BrepData, k: number, where: string
       const f = type === 'f64' && LENGTH_COLUMNS.has(`${t}.${c}`) ? k : 1;
       for (let j = 0; j < x.length; j++) {
         realsChecked++;
-        if (!near(x[j]! * f, y[j]!)) {
+        if (!nearLength(x[j]!, y[j]!, f, `${t}.${c}`, `[${j}] ${x[j]}, ${y[j]}`)) {
           bad(`${t}.${c} ${f === 1 ? 'changed' : 'not times k'}`, `[${j}] ${x[j]}, ${y[j]}`);
           break;
         }
@@ -178,7 +197,7 @@ export function compareScaled(a: BrepData, b: BrepData, k: number, where: string
       const f = map.get(j);
       if (f === undefined) { bad(`pool.${pool}: a real the oracle doesn't place`, `[${j}]`); break; }
       realsChecked++;
-      if (!near(x[j]! * f, y[j]!)) {
+      if (!nearLength(x[j]!, y[j]!, f, `pool.${pool}`, `[${j}] ${x[j]} x ${f}, ${y[j]}`)) {
         bad(`pool.${pool}: ${f === 1 ? 'changed' : 'not scaled as its kind says'}`, `[${j}] ${x[j]} x ${f}, ${y[j]}`);
         break;
       }

@@ -58,9 +58,11 @@ export interface CanonicalInput {
   curveRange: (k: number) => [number, number] | undefined;
   /**
    * An edge without vertices: its points at its start and its end (its 3D curve over its range, else its use's
-   * p-curve on the face's surface), or undefined where they don't evaluate.
+   * p-curve on the face's surface) and the parameters they're at (on that curve, start to end), or undefined where
+   * they don't evaluate.
    */
-  ends: (e: Edge, pcurve: number | undefined, surface: number) => [Point, Point] | undefined;
+  ends: (e: Edge, pcurve: number | undefined, surface: number) => { points: [Point, Point];
+    range: [number, number] } | undefined;
   /** A vertex at a point, its row. */
   addVertex: (point: Point, tolerance: number | undefined) => number;
   /** How far apart a curve-bounded face's segments' ends may be and be joined: the part's uncertainty. */
@@ -77,6 +79,8 @@ export function canonical(x: CanonicalInput): Canonical {
   // left as it is, said. Its loops all inner (the surface's extent its outer bound, STEP's implicit_outer) left too:
   // a face of edges with vertices can't say so.
   const joined = [...x.edges];
+  // (A p-curve-only segment's: its use's range, where it had none.)
+  const joinedRange = new Map<Coedge, [number, number]>();
   for (const f of x.faces) {
     const bare = (c: Coedge) => joined[c.edge]!.start === undefined && joined[c.edge]!.end === undefined;
     if (!f.loops.length || !f.loops.every((l) => l.kind === 'edge' && l.coedges.length && l.coedges.every(bare))) {
@@ -87,7 +91,7 @@ export function canonical(x: CanonicalInput): Canonical {
     const why = f.loops.map((l) => {
       if (l.kind !== 'edge') return 'ends';
       const seg = l.coedges.map((c): [Point, Point] | undefined => {
-        const ends = x.ends(joined[c.edge]!, c.pcurve, f.surface);
+        const ends = x.ends(joined[c.edge]!, c.pcurve, f.surface)?.points;
         return ends && (c.orientation === 'reversed' ? [ends[1], ends[0]] : ends);
       });
       if (seg.some((q) => !q) || new Set(l.coedges.map((c) => c.edge)).size < l.coedges.length) return 'ends';
@@ -105,8 +109,9 @@ export function canonical(x: CanonicalInput): Canonical {
     }
     for (const l of f.loops) {
       if (l.kind !== 'edge') continue;
-      const seg = l.coedges.map((c): [Point, Point] => {
-        const ends = x.ends(joined[c.edge]!, c.pcurve, f.surface)!;
+      const at = l.coedges.map((c) => x.ends(joined[c.edge]!, c.pcurve, f.surface)!);
+      const seg = l.coedges.map((c, i): [Point, Point] => {
+        const ends = at[i]!.points;
         return c.orientation === 'reversed' ? [ends[1], ends[0]] : ends;
       });
       const n = seg.length;
@@ -115,10 +120,14 @@ export function canonical(x: CanonicalInput): Canonical {
         const a = q[1], b = seg[(i + 1) % n]![0], g = Math.hypot(...a.map((t, j) => t - b[j]!));
         return x.addVertex(a.map((t, j) => (t + b[j]!) / 2), g > 0 ? g : undefined);
       });
+      // (The parameters the ends were taken at kept: the vertices are off the curves by up to half the gap, so a
+      // range found from them again, as a writer without one must, would move the ends, and the next join with them.)
       l.coedges.forEach((c, i) => {
         const before = v[(i + n - 1) % n]!, after = v[i]!;
         const [start, end] = c.orientation === 'reversed' ? [after, before] : [before, after];
-        joined[c.edge] = { ...joined[c.edge]!, start, end };
+        const e = joined[c.edge]!;
+        joined[c.edge] = { ...e, start, end, ...(e.curve !== undefined && !e.range ? { range: at[i]!.range } : {}) };
+        if (e.curve === undefined && !c.range) joinedRange.set(c, at[i]!.range);
       });
     }
   }
@@ -175,9 +184,9 @@ export function canonical(x: CanonicalInput): Canonical {
       let coedges: CanonicalCoedge[] = l.kind === 'poly'
         ? l.vertices.map((v, i) => side(v, l.vertices[(i + 1) % l.vertices.length]!))
         : l.coedges.map((c) => {
-          const cid = id(c.id);
+          const cid = id(c.id), range = joinedRange.get(c);
           const { id: _, ...rest } = c;
-          return { ...rest, ...(cid === undefined ? {} : { id: cid }) };
+          return { ...rest, ...(range ? { range } : {}), ...(cid === undefined ? {} : { id: cid }) };
         });
       // Rule 7: an edge of no length out of its loop; a loop of nothing else a vertex loop at its point.
       const degenerate = coedges.filter((c) => edges[c.edge]!.degenerate);
@@ -224,6 +233,8 @@ export function canonical(x: CanonicalInput): Canonical {
   });
   const faceFor = (face: number, forward: boolean) => forward ? face : reversedRow[face]!;
 
+  // Surfaces a face bounded by nothing covers without end.
+  const UNBOUNDED = new Set(['plane', 'cylinder', 'cone', 'extrusion']);
   // Rule 8: shells by topology, per body. A body's shells the source calls closed each split into their connected
   // pieces; its others' faces together, split likewise (open shells sharing edges merged).
   const shells: CanonicalShell[] = [];
@@ -250,7 +261,10 @@ export function canonical(x: CanonicalInput): Canonical {
   };
   const shellOf = (g: { face: number; declared: ShellKind; id?: number }[], first: boolean): number => {
     // Closed: every edge its faces bound with used exactly twice, once each way (internal and external uses bound
-    // nothing). A shell whose faces use no edges keeps the source's claim.
+    // nothing). A shell whose faces use no edges is open where one of them is on a surface without bounds of its own
+    // (a plane, cylinder, cone or extrusion: the face is unbounded), else keeps the source's claim (a whole sphere or
+    // torus is closed). (So a STEP solid's shell of an unbounded face, which STEP writes as a CLOSED_SHELL, reads back
+    // open as it was.)
     const count = new Map<number, [number, number]>();
     for (const u of g) {
       for (const l of faces[u.face]!.loops) {
@@ -264,7 +278,7 @@ export function canonical(x: CanonicalInput): Canonical {
       }
     }
     const closed = count.size ? [...count.values()].every(([a, b]) => a === 1 && b === 1)
-      : g[0]!.declared === 'closed';
+      : !g.some((u) => UNBOUNDED.has(x.surface(faces[u.face]!.surface).kind)) && g[0]!.declared === 'closed';
     const id = first ? g[0]!.id : undefined;
     shells.push({ kind: closed ? 'closed' : 'open', declared: g[0]!.declared, faces: g.map((u) => u.face),
       ...(id === undefined ? {} : { id }) });
@@ -282,9 +296,11 @@ export function canonical(x: CanonicalInput): Canonical {
     };
     const members: number[] = [];
     const rest: ReturnType<typeof uses> = [];
+    // (By the source's claim, which a model's shells keep as `declared` beside their kind by topology: a model
+    // given to a builder again splits and orders its shells as the first time.)
     for (const m of b.members) {
       const s = x.shells[m.ref]!;
-      if (s.kind === 'closed') pieces(uses(m)).forEach((g, i) => members.push(shellOf(g, i === 0)));
+      if ((s.declared ?? s.kind) === 'closed') pieces(uses(m)).forEach((g, i) => members.push(shellOf(g, i === 0)));
       else rest.push(...uses(m));
     }
     const seen = new Set<number | undefined>();

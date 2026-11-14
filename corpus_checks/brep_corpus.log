@@ -59,7 +59,6 @@ models 107.7 MB, subsets 323.5 MB
        17 validate warning: body N (#N): shell N not closed  e.g. gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938; gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049; gkv311-opencascade-dataset/step/ec_exhaust-A.stp #2631
        16 vertices in the closure not in the model  e.g. gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #329592 -> #14206, #18013, #75744
         8 edges in the closure not in the model  e.g. gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #329592 -> #27043, #283476, #324762
-        3 JSON text round trip changed a value  e.g. gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938: shell.kind; gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938: shell.id; gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938: faceUse.face
         3 import info: N seams whose two p-curves on one face couldn't be told apart (neither use has one)  e.g. gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049; gkv311-opencascade-dataset/step/ec_exhaust-A.stp #2743; gkv311-opencascade-dataset/step/ec_turbine-A.stp #11
         3 import warning: a torus with a negative major radius (read with its absolute value, its faces turned over)  e.g. gkv311-opencascade-dataset/step/bug30014.stp #41105; gkv311-opencascade-dataset/step/bug25287_bad_tess_face_plus.step #2134; gkv311-opencascade-dataset/step/bug32239.STEP #83837
         3 faces in the closure not in the model  e.g. gkv311-opencascade-dataset/step/bug22871_null-swept-curve.stp #10 -> #3367, #3485; gkv311-opencascade-dataset/step/bug24383_224013.stp #11 -> #9869
@@ -67,7 +66,6 @@ models 107.7 MB, subsets 323.5 MB
         1 import warning: an edge missing from the file  e.g. gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938
         1 import warning: a loop with an edge that can't be read (the loop left out)  e.g. gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938
         1 import warning: a face missing from the file  e.g. gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938
-        1 JSON round trip changed the bytes  e.g. gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938
         1 import info: a seam whose two p-curves on one face couldn't be told apart (neither use has one)  e.g. gkv311-opencascade-dataset/step/ec_exhaust-A.stp #2631
         1 import warning: a vertex missing from the file  e.g. gkv311-opencascade-dataset/step/bug31292.stp #62
         1 validate warning: edge N (#N): one vertex only  e.g. gkv311-opencascade-dataset/step/bug31292.stp #62

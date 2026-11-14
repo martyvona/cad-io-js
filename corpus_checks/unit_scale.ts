@@ -2,15 +2,15 @@
 // text (millimetres to centimetres, else centimetres to millimetres, else metres to kilometres: the same numbers, every
 // length then k = 10, 0.1 or 1000 times as long), and the two scenes compared against an oracle of their own
 // (packages/step-import/test/unit-oracle.ts, written from docs/brep-reference.md's list of what's a length, not from
-// step-import): in every B-rep model each real times
-// k where it's a length, the same where it isn't (directions, angles, knots, weights, parameters), a p-curve's
-// coordinates times its surface's factors (k on a length parameter: a plane's u and v, a cylinder's and cone's v; a
-// 2D line by its direction times its magnitude); ints and ids the same. And the scene: parts' origins and vertex
-// boxes times k, placements' translations times k and their linear parts the same, tessellated meshes' positions
-// times k (to float32), the source unit times k. A model whose rows differ in number is said (a 2D curve used on
-// surfaces that scale apart is a row per scale). PLANT=pcurve undoes the scaling of one plane p-curve's coordinates
-// in about every 10th part's scaled model, PLANT=translation one placement's translation, PLANT=knots scales one
-// B-spline's knots; each must be seen.
+// step-import): in every B-rep model each real times k where it's a length, the same where it isn't (directions,
+// angles, knots, weights, parameters), a p-curve's coordinates times its surface's factors (k on a length parameter: a
+// plane's u and v, a cylinder's and cone's v; a 2D line by its direction times its magnitude); ints and ids the same (a
+// length within 1e-12 of the model's size, though not its own last bits, counted apart: rounding in values the builder
+// computes). And the scene: parts' origins and vertex boxes times k, placements' translations times k and their linear
+// parts the same, tessellated meshes' positions times k (to float32), the source unit times k. A model whose rows
+// differ in number is said (a 2D curve used on surfaces that scale apart is a row per scale). PLANT=pcurve undoes the
+// scaling of one plane p-curve's coordinates in about every 10th part's scaled model, PLANT=translation one placement's
+// translation, PLANT=knots scales one B-spline's knots; each must be seen.
 // Usage: node --max-old-space-size=12000 corpus_checks/unit_scale.ts [file-list.txt] [max MB]
 import fs from 'node:fs';
 import { type BrepData, CURVE_KIND, LOOP_KIND, openBrep, rowCount, SURFACE_KIND }

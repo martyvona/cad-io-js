@@ -25,7 +25,7 @@ import { openModel, parseStep } from '../packages/step-parser/src/index.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
 import { WorkerTessellator } from '../packages/tess-workers/src/node.ts';
 import { stepPartBytes } from '../packages/step-export/src/index.ts';
-import { differences, walk } from '../packages/step-export/test/compare.ts';
+import { differences, modelSize, walk } from '../packages/step-export/test/compare.ts';
 import { readBack } from '../packages/step-export/test/readback.ts';
 import { corpusFiles, partSubset, plantedPart, shortName } from './corpus.ts';
 import { runFiles, type FileCheck } from './runner.ts';
@@ -193,12 +193,17 @@ export const check: FileCheck<undefined, Result> = {
       // (c) Read back.
       const back = await readBack(data, w.rootId);
       for (const x of back.warnings) note(`read back: ${norm(x)}`, where);
-      const diffs = differences(walk(m0), walk(back.brep));
+      const diffs = differences(walk(m0), walk(back.brep), '', [], modelSize(m0));
       if (!diffs.length) R.readSame++;
       else if (diffs.every((x) => x.bits)) R.readBits++;
       for (const x of diffs) {
+        if (x.nearZero) continue;
         if (x.bits) R.worstBits = Math.max(R.worstBits, x.rel ?? 0);
         else note(`read back differs: ${norm(x.path)}`, where);
+      }
+      if (diffs.some((x) => x.nearZero)) {
+        note('read back: points within 1e-12 of the model\'s size only (computed again on reading: joined vertices)',
+          where);
       }
       if (plantedHere.length && diffs.some((x) => !x.bits)) R.planted.seenC.add(where);
       // Rows no item reaches aren't written: fewer rows read back.
