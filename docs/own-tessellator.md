@@ -1,6 +1,6 @@
 # Our own tessellator and oracle: scope and strategy
 
-A design note for the work after OCCT and SMLib are taken as close to every part as they'll go: a tessellator of our own, an oracle of exact measures (lengths, areas, volumes) covering every kind, and what both need beneath them, shape interrogation and healing. It says what each piece must do, why, in what order they're built, and the decisions to be put to the user one at a time. Nothing here is built yet; what exists is in [`shape-interrogation.md`](shape-interrogation.md) (our evaluators and inverses), [`backends.md`](backends.md) (the area oracle, the join, the fill, the fallback), and [`healing.md`](healing.md) (what OCCT's and SMLib's healers do, and how each backend makes missing p-curves).
+A design note for the work after OCCT and SMLib are taken as close to every part as they'll go: a tessellator of our own, independent of OCCT, truck and SMLib and not derived from their code, an oracle of exact measures (lengths, areas, volumes) covering every kind, and what both need beneath them, shape interrogation and healing. It says what each piece must do, why, in what order they're built, and the decisions to be put to the user one at a time. Nothing here is built yet; what exists is in [`shape-interrogation.md`](shape-interrogation.md) (our evaluators and inverses), [`backends.md`](backends.md) (the area oracle, the join, the fill, the fallback), and [`healing.md`](healing.md) (what OCCT's and SMLib's healers do, and how each backend makes missing p-curves).
 
 ## Why
 
@@ -76,7 +76,168 @@ Independent of the tessellator (a check that shares the code under test is blind
 3. **Analysis, then healing:** the report over the corpus and the user's models; fixes in the order the report says matter.
 4. **The tessellator:** planes and elementary surfaces, then B-splines; compared face by face with OCCT and SMLib (`smlib_occt`'s classification), then end to end (`e2e.ts`).
 
-Each step a phase of its own, with its record in this note and its own corpus check.
+The phases below break these into work that up to four agents can do at once.
+
+## Phases
+
+### How parallel work is organized
+
+- **A phase starts with its contracts.** One agent (the phase's lead) writes the interfaces its lanes meet at (TypeScript types or headers, function signatures, the data each lane produces and consumes, the error and provenance fields) and a stub or reference implementation of each, small and obviously right if slow (a dense sampling where the lane will write a search), committed before the lanes start. Lanes then code against the contract and test against the stubs, so none waits for another.
+- **Each lane owns its files.** A lane works in its own git worktree and branch and touches only its own module and tests; shared files (the package index, `CLAUDE.md`, the README, this note) change only at the merge, by the lead. So lanes merge without conflicts but in the index.
+- **Each lane delivers checked work:** unit tests on shapes with closed-form answers, planted bugs one at a time (survivors closed or explained), a corpus check where the lane's function meets real data, and a provenance header per module (the paper, specification or summary it's written from: "Independence and clean room").
+- **The merge** is the lead's: lanes merged one at a time, the whole test suite and the phase's corpus checks after each, the contract amended where a lane found it wrong (the other lanes told, their work adjusted before they merge).
+- **Lanes are independent by construction, not by hope:** where one lane's output is another's input, the second works from the stub until the merge, and the merge replaces the stub. Phases overlap where noted: a lane of the next phase can start once the contract it needs exists.
+
+### Phase T0: foundations (one agent)
+
+- **Decisions put to the user first:** the language (TypeScript, or C++ or Rust to WebAssembly) and the rigor (certified bounds, or floating point with error estimates), since every lane depends on them; where derived values live ("The input": A, B or C).
+- **The packages:** a home for the interrogation core, the oracle, analysis and healing, and the tessellator (names and boundaries decided with the user), with their build and test wiring.
+- **The shared types:** curve and surface queries (evaluation with derivatives, bounds, inversion results with how sure they are), 2D loops in (u, v), the derived data and its provenance (given, measured, healed), error bounds.
+- **The reference shapes:** a test library of models with closed-form answers (lengths, areas, volumes, normals, parameters) for every curve and surface kind, at several scales, mirrored and moved (the existing `cad-brep` test models extended), and the catalogue of degenerate and ambiguous cases ("Degenerate and ambiguous cases") with the answers each query must give, which every lane tests against.
+- **The result types for degeneracy:** in, out and on; crossings, tangencies and overlap intervals; inversions with their certainty and alternatives; the record of shared decisions.
+- **The check skeleton:** a corpus check per phase, empty until its lanes fill it.
+
+### Phase T1: the interrogation core (four lanes)
+
+| Lane | Owns | Contract it fills |
+|---|---|---|
+| 1. Curves | evaluation with derivatives for every curve kind (composite, trimmed, offset included), span bounds (hulls, derivative bounds), arc length and its inverse, point inversion on curves (global: branch and bound on hulls, then guarded Newton) | the curve query interface |
+| 2. Surfaces | evaluation to second derivatives for every surface kind (offset, revolved, extruded, swept), singular points (poles, apexes, axes), closedness and periodicity, point inversion on surfaces (branch and bound, Gauss-Newton), seam handling | the surface query interface |
+| 3. 2D geometry | robust predicates (adopted or our own: "Dependencies"), 2D curve-curve and self-intersection, point in loop, loop nesting and orientation, for exact 2D curves (lines, conics, B-splines) | 2D classification |
+| 4. Numerics | the B-spline toolkit (knot insertion, subdivision into Bezier pieces, degree elevation), 2D interpolation and fitting with error control, Bernstein root isolation, quadrature rules, the arithmetic (expansions, a double-double type) | the numerics interface the other three call |
+
+Lanes 1 and 2 call lane 4's toolkit through its contract (today's `geometry.ts` evaluators as the stub). **Then, at the merge, one lane:** 3D curve to p-curve projection (the exact table, then tracing by continuation, the fit checked against the 3D curve), which needs all four. Checks: `brep_geometry` against the new inversions, OCCT's points as a reference (running OCCT is allowed), the reference shapes at every scale.
+
+### Phase T2: analysis and the oracle (four lanes)
+
+| Lane | Owns | Needs |
+|---|---|---|
+| 1. Analysis | the derived data ("The input"): measured deviations, edge and coedge ranges, outer loops, adjacency, continuity per edge and face pair, provenance; stored as decided in T0 | T1's inversion and projection |
+| 2. Lengths and areas | the oracle's lengths, and areas for every surface kind (free-form by the method decided: iterated boundary integral or cubature over (u, v) cells), with error estimates and trust flags | T1's curves, surfaces and 2D classification |
+| 3. Volumes | the divergence theorem over closed shells, centroids and moments, orientation by the volume's sign | lane 2's face integrals (through a contract for an integrand over a face, written first) |
+| 4. Point classification | 3D line and ray intersection with trimmed faces, a point against a solid, shells' nesting (which shell is inside which) | T1's surfaces and 2D classification |
+
+Lane 2 can start its lengths, and lane 4 its ray-surface intersection, once T1's curve and surface contracts exist, before T1 merges. Checks: `area_occt` and `area_model` extended to every kind (against OCCT's and SMLib's measures, classified), volumes against closed forms and OCCT's, lane 3's and lane 4's orientations against each other (two independent methods), the analysis report over the corpus and the user's models.
+
+### Phase T3: healing (four lanes, an opt-in pass on the model)
+
+Its order and contents set by T2's analysis report (what the corpus and the user's models need most); likely lanes:
+
+| Lane | Owns |
+|---|---|
+| 1. Curves on surfaces | missing p-curves, same-parameter measured and fixed, tolerances grown and recorded |
+| 2. Loops | order, connection and orientation in (u, v); outer loops; seams, poles and degenerate edges added where a face needs them |
+| 3. Gaps | coincident vertices merged and edges sewn within a stated tolerance, small edges and sliver faces kept and said or removed |
+| 4. Shells and solids | orientation (T2's lanes 3 and 4), voids nested and turned to face into the void, the healed model's validation |
+
+Each fix its own module with its diagnostic and opt-out, independent of the others' code; the lead orders them in the pass at the merge (gaps before loops before shells, likely) and checks the pass is idempotent (healing a healed model changes nothing). Checks: the analysis report before and after, the backends' meshes of healed models (OCCT, SMLib), the round trip through STEP.
+
+### Phase T4: the tessellator (four lanes)
+
+| Lane | Owns | Needs |
+|---|---|---|
+| 1. Edges | each model edge sampled once in 3D within the deflections (guaranteed by T1's bounds), its points' (u, v) on each face through p-curves or inversion; seams and degenerate edges | T1, T2's analysis |
+| 2. The 2D mesher | constrained Delaunay triangulation with a fixed boundary and refinement (adopted or our own: "Dependencies"), driven by a size and metric function it's given; knows nothing of surfaces | the metric contract only |
+| 3. Surface criteria | per surface kind, the error in 3D of a triangle in (u, v) (chord to surface, normal angle), the metric for (u, v) distortion, seams unwrapped, poles as fans, whole closed surfaces | T1's surfaces |
+| 4. The backend | the `Tessellator` interface (requests, `TessellationResult` with faces, edges, measures from the oracle), workers, one face meshed again inside fixed edges, the corpus checks against OCCT and SMLib (`smlib_occt`'s classification adapted) | the contracts of 1-3, stubs until the merge |
+
+Lane 2 is the most independent (pure 2D, testable on its own) and can start as soon as T0 is done. Planes and elementary surfaces first; B-splines once they pass. Checks: watertightness by construction (`openEdges` finds none), `judgeResult` on every part, areas against T2's oracle, end to end (`e2e.ts`) against OCCT then SMLib.
+
+### Phase T5: hardening (up to four lanes)
+
+The corpus and the user's models through the new tessellator, its failures classified (as `smlib_occt` classified SMLib's) and each class a lane: a fix and its test per class, merged one at a time. Then performance (the WebAssembly build, workers, the cache), the deflections honoured at every scale, and the decision, the user's, of when it becomes the primary backend, with OCCT and SMLib its fallbacks and references.
+
+### Dependencies between phases
+
+```mermaid
+flowchart TD
+  T0[T0 foundations] --> T1[T1 core, 4 lanes]
+  T0 --> T4b[T4 lane 2: the 2D mesher]
+  T1 --> P[T1 merge: projection to p-curves]
+  P --> T2[T2 analysis and oracle, 4 lanes]
+  T1 -. contracts .-> T2e[T2 lanes 2, 4 start early]
+  T2 --> T3[T3 healing, 4 lanes]
+  T2 --> T4[T4 tessellator lanes 1, 3, 4]
+  T4b --> T4
+  T3 -. healed models .-> T4
+  T4 --> T5[T5 hardening]
+```
+
+T3 and T4 can run side by side (eight lanes is more than the four wanted; so T3 first, or two of each), since the tessellator takes canonical models whether healed or not; healed models improve its results but aren't needed to build it.
+
+## The input: the model, and what's derived from it
+
+The tessellator (and the oracle and healing) take a part's B-rep model (`brep-reference.md`), canonical by construction. What they need that the model doesn't hold is derived from it, since the model keeps only what a source says (rule 7: what a source leaves out stays absent, so import is exact and a round trip faithful):
+
+- **Tolerances as measured.** The model has a tolerance per vertex, edge and face and the part's uncertainty, `NaN` where the source gives none, which from STEP is nearly always (it gives the uncertainty alone; the exceptions are the vertices joining curve-bounded segments, whose tolerance is their gap); formats with tolerances per entity (OCCT BREP, Parasolid's) would fill them. What a mesher needs is how far the geometry actually disagrees: a vertex's distance from its edges' curves and its faces' surfaces, an edge's p-curves' deviation from its 3D curve (same-parameter), a loop's closing gaps. These are measured, kept beside the given tolerance, not in place of it (the source's claim and the measurement answer different questions); the tessellator takes the largest of the uncertainty, the given and the measured as the distance within which points are one, and healing that grows a tolerance says so by the measured value, the given one still visible.
+- **Parameters:** each vertex's parameter on its edge's curve (the edge's range), each coedge's p-curve range, where the source doesn't give them (today `NaN`, every consumer searching again: the oracle through `edgeParams`).
+- **The outer loop** of a face where the source doesn't say (decision 40 leaves it to consumers: 3,182 corpus faces with several `outer` loops, 3,256 with all `unknown`).
+- **Continuity across each edge** (C0, G1, G2), per edge and pair of faces (so non-manifold edges too): normals shared across smooth edges, the angular deflection's meaning there, and decision 17 settled.
+- **Surface and curve facts:** singular points (poles, apexes, a revolution's axis), whether a B-spline closes or is periodic in each direction, parameter domains, each face's (u, v) box.
+- **Adjacency:** a vertex's edges, an edge's coedges and faces.
+- **Results with their accuracy:** the oracle's measures, a shell's orientation sign, each with its error bound.
+- **Provenance on every derived value:** given (from the source), measured (by analysis), or set by healing, so nothing computed passes for the source's.
+
+Where the derived values live is a decision to make:
+
+- **(A) Analysis tables in the model's buffer:** optional tables, empty until a model is analysed; one format and one generated header for every consumer (C, Rust, TypeScript), a format version (`MAGIC`) bump.
+- **(B) A companion analysis buffer**, its rows keyed by the model's: the canonical format untouched, the analysis versioned apart; consumers take two buffers.
+- **(C) Computed inside each consumer:** no format change, but the oracle, healing, the tessellator and exporters can't share results, and each computes again.
+
+## Independence and clean room
+
+- **Independent of the three backends.** Our tessellator, oracle, healing and interrogation core use none of OCCT, truck or SMLib (usd-brep): not linked, not called, not ported. They stay what they are today, backends and references: the corpus checks compare against them, and a classification of where they and we differ decides who's right, by the standard and the evidence (`CLAUDE.md`).
+- **Not derivative of their code** (OCCT is LGPL-2.1 with its exception; truck and SMLib are Apache-2.0, permissive, but the user keeps the code free of their expression too, so every future license stays open). The clean-room protocol (`docs/licensing.md`):
+  - **Two sides.** The *reference* side may read the backends' source and writes only behavioural summaries: what a backend does, in prose, with the cases it handles and the constants it uses, never code, pseudocode that mirrors its structure, its comments or its identifiers (`healing.md` is one). The *implementing* side never reads the backends' source; it works from those summaries, the specifications (ISO 10303-42, the recommended practices) and the literature (Piegl and Tiller; Shewchuk; Patrikalakis, Maekawa and Cho; the papers each module cites).
+  - **A new session implements.** The session (and its agents) that read OCCT's, truck's or SMLib's source for the summaries doesn't write this code; implementation starts in a fresh session whose agents are told not to open `third_party/OCCT`, `third_party/truck` or `third_party/usd-brep` (only the summaries in `docs/`), and say so in their commit messages.
+  - **Provenance per module:** the paper, specification or summary each module is written from, in its header; constants justified independently (by measurement or the literature), not by what a backend uses.
+  - **Running the backends is fine:** as oracles in tests and corpus checks, their outputs compared with ours; their behaviour may be described further whenever a summary is missing something, by the reference side.
+
+## Degenerate and ambiguous cases
+
+Real models are full of cases where the answer is not one isolated point or a clean yes or no, and where answering each query on its own (each sample projected alone, each intersection computed alone) gives answers that contradict each other. The core and everything on it is to be built for them from the start, not patched for them later:
+
+### The cases
+
+- **Overlapping curves.** Two p-curves (or 3D curves) that coincide, exactly or within the local tolerance, over a stretch of nonzero length: a seam's two uses, a boundary shared by two loops, an inner loop touching the outer along a side, a duplicate edge. An intersection that returns only points misses them or returns a cloud of near-tangent points; the result has to be intervals of overlap as well as crossings. (Skia's PathOps treats coincident runs as such: one reason it's among the candidates.)
+- **Tangencies and near-tangencies:** curves that touch without crossing, or cross at a grazing angle within the tolerance: double roots, ill-conditioned crossings; a loop tangent to another (pinched faces), an inner loop touching the outer at a point.
+- **Ambiguous projections.** A point or a curve at the same distance (exactly, or within the tolerance) from two places on a surface: a curve on a parabolic cylinder's plane of symmetry, off the surface, equidistant from its two folds; a point near a surface's focal set, where nearest points jump. Projecting each sample on its own can alternate between the branches and give a p-curve that zigzags across the surface.
+- **Parameter singularities:** poles and apexes (u undefined; a p-curve through a pole jumps in u; normals undefined there), degenerate edges, B-spline surfaces with collapsed rows of control points, rational weights near zero, zero-speed points of curves (cusps, repeated control points) where arc length and Newton steps fail.
+- **Periodicity:** a point on a seam has two (u, v); a curve along a seam, or crossing it; a full circle from a vertex to itself (its range 0 to 2 pi or nothing); loops winding around a periodic direction (bands with two "outer" loops, a torus's minor winding), where "inside" depends on the unwrapping.
+- **Non-injective surfaces:** self-intersecting surfaces (a spindle torus, an offset surface past its curvature radius, a B-spline folding back), where one 3D point is two (u, v) and a triangle can be inside out in 3D though right in (u, v).
+- **Sizes against tolerances:** edges shorter than the tolerance, vertices nearer each other than the tolerance, faces narrower than the deflection (slivers), gaps wider than the tolerance (loops that don't close, vertices off their curves), tolerances given smaller than what's measured, features tiny against a large part, coordinates far from the origin (where double precision runs short).
+- **Topology on the edge of validity:** non-manifold edges (three or more faces) and vertices, an edge used once in a closed shell, coincident or duplicated faces, a point exactly on a loop or a face's boundary when classifying.
+
+### How they're handled
+
+- **Results that can say "on", "overlapping" and "ambiguous".** Classification answers in, out or on (within a stated tolerance); intersection returns crossings, tangencies and overlap intervals; inversion returns its point with how sure it is (unique, or several within the tolerance, with the alternatives). No query hides an ambiguity in a single number.
+- **Decided once, shared everywhere.** Each geometric decision (where two loops meet, whether two points are one, which branch a curve is on) is made once and recorded, and every later query uses the record, so the mesh and the classification can't disagree with each other; topological consistency first, then geometry within tolerance (the approach of robust B-rep kernels and of Shewchuk's work on consistent predicates).
+- **Tracing by continuation, not independent samples.** A projection of a curve onto a surface (and later an intersection curve) is traced: started from a point where the answer is unique by a margin (found by global search, at a vertex whose (u, v) is known, or where the edge's neighbouring faces fix it), then advanced along the curve by predictor (the tangent of the projection, from the implicit function theorem) and corrector (Newton) steps, the step shortened where the minimum's separation from other candidates shrinks, and a fold or branch point detected (the distance's Hessian going singular) and crossed or reported, the branch chosen to stay continuous and to land on the edge's other end's known (u, v). Global search seeds it and checks it; it doesn't replace it.
+- **Exact predicates where answers are signs** (orientation, in-circle); tolerances everywhere else, from the model's (given, measured) and the part's uncertainty ("The input").
+- **Simulation of simplicity for exact ties** (Edelsbrunner and Muecke, "Simulation of Simplicity", ACM Transactions on Graphics 9(1), 1990): a tool for the cases where a decision must come out one way or the other and the data make it an exact tie (cocircular or collinear points in the triangulator, events at one parameter, equal candidates). The inputs get a canonical order (by the model's rows, say), shuffled pseudorandomly with a fixed seed (deterministic, as the output must be; the shuffle avoids a spatial bias that a raw order such as by coordinate would put into the results), and every tie is broken as if the inputs were perturbed infinitesimally in that order, so all decisions stay mutually consistent. It settles exact ties only: a tie within a tolerance is a geometric question, decided by the tolerance or reported as above. Worth it where a consistent tie-break is all a component needs (the triangulator, a sweep's event order); maybe not elsewhere, for its cost in code and in time: a choice to make per component, the tool known to every lane.
+- **Reported, not silently resolved.** An ambiguity that can't be settled within the tolerance is a diagnostic naming the entities, as the importer's are, and the result says what was assumed; healing (T3) is where a source's ambiguity is fixed, with its opt-out.
+- **A catalogue of these cases as tests:** T0's reference shapes include one model for each case above (overlapping and tangent loops, a curve on a parabolic cylinder's symmetry plane, poles, seams, a spindle torus, slivers, far coordinates, non-manifold edges), with the answer each query must give; every lane tests its functions on them, and the corpus checks count how often each case occurs in real data.
+
+## Dependencies
+
+Libraries for specific subfunctions, each a decision for the user when its step comes, under these licenses (the user's rule, 2026-11-14, keeping future licensing open): permissive ones (MIT, BSD, ISC, Apache-2.0, Boost, zlib, public domain); MPL-2.0 (file-level copyleft: a file of theirs we modify, which is unlikely, is offered as source); and LGPL where the library is a module a consumer could replace, as `tess-occt` is (its own package and WebAssembly module, loaded through `init`, so a user can build and swap in their own). Not GPL or AGPL, and nothing with a non-commercial clause. Surveyed 2026-11-14, licenses checked on the repositories (an agent's survey, the main ones checked again by hand); what each is for, the leading candidates, and what to watch:
+
+| Subfunction | Candidates (license) | Notes |
+|---|---|---|
+| Robust predicates (orientation, in-circle, in-sphere) | Shewchuk's `predicates.c` (public domain); `robust-predicates` (Unlicense, TypeScript port); georust `robust` (MIT/Apache, Rust); geogram's PCK (BSD-3: generated predicates, symbolic perturbation) | `robust-predicates`' y axis points down, so its `orient2d`'s sign is the opposite of Shewchuk's |
+| 2D constrained Delaunay, with refinement | Spade (Apache-2.0 / MIT, Rust: exact predicates and Ruppert-style refinement by angle and area); geogram's `CDT_2d` (BSD-3: exact, intersects crossing constraints, no refinement); delaunator with Constrainautor (ISC, JS: no refinement, no Steiner points); artem-ogre's CDT (MPL-2.0: robust, Shewchuk's predicates, header-only, no refinement) | geogram's tree bundles tetgen (AGPL) and Triangle (non-commercial): build without them. Shewchuk's Triangle itself is excluded (non-commercial clause) |
+| 2D curve intersection, classification, booleans | Skia's PathOps (BSD-3: exact quadratics, cubics and conics; heavy to extract); kurbo (Apache-2.0 / MIT, Rust: Bezier tools, arc length, nearest point, curve-line intersection, offsets; no booleans); flo_curves (Apache-2.0, Rust: cubic intersection and booleans, one maintainer); for polylines Clipper2 (Boost; the maintained repository is PolyClipping/Clipper2, the old one archived), Boost.Geometry (Boost), iOverlay (MIT/Apache) | none does trimmed NURBS p-curves directly: PathOps' conics cover rational quadratics, the rest by our own classification on the core's bounds |
+| Convex hulls | our own (a 2D hull is a monotone chain on the robust `orient2d`); 3D if needed quickhull3d (MIT, JS) | Qhull's license is permissive but asks for notices of changes: not worth it |
+| NURBS evaluation, knot insertion, degree elevation, projection, intersection | curvo (MIT, Rust: closest points on curves and surfaces, curve-curve and curve-surface intersection, adaptive tessellation; its dependencies permissive: nalgebra, spade, robust, argmin, gauss-quad); openNURBS (McNeel's own permissive terms: evaluation, knot insertion, degree elevation; large); tinynurbs (BSD-3, small, basics only); verb (MIT, abandoned since 2015: algorithms to read) | no permissive library does robust surface-surface intersection (not needed here) |
+| Interval and extended arithmetic | Shewchuk's or geogram's expansion arithmetic (exact signs), a double-double interval type of our own by error-free transformations; Boost.Multiprecision `cpp_bin_float` (Boost: a slow, precise oracle mode) | **WebAssembly has no rounding modes**: interval libraries that switch the processor's rounding (Boost.Interval) give wrong enclosures there silently; outward rounding must be in software. QD (LBNL's BSD-like license) has a grant-back clause: flagged |
+| Polynomial roots, nonlinear solves | cyPolynomial (MIT: bracketed real roots of any degree); Boost.Math's root finders (Boost: Newton, Halley, TOMS 748, cubic and quartic); Eigen's polynomial solver (MPL-2.0, unsupported module); Bernstein root isolation our own (Descartes' rule and de Casteljau subdivision) | |
+| Quadrature | Boost.Math (Boost: adaptive Gauss-Kronrod, tanh-sinh, with error estimates); or our own Gauss-Legendre and Kronrod (tabulated nodes) | QUADPACK (public domain) as a reference |
+| Spatial indexing | flatbush (ISC, JS, static); rbush (MIT, dynamic); nanoflann (BSD-2, C++, k-d tree) | |
+| Later, around the mesh | Manifold (Apache-2.0: robust mesh booleans, watertightness, a wasm package); meshoptimizer (MIT, already a dependency of the glTF exporter's meshopt) | linear algebra: Eigen (MPL-2.0; some optional dependencies GPL: not to be enabled), nalgebra (Apache-2.0), glam (MIT/Apache), gl-matrix (MIT) or small solves of our own |
+
+LGPL candidates, if a permissive or MPL one falls short (each in a module of its own, replaceable): GMP and MPFR (exact and arbitrary-precision arithmetic), MPFI and filib++ (intervals), CGAL's LGPL parts (its kernels and number types; most of CGAL, its triangulations among them, is GPL: excluded), mmg (remeshing). Their licenses to be checked again when considered.
+
+Licensing duties to carry: Apache-2.0 dependencies' NOTICE files and patent terms kept with our distribution; MPL-2.0 files we modify offered as source; an LGPL module kept replaceable (its own package, built by a script a user can run, its license beside it); Rust dependency trees checked transitively (`cargo deny`); a library's license checked again when it's adopted (they change: Clipper2 moved, openNURBS' wording isn't a standard SPDX license).
 
 ## Decisions to make
 
@@ -85,9 +246,11 @@ Each to be put to the user when its step comes, with these alternatives and what
 - **Language:** TypeScript (one language throughout, no build step, the evaluators already there) or C++ compiled to WebAssembly (speed, operator overloading for interval or exact arithmetic, as the interrogation note says rigorous work suggests; a toolchain we already use for OCCT and SMLib).
 - **Rigor:** certified results (interval arithmetic, bounds that hold), or floating point with a posteriori error estimates (faster, simpler, the oracle's way today).
 - **Where healing changes the model:** an opt-in pass producing a healed model (what every consumer and exporter could use), or inside the tessellator only (meshes healed, the model left as the source gives it, as `orientResult` does today).
-- **The triangulator:** our own constrained Delaunay mesher, or a library under the clean-room and license rules (`licensing.md`).
+- **The triangulator:** our own constrained Delaunay mesher, or a library (Spade, geogram's `CDT_2d`; "Dependencies").
+- **Each dependency** as its step comes: adopt, or write our own, by the table above.
 - **The oracle's area method for free-form surfaces:** the iterated boundary integral, or cubature over (u, v) cells.
 - **Ray classification or volume sign** for orienting shells on the model, once both exist.
+- **Where derived values live** ("The input"): analysis tables in the model's buffer, a companion buffer, or computed in each consumer.
 
 ## What exists to build on
 
