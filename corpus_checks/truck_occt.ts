@@ -9,7 +9,8 @@
 // For files with one root product and a surface area validation property, both backends' placed totals are also
 // compared with the property: a check independent of either backend.
 // Usage: node corpus_checks/truck_occt.ts [file-list.txt] [max MB, default 30]   (progress on standard error)
-//   DUMP=<dir>  write the subset of every part with a problem there, as <file>.<root id>.stp, for repros
+//   DUMP=<dir>  write every part with a problem there, for repros: its model as <file>.<root id>.cad-brep (what both
+//               backends read; tess-truck's examples/run.rs runs truck on it natively) and as STEP, .stp
 //   WORKERS=<n> workers per backend in each process (default: half the process's share, runner.ts)
 // Several files at once (runner.ts: CHILDREN, MESH_WORKERS).
 import fs from 'node:fs';
@@ -437,7 +438,11 @@ export const check: FileCheck<undefined, Tallies> = {
       if (status === 'ok' && !problems.some((x) => /missing|off OCCT's geometry/.test(x))) totals.partsComplete++;
       if (problems.length) {
         rows.push(`${where}: ${problems.join(' | ')}`);
-        if (dump) fs.writeFileSync(path.join(dump, `${path.basename(name)}.${w.rootId}.stp`), w.data);
+        if (dump) {
+          const base = path.join(dump, `${path.basename(name)}.${w.rootId}`);
+          fs.writeFileSync(`${base}.cad-brep`, req.data);
+          fs.writeFileSync(`${base}.stp`, w.data);
+        }
       }
     }
     // The validation property, for files with one root.
