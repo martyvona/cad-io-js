@@ -1,12 +1,13 @@
-517 files (0 over the size limit), 595 s
+host: Apple M4, 10 cores (4 performance, 6 efficiency), 10 threads, 24 GiB; Darwin 24.6.0 arm64; Node 24.5.0; lowpowermode 0, on Battery Power; load 1.6; speed 4885 on 1 thread, 26565 on 10
+517 files (0 over the size limit), 441 s
 nothing to export (not compared): gkv311-opencascade-dataset/step/xr1-db-214_2.stp, gkv311-opencascade-dataset/step/xr1-db-214_1.stp, gkv311-opencascade-dataset/step/xr1-db-214_0.stp, gkv311-opencascade-dataset/step/bug29241.stp, gkv311-opencascade-dataset/step/xr1-db-214_6.stp, gkv311-opencascade-dataset/step/mat.stp, gkv311-opencascade-dataset/step/bug27333_simple.stp, gkv311-opencascade-dataset/step/bug26461_test_ap227.stp
-json           509 of 509 the same; 0 invalid, 0 threw; 628.1 MB, export 14.4 s, import 3.7 s
-glb            509 of 509 the same; 0 invalid, 0 threw; 299.9 MB, export 2.0 s, import 3.2 s
-glb-draco      509 of 509 the same; 0 invalid, 0 threw; 82.3 MB, export 8.5 s, import 6.0 s
-glb-meshopt    509 of 509 the same; 0 invalid, 0 threw; 90.1 MB, export 4.6 s, import 5.9 s
-glb-instanced  509 of 509 the same; 0 invalid, 0 threw; 302.5 MB, export 1.9 s, import 3.1 s
-3mf            508 of 509 the same; 0 invalid, 0 threw; 126.8 MB, export 33.8 s, import 24.0 s
-3mf-assembly   508 of 509 the same; 0 invalid, 0 threw; 124.4 MB, export 32.5 s, import 17.8 s
+json           509 of 509 the same; 0 invalid, 0 threw; 628.1 MB, export 13.1 s, import 3.3 s
+glb            509 of 509 the same; 0 invalid, 0 threw; 299.9 MB, export 1.8 s, import 2.8 s
+glb-draco      509 of 509 the same; 0 invalid, 0 threw; 82.3 MB, export 7.3 s, import 5.0 s
+glb-meshopt    509 of 509 the same; 0 invalid, 0 threw; 90.1 MB, export 4.1 s, import 4.9 s
+glb-instanced  509 of 509 the same; 0 invalid, 0 threw; 302.5 MB, export 1.7 s, import 2.6 s
+3mf            508 of 509 the same; 0 invalid, 0 threw; 126.8 MB, export 31.7 s, import 20.3 s
+3mf-assembly   508 of 509 the same; 0 invalid, 0 threw; 124.4 MB, export 29.5 s, import 16.0 s
 problems 2
   3mf gkv311-opencascade-dataset/step/bug25381_test_assembly_invisible.step: placement 4 (/ASSEMBLY/=>[0:1:1:5]): 2 triangles against 2; 2 and 2 unmatched, first face 791 0,0,255@255 at 100.0000,100.0000,75.0000,0.0000,100.0000,75.0000,0.0000,0.0000,75.0000
   3mf-assembly gkv311-opencascade-dataset/step/bug25381_test_assembly_invisible.step: placement 3 (/ASSEMBLY/=>[0:1:1:5]): 2 triangles against 2; 2 and 2 unmatched, first face 791 0,0,255@255 at 100.0000,100.0000,75.0000,0.0000,100.0000,75.0000,0.0000,0.0000,75.0000

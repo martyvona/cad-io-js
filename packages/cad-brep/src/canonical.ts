@@ -233,6 +233,8 @@ export function canonical(x: CanonicalInput): Canonical {
   });
   const faceFor = (face: number, forward: boolean) => forward ? face : reversedRow[face]!;
 
+  // Surfaces a face bounded by nothing covers without end.
+  const UNBOUNDED = new Set(['plane', 'cylinder', 'cone', 'extrusion']);
   // Rule 8: shells by topology, per body. A body's shells the source calls closed each split into their connected
   // pieces; its others' faces together, split likewise (open shells sharing edges merged).
   const shells: CanonicalShell[] = [];
@@ -259,7 +261,10 @@ export function canonical(x: CanonicalInput): Canonical {
   };
   const shellOf = (g: { face: number; declared: ShellKind; id?: number }[], first: boolean): number => {
     // Closed: every edge its faces bound with used exactly twice, once each way (internal and external uses bound
-    // nothing). A shell whose faces use no edges keeps the source's claim.
+    // nothing). A shell whose faces use no edges is open where one of them is on a surface without bounds of its own
+    // (a plane, cylinder, cone or extrusion: the face is unbounded), else keeps the source's claim (a whole sphere or
+    // torus is closed). (So a STEP solid's shell of an unbounded face, which STEP writes as a CLOSED_SHELL, reads back
+    // open as it was.)
     const count = new Map<number, [number, number]>();
     for (const u of g) {
       for (const l of faces[u.face]!.loops) {
@@ -273,7 +278,7 @@ export function canonical(x: CanonicalInput): Canonical {
       }
     }
     const closed = count.size ? [...count.values()].every(([a, b]) => a === 1 && b === 1)
-      : g[0]!.declared === 'closed';
+      : !g.some((u) => UNBOUNDED.has(x.surface(faces[u.face]!.surface).kind)) && g[0]!.declared === 'closed';
     const id = first ? g[0]!.id : undefined;
     shells.push({ kind: closed ? 'closed' : 'open', declared: g[0]!.declared, faces: g.map((u) => u.face),
       ...(id === undefined ? {} : { id }) });

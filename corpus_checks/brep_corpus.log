@@ -1,5 +1,6 @@
+host: Apple M4, 10 cores (4 performance, 6 efficiency), 10 threads, 24 GiB; Darwin 24.6.0 arm64; Node 24.5.0; lowpowermode 0, on AC; load 3.2; speed 4872 on 1 thread, 25965 on 10
 517 files (0 over 1000 MB skipped), 3258 B-rep parts
-import 16.2 s (the models built); the subsets they replace 1.6 s to build
+import 16.2 s (the models built); the subsets they replace 1.5 s to build
 models 107.7 MB, subsets 323.5 MB
 
 ## rows by kind

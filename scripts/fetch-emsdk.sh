@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Fetch the pinned Emscripten SDK into third_party/emsdk/ (git-ignored): emsdk at a pinned commit, then Emscripten
 # VERSION installed and activated inside it. emsdk's config there names its tools relative to itself, so nothing goes
-# outside the directory and no shell profile is touched. env.sh and the OCCT and truck build scripts use this SDK
+# outside the directory and no shell profile is touched. env.sh and the OCCT, truck and SMLib build scripts use this SDK
 # (scripts/emsdk-env.sh), whatever emcc a shell already has, so every host compiles with the same Emscripten, clang
 # and binaryen (whose wasm-opt also optimizes truck's module). Running it again does nothing if VERSION is in place;
 # to move to a new version, change the pins here (third_party/README.md).

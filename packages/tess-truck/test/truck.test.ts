@@ -74,10 +74,10 @@ test("the version names the module by its SHA-256, the same where crypto.subtle 
     t.dispose();
     return t.info.version;
   };
-  assert.equal(await version(), `truck 88ed005, wasm ${id}`);
+  assert.equal(await version(), `truck 88ed005, wasm ${id}, adapter 1`);
   const own = Object.getOwnPropertyDescriptor(globalThis, 'crypto')!;
   Object.defineProperty(globalThis, 'crypto', { value: {}, configurable: true });
-  try { assert.equal(await version(), `truck 88ed005, wasm ${id}`); } finally {
+  try { assert.equal(await version(), `truck 88ed005, wasm ${id}, adapter 1`); } finally {
     Object.defineProperty(globalThis, 'crypto', own); }
 });
 
@@ -291,6 +291,20 @@ test("an open solid shell's orientation is left as written and reported unchecke
   assert.deepEqual(r.diagnostics.map((d) => d.message),
     [`orientation of 1 solid shells not checked, since their meshes aren't closed: #${solid[1]}`]);
   assert.deepEqual(r.edges!.map((e) => e.kind).sort(), [...Array(4).fill('free'), ...Array(8).fill('shared')]);
+});
+
+const pm2 = path.join(corpus, 'gkv311-opencascade-dataset/step/trj4_pm2-ec-214.stp');
+test('faces truck can\'t convert are left out, with a warning why, and counted among the faces that failed to mesh',
+  { skip: skip || (!fs.existsSync(pm2) && 'corpus file missing') }, async () => {
+  const tess = new TruckTessellator();
+  await tess.init();
+  const req = (await requests(pm2)).find((r) => r.rootId === 1361)!;
+  const r = await tess.tessellate(req);
+  tess.dispose();
+  assert.ok(r.diagnostics.some((d) => d.severity === 'warning' && /^1 faces truck can't convert \(left out\): #1364$/
+    .test(d.message)), JSON.stringify(r.diagnostics));
+  assert.ok(r.diagnostics.some((d) => d.severity === 'error' && d.message === '1 faces failed to mesh: #1364'),
+    JSON.stringify(r.diagnostics));
 });
 
 const stc07 = path.join(corpus,
@@ -588,19 +602,19 @@ test("a host's module: bytes or a URL with a version, or compiled with one; in t
   const [req] = await requests(cube);
   const ours = new TruckTessellator();
   await ours.init();
-  const id = /^truck 88ed005, wasm ([0-9a-f]{12})$/.exec(ours.info.version)![1];
+  const id = /^truck 88ed005, wasm ([0-9a-f]{12}), adapter 1$/.exec(ours.info.version)![1];
   const expected = await ours.tessellate(req!);
   const bytes = fs.readFileSync(wasm);
   const named = new TruckTessellator();
   await named.init({ wasm: bytes, version: 'host truck r3' });
-  assert.equal(named.info.version, `host truck r3, wasm ${id}`);
+  assert.equal(named.info.version, `host truck r3, wasm ${id}, adapter 1`);
   const byUrl = new TruckTessellator();
   await byUrl.init({ wasm: pathToFileURL(wasm).href });
   assert.equal(byUrl.info.version, ours.info.version);
   const module = await WebAssembly.compile(bytes);
   const compiled = new TruckTessellator();
   await compiled.init({ wasm: module, version: 'host truck r3' });
-  assert.equal(compiled.info.version, 'host truck r3');
+  assert.equal(compiled.info.version, 'host truck r3, adapter 1');
   assert.deepEqual(await compiled.tessellate(req!), expected);
   await assert.rejects(new TruckTessellator().init({ wasm: module }), /needs a version/);
   const { WorkerTessellator } = await import('tess-workers');
@@ -608,7 +622,7 @@ test("a host's module: bytes or a URL with a version, or compiled with one; in t
     options: { wasm: module, version: 'host truck r3' } }, workers: 1 });
   await pool.init();
   try {
-    assert.equal(pool.info.version, 'host truck r3');
+    assert.equal(pool.info.version, 'host truck r3, adapter 1');
     assert.deepEqual(await pool.tessellate(req!), expected);
   } finally {
     pool.dispose();

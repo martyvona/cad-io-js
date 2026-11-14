@@ -1,6 +1,7 @@
+host: Apple M4, 10 cores (4 performance, 6 efficiency), 10 threads, 24 GiB; Darwin 24.6.0 arm64; Node 24.5.0; lowpowermode 0, on AC; load 5.0; speed 4541 on 1 thread, 21988 on 10
 161 parts, 10.4 MB of payload (26 subsets left out: their representations are no part of their files' scenes)
-truck 88ed005, wasm 5506bfb37e5c: results equal; 0 failed parts (cached too); 44.5 MB stored
-  backend 7.37 s; file store, first run 7.33 s, second 0.06 s (161 hits); memory store, second 0.03 s
-OCCT 8.1 (3d097a0328) + patches 0001-brepmesh-cone-seam-pcurves, wasm cf6e5fbbafa0, adapter 2, native builder: results equal; 0 failed parts (cached too); 38.3 MB stored
-  backend 20.26 s; file store, first run 19.73 s, second 0.06 s (161 hits); memory store, second 0.03 s
+truck 88ed005, wasm d316876fd233, adapter 1: results equal; 0 failed parts (cached too); 44.5 MB stored
+  backend 7.45 s; file store, first run 7.33 s, second 0.06 s (161 hits); memory store, second 0.03 s
+OCCT 8.1 (3d097a0328) + patches 0001-brepmesh-cone-seam-pcurves, wasm 8dc6f2b1a0aa, adapter 4, native builder: results equal; 0 failed parts (cached too); 38.3 MB stored
+  backend 20.54 s; file store, first run 20.03 s, second 0.05 s (161 hits); memory store, second 0.02 s
 truck in a pool, trj2_as1-id-203 #891 (hangs): first run 10.00 s (tessellation timed out after 10000 ms), second 0.001 s, from the store

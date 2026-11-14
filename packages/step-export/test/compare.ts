@@ -80,30 +80,53 @@ export function walk(d: BrepData): unknown[] {
 const DIRECTION = /\.(direction|axis|xDir|refDirection|axisDirection|fixedReference)\[\d+\]$/;
 /** Last bits: within this many units in the last place. */
 export const LAST_BITS = 4;
+/**
+ * Points (vertices', curves' and placements' coordinates): also equal within NEAR of the model's size (`size` to
+ * differences), since a coordinate computed from others (a joined vertex between two curves' ends, computed again
+ * when read: a curve-bounded face is written without vertices) carries their rounding, not its own; the unit
+ * oracle's bound for the same values (step-import's unit-oracle.ts).
+ */
+const POINT = /\.(point|origin|location)\[\d+\]$/;
+export const NEAR = 1e-12;
+
+/** A model's size for differences: its largest vertex coordinate's magnitude (0 without vertices). */
+export function modelSize(d: BrepData): number {
+  let s = 0;
+  for (const x of d.vertex.point) if (Math.abs(x) > s) s = Math.abs(x);
+  return s;
+}
 
 export interface Difference {
   path: string;
   /** Only in the last bits (a unit conversion, a normalization), or more. */
   bits: boolean;
+  /** Equal only within NEAR of the model's size: a point's coordinate computed from others (`bits` true too). */
+  nearZero?: boolean;
   /** The relative difference, for numbers. */
   rel?: number;
 }
 
-/** Where `b`'s walk differs from `a`'s; ids only `b` has (new ones) aren't differences. */
-export function differences(a: unknown, b: unknown, path = '', out: Difference[] = []): Difference[] {
+/**
+ * Where `b`'s walk differs from `a`'s; ids only `b` has (new ones) aren't differences. `size` (modelSize): a point's
+ * coordinate within NEAR of it counts as last bits too (`nearZero`).
+ */
+export function differences(a: unknown, b: unknown, path = '', out: Difference[] = [], size = 0): Difference[] {
   if (Array.isArray(a)) {
     if (!Array.isArray(b) || b.length !== a.length) out.push({ path: `${path}.length`, bits: false });
-    else a.forEach((x, i) => differences(x, b[i], `${path}[${i}]`, out));
+    else a.forEach((x, i) => differences(x, b[i], `${path}[${i}]`, out, size));
   } else if (a && typeof a === 'object') {
     if (!b || typeof b !== 'object' || Array.isArray(b)) { out.push({ path, bits: false }); return out; }
     const keys = new Set([...Object.keys(a), ...Object.keys(b).filter((k) => k !== 'id' || 'id' in a)]);
     const ra = a as Record<string, unknown>, rb = b as Record<string, unknown>;
-    for (const k of keys) differences(ra[k], rb[k], `${path}.${k}`, out);
+    for (const k of keys) differences(ra[k], rb[k], `${path}.${k}`, out, size);
   } else if (typeof a === 'number' && typeof b === 'number') {
     if (a === b) return out;
     const scale = DIRECTION.test(path) ? 1 : Math.max(Math.abs(a), Math.abs(b));
     const rel = Math.abs(a - b) / scale;
-    out.push({ path, bits: rel <= LAST_BITS * Number.EPSILON, rel });
+    if (rel <= LAST_BITS * Number.EPSILON) out.push({ path, bits: true, rel });
+    else if (POINT.test(path) && Math.abs(a - b) <= NEAR * size) {
+      out.push({ path, bits: true, nearZero: true, rel });
+    } else out.push({ path, bits: false, rel });
   } else if (a !== b) out.push({ path, bits: false });
   return out;
 }

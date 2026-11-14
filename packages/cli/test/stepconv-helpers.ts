@@ -16,6 +16,7 @@ export const wireframe = path.join(root,
   'test_corpus/third_party/gkv311-opencascade-dataset/step/trj4_k1_geo-pe-203.stp');
 export const occtBuilt = fs.existsSync(path.join(root, 'packages/tess-occt/dist/occt_tess.wasm'));
 export const truckBuilt = fs.existsSync(path.join(root, 'packages/tess-truck/dist/tess_truck.wasm'));
+export const smlibBuilt = fs.existsSync(path.join(root, 'packages/tess-smlib/dist/smlib_tess.wasm'));
 export const skip = !occtBuilt ? 'tess-occt not built' : !fs.existsSync(assembly) ? 'corpus not fetched' : false;
 
 export const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'stepconv-'));

@@ -1,8 +1,9 @@
-files 517 (0 over 1000 MB skipped), 30 s
-part nodes 5026 (8 hidden), meshes 3129, triangle primitives 5149, triangles 10478945, segments 1701739, points 1064
-GLB 299.9 MB; export 1.55 s; validation 4.28 s
-draco: 82.4 MB (27.5%), export 7.86 s; faces checked 111769
-meshopt: 90.1 MB (30.0%), export 4.18 s; faces checked 111769, line and point vertices 2036354
+host: Apple M4, 10 cores (4 performance, 6 efficiency), 10 threads, 24 GiB; Darwin 24.6.0 arm64; Node 24.5.0; lowpowermode 0, on AC; load 9.6; speed 4756 on 1 thread, 25252 on 10
+files 517 (0 over 1000 MB skipped), 32 s
+part nodes 5026 (8 hidden), meshes 3129, triangle primitives 5149, triangles 10479025, segments 1701735, points 1064
+GLB 299.9 MB; export 1.63 s; validation 4.24 s
+draco: 82.4 MB (27.5%), export 8.04 s; faces checked 111769
+meshopt: 90.1 MB (30.0%), export 4.28 s; faces checked 111769, line and point vertices 2036343
 instancing: 2146 placements in 421 instanced nodes; 3301 part nodes against 5026; 0 placements not TRS
 largest:
   67.6 MB, 0.2 s  gkv311-opencascade-dataset/step/as1_motor.step

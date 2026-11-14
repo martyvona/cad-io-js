@@ -1,6 +1,6 @@
 // The tessellator interface: one request per part, its payload parsed by the backend. See README.md. Backends implement
-// it in their own packages (tess-occt, tess-truck); a part's B-rep model goes as `cad-brep`, which a backend reading
-// STEP takes through step-export's StepTessellator (the model written as STEP).
+// it in their own packages (tess-occt, tess-truck, tess-smlib); a part's B-rep model goes as `cad-brep`, which a
+// backend reading STEP takes through step-export's StepTessellator (the model written as STEP).
 
 import type { Diagnostic, EdgeKind, Vec3 } from './scene.ts';
 
@@ -35,7 +35,10 @@ export interface TessellationRequest {
   angularDeflection: number;
   /** Also return B-rep edges as polylines. */
   edges?: boolean;
-  /** Also return each source face's measures on the exact geometry (`measures`), where the backend can. */
+  /**
+   * Also return each source face's measures on the exact geometry (`measures`), where the backend can, and the area
+   * oracle's areas (`oracle`), where it trusts them.
+   */
   measures?: boolean;
 }
 
@@ -56,6 +59,11 @@ export interface TessellationResult {
    * pieces it split the face into, in the payload's units; `valid` when the backend found every piece sound.
    */
   measures?: { entityId: number; area: number; perimeter: number; valid: boolean }[];
+  /**
+   * With measures, faces' areas and perimeters by cad-scene's area oracle (oracleMeasures: independent of the
+   * backend, on planes, cylinders, cones, spheres and tori), where it trusts them; in the payload's units.
+   */
+  oracle?: { entityId: number; area: number; perimeter: number }[];
   /** B-rep edges as polylines, when requested; points coincide with mesh vertices. All polylines concatenated. */
   edgePositions?: Float32Array;
   edges?: {
@@ -92,6 +100,11 @@ export interface TessellationResult {
   pointIds?: (number | null)[];
   /** Warnings for what was left out; errors for faces that failed to mesh, or a part that did (`failedPart`). */
   diagnostics: Diagnostic[];
+  /**
+   * The backend that made this result, its name and version, where a tessellator chooses among several
+   * (FallbackTessellator); absent: the tessellator's own (`info`).
+   */
+  backend?: string;
 }
 
 export interface Tessellator {

@@ -1,3 +1,4 @@
+host: Apple M4, 10 cores (4 performance, 6 efficiency), 10 threads, 24 GiB; Darwin 24.6.0 arm64; Node 24.5.0; lowpowermode 0, on AC; load 2.9; speed 4851 on 1 thread, 25518 on 10
 4925008 instances bound (3 malformed); bind+check 6.0 s; reverse index 0.1 s, 5653627 entries; type index 0.6 s
 ┌────────────────────────────────────────────────────────────────────────────────────┬───────┬─────────┬──────────┬────────────┬─────────┐
 │ (index)                                                                            │ files │ inst    │ bySchema │ byFallback │ unbound │

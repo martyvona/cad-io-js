@@ -1,3 +1,4 @@
+host: Apple M4, 10 cores (4 performance, 6 efficiency), 10 threads, 24 GiB; Darwin 24.6.0 arm64; Node 24.5.0; lowpowermode 0, on AC; load 3.4; speed 4850 on 1 thread, 26122 on 10
 517 files, 3258 B-rep parts
 
 ## vertexCurve: 438369 measured

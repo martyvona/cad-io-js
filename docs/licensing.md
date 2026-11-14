@@ -21,6 +21,7 @@ OCCT is LGPL-2.1 plus the Open CASCADE exception. A line-by-line translation of 
 
 ## Other sources
 
+- SMLib (NVIDIA's usd-brep, `third_party/usd-brep`): Apache-2.0, which AGPL-3.0 code may include. `tess-smlib` (AGPL-3.0-only) links it into its module and ships its license beside it (`packages/tess-smlib/LICENSE-SMLib.txt`; usd-brep has no NOTICE file). The builder and wrapper are ours, written from SMLib's headers and its `.agents/` notes; usd-brep's own USD converter (`BREP_SM_USD/src/SmuConvert.cpp`) was read for how its API is used, not copied.
 - stepcode: BSD-3 (keep its notices if code is copied).
 - NIST's STP2X3D and SFA: US public domain.
 - The MBx-IF recommended practices: free to implement.

@@ -7,12 +7,14 @@ Notes for working on cad-io-js: how work is done here, the decisions every part 
 | File | For work on |
 |---|---|
 | [`docs/step.md`](docs/step.md) | STEP parsing and import: the importer's rules, AP242 tessellated geometry, the corpus's examples, the STEP backlog; STEP itself and what real files do is in [`docs/step_tutorial.md`](docs/step_tutorial.md) |
-| [`docs/backends.md`](docs/backends.md) | tessellation: `tessellateScene`, profiles, timeouts, the cache, faces that fail to mesh, the area oracle, OCCT (build, patches, probing, quirks), truck, BRL-CAD (evaluated, not pursued), SMLib and Solid Core (evaluated) |
+| [`docs/backends.md`](docs/backends.md) | tessellation: `tessellateScene`, profiles, timeouts, the cache, faces that fail to mesh, the area oracle, OCCT (build, patches, probing, quirks), truck, SMLib (build, builder, quirks), BRL-CAD (evaluated, not pursued), Solid Core (evaluated), SINTEF's GoTools and SISL (evaluated, not pursued) |
 | [`docs/scene-formats.md`](docs/scene-formats.md) | the scene model, the exporters (glTF, three.js, 3MF, `stepconv`), the mesh importers, round trips, those libraries' quirks |
 | [`docs/viewer.md`](docs/viewer.md) | the viewer: loading, export, rendering, sections, camera and input, picking, the tree and appearance overrides, updates, automation and replay, the browser check, three.js/Vite quirks |
 | [`docs/future.md`](docs/future.md) | new input formats (IGES, BREP, FreeCAD, QIF, JT and why it's not a priority), the JT specifications, prior art |
 | [`docs/brep-model.md`](docs/brep-model.md) | the B-rep model that replaced STEP subsets: its rules, the buffer layout, the scene and tessellator changes, backends, exporters, phases and decisions |
 | [`docs/brep-reference.md`](docs/brep-reference.md) | what the B-rep model holds: every geometry and topology kind, its definition, parameters and orientation, items, real data; writing a tessellation backend for models; creating and editing models in a scene |
+| [`docs/own-tessellator.md`](docs/own-tessellator.md) | the design for our own tessellator and a full oracle (lengths, areas, volumes): the interrogation core, analysis and healing, the order they're built in, the decisions to put to the user |
+| [`docs/healing.md`](docs/healing.md) | what OCCT's and SMLib's shape healers do to a B-rep before meshing: when they run, each operation, tolerances, how they orient shells, how each backend makes missing p-curves, what our wrappers do around them, and what it means for healing of our own |
 | [`docs/shape-interrogation.md`](docs/shape-interrogation.md) | geometry on exact curves and surfaces: what our code does (evaluation, inversion, nearest points) and how sound it is, what a rigorous implementation needs, the libraries surveyed (SISL ...) |
 | [`docs/licensing.md`](docs/licensing.md) | the licenses, the CLA, and clean-room rules for code that could derive from OCCT or others |
 
@@ -25,14 +27,15 @@ Notes for working on cad-io-js: how work is done here, the decisions every part 
 | Path | What |
 |---|---|
 | `docs/` | the topic notes above, and `step_tutorial.md` (STEP AP203/214/242 in practice, for users too; built as a PDF with the viewer); new notes go here |
-| `packages/*` | the 19 workspace packages (README, "Package APIs"; the viewer, `packages/viewer`, README "Viewer"); tests in each `test/` |
+| `packages/*` | the 20 workspace packages (README, "Package APIs"; the viewer, `packages/viewer`, README "Viewer"); tests in each `test/` |
 | `packages/cad-brep/` | `src/layout.ts` (the B-rep buffer's format), `include/cad_brep.h` and `include/cad_brep.rs` (generated from it by `gen/header.ts` and `gen/rust.ts`: run both after changing the layout; a test checks they're current) |
 | `packages/tess-occt/` | `native/occt_tess.cpp` (the wrapper), `native/occt_build.cpp` (the native route's builder: a part's model into OCCT's shapes); `build-occt.sh` (OCCT into `build/occt-Os/`, applying `occt_patches/` to `build/occt-src/`); `build.sh` (links `dist/`); `build-probe.sh` (`dist/occt_probe.*`, for checks) |
 | `packages/tess-truck/` | `native/` (the Rust crate; its Cargo workspace and `Cargo.lock` at the repository root, so builds don't depend on the path), `build.sh` (`dist/tess_truck.wasm`) |
+| `packages/tess-smlib/` | `native/smlib_build.cpp` (a part's model into SMLib's B-rep), `native/smlib_tess.cpp` (the wrapper), `native/tbb/` (oneTBB's serial stand-in); `build-smlib.sh` (SMLib into `build/smlib-wasm/`, or `T=native` `build/smlib-native/` for probes), `build.sh` (links `dist/`) |
 | `packages/step-schemas/` | `dict/` the generated dictionaries (committed), `gen/` their generator |
 | `corpus_checks/` | the corpus checks with committed logs (its README lists them) |
 | `test_corpus/` | `files.txt` (517 files), `third_party/pull.sh` (fetches them), `models/` (the user's Onshape exports), `demo/` (the deployed demo models) |
-| `third_party/` | `pull.sh`: OCCT, stepcode, truck, the 3MF specifications, the MBx-IF practices, the JT specifications (all ignored) |
+| `third_party/` | `pull.sh`: OCCT, stepcode, truck, usd-brep (SMLib), the 3MF specifications, the MBx-IF practices, the JT specifications (all ignored) |
 | `workdir/` | ignored: dated deep dives and measurement records; findings worth keeping go in this file, the notes or the README |
 | `test/` | repository-wide tests (`ascii.test.ts`) |
 | `env.sh` | `source env.sh`: checks and sets up the toolchain |
@@ -44,7 +47,7 @@ Notes for working on cad-io-js: how work is done here, the decisions every part 
 - A single package: `node --test packages/<p>/test/*.test.ts`, not `node --test <directory>` (that fails whatever the code, so a mutation run reports every mutant caught).
 - Corpus checks: `node --max-old-space-size=8192 corpus_checks/<check>.ts test_corpus/files.txt 1000` (the list, then the maximum file size in MB); `roundtrip_corpus` needs `--max-old-space-size=12000` (about 16 min). Several at once sharing a fresh mesh cache: `node corpus_checks/round.ts <check> ...` (README, "Corpus Checks").
 - The viewer's browser check and `cad-viewer start|stop|status|open|shot|replay`: README, "Viewer".
-- Rebuilding the backends: `packages/tess-occt/build-occt.sh` (12 minutes) then `build.sh` (seconds); `packages/tess-truck/build.sh`. The toolchains are pinned exactly (`scripts/fetch-emsdk.sh`, `rust-toolchain.toml`), so a module's bytes are the same on every host for the same sources: a module that differs means the sources or a pin differ (`docs/backends.md`).
+- Rebuilding the backends: `packages/tess-occt/build-occt.sh` (12 minutes) then `build.sh` (seconds); `packages/tess-truck/build.sh`; `packages/tess-smlib/build-smlib.sh` (1.5 minutes) then `build.sh` (seconds). The toolchains are pinned exactly (`scripts/fetch-emsdk.sh`, `rust-toolchain.toml`), so a module's bytes are the same on every host for the same sources: a module that differs means the sources or a pin differ (`docs/backends.md`).
 
 ### Code conventions
 
@@ -94,7 +97,7 @@ The ones every part depends on; the rest are in the topic notes, and the alterna
 - **The B-rep model:** each part's exact geometry a parsed, format-neutral buffer built at import (Part 42's parameterizations, radians), replacing STEP subsets; backends, exporters and other kernels read it (`docs/brep-model.md`).
 - **License:** AGPL-3.0-only, except `tess-occt` (LGPL-2.1 with the Open CASCADE exception); contributions under a CLA. **Never translate OCCT's source**, it's a reference and an oracle only: `docs/licensing.md`.
 - **Units and frames:** the scene is millimetres, parts' B-rep models and meshes included (no unit per part: importers scale; `brep-model.md`, decisions 32, 33); a part is one shape representation, its positions `Float32` minus a per-part origin computed in double precision; placements are rigid, a rotation and a translation, a source's mirror, scale or shear baked into copies of what it places (decision 27, `cad-scene`'s `rigid.ts`), and a B-rep model holds no transforms (decisions 28, 35); the viewer's world is Z up. Every export takes a length unit, by default STEP's and 3MF's the source's (else mm), glTF's and three.js's metres (decision 31); each format's axes (glTF and three.js Y up, 3MF and STEP Z up), no root node of ours.
-- **The tessellator interface is per part**; OCCT the primary backend (building each model natively, the STEP route its oracle), truck optional (models only); backends take a host's module through `init`.
+- **The tessellator interface is per part**; OCCT the primary backend (building each model natively, the STEP route its oracle), SMLib the default fallback for the parts it fails (whole parts, or faces of them, `docs/backends.md`), truck optional (models only); backends take a host's module through `init`.
 - **Importers for every format into the scene model**, one viewer path through them; textures not supported (warned of).
 - **Extras off by default** in every exporter: exports are mostly for other systems.
 - **Meshing profiles** coarse, medium (the default), fine, defined only in `cad-scene`'s `profiles.ts`; the viewer medium on desktops, coarse on phones and tablets.

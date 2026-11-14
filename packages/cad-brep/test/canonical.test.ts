@@ -650,3 +650,31 @@ test('rule 10: a segment with only a p-curve: its ends the p-curve\'s on the sur
   assert.deepEqual(es.map((e) => decode.edge(d, e).range), [undefined, undefined, undefined, undefined]);
   sameBytes(d, rebuilt(d));
 });
+
+test('rule 8: a shell of faces without edges open on a plane, cylinder, cone or extrusion; else as its source says', () => {
+  const sphere = { kind: 'sphere' as const, position: XY, radius: 1 };
+  const plane = { kind: 'plane' as const, position: XY };
+  const cases: [typeof sphere | typeof plane, 'closed' | 'open', 'closed' | 'open'][] = [
+    [plane, 'closed', 'open'], [plane, 'open', 'open'], [sphere, 'closed', 'closed'], [sphere, 'open', 'open'],
+    [{ kind: 'cylinder', position: XY, radius: 1 } as never, 'closed', 'open'],
+    [{ kind: 'cone', position: XY, radius: 1, semiAngle: 0.3 } as never, 'closed', 'open'],
+    [{ kind: 'torus', position: XY, majorRadius: 2, minorRadius: 1 } as never, 'closed', 'closed'],
+  ];
+  for (const [surface, declared, kind] of cases) {
+    const b = new BrepBuilder();
+    const face = b.addFace({ surface: b.addSurface(surface), sameSense: true, loops: [] });
+    const shell = b.addShell({ kind: declared, faces: [{ face, sense: true }] });
+    b.addItem({ kind: 'body', ref: b.addBody({ kind: 'solid', members: [{ ref: shell, sense: true }] }) });
+    const d = b.finish();
+    assert.deepEqual([decode.shell(d, 0).kind, decode.shell(d, 0).declared], [kind, declared],
+      `${surface.kind} ${declared}`);
+  }
+  // An extrusion's face of no edges too: its profile swept without end.
+  const b = new BrepBuilder();
+  const line = b.addCurve({ kind: 'line', point: [0, 0, 0], direction: [1, 0, 0], magnitude: 1 });
+  const face = b.addFace({ surface: b.addSurface({ kind: 'extrusion', curve: line, direction: [0, 0, 1],
+    magnitude: 1 } as never), sameSense: true, loops: [] });
+  b.addItem({ kind: 'body', ref: b.addBody({ kind: 'solid', members: [{ ref: b.addShell({ kind: 'closed',
+    faces: [{ face, sense: true }] }), sense: true }] }) });
+  assert.equal(decode.shell(b.finish(), 0).kind, 'open');
+});

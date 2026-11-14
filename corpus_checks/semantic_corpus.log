@@ -1,4 +1,5 @@
-517 files; extraction 2.0 s
+host: Apple M4, 10 cores (4 performance, 6 efficiency), 10 threads, 24 GiB; Darwin 24.6.0 arm64; Node 24.5.0; lowpowermode 0, on Battery Power; load 3.1; speed 4852 on 1 thread, 25669 on 10
+517 files; extraction 1.1 s
 3732 product definitions, 2448 roots, 4549 shape representations reached
 2576 NAUO occurrences + 23 mapped-item occurrences, 2599 with a placement; 71 external documents
 38646 styled items, 3169 layers, 2713 validation properties

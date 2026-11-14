@@ -3,7 +3,7 @@
 
 import type { Diagnostic, EdgeKind, TessellationRequest, TessellationResult, Tessellator,
   TessellatorInfo } from 'cad-scene';
-import { sha256 } from 'cad-scene';
+import { openEdgesDiagnostic, oracleMeasures, sha256 } from 'cad-scene';
 
 interface OcctModule {
   HEAPU8: Uint8Array;
@@ -65,7 +65,7 @@ export const MAX_MESSAGES = 10;
 export const MAX_MESSAGE_CHARS = 1000;
 
 /** Changes when this adapter's results change for the same module, so that cached results from before aren't read. */
-const ADAPTER = 2;
+const ADAPTER = 4;
 
 /** Collects one tessellate call's messages, within the limits. Exported for the tests. */
 export class Messages {
@@ -274,21 +274,31 @@ export class OcctTessellator implements Tessellator {
         result.measures.push({ entityId: q[i]!, area: q[i + 1]!, perimeter: q[i + 2]!, valid: q[i + 3] === 1 });
       }
     }
-    if (req.edges) {
-      const ne = m._occt_num_edges();
-      const edgeData = u32(m._occt_edges(), ne * 4);
-      const angles = f32(m._occt_edge_angles(), ne);
-      result.edgePositions = f32(m._occt_edge_positions(), m._occt_num_edge_points() * 3);
-      result.edges = [];
-      for (let i = 0; i < ne; i++) {
-        const e: NonNullable<TessellationResult['edges']>[number] = {
-          entityId: id(edgeData[i * 4]!), start: edgeData[i * 4 + 1]!,
-          count: edgeData[i * 4 + 2]!, kind: KINDS[edgeData[i * 4 + 3]!]!,
-        };
-        if (angles[i]! >= 0) e.dihedral = angles[i]!;
-        result.edges.push(e);
-      }
+    // (The edges are read whether asked for or not: the native route judges the mesh by them.)
+    const ne = m._occt_num_edges();
+    const edgeData = u32(m._occt_edges(), ne * 4);
+    const angles = f32(m._occt_edge_angles(), ne);
+    const edgePositions = f32(m._occt_edge_positions(), m._occt_num_edge_points() * 3);
+    const edges: NonNullable<TessellationResult['edges']> = [];
+    for (let i = 0; i < ne; i++) {
+      const e: NonNullable<TessellationResult['edges']>[number] = {
+        entityId: id(edgeData[i * 4]!), start: edgeData[i * 4 + 1]!,
+        count: edgeData[i * 4 + 2]!, kind: KINDS[edgeData[i * 4 + 3]!]!,
+      };
+      if (angles[i]! >= 0) e.dihedral = angles[i]!;
+      edges.push(e);
     }
+    if (req.edges) {
+      result.edgePositions = edgePositions;
+      result.edges = edges;
+    }
+    // OCCT meshes each face along its edges' shared polygons, yet its faces' meshes can miss each other (it doesn't
+    // say): an error where they do. (The STEP route's ids are the file's, not the model's.)
+    const open = native ? openEdgesDiagnostic(req.data, { positions, indices, faces, edges, edgePositions })
+      : undefined;
+    if (open) diagnostics.push(open);
+    // (With the measures, the area oracle's: computed here, in parallel with other parts' meshing, and cached.)
+    if (native && req.measures) result.oracle = oracleMeasures(req.data);
     const nc = m._occt_num_curves();
     if (nc) {
       const curveData = u32(m._occt_curves(), nc * 3);

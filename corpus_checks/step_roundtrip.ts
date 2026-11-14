@@ -36,7 +36,7 @@ import { LENGTH_UNITS, partInstances, placedName, type Mat4, type Scene } from '
 import { importStep } from '../packages/step-import/src/index.ts';
 import { exportStep, type StepSchema } from '../packages/step-export/src/index.ts';
 import { listItems, openModel, parseStep, Reader, type StepModel } from '../packages/step-parser/src/index.ts';
-import { differences, walk } from '../packages/step-export/test/compare.ts';
+import { differences, modelSize, walk } from '../packages/step-export/test/compare.ts';
 import { AreaOracle, trusted } from './area_oracle.ts';
 import { corpusDir, corpusFiles, partSubset, plantedPart, shortName } from './corpus.ts';
 import { addInto, runFiles, type FileCheck } from './runner.ts';
@@ -349,7 +349,10 @@ export const check: FileCheck<undefined, Result> = {
       R.parts++;
       const q = byId.get(id)?.brep?.model;
       if (!q) { fail1('a part not read back by its id', `${name} #${id}`); continue; }
-      const d = differences(walk(m), walk(q)).filter((y) => !y.bits);
+      const diffs = differences(walk(m), walk(q), '', [], modelSize(m));
+      if (diffs.some((y) => y.nearZero)) note('(1) points within 1e-12 of the model\'s size only (computed again on '
+        + 'reading: joined vertices)', `${name} #${id}`);
+      const d = diffs.filter((y) => !y.bits);
       const ids = d.filter((y) => /\.id$/.test(y.path));
       if (d.length === ids.length) R.modelsSame++;
       if (ids.length && ids.length === d.length) note('(1) model the same but for ids renumbered (shared with another '

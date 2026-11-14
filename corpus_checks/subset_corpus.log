@@ -1,1 +1,3 @@
-517 files, 4549 subsets (10 with mapped items left out), 4250183 instances, 327.2 MB; building took 3.4 s
+host: Apple M4, 10 cores (4 performance, 6 efficiency), 10 threads, 24 GiB; Darwin 24.6.0 arm64; Node 24.5.0; lowpowermode 0, on Battery Power; load 5.0; speed 4635 on 1 thread, 23003 on 10
+517 files, 4549 subsets (10 with mapped items left out), 4250183 instances, 327.2 MB; building took 1.7 s
+      1 subset diagnostic: reference beyond the largest instance id (2^32 - 1) read as $  e.g. gkv311-opencascade-dataset/step/bug31292.stp #62

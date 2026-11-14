@@ -1,4 +1,5 @@
-517 files imported in 21.9 s: 683 components (and 2944 leaf products placed as parts, 2123 root parts), 3264 parts, 5036 part instances (8 hidden)
+host: Apple M4, 10 cores (4 performance, 6 efficiency), 10 threads, 24 GiB; Darwin 24.6.0 arm64; Node 24.5.0; lowpowermode 0, on AC; load 5.9; speed 4410 on 1 thread, 23479 on 10
+517 files imported in 18.7 s: 683 components (and 2944 leaf products placed as parts, 2123 root parts), 3264 parts, 5036 part instances (8 hidden)
 696 materials; 0 component materials; 118 parts with per-face materials (5486 faces); 14 instance overrides; 3169 layers; 68 external components
 models: 107.7 MB
      14 components and placed products != products  e.g. gkv311-opencascade-dataset/step/xr1-db-214_2.stp

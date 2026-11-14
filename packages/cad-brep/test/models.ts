@@ -283,9 +283,10 @@ function box2(b: BrepBuilder): number {
 
 /**
  * A cone's side, as OCCT and BREP files have it: the base circle, a seam line from the apex used twice, and a
- * degenerate edge at the apex (no curve, its p-curve the line v = -1); and a degenerate torus with `selectOuter` false.
+ * degenerate edge at the apex (no curve, its p-curve the line v = -1; with `flagged` false, not flagged degenerate, as
+ * a STEP file's is); and a degenerate torus with `selectOuter` false.
  */
-export function cone(): BrepBuilder {
+export function cone(flagged = true): BrepBuilder {
   const b = new BrepBuilder();
   const position = { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] };
   const surface = b.addSurface({ kind: 'cone', position, radius: 1, semiAngle: Math.PI / 4 });
@@ -297,7 +298,7 @@ export function cone(): BrepBuilder {
   const vb = b.addVertex({ point: [1, 0, 0] }), va = b.addVertex({ point: [0, 0, -1] });
   const eBase = b.addEdge({ curve: base, start: vb, end: vb, sameSense: true });
   const eSeam = b.addEdge({ curve: seam, start: va, end: vb, sameSense: true });
-  const eApex = b.addEdge({ start: va, end: va, sameSense: true, degenerate: true, tolerance: 1e-7 });
+  const eApex = b.addEdge({ start: va, end: va, sameSense: true, degenerate: flagged, tolerance: 1e-7 });
   // (Counter-clockwise in (u, v), as an outer bound runs: the apex along v = -1, the seam up, the base back, the seam
   // down.)
   const face = b.addFace({ surface, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [

@@ -1,5 +1,6 @@
-files 517 (0 over 1000 MB skipped), 13 s
+host: Apple M4, 10 cores (4 performance, 6 efficiency), 10 threads, 24 GiB; Darwin 24.6.0 arm64; Node 24.5.0; lowpowermode 0, on AC; load 3.4; speed 4848 on 1 thread, 25121 on 10
+files 517 (0 over 1000 MB skipped), 119 s
 part instances 5036, with something to draw 5026
 looks 3267; parts with more than one look 6
-groups 3308; looks with more than one group 117; triangles in looks 9693339
+groups 3308; looks with more than one group 117; triangles in looks 9693419
 problems 0

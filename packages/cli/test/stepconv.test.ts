@@ -1,5 +1,5 @@
-// Needs the built backends (packages/tess-occt/build.sh, packages/tess-truck/build.sh) and the corpus
-// (test_corpus/third_party/pull.sh); skipped without them.
+// Needs the built backends (packages/tess-occt/build.sh, packages/tess-truck/build.sh, packages/tess-smlib/build.sh)
+// and the corpus (test_corpus/third_party/pull.sh); skipped without them.
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import diagnostics_channel from 'node:diagnostics_channel';
@@ -14,7 +14,10 @@ import { threejsJson } from 'export-threejs';
 import { exportStep, StepTessellator } from 'step-export';
 import { importStep } from 'step-import';
 import { OcctTessellator } from 'tess-occt';
-import { assembly, cube, load, root, run, skip, tmp, triangles, truckBuilt, wireframe } from './stepconv-helpers.ts';
+import { SmlibTessellator } from 'tess-smlib';
+import { listed } from '../src/stepconv.ts';
+import { assembly, cube, load, root, run, skip, smlibBuilt, tmp, triangles, truckBuilt, wireframe }
+  from './stepconv-helpers.ts';
 
 test('stepconv: the same file as the library pipeline, in a worker pool and on the main thread', { skip }, async () => {
   const out = path.join(tmp, 'as1.json');
@@ -138,7 +141,7 @@ test('stepconv: --strict exits 3 when a part fails, with the output written', { 
   assert.match(whole.stderr, /^1 parts \(1 of 1 brep parts tessellated\), 1 placed; 12 triangles/);
 });
 
-test('stepconv: wireframe curves on request; --workers 0 starts no worker',
+test('stepconv: wireframe curves on request; --workers 0 starts no worker, -j 1 one per backend',
   { skip: skip || (!fs.existsSync(wireframe) && 'corpus not fetched') }, async () => {
   const out = path.join(tmp, 'wire.json');
   const names = () => { const n: string[] = [];
@@ -153,7 +156,10 @@ test('stepconv: wireframe curves on request; --workers 0 starts no worker',
     assert.equal(started, 0);
     assert.equal((await run([wireframe, '-o', out, '--with-curves', '-j', '1'])).code, 0);
     assert.ok(names().length > 0 && names().every((n) => n === 'curves'));
-    assert.equal(started, 1);
+    // (A pool starts one worker at first, the backend's and the fallback's.)
+    assert.equal(started, 2);
+    assert.equal((await run([wireframe, '-o', out, '--fallback', 'none', '-j', '1'])).code, 0);
+    assert.equal(started, 3);
   } finally {
     diagnostics_channel.unsubscribe('worker_threads', count);
   }
@@ -172,19 +178,58 @@ test('stepconv: the cache answers a second run', { skip }, async () => {
   const cache = path.join(tmp, 'cache');
   const out = path.join(tmp, 'cached.json');
   const first = await run([assembly, '-o', out, '--cache', cache, '-j', '1']);
-  assert.match(first.stderr, /\ncache: 0 hits \(0 failures\), 5 misses\n/);
+  assert.match(first.stderr, /\ncache \(occt\): 0 hits \(0 failures\), 5 misses\n/);
   const bytes = fs.readFileSync(out);
   const second = await run([assembly, '-o', out, '--cache', cache, '--cache-size', '64', '-j', '1']);
-  assert.match(second.stderr, /\ncache: 5 hits \(0 failures\), 0 misses\n/);
+  assert.match(second.stderr, /\ncache \(occt\): 5 hits \(0 failures\), 0 misses\n/);
   assert.deepEqual(fs.readFileSync(out), bytes);
   // A different deflection, linear or angular, is a different request.
   assert.match((await run([assembly, '-o', out, '--cache', cache, '-d', '0.05', '-j', '1'])).stderr,
-    /\ncache: 0 hits \(0 failures\), 5 misses\n/);
+    /\ncache \(occt\): 0 hits \(0 failures\), 5 misses\n/);
   assert.match((await run([assembly, '-o', out, '--cache', cache, '--angular-deflection', '20', '-j', '1'])).stderr,
-    /\ncache: 0 hits \(0 failures\), 5 misses\n/);
+    /\ncache \(occt\): 0 hits \(0 failures\), 5 misses\n/);
   // Size 0 disables the cache.
   assert.match((await run([assembly, '-o', out, '--cache', cache, '--cache-size', '0', '-j', '1'])).stderr,
-    /\ncache: 0 hits \(0 failures\), 0 misses\n/);
+    /\ncache \(occt\): 0 hits \(0 failures\), 0 misses\n/);
+});
+
+const opensUp = path.join(root, 'test_corpus/third_party/gkv311-opencascade-dataset/step/bug28118_18547.stp');
+const overArea = path.join(root, 'test_corpus/third_party/gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/'
+  + 'HEAD_BACK.stp');
+test('stepconv: --fallback: a part OCCT meshes badly meshed by SMLib (the default), or not with none; bad choices',
+  { skip: skip || (!smlibBuilt && 'tess-smlib not built') || (!fs.existsSync(overArea) && 'corpus not fetched') },
+  async () => {
+  const out = path.join(tmp, 'fallback.json');
+  // HEAD_BACK.stp #593: OCCT meshes face #314 over its area, SMLib meshes it right.
+  const fell = new RegExp('warning: #593: meshed by the fallback backend \\(smlib\\), since occt\'s mesh had problems: '
+    + '1 face meshed over its area');
+  const over = /error: #593: 1 face meshed short of or over its measured area: #314/;
+  const r = await run([overArea, '-o', out, '-j', '1']);
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(r.stderr, fell);
+  assert.doesNotMatch(r.stderr, over);
+  const none = await run([overArea, '-o', out, '-j', '1', '--fallback', 'none']);
+  assert.match(none.stderr, over);
+  assert.doesNotMatch(none.stderr, fell);
+  // Its notes listed only with --verbose.
+  assert.doesNotMatch(none.stderr, /\n {2}info: /);
+  const verbose = await run([overArea, '-o', out, '-j', '1', '--fallback', 'none', '-v']);
+  assert.match(verbose.stderr, /1 errors, 1 warnings, 1 notes\n {2}error: #593: .*\n {2}warning: .*\n {2}info: .*\n$/);
+  // bug28118_18547.stp #11: OCCT leaves 2 edges open that the join closes, so it isn't sent to the fallback.
+  const joined = await run([opensUp, '-o', out, '-j', '1', '-v']);
+  assert.match(joined.stderr, /\n {2}info: #11: 2 edges joined exactly/);
+  assert.doesNotMatch(joined.stderr, /error:|fallback/);
+  // SMLib's fallback is OCCT by default; a fallback that is the backend, or unknown, is refused.
+  const sm = await run([overArea, '-o', out, '-j', '1', '-b', 'smlib']);
+  assert.equal(sm.code, 0, sm.stderr);
+  assert.doesNotMatch(sm.stderr, /error:|fallback/);
+  for (const [args, msg] of [[['--fallback', 'occt'], /the fallback backend can't be the backend \(occt\)/],
+    [['--fallback', 'nope'], /unknown fallback backend 'nope'/],
+    [['-v', '-q'], /--verbose and --quiet together/]] as const) {
+    const u = await run([cube, '-o', out, ...args]);
+    assert.equal(u.code, 1);
+    assert.match(u.stderr, msg);
+  }
 });
 
 test('stepconv: truck', { skip: skip || (!truckBuilt && 'tess-truck not built') }, async () => {
@@ -192,6 +237,26 @@ test('stepconv: truck', { skip: skip || (!truckBuilt && 'tess-truck not built') 
   const r = await run([cube, '-o', out, '-b', 'truck', '-j', '1']);
   assert.equal(r.code, 0, r.stderr);
   assert.equal(triangles(load(fs.readFileSync(out, 'utf8'))), 12);
+});
+
+// SMLib in a worker pool and on the main thread: the library's pipeline with SMLib, not OCCT's (8048 triangles).
+test('stepconv: smlib', { skip: skip || (!smlibBuilt && 'tess-smlib not built') }, async () => {
+  const tess = new SmlibTessellator();
+  await tess.init();
+  const { scene } = await importStep(fs.readFileSync(assembly));
+  await tessellateScene(scene, new StepTessellator(tess), { edges: true });
+  tess.dispose();
+  const expected = threejsJson(scene, exportView(scene, { ...meshDeflections({}), edges: true }),
+    { name: 'as1-oc-214-mat' });
+  const n = triangles(load(expected));
+  assert.ok(n > 0 && n !== 8048, `${n} triangles`);
+  const out = path.join(tmp, 'as1-smlib.json');
+  for (const workers of ['1', '0']) {
+    const r = await run([assembly, '-o', out, '--with-edges', '-b', 'smlib', '-j', workers]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.match(r.stderr, /^5 parts \(5 of 5 brep parts tessellated\)/);
+    assert.equal(fs.readFileSync(out, 'utf8'), expected, `workers ${workers}`);
+  }
 });
 
 test('stepconv: standard input and output, gzipped input', { skip }, async () => {
@@ -331,4 +396,24 @@ test("stepconv: a broken file's problems are warnings, nothing printed but the o
     assert.match(r.stderr,
       /\n  warning: #392938: 13 references to instances the file doesn't define: #11, #393036, .*, #393179, \.\.\.\n/);
   }
+});
+
+test('stepconv: the summary lists the first 20 errors and warnings, errors first, each in the order found', () => {
+  const d = (severity: 'error' | 'warning' | 'info', n: number, id?: number) => ({ severity,
+    message: `${severity} ${n}`, ...(id ? { source: { format: 'step' as const, id } } : {}) });
+  assert.equal(listed([d('warning', 1, 5), d('info', 1), d('error', 1), d('warning', 2), d('error', 2, 7)]),
+    '  error: error 1\n  error: #7: error 2\n  warning: #5: warning 1\n  warning: warning 2\n');
+  // 20 shown, then "..." for the rest; the errors among them all.
+  const many = [...Array.from({ length: 25 }, (_, i) => d('warning', i)), d('error', 0)];
+  const lines = listed(many).split('\n');
+  assert.deepEqual([lines[0], lines[19], lines[20], lines.length],
+    ['  error: error 0', '  warning: warning 18', '  ...', 22]);
+  assert.equal(listed(many.slice(0, 19)).split('\n').length, 20);
+  assert.equal(listed(many.slice(6)).includes('...'), false);
+  assert.equal(listed(many.slice(5)).includes('...'), true);
+  assert.equal(listed([]), '');
+  // Every one (--verbose): errors, warnings, then the notes, no "...".
+  const all = listed([d('info', 1), ...many], true).split('\n');
+  assert.deepEqual([all[0], all[1], all[25], all[26], all.length], ['  error: error 0', '  warning: warning 0',
+    '  warning: warning 24', '  info: info 1', 28]);
 });

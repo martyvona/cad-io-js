@@ -29,6 +29,7 @@ const result = (full: boolean, diagnostics: Diagnostic[] = []): TessellationResu
     r.faces.push({ entityId: 13, start: 3, count: 0 });
     r.measures = [{ entityId: 12, area: 0.5, perimeter: 3.4142135623730951, valid: true },
       { entityId: 13, area: 0.25, perimeter: 2, valid: false }];
+    r.oracle = [{ entityId: 12, area: 0.5, perimeter: 3.4142135623730951 }];
     r.outlinePositions = new Float32Array([2, 2, 2, 3, 3, 3]);
     r.outlines = [{ entityId: 13, start: 0, count: 2 }];
   }
@@ -48,6 +49,7 @@ test('a result survives encoding, with or without normals, edges, curves and poi
     assert.equal('edges' in resultOf(back), full);
     assert.equal('curves' in resultOf(back) && 'points' in resultOf(back), full);
     assert.equal('outlines' in resultOf(back) && 'outlinePositions' in resultOf(back), full);
+    assert.equal('oracle' in resultOf(back), full);
     resultOf(back).positions[0] = 99;
     assert.equal(resultOf(decodeEntry(bytes)).positions[0], 0);
     // Decoding works on a view into a larger buffer, at any offset.

@@ -1,3 +1,4 @@
+host: Apple M4, 10 cores (4 performance, 6 efficiency), 10 threads, 24 GiB; Darwin 24.6.0 arm64; Node 24.5.0; lowpowermode 0, on AC; load 6.7; speed 4716 on 1 thread, 24597 on 10
 517 files, 4925008 instances, 421 MB of Part 21, 554 MB of raw JSON; 3 malformed instances skipped; A != B: 0 instances, A != C: 0 instances
 decode+write JSON 7.0 s (79 MB/s of JSON); read JSON 7.0 s (79 MB/s)
       1 C: duplicate instance id #794080  e.g. gkv311-opencascade-dataset/step/bug25013_25013faces.stp

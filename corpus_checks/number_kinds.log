@@ -1,3 +1,4 @@
+host: Apple M4, 10 cores (4 performance, 6 efficiency), 10 threads, 24 GiB; Darwin 24.6.0 arm64; Node 24.5.0; lowpowermode 0, on Battery Power; load 2.5; speed 4854 on 1 thread, 26318 on 10
  12283985 real where context says REAL             gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #9 LOCAL_TIME.second_component
   3113547 int where context says INTEGER           gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #2 APPLICATION_PROTOCOL_DEFINITION.application_protocol_year
    187232 real where context says no-context       gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1252 CURVE_STYLE[2]

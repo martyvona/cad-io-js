@@ -15,9 +15,11 @@ At runtime:
 - **`step-import`, `brep.ts`:** two judgements from evaluations: which of a seam's two p-curves each use takes (a side test at the p-curves' middle parameter), and whether two p-curves on one surface coincide (compared at 5 points of a bounded range, 3 of an unbounded one).
 - **`tess-truck`'s Rust wrapper** (`lib.rs`, `clamp_bspline`): unclamped B-spline curves and surfaces clamped by knot insertion, in ordinary floating point.
 
+- **`cad-scene`'s `area-oracle.ts`** (at runtime: the fallback's judge, through backends' adapters): face areas by Green's theorem over each face's boundary, sampled through `cad-brep`'s evaluators and `edgeParams` (so `nearestParam`), at an eighth of the corpus checks' density.
+
 In the corpus checks:
 
-- **`area_oracle.ts`:** its own evaluators and its own `nearestParam`, and face areas by Green's theorem over each face's boundary.
+- **`area_oracle.ts`:** its own evaluators and its own `nearestParam`, and the same integral (`cad-scene`'s) on a STEP file's faces.
 - **`brep_geometry.ts`:** vertices on their curves and surfaces, p-curves along their edges, through `cad-brep`'s evaluators, `nearestParam` and `nearestParams`.
 
 None of these is guaranteed: a sampling stage can miss the global minimum between samples, Newton and bisection can converge to the wrong local minimum or not at all, near-singular systems aren't detected, and everything is ordinary floating point. Seen: off a surface, `nearestParams`'s Gauss-Newton can stop at its first sample, since a full step that increases the distance ends it (no damping): on a wavy bicubic surface, a point 1.37 from it was left 2e-4 farther than a dense search finds, by the grid over the whole ranges as by the patch search (`cad-brep`'s geometry tests).

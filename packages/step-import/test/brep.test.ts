@@ -377,10 +377,10 @@ test('topology: shared edges, p-curves per face, orientations, voids, loops, ids
   assert.equal(faces.some((f) => f.id === 158), false);
   assert.ok(warnings.some((w) => /a surface missing from the file/.test(w)), `${warnings}`);
   assert.ok(warnings.some((w) => /a face whose surface can't be read \(left out\) \(#158\)/.test(w)), `${warnings}`);
-  // #159's three faces in two pieces (shells by topology): #154 alone (vertex loops: no edges, so the source's
-  // closed stands), the two faceted faces sharing a side (open).
+  // #159's three faces in two pieces (shells by topology): #154 alone (vertex loops on a plane: no edges, an
+  // unbounded face, so open whatever the source says), the two faceted faces sharing a side (open).
   assert.deepEqual(solids.find((x) => x.id === 160)!.members.map((m) => decode.shell(d, m.ref)).map((sh) =>
-    [sh.faces.map((u) => faces[u.face]!.id), sh.kind, sh.declared]), [[[154], 'closed', 'closed'],
+    [sh.faces.map((u) => faces[u.face]!.id), sh.kind, sh.declared]), [[[154], 'open', 'closed'],
     [[157, 164], 'open', 'closed']]);
 
   // The wireframe's edges, the same rows as the faces'.

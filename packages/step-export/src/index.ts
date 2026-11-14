@@ -4,5 +4,5 @@
 export { AP242_SCHEMA, largestId, stepContext, stepGeometry, stepIds, type StepGeometry, type StepGeometryOptions,
   type StepIds } from './geometry.ts';
 export { stepPart, stepPartBytes, type StepPart } from './part.ts';
-export { STEP_WRITER_VERSION, StepTessellator } from './tessellator.ts';
+export { STEP_ADAPTER, STEP_WRITER_VERSION, StepTessellator } from './tessellator.ts';
 export { AP214_SCHEMA, exportStep, type StepExport, type StepExportOptions, type StepSchema } from './export.ts';

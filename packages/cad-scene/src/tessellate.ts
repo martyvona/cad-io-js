@@ -1,7 +1,8 @@
 // Driving a tessellator over a scene: one request per brep part, with the part's origin and the deflection (all in
-// millimetres, as the models are); the results become the parts' meshes, with closed shells that are inside out (and
-// can't be voids' boundaries) turned over, so every consumer of the meshes, not just the exporters, has them outward,
-// and triangles with two corners at one position dropped first. The meshes become the parts' tessellated
+// millimetres, as the models are); the results become the parts' meshes, their faces joined exactly along the model
+// edges where only their points differ (join.ts), with closed shells that are inside out (and can't be voids'
+// boundaries) turned over, so every consumer of the meshes, not just the exporters, has them outward, and triangles
+// with two corners at one position dropped first. The meshes become the parts' tessellated
 // levels of detail (the scene holds its geometry, exact and meshed).
 
 import { degenerateMessage, dropDegenerate, faceFailures, orientShells } from './mesh.ts';
@@ -11,6 +12,10 @@ import type { BrepData } from 'cad-brep';
 import type { Diagnostic, Measures, Mesh, Part, Scene } from './scene.ts';
 import { meshDeflections, type MeshProfile } from './profiles.ts';
 import type { TessellationResult, Tessellator } from './tessellator.ts';
+import { ORACLE_DISAGREE } from './area-oracle.ts';
+import { fillResult } from './fill.ts';
+import { joinResult } from './join.ts';
+import { orientResult } from './orient.ts';
 
 export interface TessellateOptions {
   /** The meshing profile (profiles.ts), default DEFAULT_MESH_PROFILE; the deflections below replace its values. */
@@ -25,8 +30,10 @@ export interface TessellateOptions {
   /** Requests in flight at once; set it to a worker pool's size. Default 1. */
   concurrency?: number;
   /**
-   * Turn inside-out closed shells over (orientShells), with a warning per part. Default true; false keeps the meshes as
-   * the backend gave them.
+   * Turn shells facing into the material over, with a warning per part: by the model, solids' shells whose closed
+   * meshes enclose volume of the wrong sign (orientResult: the outer shell's to be positive, a void's negative; the
+   * B-rep keeps the source's orientation), then by the mesh alone, inside-out closed pieces no other encloses
+   * (orientShells). Default true; false keeps the meshes as the backend gave them.
    */
   orient?: boolean;
   /**
@@ -46,6 +53,27 @@ export interface TessellateOptions {
    * measures (read from one of our exports, or measured before) aren't measured again.
    */
   measures?: boolean;
+  /**
+   * In the measures kept, a face's area and perimeter by the area oracle (the result's `oracle`, where it trusts
+   * them) in place of the backend's where the backend's are more than ORACLE_DISAGREE off, unsound or missing, with a
+   * warning per part: a backend can mesh a face wrongly and measure it as wrongly. Default true; false keeps the
+   * backend's.
+   */
+  oracle?: boolean;
+  /**
+   * Join the meshes of faces along the model edges where they don't meet but each reaches the whole edge (joinEdges:
+   * the faces' points along it made the same, T-junctions split, points within JOIN_SNAP of the deflection one),
+   * with a note per part; the open-edge error then counts the edges still open. The backend is asked for edges to join
+   * by, which the meshes keep only if `edges` asks. Default true; false keeps the meshes as the backend gave them.
+   */
+  join?: boolean;
+  /**
+   * Fill the faces no backend meshed that are narrower than the deflection (fillFaces: triangles between their rim's
+   * points, their neighbours', so they meet them exactly; kept only where their area agrees with the face's exact
+   * one), with a warning per part naming them; the faces-failed error then counts those left. The backend is asked
+   * for edges (the rims), which the meshes keep only if `edges` asks. Default true; false leaves those faces out.
+   */
+  fill?: boolean;
   /** Called after each part, in the order parts finish, for progress reporting. */
   onPart?: (part: number, mesh: Mesh | undefined, done: number, total: number) => void;
 }
@@ -144,8 +172,15 @@ function outlined(part: Part & { brep: NonNullable<Part['brep']> }, mesh: Mesh |
   }
 }
 
+/** The error for faces meshed short of or over their measured areas (by id: at most 10 named). */
+export function areaMessage(ids: readonly number[]): string {
+  const n = ids.length;
+  return `${n} ${n === 1 ? 'face' : 'faces'} meshed short of or over ${n === 1 ? 'its' : 'their'} measured area: `
+    + ids.slice(0, 10).map((i) => `#${i}`).join(', ') + (n > 10 ? ', ...' : '');
+}
+
 /** How many shells use each face, by its id (faces with no id or in no shell left out). */
-function faceUses(d: BrepData): Map<number, number> {
+export function faceUses(d: BrepData): Map<number, number> {
   const out = new Map<number, number>();
   for (const f of d.faceUse.face) {
     const id = d.face.id[f]!;
@@ -167,6 +202,9 @@ export async function tessellateScene(scene: Scene, tess: Tessellator,
   const todo = takes ? breps : [];
   const perPart: Diagnostic[][] = todo.map(() => []);
   const found: (Mesh | undefined)[] = [];
+  // Which backend made each part's result: the tessellator, or the one a result names.
+  const madeBy: string[] = [];
+  // (A result may name another: FallbackTessellator's say which of its backends made them.)
   const backend = `${tess.info.name} ${tess.info.version}`;
   let done = 0;
   let next = 0;
@@ -178,21 +216,45 @@ export async function tessellateScene(scene: Scene, tess: Tessellator,
     const diagnostics = perPart[k]!;
     const source = part.sources[0];
     let mesh: Mesh | undefined;
+    let by = backend;
     const measure = (opts.measures ?? true) && !part.measures;
     try {
-      const r = await tess.tessellate({
+      const join = opts.join ?? true, fill = opts.fill ?? true;
+      let r = await tess.tessellate({
         format: 'cad-brep', data: new Uint8Array(brep.model.buffer), origin: part.origin,
         linearDeflection, angularDeflection,
-        edges: opts.edges, ...(measure ? { measures: true } : {}),
+        edges: join || fill || opts.edges, ...(measure ? { measures: true } : {}),
       });
+      if (join) r = joinResult(brep.model, r, linearDeflection);
+      if (fill) r = fillResult(brep.model, r, linearDeflection);
+      if (opts.orient ?? true) r = orientResult(brep.model, r, linearDeflection);
+      if ((join || fill) && !opts.edges) { r = { ...r }; delete r.edges; delete r.edgePositions; }
+      by = r.backend ?? backend;
       for (const d of r.diagnostics) diagnostics.push(source && !d.source ? { ...d, source } : d);
       // (Kept at once, so `onPart` sees them.)
-      if (measure && r.measures?.length) {
+      if (measure && (r.measures?.length || r.oracle?.length)) {
         const uses = faceUses(brep.model);
-        part.measures = { by: backend, faces: new Map(r.measures.map((x) => {
-          const n = uses.get(x.entityId) ?? 1;
-          return [x.entityId, { area: x.area, perimeter: x.perimeter, valid: x.valid, ...(n > 1 ? { uses: n } : {}) }];
-        })) };
+        const faces = new Map<number, { area: number; perimeter: number; valid: boolean; uses?: number }>();
+        const add = (id: number, m: { area: number; perimeter: number; valid: boolean }) => {
+          const n = uses.get(id) ?? 1;
+          faces.set(id, { area: m.area, perimeter: m.perimeter, valid: m.valid, ...(n > 1 ? { uses: n } : {}) });
+        };
+        for (const x of r.measures ?? []) add(x.entityId, x);
+        let replaced = 0;
+        if (opts.oracle ?? true) for (const o of r.oracle ?? []) {
+          const m = faces.get(o.entityId);
+          const agrees = m && m.valid && Number.isFinite(m.area)
+            && Math.abs(m.area - o.area) <= ORACLE_DISAGREE * o.area;
+          if (agrees) continue;
+          // (A face the backend didn't measure, as truck can't, isn't a disagreement.)
+          if (m) replaced++;
+          add(o.entityId, { area: o.area, perimeter: o.perimeter, valid: true });
+        }
+        part.measures = { by: replaced ? `${by}, the area oracle's for ${replaced} ${replaced === 1 ? 'face' : 'faces'}`
+          : by, faces };
+        if (replaced) diagnostics.push({ severity: 'warning', message: `${replaced} ${replaced === 1 ? 'face\'s'
+          : 'faces\''} measured area replaced by the area oracle's (the backend's more than ${100 * ORACLE_DISAGREE}% `
+          + 'off, or unsound)', ...(source ? { source } : {}) });
       }
       if (r.indices.length || r.positions.length || r.curves?.length || r.points?.length) mesh = toMesh(r);
       if (mesh && (opts.dropDegenerate ?? true)) {
@@ -216,11 +278,19 @@ export async function tessellateScene(scene: Scene, tess: Tessellator,
       diagnostics.push({ severity: 'error', message: `tessellation failed: ${(e as Error).message}`,
         ...(source ? { source } : {}) });
     }
+    // Faces meshed short of or over their area (by the part's measures): errors, as faces that fail to mesh are.
+    // (Faces without triangles are the backend's to say.)
+    if (mesh && part.measures) {
+      const off = [...faceFailures(mesh, { measured: { measures: part.measures, deflection: linearDeflection } })]
+        .filter(([, k]) => k === 'partly' || k === 'excess').map(([id]) => id).sort((a, b) => a - b);
+      if (off.length) diagnostics.push({ severity: 'error', message: areaMessage(off), ...(source ? { source } : {}) });
+    }
     if (opts.outlines) mesh = outlined({ ...part, brep }, mesh, linearDeflection, angularDeflection,
       diagnostics, source, part.measures);
     const box = mesh && meshBox(mesh);
     if (box) mesh!.box = box;
     found[k] = mesh;
+    madeBy[k] = by;
     opts.onPart?.(i, mesh, ++done, todo.length);
   };
   const lane = async () => { while (next < todo.length) await one(next++); };
@@ -230,11 +300,11 @@ export async function tessellateScene(scene: Scene, tess: Tessellator,
   const meshes = new Map<number, Mesh>();
   todo.forEach((i, k) => {
     const part = scene.parts[i]!;
-    const lod = { from: 'tessellated' as const, linearDeflection, angularDeflection, backend };
+    const lod = { from: 'tessellated' as const, linearDeflection, angularDeflection, backend: madeBy[k]! };
     if (found[k]) {
       meshes.set(i, found[k]);
       addLod(part, { mesh: found[k], ...lod });
-    } else part.lods = part.lods.filter((l) => !(l.from === 'tessellated' && l.backend === backend &&
+    } else part.lods = part.lods.filter((l) => !(l.from === 'tessellated' && l.backend === madeBy[k] &&
       l.linearDeflection === linearDeflection && l.angularDeflection === angularDeflection));
   });
   // The model's sphere again from the meshes alone, which can shrink an estimate (decision 3); a file's kept.
