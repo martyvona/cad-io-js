@@ -37,11 +37,12 @@ test('pieces: a part whole (its mesh and lines), a face as ranges, a face inside
 test("measures in the world's millimetres: triangles' area, segments' length, points", () => {
   const { model, left, partOf, find } = stepModel();
   const plateLeft = partOf(left, 0);
-  // The plate in inches: the triangle (0,0,0) (1,0,0) (1,1,0) and (0,0,0) (1,1,0) (0,1,0.1), times 25.4.
-  const tri = (a: number[], b: number[], c: number[]) => {
+  // The plate in inches: the triangle (0,0,0) (1,0,0) (1,1,0) and (0,0,0) (1,1,0) (0,1,0.1), times 25.4 (in float32).
+  const tri = (...p: number[][]) => {
+    const [a, b, c] = p.map((q) => q.map((x) => Math.fround(x * 25.4))) as [number[], number[], number[]];
     const u = b.map((x, i) => x - a[i]!), v = c.map((x, i) => x - a[i]!);
     const n = [u[1]! * v[2]! - u[2]! * v[1]!, u[2]! * v[0]! - u[0]! * v[2]!, u[0]! * v[1]! - u[1]! * v[0]!];
-    return Math.hypot(...n) / 2 * 25.4 ** 2;
+    return Math.hypot(...n) / 2;
   };
   const a8 = tri([0, 0, 0], [1, 0, 0], [1, 1, 0]);
   const a7 = tri([0, 0, 0], [1, 1, 0], [0, 1, 0.1]);
@@ -51,7 +52,7 @@ test("measures in the world's millimetres: triangles' area, segments' length, po
   assert.ok(Math.abs(m.area - (a8 + a7)) < 1e-6, `${m.area}`);
   // The B-rep edge drawn: (0,0,0) to (1,1,0), inches.
   assert.equal(m.segments, 1);
-  assert.ok(Math.abs(m.length - Math.SQRT2 * 25.4) < 1e-6, `${m.length}`);
+  assert.ok(Math.abs(m.length - Math.SQRT2 * Math.fround(25.4)) < 1e-6, `${m.length}`);
   const f = measure(piecesOf(model, [find(plateLeft, 'face #7')]));
   assert.equal(f.triangles, 1);
   assert.ok(Math.abs(f.area - a7) < 1e-6);
@@ -65,8 +66,10 @@ test("spheres: a face's around its vertices' box, in the world; a part and the f
   const face = sphereOf(piecesOf(model, [find(partOf(left, 0), 'face #8')]));
   // Face 8: (0,0,0) (1,0,0) (1,1,0) inches, at the plate's origin (1 inch along x), the placement at x 100 and the
   // root occurrence at z 5: its box's centre and half diagonal.
-  assert.deepEqual(face.center.toArray().map((x) => +x.toFixed(9)), [100 + 25.4 * 1.5, 25.4 * 0.5, 5]);
-  assert.ok(Math.abs(face.radius - 25.4 * Math.SQRT1_2) < 1e-9);
+  const inch = Math.fround(25.4);
+  assert.deepEqual(face.center.toArray().map((x) => +x.toFixed(9)), [100 + 25.4 + inch / 2, inch / 2, 5].map((x) =>
+    +x.toFixed(9)));
+  assert.ok(Math.abs(face.radius - inch * Math.SQRT1_2) < 1e-9);
   const both = sphereOf(piecesOf(model, [find(partOf(left, 0), 'face #8'), partOf(left, 1)]));
   const part = sphereOf(piecesOf(model, [partOf(left, 1)]));
   // A whole object's alone: around its vertices' box in its own coordinates, then placed.

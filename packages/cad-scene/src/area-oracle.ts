@@ -18,9 +18,10 @@ export type OracleSurface = 'plane' | 'cylinder' | 'cone' | 'sphere' | 'torus';
  * Why an area may be wrong though computed: `orientation`, the loops' signed sum was negative (loops against Part
  * 42's orientation; the absolute value is reported); `minor-winding`, a torus loop winds the minor circle (P isn't
  * periodic in v, so the seam the face then spans, which no loop runs along, would count); `no-loops`, a face with no
- * edge loops (area 0 reported).
+ * edge loops (area 0 reported); `loose`, a face item in no shell (a STEP curve-bounded surface's: nothing fixes which
+ * way its loops run, so they may bound the other side of the surface).
  */
-export type OracleFlag = 'orientation' | 'minor-winding' | 'no-loops' | 'off-surface' | 'sphere-side';
+export type OracleFlag = 'orientation' | 'minor-winding' | 'no-loops' | 'off-surface' | 'sphere-side' | 'loose';
 export interface OracleArea {
   ok: true;
   /** In the file's length unit squared. */
@@ -252,6 +253,21 @@ export function modelFaceArea(d: BrepData, f: number, opts: OracleOptions = {}):
   }
 }
 
+/** Each model's loose faces (face items in no shell), by row; made on first use. */
+const looseRows = new WeakMap<BrepData, Set<number>>();
+function looseFaces(d: BrepData): Set<number> {
+  let out = looseRows.get(d);
+  if (!out) {
+    const inShell = new Set(d.faceUse.face);
+    out = new Set();
+    for (let i = 0; i < d.item.kind.length; i++) {
+      if (decode.item(d, i).kind === 'face' && !inShell.has(d.item.ref[i]!)) out.add(d.item.ref[i]!);
+    }
+    looseRows.set(d, out);
+  }
+  return out;
+}
+
 function modelFace(d: BrepData, f: number, cache: Map<number, CurveEvaluator | undefined>,
   params: Map<number, [number, number] | undefined>, scale: number): OracleArea {
   const s = decode.surface(d, d.face.surface[f]!);
@@ -318,9 +334,11 @@ function modelFace(d: BrepData, f: number, cache: Map<number, CurveEvaluator | u
       curves.add(e.kind);
       edges.push({ sample: e.sample, forward: d.coedge.orientation[k] !== 1 });
     }
-    loops.push({ edges, forward: d.loop.sense[l] === 1 });
+    loops.push({ edges, forward: true });
   }
-  return faceIntegral(S, d.face.sameSense[f] === 1, loops, curves);
+  const out = faceIntegral(S, d.face.sameSense[f] === 1, loops, curves);
+  if (looseFaces(d).has(f)) out.flags.push('loose');
+  return out;
 }
 
 /**

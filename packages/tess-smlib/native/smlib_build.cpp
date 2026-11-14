@@ -119,20 +119,16 @@ struct Model
   int edgeStart(int e) const { return CBR_I32(v[CBR_EDGE_START])[e]; }
   int edgeEnd(int e) const { return CBR_I32(v[CBR_EDGE_END])[e]; }
   bool edgeSameSense(int e) const { return CBR_U8(v[CBR_EDGE_SAME_SENSE])[e] != 0; }
-  // An edge of no length (a pole, an apex): flagged so, or without a 3D curve from a vertex to itself.
-  bool edgeDegenerate(int e) const
-  {
-    return (CBR_U8(v[CBR_EDGE_FLAGS])[e] & CBR_EDGE_DEGENERATE) != 0
-      || (edgeCurve(e) < 0 && edgeStart(e) >= 0 && edgeStart(e) == edgeEnd(e));
-  }
+  // An edge of no length the model keeps in a loop: without a 3D curve, from a vertex to itself (the model drops
+  // the degenerate edges its sources flag: docs/brep-reference.md, "The canonical model"; a file's curveless edge at
+  // a pole or an apex isn't flagged).
+  bool edgeDegenerate(int e) const { return edgeCurve(e) < 0 && edgeStart(e) >= 0 && edgeStart(e) == edgeEnd(e); }
   int coedgeEdge(int c) const { return CBR_I32(v[CBR_COEDGE_EDGE])[c]; }
   int coedgeOrientation(int c) const { return CBR_U8(v[CBR_COEDGE_ORIENTATION])[c]; }
   int loopKind(int l) const { return CBR_U8(v[CBR_LOOP_KIND])[l]; }
   int loopBound(int l) const { return CBR_U8(v[CBR_LOOP_BOUND])[l]; }
-  bool loopSense(int l) const { return CBR_U8(v[CBR_LOOP_SENSE])[l] != 0; }
   int loopFirst(int l) const { return CBR_I32(v[CBR_LOOP_FIRST])[l]; }
   int loopCount(int l) const { return CBR_I32(v[CBR_LOOP_COUNT])[l]; }
-  int loopCorner(int l, int k) const { return CBR_I32(v[CBR_POOL_LOOP_INT])[loopFirst(l) + k]; }
   int faceSurface(int f) const { return CBR_I32(v[CBR_FACE_SURFACE])[f]; }
   bool faceSameSense(int f) const { return CBR_U8(v[CBR_FACE_SAME_SENSE])[f] != 0; }
   int faceFirstLoop(int f) const { return CBR_I32(v[CBR_FACE_FIRST_LOOP])[f]; }
@@ -148,7 +144,6 @@ struct Model
   int memberRef(int m) const { return CBR_I32(v[CBR_MEMBER_REF])[m]; }
   int itemKind(int i) const { return CBR_U8(v[CBR_ITEM_KIND])[i]; }
   int itemRef(int i) const { return CBR_I32(v[CBR_ITEM_REF])[i]; }
-  int itemTransform(int i) const { return CBR_I32(v[CBR_ITEM_TRANSFORM])[i]; }
   const double* itemReal(int o) const { return CBR_F64(v[CBR_POOL_ITEM_REAL]) + o; }
 };
 
@@ -451,22 +446,6 @@ private:
     return false;
   }
 
-  // A straight edge from a to b (a poly loop's side).
-  EdgeGeom lineGeom(V3 a, V3 b)
-  {
-    EdgeGeom g;
-    V3 d = b - a;
-    double len = norm(d);
-    SmLine* l = nullptr;
-    if (!(len > 0) || SmLine::CreateCanonical(ctx, sp(a), sv((1 / len) * d), l) != SM_SUCCESS || !l) {
-      g.error = "poly loop sides of no length";
-      return g;
-    }
-    g.curve = l;
-    g.interval = SmExtent1d(0, len);
-    return g;
-  }
-
   bool drop(SmCurve* k, const SmExtent1d& nat, V3 p, double& t)
   {
     SmBoolean ok = FALSE;
@@ -475,23 +454,34 @@ private:
     return true;
   }
 
-  // A B-spline row in periodic form (unclamped, its last `degree` poles its first): its period, else 0.
-  double periodOf(int c) const
+  // A closed B-spline row's period: in periodic form (unclamped, its last `degree` poles its first), or clamped (as
+  // the model has every B-spline: docs/brep-reference.md, "The canonical model") with its last pole its first, its
+  // range's length (an edge's range past the range's end runs on past its seam); else 0.
+  // clamped: set to which form.
+  double periodOf(int c, bool* clamped = nullptr) const
   {
+    if (clamped) *clamped = false;
     if (m.curveKind(c) != CBR_CURVE_BSPLINE) return 0;
     const double* r = m.curveReal(c);
     const int32_t* n = m.curveInt(c);
     int p = n[0], np = n[1], nk = n[2];
     std::vector<double> U;
     for (int i = 0; i < nk; i++) for (int j = 0; j < n[7 + i]; j++) U.push_back(r[i]);
-    if ((int)U.size() != np + p + 1 || n[7] != 1 || n[7 + nk - 1] != 1 || np <= p) return 0;
+    if ((int)U.size() != np + p + 1 || np <= p) return 0;
     const double* P = r + nk;
     double size = 0;
     for (int i = 0; i < np; i++)
       size = std::max(size, std::fabs(P[3 * i]) + std::fabs(P[3 * i + 1]) + std::fabs(P[3 * i + 2]));
+    const double tol = 1e-9 * std::max(size, 1.0);
+    if (n[7] == p + 1 && n[7 + nk - 1] == p + 1) {
+      for (int k = 0; k < 3; k++) if (std::fabs(P[3 * (np - 1) + k] - P[k]) > tol) return 0;
+      if (clamped) *clamped = true;
+      return U[np] - U[p];
+    }
+    if (n[7] != 1 || n[7 + nk - 1] != 1) return 0;
     for (int i = 0; i < p; i++)
       for (int k = 0; k < 3; k++)
-        if (std::fabs(P[3 * (np - p + i) + k] - P[3 * i + k]) > 1e-9 * std::max(size, 1.0)) return 0;
+        if (std::fabs(P[3 * (np - p + i) + k] - P[3 * i + k]) > tol) return 0;
     return U[np] - U[p];
   }
 
@@ -518,13 +508,28 @@ private:
       std::vector<double> U;
       for (int i = 0; i < nk; i++) for (int j = 0; j < n[7 + i]; j++) U.push_back(r[i]);
       std::vector<int> ix(np);
+      std::vector<double> wscale(np, 1.0);
       for (int i = 0; i < np; i++) ix[i] = i;
-      double period = trim ? periodOf(c) : 0;
-      if (period > 0) {
+      bool clamped;
+      double period = trim ? periodOf(c, &clamped) : 0;
+      if (period > 0 && clamped) {
+        // One more period, the curve again from its seam (a C0 join there): its poles but the first (the last's
+        // again), its end knot down to multiplicity `degree`, then its interior and end knots plus the period. A
+        // rational one's copy with its weights times the last's over the first's, so the pole they share has one
+        // weight: the copy's shape is the curve's (a C0 join leaves each side alone; scaling all of a side's weights
+        // leaves its shape).
+        double c = rational ? r[nk + 3 * np + np - 1] / r[nk + 3 * np] : 1;
+        for (int i = 1; i < np; i++) { ix.push_back(i); wscale.push_back(c); }
+        std::vector<double> V(U.begin(), U.begin() + np + degree);
+        for (int i = degree + 1; i < np; i++) V.push_back(U[i] + period);
+        for (int i = np; i <= np + degree; i++) V.push_back(U[i] + period);
+        U = V;
+      } else if (period > 0) {
         // One more period, as the periodic form repeats: pole k + n - p is pole k, knot k + n - p knot k plus the
         // period (Piegl and Tiller).
         for (int i = 0; i < np - degree; i++) {
           ix.push_back(degree + i);
+          wscale.push_back(1.0);
           U.push_back(U[2 * degree + 1 + i] + period);
         }
       }
@@ -533,7 +538,7 @@ private:
         else { knots.Add(U[i]); mults.Add(1); }
       }
       for (int i : ix) poles.Add(SmPoint3d(r[nk + 3 * i], r[nk + 3 * i + 1], r[nk + 3 * i + 2]));
-      if (rational) for (int i : ix) weights.Add(r[nk + 3 * np + i]);
+      if (rational) for (size_t k = 0; k < ix.size(); k++) weights.Add(r[nk + 3 * np + ix[k]] * wscale[k]);
     }
     SmBSplineCurve* k = nullptr;
     if (SmBSplineCurve::CreateCanonical(ctx, 3, degree, poles, SM_CF_UNSPECIFIED, mults, knots, SM_KT_UNSPECIFIED,
@@ -635,9 +640,7 @@ private:
     for (int l = m.faceFirstLoop(f); l < m.faceFirstLoop(f) + m.faceLoopCount(f); l++) {
       std::vector<V3> pts;
       if (m.loopKind(l) == CBR_LOOP_VERTEX) pts.push_back(m.vertex(m.loopFirst(l)));
-      else if (m.loopKind(l) == CBR_LOOP_POLY) {
-        for (int k = 0; k < m.loopCount(l); k++) pts.push_back(m.vertex(m.loopCorner(l, k)));
-      } else {
+      else {
         for (int k = 0; k < m.loopCount(l); k++) {
           int c = m.loopFirst(l) + k, e = m.coedgeEdge(c);
           bool fwd = m.coedgeOrientation(c) != CBR_ORIENTATION_REVERSED;
@@ -1382,8 +1385,25 @@ private:
     return (area > 0) == (c > 0) ? 1 : -1;
   }
 
+  // Faces that are a face item in no shell: a curve-bounded surface's (in STEP, a geometric set's), whose boundaries'
+  // direction nothing fixes, though the model gives their segments vertices where they meet. Made on first use.
+  std::vector<char> loose;
+  bool looseFace(int f)
+  {
+    if (loose.empty()) {
+      size_t n = m.rows(CBR_FACE_SURFACE);
+      std::vector<char> inShell(n, 0);
+      loose.assign(n, 0);
+      for (size_t u = 0; u < m.rows(CBR_FACE_USE_FACE); u++) inShell[m.faceUseFace((int)u)] = 1;
+      for (size_t i = 0; i < m.rows(CBR_ITEM_KIND); i++)
+        if (m.itemKind((int)i) == CBR_ITEM_FACE && !inShell[m.itemRef((int)i)]) loose[m.itemRef((int)i)] = 1;
+    }
+    return loose[f] != 0;
+  }
+
   // A face's surface (as surfaceGeom), each loop's extent (the diagonal of its boundary points' box), and for each loop
-  // of segments (edges without vertices, whose direction nothing fixes) its winding as its coedges run.
+  // whose direction nothing fixes (of segments, edges without vertices, or a loose face's: looseFace) its winding as
+  // its coedges run.
   // apex: set to a cone's apex where the face must reach it though no loop does (below).
   FaceGeom faceGeom(int f, std::vector<double>& extents, std::vector<int>& windings, bool& atApex, V3& apex)
   {
@@ -1424,9 +1444,9 @@ private:
     }
     FaceGeom g = surfaceGeom(m.faceSurface(f), loops);
     for (int l = m.faceFirstLoop(f), i = 0; l < m.faceFirstLoop(f) + m.faceLoopCount(f); l++, i++) {
-      bool segments = m.loopKind(l) == CBR_LOOP_EDGE && m.loopCount(l) > 0
-        && m.edgeStart(m.coedgeEdge(m.loopFirst(l))) < 0;
-      windings.push_back(g.surface && segments ? winding(g.surface, g.domain, loops[i]) : 0);
+      bool free = m.loopKind(l) == CBR_LOOP_EDGE && m.loopCount(l) > 0
+        && (m.edgeStart(m.coedgeEdge(m.loopFirst(l))) < 0 || looseFace(f));
+      windings.push_back(g.surface && free ? winding(g.surface, g.domain, loops[i]) : 0);
     }
     return g;
   }
@@ -1577,8 +1597,8 @@ public:
   }
 
 private:
-  // An item, at a transform (its own composed onto an instance's).
-  void buildItem(int i, const std::vector<double>& outer, int depth);
+  // An item (the model holds no transforms: its items are where they are).
+  void buildItem(int i);
   // The placed item being built, and how many have been.
   int group = 0, groups = 0;
 
@@ -1593,7 +1613,7 @@ private:
 // start), in the traversal order of the face's surface-normal side.
 struct Use
 {
-  // The model's edge row, or for a poly loop's side -2 - its index in the sheet's sides.
+  // The model's edge row.
   int edge;
   bool along;
 };
@@ -1614,9 +1634,6 @@ void Builder::buildSheet(const std::vector<int>& faceRows, const std::vector<dou
     std::vector<int> vertexLoops;        // vertex rows
   };
   std::vector<FaceOut> fs;
-  // Poly loops' sides, by their corners (vertex rows, the lesser first): shared by the loops using both corners.
-  std::vector<std::pair<int, int>> sides;
-  std::map<std::pair<int, int>, int> sideOf;
   // Curve-bounded faces' segments (edges without vertices): their ends as vertex keys, along SMLib's edge, and
   // whether that runs against the model's edge. Keys -2 - k are vertices made at the joins, at synth[k].
   struct Segment
@@ -1648,19 +1665,6 @@ void Builder::buildSheet(const std::vector<int>& faceRows, const std::vector<dou
     for (int l = m.faceFirstLoop(f); l < m.faceFirstLoop(f) + m.faceLoopCount(f); l++) {
       if (m.loopKind(l) == CBR_LOOP_VERTEX) { fo.vertexLoops.push_back(m.loopFirst(l)); continue; }
       std::vector<Use> uses;
-      if (m.loopKind(l) == CBR_LOOP_POLY) {
-        for (int k = 0; k < m.loopCount(l); k++) {
-          int a = m.loopCorner(l, k), b = m.loopCorner(l, (k + 1) % m.loopCount(l));
-          if (a == b) continue;
-          auto key = std::make_pair(std::min(a, b), std::max(a, b));
-          auto it = sideOf.find(key);
-          if (it == sideOf.end()) {
-            it = sideOf.emplace(key, (int)sides.size()).first;
-            sides.push_back(key);
-          }
-          uses.push_back({-2 - it->second, a == key.first});
-        }
-      }
       // A loop of segments: consecutive ones joined at a vertex made midway between their ends (the consumer's to
       // join: docs/brep-reference.md), one alone closed on itself.
       if (m.loopKind(l) == CBR_LOOP_EDGE) {
@@ -1704,7 +1708,8 @@ void Builder::buildSheet(const std::vector<int>& faceRows, const std::vector<dou
           }
         }
       }
-      // Degenerate edges are left out (their neighbours meet at the vertex); a loop of nothing else is a vertex loop.
+      // Degenerate edges (edgeDegenerate) are left out (their neighbours meet at the vertex); a loop of nothing else
+      // is a vertex loop.
       int degenerate = -1;
       for (int k = 0; m.loopKind(l) == CBR_LOOP_EDGE && k < m.loopCount(l); k++) {
         int c = m.loopFirst(l) + k, e = m.coedgeEdge(c), o = m.coedgeOrientation(c);
@@ -1718,11 +1723,11 @@ void Builder::buildSheet(const std::vector<int>& faceRows, const std::vector<dou
         uses.push_back({e, (fwd == m.edgeSameSense(e)) != (seg != segments.end() && seg->second.against)});
       }
       if (uses.empty() && degenerate >= 0) { fo.vertexLoops.push_back(degenerate); continue; }
-      // A loop of segments runs whichever way its file has it: turned below, once the outer loop is known, by its
-      // winding where that can be told.
+      // A loop of segments, or a loose face's, runs whichever way its file has it: turned below, once the outer loop is
+      // known, by its winding where that can be told.
       int w = windings[l - m.faceFirstLoop(f)];
-      bool dir = m.loopSense(l) == keep;
-      if (!dir && w == 0) {
+      // (The model's loops run as listed.)
+      if (!keep && w == 0) {
         std::reverse(uses.begin(), uses.end());
         for (auto& u : uses) u.along = !u.along;
       }
@@ -1765,7 +1770,6 @@ void Builder::buildSheet(const std::vector<int>& faceRows, const std::vector<dou
   std::vector<EdgeGeom> geoms;
   // An SMLib edge's ends (vertex rows): from the start of its interval to its end.
   auto ends = [&](int e, int& s, int& t) {
-    if (e <= -2) { s = sides[-2 - e].first; t = sides[-2 - e].second; return; }
     auto seg = segments.find(e);
     if (seg != segments.end()) { s = seg->second.s; t = seg->second.t; return; }
     s = m.edgeStart(e), t = m.edgeEnd(e);
@@ -1786,8 +1790,7 @@ void Builder::buildSheet(const std::vector<int>& faceRows, const std::vector<dou
       if (edgeRow.count(u.edge)) continue;
       int e = u.edge, s, t;
       ends(e, s, t);
-      EdgeGeom g = e <= -2 ? lineGeom(m.vertex(s), m.vertex(t))
-        : segments.count(e) ? span(baseCurve(m.edgeCurve(e)), point(s), point(t), s == t) : edgeGeom(e, s, t);
+      EdgeGeom g = segments.count(e) ? span(baseCurve(m.edgeCurve(e)), point(s), point(t), s == t) : edgeGeom(e, s, t);
       if (!g.curve) { warn(g.error + " (faces left out)"); ok = false; break; }
       edgeRow[e] = (int)edges.size();
       edges.push_back(e);
@@ -2024,25 +2027,10 @@ void Builder::buildNatural(int surface, int face, const std::vector<double>& tra
   out.breps.push_back(std::move(built));
 }
 
-// The transform b after a (each 12 reals, column-major, or empty for none).
-static std::vector<double> compose(const std::vector<double>& a, const std::vector<double>& b)
-{
-  if (a.size() != 12) return b;
-  if (b.size() != 12) return a;
-  std::vector<double> c(12);
-  for (int col = 0; col < 4; col++)
-    for (int r = 0; r < 3; r++)
-      c[col * 3 + r] = b[r] * a[col * 3] + b[3 + r] * a[col * 3 + 1] + b[6 + r] * a[col * 3 + 2]
-        + (col == 3 ? b[9 + r] : 0);
-  return c;
-}
-
-void Builder::buildItem(int i, const std::vector<double>& outer, int depth)
+void Builder::buildItem(int i)
 {
   group = ++groups;
-  std::vector<double> own;
-  if (m.itemTransform(i) >= 0) own.assign(m.itemReal(m.itemTransform(i)), m.itemReal(m.itemTransform(i)) + 12);
-  std::vector<double> tr = compose(own, outer);
+  const std::vector<double> tr;
   uint32_t id = CBR_U32(m.v[CBR_ITEM_ID])[i];
   switch (m.itemKind(i)) {
   case CBR_ITEM_BODY: {
@@ -2061,13 +2049,21 @@ void Builder::buildItem(int i, const std::vector<double>& outer, int depth)
         out.curves.push_back(std::move(pl));
         continue;
       }
-      std::vector<int> faces;
-      for (int u = m.shellFirst(ref); u < m.shellFirst(ref) + m.shellCount(ref); u++) faces.push_back(m.faceUseFace(u));
+      // The shell's faces; a face it uses again (the model merges open shells sharing edges, a face in two of them
+      // so twice in one) in a B-rep of its own each time, as SMLib measures a face once per B-rep: meshed once per
+      // use, measured once.
+      std::vector<std::vector<int>> sheets(1);
+      std::map<int, size_t> uses;
+      for (int u = m.shellFirst(ref); u < m.shellFirst(ref) + m.shellCount(ref); u++) {
+        size_t k = uses[m.faceUseFace(u)]++;
+        if (k >= sheets.size()) sheets.resize(k + 1);
+        sheets[k].push_back(m.faceUseFace(u));
+      }
       // (A closed shell a group of its own: never joined to another shell along an edge they share, which would make
       // it no longer closed. Open shells sharing edges are one surface the file split.)
       int open = group;
       if (m.shellKind(ref) == CBR_SHELL_CLOSED) group = ++groups;
-      buildSheet(faces, tr);
+      for (auto& faces : sheets) buildSheet(faces, tr);
       group = open;
     }
     break;
@@ -2080,17 +2076,13 @@ void Builder::buildItem(int i, const std::vector<double>& outer, int depth)
     out.points.push_back({id, {p[0], p[1], p[2]}, tr});
     break;
   }
-  case CBR_ITEM_INSTANCE:
-    if (depth > 16 || m.itemRef(i) >= i) { warn("instances not of an earlier item (left out)"); break; }
-    buildItem(m.itemRef(i), tr, depth + 1);
-    break;
   }
 }
 
 void Builder::build()
 {
   int nItems = (int)m.rows(CBR_ITEM_KIND);
-  for (int i = 0; i < nItems; i++) buildItem(i, {}, 0);
+  for (int i = 0; i < nItems; i++) buildItem(i);
 }
 
 } // namespace
@@ -2198,8 +2190,6 @@ static void scaleModel(Model& m, double s)
   for (int i = 0; i < (int)m.rows(CBR_ITEM_KIND); i++)
   {
     if (m.itemKind(i) == CBR_ITEM_POINT && done.insert(m.itemRef(i)).second) times(ir + m.itemRef(i), 3);
-    int t = m.itemTransform(i);
-    if (t >= 0 && done.insert(t + 9).second) times(ir + t + 9, 3);
   }
 }
 

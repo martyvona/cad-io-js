@@ -4,11 +4,11 @@
 //! that route was removed, checked over the corpus face by face); kinds truck has no geometry for (trimmed, composite
 //! and offset curves, offset, trimmed and swept surfaces, vertex and poly loops, edges without vertices) leave their
 //! faces out, reported. An edge with p-curves and no 3D curve is its first p-curve (by row) on that face's surface, as
-//! truck-stepio reads a surface curve whose master is its first p-curve. Items other than untransformed solid and
-//! sheet bodies are listed as skipped.
+//! truck-stepio reads a surface curve whose master is its first p-curve. Items other than solid and sheet bodies are
+//! listed as skipped.
 
 use crate::cad_brep::{self, body_kind, curve_kind, item_kind, orientation, surface_kind, Brep};
-use crate::{clamp_curve, clamp_surface, finite_curve, finite_surface, Built, Diag, Role};
+use crate::{finite_curve, finite_surface, Built, Diag, Role};
 use std::collections::HashMap;
 use std::f64::consts::PI;
 use truck_geometry::prelude::{
@@ -388,7 +388,7 @@ impl Model {
         for k in 0..d.item_kind().len() {
             let (kind, r, id) = (d.item_kind()[k], d.item_ref()[k], d.item_id()[k]);
             let what = match kind {
-                item_kind::BODY if d.item_transform()[k] < 0 => {
+                item_kind::BODY => {
                     let b = r as usize;
                     let (first, count) = (d.body_first()[b] as usize, d.body_count()[b] as usize);
                     match d.body_kind()[b] {
@@ -405,29 +405,28 @@ impl Model {
                         _ => "a wire body",
                     }
                 }
-                item_kind::BODY => "a body with a transform",
                 item_kind::CURVE => "a curve",
                 item_kind::SURFACE => "a surface",
                 item_kind::FACE => "a face",
                 item_kind::POINT => "a point",
-                _ => "an instance",
+                _ => "an item of another kind",
             };
             diag.skipped_items.push(format!("{what} #{id}"));
         }
         out
     }
 
-    /// The shell a body member uses, built: its faces (each once per use, turned as the use and the member say),
+    /// The shell a body member uses, built: its faces (each once per use, forward: the model has no reversed uses),
     /// edges and vertices shared within it.
     pub fn build_shell(&self, member: usize, diag: &mut Diag) -> (Built, u64) {
         let d = &self.d;
-        let (s, flip) = (d.member_ref()[member] as usize, d.member_sense()[member] == 0);
+        let s = d.member_ref()[member] as usize;
         let empty = CompressedShell { vertices: vec![], edges: vec![], faces: vec![] };
         let mut b = Builder { m: self, out: Built { shell: empty, face_ids: vec![], edge_ids: vec![] },
             vertices: HashMap::new(), edges: HashMap::new() };
         let first = d.shell_first()[s] as usize;
         for u in first..first + d.shell_count()[s] as usize {
-            b.face(d.face_use_face()[u] as usize, (d.face_use_sense()[u] == 0) != flip, diag);
+            b.face(d.face_use_face()[u] as usize, diag);
         }
         (b.out, id64(d.shell_id()[s]))
     }
@@ -464,9 +463,8 @@ impl Builder<'_> {
             }
             let same = d.edge_same_sense()[e] != 0;
             let (pa, pb) = (self.m.point(a), self.m.point(b));
-            let mut curve =
+            let curve =
                 if c < 0 { self.m.pcurve_edge(e, pa, pb, same)? } else { self.m.edge_curve(c as usize, pa, pb, same)? };
-            diag.clamped_edges += clamp_curve(&mut curve) as usize;
             if !finite_curve(&curve) {
                 diag.nonfinite_edges.push(id);
                 return None;
@@ -483,8 +481,8 @@ impl Builder<'_> {
         k
     }
 
-    /// A face's loops as truck's boundaries (each edge loop's coedges in order, turned where the loop runs against
-    /// its bound); None if a loop isn't an edge loop or an edge didn't convert.
+    /// A face's loops as truck's boundaries (each edge loop's coedges in order: the model's loops run as listed);
+    /// None if a loop isn't an edge loop or an edge didn't convert.
     fn boundaries(&mut self, f: usize, diag: &mut Diag) -> Option<Vec<Vec<CompressedEdgeIndex>>> {
         let d = &self.m.d;
         let first = d.face_first_loop()[f] as usize;
@@ -493,28 +491,23 @@ impl Builder<'_> {
             if d.loop_kind()[l] != cad_brep::loop_kind::EDGE {
                 return None;
             }
-            let sense = d.loop_sense()[l] != 0;
             let c0 = d.loop_first()[l] as usize;
             let mut wire = Vec::new();
             for c in c0..c0 + d.loop_count()[l] as usize {
                 let index = self.edge(d.coedge_edge()[c] as usize, diag)?;
                 let forward = d.coedge_orientation()[c] != orientation::REVERSED;
-                wire.push(CompressedEdgeIndex { index, orientation: forward == sense });
-            }
-            if !sense {
-                wire.reverse();
+                wire.push(CompressedEdgeIndex { index, orientation: forward });
             }
             out.push(wire);
         }
         Some(out)
     }
 
-    /// A face, used reversed if `reversed`.
-    fn face(&mut self, f: usize, reversed: bool, diag: &mut Diag) {
+    /// A face, used forward.
+    fn face(&mut self, f: usize, diag: &mut Diag) {
         let d = &self.m.d;
         let id = id64(d.face_id()[f]);
         let surface = self.m.surface(d.face_surface()[f] as usize).map(|mut s| {
-            diag.clamped_faces += clamp_surface(&mut s) as usize;
             if d.face_same_sense()[f] == 0 {
                 s.invert();
             }
@@ -526,7 +519,7 @@ impl Builder<'_> {
         }
         match (surface, self.boundaries(f, diag)) {
             (Some(surface), Some(boundaries)) => {
-                self.out.shell.faces.push(CompressedFace { surface, boundaries, orientation: !reversed });
+                self.out.shell.faces.push(CompressedFace { surface, boundaries, orientation: true });
                 self.out.face_ids.push(id);
             }
             _ => diag.unconverted_faces.push(id),

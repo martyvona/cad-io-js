@@ -18,13 +18,14 @@ struct BuiltBrep
   // The faces whose triangles (SMLib winds them about its surface's normal) must be turned over to face along the
   // model face's normal; known after healing, which may turn faces over.
   std::unordered_set<const SmFace*> reverse;
-  // The item's transform (12 reals, column-major x, y, z, then t), applied to the mesh; empty for none.
+  // The transform applied to the mesh (12 reals, column-major x, y, z, then t): a scaled build's back to the part's
+  // size (the model itself holds no transforms); empty for none.
   std::vector<double> transform;
   // The face rows given to SMLib: healing removes some (slivers), which then have no SMLib face.
   std::vector<int> rows;
   // The B-rep's lengths are the model's times this; the transform brings its meshes back to the part's size.
   double scale = 1;
-  // The placed item it is of (each placement of an item through instances its own; a closed shell one of its own):
+  // The item it is of (a closed shell one of its own):
   // the B-reps of one, each open shell of a body; their faces' meshes are joined along the edges they share.
   int group = 0;
 };
@@ -41,7 +42,7 @@ struct BuiltPart
   // Each edge row's uses by faces' loops: the face rows, one for each use.
   std::vector<std::vector<int>> edgeFaces;
   // Wireframe curves (curve items, wire bodies' edges) as polylines with their ids (0: none), and loose points (one
-  // point each), each with its item's transform (12 reals, or none).
+  // point each), each with its transform (12 reals, or none) as BuiltBrep's.
   struct Polyline
   {
     uint32_t id;

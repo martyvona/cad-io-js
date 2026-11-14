@@ -1,5 +1,5 @@
 // Hand-built B-reps for the tests: each the smallest that has the feature named (a solid's shared edges, a seam with
-// its two p-curves, natural bounds, a vertex loop at a pole, a void, poly loops, wires, geometric sets, instances,
+// its two p-curves, natural bounds, a vertex loop at a pole, a void, poly loops, wires, geometric sets,
 // every curve and surface kind).
 
 import { BrepBuilder } from '../src/builder.ts';
@@ -173,9 +173,13 @@ export function facetedAndWire(): BrepBuilder {
   const p = [[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]];
   const corners = p.map((point) => b.addVertex({ point }));
   const tris = [[0, 2, 1], [0, 1, 3], [1, 2, 3], [0, 3, 2]];
-  const faces = tris.map((t) => b.addFace({ surface: b.addSurface({ kind: 'plane',
-    position: { origin: p[t[0]!]!, axis: [0, 0, 1], xDir: [1, 0, 0] } }), sameSense: true,
-    loops: [{ kind: 'poly', bound: 'outer', sense: true, vertices: t.map((k) => corners[k]!) }] }));
+  // (Each triangle on its own plane, its normal from its corners' winding: outward.)
+  const faces = tris.map((t) => {
+    const [a, c, e] = t.map((k) => p[k]! as V3) as [V3, V3, V3], x = unit(sub(c, a));
+    return b.addFace({ surface: b.addSurface({ kind: 'plane', position: { origin: a,
+      axis: unit(cross(x, sub(e, a))).map((v) => v + 0), xDir: x.map((v) => v + 0) } }), sameSense: true,
+    loops: [{ kind: 'poly', bound: 'outer', sense: true, vertices: t.map((k) => corners[k]!) }] });
+  });
   const shell = b.addShell({ kind: 'closed', faces: faces.map((face) => ({ face, sense: true })) });
   b.addItem({ kind: 'body', ref: b.addBody({ kind: 'solid', members: [{ ref: shell, sense: true }] }) });
 
@@ -203,7 +207,7 @@ export function facetedAndWire(): BrepBuilder {
 }
 
 /** Every curve and surface kind once (2D curves too), as loose geometry items, with a curve-bounded face (edges
- * without vertices), a point, and an instance placing the cube mirrored. */
+ * without vertices), a point and a cube. */
 export function everyKind(): BrepBuilder {
   const b = new BrepBuilder({ uncertainty: 1e-5 });
   const P = { origin: [1, 2, 3], axis: [0, 0, 1], xDir: [1, 0, 0] };
@@ -268,8 +272,7 @@ export function everyKind(): BrepBuilder {
     coedges: [{ edge: e, orientation: 'forward', pcurve: 12 }] }] });
   b.addItem({ kind: 'face', ref: f, id: 700 });
   b.addItem({ kind: 'point', point: [9, 8, 7], id: 701 });
-  const body = b.addItem({ kind: 'body', ref: box2(b) });
-  b.addItem({ kind: 'instance', ref: body, transform: [-1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 0, 0] });
+  b.addItem({ kind: 'body', ref: box2(b) });
   return b;
 }
 
@@ -280,9 +283,10 @@ function box2(b: BrepBuilder): number {
 
 /**
  * A cone's side, as OCCT and BREP files have it: the base circle, a seam line from the apex used twice, and a
- * degenerate edge at the apex (no curve, its p-curve the line v = -1); and a degenerate torus with `selectOuter` false.
+ * degenerate edge at the apex (no curve, its p-curve the line v = -1; with `flagged` false, not flagged degenerate, as
+ * a STEP file's is); and a degenerate torus with `selectOuter` false.
  */
-export function cone(): BrepBuilder {
+export function cone(flagged = true): BrepBuilder {
   const b = new BrepBuilder();
   const position = { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] };
   const surface = b.addSurface({ kind: 'cone', position, radius: 1, semiAngle: Math.PI / 4 });
@@ -294,7 +298,7 @@ export function cone(): BrepBuilder {
   const vb = b.addVertex({ point: [1, 0, 0] }), va = b.addVertex({ point: [0, 0, -1] });
   const eBase = b.addEdge({ curve: base, start: vb, end: vb, sameSense: true });
   const eSeam = b.addEdge({ curve: seam, start: va, end: vb, sameSense: true });
-  const eApex = b.addEdge({ start: va, end: va, sameSense: true, degenerate: true, tolerance: 1e-7 });
+  const eApex = b.addEdge({ start: va, end: va, sameSense: true, degenerate: flagged, tolerance: 1e-7 });
   // (Counter-clockwise in (u, v), as an outer bound runs: the apex along v = -1, the seam up, the base back, the seam
   // down.)
   const face = b.addFace({ surface, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [

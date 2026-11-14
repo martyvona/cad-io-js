@@ -49,7 +49,7 @@ test('a Rust reader sees through cad_brep.rs what the views see', { skip: !rustc
       assert.deepEqual(lines.at(-3), ['edge.curve', Array.from(d.edge.curve).join(',')], name);
       assert.deepEqual(lines.at(-2), ['face.id', Array.from(d.face.id).join(',')], name);
       assert.deepEqual(lines.at(-1), ['kinds', ...[CURVE_KIND.offset, SURFACE_KIND.fixedReferenceSwept,
-        ITEM_KIND.instance, TRIM_PREFERENCES.indexOf('cartesian')].map(String)]);
+        ITEM_KIND.point, TRIM_PREFERENCES.indexOf('cartesian')].map(String)]);
       // A corrupt header, or another format's magic, is refused: an offset inside the header, one not 8-byte
       // aligned, a column of doubles one value too long (it would fit as 4-byte values).
       const point = COLUMNS.findIndex((c) => c.table === 'vertex' && c.column === 'point');
@@ -99,7 +99,7 @@ test('a C and a C++ reader see through the header what the views see', { skip: !
           assert.deepEqual(read.slice(0, -1).map(([k, n, sum, bad]) => [k, n, Number(sum), bad]), expected,
             `${lang} ${name}`);
           assert.deepEqual(read.at(-1), ['kinds', ...[CURVE_KIND.offset, SURFACE_KIND.fixedReferenceSwept,
-            ITEM_KIND.instance, TRIM_PREFERENCES.indexOf('cartesian')].map(String)]);
+            ITEM_KIND.point, TRIM_PREFERENCES.indexOf('cartesian')].map(String)]);
           // A corrupt header is refused.
           const bad = new Uint8Array(d.buffer.slice(0));
           new DataView(bad.buffer).setUint32(8, 4, true);

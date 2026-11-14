@@ -182,11 +182,13 @@ test('the oracle on a thin cone to its apex, the apex vertex a little off the ax
   assert.ok(got.ok && Math.abs(got.area - want) < 1e-6 * want, JSON.stringify({ got, want }));
 });
 
-test('the oracle on a sphere: a face over a hemisphere flagged (its loops bound its complement alike)', async () => {
+test('the oracle on a sphere: a face over a hemisphere flagged (its loops bound its complement alike); a loose face '
+  + 'flagged', async () => {
   const { modelFaceArea } = await import('../src/index.ts');
-  // A unit sphere's face bounded by the circle at latitude -0.5, its loop either way round: one side 2 pi (1 - sin
-  // 0.5) = 3.27, trusted; the other 2 pi (1 + sin 0.5) = 9.30, over a hemisphere, flagged.
-  const areas = (['forward', 'reversed'] as const).map((o) => {
+  // A unit sphere's face (in a sheet's shell) bounded by the circle at latitude -0.5, its loop either way round: one
+  // side 2 pi (1 - sin 0.5) = 3.27, trusted; the other 2 pi (1 + sin 0.5) = 9.30, over a hemisphere, flagged. As a
+  // face item in no shell, either way flagged loose.
+  const face = (o: 'forward' | 'reversed', loose = false) => {
     const b = new BrepBuilder();
     const z = -Math.sin(0.5), rr = Math.cos(0.5);
     const sphere = b.addSurface({ kind: 'sphere', position: { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] },
@@ -196,10 +198,19 @@ test('the oracle on a sphere: a face over a hemisphere flagged (its loops bound 
       xDir: [1, 0, 0] }, radius: rr }), start: v, end: v, sameSense: true, id: 1 });
     const f = b.addFace({ surface: sphere, sameSense: true, id: 9, loops: [{ kind: 'edge', bound: 'outer',
       sense: true, coedges: [{ edge: e, orientation: o }] }] });
-    b.addItem({ kind: 'face', ref: f });
+    if (loose) b.addItem({ kind: 'face', ref: f });
+    else {
+      const shell = b.addShell({ kind: 'open', faces: [{ face: f, sense: true }] });
+      b.addItem({ kind: 'body', ref: b.addBody({ kind: 'sheet', members: [{ ref: shell, sense: true }] }) });
+    }
     const m = b.finish();
     return modelFaceArea(m, [...m.face.id].indexOf(9));
-  });
+  };
+  const areas = (['forward', 'reversed'] as const).map((o) => face(o));
+  for (const o of ['forward', 'reversed'] as const) {
+    const r = face(o, true);
+    assert.ok(r.ok && r.flags.includes('loose'), JSON.stringify(r));
+  }
   const small = 2 * Math.PI * (1 - Math.sin(0.5)), big = 2 * Math.PI * (1 + Math.sin(0.5));
   const byArea = [...areas].sort((x, y) => (x.ok ? x.area : 0) - (y.ok ? y.area : 0));
   assert.ok(byArea[0]!.ok && Math.abs(byArea[0]!.area - small) < 1e-6 && byArea[0]!.flags.length === 0,

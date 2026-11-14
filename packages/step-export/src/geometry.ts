@@ -11,11 +11,12 @@
 // uses have p-curves, faces as ADVANCED_FACE where Part 42's rules for one hold (else FACE_SURFACE), a face whose edges
 // all lack vertices as a CURVE_BOUNDED_SURFACE. What the source lacked (an edge's vertex or curve) is written unset, as
 // it had it, not repaired. What STEP can't hold is a diagnostic: tolerances per entity, parameter ranges, internal and
-// external coedges, item transforms and instances; names aren't in the model and are written empty.
+// external coedges; names aren't in the model and are written empty. A baked copy is written as entities of its own,
+// under its fresh id (the model has no instancing to write back).
 
 import {
-  BODY_KIND, type BrepData, type Curve, decode, EDGE_FLAGS, type Face, ITEM_KIND, LOOP_KIND, type Logical,
-  type Placement, type Point, rowCount, type Surface, SURFACE_KIND,
+  BODY_KIND, type BrepData, type Curve, curveEvaluator, decode, edgeParams, type Face, ITEM_KIND, LOOP_KIND,
+  type Logical, type Placement, type Point, rowCount, type Surface, SURFACE_KIND,
 } from 'cad-brep';
 import { type Diagnostic, type EntityRecord, type Instance, makeList, type Value } from 'step-parser';
 
@@ -131,23 +132,44 @@ const UNSET: Value = { k: 'unset' };
 const NAME = str();
 
 /** Advanced faces' edge curves (and swept surfaces' curves, and p-curves' geometry): Part 42's advanced_face rules. */
-// How a vertex is used (`reachable`'s marks): by edges or vertex loops (a VERTEX_POINT), as a poly loop's corner.
-const VERTEX_USE = 1, CORNER_USE = 2;
+// A vertex used (`reachable`'s mark): by edges or vertex loops, a VERTEX_POINT.
+const VERTEX_USE = 1;
 const ADVANCED_CURVES = new Set(['line', 'circle', 'ellipse', 'hyperbola', 'parabola', 'polyline', 'bspline']);
 const ADVANCED_SURFACES = new Set(['plane', 'cylinder', 'cone', 'sphere', 'torus', 'bspline', 'extrusion',
   'revolution']);
 
 /**
+ * Each face written as a CURVE_BOUNDED_SURFACE, its loops boundary curves of segments: a face whose edges all lack
+ * vertices, and a loose face (a face item in no shell, its loops edge loops), which a geometric set can hold only so
+ * (STEP has no face in one; OCCT's reader drops one). Their edges are written as segments only, their vertices not
+ * at all.
+ */
+function curveBoundedFaces(d: BrepData): Uint8Array {
+  const n = rowCount(d, 'face'), out = new Uint8Array(n), item = new Uint8Array(n), inShell = new Uint8Array(n);
+  for (let k = 0; k < rowCount(d, 'item'); k++) if (d.item.kind[k] === ITEM_KIND.face) item[d.item.ref[k]!] = 1;
+  for (let j = 0; j < rowCount(d, 'faceUse'); j++) inShell[d.faceUse.face[j]!] = 1;
+  for (let f = 0; f < n; f++) {
+    let edges = 0, bare = true, all = d.face.loopCount[f]! > 0;
+    for (let l = d.face.firstLoop[f]!; l < d.face.firstLoop[f]! + d.face.loopCount[f]!; l++) {
+      if (d.loop.kind[l] !== LOOP_KIND.edge) { all = false; continue; }
+      for (let c = d.loop.first[l]!; c < d.loop.first[l]! + d.loop.count[l]!; c++) {
+        edges++;
+        const e = d.coedge.edge[c]!;
+        if (d.edge.start[e]! >= 0 || d.edge.end[e]! >= 0) bare = false;
+      }
+    }
+    out[f] = edges && (bare || (all && item[f] && !inShell[f])) ? 1 : 0;
+  }
+  return out;
+}
+
+/**
  * The rows the items reach, per table: what's written (a p-curve no coedge uses, as a seam's whose uses couldn't be
  * told apart, isn't; an unreferenced entity would be a root to a reader).
  */
-/**
- * Whether an edge is degenerate (at a pole or an apex): STEP has no such edges, so it's left out of loops (readers make
- * their own where a loop needs one: OCCT's healing does), and a loop of nothing else is a VERTEX_LOOP at its vertex.
- */
-const isDegenerate = (d: BrepData, e: number) => (d.edge.flags[e]! & EDGE_FLAGS.degenerate) !== 0;
 
 function reachable(d: BrepData) {
+  const asCurveBounded = curveBoundedFaces(d);
   const live = {
     curve: new Uint8Array(rowCount(d, 'curve')), surface: new Uint8Array(rowCount(d, 'surface')),
     vertex: new Uint8Array(rowCount(d, 'vertex')), edge: new Uint8Array(rowCount(d, 'edge')),
@@ -186,19 +208,17 @@ function reachable(d: BrepData) {
     surface(d.face.surface[f]!);
     for (let l = d.face.firstLoop[f]!; l < d.face.firstLoop[f]! + d.face.loopCount[f]!; l++) {
       if (d.loop.kind[l] === LOOP_KIND.vertex) live.vertex[d.loop.first[l]!]! |= VERTEX_USE;
-      if (d.loop.kind[l] === LOOP_KIND.poly) {
-        for (let j = 0; j < d.loop.count[l]!; j++) live.vertex[d.pool.loopInt[d.loop.first[l]! + j]!]! |= CORNER_USE;
-      }
       if (d.loop.kind[l] !== LOOP_KIND.edge) continue;
-      let written = 0;
       for (let c = d.loop.first[l]!; c < d.loop.first[l]! + d.loop.count[l]!; c++) {
-        if (isDegenerate(d, d.coedge.edge[c]!)) continue;
-        written++;
-        edge(d.coedge.edge[c]!);
+        const e = d.coedge.edge[c]!;
+        // (A curve-bounded face's segments: their curves, not their vertices.)
+        if (!asCurveBounded[f]) edge(e);
+        else {
+          live.edge[e] = 1;
+          if (d.edge.curve[e]! >= 0) curve(d.edge.curve[e]!);
+        }
         if (d.coedge.pcurve[c]! >= 0) curve(d.coedge.pcurve[c]!);
       }
-      const v = d.edge.start[d.coedge.edge[d.loop.first[l]!]!]!;
-      if (!written && d.loop.count[l]! && v >= 0) live.vertex[v]! |= VERTEX_USE;
     }
   };
   const shell = (k: number) => {
@@ -478,8 +498,7 @@ export function stepGeometry(d: BrepData, opts: StepGeometryOptions = {}): StepG
   const edgePcurves = new Map<number, [number, number][]>();
   const nFaces = rowCount(d, 'face');
   const faces: Face[] = [];
-  const curveBounded = new Uint8Array(nFaces), edgeCurve = new Uint8Array(rowCount(d, 'edge'));
-  const noVertex = (e: number) => d.edge.start[e]! < 0 && d.edge.end[e]! < 0;
+  const curveBounded = curveBoundedFaces(d), edgeCurve = new Uint8Array(rowCount(d, 'edge'));
   for (let k = 0; k < rowCount(d, 'body'); k++) {
     if (d.body.kind[k] !== BODY_KIND.wire) continue;
     for (let j = d.body.first[k]!; j < d.body.first[k]! + d.body.count[k]!; j++) edgeCurve[d.member.ref[j]!] = 1;
@@ -487,7 +506,6 @@ export function stepGeometry(d: BrepData, opts: StepGeometryOptions = {}): StepG
   for (let f = 0; f < nFaces; f++) {
     const face = faces[f] = decode.face(d, f);
     const edges = face.loops.flatMap((l) => l.kind === 'edge' ? l.coedges.map((c) => c.edge) : []);
-    curveBounded[f] = edges.length && edges.every(noVertex) ? 1 : 0;
     if (!curveBounded[f]) for (const e of edges) edgeCurve[e] = 1;
     for (const l of face.loops) {
       if (l.kind !== 'edge') continue;
@@ -502,16 +520,14 @@ export function stepGeometry(d: BrepData, opts: StepGeometryOptions = {}): StepG
 
   // -- Vertices and edges. An edge without both vertices is written only as a curve-bounded surface's boundary.
   const vertexId = new Float64Array(rowCount(d, 'vertex')).fill(NaN);
-  // Each vertex's point, what poly loops refer to.
-  const cornerId = new Float64Array(rowCount(d, 'vertex')).fill(NaN);
   const edgeId = new Float64Array(rowCount(d, 'edge')).fill(NaN);
   /** Where an edge's 3D geometry is an advanced face's (an EDGE_CURVE whose curve is Part 42's list). */
   const advancedEdge = new Uint8Array(rowCount(d, 'edge'));
   function writeEdge(k: number) {
     const e = decode.edge(d, k);
     if (e.tolerance !== undefined) note('edge tolerances (not written: STEP has none per entity)', e.id, 'info');
-    if (e.range) note('edge parameter ranges (not written: STEP has none)', e.id, 'info');
     if (!edgeCurve[k]) return;
+    if (e.range) note('edge parameter ranges (not written: STEP has none)', e.id, 'info');
     // What the source lacks (a vertex, a curve it couldn't read) is written unset, as it had it.
     if (e.start === undefined || e.end === undefined) {
       note('an edge without its start or end vertex (written unset)', e.id, 'warning');
@@ -575,16 +591,14 @@ export function stepGeometry(d: BrepData, opts: StepGeometryOptions = {}): StepG
     const kind = d.body.kind[k]!;
     if (!live.body[k] || kind === BODY_KIND.wire) continue;
     for (let j = d.body.first[k]!; j < d.body.first[k]! + d.body.count[k]!; j++) {
-      const forward = d.member.sense[j] === 1, outer = j === d.body.first[k];
-      shellNeeds[d.member.ref[j]!]! |= kind !== BODY_KIND.solid || (outer ? forward : !forward) ? FORWARD : TURNED;
+      const outer = j === d.body.first[k];
+      shellNeeds[d.member.ref[j]!]! |= kind !== BODY_KIND.solid || outer ? FORWARD : TURNED;
     }
   }
   for (let k = 0; k < rowCount(d, 'shell'); k++) {
     const needs = shellNeeds[k]! || FORWARD;
     for (let j = d.shell.first[k]!; j < d.shell.first[k]! + d.shell.count[k]!; j++) {
-      const f = d.faceUse.face[j]!, sense = d.faceUse.sense[j] === 1;
-      if (needs & FORWARD) faceNeeds[f]! |= sense ? FORWARD : TURNED;
-      if (needs & TURNED) faceNeeds[f]! |= sense ? TURNED : FORWARD;
+      faceNeeds[d.faceUse.face[j]!]! |= needs;
     }
   }
   for (let k = 0; k < rowCount(d, 'item'); k++) {
@@ -607,21 +621,15 @@ export function stepGeometry(d: BrepData, opts: StepGeometryOptions = {}): StepG
     if (!face.loops.length) note('a face without loops (written with none: STEP needs at least one)', face.id);
     const loops = face.loops.map((l) => {
       if (l.kind === 'edge') {
-        const kept = l.coedges.filter((c) => !isDegenerate(d, c.edge));
-        if (kept.length < l.coedges.length) {
-          note('degenerate edges (left out of their loops: STEP has none, a reader makes its own)', face.id, 'info');
-        }
-        const v = l.coedges.length ? decode.edge(d, l.coedges[0]!.edge).start : undefined;
-        if (!kept.length && v !== undefined) return emit(fresh(), 'VERTEX_LOOP', [NAME, ref(vertexId[v]!)]);
-        return emit(fresh(), 'EDGE_LOOP', [NAME, refs(kept.map((c) => emit(own(c.id), 'ORIENTED_EDGE',
+        return emit(fresh(), 'EDGE_LOOP', [NAME, refs(l.coedges.map((c) => emit(own(c.id), 'ORIENTED_EDGE',
           [NAME, DERIVED, DERIVED, ref(edgeId[c.edge]!), bool(orientation(c.orientation, c.id, c.range))])))]);
       }
       if (l.kind === 'vertex') return emit(fresh(), 'VERTEX_LOOP', [NAME, ref(vertexId[l.vertex]!)]);
-      return emit(fresh(), 'POLY_LOOP', [NAME, refs(l.vertices.map((v) => cornerId[v]!))]);
+      throw new RangeError(`a ${l.kind} loop in a canonical model`);
     });
     const advanced = ADVANCED_SURFACES.has(surfaces[s]!.kind) && sweptAdvanced(surfaces[s]!)
       && face.loops.every((l) => l.kind === 'vertex' || (l.kind === 'edge'
-        && l.coedges.every((c) => isDegenerate(d, c.edge) || advancedEdge[c.edge] === 1)));
+        && l.coedges.every((c) => advancedEdge[c.edge] === 1)));
     faceAdvanced[f] = advanced ? 1 : 0;
     // Forward, turned over (its sense and its bounds' negated: the same face the other way round), or both: the
     // first written keeps the source's ids, the second gets new ones.
@@ -630,7 +638,7 @@ export function stepGeometry(d: BrepData, opts: StepGeometryOptions = {}): StepG
     for (const turned of [false, true]) {
       if (!(needs & (turned ? TURNED : FORWARD))) continue;
       const bounds = face.loops.map((l, j) => emit(first ? own(l.id) : fresh(),
-        l.bound === 'outer' ? 'FACE_OUTER_BOUND' : 'FACE_BOUND', [NAME, ref(loops[j]!), bool(l.sense !== turned)]));
+        l.bound === 'outer' ? 'FACE_OUTER_BOUND' : 'FACE_BOUND', [NAME, ref(loops[j]!), bool(!turned)]));
       const id = emit(first ? faceIdOf(face.id) : fresh(), advanced ? 'ADVANCED_FACE' : 'FACE_SURFACE',
         [NAME, refs(bounds), ref(surfaceId[s]!), bool(face.sameSense !== turned)]);
       faceAs[2 * f + (turned ? 1 : 0)] = id;
@@ -654,18 +662,29 @@ export function stepGeometry(d: BrepData, opts: StepGeometryOptions = {}): StepG
     const boundaries: number[] = [];
     for (const l of face.loops) {
       if (l.kind !== 'edge') {
-        note('a curve-bounded face with a vertex or poly loop (the loop left out)', face.id);
+        note('a curve-bounded face with a vertex loop (the loop left out)', face.id);
         continue;
       }
-      if (!l.sense) note('a curve-bounded face\'s loop against its sense (written with it)', face.id);
       const segments = l.coedges.map((c) => {
         const e = decode.edge(d, c.edge);
         const g = c.pcurve === undefined ? undefined : pcurveGeometry(s, c.pcurve);
+        // An edge with vertices (a loose face's): its 3D curve trimmed to its range, from its start to its end, so
+        // the segment runs with it as its use does (the range the edge's, else its vertices' parameters); its
+        // p-curve, whose parameter is the curve's, beside it.
+        let c3 = e.curve === undefined ? -1 : curveId(e.curve);
+        if (e.curve !== undefined && e.start !== undefined && e.end !== undefined) {
+          const ev = curveEvaluator(d, e.curve);
+          const r = e.range ?? (ev ? edgeParams(d, c.edge, ev) : undefined);
+          if (r && r.every(Number.isFinite)) {
+            const at = (x: number): Value => list([{ k: 'typed', type: 'PARAMETER_VALUE', v: real(x) }]);
+            c3 = emit(fresh(), 'TRIMMED_CURVE', [NAME, ref(c3), at(r[0]), at(r[1]), bool(e.sameSense),
+              enu('PARAMETER')]);
+          } else note('a loose face\'s edge whose range can\'t be told (its segment written untrimmed)', e.id);
+        }
         let parent: number;
         if (e.curve === undefined) parent = g === undefined ? -1 : pcurve(s, g);
-        else if (g === undefined) parent = curveId(e.curve);
-        else parent = emit(fresh(), 'SURFACE_CURVE', [NAME, ref(curveId(e.curve)), refs([pcurve(s, g)]),
-          enu('CURVE_3D')]);
+        else if (g === undefined) parent = c3;
+        else parent = emit(fresh(), 'SURFACE_CURVE', [NAME, ref(c3), refs([pcurve(s, g)]), enu('CURVE_3D')]);
         if (parent < 0) {
           note('a curve-bounded face\'s boundary segment with neither a 3D curve nor a p-curve it can be written '
             + 'with (written unset)', e.id);
@@ -685,6 +704,12 @@ export function stepGeometry(d: BrepData, opts: StepGeometryOptions = {}): StepG
   // -- Shells and bodies.
   const shellId = new Float64Array(rowCount(d, 'shell')).fill(NaN);
   const shellKind: string[] = [];
+  // A solid's shells are CLOSED_SHELLs in STEP, whatever their edges say (a solid of an open shell noted).
+  const inSolid = new Uint8Array(rowCount(d, 'shell'));
+  for (let k = 0; k < rowCount(d, 'body'); k++) {
+    if (d.body.kind[k] !== BODY_KIND.solid) continue;
+    for (let j = d.body.first[k]!; j < d.body.first[k]! + d.body.count[k]!; j++) inSolid[d.member.ref[j]!] = 1;
+  }
   /** Each shell's entity as it is ([2k]) and with every face turned over ([2k + 1]), where written. */
   const shellAs = new Float64Array(2 * rowCount(d, 'shell')).fill(NaN);
   function writeShell(k: number) {
@@ -696,35 +721,26 @@ export function stepGeometry(d: BrepData, opts: StepGeometryOptions = {}): StepG
       if (!(needs & (turned ? TURNED : FORWARD))) continue;
       // Each face use as the face written its way round (no ORIENTED_FACE: OCCT's reader drops them, and AP242's
       // advanced B-rep allows only advanced faces in a solid's shells).
-      const uses = sh.faces.map((u) => faceAs[2 * u.face + (u.sense === turned ? 1 : 0)]!)
+      const uses = sh.faces.map((u) => faceAs[2 * u.face + (turned ? 1 : 0)]!)
         .filter((x) => !Number.isNaN(x));
-      const id = emit(first ? own(sh.id) : fresh(), sh.kind === 'closed' ? 'CLOSED_SHELL'
-        : sh.kind === 'open' ? 'OPEN_SHELL' : 'CONNECTED_FACE_SET', [NAME, refs(uses)]);
+      const id = emit(first ? own(sh.id) : fresh(), sh.kind === 'closed' || inSolid[k] ? 'CLOSED_SHELL'
+        : 'OPEN_SHELL', [NAME, refs(uses)]);
       shellAs[2 * k + (turned ? 1 : 0)] = id;
       if (first) shellId[k] = id;
       first = false;
     }
   }
   /**
-   * A shell's use: a sheet's as the model has it (ORIENTED_CLOSED_SHELL or ORIENTED_OPEN_SHELL where reversed; a face
-   * set can't be); a solid's outer shell never oriented (AP242's advanced B-rep forbids it), its faces turned over
-   * where it's used reversed; a void always an ORIENTED_CLOSED_SHELL with orientation false (as AP242 requires), its
-   * faces turned over where it's used forward.
+   * A shell's use: a sheet's as it is; a solid's outer shell as it is (AP242's advanced B-rep forbids an oriented
+   * one); a void an ORIENTED_CLOSED_SHELL with orientation false (as AP242 requires) of its faces turned over, so they
+   * face into the void as the model's do.
    */
-  const shellUse = (m: { ref: number; sense: boolean }, role: 'sheet' | 'outer' | 'void' = 'sheet') => {
-    if (role === 'outer') return shellAs[2 * m.ref + (m.sense ? 0 : 1)]!;
+  const shellUse = (m: { ref: number }, role: 'sheet' | 'outer' | 'void' = 'sheet') => {
+    if (role === 'outer') return shellAs[2 * m.ref]!;
     if (role === 'void') {
-      return emit(fresh(), 'ORIENTED_CLOSED_SHELL', [NAME, DERIVED, ref(shellAs[2 * m.ref + (m.sense ? 1 : 0)]!),
-        bool(false)]);
+      return emit(fresh(), 'ORIENTED_CLOSED_SHELL', [NAME, DERIVED, ref(shellAs[2 * m.ref + 1]!), bool(false)]);
     }
-    if (m.sense) return shellId[m.ref]!;
-    const kind = shellKind[m.ref];
-    if (kind === 'faceSet') {
-      note('a face set used reversed (written forward)', d.shell.id[m.ref]);
-      return shellId[m.ref]!;
-    }
-    return emit(fresh(), kind === 'closed' ? 'ORIENTED_CLOSED_SHELL' : 'ORIENTED_OPEN_SHELL',
-      [NAME, DERIVED, ref(shellId[m.ref]!), bool(m.sense)]);
+    return shellId[m.ref]!;
   };
   /** Each body's written entities (a sheet of shells and face sets is two). */
   const bodyIds: number[][] = [];
@@ -733,24 +749,17 @@ export function stepGeometry(d: BrepData, opts: StepGeometryOptions = {}): StepG
     const b = decode.body(d, k), id = own(b.id);
     if (b.kind === 'solid') {
       const [outer, ...voids] = b.members;
-      if (shellKind[outer!.ref] !== 'closed') note('a solid whose outer shell isn\'t closed', b.id);
+      if (b.members.some((m) => shellKind[m.ref] !== 'closed')) {
+        note('a solid with a shell its edges don\'t close (written as a closed shell)', b.id);
+      }
       bodyIds[k] = [voids.length
         ? emit(id, 'BREP_WITH_VOIDS', [NAME, ref(shellUse(outer!, 'outer')),
           refs(voids.map((v) => shellUse(v, 'void')))])
         : emit(id, 'MANIFOLD_SOLID_BREP', [NAME, ref(shellUse(outer!, 'outer'))])];
     } else if (b.kind === 'sheet') {
-      const shells = b.members.filter((m) => shellKind[m.ref] !== 'faceSet');
-      const sets = b.members.filter((m) => shellKind[m.ref] === 'faceSet');
-      const ids: number[] = [];
-      if (shells.length) ids.push(emit(id, 'SHELL_BASED_SURFACE_MODEL', [NAME, refs(shells.map((m) => shellUse(m)))]));
-      if (sets.length) {
-        ids.push(emit(ids.length ? fresh() : id, 'FACE_BASED_SURFACE_MODEL', [NAME,
-          refs(sets.map((m) => shellUse(m)))]));
-      }
-      bodyIds[k] = ids;
+      bodyIds[k] = [emit(id, 'SHELL_BASED_SURFACE_MODEL', [NAME, refs(b.members.map((m) => shellUse(m)))])];
     } else {
-      const es = b.members.filter((m) => !Number.isNaN(edgeId[m.ref]!)).map((m) => m.sense ? edgeId[m.ref]!
-        : emit(fresh(), 'ORIENTED_EDGE', [NAME, DERIVED, DERIVED, ref(edgeId[m.ref]!), bool(false)]));
+      const es = b.members.filter((m) => !Number.isNaN(edgeId[m.ref]!)).map((m) => edgeId[m.ref]!);
       bodyIds[k] = [emit(id, 'EDGE_BASED_WIREFRAME_MODEL', [NAME, refs([emit(fresh(), 'CONNECTED_EDGE_SET',
         [NAME, refs(es)])])])];
     }
@@ -784,8 +793,6 @@ export function stepGeometry(d: BrepData, opts: StepGeometryOptions = {}): StepG
     };
     for (let k = 0; k < rowCount(d, 'item'); k++) {
       const it = decode.item(d, k);
-      if (it.kind === 'instance') { note('an instance item (left out: not written yet)', it.id, 'error'); continue; }
-      if (it.transform) { note('an item with a transform (left out: not written yet)', it.id, 'error'); continue; }
       if (it.kind === 'body') {
         flush();
         items.push(...bodyIds[it.ref]!);
@@ -833,13 +840,7 @@ export function stepGeometry(d: BrepData, opts: StepGeometryOptions = {}): StepG
       if (!live.vertex[k]) continue;
       const v = decode.vertex(d, k);
       if (v.tolerance !== undefined) note('vertex tolerances (not written: STEP has none per entity)', v.id, 'info');
-      // A vertex of edges or vertex loops a VERTEX_POINT, a poly loop's corner the point alone (a POLY_LOOP's corners
-      // are CARTESIAN_POINTs), one of both the VERTEX_POINT's point (its own id the VERTEX_POINT's).
-      if (live.vertex[k]! & VERTEX_USE) {
-        const p = point(v.point);
-        vertexId[k] = emit(own(v.id), 'VERTEX_POINT', [NAME, ref(p)]);
-        cornerId[k] = p;
-      } else cornerId[k] = emit(own(v.id), 'CARTESIAN_POINT', [NAME, reals(at(v.point, ONE))]);
+      vertexId[k] = emit(own(v.id), 'VERTEX_POINT', [NAME, ref(point(v.point))]);
       yield* flush();
     }
     for (let k = 0; k < rowCount(d, 'edge'); k++) {

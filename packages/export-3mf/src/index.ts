@@ -22,7 +22,7 @@
 // The model part is written and compressed in pieces, so its size isn't bound by the longest string V8 allows.
 
 import { Zip, ZipDeflate, strToU8 } from 'fflate';
-import { drain, identity, manifoldProblems, multiply, paced, partExtras, placedName, placementJson,
+import { assertRigid, drain, identity, manifoldProblems, multiply, paced, partExtras, placedName, placementJson,
   sceneJson, standardMetadata, weld, type Diagnostic, type ExportNode, type ExportPart, type ExportView, type Look,
   type Mat4, type Mesh, type PropertyValue, type Scene, type SourceId, type Vec3 } from 'cad-scene';
 
@@ -76,8 +76,9 @@ const MTIME = new Date(1980, 0, 1);
 /** Text is encoded and compressed in pieces of about this many characters. */
 const PIECE = 1 << 20;
 
-/** The scene's export view as a 3MF package. */
+/** The scene's export view as a 3MF package. Throws unless the scene's placements are rigid. */
 export function threemf(scene: Scene, view: ExportView, opts: ThreeMfOptions = {}): ThreeMfResult {
+  assertRigid(scene);
   return drain(new Writer(scene, view, opts).write());
 }
 
@@ -85,8 +86,9 @@ export function threemf(scene: Scene, view: ExportView, opts: ThreeMfOptions = {
  * The same, pausing (`pause`, awaited) now and then between objects, so the thread can do other things meanwhile (the
  * viewer's import worker sends its heartbeat then); the same bytes.
  */
-export function threemfAsync(scene: Scene, view: ExportView, pause: () => Promise<void>,
+export async function threemfAsync(scene: Scene, view: ExportView, pause: () => Promise<void>,
   opts: ThreeMfOptions = {}): Promise<ThreeMfResult> {
+  assertRigid(scene);
   return paced(new Writer(scene, view, opts).write(), pause);
 }
 

@@ -1,7 +1,7 @@
 // Test fixtures: a scene (an assembly with two placements of a subassembly holding a plate and a wireframe, a
 // third placement hidden) and the parts' meshes.
 
-import { identity, scaling, type Mat4, type Mesh, type Scene } from 'cad-scene';
+import { identity, type Mat4, type Mesh, type Scene } from 'cad-scene';
 import { BrepBuilder } from 'cad-brep';
 
 export const translation = (x: number, y: number, z: number): Mat4 => {
@@ -10,14 +10,15 @@ export const translation = (x: number, y: number, z: number): Mat4 => {
   return m;
 };
 
-// The plate: two triangles (faces 7 and 8) on a unit square, with normals; one shared edge and one seam.
+// The plate: two triangles (faces 7 and 8) on a square an inch on a side, with normals; one shared edge and one seam.
+const IN = 25.4;
 export const plate = (): Mesh => ({
-  origin: [1, 0, 0],
-  positions: Float32Array.of(0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0.1),
+  origin: [IN, 0, 0],
+  positions: Float32Array.of(0, 0, 0, IN, 0, 0, IN, IN, 0, 0, IN, 0.1 * IN),
   normals: Float32Array.of(0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1),
   indices: Uint32Array.of(0, 1, 2, 0, 2, 3),
   faces: [{ source: 8, start: 0, count: 3 }, { source: 7, start: 3, count: 3 }],
-  edgePositions: Float32Array.of(0, 0, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 2, 2, 2),
+  edgePositions: Float32Array.of(0, 0, 0, IN, IN, 0, IN, 0, 0, IN, IN, 0, 2 * IN, 2 * IN, 2 * IN),
   edges: [{ source: 4, start: 0, count: 2, kind: 'shared', dihedral: 0.5 },
     { source: null, start: 2, count: 3, kind: 'seam' }],
 });
@@ -28,7 +29,7 @@ export const wire = (): Mesh => ({
   points: Float32Array.of(5, 5, 5), pointSources: [11],
 });
 
-// An assembly with two instances of a subassembly holding the plate (scaled to inches by its placement; green, face 7
+// An assembly with two instances of a subassembly holding the plate (green, face 7
 // blue; 50% opaque red for its second instance by override) and the wireframe; a third, hidden instance. Materials:
 // 0 red half opaque, 1 green, 2 blue.
 export function scene(): Scene {
@@ -44,7 +45,7 @@ export function scene(): Scene {
         children: [occ(1, translation(100, 0, 0), 'left'), occ(1, translation(200, 0, 0)),
           occ(1, translation(300, 0, 0), 'hidden')] },
       { name: 'sub', sources: [], properties: {},
-        parts: [{ part: 0, transform: scaling(25.4) }, { part: 1, transform: identity() }], children: [] },
+        parts: [{ part: 0, transform: identity() }, { part: 1, transform: identity() }], children: [] },
     ],
     roots: [occ(0, translation(0, 0, 5))],
     parts: [{ ...brep('plate'), material: 1, faceMaterials: [{ face: 7, material: 2 }] }, brep('wire')],

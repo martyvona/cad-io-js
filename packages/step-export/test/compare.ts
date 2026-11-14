@@ -7,14 +7,13 @@ import { type BrepData, decode, rowCount } from 'cad-brep';
 /**
  * A model as a walk from its items: each row written out where first reached, later uses as its kind and order of
  * reaching; so two models equal up to row order walk the same. Rows no item reaches aren't in it. Left out: what STEP
- * can't hold (tolerances, parameter ranges, degenerate edges, instances), and items' ids but points' (STEP's item is
- * the body, curve, surface or face itself). Degenerate edges are left out of their loops, as the writer leaves them,
- * a loop of nothing else a vertex loop at the edge's vertex.
+ * can't hold (tolerances, parameter ranges, the kinds a source declared for shells and bodies), and items' ids but
+ * points' (STEP's item is the body, curve, surface or face itself).
  */
 export function walk(d: BrepData): unknown[] {
   const seen = new Map<string, number>();
   const strip = (o: Record<string, unknown>) => {
-    const { tolerance: _t, range: _r, degenerate: _g, ...rest } = o;
+    const { tolerance: _t, range: _r, declared: _d, ...rest } = o;
     return rest;
   };
   const visit = (kind: string, k: number, expand: () => unknown): unknown => {
@@ -48,28 +47,22 @@ export function walk(d: BrepData): unknown[] {
   });
   const face = (k: number) => visit('face', k, () => {
     const f = decode.face(d, k);
-    const degenerate = (e: number) => decode.edge(d, e).degenerate === true;
     return strip({ ...f, surface: surface(f.surface), loops: f.loops.map((l) => {
       if (l.kind === 'edge') {
-        const kept = l.coedges.filter((c) => !degenerate(c.edge));
-        const start = l.coedges.length ? decode.edge(d, l.coedges[0]!.edge).start : undefined;
-        if (!kept.length && start !== undefined) {
-          const { coedges: _c, ...rest } = l;
-          return { ...rest, kind: 'vertex', vertex: vertex(start) };
-        }
-        return { ...l, coedges: kept.map((c) => strip({ ...c, edge: edge(c.edge),
+        return { ...l, coedges: l.coedges.map((c) => strip({ ...c, edge: edge(c.edge),
           pcurve: c.pcurve === undefined ? undefined : curve(c.pcurve) })) };
       }
-      return l.kind === 'vertex' ? { ...l, vertex: vertex(l.vertex) } : { ...l, vertices: l.vertices.map(vertex) };
+      return l.kind === 'vertex' ? { ...l, vertex: vertex(l.vertex) } : l;
     }) });
   });
   const shell = (k: number) => visit('shell', k, () => {
     const s = decode.shell(d, k);
-    return { ...s, faces: s.faces.map((u) => ({ ...u, face: face(u.face) })) };
+    return strip({ ...s, faces: s.faces.map((u) => ({ ...u, face: face(u.face) })) });
   });
   const body = (k: number) => visit('body', k, () => {
     const b = decode.body(d, k);
-    return { ...b, members: b.members.map((m) => ({ ...m, ref: b.kind === 'wire' ? edge(m.ref) : shell(m.ref) })) };
+    return strip({ ...b, members: b.members.map((m) => ({ ...m, ref: b.kind === 'wire' ? edge(m.ref)
+      : shell(m.ref) })) });
   });
   const out: unknown[] = [decode.part(d)];
   for (let k = 0; k < rowCount(d, 'item'); k++) {

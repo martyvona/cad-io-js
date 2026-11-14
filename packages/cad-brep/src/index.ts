@@ -2,7 +2,9 @@
 export * from './layout.ts';
 export { type BrepData, type BrepTables, BrepFormatError, COLUMNS, type ColumnSpec, openBrep, rowCount } from
   './data.ts';
-export { BrepBuilder } from './builder.ts';
+export { BrepBuilder, type BuilderOptions } from './builder.ts';
+export { transformBrep } from './bake.ts';
+export { SIMILARITY_TOLERANCE } from './transform.ts';
 export * as decode from './decode.ts';
 export { type BrepJson, brepFromJson, brepToJson } from './json.ts';
 export { type BrepDiagnostic, MAX_DIAGNOSTICS, UNIT_TOLERANCE, validateBrep } from './validate.ts';

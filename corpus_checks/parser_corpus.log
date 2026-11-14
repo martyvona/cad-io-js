@@ -1,4 +1,4 @@
-4925008 instances, 421 MB; scan 3.9 s, decode 7.7 s (decode time includes the schema check); 3 decode errors
+4925008 instances, 421 MB; scan 2.0 s, decode 3.9 s (decode time includes the schema check); 3 decode errors
 ┌─────────┬───────┬─────────┬─────────┬──────┐
 │ (index) │ files │ inst    │ ok      │ bad  │
 ├─────────┼───────┼─────────┼─────────┼──────┤

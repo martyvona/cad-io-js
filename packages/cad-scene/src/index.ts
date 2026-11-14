@@ -14,6 +14,7 @@ export { edgeUsers, openEdges, openEdgesCount, openEdgesDiagnostic, openEdgesMes
 export { composeResults } from './compose.ts';
 export { failedMessage, FILL_WIDTH, filledMessage, fillFaces, fillResult, type Filled } from './fill.ts';
 export { JOIN_CORNER, JOIN_SNAP, joinedMessage, joinEdges, joinResult, type Joined } from './join.ts';
+export { orientResult, type Turned, turnedMessage, wrongShells } from './orient.ts';
 export { tessellateScene, toMesh, type TessellateOptions, type TessellateResult } from './tessellate.ts';
 export { DEFAULT_MESH_PROFILE, MESH_PROFILE_NAMES, MESH_PROFILES, meshDeflections, meshProfileOf, type Deflections,
   type MeshProfile } from './profiles.ts';
@@ -28,7 +29,10 @@ export { viewDifferences, type CompareOptions } from './compare.ts';
 export { boundsFrom, boundsJson, sceneJson, levelFrom, levelJson, measuresFrom, measuresJson, partExtras, placementFrom,
   placementJson, unitFrom } from './measures.ts';
 export { countTransform, describeTransforms, noTransformCounts, TRANSFORM_KINDS, TRANSFORM_TOLERANCE, transformKinds,
-  transformUse, type TransformCounts, type TransformKind, type TransformUse } from './transforms.ts';
+  transformUse, describeStretched, stretchWords, type TransformCounts, type TransformKind, type TransformUse } from
+  './transforms.ts';
+export { rigidPart, rigidPlacements, stretchMesh } from './rigid.ts';
+export { assertRigid, isRigid, SceneBuilder } from './scene-builder.ts';
 export { AUTHOR_PLACEHOLDERS, authorOf, standardMetadata, type StandardMetadata } from './file-metadata.ts';
 export { around, boundScene, boxesSphere, boxMeshes, grow, meshBox, sceneBounds } from './bounds.ts';
 export { drain, paced } from './steps.ts';

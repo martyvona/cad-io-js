@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { BrepBuilder, brepFromJson, brepToJson, openBrep } from 'cad-brep';
+import { BrepBuilder, brepFromJson, brepToJson, ITEM_KIND, LOOP_KIND, openBrep, rowCount } from 'cad-brep';
 import type { Curve } from 'cad-brep';
 import type { TessellationRequest, TessellationResult } from 'cad-scene';
 import { StepTessellator } from 'step-export';
@@ -54,7 +54,7 @@ function faces(r: TessellationResult) {
 /** The two routes' results the same face by face: ids, triangles, meshed area, OCCT's measures (to `tol` of a face's
  * area). */
 function same(a: TessellationResult, b: TessellationResult, what: string, tol = 1e-9, data?: Uint8Array,
-  copiedEdges = 0) {
+  copiedEdges = 0, edgeKinds = true) {
   const json = data && brepToJson(openBrep(data));
   const fa = faces(a), fb = faces(b);
   assert.deepEqual([...fb.keys()].map(String).sort(), [...fa.keys()].map(String).sort(), `${what}: face ids`);
@@ -65,15 +65,30 @@ function same(a: TessellationResult, b: TessellationResult, what: string, tol = 
     assert.ok(Math.hypot(...y.normal.map((c, k) => c - x.normal[k]!)) <= tol * Math.max(x.area, 1),
       `${what}: face #${id}'s side: ${y.normal} vs ${x.normal}`);
   }
-  // The edges by id, with their kinds and points; edges without vertices (a curve-bounded face's segments) without
-  // ids on both (OCCT's reader takes ids from EDGE_CURVEs only, the native route keeps the segments').
+  // The edges by id, with their kinds and points; a curve-bounded face's segments (edges without vertices, and a
+  // loose face's edges, which the writer writes as its boundaries' segments) without ids on both (OCCT's reader takes
+  // ids from EDGE_CURVEs only, the native route keeps the segments').
   const segments = new Set(json?.edges.filter((e) => e.start === undefined).map((e) => e.id));
+  if (data) {
+    const d = openBrep(data), inShell = new Set(Array.from(d.faceUse.face));
+    for (let k = 0; k < rowCount(d, 'item'); k++) {
+      const f = d.item.ref[k]!;
+      if (d.item.kind[k] !== ITEM_KIND.face || inShell.has(f)) continue;
+      for (let l = d.face.firstLoop[f]!; l < d.face.firstLoop[f]! + d.face.loopCount[f]!; l++) {
+        if (d.loop.kind[l] !== LOOP_KIND.edge) continue;
+        for (let c = d.loop.first[l]!; c < d.loop.first[l]! + d.loop.count[l]!; c++) {
+          segments.add(d.edge.id[d.coedge.edge[c]!]!);
+        }
+      }
+    }
+  }
   // (`copiedEdges`: edges the STEP route's healing copies, without ids, where sheets share a face.)
   const edges = (r: TessellationResult) => (r.edges ?? []).map((e) =>
-    `${e.entityId !== null && !segments.has(e.entityId) ? e.entityId : null} ${e.kind} ${e.count}`).sort();
+    `${e.entityId !== null && !segments.has(e.entityId) ? e.entityId : null} ${edgeKinds ? e.kind : '?'} ${e.count}`)
+    .sort();
   const ea = edges(a), eb = edges(b);
   for (let k = 0; k < copiedEdges; k++) {
-    const j = ea.findIndex((e) => e.startsWith('null free'));
+    const j = ea.findIndex((e) => e.startsWith(edgeKinds ? 'null free' : 'null ?'));
     assert.ok(j >= 0, `${what}: an edge copied`);
     ea.splice(j, 1);
   }
@@ -105,8 +120,9 @@ test('the native route: the test models it builds meshed as the STEP route meshe
       const a = await step.tessellate(req), b = await native.tessellate(req);
       assert.ok(b.indices.length > 0, name);
       assert.deepEqual(b.diagnostics.filter((d) => d.severity !== 'info'), [], name);
-      // (withoutIds: each square's second sheet, its 4 edges copied by the STEP route's healing.)
-      same(a, b, name, 1e-9, req.data, name === 'withoutIds' ? 8 : 0);
+      // (withoutIds: each square's face and its copy, used reversed by a second sheet, share their 4 edges natively
+      // (shared), the STEP route's healing copying them per shell (each free): their kinds not compared.)
+      same(a, b, name, 1e-9, req.data, name === 'withoutIds' ? 8 : 0, name !== 'withoutIds');
     }
   });
 
@@ -724,8 +740,9 @@ test('the native route, swept and derived surfaces: faces on an extrusion, a rev
   }
 });
 
-test('the native route, items placed: a transform (a rotation, a mirror, a scale, a translation) moves an item; an '
-  + 'instance places another item again, its faces keeping their ids', { skip }, async () => {
+test('the native route, items placed (baked by the builder): a transform (a rotation, a mirror, a scale, a '
+  + 'translation) moves an item; an instance places another item again, both copies under fresh ids', { skip },
+async () => {
   const { native } = await both();
   // The unit cube (0..1 each way) as item 1, after a box elsewhere (item 0); item 2 places the cube, x -> 2y,
   // y -> -2x, z -> -2z (a turn and a mirror, the matrix not symmetric), moved by (10, 0, 0); without the instance,
@@ -740,13 +757,19 @@ test('the native route, items placed: a transform (a rotation, a mirror, a scale
     const json = brepToJson(b.finish());
     json.items = instance ? [json.items[0]!, json.items[1]!, { kind: 'instance', ref: 1, transform: columns }]
       : [json.items[0]!, { ...json.items[1]!, transform: columns }];
-    const r = await native.tessellate(request(new Uint8Array(brepFromJson(json).buffer)));
+    const d = brepFromJson(json);
+    const r = await native.tessellate(request(new Uint8Array(d.buffer)));
     const what = instance ? 'an instance' : 'a transform';
     assert.deepEqual(r.diagnostics.filter((x) => x.severity !== 'info').map((x) => x.message), [], what);
-    // The box's faces (1021..1026), and the cube's (21..26), twice with the instance.
-    const cube = [21, 22, 23, 24, 25, 26];
-    assert.deepEqual(r.faces.map((f) => f.entityId!).sort((x, y) => x - y), [...cube, ...(instance ? cube : []),
-      ...cube.map((x) => x + 1000)].sort((x, y) => x - y), what);
+    // The box's faces (1021..1026), and the cube's (21..26); with the instance the cube's two copies under fresh ids,
+    // each a copy of one of 21..26.
+    const cube = [21, 22, 23, 24, 25, 26], ids = r.faces.map((f) => f.entityId!);
+    const source = new Map(Array.from({ length: rowCount(d, 'copy') }, (_, k) => [d.copy.id[k]!, d.copy.source[k]!]));
+    assert.deepEqual(ids.filter((x) => x > 1000 && x <= 1026).sort((x, y) => x - y), cube.map((x) => x + 1000), what);
+    const rest = ids.filter((x) => !(x > 1000 && x <= 1026));
+    assert.equal(new Set(rest).size, instance ? 12 : 6, what);
+    assert.deepEqual(rest.map((x) => source.get(x) ?? x).sort((x, y) => x - y), [...cube, ...(instance ? cube : [])]
+      .sort((x, y) => x - y), what);
     // The placed copy's corners where the transform puts the cube's (the box 10..12 x 0..2 x 0..2), the other copy's
     // the cube's own.
     const pts = new Set<string>();

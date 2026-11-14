@@ -170,6 +170,13 @@ export interface Part {
    * the B-rep, or read from one of our exports; kept when the B-rep isn't.
    */
   measures?: Measures;
+  /**
+   * A placement's stretch baked into the part (rigid.ts): the stretch (column-major, no translation),
+   * applied about the part's coordinates' origin: a mirror, a scale or a shear; `of` the part it's a copy of, where
+   * that part is placed too (otherwise the part itself was stretched). Absent where the only stretch was an even scale
+   * (a conversion: a file's unit, say).
+   */
+  stretched?: { stretch: Mat4; of?: number };
 }
 
 /** A part's measures on its exact geometry (docs/scene-formats.md). */

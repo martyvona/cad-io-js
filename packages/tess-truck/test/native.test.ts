@@ -46,13 +46,12 @@ function faces(r: TessellationResult) {
 
 /**
  * The mesh against the model's geometry: each face's points on its surface (within 1e-5 of the part's size; the
- * points are single precision), each normal within 8 degrees of the surface's there, turned by the face's sense, its
- * use's and its shell member's; each edge's points on its curve within the edge's parameters, from its start vertex
- * to its end. How many points it
+ * points are single precision), each normal within 8 degrees of the surface's there, turned by the face's sense;
+ * each edge's points on its curve within the edge's parameters, from its start vertex to its end. How many points it
  * checked (a surface without a closed form or finite ranges, an extrusion, isn't checked by points).
  */
 function onModel(name: string, d: BrepData, r: TessellationResult): number {
-  // Each face's ways of facing, over its uses (a face used both ways, in two shells, meshes both ways under one id).
+  // Each face's way of facing (every use forward: the face's own).
   const signs = new Map<number, Set<number>>();
   for (let m = 0; m < rowCount(d, 'member'); m++) {
     const s = d.member.ref[m]!, first = d.shell.first[s]!;
@@ -60,7 +59,7 @@ function onModel(name: string, d: BrepData, r: TessellationResult): number {
     for (let u = first; u < first + d.shell.count[s]!; u++) {
       const f = d.faceUse.face[u]!;
       if (!signs.has(f)) signs.set(f, new Set());
-      signs.get(f)!.add((d.face.sameSense[f] ? 1 : -1) * (d.faceUse.sense[u] ? 1 : -1) * (d.member.sense[m] ? 1 : -1));
+      signs.get(f)!.add(d.face.sameSense[f] ? 1 : -1);
     }
   }
   const byId = (ids: Uint32Array, id: number | null) => (id === null ? -1 : ids.indexOf(id));
@@ -297,8 +296,8 @@ test('kinds the test models lack, on their geometry and of the right areas: an e
   }
 });
 
-test('a face bounded by its surface alone meshed over its natural bounds; a vertex loop\'s face, poly loops and a '
-  + 'wire left out, said', { skip }, async () => {
+test('a face bounded by its surface alone meshed over its natural bounds; a vertex loop\'s face and a wire left out, '
+  + 'said; poly loops meshed (edge loops in the model)', { skip }, async () => {
   const { native } = await both();
   const s = await native.tessellate(request(MODELS.spheres(), 0.002));
   // The whole sphere (no loops: no id), radius 1: its area 4 pi, less what the sag of 0.002 takes off (under 1 %).
@@ -307,22 +306,28 @@ test('a face bounded by its surface alone meshed over its natural bounds; a vert
   assert.match(s.diagnostics.map((d) => d.message).join('\n'), /1 faces truck can't convert \(left out\): \(no id\)/);
   const f = await native.tessellate(request(MODELS.facetedAndWire()));
   const said = f.diagnostics.map((d) => d.message).join('\n');
-  assert.match(said, /4 faces truck can't convert \(left out\): \(no id\), \(no id\), \(no id\), \(no id\)/);
+  assert.doesNotMatch(said, /can't convert/);
   assert.match(said, /representation items truck doesn't mesh: a wire body #0/);
+  // The tetrahedron's faces (three right triangles and one of side sqrt 2), without ids. (The square, against its
+  // plane with its loop counter-clockwise about the plane's normal, so clockwise about its own: a hole in an unbounded
+  // face, nothing meshed.)
+  const all = faces(f).get(null)!;
+  assert.ok(Math.abs(all[1] - (1.5 + Math.sqrt(3) / 2)) < 1e-6, String(all));
 });
 
 test('kinds truck has no geometry for leave their faces out, said; items not bodies skipped',
   { skip }, async () => {
     const { native } = await both();
-    // A square whose first edge's curve is trimmed (truck has no trimmed curve), beside a box.
+    // A square whose first edge's curve is an offset (truck has no offset curve; a trimmed one the builder unwraps),
+    // beside a box.
     const b = new BrepBuilder();
     const c = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]];
     const vs = c.map((point) => b.addVertex({ point }));
     const line = (p: number[], q: number[]) => b.addCurve({ kind: 'line', point: p, direction: [q[0]! - p[0]!,
       q[1]! - p[1]!, 0].map((x) => x / Math.hypot(q[0]! - p[0]!, q[1]! - p[1]!)), magnitude: 1 });
-    const trimmed = b.addCurve({ kind: 'trimmed', basis: line(c[0]!, c[1]!), trim1: { parameter: 0 },
-      trim2: { parameter: 1 }, sense: true, preference: 'parameter' });
-    const es = c.map((p, j) => b.addEdge({ curve: j === 0 ? trimmed : line(p, c[(j + 1) % 4]!), start: vs[j]!,
+    const offset = b.addCurve({ kind: 'offset', basis: line(c[0]!, c[1]!), distance: 0, selfIntersect: false,
+      refDirection: [0, 0, 1] });
+    const es = c.map((p, j) => b.addEdge({ curve: j === 0 ? offset : line(p, c[(j + 1) % 4]!), start: vs[j]!,
       end: vs[(j + 1) % 4]!, sameSense: true, id: 70 + j }));
     const face = b.addFace({ surface: b.addSurface({ kind: 'plane', position: XY }), sameSense: true, id: 80,
       loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: es.map((edge) => ({ edge,
@@ -332,13 +337,13 @@ test('kinds truck has no geometry for leave their faces out, said; items not bod
     const solid = b.addBody({ kind: 'solid', members: [{ ref: box(b, [1, 1, 1], [5, 0, 0], 100), sense: true }] });
     b.addItem({ kind: 'body', ref: solid });
     b.addItem({ kind: 'curve', ref: line([0, 0, 0], [0, 0, 1]), id: 90 });
-    b.addItem({ kind: 'body', ref: solid, transform: [1, 0, 0, 0, 1, 0, 0, 0, 1, 9, 0, 0], id: 91 });
+    b.addItem({ kind: 'point', point: [9, 0, 0], id: 91 });
     const r = await native.tessellate(request(b));
     assert.deepEqual([...faces(r).keys()].sort(), [121, 122, 123, 124, 125, 126]);
     const said = r.diagnostics.map((d) => d.message);
     assert.ok(said.includes('1 faces truck can\'t convert (left out): #80'), said.join('\n'));
     assert.ok(said.includes('1 edges truck can\'t convert: #70'), said.join('\n'));
-    assert.ok(said.includes('representation items truck doesn\'t mesh: a curve #90, a body with a transform #91'),
+    assert.ok(said.includes('representation items truck doesn\'t mesh: a curve #90, a point #91'),
       said.join('\n'));
   });
 
@@ -361,7 +366,7 @@ test('a buffer that isn\'t a model is refused with an error', { skip }, async ()
   const { native } = await both();
   const r = await native.tessellate({ ...request(MODELS.cube()), data: new Uint8Array(64) });
   assert.deepEqual([r.indices.length, r.diagnostics.map((d) => [d.severity, d.message])],
-    [0, [['error', 'truck: not a cad-brep buffer of this format (CBR4)']]]);
+    [0, [['error', 'truck: not a cad-brep buffer of this format (CBR6)']]]);
 });
 
 test('parabola and hyperbola edges on their curves (truck-stepio converts both wrongly), their '

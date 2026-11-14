@@ -5,8 +5,8 @@
 //! Workarounds for truck (see docs/backends.md; truck itself is used unchanged):
 //! - Shells are built here (model.rs) rather than by truck-stepio's `to_compressed_shell`, so each face and edge
 //!   keeps its source id, and a face whose surface or edges don't convert is left out and reported.
-//! - A B-spline curve or surface with an unclamped knot vector is clamped: its valid range is the inner one, between
-//!   its p-th knots from either end, but truck evaluates it over the whole knot vector, which yields NaN at the ends.
+//! - B-splines come clamped (the model's: docs/brep-reference.md, "The canonical model"); truck evaluates one over its
+//!   whole knot vector, which for an unclamped one yields NaN at the ends.
 //! - An edge whose curve evaluates to non-finite points is left out, with its faces: truck would subdivide it until
 //!   memory runs out.
 //! - A solid's shell that faces the wrong way is reversed, as OCCT's shape healing (ShapeFix_Solid) does: an outer
@@ -17,7 +17,6 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
-use truck_geometry::prelude::{BSplineCurve, BSplineSurface, KnotVec, NurbsCurve, NurbsSurface};
 use truck_meshalgo::prelude::*;
 use truck_stepio::r#in::step_geometry::{Curve3D, Surface};
 use truck_topology::compress::{CompressedEdge, CompressedEdgeIndex, CompressedShell};
@@ -61,9 +60,6 @@ struct Diag {
     unchecked_shells: Vec<u64>,
     /// Solid shells whose mesh's volume is too small or too uncertain to tell their orientation (see `volume_sign`).
     unclear_shells: Vec<u64>,
-    /// Edges and faces whose B-spline curves or surfaces were clamped (see `clamp_curve`).
-    clamped_edges: usize,
-    clamped_faces: usize,
     /// Faces whose meshes ran against all their loops, reversed (see `loop_sense`).
     flipped_faces: Vec<u64>,
 }
@@ -91,111 +87,6 @@ fn finite_curve(c: &Curve3D) -> bool {
         let p = c.subs(t0 + (t1 - t0) * i as f64 / 32.0);
         p.x.is_finite() && p.y.is_finite() && p.z.is_finite()
     })
-}
-
-/// The clamped form of an unclamped knot vector of degree `p`, given that its valid range's ends `lo` and `hi` (its
-/// p-th knots from either end) have multiplicity at least p, which knot insertion gives without changing the curve:
-/// the knots from just before the last p copies of `lo` to just after the first p copies of `hi`, the outer two set
-/// to `lo` and `hi`, and the range of control points they keep. The control points outside that range only shape
-/// the curve outside its valid range, and the basis functions over the valid range don't depend on the outer two
-/// knots' values.
-fn clamped_knots(k: &KnotVec, p: usize, lo: f64, hi: f64) -> Option<(KnotVec, std::ops::Range<usize>)> {
-    let s = (k.iter().rposition(|&t| t == lo)? + 1).checked_sub(p)?.checked_sub(1)?;
-    let f = k.iter().position(|&t| t == hi)?;
-    let mut knots = k.as_slice().get(s..=f + p)?.to_vec();
-    knots[0] = lo;
-    *knots.last_mut()? = hi;
-    Some((KnotVec::from(knots), s..f))
-}
-
-/// The valid range of a knot vector of degree `p`, if it's unclamped and the range isn't empty.
-fn unclamped_range(k: &KnotVec, p: usize) -> Option<(f64, f64)> {
-    if p == 0 || k.is_clamped(p) || k.len() < 2 * p + 2 {
-        return None;
-    }
-    let (lo, hi) = (k[p], k[k.len() - 1 - p]);
-    (lo < hi).then_some((lo, hi))
-}
-
-fn count(k: &KnotVec, x: f64) -> usize {
-    k.iter().filter(|&&t| t == x).count()
-}
-
-/// A B-spline curve clamped (see `clamped_knots`), or None if it's clamped already.
-fn clamp_bspline<P: truck_geometry::base::control_point::ControlPoint<f64> + Tolerance>(
-    c: &BSplineCurve<P>,
-) -> Option<BSplineCurve<P>> {
-    let p = c.degree();
-    let (lo, hi) = unclamped_range(c.knot_vec(), p)?;
-    let mut c = c.clone();
-    while count(c.knot_vec(), lo) < p {
-        c.add_knot(lo);
-    }
-    while count(c.knot_vec(), hi) < p {
-        c.add_knot(hi);
-    }
-    let (knots, keep) = clamped_knots(c.knot_vec(), p, lo, hi)?;
-    BSplineCurve::try_new(knots, c.control_points()[keep].to_vec()).ok()
-}
-
-/// A B-spline surface clamped in u and v, or None if it's clamped already.
-fn clamp_bspline_surface<P: truck_geometry::base::control_point::ControlPoint<f64> + Tolerance>(
-    s: &BSplineSurface<P>,
-) -> Option<BSplineSurface<P>> {
-    let (pu, pv) = (s.udegree(), s.vdegree());
-    let (ur, vr) = (unclamped_range(s.uknot_vec(), pu), unclamped_range(s.vknot_vec(), pv));
-    if ur.is_none() && vr.is_none() {
-        return None;
-    }
-    let mut s = s.clone();
-    let mut uknots = s.uknot_vec().clone();
-    let mut vknots = s.vknot_vec().clone();
-    let mut keep_u = 0..s.control_points().len();
-    let mut keep_v = 0..s.control_points()[0].len();
-    if let Some((lo, hi)) = ur {
-        while count(s.uknot_vec(), lo) < pu {
-            s.add_uknot(lo);
-        }
-        while count(s.uknot_vec(), hi) < pu {
-            s.add_uknot(hi);
-        }
-        (uknots, keep_u) = clamped_knots(s.uknot_vec(), pu, lo, hi)?;
-    }
-    if let Some((lo, hi)) = vr {
-        while count(s.vknot_vec(), lo) < pv {
-            s.add_vknot(lo);
-        }
-        while count(s.vknot_vec(), hi) < pv {
-            s.add_vknot(hi);
-        }
-        (vknots, keep_v) = clamped_knots(s.vknot_vec(), pv, lo, hi)?;
-    }
-    let pts = s.control_points()[keep_u].iter().map(|row| row[keep_v.clone()].to_vec()).collect();
-    BSplineSurface::try_new((uknots, vknots), pts).ok()
-}
-
-/// Clamp a curve that's an unclamped B-spline; returns whether it was one. truck evaluates a B-spline over its whole
-/// knot vector, but an unclamped one is only valid between its p-th knots from either end (ISO 10303-42), and yields
-/// NaN or garbage outside.
-fn clamp_curve(c: &mut Curve3D) -> bool {
-    let clamped = match c {
-        Curve3D::BSplineCurve(b) => clamp_bspline(b).map(Curve3D::BSplineCurve),
-        Curve3D::NurbsCurve(n) => clamp_bspline(n.non_rationalized()).map(|b| Curve3D::NurbsCurve(NurbsCurve::new(b))),
-        _ => None,
-    };
-    clamped.map(|x| *c = x).is_some()
-}
-
-/// Clamp a surface that's an unclamped B-spline, as `clamp_curve`; returns whether it was one.
-fn clamp_surface(s: &mut Surface) -> bool {
-    let clamped = match s {
-        Surface::BSplineSurface(b) => clamp_bspline_surface(b).map(Surface::BSplineSurface),
-        Surface::NurbsSurface(n) => {
-            clamp_bspline_surface(n.non_rationalized()).map(|b| Surface::NurbsSurface(NurbsSurface::new(b)))
-        }
-        _ => None,
-    };
-    clamped.map(|x| *s = x).is_some()
 }
 
 // ---- meshing and output ----
@@ -450,8 +341,6 @@ fn diag_json(d: &Diag) -> String {
     m.insert("uncheckedShells".into(), d.unchecked_shells.clone().into());
     m.insert("inconsistentShells".into(), d.inconsistent_shells.clone().into());
     m.insert("unclearShells".into(), d.unclear_shells.clone().into());
-    m.insert("clampedEdges".into(), d.clamped_edges.into());
-    m.insert("clampedFaces".into(), d.clamped_faces.into());
     m.insert("flippedFaces".into(), d.flipped_faces.clone().into());
     serde_json::Value::Object(m).to_string()
 }
@@ -568,36 +457,6 @@ pub extern "C" fn tess_free() {
 mod tests {
     use super::*;
 
-    // The rational quadratic circle of OCC22962-dm1-oc-214.stp #1742: knots (-1/3, 0, 0, ..., 1, 1, 4/3), valid on
-    // [0, 1], and a cubic with uniform knots 0..=9, valid on [3, 6], which needs knots inserted at both ends.
-    #[test]
-    fn clamping_keeps_the_curve_over_its_valid_range() {
-        let t = 1.0 / 3.0;
-        let knots = KnotVec::from(vec![-t, 0.0, 0.0, t, t, 2.0 * t, 2.0 * t, 1.0, 1.0, 1.0 + t]);
-        let pts: Vec<Vector4> = [
-            (1.0, 0.0, 1.0), (0.5, 0.866, 0.5), (-0.5, 0.866, 1.0), (-1.0, 0.0, 0.5), (-0.5, -0.866, 1.0),
-            (0.5, -0.866, 0.5), (1.0, 0.0, 1.0),
-        ]
-            .iter()
-            .map(|&(x, y, w)| Vector4::new(x * w, y * w, 0.0, w))
-            .collect();
-        let cubic = BSplineCurve::new(
-            KnotVec::from((0..10).map(f64::from).collect::<Vec<_>>()),
-            (0..6).map(|i| Point3::new(i as f64, (i * i % 5) as f64, (i % 2) as f64)).collect(),
-        );
-        let circle = NurbsCurve::new(BSplineCurve::new(knots, pts));
-        for (mut c, lo, hi) in [(Curve3D::NurbsCurve(circle), 0.0, 1.0), (Curve3D::BSplineCurve(cubic), 3.0, 6.0)] {
-            let orig = c.clone();
-            assert!(clamp_curve(&mut c));
-            assert_eq!(c.range_tuple(), (lo, hi));
-            for i in 0..=20 {
-                let x = lo + (hi - lo) * i as f64 / 20.0;
-                assert!(c.subs(x).distance(orig.subs(x)) < 1e-9, "at {x}: {:?} vs {:?}", c.subs(x), orig.subs(x));
-            }
-            assert!(!clamp_curve(&mut c));
-        }
-    }
-
     fn mesh(positions: Vec<Point3>, tris: &[[usize; 3]]) -> Option<PolygonMesh> {
         let attrs = StandardAttributes { positions, uv_coords: vec![], normals: vec![] };
         Some(PolygonMesh::new(attrs, Faces::from_iter(tris)))
@@ -633,23 +492,5 @@ mod tests {
         };
         assert_eq!(volume_sign(&walls(0.01)), Some(1.0));
         assert_eq!(volume_sign(&walls(0.001)), None);
-    }
-
-    #[test]
-    fn clamping_keeps_the_surface_over_its_valid_range() {
-        let uk = KnotVec::from((0..8).map(f64::from).collect::<Vec<_>>());
-        let vk = KnotVec::bezier_knot(1);
-        let pts: Vec<Vec<Point3>> =
-            (0..5).map(|i| (0..2).map(|j| Point3::new(i as f64, j as f64, ((i * 3) % 4) as f64)).collect()).collect();
-        let mut s = Surface::BSplineSurface(BSplineSurface::new((uk, vk), pts));
-        let orig = s.clone();
-        assert!(clamp_surface(&mut s));
-        assert_eq!(s.try_range_tuple(), (Some((2.0, 5.0)), Some((0.0, 1.0))));
-        for i in 0..=12 {
-            for j in 0..=4 {
-                let (u, v) = (2.0 + 3.0 * i as f64 / 12.0, j as f64 / 4.0);
-                assert!(s.subs(u, v).distance(orig.subs(u, v)) < 1e-9);
-            }
-        }
     }
 }

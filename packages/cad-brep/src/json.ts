@@ -5,7 +5,7 @@
 import { BrepBuilder } from './builder.ts';
 import { type BrepData, rowCount } from './data.ts';
 import * as decode from './decode.ts';
-import type { Body, Curve, Edge, Face, Item, PartInfo, Shell, Surface, Vertex } from './types.ts';
+import type { Body, Copy, Curve, Edge, Face, Item, PartInfo, Shell, Surface, Vertex } from './types.ts';
 
 export interface BrepJson extends PartInfo {
   format: 'cad-brep';
@@ -17,6 +17,8 @@ export interface BrepJson extends PartInfo {
   shells: Shell[];
   bodies: Body[];
   items: Item[];
+  /** Baked copies' fresh ids; absent where there are none. */
+  copies?: Copy[];
 }
 
 export function brepToJson(d: BrepData): BrepJson {
@@ -25,7 +27,7 @@ export function brepToJson(d: BrepData): BrepJson {
   return { format: 'cad-brep', ...decode.part(d), curves: all('curve', decode.curve),
     surfaces: all('surface', decode.surface), vertices: all('vertex', decode.vertex), edges: all('edge', decode.edge),
     faces: all('face', decode.face), shells: all('shell', decode.shell), bodies: all('body', decode.body),
-    items: all('item', decode.item) };
+    items: all('item', decode.item), ...(rowCount(d, 'copy') ? { copies: all('copy', decode.copy) } : {}) };
 }
 
 export function brepFromJson(j: BrepJson): BrepData {
@@ -39,5 +41,6 @@ export function brepFromJson(j: BrepJson): BrepData {
   for (const s of j.shells) b.addShell(s);
   for (const x of j.bodies) b.addBody(x);
   for (const i of j.items) b.addItem(i);
+  for (const c of j.copies ?? []) b.addCopy(c);
   return b.finish();
 }

@@ -254,6 +254,43 @@ test('a curve-bounded face of trimmed arcs, one trimmed against its circle and u
     await sameScaled('the disc', d);
   });
 
+test('extrusions of a closed clamped rational B-spline whose end weights differ: a face across its seam', { skip },
+  async () => {
+    // A rounded square as a clamped quadratic from (2, 0) round to itself (range [0, 7]), its last weight 3 and its
+    // first 1 (its ends still one point), extruded along -z by 2; the face from 5.5 to 8.5 (1.5 past the seam).
+    const poles = [[2, 0], [2, 2], [0, 2], [-2, 2], [-2, 0], [-2, -2], [0, -2], [2, -2], [2, 0]];
+    const weights = [1, 1, 1, 1, 1, 1, 1, 1, 3];
+    const spline = (z: number) => ({ kind: 'bspline' as const, degree: 2, knots: [0, 1, 2, 3, 4, 5, 6, 7],
+      multiplicities: [3, 1, 1, 1, 1, 1, 1, 3], poles: poles.map(([x, y]) => [x!, y!, z]), weights, closed: true,
+      selfIntersect: false, form: 'unspecified' as const });
+    const ev = curveEvaluatorOf(spline(1), () => undefined)!;
+    const point = (t: number) => ev.point(t > 7 ? t - 7 : t);
+    const [from, to] = [5.5, 8.5];
+    const b = new BrepBuilder();
+    const generator = b.addCurve(spline(1)), top = b.addCurve(spline(1)), bottom = b.addCurve(spline(-1));
+    const surface = b.addSurface({ kind: 'extrusion', curve: generator, direction: [0, 0, -1], magnitude: 1 });
+    const at = (t: number, z: number) => [...point(t).slice(0, 2), z];
+    const A = [at(from, 1), at(to, 1), at(to, -1), at(from, -1)];
+    const v = A.map((q) => b.addVertex({ point: q }));
+    const line = (i: number) => b.addCurve({ kind: 'line', point: A[i]!, direction: [0, 0, -1], magnitude: 1 });
+    const f = b.addFace({ surface, sameSense: true, id: 1, loops: [{ kind: 'edge', bound: 'outer', sense: true,
+      coedges: [fwd(b.addEdge({ curve: top, start: v[0]!, end: v[1]!, sameSense: true })),
+        fwd(b.addEdge({ curve: line(1), start: v[1]!, end: v[2]!, sameSense: true })),
+        rev(b.addEdge({ curve: bottom, start: v[3]!, end: v[2]!, sameSense: true })),
+        rev(b.addEdge({ curve: line(0), start: v[0]!, end: v[3]!, sameSense: true }))] }] });
+    const shell = b.addShell({ kind: 'open', faces: [{ face: f, sense: true }] });
+    b.addItem({ kind: 'body', ref: b.addBody({ kind: 'sheet', members: [{ ref: shell, sense: true }] }) });
+    const r = await mesh(b.finish(), 0.001);
+    let length = 0;
+    for (let k = 0; k < 3000; k++) {
+      const p = point(from + k / 1000), q = point(from + (k + 1) / 1000);
+      length += Math.hypot(q[0]! - p[0]!, q[1]! - p[1]!);
+    }
+    const a = areas(r).get(1)?.area;
+    assert.ok(a !== undefined && Math.abs(a - 2 * length) < 0.005 * a, `${a} for ${2 * length}`);
+    assert.deepEqual(r.diagnostics.filter((d) => d.severity !== 'info'), []);
+  });
+
 test('extrusions of a closed periodic B-spline: a face reaching its seam, a face across it (edges across it)',
   { skip }, async () => {
     // A periodic cubic (a rounded square of 8 poles, 3 repeated; range [3, 11], period 8), extruded along -z by 2; the
@@ -356,11 +393,15 @@ test('what the builder leaves out is warned of, the rest meshed; other formats a
   // The cone model's apex edge is degenerate (no 3D curve, from the apex to itself): left out of its loop, the face
   // meshed whole (pi r times the slant, from the apex to the base). Its loose spindle torus has no bounds to say
   // which part is meant: left out, with a warning.
-  const rc = await mesh(MODELS.cone().finish());
-  const side = [...areas(rc).values()];
-  assert.equal(side.length, 1);
-  assert.ok(Math.abs(side[0]!.area - Math.PI * Math.SQRT2) < 0.02 * Math.PI * Math.SQRT2, `cone ${side[0]!.area}`);
-  assert.ok(rc.diagnostics.some((d) => /spindle tori without bounds/.test(d.message)));
+  // Likewise not flagged degenerate (the model keeps it in its loop), as a STEP file's apex edge is.
+  for (const flagged of [true, false]) {
+    const rc = await mesh(MODELS.cone(flagged).finish());
+    const side = [...areas(rc).values()];
+    assert.equal(side.length, 1, `flagged ${flagged}`);
+    assert.ok(Math.abs(side[0]!.area - Math.PI * Math.SQRT2) < 0.02 * Math.PI * Math.SQRT2, `cone ${side[0]!.area}`);
+    assert.ok(rc.diagnostics.some((d) => /spindle tori without bounds/.test(d.message)));
+    assert.ok(!rc.diagnostics.some((d) => /without a .*curve/.test(d.message)), JSON.stringify(rc.diagnostics));
+  }
   const t = await backend();
   await assert.rejects(t.tessellate({ ...request(MODELS.cube().finish()), format: 'step' }), /format 'step'/);
   // Bytes that aren't a model: an error, nothing meshed.
@@ -369,7 +410,7 @@ test('what the builder leaves out is warned of, the rest meshed; other formats a
   assert.equal(bad.indices.length, 0);
 });
 
-test('loose geometry and instances: curve items drawn, the point placed, an instance mirrored', { skip }, async () => {
+test('loose geometry: curve items drawn, the point placed, the box closed', { skip }, async () => {
   const d = MODELS.everyKind().finish(), r = await mesh(d);
   // The bounded curve items as polylines (the line, 501, unbounded: left out with a warning), the point with its id.
   assert.ok(r.curves!.length >= 5, `${r.curves!.length} curves`);
@@ -381,16 +422,15 @@ test('loose geometry and instances: curve items drawn, the point placed, an inst
   const unnamed = [...areas(r)].filter(([k]) => typeof k === 'string').map(([, f]) => f.area);
   assert.ok(unnamed.some((x) => Math.abs(x - 4 * Math.PI) < 0.01 * 4 * Math.PI), `disc among ${unnamed}`);
   assert.deepEqual([...r.points!].map((x) => Math.round(x)), [9, 8, 7]);
-  // The unit box at x 20..21 and its mirrored instance (x -> 10 - x, at -11..-10): each face's triangles in both
-  // places under its one id, each copy enclosing its unit volume facing out (the mirror's winding turned back).
+  // The unit box at x 20..21: its six faces enclosing its unit volume, facing out.
   const box = r.faces.filter((f) => f.entityId !== null && f.entityId >= 2021 && f.entityId <= 2026);
   assert.equal(box.length, 6);
-  const volume = [0, 0];
+  let volume = 0;
   for (const f of box) for (let t = f.start; t < f.start + f.count; t += 3) {
     const a = vtx(r, r.indices[t]!), b = vtx(r, r.indices[t + 1]!), c = vtx(r, r.indices[t + 2]!);
-    volume[a[0] > 0 ? 0 : 1]! += dot(a, cross(b, c)) / 6;
+    volume += dot(a, cross(b, c)) / 6;
   }
-  assert.ok(Math.abs(volume[0]! - 1) < 1e-9 && Math.abs(volume[1]! - 1) < 1e-9, `volumes ${volume}`);
+  assert.ok(Math.abs(volume - 1) < 1e-9, `volume ${volume}`);
 });
 
 test('transforms composed: an item\'s own, then its instance\'s; curves sampled within the deflection', { skip },
@@ -480,11 +520,16 @@ test('the module: its version names the build; init without a version for a comp
 
 // One face (id 1) of loops of coedges as a sheet's only face; `sameSense` true.
 type Coedge = { edge: number; orientation: 'forward' | 'reversed' };
-function oneFace(b: BrepBuilder, surface: number, loops: (Coedge[] | { vertex: number })[]): BrepData {
-  b.addFace({ surface, sameSense: true, id: 1, loops: loops.map((l) => ('vertex' in l
+// With `loose`, the face is a face item in no shell, as a STEP file's curve-bounded faces are.
+function oneFace(b: BrepBuilder, surface: number, loops: (Coedge[] | { vertex: number })[], loose = false): BrepData {
+  const face = b.addFace({ surface, sameSense: true, id: 1, loops: loops.map((l) => ('vertex' in l
     ? { kind: 'vertex' as const, vertex: l.vertex, bound: 'unknown' as const, sense: true }
     : { kind: 'edge' as const, bound: 'unknown' as const, sense: true, coedges: l })) });
-  const shell = b.addShell({ kind: 'open', faces: [{ face: 0, sense: true }] });
+  if (loose) {
+    b.addItem({ kind: 'face', ref: face });
+    return b.finish();
+  }
+  const shell = b.addShell({ kind: 'open', faces: [{ face, sense: true }] });
   b.addItem({ kind: 'body', ref: b.addBody({ kind: 'sheet', members: [{ ref: shell, sense: true }] }) });
   return b.finish();
 }
@@ -510,7 +555,8 @@ async function faceIs(what: string, d: BrepData, area: number, lin = 0.01): Prom
 
 test('curve-bounded faces whose boundaries run the wrong way round: wound by the surface, facing the model\'s way',
   { skip }, async () => {
-    // A disc of radius 2 whose circle (a segment: no vertices) runs clockwise about the face's normal, and the disc
+    // (Loose faces, as STEP's curve-bounded surfaces are: the model gives their segments a vertex where they meet,
+    // and nothing fixes which way such a face's loops run.) A disc of radius 2 whose circle (a segment: no vertices) runs clockwise about the face's normal, and the disc
     // with a hole of radius 1 whose circle runs counter-clockwise, as the outer one does.
     for (const [what, outer, hole, area] of [['clockwise', 'reversed', undefined, 4 * Math.PI],
       ['a hole counter-clockwise', 'forward', 'forward', 3 * Math.PI],
@@ -520,7 +566,7 @@ test('curve-bounded faces whose boundaries run the wrong way round: wound by the
         sameSense: true });
       const loops: Coedge[][] = [[{ edge: seg(2), orientation: outer }]];
       if (hole) loops.push([{ edge: seg(1), orientation: hole }]);
-      const d = oneFace(b, b.addSurface({ kind: 'plane', position: XY }), loops);
+      const d = oneFace(b, b.addSurface({ kind: 'plane', position: XY }), loops, true);
       const r = await faceIs(what, d, area);
       assert.equal(sides(d, r).against, 0, what);
     }
@@ -1063,9 +1109,10 @@ test('real parts joined exactly: corners moved and triangles split along shared 
     const corners = await part('trj3_s1-db-214.stp', 2117);
     assert.deepEqual(soundness(corners.d, corners.r), { open: [], said: 0, repeated: 0, stray: 0, unjudged: 0,
       folded: 0 });
-    // One sheet body of 58 open shells of a face each, sharing 14 edges: joined along them.
+    // One sheet body of 58 open shells of a face each in the file, sharing 14 edges: one shell in the model (open
+    // shells sharing edges merged), joined along them.
     const shells = await part('trj4_k1_top-ct-203.stp', 121);
-    assert.equal(rowCount(shells.d, 'shell'), 58);
+    assert.equal(rowCount(shells.d, 'shell'), 1);
     assert.deepEqual(soundness(shells.d, shells.r), { open: [], said: 0, repeated: 0, stray: 0, unjudged: 0,
       folded: 0 });
     // SMLib's mesh with triangles on the same three points, both wound alike: one of each kept, none repeated.

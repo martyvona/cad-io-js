@@ -78,7 +78,8 @@ uint32_t idOf(const std::vector<uint32_t>& ids, long row)
   return row < 0 || row >= (long)ids.size() ? 0 : ids[row];
 }
 
-// An item's transform (12 reals, column-major) on a point and on a normal (by the inverse transpose, up to scale).
+// A built B-rep's transform (12 reals, column-major) on a point and on a normal (by the inverse transpose, up to
+// scale).
 struct Transform
 {
   const std::vector<double>* t = nullptr;
@@ -855,7 +856,7 @@ void meshPart(const uint8_t* buf, size_t len, BuiltPart& part, double linDefl, d
     // Each shell's faces' judgements, for the measures.
     std::vector<std::vector<Judged>> judged(shells);
     std::set<long> alone;
-    // (The item's transform from the model's own coordinates, and the stitching's guard: twice the deflection, as
+    // (The transform from the model's own coordinates, and the stitching's guard: twice the deflection, as
     // the meshes have it.)
     const BuiltBrep& lead = part.breps[members[0]];
     std::vector<double> plain = lead.transform;

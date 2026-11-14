@@ -9,6 +9,7 @@ import { faceFailures } from './mesh.ts';
 import { composeResults } from './compose.ts';
 import { fillResult } from './fill.ts';
 import { joinEdges, joinResult } from './join.ts';
+import { orientResult } from './orient.ts';
 import { openEdgesCount } from './open-edges.ts';
 import type { Diagnostic } from './scene.ts';
 import { faceUses } from './tessellate.ts';
@@ -103,8 +104,9 @@ const described = (i: TessellatorInfo) => `${i.name} ${i.version}`;
  * part, whichever is the better (compareVerdicts: kind by kind, a face missing worst; the primary's on a tie), or the
  * primary's with the faces it meshes wrongly the fallback's (the per-face fallback, unless `perFace` is false). The
  * result says which (`backend`), with a warning naming what was wrong with the primary's, or an info diagnostic where
- * the fallback's was no better. Each result is joined (joinResult) and its sliver faces filled (fillResult) before
- * it's judged, unless `join` or `fill` is false. Both are asked for measures (to judge by) and edges (to join by),
+ * the fallback's was no better. Each result is joined (joinResult), its sliver faces filled (fillResult) and its
+ * solids' shells facing into the material turned over (orientResult) before it's judged, unless `join`, `fill` or
+ * `orient` is false. Both are asked for measures (to judge by) and edges (to join by),
  * which the result keeps only if the request asked. Both start at init (a worker pool starts one worker then, the rest
  * as requests come).
  */
@@ -118,14 +120,17 @@ export class FallbackTessellator implements Tessellator {
   readonly perFace: boolean;
   /** Whether faces no backend meshed are filled where slivers (fillResult) before results are judged. */
   readonly fill: boolean;
+  /** Whether solids' shells facing into the material are turned over (orientResult) before results are judged. */
+  readonly orient: boolean;
 
   constructor(primary: Tessellator, fallback: Tessellator,
-    opts: { join?: boolean; perFace?: boolean; fill?: boolean } = {}) {
+    opts: { join?: boolean; perFace?: boolean; fill?: boolean; orient?: boolean } = {}) {
     this.primary = primary;
     this.fallback = fallback;
     this.join = opts.join ?? true;
     this.perFace = opts.perFace ?? true;
     this.fill = opts.fill ?? true;
+    this.orient = opts.orient ?? true;
   }
 
   get info(): TessellatorInfo {
@@ -155,7 +160,8 @@ export class FallbackTessellator implements Tessellator {
     const tidy = (r: TessellationResult) => {
       if (!model) return r;
       const j = this.join ? joinResult(model, r, req.linearDeflection) : r;
-      return this.fill ? fillResult(model, j, req.linearDeflection) : j;
+      const f = this.fill ? fillResult(model, j, req.linearDeflection) : j;
+      return this.orient ? orientResult(model, f, req.linearDeflection) : f;
     };
     const run = (t: Tessellator) => t.tessellate(ask).then(tidy).catch((e: unknown) => e instanceof Error ? e
       : new Error(String(e)));

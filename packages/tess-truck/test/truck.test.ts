@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { test } from 'node:test';
-import { openBrep, SURFACE_KIND } from 'cad-brep';
+import { decode, openBrep, rowCount, SURFACE_KIND } from 'cad-brep';
 import type { TessellationRequest, TessellationResult } from 'cad-scene';
 import { importStep } from 'step-import';
 import { TruckTessellator, WBINDGEN_IMPORTS } from '../src/index.ts';
@@ -237,7 +237,8 @@ test("an ORIENTED_FACE reports its face's id, with the face reversed", { skip },
   assert.deepEqual(r.faces.map((f) => f.entityId), plain.faces.map((f) => f.entityId));
   const normal = (t: TessellationResult) => { const f = t.faces.find((x) => x.entityId === face)!;
     const v = t.indices[f.start]!; return [0, 1, 2].map((c) => t.normals![3 * v + c]!); };
-  assert.deepEqual(normal(r), normal(plain).map((x) => -x));
+  // (Signed zeros folded: the face turned over by the builder or by truck, the same normal.)
+  assert.deepEqual(normal(r).map((x) => x + 0), normal(plain).map((x) => -x + 0));
   assert.equal(windingMismatches(r), 0);
 });
 
@@ -253,9 +254,26 @@ test('an outer shell that faces inward is reversed', { skip }, async () => {
   const r = await tess.tessellate(await edited(inside, req!.rootId!, 0.01));
   assert.deepEqual(r.diagnostics.map((d) => d.message),
     [`shell #${solid[1]} reversed: as written, this outer shell faces into the material`]);
-  assert.deepEqual(r.normals, plain.normals);
-  assert.deepEqual(r.indices, plain.indices);
+  assert.deepEqual(Array.from(r.normals!, (x) => x + 0), Array.from(plain.normals!, (x) => x + 0));
+  // (The same faces and areas; each quad's diagonal may differ, its loop starting elsewhere once turned over.)
+  assert.deepEqual(faceAreas(r), faceAreas(plain));
+  assert.equal(windingMismatches(r), 0);
 });
+
+/** Each face's id and mesh area, to 1e-9. */
+function faceAreas(t: TessellationResult): [number | null, number][] {
+  const P = (i: number) => [0, 1, 2].map((c) => t.positions[3 * i + c]!);
+  return t.faces.map((f) => {
+    let area = 0;
+    for (let k = f.start; k < f.start + f.count; k += 3) {
+      const a = P(t.indices[k]!), b = P(t.indices[k + 1]!), c = P(t.indices[k + 2]!);
+      const u = b.map((x, i) => x - a[i]!), v = c.map((x, i) => x - a[i]!);
+      area += Math.hypot(u[1]! * v[2]! - u[2]! * v[1]!, u[2]! * v[0]! - u[0]! * v[2]!,
+        u[0]! * v[1]! - u[1]! * v[0]!) / 2;
+    }
+    return [f.entityId, Math.round(area * 1e9) / 1e9];
+  });
+}
 
 test("an open solid shell's orientation is left as written and reported unchecked", { skip }, async () => {
   const tess = new TruckTessellator();
@@ -315,7 +333,10 @@ test('placements along x without a ref_direction (completed by the importer, as 
   const req = (await requests(k1)).find((r) => r.rootId === 1926)!;
   const r = await tess.tessellate(req);
   assert.equal(r.faces.length, 58);
-  assert.deepEqual(r.diagnostics, []);
+  // (A sheet of one closed shell, so a solid in the model: its faces' meshes disagree in orientation, so truck says
+  // it can't check the shell's.)
+  assert.deepEqual(r.diagnostics.map((d) => [d.severity, d.message]), [['info', 'orientation of 1 solid shells not '
+    + 'checked, since their faces disagree in orientation: #22']]);
 });
 
 const exhaust = gkv('ec_exhaust-A.stp'), s1ug = gkv('trj5_s1-ug-214.stp'), dm1 = gkv('OCC22962-dm1-oc-214.stp'),
@@ -386,7 +407,7 @@ function within(x: TessellationResult, y: TessellationResult, d: number): number
   return near / n;
 }
 
-test("unclamped B-splines are clamped to their valid range, and mesh on OCCT's faces",
+test("unclamped B-splines (clamped to their valid range by the model's builder) mesh on OCCT's faces",
   { skip: skip || (!occtBuilt && 'tess-occt not built') || (
   ![s1ug, dm1].every((f) => fs.existsSync(f)) && 'corpus files missing') }, async () => {
   const { OcctTessellator } = await import('tess-occt');
@@ -394,17 +415,21 @@ test("unclamped B-splines are clamped to their valid range, and mesh on OCCT's f
   const occt = new OcctTessellator();
   await truck.init();
   await occt.init();
-  // Without clamping, truck evaluated these outside their valid range, to NaN, and they were left out. They now lie on
+  // Unclamped, truck evaluated these outside their valid range, to NaN, and they were left out. Clamped, they lie on
   // OCCT's faces, but truck meshes some of these periodic faces with overlapping triangles (#40, #628: up to 18% more
   // area) or a few stray ones (#40, #637), as it does other faces on closed surfaces.
-  for (const [file, rootId, edges, faces, ids] of [[s1ug, 80, 0, 2, [628, 637]],
-    [dm1, 37, 8, 4, [40, 207, 374, 531]]] as const) {
+  for (const [file, rootId, ids] of [[s1ug, 80, [628, 637]], [dm1, 37, [40, 207, 374, 531]]] as const) {
     const req = (await requests(file)).find((q) => q.rootId === rootId)!;
+    // (Every B-spline in the model clamped: end knots of full multiplicity.)
+    const d = openBrep(req.data.slice().buffer);
+    for (let k = 0; k < rowCount(d, 'curve'); k++) {
+      const c = decode.curve(d, k);
+      if (c.kind === 'bspline') {
+        assert.deepEqual([c.multiplicities[0], c.multiplicities.at(-1)], [c.degree + 1, c.degree + 1], `curve ${k}`);
+      }
+    }
     const a = await truck.tessellate(req), b = await occt.tessellate(req);
     const messages = a.diagnostics.map((d) => d.message);
-    assert.ok(messages.includes(
-      `B-splines with unclamped knot vectors clamped to their valid range, which truck lacks: ${edges} edge curves, `
-      + `${faces} face surfaces`), messages.join('; '));
     assert.ok(!messages.some((m) => /NaN|can't convert/.test(m)), messages.join('; '));
     for (const id of ids) {
       const [fa, fb] = [only(a, id), only(b, id)];

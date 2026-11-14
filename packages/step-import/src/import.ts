@@ -13,8 +13,9 @@ import {
   type Diagnostic as StepDiagnostic, type Mat4, type OpenOptions, type Semantics, type StepFile, type StepModel,
   type StepSource, type Style,
 } from 'step-parser';
-import { authorOf, boundScene, dropSourceDegenerate, leafParts, type Brep, type Component, type Diagnostic,
-  type Layer, type Lod, type Material, type Part, type Properties, type Scene, type Vec3 } from 'cad-scene';
+import { authorOf, boundScene, dropSourceDegenerate, leafParts, rigidPlacements, type Brep, type Component,
+  type Diagnostic, type Layer, type Lod, type Material, type Part, type Properties, type Scene,
+  type Vec3 } from 'cad-scene';
 import { stepBrep } from './brep.ts';
 import { type BrepData, faceOutlines } from 'cad-brep';
 import { moveMesh, readTessellated, tessellatedItems } from './tessellated.ts';
@@ -581,6 +582,8 @@ export function sceneFromStep(model: StepModel, sem: Semantics, opts: ImportOpti
   scene.sourceUnit = mmOf(top !== undefined && s.representations.get(top)?.context?.lengthUnit ? top : partRep[0]);
   // (A product with one shape and nothing else a part reference where it's placed: cad-scene's leafParts.)
   leafParts(scene);
+  // Placements a rotation and a translation, their stretches baked into copies (cad-scene's rigid.ts).
+  rigidPlacements(scene);
   if (opts.dropDegenerate ?? true) dropSourceDegenerate(scene);
   boundScene(scene);
   return { scene, model, semantics: sem, partOf };

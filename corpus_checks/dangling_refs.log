@@ -14,4 +14,4 @@ gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp: 40 parts with dangling r
   #17395: 1 reference to an instance the file doesn't define: #0
 gkv311-opencascade-dataset/step/bug33665.step: 1 parts with dangling references, 0 references beyond the largest id
   #10: 1 reference to an instance the file doesn't define: #18
-files 517, 4 with dangling references; parts 3264, 53 with dangling references; 1 references beyond the largest id; 16 s
+files 517, 4 with dangling references; parts 3264, 53 with dangling references; 1 references beyond the largest id; 18 s

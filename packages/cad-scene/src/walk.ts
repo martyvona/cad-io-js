@@ -2,6 +2,7 @@
 // structural check.
 
 import type { Mat4, Part, PartRef, Scene } from './scene.ts';
+import { isRigid } from './scene-builder.ts';
 
 /**
  * The scene's millimetres, Z up, to `unit` (millimetres per it), Y up: (x, y, z) mm -> (x, z, -y) / unit. Column-major.
@@ -146,12 +147,16 @@ export function* partInstances(scene: Scene): Generator<PartInstance> {
   }
 }
 
-/** Structural problems: indices out of range, non-finite transforms, components that contain themselves. */
+/**
+ * Structural problems: indices out of range, transforms not finite or not rigid (a rotation and a translation),
+ * components that contain themselves.
+ */
 export function validate(scene: Scene): string[] {
   const problems: string[] = [];
   const nc = scene.components.length, np = scene.parts.length, nm = scene.materials.length;
   const finite = (m: Mat4, where: string) => {
     if (m.length !== 16 || !m.every(Number.isFinite)) problems.push(`${where}: transform is not 16 finite numbers`);
+    else if (!isRigid(m)) problems.push(`${where}: transform isn't a rotation and a translation`);
   };
   const material = (m: number | undefined, where: string) => {
     if (m !== undefined && !(Number.isInteger(m) && m >= 0 && m < nm)) problems.push(

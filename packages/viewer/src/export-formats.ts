@@ -1,8 +1,7 @@
 // The export formats and options the viewer offers (File's Export...), as stepconv's (packages/cli, its FORMATS): no
 // exporter imported here, so the page can use it (the exporters run in the import worker: export-model.ts).
 
-import { describeTransforms, TRANSFORM_KINDS, type InstanceOverride, type LengthUnitName, type Material,
-  type TransformKind, type TransformUse } from 'cad-scene';
+import type { InstanceOverride, LengthUnitName, Material } from 'cad-scene';
 
 /** glTF's geometry compression (export-gltf's Compression). */
 export type Compression = 'draco' | 'meshopt' | 'none';
@@ -42,38 +41,21 @@ export interface ExportRequest {
 }
 
 /**
- * Each format's file extension, MIME type and words, which options it takes, and which kinds of transform it holds
- * (cad-scene's transforms.ts; the export dialog warns of the model's others), of the tree as it is or (`flat`) of each
- * placed part. STEP's placements are rigid: it holds none of them.
+ * Each format's file extension, MIME type and words, and which options it takes. (Every format holds the model's
+ * placements: they're rigid, a mirror, scale or shear baked into its parts by the importer: cad-scene's rigid.ts.)
  */
 export const EXPORT_FORMATS: Record<ExportFormat, { ext: string; mime: string; label: string; lines: boolean;
-  gltf: boolean; threemf: boolean; step: boolean; transforms: readonly TransformKind[]; flat: boolean }> = {
+  gltf: boolean; threemf: boolean; step: boolean }> = {
   glb: { ext: '.glb', mime: 'model/gltf-binary', label: 'glTF 2.0, binary (GLB)', lines: true, gltf: true,
-    threemf: false, step: false, transforms: ['reflection', 'nonUniformScale'], flat: false },
+    threemf: false, step: false },
   gltf: { ext: '.gltf', mime: 'model/gltf+json', label: 'glTF 2.0, JSON (.gltf)', lines: true, gltf: true,
-    threemf: false, step: false, transforms: ['reflection', 'nonUniformScale'], flat: false },
+    threemf: false, step: false },
   threejs: { ext: '.json', mime: 'application/json', label: 'three.js JSON', lines: true, gltf: false,
-    threemf: false, step: false, transforms: ['reflection', 'nonUniformScale', 'shear'], flat: false },
-  '3mf': { ext: '.3mf', mime: 'model/3mf', label: '3MF', lines: false, gltf: false, threemf: true, step: false,
-    transforms: ['reflection', 'nonUniformScale', 'shear'], flat: true },
+    threemf: false, step: false },
+  '3mf': { ext: '.3mf', mime: 'model/3mf', label: '3MF', lines: false, gltf: false, threemf: true, step: false },
   step: { ext: '.stp', mime: 'model/step', label: 'STEP (exact geometry)', lines: false, gltf: false, threemf: false,
-    step: true, transforms: [], flat: false },
+    step: true },
 };
-
-/** What a format can't hold of a model's transforms, as a sentence; empty if nothing. */
-export function transformsLost(f: ExportFormat, use: TransformUse): string {
-  const format = EXPORT_FORMATS[f];
-  const counts = format.flat ? use.placed : use.own;
-  const lost = TRANSFORM_KINDS.filter((k) => counts[k] && !format.transforms.includes(k));
-  if (!lost.length) return '';
-  const name = format.gltf ? 'glTF' : format.label;
-  const what: Record<TransformKind, string> = { reflection: 'mirror', nonUniformScale: 'uneven scale',
-    shear: 'shear' };
-  const n = lost.reduce((sum, k) => sum + counts[k], 0);
-  return `This model has ${describeTransforms(counts, lost)} transform${n === 1 ? '' : 's'}, which ${name} can't `
-    + `hold: written without the ${lost.map((k) => what[k]).join(' or ')}, what's below ${n === 1 ? 'it' : 'them'} `
-    + 'misshapen.';
-}
 
 /** stepconv's defaults (its options all off; Draco at 14 bits; .gltf embedded here, as the dialog offers). */
 export const DEFAULT_EXPORT: Omit<ExportRequest, 'name'> = {

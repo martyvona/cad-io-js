@@ -6,9 +6,8 @@
 // mesh as tessellation delivers it (the buffers transferable); then the end, with the tessellation's diagnostics and
 // what meshed it.
 
-import { chooseLod, meshDeflections, partInstances, tessellateScene, type Diagnostic, type Measures, type Mesh,
-  type Scene,
-  type SceneBounds } from 'cad-scene';
+import { chooseLod, meshDeflections, partInstances, tessellateScene, type Diagnostic, type LodWanted, type Measures,
+  type Mesh, type Scene, type SceneBounds } from 'cad-scene';
 import { import3mf } from '3mf-import';
 import { importGltf, type GltfImportOptions } from 'gltf-import';
 import { importStep, type ImportOptions, type ImportProgress } from 'step-import';
@@ -93,28 +92,28 @@ export function postable(scene: Scene): Scene {
 /** A mesh with triangles and no edges of its own (as the scene graph draws them): its edges are to be found. */
 export const needsEdges = (mesh: Mesh) => mesh.indices.length > 0 && !mesh.edges?.length;
 
-/** A mesh's edges found on a grid of EDGE_GRID_MM in the world, `scale` world millimetres a mesh unit. */
-export const edgesOf = (mesh: Mesh, scale: number) => findEdges(mesh.positions, mesh.indices, EDGE_ANGLE,
-  scale / EDGE_GRID_MM);
+/** A mesh's edges found on a grid of EDGE_GRID_MM (meshes and placements are millimetres, placements rigid). */
+export const edgesOf = (mesh: Mesh) => findEdges(mesh.positions, mesh.indices, EDGE_ANGLE, 1 / EDGE_GRID_MM);
 
-/**
- * Each placed part's scale: world millimetres a unit of its mesh (its first placement's largest axis scale: the
- * part's unit and the file's frame), so edges are found on one grid in the world whatever the file's unit.
- */
-export function placedScales(scene: Scene): Map<number, number> {
-  const out = new Map<number, number>();
-  for (const pi of partInstances(scene)) {
-    if (out.has(pi.part)) continue;
-    const m = pi.transform;
-    out.set(pi.part, Math.max(...[0, 4, 8].map((c) => Math.hypot(m[c]!, m[c + 1]!, m[c + 2]!))));
-  }
-  return out;
+/** The parts placed somewhere in the tree. */
+function placedParts(scene: Scene): Set<number> {
+  const placed = new Set<number>();
+  for (const pi of partInstances(scene)) placed.add(pi.part);
+  return placed;
+}
+
+/** The file levels to find edges on: each placed part's level shown (`wanted`) without a B-rep or edges of its own. */
+export function edgeJobs(scene: Scene, wanted: LodWanted): { part: number; mesh: Mesh }[] {
+  const placed = placedParts(scene);
+  return scene.parts.flatMap((p, part) => {
+    const mesh = p.brep ? undefined : chooseLod(p, wanted)?.mesh;
+    return mesh && needsEdges(mesh) && placed.has(part) ? [{ part, mesh }] : [];
+  });
 }
 
 /** The brep parts to mesh: those placed somewhere in the tree (others would never be drawn). */
 export function meshable(scene: Scene): number[] {
-  const placed = new Set<number>();
-  for (const pi of partInstances(scene)) placed.add(pi.part);
+  const placed = placedParts(scene);
   return scene.parts.flatMap((p, i) => (p.brep && placed.has(i) ? [i] : []));
 }
 
@@ -160,21 +159,16 @@ export async function loadModelIn(source: ModelSource, settings: TessellationSet
   // The levels shown that have no edges of their own get edges found from their triangles, part by part, after the
   // scene goes (edges.ts: off the page's thread, and not holding up meshing); those levels' buffers are copied to the
   // page rather than transferred, as they're needed here meanwhile.
-  const scales = placedScales(scene);
-  const wanted = meshDeflections(deflectionsOf(settings));
-  const jobs = scene.parts.flatMap((p, part) => {
-    const mesh = p.brep ? undefined : chooseLod(p, wanted)?.mesh;
-    return mesh && needsEdges(mesh) && scales.has(part) ? [{ part, mesh, scale: scales.get(part)! }] : [];
-  });
+  const jobs = edgeJobs(scene, meshDeflections(deflectionsOf(settings)));
   const kept = new Set(jobs.flatMap((j) => meshBuffers(j.mesh)));
   // (The file's other levels transferred: only B-rep models are used here from now on.)
   emit({ type: 'scene', scene: postable(scene), edgeParts: jobs.length },
     levelBuffers(scene).filter((b) => !kept.has(b)));
   const edges = (async () => {
-    for (const { part, mesh, scale } of jobs) {
+    for (const { part, mesh } of jobs) {
       await new Promise((r) => setTimeout(r, 0));
       if (cancelled()) return;
-      const positions = edgesOf(mesh, scale);
+      const positions = edgesOf(mesh);
       emit({ type: 'edges', part, positions }, [positions.buffer as ArrayBuffer]);
     }
   })();
@@ -195,7 +189,6 @@ export async function meshModelIn(scene: Scene, settings: TessellationSettings, 
     if (!cancelled()) emit({ type: 'done', diagnostics: [] });
     return;
   }
-  const scales = placedScales(scene);
   const { tess, workers: n } = await tessellation.get(settings, workers);
   if (cancelled()) return;
   // Faces that fail to mesh, and parts that do (errors, timeouts), outlined from the file (cad-scene's `outlines`).
@@ -205,7 +198,7 @@ export async function meshModelIn(scene: Scene, settings: TessellationSettings, 
       if (cancelled()) return;
       const measures = scene.parts[part]!.measures;
       // (A backend that gives no edges, truck: found here, with the mesh.)
-      const found = mesh && needsEdges(mesh) && scales.has(part) ? edgesOf(mesh, scales.get(part)!) : undefined;
+      const found = mesh && needsEdges(mesh) ? edgesOf(mesh) : undefined;
       emit({ type: 'mesh', part, mesh, ...(measures ? { measures } : {}), ...(found ? { foundEdges: found } : {}) },
         [...meshBuffers(mesh), ...(found ? [found.buffer as ArrayBuffer] : [])]);
     } });

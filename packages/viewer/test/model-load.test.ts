@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import v8 from 'node:v8';
 import vm from 'node:vm';
 import type { Mesh, Scene, TessellationRequest, TessellationResult, Tessellator } from 'cad-scene';
-import { edgesOf, importModel, levelBuffers, loadModelIn, meshable, meshBuffers, meshModelIn, needsEdges, placedScales,
+import { edgesOf, importModel, levelBuffers, loadModelIn, meshable, meshBuffers, meshModelIn, needsEdges, edgeJobs,
   postable,
   type ModelEvent, type ModelInput } from '../src/model-load.ts';
 import { exportView, leafParts, pruneView, viewDifferences } from 'cad-scene';
@@ -276,20 +276,26 @@ test('importModel and loadModelIn: GLB, .gltf with its .bin, three.js JSON, 3MF,
     assert.equal(missing.diagnostics[0]?.severity, 'error');
   });
 
-test('edgesOf: on 1 um in the world, whatever the mesh\'s unit; placedScales from the first placement', () => {
-  // The two triangles of edges.test.ts, the shared edge's ends apart by d: in metres (scale 1000 mm a unit) and in
-  // millimetres (1), 0.4 um apart one vertex (4 segments), 4 um apart two (6).
-  const mesh = (d: number, unit: number): Mesh => ({ origin: [0, 0, 0], faces: [], indices: Uint32Array.of(0, 1, 2,
-    3, 4, 5), positions: Float32Array.from([0, 0, 0, 1, 0, 0, 0, 1, 0, 1 + d, 0, 0, 1, 1, 0, d, 1, 0].map((x) =>
-    x / unit)) });
-  for (const unit of [1000, 1]) {
-    assert.equal(edgesOf(mesh(0.0004, unit), unit).length / 6, 4, `${unit}`);
-    assert.equal(edgesOf(mesh(0.004, unit), unit).length / 6, 6, `${unit}`);
-  }
-  assert.equal(needsEdges(mesh(0, 1)), true);
-  assert.equal(needsEdges({ ...mesh(0, 1), edges: [{ source: 1, start: 0, count: 2, kind: 'shared' }] }), false);
-  // The fixture's plate is placed in inches: 25.4 mm a unit.
-  assert.ok(Math.abs(placedScales(fixture()).get(0)! - 25.4) < 1e-9);
+test('edgesOf: on 1 um; edgeJobs: placed file levels without edges', () => {
+  // The two triangles of edges.test.ts, the shared edge's ends apart by d (mm): 0.4 um apart one vertex (4 segments),
+  // 4 um apart two (6).
+  const mesh = (d: number): Mesh => ({ origin: [0, 0, 0], faces: [], indices: Uint32Array.of(0, 1, 2, 3, 4, 5),
+    positions: Float32Array.of(0, 0, 0, 1, 0, 0, 0, 1, 0, 1 + d, 0, 0, 1, 1, 0, d, 1, 0) });
+  assert.equal(edgesOf(mesh(0.0004)).length / 6, 4);
+  assert.equal(edgesOf(mesh(0.004)).length / 6, 6);
+  assert.equal(needsEdges(mesh(0)), true);
+  assert.equal(needsEdges({ ...mesh(0), edges: [{ source: 1, start: 0, count: 2, kind: 'shared' }] }), false);
+  // The plate and a copy of it as file levels without edges, the copy unplaced; the wire (no triangles); a B-rep part.
+  const s = fixture();
+  const level = (m: Mesh) => [{ from: 'tessellated' as const, mesh: m }];
+  s.parts = [{ ...s.parts[0]!, brep: undefined, lods: level(mesh(0)) }, { ...s.parts[1]!, brep: undefined,
+    lods: level(wire()) }, { ...s.parts[0]!, brep: undefined, lods: level(mesh(0)) }, { ...s.parts[0]!,
+    lods: level(mesh(0)) }];
+  s.components[1]!.parts.push({ part: 3, transform: s.components[1]!.parts[0]!.transform });
+  assert.deepEqual(edgeJobs(s, {}).map((j) => j.part), [0]);
+  // With edges of its own: none.
+  s.parts[0]!.lods = level({ ...mesh(0), edges: [{ source: 1, start: 0, count: 2, kind: 'shared' }] });
+  assert.deepEqual(edgeJobs(s, {}), []);
 });
 
 test('loadModelIn: keep has the scene, its meshes as its parts\' levels once meshed (to export)', { skip },

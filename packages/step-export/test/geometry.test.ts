@@ -311,7 +311,7 @@ test('a seam: SEAM_CURVE with its two p-curves in row order; SURFACE_CURVEs; a s
   ]);
 });
 
-test('natural bounds, vertex loops, poly loops (FACE_SURFACE), a wire, a face set used as a sheet', () => {
+test('natural bounds, vertex loops, poly loops (as edge loops), a wire, a face set used as a sheet', () => {
   const s = written(spheres().finish());
   const faces = [...s.byId.values()].filter((x) => 'type' in x && x.type === 'ADVANCED_FACE');
   assert.equal(faces.length, 2);
@@ -322,21 +322,24 @@ test('natural bounds, vertex loops, poly loops (FACE_SURFACE), a wire, a face se
   assert.deepEqual(s.diagnostics.map((x) => x.message),
     ['a face without loops (written with none: STEP needs at least one)']);
 
+  // The faceted faces: their poly loops edge loops of line edges (the builder's canonical form), so advanced faces.
   const w = written(facetedAndWire().finish());
-  const tri = [...w.byId.values()].filter((x) => 'type' in x && x.type === 'FACE_SURFACE');
+  const tri = [...w.byId.values()].filter((x) => 'type' in x && x.type === 'ADVANCED_FACE'
+    && !render(w, x.id).includes('FACE_BOUND('));
   assert.equal(tri.length, 4);
-  assert.match(render(w, tri[0]!.id), new RegExp(`^FACE_SURFACE\\('',\\(FACE_OUTER_BOUND\\('',POLY_LOOP\\('',\\(`
-    + `${[cp('0.', '0.', '0.'), cp('0.', '1.', '0.'), cp('1.', '0.', '0.')].join(',').replace(/[().]/g, '\\$&')}\\)\\),`
-    + '\\.T\\.\\)\\),PLANE\\('));
+  assert.match(render(w, tri[0]!.id),
+    /^ADVANCED_FACE\('',\(FACE_OUTER_BOUND\('',EDGE_LOOP\('',\((ORIENTED_EDGE\(.*){3}/);
   const root = w.byId.get(w.rootId)!;
   assert.ok('type' in root && root.type === 'SHAPE_REPRESENTATION');
   const items = (root.attrs[1] as { v: number[] }).v.map((id) => render(w, id, new Set([...w.byId.values()]
     .filter((x) => 'type' in x && /^(EDGE_CURVE|CLOSED_SHELL|ADVANCED_FACE)$/.test(x.type)).map((x) => x.id))));
   assert.match(items[0]!, /^MANIFOLD_SOLID_BREP\('',#\d+\)$/);
   assert.match(items[1]!, /^EDGE_BASED_WIREFRAME_MODEL\('',\(CONNECTED_EDGE_SET\('',\(#\d+,#\d+\)\)\)\)$/);
-  assert.match(items[2]!, /^FACE_BASED_SURFACE_MODEL\('',\(CONNECTED_FACE_SET\('',\(#\d+\)\)\)\)$/);
+  // The face set: an open shell by topology, a surface model of it.
+  assert.match(items[2]!, /^SHELL_BASED_SURFACE_MODEL\('',\(OPEN_SHELL\('',\(#\d+\)\)\)\)$/);
   // The face set's face: against its plane, its one loop of unknown kind a FACE_BOUND.
-  const flat = [...w.byId.values()].find((x) => 'type' in x && x.type === 'ADVANCED_FACE')!;
+  const flat = [...w.byId.values()].find((x) => 'type' in x && x.type === 'ADVANCED_FACE'
+    && render(w, x.id).includes('FACE_BOUND('))!;
   assert.match(render(w, flat.id), /^ADVANCED_FACE\('',\(FACE_BOUND\(.*,\.T\.\)\),PLANE\(.*\),\.F\.\)$/);
 });
 
@@ -369,7 +372,10 @@ test('ADVANCED_FACE only where Part 42 allows it, else FACE_SURFACE', () => {
   // An edge's curve a trimmed curve, a composite curve, an offset curve: not an advanced face's.
   const trimmed = (b: BrepBuilder) => b.addCurve({ kind: 'trimmed', basis: line(b), trim1: { parameter: 0 },
     trim2: { parameter: 1 }, sense: true, preference: 'parameter' });
-  assert.deepEqual(faceType(square(trimmed)), ['FACE_SURFACE']);
+  // (A trimmed one the builder unwraps to its basis: advanced then.)
+  assert.deepEqual(faceType(square(trimmed)), ['ADVANCED_FACE']);
+  assert.deepEqual(faceType(square((b) => b.addCurve({ kind: 'offset', basis: line(b), distance: 0,
+    selfIntersect: false, refDirection: [0, 0, 1] }))), ['FACE_SURFACE']);
   assert.deepEqual(faceType(square((b) => b.addCurve({ kind: 'composite', segments: [{ curve: line(b),
     sameSense: true, transition: 'continuous' }], selfIntersect: false }))), ['FACE_SURFACE']);
   // A p-curve that's a trimmed curve: not either.
@@ -378,8 +384,11 @@ test('ADVANCED_FACE only where Part 42 allows it, else FACE_SURFACE', () => {
   // trimmed curve not.
   assert.deepEqual(faceType(square(line, (b, plane) => b.addSurface({ kind: 'offset', basis: plane, distance: 1,
     selfIntersect: false }))), ['FACE_SURFACE']);
+  // (A rectangular trim the builder unwraps where it keeps both directions; one reversing a direction kept.)
   assert.deepEqual(faceType(square(line, (b, plane) => b.addSurface({ kind: 'rectangularTrimmed', basis: plane,
-    u1: 0, u2: 1, v1: 0, v2: 1, uSense: true, vSense: true }))), ['FACE_SURFACE']);
+    u1: 0, u2: 1, v1: 0, v2: 1, uSense: true, vSense: false }))), ['FACE_SURFACE']);
+  assert.deepEqual(faceType(square(line, (b, plane) => b.addSurface({ kind: 'rectangularTrimmed', basis: plane,
+    u1: 0, u2: 1, v1: 0, v2: 1, uSense: true, vSense: true }))), ['ADVANCED_FACE']);
   assert.deepEqual(faceType(square(line, (b) => b.addSurface({ kind: 'extrusion', curve: line(b),
     direction: [0, 1, 0], magnitude: 1 }))), ['ADVANCED_FACE']);
   assert.deepEqual(faceType(square(line, (b) => b.addSurface({ kind: 'extrusion', curve: trimmed(b),
@@ -391,8 +400,8 @@ test('ADVANCED_FACE only where Part 42 allows it, else FACE_SURFACE', () => {
     .filter((x) => render(k, x.id).includes(',PCURVE(')).length, 0);
 });
 
-test('cases the fixtures lack: two surfaces\' p-curves, edges against their curves, inner boundaries, forward voids, '
-  + 'reversed wire members, curves with points, faces mixing edges with and without vertices', async () => {
+test('cases the fixtures lack: two surfaces\' p-curves, edges against their curves, inner boundaries, voids sharing '
+  + 'faces, curves with points, faces mixing edges with and without vertices', async () => {
   const b = new BrepBuilder();
   const v = [[0, 0, 0], [1, 0, 0]].map((point, k) => b.addVertex({ point, id: 1 + k }));
   // Edge 3 runs against its line (sense false), shared by faces on two planes, a p-curve on each.
@@ -415,8 +424,9 @@ test('cases the fixtures lack: two surfaces\' p-curves, edges against their curv
   const f3 = b.addFace({ surface: s1, sameSense: true, id: 32, loops: [{ kind: 'edge', bound: 'inner', sense: true,
     coedges: [{ edge: hole, orientation: 'forward' }], id: 40 }] });
   const box = (k: number) => b.addShell({ kind: 'closed', faces: [{ face: f1, sense: true }], id: 50 + k });
-  // A solid whose void is used forward: written with its faces turned over in an ORIENTED_CLOSED_SHELL of
-  // orientation false (AP242's advanced B-rep requires voids so); its face, also the outer shell's, then twice.
+  // A solid whose void has the outer shell's face facing the same way: written with its faces turned over in an
+  // ORIENTED_CLOSED_SHELL of orientation false (AP242's advanced B-rep requires voids so), so that face twice. (Its
+  // shells aren't closed by their edges: written as closed shells all the same, a solid's being so in STEP.)
   b.addItem({ kind: 'body', ref: b.addBody({ kind: 'solid', members: [{ ref: box(0), sense: true },
     { ref: box(1), sense: true }], id: 60 }) });
   b.addItem({ kind: 'body', ref: b.addBody({ kind: 'sheet', members: [{ ref: b.addShell({ kind: 'open',
@@ -440,12 +450,13 @@ test('cases the fixtures lack: two surfaces\' p-curves, edges against their curv
   assert.equal(render(w, 51, new Set([3, 20])), 'CLOSED_SHELL(\'\',(ADVANCED_FACE(\'\',(FACE_OUTER_BOUND(\'\','
     + 'EDGE_LOOP(\'\',(ORIENTED_EDGE(\'\',*,*,#3,.T.))),.F.)),#20,.F.)))');
   assert.ok(w.diagnostics.some((x) => /a face used both ways/.test(x.message)));
-  assert.equal(render(w, 62, keep), 'EDGE_BASED_WIREFRAME_MODEL(\'\',(CONNECTED_EDGE_SET(\'\','
-    + '(ORIENTED_EDGE(\'\',*,*,#3,.F.)))))');
+  assert.ok(w.diagnostics.some((x) => /a solid with a shell its edges don't close/.test(x.message)));
+  // (A wire's member used reversed: the model holds none, its edge as it is.)
+  assert.equal(render(w, 62, keep), 'EDGE_BASED_WIREFRAME_MODEL(\'\',(CONNECTED_EDGE_SET(\'\',(#3))))');
   const back = await readBack(w.data, w.rootId);
-  // Read back, the same but the void: its face the turned-over copy, the shell used reversed (equivalent).
+  // Read back, the same but the void: its face a face of its own (the turned-over copy, turned again).
   assert.deepEqual(differences(walk(b.finish()), walk(back.brep)).filter((x) => !x.bits).map((x) => x.path),
-    ['[1].ref.members[1].ref.faces[0].face', '[1].ref.members[1].sense']);
+    ['[1].ref.members[1].ref.faces[0].face']);
 
   // Curves and points alone: a wireframe's curve set (points are its elements too).
   const c = new BrepBuilder();
@@ -538,27 +549,25 @@ test('what STEP can\'t hold: diagnostics, and what can\'t be written left out', 
     coedges: [{ edge: e, orientation: 'forward' }, { edge: bare, orientation: 'forward' }] }] });
   const sh = b.addShell({ kind: 'open', faces: [{ face: f1, sense: true }, { face: f2, sense: false }] });
   const body = b.addBody({ kind: 'sheet', members: [{ ref: sh, sense: true }] });
-  const it = b.addItem({ kind: 'body', ref: body, id: 8 });
-  b.addItem({ kind: 'instance', ref: it, transform: [1, 0, 0, 0, 1, 0, 0, 0, 1, 5, 0, 0], id: 9 });
-  b.addItem({ kind: 'point', point: [1, 1, 1], transform: [1, 0, 0, 0, 1, 0, 0, 0, 1, 5, 0, 0], id: 10 });
+  b.addItem({ kind: 'body', ref: body, id: 8 });
   const w = written(b.finish());
   assert.deepEqual(w.diagnostics, [
     { severity: 'info', message: 'vertex tolerances (not written: STEP has none per entity) (#1)' },
     { severity: 'warning', message: 'an edge with neither a curve nor a p-curve (written unset) (#4)' },
     { severity: 'info', message: 'face tolerances (not written: STEP has none per entity) (#5)' },
     { severity: 'warning', message: 'internal coedges (written as forward) (#6)' },
-    { severity: 'error', message: 'an instance item (left out: not written yet) (#9)' },
-    { severity: 'error', message: 'an item with a transform (left out: not written yet) (#10)' },
   ]);
   // What the source lacked written unset, not repaired; the face using it kept (FACE_SURFACE: not advanced).
   assert.equal(render(w, 4, new Set([1, 2])), 'EDGE_CURVE(\'\',#2,#1,$,.T.)');
   assert.match(render(w, 7, new Set([3, 4])), /^FACE_SURFACE\(/);
   assert.equal(render(w, 6, new Set([3])), 'ORIENTED_EDGE(\'\',*,*,#3,.T.)');
   const shell = [...w.byId.values()].find((x) => 'type' in x && x.type === 'OPEN_SHELL')!;
-  // A face used reversed only: written turned over (its sense and its bound's negated), with its own id.
+  // A face used reversed only: turned over by the builder (its sense negated, its loop reversed), written as it is,
+  // with its own id.
   assert.match(render(w, shell.id, new Set([5, 7])), /^OPEN_SHELL\('',\(#5,#7\)\)$/);
-  assert.match(render(w, 7, new Set([3, 4])),
-    /^FACE_SURFACE\('',\(FACE_OUTER_BOUND\('',EDGE_LOOP\(.*\),\.F\.\)\),PLANE\(.*\),\.F\.\)$/);
+  const turned = render(w, 7, new Set([3, 4]));
+  assert.ok(turned.startsWith('FACE_SURFACE(\'\',(FACE_OUTER_BOUND(\'\',EDGE_LOOP(\'\',(ORIENTED_EDGE(\'\',*,*,#4,.F.),'
+    + 'ORIENTED_EDGE(\'\',*,*,#3,.F.))),.T.)),PLANE(') && turned.endsWith(',.F.)'), turned);
   // An edge with one vertex: the other unset.
   const b2 = new BrepBuilder();
   const v0 = b2.addVertex({ point: [0, 0, 0], id: 1 });
@@ -582,10 +591,17 @@ test('read back by step-import, each model is itself up to row order and what ST
     // Units and uncertainties pass through metres, directions are normalized again: only last bits may differ.
     assert.deepEqual(differences(walk(d), walk(back.brep)).filter((x) => !x.bits), [], name);
   }
-  // everyKind's instance is left out.
-  const d = everyKind().finish();
+  // A baked instance (a cube and its mirror image): each copy written as entities of its own, under its fresh ids.
+  const b = cube();
+  b.addItem({ kind: 'instance', ref: 0, transform: [-1, 0, 0, 0, 1, 0, 0, 0, 1, 5, 0, 0], id: 900 });
+  const d = b.finish();
+  assert.equal(rowCount(d, 'copy') > 0 && rowCount(d, 'body'), 2);
   const w = stepPartBytes(d);
-  assert.equal(rowCount((await readBack(w.data, w.rootId)).brep, 'item'), rowCount(d, 'item') - 1);
+  const back = await readBack(w.data, w.rootId);
+  assert.deepEqual(back.warnings, []);
+  assert.deepEqual(differences(walk(d), walk(back.brep)).filter((x) => !x.bits), []);
+  assert.deepEqual([...back.brep.face.id].sort(), [...d.face.id].sort());
+  assert.ok([...d.face.id].every((x) => x > 900), 'the copies\' ids fresh');
 });
 
 test('every written model binds against AP242 with its values checked, without a diagnostic', async () => {
@@ -628,43 +644,25 @@ test('the comparison sees what it should: a real difference, last bits, new ids'
   assert.deepEqual(differences(a, [a[0]]).map((x) => x.path), ['.length']);
 });
 
-test('reversed uses written as AP242 has them: no ORIENTED_FACE, a solid\'s outer shell never oriented', async () => {
+test('reversed uses (baked into the faces by the builder) written as AP242 has them: no ORIENTED_FACE, a solid\'s '
+  + 'outer shell never oriented', async () => {
   const model = reversedUses().finish();
   const w = written(model);
   const text = new TextDecoder().decode(w.data);
   assert.doesNotMatch(text, /ORIENTED_FACE|ORIENTED_CLOSED_SHELL/);
-  // The first cube's bottom (#21, built inside out, used reversed): written turned over, with its own id.
+  // The first cube's bottom (#21, built inside out, used reversed): turned over by the builder, written as it is.
   assert.match(render(w, 21, new Set([9, 10, 11, 12])),
-    /^ADVANCED_FACE\('',\(FACE_OUTER_BOUND\('',EDGE_LOOP\(.*\),\.F\.\)\),PLANE\(.*\),\.F\.\)$/);
-  // The second cube's shell, facing in and used reversed: written with every face turned over, used forward.
+    /^ADVANCED_FACE\('',\(FACE_OUTER_BOUND\('',EDGE_LOOP\(.*\),\.T\.\)\),PLANE\(.*\),\.[TF]\.\)$/);
   assert.match(render(w, 150), /^MANIFOLD_SOLID_BREP\('',CLOSED_SHELL\(/);
-  // Read back, only the senses differ, and every face and loop faces as it did: its senses composed through its
-  // use and its shell's.
+  // Read back, the model itself.
   const back = (await readBack(w.data, w.rootId)).brep;
-  assert.ok(differences(walk(model), walk(back)).filter((x) => !x.bits)
-    .every((x) => /(sameSense|\.sense)$/.test(x.path)));
-  assert.deepEqual(composed(back), composed(model));
+  assert.deepEqual(differences(walk(model), walk(back)).filter((x) => !x.bits), []);
 });
 
-/** Each body's faces' ids with their face's and loops' senses composed through their uses and shells'. */
-function composed(d: BrepData): string[] {
-  const out: string[] = [];
-  for (let k = 0; k < rowCount(d, 'body'); k++) {
-    for (const m of decode.body(d, k).members) {
-      for (const u of decode.shell(d, m.ref).faces) {
-        // (`kept`: the use and the shell's use together leave the face as it is.)
-        const f = decode.face(d, u.face), kept = u.sense === m.sense;
-        out.push(`${f.id}: ${f.sameSense === kept} ${f.loops.map((l) => l.sense === kept).join()}`);
-      }
-    }
-  }
-  return out.sort();
-}
-
-test("poly loops' corners: a vertex of edges too its VERTEX_POINT's point, a corner alone a CARTESIAN_POINT with the "
-  + "vertex's id; shared by the loops, read back shared", async () => {
+test('poly loops (their sides line edges, the builder\'s canonical form) written as edge loops, the sides shared, '
+  + 'read back shared', async () => {
   // A square face of edges (vertices 1-4) and two triangles of poly loops beside it on its corners 1 and 2, sharing
-  // them and a corner of no edge (9); the triangles first in the shell, so read before the edges' VERTEX_POINTs.
+  // them and a corner of no edge (9).
   const b = new BrepBuilder();
   const corners = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]];
   const vs = corners.map((point, k) => b.addVertex({ point, id: 1 + k }));
@@ -684,25 +682,24 @@ test("poly loops' corners: a vertex of edges too its VERTEX_POINT's point, a cor
   sense: true }] }) });
   const d = b.finish();
   const w = written(d);
-  const pointOf = (v: number) => Number(new RegExp(`#${v}=VERTEX_POINT\\('',#(\\d+)\\)`).exec(w.text)![1]);
-  // Vertex 9 a point alone; 1 and 2 VERTEX_POINTs, whose points the poly loops use.
-  assert.equal(render(w, 9), "CARTESIAN_POINT('',(0.5,-1.,0.))");
-  const loops = [...w.text.matchAll(/=(POLY_LOOP\(.*\));/g)].map((m) => m[1]);
-  assert.deepEqual(loops, [`POLY_LOOP('',(#${pointOf(1)},#${pointOf(2)},#9))`,
-    `POLY_LOOP('',(#${pointOf(2)},#${pointOf(1)},#9))`]);
-  // Read back: the triangles' corners the square's vertices (with the VERTEX_POINTs' ids, though read first as
-  // points) and one more, shared.
+  assert.doesNotMatch(w.text, /POLY_LOOP/);
+  assert.equal(render(w, 9, new Set()).startsWith("VERTEX_POINT('',CARTESIAN_POINT('',(0.5,-1.,0.)))"), true);
+  // Read back: the triangles' three sides each one edge both use, the other way round from each other.
   const back = (await readBack(w.data, w.rootId)).brep;
   const faces = Array.from({ length: rowCount(back, 'face') }, (_, k) => decode.face(back, k));
-  const cornerIds = (id: number) => { const l = faces.find((f) => f.id === id)!.loops[0]!;
-    assert.ok(l.kind === 'poly');
-    return l.vertices.map((v) => decode.vertex(back, v).id); };
-  assert.deepEqual([cornerIds(21), cornerIds(22)], [[1, 2, 9], [2, 1, 9]]);
+  const sides = (id: number) => { const l = faces.find((f) => f.id === id)!.loops[0]!;
+    assert.ok(l.kind === 'edge');
+    return l.coedges.map((c) => `${c.edge}${c.orientation === 'forward' ? '+' : '-'}`); };
+  const [a, z] = [sides(21), sides(22)];
+  assert.equal(a.length, 3);
+  assert.deepEqual(new Set(a.map((x) => x.slice(0, -1))), new Set(z.map((x) => x.slice(0, -1))));
+  assert.ok(a.every((x) => !z.includes(x)), `${a} ${z}`);
   assert.equal(rowCount(back, 'vertex'), 5);
-  assert.deepEqual(differences(walk(d), walk(back)), []);
+  assert.deepEqual(differences(walk(d), walk(back)).filter((x) => !x.bits), []);
 });
 
-test('degenerate edges left out of their loops (STEP has none), a loop of nothing else a VERTEX_LOOP', async () => {
+test('degenerate edges (left out of their loops by the builder, a loop of nothing else a vertex loop) written as the '
+  + 'model has them', async () => {
   // A sphere's upper half: the equator (edge 11, vertex 1) and the pole as a loop of one degenerate edge (12 at
   // vertex 2); a cone's side with a degenerate apex among its edges (cad-brep's cone).
   const b = new BrepBuilder();
@@ -724,9 +721,6 @@ test('degenerate edges left out of their loops (STEP has none), a loop of nothin
   assert.equal(render(w, 20, new Set([1, 2, 11])).replace(/SPHERICAL_SURFACE\(.*\),1\.\)/, 'S'),
     "ADVANCED_FACE('',(FACE_OUTER_BOUND('',EDGE_LOOP('',(ORIENTED_EDGE('',*,*,#11,.T.))),.T.),"
     + "FACE_BOUND('',VERTEX_LOOP('',#2),.T.)),S,.T.)");
-  assert.deepEqual(w.diagnostics.filter((x) => /degenerate/.test(x.message)),
-    [{ severity: 'info', message: 'degenerate edges (left out of their loops: STEP has none, a reader makes its own) '
-      + '(#20)' }]);
   // Read back: the pole a vertex loop, the rest the model.
   const back = (await readBack(w.data, w.rootId)).brep;
   assert.deepEqual(differences(walk(d), walk(back)), []);
@@ -945,4 +939,58 @@ test('in a unit, a conic or offset p-curve on a cylinder (unequal scale) is left
   assert.deepEqual(inch.diagnostics.filter((x) => /unequally/.test(x.message)).map((x) => x.message),
     ['6 x a conic or offset p-curve on a surface whose parameters scale unequally to the unit written (left out: no '
       + 'exact form)']);
+});
+
+test('a loose face (a face item in no shell) written as a CURVE_BOUNDED_SURFACE, its edges segments trimmed to their '
+  + 'ranges, no vertices; read back the same; a face in a shell too an ordinary face', async () => {
+  const b = new BrepBuilder({ uncertainty: 1e-6 });
+  const c = [[0, 0, 0], [2, 0, 0], [2, 1, 0], [0, 1, 0]];
+  const plane = b.addSurface({ kind: 'plane', position: P });
+  // A square of four segments on lines trimmed 0 to 1 (the third against its line, from 1 to 0): the builder joins
+  // them, each edge then on its line with its range.
+  const es = c.map((p, k) => {
+    const q = c[(k + 1) % 4]!, against = k === 2;
+    const [a, z] = against ? [q, p] : [p, q];
+    const v = z.map((x, j) => x - a[j]!), n = Math.hypot(...v);
+    const line = b.addCurve({ kind: 'line', point: a, direction: v.map((x) => x / n), magnitude: n });
+    const t = b.addCurve({ kind: 'trimmed', basis: line, trim1: { parameter: against ? 1 : 0 },
+      trim2: { parameter: against ? 0 : 1 }, sense: !against, preference: 'parameter' });
+    return b.addEdge({ curve: t, sameSense: true, id: 10 + k });
+  });
+  const f = b.addFace({ surface: plane, sameSense: true, id: 20, loops: [{ kind: 'edge', bound: 'outer', sense: true,
+    coedges: es.map((edge) => ({ edge, orientation: 'forward' as const })) }] });
+  b.addItem({ kind: 'face', ref: f });
+  const d = b.finish();
+  assert.deepEqual(b.diagnostics, []);
+  const model = Array.from({ length: 4 }, (_, k) => decode.edge(d, es[k]!));
+  assert.ok(model.every((e) => e.start !== undefined && e.range), JSON.stringify(model));
+  const w = written(d);
+  assert.doesNotMatch(w.text, /VERTEX_POINT|EDGE_CURVE|ADVANCED_FACE|FACE_SURFACE/);
+  assert.match(w.text, /CURVE_BOUNDED_SURFACE\(/);
+  const trim = /TRIMMED_CURVE\('',#\d+,\(PARAMETER_VALUE\(([^)]*)\)\),\(PARAMETER_VALUE\(([^)]*)\)\),\.([TF])\./g;
+  const trims = [...w.text.matchAll(trim)].map((m) => [Number(m[1]), Number(m[2]), m[3]]);
+  assert.deepEqual(trims, [[0, 1, 'T'], [0, 1, 'T'], [1, 0, 'F'], [0, 1, 'T']]);
+  // Read back and joined again: the same edges, ranges and all.
+  const back = (await readBack(w.data, w.rootId)).brep;
+  const again = Array.from({ length: rowCount(back, 'edge') }, (_, k) => decode.edge(back, k));
+  const shape = (e: ReturnType<typeof decode.edge>, m: typeof d) => [e.id, e.sameSense, e.range,
+    decode.vertex(m, e.start!).point, decode.vertex(m, e.end!).point];
+  assert.deepEqual(again.map((e) => shape(e, back)), model.map((e) => shape(e, d)));
+
+  // The face also in a shell: an ordinary face there.
+  const s = new BrepBuilder();
+  const vs = c.map((point) => s.addVertex({ point }));
+  const edges = c.map((p, k) => {
+    const q = c[(k + 1) % 4]!, v = q.map((x, j) => x - p[j]!), n = Math.hypot(...v);
+    return s.addEdge({ curve: s.addCurve({ kind: 'line', point: p, direction: v.map((x) => x / n), magnitude: n }),
+      start: vs[k]!, end: vs[(k + 1) % 4]!, sameSense: true });
+  });
+  const g = s.addFace({ surface: s.addSurface({ kind: 'plane', position: P }), sameSense: true, id: 30,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: edges.map((edge) => ({ edge,
+      orientation: 'forward' as const })) }] });
+  s.addItem({ kind: 'body', ref: s.addBody({ kind: 'sheet', members: [{ ref: s.addShell({ kind: 'open',
+    faces: [{ face: g, sense: true }] }), sense: true }] }) });
+  s.addItem({ kind: 'face', ref: g });
+  const ws = written(s.finish());
+  assert.match(render(ws, 30, new Set([0])), /^ADVANCED_FACE\(/);
 });

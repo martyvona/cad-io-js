@@ -127,8 +127,7 @@ test('judge: a face several shells use is judged against its measures times its 
   assert.equal(judgeResult(twice, model, 0.01).problems[0], '1 face meshed over its area');
   const b = cube();
   const d = b.finish();
-  const doubled = { ...d, faceUse: { ...d.faceUse, face: Int32Array.from([...d.faceUse.face, 0]),
-    sense: Uint8Array.from([...d.faceUse.sense, 1]) } };
+  const doubled = { ...d, faceUse: { ...d.faceUse, face: Int32Array.from([...d.faceUse.face, 0]) } };
   assert.ok(judgeResult(twice, doubled as typeof d, 0.01).ok);
 });
 

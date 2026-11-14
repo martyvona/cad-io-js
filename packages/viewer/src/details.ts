@@ -42,6 +42,9 @@ export function details(model: NodeModel, ids: readonly number[]): string[] {
       const all = instancesOf(model, n.id);
       if (all.length > 1) out.push(`Placement ${num(all.indexOf(n.id) + 1)} of ${num(all.length)} of this part`);
       else out.push('The only placement of this part');
+      // (Its placement's mirror, scale or shear baked into the part: placements are rigid.)
+      const stretched = n.object?.userData.stretched as string | undefined;
+      if (stretched) out.push(`Stretched: ${stretched}`);
     }
     // Meshing failures (model.ts's failure, the kinds from the mesh's faceReport: scene-graph.ts): what failed, and
     // where it's drawn instead; a face's area on the exact geometry, where its part was measured.
@@ -72,7 +75,9 @@ export function details(model: NodeModel, ids: readonly number[]): string[] {
     // Its appearance: its own override, or inherited from a node above (model.ts).
     const own = model.ownOverride(n.id), look = model.look(n.id);
     if (look.hidden) out.push(own?.hidden ? 'Hidden' : 'Hidden (by a node above)');
-    if (look.alpha !== undefined) out.push(`Opacity ${num(look.alpha)}${own?.transparent ? '' : ' (from a node above)'}`);
+    if (look.alpha !== undefined) {
+      out.push(`Opacity ${num(look.alpha)}${own?.transparent ? '' : ' (from a node above)'}`);
+    }
     else if (own?.transparent === false) out.push("Opacity: the file's");
     if (look.triangleEdges !== undefined) out.push(`Triangle edges ${look.triangleEdges ? 'on' : 'off'}${
       own?.triangleEdges === undefined ? ' (from a node above)' : ''}`);

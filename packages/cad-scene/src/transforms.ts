@@ -68,3 +68,25 @@ export function describeTransforms(counts: TransformCounts, only: readonly Trans
     shear: 'sheared' };
   return only.filter((k) => counts[k]).map((k) => `${counts[k]} ${words[k]}`).join(', ');
 }
+
+/** A baked stretch (Part.stretched) in words: mirrored, scaled, scaled unevenly, sheared (as many as apply). */
+export function stretchWords(m: Mat4): string[] {
+  const kinds = transformKinds(m);
+  const words: string[] = kinds.map((k) => ({ reflection: 'mirrored', nonUniformScale: 'scaled unevenly',
+    shear: 'sheared' })[k]);
+  const len = Math.hypot(m[0]!, m[1]!, m[2]!);
+  if (!kinds.includes('nonUniformScale') && Math.abs(len - 1) > TRANSFORM_TOLERANCE) words.push('scaled');
+  return words;
+}
+
+/** The scene's stretched parts (rigid.ts), counted by word: `2 mirrored, 1 sheared`; empty for none. */
+export function describeStretched(scene: Scene): string {
+  const counts = new Map<string, number>();
+  for (const p of scene.parts) {
+    if (!p.stretched) continue;
+    for (const w of stretchWords(p.stretched.stretch)) counts.set(w, (counts.get(w) ?? 0) + 1);
+  }
+  return ['mirrored', 'scaled', 'scaled unevenly', 'sheared'].filter((w) => counts.get(w))
+    .map((w) => `${counts.get(w)} ${w}`).join(', ');
+}
+

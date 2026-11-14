@@ -43,7 +43,7 @@ test('a cylinder\'s circles stepped by the deflections, on the circle, through t
   assert.equal(pts(coarse, 0).length - 1, Math.ceil(2 * Math.PI / 0.5));
 });
 
-test('B-spline edges within the deflection; poly loops closed; a p-curve-only edge on its surface', () => {
+test('B-spline edges within the deflection; poly loops\' sides; a p-curve-only edge on its surface', () => {
   const b = new BrepBuilder();
   const poles = [[0, 0, 0], [1, 2, 0], [3, 2, 0], [4, 0, 0]];
   const c = b.addCurve({ kind: 'bspline', degree: 3, knots: [0, 1], multiplicities: [4, 4], poles, closed: false,
@@ -78,8 +78,11 @@ test('B-spline edges within the deflection; poly loops closed; a p-curve-only ed
   assert.equal(o.outlines[2]!.source, 6);
   for (const q of circle) assert.ok(Math.abs(Math.hypot(q[0]! - 10, q[1]!) - 1) < 1e-6);
 
+  // A poly loop: its sides as line edges (the builder's canonical form), one outline each.
   const poly = faceOutlines(facetedAndWire().finish(), [0, 0, 0], O);
-  assert.deepEqual(pts(poly, 0), [[0, 0, 0], [0, 1, 0], [1, 0, 0], [0, 0, 0]]);
+  const sides = poly.outlines.flatMap((x, k) => x.source === poly.outlines[0]!.source ? [pts(poly, k)] : []);
+  assert.deepEqual(sides.map((q) => q.map((p) => p.join()).sort().join(' ')).sort(),
+    ['0,0,0 0,1,0', '0,0,0 1,0,0', '0,1,0 1,0,0']);
   // everyKind's curve-bounded face: one circle edge.
   assert.ok(faceOutlines(everyKind().finish(), [0, 0, 0], O).outlines.some((x) => x.count > 10));
 });

@@ -1,3 +1,7 @@
+*** ERR StepReaderData : Unresolved Reference : Fails Count : 1 ***
+*** ERR StepReaderData : Unresolved Reference : Fails Count : 5 ***
+*** ERR StepReaderData : Unresolved Reference : Fails Count : 1 ***
+*** ERR StepReaderData : Unresolved Reference : Fails Count : 1 ***
 108 files with root validation properties, 108 compared; within 1%: volume 85/106, area 84/98, centroid 90/106
    gkv311-opencascade-dataset/step/bug32049_sp7_04dx_242.stp: volume 0.03%, area 0.09%, centroid 0.00% of size
    gkv311-opencascade-dataset/step/trj2_as1-id-203.stp: volume 0.00%, area 0.00%, centroid 0.00% of size

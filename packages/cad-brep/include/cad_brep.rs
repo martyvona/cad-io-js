@@ -42,12 +42,12 @@
 #[cfg(not(target_endian = "little"))]
 compile_error!("cad-brep buffers are little-endian");
 
-pub const MAGIC: &[u8; 4] = b"CBR4";
-pub const HEADER_BYTES: usize = 488;
-pub const COLUMN_COUNT: usize = 60;
+pub const MAGIC: &[u8; 4] = b"CBR6";
+pub const HEADER_BYTES: usize = 496;
+pub const COLUMN_COUNT: usize = 61;
 
 /// Each column's element type, in buffer order: b u8, i i32, u u32, f f64.
-const TYPES: &[u8; COLUMN_COUNT] = b"ffifiifbbiiubiiuffuiiibbffuibifubbbiiuibiifubiiubiiuibibbiiu";
+const TYPES: &[u8; COLUMN_COUNT] = b"ffififubbiiubiiuffuiiibffuibifubbiiuibiifubbiiubbiiuiibiuuuii";
 
 const fn bytes(k: usize) -> usize {
     match TYPES[k] {
@@ -94,11 +94,6 @@ pub mod logical {
     pub const UNKNOWN: i32 = 2;
 }
 
-/// Edge flags (`edge_flags`), bits.
-pub mod edge_flags {
-    pub const DEGENERATE: u8 = 1;
-}
-
 /// Coedge orientations (`coedge_orientation`).
 pub mod orientation {
     pub const FORWARD: u8 = 0;
@@ -111,7 +106,6 @@ pub mod orientation {
 pub mod loop_kind {
     pub const EDGE: u8 = 1;
     pub const VERTEX: u8 = 2;
-    pub const POLY: u8 = 3;
 }
 
 /// Loop bounds (`loop_bound`).
@@ -123,6 +117,12 @@ pub mod bound {
 
 /// Shell kinds (`shell_kind`).
 pub mod shell_kind {
+    pub const CLOSED: u8 = 1;
+    pub const OPEN: u8 = 2;
+}
+
+/// What sources declared shells (`shell_declared`).
+pub mod shell_declared {
     pub const CLOSED: u8 = 1;
     pub const OPEN: u8 = 2;
     pub const FACE_SET: u8 = 3;
@@ -142,7 +142,6 @@ pub mod item_kind {
     pub const SURFACE: u8 = 3;
     pub const FACE: u8 = 4;
     pub const POINT: u8 = 5;
-    pub const INSTANCE: u8 = 6;
 }
 
 /// B-spline curve forms, as the pools hold them.
@@ -252,11 +251,11 @@ impl Brep {
     /// `pool.surfaceInt`: 1 per row.
     pub fn pool_surface_int(&self) -> &[i32] { self.slice(4) }
 
-    /// `pool.loopInt`: 1 per row.
-    pub fn pool_loop_int(&self) -> &[i32] { self.slice(5) }
-
     /// `pool.itemReal`: 1 per row.
-    pub fn pool_item_real(&self) -> &[f64] { self.slice(6) }
+    pub fn pool_item_real(&self) -> &[f64] { self.slice(5) }
+
+    /// `pool.copyPath`: 1 per row.
+    pub fn pool_copy_path(&self) -> &[u32] { self.slice(6) }
 
     /// `curve.kind`: 1 per row.
     pub fn curve_kind(&self) -> &[u8] { self.slice(7) }
@@ -306,83 +305,83 @@ impl Brep {
     /// `edge.sameSense`: 1 per row.
     pub fn edge_same_sense(&self) -> &[u8] { self.slice(22) }
 
-    /// `edge.flags`: 1 per row.
-    pub fn edge_flags(&self) -> &[u8] { self.slice(23) }
-
     /// `edge.range`: 2 per row.
-    pub fn edge_range(&self) -> &[f64] { self.slice(24) }
+    pub fn edge_range(&self) -> &[f64] { self.slice(23) }
 
     /// `edge.tolerance`: 1 per row.
-    pub fn edge_tolerance(&self) -> &[f64] { self.slice(25) }
+    pub fn edge_tolerance(&self) -> &[f64] { self.slice(24) }
 
     /// `edge.id`: 1 per row.
-    pub fn edge_id(&self) -> &[u32] { self.slice(26) }
+    pub fn edge_id(&self) -> &[u32] { self.slice(25) }
 
     /// `coedge.edge`: 1 per row.
-    pub fn coedge_edge(&self) -> &[i32] { self.slice(27) }
+    pub fn coedge_edge(&self) -> &[i32] { self.slice(26) }
 
     /// `coedge.orientation`: 1 per row.
-    pub fn coedge_orientation(&self) -> &[u8] { self.slice(28) }
+    pub fn coedge_orientation(&self) -> &[u8] { self.slice(27) }
 
     /// `coedge.pcurve`: 1 per row.
-    pub fn coedge_pcurve(&self) -> &[i32] { self.slice(29) }
+    pub fn coedge_pcurve(&self) -> &[i32] { self.slice(28) }
 
     /// `coedge.range`: 2 per row.
-    pub fn coedge_range(&self) -> &[f64] { self.slice(30) }
+    pub fn coedge_range(&self) -> &[f64] { self.slice(29) }
 
     /// `coedge.id`: 1 per row.
-    pub fn coedge_id(&self) -> &[u32] { self.slice(31) }
+    pub fn coedge_id(&self) -> &[u32] { self.slice(30) }
 
     /// `loop.kind`: 1 per row.
-    pub fn loop_kind(&self) -> &[u8] { self.slice(32) }
+    pub fn loop_kind(&self) -> &[u8] { self.slice(31) }
 
     /// `loop.bound`: 1 per row.
-    pub fn loop_bound(&self) -> &[u8] { self.slice(33) }
-
-    /// `loop.sense`: 1 per row.
-    pub fn loop_sense(&self) -> &[u8] { self.slice(34) }
+    pub fn loop_bound(&self) -> &[u8] { self.slice(32) }
 
     /// `loop.first`: 1 per row.
-    pub fn loop_first(&self) -> &[i32] { self.slice(35) }
+    pub fn loop_first(&self) -> &[i32] { self.slice(33) }
 
     /// `loop.count`: 1 per row.
-    pub fn loop_count(&self) -> &[i32] { self.slice(36) }
+    pub fn loop_count(&self) -> &[i32] { self.slice(34) }
 
     /// `loop.id`: 1 per row.
-    pub fn loop_id(&self) -> &[u32] { self.slice(37) }
+    pub fn loop_id(&self) -> &[u32] { self.slice(35) }
 
     /// `face.surface`: 1 per row.
-    pub fn face_surface(&self) -> &[i32] { self.slice(38) }
+    pub fn face_surface(&self) -> &[i32] { self.slice(36) }
 
     /// `face.sameSense`: 1 per row.
-    pub fn face_same_sense(&self) -> &[u8] { self.slice(39) }
+    pub fn face_same_sense(&self) -> &[u8] { self.slice(37) }
 
     /// `face.firstLoop`: 1 per row.
-    pub fn face_first_loop(&self) -> &[i32] { self.slice(40) }
+    pub fn face_first_loop(&self) -> &[i32] { self.slice(38) }
 
     /// `face.loopCount`: 1 per row.
-    pub fn face_loop_count(&self) -> &[i32] { self.slice(41) }
+    pub fn face_loop_count(&self) -> &[i32] { self.slice(39) }
 
     /// `face.tolerance`: 1 per row.
-    pub fn face_tolerance(&self) -> &[f64] { self.slice(42) }
+    pub fn face_tolerance(&self) -> &[f64] { self.slice(40) }
 
     /// `face.id`: 1 per row.
-    pub fn face_id(&self) -> &[u32] { self.slice(43) }
+    pub fn face_id(&self) -> &[u32] { self.slice(41) }
 
     /// `shell.kind`: 1 per row.
-    pub fn shell_kind(&self) -> &[u8] { self.slice(44) }
+    pub fn shell_kind(&self) -> &[u8] { self.slice(42) }
+
+    /// `shell.declared`: 1 per row.
+    pub fn shell_declared(&self) -> &[u8] { self.slice(43) }
 
     /// `shell.first`: 1 per row.
-    pub fn shell_first(&self) -> &[i32] { self.slice(45) }
+    pub fn shell_first(&self) -> &[i32] { self.slice(44) }
 
     /// `shell.count`: 1 per row.
-    pub fn shell_count(&self) -> &[i32] { self.slice(46) }
+    pub fn shell_count(&self) -> &[i32] { self.slice(45) }
 
     /// `shell.id`: 1 per row.
-    pub fn shell_id(&self) -> &[u32] { self.slice(47) }
+    pub fn shell_id(&self) -> &[u32] { self.slice(46) }
 
     /// `body.kind`: 1 per row.
-    pub fn body_kind(&self) -> &[u8] { self.slice(48) }
+    pub fn body_kind(&self) -> &[u8] { self.slice(47) }
+
+    /// `body.declared`: 1 per row.
+    pub fn body_declared(&self) -> &[u8] { self.slice(48) }
 
     /// `body.first`: 1 per row.
     pub fn body_first(&self) -> &[i32] { self.slice(49) }
@@ -396,24 +395,27 @@ impl Brep {
     /// `faceUse.face`: 1 per row.
     pub fn face_use_face(&self) -> &[i32] { self.slice(52) }
 
-    /// `faceUse.sense`: 1 per row.
-    pub fn face_use_sense(&self) -> &[u8] { self.slice(53) }
-
     /// `member.ref`: 1 per row.
-    pub fn member_ref(&self) -> &[i32] { self.slice(54) }
-
-    /// `member.sense`: 1 per row.
-    pub fn member_sense(&self) -> &[u8] { self.slice(55) }
+    pub fn member_ref(&self) -> &[i32] { self.slice(53) }
 
     /// `item.kind`: 1 per row.
-    pub fn item_kind(&self) -> &[u8] { self.slice(56) }
+    pub fn item_kind(&self) -> &[u8] { self.slice(54) }
 
     /// `item.ref`: 1 per row.
-    pub fn item_ref(&self) -> &[i32] { self.slice(57) }
-
-    /// `item.transform`: 1 per row.
-    pub fn item_transform(&self) -> &[i32] { self.slice(58) }
+    pub fn item_ref(&self) -> &[i32] { self.slice(55) }
 
     /// `item.id`: 1 per row.
-    pub fn item_id(&self) -> &[u32] { self.slice(59) }
+    pub fn item_id(&self) -> &[u32] { self.slice(56) }
+
+    /// `copy.id`: 1 per row.
+    pub fn copy_id(&self) -> &[u32] { self.slice(57) }
+
+    /// `copy.source`: 1 per row.
+    pub fn copy_source(&self) -> &[u32] { self.slice(58) }
+
+    /// `copy.first`: 1 per row.
+    pub fn copy_first(&self) -> &[i32] { self.slice(59) }
+
+    /// `copy.count`: 1 per row.
+    pub fn copy_count(&self) -> &[i32] { self.slice(60) }
 }

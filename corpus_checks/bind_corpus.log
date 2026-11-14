@@ -1,4 +1,4 @@
-4925008 instances bound (3 malformed); bind+check 6.0 s; reverse index 0.1 s, 5653627 entries; type index 0.6 s
+4925008 instances bound (3 malformed); bind+check 5.9 s; reverse index 0.1 s, 5653627 entries; type index 0.6 s
 ┌────────────────────────────────────────────────────────────────────────────────────┬───────┬─────────┬──────────┬────────────┬─────────┐
 │ (index)                                                                            │ files │ inst    │ bySchema │ byFallback │ unbound │
 ├────────────────────────────────────────────────────────────────────────────────────┼───────┼─────────┼──────────┼────────────┼─────────┤

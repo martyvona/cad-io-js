@@ -15,12 +15,12 @@
 //     Edges take their vertices' parameters by projection onto OCCT's curve, so they need no mapping; p-curves are
 //     converted as the translator converts them (a cone's v by GeomConvert_Units).
 //   - An edge running against its curve (same_sense false) is built along the curve from its end to its start and
-//     used reversed; a loop's coedges are its edges oriented by the coedge, the wire reversed when the loop's sense
-//     is; a face against its surface (same_sense false) is built with its wires reversed, then reversed itself, so its
-//     outer wire runs counter-clockwise about the face's normal as Part 42 has it.
-//   - Edges, loops and p-curves as the translator makes them (edge(), edgeLoop(), vertexLoop(), polyLoop()); the
-//     model's degenerate edges (from formats that have them) left out, healing adding its own where a wire needs one,
-//     as it does for the same model written as STEP.
+//     used reversed; a loop's coedges are its edges oriented by the coedge (the model's loops run as listed, its faces
+//     used forward: no senses); a face against its surface (same_sense false) is built with its wires reversed, then
+//     reversed itself, so its outer wire runs counter-clockwise about the face's normal as Part 42 has it.
+//   - Edges, loops and p-curves as the translator makes them (edge(), edgeLoop(), vertexLoop()); the model has no
+//     degenerate edges or poly loops (docs/brep-reference.md, "The canonical model"): healing adds its own degenerate
+//     edges where a wire needs one, as it does for the same model written as STEP.
 //   - Tolerances: a vertex's the model's, else 1e-7, edges and faces 1e-7, vertices raised to their distances from
 //     their edges' curves (as the STEP translator builds); the part's uncertainty is healing's tolerance and the
 //     translator's precision (as the STEP reader's): with shapes built at it, healing splits a ring on a closed
@@ -61,7 +61,6 @@
 #include <Geom_SurfaceOfRevolution.hxx>
 #include <gp_Ax1.hxx>
 #include <gp_GTrsf2d.hxx>
-#include <gp_Trsf.hxx>
 #include <TopLoc_Location.hxx>
 #include <Geom_BSplineCurve.hxx>
 #include <Geom_BSplineSurface.hxx>
@@ -253,12 +252,64 @@ struct Builder
   std::vector<TopoDS_Vertex>            vertices;
   std::map<int, TopoDS_Edge>            edges; // as the model's edge runs, start to end
   std::map<int, TopoDS_Face>            faces;
-  // Poly loops' edges, by their corners' vertex rows (an edge under both orders).
-  std::map<std::pair<int, int>, TopoDS_Edge> polyEdges;
   // The translator's precision: the part's uncertainty, else the reader's default.
   double precision = DESTEP_Parameters().ReadPrecisionVal;
 
   Builder(BuiltPart& o) : out(o) {}
+
+  // Faces built as curve-bounded surfaces (curveBounded): the loose faces (a face item in no shell, its loops edge
+  // loops), which the STEP writer writes as CURVE_BOUNDED_SURFACEs as STEP has them, and faces whose edges all lack
+  // vertices. Made on first use.
+  std::vector<char> looseFaces;
+  bool curveBoundedFace(int f)
+  {
+    if (looseFaces.empty())
+    {
+      const int n = r.rows(CBR_FACE_SURFACE);
+      looseFaces.assign(n, 0);
+      std::vector<char> inShell(n, 0);
+      for (int j = 0; j < r.rows(CBR_FACE_USE_FACE); ++j)
+        inShell[r.i32(CBR_FACE_USE_FACE)[j]] = 1;
+      for (int k = 0; k < r.rows(CBR_ITEM_KIND); ++k)
+        if (r.u8(CBR_ITEM_KIND)[k] == CBR_ITEM_FACE && !inShell[r.i32(CBR_ITEM_REF)[k]])
+          looseFaces[r.i32(CBR_ITEM_REF)[k]] = 1;
+    }
+    const int first = r.i32(CBR_FACE_FIRST_LOOP)[f], count = r.i32(CBR_FACE_LOOP_COUNT)[f];
+    if (count == 0)
+      return false;
+    bool bare = true;
+    for (int l = first; l < first + count; ++l)
+    {
+      if (r.u8(CBR_LOOP_KIND)[l] != CBR_LOOP_EDGE || r.i32(CBR_LOOP_COUNT)[l] == 0)
+        return false;
+      for (int c = r.i32(CBR_LOOP_FIRST)[l]; c < r.i32(CBR_LOOP_FIRST)[l] + r.i32(CBR_LOOP_COUNT)[l]; ++c)
+        if (r.i32(CBR_EDGE_START)[r.i32(CBR_COEDGE_EDGE)[c]] >= 0)
+          bare = false;
+    }
+    return bare || looseFaces[f];
+  }
+
+  // A curve-bounded face's segment as the translator trims its TRIMMED_CURVE: an edge with a range on its basis
+  // (the model's, the trim unwrapped) trimmed over it, running from its start to its end; else the edge's curve.
+  occ::handle<Geom_Curve> segmentCurve(int e)
+  {
+    const int     ci = r.i32(CBR_EDGE_CURVE)[e];
+    const double* range = r.f64(CBR_EDGE_RANGE) + 2 * e;
+    occ::handle<Geom_Curve> basis = curve(ci);
+    double f = 1., shift = 0.;
+    if (r.u8(CBR_CURVE_KIND)[ci] == CBR_CURVE_TRIMMED || !std::isfinite(range[0]) || !std::isfinite(range[1])
+        || !curveParam(ci, f, shift))
+      return basis;
+    double t1 = shift + f * range[0], t2 = shift + f * range[1];
+    const double cf = basis->FirstParameter(), cl = basis->LastParameter();
+    if (!basis->IsPeriodic())
+    {
+      t1 = std::min(std::max(t1, cf), cl);
+      t2 = std::min(std::max(t2, cf), cl);
+    }
+    return r.u8(CBR_EDGE_SAME_SENSE)[e] ? occ::handle<Geom_Curve>(new Geom_TrimmedCurve(basis, t1, t2, true))
+                                       : occ::handle<Geom_Curve>(new Geom_TrimmedCurve(basis, t2, t1, false));
+  }
 
   // Part 42's parameter on a curve as OCCT's: t' = f t + shift (a line's times its magnitude, an ellipse's shifted by
   // pi/2 where OCCT swaps its axes, a parabola's times 2 a; a trimmed curve its basis's); false where not affine.
@@ -760,13 +811,6 @@ struct Builder
     const uint32_t id = r.u32(CBR_EDGE_ID)[e];
     const std::string what = "edge #" + std::to_string(id);
     BRep_Builder bb;
-    // A degenerate edge (at a pole or an apex) left out: healing makes OCCT's own where the wire needs it (one made
-    // here, given its coedge's p-curve and range, leaves BRepCheck unable to analyse the face).
-    if (r.u8(CBR_EDGE_FLAGS)[e] & CBR_EDGE_DEGENERATE)
-    {
-      edges.emplace(e, TopoDS_Edge());
-      return TopoDS_Edge();
-    }
     if (si < 0 || ei < 0)
       throw Unbuilt{"an edge without a vertex"};
     if (ci < 0)
@@ -866,9 +910,9 @@ struct Builder
   }
 
   // A face; null when dropped (its surface one OCCT can't hold). Its loops as OCCT's STEP translator makes them
-  // (decision 15): edge loops with the model's p-curves (none on planes), poly loops as lines with their p-curves,
-  // vertex loops as natural bounds or a degenerate edge, by the surface; no loops, no wires (healing adds the natural
-  // bounds).
+  // (decision 15): edge loops with the model's p-curves (none on planes), vertex loops as natural bounds or a
+  // degenerate edge, by the surface; no loops, no wires (healing adds the natural bounds); a curve-bounded face's
+  // (curveBoundedFace) as the translator makes a CURVE_BOUNDED_SURFACE's.
   TopoDS_Face face(int f)
   {
     auto it = faces.find(f);
@@ -885,10 +929,7 @@ struct Builder
       faces.emplace(f, TopoDS_Face());
       return TopoDS_Face();
     }
-    const int first0 = r.i32(CBR_FACE_FIRST_LOOP)[f], count0 = r.i32(CBR_FACE_LOOP_COUNT)[f];
-    for (int l = first0; l < first0 + count0; ++l)
-      if (r.u8(CBR_LOOP_KIND)[l] == CBR_LOOP_EDGE && r.i32(CBR_LOOP_COUNT)[l] > 0
-          && r.i32(CBR_EDGE_START)[r.i32(CBR_COEDGE_EDGE)[r.i32(CBR_LOOP_FIRST)[l]]] < 0)
+    if (curveBoundedFace(f))
       {
         TopoDS_Face fc = curveBounded(f, s);
         if (id)
@@ -904,24 +945,11 @@ struct Builder
     const int first = r.i32(CBR_FACE_FIRST_LOOP)[f], count = r.i32(CBR_FACE_LOOP_COUNT)[f];
     for (int l = first; l < first + count; ++l)
     {
-      const int  kind  = r.u8(CBR_LOOP_KIND)[l];
-      const bool sense = r.u8(CBR_LOOP_SENSE)[l] != 0;
-      if (kind == CBR_LOOP_VERTEX)
+      if (r.u8(CBR_LOOP_KIND)[l] == CBR_LOOP_VERTEX)
         vertexLoop(fc, s, l, count, what);
-      else if (kind == CBR_LOOP_POLY)
-      {
-        // (The translator turns the face as it will be before a poly loop; its wire is turned by the loop's sense
-        // alone.)
-        fc.Orientation(same ? TopAbs_FORWARD : TopAbs_REVERSED);
-        TopoDS_Wire w = polyLoop(fc, s, l);
-        bb.Add(fc, sense ? w : TopoDS::Wire(w.Reversed()));
-      }
       else
-      {
-        // The loop's sense, and against a reversed face the other way round (the face is turned below).
-        const bool reverse = !sense != !same;
-        bb.Add(fc, edgeLoop(fc, s, si, isPlane, l, reverse));
-      }
+        // (Against a reversed face the other way round: the face is turned below.)
+        bb.Add(fc, edgeLoop(fc, s, si, isPlane, l, !same));
     }
     // (Healing bounds a face without wires by its surface: on a degenerate torus, both its parts.)
     if (r.u8(CBR_SURFACE_KIND)[si] == CBR_SURFACE_TORUS && degenerateTorus(si) && !TopoDS_Iterator(fc).More())
@@ -977,7 +1005,7 @@ struct Builder
             pc >= 0 ? curve2d(pc, s, r.i32(CBR_FACE_SURFACE)[f]) : occ::handle<Geom2d_Curve>();
           if (ci >= 0)
           {
-            occ::handle<Geom_Curve> c3 = curve(ci);
+            occ::handle<Geom_Curve> c3 = segmentCurve(e);
             BRepBuilderAPI_MakeEdge me(c3, c3->FirstParameter(), c3->LastParameter());
             if (me.IsDone())
             {
@@ -1212,60 +1240,6 @@ struct Builder
     bb.Add(fc, w);
   }
 
-  // A poly loop, as OCCT's STEP translator makes one: a line between each two corners (shared with the faces using the
-  // same two vertices, as the translator shares them by point), each with its p-curve on fc's surface from the
-  // corners' (u, v). Two corners at one position (one vertex, or two coinciding) make no line.
-  TopoDS_Wire polyLoop(const TopoDS_Face& fc, const occ::handle<Geom_Surface>& s, int l)
-  {
-    BRep_Builder   bb;
-    const int      n = r.i32(CBR_LOOP_COUNT)[l];
-    const int32_t* corner = r.i32(CBR_POOL_LOOP_INT) + r.i32(CBR_LOOP_FIRST)[l];
-    const double*  point = r.f64(CBR_VERTEX_POINT);
-    occ::handle<ShapeAnalysis_Surface> sas = new ShapeAnalysis_Surface(s);
-    TopoDS_Wire w;
-    bb.MakeWire(w);
-    for (int i = 0; i < n; ++i)
-    {
-      const int     ka = corner[i], kb = corner[(i + 1) % n];
-      const double *a = point + 3 * ka, *b = point + 3 * kb;
-      if (ka == kb || pnt(a).Distance(pnt(b)) == 0.)
-        continue;
-      TopoDS_Vertex va = vertices[ka], vb = vertices[kb];
-      auto          found = polyEdges.find({ka, kb});
-      TopoDS_Edge   e;
-      if (found == polyEdges.end())
-      {
-        const gp_Vec d(pnt(a), pnt(b));
-        bb.MakeEdge(e, new Geom_Line(pnt(a), gp_Dir(d)), Precision::Confusion());
-        bb.Add(e, va.Oriented(TopAbs_FORWARD));
-        bb.Add(e, vb.Oriented(TopAbs_REVERSED));
-        bb.UpdateVertex(TopoDS::Vertex(va.Oriented(TopAbs_FORWARD)), 0., e, 0.);
-        bb.UpdateVertex(TopoDS::Vertex(vb.Oriented(TopAbs_REVERSED)), d.Magnitude(), e, 0.);
-      }
-      else
-      {
-        // Seen from its second face the other way round from its first.
-        e = found->second;
-        if (fc.Orientation() == TopAbs_FORWARD)
-          e.Reverse();
-      }
-      const gp_Pnt2d ua = sas->ValueOfUV(pnt(a), precision), ub = sas->ValueOfUV(pnt(b), precision);
-      const bool     fwd = e.Orientation() == TopAbs_FORWARD;
-      bb.UpdateEdge(e, new Geom2d_Line(fwd ? ua : ub, gp_Dir2d(fwd ? gp_Vec2d(ua, ub) : gp_Vec2d(ub, ua))), fc, 0.);
-      if (found == polyEdges.end())
-      {
-        // Kept for the pair from either end, as the face orientation turns it.
-        TopoDS_Edge seen = e;
-        seen.Orientation(fc.Orientation());
-        polyEdges.emplace(std::make_pair(ka, kb), seen);
-        polyEdges.emplace(std::make_pair(kb, ka), seen);
-      }
-      bb.Add(w, e);
-    }
-    w.Closed(BRep_Tool::IsClosed(w));
-    return w;
-  }
-
   TopoDS_Shell shell(int k)
   {
     BRep_Builder bb;
@@ -1277,7 +1251,7 @@ struct Builder
       TopoDS_Face f = face(r.i32(CBR_FACE_USE_FACE)[j]);
       if (f.IsNull())
         continue;
-      bb.Add(sh, r.u8(CBR_FACE_USE_SENSE)[j] ? f : TopoDS::Face(f.Reversed()));
+      bb.Add(sh, f);
     }
     sh.Closed(r.u8(CBR_SHELL_KIND)[k] == CBR_SHELL_CLOSED);
     return sh;
@@ -1295,7 +1269,7 @@ struct Builder
       for (int j = first; j < first + count; ++j)
       {
         TopoDS_Shell sh = shell(r.i32(CBR_MEMBER_REF)[j]);
-        bb.Add(so, r.u8(CBR_MEMBER_SENSE)[j] ? sh : TopoDS::Shell(sh.Reversed()));
+        bb.Add(so, sh);
       }
       return so;
     }
@@ -1306,7 +1280,7 @@ struct Builder
       for (int j = first; j < first + count; ++j)
       {
         TopoDS_Shell sh = shell(r.i32(CBR_MEMBER_REF)[j]);
-        bb.Add(c, r.u8(CBR_MEMBER_SENSE)[j] ? sh : TopoDS::Shell(sh.Reversed()));
+        bb.Add(c, sh);
       }
       return c;
     }
@@ -1317,7 +1291,7 @@ struct Builder
     {
       TopoDS_Edge e = edge(r.i32(CBR_MEMBER_REF)[j]);
       if (!e.IsNull())
-        bb.Add(c, r.u8(CBR_MEMBER_SENSE)[j] ? e : e.Reversed());
+        bb.Add(c, e);
     }
     return c;
   }
@@ -1353,8 +1327,6 @@ BuiltPart buildPart(const uint8_t* buf, size_t len)
     TopoDS_Compound all;
     bb.MakeCompound(all);
     const int ni = b.r.rows(CBR_ITEM_KIND);
-    // Each item's shape, for the instances placing it.
-    std::vector<TopoDS_Shape> itemShapes(ni);
     for (int i = 0; i < ni; ++i)
     {
       const int    kind = b.r.u8(CBR_ITEM_KIND)[i], ref = b.r.i32(CBR_ITEM_REF)[i];
@@ -1398,33 +1370,9 @@ BuiltPart buildPart(const uint8_t* buf, size_t len)
                                  + std::to_string(id) + ": OCCT failed on it (" + e.what() + "); left out");
         }
       }
-      else if (kind == CBR_ITEM_INSTANCE)
-      {
-        // Another item (before it) placed: its shapes shared, moved by the instance's transform.
-        if (ref < 0 || ref >= i || itemShapes[ref].IsNull())
-          throw Unbuilt{"an instance of an item that isn't before it"};
-        bb.Add(one, itemShapes[ref]);
-      }
       else
         bb.Add(one, b.body(ref));
-      TopoDS_Shape placed = one;
-      const int    t = b.r.i32(CBR_ITEM_TRANSFORM)[i];
-      if (t >= 0)
-      {
-        // Column-major x, y, z columns, then the translation; OCCT holds similarities only (a rotation, a mirror, a
-        // uniform scale).
-        const double* m = b.r.f64(CBR_POOL_ITEM_REAL) + t;
-        const gp_Vec  x(m[0], m[1], m[2]), y(m[3], m[4], m[5]), z(m[6], m[7], m[8]);
-        const double  sx = x.Magnitude(), tol = 1e-9 * std::max(sx, 1.);
-        if (std::abs(y.Magnitude() - sx) > tol || std::abs(z.Magnitude() - sx) > tol || std::abs(x.Dot(y)) > tol * sx
-            || std::abs(y.Dot(z)) > tol * sx || std::abs(z.Dot(x)) > tol * sx || sx == 0)
-          throw Unbuilt{"an item's transform that isn't a similarity"};
-        gp_Trsf tr;
-        tr.SetValues(m[0], m[3], m[6], m[9], m[1], m[4], m[7], m[10], m[2], m[5], m[8], m[11]);
-        placed = one.Moved(TopLoc_Location(tr));
-      }
-      itemShapes[i] = placed;
-      bb.Add(all, placed);
+      bb.Add(all, one);
     }
     out.shape = all;
   }

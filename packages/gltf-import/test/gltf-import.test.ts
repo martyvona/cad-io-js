@@ -3,8 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { Document, WebIO } from '@gltf-transform/core';
-import { addLod, exportView, identity, multiply, partInstances, placedName, pruneView, tessellateScene, validate,
-  viewDifferences, type ExportView, type Mat4, type Occurrence, type PartRef, type Scene } from 'cad-scene';
+import { addLod, exportView, identity, multiply, partInstances, placedName, pruneView, rigidPlacements, tessellateScene,
+  validate, viewDifferences, type ExportView, type Mat4, type Occurrence, type PartRef, type Scene } from 'cad-scene';
 import { glb, gltfJson, type GltfOptions } from 'export-gltf';
 import { StepTessellator } from 'step-export';
 import { importStep } from 'step-import';
@@ -125,13 +125,14 @@ test('a foreign glTF: its tree, a part per mesh (its primitives faces), shared, 
   assert.deepEqual(Array.from(two.lods[0]!.mesh.indices), [0, 1, 2, 5, 7, 6]);
   assert.deepEqual([two.material, two.faceMaterials], [0, [{ face: 1, material: 1 }]]);
   assert.equal(s.parts[1]!.lods[0]!.mesh.curves!.length, 3);
-  // Linear colours to sRGB; the root from metres, Y up.
+  // Linear colours to sRGB; the root turned from Y up, its metres made millimetres in the meshes (a placement holds no
+  // scale: cad-scene's rigid.ts), its translation in millimetres.
   assert.deepEqual(s.materials.map((m) => [m.name, m.color.map((c) => Math.round(c * 255)), m.opacity]),
     [['orange', [255, 128, 0], 0.5], ['grey', [128, 128, 128], 1]]);
-  assert.deepEqual(Array.from(s.roots[0]!.transform).map((x) => Math.round(x)),
-    [1000, 0, 0, 0, 0, 0, 1000, 0, 0, -1000, 0, 0, 0, 0, 0, 1]);
-  assert.deepEqual(Array.from(s.rootParts![0]!.transform).map((x) => Math.round(x)),
-    [1000, 0, 0, 0, 0, 0, 1000, 0, 0, -1000, 0, 0, 1000, 0, 0, 1]);
+  assert.deepEqual(Array.from(s.roots[0]!.transform).map((x) => Math.round(x) + 0),
+    [1, 0, 0, 0, 0, 0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1]);
+  assert.deepEqual(Array.from(s.rootParts![0]!.transform).map((x) => Math.round(x) + 0),
+    [1, 0, 0, 0, 0, 0, 1, 0, 0, -1, 0, 0, 1000, 0, 0, 1]);
   // Onshape's factors are sRGB already.
   assert.ok(srgbFactorsFrom('Onshape Inc.') && !srgbFactorsFrom('elsewhere'));
   // (glTF-Transform's writer names itself the generator: set in the written JSON.)
@@ -143,9 +144,10 @@ test('a foreign glTF: its tree, a part per mesh (its primitives faces), shared, 
   assert.equal((await importGltf(Uint8Array.of(1, 2, 3))).diagnostics[0]!.severity, 'error');
 });
 
-test('a foreign glTF exported again: its top nodes\' frames as they were (metres, Y up), with extras or without',
-  async () => {
-    // (an export's root frame the input's; no turn or node of ours left in it.)
+test('a foreign glTF exported again: its top nodes\' frames as they were (metres, Y up) but for the meshes, now in '
+  + 'millimetres, with extras or without', async () => {
+    // (an export's root frame the input's, its turn by 1/1000 for the meshes in millimetres, and below, translations in
+    // millimetres; no turn or node of ours left in it.)
     const doc = new Document();
     const buffer = doc.createBuffer();
     const pos = doc.createAccessor().setType('VEC3').setArray(Float32Array.of(0, 0, 0, 1, 0, 0, 0, 1, 0))
@@ -168,10 +170,11 @@ test('a foreign glTF exported again: its top nodes\' frames as they were (metres
       const tops = back.getRoot().listScenes()[0]!.listChildren();
       assert.deepEqual(tops.map((n) => n.getName()), ['a', 'b'], `extras ${extras}`);
       const near = (x: number[], y: number[]) => x.every((v, i) => Math.abs(v - y[i]!) < 1e-12);
-      assert.ok(near(tops[0]!.getMatrix(), a.getMatrix()), `a's frame, extras ${extras}: ${tops[0]!.getMatrix()}`);
-      assert.ok(near(tops[1]!.getMatrix(), b.getMatrix()), `b's frame, extras ${extras}: ${tops[1]!.getMatrix()}`);
-      // Below, as they were too.
-      assert.ok(near(tops[1]!.listChildren()[1]!.getMatrix(), b.listChildren()[1]!.getMatrix()), `d, ${extras}`);
+      const top = (m: number[]) => m.map((v, i) => i < 12 && i % 4 < 3 ? v / 1000 : v);
+      const below = (m: number[]) => m.map((v, i) => i >= 12 && i < 15 ? v * 1000 : v);
+      assert.ok(near(tops[0]!.getMatrix(), top(a.getMatrix())), `a's frame, extras ${extras}: ${tops[0]!.getMatrix()}`);
+      assert.ok(near(tops[1]!.getMatrix(), top(b.getMatrix())), `b's frame, extras ${extras}: ${tops[1]!.getMatrix()}`);
+      assert.ok(near(tops[1]!.listChildren()[1]!.getMatrix(), below(b.listChildren()[1]!.getMatrix())), `d, ${extras}`);
     }
   });
 
@@ -240,6 +243,8 @@ test('two placements alike in one component stay two; a tree all instanced, made
     .mesh, edges: [] } }] };
   s.parts.push(other);
   sub.parts.unshift({ ...sub.parts[0]!, part: 2 });
+  // (Rigid, as an importer gives every scene: the feet made millimetres in the meshes.)
+  rigidPlacements(s);
   for (const o of [{ compression: 'none', instancing: true }, { compression: 'none' }] as GltfOptions[]) {
     const view = exportView(s, lines);
     const back = await importGltf((await glb(s, view, { extras: true, ...o })).bytes);
@@ -466,7 +471,8 @@ test('file metadata: a foreign file\'s asset; ours, the source\'s with ours as c
     assert.deepEqual(copied.properties.asset, { ...ours.asset, copyright: '(c) Them' });
   });
 
-test('transforms: a mirror and an uneven scale through glTF as they were; a shear said, and lost', async () => {
+test('transforms: a mirror and an uneven scale made rigid (baked into copies), through glTF as they are; a shear in '
+  + 'a scene not made rigid refused by the exporter', async () => {
   const diag = (x: number, y: number, z: number) => Float64Array.of(x, 0, 0, 0, 0, y, 0, 0, 0, 0, z, 0, 0, 0, 0, 1);
   // (The shear tilts y towards x, keeping its length.)
   const shear = Float64Array.of(1, 0, 0, 0, 0.6, 0.8, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1);
@@ -478,24 +484,19 @@ test('transforms: a mirror and an uneven scale through glTF as they were; a shea
   };
   const cases = [['mirror', diag(-1, 1, 1)], ['uneven', diag(1, 3, 0.5)], ['both', diag(2, -1, 1)]] as const;
   for (const [what, m] of cases) {
+    // (Rigid, as an importer gives every scene: the stretches in copies of the parts.)
     const s = variant(m);
+    rigidPlacements(s);
     const { back, differences } = await roundTrip(s, { compression: 'none' });
     assert.deepEqual(back.diagnostics, [], what);
     assert.deepEqual(differences, [], what);
     const det = (t: Mat4) => t[0]! * (t[5]! * t[10]! - t[6]! * t[9]!) - t[4]! * (t[1]! * t[10]! - t[2]! * t[9]!)
       + t[8]! * (t[1]! * t[6]! - t[2]! * t[5]!);
-    const placed = [...partInstances(back.scene)].map((p) => Math.sign(det(p.transform)));
-    assert.equal(placed.filter((d) => d < 0).length, what === 'uneven' ? 0 : 2, what);
+    assert.ok([...partInstances(back.scene)].every((p) => Math.abs(det(p.transform) - 1) < 1e-9), what);
   }
-  // A shear: said, written without it, so the drawing differs there.
-  const s = variant(shear);
-  const { bytes, diagnostics } = await glb(s, exportView(s, lines), { extras: true, compression: 'none',
-    hidden: 'extension' });
-  assert.deepEqual(diagnostics.map((d) => d.message), ['1 node transform sheared, which glTF\'s translation, ' +
-    'rotation and scale can\'t hold: written without the shear, what\'s below them misshapen']);
-  const back = await importGltf(bytes);
-  assert.notDeepEqual(viewDifferences({ scene: s, view: exportView(s, lines) },
-    { scene: back.scene, view: exportView(back.scene, lines) }, { skipHidden: true }), []);
+  // A shear (or anything else not rigid) not made rigid: refused.
+  assert.throws(() => exportView(variant(shear), lines),
+    /component 0 \(asm\), child 0: a transform that isn't a rotation/);
 });
 
 test('a glTF node matrix with a shear (glTF doesn\'t allow one): said, read without it', async () => {
@@ -527,6 +528,17 @@ test('a glTF node matrix with a shear (glTF doesn\'t allow one): said, read with
  * Where visibly placed mesh vertices are in the world, to 1e-6 mm, once each, sorted (`k`: a factor every coordinate
  * is taken by). (Once each: a reader may split vertices between primitives.)
  */
+/**
+ * Two lists of world points (worldPoints') the same to `tol` (mm): each of each within it of one of the other (float32
+ * meshes scaled at import round in their last bits).
+ */
+function samePoints(got: string[], want: string[], tol: number, what: string) {
+  const pts = (xs: string[]) => xs.map((x) => x.split(' ').map(Number));
+  const g = pts(got), w = pts(want);
+  const near = (p: number[], q: number[]) => Math.hypot(p[0]! - q[0]!, p[1]! - q[1]!, p[2]! - q[2]!) <= tol;
+  for (const p of g) assert.ok(w.some((q) => near(p, q)), `${what}: ${p} got, not wanted`);
+  for (const q of w) assert.ok(g.some((p) => near(p, q)), `${what}: ${q} wanted, not got`);
+}
 const worldPoints = (sc: Scene, k = 1) => [...new Set([...partInstances(sc)].flatMap((pi) => {
   const mesh = sc.parts[pi.part]!.lods[0]?.mesh;
   if (!mesh || !pi.visible) return [];
@@ -548,7 +560,7 @@ test('a unit other than metres: the top nodes turned into it; ours read back as 
     for (const compression of ['none', 'draco'] as const) {
       const { bytes } = await glb(s, exportView(s), { unit, extras: true, compression });
       const got = worldPoints((await importGltf(bytes)).scene);
-      if (compression === 'none') assert.deepEqual(got, want, `${unit}`);
+      if (compression === 'none') samePoints(got, want, 1e-4, `${unit}`);
       else {
         // (Draco quantizes positions, 14 bits over the plate's 25.4 mm: each point within 0.01 mm of one wanted.)
         const pts = (xs: string[]) => xs.map((x) => x.split(' ').map(Number));
@@ -562,7 +574,7 @@ test('a unit other than metres: the top nodes turned into it; ours read back as 
     // Without our extras, read as any glTF is: in metres, so the model 1000 / unit times its size.
     const { bytes } = await glb(s, exportView(s), { unit, compression: 'none' });
     const plain = (await importGltf(bytes)).scene;
-    assert.deepEqual(worldPoints(plain), worldPoints(s, 1000 / unit), `${unit}`);
+    samePoints(worldPoints(plain), worldPoints(s, 1000 / unit), 1e-4 * 1000 / unit, `${unit}`);
     const json = JSON.parse(new TextDecoder().decode(bytes.subarray(20, 20 + new DataView(bytes.buffer,
       bytes.byteOffset).getUint32(12, true)))) as { nodes: { matrix?: number[]; scale?: number[] }[];
       scenes: { nodes: number[] }[] };
