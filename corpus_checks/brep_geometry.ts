@@ -67,7 +67,10 @@ function plantIn(d: BrepData, pick: boolean): BrepData {
   return d;
 }
 
+// (Meshes nothing: a child per thread but one; its children peak at about 1.5 GiB.)
 export const check: FileCheck<undefined, Result> = {
+  inProcess: true,
+  childMemory: 2 * 2 ** 30,
   async setup({ args }) {
     maxMB = Number(args[1] ?? 1000);
   },

@@ -11,6 +11,7 @@
 // where OCCT meshes two faces short of its own measured area, less short mirrored, and judges two faces' validity by
 // handedness. Planted bugs, in about every 10th part's mirror: PLANT=move bakes it 1% of its size off, PLANT=scale at a
 // scale 0.1% off; each must be seen. (A face turned over in a shell isn't: OCCT's healing orients closed shells.)
+// Several files at once (runner.ts), each child with its own OCCT; the log as from one process.
 // Usage: node --max-old-space-size=8192 corpus_checks/bake_occt.ts [file-list.txt] [max MB, default 3]
 import fs from 'node:fs';
 import { BrepBuilder, type BrepData, decode, ITEM_KIND, rowCount } from '../packages/cad-brep/src/index.ts';
@@ -18,20 +19,17 @@ import type { TessellationResult } from '../packages/cad-scene/src/index.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
 import { OcctTessellator } from '../packages/tess-occt/src/index.ts';
 import { corpusFiles, plantedPart, shortName } from './corpus.ts';
+import { addInto, runFiles, type FileCheck } from './runner.ts';
 import { hostLine } from '../scripts/host.ts';
 
-console.log(await hostLine());
-
-const maxMB = Number(process.argv[3] ?? 3);
 const plant = process.env.PLANT;
 const EXAMPLES = 4;
-const tally = new Map<string, { n: number; ex: string[] }>();
-const note = (k: string, ex: string) => {
-  const t = tally.get(k) ?? { n: 0, ex: [] };
-  t.n++;
-  if (t.ex.length < EXAMPLES) t.ex.push(ex);
-  tally.set(k, t);
-};
+/** A file's tallies, added up over the files in their order (addInto): examples beyond EXAMPLES cut at the end. */
+interface Tallies {
+  files: number; parts: number; faces: number; planted: number; plantedSeen: number;
+  tally: Map<string, { n: number; ex: string[] }>;
+}
+const fresh = (): Tallies => ({ files: 0, parts: 0, faces: 0, planted: 0, plantedSeen: 0, tally: new Map() });
 
 const rot = (a: number, ax: 'x' | 'z') => {
   const c = Math.cos(a), s = Math.sin(a);
@@ -97,14 +95,20 @@ function looseIds(d: BrepData): Set<number> {
   return out;
 }
 
-const occt = new OcctTessellator();
-await occt.init();
-let files = 0, parts = 0, faces = 0, planted = 0, plantedSeen = 0;
 const LINEAR = 0.05, ANGULAR = 0.3;
-for (const f of corpusFiles(process.argv[2])) {
-  if (fs.statSync(f).size > maxMB * 1e6) continue;
+let occt: OcctTessellator, maxMB = 3;
+/** One file: every part of it baked and compared. */
+async function bakeFile(f: string): Promise<Tallies> {
+  const R = fresh(), tally = R.tally;
+  const note = (k: string, ex: string) => {
+    const t = tally.get(k) ?? { n: 0, ex: [] };
+    t.n++;
+    if (t.ex.length < EXAMPLES) t.ex.push(ex);
+    tally.set(k, t);
+  };
+  if (fs.statSync(f).size > maxMB * 1e6) return R;
   const name = shortName(f);
-  process.stderr.write(`${++files} ${name}\n`);
+  R.files++;
   const { scene } = await importStep(new Uint8Array(fs.readFileSync(f)));
   for (const part of scene.parts) {
     const d = part.brep?.model;
@@ -118,7 +122,7 @@ for (const f of corpusFiles(process.argv[2])) {
       note('the model as it is: OCCT threw (left out)', `${where}: ${(e as Error).message.split('\n')[0]}`);
       continue;
     }
-    parts++;
+    R.parts++;
     const loose = looseIds(d);
     const mr = new Map((ref.measures ?? []).map((x) => [x.entityId, x])), sr = faceStats(ref);
     let size = 1;
@@ -146,7 +150,7 @@ for (const f of corpusFiles(process.argv[2])) {
       }
       const mb = new Map((b.measures ?? []).map((x) => [x.entityId, x])), sb = faceStats(b);
       for (const [id, x] of mr) {
-        faces++;
+        R.faces++;
         const lo = loose.has(id) ? ' (loose geometry)' : '';
         const y = mb.get(id);
         if (!y) { say(`measured on the model as it is only${lo}`, `${at} face #${id}`); continue; }
@@ -172,15 +176,41 @@ for (const f of corpusFiles(process.argv[2])) {
         }
       }
       for (const id of mb.keys()) if (!mr.has(id)) say('measured baked only', `${at} face #${id}`);
-      if (isPlanted) { planted++; if (hit) plantedSeen++; else note('a planted part not seen', at); }
+      if (isPlanted) { R.planted++; if (hit) R.plantedSeen++; else note('a planted part not seen', at); }
     }
   }
+  return R;
 }
-console.log(`${files} files (up to ${maxMB} MB), ${parts} parts x ${TRANSFORMS.length} transforms, ${faces} faces `
-  + 'compared');
-if (plant) console.log(`PLANT=${plant}: ${planted} planted, ${plantedSeen} seen`);
-for (const [k, v] of [...tally].sort((x, y) => y[1].n - x[1].n)) {
-  console.log(`${String(v.n).padStart(7)}  ${k}`);
-  for (const ex of v.ex) console.log(`           ${ex}`);
+
+// (Meshes in each child, no pool: a child per thread but one; its children peak at about 2.5 GiB.)
+export const check: FileCheck<undefined, Tallies> = {
+  inProcess: true,
+  childMemory: 3 * 2 ** 30,
+  async setup({ args }) {
+    maxMB = Number(args[1] ?? 3);
+    occt = new OcctTessellator();
+    await occt.init();
+  },
+  file: (f) => bakeFile(f),
+};
+
+if (import.meta.main) {
+  console.log(await hostLine());
+  maxMB = Number(process.argv[3] ?? 3);
+  const all = fresh();
+  await runFiles(import.meta.url, check, corpusFiles(process.argv[2]).map((f) => ({ path: f, job: undefined })),
+    process.argv.slice(2), (f, out) => {
+      if ('result' in out) addInto(all, out.result);
+      else addInto(all, { ...fresh(), tally: new Map([['a file failed', { n: 1, ex: [`${shortName(f)}: ${
+        out.error.split('\n')[0]}`] }]]) });
+    });
+  const { files, parts, faces, planted, plantedSeen, tally } = all;
+  console.log(`${files} files (up to ${maxMB} MB), ${parts} parts x ${TRANSFORMS.length} transforms, ${faces} faces `
+    + 'compared');
+  if (plant) console.log(`PLANT=${plant}: ${planted} planted, ${plantedSeen} seen`);
+  for (const [k, v] of [...tally].sort((x, y) => y[1].n - x[1].n)) {
+    console.log(`${String(v.n).padStart(7)}  ${k}`);
+    for (const ex of v.ex.slice(0, EXAMPLES)) console.log(`           ${ex}`);
+  }
+  process.exit(0);
 }
-process.exit(0);

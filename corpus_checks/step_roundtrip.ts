@@ -278,7 +278,9 @@ const readOcct = async (bytes: Uint8Array): Promise<OcctResult> => {
   }
 };
 
+// (OCCT's import and probe in each child, no pool: a child per thread but one, at about 3 GiB each.)
 export const check: FileCheck<undefined, Result> = {
+  inProcess: true,
   async setup({ args }) {
     maxMB = Number(args[1] ?? 1000);
     await loadOcct();

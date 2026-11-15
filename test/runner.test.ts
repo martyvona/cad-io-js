@@ -91,7 +91,8 @@ test('addInto: numbers, pairs element by element, rows appended, maps by key, ob
   assert.throws(() => addInto({ n: 1 }, { n: [1] } as never), /aren't tallies/);
 });
 
-test('division: a third of the threads as children, fewer where memory is short; CHILDREN and MESH_WORKERS override',
+test('division: a third of the threads as children, fewer where memory is short; CHILDREN and MESH_WORKERS override; '
+  + 'in-process checks a child per thread',
   () => {
     const GiB = 2 ** 30, saved = { c: process.env.CHILDREN, m: process.env.MESH_WORKERS };
     delete process.env.CHILDREN;
@@ -105,11 +106,42 @@ test('division: a third of the threads as children, fewer where memory is short;
       assert.deepEqual(division(64, 32 * GiB), { children: 8, meshWorkers: 6 });
       assert.deepEqual(division(64, 31.9 * GiB), { children: 7, meshWorkers: 8 });
       assert.deepEqual(division(1, 1 * GiB), { children: 1, meshWorkers: 1 });
+      // A check that meshes in its own process: a child per thread but one, as memory allows, no meshing workers.
+      assert.deepEqual(division(10, 24 * GiB, { inProcess: true }), { children: 6, meshWorkers: 0 });
+      assert.deepEqual(division(10, 24 * GiB, { inProcess: true, childMemory: 2 * GiB }), { children: 9,
+        meshWorkers: 0 });
+      assert.deepEqual(division(1, 24 * GiB, { inProcess: true }), { children: 1, meshWorkers: 0 });
+      assert.deepEqual(division(10, 2 * GiB, { inProcess: true }), { children: 1, meshWorkers: 0 });
       process.env.CHILDREN = '0';
       assert.deepEqual(division(28, 62.5 * GiB), { children: 0, meshWorkers: 26 });
+      assert.deepEqual(division(28, 62.5 * GiB, { inProcess: true }), { children: 0, meshWorkers: 0 });
       process.env.CHILDREN = '5';
       process.env.MESH_WORKERS = '7';
       assert.deepEqual(division(28, 62.5 * GiB), { children: 5, meshWorkers: 7 });
+    } finally {
+      for (const [k, v] of [['CHILDREN', saved.c], ['MESH_WORKERS', saved.m]] as const) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
+  });
+
+test('runFiles divides by the check\'s kind: an in-process one\'s children get no meshing workers',
+  { timeout: 60_000 }, async () => {
+    const saved = { c: process.env.CHILDREN, m: process.env.MESH_WORKERS };
+    process.env.CHILDREN = '2';
+    delete process.env.MESH_WORKERS;
+    try {
+      const ok = files.filter((f) => !('fail' in f.job));
+      const sizes = async (c: typeof check) => {
+        const got: { pid: number; workers: number }[] = [];
+        await runFiles(FIXTURE, c, ok, [], (_p, r) => { if ('result' in r) got.push(r.result); });
+        return { children: new Set(got.map((g) => g.pid)).size, workers: [...new Set(got.map((g) => g.workers))] };
+      };
+      // Pooled: each child the host's meshing workers (at least one); in process: none.
+      assert.deepEqual(await sizes(check), { children: 2, workers: [division().meshWorkers] });
+      assert.ok(division().meshWorkers >= 1);
+      assert.deepEqual(await sizes({ ...check, inProcess: true }), { children: 2, workers: [0] });
     } finally {
       for (const [k, v] of [['CHILDREN', saved.c], ['MESH_WORKERS', saved.m]] as const) {
         if (v === undefined) delete process.env[k];

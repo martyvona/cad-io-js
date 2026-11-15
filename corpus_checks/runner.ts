@@ -13,6 +13,10 @@
 // include 6 efficiency cores, slower than the 4 a lone meshing worker would get (bug24024_slow_import.stp's largest
 // part took 29 s in one run, 64 s in another). So timeouts need room: the pool's default 120 s, not less (that part
 // timed out at 60 s). CHILDREN=0 runs every file in the main process (for debugging and timing).
+//
+// A check that meshes in its own process, if at all (no worker pool: `inProcess`), gets a child per thread but one
+// instead, as memory allows at its `childMemory` each, and no meshing workers: a third of the threads would leave the
+// rest idle.
 import { fork, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -27,6 +31,10 @@ export interface FileCheck<J, R> {
   file(path: string, job: J): Promise<R>;
   /** Once per process, after its last file. */
   teardown?(): void | Promise<void>;
+  /** Meshes in its own process if at all, with no worker pool: a child per thread but one (division). */
+  inProcess?: boolean;
+  /** The memory a child is given room for (default CHILD_MEMORY), from its peak over the corpus. */
+  childMemory?: number;
 }
 
 /**
@@ -35,10 +43,19 @@ export interface FileCheck<J, R> {
  */
 export const CHILD_MEMORY = 4 * 2 ** 30;
 
-/** How the machine is divided (above): `threads` and `memory` (bytes) the host's, by default this one's. */
-export function division(threads = os.availableParallelism(), memory = usableMemory()):
+/**
+ * How the machine is divided (above): `threads` and `memory` (bytes) the host's, by default this one's; `kind` the
+ * check's (FileCheck's `inProcess`, `childMemory`).
+ */
+export function division(threads = os.availableParallelism(), memory = usableMemory(),
+  kind: { inProcess?: boolean; childMemory?: number } = {}):
   { children: number; meshWorkers: number } {
-  const fallback = Math.max(1, Math.min(Math.floor(threads / 3), Math.floor(memory / CHILD_MEMORY)));
+  const room = Math.floor(memory / (kind.childMemory ?? CHILD_MEMORY));
+  if (kind.inProcess) {
+    const children = Math.max(0, Number(process.env.CHILDREN ?? Math.max(1, Math.min(threads - 1, room))));
+    return { children, meshWorkers: 0 };
+  }
+  const fallback = Math.max(1, Math.min(Math.floor(threads / 3), room));
   const children = Math.max(0, Number(process.env.CHILDREN ?? fallback));
   const meshWorkers = Number(process.env.MESH_WORKERS ?? Math.max(1,
     Math.floor((threads - 1 - Math.max(1, children)) / Math.max(1, children))));
@@ -52,7 +69,7 @@ export function division(threads = os.availableParallelism(), memory = usableMem
  */
 export async function runFiles<J, R>(moduleUrl: string, check: FileCheck<J, R>, files: { path: string; job: J }[],
   args: string[], merge: (path: string, r: { result: R } | { error: string }) => void): Promise<void> {
-  const { children, meshWorkers } = division();
+  const { children, meshWorkers } = division(undefined, undefined, check);
   const peak = new Peak();
   if (children === 0) {
     await check.setup?.({ meshWorkers, args });

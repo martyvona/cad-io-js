@@ -60,7 +60,9 @@ const fresh = () => ({ totals: { files: 0, skipped: 0, occtFailed: 0, parts: 0, 
   colourSamples: 0, colourMatch: 0 }, rows: [] as string[] });
 type Tallies = ReturnType<typeof fresh>;
 
+// (Our OCCT backend and occt-import-js in each child, no pool: a child per thread but one, at about 3 GiB each.)
 export const check: FileCheck<undefined, Tallies> = {
+  inProcess: true,
   async setup({ args }) {
     maxBytes = Number(args[1] ?? 2) * 1e6;
     occt = await loadOcct();
