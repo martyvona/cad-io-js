@@ -9,7 +9,7 @@ import { test } from 'node:test';
 import { openEdges, oracleMeasures, type TessellationResult } from 'cad-scene';
 import { MODELS } from '../../cad-brep/test/models.ts';
 import { CadioTessellator, VERSION } from '../src/index.ts';
-import { fold } from '../native/test/models.ts';
+import { cap, fold, offPoleArc } from '../native/test/models.ts';
 
 const dist = path.join(import.meta.dirname, '..', 'dist', 'tess_cadio.wasm');
 const skip = fs.existsSync(dist) ? false : 'tess-cadio\'s module not built (run packages/tess-cadio/build.sh module)';
@@ -116,16 +116,25 @@ test('the seam cylinder: its seam a seam; a sphere\'s faces: the whole one faile
     }
   });
 
-test('triangles still refused counted, and those in a pole\'s fan apart (the hemisphere at a loose angle)', { skip },
-  async () => {
+test('triangles still refused counted, those in a pole\'s fan apart: a cap through its pole, an arc passing near one',
+  { skip }, async () => {
     const t = await tessellator();
-    const r = await t.tessellate(req('spheres', { linearDeflection: 0.1, angularDeflection: 0.5 }));
     const re = /^(\d+) faces meshed with triangles their criteria still refuse: (\d+) triangles, (\d+) of them slivers/;
-    const w = r.diagnostics.map((x) => re.exec(x.message)).find((m) => m);
-    assert.ok(w, JSON.stringify(r.diagnostics));
-    assert.equal(w[1], '1');
-    assert.ok(Number(w[2]) >= 1);
-    assert.equal(w[3], w[2]);
+    const refused = async (model: { finish(): { buffer: ArrayBuffer } }) => {
+      const r = await t.tessellate({ ...req('cube'), data: new Uint8Array(model.finish().buffer),
+        linearDeflection: 0.1, angularDeflection: 0.5 });
+      return r.diagnostics.map((x) => re.exec(x.message)).find((m) => m);
+    };
+    // The cap's refused triangles all at its pole; offPoleArc's, its boundary 7e-4 from the pole, none at it.
+    const c = await refused(cap());
+    assert.ok(c);
+    assert.equal(c[1], '1');
+    assert.ok(Number(c[2]) >= 1);
+    assert.equal(c[3], c[2]);
+    const o = await refused(offPoleArc());
+    assert.ok(o);
+    assert.ok(Number(o[2]) >= 1);
+    assert.equal(o[3], '0');
   });
 
 test('the origin subtracted in double precision; without edges, none', { skip }, async () => {

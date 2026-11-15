@@ -141,8 +141,10 @@ struct PartMesher::Impl {
         s.eval(mesh.points[i].x, mesh.points[i].y, 0, q);
         out.points[i] = q.p;
       }
+      // (At a singular point, the limit where the surface gives one: surface.h's normal() with Status::singular.)
       Vec3 nn;
-      if (s.normal(mesh.points[i].x, mesh.points[i].y, nn) == Status::ok && std::isfinite(norm(nn)) && norm(nn) > 0) {
+      Status ns = s.normal(mesh.points[i].x, mesh.points[i].y, nn);
+      if ((ns == Status::ok || ns == Status::singular) && std::isfinite(norm(nn)) && std::fabs(norm(nn) - 1) < 1e-9) {
         out.normals[i] = sense * nn;
         regular[i] = 1;
       }
@@ -160,8 +162,8 @@ struct PartMesher::Impl {
       if (sense > 0) out.triangles.insert(out.triangles.end(), {a, b, c});
       else out.triangles.insert(out.triangles.end(), {a, c, b});
     }
-    // At a singular point (a pole, an apex) the limit: the mean of its triangles' other corners' normals, else of
-    // the triangles' own normals, else any regular vertex's.
+    // At a singular point (a pole, an apex) with no limit given: the mean of its triangles' other corners' normals,
+    // else of the triangles' own normals, else any regular vertex's.
     for (size_t i = 0; i < n; i++) {
       if (regular[i]) continue;
       Vec3 sum{0, 0, 0}, geo{0, 0, 0};
@@ -198,7 +200,11 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
   // The faces' (u, v) boxes from a first sampling, their criteria, then the edges again at the spacing they ask.
   std::vector<double> spacing(nf, INFINITY);
   {
-    EdgeMesh first(m, I.edgeOptions());
+    // (Only for the boxes: a coarse sampling, 10 x the deflection, no angle, as each sample there is an inversion.)
+    EdgeOptions rough = I.edgeOptions();
+    rough.deflection *= 10;
+    rough.angle = 0;
+    EdgeMesh first(m, rough);
     for (int f = 0; f < nf; f++) {
       if (!I.surfaces[f]) continue;
       FaceBoundary fb = first.face(f);

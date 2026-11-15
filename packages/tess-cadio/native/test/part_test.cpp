@@ -212,6 +212,7 @@ TEST_CASE("curved faces (a seam cylinder, a band, a hemisphere, a cap, a lune): 
          Case{"spheres", 1, 2 * M_PI, 1, {10, 0, 0}, false},
          Case{"halfCap", 0, M_PI * 0.6, 1, {0, 0, 0}, false, 0.1},
          Case{"meridianHemisphere", 0, 2 * M_PI, 1, {0, 0, 0}, false, 0.1},
+         Case{"meridianHemisphereLoose", 0, 2 * M_PI * 3.81 * 3.81, 3.81, {0, 0, 0}, false, 0.4},
          Case{"offPoleArc", 0, M_PI, 1, {0, 0, 0}, false, 0.1},
          Case{"bsplineTube", 0, 20 * M_PI, 2, {0, 0, 0}, true}, Case{"bsplineDome", 0, 2 * M_PI, 1, {0, 0, 0}, false},
          Case{"bsplineTubeTinyArc", 0, 20 * M_PI, 2, {0, 0, 0}, true},
@@ -219,10 +220,7 @@ TEST_CASE("curved faces (a seam cylinder, a band, a hemisphere, a cap, a lune): 
          Case{"luneQuarter", 0, M_PI, 1, {}, false}}) {
     cadgeom::Model m = load(c.model);
     REQUIRE(m.ok());
-    // (B-spline surfaces at the coarser deflection only: by the reference inversion, every sample a grid search.)
-    bool bspline = std::string(c.model).rfind("bspline", 0) == 0;
     for (double d : {0.05, 0.01}) {
-      if (bspline && d < 0.05) continue;
       PartMesher pm(m, options(d, 0.26));
       const FaceMesh& fm = pm.face(c.face);
       if (fm.status != cadgeom::Status::ok) std::printf("  %s: status %d\n", c.model, int(fm.status));
@@ -428,14 +426,14 @@ TEST_CASE("p-curves parameterized against Part 42 (their own range, a squared pa
   }
 }
 
-TEST_CASE("cut placements: away from a pole line, off a line crossed thrice, through a junction into a one-span arc") {
+TEST_CASE("cut placements: off a pole line, off a line crossed thrice, into a one-span arc, the face's way round v") {
   struct Case {
     const char* model;
     double area, slack;
   };
   // (Medium profile: the notch's 0.2 rad arc one span, its only crossing of u = 0 from the junction before it.)
   for (Case c : {Case{"offPoleRest", 3 * M_PI, 0.02}, Case{"wigglyBand", 20 * M_PI - 0.9, 0.01},
-         Case{"notchBand", 20 * M_PI - 0.2, 0.01}}) {
+         Case{"notchBand", 20 * M_PI - 0.2, 0.01}, Case{"torusOuterHalf", 2 * M_PI * (3 * M_PI + 2), 0.01}}) {
     cadgeom::Model m = load(c.model);
     REQUIRE(m.ok());
     PartMesher pm(m, options(0.1, 15 * M_PI / 180));
