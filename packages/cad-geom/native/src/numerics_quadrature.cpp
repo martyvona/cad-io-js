@@ -58,13 +58,13 @@ bool rule(const std::function<double(double)>& f, double a, double b, Piece& out
     mag += wgk[j] * (std::fabs(f1) + std::fabs(f2));
     if (j % 2 == 1) g += wg[j / 2] * (f1 + f2);
   }
-  // Rounding: the sums' (50 ulp of the integral of |f|), and the nodes' own. Each node is only where it rounds to,
-  // within ulp(c), which moves the integral by at most ulp(c) times f's variation over the piece (its samples' spread
-  // for it): irreducible by halving, the variations summing to f's, so an integral cancelling to 0 near a large
-  // coordinate is known only to that.
+  // Rounding: the sums' (50 ulp of the integral of |f|), in the estimate; and the nodes' own, which only tells noise
+  // from signal. Each node is only where it rounds to, within ulp(c), which moves the integral by at most ulp(c) times
+  // f's variation over the piece (its samples' spread for it): irreducible by halving, the variations summing to f's,
+  // so changes below it say nothing, and an integral cancelling to 0 near a large coordinate is known only to that.
   const double where = std::fabs(c), ulp = std::nextafter(where, INFINITY) - where;
-  const double rounding = 50 * std::numeric_limits<double>::epsilon() * mag * std::fabs(h) + ulp * (hi - lo);
-  out = {a, b, k * h, std::fmax(std::fabs((k - g) * h), rounding), rounding};
+  const double sums = 50 * std::numeric_limits<double>::epsilon() * mag * std::fabs(h);
+  out = {a, b, k * h, std::fmax(std::fabs((k - g) * h), sums), sums + ulp * (hi - lo)};
   return finite;
 }
 

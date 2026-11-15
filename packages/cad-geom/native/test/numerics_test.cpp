@@ -779,6 +779,24 @@ TEST_CASE("quadrature: an integral cancelling to 0 under a relTol: noConvergence
   CHECK(abs.status == Status::ok);
 }
 
+TEST_CASE("quadrature: a smooth integral near a large t, halved down to its nodes' rounding: finite, covering, early") {
+  // sin(1000 (t - 1e6)) over [1e6, 1e6 + 1]: the nodes are only placed to ulp(1e6), so halvings reach changes that
+  // are that rounding's noise; they mustn't read as a tail (not shrinking: infinite) or run to maxEval.
+  const double exact = (1 - std::cos(1000.0)) / 1000;
+  int n = 0;
+  Estimate e = quadrature::integrate([&](double t) { n++; return std::sin(1e3 * (t - 1e6)); }, 1e6, 1e6 + 1, 0, 1e-9);
+  CHECK(e.status == Status::noConvergence);
+  CHECK(std::isfinite(e.error));
+  CHECK(std::fabs(e.value - exact) <= e.error);
+  // The nodes' rounding isn't in the estimate (numerics.h): summed over the pieces it would be 5e-8 here.
+  CHECK(e.error <= 2e-8);
+  CHECK(n < 50000);
+  // Relative to the range's start (as callers keep t), the same integral converges.
+  Estimate r = quadrature::integrate([](double s) { return std::sin(1e3 * s); }, 0, 1, 0, 1e-9);
+  CHECK(r.status == Status::ok);
+  CHECK(std::fabs(r.value - exact) <= r.error + 1e-15);
+}
+
 TEST_CASE("quadrature: non-finite values, infinite or empty ranges") {
   Estimate e = quadrature::integrate([](double x) { return 1 / x; }, -1, 1, 0, 1e-8);  // 0 is the centre node
   CHECK(e.status == Status::singular);
