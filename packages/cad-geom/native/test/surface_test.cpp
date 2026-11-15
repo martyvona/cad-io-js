@@ -860,3 +860,68 @@ TEST_CASE("searched feet: unique off the axis on the B-spline sphere and torus, 
     }
   }
 }
+
+TEST_CASE("cases the planted bugs found: an offset's box at one pole, a foot beside a knot, a hint across a seam") {
+  // The offset sphere's box over a strip touching only its north pole holds the strip's points (the reduced normal's
+  // sign on that side of the pole line).
+  {
+    const fixtures::Reference* ref = fixtures::reference("offset", "s1");
+    REQUIRE(ref);
+    const Model m(ref->data, ref->size);
+    Status s;
+    auto S = makeSurface(m, 1, s);
+    REQUIRE(S);
+    const SurfaceImpl* t = impl(S.get());
+    // (A narrow range of u, as the search's rectangles near a pole are: over a whole turn the reduced normal's box
+    // holds 0 and the box is the basis's widened by |d|.) Tighter than that ball: the offset pole at |z| 2.5, the
+    // ball's reaching 1.5.
+    for (Range rv : {Range{M_PI / 2 - 0.1, M_PI / 2}, Range{-M_PI / 2, -M_PI / 2 + 0.1}}) {
+      Range ru{1, 1.2};
+      Box3 b;
+      CHECK(t->derivBox(ru, rv, 0, 0, b) == Status::ok);
+      CHECK(std::fmin(std::fabs(b.z.lo), std::fabs(b.z.hi)) > 2.2);
+      for (int x = 0; x <= 12; x++)
+        for (int y = 0; y <= 6; y++) {
+          SurfacePoint q;
+          S->eval(ru.lo + (ru.hi - ru.lo) * x / 12, rv.lo + (rv.hi - rv.lo) * y / 6, 0, q);
+          CHECK(inBox(b, q.p));
+        }
+    }
+  }
+  // The B-spline sphere's foot 1e-6 beside its knot line u = 1/4 (where the search's rectangles meet): one foot,
+  // not a second at the knot line, whose distance differs by far less than tol.
+  {
+    const fixtures::Reference* ref = fixtures::reference("bsplineSphere", "s1");
+    REQUIRE(ref);
+    const Model m(ref->data, ref->size);
+    Status s;
+    auto S = makeSurface(m, 0, s);
+    REQUIRE(S);
+    SurfaceDomain d = S->domain();
+    for (double du : {1e-6, -1e-6, 1e-8}) {
+      SurfacePoint q;
+      S->eval(0.25 + du, 0.6, 0, q);
+      SurfaceInversion inv = invertSurface(*S, 1.5 * q.p, d.u, d.v, 1e-9);
+      CHECK(inv.status == Status::ok);
+      CHECK(inv.certainty == Certainty::unique);
+      CHECK(inv.alternatives.empty());
+      CHECK_NEAR(inv.distance, norm(q.p) * 0.5, 1e-12, 1e-12);
+    }
+  }
+  // The torus's centre with a hint just below u = 2 pi: of the continuum's samples the hint picks u = 0, a seam away
+  // (0.05 the short way round), not the nearest by the plain difference.
+  {
+    const fixtures::Reference* ref = fixtures::reference("torus", "s1");
+    REQUIRE(ref);
+    const Model m(ref->data, ref->size);
+    Status s;
+    auto S = makeSurface(m, 0, s);
+    REQUIRE(S);
+    SurfaceDomain d = S->domain();
+    Vec2 hint{kTwoPi - 0.05, M_PI};
+    SurfaceInversion inv = invertSurface(*S, {0, 0, 0}, d.u, d.v, 1e-9, &hint);
+    CHECK(inv.certainty == Certainty::ambiguous);
+    CHECK_NEAR(inv.uv.x, 0, 0, 1e-12);
+    CHECK_NEAR(inv.uv.y, M_PI, 0, 1e-9);
+  }
+}
