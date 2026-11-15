@@ -17,7 +17,8 @@
 //     cylinders, spheres, tori, B-splines) or maps affinely (cones: v' = v / cos a), at our (u, v) tolerance; the
 //     differences classified (OCCT on: its band wider than ours; on periodic faces, whether OCCT agrees with the
 //     point shifted by a period, and whether it's near the seam; the rest listed).
-// Pole lines: cad_geom_api.cpp's closed forms (a cone's apex, a sphere's poles), not yet Surface::singularities.
+// Pole lines and periods: cad_geom_api.cpp's (closed forms for cones and spheres, a domain's collapsed and coinciding
+// edges sampled), not yet Surface::singularities.
 // Planted bugs in about one part in 10 (corpus.ts's plantedPart), on its first face the check judges, each of which
 // must show (those that don't are listed), judged against the unplanted model's boundary: PLANT=orient reverses the
 // orientation of the coedges of the face's first edge loop (its in and out swap), PLANT=gap moves the first line

@@ -408,3 +408,105 @@ test('faces: line p-curves scaled otherwise than their 3D lines get their own ra
   const r = g.classifyOnFace(0, [0.5, 0.5, 1.5, 0.5, 0.5, -0.5, 1, 0.5]);
   assert.deepEqual([...r.sides].map((x) => ['in', 'out', 'on'][x]), ['in', 'out', 'out', 'on']);
 });
+
+/** A degree-1 B-spline curve (2D or 3D) through two points on [0, 1]. */
+function segment(b: BrepBuilder, p: number[], q: number[]): number {
+  return b.addCurve({ kind: 'bspline', degree: 1, knots: [0, 1], multiplicities: [2, 2], poles: [p, q], closed: false,
+    selfIntersect: false, form: 'polyline_form' });
+}
+
+test('faces: a B-spline\'s collapsed side is a pole line; a surface closed in fact gets a period', { skip },
+  async () => {
+  const module = await init();
+  {
+    // A bilinear patch with its v = 0 side one point (poles[u][v]: poles[0][0] = poles[1][0]): a triangle whose loop
+    // leaves out the degenerate side, jumping from (0, 0) to (1, 0) along it.
+    const b = new BrepBuilder();
+    const A = [0, 0, 0], B = [-1, 1, 0], C = [1, 1, 0];
+    const surf = b.addSurface({ kind: 'bspline', uDegree: 1, vDegree: 1, uKnots: [0, 1], vKnots: [0, 1],
+      uMultiplicities: [2, 2], vMultiplicities: [2, 2], poles: [[A, B], [A, C]], uClosed: false, vClosed: false,
+      selfIntersect: false, form: 'unspecified' });
+    const [va, vb, vc] = [A, B, C].map((p) => b.addVertex({ point: p }));
+    const edge = (from: number, to: number, p: number[], q: number[]) =>
+      b.addEdge({ curve: segment(b, p, q), start: from, end: to, sameSense: true });
+    const coedges = [[edge(va!, vc!, A, C), [1, 0], [1, 1]], [edge(vc!, vb!, C, B), [1, 1], [0, 1]],
+      [edge(vb!, va!, B, A), [0, 1], [0, 0]]].map(([e, p, q]) => ({ edge: e as number, orientation: 'forward' as const,
+      pcurve: segment(b, p as number[], q as number[]) }));
+    const f = b.addFace({ surface: surf, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true,
+      coedges }] });
+    b.addItem({ kind: 'face', ref: f });
+    using g = new Geometry(module, new Uint8Array(b.finish().buffer));
+    const info = g.faceInfo(0);
+    assert.equal(info.status, 'ok');
+    assert.deepEqual(info.poles, [{ isoU: false, at: 0 }]);
+    const r = g.classifyOnFace(0, [0.5, 0.5, 0.5, 1.5, 0.5, 0]);
+    assert.deepEqual([...r.statuses], [0, 0, 0]);
+    assert.deepEqual([...r.sides].map((x) => ['in', 'out', 'on'][x]), ['in', 'out', 'on']);
+  }
+  {
+    // A tube (degree 1 around a diamond in v on [0, 4], closed in fact, not periodic; u its height), its face the
+    // side v in [3, 4] up to the seam. The sides' p-curves are on [0, 1] and their 3D lines on [0, sqrt 2], so their
+    // ranges are their own, through the vertices at v = 4, which invert to v = 0: a period off.
+    const b = new BrepBuilder();
+    const diamond = [[1, 0], [0, 1], [-1, 0], [0, -1], [1, 0]];
+    const surf = b.addSurface({ kind: 'bspline', uDegree: 1, vDegree: 1, uKnots: [0, 1], vKnots: [0, 1, 2, 3, 4],
+      uMultiplicities: [2, 2], vMultiplicities: [2, 1, 1, 1, 2],
+      poles: [0, 1].map((z) => diamond.map(([x, y]) => [x!, y!, z])), uClosed: false, vClosed: true,
+      selfIntersect: false, form: 'unspecified' });
+    const P = [[0, -1, 0], [0, -1, 1], [1, 0, 1], [1, 0, 0]];
+    const vs = P.map((p) => b.addVertex({ point: p }));
+    const uv = [[0, 3], [1, 3], [1, 4], [0, 4]];
+    const coedges = [0, 1, 2, 3].map((k) => {
+      const p = P[k]!, q = P[(k + 1) % 4]!, len = Math.hypot(q[0]! - p[0]!, q[1]! - p[1]!, q[2]! - p[2]!);
+      const line = b.addCurve({ kind: 'line', point: p, direction: q.map((x, i) => (x - p[i]!) / len), magnitude: 1 });
+      const edge = b.addEdge({ curve: line, start: vs[k]!, end: vs[(k + 1) % 4]!, sameSense: true });
+      return { edge, orientation: 'forward' as const, pcurve: segment(b, uv[k]!, uv[(k + 1) % 4]!) };
+    });
+    const f = b.addFace({ surface: surf, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true,
+      coedges }] });
+    b.addItem({ kind: 'face', ref: f });
+    using g = new Geometry(module, new Uint8Array(b.finish().buffer));
+    const info = g.faceInfo(0);
+    assert.equal(info.status, 'ok');
+    assert.equal(info.vPeriod, 4);
+    assert.equal(info.ownRanges, 2);
+    const r = g.classifyOnFace(0, [0.5, 3.5, 0.5, 2.5, 0.5, 0.5, 1.5, 3.5]);
+    assert.deepEqual([...r.statuses], [0, 0, 0, 0]);
+    assert.deepEqual([...r.sides].map((x) => ['in', 'out', 'on'][x]), ['in', 'out', 'out', 'out']);
+  }
+});
+
+test('faces: joints that meet within the 3D tolerance but not the (u, v) one are bridged, not gaps', { skip },
+  async () => {
+  // A cylinder of radius 100, its patch u in [0, 0.01], v in [0, 1]; the left side's p-curve 1e-6 high in v: its
+  // joints meet within the part's 2e-6 in 3D, though 50 x the (u, v) tolerance (2e-6 / 100). Moved 1e-7 in u (1e-5
+  // in 3D, along a line no reparameterization brings to the vertices) they don't: a gap.
+  const module = await init();
+  for (const [du, dv] of [[0, 1e-6], [1e-7, 0]]) {
+  const b = new BrepBuilder({ uncertainty: 2e-6 });
+  const R = 100, w = 0.01;
+  const z = { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] };
+  const cyl = b.addSurface({ kind: 'cylinder', position: z, radius: R });
+  const at = (u: number, v: number) => [R * Math.cos(u), R * Math.sin(u), v];
+  const [v0, v1, v2, v3] = [at(0, 0), at(w, 0), at(w, 1), at(0, 1)].map((p) => b.addVertex({ point: p }));
+  const line2 = (p: number[], d: number[]) => b.addCurve({ kind: 'line', point: p, direction: d, magnitude: 1 });
+  const up = (p: number[]) => b.addCurve({ kind: 'line', point: p, direction: [0, 0, 1], magnitude: 1 });
+  const circle = (h: number) => b.addCurve({ kind: 'circle', position: { ...z, origin: [0, 0, h] }, radius: R });
+  const e0 = b.addEdge({ curve: circle(0), start: v0, end: v1, sameSense: true });
+  const e1 = b.addEdge({ curve: up(at(w, 0)), start: v1, end: v2, sameSense: true });
+  const e2 = b.addEdge({ curve: circle(1), start: v3, end: v2, sameSense: true });
+  const e3 = b.addEdge({ curve: up(at(0, 0)), start: v0, end: v3, sameSense: true });
+  const f = b.addFace({ surface: cyl, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [
+    { edge: e0, orientation: 'forward', pcurve: line2([0, 0], [1, 0]) },
+    { edge: e1, orientation: 'forward', pcurve: line2([w, 0], [0, 1]) },
+    { edge: e2, orientation: 'reversed', pcurve: line2([0, 1], [1, 0]) },
+    { edge: e3, orientation: 'reversed', pcurve: line2([du!, dv!], [0, 1]) }] }] });
+  b.addItem({ kind: 'face', ref: f });
+  using g = new Geometry(module, new Uint8Array(b.finish().buffer));
+  const r = g.classifyOnFace(0, [w / 2, 0.5, 2 * w, 0.5, w / 2, 1.5]);
+  assert.equal(r.status, 'ok');
+  assert.deepEqual([...r.statuses].map((x) => STATUS[x]), Array(3).fill(du ? 'invalidModel' : 'ok'));
+  assert.deepEqual([...r.sides].map((x) => ['in', 'out', 'on'][x]), ['in', 'out', 'out']);
+  assert.ok(r.tolerance[0]! < 1e-7);
+  }
+});
