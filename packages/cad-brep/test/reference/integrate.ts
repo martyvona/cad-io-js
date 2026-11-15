@@ -136,7 +136,9 @@ export function faceIntegral(d: BrepData, f: number, g: (S: SurfaceEvaluator, u:
   if (!S) return undefined;
   const pieces = boundary(d, f, S);
   if (!pieces) return undefined;
-  const ucuts = uKnots(d, s), u0 = Number.isFinite(S.u[0]) ? S.u[0] : 0;
+  // G from u0 at the boundary's first point (any u0 gives the same loop integral; a near one keeps G small, which
+  // matters far from the origin).
+  const ucuts = uKnots(d, s), u0 = pieces[0]!.uv(pieces[0]!.a)[0];
   let sum = 0;
   for (const p of pieces) {
     sum += quad((t) => {
