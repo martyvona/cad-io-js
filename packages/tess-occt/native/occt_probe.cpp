@@ -10,8 +10,10 @@
 //   - Edges (and curve items' edges): their 3D curves' ranges, as the translator set them from the vertices; edges
 //     without a 3D curve left out.
 // occt_probe_build does the same for a part's cad-brep buffer built by the native builder (occt_build.cpp), unhealed,
-// its faces and edges by their source ids (corpus_checks/native_route.ts).
+// its faces and edges by their source ids (corpus_checks/native_route.ts). occt_probe_classify then classifies (u, v)
+// points against such faces by OCCT's 2D face classifier (corpus_checks/geom2d_corpus.ts), in OCCT's parameters.
 
+#include <BRepClass_FaceClassifier.hxx>
 #include <BRep_Tool.hxx>
 #include <DESTEP_Parameters.hxx>
 #include <GeomAPI_ProjectPointOnSurf.hxx>
@@ -39,6 +41,7 @@
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Vertex.hxx>
 #include <TransferBRep.hxx>
+#include <gp_Pnt2d.hxx>
 #include <Transfer_TransientProcess.hxx>
 #include <XSControl_TransferReader.hxx>
 #include <XSControl_WorkSession.hxx>
@@ -297,6 +300,30 @@ void occt_probe_eval(const double* queries, int n, double* out)
         pt = c->Value(q[2]).Transformed(loc.Transformation());
       }
       o[0] = pt.X(); o[1] = pt.Y(); o[2] = pt.Z();
+    }
+    catch (const Standard_Failure&)
+    {
+    }
+  }
+}
+
+// Points against faces: n queries of (id; u; v; tol), (u, v) in OCCT's parameters of the face's surface and tol
+// OCCT's 2D tolerance there, into out: 0 in, 1 out, 2 on, 3 unknown (OCCT's TopAbs_State), 255 where the id isn't
+// kept or the classifier fails.
+void occt_probe_classify(const double* queries, int n, unsigned char* out)
+{
+  for (int k = 0; k < n; ++k)
+  {
+    const double* q = queries + 4 * k;
+    out[k]          = 255;
+    auto it         = p.faces.find((uint32_t)q[0]);
+    if (it == p.faces.end())
+      continue;
+    try
+    {
+      BRepClass_FaceClassifier c(it->second, gp_Pnt2d(q[1], q[2]), q[3]);
+      const TopAbs_State      st = c.State();
+      out[k] = st == TopAbs_IN ? 0 : st == TopAbs_OUT ? 1 : st == TopAbs_ON ? 2 : 3;
     }
     catch (const Standard_Failure&)
     {

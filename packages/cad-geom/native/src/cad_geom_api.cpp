@@ -4,6 +4,7 @@
 // out), since the corpus checks call it millions of times. Statuses and certainties are result.h's codes, one byte
 // each. Lists of varying length (breaks, singular parameters, alternatives) go to one scratch array of doubles,
 // valid until the next call that writes it (cg_scratch, cg_scratch_size).
+#include <algorithm>
 #include <cstdint>
 #include <cstdlib>
 #include <memory>
@@ -347,12 +348,19 @@ int32_t cg_surface_invert(int32_t h, int32_t row, const double* points, int32_t 
 // form there (sqrt of its largest eigenvalue), so every (u, v) step within it is within the 3D one: a thin cylinder's
 // u and a large plane's coordinates each get their own. The 3D tolerance is the caller's where given (tol3d > 0),
 // else the larger of the part's uncertainty and the face's and its edges' tolerances, else DEFAULT_TOL.
-// Face statuses, besides makeCurve's and makeSurface's codes: FACE_NO_PCURVE (a coedge without a p-curve) and
-// FACE_NO_RANGE (a coedge whose p-curve range the model doesn't give).
+// A coedge's p-curve range is the model's, in its edge's start-to-end order (so decreasing where the edge runs
+// against its curve), the use running it forward or back by its orientation. Where the model gives none (STEP
+// never does), it's derived as the p-curve's parameter is defined, the edge's 3D curve's (Part 42's SURFACE_CURVE;
+// brep-reference.md): the edge's range, or its vertices inverted onto its curve (a closed or periodic curve's range
+// a whole period apart where its vertices meet, else the way its sense runs), then checked: the surface at the
+// p-curve's ends must reach the vertices (within 100 x the 3D tolerance).
+// Face statuses, besides makeCurve's and makeSurface's codes: FACE_NO_PCURVE (a coedge without a p-curve),
+// FACE_NO_RANGE (no range given or derivable: no 3D curve or no vertices) and FACE_RANGE_OFF (a derived range's
+// p-curve ends off the vertices: the p-curve parameterized otherwise than its curve).
 
 namespace {
 
-constexpr int32_t FACE_NO_PCURVE = 100, FACE_NO_RANGE = 101;
+constexpr int32_t FACE_NO_PCURVE = 100, FACE_NO_RANGE = 101, FACE_RANGE_OFF = 102;
 constexpr double DEFAULT_TOL = 1e-7;  // mm: where neither the caller nor the model gives a tolerance
 
 struct FaceLoops {
@@ -360,10 +368,73 @@ struct FaceLoops {
   const Surface* surface = nullptr;
   std::vector<Loop2> loops;    // one per edge loop, in the face's order
   std::vector<int> loopIndex;  // each one's index among the face's loops
+  std::vector<double> travel;  // per coedge of its edge loops, in order: the p-curve's parameters where it starts, ends
   int faceLoops = 0;
   Periods periods;
   double tol3 = 0;
 };
+
+/** The 3D tolerance of the coedge's edge: the larger of the part's uncertainty and the edge's, else DEFAULT_TOL. */
+double edgeTolerance(const Model& m, int edge) {
+  double u = m.uncertainty(), t = m.f64(CBR_EDGE_TOLERANCE)[edge];
+  double best = std::isfinite(u) ? u : 0;
+  if (std::isfinite(t) && t > best) best = t;
+  return best > 0 ? best : DEFAULT_TOL;
+}
+
+/** The coedge's p-curve parameters at its edge's start and end (the file's comment): 0, or a face status. */
+int32_t useRange(int32_t h, int c, const Surface* surface, double& t0, double& t1) {
+  const Model& m = entry(h)->model;
+  const double* given = m.f64(CBR_COEDGE_RANGE) + 2 * c;
+  if (std::isfinite(given[0]) && std::isfinite(given[1])) {
+    t0 = given[0], t1 = given[1];
+    return 0;
+  }
+  const int e = m.coedgeEdge(c), ci = m.edgeCurve(e), vs = m.edgeStart(e), ve = m.edgeEnd(e);
+  Range er = m.edgeRange(e);
+  if (std::isfinite(er.lo) && std::isfinite(er.hi)) {
+    t0 = er.lo, t1 = er.hi;
+  } else {
+    if (ci < 0 || vs < 0 || ve < 0) return FACE_NO_RANGE;
+    Status s;
+    const Curve* c3 = curve(h, ci, s);
+    if (!c3) return static_cast<int32_t>(s);
+    const double tol = edgeTolerance(m, e);
+    CurveDomain d = c3->domain();
+    CurveInversion a = invertCurve(*c3, m.vertexPoint(vs), d.range, tol);
+    CurveInversion b = vs == ve ? a : invertCurve(*c3, m.vertexPoint(ve), d.range, tol);
+    if (a.status != Status::ok || b.status != Status::ok) return FACE_NO_RANGE;
+    t0 = a.t, t1 = b.t;
+    const bool forward = m.edgeSameSense(e);
+    if (d.period > 0) {
+      // Round the way the edge runs; a closed edge a whole turn.
+      if (forward) {
+        while (t1 <= t0) t1 += d.period;
+        if (vs != ve && t1 - t0 > d.period) t1 -= d.period;
+      } else {
+        while (t1 >= t0) t1 -= d.period;
+        if (vs != ve && t0 - t1 > d.period) t1 += d.period;
+      }
+    } else if (vs == ve && std::isfinite(d.range.lo) && std::isfinite(d.range.hi)) {
+      // A closed non-periodic curve (a closed B-spline): its whole domain, the way it runs.
+      t0 = forward ? d.range.lo : d.range.hi, t1 = forward ? d.range.hi : d.range.lo;
+    }
+  }
+  // The p-curve's ends through the surface must reach the edge's vertices.
+  if (vs >= 0 && ve >= 0) {
+    Status s;
+    const Curve* pc = curve(h, m.coedgePcurve(c), s);
+    const double tol = edgeTolerance(m, e);
+    for (auto [t, v] : {std::pair{t0, vs}, std::pair{t1, ve}}) {
+      CurvePoint q;
+      pc->eval(t, 0, q);
+      SurfacePoint sp;
+      surface->eval(q.p.x, q.p.y, 0, sp);
+      if (!(norm(sp.p - m.vertexPoint(v)) <= 100 * tol)) return FACE_RANGE_OFF;
+    }
+  }
+  return 0;
+}
 
 FaceLoops faceLoops(int32_t h, int32_t face, double tol3d) {
   FaceLoops out;
@@ -402,15 +473,37 @@ FaceLoops faceLoops(int32_t h, int32_t face, double tol3d) {
         out.status = static_cast<int32_t>(s);
         return out;
       }
-      const double* range = m.f64(CBR_COEDGE_RANGE) + 2 * c;
-      if (!std::isfinite(range[0]) || !std::isfinite(range[1])) {
-        out.status = FACE_NO_RANGE;
+      double t0 = NAN, t1 = NAN;  // at the edge's start and end
+      int32_t rs = useRange(h, c, out.surface, t0, t1);
+      if (rs) {
+        out.status = rs;
         return out;
       }
-      loop.pieces.push_back({pc, {range[0], range[1]}, m.coedgeOrientation(c) == CBR_ORIENTATION_REVERSED});
+      // The use runs start to end forward, end to start reversed.
+      const bool back = m.coedgeOrientation(c) == CBR_ORIENTATION_REVERSED;
+      const double from = back ? t1 : t0, to = back ? t0 : t1;
+      loop.pieces.push_back({pc, {std::min(from, to), std::max(from, to)}, from > to});
+      out.travel.insert(out.travel.end(), {from, to});
     }
     out.loops.push_back(std::move(loop));
     out.loopIndex.push_back(l - m.faceFirstLoop(face));
+  }
+  // geom2d takes a face's loops with the face on their left in (u, v) (outer counterclockwise). A face's loops run
+  // counterclockwise about its normal, which is the surface's (S_u x S_v, counterclockwise in (u, v)) only where its
+  // sense is the surface's: elsewhere they're turned round, the pieces reversed in order and each in direction.
+  if (!m.faceSameSense(face)) {
+    size_t at = 0;
+    for (Loop2& loop : out.loops) {
+      const size_t n = loop.pieces.size();
+      std::reverse(loop.pieces.begin(), loop.pieces.end());
+      for (LoopPiece& p : loop.pieces) p.reversed = !p.reversed;
+      std::vector<double> t(out.travel.begin() + 2 * at, out.travel.begin() + 2 * (at + n));
+      for (size_t i = 0; i < n; i++) {
+        out.travel[2 * (at + i)] = t[2 * (n - 1 - i) + 1];
+        out.travel[2 * (at + i) + 1] = t[2 * (n - 1 - i)];
+      }
+      at += n;
+    }
   }
   out.tol3 = tol3d > 0 ? tol3d : std::isfinite(tol) && tol > 0 ? tol : DEFAULT_TOL;
   return out;
@@ -473,6 +566,18 @@ int32_t cg_face_classify(int32_t h, int32_t face, const double* uv, int32_t n, d
     status[i] = static_cast<uint8_t>(s);
   }
   return 0;
+}
+
+/**
+ * The pieces as geom2d takes them: per coedge of the face's edge loops, in order (reversed, and each piece too, where
+ * the face's sense isn't its surface's), the p-curve's parameters where the piece starts and ends (2 each) into the
+ * scratch; their count, or minus the face's status. The face is on each piece's left in (u, v).
+ */
+int32_t cg_face_pieces(int32_t h, int32_t face) {
+  FaceLoops f = faceLoops(h, face, 0);
+  if (f.status) return -f.status;
+  scratch = f.travel;
+  return static_cast<int32_t>(f.travel.size() / 2);
 }
 
 /**

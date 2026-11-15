@@ -168,10 +168,13 @@ export interface Singularity {
 
 /** geom2d.h's Side, by code. */
 export const SIDE = ['in', 'out', 'on'] as const;
-/** A face's status: a STATUS, or the face's own (cad_geom_api.cpp): a coedge without a p-curve, or its range. */
-export type FaceStatus = Status | 'noPcurve' | 'noPcurveRange';
+/**
+ * A face's status: a STATUS, or the face's own (cad_geom_api.cpp): a coedge without a p-curve, one whose range is
+ * neither given nor derivable, one whose derived range's ends are off its vertices.
+ */
+export type FaceStatus = Status | 'noPcurve' | 'noPcurveRange' | 'pcurveRangeOff';
 function faceStatus(code: number): FaceStatus {
-  return code === 100 ? 'noPcurve' : code === 101 ? 'noPcurveRange' : STATUS[code]!;
+  return code === 100 ? 'noPcurve' : code === 101 ? 'noPcurveRange' : code === 102 ? 'pcurveRangeOff' : STATUS[code]!;
 }
 
 export interface FaceInfo {
@@ -393,6 +396,12 @@ export class Geometry {
     const o = out as Float64Array, v = this.scratch(), poles: FaceInfo['poles'] = [];
     for (let i = 0; i < o[4]!; i++) poles.push({ isoU: v[2 * i] === 1, at: v[2 * i + 1]! });
     return { status: 'ok', tolerance: o[0]!, uPeriod: o[1]!, vPeriod: o[2]!, loops: o[3]!, poles };
+  }
+
+  /** Per coedge of the face's edge loops, in order: the p-curve's parameters where its use starts and ends. */
+  facePieces(face: number): { status: FaceStatus; travel: Float64Array } {
+    const n = this.fn('face_pieces')(this.live(), face);
+    return n < 0 ? { status: faceStatus(-n), travel: new Float64Array() } : { status: 'ok', travel: this.scratch() };
   }
 
   /** classify2 of each (u, v) against the face's loops: sides as SIDE codes, each point's (u, v) tolerance. */
