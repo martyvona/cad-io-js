@@ -31,8 +31,11 @@ enum class Certainty : uint8_t {
   none,
 };
 
-/** Where a value in the model or the analysis came from, so nothing computed passes for the source's. */
-enum class Provenance : uint8_t { given = 0, measured = 1, healed = 2 };
+/**
+ * Where a value in the model or the analysis came from, so nothing computed passes for the source's; the values are
+ * the analysis buffer's (cad-brep's analysis-layout.ts, PROVENANCE).
+ */
+enum class Provenance : uint8_t { none = 0, given = 1, measured = 2, healed = 3 };
 
 /** A point against a region: inside, outside, or on its boundary within the tolerance. */
 enum class Side : uint8_t { in, out, on };
