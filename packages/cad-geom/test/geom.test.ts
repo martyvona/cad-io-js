@@ -185,3 +185,57 @@ test('a buffer that isn\'t a model throws; use after dispose throws; a host\'s g
   assert.equal(h.curveInfo(0).status, 'ok');
   assert.equal(await init(), module);  // the default is shared
 });
+
+test('faces: the catalogue\'s classify2 and nest2 cases through the API (loops, periods, poles, tolerances made '
+  + 'from the model)', { skip }, async () => {
+  const module = await init();
+  let classified = 0, nested = 0, waiting = 0;
+  // The reference makeSurface makes planes, cylinders, spheres and B-splines (1, 2, 4, 6): a face on another kind
+  // (a cone, a torus) is unsupported until the surfaces lane's merge, and waits.
+  let d!: ReturnType<typeof openBrep>;
+  const unsupported = (_file: string, face: number, status: string) =>
+    status === 'unsupported' && ![1, 2, 4, 6].includes(d.surface.kind[d.face.surface[face]!]!) ? (waiting++, true)
+      : false;
+  for (const file of fs.readdirSync(refDir).filter(f => /^case-.*\.json$/.test(f)).sort()) {
+    const j = JSON.parse(fs.readFileSync(path.join(refDir, file), 'utf8'));
+    const g = new Geometry(module, new Uint8Array(fs.readFileSync(path.join(refDir, file.replace('.json', '.cbr')))));
+    try {
+      d = openBrep(new Uint8Array(fs.readFileSync(path.join(refDir, file.replace('.json', '.cbr')))));
+      for (const c of j.cases) {
+        if (c.query === 'classify2') {
+          const r = g.classifyOnFace(c.input.face, c.input.p, c.input.tol);
+          if (unsupported(file, c.input.face, r.status)) continue;
+          assert.equal(r.status, 'ok', c.id);
+          assert.equal(['in', 'out', 'on'][r.sides[0]!], c.expected.side, c.id);
+          classified++;
+        } else if (c.query === 'nest2') {
+          const loops = d.face.loopCount[c.input.face]!;
+          const r = g.nestFace(c.input.face, loops, c.input.tol);
+          if (unsupported(file, c.input.face, r.status)) continue;
+          assert.equal(r.status, 'ok', c.id);
+          assert.deepEqual([...r.parents], c.expected.parents, c.id);
+          nested++;
+        }
+      }
+      // The face's info: the cone's apex as its pole line, a cylinder's period.
+      if (file === 'case-singular-s1.json') {
+        const info = g.faceInfo(0);
+        if (info.status === 'unsupported') continue;  // the cone, until the surfaces lane's merge
+        assert.equal(info.status, 'ok');
+        assert.equal(info.poles.length, 1);
+        assert.ok(Math.abs(info.poles[0]!.at + 1) < 1e-12 && !info.poles[0]!.isoU);
+        assert.ok(Math.abs(info.uPeriod - 2 * Math.PI) < 1e-15);
+      }
+      if (file === 'case-tangent-s1.json') {
+        const self = g.selfIntersectFace(1, 0);
+        assert.equal(self.status, 'ok');
+        assert.equal(self.touches, 1);
+        assert.equal(self.crossings, 0);
+      }
+    } finally {
+      g.dispose();
+    }
+  }
+  assert.equal(classified + nested + waiting, 35);
+  assert.ok(waiting <= 8);  // the torus's 5, the cone's 3
+});

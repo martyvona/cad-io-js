@@ -9,7 +9,10 @@
 #include <memory>
 #include <vector>
 
+#include <cmath>
+
 #include "cad_geom/curve.h"
+#include "cad_geom/geom2d.h"
 #include "cad_geom/surface.h"
 
 using namespace cadgeom;
@@ -336,3 +339,180 @@ int32_t cg_surface_invert(int32_t h, int32_t row, const double* points, int32_t 
 }
 
 } // extern "C"
+
+// -- Faces: 2D geometry on a face's loops in its surface's (u, v) (geom2d.h). A face's loops are its coedges' p-curves
+// (vertex loops have none and are left out of nest2, their parents -1); its periods are its surface's, and its pole
+// lines come from closed forms (a cone's apex at v = -r / tan(a), a sphere's v = -+pi / 2) until Surface::singularities
+// gives them. The tolerance in (u, v) at a point is the 3D one divided by the largest stretch of the first fundamental
+// form there (sqrt of its largest eigenvalue), so every (u, v) step within it is within the 3D one: a thin cylinder's
+// u and a large plane's coordinates each get their own. The 3D tolerance is the caller's where given (tol3d > 0),
+// else the larger of the part's uncertainty and the face's and its edges' tolerances, else DEFAULT_TOL.
+// Face statuses, besides makeCurve's and makeSurface's codes: FACE_NO_PCURVE (a coedge without a p-curve) and
+// FACE_NO_RANGE (a coedge whose p-curve range the model doesn't give).
+
+namespace {
+
+constexpr int32_t FACE_NO_PCURVE = 100, FACE_NO_RANGE = 101;
+constexpr double DEFAULT_TOL = 1e-7;  // mm: where neither the caller nor the model gives a tolerance
+
+struct FaceLoops {
+  int32_t status = 0;
+  const Surface* surface = nullptr;
+  std::vector<Loop2> loops;    // one per edge loop, in the face's order
+  std::vector<int> loopIndex;  // each one's index among the face's loops
+  int faceLoops = 0;
+  Periods periods;
+  double tol3 = 0;
+};
+
+FaceLoops faceLoops(int32_t h, int32_t face, double tol3d) {
+  FaceLoops out;
+  Entry* e = entry(h);
+  if (!e || face < 0 || face >= e->model.faces()) {
+    out.status = static_cast<int32_t>(Status::invalidModel);
+    return out;
+  }
+  const Model& m = e->model;
+  Status s;
+  out.surface = surface(h, m.faceSurface(face), s);
+  if (!out.surface) {
+    out.status = static_cast<int32_t>(s);
+    return out;
+  }
+  SurfaceDomain d = out.surface->domain();
+  out.periods.u = d.uPeriod, out.periods.v = d.vPeriod;
+  const double* r = m.surfaceReals(m.faceSurface(face));
+  if (m.surfaceKind(m.faceSurface(face)) == CBR_SURFACE_CONE) out.periods.poleV = {-r[9] / std::tan(r[10])};
+  if (m.surfaceKind(m.faceSurface(face)) == CBR_SURFACE_SPHERE) out.periods.poleV = {-M_PI / 2, M_PI / 2};
+  double tol = m.uncertainty();
+  auto widen = [&](double t) { if (std::isfinite(t) && !(t <= tol)) tol = t; };
+  widen(m.f64(CBR_FACE_TOLERANCE)[face]);
+  out.faceLoops = m.faceLoopCount(face);
+  for (int l = m.faceFirstLoop(face); l < m.faceFirstLoop(face) + m.faceLoopCount(face); l++) {
+    if (m.loopKind(l) != CBR_LOOP_EDGE) continue;
+    Loop2 loop;
+    for (int c = m.loopFirst(l); c < m.loopFirst(l) + m.loopCount(l); c++) {
+      widen(m.f64(CBR_EDGE_TOLERANCE)[m.coedgeEdge(c)]);
+      if (m.coedgePcurve(c) < 0) {
+        out.status = FACE_NO_PCURVE;
+        return out;
+      }
+      const Curve* pc = curve(h, m.coedgePcurve(c), s);
+      if (!pc) {
+        out.status = static_cast<int32_t>(s);
+        return out;
+      }
+      const double* range = m.f64(CBR_COEDGE_RANGE) + 2 * c;
+      if (!std::isfinite(range[0]) || !std::isfinite(range[1])) {
+        out.status = FACE_NO_RANGE;
+        return out;
+      }
+      loop.pieces.push_back({pc, {range[0], range[1]}, m.coedgeOrientation(c) == CBR_ORIENTATION_REVERSED});
+    }
+    out.loops.push_back(std::move(loop));
+    out.loopIndex.push_back(l - m.faceFirstLoop(face));
+  }
+  out.tol3 = tol3d > 0 ? tol3d : std::isfinite(tol) && tol > 0 ? tol : DEFAULT_TOL;
+  return out;
+}
+
+/** The 3D tolerance in (u, v) at a point: tol3 over the first fundamental form's largest stretch. */
+double uvTolerance(const FaceLoops& f, Vec2 p) {
+  SurfacePoint q;
+  f.surface->eval(p.x, p.y, 1, q);
+  double E = dot(q.du, q.du), F = dot(q.du, q.dv), G = dot(q.dv, q.dv);
+  double stretch = std::sqrt(0.5 * (E + G) + std::sqrt(0.25 * (E - G) * (E - G) + F * F));
+  return stretch > 0 && std::isfinite(stretch) ? f.tol3 / stretch : f.tol3;
+}
+
+/** A representative point of the face's loops: the first piece's start (or (0, 0) for none). */
+Vec2 somePoint(const FaceLoops& f) {
+  for (const Loop2& l : f.loops)
+    if (!l.pieces.empty()) {
+      const LoopPiece& p = l.pieces[0];
+      CurvePoint q;
+      p.curve->eval(p.reversed ? p.range.hi : p.range.lo, 0, q);
+      return {q.p.x, q.p.y};
+    }
+  return {0, 0};
+}
+
+} // namespace
+
+extern "C" {
+
+/**
+ * The face's loops as geom2d sees them: its status (0, or why not: makeCurve's or makeSurface's code,
+ * FACE_NO_PCURVE, FACE_NO_RANGE); into out the 3D tolerance used, the periods (u, v), the edge loops' count, and
+ * the pole lines' count, those lines (u ones, then v ones) following in the scratch as (isoU, at) pairs.
+ */
+int32_t cg_face_info(int32_t h, int32_t face, double tol3d, double* out) {
+  FaceLoops f = faceLoops(h, face, tol3d);
+  if (f.status) return f.status;
+  out[0] = f.tol3, out[1] = f.periods.u, out[2] = f.periods.v, out[3] = static_cast<double>(f.loops.size());
+  scratch.clear();
+  for (double u : f.periods.poleU) scratch.insert(scratch.end(), {1.0, u});
+  for (double v : f.periods.poleV) scratch.insert(scratch.end(), {0.0, v});
+  out[4] = static_cast<double>(scratch.size() / 2);
+  return 0;
+}
+
+/**
+ * classify2 of n (u, v) points against the face's loops, each at its own (u, v) tolerance: sides n (0 in, 1 out,
+ * 2 on) and statuses n, and the (u, v) tolerance used per point into tolUv n; the face's status as cg_face_info.
+ */
+int32_t cg_face_classify(int32_t h, int32_t face, const double* uv, int32_t n, double tol3d, uint8_t* sides,
+  uint8_t* status, double* tolUv) {
+  FaceLoops f = faceLoops(h, face, tol3d);
+  if (f.status) return f.status;
+  for (int32_t i = 0; i < n; i++) {
+    Vec2 p{uv[2 * i], uv[2 * i + 1]};
+    Status s;
+    tolUv[i] = uvTolerance(f, p);
+    sides[i] = static_cast<uint8_t>(classify2(f.loops, p, f.periods, tolUv[i], s));
+    status[i] = static_cast<uint8_t>(s);
+  }
+  return 0;
+}
+
+/**
+ * nest2 on the face's edge loops: parents per face loop (indices among the face's loops; -1 outermost, and for
+ * vertex loops) into parents (the face's loop count of them), nest2's status into status[0].
+ */
+int32_t cg_face_nest(int32_t h, int32_t face, double tol3d, int32_t* parents, uint8_t* status) {
+  FaceLoops f = faceLoops(h, face, tol3d);
+  if (f.status) return f.status;
+  for (int i = 0; i < f.faceLoops; i++) parents[i] = -1;
+  Status s;
+  std::vector<int> p = nest2(f.loops, f.periods, uvTolerance(f, somePoint(f)), s);
+  for (size_t i = 0; i < p.size(); i++) parents[f.loopIndex[i]] = p[i] < 0 ? -1 : f.loopIndex[p[i]];
+  status[0] = static_cast<uint8_t>(s);
+  return 0;
+}
+
+/**
+ * selfIntersect2 on the face's loop `loop` (its index among the face's loops; a vertex loop has none): counts[0]
+ * crossings, counts[1] tangencies (touches), counts[2] overlaps; the crossings' (ta, tb, u, v, tangent) into the
+ * scratch, 5 each.
+ */
+int32_t cg_face_self(int32_t h, int32_t face, int32_t loop, double tol3d, int32_t* counts, uint8_t* status) {
+  FaceLoops f = faceLoops(h, face, tol3d);
+  if (f.status) return f.status;
+  counts[0] = counts[1] = counts[2] = 0;
+  scratch.clear();
+  status[0] = 0;
+  for (size_t i = 0; i < f.loops.size(); i++) {
+    if (f.loopIndex[i] != loop) continue;
+    Intersections2 x = selfIntersect2(f.loops[i], uvTolerance(f, somePoint(f)));
+    for (const Crossing& c : x.crossings) {
+      counts[c.tangent ? 1 : 0]++;
+      scratch.insert(scratch.end(), {c.ta, c.tb, c.p.x, c.p.y, c.tangent ? 1.0 : 0.0});
+    }
+    counts[2] = static_cast<int32_t>(x.overlaps.size());
+    status[0] = static_cast<uint8_t>(x.status);
+  }
+  return 0;
+}
+
+} // extern "C"
+

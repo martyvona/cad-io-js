@@ -166,6 +166,45 @@ export interface Singularity {
   point: [number, number, number];
 }
 
+/** geom2d.h's Side, by code. */
+export const SIDE = ['in', 'out', 'on'] as const;
+/** A face's status: a STATUS, or the face's own (cad_geom_api.cpp): a coedge without a p-curve, or its range. */
+export type FaceStatus = Status | 'noPcurve' | 'noPcurveRange';
+function faceStatus(code: number): FaceStatus {
+  return code === 100 ? 'noPcurve' : code === 101 ? 'noPcurveRange' : STATUS[code]!;
+}
+
+export interface FaceInfo {
+  status: FaceStatus;
+  /** The 3D tolerance its (u, v) ones come from. */
+  tolerance: number;
+  uPeriod: number;
+  vPeriod: number;
+  /** Its edge loops (vertex loops aside). */
+  loops: number;
+  /** Its pole lines: u = at (isoU) or v = at. */
+  poles: { isoU: boolean; at: number }[];
+}
+
+export interface FaceSides {
+  status: FaceStatus;
+  /** Per point: a SIDE code. */
+  sides: Uint8Array;
+  statuses: Uint8Array;
+  /** Per point: the (u, v) tolerance it was classified at. */
+  tolerance: Float64Array;
+}
+
+export interface FaceSelf {
+  status: FaceStatus;
+  /** selfIntersect2's status. */
+  self: Status;
+  crossings: number;
+  touches: number;
+  overlaps: number;
+  points: { ta: number; tb: number; u: number; v: number; tangent: boolean }[];
+}
+
 /** An argument of a call: input numbers copied in, or an output of a type and size allocated for it. */
 type In = { f64: ArrayLike<number> };
 type Out = { out: 'f64' | 'u8' | 'i32'; n: number };
@@ -342,6 +381,49 @@ export class Geometry {
       foot: foot as Float64Array, statuses: statuses as Uint8Array, certainty: certainty as Uint8Array,
       alternativeCount: alternativeCount as Int32Array, alternatives: s === 0 ? this.scratch() : new Float64Array(),
       flags: flags as Uint8Array };
+  }
+
+  // -- Faces: 2D geometry on a face's loops (geom2d.h; cad_geom_api.cpp says how the loops, periods, pole lines and
+  // tolerances are made). tol3d, where given (> 0), is the 3D tolerance; else the model's (or 1e-7 mm).
+
+  /** The face's loops as geom2d sees them: the 3D tolerance used, the periods, the edge loops, the pole lines. */
+  faceInfo(face: number, tol3d = NaN): FaceInfo {
+    const [s, out] = this.call('face_info', face, tol3d, { out: 'f64', n: 5 });
+    if (s !== 0) return { status: faceStatus(s), tolerance: NaN, uPeriod: 0, vPeriod: 0, loops: 0, poles: [] };
+    const o = out as Float64Array, v = this.scratch(), poles: FaceInfo['poles'] = [];
+    for (let i = 0; i < o[4]!; i++) poles.push({ isoU: v[2 * i] === 1, at: v[2 * i + 1]! });
+    return { status: 'ok', tolerance: o[0]!, uPeriod: o[1]!, vPeriod: o[2]!, loops: o[3]!, poles };
+  }
+
+  /** classify2 of each (u, v) against the face's loops: sides as SIDE codes, each point's (u, v) tolerance. */
+  classifyOnFace(face: number, uv: ArrayLike<number>, tol3d = NaN): FaceSides {
+    const n = uv.length / 2;
+    const [s, sides, statuses, tolerance] = this.call('face_classify', face, { f64: uv }, n, tol3d,
+      { out: 'u8', n }, { out: 'u8', n }, { out: 'f64', n });
+    return { status: faceStatus(s), sides: sides as Uint8Array, statuses: statuses as Uint8Array,
+      tolerance: tolerance as Float64Array };
+  }
+
+  /** nest2 on the face's loops: each loop's parent among the face's loops (-1 outermost, and vertex loops). */
+  nestFace(face: number, loops: number, tol3d = NaN):
+    { status: FaceStatus; nest: Status; parents: Int32Array } {
+    const [s, parents, status] = this.call('face_nest', face, tol3d, { out: 'i32', n: loops },
+      { out: 'u8', n: 1 });
+    return { status: faceStatus(s), nest: STATUS[(status as Uint8Array)[0] ?? 0]!, parents: parents as Int32Array };
+  }
+
+  /** selfIntersect2 on one of the face's loops: crossings and touches, with each one's (ta, tb, u, v, tangent). */
+  selfIntersectFace(face: number, loop: number, tol3d = NaN): FaceSelf {
+    const [s, counts, status] = this.call('face_self', face, loop, tol3d, { out: 'i32', n: 3 },
+      { out: 'u8', n: 1 });
+    if (s !== 0) return { status: faceStatus(s), self: 'ok', crossings: 0, touches: 0, overlaps: 0, points: [] };
+    const c = counts as Int32Array, v = this.scratch(), points: FaceSelf['points'] = [];
+    for (let i = 0; i < c[0]! + c[1]!; i++) {
+      const o = v.subarray(5 * i, 5 * i + 5);
+      points.push({ ta: o[0]!, tb: o[1]!, u: o[2]!, v: o[3]!, tangent: o[4] === 1 });
+    }
+    return { status: 'ok', self: STATUS[(status as Uint8Array)[0] ?? 0]!, crossings: c[0]!, touches: c[1]!,
+      overlaps: c[2]!, points };
   }
 
   // -- The calls.
