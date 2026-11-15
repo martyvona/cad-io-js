@@ -2,15 +2,27 @@
 // ulp; the classic grid of near-collinear points (Kettner, Mehlhorn, Pion, Schirra and Yap, "Classroom examples of
 // robustness problems in geometric computations", 2008) where naive orient2d gives inconsistent signs and the wrapped
 // one must not. The reference signs are computed exactly in 128-bit integers: every coordinate here is an integer
-// times a power of two, so the determinants are integers.
+// times a power of two, so the determinants are integers. And predicates.c's expansion sums directly, on inputs
+// exactly their length, for its patch's guards (native/third_party/README.md).
 #include <cad_geom/predicates.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <memory>
+#include <random>
+#include <vector>
 
 #include "check.h"
 
 using namespace cadgeom;
+
+extern "C" {
+int fast_expansion_sum(int elen, double* e, int flen, double* f, double* h);
+int fast_expansion_sum_zeroelim(int elen, double* e, int flen, double* f, double* h);
+int linear_expansion_sum(int elen, double* e, int flen, double* f, double* h);
+int linear_expansion_sum_zeroelim(int elen, double* e, int flen, double* f, double* h);
+}
 
 namespace {
 
@@ -105,4 +117,42 @@ TEST_CASE("incircle: the convention, exactly cocircular points, and an ulp in or
             wrong += sign(incircle(a, b, c, d)) != exactIncircle(a, b, c, d);
           }
   CHECK_EQ(wrong, 0);
+}
+
+TEST_CASE("expansion sums: every length to 4 and merge order, each input exactly its length, the sum exact") {
+  // Components +/-2^k with distinct k in [0, 50] per expansion (nonoverlapping, increasing magnitude): every partial
+  // sum is an integer below 2^53, so the sum of h is exact in double. Each input on the heap at exactly its length,
+  // so a read past its end is AddressSanitizer's (the reads the patch guards: README.md).
+  std::mt19937_64 rng(42);
+  using Sum = int (*)(int, double*, int, double*, double*);
+  const Sum sums[] = {fast_expansion_sum, fast_expansion_sum_zeroelim, linear_expansion_sum,
+    linear_expansion_sum_zeroelim};
+  auto expansion = [&](int n, double* out) {
+    std::vector<int> ks;
+    while (static_cast<int>(ks.size()) < n) {
+      int k = static_cast<int>(rng() % 51);
+      bool fresh = true;
+      for (int x : ks) fresh = fresh && x != k;
+      if (fresh) ks.push_back(k);
+    }
+    std::sort(ks.begin(), ks.end());
+    double total = 0;
+    for (int i = 0; i < n; i++) out[i] = (rng() & 1 ? 1 : -1) * std::ldexp(1.0, ks[i]), total += out[i];
+    return total;
+  };
+  int runs = 0;
+  for (Sum sum : sums)
+    for (int elen = 1; elen <= 4; elen++)
+      for (int flen = 1; flen <= 4; flen++)
+        for (int trial = 0; trial < 200; trial++) {
+          std::unique_ptr<double[]> e(new double[elen]), f(new double[flen]), h(new double[elen + flen]);
+          const double want = expansion(elen, e.get()) + expansion(flen, f.get());
+          const int n = sum(elen, e.get(), flen, f.get(), h.get());
+          REQUIRE(n >= 1 && n <= elen + flen);
+          double got = 0;
+          for (int i = 0; i < n; i++) got += h[i];
+          CHECK(got == want);
+          runs++;
+        }
+  CHECK_EQ(runs, 4 * 16 * 200);
 }

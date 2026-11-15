@@ -7,6 +7,7 @@
 // need exact predicates for near-degenerate input; hidden until cad-geom's predicates.h has them.
 #include <tess_cadio/mesh2d.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
