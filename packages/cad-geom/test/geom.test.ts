@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { openBrep, rowCount } from '../../cad-brep/src/index.ts';
+import { BrepBuilder, openBrep, rowCount } from '../../cad-brep/src/index.ts';
 import { curveEvaluator, surfaceEvaluator } from '../../cad-brep/src/geometry.ts';
 import { MODELS } from '../../cad-brep/test/models.ts';
 import { CERTAINTY, Geometry, init, STATUS } from '../src/index.ts';
@@ -184,4 +184,227 @@ test('a buffer that isn\'t a model throws; use after dispose throws; a host\'s g
   using h = new Geometry(own, new Uint8Array(MODELS.cube().finish().buffer));
   assert.equal(h.curveInfo(0).status, 'ok');
   assert.equal(await init(), module);  // the default is shared
+});
+
+test('faces: the catalogue\'s classify2 and nest2 cases through the API (loops, periods, poles, tolerances made '
+  + 'from the model)', { skip }, async () => {
+  const module = await init();
+  let classified = 0, nested = 0, waiting = 0;
+  // The reference makeSurface makes planes, cylinders, spheres and B-splines (1, 2, 4, 6): a face on another kind
+  // (a cone, a torus) is unsupported until the surfaces lane's merge, and waits.
+  let d!: ReturnType<typeof openBrep>;
+  const unsupported = (_file: string, face: number, status: string) =>
+    status === 'unsupported' && ![1, 2, 4, 6].includes(d.surface.kind[d.face.surface[face]!]!) ? (waiting++, true)
+      : false;
+  for (const file of fs.readdirSync(refDir).filter(f => /^case-.*\.json$/.test(f)).sort()) {
+    const j = JSON.parse(fs.readFileSync(path.join(refDir, file), 'utf8'));
+    const g = new Geometry(module, new Uint8Array(fs.readFileSync(path.join(refDir, file.replace('.json', '.cbr')))));
+    try {
+      d = openBrep(new Uint8Array(fs.readFileSync(path.join(refDir, file.replace('.json', '.cbr')))));
+      for (const c of j.cases) {
+        if (c.query === 'classify2') {
+          const r = g.classifyOnFace(c.input.face, c.input.p, c.input.tol);
+          if (unsupported(file, c.input.face, r.status)) continue;
+          assert.equal(r.status, 'ok', c.id);
+          assert.equal(['in', 'out', 'on'][r.sides[0]!], c.expected.side, c.id);
+          classified++;
+        } else if (c.query === 'nest2') {
+          const loops = d.face.loopCount[c.input.face]!;
+          const r = g.nestFace(c.input.face, loops, c.input.tol);
+          if (unsupported(file, c.input.face, r.status)) continue;
+          assert.equal(r.status, 'ok', c.id);
+          assert.deepEqual([...r.parents], c.expected.parents, c.id);
+          nested++;
+        }
+      }
+      // The face's info: the cone's apex as its pole line, a cylinder's period.
+      if (file === 'case-singular-s1.json') {
+        const info = g.faceInfo(0);
+        if (info.status === 'unsupported') continue;  // the cone, until the surfaces lane's merge
+        assert.equal(info.status, 'ok');
+        assert.equal(info.poles.length, 1);
+        assert.ok(Math.abs(info.poles[0]!.at + 1) < 1e-12 && !info.poles[0]!.isoU);
+        assert.ok(Math.abs(info.uPeriod - 2 * Math.PI) < 1e-15);
+      }
+      if (file === 'case-tangent-s1.json') {
+        const self = g.selfIntersectFace(1, 0);
+        assert.equal(self.status, 'ok');
+        assert.equal(self.touches, 1);
+        assert.equal(self.crossings, 0);
+      }
+    } finally {
+      g.dispose();
+    }
+  }
+  assert.equal(classified + nested + waiting, 35);
+  assert.ok(waiting <= 8);  // the torus's 5, the cone's 3
+});
+
+/** The ways ownRangeDisk's face is made. */
+interface DiskVariant {
+  /** The p-curves run against the angle. */
+  backwards?: boolean;
+  /** One closed edge from angle 3, not two arcs. */
+  closedEdge?: boolean;
+  /** The first vertex at angle 0, where the p-curves' ends meet, not 0.5. */
+  atClosure?: boolean;
+  /** The face against its surface's sense, its coedges reversed (the same disk). */
+  flipped?: boolean;
+  /** The 3D curve the B-spline circle and the p-curves 2D circles, on a plane facing -z (so running clockwise). */
+  periodic?: boolean;
+  /** The part's uncertainty (mm): 0.05 puts the circle's parameters on the p-curves within 100 x of the vertices. */
+  uncertainty?: number;
+  /** The p-curves moved 0.5 in u, off the edges: neither parameterization reaches the vertices. */
+  moved?: boolean;
+}
+
+/**
+ * A disk of radius 2 on the plane z = 0, bounded by two arcs of one circle (vertices at angles 0.5 and 3), their
+ * p-curves rational B-spline circles parameterized their own way (t in [0, 4], from angle 0, the angle's way or the
+ * other): neither the circle's parameters nor its range reach the vertices on them, and the second arc's use crosses
+ * the p-curve's ends.
+ */
+function ownRangeDisk(o: DiskVariant): Uint8Array {
+  const b = new BrepBuilder(o.uncertainty ? { uncertainty: o.uncertainty } : {});
+  const w = Math.SQRT1_2, r = 2;
+  const square = [[r, 0], [r, r], [0, r], [-r, r], [-r, 0], [-r, -r], [0, -r], [r, -r], [r, 0]];
+  const poles = (o.backwards ? square.map(([x, y]) => [x!, -y!]) : square)
+    .map(([x, y]) => [x! + (o.moved ? 0.5 : 0), y!]);
+  const spline = (dim: number) => b.addCurve({ kind: 'bspline', degree: 2, knots: [0, 1, 2, 3, 4],
+    multiplicities: [3, 2, 2, 2, 3], poles: poles.map((q) => dim === 3 ? [...q, 0] : q),
+    weights: [1, w, 1, w, 1, w, 1, w, 1], closed: true, selfIntersect: false, form: 'circular_arc' });
+  const pc = o.periodic ? b.addCurve({ kind: 'circle', position: { origin: [0, 0], xDir: [1, 0] }, radius: r })
+    : spline(2);
+  const curve = o.periodic ? spline(3) : b.addCurve({ kind: 'circle',
+    position: { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] }, radius: r });
+  const plane = b.addSurface({ kind: 'plane',
+    position: { origin: [0, 0, 0], axis: [0, 0, o.periodic ? -1 : 1], xDir: [1, 0, 0] } });
+  const a0 = o.atClosure ? 0 : 0.5;
+  const v0 = b.addVertex({ point: [r * Math.cos(a0), r * Math.sin(a0), 0] });
+  const v1 = b.addVertex({ point: [r * Math.cos(3), r * Math.sin(3), 0] });
+  const e0 = b.addEdge({ curve, start: v0, end: v1, sameSense: true });
+  const e1 = b.addEdge({ curve, start: v1, end: o.closedEdge ? v1 : v0, sameSense: true });
+  let coedges = [{ edge: e0, orientation: 'forward' as 'forward' | 'reversed', pcurve: pc },
+    { edge: e1, orientation: 'forward' as 'forward' | 'reversed', pcurve: pc }];
+  if (o.closedEdge) coedges = coedges.slice(1);
+  // The loop runs counterclockwise about +z: about the face's normal where it's +z, else the face's loops reversed.
+  const flipped = o.flipped !== o.periodic;
+  if (o.flipped) coedges = coedges.reverse().map((c) => ({ ...c, orientation: 'reversed' as const }));
+  const f = b.addFace({ surface: plane, sameSense: !flipped, loops: [{ kind: 'edge', bound: 'outer', sense: true,
+    coedges }] });
+  b.addItem({ kind: 'face', ref: f });
+  return new Uint8Array(b.finish().buffer);
+}
+
+test('faces: p-curves parameterized otherwise than their curves get their own ranges, a use across a closed '
+  + 'p-curve\'s ends two pieces', { skip }, async () => {
+  const module = await init();
+  const variants: DiskVariant[] = [{}, { backwards: true }, { closedEdge: true }, { backwards: true, closedEdge: true },
+    { atClosure: true }, { backwards: true, atClosure: true }, { flipped: true }, { backwards: true, flipped: true },
+    { flipped: true, closedEdge: true }, { periodic: true }, { periodic: true, flipped: true }, { uncertainty: 0.05 },
+    { moved: true }];
+  for (const o of variants) {
+    const name = JSON.stringify(o), buffer = ownRangeDisk(o), d = openBrep(buffer.slice());
+    using g = new Geometry(module, buffer);
+    const info = g.faceInfo(0);
+    if (o.moved) {
+      assert.equal(info.status, 'pcurveRangeOff', name);
+      continue;
+    }
+    assert.equal(info.status, 'ok', name);
+    assert.equal(info.ownRanges, o.closedEdge ? 1 : 2, name);
+    const pieces = g.facePieces(0);
+    // Pieces in travel order: the first arc (coedge e0's) from angle 0.5 to 3, the second on through angle 0 (where
+    // the p-curve's ends meet: two pieces), the face's loop reversed where it's flipped.
+    const wraps = !o.periodic && !o.atClosure;
+    let expected = o.closedEdge ? [0, 0] : wraps ? [0, 1, 1] : [0, 1];
+    if (o.flipped && !o.closedEdge) expected = wraps ? [0, 0, 1] : [0, 1];
+    if (o.flipped !== o.periodic) expected = expected.reverse();
+    assert.deepEqual([...pieces.coedge], expected, name);
+    const angleAt = (t: number) => {
+      const p = g.evalCurve(d.coedge.pcurve[0]!, [t], 0).values;
+      const a = Math.atan2(o.periodic ? -p[1]! : p[1]!, p[0]!);
+      return a < -1e-9 ? a + 2 * Math.PI : a;
+    };
+    // Each piece's ends at the angles they should be at, the face's sense its surface's: 0.5 or 0, 3, 2 pi or 0.
+    const ends = [...pieces.travel].map(angleAt);
+    const a0 = o.atClosure ? 0 : 0.5;
+    const near = (x: number, want: number[]) => want.some((y) => Math.abs(x - y) < 1e-9 || Math.abs(x - y - 2 * Math.PI)
+      < 1e-9 || Math.abs(x - y + 2 * Math.PI) < 1e-9);
+    for (const x of ends) assert.ok(near(x, [a0, 3, 0]), `${name}: ${ends}`);
+    if (!o.flipped && !o.periodic && !o.closedEdge) {
+      assert.ok(near(ends[0]!, [a0]) && near(ends[1]!, [3]) && near(ends[2]!, [3]), `${name}: ${ends}`);
+    }
+    if (wraps && !o.closedEdge && !o.flipped) assert.deepEqual([pieces.travel[3], pieces.travel[4]].sort(), [0, 4]);
+    const points = [[0, 0], [0, 1.9], [0, -1.9], [1.9, 0], [-1.9, 0], [0, 2.1], [0, -2.1], [2.1, 0], [-2.1, 0], [2, 0],
+      [2 * Math.cos(4.5), 2 * Math.sin(4.5)]];
+    const r = g.classifyOnFace(0, points.flat());
+    assert.equal(r.status, 'ok', name);
+    assert.deepEqual([...r.sides].map(s => ['in', 'out', 'on'][s]),
+      ['in', 'in', 'in', 'in', 'in', 'out', 'out', 'out', 'out', 'on', 'on'], name);
+  }
+});
+
+test('faces: p-curves periods from the surface\'s domain (u from -pi/4 - 4 pi to -4 pi on a cylinder) get their '
+  + 'own ranges', { skip }, async () => {
+  // A cylinder's patch, u in [-pi/4, 0] (its p-curves two periods below), v in [0, 1], its p-curves degree-1
+  // B-splines on [0, 1] in (u, v): the arcs' circle parameters (near 7 pi / 4 to 2 pi) miss them, and the vertices'
+  // (u, v) on the cylinder are periods off.
+  const b = new BrepBuilder();
+  const r = 2, a = -Math.PI / 4, off = -4 * Math.PI;
+  const z = { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] };
+  const cyl = b.addSurface({ kind: 'cylinder', position: z, radius: r });
+  const pline = (p: number[], q: number[]) => b.addCurve({ kind: 'bspline', degree: 1, knots: [0, 1],
+    multiplicities: [2, 2], poles: [[p[0]! + off, p[1]!], [q[0]! + off, q[1]!]], closed: false, selfIntersect: false,
+    form: 'polyline_form' });
+  const at = (u: number, v: number) => [r * Math.cos(u), r * Math.sin(u), v];
+  const [va, vb, vc, vd] = [at(a, 0), at(0, 0), at(0, 1), at(a, 1)].map((p) => b.addVertex({ point: p }));
+  const bottom = b.addCurve({ kind: 'circle', position: z, radius: r });
+  const top = b.addCurve({ kind: 'circle', position: { ...z, origin: [0, 0, 1] }, radius: r });
+  const up = (p: number[]) => b.addCurve({ kind: 'line', point: p, direction: [0, 0, 1], magnitude: 1 });
+  const e0 = b.addEdge({ curve: bottom, start: va, end: vb, sameSense: true });
+  const e1 = b.addEdge({ curve: up(at(0, 0)), start: vb, end: vc, sameSense: true });
+  const e2 = b.addEdge({ curve: top, start: vd, end: vc, sameSense: true });
+  const e3 = b.addEdge({ curve: up(at(a, 0)), start: va, end: vd, sameSense: true });
+  const f = b.addFace({ surface: cyl, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [
+    { edge: e0, orientation: 'forward', pcurve: pline([a, 0], [0, 0]) },
+    { edge: e1, orientation: 'forward', pcurve: pline([0, 0], [0, 1]) },
+    { edge: e2, orientation: 'reversed', pcurve: pline([a, 1], [0, 1]) },
+    { edge: e3, orientation: 'reversed', pcurve: pline([a, 0], [a, 1]) }] }] });
+  b.addItem({ kind: 'face', ref: f });
+  using g = new Geometry(await init(), new Uint8Array(b.finish().buffer));
+  const info = g.faceInfo(0);
+  assert.equal(info.status, 'ok');
+  assert.equal(info.ownRanges, 2);
+  const tau = 2 * Math.PI;
+  const r0 = g.classifyOnFace(0, [-0.4, 0.5, -0.4 + tau, 0.5, 0.4, 0.5, -1, 0.5, -0.4, 1.5, -0.4, -0.5, 0, 0.5]);
+  assert.equal(r0.status, 'ok');
+  assert.deepEqual([...r0.sides].map((x) => ['in', 'out', 'on'][x]), ['in', 'in', 'out', 'out', 'out', 'out', 'on']);
+});
+
+test('faces: line p-curves scaled otherwise than their 3D lines get their own ranges', { skip }, async () => {
+  // A unit square on z = 0, its edges 3D lines on t in [0, 1], its p-curves lines on t in [0, 100] (magnitude 0.01,
+  // as brep_wv1/2 write them the other way round): unbounded p-curves, sampled over the curve's parameters.
+  const b = new BrepBuilder();
+  const plane = b.addSurface({ kind: 'plane', position: { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] } });
+  const corners = [[0, 0], [1, 0], [1, 1], [0, 1]];
+  const vs = corners.map(([x, y]) => b.addVertex({ point: [x!, y!, 0] }));
+  const coedges = corners.map(([x, y], k) => {
+    const [nx, ny] = corners[(k + 1) % 4]!, dir = [nx! - x!, ny! - y!];
+    const line = b.addCurve({ kind: 'line', point: [x!, y!, 0], direction: [...dir, 0], magnitude: 1 });
+    const pcurve = b.addCurve({ kind: 'line', point: [x!, y!], direction: dir, magnitude: 0.01 });
+    const edge = b.addEdge({ curve: line, start: vs[k]!, end: vs[(k + 1) % 4]!, sameSense: true });
+    return { edge, orientation: 'forward' as const, pcurve };
+  });
+  const f = b.addFace({ surface: plane, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true,
+    coedges }] });
+  b.addItem({ kind: 'face', ref: f });
+  using g = new Geometry(await init(), new Uint8Array(b.finish().buffer));
+  const info = g.faceInfo(0);
+  assert.equal(info.status, 'ok');
+  assert.equal(info.ownRanges, 4);
+  const t = [...g.facePieces(0).travel];
+  for (let k = 0; k < 4; k++) assert.ok(Math.abs(t[2 * k]!) < 1e-9 && Math.abs(t[2 * k + 1]! - 100) < 1e-7, `${t}`);
+  const r = g.classifyOnFace(0, [0.5, 0.5, 1.5, 0.5, 0.5, -0.5, 1, 0.5]);
+  assert.deepEqual([...r.sides].map((x) => ['in', 'out', 'on'][x]), ['in', 'out', 'out', 'on']);
 });

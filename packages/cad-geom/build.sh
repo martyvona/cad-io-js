@@ -71,8 +71,8 @@ NODE=$(command -v node || true)
 # a * b + c on arm64 and WebAssembly can't, so native and wasm would round differently and take different branches.
 COMMON=(-std=c++20 -Wall -Wextra -ffp-contract=off -Inative/include -I../cad-brep/include -isystem "$E"
   "-ffile-prefix-map=$ROOT/=cad-io-js/")
-# The vendored C (native/third_party/README.md): as C, unmodified, so its warnings are silenced, and without fused
-# multiply-adds, which would break its error-free transformations.
+# The vendored C (native/third_party/README.md): as C, kept as written but for its patch, so its warnings are
+# silenced, and without fused multiply-adds, which would break its error-free transformations.
 CCOMMON=(-std=gnu11 -w -ffp-contract=off "-ffile-prefix-map=$ROOT/=cad-io-js/")
 csources() { find native/third_party -name '*.c' | sort; }
 emsdk() {
@@ -163,10 +163,8 @@ run() { # <name> <command...>: runs one test binary, its output as it comes
 SAN=(-O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize-recover=all)
 compile build/test/native/obj c++ "${SAN[@]}" "${COMMON[@]}" "${FIX[@]}" -- $(find native/src -name '*.cpp' | sort) \
   $tests
-# The vendored C without AddressSanitizer: predicates.c's expansion merges read one element past an expansion's end
-# and discard it (native/third_party/README.md), which ASan reports though the results don't depend on it.
-SANC=(-O1 -g -fno-omit-frame-pointer -fsanitize=undefined -fno-sanitize-recover=all)
-compile build/test/native/obj-c cc "${SANC[@]}" "${CCOMMON[@]}" -- $(csources)
+# The vendored C under the same sanitizers (predicates.c as patched: native/third_party/README.md).
+compile build/test/native/obj-c cc "${SAN[@]}" "${CCOMMON[@]}" -- $(csources)
 srcobjs="$(find native/src -name '*.cpp' | sort | tr / _ | sed 's/\.cpp$/.o/; s|^|build/test/native/obj/|') \
   $(ls build/test/native/obj-c/*.o 2> /dev/null | sort)"
 for t in $tests; do
@@ -175,17 +173,6 @@ for t in $tests; do
     -o "build/test/native/$n"
   run "native $n" "build/test/native/$n"
 done
-
-# predicates.c under ASan as well, its known reads exempted by function name (native/third_party/asan_known_reads.h),
-# with the predicates test: a new overflow anywhere else in the file still shows.
-if [ -f native/test/predicates_test.cpp ]; then
-  cc "${SAN[@]}" "${CCOMMON[@]}" -include native/third_party/asan_known_reads.h -c native/third_party/predicates.c \
-    -o build/test/native/predicates_asan.o
-  c++ "${SAN[@]}" $(find native/src -name '*.cpp' | sort | tr / _ | sed 's/\.cpp$/.o/; s|^|build/test/native/obj/|') \
-    build/test/native/obj/native_test_predicates_test.o build/test/native/predicates_asan.o \
-    -o build/test/native/predicates_asan
-  run "native predicates_test, predicates.c under ASan" build/test/native/predicates_asan
-fi
 
 # As WebAssembly, against the library as other packages link it (built with the module, for test/*.test.ts).
 wasm_module > /dev/null

@@ -13,6 +13,11 @@
 // include 6 efficiency cores, slower than the 4 a lone meshing worker would get (bug24024_slow_import.stp's largest
 // part took 29 s in one run, 64 s in another). So timeouts need room: the pool's default 120 s, not less (that part
 // timed out at 60 s). CHILDREN=0 runs every file in the main process (for debugging and timing).
+//
+// Watchdogs: a child can hang in Node's own exit (its main thread blocked in a futex with most of its threads gone,
+// after its last result), so one that hasn't exited EXIT_GRACE_MS (default 30 s) after its final stats is killed; and one silent on a
+// file for IDLE_MS (default 5 minutes; 0 none) is killed and the file given once more to a new child (a second
+// time, the file fails), each kill logged on standard error.
 import { fork, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -34,6 +39,9 @@ export interface FileCheck<J, R> {
  * file (5.75 GiB), and 9 of them used at most 21 GiB together.
  */
 export const CHILD_MEMORY = 4 * 2 ** 30;
+
+/** How long (ms) a child that has sent its final stats may take to exit before it's killed (EXIT_GRACE_MS). */
+const exitGrace = () => Number(process.env.EXIT_GRACE_MS ?? 30_000);
 
 /** How the machine is divided (above): `threads` and `memory` (bytes) the host's, by default this one's. */
 export function division(threads = os.availableParallelism(), memory = usableMemory()):
@@ -75,6 +83,7 @@ export async function runFiles<J, R>(moduleUrl: string, check: FileCheck<J, R>, 
   const size = (p: string) => { try { return fs.statSync(p).size; } catch { return 0; } };
   const order = files.map((f, k) => [size(f.path), k] as const).sort((a, b) => b[0] - a[0] || a[1] - b[1])
     .map(([, k]) => k);
+  const idleMs = Number(process.env.IDLE_MS ?? 5 * 60_000), retried = new Set<number>();
   const deliver = () => {
     while (delivered < files.length && done[delivered]) {
       merge(files[delivered]!.path, done[delivered]!);
@@ -89,17 +98,33 @@ export async function runFiles<J, R>(moduleUrl: string, check: FileCheck<J, R>, 
       const c: ChildProcess = fork(child, [moduleUrl, String(meshWorkers), ...args],
         { serialization: 'advanced', stdio: ['ignore', 'inherit', 'inherit', 'ipc'] });
       running++;
-      let current = -1;
+      let current = -1, idle: NodeJS.Timeout | undefined, killedIdle = false;
       const give = () => {
-        if (next >= files.length) { c.send({ type: 'end' }); return; }
+        if (next >= order.length) { c.send({ type: 'end' }); return; }
         current = order[next++]!;
         process.stderr.write(`${shortName(files[current]!.path)}\n`);
         c.send({ type: 'file', path: files[current]!.path, job: files[current]!.job });
+        if (idleMs > 0) {
+          const file = current;
+          idle = setTimeout(() => {
+            process.stderr.write(`runner: killing a child silent for ${idleMs / 1000} s on `
+              + `${shortName(files[file]!.path)}${retried.has(file) ? ' (its second try: it fails)' : ' (retrying it)'}\n`);
+            killedIdle = true;
+            c.kill('SIGKILL');
+          }, idleMs);
+        }
       };
       c.on('message', (m: { type: 'ready' } | { type: 'stats'; maxRss: number }
         | { type: 'result'; result: R; maxRss: number } | { type: 'error'; error: string; maxRss: number }) => {
+        clearTimeout(idle);
         if (m.type === 'stats') {
           peak.note(m.maxRss);
+          const grace = exitGrace();
+          setTimeout(() => {
+            if (c.exitCode !== null || c.signalCode !== null) return;
+            process.stderr.write(`runner: killing a child that hadn't exited ${grace / 1000} s after its last file\n`);
+            c.kill('SIGKILL');
+          }, grace).unref();
           return;
         }
         if (m.type !== 'ready') {
@@ -112,12 +137,19 @@ export async function runFiles<J, R>(moduleUrl: string, check: FileCheck<J, R>, 
       });
       c.on('exit', (code, signal) => {
         running--;
-        // A crash: its file failed; a new child takes the rest.
+        clearTimeout(idle);
+        // A crash: its file failed (or, killed idle the first time, is given again); a new child takes the rest.
         if (current >= 0) {
-          done[current] = { error: `the child process ended (${signal ?? `exit ${code}`})` };
+          if (killedIdle && !retried.has(current)) {
+            retried.add(current);
+            order.splice(next, 0, current);
+          } else {
+            done[current] = { error: killedIdle ? `the child was silent for ${idleMs / 1000} s, twice`
+              : `the child process ended (${signal ?? `exit ${code}`})` };
+            deliver();
+          }
           current = -1;
-          deliver();
-          if (next < files.length) start();
+          if (next < order.length) start();
         }
         if (running === 0) resolve();
       });

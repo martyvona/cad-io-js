@@ -98,10 +98,9 @@ run() { local name=$1; shift; echo "== $name"; "$@" || { echo "== $name: exit $?
 
 SAN=(-O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize-recover=all)
 compile build/test/native/obj c++ "${SAN[@]}" "${COMMON[@]}" "${TI[@]}" -- $(gsrcs) $(srcs) $tests
-# cad-geom's vendored C as its build.sh compiles it: as C, unmodified, without AddressSanitizer (predicates.c reads
-# one element past an expansion's end and discards it: cad-geom's native/third_party/README.md).
-CSAN=(-O1 -g -fno-omit-frame-pointer -fsanitize=undefined -fno-sanitize-recover=all -std=gnu11 -w -ffp-contract=off
-  "-ffile-prefix-map=$ROOT/=cad-io-js/")
+# cad-geom's vendored C as its build.sh compiles it: as C (cad-geom's native/third_party/README.md), sanitized alike.
+CSAN=(-O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize-recover=all -std=gnu11 -w
+  -ffp-contract=off "-ffile-prefix-map=$ROOT/=cad-io-js/")
 rm -rf build/test/native/obj-c; mkdir -p build/test/native/obj-c
 for c in $(find $G/native/third_party -name '*.c' | sort); do
   cc "${CSAN[@]}" -c "$c" -o "build/test/native/obj-c/$(basename "$c" .c).o"

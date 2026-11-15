@@ -1,7 +1,7 @@
-// predicates.h by Shewchuk's adaptive-precision predicates (native/third_party/predicates.c, vendored unmodified:
-// its README.md), whose signs are exact for any double inputs barring overflow and underflow. exactinit() sets the
-// file's machine constants (epsilon, splitter, the error bounds) once, before the first call, through a function-local
-// static: C++ initializes those once, thread-safely.
+// predicates.h by Shewchuk's adaptive-precision predicates (native/third_party/predicates.c, vendored with a patch
+// guarding reads past its expansions: its README.md), whose signs are exact for any double inputs barring overflow and
+// underflow. exactinit() sets the file's machine constants (epsilon, splitter, the error bounds) once, before the first
+// call, through a function-local static: C++ initializes those once, thread-safely.
 #include "cad_geom/predicates.h"
 
 extern "C" {
