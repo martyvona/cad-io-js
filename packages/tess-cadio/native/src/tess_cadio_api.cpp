@@ -67,7 +67,10 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
   opts.d.angular = angular;
   PartMesher pm(m, opts);
   const uint32_t* faceId = m.u32(CBR_FACE_ID);
-  std::vector<uint32_t> failed, failedRows, refused, unsplit, unsettled;
+  std::vector<uint32_t> failed, failedRows, failedStatus, refused, unsplit, unsettled;
+  // Refused triangles, and those of them in a pole's fan (a corner at a surface singularity's point).
+  size_t refusedTriangles = 0, poleSlivers = 0;
+  double tol = std::isfinite(m.uncertainty()) && m.uncertainty() > 0 ? m.uncertainty() : 1e-6;
   for (int f = 0; f < m.faces(); f++) {
     const FaceMesh& fm = pm.face(f);
     uint32_t base = static_cast<uint32_t>(result.positions.size() / 3), start = static_cast<uint32_t>(
@@ -80,12 +83,27 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
           static_cast<float>(n.z)});
       }
       for (int32_t v : fm.triangles) result.indices.push_back(base + static_cast<uint32_t>(v));
-      if (!fm.rejected.empty()) refused.push_back(faceId[f]);
+      if (!fm.rejected.empty()) {
+        refused.push_back(faceId[f]);
+        refusedTriangles += fm.rejected.size();
+        Status st;
+        std::vector<Singularity> sing;
+        if (std::unique_ptr<Surface> s = makeSurface(m, m.faceSurface(f), st)) s->singularities(sing);
+        for (int32_t t : fm.rejected) {
+          bool pole = false;
+          for (int k = 0; k < 3 && !pole; k++)
+            for (const Singularity& g : sing)
+              pole = pole || (g.kind != Singularity::normalVanishes &&
+                norm(fm.points[fm.triangles[3 * t + k]] - g.point) <= 10 * tol);
+          poleSlivers += pole;
+        }
+      }
       if (fm.splitsWanted) unsplit.push_back(faceId[f]);
       if (!fm.note.empty()) unsettled.push_back(faceId[f]);
     } else {
       failed.push_back(faceId[f]);
       failedRows.push_back(static_cast<uint32_t>(f));
+      failedStatus.push_back(static_cast<uint32_t>(fm.status == Status::ok ? Status::invalidModel : fm.status));
     }
     result.faces.insert(result.faces.end(), {faceId[f], start, static_cast<uint32_t>(result.indices.size()) - start});
   }
@@ -149,9 +167,11 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
       result.edgeAngles.push_back(angle);
     }
   }
-  result.diag = "{\"failed\":" + ids(failed) + ",\"failedRows\":" + ids(failedRows) + ",\"refused\":" + ids(refused) +
+  result.diag = "{\"failed\":" + ids(failed) + ",\"failedRows\":" + ids(failedRows) + ",\"failedStatus\":" +
+    ids(failedStatus) + ",\"refused\":" + ids(refused) +
     ",\"unsplit\":" + ids(unsplit) + ",\"unsettled\":" + ids(unsettled) + ",\"rounds\":" +
-    std::to_string(pm.rounds()) + "}";
+    std::to_string(pm.rounds()) + ",\"refusedTriangles\":" + std::to_string(refusedTriangles) +
+    ",\"poleSlivers\":" + std::to_string(poleSlivers) + "}";
   return 0;
 }
 
@@ -170,7 +190,11 @@ const uint32_t* tc_edges() { return result.edges.data(); }
 const float* tc_edge_angles() { return result.edgeAngles.data(); }
 int tc_num_edge_points() { return static_cast<int>(result.edgePositions.size() / 3); }
 const float* tc_edge_positions() { return result.edgePositions.data(); }
-/** The last call's diagnostics: {"failed": [face ids], "failedRows", "refused", "unsplit", "unsettled", "rounds"}. */
+/**
+ * The last call's diagnostics: {"failed": [face ids], "failedRows", "failedStatus" (each one's result.h Status: an
+ * empty triangulation counts as invalidModel), "refused", "unsplit", "unsettled", "rounds",
+ * "refusedTriangles", "poleSlivers" (refused triangles with a corner at a pole or apex)}.
+ */
 const char* tc_diag() { return result.diag.c_str(); }
 void tc_free() { result = {}; }
 

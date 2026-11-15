@@ -426,7 +426,18 @@ struct EdgeMesh::Impl {
       if (sense && t[1] <= t[0]) t[1] += dom.period;
       if (!sense && t[1] >= t[0]) t[1] -= dom.period;
     } else if (sense != (t[1] > t[0])) {
-      return false;
+      // Against what sameSense says: on a curve that closes without a period (a closed B-spline), a vertex at its
+      // junction is either end, so the end that runs the edge the way sameSense says; otherwise the vertices' order
+      // stands, the flag wrong (as cad-brep's edgeParams has it).
+      Vec3 a = E.geom->at(dom.range.lo), b = E.geom->at(dom.range.hi);
+      if (std::isfinite(dom.range.lo) && std::isfinite(dom.range.hi) && norm(a - b) <= tol) {
+        auto atEnd = [&](int v) {
+          Vec3 q = m.vertexPoint(v);
+          return norm(q - a) <= tol || norm(q - b) <= tol;
+        };
+        if (atEnd(E.end)) t[1] = sense ? dom.range.hi : dom.range.lo;
+        else if (atEnd(E.start)) t[0] = sense ? dom.range.lo : dom.range.hi;
+      }
     }
     r = {t[0], t[1]};
     return true;
@@ -785,7 +796,9 @@ struct EdgeMesh::Impl {
       }
       std::vector<int> cs = bounding(l);
       if (cs.empty()) continue;
-      chains.push_back(chain(f, cs));
+      Chain ch = chain(f, cs);
+      if (ch.pts.size() < 2) continue;  // (face() reports it)
+      chains.push_back(std::move(ch));
       loopOf.push_back(l);
     }
     int windDirs = 0, d = -1;
@@ -880,7 +893,18 @@ struct EdgeMesh::Impl {
           continue;
         }
         int e = A.edgeIndex, co = ch.owner[i];
-        double ta = edges[e].s.t[A.sample], tb = edges[e].s.t[B.sample];
+        // A closed edge's first and last samples are one point: the loop's closing point carries one of them, so the
+        // span's other end may be either (the sample adjacent to A's).
+        int as = A.sample, bs = B.sample, last = static_cast<int>(edges[e].s.t.size()) - 1;
+        if (std::abs(as - bs) != 1 && edges[e].closed) {
+          if (bs == last || bs == 0) bs = (bs == last ? 0 : last);
+          if (std::abs(as - bs) != 1 && (as == last || as == 0)) as = (as == last ? 0 : last);
+        }
+        if (std::abs(as - bs) != 1) {
+          found = 99;
+          continue;
+        }
+        double ta = edges[e].s.t[as], tb = edges[e].s.t[bs];
         // The shift this coedge has in the chain, so the solve compares like with like.
         Vec2 raw = coedges[co].s.uv[0];
         double shiftD = 0;
@@ -986,6 +1010,11 @@ struct EdgeMesh::Impl {
       if (cs.empty()) continue;
       Chain ch = chain(f, cs);
       out.status = worse(out.status, ch.status);
+      // (A loop with a coedge that has no samples, its edge unsampled: no chain, the status says why.)
+      if (ch.pts.size() < 2) {
+        out.status = worse(out.status, Status::invalidModel);
+        continue;
+      }
       if (l != F.loopA && l != F.loopB) {
         ch.pts.pop_back();
         loops.push_back(std::move(ch.pts));

@@ -24,6 +24,11 @@ struct PartOptions {
    * left to the split rounds; for tests and tuning).
    */
   double edgeSpacingScale = 1;
+  /**
+   * Steiner points per face at most (mesh2d.h's maxPoints): a refinement its criteria can't end (a B-spline's
+   * degenerate corner) stops there, the mesh kept with its refused triangles and noted.
+   */
+  int maxPointsPerFace = 100000;
 };
 
 struct FaceMesh {
@@ -45,7 +50,10 @@ struct FaceMesh {
   std::vector<int32_t> rejected;
   /** Splits of its edges it still wanted when the rounds ran out. */
   int splitsWanted = 0;
-  /** A note for diagnostics where the face is meshed but not as asked (its boundary's status), else empty. */
+  /**
+   * A note for diagnostics where the face is meshed but not as asked (its boundary's status, refinement stopped at
+   * its point cap), else empty.
+   */
   std::string note;
 };
 

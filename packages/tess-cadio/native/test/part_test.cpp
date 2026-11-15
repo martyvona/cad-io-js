@@ -202,6 +202,7 @@ TEST_CASE("curved faces (a seam cylinder, a band, a hemisphere, a cap, a lune): 
     bool cylinder;
   };
   for (Case c : {Case{"seamCylinder", 0, 20 * M_PI, 2, {0, 0, 0}, true}, Case{"band", 0, 20 * M_PI, 2, {0, 0, 0}, true},
+         Case{"bore", 0, 20 * M_PI, 2, {0, 0, 0}, true},
          Case{"spheres", 1, 2 * M_PI, 1, {10, 0, 0}, false}, Case{"cap", 0, 2 * M_PI * (1 - M_SQRT1_2), 1, {}, false},
          Case{"luneQuarter", 0, M_PI, 1, {}, false}}) {
     cadgeom::Model m = load(c.model);
@@ -356,6 +357,39 @@ TEST_CASE("edges take the profile's angle: an arc on a plane, whose face asks no
   cadgeom::Model m = load("arcSegment");
   PartMesher pm(m, options(0.1, 0.05));
   CHECK(pm.edges().edge(0).t.size() - 1 >= 16u);
+}
+
+TEST_CASE("real data: an edge against its sameSense flag meshed; an edge of no length fails its face, not the part") {
+  cadgeom::Model w = load("wrongSense");
+  REQUIRE(w.ok());
+  PartMesher pw(w, options(0.1, 0.26));
+  REQUIRE(pw.face(0).status == cadgeom::Status::ok);
+  CHECK(std::fabs(stats(pw.face(0), [](Vec3) { return 0.0; }).area - 1) < 1e-12);
+  CHECK_EQ(sharedEdges(w, pw, "wrongSense"), 0);
+  // The last edge runs down its line: its samples from (0, 1) to (0, 0).
+  const EdgeSamples& e3 = pw.edges().edge(3);
+  CHECK(e3.status == cadgeom::Status::ok && e3.points.front().y == 1 && e3.points.back().y == 0);
+  cadgeom::Model z = load("zeroEdge");
+  REQUIRE(z.ok());
+  PartMesher pz(z, options(0.1, 0.26));
+  CHECK(pz.edges().edge(4).status == cadgeom::Status::invalidModel);
+  CHECK(pz.face(0).status == cadgeom::Status::invalidModel);
+  CHECK(pz.face(0).triangles.empty());
+}
+
+TEST_CASE("a band's cut in the span through its circles' vertex (nist_ftc_10's bore at the medium profile)") {
+  // The loop's closing point carries the closed edge's other end sample: the cut's crossing must still be found in
+  // the one span (not across the whole circle, half a turn off, the band then covered once and a strip again).
+  cadgeom::Model m = load("nistBore");
+  REQUIRE(m.ok());
+  PartMesher pm(m, options(0.1, 15 * M_PI / 180));
+  const FaceMesh& fm = pm.face(0);
+  REQUIRE(fm.status == cadgeom::Status::ok);
+  Stats s = stats(fm, [](Vec3 p) { return std::fabs(std::hypot(p.x - 14, p.y - 23) - 5); });
+  const double band = 2 * M_PI * 5 * 10;
+  CHECK(s.area < band && s.area > band * (1 - 2.5 * 0.1 / 5));
+  CHECK(s.worst <= 0.1 * (1 + 1e-9));
+  CHECK_EQ(s.facing, 0);
 }
 
 TEST_CASE("the same part twice: the same points, normals and triangles, bit for bit") {
