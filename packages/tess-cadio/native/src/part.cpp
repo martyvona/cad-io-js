@@ -100,12 +100,16 @@ struct PartMesher::Impl {
       d.points.push_back(p.uv);
       if (p.kind == BoundaryPoint::pseudoSample) edgesOf[f].insert(p.edgeIndex);
     }
-    Mesh2 mesh = mesh2(d, *criteria[f]);
+    MeshOptions mo;
+    mo.maxPoints = o.maxPointsPerFace;
+    Mesh2 mesh = mesh2(d, *criteria[f], mo);
     if (mesh.status != Status::ok && mesh.status != Status::noConvergence) {
       out.status = mesh.status;
       return;
     }
     out.status = Status::ok;
+    if (mesh.status == Status::noConvergence)
+      out.note += std::string(out.note.empty() ? "" : "; ") + "refinement stopped at its point cap";
     // The segments' pairs, as mesh2d.h numbers them: each loop's, then the interior ones.
     std::vector<std::pair<int32_t, int32_t>> segs;
     for (const auto& l : d.loops)

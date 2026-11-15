@@ -11,6 +11,8 @@ import { sha256 } from 'cad-scene';
 const API_VERSION = 1;
 /** The workspace's version (package.json's; a test checks they agree). */
 export const VERSION = '0.3.0';
+/** result.h's Status, by code. */
+const STATUS = ['ok', 'unsupported', 'outOfDomain', 'singular', 'noConvergence', 'invalidModel'];
 /** tess_cadio_api.cpp's edge kinds, by code. */
 const KINDS: EdgeKind[] = ['shared', 'seam', 'free'];
 
@@ -161,12 +163,28 @@ export class CadioTessellator implements Tessellator {
     m._tc_free();
     const list = (k: string) => (Array.isArray(diag[k]) ? diag[k] as number[] : []);
     const failedIds = list('failed');
-    if (failedIds.length) diagnostics.push({ severity: 'error', message: failedMessage(failedIds, failedIds.length) });
+    if (failedIds.length) {
+      diagnostics.push({ severity: 'error', message: failedMessage(failedIds, failedIds.length) });
+      // Why, per face (result.h's Status).
+      const by = new Map<string, number[]>(), st = list('failedStatus');
+      failedIds.forEach((id, i) => {
+        const k = STATUS[st[i] ?? -1] ?? 'unknown';
+        by.set(k, [...(by.get(k) ?? []), id]);
+      });
+      diagnostics.push({ severity: 'info', message: 'faces failed to mesh, by status: ' + [...by].map(([k, ids]) =>
+        `${k} ${ids.length} (${ids.map((i) => `#${i}`).join(', ')})`)
+        .join('; ') });
+    }
     const note = (k: string, what: string) => {
       const ids = list(k);
       if (ids.length) diagnostics.push({ severity: 'warning', message: `${ids.length} faces ${what}` });
     };
-    note('refused', 'meshed with triangles their criteria still refuse (a fixed boundary, or a pole\'s fan)');
+    const refused = list('refused');
+    if (refused.length) {
+      diagnostics.push({ severity: 'warning', message: `${refused.length} faces meshed with triangles their criteria `
+        + `still refuse: ${Number(diag.refusedTriangles)} triangles, ${Number(diag.poleSlivers)} of them slivers in a `
+        + 'pole\'s fan' });
+    }
     note('unsplit', 'still wanting their edges split when the rounds ran out');
     note('unsettled', 'with a seam whose side in (u, v) their neighbours didn\'t settle');
     return result;

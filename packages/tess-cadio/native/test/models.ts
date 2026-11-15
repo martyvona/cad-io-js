@@ -15,7 +15,7 @@ function sheet(b: BrepBuilder, face: number): void {
  * A cylinder's band (radius 2, z 0 to 5) bounded by its two circles alone, no seam edge: the bottom forward, the top
  * reversed, with p-curves (the lines v = 0 and v = 5) or without.
  */
-function band(pcurves: boolean): BrepBuilder {
+function band(pcurves: boolean, sense = true): BrepBuilder {
   const b = new BrepBuilder();
   const bottom = b.addCurve({ kind: 'circle', position: AXIS, radius: 2 });
   const top = b.addCurve({ kind: 'circle', position: { ...AXIS, origin: [0, 0, 5] }, radius: 2 });
@@ -23,18 +23,20 @@ function band(pcurves: boolean): BrepBuilder {
   const eb = b.addEdge({ curve: bottom, start: v0, end: v0, sameSense: true });
   const et = b.addEdge({ curve: top, start: v1, end: v1, sameSense: true });
   const pb = b.addCurve(line2([0, 0], [1, 0])), pt = b.addCurve(line2([0, 5], [1, 0]));
-  const face = b.addFace({ surface: b.addSurface({ kind: 'cylinder', position: AXIS, radius: 2 }), sameSense: true,
+  // (With `sense` false, a bore: the face's normal inward, its loops run the other way, the face still on their left.)
+  const face = b.addFace({ surface: b.addSurface({ kind: 'cylinder', position: AXIS, radius: 2 }), sameSense: sense,
     loops: [
       { kind: 'edge', bound: 'outer', sense: true,
-        coedges: [{ edge: eb, orientation: 'forward', ...(pcurves ? { pcurve: pb } : {}) }] },
+        coedges: [{ edge: eb, orientation: sense ? 'forward' : 'reversed', ...(pcurves ? { pcurve: pb } : {}) }] },
       { kind: 'edge', bound: 'inner', sense: true,
-        coedges: [{ edge: et, orientation: 'reversed', ...(pcurves ? { pcurve: pt } : {}) }] },
+        coedges: [{ edge: et, orientation: sense ? 'reversed' : 'forward', ...(pcurves ? { pcurve: pt } : {}) }] },
     ] });
   sheet(b, face);
   return b;
 }
 export const band_ = (): BrepBuilder => band(true);
 export const bandByInversion = (): BrepBuilder => band(false);
+export const bore = (): BrepBuilder => band(false, false);
 
 /**
  * cad-brep's seam cylinder with no p-curves: every use by inversion, the seam's two sides from their neighbours.
@@ -271,5 +273,57 @@ export function twisted(): BrepBuilder {
   return b;
 }
 
-export const MODELS = { band: band_, bandByInversion, seamByInversion, offVertex, pcurveOnly, luneQuarter,
-  luneOnSeam, cap, splineEdge, seamFlipped, polylineEdge, pcurveCircle, arcSegment, fold, twisted };
+/**
+ * A unit square on z = 0 whose edges have no ranges, the last one's line running from (0, 0) up to (0, 1) while the
+ * edge, said sameSense, runs down it: the vertices' order stands (as cad-brep's edgeParams has it); and with
+ * `zero`, a loop with an edge between two vertices at one point (no length: no samples, the face failing, not the
+ * part).
+ */
+function square(zero: boolean): BrepBuilder {
+  const b = new BrepBuilder();
+  const c = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]];
+  const vs = c.map((point) => b.addVertex({ point }));
+  const lines = [[c[0]!, [1, 0, 0]], [c[1]!, [0, 1, 0]], [c[2]!, [-1, 0, 0]], [c[0]!, [0, 1, 0]]];
+  const edges = lines.map(([point, direction], j) => b.addEdge({ curve: b.addCurve({ kind: 'line', point: point!,
+    direction: direction!, magnitude: 1 }), start: vs[j]!, end: vs[(j + 1) % 4]!, sameSense: true }));
+  const coedges = edges.map((edge) => ({ edge, orientation: 'forward' as const }));
+  if (zero) {
+    const extra = b.addVertex({ point: [1, 0, 0] });
+    const e = b.addEdge({ curve: b.addCurve({ kind: 'line', point: [1, 0, 0], direction: [1, 0, 0], magnitude: 1 }),
+      start: vs[1]!, end: extra, sameSense: true });
+    coedges.splice(1, 0, { edge: e, orientation: 'forward' as const });
+  }
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: true,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] }));
+  return b;
+}
+export const wrongSense = (): BrepBuilder => square(false);
+export const zeroEdge = (): BrepBuilder => square(true);
+
+/**
+ * A bore as nist_ftc_10's has it: a cylinder of radius 5 (axis -z, xDir -x) with sense false between two circles
+ * whose axes are opposite, both used reversed, no p-curves; its cut falls in the span through the circles' vertex.
+ */
+export function nistBore(): BrepBuilder {
+  const b = new BrepBuilder();
+  // (Its numbers as the file has them: the cut's place depends on the samples' rounding.)
+  const x = [-1, 0, 0], cx = 14.000000000000004;
+  const c0 = b.addCurve({ kind: 'circle', position: { origin: [cx, 23, -37.49999999999999], axis: [0, 0, 1], xDir: x },
+    radius: 5 });
+  const c1 = b.addCurve({ kind: 'circle', position: { origin: [cx, 23, -27.499999999999996], axis: [0, 0, -1],
+    xDir: x }, radius: 5 });
+  const v0 = b.addVertex({ point: [9.000000000000004, 23, -37.49999999999999] });
+  const v1 = b.addVertex({ point: [9.000000000000004, 23, -27.499999999999996] });
+  const e0 = b.addEdge({ curve: c0, start: v0, end: v0, sameSense: true });
+  const e1 = b.addEdge({ curve: c1, start: v1, end: v1, sameSense: true });
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'cylinder', position: { origin: [cx, 23, -32.49999999999999],
+    axis: [0, 0, -1], xDir: x }, radius: 5 }), sameSense: false, loops: [
+    { kind: 'edge', bound: 'outer', sense: true, coedges: [{ edge: e0, orientation: 'reversed' }] },
+    { kind: 'edge', bound: 'inner', sense: true, coedges: [{ edge: e1, orientation: 'reversed' }] }] }));
+  return b;
+}
+
+export const MODELS = { band: band_, bandByInversion, bore, nistBore, seamByInversion, offVertex, pcurveOnly,
+  luneQuarter,
+  luneOnSeam, cap, splineEdge, seamFlipped, polylineEdge, pcurveCircle, arcSegment, fold, twisted, wrongSense,
+  zeroEdge };

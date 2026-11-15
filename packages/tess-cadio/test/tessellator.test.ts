@@ -116,6 +116,18 @@ test('the seam cylinder: its seam a seam; a sphere\'s faces: the whole one faile
     }
   });
 
+test('triangles still refused counted, and those in a pole\'s fan apart (the hemisphere at a loose angle)', { skip },
+  async () => {
+    const t = await tessellator();
+    const r = await t.tessellate(req('spheres', { linearDeflection: 0.1, angularDeflection: 0.5 }));
+    const re = /^(\d+) faces meshed with triangles their criteria still refuse: (\d+) triangles, (\d+) of them slivers/;
+    const w = r.diagnostics.map((x) => re.exec(x.message)).find((m) => m);
+    assert.ok(w, JSON.stringify(r.diagnostics));
+    assert.equal(w[1], '1');
+    assert.ok(Number(w[2]) >= 1);
+    assert.equal(w[3], w[2]);
+  });
+
 test('the origin subtracted in double precision; without edges, none', { skip }, async () => {
   const t = await tessellator();
   const a = await t.tessellate(req('cube'));
