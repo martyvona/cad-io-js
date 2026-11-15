@@ -5,7 +5,13 @@
   "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {
-    "build": "./build.sh",
+    "build": "./build.sh module",
     "test-native": "./build.sh test"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "devDependencies": {
+    "cad-brep": "0.3.0"
   }
 }

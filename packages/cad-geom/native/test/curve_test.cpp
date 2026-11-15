@@ -747,11 +747,13 @@ TEST_CASE("inversion: an unbounded offset, a near tie, a seam reached within tol
   CurveInversion b = invertCurve(*el, o + 1e-12 * y, el->domain().range, 1e-9);
   CHECK(b.certainty == Certainty::ambiguous);
   CHECK(b.alternatives.size() == 1);
-  // A foot 1e-12 from the seam, within tol: t is the range's end exactly.
-  el->derivs(1e-12, 0, d);
-  CurveInversion c = invertCurve(*el, d[0], el->domain().range, 1e-9);
-  CHECK(c.onSeam);
-  CHECK_EQ(c.t, 0.0);
+  // Feet within tol of the seam, either side: flagged, their own parameters kept (never snapped to an end).
+  for (double t : {1e-3, 2 * M_PI - 1e-3}) {
+    el->derivs(t, 0, d);
+    CurveInversion c = invertCurve(*el, d[0], el->domain().range, 0.01);
+    CHECK(c.onSeam);
+    CHECK_NEAR(c.t, t, 0, 1e-9);
+  }
   // With tol 0 no seam is claimed, and the result still lies in [lo, lo + period).
   for (double t : {0.0, 1e-17, 2 * M_PI}) {
     el->derivs(t, 0, d);
@@ -794,4 +796,35 @@ TEST_CASE("lengths outside a bounded domain are the domain's part") {
   Estimate in = arcLength(*c, 0, 3.5, 1e-13), out = arcLength(*c, -1, 4, 1e-13);
   CHECK(out.status == Status::outOfDomain);
   CHECK_NEAR(out.value, in.value, 1e-13, 0);
+}
+
+TEST_CASE("a Bezier curve with repeated end poles: its speed's zero at the end itself; its length converges") {
+  // From the corpus (t4mec.stp's cubics): the last two poles one point, so C'(1) = 0.
+  auto c = bspline(3, 3, {0, 1}, {4, 4}, {0, 0, 0, 1, 2, 0, 3, 1, 1, 3, 1, 1});
+  std::vector<double> z;
+  c->singular({0, 1}, z);
+  REQUIRE(z.size() == 1);
+  CHECK_EQ(z[0], 1.0);
+  Estimate L = arcLength(*c, 0, 1, 1e-10);
+  CHECK(L.status == Status::ok);
+  CHECK(L.error <= 1e-10 * L.value);
+}
+
+TEST_CASE("inversion within a coarse tol still finds the foot itself (a rational cubic, a point 1e-7 off it)") {
+  // From the corpus (trj7_b1-ec-214.stp, uncertainty 1 mm): ranges narrower than tol aren't one foot, only ranges
+  // narrower than their coordinates' rounding; a foot near a range's end isn't the end.
+  std::vector<double> cp;
+  double pts[7][3] = {{0, 0, 0}, {1, 2, 0.5}, {2, -1, 1}, {3, 0, -1}, {4, 2, 0}, {5, 1, 2}, {6, 0, 1}};
+  for (auto& p : pts) cp.insert(cp.end(), {p[0], p[1], p[2]});
+  auto c = bspline(3, 3, {0, 1, 2, 3.5}, {4, 1, 2, 4}, cp, {1, 2, 0.5, 1, 3, 1, 0.7});
+  for (double t : {1e-4, 0.7, 3.5 - 1e-4}) {
+    Vec3 d[3];
+    c->derivs(t, 2, d);
+    // Off the curve along its principal normal side, 1e-7: the foot at t.
+    Vec3 n = d[2] - (dot(d[2], d[1]) / dot(d[1], d[1])) * d[1];
+    Vec3 p = d[0] + (1e-7 / norm(n)) * n;
+    CurveInversion inv = invertCurve(*c, p, c->domain().range, 10);  // tol larger than the curve
+    CHECK_NEAR(inv.distance, 1e-7, 1e-6, 0);
+    CHECK_NEAR(inv.t, t, 0, 1e-9);
+  }
 }

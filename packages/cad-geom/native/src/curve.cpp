@@ -6,7 +6,8 @@
 // it is solved when g(t) = |C(t) - p|^2 is convex on it (g''/2 = |C'|^2 + (C - p) . C'' > 0, its lower bound from the
 // boxes of C - p, C' and C'' by interval arithmetic), since a convex g has one minimum there, found by Newton on g'
 // guarded by bisection; else it is split. Feet within tol of the best are the same foot (a seam's two parameters) or
-// alternatives (other places, one per cluster). A range whose box is narrower than tol is one foot (a zero-length
+// alternatives (other places, one per cluster); a foot within tol of a closed curve's junction is flagged onSeam,
+// its parameter kept. A range whose box is as narrow as its coordinates' rounding is one foot (a zero-length
 // piece, a cusp); circles take their feet in closed form (footCandidates). The search is budgeted: where it runs out
 // with a better foot still possible (a rational circle from its centre), it says noConvergence.
 // Arc length: closed forms where they exist (curve_impl.h's exactLength), else quadrature span by span, the spans
@@ -85,6 +86,9 @@ void speedZeros(const CurveImpl& c, Range r, std::vector<double>& out) {
     size_t j = i;
     while (j + 1 < leaves.size() && leaves[j + 1].lo <= leaves[j].hi) j++;
     double t = budget <= 0 ? leaves[i].lo : 0.5 * leaves[i].lo + 0.5 * leaves[j].hi;
+    // A zero at r's end within the resolution is at the end (repeated end poles): not a sliver of span beside it.
+    if (leaves[i].lo <= r.lo) t = r.lo;
+    if (leaves[j].hi >= r.hi) t = r.hi;
     out.push_back(t);
     i = j + 1;
   }
@@ -330,11 +334,11 @@ CurveInversion invertCurve(const Curve& c, Vec3 p, Range r, double tol) {
       double s = boxMinNorm(b1);
       convex = s * s + dotBox(minus(b0, p), b2).lo > 0;
     }
-    // A range whose points are all within tol of each other is one foot wherever its minimum is (a zero-length
-    // segment, a cusp's neighbourhood): the best of its ends and middle. Far from the origin a box can't be
-    // narrower than its coordinates' rounding, so tol is floored there.
+    // A range whose box is as narrow as its coordinates' rounding is one foot wherever its minimum is (a zero-length
+    // segment, a cusp's neighbourhood): the best of its ends and middle. Not a range narrower than tol: tol can be
+    // as large as the curve (a part's uncertainty of 1 mm), and the foot is still wanted, not a point near it.
     double w = g.hi - g.lo, diam = std::hypot(b0.x.width(), std::hypot(b0.y.width(), b0.z.width()));
-    bool tiny = diam <= std::fmax(tol, 24 * kEps * boxMag(b0));
+    bool tiny = diam <= 24 * kEps * boxMag(b0);
     if (convex || tiny || w <= 4 * kEps * std::fmax(std::fabs(g.lo), std::fabs(g.hi)) || w == 0) {
       if (convex) {
         double t = convexMinimum(B, p, g);
@@ -369,7 +373,8 @@ CurveInversion invertCurve(const Curve& c, Vec3 p, Range r, double tol) {
   Vec3 e0 = at(r.lo), e1 = at(r.hi);
   bool whole = wrap || (dom.period == 0 && r.lo <= dom.range.lo && r.hi >= dom.range.hi);
   bool closed = whole && norm(e1 - e0) <= tol;
-  if (closed && (norm(out.foot - e0) <= tol || norm(out.foot - e1) <= tol)) out.onSeam = true, out.t = r.lo;
+  // A flag only: t stays the foot's own (curve.h), so edge ranges and p-curves built from it are the foot's.
+  if (closed && (norm(out.foot - e0) <= tol || norm(out.foot - e1) <= tol)) out.onSeam = true;
   if (wrap && out.t >= r.hi) out.t = r.lo;  // r.hi is r.lo's point: the result in [lo, lo + period)
   // Other feet: within tol of the best distance and more than tol from the best foot and from each other.
   std::vector<Vec3> feet{best.foot};
@@ -427,11 +432,27 @@ Estimate arcLength(const Curve& c, double t0, double t1, double relTol) {
       if (t > cuts.back() && t < br[i + 1]) cuts.push_back(t);
   }
   cuts.push_back(t1);
+  // An absolute tolerance per span from the chords (a lower bound on the length, four a span), so a span whose length
+  // is negligible (next to a zero of the speed) needn't reach relTol of its own tiny value; the spans' errors still
+  // sum to within relTol of the whole.
+  double chord = 0;
+  for (size_t i = 0; i + 1 < cuts.size(); i++) {
+    Range g{cuts[i], cuts[i + 1]};
+    CurvePoint a, b;
+    c.eval(g.lo, 0, a);
+    for (int k = 1; k <= 4; k++) {
+      c.eval(k == 4 ? inside(g, g.hi) : g.lo + (g.hi - g.lo) * k / 4, 0, b);
+      chord += norm(b.p - a.p);
+      a = b;
+    }
+  }
+  double absTol = 0.25 * relTol * chord / static_cast<double>(std::max<size_t>(1, cuts.size() - 1));
   Estimate total{0, 0, status};
   for (size_t i = 0; i + 1 < cuts.size(); i++) {
     if (cuts[i + 1] <= cuts[i]) continue;
     Range g{cuts[i], cuts[i + 1]};
-    Estimate e = quadrature::integrate([&](double t) { return speed(c, inside(g, t)); }, g.lo, g.hi, 0, relTol);
+    Estimate e = quadrature::integrate([&](double t) { return speed(c, inside(g, t)); }, g.lo, g.hi, absTol,
+      relTol);
     total.value += e.value;
     total.error += e.error;
     if (e.status != Status::ok) total.status = e.status;
