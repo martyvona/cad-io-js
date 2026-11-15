@@ -81,6 +81,13 @@ struct SurfaceInversion {
    * seam flag for that parameter stays false, since its value is a choice, not a seam).
    */
   bool atSingularity = false;
+  /**
+   * Where the feet form a curve (a point on an axis of revolution: the circle round it; a torus's tube centre: the
+   * tube's circle): it runs along u over [lo, hi] at v = at (familyU), else along v; alternatives sample it. Where
+   * they cover the surface (a sphere's centre) there is no curve: hasFamily stays false, alternatives sample them.
+   */
+  bool hasFamily = false, familyU = false;
+  double familyLo = 0, familyHi = 0, familyAt = 0;
 };
 
 /**
