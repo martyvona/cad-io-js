@@ -8,12 +8,14 @@
 // a local minimum of the gap; one above tol is nothing. Otherwise the stretch of a around it where the gap stays
 // within tol (its "contact") is measured by projecting a's points onto b, and classified:
 // - The rule: within tol, points are one, so any contact is a stretch, not a point. A contact is isolated (a crossing,
-//   or a tangency) when the curves' own local shape at its middle, their relative angle theta and curvature difference
-//   dk, separates them by at least half the tolerance at its ends, |theta s| + |dk| s^2 / 2 >= tol / 2 with s its
-//   half-length: the stretch is then the tolerance's blur of a point contact. Otherwise their local shape can't
-//   account for the stretch: they coincide there, an overlap, reported as the intervals on each and whether they run
-//   the same way. (Two lines crossing at an angle below tol over their length coincide within tol: an overlap; a
-//   circle touching a line separates quadratically: a tangency, however small the tolerance.)
+//   or a tangency) when the curves' own local shape where the gap is least, their relative angle theta and curvature
+//   difference dk, separates them by at least half the tolerance at one of its ends,
+//   |theta| s + |dk| s^2 / 2 >= tol / 2 with s the arc length to that end: the stretch is then the tolerance's blur of a point contact (one-sided where a
+//   range ends at the contact). Otherwise their local shape can't account for the stretch: they coincide there, an
+//   overlap, reported as the intervals on each and whether they run the same way. (Two lines crossing at an angle
+//   below tol over their length coincide within tol: an overlap; a circle touching a line separates quadratically: a
+//   tangency, however small the tolerance.) An overlap is longer than tol on both curves: one that's a point on
+//   either (collinear pieces meeting end to end, where the gap grows only because a range ends) is a contact.
 // - An isolated contact is a tangency when the signed gap has the same sign at both its ends (they touch without
 //   crossing), a crossing otherwise; its point is where the gap is least (Newton on a(ta) = b(tb) for crossings).
 // Classification. A point within tol of the boundary (or on a pole line the face reaches) is on. Otherwise a ray from
@@ -132,6 +134,8 @@ Poly polyline(const Curve& c, Range r, double delta) {
         t0 = t1;
         p0 = p1;
       } else {
+        // Both halves one level deeper: the right one is this entry, the left one pushed above it.
+        stack.back().second = depth + 1;
         stack.push_back({0.5 * (t0 + t1), depth + 1});
       }
     }
@@ -318,7 +322,8 @@ Intersections2 intersect2(const Curve& a, Range ra, const Curve& b, Range rb, do
   // Candidates on polylines whose chords deviate by about a thousandth of the curves' size (or tol, if larger).
   auto size = [](const Poly& p) {
     double x0 = kInf, y0 = kInf, x1 = -kInf, y1 = -kInf;
-    for (const Vec2& q : p.p) x0 = std::min(x0, q.x), y0 = std::min(y0, q.y), x1 = std::max(x1, q.x), y1 = std::max(y1, q.y);
+    for (const Vec2& q : p.p)
+      x0 = std::min(x0, q.x), y0 = std::min(y0, q.y), x1 = std::max(x1, q.x), y1 = std::max(y1, q.y);
     return std::max(x1 - x0, y1 - y0);
   };
   Poly pa0 = polyline(a, ra, kInf), pb0 = polyline(b, rb, kInf);
@@ -363,14 +368,14 @@ Intersections2 intersect2(const Curve& a, Range ra, const Curve& b, Range rb, do
     contacts.push_back(measure(a, ra, b, rb, ta, tb, tol));
   }
   for (const Contact& c : contacts) {
-    // The rule (the file's comment): the local shape at the contact's middle against the tolerance at its ends.
-    double tm = 0.5 * (c.t0 + c.t1), tbm = project(b, rb, at(a, tm).p, 0.5 * (c.tb0 + c.tb1));
-    P2 A0 = at(a, tm), B0 = at(b, tbm);
-    double s = 0.5 * length(a, c.t0, c.t1);
+    // The rule (the file's comment): the local shape where the gap is least against the tolerance at each end.
+    P2 A0 = at(a, c.ta), B0 = at(b, c.tb);
     double sinTheta = std::fabs(cross(A0.d1, B0.d1)) / (len(A0.d1) * len(B0.d1));
     double cosTheta = dot(A0.d1, B0.d1);
     double dk = std::fabs(curvature(A0) - (cosTheta < 0 ? -1 : 1) * curvature(B0));
-    bool isolated = sinTheta * s + dk * s * s / 2 >= tol / 2 || c.t0 == c.t1;
+    auto separates = [&](double s) { return sinTheta * s + dk * s * s / 2 >= tol / 2; };
+    bool isolated = c.t0 == c.t1 || separates(length(a, c.t0, c.ta)) || separates(length(a, c.ta, c.t1))
+      || length(a, c.t0, c.t1) <= tol || length(b, std::min(c.tb0, c.tb1), std::max(c.tb0, c.tb1)) <= tol;
     if (!isolated) {
       out.overlaps.push_back({{c.t0, c.t1}, {std::min(c.tb0, c.tb1), std::max(c.tb0, c.tb1)}, cosTheta > 0});
       continue;
@@ -399,8 +404,10 @@ Intersections2 intersect2(const Curve& a, Range ra, const Curve& b, Range rb, do
     Vec2 p = 0.5 * (at(a, ta).p + at(b, tb).p);
     out.crossings.push_back({ta, tb, p, !crossing});
   }
-  std::sort(out.crossings.begin(), out.crossings.end(), [](const Crossing& x, const Crossing& y) { return x.ta < y.ta; });
-  std::sort(out.overlaps.begin(), out.overlaps.end(), [](const Overlap& x, const Overlap& y) { return x.a.lo < y.a.lo; });
+  std::sort(out.crossings.begin(), out.crossings.end(),
+    [](const Crossing& x, const Crossing& y) { return x.ta < y.ta; });
+  std::sort(out.overlaps.begin(), out.overlaps.end(),
+    [](const Overlap& x, const Overlap& y) { return x.a.lo < y.a.lo; });
   return out;
 }
 
@@ -438,13 +445,14 @@ bool periodsApart(Vec2 a, Vec2 b, const Periods& per, double tol) {
 /** A loop's boundary pieces with closures: pole-line jumps get a Segment (owned by `segments`). */
 struct Boundary {
   std::vector<LoopPiece> pieces;
-  std::vector<int> loopOf;
+  std::vector<int> loopOf, next, prev;  // within the piece's loop, in its order of travel
   std::vector<std::unique_ptr<Segment>> segments;
   bool gaps = false;  // pieces that don't meet and aren't a pole jump or a period apart
 };
 
 void addLoop(Boundary& out, const Loop2& loop, int index, const Periods& per, double tol) {
   const size_t n = loop.pieces.size();
+  const int first = static_cast<int>(out.pieces.size());
   for (size_t i = 0; i < n; i++) {
     out.pieces.push_back(loop.pieces[i]);
     out.loopOf.push_back(index);
@@ -463,6 +471,11 @@ void addLoop(Boundary& out, const Loop2& loop, int index, const Periods& per, do
       out.pieces.push_back({out.segments.back().get(), {0, 1}, false});
       out.loopOf.push_back(index);
     }
+  }
+  const int last = static_cast<int>(out.pieces.size());
+  for (int i = first; i < last; i++) {
+    out.next.push_back(i + 1 < last ? i + 1 : first);
+    out.prev.push_back(i > first ? i - 1 : last - 1);
   }
 }
 
@@ -543,7 +556,7 @@ bool onBoundary(const Boundary& bd, Vec2 p, const Periods& per, double tol) {
   return false;
 }
 
-enum class RayResult { in, out, retry };
+enum class RayResult { in, out, retry, none };
 
 /** The ray from p along dir (length L): in or out by the nearest boundary it meets, or retry if that's degenerate. */
 RayResult cast(const Boundary& bd, Vec2 p, Vec2 dir, double L, const Periods& per, double tol) {
@@ -554,7 +567,8 @@ RayResult cast(const Boundary& bd, Vec2 p, Vec2 dir, double L, const Periods& pe
   double best = kInf;
   RayResult result = RayResult::out;
   bool hit = false;
-  for (const LoopPiece& piece : bd.pieces) {
+  for (size_t k = 0; k < bd.pieces.size(); k++) {
+    const LoopPiece& piece = bd.pieces[k];
     Bbox b = pieceBox(piece);
     for (Vec2 d : shifts(b, near, per)) {
       if (b.x0 + d.x > near.x1 + tol || b.x1 + d.x < near.x0 - tol || b.y0 + d.y > near.y1 + tol
@@ -569,10 +583,25 @@ RayResult cast(const Boundary& bd, Vec2 p, Vec2 dir, double L, const Periods& pe
         if (s >= best) continue;
         best = s;
         hit = true;
-        bool atEnd = std::fabs(c.tb - piece.range.lo) * len(at(*piece.curve, c.tb).d1) <= tol
-          || std::fabs(c.tb - piece.range.hi) * len(at(*piece.curve, c.tb).d1) <= tol;
-        if (c.tangent || atEnd) {
+        if (c.tangent) {
           result = RayResult::retry;
+          continue;
+        }
+        // At a piece's end the loop goes on in its neighbour (the same piece, a period on, for a band): p must be on
+        // the same side of both, else the ray passes through a corner and decides nothing.
+        double speed = len(at(*piece.curve, c.tb).d1);
+        bool atLo = std::fabs(c.tb - piece.range.lo) * speed <= tol;
+        bool atHi = std::fabs(c.tb - piece.range.hi) * speed <= tol;
+        if (atLo || atHi) {
+          bool travelStart = atLo != piece.reversed;
+          const LoopPiece& nb = bd.pieces[travelStart ? bd.prev[k] : bd.next[k]];
+          double joint = travelStart != nb.reversed ? nb.range.hi : nb.range.lo;  // the neighbour's end at the joint
+          double here = cross(travel(piece, c.tb), p - c.p), there = cross(travel(nb, joint), p - c.p);
+          if ((here > 0) != (there > 0) || here == 0 || there == 0) {
+            result = RayResult::retry;
+            continue;
+          }
+          result = here > 0 ? RayResult::in : RayResult::out;
           continue;
         }
         // p on the piece's left (its direction of travel): in.
@@ -588,8 +617,7 @@ RayResult cast(const Boundary& bd, Vec2 p, Vec2 dir, double L, const Periods& pe
       }
     }
   }
-  if (!hit) return RayResult::out;
-  return result;
+  return hit ? result : RayResult::none;
 }
 
 Side classifyBoundary(const Boundary& bd, Vec2 p, const Periods& per, double tol, bool noOuter, Status& status) {
@@ -620,12 +648,13 @@ Side classifyBoundary(const Boundary& bd, Vec2 p, const Periods& per, double tol
       L = reach;
     }
     RayResult r = cast(bd, p, dir, L, per, tol);
-    if (r == RayResult::retry) continue;
-    if (r == RayResult::out) {
-      // No hit at all along a ray to beyond the boundary: in only if no loop is an outer one.
-      Segment probe(p, p + L * dir);
-      (void)probe;
+    // Meeting nothing: out along a ray to beyond the boundary; along one period it says nothing (a band's loops run
+    // parallel to it).
+    if (r == RayResult::none) {
+      if (L == reach) return Side::out;
+      continue;
     }
+    if (r == RayResult::retry) continue;
     return r == RayResult::in ? Side::in : Side::out;
   }
   (void)noOuter;
@@ -725,7 +754,8 @@ Intersections2 selfIntersect2(const Loop2& loop, double tol) {
         out.overlaps.push_back(r);
       }
     }
-  std::sort(out.crossings.begin(), out.crossings.end(), [](const Crossing& x, const Crossing& y) { return x.ta < y.ta; });
+  std::sort(out.crossings.begin(), out.crossings.end(),
+    [](const Crossing& x, const Crossing& y) { return x.ta < y.ta; });
   return out;
 }
 
