@@ -513,10 +513,15 @@ int32_t useRange(int32_t h, int c, const Surface* surface, const Periods& per, d
   const double tol = edgeTolerance(m, e);
   // How far the surface at the p-curve's ends lands from the vertices, the larger: infinite where it can't say, a
   // parameter outside the p-curve's domain included (an evaluation there is clamped, and may land on a vertex).
-  // A p-curve a period or more from the domain (useRange's copies) is taken back into it first.
+  // A p-curve a period or more from the domain (useRange's copies) is taken back into it first, and one past an end
+  // by rounding (a p-curve's end at a sphere's pole) onto that end.
   const SurfaceDomain dom = surface->domain();
   auto into = [](double x, Range r, double period) {
-    if (!(period > 0) || (x >= r.lo && x <= r.hi)) return x;
+    if (x >= r.lo && x <= r.hi) return x;
+    if (!(period > 0)) {
+      const double slack = 1e-12 * (1 + std::max(std::fabs(r.lo), std::fabs(r.hi)));
+      return x < r.lo && x >= r.lo - slack ? r.lo : x > r.hi && x <= r.hi + slack ? r.hi : x;
+    }
     x = r.lo + std::fmod(x - r.lo, period);
     return x < r.lo ? x + period : x;
   };

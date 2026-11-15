@@ -547,3 +547,31 @@ test('faces: edges without 3D curves take their p-curves\' own ranges', { skip }
     assert.deepEqual([...r.sides].map((x) => ['in', 'out', 'on'][x]), ['in', 'out']);
   }
 });
+
+test('faces: p-curves ending a few ulps past a sphere\'s pole reach it', { skip }, async () => {
+  // A unit sphere's octant: the equator from (1, 0, 0) to (0, 1, 0), meridians up to the pole and down, its p-curves
+  // segments on [0, 1] (own ranges: the circles' parameters run to pi / 2), the meridians' ending at v = pi / 2 a
+  // few ulps past it, outside the sphere's domain unless taken onto its end.
+  const b = new BrepBuilder();
+  const sphere = b.addSurface({ kind: 'sphere', position: { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] },
+    radius: 1 });
+  const [A, B, P] = [[1, 0, 0], [0, 1, 0], [0, 0, 1]].map((p) => b.addVertex({ point: p }));
+  const circle = (axis: number[], xDir: number[]) => b.addCurve({ kind: 'circle',
+    position: { origin: [0, 0, 0], axis, xDir }, radius: 1 });
+  const h = Math.PI / 2, top = h + 1e-15;
+  const e0 = b.addEdge({ curve: circle([0, 0, 1], [1, 0, 0]), start: A, end: B, sameSense: true });
+  const e1 = b.addEdge({ curve: circle([1, 0, 0], [0, 1, 0]), start: B, end: P, sameSense: true });
+  const e2 = b.addEdge({ curve: circle([0, -1, 0], [1, 0, 0]), start: A, end: P, sameSense: true });
+  const f = b.addFace({ surface: sphere, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true,
+    coedges: [{ edge: e0, orientation: 'forward', pcurve: segment(b, [0, 0], [h, 0]) },
+      { edge: e1, orientation: 'forward', pcurve: segment(b, [h, 0], [h, top]) },
+      { edge: e2, orientation: 'reversed', pcurve: segment(b, [0, 0], [0, top]) }] }] });
+  b.addItem({ kind: 'face', ref: f });
+  using g = new Geometry(await init(), new Uint8Array(b.finish().buffer));
+  const info = g.faceInfo(0);
+  assert.equal(info.status, 'ok');
+  assert.equal(info.ownRanges, 3);
+  const r = g.classifyOnFace(0, [h / 2, h / 2, Math.PI, h / 2, h / 2, -0.3]);
+  assert.deepEqual([...r.statuses], [0, 0, 0]);
+  assert.deepEqual([...r.sides].map((x) => ['in', 'out', 'on'][x]), ['in', 'out', 'out']);
+});
