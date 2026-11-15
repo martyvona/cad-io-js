@@ -145,6 +145,26 @@ export function cap(): BrepBuilder {
   return b;
 }
 
+/**
+ * A band 0.003 wide on a sphere of radius 4.5, between its equator and the parallel 0.003 above (bug27894's strips'
+ * shape, about their own axis): at 0.1 mm its circles' chords bow further than the band is wide, so the triangles
+ * across it, every corner on the boundary, are turned off the surface until the circles are sampled finer. Area
+ * 2 pi R 0.003.
+ */
+export function thinBand(): BrepBuilder {
+  const b = new BrepBuilder();
+  const R = 4.5, h = 0.003, r = Math.sqrt(R * R - h * h);
+  const circle = (z: number, radius: number) => b.addCurve({ kind: 'circle', position: { ...AXIS, origin: [0, 0, z] },
+    radius });
+  const v0 = b.addVertex({ point: [R, 0, 0] }), v1 = b.addVertex({ point: [r, 0, h] });
+  const e0 = b.addEdge({ curve: circle(0, R), start: v0, end: v0, sameSense: true });
+  const e1 = b.addEdge({ curve: circle(h, r), start: v1, end: v1, sameSense: true });
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'sphere', position: AXIS, radius: R }), sameSense: true,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [{ edge: e0, orientation: 'forward' }] },
+      { kind: 'edge', bound: 'inner', sense: true, coedges: [{ edge: e1, orientation: 'reversed' }] }] }));
+  return b;
+}
+
 /** A B-spline edge (a quarter-circle-like cubic) on a plane, and a straight edge closing it: curvature varying. */
 export function splineEdge(): BrepBuilder {
   const b = new BrepBuilder();
@@ -592,7 +612,7 @@ export function torusOuterHalf(): BrepBuilder {
   return b;
 }
 
-export const MODELS = { tubeGapFaceTolerance, tubeGapUncertainty, tubeGapBySize, tubeGapOpen, torusOuterHalf, meridianHemisphereLoose, offPoleRest, wigglyBand, notchBand, bsplineTube,
+export const MODELS = { thinBand, tubeGapFaceTolerance, tubeGapUncertainty, tubeGapBySize, tubeGapOpen, torusOuterHalf, meridianHemisphereLoose, offPoleRest, wigglyBand, notchBand, bsplineTube,
   bsplineTubeTinyArc, bsplineDome, offPoleArc, offPcurves, bandHoleAtVertex, bandHoleOnCut, halfCap,
   meridianHemisphere, band: band_, bandByInversion, bore, nistBore, seamByInversion, offVertex, pcurveOnly,
   luneQuarter, luneOnSeam, cap, splineEdge, seamFlipped, polylineEdge, pcurveCircle, arcSegment, fold, twisted,
