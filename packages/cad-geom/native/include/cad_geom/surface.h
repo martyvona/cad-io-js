@@ -72,7 +72,10 @@ struct SurfaceInversion {
   std::vector<Vec2> alternatives;
   /** The foot is on a seam within tol (periodic, or closed in fact): u (or v) also at the other end of its range. */
   bool onSeamU = false, onSeamV = false;
-  /** The foot is at a singularity within tol, where the free parameter's value is arbitrary (uv holds one choice). */
+  /**
+   * The foot is at a singularity within tol, where the free parameter's value is arbitrary (uv holds one choice; the
+   * seam flag for that parameter stays false, since its value is a choice, not a seam).
+   */
   bool atSingularity = false;
 };
 
