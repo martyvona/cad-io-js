@@ -1,6 +1,6 @@
 // Writes the B-rep test data as a C++ header for the native tests, so they (WebAssembly ones too) need no file
 // access and no JSON: cad-brep's test models (packages/cad-brep/test/models.ts) as buffers, and the reference shapes
-// (packages/cad-brep/test/reference/fixtures/: <name>-<variant>.cbr and .json, format 1) as buffers with their facts
+// (packages/cad-brep/test/reference/fixtures/: <name>-<variant>.cbr and .json, format 2) as buffers with their facts
 // as plain structs. It only reads the reference directory. build.sh's test mode runs it:
 //   node native/test/fixtures.ts <header> [--reference <dir>]
 //   #include "brep_models.h"   fixtures::models[i].{name, data, size}, fixtures::model("seamCylinder");
@@ -34,7 +34,7 @@ export const KINDS: Record<string, Kind> = {
   curveInverse: { struct: 'CurveInverse', list: 'curveInverses',
     doc: 'the parameter of the point of C nearest p (in [lo, lo + period) on a periodic curve)',
     fields: [['curve', 'row'], ['id', 'id'], ['p', 'vec'], ['t', 'num'], ['distance', 'num'],
-      ['certainty', 'certainty'], ['alternatives', 'alts1'], ['ptol', 'num'], ...TOLERANCE] },
+      ['certainty', 'certainty'], ['alternatives', 'alts1'], ['onSeam', 'bool'], ['ptol', 'num'], ...TOLERANCE] },
   surfaceInverse: { struct: 'SurfaceInverse', list: 'surfaceInverses',
     doc: 'the (u, v) of the point of S nearest p (at a singularity, one of the right ones)',
     fields: [['surface', 'row'], ['id', 'id'], ['p', 'vec'], ['uv', 'uv'], ['distance', 'num'],
@@ -156,7 +156,7 @@ export function generate(referenceDir: string): string {
     const j = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
     for (const key of Object.keys(j)) if (!TOP.includes(key)) throw new Error(`${stem}.json: unknown key "${key}"`);
     for (const key of TOP) if (!(key in j)) throw new Error(`${stem}.json: missing "${key}"`);
-    if (j.format !== 1) throw new Error(`${stem}.json: format ${j.format}, this reads 1`);
+    if (j.format !== 2) throw new Error(`${stem}.json: format ${j.format}, this reads 2`);
     if (j.file !== stem || `${j.name}-${j.variant}` !== stem)
       throw new Error(`${stem}.json: file "${j.file}", name "${j.name}" and variant "${j.variant}" don't match`);
     const id = ident(stem);
