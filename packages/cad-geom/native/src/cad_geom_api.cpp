@@ -484,6 +484,9 @@ int32_t useRange(int32_t h, int c, const Surface* surface, const Periods& per, d
   Range er = m.edgeRange(e);
   if (std::isfinite(er.lo) && std::isfinite(er.hi)) {
     t0 = er.lo, t1 = er.hi;
+  } else if (ci < 0 && vs >= 0 && ve >= 0) {
+    // No 3D curve (trims in parameter space only): the p-curve's own parameters at the vertices, below.
+    t0 = t1 = NAN;
   } else {
     if (ci < 0 || vs < 0 || ve < 0) return FACE_NO_RANGE;
     Status s;
@@ -510,18 +513,27 @@ int32_t useRange(int32_t h, int c, const Surface* surface, const Periods& per, d
   const double tol = edgeTolerance(m, e);
   // How far the surface at the p-curve's ends lands from the vertices, the larger: infinite where it can't say, a
   // parameter outside the p-curve's domain included (an evaluation there is clamped, and may land on a vertex).
+  // A p-curve a period or more from the domain (useRange's copies) is taken back into it first.
+  const SurfaceDomain dom = surface->domain();
+  auto into = [](double x, Range r, double period) {
+    if (!(period > 0) || (x >= r.lo && x <= r.hi)) return x;
+    x = r.lo + std::fmod(x - r.lo, period);
+    return x < r.lo ? x + period : x;
+  };
   auto reaches = [&](double a, double b) -> double {
     double off = 0;
     for (auto [t, v] : {std::pair{a, vs}, std::pair{b, ve}}) {
       CurvePoint q;
       SurfacePoint sp;
-      if (pc->eval(t, 0, q) != Status::ok || surface->eval(q.p.x, q.p.y, 0, sp) != Status::ok) return INFINITY;
+      if (pc->eval(t, 0, q) != Status::ok
+        || surface->eval(into(q.p.x, dom.u, per.u), into(q.p.y, dom.v, per.v), 0, sp) != Status::ok)
+        return INFINITY;
       const double d = norm(sp.p - m.vertexPoint(v));
       off = std::isfinite(d) ? std::max(off, d) : INFINITY;
     }
     return off;
   };
-  const double curveOff = reaches(t0, t1);
+  const double curveOff = std::isfinite(t0) && std::isfinite(t1) ? reaches(t0, t1) : INFINITY;
   if (curveOff <= tol) return 0;
   // Else the p-curve's own parameters, where they land nearer (the curve's may still be within 100 x tol of the
   // vertices on a p-curve parameterized otherwise: a fitted B-spline's own parameters drift from the circle's).
@@ -548,20 +560,41 @@ int32_t useRange(int32_t h, int c, const Surface* surface, const Periods& per, d
     if (per.u > 0) bu = sd.u;
     if (per.v > 0) bv = sd.v;
     // In a periodic direction the p-curve may lie a period or more from the surface's domain (u from 0 to -pi/4 on a
-    // cylinder): the point's (u, v) is taken the whole number of periods on nearest the p-curve's box's centre.
-    auto onPcurve = [&](Vec3 p, double& t) {
+    // cylinder): the point's (u, v) is taken a whole number of periods on, the copy nearest the p-curve among those
+    // around the p-curve's box's centre (an unbounded p-curve's, sampled over the curve's parameters, may be periods
+    // off: a whole copy of the loop's piece, which reaches() takes back into the domain). A copy as near as another (a
+    // line along the periodic direction passes through them all) is told apart by nearness in (u, v) to `anchor`,
+    // where given (the copy chosen for the point before it along the edge: the first vertex, then the edge's middle,
+    // then the second vertex), else to the point's own. The copy chosen is left in `anchor`.
+    auto onPcurve = [&](Vec3 p, double& t, Vec2& anchor) {
       SurfaceInversion uv = invertSurface(*surface, p, bu, bv, tol);
       if (uv.status != Status::ok) return false;
       auto near = [](double x, double c, double period) {
         return period > 0 ? x + period * std::round((c - x) / period) : x;
       };
-      CurveInversion r = invertCurve(*pc, {near(uv.uv.x, centre.x, per.u), near(uv.uv.y, centre.y, per.v), 0}, pd.range,
-        tol);
-      t = r.t;
-      return r.status == Status::ok;
+      const Vec2 a = std::isfinite(anchor.x) ? anchor : uv.uv;
+      const double u0 = near(uv.uv.x, centre.x, per.u), v0 = near(uv.uv.y, centre.y, per.v);
+      CurveInversion best;
+      Vec2 bestUv{NAN, NAN};
+      double bestOff = INFINITY;
+      for (int ku = per.u > 0 ? -1 : 0; ku <= (per.u > 0 ? 1 : 0); ku++)
+        for (int kv = per.v > 0 ? -1 : 0; kv <= (per.v > 0 ? 1 : 0); kv++) {
+          const Vec2 q{u0 + ku * per.u, v0 + kv * per.v};
+          CurveInversion r = invertCurve(*pc, {q.x, q.y, 0}, pd.range, tol);
+          if (r.status != Status::ok) continue;
+          const double off = std::hypot(q.x - a.x, q.y - a.y);
+          if (best.status != Status::ok || r.distance < best.distance - tol
+            || (r.distance <= best.distance + tol && off < bestOff))
+            best = r, bestUv = q, bestOff = off;
+        }
+      if (best.status != Status::ok) return false;
+      anchor = bestUv;
+      t = best.t;
+      return true;
     };
     double mid = NAN;
-    if (!onPcurve(m.vertexPoint(vs), own0) || !onPcurve(m.vertexPoint(ve), own1)) return FACE_RANGE_OFF;
+    Vec2 chain{NAN, NAN};
+    if (!onPcurve(m.vertexPoint(vs), own0, chain)) return FACE_RANGE_OFF;
     // Which way the use runs on the p-curve (its parameterization may run either way): through the p-curve's
     // parameter at the 3D curve's middle between the vertices (t0, t1 its parameters there, rounded the way the edge
     // runs); without a 3D curve, or for a closed edge (its middle on both ways round), the way the edge runs on it.
@@ -583,11 +616,12 @@ int32_t useRange(int32_t h, int c, const Surface* surface, const Periods& per, d
       double t = t0 + (forward ? 1 : -1) * f * (span - run);
       return t > d.range.hi ? t - span : t < d.range.lo ? t + span : t;
     };
-    if (c3) {
+    if (c3 && vs != ve) {
       CurvePoint q;
       c3->eval(along(0.5), 0, q);
-      if (!onPcurve(q.p, mid)) return FACE_RANGE_OFF;
+      if (!onPcurve(q.p, mid, chain)) return FACE_RANGE_OFF;
     }
+    if (!onPcurve(m.vertexPoint(ve), own1, chain)) return FACE_RANGE_OFF;
     if (pd.period > 0) {
       if (std::isfinite(mid) && vs != ve) {
         double a = own1, b = own1;
@@ -613,7 +647,8 @@ int32_t useRange(int32_t h, int c, const Surface* surface, const Periods& per, d
         for (int k = 0; k < 2; k++) {
           CurvePoint p3;
           c3->eval(along((k + 1) / 3.0), 0, p3);
-          if (!onPcurve(p3.p, third[k])) return FACE_RANGE_OFF;
+          Vec2 own{NAN, NAN};
+        if (!onPcurve(p3.p, third[k], own)) return FACE_RANGE_OFF;
           third[k] = std::fmod(third[k] - from + 2 * span, span);
         }
         up = third[0] < third[1];
