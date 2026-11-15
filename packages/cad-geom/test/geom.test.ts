@@ -252,6 +252,8 @@ interface DiskVariant {
   flipped?: boolean;
   /** The 3D curve the B-spline circle and the p-curves 2D circles, on a plane facing -z (so running clockwise). */
   periodic?: boolean;
+  /** The part's uncertainty (mm): 0.05 puts the circle's parameters on the p-curves within 100 x of the vertices. */
+  uncertainty?: number;
 }
 
 /**
@@ -261,7 +263,7 @@ interface DiskVariant {
  * the p-curve's ends.
  */
 function ownRangeDisk(o: DiskVariant): Uint8Array {
-  const b = new BrepBuilder();
+  const b = new BrepBuilder(o.uncertainty ? { uncertainty: o.uncertainty } : {});
   const w = Math.SQRT1_2, r = 2;
   const square = [[r, 0], [r, r], [0, r], [-r, r], [-r, 0], [-r, -r], [0, -r], [r, -r], [r, 0]];
   const poles = (o.backwards ? square.map(([x, y]) => [x!, -y!]) : square).map(([x, y]) => [x!, y!]);
@@ -296,7 +298,7 @@ test('faces: p-curves parameterized otherwise than their curves get their own ra
   const module = await init();
   const variants: DiskVariant[] = [{}, { backwards: true }, { closedEdge: true }, { backwards: true, closedEdge: true },
     { atClosure: true }, { backwards: true, atClosure: true }, { flipped: true }, { backwards: true, flipped: true },
-    { flipped: true, closedEdge: true }, { periodic: true }, { periodic: true, flipped: true }];
+    { flipped: true, closedEdge: true }, { periodic: true }, { periodic: true, flipped: true }, { uncertainty: 0.05 }];
   for (const o of variants) {
     const name = JSON.stringify(o), buffer = ownRangeDisk(o), d = openBrep(buffer.slice());
     using g = new Geometry(module, buffer);
