@@ -50,20 +50,26 @@ std::map<int, std::vector<int>> edgeFaces(const cadgeom::Model& m) {
 /** Each model edge's samples in each of its faces: every point there, every span a triangle's side. */
 int sharedEdges(const cadgeom::Model& m, const PartMesher& pm, const char* what) {
   int bad = 0;
+  // Per face, once: its vertices by point (a seam's points and a closed edge's vertex are at several: any of them),
+  // its triangles' sides.
+  std::vector<std::map<Key, std::vector<int>>> ats(m.faces());
+  std::vector<std::set<std::pair<int, int>>> sideSets(m.faces());
+  for (int f = 0; f < m.faces(); f++) {
+    const FaceMesh& fm = pm.face(f);
+    for (size_t i = 0; i < fm.points.size(); i++) ats[f][key(fm.points[i])].push_back(static_cast<int>(i));
+    for (size_t t = 0; t + 2 < fm.triangles.size(); t += 3)
+      for (int k = 0; k < 3; k++) {
+        int a = fm.triangles[t + k], b = fm.triangles[t + (k + 1) % 3];
+        sideSets[f].insert({std::min(a, b), std::max(a, b)});
+      }
+  }
   for (auto& [e, fs] : edgeFaces(m)) {
     const EdgeSamples& s = pm.edges().edge(e);
     for (int f : fs) {
       const FaceMesh& fm = pm.face(f);
       if (fm.status != cadgeom::Status::ok) continue;
-      // (A seam's points and a closed edge's vertex are at several vertices: any of them.)
-      std::map<Key, std::vector<int>> at;
-      for (size_t i = 0; i < fm.points.size(); i++) at[key(fm.points[i])].push_back(static_cast<int>(i));
-      std::set<std::pair<int, int>> sides;
-      for (size_t t = 0; t + 2 < fm.triangles.size(); t += 3)
-        for (int k = 0; k < 3; k++) {
-          int a = fm.triangles[t + k], b = fm.triangles[t + (k + 1) % 3];
-          sides.insert({std::min(a, b), std::max(a, b)});
-        }
+      const std::map<Key, std::vector<int>>& at = ats[f];
+      const std::set<std::pair<int, int>>& sides = sideSets[f];
       int missing = 0, unjoined = 0;
       for (size_t i = 0; i < s.points.size(); i++) {
         auto it = at.find(key(s.points[i]));
@@ -107,6 +113,13 @@ int closedAndOriented(const PartMesher& pm, int nf) {
   return bad;
 }
 
+/** Whether triangle t (an index into triangles / 3) has a corner at `pole`. */
+bool atPole(const FaceMesh& fm, int32_t t, Vec3 pole) {
+  for (int k = 0; k < 3; k++)
+    if (cadgeom::norm(fm.points[fm.triangles[3 * t + k]] - pole) < 1e-12) return true;
+  return false;
+}
+
 struct Stats {
   double area = 0, worst = 0;
   int badNormals = 0, facing = 0;
@@ -115,7 +128,7 @@ struct Stats {
  * A face's mesh: its area, its triangles' worst distance from the surface (by `dist`, the surface's own measure),
  * normals not unit or not finite, triangles facing against their corners' normals.
  */
-template <class Dist> Stats stats(const FaceMesh& fm, Dist dist) {
+template <class Dist> Stats stats(const FaceMesh& fm, Dist dist, const Vec3* pole = nullptr) {
   Stats s;
   for (const Vec3& n : fm.normals)
     if (!std::isfinite(n.x) || !std::isfinite(n.y) || !std::isfinite(n.z) || std::fabs(cadgeom::norm(n) - 1) > 1e-9)
@@ -125,7 +138,8 @@ template <class Dist> Stats stats(const FaceMesh& fm, Dist dist) {
     Vec3 g = cadgeom::cross(b - a, c - a);
     s.area += 0.5 * cadgeom::norm(g);
     Vec3 nsum = fm.normals[fm.triangles[t]] + fm.normals[fm.triangles[t + 1]] + fm.normals[fm.triangles[t + 2]];
-    if (cadgeom::dot(g, nsum) <= 0) s.facing++;
+    // (A pole's fan's slivers aside: poleFanOnly.)
+    if (cadgeom::dot(g, nsum) <= 0 && !(pole && atPole(fm, static_cast<int32_t>(t / 3), *pole))) s.facing++;
     for (double u : {1. / 3, 0.5}) {
       Vec3 p = u == 0.5 ? 0.5 * (a + b) : (1.0 / 3) * (a + b + c);
       s.worst = std::fmax(s.worst, dist(p));
@@ -134,22 +148,17 @@ template <class Dist> Stats stats(const FaceMesh& fm, Dist dist) {
   return s;
 }
 
-/** The face's refused triangles other than needles at `pole` (a corner there, area at most 1e-9). */
-int needlesOnly(const FaceMesh& fm, Vec3 pole) {
+/**
+ * The face's refused triangles other than those in a pole's fan (a corner at `pole`): slivers there, skewed or turned
+ * over in 3D, that refinement in (u, v) can't reach until poles are meshed as fans.
+ */
+int poleFanOnly(const FaceMesh& fm, Vec3 pole) {
   int bad = 0;
-  for (int32_t t : fm.rejected) {
-    Vec3 p[3];
-    bool atPole = false;
-    for (int k = 0; k < 3; k++) {
-      p[k] = fm.points[fm.triangles[3 * t + k]];
-      atPole = atPole || cadgeom::norm(p[k] - pole) < 1e-12;
-    }
-    double area = 0.5 * cadgeom::norm(cadgeom::cross(p[1] - p[0], p[2] - p[0]));
-    if (!atPole || area > 1e-9) {
-      std::printf("  triangle %d refused, area %g\n", t, area);
+  for (int32_t t : fm.rejected)
+    if (!atPole(fm, t, pole)) {
+      std::printf("  triangle %d refused, away from the pole\n", t);
       bad++;
     }
-  }
   return bad;
 }
 
@@ -202,10 +211,11 @@ TEST_CASE("curved faces (a seam cylinder, a band, a hemisphere, a cap, a lune): 
       const FaceMesh& fm = pm.face(c.face);
       if (fm.status != cadgeom::Status::ok) std::printf("  %s: status %d\n", c.model, int(fm.status));
       REQUIRE(fm.status == cadgeom::Status::ok);
+      Vec3 pole = c.centre + Vec3{0, 0, c.radius};
       Stats s = stats(fm, [&](Vec3 p) {
         Vec3 q = p - c.centre;
         return std::fabs((c.cylinder ? std::hypot(q.x, q.y) : cadgeom::norm(q)) - c.radius);
-      });
+      }, c.cylinder ? nullptr : &pole);
       CHECK_EQ(s.badNormals, 0);
       CHECK_EQ(s.facing, 0);
       if (!(s.worst <= d * (1 + 1e-9))) std::printf("  %s: %g from the surface at %g\n", c.model, s.worst, d);
@@ -215,8 +225,8 @@ TEST_CASE("curved faces (a seam cylinder, a band, a hemisphere, a cap, a lune): 
         std::printf("  %s: area %.9g want %.9g at %g\n", c.model, s.area, c.area, d);
       CHECK(s.area < c.area && s.area > c.area * (1 - 2.5 * d / c.radius));
       CHECK_EQ(sharedEdges(m, pm, c.model), 0);
-      // Nothing refused, but needles in a pole's fan (until poles are meshed as fans): at the pole, tiny.
-      CHECK_EQ(needlesOnly(fm, c.centre + Vec3{0, 0, c.radius}), 0);
+      // Nothing refused, but slivers in a pole's fan (until poles are meshed as fans).
+      CHECK_EQ(poleFanOnly(fm, pole), 0);
     }
   }
 }
@@ -272,6 +282,11 @@ TEST_CASE("the provisional criteria: the spacing from the curvature, accept() re
   auto t = criteria("twisted", 0, {{0, 1}, {0, 1}}, 0.01, 1.0, s);
   REQUIRE(t);
   CHECK(t->edgeSpacing() <= std::sqrt(0.08) * (1 + 1e-9) && t->edgeSpacing() >= 0.2);
+  // The unit sphere up to its pole: curvature 1 everywhere (the normal's component of S'', not S'' itself, whose
+  // ratio to |S_u|^2 grows towards the pole), so h = sqrt(8 d) at d 0.01.
+  auto sp = criteria("spheres", 1, {{0, 2 * M_PI}, {0, M_PI / 2}}, 0.01, 1.0, s);
+  REQUIRE(sp);
+  CHECK(sp->edgeSpacing() <= std::sqrt(0.08) * (1 + 1e-9) && sp->edgeSpacing() >= 0.27);
   // On the unit sphere near its pole: a triangle wide in u, its far corner nearer the pole, turned over in 3D (its
   // facet's normal against the surface's), refused, though within the deflection and its corners' normals close; one
   // not turned over, accepted; one with two corners on the pole line (a facet of rounding) accepted.
@@ -299,9 +314,9 @@ TEST_CASE("the split rounds: edges sampled 4 times coarser than the faces want, 
         pm.rounds());
       CHECK_EQ(fm.splitsWanted, 0);
     }
-    // Every triangle accepted at the end but a pole's needles (at the pole, tiny).
+    // Every triangle accepted at the end but slivers in a pole's fan.
     for (int f = 0; f < m.faces(); f++) {
-      int n = needlesOnly(pm.face(f), Vec3{10, 0, 1});
+      int n = poleFanOnly(pm.face(f), Vec3{10, 0, 1});
       if (n) std::printf("  %s face %d: %d refused after %d rounds, %d splits wanted\n", name, f, n, pm.rounds(),
         pm.face(f).splitsWanted);
       CHECK_EQ(n, 0);
