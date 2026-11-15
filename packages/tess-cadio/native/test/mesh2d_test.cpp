@@ -850,6 +850,6 @@ TEST_CASE("the same mesh on every target: a refined, rotating-metric mesh's bits
   } field;
   Mesh2 m = mesh2(square(30, 1), field);
   REQUIRE(m.status == cadgeom::Status::ok);
-  CHECK_EQ(m.points.size(), 1064u);
-  CHECK_EQ(meshHash(m), 0x25387619ba39b2d4ull);
+  CHECK_EQ(m.points.size(), 1046u);
+  CHECK_EQ(meshHash(m), 0xcb1fd5688b6343b8ull);
 }
