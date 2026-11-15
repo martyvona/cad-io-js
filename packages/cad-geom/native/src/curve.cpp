@@ -7,7 +7,7 @@
 // boxes of C - p, C' and C'' by interval arithmetic), since a convex g has one minimum there, found by Newton on g'
 // guarded by bisection; else it is split. Feet within tol of the best are the same foot (a seam's two parameters) or
 // alternatives (other places, one per cluster); a foot within tol of a closed curve's junction is flagged onSeam,
-// its parameter kept. A range whose box is narrower than tol is one foot (a zero-length
+// its parameter kept. A range whose box is as narrow as its coordinates' rounding is one foot (a zero-length
 // piece, a cusp); circles take their feet in closed form (footCandidates). The search is budgeted: where it runs out
 // with a better foot still possible (a rational circle from its centre), it says noConvergence.
 // Arc length: closed forms where they exist (curve_impl.h's exactLength), else quadrature span by span, the spans
@@ -334,11 +334,11 @@ CurveInversion invertCurve(const Curve& c, Vec3 p, Range r, double tol) {
       double s = boxMinNorm(b1);
       convex = s * s + dotBox(minus(b0, p), b2).lo > 0;
     }
-    // A range whose points are all within tol of each other is one foot wherever its minimum is (a zero-length
-    // segment, a cusp's neighbourhood): the best of its ends and middle. Far from the origin a box can't be
-    // narrower than its coordinates' rounding, so tol is floored there.
+    // A range whose box is as narrow as its coordinates' rounding is one foot wherever its minimum is (a zero-length
+    // segment, a cusp's neighbourhood): the best of its ends and middle. Not a range narrower than tol: tol can be
+    // as large as the curve (a part's uncertainty of 1 mm), and the foot is still wanted, not a point near it.
     double w = g.hi - g.lo, diam = std::hypot(b0.x.width(), std::hypot(b0.y.width(), b0.z.width()));
-    bool tiny = diam <= std::fmax(tol, 24 * kEps * boxMag(b0));
+    bool tiny = diam <= 24 * kEps * boxMag(b0);
     if (convex || tiny || w <= 4 * kEps * std::fmax(std::fabs(g.lo), std::fabs(g.hi)) || w == 0) {
       if (convex) {
         double t = convexMinimum(B, p, g);

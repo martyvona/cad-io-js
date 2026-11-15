@@ -14,7 +14,8 @@
 //   - OCCT=1: each face's perimeter (tess-occt's measures: BRepGProp over OCCT's healed pieces) against the sum of
 //     cad-geom's lengths over the face's coedges, differences classified by cause (docs/healing.md: a seam healing
 //     adds is counted twice; a face with several outer loops is split, its pieces' perimeters summed; a face OCCT
-//     finds invalid; ours incomplete).
+//     finds invalid; ours incomplete; OCCT longer on ellipse edges; chord sums unresolved; whether chord sums confirm
+//     ours where OCCT differs).
 // Planted bugs in about one part in 10 (corpus.ts's plantedPart), each of which must show (those that don't are
 // listed): PLANT=curve changes cad-geom's copy of the part's first line, circle or B-spline (a line's point by
 // 1e-3 mm, a radius by 1e-3 of it, the middle pole by 1e-3 mm: seen where a point differs by over 1e-5 mm),
@@ -99,8 +100,12 @@ function plantVertex(d: BrepData): BrepData | undefined {
   return undefined;
 }
 
-/** Chord sums over [a, b] split at its breaks, each span's last point its left limit; n chords a span. */
-function chords(g: Geometry, row: number, a: number, b: number, n: number): number {
+/**
+ * Chord sums over [a, b] split at its breaks, each span's last point its left limit; n chords a span. `rounding`
+ * bounds the sum's own rounding: each chord's ends rounded to a few ulps of their coordinates (lines far from the
+ * origin sum thousands of them).
+ */
+function chords(g: Geometry, row: number, a: number, b: number, n: number): { sum: number; rounding: number } {
   const br = g.curveBreaks(row, a, b).breaks, ts: number[] = [];
   for (let s = 0; s + 1 < br.length; s++) {
     for (let i = 0; i <= n; i++) {
@@ -108,15 +113,18 @@ function chords(g: Geometry, row: number, a: number, b: number, n: number): numb
       ts.push(i === n ? (t > br[s]! ? t - Math.abs(t) * 4e-16 - 1e-300 : t) : t);
     }
   }
-  const p = g.evalCurve(row, ts, 0).values;
-  let sum = 0;
+  // (C(0) too: a line's points are its base point plus t d, so their rounding is that of the larger terms.)
+  const p = g.evalCurve(row, ts, 0).values, base = g.evalCurve(row, [0], 0).values;
+  let sum = 0, mag = 0;
+  for (const x of p) mag = Math.max(mag, Math.abs(x));
+  for (const x of base) mag = Math.max(mag, Math.abs(x));
   for (let s = 0; s + 1 < br.length; s++) {
     for (let i = 0; i < n; i++) {
       const k = s * (n + 1) + i;
       sum += Math.hypot(p[3 * k + 3]! - p[3 * k]!, p[3 * k + 4]! - p[3 * k + 1]!, p[3 * k + 5]! - p[3 * k + 2]!);
     }
   }
-  return sum;
+  return { sum, rounding: 8 * Number.EPSILON * mag * n * Math.max(1, br.length - 1) };
 }
 
 const CONFIRMED = 'ours within 1e-9 of chord sums';
@@ -210,12 +218,13 @@ export const check: FileCheck<undefined, Result> = {
           pts.push(...d.vertex.point.subarray(3 * v, 3 * v + 3));
         }
         // Each vertex's parameter by cad-geom, for the edges' ranges below (by its point, as edgeParams asks).
-        const paramAt = new Map<string, number>();
+        const paramAt = new Map<string, number>(), seamAt = new Set<number>();
         if (vs.length) {
           const inv = g.invertCurve(ci, pts, info.lo, info.hi, tol);
           vs.forEach((v, k) => {
             if (inv.statuses[k] === 0) paramAt.set(pts.slice(3 * k, 3 * k + 3).join(), inv.params[k]!);
             gapAt.set(v, Math.max(gapAt.get(v) ?? 0, inv.distance[k]!));
+            if (inv.flags[k]) seamAt.add(v);
             const at = `${where} curve #${d.curve.id[ci]} vertex #${d.vertex.id[v]}`;
             const st = STATUS[inv.statuses[k]!]!;
             tally(R.invertStatus, st, st === 'ok' ? undefined : at);
@@ -241,9 +250,19 @@ export const check: FileCheck<undefined, Result> = {
           param: (p: number[]) => paramAt.get(p.join()) };
         const ranges: number[] = [], kept: number[] = [];
         for (const ed of edges) {
-          const r = edgeParams(d, ed, ours), rt = edgeParams(d, ed, e);
+          let r = edgeParams(d, ed, ours);
+          const rt = edgeParams(d, ed, e);
+          // An edge from a vertex to itself on a bounded curve whose ends meet within the uncertainty (onSeam):
+          // the whole curve, where edgeParams's own closedness test, stricter, gives a zero range.
+          const s0 = d.edge.start[ed]!;
+          if (r && r[0] === r[1] && s0 >= 0 && s0 === d.edge.end[ed] && !info.period && Number.isFinite(info.lo)
+            && seamAt.has(s0)) {
+            r = d.edge.sameSense[ed] ? [info.lo, info.hi] : [info.hi, info.lo];
+            tally(R.lengthStatus, 'a zero range from edgeParams on a curve closed within the uncertainty: the whole '
+              + 'curve taken', `${where} edge #${d.edge.id[ed]}`);
+          }
           if (!r || !Number.isFinite(r[0]) || !Number.isFinite(r[1])) {
-            tally(R.lengthStatus, 'no finite range');
+            tally(R.lengthStatus, 'no finite range', `${where} edge #${d.edge.id[ed]}`);
             continue;
           }
           if (rt) {
@@ -252,9 +271,20 @@ export const check: FileCheck<undefined, Result> = {
             const off = Math.max(Math.abs(r[0] + k * P - rt[0]), Math.abs(r[1] + k * P - rt[1]));
             const same = off <= 1e-9 * Math.max(1, Math.abs(rt[0]), Math.abs(rt[1]));
             const gap = Math.max(gapAt.get(d.edge.start[ed]!) ?? 0, gapAt.get(d.edge.end[ed]!) ?? 0);
+            // Where the parameters differ, the points they reach: the same within the vertices' gaps (an off-curve
+            // vertex's foot is either side's within its gap) or where the speed is small (repeated end poles).
+            let reach = 0;
+            if (!same) {
+              const v = g.evalCurve(ci, [r[0], r[1], rt[0], rt[1]], 0).values;
+              reach = Math.max(Math.hypot(v[0]! - v[6]!, v[1]! - v[7]!, v[2]! - v[8]!),
+                Math.hypot(v[3]! - v[9]!, v[4]! - v[10]!, v[5]! - v[11]!));
+            }
             tally(R.rangeAgreement, same ? (k ? 'the same, a whole period apart' : 'the same')
               : gap > 10 * tol ? 'differs: a vertex more than 10 x the uncertainty off its curve (feet differ)'
-              : 'differs', same ? undefined : `${where} edge #${d.edge.id[ed]}: [${r}] vs [${rt}], gap ${gap}`);
+              : reach <= Math.max(1e-9, 2 * gap) ? 'parameters differ, the points they reach the same within the '
+                + 'vertices\' gaps (or 1e-9 mm: the speed small there)'
+              : 'differs', same ? undefined : `${where} edge #${d.edge.id[ed]}: [${r}] vs [${rt}], gap ${gap}, `
+                + `points ${reach} apart`);
           }
           ranges.push(Math.min(r[0], r[1]), Math.max(r[0], r[1]));
           rangeOf.set(ed, [Math.min(r[0], r[1]), Math.max(r[0], r[1])]);
@@ -266,9 +296,10 @@ export const check: FileCheck<undefined, Result> = {
           const at = `${where} edge #${d.edge.id[ed]}`, st = STATUS[L.statuses[k]!]!;
           // A range past a bounded domain by a few ulps: the file's own rounding (its knots and its edge's
           // parameters written apart); arcLength clamps and says so.
-          const a0 = ranges[2 * k]!, b0 = ranges[2 * k + 1]!, slop = 1e-12 * Math.max(1, Math.abs(a0), Math.abs(b0));
+          const a0 = ranges[2 * k]!, b0 = ranges[2 * k + 1]!, slop = 1e-9 * Math.max(1, b0 - a0);
           const ulps = st === 'outOfDomain' && a0 >= info.lo - slop && b0 <= info.hi + slop;
-          tally(R.lengthStatus, ulps ? 'outOfDomain: the range a few ulps past the domain (the file\'s rounding)' : st,
+          tally(R.lengthStatus, ulps ? 'outOfDomain: the range under 1e-9 of its width past the domain (the source\'s '
+            + 'rounding: its knots and its edge\'s parameters written apart)' : st,
             st === 'ok' ? undefined : at);
           if (st !== 'ok' && !ulps) return;
           let value = L.value[k]!;
@@ -279,12 +310,13 @@ export const check: FileCheck<undefined, Result> = {
           if (!forced && !plantedPart(at, 20)) return;
           if (forced) { sampledPlant = true; value -= 1e-6 * value; }
           const a = ranges[2 * k]!, b = ranges[2 * k + 1]!, n = 1 << 10;
-          const c1 = chords(g, ci, a, b, n), c2 = chords(g, ci, a, b, 2 * n), c4 = chords(g, ci, a, b, 4 * n);
-          const r1 = c2 + (c2 - c1) / 3, r2 = c4 + (c4 - c2) / 3, unc = Math.abs(r2 - r1);
+          const c1 = chords(g, ci, a, b, n).sum, c2 = chords(g, ci, a, b, 2 * n).sum, q = chords(g, ci, a, b, 4 * n);
+          const c4 = q.sum, r1 = c2 + (c2 - c1) / 3, r2 = c4 + (c4 - c2) / 3, unc = Math.abs(r2 - r1);
           const off = Math.abs(value - r2), rel = off / Math.max(value, 1e-300);
           const cls = unc > 1e-8 * value ? 'chords unresolved (their own uncertainty over 1e-8)'
             : off <= Math.max(10 * err, 10 * unc, 1e-12 * value) ? 'within its estimate'
-              : 'outside its estimate';
+            : off <= 2 * q.rounding ? 'within the chords\' own rounding (coordinates far from the origin)'
+            : 'outside its estimate';
           tally(R.honesty, cls, cls === 'outside its estimate' ? `${at}: off ${rel.toExponential(2)}, estimate `
             + `${(err / value).toExponential(2)}` : undefined);
           if (cls !== 'chords unresolved (their own uncertainty over 1e-8)') record(R.honestyWorst, REL, rel, at);
@@ -306,9 +338,16 @@ export const check: FileCheck<undefined, Result> = {
           const at = `${where} face #${d.face.id[f]}`, m = byId.get(d.face.id[f]!);
           if (!res) break;
           if (!m) { tally(R.perimeter, 'OCCT measured no face of its id', at); continue; }
-          // A surface periodic in u: the elementary ones and revolutions, an extrusion of a periodic curve.
-          const periodic = (si: number) => PERIODIC.has(d.surface.kind[si]!) || (d.surface.kind[si] ===
-            SURFACE_KIND.extrusion && g.curveInfo(d.pool.surfaceInt[d.surface.int[si]!]!).period > 0);
+          // A surface closed in a direction: the periodic elementary ones and revolutions, an extrusion of a periodic
+          // curve, a B-spline said closed in u or v (its ints 7 and 8, LOGICAL 1).
+          const periodic = (si: number) => {
+            const k = d.surface.kind[si]!, ints = d.surface.int[si]!;
+            const I = d.pool.surfaceInt;
+            return PERIODIC.has(k) || (k === SURFACE_KIND.extrusion && g.curveInfo(I[ints]!).period > 0)
+              || (k === SURFACE_KIND.bspline && (I[ints + 7] === 1 || I[ints + 8] === 1));
+          };
+          // A band: two or more loops of one closed edge each (circles round a closed surface), whatever it says.
+          let band = 0, ellipses = false;
           let sum = 0, complete = true, outer = 0, edgeLoops = 0, gap = 0;
           const faceEdges: number[] = [];
           const uses = new Map<number, number>();
@@ -316,41 +355,61 @@ export const check: FileCheck<undefined, Result> = {
             if (d.loop.bound[l] === BOUND.outer) outer++;
             if (d.loop.kind[l] !== LOOP_KIND.edge) continue;
             edgeLoops++;
+            const one = d.loop.first[l]!;
+            if (d.loop.count[l] === 1 && d.edge.start[d.coedge.edge[one]!] === d.edge.end[d.coedge.edge[one]!]) band++;
             for (let j = d.loop.first[l]!; j < d.loop.first[l]! + d.loop.count[l]!; j++) {
               const ed = d.coedge.edge[j]!, len = lengths.get(ed);
               uses.set(ed, (uses.get(ed) ?? 0) + 1);
               faceEdges.push(ed);
+              const ck = d.edge.curve[ed]! >= 0 ? d.curve.kind[d.edge.curve[ed]!] : -1;
+              ellipses ||= ck === CURVE_KIND.ellipse || (ck === CURVE_KIND.trimmed && d.curve.kind[
+                d.pool.curveInt[d.curve.int[d.edge.curve[ed]!]!]!] === CURVE_KIND.ellipse);
               for (const v of [d.edge.start[ed]!, d.edge.end[ed]!]) gap = Math.max(gap, gapAt.get(v) ?? 0);
               if (len === undefined) complete = false;
               else sum += len;
             }
           }
           const rel = Math.abs(m.perimeter - sum) / Math.max(m.perimeter, sum, 1e-300);
-          // The face's perimeter again from chord sums over its edges' ranges (Richardson, 2^11 and 2^12 a span).
-          const chordsConfirm = (eds: number[], ours: number) => {
-            let c = 0;
+          // The face's perimeter again from chord sums over its edges' ranges (Richardson over 2^11, 2^12 and 2^13
+          // chords a span): 'yes' within 1e-9 of ours, 'unresolved' where the chords' own two extrapolations differ by
+          // more (a speed varying sharply within a span), else 'no'.
+          const chordsConfirm = (eds: number[], ours: number): 'yes' | 'no' | 'unresolved' => {
+            let a = 0, b = 0;
             for (const ed of eds) {
               const r = rangeOf.get(ed);
-              if (!r) return false;
-              const ci = d.edge.curve[ed]!, c2 = chords(g, ci, r[0], r[1], 2048), c4 = chords(g, ci, r[0], r[1], 4096);
-              c += c4 + (c4 - c2) / 3;
+              if (!r) return 'no';
+              const ci = d.edge.curve[ed]!, [c2, c4, c8] = [2048, 4096, 8192].map((n) => chords(g, ci, r[0], r[1],
+                n).sum) as [number, number, number];
+              a += c4 + (c4 - c2) / 3;
+              b += c8 + (c8 - c4) / 3;
             }
-            return Math.abs(c - ours) <= 1e-9 * ours;
+            return Math.abs(b - a) > 1e-9 * ours ? 'unresolved' : Math.abs(b - ours) <= 1e-9 * ours ? 'yes' : 'no';
           };
           const seamed = [...uses.values()].some((u) => u > 1);
+          let confirm: 'yes' | 'no' | 'unresolved' = 'no';
           const cls = !m.valid ? 'OCCT finds its face invalid'
             : !edgeLoops ? 'no edge loops: OCCT bounds the face by its surface\'s natural bounds'
-            : !complete ? 'ours incomplete (an edge without a length)'
+            : !complete ? (faceEdges.some((ed) => d.edge.curve[ed]! < 0)
+              ? 'ours incomplete: an edge without a 3D curve (trims in parameter space only)'
+              : 'ours incomplete: an edge without a length')
             : rel <= 1e-6 ? 'agree within 1e-6'
             : m.perimeter > sum && periodic(d.face.surface[f]!) && !seamed
-              ? 'a seam healing adds, counted twice (no edge used twice by the face)'
+              ? 'a seam healing adds, counted twice (no edge used twice by the face, a closed surface)'
             : outer > 1 ? 'several outer loops: OCCT splits the face, its pieces summed'
+            : m.perimeter > sum && band >= 2 && !seamed
+              ? 'a seam healing adds, counted twice (no edge used twice by the face, a band of closed loops)'
             : gap > 10 * tol ? 'a vertex more than 10 x the uncertainty off its curve: healing rebuilds edges'
-            : !chordsConfirm(faceEdges, sum) ? 'other'
+            : (confirm = chordsConfirm(faceEdges, sum)) === 'unresolved'
+              ? 'chord sums unresolved on its edges (a speed varying sharply): not judged'
+            : confirm === 'no' ? 'other'
+            : ellipses && m.perimeter > sum && rel <= 1e-2 ? `OCCT's longer on a face with ellipse edges (OCCT's `
+              + `ellipse lengths); ${CONFIRMED}`
             : rel <= 1e-4 ? `OCCT's within 1e-4 (its quadrature or healing's tolerances); ${CONFIRMED}`
+            : tol >= 0.1 ? `OCCT's differs by more than 1e-4 in a part of uncertainty 0.1 mm or more (healing's `
+              + `tolerances that coarse); ${CONFIRMED}`
             : !outer && m.perimeter > sum ? `OCCT's longer, no loop said outer (healing may add the surface's bounds); `
               + CONFIRMED
-            : `OCCT's differs by more than 1e-4; ${CONFIRMED}`;
+            : `OCCT's ${m.perimeter > sum ? 'longer' : 'shorter'} by more than 1e-4 (not explained); ${CONFIRMED}`;
           tally(R.perimeter, cls, cls === 'agree within 1e-6' ? undefined : `${at}: OCCT ${m.perimeter}, ours ${sum}`);
           if (cls === 'agree within 1e-6' || cls === 'other') record(R.perimeterDiff, REL, rel, at);
         }
