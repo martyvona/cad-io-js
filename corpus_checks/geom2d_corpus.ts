@@ -12,12 +12,15 @@
 //     (another boundary within 10 x); a face whose every judged point is the wrong way round has its loops oriented
 //     against its sense (the source's); the rest listed;
 //   - selfIntersect2 on each edge loop: crossings and touches (pinched loops) counted, examples listed;
+//   - faces classify2 calls invalidModel by their loops' widest joint in 3D over the tolerance (p-curves ending off
+//     their vertices, the source's, for healing to bridge);
 //   - OCCT=1: the moved points classified by OCCT's face classifier (tess-occt's probe, the part built by the native
 //     builder, unhealed: its p-curves are the model's), on faces whose (u, v) OCCT's parameterization shares (planes,
 //     cylinders, spheres, tori, B-splines) or maps affinely (cones: v' = v / cos a), at our (u, v) tolerance; the
 //     differences classified (OCCT on: its band wider than ours; on periodic faces, whether OCCT agrees with the
 //     point shifted by a period, and whether it's near the seam; the rest listed).
-// Pole lines: cad_geom_api.cpp's closed forms (a cone's apex, a sphere's poles), not yet Surface::singularities.
+// Pole lines and periods: cad_geom_api.cpp's (closed forms for cones and spheres, a domain's collapsed and coinciding
+// edges sampled), not yet Surface::singularities.
 // Planted bugs in about one part in 10 (corpus.ts's plantedPart), on its first face the check judges, each of which
 // must show (those that don't are listed), judged against the unplanted model's boundary: PLANT=orient reverses the
 // orientation of the coedges of the face's first edge loop (its in and out swap), PLANT=gap moves the first line
@@ -50,7 +53,7 @@ const tally = (t: Tally, key: string, ex?: string) => {
 const fresh = () => ({
   files: 0, parts: 0, faces: 0, judged: 0, planted: 0, caught: [] as string[], plantedAt: [] as string[],
   skipped: {} as Tally, nest: {} as Tally, on: {} as Tally, side: {} as Tally, faceSide: {} as Tally,
-  self: {} as Tally, occt: {} as Tally, statuses: {} as Tally,
+  self: {} as Tally, occt: {} as Tally, statuses: {} as Tally, gaps: {} as Tally,
 });
 type Result = ReturnType<typeof fresh>;
 
@@ -233,6 +236,33 @@ export const check: FileCheck<undefined, Result> = {
           for (const r of [r0, r10, r2]) {
             for (const s of r.statuses) if (s) tally(R.statuses, `classify2 ${STATUS[s]}`, at);
           }
+          // A face classify2 calls invalidModel: its loops' widest joint in 3D, over the 3D tolerance (the face API
+          // bridges joints within it): p-curves ending that far off their vertices, for healing to count.
+          if (r0.statuses.some((x) => STATUS[x] === 'invalidModel')) {
+            const loopOf = new Map<number, number>();
+            for (let l = d.face.firstLoop[f]!; l < d.face.firstLoop[f]! + d.face.loopCount[f]!; l++)
+              for (let j = d.loop.first[l]!; j < d.loop.first[l]! + d.loop.count[l]!; j++) loopOf.set(j, l);
+            const ends: number[] = [];
+            for (let k = 0; k < coedge.length; k++) {
+              const v = g0.evalCurve(rows[k]!, [travel[2 * k]!, travel[2 * k + 1]!], 0).values;
+              ends.push(v[0]!, v[1]!, v[3]!, v[4]!);
+            }
+            const xyz = g0.evalSurface(d.face.surface[f]!, ends, 0).values;
+            let widest = 0;
+            for (let k = 0; k < coedge.length; k++) {
+              let n = k + 1;
+              if (n >= coedge.length || loopOf.get(coedge[n]!) !== loopOf.get(coedge[k]!)) {
+                n = k;
+                while (n > 0 && loopOf.get(coedge[n - 1]!) === loopOf.get(coedge[k]!)) n--;
+              }
+              const a = 6 * k + 3, b = 6 * n;
+              widest = Math.max(widest,
+                Math.hypot(xyz[a]! - xyz[b]!, xyz[a + 1]! - xyz[b + 1]!, xyz[a + 2]! - xyz[b + 2]!));
+            }
+            const k = widest / info.tolerance;
+            tally(R.gaps, !(k > 1) ? 'no joint past the 3D tolerance' : `p-curve ends ${k < 10 ? '1-9' : k < 100
+              ? '10-99' : '100 or more'} x tol off their vertices (the widest joint)`, `${at}: ${k.toFixed(1)} x tol`);
+          }
           if (planted && (r0.status !== 'ok' || [r0, r10].some((r) => r.statuses.some((s) => s !== 0)))) seen = true;
           for (let i = 0; i < on.length / 2; i++) {
             const s = SIDE[r0.sides[i]!];
@@ -247,7 +277,7 @@ export const check: FileCheck<undefined, Result> = {
               tally(R.side, 'across a seam: the face goes on (not judged)', got === 'in' ? undefined : `${at}: ${got}`);
               continue;
             }
-            if (got === 'on') { tally(R.side, 'on: another boundary within 10 x tol (not judged)'); continue; }
+            if (got === 'on') { tally(R.side, 'on: another boundary within 10 x tol (not judged)', at); continue; }
             if (got === want) { right++; tally(R.side, 'agree'); continue; }
             if (SIDE[r2.sides[i]!] === want) {
               tally(R.side, 'disagrees at 10 x tol, agrees at 2 x: a narrow face');
@@ -301,10 +331,17 @@ export const check: FileCheck<undefined, Result> = {
               const seam = (x: number, period: number) => period > 0
                 && Math.abs(x - period * Math.round(x / period)) <= 20 * tolUv[i >> 1]!;
               const nearSeam = seam(u, info.uPeriod) || seam(v, info.vPeriod);
+              // Outside the surface's (u, v) domain in a direction without a period: not on the face whatever the
+              // loops say.
+              const sd = g0.surfaceInfo(d.face.surface[f]!);
+              const beyond = (x: number, r: (number | null)[], period: number) => !(period > 0)
+                && Number.isFinite(r[0]) && Number.isFinite(r[1]) && (x < r[0]! || x > r[1]!);
+              const outside = beyond(u, sd.u, info.uPeriod) || beyond(v, sd.v, info.vPeriod);
               const why = !shifts.length ? 'not periodic'
                 : shifted.includes(ours!) ? `agrees a period on (OCCT doesn't reduce (u, v) by the period)`
                   : 'not a period on either';
-              tally(R.occt, `ours ${ours}, OCCT ${theirs}: ${why}${nearSeam ? ', within 20 x tol of the seam' : ''}`,
+              tally(R.occt, `ours ${ours}, OCCT ${theirs}: ${why}${nearSeam ? ', within 20 x tol of the seam' : ''}`
+                + (outside ? ', the point outside the surface\'s domain' : ''),
                 `${at}: (${u}, ${v})`);
             }
           }
@@ -352,5 +389,6 @@ if (import.meta.main) {
   printTally('Faces by their moved points, and surface', all.faceSide);
   printTally('Loops (selfIntersect2)', all.self);
   printTally('Statuses other than ok', all.statuses);
+  printTally('Faces with classify2 invalidModel, by their loops\' widest joint in 3D', all.gaps);
   if (withOcct) printTally('The moved points against OCCT\'s face classifier', all.occt);
 }

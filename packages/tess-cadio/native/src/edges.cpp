@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <map>
 #include <memory>
 
 #include "cad_geom/curve.h"
@@ -146,17 +147,7 @@ struct IsoGeom : Geom {
       double m = order == 1 ? o[free] : (free == 1 ? o[2] : o[0]);
       if (std::isfinite(m)) return m;
     }
-    // No bound (cad-geom's B-spline surfaces have none yet): the derivative's largest at 9 points, with a margin;
-    // an estimate, where the curves' and the other surfaces' bounds hold.
-    double m = 0;
-    for (int k = 0; k <= 8; k++) {
-      SurfacePoint p;
-      Vec2 q = uv(a + (b - a) * k / 8);
-      s.eval(q.x, q.y, order, p);
-      Vec3 dd = order == 1 ? (free == 1 ? p.dv : p.du) : (free == 1 ? p.dvv : p.duu);
-      m = std::max(m, norm(dd));
-    }
-    return 1.5 * m;
+    return kInf;
   }
   void breaks(double a, double b, std::vector<double>& out) const override {
     std::vector<double> us, vs;
@@ -263,6 +254,7 @@ struct EdgeMesh::Impl {
     int face = -1;
     bool ambiguous[2] = {false, false};  // by inversion and wholly on a seam in u (v): its side in question
     bool pcurveOff = false;              // its p-curve parameterized otherwise than its edge's curve: by inversion
+    std::map<double, SurfaceInversion> inverted;  // by edge parameter: each sample inverted once
     CoedgeSamples s;
   };
   struct Crossing {
@@ -307,97 +299,30 @@ struct EdgeMesh::Impl {
   int poleAt(int f, Vec3 p) const {
     const Face& F = faces[f];
     for (size_t i = 0; i < F.sing.size(); i++)
-      if (F.sing[i].kind != Singularity::normalVanishes && norm(F.sing[i].point - p) <= 10 * tol)
+      if (F.sing[i].kind != Singularity::normalVanishes && norm(F.sing[i].point - p) <= tol)
         return static_cast<int>(i);
     return -1;
   }
 
   /**
-   * invertSurface over the face's domain, an infinite direction (a plane's, a cylinder's v) narrowed to a window
-   * round where Newton from `hint` (else from seeds across the finite direction) lands; and where its foot is farther
-   * than the tolerance, Newton from the hint, the nearer kept. A workaround for cad-geom's reference invertSurface,
-   * which refuses infinite ranges, ignores the hint, and near a pole can return the pole (its grid's pole row nearer
-   * than the next, Newton stuck where S_u vanishes); once it does neither, call it directly.
+   * invertSurface over the face's domain, on cad-geom's own surface under a periodic view (baseSurface): a hint
+   * reduced into a closed direction's range there, the result's (u, v) within the range (callers unwrap).
    */
   SurfaceInversion invert(int f, Vec3 p, const Vec2* hint) const {
     const Face& F = faces[f];
-    Range r[2] = {F.dom.u, F.dom.v};
-    // Newton on |S - p|^2 / 2 from x, clamped to the ranges except along a period.
-    auto newton = [&](Vec2 x) {
-      for (int it = 0; it < 50; it++) {
-        SurfacePoint q;
-        F.s->eval(x.x, x.y, 2, q);
-        Vec3 e = q.p - p;
-        double gu = dot(e, q.du), gv = dot(e, q.dv);
-        double huu = dot(q.du, q.du) + dot(e, q.duu), huv = dot(q.du, q.dv) + dot(e, q.duv);
-        double hvv = dot(q.dv, q.dv) + dot(e, q.dvv), det = huu * hvv - huv * huv;
-        if (!(det > 0) || !(huu > 0)) break;
-        Vec2 next{x.x - (hvv * gu - huv * gv) / det, x.y - (huu * gv - huv * gu) / det};
-        if (!(F.period[0] > 0)) next.x = std::clamp(next.x, r[0].lo, r[0].hi);
-        if (!(F.period[1] > 0)) next.y = std::clamp(next.y, r[1].lo, r[1].hi);
-        double step = norm(next - x);
-        x = next;
-        if (!(step > 1e-15 * (1 + norm(x)))) break;
-      }
-      SurfacePoint q;
-      F.s->eval(x.x, x.y, 0, q);
-      return std::make_pair(x, norm(q.p - p));
-    };
-    bool infinite = false;
-    for (Range& x : r) infinite = infinite || !std::isfinite(x.lo) || !std::isfinite(x.hi);
-    if (infinite) {
-      auto mid = [](Range x) {
-        return std::isfinite(x.lo) && std::isfinite(x.hi) ? 0.5 * (x.lo + x.hi) :
-          std::isfinite(x.lo) ? x.lo : std::isfinite(x.hi) ? x.hi : 0.0;
-      };
-      // Newton from the hint, else from 8 seeds across the finite direction: the nearest result.
-      std::vector<Vec2> seeds;
-      if (hint) seeds.push_back(*hint);
-      for (int k = 0; k < 8; k++) {
-        Vec2 x{mid(r[0]), mid(r[1])};
-        for (int d = 0; d < 2; d++)
-          if (std::isfinite(r[d].lo) && std::isfinite(r[d].hi))
-            (d ? x.y : x.x) = r[d].lo + (r[d].hi - r[d].lo) * (k + 0.5) / 8;
-        seeds.push_back(x);
-      }
-      Vec2 x = seeds[0];
-      double best = kInf;
-      for (Vec2 seed : seeds) {
-        auto [y, dist] = newton(seed);
-        if (dist < best) best = dist, x = y;
-      }
-      for (int d = 0; d < 2; d++) {
-        if (std::isfinite(r[d].lo) && std::isfinite(r[d].hi)) continue;
-        double c = d ? x.y : x.x, w = 1 + 1e-3 * std::fabs(c);
-        r[d] = {std::max(r[d].lo, c - w), std::min(r[d].hi, c + w)};
-      }
+    const Surface& base = baseSurface(*F.s);
+    SurfaceDomain bd = base.domain();
+    if (!hint) return invertSurface(base, p, F.dom.u, F.dom.v, tol);
+    Vec2 h = *hint;
+    for (int d = 0; d < 2; d++) {
+      double P = F.period[d], basePeriod = d ? bd.vPeriod : bd.uPeriod;
+      if (!(P > 0) || basePeriod > 0) continue;  // (a direction made periodic here: its range is the base's domain)
+      double& x = d ? h.y : h.x;
+      double lo = F.lo[d];
+      x = lo + std::fmod(x - lo, P);
+      if (x < lo) x += P;
     }
-    SurfaceInversion out = invertSurface(*F.s, p, r[0], r[1], tol, hint);
-    if (hint && (out.status != Status::ok || out.distance > tol)) {
-      auto [y, dist] = newton(*hint);
-      if (dist < out.distance || out.status != Status::ok) {
-        // Into the domain's period, and the flags as invertSurface sets them.
-        for (int d = 0; d < 2; d++) {
-          double P = F.period[d];
-          if (!(P > 0)) continue;
-          double& c = d ? y.y : y.x;
-          c = F.lo[d] + std::fmod(c - F.lo[d], P);
-          if (c < F.lo[d]) c += P;
-        }
-        SurfacePoint q;
-        F.s->eval(y.x, y.y, 0, q);
-        out.status = Status::ok;
-        out.uv = y, out.foot = q.p, out.distance = dist;
-        out.certainty = Certainty::unique;
-        out.alternatives.clear();
-        out.onSeamU = F.period[0] > 0 && (std::fabs(y.x - F.dom.u.lo) <= 1e-9 || std::fabs(y.x - F.dom.u.hi) <= 1e-9);
-        out.onSeamV = F.period[1] > 0 && (std::fabs(y.y - F.dom.v.lo) <= 1e-9 || std::fabs(y.y - F.dom.v.hi) <= 1e-9);
-        out.atSingularity = false;
-        for (const Singularity& g : F.sing)
-          if (g.kind != Singularity::normalVanishes && norm(g.point - q.p) <= tol) out.atSingularity = true;
-      }
-    }
-    return out;
+    return invertSurface(base, p, F.dom.u, F.dom.v, tol, &h);
   }
 
   // ---- edges ----
@@ -532,7 +457,24 @@ struct EdgeMesh::Impl {
       for (int i = 0; i < n; i++) {
         Vec2 hint = i < static_cast<int>(seeds.size()) ? seeds[i] : i ? s.uv.back() : Vec2{};
         bool hinted = i < static_cast<int>(seeds.size()) || i > 0;
-        SurfaceInversion si = invert(C.face, E.s.points[s.index[i]], hinted ? &hint : nullptr);
+        // (Each sample inverted once: a split round redoes the coedge, its old samples from the cache.)
+        double t = E.s.t[s.index[i]];
+        auto hit = C.inverted.find(t);
+        SurfaceInversion si;
+        if (hit != C.inverted.end()) {
+          si = hit->second;
+        } else if (int p = poleAt(C.face, E.s.points[s.index[i]]); p >= 0) {
+          // At a known pole, no search (its feet a continuum: slow to bound): its row, the free coordinate arbitrary
+          // (the hint's), filled from a neighbour below.
+          const Singularity& g = F.sing[p];
+          si.status = Status::ok, si.atSingularity = true, si.foot = g.point;
+          si.distance = norm(g.point - E.s.points[s.index[i]]);
+          si.uv = g.isoU ? Vec2{g.at, hinted ? hint.y : F.lo[1]} : Vec2{hinted ? hint.x : F.lo[0], g.at};
+          si.certainty = Certainty::unique;
+        } else {
+          si = invert(C.face, E.s.points[s.index[i]], hinted ? &hint : nullptr);
+        }
+        if (hit == C.inverted.end()) C.inverted.emplace(t, si);
         s.status = worse(s.status, si.status);
         s.uv.push_back(si.uv);
         singular[i] = si.atSingularity;
@@ -552,12 +494,21 @@ struct EdgeMesh::Impl {
           (fr == 0 ? s.uv[i].x : s.uv[i].y) = fr == 0 ? s.uv[j].x : s.uv[j].y;
         }
       }
+      // Wholly on a seam, and running along it (its other coordinate varying: an edge shorter than the tolerance
+      // across the seam is within it at both ends but isn't a seam use).
       for (int d = 0; d < 2; d++) {
         if (!(F.period[d] > 0)) continue;
         bool all = true, any = false;
+        double lo = INFINITY, hi = -INFINITY;
         for (int i = 0; i < n; i++)
-          if (!singular[i]) all = all && seam[d][i], any = true;
-        C.ambiguous[d] = all && any;
+          if (!singular[i]) {
+            all = all && seam[d][i], any = true;
+            double w = d ? s.uv[i].x : s.uv[i].y;
+            lo = std::min(lo, w), hi = std::max(hi, w);
+          }
+        Range other = d ? F.dom.u : F.dom.v;
+        double scale = std::isfinite(other.hi - other.lo) ? other.hi - other.lo : 1;
+        C.ambiguous[d] = all && any && hi - lo > 1e-9 * scale;
       }
     }
     // Continuous along periodic directions.
@@ -566,7 +517,6 @@ struct EdgeMesh::Impl {
       s.uv[i].y = nearest(s.uv[i].y, s.uv[i - 1].y, F.period[1]);
     }
     if (!s.fromPcurve) throughPoles(c);
-    if (!s.fromPcurve) alongCollapse(c);
     for (size_t i = 0; i < s.uv.size(); i++)
       s.gap = std::fmax(s.gap, norm(surfaceAt(C.face, s.uv[i]) - E.s.points[s.index[i]]));
   }
@@ -618,49 +568,6 @@ struct EdgeMesh::Impl {
       s.uv.insert(s.uv.begin() + static_cast<long>(i) + 1, b);
       s.index.insert(s.index.begin() + static_cast<long>(i) + 1, s.index[i]);
       i++;
-    }
-  }
-
-  /**
-   * A use by inversion of an edge of no length (every sample one point: an unflagged degenerate edge, as STEP files
-   * have at a pole) on a face periodic along one direction, sitting at an end of the other coordinate's range (a
-   * collapsed row: cad-geom names no singularity there for B-splines): a whole period along that direction, the way
-   * the face lies (as a jump along a pole line), so the loop's boundary runs along the pole line in (u, v).
-   */
-  void alongCollapse(int c) {
-    Coedge& C = coedges[c];
-    CoedgeSamples& s = C.s;
-    const Face& F = faces[C.face];
-    const Edge& E = edges[m.coedgeEdge(c)];
-    size_t n = s.uv.size();
-    if (n < 2) return;
-    for (const Vec3& p : E.s.points)
-      if (norm(p - E.s.points[0]) > tol) return;
-    const Range dr[2] = {F.dom.u, F.dom.v};
-    for (int d = 0; d < 2; d++) {
-      int other = 1 - d;
-      double P = F.period[d], w = other ? s.uv[0].y : s.uv[0].x, span = dr[other].hi - dr[other].lo;
-      if (!(P > 0) || F.period[other] > 0 || !(span > 0)) continue;
-      bool top = std::fabs(w - dr[other].hi) <= 1e-9 * span, bottom = std::fabs(w - dr[other].lo) <= 1e-9 * span;
-      if (!top && !bottom) continue;
-      // The row collapsed in fact: the surface at 8 values along it at the edge's point (an edge merely shorter than
-      // the tolerance elsewhere isn't one).
-      bool collapsed = true;
-      for (int k = 0; k < 8 && collapsed; k++) {
-        Vec2 q = s.uv[0];
-        (d ? q.y : q.x) = dr[d].lo + (dr[d].hi - dr[d].lo) * (k + 0.5) / 8;
-        collapsed = norm(surfaceAt(C.face, q) - E.s.points[0]) <= tol;
-      }
-      if (!collapsed) continue;
-      double sg = (d == 0 ? (top ? -1 : 1) : (top ? 1 : -1)) * (m.faceSameSense(C.face) ? 1 : -1);
-      double x0 = d ? s.uv[0].y : s.uv[0].x;
-      for (size_t i = 0; i < n; i++) {
-        (d ? s.uv[i].y : s.uv[i].x) = x0 + sg * P * static_cast<double>(i) / static_cast<double>(n - 1);
-        (other ? s.uv[i].y : s.uv[i].x) = w;
-      }
-      // (Its one point inverts onto the seam, but it runs along the pole line, not the seam.)
-      C.ambiguous[0] = C.ambiguous[1] = false;
-      return;
     }
   }
 
@@ -899,6 +806,18 @@ struct EdgeMesh::Impl {
     return ch;
   }
 
+  /** The pole (singularity) a chain's every point is at, or -1. */
+  int chainPole(int f, const Chain& ch) const {
+    int p = -1;
+    for (const BoundaryPoint& q : ch.pts) {
+      int a = q.kind == BoundaryPoint::poleLine ? -2 : poleAt(f, q.point);
+      if (a == -2) continue;
+      if (a < 0 || (p >= 0 && a != p)) return -1;
+      p = a;
+    }
+    return p;
+  }
+
   /** A loop's coedges that bound (not internal or external), in order. */
   std::vector<int> bounding(int l, std::vector<int>* internal = nullptr) const {
     std::vector<int> cs;
@@ -930,6 +849,11 @@ struct EdgeMesh::Impl {
       if (cs.empty()) continue;
       Chain ch = chain(f, cs);
       if (ch.pts.size() < 2) continue;  // (face() reports it)
+      // A loop wholly at a pole (an unflagged degenerate edge there): the pole, as a vertex loop at it is.
+      if (int p = chainPole(f, ch); p >= 0) {
+        poleLoops++, poleSing = p;
+        continue;
+      }
       chains.push_back(std::move(ch));
       loopOf.push_back(l);
     }
@@ -1150,6 +1074,15 @@ struct EdgeMesh::Impl {
     } else {
       pb = sampleAtT(F.cross[1].edge, F.cross[1].t);
       vb = valueAt(f, F.loopB, F.cross[1], other);
+      // Where the cut's own direction is periodic too (a torus), from A the way the face lies: to the left of A's
+      // direction (+v of a loop running +u, -u of one running +v; the other way where the face's sense is false).
+      double Po = F.period[other];
+      if (Po > 0) {
+        double side = (d == 0 ? 1 : -1) * chains[W[0]].winding[d] * (m.faceSameSense(f) ? 1 : -1);
+        double ahead = std::fmod((vb - va) * side, Po);
+        if (ahead <= 0) ahead += Po;
+        vb = va + side * ahead;
+      }
     }
     Edge E;
     E.face = f, E.free = other, E.fixed = cut;
@@ -1213,6 +1146,7 @@ struct EdgeMesh::Impl {
       }
       if (cs.empty()) continue;
       Chain ch = chain(f, cs);
+      if (ch.pts.size() >= 2 && chainPole(f, ch) >= 0) continue;  // (its pole line comes with the cut)
       out.status = worse(out.status, ch.status);
       // (A loop with a coedge that has no samples, its edge unsampled: no chain, the status says why.)
       if (ch.pts.size() < 2) {
@@ -1259,8 +1193,12 @@ struct EdgeMesh::Impl {
       int n = static_cast<int>(E.s.t.size());
       Vec2 aStart = joined.front().uv, aEnd = joined.back().uv;
       std::vector<BoundaryPoint> B = std::move(joinedB);
+      // (The cut's values along its own direction, shifted by periods there to start at A's crossing as A is placed.)
+      int other = 1 - d;
+      double Po = F.period[other], a0 = other ? aEnd.y : aEnd.x;
+      double offO = Po > 0 ? nearest(E.s.t.front(), a0, Po) - E.s.t.front() : 0;
       auto pseudoPoint = [&](int i, double at) {
-        Vec2 q = d == 0 ? Vec2{at, E.s.t[i]} : Vec2{E.s.t[i], at};
+        Vec2 q = d == 0 ? Vec2{at, E.s.t[i] + offO} : Vec2{E.s.t[i] + offO, at};
         return BoundaryPoint{BoundaryPoint::pseudoSample, q, F.pseudo, i, E.s.points[i]};
       };
       double atEnd = nearest(F.cut, d ? aEnd.y : aEnd.x, P), atStart = nearest(F.cut, d ? aStart.y : aStart.x, P);
@@ -1270,8 +1208,9 @@ struct EdgeMesh::Impl {
       if (F.loopB >= 0) {
         // B from its crossing, shifted to start at A's end, round to A's start.
         Vec2 sh{0, 0};
-        double bx = d ? B.front().uv.y : B.front().uv.x;
+        double bx = d ? B.front().uv.y : B.front().uv.x, bo = other ? B.front().uv.y : B.front().uv.x;
         (d ? sh.y : sh.x) = nearest(bx, d ? aEnd.y : aEnd.x, P) - bx;
+        if (Po > 0) (other ? sh.y : sh.x) = nearest(bo, E.s.t.back() + offO, Po) - bo;
         for (BoundaryPoint q : B) {
           q.uv = q.uv + sh;
           loop.push_back(q);

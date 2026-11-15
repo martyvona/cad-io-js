@@ -342,12 +342,14 @@ int32_t cg_surface_invert(int32_t h, int32_t row, const double* points, int32_t 
 } // extern "C"
 
 // -- Faces: 2D geometry on a face's loops in its surface's (u, v) (geom2d.h). A face's loops are its coedges' p-curves
-// (vertex loops have none and are left out of nest2, their parents -1); its periods are its surface's, and its pole
-// lines come from closed forms (a cone's apex at v = -r / tan(a), a sphere's v = -+pi / 2) until Surface::singularities
-// gives them. The tolerance in (u, v) at a point is the 3D one divided by the largest stretch of the first fundamental
-// form there (sqrt of its largest eigenvalue), so every (u, v) step within it is within the 3D one: a thin cylinder's
-// u and a large plane's coordinates each get their own. The 3D tolerance is the caller's where given (tol3d > 0),
-// else the larger of the part's uncertainty and the face's and its edges' tolerances, else DEFAULT_TOL.
+// (vertex loops have none and are left out of nest2, their parents -1); its periods are its surface's, and a finite
+// direction's width where the surface is closed in fact; its pole lines come from closed forms (a cone's apex at
+// v = -r / tan(a), a sphere's v = -+pi / 2) and the domain's collapsed edges (closedAndCollapsed), until
+// Surface::singularities gives them. Joints meeting in 3D within its tolerance are bridged (faceLoops). The tolerance
+// in (u, v) at a point is the 3D one divided by the largest stretch of the first fundamental form there (sqrt of its
+// largest eigenvalue), so every (u, v) step within it is within the 3D one: a thin cylinder's u and a large plane's
+// coordinates each get their own. The 3D tolerance is the caller's where given (tol3d > 0), else the larger of the
+// part's uncertainty and the face's and its edges' tolerances, else DEFAULT_TOL.
 // A coedge's p-curve range is the model's, in its edge's start-to-end order (so decreasing where the edge runs
 // against its curve), the use running it forward or back by its orientation. Where the model gives none (STEP
 // never does), it's derived as the p-curve's parameter is defined, the edge's 3D curve's (Part 42's SURFACE_CURVE;
@@ -376,7 +378,70 @@ struct FaceLoops {
   Periods periods;
   double tol3 = 0;
   int ownRanges = 0;  // coedges whose p-curve range is the p-curve's own (useRange), not its curve's
+  std::vector<std::unique_ptr<Curve>> bridges;  // the joints' segments (faceLoops), which loops' pieces point to
 };
+
+/** A straight segment in (u, v) from a to b on [0, 1]: a bridge across a joint (faceLoops). */
+class Bridge final : public Curve {
+public:
+  Bridge(Vec2 a, Vec2 b) : a_(a), b_(b) {}
+  int dim() const override { return 2; }
+  CurveDomain domain() const override { return {{0, 1}, 0}; }
+  Status eval(double t, int order, CurvePoint& out) const override {
+    const Vec2 d = b_ - a_, p = a_ + t * d;
+    out = {{p.x, p.y, 0}, order >= 1 ? Vec3{d.x, d.y, 0} : Vec3{}, {}};
+    return t < 0 || t > 1 ? Status::outOfDomain : Status::ok;
+  }
+  void breaks(Range r, std::vector<double>& out) const override { out = {r.lo, r.hi}; }
+  Status bound(Range r, Box3& out) const override {
+    const Vec2 p = a_ + r.lo * (b_ - a_), q = a_ + r.hi * (b_ - a_);
+    out = {Interval::hull(p.x, q.x), Interval::hull(p.y, q.y), Interval::point(0)};
+    return Status::ok;
+  }
+  Status derivBound(Range, int order, double& out) const override {
+    out = order == 1 ? std::hypot(b_.x - a_.x, b_.y - a_.y) : 0;
+    return Status::ok;
+  }
+  void singular(Range, std::vector<double>& out) const override { out.clear(); }
+
+private:
+  Vec2 a_, b_;
+};
+
+/**
+ * A surface's domain edges that are one in 3D, sampled (within tol at 9 points): opposite edges of a finite,
+ * non-periodic range that coincide (closed in fact, a B-spline closed but not periodic) give that direction a period,
+ * the range's width, and an edge whose points coincide (a collapsed row of B-spline poles) a pole line, where Periods
+ * has none there yet. Until the surfaces give their seams and singularities themselves (Surface::singularities).
+ */
+void closedAndCollapsed(const Surface& s, double tol, Periods& per) {
+  const SurfaceDomain d = s.domain();
+  auto at = [&](double u, double v) {
+    SurfacePoint q;
+    return s.eval(u, v, 0, q) == Status::ok ? q.p : Vec3{NAN, NAN, NAN};
+  };
+  auto finite = [](Range r) { return std::isfinite(r.lo) && std::isfinite(r.hi) && r.hi > r.lo; };
+  for (bool isoU : {true, false}) {
+    const Range fixed = isoU ? d.u : d.v, free = isoU ? d.v : d.u;
+    const double period = isoU ? d.uPeriod : d.vPeriod;
+    if (!finite(fixed) || !finite(free) || period > 0) continue;
+    auto point = [&](double x, int k) {
+      const double y = free.lo + (free.hi - free.lo) * k / 8;
+      return isoU ? at(x, y) : at(y, x);
+    };
+    bool closed = true;
+    for (int k = 0; k <= 8 && closed; k++) closed = norm(point(fixed.lo, k) - point(fixed.hi, k)) <= tol;
+    if (closed) (isoU ? per.u : per.v) = fixed.hi - fixed.lo;
+    std::vector<double>& poles = isoU ? per.poleU : per.poleV;
+    for (double x : {fixed.lo, fixed.hi}) {
+      bool collapsed = true;
+      for (int k = 1; k <= 8 && collapsed; k++) collapsed = norm(point(x, k) - point(x, 0)) <= tol;
+      bool known = false;
+      for (double p : poles) known = known || p == x;
+      if (collapsed && !known) poles.push_back(x);
+    }
+  }
+}
 
 /** The 3D tolerance of the coedge's edge: the larger of the part's uncertainty and the edge's, else DEFAULT_TOL. */
 double edgeTolerance(const Model& m, int edge) {
@@ -406,7 +471,8 @@ void around(CurveDomain d, bool closed, bool forward, double t0, double& t1) {
  * edge crosses a closed, non-periodic p-curve's ends: from t0 out through the p-curve's end its sign says (1 the
  * upper), in again from the other to t1 (a closed edge's t1 its t0).
  */
-int32_t useRange(int32_t h, int c, const Surface* surface, double& t0, double& t1, bool& own, int& wrap) {
+int32_t useRange(int32_t h, int c, const Surface* surface, const Periods& per, double& t0, double& t1, bool& own,
+  int& wrap) {
   own = false, wrap = 0;
   const Model& m = entry(h)->model;
   const double* given = m.f64(CBR_COEDGE_RANGE) + 2 * c;
@@ -418,6 +484,9 @@ int32_t useRange(int32_t h, int c, const Surface* surface, double& t0, double& t
   Range er = m.edgeRange(e);
   if (std::isfinite(er.lo) && std::isfinite(er.hi)) {
     t0 = er.lo, t1 = er.hi;
+  } else if (ci < 0 && vs >= 0 && ve >= 0) {
+    // No 3D curve (trims in parameter space only): the p-curve's own parameters at the vertices, below.
+    t0 = t1 = NAN;
   } else {
     if (ci < 0 || vs < 0 || ve < 0) return FACE_NO_RANGE;
     Status s;
@@ -442,20 +511,34 @@ int32_t useRange(int32_t h, int c, const Surface* surface, double& t0, double& t
   Status s;
   const Curve* pc = curve(h, m.coedgePcurve(c), s);
   const double tol = edgeTolerance(m, e);
-  // How far the surface at the p-curve's ends lands from the vertices, the larger (infinite where it can't say).
-  auto reaches = [&](double a, double b) {
+  // How far the surface at the p-curve's ends lands from the vertices, the larger: infinite where it can't say, a
+  // parameter outside the p-curve's domain included (an evaluation there is clamped, and may land on a vertex).
+  // A p-curve a period or more from the domain (useRange's copies) is taken back into it first, and one past an end
+  // by rounding (a p-curve's end at a sphere's pole) onto that end.
+  const SurfaceDomain dom = surface->domain();
+  auto into = [](double x, Range r, double period) {
+    if (x >= r.lo && x <= r.hi) return x;
+    if (!(period > 0)) {
+      const double slack = 1e-12 * (1 + std::max(std::fabs(r.lo), std::fabs(r.hi)));
+      return x < r.lo && x >= r.lo - slack ? r.lo : x > r.hi && x <= r.hi + slack ? r.hi : x;
+    }
+    x = r.lo + std::fmod(x - r.lo, period);
+    return x < r.lo ? x + period : x;
+  };
+  auto reaches = [&](double a, double b) -> double {
     double off = 0;
     for (auto [t, v] : {std::pair{a, vs}, std::pair{b, ve}}) {
       CurvePoint q;
-      pc->eval(t, 0, q);
       SurfacePoint sp;
-      surface->eval(q.p.x, q.p.y, 0, sp);
+      if (pc->eval(t, 0, q) != Status::ok
+        || surface->eval(into(q.p.x, dom.u, per.u), into(q.p.y, dom.v, per.v), 0, sp) != Status::ok)
+        return INFINITY;
       const double d = norm(sp.p - m.vertexPoint(v));
       off = std::isfinite(d) ? std::max(off, d) : INFINITY;
     }
     return off;
   };
-  const double curveOff = reaches(t0, t1);
+  const double curveOff = std::isfinite(t0) && std::isfinite(t1) ? reaches(t0, t1) : INFINITY;
   if (curveOff <= tol) return 0;
   // Else the p-curve's own parameters, where they land nearer (the curve's may still be within 100 x tol of the
   // vertices on a p-curve parameterized otherwise: a fitted B-spline's own parameters drift from the circle's).
@@ -479,23 +562,44 @@ int32_t useRange(int32_t h, int c, const Surface* surface, double& t0, double& t
     const Vec2 centre{0.5 * (bu.lo + bu.hi), 0.5 * (bv.lo + bv.hi)};
     bu = {std::max(sd.u.lo, bu.lo - pad), std::min(sd.u.hi, bu.hi + pad)};
     bv = {std::max(sd.v.lo, bv.lo - pad), std::min(sd.v.hi, bv.hi + pad)};
-    if (sd.uPeriod > 0) bu = sd.u;
-    if (sd.vPeriod > 0) bv = sd.v;
+    if (per.u > 0) bu = sd.u;
+    if (per.v > 0) bv = sd.v;
     // In a periodic direction the p-curve may lie a period or more from the surface's domain (u from 0 to -pi/4 on a
-    // cylinder): the point's (u, v) is taken the whole number of periods on nearest the p-curve's box's centre.
-    auto onPcurve = [&](Vec3 p, double& t) {
+    // cylinder): the point's (u, v) is taken a whole number of periods on, the copy nearest the p-curve among those
+    // around the p-curve's box's centre (an unbounded p-curve's, sampled over the curve's parameters, may be periods
+    // off: a whole copy of the loop's piece, which reaches() takes back into the domain). A copy as near as another (a
+    // line along the periodic direction passes through them all) is told apart by nearness in (u, v) to `anchor`,
+    // where given (the copy chosen for the point before it along the edge: the first vertex, then the edge's middle,
+    // then the second vertex), else to the point's own. The copy chosen is left in `anchor`.
+    auto onPcurve = [&](Vec3 p, double& t, Vec2& anchor) {
       SurfaceInversion uv = invertSurface(*surface, p, bu, bv, tol);
       if (uv.status != Status::ok) return false;
       auto near = [](double x, double c, double period) {
         return period > 0 ? x + period * std::round((c - x) / period) : x;
       };
-      CurveInversion r = invertCurve(*pc, {near(uv.uv.x, centre.x, sd.uPeriod), near(uv.uv.y, centre.y, sd.vPeriod), 0},
-        pd.range, tol);
-      t = r.t;
-      return r.status == Status::ok;
+      const Vec2 a = std::isfinite(anchor.x) ? anchor : uv.uv;
+      const double u0 = near(uv.uv.x, centre.x, per.u), v0 = near(uv.uv.y, centre.y, per.v);
+      CurveInversion best;
+      Vec2 bestUv{NAN, NAN};
+      double bestOff = INFINITY;
+      for (int ku = per.u > 0 ? -1 : 0; ku <= (per.u > 0 ? 1 : 0); ku++)
+        for (int kv = per.v > 0 ? -1 : 0; kv <= (per.v > 0 ? 1 : 0); kv++) {
+          const Vec2 q{u0 + ku * per.u, v0 + kv * per.v};
+          CurveInversion r = invertCurve(*pc, {q.x, q.y, 0}, pd.range, tol);
+          if (r.status != Status::ok) continue;
+          const double off = std::hypot(q.x - a.x, q.y - a.y);
+          if (best.status != Status::ok || r.distance < best.distance - tol
+            || (r.distance <= best.distance + tol && off < bestOff))
+            best = r, bestUv = q, bestOff = off;
+        }
+      if (best.status != Status::ok) return false;
+      anchor = bestUv;
+      t = best.t;
+      return true;
     };
     double mid = NAN;
-    if (!onPcurve(m.vertexPoint(vs), own0) || !onPcurve(m.vertexPoint(ve), own1)) return FACE_RANGE_OFF;
+    Vec2 chain{NAN, NAN};
+    if (!onPcurve(m.vertexPoint(vs), own0, chain)) return FACE_RANGE_OFF;
     // Which way the use runs on the p-curve (its parameterization may run either way): through the p-curve's
     // parameter at the 3D curve's middle between the vertices (t0, t1 its parameters there, rounded the way the edge
     // runs); without a 3D curve, or for a closed edge (its middle on both ways round), the way the edge runs on it.
@@ -517,11 +621,12 @@ int32_t useRange(int32_t h, int c, const Surface* surface, double& t0, double& t
       double t = t0 + (forward ? 1 : -1) * f * (span - run);
       return t > d.range.hi ? t - span : t < d.range.lo ? t + span : t;
     };
-    if (c3) {
+    if (c3 && vs != ve) {
       CurvePoint q;
       c3->eval(along(0.5), 0, q);
-      if (!onPcurve(q.p, mid)) return FACE_RANGE_OFF;
+      if (!onPcurve(q.p, mid, chain)) return FACE_RANGE_OFF;
     }
+    if (!onPcurve(m.vertexPoint(ve), own1, chain)) return FACE_RANGE_OFF;
     if (pd.period > 0) {
       if (std::isfinite(mid) && vs != ve) {
         double a = own1, b = own1;
@@ -547,7 +652,8 @@ int32_t useRange(int32_t h, int c, const Surface* surface, double& t0, double& t
         for (int k = 0; k < 2; k++) {
           CurvePoint p3;
           c3->eval(along((k + 1) / 3.0), 0, p3);
-          if (!onPcurve(p3.p, third[k])) return FACE_RANGE_OFF;
+          Vec2 own{NAN, NAN};
+        if (!onPcurve(p3.p, third[k], own)) return FACE_RANGE_OFF;
           third[k] = std::fmod(third[k] - from + 2 * span, span);
         }
         up = third[0] < third[1];
@@ -593,6 +699,8 @@ int32_t useRange(int32_t h, int c, const Surface* surface, double& t0, double& t
   return curveOff <= 100 * tol ? 0 : FACE_RANGE_OFF;
 }
 
+double uvTolerance(const FaceLoops& f, Vec2 p);
+
 FaceLoops faceLoops(int32_t h, int32_t face, double tol3d) {
   FaceLoops out;
   Entry* e = entry(h);
@@ -607,14 +715,15 @@ FaceLoops faceLoops(int32_t h, int32_t face, double tol3d) {
     out.status = static_cast<int32_t>(s);
     return out;
   }
+  double tol = m.uncertainty();
+  auto widen = [&](double t) { if (std::isfinite(t) && !(t <= tol)) tol = t; };
+  widen(m.f64(CBR_FACE_TOLERANCE)[face]);
   SurfaceDomain d = out.surface->domain();
   out.periods.u = d.uPeriod, out.periods.v = d.vPeriod;
   const double* r = m.surfaceReals(m.faceSurface(face));
   if (m.surfaceKind(m.faceSurface(face)) == CBR_SURFACE_CONE) out.periods.poleV = {-r[9] / std::tan(r[10])};
   if (m.surfaceKind(m.faceSurface(face)) == CBR_SURFACE_SPHERE) out.periods.poleV = {-M_PI / 2, M_PI / 2};
-  double tol = m.uncertainty();
-  auto widen = [&](double t) { if (std::isfinite(t) && !(t <= tol)) tol = t; };
-  widen(m.f64(CBR_FACE_TOLERANCE)[face]);
+  closedAndCollapsed(*out.surface, std::isfinite(tol) && tol > 0 ? tol : DEFAULT_TOL, out.periods);
   out.faceLoops = m.faceLoopCount(face);
   for (int l = m.faceFirstLoop(face); l < m.faceFirstLoop(face) + m.faceLoopCount(face); l++) {
     if (m.loopKind(l) != CBR_LOOP_EDGE) continue;
@@ -633,7 +742,7 @@ FaceLoops faceLoops(int32_t h, int32_t face, double tol3d) {
       double t0 = NAN, t1 = NAN;  // at the edge's start and end
       bool own;
       int wrap;
-      int32_t rs = useRange(h, c, out.surface, t0, t1, own, wrap);
+      int32_t rs = useRange(h, c, out.surface, out.periods, t0, t1, own, wrap);
       out.ownRanges += own;
       if (rs) {
         out.status = rs;
@@ -678,6 +787,37 @@ FaceLoops faceLoops(int32_t h, int32_t face, double tol3d) {
     }
   }
   out.tol3 = tol3d > 0 ? tol3d : std::isfinite(tol) && tol > 0 ? tol : DEFAULT_TOL;
+  // Joints that meet within tol3 in 3D but not within the (u, v) tolerance (which takes the surface's largest
+  // stretch, so a joint apart along a less stretched direction can be off by more): bridged by a segment, as geom2d
+  // would close them, but not as a gap (a pole line's joint too, the same segment geom2d would give it). Joints a
+  // whole period apart (a band's closing) are geom2d's.
+  for (Loop2& loop : out.loops) {
+    std::vector<LoopPiece> bridged;
+    const size_t n = loop.pieces.size();
+    for (size_t i = 0; i < n; i++) {
+      bridged.push_back(loop.pieces[i]);
+      auto end = [](const LoopPiece& p, bool start) {
+        CurvePoint q;
+        p.curve->eval(start != p.reversed ? p.range.lo : p.range.hi, 0, q);
+        return Vec2{q.p.x, q.p.y};
+      };
+      const Vec2 a = end(loop.pieces[i], false), b = end(loop.pieces[(i + 1) % n], true);
+      Vec2 g = b - a;
+      if (out.periods.u > 0) g.x -= out.periods.u * std::round(g.x / out.periods.u);
+      if (out.periods.v > 0) g.y -= out.periods.v * std::round(g.y / out.periods.v);
+      // (Within half the joint's (u, v) tolerance geom2d joins them itself; a bridge there would part neighbours,
+      // which then touch across it.)
+      if (!(std::hypot(g.x, g.y) > 0.5 * uvTolerance(out, a))) continue;
+      if (g.x != b.x - a.x || g.y != b.y - a.y) continue;  // a period apart: a band's closing
+      SurfacePoint qa, qb;
+      if (out.surface->eval(a.x, a.y, 0, qa) != Status::ok || out.surface->eval(b.x, b.y, 0, qb) != Status::ok
+        || !(norm(qa.p - qb.p) <= out.tol3))
+        continue;
+      out.bridges.push_back(std::make_unique<Bridge>(a, b));
+      bridged.push_back({out.bridges.back().get(), {0, 1}, false});
+    }
+    loop.pieces = std::move(bridged);
+  }
   return out;
 }
 

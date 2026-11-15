@@ -2,8 +2,8 @@
 // meshed from its model by both (each in a tess-workers pool, so a hang costs only its timeout) at the medium
 // profile, and classified:
 //   - status: ours ok, failed (an error with no triangles), timed out or crashed, when OCCT meshes the part;
-//   - faces ours leaves without triangles, by cause from the model (the surface kind cad-geom lacks, no loops, other),
-//     and those OCCT leaves too;
+//   - faces ours leaves without triangles, by our backend's status for each and its surface kind (no loops, only
+//     vertex loops where so), and those OCCT leaves too;
 //   - open model edges (cad-scene's openEdges) on each backend's mesh;
 //   - each face's mesh area against cad-scene's area oracle (where it trusts its area) and against OCCT's mesh area;
 //   - the deflection measured independently: points of sampled triangles (centroid, sides' middles) against the
@@ -29,8 +29,6 @@ import { hostLine } from '../scripts/host.ts';
 const EXAMPLES = 4;
 /** Triangles sampled per face for the deflection, evenly through its range. */
 const SAMPLES = 16;
-/** The surface kinds cad-geom meshes today; a face on another is expected to fail. */
-const SUPPORTED = new Set(['plane', 'cylinder', 'sphere', 'bspline']);
 const { linearDeflection: LIN, angularDeflection: ANG } = MESH_PROFILES.medium;
 const PLANT = process.env.PLANT ?? '';
 
@@ -65,14 +63,15 @@ const dbins = (): Record<DBin, number> => ({ within: 0, '1.5x': 0, '3x': 0, wors
 const dbin = (ratio: number): DBin => (ratio <= 1 + 1e-6 ? 'within' : ratio <= 1.5 ? '1.5x' : ratio <= 3 ? '3x'
   : 'worse');
 
-/** Why a face ours left without triangles: from the model alone. */
-function cause(d: BrepData, row: number): string {
+/** Why a face ours left without triangles: our backend's status for it, the model's shape where that says more. */
+function cause(d: BrepData, row: number, status: string | undefined): string {
   const face = decode.face(d, row);
   const kind = (decode.surface(d, face.surface) as { kind: string }).kind;
-  if (!SUPPORTED.has(kind)) return `surface ${kind}`;
-  if (!face.loops.length) return 'no loops';
-  if (face.loops.every((l) => l.kind !== 'edge')) return `only ${face.loops.map((l) => l.kind).join(', ')} loops`;
-  return 'other';
+  if (!face.loops.length) return `no loops (${kind})`;
+  if (face.loops.every((l) => l.kind !== 'edge')) {
+    return `only ${face.loops.map((l) => l.kind).join(', ')} loops (${kind})`;
+  }
+  return `${status ?? 'status unlisted'} (${kind})`;
 }
 
 /**
@@ -258,8 +257,7 @@ export const check: FileCheck<undefined, Tallies> = {
         if (o && o.tris) continue;
         T.faceless++;
         if (!t || !t.tris) T.facelessOcctToo++;
-        let c = cause(d, fr);
-        if (c.startsWith('other')) c = `other: ${statusOf.get(id) ?? 'status unlisted'}`;
+        const c = cause(d, fr, statusOf.get(id));
         bump(T.causes, c);
         note(`face without our triangles: ${c}${!t || !t.tris ? ' (OCCT neither)' : ''}`, `${where} face #${id}`);
       }

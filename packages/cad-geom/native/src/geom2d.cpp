@@ -2,12 +2,13 @@
 // interface (any 2D kind), with the tolerance deciding "on", "tangent" and "overlapping" (docs/own-tessellator.md,
 // "Degenerate and ambiguous cases").
 //
-// Intersection. Candidates come from polyline approximations (each smooth span bisected until its sagitta is within
-// a coarse deviation; bound() isn't relied on to shrink), paired through a box hierarchy inflated by the deviations
-// and tol, and approximated again more finely where segments deviating by more than tol / 2 meet (one candidate per
-// pair, so two meetings within a coarse pair would be one). Every decision is then made on the exact curves: from each candidate pair, Newton on the squared distance
-// finds a local minimum of the gap; one above tol is nothing. Otherwise the stretch of a around it where the gap
-// stays within tol (its "contact") is measured by projecting a's points onto b, and classified:
+// Intersection. Candidates come from polyline approximations (each smooth span bisected until its sagitta is within a
+// coarse deviation; bound() isn't relied on to shrink), paired through a box hierarchy inflated by the deviations and
+// tol, and approximated again more finely where segments deviating by more than tol / 2 meet (one candidate per pair,
+// so two meetings within a coarse pair would be one). Every decision is then made on the exact curves: from each
+// candidate pair, Newton on the squared distance finds a local minimum of the gap; one above tol is nothing. Otherwise
+// the stretch of a around it where the gap stays within tol (its "contact") is measured by projecting a's points onto
+// b, and classified:
 // - The rule: within tol, points are one, so any contact is a stretch, not a point. A contact is isolated (a
 //   crossing, or a tangency) when the curves' own local shape where the gap is least, their relative angle theta and
 //   curvature difference dk, separates them by at least half the tolerance at one of its ends,
@@ -87,10 +88,18 @@ private:
   Vec2 a_, b_;
 };
 
-/** True if c is straight over r (derivBound of order 2 is 0). */
+/**
+ * True if c is straight over r: derivBound of order 2 is 0 and no break lies inside r (a degree-1 B-spline is straight
+ * between its knots only: a polyline, its corners at the knots).
+ */
 bool straight(const Curve& c, Range r) {
   double d2;
-  return c.derivBound(r, 2, d2) == Status::ok && d2 == 0;
+  if (c.derivBound(r, 2, d2) != Status::ok || d2 != 0) return false;
+  std::vector<double> br;
+  c.breaks(r, br);
+  for (double t : br)
+    if (t > r.lo && t < r.hi) return false;
+  return true;
 }
 
 // ---- Polyline approximation and candidates ----
@@ -576,12 +585,21 @@ bool onBoundary(const Boundary& bd, Vec2 p, const Periods& per, double tol) {
       if (b.x0 + d.x - tol > p.x || b.x1 + d.x + tol < p.x || b.y0 + d.y - tol > p.y || b.y1 + d.y + tol < p.y)
         continue;
       Vec2 q = p - d;
-      // The nearest point by the polyline's nearest vertex, then Newton.
+      // The nearest point by the polyline's nearest segment (its nearest point there), then Newton within that
+      // segment's parameters: from a vertex at a corner (a C0 knot ending a straight side) Newton takes the other
+      // side's derivative and stalls.
       Poly poly = polyline(*piece.curve, piece.range, tol);
       size_t best = 0;
-      for (size_t i = 1; i < poly.p.size(); i++)
-        if (len(poly.p[i] - q) < len(poly.p[best] - q)) best = i;
-      double t = project(*piece.curve, piece.range, q, poly.t[best]);
+      double bestF = 0, bestD = kInf;
+      for (size_t i = 0; i + 1 < poly.p.size(); i++) {
+        const Vec2 e = poly.p[i + 1] - poly.p[i];
+        const double l2 = dot(e, e), f = l2 > 0 ? std::clamp(dot(q - poly.p[i], e) / l2, 0.0, 1.0) : 0;
+        const double dist = len(poly.p[i] + f * e - q);
+        if (dist < bestD) best = i, bestF = f, bestD = dist;
+      }
+      if (poly.p.size() < 2) continue;
+      const Range seg{poly.t[best], poly.t[best + 1]};
+      double t = project(*piece.curve, seg, q, seg.lo + bestF * (seg.hi - seg.lo));
       if (len(at(*piece.curve, t).p - q) <= tol) return true;
     }
   }

@@ -44,6 +44,7 @@ public:
     return s_->derivBound(into(ru, d_.u, d_.uPeriod, su), into(rv, d_.v, d_.vPeriod, sv), order, out);
   }
   void singularities(std::vector<Singularity>& out) const override { s_->singularities(out); }
+  const Surface& base() const { return *s_; }
 
 private:
   static double reduce(double x, Range r, double P) {
@@ -67,6 +68,11 @@ private:
 };
 
 } // namespace
+
+const Surface& baseSurface(const Surface& s) {
+  const Closed* c = dynamic_cast<const Closed*>(&s);
+  return c ? c->base() : s;
+}
 
 std::unique_ptr<Surface> faceSurface(const Model& m, int row, Status& status) {
   std::unique_ptr<Surface> s = makeSurface(m, row, status);
