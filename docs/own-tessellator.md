@@ -99,6 +99,8 @@ The phases below break these into work that up to four agents can do at once.
 
 ### Phase T1: the interrogation core (four lanes)
 
+The contracts are `packages/cad-geom/native/include/cad_geom/` (`vec.h`, `result.h`, `interval.h`, `model.h`, `curve.h`, `surface.h`, `predicates.h`, `geom2d.h`, `numerics.h`), each with a reference implementation in `native/src/`, slow and simple (lines, circles, polylines and B-splines; planes, cylinders, spheres and B-splines; inversion by dense sampling; plain floating-point predicates), checked against `cad-brep`'s evaluators. Each lane owns the sources it replaces: curves `curve*.cpp`, surfaces `surface*.cpp`, 2D geometry `geom2d*.cpp` and `predicates*.cpp`, numerics `numerics*.cpp` and `interval.h`; a header changes only at a merge.
+
 | Lane | Owns | Contract it fills |
 |---|---|---|
 | 1. Curves | evaluation with derivatives for every curve kind (composite, trimmed, offset included), span bounds (hulls, derivative bounds), arc length and its inverse, point inversion on curves (global: branch and bound on hulls, then guarded Newton) | the curve query interface |
