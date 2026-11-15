@@ -3,6 +3,7 @@
 // independent oracles on every surface of the reference models (near and far from the origin, mirrored): boxes and
 // derivative bounds against dense samples over random rectangles, partials to order 3 against central differences
 // of the order below, inversion against dense sampling, infinite ranges, and the hint.
+#include <cad_geom/curve.h>
 #include <cad_geom/surface.h>
 
 #include <algorithm>
@@ -12,6 +13,7 @@
 #include <random>
 #include <string>
 
+#include "../src/curve_impl.h"
 #include "../src/surface_impl.h"
 #include "brep_models.h"
 #include "check.h"
@@ -1057,5 +1059,37 @@ TEST_CASE("closeInFact: a tube closed in v, a nearly closed one, a collapsed sid
     auto torus = makeSurface(mt, 0, s);
     Surface* raw = torus.get();
     CHECK(closeInFact(std::move(torus), tol).get() == raw);
+  }
+}
+
+TEST_CASE("degrees past the stack buffers (kStackDegree) evaluate on the heap: linear precision at degree 18") {
+  // Evenly spaced poles reproduce a linear function at any degree: P_ij = (i / p, j / q, 0) gives S(u, v) = (u, v, 0).
+  const int p = 18, q = 17;
+  std::vector<std::vector<Vec3>> P(p + 1, std::vector<Vec3>(q + 1));
+  for (int i = 0; i <= p; i++)
+    for (int j = 0; j <= q; j++) P[i][j] = {double(i) / p, double(j) / q, 0};
+  auto S = rawSpline(p, q, {0, 1}, {p + 1, p + 1}, {0, 1}, {q + 1, q + 1}, P);
+  REQUIRE(S);
+  for (double u : {0.0, 0.3, 0.77, 1.0})
+    for (double v : {0.0, 0.45, 1.0}) {
+      SurfacePoint s;
+      CHECK(S->eval(u, v, 2, s) == Status::ok);
+      CHECK(nearVec(s.p, {u, v, 0}, 0, 1e-13));
+      CHECK(nearVec(s.du, {1, 0, 0}, 0, 1e-11) && nearVec(s.dv, {0, 1, 0}, 0, 1e-11));
+      CHECK(nearVec(s.duu, {}, 0, 1e-9) && nearVec(s.duv, {}, 0, 1e-9) && nearVec(s.dvv, {}, 0, 1e-9));
+    }
+  // A curve of degree 18 likewise, through the model's B-spline curve (bspline::eval).
+  std::vector<double> r{0, 1};
+  for (int i = 0; i <= p; i++) r.insert(r.end(), {double(i) / p, 2.0 * i / p, 0});
+  int32_t in[7 + 2] = {p, p + 1, 2, 0, 0, 0, 0, p + 1, p + 1};
+  Status st;
+  auto C = curves::makeBSpline(r.data(), in, 3, st);
+  REQUIRE(C);
+  for (double t : {0.0, 0.4, 1.0}) {
+    CurvePoint c;
+    CHECK(C->eval(t, 2, c) == Status::ok);
+    CHECK(nearVec(c.p, {t, 2 * t, 0}, 0, 1e-13));
+    CHECK(nearVec(c.d1, {1, 2, 0}, 0, 1e-11));
+    CHECK(nearVec(c.d2, {}, 0, 1e-9));
   }
 }

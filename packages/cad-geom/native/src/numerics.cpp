@@ -7,6 +7,8 @@
 #include <algorithm>
 #include <cmath>
 
+#include "scratch.h"
+
 namespace cadgeom {
 namespace bspline {
 
@@ -32,7 +34,7 @@ int findSpan(int degree, const std::vector<double>& U, int n, double t) {
 }
 
 void basis(int i, double t, int p, const std::vector<double>& U, double* N) {
-  std::vector<double> left(p + 1), right(p + 1);
+  Scratch<double, kStackDegree + 1> left(p + 1), right(p + 1);
   N[0] = 1;
   for (int j = 1; j <= p; j++) {
     left[j] = t - U[i + 1 - j];
@@ -48,7 +50,10 @@ void basis(int i, double t, int p, const std::vector<double>& U, double* N) {
 }
 
 void basisDerivs(int i, double t, int p, int n, const std::vector<double>& U, double* ders) {
-  std::vector<double> ndu((p + 1) * (p + 1)), left(p + 1), right(p + 1), a(2 * (p + 1));
+  // (Allocation-free up to kStackDegree: this is evaluation's hot path.)
+  Scratch<double, (kStackDegree + 1) * (kStackDegree + 1)> ndu((p + 1) * (p + 1));
+  Scratch<double, kStackDegree + 1> left(p + 1), right(p + 1);
+  Scratch<double, 2 * (kStackDegree + 1)> a(2 * (p + 1));
   auto NDU = [&](int r, int c) -> double& { return ndu[r * (p + 1) + c]; };
   NDU(0, 0) = 1;
   for (int j = 1; j <= p; j++) {
@@ -106,7 +111,7 @@ Status eval(const BSpline& c, double t, int order, double* out) {
     t = std::clamp(t, c.knots[p], c.knots[n]);
   }
   int span = findSpan(p, c.knots, n, t);
-  std::vector<double> ders((order + 1) * (p + 1));
+  Scratch<double, 3 * (kStackDegree + 1)> ders((order + 1) * (p + 1));
   basisDerivs(span, t, p, order, c.knots, ders.data());
   // Poles relative to the span's centroid o, added back to the point once at the end: the derivatives never see
   // large coordinates (a curve near 1e6 loses 1e-10 of its speed to cancellation otherwise).
