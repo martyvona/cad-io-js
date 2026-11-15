@@ -1,0 +1,11 @@
+{
+  "name": "cad-geom",
+  "version": "0.3.0",
+  "description": "Shape interrogation for cad-io-js's B-rep models (evaluation, inversion, projection, bounds, 2D classification), as a C++ library compiled to WebAssembly",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "build": "./build.sh",
+    "test-native": "./build.sh test"
+  }
+}
