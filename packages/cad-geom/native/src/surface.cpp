@@ -237,10 +237,12 @@ bool closedV(const SurfaceImpl& s, Range rv, double u, double tol) {
 
 /** The distance in (u, v) between two parameter pairs, periods taken the short way. */
 double uvDistance(Vec2 a, Vec2 b, const SurfaceDomain& dom) {
-  double du = std::fabs(a.x - b.x), dv = std::fabs(a.y - b.y);
-  if (dom.uPeriod > 0) du = std::fmin(du, std::fabs(dom.uPeriod - std::fmod(du, dom.uPeriod)));
-  if (dom.vPeriod > 0) dv = std::fmin(dv, std::fabs(dom.vPeriod - std::fmod(dv, dom.vPeriod)));
-  return std::hypot(du, dv);
+  auto d = [](double x, double period) {
+    if (!(period > 0)) return x;
+    double r = std::fmod(x, period);
+    return std::fmin(r, period - r);
+  };
+  return std::hypot(d(std::fabs(a.x - b.x), dom.uPeriod), d(std::fabs(a.y - b.y), dom.vPeriod));
 }
 
 } // namespace
@@ -418,6 +420,15 @@ SurfaceInversion invertSurface(const Surface& s0, Vec3 p, Range ru, Range rv, do
     std::vector<Vec2> few;
     for (size_t i = 0; i < 8; i++) few.push_back(out.alternatives[i * out.alternatives.size() / 8]);
     out.alternatives = few;
+  }
+  // A curve of feet in closed form: its direction, over the range searched, at the foot's other parameter.
+  if (out.certainty == Certainty::ambiguous) {
+    char f = s.footFamily(p);
+    if (f) {
+      out.hasFamily = true, out.familyU = f == 'u';
+      out.familyLo = f == 'u' ? ru.lo : rv.lo, out.familyHi = f == 'u' ? ru.hi : rv.hi;
+      out.familyAt = f == 'u' ? out.uv.y : out.uv.x;
+    }
   }
   // Flags, the foot's own parameters kept: a singularity's, else a seam's where the foot is within tol of it.
   out.atSingularity = nearSingularity(s, out.foot, tol);

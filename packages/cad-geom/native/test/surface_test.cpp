@@ -40,7 +40,9 @@ bool inBox(const Box3& b, Vec3 p) { return b.x.contains(p.x) && b.y.contains(p.y
 /** The parameter distance, a period taken the short way. */
 double pdist(double a, double b, double period) {
   double d = std::fabs(a - b);
-  return period > 0 ? std::fmin(d, std::fabs(period - std::fmod(d, period))) : d;
+  if (!(period > 0)) return d;
+  double r = std::fmod(d, period);
+  return std::fmin(r, period - r);
 }
 
 const SurfaceImpl* impl(const Surface* s) { return dynamic_cast<const SurfaceImpl*>(s); }
@@ -71,6 +73,45 @@ std::vector<Made> zoo(std::initializer_list<const char*> variants) {
 void sampleRange(const SurfaceDomain& d, Range& ru, Range& rv) {
   ru = std::isfinite(d.u.lo) && std::isfinite(d.u.hi) ? d.u : Range{-3, 3};
   rv = std::isfinite(d.v.lo) && std::isfinite(d.v.hi) ? d.v : Range{-3, 3};
+}
+
+/**
+ * B-splines built here from raw rows, of what the reference models lack: polynomial, a knot of multiplicity 1 in a
+ * quadratic direction (S_uu jumps there), and the twisted bilinear patch z = x y; each also 1e6 from the origin.
+ */
+std::vector<Made> raw() {
+  std::vector<Made> z;
+  for (double far : {0.0, 1e6}) {
+    {
+      // Degree 2 in u over knots 0, 1, 2 (C1 at 1), degree 1 in v over [0, 1]: 4 x 2 poles.
+      double r[3 + 2 + 24];
+      double knots[] = {0, 1, 2, 0, 1};
+      std::copy(knots, knots + 5, r);
+      double P[4][2][3] = {{{0, 0, 0}, {0, 1, 0.5}}, {{1, 0, 1.5}, {1, 1, 1}}, {{2, 0, -0.5}, {2, 1, 0}},
+        {{3, 0, 1}, {3, 1, 2}}};
+      for (int i = 0; i < 4; i++)
+        for (int j = 0; j < 2; j++)
+          for (int a = 0; a < 3; a++) r[5 + (i * 2 + j) * 3 + a] = P[i][j][a] + (a == 0 ? far : a == 1 ? -far : far);
+      int32_t in[11 + 3 + 2] = {2, 1, 4, 2, 3, 2, 0, 0, 0, 0, 0, 3, 1, 3, 2, 2};
+      Status s;
+      auto b = surfaces::makeBSpline(r, in, s);
+      REQUIRE(b);
+      z.push_back({std::string("raw C1 quadratic") + (far ? " far" : ""), std::move(b)});
+    }
+    {
+      double r[2 + 2 + 12] = {-2, 2, -2, 2};
+      double P[2][2][3] = {{{-2, -2, 4}, {-2, 2, -4}}, {{2, -2, -4}, {2, 2, 4}}};
+      for (int i = 0; i < 2; i++)
+        for (int j = 0; j < 2; j++)
+          for (int a = 0; a < 3; a++) r[4 + (i * 2 + j) * 3 + a] = P[i][j][a] + far;
+      int32_t in[11 + 4] = {1, 1, 2, 2, 2, 2, 0, 0, 0, 0, 0, 2, 2, 2, 2};
+      Status s;
+      auto b = surfaces::makeBSpline(r, in, s);
+      REQUIRE(b);
+      z.push_back({std::string("raw twist") + (far ? " far" : ""), std::move(b)});
+    }
+  }
+  return z;
 }
 
 } // namespace
@@ -266,7 +307,9 @@ TEST_CASE("catalogue: classify2's and nest2's pole lines are the face's surface'
 TEST_CASE("bounds hold: boxes of partials to order 2 and derivative bounds against dense samples") {
   std::mt19937_64 rng(11);
   int bad = 0, n = 0;
-  for (Made& m : zoo({"s1", "far", "mirror", "s1e6"})) {
+  std::vector<Made> all = zoo({"s1", "far", "mirror", "s1e6"});
+  for (Made& m : raw()) all.push_back(std::move(m));
+  for (Made& m : all) {
     const SurfaceImpl* s = impl(m.s.get());
     REQUIRE(s);
     SurfaceDomain d = s->domain();
@@ -278,29 +321,29 @@ TEST_CASE("bounds hold: boxes of partials to order 2 and derivative bounds again
       if (trial == 0) a = 0, b = 1, c = 0, e = 1;
       Range ru{DU.lo + (DU.hi - DU.lo) * std::fmin(a, b), DU.lo + (DU.hi - DU.lo) * std::fmax(a, b)};
       Range rv{DV.lo + (DV.hi - DV.lo) * std::fmin(c, e), DV.lo + (DV.hi - DV.lo) * std::fmax(c, e)};
+      // Each box checked where it's given (an offset's partials have none where its basis's normal may vanish).
       Box3 box[6];
-      bool ok = true;
+      bool given[6];
       for (int t = 0, i = 0; t <= 2; t++)
-        for (int l = 0; l <= t; l++, i++) ok = ok && s->derivBox(ru, rv, t - l, l, box[i]) == Status::ok;
+        for (int l = 0; l <= t; l++, i++) given[i] = s->derivBox(ru, rv, t - l, l, box[i]) == Status::ok;
       double b1[3], b2[3];
-      ok = ok && s->derivBound(ru, rv, 1, b1) == Status::ok && s->derivBound(ru, rv, 2, b2) == Status::ok;
-      if (!ok) continue;  // an offset whose basis's normal may vanish there: no bound, said so
+      bool bounds = s->derivBound(ru, rv, 1, b1) == Status::ok && s->derivBound(ru, rv, 2, b2) == Status::ok;
       for (int x = 0; x <= 10; x++)
         for (int y = 0; y <= 10; y++) {
           // (Clamped: the last sample can round past the rectangle's end.)
           double u = std::fmin(ru.lo + (ru.hi - ru.lo) * x / 10, ru.hi);
           double v = std::fmin(rv.lo + (rv.hi - rv.lo) * y / 10, rv.hi);
           Vec3 D[kPartials];
-          s->derivs(u, v, 2, D);
+          if (s->derivs(u, v, 2, D) == Status::singular) continue;
           for (int i = 0; i < 6; i++)
-            if (!inBox(box[i], D[i])) {
+            if (given[i] && !inBox(box[i], D[i])) {
               if (bad++ < 10) std::printf("  %s: partial %d at (%.17g, %.17g) %s outside its box [%.17g, %.17g] "
                 "[%.17g, %.17g] [%.17g, %.17g] over [%.17g, %.17g] x [%.17g, %.17g]\n", m.name.c_str(), i, u, v,
                 show(D[i]).c_str(), box[i].x.lo, box[i].x.hi, box[i].y.lo, box[i].y.hi, box[i].z.lo, box[i].z.hi,
                 ru.lo, ru.hi, rv.lo, rv.hi);
             }
-          if (norm(D[1]) > b1[0] || norm(D[2]) > b1[1] || norm(D[3]) > b2[0] || norm(D[4]) > b2[1]
-            || norm(D[5]) > b2[2]) {
+          if (bounds && (norm(D[1]) > b1[0] || norm(D[2]) > b1[1] || norm(D[3]) > b2[0] || norm(D[4]) > b2[1]
+            || norm(D[5]) > b2[2])) {
             if (bad++ < 10) std::printf("  %s: a derivative bound fails at (%.17g, %.17g)\n", m.name.c_str(), u, v);
           }
           n++;
@@ -309,6 +352,73 @@ TEST_CASE("bounds hold: boxes of partials to order 2 and derivative bounds again
   }
   CHECK(bad == 0);
   CHECK(n > 20000);
+}
+
+TEST_CASE("within: every (u, v) whose point is within d of p is in the ranges given (dense samples)") {
+  std::mt19937_64 rng(13);
+  std::uniform_real_distribution<double> G(-1, 1);
+  int bad = 0, n = 0;
+  for (Made& m : zoo({"s1", "far", "mirror"})) {
+    const SurfaceImpl* s = impl(m.s.get());
+    SurfaceDomain dom = s->domain();
+    Range DU, DV;
+    sampleRange(dom, DU, DV);
+    for (int trial = 0; trial < 4; trial++) {
+      Vec3 c[kPartials];
+      s->derivs(0.5 * DU.lo + 0.5 * DU.hi, 0.5 * DV.lo + 0.5 * DV.hi, 0, c);
+      Vec3 p = c[0] + 2.0 * Vec3{G(rng), G(rng), G(rng)};
+      double d = 1 + std::fabs(G(rng));
+      Range ru, rv;
+      s->within(p, d, ru, rv);
+      // Samples over a window three times the ranges given (clipped to the domain), and the sample range.
+      auto window = [](Range r, Range D, Range dd) {
+        if (!std::isfinite(r.lo) || !std::isfinite(r.hi)) return D;
+        double w = r.hi - r.lo;
+        return Range{std::fmax(dd.lo, r.lo - w), std::fmin(dd.hi, r.hi + w)};
+      };
+      Range wu = window(ru, DU, dom.u), wv = window(rv, DV, dom.v);
+      for (int x = 0; x <= 60; x++)
+        for (int y = 0; y <= 60; y++) {
+          double u = wu.lo + (wu.hi - wu.lo) * x / 60, v = wv.lo + (wv.hi - wv.lo) * y / 60;
+          Vec3 q[kPartials];
+          s->derivs(u, v, 0, q);
+          if (norm(q[0] - p) > d) continue;
+          n++;
+          bool in = (dom.uPeriod > 0 || (u >= ru.lo && u <= ru.hi)) && (dom.vPeriod > 0 || (v >= rv.lo && v <= rv.hi));
+          if (!in && bad++ < 10) std::printf("  %s: (%.17g, %.17g) within %g of %s, outside [%.17g, %.17g] x "
+            "[%.17g, %.17g]\n", m.name.c_str(), u, v, d, show(p).c_str(), ru.lo, ru.hi, rv.lo, rv.hi);
+        }
+    }
+  }
+  CHECK(bad == 0);
+  CHECK(n > 1000);
+}
+
+TEST_CASE("singularities: each iso-line given is one point on the surface, its partial along it zero") {
+  int bad = 0, n = 0;
+  for (Made& m : zoo({"s1", "far", "mirror"})) {
+    std::vector<Singularity> sing;
+    m.s->singularities(sing);
+    SurfaceDomain d = m.s->domain();
+    Range ru, rv;
+    sampleRange(d, ru, rv);
+    for (const Singularity& g : sing) {
+      if (g.kind == Singularity::normalVanishes) continue;
+      for (int k = 0; k <= 6; k++) {
+        double t = g.isoU ? rv.lo + (rv.hi - rv.lo) * k / 6 : ru.lo + (ru.hi - ru.lo) * k / 6;
+        SurfacePoint q;
+        m.s->eval(g.isoU ? g.at : t, g.isoU ? t : g.at, 1, q);
+        double size = std::fmax(norm(q.du), norm(q.dv));
+        bool ok = norm(q.p - g.point) <= 1e-12 * size + 1e-15 * norm(q.p)
+          && norm(g.isoU ? q.dv : q.du) <= 1e-12 * size;
+        if (!ok && bad++ < 10) std::printf("  %s: singularity at %s %.17g: %s, not %s\n", m.name.c_str(),
+          g.isoU ? "u" : "v", g.at, show(q.p).c_str(), show(g.point).c_str());
+        n++;
+      }
+    }
+  }
+  CHECK(bad == 0);
+  CHECK(n > 50);
 }
 
 TEST_CASE("partials to order 3 agree with central differences of the order below") {
@@ -368,6 +478,11 @@ TEST_CASE("inversion: points near every surface against dense sampling, the foot
       if (inv.status != Status::ok) {
         if (bad++ < 10) std::printf("  %s: status %d\n", m.name.c_str(), int(inv.status));
         continue;
+      }
+      // Periodic results in [lo, lo + period).
+      if ((d.uPeriod > 0 && !(inv.uv.x >= ru.lo && inv.uv.x < ru.lo + d.uPeriod))
+        || (d.vPeriod > 0 && !(inv.uv.y >= rv.lo && inv.uv.y < rv.lo + d.vPeriod))) {
+        if (bad++ < 10) std::printf("  %s: (%.17g, %.17g) outside a period\n", m.name.c_str(), inv.uv.x, inv.uv.y);
       }
       Vec3 f[kPartials];
       s->derivs(inv.uv.x, inv.uv.y, 0, f);
@@ -526,6 +641,222 @@ TEST_CASE("cones and tori: the cone's apex and seam, a spindle torus, feet in cl
         std::printf("  %s from %s: closed form %.17g, searched %.17g\n", z.name.c_str(), show(p).c_str(),
           whole.distance, best);
       }
+    }
+  }
+}
+
+TEST_CASE("inversion near a pole: points 1e-3 and 1e-6 off the pole line land on their own meridian, not the pole") {
+  // A sphere (closed form), the exact B-spline sphere (its poles collapsed rows, searched) and a revolution of a half
+  // circle reaching its axis (its profile's ends, searched).
+  for (const char* name : {"sphere", "bsplineSphere", "revolutionSphere"}) {
+    for (const char* variant : {"s1", "far", "mirror"}) {
+      const fixtures::Reference* ref = fixtures::reference(name, variant);
+      REQUIRE(ref);
+      const Model m(ref->data, ref->size);
+      Status s;
+      auto S = makeSurface(m, 0, s);
+      REQUIRE(S);
+      std::vector<Singularity> sing;
+      S->singularities(sing);
+      SurfaceDomain d = S->domain();
+      for (const Singularity& g : sing) {
+        if (g.isoU) continue;
+        // Toward the domain's inside from the pole line, on the meridian u = u0.
+        double inward = g.at > 0.5 * d.v.lo + 0.5 * d.v.hi ? -1 : 1;
+        double u0 = d.u.lo + 0.3 * (d.u.hi - d.u.lo);
+        for (double off : {1e-3, 1e-6}) {
+          double v = g.at + inward * off * (d.v.hi - d.v.lo);
+          SurfacePoint q;
+          S->eval(u0, v, 1, q);
+          Vec3 n;
+          S->normal(u0, v, n);
+          // Off the surface a little along its normal, and exactly on it. Judged in 3D: near a pole u is known only to
+          // the coordinates' rounding over the distance from the axis, but the foot must be the point's own (within
+          // tol), not the pole (1e-6 of the range off it is 1e-5 of the radius away, far more than tol).
+          for (double h : {0.0, 1e-4}) {
+            Vec3 p = q.p + h * n;
+            double tol = 1e-9 + 1e-15 * norm(p);
+            SurfaceInversion inv = invertSurface(*S, p, d.u, d.v, tol);
+            SurfacePoint f;
+            S->eval(inv.uv.x, inv.uv.y, 0, f);
+            // A foot h off the surface is fixed by a distance tol only to about sqrt(2 h tol) (the distance moves
+            // by x^2 / 2h with the foot); near a pole the search may run out of budget there (noConvergence, its
+            // foot still that close), never stopping at the pole.
+            double fix = 4 * tol + 4 * std::sqrt(h * tol);
+            bool ok = (inv.status == Status::ok || (h > 0 && inv.status == Status::noConvergence)) && !inv.atSingularity
+              && norm(f.p - q.p) <= fix && norm(f.p - g.point) > 0.5 * norm(q.p - g.point)
+              && std::fabs(inv.distance - h) <= 4 * tol;
+            if (!ok) {
+              CHECK(ok);
+              std::printf("  %s-%s pole at %.17g, %g off, %g out: uv (%.17g, %.17g) want (%.17g, %.17g), distance "
+                "%.17g, singular %d (status %d)\n", name, variant, g.at, off, h, inv.uv.x, inv.uv.y, u0, v,
+                inv.distance, inv.atSingularity, int(inv.status));
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+TEST_CASE("continua of feet: a family on each axis of revolution and tube centre; a sphere's centre none") {
+  // The surface row of each kind in a reference model (s1 and mirror), a point whose feet form a known set.
+  struct Want {
+    const char* name;
+    int kind;
+    Vec3 local;  // the point in the shape's frame: on the axis, or at the tube's centre
+    bool family, familyU;
+    double at, distance;
+  };
+  const double R = 3, r = 1;
+  const Want wants[] = {
+    // The cylinder r 2 about z from (0, 0, 1.5): the circle v = 1.5, distance 2.
+    {"cylinder", CBR_SURFACE_CYLINDER, {0, 0, 1.5}, true, true, 1.5, 2},
+    // The cone r 1 at v = 0, semi-angle pi / 6 (k = tan), from (0, 0, 1): its generator's foot v = (z - k r) / (1 +
+    // k^2), at distance |r + k z| / sqrt(1 + k^2).
+    {"cone", CBR_SURFACE_CONE, {0, 0, 1}, true, true, (1 - std::tan(M_PI / 6)) / (1 + std::tan(M_PI / 6) *
+      std::tan(M_PI / 6)), (1 + std::tan(M_PI / 6)) / std::sqrt(1 + std::tan(M_PI / 6) * std::tan(M_PI / 6))},
+    // The torus R 3, r 1 from its centre: the inner circle v = pi, distance R - r; from its tube's centre (3, 0, 0):
+    // the tube circle at u = 0, distance r.
+    {"torus", CBR_SURFACE_TORUS, {0, 0, 0}, true, true, M_PI, R - r},
+    {"torus", CBR_SURFACE_TORUS, {R, 0, 0}, true, false, 0, r},
+    // The sphere R 2 from its centre: every point, no curve.
+    {"sphere", CBR_SURFACE_SPHERE, {0, 0, 0}, false, false, 0, 2},
+  };
+  for (const Want& w : wants) {
+    for (const char* variant : {"s1", "mirror"}) {
+      const fixtures::Reference* ref = fixtures::reference(w.name, variant);
+      REQUIRE(ref);
+      const Model m(ref->data, ref->size);
+      int row = -1;
+      for (int i = 0; i < m.surfaces() && row < 0; i++)
+        if (m.surfaceKind(i) == w.kind) row = i;
+      REQUIRE(row >= 0);
+      Status s;
+      auto S = makeSurface(m, row, s);
+      REQUIRE(S);
+      // The point at the shape's similarity (x' = s Q x + t).
+      Vec3 p{ref->translation[0], ref->translation[1], ref->translation[2]};
+      const double* q = ref->rotation;
+      p = p + ref->scale * (w.local.x * Vec3{q[0], q[1], q[2]} + w.local.y * Vec3{q[3], q[4], q[5]}
+        + w.local.z * Vec3{q[6], q[7], q[8]});
+      SurfaceDomain d = S->domain();
+      SurfaceInversion inv = invertSurface(*S, p, d.u, d.v, 1e-9);
+      // Under the mirror a cylinder's or cone's v and a torus's v change sign (the Maker's maps): compare modulo.
+      double det = q[0] * (q[4] * q[8] - q[5] * q[7]) - q[3] * (q[1] * q[8] - q[2] * q[7])
+        + q[6] * (q[1] * q[5] - q[2] * q[4]);
+      double at = w.familyU && det < 0 ? -w.at : w.at;
+      double period = w.familyU ? d.vPeriod : d.uPeriod;
+      bool ok = inv.status == Status::ok && inv.certainty == Certainty::ambiguous && !inv.alternatives.empty()
+        && check::near(inv.distance, w.distance, 1e-12, 1e-12) && inv.hasFamily == w.family;
+      if (w.family) {
+        double lo = w.familyU ? d.u.lo : d.v.lo, hi = w.familyU ? d.u.hi : d.v.hi;
+        ok = ok && inv.familyU == w.familyU && pdist(inv.familyAt, at, period) <= 1e-9 && inv.familyLo == lo
+          && inv.familyHi == hi;
+      }
+      // Every alternative and the foot are at the distance, and on the family's curve where there is one.
+      for (Vec2 a : inv.alternatives) {
+        SurfacePoint f;
+        S->eval(a.x, a.y, 0, f);
+        ok = ok && check::near(norm(f.p - p), w.distance, 1e-12, 1e-12);
+        if (w.family) ok = ok && pdist(w.familyU ? a.y : a.x, at, period) <= 1e-9;
+      }
+      if (!ok) {
+        CHECK(ok);
+        std::printf("  %s-%s from %s: status %d certainty %d alternatives %zu distance %.17g family %d %d at %.17g "
+          "over [%.17g, %.17g]\n", w.name, variant, show(p).c_str(), int(inv.status), int(inv.certainty),
+          inv.alternatives.size(), inv.distance, inv.hasFamily, inv.familyU, inv.familyAt, inv.familyLo,
+          inv.familyHi);
+        for (Vec2 a : inv.alternatives) {
+          SurfacePoint f;
+          S->eval(a.x, a.y, 0, f);
+          std::printf("    alternative (%.17g, %.17g) at %.17g\n", a.x, a.y, norm(f.p - p));
+        }
+      }
+    }
+  }
+  // The spindle torus's centre, the catalogue's case with its family.
+  const fixtures::CaseEntry* e = fixtures::findCase("noninjective-spindle-centre");
+  REQUIRE(e);
+  const fixtures::Reference& ref = fixtures::references[e->reference];
+  const fixtures::InvertSurfaceCase& c = ref.invertSurfaceCases[e->index];
+  REQUIRE(c.hasFamily);
+  const Model m(ref.data, ref.size);
+  Status s;
+  auto S = makeSurface(m, c.surface, s);
+  REQUIRE(S);
+  SurfaceDomain d = S->domain();
+  SurfaceInversion inv = invertSurface(*S, V(c.p), d.u, d.v, c.tol);
+  CHECK(inv.hasFamily);
+  CHECK(inv.familyU == c.familyU);
+  CHECK_NEAR(inv.familyAt, c.familyAt, 0, 1e-9);
+  CHECK_NEAR(inv.familyLo, c.familyLo, 0, 1e-12);
+  CHECK_NEAR(inv.familyHi, c.familyHi, 0, 1e-12);
+}
+
+TEST_CASE("searched feet: unique off the axis on the B-spline sphere and torus, the twist's saddle not a foot") {
+  // The exact B-spline sphere (R 2) and torus (R 3, r 1) about the origin, z their axis: the foot is radial (in the
+  // meridian plane, to the tube's centre circle), unique off the axis and the tube's centre.
+  std::mt19937_64 rng(17);
+  std::uniform_real_distribution<double> G(-3.5, 3.5);
+  for (const char* name : {"bsplineSphere", "bsplineTorus"}) {
+    const fixtures::Reference* ref = fixtures::reference(name, "s1");
+    REQUIRE(ref);
+    const Model m(ref->data, ref->size);
+    Status s;
+    auto S = makeSurface(m, 0, s);
+    REQUIRE(S);
+    SurfaceDomain d = S->domain();
+    bool torus = std::strcmp(name, "bsplineTorus") == 0;
+    for (int k = 0; k < 12; k++) {
+      Vec3 p{G(rng), G(rng), G(rng) / 3};
+      double rho = std::hypot(p.x, p.y);
+      if (rho < 0.3 || (torus && std::hypot(rho - 3, p.z) < 0.3)) continue;
+      double want = torus ? std::fabs(std::hypot(rho - 3, p.z) - 1) : std::fabs(norm(p) - 2);
+      SurfaceInversion inv = invertSurface(*S, p, d.u, d.v, 1e-9);
+      bool ok = inv.status == Status::ok && inv.certainty == Certainty::unique && inv.alternatives.empty()
+        && std::fabs(inv.distance - want) <= 1e-9;
+      if (!ok) {
+        CHECK(ok);
+        std::printf("  %s from %s: distance %.17g want %.17g, certainty %d, %zu alternatives (status %d)\n", name,
+          show(p).c_str(), inv.distance, want, int(inv.certainty), inv.alternatives.size(), int(inv.status));
+      }
+    }
+  }
+  // z = x y over [-2, 2]^2 from (0, 0, 1.5): the origin is a saddle of the distance (its Hessian [1, -1.5; -1.5, 1]
+  // has positive diagonal and negative determinant); the feet are at x = y = +/-sqrt(1/2), distance sqrt 2 (on
+  // (t, t, t^2) the squared distance 2 t^2 + (t^2 - 1.5)^2 is least at t^2 = 1/2).
+  for (Made& m : raw()) {
+    if (m.name.find("twist") == std::string::npos) continue;
+    SurfaceDomain d = m.s->domain();
+    SurfacePoint c;
+    m.s->eval(0, 0, 0, c);
+    Vec3 p = c.p + Vec3{0, 0, 1.5};
+    SurfaceInversion inv = invertSurface(*m.s, p, d.u, d.v, 1e-9);
+    CHECK(inv.status == Status::ok);
+    CHECK(inv.certainty == Certainty::ambiguous);
+    CHECK(inv.alternatives.size() == 1);
+    CHECK_NEAR(inv.distance, std::sqrt(2.0), 1e-9, 1e-9);
+    CHECK_NEAR(std::fabs(inv.uv.x), std::sqrt(0.5), 0, 1e-7);
+    CHECK_NEAR(inv.uv.x, inv.uv.y, 0, 1e-7);
+  }
+  // A searched kind's seam: an extrusion's point at u = 0 is on the seam, its u in [0, 2 pi).
+  const fixtures::Reference* ex = fixtures::reference("extrusion", "mirror");
+  REQUIRE(ex);
+  const Model me(ex->data, ex->size);
+  for (int r = 0; r < me.surfaces(); r++) {
+    if (me.surfaceKind(r) != CBR_SURFACE_EXTRUSION) continue;
+    Status s;
+    auto e = makeSurface(me, r, s);
+    for (double u : {0.0, 2 * M_PI - 1e-13, 1e-13}) {
+      SurfacePoint q;
+      e->eval(u, 0.4, 1, q);
+      Vec3 n = (1 / norm(cross(q.du, q.dv))) * cross(q.du, q.dv);
+      SurfaceInversion inv = invertSurface(*e, q.p + 0.1 * n, {0, kTwoPi}, {-inf, inf}, 1e-9);
+      CHECK(inv.status == Status::ok);
+      CHECK(inv.onSeamU);
+      CHECK(inv.uv.x >= 0 && inv.uv.x < kTwoPi);
+      CHECK_NEAR(inv.uv.y, 0.4, 0, 1e-9);
     }
   }
 }

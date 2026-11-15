@@ -212,6 +212,13 @@ public:
     return true;
   }
 
+  char footFamily(Vec3 p) const override {
+    Vec3 q = p - f_.o;
+    double z = dot(q, f_.z), rho = std::hypot(dot(q, f_.x), dot(q, f_.y));
+    double axis = k_ == 0 ? 1e-15 * (r_ + std::fabs(z)) : 1e-15 * (std::fabs(r_) + std::fabs(z) + 1);
+    return rho <= axis ? 'u' : 0;
+  }
+
 private:
   double apex() const { return -r_ / k_; }
   Frame f_;
@@ -348,6 +355,12 @@ public:
     singularities(s);
     for (const Singularity& g : s) out.push_back({U(up), V(g.at)});
     return true;
+  }
+  char footFamily(Vec3 p) const override {
+    Vec3 q = p - f_.o;
+    double z = dot(q, f_.z), rho = std::hypot(dot(q, f_.x), dot(q, f_.y)), size = R_ + r_ + std::fabs(z);
+    if (rho <= 1e-15 * size) return std::hypot(R_, z) <= 1e-15 * size ? 0 : 'u';
+    return std::hypot(rho - R_, z) <= 1e-15 * size ? 'v' : 0;
   }
 
 private:

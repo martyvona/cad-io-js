@@ -185,9 +185,11 @@ public:
     }
   }
   void within(Vec3 p, double d, Range& ru, Range& rv) const override {
-    // |S - A| = |C(v) - A|, so a point within d of p has |C(v) - A| <= |p - A| + d.
+    // |S - A| = |C(v) - A|, so a point within d of p has |C(v) - A| <= |p - A| + d; a bounded profile keeps its
+    // domain (nothing to gain, and a curve's cut on a trim of a periodic basis may not hold a range across 0).
     ru = {0, kTwoPi};
-    rv = c_->within(A_, norm(p - A_) + d);
+    CurveDomain cd = c_->domain();
+    rv = finite(cd.range) ? cd.range : c_->within(A_, norm(p - A_) + d);
   }
 
 private:
@@ -285,7 +287,12 @@ public:
     Vec3 su = B[pidx(1, 0)], sv = B[pidx(0, 1)];
     double big = std::fmax(norm(su), norm(sv));
     if (!(big > 0) || norm(cross(su, sv)) <= 1e-14 * big * big) {
+      // Where the basis's normal vanishes (its pole): the point moved along the normal's limit there, its partials
+      // the basis's (the offset's own are undefined).
+      Vec3 n;
+      b_->normal(u, v, n);
       for (int i = 0; i <= pidx(0, order); i++) out[i] = B[i];
+      out[0] = B[0] + d_ * n;
       return Status::singular;
     }
     auto coef = [&](int k, int l) { return (1 / (factorial(k) * factorial(l))) * B[pidx(k, l)]; };
@@ -465,6 +472,7 @@ public:
   bool footCandidates(Vec3 p, Range ru, Range rv, double tol, std::vector<Vec2>& out) const override {
     return b_->footCandidates(p, ru, rv, tol, out);
   }
+  char footFamily(Vec3 p) const override { return b_->footFamily(p); }
 
 private:
   std::unique_ptr<SurfaceImpl> b_;

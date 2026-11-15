@@ -55,6 +55,15 @@ public:
     return false;
   }
 
+  /**
+   * Where p's feet form a curve in closed form (on an axis of revolution: a circle along u; at a torus's tube centre:
+   * the tube's circle along v), its direction: 'u' or 'v'; else 0 (no curve, or none known).
+   */
+  virtual char footFamily(Vec3 p) const {
+    (void)p;
+    return 0;
+  }
+
   Status eval(double u, double v, int order, SurfacePoint& out) const final;
   Status normal(double u, double v, Vec3& out) const override;
   Status bound(Range ru, Range rv, Box3& out) const final { return derivBox(ru, rv, 0, 0, out); }

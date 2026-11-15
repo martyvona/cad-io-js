@@ -94,6 +94,11 @@ public:
         }
         A[pidx(k, l)] = a, W[pidx(k, l)] = w;
       }
+    // A polynomial surface's weights are 1: their partials are 0 exactly (summed basis functions would round).
+    if (!rational_) {
+      W[0] = 1;
+      for (int i = 1; i <= pidx(0, n); i++) W[i] = 0;
+    }
     for (int t = 0; t <= n; t++)
       for (int l = 0; l <= t; l++) {
         int k = t - l;
