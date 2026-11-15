@@ -298,7 +298,8 @@ struct EdgeMesh::Impl {
 
   /**
    * invertSurface over the face's domain, an infinite direction (a plane's, a cylinder's v) narrowed to a window
-   * round where Newton from `hint` (else the domain's middle, or 0) lands: the global search needs a finite box.
+   * round where Newton from `hint` (else from seeds across the finite direction) lands. A workaround: cad-geom's
+   * invertSurface refuses infinite ranges (and ignores the hint); once it takes them, call it directly.
    */
   SurfaceInversion invert(int f, Vec3 p, const Vec2* hint) const {
     const Face& F = faces[f];
