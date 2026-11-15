@@ -69,6 +69,8 @@ tests=$(find native/test -name '*_test.cpp' | sort)
 [ -n "$tests" ] || { echo "no tests in native/test" >&2; exit 1; }
 # cad-brep's test models (and the reference shapes) as a header, by cad-geom's generator, for the tests only.
 "$NODE" $G/native/test/fixtures.ts build/test/fixtures/brep_models.h
+# And tess-cadio's own (native/test/models.ts).
+"$NODE" native/test/fixtures.ts build/test/fixtures/tess_models.h
 TI=(-I$G/native/test -Ibuild/test/fixtures)
 fail=0
 run() { local name=$1; shift; echo "== $name"; "$@" || { echo "== $name: exit $?" >&2; fail=1; }; }

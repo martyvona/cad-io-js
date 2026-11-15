@@ -74,10 +74,11 @@ struct CoedgeSamples {
 /** A boundary point of a face in (u, v). */
 struct BoundaryPoint {
   /**
-   * edge: a model edge's sample; pseudo: a pseudo-edge's (a cut, not a model edge: never reported as one); pole: on
-   * a pole line (in 3D the pole itself; edge and sample -1); point: a vertex loop's point inside the face (-1, -1).
+   * edgeSample: a model edge's; pseudoSample: a pseudo-edge's (a cut, not a model edge: never reported as one);
+   * poleLine: on a pole line (in 3D the pole itself; edge and sample -1); vertexPoint: a vertex loop's point inside
+   * the face (-1, -1).
    */
-  enum Kind : uint8_t { edge, pseudo, pole, point } kind = edge;
+  enum Kind : uint8_t { edgeSample, pseudoSample, poleLine, vertexPoint } kind = edgeSample;
   Vec2 uv;
   /** The edge (model or pseudo) and its sample. */
   int32_t edgeIndex = -1, sample = -1;
