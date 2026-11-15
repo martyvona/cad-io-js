@@ -164,11 +164,10 @@ private:
     for (int k = segment(r.lo); k < static_cast<int>(s_.size()); k++) {
       double a = std::fmax(r.lo, double(k)), b = std::fmin(r.hi, double(k + 1));
       if (a > b) break;
-      // A range ending on a joint reaches the next segment only if it goes past it.
-      if (a == b && a == k + 1 && k + 1 < n && r.hi > a) continue;
       double la = local(k, a), lb = local(k, b);
       f(k, Range{std::fmin(la, lb), std::fmax(la, lb)}, Range{a, b});
-      if (b >= r.hi) break;
+      // A range ending on a joint holds the next segment's start too: C(k + 1) is that segment's (derivs).
+      if (b >= r.hi && !(b == k + 1 && k + 1 < n)) break;
     }
   }
 
@@ -289,6 +288,8 @@ private:
       double v = N[k];
       for (int j = 1; j <= k; j++) v += binom(k, j) * S[j] * U[k - j];
       U[k] = v / smin * (1 + 16 * kEps);
+      // u' = (n' - (u . n') u) / s is n' / s without its part along u: |u'| <= |n'| / s, half the general bound.
+      if (k == 1) U[1] = N[1] / smin * (1 + 16 * kEps);
     }
     return Status::ok;
   }

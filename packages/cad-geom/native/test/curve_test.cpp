@@ -5,8 +5,10 @@
 // lengths against chord sums, and the parameter at a length against the length.
 #include <cad_geom/curve.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <functional>
 #include <random>
 #include <string>
@@ -271,8 +273,9 @@ TEST_CASE("catalogue: the parabola from its symmetry axis is ambiguous; from ins
   CHECK(a.status == Status::ok);
   CHECK(a.certainty == Certainty::ambiguous);
   REQUIRE(a.alternatives.size() == 1);
-  CHECK_NEAR(std::fmin(a.t, a.alternatives[0]), -1, 0, 1e-9);
-  CHECK_NEAR(std::fmax(a.t, a.alternatives[0]), 1, 0, 1e-9);
+  // An exact tie (the parabola is symmetric about its axis): the smaller t first (curve.h).
+  CHECK_NEAR(a.t, -1, 0, 1e-9);
+  CHECK_NEAR(a.alternatives[0], 1, 0, 1e-9);
   CHECK_NEAR(a.distance, std::sqrt(8.0), 1e-12, 0);
   CHECK(!a.onSeam);
   // parabolic-inside: (1.5, 0, 0): t 0, distance 1.5, unique.
@@ -440,6 +443,7 @@ TEST_CASE("inversion: seams, ends, periods, ambiguity and a continuum") {
   CHECK(e.certainty == Certainty::ambiguous);
   CHECK(e.alternatives.size() >= 2);
   CHECK_NEAR(e.distance, 2, 1e-12, 0);
+  CHECK(std::is_sorted(e.alternatives.begin(), e.alternatives.end()));
   // Two feet: the ellipse from its centre, at the ends of the minor axis (t pi / 2 and 3 pi / 2).
   auto el = conic(CBR_CURVE_ELLIPSE, 3, {1, 2, 3}, 3, 1.25);
   CurveInversion f = invertCurve(*el, {1, 2, 3}, el->domain().range, 1e-9);
@@ -520,6 +524,7 @@ TEST_CASE("lengths: closed forms exact; beyond a bounded curve's end; past a per
   Estimate a = arcLength(*circle, -1, 10, 1e-12);
   CHECK(a.status == Status::ok);
   CHECK_NEAR(a.value, 22, 1e-15, 0);
+  CHECK(a.error <= 1e-14 * a.value);  // the closed form's, not quadrature's
   Estimate t = paramAtLength(*circle, 0, 30, 1e-12);
   CHECK(t.status == Status::ok);
   CHECK_NEAR(t.value, 15, 1e-11, 0);
@@ -591,4 +596,202 @@ TEST_CASE("structure: domains, breaks and singular parameters of compound curves
   CHECK(with->eval(3, 0, cp) == Status::outOfDomain);
   with->derivs(2.5, 0, d);
   CHECK(nearVec(cp.p, d[0], 0, 0));
+}
+
+// -- Cases the planted bugs showed missing.
+
+namespace {
+
+/** A reference shape's buffer copied (8-aligned), to plant bad values in its pools. */
+struct Copy {
+  std::vector<double> words;
+  explicit Copy(const fixtures::Reference& r) : words((r.size + 7) / 8) { std::memcpy(words.data(), r.data, r.size); }
+  const uint8_t* data() const { return reinterpret_cast<const uint8_t*>(words.data()); }
+  size_t size(const fixtures::Reference& r) const { return r.size; }
+  /** A real of the curve pool, writable: the model's pointer moved into this copy. */
+  double& real(const Model& m, const fixtures::Reference& r, int row, int i) {
+    const uint8_t* p = reinterpret_cast<const uint8_t*>(m.curveReals(row) + i);
+    return *reinterpret_cast<double*>(reinterpret_cast<uint8_t*>(words.data()) + (p - data()));
+    (void)r;
+  }
+  int32_t& integer(const Model& m, int row, int i) {
+    const uint8_t* p = reinterpret_cast<const uint8_t*>(m.curveInts(row) + i);
+    return *reinterpret_cast<int32_t*>(reinterpret_cast<uint8_t*>(words.data()) + (p - data()));
+  }
+};
+
+std::unique_ptr<CurveImpl> cubic2() {
+  std::vector<double> cp;
+  double pts[7][2] = {{0, 0}, {1, 2}, {2, -1}, {3, 0}, {4, 2}, {5, 1}, {6, 0}};
+  for (auto& p : pts) cp.push_back(p[0]), cp.push_back(p[1]);
+  return bspline(2, 3, {0, 1, 2, 3.5}, {4, 1, 2, 4}, cp);
+}
+
+} // namespace
+
+TEST_CASE("makeCurve refuses bad rows: a circle's radius, a trim's master representation honoured") {
+  const fixtures::Reference* ref = fixtures::reference("curves", "s1");
+  REQUIRE(ref);
+  {
+    // Rows 5 (the circle) and 6 (trimmed by parameter 1 to 2.5 on it, the parameters preferred).
+    Copy copy(*ref);
+    Model m(copy.data(), ref->size);
+    REQUIRE(m.curveKind(5) == CBR_CURVE_CIRCLE && m.curveKind(6) == CBR_CURVE_TRIMMED);
+    copy.real(m, *ref, 5, 9) = 0;
+    Status s;
+    CHECK(!makeCurve(m, 5, s));
+    CHECK(s == Status::invalidModel);
+    CHECK(!makeCurve(m, 6, s));  // through its basis
+    CHECK(s == Status::invalidModel);
+  }
+  {
+    // The trim's second point at angle 2 and its master representation cartesian: the point wins over 2.5.
+    Copy copy(*ref);
+    Model m(copy.data(), ref->size);
+    Status s;
+    auto circle = makeCurve(m, 5, s);
+    CurvePoint q;
+    circle->eval(2, 0, q);
+    double* t2 = &copy.real(m, *ref, 6, 2 + 3);
+    t2[0] = q.p.x, t2[1] = q.p.y, t2[2] = q.p.z;
+    auto pref = makeCurve(m, 6, s);
+    CHECK_EQ(pref->domain().range.hi, 2.5);
+    copy.integer(m, 6, 2) = CBR_TRIM_CARTESIAN;
+    auto cart = makeCurve(m, 6, s);
+    CHECK_NEAR(cart->domain().range.hi, 2, 0, 1e-12);
+  }
+  // B-splines: a weight not positive, knots not increasing.
+  Status s;
+  // Degree 1, knots 0, 1, 2 (multiplicities 2, 1, 2), poles (0, 0), (1, 1), (2, 0), weights 1.
+  std::vector<double> r = {0, 1, 2, 0, 0, 1, 1, 2, 0, 1, 1, 1};
+  std::vector<int32_t> in = {1, 3, 3, 1, 2, 2, 0, 2, 1, 2};
+  CHECK(curves::makeBSpline(r.data(), in.data(), 2, s));
+  r[11] = 0;  // the last weight
+  CHECK(!curves::makeBSpline(r.data(), in.data(), 2, s));
+  CHECK(s == Status::invalidModel);
+  r[11] = 1, r[1] = 0;  // knots 0, 0, 2
+  CHECK(!curves::makeBSpline(r.data(), in.data(), 2, s));
+}
+
+TEST_CASE("breaks and tight bounds: B-spline knots, a polyline's vertices, a trim's range, a reversed segment") {
+  auto c = cubic2();
+  std::vector<double> br;
+  c->breaks({0.5, 3}, br);
+  CHECK(br == std::vector<double>({0.5, 1, 2, 3}));
+  // A polyline's speed bound on one segment is that segment's length, not its neighbour's.
+  double poly[6] = {0, 0, 1, 0, 1, 5};
+  auto pl = curves::makePolyline(poly, 3, 2);
+  double b;
+  CHECK(pl->derivBound({0, 1}, 1, b) == Status::ok);
+  CHECK_NEAR(b, 1, 1e-12, 0);
+  // A trimmed arc's box over a range wider than its trims is the arc's alone.
+  Status s;
+  double tr[8] = {0, M_PI / 2, NAN, NAN, NAN, NAN, NAN, NAN}, c2[6] = {0, 0, 1, 0, 2, 2};
+  auto arc = curves::makeTrimmed(curves::makeEllipse(c2, 2, 2, 2), tr, 1, 1, s);
+  Box3 box;
+  arc->bound({-3, 7}, box);
+  CHECK(box.x.lo > -1e-9 && box.y.lo > -1e-9);
+  // A reversed segment's breaks map back: knot 1 of [0, 3.5] at 1 - 1 / 3.5 of the segment.
+  std::vector<curves::Segment> segs;
+  segs.push_back({cubic2(), false});
+  auto comp = curves::makeComposite(std::move(segs), s);
+  comp->breaks({0, 1}, br);
+  CHECK(br.size() == 4);
+  if (br.size() == 4) {
+    CHECK_NEAR(br[1], 1 - 2 / 3.5, 1e-15, 0);
+    CHECK_NEAR(br[2], 1 - 1 / 3.5, 1e-15, 0);
+  }
+}
+
+TEST_CASE("a composite's box over a range ending on a joint holds the next segment's start") {
+  Status s;
+  double l1[4] = {0, 0, 1, 0}, l2[4] = {5, 5, 6, 5};  // a jump at t 1
+  std::vector<curves::Segment> segs;
+  segs.push_back({curves::makePolyline(l1, 2, 2), true});
+  segs.push_back({curves::makePolyline(l2, 2, 2), true});
+  auto comp = curves::makeComposite(std::move(segs), s);
+  CurvePoint q;
+  comp->eval(1, 0, q);
+  CHECK(nearVec(q.p, {5, 5, 0}, 0, 0));
+  Box3 box;
+  comp->bound({0.5, 1}, box);
+  CHECK(inBox(box, q.p));
+}
+
+TEST_CASE("an offset circle's speed bound is r + d, tight, on a tilted plane") {
+  // B' x V has |B'| r for V the axis: bounds through a wrong box of it, or a wrong unit-normal bound, miss r + d.
+  auto off = curves::makeOffset(conic(CBR_CURVE_CIRCLE, 3, {1, 2, 3}, 2, 2), 0.5, {1 / 3.0, 2 / 3.0, 2 / 3.0});
+  for (double t : {0.3, 2.0, 4.4}) {
+    double b;
+    CHECK(off->derivBound({t, t + 1e-7}, 1, b) == Status::ok);
+    CHECK_NEAR(b, 2.5, 1e-5, 0);
+    // |C''| is 2.5 too; the general recursion's bound is looser (4.5 here) but within a factor 2.
+    CHECK(off->derivBound({t, t + 1e-7}, 2, b) == Status::ok);
+    CHECK(b >= 2.5 && b <= 5);
+  }
+}
+
+TEST_CASE("inversion: an unbounded offset, a near tie, a seam reached within tol, ends that meet on a subrange") {
+  // The offset parabola over its whole (infinite) domain: its foot far along it.
+  Vec3 ref{1 / 3.0, 2 / 3.0, 2 / 3.0};
+  auto op = curves::makeOffset(conic(CBR_CURVE_PARABOLA, 3, {0, 0, 0}, 0.75, 0), -0.3, ref);
+  Vec3 d[1];
+  op->derivs(9, 0, d);
+  CurveInversion a = invertCurve(*op, d[0], op->domain().range, 1e-9);
+  CHECK(a.status == Status::ok);
+  CHECK_NEAR(a.t, 9, 0, 1e-8);
+  // An ellipse from just off its centre: the two feet's distances differ by less than tol, so both are given.
+  auto el = conic(CBR_CURVE_ELLIPSE, 3, {1, 2, 3}, 3, 1.25);
+  el->derivs(M_PI / 2, 0, d);
+  Vec3 o{1, 2, 3}, y = d[0] - o;
+  CurveInversion b = invertCurve(*el, o + 1e-12 * y, el->domain().range, 1e-9);
+  CHECK(b.certainty == Certainty::ambiguous);
+  CHECK(b.alternatives.size() == 1);
+  // A foot 1e-12 from the seam, within tol: t is the range's end exactly.
+  el->derivs(1e-12, 0, d);
+  CurveInversion c = invertCurve(*el, d[0], el->domain().range, 1e-9);
+  CHECK(c.onSeam);
+  CHECK_EQ(c.t, 0.0);
+  // With tol 0 no seam is claimed, and the result still lies in [lo, lo + period).
+  for (double t : {0.0, 1e-17, 2 * M_PI}) {
+    el->derivs(t, 0, d);
+    CurveInversion e = invertCurve(*el, d[0], {0, 2 * M_PI}, 0);
+    CHECK(e.t >= 0 && e.t < 2 * M_PI);
+  }
+  // Two segments 1 and 1 + 1e-10 from the origin, tol 1e-9: the second, popped after the first, is kept.
+  double two[8] = {-2, 1, 2, 1, 2, -1 - 1e-10, -2, -1 - 1e-10};
+  auto tw = curves::makePolyline(two, 4, 2);
+  CurveInversion h = invertCurve(*tw, {0, 0, 0}, tw->domain().range, 1e-9);
+  CHECK(h.certainty == Certainty::ambiguous);
+  CHECK(h.alternatives.size() == 1);
+  // The foot exactly at lo + period (not one point with lo's, by rounding), tol 0: reported in [lo, lo + period).
+  // (A circle: its closed form gives the range's ends as candidates; a search never returns hi itself.)
+  auto ci = conic(CBR_CURVE_CIRCLE, 3, {1, 2, 3}, 2, 2);
+  int short_ = 0;  // ranges whose rounded width is under 2 pi: the case that needs it
+  for (int i = 1; i <= 64; i++) {
+    double lo = 0.1 * i, hi = lo + 2 * M_PI;
+    short_ += hi - lo < 2 * M_PI;
+    ci->derivs(hi, 0, d);
+    CurveInversion w = invertCurve(*ci, d[0], {lo, hi}, 0);
+    CHECK(w.t >= lo && w.t < hi);
+  }
+  CHECK(short_ > 0);
+  // A polyline back through its start over [0, 3] of [0, 4]: its range's ends meet, but it isn't closed.
+  double poly[10] = {0, 0, 1, 0, 1, 1, 0, 0, -1, 0};
+  auto pl = curves::makePolyline(poly, 5, 2);
+  CurveInversion f = invertCurve(*pl, {0, 0, 0}, {0, 3}, 1e-9);
+  CHECK(!f.onSeam);
+  CHECK(f.alternatives.empty());
+  // A rational circle from its centre: a continuum box bounds can't certify within the budget, said so.
+  auto nc = nurbsCircle(2, {0, 0, 0});
+  CurveInversion g = invertCurve(*nc, {0, 0, 0}, nc->domain().range, 1e-9);
+  CHECK(g.status == Status::noConvergence);
+  CHECK_NEAR(g.distance, 3, 1e-9, 0);
+}
+
+TEST_CASE("lengths outside a bounded domain are the domain's part") {
+  auto c = cubic2();
+  Estimate in = arcLength(*c, 0, 3.5, 1e-13), out = arcLength(*c, -1, 4, 1e-13);
+  CHECK(out.status == Status::outOfDomain);
+  CHECK_NEAR(out.value, in.value, 1e-13, 0);
 }

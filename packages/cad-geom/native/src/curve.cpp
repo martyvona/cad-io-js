@@ -6,7 +6,9 @@
 // it is solved when g(t) = |C(t) - p|^2 is convex on it (g''/2 = |C'|^2 + (C - p) . C'' > 0, its lower bound from the
 // boxes of C - p, C' and C'' by interval arithmetic), since a convex g has one minimum there, found by Newton on g'
 // guarded by bisection; else it is split. Feet within tol of the best are the same foot (a seam's two parameters) or
-// alternatives (other places, one per cluster). Circles take their feet in closed form (footCandidates).
+// alternatives (other places, one per cluster). A range whose box is narrower than tol is one foot (a zero-length
+// piece, a cusp); circles take their feet in closed form (footCandidates). The search is budgeted: where it runs out
+// with a better foot still possible (a rational circle from its centre), it says noConvergence.
 // Arc length: closed forms where they exist (curve_impl.h's exactLength), else quadrature span by span, the spans
 // split at the speed's zeros; the parameter at a length by Newton on the length (its derivative the speed), bracketed
 // and guarded by bisection.
@@ -260,7 +262,8 @@ CurveInversion invertCurve(const Curve& c, Vec3 p, Range r, double tol) {
     return q.p;
   };
   // A periodic curve searched over one period from r.lo, its results reduced into it.
-  bool wrap = dom.period > 0 && r.hi - r.lo >= dom.period;
+  // (A range given as [lo, lo + period] may be a few ulps short of a period by its rounding: still a period.)
+  bool wrap = dom.period > 0 && r.hi - r.lo >= dom.period * (1 - 8 * kEps);
   if (wrap) r.hi = r.lo + dom.period;
   if (dom.period == 0) r = {std::fmax(r.lo, dom.range.lo), std::fmin(r.hi, dom.range.hi)};
   if (!finite(r)) {
@@ -367,7 +370,7 @@ CurveInversion invertCurve(const Curve& c, Vec3 p, Range r, double tol) {
   bool whole = wrap || (dom.period == 0 && r.lo <= dom.range.lo && r.hi >= dom.range.hi);
   bool closed = whole && norm(e1 - e0) <= tol;
   if (closed && (norm(out.foot - e0) <= tol || norm(out.foot - e1) <= tol)) out.onSeam = true, out.t = r.lo;
-  if (wrap && out.t >= r.hi) out.t -= dom.period;
+  if (wrap && out.t >= r.hi) out.t = r.lo;  // r.hi is r.lo's point: the result in [lo, lo + period)
   // Other feet: within tol of the best distance and more than tol from the best foot and from each other.
   std::vector<Vec3> feet{best.foot};
   for (size_t i = 1; i < cands.size(); i++) {
@@ -378,7 +381,7 @@ CurveInversion invertCurve(const Curve& c, Vec3 p, Range r, double tol) {
     if (same) continue;
     feet.push_back(k.foot);
     double t = k.t;
-    if (wrap && t >= r.hi) t -= dom.period;
+    if (wrap && t >= r.hi) t = r.lo;
     out.alternatives.push_back(t);
   }
   if (!out.alternatives.empty()) out.certainty = Certainty::ambiguous;
