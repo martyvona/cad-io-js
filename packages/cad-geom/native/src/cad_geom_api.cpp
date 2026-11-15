@@ -472,14 +472,21 @@ int32_t useRange(int32_t h, int c, const Surface* surface, double& t0, double& t
       bu = {std::min(bu.lo, q.p.x), std::max(bu.hi, q.p.x)}, bv = {std::min(bv.lo, q.p.y), std::max(bv.hi, q.p.y)};
     }
     const double pad = std::max({bu.hi - bu.lo, bv.hi - bv.lo, 1e-9});
+    const Vec2 centre{0.5 * (bu.lo + bu.hi), 0.5 * (bv.lo + bv.hi)};
     bu = {std::max(sd.u.lo, bu.lo - pad), std::min(sd.u.hi, bu.hi + pad)};
     bv = {std::max(sd.v.lo, bv.lo - pad), std::min(sd.v.hi, bv.hi + pad)};
     if (sd.uPeriod > 0) bu = sd.u;
     if (sd.vPeriod > 0) bv = sd.v;
+    // In a periodic direction the p-curve may lie a period or more from the surface's domain (u from 0 to -pi/4 on a
+    // cylinder): the point's (u, v) is taken the whole number of periods on nearest the p-curve's box's centre.
     auto onPcurve = [&](Vec3 p, double& t) {
       SurfaceInversion uv = invertSurface(*surface, p, bu, bv, tol);
       if (uv.status != Status::ok) return false;
-      CurveInversion r = invertCurve(*pc, {uv.uv.x, uv.uv.y, 0}, pd.range, tol);
+      auto near = [](double x, double c, double period) {
+        return period > 0 ? x + period * std::round((c - x) / period) : x;
+      };
+      CurveInversion r = invertCurve(*pc, {near(uv.uv.x, centre.x, sd.uPeriod), near(uv.uv.y, centre.y, sd.vPeriod), 0},
+        pd.range, tol);
       t = r.t;
       return r.status == Status::ok;
     };
@@ -571,9 +578,12 @@ int32_t useRange(int32_t h, int c, const Surface* surface, double& t0, double& t
     return 0;
   };
   double own0 = NAN, own1 = NAN;
-  if (ownRange(own0, own1) == 0 && reaches(own0, own1) < curveOff) {
-    t0 = own0, t1 = own1, own = true;
-    return 0;
+  if (ownRange(own0, own1) == 0) {
+    const double ownOff = reaches(own0, own1);
+    if (ownOff <= 100 * tol && ownOff < curveOff) {
+      t0 = own0, t1 = own1, own = true;
+      return 0;
+    }
   }
   wrap = 0;
   return curveOff <= 100 * tol ? 0 : FACE_RANGE_OFF;
