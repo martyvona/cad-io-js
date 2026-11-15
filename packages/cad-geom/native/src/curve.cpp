@@ -45,8 +45,11 @@ Status centredBox(const CurveImpl& c, Range r, int order, Box3& out) {
   double m = 0.5 * r.lo + 0.5 * r.hi;
   s = c.derivs(m, order, d);
   if (s != Status::ok && s != Status::outOfDomain) return s;
+  // Widened by the evaluation's own error, which differs between paths (bspline::eval to order 2, the hodographs
+  // beyond): relative to the derivative, and for a point relative to the curve's local size, not its position.
   double h = std::fmax(m - r.lo, r.hi - m);
-  out = ballBox(d[order], b * h * (1 + 4 * kEps) + 4 * kEps * maxAbs(d[order]));
+  double e = order == 0 ? 4 * kEps * maxAbs(d[0]) + 1e-13 * b * std::fmax(h, 1.0) : 1e-12 * maxAbs(d[order]);
+  out = ballBox(d[order], b * h * (1 + 4 * kEps) + e);
   return Status::ok;
 }
 

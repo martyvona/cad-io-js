@@ -215,7 +215,7 @@ TEST_CASE("reference curveLength facts at every variant") {
       Status s;
       auto c = makeCurve(m, f.curve, s);
       REQUIRE(c);
-      Estimate e = arcLength(*c, f.t0, f.t1, 1e-14);
+      Estimate e = arcLength(*c, f.t0, f.t1, 1e-13);  // a tenth of the facts' tol
       bool ok = e.status == Status::ok && check::near(e.value, f.length, f.tol, f.abs)
         && e.error <= std::fmax(f.tol * f.length, f.abs);
       if (!ok) {
