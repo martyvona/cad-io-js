@@ -754,6 +754,31 @@ TEST_CASE("quadrature: noConvergence when the evaluations run out or the singula
   CHECK_NEAR(zero.value, 0, 0, 1e-12);
 }
 
+TEST_CASE("quadrature: an integral cancelling to 0 under a relTol: noConvergence at once, the estimate covering") {
+  // Over [1e6, 1e6 + 1e-6], f = t - the midpoint: the integral is 0, the nodes only placed to ulp(1e6), so nothing
+  // below about ulp(1e6) times f's variation (1e-16) can be known. Likewise sin over a symmetric span.
+  const double c = 1e6 + 0.5e-6;
+  int n = 0;
+  Estimate e = quadrature::integrate([&](double t) { n++; return t - c; }, 1e6, 1e6 + 1e-6, 0, 1e-9);
+  CHECK(e.status == Status::noConvergence);
+  CHECK(std::isfinite(e.error));
+  CHECK(std::fabs(e.value) <= e.error);
+  CHECK(e.error <= 1e-15);
+  CHECK(n <= 45);
+  n = 0;
+  Estimate s = quadrature::integrate([&](double t) { n++; return std::sin(t); }, -1e-12, 1e-12, 0, 1e-9);
+  CHECK(s.status == Status::noConvergence);
+  CHECK(std::fabs(s.value) <= s.error);
+  CHECK(n <= 45);
+  // A cubic cancelling near 1e6 is halved (|K - G| isn't 0 there): its estimate stays finite and covering.
+  Estimate cube = quadrature::integrate([&](double t) { return std::pow(t - c, 3) * 1e18; }, 1e6, 1e6 + 1e-6, 0, 1e-9);
+  CHECK(std::isfinite(cube.error));
+  CHECK(std::fabs(cube.value) <= cube.error);
+  // With an absolute tolerance above that floor, it's met.
+  Estimate abs = quadrature::integrate([&](double t) { return t - c; }, 1e6, 1e6 + 1e-6, 1e-15, 1e-9);
+  CHECK(abs.status == Status::ok);
+}
+
 TEST_CASE("quadrature: non-finite values, infinite or empty ranges") {
   Estimate e = quadrature::integrate([](double x) { return 1 / x; }, -1, 1, 0, 1e-8);  // 0 is the centre node
   CHECK(e.status == Status::singular);

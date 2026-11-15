@@ -40,6 +40,7 @@ constexpr double wg[4] = {0.129484966168869693270611432679082, 0.279705391489276
 struct Piece {
   double a, b, value, error, rounding;
   double change = -1;  // |value - its parent's| over the halving that made it; -1 for the whole range
+  bool divergent = false;  // a halving above the rounding floor that didn't shrink: until one clearly does
   bool operator<(const Piece& o) const { return error < o.error; }
 };
 
@@ -47,16 +48,22 @@ struct Piece {
 bool rule(const std::function<double(double)>& f, double a, double b, Piece& out) {
   const double c = 0.5 * (a + b), h = 0.5 * (b - a);
   double fc = f(c);
-  double k = wgk[7] * fc, g = wg[3] * fc, mag = wgk[7] * std::fabs(fc);
+  double k = wgk[7] * fc, g = wg[3] * fc, mag = wgk[7] * std::fabs(fc), lo = fc, hi = fc;
   bool finite = std::isfinite(fc);
   for (int j = 0; j < 7; j++) {
     double x = h * xgk[j], f1 = f(c - x), f2 = f(c + x);
     finite = finite && std::isfinite(f1) && std::isfinite(f2);
+    lo = std::fmin(lo, std::fmin(f1, f2)), hi = std::fmax(hi, std::fmax(f1, f2));
     k += wgk[j] * (f1 + f2);
     mag += wgk[j] * (std::fabs(f1) + std::fabs(f2));
     if (j % 2 == 1) g += wg[j / 2] * (f1 + f2);
   }
-  const double rounding = 50 * std::numeric_limits<double>::epsilon() * mag * std::fabs(h);
+  // Rounding: the sums' (50 ulp of the integral of |f|), and the nodes' own. Each node is only where it rounds to,
+  // within ulp(c), which moves the integral by at most ulp(c) times f's variation over the piece (its samples' spread
+  // for it): irreducible by halving, the variations summing to f's, so an integral cancelling to 0 near a large
+  // coordinate is known only to that.
+  const double where = std::fabs(c), ulp = std::nextafter(where, INFINITY) - where;
+  const double rounding = 50 * std::numeric_limits<double>::epsilon() * mag * std::fabs(h) + ulp * (hi - lo);
   out = {a, b, k * h, std::fmax(std::fabs((k - g) * h), rounding), rounding};
   return finite;
 }
@@ -80,11 +87,16 @@ Estimate integrate(const std::function<double(double)>& f, double a, double b, d
   int evals = 15;
   double value = whole.value, error = whole.error;
   auto reached = [&] { return error <= std::fmax(absTol, relTol * std::fabs(value)); };
-  // An infinite error in a piece that won't be halved again can't come down: no point going on.
+  // No point going on when an infinite error in a piece that won't be halved again can't come down, or when every
+  // piece's error is its rounding floor: those floors sum to about the integral of |f| whatever the halving, so a
+  // relTol on an integral at that level (0 by cancellation) can't be met.
   auto hopeless = [&] {
     for (const Piece& q : done)
       if (std::isinf(q.error)) return true;
-    return false;
+    for (const std::vector<Piece>* v : {&done, &pieces})
+      for (const Piece& q : *v)
+        if (q.error > q.rounding) return false;
+    return true;
   };
   while (!reached() && !pieces.empty() && evals + 30 <= maxEval && !hopeless()) {
     std::pop_heap(pieces.begin(), pieces.end());
@@ -110,7 +122,12 @@ Estimate integrate(const std::function<double(double)>& f, double a, double b, d
     }
     const double d = std::fabs(p.value - (l.value + r.value));
     const double rho = p.change > 0 ? d / p.change : 0.5;
-    const double tail = d <= l.rounding + r.rounding ? 0 : rho < 1 ? 2 * d * rho / (1 - rho) : inf;
+    // At the rounding floor a halving shows nothing either way, so a divergent chain stays divergent: near
+    // 1 / (1 - x)'s end the nodes' rounding (f's spread over the piece) outgrows the constant change before they
+    // freeze.
+    bool divergent = d <= l.rounding + r.rounding ? p.divergent : !(rho < 1);
+    const double tail = divergent ? inf : d <= l.rounding + r.rounding ? 0 : 2 * d * rho / (1 - rho);
+    l.divergent = r.divergent = divergent;
     l.change = r.change = d;
     l.error = std::fmax(l.error, tail);
     r.error = std::fmax(r.error, tail);
