@@ -1,7 +1,8 @@
 // Phase 2 step 3: import every corpus file into the scene model; check each scene structurally (cad-scene's
 // validate), check that it agrees with the semantic layer (a component per product, an occurrence per placed
 // occurrence, every B-rep part's model valid by validateBrep's errors and holding something), and tally what the
-// scenes hold. Usage: node corpus_checks/import_corpus.ts [file-list.txt] [model checks: all | none, default all]
+// scenes hold. Usage: node corpus_checks/import_corpus.ts [file-list.txt] [model checks: all | none, default all;
+// anything else, such as the size a round passes every check, is all]
 import fs from 'node:fs';
 import { rowCount, validateBrep } from '../packages/cad-brep/src/index.ts';
 import { instances, partInstances, validate } from '../packages/cad-scene/src/index.ts';
@@ -16,7 +17,7 @@ const note = (k: string, ex: string, n = 1) => { const p = problems.get(k); if (
   else problems.set(k, { n, ex }); };
 const t = { files: 0, components: 0, leafProducts: 0, rootParts: 0, parts: 0, partInstances: 0, hidden: 0, materials: 0, faceMaterialParts: 0,
   faceMaterials: 0, componentMaterials: 0, overrides: 0, layers: 0, external: 0, modelBytes: 0, time: 0 };
-const checkModels = (process.argv[3] ?? 'all') === 'all';
+const checkModels = process.argv[3] !== 'none';
 
 for (const path of corpusFiles(process.argv[2])) {
   const name = short(path);
