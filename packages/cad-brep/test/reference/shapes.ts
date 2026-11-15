@@ -305,15 +305,16 @@ const curves: Shape = {
       sense: true, preference: 'parameter' });
     m.curvePoints(tr, ciEv, [1, 1.75, 2.5]);
     m.curveLength(tr, 1, 2.5, 3);
-    // The same arc trimmed by its end points alone (cartesian): the parameters are the points' on the circle.
+    // The same arc trimmed by its end points alone (cartesian): the parameters are the points' on the circle, so
+    // its range is [1, 2.5] only to the points' rounding (5e-11 far from the origin): facts inside it.
     const tp = m.curve({ kind: 'trimmed', basis: ci, trim1: { point: ciEv(1).p }, trim2: { point: ciEv(2.5).p },
       sense: true, preference: 'cartesian' });
-    m.curvePoints(tp, ciEv, [1, 2]);
-    m.curveLength(tp, 1, 2.5, 3);
+    m.curvePoints(tp, ciEv, [1.25, 2]);
+    m.curveLength(tp, 1.25, 2.25, 2);
     // Its range seen through a composite of it alone (the composite maps [0, 1] onto the trim's range).
     const cp = m.curve({ kind: 'composite', segments: [{ curve: tp, sameSense: true, transition: 'continuous' }],
       selfIntersect: false });
-    m.curvePoints(cp, compositeEv([{ ev: ciEv, a: 1, b: 2.5, sameSense: true }]), [0, 0.4, 1]);
+    m.curvePoints(cp, compositeEv([{ ev: ciEv, a: 1, b: 2.5, sameSense: true }]), [0.1, 0.4, 0.9]);
     // Against the circle: from 1 back round to 2.5, the range [2.5 - 2 pi, 1].
     const tb = m.curve({ kind: 'trimmed', basis: ci, trim1: { parameter: 1 }, trim2: { parameter: 2.5 },
       sense: false, preference: 'parameter' });

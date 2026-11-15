@@ -2,7 +2,7 @@
 // <name>-<variant>.json (its facts and cases), the C++ tests' data; reference.test.ts checks they're current.
 // Run: node packages/cad-brep/test/reference/generate.ts
 //
-// The JSON (format 2): { format, name, variant, file, similarity: { scale, rotation (9, column-major), translation },
+// The JSON (format 3): { format, name, variant, file, similarity: { scale, rotation (9, column-major), translation },
 // uncertainty, facts, cases }. A fact passes when |got - expected| <= max(tol |expected|, abs) per field (vectors by
 // their Euclidean norm), parameters (t, uv, alternatives) within ptol; no NaN or Infinity anywhere, null where a
 // value is undefined (a normal at a pole). Cases (cases.ts) only in the case models, case-<topic>-s1. The cad-geom
@@ -17,7 +17,7 @@ import { type Fact, Maker } from './maker.ts';
 import { SHAPES } from './shapes.ts';
 import { IDENTITY, type Similarity, VARIANTS } from './vec.ts';
 
-export const FORMAT = 2;
+export const FORMAT = 3;
 export const FIXTURES = join(new URL('.', import.meta.url).pathname, 'fixtures');
 
 export interface Fixture {

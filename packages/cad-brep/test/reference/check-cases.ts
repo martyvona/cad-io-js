@@ -149,8 +149,26 @@ function loopAt(loop: Piece2[], t: number): V {
   return g.C.point(g.a + (t - k) * (g.b - g.a));
 }
 
+/** The pole lines given with a face's periods: the surface collapses along each, and nowhere else sampled. */
+function checkPoles(d: BrepData, f: number, P: { poleU: number[]; poleV: number[] }, what: string) {
+  const S = surfaceEvaluator(d, d.face.surface[f]!)!;
+  const lo = (r: V) => Number.isFinite(r[0]!) ? r[0]! : -4, hi = (r: V) => Number.isFinite(r[1]!) ? r[1]! : 4;
+  const collapsed = (iso: 'u' | 'v', x: number) => [0, 1, 2, 3, 4].every((k) => {
+    const y = (iso === 'v' ? lo(S.u) : lo(S.v)) + k * ((iso === 'v' ? hi(S.u) - lo(S.u) : hi(S.v) - lo(S.v)) / 4);
+    const [su, sv] = iso === 'v' ? S.d1(y, x) : S.d1(x, y);
+    return norm(iso === 'v' ? su : sv) <= 1e-12 * Math.max(1, norm(iso === 'v' ? sv : su));
+  });
+  for (const v of P.poleV) assert.ok(collapsed('v', v), `${what}: pole line v = ${v}`);
+  for (const u of P.poleU) assert.ok(collapsed('u', u), `${what}: pole line u = ${u}`);
+  for (let k = 0; k <= 64; k++) {
+    const v = lo(S.v) + (hi(S.v) - lo(S.v)) * k / 64;
+    if (collapsed('v', v)) assert.ok(P.poleV.some((x) => Math.abs(x - v) < 1e-9), `${what}: v = ${v} not given`);
+  }
+}
+
 export function checkCase(d: BrepData, c: CaseRecord, uncertainty: number) {
   const what = `${c.id}`, i = c.input as Record<string, any>, e = c.expected as Record<string, any>;
+  if (i.periods) checkPoles(d, i.face, i.periods, what);
   switch (c.query) {
     case 'intersect2': {
       const A = curveEvaluator(d, i.a.curve)!, B = curveEvaluator(d, i.b.curve)!;

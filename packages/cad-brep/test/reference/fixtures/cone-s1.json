@@ -1,4 +1,4 @@
-{"format":2,"name":"cone","variant":"s1","file":"cone-s1","similarity":{"scale":1,"rotation":[1,0,0,0,1,0,0,0,1],"translation":[0,0,0]},"uncertainty":0.000001,
+{"format":3,"name":"cone","variant":"s1","file":"cone-s1","similarity":{"scale":1,"rotation":[1,0,0,0,1,0,0,0,1],"translation":[0,0,0]},"uncertainty":0.000001,
 "facts": [
 {"kind":"curvePoint","id":2,"curve":1,"t":0,"p":[2.732050807568877,0,3],"d1":[0,2.732050807568877,0],"d2":[-2.732050807568877,0,0],"tol":1e-12,"abs":3e-12},
 {"kind":"curvePoint","id":2,"curve":1,"t":1,"p":[1.4761333510783778,2.298941483590192,3],"d1":[-2.298941483590192,1.4761333510783778,0],"d2":[-1.4761333510783778,-2.298941483590192,0],"tol":1e-12,"abs":3e-12},
