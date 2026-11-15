@@ -18,14 +18,15 @@
 //   on both curves: one that's a point on either (collinear pieces meeting end to end, where the gap grows only
 //   because a range ends) is a contact.
 // - An isolated contact is a tangency when the signed gap has the same sign at both its ends (they touch without
-//   crossing), a crossing otherwise; its point is where the gap is least (Newton on a(ta) = b(tb) for crossings). A
+//   crossing), a crossing otherwise; its point is where the gap is least (at a crossing, where it's 0). A
 //   closed curve's contact across its seam is one contact.
 // Classification. A point within tol of the boundary (or on a pole line the face reaches) is on. Otherwise a ray from
 // it decides: the nearest boundary it meets has the region on its left (outer loops counterclockwise, holes
 // clockwise), so p is in iff it's on that piece's left (orient2d for straight pieces, exact). Rays run along a
-// non-periodic direction to beyond the boundary (meeting nothing: out), or one period along a periodic one (meeting
-// nothing: undecided); a ray whose first hit is tangent, overlapping, or at a corner (p on different sides of the
-// pieces meeting there) is replaced by another at a different angle. In periodic directions the pieces are copied by
+// non-periodic direction to beyond the boundary, or one period along a periodic one. One meeting nothing decides
+// nothing (a band's loops run along a period, a polar cap's region is unbounded toward its pole), nor does one whose
+// first hit is tangent, overlapping, or at a corner (p on different sides of the pieces meeting there): another at a
+// different angle is cast; p is out only if none meets anything. In periodic directions the pieces are copied by
 // multiples of the periods to cover the ray. Loop pieces that don't meet are closed by a straight segment where the
 // jump lies along a pole line (Periods), or are a band closing around its period (a whole period apart, no segment).
 #include "cad_geom/geom2d.h"
@@ -411,20 +412,7 @@ Intersections2 intersect2(const Curve& a, Range ra, const Curve& b, Range rb, do
     double tb0 = c.tb0, tb1 = c.tb1;
     double g0 = signedGap(a, b, rb, c.t0, tb0), g1 = signedGap(a, b, rb, c.t1, tb1);
     bool crossing = (g0 < 0) != (g1 < 0) && std::fabs(g0) > tol / 4 && std::fabs(g1) > tol / 4;
-    double ta = c.ta, tb = c.tb;
-    if (crossing) {
-      // Newton on a(ta) - b(tb) = 0 from the least gap.
-      for (int it = 0; it < 30; it++) {
-        P2 A = at(a, ta), B = at(b, tb);
-        Vec2 f = A.p - B.p;
-        double det = cross(A.d1, B.d1);
-        if (det == 0) break;
-        double dta = cross(B.d1, f) / det, dtb = cross(A.d1, f) / det;
-        ta = std::clamp(ta + dta, ra.lo, ra.hi);
-        tb = std::clamp(tb + dtb, rb.lo, rb.hi);
-        if (std::fabs(dta) + std::fabs(dtb) <= 1e-15 * (1 + std::fabs(ta) + std::fabs(tb))) break;
-      }
-    }
+    const double ta = c.ta, tb = c.tb;
     Vec2 p = 0.5 * (at(a, ta).p + at(b, tb).p);
     out.crossings.push_back({ta, tb, p, !crossing});
   }
@@ -656,6 +644,7 @@ Side classifyBoundary(const Boundary& bd, Vec2 p, const Periods& per, double tol
   double reach = 2 * (std::max(all.x1 - all.x0, all.y1 - all.y0) + len(p - Vec2{all.x0, all.y0})) + 1;
   // Directions: up and down in v unless it's periodic (then one period), then u, then slanted ones.
   const double pi = 3.14159265358979323846;
+  bool hit = false;
   for (int k = 0; k < 24; k++) {
     double angle = pi / 2 + k * 0.7389;  // a fixed irrational-ish turn per try
     Vec2 dir{std::cos(angle), std::sin(angle)};
@@ -672,15 +661,15 @@ Side classifyBoundary(const Boundary& bd, Vec2 p, const Periods& per, double tol
       L = reach;
     }
     RayResult r = cast(bd, p, dir, L, per, tol);
-    // Meeting nothing: out along a ray to beyond the boundary; along one period it says nothing (a band's loops run
-    // parallel to it).
-    if (r == RayResult::none) {
-      if (L == reach) return Side::out;
-      continue;
-    }
+    // A ray meeting nothing says nothing: one period along a band's loops runs parallel to them, and a polar cap's
+    // region is unbounded in (u, v) toward its pole. Another direction meets the boundary.
+    if (r == RayResult::none) continue;
+    hit = true;
     if (r == RayResult::retry) continue;
     return r == RayResult::in ? Side::in : Side::out;
   }
+  // No ray met anything: nothing bounds p.
+  if (!hit) return Side::out;
   status = Status::noConvergence;
   return Side::out;
 }

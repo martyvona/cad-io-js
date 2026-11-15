@@ -57,7 +57,12 @@ struct Intersections2 {
   std::vector<Overlap> overlaps;
 };
 
-/** Where a over ra and b over rb meet, within tol: isolated crossings and tangencies, and overlap intervals. */
+/**
+ * Where a over ra and b over rb meet, within tol: isolated crossings and tangencies, and overlap intervals. Within tol
+ * points are one, so every contact is a stretch; it's a crossing or tangency when the curves' own angle and curvature
+ * difference where they're nearest would separate them by tol / 2 at one of its ends (the stretch only the
+ * tolerance's blur of a point), and an overlap when they don't (they coincide there; longer than tol on both).
+ */
 Intersections2 intersect2(const Curve& a, Range ra, const Curve& b, Range rb, double tol);
 
 /** Where a loop meets itself away from its pieces' shared ends (ta, tb as piece index + parameter fraction). */

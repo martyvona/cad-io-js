@@ -335,7 +335,8 @@ TEST_CASE("intersect2: near-parallel lines either side of the overlap rule") {
   // Two unit lines through (0.5, 0) at angle theta: within tol 1e-9 over 2e-9 / theta. At theta = 1e-12 that's the
   // whole length, and their shape (theta s, s = 0.5) separates them by 5e-13 < tol / 2: an overlap. At 1e-6 they
   // separate by 5e-7: a crossing.
-  for (double theta : {1e-12, 1e-6}) {
+  // At 4e-10 the stretch is the whole length and they separate by 2e-10: below tol / 2, an overlap (the threshold).
+  for (double theta : {1e-12, 4e-10, 1e-6}) {
     Line2 a({0, 0}, {1, 0}), b({0, -0.5 * theta}, {1, theta});
     Intersections2 x = meet(a, {0, 1}, b, {0, 1});
     if (theta < 1e-9) {
@@ -444,9 +445,10 @@ TEST_CASE("signedArea2: squares both ways, a disc, a half disc, a loop closed ac
   Loop2 half{{{&c, {0, pi}, false}, {line({1, -1}, {5, -1}), {0, 1}, false}}};
   CHECK_NEAR(signedArea2(half).value, 2 * pi, 1e-12, 0);
   // Three sides of a square: the chord from the last end to the first start closes it.
-  Loop2 open{{{line({0, 0}, {1, 0}), {0, 1}, false}, {line({1, 0}, {1, 1}), {0, 1}, false},
-    {line({1, 1}, {0, 1}), {0, 1}, false}}};
-  CHECK_NEAR(signedArea2(open).value, 1, 1e-14, 0);
+  // Away from the origin, so the chord's own contribution isn't 0.
+  Loop2 open{{{line({5, 3}, {6, 3}), {0, 1}, false}, {line({6, 3}, {6, 4}), {0, 1}, false},
+    {line({6, 4}, {5, 4}), {0, 1}, false}}};
+  CHECK_NEAR(signedArea2(open).value, 1, 1e-13, 0);
 }
 
 TEST_CASE("classify2: a square with a hole: in, out, on within tol either side, vertices, rays through corners") {
@@ -568,4 +570,54 @@ TEST_CASE("selfIntersect2: a figure eight crosses, a square doesn't, a pinched l
   CHECK(!x.crossings[0].tangent);
   CHECK_NEAR(x.crossings[0].ta, 1, 0, 1e-12);
   CHECK_NEAR(x.crossings[0].tb, 4, 0, 1e-12);
+}
+
+TEST_CASE("intersect2: many crossings close together, each found") {
+  // y = 0.01 sin(40 pi x) against y = 0 over x in (0.01, 0.99): crossings at x = k / 40, k = 1..39.
+  class Wave final : public Curve {
+  public:
+    int dim() const override { return 2; }
+    CurveDomain domain() const override { return {{0, 1}, 0}; }
+    Status eval(double t, int, CurvePoint& out) const override {
+      double w = 40 * pi;
+      out = {{t, 0.01 * std::sin(w * t), 0}, {1, 0.01 * w * std::cos(w * t), 0},
+        {0, -0.01 * w * w * std::sin(w * t), 0}};
+      return Status::ok;
+    }
+    void breaks(Range r, std::vector<double>& out) const override { out = {r.lo, r.hi}; }
+    Status bound(Range, Box3& out) const override {
+      out = {{0, 1}, {-0.01, 0.01}, Interval::point(0)};
+      return Status::ok;
+    }
+    Status derivBound(Range, int, double&) const override { return Status::unsupported; }
+    void singular(Range, std::vector<double>& out) const override { out.clear(); }
+  } wave;
+  Line2 axis({0, 0}, {1, 0});
+  Intersections2 x = meet(wave, {0.01, 0.99}, axis, {0, 1});
+  REQUIRE(x.crossings.size() == 39);
+  for (int k = 1; k <= 39; k++) {
+    CHECK_NEAR(x.crossings[k - 1].ta, k / 40.0, 0, 1e-12);
+    CHECK(!x.crossings[k - 1].tangent);
+  }
+}
+
+TEST_CASE("classify2: a polar cap whose pole isn't in its loop: on at the pole it reaches, out at the other") {
+  // A sphere's (u, v), v in [-pi/2, pi/2]: the cap above the equator, its loop the equator running +u (the cap on its
+  // left); the poles at v = -pi/2 and pi/2.
+  std::vector<Loop2> cap{Loop2{{{line({0, 0}, {2 * pi, 0}), {0, 1}, false}}}};
+  Periods per{2 * pi, 0, {}, {-pi / 2, pi / 2}};
+  Status st;
+  CHECK(classify2(cap, {1, pi / 2}, per, 1e-9, st) == Side::on);
+  CHECK(classify2(cap, {1, -pi / 2}, per, 1e-9, st) == Side::out);
+  CHECK(classify2(cap, {1, 1}, per, 1e-9, st) == Side::in);
+  CHECK(classify2(cap, {1, -1}, per, 1e-9, st) == Side::out);
+}
+
+TEST_CASE("classify2: a point no ray meets anything from is out") {
+  // A unit square 1000 away subtends a milliradian: none of the rays' directions meets it.
+  std::vector<Loop2> far{polygon({{1000, 1000}, {1001, 1000}, {1001, 1001}, {1000, 1001}})};
+  Status st;
+  CHECK(classify2(far, {0, 0}, {}, 1e-9, st) == Side::out);
+  CHECK(st == Status::ok);
+  CHECK(classify2(far, {1000.5, 1000.5}, {}, 1e-9, st) == Side::in);
 }

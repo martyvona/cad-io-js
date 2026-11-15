@@ -176,6 +176,17 @@ for t in $tests; do
   run "native $n" "build/test/native/$n"
 done
 
+# predicates.c under ASan as well, its known reads exempted by function name (native/third_party/asan_known_reads.h),
+# with the predicates test: a new overflow anywhere else in the file still shows.
+if [ -f native/test/predicates_test.cpp ]; then
+  cc "${SAN[@]}" "${CCOMMON[@]}" -include native/third_party/asan_known_reads.h -c native/third_party/predicates.c \
+    -o build/test/native/predicates_asan.o
+  c++ "${SAN[@]}" $(find native/src -name '*.cpp' | sort | tr / _ | sed 's/\.cpp$/.o/; s|^|build/test/native/obj/|') \
+    build/test/native/obj/native_test_predicates_test.o build/test/native/predicates_asan.o \
+    -o build/test/native/predicates_asan
+  run "native predicates_test, predicates.c under ASan" build/test/native/predicates_asan
+fi
+
 # As WebAssembly, against the library as other packages link it (built with the module, for test/*.test.ts).
 wasm_module > /dev/null
 (
