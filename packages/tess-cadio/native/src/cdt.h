@@ -121,6 +121,11 @@ private:
   void cavity(Vec2 p, int32_t t, const Map2& map, std::vector<int32_t>& cav,
     std::vector<std::pair<int32_t, int>>& outside, std::vector<std::pair<int32_t, int32_t>>& bnd) const;
 
+  /** A fresh stamp for marking triangles in one operation (mark_[t] == stamp: marked), not a cleared array each. */
+  uint32_t fresh() const;
+
+  mutable std::vector<uint32_t> mark_;
+  mutable uint32_t stamp_ = 0;
   std::vector<Vec2> pts_;
   std::vector<uint32_t> rank_;
   std::vector<Tri> tris_;

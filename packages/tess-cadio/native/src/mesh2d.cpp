@@ -7,7 +7,9 @@
 // measured in M, the metric averaged over the triangle's vertices), pulled in to Ungor's off-centre where that's nearer
 // ("Off-centers: a new type of Steiner points for computing size-optimal quality-guaranteed Delaunay
 // triangulations", LATIN 2004). A triangle is bad where an edge is longer than sqrt 2 in the metric, its smallest
-// angle there is under the minimum, or the caller's accept() refuses it.
+// angle there is under the minimum, or the caller's accept() refuses it. Decisions use no C library function that
+// isn't correctly rounded (sqrt is; sin, tan and acos aren't, and differ between targets), so every target meshes
+// alike.
 // The boundary can't be split, so a candidate that would encroach a constrained segment (inside its diametral circle
 // in the metric) or fall outside the domain is moved back along the ray from the triangle's centroid to the last
 // point that does neither; a triangle no point improves is final. The segments it wanted split are collected
@@ -38,19 +40,39 @@ double mdot(const Metric2& M, Vec2 u, Vec2 v) {
 double mlen(const Metric2& M, Vec2 u) { return std::sqrt(std::max(0.0, mdot(M, u, u))); }
 Vec2 sub(Vec2 a, Vec2 b) { return {a.x - b.x, a.y - b.y}; }
 
-/** A triangle's measures in metric M: its longest edge and smallest angle. */
+/**
+ * sin and cos by their Taylor series, for |x| <= pi / 2: only +, -, *, / (correctly rounded everywhere), so the
+ * thresholds below are the same bits on every target, where the C library's sin and tan aren't (macOS's and
+ * Emscripten's differ in the last place, and refinement's decisions with them).
+ */
+double detSin(double x) {
+  double term = x, sum = x;
+  for (int k = 1; k < 14; k++) term *= -x * x / ((2 * k) * (2 * k + 1)), sum += term;
+  return sum;
+}
+double detCos(double x) {
+  double term = 1, sum = 1;
+  for (int k = 1; k < 14; k++) term *= -x * x / ((2 * k - 1) * (2 * k)), sum += term;
+  return sum;
+}
+
+/**
+ * A triangle's measures in metric M: its longest edge and the sine of its smallest angle (the least of its corners'
+ * sines: an angle over pi / 2 has the sine of the other two's sum, at least theirs), by the metric's cross product
+ * sqrt(det M) (u x v) and square roots alone, which round alike everywhere.
+ */
 struct Quality {
-  double longest, angle;
+  double longest, sine;
 };
 Quality quality(const Metric2& M, const Vec2 p[3]) {
-  double l[3], ang = M_PI;
+  double l[3], sine = 1, area = std::sqrt(std::max(0.0, M.a * M.c - M.b * M.b));
   for (int i = 0; i < 3; i++) l[i] = mlen(M, sub(p[(i + 2) % 3], p[(i + 1) % 3]));  // opposite vertex i
   for (int i = 0; i < 3; i++) {
     Vec2 u = sub(p[(i + 1) % 3], p[i]), v = sub(p[(i + 2) % 3], p[i]);
-    double c = mdot(M, u, v) / std::max(1e-300, mlen(M, u) * mlen(M, v));
-    ang = std::min(ang, std::acos(std::clamp(c, -1.0, 1.0)));
+    double cross = std::fabs(u.x * v.y - u.y * v.x) * area;
+    sine = std::min(sine, cross / std::max(1e-300, mlen(M, u) * mlen(M, v)));
   }
-  return {std::max({l[0], l[1], l[2]}), ang};
+  return {std::max({l[0], l[1], l[2]}), sine};
 }
 
 /** The circumcentre in metric M: equidistant from the three points in it (a 2 x 2 solve). */
@@ -128,7 +150,9 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
   std::priority_queue<Item> queue;
   int64_t seq = 0;
   std::set<std::pair<int32_t, uint32_t>> finals;
-  const double minAngle = options.minAngle;
+  const double minAngle = std::clamp(options.minAngle, 0.0, M_PI / 3), minSine = detSin(minAngle);
+  // (l / 2) / tan(minAngle / 2), the off-centre's height over its edge, as a factor of l.
+  const double offHeight = minAngle > 0 ? 0.5 * detCos(0.5 * minAngle) / detSin(0.5 * minAngle) : 1e300;
   auto consider = [&](int32_t t) {
     const cdt::Tri& R = T.tris()[t];
     if (R.dead || !R.inside || R.v[2] == kGhost) return;
@@ -136,7 +160,7 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
     corners(t, p);
     Quality q = quality(average(metricAt(R.v[0]), metricAt(R.v[1]), metricAt(R.v[2])), p);
     bool accepted = field.accept(p);
-    double key = std::max({q.longest / std::sqrt(2.0), minAngle / std::max(q.angle, 1e-300), accepted ? 0.0 : 2.0});
+    double key = std::max({q.longest / std::sqrt(2.0), minSine / std::max(q.sine, 1e-300), accepted ? 0.0 : 2.0});
     if (key > 1) queue.push({key, seq++, t, R.gen});
   };
   for (int32_t t = 0; t < static_cast<int32_t>(T.tris().size()); t++) consider(t);
@@ -149,10 +173,6 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
     queue.pop();
     const cdt::Tri& R = T.tris()[it.t];
     if (R.dead || R.gen != it.gen) continue;
-    if (steiner >= options.maxPoints) {
-      out.status = Status::noConvergence;
-      break;
-    }
     Vec2 p[3];
     corners(it.t, p);
     Metric2 M = average(metricAt(R.v[0]), metricAt(R.v[1]), metricAt(R.v[2]));
@@ -161,13 +181,13 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
       finals.insert({it.t, it.gen});
       continue;
     }
-    // Ungor's off-centre: no farther from the shortest edge's middle than where the new triangle on it has angles
-    // 90 degrees - minAngle at its base (all at least minAngle).
+    // Ungor's off-centre: no farther from the shortest edge's middle than where the new triangle on it is just good,
+    // its smallest angle (at the new point) minAngle, so its height there (l / 2) / tan(minAngle / 2).
     double l[3];
     for (int i = 0; i < 3; i++) l[i] = mlen(M, sub(p[(i + 2) % 3], p[(i + 1) % 3]));
     int s = l[0] <= l[1] && l[0] <= l[2] ? 0 : l[1] <= l[2] ? 1 : 2;
     Vec2 a = p[(s + 1) % 3], b = p[(s + 2) % 3], m{0.5 * (a.x + b.x), 0.5 * (a.y + b.y)};
-    double h = mlen(M, sub(c, m)), hmax = 0.5 * l[s] / std::tan(minAngle);
+    double h = mlen(M, sub(c, m)), hmax = offHeight * l[s];
     if (h > hmax && h > 0) c = {m.x + (c.x - m.x) * hmax / h, m.y + (c.y - m.y) * hmax / h};
     // Placed where it neither leaves the domain nor encroaches a constrained segment: back along the ray from the
     // centroid by halving where it does (the centroid is inside the triangle, so in the domain).
@@ -216,6 +236,12 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
       D.refused++;
       finals.insert({it.t, it.gen});
       continue;
+    }
+    // The cap counts points inserted: reached only when another is wanted (a refinement that would have ended on
+    // the cap's last point is ok), and then the mesh as it is, valid, with noConvergence.
+    if (steiner >= options.maxPoints) {
+      out.status = Status::noConvergence;
+      break;
     }
     if (T.insertPoint(c, at, created, mapAt(c)) < 0) {
       D.refused++;

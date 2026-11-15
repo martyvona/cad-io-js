@@ -34,6 +34,12 @@ uint64_t morton(Vec2 p, Vec2 lo, Vec2 span) {
 
 Triangulation::Triangulation(std::vector<Vec2> points) : pts_(std::move(points)) {}
 
+uint32_t Triangulation::fresh() const {
+  mark_.resize(tris_.size(), 0);
+  if (++stamp_ == 0) std::fill(mark_.begin(), mark_.end(), 0), stamp_ = 1;
+  return stamp_;
+}
+
 int Triangulation::orient(int32_t a, int32_t b, int32_t c) const {
   return sgn(cadgeom::orient2d(pts_[a], pts_[b], pts_[c]));
 }
@@ -239,16 +245,16 @@ bool Triangulation::build(int32_t duplicate[2]) {
     std::vector<int32_t> cavity{t}, stack{t};
     std::vector<std::pair<int32_t, int>> outside;
     std::vector<std::pair<int32_t, int32_t>> bnd;
-    std::vector<char> in(tris_.size(), 0);
-    in[t] = 1;
+    uint32_t st = fresh();
+    mark_[t] = st;
     while (!stack.empty()) {
       int32_t u = stack.back();
       stack.pop_back();
       for (int k = 0; k < 3; k++) {
         int32_t w = tris_[u].n[k];
-        if (in[w]) continue;
+        if (mark_[w] == st) continue;
         if (inCircle(w, v)) {  // (no constrained edges yet)
-          in[w] = 1, cavity.push_back(w), stack.push_back(w);
+          mark_[w] = st, cavity.push_back(w), stack.push_back(w);
           continue;
         }
         int j = tris_[w].n[0] == u ? 0 : tris_[w].n[1] == u ? 1 : 2;
@@ -271,15 +277,16 @@ void Triangulation::cavity(Vec2 p, int32_t t, const Map2& map, std::vector<int32
     if (W.v[2] == kGhost) return false;
     return cadgeom::incircle(map(pts_[W.v[0]]), map(pts_[W.v[1]]), map(pts_[W.v[2]]), mp) > 0;
   };
-  std::vector<char> in(tris_.size(), 0);
+  uint32_t st = fresh();
+  auto in = [&](int32_t u) { return mark_[u] == st; };
   cav = {t};
-  in[t] = 1;
+  mark_[t] = st;
   for (size_t h = 0; h < cav.size(); h++) {
     int32_t u = cav[h];
     for (int k = 0; k < 3; k++) {
       int32_t w = tris_[u].n[k];
-      if (in[w] || tris_[u].c[k] != kFree || !tris_[w].inside || !holds(w)) continue;
-      in[w] = 1, cav.push_back(w);
+      if (in(w) || tris_[u].c[k] != kFree || !tris_[w].inside || !holds(w)) continue;
+      mark_[w] = st, cav.push_back(w);
     }
   }
   // Star-shaped from p: a boundary edge p doesn't see strictly (its triangle in the cavity on the far side) takes that
@@ -287,12 +294,12 @@ void Triangulation::cavity(Vec2 p, int32_t t, const Map2& map, std::vector<int32
   for (bool changed = true; changed;) {
     changed = false;
     for (int32_t u : cav) {
-      if (!in[u] || u == t) continue;
+      if (!in(u) || u == t) continue;
       for (int k = 0; k < 3; k++) {
         int32_t w = tris_[u].n[k];
-        if (in[w]) continue;
+        if (in(w)) continue;
         if (cadgeom::orient2d(pts_[tris_[u].v[(k + 1) % 3]], pts_[tris_[u].v[(k + 2) % 3]], p) <= 0) {
-          in[u] = 0, changed = true;
+          mark_[u] = 0, changed = true;
           break;
         }
       }
@@ -300,13 +307,13 @@ void Triangulation::cavity(Vec2 p, int32_t t, const Map2& map, std::vector<int32
   }
   std::vector<int32_t> kept;
   for (int32_t u : cav)
-    if (in[u]) kept.push_back(u);
+    if (in(u)) kept.push_back(u);
   cav = kept;
   outside.clear(), bnd.clear();
   for (int32_t u : cav)
     for (int k = 0; k < 3; k++) {
       int32_t w = tris_[u].n[k];
-      if (in[w]) continue;
+      if (in(w)) continue;
       int j = tris_[w].n[0] == u ? 0 : tris_[w].n[1] == u ? 1 : 2;
       outside.push_back({w, j});
       bnd.push_back({tris_[u].v[(k + 1) % 3], tris_[u].v[(k + 2) % 3]});
@@ -418,13 +425,14 @@ bool Triangulation::insertSegment(int32_t a, int32_t b, uint8_t flags, int32_t o
     cur = nb;
   }
   // The cut triangles' outer edges, then the two pseudo-polygons retriangulated.
-  std::vector<char> isCut(tris_.size(), 0);
-  for (int32_t u : cut) isCut[u] = 1;
+  uint32_t st = fresh();
+  auto isCut = [&](int32_t u) { return mark_[u] == st; };
+  for (int32_t u : cut) mark_[u] = st;
   std::vector<std::pair<int32_t, int>> outside;
   for (int32_t u : cut)
     for (int k = 0; k < 3; k++) {
       int32_t w = tris_[u].n[k];
-      if (isCut[w]) continue;
+      if (isCut(w)) continue;
       int j = tris_[w].n[0] == u ? 0 : tris_[w].n[1] == u ? 1 : 2;
       outside.push_back({w, j});
     }

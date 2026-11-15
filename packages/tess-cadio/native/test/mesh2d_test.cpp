@@ -9,6 +9,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <map>
 #include <random>
 #include <set>
@@ -329,12 +330,44 @@ TEST_CASE("a thin wedge (1 degree): meshed, the boundary kept, refinement ends")
   CHECK_EQ(validate(d, m, "wedge"), 0);
 }
 
-TEST_CASE("a cap on Steiner points: noConvergence, the mesh still a valid one") {
+TEST_CASE("a cap on Steiner points: noConvergence, the mesh still a valid one; a refinement within it is ok") {
   Domain2 d = square(10);
   Mesh2 m = mesh2(d, Uniform(0.01), {50, 0.35});
   CHECK(m.status == cadgeom::Status::noConvergence);
   CHECK_EQ(m.points.size(), d.points.size() + 50);
   CHECK_EQ(validate(d, m, "capped"), 0);
+  // No points allowed: the triangulation alone, noConvergence where refinement wanted one.
+  Mesh2 z = mesh2(d, Uniform(0.01), {0, 0.35});
+  CHECK(z.status == cadgeom::Status::noConvergence);
+  CHECK_EQ(z.points.size(), d.points.size());
+  CHECK_EQ(validate(d, z, "no points"), 0);
+  // A refinement that needs n points: ok with a cap of exactly n, noConvergence with n - 1.
+  Mesh2 full = mesh2(square(20), Uniform(0.05));
+  REQUIRE(full.status == cadgeom::Status::ok);
+  int n = static_cast<int>(full.points.size()) - 80;
+  CHECK(mesh2(square(20), Uniform(0.05), {n, 0.35}).status == cadgeom::Status::ok);
+  CHECK(mesh2(square(20), Uniform(0.05), {n - 1, 0.35}).status == cadgeom::Status::noConvergence);
+  // Nothing to refine: ok with no points allowed.
+  CHECK(mesh2(square(1), Uniform(10), {0, 0.35}).status == cadgeom::Status::ok);
+}
+
+TEST_CASE("point counts near the expected: a regression to a wild count is one even where the mesh is valid") {
+  // A unit square sampled at the size h on its sides, refined isotropically and at aspect 2 (h along x, h / 2 along
+  // y, the sides sampled to match): about area / (sqrt 3 / 4 h_x h_y) / 2 points, within 10%.
+  for (double k : {1.0, 4.0}) {
+    double h = 0.05, hy = h / std::sqrt(k);
+    Domain2 d;
+    std::vector<Vec2> pts;
+    int nx = 20, ny = static_cast<int>(std::lround(1 / hy));
+    for (int i = 0; i < nx; i++) pts.push_back({i * 1.0 / nx, 0});
+    for (int j = 0; j < ny; j++) pts.push_back({1, j * 1.0 / ny});
+    for (int i = nx; i > 0; i--) pts.push_back({i * 1.0 / nx, 1});
+    for (int j = ny; j > 0; j--) pts.push_back({0, j * 1.0 / ny});
+    addLoop(d, pts);
+    Mesh2 m = mesh2(d, Stretched(h, hy));
+    double expected = 1 / (std::sqrt(3.0) / 4 * h * hy) / 2, got = static_cast<double>(m.points.size() - pts.size());
+    CHECK_NEAR(got, expected, 0.1, 0);
+  }
 }
 
 TEST_CASE("random star-shaped polygons with holes, refined: every mesh valid") {
@@ -512,4 +545,52 @@ TEST_CASE("insertion in a metric 1000 to 1: the cavity kept star-shaped, no tria
     if (!R.dead && R.v[2] != cdt::kGhost)
       inverted += cadgeom::orient2d(T.points()[R.v[0]], T.points()[R.v[1]], T.points()[R.v[2]]) <= 0;
   CHECK_EQ(inverted, 0);
+}
+
+TEST_CASE("off-centres: angle-driven refinement with fewer points than circumcentres would take") {
+  // Three domains of 60 random interior points, no size wanted: 152 Steiner points in all with Ungor's off-centres,
+  // 178 with circumcentres alone (measured), the angles met either way. (The same on every target: no fused
+  // multiply-adds.)
+  int total = 0;
+  for (int seed : {3, 4, 5}) {
+    Domain2 d = square(10, 1);
+    std::mt19937 rng(seed);
+    std::uniform_real_distribution<double> u(0.15, 0.85);
+    for (int k = 0; k < 60; k++) d.points.push_back({u(rng), u(rng)});
+    Mesh2 m = mesh2(d, Uniform(100));
+    CHECK_EQ(validate(d, m, "off-centres"), 0);
+    total += static_cast<int>(m.points.size() - d.points.size());
+  }
+  CHECK(total <= 165);
+}
+
+namespace {
+/** FNV-1a over a mesh's triangles and its points' bits. */
+uint64_t meshHash(const Mesh2& m) {
+  uint64_t h = 1469598103934665603ull;
+  auto mix = [&](uint64_t x) { h = (h ^ x) * 1099511628211ull; };
+  for (int32_t v : m.triangles) mix(static_cast<uint32_t>(v));
+  for (Vec2 p : m.points) {
+    uint64_t b;
+    std::memcpy(&b, &p.x, 8), mix(b);
+    std::memcpy(&b, &p.y, 8), mix(b);
+  }
+  return h;
+}
+} // namespace
+
+TEST_CASE("the same mesh on every target: a refined, rotating-metric mesh's bits, natively and as WebAssembly") {
+  // One constant for both builds (they run this same case): no fused multiply-adds and no C library function in a
+  // decision that isn't correctly rounded. A change of the algorithm changes it, on purpose.
+  struct Rotating : SizeField {
+    Metric2 metric(Vec2 p) const override {
+      double t = 2 * p.x, c = 1 - t * t / 2 + t * t * t * t / 24, s = t - t * t * t / 6, l1 = 2500, l2 = 100;
+      return {l1 * c * c + l2 * s * s, (l1 - l2) * c * s, l1 * s * s + l2 * c * c};
+    }
+    bool accept(const Vec2*) const override { return true; }
+  } field;
+  Mesh2 m = mesh2(square(30, 1), field);
+  REQUIRE(m.status == cadgeom::Status::ok);
+  CHECK_EQ(m.points.size(), 1064u);
+  CHECK_EQ(meshHash(m), 0x25387619ba39b2d4ull);
 }
