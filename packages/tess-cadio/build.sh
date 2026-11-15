@@ -67,7 +67,9 @@ fi
 [ -n "$NODE" ] || { echo "no node on PATH, needed to run the WebAssembly tests" >&2; exit 1; }
 tests=$(find native/test -name '*_test.cpp' | sort)
 [ -n "$tests" ] || { echo "no tests in native/test" >&2; exit 1; }
-TI=(-I$G/native/test)
+# cad-brep's test models (and the reference shapes) as a header, by cad-geom's generator, for the tests only.
+"$NODE" $G/native/test/fixtures.ts build/test/fixtures/brep_models.h
+TI=(-I$G/native/test -Ibuild/test/fixtures)
 fail=0
 run() { local name=$1; shift; echo "== $name"; "$@" || { echo "== $name: exit $?" >&2; fail=1; }; }
 
