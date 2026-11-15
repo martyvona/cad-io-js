@@ -448,11 +448,14 @@ const CIRCLE9 = { xy: [[1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -
 /**
  * A tube as a rational B-spline closed in u (its first and last rows one: no period, as Part 42 allows), radius 2
  * from z = 0 to 5, bounded by its two end circles (no seam edge): its closure found in fact, the band cut there.
- * Area 20 pi.
+ * Area 20 pi. `gap` moves its last row that far along y (open by that much at the seam), the part's uncertainty and
+ * the face's tolerance as given.
  */
-function tube(tinyArc: boolean): BrepBuilder {
-  const b = new BrepBuilder(tinyArc ? { uncertainty: 1e-3 } : {});
-  const poles = CIRCLE9.xy.map(([x, y]) => [[2 * x!, 2 * y!, 0], [2 * x!, 2 * y!, 5]]);
+function tube(tinyArc: boolean, gap = 0, uncertainty?: number, faceTolerance?: number): BrepBuilder {
+  const u = tinyArc ? 1e-3 : uncertainty;
+  const b = new BrepBuilder(u === undefined ? {} : { uncertainty: u });
+  const poles = CIRCLE9.xy.map(([x, y], i) => [[2 * x!, 2 * y! + (i === 8 ? gap : 0), 0],
+    [2 * x!, 2 * y! + (i === 8 ? gap : 0), 5]]);
   const weights = CIRCLE9.w.map((w) => [w, w]);
   const surface = b.addSurface({ kind: 'bspline', uDegree: 2, vDegree: 1, uKnots: [0, 1, 2, 3, 4], vKnots: [0, 1],
     uMultiplicities: [3, 2, 2, 2, 3], vMultiplicities: [2, 2], poles, weights, uClosed: true, vClosed: false,
@@ -466,8 +469,8 @@ function tube(tinyArc: boolean): BrepBuilder {
     ? [b.addEdge({ curve: bottom, start: v0, end: va, sameSense: true, range: [0, a] }),
       b.addEdge({ curve: bottom, start: va, end: v0, sameSense: true, range: [a, 2 * Math.PI] })]
     : [b.addEdge({ curve: bottom, start: v0, end: v0, sameSense: true })];
-  sheet(b, b.addFace({ surface, sameSense: true, loops: [
-    { kind: 'edge', bound: 'outer', sense: true,
+  sheet(b, b.addFace({ surface, sameSense: true, ...(faceTolerance === undefined ? {} : { tolerance: faceTolerance }),
+    loops: [{ kind: 'edge', bound: 'outer', sense: true,
       coedges: bottomUses.map((edge) => ({ edge, orientation: 'forward' as const })) },
     { kind: 'edge', bound: 'inner', sense: true, coedges: [{ edge: e1, orientation: 'reversed' }] }] }));
   return b;
@@ -475,6 +478,15 @@ function tube(tinyArc: boolean): BrepBuilder {
 export const bsplineTube = (): BrepBuilder => tube(false);
 /** The tube with its bottom circle in two arcs, one shorter than the tolerance: not an edge of no length. */
 export const bsplineTubeTinyArc = (): BrepBuilder => tube(true);
+/**
+ * The tube open at its seam by 5e-4, closed in fact within the face's tolerance 1e-3 (no uncertainty given), or
+ * within the part's uncertainty 1e-3 (no face tolerance); by 5e-9 with neither, closed in fact within 1e-9 of its size
+ * (10: its domain's diagonals); by 1e-5 with neither, open.
+ */
+export const tubeGapFaceTolerance = (): BrepBuilder => tube(false, 5e-4, undefined, 1e-3);
+export const tubeGapUncertainty = (): BrepBuilder => tube(false, 5e-4, 1e-3);
+export const tubeGapBySize = (): BrepBuilder => tube(false, 5e-9);
+export const tubeGapOpen = (): BrepBuilder => tube(false, 1e-5);
 
 /**
  * The unit sphere's upper half as a rational B-spline (u round, closed; v a quarter circle up to the pole, its top
@@ -580,7 +592,7 @@ export function torusOuterHalf(): BrepBuilder {
   return b;
 }
 
-export const MODELS = { torusOuterHalf, meridianHemisphereLoose, offPoleRest, wigglyBand, notchBand, bsplineTube,
+export const MODELS = { tubeGapFaceTolerance, tubeGapUncertainty, tubeGapBySize, tubeGapOpen, torusOuterHalf, meridianHemisphereLoose, offPoleRest, wigglyBand, notchBand, bsplineTube,
   bsplineTubeTinyArc, bsplineDome, offPoleArc, offPcurves, bandHoleAtVertex, bandHoleOnCut, halfCap,
   meridianHemisphere, band: band_, bandByInversion, bore, nistBore, seamByInversion, offVertex, pcurveOnly,
   luneQuarter, luneOnSeam, cap, splineEdge, seamFlipped, polylineEdge, pcurveCircle, arcSegment, fold, twisted,

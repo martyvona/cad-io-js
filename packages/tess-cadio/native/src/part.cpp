@@ -5,7 +5,6 @@
 // EdgeMesh::split for all, and the faces whose edges changed meshed again. Every face's mesh is made
 // from the samples as they finally are, so faces sharing an edge share its points.
 #include "tess_cadio/part.h"
-#include "surfaces.h"
 
 #include <algorithm>
 #include <cmath>
@@ -195,7 +194,7 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
   I.wanted.resize(nf);
   for (int f = 0; f < nf; f++) {
     Status st;
-    if (m.faceLoopCount(f) > 0) I.surfaces[f] = faceSurface(m, m.faceSurface(f), st);
+    if (m.faceLoopCount(f) > 0) I.surfaces[f] = closedSurface(m, f, st);
   }
   // The faces' (u, v) boxes from a first sampling, their criteria, then the edges again at the spacing they ask.
   std::vector<double> spacing(nf, INFINITY);

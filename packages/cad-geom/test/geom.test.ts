@@ -446,19 +446,23 @@ test('faces: a B-spline\'s collapsed side is a pole line; a surface closed in fa
     assert.deepEqual([...r.statuses], [0, 0, 0]);
     assert.deepEqual([...r.sides].map((x) => ['in', 'out', 'on'][x]), ['in', 'out', 'on']);
   }
-  for (const lines of [false, true]) {
+  // (lines, gap, uncertainty, face tolerance, the period: closed in fact within the larger of the part's uncertainty
+  // and the face's tolerance, else 1e-7.)
+  for (const [lines, gap, uncertainty, tolerance, period] of [[false, 0, NaN, NaN, 4], [true, 0, NaN, NaN, 4],
+    [false, 5e-4, 1e-3, NaN, 4], [false, 5e-4, NaN, 1e-3, 4], [false, 5e-8, NaN, NaN, 4],
+    [false, 5e-4, NaN, NaN, 0]] as [boolean, number, number, number, number][]) {
     // A tube (degree 1 around a diamond in v on [0, 4], closed in fact, not periodic; u its height), its face the
     // side v in [3, 4] up to the seam. The sides' p-curves are on [0, 1] and their 3D lines on [0, sqrt 2], so their
     // ranges are their own, through the vertices at v = 4, which invert to v = 0: a period off. With `lines`, every
     // p-curve is an unbounded line scaled 16 x (t in [0, 1 / 16] per unit), whose box, sampled over the 3D lines'
     // parameters, reaches v = 25.6, periods off: the vertices' copies are chosen around the first vertex, then along
-    // the edge.
-    const b = new BrepBuilder();
+    // the edge. With a gap, its first section (v = 0) moved that far along y: open by that much.
+    const b = new BrepBuilder(Number.isNaN(uncertainty) ? {} : { uncertainty });
     const diamond = [[1, 0], [0, 1], [-1, 0], [0, -1], [1, 0]];
     const surf = b.addSurface({ kind: 'bspline', uDegree: 1, vDegree: 1, uKnots: [0, 1], vKnots: [0, 1, 2, 3, 4],
       uMultiplicities: [2, 2], vMultiplicities: [2, 1, 1, 1, 2],
-      poles: [0, 1].map((z) => diamond.map(([x, y]) => [x!, y!, z])), uClosed: false, vClosed: true,
-      selfIntersect: false, form: 'unspecified' });
+      poles: [0, 1].map((z) => diamond.map(([x, y], k) => [x!, y! + (k === 0 ? gap : 0), z])), uClosed: false,
+      vClosed: true, selfIntersect: false, form: 'unspecified' });
     const P = [[0, -1, 0], [0, -1, 1], [1, 0, 1], [1, 0, 0]];
     const vs = P.map((p) => b.addVertex({ point: p }));
     const uv = [[0, 3], [1, 3], [1, 4], [0, 4]];
@@ -471,13 +475,14 @@ test('faces: a B-spline\'s collapsed side is a pole line; a surface closed in fa
       const pcurve = lines ? b.addCurve({ kind: 'line', point: a, direction, magnitude: 16 }) : segment(b, a, c);
       return { edge, orientation: 'forward' as const, pcurve };
     });
-    const f = b.addFace({ surface: surf, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true,
-      coedges }] });
+    const f = b.addFace({ surface: surf, sameSense: true, ...(Number.isNaN(tolerance) ? {} : { tolerance }),
+      loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] });
     b.addItem({ kind: 'face', ref: f });
     using g = new Geometry(module, new Uint8Array(b.finish().buffer));
     const info = g.faceInfo(0);
-    assert.equal(info.status, 'ok');
-    assert.equal(info.vPeriod, 4);
+    assert.equal(info.status, 'ok', `gap ${gap}`);
+    assert.equal(info.vPeriod, period, `gap ${gap}, uncertainty ${uncertainty}, face tolerance ${tolerance}`);
+    if (gap) continue;
     assert.equal(info.ownRanges, lines ? 4 : 2);
     const r = g.classifyOnFace(0, [0.5, 3.5, 0.5, 2.5, 0.5, 0.5, 1.5, 3.5]);
     assert.deepEqual([...r.statuses], [0, 0, 0, 0]);
