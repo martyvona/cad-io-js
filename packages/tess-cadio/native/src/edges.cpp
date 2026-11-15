@@ -6,7 +6,6 @@
 // (a pseudo-edge on an iso-line, sampled like an edge). The cuts and their crossing samples are made at construction,
 // so the samples every face sees are fixed until split().
 #include "tess_cadio/edges.h"
-#include "surfaces.h"
 
 #include <algorithm>
 #include <cmath>
@@ -19,6 +18,29 @@
 namespace tesscadio {
 
 using namespace cadgeom;
+
+std::unique_ptr<Surface> closedSurface(const Model& m, int face, Status& status) {
+  std::unique_ptr<Surface> s = makeSurface(m, m.faceSurface(face), status);
+  if (!s) return s;
+  double tol = 0;
+  for (double t : {m.uncertainty(), m.f64(CBR_FACE_TOLERANCE)[face]})
+    if (std::isfinite(t) && t > tol) tol = t;
+  if (!(tol > 0)) {
+    // (The surface's size: its domain's two diagonals in 3D; closeInFact needs both ranges finite.)
+    SurfaceDomain d = s->domain();
+    double size = 0;
+    if (std::isfinite(d.u.hi - d.u.lo) && std::isfinite(d.v.hi - d.v.lo)) {
+      auto at = [&](double u, double v) {
+        SurfacePoint q;
+        s->eval(u, v, 0, q);
+        return q.p;
+      };
+      size = norm(at(d.u.hi, d.v.hi) - at(d.u.lo, d.v.lo)) + norm(at(d.u.lo, d.v.hi) - at(d.u.hi, d.v.lo));
+    }
+    tol = 1e-9 * std::max(size, 1.0);
+  }
+  return closeInFact(std::move(s), tol);
+}
 
 namespace {
 
@@ -304,25 +326,10 @@ struct EdgeMesh::Impl {
     return -1;
   }
 
-  /**
-   * invertSurface over the face's domain, on cad-geom's own surface under a periodic view (baseSurface): a hint
-   * reduced into a closed direction's range there, the result's (u, v) within the range (callers unwrap).
-   */
+  /** invertSurface over the face's domain: the result's (u, v) within the range (callers unwrap). */
   SurfaceInversion invert(int f, Vec3 p, const Vec2* hint) const {
     const Face& F = faces[f];
-    const Surface& base = baseSurface(*F.s);
-    SurfaceDomain bd = base.domain();
-    if (!hint) return invertSurface(base, p, F.dom.u, F.dom.v, tol);
-    Vec2 h = *hint;
-    for (int d = 0; d < 2; d++) {
-      double P = F.period[d], basePeriod = d ? bd.vPeriod : bd.uPeriod;
-      if (!(P > 0) || basePeriod > 0) continue;  // (a direction made periodic here: its range is the base's domain)
-      double& x = d ? h.y : h.x;
-      double lo = F.lo[d];
-      x = lo + std::fmod(x - lo, P);
-      if (x < lo) x += P;
-    }
-    return invertSurface(base, p, F.dom.u, F.dom.v, tol, &h);
+    return invertSurface(*F.s, p, F.dom.u, F.dom.v, tol, hint);
   }
 
   // ---- edges ----
@@ -1279,7 +1286,7 @@ EdgeMesh::EdgeMesh(const Model& model, const EdgeOptions& options, const std::ve
   for (int f = 0; f < m.faces(); f++) {
     Impl::Face& F = I.faces[f];
     Status st;
-    F.s = faceSurface(m, m.faceSurface(f), st);
+    F.s = closedSurface(m, f, st);
     if (!F.s) {
       F.status = st;
       continue;

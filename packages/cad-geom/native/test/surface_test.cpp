@@ -996,6 +996,28 @@ TEST_CASE("closeInFact: a tube closed in v, a nearly closed one, a collapsed sid
     c->singularities(g);
     CHECK(g.empty());
   }
+  // A range whose ends hi - (hi - lo) doesn't round back to lo (ec_turbine-A's, lo a few ulps below 0): its ends and
+  // everything between evaluated as they are, in the base's domain; a whole period on, the same points.
+  {
+    const double lo = -3.6595628376880003e-14, hi = 93.029033981724993, w = hi - lo;
+    std::vector<Vec3> ring{{1, 0, 0}, {0, 1, 0}, {-1, 0, 0}, {0, -1, 0}, {1, 0, 0}};
+    std::vector<std::vector<Vec3>> P(2);
+    for (int i = 0; i < 2; i++)
+      for (Vec3 x : ring) P[i].push_back(x + Vec3{0, 0, double(i)});
+    auto base = [&] { return rawSpline(1, 1, {0, 1}, {2, 2}, {lo, lo + w / 4, lo + w / 2, lo + 3 * w / 4, hi},
+      {2, 1, 1, 1, 2}, P); };
+    auto plain = base();
+    auto c = closeInFact(base(), tol);
+    REQUIRE(c->domain().vPeriod > 0);
+    for (double v : {lo, hi, lo + w / 3}) {
+      SurfacePoint a, b, e;
+      CHECK(c->eval(0.4, v, 1, a) == Status::ok);
+      CHECK(plain->eval(0.4, v, 1, b) == Status::ok);
+      CHECK(nearVec(a.p, b.p, 0, 0) && nearVec(a.dv, b.dv, 0, 0));
+      CHECK(c->eval(0.4, v + 2 * c->domain().vPeriod, 0, e) == Status::ok);
+      CHECK(nearVec(e.p, b.p, 1e-12, 0));
+    }
+  }
   // Nearly closed: 1.5 tol off at one of the 9 points, no period; 0.5 tol off, a period. The gap is at the end
   // u = 0 and falls off linearly to 0 at u = 1: at 1.05 tol only the end point itself is off by more than tol.
   {

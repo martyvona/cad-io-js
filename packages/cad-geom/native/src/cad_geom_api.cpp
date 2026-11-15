@@ -25,6 +25,8 @@ struct Entry {
   Model model;
   std::vector<std::unique_ptr<Curve>> curves;
   std::vector<std::unique_ptr<Surface>> surfaces;
+  /** Per face: its surface as it closes in fact (faceSurface), made once; null until made or where it can't be. */
+  std::vector<std::unique_ptr<Surface>> faceSurfaces;
   /** Per row: 255 not made yet, else makeCurve's (makeSurface's) status. */
   std::vector<uint8_t> curveStatus, surfaceStatus;
   Entry(uint8_t* b, uint32_t size) : buffer(b), model(b, size) {}
@@ -85,6 +87,7 @@ int32_t cg_model_new(uint8_t* buffer, uint32_t size) {
   e->curveStatus.assign(e->model.curves(), 255);
   e->surfaces.resize(e->model.surfaces());
   e->surfaceStatus.assign(e->model.surfaces(), 255);
+  e->faceSurfaces.resize(e->model.faces());
   for (size_t i = 0; i < models.size(); i++)
     if (!models[i]) {
       models[i] = std::move(e);
@@ -342,10 +345,9 @@ int32_t cg_surface_invert(int32_t h, int32_t row, const double* points, int32_t 
 } // extern "C"
 
 // -- Faces: 2D geometry on a face's loops in its surface's (u, v) (geom2d.h). A face's loops are its coedges' p-curves
-// (vertex loops have none and are left out of nest2, their parents -1); its periods are its surface's, and a finite
-// direction's width where the surface is closed in fact; its pole lines come from closed forms (a cone's apex at
-// v = -r / tan(a), a sphere's v = -+pi / 2) and the domain's collapsed edges (closedAndCollapsed), until
-// Surface::singularities gives them. Joints meeting in 3D within its tolerance are bridged (faceLoops). The tolerance
+// (vertex loops have none and are left out of nest2, their parents -1); its periods and pole lines are its surface's
+// as it closes in fact (closeInFact at the part's and face's tolerance, else DEFAULT_TOL): its periods, a finite
+// direction's width where it closes in fact, and its singularities' poles and apexes. Joints meeting in 3D within its tolerance are bridged (faceLoops). The tolerance
 // in (u, v) at a point is the 3D one divided by the largest stretch of the first fundamental form there (sqrt of its
 // largest eigenvalue), so every (u, v) step within it is within the 3D one: a thin cylinder's u and a large plane's
 // coordinates each get their own. The 3D tolerance is the caller's where given (tol3d > 0), else the larger of the
@@ -407,41 +409,6 @@ public:
 private:
   Vec2 a_, b_;
 };
-
-/**
- * A surface's domain edges that are one in 3D, sampled (within tol at 9 points): opposite edges of a finite,
- * non-periodic range that coincide (closed in fact, a B-spline closed but not periodic) give that direction a period,
- * the range's width, and an edge whose points coincide (a collapsed row of B-spline poles) a pole line, where Periods
- * has none there yet. Until the surfaces give their seams and singularities themselves (Surface::singularities).
- */
-void closedAndCollapsed(const Surface& s, double tol, Periods& per) {
-  const SurfaceDomain d = s.domain();
-  auto at = [&](double u, double v) {
-    SurfacePoint q;
-    return s.eval(u, v, 0, q) == Status::ok ? q.p : Vec3{NAN, NAN, NAN};
-  };
-  auto finite = [](Range r) { return std::isfinite(r.lo) && std::isfinite(r.hi) && r.hi > r.lo; };
-  for (bool isoU : {true, false}) {
-    const Range fixed = isoU ? d.u : d.v, free = isoU ? d.v : d.u;
-    const double period = isoU ? d.uPeriod : d.vPeriod;
-    if (!finite(fixed) || !finite(free) || period > 0) continue;
-    auto point = [&](double x, int k) {
-      const double y = free.lo + (free.hi - free.lo) * k / 8;
-      return isoU ? at(x, y) : at(y, x);
-    };
-    bool closed = true;
-    for (int k = 0; k <= 8 && closed; k++) closed = norm(point(fixed.lo, k) - point(fixed.hi, k)) <= tol;
-    if (closed) (isoU ? per.u : per.v) = fixed.hi - fixed.lo;
-    std::vector<double>& poles = isoU ? per.poleU : per.poleV;
-    for (double x : {fixed.lo, fixed.hi}) {
-      bool collapsed = true;
-      for (int k = 1; k <= 8 && collapsed; k++) collapsed = norm(point(x, k) - point(x, 0)) <= tol;
-      bool known = false;
-      for (double p : poles) known = known || p == x;
-      if (collapsed && !known) poles.push_back(x);
-    }
-  }
-}
 
 /** The 3D tolerance of the coedge's edge: the larger of the part's uncertainty and the edge's, else DEFAULT_TOL. */
 double edgeTolerance(const Model& m, int edge) {
@@ -710,20 +677,26 @@ FaceLoops faceLoops(int32_t h, int32_t face, double tol3d) {
   }
   const Model& m = e->model;
   Status s;
-  out.surface = surface(h, m.faceSurface(face), s);
-  if (!out.surface) {
-    out.status = static_cast<int32_t>(s);
-    return out;
-  }
   double tol = m.uncertainty();
   auto widen = [&](double t) { if (std::isfinite(t) && !(t <= tol)) tol = t; };
   widen(m.f64(CBR_FACE_TOLERANCE)[face]);
+  // The surface as it closes in fact (closeInFact, at the part's and face's tolerance): its periods, and its pole
+  // lines and apexes, are the face's.
+  if (!e->faceSurfaces[face]) {
+    std::unique_ptr<Surface> made = makeSurface(m, m.faceSurface(face), s);
+    if (!made) {
+      out.status = static_cast<int32_t>(s);
+      return out;
+    }
+    e->faceSurfaces[face] = closeInFact(std::move(made), std::isfinite(tol) && tol > 0 ? tol : DEFAULT_TOL);
+  }
+  out.surface = e->faceSurfaces[face].get();
   SurfaceDomain d = out.surface->domain();
   out.periods.u = d.uPeriod, out.periods.v = d.vPeriod;
-  const double* r = m.surfaceReals(m.faceSurface(face));
-  if (m.surfaceKind(m.faceSurface(face)) == CBR_SURFACE_CONE) out.periods.poleV = {-r[9] / std::tan(r[10])};
-  if (m.surfaceKind(m.faceSurface(face)) == CBR_SURFACE_SPHERE) out.periods.poleV = {-M_PI / 2, M_PI / 2};
-  closedAndCollapsed(*out.surface, std::isfinite(tol) && tol > 0 ? tol : DEFAULT_TOL, out.periods);
+  std::vector<Singularity> sing;
+  out.surface->singularities(sing);
+  for (const Singularity& g : sing)
+    if (g.kind != Singularity::normalVanishes) (g.isoU ? out.periods.poleU : out.periods.poleV).push_back(g.at);
   out.faceLoops = m.faceLoopCount(face);
   for (int l = m.faceFirstLoop(face); l < m.faceFirstLoop(face) + m.faceLoopCount(face); l++) {
     if (m.loopKind(l) != CBR_LOOP_EDGE) continue;

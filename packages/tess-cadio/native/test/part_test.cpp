@@ -216,6 +216,9 @@ TEST_CASE("curved faces (a seam cylinder, a band, a hemisphere, a cap, a lune): 
          Case{"offPoleArc", 0, M_PI, 1, {0, 0, 0}, false, 0.1},
          Case{"bsplineTube", 0, 20 * M_PI, 2, {0, 0, 0}, true}, Case{"bsplineDome", 0, 2 * M_PI, 1, {0, 0, 0}, false},
          Case{"bsplineTubeTinyArc", 0, 20 * M_PI, 2, {0, 0, 0}, true},
+         Case{"tubeGapFaceTolerance", 0, 20 * M_PI, 2, {0, 0, 0}, true},
+         Case{"tubeGapUncertainty", 0, 20 * M_PI, 2, {0, 0, 0}, true},
+         Case{"tubeGapBySize", 0, 20 * M_PI, 2, {0, 0, 0}, true},
          Case{"cap", 0, 2 * M_PI * (1 - M_SQRT1_2), 1, {}, false},
          Case{"luneQuarter", 0, M_PI, 1, {}, false}}) {
     cadgeom::Model m = load(c.model);
@@ -246,6 +249,16 @@ TEST_CASE("curved faces (a seam cylinder, a band, a hemisphere, a cap, a lune): 
       CHECK_EQ(fanless, 0);
     }
   }
+}
+
+TEST_CASE("a tube open at its seam by more than its tolerance: not closed in fact, not meshed as if it were") {
+  // (tubeGapOpen: open by 1e-5, its tolerance 1e-9 of its size; the loops don't close in (u, v) without a period.)
+  cadgeom::Model m = load("tubeGapOpen");
+  REQUIRE(m.ok());
+  PartMesher pm(m, options(0.01, 0.26));
+  const FaceMesh& fm = pm.face(0);
+  CHECK(fm.status != cadgeom::Status::ok);
+  CHECK(fm.triangles.empty());
 }
 
 TEST_CASE("a sphere's pole: its normal the limit, never NaN; the whole sphere (no loops) unsupported") {

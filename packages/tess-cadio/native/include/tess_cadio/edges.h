@@ -20,10 +20,12 @@
 
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include <vector>
 
 #include "cad_geom/model.h"
 #include "cad_geom/result.h"
+#include "cad_geom/surface.h"
 #include "cad_geom/vec.h"
 
 namespace tesscadio {
@@ -31,6 +33,14 @@ namespace tesscadio {
 using cadgeom::Status;
 using cadgeom::Vec2;
 using cadgeom::Vec3;
+
+/**
+ * The face's surface as tess-cadio meshes it: cad-geom's, as it closes in fact (cadgeom::closeInFact, at the larger
+ * of the part's uncertainty and the face's tolerance, else 1e-9 of the surface's size): a direction closed in fact
+ * periodic, its boundary's (u, v) then running past the seam as on a cylinder, collapsed sides pole lines. Null
+ * where makeSurface gives none (`status` its reason).
+ */
+std::unique_ptr<cadgeom::Surface> closedSurface(const cadgeom::Model& m, int face, Status& status);
 
 struct EdgeOptions {
   /** The largest distance a chord between consecutive samples may stray from the curve, in model units (mm). */
