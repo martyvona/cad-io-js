@@ -828,3 +828,31 @@ TEST_CASE("inversion within a coarse tol still finds the foot itself (a rational
     CHECK_NEAR(inv.t, t, 0, 1e-9);
   }
 }
+
+TEST_CASE("a trim across 0 of a periodic basis: within() holds the whole trim, inversion on it finds every part") {
+  // A circle of radius 2 trimmed to [-pi / 2, pi / 2], near and far from the origin. Its basis's cut is in [0, 2 pi):
+  // the trim's within must still hold t in [-pi / 2, 0).
+  for (Vec3 o : {Vec3{0.5, -1, 2}, Vec3{1e6, -1e6, 1e6}}) {
+    double trims[2 + 6] = {-M_PI / 2, M_PI / 2, NAN, NAN, NAN, NAN, NAN, NAN};
+    Status s;
+    auto c = curves::makeTrimmed(conic(CBR_CURVE_CIRCLE, 3, o, 2, 2), trims, 1, 1, s);
+    REQUIRE(c);
+    CHECK(c->domain().range.lo == -M_PI / 2);
+    for (double t : {-1.5, -1.0, -0.2, 0.0, 0.7, 1.5}) {
+      Vec3 q[1];
+      c->derivs(t, 0, q);
+      Range w = c->within(q[0], 0.1);
+      CHECK(w.lo <= t && t <= w.hi);
+      // Inversion over the trim (finite: no cut needed) finds the point's own t, below 0 too.
+      CurveInversion inv = invertCurve(*c, q[0], c->domain().range, 1e-9);
+      CHECK(inv.status == Status::ok);
+      CHECK_NEAR(inv.t, t, 0, 1e-9);
+    }
+    // From the far side of the circle (angle pi, outside the trim), the nearest point of the trim is an end.
+    Vec3 q[1];
+    curves::makeTrimmed(conic(CBR_CURVE_CIRCLE, 3, o, 2, 2), trims, 1, 1, s)->derivs(0, 0, q);
+    CurveInversion far = invertCurve(*c, o + (o - q[0]), c->domain().range, 1e-9);
+    CHECK(far.certainty == Certainty::ambiguous);
+    CHECK_NEAR(std::fabs(far.t), M_PI / 2, 0, 1e-9);
+  }
+}
