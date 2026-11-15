@@ -1,0 +1,159 @@
+// The edges' contract: each model edge sampled once in 3D, every face that uses it given the same samples in its
+// (u, v), so faces meshed apart meet exactly along their edges (the samples' 3D points shared, each face's mesh2d.h
+// boundary built from them). The spacing is guaranteed, not sampled: over each span the curve's derivBound bounds the
+// chord's deviation ((b - a)^2 max |C''| / 8) and its length ((b - a) max |C'|), so the deflection and the spacing
+// limits hold whatever the curve does between samples. That is C(t)'s deviation: with the vertices' points exact at
+// the ends, an end span strays up to the deflection plus the vertex's gap from its curve. A split the mesher asks for
+// (mesh2d.h's SplitWanted) resamples that edge alone, for all its faces at once.
+//
+// Pseudo-edges: a face on a periodic surface whose loops wind round the period (a band's two circles, a hemisphere's
+// equator) needs a cut no model edge gives to make it a domain. It gets one: a pseudo-edge along the iso-line of the
+// period's direction, sampled once at the face's spacing and used on both sides like a seam, from one winding loop to
+// the other (or to the pole, where a loop winds alone towards one). The cut is at the period's start unless a sample
+// of the face's loops is within the tolerance of that line in 3D (a vertex, a loop crossing there), and then at the
+// middle of the widest gap between the loops' samples' values in that direction (taken modulo the period); each loop
+// gets a sample where the cut crosses it. Pseudo-edges are numbered after the model's edges.
+#pragma once
+
+#include <cstdint>
+#include <limits>
+#include <vector>
+
+#include "cad_geom/model.h"
+#include "cad_geom/result.h"
+#include "cad_geom/vec.h"
+
+namespace tesscadio {
+
+using cadgeom::Status;
+using cadgeom::Vec2;
+using cadgeom::Vec3;
+
+struct EdgeOptions {
+  /** The largest distance a chord between consecutive samples may stray from the curve, in model units (mm). */
+  double deflection = 0.1;
+  /**
+   * The largest angle (radians) between a chord and the curve's tangent anywhere over its span; 0 for none. Bounded
+   * where the speed is: by the span's max |C''| over a lower bound on its speed (|C'| at a sample less the span times
+   * max |C''|); a span with no such bound (a cusp) is split down to the deflection alone.
+   */
+  double angle = 0;
+  /** The largest 3D length of a span (an upper bound on its arc length), whatever the faces say. */
+  double maxSpacing = std::numeric_limits<double>::infinity();
+};
+
+/**
+ * Each model edge's samples, in the edge's start-to-end order: parameters on its curve and 3D points. The first and
+ * last points are the edge's vertices' points (exactly, so edges meeting at a vertex share one point), the others
+ * the curve's at their parameters. A closed edge (start == end) runs its whole range, its first and last the one
+ * vertex, with at least 3 spans.
+ */
+struct EdgeSamples {
+  Status status = Status::unsupported;
+  std::vector<double> t;
+  std::vector<Vec3> points;
+};
+
+/**
+ * A coedge's samples in its face's (u, v), in the coedge's direction of travel (its edge's samples reversed where
+ * it runs against its edge): `uv[i]` stands for the edge's sample `index[i]`. Through the coedge's p-curve at the
+ * same parameters where it has one, else by inverting each 3D point onto the surface, seeded by the previous
+ * sample's (u, v). Along a periodic direction the (u, v) are continuous (unwrapped: a p-curve crossing u = 2 pi
+ * keeps going past it). A seam's two uses each have their own (u, v), one copy of the edge's samples on each side.
+ */
+struct CoedgeSamples {
+  Status status = Status::unsupported;
+  std::vector<Vec2> uv;
+  std::vector<int32_t> index;
+  /** Whether through a p-curve (false: by inversion). */
+  bool fromPcurve = false;
+  /** The largest 3D distance between the surface at uv[i] and the edge's point, for diagnostics (the gap). */
+  double gap = 0;
+};
+
+/** A boundary point of a face in (u, v). */
+struct BoundaryPoint {
+  /**
+   * edgeSample: a model edge's; pseudoSample: a pseudo-edge's (a cut, not a model edge: never reported as one);
+   * poleLine: on a pole line (in 3D the pole itself; edge and sample -1); vertexPoint: a vertex loop's point inside
+   * the face (-1, -1).
+   */
+  enum Kind : uint8_t { edgeSample, pseudoSample, poleLine, vertexPoint } kind = edgeSample;
+  Vec2 uv;
+  /** The edge (model or pseudo) and its sample. */
+  int32_t edgeIndex = -1, sample = -1;
+  Vec3 point;
+};
+
+/**
+ * A face's loops in (u, v), ready for mesh2d.h's Domain2 (outer counterclockwise: a face whose sameSense is false has
+ * its loops reversed). Each loop's coedges' samples in order, the junction of consecutive coedges once (the end of
+ * the one before), each coedge shifted by whole periods to start where the last ended. Where a loop jumps along a
+ * pole line (a sphere's v = pi / 2, a cone's apex: the canonical model has no degenerate edges, rule 7), the jump runs
+ * the way that keeps the face on its side and is filled with pole-line points, as many per period as the face's
+ * loops have samples, at least 16, all at the pole in 3D; a vertex loop at a pole is the pole line across the
+ * period. Winding loops are joined by their cut (above) into one. A seam use found by inversion (no p-curve) has its
+ * side from its neighbours (the junction that isn't at a pole), checked against its direction and the face's sense;
+ * where they don't decide it or disagree, the status is Status::singular (the loops as placed). Internal coedges
+ * (slits, embedded curves) come as interior chains, a vertex loop not at a pole as a chain of one point; external
+ * coedges are left out. A face with no loops, or winding round both periods, is Status::unsupported.
+ */
+struct FaceBoundary {
+  Status status = Status::unsupported;
+  std::vector<std::vector<BoundaryPoint>> loops;
+  /** Interior constraint chains: each a run of points to join pairwise (or a single point to keep). */
+  std::vector<std::vector<BoundaryPoint>> interior;
+};
+
+/**
+ * A split asked for: the edge's (model or pseudo) span between samples `span` and `span + 1`, at `fraction` of it in
+ * parameter, clamped to [0.1, 0.9] so no sample lands nearer than a tenth of the span to another.
+ */
+struct SplitRequest {
+  int32_t edge;
+  int32_t span;
+  double fraction = 0.5;
+};
+
+/**
+ * A model's edges sampled (all at construction), and its faces' boundaries from them. The model must outlive it.
+ * Problems are statuses per edge, coedge and face, never throws: an edge with no curve (p-curves only) is sampled
+ * through its first use's p-curve on that face's surface, the bound then that of the composition; an edge with no
+ * range takes one from its vertices by inversion (a closed edge on a periodic curve, the whole period); an edge or
+ * face that can't be made has its status say why and no samples.
+ */
+class EdgeMesh {
+public:
+  /**
+   * `faceSpacing[f]` the largest 3D span on an edge of face f (the surfaces' lane's say: how narrow a curved face's
+   * triangles must be next to its boundary), infinity for none; an edge's spacing the least over its faces and
+   * `options.maxSpacing`. Empty: no limits from the faces.
+   */
+  EdgeMesh(const cadgeom::Model& model, const EdgeOptions& options, const std::vector<double>& faceSpacing = {});
+  ~EdgeMesh();
+  EdgeMesh(const EdgeMesh&) = delete;
+  EdgeMesh& operator=(const EdgeMesh&) = delete;
+
+  /** The model's edges, then the pseudo-edges. */
+  int edgeCount() const;
+  bool isPseudo(int e) const;
+  const EdgeSamples& edge(int e) const;
+  const CoedgeSamples& coedge(int c) const;
+  /** Face f's boundary from the current samples (made each call: after split(), the new samples). */
+  FaceBoundary face(int f) const;
+
+  /**
+   * The valid requests applied, the bad ones (no such edge or span, a fraction not finite) ignored: Status::ok if
+   * there were none, else Status::invalidModel. Each request adds one sample inside its span (several on one span
+   * each at its own fraction of the span as it was, those within a tenth of the span of one another once); existing
+   * samples are kept, so other edges' indices stand and only the touched edges' later indices move. The touched
+   * edges' coedges are redone.
+   */
+  Status split(const std::vector<SplitRequest>& requests);
+
+private:
+  struct Impl;
+  Impl* impl_;
+};
+
+} // namespace tesscadio
