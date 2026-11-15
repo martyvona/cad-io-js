@@ -3,15 +3,18 @@
 // independent oracles on every surface of the reference models (near and far from the origin, mirrored): boxes and
 // derivative bounds against dense samples over random rectangles, partials to order 3 against central differences
 // of the order below, inversion against dense sampling, infinite ranges, and the hint.
+#include <cad_geom/curve.h>
 #include <cad_geom/surface.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <random>
 #include <string>
 
+#include "../src/curve_impl.h"
 #include "../src/surface_impl.h"
 #include "brep_models.h"
 #include "check.h"
@@ -1080,4 +1083,101 @@ TEST_CASE("closeInFact: a tube closed in v, a nearly closed one, a collapsed sid
     Surface* raw = torus.get();
     CHECK(closeInFact(std::move(torus), tol).get() == raw);
   }
+}
+
+TEST_CASE("degrees past the stack buffers (kStackDegree) evaluate on the heap: linear precision at degree 18") {
+  // Evenly spaced poles reproduce a linear function at any degree: P_ij = (i / p, j / q, 0) gives S(u, v) = (u, v, 0).
+  const int p = 18, q = 17;
+  std::vector<std::vector<Vec3>> P(p + 1, std::vector<Vec3>(q + 1));
+  for (int i = 0; i <= p; i++)
+    for (int j = 0; j <= q; j++) P[i][j] = {double(i) / p, double(j) / q, 0};
+  auto S = rawSpline(p, q, {0, 1}, {p + 1, p + 1}, {0, 1}, {q + 1, q + 1}, P);
+  REQUIRE(S);
+  for (double u : {0.0, 0.3, 0.77, 1.0})
+    for (double v : {0.0, 0.45, 1.0}) {
+      SurfacePoint s;
+      CHECK(S->eval(u, v, 2, s) == Status::ok);
+      CHECK(nearVec(s.p, {u, v, 0}, 0, 1e-13));
+      CHECK(nearVec(s.du, {1, 0, 0}, 0, 1e-11) && nearVec(s.dv, {0, 1, 0}, 0, 1e-11));
+      CHECK(nearVec(s.duu, {}, 0, 1e-9) && nearVec(s.duv, {}, 0, 1e-9) && nearVec(s.dvv, {}, 0, 1e-9));
+    }
+  // A curve of degree 18 likewise, through the model's B-spline curve (bspline::eval).
+  std::vector<double> r{0, 1};
+  for (int i = 0; i <= p; i++) r.insert(r.end(), {double(i) / p, 2.0 * i / p, 0});
+  int32_t in[7 + 2] = {p, p + 1, 2, 0, 0, 0, 0, p + 1, p + 1};
+  Status st;
+  auto C = curves::makeBSpline(r.data(), in, 3, st);
+  REQUIRE(C);
+  for (double t : {0.0, 0.4, 1.0}) {
+    CurvePoint c;
+    CHECK(C->eval(t, 2, c) == Status::ok);
+    CHECK(nearVec(c.p, {t, 2 * t, 0}, 0, 1e-13));
+    CHECK(nearVec(c.d1, {1, 2, 0}, 0, 1e-11));
+    CHECK(nearVec(c.d2, {}, 0, 1e-9));
+  }
+}
+
+TEST_CASE("inversion at a B-spline's collapsed row finishes: the split follows the 3D extent, not the loose boxes") {
+  // The rational B-spline sphere's poles, tol 1e-6: the pole is found at once, the rest is proving no other foot.
+  // Choosing splits by the partials' boxes (a rational one's is a loose quotient bound) halved u beside the pole,
+  // doubling the rectangles touching it: about 700 ms natively. By the sampled extent it is a few ms; the bound
+  // below leaves room for ASan and WebAssembly.
+  const fixtures::Reference* ref = fixtures::reference("bsplineSphere", "s1");
+  REQUIRE(ref);
+  const Model m(ref->data, ref->size);
+  Status s;
+  auto S = makeSurface(m, 0, s);
+  REQUIRE(S);
+  SurfaceDomain d = S->domain();
+  std::vector<Singularity> g;
+  S->singularities(g);
+  REQUIRE(g.size() == 2);
+  for (const Singularity& x : g) {
+    auto t0 = std::chrono::steady_clock::now();
+    SurfaceInversion inv = invertSurface(*S, x.point, d.u, d.v, 1e-6);
+    double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+    CHECK(inv.status == Status::ok);
+    CHECK(inv.atSingularity);
+    CHECK(ms < 200);
+    if (ms >= 200) std::printf("  pole at v = %g: %.1f ms\n", x.at, ms);
+  }
+}
+
+TEST_CASE("closeInFact: an extrusion of a closed profile closes in u though its v is infinite") {
+  // The reference B-spline circle (closed in fact: t 0 and 1 one point, not periodic) extruded along (0, 0, 1),
+  // magnitude 2: u closes over the window v in [-1, 1]; with the profile's last pole moved 1e-6 it doesn't.
+  const fixtures::Reference* ref = fixtures::reference("bsplineCircle", "s1");
+  REQUIRE(ref);
+  const Model m(ref->data, ref->size);
+  double r[4] = {0, 0, 1, 2};
+  Status s;
+  std::unique_ptr<Surface> e = surfaces::makeExtrusion(m, 0, r, 0, s);
+  REQUIRE(e);
+  CHECK(e->domain().uPeriod == 0);
+  CHECK(!std::isfinite(e->domain().v.hi));
+  auto c = closeInFact(std::move(e), 1e-9);
+  CHECK(c->domain().uPeriod == 1);
+  SurfacePoint a, b;
+  c->eval(0.25, 5, 1, a), c->eval(1.25, 5, 1, b);
+  CHECK(nearVec(a.p, b.p, 0, 1e-12));
+  // A seam point far along v: on the seam, its u in [0, 1).
+  SurfacePoint q;
+  c->eval(0, 40, 1, q);
+  Vec3 n = (1 / norm(cross(q.du, q.dv))) * cross(q.du, q.dv);
+  SurfaceInversion inv = invertSurface(*c, q.p + 0.5 * n, c->domain().u, c->domain().v, 1e-9);
+  CHECK(inv.status == Status::ok);
+  CHECK(inv.onSeamU);
+  CHECK(inv.uv.x >= 0 && inv.uv.x < 1);
+  CHECK_NEAR(inv.uv.y, 40, 0, 1e-8);
+  // Not closed: the same extrusion with its profile's last pole moved 1e-6 stays open at tol 1e-9.
+  std::vector<uint8_t> copy(ref->data, ref->data + ref->size);
+  std::vector<uint64_t> buf((copy.size() + 7) / 8);
+  std::memcpy(buf.data(), copy.data(), copy.size());
+  Model mm(reinterpret_cast<const uint8_t*>(buf.data()), copy.size());
+  double* reals = const_cast<double*>(mm.curveReals(0));
+  int k = mm.curveInts(0)[2], n9 = mm.curveInts(0)[1];
+  reals[k + 3 * (n9 - 1)] += 1e-6;
+  std::unique_ptr<Surface> open = surfaces::makeExtrusion(mm, 0, r, 0, s);
+  REQUIRE(open);
+  CHECK(closeInFact(std::move(open), 1e-9)->domain().uPeriod == 0);
 }

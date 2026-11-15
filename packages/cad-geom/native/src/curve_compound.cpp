@@ -46,8 +46,11 @@ public:
   }
   void singular(Range r, std::vector<double>& out) const override { b_->singular(clip(r), out); }
   Range within(Vec3 p, double d) const override {
-    Range w = b_->within(p, d);
-    return clip(w);
+    // On a periodic basis the cut is in the basis's own range ([0, 2 pi) for a circle) while the trim's may lie
+    // anywhere (across 0: [-pi / 2, pi / 2]), so clipping one to the other loses part of the trim: the whole trim
+    // (the periodic kinds' cut is their whole period in any case).
+    if (b_->domain().period > 0) return r_;
+    return clip(b_->within(p, d));
   }
   bool exactLength(double t0, double t1, double& out) const override { return b_->exactLength(t0, t1, out); }
 

@@ -16,6 +16,7 @@
 #include <cmath>
 
 #include "cad_geom/numerics.h"
+#include "scratch.h"
 #include "surface_impl.h"
 
 namespace cadgeom {
@@ -67,7 +68,8 @@ public:
     u = std::clamp(u, d.u.lo, d.u.hi), v = std::clamp(v, d.v.lo, d.v.hi);
     int su = bspline::findSpan(p_, U_, nu_, u), sv = bspline::findSpan(q_, V_, nv_, v);
     int n = order;
-    std::vector<double> Nu((n + 1) * (p_ + 1)), Nv((n + 1) * (q_ + 1));
+    // On the stack to order 2 (evaluation) and a degree up to kStackDegree: no allocation in the hot path.
+    Scratch<double, 3 * (kStackDegree + 1)> Nu((n + 1) * (p_ + 1)), Nv((n + 1) * (q_ + 1));
     bspline::basisDerivs(su, u, p_, n, U_, Nu.data());
     bspline::basisDerivs(sv, v, q_, n, V_, Nv.data());
     // The active poles' centroid: the span's local origin.
