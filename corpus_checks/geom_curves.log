@@ -1,4 +1,4 @@
-host: Apple M4, 10 cores (4 performance, 6 efficiency), 10 threads, 24 GiB; Darwin 24.6.0 arm64; Node 24.5.0; lowpowermode 0, on AC; load 4.3; speed 4913 on 1 thread, 23808 on 10
+host: Apple M4, 10 cores (4 performance, 6 efficiency), 10 threads, 24 GiB; Darwin 24.6.0 arm64; Node 24.5.0; lowpowermode 0, on AC; load 4.7; speed 4868 on 1 thread, 25370 on 10
 517 files, 3258 B-rep parts, 254017 curves, with OCCT
 
 ## Curves made (cad-geom's status, geometry.ts's evaluator), by kind
@@ -152,7 +152,7 @@ host: Apple M4, 10 cores (4 performance, 6 efficiency), 10 threads, 24 GiB; Darw
   on a seam: 41097; alternatives given: 13
 
 ## Edge ranges: cad-geom's vertex parameters against geometry.ts's
-  218121  the same
+  218123  the same
   1119  the same, a whole period apart
   18  parameters differ, the points they reach the same within the vertices' gaps (or 1e-9 mm: the speed small there)
       gkv311-opencascade-dataset/step/t4mec.stp #9 edge #2123: [0,0.9999999972060323] vs [0,1], gap 1.8256249376819023e-12, points 0 apart
@@ -177,15 +177,9 @@ host: Apple M4, 10 cores (4 performance, 6 efficiency), 10 threads, 24 GiB; Darw
       gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #15010 edge #76445: [4.38760678760937,3.1458744515284884] vs [4.387607283602889,3.1458744547497446], gap 0.00006273777008187692, points 0.000004184981964520621 apart
       gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #14600 edge #76013: [1.7819411501672777,3.0802891170516844] vs [1.781940930108889,3.0802891121564264], gap 0.00007198539865942484, points 0.0000017545993945946548 apart
       gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #11085 edge #72003: [0.07899587438230436,-1.2614854167419347] vs [0.07899587583979933,-1.261485416969637], gap 0.0023863302436488132, points 1.5087904568950013e-10 apart
-  2  differs
-      gkv311-opencascade-dataset/step/bug25166_piston.stp #30604 edge #16098: [0,6] vs [6,6], gap 0.000329013586349727, points 0.0006580485468417529 apart
-      gkv311-opencascade-dataset/step/bug25166_piston.stp #30604 edge #25931: [0,6] vs [6,6], gap 0.00032903496775861225, points 0.0006581443762609414 apart
 
 ## Edge lengths: statuses
   219263  ok
-  2  a zero range from edgeParams on a curve closed within the uncertainty: the whole curve taken
-      gkv311-opencascade-dataset/step/bug25166_piston.stp #30604 edge #16098
-      gkv311-opencascade-dataset/step/bug25166_piston.stp #30604 edge #25931
   2  outOfDomain: the range under 1e-9 of its width past the domain (the source's rounding: its knots and its edge's parameters written apart)
       gkv311-opencascade-dataset/step/trj4_k1_geo-tu-214.stp #2080 edge #239
       gkv311-opencascade-dataset/step/trj4_k1_geo-tu-214.stp #2080 edge #405
