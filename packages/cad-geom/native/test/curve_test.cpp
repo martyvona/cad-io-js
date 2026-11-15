@@ -795,3 +795,15 @@ TEST_CASE("lengths outside a bounded domain are the domain's part") {
   CHECK(out.status == Status::outOfDomain);
   CHECK_NEAR(out.value, in.value, 1e-13, 0);
 }
+
+TEST_CASE("a Bezier curve with repeated end poles: its speed's zero at the end itself; its length converges") {
+  // From the corpus (t4mec.stp's cubics): the last two poles one point, so C'(1) = 0.
+  auto c = bspline(3, 3, {0, 1}, {4, 4}, {0, 0, 0, 1, 2, 0, 3, 1, 1, 3, 1, 1});
+  std::vector<double> z;
+  c->singular({0, 1}, z);
+  REQUIRE(z.size() == 1);
+  CHECK_EQ(z[0], 1.0);
+  Estimate L = arcLength(*c, 0, 1, 1e-10);
+  CHECK(L.status == Status::ok);
+  CHECK(L.error <= 1e-10 * L.value);
+}

@@ -1,0 +1,164 @@
+host: Apple M4, 10 cores (4 performance, 6 efficiency), 10 threads, 24 GiB; Darwin 24.6.0 arm64; Node 24.5.0; lowpowermode 0, on AC; load 2.9; speed 4893 on 1 thread, 25886 on 10
+20 files, 42 B-rep parts, 5585 curves, with OCCT
+
+## Curves made (cad-geom's status, geometry.ts's evaluator), by kind
+  1775  line 3D: cad-geom ok, geometry.ts evaluates
+  1346  bspline 3D: cad-geom ok, geometry.ts evaluates
+  1064  line 2D: cad-geom ok, geometry.ts evaluates
+  968  circle 3D: cad-geom ok, geometry.ts evaluates
+  264  bspline 2D: cad-geom ok, geometry.ts evaluates
+  97  trimmed 3D: cad-geom ok, geometry.ts evaluates
+  71  ellipse 3D: cad-geom ok, geometry.ts evaluates
+
+## Points against geometry.ts, relative to max(1, |p|), by kind
+  bspline 2D: 1848
+    <= 1e-14: 1848
+  bspline 3D: 9422
+    <= 1e-14: 9422
+  circle 3D: 6776
+    <= 1e-14: 6776
+  ellipse 3D: 497
+    <= 1e-14: 497
+  line 2D: 5320
+    <= 1e-14: 5320
+  line 3D: 8875
+    <= 1e-14: 8875
+  trimmed 3D: 679
+    <= 1e-14: 679
+
+## First derivatives against geometry.ts, relative to max(1, |d1|), by kind
+  bspline 2D: 1819
+    <= 1e-14: 1800
+    <= 1e-12: 19
+    worst 2.195e-14  gkv311-opencascade-dataset/step/r103ec.stp #9 curve #4496 at 2.9483597744765717
+    worst 2.172e-14  gkv311-opencascade-dataset/step/r103ec.stp #9 curve #1895 at 4.039190554615714
+    worst 1.881e-14  gkv311-opencascade-dataset/step/r103ec.stp #9 curve #1438 at 4.039190554615714
+  bspline 3D: 9167
+    <= 1e-14: 4109
+    <= 1e-12: 4998
+    <= 1e-10: 60
+    worst 2.246e-12  gkv311-opencascade-dataset/step/OCC5157.stp #11 curve #6680 at 0.07142857142857142
+    worst 2.007e-12  gkv311-opencascade-dataset/step/OCC5157.stp #11 curve #6652 at 0.5
+    worst 1.841e-12  gkv311-opencascade-dataset/step/OCC5157.stp #11 curve #6594 at 0.5
+  circle 3D: 6776
+    <= 1e-14: 6776
+  ellipse 3D: 497
+    <= 1e-14: 497
+  line 2D: 5320
+    <= 1e-14: 5320
+  line 3D: 8875
+    <= 1e-14: 8875
+  trimmed 3D: 679
+    <= 1e-14: 679
+
+## First derivatives not compared
+  255  bspline 3D: at a break
+  29  bspline 2D: at a break
+
+## Vertices inverted: cad-geom against geometry.ts
+  7945  the same foot
+
+## Vertices' distances from their curves (cad-geom)
+  measured: 7945
+    <= 1e-9 mm: 7835
+    <= 1e-7 mm: 22
+    <= 0.00001 mm: 62
+    <= 0.001 mm: 21
+    <= 0.1 mm: 5
+    worst 1.091e-2  gkv311-opencascade-dataset/step/OCC5157.stp #11 curve #6229 vertex #10158
+    worst 3.642e-3  gkv311-opencascade-dataset/step/OCC5157.stp #11 curve #6230 vertex #10158
+    worst 3.406e-3  gkv311-opencascade-dataset/step/OCC5157.stp #11 curve #6928 vertex #10158
+
+## Inversion statuses
+  7945  ok
+
+## Inversion certainties
+  7945  unique
+  on a seam: 640; alternatives given: 0
+
+## Seams: the foot's parameter moved to a closed curve's junction (within tol, curve.h)
+  9  by more than 1e-6 of the range
+      gkv311-opencascade-dataset/step/OCC5157.stp #11 curve #4193 vertex #10457: t 0.08878678055476716 moved to 0, tol 0.05164826057192301
+      gkv311-opencascade-dataset/step/OCC5157.stp #11 curve #4221 vertex #11037: t 6.255813732439899 moved to 0, tol 0.05164826057192301
+      gkv311-opencascade-dataset/step/OCC5157.stp #11 curve #4245 vertex #11099: t 0.08726646259985753 moved to 0, tol 0.05164826057192301
+      gkv311-opencascade-dataset/step/OCC5157.stp #11 curve #4254 vertex #11119: t 0.08726646259986101 moved to 0, tol 0.05164826057192301
+      gkv311-opencascade-dataset/step/OCC5157.stp #11 curve #4256 vertex #11051: t 6.195918844580115 moved to 0, tol 0.05164826057192301
+  1  by up to 1e-6 of the range
+      gkv311-opencascade-dataset/step/pr_3-sy.stp #303 curve #251 vertex #245: t 1.2236544234967731e-9 moved to 0, tol 0.02
+
+## Edge ranges: cad-geom's vertex parameters against geometry.ts's
+  4024  the same
+  13  the same, a whole period apart
+
+## Edge lengths: statuses
+  4037  ok
+
+## Edge lengths: estimated errors, relative
+  estimated: 4037
+    <= 1e-14: 2636
+    <= 1e-12: 1299
+    <= 1e-10: 102
+    worst 9.221e-11  gkv311-opencascade-dataset/step/trj5_k1-ug-214.stp #11 edge #679
+    worst 9.221e-11  gkv311-opencascade-dataset/step/trj5_k1-ug-214.stp #11 edge #680
+    worst 4.582e-11  gkv311-opencascade-dataset/step/trj8_k1-ct-214.stp #2070 edge #1419
+
+## Edge lengths sampled against chord sums
+  196  within its estimate
+
+## Sampled lengths' differences from the chord sums, relative
+  compared: 196
+    <= 1e-14: 148
+    <= 1e-12: 48
+    worst 2.134e-13  gkv311-opencascade-dataset/step/OCC5157.stp #11 edge #12196
+    worst 1.213e-13  gkv311-opencascade-dataset/step/r103ec.stp #9 edge #652
+    worst 9.956e-14  gkv311-opencascade-dataset/step/OCC5157.stp #11 edge #11889
+
+## Face perimeters: OCCT's against the sum of ours
+  1511  agree within 1e-6
+  63  a seam healing adds, counted twice (no edge used twice by the face)
+      gkv311-opencascade-dataset/step/pr_3-sy.stp #303 face #262: OCCT 911.2586240418289, ours 628.4441944241022
+      gkv311-opencascade-dataset/step/bug27894_usd_raises_Standard_NullObject.stp #234 face #46: OCCT 40.024423653278575, ours 28.280589617998984
+      gkv311-opencascade-dataset/step/bug27894_usd_raises_Standard_NullObject.stp #234 face #403: OCCT 40.02442365327861, ours 28.280589617998984
+      gkv311-opencascade-dataset/step/trj5_k1-ug-214.stp #11 face #115: OCCT 156.85436427893754, ours 145.25581322787988
+      gkv311-opencascade-dataset/step/trj5_k1-ug-214.stp #11 face #117: OCCT 125.21978628926186, ours 119.90550679943328
+      gkv311-opencascade-dataset/step/trj5_k1-ug-214.stp #11 face #122: OCCT 71.87920535080553, ours 59.87128853773385
+      gkv311-opencascade-dataset/step/trj5_k1-ug-214.stp #11 face #123: OCCT 58.53253470596188, ours 51.891643197615764
+      gkv311-opencascade-dataset/step/trj5_k1-ug-214.stp #11 face #124: OCCT 114.42587204070844, ours 47.87787204070844
+      nist-pmi-models/NIST_MBE_PMI_FTC_Definitions/NIST_MBE_PMI_FTC_Definitions/nist_ftc_10_asme1_rb.stp #6468 face #125: OCCT 21.234930717019374, ours 15.773279132330412
+      nist-pmi-models/NIST_MBE_PMI_FTC_Definitions/NIST_MBE_PMI_FTC_Definitions/nist_ftc_10_asme1_rb.stp #6468 face #183: OCCT 21.234930717019378, ours 15.773279132330408
+      nist-pmi-models/NIST_MBE_PMI_FTC_Definitions/NIST_MBE_PMI_FTC_Definitions/nist_ftc_10_asme1_rb.stp #6468 face #241: OCCT 21.234930717019388, ours 15.773279132330423
+      nist-pmi-models/NIST_MBE_PMI_FTC_Definitions/NIST_MBE_PMI_FTC_Definitions/nist_ftc_10_asme1_rb.stp #6468 face #299: OCCT 21.234930717019385, ours 15.77327913233042
+      nist-pmi-models/NIST_MBE_PMI_FTC_Definitions/NIST_MBE_PMI_FTC_Definitions/nist_ftc_10_asme1_rb.stp #6468 face #357: OCCT 21.23493071701939, ours 15.77327913233042
+      gkv311-opencascade-dataset/step/OCC5157.stp #11 face #4384: OCCT 8.899439402033845, ours 6.713544781763337
+      gkv311-opencascade-dataset/step/OCC5157.stp #11 face #4385: OCCT 9.218642612409276, ours 6.985198287044254
+  35  OCCT's within 1e-4 (its quadrature or healing's tolerances); ours within 1e-9 of chord sums
+      gkv311-opencascade-dataset/step/bug25171.stp #3812 face #5564: OCCT 71.41604186701167, ours 71.41593060079902
+      gkv311-opencascade-dataset/step/bug25171.stp #3812 face #5635: OCCT 71.41604186651345, ours 71.41593060030087
+      gkv311-opencascade-dataset/step/bug25171.stp #3812 face #5664: OCCT 71.41604186651995, ours 71.41593060030732
+      gkv311-opencascade-dataset/step/bug25171.stp #3812 face #5735: OCCT 71.41604186698774, ours 71.41593060077517
+      gkv311-opencascade-dataset/step/bug25171.stp #3812 face #5764: OCCT 71.41604186653973, ours 71.41593060032699
+      gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787 face #5745: OCCT 2.8993466078093317, ours 2.899343392669566
+      gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787 face #792: OCCT 10.844460750037214, ours 10.844449401568463
+      gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787 face #827: OCCT 10.84446073244563, ours 10.844449383976876
+  2  no edge loops: OCCT bounds the face by its surface's natural bounds
+      gkv311-opencascade-dataset/step/pr_3-sy.stp #303 face #185: OCCT 2513.274122871834, ours 0
+      gkv311-opencascade-dataset/step/pr_3-sy.stp #303 face #209: OCCT 628.3185307179588, ours 0
+  2  OCCT's differs by more than 1e-4; ours within 1e-9 of chord sums
+      gkv311-opencascade-dataset/step/trj5_k1-ug-214.stp #11 face #116: OCCT 193.3657386769088, ours 193.2486014183555
+      gkv311-opencascade-dataset/step/trj5_k1-ug-214.stp #11 face #118: OCCT 193.3657386769088, ours 193.24860141835543
+  2  OCCT's longer, no loop said outer (healing may add the surface's bounds); ours within 1e-9 of chord sums
+      gkv311-opencascade-dataset/step/OCC5157.stp #11 face #4614: OCCT 731.7742135494236, ours 524.2346185125598
+      gkv311-opencascade-dataset/step/OCC5157.stp #11 face #4619: OCCT 263.90192163629604, ours 255.66685798745533
+  1  a vertex more than 10 x the uncertainty off its curve: healing rebuilds edges
+      gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787 face #5744: OCCT 10.35253161488529, ours 10.352511763017006
+
+## Perimeter differences (agreeing and unclassified), relative
+  compared: 1511
+    <= 1e-14: 1211
+    <= 1e-12: 217
+    <= 1e-10: 36
+    <= 1e-8: 16
+    <= 0.000001: 31
+    worst 6.715e-7  gkv311-opencascade-dataset/step/bug25171.stp #1933 face #3777
+    worst 5.338e-7  gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787 face #826
+    worst 5.338e-7  gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787 face #790

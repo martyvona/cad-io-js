@@ -85,6 +85,9 @@ void speedZeros(const CurveImpl& c, Range r, std::vector<double>& out) {
     size_t j = i;
     while (j + 1 < leaves.size() && leaves[j + 1].lo <= leaves[j].hi) j++;
     double t = budget <= 0 ? leaves[i].lo : 0.5 * leaves[i].lo + 0.5 * leaves[j].hi;
+    // A zero at r's end within the resolution is at the end (repeated end poles): not a sliver of span beside it.
+    if (leaves[i].lo <= r.lo) t = r.lo;
+    if (leaves[j].hi >= r.hi) t = r.hi;
     out.push_back(t);
     i = j + 1;
   }
@@ -427,11 +430,27 @@ Estimate arcLength(const Curve& c, double t0, double t1, double relTol) {
       if (t > cuts.back() && t < br[i + 1]) cuts.push_back(t);
   }
   cuts.push_back(t1);
+  // An absolute tolerance per span from the chords (a lower bound on the length, four a span), so a span whose length
+  // is negligible (next to a zero of the speed) needn't reach relTol of its own tiny value; the spans' errors still
+  // sum to within relTol of the whole.
+  double chord = 0;
+  for (size_t i = 0; i + 1 < cuts.size(); i++) {
+    Range g{cuts[i], cuts[i + 1]};
+    CurvePoint a, b;
+    c.eval(g.lo, 0, a);
+    for (int k = 1; k <= 4; k++) {
+      c.eval(k == 4 ? inside(g, g.hi) : g.lo + (g.hi - g.lo) * k / 4, 0, b);
+      chord += norm(b.p - a.p);
+      a = b;
+    }
+  }
+  double absTol = 0.25 * relTol * chord / static_cast<double>(std::max<size_t>(1, cuts.size() - 1));
   Estimate total{0, 0, status};
   for (size_t i = 0; i + 1 < cuts.size(); i++) {
     if (cuts[i + 1] <= cuts[i]) continue;
     Range g{cuts[i], cuts[i + 1]};
-    Estimate e = quadrature::integrate([&](double t) { return speed(c, inside(g, t)); }, g.lo, g.hi, 0, relTol);
+    Estimate e = quadrature::integrate([&](double t) { return speed(c, inside(g, t)); }, g.lo, g.hi, absTol,
+      relTol);
     total.value += e.value;
     total.error += e.error;
     if (e.status != Status::ok) total.status = e.status;
