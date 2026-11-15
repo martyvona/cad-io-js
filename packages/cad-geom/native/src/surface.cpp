@@ -379,8 +379,19 @@ SurfaceInversion invertSurface(const Surface& s0, Vec3 p, Range ru, Range rv, do
         add(best);
         continue;
       }
-      // Split across the side longer in 3D.
-      double lu = ok ? boxNorm(bu) * wu : wu, lv = ok ? boxNorm(bv) * wv : wv;
+      // Split across the side longer in 3D, as sampled along its three iso-lines, each the two chords through its
+      // middle (a whole period's ends are one point; a rational partial's box is too loose to judge by: beside a pole
+      // it would keep halving the side that has collapsed); by the partials' boxes where the kind says
+      // (splitByBoxes).
+      double lu = 0, lv = 0;
+      if (s.splitByBoxes()) lu = ok ? boxNorm(bu) * wu : wu, lv = ok ? boxNorm(bv) * wv : wv;
+      else for (double f : {0.0, 0.5, 1.0}) {
+        double v = b.lo + f * wv, u = a.lo + f * wu;
+        Vec3 um = at({mid.x, v}), vm = at({u, mid.y});
+        lu = std::fmax(lu, norm(um - at({a.lo, v})) + norm(at({a.hi, v}) - um));
+        lv = std::fmax(lv, norm(vm - at({u, b.lo})) + norm(at({u, b.hi}) - vm));
+      }
+      if (!(lu > 0 || lv > 0)) lu = wu, lv = wv;
       ub = std::fmin(ub, norm(at(mid) - p));
       Range h[2][2];
       if (lu >= lv) h[0][0] = {a.lo, mid.x}, h[0][1] = b, h[1][0] = {mid.x, a.hi}, h[1][1] = b;

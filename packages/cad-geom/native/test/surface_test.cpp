@@ -7,6 +7,7 @@
 #include <cad_geom/surface.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -1091,5 +1092,31 @@ TEST_CASE("degrees past the stack buffers (kStackDegree) evaluate on the heap: l
     CHECK(nearVec(c.p, {t, 2 * t, 0}, 0, 1e-13));
     CHECK(nearVec(c.d1, {1, 2, 0}, 0, 1e-11));
     CHECK(nearVec(c.d2, {}, 0, 1e-9));
+  }
+}
+
+TEST_CASE("inversion at a B-spline's collapsed row finishes: the split follows the 3D extent, not the loose boxes") {
+  // The rational B-spline sphere's poles, tol 1e-6: the pole is found at once, the rest is proving no other foot.
+  // Choosing splits by the partials' boxes (a rational one's is a loose quotient bound) halved u beside the pole,
+  // doubling the rectangles touching it: about 700 ms natively. By the sampled extent it is a few ms; the bound
+  // below leaves room for ASan and WebAssembly.
+  const fixtures::Reference* ref = fixtures::reference("bsplineSphere", "s1");
+  REQUIRE(ref);
+  const Model m(ref->data, ref->size);
+  Status s;
+  auto S = makeSurface(m, 0, s);
+  REQUIRE(S);
+  SurfaceDomain d = S->domain();
+  std::vector<Singularity> g;
+  S->singularities(g);
+  REQUIRE(g.size() == 2);
+  for (const Singularity& x : g) {
+    auto t0 = std::chrono::steady_clock::now();
+    SurfaceInversion inv = invertSurface(*S, x.point, d.u, d.v, 1e-6);
+    double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+    CHECK(inv.status == Status::ok);
+    CHECK(inv.atSingularity);
+    CHECK(ms < 200);
+    if (ms >= 200) std::printf("  pole at v = %g: %.1f ms\n", x.at, ms);
   }
 }

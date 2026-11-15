@@ -392,6 +392,7 @@ public:
     }
   }
   void within(Vec3 p, double d, Range& ru, Range& rv) const override { b_->within(p, d + std::fabs(d_), ru, rv); }
+  bool splitByBoxes() const override { return true; }
 
 private:
   /**
@@ -473,6 +474,7 @@ public:
     return b_->footCandidates(p, ru, rv, tol, out);
   }
   char footFamily(Vec3 p) const override { return b_->footFamily(p); }
+  bool splitByBoxes() const override { return b_->splitByBoxes(); }
 
 private:
   std::unique_ptr<SurfaceImpl> b_;

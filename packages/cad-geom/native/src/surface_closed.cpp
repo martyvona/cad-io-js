@@ -104,6 +104,7 @@ public:
     return s_->footCandidates(p, u, v, tol, out);
   }
   char footFamily(Vec3 p) const override { return s_->footFamily(p); }
+  bool splitByBoxes() const override { return s_->splitByBoxes(); }
 
 private:
   double ru(double u) const { return newU_ ? reduce(u, dom_.u, dom_.uPeriod) : u; }

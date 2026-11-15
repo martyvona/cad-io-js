@@ -64,6 +64,13 @@ public:
     return 0;
   }
 
+  /**
+   * Whether inversion should choose a rectangle's split by its partials' boxes (an offset: beside its basis's pole
+   * only a narrow u range bounds its normal) rather than by its sampled 3D extent (the rest: beside a pole a split
+   * along the pole line only doubles the rectangles touching it).
+   */
+  virtual bool splitByBoxes() const { return false; }
+
   Status eval(double u, double v, int order, SurfacePoint& out) const final;
   Status normal(double u, double v, Vec3& out) const override;
   Status bound(Range ru, Range rv, Box3& out) const final { return derivBox(ru, rv, 0, 0, out); }
