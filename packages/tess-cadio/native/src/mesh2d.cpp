@@ -12,13 +12,16 @@
 // alike.
 // The boundary can't be split, so a candidate that would encroach a constrained segment (inside its diametral circle
 // in the metric) or fall outside the domain is moved back along the ray from the triangle's centroid to the last
-// point that does neither; a triangle no point improves is final. The segments it wanted split are collected
-// (mesh2d_impl.h). Quality near the boundary is so limited by the boundary's own spacing.
+// point that does neither; a triangle no point improves is final. A segment is reported to split (Mesh2::splitWanted)
+// where a triangle refused for encroaching it is still in the mesh at the end and either the segment is longer than
+// sqrt 2 in the metric or accept() still refuses the triangle: a segment within the size isn't reported for the
+// angles or lengths of the triangles on it (splitting it wouldn't end that: the next one along would be wanted), so a
+// domain fine enough reports nothing. Quality near the boundary is so limited by the boundary's own spacing.
 #include <algorithm>
 #include <cmath>
 #include <queue>
 #include <set>
-#include <unordered_set>
+#include <tuple>
 
 #include "cdt.h"
 #include "mesh2d_impl.h"
@@ -39,6 +42,10 @@ double mdot(const Metric2& M, Vec2 u, Vec2 v) {
 }
 double mlen(const Metric2& M, Vec2 u) { return std::sqrt(std::max(0.0, mdot(M, u, u))); }
 Vec2 sub(Vec2 a, Vec2 b) { return {a.x - b.x, a.y - b.y}; }
+/** A segment's key, its points sorted: the same whichever way it runs. */
+uint64_t pairKey(int32_t u, int32_t v) {
+  return (static_cast<uint64_t>(std::min(u, v)) << 32) | static_cast<uint32_t>(std::max(u, v));
+}
 
 /**
  * sin and cos by their Taylor series, for |x| <= pi / 2: only +, -, *, / (correctly rounded everywhere), so the
@@ -167,7 +174,9 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
   int steiner = 0;
   std::vector<int32_t> created;
   std::vector<std::pair<int32_t, int32_t>> hits;
-  std::unordered_set<uint64_t> wanted;
+  // Each refusal for encroachment: the segment (its sorted point pair) and the triangle refused, as it was.
+  std::vector<std::tuple<uint64_t, int32_t, uint32_t>> wanted;
+  std::vector<uint64_t> encroached;
   while (!queue.empty()) {
     Item it = queue.top();
     queue.pop();
@@ -209,15 +218,14 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
         Metric2 Ms = average(metricAt(u), metricAt(v), M);
         if (mdot(Ms, sub(q, U), sub(q, V)) <= 0) {
           clear = false;
-          if (record) {
-            wanted.insert((static_cast<uint64_t>(std::min(u, v)) << 32) | static_cast<uint32_t>(std::max(u, v)));
-          }
+          if (record) encroached.push_back(pairKey(u, v));
         }
       }
       return clear;
     };
     int32_t at = -1;
     double f = 1;
+    encroached.clear();
     bool placed = acceptable(c, at, true);
     for (int k = 0; k < 12 && !placed; k++) {
       f *= 0.5;
@@ -234,6 +242,7 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
     }
     if (!placed || f < 0.05) {
       D.refused++;
+      for (uint64_t k : encroached) wanted.push_back({k, it.t, it.gen});
       finals.insert({it.t, it.gen});
       continue;
     }
@@ -252,16 +261,34 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
     for (int32_t t : created) consider(t);
   }
   D.finalTriangles = static_cast<int>(finals.size());
-  for (uint64_t k : wanted) {
-    D.splitWanted.push_back(static_cast<int32_t>(k >> 32));
-    D.splitWanted.push_back(static_cast<int32_t>(k & 0xffffffffu));
+  // The segments to split: those whose refused triangle is still there, unchanged, and either the segment itself
+  // longer than sqrt 2 in its endpoints' metric or the triangle still refused by accept().
+  std::set<uint64_t> split;
+  for (auto [k, t, gen] : wanted) {
+    const cdt::Tri& R = T.tris()[t];
+    if (R.dead || R.gen != gen || split.count(k)) continue;
+    int32_t u = static_cast<int32_t>(k >> 32), v = static_cast<int32_t>(k & 0xffffffffu);
+    Metric2 Mu = metricAt(u), Mv = metricAt(v);
+    Metric2 Ms{0.5 * (Mu.a + Mv.a), 0.5 * (Mu.b + Mv.b), 0.5 * (Mu.c + Mv.c)};
+    Vec2 p[3];
+    corners(t, p);
+    if (mlen(Ms, sub(T.points()[v], T.points()[u])) > std::sqrt(2.0) || !field.accept(p)) split.insert(k);
   }
-  // Sorted pairs, so the report doesn't depend on the set's order.
-  std::vector<std::pair<int32_t, int32_t>> sw;
-  for (size_t i = 0; i + 1 < D.splitWanted.size(); i += 2) sw.push_back({D.splitWanted[i], D.splitWanted[i + 1]});
-  std::sort(sw.begin(), sw.end());
-  D.splitWanted.clear();
-  for (auto [u, v] : sw) D.splitWanted.insert(D.splitWanted.end(), {u, v});
+  // In segment order, each once: the domain's segments numbered as SplitWanted says.
+  int32_t segment = 0;
+  auto report = [&](int32_t a, int32_t b) {
+    int32_t i = segment++;
+    if (a == b || !split.erase(pairKey(a, b))) return;
+    Vec2 A = domain.points[a], B = domain.points[b], e = sub(B, A);
+    // The metric's middle where the size h varies linearly from a to b: h(f) = sqrt(h_a h_b), so
+    // f = sqrt(h_a) / (sqrt(h_a) + sqrt(h_b)), h at an end |e| over e's length in the metric there.
+    double la = mlen(metricAt(a), e), lb = mlen(metricAt(b), e), f = 0.5;
+    if (la > 0 && lb > 0 && std::isfinite(la) && std::isfinite(lb)) f = std::sqrt(lb) / (std::sqrt(la) + std::sqrt(lb));
+    out.splitWanted.push_back({i, a, b, f, {A.x + f * e.x, A.y + f * e.y}});
+  };
+  for (const auto& loop : domain.loops)
+    for (size_t k = 0; k < loop.size(); k++) report(loop[k], loop[(k + 1) % loop.size()]);
+  for (size_t k = 0; k + 1 < domain.segments.size(); k += 2) report(domain.segments[k], domain.segments[k + 1]);
 
   out.points = T.points();
   for (int32_t t = 0; t < static_cast<int32_t>(T.tris().size()); t++) {

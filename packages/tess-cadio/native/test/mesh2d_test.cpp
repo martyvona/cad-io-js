@@ -153,6 +153,49 @@ double minAngle(const Mesh2& m, int t) {
   }
   return best;
 }
+/** The domain with each wanted segment split at its point (appended), as a caller would after sampling its edge. */
+Domain2 splitAt(const Domain2& d, const std::vector<SplitWanted>& wanted) {
+  Domain2 o;
+  o.points = d.points;
+  std::map<int32_t, int32_t> mid;  // segment -> its new point
+  for (const SplitWanted& w : wanted) {
+    mid[w.segment] = static_cast<int32_t>(o.points.size());
+    o.points.push_back(w.point);
+  }
+  int32_t seg = 0;
+  for (const auto& l : d.loops) {
+    std::vector<int32_t> n;
+    for (int32_t v : l) {
+      n.push_back(v);
+      if (auto f = mid.find(seg++); f != mid.end()) n.push_back(f->second);
+    }
+    o.loops.push_back(n);
+  }
+  for (size_t k = 0; k + 1 < d.segments.size(); k += 2) {
+    int32_t a = d.segments[k], b = d.segments[k + 1];
+    if (auto f = mid.find(seg++); f != mid.end()) o.segments.insert(o.segments.end(), {a, f->second, f->second, b});
+    else o.segments.insert(o.segments.end(), {a, b});
+  }
+  return o;
+}
+/** splitWanted's form: segments strictly increasing, each's endpoints the domain's, its point at its fraction. */
+int splitsWellFormed(const Domain2& d, const Mesh2& m) {
+  std::vector<std::pair<int32_t, int32_t>> segs;
+  for (const auto& l : d.loops)
+    for (size_t k = 0; k < l.size(); k++) segs.push_back({l[k], l[(k + 1) % l.size()]});
+  for (size_t k = 0; k + 1 < d.segments.size(); k += 2) segs.push_back({d.segments[k], d.segments[k + 1]});
+  int bad = 0, last = -1;
+  for (const SplitWanted& w : m.splitWanted) {
+    bool in = w.segment > last && w.segment < static_cast<int32_t>(segs.size());
+    if (in && (segs[w.segment] != std::make_pair(w.a, w.b))) in = false;
+    Vec2 A = d.points[w.a], B = d.points[w.b];
+    in = in && w.fraction > 0 && w.fraction < 1 &&
+      std::hypot(A.x + w.fraction * (B.x - A.x) - w.point.x, A.y + w.fraction * (B.y - A.y) - w.point.y) < 1e-12;
+    bad += !in;
+    last = w.segment;
+  }
+  return bad;
+}
 bool touchesBoundary(const Mesh2& m, int t, size_t nDomain) {
   for (int i = 0; i < 3; i++)
     if (m.triangles[3 * t + i] < static_cast<int32_t>(nDomain)) return true;
@@ -219,12 +262,228 @@ TEST_CASE("a boundary too coarse for the size: kept as it is, the segments refin
   Mesh2 m = mesh2Detailed(d, Uniform(0.1), {}, &detail);
   CHECK(m.status == cadgeom::Status::ok);
   CHECK_EQ(validate(d, m, "coarse square"), 0);
-  // All four sides wanted, and nothing split: the four corners still the only boundary points on the sides.
-  std::set<std::pair<int32_t, int32_t>> want;
-  for (size_t i = 0; i + 1 < detail.splitWanted.size(); i += 2)
-    want.insert({detail.splitWanted[i], detail.splitWanted[i + 1]});
-  CHECK(want.count({0, 1}) && want.count({1, 2}) && want.count({2, 3}) && want.count({0, 3}));
   CHECK(detail.finalTriangles > 0);
+  // All four sides wanted, in order, at their middles (the metric uniform), and nothing split: the four corners
+  // still the only boundary points.
+  REQUIRE(m.splitWanted.size() == 4u);
+  CHECK_EQ(splitsWellFormed(d, m), 0);
+  for (int k = 0; k < 4; k++) {
+    CHECK_EQ(m.splitWanted[k].segment, k);
+    CHECK_EQ(m.splitWanted[k].fraction, 0.5);
+  }
+  for (size_t i = 4; i < m.points.size(); i++)
+    CHECK(m.points[i].x > 0 && m.points[i].x < 1 && m.points[i].y > 0 && m.points[i].y < 1);
+  // Split as asked and meshed again until nothing's wanted: a halving each round, so a few rounds (1 / 0.1 is
+  // under 2^4 sqrt 2), then a mesh with every edge within the size.
+  int rounds = 0;
+  while (!m.splitWanted.empty() && rounds < 8) {
+    d = splitAt(d, m.splitWanted);
+    m = mesh2(d, Uniform(0.1));
+    CHECK_EQ(splitsWellFormed(d, m), 0);
+    rounds++;
+  }
+  CHECK(m.splitWanted.empty());
+  CHECK(rounds >= 3 && rounds <= 4);
+  CHECK_EQ(validate(d, m, "split square"), 0);
+  for (size_t k = 0; k < d.loops[0].size(); k++) {
+    Vec2 a = d.points[d.loops[0][k]], b = d.points[d.loops[0][(k + 1) % d.loops[0].size()]];
+    CHECK(std::hypot(b.x - a.x, b.y - a.y) <= 0.1 * std::sqrt(2.0));
+  }
+}
+
+/** Isotropic, h growing linearly along x from h0 at x = 0 by g per unit. */
+struct Graded : SizeField {
+  double h0, g;
+  Graded(double a, double b) : h0(a), g(b) {}
+  Metric2 metric(Vec2 p) const override {
+    double h = h0 + g * p.x;
+    return {1 / (h * h), 0, 1 / (h * h)};
+  }
+  bool accept(const Vec2*) const override { return true; }
+};
+
+TEST_CASE("a split's point in a graded size field: the middle in the metric, not in the plane") {
+  Domain2 d = square(1);
+  Graded field(0.02, 0.3);
+  Mesh2 m = mesh2(d, field);
+  CHECK(m.status == cadgeom::Status::ok);
+  CHECK_EQ(splitsWellFormed(d, m), 0);
+  REQUIRE(m.splitWanted.size() == 4u);
+  // The metric length from a to the point and from it to b, by a midpoint sum of 1 / h (h linear: equal exactly).
+  for (const SplitWanted& w : m.splitWanted) {
+    Vec2 A = d.points[w.a], B = d.points[w.b];
+    auto length = [&](double f0, double f1) {
+      double s = 0, L = std::hypot(B.x - A.x, B.y - A.y) * (f1 - f0);
+      for (int i = 0; i < 4000; i++) {
+        double f = f0 + (f1 - f0) * (i + 0.5) / 4000;
+        s += L / 4000 / (field.h0 + field.g * (A.x + f * (B.x - A.x)));
+      }
+      return s;
+    };
+    double before = length(0, w.fraction), after = length(w.fraction, 1);
+    CHECK(std::fabs(before - after) < 1e-5 * (before + after));
+  }
+  // The bottom side from the fine end: a fifth along (h 0.02 to 0.32, sqrt h_a / (sqrt h_a + sqrt h_b)); the top
+  // from the coarse end, four fifths; the sides, of one size, halves.
+  CHECK(std::fabs(m.splitWanted[0].fraction - 0.2) < 1e-12);
+  CHECK(std::fabs(m.splitWanted[2].fraction - 0.8) < 1e-12);
+  CHECK_EQ(m.splitWanted[1].fraction, 0.5);
+  CHECK_EQ(m.splitWanted[3].fraction, 0.5);
+}
+
+/**
+ * A disc's domain, its boundary a circle of radius 2 sampled at the given spacing over its upper half and its lower:
+ * accept() refuses a triangle with an edge on the circle (both ends on it) farther from the arc than `deflection`
+ * (its sagitta l^2 / 8 r), as a face's criteria would on a circular edge; the size uniform.
+ */
+struct Arc : SizeField {
+  double h, deflection;
+  Arc(double size, double d) : h(size), deflection(d) {}
+  Metric2 metric(Vec2) const override { return {1 / (h * h), 0, 1 / (h * h)}; }
+  static bool onCircle(Vec2 p) { return std::fabs(std::hypot(p.x, p.y) - 2) < 1e-9; }
+  bool accept(const Vec2* t) const override {
+    for (int i = 0; i < 3; i++) {
+      Vec2 a = t[i], b = t[(i + 1) % 3];
+      double l = std::hypot(b.x - a.x, b.y - a.y);
+      if (onCircle(a) && onCircle(b) && l * l / 16 > deflection) return false;
+    }
+    return true;
+  }
+};
+Domain2 disc(double upper, double lower) {
+  int nu = static_cast<int>(std::ceil(2 * M_PI / upper)), nl = static_cast<int>(std::ceil(2 * M_PI / lower));
+  std::vector<Vec2> pts;
+  for (int k = 0; k < nu; k++) pts.push_back({2 * std::cos(M_PI * k / nu), 2 * std::sin(M_PI * k / nu)});
+  for (int k = 0; k < nl; k++) pts.push_back({-2 * std::cos(M_PI * k / nl), -2 * std::sin(M_PI * k / nl)});
+  Domain2 d;
+  addLoop(d, pts);
+  return d;
+}
+
+TEST_CASE("a circular edge sampled too coarsely for the deflection on one half: its segments reported, and only") {
+  // Upper half at 0.15 (sagitta 1.4e-3), lower at 0.1 (6.3e-4), deflection 1e-3, size 0.2: within the size
+  // everywhere, so only the deflection asks for more, and only on the upper half's segments (the first 42).
+  Domain2 d = disc(0.15, 0.1);
+  Arc field(0.2, 1e-3);
+  Mesh2 m = mesh2(d, field);
+  REQUIRE(m.status == cadgeom::Status::ok);
+  CHECK_EQ(validate(d, m, "coarse disc", false), 0);
+  CHECK_EQ(splitsWellFormed(d, m), 0);
+  std::vector<int32_t> reported, upper;
+  for (const SplitWanted& w : m.splitWanted) reported.push_back(w.segment);
+  for (int k = 0; k < 42; k++) upper.push_back(k);
+  CHECK(reported == upper);
+  // The triangles on them still refused, listed in rejected, and only those.
+  CHECK(!m.rejected.empty());
+  for (int32_t t : m.rejected) {
+    bool onUpper = false;  // a vertex among the upper half's points, 0 to 42
+    for (int i = 0; i < 3; i++) onUpper |= m.triangles[3 * t + i] <= 42;
+    CHECK(onUpper);
+  }
+  // Split as the caller would, on the curve: the point's angle, at the circle. Then nothing wanted or rejected.
+  std::vector<SplitWanted> onArc = m.splitWanted;
+  for (SplitWanted& w : onArc) {
+    double a = std::atan2(w.point.y, w.point.x);
+    w.point = {2 * std::cos(a), 2 * std::sin(a)};
+  }
+  Domain2 s = splitAt(d, onArc);
+  Mesh2 again = mesh2(s, field);
+  REQUIRE(again.status == cadgeom::Status::ok);
+  CHECK_EQ(validate(s, again, "split disc", false), 0);
+  CHECK(again.splitWanted.empty());
+  CHECK(again.rejected.empty());
+  // Sampled fine enough all round: none.
+  Mesh2 fine = mesh2(disc(0.1, 0.1), field);
+  CHECK(fine.splitWanted.empty());
+  CHECK(fine.rejected.empty());
+}
+
+TEST_CASE("splits wanted only where they're needed: none in a domain fine enough, an interior segment numbered last") {
+  // Sampled at the size or finer: nothing wanted.
+  for (int perSide : {20, 27, 40}) {
+    Domain2 d = square(perSide);
+    Mesh2 m = mesh2(d, Uniform(0.05));
+    CHECK(m.status == cadgeom::Status::ok);
+    CHECK(m.splitWanted.empty());
+    CHECK(m.rejected.empty());
+  }
+  // At 4 / 3 of it, within sqrt 2: nothing either, though refinement refuses points encroaching the boundary.
+  Domain2 d = square(15);
+  Mesh2Detail detail;
+  Mesh2 m = mesh2Detailed(d, Uniform(0.05), {}, &detail);
+  CHECK(m.splitWanted.empty());
+  CHECK(detail.refused > 0);
+  // Just over sqrt 2 (1 / 14 at 0.05): every segment.
+  Domain2 o = square(14);
+  Mesh2 mo = mesh2(o, Uniform(0.05));
+  CHECK_EQ(splitsWellFormed(o, mo), 0);
+  CHECK_EQ(mo.splitWanted.size(), 56u);
+  // A fine square with a long chord across it: the chord alone, numbered after the loop's 80 segments.
+  Domain2 c = square(20);
+  c.segments = {5, 55};
+  Mesh2 mc = mesh2(c, Uniform(0.05));
+  CHECK_EQ(splitsWellFormed(c, mc), 0);
+  REQUIRE(mc.splitWanted.size() == 1u);
+  CHECK_EQ(mc.splitWanted[0].segment, 80);
+  CHECK(mc.splitWanted[0].a == 5 && mc.splitWanted[0].b == 55);
+  // The chord given twice: reported once, by its first index.
+  Domain2 c2 = square(20);
+  c2.segments = {5, 55, 55, 5};
+  Mesh2 m2 = mesh2(c2, Uniform(0.05));
+  CHECK_EQ(validate(c2, m2, "chord twice"), 0);
+  REQUIRE(m2.splitWanted.size() == 1u);
+  CHECK_EQ(m2.splitWanted[0].segment, 80);
+  // A segment's length in its endpoints' metric, averaged: the bottom side 1.7 long at its start and 1 at its end,
+  // about 1.395 in the average (under sqrt 2): not reported; the left side, 1.7 all along, is; the right isn't.
+  Domain2 g = square(1);
+  Mesh2 mg = mesh2(g, Graded(1 / 1.7, 1 - 1 / 1.7));
+  CHECK_EQ(splitsWellFormed(g, mg), 0);
+  std::vector<int32_t> sides;
+  for (const SplitWanted& w : mg.splitWanted) sides.push_back(w.segment);
+  CHECK(sides == std::vector<int32_t>{3});
+  // A fine square refining (points refused near the boundary on the way) with accept() refusing triangles on its
+  // left side only: the left side's segments reported, no other, whatever was refused elsewhere before.
+  Domain2 left = square(15);
+  struct LeftSide : Uniform {
+    LeftSide() : Uniform(0.05) {}
+    bool accept(const Vec2* t) const override {
+      for (int i = 0; i < 3; i++)
+        if (t[i].x == 0 && t[(i + 1) % 3].x == 0 && std::fabs(t[i].y - t[(i + 1) % 3].y) > 0.04) return false;
+      return true;
+    }
+  };
+  Mesh2Detail ld;
+  Mesh2 ml = mesh2Detailed(left, LeftSide(), {}, &ld);
+  CHECK_EQ(splitsWellFormed(left, ml), 0);
+  std::vector<int32_t> got, want;
+  for (const SplitWanted& w : ml.splitWanted) got.push_back(w.segment);
+  for (int k = 45; k < 60; k++) want.push_back(k);
+  CHECK(got == want);
+  CHECK(ld.refused > 15);
+  // The same with the left side one coarse segment: that one alone.
+  Domain2 one;
+  {
+    std::vector<Vec2> pts;
+    for (int k = 0; k <= 20; k++) pts.push_back({k * 0.05, 0});
+    for (int k = 1; k <= 20; k++) pts.push_back({1, k * 0.05});
+    for (int k = 19; k >= 0; k--) pts.push_back({k * 0.05, 1});
+    addLoop(one, pts);
+  }
+  Mesh2 mo1 = mesh2(one, LeftSide());
+  CHECK_EQ(splitsWellFormed(one, mo1), 0);
+  std::vector<int32_t> only;
+  for (const SplitWanted& w : mo1.splitWanted) only.push_back(w.segment);
+  CHECK(only == std::vector<int32_t>{static_cast<int32_t>(one.loops[0].size()) - 1});
+  // accept() refusing what the boundary allows: the triangles on it stay in rejected, their segments wanted.
+  Domain2 r = square(8);
+  Mesh2 mr = mesh2(r, Refuse(0.1));
+  CHECK(mr.status == cadgeom::Status::ok);
+  CHECK(!mr.rejected.empty());
+  CHECK_EQ(splitsWellFormed(r, mr), 0);
+  CHECK_EQ(mr.splitWanted.size(), 32u);
+  Mesh2 again = mesh2(splitAt(r, mr.splitWanted), Refuse(0.1));
+  CHECK(again.splitWanted.empty());
+  CHECK(again.rejected.empty());
 }
 
 TEST_CASE("accept() drives refinement; what it still refuses at the end is listed") {
