@@ -14,7 +14,11 @@ namespace cadgeom {
 /**
  * A B-spline curve in working form: degree, dimension, the full knot vector (each knot repeated by its multiplicity:
  * n + degree + 1 entries for n poles), and poles as n rows of `dim` coordinates, followed by the weight when rational
- * (so a rational curve's rows are dim + 1 wide; the coordinates are not premultiplied by the weight).
+ * (so a rational curve's rows are dim + 1 wide; the coordinates are not premultiplied by the weight). A curve's poles
+ * are its precision: near coordinates of size X a k-th derivative is known to about ulp(X) (degree / shortest span)^k.
+ * eval loses nothing beyond that (it works relative to the span's pole centroid), nor does the toolkit (relative to
+ * the first pole), but a toolkit result stores its poles once more, so a far curve's derivatives after insertKnot or
+ * elevateDegree can differ from the original's by up to 2 ulp(X) (degree / shortest span)^k.
  */
 struct BSpline {
   int degree = 1;

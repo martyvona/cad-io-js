@@ -41,14 +41,18 @@ inline Interval operator-(Interval a, Interval b) {
   return {interval_detail::down(a.lo - b.hi), interval_detail::up(a.hi - b.lo)};
 }
 inline Interval operator-(Interval a) { return {-a.hi, -a.lo}; }
+/** The product; 0 times an infinite end is 0 (the limit every point of the other interval gives). */
 inline Interval operator*(Interval a, Interval b) {
-  double p[4] = {a.lo * b.lo, a.lo * b.hi, a.hi * b.lo, a.hi * b.hi};
+  auto m = [](double x, double y) { return x == 0 || y == 0 ? 0.0 : x * y; };
+  double p[4] = {m(a.lo, b.lo), m(a.lo, b.hi), m(a.hi, b.lo), m(a.hi, b.hi)};
   return {interval_detail::down(*std::min_element(p, p + 4)), interval_detail::up(*std::max_element(p, p + 4))};
 }
-/** Division; a divisor containing 0 gives the entire line. */
+/** Division; a divisor containing 0 gives the entire line, and so does an infinite end over an infinite end. */
 inline Interval operator/(Interval a, Interval b) {
   if (b.lo <= 0 && b.hi >= 0) return Interval::entire();
   double q[4] = {a.lo / b.lo, a.lo / b.hi, a.hi / b.lo, a.hi / b.hi};
+  for (double x : q)
+    if (std::isnan(x)) return Interval::entire();
   return {interval_detail::down(*std::min_element(q, q + 4)), interval_detail::up(*std::max_element(q, q + 4))};
 }
 /** The square root of the interval's nonnegative part. */

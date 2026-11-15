@@ -85,7 +85,9 @@ struct CurveInversion {
 
 /**
  * The parameter in r of the point of c nearest p, global over r (branch and bound on bound(), then guarded Newton),
- * `tol` a distance in the curve's units. r defaults to the domain; a periodic curve's result lies in [lo, lo + period).
+ * `tol` a distance in the curve's units. A periodic curve's result lies in [lo, lo + period). On an exact tie the
+ * smaller t is the result and the alternatives are sorted. (A trimmed curve's domain has no period, even where its
+ * trims go once round a closed basis.)
  */
 CurveInversion invertCurve(const Curve& c, Vec3 p, Range r, double tol);
 
