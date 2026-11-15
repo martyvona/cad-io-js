@@ -1,4 +1,4 @@
-{"format":1,"name":"bsplineCylinder","variant":"s1","file":"bsplineCylinder-s1","similarity":{"scale":1,"rotation":[1,0,0,0,1,0,0,0,1],"translation":[0,0,0]},"uncertainty":0.000001,
+{"format":2,"name":"bsplineCylinder","variant":"s1","file":"bsplineCylinder-s1","similarity":{"scale":1,"rotation":[1,0,0,0,1,0,0,0,1],"translation":[0,0,0]},"uncertainty":0.000001,
 "facts": [
 {"kind":"curvePoint","id":1,"curve":0,"t":0,"p":[2,0,0],"d1":[0,11.313708498984761,0],"d2":[-64,26.509667991878075,0],"tol":1e-12,"abs":5e-12},
 {"kind":"curvePoint","id":1,"curve":0,"t":0.125,"p":[1.414213562373095,1.414213562373095,0],"d1":[-9.37258300203048,9.37258300203048,0],"d2":[-62.116015902537,-62.116015902537,0],"tol":1e-12,"abs":5e-12},

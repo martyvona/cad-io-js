@@ -293,10 +293,14 @@ export class Maker {
     }
   }
 
-  /** A point's parameter on a 3D curve, in closed form (the curve's own parameter: T keeps it). */
-  curveInverse(row: number, p: V, t: number, distance: number, certainty: Certainty, alternatives: number[] = []) {
+  /**
+   * A point's parameter on a 3D curve, in closed form (the curve's own parameter: T keeps it). `alternatives` are
+   * other feet (distinct points as near); `onSeam` the same foot reached at the other end of a closed curve's range.
+   */
+  curveInverse(row: number, p: V, t: number, distance: number, certainty: Certainty, alternatives: number[] = [],
+    onSeam = false) {
     this.facts.push({ kind: 'curveInverse', id: this.curveId(row), curve: row, p: clean(apply(this.T, p)), t,
-      distance: distance * this.T.s, certainty, alternatives, tol: TOL, abs: this.abs(), ptol: 1e-9 });
+      distance: distance * this.T.s, certainty, alternatives, onSeam, tol: TOL, abs: this.abs(), ptol: 1e-9 });
   }
 
   /** A point's (u, v) on a surface, given at local (u, v)s and reported at the built ones. */

@@ -11,6 +11,7 @@ import type { BrepData } from '../src/data.ts';
 import * as dec from '../src/decode.ts';
 import { curveEvaluator, normalAt, surfaceEvaluator } from '../src/geometry.ts';
 import { validateBrep } from '../src/validate.ts';
+import { checkCase } from './reference/check-cases.ts';
 import { FIXTURES, type Fixture, fixtures } from './reference/generate.ts';
 import { bodyVolume, curveCuts, faceArea, quad } from './reference/integrate.ts';
 import { FAR, type Fact, TOL } from './reference/maker.ts';
@@ -157,7 +158,15 @@ function checkFact(fx: Fixture, f: Fact) {
       const tan = unit(C.d1(t));
       assert.ok(Math.abs(sub(p, foot).reduce((s, x, k) => s + x * tan[k]!, 0)) <= 1e-9 * Math.max(1,
         norm(sub(p, foot))), `${what}: not a foot`);
-      for (const a of f.alternatives as number[]) near(C.point(a), foot, f.tol, f.abs, `${what}: alternative`);
+      // Alternatives are other feet as near; onSeam the same foot at the other end of a closed range.
+      for (const a of f.alternatives as number[]) {
+        near(norm(sub(p, C.point(a))), f.distance as number, 1e-9, f.abs, `${what}: alternative`);
+      }
+      assert.equal(f.certainty === 'ambiguous', (f.alternatives as number[]).length > 0, `${what}: certainty`);
+      if (f.onSeam) {
+        const [lo, hi] = C.period ? [0, C.period] : C.range;
+        near(C.point(t === lo ? hi : lo), foot, f.tol, f.abs, `${what}: onSeam`);
+      }
       if (C.period) assert.ok(t >= 0 && t < C.period, `${what}: t in [0, period)`);
       const q = C.param(p);
       if (q !== undefined && f.certainty === 'unique' && Number.isFinite(C.range[0]) && !C.period) {
@@ -208,8 +217,11 @@ function checkFact(fx: Fixture, f: Fact) {
 }
 
 for (const fx of all) {
-  test(`${fx.file}: the facts hold on the evaluators`, () => {
-    assert.ok(fx.facts.length > 0);
+  test(`${fx.file}: the facts and cases hold on the evaluators`, () => {
+    assert.ok(fx.facts.length + fx.cases.length > 0);
     for (const f of fx.facts) checkFact(fx, f);
+    const uncertainty = fx.data.part.uncertainty[0]!;
+    for (const c of fx.cases) checkCase(fx.data, c, uncertainty);
+    assert.equal(new Set(fx.cases.map((c) => c.id)).size, fx.cases.length, `${fx.file}: case ids unique`);
   });
 }

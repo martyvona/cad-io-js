@@ -1,4 +1,4 @@
-{"format":1,"name":"extrusion","variant":"far","file":"extrusion-far","similarity":{"scale":1,"rotation":[1,0,0,0,1,0,0,0,1],"translation":[1000000,-1000000,1000000]},"uncertainty":0.000001,
+{"format":2,"name":"extrusion","variant":"far","file":"extrusion-far","similarity":{"scale":1,"rotation":[1,0,0,0,1,0,0,0,1],"translation":[1000000,-1000000,1000000]},"uncertainty":0.000001,
 "facts": [
 {"kind":"surfacePoint","id":3,"surface":0,"u":0,"v":0,"p":[1000002,-1000000,1000000],"du":[0,2,0],"dv":[0,0,5],"duu":[-2,0,0],"duv":[0,0,0],"dvv":[0,0,0],"n":[1,0,0],"tol":1e-12,"abs":1.732550807568877e-8},
 {"kind":"surfacePoint","id":3,"surface":0,"u":1,"v":0.5,"p":[1000001.0806046118,-999998.3170580304,1000002.5],"du":[-1.682941969615793,1.0806046117362795,0],"dv":[0,0,5],"duu":[-1.0806046117362795,-1.682941969615793,0],"duv":[0,0,0],"dvv":[0,0,0],"n":[0.5403023058681398,0.8414709848078966,0],"tol":1e-12,"abs":1.732550807568877e-8},

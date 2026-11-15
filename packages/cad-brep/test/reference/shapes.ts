@@ -171,9 +171,9 @@ function zCircle(m: Maker, r: number, z: number, facts: boolean): number {
     m.curvePoints(row, ev, [0, 1, PI, 5]);
     m.curveLength(row, 0, TAU, TAU * r);
     m.curveLength(row, 0, 1, r);
-    // On the circle at angle 2 (unique); at its seam (both ends of the period); outside it by 0.5 at angle 4.
+    // On the circle at angle 2; at its seam (one foot, at both ends of the period); outside it by 0.5 at angle 4.
     m.curveInverse(row, ev(2).p, 2, 0, 'unique');
-    m.curveInverse(row, ev(0).p, 0, 0, 'ambiguous', [TAU]);
+    m.curveInverse(row, ev(0).p, 0, 0, 'unique', [], true);
     m.curveInverse(row, lin([1, F.o], [(r + 0.5) / r, sub(ev(4).p, F.o)]), 4, 0.5, 'unique');
   }
   return row;
@@ -347,8 +347,8 @@ const bsplineCircle: Shape = {
     m.curveLength(row, 0, 1, TAU * r);
     m.curveLength(row, 0.25, 0.625, PI * r * 3 / 4);
     m.curveInverse(row, ev(0.25).p, 0.25, 0, 'unique');
-    // Where it closes, t 0 and 1 (not periodic: its range is [0, 1]).
-    m.curveInverse(row, ev(0).p, 0, 0, 'ambiguous', [1]);
+    // Where it closes: one foot at t 0 and 1 (closed in fact, not periodic: its range is [0, 1]).
+    m.curveInverse(row, ev(0).p, 0, 0, 'unique', [], true);
     // Outside, on the ray through the point at 0.3: the same t, distance 1.
     m.curveInverse(row, lin([1, F.o], [(r + 1) / r, sub(ev(0.3).p, F.o)]), 0.3, 1, 'unique');
     m.b.addItem({ kind: 'curve', ref: row });

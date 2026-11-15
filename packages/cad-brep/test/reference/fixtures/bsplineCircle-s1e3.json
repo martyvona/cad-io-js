@@ -1,4 +1,4 @@
-{"format":1,"name":"bsplineCircle","variant":"s1e3","file":"bsplineCircle-s1e3","similarity":{"scale":1000,"rotation":[1,0,0,0,1,0,0,0,1],"translation":[0,0,0]},"uncertainty":0.001,
+{"format":2,"name":"bsplineCircle","variant":"s1e3","file":"bsplineCircle-s1e3","similarity":{"scale":1000,"rotation":[1,0,0,0,1,0,0,0,1],"translation":[0,0,0]},"uncertainty":0.001,
 "facts": [
 {"kind":"curvePoint","id":1,"curve":0,"t":0,"p":[3683.281572999748,658.3592135001262,3000],"d1":[5059.644256269405,10119.288512538813,-12649.110640673516],"d2":[-74009.52639783398,66643.47304431186,-29638.709845394842],"tol":1e-12,"abs":6e-9},
 {"kind":"curvePoint","id":1,"curve":0,"t":0.125,"p":[3529.822128134704,2316.227766016838,1418.861169915811],"d1":[-8383.093086919682,14670.41290210944,-10478.866358649599],"d2":[-111116.50723962454,-13889.56340495304,69447.81702476533],"tol":1e-12,"abs":6e-9},
@@ -10,9 +10,9 @@
 {"kind":"curveLength","id":1,"curve":0,"t0":0,"t1":0.25,"length":4712.38898038469,"tol":1e-12,"abs":6e-9},
 {"kind":"curveLength","id":1,"curve":0,"t0":0,"t1":1,"length":18849.55592153876,"tol":1e-12,"abs":6e-9},
 {"kind":"curveLength","id":1,"curve":0,"t0":0.25,"t1":0.625,"length":7068.583470577035,"tol":1e-12,"abs":6e-9},
-{"kind":"curveInverse","id":1,"curve":0,"p":[1894.4271909999156,3788.8543819998313,763.9320225002107],"t":0.25,"distance":0,"certainty":"unique","alternatives":[],"tol":1e-12,"abs":6e-9,"ptol":1e-9},
-{"kind":"curveInverse","id":1,"curve":0,"p":[3683.281572999748,658.3592135001262,3000],"t":0,"distance":0,"certainty":"ambiguous","alternatives":[1],"tol":1e-12,"abs":6e-9,"ptol":1e-9},
-{"kind":"curveInverse","id":1,"curve":0,"p":[1088.7598930755587,4805.453647447295,150.1664060149266],"t":0.3,"distance":1000,"certainty":"unique","alternatives":[],"tol":1e-12,"abs":6e-9,"ptol":1e-9}
+{"kind":"curveInverse","id":1,"curve":0,"p":[1894.4271909999156,3788.8543819998313,763.9320225002107],"t":0.25,"distance":0,"certainty":"unique","alternatives":[],"onSeam":false,"tol":1e-12,"abs":6e-9,"ptol":1e-9},
+{"kind":"curveInverse","id":1,"curve":0,"p":[3683.281572999748,658.3592135001262,3000],"t":0,"distance":0,"certainty":"unique","alternatives":[],"onSeam":true,"tol":1e-12,"abs":6e-9,"ptol":1e-9},
+{"kind":"curveInverse","id":1,"curve":0,"p":[1088.7598930755587,4805.453647447295,150.1664060149266],"t":0.3,"distance":1000,"certainty":"unique","alternatives":[],"onSeam":false,"tol":1e-12,"abs":6e-9,"ptol":1e-9}
 ],
 "cases": []
 }
