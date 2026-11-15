@@ -1120,3 +1120,42 @@ TEST_CASE("inversion at a B-spline's collapsed row finishes: the split follows t
     if (ms >= 200) std::printf("  pole at v = %g: %.1f ms\n", x.at, ms);
   }
 }
+
+TEST_CASE("closeInFact: an extrusion of a closed profile closes in u though its v is infinite") {
+  // The reference B-spline circle (closed in fact: t 0 and 1 one point, not periodic) extruded along (0, 0, 1),
+  // magnitude 2: u closes over the window v in [-1, 1]; with the profile's last pole moved 1e-6 it doesn't.
+  const fixtures::Reference* ref = fixtures::reference("bsplineCircle", "s1");
+  REQUIRE(ref);
+  const Model m(ref->data, ref->size);
+  double r[4] = {0, 0, 1, 2};
+  Status s;
+  std::unique_ptr<Surface> e = surfaces::makeExtrusion(m, 0, r, 0, s);
+  REQUIRE(e);
+  CHECK(e->domain().uPeriod == 0);
+  CHECK(!std::isfinite(e->domain().v.hi));
+  auto c = closeInFact(std::move(e), 1e-9);
+  CHECK(c->domain().uPeriod == 1);
+  SurfacePoint a, b;
+  c->eval(0.25, 5, 1, a), c->eval(1.25, 5, 1, b);
+  CHECK(nearVec(a.p, b.p, 0, 1e-12));
+  // A seam point far along v: on the seam, its u in [0, 1).
+  SurfacePoint q;
+  c->eval(0, 40, 1, q);
+  Vec3 n = (1 / norm(cross(q.du, q.dv))) * cross(q.du, q.dv);
+  SurfaceInversion inv = invertSurface(*c, q.p + 0.5 * n, c->domain().u, c->domain().v, 1e-9);
+  CHECK(inv.status == Status::ok);
+  CHECK(inv.onSeamU);
+  CHECK(inv.uv.x >= 0 && inv.uv.x < 1);
+  CHECK_NEAR(inv.uv.y, 40, 0, 1e-8);
+  // Not closed: the same extrusion with its profile's last pole moved 1e-6 stays open at tol 1e-9.
+  std::vector<uint8_t> copy(ref->data, ref->data + ref->size);
+  std::vector<uint64_t> buf((copy.size() + 7) / 8);
+  std::memcpy(buf.data(), copy.data(), copy.size());
+  Model mm(reinterpret_cast<const uint8_t*>(buf.data()), copy.size());
+  double* reals = const_cast<double*>(mm.curveReals(0));
+  int k = mm.curveInts(0)[2], n9 = mm.curveInts(0)[1];
+  reals[k + 3 * (n9 - 1)] += 1e-6;
+  std::unique_ptr<Surface> open = surfaces::makeExtrusion(mm, 0, r, 0, s);
+  REQUIRE(open);
+  CHECK(closeInFact(std::move(open), 1e-9)->domain().uPeriod == 0);
+}

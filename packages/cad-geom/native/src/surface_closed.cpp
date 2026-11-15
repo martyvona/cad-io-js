@@ -133,12 +133,15 @@ std::unique_ptr<Surface> closeInFact(std::unique_ptr<Surface> s, double tol) {
   };
   auto y = [](Range r, int k) { return k == 8 ? r.hi : r.lo + (r.hi - r.lo) * k / 8; };
   bool fu = finite(d.u), fv = finite(d.v);
-  // Closed in fact: the two ends one curve at 9 points of the other range.
+  // Closed in fact: the two ends one curve at 9 points of the other range, or of [-1, 1] where that is infinite (an
+  // extrusion's ends differ by its profile's whatever v is; no other kind with an infinite range closes in fact).
+  auto window = [](Range r) { return finite(r) ? r : Range{std::fmax(r.lo, -1.0), std::fmin(r.hi, 1.0)}; };
   auto closes = [&](bool isU) {
-    if (!fu || !fv || (isU ? d.uPeriod : d.vPeriod) > 0) return false;
+    if (!(isU ? fu : fv) || (isU ? d.uPeriod : d.vPeriod) > 0) return false;
+    Range wu = window(d.u), wv = window(d.v);
     for (int k = 0; k <= 8; k++) {
-      Vec3 a = isU ? at(d.u.lo, y(d.v, k)) : at(y(d.u, k), d.v.lo);
-      Vec3 b = isU ? at(d.u.hi, y(d.v, k)) : at(y(d.u, k), d.v.hi);
+      Vec3 a = isU ? at(d.u.lo, y(wv, k)) : at(y(wu, k), d.v.lo);
+      Vec3 b = isU ? at(d.u.hi, y(wv, k)) : at(y(wu, k), d.v.hi);
       if (!(norm(a - b) <= tol)) return false;
     }
     return true;
