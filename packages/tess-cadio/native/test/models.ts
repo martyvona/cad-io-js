@@ -496,7 +496,67 @@ export function bsplineDome(): BrepBuilder {
   return b;
 }
 
-export const MODELS = { bsplineTube, bsplineTubeTinyArc, bsplineDome, offPoleArc, offPcurves, bandHoleAtVertex,
-  bandHoleOnCut, halfCap, meridianHemisphere, band: band_, bandByInversion, bore, nistBore, seamByInversion, offVertex,
-  pcurveOnly, luneQuarter, luneOnSeam, cap, splineEdge, seamFlipped, polylineEdge, pcurveCircle, arcSegment, fold,
-  twisted, wrongSense, zeroEdge };
+/** offPoleArc's loop the other way round: the rest of the sphere, its loop winding round to the south pole. */
+export function offPoleRest(): BrepBuilder {
+  const b = new BrepBuilder({ uncertainty: 1e-5 });
+  const dz = 7e-4, r = Math.hypot(1, dz), t0 = Math.atan2(dz, 1);
+  const va = b.addVertex({ point: [1, 0, 0] }), vb = b.addVertex({ point: [-1, 0, 0] });
+  const arc = b.addCurve({ kind: 'circle', position: { origin: [0, 0, -dz], axis: [0, -1, 0], xDir: [1, 0, 0] },
+    radius: r });
+  const eq = b.addCurve({ kind: 'circle', position: AXIS, radius: 1 });
+  const ea = b.addEdge({ curve: arc, start: va, end: vb, sameSense: true, range: [t0, Math.PI - t0] });
+  const ee = b.addEdge({ curve: eq, start: vb, end: va, sameSense: true, range: [Math.PI, 2 * Math.PI] });
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'sphere', position: AXIS, radius: 1 }), sameSense: true,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true,
+      coedges: [{ edge: ee, orientation: 'reversed' }, { edge: ea, orientation: 'reversed' }] }] }));
+  return b;
+}
+
+/**
+ * A band (radius 2, z 0 to 5) whose bottom boundary, a rectilinear loop of arcs and vertical lines in (u, v),
+ * winds once but crosses u = 0 three times (`wiggle`), or (else) only in a one-span arc of 0.2 rad (0.4 mm, under
+ * the medium profile's spacing on it) starting at a junction (a notch); the top its circle. Areas 20 pi - 0.9 and
+ * 20 pi - 0.2.
+ */
+function rectilinearBand(wiggle: boolean): BrepBuilder {
+  const b = new BrepBuilder();
+  const at = (u: number, z: number) => [2 * Math.cos(u), 2 * Math.sin(u), z];
+  const tw = 2 * Math.PI;
+  // The bottom loop's corners in (u, v), its first arc the long way round from u0 to u1 + 2 pi.
+  const pts = wiggle
+    ? [[0.29, 0], [tw - 0.31, 0], [tw - 0.31, 1], [tw + 0.29, 1], [tw + 0.29, 0.6], [tw - 0.21, 0.6],
+      [tw - 0.21, 0.3], [tw + 0.29, 0.3]]
+    : [[0.095, 0], [tw - 0.105, 0], [tw - 0.105, 0.5], [tw + 0.095, 0.5]];
+  const vs = pts.map(([u, z]) => b.addVertex({ point: at(u!, z!) }));
+  const coedges = pts.map(([u0, z0], k) => {
+    const [u1, z1] = pts[(k + 1) % pts.length]!;
+    const end = (k + 1) % pts.length;
+    if (z0 === z1) {
+      // An arc at z0 from u0 to u1 (the closing side from the last corner back to the first, a period on).
+      const to = k + 1 === pts.length ? u1! + tw : u1!;
+      const circle = b.addCurve({ kind: 'circle', position: { ...AXIS, origin: [0, 0, z0!] }, radius: 2 });
+      const up = to > u0!;
+      return { edge: b.addEdge({ curve: circle, start: vs[k]!, end: vs[end]!, sameSense: up,
+        range: [u0!, to] }), orientation: 'forward' as const };
+    }
+    const line = b.addCurve({ kind: 'line', point: at(u0!, 0), direction: [0, 0, 1], magnitude: 1 });
+    return { edge: b.addEdge({ curve: line, start: vs[k]!, end: vs[end]!, sameSense: z1! > z0!, range: [z0!, z1!] }),
+      orientation: 'forward' as const };
+  });
+  // (The top circle from u = 1.7, so none of its samples falls at the period's start: the cut is tried there first.)
+  const top = b.addCurve({ kind: 'circle', position: { origin: [0, 0, 5], axis: [0, 0, 1],
+    xDir: [Math.cos(1.7), Math.sin(1.7), 0] }, radius: 2 });
+  const vt = b.addVertex({ point: at(1.7, 5) });
+  const et = b.addEdge({ curve: top, start: vt, end: vt, sameSense: true });
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'cylinder', position: AXIS, radius: 2 }), sameSense: true,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges },
+      { kind: 'edge', bound: 'inner', sense: true, coedges: [{ edge: et, orientation: 'reversed' }] }] }));
+  return b;
+}
+export const wigglyBand = (): BrepBuilder => rectilinearBand(true);
+export const notchBand = (): BrepBuilder => rectilinearBand(false);
+
+export const MODELS = { offPoleRest, wigglyBand, notchBand, bsplineTube, bsplineTubeTinyArc, bsplineDome, offPoleArc,
+  offPcurves, bandHoleAtVertex, bandHoleOnCut, halfCap, meridianHemisphere, band: band_, bandByInversion, bore,
+  nistBore, seamByInversion, offVertex, pcurveOnly, luneQuarter, luneOnSeam, cap, splineEdge, seamFlipped,
+  polylineEdge, pcurveCircle, arcSegment, fold, twisted, wrongSense, zeroEdge };
