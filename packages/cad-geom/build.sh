@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Build cad-geom's C++ (native/src/**/*.cpp) as a static library that other packages compile into their own modules:
-# build/cad-geom-<target>/libcadgeom.a, with its headers in native/include/ (include as <cad_geom/...>) and Eigen's
+# Build cad-geom's C++ (native/src/**/*.cpp, and the vendored C of native/third_party/*.c) as a static library that
+# other packages compile into their own modules: build/cad-geom-<target>/libcadgeom.a, with its headers in native/include/ (include as <cad_geom/...>) and Eigen's
 # from third_party/eigen (third_party/pull.sh).
 #   ./build.sh            the library; T=wasm (default: the project's Emscripten, -Os, WebAssembly exceptions, as
 #                         tess-smlib links) or T=native (the host's compiler, -O2)
@@ -67,6 +67,10 @@ NODE=$(command -v node || true)
 # cad_brep.h, which the headers include, from cad-brep (its layout.ts generates it).
 COMMON=(-std=c++20 -Wall -Wextra -Inative/include -I../cad-brep/include -isystem "$E"
   "-ffile-prefix-map=$ROOT/=cad-io-js/")
+# The vendored C (native/third_party/README.md): as C, unmodified, so its warnings are silenced, and without fused
+# multiply-adds, which would break its error-free transformations.
+CCOMMON=(-std=gnu11 -w -ffp-contract=off "-ffile-prefix-map=$ROOT/=cad-io-js/")
+csources() { find native/third_party -name '*.c' | sort; }
 emsdk() {
   # The project's Emscripten (scripts/emsdk-env.sh), whatever emcc the shell has.
   . ../../scripts/emsdk-env.sh "$ROOT"
@@ -81,20 +85,22 @@ compile() {
   [ $# -gt 0 ] || return 0
   printf '%s\n' "$@" | xargs -P "$J" -I{} sh -c '
     src=$1; shift; out=$1; shift; cxx=$1; shift
-    o=$out/$(printf %s "$src" | tr / _ | sed "s/\.cpp$//").o
+    o=$out/$(printf %s "$src" | tr / _ | sed -E "s/\.(cpp|c)$//").o
     "$cxx" "$@" -MD -MF "${o%.o}.d" -c "$src" -o "$o" || { echo "FAILED $src" >&2; exit 255; }' \
     _ {} "$out" "$cxx" "${flags[@]}"
   guard "$out"/*.d
 }
 
-# library <target> <compiler> <archiver> <flags...>: build/cad-geom-<target>/libcadgeom.a
+# library <target> <C++ compiler> <C compiler> <archiver> <flags...>: build/cad-geom-<target>/libcadgeom.a, the flags
+# for both languages (each gets its own common ones)
 library() {
-  local t=$1 cxx=$2 ar=$3; shift 3
+  local t=$1 cxx=$2 cc=$3 ar=$4; shift 4
   local b=build/cad-geom-$t
   mkdir -p "$b"
-  compile "$b/obj" "$cxx" "$@" -- $(find native/src -name '*.cpp' | sort)
+  compile "$b/obj" "$cxx" "$@" "${COMMON[@]}" -- $(find native/src -name '*.cpp' | sort)
+  compile "$b/obj-c" "$cc" "$@" "${CCOMMON[@]}" -- $(csources)
   rm -f "$b/libcadgeom.a"
-  local objs=("$b"/obj/*.o)
+  local objs=($(ls "$b"/obj/*.o "$b"/obj-c/*.o 2> /dev/null | sort))
   [ -e "${objs[0]}" ] || { echo "no sources in native/src" >&2; exit 1; }
   # D: no dates or owners in the archive (GNU ar's and llvm-ar's flag; ZERO_AR_DATE for macOS's ar).
   if "$ar" --version 2>/dev/null | grep -qE 'GNU|LLVM'; then "$ar" rcsD "$b/libcadgeom.a" "${objs[@]}"
@@ -102,8 +108,8 @@ library() {
   echo "$PWD/$b/libcadgeom.a"
 }
 
-wasm_lib() { (emsdk; library wasm em++ emar -Os -fwasm-exceptions -DNDEBUG "${COMMON[@]}"); }
-native_lib() { library native c++ ar -O2 -DNDEBUG "${COMMON[@]}"; }
+wasm_lib() { (emsdk; library wasm em++ emcc emar -Os -fwasm-exceptions -DNDEBUG); }
+native_lib() { library native c++ cc ar -O2 -DNDEBUG; }
 
 if [ "$MODE" = lib ]; then
   case ${T:-wasm} in
@@ -132,7 +138,9 @@ run() { # <name> <command...>: runs one test binary, its output as it comes
 SAN=(-O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize-recover=all)
 compile build/test/native/obj c++ "${SAN[@]}" "${COMMON[@]}" "${FIX[@]}" -- $(find native/src -name '*.cpp' | sort) \
   $tests
-srcobjs=$(find native/src -name '*.cpp' | sort | tr / _ | sed 's/\.cpp$/.o/; s|^|build/test/native/obj/|')
+compile build/test/native/obj-c cc "${SAN[@]}" "${CCOMMON[@]}" -- $(csources)
+srcobjs="$(find native/src -name '*.cpp' | sort | tr / _ | sed 's/\.cpp$/.o/; s|^|build/test/native/obj/|') \
+  $(ls build/test/native/obj-c/*.o 2> /dev/null | sort)"
 for t in $tests; do
   n=$(basename "$t" .cpp)
   c++ "${SAN[@]}" $srcobjs "build/test/native/obj/$(printf %s "$t" | tr / _ | sed 's/\.cpp$//').o" \
