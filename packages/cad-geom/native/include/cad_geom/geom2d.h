@@ -25,9 +25,17 @@ struct Loop2 {
   std::vector<LoopPiece> pieces;
 };
 
-/** The (u, v) periods of the surface the loops are on (0: not periodic). */
+/**
+ * What the loops' (u, v) domain needs from the surface they're on: its periods (0: not periodic), and its pole
+ * lines, the iso-lines u = c (poleU) or v = c (poleV) where the surface collapses to a point (a cone's apex, a
+ * sphere's poles, a revolution's profile meeting the axis; Surface::singularities' poles and apexes). A loop that
+ * jumps along a pole line (a degenerate edge the canonical model leaves out) is closed by that line's segment, and a
+ * point on it within the face is "on". Without them a cone's apex jump and a band's loop closing around the period
+ * look the same.
+ */
 struct Periods {
   double u = 0, v = 0;
+  std::vector<double> poleU, poleV;
 };
 
 /** Two curves meeting at a point: parameters on each, the point, whether they touch without crossing there. */
