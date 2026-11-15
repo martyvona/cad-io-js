@@ -1,14 +1,16 @@
-// The provisional criteria (criteria.h): one size h for the whole face, from a bound on its normal curvature k over
-// its (u, v) box, h = min(sqrt(8 d / k), angle / k): a chord of length h on a curve of curvature k strays h^2 k / 8,
-// and the normal turns by h k along it. k is max |S''| over the box (derivBound) divided by the least |S_u|^2, |S_v|^2
-// sampled on it (floored at a tenth of their largest, so a pole's collapse doesn't take it to infinity; where the
-// surface has no derivBound, the largest |S''| sampled there, an estimate). One h per
-// face is too coarse wherever curvature varies (a B-spline's, a sphere near its pole): the surfaces' lane makes it
-// local (per point, and anisotropic: the principal curvatures), and replaces this file.
+// The provisional criteria (criteria.h): one size h for the whole face, from its largest normal curvature k over its
+// (u, v) box, h = min(sqrt(8 d / k), angle / k): a chord of length h on a curve of curvature k strays h^2 k / 8, and
+// the normal turns by h k along it. k is the second fundamental form over the first, sampled on a grid: at each point
+// max(|L| / E, |N| / G) + |M| / sqrt(E G) (L = n . S_uu, M = n . S_uv, N = n . S_vv; E, G = |S_u|^2, |S_v|^2), at
+// least the largest principal curvature where S_u and S_v are orthogonal; points where S_u or S_v vanish (a pole)
+// skipped. Not a bound (between grid points it can miss), though accept() holds the deflection on every triangle;
+// and one h per face is too coarse wherever curvature varies (a B-spline's): the surfaces' lane makes it local and
+// rigorous (per point, anisotropic: the principal curvatures and directions, from bounds), and replaces this file.
 #include "tess_cadio/criteria.h"
 
 #include <algorithm>
 #include <cmath>
+#include <vector>
 
 namespace tesscadio {
 
@@ -75,37 +77,35 @@ private:
 std::unique_ptr<SurfaceCriteria> makeCriteria(const Model&, int, const Surface& s, Box2 uv, const Deflections& d,
   Status& status) {
   Range ru{uv.x.lo, uv.x.hi}, rv{uv.y.lo, uv.y.hi};
-  double o2[3] = {0, 0, 0};
   status = Status::unsupported;
   if (!(d.linear > 0) || !std::isfinite(ru.lo) || !std::isfinite(ru.hi) || !std::isfinite(rv.lo) ||
     !std::isfinite(rv.hi))
     return nullptr;
-  // Without a bound (cad-geom's B-spline surfaces have none yet): the second derivatives' largest on the grid
-  // below, an estimate (accept() still holds the deflection).
-  bool bounded = s.derivBound(ru, rv, 2, o2) == Status::ok;
-  // The least and largest |S_u|, |S_v| on a grid over the box, and its 3D extent.
-  double minU = INFINITY, minV = INFINITY, maxU = 0, maxV = 0;
-  Box3 box{};
-  bool first = true;
+  // The normal curvature's largest on a grid over the box, and the box's 3D extent.
+  std::vector<SurfacePoint> grid;
+  double maxU = 0, maxV = 0;
   const int N = 8;
   for (int i = 0; i <= N; i++)
     for (int j = 0; j <= N; j++) {
       SurfacePoint q;
       s.eval(ru.lo + (ru.hi - ru.lo) * i / N, rv.lo + (rv.hi - rv.lo) * j / N, 2, q);
-      double nu = norm(q.du), nv = norm(q.dv);
-      if (!bounded) o2[0] = std::max(o2[0], norm(q.duu)), o2[1] = std::max(o2[1], norm(q.duv)),
-        o2[2] = std::max(o2[2], norm(q.dvv));
-      minU = std::min(minU, nu), maxU = std::max(maxU, nu), minV = std::min(minV, nv), maxV = std::max(maxV, nv);
-      if (first) box = {{q.p.x, q.p.x}, {q.p.y, q.p.y}, {q.p.z, q.p.z}}, first = false;
-      box.x.lo = std::min(box.x.lo, q.p.x), box.x.hi = std::max(box.x.hi, q.p.x);
-      box.y.lo = std::min(box.y.lo, q.p.y), box.y.hi = std::max(box.y.hi, q.p.y);
-      box.z.lo = std::min(box.z.lo, q.p.z), box.z.hi = std::max(box.z.hi, q.p.z);
+      grid.push_back(q);
+      maxU = std::max(maxU, norm(q.du)), maxV = std::max(maxV, norm(q.dv));
     }
-  minU = std::max(minU, 0.1 * maxU), minV = std::max(minV, 0.1 * maxV);
   double k = 0;
-  if (minU > 0) k = std::max(k, o2[0] / (minU * minU));
-  if (minV > 0) k = std::max(k, o2[2] / (minV * minV));
-  if (minU > 0 && minV > 0) k = std::max(k, o2[1] / (minU * minV));
+  Box3 box{{grid[0].p.x, grid[0].p.x}, {grid[0].p.y, grid[0].p.y}, {grid[0].p.z, grid[0].p.z}};
+  for (const SurfacePoint& q : grid) {
+    box.x.lo = std::min(box.x.lo, q.p.x), box.x.hi = std::max(box.x.hi, q.p.x);
+    box.y.lo = std::min(box.y.lo, q.p.y), box.y.hi = std::max(box.y.hi, q.p.y);
+    box.z.lo = std::min(box.z.lo, q.p.z), box.z.hi = std::max(box.z.hi, q.p.z);
+    double E = dot(q.du, q.du), G = dot(q.dv, q.dv);
+    Vec3 n = cross(q.du, q.dv);
+    double nn = norm(n);
+    if (!(E > 1e-12 * maxU * maxU) || !(G > 1e-12 * maxV * maxV) || !(nn > 0)) continue;
+    n = (1 / nn) * n;
+    double L = dot(n, q.duu), M = dot(n, q.duv), Nn = dot(n, q.dvv);
+    k = std::max(k, std::max(std::fabs(L) / E, std::fabs(Nn) / G) + std::fabs(M) / std::sqrt(E * G));
+  }
   double extent = std::hypot(box.x.hi - box.x.lo, box.y.hi - box.y.lo, box.z.hi - box.z.lo);
   double h = extent > 0 ? extent : 1;
   if (k > 0 && std::isfinite(k)) {
