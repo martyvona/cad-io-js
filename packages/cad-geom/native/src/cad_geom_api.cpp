@@ -659,6 +659,8 @@ int32_t useRange(int32_t h, int c, const Surface* surface, const Periods& per, d
   return curveOff <= 100 * tol ? 0 : FACE_RANGE_OFF;
 }
 
+double uvTolerance(const FaceLoops& f, Vec2 p);
+
 FaceLoops faceLoops(int32_t h, int32_t face, double tol3d) {
   FaceLoops out;
   Entry* e = entry(h);
@@ -763,7 +765,9 @@ FaceLoops faceLoops(int32_t h, int32_t face, double tol3d) {
       Vec2 g = b - a;
       if (out.periods.u > 0) g.x -= out.periods.u * std::round(g.x / out.periods.u);
       if (out.periods.v > 0) g.y -= out.periods.v * std::round(g.y / out.periods.v);
-      if (!(std::hypot(g.x, g.y) > 1e-12 * (1 + std::hypot(a.x, a.y)))) continue;
+      // (Within half the joint's (u, v) tolerance geom2d joins them itself; a bridge there would part neighbours,
+      // which then touch across it.)
+      if (!(std::hypot(g.x, g.y) > 0.5 * uvTolerance(out, a))) continue;
       if (g.x != b.x - a.x || g.y != b.y - a.y) continue;  // a period apart: a band's closing
       SurfacePoint qa, qb;
       if (out.surface->eval(a.x, a.y, 0, qa) != Status::ok || out.surface->eval(b.x, b.y, 0, qb) != Status::ok

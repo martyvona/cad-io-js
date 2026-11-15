@@ -480,9 +480,10 @@ test('faces: joints that meet within the 3D tolerance but not the (u, v) one are
   async () => {
   // A cylinder of radius 100, its patch u in [0, 0.01], v in [0, 1]; the left side's p-curve 1e-6 high in v: its
   // joints meet within the part's 2e-6 in 3D, though 50 x the (u, v) tolerance (2e-6 / 100). Moved 1e-7 in u (1e-5
-  // in 3D, along a line no reparameterization brings to the vertices) they don't: a gap.
+  // in 3D, along a line no reparameterization brings to the vertices) they don't: a gap. 1e-9 high, geom2d joins them
+  // itself: no bridge, which would part the pieces either side so that they touch across it.
   const module = await init();
-  for (const [du, dv] of [[0, 1e-6], [1e-7, 0]]) {
+  for (const [du, dv] of [[0, 1e-6], [1e-7, 0], [0, 1e-9]]) {
   const b = new BrepBuilder({ uncertainty: 2e-6 });
   const R = 100, w = 0.01;
   const z = { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] };
@@ -508,5 +509,8 @@ test('faces: joints that meet within the 3D tolerance but not the (u, v) one are
   assert.deepEqual([...r.statuses].map((x) => STATUS[x]), Array(3).fill(du ? 'invalidModel' : 'ok'));
   assert.deepEqual([...r.sides].map((x) => ['in', 'out', 'on'][x]), ['in', 'out', 'out']);
   assert.ok(r.tolerance[0]! < 1e-7);
+  // (Bridged, the left side's overshoot doubles back over itself by 1e-6 in v: an overlap at the (u, v) tolerance.)
+  const self = g.selfIntersectFace(0, 0);
+  if (dv === 1e-9) assert.deepEqual([self.self, self.crossings, self.touches, self.overlaps], ['ok', 0, 0, 0]);
   }
 });
