@@ -331,10 +331,17 @@ export const check: FileCheck<undefined, Result> = {
               const seam = (x: number, period: number) => period > 0
                 && Math.abs(x - period * Math.round(x / period)) <= 20 * tolUv[i >> 1]!;
               const nearSeam = seam(u, info.uPeriod) || seam(v, info.vPeriod);
+              // Outside the surface's (u, v) domain in a direction without a period: not on the face whatever the
+              // loops say.
+              const sd = g0.surfaceInfo(d.face.surface[f]!);
+              const beyond = (x: number, r: (number | null)[], period: number) => !(period > 0)
+                && Number.isFinite(r[0]) && Number.isFinite(r[1]) && (x < r[0]! || x > r[1]!);
+              const outside = beyond(u, sd.u, info.uPeriod) || beyond(v, sd.v, info.vPeriod);
               const why = !shifts.length ? 'not periodic'
                 : shifted.includes(ours!) ? `agrees a period on (OCCT doesn't reduce (u, v) by the period)`
                   : 'not a period on either';
-              tally(R.occt, `ours ${ours}, OCCT ${theirs}: ${why}${nearSeam ? ', within 20 x tol of the seam' : ''}`,
+              tally(R.occt, `ours ${ours}, OCCT ${theirs}: ${why}${nearSeam ? ', within 20 x tol of the seam' : ''}`
+                + (outside ? ', the point outside the surface\'s domain' : ''),
                 `${at}: (${u}, ${v})`);
             }
           }

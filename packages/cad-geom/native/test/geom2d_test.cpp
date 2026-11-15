@@ -399,6 +399,56 @@ TEST_CASE("intersect2 and classify2: a long line past a circle's bulge, crossing
   CHECK(classify2({disk}, {-1 + h, 0}, {}, tol, st) == Side::in);
 }
 
+TEST_CASE("classify2: one closed polyline curve (straight between corners, as a degree-1 B-spline): on along a side, "
+  "in and out") {
+  // The unit square as one curve on [0, 4], t's integer part the side: derivBound of order 2 is 0 everywhere, its
+  // breaks the corners. Its ends meet, so a side's orientation can't come from them; and a point on a straight side
+  // has a corner as the coarse polyline's nearest vertex, where Newton takes the other side's derivative.
+  class Square final : public Curve {
+  public:
+    int dim() const override { return 2; }
+    CurveDomain domain() const override { return {{0, 4}, 0}; }
+    Status eval(double t, int, CurvePoint& out) const override {
+      const Vec2 c[5] = {{1, 1}, {0, 1}, {0, 0}, {1, 0}, {1, 1}};
+      const int k = std::clamp(static_cast<int>(std::floor(t)), 0, 3);
+      const Vec2 d = c[k + 1] - c[k], p = c[k] + (t - k) * d;
+      out = {{p.x, p.y, 0}, {d.x, d.y, 0}, {}};
+      return t < 0 || t > 4 ? Status::outOfDomain : Status::ok;
+    }
+    void breaks(Range r, std::vector<double>& out) const override {
+      out = {r.lo};
+      for (double k : {1.0, 2.0, 3.0})
+        if (k > r.lo && k < r.hi) out.push_back(k);
+      out.push_back(r.hi);
+    }
+    Status bound(Range, Box3& out) const override {
+      out = {{0, 1}, {0, 1}, Interval::point(0)};
+      return Status::ok;
+    }
+    Status derivBound(Range, int order, double& out) const override {
+      out = order == 1 ? 1 : 0;
+      return Status::ok;
+    }
+    void singular(Range, std::vector<double>& out) const override { out.clear(); }
+  } square;
+  Loop2 loop;
+  loop.pieces.push_back({&square, {0, 4}, false});
+  const double tol = 1e-6;
+  auto side = [&](Vec2 p) {
+    Status st;
+    Side s = classify2({loop}, p, {}, tol, st);
+    CHECK(st == Status::ok);
+    return s;
+  };
+  CHECK(side({0.8, 0}) == Side::on);
+  CHECK(side({0.8, 1e-12}) == Side::on);
+  CHECK(side({0, 0.3}) == Side::on);
+  CHECK(side({1e-4, 0.8}) == Side::in);
+  CHECK(side({0.5, 0.5}) == Side::in);
+  CHECK(side({-1e-4, 0.8}) == Side::out);
+  CHECK(side({0.5, 1.2}) == Side::out);
+}
+
 TEST_CASE("intersect2: circles crossing, touching outside and inside, the same circle over two ranges") {
   Arc2 a({0, 0}, 1), b({1, 0}, 1), out({2, 0}, 1), in({0.5, 0}, 0.5);
   const Range full{0, 2 * pi};
