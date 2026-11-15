@@ -19,6 +19,11 @@ struct PartOptions {
   Deflections d;
   /** Rounds of splitting edges and meshing their faces again. */
   int maxSplitRounds = 4;
+  /**
+   * The criteria's spacing for each face's edges multiplied by this (above 1: edges coarser than the faces want,
+   * left to the split rounds; for tests and tuning).
+   */
+  double edgeSpacingScale = 1;
 };
 
 struct FaceMesh {
@@ -38,7 +43,7 @@ struct FaceMesh {
    * are meshed as fans), as indices into `triangles` / 3; those with two corners at one point left out with them.
    */
   std::vector<int32_t> rejected;
-  /** Splits it still wanted when the rounds ran out. */
+  /** Splits of its edges it still wanted when the rounds ran out. */
   int splitsWanted = 0;
   /** A note for diagnostics where the face is meshed but not as asked (its boundary's status), else empty. */
   std::string note;

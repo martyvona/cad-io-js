@@ -1,7 +1,8 @@
 // The provisional criteria (criteria.h): one size h for the whole face, from a bound on its normal curvature k over
 // its (u, v) box, h = min(sqrt(8 d / k), angle / k): a chord of length h on a curve of curvature k strays h^2 k / 8,
 // and the normal turns by h k along it. k is max |S''| over the box (derivBound) divided by the least |S_u|^2, |S_v|^2
-// sampled on it (floored at a tenth of their largest, so a pole's collapse doesn't take it to infinity). One h per
+// sampled on it (floored at a tenth of their largest, so a pole's collapse doesn't take it to infinity; where the
+// surface has no derivBound, the largest |S''| sampled there, an estimate). One h per
 // face is too coarse wherever curvature varies (a B-spline's, a sphere near its pole): the surfaces' lane makes it
 // local (per point, and anisotropic: the principal curvatures), and replaces this file.
 #include "tess_cadio/criteria.h"
@@ -47,8 +48,8 @@ public:
     for (int i = 0; i < 3; i++) has[i] = s_.normal(t[i].x, t[i].y, n[i]) == Status::ok;
     // (A facet with two corners on a pole line has rounding for a normal: no direction to judge.)
     double gl = norm(g), c = d_.angular > 0 ? std::cos(d_.angular) : 0;
-    double sides = norm(p[1] - p[0]) * norm(p[2] - p[0]) + norm(p[2] - p[1]) * norm(p[0] - p[1]);
-    bool facet = gl > 1e-9 * sides;
+    double longest = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
+    bool facet = gl > 1e-9 * longest * longest;
     for (int i = 0; i < 3; i++) {
       if (!has[i]) continue;
       if (facet && dot(g, n[i]) < c * gl) return false;
@@ -77,8 +78,11 @@ std::unique_ptr<SurfaceCriteria> makeCriteria(const Model&, int, const Surface& 
   double o2[3] = {0, 0, 0};
   status = Status::unsupported;
   if (!(d.linear > 0) || !std::isfinite(ru.lo) || !std::isfinite(ru.hi) || !std::isfinite(rv.lo) ||
-    !std::isfinite(rv.hi) || s.derivBound(ru, rv, 2, o2) != Status::ok)
+    !std::isfinite(rv.hi))
     return nullptr;
+  // Without a bound (cad-geom's B-spline surfaces have none yet): the second derivatives' largest on the grid
+  // below, an estimate (accept() still holds the deflection).
+  bool bounded = s.derivBound(ru, rv, 2, o2) == Status::ok;
   // The least and largest |S_u|, |S_v| on a grid over the box, and its 3D extent.
   double minU = INFINITY, minV = INFINITY, maxU = 0, maxV = 0;
   Box3 box{};
@@ -87,8 +91,10 @@ std::unique_ptr<SurfaceCriteria> makeCriteria(const Model&, int, const Surface& 
   for (int i = 0; i <= N; i++)
     for (int j = 0; j <= N; j++) {
       SurfacePoint q;
-      s.eval(ru.lo + (ru.hi - ru.lo) * i / N, rv.lo + (rv.hi - rv.lo) * j / N, 1, q);
+      s.eval(ru.lo + (ru.hi - ru.lo) * i / N, rv.lo + (rv.hi - rv.lo) * j / N, 2, q);
       double nu = norm(q.du), nv = norm(q.dv);
+      if (!bounded) o2[0] = std::max(o2[0], norm(q.duu)), o2[1] = std::max(o2[1], norm(q.duv)),
+        o2[2] = std::max(o2[2], norm(q.dvv));
       minU = std::min(minU, nu), maxU = std::max(maxU, nu), minV = std::min(minV, nv), maxV = std::max(maxV, nv);
       if (first) box = {{q.p.x, q.p.x}, {q.p.y, q.p.y}, {q.p.z, q.p.z}}, first = false;
       box.x.lo = std::min(box.x.lo, q.p.x), box.x.hi = std::max(box.x.hi, q.p.x);

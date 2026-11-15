@@ -6,9 +6,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { openEdges, type TessellationResult } from 'cad-scene';
+import { openEdges, oracleMeasures, type TessellationResult } from 'cad-scene';
 import { MODELS } from '../../cad-brep/test/models.ts';
 import { CadioTessellator, VERSION } from '../src/index.ts';
+import { fold } from '../native/test/models.ts';
 
 const dist = path.join(import.meta.dirname, '..', 'dist', 'tess_cadio.wasm');
 const skip = fs.existsSync(dist) ? false : 'tess-cadio\'s module not built (run packages/tess-cadio/build.sh module)';
@@ -23,6 +24,22 @@ async function tessellator(): Promise<CadioTessellator> {
 const req = (name: keyof typeof MODELS, extra: object = {}) => ({ format: 'cad-brep' as const,
   data: new Uint8Array(MODELS[name]().finish().buffer), linearDeflection: 0.01, angularDeflection: 0.26,
   edges: true, ...extra });
+/** Each face range's triangles' area, by its id. */
+function areas(r: TessellationResult): Map<number | null, number> {
+  const out = new Map<number | null, number>(), p = r.positions;
+  for (const f of r.faces) {
+    let a = 0;
+    for (let t = f.start; t < f.start + f.count; t += 3) {
+      const [i, j, k] = [r.indices[t]! * 3, r.indices[t + 1]! * 3, r.indices[t + 2]! * 3];
+      const u = [p[j]! - p[i]!, p[j + 1]! - p[i + 1]!, p[j + 2]! - p[i + 2]!];
+      const v = [p[k]! - p[i]!, p[k + 1]! - p[i + 1]!, p[k + 2]! - p[i + 2]!];
+      a += 0.5 * Math.hypot(u[1]! * v[2]! - u[2]! * v[1]!, u[2]! * v[0]! - u[0]! * v[2]!,
+        u[0]! * v[1]! - u[1]! * v[0]!);
+    }
+    out.set(f.entityId, (out.get(f.entityId) ?? 0) + a);
+  }
+  return out;
+}
 const bytes = (r: TessellationResult) => JSON.stringify([Array.from(r.positions), Array.from(r.normals ?? []),
   Array.from(r.indices), r.faces, r.edges, Array.from(r.edgePositions ?? []), r.diagnostics]);
 
@@ -36,9 +53,11 @@ test('info: the workspace version and the module\'s hash, AGPL-3.0-only, cad-bre
   await assert.rejects(t.tessellate({ ...req('cube'), format: 'step' }), /isn't taken/);
 });
 
-test('closed models: every face meshed, no open edge, every edge shared at its dihedral', { skip }, async () => {
+test('closed models: every face meshed to its area, no open edge, every edge shared at its dihedral', { skip },
+  async () => {
   const t = await tessellator();
-  for (const name of ['cube', 'withVoid'] as const) {
+  // (reversedUses: faces built inside out and used reversed, their sense false.)
+  for (const name of ['cube', 'withVoid', 'reversedUses'] as const) {
     const d = MODELS[name]().finish();
     const r = await t.tessellate(req(name));
     assert.deepEqual(r.diagnostics, [], name);
@@ -49,7 +68,31 @@ test('closed models: every face meshed, no open edge, every edge shared at its d
     assert.deepEqual(unjudged, [], name);
     assert.ok(r.edges!.length > 0 && r.edges!.every((e) => e.kind === 'shared'), name);
     for (const e of r.edges!) assert.ok(Math.abs(e.dihedral! - Math.PI / 2) < 1e-6, `${name}: ${e.dihedral}`);
+    // Each face's triangles' area its own, by cad-scene's area oracle (planes: exact).
+    const got = areas(r);
+    for (const o of oracleMeasures(d)) assert.ok(Math.abs(got.get(o.entityId)! - o.area) < 1e-6 * o.area, name);
   }
+});
+
+test('a fold of two planes, one built facing down with its sense false: both up, the dihedral 45 degrees', { skip },
+  async () => {
+    const t = await tessellator();
+    const r = await t.tessellate({ ...req('cube'), data: new Uint8Array(fold().finish().buffer) });
+    assert.deepEqual(r.diagnostics, []);
+    const shared = r.edges!.filter((e) => e.kind === 'shared');
+    assert.equal(shared.length, 1);
+    assert.ok(Math.abs(shared[0]!.dihedral! - Math.PI / 4) < 1e-6, String(shared[0]!.dihedral));
+    // Both faces' normals up (+z component), as their senses say.
+    for (let i = 2; i < r.normals!.length; i += 3) assert.ok(r.normals![i]! > 0.5);
+  });
+
+test('a model without ids: faces and edges with null entityIds, still meshed', { skip }, async () => {
+  const t = await tessellator();
+  const r = await t.tessellate(req('withoutIds'));
+  assert.ok(r.faces.some((f) => f.entityId === null && f.count > 0));
+  assert.ok(r.faces.some((f) => f.entityId !== null && f.count > 0));
+  assert.ok(r.edges!.some((e) => e.entityId === null));
+  assert.ok(!r.faces.some((f) => f.entityId === 0) && !r.edges!.some((e) => e.entityId === 0));
 });
 
 test('the seam cylinder: its seam a seam; a sphere\'s faces: the whole one failed, the hemisphere meshed', { skip },

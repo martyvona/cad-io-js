@@ -222,5 +222,54 @@ export function arcSegment(): BrepBuilder {
   return b;
 }
 
+/**
+ * Two unit squares folded 45 degrees along x = 1: the first on z = 0, the second rising from that edge, its plane
+ * built facing down and used with sense false (so both face up and out): their normals 45 degrees apart along it.
+ */
+export function fold(): BrepBuilder {
+  const b = new BrepBuilder();
+  const c = Math.SQRT1_2;
+  const p = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0], [1 + c, 0, c], [1 + c, 1, c]];
+  const v = p.map((point) => b.addVertex({ point }));
+  const edge = (i: number, j: number) => {
+    const d = [p[j]![0]! - p[i]![0]!, p[j]![1]! - p[i]![1]!, p[j]![2]! - p[i]![2]!];
+    const line = b.addCurve({ kind: 'line', point: p[i]!, direction: d, magnitude: 1 });
+    return b.addEdge({ curve: line, start: v[i]!, end: v[j]!, sameSense: true, range: [0, 1] });
+  };
+  const e01 = edge(0, 1), e12 = edge(1, 2), e23 = edge(2, 3), e30 = edge(3, 0);
+  const e14 = edge(1, 4), e45 = edge(4, 5), e52 = edge(5, 2);
+  const flat = b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: true, loops: [
+    { kind: 'edge', bound: 'outer', sense: true, coedges: [e01, e12, e23, e30].map((edge) =>
+      ({ edge, orientation: 'forward' as const })) }] });
+  const up = b.addFace({ surface: b.addSurface({ kind: 'plane', position: { origin: [1, 0, 0], axis: [c, 0, -c],
+    xDir: [0, 1, 0] } }), sameSense: false, loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [
+    { edge: e14, orientation: 'forward' }, { edge: e45, orientation: 'forward' },
+    { edge: e52, orientation: 'forward' }, { edge: e12, orientation: 'reversed' }] }] });
+  const shell = b.addShell({ kind: 'open', faces: [{ face: flat, sense: true }, { face: up, sense: true }] });
+  b.addItem({ kind: 'body', ref: b.addBody({ kind: 'sheet', members: [{ ref: shell, sense: true }] }) });
+  return b;
+}
+
+/** A twisted bilinear B-spline patch, (0, 0, 0), (1, 0, 0), (0, 1, 0), (1, 1, 1): curved by S_uv alone. */
+export function twisted(): BrepBuilder {
+  const b = new BrepBuilder();
+  const p = [[0, 0, 0], [0, 1, 0], [1, 0, 0], [1, 1, 1]];
+  const s = b.addSurface({ kind: 'bspline', uDegree: 1, vDegree: 1, uKnots: [0, 1], vKnots: [0, 1],
+    uMultiplicities: [2, 2], vMultiplicities: [2, 2], poles: [[p[0]!, p[1]!], [p[2]!, p[3]!]], uClosed: false,
+    vClosed: false, selfIntersect: false, form: 'unspecified' });
+  const corners = [p[0]!, p[2]!, p[3]!, p[1]!], uv = [[0, 0], [1, 0], [1, 1], [0, 1]];
+  const vs = corners.map((point) => b.addVertex({ point }));
+  const coedges = corners.map((a, j) => {
+    const c = corners[(j + 1) % 4]!, d = [c[0]! - a[0]!, c[1]! - a[1]!, c[2]! - a[2]!];
+    const line = b.addCurve({ kind: 'line', point: a, direction: d, magnitude: 1 });
+    const q = uv[j]!, r = uv[(j + 1) % 4]!;
+    const pcurve = b.addCurve(line2(q, [r[0]! - q[0]!, r[1]! - q[1]!]));
+    return { edge: b.addEdge({ curve: line, start: vs[j]!, end: vs[(j + 1) % 4]!, sameSense: true, range: [0, 1] }),
+      orientation: 'forward' as const, pcurve };
+  });
+  sheet(b, b.addFace({ surface: s, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] }));
+  return b;
+}
+
 export const MODELS = { band: band_, bandByInversion, seamByInversion, offVertex, pcurveOnly, luneQuarter,
-  luneOnSeam, cap, splineEdge, seamFlipped, polylineEdge, pcurveCircle, arcSegment };
+  luneOnSeam, cap, splineEdge, seamFlipped, polylineEdge, pcurveCircle, arcSegment, fold, twisted };

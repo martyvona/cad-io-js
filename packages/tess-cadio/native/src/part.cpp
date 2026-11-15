@@ -1,7 +1,8 @@
 // part.h: the edges sampled twice, first to find each face's (u, v) box for its criteria, then with the spacing the
-// criteria ask of each face's edges; every face meshed; then rounds of the splits the faces' meshes want, mapped
-// from their Domain2 segments to edges' spans (a segment from a vertex to the next edge's first sample is that
-// edge's), one EdgeMesh::split for all, and the faces whose edges changed meshed again. Every face's mesh is made
+// criteria ask of each face's edges; every face meshed; then rounds of the splits the faces' meshes want (mesh2d.h's
+// splitWanted), mapped from their Domain2 segments to edges' spans (found among the face's edges by their points: a
+// segment's ends may be labelled with other edges, a junction's point carrying the edge before it), one
+// EdgeMesh::split for all, and the faces whose edges changed meshed again. Every face's mesh is made
 // from the samples as they finally are, so faces sharing an edge share its points.
 #include "tess_cadio/part.h"
 
@@ -38,31 +39,20 @@ struct PartMesher::Impl {
     return e;
   }
 
-  /** The span of an edge that boundary points a and b bound (adjacent samples of one edge), or false. */
-  bool spanOf(const BoundaryPoint& a, const BoundaryPoint& b, int& edge, int& span, bool& forward) const {
-    auto onEdge = [](const BoundaryPoint& p) {
-      return p.kind == BoundaryPoint::edgeSample || p.kind == BoundaryPoint::pseudoSample;
-    };
-    if (!onEdge(a) && !onEdge(b)) return false;
-    // One's edge, the other its neighbouring sample there (a junction's point carries the edge before it).
-    for (int which = 0; which < 2; which++) {
-      const BoundaryPoint& p = which ? b : a;
-      const BoundaryPoint& q = which ? a : b;
-      if (!onEdge(p)) continue;
-      const EdgeSamples& s = em->edge(p.edgeIndex);
-      for (int step : {-1, 1}) {
-        int j = p.sample + step;
-        if (j < 0 || j >= static_cast<int>(s.points.size())) continue;
-        bool same = onEdge(q) && q.edgeIndex == p.edgeIndex ? q.sample == j :
-          s.points[j].x == q.point.x && s.points[j].y == q.point.y && s.points[j].z == q.point.z;
-        if (!same) continue;
-        edge = p.edgeIndex;
-        span = std::min(p.sample, j);
-        // Forward: from a to b runs up the edge's samples.
-        int ia = which ? j : p.sample, ib = which ? p.sample : j;
-        forward = ib > ia;
-        return true;
-      }
+  /**
+   * The span of one of face f's edges that boundary points a and b bound (adjacent samples, found by their points: a
+   * one-span edge between two vertices has neither end labelled with it, a junction's point carrying the edge before
+   * it), and whether a to b runs up its samples; false if none (a pole line's segment).
+   */
+  bool spanOf(int f, const BoundaryPoint& a, const BoundaryPoint& b, int& edge, int& span, bool& forward) const {
+    auto same = [](Vec3 x, Vec3 y) { return x.x == y.x && x.y == y.y && x.z == y.z; };
+    for (int e : edgesOf[f]) {
+      const std::vector<Vec3>& p = em->edge(e).points;
+      for (size_t j = 0; j + 1 < p.size(); j++)
+        if ((same(p[j], a.point) && same(p[j + 1], b.point)) || (same(p[j], b.point) && same(p[j + 1], a.point))) {
+          edge = e, span = static_cast<int>(j), forward = same(p[j], a.point);
+          return true;
+        }
     }
     return false;
   }
@@ -100,9 +90,15 @@ struct PartMesher::Impl {
       for (int32_t i = 0; i + 1 < static_cast<int32_t>(c.size()); i++)
         d.segments.insert(d.segments.end(), {first + i, first + i + 1});
     }
+    // Its edges: its loops' model edges, and the pseudo-edges its boundary has.
+    for (int i = 0; i < m.faceLoopCount(f); i++) {
+      int l = m.faceFirstLoop(f) + i;
+      if (m.loopKind(l) == CBR_LOOP_EDGE)
+        for (int k = 0; k < m.loopCount(l); k++) edgesOf[f].insert(m.coedgeEdge(m.loopFirst(l) + k));
+    }
     for (const BoundaryPoint& p : bp) {
       d.points.push_back(p.uv);
-      if (p.edgeIndex >= 0) edgesOf[f].insert(p.edgeIndex);
+      if (p.kind == BoundaryPoint::pseudoSample) edgesOf[f].insert(p.edgeIndex);
     }
     Mesh2 mesh = mesh2(d, *criteria[f]);
     if (mesh.status != Status::ok && mesh.status != Status::noConvergence) {
@@ -110,7 +106,6 @@ struct PartMesher::Impl {
       return;
     }
     out.status = Status::ok;
-    out.splitsWanted = static_cast<int>(mesh.splitWanted.size());
     // The segments' pairs, as mesh2d.h numbers them: each loop's, then the interior ones.
     std::vector<std::pair<int32_t, int32_t>> segs;
     for (const auto& l : d.loops)
@@ -120,9 +115,11 @@ struct PartMesher::Impl {
       if (w.segment < 0 || w.segment >= static_cast<int32_t>(segs.size())) continue;
       int edge, span;
       bool forward;
-      if (!spanOf(bp[segs[w.segment].first], bp[segs[w.segment].second], edge, span, forward)) continue;
+      if (!spanOf(f, bp[segs[w.segment].first], bp[segs[w.segment].second], edge, span, forward)) continue;
       wanted[f].push_back({edge, span, forward ? w.fraction : 1 - w.fraction});
     }
+    // (Only splits of edges count: a pole line's segments, which the floored metric can find long, can't be split.)
+    out.splitsWanted = static_cast<int>(wanted[f].size());
     // In 3D: the boundary's points exactly, the mesher's on the surface.
     const Surface& s = *surfaces[f];
     double sense = m.faceSameSense(f) ? 1 : -1;
@@ -213,7 +210,7 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
         continue;
       }
       I.criteria[f] = makeCriteria(m, f, *I.surfaces[f], box, I.o.d, I.criteriaStatus[f]);
-      if (I.criteria[f]) spacing[f] = I.criteria[f]->edgeSpacing();
+      if (I.criteria[f]) spacing[f] = I.criteria[f]->edgeSpacing() * I.o.edgeSpacingScale;
     }
   }
   I.em = std::make_unique<EdgeMesh>(m, I.edgeOptions(), spacing);

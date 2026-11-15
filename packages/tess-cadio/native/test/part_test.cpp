@@ -134,6 +134,25 @@ template <class Dist> Stats stats(const FaceMesh& fm, Dist dist) {
   return s;
 }
 
+/** The face's refused triangles other than needles at `pole` (a corner there, area at most 1e-9). */
+int needlesOnly(const FaceMesh& fm, Vec3 pole) {
+  int bad = 0;
+  for (int32_t t : fm.rejected) {
+    Vec3 p[3];
+    bool atPole = false;
+    for (int k = 0; k < 3; k++) {
+      p[k] = fm.points[fm.triangles[3 * t + k]];
+      atPole = atPole || cadgeom::norm(p[k] - pole) < 1e-12;
+    }
+    double area = 0.5 * cadgeom::norm(cadgeom::cross(p[1] - p[0], p[2] - p[0]));
+    if (!atPole || area > 1e-9) {
+      std::printf("  triangle %d refused, area %g\n", t, area);
+      bad++;
+    }
+  }
+  return bad;
+}
+
 PartOptions options(double linear, double angular) {
   PartOptions o;
   o.d.linear = linear;
@@ -197,19 +216,7 @@ TEST_CASE("curved faces (a seam cylinder, a band, a hemisphere, a cap, a lune): 
       CHECK(s.area < c.area && s.area > c.area * (1 - 2.5 * d / c.radius));
       CHECK_EQ(sharedEdges(m, pm, c.model), 0);
       // Nothing refused, but needles in a pole's fan (until poles are meshed as fans): at the pole, tiny.
-      for (int32_t t : fm.rejected) {
-        bool atPole = false;
-        double area = 0;
-        Vec3 p[3];
-        for (int k = 0; k < 3; k++) {
-          p[k] = fm.points[fm.triangles[3 * t + k]];
-          Vec3 q = p[k] - c.centre;
-          atPole = atPole || (!c.cylinder && std::hypot(q.x, q.y) < 1e-12);
-        }
-        area = 0.5 * cadgeom::norm(cadgeom::cross(p[1] - p[0], p[2] - p[0]));
-        if (!atPole || area > 1e-9) std::printf("  %s: triangle %d refused, area %g\n", c.model, t, area);
-        CHECK(atPole && area <= 1e-9);
-      }
+      CHECK_EQ(needlesOnly(fm, c.centre + Vec3{0, 0, c.radius}), 0);
     }
   }
 }
@@ -242,6 +249,98 @@ TEST_CASE("splits: a boundary too coarse for the face's criteria split until non
   CHECK(pm.face(0).rejected.empty());
   CHECK_EQ(sharedEdges(m, pm, "split cylinder"), 0);
   CHECK(pm.rounds() < 4);
+}
+
+TEST_CASE("the provisional criteria: the spacing from the curvature, accept() refusing triangles turned over") {
+  auto criteria = [](const char* name, int f, cadgeom::Box2 box, double d, double angle,
+    std::unique_ptr<cadgeom::Surface>& s) {
+    static std::vector<cadgeom::Model> keep;
+    keep.push_back(load(name));
+    cadgeom::Status st;
+    s = cadgeom::makeSurface(keep.back(), keep.back().faceSurface(f), st);
+    return makeCriteria(keep.back(), f, *s, box, Deflections{d, angle}, st);
+  };
+  std::unique_ptr<cadgeom::Surface> s;
+  // A cylinder of radius 2: curvature 1 / 2, so a chord of sqrt(8 d r) = 0.4 at d 0.01; with the angle 0.1, the
+  // normal's turn r h / r^2... h = 0.1 r = 0.2 first.
+  auto c = criteria("seamCylinder", 0, {{0, 2 * M_PI}, {0, 5}}, 0.01, 1.0, s);
+  REQUIRE(c);
+  CHECK(c->edgeSpacing() <= 0.4 * (1 + 1e-9) && c->edgeSpacing() >= 0.38);
+  c = criteria("seamCylinder", 0, {{0, 2 * M_PI}, {0, 5}}, 0.01, 0.1, s);
+  CHECK(c->edgeSpacing() <= 0.2 * (1 + 1e-9) && c->edgeSpacing() >= 0.19);
+  // A twisted bilinear patch, curved by S_uv alone (|S_uv| 1, |S_u|, |S_v| at least 1): h at most sqrt(8 d).
+  auto t = criteria("twisted", 0, {{0, 1}, {0, 1}}, 0.01, 1.0, s);
+  REQUIRE(t);
+  CHECK(t->edgeSpacing() <= std::sqrt(0.08) * (1 + 1e-9) && t->edgeSpacing() >= 0.2);
+  // On the unit sphere near its pole: a triangle wide in u, its far corner nearer the pole, turned over in 3D (its
+  // facet's normal against the surface's), refused, though within the deflection and its corners' normals close; one
+  // not turned over, accepted; one with two corners on the pole line (a facet of rounding) accepted.
+  auto h = criteria("spheres", 1, {{0, 2 * M_PI}, {0, M_PI / 2}}, 1.0, 0.5, s);
+  REQUIRE(h);
+  const Vec2 over[3] = {{0, 1.5}, {3, 1.5}, {1.5, 1.55}}, fine[3] = {{0, 1.5}, {2.5, 1.5}, {1.25, 1.56}};
+  const Vec2 pole[3] = {{1, M_PI / 2}, {1.2, M_PI / 2}, {1.1, M_PI / 2 - 0.01}};
+  CHECK(!h->accept(over));
+  CHECK(h->accept(fine));
+  CHECK(h->accept(pole));
+}
+
+TEST_CASE("the split rounds: edges sampled 4 times coarser than the faces want, split until they're not") {
+  for (const char* name : {"seamCylinder", "band", "spheres", "twisted"}) {
+    cadgeom::Model m = load(name);
+    PartOptions o = options(0.01, 0.26);
+    o.edgeSpacingScale = 4;
+    PartMesher pm(m, o);
+    CHECK(pm.rounds() >= 1);
+    CHECK_EQ(sharedEdges(m, pm, name), 0);
+    for (int f = 0; f < m.faces(); f++) {
+      const FaceMesh& fm = pm.face(f);
+      if (fm.status != cadgeom::Status::ok) continue;
+      if (fm.splitsWanted) std::printf("  %s: face %d still wants %d after %d rounds\n", name, f, fm.splitsWanted,
+        pm.rounds());
+      CHECK_EQ(fm.splitsWanted, 0);
+    }
+    // Every triangle accepted at the end but a pole's needles (at the pole, tiny).
+    for (int f = 0; f < m.faces(); f++) {
+      int n = needlesOnly(pm.face(f), Vec3{10, 0, 1});
+      if (n) std::printf("  %s face %d: %d refused after %d rounds, %d splits wanted\n", name, f, n, pm.rounds(),
+        pm.face(f).splitsWanted);
+      CHECK_EQ(n, 0);
+    }
+  }
+}
+
+TEST_CASE("faces of either sense: a fold and inside-out faces used reversed, normals out and triangles about them") {
+  // The fold: both faces up (+z); reversedUses: two closed cubes, normals away from each cube's centre.
+  cadgeom::Model f = load("fold");
+  PartMesher pf(f, options(0.01, 0.26));
+  for (int i = 0; i < f.faces(); i++) {
+    REQUIRE(pf.face(i).status == cadgeom::Status::ok);
+    CHECK_EQ(stats(pf.face(i), [](Vec3) { return 0.0; }).facing, 0);
+    for (const Vec3& n : pf.face(i).normals) CHECK(n.z > 0.5);
+  }
+  CHECK_EQ(sharedEdges(f, pf, "fold"), 0);
+  cadgeom::Model r = load("reversedUses");
+  PartMesher pr(r, options(0.01, 0.26));
+  CHECK_EQ(closedAndOriented(pr, r.faces()), 0);
+  for (int i = 0; i < r.faces(); i++) {
+    const FaceMesh& fm = pr.face(i);
+    REQUIRE(fm.status == cadgeom::Status::ok);
+    CHECK_EQ(stats(fm, [](Vec3) { return 0.0; }).facing, 0);
+    // The unit cube's faces out from its centre (the other cube's, closed and oriented alike, as the first is).
+    Vec3 c{0, 0, 0};
+    for (const Vec3& p : fm.points) c = c + p;
+    c = (1.0 / fm.points.size()) * c;
+    if (c.x >= 0 && c.x <= 1 && c.y >= 0 && c.y <= 1 && c.z >= 0 && c.z <= 1)
+      CHECK(cadgeom::dot(fm.normals[0], c - Vec3{0.5, 0.5, 0.5}) > 0);
+  }
+}
+
+TEST_CASE("edges take the profile's angle: an arc on a plane, whose face asks nothing of it, in spans of 0.1 rad") {
+  // A quarter arc of radius 1 at deflection 0.1 (sqrt(8 r d) = 0.89: 2 spans) and angle 0.05: a chord turns from its
+  // tangents by half its arc, so at least (pi / 2) / 0.1 spans.
+  cadgeom::Model m = load("arcSegment");
+  PartMesher pm(m, options(0.1, 0.05));
+  CHECK(pm.edges().edge(0).t.size() - 1 >= 16u);
 }
 
 TEST_CASE("the same part twice: the same points, normals and triangles, bit for bit") {
