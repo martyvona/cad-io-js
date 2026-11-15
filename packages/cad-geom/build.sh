@@ -67,8 +67,9 @@ esac
 [ -f "$E/Eigen/Core" ] || { echo "no Eigen at $E: run third_party/pull.sh" >&2; exit 1; }
 NODE=$(command -v node || true)
 
-# cad_brep.h, which the headers include, from cad-brep (its layout.ts generates it).
-COMMON=(-std=c++20 -Wall -Wextra -Inative/include -I../cad-brep/include -isystem "$E"
+# cad_brep.h, which the headers include, from cad-brep (its layout.ts generates it). -ffp-contract=off: clang fuses
+# a * b + c on arm64 and WebAssembly can't, so native and wasm would round differently and take different branches.
+COMMON=(-std=c++20 -Wall -Wextra -ffp-contract=off -Inative/include -I../cad-brep/include -isystem "$E"
   "-ffile-prefix-map=$ROOT/=cad-io-js/")
 emsdk() {
   # The project's Emscripten (scripts/emsdk-env.sh), whatever emcc the shell has.
