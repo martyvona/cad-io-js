@@ -339,6 +339,8 @@ if (import.meta.main) {
   console.log(`tess-cadio against OCCT (native route), medium profile${PLANT ? `, PLANT=${PLANT}` : ''}: ${T.files} `
     + `files (${T.skippedBig} over ${maxBytes / 1e6} MB skipped), ${T.parts} B-rep parts; OCCT meshes ${T.compared} `
     + `(${T.occtEmpty} empty or failed, not compared)`);
+  console.log('  (Triangles and time against OCCT wait for lane 3\'s local criteria: the provisional ones size a whole '
+    + 'face by its sharpest curvature, so ours are no measure of either yet.)');
   console.log(`  our status: ${Object.entries(T.status).map(([k, n]) => `${k} ${n}`).join(', ')}`);
   console.log(`  faces without our triangles: ${pct(T.faceless, T.faces)} (OCCT leaves ${T.facelessOcctToo} of them `
     + `too, ${T.occtFaceless} in all); by cause: ${[...T.causes].sort((x, y) => y[1] - x[1])

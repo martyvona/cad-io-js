@@ -12,6 +12,7 @@
 
 #include "cad_geom/surface.h"
 #include "tess_cadio/part.h"
+#include "surfaces.h"
 
 using namespace tesscadio;
 using namespace cadgeom;
@@ -88,7 +89,7 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
         refusedTriangles += fm.rejected.size();
         Status st;
         std::vector<Singularity> sing;
-        if (std::unique_ptr<Surface> s = makeSurface(m, m.faceSurface(f), st)) s->singularities(sing);
+        if (std::unique_ptr<Surface> s = faceSurface(m, m.faceSurface(f), st)) s->singularities(sing);
         for (int32_t t : fm.rejected) {
           bool pole = false;
           for (int k = 0; k < 3 && !pole; k++)
@@ -120,7 +121,7 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
     std::vector<std::unique_ptr<Surface>> surfaces(m.faces());
     auto surface = [&](int f) -> const Surface* {
       Status st;
-      if (!surfaces[f]) surfaces[f] = makeSurface(m, m.faceSurface(f), st);
+      if (!surfaces[f]) surfaces[f] = faceSurface(m, m.faceSurface(f), st);
       return surfaces[f].get();
     };
     auto faceOf = [&](int c) {

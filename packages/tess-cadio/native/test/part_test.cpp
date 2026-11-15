@@ -77,7 +77,8 @@ int sharedEdges(const cadgeom::Model& m, const PartMesher& pm, const char* what)
           missing++;
           continue;
         }
-        if (i + 1 < s.points.size()) {
+        // (A span from a point to itself, an edge of no length's, is no side: no gap, as openEdges has it.)
+        if (i + 1 < s.points.size() && key(s.points[i + 1]) != key(s.points[i])) {
           auto jt = at.find(key(s.points[i + 1]));
           bool joined = false;
           if (jt != at.end())
@@ -113,10 +114,10 @@ int closedAndOriented(const PartMesher& pm, int nf) {
   return bad;
 }
 
-/** Whether triangle t (an index into triangles / 3) has a corner at `pole`. */
-bool atPole(const FaceMesh& fm, int32_t t, Vec3 pole) {
+/** Whether triangle t (an index into triangles / 3) has a corner within `near` of `pole` (at it, by default). */
+bool atPole(const FaceMesh& fm, int32_t t, Vec3 pole, double near = 1e-12) {
   for (int k = 0; k < 3; k++)
-    if (cadgeom::norm(fm.points[fm.triangles[3 * t + k]] - pole) < 1e-12) return true;
+    if (cadgeom::norm(fm.points[fm.triangles[3 * t + k]] - pole) < near) return true;
   return false;
 }
 
@@ -128,7 +129,7 @@ struct Stats {
  * A face's mesh: its area, its triangles' worst distance from the surface (by `dist`, the surface's own measure),
  * normals not unit or not finite, triangles facing against their corners' normals.
  */
-template <class Dist> Stats stats(const FaceMesh& fm, Dist dist, const Vec3* pole = nullptr) {
+template <class Dist> Stats stats(const FaceMesh& fm, Dist dist, const Vec3* pole = nullptr, double near = 1e-12) {
   Stats s;
   for (const Vec3& n : fm.normals)
     if (!std::isfinite(n.x) || !std::isfinite(n.y) || !std::isfinite(n.z) || std::fabs(cadgeom::norm(n) - 1) > 1e-9)
@@ -139,7 +140,7 @@ template <class Dist> Stats stats(const FaceMesh& fm, Dist dist, const Vec3* pol
     s.area += 0.5 * cadgeom::norm(g);
     Vec3 nsum = fm.normals[fm.triangles[t]] + fm.normals[fm.triangles[t + 1]] + fm.normals[fm.triangles[t + 2]];
     // (A pole's fan's slivers aside: poleFanOnly.)
-    if (cadgeom::dot(g, nsum) <= 0 && !(pole && atPole(fm, static_cast<int32_t>(t / 3), *pole))) s.facing++;
+    if (cadgeom::dot(g, nsum) <= 0 && !(pole && atPole(fm, static_cast<int32_t>(t / 3), *pole, near))) s.facing++;
     for (double u : {1. / 3, 0.5}) {
       Vec3 p = u == 0.5 ? 0.5 * (a + b) : (1.0 / 3) * (a + b + c);
       s.worst = std::fmax(s.worst, dist(p));
@@ -152,10 +153,10 @@ template <class Dist> Stats stats(const FaceMesh& fm, Dist dist, const Vec3* pol
  * The face's refused triangles other than those in a pole's fan (a corner at `pole`): slivers there, skewed or turned
  * over in 3D, that refinement in (u, v) can't reach until poles are meshed as fans.
  */
-int poleFanOnly(const FaceMesh& fm, Vec3 pole) {
+int poleFanOnly(const FaceMesh& fm, Vec3 pole, double near = 1e-12) {
   int bad = 0;
   for (int32_t t : fm.rejected)
-    if (!atPole(fm, t, pole)) {
+    if (!atPole(fm, t, pole, near)) {
       std::printf("  triangle %d refused, away from the pole\n", t);
       bad++;
     }
@@ -200,10 +201,20 @@ TEST_CASE("curved faces (a seam cylinder, a band, a hemisphere, a cap, a lune): 
     double area, radius;
     Vec3 centre;
     bool cylinder;
+    // How near the pole the fan's slivers reach: a boundary through the pole or passing near it (offPoleArc's 7e-4
+    // from it) has them about the pole, not only at it.
+    double near = 1e-12;
   };
   for (Case c : {Case{"seamCylinder", 0, 20 * M_PI, 2, {0, 0, 0}, true}, Case{"band", 0, 20 * M_PI, 2, {0, 0, 0}, true},
-         Case{"bore", 0, 20 * M_PI, 2, {0, 0, 0}, true},
-         Case{"spheres", 1, 2 * M_PI, 1, {10, 0, 0}, false}, Case{"cap", 0, 2 * M_PI * (1 - M_SQRT1_2), 1, {}, false},
+         Case{"bore", 0, 20 * M_PI, 2, {0, 0, 0}, true}, Case{"bandHoleAtVertex", 0, 20 * M_PI - 2, 2, {}, true},
+         Case{"bandHoleOnCut", 0, 20 * M_PI - 2, 2, {}, true},
+         Case{"spheres", 1, 2 * M_PI, 1, {10, 0, 0}, false},
+         Case{"halfCap", 0, M_PI * 0.6, 1, {0, 0, 0}, false, 0.1},
+         Case{"meridianHemisphere", 0, 2 * M_PI, 1, {0, 0, 0}, false, 0.1},
+         Case{"offPoleArc", 0, M_PI, 1, {0, 0, 0}, false, 0.1},
+         Case{"bsplineTube", 0, 20 * M_PI, 2, {0, 0, 0}, true}, Case{"bsplineDome", 0, 2 * M_PI, 1, {0, 0, 0}, false},
+         Case{"bsplineTubeTinyArc", 0, 20 * M_PI, 2, {0, 0, 0}, true},
+         Case{"cap", 0, 2 * M_PI * (1 - M_SQRT1_2), 1, {}, false},
          Case{"luneQuarter", 0, M_PI, 1, {}, false}}) {
     cadgeom::Model m = load(c.model);
     REQUIRE(m.ok());
@@ -216,7 +227,7 @@ TEST_CASE("curved faces (a seam cylinder, a band, a hemisphere, a cap, a lune): 
       Stats s = stats(fm, [&](Vec3 p) {
         Vec3 q = p - c.centre;
         return std::fabs((c.cylinder ? std::hypot(q.x, q.y) : cadgeom::norm(q)) - c.radius);
-      }, c.cylinder ? nullptr : &pole);
+      }, c.cylinder ? nullptr : &pole, c.near);
       CHECK_EQ(s.badNormals, 0);
       CHECK_EQ(s.facing, 0);
       if (!(s.worst <= d * (1 + 1e-9))) std::printf("  %s: %g from the surface at %g\n", c.model, s.worst, d);
@@ -227,7 +238,10 @@ TEST_CASE("curved faces (a seam cylinder, a band, a hemisphere, a cap, a lune): 
       CHECK(s.area < c.area && s.area > c.area * (1 - 2.5 * d / c.radius));
       CHECK_EQ(sharedEdges(m, pm, c.model), 0);
       // Nothing refused, but slivers in a pole's fan (until poles are meshed as fans).
-      CHECK_EQ(poleFanOnly(fm, pole), 0);
+      int fanless = poleFanOnly(fm, pole, c.near);
+      if (fanless || s.facing)
+        std::printf("  %s at %g: %d refused away from the pole, %d facing\n", c.model, d, fanless, s.facing);
+      CHECK_EQ(fanless, 0);
     }
   }
 }
@@ -390,6 +404,24 @@ TEST_CASE("a band's cut in the span through its circles' vertex (nist_ftc_10's b
   CHECK(s.area < band && s.area > band * (1 - 2.5 * 0.1 / 5));
   CHECK(s.worst <= 0.1 * (1 + 1e-9));
   CHECK_EQ(s.facing, 0);
+}
+
+TEST_CASE("p-curves parameterized against Part 42 (their own range, a squared parameter): by inversion, the square") {
+  cadgeom::Model m = load("offPcurves");
+  REQUIRE(m.ok());
+  PartMesher pm(m, options(0.1, 0.26));
+  REQUIRE(pm.face(0).status == cadgeom::Status::ok);
+  CHECK(std::fabs(stats(pm.face(0), [](Vec3) { return 0.0; }).area - 1) < 1e-9);
+  // Sampled inside (spans of 0.2): the two off ones by inversion, on the edge's points; the right ones through their
+  // p-curves.
+  EdgeOptions eo;
+  eo.deflection = 0.1;
+  eo.maxSpacing = 0.2;
+  EdgeMesh em(m, eo);
+  for (int c = 0; c < 4; c++) {
+    CHECK_EQ(em.coedge(c).fromPcurve, c >= 2);
+    CHECK(em.coedge(c).gap < 1e-9);
+  }
 }
 
 TEST_CASE("the same part twice: the same points, normals and triangles, bit for bit") {
