@@ -3,6 +3,8 @@
 # build.sh): build/tess-cadio-<target>/libtesscadio.a, headers in native/include/ (include as <tess_cadio/...>).
 #   ./build.sh            the library; T=wasm (default: the project's Emscripten, -Os, WebAssembly exceptions) or
 #                         T=native (the host's compiler, -O2)
+#   ./build.sh module     the WebAssembly module src/index.ts loads: dist/tess_cadio.{mjs,wasm}, the C API of
+#                         native/src/tess_cadio_api.cpp linked with cad-geom's wasm library
 #   ./build.sh test       builds and runs native/test/*_test.cpp (one binary each, cad-geom's harness check.h)
 #                         natively with AddressSanitizer and UBSan (cad-geom's sources compiled again with them) and
 #                         as WebAssembly against cad-geom's wasm library, run by node
@@ -19,8 +21,8 @@ E=$ROOT/third_party/eigen
 J=${J:-4}
 MODE=${1:-lib}
 case $MODE in
-  lib | test) ;;
-  *) echo "usage: build.sh [test]" >&2; exit 2 ;;
+  lib | module | test) ;;
+  *) echo "usage: build.sh [module | test]" >&2; exit 2 ;;
 esac
 NODE=$(command -v node || true)
 # -ffp-contract=off: no fused multiply-adds (clang fuses by default on arm64, WebAssembly can't), so every target
@@ -53,6 +55,25 @@ library() { # <target> <compiler> <archiver> <flags...>
   else "$ar" rcs "$b/libtesscadio.a" "${objs[@]}"; fi
   echo "$PWD/$b/libtesscadio.a"
 }
+
+if [ "$MODE" = module ]; then
+  $G/build.sh > /dev/null
+  names=$(grep -oE '^[a-z0-9_ ]*[ *]+tc_[a-z0-9_]+\(' native/src/tess_cadio_api.cpp | grep -oE 'tc_[a-z0-9_]+' |
+    sort -u | sed 's/^/"_/; s/$/"/' | paste -sd, -)
+  [ -n "$names" ] || { echo "no tc_ functions in native/src/tess_cadio_api.cpp" >&2; exit 1; }
+  mkdir -p dist
+  (
+    emsdk
+    library wasm em++ emar -Os -fwasm-exceptions -DNDEBUG "${COMMON[@]}" > /dev/null
+    em++ -Os -fwasm-exceptions build/tess-cadio-wasm/libtesscadio.a $G/build/cad-geom-wasm/libcadgeom.a \
+      -o dist/tess_cadio.mjs -sMODULARIZE=1 -sEXPORT_ES6=1 -sEXPORT_NAME=tessCadio -sENVIRONMENT=web,worker,node \
+      -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=16MB -sMAXIMUM_MEMORY=4GB -sSTACK_SIZE=1MB \
+      -sEXPORTED_FUNCTIONS="[$names,\"_malloc\",\"_free\"]" \
+      -sEXPORTED_RUNTIME_METHODS='["HEAPU8","HEAPU32","HEAPF32","UTF8ToString"]'
+  )
+  echo "$PWD/dist/tess_cadio.mjs"
+  exit
+fi
 
 if [ "$MODE" = lib ]; then
   case ${T:-wasm} in

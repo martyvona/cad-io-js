@@ -165,7 +165,7 @@ TEST_CASE("the cube: six squares, closed and outward, each edge's samples in bot
   }
 }
 
-TEST_CASE("curved faces: the seam cylinder, a band, a hemisphere, a cap, a lune; within the deflection, to their areas") {
+TEST_CASE("curved faces (a seam cylinder, a band, a hemisphere, a cap, a lune): within the deflection, to area") {
   struct Case {
     const char* model;
     int face;

@@ -4,7 +4,7 @@
 // Delaunay (isotropic metric: the opposite vertex not inside the circumcircle), the same mesh twice. Then refinement
 // (sizes and angles where the boundary allows), the fixed boundary's limits (the segments refinement wanted split),
 // anisotropic metrics, ties (collinear and cocircular points), and input that isn't a domain. Cases named "[exact] ..."
-// need exact predicates for near-degenerate input; hidden until cad-geom's predicates.h has them.
+// need exact predicates (cad-geom's predicates.h) for near-degenerate input.
 #include <tess_cadio/mesh2d.h>
 
 #include <cmath>
@@ -653,7 +653,7 @@ TEST_CASE("random star-shaped polygons with holes, refined: every mesh valid") {
   }
 }
 
-TEST_CASE("[hidden] [exact] nearly collinear and nearly cocircular points (needs exact predicates)") {
+TEST_CASE("[exact] nearly collinear and nearly cocircular points (needs exact predicates)") {
   // Points a few ulps off a line and off a circle: plain floating point can decide these inconsistently.
   Domain2 d = square(1, 1);
   for (int k = 1; k < 40; k++) d.points.push_back({k / 40.0, 0.5 + (k % 2 ? 1 : -1) * 1e-17 * k});
