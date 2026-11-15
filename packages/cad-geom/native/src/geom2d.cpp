@@ -3,29 +3,31 @@
 // "Degenerate and ambiguous cases").
 //
 // Intersection. Candidates come from polyline approximations (each smooth span bisected until its sagitta is within
-// a coarse deviation; bound() isn't relied on to shrink), paired through a box hierarchy inflated by the deviations and
-// tol. Every decision is then made on the exact curves: from each candidate pair, Newton on the squared distance finds
-// a local minimum of the gap; one above tol is nothing. Otherwise the stretch of a around it where the gap stays
-// within tol (its "contact") is measured by projecting a's points onto b, and classified:
-// - The rule: within tol, points are one, so any contact is a stretch, not a point. A contact is isolated (a crossing,
-//   or a tangency) when the curves' own local shape where the gap is least, their relative angle theta and curvature
-//   difference dk, separates them by at least half the tolerance at one of its ends,
+// a coarse deviation; bound() isn't relied on to shrink), paired through a box hierarchy inflated by the deviations
+// and tol. Every decision is then made on the exact curves: from each candidate pair, Newton on the squared distance
+// finds a local minimum of the gap; one above tol is nothing. Otherwise the stretch of a around it where the gap
+// stays within tol (its "contact") is measured by projecting a's points onto b, and classified:
+// - The rule: within tol, points are one, so any contact is a stretch, not a point. A contact is isolated (a
+//   crossing, or a tangency) when the curves' own local shape where the gap is least, their relative angle theta and
+//   curvature difference dk, separates them by at least half the tolerance at one of its ends,
 //   |theta| s + |dk| s^2 / 2 >= tol / 2 with s the arc length to that end: the stretch is then the tolerance's blur
-//   of a point contact (one-sided where a range ends at the contact). Otherwise their local shape can't account for the stretch: they coincide there, an
-//   overlap, reported as the intervals on each and whether they run the same way. (Two lines crossing at an angle
-//   below tol over their length coincide within tol: an overlap; a circle touching a line separates quadratically: a
-//   tangency, however small the tolerance.) An overlap is longer than tol on both curves: one that's a point on
-//   either (collinear pieces meeting end to end, where the gap grows only because a range ends) is a contact.
+//   of a point contact (one-sided where a range ends at the contact). Otherwise their local shape can't account for
+//   the stretch: they coincide there, an overlap, reported as the intervals on each and whether they run the same
+//   way. (Two lines crossing at an angle below tol over their length coincide within tol: an overlap; a circle
+//   touching a line separates quadratically: a tangency, however small the tolerance.) An overlap is longer than tol
+//   on both curves: one that's a point on either (collinear pieces meeting end to end, where the gap grows only
+//   because a range ends) is a contact.
 // - An isolated contact is a tangency when the signed gap has the same sign at both its ends (they touch without
-//   crossing), a crossing otherwise; its point is where the gap is least (Newton on a(ta) = b(tb) for crossings).
+//   crossing), a crossing otherwise; its point is where the gap is least (Newton on a(ta) = b(tb) for crossings). A
+//   closed curve's contact across its seam is one contact.
 // Classification. A point within tol of the boundary (or on a pole line the face reaches) is on. Otherwise a ray from
 // it decides: the nearest boundary it meets has the region on its left (outer loops counterclockwise, holes
 // clockwise), so p is in iff it's on that piece's left (orient2d for straight pieces, exact). Rays run along a
-// non-periodic direction to beyond the boundary, or one period along a periodic one; a ray whose first hit is
-// tangent, overlapping or at a piece's end is replaced by another at a different angle. In periodic directions the
-// pieces are copied by multiples of the periods to cover the ray. Loop pieces that don't meet are closed by a straight
-// segment where the jump lies along a pole line (Periods), or are a band closing around its period (a whole period
-// apart, no segment).
+// non-periodic direction to beyond the boundary (meeting nothing: out), or one period along a periodic one (meeting
+// nothing: undecided); a ray whose first hit is tangent, overlapping, or at a corner (p on different sides of the
+// pieces meeting there) is replaced by another at a different angle. In periodic directions the pieces are copied by
+// multiples of the periods to cover the ray. Loop pieces that don't meet are closed by a straight segment where the
+// jump lies along a pole line (Periods), or are a band closing around its period (a whole period apart, no segment).
 #include "cad_geom/geom2d.h"
 
 #include <algorithm>

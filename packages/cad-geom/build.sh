@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build cad-geom's C++ (native/src/**/*.cpp, and the vendored C of native/third_party/*.c) as a static library that
-# other packages compile into their own modules: build/cad-geom-<target>/libcadgeom.a, with its headers in native/include/ (include as <cad_geom/...>) and Eigen's
-# from third_party/eigen (third_party/pull.sh).
+# other packages compile into their own modules: build/cad-geom-<target>/libcadgeom.a, with its headers in
+# native/include/ (include as <cad_geom/...>) and Eigen's from third_party/eigen (third_party/pull.sh).
 #   ./build.sh            the library; T=wasm (default: the project's Emscripten, -Os, WebAssembly exceptions, as
 #                         tess-smlib links) or T=native (the host's compiler, -O2)
 #   ./build.sh test       builds and runs native/test/*_test.cpp (one binary each, harness native/test/check.h)
@@ -163,7 +163,10 @@ run() { # <name> <command...>: runs one test binary, its output as it comes
 SAN=(-O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize-recover=all)
 compile build/test/native/obj c++ "${SAN[@]}" "${COMMON[@]}" "${FIX[@]}" -- $(find native/src -name '*.cpp' | sort) \
   $tests
-compile build/test/native/obj-c cc "${SAN[@]}" "${CCOMMON[@]}" -- $(csources)
+# The vendored C without AddressSanitizer: predicates.c's expansion merges read one element past an expansion's end
+# and discard it (native/third_party/README.md), which ASan reports though the results don't depend on it.
+SANC=(-O1 -g -fno-omit-frame-pointer -fsanitize=undefined -fno-sanitize-recover=all)
+compile build/test/native/obj-c cc "${SANC[@]}" "${CCOMMON[@]}" -- $(csources)
 srcobjs="$(find native/src -name '*.cpp' | sort | tr / _ | sed 's/\.cpp$/.o/; s|^|build/test/native/obj/|') \
   $(ls build/test/native/obj-c/*.o 2> /dev/null | sort)"
 for t in $tests; do
