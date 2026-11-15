@@ -55,11 +55,19 @@ Estimate integrate(const std::function<double(double)>& f, double a, double b, d
 
 namespace roots {
 /**
- * The real roots in [0, 1] of the polynomial with these Bernstein coefficients, each isolated in an interval of
- * width at most tol (Descartes' rule of signs and de Casteljau subdivision); a polynomial identically zero within
- * tol gives Status::singular.
+ * An interval that may hold roots: `changes` the sign changes left in it (Descartes' bound on its root count, with
+ * multiplicity): 1 a simple root isolated, more where roots couldn't be separated within the tolerance.
  */
-std::vector<Range> bernstein(const std::vector<double>& coeffs, double tol, Status& status);
+struct RootInterval {
+  Range r;
+  int changes = 1;
+};
+/**
+ * The real roots in [0, 1] of the polynomial with these Bernstein coefficients, each in an interval of width at most
+ * tol (Descartes' rule of signs and de Casteljau subdivision), sorted; Status::noConvergence where some interval
+ * holds roots it couldn't separate (its `changes` above 1); a polynomial identically zero gives Status::singular.
+ */
+std::vector<RootInterval> bernstein(const std::vector<double>& coeffs, double tol, Status& status);
 } // namespace roots
 
 namespace fit {

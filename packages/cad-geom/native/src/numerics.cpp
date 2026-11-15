@@ -23,7 +23,6 @@ int findSpan(int degree, const std::vector<double>& U, int n, double t) {
     while (i > degree && U[i] == U[i + 1]) i--;
     return i;
   }
-  if (t <= U[degree]) return degree;
   int lo = degree, hi = n;
   while (hi - lo > 1) {
     int mid = (lo + hi) / 2;

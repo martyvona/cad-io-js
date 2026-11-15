@@ -1,22 +1,23 @@
 // numerics.h's quadrature: globally adaptive Gauss-Kronrod, the 7-point Gauss rule embedded in the 15-point Kronrod
 // rule (the scheme of Piessens, de Doncker-Kapenga, Ueberhuber and Kahaner, "QUADPACK", Springer 1983, routine QAG;
 // the nodes and weights are QUADPACK's qk15 table, checked in numerics_test.cpp against the rules' defining
-// exactness: K15 integrates degree 22 exactly, G7 degree 13, both weight sets sum to 2). The interval with the
-// largest error estimate is halved until the total is within tolerance.
-// The error estimate of a piece is the larger of two. |K15 - G7|: the Gauss rule's error, a bound on the Kronrod
-// value's for smooth integrands (not QUADPACK's sharper (200 |K - G| / resasc)^1.5, which can claim less than the
-// true error), floored at 50 ulp of the integral of |f| for rounding. And the tail a halving shows: a piece's value
-// against its halves' sum, d, measures what the rule missed there; where f has an endpoint singularity |K - G|
-// misses it too (x^-0.9: 30 times too small), but the d of successive halvings shrink geometrically, ratio rho, and
-// the error still left is about d rho / (1 - rho), taken twice over (a pure geometric tail is the limit the rule's
-// halvings approach from below: x^-0.99 falls short of it by 1 %); rho >= 1 (not shrinking: 1 / x isn't
-// integrable) is an infinite error, unless d is already at the rounding floor. A piece too narrow for its nodes to be placed (64 ulp of where it
-// is) isn't halved again, and its error is at least its whole value: nothing finer can be learned there. The estimate
-// is a sum over the pieces, so it covers what the rules can see: an integrand wild between the nodes of every piece
-// (a narrow spike missed by all of them) can still fool it, as it can any quadrature that only samples.
+// exactness: K15 integrates degree 22 exactly, G7 degree 13). The piece with the largest error estimate is halved
+// until the total is within tolerance.
+// A piece's error estimate is the larger of two:
+// - |K15 - G7|, the Gauss rule's error, a bound on the Kronrod value's for smooth integrands (not QUADPACK's sharper
+//   (200 |K - G| / resasc)^1.5, which can claim less than the true error), floored at 50 ulp of the integral of |f|;
+// - the tail its halving shows. A piece's value against its halves' sum, d, measures what the rule missed there; at
+//   an endpoint singularity |K - G| misses it too (x^-0.9: 30 times too small), but successive d shrink
+//   geometrically, ratio rho, and what's still missing is about d rho / (1 - rho), taken twice over (the rule's
+//   halvings approach a pure geometric tail from below: x^-0.99 falls 1 % short of it). rho >= 1 (not shrinking:
+//   1 / x isn't integrable) is an infinite error, unless d is already at the rounding floor.
+// A piece too narrow for its nodes to be placed (64 ulp of where it is), or at an end of the range with a node
+// rounded onto it, isn't halved again, and its error is at least its whole value: nothing finer can be learned there.
+// The estimate is a sum over the pieces, so it covers what the rules can see: an integrand wild between the nodes of
+// every piece (a narrow spike missed by all of them) can still fool it, as it can any quadrature that only samples.
+#include <algorithm>
 #include <cmath>
 #include <limits>
-#include <algorithm>
 #include <vector>
 
 #include "cad_geom/numerics.h"

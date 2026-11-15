@@ -98,6 +98,10 @@ TEST_CASE("double-double: known constants, normalization, round trips") {
   CHECK_EQ(dd::compare(tiny, 1.0), 1);
   CHECK_EQ(dd::compare(dd::neg(tiny), -1.0), -1);
   CHECK_EQ(dd::compare(dd::from(2), 2.0), 0);
+  // Two sums that cancel exactly, leaving the low parts: 2^-60 + 2^-114 kept whole.
+  DD cancel = dd::add({1, 0x1.0p-60}, {-1, 0x1.0p-114});
+  CHECK_EQ(cancel.hi, 0x1.0p-60);
+  CHECK_EQ(cancel.lo, 0x1.0p-114);
   CHECK_EQ(dd::sqrt(dd::from(0)).hi, 0.0);
   CHECK(std::isnan(dd::sqrt(dd::from(-1)).hi));
 }
@@ -196,6 +200,8 @@ TEST_CASE("intervals: zeros, infinities, overflow, underflow and division by an 
   CHECK(pp.lo <= 1 && pp.hi == inf);
   Interval ratio = pos / pos;
   CHECK(ratio.lo <= 0 && ratio.hi == inf);
+  Interval nanFirst = Interval{-inf, 1} / Interval{-inf, -1};  // -inf / -inf at the first corner
+  CHECK(!std::isnan(nanFirst.lo) && !std::isnan(nanFirst.hi) && nanFirst.lo <= -1 && nanFirst.hi == inf);
   Interval byZero = Interval{1, 2} / Interval{-1, 1};
   CHECK(byZero.lo == -inf && byZero.hi == inf);
   Interval byEdge = Interval{1, 2} / Interval{0, 1};

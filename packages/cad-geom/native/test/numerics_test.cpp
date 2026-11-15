@@ -301,6 +301,12 @@ TEST_CASE("findSpan: the span holding t, the last nonempty one at the end, multi
   CHECK_EQ(bspline::findSpan(p, U, n, std::nextafter(0.25, 0.0)), 2);
   CHECK_EQ(bspline::findSpan(p, U, n, -1.0), 2);
   CHECK_EQ(bspline::findSpan(p, U, n, 2.0), 8);
+  // An end knot repeated beyond p + 1 (a malformed vector a caller may still pass): the last nonempty span all the
+  // same, at the end and beyond it.
+  const std::vector<double> V{0, 0, 0, 0.5, 1, 1, 1, 1};  // p = 2, n = 5: U[4] = U[5] = 1
+  CHECK_EQ(bspline::findSpan(2, V, 5, 1.0), 3);
+  CHECK_EQ(bspline::findSpan(2, V, 5, 1.5), 3);
+  CHECK_EQ(bspline::findSpan(2, V, 5, 0.75), 3);
 }
 
 TEST_CASE("basis and basisDerivs: the Cox-de Boor recursion, partition of unity, derivatives summing to 0") {
@@ -717,9 +723,28 @@ TEST_CASE("quadrature: noConvergence when the evaluations run out or the singula
   CHECK(fine.status == Status::noConvergence);
   CHECK(std::fabs(fine.value - 2) <= fine.error);
   // 1 / (1 - x): not integrable; the estimate stays large.
-  Estimate div = quadrature::integrate([](double x) { return 1 / (1 - x); }, 0, 1, 0, 1e-8);
+  int divCalls = 0;
+  Estimate div = quadrature::integrate([&](double x) { divCalls++; return 1 / (1 - x); }, 0, 1, 0, 1e-8);
   CHECK(div.status == Status::noConvergence);
-  CHECK(div.error > 1);
+  CHECK(std::isinf(div.error));
+  CHECK(divCalls < 20000);  // given up once an infinite error can't come down, not after every evaluation
+  // An interior singularity off every split point (1/3): its pieces narrow to rounding and stop there, their
+  // estimates at least their values; honest, whether or not it converges.
+  auto spike = [](double x) { return 1 / std::sqrt(std::fabs(x - 1.0 / 3)); };
+  const double spikeExact = 2 * std::sqrt(1.0 / 3) + 2 * std::sqrt(2.0 / 3);
+  for (double rel : {1e-8, 1e-12, 1e-15}) {
+    Estimate sp = quadrature::integrate(spike, 0, 1, 0, rel);
+    CHECK(std::fabs(sp.value - spikeExact) <= sp.error);
+  }
+  // Below rounding nothing can be certified: an integral asked for 1e-18 doesn't converge, honestly.
+  for (double rel : {1e-17, 1e-18}) {
+    Estimate tight = quadrature::integrate([](double x) { return std::exp(x); }, 0, 10, 0, rel);
+    CHECK(tight.status == Status::noConvergence);
+    CHECK(std::fabs(tight.value - (std::exp(10.0) - 1)) <= tight.error);
+  }
+  // Just above rounding a smooth integrand still converges (halvings whose change is rounding noise don't count).
+  Estimate nearFloor = quadrature::integrate([](double x) { return std::exp(x); }, 0, 10, 0, 2e-14);
+  CHECK(nearFloor.status == Status::ok);
   Estimate few = quadrature::integrate([](double x) { return std::cos(200 * x); }, 0, 1, 0, 1e-12, 60);
   CHECK(few.status == Status::noConvergence);
   CHECK(std::fabs(few.value - std::sin(200.0) / 200) <= few.error);
@@ -749,18 +774,19 @@ TEST_CASE("quadrature: non-finite values, infinite or empty ranges") {
 TEST_CASE("roots::bernstein: simple roots isolated within tol, each holding its root") {
   Status st;
   const std::vector<double> want{0.1, 0.35, 0.77};
-  std::vector<Range> got = roots::bernstein(bernsteinFromRoots(want), 1e-12, st);
+  std::vector<roots::RootInterval> got = roots::bernstein(bernsteinFromRoots(want), 1e-12, st);
   CHECK(st == Status::ok);
   REQUIRE(got.size() == 3);
   for (size_t i = 0; i < 3; i++) {
-    CHECK(got[i].lo <= want[i] + 1e-15 && want[i] - 1e-15 <= got[i].hi);
-    CHECK(got[i].hi - got[i].lo <= 1e-12);
+    CHECK(got[i].r.lo <= want[i] + 1e-15 && want[i] - 1e-15 <= got[i].r.hi);
+    CHECK(got[i].r.hi - got[i].r.lo <= 1e-12);
+    CHECK_EQ(got[i].changes, 1);
   }
   // Outside [0, 1] and complex roots aren't reported.
   got = roots::bernstein(bernsteinFromRoots({-0.5, 0.6, 1.7}), 1e-10, st);
   CHECK(st == Status::ok);
   REQUIRE(got.size() == 1);
-  CHECK(got[0].lo <= 0.6 && 0.6 <= got[0].hi);
+  CHECK(got[0].r.lo <= 0.6 && 0.6 <= got[0].r.hi);
   // (t - 0.5)^2 + 0.01 = 0.26 - t + t^2: Bernstein coefficients a0, a0 + a1 / 2, a0 + a1 + a2.
   got = roots::bernstein({0.26, -0.24, 0.26}, 1e-10, st);
   CHECK(st == Status::ok);
@@ -770,12 +796,13 @@ TEST_CASE("roots::bernstein: simple roots isolated within tol, each holding its 
 TEST_CASE("roots::bernstein: roots at the ends and at a split point are points; a nonzero constant has none") {
   Status st;
   // 3 t (1 - t) (1 - 2 t): exactly 0 at 0, 1/2 and 1.
-  std::vector<Range> got = roots::bernstein({0, 1, -1, 0}, 1e-10, st);
+  std::vector<roots::RootInterval> got = roots::bernstein({0, 1, -1, 0}, 1e-10, st);
   CHECK(st == Status::ok);
   REQUIRE(got.size() == 3);
-  CHECK(got[0].lo == 0 && got[0].hi == 0);
-  CHECK(got[1].lo == 0.5 && got[1].hi == 0.5);
-  CHECK(got[2].lo == 1 && got[2].hi == 1);
+  CHECK(got[0].r.lo == 0 && got[0].r.hi == 0);
+  CHECK(got[1].r.lo == 0.5 && got[1].r.hi == 0.5);
+  CHECK(got[2].r.lo == 1 && got[2].r.hi == 1);
+  for (const roots::RootInterval& g : got) CHECK_EQ(g.changes, 1);
   got = roots::bernstein({2, 2, 2}, 1e-10, st);
   CHECK(st == Status::ok);
   CHECK(got.empty());
@@ -786,28 +813,37 @@ TEST_CASE("roots::bernstein: roots at the ends and at a split point are points; 
 
 TEST_CASE("roots::bernstein: multiple and clustered roots are one interval, with noConvergence") {
   Status st;
-  std::vector<Range> got = roots::bernstein(bernsteinFromRoots({1.0 / 3, 1.0 / 3}), 1e-9, st);
+  std::vector<roots::RootInterval> got = roots::bernstein(bernsteinFromRoots({1.0 / 3, 1.0 / 3}), 1e-9, st);
   CHECK(st == Status::noConvergence);
   REQUIRE(!got.empty());
   bool covered = false;
-  for (const Range& r : got) covered = covered || (r.lo <= 1.0 / 3 && 1.0 / 3 <= r.hi);
+  for (const roots::RootInterval& g : got) covered = covered || (g.r.lo <= 1.0 / 3 && 1.0 / 3 <= g.r.hi);
   CHECK(covered);
-  for (const Range& r : got) CHECK(r.hi - r.lo <= 1e-9);
+  for (const roots::RootInterval& g : got) CHECK(g.r.hi - g.r.lo <= 1e-9);
+  CHECK(std::any_of(got.begin(), got.end(), [](const roots::RootInterval& g) { return g.changes >= 2; }));
   // A double root on a split point and at an end.
   got = roots::bernstein(bernsteinFromRoots({0.5, 0.5}), 1e-9, st);
   CHECK(st == Status::noConvergence);
+  REQUIRE(got.size() == 1);
+  CHECK(got[0].r.lo == 0.5 && got[0].r.hi == 0.5 && got[0].changes == 2);
   got = roots::bernstein(bernsteinFromRoots({0, 0, 0.7}), 1e-9, st);
   CHECK(st == Status::noConvergence);
+  REQUIRE(got.size() == 2);
+  CHECK(got[0].r.lo == 0 && got[0].changes == 2 && got[1].changes == 1);
   got = roots::bernstein({-1, 1, 0, 0}, 1e-9, st);  // (1 - t)^2 (4 t - 1): exactly, a double root at 1
   CHECK(st == Status::noConvergence);
+  REQUIRE(got.size() == 2);
+  CHECK(got[0].changes == 1 && got[1].r.lo == 1 && got[1].changes == 2);
   // Two roots 1e-4 apart: separated at tol 1e-6, one interval at tol 1e-3.
   got = roots::bernstein(bernsteinFromRoots({0.4, 0.4001}), 1e-6, st);
   CHECK(st == Status::ok);
   CHECK_EQ(got.size(), 2u);
+  CHECK(got[0].changes == 1 && got[1].changes == 1);
   got = roots::bernstein(bernsteinFromRoots({0.4, 0.4001}), 1e-3, st);
   CHECK(st == Status::noConvergence);
   REQUIRE(got.size() == 1);
-  CHECK(got[0].lo <= 0.4 && 0.4001 <= got[0].hi);
+  CHECK_EQ(got[0].changes, 2);
+  CHECK(got[0].r.lo <= 0.4 && 0.4001 <= got[0].r.hi);
 }
 
 TEST_CASE("roots::bernstein: random polynomials, every root found once, every interval a sign change") {
@@ -824,16 +860,17 @@ TEST_CASE("roots::bernstein: random polynomials, every root found once, every in
     std::sort(want.begin(), want.end());
     std::vector<double> b = bernsteinFromRoots(want, r.uniform(0.5, 4) * (r.below(2) ? 1 : -1));
     Status st;
-    std::vector<Range> got = roots::bernstein(b, 1e-10, st);
+    std::vector<roots::RootInterval> got = roots::bernstein(b, 1e-10, st);
     CHECK(st == Status::ok);
     REQUIRE(got.size() == want.size());
     // What the isolation guarantees is about the polynomial it's given (its coefficients rounded): a sign change
     // in each interval. The exact roots move with the rounding by up to its conditioning, well under 1e-6 here.
     for (size_t i = 0; i < want.size(); i++) {
-      CHECK(deCasteljau(b, got[i].lo) * deCasteljau(b, got[i].hi) <= 0);
-      CHECK(std::fabs(0.5 * (got[i].lo + got[i].hi) - want[i]) <= 1e-6);
-      CHECK(got[i].hi - got[i].lo <= 1e-10);
-      if (i > 0) CHECK(got[i - 1].hi <= got[i].lo);
+      CHECK(deCasteljau(b, got[i].r.lo) * deCasteljau(b, got[i].r.hi) <= 0);
+      CHECK(std::fabs(0.5 * (got[i].r.lo + got[i].r.hi) - want[i]) <= 1e-6);
+      CHECK(got[i].r.hi - got[i].r.lo <= 1e-10);
+      CHECK_EQ(got[i].changes, 1);
+      if (i > 0) CHECK(got[i - 1].r.hi <= got[i].r.lo);
     }
   }
 }
@@ -907,7 +944,11 @@ TEST_CASE("fit::curve2: smooth, kinked and fast curves within tol everywhere, th
     double dense = denseError(out, c.f, c.r);
     if (!(dense <= c.tol)) check::fail(__FILE__, __LINE__, std::string(c.name) + ": dense error "
       + check::show(dense) + " above tol");
-    CHECK(dense <= err * 1.05 + 1e-15);  // the reported error is the largest there is, near enough
+    // The reported error is the largest there is (the local search), but for rounding in the errors themselves:
+    // 4 ulp of the curve's size (the "far" case's coordinates are 1e6).
+    Vec2 mid = c.f(0.5 * (c.r.lo + c.r.hi));
+    double size = std::max(std::fabs(mid.x), std::fabs(mid.y));
+    CHECK(dense <= err * (1 + 1e-6) + 4 * (std::nextafter(size, INFINITY) - size));
     CHECK_EQ(out.dim, 2);
     CHECK_EQ(out.knots.front(), c.r.lo);
     CHECK_EQ(out.knots.back(), c.r.hi);
