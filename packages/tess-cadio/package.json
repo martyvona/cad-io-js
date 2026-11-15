@@ -4,11 +4,18 @@
   "description": "Our own tessellator for cad-io-js's B-rep models (edges meshed once, faces in (u, v) by constrained Delaunay refinement against a metric), as C++ compiled to WebAssembly",
   "license": "AGPL-3.0-only",
   "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "scripts": {
-    "build": "./build.sh",
+    "build": "./build.sh module",
     "test-native": "./build.sh test"
   },
+  "dependencies": {
+    "cad-scene": "0.3.0"
+  },
   "devDependencies": {
+    "cad-brep": "0.3.0",
     "cad-geom": "0.3.0"
   }
 }
