@@ -747,11 +747,13 @@ TEST_CASE("inversion: an unbounded offset, a near tie, a seam reached within tol
   CurveInversion b = invertCurve(*el, o + 1e-12 * y, el->domain().range, 1e-9);
   CHECK(b.certainty == Certainty::ambiguous);
   CHECK(b.alternatives.size() == 1);
-  // A foot 1e-12 from the seam, within tol: t is the range's end exactly.
-  el->derivs(1e-12, 0, d);
-  CurveInversion c = invertCurve(*el, d[0], el->domain().range, 1e-9);
-  CHECK(c.onSeam);
-  CHECK_EQ(c.t, 0.0);
+  // Feet within tol of the seam, either side: flagged, their own parameters kept (never snapped to an end).
+  for (double t : {1e-3, 2 * M_PI - 1e-3}) {
+    el->derivs(t, 0, d);
+    CurveInversion c = invertCurve(*el, d[0], el->domain().range, 0.01);
+    CHECK(c.onSeam);
+    CHECK_NEAR(c.t, t, 0, 1e-9);
+  }
   // With tol 0 no seam is claimed, and the result still lies in [lo, lo + period).
   for (double t : {0.0, 1e-17, 2 * M_PI}) {
     el->derivs(t, 0, d);

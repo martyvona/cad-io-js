@@ -6,8 +6,9 @@
 //     one-sided derivative there, geometry.ts's an average), offsets' derivatives apart (geometry.ts's a difference);
 //   - every edge's vertices inverted onto its curve: cad-geom's invertCurve over the curve's domain within the part's
 //     uncertainty against geometry.ts's param() (closed form or sampled), classified by which found the nearer foot;
-//     distances by bucket (the model's own vertex gaps), certainties, alternatives, seams, statuses;
-//   - every edge's length by arcLength over its range (geometry.ts's edgeParams), statuses and estimated errors by
+//     distances by bucket (the model's own vertex gaps), certainties, alternatives, seams flagged, statuses;
+//   - every edge's range by edgeParams's rules from cad-geom's vertex parameters, against geometry.ts's own;
+//   - every edge's length by arcLength over that range, statuses and estimated errors by
 //     bucket; in about one edge in 20 (by a hash of where it is) the estimate's honesty against chord sums
 //     (Richardson-extrapolated over 2^10, 2^11 and 2^12 chords a span);
 //   - OCCT=1: each face's perimeter (tess-occt's measures: BRepGProp over OCCT's healed pieces) against the sum of
@@ -57,7 +58,7 @@ const fresh = () => ({
   files: 0, parts: 0, curves: 0, planted: 0, caught: [] as string[], plantedAt: [] as string[],
   made: {} as Tally, point: {} as Record<string, Hist>, d1: {} as Record<string, Hist>, d1Skipped: {} as Tally,
   vertexClass: {} as Tally, vertexDistance: hist(ABS.length), certainty: {} as Tally, invertStatus: {} as Tally,
-  onSeam: 0, alternatives: 0, seamMoved: {} as Tally, rangeAgreement: {} as Tally, lengthStatus: {} as Tally,
+  onSeam: 0, alternatives: 0, rangeAgreement: {} as Tally, lengthStatus: {} as Tally,
   lengthError: hist(REL.length),
   honesty: {} as Tally,
   honestyWorst: hist(REL.length), perimeter: {} as Tally, perimeterDiff: hist(REL.length),
@@ -208,21 +209,12 @@ export const check: FileCheck<undefined, Result> = {
           vs.push(v);
           pts.push(...d.vertex.point.subarray(3 * v, 3 * v + 3));
         }
-        // Each vertex's parameter by cad-geom, for the edges' ranges below (by its point, as edgeParams asks): from
-        // an inversion within 0, since within tol a foot near a closed curve's junction is moved to it (curve.h's
-        // seam rule), which this counts.
+        // Each vertex's parameter by cad-geom, for the edges' ranges below (by its point, as edgeParams asks).
         const paramAt = new Map<string, number>();
         if (vs.length) {
-          const inv = g.invertCurve(ci, pts, info.lo, info.hi, tol), inv0 = g.invertCurve(ci, pts, info.lo, info.hi, 0);
+          const inv = g.invertCurve(ci, pts, info.lo, info.hi, tol);
           vs.forEach((v, k) => {
-            if (inv0.statuses[k] === 0) paramAt.set(pts.slice(3 * k, 3 * k + 3).join(), inv0.params[k]!);
-            const P = info.period, shift = inv.params[k]! - inv0.params[k]!;
-            const moved = P ? Math.abs(shift - P * Math.round(shift / P)) : Math.abs(shift);
-            if (inv.flags[k] && moved > 1e-9 * Math.max(1, Math.abs(inv0.params[k]!))) {
-              tally(R.seamMoved, moved * Math.max(1, Math.abs(info.hi - info.lo)) > 1e-6 ? 'by more than 1e-6 of '
-                + 'the range' : 'by up to 1e-6 of the range', `${where} curve #${d.curve.id[ci]} vertex `
-                + `#${d.vertex.id[v]}: t ${inv0.params[k]} moved to ${inv.params[k]}, tol ${tol}`);
-            }
+            if (inv.statuses[k] === 0) paramAt.set(pts.slice(3 * k, 3 * k + 3).join(), inv.params[k]!);
             gapAt.set(v, Math.max(gapAt.get(v) ?? 0, inv.distance[k]!));
             const at = `${where} curve #${d.curve.id[ci]} vertex #${d.vertex.id[v]}`;
             const st = STATUS[inv.statuses[k]!]!;
@@ -415,7 +407,6 @@ if (import.meta.main) {
   printTally('Inversion statuses', all.invertStatus);
   printTally('Inversion certainties', all.certainty);
   console.log(`  on a seam: ${all.onSeam}; alternatives given: ${all.alternatives}`);
-  printTally('Seams: the foot\'s parameter moved to a closed curve\'s junction (within tol, curve.h)', all.seamMoved);
   printTally('Edge ranges: cad-geom\'s vertex parameters against geometry.ts\'s', all.rangeAgreement);
   printTally('Edge lengths: statuses', all.lengthStatus);
   console.log('\n## Edge lengths: estimated errors, relative');

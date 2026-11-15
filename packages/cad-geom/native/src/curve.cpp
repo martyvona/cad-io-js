@@ -6,7 +6,8 @@
 // it is solved when g(t) = |C(t) - p|^2 is convex on it (g''/2 = |C'|^2 + (C - p) . C'' > 0, its lower bound from the
 // boxes of C - p, C' and C'' by interval arithmetic), since a convex g has one minimum there, found by Newton on g'
 // guarded by bisection; else it is split. Feet within tol of the best are the same foot (a seam's two parameters) or
-// alternatives (other places, one per cluster). A range whose box is narrower than tol is one foot (a zero-length
+// alternatives (other places, one per cluster); a foot within tol of a closed curve's junction is flagged onSeam,
+// its parameter kept. A range whose box is narrower than tol is one foot (a zero-length
 // piece, a cusp); circles take their feet in closed form (footCandidates). The search is budgeted: where it runs out
 // with a better foot still possible (a rational circle from its centre), it says noConvergence.
 // Arc length: closed forms where they exist (curve_impl.h's exactLength), else quadrature span by span, the spans
@@ -372,7 +373,8 @@ CurveInversion invertCurve(const Curve& c, Vec3 p, Range r, double tol) {
   Vec3 e0 = at(r.lo), e1 = at(r.hi);
   bool whole = wrap || (dom.period == 0 && r.lo <= dom.range.lo && r.hi >= dom.range.hi);
   bool closed = whole && norm(e1 - e0) <= tol;
-  if (closed && (norm(out.foot - e0) <= tol || norm(out.foot - e1) <= tol)) out.onSeam = true, out.t = r.lo;
+  // A flag only: t stays the foot's own (curve.h), so edge ranges and p-curves built from it are the foot's.
+  if (closed && (norm(out.foot - e0) <= tol || norm(out.foot - e1) <= tol)) out.onSeam = true;
   if (wrap && out.t >= r.hi) out.t = r.lo;  // r.hi is r.lo's point: the result in [lo, lo + period)
   // Other feet: within tol of the best distance and more than tol from the best foot and from each other.
   std::vector<Vec3> feet{best.foot};
