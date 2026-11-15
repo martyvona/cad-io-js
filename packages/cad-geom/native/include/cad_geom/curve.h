@@ -1,6 +1,9 @@
 // The curve query interface: every curve kind of the model (layout.ts's CURVE_KIND), 3D or 2D (a p-curve's geometry
 // in a surface's (u, v)), evaluated with derivatives, bounded, inverted, measured. Parameterizations are Part 42's as
 // docs/brep-reference.md gives them, trimmed and composite curves included. A 2D curve's points have z = 0.
+// Precision far from the origin: no derivative or difference is formed from absolute coordinates. Evaluate relative
+// to a local origin (a span's pole centroid, a placement's origin) and add the origin once, to the point only: a
+// B-spline 1e6 mm out evaluated on absolute poles has speeds 1e-10 off, enough to stop arc length converging.
 #pragma once
 
 #include <memory>

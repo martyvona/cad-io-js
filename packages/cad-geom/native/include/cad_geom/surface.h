@@ -1,7 +1,8 @@
 // The surface query interface: every surface kind of the model (layout.ts's SURFACE_KIND) evaluated to second
 // derivatives, bounded, with its singular places and periods, and inverted. Parameterizations are Part 42's as
 // docs/brep-reference.md gives them (a revolution's u is the angle, v the profile's parameter). The normal is
-// S_u x S_v, before a face's sense turns it.
+// S_u x S_v, before a face's sense turns it. As for curves (curve.h), no derivative is formed from absolute
+// coordinates: evaluate relative to a local origin and add it to the point only.
 #pragma once
 
 #include <memory>

@@ -172,7 +172,7 @@ Estimate integrate(const std::function<double(double)>& f, double a, double b, d
 } // namespace quadrature
 
 namespace roots {
-std::vector<Range> bernstein(const std::vector<double>&, double, Status& status) {
+std::vector<RootInterval> bernstein(const std::vector<double>&, double, Status& status) {
   status = Status::unsupported;
   return {};
 }
