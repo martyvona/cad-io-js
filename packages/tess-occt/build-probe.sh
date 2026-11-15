@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Build the OCCT probe for checks (native/occt_probe.cpp: OCCT's points on a representation's faces and edges at given
-# parameters, read without shape processing, or built by the native builder, native/occt_build.cpp, unhealed), not
+# parameters, and points classified against faces, read without shape processing, or built by the native builder,
+# native/occt_build.cpp, unhealed), not
 # part of the library: compiled and linked against the same OCCT static toolkits as build.sh. Output:
 # dist/occt_probe.mjs and dist/occt_probe.wasm.
 #   B=<OCCT build dir>  default build/occt-Os
@@ -15,7 +16,8 @@ B=${B:-build/occt-Os}
 LIBS=("$B"/lin32/clang/lib/lib*.a)
 mkdir -p dist build
 EXPORTS='["_occt_probe_read","_occt_probe_faces","_occt_probe_num_faces","_occt_probe_edges",'\
-'"_occt_probe_num_edges","_occt_probe_diag","_occt_probe_eval","_occt_probe_free","_occt_probe_build","_malloc",'\
+'"_occt_probe_num_edges","_occt_probe_diag","_occt_probe_eval","_occt_probe_free","_occt_probe_build",'\
+'"_occt_probe_classify","_malloc",'\
 '"_free"]'
 # (-DNo_Exception as OCCT's libraries and build.sh.)
 for f in occt_probe occt_build; do

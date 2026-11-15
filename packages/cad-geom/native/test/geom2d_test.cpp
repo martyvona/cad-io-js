@@ -377,6 +377,28 @@ TEST_CASE("intersect2: a circle and lines: secant, tangent, just outside, just i
   CHECK_NEAR(x.crossings[1].p.x - x.crossings[0].p.x, 2 * std::sqrt(2 * 2 * 2e-6 - 4e-12), 1e-6, 0);
 }
 
+TEST_CASE("intersect2 and classify2: a long line past a circle's bulge, crossing twice closer than the coarse "
+  "polyline's deviation") {
+  // x = -1 + h crosses the unit circle at y = +/-sqrt(2h - h^2), 0.028 apart, separating by h = 10 tol between: two
+  // crossings. The line is 100 long, so the first polyline may deviate by 0.1 and holds both in one pair.
+  Arc2 c({0, 0}, 1);
+  const double h = 1e-4, tol = 1e-5, y = std::sqrt(2 * h - h * h);
+  Line2 down({-1 + h, 50}, {0, -100});
+  Intersections2 x = meet(down, {0, 1}, c, {0, 2 * pi}, tol);
+  REQUIRE(x.crossings.size() == 2);
+  CHECK(x.overlaps.empty());
+  CHECK_NEAR(x.crossings[0].p.y, y, 0, 1e-9);
+  CHECK_NEAR(x.crossings[1].p.y, -y, 0, 1e-9);
+  CHECK(!x.crossings[0].tangent && !x.crossings[1].tangent);
+  // Just left of the line above the bulge: out (the ray down meets the first crossing, the disk on its right).
+  Loop2 disk;
+  disk.pieces.push_back({&c, {0, 2 * pi}, false});
+  Status st;
+  CHECK(classify2({disk}, {-1 + h, 0.05}, {}, tol, st) == Side::out);
+  CHECK(st == Status::ok);
+  CHECK(classify2({disk}, {-1 + h, 0}, {}, tol, st) == Side::in);
+}
+
 TEST_CASE("intersect2: circles crossing, touching outside and inside, the same circle over two ranges") {
   Arc2 a({0, 0}, 1), b({1, 0}, 1), out({2, 0}, 1), in({0.5, 0}, 0.5);
   const Range full{0, 2 * pi};
