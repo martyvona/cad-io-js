@@ -38,12 +38,13 @@ const plant = process.env.PLANT, withOcct = process.env.OCCT === '1';
 if (plant && !['orient', 'gap'].includes(plant)) throw new Error(`PLANT=${plant}: orient, gap`);
 const SKIND = Object.fromEntries(Object.entries(SURFACE_KIND).map(([k, v]) => [v, k])) as Record<number, string>;
 
-/** Counts by key, and up to 5 examples each. */
+/** Counts by key, and up to 5 examples each (EXAMPLES=n: n, to look into a run). */
+const examples = Number(process.env.EXAMPLES ?? 5);
 type Tally = Record<string, { n: number; ex: string[] }>;
 const tally = (t: Tally, key: string, ex?: string) => {
   const e = t[key] ??= { n: 0, ex: [] };
   e.n++;
-  if (ex && e.ex.length < 5) e.ex.push(ex);
+  if (ex && e.ex.length < examples) e.ex.push(ex);
 };
 const fresh = () => ({
   files: 0, parts: 0, faces: 0, judged: 0, planted: 0, caught: [] as string[], plantedAt: [] as string[],
@@ -151,6 +152,10 @@ export const check: FileCheck<undefined, Result> = {
           continue;
         }
         if (!info.loops) { tally(R.skipped, 'no edge loops (natural bounds)'); continue; }
+        if (info.ownRanges) {
+          tally(R.skipped, `judged, with p-curves parameterized otherwise than their curves (their ranges their own, `
+            + `by inverting the vertices; the source against Part 42): ${SKIND[sk]}`, at);
+        }
         // The planted face: the part's first one judged.
         let g = g0, planted = false;
         if (pick && plantedFace < 0) {
@@ -185,20 +190,16 @@ export const check: FileCheck<undefined, Result> = {
           // (The pieces as the API takes them, the face on each one's left: each use's p-curve parameters where it
           // starts and ends, derived from its edge where the model gives none, loops turned round where the face's
           // sense isn't its surface's.)
-          const on: number[] = [], normals: number[] = [], travel = g0.facePieces(f).travel, rows: number[] = [];
-          const seam: boolean[] = [], uses = new Map<number, number>(), edges: number[] = [];
+          const on: number[] = [], normals: number[] = [], { coedge, travel } = g0.facePieces(f), rows: number[] = [];
+          const seam: boolean[] = [], uses = new Map<number, number>();
           for (let l = d.face.firstLoop[f]!; l < d.face.firstLoop[f]! + d.face.loopCount[f]!; l++) {
             if (d.loop.kind[l] !== LOOP_KIND.edge) continue;
-            const js: number[] = [];
-            for (let j = d.loop.first[l]!; j < d.loop.first[l]! + d.loop.count[l]!; j++) js.push(j);
-            for (const j of d.face.sameSense[f] ? js : js.reverse()) {
-              rows.push(d.coedge.pcurve[j]!);
-              edges.push(d.coedge.edge[j]!);
+            for (let j = d.loop.first[l]!; j < d.loop.first[l]! + d.loop.count[l]!; j++) {
               uses.set(d.coedge.edge[j]!, (uses.get(d.coedge.edge[j]!) ?? 0) + 1);
             }
           }
           // A seam (an edge the face uses twice): across it the face goes on, a period on.
-          for (const e of edges) seam.push(uses.get(e)! > 1);
+          for (const j of coedge) rows.push(d.coedge.pcurve[j]!), seam.push(uses.get(d.coedge.edge[j]!)! > 1);
           const onSeam: boolean[] = [];
           for (let piece = 0; piece < rows.length; piece++) {
             {

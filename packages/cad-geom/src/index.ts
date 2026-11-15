@@ -187,6 +187,8 @@ export interface FaceInfo {
   loops: number;
   /** Its pole lines: u = at (isoU) or v = at. */
   poles: { isoU: boolean; at: number }[];
+  /** Its coedges whose p-curve range is the p-curve's own, its curve's parameters missing its vertices. */
+  ownRanges: number;
 }
 
 export interface FaceSides {
@@ -391,17 +393,25 @@ export class Geometry {
 
   /** The face's loops as geom2d sees them: the 3D tolerance used, the periods, the edge loops, the pole lines. */
   faceInfo(face: number, tol3d = NaN): FaceInfo {
-    const [s, out] = this.call('face_info', face, tol3d, { out: 'f64', n: 5 });
-    if (s !== 0) return { status: faceStatus(s), tolerance: NaN, uPeriod: 0, vPeriod: 0, loops: 0, poles: [] };
+    const [s, out] = this.call('face_info', face, tol3d, { out: 'f64', n: 6 });
+    if (s !== 0) {
+      return { status: faceStatus(s), tolerance: NaN, uPeriod: 0, vPeriod: 0, loops: 0, poles: [], ownRanges: 0 };
+    }
     const o = out as Float64Array, v = this.scratch(), poles: FaceInfo['poles'] = [];
     for (let i = 0; i < o[4]!; i++) poles.push({ isoU: v[2 * i] === 1, at: v[2 * i + 1]! });
-    return { status: 'ok', tolerance: o[0]!, uPeriod: o[1]!, vPeriod: o[2]!, loops: o[3]!, poles };
+    return { status: 'ok', tolerance: o[0]!, uPeriod: o[1]!, vPeriod: o[2]!, loops: o[3]!, poles, ownRanges: o[5]! };
   }
 
-  /** Per coedge of the face's edge loops, in order: the p-curve's parameters where its use starts and ends. */
-  facePieces(face: number): { status: FaceStatus; travel: Float64Array } {
+  /**
+   * The face's loops' pieces as classifyOnFace takes them, the face on each one's left: per piece its coedge (a coedge
+   * two pieces where its use crosses a closed p-curve's ends), the p-curve's parameters where it starts and ends.
+   */
+  facePieces(face: number): { status: FaceStatus; coedge: Int32Array; travel: Float64Array } {
     const n = this.fn('face_pieces')(this.live(), face);
-    return n < 0 ? { status: faceStatus(-n), travel: new Float64Array() } : { status: 'ok', travel: this.scratch() };
+    if (n < 0) return { status: faceStatus(-n), coedge: new Int32Array(), travel: new Float64Array() };
+    const v = this.scratch(), coedge = new Int32Array(n), travel = new Float64Array(2 * n);
+    for (let i = 0; i < n; i++) coedge[i] = v[3 * i]!, travel[2 * i] = v[3 * i + 1]!, travel[2 * i + 1] = v[3 * i + 2]!;
+    return { status: 'ok', coedge, travel };
   }
 
   /** classify2 of each (u, v) against the face's loops: sides as SIDE codes, each point's (u, v) tolerance. */

@@ -4,7 +4,8 @@
 //
 // Intersection. Candidates come from polyline approximations (each smooth span bisected until its sagitta is within
 // a coarse deviation; bound() isn't relied on to shrink), paired through a box hierarchy inflated by the deviations
-// and tol. Every decision is then made on the exact curves: from each candidate pair, Newton on the squared distance
+// and tol, and approximated again more finely where segments deviating by more than tol / 2 meet (one candidate per
+// pair, so two meetings within a coarse pair would be one). Every decision is then made on the exact curves: from each candidate pair, Newton on the squared distance
 // finds a local minimum of the gap; one above tol is nothing. Otherwise the stretch of a around it where the gap
 // stays within tol (its "contact") is measured by projecting a's points onto b, and classified:
 // - The rule: within tol, points are one, so any contact is a stretch, not a point. A contact is isolated (a
@@ -315,6 +316,47 @@ double curvature(const P2& e) {
 
 // ---- intersect2 ----
 
+namespace {
+
+/**
+ * Candidate pairs (ta, tb) from polylines within delta, through their box hierarchies. Where two segments' boxes meet
+ * and either deviates by more than tol / 2, the pair is approximated again more finely over those segments' ranges:
+ * a coarse pair holds one candidate however many times the curves meet within it (two crossings closer than the
+ * deviation, a long ray past a bulge), while within tol / 2 two meetings in one pair are one contact.
+ */
+void collectSeeds(const Curve& a, Range ra, const Curve& b, Range rb, double delta, double tol, int depth,
+  std::vector<std::pair<double, double>>& seeds) {
+  Poly pa = polyline(a, ra, delta), pb = polyline(b, rb, delta);
+  Tree A(pa), B(pb);
+  if (A.boxes.empty() || B.boxes.empty()) return;
+  std::vector<std::pair<int, int>> stack{{0, 0}};
+  while (!stack.empty()) {
+    auto [i, j] = stack.back();
+    stack.pop_back();
+    if (!overlapBoxes(A.boxes[i], B.boxes[j], tol)) continue;
+    bool leafA = A.kids[i].first < 0, leafB = B.kids[j].first < 0;
+    if (leafA && leafB) {
+      int sa = A.ranges[i].first, sb = B.ranges[j].first;
+      if (std::max(pa.dev[sa], pb.dev[sb]) > tol / 2 && depth < 12) {
+        collectSeeds(a, {pa.t[sa], pa.t[sa + 1]}, b, {pb.t[sb], pb.t[sb + 1]}, std::max(tol / 2, delta / 16), tol,
+          depth + 1, seeds);
+        continue;
+      }
+      double fa, fb;
+      closest(pa.p[sa], pa.p[sa + 1], pb.p[sb], pb.p[sb + 1], fa, fb);
+      seeds.push_back({pa.t[sa] + fa * (pa.t[sa + 1] - pa.t[sa]), pb.t[sb] + fb * (pb.t[sb + 1] - pb.t[sb])});
+    } else if (leafA || (!leafB && B.ranges[j].second - B.ranges[j].first > A.ranges[i].second - A.ranges[i].first)) {
+      stack.push_back({i, B.kids[j].first});
+      stack.push_back({i, B.kids[j].second});
+    } else {
+      stack.push_back({A.kids[i].first, j});
+      stack.push_back({A.kids[i].second, j});
+    }
+  }
+}
+
+} // namespace
+
 Intersections2 intersect2(const Curve& a, Range ra, const Curve& b, Range rb, double tol) {
   Intersections2 out;
   out.status = Status::ok;
@@ -331,30 +373,8 @@ Intersections2 intersect2(const Curve& a, Range ra, const Curve& b, Range rb, do
   };
   Poly pa0 = polyline(a, ra, kInf), pb0 = polyline(b, rb, kInf);
   double delta = std::max(tol, 1e-3 * std::max(size(pa0), size(pb0)));
-  Poly pa = polyline(a, ra, delta), pb = polyline(b, rb, delta);
-  Tree A(pa), B(pb);
   std::vector<std::pair<double, double>> seeds;
-  if (!A.boxes.empty() && !B.boxes.empty()) {
-    std::vector<std::pair<int, int>> stack{{0, 0}};
-    while (!stack.empty()) {
-      auto [i, j] = stack.back();
-      stack.pop_back();
-      if (!overlapBoxes(A.boxes[i], B.boxes[j], tol)) continue;
-      bool leafA = A.kids[i].first < 0, leafB = B.kids[j].first < 0;
-      if (leafA && leafB) {
-        int sa = A.ranges[i].first, sb = B.ranges[j].first;
-        double fa, fb;
-        closest(pa.p[sa], pa.p[sa + 1], pb.p[sb], pb.p[sb + 1], fa, fb);
-        seeds.push_back({pa.t[sa] + fa * (pa.t[sa + 1] - pa.t[sa]), pb.t[sb] + fb * (pb.t[sb + 1] - pb.t[sb])});
-      } else if (leafA || (!leafB && B.ranges[j].second - B.ranges[j].first > A.ranges[i].second - A.ranges[i].first)) {
-        stack.push_back({i, B.kids[j].first});
-        stack.push_back({i, B.kids[j].second});
-      } else {
-        stack.push_back({A.kids[i].first, j});
-        stack.push_back({A.kids[i].second, j});
-      }
-    }
-  }
+  collectSeeds(a, ra, b, rb, delta, tol, 0, seeds);
   std::vector<Contact> contacts;
   auto covered = [&](double t) {
     for (const Contact& c : contacts)

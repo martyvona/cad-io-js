@@ -353,10 +353,12 @@ int32_t cg_surface_invert(int32_t h, int32_t row, const double* points, int32_t 
 // never does), it's derived as the p-curve's parameter is defined, the edge's 3D curve's (Part 42's SURFACE_CURVE;
 // brep-reference.md): the edge's range, or its vertices inverted onto its curve (a closed or periodic curve's range
 // a whole period apart where its vertices meet, else the way its sense runs), then checked: the surface at the
-// p-curve's ends must reach the vertices (within 100 x the 3D tolerance).
+// p-curve's ends must reach the vertices (within 100 x the 3D tolerance). Where they don't (a p-curve parameterized
+// otherwise than its curve, against Part 42: a B-spline fitted to a circle, say), the vertices' (u, v) are inverted
+// onto the p-curve for its own parameters, counted (cg_face_info) and checked the same way.
 // Face statuses, besides makeCurve's and makeSurface's codes: FACE_NO_PCURVE (a coedge without a p-curve),
-// FACE_NO_RANGE (no range given or derivable: no 3D curve or no vertices) and FACE_RANGE_OFF (a derived range's
-// p-curve ends off the vertices: the p-curve parameterized otherwise than its curve).
+// FACE_NO_RANGE (no range given or derivable: no 3D curve or no vertices) and FACE_RANGE_OFF (neither the curve's
+// parameters nor the p-curve's own reach the vertices).
 
 namespace {
 
@@ -368,10 +370,12 @@ struct FaceLoops {
   const Surface* surface = nullptr;
   std::vector<Loop2> loops;    // one per edge loop, in the face's order
   std::vector<int> loopIndex;  // each one's index among the face's loops
-  std::vector<double> travel;  // per coedge of its edge loops, in order: the p-curve's parameters where it starts, ends
+  std::vector<double> travel;  // per piece of its edge loops, in order: the p-curve's parameters where it starts, ends
+  std::vector<int> pieceCoedge;  // per piece, its coedge (one coedge two pieces where its use wraps: useRange)
   int faceLoops = 0;
   Periods periods;
   double tol3 = 0;
+  int ownRanges = 0;  // coedges whose p-curve range is the p-curve's own (useRange), not its curve's
 };
 
 /** The 3D tolerance of the coedge's edge: the larger of the part's uncertainty and the edge's, else DEFAULT_TOL. */
@@ -382,8 +386,28 @@ double edgeTolerance(const Model& m, int edge) {
   return best > 0 ? best : DEFAULT_TOL;
 }
 
-/** The coedge's p-curve parameters at its edge's start and end (the file's comment): 0, or a face status. */
-int32_t useRange(int32_t h, int c, const Surface* surface, double& t0, double& t1) {
+/** The pieces' parameters at both ends, rounded the way the edge runs over a period (a closed edge a whole turn). */
+void around(CurveDomain d, bool closed, bool forward, double t0, double& t1) {
+  if (d.period > 0) {
+    if (forward) {
+      while (t1 <= t0) t1 += d.period;
+      if (!closed && t1 - t0 > d.period) t1 -= d.period;
+    } else {
+      while (t1 >= t0) t1 -= d.period;
+      if (!closed && t0 - t1 > d.period) t1 += d.period;
+    }
+  }
+}
+
+/**
+ * The coedge's p-curve parameters at its edge's start and end (the file's comment): 0, or a face status. `own` is set
+ * where they're the p-curve's own, found by inverting the vertices onto it, its curve's parameters missing them (a
+ * p-curve parameterized otherwise than its curve: a B-spline fitted to a circle, say); `wrap` then nonzero where the
+ * edge crosses a closed, non-periodic p-curve's ends: from t0 out through the p-curve's end its sign says (1 the
+ * upper), in again from the other to t1 (a closed edge's t1 its t0).
+ */
+int32_t useRange(int32_t h, int c, const Surface* surface, double& t0, double& t1, bool& own, int& wrap) {
+  own = false, wrap = 0;
   const Model& m = entry(h)->model;
   const double* given = m.f64(CBR_COEDGE_RANGE) + 2 * c;
   if (std::isfinite(given[0]) && std::isfinite(given[1])) {
@@ -407,32 +431,136 @@ int32_t useRange(int32_t h, int c, const Surface* surface, double& t0, double& t
     t0 = a.t, t1 = b.t;
     const bool forward = m.edgeSameSense(e);
     if (d.period > 0) {
-      // Round the way the edge runs; a closed edge a whole turn.
-      if (forward) {
-        while (t1 <= t0) t1 += d.period;
-        if (vs != ve && t1 - t0 > d.period) t1 -= d.period;
-      } else {
-        while (t1 >= t0) t1 -= d.period;
-        if (vs != ve && t0 - t1 > d.period) t1 += d.period;
-      }
+      around(d, vs == ve, forward, t0, t1);
     } else if (vs == ve && std::isfinite(d.range.lo) && std::isfinite(d.range.hi)) {
       // A closed non-periodic curve (a closed B-spline): its whole domain, the way it runs.
       t0 = forward ? d.range.lo : d.range.hi, t1 = forward ? d.range.hi : d.range.lo;
     }
   }
   // The p-curve's ends through the surface must reach the edge's vertices.
-  if (vs >= 0 && ve >= 0) {
-    Status s;
-    const Curve* pc = curve(h, m.coedgePcurve(c), s);
-    const double tol = edgeTolerance(m, e);
-    for (auto [t, v] : {std::pair{t0, vs}, std::pair{t1, ve}}) {
+  if (vs < 0 || ve < 0) return 0;
+  Status s;
+  const Curve* pc = curve(h, m.coedgePcurve(c), s);
+  const double tol = edgeTolerance(m, e);
+  auto reaches = [&](double a, double b) {
+    for (auto [t, v] : {std::pair{a, vs}, std::pair{b, ve}}) {
       CurvePoint q;
       pc->eval(t, 0, q);
       SurfacePoint sp;
       surface->eval(q.p.x, q.p.y, 0, sp);
-      if (!(norm(sp.p - m.vertexPoint(v)) <= 100 * tol)) return FACE_RANGE_OFF;
+      if (!(norm(sp.p - m.vertexPoint(v)) <= 100 * tol)) return false;
+    }
+    return true;
+  };
+  if (reaches(t0, t1)) return 0;
+  // Else the p-curve's own parameters at the vertices: their (u, v) inverted onto it, searched for within the
+  // p-curve's own (u, v) box, doubled (inversion needs a finite box; a plane's domain isn't).
+  SurfaceDomain sd = surface->domain();
+  CurveDomain pd = pc->domain();
+  if (!std::isfinite(pd.range.lo) || !std::isfinite(pd.range.hi)) return FACE_RANGE_OFF;
+  Range bu{INFINITY, -INFINITY}, bv{INFINITY, -INFINITY};
+  for (int i = 0; i <= 32; i++) {
+    CurvePoint q;
+    pc->eval(pd.range.lo + (pd.range.hi - pd.range.lo) * i / 32, 0, q);
+    bu = {std::min(bu.lo, q.p.x), std::max(bu.hi, q.p.x)}, bv = {std::min(bv.lo, q.p.y), std::max(bv.hi, q.p.y)};
+  }
+  const double pad = std::max({bu.hi - bu.lo, bv.hi - bv.lo, 1e-9});
+  bu = {std::max(sd.u.lo, bu.lo - pad), std::min(sd.u.hi, bu.hi + pad)};
+  bv = {std::max(sd.v.lo, bv.lo - pad), std::min(sd.v.hi, bv.hi + pad)};
+  if (sd.uPeriod > 0) bu = sd.u;
+  if (sd.vPeriod > 0) bv = sd.v;
+  auto onPcurve = [&](Vec3 p, double& t) {
+    SurfaceInversion uv = invertSurface(*surface, p, bu, bv, tol);
+    if (uv.status != Status::ok) return false;
+    CurveInversion r = invertCurve(*pc, {uv.uv.x, uv.uv.y, 0}, pd.range, tol);
+    t = r.t;
+    return r.status == Status::ok;
+  };
+  double own0 = NAN, own1 = NAN, mid = NAN;
+  if (!onPcurve(m.vertexPoint(vs), own0) || !onPcurve(m.vertexPoint(ve), own1)) return FACE_RANGE_OFF;
+  // Which way the use runs on the p-curve (its parameterization may run either way): through the p-curve's
+  // parameter at the 3D curve's middle between the vertices (t0, t1 its parameters there, rounded the way the edge
+  // runs); without a 3D curve, or for a closed edge (its middle on both ways round), the way the edge runs on it.
+  Status cs;
+  const Curve* c3 = ci >= 0 ? curve(h, ci, cs) : nullptr;
+  const bool forward = m.edgeSameSense(e);
+  // The 3D curve's parameter a fraction f along the edge: on a closed, non-periodic curve whose t0 to t1 runs against
+  // the edge, the edge crosses the curve's ends (as a p-curve's use can), and so does the fraction.
+  auto along = [&](double f) {
+    CurveDomain d = c3->domain();
+    const bool against = forward ? t1 < t0 : t1 > t0;
+    if (d.period > 0 || !against || !std::isfinite(d.range.lo) || !std::isfinite(d.range.hi)) return t0 + f * (t1 - t0);
+    CurvePoint lo, hi;
+    c3->eval(d.range.lo, 0, lo), c3->eval(d.range.hi, 0, hi);
+    if (!(norm(lo.p - hi.p) <= tol)) return t0 + f * (t1 - t0);
+    const double span = d.range.hi - d.range.lo, run = std::fabs(t1 - t0);
+    double t = t0 + (forward ? 1 : -1) * f * (span - run);
+    return t > d.range.hi ? t - span : t < d.range.lo ? t + span : t;
+  };
+  if (c3) {
+    CurvePoint q;
+    c3->eval(along(0.5), 0, q);
+    if (!onPcurve(q.p, mid)) return FACE_RANGE_OFF;
+  }
+  if (pd.period > 0) {
+    if (std::isfinite(mid) && vs != ve) {
+      double a = own1, b = own1;
+      around(pd, vs == ve, true, own0, a), around(pd, vs == ve, false, own0, b);
+      double ma = mid;
+      while (ma < own0) ma += pd.period;
+      while (ma >= own0 + pd.period) ma -= pd.period;
+      own1 = ma <= a ? a : b;
+    } else {
+      around(pd, vs == ve, forward, own0, own1);
+    }
+  } else if (vs == ve) {
+    // A closed edge: the whole p-curve from its vertex, across the p-curve's ends where the vertex isn't at one; up
+    // its parameter where the 3D curve's points a third and two thirds along come in that order going up from the
+    // vertex (without a 3D curve, the way the edge runs on it).
+    CurvePoint qlo, qhi, q;
+    pc->eval(pd.range.lo, 0, qlo), pc->eval(pd.range.hi, 0, qhi), pc->eval(own0, 0, q);
+    const bool atEnd = norm(q.p - qlo.p) <= 1e-9 * pad || norm(q.p - qhi.p) <= 1e-9 * pad;
+    const double from = atEnd ? pd.range.lo : own0, span = pd.range.hi - pd.range.lo;
+    bool up = forward;
+    if (c3) {
+      double third[2];
+      for (int k = 0; k < 2; k++) {
+        CurvePoint p3;
+        c3->eval(along((k + 1) / 3.0), 0, p3);
+        if (!onPcurve(p3.p, third[k])) return FACE_RANGE_OFF;
+        third[k] = std::fmod(third[k] - from + 2 * span, span);
+      }
+      up = third[0] < third[1];
+    }
+    if (atEnd) {
+      own0 = up ? pd.range.lo : pd.range.hi, own1 = up ? pd.range.hi : pd.range.lo;
+    } else if (norm(qlo.p - qhi.p) <= 1e-9 * pad) {
+      own1 = own0, wrap = up ? 1 : -1;
+    } else {
+      return FACE_RANGE_OFF;
+    }
+  } else if (std::isfinite(mid)) {
+    // The middle off the direct way: a closed p-curve, the use across where it closes. An end at the closure is
+    // either of the p-curve's ends (its vertex inverts to either): the one that puts the middle on the direct way;
+    // else the use goes across, in two pieces.
+    auto between = [&](double a, double b) { return std::min(a, b) <= mid && mid <= std::max(a, b); };
+    CurvePoint qlo, qhi, q;
+    pc->eval(pd.range.lo, 0, qlo), pc->eval(pd.range.hi, 0, qhi);
+    const bool closed = norm(qlo.p - qhi.p) <= 1e-9 * pad;
+    auto twin = [&](double t) {
+      pc->eval(t, 0, q);
+      if (!closed || !(norm(q.p - qlo.p) <= 1e-9 * pad)) return t;
+      return t - pd.range.lo < pd.range.hi - t ? pd.range.hi : pd.range.lo;
+    };
+    if (!between(own0, own1)) {
+      // (A vertex away from the closure is its own twin; the two vertices can't both be at it.)
+      if (between(twin(own0), twin(own1))) own0 = twin(own0), own1 = twin(own1);
+      else if (closed) wrap = own0 < own1 ? -1 : 1;
+      else return FACE_RANGE_OFF;
     }
   }
+  if (!reaches(own0, own1)) return FACE_RANGE_OFF;
+  t0 = own0, t1 = own1, own = true;
   return 0;
 }
 
@@ -474,7 +602,10 @@ FaceLoops faceLoops(int32_t h, int32_t face, double tol3d) {
         return out;
       }
       double t0 = NAN, t1 = NAN;  // at the edge's start and end
-      int32_t rs = useRange(h, c, out.surface, t0, t1);
+      bool own;
+      int wrap;
+      int32_t rs = useRange(h, c, out.surface, t0, t1, own, wrap);
+      out.ownRanges += own;
       if (rs) {
         out.status = rs;
         return out;
@@ -482,8 +613,19 @@ FaceLoops faceLoops(int32_t h, int32_t face, double tol3d) {
       // The use runs start to end forward, end to start reversed.
       const bool back = m.coedgeOrientation(c) == CBR_ORIENTATION_REVERSED;
       const double from = back ? t1 : t0, to = back ? t0 : t1;
-      loop.pieces.push_back({pc, {std::min(from, to), std::max(from, to)}, from > to});
-      out.travel.insert(out.travel.end(), {from, to});
+      auto piece = [&](double a, double b) {
+        loop.pieces.push_back({pc, {std::min(a, b), std::max(a, b)}, a > b});
+        out.travel.insert(out.travel.end(), {a, b});
+        out.pieceCoedge.push_back(c);
+      };
+      if (wrap) {
+        // Out through one of the p-curve's ends, in again from the other (they meet); the use reversed, the other way.
+        const Range d = pc->domain().range;
+        const bool up = (wrap > 0) != back;
+        piece(from, up ? d.hi : d.lo), piece(up ? d.lo : d.hi, to);
+      } else {
+        piece(from, to);
+      }
     }
     out.loops.push_back(std::move(loop));
     out.loopIndex.push_back(l - m.faceFirstLoop(face));
@@ -502,6 +644,7 @@ FaceLoops faceLoops(int32_t h, int32_t face, double tol3d) {
         out.travel[2 * (at + i)] = t[2 * (n - 1 - i) + 1];
         out.travel[2 * (at + i) + 1] = t[2 * (n - 1 - i)];
       }
+      std::reverse(out.pieceCoedge.begin() + at, out.pieceCoedge.begin() + at + n);
       at += n;
     }
   }
@@ -537,7 +680,8 @@ extern "C" {
 /**
  * The face's loops as geom2d sees them: its status (0, or why not: makeCurve's or makeSurface's code,
  * FACE_NO_PCURVE, FACE_NO_RANGE); into out the 3D tolerance used, the periods (u, v), the edge loops' count, and
- * the pole lines' count, those lines (u ones, then v ones) following in the scratch as (isoU, at) pairs.
+ * the pole lines' count, those lines (u ones, then v ones) following in the scratch as (isoU, at) pairs, and how many
+ * coedges' ranges are their p-curves' own (parameterized otherwise than their curves).
  */
 int32_t cg_face_info(int32_t h, int32_t face, double tol3d, double* out) {
   FaceLoops f = faceLoops(h, face, tol3d);
@@ -547,6 +691,7 @@ int32_t cg_face_info(int32_t h, int32_t face, double tol3d, double* out) {
   for (double u : f.periods.poleU) scratch.insert(scratch.end(), {1.0, u});
   for (double v : f.periods.poleV) scratch.insert(scratch.end(), {0.0, v});
   out[4] = static_cast<double>(scratch.size() / 2);
+  out[5] = f.ownRanges;
   return 0;
 }
 
@@ -569,15 +714,19 @@ int32_t cg_face_classify(int32_t h, int32_t face, const double* uv, int32_t n, d
 }
 
 /**
- * The pieces as geom2d takes them: per coedge of the face's edge loops, in order (reversed, and each piece too, where
- * the face's sense isn't its surface's), the p-curve's parameters where the piece starts and ends (2 each) into the
- * scratch; their count, or minus the face's status. The face is on each piece's left in (u, v).
+ * The pieces as geom2d takes them, the face's edge loops' coedges in order (reversed, and each piece too, where the
+ * face's sense isn't its surface's; a coedge two pieces where its use crosses its p-curve's ends): per piece its
+ * coedge, the p-curve's parameters where it starts and ends (3 each) into the scratch; their count, or minus the
+ * face's status. The face is on each piece's left in (u, v).
  */
 int32_t cg_face_pieces(int32_t h, int32_t face) {
   FaceLoops f = faceLoops(h, face, 0);
   if (f.status) return -f.status;
-  scratch = f.travel;
-  return static_cast<int32_t>(f.travel.size() / 2);
+  scratch.clear();
+  for (size_t i = 0; i < f.pieceCoedge.size(); i++) {
+    scratch.insert(scratch.end(), {static_cast<double>(f.pieceCoedge[i]), f.travel[2 * i], f.travel[2 * i + 1]});
+  }
+  return static_cast<int32_t>(f.pieceCoedge.size());
 }
 
 /**

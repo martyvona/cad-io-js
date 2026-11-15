@@ -155,6 +155,17 @@ void boxes()
     p.edgeRanges.insert(p.edgeRanges.end(), {(double)id, t0, t1});
   }
 }
+// OCCT's one-time set-up, before either entry point: the native builder needs it too (without it a build traps on
+// a null function where a read never ran first).
+void initOcct()
+{
+  static bool inited = false;
+  if (!inited)
+  {
+    STEPControl_Controller::Init();
+    inited = true;
+  }
+}
 } // namespace
 
 extern "C"
@@ -163,12 +174,7 @@ extern "C"
 int occt_probe_read(const char* data, int len, int rootId)
 {
   p = Probe();
-  static bool inited = false;
-  if (!inited)
-  {
-    STEPControl_Controller::Init();
-    inited = true;
-  }
+  initOcct();
   try
   {
     STEPControl_Reader reader;
@@ -235,6 +241,7 @@ int occt_probe_read(const char* data, int len, int rootId)
 int occt_probe_build(const uint8_t* buf, int len)
 {
   p = Probe();
+  initOcct();
   try
   {
     BuiltPart b = buildPart(buf, (size_t)len);
