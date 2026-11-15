@@ -10,8 +10,8 @@
 // - The rule: within tol, points are one, so any contact is a stretch, not a point. A contact is isolated (a crossing,
 //   or a tangency) when the curves' own local shape where the gap is least, their relative angle theta and curvature
 //   difference dk, separates them by at least half the tolerance at one of its ends,
-//   |theta| s + |dk| s^2 / 2 >= tol / 2 with s the arc length to that end: the stretch is then the tolerance's blur of a point contact (one-sided where a
-//   range ends at the contact). Otherwise their local shape can't account for the stretch: they coincide there, an
+//   |theta| s + |dk| s^2 / 2 >= tol / 2 with s the arc length to that end: the stretch is then the tolerance's blur
+//   of a point contact (one-sided where a range ends at the contact). Otherwise their local shape can't account for the stretch: they coincide there, an
 //   overlap, reported as the intervals on each and whether they run the same way. (Two lines crossing at an angle
 //   below tol over their length coincide within tol: an overlap; a circle touching a line separates quadratically: a
 //   tangency, however small the tolerance.) An overlap is longer than tol on both curves: one that's a point on
@@ -367,6 +367,31 @@ Intersections2 intersect2(const Curve& a, Range ra, const Curve& b, Range rb, do
     if (gap > tol) continue;
     contacts.push_back(measure(a, ra, b, rb, ta, tb, tol));
   }
+  // A closed curve's contact across its seam is found twice, one reaching its range's start, one its end (where the
+  // least gap is located only to about sqrt(tol), so not at the same parameter): one contact, the smaller gap kept.
+  auto closed = [&](const Curve& c, Range r) { return len(at(c, r.lo).p - at(c, r.hi).p) <= tol; };
+  const bool closedA = closed(a, ra), closedB = closed(b, rb);
+  auto seam = [](bool isClosed, Range r, double lo0, double hi0, double lo1, double hi1) {
+    return isClosed && ((lo0 == r.lo && hi1 == r.hi) || (lo1 == r.lo && hi0 == r.hi));
+  };
+  // Two parameter ranges on c that overlap, or whose nearest ends are within tol of each other (rounding).
+  auto meets = [&](const Curve& c, double lo0, double hi0, double lo1, double hi1) {
+    if (lo0 <= hi1 && lo1 <= hi0) return true;
+    double gapEnds = lo0 > hi1 ? len(at(c, lo0).p - at(c, hi1).p) : len(at(c, lo1).p - at(c, hi0).p);
+    return gapEnds <= tol;
+  };
+  for (size_t i = 0; i < contacts.size(); i++)
+    for (size_t j = i + 1; j < contacts.size(); j++) {
+      const Contact &x = contacts[i], &y = contacts[j];
+      double xb0 = std::min(x.tb0, x.tb1), xb1 = std::max(x.tb0, x.tb1), yb0 = std::min(y.tb0, y.tb1),
+        yb1 = std::max(y.tb0, y.tb1);
+      bool sameA = seam(closedA, ra, x.t0, x.t1, y.t0, y.t1) || meets(a, x.t0, x.t1, y.t0, y.t1);
+      bool sameB = seam(closedB, rb, xb0, xb1, yb0, yb1) || meets(b, xb0, xb1, yb0, yb1);
+      if (!sameA || !sameB) continue;
+      if (y.gap < x.gap) contacts[i] = y;
+      contacts.erase(contacts.begin() + static_cast<long>(j));
+      j = i;
+    }
   for (const Contact& c : contacts) {
     // The rule (the file's comment): the local shape where the gap is least against the tolerance at each end.
     P2 A0 = at(a, c.ta), B0 = at(b, c.tb);
@@ -383,8 +408,6 @@ Intersections2 intersect2(const Curve& a, Range ra, const Curve& b, Range rb, do
     // Crossing or tangency: the signed gap at the contact's ends (or just past them).
     double tb0 = c.tb0, tb1 = c.tb1;
     double g0 = signedGap(a, b, rb, c.t0, tb0), g1 = signedGap(a, b, rb, c.t1, tb1);
-    bool atEnd = c.t0 == ra.lo || c.t1 == ra.hi || c.tb0 == rb.lo || c.tb0 == rb.hi || c.tb1 == rb.lo
-      || c.tb1 == rb.hi;
     bool crossing = (g0 < 0) != (g1 < 0) && std::fabs(g0) > tol / 4 && std::fabs(g1) > tol / 4;
     double ta = c.ta, tb = c.tb;
     if (crossing) {
@@ -400,7 +423,6 @@ Intersections2 intersect2(const Curve& a, Range ra, const Curve& b, Range rb, do
         if (std::fabs(dta) + std::fabs(dtb) <= 1e-15 * (1 + std::fabs(ta) + std::fabs(tb))) break;
       }
     }
-    (void)atEnd;
     Vec2 p = 0.5 * (at(a, ta).p + at(b, tb).p);
     out.crossings.push_back({ta, tb, p, !crossing});
   }
@@ -620,7 +642,7 @@ RayResult cast(const Boundary& bd, Vec2 p, Vec2 dir, double L, const Periods& pe
   return hit ? result : RayResult::none;
 }
 
-Side classifyBoundary(const Boundary& bd, Vec2 p, const Periods& per, double tol, bool noOuter, Status& status) {
+Side classifyBoundary(const Boundary& bd, Vec2 p, const Periods& per, double tol, Status& status) {
   if (onBoundary(bd, p, per, tol)) return Side::on;
   if (bd.pieces.empty()) return Side::in;
   Bbox all;
@@ -657,7 +679,6 @@ Side classifyBoundary(const Boundary& bd, Vec2 p, const Periods& per, double tol
     if (r == RayResult::retry) continue;
     return r == RayResult::in ? Side::in : Side::out;
   }
-  (void)noOuter;
   status = Status::noConvergence;
   return Side::out;
 }
@@ -798,11 +819,11 @@ Side classify2(const std::vector<Loop2>& loops, Vec2 p, Periods periods, double 
     for (double side : {-1.0, 1.0}) {
       double off = 1e3 * tol + 1e-9 * std::fabs(c);
       Vec2 q = isU ? Vec2{c + side * off, p.y} : Vec2{p.x, c + side * off};
-      if (classifyBoundary(bd, q, periods, tol, false, s2) != Side::out) return Side::on;
+      if (classifyBoundary(bd, q, periods, tol, s2) != Side::out) return Side::on;
     }
     return Side::out;
   }
-  Side s = classifyBoundary(bd, p, periods, tol, false, status);
+  Side s = classifyBoundary(bd, p, periods, tol, status);
   return s;
 }
 
@@ -840,7 +861,7 @@ std::vector<int> nest2(const std::vector<Loop2>& loops, Periods periods, double 
         for (double f : {0.5, 0.25, 0.75, 0.125}) {
           Vec2 q = at(*piece.curve, piece.range.lo + f * (piece.range.hi - piece.range.lo)).p;
           Status s2;
-          Side side = classifyBoundary(bj, q, periods, tol, false, s2);
+          Side side = classifyBoundary(bj, q, periods, tol, s2);
           if (side == Side::on) continue;
           inside = side == Side::in;
           decided = true;
