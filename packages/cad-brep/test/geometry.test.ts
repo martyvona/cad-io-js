@@ -455,3 +455,83 @@ test('past a cone\'s apex the inverse comes from across the axis', () => {
     near([pu, pv], [u!, v!], 1e-12, `${u}, ${v}`);
   }
 });
+
+test('an edge from a vertex to itself on a curve whose ends meet within the part\'s uncertainty is the whole curve',
+  async () => {
+    // bug25166_piston.stp's case: a cubic B-spline whose ends are 6.6e-4 apart, uncertainty 1e-3, its edge's one
+    // vertex between them; and the same just outside (ends 1.2e-3 apart: the edge stays a point, the source's), and
+    // with no uncertainty but the vertex's own tolerance.
+    const { edgeParams } = await import('../src/geometry.ts');
+    const make = (gap: number, uncertainty?: number, tolerance?: number) => {
+      const b = new BrepBuilder(uncertainty === undefined ? {} : { uncertainty });
+      const ring = [[1, 0, 0], [1, 1, 0], [-1, 1, 0], [-1, -1, 0], [1, -1, 0], [1, gap, 0]];
+      const c = b.addCurve({ kind: 'bspline', degree: 3, knots: [0, 1, 2, 6], multiplicities: [4, 1, 1, 4], poles: ring,
+        closed: false, selfIntersect: false, form: 'unspecified' });
+      const v = b.addVertex({ point: [1, gap / 2, 0], ...(tolerance === undefined ? {} : { tolerance }) });
+      const e = [b.addEdge({ curve: c, start: v, end: v, sameSense: true }),
+        b.addEdge({ curve: c, start: v, end: v, sameSense: false })];
+      const d = b.finish();
+      return e.map((k) => edgeParams(d, k, curveEvaluator(d, c)!)!.map((x) => Math.round(x * 1e9) / 1e9));
+    };
+    assert.deepEqual(make(6.6e-4, 1e-3), [[0, 6], [6, 0]]);
+    assert.deepEqual(make(9.9e-4, 1e-3), [[0, 6], [6, 0]]);
+    // Just outside: the ends 1.01e-3 apart, the vertex's foot its parameter at both ends of the edge.
+    const out = make(1.01e-3, 1e-3);
+    assert.equal(out[0]![0], out[0]![1]);
+    // No uncertainty: the vertex's tolerance closes it; neither, CLOSED of the size doesn't.
+    assert.deepEqual(make(6.6e-4, undefined, 1e-3), [[0, 6], [6, 0]]);
+    const none = make(6.6e-4);
+    assert.equal(none[0]![0], none[0]![1]);
+  });
+
+test('a vertex within the uncertainty of a nearly closed B-spline\'s junction takes the end the sense needs',
+  async () => {
+    const { edgeParams } = await import('../src/geometry.ts');
+    const gap = 5e-4, b = new BrepBuilder({ uncertainty: 1e-3 });
+    const ring = [[1, 0, 0], [1, 1, 0], [-1, 1, 0], [-1, -1, 0], [1, -1, 0], [1, gap, 0]];
+    const c = b.addCurve({ kind: 'bspline', degree: 2, knots: [0, 1, 2, 3, 4], multiplicities: [3, 1, 1, 1, 3],
+      poles: ring, closed: false, selfIntersect: false, form: 'unspecified' });
+    const ev0 = curveEvaluator(b.finish(), 0)!;
+    const mid = b.addVertex({ point: ev0.point(2.5) }), junction = b.addVertex({ point: [1, gap / 2, 0] });
+    const e = [b.addEdge({ curve: c, start: mid, end: junction, sameSense: true }),
+      b.addEdge({ curve: c, start: junction, end: mid, sameSense: true })];
+    const d = b.finish(), ev = curveEvaluator(d, c)!;
+    const r = (k: number) => edgeParams(d, e[k]!, ev)!;
+    // The junction vertex is nearer one end than the other; the edge's sense decides which it takes.
+    assert.ok(Math.abs(r(0)[1] - 4) < 1e-3 && Math.abs(r(0)[0] - 2.5) < 1e-6, `${r(0)}`);
+    assert.ok(Math.abs(r(1)[0]) < 1e-3 && Math.abs(r(1)[1] - 2.5) < 1e-6, `${r(1)}`);
+  });
+
+test('closedness: a vertex near one end only, and ends a rounding apart with no tolerance given', async () => {
+  const { edgeParams } = await import('../src/geometry.ts');
+  const ringWith = (gap: number) => [[1, 0, 0], [1, 1, 0], [-1, 1, 0], [-1, -1, 0], [1, -1, 0], [1, gap, 0]];
+  {
+    // Ends 9e-4 apart along x within 1e-3 (the last end at (1 - 9e-4, 0)); the vertex 9e-4 beyond it, 1.8e-3 from
+    // the first end: its foot at the last end, at the junction by that end alone, so the edge from it round to the
+    // middle starts at the first end.
+    const b = new BrepBuilder({ uncertainty: 1e-3 });
+    const poles = [[1, 0, 0], [1, 1, 0], [-1, 1, 0], [-1, -1, 0], [1 - 9e-4, -1, 0], [1 - 9e-4, 0, 0]];
+    const c = b.addCurve({ kind: 'bspline', degree: 2, knots: [0, 1, 2, 3, 4], multiplicities: [3, 1, 1, 1, 3],
+      poles, closed: false, selfIntersect: false, form: 'unspecified' });
+    const mid = b.addVertex({ point: curveEvaluator(b.finish(), 0)!.point(2.5) });
+    const junction = b.addVertex({ point: [1 - 1.8e-3, 0, 0] });
+    // And one 9e-4 before the first end, 1.8e-3 from the last: its foot at the first end, so the edge from the
+    // middle round to it ends at the last.
+    const before = b.addVertex({ point: [1 + 9e-4, 0, 0] });
+    const e = b.addEdge({ curve: c, start: junction, end: mid, sameSense: true });
+    const f = b.addEdge({ curve: c, start: mid, end: before, sameSense: true });
+    const d = b.finish(), ev = curveEvaluator(d, c)!, r = edgeParams(d, e, ev)!, q = edgeParams(d, f, ev)!;
+    assert.ok(Math.abs(r[0]) < 1e-12 && Math.abs(r[1] - 2.5) < 1e-6, `${r}`);
+    assert.ok(Math.abs(q[0] - 2.5) < 1e-6 && Math.abs(q[1] - 4) < 1e-12, `${q}`);
+  }
+  {
+    // No tolerance anywhere: ends 1e-12 apart (of a size about 2) still close it, by CLOSED of the size.
+    const b = new BrepBuilder();
+    const c = b.addCurve({ kind: 'bspline', degree: 2, knots: [0, 1, 2, 3, 4], multiplicities: [3, 1, 1, 1, 3],
+      poles: ringWith(1e-12), closed: false, selfIntersect: false, form: 'unspecified' });
+    const v = b.addVertex({ point: [1, 0, 0] });
+    const e = b.addEdge({ curve: c, start: v, end: v, sameSense: true });
+    const d = b.finish();
+    assert.deepEqual(edgeParams(d, e, curveEvaluator(d, c)!), [0, 4]);
+  }
+});

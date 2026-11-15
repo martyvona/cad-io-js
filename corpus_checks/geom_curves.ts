@@ -218,13 +218,12 @@ export const check: FileCheck<undefined, Result> = {
           pts.push(...d.vertex.point.subarray(3 * v, 3 * v + 3));
         }
         // Each vertex's parameter by cad-geom, for the edges' ranges below (by its point, as edgeParams asks).
-        const paramAt = new Map<string, number>(), seamAt = new Set<number>();
+        const paramAt = new Map<string, number>();
         if (vs.length) {
           const inv = g.invertCurve(ci, pts, info.lo, info.hi, tol);
           vs.forEach((v, k) => {
             if (inv.statuses[k] === 0) paramAt.set(pts.slice(3 * k, 3 * k + 3).join(), inv.params[k]!);
             gapAt.set(v, Math.max(gapAt.get(v) ?? 0, inv.distance[k]!));
-            if (inv.flags[k]) seamAt.add(v);
             const at = `${where} curve #${d.curve.id[ci]} vertex #${d.vertex.id[v]}`;
             const st = STATUS[inv.statuses[k]!]!;
             tally(R.invertStatus, st, st === 'ok' ? undefined : at);
@@ -250,17 +249,7 @@ export const check: FileCheck<undefined, Result> = {
           param: (p: number[]) => paramAt.get(p.join()) };
         const ranges: number[] = [], kept: number[] = [];
         for (const ed of edges) {
-          let r = edgeParams(d, ed, ours);
-          const rt = edgeParams(d, ed, e);
-          // An edge from a vertex to itself on a bounded curve whose ends meet within the uncertainty (onSeam):
-          // the whole curve, where edgeParams's own closedness test, stricter, gives a zero range.
-          const s0 = d.edge.start[ed]!;
-          if (r && r[0] === r[1] && s0 >= 0 && s0 === d.edge.end[ed] && !info.period && Number.isFinite(info.lo)
-            && seamAt.has(s0)) {
-            r = d.edge.sameSense[ed] ? [info.lo, info.hi] : [info.hi, info.lo];
-            tally(R.lengthStatus, 'a zero range from edgeParams on a curve closed within the uncertainty: the whole '
-              + 'curve taken', `${where} edge #${d.edge.id[ed]}`);
-          }
+          const r = edgeParams(d, ed, ours), rt = edgeParams(d, ed, e);
           if (!r || !Number.isFinite(r[0]) || !Number.isFinite(r[1])) {
             tally(R.lengthStatus, 'no finite range', `${where} edge #${d.edge.id[ed]}`);
             continue;
