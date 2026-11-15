@@ -106,7 +106,7 @@ cd cad-io-js
 source env.sh                        # checks the tools; sets up Rust's and Emscripten's environment in this shell,
                                      # and puts node_modules/.bin (stepconv, step2json) on PATH
 npm install                          # dev dependencies (TypeScript, three, the validators) and the workspace links
-third_party/pull.sh                  # OCCT, stepcode, truck, SMLib and reference documents, at pinned versions (~400 MB)
+third_party/pull.sh                  # OCCT, stepcode, truck, SMLib, Eigen and reference documents, at pinned versions
 scripts/fetch-emsdk.sh               # the pinned Emscripten into third_party/emsdk/ (~1.7 GB)
 packages/tess-occt/build-occt.sh     # OCCT's static libraries for WebAssembly (~6-12 minutes, ~850 MB)
 packages/tess-occt/build.sh          # our OCCT wrapper, linked: packages/tess-occt/dist/occt_tess.{mjs,wasm}
@@ -114,6 +114,7 @@ packages/tess-occt/build-probe.sh    # (for step_roundtrip.ts, native_route.ts) 
 packages/tess-truck/build.sh         # the truck backend: packages/tess-truck/dist/tess_truck.wasm
 packages/tess-smlib/build-smlib.sh   # SMLib's static library for WebAssembly (~1.5 minutes; T=native for the host)
 packages/tess-smlib/build.sh         # the SMLib backend, linked: packages/tess-smlib/dist/smlib_tess.{mjs,wasm}
+packages/cad-geom/build.sh module    # the interrogation core: packages/cad-geom/dist/cad_geom.{mjs,wasm} (test: C++ tests)
 npm test                             # the package tests
 npm run typecheck
 ```
