@@ -27,15 +27,16 @@ Notes for working on cad-io-js: how work is done here, the decisions every part 
 | Path | What |
 |---|---|
 | `docs/` | the topic notes above, and `step_tutorial.md` (STEP AP203/214/242 in practice, for users too; built as a PDF with the viewer); new notes go here |
-| `packages/*` | the 20 workspace packages (README, "Package APIs"; the viewer, `packages/viewer`, README "Viewer"); tests in each `test/` |
+| `packages/*` | the 21 workspace packages (README, "Package APIs"; the viewer, `packages/viewer`, README "Viewer"); tests in each `test/` |
 | `packages/cad-brep/` | `src/layout.ts` (the B-rep buffer's format) and `src/analysis-layout.ts` (the analysis buffer's, its companion), `include/cad_brep.h`, `include/cad_brep.rs`, `include/cad_analysis.h` and `include/cad_analysis.rs` (generated from them by `gen/header.ts` and `gen/rust.ts`, which share `gen/common.ts`: run both after changing a layout; a test checks they're current); `src/columns.ts` the column format both share |
+| `packages/cad-geom/` | the interrogation core in C++ (`docs/own-tessellator.md`): `native/include/cad_geom/` the contracts, `native/src/` their implementations, `native/test/` C++ tests on our own harness (`check.h`; `fixtures.ts` embeds test models and reference shapes); `build.sh` (`libcadgeom.a` for WebAssembly or `T=native`; `test` runs the tests natively under ASan and UBSan and as WebAssembly; a guard refuses Eigen headers outside its allow-list) |
 | `packages/tess-occt/` | `native/occt_tess.cpp` (the wrapper), `native/occt_build.cpp` (the native route's builder: a part's model into OCCT's shapes); `build-occt.sh` (OCCT into `build/occt-Os/`, applying `occt_patches/` to `build/occt-src/`); `build.sh` (links `dist/`); `build-probe.sh` (`dist/occt_probe.*`, for checks) |
 | `packages/tess-truck/` | `native/` (the Rust crate; its Cargo workspace and `Cargo.lock` at the repository root, so builds don't depend on the path), `build.sh` (`dist/tess_truck.wasm`) |
 | `packages/tess-smlib/` | `native/smlib_build.cpp` (a part's model into SMLib's B-rep), `native/smlib_tess.cpp` (the wrapper), `native/tbb/` (oneTBB's serial stand-in); `build-smlib.sh` (SMLib into `build/smlib-wasm/`, or `T=native` `build/smlib-native/` for probes), `build.sh` (links `dist/`) |
 | `packages/step-schemas/` | `dict/` the generated dictionaries (committed), `gen/` their generator |
 | `corpus_checks/` | the corpus checks with committed logs (its README lists them) |
 | `test_corpus/` | `files.txt` (517 files), `third_party/pull.sh` (fetches them), `models/` (the user's Onshape exports), `demo/` (the deployed demo models) |
-| `third_party/` | `pull.sh`: OCCT, stepcode, truck, usd-brep (SMLib), the 3MF specifications, the MBx-IF practices, the JT specifications (all ignored) |
+| `third_party/` | `pull.sh`: OCCT, stepcode, truck, usd-brep (SMLib), Eigen (cad-geom), the 3MF specifications, the MBx-IF practices, the JT specifications (all ignored) |
 | `workdir/` | ignored: dated deep dives and measurement records; findings worth keeping go in this file, the notes or the README |
 | `test/` | repository-wide tests (`ascii.test.ts`) |
 | `env.sh` | `source env.sh`: checks and sets up the toolchain |
