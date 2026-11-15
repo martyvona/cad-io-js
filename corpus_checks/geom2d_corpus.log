@@ -1,5 +1,5 @@
-host: AMD Ryzen 5 7600X 6-Core Processor, 6 cores, 12 threads, 30 GiB; Linux 6.12.107+deb13-amd64 x64; Node 24.22.3; amd-pstate-epp, governor powersave, epp balance_performance, boost on; load 1.1; speed 4432 on 1 thread, 22622 on 12
-517 files, 3258 B-rep parts, 86142 faces, 4526 judged, with OCCT; 340 s
+host: AMD Ryzen 5 7600X 6-Core Processor, 6 cores, 12 threads, 30 GiB; Linux 6.12.107+deb13-amd64 x64; Node 24.22.3; amd-pstate-epp, governor powersave, epp balance_performance, boost on; load 1.0; speed 4435 on 1 thread, 21447 on 12
+517 files, 3258 B-rep parts, 86142 faces, 4567 judged, with OCCT; 375 s
 
 ## Faces not judged
   18583  no p-curves: SolidWorks
@@ -35,6 +35,12 @@ host: AMD Ryzen 5 7600X 6-Core Processor, 6 cores, 12 threads, 30 GiB; Linux 6.1
   744  no p-curves: UNIGRAPHICS SOLUTIONS - UNIGRAPHICS
   720  no p-curves: EDS PLM SOLUTIONS - UNIGRAPHICS NX
   718  no p-curves: SOLIDWORKS MBD
+  641  judged, with p-curves parameterized otherwise than their curves (their ranges their own, by inverting the vertices; the source against Part 42): plane
+      gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049 face #3141
+      gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049 face #3504
+      gkv311-opencascade-dataset/step/brep_wv2.stp #949 face #107
+      gkv311-opencascade-dataset/step/brep_wv2.stp #949 face #183
+      gkv311-opencascade-dataset/step/brep_wv2.stp #949 face #232
   625  unsupported (revolution)
       gkv311-opencascade-dataset/step/trj7_k1-ec-214.stp #6446 face #26
       gkv311-opencascade-dataset/step/trj7_k1-ec-214.stp #6446 face #885
@@ -43,16 +49,22 @@ host: AMD Ryzen 5 7600X 6-Core Processor, 6 cores, 12 threads, 30 GiB; Linux 6.1
       gkv311-opencascade-dataset/step/trj7_k1-ec-214.stp #6446 face #5421
   618  no p-curves: DATAKIT
   584  no p-curves: AutoCAD
-  552  judged, with p-curves parameterized otherwise than their curves (their ranges their own, by inverting the vertices; the source against Part 42): plane
-      gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049 face #3141
-      gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049 face #3504
-      gkv311-opencascade-dataset/step/brep_wv2.stp #949 face #107
-      gkv311-opencascade-dataset/step/brep_wv2.stp #949 face #183
-      gkv311-opencascade-dataset/step/brep_wv2.stp #949 face #232
   403  no p-curves: CADDS
   364  no p-curves: CATIA SOLUTIONS
   347  no p-curves: MicroStation/J Version
   332  no p-curves: UNIX
+  292  judged, with p-curves parameterized otherwise than their curves (their ranges their own, by inverting the vertices; the source against Part 42): cylinder
+      gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938 face #392941
+      gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392624 face #392627
+      gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392624 face #392762
+      gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392624 face #392865
+      gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392310 face #392313
+  286  judged, with p-curves parameterized otherwise than their curves (their ranges their own, by inverting the vertices; the source against Part 42): bspline
+      gkv311-opencascade-dataset/step/ec_soapbox-A.stp #11 face #9372
+      gkv311-opencascade-dataset/step/ec_soapbox-A.stp #11 face #9919
+      gkv311-opencascade-dataset/step/ec_soapbox-A.stp #11 face #10123
+      gkv311-opencascade-dataset/step/ec_soapbox-A.stp #11 face #10574
+      gkv311-opencascade-dataset/step/ec_soapbox-A.stp #11 face #10772
   275  no p-curves: Open CASCADE
   219  no p-curves: UG
   209  no p-curves: I-DEAS Master Series
@@ -61,12 +73,6 @@ host: AMD Ryzen 5 7600X 6-Core Processor, 6 cores, 12 threads, 30 GiB; Linux 6.1
   130  no p-curves: HiCAD
   117  no p-curves: 3D_EvolutionDEV(4.1) by CT CoreTechnologie
   115  no p-curves: EB Express-R Viewer
-  104  judged, with p-curves parameterized otherwise than their curves (their ranges their own, by inverting the vertices; the source against Part 42): bspline
-      gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #2172
-      gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #21628
-      gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #25568
-      gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #30668
-      gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #31735
   104  no p-curves: step.cde
   98  no p-curves: Alibre
   90  no p-curves: Alias AutoStudio
@@ -74,24 +80,18 @@ host: AMD Ryzen 5 7600X 6-Core Processor, 6 cores, 12 threads, 30 GiB; Linux 6.1
   85  no p-curves: PARTsolutions
   78  no p-curves: Alias AutoStudio for Windows
   75  no p-curves: CAMU/CADDS
+  66  judged, with p-curves parameterized otherwise than their curves (their ranges their own, by inverting the vertices; the source against Part 42): sphere
+      gkv311-opencascade-dataset/step/tr9_r1001-ec.stp #11 face #38569
+      gkv311-opencascade-dataset/step/tr9_r1001-ec.stp #11 face #39956
+      gkv311-opencascade-dataset/step/tr9_r1001-ec.stp #11 face #52322
+      gkv311-opencascade-dataset/step/tr9_r1001-ec.stp #11 face #52415
+      gkv311-opencascade-dataset/step/tr9_r1001-ec.stp #11 face #54631
   61  no p-curves: CADDS/CAMU
   57  no p-curves: Alias Studio for HP-UX
-  47  pcurveRangeOff (bspline)
-      gkv311-opencascade-dataset/step/trj2_f1-db-214.stp #785 face #670
-      gkv311-opencascade-dataset/step/trj2_f1-db-214.stp #785 face #717
-      gkv311-opencascade-dataset/step/trj2_f1-db-214.stp #785 face #763
-      gkv311-opencascade-dataset/step/xr1-db-214_4.stp #505 face #260
-      gkv311-opencascade-dataset/step/trj9_io1-sy-214.stp #2228 face #216
   43  no p-curves: EDS - UNIGRAPHICS
   40  no p-curves: MSC.Patran
   37  no p-curves: http://www.
   34  no p-curves: SYRKO
-  33  judged, with p-curves parameterized otherwise than their curves (their ranges their own, by inverting the vertices; the source against Part 42): cylinder
-      gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #3589
-      gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #8679
-      gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #18695
-      gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #22090
-      gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #30387
   29  no p-curves: CV - CADDS
   27  no p-curves: CoCreate Modeling
   26  no p-curves: THINKDESIGN
@@ -100,193 +100,169 @@ host: AMD Ryzen 5 7600X 6-Core Processor, 6 cores, 12 threads, 30 GiB; Linux 6.1
   18  no p-curves: UNIGRAPHICS Re
   14  no p-curves: PCB Libraries
   13  no p-curves: EUCLID-QUANTUM
-  6  noPcurveRange (plane)
-      gkv311-opencascade-dataset/step/bug31292.stp #62 face #65
-      gkv311-opencascade-dataset/step/bug31292.stp #62 face #423
-      gkv311-opencascade-dataset/step/bug22871_null-swept-curve.stp #10 face #3530
-      gkv311-opencascade-dataset/step/bug22871_null-swept-curve.stp #10 face #3742
-      gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 face #68
-  6  no edge loops (natural bounds)
-  4  noPcurveRange (bspline)
+  11  pcurveRangeOff (bspline)
       gkv311-opencascade-dataset/step/bug22871_null-swept-curve.stp #10 face #3441
       gkv311-opencascade-dataset/step/bug22871_null-swept-curve.stp #10 face #3620
-      gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 face #413
-      gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 face #763
+      gkv311-opencascade-dataset/step/OCC623.step #11 face #7998
+      gkv311-opencascade-dataset/step/OCC623.step #11 face #10155
+      gkv311-opencascade-dataset/step/OCC623.step #11 face #17591
+  6  no edge loops (natural bounds)
+  4  noPcurveRange (plane)
+      gkv311-opencascade-dataset/step/bug31292.stp #62 face #65
+      gkv311-opencascade-dataset/step/bug31292.stp #62 face #423
+      gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 face #68
+      gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 face #132
   4  no p-curves: Autodesk Translation Framework
-  3  pcurveRangeOff (sphere)
-      gkv311-opencascade-dataset/step/trj4_k1_top-ec-214.stp #10 face #1640
+  2  pcurveRangeOff (sphere)
       gkv311-opencascade-dataset/step/bm2_pe_t4-A.stp #971 face #355
       gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 face #314
-  2  judged, with p-curves parameterized otherwise than their curves (their ranges their own, by inverting the vertices; the source against Part 42): sphere
-      gkv311-opencascade-dataset/step/trj4_s1-pe-214.stp #12543 face #11945
-      gkv311-opencascade-dataset/step/trj4_s1-pe-214.stp #12543 face #12104
   2  noPcurveRange (cylinder)
       gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 face #197
       gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 face #262
+  2  noPcurveRange (bspline)
+      gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 face #413
+      gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 face #763
   1  no p-curves: OASE
 
 ## Nesting (nest2) against the source's bounds, by loop
   3773  bound unknown: outermost
-  757  outer, outermost: agree
-  615  bound unknown: inside another
-  85  inner, inside an outer: agree
+  795  outer, outermost: agree
+  618  bound unknown: inside another
+  86  inner, inside an outer: agree
 
 ## Points on the boundary (classify2: on)
-  44533  on
-  39  out (not on)
-      gkv311-opencascade-dataset/step/bug25166_piston.stp #30604 face #765: (8.97336271081664, 1.7958305526553597) at tol 0.000999999990979102
-      gkv311-opencascade-dataset/step/bug25166_piston.stp #30604 face #966: (0.8000000000219998, 1.1000000910144081e-10) at tol 0.000007763671509872217
-      gkv311-opencascade-dataset/step/bug25166_piston.stp #30604 face #1109: (1.1000000910144081e-10, 0.20000000008800026) at tol 0.000007763678787765704
-      gkv311-opencascade-dataset/step/bug25166_piston.stp #30604 face #1672: (0.20000000008800026, 1) at tol 0.000008161808499508359
-      gkv311-opencascade-dataset/step/bug25166_piston.stp #30604 face #1815: (0.20000000008800026, 1) at tol 0.000008161808499508359
+  44976  on
+  4  out (not on)
+      gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 face #52: (4.4, 2) at tol 0.025549914306898153
+      gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 face #52: (7.6, 2) at tol 0.025549914306898146
+      gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 face #53: (7.6, 6) at tol 0.025549914307727416
+      gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 face #53: (4.4, 6) at tol 0.025549914307727396
 
 ## Points moved off the boundary by 10 x tol (classify2: in on the face's side, out on the other)
-  86933  agree
-  1012  across a seam: the face goes on (not judged)
-      gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938 face #392941: out
-      gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938 face #392941: out
-      gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938 face #392941: out
-      gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938 face #392941: out
-      gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392624 face #392627: out
-  996  on: another boundary within 10 x tol (not judged)
-  164  disagrees (listed by face below)
-  39  disagrees at 10 x tol, agrees at 2 x: a narrow face
+  88831  agree
+  1016  across a seam: the face goes on (not judged)
+  46  disagrees (listed by face below)
+  37  on: another boundary within 10 x tol (not judged)
+      gkv311-opencascade-dataset/step/ec_soapbox-A.stp #11 face #14
+      gkv311-opencascade-dataset/step/ec_soapbox-A.stp #11 face #14
+      gkv311-opencascade-dataset/step/ec_soapbox-A.stp #11 face #14
+      gkv311-opencascade-dataset/step/ec_soapbox-A.stp #11 face #14
+      gkv311-opencascade-dataset/step/ec_soapbox-A.stp #11 face #14
+  30  disagrees at 10 x tol, agrees at 2 x: a narrow face
 
 ## Faces by their moved points, and surface
-  1978  agree (plane)
-  1260  agree (cylinder)
-  1151  agree (bspline)
-  70  agree (sphere)
-  35  some points the wrong way round (bspline)
-      gkv311-opencascade-dataset/step/t4mec.stp #9 face #1825: 1 of 34: (-0.000038197174075481664, 0.30693709939624114) in, want out
-      gkv311-opencascade-dataset/step/bug25166_piston.stp #30604 face #480: 2 of 4: (1.2000000000000002, 0.9998447273890747) out, want in; (0.20000000008799934, 0.00016323541925356624) out, want in
-      gkv311-opencascade-dataset/step/bug25166_piston.stp #30604 face #966: 2 of 4: (0.00007763689787766596, 0.800000000022) out, want in; (0.8000000000219998, 0.00007763682509873127) out, want in
-      gkv311-opencascade-dataset/step/bug25166_piston.stp #30604 face #1109: 2 of 4: (0.800000000022, 0.9999223632849012) out, want in; (0.00007763689787766614, 0.20000000008800026) out, want in
-      gkv311-opencascade-dataset/step/bug25166_piston.stp #30604 face #1672: 2 of 4: (0.9999183818386195, 0.20000000008800004) out, want in; (0.20000000008800026, 0.9999183819150049) out, want in
-  17  some points the wrong way round (cylinder)
-      gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938 face #392941: 4 of 8: (6.283185140513334, 60) out, want in; (6.283185140513334, 140) out, want in; (1.6666666666666662e-7, 140) out, want in
-      gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392624 face #392627: 4 of 8: (6.283018640513333, 60) out, want in; (6.283018640513333, 140) out, want in; (0.00016666666666666663, 140) out, want in
-      gkv311-opencascade-dataset/step/bug32314_corrupted.stp #391996 face #391999: 4 of 8: (6.283018640513333, 60) out, want in; (6.283018640513333, 140) out, want in; (0.00016666666666666663, 140) out, want in
-      gkv311-opencascade-dataset/step/bug32314_corrupted.stp #391682 face #391685: 4 of 8: (6.283018640513333, 60) out, want in; (6.283018640513333, 140) out, want in; (0.00016666666666666663, 140) out, want in
-      gkv311-opencascade-dataset/step/bug32314_corrupted.stp #391368 face #391371: 4 of 8: (6.283018640513333, 60) out, want in; (6.283018640513333, 140) out, want in; (0.00016666666666666663, 140) out, want in
-  10  some points the wrong way round (plane)
+  1982  agree (plane)
+  1274  agree (cylinder)
+  1221  agree (bspline)
+  76  agree (sphere)
+  8  some points the wrong way round (plane)
       gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049 face #3141: 1 of 24: (-35.35235605956653, -51.583365457583135) in, want out
       gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049 face #3504: 1 of 24: (-35.35235605956727, -51.58336545758325) in, want out
-      gkv311-opencascade-dataset/step/trj2_io1-ec-214.stp #9 face #249: 4 of 36: (-17.00001, -29.444881049178075) in, want out; (-17.00001, -29.444881049178075) in, want out; (-17.00001, 29.444881049179074) in, want out
       gkv311-opencascade-dataset/step/bm2_ec_leverrod-A.stp #9 face #12: 1 of 57: (130.7390252493565, 119.75904860656512) in, want out
       gkv311-opencascade-dataset/step/bm2_ec_leverrod-A.stp #9 face #1534: 1 of 57: (130.7390252493565, 119.75904860656512) in, want out
-  5  some points the wrong way round (sphere)
-      gkv311-opencascade-dataset/step/trj4_k1_top-pe-214.stp #4779 face #3088: 2 of 8: (-0.03581927047214001, 1.5707963267946) out, want in; (-3.10577338311706, 1.5707963267946) out, want in
-      gkv311-opencascade-dataset/step/trj4_s1-ec-214.stp #2586 face #2765: 2 of 6: (6.28318530718, -0.000005000000000000001) in, want out; (6.28318530718, -0.000005000000000000001) in, want out
-      gkv311-opencascade-dataset/step/trj4_s1-ec-214.stp #2586 face #2792: 2 of 6: (6.28318530718, -0.000005555555557529286) in, want out; (6.28318530718, -0.000005555555557529286) in, want out
-      gkv311-opencascade-dataset/step/trj4_s1-ec-214.stp #2017 face #2507: 2 of 6: (6.28318530718, -0.000005555555557529286) in, want out; (6.28318530718, -0.000005555555557529286) in, want out
-      gkv311-opencascade-dataset/step/trj4_s1-ec-214.stp #2017 face #2541: 2 of 6: (6.28318530718, -0.000005000000000000001) in, want out; (6.28318530718, -0.000005000000000000001) in, want out
+      gkv311-opencascade-dataset/step/bug22871_null-swept-curve.stp #10 face #3530: 5 of 20: (-2.3279993288961305, -5.269969980696318) out, want in; (-2.3279799188898287, -5.26987188252276) in, want out; (-12.156019591367926, -0.5265960442894363) out, want in
+  3  some points the wrong way round (bspline)
+      gkv311-opencascade-dataset/step/t4mec.stp #9 face #1825: 1 of 34: (-0.000038197174075481664, 0.30693709939624114) in, want out
+      gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 face #52: 4 of 16: (1.7455070995294233, 3.3999999999990758) in, want out; (1.7455070995307909, 2.5999999999996044) in, want out; (10.25449290046921, 2.599999999999604) in, want out
+      gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 face #53: 4 of 16: (10.25449290046926, 4.599999999999076) in, want out; (10.254492900469538, 5.399999999999604) in, want out; (1.7455070995304613, 5.399999999999604) in, want out
+  3  some points the wrong way round (cylinder)
+      gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #33698: 4 of 60: (4.136696139911417, 82.84554832883967) in, want out; (3.649016441079563, 73.76739129647922) in, want out; (3.81928348962991, 78.59796088184925) in, want out
+      gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #38237: 4 of 44: (4.405695871073956, 59.06028270484959) in, want out; (3.94141671089298, 53.99138131344196) in, want out; (3.8854921812195715, 52.36312456831037) in, want out
+      gkv311-opencascade-dataset/step/OCC8228.stp #10 face #44786: 4 of 36: (-0.6891862979523333, 29.76614428600448) out, want in; (-0.6825196312856667, 29.76614428600448) in, want out; (-0.6891862979523333, 29.766766778339214) out, want in
 
 ## Loops (selfIntersect2)
-  4804  simple
-  236  crossing itself
+  5194  simple
+  54  touching itself (pinched)
+      gkv311-opencascade-dataset/step/bm2_ec_leverrod-A.stp #9 face #2659 loop 0: (6.28318530718, 0)
+      gkv311-opencascade-dataset/step/bm2_ec_leverrod-A.stp #9 face #2718 loop 0: (6.28318530718, 10000)
+      gkv311-opencascade-dataset/step/tr9_r1001-ec.stp #11 face #18300 loop 0: (4.440892098500626e-16, 0.484172016991)
+      gkv311-opencascade-dataset/step/tr9_r1001-ec.stp #11 face #37932 loop 0: (0.9999999999999996, 0.484172016991)
+      gkv311-opencascade-dataset/step/tr9_r1001-ec.stp #11 face #49422 loop 0: (4.440892098500626e-16, 0.484172016991)
+  22  crossing itself
       gkv311-opencascade-dataset/step/t4mec.stp #9 face #1825 loop 0: (1.3434772739784546e-18, 2.2204460244348947e-16)
-      gkv311-opencascade-dataset/step/trj1_d1-db.stp #543 face #334 loop 0: (-39.999999999999986, 50) (-10, 50)
-      gkv311-opencascade-dataset/step/trj1_d1-db.stp #543 face #424 loop 0: (0, 1.7763568394002505e-15) (-39.999999999999986, 1.7763568394002505e-15)
-      gkv311-opencascade-dataset/step/trj1_d1-db.stp #543 face #447 loop 0: (0, 0) (-39.999999999999986, 0)
-      gkv311-opencascade-dataset/step/trj1_d1-db.stp #543 face #513 loop 0: (-10, 50) (-5.551115123125783e-13, 50)
-  188  touching itself (pinched)
-      gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938 face #392941 loop 0: (6.28318530718, 0) (6.28318530718, 200)
-      gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392624 face #392627 loop 0: (6.28318530718, 0) (6.28318530718, 200)
-      gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392624 face #392865 loop 0: (6.28318530718, 200)
-      gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392310 face #392551 loop 0: (0, 0)
-      gkv311-opencascade-dataset/step/bug32314_corrupted.stp #391996 face #391999 loop 0: (6.28318530718, 0) (6.28318530718, 200)
+      gkv311-opencascade-dataset/step/tr9_r1001-ec.stp #11 face #14167 loop 0: (2.220446049250313e-16, 0.15059428123209412)
+      gkv311-opencascade-dataset/step/tr9_r1001-ec.stp #11 face #34561 loop 0: (0.9999999999999998, 0.15059428123209412)
+      gkv311-opencascade-dataset/step/tr9_r1001-ec.stp #11 face #40845 loop 0: (2.220446049250313e-16, 0.15059428123209412)
+      gkv311-opencascade-dataset/step/tr9_r1001-ec.stp #11 face #41028 loop 0: (0.9999999999999998, 0.15059428123209412)
   2  overlapping itself
       gkv311-opencascade-dataset/step/OCC8228.stp #10 face #44786 loop 0: 
       gkv311-opencascade-dataset/step/OCC8228.stp #10 face #48211 loop 0: 
 
 ## Statuses other than ok
-  3390  classify2 invalidModel
-      gkv311-opencascade-dataset/step/t4mec.stp #9 face #1361
-      gkv311-opencascade-dataset/step/t4mec.stp #9 face #1361
-      gkv311-opencascade-dataset/step/t4mec.stp #9 face #1361
-      gkv311-opencascade-dataset/step/t4mec.stp #9 face #1361
-      gkv311-opencascade-dataset/step/t4mec.stp #9 face #1361
-  208  classify2 noConvergence
-      gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938 face #392941
-      gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938 face #392941
-      gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938 face #392941
-      gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938 face #392941
-      gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392624 face #392627
+  1000  classify2 invalidModel
+      gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #8679
+      gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #8679
+      gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #8679
+      gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #8679
+      gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #8679
+
+## Faces with classify2 invalidModel, by their loops' widest joint in 3D
+  11  p-curve ends 1-9 x tol off their vertices (the widest joint)
+      gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #8679: 3.3 x tol
+      gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #21628: 1.8 x tol
+      gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #22090: 3.3 x tol
+      gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #30668: 3.3 x tol
+      gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #35447: 1.7 x tol
+  4  p-curve ends 10-99 x tol off their vertices (the widest joint)
+      gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #40364: 13.8 x tol
+      gkv311-opencascade-dataset/step/OCC8228.stp #10 face #36494: 12.5 x tol
+      gkv311-opencascade-dataset/step/OCC623.step #11 face #12610: 17.7 x tol
+      gkv311-opencascade-dataset/step/OCC623.step #11 face #14726: 17.8 x tol
 
 ## The moved points against OCCT's face classifier
-  87147  agree
-  928  ours in, OCCT out: agrees a period on (OCCT doesn't reduce (u, v) by the period), within 20 x tol of the seam
-      gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392624 face #392762: (6.283351973846667, 6702.791194550812)
-      gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392624 face #392762: (6.283351973846667, 15639.846120618562)
-      gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392624 face #392762: (-0.00016666666666666663, 15639.846120618564)
-      gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392624 face #392762: (-0.00016666666666666663, 6702.791194550815)
-      gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392624 face #392865: (6.283351973846667, 60)
-  294  ours out, OCCT in: agrees a period on (OCCT doesn't reduce (u, v) by the period)
+  88036  agree
+  1015  ours in, OCCT out: agrees a period on (OCCT doesn't reduce (u, v) by the period), within 20 x tol of the seam
+      gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938 face #392941: (6.283185473846666, 60)
+      gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938 face #392941: (6.283185473846666, 140)
+      gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938 face #392941: (-1.6666666666666662e-7, 140)
+      gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938 face #392941: (-1.6666666666666662e-7, 60)
+      gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392624 face #392627: (6.283351973846667, 60)
+  293  ours out, OCCT in: agrees a period on (OCCT doesn't reduce (u, v) by the period)
       gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049 face #3283: (5.822205331039042, -250.000125)
       gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049 face #3283: (6.7441652833201715, -250.000125)
       gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049 face #3283: (6.7441652833201715, 0.000125)
       gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049 face #3283: (5.822205331039042, 0.000125)
       gkv311-opencascade-dataset/step/tr9_r1001-ec.stp #11 face #4663: (6.911503837897545, 21.002)
-  268  ours out, OCCT in: not periodic
-      gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #2241: (0.6999999999999994, 0.000019822259456541325)
-      gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #2241: (0.2999999999999998, 0.00001982220412209364)
-      gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #2306: (-0.000019760999406068672, 0.6992069234257206)
-      gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #2306: (-0.000019760995380246797, 0.30079327963003155)
-      gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #2333: (-0.000019760999406068666, 0.6992069234257206)
-  200  ours in, OCCT out: agrees a period on (OCCT doesn't reduce (u, v) by the period)
+  218  ours in, OCCT out: agrees a period on (OCCT doesn't reduce (u, v) by the period)
       gkv311-opencascade-dataset/step/bm2_ec_leverrod-A.stp #9 face #2659: (8.168140899313913, 0.013636363710247932)
       gkv311-opencascade-dataset/step/bm2_ec_leverrod-A.stp #9 face #2659: (10.681415022185748, 0.013636363710247937)
       gkv311-opencascade-dataset/step/bm2_ec_leverrod-A.stp #9 face #2718: (10.681415022185748, 9999.98636363629)
       gkv311-opencascade-dataset/step/bm2_ec_leverrod-A.stp #9 face #2718: (8.168140899313913, 9999.98636363629)
       gkv311-opencascade-dataset/step/tr9_r1001-ec.stp #11 face #20131: (6.3702669141480905, -0.00044032118129905105)
-  55  ours in, OCCT out: not periodic
+  128  ours out, OCCT in: not periodic, the point outside the surface's domain
+      gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #2306: (-0.000019760999406068672, 0.6992069234257206)
+      gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #2306: (-0.000019760995380246797, 0.30079327963003155)
+      gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #2333: (-0.000019760999406068666, 0.6992069234257206)
+      gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #2333: (-0.000019760995380246794, 0.30079327963003155)
+      gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #2463: (1.0000197609953803, 0.30079327963003055)
+  78  ours out, OCCT in: not periodic
+      gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #2241: (0.6999999999999994, 0.000019822259456541325)
+      gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #2241: (0.2999999999999998, 0.00001982220412209364)
+      gkv311-opencascade-dataset/step/t4mec.stp #9 face #1825: (0.000038197169126161915, 0.6873263012499784)
+      gkv311-opencascade-dataset/step/t4mec.stp #9 face #1825: (0.00003819717407549035, 0.30693709939624114)
+      gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #3372: (8.044036913195999, -13.396389356899995)
+  49  ours in, OCCT out: not periodic
       gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049 face #3141: (-35.35235605956653, -51.583365457583135)
       gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049 face #3141: (-36.73050404596339, -10.056620879112902)
       gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049 face #3141: (-93.2694959539781, -10.056620879125399)
       gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049 face #3504: (-35.35235605956727, -51.58336545758325)
       gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049 face #3504: (-36.7305040459835, -10.056620879112902)
-  51  ours out, OCCT in: agrees a period on (OCCT doesn't reduce (u, v) by the period), within 20 x tol of the seam
-      gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938 face #392941: (6.283185140513334, 60)
-      gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938 face #392941: (6.283185140513334, 140)
-      gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938 face #392941: (1.6666666666666662e-7, 140)
-      gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938 face #392941: (1.6666666666666662e-7, 60)
-      gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392624 face #392627: (6.283018640513333, 60)
-  32  OCCT on, ours not (its band wider)
-  16  ours on, OCCT in: not a period on either, within 20 x tol of the seam
-      gkv311-opencascade-dataset/step/trj4_s1-pe-214.stp #12543 face #12282: (-0.003592784682779661, 1.5707963267946)
-      gkv311-opencascade-dataset/step/trj4_s1-pe-214.stp #12543 face #12314: (0.003592784682779661, 1.5707963267946)
-      gkv311-opencascade-dataset/step/trj4_s1-pe-214.stp #11613 face #11317: (0.0035329049380666664, 1.5707963267946)
-      gkv311-opencascade-dataset/step/trj4_s1-pe-214.stp #11613 face #11362: (-0.0035329049380666664, 1.5707963267946)
-      gkv311-opencascade-dataset/step/trj4_s1-pe-214.stp #11613 face #11552: (-0.003592784682779661, 1.5707963267946)
-  16  ours on, OCCT in: not a period on either
-      gkv311-opencascade-dataset/step/trj4_s1-pe-214.stp #12543 face #12282: (-3.1379998689064204, 1.5707963267946)
-      gkv311-opencascade-dataset/step/trj4_s1-pe-214.stp #12543 face #12314: (3.1379998689064204, 1.5707963267946)
-      gkv311-opencascade-dataset/step/trj4_s1-pe-214.stp #11613 face #11317: (3.1380597486511332, 1.5707963267946)
-      gkv311-opencascade-dataset/step/trj4_s1-pe-214.stp #11613 face #11362: (-3.1380597486511332, 1.5707963267946)
-      gkv311-opencascade-dataset/step/trj4_s1-pe-214.stp #11613 face #11552: (-3.1379998689064204, 1.5707963267946)
-  14  ours in, OCCT out: not a period on either, within 20 x tol of the seam
-      gkv311-opencascade-dataset/step/trj2_io1-ec-214.stp #9 face #636: (6.28318530718, -0.0000057142857142857145)
-      gkv311-opencascade-dataset/step/trj2_io1-ec-214.stp #9 face #636: (6.28318530718, -0.0000057142857142857145)
-      gkv311-opencascade-dataset/step/trj2_io1-ec-214.stp #9 face #840: (6.28318530718, -0.0000057142857142857145)
-      gkv311-opencascade-dataset/step/trj2_io1-ec-214.stp #9 face #840: (6.28318530718, -0.0000057142857142857145)
-      gkv311-opencascade-dataset/step/trj9_io1-oc-214.stp #10 face #589: (6.28318530718, -0.00002857142857142857)
+  16  OCCT on, ours not (its band wider)
   11  ours in, OCCT out: not a period on either
       gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #33028: (4.39822971502571, -4.1010466896479275e-7)
       gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #33028: (1.8849555921538759, -4.1010466896479275e-7)
       gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #33698: (4.136698723405991, 82.8455480290614)
       gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #33698: (3.6490190411870125, 73.76739123522177)
       gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #33698: (3.81928348962991, 78.59796088184925)
-  4  ours on, OCCT in: not periodic
-      gkv311-opencascade-dataset/step/trj5_k1-pe-203.stp #5316 face #3485: (-0.03581927047214457, 1.570796326795)
-      gkv311-opencascade-dataset/step/trj5_k1-pe-203.stp #5316 face #3485: (-3.1057733831178553, 1.570796326795)
-      gkv311-opencascade-dataset/step/trj5_k1-pe-214.stp #5316 face #3485: (-0.03581927047214457, 1.570796326795)
-      gkv311-opencascade-dataset/step/trj5_k1-pe-214.stp #5316 face #3485: (-3.1057733831178553, 1.570796326795)
-  2  ours on, OCCT out: not a period on either
-      gkv311-opencascade-dataset/step/trj4_k1_geo-pe-203.stp #6268 face #4646: (-3.10577338311706, 1.5707963267946)
-      gkv311-opencascade-dataset/step/trj4_k1_geo-pe-214.stp #6272 face #4650: (-3.10577338311706, 1.5707963267946)
-  2  ours on, OCCT out: not a period on either, within 20 x tol of the seam
-      gkv311-opencascade-dataset/step/trj4_k1_geo-pe-203.stp #6268 face #4646: (-0.03581927047214001, 1.5707963267946)
-      gkv311-opencascade-dataset/step/trj4_k1_geo-pe-214.stp #6272 face #4650: (-0.03581927047214001, 1.5707963267946)
+  10  ours out, OCCT in: agrees a period on (OCCT doesn't reduce (u, v) by the period), within 20 x tol of the seam
+      gkv311-opencascade-dataset/step/tr9_r1001-ec.stp #11 face #81450: (-0.01666666666666667, -2.4999999999899805)
+      gkv311-opencascade-dataset/step/tr9_r1001-ec.stp #11 face #81450: (-0.01666666666666667, -4.49999999998998)
+      gkv311-opencascade-dataset/step/tr9_r1001-ec.stp #11 face #82186: (-0.01666666666666667, -2.4999999999899805)
+      gkv311-opencascade-dataset/step/tr9_r1001-ec.stp #11 face #82186: (-0.01666666666666667, -4.49999999998998)
+      gkv311-opencascade-dataset/step/tr9_r1001-ec.stp #11 face #82922: (-0.01666666666666667, -2.4999999999899805)
+  1  ours in, OCCT out: not periodic, the point outside the surface's domain
+      gkv311-opencascade-dataset/step/t4mec.stp #9 face #1825: (-0.000038197174075481664, 0.30693709939624114)
   1  the native builder failed on the part
       gkv311-opencascade-dataset/step/bug31292.stp #62
+  1  ours on, OCCT in: not periodic
+      gkv311-opencascade-dataset/step/bug25166_piston.stp #30604 face #19893: (0.00025464877211873695, 0.996166402)
