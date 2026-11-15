@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Fix:** `cad-brep`'s `edgeParams` takes a non-periodic curve as closed where its ends are within the part's uncertainty or its vertices' tolerances (else 1e-9 of its size, as before), so an edge from a vertex to itself on such a curve is the whole curve, not a point (`bug25166_piston.stp`: a B-spline's ends 6.6e-4 mm apart, uncertainty 1e-3 mm, two edges of length 0 that OCCT measures 8.33 mm). Reaches the area oracle, `outlines`, `step-export`'s geometry and the corpus checks using it.
+
 ## 0.3.0 (2026-11-14)
 
 Tagged `V0.3.0`; not published to npm. Since 0.2.0: the B-rep model (`cad-brep`), each part's exact geometry as a format-neutral buffer built at import, replacing STEP subsets (phases 1-14, `docs/brep-model.md`), read natively by OCCT, truck and the new SMLib backend and written back to STEP; millimetres throughout; rigid placements; the canonical model; a fallback backend with an exact join, a per-face fallback and a sliver fill; the area oracle; reproducible WebAssembly modules from pinned toolchains, and Linux.
