@@ -24,6 +24,8 @@ export type Fact = { kind: string; id: number; tol: number; abs: number } & Reco
 
 /** The relative tolerance of every fact: the closed forms are exact to rounding. */
 export const TOL = 1e-12;
+/** The absolute floor per unit of distance from the origin (see Maker.abs). */
+export const FAR = 1e-14;
 
 /** How a surface's (u, v) maps under T: u' = fu u, v' = fv v; sigma -1 where its normal turns against T's image. */
 export interface SurfaceMap {
@@ -46,7 +48,8 @@ export interface LocalCoedge extends Omit<Coedge, 'pcurve'> {
   pcurve?: number;
 }
 
-export type LocalLoop = Omit<Loop, 'coedges'> & { coedges?: LocalCoedge[] };
+export type LocalLoop = (Omit<Extract<Loop, { kind: 'edge' }>, 'coedges'> & { coedges: LocalCoedge[] })
+  | Extract<Loop, { kind: 'vertex' }>;
 
 const wrap = (x: number, period: number | undefined) => {
   if (!period) return x;
@@ -74,8 +77,14 @@ export class Maker {
 
   id(): number { return this.nextId++; }
 
-  /** The absolute floor for a quantity of length dimension `power` (1 lengths, points; 2 areas; 3 volumes). */
-  abs(power = 1): number { return TOL * (this.size * this.T.s) ** power; }
+  /**
+   * The absolute floor for a quantity of length dimension `power` (1 lengths, points; 2 areas; 3 volumes): TOL times
+   * the shape's size after T, and for lengths a term for its distance from the origin, where a coordinate's own
+   * rounding (about 1e-16 of it, more through a B-spline's differences of poles) exceeds that.
+   */
+  abs(power = 1): number {
+    return TOL * (this.size * this.T.s) ** power + (power === 1 ? FAR * norm(this.T.t) : 0);
+  }
 
   private placement3(p: Placement, surface: boolean): Placement {
     // Curves and surfaces alike: z' = det Q z, so y' = z' x x' = Q y and every in-plane formula keeps its parameter.
@@ -219,7 +228,7 @@ export class Maker {
     const flip = this.det < 0;
     const out: Loop[] = loops.map((l): Loop => {
       if (l.kind !== 'edge') return l as Loop;
-      const cs = l.coedges!.map((c): Coedge => ({ ...c, ...(c.pcurve === undefined ? {} : { pcurve: c.pcurve }) }));
+      const cs = l.coedges.map((c): Coedge => ({ ...c, ...(c.pcurve === undefined ? {} : { pcurve: c.pcurve }) }));
       if (!flip) return { ...l, kind: 'edge', coedges: cs };
       return { ...l, kind: 'edge', coedges: cs.reverse().map((c) => ({ ...c,
         orientation: c.orientation === 'forward' ? 'reversed' : c.orientation === 'reversed' ? 'forward'
@@ -230,7 +239,12 @@ export class Maker {
   }
 
   shell(s: Shell): number { return this.b.addShell(s); }
-  body(bd: Omit<Body, 'id'>): number { return this.b.addBody({ ...bd, id: this.id() }); }
+  /** A body, and an item for it. */
+  body(bd: Omit<Body, 'id'>): number {
+    const row = this.b.addBody({ ...bd, id: this.id() });
+    this.b.addItem({ kind: 'body', ref: row });
+    return row;
+  }
 
   /** The id of a curve row the Maker wrote. */
   curveId(row: number): number { return this.curveIds[row]!; }
@@ -266,13 +280,14 @@ export class Maker {
   surfacePoints(on: SurfaceRef, ev: SurfaceEval, uvs: [number, number][]) {
     const { fu, fv } = on.map, L = (d: V) => clean(linear(this.T, d));
     for (const [u, v] of uvs) {
+      // The normal is undefined where a partial vanishes against the other (a pole, an apex), to rounding.
       const r = ev(u, v), n = cross(r.du, r.dv), nl = norm(n);
-      const scaleL = norm(r.du) * norm(r.dv);
+      const big = Math.max(norm(r.du), norm(r.dv)), singular = nl <= 1e-12 * big * big;
       // The built surface's partials: d/du' = (1 / fu) d/du. Its normal: Q n times det Q and the maps' signs.
       this.facts.push({ kind: 'surfacePoint', id: on.id, surface: on.row, u: wrap(u * fu, on.uPeriod),
         v: wrap(v * fv, on.vPeriod), p: clean(apply(this.T, r.p)), du: L(mul(r.du, 1 / fu)), dv: L(mul(r.dv, 1 / fv)),
         duu: L(mul(r.duu, 1 / (fu * fu))), duv: L(mul(r.duv, 1 / (fu * fv))), dvv: L(mul(r.dvv, 1 / (fv * fv))),
-        n: nl <= 1e-14 * Math.max(scaleL, 1e-300) || nl === 0 ? null
+        n: singular ? null
           : clean(mul(rotate(this.T, unit(n)), this.det * Math.sign(fu * fv))),
         tol: TOL, abs: this.abs() });
     }

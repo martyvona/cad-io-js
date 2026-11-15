@@ -62,7 +62,8 @@ function uKnots(d: BrepData, s: number): number[] {
   return [];
 }
 
-function curveCuts(d: BrepData, c: number): number[] {
+/** Where a curve is less smooth: knots, polyline corners, composite joints. */
+export function curveCuts(d: BrepData, c: number): number[] {
   const row = dec.curve(d, c);
   if (row.kind === 'bspline') return row.knots;
   if (row.kind === 'polyline') return row.points.map((_, k) => k);
@@ -79,11 +80,15 @@ function boundary(d: BrepData, f: number, S: SurfaceEvaluator): Piece[] | undefi
     if (![u0, u1, v0, v1].every(Number.isFinite)) return undefined;
     const side = (p: [number, number], q: [number, number]): Piece => ({ a: 0, b: 1, cuts: [],
       uv: (t) => [p[0] + t * (q[0] - p[0]), p[1] + t * (q[1] - p[1]), q[0] - p[0], q[1] - p[1]] });
-    // Counter-clockwise: the surface's own extent, its normal S_u x S_v; the face's sense signs it.
-    return [side([u0, v0], [u1, v0]), side([u1, v0], [u1, v1]), side([u1, v1], [u0, v1]), side([u0, v1], [u0, v0])];
+    // The surface's own extent, counter-clockwise where the face's sense is true, as a loop would run.
+    const ccw = [side([u0, v0], [u1, v0]), side([u1, v0], [u1, v1]), side([u1, v1], [u0, v1]), side([u0, v1],
+      [u0, v0])];
+    return face.sameSense ? ccw : [side([u0, v0], [u0, v1]), side([u0, v1], [u1, v1]), side([u1, v1], [u1, v0]),
+      side([u1, v0], [u0, v0])];
   }
   for (const loop of face.loops) {
     if (loop.kind !== 'edge') continue;
+    const first = out.length;
     for (const c of loop.coedges) {
       const e = dec.edge(d, c.edge), back = c.orientation === 'reversed';
       if (c.pcurve !== undefined) {
@@ -108,6 +113,17 @@ function boundary(d: BrepData, f: number, S: SurfaceEvaluator): Piece[] | undefi
         const D = a11 * a22 - a12 * a12;
         return [u, v, (a22 * b1 - a12 * b2) / D, (a11 * b2 - a12 * b1) / D];
       } });
+    }
+    // A loop that winds once round a period of u without closing in (u, v) bounds the face against a pole (a
+    // hemisphere's equator): closed along the seam up to the pole line, where dv is 0, and back down. The pole is on
+    // the face's side of the loop: the left of +u is +v.
+    const s0 = out[first]?.uv(out[first]!.a), e0 = out.at(-1)?.uv(out.at(-1)!.b);
+    if (s0 && e0 && S.uPeriod && Math.abs(Math.abs(e0[0] - s0[0]) - S.uPeriod) < 1e-9 * S.uPeriod
+      && Math.abs(e0[1] - s0[1]) < 1e-12 && Number.isFinite(S.v[0]) && Number.isFinite(S.v[1])) {
+      const vp = (e0[0] > s0[0]) === face.sameSense ? S.v[1] : S.v[0];
+      const side = (u: number, va: number, vb: number): Piece => ({ a: 0, b: 1, cuts: [],
+        uv: (t) => [u, va + t * (vb - va), 0, vb - va] });
+      out.push(side(e0[0], e0[1], vp), side(s0[0], vp, s0[1]));
     }
   }
   return out;
@@ -151,8 +167,11 @@ export function faceArea(d: BrepData, f: number): number | undefined {
 
 /** A body's volume: its shells' faces' shares (positive where their normals point out of the material). */
 export function bodyVolume(d: BrepData, body: number): number | undefined {
-  const b = dec.body(d, body), c = d.vertex.point.length ? Array.from(d.vertex.point.subarray(0, 3))
-    : [0, 0, 0];
+  const b = dec.body(d, body);
+  // About a point of the body: its first face's surface at the start of its domain (a vertex where that's infinite).
+  const S0 = surfaceEvaluator(d, d.face.surface[d.faceUse.face[d.shell.first[b.members[0]!.ref]!]!]!)!;
+  const c = Number.isFinite(S0.u[0]) && Number.isFinite(S0.v[0]) ? S0.point(S0.u[0], S0.v[0])
+    : d.vertex.point.length ? Array.from(d.vertex.point.subarray(0, 3)) : [0, 0, 0];
   let sum = 0;
   for (const m of b.members) {
     const sh = dec.shell(d, m.ref);
