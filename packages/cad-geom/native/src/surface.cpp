@@ -1,373 +1,456 @@
-// surface.h, the reference version: planes, cylinders, spheres and B-splines (docs/brep-reference.md's definitions),
-// the other kinds unsupported; inversion by dense sampling then Newton. Slow and simple, for the lanes that call it
-// until the surfaces lane replaces it.
+// surface.h: makeSurface (each kind in surface_elementary.cpp, surface_spline.cpp, surface_compound.cpp), the shared
+// parts of SurfaceImpl, and point inversion.
+// Inversion: branch and bound on parameter rectangles (Patrikalakis, Maekawa and Cho, "Shape Interrogation for
+// Computer Aided Design and Manufacturing", sections 4.6 and 6.3, as curve.cpp on intervals): a rectangle is
+// discarded when its box is farther from p than the best distance found plus tol; it is solved when g = |S - p|^2 / 2
+// is convex on it (its Hessian [S_u.S_u + (S - p).S_uu, S_u.S_v + (S - p).S_uv; ...] positive definite over the
+// rectangle, by interval arithmetic on the partials' boxes), since a convex g has one minimum there, found by Newton
+// projected onto the rectangle; else it is split across its longer side (in 3D). Infinite ranges are first cut to a
+// box holding every point as near as one already found (the kinds' within()); elementary kinds take their feet in
+// closed form (footCandidates). A hint seeds the best distance and breaks ties among equally near feet; it never
+// replaces the search. A rectangle whose box is within tol all over (or as narrow as its coordinates' rounding) is
+// one foot wherever it is in there, and singular iso-lines' points are candidates from the start (no rectangle beside
+// a pole is convex, S_u vanishing there). A convex rectangle's minimum pushed against a side inside the search range
+// is not a foot (the rectangle beyond holds the minimum). Feet within tol of the best are the same foot (a seam's or
+// pole's other parameters: flags) or alternatives (other places, one per cluster). The search is budgeted: where it
+// runs out with a better foot still possible, it says noConvergence.
 #include "cad_geom/surface.h"
 
 #include <algorithm>
 #include <cmath>
-#include <limits>
+#include <queue>
 
-#include "cad_geom/numerics.h"
+#include "surface_impl.h"
 
 namespace cadgeom {
 
-namespace {
+namespace surfaces {
 
-constexpr double kTwoPi = 6.283185307179586;
-constexpr double kHalfPi = 1.5707963267948966;
-const double kInf = std::numeric_limits<double>::infinity();
-
-Vec3 read3(const double* r) { return {r[0], r[1], r[2]}; }
-
-struct Frame {
-  Vec3 o, x, y, z;
-  explicit Frame(const double* r)
-    : o(read3(r)), x(read3(r + 6)), y(cross(read3(r + 3), read3(r + 6))), z(read3(r + 3)) {}
-};
-
-Box3 boxOf(Vec3 lo, Vec3 hi) {
-  double e = 8 * std::numeric_limits<double>::epsilon() * (norm(lo) + norm(hi));
-  return {{lo.x - e, hi.x + e}, {lo.y - e, hi.y + e}, {lo.z - e, hi.z + e}};
+Status SurfaceImpl::eval(double u, double v, int order, SurfacePoint& out) const {
+  if (order < 0 || order > 2) return Status::unsupported;
+  Vec3 d[kPartials];
+  Status s = derivs(u, v, order, d);
+  out = {d[0], order >= 1 ? d[pidx(1, 0)] : Vec3{}, order >= 1 ? d[pidx(0, 1)] : Vec3{},
+    order >= 2 ? d[pidx(2, 0)] : Vec3{}, order >= 2 ? d[pidx(1, 1)] : Vec3{}, order >= 2 ? d[pidx(0, 2)] : Vec3{}};
+  return s;
 }
 
-Status unitNormal(const Surface& s, double u, double v, Vec3& out) {
-  SurfacePoint q;
-  Status st = s.eval(u, v, 1, q);
-  Vec3 n = cross(q.du, q.dv);
-  double l = norm(n);
-  if (l == 0) return Status::singular;
-  out = (1 / l) * n;
-  return st;
+Status SurfaceImpl::normal(double u, double v, Vec3& out) const {
+  Vec3 d[kPartials];
+  Status s = derivs(u, v, 2, d);
+  if (s != Status::ok && s != Status::outOfDomain) return s;
+  Vec3 su = d[pidx(1, 0)], sv = d[pidx(0, 1)], n = cross(su, sv);
+  double big = std::fmax(norm(su), norm(sv));
+  if (big > 0 && norm(n) > 1e-12 * big * big) {
+    out = (1 / norm(n)) * n;
+    return s;
+  }
+  // Vanishing: where one partial is zero (a pole: S_u = 0) the limit of S_uv x S_v along the other, else none.
+  Vec3 lim = norm(su) <= norm(sv) ? cross(d[pidx(1, 1)], sv) : cross(su, d[pidx(1, 1)]);
+  out = norm(lim) > 0 ? (1 / norm(lim)) * lim : Vec3{};
+  return Status::singular;
 }
 
-class Plane final : public Surface {
-public:
-  explicit Plane(const double* r) : f_(r) {}
-  SurfaceDomain domain() const override { return {{-kInf, kInf}, {-kInf, kInf}, 0, 0}; }
-  Status eval(double u, double v, int order, SurfacePoint& out) const override {
-    out = {f_.o + u * f_.x + v * f_.y, order >= 1 ? f_.x : Vec3{}, order >= 1 ? f_.y : Vec3{}, {}, {}, {}};
-    return Status::ok;
-  }
-  Status normal(double, double, Vec3& out) const override {
-    out = f_.z;
-    return Status::ok;
-  }
-  void breaks(Range ru, Range rv, std::vector<double>& us, std::vector<double>& vs) const override {
-    us = {ru.lo, ru.hi};
-    vs = {rv.lo, rv.hi};
-  }
-  Status bound(Range ru, Range rv, Box3& out) const override {
-    Vec3 lo{kInf, kInf, kInf}, hi{-kInf, -kInf, -kInf};
-    for (double u : {ru.lo, ru.hi})
-      for (double v : {rv.lo, rv.hi}) {
-        Vec3 p = f_.o + u * f_.x + v * f_.y;
-        lo = {std::min(lo.x, p.x), std::min(lo.y, p.y), std::min(lo.z, p.z)};
-        hi = {std::max(hi.x, p.x), std::max(hi.y, p.y), std::max(hi.z, p.z)};
-      }
-    out = boxOf(lo, hi);
-    return Status::ok;
-  }
-  Status derivBound(Range, Range, int order, double out[3]) const override {
-    out[0] = out[1] = order == 1 ? 1 + 1e-15 : 0;
-    out[2] = 0;
-    return Status::ok;
-  }
-  void singularities(std::vector<Singularity>& out) const override { out.clear(); }
-
-private:
-  Frame f_;
-};
-
-class Cylinder final : public Surface {
-public:
-  explicit Cylinder(const double* r) : f_(r), r_(r[9]) {}
-  SurfaceDomain domain() const override { return {{0, kTwoPi}, {-kInf, kInf}, kTwoPi, 0}; }
-  Status eval(double u, double v, int order, SurfacePoint& out) const override {
-    double c = std::cos(u), s = std::sin(u);
-    out = {};
-    out.p = f_.o + r_ * c * f_.x + r_ * s * f_.y + v * f_.z;
-    if (order >= 1) {
-      out.du = -r_ * s * f_.x + r_ * c * f_.y;
-      out.dv = f_.z;
+Status SurfaceImpl::derivBound(Range ru, Range rv, int order, double out[3]) const {
+  if (order != 1 && order != 2) return Status::unsupported;
+  out[0] = out[1] = out[2] = 0;
+  for (int l = 0; l <= order; l++) {
+    Box3 b;
+    Status s = derivBox(ru, rv, order - l, l, b);
+    if (s != Status::ok) {
+      out[0] = out[1] = out[2] = kInf;
+      return s;
     }
-    if (order >= 2) out.duu = -r_ * c * f_.x - r_ * s * f_.y;
-    return Status::ok;
+    out[l] = boxNorm(b);
   }
-  Status normal(double u, double v, Vec3& out) const override { return unitNormal(*this, u, v, out); }
-  void breaks(Range ru, Range rv, std::vector<double>& us, std::vector<double>& vs) const override {
-    us = {ru.lo, ru.hi};
-    vs = {rv.lo, rv.hi};
-  }
-  Status bound(Range, Range rv, Box3& out) const override {
-    // The whole circle's box swept over rv.
-    Vec3 lo{kInf, kInf, kInf}, hi{-kInf, -kInf, -kInf};
-    for (double v : {rv.lo, rv.hi}) {
-      Vec3 c = f_.o + v * f_.z;
-      Vec3 h{r_ * std::hypot(f_.x.x, f_.y.x), r_ * std::hypot(f_.x.y, f_.y.y), r_ * std::hypot(f_.x.z, f_.y.z)};
-      lo = {std::min(lo.x, c.x - h.x), std::min(lo.y, c.y - h.y), std::min(lo.z, c.z - h.z)};
-      hi = {std::max(hi.x, c.x + h.x), std::max(hi.y, c.y + h.y), std::max(hi.z, c.z + h.z)};
-    }
-    out = boxOf(lo, hi);
-    return Status::ok;
-  }
-  Status derivBound(Range, Range, int order, double out[3]) const override {
-    double e = 1 + 1e-14;
-    if (order == 1) { out[0] = r_ * e; out[1] = e; out[2] = 0; }
-    else { out[0] = r_ * e; out[1] = 0; out[2] = 0; }
-    return Status::ok;
-  }
-  void singularities(std::vector<Singularity>& out) const override { out.clear(); }
+  return Status::ok;
+}
 
-private:
-  Frame f_;
-  double r_;
-};
+Status centredBox(const SurfaceImpl& s, Range ru, Range rv, int k, int l, Box3& out) {
+  if (k + l + 1 >= kMaxOrder || !finite(ru) || !finite(rv)) return Status::unsupported;
+  Box3 bu, bv;
+  Status a = s.derivBox(ru, rv, k + 1, l, bu), b = s.derivBox(ru, rv, k, l + 1, bv);
+  if (a != Status::ok) return a;
+  if (b != Status::ok) return b;
+  double mu = 0.5 * ru.lo + 0.5 * ru.hi, mv = 0.5 * rv.lo + 0.5 * rv.hi;
+  Vec3 d[kPartials];
+  Status e = s.derivs(mu, mv, k + l, d);
+  if (e != Status::ok && e != Status::outOfDomain) return e;
+  double hu = std::fmax(mu - ru.lo, ru.hi - mu), hv = std::fmax(mv - rv.lo, rv.hi - mv);
+  Vec3 c = d[pidx(k, l)];
+  // Widened by the evaluation's own rounding: relative to the partial, and for a point to its local size.
+  double r = (boxNorm(bu) * hu + boxNorm(bv) * hv) * (1 + 8 * kEps);
+  double err = (k + l == 0 ? 8 * kEps : 1e-12) * maxAbs(c) + 1e-13 * r;
+  out = ballBox(c, r + err);
+  return Status::ok;
+}
 
-class Sphere final : public Surface {
-public:
-  explicit Sphere(const double* r) : f_(r), r_(r[9]) {}
-  SurfaceDomain domain() const override { return {{0, kTwoPi}, {-kHalfPi, kHalfPi}, kTwoPi, 0}; }
-  Status eval(double u, double v, int order, SurfacePoint& out) const override {
-    Status st = (v < -kHalfPi || v > kHalfPi) ? Status::outOfDomain : Status::ok;
-    v = std::clamp(v, -kHalfPi, kHalfPi);
-    double cu = std::cos(u), su = std::sin(u), cv = std::cos(v), sv = std::sin(v);
-    Vec3 radial = cu * f_.x + su * f_.y, tangent = -su * f_.x + cu * f_.y;
-    out = {};
-    out.p = f_.o + r_ * cv * radial + r_ * sv * f_.z;
-    if (order >= 1) {
-      out.du = r_ * cv * tangent;
-      out.dv = -r_ * sv * radial + r_ * cv * f_.z;
-    }
-    if (order >= 2) {
-      out.duu = -r_ * cv * radial;
-      out.duv = -r_ * sv * tangent;
-      out.dvv = -r_ * cv * radial - r_ * sv * f_.z;
-    }
-    return st;
-  }
-  Status normal(double u, double v, Vec3& out) const override {
-    SurfacePoint q;
-    Status st = eval(u, v, 0, q);
-    out = (1 / r_) * (q.p - f_.o);
-    return st;
-  }
-  void breaks(Range ru, Range rv, std::vector<double>& us, std::vector<double>& vs) const override {
-    us = {ru.lo, ru.hi};
-    vs = {rv.lo, rv.hi};
-  }
-  Status bound(Range, Range, Box3& out) const override {
-    Vec3 h{r_, r_, r_};
-    out = boxOf(f_.o - h, f_.o + h);
-    return Status::ok;
-  }
-  Status derivBound(Range, Range, int, double out[3]) const override {
-    out[0] = out[1] = out[2] = r_ * (1 + 1e-14);
-    return Status::ok;
-  }
-  void singularities(std::vector<Singularity>& out) const override {
-    out = {{Singularity::pole, false, -kHalfPi, f_.o - r_ * f_.z},
-      {Singularity::pole, false, kHalfPi, f_.o + r_ * f_.z}};
-  }
+bool nearSingularity(const Surface& s, Vec3 q, double tol) {
+  std::vector<Singularity> sing;
+  s.singularities(sing);
+  for (const Singularity& g : sing)
+    if (g.kind != Singularity::normalVanishes && norm(g.point - q) <= tol) return true;
+  return false;
+}
 
-private:
-  Frame f_;
-  double r_;
-};
-
-class SplineSurface final : public Surface {
-public:
-  SplineSurface(int p, int q, int nu, int nv, bool rational, std::vector<double> U, std::vector<double> V,
-    std::vector<double> poles)
-    : p_(p), q_(q), nu_(nu), nv_(nv), rational_(rational), U_(std::move(U)), V_(std::move(V)),
-      poles_(std::move(poles)) {}
-  SurfaceDomain domain() const override { return {{U_[p_], U_[nu_]}, {V_[q_], V_[nv_]}, 0, 0}; }
-  Status eval(double u, double v, int order, SurfacePoint& out) const override {
-    Status st = Status::ok;
-    if (u < U_[p_] || u > U_[nu_] || v < V_[q_] || v > V_[nv_]) st = Status::outOfDomain;
-    u = std::clamp(u, U_[p_], U_[nu_]);
-    v = std::clamp(v, V_[q_], V_[nv_]);
-    int su = bspline::findSpan(p_, U_, nu_, u), sv = bspline::findSpan(q_, V_, nv_, v);
-    int n = std::min(order, 2);
-    std::vector<double> Nu((n + 1) * (p_ + 1)), Nv((n + 1) * (q_ + 1));
-    bspline::basisDerivs(su, u, p_, n, U_, Nu.data());
-    bspline::basisDerivs(sv, v, q_, n, V_, Nv.data());
-    // Homogeneous S^(k,l) and w^(k,l) for k + l <= n.
-    double A[3][3][3] = {}, W[3][3] = {};
-    int w = rational_ ? 4 : 3;
-    for (int k = 0; k <= n; k++)
-      for (int l = 0; k + l <= n; l++)
-        for (int i = 0; i <= p_; i++)
-          for (int j = 0; j <= q_; j++) {
-            const double* P = poles_.data() + ((su - p_ + i) * nv_ + (sv - q_ + j)) * w;
-            double wt = rational_ ? P[3] : 1.0, b = Nu[k * (p_ + 1) + i] * Nv[l * (q_ + 1) + j] * wt;
-            for (int a = 0; a < 3; a++) A[k][l][a] += b * P[a];
-            W[k][l] += b;
-          }
-    // Rational derivatives (Piegl and Tiller, eq. 4.20) to second order.
-    Vec3 S[3][3];
-    auto vecOf = [](const double* a) { return Vec3{a[0], a[1], a[2]}; };
-    S[0][0] = (1 / W[0][0]) * vecOf(A[0][0]);
-    if (n >= 1) {
-      S[1][0] = (1 / W[0][0]) * (vecOf(A[1][0]) - W[1][0] * S[0][0]);
-      S[0][1] = (1 / W[0][0]) * (vecOf(A[0][1]) - W[0][1] * S[0][0]);
-    }
-    if (n >= 2) {
-      S[2][0] = (1 / W[0][0]) * (vecOf(A[2][0]) - 2 * W[1][0] * S[1][0] - W[2][0] * S[0][0]);
-      S[0][2] = (1 / W[0][0]) * (vecOf(A[0][2]) - 2 * W[0][1] * S[0][1] - W[0][2] * S[0][0]);
-      S[1][1] = (1 / W[0][0])
-        * (vecOf(A[1][1]) - W[1][0] * S[0][1] - W[0][1] * S[1][0] - W[1][1] * S[0][0]);
-    }
-    out = {S[0][0], S[1][0], S[0][1], S[2][0], S[1][1], S[0][2]};
-    if (order < 1) out.du = out.dv = {};
-    return st;
-  }
-  Status normal(double u, double v, Vec3& out) const override { return unitNormal(*this, u, v, out); }
-  void breaks(Range ru, Range rv, std::vector<double>& us, std::vector<double>& vs) const override {
-    auto inner = [](const std::vector<double>& K, Range r, std::vector<double>& out) {
-      out = {r.lo};
-      for (double k : K)
-        if (k > r.lo && k < r.hi && k != out.back()) out.push_back(k);
-      out.push_back(r.hi);
-    };
-    inner(U_, ru, us);
-    inner(V_, rv, vs);
-  }
-  Status bound(Range ru, Range rv, Box3& out) const override {
-    int w = rational_ ? 4 : 3;
-    int a = bspline::findSpan(p_, U_, nu_, ru.lo), b = bspline::findSpan(p_, U_, nu_, ru.hi);
-    int c = bspline::findSpan(q_, V_, nv_, rv.lo), d = bspline::findSpan(q_, V_, nv_, rv.hi);
-    Vec3 lo{kInf, kInf, kInf}, hi{-kInf, -kInf, -kInf};
-    for (int i = a - p_; i <= b; i++)
-      for (int j = c - q_; j <= d; j++) {
-        Vec3 P = read3(poles_.data() + (i * nv_ + j) * w);
-        lo = {std::min(lo.x, P.x), std::min(lo.y, P.y), std::min(lo.z, P.z)};
-        hi = {std::max(hi.x, P.x), std::max(hi.y, P.y), std::max(hi.z, P.z)};
-      }
-    out = boxOf(lo, hi);
-    return Status::ok;
-  }
-  Status derivBound(Range, Range, int, double[3]) const override { return Status::unsupported; }
-  void singularities(std::vector<Singularity>& out) const override { out.clear(); }
-
-private:
-  int p_, q_, nu_, nv_;
-  bool rational_;
-  std::vector<double> U_, V_, poles_;
-};
-
-} // namespace
-
-std::unique_ptr<Surface> makeSurface(const Model& m, int row, Status& status) {
+std::unique_ptr<SurfaceImpl> make(const Model& m, int row, int depth, Status& status) {
   status = Status::invalidModel;
-  if (row < 0 || row >= m.surfaces()) return nullptr;
+  if (row < 0 || row >= m.surfaces() || depth > 32) return nullptr;
+  int ro = m.i32(CBR_SURFACE_REAL)[row], io = m.i32(CBR_SURFACE_INT)[row];
+  long nr = static_cast<long>(m.count(CBR_POOL_SURFACE_REAL)) - ro;
+  long ni = static_cast<long>(m.count(CBR_POOL_SURFACE_INT)) - io;
+  if (ro < 0 || io < 0 || nr < 0 || ni < 0) return nullptr;
   const double* r = m.surfaceReals(row);
   const int32_t* in = m.surfaceInts(row);
-  status = Status::ok;
+  auto basis = [&](int b) { return make(m, b, depth + 1, status); };
   switch (m.surfaceKind(row)) {
-  case CBR_SURFACE_PLANE: return std::make_unique<Plane>(r);
-  case CBR_SURFACE_CYLINDER: return std::make_unique<Cylinder>(r);
-  case CBR_SURFACE_SPHERE: return std::make_unique<Sphere>(r);
+  case CBR_SURFACE_PLANE:
+    if (nr < 9) return nullptr;
+    status = Status::ok;
+    return makePlane(r);
+  case CBR_SURFACE_CYLINDER:
+    if (nr < 10 || !(r[9] > 0)) return nullptr;
+    status = Status::ok;
+    return makeCone(r, r[9], 0);
+  case CBR_SURFACE_CONE:
+    if (nr < 11 || !(r[9] >= 0) || !(std::fabs(r[10]) > 0 && std::fabs(r[10]) < kHalfPi)) return nullptr;
+    status = Status::ok;
+    return makeCone(r, r[9], std::tan(r[10]));
+  case CBR_SURFACE_SPHERE:
+    if (nr < 10 || !(r[9] > 0)) return nullptr;
+    status = Status::ok;
+    return makeSphere(r);
+  case CBR_SURFACE_TORUS:
+    if (nr < 11 || !(r[9] > 0) || !(r[10] > 0)) return nullptr;
+    status = Status::ok;
+    return makeTorus(r);
   case CBR_SURFACE_BSPLINE: {
-    int p = in[0], q = in[1], nu = in[2], nv = in[3], ku = in[4], kv = in[5];
-    bool rational = in[6] != 0;
-    std::vector<double> U = bspline::fullKnots(r, in + 11, ku), V = bspline::fullKnots(r + ku, in + 11 + ku, kv);
-    if (static_cast<int>(U.size()) != nu + p + 1 || static_cast<int>(V.size()) != nv + q + 1) {
-      status = Status::invalidModel;
-      return nullptr;
-    }
-    const double* P = r + ku + kv;
-    const double* Wt = P + 3 * nu * nv;
-    std::vector<double> poles;
-    for (int i = 0; i < nu * nv; i++) {
-      poles.insert(poles.end(), P + 3 * i, P + 3 * i + 3);
-      if (rational) poles.push_back(Wt[i]);
-    }
-    return std::make_unique<SplineSurface>(p, q, nu, nv, rational, std::move(U), std::move(V), std::move(poles));
+    if (ni < 11) return nullptr;
+    long ku = in[4], kv = in[5], nu = in[2], nv = in[3];
+    if (ku < 2 || kv < 2 || nu < 1 || nv < 1 || ni < 11 + ku + kv) return nullptr;
+    if (nr < ku + kv + 3 * nu * nv + (in[6] ? nu * nv : 0)) return nullptr;
+    return makeBSpline(r, in, status);
+  }
+  case CBR_SURFACE_EXTRUSION:
+    if (nr < 4 || ni < 1 || !(r[3] > 0)) return nullptr;
+    return makeExtrusion(m, in[0], r, depth, status);
+  case CBR_SURFACE_REVOLUTION:
+    if (nr < 6 || ni < 1) return nullptr;
+    return makeRevolution(m, in[0], r, depth, status);
+  case CBR_SURFACE_OFFSET: {
+    if (nr < 1 || ni < 1 || !std::isfinite(r[0])) return nullptr;
+    std::unique_ptr<SurfaceImpl> b = basis(in[0]);
+    if (!b) return nullptr;
+    status = Status::ok;
+    return makeOffset(std::move(b), r[0]);
+  }
+  case CBR_SURFACE_RECTANGULAR_TRIMMED: {
+    if (nr < 4 || ni < 3) return nullptr;
+    std::unique_ptr<SurfaceImpl> b = basis(in[0]);
+    if (!b) return nullptr;
+    return makeTrimmed(std::move(b), r, status);
   }
   default: status = Status::unsupported; return nullptr;
   }
 }
 
-SurfaceInversion invertSurface(const Surface& s, Vec3 p, Range ru, Range rv, double tol, const Vec2*) {
-  SurfaceInversion out;
-  if (!std::isfinite(ru.lo) || !std::isfinite(ru.hi) || !std::isfinite(rv.lo) || !std::isfinite(rv.hi)) return out;
-  // A dense grid, the local minima polished by Newton on the gradient of |S - p|^2 / 2.
-  const int N = 48;
-  std::vector<double> d((N + 1) * (N + 1));
-  auto at = [&](int i, int j) { return Vec2{ru.lo + (ru.hi - ru.lo) * i / N, rv.lo + (rv.hi - rv.lo) * j / N}; };
-  for (int i = 0; i <= N; i++)
-    for (int j = 0; j <= N; j++) {
-      SurfacePoint q;
-      Vec2 uv = at(i, j);
-      s.eval(uv.x, uv.y, 0, q);
-      d[i * (N + 1) + j] = norm(q.p - p);
+} // namespace surfaces
+
+using namespace surfaces;
+
+std::unique_ptr<Surface> makeSurface(const Model& model, int row, Status& status) {
+  return make(model, row, 0, status);
+}
+
+namespace {
+
+struct Node {
+  Range u, v;
+  double lb;
+  bool operator<(const Node& o) const { return lb > o.lb; }  // a min-heap on the lower bound
+};
+struct Candidate {
+  Vec2 uv;
+  double d;
+  Vec3 foot;
+};
+
+/**
+ * The minimum of g = |S - p|^2 / 2 over a rectangle where g is convex there: Newton steps projected onto it, a
+ * coordinate the gradient pushes out of it held at its bound while the other is minimized alone (convex in it too).
+ */
+Vec2 convexMinimum(const SurfaceImpl& s, Vec3 p, Range ru, Range rv, Vec2 start, bool* pushedOut = nullptr) {
+  Vec2 x{std::clamp(start.x, ru.lo, ru.hi), std::clamp(start.y, rv.lo, rv.hi)};
+  bool pushU = false, pushV = false;
+  for (int it = 0; it < 100; it++) {
+    Vec3 d[kPartials];
+    s.derivs(x.x, x.y, 2, d);
+    Vec3 e = d[0] - p, su = d[pidx(1, 0)], sv = d[pidx(0, 1)];
+    double gu = dot(e, su), gv = dot(e, sv);
+    double huu = dot(su, su) + dot(e, d[pidx(2, 0)]), huv = dot(su, sv) + dot(e, d[pidx(1, 1)]);
+    double hvv = dot(sv, sv) + dot(e, d[pidx(0, 2)]);
+    bool fu = (x.x <= ru.lo && gu > 0) || (x.x >= ru.hi && gu < 0);
+    bool fv = (x.y <= rv.lo && gv > 0) || (x.y >= rv.hi && gv < 0);
+    // Pushed out by more than the gradient's rounding: the minimum over the plane is past that side.
+    double slack = 64 * kEps * norm(e) + 1e-300;
+    pushU = fu && std::fabs(gu) > slack * norm(su), pushV = fv && std::fabs(gv) > slack * norm(sv);
+    Vec2 n = x;
+    if (!fu && !fv) {
+      double det = huu * hvv - huv * huv;
+      if (det > 0 && huu > 0) n = {x.x - (hvv * gu - huv * gv) / det, x.y - (huu * gv - huv * gu) / det};
+      else n = {x.x - (huu > 0 ? gu / huu : 0), x.y - (hvv > 0 ? gv / hvv : 0)};
+    } else if (!fu) {
+      n.x = x.x - (huu > 0 ? gu / huu : 0);
+    } else if (!fv) {
+      n.y = x.y - (hvv > 0 ? gv / hvv : 0);
     }
-  std::vector<std::pair<Vec2, double>> minima;
-  for (int i = 0; i <= N; i++)
-    for (int j = 0; j <= N; j++) {
-      double c = d[i * (N + 1) + j];
-      bool isMin = true;
-      for (int a = -1; a <= 1 && isMin; a++)
-        for (int b = -1; b <= 1; b++) {
-          int ii = i + a, jj = j + b;
-          if ((a || b) && ii >= 0 && ii <= N && jj >= 0 && jj <= N && d[ii * (N + 1) + jj] < c) {
-            isMin = false;
-            break;
-          }
-        }
-      if (!isMin) continue;
-      Vec2 uv = at(i, j);
-      for (int it = 0; it < 50; it++) {
-        SurfacePoint q;
-        s.eval(uv.x, uv.y, 2, q);
-        Vec3 e = q.p - p;
-        double gu = dot(e, q.du), gv = dot(e, q.dv);
-        double huu = dot(q.du, q.du) + dot(e, q.duu), huv = dot(q.du, q.dv) + dot(e, q.duv),
-          hvv = dot(q.dv, q.dv) + dot(e, q.dvv);
-        double det = huu * hvv - huv * huv;
-        if (!(det > 0) || !(huu > 0)) break;
-        Vec2 next{uv.x - (hvv * gu - huv * gv) / det, uv.y - (huu * gv - huv * gu) / det};
-        next = {std::clamp(next.x, ru.lo, ru.hi), std::clamp(next.y, rv.lo, rv.hi)};
-        double step = norm(next - uv);
-        uv = next;
-        if (step <= 1e-15 * (1 + norm(uv))) break;
-      }
-      SurfacePoint q;
-      s.eval(uv.x, uv.y, 0, q);
-      minima.push_back({uv, norm(q.p - p)});
-    }
-  std::sort(minima.begin(), minima.end(), [](auto& x, auto& y) { return x.second < y.second; });
-  out.status = Status::ok;
-  if (minima.empty()) return out;
-  out.uv = minima[0].first;
-  out.distance = minima[0].second;
-  SurfacePoint q;
-  s.eval(out.uv.x, out.uv.y, 0, q);
-  out.foot = q.p;
-  out.certainty = Certainty::unique;
+    n = {std::clamp(n.x, ru.lo, ru.hi), std::clamp(n.y, rv.lo, rv.hi)};
+    double step = std::fabs(n.x - x.x) + std::fabs(n.y - x.y);
+    x = n;
+    if (step <= 4 * kEps * (1 + std::fabs(x.x) + std::fabs(x.y))) break;
+  }
+  if (pushedOut) {
+    // Which sides: (u at ru's lo or hi, v at rv's lo or hi), encoded for the caller as pushes on each.
+    pushedOut[0] = pushU && x.x <= ru.lo, pushedOut[1] = pushU && x.x >= ru.hi;
+    pushedOut[2] = pushV && x.y <= rv.lo, pushedOut[3] = pushV && x.y >= rv.hi;
+  }
+  return x;
+}
+
+/** Whether u is closed over the whole of ru: a period, or S equal at the domain's two ends at v (within tol). */
+bool closedU(const SurfaceImpl& s, Range ru, double v, double tol) {
   SurfaceDomain dom = s.domain();
-  out.onSeamU = dom.uPeriod > 0
-    && (std::fabs(out.uv.x - dom.u.lo) <= 1e-9 || std::fabs(out.uv.x - dom.u.hi) <= 1e-9);
-  out.onSeamV = dom.vPeriod > 0
-    && (std::fabs(out.uv.y - dom.v.lo) <= 1e-9 || std::fabs(out.uv.y - dom.v.hi) <= 1e-9);
-  std::vector<Singularity> sing;
-  s.singularities(sing);
-  for (auto& g : sing)
-    if (g.kind != Singularity::normalVanishes && norm(g.point - out.foot) <= tol) out.atSingularity = true;
-  for (size_t i = 1; i < minima.size(); i++) {
-    SurfacePoint qi;
-    s.eval(minima[i].first.x, minima[i].first.y, 0, qi);
-    if (minima[i].second - out.distance > tol || norm(qi.p - out.foot) <= tol) continue;
-    bool dup = false;
-    for (auto& a : out.alternatives) {
-      SurfacePoint qa;
-      s.eval(a.x, a.y, 0, qa);
-      dup = dup || norm(qa.p - qi.p) <= tol;
+  if (dom.uPeriod > 0) return ru.hi - ru.lo >= dom.uPeriod * (1 - 8 * kEps);
+  if (!finite(dom.u) || !(ru.lo <= dom.u.lo && ru.hi >= dom.u.hi)) return false;
+  SurfacePoint a, b;
+  s.eval(dom.u.lo, v, 0, a), s.eval(dom.u.hi, v, 0, b);
+  return norm(a.p - b.p) <= tol;
+}
+bool closedV(const SurfaceImpl& s, Range rv, double u, double tol) {
+  SurfaceDomain dom = s.domain();
+  if (dom.vPeriod > 0) return rv.hi - rv.lo >= dom.vPeriod * (1 - 8 * kEps);
+  if (!finite(dom.v) || !(rv.lo <= dom.v.lo && rv.hi >= dom.v.hi)) return false;
+  SurfacePoint a, b;
+  s.eval(u, dom.v.lo, 0, a), s.eval(u, dom.v.hi, 0, b);
+  return norm(a.p - b.p) <= tol;
+}
+
+/** The distance in (u, v) between two parameter pairs, periods taken the short way. */
+double uvDistance(Vec2 a, Vec2 b, const SurfaceDomain& dom) {
+  auto d = [](double x, double period) {
+    if (!(period > 0)) return x;
+    double r = std::fmod(x, period);
+    return std::fmin(r, period - r);
+  };
+  return std::hypot(d(std::fabs(a.x - b.x), dom.uPeriod), d(std::fabs(a.y - b.y), dom.vPeriod));
+}
+
+} // namespace
+
+SurfaceInversion invertSurface(const Surface& s0, Vec3 p, Range ru, Range rv, double tol, const Vec2* hint) {
+  SurfaceInversion out;
+  const SurfaceImpl* impl = dynamic_cast<const SurfaceImpl*>(&s0);
+  if (!impl) return out;
+  const SurfaceImpl& s = *impl;
+  SurfaceDomain dom = s.domain();
+  tol = std::fmax(tol, 0.0);
+  if (!(ru.lo <= ru.hi) || !(rv.lo <= rv.hi)) {
+    out.status = Status::outOfDomain;
+    return out;
+  }
+  auto at = [&](Vec2 uv) {
+    Vec3 d[kPartials];
+    s.derivs(uv.x, uv.y, 0, d);
+    return d[0];
+  };
+  // Periodic directions searched over one period from the range's start; others cut to the domain.
+  bool wrapU = dom.uPeriod > 0 && ru.hi - ru.lo >= dom.uPeriod * (1 - 8 * kEps);
+  bool wrapV = dom.vPeriod > 0 && rv.hi - rv.lo >= dom.vPeriod * (1 - 8 * kEps);
+  if (wrapU) ru.hi = ru.lo + dom.uPeriod;
+  if (wrapV) rv.hi = rv.lo + dom.vPeriod;
+  if (dom.uPeriod == 0) ru = {std::fmax(ru.lo, dom.u.lo), std::fmin(ru.hi, dom.u.hi)};
+  if (dom.vPeriod == 0) rv = {std::fmax(rv.lo, dom.v.lo), std::fmin(rv.hi, dom.v.hi)};
+  if (!(ru.lo <= ru.hi) || !(rv.lo <= rv.hi)) {
+    out.status = Status::outOfDomain;
+    return out;
+  }
+  // A seed: the hint, else the range's (u, v) nearest (0, 0); infinite ranges cut by its distance.
+  auto clampUV = [&](Vec2 x) { return Vec2{std::clamp(x.x, ru.lo, ru.hi), std::clamp(x.y, rv.lo, rv.hi)}; };
+  Vec2 seed = clampUV(hint ? *hint : Vec2{0, 0});
+  if (!finite(ru) || !finite(rv)) {
+    Range wu, wv;
+    s.within(p, norm(at(seed) - p) * (1 + 1e-9) + tol, wu, wv);
+    ru = {std::fmax(ru.lo, wu.lo), std::fmin(ru.hi, wu.hi)};
+    rv = {std::fmax(rv.lo, wv.lo), std::fmin(rv.hi, wv.hi)};
+    if (!finite(ru) || !finite(rv) || !(ru.lo <= ru.hi) || !(rv.lo <= rv.hi)) {
+      out.status = Status::unsupported;
+      return out;
     }
-    if (!dup) {
-      out.certainty = Certainty::ambiguous;
-      out.alternatives.push_back(minima[i].first);
+    seed = clampUV(seed);
+  }
+
+  std::vector<Candidate> cands;
+  double ub = kInf;
+  auto add = [&](Vec2 uv) {
+    Vec3 f = at(uv);
+    double d = norm(f - p);
+    ub = std::fmin(ub, d);
+    cands.push_back({uv, d, f});
+  };
+  int budget = 40000;
+  bool exhausted = false;
+  double leftLb = kInf;
+  std::vector<Vec2> known;
+  if (s.footCandidates(p, ru, rv, tol, known)) {
+    for (Vec2 uv : known) add(uv);
+  } else {
+    std::vector<double> us, vs;
+    s.breaks(ru, rv, us, vs);
+    std::priority_queue<Node> queue;
+    auto lower = [&](Range a, Range b) {
+      Box3 box;
+      return s.derivBox(a, b, 0, 0, box) == Status::ok ? boxDistance(box, p) : 0.0;
+    };
+    if (hint) add(convexMinimum(s, p, ru, rv, seed));
+    // The singular iso-lines' points: a pole is a foot no rectangle beside it can prove convex.
+    std::vector<Singularity> sing;
+    s.singularities(sing);
+    for (const Singularity& g : sing) {
+      if (g.kind == Singularity::normalVanishes) continue;
+      Range r = g.isoU ? ru : rv;
+      if (g.at >= r.lo && g.at <= r.hi) add(g.isoU ? Vec2{g.at, seed.y} : Vec2{seed.x, g.at});
     }
+    for (size_t i = 0; i + 1 < us.size(); i++)
+      for (size_t j = 0; j + 1 < vs.size(); j++) {
+        Range a{us[i], us[i + 1]}, b{vs[j], vs[j + 1]};
+        ub = std::fmin(ub, norm(at({0.5 * a.lo + 0.5 * a.hi, 0.5 * b.lo + 0.5 * b.hi}) - p));
+        queue.push({a, b, lower(a, b)});
+      }
+    while (!queue.empty()) {
+      Node n = queue.top();
+      queue.pop();
+      if (n.lb > ub + tol) continue;
+      Range a = n.u, b = n.v;
+      Vec2 mid{0.5 * a.lo + 0.5 * a.hi, 0.5 * b.lo + 0.5 * b.hi};
+      if (--budget < 0) {
+        // A continuum of feet (a centre of curvature) or a search too fine: what's left sampled at its middles.
+        exhausted = true;
+        leftLb = std::fmin(leftLb, n.lb);
+        add(mid);
+        continue;
+      }
+      Box3 b0, bu, bv, buu, buv, bvv;
+      bool ok = s.derivBox(a, b, 0, 0, b0) == Status::ok && s.derivBox(a, b, 1, 0, bu) == Status::ok
+        && s.derivBox(a, b, 0, 1, bv) == Status::ok && s.derivBox(a, b, 2, 0, buu) == Status::ok
+        && s.derivBox(a, b, 1, 1, buv) == Status::ok && s.derivBox(a, b, 0, 2, bvv) == Status::ok;
+      bool convex = false;
+      if (ok) {
+        Box3 e = b0 - pointBox(p);
+        double mu = boxMinNorm(bu), mv = boxMinNorm(bv);
+        double h11 = mu * mu + dotBox(e, buu).lo, h22 = mv * mv + dotBox(e, bvv).lo;
+        Interval h12 = dotBox(bu, bv) + dotBox(e, buv);
+        convex = h11 > 0 && h22 > 0 && h11 * h22 > h12.mag() * h12.mag() * (1 + 16 * kEps);
+      }
+      double diam = ok ? std::hypot(b0.x.width(), std::hypot(b0.y.width(), b0.z.width())) : kInf;
+      // As narrow as its coordinates' rounding, or within tol all over: one foot wherever it is in there.
+      if (!ok && s.derivBox(a, b, 0, 0, b0) == Status::ok)
+        diam = std::hypot(b0.x.width(), std::hypot(b0.y.width(), b0.z.width()));
+      bool tiny = diam <= tol || (ok && diam <= 24 * kEps * boxMag(b0));
+      double wu = a.hi - a.lo, wv = b.hi - b.lo;
+      bool thin = wu <= 4 * kEps * std::fmax(std::fabs(a.lo), std::fabs(a.hi))
+        && wv <= 4 * kEps * std::fmax(std::fabs(b.lo), std::fabs(b.hi));
+      if (convex) {
+        // A minimum pushed against a side inside the search range isn't one of S's: the rectangle beyond holds it.
+        bool push[4];
+        Vec2 x = convexMinimum(s, p, a, b, mid, push);
+        bool inner = (push[0] && a.lo > ru.lo) || (push[1] && a.hi < ru.hi) || (push[2] && b.lo > rv.lo)
+          || (push[3] && b.hi < rv.hi);
+        if (inner) ub = std::fmin(ub, norm(at(x) - p));
+        else add(x);
+        continue;
+      }
+      if (tiny || thin) {
+        Vec2 best = mid;
+        double bd = kInf;
+        for (Vec2 x : {mid, Vec2{a.lo, b.lo}, Vec2{a.hi, b.lo}, Vec2{a.lo, b.hi}, Vec2{a.hi, b.hi}}) {
+          double d = norm(at(x) - p);
+          if (d < bd) bd = d, best = x;
+        }
+        add(best);
+        continue;
+      }
+      // Split across the side longer in 3D.
+      double lu = ok ? boxNorm(bu) * wu : wu, lv = ok ? boxNorm(bv) * wv : wv;
+      ub = std::fmin(ub, norm(at(mid) - p));
+      Range h[2][2];
+      if (lu >= lv) h[0][0] = {a.lo, mid.x}, h[0][1] = b, h[1][0] = {mid.x, a.hi}, h[1][1] = b;
+      else h[0][0] = a, h[0][1] = {b.lo, mid.y}, h[1][0] = a, h[1][1] = {mid.y, b.hi};
+      for (auto& c : h) {
+        double lb = lower(c[0], c[1]);
+        if (lb <= ub + tol) queue.push({c[0], c[1], lb});
+      }
+    }
+  }
+  out.status = Status::ok;
+  if (cands.empty()) return out;
+  std::sort(cands.begin(), cands.end(), [](const Candidate& x, const Candidate& y) {
+    return x.d < y.d || (x.d == y.d && (x.uv.x < y.uv.x || (x.uv.x == y.uv.x && x.uv.y < y.uv.y)));
+  });
+  if (exhausted && leftLb < cands[0].d - tol) out.status = Status::noConvergence;
+  // The feet within tol of the best distance, one per place (feet within tol of each other are one).
+  std::vector<Candidate> feet;
+  for (const Candidate& k : cands) {
+    if (k.d - cands[0].d > tol) break;
+    bool same = false;
+    for (const Candidate& f : feet) same = same || norm(k.foot - f.foot) <= tol;
+    if (!same) feet.push_back(k);
+  }
+  // The hint picks among equally near feet; else the nearest (then the least (u, v)).
+  size_t pick = 0;
+  if (hint)
+    for (size_t i = 1; i < feet.size(); i++)
+      if (uvDistance(feet[i].uv, *hint, dom) < uvDistance(feet[pick].uv, *hint, dom)) pick = i;
+  const Candidate best = feet[pick];
+  out.uv = best.uv, out.foot = best.foot, out.distance = best.d;
+  out.certainty = feet.size() > 1 ? Certainty::ambiguous : Certainty::unique;
+  for (size_t i = 0; i < feet.size(); i++)
+    if (i != pick) out.alternatives.push_back(feet[i].uv);
+  // A continuum sampled: a few alternatives spread over it say so.
+  if (out.alternatives.size() > 8) {
+    std::vector<Vec2> few;
+    for (size_t i = 0; i < 8; i++) few.push_back(out.alternatives[i * out.alternatives.size() / 8]);
+    out.alternatives = few;
+  }
+  // A curve of feet in closed form: its direction, over the range searched, at the foot's other parameter.
+  if (out.certainty == Certainty::ambiguous) {
+    char f = s.footFamily(p);
+    if (f) {
+      out.hasFamily = true, out.familyU = f == 'u';
+      out.familyLo = f == 'u' ? ru.lo : rv.lo, out.familyHi = f == 'u' ? ru.hi : rv.hi;
+      out.familyAt = f == 'u' ? out.uv.y : out.uv.x;
+    }
+  }
+  // Flags, the foot's own parameters kept: a singularity's, else a seam's where the foot is within tol of it.
+  out.atSingularity = nearSingularity(s, out.foot, tol);
+  if (!out.atSingularity) {
+    if (closedU(s, ru, out.uv.y, tol)) {
+      double lo = wrapU ? ru.lo : dom.u.lo, hi = wrapU ? ru.hi : dom.u.hi;
+      out.onSeamU = norm(at({lo, out.uv.y}) - out.foot) <= tol || norm(at({hi, out.uv.y}) - out.foot) <= tol;
+    }
+    if (closedV(s, rv, out.uv.x, tol)) {
+      double lo = wrapV ? rv.lo : dom.v.lo, hi = wrapV ? rv.hi : dom.v.hi;
+      out.onSeamV = norm(at({out.uv.x, lo}) - out.foot) <= tol || norm(at({out.uv.x, hi}) - out.foot) <= tol;
+    }
+  }
+  // Periodic results in [lo, lo + period).
+  auto red = [](double x, Range r, double P) { return x >= r.hi ? x - P : x; };
+  if (wrapU) {
+    out.uv.x = red(out.uv.x, ru, dom.uPeriod);
+    for (Vec2& a : out.alternatives) a.x = red(a.x, ru, dom.uPeriod);
+  }
+  if (wrapV) {
+    out.uv.y = red(out.uv.y, rv, dom.vPeriod);
+    for (Vec2& a : out.alternatives) a.y = red(a.y, rv, dom.vPeriod);
   }
   return out;
 }

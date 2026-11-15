@@ -476,6 +476,28 @@ const revolution: Shape = {
   },
 };
 
+/**
+ * A sphere as a revolution reaching its axis: the half circle C(t) = (2 cos t, 0, 2 sin t) (a circle trimmed to
+ * [-pi / 2, pi / 2]) turned about z, so its v is the circle's angle and its profile's ends are poles, bounded by
+ * nothing, as a solid.
+ */
+const revolutionSphere: Shape = {
+  name: 'revolutionSphere', size: 4, uncertainty: 1e-6,
+  make(m) {
+    const R = 2, F = frame(O, [0, -1, 0], X);
+    const circle = m.curve({ kind: 'circle', position: placement(F), radius: R });
+    const half = m.curve({ kind: 'trimmed', basis: circle, trim1: { parameter: -PI / 2 }, trim2: { parameter: PI / 2 },
+      sense: true, preference: 'parameter' });
+    const S = m.surface({ kind: 'revolution', curve: half, axisOrigin: O, axisDirection: Z }, { u: TAU });
+    const ev = revolutionEv(ellipseEv(F.o, F.x, F.y, R, R), O, Z);
+    same(ev(1, 0.5).p, sphereEv(frame(O, Z, X), R)(1, 0.5).p, 'revolution as sphere');
+    m.surfacePoints(S, ev, [[0, 0], [1, 0.5], [4, -1], [2, PI / 2], [5, -PI / 2]]);
+    m.surfaceInverse(S, ev(1, 0.5).p, [1, 0.5], 0, 'unique');
+    m.surfaceInverse(S, [0, 0, R], [0, PI / 2], 0, 'unique', { atSingularity: true });
+    naturalSolid(m, S, 4 * PI * R * R, 4 / 3 * PI * R ** 3);
+  },
+};
+
 /** The offset by 0.5 of a sphere of radius 2 (the sphere of radius 2.5), bounded by nothing, as a solid. */
 const offset: Shape = {
   name: 'offset', size: 5, uncertainty: 1e-6,
@@ -512,4 +534,4 @@ const trimmedSurface: Shape = {
 };
 
 export const SHAPES: Shape[] = [box, cylinder, cone, sphere, torus, curves, bsplineCircle, bsplineCylinder,
-  bsplineSphere, bsplineTorus, extrusion, revolution, offset, trimmedSurface];
+  bsplineSphere, bsplineTorus, extrusion, revolution, revolutionSphere, offset, trimmedSurface];

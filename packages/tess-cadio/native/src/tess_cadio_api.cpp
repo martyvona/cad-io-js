@@ -95,7 +95,7 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
           for (int k = 0; k < 3 && !pole; k++)
             for (const Singularity& g : sing)
               pole = pole || (g.kind != Singularity::normalVanishes &&
-                norm(fm.points[fm.triangles[3 * t + k]] - g.point) <= 10 * tol);
+                norm(fm.points[fm.triangles[3 * t + k]] - g.point) <= tol);
           poleSlivers += pole;
         }
       }

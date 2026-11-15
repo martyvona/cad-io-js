@@ -345,16 +345,22 @@ export function halfCap(): BrepBuilder {
 }
 
 /** The unit sphere's half x > 0, bounded by one great circle through both poles (its vertex at the south pole). */
-export function meridianHemisphere(): BrepBuilder {
-  const b = new BrepBuilder();
-  const v = b.addVertex({ point: [0, 0, -1] });
+function greatCircleHalf(r: number, uncertainty?: number): BrepBuilder {
+  const b = new BrepBuilder(uncertainty ? { uncertainty } : {});
+  const v = b.addVertex({ point: [0, 0, -r] });
   const great = b.addCurve({ kind: 'circle', position: { origin: [0, 0, 0], axis: [1, 0, 0], xDir: [0, 0, -1] },
-    radius: 1 });
+    radius: r });
   const e = b.addEdge({ curve: great, start: v, end: v, sameSense: true });
-  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'sphere', position: AXIS, radius: 1 }), sameSense: true,
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'sphere', position: AXIS, radius: r }), sameSense: true,
     loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [{ edge: e, orientation: 'forward' }] }] }));
   return b;
 }
+export const meridianHemisphere = (): BrepBuilder => greatCircleHalf(1);
+/**
+ * The same at trj5_k1-ug's face 129's radius and uncertainty (3.81, 0.02): samples within 10 x the tolerance of a pole
+ * aren't at it. Area 2 pi 3.81^2.
+ */
+export const meridianHemisphereLoose = (): BrepBuilder => greatCircleHalf(3.81, 0.02);
 
 /**
  * A band (cylinder radius 2, z 0 to 5, its circles' vertices at u = 0, no seam) with a hole after its two circles
@@ -472,7 +478,7 @@ export const bsplineTubeTinyArc = (): BrepBuilder => tube(true);
 
 /**
  * The unit sphere's upper half as a rational B-spline (u round, closed; v a quarter circle up to the pole, its top
- * row collapsed there, no singularity named), bounded by its equator and an unflagged edge of no length at the pole
+ * row collapsed there), bounded by its equator and an unflagged edge of no length at the pole
  * (a B-spline of one point, from the pole to itself), as trj7_k1-id's faces have: the edge along the pole line.
  * Area 2 pi.
  */
@@ -556,7 +562,26 @@ function rectilinearBand(wiggle: boolean): BrepBuilder {
 export const wigglyBand = (): BrepBuilder => rectilinearBand(true);
 export const notchBand = (): BrepBuilder => rectilinearBand(false);
 
-export const MODELS = { offPoleRest, wigglyBand, notchBand, bsplineTube, bsplineTubeTinyArc, bsplineDome, offPoleArc,
-  offPcurves, bandHoleAtVertex, bandHoleOnCut, halfCap, meridianHemisphere, band: band_, bandByInversion, bore,
-  nistBore, seamByInversion, offVertex, pcurveOnly, luneQuarter, luneOnSeam, cap, splineEdge, seamFlipped,
-  polylineEdge, pcurveCircle, arcSegment, fold, twisted, wrongSense, zeroEdge };
+/**
+ * A torus's outer half (major radius 3, minor 1, axis z: v from -pi / 2 to pi / 2 through 0), between its bottom
+ * and top circles: the cut between them in v must run through v = 0, the face's way, not the direct difference
+ * (from 3 pi / 2 back to pi / 2, through the inner half). Area 2 pi r (pi R + 2 r).
+ */
+export function torusOuterHalf(): BrepBuilder {
+  const b = new BrepBuilder();
+  const circle = (z: number) => b.addCurve({ kind: 'circle', position: { ...AXIS, origin: [0, 0, z] }, radius: 3 });
+  const v0 = b.addVertex({ point: [3, 0, -1] }), v1 = b.addVertex({ point: [3, 0, 1] });
+  const eb = b.addEdge({ curve: circle(-1), start: v0, end: v0, sameSense: true });
+  const et = b.addEdge({ curve: circle(1), start: v1, end: v1, sameSense: true });
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'torus', position: AXIS, majorRadius: 3, minorRadius: 1 }),
+    sameSense: true, loops: [
+      { kind: 'edge', bound: 'outer', sense: true, coedges: [{ edge: eb, orientation: 'forward' }] },
+      { kind: 'edge', bound: 'inner', sense: true, coedges: [{ edge: et, orientation: 'reversed' }] }] }));
+  return b;
+}
+
+export const MODELS = { torusOuterHalf, meridianHemisphereLoose, offPoleRest, wigglyBand, notchBand, bsplineTube,
+  bsplineTubeTinyArc, bsplineDome, offPoleArc, offPcurves, bandHoleAtVertex, bandHoleOnCut, halfCap,
+  meridianHemisphere, band: band_, bandByInversion, bore, nistBore, seamByInversion, offVertex, pcurveOnly,
+  luneQuarter, luneOnSeam, cap, splineEdge, seamFlipped, polylineEdge, pcurveCircle, arcSegment, fold, twisted,
+  wrongSense, zeroEdge };

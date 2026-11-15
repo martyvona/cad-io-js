@@ -14,4 +14,10 @@ namespace tesscadio {
 /** The surface at the model's row (cadgeom::makeSurface), closed directions made periodic; null as makeSurface. */
 std::unique_ptr<cadgeom::Surface> faceSurface(const cadgeom::Model& m, int row, cadgeom::Status& status);
 
+/**
+ * cad-geom's own surface under faceSurface's (itself where it isn't made periodic): what cadgeom::invertSurface
+ * takes, which knows its own implementations only (and flags seams closed in fact itself).
+ */
+const cadgeom::Surface& baseSurface(const cadgeom::Surface& s);
+
 } // namespace tesscadio
