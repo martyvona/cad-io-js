@@ -925,3 +925,137 @@ TEST_CASE("cases the planted bugs found: an offset's box at one pole, a foot bes
     CHECK_NEAR(inv.uv.y, M_PI, 0, 1e-9);
   }
 }
+
+namespace {
+
+/** A B-spline surface from raw values: degrees, distinct knots and multiplicities, poles[i][j], weights or none. */
+std::unique_ptr<Surface> rawSpline(int p, int q, std::vector<double> uk, std::vector<int> um, std::vector<double> vk,
+  std::vector<int> vm, const std::vector<std::vector<Vec3>>& P, const std::vector<std::vector<double>>& W = {}) {
+  int nu = static_cast<int>(P.size()), nv = static_cast<int>(P[0].size());
+  std::vector<int32_t> in{p, q, nu, nv, static_cast<int32_t>(uk.size()), static_cast<int32_t>(vk.size()),
+    W.empty() ? 0 : 1, 0, 0, 0, 0};
+  in.insert(in.end(), um.begin(), um.end());
+  in.insert(in.end(), vm.begin(), vm.end());
+  std::vector<double> r(uk);
+  r.insert(r.end(), vk.begin(), vk.end());
+  for (auto& row : P)
+    for (Vec3 x : row) r.insert(r.end(), {x.x, x.y, x.z});
+  for (auto& row : W) r.insert(r.end(), row.begin(), row.end());
+  Status s;
+  return surfaces::makeBSpline(r.data(), in.data(), s);
+}
+
+/** A degree-1 tube round z, its section the square (1, 0), (0, 1), (-1, 0), (0, -1) back to (1, 0), z in [0, 1];
+ * the last pole of the row at z = 0 moved by `gap` along x (0: closed exactly). */
+std::unique_ptr<Surface> tube(double gap) {
+  std::vector<Vec3> ring{{1, 0, 0}, {0, 1, 0}, {-1, 0, 0}, {0, -1, 0}, {1, 0, 0}};
+  std::vector<std::vector<Vec3>> P(2);
+  for (int i = 0; i < 2; i++)
+    for (Vec3 x : ring) P[i].push_back(x + Vec3{0, 0, double(i)});
+  P[0][4].x += gap;
+  return rawSpline(1, 1, {0, 1}, {2, 2}, {0, 1, 2, 3, 4}, {2, 1, 1, 1, 2}, P);
+}
+
+} // namespace
+
+TEST_CASE("closeInFact: a tube closed in v, a nearly closed one, a collapsed side, rational closures") {
+  const double tol = 1e-7;
+  // The tube closes in v (its last section the first): v periodic, period 4, every query reduced.
+  {
+    auto c = closeInFact(tube(0), tol);
+    SurfaceDomain d = c->domain();
+    CHECK(d.vPeriod == 4);
+    CHECK(d.uPeriod == 0);
+    for (double v : {0.3, 1.7, 3.9}) {
+      SurfacePoint a, b;
+      c->eval(0.4, v, 2, a), c->eval(0.4, v + 4, 2, b);
+      CHECK(nearVec(a.p, b.p, 0, 1e-15) && nearVec(a.dv, b.dv, 0, 1e-15));
+    }
+    // A box across the seam holds the samples either side; breaks across it include the seam.
+    Box3 box;
+    CHECK(impl(c.get())->derivBox({0, 1}, {3.5, 4.5}, 0, 0, box) == Status::ok);
+    for (int k = 0; k <= 20; k++) {
+      SurfacePoint q;
+      c->eval(0.5, 3.5 + k / 20.0, 0, q);
+      CHECK(inBox(box, q.p));
+    }
+    std::vector<double> us, vs;
+    c->breaks({0, 1}, {3.5, 4.5}, us, vs);
+    CHECK(std::find(vs.begin(), vs.end(), 4.0) != vs.end());
+    CHECK(vs.front() == 3.5 && vs.back() == 4.5);
+    // A point outside the seam's corner (1, 0, 0.5): on the seam, its v in [0, 4).
+    SurfaceInversion inv = invertSurface(*c, {1.5, 0, 0.5}, d.u, d.v, 1e-9);
+    CHECK(inv.status == Status::ok);
+    CHECK(inv.onSeamV);
+    CHECK(inv.uv.y >= 0 && inv.uv.y < 4);
+    CHECK_NEAR(inv.distance, 0.5, 1e-12, 0);
+    std::vector<Singularity> g;
+    c->singularities(g);
+    CHECK(g.empty());
+  }
+  // Nearly closed: 1.5 tol off at one of the 9 points, no period; 0.5 tol off, a period. The gap is at the end
+  // u = 0 and falls off linearly to 0 at u = 1: at 1.05 tol only the end point itself is off by more than tol.
+  {
+    auto c = closeInFact(tube(1.5 * tol), tol);
+    CHECK(c->domain().vPeriod == 0);
+    CHECK(closeInFact(tube(1.05 * tol), tol)->domain().vPeriod == 0);
+    auto e = closeInFact(tube(0.5 * tol), tol);
+    CHECK(e->domain().vPeriod == 4);
+  }
+  // A bilinear patch whose side u = 0 meets in a point within tol (0.5 tol apart): a pole line there, at that point;
+  // the surface itself reported none (its rows aren't equal). Exactly collapsed, the surface reports it, once.
+  for (double off : {0.5 * tol, 0.0}) {
+    std::vector<std::vector<Vec3>> P{{{0, 0, 0}, {off, 0, 0}}, {{1, -1, 0}, {1, 1, 0.5}}};
+    auto base = rawSpline(1, 1, {0, 1}, {2, 2}, {0, 1}, {2, 2}, P);
+    std::vector<Singularity> before;
+    base->singularities(before);
+    CHECK(before.size() == (off == 0 ? 1u : 0u));
+    Surface* raw = base.get();
+    auto c = closeInFact(std::move(base), tol);
+    std::vector<Singularity> g;
+    c->singularities(g);
+    REQUIRE(g.size() == 1);
+    CHECK(g[0].kind == Singularity::pole);
+    CHECK(g[0].isoU);
+    CHECK(g[0].at == 0);
+    CHECK(nearVec(g[0].point, {0, 0, 0}, 0, tol));
+    CHECK(c->domain().uPeriod == 0 && c->domain().vPeriod == 0);
+    // Nothing to add where the surface says it all: the surface itself back.
+    CHECK((c.get() == raw) == (off == 0));
+  }
+  // Rational: the exact B-spline cylinder closes in u (period 1); the B-spline sphere too, its collapsed rows
+  // reported once; a plane, a periodic torus and a far cylinder unchanged or closed alike.
+  {
+    for (const char* variant : {"s1", "far", "mirror"}) {
+      const fixtures::Reference* ref = fixtures::reference("bsplineCylinder", variant);
+      REQUIRE(ref);
+      const Model m(ref->data, ref->size);
+      Status s;
+      // (At 1e6 mm the ends agree to the coordinates' rounding: tol relative to the size, as callers pass it.)
+      double t = 1e-9 * 20 + 1e-15 * 2e6;
+      auto c = closeInFact(makeSurface(m, 0, s), t);
+      CHECK(c->domain().uPeriod == 1);
+      CHECK(c->domain().vPeriod == 0);
+      SurfacePoint q;
+      c->eval(0, 0.5, 1, q);
+      Vec3 n = (1 / norm(cross(q.du, q.dv))) * cross(q.du, q.dv);
+      SurfaceInversion inv = invertSurface(*c, q.p + 0.25 * n, c->domain().u, c->domain().v, t);
+      CHECK(inv.onSeamU);
+      CHECK(inv.uv.x >= 0 && inv.uv.x < 1);
+      CHECK_NEAR(inv.distance, 0.25, 1e-9, t);
+    }
+    const fixtures::Reference* sp = fixtures::reference("bsplineSphere", "s1");
+    const Model ms(sp->data, sp->size);
+    Status s;
+    auto c = closeInFact(makeSurface(ms, 0, s), tol);
+    CHECK(c->domain().uPeriod == 1);
+    std::vector<Singularity> g;
+    c->singularities(g);
+    CHECK(g.size() == 2);
+    const fixtures::Reference* to = fixtures::reference("torus", "s1");
+    const Model mt(to->data, to->size);
+    auto torus = makeSurface(mt, 0, s);
+    Surface* raw = torus.get();
+    CHECK(closeInFact(std::move(torus), tol).get() == raw);
+  }
+}
