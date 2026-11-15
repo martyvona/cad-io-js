@@ -305,6 +305,16 @@ const curves: Shape = {
       sense: true, preference: 'parameter' });
     m.curvePoints(tr, ciEv, [1, 1.75, 2.5]);
     m.curveLength(tr, 1, 2.5, 3);
+    // The same arc trimmed by its end points alone (cartesian): the parameters are the points' on the circle, so
+    // its range is [1, 2.5] only to the points' rounding (5e-11 far from the origin): facts inside it.
+    const tp = m.curve({ kind: 'trimmed', basis: ci, trim1: { point: ciEv(1).p }, trim2: { point: ciEv(2.5).p },
+      sense: true, preference: 'cartesian' });
+    m.curvePoints(tp, ciEv, [1.25, 2]);
+    m.curveLength(tp, 1.25, 2.25, 2);
+    // Its range seen through a composite of it alone (the composite maps [0, 1] onto the trim's range).
+    const cp = m.curve({ kind: 'composite', segments: [{ curve: tp, sameSense: true, transition: 'continuous' }],
+      selfIntersect: false });
+    m.curvePoints(cp, compositeEv([{ ev: ciEv, a: 1, b: 2.5, sameSense: true }]), [0.1, 0.4, 0.9]);
     // Against the circle: from 1 back round to 2.5, the range [2.5 - 2 pi, 1].
     const tb = m.curve({ kind: 'trimmed', basis: ci, trim1: { parameter: 1 }, trim2: { parameter: 2.5 },
       sense: false, preference: 'parameter' });
@@ -322,7 +332,7 @@ const curves: Shape = {
     const ofEv = ellipseEv(F.o, F.x, F.y, 2.5, 2.5);
     m.curvePoints(of, ofEv, [0, 1]);
     m.curveLength(of, 0, TAU, 5 * PI);
-    for (const row of [el, hy, pl, tr, tb, co, of]) item(row);
+    for (const row of [el, hy, pl, tr, tp, cp, tb, co, of]) item(row);
   },
 };
 
@@ -477,6 +487,12 @@ const offset: Shape = {
     m.surfacePoints(S, ev, [[0, 0], [1, 0.5], [4, -1]]);
     m.surfaceInverse(S, ev(1, 0.5).p, [1, 0.5], 0, 'unique');
     naturalSolid(m, S, 4 * PI * (R + d) ** 2, 4 / 3 * PI * (R + d) ** 3);
+    // The offset by 0.75 of the tilted plane: the plane 0.75 along its normal (a mirror turns a plane's normal against
+    // its image, so the offset's distance changes sign there, unlike a sphere's).
+    const PF = TILT, plane = m.surface({ kind: 'plane', position: placement(PF) });
+    const P = m.surface({ kind: 'offset', basis: plane.row, distance: 0.75, selfIntersect: false });
+    m.surfacePoints(P, planeEv(frame(lin([1, PF.o], [0.75, PF.z]), PF.z, PF.x)), [[0, 0], [1.5, -2]]);
+    m.b.addItem({ kind: 'surface', ref: P.row });
   },
 };
 

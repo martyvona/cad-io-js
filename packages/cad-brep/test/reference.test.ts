@@ -141,11 +141,17 @@ function checkFact(fx: Fixture, f: Fact) {
       near(diff2((x) => S.d1(x, v)[0], u, hu, uHi), f.duu as V, tol2, abs2(hu), `${what}: duu`);
       near(diff2((x) => S.d1(x, v)[1], u, hu, uHi), f.duv as V, tol2, abs2(hu), `${what}: duv`);
       near(diff2((x) => S.d1(u, x)[1], v, hv, vHi), f.dvv as V, tol2, abs2(hv), `${what}: dvv`);
+      // Periodic parameters in [0, period), as the fixtures give them.
+      if (S.uPeriod) assert.ok(u >= 0 && u < S.uPeriod, `${what}: u in [0, period)`);
+      if (S.vPeriod) assert.ok(v >= 0 && v < S.vPeriod, `${what}: v in [0, period)`);
       const n = normalAt(S, u, v), big = Math.max(norm(su), norm(sv));
       if (f.n === null) assert.ok(!n || norm(cross(su, sv)) <= 1e-9 * big * big, `${what}: a normal`);
       else {
         assert.ok(n, `${what}: no normal`);
-        near(n, f.n as V, num ? 1e-6 : 1e-9, 1e-9 + (num ? 4e-9 * lift : 0), `${what}: n`);
+        // (A difference quotient's rounding over its partials' size: worst on an offset plane, whose parameters
+        // are lengths.)
+        near(n, f.n as V, num ? 1e-6 : 1e-9, 1e-9 + (num ? 1e-8 * norm(p) / Math.min(norm(su), norm(sv)) : 0),
+          `${what}: n`);
         near(unit(cross(f.du as V, f.dv as V)), f.n as V, 1e-9, 1e-9, `${what}: n against du x dv`);
       }
       break;
@@ -163,10 +169,10 @@ function checkFact(fx: Fixture, f: Fact) {
         near(norm(sub(p, C.point(a))), f.distance as number, 1e-9, f.abs, `${what}: alternative`);
       }
       assert.equal(f.certainty === 'ambiguous', (f.alternatives as number[]).length > 0, `${what}: certainty`);
-      if (f.onSeam) {
-        const [lo, hi] = C.period ? [0, C.period] : C.range;
-        near(C.point(t === lo ? hi : lo), foot, f.tol, f.abs, `${what}: onSeam`);
-      }
+      // onSeam exactly where t is an end of a range the curve closes over.
+      const [lo, hi] = C.period ? [0, C.period] : C.range;
+      const closed = !!C.period || (Number.isFinite(hi) && norm(sub(C.point(lo), C.point(hi))) <= f.abs);
+      assert.equal(f.onSeam, closed && (t === lo || t === hi), `${what}: onSeam`);
       if (C.period) assert.ok(t >= 0 && t < C.period, `${what}: t in [0, period)`);
       const q = C.param(p);
       if (q !== undefined && f.certainty === 'unique' && Number.isFinite(C.range[0]) && !C.period) {
@@ -194,7 +200,17 @@ function checkFact(fx: Fixture, f: Fact) {
         if (q && f.onSeamV && Math.abs(q[1] - v) > S.vPeriod! / 2) q[1] -= Math.sign(q[1] - v) * S.vPeriod!;
         if (q) near(q, [u, v], 0, f.ptol as number, `${what}: params`);
       }
-      if (f.onSeamU) assert.ok(S.uPeriod && (u === 0 || u === S.u[0]), `${what}: seam`);
+      // The flags: at a singularity a partial vanishes (u is then a choice, not a seam); on a seam u (or v) is at the
+      // start of a direction closed in fact (periodic, or S equal at both ends of its range there).
+      const big = Math.max(norm(su), norm(sv));
+      assert.equal(f.atSingularity, Math.min(norm(su), norm(sv)) <= 1e-9 * big, `${what}: atSingularity`);
+      const closedU = !!S.uPeriod || (Number.isFinite(S.u[1]) && norm(sub(S.point(S.u[0], v), S.point(S.u[1], v)))
+        <= f.abs), closedV = !!S.vPeriod || (Number.isFinite(S.v[1]) && norm(sub(S.point(u, S.v[0]), S.point(u,
+        S.v[1]))) <= f.abs);
+      if (!f.atSingularity) {
+        assert.equal(f.onSeamU, closedU && u === S.u[0], `${what}: onSeamU`);
+        assert.equal(f.onSeamV, closedV && v === S.v[0], `${what}: onSeamV`);
+      }
       break;
     }
     case 'faceArea': {
