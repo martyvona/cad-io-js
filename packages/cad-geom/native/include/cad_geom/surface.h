@@ -63,13 +63,14 @@ public:
 std::unique_ptr<Surface> makeSurface(const Model& model, int row, Status& status);
 
 /**
- * s as it closes in fact, the rule every consumer shares: a direction whose two ranges are finite and which isn't
- * periodic becomes periodic, its period hi - lo and every query reduced into its range, where |S(lo, y_k) - S(hi,
- * y_k)| <= tol at 9 evenly spaced y_k of the other range (a B-spline whose first and last rows of poles meet); a side
- * of a finite range where S(x, y_k), k = 1..8, are within tol of S(x, y_0) is a pole line, reported by singularities()
- * as a sphere's is (with those the surface reports already, none twice). Nearly closed or nearly collapsed (any of the
- * points farther than tol) gets neither. s itself comes back where neither applies. tol is the caller's: max(part
- * uncertainty, face tolerance), else 1e-9 times the surface's size.
+ * s as it closes in fact, the rule every consumer shares: a direction whose range is finite and which isn't periodic
+ * becomes periodic, its period hi - lo and every query reduced into its range, where |S(lo, y_k) - S(hi, y_k)| <=
+ * tol at 9 evenly spaced y_k of the other range, or of [-1, 1] where that is infinite (a B-spline whose first and
+ * last rows of poles meet, an extrusion of a closed profile); a side of a finite range where S(x, y_k), k = 1..8, are
+ * within tol of S(x, y_0) is a pole line, reported by singularities() as a sphere's is (with those the surface
+ * reports already, none twice). Nearly closed or nearly collapsed (any of the points farther than tol) gets neither.
+ * s itself comes back where neither applies. tol is the caller's: max(part uncertainty, face tolerance), else 1e-9
+ * times the surface's size.
  */
 std::unique_ptr<Surface> closeInFact(std::unique_ptr<Surface> s, double tol);
 
