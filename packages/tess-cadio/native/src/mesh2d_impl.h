@@ -1,5 +1,4 @@
-// What mesh2d.cpp reports beyond mesh2d.h's Mesh2, for tests and for the boundary decision still open (whether the
-// caller is told which boundary segments refinement wanted split): private to tess-cadio until it is.
+// What mesh2d.cpp reports beyond mesh2d.h's Mesh2, for tests: private to tess-cadio.
 #pragma once
 
 #include <vector>
@@ -9,8 +8,6 @@
 namespace tesscadio {
 
 struct Mesh2Detail {
-  /** Constrained segments (point pairs) a Steiner point would have encroached: refinement wanted them split. */
-  std::vector<int32_t> splitWanted;
   /** Steiner points refused (encroaching, outside the domain, too near a vertex), the triangles left final. */
   int refused = 0;
   int finalTriangles = 0;
