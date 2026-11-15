@@ -461,17 +461,21 @@ int32_t useRange(int32_t h, int c, const Surface* surface, double& t0, double& t
   // vertices on a p-curve parameterized otherwise: a fitted B-spline's own parameters drift from the circle's).
   auto ownRange = [&](double& own0, double& own1) -> int32_t {
     // The vertices' (u, v) inverted onto the p-curve, searched for within the p-curve's own (u, v) box, doubled
-    // (inversion needs a finite box; a plane's domain isn't).
+    // (inversion needs a finite box; a plane's domain isn't). An unbounded p-curve (a line) is sampled over the
+    // curve's parameters instead, its box widened by how far those land from the vertices (a line's p-curve may be
+    // scaled otherwise than its 3D line).
     SurfaceDomain sd = surface->domain();
     CurveDomain pd = pc->domain();
-    if (!std::isfinite(pd.range.lo) || !std::isfinite(pd.range.hi)) return FACE_RANGE_OFF;
+    const bool bounded = std::isfinite(pd.range.lo) && std::isfinite(pd.range.hi);
+    const Range sampled = bounded ? pd.range : Range{std::min(t0, t1), std::max(t0, t1)};
+    if (!std::isfinite(sampled.lo) || !std::isfinite(sampled.hi)) return FACE_RANGE_OFF;
     Range bu{INFINITY, -INFINITY}, bv{INFINITY, -INFINITY};
     for (int i = 0; i <= 32; i++) {
       CurvePoint q;
-      pc->eval(pd.range.lo + (pd.range.hi - pd.range.lo) * i / 32, 0, q);
+      pc->eval(sampled.lo + (sampled.hi - sampled.lo) * i / 32, 0, q);
       bu = {std::min(bu.lo, q.p.x), std::max(bu.hi, q.p.x)}, bv = {std::min(bv.lo, q.p.y), std::max(bv.hi, q.p.y)};
     }
-    const double pad = std::max({bu.hi - bu.lo, bv.hi - bv.lo, 1e-9});
+    const double pad = std::max({bu.hi - bu.lo, bv.hi - bv.lo, 1e-9, bounded ? 0 : 2 * curveOff});
     const Vec2 centre{0.5 * (bu.lo + bu.hi), 0.5 * (bv.lo + bv.hi)};
     bu = {std::max(sd.u.lo, bu.lo - pad), std::min(sd.u.hi, bu.hi + pad)};
     bv = {std::max(sd.v.lo, bv.lo - pad), std::min(sd.v.hi, bv.hi + pad)};

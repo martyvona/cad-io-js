@@ -381,3 +381,30 @@ test('faces: p-curves periods from the surface\'s domain (u from -pi/4 - 4 pi to
   assert.equal(r0.status, 'ok');
   assert.deepEqual([...r0.sides].map((x) => ['in', 'out', 'on'][x]), ['in', 'in', 'out', 'out', 'out', 'out', 'on']);
 });
+
+test('faces: line p-curves scaled otherwise than their 3D lines get their own ranges', { skip }, async () => {
+  // A unit square on z = 0, its edges 3D lines on t in [0, 1], its p-curves lines on t in [0, 100] (magnitude 0.01,
+  // as brep_wv1/2 write them the other way round): unbounded p-curves, sampled over the curve's parameters.
+  const b = new BrepBuilder();
+  const plane = b.addSurface({ kind: 'plane', position: { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] } });
+  const corners = [[0, 0], [1, 0], [1, 1], [0, 1]];
+  const vs = corners.map(([x, y]) => b.addVertex({ point: [x!, y!, 0] }));
+  const coedges = corners.map(([x, y], k) => {
+    const [nx, ny] = corners[(k + 1) % 4]!, dir = [nx! - x!, ny! - y!];
+    const line = b.addCurve({ kind: 'line', point: [x!, y!, 0], direction: [...dir, 0], magnitude: 1 });
+    const pcurve = b.addCurve({ kind: 'line', point: [x!, y!], direction: dir, magnitude: 0.01 });
+    const edge = b.addEdge({ curve: line, start: vs[k]!, end: vs[(k + 1) % 4]!, sameSense: true });
+    return { edge, orientation: 'forward' as const, pcurve };
+  });
+  const f = b.addFace({ surface: plane, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true,
+    coedges }] });
+  b.addItem({ kind: 'face', ref: f });
+  using g = new Geometry(await init(), new Uint8Array(b.finish().buffer));
+  const info = g.faceInfo(0);
+  assert.equal(info.status, 'ok');
+  assert.equal(info.ownRanges, 4);
+  const t = [...g.facePieces(0).travel];
+  for (let k = 0; k < 4; k++) assert.ok(Math.abs(t[2 * k]!) < 1e-9 && Math.abs(t[2 * k + 1]! - 100) < 1e-7, `${t}`);
+  const r = g.classifyOnFace(0, [0.5, 0.5, 1.5, 0.5, 0.5, -0.5, 1, 0.5]);
+  assert.deepEqual([...r.sides].map((x) => ['in', 'out', 'on'][x]), ['in', 'out', 'out', 'on']);
+});
