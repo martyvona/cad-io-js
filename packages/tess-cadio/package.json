@@ -1,0 +1,14 @@
+{
+  "name": "tess-cadio",
+  "version": "0.3.0",
+  "description": "Our own tessellator for cad-io-js's B-rep models (edges meshed once, faces in (u, v) by constrained Delaunay refinement against a metric), as C++ compiled to WebAssembly",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "build": "./build.sh",
+    "test-native": "./build.sh test"
+  },
+  "devDependencies": {
+    "cad-geom": "0.3.0"
+  }
+}

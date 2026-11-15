@@ -54,6 +54,22 @@ struct MeshOptions {
   double minAngle = 0.35;
 };
 
+/**
+ * A fixed segment refinement wanted split: a triangle's every improving point encroached it, that triangle is still
+ * in the mesh, and either the segment is longer than sqrt 2 in its endpoints' metric (averaged) or accept() still
+ * refuses the triangle. The caller splits the edge the segment samples (in 3D, once for both faces it bounds) and
+ * meshes again.
+ */
+struct SplitWanted {
+  /** The segment's index: each loop's segments in order (from loop[k] to loop[k + 1]), then Domain2::segments. */
+  int32_t segment;
+  /** Its endpoints as the domain has them. */
+  int32_t a, b;
+  /** Where it would split: the middle in the metric (the endpoints' sizes interpolated), a fraction from a to b. */
+  double fraction;
+  Vec2 point;
+};
+
 struct Mesh2 {
   Status status = Status::unsupported;
   /** The domain's points first, in order and unchanged, then the Steiner points. */
@@ -62,6 +78,11 @@ struct Mesh2 {
   std::vector<int32_t> triangles;
   /** Triangles the criteria still reject at the end (a fixed boundary too coarse for them), for diagnostics. */
   std::vector<int32_t> rejected;
+  /**
+   * The segments to split for refinement to finish, each once (a segment used twice by its first index), in
+   * segment order. The boundary itself is never split; status stays ok.
+   */
+  std::vector<SplitWanted> splitWanted;
 };
 
 /**

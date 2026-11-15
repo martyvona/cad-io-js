@@ -145,6 +145,15 @@ Each fix its own module with its diagnostic and opt-out, independent of the othe
 
 Lane 2 is the most independent (pure 2D, testable on its own) and can start as soon as T0 is done. Planes and elementary surfaces first; B-splines once they pass. Checks: watertightness by construction (`openEdges` finds none), `judgeResult` on every part, areas against T2's oracle, end to end (`e2e.ts`) against OCCT then SMLib.
 
+What the mesher (`tess-cadio`'s `cdt.cpp`, `mesh2d.cpp`) needs that isn't obvious:
+
+- **Cavities Delaunay in the new point's metric.** Inserting metric circumcentres with Euclidean Bowyer-Watson cavities rebuilds triangles that are slivers in the metric, so anisotropic refinement never ends (a unit square at aspect 10: 385,810 points for about 4,600). The in-circle test runs on points mapped by the Cholesky factor of the metric at the new point (Borouchaki and George), with the cavity made star-shaped from the point.
+- **No fused multiply-add, no libm in decisions.** clang fuses on arm64 and WebAssembly can't, and `acos` or `tan` differ between C libraries; either makes refinement decide differently per target. The angle test is the sine of the smallest angle from the metric's cross product and square roots; the threshold's sine and the off-centre's tangent are series of our own.
+- **A relative floor for points near a vertex:** a tenth of the triangle's shortest metric edge (or of a metric unit if shorter). A fixed floor blocks refinement wherever the metric's size exceeds the features.
+- **Ungor's off-centre** at height (l/2) / tan(minAngle/2) over the edge; tan(minAngle) puts points nearer the edge than circumcentres do, and more of them.
+- **Split requests only where they're needed:** a segment is wanted split when the triangle refused for encroaching it is still in the mesh and either the segment is longer than sqrt 2 in its endpoints' averaged metric or `accept()` still refuses that triangle. Any encroachment alone reports the next segment along, round after round, without converging.
+- **Edge spacing from the face too:** a chord on a curve of radius r strays s^2 / 8r, so an edge sampled coarser than the deflection allows leaves triangles that can never pass; and a straight edge on a curved face (a cylinder's seam) needs spacing near the width the face's triangles must have, or its skinny neighbours encroach it.
+
 ### Phase T5: hardening (up to four lanes)
 
 The corpus and the user's models through the new tessellator, its failures classified (as `smlib_occt` classified SMLib's) and each class a lane: a fix and its test per class, merged one at a time. Then performance (the WebAssembly build, workers, the cache), the deflections honoured at every scale, and the decision, the user's, of when it becomes the primary backend, with OCCT and SMLib its fallbacks and references.
