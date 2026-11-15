@@ -14,7 +14,11 @@ namespace cadgeom {
 /**
  * A B-spline curve in working form: degree, dimension, the full knot vector (each knot repeated by its multiplicity:
  * n + degree + 1 entries for n poles), and poles as n rows of `dim` coordinates, followed by the weight when rational
- * (so a rational curve's rows are dim + 1 wide; the coordinates are not premultiplied by the weight).
+ * (so a rational curve's rows are dim + 1 wide; the coordinates are not premultiplied by the weight). A curve's poles
+ * are its precision: near coordinates of size X a k-th derivative is known to about ulp(X) (degree / shortest span)^k.
+ * eval loses nothing beyond that (it works relative to the span's pole centroid), nor does the toolkit (relative to
+ * the first pole), but a toolkit result stores its poles once more, so a far curve's derivatives after insertKnot or
+ * elevateDegree can differ from the original's by up to 2 ulp(X) (degree / shortest span)^k.
  */
 struct BSpline {
   int degree = 1;
@@ -55,11 +59,19 @@ Estimate integrate(const std::function<double(double)>& f, double a, double b, d
 
 namespace roots {
 /**
- * The real roots in [0, 1] of the polynomial with these Bernstein coefficients, each isolated in an interval of
- * width at most tol (Descartes' rule of signs and de Casteljau subdivision); a polynomial identically zero within
- * tol gives Status::singular.
+ * An interval that may hold roots: `changes` the sign changes left in it (Descartes' bound on its root count, with
+ * multiplicity): 1 a simple root isolated, more where roots couldn't be separated within the tolerance.
  */
-std::vector<Range> bernstein(const std::vector<double>& coeffs, double tol, Status& status);
+struct RootInterval {
+  Range r;
+  int changes = 1;
+};
+/**
+ * The real roots in [0, 1] of the polynomial with these Bernstein coefficients, each in an interval of width at most
+ * tol (Descartes' rule of signs and de Casteljau subdivision), sorted; Status::noConvergence where some interval
+ * holds roots it couldn't separate (its `changes` above 1); a polynomial identically zero gives Status::singular.
+ */
+std::vector<RootInterval> bernstein(const std::vector<double>& coeffs, double tol, Status& status);
 } // namespace roots
 
 namespace fit {

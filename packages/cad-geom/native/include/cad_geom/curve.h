@@ -1,6 +1,9 @@
 // The curve query interface: every curve kind of the model (layout.ts's CURVE_KIND), 3D or 2D (a p-curve's geometry
 // in a surface's (u, v)), evaluated with derivatives, bounded, inverted, measured. Parameterizations are Part 42's as
 // docs/brep-reference.md gives them, trimmed and composite curves included. A 2D curve's points have z = 0.
+// Precision far from the origin: no derivative or difference is formed from absolute coordinates. Evaluate relative
+// to a local origin (a span's pole centroid, a placement's origin) and add the origin once, to the point only: a
+// B-spline 1e6 mm out evaluated on absolute poles has speeds 1e-10 off, enough to stop arc length converging.
 #pragma once
 
 #include <memory>
@@ -67,17 +70,25 @@ struct CurveInversion {
   double distance = 0;
   Status status = Status::unsupported;
   /**
-   * unique: no other local minimum within `tol` of `distance`; ambiguous: `alternatives` holds the other parameters
-   * whose distance is within `tol` of the best (two arcs equidistant from the point, a point on a closed curve's
-   * seam reached at both ends of the range).
+   * unique: no other foot within `tol` of `distance`; ambiguous: `alternatives` holds the parameters of the other
+   * feet (different points, more than `tol` from this one) whose distance is within `tol` of the best (two arcs
+   * equidistant from the point). The same foot at another parameter is not an alternative but `onSeam`.
    */
   Certainty certainty = Certainty::none;
   std::vector<double> alternatives;
+  /**
+   * The foot is within tol of a closed curve's junction (a periodic curve's seam, or a closed B-spline's ends
+   * meeting), where the same point is reached at both ends of the range. t stays the foot's own parameter (never
+   * snapped to an end: edge ranges and p-curves are built from it), so the caller chooses the end it needs.
+   */
+  bool onSeam = false;
 };
 
 /**
  * The parameter in r of the point of c nearest p, global over r (branch and bound on bound(), then guarded Newton),
- * `tol` a distance in the curve's units. r defaults to the domain; a periodic curve's result lies in [lo, lo + period).
+ * `tol` a distance in the curve's units. A periodic curve's result lies in [lo, lo + period). On an exact tie the
+ * smaller t is the result and the alternatives are sorted. (A trimmed curve's domain has no period, even where its
+ * trims go once round a closed basis.)
  */
 CurveInversion invertCurve(const Curve& c, Vec3 p, Range r, double tol);
 

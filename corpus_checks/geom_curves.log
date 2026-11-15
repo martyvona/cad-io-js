@@ -1,0 +1,1152 @@
+host: Apple M4, 10 cores (4 performance, 6 efficiency), 10 threads, 24 GiB; Darwin 24.6.0 arm64; Node 24.5.0; lowpowermode 0, on AC; load 4.7; speed 4868 on 1 thread, 25370 on 10
+517 files, 3258 B-rep parts, 254017 curves, with OCCT
+
+## Curves made (cad-geom's status, geometry.ts's evaluator), by kind
+  89034  line 3D: cad-geom ok, geometry.ts evaluates
+  66202  circle 3D: cad-geom ok, geometry.ts evaluates
+  60329  bspline 3D: cad-geom ok, geometry.ts evaluates
+  14013  line 2D: cad-geom ok, geometry.ts evaluates
+  9978  bspline 2D: cad-geom ok, geometry.ts evaluates
+  9214  trimmed 3D: cad-geom ok, geometry.ts evaluates
+  2872  ellipse 3D: cad-geom ok, geometry.ts evaluates
+  1895  trimmed 2D: cad-geom ok, geometry.ts evaluates
+  231  circle 2D: cad-geom ok, geometry.ts evaluates
+  196  composite 3D: cad-geom ok, geometry.ts evaluates
+  17  hyperbola 3D: cad-geom ok, geometry.ts evaluates
+  14  polyline 3D: cad-geom ok, geometry.ts evaluates
+  9  hyperbola 2D: cad-geom ok, geometry.ts evaluates
+  6  ellipse 2D: cad-geom ok, geometry.ts evaluates
+  4  parabola 3D: cad-geom ok, geometry.ts evaluates
+  3  composite 3D: cad-geom invalidModel, geometry.ts doesn't
+      gkv311-opencascade-dataset/step/OCC22459-TEST2.stp #48 curve #41
+      gkv311-opencascade-dataset/step/OCC22459-TEST2.stp #48 curve #42
+      gkv311-opencascade-dataset/step/OCC22459-TEST2.stp #48 curve #43
+
+## Points against geometry.ts, relative to max(1, |p|), by kind
+  bspline 2D: 69846
+    <= 1e-14: 69846
+  bspline 3D: 422303
+    <= 1e-14: 422198
+    <= 1e-12: 105
+    worst 7.309e-13  gkv311-opencascade-dataset/step/bug24383_224013.stp #11 curve #3490 at 0.6428571428571429
+    worst 6.624e-13  gkv311-opencascade-dataset/step/bug24383_224013.stp #11 curve #3490 at 0.35714285714285715
+    worst 6.577e-13  gkv311-opencascade-dataset/step/bug24383_224013.stp #11 curve #3106 at 0.35714285714285715
+  circle 2D: 1617
+    <= 1e-14: 1617
+  circle 3D: 463414
+    <= 1e-14: 463414
+  composite 3D: 1372
+    <= 1e-14: 1372
+  ellipse 2D: 42
+    <= 1e-14: 42
+  ellipse 3D: 20104
+    <= 1e-14: 20104
+  hyperbola 2D: 45
+    <= 1e-14: 45
+  hyperbola 3D: 85
+    <= 1e-14: 85
+  line 2D: 70065
+    <= 1e-14: 70065
+  line 3D: 445170
+    <= 1e-14: 445170
+  parabola 3D: 20
+    <= 1e-14: 20
+  polyline 3D: 98
+    <= 1e-14: 98
+  trimmed 2D: 13265
+    <= 1e-14: 13265
+  trimmed 3D: 64498
+    <= 1e-14: 64498
+
+## First derivatives against geometry.ts, relative to max(1, |d1|), by kind
+  bspline 2D: 68403
+    <= 1e-14: 65568
+    <= 1e-12: 2816
+    <= 1e-10: 19
+    worst 5.121e-12  gkv311-opencascade-dataset/step/ec_soapbox-A.stp #11 curve #4032 at 4.715874411820929
+    worst 4.093e-12  gkv311-opencascade-dataset/step/ec_soapbox-A.stp #11 curve #3848 at 1.569491067541
+    worst 3.638e-12  gkv311-opencascade-dataset/step/ec_soapbox-A.stp #11 curve #4032 at 4.7136942396384995
+  bspline 3D: 407373
+    <= 1e-14: 231411
+    <= 1e-12: 173811
+    <= 1e-10: 2050
+    <= 1e-8: 101
+    worst 1.150e-9  gkv311-opencascade-dataset/step/bug24383_224013.stp #11 curve #4066 at 0.07142857142857142
+    worst 1.106e-9  gkv311-opencascade-dataset/step/bug24383_224013.stp #11 curve #3106 at 0.07142857142857142
+    worst 1.064e-9  gkv311-opencascade-dataset/step/bug24383_224013.stp #11 curve #4450 at 0.07142857142857142
+  circle 2D: 1617
+    <= 1e-14: 1617
+  circle 3D: 463414
+    <= 1e-14: 463414
+  composite 3D: 1241
+    <= 1e-14: 1230
+    <= 1e-12: 11
+    worst 2.797e-14  gkv311-opencascade-dataset/step/OCC5099.stp #71 curve #737 at 30.214285714285715
+    worst 2.561e-14  gkv311-opencascade-dataset/step/OCC5099.stp #71 curve #737 at 3.357142857142857
+    worst 1.665e-14  gkv311-opencascade-dataset/step/OCC5099.stp #71 curve #737 at 36.92857142857143
+  ellipse 2D: 42
+    <= 1e-14: 42
+  ellipse 3D: 20104
+    <= 1e-14: 20104
+  hyperbola 2D: 45
+    <= 1e-14: 45
+  hyperbola 3D: 85
+    <= 1e-14: 85
+  line 2D: 70065
+    <= 1e-14: 70065
+  line 3D: 445170
+    <= 1e-14: 445170
+  parabola 3D: 20
+    <= 1e-14: 20
+  polyline 3D: 98
+    <= 1e-14: 98
+  trimmed 2D: 13265
+    <= 1e-14: 13265
+  trimmed 3D: 64448
+    <= 1e-14: 64322
+    <= 1e-12: 126
+    worst 1.637e-13  gkv311-opencascade-dataset/step/OCC5099.stp #71 curve #3447 at 0.004325451174714222
+    worst 8.209e-14  gkv311-opencascade-dataset/step/OCC5099.stp #71 curve #735 at 9.520887616094992
+    worst 6.877e-14  gkv311-opencascade-dataset/step/OCC5099.stp #71 curve #236 at 0.632795862416428
+
+## First derivatives not compared
+  14930  bspline 3D: at a break
+  1443  bspline 2D: at a break
+  131  composite 3D: at a break
+  50  trimmed 3D: at a break
+
+## Vertices inverted: cad-geom against geometry.ts
+  423180  the same foot
+  22  cad-geom nearer (geometry.ts's search missed)
+
+## Vertices' distances from their curves (cad-geom)
+  measured: 423202
+    <= 1e-9 mm: 399648
+    <= 1e-7 mm: 8029
+    <= 0.00001 mm: 7424
+    <= 0.001 mm: 7220
+    <= 0.1 mm: 848
+    more mm: 33
+    worst 3.020e+0  gkv311-opencascade-dataset/step/bug25415_part_of_hdrv8w64p254_4x2_1016x502h838p.stp #418 curve #78 vertex #74
+    worst 3.020e+0  gkv311-opencascade-dataset/step/bug25415_part_of_hdrv8w64p254_4x2_1016x502h838p.stp #418 curve #78 vertex #66
+    worst 1.000e+0  gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 curve #1007 vertex #575
+
+## Inversion statuses
+  423202  ok
+
+## Inversion certainties
+  423189  unique
+  13  ambiguous
+      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 curve #19738 vertex #19719
+      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 curve #20449 vertex #20447
+      gkv311-opencascade-dataset/step/OCC8228.stp #10 curve #86547 vertex #77121
+      gkv311-opencascade-dataset/step/bug32596_abc_0_13.step #113 curve #3070 vertex #3069
+      gkv311-opencascade-dataset/step/bug32596_abc_0_13.step #113 curve #2935 vertex #2933
+      gkv311-opencascade-dataset/step/bug32596_abc_0_13.step #113 curve #2965 vertex #2964
+      gkv311-opencascade-dataset/step/bug32596_abc_0_13.step #113 curve #2944 vertex #2943
+      gkv311-opencascade-dataset/step/bug32596_abc_0_13.step #113 curve #2867 vertex #2866
+      gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 curve #19714 vertex #19695
+      gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 curve #20425 vertex #20423
+      gkv311-opencascade-dataset/step/bug31711.stp #11 curve #35697 vertex #63697
+      gkv311-opencascade-dataset/step/bug31711.stp #11 curve #35771 vertex #63758
+  on a seam: 41097; alternatives given: 13
+
+## Edge ranges: cad-geom's vertex parameters against geometry.ts's
+  218123  the same
+  1119  the same, a whole period apart
+  18  parameters differ, the points they reach the same within the vertices' gaps (or 1e-9 mm: the speed small there)
+      gkv311-opencascade-dataset/step/t4mec.stp #9 edge #2123: [0,0.9999999972060323] vs [0,1], gap 1.8256249376819023e-12, points 0 apart
+      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #15010 edge #76447: [0.008808747673138911,-1.2591568755691238] vs [0.008808743284823969,-1.2591568755691256], gap 0.000007996813303681266, points 3.3140328435070965e-8 apart
+      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #12765 edge #73997: [0,0.0008064239656956828] vs [0,0.000806519436070113], gap 0.0000063193039203536825, points 9.710486469917751e-8 apart
+      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #12450 edge #73588: [0.0008064239656956828,0] vs [0.000806519436070113,0], gap 0.0000063193039203536825, points 9.710486469917751e-8 apart
+      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #12420 edge #73555: [0,-0.0008064239657130656] vs [0,-0.0008065194360806771], gap 0.000006319303420057468, points 9.710485937073957e-8 apart
+      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #12185 edge #73286: [6.282378883213873,6.283185307179586] vs [6.2823787877435056,6.283185307179586], gap 0.000006319303420057468, points 9.710485937073957e-8 apart
+      gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 edge #11842: [1.0066110376470054,1.1631586486139989] vs [0.9999999997028397,1.163158648614], gap 0.000021749851159158456, points 0.00003708459493413411 apart
+      gkv311-opencascade-dataset/step/bug31711.stp #11 edge #71437: [7.856440188914778e-7,0.9999913327188739] vs [0,0.9999913327188712], gap 0.0006838546884432538, points 0.0008334305179642386 apart
+      gkv311-opencascade-dataset/step/bug31711.stp #11 edge #72105: [7.856440188914778e-7,0.9999913327188739] vs [0,0.9999913327188712], gap 0.0006838546884432538, points 0.0008334305179642386 apart
+      gkv311-opencascade-dataset/step/bug31711.stp #11 edge #72304: [6.568714947838793e-9,0.9999999999999991] vs [0,1], gap 2.1182760139378338e-7, points 4.263260735467566e-12 apart
+      gkv311-opencascade-dataset/step/bug31711.stp #11 edge #72739: [6.568714947838793e-9,0.9999999999999991] vs [0,1], gap 2.1182760139378338e-7, points 4.263260735467566e-12 apart
+      gkv311-opencascade-dataset/step/bug31711.stp #11 edge #73475: [7.332919929974992e-10,0.9999995302919698] vs [7.296745430096507e-10,1], gap 0.00005489834774881899, points 2.849530310112239e-10 apart
+      gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1623 edge #164524: [5.096507219318996,4.7123889803846915] vs [5.096507347973953,4.71238898038469], gap 0.0006985578776148743, points 0.0000018233078749905425 apart
+      gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1623 edge #151372: [5.1192616986327035,5.092699690193003] vs [5.119261698632705,5.092698767495925], gap 0.0028570193928113548, points 0.000009592640541316322 apart
+      gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1465 edge #161930: [5.096507219318996,4.7123889803846915] vs [5.096507347973953,4.71238898038469], gap 0.0006985578776148743, points 0.0000018233078749905425 apart
+      gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1465 edge #167662: [5.1192616986327035,5.092699690193003] vs [5.119261698632705,5.092698767495925], gap 0.0028570193928113548, points 0.000009592640541316322 apart
+  5  differs: a vertex more than 10 x the uncertainty off its curve (feet differ)
+      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #16590 edge #78013: [3.1458744515284884,4.38760678760937] vs [3.1458744547497446,4.387607283602889], gap 0.00006273777008187692, points 0.000004184981964520621 apart
+      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #15015 edge #76451: [3.0802891170516844,1.7819411501672777] vs [3.0802891121564264,1.781940930108889], gap 0.00007198539865942484, points 0.0000017545993945946548 apart
+      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #15010 edge #76445: [4.38760678760937,3.1458744515284884] vs [4.387607283602889,3.1458744547497446], gap 0.00006273777008187692, points 0.000004184981964520621 apart
+      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #14600 edge #76013: [1.7819411501672777,3.0802891170516844] vs [1.781940930108889,3.0802891121564264], gap 0.00007198539865942484, points 0.0000017545993945946548 apart
+      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #11085 edge #72003: [0.07899587438230436,-1.2614854167419347] vs [0.07899587583979933,-1.261485416969637], gap 0.0023863302436488132, points 1.5087904568950013e-10 apart
+
+## Edge lengths: statuses
+  219263  ok
+  2  outOfDomain: the range under 1e-9 of its width past the domain (the source's rounding: its knots and its edge's parameters written apart)
+      gkv311-opencascade-dataset/step/trj4_k1_geo-tu-214.stp #2080 edge #239
+      gkv311-opencascade-dataset/step/trj4_k1_geo-tu-214.stp #2080 edge #405
+  1  no finite range
+      gkv311-opencascade-dataset/step/bug31292.stp #62 edge #69
+
+## Edge lengths: estimated errors, relative
+  estimated: 219265
+    <= 1e-14: 156255
+    <= 1e-12: 57070
+    <= 1e-10: 5940
+    worst 9.996e-11  gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 edge #17225
+    worst 9.996e-11  gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 edge #17203
+    worst 9.996e-11  gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 edge #20816
+
+## Edge lengths sampled against chord sums
+  10936  within its estimate
+  11  within the chords' own rounding (coordinates far from the origin)
+  1  chords unresolved (their own uncertainty over 1e-8)
+
+## Sampled lengths' differences from the chord sums, relative
+  compared: 10947
+    <= 1e-14: 8224
+    <= 1e-12: 2710
+    <= 1e-10: 9
+    <= 1e-8: 4
+    worst 6.472e-10  nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_07_asme1_ap242-e3.stp #11020 edge #5995
+    worst 2.701e-10  gkv311-opencascade-dataset/step/t4mec.stp #9 edge #1933
+    worst 1.479e-10  gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #13270 edge #74565
+
+## Face perimeters: OCCT's against the sum of ours
+  76240  agree within 1e-6
+  8941  a seam healing adds, counted twice (no edge used twice by the face, a closed surface)
+      gkv311-opencascade-dataset/step/bug32049_sp7_04dx_242.stp #13456 face #2664: OCCT 141.9645943005142, ours 87.96459430051421
+      gkv311-opencascade-dataset/step/bug32049_sp7_04dx_242.stp #13456 face #2676: OCCT 115.29943159629153, ours 106.81415022205297
+      gkv311-opencascade-dataset/step/bug32049_sp7_04dx_242.stp #13456 face #2696: OCCT 141.9645943005142, ours 87.96459430051421
+      gkv311-opencascade-dataset/step/bug32049_sp7_04dx_242.stp #13456 face #2708: OCCT 115.29943159629153, ours 106.81415022205297
+      gkv311-opencascade-dataset/step/bug32049_sp7_04dx_242.stp #13456 face #2728: OCCT 141.9645943005142, ours 87.96459430051421
+      gkv311-opencascade-dataset/step/trj6_as1-tu-214.stp #1877 face #1736: OCCT 71.41614906824461, ours 71.41592653581935
+      gkv311-opencascade-dataset/step/trj6_as1-tu-214.stp #1877 face #1748: OCCT 71.41614906824452, ours 71.41592653581935
+      gkv311-opencascade-dataset/step/trj6_as1-tu-214.stp #1877 face #1760: OCCT 71.41614906824451, ours 71.41592653581935
+      gkv311-opencascade-dataset/step/trj6_as1-tu-214.stp #1877 face #1772: OCCT 71.4161490682445, ours 71.41592653581932
+      gkv311-opencascade-dataset/step/trj6_as1-tu-214.stp #1877 face #1784: OCCT 71.41614906824445, ours 71.41592653581932
+      gkv311-opencascade-dataset/step/trj1_io1-ms.stp #10 face #135: OCCT 419.5574890451344, ours 389.55748904513433
+      gkv311-opencascade-dataset/step/trj1_io1-ms.stp #10 face #183: OCCT 368.42474781641596, ours 364.424747816416
+      gkv311-opencascade-dataset/step/trj1_io1-ms.stp #10 face #223: OCCT 403.55748904513433, ours 389.55748904513433
+      gkv311-opencascade-dataset/step/trj1_io1-ms.stp #10 face #243: OCCT 564.9203070318035, ours 552.9203070318035
+      gkv311-opencascade-dataset/step/trj1_io1-ms.stp #10 face #341: OCCT 288.19467105846513, ours 226.1946710584651
+      gkv311-opencascade-dataset/step/sp7_04-dx-242.stp #13456 face #2664: OCCT 141.9645943005142, ours 87.96459430051421
+      gkv311-opencascade-dataset/step/sp7_04-dx-242.stp #13456 face #2676: OCCT 115.29943159629153, ours 106.81415022205297
+      gkv311-opencascade-dataset/step/sp7_04-dx-242.stp #13456 face #2696: OCCT 141.9645943005142, ours 87.96459430051421
+      gkv311-opencascade-dataset/step/sp7_04-dx-242.stp #13456 face #2708: OCCT 115.29943159629153, ours 106.81415022205297
+      gkv311-opencascade-dataset/step/sp7_04-dx-242.stp #13456 face #2728: OCCT 141.9645943005142, ours 87.96459430051421
+      gkv311-opencascade-dataset/step/trj5_s1-ug-214.stp #81 face #606: OCCT 901.0795723907829, ours 867.0795723907829
+      gkv311-opencascade-dataset/step/trj5_s1-ug-214.stp #81 face #608: OCCT 912.7786842338604, ours 904.7786842338604
+      gkv311-opencascade-dataset/step/trj5_s1-ug-214.stp #81 face #610: OCCT 883.0795723907829, ours 867.0795723907829
+      gkv311-opencascade-dataset/step/trj5_s1-ug-214.stp #81 face #612: OCCT 1029.9114254625788, ours 929.9114254625788
+      gkv311-opencascade-dataset/step/trj5_s1-ug-214.stp #81 face #613: OCCT 769.6902001670303, ours 609.4689747964198
+      gkv311-opencascade-dataset/step/bug30790.step #2481 face #2575: OCCT 8.476261391816912, ours 2.5132741228718345
+      gkv311-opencascade-dataset/step/bug30790.step #2481 face #2857: OCCT 5.198927845670141, ours 2.5132741228718345
+      gkv311-opencascade-dataset/step/bug30790.step #2481 face #6955: OCCT 12.519418075992508, ours 2.5132741228718345
+      gkv311-opencascade-dataset/step/bug30790.step #2481 face #5893: OCCT 6.282471041894889, ours 2.5132741228718345
+      gkv311-opencascade-dataset/step/bug30790.step #2481 face #4589: OCCT 2.713307035509682, ours 2.5132741228718345
+      gkv311-opencascade-dataset/step/bug32049_sp7_10nx_242.stp #2882 face #6337: OCCT 49.699111843077, ours 37.69911184307752
+      gkv311-opencascade-dataset/step/bug32049_sp7_10nx_242.stp #2882 face #6339: OCCT 66.43185307179586, ours 62.83185307179586
+      gkv311-opencascade-dataset/step/bug32049_sp7_10nx_242.stp #2882 face #6340: OCCT 49.699111843077, ours 37.69911184307752
+      gkv311-opencascade-dataset/step/bug32049_sp7_10nx_242.stp #2882 face #6342: OCCT 66.43185307179586, ours 62.83185307179586
+      gkv311-opencascade-dataset/step/bug32049_sp7_10nx_242.stp #2882 face #6367: OCCT 12.924678152415382, ours 9.42477796076938
+      gkv311-opencascade-dataset/step/OCC2368.stp #13 face #48: OCCT 277.79381350285803, ours 250.93677390595576
+      gkv311-opencascade-dataset/step/OCC2368.stp #13 face #49: OCCT 708.3185307179585, ours 628.3185307179587
+      gkv311-opencascade-dataset/step/OCC2368.stp #13 face #50: OCCT 309.2695955638443, ours 309.06959556327604
+      gkv311-opencascade-dataset/step/OCC2368.stp #13 face #51: OCCT 389.6122009835061, ours 333.76594697903204
+      gkv311-opencascade-dataset/step/OCC2368.stp #13 face #55: OCCT 255.32240030555607, ours 238.76104167282426
+      gkv311-opencascade-dataset/step/trj5_k1-sh-203.stp #1489 face #1446: OCCT 6.5901249159336, ours 5.23712165170214
+      gkv311-opencascade-dataset/step/trj5_k1-sh-203.stp #1489 face #1479: OCCT 3.1132741228718346, ours 2.5132741228718345
+      gkv311-opencascade-dataset/step/trj5_k1-sh-203.stp #1489 face #1480: OCCT 2.4227216552628343, ours 2.199114857512855
+      gkv311-opencascade-dataset/step/trj5_k1-sh-203.stp #1489 face #1481: OCCT 4.988857737826347, ours 3.0888577378263484
+      gkv311-opencascade-dataset/step/trj5_k1-sh-203.stp #1489 face #1482: OCCT 2.304433114224806, ours 2.04297807864629
+      gkv311-opencascade-dataset/step/trj2_io1-ug-214.stp #11 face #60: OCCT 386.102730862701, ours 383.2743037379547
+      gkv311-opencascade-dataset/step/trj2_io1-ug-214.stp #11 face #62: OCCT 288.19467105846513, ours 226.1946710584651
+      gkv311-opencascade-dataset/step/trj2_io1-ug-214.stp #11 face #64: OCCT 564.9203070318035, ours 552.9203070318035
+      gkv311-opencascade-dataset/step/trj2_io1-ug-214.stp #11 face #66: OCCT 419.55748904513433, ours 389.55748904513433
+      gkv311-opencascade-dataset/step/trj2_io1-ug-214.stp #11 face #68: OCCT 368.42474781641596, ours 364.424747816416
+      gkv311-opencascade-dataset/step/bug28118_18547.stp #11 face #492: OCCT 256.32941228718346, ours 251.32741228718345
+      gkv311-opencascade-dataset/step/bug28118_18547.stp #11 face #495: OCCT 266.4777126003507, ours 232.95566859980943
+      gkv311-opencascade-dataset/step/bug28118_18547.stp #11 face #499: OCCT 190.12799740110486, ours 177.53272192336453
+      gkv311-opencascade-dataset/step/bug28118_18547.stp #11 face #500: OCCT 156.3840477621428, ours 146.49972687288127
+      gkv311-opencascade-dataset/step/bug28118_18547.stp #11 face #502: OCCT 159.13221430688156, ours 144.71530848161197
+      gkv311-opencascade-dataset/step/trj2_io1-md-214.stp #10 face #135: OCCT 419.5574890451344, ours 389.55748904513433
+      gkv311-opencascade-dataset/step/trj2_io1-md-214.stp #10 face #183: OCCT 368.42474781641596, ours 364.424747816416
+      gkv311-opencascade-dataset/step/trj2_io1-md-214.stp #10 face #223: OCCT 403.55748904513433, ours 389.55748904513433
+      gkv311-opencascade-dataset/step/trj2_io1-md-214.stp #10 face #243: OCCT 564.9203070318035, ours 552.9203070318035
+      gkv311-opencascade-dataset/step/trj2_io1-md-214.stp #10 face #341: OCCT 288.19467105846513, ours 226.1946710584651
+      gkv311-opencascade-dataset/step/trj3_as1-tc-203.stp #1731 face #1590: OCCT 71.41614906824461, ours 71.41592653581935
+      gkv311-opencascade-dataset/step/trj3_as1-tc-203.stp #1731 face #1602: OCCT 71.41614906824452, ours 71.41592653581935
+      gkv311-opencascade-dataset/step/trj3_as1-tc-203.stp #1731 face #1614: OCCT 71.41614906824451, ours 71.41592653581935
+      gkv311-opencascade-dataset/step/trj3_as1-tc-203.stp #1731 face #1626: OCCT 71.4161490682445, ours 71.41592653581935
+      gkv311-opencascade-dataset/step/trj3_as1-tc-203.stp #1731 face #1638: OCCT 71.41614906824445, ours 71.41592653581935
+      gkv311-opencascade-dataset/step/bug24593_285330.stp #13 face #264: OCCT 920.7935766059195, ours 800.7886395612645
+      gkv311-opencascade-dataset/step/bug24593_285330.stp #13 face #274: OCCT 98.51138186035678, ours 96.36177724554945
+      gkv311-opencascade-dataset/step/trj7_k1-ug-214.stp #11 face #504: OCCT 156.8543642789366, ours 145.255813227879
+      gkv311-opencascade-dataset/step/trj7_k1-ug-214.stp #11 face #506: OCCT 125.21978628926186, ours 119.90550679943328
+      gkv311-opencascade-dataset/step/trj7_k1-ug-214.stp #11 face #511: OCCT 71.87920535080553, ours 59.87128853773385
+      gkv311-opencascade-dataset/step/trj7_k1-ug-214.stp #11 face #512: OCCT 58.53253470596188, ours 51.891643197615764
+      gkv311-opencascade-dataset/step/trj7_k1-ug-214.stp #11 face #513: OCCT 114.42587204070844, ours 47.87787204070844
+      gkv311-opencascade-dataset/step/trj2_io1-ug-203.stp #11 face #130: OCCT 386.102730862701, ours 383.2743037379547
+      gkv311-opencascade-dataset/step/trj2_io1-ug-203.stp #11 face #132: OCCT 288.19467105846513, ours 226.1946710584651
+      gkv311-opencascade-dataset/step/trj2_io1-ug-203.stp #11 face #134: OCCT 564.9203070318035, ours 552.9203070318035
+      gkv311-opencascade-dataset/step/trj2_io1-ug-203.stp #11 face #136: OCCT 419.55748904513433, ours 389.55748904513433
+      gkv311-opencascade-dataset/step/trj2_io1-ug-203.stp #11 face #138: OCCT 368.42474781641596, ours 364.424747816416
+      gkv311-opencascade-dataset/step/bug25823_280612.stp #13 face #116: OCCT 383.8632081961731, ours 287.1386435872402
+      gkv311-opencascade-dataset/step/trj3_as1-tc-214.stp #1061 face #1006: OCCT 53.12422360236677, ours 53.123889803729035
+      gkv311-opencascade-dataset/step/trj3_as1-tc-214.stp #1061 face #1028: OCCT 99.41614906824451, ours 99.41592653581935
+      gkv311-opencascade-dataset/step/trj3_as1-tc-214.stp #1061 face #1040: OCCT 53.12422360236677, ours 53.123889803729035
+      gkv311-opencascade-dataset/step/trj3_as1-tc-214.stp #1061 face #1052: OCCT 99.41614906824451, ours 99.41592653581935
+      gkv311-opencascade-dataset/step/trj3_as1-tc-214.stp #847 face #826: OCCT 37.41614906824451, ours 37.41592653581936
+      gkv311-opencascade-dataset/step/trj1_io1-ug.stp #11 face #52: OCCT 386.102730862701, ours 383.2743037379547
+      gkv311-opencascade-dataset/step/trj1_io1-ug.stp #11 face #54: OCCT 288.19467105846513, ours 226.1946710584651
+      gkv311-opencascade-dataset/step/trj1_io1-ug.stp #11 face #56: OCCT 564.9203070318035, ours 552.9203070318035
+      gkv311-opencascade-dataset/step/trj1_io1-ug.stp #11 face #58: OCCT 419.55748904513433, ours 389.55748904513433
+      gkv311-opencascade-dataset/step/trj1_io1-ug.stp #11 face #60: OCCT 368.42474781641596, ours 364.424747816416
+      gkv311-opencascade-dataset/step/bug30014.stp #8211 face #23071: OCCT 24.193317440700383, ours 24.192157769681646
+      gkv311-opencascade-dataset/step/bug30014.stp #8211 face #74399: OCCT 24.193317440700383, ours 24.192157769681646
+      gkv311-opencascade-dataset/step/bug27894_usd_raises_Standard_NullObject.stp #234 face #46: OCCT 40.024423653278575, ours 28.280589617998984
+      gkv311-opencascade-dataset/step/bug27894_usd_raises_Standard_NullObject.stp #234 face #403: OCCT 40.02442365327861, ours 28.280589617998984
+      gkv311-opencascade-dataset/step/trj6_as1-tc-214.stp #1057 face #1002: OCCT 53.12422360236677, ours 53.123889803729035
+      gkv311-opencascade-dataset/step/trj6_as1-tc-214.stp #1057 face #1024: OCCT 99.41614906824451, ours 99.41592653581935
+      gkv311-opencascade-dataset/step/trj6_as1-tc-214.stp #1057 face #1036: OCCT 53.12422360236677, ours 53.123889803729035
+      gkv311-opencascade-dataset/step/trj6_as1-tc-214.stp #1057 face #1048: OCCT 99.41614906824451, ours 99.41592653581935
+      gkv311-opencascade-dataset/step/trj6_as1-tc-214.stp #843 face #822: OCCT 37.41614906824451, ours 37.41592653581936
+      gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3146 face #2008: OCCT 727.2439618678811, ours 668.8244806234459
+      gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3145 face #2001: OCCT 246.19467105846508, ours 226.1946710584651
+      gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3144 face #1960: OCCT 890.5132017764238, ours 854.5132017764238
+      gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3144 face #1962: OCCT 883.645943005142, ours 879.645943005142
+      gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3144 face #1964: OCCT 874.5132017764238, ours 854.5132017764238
+      gkv311-opencascade-dataset/step/xr1-tc-blt.stp #189 face #138: OCCT 53.12422360236677, ours 53.123889803729035
+      gkv311-opencascade-dataset/step/xr1-tc-blt.stp #189 face #160: OCCT 99.41614906824451, ours 99.41592653581935
+      gkv311-opencascade-dataset/step/xr1-tc-blt.stp #189 face #172: OCCT 53.12422360236677, ours 53.123889803729035
+      gkv311-opencascade-dataset/step/xr1-tc-blt.stp #189 face #184: OCCT 99.41614906824451, ours 99.41592653581935
+      gkv311-opencascade-dataset/step/trj4_s1-tu-214.stp #4497 face #4006: OCCT 443.8260869554232, ours 443.8229715014712
+      gkv311-opencascade-dataset/step/trj4_s1-tu-214.stp #4497 face #4018: OCCT 447.25962732812536, ours 447.2566008871435
+      gkv311-opencascade-dataset/step/trj4_s1-tu-214.stp #4497 face #4030: OCCT 558.6757763963699, ours 558.6725274229628
+      gkv311-opencascade-dataset/step/trj4_s1-tu-214.stp #4497 face #4051: OCCT 458.67466377028353, ours 458.67252742220694
+      gkv311-opencascade-dataset/step/trj4_s1-tu-214.stp #4497 face #4072: OCCT 458.67466377028353, ours 458.67252742220694
+      gkv311-opencascade-dataset/step/trj9_io1-ug-214.stp #11 face #58: OCCT 386.102730862701, ours 383.2743037379547
+      gkv311-opencascade-dataset/step/trj9_io1-ug-214.stp #11 face #60: OCCT 288.19467105846513, ours 226.1946710584651
+      gkv311-opencascade-dataset/step/trj9_io1-ug-214.stp #11 face #62: OCCT 564.9203070318035, ours 552.9203070318035
+      gkv311-opencascade-dataset/step/trj9_io1-ug-214.stp #11 face #64: OCCT 419.55748904513433, ours 389.55748904513433
+      gkv311-opencascade-dataset/step/trj9_io1-ug-214.stp #11 face #66: OCCT 368.42474781641596, ours 364.424747816416
+      gkv311-opencascade-dataset/step/trj2_io1-ug-test.stp #11 face #60: OCCT 386.102730862701, ours 383.2743037379547
+      gkv311-opencascade-dataset/step/trj2_io1-ug-test.stp #11 face #62: OCCT 288.19467105846513, ours 226.1946710584651
+      gkv311-opencascade-dataset/step/trj2_io1-ug-test.stp #11 face #64: OCCT 564.9203070318035, ours 552.9203070318035
+      gkv311-opencascade-dataset/step/trj2_io1-ug-test.stp #11 face #66: OCCT 419.55748904513433, ours 389.55748904513433
+      gkv311-opencascade-dataset/step/trj2_io1-ug-test.stp #11 face #68: OCCT 368.42474781641596, ours 364.424747816416
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #477097 face #275696: OCCT 6.318092102480007, ours 4.747295565424573
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #117536 face #95141: OCCT 14.137167859521242, ours 9.424777960769388
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #117536 face #68925: OCCT 14.137167859521277, ours 9.424777960769388
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #117536 face #246025: OCCT 14.137167859521277, ours 9.424777960769388
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #117536 face #335934: OCCT 14.137167859521215, ours 9.424777960769388
+      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17545 face #21077: OCCT 7.346784565683525, ours 6.746784565683504
+      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17540 face #21075: OCCT 59.18937829015425, ours 26.389378290154262
+      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17535 face #21073: OCCT 59.18937829015425, ours 26.389378290154262
+      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17530 face #21071: OCCT 76.54866776461753, ours 56.548667764616276
+      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17495 face #21057: OCCT 7.346784565683497, ours 6.746784565683474
+      gkv311-opencascade-dataset/step/trj4_k1_top-tu-214.stp #2402 face #123: OCCT 124.98552068498718, ours 119.90550679929507
+      gkv311-opencascade-dataset/step/trj4_k1_top-tu-214.stp #2402 face #340: OCCT 26.405314649208872, ours 26.40521104041766
+      gkv311-opencascade-dataset/step/trj4_k1_top-tu-214.stp #2402 face #376: OCCT 71.87920565663228, ours 59.87128853719477
+      gkv311-opencascade-dataset/step/trj4_k1_top-tu-214.stp #2402 face #622: OCCT 145.1718308841052, ours 133.02315861538648
+      gkv311-opencascade-dataset/step/trj4_k1_top-tu-214.stp #2402 face #650: OCCT 26.405314649208872, ours 26.40521104041766
+      gkv311-opencascade-dataset/step/OCC29.stp #5308 face #2689: OCCT 34.759568835057074, ours 23.357832295356403
+      gkv311-opencascade-dataset/step/OCC29.stp #5308 face #2690: OCCT 29.158715798011006, ours 23.35783229535621
+      gkv311-opencascade-dataset/step/OCC29.stp #5308 face #2694: OCCT 13.700749363516174, ours 12.500566569863484
+      gkv311-opencascade-dataset/step/OCC29.stp #5308 face #2704: OCCT 14.031598591755015, ours 11.231598591755
+      gkv311-opencascade-dataset/step/OCC29.stp #5308 face #2705: OCCT 14.031598591755017, ours 11.231598591755
+      gkv311-opencascade-dataset/step/OCC5099.stp #14343 face #7855: OCCT 8.344242907987926, ours 8.342164678621955
+      gkv311-opencascade-dataset/step/OCC5099.stp #14343 face #18100: OCCT 8.344242881027563, ours 8.342164678639861
+      gkv311-opencascade-dataset/step/xr1-tc-lbr.stp #533 face #444: OCCT 51.41614906824453, ours 51.41592653581936
+      gkv311-opencascade-dataset/step/xr1-tc-lbr.stp #533 face #456: OCCT 51.41614906824452, ours 51.41592653581936
+      gkv311-opencascade-dataset/step/xr1-tc-lbr.stp #533 face #468: OCCT 51.41614906824452, ours 51.41592653581937
+      gkv311-opencascade-dataset/step/xr1-tc-lbr.stp #533 face #480: OCCT 51.4161490682445, ours 51.41592653581936
+      gkv311-opencascade-dataset/step/xr1-tc-lbr.stp #533 face #492: OCCT 51.41614906824453, ours 51.41592653581936
+      gkv311-opencascade-dataset/step/pr1sy.stp #293 face #256: OCCT 911.2586240418287, ours 628.4441944241022
+      gkv311-opencascade-dataset/step/bug27453_165-174_piattello.stp #11 face #441: OCCT 83.78087697734554, ours 69.43035157578478
+      gkv311-opencascade-dataset/step/bug27453_165-174_piattello.stp #11 face #442: OCCT 119.11793392880273, ours 69.11793392880269
+      gkv311-opencascade-dataset/step/bug27453_165-174_piattello.stp #11 face #470: OCCT 59.689378290154266, ours 26.389378290154262
+      gkv311-opencascade-dataset/step/bug27453_165-174_piattello.stp #11 face #475: OCCT 59.689378290154266, ours 26.389378290154262
+      gkv311-opencascade-dataset/step/bug27453_165-174_piattello.stp #11 face #480: OCCT 59.689378290154266, ours 26.389378290154262
+      gkv311-opencascade-dataset/step/trj8_as1-ec-214.stp #1664 face #1460: OCCT 71.41614906824461, ours 71.41592653581935
+      gkv311-opencascade-dataset/step/trj8_as1-ec-214.stp #1664 face #1482: OCCT 71.41614906824452, ours 71.41592653581935
+      gkv311-opencascade-dataset/step/trj8_as1-ec-214.stp #1664 face #1504: OCCT 71.41614906824451, ours 71.41592653581935
+      gkv311-opencascade-dataset/step/trj8_as1-ec-214.stp #1664 face #1526: OCCT 71.4161490682445, ours 71.41592653581935
+      gkv311-opencascade-dataset/step/trj8_as1-ec-214.stp #1664 face #1548: OCCT 71.41614906824445, ours 71.41592653581935
+      gkv311-opencascade-dataset/step/xr1-tc-nut.stp #245 face #228: OCCT 37.41614906824451, ours 37.41592653581936
+      gkv311-opencascade-dataset/step/xr1-tc-nut.stp #245 face #240: OCCT 37.4161490682445, ours 37.41592653581936
+      gkv311-opencascade-dataset/step/bug32596_abc_0_13.step #113 face #179: OCCT 133.53226049990784, ours 102.81466149971737
+      gkv311-opencascade-dataset/step/bug32596_abc_0_13.step #113 face #139: OCCT 43.51439788456098, ours 42.39186586937727
+      gkv311-opencascade-dataset/step/bug32596_abc_0_13.step #113 face #317: OCCT 50.16790361413214, ours 28.57973579548893
+      gkv311-opencascade-dataset/step/bug32596_abc_0_13.step #113 face #301: OCCT 50.167903614132086, ours 28.57973579548893
+      gkv311-opencascade-dataset/step/bug32596_abc_0_13.step #113 face #181: OCCT 52.89396445836958, ours 39.89822670059037
+      gkv311-opencascade-dataset/step/trj4_k1_geo-ac-214.stp #10298 face #460: OCCT 3.220375107066547, ours 3.2203639360703993
+      gkv311-opencascade-dataset/step/trj6_as1-ug-214.stp #71 face #453: OCCT 102.83185307179586, ours 62.83185307179586
+      gkv311-opencascade-dataset/step/trj6_as1-ug-214.stp #71 face #454: OCCT 102.83185307179586, ours 62.83185307179586
+      gkv311-opencascade-dataset/step/trj6_as1-ug-214.stp #71 face #455: OCCT 102.83185307179586, ours 62.83185307179586
+      gkv311-opencascade-dataset/step/trj6_as1-ug-214.stp #71 face #456: OCCT 102.83185307179586, ours 62.83185307179586
+      gkv311-opencascade-dataset/step/trj6_as1-ug-214.stp #71 face #457: OCCT 102.83185307179586, ours 62.83185307179586
+      gkv311-opencascade-dataset/step/tr10_r0901_ec.stp #3428 face #4971: OCCT 71.41614906824461, ours 71.41592653581935
+      gkv311-opencascade-dataset/step/tr10_r0901_ec.stp #3428 face #5106: OCCT 71.41614906824452, ours 71.41592653581935
+      gkv311-opencascade-dataset/step/tr10_r0901_ec.stp #3428 face #5241: OCCT 71.41614906824451, ours 71.41592653581935
+      gkv311-opencascade-dataset/step/tr10_r0901_ec.stp #3428 face #5376: OCCT 71.4161490682445, ours 71.41592653581935
+      gkv311-opencascade-dataset/step/tr10_r0901_ec.stp #3428 face #5511: OCCT 71.41614906824445, ours 71.41592653581935
+      gkv311-opencascade-dataset/step/bug24594_284965.stp #13 face #49: OCCT 479.95130345642485, ours 379.9288662515705
+      gkv311-opencascade-dataset/step/bug24594_284965.stp #13 face #66: OCCT 60.20623685314648, ours 58.056632238339375
+      gkv311-opencascade-dataset/step/bug24601_216523_2_03.stp #90 face #215: OCCT 154.23007675795088, ours 142.23007675795088
+      gkv311-opencascade-dataset/step/bug24601_216523_2_03.stp #90 face #232: OCCT 181.92918860102836, ours 175.92918860102841
+      gkv311-opencascade-dataset/step/bug24601_216523_2_03.stp #90 face #243: OCCT 128.9469189007219, ours 128.23981211953537
+      gkv311-opencascade-dataset/step/bug24601_216523_2_03.stp #90 face #244: OCCT 198.18228509251574, ours 185.98228509251575
+      gkv311-opencascade-dataset/step/bug24601_216523_2_03.stp #90 face #247: OCCT 204.52210746113127, ours 193.52210746113127
+      gkv311-opencascade-dataset/step/trj6_as1-ec-214.stp #1664 face #1460: OCCT 71.41614906824461, ours 71.41592653581935
+      gkv311-opencascade-dataset/step/trj6_as1-ec-214.stp #1664 face #1482: OCCT 71.41614906824452, ours 71.41592653581935
+      gkv311-opencascade-dataset/step/trj6_as1-ec-214.stp #1664 face #1504: OCCT 71.41614906824451, ours 71.41592653581935
+      gkv311-opencascade-dataset/step/trj6_as1-ec-214.stp #1664 face #1526: OCCT 71.4161490682445, ours 71.41592653581935
+      gkv311-opencascade-dataset/step/trj6_as1-ec-214.stp #1664 face #1548: OCCT 71.41614906824445, ours 71.41592653581935
+      gkv311-opencascade-dataset/step/trj8_k1-md-214.stp #10 face #481: OCCT 49.9383326180934, ours 33.97903882765389
+      gkv311-opencascade-dataset/step/trj8_k1-md-214.stp #10 face #507: OCCT 29.92444456726397, ours 23.93893602035422
+      gkv311-opencascade-dataset/step/trj8_k1-md-214.stp #10 face #524: OCCT 61.537130043676, ours 55.85751738082652
+      gkv311-opencascade-dataset/step/trj8_k1-md-214.stp #10 face #578: OCCT 106.9677800853514, ours 72.92234650368063
+      gkv311-opencascade-dataset/step/trj8_k1-md-214.stp #10 face #645: OCCT 71.87920534976662, ours 59.87128853214713
+      gkv311-opencascade-dataset/step/trj8_k1-ug-214.stp #11 face #504: OCCT 156.8543642789366, ours 145.255813227879
+      gkv311-opencascade-dataset/step/trj8_k1-ug-214.stp #11 face #506: OCCT 125.21978628926186, ours 119.90550679943328
+      gkv311-opencascade-dataset/step/trj8_k1-ug-214.stp #11 face #511: OCCT 71.87920535080553, ours 59.87128853773385
+      gkv311-opencascade-dataset/step/trj8_k1-ug-214.stp #11 face #512: OCCT 58.53253470596188, ours 51.891643197615764
+      gkv311-opencascade-dataset/step/trj8_k1-ug-214.stp #11 face #513: OCCT 114.42587204070844, ours 47.87787204070844
+      gkv311-opencascade-dataset/step/bug23202_Leuchte.stp #29007 face #20206: OCCT 1458.8506255307982, ours 1428.5025206546272
+      gkv311-opencascade-dataset/step/bug23202_Leuchte.stp #29007 face #27185: OCCT 451.8644486878591, ours 447.41385909527366
+      gkv311-opencascade-dataset/step/bug23202_Leuchte.stp #29007 face #27205: OCCT 490.3826172511815, ours 464.0208354844767
+      gkv311-opencascade-dataset/step/bug23202_Leuchte.stp #29007 face #27244: OCCT 300.8329404813497, ours 204.14069063026463
+      gkv311-opencascade-dataset/step/bug23202_Leuchte.stp #29007 face #27298: OCCT 452.0623718533746, ours 446.0490170457005
+      gkv311-opencascade-dataset/step/sp7_08_nx-242.stp #2252 face #6430: OCCT 58.22331536556084, ours 37.90331536556085
+      gkv311-opencascade-dataset/step/sp7_08_nx-242.stp #2252 face #6431: OCCT 58.22331536556084, ours 37.90331536556085
+      gkv311-opencascade-dataset/step/sp7_08_nx-242.stp #2252 face #6432: OCCT 58.22331536556084, ours 37.90331536556085
+      gkv311-opencascade-dataset/step/sp7_08_nx-242.stp #2252 face #6433: OCCT 58.22331536556084, ours 37.90331536556085
+      gkv311-opencascade-dataset/step/sp7_08_nx-242.stp #2252 face #6466: OCCT 40.851289148903, ours 33.993289148902996
+      gkv311-opencascade-dataset/step/trj2_as1-md-214.stp #1214 face #1497: OCCT 102.83185307179588, ours 62.83185307179586
+      gkv311-opencascade-dataset/step/trj2_as1-md-214.stp #1214 face #1509: OCCT 102.83185307179588, ours 62.83185307179586
+      gkv311-opencascade-dataset/step/trj2_as1-md-214.stp #1214 face #1521: OCCT 102.83185307179588, ours 62.83185307179586
+      gkv311-opencascade-dataset/step/trj2_as1-md-214.stp #1214 face #1533: OCCT 102.83185307179588, ours 62.83185307179586
+      gkv311-opencascade-dataset/step/trj2_as1-md-214.stp #1214 face #1545: OCCT 102.83185307179588, ours 62.83185307179586
+      gkv311-opencascade-dataset/step/trj3_as1-ec-214.stp #3410 face #4953: OCCT 71.41614906824461, ours 71.41592653581935
+      gkv311-opencascade-dataset/step/trj3_as1-ec-214.stp #3410 face #5088: OCCT 71.41614906824452, ours 71.41592653581935
+      gkv311-opencascade-dataset/step/trj3_as1-ec-214.stp #3410 face #5223: OCCT 71.41614906824451, ours 71.41592653581935
+      gkv311-opencascade-dataset/step/trj3_as1-ec-214.stp #3410 face #5358: OCCT 71.4161490682445, ours 71.41592653581935
+      gkv311-opencascade-dataset/step/trj3_as1-ec-214.stp #3410 face #5493: OCCT 71.41614906824445, ours 71.41592653581935
+      gkv311-opencascade-dataset/step/bug24595_281390.stp #13 face #73: OCCT 482.184922645556, ours 220.83744934483582
+      gkv311-opencascade-dataset/step/bug24595_281390.stp #13 face #92: OCCT 90.9958323313572, ours 83.18937346705772
+      gkv311-opencascade-dataset/step/trj3_s1-ug-214.stp #81 face #606: OCCT 901.0795723907829, ours 867.0795723907829
+      gkv311-opencascade-dataset/step/trj3_s1-ug-214.stp #81 face #608: OCCT 912.7786842338604, ours 904.7786842338604
+      gkv311-opencascade-dataset/step/trj3_s1-ug-214.stp #81 face #610: OCCT 883.0795723907829, ours 867.0795723907829
+      gkv311-opencascade-dataset/step/trj3_s1-ug-214.stp #81 face #612: OCCT 1029.9114254625788, ours 929.9114254625788
+      gkv311-opencascade-dataset/step/trj3_s1-ug-214.stp #81 face #613: OCCT 769.6902001670303, ours 609.4689747964198
+      gkv311-opencascade-dataset/step/bug24593_281946.stp #13 face #49: OCCT 1039.1773251579962, ours 929.3082927840776
+      gkv311-opencascade-dataset/step/bug24593_281946.stp #13 face #66: OCCT 137.01817723341694, ours 134.86857261860982
+      gkv311-opencascade-dataset/step/trj3_s1-md-214.stp #3229 face #3700: OCCT 246.19467105846977, ours 226.19467105847013
+      gkv311-opencascade-dataset/step/trj3_s1-md-214.stp #2468 face #2471: OCCT 804.3807516573477, ours 736.1981972580943
+      gkv311-opencascade-dataset/step/trj3_s1-md-214.stp #1707 face #1710: OCCT 804.3807516573554, ours 736.1981972580944
+      gkv311-opencascade-dataset/step/trj3_s1-md-214.stp #1406 face #1461: OCCT 173.09733552957974, ours 113.09733553058544
+      gkv311-opencascade-dataset/step/trj3_s1-md-214.stp #1406 face #1490: OCCT 215.66370614399327, ours 155.6637061449989
+      gkv311-opencascade-dataset/step/trj2_as1-ug-214.stp #71 face #453: OCCT 102.83185307179586, ours 62.83185307179586
+      gkv311-opencascade-dataset/step/trj2_as1-ug-214.stp #71 face #454: OCCT 102.83185307179586, ours 62.83185307179586
+      gkv311-opencascade-dataset/step/trj2_as1-ug-214.stp #71 face #455: OCCT 102.83185307179586, ours 62.83185307179586
+      gkv311-opencascade-dataset/step/trj2_as1-ug-214.stp #71 face #456: OCCT 102.83185307179586, ours 62.83185307179586
+      gkv311-opencascade-dataset/step/trj2_as1-ug-214.stp #71 face #457: OCCT 102.83185307179586, ours 62.83185307179586
+      gkv311-opencascade-dataset/step/trj12_b3-tu-203.stp #27964 face #19387: OCCT 3152.2339703921443, ours 3106.2338609044746
+      gkv311-opencascade-dataset/step/trj12_b3-tu-203.stp #27964 face #20445: OCCT 43.082260700899475, ours 31.415926542001813
+      gkv311-opencascade-dataset/step/trj12_b3-tu-203.stp #27964 face #20457: OCCT 92.83185343791232, ours 62.83185306848903
+      gkv311-opencascade-dataset/step/trj12_b3-tu-203.stp #27964 face #20468: OCCT 43.08226070336457, ours 31.415926542001788
+      gkv311-opencascade-dataset/step/trj12_b3-tu-203.stp #27964 face #20480: OCCT 92.83185345766614, ours 62.83185306848901
+      gkv311-opencascade-dataset/step/bug28414_bug_toroidal_surface.stp #163 face #329: OCCT 281.3888160660931, ours 42.62776740966346
+      gkv311-opencascade-dataset/step/trj6_as1-hc-214.stp #310 face #1850: OCCT 462.8318530717959, ours 62.83185307179586
+      gkv311-opencascade-dataset/step/trj6_as1-hc-214.stp #200 face #1750: OCCT 68.83185307179586, ours 62.83185307179586
+      gkv311-opencascade-dataset/step/trj6_as1-hc-214.stp #110 face #1440: OCCT 100.24777960769379, ours 94.24777960769379
+      gkv311-opencascade-dataset/step/trj6_as1-hc-214.stp #110 face #1510: OCCT 130.83185307179588, ours 62.83185307179586
+      gkv311-opencascade-dataset/step/trj6_as1-hc-214.stp #60 face #1210: OCCT 82.83185307179586, ours 62.83185307179586
+      gkv311-opencascade-dataset/step/trj3_as1-ec-203.stp #3530 face #5073: OCCT 71.41614906824461, ours 71.41592653581935
+      gkv311-opencascade-dataset/step/trj3_as1-ec-203.stp #3530 face #5208: OCCT 71.41614906824452, ours 71.41592653581935
+      gkv311-opencascade-dataset/step/trj3_as1-ec-203.stp #3530 face #5343: OCCT 71.41614906824451, ours 71.41592653581935
+      gkv311-opencascade-dataset/step/trj3_as1-ec-203.stp #3530 face #5478: OCCT 71.4161490682445, ours 71.41592653581935
+      gkv311-opencascade-dataset/step/trj3_as1-ec-203.stp #3530 face #5613: OCCT 71.41614906824445, ours 71.41592653581935
+      gkv311-opencascade-dataset/step/bug22680_C5-390.410-63090C-633112134823466595-1.stp #996 face #79: OCCT 21.365385807195928, ours 18.851618115627605
+      gkv311-opencascade-dataset/step/bug22680_C5-390.410-63090C-633112134823466595-1.stp #996 face #530: OCCT 442.15926535897927, ours 314.1592653589793
+      gkv311-opencascade-dataset/step/bug22680_C5-390.410-63090C-633112134823466595-1.stp #996 face #825: OCCT 289.62830044410595, ours 237.62830044410592
+      gkv311-opencascade-dataset/step/bug22680_C5-390.410-63090C-633112134823466595-1.stp #996 face #861: OCCT 369.91637026380965, ours 305.5972328696615
+      gkv311-opencascade-dataset/step/bug22680_C5-390.410-63090C-633112134823466595-1.stp #996 face #901: OCCT 425.0856762027954, ours 395.84067435231395
+      gkv311-opencascade-dataset/step/trj6_k1-md-214.stp #10 face #581: OCCT 303.50105709218735, ours 298.899268526174
+      gkv311-opencascade-dataset/step/trj6_k1-md-214.stp #10 face #756: OCCT 182.57329159279934, ours 152.073202982894
+      gkv311-opencascade-dataset/step/trj6_k1-md-214.stp #10 face #776: OCCT 148.67272430383164, ours 131.8049038189941
+      gkv311-opencascade-dataset/step/trj6_k1-md-214.stp #10 face #796: OCCT 290.6417149833995, ours 121.60979498339947
+      gkv311-opencascade-dataset/step/trj6_k1-md-214.stp #10 face #816: OCCT 156.30431031093653, ours 141.87809414729935
+      gkv311-opencascade-dataset/step/bug24024_slow_import.stp #76247 face #95: OCCT 91.68140899333463, ours 81.68140899333463
+      gkv311-opencascade-dataset/step/bug24024_slow_import.stp #76247 face #123: OCCT 91.68140899333463, ours 81.68140899333463
+      gkv311-opencascade-dataset/step/bug24024_slow_import.stp #76247 face #151: OCCT 91.68140899333463, ours 81.68140899333463
+      gkv311-opencascade-dataset/step/bug24024_slow_import.stp #76247 face #179: OCCT 91.68140899333463, ours 81.68140899333463
+      gkv311-opencascade-dataset/step/bug24024_slow_import.stp #76247 face #207: OCCT 91.68140899333463, ours 81.68140899333463
+      gkv311-opencascade-dataset/step/trj6_k1-ug-214.stp #11 face #506: OCCT 156.8543642789366, ours 145.255813227879
+      gkv311-opencascade-dataset/step/trj6_k1-ug-214.stp #11 face #508: OCCT 125.21978628926186, ours 119.90550679943328
+      gkv311-opencascade-dataset/step/trj6_k1-ug-214.stp #11 face #513: OCCT 71.87920535080553, ours 59.87128853773385
+      gkv311-opencascade-dataset/step/trj6_k1-ug-214.stp #11 face #514: OCCT 58.53253470596188, ours 51.891643197615764
+      gkv311-opencascade-dataset/step/trj6_k1-ug-214.stp #11 face #515: OCCT 114.42587204070844, ours 47.87787204070844
+      gkv311-opencascade-dataset/step/trj2_as1-ug-203.stp #71 face #1400: OCCT 102.83185307179586, ours 62.83185307179586
+      gkv311-opencascade-dataset/step/trj2_as1-ug-203.stp #71 face #1401: OCCT 102.83185307179586, ours 62.83185307179586
+      gkv311-opencascade-dataset/step/trj2_as1-ug-203.stp #71 face #1402: OCCT 102.83185307179586, ours 62.83185307179586
+      gkv311-opencascade-dataset/step/trj2_as1-ug-203.stp #71 face #1403: OCCT 102.83185307179586, ours 62.83185307179586
+      gkv311-opencascade-dataset/step/trj2_as1-ug-203.stp #71 face #1404: OCCT 102.83185307179586, ours 62.83185307179586
+      gkv311-opencascade-dataset/step/OCC5157.stp #11 face #4384: OCCT 8.899439402033845, ours 6.713544781763337
+      gkv311-opencascade-dataset/step/OCC5157.stp #11 face #4385: OCCT 9.218642612409276, ours 6.985198287044254
+      gkv311-opencascade-dataset/step/OCC5157.stp #11 face #4614: OCCT 731.7742135494236, ours 524.2346185125598
+      gkv311-opencascade-dataset/step/OCC5157.stp #11 face #4619: OCCT 263.90192163629604, ours 255.66685798745533
+      gkv311-opencascade-dataset/step/trj5_k1-ec-214.stp #10 face #3638: OCCT 1.8850179025208509, ours 0.9424777960769379
+      gkv311-opencascade-dataset/step/bug31711.stp #11 face #20836: OCCT 126.7822864278248, ours 25.271098852768347
+      gkv311-opencascade-dataset/step/bug31711.stp #11 face #20837: OCCT 126.78369869281515, ours 25.27114997892061
+      gkv311-opencascade-dataset/step/bug31711.stp #11 face #20889: OCCT 481.23889803846873, ours 471.23889803846896
+      gkv311-opencascade-dataset/step/bug31711.stp #11 face #20891: OCCT 499.3433505039776, ours 483.34334862685364
+      gkv311-opencascade-dataset/step/bug31711.stp #11 face #20893: OCCT 500.12882893780096, ours 484.12882639247914
+      gkv311-opencascade-dataset/step/trj5_k1-ug-214.stp #11 face #115: OCCT 156.85436427893754, ours 145.25581322787988
+      gkv311-opencascade-dataset/step/trj5_k1-ug-214.stp #11 face #117: OCCT 125.21978628926186, ours 119.90550679943328
+      gkv311-opencascade-dataset/step/trj5_k1-ug-214.stp #11 face #122: OCCT 71.87920535080553, ours 59.87128853773385
+      gkv311-opencascade-dataset/step/trj5_k1-ug-214.stp #11 face #123: OCCT 58.53253470596188, ours 51.891643197615764
+      gkv311-opencascade-dataset/step/trj5_k1-ug-214.stp #11 face #124: OCCT 114.42587204070844, ours 47.87787204070844
+      gkv311-opencascade-dataset/step/bug32239.STEP #72569 face #83438: OCCT 167.81438627486455, ours 167.1691396139897
+      gkv311-opencascade-dataset/step/bug32239.STEP #72569 face #82825: OCCT 167.81438627486418, ours 167.16913961398956
+      gkv311-opencascade-dataset/step/bug32239.STEP #72569 face #85405: OCCT 96.26374408141687, ours 95.75574408141688
+      gkv311-opencascade-dataset/step/bug32239.STEP #72569 face #131098: OCCT 307.07586380675554, ours 304.35713950330705
+      gkv311-opencascade-dataset/step/bug32239.STEP #72569 face #74948: OCCT 150.52533239421976, ours 150.01733239421978
+      gkv311-opencascade-dataset/step/trj7_as1-hc-214.stp #310 face #1850: OCCT 462.8318530717959, ours 62.83185307179586
+      gkv311-opencascade-dataset/step/trj7_as1-hc-214.stp #200 face #1750: OCCT 68.83185307179586, ours 62.83185307179586
+      gkv311-opencascade-dataset/step/trj7_as1-hc-214.stp #110 face #1440: OCCT 100.24777960769379, ours 94.24777960769379
+      gkv311-opencascade-dataset/step/trj7_as1-hc-214.stp #110 face #1510: OCCT 130.83185307179588, ours 62.83185307179586
+      gkv311-opencascade-dataset/step/trj7_as1-hc-214.stp #60 face #1210: OCCT 82.83185307179586, ours 62.83185307179586
+      gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #9877: OCCT 6.752910097774526, ours 6.2499458377745105
+      gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #10017: OCCT 344.1842762389073, ours 302.42857369618423
+      gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #10053: OCCT 5.022524940332123, ours 4.693425854891594
+      gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #10071: OCCT 5.162296546173617, ours 4.8331974607330555
+      gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #10185: OCCT 5.162296585636176, ours 4.833197500195644
+      gkv311-opencascade-dataset/step/2.stp #342 face #3172: OCCT 2220.6861869086783, ours 2200.8279818811907
+      gkv311-opencascade-dataset/step/2.stp #342 face #3176: OCCT 103.26065633451194, ours 101.39091714036242
+      gkv311-opencascade-dataset/step/2.stp #342 face #3180: OCCT 103.26065633451141, ours 101.39091714036181
+      gkv311-opencascade-dataset/step/2.stp #342 face #3201: OCCT 51.14840731339194, ours 10.995574287564276
+      gkv311-opencascade-dataset/step/2.stp #337 face #3166: OCCT 99.38312947669029, ours 93.7262752271979
+      gkv311-opencascade-dataset/step/trj4_k1_top-ug-214.stp #11 face #115: OCCT 156.85436427893754, ours 145.25581322787988
+      gkv311-opencascade-dataset/step/trj4_k1_top-ug-214.stp #11 face #117: OCCT 125.21978628926186, ours 119.90550679943328
+      gkv311-opencascade-dataset/step/trj4_k1_top-ug-214.stp #11 face #122: OCCT 71.87920535080553, ours 59.87128853773385
+      gkv311-opencascade-dataset/step/trj4_k1_top-ug-214.stp #11 face #123: OCCT 58.53253470596188, ours 51.891643197615764
+      gkv311-opencascade-dataset/step/trj4_k1_top-ug-214.stp #11 face #124: OCCT 114.42587204070844, ours 47.87787204070844
+      gkv311-opencascade-dataset/step/bug24055_8MTF-75LS05.step #93397 face #1500: OCCT 22.69770611486289, ours 18.84955592153876
+      gkv311-opencascade-dataset/step/bug24055_8MTF-75LS05.step #93397 face #1541: OCCT 22.69770611486289, ours 18.84955592153876
+      gkv311-opencascade-dataset/step/bug24055_8MTF-75LS05.step #93397 face #1590: OCCT 22.69770611486289, ours 18.84955592153876
+      gkv311-opencascade-dataset/step/bug24055_8MTF-75LS05.step #93397 face #1639: OCCT 22.697706114862974, ours 18.84955592153876
+      gkv311-opencascade-dataset/step/bug24055_8MTF-75LS05.step #93397 face #1688: OCCT 22.697706114862974, ours 18.84955592153876
+      gkv311-opencascade-dataset/step/trj4_k1_top-md-203.stp #10 face #581: OCCT 119.48860515440441, ours 117.67687737250928
+      gkv311-opencascade-dataset/step/trj4_k1_top-md-203.stp #10 face #756: OCCT 71.87924703465322, ours 59.871339757044865
+      gkv311-opencascade-dataset/step/trj4_k1_top-md-203.stp #10 face #776: OCCT 58.53256706158002, ours 51.89169441692679
+      gkv311-opencascade-dataset/step/trj4_k1_top-md-203.stp #10 face #796: OCCT 114.42587204070838, ours 47.87787204070844
+      gkv311-opencascade-dataset/step/trj4_k1_top-md-203.stp #10 face #816: OCCT 61.537130043676, ours 55.85751738082652
+      gkv311-opencascade-dataset/step/trj5_k1-md-203.stp #10 face #581: OCCT 119.48860515440441, ours 117.67687737250928
+      gkv311-opencascade-dataset/step/trj5_k1-md-203.stp #10 face #756: OCCT 71.87924703465322, ours 59.871339757044865
+      gkv311-opencascade-dataset/step/trj5_k1-md-203.stp #10 face #776: OCCT 58.53256706158002, ours 51.89169441692679
+      gkv311-opencascade-dataset/step/trj5_k1-md-203.stp #10 face #796: OCCT 114.42587204070838, ours 47.87787204070844
+      gkv311-opencascade-dataset/step/trj5_k1-md-203.stp #10 face #816: OCCT 61.537130043676, ours 55.85751738082652
+      gkv311-opencascade-dataset/step/pr_3-sy.stp #303 face #262: OCCT 911.2586240418289, ours 628.4441944241022
+      gkv311-opencascade-dataset/step/xr1-tc-plt.stp #615 face #478: OCCT 71.41614906824461, ours 71.41592653581935
+      gkv311-opencascade-dataset/step/xr1-tc-plt.stp #615 face #490: OCCT 71.41614906824452, ours 71.41592653581935
+      gkv311-opencascade-dataset/step/xr1-tc-plt.stp #615 face #502: OCCT 71.41614906824451, ours 71.41592653581935
+      gkv311-opencascade-dataset/step/xr1-tc-plt.stp #615 face #514: OCCT 71.4161490682445, ours 71.41592653581935
+      gkv311-opencascade-dataset/step/xr1-tc-plt.stp #615 face #526: OCCT 71.41614906824445, ours 71.41592653581935
+      gkv311-opencascade-dataset/step/trj4_k1_geo-tu-214.stp #2080 face #108: OCCT 124.98552068498718, ours 119.90550679929507
+      gkv311-opencascade-dataset/step/trj4_k1_geo-tu-214.stp #2080 face #302: OCCT 26.405314649208872, ours 26.40521104041768
+      gkv311-opencascade-dataset/step/trj4_k1_geo-tu-214.stp #2080 face #331: OCCT 79.78195136055663, ours 59.87128853719477
+      gkv311-opencascade-dataset/step/trj4_k1_geo-tu-214.stp #2080 face #558: OCCT 145.1718308841052, ours 133.02315861538654
+      gkv311-opencascade-dataset/step/trj4_k1_geo-tu-214.stp #2080 face #582: OCCT 26.405314649208872, ours 26.40521104041768
+      gkv311-opencascade-dataset/step/trj3_as1-ug-214.stp #71 face #453: OCCT 102.83185307179586, ours 62.83185307179586
+      gkv311-opencascade-dataset/step/trj3_as1-ug-214.stp #71 face #454: OCCT 102.83185307179586, ours 62.83185307179586
+      gkv311-opencascade-dataset/step/trj3_as1-ug-214.stp #71 face #455: OCCT 102.83185307179586, ours 62.83185307179586
+      gkv311-opencascade-dataset/step/trj3_as1-ug-214.stp #71 face #456: OCCT 102.83185307179586, ours 62.83185307179586
+      gkv311-opencascade-dataset/step/trj3_as1-ug-214.stp #71 face #457: OCCT 102.83185307179586, ours 62.83185307179586
+      gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #3177 face #16123: OCCT 35.45022837136491, ours 34.03601480899182
+      gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #3177 face #23541: OCCT 35.45022837136491, ours 34.03601480899182
+      gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #3177 face #24195: OCCT 38.894422155402026, ours 30.894422155402026
+      gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #3171 face #15947: OCCT 41.469023027385276, ours 40.21238596594935
+      gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #3171 face #21203: OCCT 34.24435366064412, ours 31.41592653589793
+      gkv311-opencascade-dataset/step/trj2_as1-ec-214.stp #3411 face #4954: OCCT 71.41614906824461, ours 71.41592653581935
+      gkv311-opencascade-dataset/step/trj2_as1-ec-214.stp #3411 face #5089: OCCT 71.41614906824452, ours 71.41592653581935
+      gkv311-opencascade-dataset/step/trj2_as1-ec-214.stp #3411 face #5224: OCCT 71.41614906824451, ours 71.41592653581935
+      gkv311-opencascade-dataset/step/trj2_as1-ec-214.stp #3411 face #5359: OCCT 71.4161490682445, ours 71.41592653581935
+      gkv311-opencascade-dataset/step/trj2_as1-ec-214.stp #3411 face #5494: OCCT 71.41614906824445, ours 71.41592653581935
+      gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #71291 face #32228: OCCT 24.985847050985043, ours 24.985806590876674
+      gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #71291 face #39171: OCCT 26.359763129513468, ours 26.35972726924286
+      gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #71291 face #46483: OCCT 24.916379933671635, ours 24.916237294578504
+      gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #71291 face #60155: OCCT 21.199063033881195, ours 21.198979275314315
+      gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #71291 face #62074: OCCT 19.66107557005093, ours 19.66091682668586
+      gkv311-opencascade-dataset/step/trj3_as1-md-214.stp #1214 face #1497: OCCT 102.83185307179588, ours 62.83185307179586
+      gkv311-opencascade-dataset/step/trj3_as1-md-214.stp #1214 face #1509: OCCT 102.83185307179588, ours 62.83185307179586
+      gkv311-opencascade-dataset/step/trj3_as1-md-214.stp #1214 face #1521: OCCT 102.83185307179588, ours 62.83185307179586
+      gkv311-opencascade-dataset/step/trj3_as1-md-214.stp #1214 face #1533: OCCT 102.83185307179588, ours 62.83185307179586
+      gkv311-opencascade-dataset/step/trj3_as1-md-214.stp #1214 face #1545: OCCT 102.83185307179588, ours 62.83185307179586
+      gkv311-opencascade-dataset/step/bug29564.stp #19 face #465: OCCT 253.03606814865515, ours 157.58747257638717
+      gkv311-opencascade-dataset/step/bug29564.stp #19 face #466: OCCT 126.30606573419182, ours 125.47832084085087
+      gkv311-opencascade-dataset/step/bug29564.stp #19 face #487: OCCT 37.445130209102956, ours 29.845130209103033
+      gkv311-opencascade-dataset/step/bug29564.stp #19 face #501: OCCT 37.445130209103056, ours 29.845130209103033
+      gkv311-opencascade-dataset/step/bug29564.stp #19 face #515: OCCT 37.44513020910311, ours 29.845130209103033
+      gkv311-opencascade-dataset/step/trj9_io1-tu-214.stp #923 face #532: OCCT 33.99130434777116, ours 33.99114857507355
+      gkv311-opencascade-dataset/step/trj9_io1-tu-214.stp #923 face #556: OCCT 33.991304347771155, ours 33.99114857507355
+      gkv311-opencascade-dataset/step/trj9_io1-tu-214.stp #923 face #568: OCCT 208.78012422311596, ours 208.7787445220801
+      gkv311-opencascade-dataset/step/trj9_io1-tu-214.stp #923 face #580: OCCT 33.99130434777116, ours 33.99114857507355
+      gkv311-opencascade-dataset/step/trj9_io1-tu-214.stp #923 face #592: OCCT 186.21366459581816, ours 186.21237390775238
+      gkv311-opencascade-dataset/step/trj4_s1-ug-214.stp #81 face #875: OCCT 901.0795723907829, ours 867.0795723907829
+      gkv311-opencascade-dataset/step/trj4_s1-ug-214.stp #81 face #877: OCCT 912.7786842338604, ours 904.7786842338604
+      gkv311-opencascade-dataset/step/trj4_s1-ug-214.stp #81 face #879: OCCT 883.0795723907829, ours 867.0795723907829
+      gkv311-opencascade-dataset/step/trj4_s1-ug-214.stp #81 face #881: OCCT 1029.9114254625788, ours 929.9114254625788
+      gkv311-opencascade-dataset/step/trj4_s1-ug-214.stp #81 face #882: OCCT 769.6902001670303, ours 609.4689747964198
+      gkv311-opencascade-dataset/step/nist/nist_ctc_05_asme1_ap242-1.stp #1177 face #1321: OCCT 2134.0989419887082, ours 1991.1077661717688
+      gkv311-opencascade-dataset/step/nist/nist_ctc_05_asme1_ap242-1.stp #1177 face #1340: OCCT 34.19654427826569, ours 24.936391687868984
+      gkv311-opencascade-dataset/step/nist/nist_ctc_05_asme1_ap242-1.stp #1177 face #1341: OCCT 110.83278337573796, ours 49.87278337573797
+      gkv311-opencascade-dataset/step/nist/nist_ctc_05_asme1_ap242-1.stp #1177 face #1342: OCCT 34.19654427826569, ours 24.936391687868984
+      gkv311-opencascade-dataset/step/nist/nist_ctc_05_asme1_ap242-1.stp #1177 face #1343: OCCT 110.83278337573796, ours 49.87278337573797
+      gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp #1177 face #1321: OCCT 2134.0989419887082, ours 1991.1077661717688
+      gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp #1177 face #1340: OCCT 34.19654427826569, ours 24.936391687868984
+      gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp #1177 face #1341: OCCT 110.83278337573796, ours 49.87278337573797
+      gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp #1177 face #1342: OCCT 34.19654427826569, ours 24.936391687868984
+      gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp #1177 face #1343: OCCT 110.83278337573796, ours 49.87278337573797
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_06_asme1_ap242-e3.stp #5079 face #1732: OCCT 355.4875869041327, ours 330.08758690413265
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_06_asme1_ap242-e3.stp #5079 face #1860: OCCT 223.62113350295186, ours 199.49113350295187
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_06_asme1_ap242-e3.stp #5079 face #1880: OCCT 236.8439909371489, ours 159.59290680236148
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_06_asme1_ap242-e3.stp #5079 face #1928: OCCT 176.30816505872536, ours 143.63361612212535
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_06_asme1_ap242-e3.stp #5079 face #1945: OCCT 148.47931345492634, ours 76.4716011759221
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_08_asme1_ap242-e2.stp #1711 face #5871: OCCT 58.22331536556084, ours 37.90331536556085
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_08_asme1_ap242-e2.stp #1711 face #5872: OCCT 58.22331536556084, ours 37.90331536556085
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_08_asme1_ap242-e2.stp #1711 face #5873: OCCT 58.22331536556084, ours 37.90331536556085
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_08_asme1_ap242-e2.stp #1711 face #5874: OCCT 58.22331536556084, ours 37.90331536556085
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_08_asme1_ap242-e2.stp #1711 face #5907: OCCT 40.851289148903, ours 33.993289148902996
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp #3044 face #7009: OCCT 49.699111843077, ours 37.69911184307752
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp #3044 face #7011: OCCT 66.43185307179586, ours 62.83185307179586
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp #3044 face #7012: OCCT 49.699111843077, ours 37.69911184307752
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp #3044 face #7014: OCCT 66.43185307179586, ours 62.83185307179586
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp #3044 face #7039: OCCT 12.924678152415382, ours 9.42477796076938
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177 face #1321: OCCT 2134.0989419887082, ours 1991.1077661717688
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177 face #1340: OCCT 34.19654427826569, ours 24.936391687868984
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177 face #1341: OCCT 110.83278337573796, ours 49.87278337573797
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177 face #1342: OCCT 34.19654427826569, ours 24.936391687868984
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177 face #1343: OCCT 110.83278337573796, ours 49.87278337573797
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_11_asme1_ap242-e2.stp #466 face #1194: OCCT 398.84067435231395, ours 395.84067435231395
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_11_asme1_ap242-e2.stp #466 face #1195: OCCT 385.935106161134, ours 377.5232128971035
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_11_asme1_ap242-e2.stp #466 face #1196: OCCT 227.79128454898768, ours 219.3793912849572
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_11_asme1_ap242-e2.stp #466 face #1197: OCCT 204.06192982974676, ours 201.06192982974676
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_11_asme1_ap242-e2.stp #466 face #1198: OCCT 358.85953952866333, ours 358.6129058755966
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_07_asme1_ap242-e2.stp #13541 face #743: OCCT 14.31590112770247, ours 14.256035000351023
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_07_asme1_ap242-e2.stp #13541 face #869: OCCT 14.31619861292095, ours 14.256038589722376
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_07_asme1_ap242-e2.stp #13541 face #995: OCCT 14.316198644171251, ours 14.256038620395893
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_07_asme1_ap242-e2.stp #13541 face #1113: OCCT 14.315911173021568, ours 14.256045043829857
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_07_asme1_ap242-e2.stp #13541 face #1745: OCCT 5.967467007815912, ours 5.931344579502077
+      nist-pmi-models/NIST_MBE_PMI_CTC_Definitions/NIST_MBE_PMI_CTC_Definitions/nist_ctc_03_asme1_rc.stp #13 face #289: OCCT 73.71677317943431, ours 69.90169317943433
+      nist-pmi-models/NIST_MBE_PMI_CTC_Definitions/NIST_MBE_PMI_CTC_Definitions/nist_ctc_03_asme1_rc.stp #13 face #290: OCCT 73.71677317943431, ours 69.90169317943433
+      nist-pmi-models/NIST_MBE_PMI_CTC_Definitions/NIST_MBE_PMI_CTC_Definitions/nist_ctc_03_asme1_rc.stp #13 face #291: OCCT 73.7167731794334, ours 69.90169317943433
+      nist-pmi-models/NIST_MBE_PMI_CTC_Definitions/NIST_MBE_PMI_CTC_Definitions/nist_ctc_03_asme1_rc.stp #13 face #292: OCCT 73.7167731794334, ours 69.90169317943433
+      nist-pmi-models/NIST_MBE_PMI_CTC_Definitions/NIST_MBE_PMI_CTC_Definitions/nist_ctc_03_asme1_rc.stp #13 face #301: OCCT 323.00089360472305, ours 319.18581360472297
+      nist-pmi-models/NIST_MBE_PMI_CTC_Definitions/NIST_MBE_PMI_CTC_Definitions/nist_ctc_01_asme1_rd.stp #13 face #370: OCCT 86.1645210325988, ours 62.83185307179586
+      nist-pmi-models/NIST_MBE_PMI_CTC_Definitions/NIST_MBE_PMI_CTC_Definitions/nist_ctc_01_asme1_rd.stp #13 face #371: OCCT 215.66370614359175, ours 125.66370614359172
+      nist-pmi-models/NIST_MBE_PMI_CTC_Definitions/NIST_MBE_PMI_CTC_Definitions/nist_ctc_01_asme1_rd.stp #13 face #372: OCCT 86.1645210325988, ours 62.83185307179586
+      nist-pmi-models/NIST_MBE_PMI_CTC_Definitions/NIST_MBE_PMI_CTC_Definitions/nist_ctc_01_asme1_rd.stp #13 face #373: OCCT 215.66370614359175, ours 125.66370614359172
+      nist-pmi-models/NIST_MBE_PMI_CTC_Definitions/NIST_MBE_PMI_CTC_Definitions/nist_ctc_01_asme1_rd.stp #13 face #374: OCCT 419.9114857512855, ours 219.9114857512855
+      nist-pmi-models/NIST-D2MI-Models/NIST-D2MI-Models/827-9999-908.stp #19 face #201: OCCT 42.01923949651953, ours 35.110439496519525
+      nist-pmi-models/NIST-D2MI-Models/NIST-D2MI-Models/827-9999-908.stp #19 face #203: OCCT 42.01923949651953, ours 35.110439496519525
+      nist-pmi-models/NIST-D2MI-Models/NIST-D2MI-Models/827-9999-908.stp #19 face #205: OCCT 42.01923949651953, ours 35.110439496519525
+      nist-pmi-models/NIST-D2MI-Models/NIST-D2MI-Models/827-9999-908.stp #19 face #206: OCCT 34.042292070702274, ours 20.42789207070227
+      nist-pmi-models/NIST-D2MI-Models/NIST-D2MI-Models/827-9999-908.stp #19 face #207: OCCT 34.042292070702274, ours 20.42789207070227
+      nist-pmi-models/NIST-D2MI-Models/NIST-D2MI-Models/827-9999-905.stp #19 face #111: OCCT 81.17884658971715, ours 34.950846589717166
+      nist-pmi-models/NIST-D2MI-Models/NIST-D2MI-Models/827-9999-905.stp #19 face #113: OCCT 30.476626075790826, ours 26.412626075790826
+      nist-pmi-models/NIST-D2MI-Models/NIST-D2MI-Models/827-9999-905.stp #19 face #114: OCCT 30.23793528140414, ours 22.42280340573179
+      nist-pmi-models/NIST-D2MI-Models/NIST-D2MI-Models/827-9999-905.stp #19 face #115: OCCT 24.666096710386018, ours 24.058630700455993
+      nist-pmi-models/NIST-D2MI-Models/NIST-D2MI-Models/827-9999-905.stp #19 face #116: OCCT 68.1124579951802, ours 25.694457995180198
+      nist-pmi-models/NIST-D2MI-Models/NIST-D2MI-Models/827-9999-907.stp #19 face #111: OCCT 81.17884658971715, ours 34.950846589717166
+      nist-pmi-models/NIST-D2MI-Models/NIST-D2MI-Models/827-9999-907.stp #19 face #113: OCCT 30.476626075790826, ours 26.412626075790826
+      nist-pmi-models/NIST-D2MI-Models/NIST-D2MI-Models/827-9999-907.stp #19 face #114: OCCT 30.23793528140414, ours 22.42280340573179
+      nist-pmi-models/NIST-D2MI-Models/NIST-D2MI-Models/827-9999-907.stp #19 face #115: OCCT 24.666096710386018, ours 24.058630700455993
+      nist-pmi-models/NIST-D2MI-Models/NIST-D2MI-Models/827-9999-907.stp #19 face #116: OCCT 68.1124579951802, ours 25.694457995180198
+      nist-pmi-models/NIST-D2MI-Models/NIST-D2MI-Models/827-9999-906.stp #19 face #201: OCCT 42.01923949651953, ours 35.110439496519525
+      nist-pmi-models/NIST-D2MI-Models/NIST-D2MI-Models/827-9999-906.stp #19 face #203: OCCT 42.01923949651953, ours 35.110439496519525
+      nist-pmi-models/NIST-D2MI-Models/NIST-D2MI-Models/827-9999-906.stp #19 face #205: OCCT 42.01923949651953, ours 35.110439496519525
+      nist-pmi-models/NIST-D2MI-Models/NIST-D2MI-Models/827-9999-906.stp #19 face #206: OCCT 34.042292070702274, ours 20.42789207070227
+      nist-pmi-models/NIST-D2MI-Models/NIST-D2MI-Models/827-9999-906.stp #19 face #207: OCCT 34.042292070702274, ours 20.42789207070227
+      nist-pmi-models/NIST_MBE_PMI_FTC_Definitions/NIST_MBE_PMI_FTC_Definitions/nist_ftc_11_asme1_rb.stp #199 face #95: OCCT 204.06192982974676, ours 201.06192982974676
+      nist-pmi-models/NIST_MBE_PMI_FTC_Definitions/NIST_MBE_PMI_FTC_Definitions/nist_ftc_11_asme1_rb.stp #199 face #135: OCCT 398.84067435231395, ours 395.84067435231395
+      nist-pmi-models/NIST_MBE_PMI_FTC_Definitions/NIST_MBE_PMI_FTC_Definitions/nist_ftc_11_asme1_rb.stp #199 face #175: OCCT 385.940304819308, ours 377.37733176932625
+      nist-pmi-models/NIST_MBE_PMI_FTC_Definitions/NIST_MBE_PMI_FTC_Definitions/nist_ftc_11_asme1_rb.stp #199 face #187: OCCT 228.08824546271626, ours 219.5252724127345
+      nist-pmi-models/NIST_MBE_PMI_FTC_Definitions/NIST_MBE_PMI_FTC_Definitions/nist_ftc_10_asme1_rb.stp #6468 face #125: OCCT 21.234930717019374, ours 15.773279132330412
+      nist-pmi-models/NIST_MBE_PMI_FTC_Definitions/NIST_MBE_PMI_FTC_Definitions/nist_ftc_10_asme1_rb.stp #6468 face #183: OCCT 21.234930717019378, ours 15.773279132330408
+      nist-pmi-models/NIST_MBE_PMI_FTC_Definitions/NIST_MBE_PMI_FTC_Definitions/nist_ftc_10_asme1_rb.stp #6468 face #241: OCCT 21.234930717019388, ours 15.773279132330423
+      nist-pmi-models/NIST_MBE_PMI_FTC_Definitions/NIST_MBE_PMI_FTC_Definitions/nist_ftc_10_asme1_rb.stp #6468 face #299: OCCT 21.234930717019385, ours 15.77327913233042
+      nist-pmi-models/NIST_MBE_PMI_FTC_Definitions/NIST_MBE_PMI_FTC_Definitions/nist_ftc_10_asme1_rb.stp #6468 face #357: OCCT 21.23493071701939, ours 15.77327913233042
+      nist-pmi-models/NIST_MBE_PMI_FTC_Definitions/NIST_MBE_PMI_FTC_Definitions/nist_ftc_06_asme1_rd.stp #13 face #283: OCCT 355.4875869041326, ours 330.08758690413254
+      nist-pmi-models/NIST_MBE_PMI_FTC_Definitions/NIST_MBE_PMI_FTC_Definitions/nist_ftc_06_asme1_rd.stp #13 face #295: OCCT 355.4875869041326, ours 330.08758690413254
+      nist-pmi-models/NIST_MBE_PMI_FTC_Definitions/NIST_MBE_PMI_FTC_Definitions/nist_ftc_06_asme1_rd.stp #13 face #297: OCCT 355.48758690413257, ours 330.08758690413254
+      nist-pmi-models/NIST_MBE_PMI_FTC_Definitions/NIST_MBE_PMI_FTC_Definitions/nist_ftc_06_asme1_rd.stp #13 face #299: OCCT 355.4875869041326, ours 330.08758690413254
+      nist-pmi-models/NIST_MBE_PMI_FTC_Definitions/NIST_MBE_PMI_FTC_Definitions/nist_ftc_06_asme1_rd.stp #13 face #302: OCCT 236.84399093714734, ours 159.5929068023599
+      nist-pmi-models/NIST_MBE_PMI_FTC_Definitions/NIST_MBE_PMI_FTC_Definitions/nist_ftc_07_asme1_rd.stp #7830 face #6062: OCCT 46.64412254251758, ours 27.609572876808535
+      nist-pmi-models/NIST_MBE_PMI_FTC_Definitions/NIST_MBE_PMI_FTC_Definitions/nist_ftc_07_asme1_rd.stp #7830 face #6074: OCCT 46.64412254251747, ours 27.609572876808535
+      nist-pmi-models/NIST_MBE_PMI_FTC_Definitions/NIST_MBE_PMI_FTC_Definitions/nist_ftc_07_asme1_rd.stp #7830 face #6086: OCCT 46.64412254251747, ours 27.609572876808535
+      nist-pmi-models/NIST_MBE_PMI_FTC_Definitions/NIST_MBE_PMI_FTC_Definitions/nist_ftc_07_asme1_rd.stp #7830 face #6098: OCCT 46.64412254251758, ours 27.609572876808535
+      nist-pmi-models/NIST_MBE_PMI_FTC_Definitions/NIST_MBE_PMI_FTC_Definitions/nist_ftc_07_asme1_rd.stp #7830 face #6155: OCCT 158.6918786491647, ours 139.65442948751812
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_05_asme1_ap203.stp #91 face #488: OCCT 2110.4856968799486, ours 1991.1056968799483
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_05_asme1_ap203.stp #91 face #507: OCCT 34.196544284812646, ours 24.936391687868984
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_05_asme1_ap203.stp #91 face #508: OCCT 110.83278337573798, ours 49.87278337573797
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_05_asme1_ap203.stp #91 face #509: OCCT 34.196544284812646, ours 24.936391687868984
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_05_asme1_ap203.stp #91 face #510: OCCT 110.83278337573798, ours 49.87278337573797
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_02_asme1_ap203.stp #295 face #1108: OCCT 300.2300767579509, ours 138.23007675795088
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_02_asme1_ap203.stp #295 face #1111: OCCT 300.2300767579509, ours 138.23007675795088
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_02_asme1_ap203.stp #295 face #1114: OCCT 300.2300767579509, ours 138.23007675795088
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_02_asme1_ap203.stp #295 face #1116: OCCT 300.2300767579509, ours 138.23007675795088
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_02_asme1_ap203.stp #295 face #1119: OCCT 300.2300767579509, ours 138.23007675795088
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_03_asme1_ap203.stp #154 face #532: OCCT 73.71677317943431, ours 69.90169317943433
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_03_asme1_ap203.stp #154 face #533: OCCT 73.71677317943431, ours 69.90169317943433
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_03_asme1_ap203.stp #154 face #534: OCCT 73.7167731794334, ours 69.90169317943433
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_03_asme1_ap203.stp #154 face #535: OCCT 73.7167731794334, ours 69.90169317943433
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_03_asme1_ap203.stp #154 face #544: OCCT 323.00089360472305, ours 319.18581360472297
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_04_asme1_ap203.stp #559 face #1258: OCCT 141.9645943005142, ours 87.96459430051421
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_04_asme1_ap203.stp #559 face #1259: OCCT 115.29943159629153, ours 106.81415022205297
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_04_asme1_ap203.stp #559 face #1260: OCCT 141.9645943005142, ours 87.96459430051421
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_04_asme1_ap203.stp #559 face #1261: OCCT 115.29943159629153, ours 106.81415022205297
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_04_asme1_ap203.stp #559 face #1262: OCCT 141.9645943005142, ours 87.96459430051421
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_01_asme1_ap203.stp #148 face #604: OCCT 86.1645210325988, ours 62.83185307179586
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_01_asme1_ap203.stp #148 face #605: OCCT 215.66370614359175, ours 125.66370614359172
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_01_asme1_ap203.stp #148 face #606: OCCT 86.1645210325988, ours 62.83185307179586
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_01_asme1_ap203.stp #148 face #607: OCCT 215.66370614359175, ours 125.66370614359172
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_01_asme1_ap203.stp #148 face #608: OCCT 419.9114857512855, ours 219.9114857512855
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ctc_03_asme1_rc.stp #13 face #289: OCCT 73.71677317943431, ours 69.90169317943433
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ctc_03_asme1_rc.stp #13 face #290: OCCT 73.71677317943431, ours 69.90169317943433
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ctc_03_asme1_rc.stp #13 face #291: OCCT 73.7167731794334, ours 69.90169317943433
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ctc_03_asme1_rc.stp #13 face #292: OCCT 73.7167731794334, ours 69.90169317943433
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ctc_03_asme1_rc.stp #13 face #301: OCCT 323.00089360472305, ours 319.18581360472297
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ftc_11_asme1_rb.stp #199 face #95: OCCT 204.06192982974676, ours 201.06192982974676
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ftc_11_asme1_rb.stp #199 face #135: OCCT 398.84067435231395, ours 395.84067435231395
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ftc_11_asme1_rb.stp #199 face #175: OCCT 385.940304819308, ours 377.37733176932625
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ftc_11_asme1_rb.stp #199 face #187: OCCT 228.08824546271626, ours 219.5252724127345
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ftc_10_asme1_rb.stp #6468 face #125: OCCT 21.234930717019374, ours 15.773279132330412
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ftc_10_asme1_rb.stp #6468 face #183: OCCT 21.234930717019378, ours 15.773279132330408
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ftc_10_asme1_rb.stp #6468 face #241: OCCT 21.234930717019388, ours 15.773279132330423
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ftc_10_asme1_rb.stp #6468 face #299: OCCT 21.234930717019385, ours 15.77327913233042
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ftc_10_asme1_rb.stp #6468 face #357: OCCT 21.23493071701939, ours 15.77327913233042
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ctc_01_asme1_rd.stp #13 face #370: OCCT 86.1645210325988, ours 62.83185307179586
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ctc_01_asme1_rd.stp #13 face #371: OCCT 215.66370614359175, ours 125.66370614359172
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ctc_01_asme1_rd.stp #13 face #372: OCCT 86.1645210325988, ours 62.83185307179586
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ctc_01_asme1_rd.stp #13 face #373: OCCT 215.66370614359175, ours 125.66370614359172
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ctc_01_asme1_rd.stp #13 face #374: OCCT 419.9114857512855, ours 219.9114857512855
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ftc_06_asme1_rd.stp #13 face #283: OCCT 355.4875869041326, ours 330.08758690413254
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ftc_06_asme1_rd.stp #13 face #295: OCCT 355.4875869041326, ours 330.08758690413254
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ftc_06_asme1_rd.stp #13 face #297: OCCT 355.48758690413257, ours 330.08758690413254
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ftc_06_asme1_rd.stp #13 face #299: OCCT 355.4875869041326, ours 330.08758690413254
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ftc_06_asme1_rd.stp #13 face #302: OCCT 236.84399093714734, ours 159.5929068023599
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ftc_07_asme1_rd.stp #7830 face #6062: OCCT 46.64412254251758, ours 27.609572876808535
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ftc_07_asme1_rd.stp #7830 face #6074: OCCT 46.64412254251747, ours 27.609572876808535
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ftc_07_asme1_rd.stp #7830 face #6086: OCCT 46.64412254251747, ours 27.609572876808535
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ftc_07_asme1_rd.stp #7830 face #6098: OCCT 46.64412254251758, ours 27.609572876808535
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ftc_07_asme1_rd.stp #7830 face #6155: OCCT 158.6918786491647, ours 139.65442948751812
+      nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/FTC Definitions/nist_ftc_11_asme1_rb.stp #199 face #95: OCCT 204.06192982974676, ours 201.06192982974676
+      nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/FTC Definitions/nist_ftc_11_asme1_rb.stp #199 face #135: OCCT 398.84067435231395, ours 395.84067435231395
+      nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/FTC Definitions/nist_ftc_11_asme1_rb.stp #199 face #175: OCCT 385.940304819308, ours 377.37733176932625
+      nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/FTC Definitions/nist_ftc_11_asme1_rb.stp #199 face #187: OCCT 228.08824546271626, ours 219.5252724127345
+      nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/FTC Definitions/nist_ftc_10_asme1_rb.stp #6468 face #125: OCCT 21.234930717019374, ours 15.773279132330412
+      nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/FTC Definitions/nist_ftc_10_asme1_rb.stp #6468 face #183: OCCT 21.234930717019378, ours 15.773279132330408
+      nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/FTC Definitions/nist_ftc_10_asme1_rb.stp #6468 face #241: OCCT 21.234930717019388, ours 15.773279132330423
+      nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/FTC Definitions/nist_ftc_10_asme1_rb.stp #6468 face #299: OCCT 21.234930717019385, ours 15.77327913233042
+      nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/FTC Definitions/nist_ftc_10_asme1_rb.stp #6468 face #357: OCCT 21.23493071701939, ours 15.77327913233042
+      nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/FTC Definitions/nist_ftc_06_asme1_rd.stp #13 face #283: OCCT 355.4875869041326, ours 330.08758690413254
+      nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/FTC Definitions/nist_ftc_06_asme1_rd.stp #13 face #295: OCCT 355.4875869041326, ours 330.08758690413254
+      nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/FTC Definitions/nist_ftc_06_asme1_rd.stp #13 face #297: OCCT 355.48758690413257, ours 330.08758690413254
+      nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/FTC Definitions/nist_ftc_06_asme1_rd.stp #13 face #299: OCCT 355.4875869041326, ours 330.08758690413254
+      nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/FTC Definitions/nist_ftc_06_asme1_rd.stp #13 face #302: OCCT 236.84399093714734, ours 159.5929068023599
+      nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/FTC Definitions/nist_ftc_07_asme1_rd.stp #7830 face #6062: OCCT 46.64412254251758, ours 27.609572876808535
+      nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/FTC Definitions/nist_ftc_07_asme1_rd.stp #7830 face #6074: OCCT 46.64412254251747, ours 27.609572876808535
+      nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/FTC Definitions/nist_ftc_07_asme1_rd.stp #7830 face #6086: OCCT 46.64412254251747, ours 27.609572876808535
+      nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/FTC Definitions/nist_ftc_07_asme1_rd.stp #7830 face #6098: OCCT 46.64412254251758, ours 27.609572876808535
+      nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/FTC Definitions/nist_ftc_07_asme1_rd.stp #7830 face #6155: OCCT 158.6918786491647, ours 139.65442948751812
+      nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/CTC Definitions/nist_ctc_03_asme1_rc.stp #13 face #289: OCCT 73.71677317943431, ours 69.90169317943433
+      nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/CTC Definitions/nist_ctc_03_asme1_rc.stp #13 face #290: OCCT 73.71677317943431, ours 69.90169317943433
+      nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/CTC Definitions/nist_ctc_03_asme1_rc.stp #13 face #291: OCCT 73.7167731794334, ours 69.90169317943433
+      nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/CTC Definitions/nist_ctc_03_asme1_rc.stp #13 face #292: OCCT 73.7167731794334, ours 69.90169317943433
+      nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/CTC Definitions/nist_ctc_03_asme1_rc.stp #13 face #301: OCCT 323.00089360472305, ours 319.18581360472297
+      nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/CTC Definitions/nist_ctc_01_asme1_rd.stp #13 face #370: OCCT 86.1645210325988, ours 62.83185307179586
+      nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/CTC Definitions/nist_ctc_01_asme1_rd.stp #13 face #371: OCCT 215.66370614359175, ours 125.66370614359172
+      nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/CTC Definitions/nist_ctc_01_asme1_rd.stp #13 face #372: OCCT 86.1645210325988, ours 62.83185307179586
+      nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/CTC Definitions/nist_ctc_01_asme1_rd.stp #13 face #373: OCCT 215.66370614359175, ours 125.66370614359172
+      nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/CTC Definitions/nist_ctc_01_asme1_rd.stp #13 face #374: OCCT 419.9114857512855, ours 219.9114857512855
+  650  OCCT's within 1e-4 (its quadrature or healing's tolerances); ours within 1e-9 of chord sums
+      gkv311-opencascade-dataset/step/trj7_k1-ec-214.stp #6446 face #4521: OCCT 2.8298942828442826, ours 2.829889253123179
+      gkv311-opencascade-dataset/step/trj7_k1-ec-214.stp #6446 face #5421: OCCT 2.3044388007258854, ours 2.304430569859403
+      gkv311-opencascade-dataset/step/bug21802_as1-oc-214.stp #3812 face #5564: OCCT 71.41604186701167, ours 71.41593060079902
+      gkv311-opencascade-dataset/step/bug21802_as1-oc-214.stp #3812 face #5635: OCCT 71.41604186651345, ours 71.41593060030087
+      gkv311-opencascade-dataset/step/bug21802_as1-oc-214.stp #3812 face #5664: OCCT 71.41604186651995, ours 71.41593060030732
+      gkv311-opencascade-dataset/step/bug21802_as1-oc-214.stp #3812 face #5735: OCCT 71.41604186698774, ours 71.41593060077517
+      gkv311-opencascade-dataset/step/bug21802_as1-oc-214.stp #3812 face #5764: OCCT 71.41604186653973, ours 71.41593060032699
+      gkv311-opencascade-dataset/step/trj2_as1-tc-214.stp #1117 face #1024: OCCT 78.54037267061128, ours 78.5398163395484
+      gkv311-opencascade-dataset/step/trj2_as1-tc-214.stp #1117 face #1034: OCCT 47.12422360236677, ours 47.123889803729035
+      gkv311-opencascade-dataset/step/trj2_as1-tc-214.stp #1117 face #1050: OCCT 53.12422360236677, ours 53.123889803729035
+      gkv311-opencascade-dataset/step/trj2_as1-tc-214.stp #1117 face #1060: OCCT 31.416149068244504, ours 31.41592653581936
+      gkv311-opencascade-dataset/step/trj2_as1-tc-214.stp #1117 face #1076: OCCT 99.41614906824451, ours 99.41592653581935
+      gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #14: OCCT 1061.6920445819812, ours 1061.6742955073069
+      gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #2079: OCCT 1061.901205974384, ours 1061.8656934470896
+      gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #2106: OCCT 1038.5822322508834, ours 1038.5645025050164
+      gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #2133: OCCT 1062.0205847518005, ours 1061.9850505926852
+      gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #2160: OCCT 1061.7176084787225, ours 1061.6821295882805
+      gkv311-opencascade-dataset/step/trj6_as1-tu-214.stp #1877 face #1640: OCCT 848.4968944094671, ours 848.4955592149156
+      gkv311-opencascade-dataset/step/trj6_as1-tu-214.stp #1877 face #1712: OCCT 848.4968944094671, ours 848.4955592149156
+      gkv311-opencascade-dataset/step/trj6_as1-tu-214.stp #1228 face #1031: OCCT 394.2484472047335, ours 394.2477796074579
+      gkv311-opencascade-dataset/step/trj6_as1-tu-214.stp #1228 face #1067: OCCT 374.24844720473357, ours 374.2477796074579
+      gkv311-opencascade-dataset/step/trj6_as1-tu-214.stp #650 face #573: OCCT 78.54037267061128, ours 78.53981633954844
+      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #8550: OCCT 6.281579173761007, ours 6.281544361842666
+      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #9571: OCCT 27.82245311191643, ours 27.821142335209505
+      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #9780: OCCT 27.82227151380063, ours 27.82096073061512
+      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #11845: OCCT 296.23964221310746, ours 296.239341611593
+      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #12717: OCCT 37.61158009804694, ours 37.61195794874587
+      gkv311-opencascade-dataset/step/as1-oc-214-mat.stp #3812 face #5564: OCCT 71.41604186701167, ours 71.41593060079902
+      gkv311-opencascade-dataset/step/as1-oc-214-mat.stp #3812 face #5635: OCCT 71.41604186651345, ours 71.41593060030087
+      gkv311-opencascade-dataset/step/as1-oc-214-mat.stp #3812 face #5664: OCCT 71.41604186651995, ours 71.41593060030732
+      gkv311-opencascade-dataset/step/as1-oc-214-mat.stp #3812 face #5735: OCCT 71.41604186698774, ours 71.41593060077517
+      gkv311-opencascade-dataset/step/as1-oc-214-mat.stp #3812 face #5764: OCCT 71.41604186653973, ours 71.41593060032699
+      gkv311-opencascade-dataset/step/OCC23251-dm1-oc-214.stp #1488 face #2866: OCCT 51.41604186695444, ours 51.41593060074185
+      gkv311-opencascade-dataset/step/OCC23251-dm1-oc-214.stp #1488 face #2937: OCCT 51.41604186692938, ours 51.41593060071677
+      gkv311-opencascade-dataset/step/OCC23251-dm1-oc-214.stp #1488 face #2993: OCCT 51.41604186654895, ours 51.41593060033632
+      gkv311-opencascade-dataset/step/OCC23251-dm1-oc-214.stp #1488 face #3064: OCCT 51.416041866483276, ours 51.415930600270705
+      gkv311-opencascade-dataset/step/OCC23251-dm1-oc-214.stp #1488 face #3093: OCCT 51.416041866490126, ours 51.41593060027747
+      gkv311-opencascade-dataset/step/bug31292.stp #3812 face #5564: OCCT 71.41604186701167, ours 71.41593060079902
+      gkv311-opencascade-dataset/step/bug31292.stp #3812 face #5635: OCCT 71.41604186651345, ours 71.41593060030087
+      gkv311-opencascade-dataset/step/bug31292.stp #3812 face #5664: OCCT 71.41604186651995, ours 71.41593060030732
+      gkv311-opencascade-dataset/step/bug31292.stp #3812 face #5735: OCCT 71.41604186698774, ours 71.41593060077517
+      gkv311-opencascade-dataset/step/bug31292.stp #3812 face #5764: OCCT 71.41604186653973, ours 71.41593060032699
+      gkv311-opencascade-dataset/step/xr1-tu-lbr.stp #539 face #314: OCCT 394.2484472047335, ours 394.2477796074579
+      gkv311-opencascade-dataset/step/xr1-tu-lbr.stp #539 face #350: OCCT 374.24844720473357, ours 374.2477796074579
+      gkv311-opencascade-dataset/step/xr1-tu-lbr.stp #539 face #422: OCCT 51.41614906824453, ours 51.41592653581937
+      gkv311-opencascade-dataset/step/xr1-tu-lbr.stp #539 face #438: OCCT 51.41614906824452, ours 51.41592653581937
+      gkv311-opencascade-dataset/step/xr1-tu-lbr.stp #539 face #454: OCCT 51.41614906824452, ours 51.415926535819374
+      gkv311-opencascade-dataset/step/trj3_as1-tc-203.stp #1871 face #1828: OCCT 31.416149068244504, ours 31.41592653581936
+      gkv311-opencascade-dataset/step/trj3_as1-tc-203.stp #1871 face #1838: OCCT 31.416149068244504, ours 31.41592653581936
+      gkv311-opencascade-dataset/step/trj3_as1-tc-203.stp #1731 face #1494: OCCT 848.4968944094671, ours 848.4955592149164
+      gkv311-opencascade-dataset/step/trj3_as1-tc-203.stp #1731 face #1566: OCCT 848.4968944094671, ours 848.4955592149164
+      gkv311-opencascade-dataset/step/trj3_as1-tc-203.stp #1014 face #937: OCCT 78.54037267061128, ours 78.5398163395484
+      gkv311-opencascade-dataset/step/trj8_as1-tu-214.stp #1989 face #1704: OCCT 848.4968944094671, ours 848.4955592149156
+      gkv311-opencascade-dataset/step/trj8_as1-tu-214.stp #1989 face #1776: OCCT 848.4968944094671, ours 848.4955592149156
+      gkv311-opencascade-dataset/step/trj8_as1-tu-214.stp #1989 face #1804: OCCT 71.41614906824461, ours 71.41592653581935
+      gkv311-opencascade-dataset/step/trj8_as1-tu-214.stp #1989 face #1820: OCCT 71.41614906824452, ours 71.41592653581935
+      gkv311-opencascade-dataset/step/trj8_as1-tu-214.stp #1989 face #1836: OCCT 71.41614906824451, ours 71.41592653581935
+      gkv311-opencascade-dataset/step/trj4_pm2-ec-214.stp #22794 face #30200: OCCT 4.980959431389661, ours 4.981126324357736
+      gkv311-opencascade-dataset/step/trj4_pm2-ec-214.stp #5727 face #7887: OCCT 40.29068851937596, ours 40.28979915832925
+      gkv311-opencascade-dataset/step/xr1-tc-rod.stp #109 face #70: OCCT 31.416149068244504, ours 31.41592653581936
+      gkv311-opencascade-dataset/step/xr1-tc-rod.stp #109 face #80: OCCT 31.416149068244504, ours 31.41592653581936
+      gkv311-opencascade-dataset/step/xr1-tu-blt.stp #201 face #112: OCCT 78.54037267061128, ours 78.53981633954844
+      gkv311-opencascade-dataset/step/xr1-tu-blt.stp #201 face #122: OCCT 47.12422360236677, ours 47.12388980372906
+      gkv311-opencascade-dataset/step/xr1-tu-blt.stp #201 face #138: OCCT 53.12422360236677, ours 53.12388980372906
+      gkv311-opencascade-dataset/step/xr1-tu-blt.stp #201 face #148: OCCT 31.416149068244504, ours 31.41592653581938
+      gkv311-opencascade-dataset/step/xr1-tu-blt.stp #201 face #164: OCCT 99.41614906824451, ours 99.41592653581932
+      gkv311-opencascade-dataset/step/trj3_as1-tc-214.stp #1061 face #984: OCCT 78.54037267061128, ours 78.5398163395484
+      gkv311-opencascade-dataset/step/trj3_as1-tc-214.stp #1061 face #994: OCCT 47.12422360236677, ours 47.123889803729035
+      gkv311-opencascade-dataset/step/trj3_as1-tc-214.stp #1061 face #1016: OCCT 31.416149068244504, ours 31.41592653581936
+      gkv311-opencascade-dataset/step/trj3_as1-tc-214.stp #847 face #750: OCCT 101.41614906824451, ours 101.41592653581935
+      gkv311-opencascade-dataset/step/trj3_as1-tc-214.stp #847 face #802: OCCT 101.4161490682445, ours 101.41592653581935
+      gkv311-opencascade-dataset/step/bug30014.stp #8211 face #1633: OCCT 65.10214861615725, ours 65.10098894513851
+      gkv311-opencascade-dataset/step/bug30014.stp #8211 face #21705: OCCT 75.42214861615724, ours 75.42098894513765
+      gkv311-opencascade-dataset/step/bug30014.stp #1274 face #115511: OCCT 37.632317936496904, ours 37.63221194119086
+      gkv311-opencascade-dataset/step/bug30014.stp #1274 face #57252: OCCT 51.919050075600076, ours 51.91883808499345
+      gkv311-opencascade-dataset/step/bug30014.stp #1274 face #1438: OCCT 37.63231793649952, ours 37.63221194119347
+      gkv311-opencascade-dataset/step/bm2_ec_exhaust-A.stp #9 face #1944: OCCT 1034.8426696353674, ours 1034.8092414805365
+      gkv311-opencascade-dataset/step/bm2_ec_exhaust-A.stp #9 face #2491: OCCT 1122.9307276976897, ours 1122.9080593931694
+      gkv311-opencascade-dataset/step/bm2_ec_exhaust-A.stp #9 face #2765: OCCT 1127.412851025253, ours 1127.379476643201
+      gkv311-opencascade-dataset/step/bm2_ec_exhaust-A.stp #9 face #3228: OCCT 1034.8426696353229, ours 1034.8092414804917
+      gkv311-opencascade-dataset/step/bm2_ec_exhaust-A.stp #9 face #3502: OCCT 1029.8621445284662, ours 1029.8395299967253
+      gkv311-opencascade-dataset/step/trj6_as1-tc-214.stp #1057 face #980: OCCT 78.54037267061128, ours 78.5398163395484
+      gkv311-opencascade-dataset/step/trj6_as1-tc-214.stp #1057 face #990: OCCT 47.12422360236677, ours 47.123889803729035
+      gkv311-opencascade-dataset/step/trj6_as1-tc-214.stp #1057 face #1012: OCCT 31.416149068244504, ours 31.41592653581936
+      gkv311-opencascade-dataset/step/trj6_as1-tc-214.stp #843 face #746: OCCT 101.41614906824451, ours 101.41592653581935
+      gkv311-opencascade-dataset/step/trj6_as1-tc-214.stp #843 face #798: OCCT 101.4161490682445, ours 101.41592653581935
+      gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787 face #5745: OCCT 2.8993466078093317, ours 2.899343392669566
+      gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787 face #792: OCCT 10.844460750037214, ours 10.844449401568463
+      gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787 face #827: OCCT 10.84446073244563, ours 10.844449383976876
+      gkv311-opencascade-dataset/step/xr1-tc-blt.stp #189 face #116: OCCT 78.54037267061128, ours 78.5398163395484
+      gkv311-opencascade-dataset/step/xr1-tc-blt.stp #189 face #126: OCCT 47.12422360236677, ours 47.123889803729035
+      gkv311-opencascade-dataset/step/xr1-tc-blt.stp #189 face #148: OCCT 31.416149068244504, ours 31.41592653581936
+      gkv311-opencascade-dataset/step/xr1-tu-rod.stp #115 face #68: OCCT 31.416149068244504, ours 31.41592653581938
+      gkv311-opencascade-dataset/step/xr1-tu-rod.stp #115 face #78: OCCT 31.416149068244504, ours 31.41592653581938
+      gkv311-opencascade-dataset/step/trj4_s1-tu-214.stp #4497 face #4372: OCCT 119.38136645932914, ours 119.38052083611363
+      gkv311-opencascade-dataset/step/trj4_s1-tu-214.stp #4497 face #4386: OCCT 276.4621118005517, ours 276.46015351521055
+      gkv311-opencascade-dataset/step/trj4_s1-tu-214.stp #4497 face #4396: OCCT 144.51428571392478, ours 144.51326206476912
+      gkv311-opencascade-dataset/step/trj4_s1-tu-214.stp #4497 face #4410: OCCT 251.32919254595606, ours 251.32741228655505
+      gkv311-opencascade-dataset/step/trj4_s1-tu-214.stp #4497 face #4424: OCCT 867.0857142835486, ours 867.0795723886148
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #195862 face #315379: OCCT 135.75520767292636, ours 135.7550538886258
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #195862 face #43672: OCCT 135.7552076729263, ours 135.75505388862598
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #206858 face #32612: OCCT 832.2504941170237, ours 832.2475788837077
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #206858 face #440904: OCCT 1636.7741250072288, ours 1636.7712096775062
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #206858 face #162074: OCCT 2.2704654718657964, ours 2.270432136266019
+      gkv311-opencascade-dataset/step/OCC5099.stp #14343 face #4306: OCCT 15.478770030483776, ours 15.47879825384365
+      gkv311-opencascade-dataset/step/OCC5099.stp #14343 face #7101: OCCT 8.682901467794128, ours 8.68293013051515
+      gkv311-opencascade-dataset/step/OCC5099.stp #14343 face #7125: OCCT 8.682901047829205, ours 8.682929312592675
+      gkv311-opencascade-dataset/step/OCC5099.stp #14343 face #7556: OCCT 15.478803291757025, ours 15.478831956028522
+      gkv311-opencascade-dataset/step/OCC5099.stp #14343 face #7746: OCCT 27.298300458064624, ours 27.29841431303357
+      gkv311-opencascade-dataset/step/xr1-tc-lbr.stp #533 face #340: OCCT 394.2484472047335, ours 394.24777960745814
+      gkv311-opencascade-dataset/step/xr1-tc-lbr.stp #533 face #376: OCCT 374.24844720473357, ours 374.24777960745814
+      gkv311-opencascade-dataset/step/trj8_as1-ec-214.stp #1801 face #1715: OCCT 31.416149068244504, ours 31.41592653581936
+      gkv311-opencascade-dataset/step/trj8_as1-ec-214.stp #1801 face #1741: OCCT 31.416149068244504, ours 31.41592653581936
+      gkv311-opencascade-dataset/step/trj8_as1-ec-214.stp #1664 face #1072: OCCT 848.4968944094671, ours 848.4955592149163
+      gkv311-opencascade-dataset/step/trj8_as1-ec-214.stp #1664 face #1311: OCCT 848.4968944094671, ours 848.4955592149163
+      gkv311-opencascade-dataset/step/trj8_as1-ec-214.stp #1029 face #863: OCCT 78.54037267061128, ours 78.5398163395484
+      gkv311-opencascade-dataset/step/xr1-tc-nut.stp #245 face #152: OCCT 101.41614906824451, ours 101.41592653581935
+      gkv311-opencascade-dataset/step/xr1-tc-nut.stp #245 face #204: OCCT 101.4161490682445, ours 101.41592653581935
+      gkv311-opencascade-dataset/step/OCC8228.stp #10 face #64818: OCCT 33.45577640933001, ours 33.455551080888135
+      gkv311-opencascade-dataset/step/OCC8228.stp #10 face #88471: OCCT 585.0167174380244, ours 585.0108313926238
+      gkv311-opencascade-dataset/step/bm2_ec_t4-A.stp #9 face #1578: OCCT 1617.3031931496566, ours 1617.305470170666
+      gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 face #8543: OCCT 6.281579173761007, ours 6.281544361842666
+      gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 face #9564: OCCT 27.82245311191643, ours 27.821142335209505
+      gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 face #9773: OCCT 27.82227151380063, ours 27.82096073061512
+      gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 face #12703: OCCT 37.61158009804694, ours 37.61195794874587
+      gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 face #14298: OCCT 21.60407644571287, ours 21.604454299468188
+      gkv311-opencascade-dataset/step/trj6_pm4-ec-203.stp #43110 face #30612: OCCT 4.980959431389661, ours 4.981126324357736
+      gkv311-opencascade-dataset/step/trj6_pm4-ec-203.stp #23172 face #8283: OCCT 40.29068851937596, ours 40.28979915832925
+      gkv311-opencascade-dataset/step/tr10_r0901_ec.stp #5888 face #5891: OCCT 31.416149068244504, ours 31.41592653581936
+      gkv311-opencascade-dataset/step/tr10_r0901_ec.stp #5888 face #6003: OCCT 31.416149068244504, ours 31.41592653581936
+      gkv311-opencascade-dataset/step/tr10_r0901_ec.stp #3428 face #3431: OCCT 848.4968944094671, ours 848.4955592149163
+      gkv311-opencascade-dataset/step/tr10_r0901_ec.stp #3428 face #4361: OCCT 848.4968944094671, ours 848.4955592149163
+      gkv311-opencascade-dataset/step/tr10_r0901_ec.stp #2686 face #2689: OCCT 78.54037267061128, ours 78.5398163395484
+      gkv311-opencascade-dataset/step/xr1-tu-plt.stp #639 face #358: OCCT 848.4968944094671, ours 848.4955592149156
+      gkv311-opencascade-dataset/step/xr1-tu-plt.stp #639 face #430: OCCT 848.4968944094671, ours 848.4955592149156
+      gkv311-opencascade-dataset/step/xr1-tu-plt.stp #639 face #458: OCCT 71.41614906824461, ours 71.41592653581935
+      gkv311-opencascade-dataset/step/xr1-tu-plt.stp #639 face #474: OCCT 71.41614906824452, ours 71.41592653581935
+      gkv311-opencascade-dataset/step/xr1-tu-plt.stp #639 face #490: OCCT 71.41614906824451, ours 71.41592653581935
+      gkv311-opencascade-dataset/step/trj6_as1-ec-214.stp #1801 face #1715: OCCT 31.416149068244504, ours 31.41592653581936
+      gkv311-opencascade-dataset/step/trj6_as1-ec-214.stp #1801 face #1741: OCCT 31.416149068244504, ours 31.41592653581936
+      gkv311-opencascade-dataset/step/trj6_as1-ec-214.stp #1664 face #1072: OCCT 848.4968944094671, ours 848.4955592149163
+      gkv311-opencascade-dataset/step/trj6_as1-ec-214.stp #1664 face #1311: OCCT 848.4968944094671, ours 848.4955592149163
+      gkv311-opencascade-dataset/step/trj6_as1-ec-214.stp #1029 face #863: OCCT 78.54037267061128, ours 78.5398163395484
+      gkv311-opencascade-dataset/step/trj8_k1-md-214.stp #10 face #755: OCCT 234.81203920845402, ours 234.81763689923744
+      gkv311-opencascade-dataset/step/trj3_as1-ec-214.stp #5853 face #5856: OCCT 31.416149068244504, ours 31.41592653581936
+      gkv311-opencascade-dataset/step/trj3_as1-ec-214.stp #5853 face #5968: OCCT 31.416149068244504, ours 31.41592653581936
+      gkv311-opencascade-dataset/step/trj3_as1-ec-214.stp #3410 face #3413: OCCT 848.4968944094671, ours 848.4955592149163
+      gkv311-opencascade-dataset/step/trj3_as1-ec-214.stp #3410 face #4343: OCCT 848.4968944094671, ours 848.4955592149163
+      gkv311-opencascade-dataset/step/trj3_as1-ec-214.stp #2661 face #2664: OCCT 78.54037267061128, ours 78.5398163395484
+      gkv311-opencascade-dataset/step/bug25171.stp #3812 face #5564: OCCT 71.41604186701167, ours 71.41593060079902
+      gkv311-opencascade-dataset/step/bug25171.stp #3812 face #5635: OCCT 71.41604186651345, ours 71.41593060030087
+      gkv311-opencascade-dataset/step/bug25171.stp #3812 face #5664: OCCT 71.41604186651995, ours 71.41593060030732
+      gkv311-opencascade-dataset/step/bug25171.stp #3812 face #5735: OCCT 71.41604186698774, ours 71.41593060077517
+      gkv311-opencascade-dataset/step/bug25171.stp #3812 face #5764: OCCT 71.41604186653973, ours 71.41593060032699
+      gkv311-opencascade-dataset/step/trj12_b3-tu-203.stp #27964 face #18172: OCCT 411.7943406838934, ours 411.8029151744947
+      gkv311-opencascade-dataset/step/trj12_b3-tu-203.stp #27964 face #18258: OCCT 411.79434068389344, ours 411.8029151744947
+      gkv311-opencascade-dataset/step/trj12_b3-tu-203.stp #27964 face #23657: OCCT 142.0516378775538, ours 142.0603848255382
+      gkv311-opencascade-dataset/step/trj12_b3-tu-203.stp #27964 face #23807: OCCT 142.0516378775538, ours 142.0603848255382
+      gkv311-opencascade-dataset/step/trj3_as1-ec-203.stp #5994 face #5997: OCCT 31.416149068244504, ours 31.41592653581936
+      gkv311-opencascade-dataset/step/trj3_as1-ec-203.stp #5994 face #6109: OCCT 31.416149068244504, ours 31.41592653581936
+      gkv311-opencascade-dataset/step/trj3_as1-ec-203.stp #3530 face #3533: OCCT 848.4968944094671, ours 848.4955592149163
+      gkv311-opencascade-dataset/step/trj3_as1-ec-203.stp #3530 face #4463: OCCT 848.4968944094671, ours 848.4955592149163
+      gkv311-opencascade-dataset/step/trj3_as1-ec-203.stp #2723 face #2726: OCCT 78.54037267061128, ours 78.5398163395484
+      gkv311-opencascade-dataset/step/bug33261.stp #41791 face #39681: OCCT 0.9470018075861001, ours 0.9469913715254137
+      gkv311-opencascade-dataset/step/bug33261.stp #41791 face #40614: OCCT 0.9470018075861012, ours 0.9469913715254148
+      gkv311-opencascade-dataset/step/bug33261.stp #41791 face #41758: OCCT 6.782065295615357, ours 6.782277244458755
+      gkv311-opencascade-dataset/step/xr1-tu-nut.stp #239 face #138: OCCT 101.41614906824451, ours 101.41592653581932
+      gkv311-opencascade-dataset/step/xr1-tu-nut.stp #239 face #190: OCCT 101.4161490682445, ours 101.41592653581932
+      gkv311-opencascade-dataset/step/xr1-tu-nut.stp #239 face #218: OCCT 37.41614906824451, ours 37.41592653581938
+      gkv311-opencascade-dataset/step/xr1-tu-nut.stp #239 face #234: OCCT 37.4161490682445, ours 37.41592653581938
+      gkv311-opencascade-dataset/step/bug32239.STEP #72569 face #121415: OCCT 193.332275871474, ours 193.33269230017692
+      gkv311-opencascade-dataset/step/bug32239.STEP #72569 face #122190: OCCT 85.0795174585271, ours 85.07993388723077
+      gkv311-opencascade-dataset/step/trj6_k1-ec-214.stp #6446 face #4522: OCCT 2.8298942828442826, ours 2.829889253123179
+      gkv311-opencascade-dataset/step/trj6_k1-ec-214.stp #6446 face #5422: OCCT 2.3044388007258854, ours 2.304430569859403
+      gkv311-opencascade-dataset/step/xr1-tc-plt.stp #615 face #382: OCCT 848.4968944094671, ours 848.4955592149164
+      gkv311-opencascade-dataset/step/xr1-tc-plt.stp #615 face #454: OCCT 848.4968944094671, ours 848.4955592149164
+      gkv311-opencascade-dataset/step/trj2_as1-ec-214.stp #5858 face #5861: OCCT 31.416149068244504, ours 31.41592653581936
+      gkv311-opencascade-dataset/step/trj2_as1-ec-214.stp #5858 face #5973: OCCT 31.416149068244504, ours 31.41592653581936
+      gkv311-opencascade-dataset/step/trj2_as1-ec-214.stp #3411 face #3414: OCCT 848.4968944094671, ours 848.4955592149163
+      gkv311-opencascade-dataset/step/trj2_as1-ec-214.stp #3411 face #4344: OCCT 848.4968944094671, ours 848.4955592149163
+      gkv311-opencascade-dataset/step/trj2_as1-ec-214.stp #2675 face #2678: OCCT 78.54037267061128, ours 78.5398163395484
+      gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #88017 face #87127: OCCT 25.328247494107924, ours 25.32831005287329
+      gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #88017 face #87138: OCCT 25.328322086066414, ours 25.328454944171487
+      gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #88017 face #87149: OCCT 25.328290523125208, ours 25.328393635022362
+      gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #88017 face #87160: OCCT 25.328420619592844, ours 25.32864634249766
+      gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #88017 face #87193: OCCT 25.328160502152517, ours 25.328293587087273
+      gkv311-opencascade-dataset/step/bug26657.stp #3812 face #5564: OCCT 71.41604186701167, ours 71.41593060079902
+      gkv311-opencascade-dataset/step/bug26657.stp #3812 face #5635: OCCT 71.41604186651345, ours 71.41593060030087
+      gkv311-opencascade-dataset/step/bug26657.stp #3812 face #5664: OCCT 71.41604186651995, ours 71.41593060030732
+      gkv311-opencascade-dataset/step/bug26657.stp #3812 face #5735: OCCT 71.41604186698774, ours 71.41593060077517
+      gkv311-opencascade-dataset/step/bug26657.stp #3812 face #5764: OCCT 71.41604186653973, ours 71.41593060032699
+      gkv311-opencascade-dataset/step/trj9_io1-tu-214.stp #923 face #810: OCCT 301.59503105514733, ours 301.592894743866
+      gkv311-opencascade-dataset/step/trj9_io1-tu-214.stp #923 face #824: OCCT 376.9937888189341, ours 376.9911184298325
+      gkv311-opencascade-dataset/step/trj9_io1-tu-214.stp #923 face #862: OCCT 603.1897505313659, ours 603.1857894342176
+      gkv311-opencascade-dataset/step/trj9_io1-tu-214.stp #923 face #900: OCCT 521.5077629539303, ours 521.5043804410872
+      gkv311-opencascade-dataset/step/trj9_io1-tu-214.stp #923 face #914: OCCT 376.9937888189341, ours 376.9911184298325
+      gkv311-opencascade-dataset/step/trj6_b1-ec-214.stp #10 face #7345: OCCT 17.486837412711516, ours 17.487963145838663
+      gkv311-opencascade-dataset/step/trj6_b1-ec-214.stp #10 face #8516: OCCT 106.92467463625978, ours 106.92706469756014
+      gkv311-opencascade-dataset/step/trj6_b1-ec-214.stp #10 face #9151: OCCT 17.486837413145363, ours 17.4879631458328
+      occt-import-js/test/testfiles/cax-if/as1-tu-203.stp #2075 face #1790: OCCT 848.4968944098911, ours 848.4955592153406
+      occt-import-js/test/testfiles/cax-if/as1-tu-203.stp #2075 face #1862: OCCT 848.4968944098911, ours 848.4955592153406
+      occt-import-js/test/testfiles/cax-if/as1-tu-203.stp #2075 face #1890: OCCT 71.41614906831515, ours 71.41592653589004
+      occt-import-js/test/testfiles/cax-if/as1-tu-203.stp #2075 face #1906: OCCT 71.41614906831516, ours 71.41592653589004
+      occt-import-js/test/testfiles/cax-if/as1-tu-203.stp #2075 face #1922: OCCT 71.41614906831516, ours 71.41592653589004
+      occt-import-js/test/testfiles/cax-if/dm1-oc-214.stp #1488 face #2866: OCCT 51.41604186695444, ours 51.41593060074185
+      occt-import-js/test/testfiles/cax-if/dm1-oc-214.stp #1488 face #2937: OCCT 51.41604186692938, ours 51.41593060071677
+      occt-import-js/test/testfiles/cax-if/dm1-oc-214.stp #1488 face #2993: OCCT 51.41604186654895, ours 51.41593060033632
+      occt-import-js/test/testfiles/cax-if/dm1-oc-214.stp #1488 face #3064: OCCT 51.416041866483276, ours 51.415930600270705
+      occt-import-js/test/testfiles/cax-if/dm1-oc-214.stp #1488 face #3093: OCCT 51.416041866490126, ours 51.41593060027747
+      occt-import-js/test/testfiles/cax-if/as1-oc-214.stp #3812 face #5564: OCCT 71.41604186701167, ours 71.41593060079902
+      occt-import-js/test/testfiles/cax-if/as1-oc-214.stp #3812 face #5635: OCCT 71.41604186651345, ours 71.41593060030087
+      occt-import-js/test/testfiles/cax-if/as1-oc-214.stp #3812 face #5664: OCCT 71.41604186651995, ours 71.41593060030732
+      occt-import-js/test/testfiles/cax-if/as1-oc-214.stp #3812 face #5735: OCCT 71.41604186698774, ours 71.41593060077517
+      occt-import-js/test/testfiles/cax-if/as1-oc-214.stp #3812 face #5764: OCCT 71.41604186653973, ours 71.41593060032699
+  125  OCCT finds its face invalid
+      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #16311: OCCT 23.21221746375499, ours 23.219344916085447
+      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #18168: OCCT 17.677378697945514, ours 17.6841252753846
+      gkv311-opencascade-dataset/step/bug30790.step #2448 face #4695: OCCT 2.513274077614529, ours 2.5132741228718345
+      gkv311-opencascade-dataset/step/bug30790.step #2448 face #3137: OCCT 2.5132740776145206, ours 2.5132741228718345
+      gkv311-opencascade-dataset/step/bug30790.step #2448 face #5283: OCCT 2.5132740776145424, ours 2.5132741228718345
+      gkv311-opencascade-dataset/step/bug30790.step #2448 face #3213: OCCT 2.5132740776145193, ours 2.5132741228718345
+      gkv311-opencascade-dataset/step/bug30790.step #2448 face #4841: OCCT 2.513274077614534, ours 2.5132741228718345
+      gkv311-opencascade-dataset/step/bug22871_null-swept-curve.stp #10 face #3530: OCCT 35.93829793501678, ours 35.938297935011406
+      gkv311-opencascade-dataset/step/bug22871_null-swept-curve.stp #10 face #3742: OCCT 6.526158259886158, ours 6.526158259886156
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 face #295459: OCCT 696.1845322982224, ours 696.1845322982201
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 face #195244: OCCT 39, ours 38.99999999999924
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 face #367230: OCCT 156.97100947781186, ours 156.97100947772913
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 face #457646: OCCT 364.28093884617704, ours 364.28093884617704
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 face #6717: OCCT 103.9312171657046, ours 103.93121716570192
+      gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 face #1295: OCCT 118.68029978835224, ours 118.68029978835207
+      gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 face #1296: OCCT 118.68029978835231, ours 118.68029978835222
+      gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 face #1299: OCCT 112.74628338415525, ours 112.74628338415516
+      gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 face #1300: OCCT 112.74628338415533, ours 112.74628338415523
+      gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 face #1311: OCCT 2.5566870427791346, ours 2.556687042782386
+      gkv311-opencascade-dataset/step/Checking_Fixture_Clamping.STEP #5594 face #8480: OCCT 61.41576439271083, ours 61.4157643927108
+      gkv311-opencascade-dataset/step/Checking_Fixture_Clamping.STEP #5594 face #8400: OCCT 61.415764388740726, ours 61.41576438874071
+      gkv311-opencascade-dataset/step/Checking_Fixture_Clamping.STEP #5594 face #8428: OCCT 124.8306596900934, ours 92.83065969009326
+      gkv311-opencascade-dataset/step/Checking_Fixture_Clamping.STEP #5594 face #8454: OCCT 124.83065970726179, ours 92.83065970726167
+      gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #9940: OCCT 28.721148258187725, ours 32.71252088703131
+      gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #10152: OCCT 7.242801480244714, ours 6.913702394804155
+      gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #10172: OCCT 7.535902916524317, ours 7.206803831083792
+      gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2022 face #21557: OCCT 176.04016875963094, ours 160.92184178431586
+      gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2022 face #23723: OCCT 293.907055423204, ours 160.92186505808164
+      gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2022 face #17467: OCCT 130.6563965538628, ours 110.65639668341578
+      gkv311-opencascade-dataset/step/trj6_b1-ec-214.stp #10 face #6387: OCCT 4.5242813794613586, ours 4.524281379461356
+      gkv311-opencascade-dataset/step/trj6_b1-ec-214.stp #10 face #6770: OCCT 6.531180246283395, ours 6.531062520445094
+      gkv311-opencascade-dataset/step/trj6_b1-ec-214.stp #10 face #8582: OCCT 6.531180246071402, ours 6.531062520446961
+      gkv311-opencascade-dataset/step/trj6_b1-ec-214.stp #10 face #9226: OCCT 4.5242813794613586, ours 4.524281379461356
+  42  ours incomplete: an edge without a 3D curve (trims in parameter space only)
+      gkv311-opencascade-dataset/step/bug22871_null-swept-curve.stp #10 face #3441: OCCT 13.977786850026714, ours 6.526158264699882
+      gkv311-opencascade-dataset/step/bug22871_null-swept-curve.stp #10 face #3620: OCCT 13.977786845209454, ours 6.526158259882613
+      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17525 face #21069: OCCT 33.64616341285143, ours 25.132741228718345
+      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17485 face #21053: OCCT 17.664235791746982, ours 13.194689145077131
+      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17475 face #21049: OCCT 17.664235791746982, ours 13.194689145077131
+      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17415 face #21025: OCCT 21.028852133032142, ours 15.707963267948966
+      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17395 face #21017: OCCT 33.646163412851436, ours 25.132741228718345
+  35  OCCT's longer by more than 1e-4 (not explained); ours within 1e-9 of chord sums
+      gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #11254: OCCT 46681924.64699565, ours 46671006.132838786
+      gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #11256: OCCT 46681923.693188734, ours 46671005.17903187
+      gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #11344: OCCT 46681924.73938879, ours 46671006.22521034
+      gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #11346: OCCT 46681923.78558188, ours 46671005.271403424
+      gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #11434: OCCT 46681924.80088941, ours 46671006.28669662
+      gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #71291 face #57200: OCCT 27.390113220905988, ours 27.33435939083526
+      gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #71291 face #59513: OCCT 27.36176655585146, ours 27.333915024954244
+      nist-pmi-models/NIST_MBE_PMI_CTC_Definitions/NIST_MBE_PMI_CTC_Definitions/nist_ctc_05_asme1_rd.stp #6603 face #4480: OCCT 20.578828378168076, ours 20.560589660297776
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ctc_05_asme1_rd.stp #6603 face #4480: OCCT 20.578828378168076, ours 20.560589660297776
+      nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/CTC Definitions/nist_ctc_05_asme1_rd.stp #6603 face #4480: OCCT 20.578828378168076, ours 20.560589660297776
+  30  OCCT's longer on a face with ellipse edges (OCCT's ellipse lengths); ours within 1e-9 of chord sums
+      gkv311-opencascade-dataset/step/trj7_k1-ec-214.stp #6446 face #5075: OCCT 7.612823310902735, ours 7.608212312592665
+      gkv311-opencascade-dataset/step/trj7_k1-ec-214.stp #6446 face #5099: OCCT 7.612823316510699, ours 7.608212318200629
+      gkv311-opencascade-dataset/step/trj7_k1-ec-214.stp #6446 face #5449: OCCT 4.9299128460339325, ours 4.920689244072175
+      gkv311-opencascade-dataset/step/trj5_k1-sh-203.stp #1489 face #1447: OCCT 7.612805331310286, ours 7.60819362348934
+      gkv311-opencascade-dataset/step/trj5_k1-sh-203.stp #1489 face #1451: OCCT 7.612805331310285, ours 7.608193623489339
+      gkv311-opencascade-dataset/step/trj7_k1-ug-214.stp #11 face #505: OCCT 193.3657386769088, ours 193.2486014183555
+      gkv311-opencascade-dataset/step/trj7_k1-ug-214.stp #11 face #507: OCCT 193.3657386769088, ours 193.24860141835543
+      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #12895 face #19217: OCCT 380.65681961821144, ours 380.65588235093657
+      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #12295 face #18977: OCCT 340.6568196182112, ours 340.65588235093685
+      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #11810 face #18783: OCCT 380.6569400714681, ours 380.6560028041931
+      gkv311-opencascade-dataset/step/trj8_k1-md-214.stp #10 face #782: OCCT 192.66345317604825, ours 192.5476100941611
+      gkv311-opencascade-dataset/step/trj8_k1-md-214.stp #10 face #805: OCCT 191.30571448991896, ours 191.1928757727609
+      gkv311-opencascade-dataset/step/trj8_k1-ug-214.stp #11 face #505: OCCT 193.3657386769088, ours 193.2486014183555
+      gkv311-opencascade-dataset/step/trj8_k1-ug-214.stp #11 face #507: OCCT 193.3657386769088, ours 193.24860141835543
+      gkv311-opencascade-dataset/step/bug24983_111FACE.stp #19 face #811: OCCT 42.723739694139816, ours 42.681649665012976
+      gkv311-opencascade-dataset/step/trj6_k1-md-214.stp #10 face #978: OCCT 491.1489762393451, ours 490.85144760261977
+      gkv311-opencascade-dataset/step/trj6_k1-md-214.stp #10 face #1021: OCCT 491.14897623934496, ours 490.8514476026197
+      gkv311-opencascade-dataset/step/trj6_k1-ug-214.stp #11 face #507: OCCT 193.3657386769088, ours 193.2486014183555
+      gkv311-opencascade-dataset/step/trj6_k1-ug-214.stp #11 face #509: OCCT 193.3657386769088, ours 193.24860141835543
+      gkv311-opencascade-dataset/step/trj5_k1-ug-214.stp #11 face #116: OCCT 193.3657386769088, ours 193.2486014183555
+      gkv311-opencascade-dataset/step/trj5_k1-ug-214.stp #11 face #118: OCCT 193.3657386769088, ours 193.24860141835543
+      gkv311-opencascade-dataset/step/trj6_k1-ec-214.stp #6446 face #5076: OCCT 7.612823310902735, ours 7.608212312592665
+      gkv311-opencascade-dataset/step/trj6_k1-ec-214.stp #6446 face #5100: OCCT 7.612823316510699, ours 7.608212318200629
+      gkv311-opencascade-dataset/step/trj6_k1-ec-214.stp #6446 face #5450: OCCT 4.9299128460339325, ours 4.920689244072175
+      gkv311-opencascade-dataset/step/trj4_k1_top-ug-214.stp #11 face #116: OCCT 193.3657386769088, ours 193.2486014183555
+      gkv311-opencascade-dataset/step/trj4_k1_top-ug-214.stp #11 face #118: OCCT 193.3657386769088, ours 193.24860141835543
+      gkv311-opencascade-dataset/step/trj4_k1_top-md-203.stp #10 face #978: OCCT 193.3657386769075, ours 193.2486014183542
+      gkv311-opencascade-dataset/step/trj4_k1_top-md-203.stp #10 face #1021: OCCT 193.36573867690754, ours 193.24860141835424
+      gkv311-opencascade-dataset/step/trj5_k1-md-203.stp #10 face #978: OCCT 193.3657386769075, ours 193.2486014183542
+      gkv311-opencascade-dataset/step/trj5_k1-md-203.stp #10 face #1021: OCCT 193.36573867690754, ours 193.24860141835424
+  20  OCCT's differs by more than 1e-4 in a part of uncertainty 0.1 mm or more (healing's tolerances that coarse); ours within 1e-9 of chord sums
+      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #12338: OCCT 77.48611213688301, ours 77.91282882916963
+      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #13250: OCCT 311.19431162926537, ours 311.4655471117861
+      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #13482: OCCT 197.94616522959384, ours 198.48863656781313
+      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #15359: OCCT 311.1953401004307, ours 311.46657557739036
+      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #17057: OCCT 51.50417993044815, ours 51.930896621857116
+      gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 face #12324: OCCT 77.48611213688301, ours 77.91282882916963
+      gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 face #13236: OCCT 311.19431162926537, ours 311.4655471117861
+      gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 face #13468: OCCT 197.94616522959384, ours 198.48863656781313
+      gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 face #15345: OCCT 311.1953401004307, ours 311.46657557739036
+      gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 face #16297: OCCT 23.207031888531795, ours 23.16939459066766
+      gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 face #1297: OCCT 117.60329190096616, ours 115.71329158625366
+      gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 face #1298: OCCT 117.60329190096623, ours 115.71329158625373
+      gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 face #1342: OCCT 82.0002864351863, ours 79.99999999999979
+      gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 face #1344: OCCT 145.9563762643345, ours 144.95623252379883
+      gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 face #1350: OCCT 12.014923303997172, ours 11.014780609345873
+  15  OCCT's shorter by more than 1e-4 (not explained); ours within 1e-9 of chord sums
+      gkv311-opencascade-dataset/step/bug25281_tess_infloop_extract.step #11 face #61661: OCCT 31.83503786415644, ours 31.876228142454817
+      gkv311-opencascade-dataset/step/bug25281_tess_infloop_extract.step #11 face #61662: OCCT 156.3644845653682, ours 156.40567484366656
+      gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp #5203 face #4544: OCCT 59.20385735591853, ours 59.33313019562805
+      gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp #5203 face #4679: OCCT 59.20467082165855, ours 59.33252440481846
+      gkv311-opencascade-dataset/step/bug33261.stp #41791 face #41592: OCCT 1.2652909486351571, ours 1.2655344275032383
+      gkv311-opencascade-dataset/step/bug33261.stp #41791 face #41718: OCCT 1.1834567133555038, ours 1.1836370188987135
+      gkv311-opencascade-dataset/step/bug32239.STEP #72569 face #18591: OCCT 2.927184456930721, ours 2.9280173143380646
+      gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #9863: OCCT 29.67462456686036, ours 36.43600958357259
+      gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #9874: OCCT 28.60813157835773, ours 41.59710351694965
+      gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #9910: OCCT 21.245818079829082, ours 22.951758284197144
+      gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #9938: OCCT 28.688026656169008, ours 34.182982075292756
+      gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #9942: OCCT 32.67934082601385, ours 32.75347699410479
+      gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #71291 face #34015: OCCT 11.58225429123493, ours 11.698444289410805
+  12  several outer loops: OCCT splits the face, its pieces summed
+      gkv311-opencascade-dataset/step/bug30790.step #2448 face #4165: OCCT 12.713276366139274, ours 2.5132763505900844
+      gkv311-opencascade-dataset/step/bug30790.step #2445 face #4817: OCCT 12.713276366139247, ours 2.5132763505900515
+      gkv311-opencascade-dataset/step/bug30790.step #2442 face #2521: OCCT 12.71327636613922, ours 2.5132763505900293
+      gkv311-opencascade-dataset/step/bug30790.step #2439 face #4473: OCCT 12.713276366139246, ours 2.5132763505900506
+      gkv311-opencascade-dataset/step/bug30790.step #2436 face #6511: OCCT 12.713276366139388, ours 2.51327635059019
+  9  no edge loops: OCCT bounds the face by its surface's natural bounds
+      gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938 face #393024: OCCT 477.5220833456486, ours 0
+      gkv311-opencascade-dataset/step/trj4_pm2-ec-214.stp #1361 face #1364: OCCT 11.938051184825273, ours 0
+      gkv311-opencascade-dataset/step/bug24283_spheres.stp #8 face #7: OCCT 6.283185307179592, ours 0
+      gkv311-opencascade-dataset/step/pr1sy.stp #293 face #186: OCCT 628.3185307179588, ours 0
+      gkv311-opencascade-dataset/step/pr1sy.stp #293 face #206: OCCT 2513.274122871834, ours 0
+      gkv311-opencascade-dataset/step/trj6_pm4-ec-203.stp #1499 face #1489: OCCT 11.938051184825273, ours 0
+      gkv311-opencascade-dataset/step/bug33665.step #10 face #17: OCCT 0, ours 0
+      gkv311-opencascade-dataset/step/pr_3-sy.stp #303 face #185: OCCT 2513.274122871834, ours 0
+      gkv311-opencascade-dataset/step/pr_3-sy.stp #303 face #209: OCCT 628.3185307179588, ours 0
+  9  a vertex more than 10 x the uncertainty off its curve: healing rebuilds edges
+      gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787 face #5744: OCCT 10.35253161488529, ours 10.352511763017006
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #329592 face #338072: OCCT 19.40414650983666, ours 19.4040744514822
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #168383 face #370985: OCCT 1644.6889439604495, ours 1644.686636596922
+      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #14245 face #19757: OCCT 409.37471201207455, ours 409.3740533457787
+      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #13710 face #19543: OCCT 14.883973711489475, ours 14.88395452704104
+      gkv311-opencascade-dataset/step/bug25013_25013face.stp #2003 face #4157: OCCT 2.44667261829445, ours 2.530592094608081
+      gkv311-opencascade-dataset/step/trj6_k1-md-214.stp #10 face #911: OCCT 600.1013498825166, ours 660.0371969270394
+      gkv311-opencascade-dataset/step/trj4_k1_top-md-203.stp #10 face #911: OCCT 236.26037396949533, ours 259.85716414450394
+      gkv311-opencascade-dataset/step/trj5_k1-md-203.stp #10 face #911: OCCT 236.26037396949533, ours 259.85716414450394
+  8  OCCT measured no face of its id
+      gkv311-opencascade-dataset/step/bug31292.stp #62 face #65
+      gkv311-opencascade-dataset/step/bug31292.stp #62 face #423
+      gkv311-opencascade-dataset/step/bug31292.stp #62 face #499
+      gkv311-opencascade-dataset/step/bug31292.stp #62 face #548
+      gkv311-opencascade-dataset/step/bug31292.stp #62 face #597
+  4  chord sums unresolved on its edges (a speed varying sharply): not judged
+      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #2006: OCCT 36.51317733794315, ours 36.513306669759125
+      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #5953: OCCT 37.76231970577762, ours 37.76244902335081
+      gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 face #2000: OCCT 36.51317733794315, ours 36.513306669759125
+      gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 face #5946: OCCT 37.76231970577762, ours 37.76244902335081
+  2  a seam healing adds, counted twice (no edge used twice by the face, a band of closed loops)
+      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #13900 face #19619: OCCT 447.7417726557576, ours 447.74110594163324
+      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #11825 face #18789: OCCT 394.66781144827314, ours 394.62232807099986
+
+## Perimeter differences (agreeing and unclassified), relative
+  compared: 76240
+    <= 1e-14: 55531
+    <= 1e-12: 12926
+    <= 1e-10: 3985
+    <= 1e-8: 2495
+    <= 0.000001: 1303
+    worst 9.986e-7  nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_07_asme1_ap242-e3.stp #11020 face #6033
+    worst 9.986e-7  nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_07_asme1_ap242-e3.stp #11020 face #6087
+    worst 9.986e-7  nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_07_asme1_ap242-e3.stp #11020 face #2277

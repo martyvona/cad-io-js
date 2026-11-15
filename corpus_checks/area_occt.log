@@ -1,4 +1,4 @@
-host: Apple M4, 10 cores (4 performance, 6 efficiency), 10 threads, 24 GiB; Darwin 24.6.0 arm64; Node 24.5.0; lowpowermode 0, on AC; load 6.0; speed 4465 on 1 thread, 24869 on 10
+host: Apple M4, 10 cores (4 performance, 6 efficiency), 10 threads, 24 GiB; Darwin 24.6.0 arm64; Node 24.5.0; lowpowermode 0, on AC; load 6.5; speed 4878 on 1 thread, 25551 on 10
 517 files (0 over the size limit), 3258 parts; 61404 faces compared (trusted by the oracle, at least 0.010 mm^2, measured by OCCT); 2246 trusted faces OCCT didn't measure
 1 parts failed to mesh, their faces unmeasured:
   gkv311-opencascade-dataset/step/bug24024_slow_import.stp #76247: tessellation failed: RuntimeError: memory access out of bounds
