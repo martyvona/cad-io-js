@@ -12,10 +12,14 @@ namespace surfaces {
 
 namespace {
 
-/** x reduced into [r.lo, r.lo + P). */
+/**
+ * x reduced into [r.lo, r.hi], P = r.hi - r.lo: as it is where it's already in (r.hi too), else by whole periods,
+ * clamped into the range (x - P floor((x - lo) / P) can round past either end).
+ */
 double reduce(double x, Range r, double P) {
+  if (x >= r.lo && x <= r.hi) return x;
   double y = x - P * std::floor((x - r.lo) / P);
-  return y >= r.lo + P ? r.lo : y;
+  return std::clamp(y, r.lo, r.hi);
 }
 
 /**
