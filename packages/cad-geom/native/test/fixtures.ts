@@ -1,7 +1,8 @@
 // Writes the B-rep test data as a C++ header for the native tests, so they (WebAssembly ones too) need no file
 // access and no JSON: cad-brep's test models (packages/cad-brep/test/models.ts) as buffers, and the reference shapes
 // (packages/cad-brep/test/reference/fixtures/: <name>-<variant>.cbr and .json, format 2) as buffers with their facts
-// as plain structs. It only reads the reference directory. build.sh's test mode runs it:
+// as plain structs, and the 2D geometry queries of the catalogue's cases. It only reads the reference directory.
+// build.sh's test mode runs it:
 //   node native/test/fixtures.ts <header> [--reference <dir>]
 //   #include "brep_models.h"   fixtures::models[i].{name, data, size}, fixtures::model("seamCylinder");
 //                              fixtures::references[i] (its curvePoints, nCurvePoints, ... per kind),
@@ -124,10 +125,212 @@ const bytes = (data: Uint8Array) => {
   return out;
 };
 
+// The catalogue's cases (`cases`): each query a row of QUERIES, its input and expected fields (optional ones marked,
+// a `has<Name>` member saying whether it was given) and their C++ types, converted as the facts are. The measures
+// (OTHER_QUERIES) are known and left out until their lane's converter; any other query, or an unknown or missing
+// field, fails the run.
+type CaseType = 'row' | 'num' | 'bool' | 'vec2' | 'vec3' | 'range' | 'uv' | 'curveRange' | 'periods' | 'side'
+  | 'certainty' | 'crossings' | 'overlaps' | 'ints' | 'alts1' | 'alts2' | 'singularities' | 'family';
+type Field = [string, CaseType] | [string, CaseType, 'optional'];
+interface Query {
+  struct: string;
+  list: string;
+  doc: string;
+  input: Field[];
+  expected: Field[];
+}
+export const QUERIES: Record<string, Query> = {
+  intersect2: { struct: 'Intersect2Case', list: 'intersect2Cases',
+    doc: 'intersect2 on two curve rows over their ranges',
+    input: [['a', 'curveRange'], ['b', 'curveRange'], ['tol', 'num']],
+    expected: [['crossings', 'crossings'], ['overlaps', 'overlaps']] },
+  selfIntersect2: { struct: 'SelfIntersect2Case', list: 'selfIntersect2Cases',
+    doc: 'selfIntersect2 on a face\'s loop (loop: its index among the face\'s loops)',
+    input: [['face', 'row'], ['loop', 'row'], ['tol', 'num']],
+    expected: [['crossings', 'crossings'], ['overlaps', 'overlaps']] },
+  classify2: { struct: 'Classify2Case', list: 'classify2Cases', doc: 'classify2 of a point against a face\'s loops',
+    input: [['face', 'row'], ['p', 'vec2'], ['periods', 'periods'], ['tol', 'num']], expected: [['side', 'side']] },
+  nest2: { struct: 'Nest2Case', list: 'nest2Cases', doc: 'nest2 on a face\'s loops',
+    input: [['face', 'row'], ['periods', 'periods'], ['tol', 'num']], expected: [['parents', 'ints']] },
+  invertCurve: { struct: 'InvertCurveCase', list: 'invertCurveCases',
+    doc: 'invertCurve of a point on a curve row (range: the curve\'s domain if not given)',
+    input: [['curve', 'row'], ['p', 'vec3'], ['range', 'range', 'optional'], ['tol', 'num']],
+    expected: [['t', 'num'], ['distance', 'num'], ['certainty', 'certainty'], ['alternatives', 'alts1'],
+      ['onSeam', 'bool', 'optional']] },
+  invertSurface: { struct: 'InvertSurfaceCase', list: 'invertSurfaceCases',
+    doc: 'invertSurface of a point on a surface row (family: a curve of equally near feet, where there is one)',
+    input: [['surface', 'row'], ['p', 'vec3'], ['tol', 'num']],
+    expected: [['uv', 'uv'], ['distance', 'num'], ['certainty', 'certainty'], ['alternatives', 'alts2'],
+      ['onSeamU', 'bool'], ['onSeamV', 'bool'], ['atSingularity', 'bool'], ['family', 'family', 'optional']] },
+  singularities: { struct: 'SingularitiesCase', list: 'singularitiesCases', doc: 'a surface row\'s singularities',
+    input: [['surface', 'row']], expected: [['singularities', 'singularities']] },
+  singular: { struct: 'SingularCase', list: 'singularCases', doc: 'where a curve row\'s speed vanishes over a range',
+    input: [['curve', 'row'], ['range', 'range']], expected: [['params', 'alts1'], ['point', 'vec3']] },
+};
+export const OTHER_QUERIES = ['faceWidth', 'normal', 'loopCoedges', 'edgeLength', 'vertexGap', 'edgeUses'];
+const CASE_TOP = ['id', 'description', 'entities', 'query', 'input', 'expected'];
+const SINGULARITY_KINDS = ['pole', 'apex', 'normalVanishes'];
+
+const cap = (name: string) => name[0]!.toUpperCase() + name.slice(1);
+
+function caseMembers(name: string, type: CaseType): string[] {
+  switch (type) {
+    case 'row': return [`int ${name};`];
+    case 'num': return [`double ${name};`];
+    case 'bool': return [`bool ${name};`];
+    case 'vec2': case 'vec3': return [`Vec ${name};`];
+    case 'range': return [`double ${name}Lo, ${name}Hi;`];
+    case 'uv': return ['double u, v;'];
+    case 'curveRange': return [`int ${name}Curve;`, `double ${name}Lo, ${name}Hi;`];
+    case 'periods': return ['double periodU, periodV;', 'const double* poleU;', 'int nPoleU;', 'const double* poleV;',
+      'int nPoleV;', 'bool hasPoles;  // the input gives poleU and poleV (format 3; else the test derives them)'];
+    case 'side': return [`cadgeom::Side ${name};`];
+    case 'certainty': return [`cadgeom::Certainty ${name};`];
+    case 'crossings': return ['const ExpectedCrossing* crossings;', 'int nCrossings;'];
+    case 'overlaps': return ['const ExpectedOverlap* overlaps;', 'int nOverlaps;'];
+    case 'ints': return [`const int* ${name};`, `int n${cap(name)};`];
+    case 'alts1': return [`const double* ${name};`, `int n${cap(name)};`];
+    case 'alts2': return [`const double* ${name};  // (u, v) pairs, flat`, `int n${cap(name)};  // pairs`];
+    case 'singularities': return ['const ExpectedSingularity* singularities;', 'int nSingularities;'];
+    case 'family': return [`bool ${name}U;  // the feet run along u over [lo, hi] at v = at (else along v)`,
+      `double ${name}Lo, ${name}Hi, ${name}At;`];
+  }
+}
+
+/** The C++ values of a missing optional field. */
+function caseDefault(type: CaseType): string {
+  switch (type) {
+    case 'range': return 'NAN, NAN';
+    case 'bool': return 'false';
+    case 'family': return 'false, NAN, NAN, NAN';
+    default: throw new Error(`no default for an optional ${type}`);
+  }
+}
+
+function caseValue(type: CaseType, x: any, w: string, prefix: string, arrays: string[], format: number): string {
+  const keys = (o: any, want: string[], optional: string[] = []) => {
+    if (typeof o !== 'object' || o === null || Array.isArray(o)) throw new Error(`${w}: not an object`);
+    for (const k of Object.keys(o))
+      if (!want.includes(k) && !optional.includes(k)) throw new Error(`${w}: unknown "${k}"`);
+    for (const k of want) if (!(k in o)) throw new Error(`${w}: missing "${k}"`);
+  };
+  const range = (r: any, ww: string) => {
+    if (!Array.isArray(r) || r.length !== 2) throw new Error(`${ww}: not 2 numbers`);
+    return `${num(r[0], ww)}, ${num(r[1], ww)}`;
+  };
+  const array = (name: string, cxx: string, items: string[], count = items.length) => {
+    if (!items.length) return 'nullptr, 0';
+    arrays.push(`inline const ${cxx} ${prefix}_${name}[] = {${items.join(', ')}};`);
+    return `${prefix}_${name}, ${count}`;
+  };
+  const list = (v: any, ww: string) => {
+    if (!Array.isArray(v)) throw new Error(`${ww}: not an array`);
+    return v;
+  };
+  switch (type) {
+    case 'row': return int(x, w, 2 ** 31 - 1);
+    case 'num': return num(x, w);
+    case 'bool':
+      if (typeof x !== 'boolean') throw new Error(`${w}: not a boolean`);
+      return String(x);
+    case 'vec2':
+      if (!Array.isArray(x) || x.length !== 2) throw new Error(`${w}: not 2 numbers`);
+      return vec(x, w);
+    case 'vec3':
+      if (!Array.isArray(x) || x.length !== 3) throw new Error(`${w}: not 3 numbers`);
+      return vec(x, w);
+    case 'range': case 'uv': return range(x, w);
+    case 'curveRange': keys(x, ['curve', 'range']); return `${int(x.curve, w, 2 ** 31 - 1)}, ${range(x.range, w)}`;
+    case 'periods': {
+      // Format 3 gives the surface's pole lines with its periods; format 2 doesn't.
+      if (format >= 3) keys(x, ['u', 'v', 'poleU', 'poleV']);
+      else keys(x, ['u', 'v']);
+      const poles = (k: string) => array(k, 'double', list(x[k] ?? [], `${w}.${k}`).map((e: unknown) =>
+        num(e, `${w}.${k}`)));
+      return `${num(x.u, w)}, ${num(x.v, w)}, ${poles('poleU')}, ${poles('poleV')}, ${format >= 3}`;
+    }
+    case 'side':
+      if (x !== 'in' && x !== 'out' && x !== 'on') throw new Error(`${w}: unknown side ${x}`);
+      return `cadgeom::Side::${x}`;
+    case 'certainty':
+      if (x !== 'unique' && x !== 'ambiguous' && x !== 'none') throw new Error(`${w}: unknown certainty ${x}`);
+      return `cadgeom::Certainty::${x}`;
+    case 'crossings':
+      return array('crossings', 'ExpectedCrossing', list(x, w).map((c: any, i: number) => {
+        const ww = `${w}[${i}]`;
+        keys(c, ['ta', 'tb', 'p', 'tangent']);
+        if (typeof c.tangent !== 'boolean') throw new Error(`${ww}.tangent: not a boolean`);
+        return `{${num(c.ta, ww)}, ${num(c.tb, ww)}, ${vec(c.p, ww)}, ${c.tangent}}`;
+      }));
+    case 'overlaps':
+      return array('overlaps', 'ExpectedOverlap', list(x, w).map((o: any, i: number) => {
+        const ww = `${w}[${i}]`;
+        keys(o, ['a', 'b', 'sameDirection']);
+        if (typeof o.sameDirection !== 'boolean') throw new Error(`${ww}.sameDirection: not a boolean`);
+        return `{${range(o.a, ww)}, ${range(o.b, ww)}, ${o.sameDirection}}`;
+      }));
+    case 'ints':
+      return array('ints', 'int', list(x, w).map((e: unknown) => {
+        if (!Number.isInteger(e)) throw new Error(`${w}: not an integer: ${e}`);
+        return String(e);
+      }));
+    case 'alts1': return array('values', 'double', list(x, w).map((e: unknown) => num(e, w)));
+    case 'alts2': {
+      const pairs = list(x, w).map((e: unknown, i: number) => range(e, `${w}[${i}]`));
+      return array('pairs', 'double', pairs, pairs.length);
+    }
+    case 'singularities':
+      return array('singularities', 'ExpectedSingularity', list(x, w).map((o: any, i: number) => {
+        const ww = `${w}[${i}]`;
+        keys(o, ['kind', 'isoU', 'at', 'point']);
+        if (!SINGULARITY_KINDS.includes(o.kind)) throw new Error(`${ww}.kind: unknown ${o.kind}`);
+        if (typeof o.isoU !== 'boolean') throw new Error(`${ww}.isoU: not a boolean`);
+        if (!Array.isArray(o.point) || o.point.length !== 3) throw new Error(`${ww}.point: not 3 numbers`);
+        return `{"${o.kind}", ${o.isoU}, ${num(o.at, ww)}, ${vec(o.point, ww)}}`;
+      }));
+    case 'family': {
+      // One of u and v a range (the feet's direction), the other the number they're at.
+      keys(x, ['u', 'v']);
+      const uRange = Array.isArray(x.u);
+      if (uRange === Array.isArray(x.v)) throw new Error(`${w}: exactly one of u and v must be a range`);
+      return `${uRange}, ${range(uRange ? x.u : x.v, w)}, ${num(uRange ? x.v : x.u, w)}`;
+    }
+  }
+}
+
+/** One case's struct initializer, or null for a measure (OTHER_QUERIES). */
+function caseRecord(c: any, w: string, prefix: string, arrays: string[], format: number): [Query, string] | null {
+  if (typeof c !== 'object' || c === null) throw new Error(`${w}: not an object`);
+  for (const k of Object.keys(c)) if (!CASE_TOP.includes(k)) throw new Error(`${w}: unknown key "${k}"`);
+  for (const k of CASE_TOP) if (!(k in c)) throw new Error(`${w}: missing "${k}"`);
+  if (OTHER_QUERIES.includes(c.query)) return null;
+  const q = QUERIES[c.query];
+  if (!q) throw new Error(`${w}: unknown query "${c.query}"`);
+  if (typeof c.id !== 'string' || !/^[ -~]*$/.test(c.id) || /["\\]/.test(c.id)) throw new Error(`${w}: bad id`);
+  const parts = [`"${c.id}"`];
+  for (const [section, fields] of [['input', q.input], ['expected', q.expected]] as const) {
+    const o = c[section];
+    if (typeof o !== 'object' || o === null) throw new Error(`${w}.${section}: not an object`);
+    const want = fields.map(([n]) => n);
+    for (const k of Object.keys(o)) if (!want.includes(k)) throw new Error(`${w}.${section}: unknown field "${k}"`);
+    for (const [name, type, optional] of fields) {
+      const ww = `${w}.${section}.${name}`;
+      if (!(name in o)) {
+        if (!optional) throw new Error(`${ww}: missing`);
+        parts.push(caseDefault(type), 'false');
+        continue;
+      }
+      parts.push(caseValue(type, o[name], ww, `${prefix}_${section}_${name}`, arrays, format));
+      if (optional) parts.push('true');
+    }
+  }
+  return [q, `{${parts.join(', ')}}`];
+}
+
 export function generate(referenceDir: string): string {
   const lines = ['// Generated by native/test/fixtures.ts from packages/cad-brep/test/models.ts and the reference',
     '// fixtures: not to be edited.', '#pragma once', '#include <cstddef>', '#include <cstdint>', '#include <cstring>',
-    '', '#include <cad_geom/result.h>', '', 'namespace fixtures {', '',
+    '#include <cmath>', '', '#include <cad_geom/result.h>', '', 'namespace fixtures {', '',
     '/** A point or vector; 2D ones (p-curves) with z = 0. */', 'struct Vec {', '  double x, y, z;', '};', ''];
   const modelNames = Object.keys(MODELS).sort() as (keyof typeof MODELS)[];
   for (const name of modelNames) {
@@ -145,10 +348,24 @@ export function generate(referenceDir: string): string {
     lines.push('', `/** ${k.doc}. */`, `struct ${k.struct} {`,
       ...k.fields.flatMap(([n, t]) => members(n, t)).map(m => `  ${m}`), '};');
   }
+  lines.push('', '// The catalogue\'s cases: input and expected answer per query.', '',
+    '/** An expected crossing: parameters on each, the point, touching without crossing. */',
+    'struct ExpectedCrossing {', '  double ta, tb;', '  Vec p;', '  bool tangent;', '};', '',
+    '/** An expected overlap: the ranges on each, and whether they run the same way. */',
+    'struct ExpectedOverlap {', '  double aLo, aHi, bLo, bHi;', '  bool sameDirection;', '};', '',
+    '/** An expected singularity: its kind ("pole", "apex", "normalVanishes"), the iso-line (u = at if isoU, else',
+    ' * v = at), the point it collapses to. */',
+    'struct ExpectedSingularity {', '  const char* kind;', '  bool isoU;', '  double at;', '  Vec point;', '};');
+  for (const q of Object.values(QUERIES)) {
+    lines.push('', `/** ${q.doc}. */`, `struct ${q.struct} {`, '  const char* id;',
+      ...[...q.input, ...q.expected].flatMap(([n, t, optional]) =>
+        [...caseMembers(n, t), ...(optional ? [`bool has${cap(n)};`] : [])]).map(m => `  ${m}`), '};');
+  }
 
   const files = fs.existsSync(referenceDir) ? fs.readdirSync(referenceDir).sort() : [];
   const stems = [...new Set(files.filter(f => /\.(cbr|json)$/.test(f)).map(f => f.replace(/\.(cbr|json)$/, '')))];
   const refs: string[] = [];
+  const index: string[] = [];  // every converted case: query, id, reference, its index in the query's list
   const seen = new Set<string>();
   for (const stem of stems) {
     const jsonPath = path.join(referenceDir, `${stem}.json`), cbrPath = path.join(referenceDir, `${stem}.cbr`);
@@ -156,7 +373,7 @@ export function generate(referenceDir: string): string {
     const j = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
     for (const key of Object.keys(j)) if (!TOP.includes(key)) throw new Error(`${stem}.json: unknown key "${key}"`);
     for (const key of TOP) if (!(key in j)) throw new Error(`${stem}.json: missing "${key}"`);
-    if (j.format !== 2) throw new Error(`${stem}.json: format ${j.format}, this reads 2`);
+    if (j.format !== 2 && j.format !== 3) throw new Error(`${stem}.json: format ${j.format}, this reads 2 and 3`);
     if (j.file !== stem || `${j.name}-${j.variant}` !== stem)
       throw new Error(`${stem}.json: file "${j.file}", name "${j.name}" and variant "${j.variant}" don't match`);
     const id = ident(stem);
@@ -178,8 +395,17 @@ export function generate(referenceDir: string): string {
       list.push(fact(k, f, `${stem}.json facts[${i}] (${f.kind})`, `ref_${id}_${i}`, arrays));
       byKind.set(k.list, list);
     });
+    j.cases.forEach((c: unknown, i: number) => {
+      const r = caseRecord(c, `${stem}.json cases[${i}]`, `ref_${id}_case${i}`, arrays, j.format);
+      if (!r) return;
+      const at = (byKind.get(r[0].list) ?? []).length;
+      index.push(`  {"${(c as any).query}", "${(c as any).id}", ${seen.size - 1}, ${at}},`);
+      const list = byKind.get(r[0].list) ?? [];
+      list.push(r[1]);
+      byKind.set(r[0].list, list);
+    });
     lines.push(...arrays);
-    const lists = Object.values(KINDS).map(k => {
+    const lists = [...Object.values(KINDS), ...Object.values(QUERIES)].map(k => {
       const got = byKind.get(k.list);
       if (got) lines.push(`inline const ${k.struct} ref_${id}_${k.list}[] = {`, ...got.map(g => `  ${g},`), '};');
       return got ? `ref_${id}_${k.list}, ${got.length}` : 'nullptr, 0';
@@ -194,8 +420,8 @@ export function generate(referenceDir: string): string {
     'struct Reference {', '  const char* name;', '  const char* variant;', '  const char* file;',
     '  const uint8_t* data;', '  size_t size;', '  double scale;', '  double rotation[9];  // column-major',
     '  double translation[3];', '  double uncertainty;',
-    ...Object.values(KINDS).map(k => `  const ${k.struct}* ${k.list};\n  int n${k.list[0]!.toUpperCase()}` +
-      `${k.list.slice(1)};`), '};', '',
+    ...[...Object.values(KINDS), ...Object.values(QUERIES)].map(k => `  const ${k.struct}* ${k.list};\n` +
+      `  int n${k.list[0]!.toUpperCase()}${k.list.slice(1)};`), '};', '',
     // An empty array isn't C++: a sentinel when there are no references, excluded by the count.
     `inline const Reference references[] = {`, ...(refs.length ? refs : ['  {}']), '};',
     `inline const int nReferences = ${seen.size};`, '',
@@ -203,7 +429,17 @@ export function generate(referenceDir: string): string {
     'inline const Reference* reference(const char* name, const char* variant) {',
     '  for (int i = 0; i < nReferences; i++)',
     '    if (std::strcmp(references[i].name, name) == 0 && std::strcmp(references[i].variant, variant) == 0)',
-    '      return &references[i];', '  return nullptr;', '}', '', '}  // namespace fixtures', '');
+    '      return &references[i];', '  return nullptr;', '}', '',
+    '/** A case by query and id: its reference (references[reference]) and its index in that query\'s list. */',
+    'struct CaseEntry {', '  const char* query;', '  const char* id;', '  int reference;', '  int index;', '};',
+    `inline const CaseEntry caseIndex[] = {`, ...(index.length ? index : ['  {}']), '};',
+    `inline const int nCases = ${index.length};`, '',
+    '/** The case with this id, null if there\'s none. */', 'inline const CaseEntry* findCase(const char* id) {',
+    '  for (int i = 0; i < nCases; i++)', '    if (std::strcmp(caseIndex[i].id, id) == 0) return &caseIndex[i];',
+    '  return nullptr;', '}', '',
+    '/** How many cases a query has. */', 'inline int countCases(const char* query) {', '  int n = 0;',
+    '  for (int i = 0; i < nCases; i++) n += std::strcmp(caseIndex[i].query, query) == 0;', '  return n;', '}', '',
+    '}  // namespace fixtures', '');
   return lines.join('\n');
 }
 
