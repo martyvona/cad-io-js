@@ -1,0 +1,12 @@
+{"format":2,"name":"case-sizes","variant":"s1","file":"case-sizes-s1","similarity":{"scale":1,"rotation":[1,0,0,0,1,0,0,0,1],"translation":[0,0,0]},"uncertainty":0.000001,
+"facts": [],
+"cases": [
+{"id":"sizes-sliver","description":"A face 10 (mm) by 1e-7 (mm), narrower than the uncertainty 1e-6: area 1e-6 (mm^2), width 1e-7 (mm).","entities":{"face":[0]},"query":"faceWidth","input":{"face":0},"expected":{"area":0.000001,"width":1e-7}},
+{"id":"sizes-short-edge","description":"An edge of length 1e-8 (mm), under the uncertainty 1e-6 (mm), from (20 + 1e-8, 2) to (20, 2).","entities":{"face":[1],"edge":[7]},"query":"edgeLength","input":{"edge":7},"expected":{"length":1e-8,"belowTolerance":true}},
+{"id":"sizes-vertex-gap","description":"An edge whose line ends at (42.0001, 0) while its end vertex is at (42, 0): a gap of 1e-4 (mm), wider than the uncertainty 1e-6.","entities":{"face":[2],"edge":[9],"vertex":[10]},"query":"vertexGap","input":{"edge":9,"vertex":10},"expected":{"gap":0.0001}},
+{"id":"sizes-far","description":"A square of side 1e-3 (mm) at (1e7, 1e7) on a plane through the origin, so its (u, v) are 1e7 and their rounding 2e-9: area 1e-6 (mm^2), width 1e-3 (mm).","entities":{"face":[3]},"query":"faceWidth","input":{"face":3},"expected":{"area":0.000001,"width":0.001}},
+{"id":"sizes-far-classify-0","description":"A point against the far square: (10000000.0005, 10000000.0005) is in.","entities":{"face":[3]},"query":"classify2","input":{"face":3,"p":[10000000.0005,10000000.0005],"periods":{"u":0,"v":0},"tol":1e-8},"expected":{"side":"in"}},
+{"id":"sizes-far-classify-1","description":"A point against the far square: (10000000.0005, 10000000) is on.","entities":{"face":[3]},"query":"classify2","input":{"face":3,"p":[10000000.0005,10000000],"periods":{"u":0,"v":0},"tol":1e-8},"expected":{"side":"on"}},
+{"id":"sizes-far-classify-2","description":"A point against the far square: (9999999.999999, 10000000.0005) is out.","entities":{"face":[3]},"query":"classify2","input":{"face":3,"p":[9999999.999999,10000000.0005],"periods":{"u":0,"v":0},"tol":1e-8},"expected":{"side":"out"}}
+]
+}

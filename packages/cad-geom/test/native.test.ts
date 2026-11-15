@@ -234,10 +234,10 @@ test('build.sh guard: Eigen headers outside the allowed modules fail, naming the
   }
 });
 
-/** A reference fixture pair of every kind, as the reference lane writes them (format 1). */
+/** A reference fixture pair of every kind, as the reference lane writes them (format 2). */
 function referenceJson(): Record<string, any> {
   const tol = { tol: 1e-12, abs: 1e-9 };
-  return { format: 1, name: 'cylinder', variant: 's1e-3', file: 'cylinder-s1e-3',
+  return { format: 2, name: 'cylinder', variant: 's1e-3', file: 'cylinder-s1e-3',
     similarity: { scale: 0.001, rotation: [1, 0, 0, 0, 1, 0, 0, 0, 1], translation: [0, 0, 5] }, uncertainty: 1e-10,
     facts: [
       { kind: 'curvePoint', curve: 1, id: 4294967295, t: 0.1, p: [1, 2, 3], d1: [0.5, -0.25], d2: [-1, 1e-300, 7e21],
@@ -249,9 +249,9 @@ function referenceJson(): Record<string, any> {
       { kind: 'surfacePoint', surface: 0, id: 3, u: 0, v: 0, p: [0, 0, 0], du: [0, 0, 0], dv: [0, 0, 1],
         duu: [0, 0, 0], duv: [0, 0, 0], dvv: [0, 0, 0], n: null, ...tol },
       { kind: 'curveInverse', curve: 1, id: 7, p: [2, 0, 0], t: 0, distance: 0, certainty: 'ambiguous',
-        alternatives: [6.283185307179586], ptol: 1e-9, ...tol },
+        alternatives: [6.283185307179586], onSeam: false, ptol: 1e-9, ...tol },
       { kind: 'curveInverse', curve: 1, id: 7, p: [0, 2, 0], t: 1.5707963267948966, distance: 0, certainty: 'unique',
-        alternatives: [], ptol: 1e-9, ...tol },
+        alternatives: [], onSeam: true, ptol: 1e-9, ...tol },
       { kind: 'surfaceInverse', surface: 0, id: 3, p: [2, 0, 1], uv: [0, 1], distance: 0, certainty: 'ambiguous',
         alternatives: [[6.283185307179586, 1]], onSeamU: true, onSeamV: false, atSingularity: false, ptol: 1e-9,
         ...tol },
@@ -304,7 +304,7 @@ int main() {
     std::printf("ci %d %u", f.curve, f.id); v("p", f.p);
     std::printf(" %.17g %g %d %d", f.t, f.distance, (int)f.certainty, f.nAlternatives);
     for (int k = 0; k < f.nAlternatives; k++) std::printf(" %.17g", f.alternatives[k]);
-    std::printf(" %g %d\n", f.ptol, f.alternatives == nullptr);
+    std::printf(" %d %g %d\n", f.onSeam, f.ptol, f.alternatives == nullptr);
   }
   const SurfaceInverse& s = r->surfaceInverses[0];
   std::printf("si %d %u", s.surface, s.id); v("p", s.p);
@@ -329,8 +329,8 @@ cp 2 8 2 p=3,2,1 d1=0,0,0 d2=0,0,0 1e-12 1e-09
 cl 1 7 0 ${pi2} 12.566370614359172
 sp 0 3 0.5 1 p=1,0,0 du=0,1,0 dv=0,0,1 duu=-1,0,0 duv=0,0,0 dvv=0,0,0 n=1,0,0 1
 sp 0 3 0 0 p=0,0,0 du=0,0,0 dv=0,0,1 duu=0,0,0 duv=0,0,0 dvv=0,0,0 n=0,0,0 0
-ci 1 7 p=2,0,0 0 0 1 1 ${pi2} 1e-09 0
-ci 1 7 p=0,2,0 1.5707963267948966 0 0 0 1e-09 1
+ci 1 7 p=2,0,0 0 0 1 1 ${pi2} 0 1e-09 0
+ci 1 7 p=0,2,0 1.5707963267948966 0 0 0 1 1e-09 1
 si 0 3 p=2,0,1 0 1 0 1 1 ${pi2} 1 1 0 0 1e-09
 fa 0 9 62.831853071795862
 vo 0 1 -1e+20
@@ -366,7 +366,8 @@ test('fixtures.ts: what it doesn\'t know fails the run, naming the file', () => 
     fails(j => { j.facts[7].onSeamU = 1; }, /\.onSeamU: not a boolean/);
     fails(j => { j.facts[7].alternatives = [[1, 2, 3]]; }, /\.alternatives\[0\]: not 2 numbers/);
     fails(j => { j.facts[7].uv = [1]; }, /\.uv: not 2 numbers/);
-    fails(j => { j.format = 2; }, /format 2, this reads 1/);
+    fails(j => { j.format = 1; }, /format 1, this reads 2/);
+    fails(j => { delete j.facts[5].onSeam; }, /facts\[5\] \(curveInverse\)\.onSeam: missing/);
     fails(j => { j.extra = 1; }, /unknown key "extra"/);
     fails(j => { delete j.cases; }, /missing "cases"/);
     fails(j => { j.variant = 's1'; }, /don't match/);
