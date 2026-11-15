@@ -52,6 +52,13 @@ namespace quadrature {
 /**
  * The integral of f over [a, b] by adaptive Gauss-Kronrod, until the estimated error is below max(absTol, relTol *
  * |integral|) or maxEval evaluations; status noConvergence when not reached (the best estimate kept).
+ * A relTol alone can't be met on an integral that cancels to about 0: one at the rounding level of the integral of
+ * |f|, or of f's variation times the nodes' own rounding (ulp(t), which near large t can dominate). integrate's
+ * callers keep t small where they can (a parameter relative to the range's start, as the precision rule for
+ * evaluation does). integrate recognizes such an integral and stops early, with noConvergence and its estimate at
+ * that level. Where an integral may be negligible (a sliver span), pass an absTol (a length scale, or relTol times the
+ * integral of |f|). The estimate is infinite only where successive halvings stop shrinking above the rounding level: a
+ * non-integrable f. The nodes' rounding (at most ulp(t) times f's variation) isn't in the estimate.
  */
 Estimate integrate(const std::function<double(double)>& f, double a, double b, double absTol, double relTol,
   int maxEval = 100000);
