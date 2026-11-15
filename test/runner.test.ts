@@ -43,6 +43,45 @@ test('runFiles with one child: a crash replaces it, the files after are done', {
   assert.equal(new Set(pids).size, 2);
 });
 
+test('runFiles watchdogs: a child silent on a file is killed and the file retried once; one that won\'t exit after '
+  + 'its last file is killed', { timeout: 60_000 }, async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'runner-watchdog-'));
+  const saved = { idle: process.env.IDLE_MS, grace: process.env.EXIT_GRACE_MS, hang: process.env.FIXTURE_EXIT_HANG };
+  try {
+    process.env.IDLE_MS = '1500';
+    process.env.EXIT_GRACE_MS = '1000';
+    process.env.FIXTURE_EXIT_HANG = '1';
+    process.env.CHILDREN = '2';
+    const jobs = [{ path: 'g0', job: { ms: 5 } }, { path: 'g1', job: { ms: 5, hangOnce: path.join(dir, 'g1') } },
+      { path: 'g2', job: { ms: 5, fail: 'hang' as const } }, { path: 'g3', job: { ms: 5 } }];
+    const got: { path: string; out: unknown }[] = [];
+    const t0 = Date.now();
+    await runFiles(FIXTURE, check, jobs, [], (p, r) => got.push({ path: p, out: 'result' in r ? r.result : r.error }));
+    assert.deepEqual(got.map((g) => g.path), ['g0', 'g1', 'g2', 'g3']);
+    assert.equal(typeof got[1]!.out, 'object', 'hung once, then done');
+    assert.match(got[2]!.out as string, /silent for 1.5 s, twice/);
+    assert.equal(typeof got[0]!.out, 'object');
+    assert.equal(typeof got[3]!.out, 'object');
+    assert.ok(Date.now() - t0 < 30_000, 'the exits that hang are killed');
+    // A file's silence counts from when it's given: files that answer in time aren't killed, however long the run.
+    process.env.CHILDREN = '1';
+    const tries = path.join(dir, 'tries');
+    const steady = [{ path: 'h0', job: { ms: 5, tries } }, { path: 'h1', job: { ms: 1000, tries } },
+      { path: 'h2', job: { ms: 1000, tries } }];
+    const out: unknown[] = [];
+    await runFiles(FIXTURE, check, steady, [], (_p, r) => out.push('result' in r ? r.result : r.error));
+    assert.ok(out.every((o) => typeof o === 'object'));
+    assert.deepEqual(fs.readFileSync(tries, 'utf8').trim().split('\n'), ['h0', 'h1', 'h2']);
+  } finally {
+    delete process.env.CHILDREN;
+    for (const [k, v] of [['IDLE_MS', saved.idle], ['EXIT_GRACE_MS', saved.grace], ['FIXTURE_EXIT_HANG', saved.hang]]) {
+      if (v === undefined) delete process.env[k!];
+      else process.env[k!] = v;
+    }
+    fs.rmSync(dir, { recursive: true });
+  }
+});
+
 test('runFiles hands out the largest files first, and merges in file order', { timeout: 60_000 }, async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'runner-test-'));
   try {

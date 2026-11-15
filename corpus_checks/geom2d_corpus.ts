@@ -15,7 +15,8 @@
 //   - OCCT=1: the moved points classified by OCCT's face classifier (tess-occt's probe, the part built by the native
 //     builder, unhealed: its p-curves are the model's), on faces whose (u, v) OCCT's parameterization shares (planes,
 //     cylinders, spheres, tori, B-splines) or maps affinely (cones: v' = v / cos a), at our (u, v) tolerance; the
-//     differences classified (OCCT on: its band wider than ours; the rest listed).
+//     differences classified (OCCT on: its band wider than ours; on periodic faces, whether OCCT agrees with the
+//     point shifted by a period, and whether it's near the seam; the rest listed).
 // Pole lines: cad_geom_api.cpp's closed forms (a cone's apex, a sphere's poles), not yet Surface::singularities.
 // Planted bugs in about one part in 10 (corpus.ts's plantedPart), on its first face the check judges, each of which
 // must show (those that don't are listed), judged against the unplanted model's boundary: PLANT=orient reverses the
@@ -281,12 +282,30 @@ export const check: FileCheck<undefined, Result> = {
             for (let i = 0; i < p10.length / 2; i++)
               qs.push(d.face.id[f]!, p10[2 * i]!, map * p10[2 * i + 1]!, map * tolUv[i >> 1]!);
             const o = occtClassify(qs);
+            const name = (x: number) => x === 255 ? 'failed' : ['in', 'out', 'on', 'unknown'][x]!;
             for (let i = 0; i < o.length; i++) {
-              const ours = SIDE[r10.sides[i]!];
-              const theirs = o[i] === 255 ? 'failed' : ['in', 'out', 'on', 'unknown'][o[i]!];
-              tally(R.occt, ours === theirs ? 'agree' : theirs === 'on' ? 'OCCT on, ours not (its band wider)'
-                : theirs === 'failed' || theirs === 'unknown' ? `OCCT ${theirs}` : `ours ${ours}, OCCT ${theirs}`,
-                ours === theirs || theirs === 'on' ? undefined : `${at}: (${p10[2 * i]}, ${p10[2 * i + 1]})`);
+              const ours = SIDE[r10.sides[i]!], theirs = name(o[i]!), u = p10[2 * i]!, v = p10[2 * i + 1]!;
+              if (ours === theirs || theirs === 'on' || theirs === 'failed' || theirs === 'unknown') {
+                tally(R.occt, ours === theirs ? 'agree' : theirs === 'on' ? 'OCCT on, ours not (its band wider)'
+                  : `OCCT ${theirs}`, ours === theirs || theirs === 'on' ? undefined : `${at}: (${u}, ${v})`);
+                continue;
+              }
+              // On a periodic face: OCCT again with the point a period on and back in each periodic direction. Only
+              // where a shifted point agrees is the difference OCCT's classifier not reducing (u, v) by the period.
+              const shifts: [number, number][] = [];
+              if (info.uPeriod > 0) shifts.push([info.uPeriod, 0], [-info.uPeriod, 0]);
+              if (info.vPeriod > 0) shifts.push([0, info.vPeriod], [0, -info.vPeriod]);
+              const sq: number[] = [];
+              for (const [du, dv] of shifts) sq.push(d.face.id[f]!, u + du, map * (v + dv), map * tolUv[i >> 1]!);
+              const shifted = shifts.length ? [...occtClassify(sq)].map(name) : [];
+              const seam = (x: number, period: number) => period > 0
+                && Math.abs(x - period * Math.round(x / period)) <= 20 * tolUv[i >> 1]!;
+              const nearSeam = seam(u, info.uPeriod) || seam(v, info.vPeriod);
+              const why = !shifts.length ? 'not periodic'
+                : shifted.includes(ours!) ? `agrees a period on (OCCT doesn't reduce (u, v) by the period)`
+                  : 'not a period on either';
+              tally(R.occt, `ours ${ours}, OCCT ${theirs}: ${why}${nearSeam ? ', within 20 x tol of the seam' : ''}`,
+                `${at}: (${u}, ${v})`);
             }
           }
         } finally {
