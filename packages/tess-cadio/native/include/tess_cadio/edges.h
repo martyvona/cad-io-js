@@ -10,9 +10,12 @@
 // equator) needs a cut no model edge gives to make it a domain. It gets one: a pseudo-edge along the iso-line of the
 // period's direction, sampled once at the face's spacing and used on both sides like a seam, from one winding loop to
 // the other (or to the pole, where a loop winds alone towards one). The cut is at the period's start unless a sample
-// of the face's loops is within the tolerance of that line in 3D (a vertex, a loop crossing there), and then at the
-// middle of the widest gap between the loops' samples' values in that direction (taken modulo the period); each loop
-// gets a sample where the cut crosses it. Pseudo-edges are numbered after the model's edges.
+// of the face's loops is within the tolerance of that line in 3D (a vertex, a loop crossing there) or a loop that
+// doesn't wind (a hole) spans it, and then at the middle of the widest gap between all the loops' samples' values in
+// that direction (taken modulo the period, points at a pole left out); either only where every winding loop crosses
+// it once away from a pole (a vertex off its curve can take a loop back across; a loop through a pole crosses the
+// whole pole line there), else the next widest gap's. Each loop gets a sample where the cut crosses it.
+// Pseudo-edges are numbered after the model's edges.
 #pragma once
 
 #include <cstdint>
@@ -57,9 +60,14 @@ struct EdgeSamples {
 /**
  * A coedge's samples in its face's (u, v), in the coedge's direction of travel (its edge's samples reversed where
  * it runs against its edge): `uv[i]` stands for the edge's sample `index[i]`. Through the coedge's p-curve at the
- * same parameters where it has one, else by inverting each 3D point onto the surface, seeded by the previous
- * sample's (u, v). Along a periodic direction the (u, v) are continuous (unwrapped: a p-curve crossing u = 2 pi
- * keeps going past it). A seam's two uses each have their own (u, v), one copy of the edge's samples on each side.
+ * same parameters where it has one and it lands on the edge's points (within 100 x the tolerance inside the edge),
+ * else by inverting each 3D point onto the surface, seeded by the p-curve's (u, v) or the previous sample's (a p-curve
+ * parameterized otherwise than its curve, against Part 42, only seeds). Along a periodic direction the (u, v) are
+ * continuous (unwrapped: a p-curve crossing u = 2 pi keeps going past it). A seam's two uses each have their own
+ * (u, v), one copy of the edge's samples on each side.
+ * A use by inversion that passes through a pole between its ends (a meridian over a sphere's pole) has its sample
+ * there twice, at the free coordinate on each side (index repeats it), the face's boundary running along the pole
+ * line between them.
  */
 struct CoedgeSamples {
   Status status = Status::unsupported;

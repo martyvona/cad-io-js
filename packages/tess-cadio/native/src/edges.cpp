@@ -6,6 +6,7 @@
 // (a pseudo-edge on an iso-line, sampled like an edge). The cuts and their crossing samples are made at construction,
 // so the samples every face sees are fixed until split().
 #include "tess_cadio/edges.h"
+#include "surfaces.h"
 
 #include <algorithm>
 #include <cmath>
@@ -141,9 +142,21 @@ struct IsoGeom : Geom {
   double bound(double a, double b, int order) const override {
     Range rf{a, b}, rx{fixed, fixed};
     double o[3] = {kInf, kInf, kInf};
-    if (s.derivBound(free == 1 ? rx : rf, free == 1 ? rf : rx, order, o) != Status::ok) return kInf;
-    double m = order == 1 ? o[free] : (free == 1 ? o[2] : o[0]);
-    return std::isfinite(m) ? m : kInf;
+    if (s.derivBound(free == 1 ? rx : rf, free == 1 ? rf : rx, order, o) == Status::ok) {
+      double m = order == 1 ? o[free] : (free == 1 ? o[2] : o[0]);
+      if (std::isfinite(m)) return m;
+    }
+    // No bound (cad-geom's B-spline surfaces have none yet): the derivative's largest at 9 points, with a margin;
+    // an estimate, where the curves' and the other surfaces' bounds hold.
+    double m = 0;
+    for (int k = 0; k <= 8; k++) {
+      SurfacePoint p;
+      Vec2 q = uv(a + (b - a) * k / 8);
+      s.eval(q.x, q.y, order, p);
+      Vec3 dd = order == 1 ? (free == 1 ? p.dv : p.du) : (free == 1 ? p.dvv : p.duu);
+      m = std::max(m, norm(dd));
+    }
+    return 1.5 * m;
   }
   void breaks(double a, double b, std::vector<double>& out) const override {
     std::vector<double> us, vs;
@@ -249,6 +262,7 @@ struct EdgeMesh::Impl {
     std::unique_ptr<Curve> pcurve;
     int face = -1;
     bool ambiguous[2] = {false, false};  // by inversion and wholly on a seam in u (v): its side in question
+    bool pcurveOff = false;              // its p-curve parameterized otherwise than its edge's curve: by inversion
     CoedgeSamples s;
   };
   struct Crossing {
@@ -492,18 +506,33 @@ struct EdgeMesh::Impl {
     for (int i = 0; i < n; i++) s.index.push_back(reversed ? n - 1 - i : i);
     s.status = Status::ok;
     std::vector<char> singular(n, 0), seam[2] = {std::vector<char>(n, 0), std::vector<char>(n, 0)};
+    // Through the p-curve at the edge's parameters, where it lands on the edge's points: a p-curve parameterized
+    // otherwise (against Part 42: its own range, a B-spline fitted to a circle) leaves its domain or misses them by
+    // more than 100 x the tolerance, and is used only to seed inversion.
+    std::vector<Vec2> seeds;
+    C.pcurveOff = false;
     if (C.pcurve) {
-      s.fromPcurve = true;
-      for (int i = 0; i < n; i++) {
+      double et = m.f64(CBR_EDGE_TOLERANCE)[m.coedgeEdge(c)];
+      double miss = 100 * std::max(tol, std::isfinite(et) ? et : 0.0);
+      for (int i = 0; i < n && !C.pcurveOff; i++) {
         CurvePoint q;
-        s.status = worse(s.status, C.pcurve->eval(E.s.t[s.index[i]], 0, q) == Status::ok ? Status::ok :
-          Status::outOfDomain);
-        s.uv.push_back({q.p.x, q.p.y});
+        Status st = C.pcurve->eval(E.s.t[s.index[i]], 0, q);
+        seeds.push_back({q.p.x, q.p.y});
+        // (The ends are the vertices', which may miss the curve themselves: inside samples only.)
+        bool end = i == 0 || i == n - 1;
+        if (st != Status::ok || (!end && norm(surfaceAt(C.face, seeds.back()) - E.s.points[s.index[i]]) > miss))
+          C.pcurveOff = true;
       }
-    } else {
+      if (!C.pcurveOff) {
+        s.fromPcurve = true;
+        s.uv = seeds;
+      }
+    }
+    if (!C.pcurve || C.pcurveOff) {
       for (int i = 0; i < n; i++) {
-        Vec2 hint = i ? s.uv.back() : Vec2{};
-        SurfaceInversion si = invert(C.face, E.s.points[s.index[i]], i ? &hint : nullptr);
+        Vec2 hint = i < static_cast<int>(seeds.size()) ? seeds[i] : i ? s.uv.back() : Vec2{};
+        bool hinted = i < static_cast<int>(seeds.size()) || i > 0;
+        SurfaceInversion si = invert(C.face, E.s.points[s.index[i]], hinted ? &hint : nullptr);
         s.status = worse(s.status, si.status);
         s.uv.push_back(si.uv);
         singular[i] = si.atSingularity;
@@ -536,13 +565,109 @@ struct EdgeMesh::Impl {
       s.uv[i].x = nearest(s.uv[i].x, s.uv[i - 1].x, F.period[0]);
       s.uv[i].y = nearest(s.uv[i].y, s.uv[i - 1].y, F.period[1]);
     }
-    for (int i = 0; i < n; i++) s.gap = std::fmax(s.gap, norm(surfaceAt(C.face, s.uv[i]) - E.s.points[s.index[i]]));
+    if (!s.fromPcurve) throughPoles(c);
+    if (!s.fromPcurve) alongCollapse(c);
+    for (size_t i = 0; i < s.uv.size(); i++)
+      s.gap = std::fmax(s.gap, norm(surfaceAt(C.face, s.uv[i]) - E.s.points[s.index[i]]));
+  }
+
+  /**
+   * Which way a jump along pole p runs in face f, its other coordinate's values `mean` on average: the face to its
+   * left (its sense true), so along a pole at the top of the other coordinate towards -u (+v for a pole line in v),
+   * at the bottom the other way.
+   */
+  double jumpSignAt(int f, int p, double mean) const {
+    const Face& F = faces[f];
+    int fr = F.sing[p].isoU ? 1 : 0;
+    bool top = F.sing[p].at > mean;
+    double sgn = fr == 0 ? (top ? -1 : 1) : (top ? 1 : -1);
+    return m.faceSameSense(f) ? sgn : -sgn;
+  }
+
+  /**
+   * A coedge by inversion through a pole between its ends (a meridian over a sphere's pole): its sample there twice,
+   * at the free coordinate on each side, the jump between them the way the face lies (jumpSignAt), the samples after
+   * shifted to follow; chain() fills the pole line between the two.
+   */
+  void throughPoles(int c) {
+    Coedge& C = coedges[c];
+    CoedgeSamples& s = C.s;
+    const Face& F = faces[C.face];
+    const Edge& E = edges[m.coedgeEdge(c)];
+    for (size_t i = 1; i + 1 < s.uv.size(); i++) {
+      // (At the pole by the surface at its (u, v), as its foot is: an edge a little off its surface misses the pole.)
+      int p = poleAt(C.face, E.s.points[s.index[i]]);
+      if (p < 0) p = poleAt(C.face, surfaceAt(C.face, s.uv[i]));
+      if (p < 0 || s.index[i - 1] == s.index[i]) continue;
+      int fr = F.sing[p].isoU ? 1 : 0, other = 1 - fr;
+      double P = F.period[fr];
+      if (!(P > 0)) continue;
+      auto at = [&](Vec2& q) -> double& { return fr ? q.y : q.x; };
+      double mean = 0;
+      for (const Vec2& q : s.uv) mean += other ? q.y : q.x;
+      mean /= static_cast<double>(s.uv.size());
+      double before = at(s.uv[i - 1]), after = at(s.uv[i + 1]), sg = jumpSignAt(C.face, p, mean);
+      double delta = std::fmod((after - before) * sg, P);
+      if (delta < 0) delta += P;
+      if (delta < 1e-9 * P || delta > P - 1e-9 * P) continue;
+      double to = before + sg * delta, shift = to - after;
+      Vec2 a = s.uv[i], b = s.uv[i];
+      at(a) = before, at(b) = to;
+      for (size_t j = i + 1; j < s.uv.size(); j++) at(s.uv[j]) += shift;
+      s.uv[i] = a;
+      s.uv.insert(s.uv.begin() + static_cast<long>(i) + 1, b);
+      s.index.insert(s.index.begin() + static_cast<long>(i) + 1, s.index[i]);
+      i++;
+    }
+  }
+
+  /**
+   * A use by inversion of an edge of no length (every sample one point: an unflagged degenerate edge, as STEP files
+   * have at a pole) on a face periodic along one direction, sitting at an end of the other coordinate's range (a
+   * collapsed row: cad-geom names no singularity there for B-splines): a whole period along that direction, the way
+   * the face lies (as a jump along a pole line), so the loop's boundary runs along the pole line in (u, v).
+   */
+  void alongCollapse(int c) {
+    Coedge& C = coedges[c];
+    CoedgeSamples& s = C.s;
+    const Face& F = faces[C.face];
+    const Edge& E = edges[m.coedgeEdge(c)];
+    size_t n = s.uv.size();
+    if (n < 2) return;
+    for (const Vec3& p : E.s.points)
+      if (norm(p - E.s.points[0]) > tol) return;
+    const Range dr[2] = {F.dom.u, F.dom.v};
+    for (int d = 0; d < 2; d++) {
+      int other = 1 - d;
+      double P = F.period[d], w = other ? s.uv[0].y : s.uv[0].x, span = dr[other].hi - dr[other].lo;
+      if (!(P > 0) || F.period[other] > 0 || !(span > 0)) continue;
+      bool top = std::fabs(w - dr[other].hi) <= 1e-9 * span, bottom = std::fabs(w - dr[other].lo) <= 1e-9 * span;
+      if (!top && !bottom) continue;
+      // The row collapsed in fact: the surface at 8 values along it at the edge's point (an edge merely shorter than
+      // the tolerance elsewhere isn't one).
+      bool collapsed = true;
+      for (int k = 0; k < 8 && collapsed; k++) {
+        Vec2 q = s.uv[0];
+        (d ? q.y : q.x) = dr[d].lo + (dr[d].hi - dr[d].lo) * (k + 0.5) / 8;
+        collapsed = norm(surfaceAt(C.face, q) - E.s.points[0]) <= tol;
+      }
+      if (!collapsed) continue;
+      double sg = (d == 0 ? (top ? -1 : 1) : (top ? 1 : -1)) * (m.faceSameSense(C.face) ? 1 : -1);
+      double x0 = d ? s.uv[0].y : s.uv[0].x;
+      for (size_t i = 0; i < n; i++) {
+        (d ? s.uv[i].y : s.uv[i].x) = x0 + sg * P * static_cast<double>(i) / static_cast<double>(n - 1);
+        (other ? s.uv[i].y : s.uv[i].x) = w;
+      }
+      // (Its one point inverts onto the seam, but it runs along the pole line, not the seam.)
+      C.ambiguous[0] = C.ambiguous[1] = false;
+      return;
+    }
   }
 
   /** The coedge's (u, v) at edge parameter t (p-curve, else inversion seeded by `hint`). */
   Vec2 coedgeUv(int c, double t, Vec2 hint) const {
     const Coedge& C = coedges[c];
-    if (C.pcurve) {
+    if (C.pcurve && !C.pcurveOff) {
       CurvePoint q;
       C.pcurve->eval(t, 0, q);
       return {q.p.x, q.p.y};
@@ -550,17 +675,22 @@ struct EdgeMesh::Impl {
     return invert(C.face, edges[m.coedgeEdge(c)].geom->at(t), &hint).uv;
   }
 
-  /** t inserted into edge e's samples in order (an existing one within a millionth of its span used instead). */
-  void insertSample(int e, double t) {
+  /**
+   * t inserted into edge e's samples in order (an existing one within a millionth of its span used instead): the
+   * sample's parameter, which callers must keep (a reused one isn't t).
+   */
+  double insertSample(int e, double t) {
     Edge& E = edges[e];
     std::vector<double>& ts = E.s.t;
     bool up = ts.back() > ts.front();
     size_t i = 0;
     while (i + 1 < ts.size() && (up ? ts[i + 1] < t : ts[i + 1] > t)) i++;
     double span = std::fabs(ts[i + 1] - ts[i]);
-    if (std::fabs(t - ts[i]) <= 1e-6 * span || std::fabs(ts[i + 1] - t) <= 1e-6 * span) return;
+    if (std::fabs(t - ts[i]) <= 1e-6 * span) return ts[i];
+    if (std::fabs(ts[i + 1] - t) <= 1e-6 * span) return ts[i + 1];
     ts.insert(ts.begin() + static_cast<long>(i) + 1, t);
     E.s.points.insert(E.s.points.begin() + static_cast<long>(i) + 1, E.geom->at(t));
+    return t;
   }
 
   // ---- faces ----
@@ -577,6 +707,10 @@ struct EdgeMesh::Impl {
     const CoedgeSamples& s = coedges[c].s;
     int e = m.coedgeEdge(c);
     for (size_t i = from; i < s.uv.size(); i++) {
+      // A sample twice (throughPoles): the pole line between its copies.
+      if (i > from && s.index[i] == s.index[i - 1])
+        if (int p = poleAt(coedges[c].face, surfaceAt(coedges[c].face, s.uv[i])); p >= 0)
+          poleFill(coedges[c].face, p, s.uv[i - 1] + shift, s.uv[i] + shift, out, owner);
       out.push_back({BoundaryPoint::edgeSample, s.uv[i] + shift, e, s.index[i], edges[e].s.points[s.index[i]]});
       owner.push_back(c);
     }
@@ -628,14 +762,12 @@ struct EdgeMesh::Impl {
     // Which way a jump along pole p runs: the face to its left (its sense true), so along a pole at the top of the
     // other coordinate towards -u (+v for a pole line in v), at the bottom the other way.
     auto jumpSign = [&](int p) {
-      int fr = F.sing[p].isoU ? 1 : 0, other = 1 - fr;
+      int other = F.sing[p].isoU ? 0 : 1;
       double mean = 0;
       int count = 0;
       for (int k = 0; k < K; k++)
         for (Vec2 q : coedges[cs[k]].s.uv) mean += other == 0 ? q.x : q.y, count++;
-      bool top = F.sing[p].at > mean / std::max(1, count);
-      double sgn = fr == 0 ? (top ? -1 : 1) : (top ? 1 : -1);
-      return sense ? sgn : -sgn;
+      return jumpSignAt(f, p, mean / std::max(1, count));
     };
     // Shift for coedge k to follow point `end` across a junction that's at pole p (-1: none).
     auto follow = [&](int k, Vec2 end, int p) {
@@ -808,6 +940,12 @@ struct EdgeMesh::Impl {
       if (any) windDirs++, d = k;
     }
     if (windDirs == 0) return;
+    // A seam use no neighbour placed winds its loop wrongly: its own status (singular), not the cut's.
+    for (const Chain& c : chains)
+      if (c.status == Status::singular) {
+        F.status = Status::singular;
+        return;
+      }
     if (windDirs == 2) {
       F.status = Status::unsupported;
       return;
@@ -845,28 +983,74 @@ struct EdgeMesh::Impl {
       F.status = Status::unsupported;
       return;
     }
-    // Where: the period's start, unless a loop's point is within the tolerance of that line; then the middle of the
-    // widest gap between the points' values there, modulo the period.
+    // Whether the period's start will do: not if a point of the face's loops is within the tolerance of that line or
+    // the line crosses a loop that doesn't wind (a hole: its values span it).
     double P = F.period[d], lo = F.lo[d];
-    std::vector<double> xs;
     bool near = false;
-    for (int w : W)
-      for (const BoundaryPoint& q : chains[w].pts) {
-        double x = d ? q.uv.y : q.uv.x, r = std::fmod(x - lo, P);
-        if (r < 0) r += P;
-        xs.push_back(r);
+    for (size_t k = 0; k < chains.size(); k++) {
+      double a = INFINITY, b = -INFINITY;
+      for (const BoundaryPoint& q : chains[k].pts) {
+        double x = d ? q.uv.y : q.uv.x;
+        a = std::min(a, x), b = std::max(b, x);
         Vec2 on = q.uv;
         (d ? on.y : on.x) = lo;
         near = near || norm(surfaceAt(f, on) - q.point) <= tol;
       }
-    double cut = lo;
-    if (near) {
-      std::sort(xs.begin(), xs.end());
-      double gap = -1;
-      for (size_t i = 0; i < xs.size(); i++) {
-        double a = xs[i], b = i + 1 < xs.size() ? xs[i + 1] : xs[0] + P;
-        if (b - a > gap) gap = b - a, cut = lo + std::fmod(0.5 * (a + b), P);
+      // A hole across the line u = lo (any of its copies a period apart).
+      if (chains[k].winding[d] == 0 && b - a < P) {
+        double first = lo + std::ceil((a - lo) / P) * P;
+        near = near || first <= b;
       }
+    }
+    // Where each winding loop crosses the line once, between two points neither at a pole (a loop through a pole
+    // crosses every value of the pole line there, at no one point): the period's start, unless nearness says
+    // otherwise, else the gaps' middles, the widest first.
+    auto atPole = [&](const BoundaryPoint& q) {
+      return q.kind == BoundaryPoint::poleLine || poleAt(f, q.point) >= 0 || poleAt(f, surfaceAt(f, q.uv)) >= 0;
+    };
+    auto once = [&](double c0) {
+      for (int w : W) {
+        int crossings = 0;
+        const Chain& ch = chains[w];
+        for (size_t i = 0; i + 1 < ch.pts.size(); i++) {
+          double xa = d ? ch.pts[i].uv.y : ch.pts[i].uv.x, xb = d ? ch.pts[i + 1].uv.y : ch.pts[i + 1].uv.x;
+          double c = nearest(c0, 0.5 * (xa + xb), P);
+          if (!((xa - c) * (xb - c) < 0 || xa == c)) continue;
+          if (atPole(ch.pts[i]) || atPole(ch.pts[i + 1])) return false;
+          crossings++;
+        }
+        if (crossings != 1) return false;
+      }
+      return true;
+    };
+    std::vector<double> candidates;
+    if (!near) candidates.push_back(lo);
+    {
+      std::vector<double> regular;
+      for (size_t k = 0; k < chains.size(); k++)
+        for (const BoundaryPoint& q : chains[k].pts) {
+          if (atPole(q)) continue;
+          double r = std::fmod((d ? q.uv.y : q.uv.x) - lo, P);
+          regular.push_back(r < 0 ? r + P : r);
+        }
+      std::sort(regular.begin(), regular.end());
+      std::vector<std::pair<double, double>> gaps;  // width, middle
+      for (size_t i = 0; i < regular.size(); i++) {
+        double a = regular[i], b = i + 1 < regular.size() ? regular[i + 1] : regular[0] + P;
+        if (b > a) gaps.push_back({b - a, lo + std::fmod(0.5 * (a + b), P)});
+      }
+      std::stable_sort(gaps.begin(), gaps.end(), [](auto& x, auto& y) { return x.first > y.first; });
+      for (auto& g : gaps) candidates.push_back(g.second);
+    }
+    double cut = NAN;
+    for (double c : candidates)
+      if (once(c)) {
+        cut = c;
+        break;
+      }
+    if (std::isnan(cut)) {
+      F.status = Status::unsupported;
+      return;
     }
     F.cutDir = d, F.cut = cut, F.pole = pole;
     F.loopA = loopOf[W[0]];
@@ -887,15 +1071,35 @@ struct EdgeMesh::Impl {
           F.cross[j] = {A.edgeIndex, edges[A.edgeIndex].s.t[A.sample]};
           continue;
         }
-        if (A.kind != BoundaryPoint::edgeSample || B.kind != BoundaryPoint::edgeSample || A.edgeIndex != B.edgeIndex ||
-          ch.owner[i] < 0) {
+        if (A.kind != BoundaryPoint::edgeSample || B.kind != BoundaryPoint::edgeSample || ch.owner[i] < 0 ||
+          ch.owner[i + 1] < 0) {
           found = 99;
           continue;
         }
-        int e = A.edgeIndex, co = ch.owner[i];
+        int e = A.edgeIndex, co = ch.owner[i], as = A.sample, bs = B.sample;
+        if (A.edgeIndex != B.edgeIndex) {
+          // Across a junction, whose point carries one edge though it ends one and starts the other: the span is the
+          // edge whose sample next to one end is the other's point (B's next to it A's: from a junction into the next
+          // edge; else A's, into the loop's closing point, which carries the first coedge's edge).
+          auto next = [&](int edge, int sample, Vec3 to) {
+            for (int j : {sample - 1, sample + 1})
+              if (j >= 0 && j < static_cast<int>(edges[edge].s.points.size()) &&
+                norm(edges[edge].s.points[j] - to) == 0)
+                return j;
+            return -1;
+          };
+          if (int j = next(B.edgeIndex, B.sample, A.point); j >= 0) {
+            e = B.edgeIndex, co = ch.owner[i + 1], as = j, bs = B.sample;
+          } else if (int k = next(A.edgeIndex, A.sample, B.point); k >= 0) {
+            e = A.edgeIndex, co = ch.owner[i], as = A.sample, bs = k;
+          } else {
+            found = 99;
+            continue;
+          }
+        }
         // A closed edge's first and last samples are one point: the loop's closing point carries one of them, so the
         // span's other end may be either (the sample adjacent to A's).
-        int as = A.sample, bs = B.sample, last = static_cast<int>(edges[e].s.t.size()) - 1;
+        int last = static_cast<int>(edges[e].s.t.size()) - 1;
         if (std::abs(as - bs) != 1 && edges[e].closed) {
           if (bs == last || bs == 0) bs = (bs == last ? 0 : last);
           if (std::abs(as - bs) != 1 && (as == last || as == 0)) as = (as == last ? 0 : last);
@@ -909,7 +1113,7 @@ struct EdgeMesh::Impl {
         Vec2 raw = coedges[co].s.uv[0];
         double shiftD = 0;
         for (size_t q = 0; q < coedges[co].s.index.size(); q++)
-          if (coedges[co].s.index[q] == A.sample) {
+          if (coedges[co].s.index[q] == as) {
             raw = coedges[co].s.uv[q];
             shiftD = xa - (d ? raw.y : raw.x);
           }
@@ -934,7 +1138,7 @@ struct EdgeMesh::Impl {
     // The crossings as samples of their edges; those edges' coedges redone.
     for (size_t j = 0; j < W.size(); j++) {
       int e = F.cross[j].edge;
-      insertSample(e, F.cross[j].t);
+      F.cross[j].t = insertSample(e, F.cross[j].t);
       for (int c : edges[e].coedges) computeCoedge(c);
     }
     // The pseudo-edge along the cut, from loop A's crossing to loop B's (or the pole).
@@ -989,7 +1193,7 @@ struct EdgeMesh::Impl {
     out.status = F.status;
     if (F.status != Status::ok && F.cutDir < 0 && F.status != Status::singular) return out;
     std::vector<std::vector<BoundaryPoint>> loops;
-    std::vector<BoundaryPoint> joined;
+    std::vector<BoundaryPoint> joined, joinedB;
     for (int i = 0; i < m.faceLoopCount(f); i++) {
       int l = m.faceFirstLoop(f) + i;
       if (m.loopKind(l) == CBR_LOOP_VERTEX) {
@@ -1046,7 +1250,7 @@ struct EdgeMesh::Impl {
         rot.push_back(q);
       }
       if (l == F.loopA) joined.swap(rot);
-      else loops.push_back(std::move(rot));  // loop B, joined below
+      else joinedB.swap(rot);  // loop B, joined below
     }
     if (F.cutDir >= 0 && !joined.empty()) {
       int d = F.cutDir;
@@ -1054,11 +1258,7 @@ struct EdgeMesh::Impl {
       const Edge& E = edges[F.pseudo];
       int n = static_cast<int>(E.s.t.size());
       Vec2 aStart = joined.front().uv, aEnd = joined.back().uv;
-      std::vector<BoundaryPoint> B;
-      if (F.loopB >= 0) {
-        B = std::move(loops.back());
-        loops.pop_back();
-      }
+      std::vector<BoundaryPoint> B = std::move(joinedB);
       auto pseudoPoint = [&](int i, double at) {
         Vec2 q = d == 0 ? Vec2{at, E.s.t[i]} : Vec2{E.s.t[i], at};
         return BoundaryPoint{BoundaryPoint::pseudoSample, q, F.pseudo, i, E.s.points[i]};
@@ -1092,8 +1292,38 @@ struct EdgeMesh::Impl {
       for (int i = n - 2; i >= 1; i--) loop.push_back(pseudoPoint(i, atStart));
       loops.insert(loops.begin(), std::move(loop));
     }
+    // Along a period, each loop's own unwrapping puts it anywhere a period apart: every loop but the widest (the cut's
+    // joined one where there is one) shifted by whole periods to its middle within the widest's span (a hole in a
+    // band is inside the band's period, not one beyond).
+    for (int d = 0; d < 2 && loops.size() > 1; d++) {
+      double P = F.period[d];
+      if (!(P > 0)) continue;
+      auto span = [&](const std::vector<BoundaryPoint>& l) {
+        double lo = INFINITY, hi = -INFINITY;
+        for (const BoundaryPoint& q : l) lo = std::min(lo, d ? q.uv.y : q.uv.x), hi = std::max(hi, d ? q.uv.y : q.uv.x);
+        return std::make_pair(lo, hi);
+      };
+      size_t ref = 0;
+      if (F.cutDir < 0)
+        for (size_t i = 1; i < loops.size(); i++) {
+          auto a = span(loops[i]), b = span(loops[ref]);
+          if (a.second - a.first > b.second - b.first) ref = i;
+        }
+      auto [lo, hi] = span(loops[ref]);
+      for (size_t i = 0; i < loops.size(); i++) {
+        if (i == ref) continue;
+        auto [a, b] = span(loops[i]);
+        double mid = 0.5 * (a + b), k = 0;
+        if (mid < lo) k = std::ceil((lo - mid) / P);
+        else if (mid > hi) k = -std::ceil((mid - hi) / P);
+        if (k == 0) continue;
+        for (BoundaryPoint& q : loops[i]) (d ? q.uv.y : q.uv.x) += k * P;
+      }
+    }
     if (!m.faceSameSense(f))
       for (auto& l : loops) std::reverse(l.begin(), l.end());
+    // Nothing but vertex loops (a sphere bounded by a point): the surface's natural extent, not meshed here.
+    if (loops.empty()) out.status = worse(out.status, Status::unsupported);
     out.loops = std::move(loops);
     return out;
   }
@@ -1110,7 +1340,7 @@ EdgeMesh::EdgeMesh(const Model& model, const EdgeOptions& options, const std::ve
   for (int f = 0; f < m.faces(); f++) {
     Impl::Face& F = I.faces[f];
     Status st;
-    F.s = makeSurface(m, m.faceSurface(f), st);
+    F.s = faceSurface(m, m.faceSurface(f), st);
     if (!F.s) {
       F.status = st;
       continue;
