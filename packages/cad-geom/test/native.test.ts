@@ -379,3 +379,131 @@ test('fixtures.ts: what it doesn\'t know fails the run, naming the file', () => 
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+/** A case record of each converted query, as the reference lane writes them (format 3: periods with pole lines). */
+function caseRecords(): Record<string, any>[] {
+  const periods = { u: 6.283185307179586, v: 0, poleU: [], poleV: [-1] };
+  return [
+    { id: 'i2', description: '', entities: {}, query: 'intersect2',
+      input: { a: { curve: 1, range: [0, 1] }, b: { curve: 2, range: [0.5, 2] }, tol: 1e-9 },
+      expected: { crossings: [{ ta: 0.25, tb: 1.5, p: [1, 2], tangent: true }],
+        overlaps: [{ a: [0, 0.5], b: [1, 1.5], sameDirection: false }] } },
+    { id: 's2', description: '', entities: {}, query: 'selfIntersect2', input: { face: 3, loop: 1, tol: 1e-8 },
+      expected: { crossings: [], overlaps: [] } },
+    { id: 'c2', description: '', entities: {}, query: 'classify2',
+      input: { face: 0, p: [1, -0.5], periods, tol: 1e-9 }, expected: { side: 'on' } },
+    { id: 'n2', description: '', entities: {}, query: 'nest2', input: { face: 2, periods, tol: 1e-9 },
+      expected: { parents: [-1, 0, -1] } },
+    { id: 'ic', description: '', entities: {}, query: 'invertCurve',
+      input: { curve: 4, p: [3, 0, 0], range: [-3, 3], tol: 1e-9 },
+      expected: { t: -1, distance: 2.5, certainty: 'ambiguous', alternatives: [1, 2], onSeam: true } },
+    { id: 'ic-bare', description: '', entities: {}, query: 'invertCurve', input: { curve: 4, p: [3, 0, 0], tol: 1e-9 },
+      expected: { t: 0, distance: 1.5, certainty: 'unique', alternatives: [] } },
+    { id: 'is', description: '', entities: {}, query: 'invertSurface', input: { surface: 0, p: [0, 0, 0], tol: 1e-9 },
+      expected: { uv: [0, 3], distance: 1, certainty: 'none', alternatives: [[1.5, 3], [3, 3]], onSeamU: true,
+        onSeamV: false, atSingularity: true, family: { u: [0, 6], v: 3 } } },
+    { id: 'sg', description: '', entities: {}, query: 'singularities', input: { surface: 1 },
+      expected: { singularities: [{ kind: 'apex', isoU: false, at: -1, point: [0, 0, -1] }] } },
+    { id: 'su', description: '', entities: {}, query: 'singular', input: { curve: 6, range: [0, 1] },
+      expected: { params: [0.5], point: [4.5, 0.75, 0] } },
+    { id: 'm', description: '', entities: {}, query: 'faceWidth', input: { face: 0 }, expected: { area: 1, width: 2 } },
+  ];
+}
+
+test('fixtures.ts: the catalogue\'s cases as C++ data per query, with an index; measures left out', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cad-geom-fixtures-'));
+  try {
+    const j = { ...referenceJson(), format: 3, cases: caseRecords() };
+    fs.writeFileSync(path.join(dir, 'cylinder-s1e-3.cbr'), new Uint8Array(8));
+    fs.writeFileSync(path.join(dir, 'cylinder-s1e-3.json'), JSON.stringify(j));
+    const header = generate(dir);
+    const has = (s: string) => assert.ok(header.includes(s), s);
+    has('{"i2", 1, 0.0, 1.0, 2, 0.5, 2.0, 1e-9, ref_cylinder_s1e_3_case0_expected_crossings_crossings, 1, '
+      + 'ref_cylinder_s1e_3_case0_expected_overlaps_overlaps, 1}');
+    has('= {{0.25, 1.5, {1.0, 2.0, 0.0}, true}};');
+    has('= {{0.0, 0.5, 1.0, 1.5, false}};');
+    has('{"s2", 3, 1, 1e-8, nullptr, 0, nullptr, 0}');
+    has('{"c2", 0, {1.0, -0.5, 0.0}, 6.283185307179586, 0.0, nullptr, 0, ref_cylinder_s1e_3_case2_input_periods_poleV, '
+      + '1, true, 1e-9, cadgeom::Side::on}');
+    has('ref_cylinder_s1e_3_case2_input_periods_poleV[] = {-1.0};');
+    has('ref_cylinder_s1e_3_case3_expected_parents_ints[] = {-1, 0, -1};');
+    has('{"ic", 4, {3.0, 0.0, 0.0}, -3.0, 3.0, true, 1e-9, -1.0, 2.5, cadgeom::Certainty::ambiguous, '
+      + 'ref_cylinder_s1e_3_case4_expected_alternatives_values, 2, true, true}');
+    has('{"ic-bare", 4, {3.0, 0.0, 0.0}, NAN, NAN, false, 1e-9, 0.0, 1.5, cadgeom::Certainty::unique, nullptr, 0, '
+      + 'false, false}');
+    has('{"is", 0, {0.0, 0.0, 0.0}, 1e-9, 0.0, 3.0, 1.0, cadgeom::Certainty::none, '
+      + 'ref_cylinder_s1e_3_case6_expected_alternatives_pairs, 2, true, false, true, true, 0.0, 6.0, 3.0, true}');
+    has('ref_cylinder_s1e_3_case6_expected_alternatives_pairs[] = {1.5, 3.0, 3.0, 3.0};');
+    has('= {{"apex", false, -1.0, {0.0, 0.0, -1.0}}};');
+    has('{"su", 6, 0.0, 1.0, ref_cylinder_s1e_3_case8_expected_params_values, 1, {4.5, 0.75, 0.0}}');
+    assert.ok(!header.includes('"m"'), 'measures aren\'t converted');
+    has('inline const int nCases = 9;');
+    has('{"invertCurve", "ic-bare", 0, 1},');
+    has('{"singular", "su", 0, 0},');
+    has('bool hasRange;');
+    has('bool hasFamily;');
+    // Format 2: periods without pole lines (hasPoles false).
+    const two = { ...referenceJson(), format: 2, cases: [{ ...caseRecords()[2], input: { face: 0, p: [1, -0.5],
+      periods: { u: 6.283185307179586, v: 0 }, tol: 1e-9 } }] };
+    fs.writeFileSync(path.join(dir, 'cylinder-s1e-3.json'), JSON.stringify(two));
+    assert.ok(generate(dir).includes('{"c2", 0, {1.0, -0.5, 0.0}, 6.283185307179586, 0.0, nullptr, 0, nullptr, 0, '
+      + 'false, 1e-9, cadgeom::Side::on}'));
+    // A compiled program reads them back (where there's a compiler).
+    if (spawnSync('c++', ['--version']).status !== 0) return;
+    fs.writeFileSync(path.join(dir, 'cylinder-s1e-3.json'), JSON.stringify(j));
+    fs.writeFileSync(path.join(dir, 'brep_models.h'), generate(dir));
+    fs.writeFileSync(path.join(dir, 'p.cpp'), String.raw`#include <cstdio>
+#include "brep_models.h"
+using namespace fixtures;
+int main() {
+  const CaseEntry* e = findCase("is");
+  const InvertSurfaceCase& s = references[e->reference].invertSurfaceCases[e->index];
+  std::printf("%s %d %d %g %g %d %g %g %g\n", e->query, countCases("invertCurve"), s.nAlternatives,
+    s.alternatives[2], s.alternatives[3], s.familyU, s.familyLo, s.familyHi, s.familyAt);
+  const InvertCurveCase& c = references[0].invertCurveCases[findCase("ic-bare")->index];
+  std::printf("%d %d %d\n", c.hasRange, c.hasOnSeam, findCase("nope") == nullptr);
+}
+`);
+    const b = spawnSync('c++', ['-std=c++20', '-Wall', '-Wextra', '-Werror', `-I${path.join(pkg, 'native/include')}`,
+      path.join(dir, 'p.cpp'), '-o', path.join(dir, 'p')], { encoding: 'utf8' });
+    assert.equal(b.status, 0, b.stderr);
+    assert.equal(spawnSync(path.join(dir, 'p'), { encoding: 'utf8' }).stdout, 'invertSurface 2 2 3 3 1 0 6 3\n0 0 1\n');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('fixtures.ts: cases it doesn\'t know fail the run, naming the record', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cad-geom-fixtures-'));
+  try {
+    fs.writeFileSync(path.join(dir, 'cylinder-s1e-3.cbr'), new Uint8Array(8));
+    const fails = (change: (c: Record<string, any>[]) => void, message: RegExp, format = 3) => {
+      const cases = caseRecords();
+      change(cases);
+      fs.writeFileSync(path.join(dir, 'cylinder-s1e-3.json'), JSON.stringify({ ...referenceJson(), format, cases }));
+      assert.throws(() => generate(dir), message);
+    };
+    fails(c => { c[0]!.query = 'intersect3'; }, /cases\[0\]: unknown query "intersect3"/);
+    fails(c => { c[0]!.extra = 1; }, /cases\[0\]: unknown key "extra"/);
+    fails(c => { delete c[0]!.entities; }, /cases\[0\]: missing "entities"/);
+    fails(c => { c[0]!.input.speed = 1; }, /cases\[0\]\.input: unknown field "speed"/);
+    fails(c => { delete c[0]!.input.tol; }, /cases\[0\]\.input\.tol: missing/);
+    fails(c => { delete c[4]!.expected.certainty; }, /cases\[4\]\.expected\.certainty: missing/);
+    fails(c => { c[0]!.expected.crossings[0].p = 'x'; }, /crossings\[0\]: not 2 or 3 numbers/);
+    fails(c => { c[0]!.expected.overlaps[0].sameDirection = 1; }, /sameDirection: not a boolean/);
+    fails(c => { c[2]!.expected.side = 'inside'; }, /unknown side inside/);
+    fails(c => { c[4]!.expected.certainty = 'sure'; }, /unknown certainty sure/);
+    fails(c => { c[3]!.expected.parents = [0.5]; }, /not an integer: 0.5/);
+    fails(c => { c[6]!.expected.alternatives = [[1, 2, 3]]; }, /alternatives\[0\]: not 2 numbers/);
+    fails(c => { c[6]!.expected.family = { u: [0, 1], v: [0, 1] }; }, /exactly one of u and v/);
+    fails(c => { c[7]!.expected.singularities[0].kind = 'cusp'; }, /kind: unknown cusp/);
+    fails(c => { c[4]!.input.p = [3, 0]; }, /input\.p: not 3 numbers/);
+    fails(c => { c[2]!.input.p = [1, 2, 3]; }, /input\.p: not 2 numbers/);
+    fails(c => { c[4]!.expected.onSeam = 'yes'; }, /onSeam: not a boolean/);
+    fails(c => { c[0]!.id = 'a"b'; }, /bad id/);
+    fails(c => { delete c[2]!.input.periods.poleV; }, /periods: missing "poleV"/);
+    fails(() => {}, /periods: unknown "poleU"/, 2);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
