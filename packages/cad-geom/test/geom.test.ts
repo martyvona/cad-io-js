@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { openBrep, rowCount } from '../../cad-brep/src/index.ts';
+import { openBrep, rowCount, SURFACE_KIND } from '../../cad-brep/src/index.ts';
 import { curveEvaluator, surfaceEvaluator } from '../../cad-brep/src/geometry.ts';
 import { MODELS } from '../../cad-brep/test/models.ts';
 import { CERTAINTY, Geometry, init, STATUS } from '../src/index.ts';
@@ -102,11 +102,14 @@ test('test models: every curve and surface the module makes agrees with geometry
         uv.push(u0! + (u1! - u0!) * (a + 0.5) / 3, v0! + (v1! - v0!) * (b + 0.5) / 3);
       }
       const r = g.evalSurface(i, uv, 1);
+      // geometry.ts's offset partials are central differences (a step of 1e-7), good to about 1e-9 of the
+      // coordinates; cad-geom's are exact.
+      const tol = SURFACE_KIND.offset === d.surface.kind[i] ? 1e-7 : 1e-9;
       for (let k = 0; k < 9; k++) {
         const u = uv[2 * k]!, v = uv[2 * k + 1]!, p = ev.point(u, v), [du, dv] = ev.d1(u, v);
         assert.ok(norm(r.values, p, 9 * k) <= 1e-12 * Math.max(1, len(p)), `${name} surface ${i} at ${u}, ${v}`);
-        assert.ok(norm(r.values, du!, 9 * k + 3) <= 1e-9 * Math.max(1, len(du!)));
-        assert.ok(norm(r.values, dv!, 9 * k + 6) <= 1e-9 * Math.max(1, len(dv!)));
+        assert.ok(norm(r.values, du!, 9 * k + 3) <= tol * Math.max(1, len(du!)), `${name} surface ${i} S_u`);
+        assert.ok(norm(r.values, dv!, 9 * k + 6) <= tol * Math.max(1, len(dv!)), `${name} surface ${i} S_v`);
       }
       surfaces++;
     }
