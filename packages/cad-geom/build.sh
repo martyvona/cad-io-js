@@ -8,6 +8,9 @@
 #                         twice: natively with AddressSanitizer and UBSan (build/test/native/<name>, the sources
 #                         compiled again with them), and as WebAssembly against the wasm library, run by node
 #                         (build/test/wasm/<name>.js); then checks that the Eigen guard trips on planted includes
+#   ./build.sh module     the WebAssembly module src/index.ts loads: dist/cad_geom.mjs (an ES module factory, for
+#                         web, worker and node) and dist/cad_geom.wasm, the library linked with every cg_* function of
+#                         native/src/cad_geom_api.cpp exported (the list read from that file); test mode builds it too
 #   ./build.sh guard <dependency file>...   the Eigen guard alone (test/native.test.ts runs it)
 #   J=<parallel jobs> (default 4)
 # The Eigen guard: every compile writes its dependencies (-MD), and any Eigen header outside the allowed modules
@@ -58,14 +61,15 @@ guard() { # <dependency file>...: fails naming the first header of each module o
 
 case $MODE in
   guard) shift; [ $# -gt 0 ] || { echo "usage: build.sh guard <dependency file>..." >&2; exit 2; }; guard "$@"; exit ;;
-  lib | test) ;;
-  *) echo "usage: build.sh [test | guard <dependency file>...]" >&2; exit 2 ;;
+  lib | test | module) ;;
+  *) echo "usage: build.sh [test | module | guard <dependency file>...]" >&2; exit 2 ;;
 esac
 [ -f "$E/Eigen/Core" ] || { echo "no Eigen at $E: run third_party/pull.sh" >&2; exit 1; }
 NODE=$(command -v node || true)
 
-# cad_brep.h, which the headers include, from cad-brep (its layout.ts generates it).
-COMMON=(-std=c++20 -Wall -Wextra -Inative/include -I../cad-brep/include -isystem "$E"
+# cad_brep.h, which the headers include, from cad-brep (its layout.ts generates it). -ffp-contract=off: clang fuses
+# a * b + c on arm64 and WebAssembly can't, so native and wasm would round differently and take different branches.
+COMMON=(-std=c++20 -Wall -Wextra -ffp-contract=off -Inative/include -I../cad-brep/include -isystem "$E"
   "-ffile-prefix-map=$ROOT/=cad-io-js/")
 # The vendored C (native/third_party/README.md): as C, unmodified, so its warnings are silenced, and without fused
 # multiply-adds, which would break its error-free transformations.
@@ -111,6 +115,27 @@ library() {
 wasm_lib() { (emsdk; library wasm em++ emcc emar -Os -fwasm-exceptions -DNDEBUG); }
 native_lib() { library native c++ cc ar -O2 -DNDEBUG; }
 
+# The module: the wasm library and the C API's exports (each `cg_<name>(` defined at a line's start in it).
+wasm_module() {
+  wasm_lib > /dev/null
+  local names
+  names=$(grep -oE '^[a-z0-9_]+[ *]+cg_[a-z0-9_]+\(' native/src/cad_geom_api.cpp | grep -oE 'cg_[a-z0-9_]+' | sort -u |
+    sed 's/^/"_/; s/$/"/' | paste -sd, -)
+  [ -n "$names" ] || { echo "no cg_ functions in native/src/cad_geom_api.cpp" >&2; exit 1; }
+  mkdir -p dist
+  (emsdk; em++ -Os -fwasm-exceptions build/cad-geom-wasm/libcadgeom.a -o dist/cad_geom.mjs \
+    -sMODULARIZE=1 -sEXPORT_ES6=1 -sEXPORT_NAME=cadGeom -sENVIRONMENT=web,worker,node \
+    -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=16MB -sMAXIMUM_MEMORY=4GB -sSTACK_SIZE=1MB \
+    -sEXPORTED_FUNCTIONS="[$names,\"_malloc\",\"_free\"]" \
+    -sEXPORTED_RUNTIME_METHODS='["HEAPU8","HEAP32","HEAPF64"]')
+  echo "$PWD/dist/cad_geom.mjs"
+}
+
+if [ "$MODE" = module ]; then
+  wasm_module
+  exit
+fi
+
 if [ "$MODE" = lib ]; then
   case ${T:-wasm} in
     wasm) wasm_lib ;;
@@ -148,8 +173,8 @@ for t in $tests; do
   run "native $n" "build/test/native/$n"
 done
 
-# As WebAssembly, against the library as other packages link it.
-wasm_lib > /dev/null
+# As WebAssembly, against the library as other packages link it (built with the module, for test/*.test.ts).
+wasm_module > /dev/null
 (
   emsdk
   compile build/test/wasm/obj em++ -Os -fwasm-exceptions "${COMMON[@]}" "${FIX[@]}" -- $tests

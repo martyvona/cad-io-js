@@ -1,317 +1,458 @@
-// curve.h, the reference version: lines, circles, polylines and B-splines (docs/brep-reference.md's definitions), the
-// other kinds unsupported; inversion by dense sampling then Newton, arc length by quadrature span by span. Slow and
-// simple, for the lanes that call it until the curves lane replaces it.
+// curve.h: makeCurve (each kind in curve_conic.cpp, curve_spline.cpp, curve_compound.cpp), point inversion, arc length
+// and its inverse.
+// Inversion: branch and bound on the parameter range (the general method of Patrikalakis, Maekawa and Cho, "Shape
+// Interrogation for Computer Aided Design and Manufacturing", sections 4.6 and 6.3: subdivide, discard by bounds,
+// solve where isolated). A range is discarded when its box is farther from p than the best distance found plus tol;
+// it is solved when g(t) = |C(t) - p|^2 is convex on it (g''/2 = |C'|^2 + (C - p) . C'' > 0, its lower bound from the
+// boxes of C - p, C' and C'' by interval arithmetic), since a convex g has one minimum there, found by Newton on g'
+// guarded by bisection; else it is split. Feet within tol of the best are the same foot (a seam's two parameters) or
+// alternatives (other places, one per cluster); a foot within tol of a closed curve's junction is flagged onSeam,
+// its parameter kept. A range whose box is as narrow as its coordinates' rounding is one foot (a zero-length
+// piece, a cusp); circles take their feet in closed form (footCandidates). The search is budgeted: where it runs out
+// with a better foot still possible (a rational circle from its centre), it says noConvergence.
+// Arc length: closed forms where they exist (curve_impl.h's exactLength), else quadrature span by span, the spans
+// split at the speed's zeros; the parameter at a length by Newton on the length (its derivative the speed), bracketed
+// and guarded by bisection.
 #include "cad_geom/curve.h"
 
 #include <algorithm>
 #include <cmath>
-#include <limits>
+#include <queue>
 
 #include "cad_geom/numerics.h"
+#include "curve_impl.h"
 
 namespace cadgeom {
 
-namespace {
+namespace curves {
 
-constexpr double kTwoPi = 6.283185307179586;
-const double kInf = std::numeric_limits<double>::infinity();
+Status CurveImpl::eval(double t, int order, CurvePoint& out) const {
+  if (order < 0 || order > 2) return Status::unsupported;
+  Vec3 d[3];
+  Status s = derivs(t, order, d);
+  out = {d[0], order >= 1 ? d[1] : Vec3{}, order >= 2 ? d[2] : Vec3{}};
+  return s;
+}
 
-Vec3 readVec(const double* r, int dim) { return {r[0], r[1], dim == 3 ? r[2] : 0.0}; }
+Status CurveImpl::derivBound(Range r, int order, double& out) const {
+  if (order != 1 && order != 2) return Status::unsupported;
+  return derivBoundN(r, order, out);
+}
 
-Interval widen(Interval a, double by) { return {a.lo - by, a.hi + by}; }
+Status centredBox(const CurveImpl& c, Range r, int order, Box3& out) {
+  if (order + 1 > kMaxOrder || !finite(r)) return Status::unsupported;
+  double b;
+  Status s = c.derivBoundN(r, order + 1, b);
+  if (s != Status::ok) return s;
+  Vec3 d[kMaxOrder + 1];
+  double m = 0.5 * r.lo + 0.5 * r.hi;
+  s = c.derivs(m, order, d);
+  if (s != Status::ok && s != Status::outOfDomain) return s;
+  // Widened by the evaluation's own error, which differs between paths (bspline::eval to order 2, the hodographs
+  // beyond): relative to the derivative, and for a point relative to the curve's local size, not its position.
+  double h = std::fmax(m - r.lo, r.hi - m);
+  double e = order == 0 ? 4 * kEps * maxAbs(d[0]) + 1e-13 * b * std::fmax(h, 1.0) : 1e-12 * maxAbs(d[order]);
+  out = ballBox(d[order], b * h * (1 + 4 * kEps) + e);
+  return Status::ok;
+}
 
-class Line final : public Curve {
-public:
-  Line(const double* r, int dim) : dim_(dim), p_(readVec(r, dim)), d_(r[2 * dim] * readVec(r + dim, dim)) {}
-  int dim() const override { return dim_; }
-  CurveDomain domain() const override { return {{-kInf, kInf}, 0}; }
-  Status eval(double t, int order, CurvePoint& out) const override {
-    out = {p_ + t * d_, order >= 1 ? d_ : Vec3{}, {}};
-    return Status::ok;
+void speedZeros(const CurveImpl& c, Range r, std::vector<double>& out) {
+  out.clear();
+  double b;
+  if (c.derivBoundN(r, 1, b) == Status::ok && b == 0) {
+    out.push_back(r.lo);
+    return;
   }
-  void breaks(Range r, std::vector<double>& out) const override { out = {r.lo, r.hi}; }
-  Status bound(Range r, Box3& out) const override {
-    Vec3 a = p_ + r.lo * d_, b = p_ + r.hi * d_;
-    double e = 4 * std::numeric_limits<double>::epsilon() * (norm(a) + norm(b));
-    out = {widen(Interval::hull(a.x, b.x), e), widen(Interval::hull(a.y, b.y), e), widen(Interval::hull(a.z, b.z), e)};
-    return std::isfinite(r.lo) && std::isfinite(r.hi) ? Status::ok : Status::outOfDomain;
-  }
-  Status derivBound(Range, int order, double& out) const override {
-    out = order == 1 ? norm(d_) * (1 + 1e-15) : 0.0;
-    return Status::ok;
-  }
-  void singular(Range, std::vector<double>& out) const override { out.clear(); }
-
-private:
-  int dim_;
-  Vec3 p_, d_;
-};
-
-class Circle final : public Curve {
-public:
-  Circle(const double* r, int dim) : dim_(dim) {
-    if (dim == 3) {
-      o_ = readVec(r, 3);
-      Vec3 z = readVec(r + 3, 3);
-      x_ = readVec(r + 6, 3);
-      y_ = cross(z, x_);
-      r_ = r[9];
-    } else {
-      o_ = readVec(r, 2);
-      x_ = readVec(r + 2, 2);
-      y_ = {-x_.y, x_.x, 0};
-      r_ = r[4];
+  double wmin = std::fmax(1e-12 * (r.hi - r.lo), 4 * kEps * std::fmax(std::fabs(r.lo), std::fabs(r.hi)));
+  std::vector<Range> stack{r}, leaves;
+  int budget = 20000;
+  while (!stack.empty()) {
+    Range g = stack.back();
+    stack.pop_back();
+    Box3 box;
+    Status s = c.derivBox(g, 1, box);
+    if (s == Status::ok && boxMinNorm(box) > 0) continue;
+    if (g.hi - g.lo <= wmin || --budget <= 0) {
+      leaves.push_back(g);
+      if (budget <= 0) break;
+      continue;
     }
+    double m = 0.5 * g.lo + 0.5 * g.hi;
+    stack.push_back({m, g.hi});
+    stack.push_back({g.lo, m});
   }
-  int dim() const override { return dim_; }
-  CurveDomain domain() const override { return {{0, kTwoPi}, kTwoPi}; }
-  Status eval(double t, int order, CurvePoint& out) const override {
-    double c = std::cos(t), s = std::sin(t);
-    out.p = o_ + r_ * c * x_ + r_ * s * y_;
-    out.d1 = order >= 1 ? -r_ * s * x_ + r_ * c * y_ : Vec3{};
-    out.d2 = order >= 2 ? -r_ * c * x_ - r_ * s * y_ : Vec3{};
-    return Status::ok;
+  // Leaves come in order; touching ones are one zero.
+  for (size_t i = 0; i < leaves.size();) {
+    size_t j = i;
+    while (j + 1 < leaves.size() && leaves[j + 1].lo <= leaves[j].hi) j++;
+    double t = budget <= 0 ? leaves[i].lo : 0.5 * leaves[i].lo + 0.5 * leaves[j].hi;
+    // A zero at r's end within the resolution is at the end (repeated end poles): not a sliver of span beside it.
+    if (leaves[i].lo <= r.lo) t = r.lo;
+    if (leaves[j].hi >= r.hi) t = r.hi;
+    out.push_back(t);
+    i = j + 1;
   }
-  void breaks(Range r, std::vector<double>& out) const override { out = {r.lo, r.hi}; }
-  Status bound(Range, Box3& out) const override {
-    // The whole circle's box: |x_i cos t + y_i sin t| <= hypot(x_i, y_i).
-    double e = 1 + 1e-14;
-    auto axis = [&](double o, double x, double y) {
-      double h = r_ * std::hypot(x, y) * e;
-      return Interval{o - h - 1e-14 * std::fabs(o), o + h + 1e-14 * std::fabs(o)};
-    };
-    out = {axis(o_.x, x_.x, y_.x), axis(o_.y, x_.y, y_.y), axis(o_.z, x_.z, y_.z)};
-    return Status::ok;
-  }
-  Status derivBound(Range, int, double& out) const override {
-    out = r_ * (1 + 1e-14);
-    return Status::ok;
-  }
-  void singular(Range, std::vector<double>& out) const override { out.clear(); }
+}
 
-private:
-  int dim_;
-  Vec3 o_, x_, y_;
-  double r_ = 0;
-};
-
-class Polyline final : public Curve {
-public:
-  Polyline(const double* r, int n, int dim) : dim_(dim) {
-    for (int i = 0; i < n; i++) pts_.push_back(readVec(r + i * dim, dim));
-  }
-  int dim() const override { return dim_; }
-  CurveDomain domain() const override { return {{0, static_cast<double>(pts_.size() - 1)}, 0}; }
-  Status eval(double t, int order, CurvePoint& out) const override {
-    double last = static_cast<double>(pts_.size() - 1);
-    Status s = (t < 0 || t > last) ? Status::outOfDomain : Status::ok;
-    t = std::clamp(t, 0.0, last);
-    int k = std::min(static_cast<int>(t), static_cast<int>(pts_.size()) - 2);
-    Vec3 d = pts_[k + 1] - pts_[k];
-    out = {pts_[k] + (t - k) * d, order >= 1 ? d : Vec3{}, {}};
-    return s;
-  }
-  void breaks(Range r, std::vector<double>& out) const override {
-    out = {r.lo};
-    for (int k = static_cast<int>(std::floor(r.lo)) + 1; k < r.hi; k++) out.push_back(k);
-    out.push_back(r.hi);
-  }
-  Status bound(Range r, Box3& out) const override {
-    CurvePoint a, b;
-    eval(r.lo, 0, a);
-    eval(r.hi, 0, b);
-    Vec3 lo = a.p, hi = a.p;
-    auto add = [&](Vec3 p) {
-      lo = {std::min(lo.x, p.x), std::min(lo.y, p.y), std::min(lo.z, p.z)};
-      hi = {std::max(hi.x, p.x), std::max(hi.y, p.y), std::max(hi.z, p.z)};
-    };
-    add(b.p);
-    for (int k = static_cast<int>(std::floor(r.lo)) + 1; k < r.hi; k++) add(pts_[k]);
-    double e = 4 * std::numeric_limits<double>::epsilon() * (norm(lo) + norm(hi));
-    out = {{lo.x - e, hi.x + e}, {lo.y - e, hi.y + e}, {lo.z - e, hi.z + e}};
-    return Status::ok;
-  }
-  Status derivBound(Range r, int order, double& out) const override {
-    out = 0;
-    if (order != 1) return Status::ok;
-    int a = std::max(0, static_cast<int>(std::floor(r.lo)));
-    int b = std::min(static_cast<int>(pts_.size()) - 2, static_cast<int>(std::ceil(r.hi)) - 1);
-    for (int k = a; k <= b; k++) out = std::max(out, norm(pts_[k + 1] - pts_[k]) * (1 + 1e-15));
-    return Status::ok;
-  }
-  void singular(Range r, std::vector<double>& out) const override {
-    out.clear();
-    for (size_t k = 0; k + 1 < pts_.size(); k++)
-      if (norm(pts_[k + 1] - pts_[k]) == 0 && k + 1 > r.lo && k < r.hi) out.push_back(std::max(r.lo, double(k)));
-  }
-
-private:
-  int dim_;
-  std::vector<Vec3> pts_;
-};
-
-class Spline final : public Curve {
-public:
-  Spline(BSpline c) : c_(std::move(c)) {}
-  int dim() const override { return c_.dim; }
-  CurveDomain domain() const override { return {{c_.knots[c_.degree], c_.knots[c_.poleCount()]}, 0}; }
-  Status eval(double t, int order, CurvePoint& out) const override {
-    double v[9] = {};
-    Status s = bspline::eval(c_, t, order, v);
-    int d = c_.dim;
-    out = {readVec(v, d), readVec(v + d, d), readVec(v + 2 * d, d)};
-    return s;
-  }
-  void breaks(Range r, std::vector<double>& out) const override {
-    out = {r.lo};
-    for (double k : c_.knots)
-      if (k > r.lo && k < r.hi && k != out.back()) out.push_back(k);
-    out.push_back(r.hi);
-  }
-  Status bound(Range r, Box3& out) const override {
-    // The poles of the spans r touches: a B-spline (rational, weights positive) lies in their convex hull.
-    int n = c_.poleCount(), p = c_.degree, w = c_.dim + (c_.rational ? 1 : 0);
-    int a = bspline::findSpan(p, c_.knots, n, r.lo), b = bspline::findSpan(p, c_.knots, n, r.hi);
-    Vec3 lo{kInf, kInf, kInf}, hi{-kInf, -kInf, -kInf};
-    for (int i = a - p; i <= b; i++) {
-      Vec3 q = readVec(c_.poles.data() + i * w, c_.dim);
-      lo = {std::min(lo.x, q.x), std::min(lo.y, q.y), std::min(lo.z, q.z)};
-      hi = {std::max(hi.x, q.x), std::max(hi.y, q.y), std::max(hi.z, q.z)};
-    }
-    double e = 8 * std::numeric_limits<double>::epsilon() * (norm(lo) + norm(hi));
-    out = {{lo.x - e, hi.x + e}, {lo.y - e, hi.y + e}, {lo.z - e, hi.z + e}};
-    return Status::ok;
-  }
-  Status derivBound(Range, int, double&) const override { return Status::unsupported; }
-  void singular(Range, std::vector<double>& out) const override { out.clear(); }
-
-private:
-  BSpline c_;
-};
-
-} // namespace
-
-std::unique_ptr<Curve> makeCurve(const Model& m, int row, Status& status) {
+std::unique_ptr<CurveImpl> make(const Model& m, int row, int depth, Status& status) {
   status = Status::invalidModel;
-  if (row < 0 || row >= m.curves()) return nullptr;
+  if (row < 0 || row >= m.curves() || depth > 32) return nullptr;
   int dim = m.curveDim(row);
   if (dim != 2 && dim != 3) return nullptr;
+  int ro = m.i32(CBR_CURVE_REAL)[row], io = m.i32(CBR_CURVE_INT)[row];
+  long nr = static_cast<long>(m.count(CBR_POOL_CURVE_REAL)) - ro;
+  long ni = static_cast<long>(m.count(CBR_POOL_CURVE_INT)) - io;
+  if (ro < 0 || io < 0 || nr < 0 || ni < 0) return nullptr;
   const double* r = m.curveReals(row);
   const int32_t* in = m.curveInts(row);
-  status = Status::ok;
+  int P = dim == 3 ? 9 : 4;  // a placement's reals
+  auto child = [&](int c) {
+    std::unique_ptr<CurveImpl> b = make(m, c, depth + 1, status);
+    if (b && b->dim() != dim) status = Status::invalidModel, b.reset();
+    return b;
+  };
   switch (m.curveKind(row)) {
-  case CBR_CURVE_LINE: return std::make_unique<Line>(r, dim);
-  case CBR_CURVE_CIRCLE: return std::make_unique<Circle>(r, dim);
-  case CBR_CURVE_POLYLINE: return std::make_unique<Polyline>(r, in[0], dim);
+  case CBR_CURVE_LINE:
+    if (nr < 2 * dim + 1 || !(r[2 * dim] > 0)) return nullptr;
+    status = Status::ok;
+    return makeLine(r, dim);
+  case CBR_CURVE_CIRCLE:
+    if (nr < P + 1 || !(r[P] > 0)) return nullptr;
+    status = Status::ok;
+    return makeEllipse(r, dim, r[P], r[P]);
+  case CBR_CURVE_ELLIPSE:
+    if (nr < P + 2 || !(r[P] > 0) || !(r[P + 1] > 0)) return nullptr;
+    status = Status::ok;
+    return makeEllipse(r, dim, r[P], r[P + 1]);
+  case CBR_CURVE_HYPERBOLA:
+    if (nr < P + 2 || !(r[P] > 0) || !(r[P + 1] > 0)) return nullptr;
+    status = Status::ok;
+    return makeHyperbola(r, dim);
+  case CBR_CURVE_PARABOLA:
+    if (nr < P + 1 || !(r[P] != 0) || !std::isfinite(r[P])) return nullptr;
+    status = Status::ok;
+    return makeParabola(r, dim);
   case CBR_CURVE_BSPLINE: {
-    BSpline c;
-    c.degree = in[0];
-    int n = in[1], k = in[2];
-    c.rational = in[3] != 0;
-    c.dim = dim;
-    c.knots = bspline::fullKnots(r, in + 7, k);
-    const double* poles = r + k;
-    const double* weights = poles + n * dim;
-    for (int i = 0; i < n; i++) {
-      for (int a = 0; a < dim; a++) c.poles.push_back(poles[i * dim + a]);
-      if (c.rational) c.poles.push_back(weights[i]);
+    if (ni < 7 || in[2] < 0 || ni < 7 + in[2] || in[1] < 0) return nullptr;
+    long need = in[2] + static_cast<long>(in[1]) * dim + (in[3] ? in[1] : 0);
+    if (nr < need) return nullptr;
+    return makeBSpline(r, in, dim, status);
+  }
+  case CBR_CURVE_POLYLINE:
+    if (ni < 1 || in[0] < 2 || nr < static_cast<long>(in[0]) * dim) return nullptr;
+    status = Status::ok;
+    return makePolyline(r, in[0], dim);
+  case CBR_CURVE_TRIMMED: {
+    if (ni < 3 || nr < 2 + 2 * dim) return nullptr;
+    std::unique_ptr<CurveImpl> b = child(in[0]);
+    if (!b) return nullptr;
+    return makeTrimmed(std::move(b), r, in[1], in[2], status);
+  }
+  case CBR_CURVE_COMPOSITE: {
+    if (ni < 2 || in[0] < 1 || ni < 2 + 3L * in[0]) return nullptr;
+    std::vector<Segment> segs;
+    for (int k = 0; k < in[0]; k++) {
+      std::unique_ptr<CurveImpl> b = child(in[2 + 3 * k]);
+      if (!b) return nullptr;
+      segs.push_back({std::move(b), in[3 + 3 * k] != 0});
     }
-    if (static_cast<int>(c.knots.size()) != n + c.degree + 1) {
-      status = Status::invalidModel;
-      return nullptr;
-    }
-    return std::make_unique<Spline>(std::move(c));
+    return makeComposite(std::move(segs), status);
+  }
+  case CBR_CURVE_OFFSET: {
+    if (ni < 2 || nr < 1 + (dim == 3 ? 3 : 0) || !std::isfinite(r[0])) return nullptr;
+    std::unique_ptr<CurveImpl> b = child(in[0]);
+    if (!b) return nullptr;
+    status = Status::ok;
+    return makeOffset(std::move(b), r[0], dim == 3 ? readVec(r + 1, 3) : Vec3{});
   }
   default: status = Status::unsupported; return nullptr;
   }
 }
 
+} // namespace curves
+
+using namespace curves;
+
+std::unique_ptr<Curve> makeCurve(const Model& model, int row, Status& status) {
+  return make(model, row, 0, status);
+}
+
+namespace {
+
+/** Boxes of a curve's derivatives: a CurveImpl's own, else from Curve's interface (looser, still holding). */
+struct Boxes {
+  const Curve& c;
+  const CurveImpl* impl;
+  Status box(Range r, int order, Box3& out) const {
+    if (impl) return impl->derivBox(r, order, out);
+    if (order == 0) return c.bound(r, out);
+    double b;
+    Status s = c.derivBound(r, order, b);
+    out = ballBox({}, b);
+    return s;
+  }
+  Status eval(double t, int order, CurvePoint& out) const { return c.eval(t, order, out); }
+};
+
+/** t moved into r by a few ulps where it's r's upper end, so a piecewise curve evaluates the piece r is on. */
+double inside(Range r, double t) {
+  if (t < r.hi) return t;
+  double u = r.hi - 4 * kEps * std::fmax(1.0, std::fabs(r.hi));
+  return u > r.lo ? u : t;
+}
+
+struct Node {
+  Range r;
+  double lb;
+  bool operator<(const Node& o) const { return lb > o.lb; }  // a min-heap on the lower bound
+};
+struct Candidate {
+  double t, d;
+  Vec3 foot;
+};
+
+Interval dotBox(const Box3& a, const Box3& b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+Box3 minus(const Box3& a, Vec3 p) {
+  return {a.x - Interval::point(p.x), a.y - Interval::point(p.y), a.z - Interval::point(p.z)};
+}
+
+/**
+ * The minimum of g = |C - p|^2 on r where g is convex there: an end where g' doesn't change sign inside, else g'
+ * = 0 by Newton (g'' its derivative) inside a bracket kept by bisection.
+ */
+double convexMinimum(const Boxes& b, Vec3 p, Range r) {
+  auto gp = [&](double t, double* g2) {
+    CurvePoint q;
+    b.eval(t, 2, q);
+    Vec3 e = q.p - p;
+    if (g2) *g2 = dot(q.d1, q.d1) + dot(e, q.d2);
+    return dot(e, q.d1);
+  };
+  // At r's end, the left limit: a piecewise curve's next piece starts there.
+  double fa = gp(r.lo, nullptr), fb = gp(inside(r, r.hi), nullptr);
+  if (fa >= 0) return r.lo;
+  if (fb <= 0) return inside(r, r.hi);  // where a composite jumps at r.hi, the piece r is on
+  double lo = r.lo, hi = r.hi, t = 0.5 * lo + 0.5 * hi;
+  for (int it = 0; it < 100; it++) {
+    double g2, f = gp(t, &g2);
+    if (f == 0) return t;
+    (f < 0 ? lo : hi) = t;
+    double nt = g2 > 0 ? t - f / g2 : 0.5 * lo + 0.5 * hi;
+    if (!(nt > lo && nt < hi)) nt = 0.5 * lo + 0.5 * hi;
+    if (std::fabs(nt - t) <= 2 * kEps * std::fmax(1.0, std::fabs(t)) || hi - lo <= 2 * kEps * std::fabs(t)) {
+      t = nt;
+      break;
+    }
+    t = nt;
+  }
+  return t;
+}
+
+} // namespace
+
 CurveInversion invertCurve(const Curve& c, Vec3 p, Range r, double tol) {
   CurveInversion out;
+  const CurveImpl* impl = dynamic_cast<const CurveImpl*>(&c);
+  Boxes B{c, impl};
   CurveDomain dom = c.domain();
-  if (!std::isfinite(r.lo) || !std::isfinite(r.hi)) {
-    out.status = Status::unsupported;
+  tol = std::fmax(tol, 0.0);
+  if (!(r.lo <= r.hi)) {
+    out.status = Status::outOfDomain;
     return out;
   }
-  // Dense samples per span, each local minimum polished by Newton on f(t) = (C - p) . C'.
+  auto at = [&](double t) {
+    CurvePoint q;
+    B.eval(t, 0, q);
+    return q.p;
+  };
+  // A periodic curve searched over one period from r.lo, its results reduced into it.
+  // (A range given as [lo, lo + period] may be a few ulps short of a period by its rounding: still a period.)
+  bool wrap = dom.period > 0 && r.hi - r.lo >= dom.period * (1 - 8 * kEps);
+  if (wrap) r.hi = r.lo + dom.period;
+  if (dom.period == 0) r = {std::fmax(r.lo, dom.range.lo), std::fmin(r.hi, dom.range.hi)};
+  if (!finite(r)) {
+    if (!impl) {
+      out.status = Status::unsupported;
+      return out;
+    }
+    double t0 = std::clamp(0.0, r.lo, r.hi);
+    Range w = impl->within(p, norm(at(t0) - p) * (1 + 1e-9) + tol);
+    r = {std::fmax(r.lo, w.lo), std::fmin(r.hi, w.hi)};
+    if (!finite(r)) {
+      out.status = Status::unsupported;
+      return out;
+    }
+  }
+
   std::vector<double> br;
   c.breaks(r, br);
-  std::vector<std::pair<double, double>> minima;
-  auto dist = [&](double t) {
-    CurvePoint q;
-    c.eval(t, 0, q);
-    return norm(q.p - p);
+  std::priority_queue<Node> queue;
+  double ub = kInf;
+  std::vector<Candidate> cands;
+  auto bound = [&](Range g) {
+    Box3 box;
+    B.box(g, 0, box);
+    return boxDistance(box, p);
   };
-  auto polish = [&](double t, double lo, double hi) {
-    for (int it = 0; it < 50; it++) {
-      CurvePoint q;
-      c.eval(t, 2, q);
-      Vec3 e = q.p - p;
-      double f = dot(e, q.d1), df = dot(q.d1, q.d1) + dot(e, q.d2);
-      if (df <= 0) break;
-      double nt = std::clamp(t - f / df, lo, hi);
-      if (std::fabs(nt - t) <= 1e-15 * (1 + std::fabs(t))) { t = nt; break; }
-      t = nt;
-    }
-    return t;
+  auto sample = [&](double t) {
+    double d = norm(at(t) - p);
+    ub = std::fmin(ub, d);
+    return d;
   };
-  for (size_t s = 0; s + 1 < br.size(); s++) {
-    const int N = 64;
-    double a = br[s], b = br[s + 1], prev = dist(a), cur = dist(a + (b - a) / N);
-    if (prev <= cur) minima.push_back({polish(a, a, b), 0});
-    for (int i = 1; i < N; i++) {
-      double next = dist(a + (b - a) * (i + 1) / N);
-      if (cur <= prev && cur <= next) minima.push_back({polish(a + (b - a) * i / N, a, b), 0});
-      prev = cur;
-      cur = next;
+  std::vector<double> known;
+  if (impl && impl->footCandidates(p, r, tol, known)) {
+    for (double t : known) cands.push_back({t, sample(t), at(t)});
+  } else {
+    for (size_t i = 0; i + 1 < br.size(); i++) {
+      Range g{br[i], br[i + 1]};
+      sample(g.lo), sample(g.hi);
+      queue.push({g, bound(g)});
     }
-    if (cur <= prev) minima.push_back({polish(b, a, b), 0});
+    if (br.size() == 2 && br[0] == br[1]) queue.push({{br[0], br[0]}, 0});
   }
-  for (auto& m : minima) m.second = dist(m.first);
-  std::sort(minima.begin(), minima.end(), [](auto& x, auto& y) { return x.second < y.second; });
-  if (minima.empty()) {
-    out.status = Status::ok;
-    return out;
+  int budget = 20000;
+  bool exhausted = false;
+  double leftLb = kInf;
+  while (!queue.empty()) {
+    Node n = queue.top();
+    queue.pop();
+    if (n.lb > ub + tol) continue;
+    Range g = n.r;
+    if (--budget < 0) {
+      // A continuum of feet (a point at an arc's centre) or a search too fine: what's left sampled at its middles,
+      // the least bound left saying whether a better foot could remain.
+      exhausted = true;
+      leftLb = std::fmin(leftLb, n.lb);
+      double t = 0.5 * g.lo + 0.5 * g.hi;
+      cands.push_back({t, sample(t), at(t)});
+      continue;
+    }
+    // Convex on g? g''/2 >= |C'|^2_min + min (C - p) . C''.
+    Box3 b0 = entireBox(), b1, b2;
+    bool convex = B.box(g, 0, b0) == Status::ok && B.box(g, 1, b1) == Status::ok && B.box(g, 2, b2) == Status::ok;
+    if (convex) {
+      double s = boxMinNorm(b1);
+      convex = s * s + dotBox(minus(b0, p), b2).lo > 0;
+    }
+    // A range whose box is as narrow as its coordinates' rounding is one foot wherever its minimum is (a zero-length
+    // segment, a cusp's neighbourhood): the best of its ends and middle. Not a range narrower than tol: tol can be
+    // as large as the curve (a part's uncertainty of 1 mm), and the foot is still wanted, not a point near it.
+    double w = g.hi - g.lo, diam = std::hypot(b0.x.width(), std::hypot(b0.y.width(), b0.z.width()));
+    bool tiny = diam <= 24 * kEps * boxMag(b0);
+    if (convex || tiny || w <= 4 * kEps * std::fmax(std::fabs(g.lo), std::fabs(g.hi)) || w == 0) {
+      if (convex) {
+        double t = convexMinimum(B, p, g);
+        cands.push_back({t, sample(t), at(t)});
+        continue;
+      }
+      Candidate k{0, kInf, {}};
+      for (double t : {g.lo, 0.5 * g.lo + 0.5 * g.hi, inside(g, g.hi)}) {
+        double d = sample(t);
+        if (d < k.d) k = {t, d, at(t)};
+      }
+      cands.push_back(k);
+      continue;
+    }
+    double m = 0.5 * g.lo + 0.5 * g.hi;
+    sample(m);
+    for (Range h : {Range{g.lo, m}, Range{m, g.hi}}) {
+      double lb = bound(h);
+      if (lb <= ub + tol) queue.push({h, lb});
+    }
   }
-  out.t = minima[0].first;
-  out.distance = minima[0].second;
-  CurvePoint q;
-  c.eval(out.t, 0, q);
-  out.foot = q.p;
   out.status = Status::ok;
+  if (cands.empty()) return out;
+  std::sort(cands.begin(), cands.end(), [](const Candidate& a, const Candidate& b) {
+    return a.d < b.d || (a.d == b.d && a.t < b.t);
+  });
+  const Candidate& best = cands[0];
+  out.t = best.t, out.distance = best.d, out.foot = best.foot;
+  if (exhausted && leftLb < best.d - tol) out.status = Status::noConvergence;
   out.certainty = Certainty::unique;
-  CurvePoint ends[2];
-  c.eval(dom.range.lo, 0, ends[0]);
-  c.eval(dom.range.hi, 0, ends[1]);
-  bool closed = std::isfinite(dom.range.lo) && std::isfinite(dom.range.hi) && norm(ends[1].p - ends[0].p) <= tol;
-  out.onSeam = closed && (norm(out.foot - ends[0].p) <= tol || norm(out.foot - ends[1].p) <= tol);
-  for (size_t i = 1; i < minima.size(); i++) {
-    double t = minima[i].first;
-    bool same = std::fabs(t - out.t) <= 1e-9 * (1 + std::fabs(out.t));
-    if (dom.period > 0) same = same || std::fabs(std::fabs(t - out.t) - dom.period) <= 1e-9 * dom.period;
+  // Closed over r: its ends one point (a period, or a closed curve searched over its whole domain).
+  Vec3 e0 = at(r.lo), e1 = at(r.hi);
+  bool whole = wrap || (dom.period == 0 && r.lo <= dom.range.lo && r.hi >= dom.range.hi);
+  bool closed = whole && norm(e1 - e0) <= tol;
+  // A flag only: t stays the foot's own (curve.h), so edge ranges and p-curves built from it are the foot's.
+  if (closed && (norm(out.foot - e0) <= tol || norm(out.foot - e1) <= tol)) out.onSeam = true;
+  if (wrap && out.t >= r.hi) out.t = r.lo;  // r.hi is r.lo's point: the result in [lo, lo + period)
+  // Other feet: within tol of the best distance and more than tol from the best foot and from each other.
+  std::vector<Vec3> feet{best.foot};
+  for (size_t i = 1; i < cands.size(); i++) {
+    const Candidate& k = cands[i];
+    if (k.d - best.d > tol) break;
+    bool same = false;
+    for (Vec3 f : feet) same = same || norm(k.foot - f) <= tol;
     if (same) continue;
-    CurvePoint qi;
-    c.eval(t, 0, qi);
-    if (minima[i].second - out.distance <= tol && norm(qi.p - out.foot) > tol) {
-      out.certainty = Certainty::ambiguous;
-      out.alternatives.push_back(t);
-    }
+    feet.push_back(k.foot);
+    double t = k.t;
+    if (wrap && t >= r.hi) t = r.lo;
+    out.alternatives.push_back(t);
   }
+  if (!out.alternatives.empty()) out.certainty = Certainty::ambiguous;
+  // A continuum sampled: a few alternatives spread over it are enough to say so.
+  if (exhausted && out.alternatives.size() > 8) {
+    std::vector<double> few;
+    for (size_t i = 0; i < 8; i++) few.push_back(out.alternatives[i * out.alternatives.size() / 8]);
+    out.alternatives = few;
+  }
+  std::sort(out.alternatives.begin(), out.alternatives.end());
   return out;
 }
 
+namespace {
+
+double speed(const Curve& c, double t) {
+  CurvePoint q;
+  c.eval(t, 1, q);
+  return norm(q.d1);
+}
+
+} // namespace
+
 Estimate arcLength(const Curve& c, double t0, double t1, double relTol) {
-  std::vector<double> br;
+  if (!(t0 <= t1)) return {NAN, kInf, Status::outOfDomain};
+  CurveDomain dom = c.domain();
+  Status status = Status::ok;
+  if (dom.period == 0 && (t0 < dom.range.lo || t1 > dom.range.hi)) {
+    status = Status::outOfDomain;
+    t0 = std::clamp(t0, dom.range.lo, dom.range.hi), t1 = std::clamp(t1, dom.range.lo, dom.range.hi);
+  }
+  if (!std::isfinite(t0) || !std::isfinite(t1)) return {kInf, kInf, Status::outOfDomain};
+  const CurveImpl* impl = dynamic_cast<const CurveImpl*>(&c);
+  double exact;
+  if (impl && impl->exactLength(t0, t1, exact)) return {exact, 4 * kEps * std::fabs(exact), status};
+  // Spans between breaks and the speed's zeros.
+  std::vector<double> br, z, cuts;
   c.breaks({t0, t1}, br);
-  Estimate total{0, 0, Status::ok};
-  for (size_t s = 0; s + 1 < br.size(); s++) {
-    Estimate e = quadrature::integrate(
-      [&](double t) {
-        CurvePoint q;
-        c.eval(t, 1, q);
-        return norm(q.d1);
-      },
-      br[s], br[s + 1], 0, relTol);
+  for (size_t i = 0; i + 1 < br.size(); i++) {
+    cuts.push_back(br[i]);
+    c.singular({br[i], br[i + 1]}, z);
+    for (double t : z)
+      if (t > cuts.back() && t < br[i + 1]) cuts.push_back(t);
+  }
+  cuts.push_back(t1);
+  // An absolute tolerance per span from the chords (a lower bound on the length, four a span), so a span whose length
+  // is negligible (next to a zero of the speed) needn't reach relTol of its own tiny value; the spans' errors still
+  // sum to within relTol of the whole.
+  double chord = 0;
+  for (size_t i = 0; i + 1 < cuts.size(); i++) {
+    Range g{cuts[i], cuts[i + 1]};
+    CurvePoint a, b;
+    c.eval(g.lo, 0, a);
+    for (int k = 1; k <= 4; k++) {
+      c.eval(k == 4 ? inside(g, g.hi) : g.lo + (g.hi - g.lo) * k / 4, 0, b);
+      chord += norm(b.p - a.p);
+      a = b;
+    }
+  }
+  double absTol = 0.25 * relTol * chord / static_cast<double>(std::max<size_t>(1, cuts.size() - 1));
+  Estimate total{0, 0, status};
+  for (size_t i = 0; i + 1 < cuts.size(); i++) {
+    if (cuts[i + 1] <= cuts[i]) continue;
+    Range g{cuts[i], cuts[i + 1]};
+    Estimate e = quadrature::integrate([&](double t) { return speed(c, inside(g, t)); }, g.lo, g.hi, absTol,
+      relTol);
     total.value += e.value;
     total.error += e.error;
     if (e.status != Status::ok) total.status = e.status;
@@ -320,17 +461,53 @@ Estimate arcLength(const Curve& c, double t0, double t1, double relTol) {
 }
 
 Estimate paramAtLength(const Curve& c, double t0, double length, double relTol) {
-  // Bisection on arcLength over the domain's end (slow: the reference only).
+  if (!(length >= 0) || !std::isfinite(t0)) return {NAN, kInf, Status::outOfDomain};
+  if (length == 0) return {t0, 0, Status::ok};
   CurveDomain dom = c.domain();
-  double hi = std::isfinite(dom.range.hi) ? dom.range.hi : t0 + 1;
-  if (!std::isfinite(dom.range.hi))
-    while (arcLength(c, t0, hi, relTol).value < length) hi = t0 + 2 * (hi - t0);
-  double lo = t0;
-  for (int it = 0; it < 200 && hi - lo > 1e-15 * (1 + std::fabs(hi)); it++) {
-    double mid = 0.5 * (lo + hi);
-    if (arcLength(c, t0, mid, relTol).value < length) lo = mid; else hi = mid;
+  bool bounded = dom.period == 0 && std::isfinite(dom.range.hi);
+  double acc = 0, a = t0, step = dom.period > 0 ? dom.period : 1;
+  if (bounded && t0 > dom.range.hi) return {NAN, kInf, Status::outOfDomain};
+  // Forward span by span (breaks, or chunks on a periodic or infinite curve) to the one the length ends in.
+  for (int chunk = 0; chunk < 200; chunk++) {
+    double end = bounded ? dom.range.hi : a + step;
+    std::vector<double> br;
+    c.breaks({a, end}, br);
+    for (size_t i = 0; i + 1 < br.size(); i++) {
+      double lo = br[i], hi = br[i + 1];
+      if (hi <= lo) continue;
+      Estimate L = arcLength(c, lo, hi, relTol / 4);
+      if (acc + L.value < length) {
+        acc += L.value;
+        continue;
+      }
+      // F(t) = acc + length(lo, t) - length: F(lo) < 0 <= F(hi), F' the speed.
+      double tlo = lo, thi = hi, t = lo + (length - acc) / L.value * (hi - lo), F = 0, err = 0;
+      Status st = Status::noConvergence;
+      for (int it = 0; it < 200; it++) {
+        Estimate l = arcLength(c, lo, t, relTol / 4);
+        F = acc + l.value - length, err = l.error;
+        if (std::fabs(F) <= 0.25 * relTol * length) {
+          st = Status::ok;
+          break;
+        }
+        (F < 0 ? tlo : thi) = t;
+        double v = speed(c, t), nt = v > 0 ? t - F / v : 0.5 * tlo + 0.5 * thi;
+        if (!(nt > tlo && nt < thi)) nt = 0.5 * tlo + 0.5 * thi;
+        if (thi - tlo <= 4 * kEps * std::fmax(1.0, std::fabs(t))) {
+          t = nt, st = Status::ok;
+          break;
+        }
+        t = nt;
+      }
+      double v = speed(c, t);
+      double e = v > 0 ? (std::fabs(F) + err) / v : thi - tlo;
+      return {t, e, st};
+    }
+    if (bounded) return {dom.range.hi, kInf, Status::outOfDomain};
+    a = end;
+    if (dom.period == 0) step *= 2;
   }
-  return {0.5 * (lo + hi), hi - lo, Status::ok};
+  return {a, kInf, Status::noConvergence};
 }
 
 } // namespace cadgeom

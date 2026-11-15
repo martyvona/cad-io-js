@@ -9,6 +9,7 @@
 // a loop's parameter in selfIntersect2 is the piece's index plus the fraction along it.
 
 import type { BrepData } from '../../src/data.ts';
+import * as dec from '../../src/decode.ts';
 import type { Curve } from '../../src/types.ts';
 import { extrusionEv, frame, parabolaEv, torusEv } from './forms.ts';
 import { type LocalCoedge, Maker, type SurfaceRef } from './maker.ts';
@@ -35,6 +36,18 @@ const PI = Math.PI, TAU = 2 * Math.PI;
 const X: V = [1, 0, 0], Z: V = [0, 0, 1], O: V = [0, 0, 0];
 const XY = { origin: O, axis: Z, xDir: X };
 const line2 = (point: V, direction: V, magnitude = 1): Curve => ({ kind: 'line', point, direction, magnitude });
+
+/**
+ * classify2's and nest2's periods for face f: the surface's periods as given, and its pole lines in closed form from
+ * its row (poleV: a sphere's v = +/-pi / 2, a cone's apex v = -r / tan(semi-angle); poleU: none of these surfaces has
+ * one), so that a loop's jump along one is told from a band's winding round the period.
+ */
+function periods(d: BrepData, f: number, u: number, v: number) {
+  const s = dec.surface(d, d.face.surface[f]!);
+  const poleV = s.kind === 'sphere' ? [-PI / 2, PI / 2] : s.kind === 'cone' ? [-s.radius / Math.tan(s.semiAngle)]
+    : [];
+  return { u, v, poleU: [] as number[], poleV };
+}
 
 /** The row of coedge k of loop j of face f, as written. */
 const coedgeRow = (d: BrepData, f: number, j: number, k: number) => d.loop.first[d.face.firstLoop[f]! + j]! + k;
@@ -116,12 +129,13 @@ const overlaps: CaseShape = {
         expected: { crossings: [], overlaps: [{ a: [0.5, 0.75], b: [0, 1], sameDirection: false }] } },
       { id: 'overlap-hole-on-side-nesting', description: 'The same face\'s loops: the hole is inside the outer loop '
         + 'though they share a stretch of boundary.', entities: { face: [c.face], loop: [loopRow(d, c.face, 0),
-        loopRow(d, c.face, 1)] }, query: 'nest2', input: { face: c.face, periods: { u: 0, v: 0 }, tol: 1e-9 },
+        loopRow(d, c.face, 1)] }, query: 'nest2', input: { face: c.face, periods: periods(d, c.face, 0, 0), tol: 1e-9 },
         expected: { parents: [-1, 0] } },
       ...([[[0, 5.5], 'on'], [[0.5, 5.5], 'out'], [[2, 6], 'in'], [[0, 4.5], 'on']] as [V, string][]).map(
         ([p, side]): CaseRecord => ({ id: `overlap-hole-classify-${p.join('-')}`, description: 'A point against the '
           + `face with a hole on its side: (${p.join(', ')}) is ${side}.`, entities: { face: [c.face] },
-        query: 'classify2', input: { face: c.face, p, periods: { u: 0, v: 0 }, tol: 1e-9 }, expected: { side } })),
+        query: 'classify2', input: { face: c.face, p, periods: periods(d, c.face, 0, 0), tol: 1e-9 },
+        expected: { side } })),
       { id: 'overlap-seam', description: 'A cylinder\'s seam used twice by one face: in 3D its two uses are one edge '
         + 'run both ways; in (u, v) its p-curves are u = 0 and u = 2 pi, a period apart, so they neither cross nor '
         + 'overlap there, and a point on either is on the face\'s boundary.', entities: { face: [side],
@@ -132,7 +146,7 @@ const overlaps: CaseShape = {
         ([p, s]): CaseRecord => ({ id: `overlap-seam-classify-${p[0] === TAU ? '2pi' : p[0]}-${p[1]}`,
           description: `A point against the seamed side, u periodic: (${p[0] === TAU ? '2 pi' : p[0]}, ${p[1]}) is `
             + `${s}.`, entities: { face: [side] }, query: 'classify2', input: { face: side, p,
-            periods: { u: TAU, v: 0 }, tol: 1e-9 }, expected: { side: s } })),
+            periods: periods(d, side, TAU, 0), tol: 1e-9 }, expected: { side: s } })),
     ];
   },
 };
@@ -175,11 +189,12 @@ const tangents: CaseShape = {
           overlaps: [] } },
       { id: 'tangent-hole-nesting', description: 'The tangent hole is inside the outer loop.', entities: {
         face: [holed], loop: [loopRow(d, holed, 0), loopRow(d, holed, 1)] }, query: 'nest2', input: { face: holed,
-        periods: { u: 0, v: 0 }, tol: 1e-9 }, expected: { parents: [-1, 0] } },
+        periods: periods(d, holed, 0, 0), tol: 1e-9 }, expected: { parents: [-1, 0] } },
       ...([[[0, 2], 'on'], [[1, 2], 'out'], [[0.1, 1], 'in'], [[3, 3], 'in']] as [V, string][]).map(
         ([p, side]): CaseRecord => ({ id: `tangent-hole-classify-${p.join('-')}`, description: 'A point against the '
           + `face with a tangent hole: (${p.join(', ')}) is ${side}.`, entities: { face: [holed] },
-        query: 'classify2', input: { face: holed, p, periods: { u: 0, v: 0 }, tol: 1e-9 }, expected: { side } })),
+        query: 'classify2', input: { face: holed, p, periods: periods(d, holed, 0, 0), tol: 1e-9 },
+        expected: { side } })),
       { id: 'tangent-pinched', description: 'A pinched face: one loop through the corner (12, 2) twice, the end of '
         + 'its piece 1 (the start of piece 2) and the end of piece 5 (the start of piece 6); it touches itself '
         + 'there without crossing.', entities: { face: [pin.face], loop: [loopRow(d, pin.face, 0)] },
@@ -276,7 +291,7 @@ const singular: CaseShape = {
       ...([[[1, -1], 'on'], [[1, -0.5], 'in'], [[1, 0.5], 'out']] as [V, string][]).map(([p, side]): CaseRecord => ({
         id: `singular-cone-classify-${p.join('-')}`, description: `A point against the cone face: (${p.join(', ')}) `
           + `is ${side}; the apex line closes the loop.`, entities: { face: [coneFace] }, query: 'classify2',
-        input: { face: coneFace, p, periods: { u: TAU, v: 0 }, tol: 1e-9 }, expected: { side } })),
+        input: { face: coneFace, p, periods: periods(d, coneFace, TAU, 0), tol: 1e-9 }, expected: { side } })),
       { id: 'singular-cusp', description: 'A cubic B-spline with poles (4, 0, 0), (5, 1, 0), (4, 1, 0), (5, 0, 0): '
         + 'its speed vanishes at t = 1/2 (C\'(t) = 3 ((1 - 2 t)^2, 1 - 2 t, 0)), a cusp at (4.5, 0.75, 0).',
       entities: { curve: [cusp] }, query: 'singular', input: { curve: cusp, range: [0, 1] },
@@ -331,20 +346,21 @@ const periodic: CaseShape = {
     return (d) => [
       { id: 'periodic-band-nesting', description: 'A cylinder band (radius 1, z in [0, 2]) bounded by two circles, '
         + 'each winding once round u: neither contains the other.', entities: { face: [band], loop: [
-        loopRow(d, band, 0), loopRow(d, band, 1)] }, query: 'nest2', input: { face: band, periods: { u: TAU, v: 0 },
+        loopRow(d, band, 0), loopRow(d, band, 1)] }, query: 'nest2', input: { face: band,
+        periods: periods(d, band, TAU, 0),
         tol: 1e-9 }, expected: { parents: [-1, -1] } },
       ...([[[1, 1], 'in'], [[5, 0], 'on'], [[1, 3], 'out'], [[0, 1], 'in']] as [V, string][]).map(
         ([p, side]): CaseRecord => ({ id: `periodic-band-classify-${p.join('-')}`, description: 'A point against the '
           + `band: (${p.join(', ')}) is ${side}.`, entities: { face: [band] }, query: 'classify2',
-        input: { face: band, p, periods: { u: TAU, v: 0 }, tol: 1e-9 }, expected: { side } })),
+        input: { face: band, p, periods: periods(d, band, TAU, 0), tol: 1e-9 }, expected: { side } })),
       { id: 'periodic-torus-band-nesting', description: 'A torus band between the minor circles at u = 1 and u = 2, '
         + 'each winding once round v: neither contains the other.', entities: { face: [tband], loop: [
         loopRow(d, tband, 0), loopRow(d, tband, 1)] }, query: 'nest2', input: { face: tband,
-        periods: { u: TAU, v: TAU }, tol: 1e-9 }, expected: { parents: [-1, -1] } },
+        periods: periods(d, tband, TAU, TAU), tol: 1e-9 }, expected: { parents: [-1, -1] } },
       ...([[[1.5, 3], 'in'], [[3, 3], 'out'], [[1, 5], 'on'], [[1.5, 0], 'in']] as [V, string][]).map(
         ([p, side]): CaseRecord => ({ id: `periodic-torus-classify-${p.join('-')}`, description: 'A point against the '
           + `torus band: (${p.join(', ')}) is ${side}.`, entities: { face: [tband] }, query: 'classify2',
-        input: { face: tband, p, periods: { u: TAU, v: TAU }, tol: 1e-9 }, expected: { side } })),
+        input: { face: tband, p, periods: periods(d, tband, TAU, TAU), tol: 1e-9 }, expected: { side } })),
     ];
   },
 };
@@ -422,7 +438,7 @@ const sizes: CaseShape = {
     const F = 1e7, a = 1e-3;
     const far = polygonFace(m, plane, [{ pts: [[F, F], [F + a, F], [F + a, F + a], [F, F + a]], bound: 'outer' }]);
     sheet(m, [sliver.face, short.face, gap, far.face]);
-    return () => [
+    return (d) => [
       { id: 'sizes-sliver', description: 'A face 10 (mm) by 1e-7 (mm), narrower than the uncertainty 1e-6: area '
         + '1e-6 (mm^2), width 1e-7 (mm).', entities: { face: [sliver.face] }, query: 'faceWidth',
       input: { face: sliver.face }, expected: { area: 1e-6, width: 1e-7 } },
@@ -439,7 +455,7 @@ const sizes: CaseShape = {
       ...([[[F + a / 2, F + a / 2], 'in'], [[F + a / 2, F], 'on'], [[F - 1e-6, F + a / 2], 'out']] as [V, string][])
         .map(([p, side], k): CaseRecord => ({ id: `sizes-far-classify-${k}`, description: 'A point against the far '
           + `square: (${p.join(', ')}) is ${side}.`, entities: { face: [far.face] }, query: 'classify2',
-        input: { face: far.face, p, periods: { u: 0, v: 0 }, tol: 1e-8 }, expected: { side } })),
+        input: { face: far.face, p, periods: periods(d, far.face, 0, 0), tol: 1e-8 }, expected: { side } })),
     ];
   },
 };
@@ -474,14 +490,15 @@ const topology: CaseShape = {
     sheet(m, fins);
     const sq = polygonFace(m, xyPlane(m), [{ pts: [[10, 0], [12, 0], [12, 2], [10, 2]], bound: 'outer' }]);
     sheet(m, [sq.face]);
-    return () => [
+    return (d) => [
       { id: 'topology-nonmanifold', description: 'An edge (the z axis from 0 to 1) used by three faces, each the '
         + 'other way from its start: uses 3 (a count), all reversed.', entities: { edge: [shared], face: fins },
       query: 'edgeUses', input: { edge: shared }, expected: { uses: 3, faces: fins } },
       ...([[[11, 0], 'on'], [[12, 2], 'on'], [[11, 1e-12], 'on'], [[11, 1e-6], 'in'], [[11, -1e-6], 'out']] as
         [V, string][]).map(([p, side], k): CaseRecord => ({ id: `topology-on-loop-${k}`, description: 'A point '
           + `against the square [10, 12] x [0, 2] within 1e-9 (in (u, v), mm): (${p.join(', ')}) is ${side}.`,
-        entities: { face: [sq.face] }, query: 'classify2', input: { face: sq.face, p, periods: { u: 0, v: 0 },
+        entities: { face: [sq.face] }, query: 'classify2', input: { face: sq.face, p,
+          periods: periods(d, sq.face, 0, 0),
           tol: 1e-9 }, expected: { side } })),
     ];
   },

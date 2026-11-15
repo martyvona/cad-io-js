@@ -719,24 +719,33 @@ export function edgeParams(d: BrepData, e: number, c: CurveEvaluator): [number, 
     else if (!same && te >= ts) te -= P;
   } else if (Number.isFinite(c.range[0]) && Number.isFinite(c.range[1])) {
     // A curve that closes without a period (a closed B-spline): a vertex at its junction is either end, whichever
-    // runs the edge the way `sameSense` says; one vertex, the whole curve.
+    // runs the edge the way `sameSense` says; one vertex, the whole curve. Closed where its ends are within the
+    // largest of the part's uncertainty and the vertices' tolerances (the distance within which the source makes
+    // points one: bug25166_piston.stp's ends 6.6e-4 apart, uncertainty 1e-3), else CLOSED of its size.
     const [lo, hi] = c.range, a = c.point(lo), b = c.point(hi);
     const at = (f: number) => c.point(lo + f * (hi - lo));
     const size = Math.max(...[0.25, 0.5, 0.75].map((f) => norm(sub(at(f), a))));
-    if (norm(sub(a, b)) <= CLOSED * size) {
+    const given = [d.part.uncertainty[0], d.vertex.tolerance[s], d.vertex.tolerance[t]]
+      .filter((x): x is number => Number.isFinite(x));
+    const tol = Math.max(CLOSED * size, ...given);
+    if (norm(sub(a, b)) <= tol) {
       if (s === t) return same ? [lo, hi] : [hi, lo];
-      const end = (x: number) => Math.abs(x - lo) <= CLOSED * (hi - lo) || Math.abs(x - hi) <= CLOSED * (hi - lo);
+      // At the junction: the vertex within tol of the curve's ends.
+      const end = (v: number) => {
+        const q = Array.from(d.vertex.point.subarray(3 * v, 3 * v + 3));
+        return norm(sub(q, a)) <= tol || norm(sub(q, b)) <= tol;
+      };
       if (same && te < ts) {
-        if (end(te)) te = hi;
-        else if (end(ts)) ts = lo;
+        if (end(t)) te = hi;
+        else if (end(s)) ts = lo;
       } else if (!same && te > ts) {
-        if (end(te)) te = lo;
-        else if (end(ts)) ts = hi;
+        if (end(t)) te = lo;
+        else if (end(s)) ts = hi;
       }
     }
   }
   return [ts, te];
 }
 
-/** A curve's ends closer than this, relative to its size, close it. */
+/** A curve's ends closer than this, relative to its size, close it where no tolerance is given (or this is larger). */
 const CLOSED = 1e-9;

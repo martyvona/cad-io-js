@@ -77,15 +77,18 @@ struct CurveInversion {
   Certainty certainty = Certainty::none;
   std::vector<double> alternatives;
   /**
-   * The foot is at a closed curve's junction within tol (a periodic curve's seam, or a closed B-spline's ends meeting):
-   * t is one end of the range, the same point also at the other.
+   * The foot is within tol of a closed curve's junction (a periodic curve's seam, or a closed B-spline's ends
+   * meeting), where the same point is reached at both ends of the range. t stays the foot's own parameter (never
+   * snapped to an end: edge ranges and p-curves are built from it), so the caller chooses the end it needs.
    */
   bool onSeam = false;
 };
 
 /**
  * The parameter in r of the point of c nearest p, global over r (branch and bound on bound(), then guarded Newton),
- * `tol` a distance in the curve's units. r defaults to the domain; a periodic curve's result lies in [lo, lo + period).
+ * `tol` a distance in the curve's units. A periodic curve's result lies in [lo, lo + period). On an exact tie the
+ * smaller t is the result and the alternatives are sorted. (A trimmed curve's domain has no period, even where its
+ * trims go once round a closed basis.)
  */
 CurveInversion invertCurve(const Curve& c, Vec3 p, Range r, double tol);
 

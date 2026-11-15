@@ -1,4 +1,4 @@
-{"format":2,"name":"case-parabolic","variant":"s1","file":"case-parabolic-s1","similarity":{"scale":1,"rotation":[1,0,0,0,1,0,0,0,1],"translation":[0,0,0]},"uncertainty":0.000001,
+{"format":3,"name":"case-parabolic","variant":"s1","file":"case-parabolic-s1","similarity":{"scale":1,"rotation":[1,0,0,0,1,0,0,0,1],"translation":[0,0,0]},"uncertainty":0.000001,
 "facts": [
 {"kind":"surfacePoint","id":2,"surface":0,"u":1,"v":0.5,"p":[1,2,1],"du":[2,2,0],"dv":[0,0,2],"duu":[2,0,0],"duv":[0,0,0],"dvv":[0,0,0],"n":[0.7071067811865475,-0.7071067811865475,0],"tol":1e-12,"abs":4e-12},
 {"kind":"surfacePoint","id":2,"surface":0,"u":-1,"v":0.5,"p":[1,-2,1],"du":[-2,2,0],"dv":[0,0,2],"duu":[2,0,0],"duv":[0,0,0],"dvv":[0,0,0],"n":[0.7071067811865475,0.7071067811865475,0],"tol":1e-12,"abs":4e-12}

@@ -1,11 +1,11 @@
-{"format":2,"name":"case-topology","variant":"s1","file":"case-topology-s1","similarity":{"scale":1,"rotation":[1,0,0,0,1,0,0,0,1],"translation":[0,0,0]},"uncertainty":0.000001,
+{"format":3,"name":"case-topology","variant":"s1","file":"case-topology-s1","similarity":{"scale":1,"rotation":[1,0,0,0,1,0,0,0,1],"translation":[0,0,0]},"uncertainty":0.000001,
 "facts": [],
 "cases": [
 {"id":"topology-nonmanifold","description":"An edge (the z axis from 0 to 1) used by three faces, each the other way from its start: uses 3 (a count), all reversed.","entities":{"edge":[0],"face":[0,1,2]},"query":"edgeUses","input":{"edge":0},"expected":{"uses":3,"faces":[0,1,2]}},
-{"id":"topology-on-loop-0","description":"A point against the square [10, 12] x [0, 2] within 1e-9 (in (u, v), mm): (11, 0) is on.","entities":{"face":[3]},"query":"classify2","input":{"face":3,"p":[11,0],"periods":{"u":0,"v":0},"tol":1e-9},"expected":{"side":"on"}},
-{"id":"topology-on-loop-1","description":"A point against the square [10, 12] x [0, 2] within 1e-9 (in (u, v), mm): (12, 2) is on.","entities":{"face":[3]},"query":"classify2","input":{"face":3,"p":[12,2],"periods":{"u":0,"v":0},"tol":1e-9},"expected":{"side":"on"}},
-{"id":"topology-on-loop-2","description":"A point against the square [10, 12] x [0, 2] within 1e-9 (in (u, v), mm): (11, 1e-12) is on.","entities":{"face":[3]},"query":"classify2","input":{"face":3,"p":[11,1e-12],"periods":{"u":0,"v":0},"tol":1e-9},"expected":{"side":"on"}},
-{"id":"topology-on-loop-3","description":"A point against the square [10, 12] x [0, 2] within 1e-9 (in (u, v), mm): (11, 0.000001) is in.","entities":{"face":[3]},"query":"classify2","input":{"face":3,"p":[11,0.000001],"periods":{"u":0,"v":0},"tol":1e-9},"expected":{"side":"in"}},
-{"id":"topology-on-loop-4","description":"A point against the square [10, 12] x [0, 2] within 1e-9 (in (u, v), mm): (11, -0.000001) is out.","entities":{"face":[3]},"query":"classify2","input":{"face":3,"p":[11,-0.000001],"periods":{"u":0,"v":0},"tol":1e-9},"expected":{"side":"out"}}
+{"id":"topology-on-loop-0","description":"A point against the square [10, 12] x [0, 2] within 1e-9 (in (u, v), mm): (11, 0) is on.","entities":{"face":[3]},"query":"classify2","input":{"face":3,"p":[11,0],"periods":{"u":0,"v":0,"poleU":[],"poleV":[]},"tol":1e-9},"expected":{"side":"on"}},
+{"id":"topology-on-loop-1","description":"A point against the square [10, 12] x [0, 2] within 1e-9 (in (u, v), mm): (12, 2) is on.","entities":{"face":[3]},"query":"classify2","input":{"face":3,"p":[12,2],"periods":{"u":0,"v":0,"poleU":[],"poleV":[]},"tol":1e-9},"expected":{"side":"on"}},
+{"id":"topology-on-loop-2","description":"A point against the square [10, 12] x [0, 2] within 1e-9 (in (u, v), mm): (11, 1e-12) is on.","entities":{"face":[3]},"query":"classify2","input":{"face":3,"p":[11,1e-12],"periods":{"u":0,"v":0,"poleU":[],"poleV":[]},"tol":1e-9},"expected":{"side":"on"}},
+{"id":"topology-on-loop-3","description":"A point against the square [10, 12] x [0, 2] within 1e-9 (in (u, v), mm): (11, 0.000001) is in.","entities":{"face":[3]},"query":"classify2","input":{"face":3,"p":[11,0.000001],"periods":{"u":0,"v":0,"poleU":[],"poleV":[]},"tol":1e-9},"expected":{"side":"in"}},
+{"id":"topology-on-loop-4","description":"A point against the square [10, 12] x [0, 2] within 1e-9 (in (u, v), mm): (11, -0.000001) is out.","entities":{"face":[3]},"query":"classify2","input":{"face":3,"p":[11,-0.000001],"periods":{"u":0,"v":0,"poleU":[],"poleV":[]},"tol":1e-9},"expected":{"side":"out"}}
 ]
 }
