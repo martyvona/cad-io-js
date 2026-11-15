@@ -169,6 +169,8 @@ bool refine(const Geom& g, double a, double b, const Criteria& k, std::vector<do
   bool ok = std::isfinite(m2) && s * s * m2 / 8 <= k.deflection &&
     (k.spacing == kInf || (std::isfinite(m1) && s * m1 <= k.spacing));
   if (ok && k.angle > 0 && s * m2 > 0) {
+    // The speed's lower bound keeps "- s m2", though at the span's ends e / |C'(a)| alone suffices (every C' lies on
+    // a path of length e = s m2 from C'(a), so sin(angle) <= (e - x) / (V - x) <= e / V); inside it, unproven.
     double v = norm(g.d1(a)) - s * m2;
     ok = (v > 0 && s * m2 <= std::sin(k.angle) * v) || g.singular(a, b);
   }
@@ -298,12 +300,35 @@ struct EdgeMesh::Impl {
 
   /**
    * invertSurface over the face's domain, an infinite direction (a plane's, a cylinder's v) narrowed to a window
-   * round where Newton from `hint` (else from seeds across the finite direction) lands. A workaround: cad-geom's
-   * invertSurface refuses infinite ranges (and ignores the hint); once it takes them, call it directly.
+   * round where Newton from `hint` (else from seeds across the finite direction) lands; and where its foot is farther
+   * than the tolerance, Newton from the hint, the nearer kept. A workaround for cad-geom's reference invertSurface,
+   * which refuses infinite ranges, ignores the hint, and near a pole can return the pole (its grid's pole row nearer
+   * than the next, Newton stuck where S_u vanishes); once it does neither, call it directly.
    */
   SurfaceInversion invert(int f, Vec3 p, const Vec2* hint) const {
     const Face& F = faces[f];
     Range r[2] = {F.dom.u, F.dom.v};
+    // Newton on |S - p|^2 / 2 from x, clamped to the ranges except along a period.
+    auto newton = [&](Vec2 x) {
+      for (int it = 0; it < 50; it++) {
+        SurfacePoint q;
+        F.s->eval(x.x, x.y, 2, q);
+        Vec3 e = q.p - p;
+        double gu = dot(e, q.du), gv = dot(e, q.dv);
+        double huu = dot(q.du, q.du) + dot(e, q.duu), huv = dot(q.du, q.dv) + dot(e, q.duv);
+        double hvv = dot(q.dv, q.dv) + dot(e, q.dvv), det = huu * hvv - huv * huv;
+        if (!(det > 0) || !(huu > 0)) break;
+        Vec2 next{x.x - (hvv * gu - huv * gv) / det, x.y - (huu * gv - huv * gu) / det};
+        if (!(F.period[0] > 0)) next.x = std::clamp(next.x, r[0].lo, r[0].hi);
+        if (!(F.period[1] > 0)) next.y = std::clamp(next.y, r[1].lo, r[1].hi);
+        double step = norm(next - x);
+        x = next;
+        if (!(step > 1e-15 * (1 + norm(x)))) break;
+      }
+      SurfacePoint q;
+      F.s->eval(x.x, x.y, 0, q);
+      return std::make_pair(x, norm(q.p - p));
+    };
     bool infinite = false;
     for (Range& x : r) infinite = infinite || !std::isfinite(x.lo) || !std::isfinite(x.hi);
     if (infinite) {
@@ -312,25 +337,6 @@ struct EdgeMesh::Impl {
           std::isfinite(x.lo) ? x.lo : std::isfinite(x.hi) ? x.hi : 0.0;
       };
       // Newton from the hint, else from 8 seeds across the finite direction: the nearest result.
-      auto newton = [&](Vec2 x) {
-        for (int it = 0; it < 50; it++) {
-          SurfacePoint q;
-          F.s->eval(x.x, x.y, 2, q);
-          Vec3 e = q.p - p;
-          double gu = dot(e, q.du), gv = dot(e, q.dv);
-          double huu = dot(q.du, q.du) + dot(e, q.duu), huv = dot(q.du, q.dv) + dot(e, q.duv);
-          double hvv = dot(q.dv, q.dv) + dot(e, q.dvv), det = huu * hvv - huv * huv;
-          if (!(det > 0) || !(huu > 0)) break;
-          Vec2 next{x.x - (hvv * gu - huv * gv) / det, x.y - (huu * gv - huv * gu) / det};
-          next = {std::clamp(next.x, r[0].lo, r[0].hi), std::clamp(next.y, r[1].lo, r[1].hi)};
-          double step = norm(next - x);
-          x = next;
-          if (!(step > 1e-15 * (1 + norm(x)))) break;
-        }
-        SurfacePoint q;
-        F.s->eval(x.x, x.y, 0, q);
-        return std::make_pair(x, norm(q.p - p));
-      };
       std::vector<Vec2> seeds;
       if (hint) seeds.push_back(*hint);
       for (int k = 0; k < 8; k++) {
@@ -352,7 +358,32 @@ struct EdgeMesh::Impl {
         r[d] = {std::max(r[d].lo, c - w), std::min(r[d].hi, c + w)};
       }
     }
-    return invertSurface(*F.s, p, r[0], r[1], tol, hint);
+    SurfaceInversion out = invertSurface(*F.s, p, r[0], r[1], tol, hint);
+    if (hint && (out.status != Status::ok || out.distance > tol)) {
+      auto [y, dist] = newton(*hint);
+      if (dist < out.distance || out.status != Status::ok) {
+        // Into the domain's period, and the flags as invertSurface sets them.
+        for (int d = 0; d < 2; d++) {
+          double P = F.period[d];
+          if (!(P > 0)) continue;
+          double& c = d ? y.y : y.x;
+          c = F.lo[d] + std::fmod(c - F.lo[d], P);
+          if (c < F.lo[d]) c += P;
+        }
+        SurfacePoint q;
+        F.s->eval(y.x, y.y, 0, q);
+        out.status = Status::ok;
+        out.uv = y, out.foot = q.p, out.distance = dist;
+        out.certainty = Certainty::unique;
+        out.alternatives.clear();
+        out.onSeamU = F.period[0] > 0 && (std::fabs(y.x - F.dom.u.lo) <= 1e-9 || std::fabs(y.x - F.dom.u.hi) <= 1e-9);
+        out.onSeamV = F.period[1] > 0 && (std::fabs(y.y - F.dom.v.lo) <= 1e-9 || std::fabs(y.y - F.dom.v.hi) <= 1e-9);
+        out.atSingularity = false;
+        for (const Singularity& g : F.sing)
+          if (g.kind != Singularity::normalVanishes && norm(g.point - q.p) <= tol) out.atSingularity = true;
+      }
+    }
+    return out;
   }
 
   // ---- edges ----
