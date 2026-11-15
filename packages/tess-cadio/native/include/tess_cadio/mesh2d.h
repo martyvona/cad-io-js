@@ -55,10 +55,11 @@ struct MeshOptions {
 };
 
 /**
- * A fixed segment refinement wanted split: a triangle's every improving point encroached it, that triangle is still
- * in the mesh, and either the segment is longer than sqrt 2 in its endpoints' metric (averaged) or accept() still
- * refuses the triangle. The caller splits the edge the segment samples (in 3D, once for both faces it bounds) and
- * meshes again.
+ * A fixed segment refinement wanted split: a triangle's every improving point encroached it (or the first left the
+ * domain across it: the segment the ray from the triangle's centroid crosses first), that triangle is still in the
+ * mesh, and either the segment is longer than sqrt 2 in its endpoints' metric (averaged) or accept() still refuses
+ * the triangle. The caller splits the edge the segment samples (in 3D, once for both faces it bounds) and meshes
+ * again.
  */
 struct SplitWanted {
   /** The segment's index: each loop's segments in order (from loop[k] to loop[k + 1]), then Domain2::segments. */

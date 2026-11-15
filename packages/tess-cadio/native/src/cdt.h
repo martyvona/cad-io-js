@@ -88,6 +88,12 @@ public:
   /** A triangle holding p (inside or on it), walking from `hint`; a ghost triangle if p is outside the hull. */
   int32_t locate(Vec2 p, int32_t hint) const;
 
+  /**
+   * The first constrained edge (a point pair) the segment from `from`, inside or on triangle t, to `to` crosses or
+   * touches, walking straight from t; false if it reaches `to` without one.
+   */
+  bool firstConstraint(Vec2 from, Vec2 to, int32_t t, std::pair<int32_t, int32_t>& out) const;
+
   // Predicates with ties broken by simulation of simplicity.
   /** orient2d's sign, exact zero kept (collinearity is a fact the callers act on). */
   int orient(int32_t a, int32_t b, int32_t c) const;

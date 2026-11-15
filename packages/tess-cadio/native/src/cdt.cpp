@@ -40,6 +40,33 @@ uint32_t Triangulation::fresh() const {
   return stamp_;
 }
 
+bool Triangulation::firstConstraint(Vec2 from, Vec2 to, int32_t t, std::pair<int32_t, int32_t>& out) const {
+  // Each step leaves the triangle by the edge the segment crosses: `to` strictly right of it (outside, the triangle
+  // counterclockwise) and the edge's ends not both strictly on one side of the segment's line. A triangle visited
+  // twice (a walk along an edge through a vertex) ends the walk.
+  std::vector<int32_t> seen;
+  for (int step = 0; step < 1 << 20 && t >= 0; step++) {
+    const Tri& T = tris_[t];
+    if (T.v[2] == kGhost) return false;
+    if (std::find(seen.begin(), seen.end(), t) != seen.end()) return false;
+    seen.push_back(t);
+    int exit = -1;
+    for (int i = 0; i < 3 && exit < 0; i++) {
+      int32_t a = T.v[(i + 1) % 3], b = T.v[(i + 2) % 3];
+      if (orient(a, b, to) >= 0) continue;
+      int sa = sgn(cadgeom::orient2d(from, to, pts_[a])), sb = sgn(cadgeom::orient2d(from, to, pts_[b]));
+      if (sa * sb <= 0) exit = i;
+    }
+    if (exit < 0) return false;
+    if (T.c[exit] != kFree) {
+      out = {T.v[(exit + 1) % 3], T.v[(exit + 2) % 3]};
+      return true;
+    }
+    t = T.n[exit];
+  }
+  return false;
+}
+
 int Triangulation::orient(int32_t a, int32_t b, int32_t c) const {
   return sgn(cadgeom::orient2d(pts_[a], pts_[b], pts_[c]));
 }

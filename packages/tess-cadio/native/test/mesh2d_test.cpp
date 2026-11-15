@@ -510,6 +510,85 @@ TEST_CASE("accept() drives refinement; what it still refuses at the end is liste
   }
 }
 
+TEST_CASE("firstConstraint: the constrained edge a segment from inside a triangle crosses first, by brute force") {
+  // Random points in a unit square, its sides and a polyline across it constrained; from triangles' centroids towards
+  // random points (outside the square too), the walk's edge against the nearest crossing of every constrained one.
+  std::mt19937 rng(3);
+  std::uniform_real_distribution<double> u(0, 1);
+  std::vector<Vec2> pts{{0, 0}, {1, 0}, {1, 1}, {0, 1}, {0.05, 0.3}, {0.5, 0.42}, {0.95, 0.3}};
+  for (int k = 0; k < 300; k++) pts.push_back({0.01 + 0.98 * u(rng), 0.01 + 0.98 * u(rng)});
+  cdt::Triangulation T(pts);
+  int32_t dup[2], other[2];
+  REQUIRE(T.build(dup));
+  std::vector<std::pair<int32_t, int32_t>> cons{{0, 1}, {1, 2}, {2, 3}, {3, 0}, {4, 5}, {5, 6}};
+  for (auto [a, b] : cons) REQUIRE(T.insertSegment(a, b, a < 4 ? cdt::kBoundary : cdt::kInterior, other));
+  auto cross = [](Vec2 p, Vec2 q, Vec2 a, Vec2 b, double& t) {
+    double dx = q.x - p.x, dy = q.y - p.y, ex = b.x - a.x, ey = b.y - a.y, den = dx * ey - dy * ex;
+    if (den == 0) return false;
+    t = ((a.x - p.x) * ey - (a.y - p.y) * ex) / den;
+    double s = ((a.x - p.x) * dy - (a.y - p.y) * dx) / den;
+    return t >= 0 && t <= 1 && s >= 0 && s <= 1;
+  };
+  int walked = 0, none = 0;
+  for (int k = 0; k < 2000; k++) {
+    int32_t t = -1;
+    for (int tries = 0; tries < 100 && t < 0; tries++) {
+      int32_t c = static_cast<int32_t>(u(rng) * T.tris().size());
+      if (!T.tris()[c].dead && !T.isGhost(c)) t = c;
+    }
+    REQUIRE(t >= 0);
+    const cdt::Tri& R = T.tris()[t];
+    Vec2 g{(pts[R.v[0]].x + pts[R.v[1]].x + pts[R.v[2]].x) / 3, (pts[R.v[0]].y + pts[R.v[1]].y + pts[R.v[2]].y) / 3};
+    Vec2 to{-0.5 + 2 * u(rng), -0.5 + 2 * u(rng)};
+    double best = 2;
+    std::pair<int32_t, int32_t> want{-1, -1};
+    for (auto [a, b] : cons) {
+      double tt;
+      if (cross(g, to, pts[a], pts[b], tt) && tt < best) best = tt, want = {a, b};
+    }
+    std::pair<int32_t, int32_t> got;
+    bool found = T.firstConstraint(g, to, t, got);
+    CHECK_EQ(found, want.first >= 0);
+    if (!found) {
+      none++;
+      continue;
+    }
+    walked++;
+    CHECK((got == want || got == std::pair<int32_t, int32_t>{want.second, want.first}));
+  }
+  CHECK(walked > 500);
+  CHECK(none > 100);
+}
+
+TEST_CASE("a strip narrower than its boundary's spacing: candidates outside it name the segment, the split ends it") {
+  // A strip 8 x 0.05, its sides sampled every 1 (the top's points offset by 0.5): every triangle spans it, all three
+  // corners on the boundary, its circumcentre far outside. Refused by accept() (edges over 0.6), each names the side
+  // the ray from its centroid crosses; splitting as asked ends with nothing refused.
+  Domain2 d;
+  for (int i = 0; i <= 8; i++) d.points.push_back({double(i), 0});
+  d.points.push_back({8, 0.05});
+  for (int i = 7; i >= 0; i--) d.points.push_back({i + 0.5, 0.05});
+  d.points.push_back({0, 0.05});
+  d.loops.push_back({});
+  for (int32_t i = 0; i < static_cast<int32_t>(d.points.size()); i++) d.loops[0].push_back(i);
+  Mesh2 m = mesh2(d, Refuse(0.6));
+  REQUIRE(m.status == cadgeom::Status::ok);
+  CHECK_EQ(validate(d, m, "strip"), 0);
+  CHECK(!m.rejected.empty());
+  CHECK(!m.splitWanted.empty());
+  CHECK_EQ(splitsWellFormed(d, m), 0);
+  int rounds = 0;
+  while (!m.splitWanted.empty() && rounds < 10) {
+    d = splitAt(d, m.splitWanted);
+    m = mesh2(d, Refuse(0.6));
+    CHECK_EQ(splitsWellFormed(d, m), 0);
+    rounds++;
+  }
+  CHECK(m.splitWanted.empty());
+  CHECK(m.rejected.empty());
+  CHECK_EQ(validate(d, m, "split strip"), 0);
+}
+
 TEST_CASE("an anisotropic metric: triangles stretched 100 to 1, edges about unit in it") {
   Domain2 d;
   std::vector<Vec2> pts;

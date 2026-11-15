@@ -13,7 +13,8 @@
 // The boundary can't be split, so a candidate that would encroach a constrained segment (inside its diametral circle
 // in the metric) or fall outside the domain is moved back along the ray from the triangle's centroid to the last
 // point that does neither; a triangle no point improves is final. A segment is reported to split (Mesh2::splitWanted)
-// where a triangle refused for encroaching it is still in the mesh at the end and either the segment is longer than
+// where a triangle refused for encroaching it (or for a candidate outside the domain: the segment the ray from the
+// centroid crosses first) is still in the mesh at the end and either the segment is longer than
 // sqrt 2 in the metric or accept() still refuses the triangle: a segment within the size isn't reported for the
 // angles or lengths of the triangles on it (splitting it wouldn't end that: the next one along would be wanted), so a
 // domain fine enough reports nothing. Quality near the boundary is so limited by the boundary's own spacing.
@@ -210,7 +211,12 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
     auto acceptable = [&](Vec2 q, int32_t& at, bool record) {
       at = T.locate(q, it.t);
       const cdt::Tri& W = T.tris()[at];
-      if (W.v[2] == kGhost || !W.inside) return false;
+      if (W.v[2] == kGhost || !W.inside) {
+        // Outside the domain: the boundary segment the ray from the centroid crosses first is the one in the way.
+        std::pair<int32_t, int32_t> e;
+        if (record && T.firstConstraint(g, q, it.t, e)) encroached.push_back(pairKey(e.first, e.second));
+        return false;
+      }
       T.cavityConstraints(q, at, hits, mapAt(q));
       bool clear = true;
       for (auto [u, v] : hits) {

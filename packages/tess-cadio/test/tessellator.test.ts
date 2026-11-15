@@ -9,7 +9,7 @@ import { test } from 'node:test';
 import { openEdges, oracleMeasures, type TessellationResult } from 'cad-scene';
 import { MODELS } from '../../cad-brep/test/models.ts';
 import { CadioTessellator, VERSION } from '../src/index.ts';
-import { cap, fold, offPoleArc } from '../native/test/models.ts';
+import { fold, luneOnSeam, meridianHemisphere } from '../native/test/models.ts';
 
 const dist = path.join(import.meta.dirname, '..', 'dist', 'tess_cadio.wasm');
 const skip = fs.existsSync(dist) ? false : 'tess-cadio\'s module not built (run packages/tess-cadio/build.sh module)';
@@ -116,22 +116,22 @@ test('the seam cylinder: its seam a seam; a sphere\'s faces: the whole one faile
     }
   });
 
-test('triangles still refused counted, those in a pole\'s fan apart: a cap through its pole, an arc passing near one',
+test('triangles still refused counted, those in a pole\'s fan apart: a lune through its poles, a hemisphere',
   { skip }, async () => {
     const t = await tessellator();
     const re = /^(\d+) faces meshed with triangles their criteria still refuse: (\d+) triangles, (\d+) of them slivers/;
     const refused = async (model: { finish(): { buffer: ArrayBuffer } }) => {
       const r = await t.tessellate({ ...req('cube'), data: new Uint8Array(model.finish().buffer),
-        linearDeflection: 0.1, angularDeflection: 0.5 });
+        linearDeflection: 0.001, angularDeflection: 0.1 });
       return r.diagnostics.map((x) => re.exec(x.message)).find((m) => m);
     };
-    // The cap's refused triangles all at its pole; offPoleArc's, its boundary 7e-4 from the pole, none at it.
-    const c = await refused(cap());
+    // At 0.001 mm and 0.1 rad: the lune's refused triangles mostly at its poles, some not; the hemisphere's (its
+    // meridian boundary through the pole), none at it.
+    const c = await refused(luneOnSeam());
     assert.ok(c);
     assert.equal(c[1], '1');
-    assert.ok(Number(c[2]) >= 1);
-    assert.equal(c[3], c[2]);
-    const o = await refused(offPoleArc());
+    assert.ok(Number(c[3]) >= 1 && Number(c[3]) < Number(c[2]), `${c[2]} refused, ${c[3]} at a pole`);
+    const o = await refused(meridianHemisphere());
     assert.ok(o);
     assert.ok(Number(o[2]) >= 1);
     assert.equal(o[3], '0');

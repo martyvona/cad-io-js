@@ -251,6 +251,31 @@ TEST_CASE("curved faces (a seam cylinder, a band, a hemisphere, a cap, a lune): 
   }
 }
 
+TEST_CASE("a band narrower than its circles' chords bow (thinBand): its circles split until nothing is refused") {
+  // (Each triangle spans the band, every corner on the boundary: refinement's candidates leave the domain, naming the
+  // circle they cross, which the rounds split.)
+  cadgeom::Model m = load("thinBand");
+  REQUIRE(m.ok());
+  PartMesher pm(m, options(0.1, 15 * M_PI / 180));
+  const FaceMesh& fm = pm.face(0);
+  REQUIRE(fm.status == cadgeom::Status::ok);
+  CHECK(fm.rejected.empty());
+  CHECK_EQ(fm.splitsWanted, 0);
+  double area = 0;
+  for (size_t t = 0; t < fm.triangles.size(); t += 3) {
+    Vec3 a = fm.points[fm.triangles[t]], b = fm.points[fm.triangles[t + 1]], c = fm.points[fm.triangles[t + 2]];
+    area += 0.5 * cadgeom::norm(cadgeom::cross(b - a, c - a));
+    // Every facet facing out, within the angle of the surface's normal at its centroid.
+    Vec3 n = cadgeom::cross(b - a, c - a), g = (1.0 / 3) * (a + b + c);
+    CHECK(cadgeom::dot(n, g) >= std::cos(15 * M_PI / 180) * cadgeom::norm(n) * cadgeom::norm(g));
+  }
+  // (Facets across a strip this narrow tilt up to the angle off the surface, so up to 1 / cos 15 degrees wider.)
+  double want = 2 * M_PI * 4.5 * 0.003;
+  if (!(area <= want / std::cos(15 * M_PI / 180) && area > 0.99 * want))
+    std::printf("  thinBand: area %.9g want %.9g\n", area, want);
+  CHECK(area <= want / std::cos(15 * M_PI / 180) && area > 0.99 * want);
+}
+
 TEST_CASE("a tube open at its seam by more than its tolerance: not closed in fact, not meshed as if it were") {
   // (tubeGapOpen: open by 1e-5, its tolerance 1e-9 of its size; the loops don't close in (u, v) without a period.)
   cadgeom::Model m = load("tubeGapOpen");
