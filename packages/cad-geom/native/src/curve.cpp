@@ -280,6 +280,11 @@ CurveInversion invertCurve(const Curve& c, Vec3 p, Range r, double tol) {
   out.foot = q.p;
   out.status = Status::ok;
   out.certainty = Certainty::unique;
+  CurvePoint ends[2];
+  c.eval(dom.range.lo, 0, ends[0]);
+  c.eval(dom.range.hi, 0, ends[1]);
+  bool closed = std::isfinite(dom.range.lo) && std::isfinite(dom.range.hi) && norm(ends[1].p - ends[0].p) <= tol;
+  out.onSeam = closed && (norm(out.foot - ends[0].p) <= tol || norm(out.foot - ends[1].p) <= tol);
   for (size_t i = 1; i < minima.size(); i++) {
     double t = minima[i].first;
     bool same = std::fabs(t - out.t) <= 1e-9 * (1 + std::fabs(out.t));

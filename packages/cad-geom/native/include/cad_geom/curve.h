@@ -67,12 +67,17 @@ struct CurveInversion {
   double distance = 0;
   Status status = Status::unsupported;
   /**
-   * unique: no other local minimum within `tol` of `distance`; ambiguous: `alternatives` holds the other parameters
-   * whose distance is within `tol` of the best (two arcs equidistant from the point, a point on a closed curve's
-   * seam reached at both ends of the range).
+   * unique: no other foot within `tol` of `distance`; ambiguous: `alternatives` holds the parameters of the other
+   * feet (different points, more than `tol` from this one) whose distance is within `tol` of the best (two arcs
+   * equidistant from the point). The same foot at another parameter is not an alternative but `onSeam`.
    */
   Certainty certainty = Certainty::none;
   std::vector<double> alternatives;
+  /**
+   * The foot is at a closed curve's junction within tol (a periodic curve's seam, or a closed B-spline's ends meeting):
+   * t is one end of the range, the same point also at the other.
+   */
+  bool onSeam = false;
 };
 
 /**

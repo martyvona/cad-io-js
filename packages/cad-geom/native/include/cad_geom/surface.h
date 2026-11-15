@@ -67,10 +67,10 @@ struct SurfaceInversion {
   Vec3 foot;
   double distance = 0;
   Status status = Status::unsupported;
-  /** As CurveInversion's; a periodic seam's second (u, v) and a pole's are not alternatives but the flags below. */
+  /** As CurveInversion's: the same foot at another (u, v), on a seam or at a pole, is not an alternative but a flag. */
   Certainty certainty = Certainty::none;
   std::vector<Vec2> alternatives;
-  /** The foot is on a periodic seam within tol: u (or v) also at the other end of its period. */
+  /** The foot is on a seam within tol (periodic, or closed in fact): u (or v) also at the other end of its range. */
   bool onSeamU = false, onSeamV = false;
   /** The foot is at a singularity within tol, where the free parameter's value is arbitrary (uv holds one choice). */
   bool atSingularity = false;
