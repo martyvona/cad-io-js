@@ -343,6 +343,8 @@ struct EdgeMesh::Impl {
     enum class Natural { none, sphere, torus } natural = Natural::none;
     int natDir = 0, natPseudo[2] = {-1, -1}, natPole[2] = {-1, -1};
     double natAt[2] = {0, 0};
+    /** Why the status isn't ok (FaceBoundary::cause). */
+    const char* why = nullptr;
   };
   std::vector<Edge> edges;
   std::vector<Coedge> coedges;
@@ -915,6 +917,22 @@ struct EdgeMesh::Impl {
     return ch;
   }
 
+  /** Why a chain of coedges cs isn't ok (its status st): its first coedge whose edge or use isn't, else the chain's. */
+  const char* chainWhy(const std::vector<int>& cs, Status st) const {
+    for (int c : cs) {
+      const Edge& E = edges[m.coedgeEdge(c)];
+      const CoedgeSamples& s = coedges[c].s;
+      if (E.s.status != Status::ok) return E.s.t.empty() ? "an edge not sampled (its curve not made or not bounded)"
+        : "an edge's sampling stopped at its depth or sample cap";
+      if (s.status == Status::singular) return "a seam's side in (u, v) not settled by its neighbours";
+      if (s.status != Status::ok) return s.uv.empty() ? "a use of an edge with no samples on its face"
+        : "a use of an edge not placed on its face (its p-curve or inversion)";
+    }
+    // (Singular at the chain itself: a seam use by inversion whose side no junction settles.)
+    return st == Status::singular ? "a seam's side in (u, v) not settled by its neighbours"
+      : "a loop's coedges not joined in (u, v)";
+  }
+
   /** The pole (singularity) a chain's every point is at, or -1. */
   int chainPole(int f, const Chain& ch) const {
     int p = -1;
@@ -1085,10 +1103,12 @@ struct EdgeMesh::Impl {
     for (const Chain& c : chains)
       if (c.status == Status::singular) {
         F.status = Status::singular;
+        F.why = "a seam's side in (u, v) not settled by its neighbours";
         return;
       }
     if (windDirs == 2) {
       F.status = Status::unsupported;
+      F.why = "its loops wind round both periods";
       return;
     }
     std::vector<int> W;
@@ -1098,6 +1118,7 @@ struct EdgeMesh::Impl {
     if (W.size() == 2 && poleLoops == 0) {
       if (chains[W[0]].winding[d] != -chains[W[1]].winding[d] || std::abs(chains[W[0]].winding[d]) != 1) {
         F.status = Status::invalidModel;
+        F.why = "two loops winding round a period, not once each and opposite";
         return;
       }
     } else if (W.size() == 1 && std::abs(chains[W[0]].winding[d]) == 1) {
@@ -1118,10 +1139,13 @@ struct EdgeMesh::Impl {
       }
       if (pole < 0 || (F.sing[pole].isoU ? 1 : 0) != d) {
         F.status = Status::unsupported;
+        F.why = "a loop winding round a period with no pole on the face's side to cut to";
         return;
       }
     } else {
       F.status = Status::unsupported;
+      F.why = W.size() > 2 ? "more than two loops winding round a period"
+        : "a loop winding round a period more than once";
       return;
     }
     // Whether the period's start will do: not if a point of the face's loops is within the tolerance of that line or
@@ -1191,6 +1215,7 @@ struct EdgeMesh::Impl {
       }
     if (std::isnan(cut)) {
       F.status = Status::unsupported;
+      F.why = "no cut crossing each winding loop once away from a pole";
       return;
     }
     F.cutDir = d, F.cut = cut, F.pole = pole;
@@ -1272,6 +1297,7 @@ struct EdgeMesh::Impl {
       }
       if (found != 1) {
         F.status = Status::unsupported;
+        F.why = "a winding loop's crossing of the cut not found once along its edges";
         F.cutDir = -1;
         return;
       }
@@ -1339,8 +1365,17 @@ struct EdgeMesh::Impl {
   FaceBoundary face(int f) const {
     FaceBoundary out;
     const Face& F = faces[f];
-    if (!F.s) return out;
+    // (The first cause found is the one given.)
+    auto because = [&](const char* why) {
+      if (out.cause.empty() && why) out.cause = why;
+    };
+    if (!F.s) {
+      out.status = F.status == Status::ok ? Status::unsupported : F.status;
+      because("its surface not made");
+      return out;
+    }
     out.status = F.status;
+    because(F.why);
     if (F.status != Status::ok && F.cutDir < 0 && F.status != Status::singular) return out;
     std::vector<std::vector<BoundaryPoint>> loops;
     std::vector<BoundaryPoint> joined, joinedB;
@@ -1365,9 +1400,11 @@ struct EdgeMesh::Impl {
       Chain ch = chain(f, cs);
       if (ch.pts.size() >= 2 && chainPole(f, ch) >= 0) continue;  // (its pole line comes with the cut)
       out.status = worse(out.status, ch.status);
+      if (ch.status != Status::ok) because(chainWhy(cs, ch.status));
       // (A loop with a coedge that has no samples, its edge unsampled: no chain, the status says why.)
       if (ch.pts.size() < 2) {
         out.status = worse(out.status, Status::invalidModel);
+        because("a loop with an edge not sampled");
         continue;
       }
       if (l != F.loopA && l != F.loopB) {
@@ -1389,6 +1426,7 @@ struct EdgeMesh::Impl {
           r = k;
       if (r == ch.pts.size()) {
         out.status = worse(out.status, Status::invalidModel);
+        because("a winding loop's crossing of the cut not among its samples");
         ch.pts.pop_back();
         loops.push_back(std::move(ch.pts));
         continue;
@@ -1481,7 +1519,10 @@ struct EdgeMesh::Impl {
     if (loops.empty() && F.natural != Face::Natural::none) loops.push_back(naturalLoop(f));
     if (!m.faceSameSense(f))
       for (auto& l : loops) std::reverse(l.begin(), l.end());
-    if (loops.empty()) out.status = worse(out.status, Status::unsupported);
+    if (loops.empty()) {
+      out.status = worse(out.status, Status::unsupported);
+      because("no edge loops, and its surface's natural extent doesn't close (a whole plane, cylinder or cone)");
+    }
     out.loops = std::move(loops);
     return out;
   }
