@@ -419,7 +419,8 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
   I.wanted.resize(nf);
   for (int f = 0; f < nf; f++) {
     Status st;
-    if (m.faceLoopCount(f) > 0) I.surfaces[f] = closedSurface(m, f, st);
+    // (A face with no loops too: its surface's natural extent, where it has one, edges.h.)
+    I.surfaces[f] = closedSurface(m, f, st);
   }
   // The faces' (u, v) boxes from a first sampling, their criteria, then the edges again at the spacing they ask.
   std::vector<double> spacing(nf, INFINITY);

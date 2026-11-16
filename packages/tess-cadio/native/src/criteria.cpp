@@ -97,7 +97,10 @@ public:
     std::vector<Singularity> sing;
     s.singularities(sing);
     for (const Singularity& g : sing)
-      if (g.kind != Singularity::normalVanishes) poles_.push_back(g.point);
+      if (g.kind != Singularity::normalVanishes) {
+        poles_.push_back(g.point);
+        if (apexLike(g)) apexes_.push_back(g.point);
+      }
     // The grid's own metrics, then graded: sweeps until no node changes (or a bound on them).
     grid_.resize((kGrid + 1) * (kGrid + 1));
     valid_.assign(grid_.size(), false);
@@ -170,10 +173,56 @@ public:
       if (!nearPole(p, longest3) || !nearestDeviation(t, p)) return false;
       sampledAny_ = true;
     }
+    // Within the deflection of a point whose normal's limit depends on the way to it (an apex, a B-spline's row
+    // collapsed at an angle), no normal there to hold the triangle's to: refinement towards it would only make
+    // needles. The deviation's been judged.
+    if (nearApex(t)) return true;
     return normalsWithin(t, p);
   }
 
 private:
+  /**
+   * Whether singularity g is apex-like: its normals just off its row, over the face's range of the free coordinate,
+   * spread by more than the angle (a sphere's pole has one limit; a cone's apex twice its semi-angle).
+   */
+  bool apexLike(const Singularity& g) const {
+    bool isoU = g.isoU;
+    Interval fr = isoU ? box_.y : box_.x, fx = isoU ? box_.x : box_.y;
+    // Off the row towards the box's side of it.
+    double side = std::fabs(fx.lo - g.at) < std::fabs(fx.hi - g.at) ? 1 : -1, eps = 1e-6 * (fx.hi - fx.lo);
+    if (!(eps > 0) || !(fr.hi > fr.lo) || d_.angular <= 0) return false;
+    std::vector<Vec3> ns;
+    for (int i = 0; i <= 32; i++) {
+      double q = fr.lo + (fr.hi - fr.lo) * i / 32, x = g.at + side * eps;
+      SurfacePoint sp;
+      if (s_.eval(isoU ? x : q, isoU ? q : x, 1, sp) != Status::ok) continue;
+      Vec3 n = cross(sp.du, sp.dv);
+      if (norm(n) > 0) ns.push_back((1 / norm(n)) * n);
+    }
+    double c = std::cos(d_.angular);
+    for (size_t i = 0; i < ns.size(); i++)
+      for (size_t j = i + 1; j < ns.size(); j++)
+        if (dot(ns[i], ns[j]) < c) return true;
+    return false;
+  }
+
+  /** The surface over the triangle's (u, v) box within the deflection of an apex-like point (by its bound). */
+  bool nearApex(const Vec2 t[3]) const {
+    if (apexes_.empty()) return false;
+    Range ru{std::min({t[0].x, t[1].x, t[2].x}), std::max({t[0].x, t[1].x, t[2].x})};
+    Range rv{std::min({t[0].y, t[1].y, t[2].y}), std::max({t[0].y, t[1].y, t[2].y})};
+    Box3 b;
+    if (s_.bound(ru, rv, b) != Status::ok) return false;
+    for (Vec3 q : apexes_) {
+      // The box's farthest corner from q.
+      double dx = std::max(std::fabs(b.x.lo - q.x), std::fabs(b.x.hi - q.x));
+      double dy = std::max(std::fabs(b.y.lo - q.y), std::fabs(b.y.hi - q.y));
+      double dz = std::max(std::fabs(b.z.lo - q.z), std::fabs(b.z.hi - q.z));
+      if (std::sqrt(dx * dx + dy * dy + dz * dz) <= d_.linear) return true;
+    }
+    return false;
+  }
+
   /** The deviation within the deflection: in closed form, bounded or sampled, as the surface allows. */
   bool deviationWithin(const Vec2 t[3], const Vec3 p[3]) const {
     Bounds b;
@@ -534,8 +583,8 @@ private:
   Vec3 centre_, axis_;
   double radius_, second_;  // a cone's radius at v = 0 and tan of its semi-angle; a torus's major and minor radii
   double spacing_ = 0;
-  /** The surface's poles' and apexes' points. */
-  std::vector<Vec3> poles_;
+  /** The surface's poles' and apexes' points, and those of them apex-like (apexLike). */
+  std::vector<Vec3> poles_, apexes_;
   std::vector<Metric2> grid_;
   std::vector<bool> valid_;
 };

@@ -2,11 +2,11 @@
 // (u, v), so faces meshed apart meet exactly along their edges (the samples' 3D points shared, each face's mesh2d.h
 // boundary built from them). The spacing is guaranteed, not sampled: over each span the curve's derivBound bounds the
 // chord's deviation ((b - a)^2 max |C''| / 8), its length ((b - a) max |C'|) and its tangent's turn, so the
-// deflection, spacing and angle limits hold whatever the curve does between samples. That is C(t)'s deviation: with the vertices' points exact at
-// the ends, an end span strays up to the deflection plus the vertex's gap from its curve. A span whose length bound is
-// under 10 x the part's tolerance is kept as it is (near a zero-speed point the curve doesn't report, the angle would
-// refine without end). A split the mesher asks for
-// (mesh2d.h's SplitWanted) resamples that edge alone, for all its faces at once.
+// deflection, spacing and angle limits hold whatever the curve does between samples. That is C(t)'s deviation: with
+// the vertices' points exact at the ends, an end span strays up to the deflection plus the vertex's gap from its
+// curve. A span whose length bound is under 10 x the part's tolerance is kept as it is (near a zero-speed point the
+// curve doesn't report, the angle would refine without end). A split the mesher asks for (mesh2d.h's SplitWanted)
+// resamples that edge alone, for all its faces at once.
 //
 // Pseudo-edges: a face on a periodic surface whose loops wind round the period (a band's two circles, a hemisphere's
 // equator) needs a cut no model edge gives to make it a domain. It gets one: a pseudo-edge along the iso-line of the
@@ -117,7 +117,11 @@ struct BoundaryPoint {
  * side from its neighbours (the junction that isn't at a pole), checked against its direction and the face's sense;
  * where they don't decide it or disagree, the status is Status::singular (the loops as placed). Internal coedges
  * (slits, embedded curves) come as interior chains, a vertex loop not at a pole as a chain of one point; external
- * coedges are left out. A face with no loops, or winding round both periods, is Status::unsupported.
+ * coedges are left out. A face with no edge loops (none, or vertex loops only) is its surface's natural extent where
+ * it closes: periodic in one direction with poles at both ends of the other (a sphere), one loop along both pole
+ * lines and the two copies of a pseudo-edge from pole to pole; periodic both ways with no singularity (a torus), one
+ * loop of the two copies each of a closed pseudo-edge along each direction, meeting at one corner; the cuts half a
+ * period from its vertex loops' points. Otherwise, or a face winding round both periods, Status::unsupported.
  */
 struct FaceBoundary {
   Status status = Status::unsupported;

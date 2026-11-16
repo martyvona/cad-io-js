@@ -1,9 +1,9 @@
 // edges.h on cad-brep's test models and tess-cadio's (native/test/models.ts), each checked by properties found
 // independently of the sampler: the curve between consecutive samples measured densely against their chord (within
 // the deflection, plus the vertex's gap at an end), spans' arc lengths (cad-geom's arcLength) within the spacing,
-// the tangent's turn across each span within the angle, every use's (u, v) on the surface at the edge's points; then each face's
-// boundary meshed through mesh2d.h, its 3D area against the face's own in closed form, and cuts, pole lines, seams by
-// inversion and splits checked by what they must give.
+// the tangent's turn across each span within the angle, every use's (u, v) on the surface at the edge's points; then
+// each face's boundary meshed through mesh2d.h, its 3D area against the face's own in closed form, and cuts, pole
+// lines, seams by inversion and splits checked by what they must give.
 #include <tess_cadio/edges.h>
 #include <cstring>
 #include <tess_cadio/mesh2d.h>
