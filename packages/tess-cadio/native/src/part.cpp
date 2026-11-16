@@ -384,8 +384,10 @@ struct PartMesher::Impl {
       if (spanOf(f, bp[a], bp[b], edge, span, forward)) {
         wanted[f].push_back({edge, span, forward ? w.fraction : 1 - w.fraction});
       } else if (auto r = ringOf.find({std::min(a, b), std::max(a, b)}); r != ringOf.end()) {
-        // (Not a ring within a hundredth of the deflection of its pole: nothing there the deflection can see, and
-        // finer pieces there make needles at the pole: Albatros #787's face 5754, its ring 1e-5 mm out.)
+        // (Not a ring within a hundredth of the deflection of its pole: a stopgap, not a rule. It prevents needles
+        // at Albatros #787's face 5754's apex, its ring 1e-5 mm out (29 refused doubled, 0 not); it costs
+        // bsplineApexHole, whose ring well within it doubles to better (306 triangles against 634 at 0.1 mm, and 0
+        // refused against 2 at 0.1 rad). What makes 5754's needles isn't known yet.)
         if (fans[r->second].reach >= 0.01 * o.d.linear) ringWanted[f].insert(r->second);
       }
     }

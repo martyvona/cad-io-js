@@ -669,6 +669,45 @@ TEST_CASE("a thin wedge (1 degree): meshed, the boundary kept, refinement ends")
   CHECK_EQ(validate(d, m, "wedge"), 0);
 }
 
+TEST_CASE("refinement for angle alone ends beside long fixed sides: plates with 14 holes, their samples jittered") {
+  // A 38 x 50.8 rectangle, its sides fixed and far longer than the holes' spans, 14 holes of 27 or 28 points
+  // (angles jittered by a seed), a uniform size of 63.44 (the plate's own extent), every triangle accepted: some of
+  // these drove points into a corner without end before thin triangles a twentieth of the size were left as they
+  // are (27 points, jitter 0.2, seed 12 among them). Each now ends within 2,000 Steiner points.
+  Uniform F{63.44};
+  int worst = 0;
+  for (int n : {27, 28})
+    for (double jitter : {0.2, 0.45})
+      for (int seed = 0; seed < 100; seed++) {
+        std::mt19937 rng(seed);
+        std::uniform_real_distribution<double> U(-1, 1);
+        Domain2 d;
+        d.points = {{-19, 0}, {19, 0}, {19, 50.8}, {-19, 50.8}};
+        d.loops.push_back({0, 1, 2, 3});
+        for (double x : {-15.616, 15.626})
+          for (int k = 0; k < 7; k++) {
+            std::vector<int32_t> loop;
+            for (int i = 0; i < n; i++) {
+              double a = -2 * M_PI * (i + jitter * U(rng)) / n;  // (clockwise: a hole)
+              loop.push_back(static_cast<int32_t>(d.points.size()));
+              d.points.push_back({x + 1.4682 * std::cos(a), 7.9756 + 6.35 * k + 1.4682 * std::sin(a)});
+            }
+            d.loops.push_back(loop);
+          }
+        MeshOptions mo;
+        mo.maxPoints = 20000;
+        Mesh2 m = mesh2(d, F, mo);
+        int steiner = static_cast<int>(m.points.size() - d.points.size());
+        if (m.status != cadgeom::Status::ok || steiner > 2000)
+          std::printf("  n %d, jitter %g, seed %d: status %d, %d Steiner points\n", n, jitter, seed, int(m.status),
+            steiner);
+        CHECK(m.status == cadgeom::Status::ok);
+        CHECK(steiner <= 2000);
+        worst = std::max(worst, steiner);
+      }
+  CHECK(worst > 0);
+}
+
 TEST_CASE("a cap on Steiner points: noConvergence, the mesh still a valid one; a refinement within it is ok") {
   Domain2 d = square(10);
   Mesh2 m = mesh2(d, Uniform(0.01), {50, 0.35});
