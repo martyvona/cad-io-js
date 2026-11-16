@@ -592,6 +592,63 @@ TEST_CASE("the error measure: the largest deviation between samples, against den
   }
 }
 
+/**
+ * A surface made periodic with period 1 in u or v by reducing that parameter into [0, 1) (as a false closure of a
+ * sliver did: its two sides 0.03 apart, about its whole extent across).
+ */
+struct Wrapped : Surface {
+  std::unique_ptr<Surface> s;
+  bool inU;
+  Wrapped(std::unique_ptr<Surface> base, bool u) : s(std::move(base)), inU(u) {}
+  SurfaceDomain domain() const override {
+    SurfaceDomain d = s->domain();
+    (inU ? d.uPeriod : d.vPeriod) = 1;
+    return d;
+  }
+  Status eval(double u, double v, int order, SurfacePoint& out) const override {
+    return inU ? s->eval(u - std::floor(u), v, order, out) : s->eval(u, v - std::floor(v), order, out);
+  }
+  Status normal(double u, double v, Vec3& out) const override { return s->normal(u, v, out); }
+  void breaks(Range ru, Range rv, std::vector<double>& us, std::vector<double>& vs) const override {
+    s->breaks(ru, rv, us, vs);
+  }
+  Status bound(Range ru, Range rv, Box3& out) const override { return s->bound(ru, rv, out); }
+  Status derivBound(Range ru, Range rv, int order, double out[3]) const override {
+    return s->derivBound(ru, rv, order, out);
+  }
+  void singularities(std::vector<Singularity>& out) const override { s->singularities(out); }
+};
+
+TEST_CASE("footFrom on a periodic direction: the foot within half a period of its start") {
+  // An extrusion along z of a quadratic arc 0.03 wide, made periodic across the arc. From just past the seam,
+  // Newton's steps run round the period and land whole periods off (the same point); the foot must come back within
+  // half a period of where it started, or a traced branch jumps between copies and its fit can't converge.
+  const double w = 0.03;
+  for (bool inU : {false, true}) {
+    std::vector<double> r = {0, 1, 0, 1};
+    if (!inU)
+      for (double z : {0.0, 10.0}) r.insert(r.end(), {0, 0, z, w / 2, w, z, w, 0, z});
+    else
+      for (double x : {0.0, w / 2, w})
+        for (double z : {0.0, 10.0}) r.insert(r.end(), {x, x == w / 2 ? w : 0, z});
+    const int32_t inV[] = {1, 2, 2, 3, 2, 2, 0, 0, 0, 0, 0, 2, 2, 3, 3}, inUs[] = {2, 1, 3, 2, 2, 2, 0, 0, 0, 0, 0, 3,
+      3, 2, 2};
+    Status st;
+    std::unique_ptr<Surface> base = surfaces::makeBSpline(r.data(), inU ? inUs : inV, st);
+    REQUIRE(base);
+    const Wrapped s(std::move(base), inU);
+    double moved = 0;
+    for (double off : {0.0, 0.005, 0.02})
+      for (double x0 : {-1e-3, -1e-2, 1e-3, 0.999})
+        for (double z : {1.0, 5.0}) {
+          Vec2 uv = inU ? Vec2{x0, z / 10} : Vec2{z / 10, x0};
+          project::footFrom(s, s.domain(), {0, -off, z}, uv, 12);
+          moved = std::fmax(moved, std::fabs((inU ? uv.x : uv.y) - x0));
+        }
+    CHECK(moved <= 0.5);
+  }
+}
+
 TEST_CASE("a parabolic trough: past its symmetry plane the traced foot is the farther one, and said so") {
   // The extrusion along z of y = x^2 over [-2, 2] (a quadratic Bezier: poles (-2, 4), (0, -4), (2, 4)): a point at
   // (x, 2) has two nearest feet, at x = +/- sqrt(3 / 2) where x = 0; the line y = 2 crosses that plane at t = 0.5.

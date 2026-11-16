@@ -1144,6 +1144,39 @@ TEST_CASE("inversion at a B-spline's collapsed row finishes: the split follows t
   }
 }
 
+namespace {
+
+/** The diamond tube, its section scaled by `lo` at z = 0 and by `hi` at z = 1, closed in v, or in u (`inU`). */
+std::unique_ptr<Surface> taperedTube(double lo, double hi, bool inU = false) {
+  std::vector<Vec3> ring{{1, 0, 0}, {0, 1, 0}, {-1, 0, 0}, {0, -1, 0}, {1, 0, 0}};
+  std::vector<std::vector<Vec3>> P(2);
+  for (int i = 0; i < 2; i++)
+    for (Vec3 x : ring) P[i].push_back((i ? hi : lo) * x + Vec3{0, 0, double(i)});
+  if (!inU) return rawSpline(1, 1, {0, 1}, {2, 2}, {0, 1, 2, 3, 4}, {2, 1, 1, 1, 2}, P);
+  std::vector<std::vector<Vec3>> T(5, std::vector<Vec3>(2));
+  for (int i = 0; i < 2; i++)
+    for (int j = 0; j < 5; j++) T[j][i] = P[i][j];
+  return rawSpline(1, 1, {0, 1, 2, 3, 4}, {2, 1, 1, 1, 2}, {0, 1}, {2, 2}, T);
+}
+
+} // namespace
+
+TEST_CASE("closeInFact: a sliver narrower than 10 x tol across stays open, a wider one and a real tube close") {
+  // The diamond's perimeter, 4 sqrt 2 x its scale, is what the 64-step polyline measures (its corners on steps).
+  const double tol = 0.01, perim = 4 * std::sqrt(2.0);
+  for (bool inU : {false, true}) {
+    auto period = [&](const std::unique_ptr<Surface>& c) { return inU ? c->domain().uPeriod : c->domain().vPeriod; };
+    // Just under 10 x tol across: open, its sides boundaries; just over: closed.
+    const double under = 9.9 * tol / perim, over = 10.1 * tol / perim;
+    CHECK(period(closeInFact(taperedTube(under, under, inU), tol)) == 0);
+    CHECK(period(closeInFact(taperedTube(over, over, inU), tol)) == 4);
+    // The widest section decides: narrow at one end, wide at the other, it closes.
+    CHECK(period(closeInFact(taperedTube(over, under / 10, inU), tol)) == 4);
+    // A real tube at a loose tol (its sides meeting exactly, 5.7 across at tol 0.5): closed.
+    CHECK(period(closeInFact(taperedTube(1, 1, inU), 0.5)) == 4);
+  }
+}
+
 TEST_CASE("closeInFact: an extrusion of a closed profile closes in u though its v is infinite") {
   // The reference B-spline circle (closed in fact: t 0 and 1 one point, not periodic) extruded along (0, 0, 1),
   // magnitude 2: u closes over the window v in [-1, 1]; with the profile's last pole moved 1e-6 it doesn't.

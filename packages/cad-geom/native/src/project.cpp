@@ -156,6 +156,7 @@ double footFrom(const Surface& s, const SurfaceDomain& dom, Vec3 p, Vec2& uv, in
     return q;
   };
   uv = clampIn(uv);
+  const Vec2 start = uv;
   SurfacePoint sp;
   s.eval(uv.x, uv.y, 2, sp);
   double best = norm(sp.p - p);
@@ -187,6 +188,10 @@ double footFrom(const Surface& s, const SurfaceDomain& dom, Vec3 p, Vec2& uv, in
     if (!moved) break;
     if (std::fabs(step.x) <= 1e-15 * (1 + std::fabs(uv.x)) && std::fabs(step.y) <= 1e-15 * (1 + std::fabs(uv.y))) break;
   }
+  // The foot within half a period of the start: on a seam, Newton's steps can land whole periods away (the same
+  // point), which would make a traced branch jump between copies.
+  if (dom.uPeriod > 0) uv.x -= dom.uPeriod * std::round((uv.x - start.x) / dom.uPeriod);
+  if (dom.vPeriod > 0) uv.y -= dom.vPeriod * std::round((uv.y - start.y) / dom.vPeriod);
   return best;
 }
 
