@@ -1,8 +1,8 @@
 // The edges' contract: each model edge sampled once in 3D, every face that uses it given the same samples in its
 // (u, v), so faces meshed apart meet exactly along their edges (the samples' 3D points shared, each face's mesh2d.h
 // boundary built from them). The spacing is guaranteed, not sampled: over each span the curve's derivBound bounds the
-// chord's deviation ((b - a)^2 max |C''| / 8) and its length ((b - a) max |C'|), so the deflection and the spacing
-// limits hold whatever the curve does between samples. That is C(t)'s deviation: with the vertices' points exact at
+// chord's deviation ((b - a)^2 max |C''| / 8), its length ((b - a) max |C'|) and its tangent's turn, so the
+// deflection, spacing and angle limits hold whatever the curve does between samples. That is C(t)'s deviation: with the vertices' points exact at
 // the ends, an end span strays up to the deflection plus the vertex's gap from its curve. A span whose length bound is
 // under 10 x the part's tolerance is kept as it is (near a zero-speed point the curve doesn't report, the angle would
 // refine without end). A split the mesher asks for
@@ -48,9 +48,10 @@ struct EdgeOptions {
   /** The largest distance a chord between consecutive samples may stray from the curve, in model units (mm). */
   double deflection = 0.1;
   /**
-   * The largest angle (radians) between a chord and the curve's tangent anywhere over its span; 0 for none. Bounded
-   * where the speed is: by the span's max |C''| over a lower bound on its speed (|C'| at a sample less the span times
-   * max |C''|); a span with no such bound (a cusp) is split down to the deflection alone.
+   * The most (radians) the curve's tangent may turn across a span, between any two of its points, as the faces'
+   * corner normals may (on an arc, twice the chord's angle to its tangents); 0 for none. Bounded by the span's max
+   * |C''| against |C'| at its middle; a span the curve reports singular (a cusp) is split down to the deflection
+   * alone.
    */
   double angle = 0;
   /** The largest 3D length of a span (an upper bound on its arc length), whatever the faces say. */

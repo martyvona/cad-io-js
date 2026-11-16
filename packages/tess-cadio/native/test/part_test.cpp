@@ -236,8 +236,13 @@ TEST_CASE("curved faces (a seam cylinder, a band, a hemisphere, a cap, a lune): 
       }, c.cylinder ? nullptr : &pole, c.near);
       CHECK_EQ(s.badNormals, 0);
       CHECK_EQ(s.facing, 0);
-      if (!(s.worst <= d * (1 + 1e-9))) std::printf("  %s: %g from the surface at %g\n", c.model, s.worst, d);
-      CHECK(s.worst <= d * (1 + 1e-9));
+      // The deflection, plus the boundary's own distance from the surface (an edge off its surface: offPoleArc's arc
+      // up to 7e-4 inside its sphere, its chords judged by the edges against the curve).
+      double gap = 0;
+      for (int co = 0; co < m.coedges(); co++) gap = std::fmax(gap, pm.edges().coedge(co).gap);
+      if (!(s.worst <= (d + gap) * (1 + 1e-9)))
+        std::printf("  %s: %g from the surface at %g (the boundary %g off it)\n", c.model, s.worst, d, gap);
+      CHECK(s.worst <= (d + gap) * (1 + 1e-9));
       // Chords inside a convex surface: the area under its own, by at most about the deflection over the radius.
       if (!(s.area < c.area && s.area > c.area * (1 - 2.5 * d / c.radius)))
         std::printf("  %s: area %.9g want %.9g at %g\n", c.model, s.area, c.area, d);
