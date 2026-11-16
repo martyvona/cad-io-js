@@ -193,6 +193,14 @@ export class CadioTessellator implements Tessellator {
         + 'surface sampled, not bounded (their surfaces\' derivative bounds not yet tight)' });
     }
     note('unsettled', 'with a seam whose side in (u, v) their neighbours didn\'t settle');
+    // The uses without p-curves, by how they were sampled: [within 0.05 x the deflection, at the edge's tolerance,
+    // by inversion]; said where any fell back from the first.
+    const pc = list('projections');
+    if (pc.length === 3 && pc[1]! + pc[2]! > 0) {
+      diagnostics.push({ severity: 'info', message: `${pc[0]! + pc[1]! + pc[2]!} uses without p-curves: ${pc[0]} `
+        + `projected within 0.05 x the deflection, ${pc[1]} at the edge's tolerance (the curve farther off its `
+        + `surface), ${pc[2]} by inversion (no projection ok)` });
+    }
     const against = list('againstSense');
     if (against.length) {
       diagnostics.push({ severity: 'warning', message: `${against.length} faces with a loop against the face's sense `

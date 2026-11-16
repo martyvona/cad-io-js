@@ -800,8 +800,37 @@ export function sBend(): BrepBuilder {
   return b;
 }
 
-export const MODELS = { offPoleArcLoose, loopless, bsplineBall, wholeTorus, wholeSphereVertex, bsplineApex, poleHole,
-  smallHole, sBend, cuspEdge: () => cuspEdge(), nearCusp6, bumpPatch: () => bumpPatch(),
+/**
+ * A 10 x 10 arch, a quadratic B-spline 2 high in its middle row whose u isn't quite its edges' parameter (that row's
+ * poles 8e-3 farther along x than its curves'), bounded by its curved sides v = 0 and v = 10 and its straight ends;
+ * the side v = 0 1.5e-3 above it, the part's uncertainty 0.02 (Iron.step #47's face 3398's kind): at the edge's
+ * tolerance that side's feet are taken as affine in t, about 4e-3 off the true ones, which the mesh then chases;
+ * within 0.05 x the deflection they're traced.
+ */
+export function affineFeetOff(): BrepBuilder {
+  const b = new BrepBuilder({ uncertainty: 0.02 });
+  const poles = [[0, 0], [5.008, 2], [10, 0]].map(([x, z]) => [0, 10].map((y) => [x!, y, z!]));
+  const surface = b.addSurface({ kind: 'bspline', uDegree: 2, vDegree: 1, uKnots: [0, 1], vKnots: [0, 1],
+    uMultiplicities: [3, 3], vMultiplicities: [2, 2], poles, uClosed: false, vClosed: false, selfIntersect: false,
+    form: 'unspecified' });
+  const side = (y: number, dz: number) => b.addCurve({ kind: 'bspline', degree: 2, knots: [0, 1],
+    multiplicities: [3, 3], poles: [[0, y, dz], [5, y, 2 + dz], [10, y, dz]], closed: false, selfIntersect: false,
+    form: 'unspecified' });
+  const end = (x: number, y0: number, y1: number) => b.addCurve({ kind: 'line', point: [x, y0, 0],
+    direction: [0, Math.sign(y1 - y0), 0], magnitude: 1 });
+  const v = [[0, 0], [10, 0], [10, 10], [0, 10]].map(([x, y]) => b.addVertex({ point: [x!, y!, 0] }));
+  const edges = [
+    b.addEdge({ curve: side(0, 1.5e-3), start: v[0]!, end: v[1]!, sameSense: true, range: [0, 1] }),
+    b.addEdge({ curve: end(10, 0, 10), start: v[1]!, end: v[2]!, sameSense: true, range: [0, 10] }),
+    b.addEdge({ curve: side(10, 0), start: v[3]!, end: v[2]!, sameSense: true, range: [0, 1] }),
+    b.addEdge({ curve: end(0, 10, 0), start: v[3]!, end: v[0]!, sameSense: true, range: [0, 10] })];
+  const coedges = edges.map((edge, k) => ({ edge, orientation: k === 2 ? 'reversed' as const : 'forward' as const }));
+  sheet(b, b.addFace({ surface, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] }));
+  return b;
+}
+
+export const MODELS = { affineFeetOff, offPoleArcLoose, loopless, bsplineBall, wholeTorus, wholeSphereVertex,
+  bsplineApex, poleHole, smallHole, sBend, cuspEdge: () => cuspEdge(), nearCusp6, bumpPatch: () => bumpPatch(),
   halfBump: () => bumpPatch(true), thinBand, tubeGapFaceTolerance, tubeGapUncertainty, tubeGapBySize, tubeGapOpen,
   torusOuterHalf, meridianHemisphereLoose, offPoleRest: () => offPoleRest(), offPoleRestLoose: () => offPoleRest(1e-3),
   wigglyBand, notchBand, bsplineTube, bsplineTubeTinyArc, bsplineDome, offPoleArc: () => offPoleArc(), offPcurves,

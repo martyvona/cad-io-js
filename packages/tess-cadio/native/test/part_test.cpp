@@ -1075,6 +1075,40 @@ TEST_CASE("cut placements: off a pole line, off a line crossed thrice, into a on
   }
 }
 
+TEST_CASE("an edge off its surface, its feet nearly affine (Iron.step #47's kind): projected within 0.05 d of "
+  "its feet, the mesh as inversion's") {
+  cadgeom::Model m = load("affineFeetOff");
+  REQUIRE(m.ok());
+  cadgeom::Status st;
+  std::unique_ptr<cadgeom::Surface> s = closedSurface(m, cadgeom::Tolerances(m), 0, st);
+  REQUIRE(s);
+  const cadgeom::SurfaceDomain dom = s->domain();
+  for (double d : {0.1, 0.05}) {
+    PartOptions o = options(d, 15 * M_PI / 180);
+    PartMesher on(m, o);
+    o.projectMissingPcurves = false;
+    PartMesher off(m, o);
+    const EdgeMesh& em = on.edges();
+    CHECK(em.projections().withinMesh >= 1);
+    // The side 1.5e-3 above the surface: each sample's (u, v) against its point's foot on the surface.
+    const CoedgeSamples& cs = em.coedge(0);
+    REQUIRE(cs.projected);
+    const EdgeSamples& es = em.edge(m.coedgeEdge(0));
+    double worst = 0;
+    for (size_t i = 0; i < cs.uv.size(); i++) {
+      cadgeom::SurfaceInversion inv = cadgeom::invertSurface(*s, es.points[cs.index[i]], dom.u, dom.v, 1e-9);
+      cadgeom::SurfacePoint q;
+      s->eval(cs.uv[i].x, cs.uv[i].y, 0, q);
+      worst = std::fmax(worst, cadgeom::norm(q.p - inv.foot));
+    }
+    size_t a = on.face(0).triangles.size() / 3, b = off.face(0).triangles.size() / 3;
+    if (!(worst <= 0.05 * d) || a > 1.1 * b || a < 0.9 * b)
+      std::printf("  affineFeetOff at %g: %g from its feet, %zu triangles against inversion's %zu\n", d, worst, a, b);
+    CHECK(worst <= 0.05 * d);
+    CHECK(a <= 1.1 * b && a >= 0.9 * b);
+  }
+}
+
 TEST_CASE("the same part twice: the same points, normals and triangles, bit for bit") {
   for (const char* name : {"cube", "seamCylinder", "spheres", "band"}) {
     cadgeom::Model m = load(name);

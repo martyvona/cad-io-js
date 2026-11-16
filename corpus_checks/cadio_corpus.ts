@@ -10,6 +10,8 @@
 //     face's surface by cad-brep's evaluators (not cad-geom, which ours uses), over the linear deflection asked;
 //   - triangles and meshing time against OCCT's, over the parts both mesh: in all, and per file (the ratios);
 //   - the faces our criteria judged by sampling, their deviation not bounded (tess-cadio's diagnostic).
+//   - the uses without p-curves by how ours sampled them: projected within 0.05 x the deflection of their feet, at
+//     the edge's tolerance (the curve farther off its surface), by inversion (tess-cadio's diagnostic).
 // Usage: node corpus_checks/cadio_corpus.ts [file-list.txt] [max MB, default 1000]   (progress on standard error)
 //   WORKERS=<n> workers per backend in each process (default: half the process's share, runner.ts)
 //   PLANT=<bug>  a bug planted in our results before they're judged, to prove the check sees it: area (positions
@@ -159,6 +161,9 @@ const fresh = () => ({
   refused: { faces: 0, triangles: 0, poleSlivers: 0 },
   // Faces our accept() judged by sampling, not bounding (their surfaces' derivative bounds not yet tight).
   sampledFaces: 0,
+  // The uses without p-curves, by how ours sampled them: projected within 0.05 x the deflection, at the edge's
+  // tolerance, by inversion (how often the tight projection fails).
+  projections: { withinMesh: 0, atEdgeTolerance: 0, byInversion: 0 },
   warnings: new Map<string, number>(),
   tally: new Map<string, { n: number; ex: string[] }>(),
   /** Every face without our triangles, and every part we didn't mesh, each with its cause (the coverage's record). */
@@ -224,9 +229,20 @@ export const check: FileCheck<undefined, Tallies> = {
         continue;
       }
       const ca = PLANT ? plant(a.r, d) : a.r;
+      // (Said only where some use fell back from the tight projection; else every use without a p-curve whose edge
+      // has a 3D curve was projected within 0.05 x the deflection.)
+      let fellBack = false;
       for (const x of ca.diagnostics) {
         const sm = /^(\d+) faces meshed with their deviation from the surface sampled/.exec(x.message);
         if (sm) T.sampledFaces += Number(sm[1]);
+        const pm = /^\d+ uses without p-curves: (\d+) projected .*, (\d+) at the edge's tolerance .*, (\d+) by inv/
+          .exec(x.message);
+        if (pm) {
+          fellBack = true;
+          T.projections.withinMesh += Number(pm[1]);
+          T.projections.atEdgeTolerance += Number(pm[2]);
+          T.projections.byInversion += Number(pm[3]);
+        }
         if (x.severity !== 'warning') continue;
         // Refused triangles, and of them the slivers in a pole's fan (lane 3's fans are measured by this).
         const m = /^(\d+) faces meshed with triangles .*: (\d+) triangles, (\d+) of them slivers/.exec(x.message);
@@ -238,6 +254,10 @@ export const check: FileCheck<undefined, Tallies> = {
           continue;
         }
         bump(T.warnings, x.message.replace(/\d+/g, 'N'));
+      }
+      if (!fellBack && ca.indices.length) {
+        for (let c = 0; c < d.coedge.edge.length; c++)
+          if (d.coedge.pcurve[c]! < 0 && d.edge.curve[d.coedge.edge[c]!]! >= 0) T.projections.withinMesh++;
       }
       if (!ca.indices.length) {
         T.status.error++;
@@ -396,6 +416,9 @@ if (import.meta.main) {
     + `${fx(Math.max(...mr))}`);
   console.log(`  triangles our criteria still refuse: ${T.refused.triangles} in ${T.refused.faces} faces, `
     + `${T.refused.poleSlivers} of them slivers in a pole's fan`);
+  const P = T.projections;
+  console.log(`  uses without p-curves: ${P.withinMesh + P.atEdgeTolerance + P.byInversion}, projected within 0.05 x `
+    + `the deflection ${P.withinMesh}, at the edge's tolerance ${P.atEdgeTolerance}, by inversion ${P.byInversion}`);
   console.log(`  our warnings: ${[...T.warnings].map(([k, n]) => `${n} x "${k}"`).join('; ') || 'none'}`);
   console.log(`  ${((performance.now() - t0) / 1000).toFixed(0)} s, ${children || 1} processes x ${perBackend} workers `
     + 'per backend');

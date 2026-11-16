@@ -177,10 +177,12 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
   std::string causes = "[";
   for (size_t i = 0; i < failedCause.size(); i++) causes += (i ? ",\"" : "\"") + failedCause[i] + "\"";
   causes += "]";
+  const ProjectionCounts& pc = pm.edges().projections();
   result.diag = "{\"failed\":" + ids(failed) + ",\"failedRows\":" + ids(failedRows) + ",\"failedStatus\":" +
     ids(failedStatus) + ",\"failedCause\":" + causes + ",\"refused\":" + ids(refused) +
     ",\"unsplit\":" + ids(unsplit) + ",\"unsettled\":" + ids(unsettled) + ",\"sampled\":" + ids(sampled) +
-    ",\"againstSense\":" + ids(againstSense) + ",\"rounds\":" +
+    ",\"againstSense\":" + ids(againstSense) + ",\"projections\":[" + std::to_string(pc.withinMesh) + "," +
+    std::to_string(pc.atEdgeTolerance) + "," + std::to_string(pc.byInversion) + "],\"rounds\":" +
     std::to_string(pm.rounds()) + ",\"refusedTriangles\":" + std::to_string(refusedTriangles) +
     ",\"poleSlivers\":" + std::to_string(poleSlivers) + "}";
   return 0;
@@ -205,7 +207,9 @@ const float* tc_edge_positions() { return result.edgePositions.data(); }
  * The last call's diagnostics: {"failed": [face ids], "failedRows", "failedStatus" (each one's result.h Status: an
  * empty triangulation counts as invalidModel), "failedCause" (each one's FaceMesh::cause), "refused", "unsplit",
  * "unsettled", "sampled" (faces whose deviation accept() sampled rather than bounded: SurfaceCriteria::bounded),
- * "againstSense" (faces with a loop against their sense, meshed: FaceBoundary::againstSense), "rounds",
+ * "againstSense" (faces with a loop against their sense, meshed: FaceBoundary::againstSense), "projections" (the
+ * uses without p-curves, by how they were sampled: EdgeMesh::projections, [withinMesh, atEdgeTolerance,
+ * byInversion]), "rounds",
  * "refusedTriangles", "poleSlivers" (refused triangles with a corner at a pole or apex)}.
  */
 const char* tc_diag() { return result.diag.c_str(); }

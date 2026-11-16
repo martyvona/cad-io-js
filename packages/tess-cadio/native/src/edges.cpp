@@ -302,6 +302,9 @@ std::vector<double> sample(const Geom& g, double t0, double t1, bool closed, con
 }
 
 /** x shifted by a whole number of periods to be nearest `to` (period 0: unchanged). */
+/** A projected p-curve for meshing within this times the deflection of its feet, where the curve allows. */
+constexpr double kMeshTolerance = 0.05;
+
 double nearest(double x, double to, double period) {
   return period > 0 ? x + std::round((to - x) / period) * period : x;
 }
@@ -313,6 +316,7 @@ struct EdgeMesh::Impl {
   EdgeOptions o;
   double tol;
   int nModel = 0;
+  ProjectionCounts projections;
 
   struct Edge {
     std::unique_ptr<Curve> curve;   // its 3D curve, or the p-curve it's sampled through
@@ -720,10 +724,11 @@ struct EdgeMesh::Impl {
 
   /**
    * Each use without a p-curve whose edge has a 3D curve: its curve projected onto the face's surface over the
-   * edge's samples' range at the edge's tolerance (tols.edge, as the face API's), from and to its vertices' feet,
-   * the seam copy the use takes; where the projection is ok, its p-curve, and each pole it passes through (a pole
-   * piece's parameter) a sample of the edge, so the use's sample there is doubled across the pole line
-   * (throughPoles). Else by inversion.
+   * edge's samples' range, within kMeshTolerance x the deflection where the curve allows, else at the edge's
+   * tolerance (tols.edge, as the face API's), from and to its vertices' feet, the seam copy the use takes; where a
+   * projection is ok, its p-curve, and each pole it passes through (a pole piece's parameter) a sample of the edge,
+   * so the use's sample there is doubled across the pole line (throughPoles). Else by inversion. Counted in
+   * `projections`.
    */
   void projectMissing() {
     for (int c = 0; c < m.coedges(); c++) {
@@ -751,9 +756,24 @@ struct EdgeMesh::Impl {
         (low ? ends.hasStart : ends.hasEnd) = true;
         (low ? ends.start : ends.end) = si.uv;
       }
-      Pcurve p = projectCurve(*E.curve, {std::min(t0, t1), std::max(t0, t1)}, *faces[C.face].s, tols.edge(e),
-        &ends, &source);
-      if (p.status != Status::ok || p.pieces.empty()) continue;
+      // Judged against the mesh: within kMeshTolerance x the deflection where the curve allows (a p-curve within
+      // the model's tolerance but farther from its feet than that has the mesh chase the difference), else at the
+      // edge's tolerance (the curve that far off its surface), else by inversion.
+      const Range r{std::min(t0, t1), std::max(t0, t1)};
+      const double edgeTol = tols.edge(e), tight = std::min(edgeTol, kMeshTolerance * o.deflection);
+      Pcurve p = projectCurve(*E.curve, r, *faces[C.face].s, tight, &ends, &source);
+      bool ok = p.status == Status::ok && !p.pieces.empty();
+      if (!ok && tight < edgeTol) {
+        p = projectCurve(*E.curve, r, *faces[C.face].s, edgeTol, &ends, &source);
+        ok = p.status == Status::ok && !p.pieces.empty();
+        if (ok) projections.atEdgeTolerance++;
+      } else if (ok) {
+        projections.withinMesh++;
+      }
+      if (!ok) {
+        projections.byInversion++;
+        continue;
+      }
       // The use runs start to end forward, end to start reversed.
       const bool back = m.coedgeOrientation(c) == CBR_ORIENTATION_REVERSED;
       const bool twin = (p.seamU || p.seamV) && seamUseTakesTwin(p, back ? t0 > t1 : t1 > t0, m.faceSameSense(C.face));
@@ -1728,6 +1748,7 @@ int EdgeMesh::edgeCount() const { return static_cast<int>(impl_->edges.size()); 
 bool EdgeMesh::isPseudo(int e) const { return e >= impl_->nModel; }
 const EdgeSamples& EdgeMesh::edge(int e) const { return impl_->edges[e].s; }
 const CoedgeSamples& EdgeMesh::coedge(int c) const { return impl_->coedges[c].s; }
+const ProjectionCounts& EdgeMesh::projections() const { return impl_->projections; }
 FaceBoundary EdgeMesh::face(int f) const { return impl_->face(f); }
 
 Status EdgeMesh::split(const std::vector<SplitRequest>& requests) {
