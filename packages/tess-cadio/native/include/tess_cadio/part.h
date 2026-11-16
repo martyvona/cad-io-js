@@ -44,8 +44,8 @@ struct FaceMesh {
   /** Counterclockwise about the normal, 3 indices each; none with two corners at one point (a pole line's). */
   std::vector<int32_t> triangles;
   /**
-   * Triangles its criteria still refuse (a fixed boundary too coarse for them, needles in a pole's fan until poles
-   * are meshed as fans), as indices into `triangles` / 3; those with two corners at one point left out with them.
+   * Triangles its criteria still refuse (a fixed boundary too coarse for them; a pole's fan whose ends' spans weren't
+   * split in to its ring), as indices into `triangles` / 3; those with two corners at one point left out with them.
    */
   std::vector<int32_t> rejected;
   /** Splits of its edges it still wanted when the rounds ran out. */
