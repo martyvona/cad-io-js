@@ -9,7 +9,8 @@ import { test } from 'node:test';
 import { openEdges, oracleMeasures, type TessellationResult } from 'cad-scene';
 import { MODELS } from '../../cad-brep/test/models.ts';
 import { CadioTessellator, VERSION } from '../src/index.ts';
-import { bsplineDome, fold, luneOnSeam, pcurveOnly, torusOuterHalf } from '../native/test/models.ts';
+import { bsplineDome, bumpPatch, cap, fold, halfCap, luneOnSeam, luneQuarter, meridianHemisphere, pcurveOnly,
+  torusOuterHalf } from '../native/test/models.ts';
 
 const dist = path.join(import.meta.dirname, '..', 'dist', 'tess_cadio.wasm');
 const skip = fs.existsSync(dist) ? false : 'tess-cadio\'s module not built (run packages/tess-cadio/build.sh module)';
@@ -116,7 +117,8 @@ test('the seam cylinder: its seam a seam; a sphere\'s faces: the whole one faile
     }
   });
 
-test('triangles still refused counted, those in a pole\'s fan apart: a lune on its seam, a cylinder\'s',
+test('triangles still refused counted, those in a pole\'s fan apart: none at poles made as fans; ' +
+  'a lune\'s, unfanned; a cylinder\'s',
   { skip }, async () => {
     const t = await tessellator();
     const re = /^(\d+) faces meshed with triangles their criteria still refuse: (\d+) triangles, (\d+) of them slivers/;
@@ -125,19 +127,29 @@ test('triangles still refused counted, those in a pole\'s fan apart: a lune on i
         linearDeflection: l, angularDeflection: a });
       return r.diagnostics.map((x) => re.exec(x.message)).find((m) => m);
     };
-    // luneOnSeam at 0.001 mm and 0.05 rad: a refused triangle at its pole; pcurveOnly's (a cylinder's) at 1e-4 mm
-    // and 0.1 rad, none at one.
-    const c = await refused(luneOnSeam(), 0.001, 0.05);
-    assert.ok(c);
-    assert.equal(c[1], '1');
-    assert.ok(Number(c[3]) >= 1 && Number(c[3]) <= Number(c[2]), `${c[2]} refused, ${c[3]} at a pole`);
+    // Faces through, round or at their poles, at settings that refused triangles in poles' fans before they were
+    // made as fans: none there now.
+    for (const [name, model] of [['halfCap', halfCap], ['luneQuarter', luneQuarter],
+      ['meridianHemisphere', meridianHemisphere], ['cap', cap]] as const) {
+      for (const [l, a] of [[0.01, 0.05], [0.001, 0.05], [0.001, 0.1]] as const) {
+        const c = await refused(model(), l, a);
+        assert.equal(c?.[3] ?? '0', '0', `${name} at ${l}, ${a}: ${c?.[2]} refused, ${c?.[3]} at a pole`);
+      }
+    }
+    // luneOnSeam's boundary leaves its seam's side unsettled (its face meshed, but no fan made on a guess): its
+    // mesher's triangles at its pole refused, counted as there.
+    const l = await refused(luneOnSeam(), 0.01, 0.05);
+    assert.ok(l);
+    assert.ok(Number(l[3]) >= 1 && Number(l[3]) <= Number(l[2]), `${l[2]} refused, ${l[3]} at a pole`);
+    // pcurveOnly's (a cylinder's) at 1e-4 mm and 0.1 rad: refused, none at a pole.
     const o = await refused(pcurveOnly(), 1e-4, 0.1);
     assert.ok(o);
     assert.ok(Number(o[2]) >= 1);
     assert.equal(o[3], '0');
   });
 
-test('faces with deviations sampled, said: a torus\'s by its inner half; a sphere\'s, a B-spline\'s not',
+test('faces with deviations sampled, said: a torus\'s by its inner half, a B-spline dome\'s at its pole; ' +
+  'a sphere\'s, a B-spline\'s without one not',
   { skip }, async () => {
     const t = await tessellator();
     const re = /^(\d+) faces meshed with their deviation from the surface sampled, not bounded/;
@@ -146,7 +158,8 @@ test('faces with deviations sampled, said: a torus\'s by its inner half; a spher
       return r.diagnostics.map((x) => re.exec(x.message)).find((m) => m)?.[1];
     };
     assert.equal(await sampled(new Uint8Array(torusOuterHalf().finish().buffer)), '1');
-    assert.equal(await sampled(new Uint8Array(bsplineDome().finish().buffer)), undefined);
+    assert.equal(await sampled(new Uint8Array(bsplineDome().finish().buffer)), '1');
+    assert.equal(await sampled(new Uint8Array(bumpPatch().finish().buffer)), undefined);
     assert.equal(await sampled(new Uint8Array(MODELS.seamCylinder().finish().buffer)), undefined);
     assert.equal(await sampled(new Uint8Array(MODELS.spheres().finish().buffer)), undefined);
   });

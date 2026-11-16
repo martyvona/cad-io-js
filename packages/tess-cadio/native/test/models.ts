@@ -413,6 +413,35 @@ export function halfCap(): BrepBuilder {
   return b;
 }
 
+/**
+ * halfCap with a hole near its pole: a circle of angular radius 0.03 about the direction 0.075 from the north pole
+ * at u = 1.1, beside the great circle's meridian u = pi / 2 (u 0.69 to 1.51 at its widest), its vertex on the side
+ * away from the pole. A pole's ring must stay under the hole, and its reach to the meridian's last sample beside it.
+ */
+export function poleHole(): BrepBuilder {
+  const b = new BrepBuilder();
+  const lat = Math.asin(0.4), c = Math.cos(lat), s = 0.4;
+  const va = b.addVertex({ point: [0, c, s] }), vb = b.addVertex({ point: [0, -c, s] });
+  const great = b.addCurve({ kind: 'circle', position: { origin: [0, 0, 0], axis: [1, 0, 0], xDir: [0, 1, 0] },
+    radius: 1 });
+  const latitude = b.addCurve({ kind: 'circle', position: { origin: [0, 0, s], axis: [0, 0, 1], xDir: [0, 1, 0] },
+    radius: c });
+  const eg = b.addEdge({ curve: great, start: va, end: vb, sameSense: true, range: [lat, Math.PI - lat] });
+  const el = b.addEdge({ curve: latitude, start: vb, end: va, sameSense: true, range: [Math.PI, 2 * Math.PI] });
+  const a = 0.075, rr = 0.03, u = 1.1;
+  const n = [Math.sin(a) * Math.cos(u), Math.sin(a) * Math.sin(u), Math.cos(a)];
+  const x = [Math.cos(a) * Math.cos(u), Math.cos(a) * Math.sin(u), -Math.sin(a)];  // away from the pole
+  const centre = n.map((q) => Math.cos(rr) * q);
+  const vh = b.addVertex({ point: [0, 1, 2].map((k) => centre[k]! + Math.sin(rr) * x[k]!) });
+  const hole = b.addEdge({ curve: b.addCurve({ kind: 'circle', position: { origin: centre, axis: n, xDir: x },
+    radius: Math.sin(rr) }), start: vh, end: vh, sameSense: true });
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'sphere', position: AXIS, radius: 1 }), sameSense: true,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true,
+      coedges: [{ edge: eg, orientation: 'forward' }, { edge: el, orientation: 'forward' }] },
+    { kind: 'edge', bound: 'inner', sense: true, coedges: [{ edge: hole, orientation: 'reversed' }] }] }));
+  return b;
+}
+
 /** The unit sphere's half x > 0, bounded by one great circle through both poles (its vertex at the south pole). */
 function greatCircleHalf(r: number, uncertainty?: number): BrepBuilder {
   const b = new BrepBuilder(uncertainty ? { uncertainty } : {});
@@ -691,7 +720,7 @@ export function sBend(): BrepBuilder {
   return b;
 }
 
-export const MODELS = { smallHole, sBend, cuspEdge: () => cuspEdge(), nearCusp6, bumpPatch: () => bumpPatch(),
+export const MODELS = { poleHole, smallHole, sBend, cuspEdge: () => cuspEdge(), nearCusp6, bumpPatch: () => bumpPatch(),
   halfBump: () => bumpPatch(true), thinBand, tubeGapFaceTolerance,
   tubeGapUncertainty, tubeGapBySize, tubeGapOpen, torusOuterHalf, meridianHemisphereLoose, offPoleRest, wigglyBand,
   notchBand, bsplineTube, bsplineTubeTinyArc, bsplineDome, offPoleArc, offPcurves, bandHoleAtVertex, bandHoleOnCut,

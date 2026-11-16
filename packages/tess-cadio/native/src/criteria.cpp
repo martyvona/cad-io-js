@@ -94,6 +94,10 @@ public:
     Vec3 axis, double radius, double second)
     : s_(s), box_(uv), d_(d), hmax_(extent), hmin_(1e-7 * extent), bounded_(bounded), kind_(kind),
       centre_(centre), axis_(axis), radius_(radius), second_(second) {
+    std::vector<Singularity> sing;
+    s.singularities(sing);
+    for (const Singularity& g : sing)
+      if (g.kind != Singularity::normalVanishes) poles_.push_back(g.point);
     // The grid's own metrics, then graded: sweeps until no node changes (or a bound on them).
     grid_.resize((kGrid + 1) * (kGrid + 1));
     valid_.assign(grid_.size(), false);
@@ -159,14 +163,27 @@ public:
     // spot, refined towards 1e-14 mm until its point cap, its facets refused for normals 90 degrees off).
     double longest3 = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
     if (longest3 <= 1e-4 * d_.linear) return true;
+    if (!deviationWithin(t, p)) {
+      // Near a pole (a corner within twice the triangle's size of it) the sample and the bound overstate: a triangle
+      // wide in u is small in 3D, S's tangential part large, and a bound over its (u, v) box reaches far from it.
+      // There the surface's distance itself, by inversion, at the same points (the face then counted as sampled).
+      if (!nearPole(p, longest3) || !nearestDeviation(t, p)) return false;
+      sampledAny_ = true;
+    }
+    return normalsWithin(t, p);
+  }
+
+private:
+  /** The deviation within the deflection: in closed form, bounded or sampled, as the surface allows. */
+  bool deviationWithin(const Vec2 t[3], const Vec3 p[3]) const {
     Bounds b;
     double closedForm;
     if (kind_ == Kind::sphere) {
       // (Every point of the flat triangle is inside the ball: its distance to the sphere is R - |x - c|.)
-      if (radius_ - pointTriangle(centre_, p) > d_.linear) return false;
-    } else if (kind_ != Kind::none && distanceBound(p, closedForm)) {
-      if (closedForm > d_.linear) return false;
-    } else if (bounded_) {
+      return radius_ - pointTriangle(centre_, p) <= d_.linear;
+    }
+    if (kind_ != Kind::none && distanceBound(p, closedForm)) return closedForm <= d_.linear;
+    if (bounded_) {
       // Sampled first, sparing the bound the many large triangles refinement refuses (what it measures, |S(x) - L(x)|
       // at the corners' barycentric (u, v), is at least the distance there, so its refusals err only to the strict
       // side, where S''s tangential part is large); then bounded, over the whole box, and only where that isn't
@@ -178,12 +195,17 @@ public:
         if (!bounds(t, b, true)) sampledAny_ = true;
         else if (b.deviation > d_.linear) return false;
       }
-    } else {
-      sampledAny_ = true;
-      if (!sampledDeviation(t, p)) return false;
+      return true;
     }
-    // The normals at the corners (where the surface has one) within the angle of one another and of the flat
-    // triangle's own (which a triangle turned over in 3D, as one wide in u near a pole can be, fails).
+    sampledAny_ = true;
+    return sampledDeviation(t, p);
+  }
+
+  /**
+   * The normals at the corners (where the surface has one) within the angle of one another and of the flat
+   * triangle's own (which a triangle turned over in 3D, as one wide in u near a pole can be, fails).
+   */
+  bool normalsWithin(const Vec2 t[3], const Vec3 p[3]) const {
     Vec3 n[3], g = cross(p[1] - p[0], p[2] - p[0]);
     bool has[3];
     for (int i = 0; i < 3; i++) has[i] = s_.normal(t[i].x, t[i].y, n[i]) == Status::ok;
@@ -200,7 +222,52 @@ public:
     return true;
   }
 
-private:
+  bool nearPole(const Vec3 p[3], double size) const {
+    for (Vec3 q : poles_)
+      for (int i = 0; i < 3; i++)
+        if (norm(p[i] - q) <= 2 * size) return true;
+    return false;
+  }
+
+  /**
+   * The flat triangle within the deflection of the surface at 7 points, each by its distance to some point of the
+   * surface (an upper bound on its distance to it): from the point's barycentric (u, v), a few damped Gauss-Newton
+   * steps towards its foot, the nearest point seen kept.
+   */
+  bool nearestDeviation(const Vec2 t[3], const Vec3 p[3]) const {
+    // (sampledDeviation's points and the three between the centroid and the corners, with a tenth to spare: a
+    // sample misses the deepest point, which the bounds would have found.)
+    const double w[7][3] = {{1. / 3, 1. / 3, 1. / 3}, {0.5, 0.5, 0}, {0, 0.5, 0.5}, {0.5, 0, 0.5},
+      {2. / 3, 1. / 6, 1. / 6}, {1. / 6, 2. / 3, 1. / 6}, {1. / 6, 1. / 6, 2. / 3}};
+    for (const auto& b : w) {
+      Vec2 uv{b[0] * t[0].x + b[1] * t[1].x + b[2] * t[2].x, b[0] * t[0].y + b[1] * t[1].y + b[2] * t[2].y};
+      Vec3 flat = b[0] * p[0] + b[1] * p[1] + b[2] * p[2];
+      if (footDistance(flat, uv) > 0.9 * d_.linear) return false;
+    }
+    return true;
+  }
+
+  /** The least |S(u, v) - x| seen over a few damped Gauss-Newton steps from uv (kept inside the face's box). */
+  double footDistance(Vec3 x, Vec2 uv) const {
+    double best = INFINITY;
+    for (int it = 0; it < 8; it++) {
+      SurfacePoint q;
+      if (s_.eval(uv.x, uv.y, 1, q) != Status::ok) break;
+      Vec3 r = x - q.p;
+      best = std::min(best, norm(r));
+      if (best <= 1e-3 * d_.linear) break;
+      double a = dot(q.du, q.du), bb = dot(q.du, q.dv), c = dot(q.dv, q.dv), lambda = 1e-9 * (a + c) + 1e-300;
+      a += lambda, c += lambda;
+      double det = a * c - bb * bb, gu = dot(q.du, r), gv = dot(q.dv, r);
+      if (!(det > 0)) break;
+      Vec2 next{uv.x + (c * gu - bb * gv) / det, uv.y + (a * gv - bb * gu) / det};
+      next.x = std::clamp(next.x, box_.x.lo, box_.x.hi), next.y = std::clamp(next.y, box_.y.lo, box_.y.hi);
+      if (next.x == uv.x && next.y == uv.y) break;
+      uv = next;
+    }
+    return best;
+  }
+
   /** A triangle's bound: its deviation from the surface. */
   struct Bounds {
     double deviation = INFINITY;
@@ -467,6 +534,8 @@ private:
   Vec3 centre_, axis_;
   double radius_, second_;  // a cone's radius at v = 0 and tan of its semi-angle; a torus's major and minor radii
   double spacing_ = 0;
+  /** The surface's poles' and apexes' points. */
+  std::vector<Vec3> poles_;
   std::vector<Metric2> grid_;
   std::vector<bool> valid_;
 };

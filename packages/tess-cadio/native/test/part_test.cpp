@@ -3,12 +3,14 @@
 // shell's mesh closed and consistently oriented (each side of a triangle used by exactly one other, the other way),
 // normals unit and finite (a sphere's pole included) and on the side the triangles face, triangles within the
 // deflection of the surface, the faces' areas against their closed forms, the same mesh twice.
+#include <tess_cadio/edges.h>
 #include <tess_cadio/part.h>
 
 #include <cad_geom/surface.h>
 
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <random>
 #include <map>
 #include <memory>
@@ -469,7 +471,7 @@ TEST_CASE("the criteria's metric: sizes from the principal curvatures, every dir
   {
     std::mt19937 rng(13);
     std::uniform_real_distribution<double> u01(0, 1);
-    int missed = 0, under = 0;
+    int missed = 0, under = 0, sampledOver = 0;
     int atThreshold = 0;
     for (Face fc : {Face{"spheres", 1, {{0, 2 * M_PI}, {0, 1.2}}}, Face{"seamCylinder", 0, {{0, 2 * M_PI}, {0, 5}}},
            Face{"cone", 0, {{0.5, 5.8}, {-0.5, 0}}}, Face{"torusOuterHalf", 0, {{0.5, 5.8}, {-0.8, 0.8}}},
@@ -535,15 +537,28 @@ TEST_CASE("the criteria's metric: sizes from the principal curvatures, every dir
           (dense > 1.02 * d ? hi : lo) = mid;
         }
         place(hi);
+        // Accepted over the deflection only where judged by sampling, and said: criteria of its own judging it alone
+        // then aren't bounded() (near a pole, where the bounds overstate, the distance is sampled).
+        auto sampledHere = [&]() {
+          std::unique_ptr<cadgeom::Surface> s2;
+          auto c2 = criteria(fc.name, fc.face, fc.box, d, 0, s2);
+          return c2->accept(t) && !c2->bounded();
+        };
         if (sampled <= d && dense > d) {
           missed++;
-          CHECK(!c->accept(t));
+          if (c->accept(t)) {
+            sampledOver++;
+            CHECK(sampledHere());
+          }
         }
         // (Every bounded surface's triangle over the deflection refused, wherever on it the deepest point is.)
         if (dense > d) {
           atThreshold++;
-          if (c->accept(t)) std::printf("  %s: accepted at deviation %g\n", fc.name, dense);
-          CHECK(!c->accept(t));
+          if (c->accept(t)) {
+            sampledOver++;
+            if (!sampledHere()) std::printf("  %s: accepted at deviation %g, bounded\n", fc.name, dense);
+            CHECK(sampledHere());
+          }
         }
         place(0.7 * hi);
         Vec3 p[3] = {at(t[0]), at(t[1]), at(t[2])}, g = cadgeom::cross(p[1] - p[0], p[2] - p[0]), nn;
@@ -561,7 +576,10 @@ TEST_CASE("the criteria's metric: sizes from the principal curvatures, every dir
         }
       }
     }
-    if (missed < 5 || under < 100) std::printf("  missed %d, under %d\n", missed, under);
+    // (Those few, near the dome's pole.)
+    if (missed < 5 || under < 100 || sampledOver > 4)
+      std::printf("  missed %d, under %d, accepted over by sampling %d\n", missed, under, sampledOver);
+    CHECK(sampledOver <= 4);
     CHECK(missed >= 5);
     CHECK(under >= 100);
     CHECK(atThreshold >= 120);
@@ -812,6 +830,97 @@ TEST_CASE("p-curves parameterized against Part 42 (their own range, a squared pa
   for (int c = 0; c < 4; c++) {
     CHECK_EQ(em.coedge(c).fromPcurve, c >= 2);
     CHECK(em.coedge(c).gap < 1e-9);
+  }
+}
+
+TEST_CASE("poles as fans: one point per pole, pieces of 22.5 degrees at most, none refused; split rounds off: a "
+  "fan's end a sliver, refused, the ring under a hole beside the pole") {
+  // Each triangle with a corner at a pole (in 3D): that corner the pole's own point (one per pole), the angle there
+  // at most a fan's piece (22.5 degrees about the pole, a sphere's azimuth), none refused, no open edges.
+  struct Fanned {
+    int poles = 0, poleTriangles = 0, refusedAtPole = 0, slivers = 0;
+    double widest = 0;
+  };
+  auto fanned = [](const cadgeom::Model& m, const PartMesher& pm, int f) {
+    Fanned r;
+    const FaceMesh& fm = pm.face(f);
+    cadgeom::Status st;
+    std::unique_ptr<cadgeom::Surface> s = closedSurface(m, f, st);
+    std::vector<cadgeom::Singularity> sing;
+    if (s) s->singularities(sing);
+    std::set<int32_t> refused(fm.rejected.begin(), fm.rejected.end());
+    for (const cadgeom::Singularity& g : sing) {
+      if (g.kind == cadgeom::Singularity::normalVanishes) continue;
+      std::set<int32_t> at;
+      for (size_t t = 0; t + 2 < fm.triangles.size(); t += 3)
+        for (int k = 0; k < 3; k++) {
+          int32_t v = fm.triangles[t + k];
+          if (cadgeom::norm(fm.points[v] - g.point) > 1e-9) continue;
+          at.insert(v);
+          r.poleTriangles++;
+          Vec3 a = fm.points[fm.triangles[t + (k + 1) % 3]] - g.point;
+          Vec3 b = fm.points[fm.triangles[t + (k + 2) % 3]] - g.point;
+          double angle = std::atan2(cadgeom::norm(cadgeom::cross(a, b)), cadgeom::dot(a, b));
+          if (refused.count(static_cast<int32_t>(t / 3))) {
+            r.refusedAtPole++;
+            // A sliver: its smallest angle under 5 degrees.
+            Vec3 p[3] = {fm.points[fm.triangles[t]], fm.points[fm.triangles[t + 1]], fm.points[fm.triangles[t + 2]]};
+            double least = M_PI;
+            for (int i = 0; i < 3; i++) {
+              Vec3 x = p[(i + 1) % 3] - p[i], y = p[(i + 2) % 3] - p[i];
+              least = std::fmin(least, std::atan2(cadgeom::norm(cadgeom::cross(x, y)), cadgeom::dot(x, y)));
+            }
+            r.slivers += least < 5 * M_PI / 180;
+          } else {
+            r.widest = std::fmax(r.widest, angle);
+          }
+        }
+      r.poles += static_cast<int>(at.size());
+    }
+    return r;
+  };
+  // (Not offPoleArc and offPoleRest: their arc's sample at the top inverts to the pole, the edge 7e-4 off its sphere,
+  // its copies on the pole's row in (u, v) but not at the pole in 3D: no fan made there.)
+  for (const char* name : {"halfCap", "meridianHemisphere", "luneQuarter", "cap", "bsplineDome",
+         "meridianHemisphereLoose", "poleHole"})
+    for (auto [d, a] : {std::pair{0.01, 0.05}, std::pair{0.1, 0.2618}, std::pair{0.001, 0.1}}) {
+      cadgeom::Model m = load(name);
+      REQUIRE(m.ok());
+      PartMesher pm(m, options(d, a));
+      REQUIRE(pm.face(0).status == cadgeom::Status::ok);
+      Fanned r = fanned(m, pm, 0);
+      // (luneQuarter and the meridian hemispheres have both poles, the rest one. A B-spline's u isn't quite its
+      // azimuth about the pole: a tenth to spare there.)
+      bool two = std::strcmp(name, "luneQuarter") == 0 || std::strncmp(name, "meridianHemisphere", 18) == 0;
+      int want = two ? 2 : 1;
+      double piece = 22.5 * M_PI / 180 * (name[0] == 'b' ? 1.1 : 1 + 1e-6);
+      if (r.poles != want || r.refusedAtPole || r.widest > piece)
+        std::printf("  %s at %g, %g: %d pole points, %d of %d at them refused, widest %g deg\n", name, d, a, r.poles,
+          r.refusedAtPole, r.poleTriangles, r.widest * 180 / M_PI);
+      CHECK_EQ(r.poles, want);
+      CHECK_EQ(r.refusedAtPole, 0);
+      CHECK(r.widest <= piece);
+      CHECK_EQ(sharedEdges(m, pm, name), 0);
+      // (The dome's triangles near its pole judged by the surface's distance there: none refused at all.)
+      if (name[0] == 'b') CHECK_EQ(pm.face(0).rejected.size(), 0u);
+    }
+  // Split rounds off: poleHole's ring under its hole (its near side 0.045 from the pole), its ends (the meridian's
+  // last samples, 0.077 out) reached along their rows beside the hole, the triangles there slivers at the pole,
+  // refused and counted. (halfCap's own ring passes at its ends' radius.)
+  for (const char* name : {"poleHole"}) {
+    cadgeom::Model m = load(name);
+    REQUIRE(m.ok());
+    PartOptions o = options(0.001, 0.1);  // (the edges' spacing by the deflection wider than the fan's radius)
+    o.maxSplitRounds = 0;
+    PartMesher pm(m, o);
+    if (pm.face(0).status != cadgeom::Status::ok) std::printf("  %s: status %d\n", name, int(pm.face(0).status));
+    REQUIRE(pm.face(0).status == cadgeom::Status::ok);
+    Fanned r = fanned(m, pm, 0);
+    if (r.refusedAtPole < 1 || r.slivers != r.refusedAtPole)
+      std::printf("  %s, no rounds: %d at the pole refused, %d of them slivers\n", name, r.refusedAtPole, r.slivers);
+    CHECK(r.refusedAtPole >= 1);
+    CHECK_EQ(r.slivers, r.refusedAtPole);
+    CHECK_EQ(sharedEdges(m, pm, name), 0);
   }
 }
 
