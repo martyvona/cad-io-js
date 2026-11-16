@@ -946,6 +946,24 @@ TEST_CASE("natural extents: a whole sphere (no loops, or a vertex loop off its p
     }
 }
 
+TEST_CASE("a fan's ring split where the mesh wants it: bsplineApex refined beside its long edges from the apex") {
+  // On the B-spline cone the normal turns with u however near the apex, so the metric asks for pieces narrow in u
+  // down to the ring: the mesh wants the ring's segments split, and its fan's pieces are doubled for it (else the
+  // triangles between the ring and the arc stay refused, the mesher unable to place a point in them: 9 at 0.01).
+  // At 0.001 two thin triangles beside the arc the bound overstates (within the deflection by an independent measure).
+  for (auto [d, a, most] : {std::tuple{0.01, 0.26, 0}, std::tuple{0.1, 0.2618, 0}, std::tuple{0.001, 0.1, 2}}) {
+    cadgeom::Model m = load("bsplineApex");
+    REQUIRE(m.ok());
+    PartMesher pm(m, options(d, a));
+    const FaceMesh& fm = pm.face(0);
+    REQUIRE(fm.status == cadgeom::Status::ok);
+    if (static_cast<int>(fm.rejected.size()) > most)
+      std::printf("  bsplineApex at %g: %zu refused of %zu\n", d, fm.rejected.size(), fm.triangles.size() / 3);
+    CHECK(static_cast<int>(fm.rejected.size()) <= most);
+    CHECK_EQ(sharedEdges(m, pm, "bsplineApex"), 0);
+  }
+}
+
 TEST_CASE("apex-like rows: within the deflection of one, no normal to hold a triangle to; a smooth pole's held") {
   // bsplineApex's row v = 0 is its apex, its normal's limit there depending on u (about 70 degrees across); the
   // dome's v = 1 a sphere's pole, one limit. A triangle within 0.1 of each point, its corners' normals further apart
