@@ -137,7 +137,7 @@ test('triangles still refused counted, those in a pole\'s fan apart: half a cap 
     assert.equal(o[3], '0');
   });
 
-test('faces whose deviation accept() sampled, not bounded, said: a torus\'s; a cylinder\'s, a sphere\'s and a B-spline\'s not',
+test('faces with deviations sampled, said: a torus\'s by its inner half; a sphere\'s, a B-spline\'s not',
   { skip }, async () => {
     const t = await tessellator();
     const re = /^(\d+) faces meshed with their deviation from the surface sampled, not bounded/;
