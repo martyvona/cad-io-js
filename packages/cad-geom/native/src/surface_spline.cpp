@@ -9,8 +9,8 @@
 // every order needed: over a rectangle the surface (or a partial of a polynomial surface) lies in the hull of the
 // active poles of the spans it meets (nonnegative basis functions summing to one, positive weights); a rational
 // partial is bounded by the quotient rule's recursion, each term by its own bound and w by its smallest active
-// weight. Those hulls don't shrink within a span, so each box is met with the centred form on the next order's
-// hulls, which does. Each bound is widened by the rounding of the differences that made its net (carried pole by
+// weight, met with the same recursion in intervals. Those hulls don't shrink within a span, so each box is met with
+// the centred form on the next order's hulls, which does, within one span (across a knot the partial may jump). Each bound is widened by the rounding of the differences that made its net (carried pole by
 // pole). A row of poles all equal at a side of the domain is a pole of the surface (a collapsed iso-line).
 #include <algorithm>
 #include <cmath>
@@ -113,6 +113,22 @@ public:
     out[0] = out[0] + o + c_;
     return st;
   }
+  /** A rectangle within one span: its partial's hull met with the centred form; false where a hull fails. */
+  bool centred(Range ru, Range rv, int k, int l, Box3& out) const {
+    Box3 bu, bv;
+    if (rawBox(ru, rv, k, l, out) != Status::ok || rawBox(ru, rv, k + 1, l, bu) != Status::ok ||
+      rawBox(ru, rv, k, l + 1, bv) != Status::ok)
+      return false;
+    double mu = 0.5 * ru.lo + 0.5 * ru.hi, mv = 0.5 * rv.lo + 0.5 * rv.hi;
+    Vec3 d[kPartials];
+    derivs(mu, mv, k + l, d);
+    Vec3 c = d[pidx(k, l)];
+    double r = (boxNorm(bu) * (ru.hi - ru.lo) + boxNorm(bv) * (rv.hi - rv.lo)) * 0.5 * (1 + 8 * kEps);
+    double err = (k + l == 0 ? 8 * kEps * maxAbs(c - c_) + 4 * kEps * maxAbs(c_) : 1e-12 * maxAbs(c))
+      + 1e-13 * r + (k + l == 0 ? 0 : 1e-13 * (boxNorm(out)));
+    out = meet(out, ballBox(c, r + err));
+    return true;
+  }
   void breaks(Range ru, Range rv, std::vector<double>& us, std::vector<double>& vs) const override {
     auto inner = [](const std::vector<double>& K, Range r, std::vector<double>& out) {
       out = {r.lo};
@@ -128,22 +144,12 @@ public:
     Status s = rawBox(ru, rv, k, l, out);
     if (s != Status::ok) return s;
     // Met with the centred form on the next order's hulls (which shrinks with the rectangle), within one span only:
-    // across a knot a partial of order past the continuity there jumps, and the mean value theorem fails.
+    // across a knot a partial of order past the continuity there jumps, and the mean value theorem fails. (A caller
+    // wanting a rectangle across knots bounded as tightly cuts it at breaks() itself: tess-cadio's criteria do.)
     int su = bspline::findSpan(p_, U_, nu_, ru.lo), sv = bspline::findSpan(q_, V_, nv_, rv.lo);
-    bool oneSpan = U_[su + 1] >= ru.hi && V_[sv + 1] >= rv.hi;
-    if (oneSpan && k + l + 1 < kMaxOrder) {
-      Box3 bu, bv;
-      if (rawBox(ru, rv, k + 1, l, bu) == Status::ok && rawBox(ru, rv, k, l + 1, bv) == Status::ok) {
-        double mu = 0.5 * ru.lo + 0.5 * ru.hi, mv = 0.5 * rv.lo + 0.5 * rv.hi;
-        Vec3 d[kPartials];
-        derivs(mu, mv, k + l, d);
-        Vec3 c = d[pidx(k, l)];
-        double r = (boxNorm(bu) * (ru.hi - ru.lo) + boxNorm(bv) * (rv.hi - rv.lo)) * 0.5 * (1 + 8 * kEps);
-        double err = (k + l == 0 ? 8 * kEps * maxAbs(c - c_) + 4 * kEps * maxAbs(c_) : 1e-12 * maxAbs(c))
-          + 1e-13 * r + (k + l == 0 ? 0 : 1e-13 * (boxNorm(out)));
-        out = meet(out, ballBox(c, r + err));
-      }
-    }
+    Box3 one;
+    if (U_[su + 1] >= ru.hi && V_[sv + 1] >= rv.hi && k + l + 1 < kMaxOrder && centred(ru, rv, k, l, one))
+      out = meet(out, one);
     return Status::ok;
   }
   void singularities(std::vector<Singularity>& out) const override {
@@ -245,7 +251,7 @@ private:
       return;
     }
     int p = n.p, q = n.q, s = su - k, t = sv - l;
-    std::vector<double> rows((p + 1) * (q + 1) * 4), D(std::max(p, q) * 4 + 4);
+    Scratch<double, 256> rows((p + 1) * (q + 1) * 4), D(std::max(p, q) * 4 + 4);
     // In v first, row by row: rows[i][j] the blossom of row i at (c^(q - j), d^j).
     for (int i = 0; i <= p; i++)
       for (int j = 0; j <= q; j++) {
@@ -271,7 +277,9 @@ private:
     if (!rational_ && (k > p_ || l > q_)) return out = pointBox({}), Status::ok;
     int su = bspline::findSpan(p_, U_, nu_, ru.lo), sv = bspline::findSpan(q_, V_, nv_, rv.lo);
     bool oneSpan = U_[su + 1] >= ru.hi && V_[sv + 1] >= rv.hi;
-    std::vector<double> ctrl;
+    // (The control points' buffers kept across calls: inversion and tess-cadio's criteria ask for boxes by the
+    // million, and allocating them each time was most of their cost.)
+    thread_local std::vector<double> ctrl, c0, cc;
     const Net& n = nets_[k <= p_ && l <= q_ ? pidx(k, l) : 0];
     if (k <= p_ && l <= q_) control(n, ru, rv, oneSpan, su, sv, k, l, ctrl);
     // The blossom's rounding on top of the net's own (a few operations per level, on values up to the net's size).
@@ -297,7 +305,6 @@ private:
     }
     // A rational partial: |S^(k,l)| <= (|A^(k,l)| + sum (k i)(l j) |w^(i,j)| |S^(k-i,l-j)|) / w_min, each from the
     // control points of its own net; |S^(0,0) - c| from the order-0 net's projected ones.
-    std::vector<double> c0;
     control(nets_[0], ru, rv, oneSpan, su, sv, 0, 0, c0);
     double e0 = blossomErr(nets_[0], c0), wmin = kInf, s0 = 0;
     for (size_t a = 0; a < c0.size(); a += 4) {
@@ -307,7 +314,6 @@ private:
     if (!(wmin > 0)) return out = entireBox(), Status::singular;
     double B[kPartials] = {}, Am[kPartials] = {}, Wm[kPartials] = {};
     B[0] = s0 * (1 + 16 * kEps) + std::sqrt(3.0) * e0 / wmin;
-    std::vector<double> cc;
     for (int t = 1; t <= k + l; t++)
       for (int m = 0; m <= t; m++) {
         int kk = t - m;
@@ -331,6 +337,59 @@ private:
         B[pidx(kk, m)] = v / wmin * (1 + 16 * kEps);
       }
     out = ballBox({}, B[pidx(k, l)]);
+    if (k + l < 2) return Status::ok;
+    // Met with the same recursion in intervals, component by component: the homogeneous partials' and the weights'
+    // ranges from their nets' control points (restricted to the rectangle where it's one span, so they shrink with
+    // it), S^(k,l) = (A^(k,l) - sum (k i)(l j) w^(i,j) S^(k-i,l-j)) / w. Signs and cancellations kept, which the
+    // magnitudes above lose: tight as the rectangle shrinks, where those stay a constant factor off.
+    struct IV {
+      Interval c[3];
+    };
+    IV IA[kPartials], S[kPartials];
+    Interval IW[kPartials];
+    auto ranges = [&](const std::vector<double>& ctl, double e, IV& a, Interval& w) {
+      for (int d = 0; d < 3; d++) a.c[d] = {kInf, -kInf};
+      w = {kInf, -kInf};
+      for (size_t q = 0; q < ctl.size(); q += 4) {
+        for (int d = 0; d < 3; d++) a.c[d] = {std::fmin(a.c[d].lo, ctl[q + d]), std::fmax(a.c[d].hi, ctl[q + d])};
+        w = {std::fmin(w.lo, ctl[q + 3]), std::fmax(w.hi, ctl[q + 3])};
+      }
+      for (int d = 0; d < 3; d++) a.c[d] = {a.c[d].lo - e, a.c[d].hi + e};
+      w = {w.lo - e, w.hi + e};
+    };
+    ranges(c0, e0, IA[0], IW[0]);
+    if (!(IW[0].lo > 0)) return Status::ok;
+    for (int t = 1; t <= k + l; t++)
+      for (int m = 0; m <= t; m++) {
+        int kk = t - m;
+        if (kk > k || m > l) continue;
+        if (kk > p_ || m > q_) {
+          for (int d = 0; d < 3; d++) IA[pidx(kk, m)].c[d] = Interval::point(0);
+          IW[pidx(kk, m)] = Interval::point(0);
+          continue;
+        }
+        const Net& nn = nets_[pidx(kk, m)];
+        control(nn, ru, rv, oneSpan, su, sv, kk, m, cc);
+        ranges(cc, blossomErr(nn, cc), IA[pidx(kk, m)], IW[pidx(kk, m)]);
+      }
+    for (int d = 0; d < 3; d++) S[0].c[d] = IA[0].c[d] / IW[0];
+    for (int t = 1; t <= k + l; t++)
+      for (int m = 0; m <= t; m++) {
+        int kk = t - m;
+        if (kk > k || m > l) continue;
+        for (int d = 0; d < 3; d++) {
+          Interval v = IA[pidx(kk, m)].c[d];
+          for (int i = 0; i <= kk; i++)
+            for (int j = 0; j <= m; j++)
+              if (i || j)
+                v = v - Interval::point(binom(kk, i) * binom(m, j)) * IW[pidx(i, j)] * S[pidx(kk - i, m - j)].c[d];
+          S[pidx(kk, m)].c[d] = v / IW[0];
+        }
+      }
+    const IV& r = S[pidx(k, l)];
+    Box3 box{r.c[0], r.c[1], r.c[2]};
+    // (Widened by the rounding of the recursion's own operations, relative to its terms.)
+    out = meet(out, widen(box, 64 * kEps * boxNorm(box)));
     return Status::ok;
   }
 

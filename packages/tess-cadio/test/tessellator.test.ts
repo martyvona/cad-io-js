@@ -9,7 +9,7 @@ import { test } from 'node:test';
 import { openEdges, oracleMeasures, type TessellationResult } from 'cad-scene';
 import { MODELS } from '../../cad-brep/test/models.ts';
 import { CadioTessellator, VERSION } from '../src/index.ts';
-import { bsplineDome, fold, halfCap, pcurveOnly } from '../native/test/models.ts';
+import { bsplineDome, fold, halfCap, pcurveOnly, torusOuterHalf } from '../native/test/models.ts';
 
 const dist = path.join(import.meta.dirname, '..', 'dist', 'tess_cadio.wasm');
 const skip = fs.existsSync(dist) ? false : 'tess-cadio\'s module not built (run packages/tess-cadio/build.sh module)';
@@ -137,7 +137,7 @@ test('triangles still refused counted, those in a pole\'s fan apart: half a cap 
     assert.equal(o[3], '0');
   });
 
-test('faces whose deviation accept() sampled, not bounded, said: a B-spline\'s; a cylinder\'s and a sphere\'s bounded',
+test('faces whose deviation accept() sampled, not bounded, said: a torus\'s; a cylinder\'s, a sphere\'s and a B-spline\'s not',
   { skip }, async () => {
     const t = await tessellator();
     const re = /^(\d+) faces meshed with their deviation from the surface sampled, not bounded/;
@@ -145,7 +145,8 @@ test('faces whose deviation accept() sampled, not bounded, said: a B-spline\'s; 
       const r = await t.tessellate({ ...req('cube'), data });
       return r.diagnostics.map((x) => re.exec(x.message)).find((m) => m)?.[1];
     };
-    assert.equal(await sampled(new Uint8Array(bsplineDome().finish().buffer)), '1');
+    assert.equal(await sampled(new Uint8Array(torusOuterHalf().finish().buffer)), '1');
+    assert.equal(await sampled(new Uint8Array(bsplineDome().finish().buffer)), undefined);
     assert.equal(await sampled(new Uint8Array(MODELS.seamCylinder().finish().buffer)), undefined);
     assert.equal(await sampled(new Uint8Array(MODELS.spheres().finish().buffer)), undefined);
   });

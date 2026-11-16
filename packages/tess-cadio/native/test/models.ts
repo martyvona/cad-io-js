@@ -295,12 +295,15 @@ export function fold(): BrepBuilder {
 /** A twisted bilinear B-spline patch, (0, 0, 0), (1, 0, 0), (0, 1, 0), (1, 1, 1): curved by S_uv alone. */
 /**
  * A bump: a bicubic B-spline over [0, 10]^2 (7 x 7 poles on a grid 10 / 6 apart), flat but for two inner poles raised
- * by 3, so its curvature runs from 0 at the sides to sharp at the bump. Bounded by its four sides (lines).
+ * by 3, so its curvature runs from 0 at the sides to sharp at the bump. Bounded by its four sides (lines). With
+ * `half`, the poles raised are row i = 1's middle three, whose support ends at the knot u = 2: curved below it, a
+ * plane above.
  */
-export function bumpPatch(): BrepBuilder {
+export function bumpPatch(half = false): BrepBuilder {
   const b = new BrepBuilder();
+  const raised = (i: number, j: number) => (half ? i === 1 && j >= 2 && j <= 4 : i === 3 && (j === 3 || j === 4));
   const poles = [0, 1, 2, 3, 4, 5, 6].map((i) => [0, 1, 2, 3, 4, 5, 6].map((j) =>
-    [i * 10 / 6, j * 10 / 6, (i === 3 && (j === 3 || j === 4)) ? 3 : 0]));
+    [i * 10 / 6, j * 10 / 6, raised(i, j) ? 3 : 0]));
   const s = b.addSurface({ kind: 'bspline', uDegree: 3, vDegree: 3, uKnots: [0, 1, 2, 3, 4],
     vKnots: [0, 1, 2, 3, 4], uMultiplicities: [4, 1, 1, 1, 4], vMultiplicities: [4, 1, 1, 1, 4], poles, uClosed: false,
     vClosed: false, selfIntersect: false, form: 'unspecified' });
@@ -658,7 +661,8 @@ export function torusOuterHalf(): BrepBuilder {
   return b;
 }
 
-export const MODELS = { cuspEdge: () => cuspEdge(), nearCusp6, bumpPatch, thinBand, tubeGapFaceTolerance,
+export const MODELS = { cuspEdge: () => cuspEdge(), nearCusp6, bumpPatch: () => bumpPatch(),
+  halfBump: () => bumpPatch(true), thinBand, tubeGapFaceTolerance,
   tubeGapUncertainty, tubeGapBySize, tubeGapOpen, torusOuterHalf, meridianHemisphereLoose, offPoleRest, wigglyBand,
   notchBand, bsplineTube, bsplineTubeTinyArc, bsplineDome, offPoleArc, offPcurves, bandHoleAtVertex, bandHoleOnCut,
   halfCap, meridianHemisphere, band: band_, bandByInversion, bore, nistBore, seamByInversion, offVertex, pcurveOnly,
