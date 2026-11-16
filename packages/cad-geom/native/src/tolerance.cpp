@@ -7,7 +7,7 @@ namespace cadgeom {
 
 namespace {
 constexpr double kFloor = 1e-9;   // of the part's size
-constexpr double kNone = 1e-7;    // mm: the part's where it gives no uncertainty
+constexpr double kNone = 1e-5;    // mm: the part's where it gives no uncertainty
 } // namespace
 
 Tolerances::Tolerances(const Model& m) : m_(m) {

@@ -579,12 +579,12 @@ export const bsplineTubeTinyArc = (): BrepBuilder => tube(true);
 /**
  * The tube open at its seam by 5e-4, closed in fact within the face's tolerance 1e-3 (no uncertainty given), or
  * within the part's uncertainty 1e-3 (no face tolerance); by 5e-9 with neither, closed in fact within 1e-9 of its size
- * (10: its domain's diagonals); by 1e-5 with neither, open.
+ * (10: its domain's diagonals); by 3e-5 with neither, open (over the 1e-5 a part with no uncertainty is judged by).
  */
 export const tubeGapFaceTolerance = (): BrepBuilder => tube(false, 5e-4, undefined, 1e-3);
 export const tubeGapUncertainty = (): BrepBuilder => tube(false, 5e-4, 1e-3);
 export const tubeGapBySize = (): BrepBuilder => tube(false, 5e-9);
-export const tubeGapOpen = (): BrepBuilder => tube(false, 1e-5);
+export const tubeGapOpen = (): BrepBuilder => tube(false, 3e-5);
 
 /**
  * The unit sphere's upper half as a rational B-spline (u round, closed; v a quarter circle up to the pole, its top

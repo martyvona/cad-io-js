@@ -70,8 +70,8 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
   std::vector<uint32_t> failed, failedRows, failedStatus, refused, unsplit, unsettled, sampled;
   // Refused triangles, and those of them in a pole's fan (a corner at a surface singularity's point).
   size_t refusedTriangles = 0, poleSlivers = 0;
-  double tol = std::isfinite(m.uncertainty()) && m.uncertainty() > 0 ? m.uncertainty() : 1e-6;
   const Tolerances tols(m);
+  const double tol = tols.part();
   for (int f = 0; f < m.faces(); f++) {
     const FaceMesh& fm = pm.face(f);
     uint32_t base = static_cast<uint32_t>(result.positions.size() / 3), start = static_cast<uint32_t>(

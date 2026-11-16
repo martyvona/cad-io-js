@@ -285,7 +285,8 @@ TEST_CASE("a band narrower than its circles' chords bow (thinBand): its circles 
 }
 
 TEST_CASE("a tube open at its seam by more than its tolerance: not closed in fact, not meshed as if it were") {
-  // (tubeGapOpen: open by 1e-5, its tolerance 1e-9 of its size; the loops don't close in (u, v) without a period.)
+  // (tubeGapOpen: open by 3e-5, its tolerance 1e-5 with no uncertainty; the loops don't close in (u, v) without a
+  // period.)
   cadgeom::Model m = load("tubeGapOpen");
   REQUIRE(m.ok());
   PartMesher pm(m, options(0.01, 0.26));

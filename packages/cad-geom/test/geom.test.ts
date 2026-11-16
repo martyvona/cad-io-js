@@ -438,6 +438,8 @@ test('tolerances: floored at 1e-9 x the part\'s size, a rounding-level gap withi
     [2.5e-11, 1e-13, true, 'a rounding-level gap over the part\'s uncertainty (trj6_as1-tu\'s)'],
     [1.3e-7, 1e-13, true, 'just under the floor'], [1.6e-7, 1e-13, false, 'just over the floor'],
     [1.3e-7, undefined, true, 'under the floor, no uncertainty'],
+    [8e-6, undefined, true, 'no uncertainty: under the 1e-5 default'],
+    [2e-5, undefined, false, 'no uncertainty: over the 1e-5 default'],
     [2.6e-5, 1e-7, false, 'a real gap (trj4_k1_top\'s, 2.6e-5 at 1e-7)'],
     [1.3e-7, 1e-13, true, 'under the floor, the edge\'s own tolerance smaller', 1e-12],
     [3e-7, 1e-13, true, 'over the floor, within the edge\'s own tolerance', 5e-7]] as [number, number | undefined,
@@ -449,7 +451,7 @@ test('tolerances: floored at 1e-9 x the part\'s size, a rounding-level gap withi
     const info = g.faceInfo(0);
     assert.equal(info.status, ok ? 'ok' : 'pcurveProjectionFailed', why);
     if (ok) {
-      const want = Math.max(floor, uncertainty ?? 1e-7, edgeTol ?? 0);
+      const want = Math.max(floor, uncertainty ?? 1e-5, edgeTol ?? 0);
       assert.ok(Math.abs(info.tolerance - want) <= 1e-20, `${why}: ${info.tolerance}`);
     }
   }
@@ -490,7 +492,7 @@ test('faces: a B-spline\'s collapsed side is a pole line; a surface closed in fa
     assert.deepEqual([...r.sides].map((x) => ['in', 'out', 'on'][x]), ['in', 'out', 'on']);
   }
   // (lines, gap, uncertainty, face tolerance, the period: closed in fact within the larger of the part's uncertainty
-  // and the face's tolerance, else 1e-7.)
+  // (else 1e-5) and the face's tolerance.)
   for (const [lines, gap, uncertainty, tolerance, period] of [[false, 0, NaN, NaN, 4], [true, 0, NaN, NaN, 4],
     [false, 5e-4, 1e-3, NaN, 4], [false, 5e-4, NaN, 1e-3, 4], [false, 5e-8, NaN, NaN, 4],
     [false, 5e-4, NaN, NaN, 0]] as [boolean, number, number, number, number][]) {

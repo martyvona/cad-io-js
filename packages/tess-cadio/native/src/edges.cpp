@@ -329,8 +329,7 @@ struct EdgeMesh::Impl {
   Tolerances tols;
 
   Impl(const Model& model, const EdgeOptions& options) : m(model), o(options), tols(model) {
-    double u = m.uncertainty();
-    tol = std::isfinite(u) && u > 0 ? u : 1e-6;
+    tol = tols.part();
   }
 
   Criteria criteria(double spacing) const {
