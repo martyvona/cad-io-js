@@ -1,7 +1,8 @@
 // surface.h's closeInFact: a surface closed where it closes in fact (a direction's two ends one curve, within the
-// caller's tol at 9 points), and its sides collapsed within tol reported as pole lines. A wrapper SurfaceImpl over the
-// surface: every query takes parameters reduced into the range in a direction it made periodic, and a box or a list
-// of breaks over a range crossing the seam is the hull or the union of the pieces either side of it.
+// caller's tol at 9 points, the surface at least kAcross x tol across it), and its sides collapsed within tol reported
+// as pole lines. A wrapper SurfaceImpl over the surface: every query takes parameters reduced into the range in a
+// direction it made periodic, and a box or a list of breaks over a range crossing the seam is the hull or the union
+// of the pieces either side of it.
 #include <algorithm>
 #include <cmath>
 
@@ -11,6 +12,11 @@ namespace cadgeom {
 namespace surfaces {
 
 namespace {
+
+/** A direction closes in fact only where the surface is at least this many tolerances across it. */
+constexpr double kAcross = 10;
+/** The steps of the polyline that measures an iso-curve across. */
+constexpr int kAcrossSteps = 64;
 
 /**
  * x reduced into [r.lo, r.hi], P = r.hi - r.lo: as it is where it's already in (r.hi too), else by whole periods,
@@ -140,15 +146,28 @@ std::unique_ptr<Surface> closeInFact(std::unique_ptr<Surface> s, double tol) {
   // Closed in fact: the two ends one curve at 9 points of the other range, or of [-1, 1] where that is infinite (an
   // extrusion's ends differ by its profile's whatever v is; no other kind with an infinite range closes in fact).
   auto window = [](Range r) { return finite(r) ? r : Range{std::fmax(r.lo, -1.0), std::fmin(r.hi, 1.0)}; };
+  // And wide: the longest iso-curve along the direction, at the same 9 points, as a polyline of kAcrossSteps steps,
+  // at least kAcross x tol; a sliver narrower than that is degenerate, not closed (its sides are boundaries).
   auto closes = [&](bool isU) {
     if (!(isU ? fu : fv) || (isU ? d.uPeriod : d.vPeriod) > 0) return false;
     Range wu = window(d.u), wv = window(d.v);
+    double across = 0;
     for (int k = 0; k <= 8; k++) {
       Vec3 a = isU ? at(d.u.lo, y(wv, k)) : at(y(wu, k), d.v.lo);
       Vec3 b = isU ? at(d.u.hi, y(wv, k)) : at(y(wu, k), d.v.hi);
       if (!(norm(a - b) <= tol)) return false;
+      double len = 0;
+      Vec3 prev = a;
+      for (int j = 1; j <= kAcrossSteps; j++) {
+        const Range r = isU ? d.u : d.v;
+        const double x = j == kAcrossSteps ? r.hi : r.lo + (r.hi - r.lo) * j / kAcrossSteps;
+        const Vec3 q = isU ? at(x, y(wv, k)) : at(y(wu, k), x);
+        len += norm(q - prev);
+        prev = q;
+      }
+      across = std::fmax(across, len);
     }
-    return true;
+    return across >= kAcross * tol;
   };
   bool cu = closes(true), cv = closes(false);
   // Collapsed sides: S(x, y_k) within tol of S(x, y_0) for every k; not those the surface reports already.
