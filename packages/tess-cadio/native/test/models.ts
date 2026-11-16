@@ -442,6 +442,31 @@ export function poleHole(): BrepBuilder {
   return b;
 }
 
+/**
+ * A B-spline cone: degree 2 in u, 1 in v, its row v = 0 collapsed to the apex (0, 0, 0), v = 1 the quadratic arc
+ * through poles (1, 0, 1), (1, 1, 1), (0, 1, 1); bounded by that arc and the lines from the apex to its ends. Its
+ * normal's limit at the apex depends on u (about 70 degrees across): an apex-like row, unlike a sphere's pole.
+ */
+export function bsplineApex(): BrepBuilder {
+  const b = new BrepBuilder();
+  const apex = [0, 0, 0], arcPoles = [[1, 0, 1], [1, 1, 1], [0, 1, 1]];
+  const s = b.addSurface({ kind: 'bspline', uDegree: 2, vDegree: 1, uKnots: [0, 1], vKnots: [0, 1],
+    uMultiplicities: [3, 3], vMultiplicities: [2, 2], poles: arcPoles.map((q) => [apex, q]), uClosed: false,
+    vClosed: false, selfIntersect: false, form: 'unspecified' });
+  const v0 = b.addVertex({ point: apex }), v1 = b.addVertex({ point: [1, 0, 1] }), v2 = b.addVertex({ point: [0, 1, 1] });
+  const arc = b.addCurve({ kind: 'bspline', degree: 2, knots: [0, 1], multiplicities: [3, 3], poles: arcPoles,
+    closed: false, selfIntersect: false, form: 'unspecified' });
+  const line = (p: number[], q: number[]) => b.addCurve({ kind: 'line', point: p,
+    direction: q.map((x, i) => (x - p[i]!) / Math.SQRT2), magnitude: 1 });
+  const ea = b.addEdge({ curve: arc, start: v1, end: v2, sameSense: true, range: [0, 1] });
+  const e1 = b.addEdge({ curve: line(apex, [0, 1, 1]), start: v0, end: v2, sameSense: true, range: [0, Math.SQRT2] });
+  const e2 = b.addEdge({ curve: line([1, 0, 1], apex), start: v1, end: v0, sameSense: true, range: [0, Math.SQRT2] });
+  sheet(b, b.addFace({ surface: s, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true,
+    coedges: [{ edge: e1, orientation: 'forward' }, { edge: ea, orientation: 'reversed' },
+      { edge: e2, orientation: 'forward' }] }] }));
+  return b;
+}
+
 /** The unit sphere's half x > 0, bounded by one great circle through both poles (its vertex at the south pole). */
 function greatCircleHalf(r: number, uncertainty?: number): BrepBuilder {
   const b = new BrepBuilder(uncertainty ? { uncertainty } : {});
@@ -720,7 +745,7 @@ export function sBend(): BrepBuilder {
   return b;
 }
 
-export const MODELS = { poleHole, smallHole, sBend, cuspEdge: () => cuspEdge(), nearCusp6, bumpPatch: () => bumpPatch(),
+export const MODELS = { bsplineApex, poleHole, smallHole, sBend, cuspEdge: () => cuspEdge(), nearCusp6, bumpPatch: () => bumpPatch(),
   halfBump: () => bumpPatch(true), thinBand, tubeGapFaceTolerance,
   tubeGapUncertainty, tubeGapBySize, tubeGapOpen, torusOuterHalf, meridianHemisphereLoose, offPoleRest, wigglyBand,
   notchBand, bsplineTube, bsplineTubeTinyArc, bsplineDome, offPoleArc, offPcurves, bandHoleAtVertex, bandHoleOnCut,

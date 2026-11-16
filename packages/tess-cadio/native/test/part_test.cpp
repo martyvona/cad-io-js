@@ -833,6 +833,50 @@ TEST_CASE("p-curves parameterized against Part 42 (their own range, a squared pa
   }
 }
 
+TEST_CASE("apex-like rows: within the deflection of one, no normal to hold a triangle to; a smooth pole's held") {
+  // bsplineApex's row v = 0 is its apex, its normal's limit there depending on u (about 70 degrees across); the
+  // dome's v = 1 a sphere's pole, one limit. A triangle within 0.1 of each point, its corners' normals further apart
+  // than the angle (0.05) and its deviation well within: accepted at the apex, refused at the pole.
+  auto judge = [](const char* name, cadgeom::Box2 box, const Vec2 (&t)[3], Vec3 point, double& spread, bool near) {
+    cadgeom::Model m = load(name);
+    cadgeom::Status st;
+    std::unique_ptr<cadgeom::Surface> s = cadgeom::makeSurface(m, m.faceSurface(0), st);
+    auto c = makeCriteria(m, 0, *s, box, Deflections{0.1, 0.05}, st);
+    spread = 0;
+    Vec3 n[3];
+    double far = 0;
+    for (int i = 0; i < 3; i++) {
+      cadgeom::SurfacePoint q;
+      s->eval(t[i].x, t[i].y, 1, q);
+      n[i] = cadgeom::cross(q.du, q.dv);
+      n[i] = (1 / cadgeom::norm(n[i])) * n[i];
+      far = std::fmax(far, cadgeom::norm(q.p - point));
+    }
+    for (int i = 0; i < 3; i++)
+      for (int j = i + 1; j < 3; j++) spread = std::fmax(spread, std::acos(std::clamp(cadgeom::dot(n[i], n[j]), -1.0,
+        1.0)));
+    REQUIRE((far < 0.08) == near);
+    return c->accept(t);
+  };
+  double spread;
+  const Vec2 atApex[3] = {{0, 0.02}, {1, 0.02}, {0.5, 0.04}};
+  bool apex = judge("bsplineApex", {{0, 1}, {0, 1}}, atApex, {0, 0, 0}, spread, true);
+  if (!apex || spread < 0.5) std::printf("  at the apex: accepted %d, spread %g\n", apex, spread);
+  CHECK(spread > 0.5);
+  CHECK(apex);
+  // From 0.07 out to 0.16 from it (its patch's box reaching past the deflection, its nearest corner within): held
+  // to the angle again, refused.
+  const Vec2 pastApex[3] = {{0, 0.05}, {1, 0.05}, {0.5, 0.12}};
+  bool past = judge("bsplineApex", {{0, 1}, {0, 1}}, pastApex, {0, 0, 0}, spread, false);
+  if (past) std::printf("  past the apex's deflection: accepted, spread %g\n", spread);
+  CHECK(!past);
+  const Vec2 atPole[3] = {{0, 0.97}, {4. / 3, 0.97}, {8. / 3, 0.97}};
+  bool pole = judge("bsplineDome", {{0, 4}, {0, 1}}, atPole, {0, 0, 1}, spread, true);
+  if (pole || spread < 0.06) std::printf("  at the pole: accepted %d, spread %g\n", pole, spread);
+  CHECK(spread > 0.06);
+  CHECK(!pole);
+}
+
 TEST_CASE("poles as fans: one point per pole, pieces of 22.5 degrees at most, none refused; split rounds off: a "
   "fan's end a sliver, refused, the ring under a hole beside the pole") {
   // Each triangle with a corner at a pole (in 3D): that corner the pole's own point (one per pole), the angle there
