@@ -67,7 +67,7 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
   opts.d.angular = angular;
   PartMesher pm(m, opts);
   const uint32_t* faceId = m.u32(CBR_FACE_ID);
-  std::vector<uint32_t> failed, failedRows, failedStatus, refused, unsplit, unsettled;
+  std::vector<uint32_t> failed, failedRows, failedStatus, refused, unsplit, unsettled, sampled;
   // Refused triangles, and those of them in a pole's fan (a corner at a surface singularity's point).
   size_t refusedTriangles = 0, poleSlivers = 0;
   double tol = std::isfinite(m.uncertainty()) && m.uncertainty() > 0 ? m.uncertainty() : 1e-6;
@@ -99,6 +99,7 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
         }
       }
       if (fm.splitsWanted) unsplit.push_back(faceId[f]);
+      if (fm.sampled) sampled.push_back(faceId[f]);
       if (!fm.note.empty()) unsettled.push_back(faceId[f]);
     } else {
       failed.push_back(faceId[f]);
@@ -169,7 +170,8 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
   }
   result.diag = "{\"failed\":" + ids(failed) + ",\"failedRows\":" + ids(failedRows) + ",\"failedStatus\":" +
     ids(failedStatus) + ",\"refused\":" + ids(refused) +
-    ",\"unsplit\":" + ids(unsplit) + ",\"unsettled\":" + ids(unsettled) + ",\"rounds\":" +
+    ",\"unsplit\":" + ids(unsplit) + ",\"unsettled\":" + ids(unsettled) + ",\"sampled\":" + ids(sampled) +
+    ",\"rounds\":" +
     std::to_string(pm.rounds()) + ",\"refusedTriangles\":" + std::to_string(refusedTriangles) +
     ",\"poleSlivers\":" + std::to_string(poleSlivers) + "}";
   return 0;
@@ -192,7 +194,8 @@ int tc_num_edge_points() { return static_cast<int>(result.edgePositions.size() /
 const float* tc_edge_positions() { return result.edgePositions.data(); }
 /**
  * The last call's diagnostics: {"failed": [face ids], "failedRows", "failedStatus" (each one's result.h Status: an
- * empty triangulation counts as invalidModel), "refused", "unsplit", "unsettled", "rounds",
+ * empty triangulation counts as invalidModel), "refused", "unsplit", "unsettled", "sampled" (faces whose deviation
+ * accept() sampled rather than bounded: SurfaceCriteria::bounded), "rounds",
  * "refusedTriangles", "poleSlivers" (refused triangles with a corner at a pole or apex)}.
  */
 const char* tc_diag() { return result.diag.c_str(); }

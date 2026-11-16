@@ -28,6 +28,11 @@ public:
    * must be for the deflections.
    */
   virtual double edgeSpacing() const = 0;
+  /**
+   * Whether accept() bounds a triangle's deviation from the surface (by its derivative bounds where they're exact,
+   * planes and cylinders; a sphere's exactly) rather than sampling it (the rest, until their bounds are tight).
+   */
+  virtual bool bounded() const = 0;
   // metric(p): the first fundamental form over h^2, h the 3D size the deflections allow there.
   // accept(tri): the surface within `linear` of the triangle at sampled points (its centroid, its edges' middles),
   // and the surface's normals at its corners within `angular` of one another and of the triangle's own normal.

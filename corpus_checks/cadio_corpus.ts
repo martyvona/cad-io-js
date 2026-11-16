@@ -8,7 +8,8 @@
 //   - each face's mesh area against cad-scene's area oracle (where it trusts its area) and against OCCT's mesh area;
 //   - the deflection measured independently: points of sampled triangles (centroid, sides' middles) against the
 //     face's surface by cad-brep's evaluators (not cad-geom, which ours uses), over the linear deflection asked;
-//   - triangles and meshing time against OCCT's, over the parts both mesh: in all, and per file (the ratios).
+//   - triangles and meshing time against OCCT's, over the parts both mesh: in all, and per file (the ratios);
+//   - the faces our criteria judged by sampling, their deviation not bounded (tess-cadio's diagnostic).
 // Usage: node corpus_checks/cadio_corpus.ts [file-list.txt] [max MB, default 1000]   (progress on standard error)
 //   WORKERS=<n> workers per backend in each process (default: half the process's share, runner.ts)
 //   PLANT=<bug>  a bug planted in our results before they're judged, to prove the check sees it: area (positions
@@ -157,6 +158,8 @@ const fresh = () => ({
   // (Over the parts both mesh: the like-for-like comparison, per file and in all.)
   both: { trisCadio: 0, trisOcct: 0, msCadio: 0, msOcct: 0 },
   refused: { faces: 0, triangles: 0, poleSlivers: 0 },
+  // Faces our accept() judged by sampling, not bounding (their surfaces' derivative bounds not yet tight).
+  sampledFaces: 0,
   warnings: new Map<string, number>(),
   tally: new Map<string, { n: number; ex: string[] }>(),
 });
@@ -219,6 +222,8 @@ export const check: FileCheck<undefined, Tallies> = {
       }
       const ca = PLANT ? plant(a.r, d) : a.r;
       for (const x of ca.diagnostics) {
+        const sm = /^(\d+) faces meshed with their deviation from the surface sampled/.exec(x.message);
+        if (sm) T.sampledFaces += Number(sm[1]);
         if (x.severity !== 'warning') continue;
         // Refused triangles, and of them the slivers in a pole's fan (lane 3's fans are measured by this).
         const m = /^(\d+) faces meshed with triangles .*: (\d+) triangles, (\d+) of them slivers/.exec(x.message);
@@ -364,6 +369,7 @@ if (import.meta.main) {
   console.log(`  mesh area against OCCT's (faces both mesh): ${show(T.meshArea)}`);
   console.log(`  deflection measured (faces, worst sampled point over ${LIN} mm): ours ${show(T.deflection.cadio)}; `
     + `OCCT ${show(T.deflection.occt)}`);
+  console.log(`  our faces judged by sampling, their deviation not bounded: ${pct(T.sampledFaces, T.faces - T.faceless)}`);
   console.log(`  triangles: ours ${T.trisCadio}, OCCT ${T.trisOcct}; meshing ${(T.msCadio / 1000).toFixed(1)} s ours, `
     + `${(T.msOcct / 1000).toFixed(1)} s OCCT (wall time per request, summed)`);
   // Ratios over the parts both mesh: in all, and the median and range of the files'.
