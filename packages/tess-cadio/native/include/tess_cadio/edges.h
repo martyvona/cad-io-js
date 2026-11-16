@@ -23,6 +23,7 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "cad_geom/model.h"
@@ -134,10 +135,12 @@ struct BoundaryPoint {
  */
 struct FaceBoundary {
   Status status = Status::unsupported;
+  /** Why, where the status isn't ok: a short cause for diagnostics (the first found), else empty. */
+  std::string cause;
   /**
    * A loop runs against the face's sense: a projected seam use's side, by its direction and the face's sense, has
    * the loop's other points on its other side (a face turned while its loop isn't). Meshed as the face's sense has
-   * it; which of the two is right is healing's to settle.
+   * it (the face ok, no cause); which of the two is right is healing's to settle.
    */
   bool againstSense = false;
   std::vector<std::vector<BoundaryPoint>> loops;

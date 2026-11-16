@@ -9,7 +9,7 @@ import { test } from 'node:test';
 import { openEdges, oracleMeasures, type TessellationResult } from 'cad-scene';
 import { MODELS } from '../../cad-brep/test/models.ts';
 import { CadioTessellator, VERSION } from '../src/index.ts';
-import { bsplineDome, bumpPatch, cap, fold, halfCap, luneOnSeam, luneQuarter, meridianHemisphere, pcurveOnly,
+import { bsplineDome, bumpPatch, cap, fold, halfCap, loopless, luneOnSeam, luneQuarter, meridianHemisphere, pcurveOnly,
   seamByInversion, seamFlipped, torusOuterHalf } from '../native/test/models.ts';
 
 const dist = path.join(import.meta.dirname, '..', 'dist', 'tess_cadio.wasm');
@@ -164,6 +164,20 @@ test('faces with deviations sampled, said: a torus\'s by its inner half, a B-spl
     assert.equal(await sampled(new Uint8Array(bumpPatch().finish().buffer)), undefined);
     assert.equal(await sampled(new Uint8Array(MODELS.seamCylinder().finish().buffer)), undefined);
     assert.equal(await sampled(new Uint8Array(MODELS.spheres().finish().buffer)), undefined);
+  });
+
+test('faces failed to mesh, each by status and cause: a plane with no loops (no natural extent); its sphere meshed',
+  { skip }, async () => {
+    const t = await tessellator();
+    const r = await t.tessellate({ ...req('cube'), data: new Uint8Array(loopless().finish().buffer) });
+    assert.equal(r.faces.length, 2);
+    assert.equal(r.faces[0]!.count, 0);
+    assert.ok(r.faces[1]!.count > 0);
+    const m = r.diagnostics.find((x) => x.message.startsWith('faces failed to mesh, by cause: '));
+    assert.ok(m, JSON.stringify(r.diagnostics));
+    const want = 'faces failed to mesh, by cause: unsupported: no edge loops, and its surface\'s natural extent '
+      + 'doesn\'t close (a whole plane, cylinder or cone) 1 (#';
+    assert.ok(m.message.startsWith(want), m.message);
   });
 
 test('the origin subtracted in double precision; without edges, none', { skip }, async () => {

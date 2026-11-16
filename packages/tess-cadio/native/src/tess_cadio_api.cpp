@@ -68,6 +68,7 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
   PartMesher pm(m, opts);
   const uint32_t* faceId = m.u32(CBR_FACE_ID);
   std::vector<uint32_t> failed, failedRows, failedStatus, refused, unsplit, unsettled, sampled, againstSense;
+  std::vector<std::string> failedCause;
   // Refused triangles, and those of them in a pole's fan (a corner at a surface singularity's point).
   size_t refusedTriangles = 0, poleSlivers = 0;
   const Tolerances tols(m);
@@ -107,6 +108,8 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
       failed.push_back(faceId[f]);
       failedRows.push_back(static_cast<uint32_t>(f));
       failedStatus.push_back(static_cast<uint32_t>(fm.status == Status::ok ? Status::invalidModel : fm.status));
+      failedCause.push_back(fm.status == Status::ok ? "meshed to no triangles" : fm.cause.empty() ? "cause not given"
+        : fm.cause);
     }
     result.faces.insert(result.faces.end(), {faceId[f], start, static_cast<uint32_t>(result.indices.size()) - start});
   }
@@ -170,8 +173,12 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
       result.edgeAngles.push_back(angle);
     }
   }
+  // (Causes are this code's own ASCII phrases: no quotes or backslashes to escape.)
+  std::string causes = "[";
+  for (size_t i = 0; i < failedCause.size(); i++) causes += (i ? ",\"" : "\"") + failedCause[i] + "\"";
+  causes += "]";
   result.diag = "{\"failed\":" + ids(failed) + ",\"failedRows\":" + ids(failedRows) + ",\"failedStatus\":" +
-    ids(failedStatus) + ",\"refused\":" + ids(refused) +
+    ids(failedStatus) + ",\"failedCause\":" + causes + ",\"refused\":" + ids(refused) +
     ",\"unsplit\":" + ids(unsplit) + ",\"unsettled\":" + ids(unsettled) + ",\"sampled\":" + ids(sampled) +
     ",\"againstSense\":" + ids(againstSense) + ",\"rounds\":" +
     std::to_string(pm.rounds()) + ",\"refusedTriangles\":" + std::to_string(refusedTriangles) +
@@ -196,9 +203,9 @@ int tc_num_edge_points() { return static_cast<int>(result.edgePositions.size() /
 const float* tc_edge_positions() { return result.edgePositions.data(); }
 /**
  * The last call's diagnostics: {"failed": [face ids], "failedRows", "failedStatus" (each one's result.h Status: an
- * empty triangulation counts as invalidModel), "refused", "unsplit", "unsettled", "sampled" (faces whose deviation
- * accept() sampled rather than bounded: SurfaceCriteria::bounded), "againstSense" (faces with a loop against their
- * sense: FaceBoundary::againstSense), "rounds",
+ * empty triangulation counts as invalidModel), "failedCause" (each one's FaceMesh::cause), "refused", "unsplit",
+ * "unsettled", "sampled" (faces whose deviation accept() sampled rather than bounded: SurfaceCriteria::bounded),
+ * "againstSense" (faces with a loop against their sense, meshed: FaceBoundary::againstSense), "rounds",
  * "refusedTriangles", "poleSlivers" (refused triangles with a corner at a pole or apex)}.
  */
 const char* tc_diag() { return result.diag.c_str(); }

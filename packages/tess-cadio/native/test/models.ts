@@ -485,6 +485,15 @@ export function bsplineBall(): BrepBuilder {
   return b;
 }
 
+/** A plane with no loops beside a whole sphere with none: the sphere its natural extent, the plane none (unbounded). */
+export function loopless(): BrepBuilder {
+  const b = new BrepBuilder();
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: true, loops: [] }));
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'sphere', position: AXIS, radius: 1 }), sameSense: true,
+    loops: [] }));
+  return b;
+}
+
 /** A whole torus (R 3, r 1, axis z) bounded by a vertex loop at (4, 0, 0): its natural extent, area 12 pi^2. */
 export function wholeTorus(): BrepBuilder {
   const b = new BrepBuilder();
@@ -675,6 +684,12 @@ export function bsplineDome(): BrepBuilder {
 }
 
 /**
+ * offPoleArc at uncertainty 1e-3: its arc, 7e-4 under the pole, then passes through it by the part's own tolerance,
+ * its sample there at the pole in (u, v) but 7e-4 off it in 3D (projected: through the pole).
+ */
+export const offPoleArcLoose = (): BrepBuilder => offPoleArc(1e-3);
+
+/**
  * offPoleArc's loop the other way round: the rest of the sphere, its loop winding round to the south pole;
  * offPoleRestLoose at uncertainty 1e-3, its arc projected.
  */
@@ -785,10 +800,10 @@ export function sBend(): BrepBuilder {
   return b;
 }
 
-export const MODELS = { bsplineBall, wholeTorus, wholeSphereVertex, bsplineApex, poleHole, smallHole, sBend,
-  cuspEdge: () => cuspEdge(), nearCusp6, bumpPatch: () => bumpPatch(), halfBump: () => bumpPatch(true), thinBand,
-  tubeGapFaceTolerance, tubeGapUncertainty, tubeGapBySize, tubeGapOpen, torusOuterHalf, meridianHemisphereLoose,
-  offPoleRest: () => offPoleRest(), offPoleRestLoose: () => offPoleRest(1e-3), offPoleArcLoose: () => offPoleArc(1e-3),
+export const MODELS = { offPoleArcLoose, loopless, bsplineBall, wholeTorus, wholeSphereVertex, bsplineApex, poleHole,
+  smallHole, sBend, cuspEdge: () => cuspEdge(), nearCusp6, bumpPatch: () => bumpPatch(),
+  halfBump: () => bumpPatch(true), thinBand, tubeGapFaceTolerance, tubeGapUncertainty, tubeGapBySize, tubeGapOpen,
+  torusOuterHalf, meridianHemisphereLoose, offPoleRest: () => offPoleRest(), offPoleRestLoose: () => offPoleRest(1e-3),
   wigglyBand, notchBand, bsplineTube, bsplineTubeTinyArc, bsplineDome, offPoleArc: () => offPoleArc(), offPcurves,
   bandHoleAtVertex, bandHoleOnCut, halfCap, meridianHemisphere, band: band_, bandByInversion, bore, nistBore,
   seamByInversion, offVertex, pcurveOnly, luneQuarter, luneOnSeam, cap, splineEdge, seamFlipped, polylineEdge,
