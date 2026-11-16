@@ -18,7 +18,7 @@ struct PartOptions {
   /** The linear deflection, and the angle for faces' normals and edges' chords alike (EdgeOptions::angle). */
   Deflections d;
   /** Rounds of splitting edges and meshing their faces again. */
-  int maxSplitRounds = 4;
+  int maxSplitRounds = 8;
   /**
    * The criteria's spacing for each face's edges multiplied by this (above 1: edges coarser than the faces want,
    * left to the split rounds; for tests and tuning).
@@ -50,6 +50,8 @@ struct FaceMesh {
   std::vector<int32_t> rejected;
   /** Splits of its edges it still wanted when the rounds ran out. */
   int splitsWanted = 0;
+  /** Whether its triangles' deviation was sampled rather than bounded (SurfaceCriteria::bounded). */
+  bool sampled = false;
   /**
    * A note for diagnostics where the face is meshed but not as asked (its boundary's status, refinement stopped at
    * its point cap), else empty.

@@ -125,6 +125,7 @@ struct PartMesher::Impl {
     }
     // (Only splits of edges count: a pole line's segments, which the floored metric can find long, can't be split.)
     out.splitsWanted = static_cast<int>(wanted[f].size());
+    out.sampled = !criteria[f]->bounded();
     // In 3D: the boundary's points exactly, the mesher's on the surface.
     const Surface& s = *surfaces[f];
     double sense = m.faceSameSense(f) ? 1 : -1;

@@ -9,6 +9,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <random>
 #include <map>
 #include <memory>
 #include <set>
@@ -316,7 +317,7 @@ TEST_CASE("splits: a boundary too coarse for the face's criteria split until non
   CHECK(pm.rounds() < 4);
 }
 
-TEST_CASE("the provisional criteria: the spacing from the curvature, accept() refusing triangles turned over") {
+TEST_CASE("the criteria's metric: sizes from the principal curvatures, every direction within them, graded") {
   auto criteria = [](const char* name, int f, cadgeom::Box2 box, double d, double angle,
     std::unique_ptr<cadgeom::Surface>& s) {
     static std::vector<cadgeom::Model> keep;
@@ -326,41 +327,333 @@ TEST_CASE("the provisional criteria: the spacing from the curvature, accept() re
     return makeCriteria(keep.back(), f, *s, box, Deflections{d, angle}, st);
   };
   std::unique_ptr<cadgeom::Surface> s;
-  // A cylinder of radius 2: curvature 1 / 2, so a chord of sqrt(8 d r) = 0.4 at d 0.01; with the angle 0.1, the
-  // normal's turn r h / r^2... h = 0.1 r = 0.2 first.
-  auto c = criteria("seamCylinder", 0, {{0, 2 * M_PI}, {0, 5}}, 0.01, 1.0, s);
-  REQUIRE(c);
-  CHECK(c->edgeSpacing() <= 0.4 * (1 + 1e-9) && c->edgeSpacing() >= 0.38);
-  c = criteria("seamCylinder", 0, {{0, 2 * M_PI}, {0, 5}}, 0.01, 0.1, s);
-  CHECK(c->edgeSpacing() <= 0.2 * (1 + 1e-9) && c->edgeSpacing() >= 0.19);
-  // A twisted bilinear patch, curved by S_uv alone (|S_uv| 1, |S_u|, |S_v| at least 1): h at most sqrt(8 d).
-  auto t = criteria("twisted", 0, {{0, 1}, {0, 1}}, 0.01, 1.0, s);
-  REQUIRE(t);
-  CHECK(t->edgeSpacing() <= std::sqrt(0.08) * (1 + 1e-9) && t->edgeSpacing() >= 0.2);
-  // The unit sphere up to its pole: curvature 1 everywhere (the normal's component of S'', not S'' itself, whose
-  // ratio to |S_u|^2 grows towards the pole), so h = sqrt(8 d) at d 0.01.
-  auto sp = criteria("spheres", 1, {{0, 2 * M_PI}, {0, M_PI / 2}}, 0.01, 1.0, s);
-  REQUIRE(sp);
-  CHECK(sp->edgeSpacing() <= std::sqrt(0.08) * (1 + 1e-9) && sp->edgeSpacing() >= 0.27);
+  // A cylinder of radius 2: round it the size is sqrt(6 d r) = 0.346 at d 0.01 (or angle r, 0.2 at 0.1), along it
+  // the face's extent (its box's diagonal in 3D, about 7.55): u's metric |S_u|^2 / h^2, v's 1 / extent^2.
+  for (double angle : {1.0, 0.1}) {
+    auto c = criteria("seamCylinder", 0, {{0, 2 * M_PI}, {0, 5}}, 0.01, angle, s);
+    REQUIRE(c);
+    double h = std::min(std::sqrt(0.06 * 2), angle * 2);
+    for (Vec2 p : {Vec2{0.3, 1}, Vec2{4, 4.5}}) {
+      tesscadio::Metric2 M = c->metric(p);
+      CHECK_NEAR(M.a, 4 / (h * h), 1e-6, 0);
+      CHECK(std::fabs(M.b) <= 1e-9 * M.a);
+      CHECK(M.c > 0 && M.c < 1 / 49.0 && M.c > 1 / 64.0);
+    }
+  }
+  // Every direction at random points of curved surfaces: its metric length at least what its normal curvature k_n
+  // asks, |S' d| sqrt(|k_n| / (6 d)) and |S' d| |k_n| / angle (k_n = II(d) / I(d), from the surface independently).
+  struct Face {
+    const char* name;
+    int face;
+    cadgeom::Box2 box;
+  };
+  std::mt19937 rng(5);
+  std::uniform_real_distribution<double> u01(0, 1);
+  int checked = 0;
+  for (Face fc : {Face{"seamCylinder", 0, {{0, 2 * M_PI}, {0, 5}}}, Face{"twisted", 0, {{0, 1}, {0, 1}}},
+         Face{"spheres", 1, {{0, 2 * M_PI}, {0, 1.4}}}, Face{"bumpPatch", 0, {{0, 4}, {0, 4}}},
+         Face{"torusOuterHalf", 0, {{0, 2 * M_PI}, {-M_PI / 2, M_PI / 2}}}}) {
+    const double d = 0.01, angle = 0.26;
+    auto c = criteria(fc.name, fc.face, fc.box, d, angle, s);
+    REQUIRE(c);
+    for (int k = 0; k < 300; k++) {
+      Vec2 p{fc.box.x.lo + u01(rng) * (fc.box.x.hi - fc.box.x.lo),
+        fc.box.y.lo + u01(rng) * (fc.box.y.hi - fc.box.y.lo)};
+      double th = 2 * M_PI * u01(rng);
+      Vec2 dir{std::cos(th), std::sin(th)};
+      cadgeom::SurfacePoint q;
+      REQUIRE(s->eval(p.x, p.y, 2, q) == cadgeom::Status::ok);
+      Vec3 t = dir.x * q.du + dir.y * q.dv, n = cadgeom::cross(q.du, q.dv);
+      double nl = cadgeom::norm(n), l = cadgeom::norm(t);
+      if (!(nl > 1e-9) || !(l > 1e-9)) continue;
+      Vec3 second = (dir.x * dir.x) * q.duu + (2 * dir.x * dir.y) * q.duv + (dir.y * dir.y) * q.dvv;
+      double kn = std::fabs(cadgeom::dot(second, (1 / nl) * n)) / (l * l);
+      tesscadio::Metric2 M = c->metric(p);
+      double L = std::sqrt(M.a * dir.x * dir.x + 2 * M.b * dir.x * dir.y + M.c * dir.y * dir.y);
+      double want = std::max(l * std::sqrt(kn / (6 * d)), l * kn / angle);
+      if (!(L >= want * (1 - 1e-6))) std::printf("  %s at (%g, %g): %g < %g\n", fc.name, p.x, p.y, L, want);
+      CHECK(L >= want * (1 - 1e-6));
+      checked++;
+    }
+  }
+  CHECK(checked > 1000);
+  // Graded on the bump: between neighbouring points the size (along u) changes by at most the growth over their
+  // distance, give or take the grid's interpolation; and the flat sides' size far below the extent (the bump's
+  // curvature graded out to them), the bump's own the curvature's.
+  {
+    auto c = criteria("bumpPatch", 0, {{0, 4}, {0, 4}}, 0.01, 0.26, s);
+    REQUIRE(c);
+    auto sizeU = [&](Vec2 p) {
+      tesscadio::Metric2 M = c->metric(p);
+      cadgeom::SurfacePoint q;
+      s->eval(p.x, p.y, 1, q);
+      return cadgeom::norm(q.du) / std::sqrt(M.a);
+    };
+    double worst = 0;
+    for (int i = 0; i < 40; i++) {
+      Vec2 p{0.1 * i, 2}, q{0.1 * (i + 1), 2};
+      cadgeom::SurfacePoint a, b;
+      s->eval(p.x, p.y, 0, a), s->eval(q.x, q.y, 0, b);
+      double dist = cadgeom::norm(b.p - a.p), hp = sizeU(p), hq = sizeU(q);
+      worst = std::max(worst, (std::max(hp, hq) - std::min(hp, hq)) / dist);
+    }
+    if (!(worst <= 0.5 * 1.5)) std::printf("  bump: size's growth per unit length up to %g\n", worst);
+    CHECK(worst <= 0.5 * 1.5);
+    CHECK(sizeU({0.05, 0.05}) < 0.5 * 14.1);
+  }
+  // Bounded on cylinders, planes and B-splines, exact on spheres, sampled elsewhere (makeCriteria says why).
+  CHECK(criteria("seamCylinder", 0, {{0, 2 * M_PI}, {0, 5}}, 0.01, 0.26, s)->bounded());
+  CHECK(criteria("spheres", 1, {{0, 2 * M_PI}, {0, 1.4}}, 0.01, 0.26, s)->bounded());
+  CHECK(!criteria("torusOuterHalf", 0, {{0, 2 * M_PI}, {-M_PI / 2, M_PI / 2}}, 0.01, 0.26, s)->bounded());
+  CHECK(criteria("bumpPatch", 0, {{0, 4}, {0, 4}}, 0.01, 0.26, s)->bounded());
+  CHECK(criteria("twisted", 0, {{0, 1}, {0, 1}}, 0.01, 0.26, s)->bounded());
+  // Random triangles on a cylinder, a sphere, a torus and two B-splines: none accepted on the bounded ones (all but
+  // the torus)
+  // whose deviation, sampled densely (its barycentric grid against the surface's nearest point), is over the
+  // deflection.
+  {
+    std::mt19937 rng(11);
+    std::uniform_real_distribution<double> u01(0, 1);
+    int over = 0, accepted = 0;
+    for (Face fc : {Face{"seamCylinder", 0, {{0, 2 * M_PI}, {0, 5}}}, Face{"spheres", 1, {{0, 2 * M_PI}, {0, 1.4}}},
+           Face{"torusOuterHalf", 0, {{0, 2 * M_PI}, {-M_PI / 2, M_PI / 2}}}, Face{"bumpPatch", 0, {{0, 4}, {0, 4}}},
+           Face{"bsplineDome", 0, {{0, 4}, {0, 1}}}}) {
+      const double d = 0.01, angle = 0.5;
+      auto c = criteria(fc.name, fc.face, fc.box, d, angle, s);
+      REQUIRE(c);
+      // (Fewer on the B-splines, whose inversions the dense deviation needs are slower.)
+      for (int k = 0; k < (fc.name[0] == 'b' ? 150 : 3000); k++) {
+        Vec2 o{fc.box.x.lo + u01(rng) * (fc.box.x.hi - fc.box.x.lo),
+          fc.box.y.lo + 0.1 + u01(rng) * (fc.box.y.hi - fc.box.y.lo - 0.2)};
+        double r = 0.02 + 0.3 * u01(rng);
+        Vec2 t[3];
+        for (int i = 0; i < 3; i++) t[i] = {o.x + r * (u01(rng) - 0.5), o.y + r * (u01(rng) - 0.5)};
+        if ((t[1].x - t[0].x) * (t[2].y - t[0].y) - (t[2].x - t[0].x) * (t[1].y - t[0].y) <= 0) std::swap(t[1], t[2]);
+        Vec3 p[3];
+        for (int i = 0; i < 3; i++) {
+          cadgeom::SurfacePoint q;
+          s->eval(t[i].x, t[i].y, 0, q);
+          p[i] = q.p;
+        }
+        double dev = 0;
+        cadgeom::SurfaceDomain dom = s->domain();
+        for (int i = 0; i <= 8; i++)
+          for (int j = 0; i + j <= 8; j++) {
+            double b0 = i / 8.0, b1 = j / 8.0, b2 = 1 - b0 - b1;
+            Vec3 x = b0 * p[0] + b1 * p[1] + b2 * p[2];
+            dev = std::fmax(dev, cadgeom::invertSurface(*s, x, dom.u, dom.v, 1e-12).distance);
+          }
+        bool ok = c->accept(t);
+        accepted += ok;
+        if (dev > d * (1 + 1e-9) && c->bounded()) {
+          over++;
+          if (ok) std::printf("  %s: accepted at deviation %g\n", fc.name, dev);
+          CHECK(!ok);
+        }
+      }
+    }
+    CHECK(over > 100);
+    CHECK(accepted > 100);
+  }
+  // What sampling misses, the bounds don't: acute triangles on the sphere and the cylinder, scaled about their
+  // centroid until their dense deviation is just over the deflection, their deepest point (on the sphere the
+  // circumcentre) off the centroid and the edges' middles, so that sampled there they'd pass: refused. And on the
+  // sphere (exact) every triangle whose dense deviation is under 0.8 of it and that isn't turned over accepted
+  // (angle 0: the deviation alone).
+  {
+    std::mt19937 rng(13);
+    std::uniform_real_distribution<double> u01(0, 1);
+    int missed = 0, under = 0;
+    int atThreshold = 0;
+    for (Face fc : {Face{"spheres", 1, {{0, 2 * M_PI}, {0, 1.2}}}, Face{"seamCylinder", 0, {{0, 2 * M_PI}, {0, 5}}},
+           Face{"bumpPatch", 0, {{0.3, 3.7}, {0.3, 3.7}}}, Face{"bsplineDome", 0, {{0.2, 3.8}, {0.1, 0.9}}},
+           Face{"halfBump", 0, {{1.2, 2.4}, {1, 3}}}}) {
+      // (halfBump's triangles straddle its knot u = 2, curved below it, a plane above: their bound must be the
+      // largest piece's, not one piece's.)
+      const double d = 0.01;
+      auto c = criteria(fc.name, fc.face, fc.box, d, 0, s);
+      REQUIRE(c);
+      cadgeom::SurfaceDomain dom = s->domain();
+      auto at = [&](Vec2 x) {
+        cadgeom::SurfacePoint q;
+        s->eval(x.x, x.y, 0, q);
+        return q.p;
+      };
+      const int g = fc.name[0] == 'b' || fc.name[0] == 'h' ? 8 : 24;
+      auto deviations = [&](const Vec2 t[3], double& dense, double& sampled) {
+        Vec3 p[3] = {at(t[0]), at(t[1]), at(t[2])};
+        dense = 0, sampled = 0;
+        for (int i = 0; i <= g; i++)
+          for (int j = 0; i + j <= g; j++) {
+            double b0 = double(i) / g, b1 = double(j) / g;
+            Vec3 x = b0 * p[0] + b1 * p[1] + (1 - b0 - b1) * p[2];
+            dense = std::fmax(dense, cadgeom::invertSurface(*s, x, dom.u, dom.v, 1e-12).distance);
+          }
+        const double wts[4][3] = {{1. / 3, 1. / 3, 1. / 3}, {0.5, 0.5, 0}, {0, 0.5, 0.5}, {0.5, 0, 0.5}};
+        for (const auto& b : wts) {
+          Vec2 uv{b[0] * t[0].x + b[1] * t[1].x + b[2] * t[2].x, b[0] * t[0].y + b[1] * t[1].y + b[2] * t[2].y};
+          sampled = std::fmax(sampled, cadgeom::norm(at(uv) - (b[0] * p[0] + b[1] * p[1] + b[2] * p[2])));
+        }
+      };
+      // (Fewer on the B-splines, whose inversions the dense deviation needs are slower.)
+      const bool spline = fc.name[0] == 'b' || fc.name[0] == 'h';
+      for (int k = 0; k < (spline ? 25 : 600); k++) {
+        // (Acute ones, and every other one obtuse: its third corner near its longest side, where the deepest point is
+        // on that side rather than inside.)
+        Vec2 o{fc.box.x.lo + 0.5 + (fc.box.x.hi - fc.box.x.lo - 1) * u01(rng),
+          fc.box.y.lo + 0.1 + (fc.box.y.hi - fc.box.y.lo - 0.2) * u01(rng)}, e[3];
+        for (int i = 0; i < 3; i++) {
+          double a = 2 * M_PI * (i + 0.3 * (u01(rng) - 0.5)) / 3;
+          e[i] = {std::cos(a), std::sin(a) * (0.3 + u01(rng))};
+        }
+        if (k % 2) e[0] = {-1, 0}, e[1] = {1, 0.1 * (u01(rng) - 0.5)}, e[2] = {u01(rng) - 0.5, 0.1 + 0.2 * u01(rng)};
+        // The scale where the dense deviation is 1.02 d, by bisection.
+        double lo = 0, hi = 0.5, dense = 0, sampled = 0;
+        Vec2 t[3];
+        auto place = [&](double r) {
+          for (int i = 0; i < 3; i++) t[i] = {o.x + r * e[i].x, o.y + r * e[i].y};
+          if ((t[1].x - t[0].x) * (t[2].y - t[0].y) - (t[2].x - t[0].x) * (t[1].y - t[0].y) <= 0) std::swap(t[1], t[2]);
+          deviations(t, dense, sampled);
+        };
+        place(hi);
+        if (dense < 1.02 * d) continue;
+        for (int it = 0; it < (spline ? 12 : 40); it++) {
+          double mid = 0.5 * (lo + hi);
+          place(mid);
+          (dense > 1.02 * d ? hi : lo) = mid;
+        }
+        place(hi);
+        if (sampled <= d && dense > d) {
+          missed++;
+          CHECK(!c->accept(t));
+        }
+        // (Every bounded surface's triangle over the deflection refused, wherever on it the deepest point is.)
+        if (dense > d) {
+          atThreshold++;
+          if (c->accept(t)) std::printf("  %s: accepted at deviation %g\n", fc.name, dense);
+          CHECK(!c->accept(t));
+        }
+        place(0.7 * hi);
+        Vec3 p[3] = {at(t[0]), at(t[1]), at(t[2])}, g = cadgeom::cross(p[1] - p[0], p[2] - p[0]), nn;
+        bool over = false;
+        for (int i = 0; i < 3; i++) over = over || (s->normal(t[i].x, t[i].y, nn) == cadgeom::Status::ok &&
+          cadgeom::dot(g, nn) <= 0);
+        if (fc.face == 1 && dense < 0.8 * d && !over) {
+          under++;
+          if (!c->accept(t)) std::printf("  sphere: refused at deviation %g\n", dense);
+          CHECK(c->accept(t));
+        }
+      }
+    }
+    if (missed < 5 || under < 100) std::printf("  missed %d, under %d\n", missed, under);
+    CHECK(missed >= 5);
+    CHECK(under >= 100);
+    CHECK(atThreshold >= 120);
+  }
+  // Tight across a B-spline's knots: triangles on the bump straddling its knot lines (u, v = 1, 2, 3), where its bound
+  // is the spans' hulls unless the criteria cut the box there, accepted wherever their dense deviation is under half
+  // the deflection (angle 0: the deviation alone).
+  {
+    auto c = criteria("bumpPatch", 0, {{0, 4}, {0, 4}}, 0.01, 0, s);
+    REQUIRE(c && c->bounded());
+    std::mt19937 rng(14);
+    std::uniform_real_distribution<double> u01(0, 1);
+    int under = 0;
+    for (int k = 0; k < 600; k++) {
+      Vec2 o{1.0 + std::floor(3 * u01(rng)), 0.3 + 3.4 * u01(rng)};
+      if (k % 2) std::swap(o.x, o.y);
+      double r = 0.02 + 0.1 * u01(rng);
+      Vec2 t[3];
+      for (int i = 0; i < 3; i++) t[i] = {o.x + r * (u01(rng) - 0.5), o.y + r * (u01(rng) - 0.5)};
+      if ((t[1].x - t[0].x) * (t[2].y - t[0].y) - (t[2].x - t[0].x) * (t[1].y - t[0].y) <= 0) std::swap(t[1], t[2]);
+      Vec3 p[3];
+      for (int i = 0; i < 3; i++) {
+        cadgeom::SurfacePoint q;
+        s->eval(t[i].x, t[i].y, 0, q);
+        p[i] = q.p;
+      }
+      Vec3 g = cadgeom::cross(p[1] - p[0], p[2] - p[0]), nn;
+      bool over = false;
+      for (int i = 0; i < 3; i++) over = over || (s->normal(t[i].x, t[i].y, nn) == cadgeom::Status::ok &&
+        cadgeom::dot(g, nn) <= 0);
+      // (|S(x) - L(x)| at the barycentric (u, v), an upper bound on the distance: enough to require acceptance.)
+      double dev = 0;
+      for (int i = 0; i <= 12; i++)
+        for (int j = 0; i + j <= 12; j++) {
+          double b0 = i / 12.0, b1 = j / 12.0, b2 = 1 - b0 - b1;
+          cadgeom::SurfacePoint q;
+          s->eval(b0 * t[0].x + b1 * t[1].x + b2 * t[2].x, b0 * t[0].y + b1 * t[1].y + b2 * t[2].y, 0, q);
+          dev = std::fmax(dev, cadgeom::norm(q.p - (b0 * p[0] + b1 * p[1] + b2 * p[2])));
+        }
+      if (over || dev >= 0.5 * 0.01) continue;
+      under++;
+      if (!c->accept(t)) std::printf("  bump: refused across a knot at deviation %g\n", dev);
+      CHECK(c->accept(t));
+    }
+    CHECK(under > 200);
+  }
+  // Tight where the surface's bound is: on the cylinder (|S_uu| = r exactly, S_uv = S_vv = 0) a triangle's bound is
+  // the largest of r du^2 / 2 over its points' barycentric spread, its true deviation within a few percent of it, so
+  // accept() takes every triangle whose dense deviation is under 0.8 of the deflection (angle 0: the deviation alone).
+  {
+    auto c = criteria("seamCylinder", 0, {{0, 2 * M_PI}, {0, 5}}, 0.01, 0, s);
+    std::mt19937 rng(12);
+    std::uniform_real_distribution<double> u01(0, 1);
+    int under = 0;
+    for (int k = 0; k < 2000; k++) {
+      Vec2 o{1 + 4 * u01(rng), 1 + 3 * u01(rng)};
+      Vec2 t[3];
+      for (int i = 0; i < 3; i++) t[i] = {o.x + 0.25 * (u01(rng) - 0.5), o.y + 2 * (u01(rng) - 0.5)};
+      if ((t[1].x - t[0].x) * (t[2].y - t[0].y) - (t[2].x - t[0].x) * (t[1].y - t[0].y) <= 0) std::swap(t[1], t[2]);
+      Vec3 p[3];
+      for (int i = 0; i < 3; i++) {
+        cadgeom::SurfacePoint q;
+        s->eval(t[i].x, t[i].y, 0, q);
+        p[i] = q.p;
+      }
+      double dev = 0;
+      cadgeom::SurfaceDomain dom = s->domain();
+      for (int i = 0; i <= 16; i++)
+        for (int j = 0; i + j <= 16; j++) {
+          double b0 = i / 16.0, b1 = j / 16.0;
+          Vec3 x = b0 * p[0] + b1 * p[1] + (1 - b0 - b1) * p[2];
+          dev = std::fmax(dev, cadgeom::invertSurface(*s, x, dom.u, dom.v, 1e-12).distance);
+        }
+      if (dev >= 0.8 * 0.01) continue;
+      under++;
+      if (!c->accept(t)) std::printf("  cylinder: refused at deviation %g\n", dev);
+      CHECK(c->accept(t));
+    }
+    CHECK(under > 500);
+  }
+  // A triangle too small to judge (1e-12 across, under 1e-4 of the deflection): accepted though its corners, in
+  // (u, v) the wrong way round, give it a facet turned over (refinement would chase such a spot to its point cap).
+  {
+    auto c = criteria("seamCylinder", 0, {{0, 2 * M_PI}, {0, 5}}, 0.01, 0.26, s);
+    const Vec2 tiny[3] = {{1, 2}, {1, 2 + 1e-12}, {1 + 1e-12, 2}};
+    CHECK(c->accept(tiny));
+    // (Its bigger copy, 3e-4 in (u, v), about 6e-4 mm across, turned over the same way, refused.)
+    const Vec2 big[3] = {{1, 2}, {1, 2 + 3e-4}, {1 + 3e-4, 2}};
+    CHECK(!c->accept(big));
+  }
   // On the unit sphere near its pole: a triangle wide in u, its far corner nearer the pole, turned over in 3D (its
   // facet's normal against the surface's), refused, though within the deflection and its corners' normals close; one
   // not turned over, accepted; one with two corners on the pole line (a facet of rounding) accepted.
   auto h = criteria("spheres", 1, {{0, 2 * M_PI}, {0, M_PI / 2}}, 1.0, 0.5, s);
   REQUIRE(h);
-  const Vec2 over[3] = {{0, 1.5}, {3, 1.5}, {1.5, 1.55}}, fine[3] = {{0, 1.5}, {2.5, 1.5}, {1.25, 1.56}};
+  const Vec2 over[3] = {{0, 1.5}, {3, 1.5}, {1.5, 1.55}}, fine[3] = {{0, 1.5}, {1, 1.5}, {0.5, 1.53}};
   const Vec2 pole[3] = {{1, M_PI / 2}, {1.2, M_PI / 2}, {1.1, M_PI / 2 - 0.01}};
   CHECK(!h->accept(over));
   CHECK(h->accept(fine));
   CHECK(h->accept(pole));
 }
 
-TEST_CASE("the split rounds: edges sampled 4 times coarser than the faces want, split until they're not") {
+TEST_CASE("edges allowed 4 times coarser than the faces want: split until they're not, every triangle accepted") {
   for (const char* name : {"seamCylinder", "band", "spheres", "twisted"}) {
     cadgeom::Model m = load(name);
     PartOptions o = options(0.01, 0.26);
     o.edgeSpacingScale = 4;
     PartMesher pm(m, o);
-    CHECK(pm.rounds() >= 1);
     CHECK_EQ(sharedEdges(m, pm, name), 0);
     for (int f = 0; f < m.faces(); f++) {
       const FaceMesh& fm = pm.face(f);
@@ -377,6 +670,17 @@ TEST_CASE("the split rounds: edges sampled 4 times coarser than the faces want, 
       CHECK_EQ(n, 0);
     }
   }
+}
+
+TEST_CASE("split rounds: a band's hole of straight edges, the triangles beside them split until accepted") {
+  // (The metric along a cylinder's axis is its extent, so the hole's axial edges stay one span; the triangles round
+  // the band next to them, wider than its angle allows, ask them split.)
+  cadgeom::Model m = load("bandHoleAtVertex");
+  PartMesher pm(m, options(0.01, 0.26));
+  REQUIRE(pm.face(0).status == cadgeom::Status::ok);
+  CHECK(pm.rounds() >= 1);
+  CHECK(pm.face(0).rejected.empty());
+  CHECK_EQ(pm.face(0).splitsWanted, 0);
 }
 
 TEST_CASE("faces of either sense: a fold and inside-out faces used reversed, normals out and triangles about them") {
