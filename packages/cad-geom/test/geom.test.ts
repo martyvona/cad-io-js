@@ -412,6 +412,49 @@ test('faces: line p-curves scaled otherwise than their 3D lines get their own ra
   assert.deepEqual([...r.sides].map((x) => ['in', 'out', 'on'][x]), ['in', 'out', 'out', 'on']);
 });
 
+test('tolerances: floored at 1e-9 x the part\'s size, a rounding-level gap within it, a real one not', { skip },
+  async () => {
+  // A 100 x 100 square on z = 0 (its vertices' box diagonal 100 sqrt 2: a floor of 1.414e-7), its edges lines with
+  // ranges and no p-curves, the first one's line `gap` above the plane.
+  const square = (gap: number, uncertainty?: number, edgeTolerance?: number) => {
+    const b = new BrepBuilder(uncertainty === undefined ? {} : { uncertainty });
+    const plane = b.addSurface({ kind: 'plane', position: { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] } });
+    const corners = [[0, 0], [100, 0], [100, 100], [0, 100]];
+    const vs = corners.map(([x, y]) => b.addVertex({ point: [x!, y!, 0] }));
+    const coedges = corners.map(([x, y], k) => {
+      const [nx, ny] = corners[(k + 1) % 4]!, dir = [(nx! - x!) / 100, (ny! - y!) / 100, 0];
+      const line = b.addCurve({ kind: 'line', point: [x!, y!, k === 0 ? gap : 0], direction: dir, magnitude: 1 });
+      const edge = b.addEdge({ curve: line, start: vs[k]!, end: vs[(k + 1) % 4]!, sameSense: true, range: [0, 100],
+        ...(k === 0 && edgeTolerance !== undefined ? { tolerance: edgeTolerance } : {}) });
+      return { edge, orientation: 'forward' as const };
+    });
+    b.addItem({ kind: 'face', ref: b.addFace({ surface: plane, sameSense: true,
+      loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] }) });
+    return b.finish().buffer;
+  };
+  const module = await init();
+  const floor = 1e-9 * 100 * Math.SQRT2;
+  for (const [gap, uncertainty, ok, why, edgeTol] of [
+    [2.5e-11, 1e-13, true, 'a rounding-level gap over the part\'s uncertainty (trj6_as1-tu\'s)'],
+    [1.3e-7, 1e-13, true, 'just under the floor'], [1.6e-7, 1e-13, false, 'just over the floor'],
+    [1.3e-7, undefined, true, 'under the floor, no uncertainty'],
+    [2.6e-5, 1e-7, false, 'a real gap (trj4_k1_top\'s, 2.6e-5 at 1e-7)'],
+    [1.3e-7, 1e-13, true, 'under the floor, the edge\'s own tolerance smaller', 1e-12],
+    [3e-7, 1e-13, true, 'over the floor, within the edge\'s own tolerance', 5e-7]] as [number, number | undefined,
+    boolean, string, number?][]) {
+    using g = new Geometry(module, new Uint8Array(square(gap, uncertainty, edgeTol)));
+    const p = g.projectCoedge(0);
+    assert.ok('pieces' in p, why);
+    assert.equal(p.status, ok ? 'ok' : 'invalidModel', why);
+    const info = g.faceInfo(0);
+    assert.equal(info.status, ok ? 'ok' : 'pcurveProjectionFailed', why);
+    if (ok) {
+      const want = Math.max(floor, uncertainty ?? 1e-7, edgeTol ?? 0);
+      assert.ok(Math.abs(info.tolerance - want) <= 1e-20, `${why}: ${info.tolerance}`);
+    }
+  }
+});
+
 /** A degree-1 B-spline curve (2D or 3D) through two points on [0, 1]. */
 function segment(b: BrepBuilder, p: number[], q: number[]): number {
   return b.addCurve({ kind: 'bspline', degree: 1, knots: [0, 1], multiplicities: [2, 2], poles: [p, q], closed: false,

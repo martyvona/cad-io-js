@@ -845,7 +845,7 @@ TEST_CASE("poles as fans: one point per pole, pieces of 22.5 degrees at most, no
     Fanned r;
     const FaceMesh& fm = pm.face(f);
     cadgeom::Status st;
-    std::unique_ptr<cadgeom::Surface> s = closedSurface(m, f, st);
+    std::unique_ptr<cadgeom::Surface> s = closedSurface(m, cadgeom::Tolerances(m), f, st);
     std::vector<cadgeom::Singularity> sing;
     if (s) s->singularities(sing);
     std::set<int32_t> refused(fm.rejected.begin(), fm.rejected.end());

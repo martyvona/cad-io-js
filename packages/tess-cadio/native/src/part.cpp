@@ -417,9 +417,10 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
   I.faces.resize(nf);
   I.edgesOf.resize(nf);
   I.wanted.resize(nf);
+  const cadgeom::Tolerances tols(m);
   for (int f = 0; f < nf; f++) {
     Status st;
-    if (m.faceLoopCount(f) > 0) I.surfaces[f] = closedSurface(m, f, st);
+    if (m.faceLoopCount(f) > 0) I.surfaces[f] = closedSurface(m, tols, f, st);
   }
   // The faces' (u, v) boxes from a first sampling, their criteria, then the edges again at the spacing they ask.
   std::vector<double> spacing(nf, INFINITY);

@@ -19,27 +19,10 @@ namespace tesscadio {
 
 using namespace cadgeom;
 
-std::unique_ptr<Surface> closedSurface(const Model& m, int face, Status& status) {
+std::unique_ptr<Surface> closedSurface(const Model& m, const Tolerances& tols, int face, Status& status) {
   std::unique_ptr<Surface> s = makeSurface(m, m.faceSurface(face), status);
   if (!s) return s;
-  double tol = 0;
-  for (double t : {m.uncertainty(), m.f64(CBR_FACE_TOLERANCE)[face]})
-    if (std::isfinite(t) && t > tol) tol = t;
-  if (!(tol > 0)) {
-    // (The surface's size: its domain's two diagonals in 3D; closeInFact needs both ranges finite.)
-    SurfaceDomain d = s->domain();
-    double size = 0;
-    if (std::isfinite(d.u.hi - d.u.lo) && std::isfinite(d.v.hi - d.v.lo)) {
-      auto at = [&](double u, double v) {
-        SurfacePoint q;
-        s->eval(u, v, 0, q);
-        return q.p;
-      };
-      size = norm(at(d.u.hi, d.v.hi) - at(d.u.lo, d.v.lo)) + norm(at(d.u.lo, d.v.hi) - at(d.u.hi, d.v.lo));
-    }
-    tol = 1e-9 * std::max(size, 1.0);
-  }
-  return closeInFact(std::move(s), tol);
+  return closeInFact(std::move(s), tols.face(face));
 }
 
 namespace {
@@ -342,7 +325,10 @@ struct EdgeMesh::Impl {
   std::vector<Coedge> coedges;
   std::vector<Face> faces;
 
-  Impl(const Model& model, const EdgeOptions& options) : m(model), o(options) {
+  /** The tolerances edges and faces are judged by (cad-geom's tolerance.h, as the face API's). */
+  Tolerances tols;
+
+  Impl(const Model& model, const EdgeOptions& options) : m(model), o(options), tols(model) {
     double u = m.uncertainty();
     tol = std::isfinite(u) && u > 0 ? u : 1e-6;
   }
@@ -1382,7 +1368,7 @@ EdgeMesh::EdgeMesh(const Model& model, const EdgeOptions& options, const std::ve
   for (int f = 0; f < m.faces(); f++) {
     Impl::Face& F = I.faces[f];
     Status st;
-    F.s = closedSurface(m, f, st);
+    F.s = closedSurface(m, I.tols, f, st);
     if (!F.s) {
       F.status = st;
       continue;

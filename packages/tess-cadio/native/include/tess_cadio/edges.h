@@ -28,6 +28,7 @@
 #include "cad_geom/model.h"
 #include "cad_geom/result.h"
 #include "cad_geom/surface.h"
+#include "cad_geom/tolerance.h"
 #include "cad_geom/vec.h"
 
 namespace tesscadio {
@@ -37,12 +38,13 @@ using cadgeom::Vec2;
 using cadgeom::Vec3;
 
 /**
- * The face's surface as tess-cadio meshes it: cad-geom's, as it closes in fact (cadgeom::closeInFact, at the larger
- * of the part's uncertainty and the face's tolerance, else 1e-9 of the surface's size): a direction closed in fact
- * periodic, its boundary's (u, v) then running past the seam as on a cylinder, collapsed sides pole lines. Null
- * where makeSurface gives none (`status` its reason).
+ * The face's surface as tess-cadio meshes it: cad-geom's, as it closes in fact (cadgeom::closeInFact at the face's
+ * tolerance, `tols.face`: cad-geom's tolerance.h, the face API's rule): a direction closed in fact periodic, its
+ * boundary's (u, v) then running past the seam as on a cylinder, collapsed sides pole lines. Null where makeSurface
+ * gives none (`status` its reason).
  */
-std::unique_ptr<cadgeom::Surface> closedSurface(const cadgeom::Model& m, int face, Status& status);
+std::unique_ptr<cadgeom::Surface> closedSurface(const cadgeom::Model& m, const cadgeom::Tolerances& tols, int face,
+  Status& status);
 
 struct EdgeOptions {
   /** The largest distance a chord between consecutive samples may stray from the curve, in model units (mm). */
