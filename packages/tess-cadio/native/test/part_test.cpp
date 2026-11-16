@@ -236,8 +236,13 @@ TEST_CASE("curved faces (a seam cylinder, a band, a hemisphere, a cap, a lune): 
       }, c.cylinder ? nullptr : &pole, c.near);
       CHECK_EQ(s.badNormals, 0);
       CHECK_EQ(s.facing, 0);
-      if (!(s.worst <= d * (1 + 1e-9))) std::printf("  %s: %g from the surface at %g\n", c.model, s.worst, d);
-      CHECK(s.worst <= d * (1 + 1e-9));
+      // The deflection, plus the boundary's own distance from the surface (an edge off its surface: offPoleArc's arc
+      // up to 7e-4 inside its sphere, its chords judged by the edges against the curve).
+      double gap = 0;
+      for (int co = 0; co < m.coedges(); co++) gap = std::fmax(gap, pm.edges().coedge(co).gap);
+      if (!(s.worst <= (d + gap) * (1 + 1e-9)))
+        std::printf("  %s: %g from the surface at %g (the boundary %g off it)\n", c.model, s.worst, d, gap);
+      CHECK(s.worst <= (d + gap) * (1 + 1e-9));
       // Chords inside a convex surface: the area under its own, by at most about the deflection over the radius.
       if (!(s.area < c.area && s.area > c.area * (1 - 2.5 * d / c.radius)))
         std::printf("  %s: area %.9g want %.9g at %g\n", c.model, s.area, c.area, d);
@@ -401,10 +406,10 @@ TEST_CASE("the criteria's metric: sizes from the principal curvatures, every dir
     CHECK(worst <= 0.5 * 1.5);
     CHECK(sizeU({0.05, 0.05}) < 0.5 * 14.1);
   }
-  // Bounded on cylinders, planes and B-splines, exact on spheres, sampled elsewhere (makeCriteria says why).
+  // Bounded on planes, cylinders, B-splines, spheres, cones and tori, sampled elsewhere (makeCriteria says why).
   CHECK(criteria("seamCylinder", 0, {{0, 2 * M_PI}, {0, 5}}, 0.01, 0.26, s)->bounded());
   CHECK(criteria("spheres", 1, {{0, 2 * M_PI}, {0, 1.4}}, 0.01, 0.26, s)->bounded());
-  CHECK(!criteria("torusOuterHalf", 0, {{0, 2 * M_PI}, {-M_PI / 2, M_PI / 2}}, 0.01, 0.26, s)->bounded());
+  CHECK(criteria("torusOuterHalf", 0, {{0, 2 * M_PI}, {-M_PI / 2, M_PI / 2}}, 0.01, 0.26, s)->bounded());
   CHECK(criteria("bumpPatch", 0, {{0, 4}, {0, 4}}, 0.01, 0.26, s)->bounded());
   CHECK(criteria("twisted", 0, {{0, 1}, {0, 1}}, 0.01, 0.26, s)->bounded());
   // Random triangles on a cylinder, a sphere, a torus and two B-splines: none accepted on the bounded ones (all but
@@ -417,7 +422,8 @@ TEST_CASE("the criteria's metric: sizes from the principal curvatures, every dir
     int over = 0, accepted = 0;
     for (Face fc : {Face{"seamCylinder", 0, {{0, 2 * M_PI}, {0, 5}}}, Face{"spheres", 1, {{0, 2 * M_PI}, {0, 1.4}}},
            Face{"torusOuterHalf", 0, {{0, 2 * M_PI}, {-M_PI / 2, M_PI / 2}}}, Face{"bumpPatch", 0, {{0, 4}, {0, 4}}},
-           Face{"bsplineDome", 0, {{0, 4}, {0, 1}}}}) {
+           Face{"bsplineDome", 0, {{0, 4}, {0, 1}}}, Face{"cone", 0, {{0, 2 * M_PI}, {-0.5, 0}}},
+           Face{"torusOuterHalf", 0, {{0, 2 * M_PI}, {M_PI / 2, 3 * M_PI / 2}}}}) {
       const double d = 0.01, angle = 0.5;
       auto c = criteria(fc.name, fc.face, fc.box, d, angle, s);
       REQUIRE(c);
@@ -466,6 +472,8 @@ TEST_CASE("the criteria's metric: sizes from the principal curvatures, every dir
     int missed = 0, under = 0;
     int atThreshold = 0;
     for (Face fc : {Face{"spheres", 1, {{0, 2 * M_PI}, {0, 1.2}}}, Face{"seamCylinder", 0, {{0, 2 * M_PI}, {0, 5}}},
+           Face{"cone", 0, {{0.5, 5.8}, {-0.5, 0}}}, Face{"torusOuterHalf", 0, {{0.5, 5.8}, {-0.8, 0.8}}},
+           Face{"torusOuterHalf", 0, {{0.5, 5.8}, {2.0, 4.3}}},
            Face{"bumpPatch", 0, {{0.3, 3.7}, {0.3, 3.7}}}, Face{"bsplineDome", 0, {{0.2, 3.8}, {0.1, 0.9}}},
            Face{"halfBump", 0, {{1.2, 2.4}, {1, 3}}}}) {
       // (halfBump's triangles straddle its knot u = 2, curved below it, a plane above: their bound must be the
@@ -507,6 +515,10 @@ TEST_CASE("the criteria's metric: sizes from the principal curvatures, every dir
           e[i] = {std::cos(a), std::sin(a) * (0.3 + u01(rng))};
         }
         if (k % 2) e[0] = {-1, 0}, e[1] = {1, 0.1 * (u01(rng) - 0.5)}, e[2] = {u01(rng) - 0.5, 0.1 + 0.2 * u01(rng)};
+        // (On the torus, every third long in u: on its inner half a chord round the axis leaves the tube, where the
+        // bound needs its Hessian's terms and its lower side.)
+        if (fc.name[0] == 't' && k % 3 == 0)
+          e[0] = {-1, 0}, e[1] = {1, 0.05 * (u01(rng) - 0.5)}, e[2] = {0.4 * (u01(rng) - 0.5), 0.03 + 0.05 * u01(rng)};
         // The scale where the dense deviation is 1.02 d, by bisection.
         double lo = 0, hi = 0.5, dense = 0, sampled = 0;
         Vec2 t[3];
@@ -538,9 +550,13 @@ TEST_CASE("the criteria's metric: sizes from the principal curvatures, every dir
         bool over = false;
         for (int i = 0; i < 3; i++) over = over || (s->normal(t[i].x, t[i].y, nn) == cadgeom::Status::ok &&
           cadgeom::dot(g, nn) <= 0);
-        if (fc.face == 1 && dense < 0.8 * d && !over) {
+        // (Tight where the bound is the distance's own: the sphere, the cone, the torus's outer half; on its inner
+        // half the two-sided bound with the Hessian's terms, within 2.5 x.)
+        bool inner = fc.name[0] == 't' && fc.box.y.lo > 1.5;
+        double tight = fc.face == 1 || fc.name[0] == 'c' || fc.name[0] == 't' ? (inner ? 0.4 : 0.8) : 0;
+        if (tight > 0 && dense < tight * d && !over) {
           under++;
-          if (!c->accept(t)) std::printf("  sphere: refused at deviation %g\n", dense);
+          if (!c->accept(t)) std::printf("  %s: refused at deviation %g\n", fc.name, dense);
           CHECK(c->accept(t));
         }
       }
@@ -591,6 +607,37 @@ TEST_CASE("the criteria's metric: sizes from the principal curvatures, every dir
       CHECK(c->accept(t));
     }
     CHECK(under > 200);
+  }
+  // Long thin triangles along a cone's generators (what its metric asks for): accepted wherever their dense deviation
+  // is under 0.8 of the deflection.
+  {
+    auto c = criteria("cone", 0, {{0, 2 * M_PI}, {-0.5, 0}}, 0.01, 0, s);
+    std::mt19937 rng(15);
+    std::uniform_real_distribution<double> u01(0, 1);
+    cadgeom::SurfaceDomain dom = s->domain();
+    int under = 0;
+    for (int k = 0; k < 300; k++) {
+      double u = 6 * u01(rng), v = -0.45 + 0.1 * u01(rng), du = 0.05 + 0.2 * u01(rng), dv = 0.2 + 0.25 * u01(rng);
+      Vec2 t[3] = {{u, v}, {u + du, v}, {u + du * u01(rng), v + dv}};
+      Vec3 p[3];
+      for (int i = 0; i < 3; i++) {
+        cadgeom::SurfacePoint q;
+        s->eval(t[i].x, t[i].y, 0, q);
+        p[i] = q.p;
+      }
+      double dev = 0;
+      for (int i = 0; i <= 12; i++)
+        for (int j = 0; i + j <= 12; j++) {
+          double b0 = i / 12.0, b1 = j / 12.0;
+          dev = std::fmax(dev, cadgeom::invertSurface(*s, b0 * p[0] + b1 * p[1] + (1 - b0 - b1) * p[2], dom.u, dom.v,
+            1e-12).distance);
+        }
+      if (dev >= 0.8 * 0.01) continue;
+      under++;
+      if (!c->accept(t)) std::printf("  cone, along its lines: refused at deviation %g\n", dev);
+      CHECK(c->accept(t));
+    }
+    CHECK(under > 100);
   }
   // Tight where the surface's bound is: on the cylinder (|S_uu| = r exactly, S_uv = S_vv = 0) a triangle's bound is
   // the largest of r du^2 / 2 over its points' barycentric spread, its true deviation within a few percent of it, so
