@@ -178,7 +178,9 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
   // Each refusal for encroachment: the segment (its sorted point pair) and the triangle refused, as it was.
   std::vector<std::tuple<uint64_t, int32_t, uint32_t>> wanted;
   std::vector<uint64_t> encroached;
+  uint32_t work = 0;
   while (!queue.empty()) {
+    if (options.onWork && (++work & 1023) == 0) options.onWork();
     Item it = queue.top();
     queue.pop();
     const cdt::Tri& R = T.tris()[it.t];

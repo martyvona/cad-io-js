@@ -33,6 +33,16 @@ struct PartMesher::Impl {
   std::vector<std::set<int>> edgesOf;
   std::vector<std::vector<SplitRequest>> wanted;
   int rounds = 0;
+  /** The progress of the pass under way (PartOptions::progress). */
+  PartProgress at;
+  void report(const PartProgress& p) const {
+    if (o.progress) o.progress(p);
+  }
+  /** An EdgeMesh's progress as PartMesher's, in phase `phase`. */
+  std::function<void(int, int, int)> edgeProgress(PartProgress::Phase phase) const {
+    if (!o.progress) return {};
+    return [this, phase](int done, int total, int face) { o.progress({phase, face, 0, done, total}); };
+  }
 
   Impl(const Model& model, const PartOptions& options) : m(model), o(options) {}
 
@@ -259,6 +269,8 @@ struct PartMesher::Impl {
   }
 
   void meshFace(int f) {
+    at.row = f;
+    if (o.progress) o.progress(at);
     FaceMesh& out = faces[f];
     out = {};
     wanted[f].clear();
@@ -327,6 +339,7 @@ struct PartMesher::Impl {
     }
     MeshOptions mo;
     mo.maxPoints = o.maxPointsPerFace;
+    if (o.progress) mo.onWork = [this] { o.progress(at); };
     Mesh2 mesh = mesh2(d, *criteria[f], mo);
     if (mesh.status != Status::ok && mesh.status != Status::noConvergence) {
       // (A boundary whose seam side wasn't settled fails for that.)
@@ -451,6 +464,7 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
   for (int f = 0; f < nf; f++) {
     Status st;
     // (A face with no loops too: its surface's natural extent, where it has one, edges.h.)
+    I.report({PartProgress::surfaces, f, 0, f, nf});
     I.surfaces[f] = closedSurface(m, f, st);
   }
   // The faces' (u, v) boxes from a first sampling, their criteria, then the edges again at the spacing they ask.
@@ -460,8 +474,10 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
     EdgeOptions rough = I.edgeOptions();
     rough.deflection *= 10;
     rough.angle = 0;
+    rough.progress = I.edgeProgress(PartProgress::boxEdges);
     EdgeMesh first(m, rough);
     for (int f = 0; f < nf; f++) {
+      I.report({PartProgress::criteria, f, 0, f, nf});
       if (!I.surfaces[f]) continue;
       FaceBoundary fb = first.face(f);
       Box2 box{{INFINITY, -INFINITY}, {INFINITY, -INFINITY}};
@@ -483,8 +499,11 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
       if (I.criteria[f]) spacing[f] = I.criteria[f]->edgeSpacing() * I.o.edgeSpacingScale;
     }
   }
-  I.em = std::make_unique<EdgeMesh>(m, I.edgeOptions(), spacing);
-  for (int f = 0; f < nf; f++) I.meshFace(f);
+  EdgeOptions eo = I.edgeOptions();
+  eo.progress = I.edgeProgress(PartProgress::edges);
+  I.em = std::make_unique<EdgeMesh>(m, eo, spacing);
+  I.at = {PartProgress::meshing, 0, 0, 0, nf};
+  for (int f = 0; f < nf; f++, I.at.facesDone++) I.meshFace(f);
   for (I.rounds = 0; I.rounds < I.o.maxSplitRounds; I.rounds++) {
     // Every face's wanted splits, each span once (the first face's fraction).
     std::vector<SplitRequest> requests;
@@ -493,13 +512,20 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
       for (const SplitRequest& r : I.wanted[f])
         if (seen.insert({r.edge, r.span}).second) requests.push_back(r);
     if (requests.empty()) break;
+    I.report({PartProgress::splitting, -1, I.rounds + 1, 0, static_cast<int>(requests.size())});
     I.em->split(requests);
     std::set<int> touched;
     for (const SplitRequest& r : requests) touched.insert(r.edge);
+    std::vector<int> redo;
     for (int f = 0; f < nf; f++) {
-      bool redo = false;
-      for (int e : touched) redo = redo || I.edgesOf[f].count(e);
-      if (redo) I.meshFace(f);
+      bool again = false;
+      for (int e : touched) again = again || I.edgesOf[f].count(e);
+      if (again) redo.push_back(f);
+    }
+    I.at = {PartProgress::meshing, 0, I.rounds + 1, 0, static_cast<int>(redo.size())};
+    for (int f : redo) {
+      I.meshFace(f);
+      I.at.facesDone++;
     }
   }
 }

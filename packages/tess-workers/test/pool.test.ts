@@ -37,6 +37,21 @@ test('results come back whole, with the backend info, and requests run in parall
   }
 });
 
+test('a timeout says where the backend last was: its last progress, which the caller saw as it came', async () => {
+  const t = await pool({ workers: 1, timeoutMs: 300 });
+  try {
+    const seen: number[] = [];
+    await assert.rejects(t.tessellate(req(8, 3), (p) => seen.push(p.faceId!)),
+      (e) => e instanceof TessellationError && e.message === 'tessellation timed out after 300 ms (last: face #3)');
+    assert.deepEqual(seen, [1, 2, 3]);
+    // Without progress, the message as it was.
+    await assert.rejects(t.tessellate(req(1)),
+      (e) => e instanceof Error && e.message === 'tessellation timed out after 300 ms');
+  } finally {
+    t.dispose();
+  }
+});
+
 test('a request that hangs times out, and the next one gets a new worker', async () => {
   const t = await pool({ workers: 1, timeoutMs: 300 });
   try {

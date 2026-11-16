@@ -6,9 +6,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { openEdges, oracleMeasures, type TessellationResult } from 'cad-scene';
+import { openEdges, oracleMeasures, type TessellationProgress, type TessellationResult } from 'cad-scene';
 import { MODELS } from '../../cad-brep/test/models.ts';
-import { CadioTessellator, VERSION } from '../src/index.ts';
+import { CadioTessellator, progressReporter, VERSION } from '../src/index.ts';
 import { bsplineDome, bumpPatch, cap, fold, halfCap, loopless, luneOnSeam, luneQuarter, meridianHemisphere, pcurveOnly,
   torusOuterHalf } from '../native/test/models.ts';
 
@@ -176,6 +176,41 @@ test('faces failed to mesh, each by status and cause: a plane with no loops (no 
     const want = 'faces failed to mesh, by cause: unsupported: no edge loops, and its surface\'s natural extent '
       + 'doesn\'t close (a whole plane, cylinder or cone) 1 (#';
     assert.ok(m.message.startsWith(want), m.message);
+  });
+
+test('progress: each face as it starts, throttled to one report per 100 ms; a real part reports its faces', { skip },
+  async () => {
+    // The reporter's rate, by a clock of its own: of reports at 0, 50, 99, 100, 150 and 250 ms, those at 0, 100, 250.
+    let clock = 0;
+    const got: TessellationProgress[] = [];
+    const report = progressReporter((p) => got.push(p), 100, () => clock);
+    for (const [t, row] of [[0, 0], [50, 1], [99, 2], [100, 3], [150, 4], [250, 5]] as const) {
+      clock = t;
+      report(4, row + 10, row, 0, row, 6);
+    }
+    assert.deepEqual(got.map((p) => p.row), [0, 3, 5]);
+    assert.equal(got[1]!.message, 'face #13 (row 3), first pass, 3 of 6 faces done');
+    assert.deepEqual({ ...got[2], message: undefined }, { message: undefined, faceId: 15, row: 5, round: 0,
+      facesDone: 5, facesTotal: 6 });
+    report(4, 0, 7, 2, 1, 4);
+    clock = 400;
+    report(4, 0, 7, 2, 1, 4);
+    assert.equal(got.at(-1)!.message, 'a face with no id (row 7), split round 2, 1 of 4 faces done');
+    clock = 600;
+    report(3, 0, -1, 0, 5, 40);
+    assert.deepEqual(got.at(-1), { message: 'sampling edges: an edge, 5 of 40 edges and uses done', round: 0 });
+    clock = 800;
+    report(1, 21, 3, 0, 30, 40);
+    assert.deepEqual(got.at(-1), { message: 'sampling edges for the faces\' boxes: a use on face #21 (row 3), 30 of 40 '
+      + 'edges and uses done', faceId: 21, row: 3, round: 0 });
+    // Across a real part (the cube's 6 faces, quick: the first report only), its first phase on its first face.
+    const t = await tessellator();
+    const seen: TessellationProgress[] = [];
+    const r = await t.tessellate(req('cube'), (p) => seen.push(p));
+    assert.ok(r.indices.length > 0);
+    assert.ok(seen.length >= 1);
+    assert.match(seen[0]!.message, /^making surfaces: face #\d+ \(row 0\), 0 of 6 done$/);
+    assert.equal(seen[0]!.faceId, r.faces[0]!.entityId);
   });
 
 test('the origin subtracted in double precision; without edges, none', { skip }, async () => {

@@ -1586,9 +1586,13 @@ EdgeMesh::EdgeMesh(const Model& model, const EdgeOptions& options, const std::ve
       if (!E.geom) st = Status::invalidModel;
     }
     E.s.status = E.geom ? Status::ok : (st == Status::ok ? Status::unsupported : st);
+    if (options.progress) options.progress(e, I.nModel + m.coedges(), -1);
     I.sampleModelEdge(e);
   }
-  for (int c = 0; c < m.coedges(); c++) I.computeCoedge(c);
+  for (int c = 0; c < m.coedges(); c++) {
+    if (options.progress) options.progress(I.nModel + c, I.nModel + m.coedges(), I.coedges[c].face);
+    I.computeCoedge(c);
+  }
   I.samplePoleCrossings();
   // Pole lines' density: the face's coedges' samples per period along it, at least kMinPolePoints.
   for (int f = 0; f < m.faces(); f++) {

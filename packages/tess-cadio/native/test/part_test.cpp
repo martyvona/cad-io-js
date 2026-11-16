@@ -834,6 +834,68 @@ TEST_CASE("p-curves parameterized against Part 42 (their own range, a squared pa
   }
 }
 
+TEST_CASE("progress: the phases before meshing in order; each face as its meshing starts and as a long one goes; "
+  "the pass's counts") {
+  // cap at 0.001 mm and 0.05 rad: refined to some 3,600 triangles, so its row reports again as it goes (mesh2d.h's
+  // onWork); the first pass's reports count its faces done, of all of them, in order; a split round counts its own.
+  cadgeom::Model m = load("cap");
+  REQUIRE(m.ok());
+  PartOptions o = options(0.001, 0.05);
+  std::vector<PartProgress> seen;
+  o.progress = [&](const PartProgress& p) { seen.push_back(p); };
+  PartMesher pm(m, o);
+  REQUIRE(!seen.empty());
+  std::map<int, int> perRow;
+  int lastDone = -1;
+  bool ordered = true;
+  for (const PartProgress& p : seen) {
+    if (p.phase != PartProgress::meshing || p.round != 0) continue;
+    perRow[p.row]++;
+    ordered = ordered && p.facesDone >= lastDone && p.facesTotal == m.faces() && p.facesDone == p.row;
+    lastDone = p.facesDone;
+  }
+  int most = 0;
+  for (auto& [row, n] : perRow) most = std::max(most, n);
+  if (most < 2 || !ordered)
+    std::printf("  %zu reports, the most for one row %d, ordered %d\n", seen.size(), most, ordered);
+  CHECK(most >= 2);
+  CHECK(ordered);
+  CHECK_EQ(static_cast<int>(perRow.size()), m.faces());
+  for (const PartProgress& p : seen)
+    if (p.phase == PartProgress::meshing && p.round > 0) CHECK(p.facesTotal >= 1 && p.facesDone < p.facesTotal);
+  // Before meshing, each phase in order (surfaces, the boxes' edges, criteria, the edges), each counting up to its
+  // total, a use's report naming its face.
+  int phase = 0;
+  bool inOrder = true, counted = true, named = false;
+  for (const PartProgress& p : seen) {
+    if (p.phase == PartProgress::meshing || p.phase == PartProgress::splitting) break;
+    inOrder = inOrder && p.phase >= phase;
+    phase = p.phase;
+    counted = counted && p.facesDone < p.facesTotal;
+    named = named || (p.phase == PartProgress::edges && p.row == 0);
+  }
+  CHECK(inOrder);
+  CHECK(counted);
+  CHECK_EQ(phase, static_cast<int>(PartProgress::edges));
+  CHECK(named);
+  // The cube's six faces: one report each in the first pass, row k with k faces done of 6.
+  cadgeom::Model cube = load("cube");
+  REQUIRE(cube.ok());
+  PartOptions oc = options(0.1, 0.5);
+  std::vector<PartProgress> faces;
+  oc.progress = [&](const PartProgress& p) {
+    if (p.phase == PartProgress::meshing) faces.push_back(p);
+  };
+  PartMesher pc(cube, oc);
+  REQUIRE(faces.size() == 6u);
+  for (int k = 0; k < 6; k++) {
+    CHECK_EQ(faces[k].row, k);
+    CHECK_EQ(faces[k].facesDone, k);
+    CHECK_EQ(faces[k].facesTotal, 6);
+    CHECK_EQ(faces[k].round, 0);
+  }
+}
+
 TEST_CASE("natural extents: a whole sphere (no loops, or a vertex loop off its poles), a whole torus, a B-spline ball "
   "periodic in v; closed meshes") {
   // Each to its area (chords inside a convex surface: under it by at most about 2.5 d / r of it), within the

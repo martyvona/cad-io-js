@@ -1,6 +1,6 @@
 // Messages between the pool and its workers, and the handle each environment's adapter implements.
 
-import type { TessellationRequest, TessellationResult, TessellatorInfo } from 'cad-scene';
+import type { TessellationProgress, TessellationRequest, TessellationResult, TessellatorInfo } from 'cad-scene';
 
 /** The backend a worker loads: a module (an absolute URL, or a specifier the worker can import) and the name of the
  *  Tessellator class it exports, constructed without arguments; `options` go to its `init`. */
@@ -18,6 +18,8 @@ export type FromWorker =
   | { type: 'ready'; info: TessellatorInfo }
   | { type: 'initError'; message: string }
   | { type: 'result'; id: number; result: TessellationResult; memory?: number }
+  /** Where the backend is in request `id` (the backend throttles them). */
+  | { type: 'progress'; id: number; progress: TessellationProgress }
   /** `part`: the part's failure (a TessellationError, with its `timeoutMs`, or a WASM trap), not the worker's. */
   | { type: 'error'; id: number; message: string; part: boolean; timeoutMs?: number };
 

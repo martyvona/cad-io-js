@@ -13,6 +13,16 @@
 #include "cad_geom/surface.h"
 #include "tess_cadio/part.h"
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+// Progress to src/index.ts, which throttles it (Module.tcProgress, set for the call); natively, nothing.
+EM_JS(void, js_progress, (int phase, uint32_t id, int row, int round, int done, int total), {
+  if (Module['tcProgress']) Module['tcProgress'](phase, id, row, round, done, total);
+});
+#else
+static void js_progress(int, uint32_t, int, int, int, int) {}
+#endif
+
 using namespace tesscadio;
 using namespace cadgeom;
 
@@ -65,8 +75,11 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
   PartOptions opts;
   opts.d.linear = linear;
   opts.d.angular = angular;
-  PartMesher pm(m, opts);
   const uint32_t* faceId = m.u32(CBR_FACE_ID);
+  opts.progress = [&](const PartProgress& p) {
+    js_progress(p.phase, p.row >= 0 ? faceId[p.row] : 0, p.row, p.round, p.facesDone, p.facesTotal);
+  };
+  PartMesher pm(m, opts);
   std::vector<uint32_t> failed, failedRows, failedStatus, refused, unsplit, unsettled, sampled;
   std::vector<std::string> failedCause;
   // Refused triangles, and those of them in a pole's fan (a corner at a surface singularity's point).
@@ -201,8 +214,9 @@ int tc_num_edge_points() { return static_cast<int>(result.edgePositions.size() /
 const float* tc_edge_positions() { return result.edgePositions.data(); }
 /**
  * The last call's diagnostics: {"failed": [face ids], "failedRows", "failedStatus" (each one's result.h Status: an
- * empty triangulation counts as invalidModel), "failedCause" (each one's FaceMesh::cause), "refused", "unsplit", "unsettled", "sampled" (faces whose deviation
- * accept() sampled rather than bounded: SurfaceCriteria::bounded), "rounds",
+ * empty triangulation counts as invalidModel), "failedCause" (each one's FaceMesh::cause), "refused", "unsplit",
+ * "unsettled", "sampled" (faces whose deviation accept() sampled rather than bounded: SurfaceCriteria::bounded),
+ * "rounds",
  * "refusedTriangles", "poleSlivers" (refused triangles with a corner at a pole or apex)}.
  */
 const char* tc_diag() { return result.diag.c_str(); }
