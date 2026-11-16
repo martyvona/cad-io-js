@@ -408,8 +408,9 @@ TEST_CASE("the angle is the tangent's turn across a span: a 0.5 mm hole at mediu
 TEST_CASE("a span over a pole: a sample where its foot is the pole, the loop across the pole line the face's way") {
   // offPoleArc's arc lies 7e-4 inside its sphere, under the north pole at its middle: whatever the sampling, a
   // sample on the axis (its foot the pole), so the loop crosses the pole line; offPoleRest, the rest of the sphere,
-  // then winds and is cut to the south pole.
-  for (const char* name : {"offPoleArc", "offPoleRest"})
+  // then winds and is cut to the south pole. By inversion at uncertainty 1e-5 (no p-curve within it); projected at
+  // 1e-3 (the Loose ones), the pole the projection's cut a sample.
+  for (const char* name : {"offPoleArc", "offPoleRest", "offPoleArcLoose", "offPoleRestLoose"})
     for (double d : {0.1, 0.05, 0.03, 0.01})
       for (double a : {0.0, 0.26, 0.2}) {
         cadgeom::Model m = load(name);
@@ -424,12 +425,23 @@ TEST_CASE("a span over a pole: a sample where its foot is the pole, the loop acr
         bool cut = false;
         for (const auto& l : fb.loops)
           for (const BoundaryPoint& p : l) cut = cut || p.kind == BoundaryPoint::pseudoSample;
-        bool want = std::strcmp(name, "offPoleRest") == 0;
-        if (!onAxis || fb.status != cadgeom::Status::ok || cut != want)
-          std::printf("  %s at %g, %g: on the axis %d, status %d, cut %d\n", name, d, a, onAxis, int(fb.status), cut);
+        bool want = std::strstr(name, "offPoleRest") == name, loose = std::strstr(name, "Loose") != nullptr;
+        bool projected = false;
+        for (int c = 0; c < m.coedges(); c++)
+          if (m.coedgeEdge(c) == 0) projected = projected || em.coedge(c).projected;
+        if (!onAxis || fb.status != cadgeom::Status::ok || cut != want || projected != loose)
+          std::printf("  %s at %g, %g: on the axis %d, status %d, cut %d, projected %d\n", name, d, a, onAxis,
+            int(fb.status), cut, projected);
         CHECK(onAxis);
         CHECK(fb.status == cadgeom::Status::ok);
         CHECK(cut == want);
+        CHECK(projected == loose);
+        // Projected, the pole a sample at the projection's own cut there (the arc's parameter pi / 2, exactly).
+        if (loose) {
+          bool atCut = false;
+          for (double t : em.edge(0).t) atCut = atCut || t == M_PI / 2;
+          CHECK(atCut);
+        }
       }
   // A circle round a pole, not over it, in 3 spans (deflection 100): its jumps a third of the period each, none of its
   // spans' feet at the pole, no sample added for one (the 5th the cut's crossing).
@@ -591,11 +603,29 @@ TEST_CASE("edges with no 3D curve, a slit inside, an arc through 0 with no range
   CHECK(got < seg && got > seg * (1 - 1e-2));
 }
 
+TEST_CASE("a projected closed edge on a surface closed in fact within its tolerance: its use closes in (u, v)") {
+  // tubeGapUncertainty: open at its seam by 5e-4, closed in fact within 1e-3, no p-curves. Each circle's projection
+  // ends within tol of its vertex's foot, not on it (u 3.9998 for 4): its ends at the vertex's foot, a period apart
+  // exactly, or the loop doesn't close.
+  cadgeom::Model m = load("tubeGapUncertainty");
+  REQUIRE(m.ok());
+  EdgeOptions o;
+  o.deflection = 0.05;
+  EdgeMesh em(m, o);
+  for (int c = 0; c < m.coedges(); c++) {
+    const CoedgeSamples& s = em.coedge(c);
+    REQUIRE(s.projected);
+    CHECK_EQ(std::fabs(s.uv.back().x - s.uv.front().x), 4.0);
+    CHECK_EQ(s.uv.back().y, s.uv.front().y);
+  }
+}
+
 TEST_CASE("a seam use by inversion that no neighbour places: Status::singular, not a guess") {
   cadgeom::Model m = load("luneOnSeam");
   REQUIRE(m.ok());
   EdgeOptions o;
   o.deflection = 1e-3;
+  o.projectMissingPcurves = false;
   EdgeMesh em(m, o);
   CHECK_EQ(checkEdges(m, em, o, "luneOnSeam"), 0);
   CHECK(em.face(0).status == cadgeom::Status::singular);
@@ -605,6 +635,20 @@ TEST_CASE("a seam use by inversion that no neighbour places: Status::singular, n
   EdgeMesh ef(f, o);
   CHECK(ef.face(0).status == cadgeom::Status::singular);
   CHECK(EdgeMesh(load("seamByInversion"), o).face(0).status == cadgeom::Status::ok);
+  // Projected, each seam use takes the copy its direction and the face's sense give (seamUseTakesTwin): the lune's
+  // placed; the flipped face's too, meshed as the face's sense has it, its loop reported against the face's sense
+  // (the valid ones not).
+  o.projectMissingPcurves = true;
+  EdgeMesh pm(m, o);
+  CHECK_EQ(checkEdges(m, pm, o, "luneOnSeam projected"), 0);
+  CHECK(pm.face(0).status == cadgeom::Status::ok);
+  CHECK(!pm.face(0).againstSense);
+  FaceBoundary flipped = EdgeMesh(f, o).face(0);
+  CHECK(flipped.status == cadgeom::Status::ok);
+  CHECK(flipped.againstSense);
+  FaceBoundary valid = EdgeMesh(load("seamByInversion"), o).face(0);
+  CHECK(valid.status == cadgeom::Status::ok);
+  CHECK(!valid.againstSense);
 }
 
 TEST_CASE("splits: a sample inside the span asked, clamped, the rest kept; bad requests ignored and reported") {

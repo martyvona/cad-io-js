@@ -13,33 +13,17 @@
 #include <memory>
 
 #include "cad_geom/curve.h"
+#include "cad_geom/project.h"
 #include "cad_geom/surface.h"
 
 namespace tesscadio {
 
 using namespace cadgeom;
 
-std::unique_ptr<Surface> closedSurface(const Model& m, int face, Status& status) {
+std::unique_ptr<Surface> closedSurface(const Model& m, const Tolerances& tols, int face, Status& status) {
   std::unique_ptr<Surface> s = makeSurface(m, m.faceSurface(face), status);
   if (!s) return s;
-  double tol = 0;
-  for (double t : {m.uncertainty(), m.f64(CBR_FACE_TOLERANCE)[face]})
-    if (std::isfinite(t) && t > tol) tol = t;
-  if (!(tol > 0)) {
-    // (The surface's size: its domain's two diagonals in 3D; closeInFact needs both ranges finite.)
-    SurfaceDomain d = s->domain();
-    double size = 0;
-    if (std::isfinite(d.u.hi - d.u.lo) && std::isfinite(d.v.hi - d.v.lo)) {
-      auto at = [&](double u, double v) {
-        SurfacePoint q;
-        s->eval(u, v, 0, q);
-        return q.p;
-      };
-      size = norm(at(d.u.hi, d.v.hi) - at(d.u.lo, d.v.lo)) + norm(at(d.u.lo, d.v.hi) - at(d.u.hi, d.v.lo));
-    }
-    tol = 1e-9 * std::max(size, 1.0);
-  }
-  return closeInFact(std::move(s), tol);
+  return closeInFact(std::move(s), tols.face(face));
 }
 
 namespace {
@@ -94,6 +78,41 @@ struct CurveGeom : Geom {
     c.singular({a, b}, z);
     return !z.empty();
   }
+};
+
+/**
+ * A projected p-curve (projectCurve) as one 2D curve over the edge's parameters: its pieces, or its seam twin's
+ * (the copy the use takes), the first that covers t; pole pieces left out, so at a pole the piece before it gives
+ * the free coordinate (throughPoles adds the other side's). Its points clamped into the surface's range in a
+ * direction that isn't periodic, as inversion's are (the projection, within tol, can stray a rounding past a side,
+ * and a boundary there would be sampled again at the side). Only eval is used.
+ */
+struct ProjectedCurve final : Curve {
+  Pcurve p;
+  bool twin;
+  SurfaceDomain dom;
+  ProjectedCurve(Pcurve projected, bool takesTwin, SurfaceDomain domain)
+    : p(std::move(projected)), twin(takesTwin), dom(domain) {}
+  const std::vector<PcurvePiece>& pieces() const { return twin ? p.seamTwin : p.pieces; }
+  int dim() const override { return 2; }
+  CurveDomain domain() const override { return {{pieces().front().t.lo, pieces().back().t.hi}, 0}; }
+  Status eval(double t, int order, CurvePoint& out) const override {
+    for (const PcurvePiece& q : pieces())
+      if (q.curve && !q.poleLine && t >= q.t.lo && t <= q.t.hi) {
+        const Status st = q.curve->eval(t, order, out);
+        if (!(dom.uPeriod > 0)) out.p.x = std::clamp(out.p.x, dom.u.lo, dom.u.hi);
+        if (!(dom.vPeriod > 0)) out.p.y = std::clamp(out.p.y, dom.v.lo, dom.v.hi);
+        return st;
+      }
+    return Status::outOfDomain;
+  }
+  void breaks(Range r, std::vector<double>& out) const override {
+    for (const PcurvePiece& q : pieces())
+      if (q.t.lo > r.lo && q.t.lo < r.hi) out.push_back(q.t.lo);
+  }
+  Status bound(Range, Box3&) const override { return Status::unsupported; }
+  Status derivBound(Range, int, double&) const override { return Status::unsupported; }
+  void singular(Range, std::vector<double>&) const override {}
 };
 
 /** A p-curve through its surface (an edge with no 3D curve): C(t) = S(c(t)), bounded by the chain rule. */
@@ -317,6 +336,10 @@ struct EdgeMesh::Impl {
     int face = -1;
     bool ambiguous[2] = {false, false};  // by inversion and wholly on a seam in u (v): its side in question
     bool pcurveOff = false;              // its p-curve parameterized otherwise than its edge's curve: by inversion
+    bool projected = false;              // its p-curve projected from its edge's curve (the model gives none)
+    bool atVertex[2] = {false, false};   // a projected use's vertices' feet (its edge's start, end), where found
+    int seamDir = -1;                    // a projected use on a seam in u (0) or v (1), its copy by the rule
+    Vec2 vertexUv[2];
     std::map<double, SurfaceInversion> inverted;  // by edge parameter: each sample inverted once
     CoedgeSamples s;
   };
@@ -336,6 +359,7 @@ struct EdgeMesh::Impl {
     int cutDir = -1, pseudo = -1, loopA = -1, loopB = -1, pole = -1;
     double cut = 0;
     Crossing cross[2];
+    bool againstSense = false;  // a loop of it runs against its sense (Chain::againstSense)
     Status status = Status::ok;
     // A face with no edge loops: its surface's natural extent (makeNatural), its cuts' pseudo-edges: along
     // the periodic direction's cut (sphere-like: from pole to pole) and, periodic both ways, along the other's too;
@@ -350,9 +374,11 @@ struct EdgeMesh::Impl {
   std::vector<Coedge> coedges;
   std::vector<Face> faces;
 
-  Impl(const Model& model, const EdgeOptions& options) : m(model), o(options) {
-    double u = m.uncertainty();
-    tol = std::isfinite(u) && u > 0 ? u : 1e-6;
+  /** The tolerances edges and faces are judged by (cad-geom's tolerance.h, as the face API's). */
+  Tolerances tols;
+
+  Impl(const Model& model, const EdgeOptions& options) : m(model), o(options), tols(model) {
+    tol = tols.part();
   }
 
   Criteria criteria(double spacing) const {
@@ -506,7 +532,17 @@ struct EdgeMesh::Impl {
       }
       if (!C.pcurveOff) {
         s.fromPcurve = true;
+        s.projected = C.projected;
         s.uv = seeds;
+        // A projected use's vertices at their feet (the projection is within tol of them, not on them), the copy
+        // its own: uses meeting there meet in (u, v), a closed edge's use closes.
+        if (C.projected)
+          for (int i : {0, n - 1}) {
+            const int k = s.index[i] == 0 ? 0 : s.index[i] == n - 1 ? 1 : -1;
+            if (k < 0 || !C.atVertex[k]) continue;
+            s.uv[i] = {nearest(C.vertexUv[k].x, s.uv[i].x, F.period[0]), nearest(C.vertexUv[k].y, s.uv[i].y,
+              F.period[1])};
+          }
       }
     }
     if (!C.pcurve || C.pcurveOff) {
@@ -572,7 +608,7 @@ struct EdgeMesh::Impl {
       s.uv[i].x = nearest(s.uv[i].x, s.uv[i - 1].x, F.period[0]);
       s.uv[i].y = nearest(s.uv[i].y, s.uv[i - 1].y, F.period[1]);
     }
-    if (!s.fromPcurve) throughPoles(c);
+    if (!s.fromPcurve || s.projected) throughPoles(c);
     for (size_t i = 0; i < s.uv.size(); i++)
       s.gap = std::fmax(s.gap, norm(surfaceAt(C.face, s.uv[i]) - E.s.points[s.index[i]]));
   }
@@ -639,7 +675,7 @@ struct EdgeMesh::Impl {
     for (int c = 0; c < m.coedges(); c++) {
       const Coedge& C = coedges[c];
       const CoedgeSamples& s = C.s;
-      if (C.face < 0 || !faces[C.face].s || s.fromPcurve || s.uv.size() < 2) continue;
+      if (C.face < 0 || !faces[C.face].s || (s.fromPcurve && !s.projected) || s.uv.size() < 2) continue;
       const Face& F = faces[C.face];
       const Edge& E = edges[m.coedgeEdge(c)];
       if (!E.geom) continue;
@@ -682,6 +718,56 @@ struct EdgeMesh::Impl {
     }
   }
 
+  /**
+   * Each use without a p-curve whose edge has a 3D curve: its curve projected onto the face's surface over the
+   * edge's samples' range at the edge's tolerance (tols.edge, as the face API's), from and to its vertices' feet,
+   * the seam copy the use takes; where the projection is ok, its p-curve, and each pole it passes through (a pole
+   * piece's parameter) a sample of the edge, so the use's sample there is doubled across the pole line
+   * (throughPoles). Else by inversion.
+   */
+  void projectMissing() {
+    for (int c = 0; c < m.coedges(); c++) {
+      Coedge& C = coedges[c];
+      const int e = m.coedgeEdge(c);
+      Edge& E = edges[e];
+      if (C.pcurve || C.face < 0 || !faces[C.face].s || !E.curve || E.pcurveOnly || E.s.t.size() < 2) continue;
+      const double t0 = E.s.t.front(), t1 = E.s.t.back();
+      if (!(t0 != t1)) continue;
+      const PcurveSource source{&m, m.edgeCurve(e), m.faceSurface(C.face)};
+      // Its ends at its vertices' feet (as inversion places them, the same point the same (u, v) up to periods),
+      // so uses meeting at a vertex meet in (u, v) and a closed edge closes; not at a pole (its free coordinate the
+      // projection's).
+      PcurveEnds ends;
+      const bool up = t1 > t0;
+      for (int k = 0; k < 2; k++) {
+        // (k: the edge's start, end; the projection's range runs low to high.)
+        const Vec3 at = k == 0 ? E.s.points.front() : E.s.points.back();
+        C.atVertex[k] = false;
+        if (poleAt(C.face, at) >= 0) continue;
+        const SurfaceInversion si = invert(C.face, at, nullptr);
+        if (si.status != Status::ok) continue;
+        C.atVertex[k] = true, C.vertexUv[k] = si.uv;
+        const bool low = (k == 0) == up;
+        (low ? ends.hasStart : ends.hasEnd) = true;
+        (low ? ends.start : ends.end) = si.uv;
+      }
+      Pcurve p = projectCurve(*E.curve, {std::min(t0, t1), std::max(t0, t1)}, *faces[C.face].s, tols.edge(e),
+        &ends, &source);
+      if (p.status != Status::ok || p.pieces.empty()) continue;
+      // The use runs start to end forward, end to start reversed.
+      const bool back = m.coedgeOrientation(c) == CBR_ORIENTATION_REVERSED;
+      const bool twin = (p.seamU || p.seamV) && seamUseTakesTwin(p, back ? t0 > t1 : t1 > t0, m.faceSameSense(C.face));
+      C.seamDir = p.seamU ? 0 : p.seamV ? 1 : -1;
+      std::vector<double> poles;
+      for (const PcurvePiece& q : p.pieces)
+        if (q.poleLine) poles.push_back(q.t.lo);
+      C.pcurve = std::make_unique<ProjectedCurve>(std::move(p), twin, faces[C.face].dom);
+      C.projected = true;
+      for (double t : poles)
+        if (t > std::min(t0, t1) && t < std::max(t0, t1)) insertSample(e, t);
+    }
+  }
+
   /** The coedge's (u, v) at edge parameter t (p-curve, else inversion seeded by `hint`). */
   Vec2 coedgeUv(int c, double t, Vec2 hint) const {
     const Coedge& C = coedges[c];
@@ -718,6 +804,7 @@ struct EdgeMesh::Impl {
     int winding[2] = {0, 0};
     Status status = Status::ok;
     std::vector<int> owner;  // per point: the coedge (-1: a pole fill)
+    bool againstSense = false;  // a projected seam use's side (by the rule) against where its loop has it
   };
 
   /** The coedge's points as BoundaryPoints, shifted. */
@@ -863,6 +950,24 @@ struct EdgeMesh::Impl {
       // Left of (0, dir) is -u; left of (dir, 0) is +v.
       double want = (d == 0 ? -dir : dir) * (sense ? 1 : -1), got = mean / count - seamAt;
       if (want * got <= 0) ch.status = Status::singular;
+    }
+    // A projected seam use took its copy by the rule (its direction and the face's sense); where its loop has the
+    // face's other points on its other side, the loop runs against the face's sense (a face turned while its loop
+    // isn't): meshed as the face's sense has it, the contradiction reported, which is right left to healing.
+    for (int k = 0; k < K; k++) {
+      const Coedge& C = coedges[cs[k]];
+      if (amb[k] || !C.projected || C.seamDir < 0) continue;
+      int d = C.seamDir, other = 1 - d;
+      Vec2 a = first(k), b = last(k);
+      double dir = other == 1 ? b.y - a.y : b.x - a.x, seamAt = d == 0 ? a.x : a.y, mean = 0;
+      int count = 0;
+      for (int j = 0; j < K; j++) {
+        if (amb[j] || m.coedgeEdge(cs[j]) == m.coedgeEdge(cs[k])) continue;
+        for (Vec2 q : coedges[cs[j]].s.uv) mean += (d == 0 ? q.x + shift[j].x : q.y + shift[j].y), count++;
+      }
+      if (!count || dir == 0) continue;
+      double want = (d == 0 ? -dir : dir) * (sense ? 1 : -1), got = mean / count - seamAt;
+      if (want * got <= 0) ch.againstSense = true;
     }
     // Emitted from coedge 0: each junction once (the end of the one before), pole jumps filled.
     for (int k = 0; k < K; k++) {
@@ -1063,6 +1168,7 @@ struct EdgeMesh::Impl {
 
   void makeCut(int f) {
     Face& F = faces[f];
+    F.againstSense = false;
     bool edgeLoops = false;
     for (int i = 0; i < m.faceLoopCount(f); i++)
       edgeLoops = edgeLoops || m.loopKind(m.faceFirstLoop(f) + i) == CBR_LOOP_EDGE;
@@ -1083,6 +1189,7 @@ struct EdgeMesh::Impl {
       std::vector<int> cs = bounding(l);
       if (cs.empty()) continue;
       Chain ch = chain(f, cs);
+      F.againstSense = F.againstSense || ch.againstSense;
       if (ch.pts.size() < 2) continue;  // (face() reports it)
       // A loop wholly at a pole (an unflagged degenerate edge there): the pole, as a vertex loop at it is.
       if (int p = chainPole(f, ch); p >= 0) {
@@ -1375,6 +1482,7 @@ struct EdgeMesh::Impl {
       return out;
     }
     out.status = F.status;
+    out.againstSense = F.againstSense;
     because(F.why);
     if (F.status != Status::ok && F.cutDir < 0 && F.status != Status::singular) return out;
     std::vector<std::vector<BoundaryPoint>> loops;
@@ -1539,7 +1647,7 @@ EdgeMesh::EdgeMesh(const Model& model, const EdgeOptions& options, const std::ve
   for (int f = 0; f < m.faces(); f++) {
     Impl::Face& F = I.faces[f];
     Status st;
-    F.s = closedSurface(m, f, st);
+    F.s = closedSurface(m, I.tols, f, st);
     if (!F.s) {
       F.status = st;
       continue;
@@ -1589,6 +1697,7 @@ EdgeMesh::EdgeMesh(const Model& model, const EdgeOptions& options, const std::ve
     if (options.progress) options.progress(e, I.nModel + m.coedges(), -1);
     I.sampleModelEdge(e);
   }
+  if (options.projectMissingPcurves) I.projectMissing();
   for (int c = 0; c < m.coedges(); c++) {
     if (options.progress) options.progress(I.nModel + c, I.nModel + m.coedges(), I.coedges[c].face);
     I.computeCoedge(c);

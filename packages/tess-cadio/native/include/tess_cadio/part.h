@@ -45,6 +45,8 @@ struct PartOptions {
    * host to say how far a request got (a timeout). Not throttled here.
    */
   std::function<void(const PartProgress&)> progress;
+  /** EdgeOptions::projectMissingPcurves: uses without p-curves projected (else by inversion). */
+  bool projectMissingPcurves = true;
 };
 
 struct FaceMesh {
@@ -78,6 +80,8 @@ struct FaceMesh {
    * its point cap), else empty.
    */
   std::string note;
+  /** Its boundary's FaceBoundary::againstSense: a loop against the face's sense, meshed as the sense has it. */
+  bool againstSense = false;
 };
 
 class PartMesher {

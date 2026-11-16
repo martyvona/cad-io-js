@@ -650,8 +650,9 @@ export function offPcurves(): BrepBuilder {
 /**
  * A quarter of the unit sphere (z > 0, y < 0), as bug27894's faces have it: bounded by a semicircle from (1, 0, 0) up
  * to (-1, 0, 0) that passes 7e-4 below the north pole (its centre (0, 0, -7e-4), off the sphere by up to that, the
- * part's uncertainty 1e-5) and the equator's half back through y < 0; no p-curves. Its loop crosses the whole pole
- * line there, so the cut must not; area about pi.
+ * part's uncertainty 1e-5, so no p-curve can be projected for it) and the equator's half back through y < 0; no
+ * p-curves. Its loop crosses the whole pole line there, so the cut must not; area about pi. `uncertainty` 1e-3
+ * (offPoleArcLoose): the arc within it, projected, through the pole.
  */
 export function offPoleArc(uncertainty = 1e-5): BrepBuilder {
   const b = new BrepBuilder({ uncertainty });
@@ -708,12 +709,12 @@ export const bsplineTubeTinyArc = (): BrepBuilder => tube(true);
 /**
  * The tube open at its seam by 5e-4, closed in fact within the face's tolerance 1e-3 (no uncertainty given), or
  * within the part's uncertainty 1e-3 (no face tolerance); by 5e-9 with neither, closed in fact within 1e-9 of its size
- * (10: its domain's diagonals); by 1e-5 with neither, open.
+ * (10: its domain's diagonals); by 3e-5 with neither, open (over the 1e-5 a part with no uncertainty is judged by).
  */
 export const tubeGapFaceTolerance = (): BrepBuilder => tube(false, 5e-4, undefined, 1e-3);
 export const tubeGapUncertainty = (): BrepBuilder => tube(false, 5e-4, 1e-3);
 export const tubeGapBySize = (): BrepBuilder => tube(false, 5e-9);
-export const tubeGapOpen = (): BrepBuilder => tube(false, 1e-5);
+export const tubeGapOpen = (): BrepBuilder => tube(false, 3e-5);
 
 /**
  * The unit sphere's upper half as a rational B-spline (u round, closed; v a quarter circle up to the pole, its top
@@ -743,13 +744,16 @@ export function bsplineDome(): BrepBuilder {
 
 /**
  * offPoleArc at uncertainty 1e-3: its arc, 7e-4 under the pole, then passes through it by the part's own tolerance,
- * its sample there at the pole in (u, v) but 7e-4 off it in 3D.
+ * its sample there at the pole in (u, v) but 7e-4 off it in 3D (projected: through the pole).
  */
 export const offPoleArcLoose = (): BrepBuilder => offPoleArc(1e-3);
 
-/** offPoleArc's loop the other way round: the rest of the sphere, its loop winding round to the south pole. */
-export function offPoleRest(): BrepBuilder {
-  const b = new BrepBuilder({ uncertainty: 1e-5 });
+/**
+ * offPoleArc's loop the other way round: the rest of the sphere, its loop winding round to the south pole;
+ * offPoleRestLoose at uncertainty 1e-3, its arc projected.
+ */
+export function offPoleRest(uncertainty = 1e-5): BrepBuilder {
+  const b = new BrepBuilder({ uncertainty });
   const dz = 7e-4, r = Math.hypot(1, dz), t0 = Math.atan2(dz, 1);
   const va = b.addVertex({ point: [1, 0, 0] }), vb = b.addVertex({ point: [-1, 0, 0] });
   const arc = b.addCurve({ kind: 'circle', position: { origin: [0, 0, -dz], axis: [0, -1, 0], xDir: [1, 0, 0] },
@@ -855,12 +859,12 @@ export function sBend(): BrepBuilder {
   return b;
 }
 
-export const MODELS = { plateHoles, bsplineApexHole, offPoleArcLoose, loopless, bsplineBall, wholeTorus, wholeSphereVertex,
-  bsplineApex: () => bsplineApex(), poleHole, smallHole, sBend,
-  cuspEdge: () => cuspEdge(), nearCusp6, bumpPatch: () => bumpPatch(),
-  halfBump: () => bumpPatch(true), thinBand, tubeGapFaceTolerance,
-  tubeGapUncertainty, tubeGapBySize, tubeGapOpen, torusOuterHalf, meridianHemisphereLoose, offPoleRest, wigglyBand,
-  notchBand, bsplineTube, bsplineTubeTinyArc, bsplineDome, offPoleArc, offPcurves, bandHoleAtVertex, bandHoleOnCut,
+export const MODELS = { plateHoles, bsplineApexHole, offPoleArcLoose, loopless, bsplineBall, wholeTorus,
+  wholeSphereVertex, bsplineApex: () => bsplineApex(), poleHole, smallHole, sBend, cuspEdge: () => cuspEdge(),
+  nearCusp6, bumpPatch: () => bumpPatch(), halfBump: () => bumpPatch(true), thinBand, tubeGapFaceTolerance,
+  tubeGapUncertainty, tubeGapBySize, tubeGapOpen, torusOuterHalf, meridianHemisphereLoose,
+  offPoleRest: () => offPoleRest(), offPoleRestLoose: () => offPoleRest(1e-3), wigglyBand, notchBand, bsplineTube,
+  bsplineTubeTinyArc, bsplineDome, offPoleArc: () => offPoleArc(), offPcurves, bandHoleAtVertex, bandHoleOnCut,
   halfCap, meridianHemisphere, band: band_, bandByInversion, bore, nistBore, seamByInversion, offVertex, pcurveOnly,
   luneQuarter, luneOnSeam, cap, splineEdge, seamFlipped, polylineEdge, pcurveCircle, arcSegment, fold, twisted,
   wrongSense, zeroEdge };

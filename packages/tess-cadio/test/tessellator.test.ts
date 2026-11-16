@@ -10,7 +10,7 @@ import { openEdges, oracleMeasures, type TessellationProgress, type Tessellation
 import { MODELS } from '../../cad-brep/test/models.ts';
 import { CadioTessellator, progressReporter, VERSION } from '../src/index.ts';
 import { bsplineDome, bumpPatch, cap, fold, halfCap, loopless, luneOnSeam, luneQuarter, meridianHemisphere, pcurveOnly,
-  torusOuterHalf } from '../native/test/models.ts';
+  seamByInversion, seamFlipped, torusOuterHalf } from '../native/test/models.ts';
 
 const dist = path.join(import.meta.dirname, '..', 'dist', 'tess_cadio.wasm');
 const skip = fs.existsSync(dist) ? false : 'tess-cadio\'s module not built (run packages/tess-cadio/build.sh module)';
@@ -136,11 +136,13 @@ test('triangles still refused counted, those in a pole\'s fan apart: none at pol
         assert.equal(c?.[3] ?? '0', '0', `${name} at ${l}, ${a}: ${c?.[2]} refused, ${c?.[3]} at a pole`);
       }
     }
-    // luneOnSeam's boundary leaves its seam's side unsettled (its face meshed, but no fan made on a guess): its
-    // mesher's triangles at its pole refused, counted as there.
-    const l = await refused(luneOnSeam(), 0.01, 0.05);
-    assert.ok(l);
-    assert.ok(Number(l[3]) >= 1 && Number(l[3]) <= Number(l[2]), `${l[2]} refused, ${l[3]} at a pole`);
+    // luneOnSeam, with no p-curves, by inversion left its seam's side unsettled (no fan made on a guess); projected,
+    // the side is the rule's (seamUseTakesTwin): settled, fanned, none refused at its poles, no unsettled seam.
+    const r = await t.tessellate({ ...req('cube'), data: new Uint8Array(luneOnSeam().finish().buffer),
+      linearDeflection: 0.01, angularDeflection: 0.05 });
+    const l = r.diagnostics.map((x) => re.exec(x.message)).find((m) => m);
+    assert.equal(l?.[3] ?? '0', '0', `${l?.[2]} refused, ${l?.[3]} at a pole`);
+    assert.ok(!r.diagnostics.some((x) => /seam whose side/.test(x.message)));
     // pcurveOnly's (a cylinder's) at 1e-4 mm and 0.1 rad: refused, none at a pole.
     const o = await refused(pcurveOnly(), 1e-4, 0.1);
     assert.ok(o);
@@ -241,4 +243,18 @@ test('bytes that aren\'t a model: an error, no triangles', { skip }, async () =>
   const r = await t.tessellate({ ...req('cube'), data: new Uint8Array(64) });
   assert.equal(r.indices.length, 0);
   assert.match(r.diagnostics[0]!.message, /not a cad-brep model/);
+});
+
+test('a loop against its face\'s sense (a projected seam use\'s side contradicting it): meshed, reported with its id',
+  { skip }, async () => {
+  const t = await tessellator();
+  const run = async (model: { finish(): { buffer: ArrayBuffer } }) => t.tessellate({ ...req('cube'),
+    data: new Uint8Array(model.finish().buffer) });
+  const flipped = await run(seamFlipped());
+  assert.ok(flipped.indices.length > 0);
+  const d = flipped.diagnostics.find((x) => /loop against the face's sense/.test(x.message));
+  assert.ok(d, JSON.stringify(flipped.diagnostics));
+  assert.match(d.message, /^1 faces .*: faces \d+$/);
+  const valid = await run(seamByInversion());
+  assert.ok(!valid.diagnostics.some((x) => /loop against the face's sense/.test(x.message)));
 });
