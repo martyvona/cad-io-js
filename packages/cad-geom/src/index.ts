@@ -13,9 +13,12 @@ export const CERTAINTY = ['unique', 'ambiguous', 'none'] as const;
 export type Certainty = (typeof CERTAINTY)[number];
 /** surface.h's Singularity kinds, by code. */
 export const SINGULARITY = ['pole', 'apex', 'normalVanishes'] as const;
+/** project.h's PcurveMethod, by code. */
+export const PCURVE_METHOD = ['none', 'planeAffine', 'isoLine', 'affineFeet', 'traced'] as const;
+export type PcurveMethod = (typeof PCURVE_METHOD)[number];
 
 /** The module's C API version this layer speaks (cg_api_version). */
-const API_VERSION = 1;
+const API_VERSION = 2;
 
 type Fn = (...args: number[]) => number;
 interface GeomExports {
@@ -169,12 +172,14 @@ export interface Singularity {
 /** geom2d.h's Side, by code. */
 export const SIDE = ['in', 'out', 'on'] as const;
 /**
- * A face's status: a STATUS, or the face's own (cad_geom_api.cpp): a coedge without a p-curve, one whose range is
- * neither given nor derivable, one whose derived range's ends are off its vertices.
+ * A face's status: a STATUS, or the face's own (cad_geom_api.cpp): a coedge without a p-curve and none projected (no
+ * 3D curve, or projection off), one whose range is neither given nor derivable, one whose derived range's ends are
+ * off its vertices, one whose projection's status isn't ok.
  */
-export type FaceStatus = Status | 'noPcurve' | 'noPcurveRange' | 'pcurveRangeOff';
+export type FaceStatus = Status | 'noPcurve' | 'noPcurveRange' | 'pcurveRangeOff' | 'pcurveProjectionFailed';
+const FACE_STATUS = ['noPcurve', 'noPcurveRange', 'pcurveRangeOff', 'pcurveProjectionFailed'] as const;
 function faceStatus(code: number): FaceStatus {
-  return code === 100 ? 'noPcurve' : code === 101 ? 'noPcurveRange' : code === 102 ? 'pcurveRangeOff' : STATUS[code]!;
+  return code >= 100 ? FACE_STATUS[code - 100]! : STATUS[code]!;
 }
 
 export interface FaceInfo {
@@ -189,6 +194,87 @@ export interface FaceInfo {
   poles: { isoU: boolean; at: number }[];
   /** Its coedges whose p-curve range is the p-curve's own, its curve's parameters missing its vertices. */
   ownRanges: number;
+  /** Its coedges without a p-curve, their edges' curves projected. */
+  projected: number;
+}
+
+/** One piece of a p-curve (project.h's PcurvePiece): a 2D curve over t, or a jump along a pole line. */
+export interface PcurvePiece {
+  t: [number, number];
+  /**
+   * The curve in the model's form (cad-brep's CURVE_LAYOUTS, dim 2): its kind, reals and ints; kind 0 where it has
+   * none, the 3D curve's image by a plane's map `affine` (u = affine[0..2] . (P - o), v = affine[3..5] . (P - o),
+   * o = affine[6..8]).
+   */
+  kind: number;
+  reals: Float64Array;
+  ints: Int32Array;
+  affine: Float64Array;
+  /** A jump along a pole line at t[0] == t[1], from `from` to `to`, with no curve. */
+  poleLine: boolean;
+  from: [number, number];
+  to: [number, number];
+  certainty: Certainty;
+  /** The largest 3D distance from the surface at the piece to the curve (mm, measured between samples too). */
+  error: number;
+}
+
+/** A projection (project.h's Pcurve): its status ok promises error <= tol. */
+export interface Pcurve {
+  status: Status;
+  method: PcurveMethod;
+  certainty: Certainty;
+  /** On a seam: `seamTwin` is the other side's copy, a period up. */
+  seamU: boolean;
+  seamV: boolean;
+  /** The largest distance from the curve to the surface (mm, measured). */
+  offSurface: number;
+  error: number;
+  tAmbiguous: Float64Array;
+  pieces: PcurvePiece[];
+  seamTwin: PcurvePiece[];
+  /** projectCoedge: the coedge's use takes `seamTwin`. */
+  takesTwin: boolean;
+  /** The curve's parameters at the start and end (projectCoedge: its edge's start and end). */
+  range: [number, number];
+  /** Per sample parameter asked: (u, v) of `pieces` (NaN where none covers it), and of `seamTwin` where on a seam. */
+  uv: Float64Array;
+  twinUv: Float64Array;
+}
+
+/** The scratch's projection (cad_geom_api.cpp) with n samples. */
+function readPcurve(v: Float64Array, n: number): Pcurve {
+  let at = 13;
+  const tAmbiguous = v.slice(at, at + v[7]!);
+  at += v[7]!;
+  const read = (count: number) => {
+    const out: PcurvePiece[] = [];
+    for (let i = 0; i < count; i++) {
+      const o = v.subarray(at, at + 21), nr = o[10]!, ni = o[11]!;
+      at += 21;
+      const reals = v.slice(at, at + nr);
+      at += nr;
+      const ints = Int32Array.from(v.subarray(at, at + ni));
+      at += ni;
+      out.push({ t: [o[0]!, o[1]!], kind: o[2]!, reals, ints, affine: o.slice(12, 21), poleLine: o[3] === 1,
+        from: [o[4]!, o[5]!], to: [o[6]!, o[7]!], certainty: CERTAINTY[o[8]!]!, error: o[9]! });
+    }
+    return out;
+  };
+  const pieces = read(v[8]!), seamTwin = read(v[9]!);
+  const uv = v.slice(at, at + 2 * n);
+  at += 2 * n;
+  return { status: STATUS[v[0]!]!, method: PCURVE_METHOD[v[1]!]!, certainty: CERTAINTY[v[2]!]!, seamU: v[3] === 1,
+    seamV: v[4] === 1, offSurface: v[5]!, error: v[6]!, tAmbiguous, pieces, seamTwin, takesTwin: v[10] === 1,
+    range: [v[11]!, v[12]!], uv, twinUv: seamTwin.length ? v.slice(at, at + 2 * n) : new Float64Array() };
+}
+
+export interface ProjectOptions {
+  /** (u, v) the p-curve must start or end at (a period's difference is unwrapped; a pole's free parameter). */
+  start?: [number, number];
+  end?: [number, number];
+  /** Parameters to give the p-curve's (u, v) at (`uv`, `twinUv`). */
+  samples?: ArrayLike<number>;
 }
 
 export interface FaceSides {
@@ -388,18 +474,62 @@ export class Geometry {
       flags: flags as Uint8Array };
   }
 
+  // -- Projection: a 3D curve's p-curve on a surface (project.h).
+
+  /**
+   * projectCurve of curve row `row` over [lo, hi] onto surface row `surface` (as it closes in fact at tol), within
+   * tol (mm); only a status where the curve or surface can't be made.
+   */
+  project(row: number, surface: number, lo: number, hi: number, tol: number, opts: ProjectOptions = {}):
+    Pcurve | { status: Status } {
+    const t = opts.samples ?? [], { start, end } = opts;
+    const ends = start || end ? { f64: [start ? 1 : 0, start?.[0] ?? 0, start?.[1] ?? 0, end ? 1 : 0, end?.[0] ?? 0,
+      end?.[1] ?? 0] } : 0;
+    const [s] = this.call('project', row, surface, lo, hi, tol, ends, { f64: t }, t.length);
+    return s !== 0 ? { status: STATUS[s]! } : readPcurve(this.scratch(), t.length);
+  }
+
+  /**
+   * The coedge's edge curve projected onto its face's surface as the face API does (over its edge's parameters, the
+   * seam side its use takes), whether or not the model gives it a p-curve: at `tol` where given (> 0), else the
+   * edge's tolerance (the face API's, kept).
+   */
+  projectCoedge(coedge: number, tol = NaN, samples: ArrayLike<number> = []): Pcurve | { status: FaceStatus } {
+    const [s] = this.call('coedge_project', coedge, tol, { f64: samples }, samples.length);
+    return s !== 0 ? { status: faceStatus(s) } : readPcurve(this.scratch(), samples.length);
+  }
+
+  /**
+   * The coedge's p-curve as the face API takes it (the model's, else its projection) at each parameter, to `order`:
+   * as evalCurve's.
+   */
+  evalCoedge(coedge: number, t: ArrayLike<number>, order: 0 | 1 | 2 = 1):
+    { status: FaceStatus; values: Float64Array; statuses: Uint8Array } {
+    const n = t.length;
+    const [s, values, statuses] = this.call('coedge_eval', coedge, { f64: t }, n, order,
+      { out: 'f64', n: n * 3 * (order + 1) }, { out: 'u8', n });
+    return { status: faceStatus(s), values: values as Float64Array, statuses: statuses as Uint8Array };
+  }
+
+  /** Whether the face API projects coedges without p-curves (on by default; off, their faces are 'noPcurve'). */
+  setProjectMissingPcurves(on: boolean): void {
+    this.fn('model_options')(this.live(), on ? 0 : 1);
+  }
+
   // -- Faces: 2D geometry on a face's loops (geom2d.h; cad_geom_api.cpp says how the loops, periods, pole lines and
   // tolerances are made). tol3d, where given (> 0), is the 3D tolerance; else the model's (or 1e-7 mm).
 
   /** The face's loops as geom2d sees them: the 3D tolerance used, the periods, the edge loops, the pole lines. */
   faceInfo(face: number, tol3d = NaN): FaceInfo {
-    const [s, out] = this.call('face_info', face, tol3d, { out: 'f64', n: 6 });
+    const [s, out] = this.call('face_info', face, tol3d, { out: 'f64', n: 7 });
     if (s !== 0) {
-      return { status: faceStatus(s), tolerance: NaN, uPeriod: 0, vPeriod: 0, loops: 0, poles: [], ownRanges: 0 };
+      return { status: faceStatus(s), tolerance: NaN, uPeriod: 0, vPeriod: 0, loops: 0, poles: [], ownRanges: 0,
+        projected: 0 };
     }
     const o = out as Float64Array, v = this.scratch(), poles: FaceInfo['poles'] = [];
     for (let i = 0; i < o[4]!; i++) poles.push({ isoU: v[2 * i] === 1, at: v[2 * i + 1]! });
-    return { status: 'ok', tolerance: o[0]!, uPeriod: o[1]!, vPeriod: o[2]!, loops: o[3]!, poles, ownRanges: o[5]! };
+    return { status: 'ok', tolerance: o[0]!, uPeriod: o[1]!, vPeriod: o[2]!, loops: o[3]!, poles, ownRanges: o[5]!,
+      projected: o[6]! };
   }
 
   /**

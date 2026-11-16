@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { BrepBuilder, openBrep, rowCount, SURFACE_KIND } from '../../cad-brep/src/index.ts';
+import { BrepBuilder, LOOP_KIND, openBrep, rowCount, SURFACE_KIND } from '../../cad-brep/src/index.ts';
 import { curveEvaluator, surfaceEvaluator } from '../../cad-brep/src/geometry.ts';
 import { MODELS } from '../../cad-brep/test/models.ts';
 import { CERTAINTY, Geometry, init, STATUS } from '../src/index.ts';
@@ -582,4 +582,254 @@ test('faces: p-curves ending a few ulps past a sphere\'s pole reach it', { skip 
   const r = g.classifyOnFace(0, [h / 2, h / 2, Math.PI, h / 2, h / 2, -0.3]);
   assert.deepEqual([...r.statuses], [0, 0, 0]);
   assert.deepEqual([...r.sides].map((x) => ['in', 'out', 'on'][x]), ['in', 'out', 'out']);
+});
+
+/** A copy of the model with every coedge's p-curve and its range removed, as a STEP file without p-curves gives. */
+function stripped(bytes: Uint8Array): Uint8Array {
+  const copy = new Uint8Array(bytes);
+  const d = openBrep(copy);
+  d.coedge.pcurve.fill(-1);
+  d.coedge.range.fill(NaN);
+  return copy;
+}
+
+test('projection: the catalogue\'s classify2 and nest2 cases with every p-curve removed, the face API projecting '
+  + 'them', { skip }, async () => {
+  const module = await init();
+  let classified = 0, nested = 0, projected = 0;
+  for (const file of fs.readdirSync(refDir).filter(f => /^case-.*\.json$/.test(f)).sort()) {
+    const j = JSON.parse(fs.readFileSync(path.join(refDir, file), 'utf8'));
+    const bytes = stripped(new Uint8Array(fs.readFileSync(path.join(refDir, file.replace('.json', '.cbr')))));
+    using g = new Geometry(module, bytes);
+    const d = openBrep(bytes);
+    for (const c of j.cases) {
+      if (c.query !== 'classify2' && c.query !== 'nest2') continue;
+      const info = g.faceInfo(c.input.face);
+      assert.equal(info.status, 'ok', c.id);
+      assert.ok(info.projected > 0, c.id);
+      projected += info.projected;
+      if (c.query === 'classify2') {
+        const r = g.classifyOnFace(c.input.face, c.input.p, c.input.tol);
+        assert.equal(r.status, 'ok', c.id);
+        assert.equal(['in', 'out', 'on'][r.sides[0]!], c.expected.side, c.id);
+        classified++;
+      } else {
+        const r = g.nestFace(c.input.face, d.face.loopCount[c.input.face]!, c.input.tol);
+        assert.equal(r.status, 'ok', c.id);
+        assert.deepEqual([...r.parents], c.expected.parents, c.id);
+        nested++;
+      }
+    }
+    // Off, the face API says so instead.
+    g.setProjectMissingPcurves(false);
+    for (let f = 0; f < rowCount(d, 'face'); f++) assert.equal(g.faceInfo(f).status, 'noPcurve');
+  }
+  assert.equal(classified + nested, 35);
+  assert.ok(projected > 35);
+});
+
+test('projection: every reference shape\'s faces with their p-curves removed against the model\'s, at every variant',
+  { skip }, async () => {
+  const module = await init();
+  let faces = 0, compared = 0, seams = 0, points = 0;
+  for (const file of fs.readdirSync(refDir).filter((f) => f.endsWith('.cbr') && !f.startsWith('case-')).sort()) {
+    const bytes = new Uint8Array(fs.readFileSync(path.join(refDir, file)));
+    using g0 = new Geometry(module, bytes);
+    using g = new Geometry(module, stripped(bytes));
+    const d = openBrep(bytes);
+    for (let f = 0; f < rowCount(d, 'face'); f++) {
+      const at = `${file} face ${f}`, info0 = g0.faceInfo(f);
+      // (A p-curve parameterized otherwise than its curve can't be compared at the same parameters.)
+      if (info0.status !== 'ok' || info0.ownRanges || !info0.loops) continue;
+      const info = g.faceInfo(f);
+      assert.equal(info.status, 'ok', at);
+      faces++;
+      const uses = new Map<number, number>(), { coedge, travel } = g0.facePieces(f);
+      for (const c of coedge) uses.set(d.coedge.edge[c]!, (uses.get(d.coedge.edge[c]!) ?? 0) + 1);
+      assert.equal(info.projected, new Set(coedge).size, at);
+      // Each use's p-curve: on the model's within the tolerance in 3D, a whole number of periods from it in (u, v);
+      // a seam's on the same copy (the side its use takes).
+      const uv: number[] = [];
+      for (let k = 0; k < coedge.length; k++) {
+        const c = coedge[k]!, ts = [0.1, 0.3, 0.5, 0.7, 0.9].map((x) => travel[2 * k]! + x * (travel[2 * k + 1]!
+          - travel[2 * k]!));
+        const a = g0.evalCoedge(c, ts, 0), b = g.evalCoedge(c, ts, 0);
+        assert.equal(b.status, 'ok', at);
+        const pa: number[] = [], pb: number[] = [];
+        for (let i = 0; i < ts.length; i++) {
+          assert.equal(b.statuses[i], 0, at);
+          pa.push(a.values[3 * i]!, a.values[3 * i + 1]!), pb.push(b.values[3 * i]!, b.values[3 * i + 1]!);
+        }
+        const sa = g0.evalSurface(d.face.surface[f]!, pa, 0).values;
+        const sb = g0.evalSurface(d.face.surface[f]!, pb, 0).values;
+        const seam = uses.get(d.coedge.edge[c]!)! > 1;
+        for (let i = 0; i < ts.length; i++) {
+          assert.ok(norm(sa, [sb[3 * i]!, sb[3 * i + 1]!, sb[3 * i + 2]!], 3 * i) <= 10 * info.tolerance,
+            `${at} coedge ${c} at ${ts[i]}`);
+          for (const [x, period] of [[0, info.uPeriod], [1, info.vPeriod]] as const) {
+            const du = pb[2 * i + x]! - pa[2 * i + x]!, n = period > 0 ? Math.round(du / period) : 0;
+            assert.ok(Math.abs(du - n * period) <= 1e-6 * Math.max(1, Math.abs(pa[2 * i + x]!)),
+              `${at} coedge ${c} at ${ts[i]}: ${'uv'[x]} ${pb[2 * i + x]} against ${pa[2 * i + x]}`);
+            if (seam) assert.ok(n === 0, `${at} seam coedge ${c}: ${'uv'[x]} ${n} periods off`);
+          }
+        }
+        if (seam) seams++;
+        compared++;
+        uv.push(...pa);
+      }
+      // Points on a grid over the loops' (u, v) box: classified as the model's p-curves classify them (a coarser
+      // grid on the variants: classifying on a periodic face takes milliseconds a point).
+      let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+      for (let i = 0; i < uv.length; i += 2) {
+        u0 = Math.min(u0, uv[i]!), u1 = Math.max(u1, uv[i]!);
+        v0 = Math.min(v0, uv[i + 1]!), v1 = Math.max(v1, uv[i + 1]!);
+      }
+      const grid: number[] = [], n = file.endsWith('-s1.cbr') ? 6 : 3;
+      for (let i = 0; i < n; i++)
+        for (let j = 0; j < n; j++) grid.push(u0 + (u1 - u0) * (i + 0.5) / n, v0 + (v1 - v0) * (j + 0.5) / n);
+      const r0 = g0.classifyOnFace(f, grid), r = g.classifyOnFace(f, grid);
+      assert.equal(r.status, 'ok', at);
+      assert.deepEqual([...r.sides], [...r0.sides], at);
+      points += grid.length / 2;
+      const loops = d.face.loopCount[f]!;
+      assert.deepEqual([...g.nestFace(f, loops).parents], [...g0.nestFace(f, loops).parents], at);
+      // Each use's travel from its first piece's start to its last's end (a projection's pieces may be cut where the
+      // model's aren't); and each loop's self-intersections (a seam's two uses on one copy would overlap).
+      const ends = (p: { coedge: Int32Array; travel: Float64Array }) => {
+        const m = new Map<number, [number, number]>();
+        p.coedge.forEach((c, k) => m.set(c, [m.get(c)?.[0] ?? p.travel[2 * k]!, p.travel[2 * k + 1]!]));
+        return m;
+      };
+      const e0 = ends({ coedge, travel }), e = ends(g.facePieces(f));
+      for (const [c, [a, b]] of e0) {
+        const [x, y] = e.get(c)!;
+        assert.ok(Math.abs(x - a) <= 1e-9 * (1 + Math.abs(a)) && Math.abs(y - b) <= 1e-9 * (1 + Math.abs(b)),
+          `${at} coedge ${c}: travel ${x} to ${y} against ${a} to ${b}`);
+      }
+      for (let k = 0; k < loops; k++) {
+        if (d.loop.kind[d.face.firstLoop[f]! + k] !== LOOP_KIND.edge) continue;
+        const a = g0.selfIntersectFace(f, k), b = g.selfIntersectFace(f, k);
+        assert.deepEqual([b.status, b.crossings, b.touches, b.overlaps], [a.status, a.crossings, a.touches, a.overlaps],
+          `${at} loop ${k}`);
+      }
+    }
+  }
+  assert.deepEqual([faces, compared, seams], [140, 350, 56]);
+  assert.equal(points, 1800);
+});
+
+test('projection: project and projectCoedge through the API (samples, ends, a seam\'s twin, failures, the opt-out)',
+  { skip }, async () => {
+  const module = await init();
+  const b = new BrepBuilder();
+  const axes = { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] };
+  const cylinder = b.addSurface({ kind: 'cylinder', position: axes, radius: 1 });
+  const circle = b.addCurve({ kind: 'circle', position: { ...axes, origin: [0, 0, 0.5] }, radius: 1 });
+  const seam = b.addCurve({ kind: 'line', point: [1, 0, 0], direction: [0, 0, 1], magnitude: 1 });
+  const wide = b.addCurve({ kind: 'circle', position: axes, radius: 1.5 });
+  // A clockwise circle on a plane at (1, 2, 0) whose x is y: kind 0, the plane's map. A plane section of the cylinder,
+  // tilted 0.5 rad: an ellipse, traced.
+  const moved = b.addSurface({ kind: 'plane', position: { origin: [1, 2, 0], axis: [0, 0, 1], xDir: [0, 1, 0] } });
+  const clockwise = b.addCurve({ kind: 'circle', position: { ...axes, axis: [0, 0, -1] }, radius: 1 });
+  const tilt = 0.5, ellipse = b.addCurve({ kind: 'ellipse', position: { origin: [0, 0, 0],
+    axis: [0, -Math.sin(tilt), Math.cos(tilt)], xDir: [0, Math.cos(tilt), Math.sin(tilt)] },
+  semiAxis1: 1 / Math.cos(tilt), semiAxis2: 1 });
+  // Unit disks on z = 0 bounded by a closed circle without a p-curve: one on the plane, one 0.001 above it.
+  const plane = b.addSurface({ kind: 'plane', position: axes });
+  for (const z of [0, 1e-3]) {
+    const v = b.addVertex({ point: [1, 0, z] });
+    const c = b.addCurve({ kind: 'circle', position: { ...axes, origin: [0, 0, z] }, radius: 1 });
+    const e = b.addEdge({ curve: c, start: v, end: v, sameSense: true });
+    const f = b.addFace({ surface: plane, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true,
+      coedges: [{ edge: e, orientation: 'forward' }] }] });
+    b.addItem({ kind: 'face', ref: f });
+  }
+  using g = new Geometry(module, new Uint8Array(b.finish().buffer));
+  const close = (a: ArrayLike<number>, want: number[], at: string) =>
+    want.forEach((w, i) => assert.ok(Math.abs(a[i]! - w) <= 1e-12 * (1 + Math.abs(w)), `${at} [${i}]: ${a[i]}`));
+
+  // A coaxial circle: an iso-line u = t, v = 0.5, from the start given (two turns on).
+  const p = g.project(circle, cylinder, 0, 2 * Math.PI, 1e-7, { samples: [0, 1, Math.PI, 7] });
+  assert.ok('pieces' in p);
+  assert.deepEqual([p.status, p.method, p.certainty, p.seamU, p.seamV], ['ok', 'isoLine', 'unique', false, false]);
+  assert.ok(p.error <= 1e-7 && p.offSurface <= 1e-12);
+  close(p.uv, [0, 0.5, 1, 0.5, Math.PI, 0.5], 'circle');
+  assert.ok(Number.isNaN(p.uv[6]!) && Number.isNaN(p.uv[7]!));  // 7 is past the range
+  assert.equal(p.pieces.length, 1);
+  assert.equal(p.pieces[0]!.kind, 1);  // a line (CURVE_KIND)
+  const q = g.project(circle, cylinder, 0, 2 * Math.PI, 1e-7, { start: [4 * Math.PI, 0.5], samples: [1] });
+  assert.ok('pieces' in q);
+  close(q.uv, [4 * Math.PI + 1, 0.5], 'circle from two turns on');
+
+  // The seam's generatrix: u = 0 and its twin u = 2 pi.
+  const s = g.project(seam, cylinder, -1, 2, 1e-7, { samples: [0.5] });
+  assert.ok('pieces' in s);
+  assert.deepEqual([s.status, s.seamU, s.seamV, s.seamTwin.length], ['ok', true, false, 1]);
+  close(s.uv, [0, 0.5], 'seam'), close(s.twinUv, [2 * Math.PI, 0.5], 'seam twin');
+
+  // Off the surface: invalidModel, the feet's p-curve still given, offSurface the distance.
+  const w = g.project(wide, cylinder, 0, 1, 1e-7);
+  assert.ok('pieces' in w);
+  assert.equal(w.status, 'invalidModel');
+  assert.ok(Math.abs(w.offSurface - 0.5) <= 1e-9, `${w.offSurface}`);
+  assert.deepEqual(g.project(circle, 99, 0, 1, 1e-7), { status: 'invalidModel' });
+  const k = g.project(clockwise, moved, 0, 1, 1e-7, { samples: [1] });
+  assert.ok('pieces' in k && k.method === 'planeAffine' && k.pieces[0]!.kind === 0);
+  close(k.pieces[0]!.affine, [0, 1, 0, -1, 0, 0, 1, 2, 0], 'affine');
+  close(k.uv, [-Math.sin(1) - 2, 1 - Math.cos(1)], 'clockwise');
+  // Fitted at a loose tolerance: the error the fit's, offSurface the curve's (on the cylinder).
+  const t = g.project(ellipse, cylinder, 0, 2 * Math.PI, 1e-3);
+  assert.ok('pieces' in t && t.status === 'ok' && t.method === 'traced');
+  assert.ok(t.offSurface <= 1e-12 && t.error > 1e-9 && t.error <= 1e-3, `${t.offSurface} ${t.error}`);
+
+  // The disks' coedges: the one on the plane projected (a planeAffine circle), classified; the other off the plane.
+  const c0 = g.projectCoedge(0, NaN, [0, Math.PI / 2]);
+  assert.ok('pieces' in c0);
+  assert.deepEqual([c0.status, c0.method, c0.range[0], c0.range[1]], ['ok', 'planeAffine', 0, 2 * Math.PI]);
+  close(c0.uv, [1, 0, 0, 1], 'disk');
+  const info = g.faceInfo(0);
+  assert.deepEqual([info.status, info.projected], ['ok', 1]);
+  const r = g.classifyOnFace(0, [0, 0, 2, 0, 0.6, 0.6]);
+  assert.deepEqual([...r.sides].map((x) => ['in', 'out', 'on'][x]), ['in', 'out', 'in']);
+  const e = g.evalCoedge(0, [Math.PI, 7], 1);
+  assert.equal(e.status, 'ok');
+  close(e.values, [-1, 0, 0, 0, -1, 0], 'disk at pi');
+  assert.deepEqual([...e.statuses], [0, STATUS.indexOf('outOfDomain')]);
+  assert.equal(g.faceInfo(1).status, 'pcurveProjectionFailed');
+  const c1 = g.projectCoedge(1);
+  assert.ok('pieces' in c1 && c1.status === 'invalidModel' && Math.abs(c1.offSurface - 1e-3) <= 1e-12);
+  // At a tolerance the gap is within, it's made.
+  const c2 = g.projectCoedge(1, 2e-3);
+  assert.ok('pieces' in c2 && c2.status === 'ok');
+  g.setProjectMissingPcurves(false);
+  assert.equal(g.faceInfo(0).status, 'noPcurve');
+  assert.equal(g.evalCoedge(0, [0]).status, 'noPcurve');
+  g.setProjectMissingPcurves(true);
+  assert.equal(g.faceInfo(0).status, 'ok');
+});
+
+test('projection: a use against its curve through a sphere\'s pole (pieces in the use\'s order)', { skip },
+  async () => {
+  // The upper hemisphere's y > 0 half: the equator from (1, 0, 0) to (-1, 0, 0), then back over the pole along a
+  // meridian whose curve runs the other way (the use reversed), projected in two pieces and a pole jump.
+  const b = new BrepBuilder();
+  const at = (axis: number[]) => ({ origin: [0, 0, 0], axis, xDir: [1, 0, 0] });
+  const sphere = b.addSurface({ kind: 'sphere', position: at([0, 0, 1]), radius: 1 });
+  const [A, B] = [[1, 0, 0], [-1, 0, 0]].map((p) => b.addVertex({ point: p }));
+  const e0 = b.addEdge({ curve: b.addCurve({ kind: 'circle', position: at([0, 0, 1]), radius: 1 }), start: A, end: B,
+    sameSense: true });
+  const e1 = b.addEdge({ curve: b.addCurve({ kind: 'circle', position: at([0, -1, 0]), radius: 1 }), start: A, end: B,
+    sameSense: true });
+  const coedges = [{ edge: e0, orientation: 'forward' as const }, { edge: e1, orientation: 'reversed' as const }];
+  b.addItem({ kind: 'face', ref: b.addFace({ surface: sphere, sameSense: true, loops: [{ kind: 'edge',
+    bound: 'outer', sense: true, coedges }] }) });
+  using g = new Geometry(await init(), new Uint8Array(b.finish().buffer));
+  assert.deepEqual(g.faceInfo(0).projected, 2);
+  const h = Math.PI / 2, p = g.facePieces(0);
+  assert.deepEqual([...p.coedge], [0, 1, 1]);
+  assert.deepEqual([...p.travel], [0, Math.PI, Math.PI, h, h, 0]);
+  const r = g.classifyOnFace(0, [h, 0.5, 3 * h, 0.5, h, -0.5, 0.1, 1.5]);
+  assert.deepEqual([...r.sides].map((x) => ['in', 'out', 'on'][x]), ['in', 'out', 'out', 'in']);
+  const self = g.selfIntersectFace(0, 0);
+  assert.deepEqual([self.status, self.crossings, self.touches, self.overlaps], ['ok', 0, 0, 0]);
 });

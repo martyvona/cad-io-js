@@ -3,7 +3,12 @@
 // surfaces made on first use per row and kept, and every query over a batch (parameters or points in, typed arrays
 // out), since the corpus checks call it millions of times. Statuses and certainties are result.h's codes, one byte
 // each. Lists of varying length (breaks, singular parameters, alternatives) go to one scratch array of doubles,
-// valid until the next call that writes it (cg_scratch, cg_scratch_size).
+// valid until the next call that writes it (cg_scratch, cg_scratch_size). A projection (projectCurve: cg_project,
+// cg_coedge_project) goes there as a header of 13 (status, method, certainty, seamU, seamV, offSurface, error, the
+// ambiguous parameters' count, the pieces' count, the seam twin's, whether the use takes the twin, the range's
+// parameters at its start and end), those parameters, then the pieces and the twin's, each 21 (t lo, t hi, kind,
+// poleLine, from u, v, to u, v, certainty, error, the reals' count, the ints', affine 9) and its reals and ints, then
+// the (u, v) at each sample parameter asked (NaN where no piece covers it), and the twin's, where it's on a seam.
 #include <algorithm>
 #include <cstdint>
 #include <cstdlib>
@@ -14,11 +19,23 @@
 
 #include "cad_geom/curve.h"
 #include "cad_geom/geom2d.h"
+#include "cad_geom/project.h"
 #include "cad_geom/surface.h"
 
 using namespace cadgeom;
 
 namespace {
+
+/** A coedge's edge curve projected onto its face's surface (projectCoedge). */
+struct Projection {
+  /** 0: made, `p` its p-curve (whatever its status); else why not, a status or a face status. */
+  int32_t made = 0;
+  Pcurve p;
+  /** The use takes p.seamTwin (seamUseTakesTwin). */
+  bool twin = false;
+  /** The edge's curve parameters at its start and end (useRange's derivation). */
+  double t0 = NAN, t1 = NAN;
+};
 
 struct Entry {
   uint8_t* buffer;
@@ -29,6 +46,11 @@ struct Entry {
   std::vector<std::unique_ptr<Surface>> faceSurfaces;
   /** Per row: 255 not made yet, else makeCurve's (makeSurface's) status. */
   std::vector<uint8_t> curveStatus, surfaceStatus;
+  /** Per coedge: its projection at its edge's tolerance (projection()), made on first use; its face, -1 none. */
+  std::vector<std::unique_ptr<Projection>> projected;
+  std::vector<int32_t> coedgeFace;
+  /** cg_model_options: the face API projects coedges without p-curves. */
+  bool project = true;
   Entry(uint8_t* b, uint32_t size) : buffer(b), model(b, size) {}
   ~Entry() { std::free(buffer); }
 };
@@ -74,7 +96,7 @@ void put(double* out, const Box3& b) {
 extern "C" {
 
 /** The format's version of this API, for the TypeScript layer to check. */
-int32_t cg_api_version() { return 1; }
+int32_t cg_api_version() { return 2; }
 
 /**
  * A model from `size` bytes at `buffer` (from malloc; owned by the model from now on, freed by cg_model_free or
@@ -88,6 +110,13 @@ int32_t cg_model_new(uint8_t* buffer, uint32_t size) {
   e->surfaces.resize(e->model.surfaces());
   e->surfaceStatus.assign(e->model.surfaces(), 255);
   e->faceSurfaces.resize(e->model.faces());
+  e->projected.resize(e->model.coedges());
+  e->coedgeFace.assign(e->model.coedges(), -1);
+  for (int f = 0; f < e->model.faces(); f++)
+    for (int l = e->model.faceFirstLoop(f); l < e->model.faceFirstLoop(f) + e->model.faceLoopCount(f); l++)
+      if (e->model.loopKind(l) == CBR_LOOP_EDGE)
+        for (int c = e->model.loopFirst(l); c < e->model.loopFirst(l) + e->model.loopCount(l); c++)
+          e->coedgeFace[c] = f;
   for (size_t i = 0; i < models.size(); i++)
     if (!models[i]) {
       models[i] = std::move(e);
@@ -344,13 +373,14 @@ int32_t cg_surface_invert(int32_t h, int32_t row, const double* points, int32_t 
 
 } // extern "C"
 
-// -- Faces: 2D geometry on a face's loops in its surface's (u, v) (geom2d.h). A face's loops are its coedges' p-curves
-// (vertex loops have none and are left out of nest2, their parents -1); its periods and pole lines are its surface's
-// as it closes in fact (closeInFact at the part's and face's tolerance, else DEFAULT_TOL): its periods, a finite
-// direction's width where it closes in fact, and its singularities' poles and apexes. Joints meeting in 3D within its tolerance are bridged (faceLoops). The tolerance
-// in (u, v) at a point is the 3D one divided by the largest stretch of the first fundamental form there (sqrt of its
-// largest eigenvalue), so every (u, v) step within it is within the 3D one: a thin cylinder's u and a large plane's
-// coordinates each get their own. The 3D tolerance is the caller's where given (tol3d > 0), else the larger of the
+// -- Faces: 2D geometry on a face's loops in its surface's (u, v) (geom2d.h). A face's loops are its coedges' p-curves,
+// or their projections (below; vertex loops have none and are left out of nest2, their parents -1); its periods and
+// pole lines are its surface's as it closes in fact (closeInFact at the part's and face's tolerance, else
+// DEFAULT_TOL): its periods, a finite direction's width where it closes in fact, and its singularities' poles and
+// apexes. Joints meeting in 3D within its tolerance are bridged (faceLoops). The tolerance in (u, v) at a point is
+// the 3D one divided by the largest stretch of the first fundamental form there (sqrt of its largest eigenvalue), so
+// every (u, v) step within it is within the 3D one: a thin cylinder's u and a large plane's coordinates each get
+// their own. The 3D tolerance is the caller's where given (tol3d > 0), else the larger of the
 // part's uncertainty and the face's and its edges' tolerances, else DEFAULT_TOL.
 // A coedge's p-curve range is the model's, in its edge's start-to-end order (so decreasing where the edge runs
 // against its curve), the use running it forward or back by its orientation. Where the model gives none (STEP
@@ -360,13 +390,17 @@ int32_t cg_surface_invert(int32_t h, int32_t row, const double* points, int32_t 
 // p-curve's ends must reach the vertices. Past the 3D tolerance (a p-curve parameterized otherwise than its curve,
 // against Part 42: a B-spline fitted to a circle, say), the vertices' (u, v) are inverted onto the p-curve for its
 // own parameters, taken where they land nearer (counted: cg_face_info); else the curve's, within 100 x the tolerance.
-// Face statuses, besides makeCurve's and makeSurface's codes: FACE_NO_PCURVE (a coedge without a p-curve),
-// FACE_NO_RANGE (no range given or derivable: no 3D curve or no vertices) and FACE_RANGE_OFF (neither the curve's
-// parameters nor the p-curve's own reach the vertices).
+// A coedge without a p-curve gets its edge's 3D curve projected onto the face's surface (projectCurve, at the edge's
+// tolerance, over the edge's parameters as above, the seam side its use takes by seamUseTakesTwin; made once per
+// coedge and kept; counted: cg_face_info), unless cg_model_options turns that off.
+// Face statuses, besides makeCurve's and makeSurface's codes: FACE_NO_PCURVE (a coedge without a p-curve, none
+// projected: no 3D curve, or projection off), FACE_NO_RANGE (no range given or derivable: no 3D curve or no
+// vertices), FACE_RANGE_OFF (neither the curve's parameters nor the p-curve's own reach the vertices) and
+// FACE_PROJECTION_FAILED (a projection's status isn't ok: the curve off the surface, or no fit within tolerance).
 
 namespace {
 
-constexpr int32_t FACE_NO_PCURVE = 100, FACE_NO_RANGE = 101, FACE_RANGE_OFF = 102;
+constexpr int32_t FACE_NO_PCURVE = 100, FACE_NO_RANGE = 101, FACE_RANGE_OFF = 102, FACE_PROJECTION_FAILED = 103;
 constexpr double DEFAULT_TOL = 1e-7;  // mm: where neither the caller nor the model gives a tolerance
 
 struct FaceLoops {
@@ -380,6 +414,7 @@ struct FaceLoops {
   Periods periods;
   double tol3 = 0;
   int ownRanges = 0;  // coedges whose p-curve range is the p-curve's own (useRange), not its curve's
+  int projected = 0;  // coedges without a p-curve, their edge's curve projected (projection())
   std::vector<std::unique_ptr<Curve>> bridges;  // the joints' segments (faceLoops), which loops' pieces point to
 };
 
@@ -432,27 +467,17 @@ void around(CurveDomain d, bool closed, bool forward, double t0, double& t1) {
 }
 
 /**
- * The coedge's p-curve parameters at its edge's start and end (the file's comment): 0, or a face status. `own` is set
- * where they're the p-curve's own, found by inverting the vertices onto it, its curve's parameters missing them (a
- * p-curve parameterized otherwise than its curve: a B-spline fitted to a circle, say); `wrap` then nonzero where the
- * edge crosses a closed, non-periodic p-curve's ends: from t0 out through the p-curve's end its sign says (1 the
- * upper), in again from the other to t1 (a closed edge's t1 its t0).
+ * The edge's curve parameters at its start and end (the file's comment): the edge's range, or its vertices inverted
+ * onto its curve; NaN both where it has no 3D curve but has vertices. 0, or a face status.
  */
-int32_t useRange(int32_t h, int c, const Surface* surface, const Periods& per, double& t0, double& t1, bool& own,
-  int& wrap) {
-  own = false, wrap = 0;
+int32_t edgeParams(int32_t h, int e, double& t0, double& t1) {
   const Model& m = entry(h)->model;
-  const double* given = m.f64(CBR_COEDGE_RANGE) + 2 * c;
-  if (std::isfinite(given[0]) && std::isfinite(given[1])) {
-    t0 = given[0], t1 = given[1];
-    return 0;
-  }
-  const int e = m.coedgeEdge(c), ci = m.edgeCurve(e), vs = m.edgeStart(e), ve = m.edgeEnd(e);
+  const int ci = m.edgeCurve(e), vs = m.edgeStart(e), ve = m.edgeEnd(e);
   Range er = m.edgeRange(e);
   if (std::isfinite(er.lo) && std::isfinite(er.hi)) {
     t0 = er.lo, t1 = er.hi;
   } else if (ci < 0 && vs >= 0 && ve >= 0) {
-    // No 3D curve (trims in parameter space only): the p-curve's own parameters at the vertices, below.
+    // No 3D curve (trims in parameter space only): useRange takes the p-curve's own parameters at the vertices.
     t0 = t1 = NAN;
   } else {
     if (ci < 0 || vs < 0 || ve < 0) return FACE_NO_RANGE;
@@ -473,6 +498,27 @@ int32_t useRange(int32_t h, int c, const Surface* surface, const Periods& per, d
       t0 = forward ? d.range.lo : d.range.hi, t1 = forward ? d.range.hi : d.range.lo;
     }
   }
+  return 0;
+}
+
+/**
+ * The coedge's p-curve parameters at its edge's start and end (the file's comment): 0, or a face status. `own` is set
+ * where they're the p-curve's own, found by inverting the vertices onto it, its curve's parameters missing them (a
+ * p-curve parameterized otherwise than its curve: a B-spline fitted to a circle, say); `wrap` then nonzero where the
+ * edge crosses a closed, non-periodic p-curve's ends: from t0 out through the p-curve's end its sign says (1 the
+ * upper), in again from the other to t1 (a closed edge's t1 its t0).
+ */
+int32_t useRange(int32_t h, int c, const Surface* surface, const Periods& per, double& t0, double& t1, bool& own,
+  int& wrap) {
+  own = false, wrap = 0;
+  const Model& m = entry(h)->model;
+  const double* given = m.f64(CBR_COEDGE_RANGE) + 2 * c;
+  if (std::isfinite(given[0]) && std::isfinite(given[1])) {
+    t0 = given[0], t1 = given[1];
+    return 0;
+  }
+  const int e = m.coedgeEdge(c), ci = m.edgeCurve(e), vs = m.edgeStart(e), ve = m.edgeEnd(e);
+  if (int32_t r = edgeParams(h, e, t0, t1)) return r;
   // The p-curve's ends through the surface must reach the edge's vertices.
   if (vs < 0 || ve < 0) return 0;
   Status s;
@@ -666,6 +712,98 @@ int32_t useRange(int32_t h, int c, const Surface* surface, const Periods& per, d
   return curveOff <= 100 * tol ? 0 : FACE_RANGE_OFF;
 }
 
+/** The face's surface as it closes in fact (the file's comment), made once; null with the status where it can't be. */
+const Surface* faceSurface(int32_t h, int face, Status& s) {
+  Entry* e = entry(h);
+  const Model& m = e->model;
+  s = Status::ok;
+  if (!e->faceSurfaces[face]) {
+    double tol = m.uncertainty();
+    const double ft = m.f64(CBR_FACE_TOLERANCE)[face];
+    if (std::isfinite(ft) && !(ft <= tol)) tol = ft;
+    std::unique_ptr<Surface> made = makeSurface(m, m.faceSurface(face), s);
+    if (!made) return nullptr;
+    e->faceSurfaces[face] = closeInFact(std::move(made), std::isfinite(tol) && tol > 0 ? tol : DEFAULT_TOL);
+  }
+  return e->faceSurfaces[face].get();
+}
+
+/**
+ * The coedge's edge curve projected onto its face's surface (projectCurve) over its edge's parameters (edgeParams),
+ * at tol (the edge's tolerance where not > 0), the seam side its use takes; `out.made` says whether it was made.
+ */
+void projectCoedge(int32_t h, int c, double tol, Projection& out) {
+  const Model& m = entry(h)->model;
+  const int e = m.coedgeEdge(c), ci = m.edgeCurve(e), face = entry(h)->coedgeFace[c];
+  out.made = FACE_NO_PCURVE;
+  if (ci < 0 || face < 0) return;
+  Status s;
+  const Curve* c3 = curve(h, ci, s);
+  const Surface* f = c3 ? faceSurface(h, face, s) : nullptr;
+  if (!f) {
+    out.made = static_cast<int32_t>(s);
+    return;
+  }
+  double t0 = NAN, t1 = NAN;
+  if (int32_t r = edgeParams(h, e, t0, t1)) {
+    out.made = r;
+    return;
+  }
+  if (!std::isfinite(t0) || !std::isfinite(t1) || t0 == t1) {
+    out.made = FACE_NO_RANGE;
+    return;
+  }
+  const PcurveSource source{&m, ci, m.faceSurface(face)};
+  out.p = projectCurve(*c3, {std::min(t0, t1), std::max(t0, t1)}, *f, tol > 0 ? tol : edgeTolerance(m, e), nullptr,
+    &source);
+  out.t0 = t0, out.t1 = t1, out.made = 0;
+  // The use runs start to end forward, end to start reversed.
+  const bool back = m.coedgeOrientation(c) == CBR_ORIENTATION_REVERSED;
+  out.twin = (out.p.seamU || out.p.seamV) && seamUseTakesTwin(out.p, back ? t0 > t1 : t1 > t0, m.faceSameSense(face));
+}
+
+/** The coedge's projection at its edge's tolerance, made on first use and kept. */
+const Projection& projection(int32_t h, int c) {
+  std::unique_ptr<Projection>& p = entry(h)->projected[c];
+  if (!p) {
+    p = std::make_unique<Projection>();
+    projectCoedge(h, c, 0, *p);
+  }
+  return *p;
+}
+
+/** The (u, v) of the pieces at t (the first that covers it, pole jumps aside); false where none does. */
+bool pcurveAt(const std::vector<PcurvePiece>& pieces, double t, int order, CurvePoint& out) {
+  for (const PcurvePiece& q : pieces)
+    if (q.curve && t >= q.t.lo && t <= q.t.hi) return q.curve->eval(t, order, out) == Status::ok;
+  return false;
+}
+
+/** The projection into the scratch (the file's comment), with the (u, v) at the n samples t. */
+void putProjection(const Pcurve& p, bool twin, double t0, double t1, const double* t, int32_t n) {
+  scratch.clear();
+  scratch.insert(scratch.end(), {double(p.status), double(p.method), double(p.certainty), p.seamU ? 1.0 : 0.0,
+    p.seamV ? 1.0 : 0.0, p.offSurface, p.error, double(p.tAmbiguous.size()), double(p.pieces.size()),
+    double(p.seamTwin.size()), twin ? 1.0 : 0.0, t0, t1});
+  scratch.insert(scratch.end(), p.tAmbiguous.begin(), p.tAmbiguous.end());
+  for (const std::vector<PcurvePiece>* v : {&p.pieces, &p.seamTwin})
+    for (const PcurvePiece& q : *v) {
+      scratch.insert(scratch.end(), {q.t.lo, q.t.hi, double(q.kind), q.poleLine ? 1.0 : 0.0, q.from.x, q.from.y,
+        q.to.x, q.to.y, double(q.certainty), q.error, double(q.reals.size()), double(q.ints.size())});
+      scratch.insert(scratch.end(), q.affine, q.affine + 9);
+      scratch.insert(scratch.end(), q.reals.begin(), q.reals.end());
+      scratch.insert(scratch.end(), q.ints.begin(), q.ints.end());
+    }
+  for (const std::vector<PcurvePiece>* v : {&p.pieces, &p.seamTwin}) {
+    if (v == &p.seamTwin && p.seamTwin.empty()) break;
+    for (int32_t i = 0; i < n; i++) {
+      CurvePoint q;
+      const bool ok = pcurveAt(*v, t[i], 0, q);
+      scratch.push_back(ok ? q.p.x : NAN), scratch.push_back(ok ? q.p.y : NAN);
+    }
+  }
+}
+
 double uvTolerance(const FaceLoops& f, Vec2 p);
 
 FaceLoops faceLoops(int32_t h, int32_t face, double tol3d) {
@@ -680,17 +818,12 @@ FaceLoops faceLoops(int32_t h, int32_t face, double tol3d) {
   double tol = m.uncertainty();
   auto widen = [&](double t) { if (std::isfinite(t) && !(t <= tol)) tol = t; };
   widen(m.f64(CBR_FACE_TOLERANCE)[face]);
-  // The surface as it closes in fact (closeInFact, at the part's and face's tolerance): its periods, and its pole
-  // lines and apexes, are the face's.
-  if (!e->faceSurfaces[face]) {
-    std::unique_ptr<Surface> made = makeSurface(m, m.faceSurface(face), s);
-    if (!made) {
-      out.status = static_cast<int32_t>(s);
-      return out;
-    }
-    e->faceSurfaces[face] = closeInFact(std::move(made), std::isfinite(tol) && tol > 0 ? tol : DEFAULT_TOL);
+  // The surface as it closes in fact: its periods, and its pole lines and apexes, are the face's.
+  out.surface = faceSurface(h, face, s);
+  if (!out.surface) {
+    out.status = static_cast<int32_t>(s);
+    return out;
   }
-  out.surface = e->faceSurfaces[face].get();
   SurfaceDomain d = out.surface->domain();
   out.periods.u = d.uPeriod, out.periods.v = d.vPeriod;
   std::vector<Singularity> sing;
@@ -703,9 +836,30 @@ FaceLoops faceLoops(int32_t h, int32_t face, double tol3d) {
     Loop2 loop;
     for (int c = m.loopFirst(l); c < m.loopFirst(l) + m.loopCount(l); c++) {
       widen(m.f64(CBR_EDGE_TOLERANCE)[m.coedgeEdge(c)]);
+      // The use runs start to end forward, end to start reversed.
+      const bool back = m.coedgeOrientation(c) == CBR_ORIENTATION_REVERSED;
       if (m.coedgePcurve(c) < 0) {
-        out.status = FACE_NO_PCURVE;
-        return out;
+        // Projected: its pieces along the use (pole jumps left to geom2d, which closes them along the pole line).
+        const Projection* pr = e->project ? &projection(h, c) : nullptr;
+        if (!pr || pr->made) {
+          out.status = pr ? pr->made : FACE_NO_PCURVE;
+          return out;
+        }
+        if (pr->p.status != Status::ok) {
+          out.status = FACE_PROJECTION_FAILED;
+          return out;
+        }
+        out.projected++;
+        const std::vector<PcurvePiece>& pieces = pr->twin ? pr->p.seamTwin : pr->p.pieces;
+        const bool up = back ? pr->t0 > pr->t1 : pr->t1 > pr->t0;
+        for (size_t k = 0; k < pieces.size(); k++) {
+          const PcurvePiece& q = pieces[up ? k : pieces.size() - 1 - k];
+          if (!q.curve) continue;
+          loop.pieces.push_back({q.curve.get(), q.t, !up});
+          out.travel.insert(out.travel.end(), {up ? q.t.lo : q.t.hi, up ? q.t.hi : q.t.lo});
+          out.pieceCoedge.push_back(c);
+        }
+        continue;
       }
       const Curve* pc = curve(h, m.coedgePcurve(c), s);
       if (!pc) {
@@ -721,8 +875,6 @@ FaceLoops faceLoops(int32_t h, int32_t face, double tol3d) {
         out.status = rs;
         return out;
       }
-      // The use runs start to end forward, end to start reversed.
-      const bool back = m.coedgeOrientation(c) == CBR_ORIENTATION_REVERSED;
       const double from = back ? t1 : t0, to = back ? t0 : t1;
       auto piece = [&](double a, double b) {
         loop.pieces.push_back({pc, {std::min(a, b), std::max(a, b)}, a > b});
@@ -820,10 +972,10 @@ Vec2 somePoint(const FaceLoops& f) {
 extern "C" {
 
 /**
- * The face's loops as geom2d sees them: its status (0, or why not: makeCurve's or makeSurface's code,
- * FACE_NO_PCURVE, FACE_NO_RANGE); into out the 3D tolerance used, the periods (u, v), the edge loops' count, and
- * the pole lines' count, those lines (u ones, then v ones) following in the scratch as (isoU, at) pairs, and how many
- * coedges' ranges are their p-curves' own (parameterized otherwise than their curves).
+ * The face's loops as geom2d sees them: its status (0, or why not: makeCurve's or makeSurface's code, a face
+ * status); into out the 3D tolerance used, the periods (u, v), the edge loops' count, and the pole lines' count, those
+ * lines (u ones, then v ones) following in the scratch as (isoU, at) pairs, how many coedges' ranges are their
+ * p-curves' own (parameterized otherwise than their curves), and how many coedges' p-curves were projected.
  */
 int32_t cg_face_info(int32_t h, int32_t face, double tol3d, double* out) {
   FaceLoops f = faceLoops(h, face, tol3d);
@@ -834,6 +986,7 @@ int32_t cg_face_info(int32_t h, int32_t face, double tol3d, double* out) {
   for (double v : f.periods.poleV) scratch.insert(scratch.end(), {0.0, v});
   out[4] = static_cast<double>(scratch.size() / 2);
   out[5] = f.ownRanges;
+  out[6] = f.projected;
   return 0;
 }
 
@@ -910,5 +1063,89 @@ int32_t cg_face_self(int32_t h, int32_t face, int32_t loop, double tol3d, int32_
   return 0;
 }
 
-} // extern "C"
+/** Options (bits): 1 the face API doesn't project coedges without p-curves (FACE_NO_PCURVE instead). */
+int32_t cg_model_options(int32_t h, int32_t flags) {
+  Entry* e = entry(h);
+  if (!e) return static_cast<int32_t>(Status::invalidModel);
+  e->project = (flags & 1) == 0;
+  return 0;
+}
 
+/**
+ * projectCurve of curve row `row` over [lo, hi] onto surface row `surface` (as it closes in fact at tol) within tol,
+ * `ends` (has start, u, v, has end, u, v) where not null, into the scratch (the file's comment) with the (u, v) at the
+ * n parameters t: 0, or the status making the curve or surface.
+ */
+int32_t cg_project(int32_t h, int32_t row, int32_t surfaceRow, double lo, double hi, double tol, const double* ends,
+  const double* t, int32_t n) {
+  Status s;
+  const Curve* c = curve(h, row, s);
+  if (!c) return static_cast<int32_t>(s);
+  Entry* e = entry(h);
+  if (surfaceRow < 0 || surfaceRow >= e->model.surfaces()) return static_cast<int32_t>(Status::invalidModel);
+  std::unique_ptr<Surface> made = makeSurface(e->model, surfaceRow, s);
+  if (!made) return static_cast<int32_t>(s);
+  std::unique_ptr<Surface> f = closeInFact(std::move(made), tol > 0 ? tol : DEFAULT_TOL);
+  PcurveEnds known;
+  if (ends) {
+    known.hasStart = ends[0] != 0, known.start = {ends[1], ends[2]};
+    known.hasEnd = ends[3] != 0, known.end = {ends[4], ends[5]};
+  }
+  const PcurveSource source{&e->model, row, surfaceRow};
+  Pcurve p = projectCurve(*c, {lo, hi}, *f, tol, ends ? &known : nullptr, &source);
+  putProjection(p, false, lo, hi, t, n);
+  return 0;
+}
+
+/**
+ * The coedge's edge curve projected as the face API does (the file's comment), at tol (> 0; else the edge's
+ * tolerance, the face API's, kept), into the scratch with the (u, v) at the n parameters t, whether or not the model
+ * gives the coedge a p-curve: 0, or why not (a status, a face status).
+ */
+int32_t cg_coedge_project(int32_t h, int32_t coedge, double tol, const double* t, int32_t n) {
+  Entry* e = entry(h);
+  if (!e || coedge < 0 || coedge >= e->model.coedges()) return static_cast<int32_t>(Status::invalidModel);
+  Projection fresh;
+  if (tol > 0) projectCoedge(h, coedge, tol, fresh);
+  const Projection& p = tol > 0 ? fresh : projection(h, coedge);
+  if (p.made) return p.made;
+  putProjection(p.p, p.twin, p.t0, p.t1, t, n);
+  return 0;
+}
+
+/**
+ * The coedge's p-curve as the face API takes it (the model's, else its projection: the side its use takes) at n
+ * parameters t, to `order`: out as cg_curve_eval's, a status per parameter (outOfDomain where no projected piece
+ * covers it); 0, or why there's none (a status, a face status).
+ */
+int32_t cg_coedge_eval(int32_t h, int32_t coedge, const double* t, int32_t n, int32_t order, double* out,
+  uint8_t* status) {
+  Entry* e = entry(h);
+  if (!e || coedge < 0 || coedge >= e->model.coedges()) return static_cast<int32_t>(Status::invalidModel);
+  const int row = e->model.coedgePcurve(coedge);
+  const Curve* pc = nullptr;
+  const std::vector<PcurvePiece>* pieces = nullptr;
+  if (row >= 0) {
+    Status s;
+    pc = curve(h, row, s);
+    if (!pc) return static_cast<int32_t>(s);
+  } else {
+    const Projection* p = e->project ? &projection(h, coedge) : nullptr;
+    if (!p || p->made) return p ? p->made : FACE_NO_PCURVE;
+    pieces = p->twin ? &p->p.seamTwin : &p->p.pieces;
+  }
+  for (int32_t i = 0; i < n; i++) {
+    CurvePoint q;
+    Status s = Status::ok;
+    if (pc) s = pc->eval(t[i], order, q);
+    else if (!pcurveAt(*pieces, t[i], order, q)) s = Status::outOfDomain;
+    double* o = out + 3 * (order + 1) * i;
+    put(o, q.p);
+    if (order >= 1) put(o + 3, q.d1);
+    if (order >= 2) put(o + 6, q.d2);
+    status[i] = static_cast<uint8_t>(s);
+  }
+  return 0;
+}
+
+} // extern "C"
