@@ -32,6 +32,10 @@ namespace {
 constexpr double kGrowth = 0.5;
 /** Grid cells per side of the face's (u, v) box, for the gradation. */
 constexpr int kGrid = 16;
+/** A triangle's (u, v) box is cut for its second derivative bounds kSplit x kSplit besides its breaks, into
+ * kMaxPieces at most. */
+constexpr int kSplit = 2;
+constexpr size_t kMaxPieces = 64;
 
 Metric2 scaled(Metric2 m, double s) { return {m.a * s, m.b * s, m.c * s}; }
 double length2(Metric2 m, double x, double y) { return m.a * x * x + 2 * m.b * x * y + m.c * y * y; }
@@ -86,7 +90,8 @@ class Local : public SurfaceCriteria {
 public:
   Local(const Surface& s, Box2 uv, const Deflections& d, double extent, bool bounded, bool sphere, Vec3 centre,
     double radius)
-    : s_(s), box_(uv), d_(d), hmax_(extent), hmin_(1e-7 * extent), bounded_(bounded), sphere_(sphere), centre_(centre), radius_(radius) {
+    : s_(s), box_(uv), d_(d), hmax_(extent), hmin_(1e-7 * extent), bounded_(bounded), sphere_(sphere),
+      centre_(centre), radius_(radius) {
     // The grid's own metrics, then graded: sweeps until no node changes (or a bound on them).
     grid_.resize((kGrid + 1) * (kGrid + 1));
     valid_.assign(grid_.size(), false);
@@ -147,12 +152,22 @@ public:
   bool accept(const Vec2 t[3]) const override {
     Vec3 p[3];
     for (int i = 0; i < 3; i++) p[i] = at(t[i]);
+    // A triangle under 1e-4 of the deflection across is accepted: it can't stray from the surface by anything that
+    // counts, and at such sizes its facet's normal is rounding (trj7_k1-id's face 2160, a B-spline's degenerate
+    // spot, refined towards 1e-14 mm until its point cap, its facets refused for normals 90 degrees off).
+    double longest3 = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
+    if (longest3 <= 1e-4 * d_.linear) return true;
     Bounds b;
     if (sphere_) {
       // (Every point of the flat triangle is inside the ball: its distance to the sphere is R - |x - c|.)
       if (radius_ - pointTriangle(centre_, p) > d_.linear) return false;
-    } else if (bounded_ && bounds(t, b)) {
-      if (b.deviation > d_.linear) return false;
+    } else if (bounded_) {
+      // Sampled first (what it finds over the deflection is, so refusing on it is sound, and it spares the bound the
+      // many large triangles refinement refuses); then bounded, over the whole box, and only where that isn't enough
+      // over its pieces (secondBounds); where the surface gives no bound, the sample stands.
+      if (!sampledDeviation(t, p)) return false;
+      if (bounds(t, b, false) && b.deviation > d_.linear && bounds(t, b, true) && b.deviation > d_.linear)
+        return false;
     } else if (!sampledDeviation(t, p)) {
       return false;
     }
@@ -189,19 +204,58 @@ private:
    * by the derivatives' magnitudes and dividing by |S_u x S_v|, which shrinks where the parameterization does, runs
    * far past the turn, 2 / cos^2 v times it on a sphere: a hemisphere went from 555 triangles to 40,918.)
    */
-  bool bounds(const Vec2 t[3], Bounds& out) const {
+  bool bounds(const Vec2 t[3], Bounds& out, bool pieces) const {
     Range ru{std::min({t[0].x, t[1].x, t[2].x}), std::max({t[0].x, t[1].x, t[2].x})};
     Range rv{std::min({t[0].y, t[1].y, t[2].y}), std::max({t[0].y, t[1].y, t[2].y})};
     double d2[3];
-    if (s_.derivBound(ru, rv, 2, d2) != Status::ok) return false;
-    for (double x : {d2[0], d2[1], d2[2]})
-      if (!std::isfinite(x) || x < 0) return false;
+    if (!secondBounds(ru, rv, d2, pieces)) return false;
     double Du = ru.hi - ru.lo, Dv = rv.hi - rv.lo;
-    double e = d2[0] > 0 && d2[2] > 0 ? std::sqrt(d2[2] / d2[0]) : Du > 0 && Dv > 0 ? Dv / Du : 1;
+    // (e = Dv / Du minimizes the cross term's share over the triangle's extents, (M_uv e) Du^2 + (M_uv / e) Dv^2;
+    // sqrt(M_vv / M_uu) instead blows up where M_vv is rounding, a cylinder's or a tube's along its lines.)
+    double e = Du > 0 && Dv > 0 ? Dv / Du : 1;
     double au = d2[0] + d2[1] * e, av = d2[2] + d2[1] / e;
     Vec2 q[3];
     for (int i = 0; i < 3; i++) q[i] = {std::sqrt(au) * t[i].x, std::sqrt(av) * t[i].y};
     out.deviation = 0.5 * enclosing2(q);
+    return true;
+  }
+
+  /**
+   * The second partials' bounds over ru x rv: with `pieces`, the largest of the pieces' it's cut into at the
+   * surface's breaks (a B-spline's knots, where its bound is the spans' hulls) and in kSplit x kSplit besides (each
+   * piece's centred form the tighter for its size), the whole's where that would be more than kMaxPieces pieces;
+   * else the whole's. False where any fails.
+   */
+  bool secondBounds(Range ru, Range rv, double out[3], bool pieces) const {
+    std::vector<double> us, vs;
+    if (!pieces) {
+      if (s_.derivBound(ru, rv, 2, out) != Status::ok) return false;
+      for (int i = 0; i < 3; i++)
+        if (!std::isfinite(out[i]) || out[i] < 0) return false;
+      return true;
+    }
+    s_.breaks(ru, rv, us, vs);
+    auto cuts = [](Range r, std::vector<double> c) {
+      for (int i = 1; i < kSplit; i++) c.push_back(r.lo + (r.hi - r.lo) * i / kSplit);
+      std::sort(c.begin(), c.end());
+      c.erase(std::unique(c.begin(), c.end()), c.end());
+      return c;
+    };
+    us = cuts(ru, us), vs = cuts(rv, vs);
+    out[0] = out[1] = out[2] = 0;
+    auto one = [&](Range a, Range b) {
+      double d[3];
+      if (s_.derivBound(a, b, 2, d) != Status::ok) return false;
+      for (int i = 0; i < 3; i++) {
+        if (!std::isfinite(d[i]) || d[i] < 0) return false;
+        out[i] = std::fmax(out[i], d[i]);
+      }
+      return true;
+    };
+    if (us.size() < 2 || vs.size() < 2 || (us.size() - 1) * (vs.size() - 1) > kMaxPieces) return one(ru, rv);
+    for (size_t i = 0; i + 1 < us.size(); i++)
+      for (size_t j = 0; j + 1 < vs.size(); j++)
+        if (us[i + 1] > us[i] && vs[j + 1] > vs[j] && !one({us[i], us[i + 1]}, {vs[j], vs[j + 1]})) return false;
     return true;
   }
 
@@ -376,7 +430,8 @@ std::unique_ptr<SurfaceCriteria> makeCriteria(const Model& m, int f, const Surfa
   // which don't take a point off the surface: loose on the long triangles along a cone's lines the metric asks for,
   // and in (u, v) near an apex or a pole.
   int kind = m.surfaceKind(m.faceSurface(f));
-  bool tight = kind == CBR_SURFACE_PLANE || kind == CBR_SURFACE_CYLINDER, sphere = kind == CBR_SURFACE_SPHERE;
+  bool tight = kind == CBR_SURFACE_PLANE || kind == CBR_SURFACE_CYLINDER || kind == CBR_SURFACE_BSPLINE;
+  bool sphere = kind == CBR_SURFACE_SPHERE;
   const double* r = m.surfaceReals(m.faceSurface(f));
   Vec3 centre = sphere ? Vec3{r[0], r[1], r[2]} : Vec3{};
   return std::make_unique<Local>(s, uv, d, extent, tight, sphere, centre, sphere ? r[9] : 0);

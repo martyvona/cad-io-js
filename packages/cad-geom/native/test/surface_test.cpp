@@ -13,6 +13,7 @@
 #include <cstring>
 #include <random>
 #include <string>
+#include <tuple>
 
 #include "../src/curve_impl.h"
 #include "../src/surface_impl.h"
@@ -1180,4 +1181,123 @@ TEST_CASE("closeInFact: an extrusion of a closed profile closes in u though its 
   std::unique_ptr<Surface> open = surfaces::makeExtrusion(mm, 0, r, 0, s);
   REQUIRE(open);
   CHECK(closeInFact(std::move(open), 1e-9)->domain().uPeriod == 0);
+}
+
+TEST_CASE("B-spline derivative bounds shrink with the box: at +-0.001 within 2 x the sampled maximum") {
+  // Every B-spline of the reference models (near, far, mirrored), a bicubic bump, a rational bilinear patch and a
+  // rational dome (a circle swept round a quarter circle): at random points, each order-2 bound over a box +-0.001
+  // about the point within one span against the largest of its partial sampled densely in the box. (Across a knot
+  // the bound is the spans' hulls': a caller cuts there, as tess-cadio's criteria do.)
+  struct S {
+    std::string name;
+    std::unique_ptr<Surface> s;
+  };
+  std::vector<S> all;
+  for (int i = 0; i < fixtures::nReferences; i++) {
+    const fixtures::Reference& ref = fixtures::references[i];
+    if (std::strcmp(ref.variant, "s1") && std::strcmp(ref.variant, "far") && std::strcmp(ref.variant, "mirror"))
+      continue;
+    const Model m(ref.data, ref.size);
+    for (int row = 0; row < m.surfaces(); row++) {
+      if (m.surfaceKind(row) != CBR_SURFACE_BSPLINE) continue;
+      Status st;
+      if (auto s = makeSurface(m, row, st))
+        all.push_back({std::string(ref.file) + " " + std::to_string(row), std::move(s)});
+    }
+  }
+  {
+    std::vector<std::vector<Vec3>> P(7, std::vector<Vec3>(7));
+    for (int i = 0; i < 7; i++)
+      for (int j = 0; j < 7; j++) P[i][j] = {i * 10 / 6.0, j * 10 / 6.0, i == 3 && (j == 3 || j == 4) ? 3.0 : 0};
+    all.push_back({"bump", rawSpline(3, 3, {0, 1, 2, 3, 4}, {4, 1, 1, 1, 4}, {0, 1, 2, 3, 4}, {4, 1, 1, 1, 4}, P)});
+    const double r2 = std::sqrt(0.5);
+    const double xy[9][2] = {{1, 0}, {1, 1}, {0, 1}, {-1, 1}, {-1, 0}, {-1, -1}, {0, -1}, {1, -1}, {1, 0}};
+    const double cw[9] = {1, r2, 1, r2, 1, r2, 1, r2, 1}, mer[3][3] = {{1, 0, 1}, {1, 1, r2}, {0, 1, 1}};
+    std::vector<std::vector<Vec3>> Q(9, std::vector<Vec3>(3));
+    std::vector<std::vector<double>> W(9, std::vector<double>(3));
+    for (int i = 0; i < 9; i++)
+      for (int j = 0; j < 3; j++)
+        Q[i][j] = {mer[j][0] * xy[i][0], mer[j][0] * xy[i][1], mer[j][1]}, W[i][j] = cw[i] * mer[j][2];
+    // A rational bilinear patch (its second partials past the degree, the quotient rule's alone).
+    all.push_back({"rational bilinear", rawSpline(1, 1, {0, 1}, {2, 2}, {0, 1}, {2, 2},
+      {{{0, 0, 0}, {0, 1, 0.3}}, {{1, 0, 0.2}, {1, 1, 1}}}, {{1, 3}, {2, 0.5}})});
+    all.push_back({"dome", rawSpline(2, 2, {0, 1, 2, 3, 4}, {3, 2, 2, 2, 3}, {0, 1}, {3, 3}, Q, W)});
+  }
+  REQUIRE(all.size() >= 4);
+  std::mt19937_64 rng(17);
+  std::uniform_real_distribution<double> U(0, 1);
+  int bad = 0, n = 0;
+  for (S& c : all) {
+    SurfaceDomain d = c.s->domain();
+    for (int k = 0; k < 12; k++) {
+      const double w = 1e-3;
+      double u = d.u.lo + w + (d.u.hi - d.u.lo - 2 * w) * U(rng);
+      double v = d.v.lo + w + (d.v.hi - d.v.lo - 2 * w) * U(rng);
+      std::vector<double> us, vs;
+      c.s->breaks({u - w, u + w}, {v - w, v + w}, us, vs);
+      if (us.size() > 2 || vs.size() > 2) continue;  // (across a knot)
+      double b[3];
+      if (c.s->derivBound({u - w, u + w}, {v - w, v + w}, 2, b) != Status::ok) continue;
+      double mx[3] = {0, 0, 0}, scale = 0;
+      for (int i = 0; i <= 10; i++)
+        for (int j = 0; j <= 10; j++) {
+          SurfacePoint q;
+          c.s->eval(u - w + 0.2 * w * i, v - w + 0.2 * w * j, 2, q);
+          mx[0] = std::fmax(mx[0], norm(q.duu)), mx[1] = std::fmax(mx[1], norm(q.duv));
+          mx[2] = std::fmax(mx[2], norm(q.dvv));
+          scale = std::fmax(scale, std::fmax(norm(q.du), norm(q.dv)));
+        }
+      // (A partial that's 0 there, a cylinder's S_uv, is held to 1% of the largest: what it adds to a deviation.)
+      double big = std::fmax(mx[0], std::fmax(mx[1], mx[2]));
+      for (int t = 0; t < 3; t++)
+        if (!(b[t] <= 2 * mx[t] + 0.01 * big + 1e-9 * scale)) {
+          if (bad++ < 10)
+            std::printf("  %s at (%g, %g): bound %d %g against %g\n", c.name.c_str(), u, v, t, b[t], mx[t]);
+        }
+      n++;
+    }
+  }
+  CHECK(bad == 0);
+  CHECK(n > 40);
+  // The rational dome at +-0.01 off its knots: within 1.1 x (the magnitudes' recursion alone gives 1.2 x there, the
+  // signs lost; the intervals keep them).
+  // The rational bilinear patch at +-0.05: its second partials, past the degree, from the intervals' recursion.
+  {
+    const Surface& bl = *all[all.size() - 2].s;
+    for (Vec2 p : {Vec2{0.3, 0.4}, Vec2{0.7, 0.6}}) {
+      const double w = 0.05;
+      double b[3], mx[3] = {0, 0, 0};
+      REQUIRE(bl.derivBound({p.x - w, p.x + w}, {p.y - w, p.y + w}, 2, b) == Status::ok);
+      for (int i = 0; i <= 10; i++)
+        for (int j = 0; j <= 10; j++) {
+          SurfacePoint q;
+          bl.eval(p.x - w + 0.2 * w * i, p.y - w + 0.2 * w * j, 2, q);
+          mx[0] = std::fmax(mx[0], norm(q.duu)), mx[1] = std::fmax(mx[1], norm(q.duv));
+          mx[2] = std::fmax(mx[2], norm(q.dvv));
+        }
+      // (Within 1.5 x: 1.42 at worst here; from the magnitudes' recursion alone, 1.67.)
+      for (int t = 0; t < 3; t++) {
+        if (!(b[t] <= 1.5 * mx[t]))
+          std::printf("  bilinear at (%g, %g): bound %d %g against %g\n", p.x, p.y, t, b[t], mx[t]);
+        CHECK(b[t] <= 1.5 * mx[t]);
+      }
+    }
+  }
+  const Surface& dome = *all.back().s;
+  for (auto [p, w, f] : {std::tuple{Vec2{1.37, 0.5}, 0.01, 1.1}, std::tuple{Vec2{2.6, 0.3}, 0.01, 1.1},
+         std::tuple{Vec2{0.4, 0.7}, 0.01, 1.1}}) {
+    double b[3], mx[3] = {0, 0, 0};
+    REQUIRE(dome.derivBound({p.x - w, p.x + w}, {p.y - w, p.y + w}, 2, b) == Status::ok);
+    for (int i = 0; i <= 10; i++)
+      for (int j = 0; j <= 10; j++) {
+        SurfacePoint q;
+        dome.eval(p.x - w + 0.2 * w * i, p.y - w + 0.2 * w * j, 2, q);
+        mx[0] = std::fmax(mx[0], norm(q.duu)), mx[1] = std::fmax(mx[1], norm(q.duv));
+        mx[2] = std::fmax(mx[2], norm(q.dvv));
+      }
+    for (int t = 0; t < 3; t++) {
+      if (!(b[t] <= f * mx[t])) std::printf("  dome at (%g, %g): bound %d %g against %g\n", p.x, p.y, t, b[t], mx[t]);
+      CHECK(b[t] <= f * mx[t]);
+    }
+  }
 }
