@@ -9,7 +9,7 @@ import type { EdgeKind, TessellationProgress, TessellationRequest, TessellationR
 import { sha256 } from 'cad-scene';
 
 /** The module's C API version this layer speaks (tc_api_version). */
-const API_VERSION = 1;
+const API_VERSION = 2;
 /** The workspace's version (package.json's; a test checks they agree). */
 export const VERSION = '0.3.0';
 /** result.h's Status, by code. */
@@ -65,6 +65,7 @@ interface CadioExports {
   _free(p: number): void;
   _tc_api_version: Fn;
   _tc_tessellate: Fn;
+  _tc_set_project: Fn;
   /** Set for a call: tess_cadio_api.cpp's progress (js_progress, progressReporter's). */
   tcProgress?: ProgressHook;
   _tc_num_vertices: Fn;
@@ -97,6 +98,11 @@ export interface CadioInitOptions {
   wasm?: BufferSource | URL | string | WebAssembly.Module;
   /** Names the build in `info.version` in place of the module's hash; required with a compiled module. */
   version?: string;
+  /**
+   * Uses without p-curves given one projected from their edge's 3D curve (part.h's PartOptions::projectMissingPcurves;
+   * default true), else placed by inversion: for comparing the two, and tests.
+   */
+  projectMissingPcurves?: boolean;
 }
 
 async function fetchBytes(url: URL): Promise<Uint8Array> {
@@ -115,6 +121,7 @@ function failedMessage(ids: readonly number[], rows: number): string {
 }
 
 export class CadioTessellator implements Tessellator {
+  private project = true;
   readonly info: TessellatorInfo = {
     name: 'tess-cadio', version: VERSION, license: 'AGPL-3.0-only', formats: ['cad-brep'], supportsFaceIds: true,
     supportsEdges: true, supportsCurves: false,
@@ -123,6 +130,7 @@ export class CadioTessellator implements Tessellator {
 
   async init(opts: CadioInitOptions = {}): Promise<void> {
     const { glue, wasm, version } = opts;
+    this.project = opts.projectMissingPcurves ?? true;
     if (wasm instanceof WebAssembly.Module && version === undefined) throw new TypeError(
       'tess-cadio: init({wasm}) with a compiled WebAssembly.Module needs a version, since it has no bytes to hash');
     const glueUrl = glue === undefined ? new URL('../dist/tess_cadio.mjs', import.meta.url).href : String(glue);
@@ -167,6 +175,7 @@ export class CadioTessellator implements Tessellator {
     m.HEAPU8.set(req.data, ptr);
     let rc: number;
     m.tcProgress = onProgress ? progressReporter(onProgress) : undefined;
+    m._tc_set_project(this.project ? 1 : 0);
     try {
       rc = m._tc_tessellate(ptr, req.data.length, req.linearDeflection, req.angularDeflection, origin[0], origin[1],
         origin[2], req.edges ? 1 : 0);

@@ -143,6 +143,16 @@ test('triangles still refused counted, those in a pole\'s fan apart: none at pol
     const l = r.diagnostics.map((x) => re.exec(x.message)).find((m) => m);
     assert.equal(l?.[3] ?? '0', '0', `${l?.[2]} refused, ${l?.[3]} at a pole`);
     assert.ok(!r.diagnostics.some((x) => /seam whose side/.test(x.message)));
+    // By inversion (projection off), luneOnSeam's seam side is unsettled, no fan made: its pole's refused triangles,
+    // the mesher's own, counted as at the pole.
+    const inverting = new CadioTessellator();
+    await inverting.init({ projectMissingPcurves: false });
+    const ri = await inverting.tessellate({ ...req('cube'), data: new Uint8Array(luneOnSeam().finish().buffer),
+      linearDeflection: 0.01, angularDeflection: 0.05 });
+    const li = ri.diagnostics.map((x) => re.exec(x.message)).find((m) => m);
+    assert.ok(li, JSON.stringify(ri.diagnostics));
+    assert.ok(Number(li[3]) >= 1 && Number(li[3]) <= Number(li[2]), `${li[2]} refused, ${li[3]} at a pole`);
+    assert.ok(ri.diagnostics.some((x) => /seam whose side in \(u, v\) their neighbours didn't settle/.test(x.message)));
     // pcurveOnly's (a cylinder's) at 1e-4 mm and 0.1 rad: refused, none at a pole.
     const o = await refused(pcurveOnly(), 1e-4, 0.1);
     assert.ok(o);
