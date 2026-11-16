@@ -9,8 +9,13 @@
 // growing at most kGrowth per unit of its own length; a query takes the grid's, interpolated, intersected with its
 // own point's. Where the parameterization degenerates (a pole: S_u x S_v vanishing) the point's own is skipped and
 // the grid's used.
-// accept() samples: the surface within the deflection of the triangle at its centroid and its edges' middles, the
-// normals at its corners within the angle of one another and of the facet's own.
+// accept() bounds a triangle's deviation from the surface on planes and cylinders by the second derivative bounds over
+// its (u, v) box (Local::bounds), takes a sphere's exactly, and samples the rest (the centroid and edges' middles:
+// makeCriteria says why). The normals are sampled: the corners' within the angle of one another and of the facet's
+// own (a triangle turned over in 3D). No check of the facet's tilt for area: with its corners on the surface and its
+// normal within the angle of theirs, the patch it stands for is a graph over it, whose area (the integral of
+// 1 / cos of the normals' tilt) is at least the facet's; a mesh's area exceeds its face's only where the boundary's
+// chords stand for a region past the boundary curve (a band's on a sphere), not through a facet's tilt.
 #include "tess_cadio/criteria.h"
 
 #include <algorithm>
@@ -79,8 +84,9 @@ Metric2 intersect(Metric2 A, Metric2 B) {
 
 class Local : public SurfaceCriteria {
 public:
-  Local(const Surface& s, Box2 uv, const Deflections& d, double extent)
-    : s_(s), box_(uv), d_(d), hmax_(extent), hmin_(1e-7 * extent) {
+  Local(const Surface& s, Box2 uv, const Deflections& d, double extent, bool bounded, bool sphere, Vec3 centre,
+    double radius)
+    : s_(s), box_(uv), d_(d), hmax_(extent), hmin_(1e-7 * extent), bounded_(bounded), sphere_(sphere), centre_(centre), radius_(radius) {
     // The grid's own metrics, then graded: sweeps until no node changes (or a bound on them).
     grid_.resize((kGrid + 1) * (kGrid + 1));
     valid_.assign(grid_.size(), false);
@@ -131,6 +137,7 @@ public:
   }
 
   double edgeSpacing() const override { return spacing_; }
+  bool bounded() const override { return bounded_ || sphere_; }
 
   Metric2 metric(Vec2 p) const override {
     Metric2 g = interpolated(p), m;
@@ -140,12 +147,14 @@ public:
   bool accept(const Vec2 t[3]) const override {
     Vec3 p[3];
     for (int i = 0; i < 3; i++) p[i] = at(t[i]);
-    // The surface at the centroid and the edges' middles against the flat triangle's points there.
-    const double w[4][3] = {{1. / 3, 1. / 3, 1. / 3}, {0.5, 0.5, 0}, {0, 0.5, 0.5}, {0.5, 0, 0.5}};
-    for (const auto& b : w) {
-      Vec2 uv{b[0] * t[0].x + b[1] * t[1].x + b[2] * t[2].x, b[0] * t[0].y + b[1] * t[1].y + b[2] * t[2].y};
-      Vec3 flat = b[0] * p[0] + b[1] * p[1] + b[2] * p[2];
-      if (norm(at(uv) - flat) > d_.linear) return false;
+    Bounds b;
+    if (sphere_) {
+      // (Every point of the flat triangle is inside the ball: its distance to the sphere is R - |x - c|.)
+      if (radius_ - pointTriangle(centre_, p) > d_.linear) return false;
+    } else if (bounded_ && bounds(t, b)) {
+      if (b.deviation > d_.linear) return false;
+    } else if (!sampledDeviation(t, p)) {
+      return false;
     }
     // The normals at the corners (where the surface has one) within the angle of one another and of the flat
     // triangle's own (which a triangle turned over in 3D, as one wide in u near a pole can be, fails).
@@ -166,6 +175,81 @@ public:
   }
 
 private:
+  /** A triangle's bound: its deviation from the surface. */
+  struct Bounds {
+    double deviation = INFINITY;
+  };
+
+  /**
+   * The bounds over the triangle from the surface's derivative bounds on its (u, v) box (false where there are none).
+   * Deviation: |S(x) - L(x)| <= (1/2) max_x sum b_i q(x - x_i), q(d) = M_uu du^2 + 2 M_uv |du dv| + M_vv dv^2 <=
+   * a_u du^2 + a_v dv^2 (a_u = M_uu + M_uv e, a_v = M_vv + M_uv / e, any e > 0), and in coordinates scaled by
+   * sqrt(a_u), sqrt(a_v) the maximum of sum b_i |x - x_i|^2 over the triangle is its smallest enclosing circle's
+   * radius squared. (The normals' spread isn't bounded so, and mustn't be retried that way: bounding |d(S_u x S_v)|
+   * by the derivatives' magnitudes and dividing by |S_u x S_v|, which shrinks where the parameterization does, runs
+   * far past the turn, 2 / cos^2 v times it on a sphere: a hemisphere went from 555 triangles to 40,918.)
+   */
+  bool bounds(const Vec2 t[3], Bounds& out) const {
+    Range ru{std::min({t[0].x, t[1].x, t[2].x}), std::max({t[0].x, t[1].x, t[2].x})};
+    Range rv{std::min({t[0].y, t[1].y, t[2].y}), std::max({t[0].y, t[1].y, t[2].y})};
+    double d2[3];
+    if (s_.derivBound(ru, rv, 2, d2) != Status::ok) return false;
+    for (double x : {d2[0], d2[1], d2[2]})
+      if (!std::isfinite(x) || x < 0) return false;
+    double Du = ru.hi - ru.lo, Dv = rv.hi - rv.lo;
+    double e = d2[0] > 0 && d2[2] > 0 ? std::sqrt(d2[2] / d2[0]) : Du > 0 && Dv > 0 ? Dv / Du : 1;
+    double au = d2[0] + d2[1] * e, av = d2[2] + d2[1] / e;
+    Vec2 q[3];
+    for (int i = 0; i < 3; i++) q[i] = {std::sqrt(au) * t[i].x, std::sqrt(av) * t[i].y};
+    out.deviation = 0.5 * enclosing2(q);
+    return true;
+  }
+
+  /** The distance from c to the triangle p (its nearest point: inside, on an edge or at a corner). */
+  static double pointTriangle(Vec3 c, const Vec3 p[3]) {
+    Vec3 e1 = p[1] - p[0], e2 = p[2] - p[0], n = cross(e1, e2);
+    double nn = dot(n, n);
+    if (nn > 0) {
+      // The projection's barycentric coordinates: inside, the plane's distance.
+      Vec3 w = c - p[0];
+      double b1 = dot(cross(w, e2), n) / nn, b2 = dot(cross(e1, w), n) / nn;
+      if (b1 >= 0 && b2 >= 0 && b1 + b2 <= 1) return std::fabs(dot(w, n)) / std::sqrt(nn);
+    }
+    double best = INFINITY;
+    for (int i = 0; i < 3; i++) {
+      Vec3 a = p[i], d = p[(i + 1) % 3] - a;
+      double l2 = dot(d, d), x = l2 > 0 ? std::clamp(dot(c - a, d) / l2, 0.0, 1.0) : 0;
+      best = std::fmin(best, norm(c - (a + x * d)));
+    }
+    return best;
+  }
+
+  /** The smallest enclosing circle's radius squared of three points: half the longest side's if obtuse, else the
+   * circumradius's. */
+  static double enclosing2(const Vec2 q[3]) {
+    double l[3];
+    for (int i = 0; i < 3; i++) {
+      Vec2 a = q[(i + 1) % 3], b = q[(i + 2) % 3];
+      l[i] = (a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y);  // the side opposite i, squared
+    }
+    for (int i = 0; i < 3; i++)
+      if (l[i] >= l[(i + 1) % 3] + l[(i + 2) % 3]) return l[i] / 4;  // obtuse (or right) at i
+    double area2 = std::fabs((q[1].x - q[0].x) * (q[2].y - q[0].y) - (q[2].x - q[0].x) * (q[1].y - q[0].y));
+    if (!(area2 > 0)) return std::max({l[0], l[1], l[2]}) / 4;
+    return l[0] * l[1] * l[2] / (4 * area2 * area2);  // R^2 = (abc)^2 / (4 area)^2, area2 = 2 area
+  }
+
+  /** The surface within the deflection of the flat triangle at its centroid and its edges' middles (sampled). */
+  bool sampledDeviation(const Vec2 t[3], const Vec3 p[3]) const {
+    const double w[4][3] = {{1. / 3, 1. / 3, 1. / 3}, {0.5, 0.5, 0}, {0, 0.5, 0.5}, {0.5, 0, 0.5}};
+    for (const auto& b : w) {
+      Vec2 uv{b[0] * t[0].x + b[1] * t[1].x + b[2] * t[2].x, b[0] * t[0].y + b[1] * t[1].y + b[2] * t[2].y};
+      Vec3 flat = b[0] * p[0] + b[1] * p[1] + b[2] * p[2];
+      if (norm(at(uv) - flat) > d_.linear) return false;
+    }
+    return true;
+  }
+
   /** The metric's smaller eigenvalue at least this times its larger (a size ratio of 1000 at most). */
   static constexpr double kFloor = 1e-6;
 
@@ -255,6 +339,10 @@ private:
   Box2 box_;
   Deflections d_;
   double hmax_, hmin_;
+  /** Whether accept() bounds the deviation (Local::bounds), takes it exactly (a sphere's), or samples it. */
+  bool bounded_, sphere_;
+  Vec3 centre_;
+  double radius_;
   double spacing_ = 0;
   std::vector<Metric2> grid_;
   std::vector<bool> valid_;
@@ -262,7 +350,7 @@ private:
 
 } // namespace
 
-std::unique_ptr<SurfaceCriteria> makeCriteria(const Model&, int, const Surface& s, Box2 uv, const Deflections& d,
+std::unique_ptr<SurfaceCriteria> makeCriteria(const Model& m, int f, const Surface& s, Box2 uv, const Deflections& d,
   Status& status) {
   status = Status::unsupported;
   if (!(d.linear > 0) || !std::isfinite(uv.x.lo) || !std::isfinite(uv.x.hi) || !std::isfinite(uv.y.lo) ||
@@ -282,7 +370,16 @@ std::unique_ptr<SurfaceCriteria> makeCriteria(const Model&, int, const Surface& 
   double extent = std::hypot(box.x.hi - box.x.lo, box.y.hi - box.y.lo, box.z.hi - box.z.lo);
   if (!(extent > 0) || !std::isfinite(extent)) extent = 1;
   status = Status::ok;
-  return std::make_unique<Local>(s, uv, d, extent);
+  // Bounded by derivBound on planes and cylinders, where it's exact; a sphere's deviation exact. Elsewhere sampled:
+  // a B-spline's derivBound is its knot span's whatever the box (15 x too loose on a rational dome), and on cones and
+  // tori |S(x) - L(x)| through the derivatives' magnitudes counts S'''s tangential parts (a cone's S_uv round it),
+  // which don't take a point off the surface: loose on the long triangles along a cone's lines the metric asks for,
+  // and in (u, v) near an apex or a pole.
+  int kind = m.surfaceKind(m.faceSurface(f));
+  bool tight = kind == CBR_SURFACE_PLANE || kind == CBR_SURFACE_CYLINDER, sphere = kind == CBR_SURFACE_SPHERE;
+  const double* r = m.surfaceReals(m.faceSurface(f));
+  Vec3 centre = sphere ? Vec3{r[0], r[1], r[2]} : Vec3{};
+  return std::make_unique<Local>(s, uv, d, extent, tight, sphere, centre, sphere ? r[9] : 0);
 }
 
 } // namespace tesscadio

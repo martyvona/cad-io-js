@@ -186,6 +186,11 @@ export class CadioTessellator implements Tessellator {
         + 'pole\'s fan' });
     }
     note('unsplit', 'still wanting their edges split when the rounds ran out');
+    const sampled = list('sampled');
+    if (sampled.length) {
+      diagnostics.push({ severity: 'info', message: `${sampled.length} faces meshed with their deviation from the `
+        + 'surface sampled, not bounded (their surfaces\' derivative bounds not yet tight)' });
+    }
     note('unsettled', 'with a seam whose side in (u, v) their neighbours didn\'t settle');
     return result;
   }
