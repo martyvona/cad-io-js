@@ -237,7 +237,9 @@ test('uses without p-curves counted by how they were sampled, said where one fel
   // At 0.05 every use within 2.5e-3 of its feet (the side 1.5e-3 to 2.1e-3 off): nothing said; at 1e-3, the side
   // only at its tolerance (5e-5 under its gap), said.
   assert.equal(await counts(0.05), undefined);
-  const [n, within, atTol, inverted] = (await counts(1e-3))!;
+  const c = await counts(1e-3);
+  assert.ok(c);
+  const [n, within, atTol, inverted] = c as [number, number, number, number];
   assert.deepEqual([n, inverted], [4, 0]);
   assert.ok(atTol >= 1 && within + atTol === 4, `${within}, ${atTol}`);
 });
