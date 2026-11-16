@@ -9,7 +9,7 @@ import { test } from 'node:test';
 import { openEdges, oracleMeasures, type TessellationResult } from 'cad-scene';
 import { MODELS } from '../../cad-brep/test/models.ts';
 import { CadioTessellator, VERSION } from '../src/index.ts';
-import { fold, luneOnSeam, meridianHemisphere } from '../native/test/models.ts';
+import { fold, luneOnSeam, pcurveOnly } from '../native/test/models.ts';
 
 const dist = path.join(import.meta.dirname, '..', 'dist', 'tess_cadio.wasm');
 const skip = fs.existsSync(dist) ? false : 'tess-cadio\'s module not built (run packages/tess-cadio/build.sh module)';
@@ -116,7 +116,7 @@ test('the seam cylinder: its seam a seam; a sphere\'s faces: the whole one faile
     }
   });
 
-test('triangles still refused counted, those in a pole\'s fan apart: a lune through its poles, a hemisphere',
+test('triangles still refused counted, those in a pole\'s fan apart: a lune through its poles, a cylinder\'s triangle',
   { skip }, async () => {
     const t = await tessellator();
     const re = /^(\d+) faces meshed with triangles their criteria still refuse: (\d+) triangles, (\d+) of them slivers/;
@@ -125,13 +125,13 @@ test('triangles still refused counted, those in a pole\'s fan apart: a lune thro
         linearDeflection: 0.001, angularDeflection: 0.1 });
       return r.diagnostics.map((x) => re.exec(x.message)).find((m) => m);
     };
-    // At 0.001 mm and 0.1 rad: the lune's refused triangles mostly at its poles, some not; the hemisphere's (its
-    // meridian boundary through the pole), none at it.
+    // At 0.001 mm and 0.1 rad: the lune's refused triangles mostly at its poles, some not; pcurveOnly's (a cylinder's),
+    // none at one.
     const c = await refused(luneOnSeam());
     assert.ok(c);
     assert.equal(c[1], '1');
     assert.ok(Number(c[3]) >= 1 && Number(c[3]) < Number(c[2]), `${c[2]} refused, ${c[3]} at a pole`);
-    const o = await refused(meridianHemisphere());
+    const o = await refused(pcurveOnly());
     assert.ok(o);
     assert.ok(Number(o[2]) >= 1);
     assert.equal(o[3], '0');

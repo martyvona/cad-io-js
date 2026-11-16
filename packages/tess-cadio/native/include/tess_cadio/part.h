@@ -18,7 +18,7 @@ struct PartOptions {
   /** The linear deflection, and the angle for faces' normals and edges' chords alike (EdgeOptions::angle). */
   Deflections d;
   /** Rounds of splitting edges and meshing their faces again. */
-  int maxSplitRounds = 4;
+  int maxSplitRounds = 8;
   /**
    * The criteria's spacing for each face's edges multiplied by this (above 1: edges coarser than the faces want,
    * left to the split rounds; for tests and tuning).

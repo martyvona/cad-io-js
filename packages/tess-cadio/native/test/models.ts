@@ -183,6 +183,26 @@ export function splineEdge(): BrepBuilder {
   return b;
 }
 
+/**
+ * A plane face under a cubic Bezier with a cusp: poles (1, 0), (0, 1), (1, 1), (0, 0), its speed 0 at t = 0.5, the
+ * point (0.5, 0.75) (not a singularity the curve reports), and the line back along the x axis.
+ */
+export function cuspEdge(near = 0): BrepBuilder {
+  const b = new BrepBuilder();
+  const spline = b.addCurve({ kind: 'bspline', degree: 3, knots: [0, 1], multiplicities: [4, 4],
+    poles: [[1, 0, 0], [0, 1, 0], [1 + near, 1, 0], [0, 0, 0]], closed: false, selfIntersect: false,
+    form: 'unspecified' });
+  const line = b.addCurve({ kind: 'line', point: [0, 0, 0], direction: [1, 0, 0], magnitude: 1 });
+  const va = b.addVertex({ point: [1, 0, 0] }), vb = b.addVertex({ point: [0, 0, 0] });
+  const es = b.addEdge({ curve: spline, start: va, end: vb, sameSense: true, range: [0, 1] });
+  const el = b.addEdge({ curve: line, start: vb, end: va, sameSense: true, range: [0, 1] });
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: true,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true,
+      coedges: [{ edge: es, orientation: 'forward' }, { edge: el, orientation: 'forward' }] }] }));
+  return b;
+}
+
+export const nearCusp6 = (): BrepBuilder => cuspEdge(1e-6);
 export const seamByInversion = (): BrepBuilder => seam(true);
 export const seamFlipped = (): BrepBuilder => seam(false);
 
@@ -273,6 +293,32 @@ export function fold(): BrepBuilder {
 }
 
 /** A twisted bilinear B-spline patch, (0, 0, 0), (1, 0, 0), (0, 1, 0), (1, 1, 1): curved by S_uv alone. */
+/**
+ * A bump: a bicubic B-spline over [0, 10]^2 (7 x 7 poles on a grid 10 / 6 apart), flat but for two inner poles raised
+ * by 3, so its curvature runs from 0 at the sides to sharp at the bump. Bounded by its four sides (lines).
+ */
+export function bumpPatch(): BrepBuilder {
+  const b = new BrepBuilder();
+  const poles = [0, 1, 2, 3, 4, 5, 6].map((i) => [0, 1, 2, 3, 4, 5, 6].map((j) =>
+    [i * 10 / 6, j * 10 / 6, (i === 3 && (j === 3 || j === 4)) ? 3 : 0]));
+  const s = b.addSurface({ kind: 'bspline', uDegree: 3, vDegree: 3, uKnots: [0, 1, 2, 3, 4],
+    vKnots: [0, 1, 2, 3, 4], uMultiplicities: [4, 1, 1, 1, 4], vMultiplicities: [4, 1, 1, 1, 4], poles, uClosed: false,
+    vClosed: false, selfIntersect: false, form: 'unspecified' });
+  const corners = [[0, 0, 0], [10, 0, 0], [10, 10, 0], [0, 10, 0]], uv = [[0, 0], [4, 0], [4, 4], [0, 4]];
+  const vs = corners.map((point) => b.addVertex({ point }));
+  const coedges = [0, 1, 2, 3].map((k) => {
+    const p = corners[k]!, q = corners[(k + 1) % 4]!;
+    const line = b.addCurve({ kind: 'line', point: p, direction: q.map((x, i) => (x - p[i]!) / 10), magnitude: 1 });
+    const edge = b.addEdge({ curve: line, start: vs[k]!, end: vs[(k + 1) % 4]!, sameSense: true, range: [0, 10] });
+    const [a, c] = [uv[k]!, uv[(k + 1) % 4]!];
+    const pcurve = b.addCurve({ kind: 'line', point: a, direction: [(c[0]! - a[0]!) / 4, (c[1]! - a[1]!) / 4],
+      magnitude: 0.4 });
+    return { edge, orientation: 'forward' as const, pcurve };
+  });
+  sheet(b, b.addFace({ surface: s, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] }));
+  return b;
+}
+
 export function twisted(): BrepBuilder {
   const b = new BrepBuilder();
   const p = [[0, 0, 0], [0, 1, 0], [1, 0, 0], [1, 1, 1]];
@@ -612,8 +658,9 @@ export function torusOuterHalf(): BrepBuilder {
   return b;
 }
 
-export const MODELS = { thinBand, tubeGapFaceTolerance, tubeGapUncertainty, tubeGapBySize, tubeGapOpen, torusOuterHalf, meridianHemisphereLoose, offPoleRest, wigglyBand, notchBand, bsplineTube,
-  bsplineTubeTinyArc, bsplineDome, offPoleArc, offPcurves, bandHoleAtVertex, bandHoleOnCut, halfCap,
-  meridianHemisphere, band: band_, bandByInversion, bore, nistBore, seamByInversion, offVertex, pcurveOnly,
+export const MODELS = { cuspEdge: () => cuspEdge(), nearCusp6, bumpPatch, thinBand, tubeGapFaceTolerance,
+  tubeGapUncertainty, tubeGapBySize, tubeGapOpen, torusOuterHalf, meridianHemisphereLoose, offPoleRest, wigglyBand,
+  notchBand, bsplineTube, bsplineTubeTinyArc, bsplineDome, offPoleArc, offPcurves, bandHoleAtVertex, bandHoleOnCut,
+  halfCap, meridianHemisphere, band: band_, bandByInversion, bore, nistBore, seamByInversion, offVertex, pcurveOnly,
   luneQuarter, luneOnSeam, cap, splineEdge, seamFlipped, polylineEdge, pcurveCircle, arcSegment, fold, twisted,
   wrongSense, zeroEdge };

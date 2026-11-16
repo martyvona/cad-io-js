@@ -8,7 +8,7 @@
 //   - each face's mesh area against cad-scene's area oracle (where it trusts its area) and against OCCT's mesh area;
 //   - the deflection measured independently: points of sampled triangles (centroid, sides' middles) against the
 //     face's surface by cad-brep's evaluators (not cad-geom, which ours uses), over the linear deflection asked;
-//   - triangles and meshing time against OCCT's.
+//   - triangles and meshing time against OCCT's, over the parts both mesh: in all, and per file (the ratios).
 // Usage: node corpus_checks/cadio_corpus.ts [file-list.txt] [max MB, default 1000]   (progress on standard error)
 //   WORKERS=<n> workers per backend in each process (default: half the process's share, runner.ts)
 //   PLANT=<bug>  a bug planted in our results before they're judged, to prove the check sees it: area (positions
@@ -154,6 +154,8 @@ const fresh = () => ({
   meshArea: bins(),
   deflection: { cadio: dbins(), occt: dbins() },
   trisCadio: 0, trisOcct: 0, msCadio: 0, msOcct: 0,
+  // (Over the parts both mesh: the like-for-like comparison, per file and in all.)
+  both: { trisCadio: 0, trisOcct: 0, msCadio: 0, msOcct: 0 },
   refused: { faces: 0, triangles: 0, poleSlivers: 0 },
   warnings: new Map<string, number>(),
   tally: new Map<string, { n: number; ex: string[] }>(),
@@ -237,6 +239,8 @@ export const check: FileCheck<undefined, Tallies> = {
       }
       T.status.ok++;
       T.trisCadio += ca.indices.length / 3;
+      T.both.trisCadio += ca.indices.length / 3, T.both.trisOcct += ob.indices.length / 3;
+      T.both.msCadio += a.ms, T.both.msOcct += b.ms;
       const rowOf = new Map<number, number>();
       for (let fr = 0; fr < d.face.surface.length; fr++) rowOf.set(d.face.id[fr]!, fr);
       // Faces without triangles, by cause; and whether OCCT leaves them too.
@@ -287,6 +291,11 @@ export const check: FileCheck<undefined, Tallies> = {
         const k = bin(Math.abs(o.area - z.area) / z.area);
         T.oracle.cadio[k]++;
         if (k === 'worse') note('mesh area off the oracle\'s by over 5%', `${where} face #${id}`);
+        if (k === '5%') {
+          const kind = (decode.surface(d, d.face.surface[row]!) as { kind: string }).kind;
+          note(`mesh area off the oracle's by 1-5% (${kind}, ours `
+            + `${o.area < z.area ? 'under' : 'over'})`, `${where} face #${id}`);
+        }
         T.oracle.occt[bin(t && t.tris ? Math.abs(t.area - z.area) / z.area : Infinity)]++;
       }
       // The deflection, both backends, by the same independent measure.
@@ -312,6 +321,7 @@ if (import.meta.main) {
   const { children, meshWorkers } = division();
   const perBackend = Number(process.env.WORKERS ?? Math.max(1, Math.floor(meshWorkers / 2)));
   const rows: string[] = [];
+  const ratios: { file: string; tris: number; ms: number; b: Tallies['both'] }[] = [];
   const t0 = performance.now();
   await runFiles(import.meta.url, check, corpusFiles(process.argv[2]).map((f) => ({ path: f, job: undefined })),
     process.argv.slice(2), (f, out) => {
@@ -328,6 +338,10 @@ if (import.meta.main) {
       r.tally = new Map();
       r.causes = new Map();
       r.warnings = new Map();
+      if (r.both.trisOcct > 0) {
+        ratios.push({ file: shortName(f), tris: r.both.trisCadio / r.both.trisOcct, ms: r.both.msCadio / r.both.msOcct,
+          b: { ...r.both } });
+      }
       addInto(all, r);
     });
   const T = all;
@@ -337,8 +351,6 @@ if (import.meta.main) {
   console.log(`tess-cadio against OCCT (native route), medium profile${PLANT ? `, PLANT=${PLANT}` : ''}: ${T.files} `
     + `files (${T.skippedBig} over ${maxBytes / 1e6} MB skipped), ${T.parts} B-rep parts; OCCT meshes ${T.compared} `
     + `(${T.occtEmpty} empty or failed, not compared)`);
-  console.log('  (Triangles and time against OCCT wait for lane 3\'s local criteria: the provisional ones size a whole '
-    + 'face by its sharpest curvature, so ours are no measure of either yet.)');
   console.log(`  our status: ${Object.entries(T.status).map(([k, n]) => `${k} ${n}`).join(', ')}`);
   console.log(`  faces without our triangles: ${pct(T.faceless, T.faces)} (OCCT leaves ${T.facelessOcctToo} of them `
     + `too, ${T.occtFaceless} in all); by cause: ${[...T.causes].sort((x, y) => y[1] - x[1])
@@ -354,6 +366,17 @@ if (import.meta.main) {
     + `OCCT ${show(T.deflection.occt)}`);
   console.log(`  triangles: ours ${T.trisCadio}, OCCT ${T.trisOcct}; meshing ${(T.msCadio / 1000).toFixed(1)} s ours, `
     + `${(T.msOcct / 1000).toFixed(1)} s OCCT (wall time per request, summed)`);
+  // Ratios over the parts both mesh: in all, and the median and range of the files'.
+  const med = (xs: number[]) => {
+    const v = [...xs].sort((a, b) => a - b);
+    return v.length ? (v.length % 2 ? v[(v.length - 1) / 2]! : (v[v.length / 2 - 1]! + v[v.length / 2]!) / 2) : NaN;
+  };
+  const fx = (x: number) => (x >= 10 ? x.toFixed(0) : x.toFixed(2));
+  const tr = ratios.map((r) => r.tris), mr = ratios.map((r) => r.ms);
+  console.log(`  ours / OCCT over the parts both mesh: triangles ${fx(T.both.trisCadio / T.both.trisOcct)}, time `
+    + `${fx(T.both.msCadio / T.both.msOcct)}; per file (${ratios.length}) triangles median ${fx(med(tr))}, `
+    + `${fx(Math.min(...tr))} to ${fx(Math.max(...tr))}, time median ${fx(med(mr))}, ${fx(Math.min(...mr))} to `
+    + `${fx(Math.max(...mr))}`);
   console.log(`  triangles our criteria still refuse: ${T.refused.triangles} in ${T.refused.faces} faces, `
     + `${T.refused.poleSlivers} of them slivers in a pole's fan`);
   console.log(`  our warnings: ${[...T.warnings].map(([k, n]) => `${n} x "${k}"`).join('; ') || 'none'}`);
@@ -363,4 +386,9 @@ if (import.meta.main) {
   for (const [k, t] of [...T.tally].sort((x, y) => y[1].n - x[1].n)) console.log(
     `${String(t.n).padStart(8)} ${k}  e.g. ${t.ex.join('; ')}`);
   for (const r of rows) console.log(r);
+  console.log('\n## Ours / OCCT per file, over the parts both mesh (triangles, then meshing time)');
+  for (const r of ratios.sort((x, y) => y.tris - x.tris)) {
+    console.log(`  ${fx(r.tris).padStart(7)} ${fx(r.ms).padStart(7)}  ${r.file} (${r.b.trisCadio} / ${r.b.trisOcct} `
+      + `triangles, ${(r.b.msCadio / 1000).toFixed(2)} / ${(r.b.msOcct / 1000).toFixed(2)} s)`);
+  }
 }
