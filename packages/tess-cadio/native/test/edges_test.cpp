@@ -1,10 +1,11 @@
 // edges.h on cad-brep's test models and tess-cadio's (native/test/models.ts), each checked by properties found
 // independently of the sampler: the curve between consecutive samples measured densely against their chord (within
 // the deflection, plus the vertex's gap at an end), spans' arc lengths (cad-geom's arcLength) within the spacing,
-// chords within the angle of the tangent, every use's (u, v) on the surface at the edge's points; then each face's
+// the tangent's turn across each span within the angle, every use's (u, v) on the surface at the edge's points; then each face's
 // boundary meshed through mesh2d.h, its 3D area against the face's own in closed form, and cuts, pole lines, seams by
 // inversion and splits checked by what they must give.
 #include <tess_cadio/edges.h>
+#include <cstring>
 #include <tess_cadio/mesh2d.h>
 
 #include <cad_geom/curve.h>
@@ -84,6 +85,15 @@ double distToSegment(Vec3 p, Vec3 a, Vec3 b) {
   return cadgeom::norm(p - (a + s * d));
 }
 
+/** The largest angle between any two of these unit tangents. */
+double turn(const std::vector<Vec3>& u) {
+  double most = 0;
+  for (size_t i = 0; i < u.size(); i++)
+    for (size_t j = i + 1; j < u.size(); j++)
+      most = std::fmax(most, std::atan2(cadgeom::norm(cadgeom::cross(u[i], u[j])), cadgeom::dot(u[i], u[j])));
+  return most;
+}
+
 struct Measured {
   double deviation = 0, excess = 0, longest = 0, angle = 0;
   int spans = 0;
@@ -91,19 +101,20 @@ struct Measured {
 /**
  * An edge's samples measured densely: the most the curve strays from a span's chord beyond what's allowed (the
  * deflection, plus at an end the vertex's distance from its curve there), the longest 3D span by arc length (dense
- * polyline), the largest chord-to-tangent angle.
+ * polyline), the most the tangent turns across a span (between any two of its points).
  */
 Measured measure(const cadgeom::Model& m, int e, const EdgeSamples& s, double deflection) {
   Measured r;
   EdgeCurve ec(m, e);
   int n = static_cast<int>(s.t.size());
+  std::vector<Vec3> tangents;
   for (int i = 0; i + 1 < n; i++) {
     Vec3 a = s.points[i], b = s.points[i + 1];
     double allowed = deflection;
     if (i == 0) allowed += cadgeom::norm(a - ec.at(s.t[0]));
     if (i + 1 == n - 1) allowed += cadgeom::norm(b - ec.at(s.t[n - 1]));
     double len = 0;
-    Vec3 prev = ec.at(s.t[i]), chord = b - a;
+    Vec3 prev = ec.at(s.t[i]);
     for (int k = 0; k <= 200; k++) {
       double t = s.t[i] + (s.t[i + 1] - s.t[i]) * k / 200.0;
       Vec3 p = ec.at(t);
@@ -114,13 +125,11 @@ Measured measure(const cadgeom::Model& m, int e, const EdgeSamples& s, double de
       prev = p;
       if (k == 0 || k == 200) continue;  // (at a break the tangent is the next piece's)
       Vec3 tg = ec.tangent(t);
-      double tn = cadgeom::norm(tg), cn = cadgeom::norm(chord);
-      if (tn > 0 && cn > 0) {
-        double c = std::clamp(cadgeom::dot(tg, chord) / (tn * cn), -1.0, 1.0);
-        double ang = std::acos(s.t[i + 1] > s.t[i] ? c : -c);
-        r.angle = std::fmax(r.angle, ang);
-      }
+      double tn = cadgeom::norm(tg);
+      if (tn > 0) tangents.push_back((1 / tn) * tg);
     }
+    r.angle = std::fmax(r.angle, turn(tangents));
+    tangents.clear();
     r.longest = std::fmax(r.longest, len);
     r.spans++;
   }
@@ -310,6 +319,8 @@ TEST_CASE("near a zero-speed point the curve doesn't report: no span refined bel
       shortest);
     CHECK(shortest >= 1e-6);
     CHECK(s.t.size() <= 120);
+    // The exact cusp, reported, isn't refined for the angle at all (36 samples; down to the floor, 75).
+    if (std::strcmp(name, "cuspEdge") == 0) CHECK(s.t.size() <= 50);
     CHECK(measure(m, 0, s, o.deflection).excess <= 1e-12);
   }
 }
@@ -317,14 +328,15 @@ TEST_CASE("near a zero-speed point the curve doesn't report: no span refined bel
 TEST_CASE("the angle alone, closed edges in 3 spans at least, the faces' spacing on their edges") {
   cadgeom::Model m = load("seamCylinder");
   REQUIRE(m.ok());
-  // Deflection 1 asks for little; the angle 0.05: a chord turns from its tangents by half its arc's angle, so a
-  // circle needs at least 2 pi / 0.1 spans.
+  // Deflection 1 asks for little; the angle 0.05: an arc's tangent turns by its angle, so a circle needs at least
+  // 2 pi / 0.05 spans.
   EdgeOptions o;
   o.deflection = 1;
   o.angle = 0.05;
   EdgeMesh em(m, o);
   CHECK_EQ(checkEdges(m, em, o, "angle"), 0);
-  CHECK(em.edge(0).t.size() - 1 >= 63u);
+  CHECK(em.edge(0).t.size() - 1 >= 126u);
+  CHECK(em.edge(0).t.size() - 1 <= 140u);
   // Deflection 100 asks for nothing: a closed circle still 3 spans, the seam 1.
   o = {};
   o.deflection = 100;
@@ -339,6 +351,83 @@ TEST_CASE("the angle alone, closed edges in 3 spans at least, the faces' spacing
   as.maxSpacing = 0.3;
   CHECK_EQ(checkEdges(m, spaced, as, "face spacing"), 0);
   CHECK(spaced.edge(2).t.size() - 1 >= 17u);
+}
+
+TEST_CASE("the angle is the tangent's turn across a span: a 0.5 mm hole at medium, an S-bend") {
+  // Medium's 0.1 mm and 15 degrees on a circle of radius 0.25: the deflection allows chords of 107 degrees, the
+  // turn 15, so 24 spans at least; the bound's room (2 sin(a / 2) of the speed, not a) and the 3 spans a closed edge
+  // starts from make it 27.
+  {
+    cadgeom::Model m = load("smallHole");
+    REQUIRE(m.ok());
+    EdgeOptions o;
+    o.deflection = 0.1;
+    o.angle = 15 * M_PI / 180;
+    EdgeMesh em(m, o);
+    CHECK_EQ(checkEdges(m, em, o, "smallHole"), 0);
+    size_t n = em.edge(0).t.size() - 1;
+    if (n < 24 || n > 28) std::printf("  smallHole: %zu spans\n", n);
+    CHECK(n >= 24 && n <= 28);
+  }
+  // The S-bend's tangents at its ends lie along its chord: measured densely here, the one chord's largest angle to the
+  // tangent is under the angle asked for and the tangent's whole turn over it, so a chord-to-tangent rule would keep
+  // the bend as one span; the turn splits it.
+  cadgeom::Model m = load("sBend");
+  REQUIRE(m.ok());
+  EdgeCurve ec(m, 0);
+  Vec3 chord = ec.at(1) - ec.at(0);
+  std::vector<Vec3> tangents;
+  double toChord = 0;
+  for (int k = 0; k <= 400; k++) {
+    Vec3 tg = ec.tangent(k / 400.0);
+    tg = (1 / cadgeom::norm(tg)) * tg;
+    tangents.push_back(tg);
+    toChord = std::fmax(toChord, std::acos(std::clamp(cadgeom::dot(tg, chord) / cadgeom::norm(chord), -1.0, 1.0)));
+  }
+  double whole = turn(tangents);
+  REQUIRE(whole > 1.5 * toChord);
+  EdgeOptions o;
+  o.deflection = 10;
+  o.angle = (toChord + whole) / 2;
+  EdgeMesh em(m, o);
+  CHECK_EQ(checkEdges(m, em, o, "sBend"), 0);
+  CHECK(em.edge(0).t.size() >= 3u);
+}
+
+TEST_CASE("a span over a pole: a sample where its foot is the pole, the loop across the pole line the face's way") {
+  // offPoleArc's arc lies 7e-4 inside its sphere, under the north pole at its middle: whatever the sampling, a
+  // sample on the axis (its foot the pole), so the loop crosses the pole line; offPoleRest, the rest of the sphere,
+  // then winds and is cut to the south pole.
+  for (const char* name : {"offPoleArc", "offPoleRest"})
+    for (double d : {0.1, 0.05, 0.03, 0.01})
+      for (double a : {0.0, 0.26, 0.2}) {
+        cadgeom::Model m = load(name);
+        REQUIRE(m.ok());
+        EdgeOptions o;
+        o.deflection = d;
+        o.angle = a;
+        EdgeMesh em(m, o);
+        bool onAxis = false;
+        for (Vec3 p : em.edge(0).points) onAxis = onAxis || std::hypot(p.x, p.y) < 1e-9;
+        FaceBoundary fb = em.face(0);
+        bool cut = false;
+        for (const auto& l : fb.loops)
+          for (const BoundaryPoint& p : l) cut = cut || p.kind == BoundaryPoint::pseudoSample;
+        bool want = std::strcmp(name, "offPoleRest") == 0;
+        if (!onAxis || fb.status != cadgeom::Status::ok || cut != want)
+          std::printf("  %s at %g, %g: on the axis %d, status %d, cut %d\n", name, d, a, onAxis, int(fb.status), cut);
+        CHECK(onAxis);
+        CHECK(fb.status == cadgeom::Status::ok);
+        CHECK(cut == want);
+      }
+  // A circle round a pole, not over it, in 3 spans (deflection 100): its jumps a third of the period each, none of its
+  // spans' feet at the pole, no sample added for one (the 5th the cut's crossing).
+  cadgeom::Model m = load("cap");
+  REQUIRE(m.ok());
+  EdgeOptions o;
+  o.deflection = 100;
+  EdgeMesh em(m, o);
+  CHECK_EQ(em.edge(0).t.size(), 5u);
 }
 
 TEST_CASE("a vertex off its curves: the end spans within the deflection plus its gap, the uses' gaps reported") {

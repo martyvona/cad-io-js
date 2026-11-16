@@ -661,7 +661,37 @@ export function torusOuterHalf(): BrepBuilder {
   return b;
 }
 
-export const MODELS = { cuspEdge: () => cuspEdge(), nearCusp6, bumpPatch: () => bumpPatch(),
+/** A 0.5 mm hole's edge: a plane disc of radius 0.25 bounded by one closed circle. */
+export function smallHole(): BrepBuilder {
+  const b = new BrepBuilder();
+  const v = b.addVertex({ point: [0.25, 0, 0] });
+  const e = b.addEdge({ curve: b.addCurve({ kind: 'circle', position: AXIS, radius: 0.25 }), start: v, end: v,
+    sameSense: true });
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: true,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [{ edge: e, orientation: 'forward' }] }] }));
+  return b;
+}
+
+/**
+ * An S-bend: the quintic Bezier with poles (0, 0), (1, 0), (2, 0.5), (3, -0.5), (4, 0), (5, 0), its tangents at
+ * both ends along its chord (the x axis), turning one way then the other between; a polyline below closes it.
+ */
+export function sBend(): BrepBuilder {
+  const b = new BrepBuilder();
+  const spline = b.addCurve({ kind: 'bspline', degree: 5, knots: [0, 1], multiplicities: [6, 6],
+    poles: [[0, 0, 0], [1, 0, 0], [2, 0.5, 0], [3, -0.5, 0], [4, 0, 0], [5, 0, 0]], closed: false,
+    selfIntersect: false, form: 'unspecified' });
+  const poly = b.addCurve({ kind: 'polyline', points: [[5, 0, 0], [5, -2, 0], [0, -2, 0], [0, 0, 0]] });
+  const va = b.addVertex({ point: [0, 0, 0] }), vb = b.addVertex({ point: [5, 0, 0] });
+  const es = b.addEdge({ curve: spline, start: va, end: vb, sameSense: true, range: [0, 1] });
+  const ep = b.addEdge({ curve: poly, start: vb, end: va, sameSense: true, range: [0, 3] });
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: true,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true,
+      coedges: [{ edge: es, orientation: 'forward' }, { edge: ep, orientation: 'forward' }] }] }));
+  return b;
+}
+
+export const MODELS = { smallHole, sBend, cuspEdge: () => cuspEdge(), nearCusp6, bumpPatch: () => bumpPatch(),
   halfBump: () => bumpPatch(true), thinBand, tubeGapFaceTolerance,
   tubeGapUncertainty, tubeGapBySize, tubeGapOpen, torusOuterHalf, meridianHemisphereLoose, offPoleRest, wigglyBand,
   notchBand, bsplineTube, bsplineTubeTinyArc, bsplineDome, offPoleArc, offPcurves, bandHoleAtVertex, bandHoleOnCut,

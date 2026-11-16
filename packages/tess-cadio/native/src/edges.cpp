@@ -204,11 +204,12 @@ bool refine(const Geom& g, double a, double b, const Criteria& k, std::vector<do
   }
   bool ok = std::isfinite(m2) && s * s * m2 / 8 <= k.deflection &&
     (k.spacing == kInf || (std::isfinite(m1) && s * m1 <= k.spacing));
-  if (ok && k.angle > 0 && s * m2 > 0) {
-    // The speed's lower bound keeps "- s m2", though at the span's ends e / |C'(a)| alone suffices (every C' lies on
-    // a path of length e = s m2 from C'(a), so sin(angle) <= (e - x) / (V - x) <= e / V); inside it, unproven.
-    double v = norm(g.d1(a)) - s * m2;
-    ok = (v > 0 && s * m2 <= std::sin(k.angle) * v) || g.singular(a, b);
+  // The turn across the span: every C'(t) lies within r = s m2 / 2 of C'(mid), so any two tangents are within
+  // 2 asin(r / |C'(mid)|) of one another.
+  double turnRoom = 0;
+  if (k.angle > 0 && std::isfinite(m2) && s * m2 > 0) {
+    turnRoom = 2 * norm(g.d1(a + s / 2)) * std::sin(k.angle / 2);
+    ok = ok && (s * m2 <= turnRoom || g.singular(a, b));
   }
   if (ok) {
     out.push_back(b);
@@ -221,6 +222,13 @@ bool refine(const Geom& g, double a, double b, const Criteria& k, std::vector<do
   double n = 2;
   if (std::isfinite(m2) && m2 > 0) n = std::max(n, std::ceil(s * std::sqrt(m2 / (8 * k.deflection))));
   if (k.spacing < kInf && std::isfinite(m1)) n = std::max(n, std::ceil(s * m1 / k.spacing));
+  // As many pieces as the turn asks for, but none whose length bound is under the floor: where the speed nearly
+  // vanishes the room is tiny and would ask for 64 at once.
+  if (turnRoom > 0) {
+    double turnN = std::ceil(s * m2 / turnRoom);
+    if (k.floor > 0 && std::isfinite(m1)) turnN = std::min(turnN, std::floor(s * m1 / k.floor));
+    n = std::max(n, turnN);
+  }
   int pieces = static_cast<int>(std::min(n, 64.0));
   bool all = true;
   for (int i = 0; i < pieces; i++) {
@@ -585,6 +593,61 @@ struct EdgeMesh::Impl {
       s.uv.insert(s.uv.begin() + static_cast<long>(i) + 1, b);
       s.index.insert(s.index.begin() + static_cast<long>(i) + 1, s.index[i]);
       i++;
+    }
+  }
+
+  /**
+   * A span that passes over a pole between its samples (its free coordinate jumping by over a quarter period from
+   * one to the next: an edge a little off its surface whose foot is at the pole somewhere inside the span) gets a
+   * sample at its point nearest the pole where that point's foot is the pole, so its loop crosses the pole line
+   * there the face's way (throughPoles), not by whichever unwrapping of the jump is nearer, which flips with where
+   * the samples fall.
+   */
+  void samplePoleCrossings() {
+    std::vector<std::vector<double>> add(edges.size());
+    for (int c = 0; c < m.coedges(); c++) {
+      const Coedge& C = coedges[c];
+      const CoedgeSamples& s = C.s;
+      if (C.face < 0 || !faces[C.face].s || s.fromPcurve || s.uv.size() < 2) continue;
+      const Face& F = faces[C.face];
+      const Edge& E = edges[m.coedgeEdge(c)];
+      if (!E.geom) continue;
+      for (size_t i = 0; i + 1 < s.uv.size(); i++) {
+        if (s.index[i] == s.index[i + 1]) continue;
+        for (const Singularity& g : F.sing) {
+          if (g.kind == Singularity::normalVanishes) continue;
+          int fr = g.isoU ? 1 : 0;
+          double P = F.period[fr];
+          double jump = std::fabs(fr ? s.uv[i + 1].y - s.uv[i].y : s.uv[i + 1].x - s.uv[i].x);
+          if (!(P > 0) || jump <= 0.25 * P) continue;
+          // The point nearest the pole: golden section on the distance (one minimum near a pole).
+          double a = E.s.t[s.index[i]], b = E.s.t[s.index[i + 1]];
+          const double r = 0.5 * (std::sqrt(5.0) - 1);
+          double x1 = b - r * (b - a), x2 = a + r * (b - a);
+          double f1 = norm(E.geom->at(x1) - g.point), f2 = norm(E.geom->at(x2) - g.point);
+          for (int it = 0; it < 80; it++) {
+            if (f1 < f2) b = x2, x2 = x1, f2 = f1, x1 = b - r * (b - a), f1 = norm(E.geom->at(x1) - g.point);
+            else a = x1, x1 = x2, f1 = f2, x2 = a + r * (b - a), f2 = norm(E.geom->at(x2) - g.point);
+          }
+          double t = 0.5 * (a + b);
+          SurfaceInversion si = invert(C.face, E.geom->at(t), &s.uv[i]);
+          if (si.status == Status::ok && poleAt(C.face, surfaceAt(C.face, si.uv)) >= 0)
+            add[m.coedgeEdge(c)].push_back(t);
+        }
+      }
+    }
+    for (size_t e = 0; e < add.size(); e++) {
+      if (add[e].empty()) continue;
+      Edge& E = edges[e];
+      bool up = E.s.t.back() > E.s.t.front();
+      for (double t : add[e]) {
+        size_t j = 0;
+        while (j + 1 < E.s.t.size() && (up ? E.s.t[j + 1] < t : E.s.t[j + 1] > t)) j++;
+        if (j + 1 >= E.s.t.size() || E.s.t[j] == t || E.s.t[j + 1] == t) continue;
+        E.s.t.insert(E.s.t.begin() + static_cast<long>(j) + 1, t);
+        E.s.points.insert(E.s.points.begin() + static_cast<long>(j) + 1, E.geom->at(t));
+      }
+      for (int c : E.coedges) computeCoedge(c);
     }
   }
 
@@ -1346,6 +1409,7 @@ EdgeMesh::EdgeMesh(const Model& model, const EdgeOptions& options, const std::ve
     I.sampleModelEdge(e);
   }
   for (int c = 0; c < m.coedges(); c++) I.computeCoedge(c);
+  I.samplePoleCrossings();
   // Pole lines' density: the face's coedges' samples per period along it, at least kMinPolePoints.
   for (int f = 0; f < m.faces(); f++) {
     Impl::Face& F = I.faces[f];
