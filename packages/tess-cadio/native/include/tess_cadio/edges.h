@@ -3,7 +3,9 @@
 // boundary built from them). The spacing is guaranteed, not sampled: over each span the curve's derivBound bounds the
 // chord's deviation ((b - a)^2 max |C''| / 8) and its length ((b - a) max |C'|), so the deflection and the spacing
 // limits hold whatever the curve does between samples. That is C(t)'s deviation: with the vertices' points exact at
-// the ends, an end span strays up to the deflection plus the vertex's gap from its curve. A split the mesher asks for
+// the ends, an end span strays up to the deflection plus the vertex's gap from its curve. A span whose length bound is
+// under 10 x the part's tolerance is kept as it is (near a zero-speed point the curve doesn't report, the angle would
+// refine without end). A split the mesher asks for
 // (mesh2d.h's SplitWanted) resamples that edge alone, for all its faces at once.
 //
 // Pseudo-edges: a face on a periodic surface whose loops wind round the period (a band's two circles, a hemisphere's

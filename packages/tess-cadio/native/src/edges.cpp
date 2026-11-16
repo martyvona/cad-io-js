@@ -183,6 +183,12 @@ struct IsoGeom : Geom {
 
 struct Criteria {
   double deflection, angle, spacing;
+  /**
+   * A span whose length bound is at most this (10 x the part's tolerance) is never refined: near a zero-speed point
+   * the curve doesn't report as singular the angle's speed bound shrinks towards 0, and samples would pile up there
+   * until they coincide.
+   */
+  double floor = 0;
 };
 
 /**
@@ -192,6 +198,10 @@ struct Criteria {
  */
 bool refine(const Geom& g, double a, double b, const Criteria& k, std::vector<double>& out, int depth) {
   double s = b - a, m1 = g.bound(a, b, 1), m2 = g.bound(a, b, 2);
+  if (std::isfinite(m1) && s * m1 <= k.floor) {
+    out.push_back(b);
+    return true;
+  }
   bool ok = std::isfinite(m2) && s * s * m2 / 8 <= k.deflection &&
     (k.spacing == kInf || (std::isfinite(m1) && s * m1 <= k.spacing));
   if (ok && k.angle > 0 && s * m2 > 0) {
@@ -307,7 +317,7 @@ struct EdgeMesh::Impl {
   }
 
   Criteria criteria(double spacing) const {
-    return {o.deflection, o.angle, std::min(spacing, o.maxSpacing)};
+    return {o.deflection, o.angle, std::min(spacing, o.maxSpacing), 10 * tol};
   }
   double coedgeRange(int c, int j) const { return m.f64(CBR_COEDGE_RANGE)[2 * c + j]; }
 

@@ -9,6 +9,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <random>
 #include <map>
 #include <memory>
 #include <set>
@@ -316,7 +317,7 @@ TEST_CASE("splits: a boundary too coarse for the face's criteria split until non
   CHECK(pm.rounds() < 4);
 }
 
-TEST_CASE("the provisional criteria: the spacing from the curvature, accept() refusing triangles turned over") {
+TEST_CASE("the criteria's metric: sizes from the principal curvatures, every direction within them, graded") {
   auto criteria = [](const char* name, int f, cadgeom::Box2 box, double d, double angle,
     std::unique_ptr<cadgeom::Surface>& s) {
     static std::vector<cadgeom::Model> keep;
@@ -326,22 +327,80 @@ TEST_CASE("the provisional criteria: the spacing from the curvature, accept() re
     return makeCriteria(keep.back(), f, *s, box, Deflections{d, angle}, st);
   };
   std::unique_ptr<cadgeom::Surface> s;
-  // A cylinder of radius 2: curvature 1 / 2, so a chord of sqrt(8 d r) = 0.4 at d 0.01; with the angle 0.1, the
-  // normal's turn r h / r^2... h = 0.1 r = 0.2 first.
-  auto c = criteria("seamCylinder", 0, {{0, 2 * M_PI}, {0, 5}}, 0.01, 1.0, s);
-  REQUIRE(c);
-  CHECK(c->edgeSpacing() <= 0.4 * (1 + 1e-9) && c->edgeSpacing() >= 0.38);
-  c = criteria("seamCylinder", 0, {{0, 2 * M_PI}, {0, 5}}, 0.01, 0.1, s);
-  CHECK(c->edgeSpacing() <= 0.2 * (1 + 1e-9) && c->edgeSpacing() >= 0.19);
-  // A twisted bilinear patch, curved by S_uv alone (|S_uv| 1, |S_u|, |S_v| at least 1): h at most sqrt(8 d).
-  auto t = criteria("twisted", 0, {{0, 1}, {0, 1}}, 0.01, 1.0, s);
-  REQUIRE(t);
-  CHECK(t->edgeSpacing() <= std::sqrt(0.08) * (1 + 1e-9) && t->edgeSpacing() >= 0.2);
-  // The unit sphere up to its pole: curvature 1 everywhere (the normal's component of S'', not S'' itself, whose
-  // ratio to |S_u|^2 grows towards the pole), so h = sqrt(8 d) at d 0.01.
-  auto sp = criteria("spheres", 1, {{0, 2 * M_PI}, {0, M_PI / 2}}, 0.01, 1.0, s);
-  REQUIRE(sp);
-  CHECK(sp->edgeSpacing() <= std::sqrt(0.08) * (1 + 1e-9) && sp->edgeSpacing() >= 0.27);
+  // A cylinder of radius 2: round it the size is sqrt(6 d r) = 0.346 at d 0.01 (or angle r, 0.2 at 0.1), along it
+  // the face's extent (its box's diagonal in 3D, about 7.55): u's metric |S_u|^2 / h^2, v's 1 / extent^2.
+  for (double angle : {1.0, 0.1}) {
+    auto c = criteria("seamCylinder", 0, {{0, 2 * M_PI}, {0, 5}}, 0.01, angle, s);
+    REQUIRE(c);
+    double h = std::min(std::sqrt(0.06 * 2), angle * 2);
+    for (Vec2 p : {Vec2{0.3, 1}, Vec2{4, 4.5}}) {
+      tesscadio::Metric2 M = c->metric(p);
+      CHECK_NEAR(M.a, 4 / (h * h), 1e-6, 0);
+      CHECK(std::fabs(M.b) <= 1e-9 * M.a);
+      CHECK(M.c > 0 && M.c < 1 / 49.0 && M.c > 1 / 64.0);
+    }
+  }
+  // Every direction at random points of curved surfaces: its metric length at least what its normal curvature k_n
+  // asks, |S' d| sqrt(|k_n| / (6 d)) and |S' d| |k_n| / angle (k_n = II(d) / I(d), from the surface independently).
+  struct Face {
+    const char* name;
+    int face;
+    cadgeom::Box2 box;
+  };
+  std::mt19937 rng(5);
+  std::uniform_real_distribution<double> u01(0, 1);
+  int checked = 0;
+  for (Face fc : {Face{"seamCylinder", 0, {{0, 2 * M_PI}, {0, 5}}}, Face{"twisted", 0, {{0, 1}, {0, 1}}},
+         Face{"spheres", 1, {{0, 2 * M_PI}, {0, 1.4}}}, Face{"bumpPatch", 0, {{0, 4}, {0, 4}}},
+         Face{"torusOuterHalf", 0, {{0, 2 * M_PI}, {-M_PI / 2, M_PI / 2}}}}) {
+    const double d = 0.01, angle = 0.26;
+    auto c = criteria(fc.name, fc.face, fc.box, d, angle, s);
+    REQUIRE(c);
+    for (int k = 0; k < 300; k++) {
+      Vec2 p{fc.box.x.lo + u01(rng) * (fc.box.x.hi - fc.box.x.lo),
+        fc.box.y.lo + u01(rng) * (fc.box.y.hi - fc.box.y.lo)};
+      double th = 2 * M_PI * u01(rng);
+      Vec2 dir{std::cos(th), std::sin(th)};
+      cadgeom::SurfacePoint q;
+      REQUIRE(s->eval(p.x, p.y, 2, q) == cadgeom::Status::ok);
+      Vec3 t = dir.x * q.du + dir.y * q.dv, n = cadgeom::cross(q.du, q.dv);
+      double nl = cadgeom::norm(n), l = cadgeom::norm(t);
+      if (!(nl > 1e-9) || !(l > 1e-9)) continue;
+      Vec3 second = (dir.x * dir.x) * q.duu + (2 * dir.x * dir.y) * q.duv + (dir.y * dir.y) * q.dvv;
+      double kn = std::fabs(cadgeom::dot(second, (1 / nl) * n)) / (l * l);
+      tesscadio::Metric2 M = c->metric(p);
+      double L = std::sqrt(M.a * dir.x * dir.x + 2 * M.b * dir.x * dir.y + M.c * dir.y * dir.y);
+      double want = std::max(l * std::sqrt(kn / (6 * d)), l * kn / angle);
+      if (!(L >= want * (1 - 1e-6))) std::printf("  %s at (%g, %g): %g < %g\n", fc.name, p.x, p.y, L, want);
+      CHECK(L >= want * (1 - 1e-6));
+      checked++;
+    }
+  }
+  CHECK(checked > 1000);
+  // Graded on the bump: between neighbouring points the size (along u) changes by at most the growth over their
+  // distance, give or take the grid's interpolation; and the flat sides' size far below the extent (the bump's
+  // curvature graded out to them), the bump's own the curvature's.
+  {
+    auto c = criteria("bumpPatch", 0, {{0, 4}, {0, 4}}, 0.01, 0.26, s);
+    REQUIRE(c);
+    auto sizeU = [&](Vec2 p) {
+      tesscadio::Metric2 M = c->metric(p);
+      cadgeom::SurfacePoint q;
+      s->eval(p.x, p.y, 1, q);
+      return cadgeom::norm(q.du) / std::sqrt(M.a);
+    };
+    double worst = 0;
+    for (int i = 0; i < 40; i++) {
+      Vec2 p{0.1 * i, 2}, q{0.1 * (i + 1), 2};
+      cadgeom::SurfacePoint a, b;
+      s->eval(p.x, p.y, 0, a), s->eval(q.x, q.y, 0, b);
+      double dist = cadgeom::norm(b.p - a.p), hp = sizeU(p), hq = sizeU(q);
+      worst = std::max(worst, (std::max(hp, hq) - std::min(hp, hq)) / dist);
+    }
+    if (!(worst <= 0.5 * 1.5)) std::printf("  bump: size's growth per unit length up to %g\n", worst);
+    CHECK(worst <= 0.5 * 1.5);
+    CHECK(sizeU({0.05, 0.05}) < 0.5 * 14.1);
+  }
   // On the unit sphere near its pole: a triangle wide in u, its far corner nearer the pole, turned over in 3D (its
   // facet's normal against the surface's), refused, though within the deflection and its corners' normals close; one
   // not turned over, accepted; one with two corners on the pole line (a facet of rounding) accepted.
@@ -354,13 +413,12 @@ TEST_CASE("the provisional criteria: the spacing from the curvature, accept() re
   CHECK(h->accept(pole));
 }
 
-TEST_CASE("the split rounds: edges sampled 4 times coarser than the faces want, split until they're not") {
+TEST_CASE("edges allowed 4 times coarser than the faces want: split until they're not, every triangle accepted") {
   for (const char* name : {"seamCylinder", "band", "spheres", "twisted"}) {
     cadgeom::Model m = load(name);
     PartOptions o = options(0.01, 0.26);
     o.edgeSpacingScale = 4;
     PartMesher pm(m, o);
-    CHECK(pm.rounds() >= 1);
     CHECK_EQ(sharedEdges(m, pm, name), 0);
     for (int f = 0; f < m.faces(); f++) {
       const FaceMesh& fm = pm.face(f);
@@ -377,6 +435,17 @@ TEST_CASE("the split rounds: edges sampled 4 times coarser than the faces want, 
       CHECK_EQ(n, 0);
     }
   }
+}
+
+TEST_CASE("split rounds: a band's hole of straight edges, the triangles beside them split until accepted") {
+  // (The metric along a cylinder's axis is its extent, so the hole's axial edges stay one span; the triangles round
+  // the band next to them, wider than its angle allows, ask them split.)
+  cadgeom::Model m = load("bandHoleAtVertex");
+  PartMesher pm(m, options(0.01, 0.26));
+  REQUIRE(pm.face(0).status == cadgeom::Status::ok);
+  CHECK(pm.rounds() >= 1);
+  CHECK(pm.face(0).rejected.empty());
+  CHECK_EQ(pm.face(0).splitsWanted, 0);
 }
 
 TEST_CASE("faces of either sense: a fold and inside-out faces used reversed, normals out and triangles about them") {

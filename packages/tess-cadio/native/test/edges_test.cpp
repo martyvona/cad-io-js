@@ -289,6 +289,31 @@ TEST_CASE("curves: circles, a B-spline, a helix with no 3D curve, within the def
   CHECK(n >= 315 && n <= 630);
 }
 
+TEST_CASE("near a zero-speed point the curve doesn't report: no span refined below 10 x the tolerance") {
+  // nearCusp6: a cubic whose speed nearly vanishes at t = 0.5 (cuspEdge's cusp, a pole moved 1e-6), where the
+  // angle's speed bound shrinks towards 0; at the angle alone the samples stop at the floor, no two closer than the
+  // tolerance (1e-6, the part giving none), within the deflection; cuspEdge's exact cusp, which the curve reports,
+  // likewise.
+  for (const char* name : {"nearCusp6", "cuspEdge"}) {
+    cadgeom::Model m = load(name);
+    REQUIRE(m.ok());
+    EdgeOptions o;
+    o.deflection = 1e-2;
+    o.angle = 0.26;
+    EdgeMesh em(m, o);
+    const EdgeSamples& s = em.edge(0);
+    REQUIRE(s.status == cadgeom::Status::ok);
+    double shortest = INFINITY;
+    for (size_t i = 0; i + 1 < s.points.size(); i++)
+      shortest = std::fmin(shortest, cadgeom::norm(s.points[i + 1] - s.points[i]));
+    if (!(shortest >= 1e-6) || s.t.size() > 120) std::printf("  %s: %zu samples, shortest %g\n", name, s.t.size(),
+      shortest);
+    CHECK(shortest >= 1e-6);
+    CHECK(s.t.size() <= 120);
+    CHECK(measure(m, 0, s, o.deflection).excess <= 1e-12);
+  }
+}
+
 TEST_CASE("the angle alone, closed edges in 3 spans at least, the faces' spacing on their edges") {
   cadgeom::Model m = load("seamCylinder");
   REQUIRE(m.ok());
