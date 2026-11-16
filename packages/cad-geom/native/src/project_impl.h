@@ -59,7 +59,10 @@ Vec2 at(const PcurvePiece& p, double t);
  */
 double measure(const Job& job, const PcurvePiece& p);
 
-/** The point's local foot on s from uv (damped Newton on the squared distance); its distance. */
+/**
+ * The point's local foot on s from uv (damped Newton on the squared distance), in a periodic direction within half a
+ * period of where it started; its distance.
+ */
 double footFrom(const Surface& s, const SurfaceDomain& dom, Vec3 p, Vec2& uv, int iters = 30);
 
 /** The exact table (planes, elementary iso-lines) on the job's forms: true with `out` filled and verified, else false. */
