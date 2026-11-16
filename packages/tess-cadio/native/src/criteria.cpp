@@ -88,10 +88,12 @@ Metric2 intersect(Metric2 A, Metric2 B) {
 
 class Local : public SurfaceCriteria {
 public:
-  Local(const Surface& s, Box2 uv, const Deflections& d, double extent, bool bounded, bool sphere, Vec3 centre,
-    double radius)
-    : s_(s), box_(uv), d_(d), hmax_(extent), hmin_(1e-7 * extent), bounded_(bounded), sphere_(sphere),
-      centre_(centre), radius_(radius) {
+  /** The kinds whose deviation has a closed form: their frame (origin, axis), and radius and a second parameter. */
+  enum class Kind { none, sphere, cone, torus };
+  Local(const Surface& s, Box2 uv, const Deflections& d, double extent, bool bounded, Kind kind, Vec3 centre,
+    Vec3 axis, double radius, double second)
+    : s_(s), box_(uv), d_(d), hmax_(extent), hmin_(1e-7 * extent), bounded_(bounded), kind_(kind),
+      centre_(centre), axis_(axis), radius_(radius), second_(second) {
     // The grid's own metrics, then graded: sweeps until no node changes (or a bound on them).
     grid_.resize((kGrid + 1) * (kGrid + 1));
     valid_.assign(grid_.size(), false);
@@ -142,7 +144,7 @@ public:
   }
 
   double edgeSpacing() const override { return spacing_; }
-  bool bounded() const override { return bounded_ || sphere_; }
+  bool bounded() const override { return (bounded_ || kind_ != Kind::none) && !sampledAny_; }
 
   Metric2 metric(Vec2 p) const override {
     Metric2 g = interpolated(p), m;
@@ -158,18 +160,27 @@ public:
     double longest3 = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
     if (longest3 <= 1e-4 * d_.linear) return true;
     Bounds b;
-    if (sphere_) {
+    double closedForm;
+    if (kind_ == Kind::sphere) {
       // (Every point of the flat triangle is inside the ball: its distance to the sphere is R - |x - c|.)
       if (radius_ - pointTriangle(centre_, p) > d_.linear) return false;
+    } else if (kind_ != Kind::none && distanceBound(p, closedForm)) {
+      if (closedForm > d_.linear) return false;
     } else if (bounded_) {
-      // Sampled first (what it finds over the deflection is, so refusing on it is sound, and it spares the bound the
-      // many large triangles refinement refuses); then bounded, over the whole box, and only where that isn't enough
-      // over its pieces (secondBounds); where the surface gives no bound, the sample stands.
+      // Sampled first, sparing the bound the many large triangles refinement refuses (what it measures, |S(x) - L(x)|
+      // at the corners' barycentric (u, v), is at least the distance there, so its refusals err only to the strict
+      // side, where S''s tangential part is large); then bounded, over the whole box, and only where that isn't
+      // enough over its pieces (secondBounds); where the surface gives no bound, the sample stands (and is noted).
       if (!sampledDeviation(t, p)) return false;
-      if (bounds(t, b, false) && b.deviation > d_.linear && bounds(t, b, true) && b.deviation > d_.linear)
-        return false;
-    } else if (!sampledDeviation(t, p)) {
-      return false;
+      if (!bounds(t, b, false)) {
+        sampledAny_ = true;
+      } else if (b.deviation > d_.linear) {
+        if (!bounds(t, b, true)) sampledAny_ = true;
+        else if (b.deviation > d_.linear) return false;
+      }
+    } else {
+      sampledAny_ = true;
+      if (!sampledDeviation(t, p)) return false;
     }
     // The normals at the corners (where the surface has one) within the angle of one another and of the flat
     // triangle's own (which a triangle turned over in 3D, as one wide in u near a pole can be, fails).
@@ -257,6 +268,61 @@ private:
       for (size_t j = 0; j + 1 < vs.size(); j++)
         if (us[i + 1] > us[i] && vs[j + 1] > vs[j] && !one({us[i], us[i + 1]}, {vs[j], vs[j + 1]})) return false;
     return true;
+  }
+
+  /**
+   * A cone's or a torus's deviation bound over the flat triangle p (its corners on the surface), from a distance
+   * function g (an upper bound on the distance to the surface, positive inside the solid) at the centroid c: g concave
+   * over the triangle, g(x) <= g(c) + grad g(c) . (x - c), the most at a corner. False where the form doesn't hold
+   * (on a cone's axis, a torus's inner half or near its core), the deviation then sampled.
+   * Cone: g = -((rho - r0) - k h) / sqrt(1 + k^2) in its meridian plane (rho the distance to the axis, h the height,
+   * k = tan of the semi-angle), concave as rho is convex; the facet lies in the solid nappe (convex: rho <= r0 + k h)
+   * and from inside it the foot on the generator is outward, rho growing by |g| / sqrt(1 + k^2), so on the nappe's
+   * ray: g is the distance to the generator there, at least the distance to the surface.
+   * Torus: g = r - rho_c (rho_c the distance to the core circle), Hess rho_c's eigenvalues 0, 1 / rho_c and
+   * t / (rho_c s) (s the distance to the axis, t = s - R): concave with g >= 0 where the triangle stays at t >= 0, the
+   * tube locally convex there (t >= L at the anchor keeps it, L the longest side).
+   */
+  bool distanceBound(const Vec3 p[3], double& out) const {
+    double L = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
+    auto split = [&](Vec3 x, double& h, double& rho, Vec3& radial) {
+      Vec3 q = x - centre_;
+      h = dot(q, axis_);
+      Vec3 r = q - h * axis_;
+      rho = norm(r);
+      radial = rho > 0 ? (1 / rho) * r : Vec3{};
+    };
+    if (kind_ == Kind::torus && !(second_ < radius_)) return false;
+    // The bound at the centroid, the most of its form at a corner. (Anchoring at the facet's deepest point too, where
+    // the gradient's term vanishes, changed nothing measurable.)
+    std::vector<Vec3> anchors{(1.0 / 3) * (p[0] + p[1] + p[2])};
+    bool any = false;
+    out = INFINITY;
+    for (Vec3 c : anchors) {
+      double h, rho, bound;
+      Vec3 rad;
+      split(c, h, rho, rad);
+      if (!(rho > 0)) continue;
+      if (kind_ == Kind::cone) {
+        double k = second_, w = std::sqrt(1 + k * k), g = -((rho - radius_) - k * h) / w;
+        Vec3 grad = (-1 / w) * (rad - k * axis_);
+        bound = g;
+        for (int i = 0; i < 3; i++) bound = std::fmax(bound, g + dot(grad, p[i] - c));
+      } else {
+        double R = radius_, r = second_, t = rho - R, rc = std::hypot(t, h);
+        if (!(rc - L > 0) || !(rho - L > 0)) continue;
+        // Only where the triangle stays on the outer half (t >= L at the anchor): on the inner half a bound with
+        // the Hessian's terms (|x - c|^2 / (2 s_min) above, (1 / rho_min + 1 / s_min) |x - c|^2 / 2 below, the facet
+        // leaving the tube there) runs 5 x past a chord round the axis and doubled the triangles; sampled there.
+        if (t - L < 0) continue;
+        double g = r - rc;
+        Vec3 grad = (-1 / rc) * (t * rad + h * axis_);
+        bound = g;
+        for (int i = 0; i < 3; i++) bound = std::fmax(bound, g + dot(grad, p[i] - c));
+      }
+      out = std::fmin(out, bound), any = true;
+    }
+    return any;
   }
 
   /** The distance from c to the triangle p (its nearest point: inside, on an edge or at a corner). */
@@ -393,10 +459,13 @@ private:
   Box2 box_;
   Deflections d_;
   double hmax_, hmin_;
-  /** Whether accept() bounds the deviation (Local::bounds), takes it exactly (a sphere's), or samples it. */
-  bool bounded_, sphere_;
-  Vec3 centre_;
-  double radius_;
+  /** Whether accept() bounds the deviation (Local::bounds), by a closed form (kind_), or samples it. */
+  bool bounded_;
+  /** Whether any triangle's deviation was sampled so far (a bound unavailable there: bounded() then false). */
+  mutable bool sampledAny_ = false;
+  Kind kind_;
+  Vec3 centre_, axis_;
+  double radius_, second_;  // a cone's radius at v = 0 and tan of its semi-angle; a torus's major and minor radii
   double spacing_ = 0;
   std::vector<Metric2> grid_;
   std::vector<bool> valid_;
@@ -431,10 +500,14 @@ std::unique_ptr<SurfaceCriteria> makeCriteria(const Model& m, int f, const Surfa
   // and in (u, v) near an apex or a pole.
   int kind = m.surfaceKind(m.faceSurface(f));
   bool tight = kind == CBR_SURFACE_PLANE || kind == CBR_SURFACE_CYLINDER || kind == CBR_SURFACE_BSPLINE;
-  bool sphere = kind == CBR_SURFACE_SPHERE;
   const double* r = m.surfaceReals(m.faceSurface(f));
-  Vec3 centre = sphere ? Vec3{r[0], r[1], r[2]} : Vec3{};
-  return std::make_unique<Local>(s, uv, d, extent, tight, sphere, centre, sphere ? r[9] : 0);
+  Local::Kind closed = kind == CBR_SURFACE_SPHERE ? Local::Kind::sphere : kind == CBR_SURFACE_CONE ? Local::Kind::cone
+    : kind == CBR_SURFACE_TORUS ? Local::Kind::torus : Local::Kind::none;
+  Vec3 centre = closed != Local::Kind::none ? Vec3{r[0], r[1], r[2]} : Vec3{};
+  Vec3 axis = closed != Local::Kind::none ? Vec3{r[3], r[4], r[5]} : Vec3{};
+  double second = closed == Local::Kind::cone ? std::tan(r[10]) : closed == Local::Kind::torus ? r[10] : 0;
+  return std::make_unique<Local>(s, uv, d, extent, tight, closed, centre, axis, closed != Local::Kind::none ? r[9] : 0,
+    second);
 }
 
 } // namespace tesscadio

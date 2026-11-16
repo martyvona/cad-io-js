@@ -29,8 +29,9 @@ public:
    */
   virtual double edgeSpacing() const = 0;
   /**
-   * Whether accept() bounds a triangle's deviation from the surface (by its derivative bounds where they're exact,
-   * planes and cylinders; a sphere's exactly) rather than sampling it (the rest, until their bounds are tight).
+   * Whether accept() has bounded every triangle's deviation from the surface it judged so far (by derivative bounds
+   * or a distance function) rather than sampling it: false for the kinds it samples (extrusions, revolutions,
+   * offsets) and wherever a bound wasn't available (a cone's axis, a torus's inner half).
    */
   virtual bool bounded() const = 0;
   // metric(p): the first fundamental form over h^2, h the 3D size the deflections allow there.
