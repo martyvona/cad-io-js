@@ -196,6 +196,9 @@ struct Criteria {
  * equal pieces as the bounds say (at least 2) and each checked again, since a piece's bounds are tighter. False where
  * the depth or the sample cap ran out (the span kept as it is).
  */
+/** Tangents a span's turn is sampled at to choose its pieces' count (its check is by the bound). */
+constexpr int kTurnSamples = 8;
+
 bool refine(const Geom& g, double a, double b, const Criteria& k, std::vector<double>& out, int depth) {
   double s = b - a, m1 = g.bound(a, b, 1), m2 = g.bound(a, b, 2);
   if (std::isfinite(m1) && s * m1 <= k.floor) {
@@ -222,19 +225,39 @@ bool refine(const Geom& g, double a, double b, const Criteria& k, std::vector<do
   double n = 2;
   if (std::isfinite(m2) && m2 > 0) n = std::max(n, std::ceil(s * std::sqrt(m2 / (8 * k.deflection))));
   if (k.spacing < kInf && std::isfinite(m1)) n = std::max(n, std::ceil(s * m1 / k.spacing));
-  // As many pieces as the turn asks for, but none whose length bound is under the floor: where the speed nearly
-  // vanishes the room is tiny and would ask for 64 at once.
+  // As many pieces as the turn asks for (where the speed nearly vanishes the room is tiny and would ask for 64 at
+  // once: the floor below caps it). The count by the tangents' turn as sampled where the
+  // bound's is more (a B-spline's bound over a long span is loose: its pieces, bounded again, pass far sooner), with
+  // a tenth to spare so an arc's pieces pass at once; the pieces are checked by the bound in any case.
   if (turnRoom > 0) {
-    double turnN = std::ceil(s * m2 / turnRoom);
-    if (k.floor > 0 && std::isfinite(m1)) turnN = std::min(turnN, std::floor(s * m1 / k.floor));
+    double turnN = std::ceil(s * m2 / turnRoom), seen = 0;
+    Vec3 t0 = g.d1(a);
+    for (int i = 1; i <= kTurnSamples; i++) {
+      Vec3 t1 = g.d1(a + s * i / kTurnSamples);
+      seen += std::atan2(norm(cross(t0, t1)), dot(t0, t1));
+      t0 = t1;
+    }
+    turnN = std::min(turnN, std::ceil(seen / (0.9 * k.angle)));
     n = std::max(n, turnN);
   }
+  // No piece's length bound under the floor (at least two pieces still).
+  if (k.floor > 0 && std::isfinite(m1)) n = std::min(n, std::max(2.0, std::floor(s * m1 / k.floor)));
   int pieces = static_cast<int>(std::min(n, 64.0));
-  bool all = true;
-  for (int i = 0; i < pieces; i++) {
-    double x0 = a + s * i / pieces, x1 = i == pieces - 1 ? b : a + s * (i + 1) / pieces;
-    all = refine(g, x0, x1, k, out, depth + 1) && all;
+  // Equal pieces, but no cut within a tenth of the floor (the tolerance) of the last kept or of b: where the speed
+  // nearly vanishes, equal parameter steps make chords far shorter than the pieces' bounds.
+  std::vector<double> cuts{a};
+  Vec3 kept = g.at(a), end = g.at(b);
+  for (int i = 1; i < pieces; i++) {
+    double x = a + s * i / pieces;
+    Vec3 p = g.at(x);
+    if (k.floor > 0 && (norm(p - kept) < 0.1 * k.floor || norm(end - p) < 0.1 * k.floor)) continue;
+    cuts.push_back(x);
+    kept = p;
   }
+  if (cuts.size() == 1) cuts.push_back(a + s / 2);  // (some cut, so the pieces shrink)
+  cuts.push_back(b);
+  bool all = true;
+  for (size_t i = 0; i + 1 < cuts.size(); i++) all = refine(g, cuts[i], cuts[i + 1], k, out, depth + 1) && all;
   return all;
 }
 

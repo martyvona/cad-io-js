@@ -392,6 +392,17 @@ TEST_CASE("the angle is the tangent's turn across a span: a 0.5 mm hole at mediu
   EdgeMesh em(m, o);
   CHECK_EQ(checkEdges(m, em, o, "sBend"), 0);
   CHECK(em.edge(0).t.size() >= 3u);
+  // At 15 degrees, as many spans as its total turning needs, within 3 x (the bound's check counts its speed changing
+  // too, as an arc's doesn't; pieces counted by the bound over the long first span are 3 times as many again).
+  double total = 0;
+  for (size_t i = 0; i + 1 < tangents.size(); i++)
+    total += std::acos(std::clamp(cadgeom::dot(tangents[i], tangents[i + 1]), -1.0, 1.0));
+  o.angle = 15 * M_PI / 180;
+  EdgeMesh at15(m, o);
+  CHECK_EQ(checkEdges(m, at15, o, "sBend at 15"), 0);
+  size_t need = static_cast<size_t>(std::ceil(total / o.angle)), spans = at15.edge(0).t.size() - 1;
+  if (spans < need || spans > 3 * need) std::printf("  sBend at 15: %zu spans, its turning needs %zu\n", spans, need);
+  CHECK(spans >= need && spans <= 3 * need);
 }
 
 TEST_CASE("a span over a pole: a sample where its foot is the pole, the loop across the pole line the face's way") {
