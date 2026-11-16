@@ -21,6 +21,7 @@
 #include "cad_geom/geom2d.h"
 #include "cad_geom/project.h"
 #include "cad_geom/surface.h"
+#include "cad_geom/tolerance.h"
 
 using namespace cadgeom;
 
@@ -51,7 +52,9 @@ struct Entry {
   std::vector<int32_t> coedgeFace;
   /** cg_model_options: the face API projects coedges without p-curves. */
   bool project = true;
-  Entry(uint8_t* b, uint32_t size) : buffer(b), model(b, size) {}
+  /** The tolerances its edges and faces are judged by (tolerance.h): made once with the model. */
+  Tolerances tols;
+  Entry(uint8_t* b, uint32_t size) : buffer(b), model(b, size), tols(model) {}
   ~Entry() { std::free(buffer); }
 };
 
@@ -375,13 +378,13 @@ int32_t cg_surface_invert(int32_t h, int32_t row, const double* points, int32_t 
 
 // -- Faces: 2D geometry on a face's loops in its surface's (u, v) (geom2d.h). A face's loops are its coedges' p-curves,
 // or their projections (below; vertex loops have none and are left out of nest2, their parents -1); its periods and
-// pole lines are its surface's as it closes in fact (closeInFact at the part's and face's tolerance, else
-// DEFAULT_TOL): its periods, a finite direction's width where it closes in fact, and its singularities' poles and
-// apexes. Joints meeting in 3D within its tolerance are bridged (faceLoops). The tolerance in (u, v) at a point is
-// the 3D one divided by the largest stretch of the first fundamental form there (sqrt of its largest eigenvalue), so
+// pole lines are its surface's as it closes in fact (closeInFact at the face's tolerance, tolerance.h's rule): its
+// periods, a finite direction's width where it closes in fact, and its singularities' poles and apexes. Joints
+// meeting in 3D within its tolerance are bridged (faceLoops). The tolerance in (u, v) at a point is the 3D one
+// divided by the largest stretch of the first fundamental form there (sqrt of its largest eigenvalue), so
 // every (u, v) step within it is within the 3D one: a thin cylinder's u and a large plane's coordinates each get
-// their own. The 3D tolerance is the caller's where given (tol3d > 0), else the larger of the
-// part's uncertainty and the face's and its edges' tolerances, else DEFAULT_TOL.
+// their own. The 3D tolerance is the caller's where given (tol3d > 0), else the face's (tolerance.h: the part's
+// uncertainty, the face's own and 1e-9 x the part's size, the largest) widened by its edges' tolerances.
 // A coedge's p-curve range is the model's, in its edge's start-to-end order (so decreasing where the edge runs
 // against its curve), the use running it forward or back by its orientation. Where the model gives none (STEP
 // never does), it's derived as the p-curve's parameter is defined, the edge's 3D curve's (Part 42's SURFACE_CURVE;
@@ -401,7 +404,6 @@ int32_t cg_surface_invert(int32_t h, int32_t row, const double* points, int32_t 
 namespace {
 
 constexpr int32_t FACE_NO_PCURVE = 100, FACE_NO_RANGE = 101, FACE_RANGE_OFF = 102, FACE_PROJECTION_FAILED = 103;
-constexpr double DEFAULT_TOL = 1e-7;  // mm: where neither the caller nor the model gives a tolerance
 
 struct FaceLoops {
   int32_t status = 0;
@@ -445,13 +447,8 @@ private:
   Vec2 a_, b_;
 };
 
-/** The 3D tolerance of the coedge's edge: the larger of the part's uncertainty and the edge's, else DEFAULT_TOL. */
-double edgeTolerance(const Model& m, int edge) {
-  double u = m.uncertainty(), t = m.f64(CBR_EDGE_TOLERANCE)[edge];
-  double best = std::isfinite(u) ? u : 0;
-  if (std::isfinite(t) && t > best) best = t;
-  return best > 0 ? best : DEFAULT_TOL;
-}
+/** The 3D tolerance of the coedge's edge (tolerance.h's rule). */
+double edgeTolerance(int32_t h, int edge) { return entry(h)->tols.edge(edge); }
 
 /** The pieces' parameters at both ends, rounded the way the edge runs over a period (a closed edge a whole turn). */
 void around(CurveDomain d, bool closed, bool forward, double t0, double& t1) {
@@ -484,7 +481,7 @@ int32_t edgeParams(int32_t h, int e, double& t0, double& t1) {
     Status s;
     const Curve* c3 = curve(h, ci, s);
     if (!c3) return static_cast<int32_t>(s);
-    const double tol = edgeTolerance(m, e);
+    const double tol = edgeTolerance(h, e);
     CurveDomain d = c3->domain();
     CurveInversion a = invertCurve(*c3, m.vertexPoint(vs), d.range, tol);
     CurveInversion b = vs == ve ? a : invertCurve(*c3, m.vertexPoint(ve), d.range, tol);
@@ -523,7 +520,7 @@ int32_t useRange(int32_t h, int c, const Surface* surface, const Periods& per, d
   if (vs < 0 || ve < 0) return 0;
   Status s;
   const Curve* pc = curve(h, m.coedgePcurve(c), s);
-  const double tol = edgeTolerance(m, e);
+  const double tol = edgeTolerance(h, e);
   // How far the surface at the p-curve's ends lands from the vertices, the larger: infinite where it can't say, a
   // parameter outside the p-curve's domain included (an evaluation there is clamped, and may land on a vertex).
   // A p-curve a period or more from the domain (useRange's copies) is taken back into it first, and one past an end
@@ -718,12 +715,9 @@ const Surface* faceSurface(int32_t h, int face, Status& s) {
   const Model& m = e->model;
   s = Status::ok;
   if (!e->faceSurfaces[face]) {
-    double tol = m.uncertainty();
-    const double ft = m.f64(CBR_FACE_TOLERANCE)[face];
-    if (std::isfinite(ft) && !(ft <= tol)) tol = ft;
     std::unique_ptr<Surface> made = makeSurface(m, m.faceSurface(face), s);
     if (!made) return nullptr;
-    e->faceSurfaces[face] = closeInFact(std::move(made), std::isfinite(tol) && tol > 0 ? tol : DEFAULT_TOL);
+    e->faceSurfaces[face] = closeInFact(std::move(made), e->tols.face(face));
   }
   return e->faceSurfaces[face].get();
 }
@@ -754,7 +748,7 @@ void projectCoedge(int32_t h, int c, double tol, Projection& out) {
     return;
   }
   const PcurveSource source{&m, ci, m.faceSurface(face)};
-  out.p = projectCurve(*c3, {std::min(t0, t1), std::max(t0, t1)}, *f, tol > 0 ? tol : edgeTolerance(m, e), nullptr,
+  out.p = projectCurve(*c3, {std::min(t0, t1), std::max(t0, t1)}, *f, tol > 0 ? tol : edgeTolerance(h, e), nullptr,
     &source);
   out.t0 = t0, out.t1 = t1, out.made = 0;
   // The use runs start to end forward, end to start reversed.
@@ -815,9 +809,8 @@ FaceLoops faceLoops(int32_t h, int32_t face, double tol3d) {
   }
   const Model& m = e->model;
   Status s;
-  double tol = m.uncertainty();
+  double tol = e->tols.face(face);
   auto widen = [&](double t) { if (std::isfinite(t) && !(t <= tol)) tol = t; };
-  widen(m.f64(CBR_FACE_TOLERANCE)[face]);
   // The surface as it closes in fact: its periods, and its pole lines and apexes, are the face's.
   out.surface = faceSurface(h, face, s);
   if (!out.surface) {
@@ -911,7 +904,7 @@ FaceLoops faceLoops(int32_t h, int32_t face, double tol3d) {
       at += n;
     }
   }
-  out.tol3 = tol3d > 0 ? tol3d : std::isfinite(tol) && tol > 0 ? tol : DEFAULT_TOL;
+  out.tol3 = tol3d > 0 ? tol3d : tol;
   // Joints that meet within tol3 in 3D but not within the (u, v) tolerance (which takes the surface's largest
   // stretch, so a joint apart along a less stretched direction can be off by more): bridged by a segment, as geom2d
   // would close them, but not as a gap (a pole line's joint too, the same segment geom2d would give it). Joints a
@@ -1085,7 +1078,7 @@ int32_t cg_project(int32_t h, int32_t row, int32_t surfaceRow, double lo, double
   if (surfaceRow < 0 || surfaceRow >= e->model.surfaces()) return static_cast<int32_t>(Status::invalidModel);
   std::unique_ptr<Surface> made = makeSurface(e->model, surfaceRow, s);
   if (!made) return static_cast<int32_t>(s);
-  std::unique_ptr<Surface> f = closeInFact(std::move(made), tol > 0 ? tol : DEFAULT_TOL);
+  std::unique_ptr<Surface> f = closeInFact(std::move(made), tol > 0 ? tol : e->tols.part());
   PcurveEnds known;
   if (ends) {
     known.hasStart = ends[0] != 0, known.start = {ends[1], ends[2]};

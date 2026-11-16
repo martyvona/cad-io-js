@@ -517,7 +517,8 @@ export class Geometry {
   }
 
   // -- Faces: 2D geometry on a face's loops (geom2d.h; cad_geom_api.cpp says how the loops, periods, pole lines and
-  // tolerances are made). tol3d, where given (> 0), is the 3D tolerance; else the model's (or 1e-7 mm).
+  // tolerances are made). tol3d, where given (> 0), is the 3D tolerance; else the model's (tolerance.h: the largest of
+  // the part's uncertainty (else 1e-5 mm), the face's or edges' own and 1e-9 x the part's size).
 
   /** The face's loops as geom2d sees them: the 3D tolerance used, the periods, the edge loops, the pole lines. */
   faceInfo(face: number, tol3d = NaN): FaceInfo {

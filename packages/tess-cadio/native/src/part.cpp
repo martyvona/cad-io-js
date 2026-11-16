@@ -38,6 +38,7 @@ struct PartMesher::Impl {
 
   EdgeOptions edgeOptions() const {
     EdgeOptions e;
+    e.projectMissingPcurves = o.projectMissingPcurves;
     e.deflection = o.d.linear;
     e.angle = o.d.angular;
     return e;
@@ -279,6 +280,7 @@ struct PartMesher::Impl {
       return;
     }
     if (fb.status == Status::singular) out.note = "a seam's side in (u, v) not settled by its neighbours";
+    out.againstSense = fb.againstSense;
     // (Not where the seam's side wasn't settled: such a boundary is a guess, and its face stays singular.)
     std::vector<Fan> fans;
     if (fb.status == Status::ok) fans = makeFans(f, fb);
@@ -448,10 +450,11 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
   I.faces.resize(nf);
   I.edgesOf.resize(nf);
   I.wanted.resize(nf);
+  const cadgeom::Tolerances tols(m);
   for (int f = 0; f < nf; f++) {
     Status st;
     // (A face with no loops too: its surface's natural extent, where it has one, edges.h.)
-    I.surfaces[f] = closedSurface(m, f, st);
+    I.surfaces[f] = closedSurface(m, tols, f, st);
   }
   // The faces' (u, v) boxes from a first sampling, their criteria, then the edges again at the spacing they ask.
   std::vector<double> spacing(nf, INFINITY);

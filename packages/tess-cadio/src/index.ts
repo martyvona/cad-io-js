@@ -193,6 +193,12 @@ export class CadioTessellator implements Tessellator {
         + 'surface sampled, not bounded (their surfaces\' derivative bounds not yet tight)' });
     }
     note('unsettled', 'with a seam whose side in (u, v) their neighbours didn\'t settle');
+    const against = list('againstSense');
+    if (against.length) {
+      diagnostics.push({ severity: 'warning', message: `${against.length} faces with a loop against the face's sense `
+        + '(a seam use\'s side by the face\'s sense contradicts its loop), meshed as the face\'s sense has it: faces '
+        + `${against.slice(0, 10).join(', ')}${against.length > 10 ? ', ...' : ''}` });
+    }
     return result;
   }
 
