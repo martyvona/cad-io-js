@@ -37,6 +37,11 @@ struct FaceMesh {
    * invalidModel (a boundary that isn't a domain), or the boundary's or the mesher's own status.
    */
   Status status = Status::unsupported;
+  /**
+   * Why, where the status isn't ok: a short cause for diagnostics (its surface, its boundary's FaceBoundary::cause,
+   * the mesher's segments that cross, its criteria), else empty.
+   */
+  std::string cause;
   /** The face's vertices: its boundary's points first (edges' samples, exactly), then the mesher's. */
   std::vector<Vec3> points;
   /** Unit normals, the face's (the surface's, turned where the face's sense is false); at a pole, the limit. */

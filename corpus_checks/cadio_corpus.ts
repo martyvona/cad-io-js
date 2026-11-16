@@ -64,15 +64,14 @@ const dbins = (): Record<DBin, number> => ({ within: 0, '1.5x': 0, '3x': 0, wors
 const dbin = (ratio: number): DBin => (ratio <= 1 + 1e-6 ? 'within' : ratio <= 1.5 ? '1.5x' : ratio <= 3 ? '3x'
   : 'worse');
 
-/** Why a face ours left without triangles: our backend's status for it, the model's shape where that says more. */
-function cause(d: BrepData, row: number, status: string | undefined): string {
-  const face = decode.face(d, row);
-  const kind = (decode.surface(d, face.surface) as { kind: string }).kind;
-  if (!face.loops.length) return `no loops (${kind})`;
-  if (face.loops.every((l) => l.kind !== 'edge')) {
-    return `only ${face.loops.map((l) => l.kind).join(', ')} loops (${kind})`;
-  }
-  return `${status ?? 'status unlisted'} (${kind})`;
+/**
+ * Why a face ours left without triangles: our backend's status and cause for it (its "faces failed to mesh, by
+ * cause" diagnostic), and the face's surface kind. A face the diagnostic doesn't list is counted as such, never as
+ * anything else.
+ */
+function cause(d: BrepData, row: number, why: string | undefined): string {
+  const kind = (decode.surface(d, decode.face(d, row).surface) as { kind: string }).kind;
+  return `${why ?? 'not in our diagnostics'} (${kind})`;
 }
 
 /**
@@ -162,6 +161,9 @@ const fresh = () => ({
   sampledFaces: 0,
   warnings: new Map<string, number>(),
   tally: new Map<string, { n: number; ex: string[] }>(),
+  /** Every face without our triangles, and every part we didn't mesh, each with its cause (the coverage's record). */
+  unmeshed: [] as string[],
+  unmeshedParts: [] as string[],
 });
 type Tallies = ReturnType<typeof fresh>;
 const bump = (m: Map<string, number>, k: string, n = 1) => m.set(k, (m.get(k) ?? 0) + n);
@@ -218,6 +220,7 @@ export const check: FileCheck<undefined, Tallies> = {
         const k: Status = /timed out/.test(m) ? 'timeout' : /exit|crash|terminated|memory/.test(m) ? 'crash' : 'error';
         T.status[k]++;
         note(`ours ${k}: ${m.replace(/\d+/g, 'N').slice(0, 120)}`, where);
+        T.unmeshedParts.push(`${where} (${d.face.surface.length} faces): ${k}: ${m.split('\n')[0]!.slice(0, 200)}`);
         continue;
       }
       const ca = PLANT ? plant(a.r, d) : a.r;
@@ -238,6 +241,8 @@ export const check: FileCheck<undefined, Tallies> = {
       }
       if (!ca.indices.length) {
         T.status.error++;
+        T.unmeshedParts.push(`${where} (${d.face.surface.length} faces): no triangles: `
+          + ca.diagnostics.map((x) => x.message).join('; ').slice(0, 300));
         note(`ours no triangles: ${ca.diagnostics.map((x) => x.message.replace(/\d+/g, 'N')).join('; ')
           .slice(0, 120)}`, where);
         continue;
@@ -250,11 +255,15 @@ export const check: FileCheck<undefined, Tallies> = {
       for (let fr = 0; fr < d.face.surface.length; fr++) rowOf.set(d.face.id[fr]!, fr);
       // Faces without triangles, by cause; and whether OCCT leaves them too.
       const ours = faceAreas(ca), theirs = faceAreas(ob);
-      // Each failed face's status, as our backend says it.
+      // Each failed face's status and cause, as our backend says them ("<status>: <cause> <n> (#id, ...)", joined by
+      // "; ").
       const statusOf = new Map<number, string>();
+      const head = 'faces failed to mesh, by cause: ';
       for (const x of ca.diagnostics) {
-        if (!x.message.startsWith('faces failed to mesh, by status: ')) continue;
-        for (const m of x.message.matchAll(/(\w+) \d+ \(([^)]*)\)/g)) {
+        if (!x.message.startsWith(head)) continue;
+        for (const entry of x.message.slice(head.length).split('; ')) {
+          const m = /^(.*) \d+ \(((?:#\d+(?:, )?)+)\)$/.exec(entry);
+          if (!m) continue;
           for (const id of m[2]!.matchAll(/#(\d+)/g)) statusOf.set(Number(id[1]), m[1]!);
         }
       }
@@ -268,6 +277,7 @@ export const check: FileCheck<undefined, Tallies> = {
         if (!t || !t.tris) T.facelessOcctToo++;
         const c = cause(d, fr, statusOf.get(id));
         bump(T.causes, c);
+        T.unmeshed.push(`${where} face #${id}: ${c}${!t || !t.tris ? ' (OCCT neither)' : ''}`);
         note(`face without our triangles: ${c}${!t || !t.tris ? ' (OCCT neither)' : ''}`, `${where} face #${id}`);
       }
       for (const [who, r] of [['cadio', ca], ['occt', ob]] as const) {
@@ -369,7 +379,8 @@ if (import.meta.main) {
   console.log(`  mesh area against OCCT's (faces both mesh): ${show(T.meshArea)}`);
   console.log(`  deflection measured (faces, worst sampled point over ${LIN} mm): ours ${show(T.deflection.cadio)}; `
     + `OCCT ${show(T.deflection.occt)}`);
-  console.log(`  our faces judged by sampling, their deviation not bounded: ${pct(T.sampledFaces, T.faces - T.faceless)}`);
+  console.log('  our faces judged by sampling, their deviation not bounded: '
+    + pct(T.sampledFaces, T.faces - T.faceless));
   console.log(`  triangles: ours ${T.trisCadio}, OCCT ${T.trisOcct}; meshing ${(T.msCadio / 1000).toFixed(1)} s ours, `
     + `${(T.msOcct / 1000).toFixed(1)} s OCCT (wall time per request, summed)`);
   // Ratios over the parts both mesh: in all, and the median and range of the files'.
@@ -392,6 +403,10 @@ if (import.meta.main) {
   for (const [k, t] of [...T.tally].sort((x, y) => y[1].n - x[1].n)) console.log(
     `${String(t.n).padStart(8)} ${k}  e.g. ${t.ex.join('; ')}`);
   for (const r of rows) console.log(r);
+  console.log(`\n## Parts we didn't mesh (${T.unmeshedParts.length}), each with its cause`);
+  for (const x of T.unmeshedParts.sort()) console.log(`  ${x}`);
+  console.log(`\n## Faces without our triangles (${T.unmeshed.length}), each with our status and cause`);
+  for (const x of T.unmeshed.sort()) console.log(`  ${x}`);
   console.log('\n## Ours / OCCT per file, over the parts both mesh (triangles, then meshing time)');
   for (const r of ratios.sort((x, y) => y.tris - x.tris)) {
     console.log(`  ${fx(r.tris).padStart(7)} ${fx(r.ms).padStart(7)}  ${r.file} (${r.b.trisCadio} / ${r.b.trisOcct} `

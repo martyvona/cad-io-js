@@ -485,6 +485,15 @@ export function bsplineBall(): BrepBuilder {
   return b;
 }
 
+/** A plane with no loops beside a whole sphere with none: the sphere its natural extent, the plane none (unbounded). */
+export function loopless(): BrepBuilder {
+  const b = new BrepBuilder();
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: true, loops: [] }));
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'sphere', position: AXIS, radius: 1 }), sameSense: true,
+    loops: [] }));
+  return b;
+}
+
 /** A whole torus (R 3, r 1, axis z) bounded by a vertex loop at (4, 0, 0): its natural extent, area 12 pi^2. */
 export function wholeTorus(): BrepBuilder {
   const b = new BrepBuilder();
@@ -781,7 +790,7 @@ export function sBend(): BrepBuilder {
   return b;
 }
 
-export const MODELS = { bsplineBall, wholeTorus, wholeSphereVertex, bsplineApex, poleHole, smallHole, sBend,
+export const MODELS = { loopless, bsplineBall, wholeTorus, wholeSphereVertex, bsplineApex, poleHole, smallHole, sBend,
   cuspEdge: () => cuspEdge(), nearCusp6, bumpPatch: () => bumpPatch(),
   halfBump: () => bumpPatch(true), thinBand, tubeGapFaceTolerance,
   tubeGapUncertainty, tubeGapBySize, tubeGapOpen, torusOuterHalf, meridianHemisphereLoose, offPoleRest, wigglyBand,

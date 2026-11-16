@@ -26,6 +26,7 @@ struct PartMesher::Impl {
   std::vector<std::unique_ptr<Surface>> surfaces;
   std::vector<std::unique_ptr<SurfaceCriteria>> criteria;
   std::vector<Status> criteriaStatus;
+  std::vector<std::string> criteriaWhy;
   std::unique_ptr<EdgeMesh> em;
   std::vector<FaceMesh> faces;
   /** Per face, the edges (model and pseudo) its boundary has points of, and the splits its mesh wants. */
@@ -221,6 +222,29 @@ struct PartMesher::Impl {
     if (cross(t[1] - t[0], t[2] - t[0]) < 0) std::swap(t[1], t[2]);
   }
 
+  /**
+   * Why the mesher refused face f's domain, from the segments it names (mesh2d.h): two of the boundary's points at
+   * one (u, v), a segment through another point, or two that cross; and what they're of (an edge's samples, a cut's,
+   * a pole line, a pole's ring).
+   */
+  static std::string meshWhy(const Mesh2& mesh, const std::vector<BoundaryPoint>& bp) {
+    const std::vector<int32_t>& r = mesh.rejected;
+    auto of = [&](int32_t i) -> std::string {
+      if (i < 0 || i >= static_cast<int32_t>(bp.size())) return "a point";
+      switch (bp[i].kind) {
+        case BoundaryPoint::edgeSample: return "an edge";
+        case BoundaryPoint::pseudoSample: return "a cut";
+        case BoundaryPoint::poleLine: return "a pole line";
+        default: return "a pole's ring or a vertex";
+      }
+    };
+    if (r.size() == 2) return "two of its boundary's points at one (u, v) (" + of(r[0]) + ", " + of(r[1]) + ")";
+    if (r.size() >= 4 && r[2] == r[3])
+      return "its boundary in (u, v) through its own point (" + of(r[0]) + " through " + of(r[2]) + ")";
+    if (r.size() >= 4) return "its boundary in (u, v) crossing itself (" + of(r[0]) + " and " + of(r[2]) + ")";
+    return "its boundary not a domain in (u, v) (a loop under 3 points, a segment not closed)";
+  }
+
   bool spanOf(int f, const BoundaryPoint& a, const BoundaryPoint& b, int& edge, int& span, bool& forward) const {
     auto same = [](Vec3 x, Vec3 y) { return x.x == y.x && x.y == y.y && x.z == y.z; };
     for (int e : edgesOf[f]) {
@@ -239,14 +263,19 @@ struct PartMesher::Impl {
     out = {};
     wanted[f].clear();
     edgesOf[f].clear();
-    if (!surfaces[f]) return;
+    if (!surfaces[f]) {
+      out.cause = "its surface not made (a kind or form cad-geom lacks)";
+      return;
+    }
     if (!criteria[f]) {
       out.status = criteriaStatus[f];
+      out.cause = criteriaWhy[f];
       return;
     }
     FaceBoundary fb = em->face(f);
     if (fb.status != Status::ok && fb.status != Status::singular) {
       out.status = fb.status;
+      out.cause = fb.cause;
       return;
     }
     if (fb.status == Status::singular) out.note = "a seam's side in (u, v) not settled by its neighbours";
@@ -302,6 +331,7 @@ struct PartMesher::Impl {
     if (mesh.status != Status::ok && mesh.status != Status::noConvergence) {
       // (A boundary whose seam side wasn't settled fails for that.)
       out.status = fb.status == Status::singular ? Status::singular : mesh.status;
+      out.cause = fb.status == Status::singular ? fb.cause : meshWhy(mesh, bp);
       return;
     }
     out.status = Status::ok;
@@ -414,6 +444,7 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
   I.surfaces.resize(nf);
   I.criteria.resize(nf);
   I.criteriaStatus.assign(nf, Status::unsupported);
+  I.criteriaWhy.assign(nf, "");
   I.faces.resize(nf);
   I.edgesOf.resize(nf);
   I.wanted.resize(nf);
@@ -444,9 +475,11 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
         for (const BoundaryPoint& p : c) add(p.uv);
       if (!(box.x.lo <= box.x.hi)) {
         I.criteriaStatus[f] = fb.status == Status::ok ? Status::invalidModel : fb.status;
+        I.criteriaWhy[f] = !fb.cause.empty() ? fb.cause : "its boundary gives no points in (u, v)";
         continue;
       }
       I.criteria[f] = makeCriteria(m, f, *I.surfaces[f], box, I.o.d, I.criteriaStatus[f]);
+      if (!I.criteria[f]) I.criteriaWhy[f] = "no criteria for it (its (u, v) box not finite)";
       if (I.criteria[f]) spacing[f] = I.criteria[f]->edgeSpacing() * I.o.edgeSpacingScale;
     }
   }

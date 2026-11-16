@@ -165,13 +165,14 @@ export class CadioTessellator implements Tessellator {
     const failedIds = list('failed');
     if (failedIds.length) {
       diagnostics.push({ severity: 'error', message: failedMessage(failedIds, failedIds.length) });
-      // Why, per face (result.h's Status).
+      // Why, per face: result.h's Status and the backend's cause (FaceMesh::cause).
       const by = new Map<string, number[]>(), st = list('failedStatus');
+      const causes = Array.isArray(diag.failedCause) ? diag.failedCause as string[] : [];
       failedIds.forEach((id, i) => {
-        const k = STATUS[st[i] ?? -1] ?? 'unknown';
+        const k = `${STATUS[st[i] ?? -1] ?? 'unknown'}: ${causes[i] ?? 'cause not given'}`;
         by.set(k, [...(by.get(k) ?? []), id]);
       });
-      diagnostics.push({ severity: 'info', message: 'faces failed to mesh, by status: ' + [...by].map(([k, ids]) =>
+      diagnostics.push({ severity: 'info', message: 'faces failed to mesh, by cause: ' + [...by].map(([k, ids]) =>
         `${k} ${ids.length} (${ids.map((i) => `#${i}`).join(', ')})`)
         .join('; ') });
     }

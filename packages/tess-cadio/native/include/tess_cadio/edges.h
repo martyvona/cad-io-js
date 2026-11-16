@@ -23,6 +23,7 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "cad_geom/model.h"
@@ -125,6 +126,8 @@ struct BoundaryPoint {
  */
 struct FaceBoundary {
   Status status = Status::unsupported;
+  /** Why, where the status isn't ok: a short cause for diagnostics (the first found), else empty. */
+  std::string cause;
   std::vector<std::vector<BoundaryPoint>> loops;
   /** Interior constraint chains: each a run of points to join pairwise (or a single point to keep). */
   std::vector<std::vector<BoundaryPoint>> interior;
