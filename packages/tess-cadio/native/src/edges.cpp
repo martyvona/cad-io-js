@@ -320,6 +320,12 @@ struct EdgeMesh::Impl {
     double cut = 0;
     Crossing cross[2];
     Status status = Status::ok;
+    // A face with no edge loops: its surface's natural extent (makeNatural), its cuts' pseudo-edges: along
+    // the periodic direction's cut (sphere-like: from pole to pole) and, periodic both ways, along the other's too;
+    // the cuts' values; the poles at the low and high ends of the other direction (sphere-like).
+    enum class Natural { none, sphere, torus } natural = Natural::none;
+    int natDir = 0, natPseudo[2] = {-1, -1}, natPole[2] = {-1, -1};
+    double natAt[2] = {0, 0};
   };
   std::vector<Edge> edges;
   std::vector<Coedge> coedges;
@@ -921,8 +927,116 @@ struct EdgeMesh::Impl {
   }
 
   /** Face f's cut, if its loops wind: made once, its crossings inserted into their edges, its pseudo-edge sampled. */
+  /**
+   * A face with no edge loops (none, or vertex loops only) on a surface closed in fact: its natural extent, by cuts.
+   * Periodic in one direction with poles at both ends of the other (a sphere, a closed B-spline collapsed at both
+   * ends): one pseudo-edge from pole to pole along the cut. Periodic both ways with no singularity (a torus): one
+   * closed pseudo-edge along each direction's cut, meeting at one corner. The cuts half a period from the faces'
+   * vertex loops' points (none on a cut). Otherwise nothing (face() says unsupported).
+   */
+  void makeNatural(int f) {
+    Face& F = faces[f];
+    std::vector<Vec2> at;
+    for (int i = 0; i < m.faceLoopCount(f); i++) {
+      int l = m.faceFirstLoop(f) + i;
+      Vec3 p = m.vertexPoint(m.loopFirst(l));
+      if (poleAt(f, p) < 0) at.push_back(invert(f, p, nullptr).uv);
+    }
+    auto cutAt = [&](int d) {
+      return at.empty() ? F.lo[d] : (d ? at[0].y : at[0].x) + 0.5 * F.period[d];
+    };
+    auto pseudo = [&](int free, double fixed, double t0, double t1, bool closed, Vec3 a, Vec3 b) {
+      Edge E;
+      E.face = f, E.free = free, E.fixed = fixed;
+      E.geom = std::make_unique<IsoGeom>(*F.s, free, fixed);
+      E.ends[0] = a, E.ends[1] = b;
+      E.closed = closed;
+      E.spacing = F.spacing;
+      Status st;
+      E.s.t = sample(*E.geom, t0, t1, closed, criteria(E.spacing), st);
+      E.s.status = st;
+      int id = static_cast<int>(edges.size());
+      edges.push_back(std::move(E));
+      points(id);
+      return id;
+    };
+    std::vector<const Singularity*> rows;
+    for (const Singularity& g : F.sing)
+      if (g.kind != Singularity::normalVanishes) rows.push_back(&g);
+    if (F.period[0] > 0 && F.period[1] > 0 && rows.empty()) {
+      double u0 = cutAt(0), v0 = cutAt(1);
+      Vec3 corner = surfaceAt(f, {u0, v0});
+      F.natural = Face::Natural::torus;
+      F.natAt[0] = u0, F.natAt[1] = v0;
+      F.natPseudo[0] = pseudo(0, v0, u0, u0 + F.period[0], true, corner, corner);  // along u at v0
+      F.natPseudo[1] = pseudo(1, u0, v0, v0 + F.period[1], true, corner, corner);  // along v at u0
+      return;
+    }
+    for (int d = 0; d < 2; d++) {
+      int o = 1 - d;
+      Range r = o ? F.dom.v : F.dom.u;
+      if (!(F.period[d] > 0) || F.period[o] > 0 || !std::isfinite(r.lo) || !std::isfinite(r.hi)) continue;
+      int lo = -1, hi = -1;
+      for (size_t i = 0; i < F.sing.size(); i++) {
+        const Singularity& g = F.sing[i];
+        if (g.kind == Singularity::normalVanishes || (g.isoU ? 0 : 1) != o) continue;
+        if (g.at == r.lo) lo = static_cast<int>(i);
+        if (g.at == r.hi) hi = static_cast<int>(i);
+      }
+      if (lo < 0 || hi < 0) continue;
+      double c = cutAt(d);
+      F.natural = Face::Natural::sphere;
+      F.natDir = d, F.natAt[0] = c;
+      F.natPole[0] = lo, F.natPole[1] = hi;
+      F.natPseudo[0] = pseudo(o, c, r.lo, r.hi, false, F.sing[lo].point, F.sing[hi].point);
+      return;
+    }
+  }
+
+  /** Face f's natural extent's loop (makeNatural), counterclockwise in (u, v). */
+  std::vector<BoundaryPoint> naturalLoop(int f) const {
+    const Face& F = faces[f];
+    std::vector<BoundaryPoint> loop;
+    auto sample = [&](int e, int i, Vec2 uv) {
+      return BoundaryPoint{BoundaryPoint::pseudoSample, uv, e, i, edges[e].s.points[i]};
+    };
+    if (F.natural == Face::Natural::torus) {
+      const Edge& A = edges[F.natPseudo[0]];  // along u
+      const Edge& B = edges[F.natPseudo[1]];  // along v
+      double u0 = F.natAt[0], v0 = F.natAt[1], Pu = F.period[0], Pv = F.period[1];
+      int na = static_cast<int>(A.s.t.size()), nb = static_cast<int>(B.s.t.size());
+      for (int i = 0; i + 1 < na; i++) loop.push_back(sample(F.natPseudo[0], i, {A.s.t[i], v0}));
+      for (int j = 0; j + 1 < nb; j++) loop.push_back(sample(F.natPseudo[1], j, {u0 + Pu, B.s.t[j]}));
+      for (int i = na - 1; i >= 1; i--) loop.push_back(sample(F.natPseudo[0], i, {A.s.t[i], v0 + Pv}));
+      for (int j = nb - 1; j >= 1; j--) loop.push_back(sample(F.natPseudo[1], j, {u0, B.s.t[j]}));
+      return loop;
+    }
+    // Sphere-like, in (x, y) = (the periodic direction, the other): the low pole's line along +x, the cut's copy a
+    // period on up, the high pole's line back, the cut down; swapped to (u, v) (reversed where that turns it).
+    int d = F.natDir, e = F.natPseudo[0];
+    const Edge& E = edges[e];
+    int n = static_cast<int>(E.s.t.size());
+    double c = F.natAt[0], P = F.period[d];
+    auto uv = [&](double x, double y) { return d == 0 ? Vec2{x, y} : Vec2{y, x}; };
+    std::vector<int> owner;
+    loop.push_back(sample(e, 0, uv(c, E.s.t[0])));
+    poleFill(f, F.natPole[0], uv(c, E.s.t[0]), uv(c + P, E.s.t[0]), loop, owner);
+    for (int k = 0; k < n; k++) loop.push_back(sample(e, k, uv(c + P, E.s.t[k])));
+    poleFill(f, F.natPole[1], uv(c + P, E.s.t[n - 1]), uv(c, E.s.t[n - 1]), loop, owner);
+    for (int k = n - 1; k >= 1; k--) loop.push_back(sample(e, k, uv(c, E.s.t[k])));
+    if (d == 1) std::reverse(loop.begin(), loop.end());
+    return loop;
+  }
+
   void makeCut(int f) {
     Face& F = faces[f];
+    bool edgeLoops = false;
+    for (int i = 0; i < m.faceLoopCount(f); i++)
+      edgeLoops = edgeLoops || m.loopKind(m.faceFirstLoop(f) + i) == CBR_LOOP_EDGE;
+    if (!edgeLoops) {
+      makeNatural(f);
+      return;
+    }
     std::vector<Chain> chains;
     std::vector<int> loopOf;
     int poleLoops = 0, poleSing = -1;
@@ -1210,7 +1324,7 @@ struct EdgeMesh::Impl {
   FaceBoundary face(int f) const {
     FaceBoundary out;
     const Face& F = faces[f];
-    if (!F.s || m.faceLoopCount(f) == 0) return out;
+    if (!F.s) return out;
     out.status = F.status;
     if (F.status != Status::ok && F.cutDir < 0 && F.status != Status::singular) return out;
     std::vector<std::vector<BoundaryPoint>> loops;
@@ -1347,9 +1461,11 @@ struct EdgeMesh::Impl {
         for (BoundaryPoint& q : loops[i]) (d ? q.uv.y : q.uv.x) += k * P;
       }
     }
+    // Nothing but vertex loops, or no loops (a sphere bounded by a point): the surface's natural extent, where it
+    // has one (makeNatural).
+    if (loops.empty() && F.natural != Face::Natural::none) loops.push_back(naturalLoop(f));
     if (!m.faceSameSense(f))
       for (auto& l : loops) std::reverse(l.begin(), l.end());
-    // Nothing but vertex loops (a sphere bounded by a point): the surface's natural extent, not meshed here.
     if (loops.empty()) out.status = worse(out.status, Status::unsupported);
     out.loops = std::move(loops);
     return out;
