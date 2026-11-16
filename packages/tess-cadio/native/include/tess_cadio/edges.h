@@ -58,6 +58,11 @@ struct EdgeOptions {
   double angle = 0;
   /** The largest 3D length of a span (an upper bound on its arc length), whatever the faces say. */
   double maxSpacing = std::numeric_limits<double>::infinity();
+  /**
+   * Whether a use without a p-curve gets one projected from its edge's 3D curve (cad-geom's projectCurve, at the
+   * edge's tolerance), else is sampled by inversion (as it is where the projection isn't ok).
+   */
+  bool projectMissingPcurves = true;
 };
 
 /**
@@ -80,9 +85,9 @@ struct EdgeSamples {
  * parameterized otherwise than its curve, against Part 42, only seeds). Along a periodic direction the (u, v) are
  * continuous (unwrapped: a p-curve crossing u = 2 pi keeps going past it). A seam's two uses each have their own
  * (u, v), one copy of the edge's samples on each side.
- * A use by inversion that passes through a pole between its ends (a meridian over a sphere's pole) has its sample
- * there twice, at the free coordinate on each side (index repeats it), the face's boundary running along the pole
- * line between them.
+ * A use by inversion or a projected p-curve that passes through a pole between its ends (a meridian over a sphere's
+ * pole) has its sample there twice, at the free coordinate on each side (index repeats it), the face's boundary
+ * running along the pole line between them.
  */
 struct CoedgeSamples {
   Status status = Status::unsupported;
@@ -90,6 +95,8 @@ struct CoedgeSamples {
   std::vector<int32_t> index;
   /** Whether through a p-curve (false: by inversion). */
   bool fromPcurve = false;
+  /** Whether that p-curve was projected (the model gives the use none): through poles as inversion's are. */
+  bool projected = false;
   /** The largest 3D distance between the surface at uv[i] and the edge's point, for diagnostics (the gap). */
   double gap = 0;
 };
@@ -127,6 +134,12 @@ struct BoundaryPoint {
  */
 struct FaceBoundary {
   Status status = Status::unsupported;
+  /**
+   * A loop runs against the face's sense: a projected seam use's side, by its direction and the face's sense, has
+   * the loop's other points on its other side (a face turned while its loop isn't). Meshed as the face's sense has
+   * it; which of the two is right is healing's to settle.
+   */
+  bool againstSense = false;
   std::vector<std::vector<BoundaryPoint>> loops;
   /** Interior constraint chains: each a run of points to join pairwise (or a single point to keep). */
   std::vector<std::vector<BoundaryPoint>> interior;

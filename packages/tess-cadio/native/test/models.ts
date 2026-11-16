@@ -582,11 +582,12 @@ export function offPcurves(): BrepBuilder {
 /**
  * A quarter of the unit sphere (z > 0, y < 0), as bug27894's faces have it: bounded by a semicircle from (1, 0, 0) up
  * to (-1, 0, 0) that passes 7e-4 below the north pole (its centre (0, 0, -7e-4), off the sphere by up to that, the
- * part's uncertainty 1e-5) and the equator's half back through y < 0; no p-curves. Its loop crosses the whole pole
- * line there, so the cut must not; area about pi.
+ * part's uncertainty 1e-5, so no p-curve can be projected for it) and the equator's half back through y < 0; no
+ * p-curves. Its loop crosses the whole pole line there, so the cut must not; area about pi. `uncertainty` 1e-3
+ * (offPoleArcLoose): the arc within it, projected, through the pole.
  */
-export function offPoleArc(): BrepBuilder {
-  const b = new BrepBuilder({ uncertainty: 1e-5 });
+export function offPoleArc(uncertainty = 1e-5): BrepBuilder {
+  const b = new BrepBuilder({ uncertainty });
   const dz = 7e-4, r = Math.hypot(1, dz), t0 = Math.atan2(dz, 1);
   const va = b.addVertex({ point: [1, 0, 0] }), vb = b.addVertex({ point: [-1, 0, 0] });
   const arc = b.addCurve({ kind: 'circle', position: { origin: [0, 0, -dz], axis: [0, -1, 0], xDir: [1, 0, 0] },
@@ -673,9 +674,12 @@ export function bsplineDome(): BrepBuilder {
   return b;
 }
 
-/** offPoleArc's loop the other way round: the rest of the sphere, its loop winding round to the south pole. */
-export function offPoleRest(): BrepBuilder {
-  const b = new BrepBuilder({ uncertainty: 1e-5 });
+/**
+ * offPoleArc's loop the other way round: the rest of the sphere, its loop winding round to the south pole;
+ * offPoleRestLoose at uncertainty 1e-3, its arc projected.
+ */
+export function offPoleRest(uncertainty = 1e-5): BrepBuilder {
+  const b = new BrepBuilder({ uncertainty });
   const dz = 7e-4, r = Math.hypot(1, dz), t0 = Math.atan2(dz, 1);
   const va = b.addVertex({ point: [1, 0, 0] }), vb = b.addVertex({ point: [-1, 0, 0] });
   const arc = b.addCurve({ kind: 'circle', position: { origin: [0, 0, -dz], axis: [0, -1, 0], xDir: [1, 0, 0] },
@@ -782,10 +786,10 @@ export function sBend(): BrepBuilder {
 }
 
 export const MODELS = { bsplineBall, wholeTorus, wholeSphereVertex, bsplineApex, poleHole, smallHole, sBend,
-  cuspEdge: () => cuspEdge(), nearCusp6, bumpPatch: () => bumpPatch(),
-  halfBump: () => bumpPatch(true), thinBand, tubeGapFaceTolerance,
-  tubeGapUncertainty, tubeGapBySize, tubeGapOpen, torusOuterHalf, meridianHemisphereLoose, offPoleRest, wigglyBand,
-  notchBand, bsplineTube, bsplineTubeTinyArc, bsplineDome, offPoleArc, offPcurves, bandHoleAtVertex, bandHoleOnCut,
-  halfCap, meridianHemisphere, band: band_, bandByInversion, bore, nistBore, seamByInversion, offVertex, pcurveOnly,
-  luneQuarter, luneOnSeam, cap, splineEdge, seamFlipped, polylineEdge, pcurveCircle, arcSegment, fold, twisted,
-  wrongSense, zeroEdge };
+  cuspEdge: () => cuspEdge(), nearCusp6, bumpPatch: () => bumpPatch(), halfBump: () => bumpPatch(true), thinBand,
+  tubeGapFaceTolerance, tubeGapUncertainty, tubeGapBySize, tubeGapOpen, torusOuterHalf, meridianHemisphereLoose,
+  offPoleRest: () => offPoleRest(), offPoleRestLoose: () => offPoleRest(1e-3), offPoleArcLoose: () => offPoleArc(1e-3),
+  wigglyBand, notchBand, bsplineTube, bsplineTubeTinyArc, bsplineDome, offPoleArc: () => offPoleArc(), offPcurves,
+  bandHoleAtVertex, bandHoleOnCut, halfCap, meridianHemisphere, band: band_, bandByInversion, bore, nistBore,
+  seamByInversion, offVertex, pcurveOnly, luneQuarter, luneOnSeam, cap, splineEdge, seamFlipped, polylineEdge,
+  pcurveCircle, arcSegment, fold, twisted, wrongSense, zeroEdge };

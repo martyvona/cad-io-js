@@ -37,6 +37,7 @@ struct PartMesher::Impl {
 
   EdgeOptions edgeOptions() const {
     EdgeOptions e;
+    e.projectMissingPcurves = o.projectMissingPcurves;
     e.deflection = o.d.linear;
     e.angle = o.d.angular;
     return e;
@@ -250,6 +251,7 @@ struct PartMesher::Impl {
       return;
     }
     if (fb.status == Status::singular) out.note = "a seam's side in (u, v) not settled by its neighbours";
+    out.againstSense = fb.againstSense;
     // (Not where the seam's side wasn't settled: such a boundary is a guess, and its face stays singular.)
     std::vector<Fan> fans;
     if (fb.status == Status::ok) fans = makeFans(f, fb);
