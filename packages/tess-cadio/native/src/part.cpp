@@ -147,7 +147,7 @@ struct PartMesher::Impl {
           SurfacePoint sp;
           s.eval(uvOf(S.at + side * eps, q0 + (q1 - q0) * j / 64, S.isoU).x,
             uvOf(S.at + side * eps, q0 + (q1 - q0) * j / 64, S.isoU).y, 0, sp);
-          Vec3 d = sp.p - fan.pole;
+          Vec3 d = sp.p - S.point;  // (about the surface's pole: the run's sample there may be off it by the tolerance)
           if (j) spanned += std::atan2(norm(cross(prev, d)), dot(prev, d));
           prev = d;
         }

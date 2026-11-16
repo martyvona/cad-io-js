@@ -594,8 +594,8 @@ export function offPcurves(): BrepBuilder {
  * part's uncertainty 1e-5) and the equator's half back through y < 0; no p-curves. Its loop crosses the whole pole
  * line there, so the cut must not; area about pi.
  */
-export function offPoleArc(): BrepBuilder {
-  const b = new BrepBuilder({ uncertainty: 1e-5 });
+export function offPoleArc(uncertainty = 1e-5): BrepBuilder {
+  const b = new BrepBuilder({ uncertainty });
   const dz = 7e-4, r = Math.hypot(1, dz), t0 = Math.atan2(dz, 1);
   const va = b.addVertex({ point: [1, 0, 0] }), vb = b.addVertex({ point: [-1, 0, 0] });
   const arc = b.addCurve({ kind: 'circle', position: { origin: [0, 0, -dz], axis: [0, -1, 0], xDir: [1, 0, 0] },
@@ -681,6 +681,12 @@ export function bsplineDome(): BrepBuilder {
     { kind: 'edge', bound: 'inner', sense: true, coedges: [{ edge: ep, orientation: 'forward' }] }] }));
   return b;
 }
+
+/**
+ * offPoleArc at uncertainty 1e-3: its arc, 7e-4 under the pole, then passes through it by the part's own tolerance,
+ * its sample there at the pole in (u, v) but 7e-4 off it in 3D.
+ */
+export const offPoleArcLoose = (): BrepBuilder => offPoleArc(1e-3);
 
 /** offPoleArc's loop the other way round: the rest of the sphere, its loop winding round to the south pole. */
 export function offPoleRest(): BrepBuilder {
@@ -790,7 +796,7 @@ export function sBend(): BrepBuilder {
   return b;
 }
 
-export const MODELS = { loopless, bsplineBall, wholeTorus, wholeSphereVertex, bsplineApex, poleHole, smallHole, sBend,
+export const MODELS = { offPoleArcLoose, loopless, bsplineBall, wholeTorus, wholeSphereVertex, bsplineApex, poleHole, smallHole, sBend,
   cuspEdge: () => cuspEdge(), nearCusp6, bumpPatch: () => bumpPatch(),
   halfBump: () => bumpPatch(true), thinBand, tubeGapFaceTolerance,
   tubeGapUncertainty, tubeGapBySize, tubeGapOpen, torusOuterHalf, meridianHemisphereLoose, offPoleRest, wigglyBand,
