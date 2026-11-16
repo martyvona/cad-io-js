@@ -96,7 +96,8 @@ test('a model without ids: faces and edges with null entityIds, still meshed', {
   assert.ok(!r.faces.some((f) => f.entityId === 0) && !r.edges!.some((e) => e.entityId === 0));
 });
 
-test('the seam cylinder: its seam a seam; a sphere\'s faces: the whole one failed, the hemisphere meshed', { skip },
+test('the seam cylinder: its seam a seam; a sphere\'s faces: the whole one (no loops) and the hemisphere meshed',
+  { skip },
   async () => {
     const t = await tessellator();
     const c = await t.tessellate(req('seamCylinder'));
@@ -105,10 +106,9 @@ test('the seam cylinder: its seam a seam; a sphere\'s faces: the whole one faile
     assert.deepEqual(kinds, ['free', 'free', 'seam']);
     const s = await t.tessellate(req('spheres'));
     assert.equal(s.faces.length, 2);
-    assert.equal(s.faces[0]!.count, 0);
+    assert.ok(s.faces[0]!.count > 0);
     assert.ok(s.faces[1]!.count > 0);
-    assert.ok(s.diagnostics.some((x) => x.severity === 'error' && /^1 faces failed to mesh/.test(x.message)),
-      JSON.stringify(s.diagnostics));
+    assert.ok(!s.diagnostics.some((x) => x.severity === 'error'), JSON.stringify(s.diagnostics));
     for (const r of [c, s]) {
       for (let i = 0; i < r.normals!.length; i += 3) {
         const n = Math.hypot(r.normals![i]!, r.normals![i + 1]!, r.normals![i + 2]!);

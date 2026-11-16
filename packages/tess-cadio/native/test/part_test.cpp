@@ -294,12 +294,12 @@ TEST_CASE("a tube open at its seam by more than its tolerance: not closed in fac
   CHECK(fm.triangles.empty());
 }
 
-TEST_CASE("a sphere's pole: its normal the limit, never NaN; the whole sphere (no loops) unsupported") {
+TEST_CASE("a sphere's pole: its normal the limit, never NaN; the whole sphere (no loops) its natural extent") {
   cadgeom::Model m = load("spheres");
   REQUIRE(m.ok());
   PartMesher pm(m, options(0.01, 0.26));
-  CHECK(pm.face(0).status == cadgeom::Status::unsupported);
-  CHECK(pm.face(0).triangles.empty());
+  CHECK(pm.face(0).status == cadgeom::Status::ok);
+  CHECK(!pm.face(0).triangles.empty());
   const FaceMesh& h = pm.face(1);
   REQUIRE(h.status == cadgeom::Status::ok);
   int poles = 0;
@@ -831,6 +831,56 @@ TEST_CASE("p-curves parameterized against Part 42 (their own range, a squared pa
     CHECK_EQ(em.coedge(c).fromPcurve, c >= 2);
     CHECK(em.coedge(c).gap < 1e-9);
   }
+}
+
+TEST_CASE("natural extents: a whole sphere (no loops, or a vertex loop off its poles), a whole torus, a B-spline ball "
+  "periodic in v; closed meshes") {
+  // Each to its area (chords inside a convex surface: under it by at most about 2.5 d / r of it), within the
+  // deflection of its surface, every side shared by two triangles (by their 3D points: the cuts' copies and the
+  // poles' fans meet), a vertex loop's point among the mesh's.
+  struct Case {
+    const char* model;
+    int face;
+    double area, radius;
+    Vec3 vertex;
+    bool torus;
+  };
+  for (Case c : {Case{"spheres", 0, 4 * M_PI, 1, {NAN, 0, 0}, false},
+         Case{"wholeSphereVertex", 0, 4 * M_PI, 1, {0, 1, 0}, false},
+         Case{"wholeTorus", 0, 12 * M_PI * M_PI, 1, {4, 0, 0}, true},
+         Case{"bsplineBall", 0, 4 * M_PI, 1, {NAN, 0, 0}, false}})
+    for (auto [d, a] : {std::pair{0.01, 0.26}, std::pair{0.1, 0.2618}}) {
+      cadgeom::Model m = load(c.model);
+      REQUIRE(m.ok());
+      PartMesher pm(m, options(d, a));
+      const FaceMesh& fm = pm.face(c.face);
+      if (fm.status != cadgeom::Status::ok) std::printf("  %s: status %d\n", c.model, int(fm.status));
+      REQUIRE(fm.status == cadgeom::Status::ok);
+      Stats s = stats(fm, [&](Vec3 p) {
+        if (!c.torus) return std::fabs(cadgeom::norm(p) - 1);
+        return std::fabs(std::hypot(std::hypot(p.x, p.y) - 3, p.z) - 1);
+      });
+      if (!(s.worst <= d * (1 + 1e-9)) || !(s.area < c.area && s.area > c.area * (1 - 2.5 * d / c.radius)))
+        std::printf("  %s at %g: %g from the surface, area %.9g want %.9g\n", c.model, d, s.worst, s.area, c.area);
+      CHECK(s.worst <= d * (1 + 1e-9));
+      CHECK(s.area < c.area && s.area > c.area * (1 - 2.5 * d / c.radius));
+      CHECK_EQ(s.facing, 0);
+      std::map<std::pair<Key, Key>, int> sides;
+      for (size_t t = 0; t + 2 < fm.triangles.size(); t += 3)
+        for (int k = 0; k < 3; k++) {
+          Key x = key(fm.points[fm.triangles[t + k]]), y = key(fm.points[fm.triangles[t + (k + 1) % 3]]);
+          sides[x < y ? std::pair{x, y} : std::pair{y, x}]++;
+        }
+      int open = 0;
+      for (auto& [side, n] : sides) open += n != 2;
+      if (open) std::printf("  %s at %g: %d sides not shared by two triangles\n", c.model, d, open);
+      CHECK_EQ(open, 0);
+      if (std::isfinite(c.vertex.x)) {
+        bool found = false;
+        for (Vec3 p : fm.points) found = found || cadgeom::norm(p - c.vertex) < 1e-12;
+        CHECK(found);
+      }
+    }
 }
 
 TEST_CASE("apex-like rows: within the deflection of one, no normal to hold a triangle to; a smooth pole's held") {

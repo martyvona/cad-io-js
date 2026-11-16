@@ -453,7 +453,8 @@ export function bsplineApex(): BrepBuilder {
   const s = b.addSurface({ kind: 'bspline', uDegree: 2, vDegree: 1, uKnots: [0, 1], vKnots: [0, 1],
     uMultiplicities: [3, 3], vMultiplicities: [2, 2], poles: arcPoles.map((q) => [apex, q]), uClosed: false,
     vClosed: false, selfIntersect: false, form: 'unspecified' });
-  const v0 = b.addVertex({ point: apex }), v1 = b.addVertex({ point: [1, 0, 1] }), v2 = b.addVertex({ point: [0, 1, 1] });
+  const v0 = b.addVertex({ point: apex }), v1 = b.addVertex({ point: [1, 0, 1] });
+  const v2 = b.addVertex({ point: [0, 1, 1] });
   const arc = b.addCurve({ kind: 'bspline', degree: 2, knots: [0, 1], multiplicities: [3, 3], poles: arcPoles,
     closed: false, selfIntersect: false, form: 'unspecified' });
   const line = (p: number[], q: number[]) => b.addCurve({ kind: 'line', point: p,
@@ -464,6 +465,41 @@ export function bsplineApex(): BrepBuilder {
   sheet(b, b.addFace({ surface: s, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true,
     coedges: [{ edge: e1, orientation: 'forward' }, { edge: ea, orientation: 'reversed' },
       { edge: e2, orientation: 'forward' }] }] }));
+  return b;
+}
+
+/**
+ * A whole unit sphere as a rational B-spline periodic in v: its meridian (u, 0 to 2) from the south pole to the north
+ * degree 2, both ends collapsed, its circle (v) CIRCLE9's; no loops. Its natural extent with the roles of u and v
+ * swapped from a sphere's; area 4 pi.
+ */
+export function bsplineBall(): BrepBuilder {
+  const b = new BrepBuilder();
+  const meridian = [[0, -1, 1], [1, -1, Math.SQRT1_2], [1, 0, 1], [1, 1, Math.SQRT1_2], [0, 1, 1]];  // (r, z, w)
+  const poles = meridian.map(([r, z]) => CIRCLE9.xy.map(([x, y]) => [r! * x!, r! * y!, z!]));
+  const weights = meridian.map((m) => CIRCLE9.w.map((w) => w * m[2]!));
+  const surface = b.addSurface({ kind: 'bspline', uDegree: 2, vDegree: 2, uKnots: [0, 1, 2], vKnots: [0, 1, 2, 3, 4],
+    uMultiplicities: [3, 2, 3], vMultiplicities: [3, 2, 2, 2, 3], poles, weights, uClosed: false, vClosed: true,
+    selfIntersect: false, form: 'unspecified' });
+  sheet(b, b.addFace({ surface, sameSense: true, loops: [] }));
+  return b;
+}
+
+/** A whole torus (R 3, r 1, axis z) bounded by a vertex loop at (4, 0, 0): its natural extent, area 12 pi^2. */
+export function wholeTorus(): BrepBuilder {
+  const b = new BrepBuilder();
+  const v = b.addVertex({ point: [4, 0, 0] });
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'torus', position: AXIS, majorRadius: 3, minorRadius: 1 }),
+    sameSense: true, loops: [{ kind: 'vertex', bound: 'outer', sense: true, vertex: v }] }));
+  return b;
+}
+
+/** A whole unit sphere bounded by a vertex loop on its equator, at (0, 1, 0): its natural extent, area 4 pi. */
+export function wholeSphereVertex(): BrepBuilder {
+  const b = new BrepBuilder();
+  const v = b.addVertex({ point: [0, 1, 0] });
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'sphere', position: AXIS, radius: 1 }), sameSense: true,
+    loops: [{ kind: 'vertex', bound: 'outer', sense: true, vertex: v }] }));
   return b;
 }
 
@@ -745,7 +781,8 @@ export function sBend(): BrepBuilder {
   return b;
 }
 
-export const MODELS = { bsplineApex, poleHole, smallHole, sBend, cuspEdge: () => cuspEdge(), nearCusp6, bumpPatch: () => bumpPatch(),
+export const MODELS = { bsplineBall, wholeTorus, wholeSphereVertex, bsplineApex, poleHole, smallHole, sBend,
+  cuspEdge: () => cuspEdge(), nearCusp6, bumpPatch: () => bumpPatch(),
   halfBump: () => bumpPatch(true), thinBand, tubeGapFaceTolerance,
   tubeGapUncertainty, tubeGapBySize, tubeGapOpen, torusOuterHalf, meridianHemisphereLoose, offPoleRest, wigglyBand,
   notchBand, bsplineTube, bsplineTubeTinyArc, bsplineDome, offPoleArc, offPcurves, bandHoleAtVertex, bandHoleOnCut,
