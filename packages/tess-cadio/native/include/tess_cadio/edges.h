@@ -66,8 +66,9 @@ struct EdgeOptions {
    */
   std::function<void(int, int, int)> progress;
   /**
-   * Whether a use without a p-curve gets one projected from its edge's 3D curve (cad-geom's projectCurve, at the
-   * edge's tolerance), else is sampled by inversion (as it is where the projection isn't ok).
+   * Whether a use without a p-curve gets one projected from its edge's 3D curve (cad-geom's projectCurve, within
+   * 0.05 x the deflection of its feet where the curve allows, else at the edge's tolerance), else is sampled by
+   * inversion (as it is where neither projection is ok).
    */
   bool projectMissingPcurves = true;
 };
@@ -106,6 +107,15 @@ struct CoedgeSamples {
   bool projected = false;
   /** The largest 3D distance between the surface at uv[i] and the edge's point, for diagnostics (the gap). */
   double gap = 0;
+};
+
+/**
+ * The uses without p-curves whose edges have 3D curves, by how they were sampled: through a projection within 0.05
+ * x the deflection of their feet, through one at the edge's tolerance (the curve farther off its surface than
+ * that), or by inversion (no projection ok).
+ */
+struct ProjectionCounts {
+  int withinMesh = 0, atEdgeTolerance = 0, byInversion = 0;
 };
 
 /** A boundary point of a face in (u, v). */
@@ -188,6 +198,8 @@ public:
   bool isPseudo(int e) const;
   const EdgeSamples& edge(int e) const;
   const CoedgeSamples& coedge(int c) const;
+  /** How the uses the model gives no p-curve were sampled (EdgeOptions::projectMissingPcurves). */
+  const ProjectionCounts& projections() const;
   /** Face f's boundary from the current samples (made each call: after split(), the new samples). */
   FaceBoundary face(int f) const;
 

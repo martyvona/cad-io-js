@@ -9,8 +9,8 @@ import { test } from 'node:test';
 import { openEdges, oracleMeasures, type TessellationProgress, type TessellationResult } from 'cad-scene';
 import { MODELS } from '../../cad-brep/test/models.ts';
 import { CadioTessellator, progressReporter, VERSION } from '../src/index.ts';
-import { bsplineDome, bumpPatch, cap, fold, halfCap, loopless, luneOnSeam, luneQuarter, meridianHemisphere, pcurveOnly,
-  seamByInversion, seamFlipped, torusOuterHalf } from '../native/test/models.ts';
+import { affineFeetOff, bsplineDome, bumpPatch, cap, fold, halfCap, loopless, luneOnSeam, luneQuarter,
+  meridianHemisphere, pcurveOnly, seamByInversion, seamFlipped, torusOuterHalf } from '../native/test/models.ts';
 
 const dist = path.join(import.meta.dirname, '..', 'dist', 'tess_cadio.wasm');
 const skip = fs.existsSync(dist) ? false : 'tess-cadio\'s module not built (run packages/tess-cadio/build.sh module)';
@@ -267,4 +267,24 @@ test('a loop against its face\'s sense (a projected seam use\'s side contradicti
   assert.match(d.message, /^1 faces .*: faces \d+$/);
   const valid = await run(seamByInversion());
   assert.ok(!valid.diagnostics.some((x) => /loop against the face's sense/.test(x.message)));
+});
+
+test('uses without p-curves counted by how they were sampled, said where one fell back to the edge\'s tolerance',
+  { skip }, async () => {
+  const t = await tessellator();
+  const counts = async (l: number) => {
+    const r = await t.tessellate({ ...req('cube'), data: new Uint8Array(affineFeetOff().finish().buffer),
+      linearDeflection: l, angularDeflection: 0.26 });
+    const re = /^(\d+) uses without p-curves: (\d+) projected .*, (\d+) at the edge's .*, (\d+) by/;
+    const m = r.diagnostics.map((x) => re.exec(x.message)).find((x) => x);
+    return m?.slice(1).map(Number);
+  };
+  // At 0.05 every use within 2.5e-3 of its feet (the side 1.5e-3 to 2.1e-3 off): nothing said; at 1e-3, the side
+  // only at its tolerance (5e-5 under its gap), said.
+  assert.equal(await counts(0.05), undefined);
+  const c = await counts(1e-3);
+  assert.ok(c);
+  const [n, within, atTol, inverted] = c as [number, number, number, number];
+  assert.deepEqual([n, inverted], [4, 0]);
+  assert.ok(atTol >= 1 && within + atTol === 4, `${within}, ${atTol}`);
 });
