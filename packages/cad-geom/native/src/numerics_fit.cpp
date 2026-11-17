@@ -113,6 +113,8 @@ struct Fitter {
 
 } // namespace
 
+long curve2Rounds = 0;
+
 Status curve2(const std::function<Vec2(double)>& f, Range r, int degree, double tol, BSpline& out, double& maxError) {
   maxError = std::numeric_limits<double>::infinity();
   if (!(degree >= 1 && degree <= 9) || !(tol > 0) || !std::isfinite(r.lo) || !std::isfinite(r.hi) || !(r.lo < r.hi))
@@ -120,6 +122,7 @@ Status curve2(const std::function<Vec2(double)>& f, Range r, int degree, double 
   Fitter fit{f, degree};
   std::vector<double> br{r.lo, r.hi};
   while (true) {
+    curve2Rounds++;
     BSpline c = fit.solve(br);
     std::vector<double> next{br.front()};
     double worst = 0;

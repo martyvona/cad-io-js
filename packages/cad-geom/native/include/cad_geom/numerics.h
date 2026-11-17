@@ -87,6 +87,8 @@ namespace fit {
  * samples too, not only at them), with as few spans as that needs; maxError the error estimated over r.
  */
 Status curve2(const std::function<Vec2(double)>& f, Range r, int degree, double tol, BSpline& out, double& maxError);
+/** curve2's rounds (each a solve and the spans' errors measured), counted for tests; never reset. */
+extern long curve2Rounds;
 } // namespace fit
 
 } // namespace cadgeom

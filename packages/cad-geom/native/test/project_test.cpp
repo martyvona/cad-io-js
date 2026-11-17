@@ -3,14 +3,18 @@
 // traced against closed forms (a plane section of a cylinder, circles on a sphere through and past its poles) moved,
 // turned and scaled; the exact table on every entry (opposite axes, a cone's other nappe, a sphere's far half, a
 // torus's inner side, conics running either way on a plane) against each surface's closed-form inverse; the error
-// measure against dense sampling; seams, the seam rule, known ends, a curve off its surface, a fold.
+// measure against dense sampling; seams, the seam rule, known ends, curves off their surface (how often they're
+// fitted, and one past its surface's edge), a fold.
+#include <cad_geom/numerics.h>
 #include <cad_geom/project.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <random>
 #include <string>
+#include <tuple>
 
 #include "../src/curve_impl.h"
 #include "../src/project_impl.h"
@@ -346,9 +350,10 @@ TEST_CASE("a curve off its surface: invalidModel, its distance measured") {
   CHECK(!p.pieces.empty());
 }
 
-TEST_CASE("a curve off its surface by more than tol: fitted once within its distance plus tol / 4, not ever tighter") {
+TEST_CASE("a curve off its surface by more than tol: fitted once, not ever tighter") {
   // The ellipse 1e-5 off the cylinder, traced (no forms for the table): its feet a sine in (u, v), fitted. No p-curve
-  // gets within tol, so tightening the fit's tolerance (four attempts) would only spend time.
+  // gets within tol, so tightening the fit's tolerance (four attempts) would only spend time; the fit's tolerance a
+  // quarter of the distance (100 tol here).
   const double R = 2, tol = 1e-7;
   const double sr[10] = {0, 0, 0, 0, 0, 1, 1, 0, 0, R};
   std::unique_ptr<Surface> cyl = closeInFact(surfaces::makeCone(sr, R, 0), tol);
@@ -361,24 +366,25 @@ TEST_CASE("a curve off its surface by more than tol: fitted once within its dist
   CHECK(p.status == Status::invalidModel);
   CHECK(p.method == PcurveMethod::traced);
   CHECK(p.offSurface > 5e-6 && p.offSurface < 2e-5);
-  CHECK(p.error <= p.offSurface + 0.25 * tol);
+  CHECK(p.error <= p.offSurface + 0.25 * (0.25 * p.offSurface));
   CHECK_EQ(fits, 1);
   if (fits != 1) std::printf("    fits %ld error %g offSurface %g\n", fits, p.error, p.offSurface);
 }
 
 namespace {
 
-// A helix round a cylinder of radius kR whose radius wiggles, R + a + w sin kt, and whose angle wiggles too,
-// t + q sin mt (about 2e-7 along the surface, so a tighter fit follows the feet a little closer): the test below.
-class Wiggle final : public Curve {
+// A helix round a cylinder of radius kR whose radius has a narrow bump, R + a + w exp(-((t - t0) / s)^2), and
+// whose angle wiggles, t + q sin mt (about 6e-6 along the surface, so a tighter fit follows the feet a little
+// closer): the test below.
+class Bump final : public Curve {
 public:
   int dim() const override { return 3; }
   CurveDomain domain() const override { return {{0, 1}, 0}; }
   Status eval(double t, int order, CurvePoint& out) const override {
     const double f = t + kQ * std::sin(kM * t), f1 = 1 + kQ * kM * std::cos(kM * t);
     const double f2 = -kQ * kM * kM * std::sin(kM * t), c = std::cos(f), s = std::sin(f);
-    const double r = kR + kA + kW * std::sin(kK * t);
-    const double r1 = kW * kK * std::cos(kK * t), r2 = -kW * kK * kK * std::sin(kK * t);
+    const double z = (t - kT0) / kS, g = std::exp(-z * z), r = kR + kA + kW * g;
+    const double r1 = kW * g * (-2 * z / kS), r2 = kW * g * (4 * z * z - 2) / (kS * kS);
     out.p = {r * c, r * s, kH * t};
     if (order >= 1) out.d1 = {r1 * c - r * s * f1, r1 * s + r * c * f1, kH};
     if (order >= 2)
@@ -393,34 +399,135 @@ public:
     return Status::ok;
   }
   Status derivBound(Range, int order, double& out) const override {
-    const double m = kR + kA + kW;
-    const double f1 = 1 + kQ * kM, f2 = kQ * kM * kM;
-    out = order == 1 ? kW * kK + m * f1 + kH : kW * kK * kK + 2 * kW * kK * f1 + m * f1 * f1 + m * f2;
+    // |g'| <= 2 / s and |g''| <= 2 / s^2 (e^-z^2 times 2z and 4z^2 - 2 at most).
+    const double m = kR + kA + kW, f1 = 1 + kQ * kM, f2 = kQ * kM * kM, d1 = 2 * kW / kS, d2 = 2 * kW / (kS * kS);
+    out = order == 1 ? d1 + m * f1 + kH : d2 + 2 * d1 * f1 + m * f1 * f1 + m * f2;
     return Status::ok;
   }
   void singular(Range, std::vector<double>& out) const override { out.clear(); }
-  static constexpr double kR = 2, kA = 1e-5, kW = 5e-6, kK = 40, kH = 0.5, kQ = 1e-7, kM = 20;
+  static constexpr double kR = 2, kA = 1e-5, kW = 1e-5, kT0 = 0.3, kS = 0.01, kH = 0.5, kQ = 3e-6, kM = 10;
 };
 
 } // namespace
 
-TEST_CASE("a curve farther off its surface between the samples: the fit stops when tightening gains under tol / 4") {
-  // A helix round a cylinder whose radius wiggles (R + a + w sin kt): its feet don't move with that wiggle, but the
-  // peaks fall between the samples offSurface is taken at, so the error measured stays over offSurface + tol / 4.
-  // The angle's wiggle makes the second fit differ from the first, nearer by about 6e-11 (under tol / 4, over 0),
-  // and that ends it.
+TEST_CASE("a curve farther off its surface between the samples: the fit stops when tightening gains too little") {
+  // A helix round a cylinder whose radius has a narrow bump (1e-5 high, 0.01 wide in t): its feet don't move with
+  // it, and it falls between the samples offSurface is taken at, so the error measured (its peak, 2e-5) stays over
+  // offSurface (1e-5) + a quarter of the fit's tolerance. The angle's wiggle makes the second fit differ from the
+  // first, nearer by about 3e-8 (over 0, under a quarter of the fit's tolerance), and that ends it.
   const double tol = 1e-7;
-  const double sr[10] = {0, 0, 0, 0, 0, 1, 1, 0, 0, Wiggle::kR};
-  std::unique_ptr<Surface> cyl = closeInFact(surfaces::makeCone(sr, Wiggle::kR, 0), tol);
-  Wiggle w;
+  const double sr[10] = {0, 0, 0, 0, 0, 1, 1, 0, 0, Bump::kR};
+  std::unique_ptr<Surface> cyl = closeInFact(surfaces::makeCone(sr, Bump::kR, 0), tol);
+  Bump w;
   const long before = project::traceFits;
   Pcurve p = project::projectForms(w, {0, 1}, *cyl, tol, nullptr, {}, {});
   const long fits = project::traceFits - before;
   CHECK(p.status == Status::invalidModel);
-  CHECK(p.error > p.offSurface + 0.25 * tol);
-  CHECK(p.error > 1.4e-5 && p.error < 1.6e-5);
+  CHECK(p.offSurface > 1e-5 && p.offSurface < 1.1e-5);
+  CHECK(p.error > p.offSurface + 0.25 * (0.25 * p.offSurface));
+  CHECK(p.error > 1.99e-5 && p.error < 2.01e-5);
   CHECK_EQ(fits, 2);
   if (fits != 2) std::printf("    fits %ld error %g offSurface %g\n", fits, p.error, p.offSurface);
+}
+
+namespace {
+
+// A helix round a cylinder of radius 2, 1e-5 off it (radius 2 + 1e-5), its angle wiggling: t + q sin mt.
+class OffHelix final : public Curve {
+public:
+  OffHelix(double q, double m) : q_(q), m_(m) {}
+  int dim() const override { return 3; }
+  CurveDomain domain() const override { return {{0, 1}, 0}; }
+  Status eval(double t, int order, CurvePoint& out) const override {
+    const double f = t + q_ * std::sin(m_ * t), f1 = 1 + q_ * m_ * std::cos(m_ * t);
+    const double f2 = -q_ * m_ * m_ * std::sin(m_ * t), c = std::cos(f), s = std::sin(f), r = 2 + 1e-5;
+    out.p = {r * c, r * s, 0.5 * t};
+    if (order >= 1) out.d1 = {-r * s * f1, r * c * f1, 0.5};
+    if (order >= 2) out.d2 = {-r * c * f1 * f1 - r * s * f2, -r * s * f1 * f1 + r * c * f2, 0};
+    return t < 0 || t > 1 ? Status::outOfDomain : Status::ok;
+  }
+  void breaks(Range r, std::vector<double>& out) const override { out = {r.lo, r.hi}; }
+  Status bound(Range r, Box3& out) const override {
+    const double m = 2 + 1e-5;
+    out = {Interval::hull(-m, m), Interval::hull(-m, m), Interval::hull(0.5 * r.lo, 0.5 * r.hi)};
+    return Status::ok;
+  }
+  Status derivBound(Range, int order, double& out) const override {
+    const double m = 2 + 1e-5, f1 = 1 + q_ * m_, f2 = q_ * m_ * m_;
+    out = order == 1 ? m * f1 + 0.5 : m * f1 * f1 + m * f2;
+    return Status::ok;
+  }
+  void singular(Range, std::vector<double>& out) const override { out.clear(); }
+
+private:
+  double q_, m_;
+};
+
+} // namespace
+
+TEST_CASE("a curve 1000 tol off its surface: its line and its fit judged by a quarter of that distance") {
+  // At tol 1e-8 the helix is 1000 tol off. Its feet wiggle along the surface by 2q (in 3D): by 4e-7, within a
+  // quarter of the p-curve's tolerance (a quarter of 1e-5) of a line, so the line is taken, though 1.6e-8 farther
+  // than the distance (over tol / 4); by 4e-6 they're fitted, once, the fit 4e-8 farther (over tol / 4 too).
+  const double tol = 1e-8;
+  const double sr[10] = {0, 0, 0, 0, 0, 1, 1, 0, 0, 2};
+  std::unique_ptr<Surface> cyl = closeInFact(surfaces::makeCone(sr, 2, 0), tol);
+  for (auto [q, m, method, n] : {std::tuple{2e-7, 10.0, PcurveMethod::affineFeet, 0L},
+         std::tuple{2e-6, 20.0, PcurveMethod::traced, 1L}}) {
+    OffHelix h(q, m);
+    const long before = project::traceFits;
+    Pcurve p = project::projectForms(h, {0, 1}, *cyl, tol, nullptr, {}, {});
+    const long fits = project::traceFits - before;
+    CHECK(p.status == Status::invalidModel);
+    CHECK(p.method == method);
+    CHECK_EQ(fits, n);
+    CHECK(p.offSurface > 0.99e-5 && p.offSurface < 1.01e-5);
+    CHECK(p.error > p.offSurface + 0.25 * tol);
+    CHECK(p.error <= p.offSurface + 0.25 * (0.25 * p.offSurface));
+    if (p.method != method || fits != n)
+      std::printf("    q %g: method %d fits %ld error - offSurface %g\n", q, static_cast<int>(p.method), fits,
+        p.error - p.offSurface);
+  }
+}
+
+TEST_CASE("a curve past its surface's edge: its feet clamped there, fitted at a quarter of its distance, few rounds") {
+  // A circle 0.01 above a flat unit square, radius 0.6 about its centre, over t in [0.3, 1.2]: past the u = 1 edge,
+  // then inside, then past v = 1. Its feet sit on the edges there, with corners where they leave them; fitted at tol
+  // the fit halves its spans at the corners round after round (18 rounds to 263 spans), at a quarter of the curve's
+  // distance from the surface (0.074 at t = 0.3) in a few.
+  const double tol = 1e-6;
+  const int32_t in[] = {1, 1, 2, 2, 2, 2, 0, 0, 0, 0, 0, 2, 2, 2, 2};
+  const double r[] = {0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 1, 1, 0};
+  Status st;
+  std::unique_ptr<Surface> sq = surfaces::makeBSpline(r, in, st);
+  REQUIRE(sq);
+  const double cr[9] = {0.5, 0.5, 0.01, 0, 0, 1, 1, 0, 0};
+  std::unique_ptr<Curve> c = curves::makeEllipse(cr, 3, 0.6, 0.6);
+  const long f0 = project::traceFits, r0 = fit::curve2Rounds;
+  Pcurve p = project::projectForms(*c, {0.3, 1.2}, *sq, tol, nullptr, {}, {});
+  const long fits = project::traceFits - f0, rounds = fit::curve2Rounds - r0;
+  CHECK(p.status == Status::invalidModel);
+  CHECK(p.method == PcurveMethod::traced);
+  CHECK_NEAR(p.offSurface, std::hypot(0.5 + 0.6 * std::cos(0.3) - 1, 0.01), 0, 1e-9);
+  CHECK_EQ(fits, 1);
+  CHECK(rounds >= 1 && rounds <= 4);
+  // The p-curve within half the fit's tolerance of the feet: S(p(t)) against the square's nearest point to C(t)
+  // (its x and y clamped to the square), at 61 parameters.
+  REQUIRE(p.pieces.size() == 1);
+  double worst = 0;
+  for (int k = 0; k <= 60; k++) {
+    const double t = 0.3 + 0.9 * k / 60;
+    const Vec2 uv = uvAt(p.pieces[0], t);
+    SurfacePoint sp;
+    CurvePoint q;
+    sq->eval(uv.x, uv.y, 0, sp);
+    c->eval(t, 0, q);
+    const Vec3 foot{std::clamp(q.p.x, 0.0, 1.0), std::clamp(q.p.y, 0.0, 1.0), 0};
+    worst = std::max(worst, norm(sp.p - foot));
+  }
+  CHECK(worst <= 0.5 * (0.25 * p.offSurface));
+  CHECK(p.error <= p.offSurface + 0.5 * (0.25 * p.offSurface));
+  if (!(rounds <= 4 && fits == 1)) std::printf("    fits %ld rounds %ld worst %g\n", fits, rounds, worst);
 }
 
 TEST_CASE("bad arguments") {

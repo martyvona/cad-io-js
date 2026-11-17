@@ -9,11 +9,13 @@
 // the same samples check the trace afterwards (a nearer foot elsewhere, or an ambiguous one, is reported). The range
 // is first split where the curve passes through a pole or apex (Surface::singularities), the trace stopping where the
 // form degenerates and the free parameter carried on at its rate there, the pieces joined by a jump along the pole
-// line. Then the feet are a 2D line if they're affine in t (checked between samples), else fitted (numerics.h's
-// fit::curve2) at a (u, v) tolerance from the 3D one, which is tightened while the 3D error measured exceeds it and
-// can still come down: within the curve's own distance from the surface plus a quarter of tol (as for a line) is as
-// near as any p-curve gets, so a curve off its surface by more than tol isn't fitted ever tighter to no purpose; and
-// a tightening that gains less than a quarter of tol ends it (that distance is sampled, the curve farther between).
+// line. Then each segment's feet are a 2D line if they're affine in t (checked between samples), else fitted
+// (numerics.h's fit::curve2), both against a 3D tolerance: tol, or a quarter of the curve's distance from the surface
+// where that's more (invalidModel whatever the p-curve), so its p-curve is as near as it allows without its feet
+// fitted ever finer. The fit's (u, v) tolerance comes from it and is tightened while the 3D error measured exceeds
+// tol and can still come down: within the curve's own distance from the surface plus a quarter of it is as near as
+// any p-curve gets, and a tightening that gains less than a quarter of it ends the fitting (that distance is
+// sampled, the curve farther between).
 #include <algorithm>
 #include <cmath>
 #include <functional>
@@ -340,6 +342,11 @@ void trace(const Job& job, Pcurve& out) {
       if (std::fabs(jump.from.x - jump.to.x) > 0 || std::fabs(jump.from.y - jump.to.y) > 0)
         out.pieces.push_back(std::move(jump));
     }
+    // The p-curve's 3D tolerance against the feet, for the line and the fit: tol, or a quarter of the curve's distance
+    // from the surface where that's more (the curve then off by over 4 tol: invalidModel whatever the p-curve), so the
+    // p-curve is as near as the curve allows without its feet fitted ever finer (feet clamped where the curve runs
+    // past the surface's edge have corners, which a fit only follows by halving its spans there round after round).
+    const double fitTol = std::max(job.tol, 0.25 * out.offSurface);
     const Vec2 a = sg.nodes.front().uv, b = sg.nodes.back().uv;
     const double w = sg.t.hi - sg.t.lo;
     const Vec2 vel = (1 / w) * (b - a);
@@ -347,24 +354,24 @@ void trace(const Job& job, Pcurve& out) {
     for (const Node& n : sg.nodes) {
       if (!affine) break;
       const Vec2 l = a + (n.t - sg.t.lo) * vel;
-      affine = norm(pointOf(job.s, l) - pointOf(job.s, n.uv)) <= 0.25 * job.tol;
+      affine = norm(pointOf(job.s, l) - pointOf(job.s, n.uv)) <= 0.25 * fitTol;
     }
     if (affine) {
       PcurvePiece p = linePiece(sg.t, a, vel);
       p.certainty = Certainty::unique;
       const double e = measure(job, p);
-      if (e <= job.tol || e <= out.offSurface + 0.25 * job.tol) {
+      if (e <= job.tol || e <= out.offSurface + 0.25 * fitTol) {
         p.error = e;
         out.pieces.push_back(std::move(p));
         continue;
       }
     }
     anyFit = true;
-    // The (u, v) tolerance: half the 3D one through the largest stretch at any node, tightened while the 3D error
-    // measured is over the 3D tolerance and over the curve's distance from the surface plus a quarter of it, and
+    // The (u, v) tolerance: half the fit's through the largest stretch at any node, tightened while the 3D error
+    // measured is over tol and over the curve's distance from the surface plus a quarter of the fit's tolerance, and
     // while each tightening gains a quarter of it.
     double tuv = kInf;
-    for (const Node& n : sg.nodes) tuv = std::min(tuv, uvTol(job.s, n.uv, job.tol));
+    for (const Node& n : sg.nodes) tuv = std::min(tuv, uvTol(job.s, n.uv, fitTol));
     tuv *= 0.5;
     const std::vector<Node>& nodes = sg.nodes;
     std::function<Vec2(double)> f = [&](double t) { return footAt(job, nodes, t); };
@@ -380,9 +387,9 @@ void trace(const Job& job, Pcurve& out) {
       if (!p.curve) break;
       const double e = measure(job, p), before = bestErr;
       if (e < bestErr) bestErr = e, best = std::move(p);
-      if (bestErr <= job.tol || bestErr <= out.offSurface + 0.25 * job.tol || st != Status::ok) break;
-      // Tightening that gains less than a quarter of tol: the curve is off the surface between the samples too.
-      if (!(e < before - 0.25 * job.tol)) break;
+      if (bestErr <= job.tol || bestErr <= out.offSurface + 0.25 * fitTol || st != Status::ok) break;
+      // Tightening that gains less than a quarter of it: the curve is off the surface between the samples too.
+      if (!(e < before - 0.25 * fitTol)) break;
       tuv *= 0.25;
     }
     if (!best.curve) {
