@@ -970,6 +970,40 @@ TEST_CASE("a boundary touching itself at a vertex: a flower hole, lobes; one poi
   }
 }
 
+TEST_CASE("a loop touching itself at a vertex before a pole's fan (lunePinch): the fan's chain the loop's own") {
+  // The lune and its cap: every triangle's centroid, pushed out to the sphere, in the lune (longitude 0.5 to 1.5)
+  // or the cap (within 0.2 rad of its centre); the area 2 + 2 pi (1 - cos 0.2) within 2e-3; a fan at each pole.
+  cadgeom::Model m = load("lunePinch");
+  REQUIRE(m.ok());
+  PartMesher pm(m, options(1e-3, 0.1));
+  const FaceMesh& fm = pm.face(0);
+  if (fm.status != cadgeom::Status::ok) std::printf("  lunePinch: %s\n", fm.cause.c_str());
+  REQUIRE(fm.status == cadgeom::Status::ok);
+  const Vec3 C{std::cos(0.3), std::sin(0.3), 0};
+  double area = 0;
+  int outside = 0;
+  for (size_t k = 0; k + 2 < fm.triangles.size(); k += 3) {
+    Vec3 a = fm.points[fm.triangles[k]], b = fm.points[fm.triangles[k + 1]], d = fm.points[fm.triangles[k + 2]];
+    area += 0.5 * cadgeom::norm(cadgeom::cross(b - a, d - a));
+    Vec3 g = (1.0 / 3) * (a + b + d);
+    g = (1 / cadgeom::norm(g)) * g;
+    double lon = std::atan2(g.y, g.x);
+    bool in = (lon > 0.5 - 1e-9 && lon < 1.5 + 1e-9) || std::acos(std::clamp(cadgeom::dot(g, C), -1.0, 1.0)) < 0.2;
+    outside += !in;
+  }
+  const double want = 2 + 2 * M_PI * (1 - std::cos(0.2));
+  if (outside || !(area < want && area > want * (1 - 2e-3)))
+    std::printf("  lunePinch: area %.9g want %.9g, %d centroids outside\n", area, want, outside);
+  CHECK_EQ(outside, 0);
+  CHECK(area < want && area > want * (1 - 2e-3));
+  for (Vec3 pole : {Vec3{0, 0, 1}, Vec3{0, 0, -1}}) {
+    int fan = 0;
+    for (size_t t = 0; t < fm.triangles.size() / 3; t++) fan += atPole(fm, static_cast<int32_t>(t), pole);
+    CHECK(fan >= 2);
+  }
+  CHECK_EQ(sharedEdges(m, pm, "lunePinch"), 0);
+}
+
 TEST_CASE("faces of either sense: a fold and inside-out faces used reversed, normals out and triangles about them") {
   // The fold: both faces up (+z); reversedUses: two closed cubes, normals away from each cube's centre.
   cadgeom::Model f = load("fold");
