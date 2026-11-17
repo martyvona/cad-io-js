@@ -880,6 +880,51 @@ TEST_CASE("split rounds: a band's hole of straight edges, the triangles beside t
   CHECK_EQ(pm.face(0).splitsWanted, 0);
 }
 
+TEST_CASE("a cusp: a one-span arc's chord across its tangent neighbour's samples, split until it isn't, the area") {
+  // cuspPocket: the boundary crosses itself at the cusp until the bottom arc's span there is a quarter of it; the
+  // crossing spans asked split each round (mirrored, the mesher names the two the other way round). The plane's
+  // mesh is its boundary's polygon: the bottom arc's samples (at their parameters, from the arc's own equation),
+  // the corners, the polyline's points. With no split rounds the face fails, wanting its splits.
+  for (const char* name : {"cuspPocket", "cuspPocketMirrored"}) {
+    cadgeom::Model m = load(name);
+    REQUIRE(m.ok());
+    const double sx = std::strcmp(name, "cuspPocket") == 0 ? 1 : -1;
+    PartMesher pm(m, options(0.3, 0.12));
+    const FaceMesh& fm = pm.face(0);
+    if (fm.status != cadgeom::Status::ok) std::printf("  %s: %s\n", name, fm.cause.c_str());
+    REQUIRE(fm.status == cadgeom::Status::ok);
+    CHECK(pm.rounds() >= 2);
+    const std::vector<double>& t = pm.edges().edge(0).t;
+    REQUIRE(t.size() >= 3u);
+    CHECK(t[1] <= 0.025 + 1e-12);
+    CHECK_EQ(fm.splitsWanted, 0);
+    std::vector<std::pair<double, double>> poly;
+    for (double x : t) poly.push_back({sx * 200 * std::sin(x), 200 - 200 * std::cos(x)});
+    poly.push_back({sx * 200 * std::sin(0.1), 3});
+    poly.push_back({sx * 2 * std::sin(0.7), 3});
+    for (int k = 24; k >= 1; k--) poly.push_back({sx * 2 * std::sin(0.7 * k / 24), 2 - 2 * std::cos(0.7 * k / 24)});
+    double want = 0;
+    for (size_t i = 0; i < poly.size(); i++) {
+      auto [x0, y0] = poly[i];
+      auto [x1, y1] = poly[(i + 1) % poly.size()];
+      want += 0.5 * (x0 * y1 - x1 * y0);
+    }
+    want = std::fabs(want);
+    double area = 0;
+    for (size_t k = 0; k + 2 < fm.triangles.size(); k += 3) {
+      Vec3 a = fm.points[fm.triangles[k]], b = fm.points[fm.triangles[k + 1]], c = fm.points[fm.triangles[k + 2]];
+      area += 0.5 * cadgeom::norm(cadgeom::cross(b - a, c - a));
+    }
+    if (std::fabs(area - want) > 1e-9 * want) std::printf("  %s: area %.12g want %.12g\n", name, area, want);
+    CHECK(std::fabs(area - want) <= 1e-9 * want);
+    PartOptions none = options(0.3, 0.12);
+    none.maxSplitRounds = 0;
+    PartMesher p0(m, none);
+    CHECK(p0.face(0).status == cadgeom::Status::invalidModel);
+    CHECK(p0.face(0).splitsWanted >= 1);
+  }
+}
+
 TEST_CASE("faces of either sense: a fold and inside-out faces used reversed, normals out and triangles about them") {
   // The fold: both faces up (+z); reversedUses: two closed cubes, normals away from each cube's centre.
   cadgeom::Model f = load("fold");

@@ -361,6 +361,19 @@ struct PartMesher::Impl {
       // (A boundary whose seam side wasn't settled fails for that.)
       out.status = fb.status == Status::singular ? Status::singular : mesh.status;
       out.cause = fb.status == Status::singular ? fb.cause : meshWhy(mesh, bp);
+      // Two segments that cross, or one through a point: each segment that is an edge's span split at its middle,
+      // for the next round to mesh again (two edges leaving a vertex nearly tangent: the coarser one's chord across
+      // the other's samples, which no criterion of either edge sees).
+      if (mesh.rejected.size() >= 4)
+        for (size_t k = 0; k < 4; k += 2) {
+          const int32_t a = mesh.rejected[k], b = mesh.rejected[k + 1];
+          int edge, span;
+          bool forward;
+          if (a >= 0 && b >= 0 && a < static_cast<int32_t>(bp.size()) && b < static_cast<int32_t>(bp.size()) &&
+            spanOf(f, bp[a], bp[b], edge, span, forward))
+            wanted[f].push_back({edge, span, 0.5});
+        }
+      out.splitsWanted = static_cast<int>(wanted[f].size());
       return;
     }
     out.status = Status::ok;

@@ -990,6 +990,47 @@ export function arcBand(): BrepBuilder {
   return b;
 }
 
+/**
+ * A pocket on z = 0 with a cusp at the origin: its bottom an arc of radius 200 over 0.1 rad (centre (0, 200)), its
+ * left a polyline of 24 spans on the arc of radius 2 over 0.7 rad (centre (0, 2)), both leaving the origin along +x
+ * (the polyline's first span within a degree), then lines round its top. With angle 0.12 rad the bottom arc is one
+ * span, its chord rising at 0.05 from the cusp, over the polyline's first points (rising at x / 4): the chord
+ * crosses them until its span at the cusp is a quarter of the arc (a chord of h clears points beyond h / 100).
+ * Mirrored (x to -x), its loop from the polyline: the mesher meets the chord after the polyline's spans, not before.
+ */
+function cuspPocket(mirrored: boolean): BrepBuilder {
+  const b = new BrepBuilder();
+  const sx = mirrored ? -1 : 1;
+  const at = (r: number, t: number) => [sx * r * Math.sin(t), r - r * Math.cos(t), 0];
+  const end = at(200, 0.1), pts = Array.from({ length: 25 }, (_, k) => at(2, 0.7 * k / 24)), last = pts[24]!;
+  const bottom = b.addCurve({ kind: 'circle', position: { origin: [0, 200, 0], axis: [0, 0, sx], xDir: [0, -1, 0] },
+    radius: 200 });
+  const v0 = b.addVertex({ point: [0, 0, 0] }), va = b.addVertex({ point: end }), vb = b.addVertex({ point: last });
+  const c = [end[0]!, 3, 0], d = [last[0]!, 3, 0];
+  const vc = b.addVertex({ point: c }), vd = b.addVertex({ point: d });
+  const eBottom = b.addEdge({ curve: bottom, start: v0, end: va, sameSense: true, range: [0, 0.1] });
+  const eLeft = b.addEdge({ curve: b.addCurve({ kind: 'polyline', points: pts }), start: v0, end: vb,
+    sameSense: true, range: [0, 24] });
+  const line = (p: number[], q: number[], start: number, end: number) => {
+    const l = Math.hypot(q[0]! - p[0]!, q[1]! - p[1]!);
+    return b.addEdge({ curve: b.addCurve({ kind: 'line', point: p,
+      direction: [(q[0]! - p[0]!) / l, (q[1]! - p[1]!) / l, 0], magnitude: 1 }), start, end, sameSense: true,
+      range: [0, l] });
+  };
+  const up = line(end, c, va, vc), top = line(c, d, vc, vd), down = line(d, last, vd, vb);
+  const ccw = [{ edge: eBottom, orientation: 'forward' as const }, { edge: up, orientation: 'forward' as const },
+    { edge: top, orientation: 'forward' as const }, { edge: down, orientation: 'forward' as const },
+    { edge: eLeft, orientation: 'reversed' as const }];
+  // (Mirrored, the same loop runs clockwise: reversed to keep the face on its left.)
+  const coedges = mirrored ? ccw.reverse().map((c) => ({ edge: c.edge,
+    orientation: c.orientation === 'forward' ? 'reversed' as const : 'forward' as const })) : ccw;
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: true,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] }));
+  return b;
+}
+export const cuspPocket_ = (): BrepBuilder => cuspPocket(false);
+export const cuspPocketMirrored = (): BrepBuilder => cuspPocket(true);
+
 export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStrip(true),
   kinkStripQuadratic: () => kinkStrip(false, true), affineFeetOff, plateHoles,
   bsplineApexHole, offPoleArcLoose, loopless, bsplineBall, wholeTorus, wholeSphereVertex,
@@ -1000,4 +1041,5 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   offPoleArc: () => offPoleArc(), offPcurves, bandHoleAtVertex, bandHoleOnCut, halfCap, meridianHemisphere, band: band_,
   bandByInversion, bore, nistBore, seamByInversion, offVertex, pcurveOnly, luneQuarter, luneOnSeam, cap, splineEdge,
   seamFlipped, polylineEdge, pcurveCircle, arcSegment, fold, twisted, wrongSense, zeroEdge, halfCylinderPcurves,
-  halfCylinderApart, halfCylinderBare, halfCylinderWest, arcBand };
+  halfCylinderApart, halfCylinderBare, halfCylinderWest, arcBand, cuspPocket: cuspPocket_,
+  cuspPocketMirrored };
