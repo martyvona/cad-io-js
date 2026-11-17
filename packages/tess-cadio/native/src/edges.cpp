@@ -607,10 +607,25 @@ struct EdgeMesh::Impl {
         C.ambiguous[d] = all && any && hi - lo > 1e-9 * scale;
       }
     }
-    // Continuous along periodic directions.
+    // Continuous along periodic directions: each sample the copy nearest the one before. A step over a quarter
+    // period goes through its span's middle instead (the p-curve's there, else its inversion), each half then
+    // nearest: two samples half a period apart (a semicircle's ends alone) are a tie that rounding settles either
+    // way, and the loop then winds round the period where it doesn't, or runs round the other half.
     for (int i = 1; i < n; i++) {
-      s.uv[i].x = nearest(s.uv[i].x, s.uv[i - 1].x, F.period[0]);
-      s.uv[i].y = nearest(s.uv[i].y, s.uv[i - 1].y, F.period[1]);
+      Vec2 mid{NAN, NAN};
+      for (int d = 0; d < 2; d++) {
+        const double P = F.period[d], before = d ? s.uv[i - 1].y : s.uv[i - 1].x;
+        double& x = d ? s.uv[i].y : s.uv[i].x;
+        x = nearest(x, before, P);
+        if (!(P > 0) || !(std::fabs(x - before) > 0.25 * P) || !E.geom) continue;
+        if (std::isnan(mid.x)) {
+          const double tm = 0.5 * (E.s.t[s.index[i - 1]] + E.s.t[s.index[i]]);
+          CurvePoint q;
+          if (s.fromPcurve && C.pcurve->eval(tm, 0, q) == Status::ok) mid = {q.p.x, q.p.y};
+          else mid = invert(C.face, E.geom->at(tm), &s.uv[i - 1]).uv;
+        }
+        x = nearest(x, nearest(d ? mid.y : mid.x, before, P), P);
+      }
     }
     if (!s.fromPcurve || s.projected) throughPoles(c);
     for (size_t i = 0; i < s.uv.size(); i++)
@@ -1370,6 +1385,23 @@ struct EdgeMesh::Impl {
           continue;
         }
         int e = A.edgeIndex, co = ch.owner[i], as = A.sample, bs = B.sample;
+        // Where A's and B's edges don't give the span (below): as consecutive samples of B's owner, the coedge it
+        // lies on (each point after the first is its owner's, the closing point the last coedge's), at A's and B's
+        // points within its edge's tolerance. An edge whose two samples are both junctions has no point of its own in
+        // the chain: its first is the edge before's last, its last the closing point, which carries the first
+        // coedge's edge.
+        auto inOwner = [&] {
+          const int c2 = ch.owner[i + 1], e2 = m.coedgeEdge(c2);
+          const CoedgeSamples& s2 = coedges[c2].s;
+          const double et = tols.edge(e2);
+          for (size_t q = 0; q + 1 < s2.index.size(); q++)
+            if (norm(edges[e2].s.points[s2.index[q]] - A.point) <= et &&
+              norm(edges[e2].s.points[s2.index[q + 1]] - B.point) <= et) {
+              e = e2, co = c2, as = s2.index[q], bs = s2.index[q + 1];
+              return true;
+            }
+          return false;
+        };
         if (A.edgeIndex != B.edgeIndex) {
           // Across a junction, whose point carries one edge though it ends one and starts the other: the span is the
           // edge whose sample next to one end is the other's point (B's next to it A's: from a junction into the next
@@ -1385,7 +1417,7 @@ struct EdgeMesh::Impl {
             e = B.edgeIndex, co = ch.owner[i + 1], as = j, bs = B.sample;
           } else if (int k = next(A.edgeIndex, A.sample, B.point); k >= 0) {
             e = A.edgeIndex, co = ch.owner[i], as = A.sample, bs = k;
-          } else {
+          } else if (!inOwner()) {
             found = 99;
             continue;
           }
@@ -1397,7 +1429,7 @@ struct EdgeMesh::Impl {
           if (bs == last || bs == 0) bs = (bs == last ? 0 : last);
           if (std::abs(as - bs) != 1 && (as == last || as == 0)) as = (as == last ? 0 : last);
         }
-        if (std::abs(as - bs) != 1) {
+        if (std::abs(as - bs) != 1 && !inOwner()) {
           found = 99;
           continue;
         }

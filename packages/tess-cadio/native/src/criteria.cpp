@@ -372,6 +372,10 @@ private:
    * terms' fractions have no such bound (|d_u| may be 0): the strip's M_uv and M_vv join d2's (on a C1 surface only
    * the partial across a narrow span is large there). A v-strip likewise with u and v swapped. Summed over the
    * corners, the rest's part is at most the scaled circle's (bounds), and the strips' theirs.
+   * (No test tells that join from its absence, and leaving it out may well be sound, but that isn't proven: what the
+   * strip has beyond its neighbours is confined to its width, so its height is about M_uu w^2 / 4 at most, which its
+   * uu term, at least 2 w^2 M_uu as U > 8 w, already covers. A ridge along the strip, bent along it there alone,
+   * was refused alike with and without the join.)
    */
   bool stripBounds(Range ru, Range rv, double d2[3], double& strips) const {
     strips = 0;
