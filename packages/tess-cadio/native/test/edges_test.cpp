@@ -764,6 +764,83 @@ TEST_CASE("a seam use by inversion that no neighbour places: Status::singular, n
   CHECK(!valid.againstSense);
 }
 
+TEST_CASE("rings cut into edges: the approach and the crossing samples, nothing between, never refilled") {
+  // The cube's edge 0 (shared by two faces), sampled at 0.25: a ring from its start vertex to 0.4 of the way along.
+  cadgeom::Model m = load("cube");
+  REQUIRE(m.ok());
+  EdgeOptions o;
+  o.deflection = 1e-3;
+  o.maxSpacing = 0.25;
+  EdgeMesh em(m, o);
+  const int e = 0;
+  const std::vector<double> t0 = em.edge(e).t;
+  REQUIRE(t0.size() >= 4u);
+  const Vec3 vertex = em.edge(e).points.front();
+  const double a = t0.front(), c = t0.front() + 0.4 * (t0.back() - t0.front());
+  CHECK(em.cutRings({{e, a, c}}) == cadgeom::Status::ok);
+  const EdgeSamples& s = em.edge(e);
+  CHECK(s.points.front().x == vertex.x && s.points.front().y == vertex.y && s.points.front().z == vertex.z);
+  REQUIRE(s.t.size() >= 3u);
+  CHECK_EQ(s.t[1], c);
+  Vec3 pc = em.point(e, c);
+  CHECK(cadgeom::norm(s.points[1] - pc) == 0);
+  for (double t : s.t) CHECK(!(t > std::min(a, c) && t < std::max(a, c)));
+  // Both faces using it have its samples as the edge has them: the crossing, nothing inside the ring.
+  int faces = 0;
+  for (int f = 0; f < m.faces(); f++) {
+    FaceBoundary fb = em.face(f);
+    bool uses = false, crossing = false, inside = false;
+    for (const auto& l : fb.loops)
+      for (const BoundaryPoint& p : l)
+        if (p.edgeIndex == e && p.kind == BoundaryPoint::edgeSample) {
+          uses = true;
+          crossing = crossing || cadgeom::norm(p.point - pc) == 0;
+          double t = s.t[p.sample];
+          inside = inside || (t > std::min(a, c) && t < std::max(a, c));
+        }
+    if (!uses) continue;
+    faces++;
+    CHECK(crossing && !inside);
+  }
+  CHECK_EQ(faces, 2);
+  // Its uses redone: each as many samples as the edge, each on the surface at the edge's point.
+  for (int co = 0; co < m.coedges(); co++)
+    if (m.coedgeEdge(co) == e) CHECK_EQ(em.coedge(co).index.size(), s.t.size());
+  CHECK_EQ(checkCoedges(m, em, 1e-9, "cube ring"), 0);
+  // A split inside the ring's span is dropped; one beyond it applies.
+  const size_t n = s.t.size();
+  CHECK(em.split({{e, 0, 0.5}}) == cadgeom::Status::ok);
+  CHECK_EQ(em.edge(e).t.size(), n);
+  CHECK(em.split({{e, 1, 0.5}}) == cadgeom::Status::ok);
+  CHECK_EQ(em.edge(e).t.size(), n + 1);
+  // Repeated rounds asking the ring's span split at every fraction: still empty.
+  for (double f : {0.1, 0.3, 0.5, 0.7, 0.9}) em.split({{e, 0, f}});
+  for (double t : em.edge(e).t) CHECK(!(t > std::min(a, c) && t < std::max(a, c)));
+  // An approach between samples (a curve passing the pole): a sample there too, the ring the span to the crossing.
+  const int e2 = 1;
+  const std::vector<double> u = em.edge(e2).t;
+  REQUIRE(u.size() >= 4u);
+  const double ua = 0.5 * (u[1] + u[2]), uc = u.back();
+  CHECK(em.cutRings({{e2, ua, uc}}) == cadgeom::Status::ok);
+  const std::vector<double>& u2 = em.edge(e2).t;
+  REQUIRE(u2.size() == 4u);
+  CHECK(u2[0] == u[0] && u2[1] == u[1] && u2[2] == ua && u2[3] == uc);
+  // Bad cuts ignored, reported: no such edge, not finite, outside the edge, approach equal to crossing.
+  const std::vector<double> before = em.edge(2).t;
+  CHECK(em.cutRings({{-1, 0, 1}, {9999, 0, 1}, {2, NAN, 1}, {2, before.front(), before.back() + 10},
+          {2, before.front(), before.front()}}) == cadgeom::Status::invalidModel);
+  CHECK(em.edge(2).t == before);
+  // A cut's pseudo-edge (band's): the same.
+  cadgeom::Model b = load("band");
+  EdgeMesh eb(b, o, {0.2});
+  const int pe = b.edges();
+  REQUIRE(eb.isPseudo(pe));
+  const std::vector<double> pt = eb.edge(pe).t;
+  REQUIRE(pt.size() >= 4u);
+  CHECK(eb.cutRings({{pe, pt.front(), pt[pt.size() / 2]}}) == cadgeom::Status::ok);
+  CHECK_EQ(eb.edge(pe).t.size(), pt.size() - (pt.size() / 2 - 1));
+}
+
 TEST_CASE("splits: a sample inside the span asked, clamped, the rest kept; bad requests ignored and reported") {
   cadgeom::Model m = load("band");
   REQUIRE(m.ok());

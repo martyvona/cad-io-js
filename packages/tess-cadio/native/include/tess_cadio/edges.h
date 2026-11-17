@@ -175,6 +175,16 @@ struct SplitRequest {
 };
 
 /**
+ * A pole's ring on an edge (a model edge or a cut's pseudo-edge) incident to the pole: the edge's parameter at its
+ * nearest approach to the pole (its vertex there, or where the curve passes within the tolerance) and where the
+ * ring crosses it. Between them the edge is one straight span (the pole-ring rule: straight within the deflection).
+ */
+struct RingCut {
+  int32_t edge;
+  double approach, crossing;
+};
+
+/**
  * A model's edges sampled (all at construction), and its faces' boundaries from them. The model must outlive it.
  * Problems are statuses per edge, coedge and face, never throws: an edge with no curve (p-curves only) is sampled
  * through its first use's p-curve on that face's surface, the bound then that of the composition; an edge with no
@@ -197,6 +207,11 @@ public:
   int edgeCount() const;
   bool isPseudo(int e) const;
   const EdgeSamples& edge(int e) const;
+  /**
+   * Edge e's point at parameter t on the curve it's sampled on (its 3D curve, or its first use's p-curve through the
+   * surface): between samples, for a caller that judges the curve itself (a pole's ring, against its chords).
+   */
+  cadgeom::Vec3 point(int e, double t) const;
   const CoedgeSamples& coedge(int c) const;
   /** How the uses the model gives no p-curve were sampled (EdgeOptions::projectMissingPcurves). */
   const ProjectionCounts& projections() const;
@@ -208,9 +223,19 @@ public:
    * there were none, else Status::invalidModel. Each request adds one sample inside its span (several on one span
    * each at its own fraction of the span as it was, those within a tenth of the span of one another once); existing
    * samples are kept, so other edges' indices stand and only the touched edges' later indices move. The touched
-   * edges' coedges are redone.
+   * edges' coedges are redone. A request whose sample would fall inside a ring's span (cutRings) is dropped.
    */
   Status split(const std::vector<SplitRequest>& requests);
+
+  /**
+   * Each cut applied to its edge, once for every face using it (the samples are the edge's, its coedges redone): a
+   * sample at the approach and one at the crossing (an existing sample within a millionth of a span used instead,
+   * so a vertex at the pole stays the sample there), the samples strictly between them removed, and the span between
+   * them kept empty from then on: split() drops a request inside it, so the refinement rounds never refill a ring.
+   * Bad cuts (no such edge, parameters not finite or outside the edge's samples, approach equal to crossing) are
+   * ignored: Status::invalidModel if there were any, else Status::ok. Other edges' indices stand.
+   */
+  Status cutRings(const std::vector<RingCut>& cuts);
 
 private:
   struct Impl;
