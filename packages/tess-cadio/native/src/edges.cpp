@@ -1788,6 +1788,10 @@ EdgeMesh::~EdgeMesh() { delete impl_; }
 int EdgeMesh::edgeCount() const { return static_cast<int>(impl_->edges.size()); }
 bool EdgeMesh::isPseudo(int e) const { return e >= impl_->nModel; }
 const EdgeSamples& EdgeMesh::edge(int e) const { return impl_->edges[e].s; }
+Vec3 EdgeMesh::point(int e, double t) const {
+  const Impl::Edge& E = impl_->edges[e];
+  return E.geom ? E.geom->at(t) : Vec3{NAN, NAN, NAN};
+}
 const CoedgeSamples& EdgeMesh::coedge(int c) const { return impl_->coedges[c].s; }
 const ProjectionCounts& EdgeMesh::projections() const { return impl_->projections; }
 FaceBoundary EdgeMesh::face(int f) const { return impl_->face(f); }
