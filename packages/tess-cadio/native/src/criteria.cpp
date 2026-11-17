@@ -19,6 +19,7 @@
 #include "tess_cadio/criteria.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <vector>
 
@@ -236,7 +237,7 @@ private:
       // Sampled first, sparing the bound the many large triangles refinement refuses (what it measures, |S(x) - L(x)|
       // at the corners' barycentric (u, v), is at least the distance there, so its refusals err only to the strict
       // side, where S''s tangential part is large); then bounded, over the whole box, and only where that isn't
-      // enough over its pieces (secondBounds); where the surface gives no bound, the sample stands (and is noted).
+      // enough over its pieces (stripBounds); where the surface gives no bound, the sample stands (and is noted).
       if (!sampledDeviation(t, p)) return false;
       if (!bounds(t, b, false)) {
         sampledAny_ = true;
@@ -334,33 +335,47 @@ private:
   bool bounds(const Vec2 t[3], Bounds& out, bool pieces) const {
     Range ru{std::min({t[0].x, t[1].x, t[2].x}), std::max({t[0].x, t[1].x, t[2].x})};
     Range rv{std::min({t[0].y, t[1].y, t[2].y}), std::max({t[0].y, t[1].y, t[2].y})};
-    double d2[3];
-    if (!secondBounds(ru, rv, d2, pieces)) return false;
+    double d2[3], strips = 0;
     double Du = ru.hi - ru.lo, Dv = rv.hi - rv.lo;
+    if (pieces ? !stripBounds(ru, rv, d2, strips) : !wholeBounds(ru, rv, d2)) return false;
     // (e = Dv / Du minimizes the cross term's share over the triangle's extents, (M_uv e) Du^2 + (M_uv / e) Dv^2;
     // sqrt(M_vv / M_uu) instead blows up where M_vv is rounding, a cylinder's or a tube's along its lines.)
     double e = Du > 0 && Dv > 0 ? Dv / Du : 1;
     double au = d2[0] + d2[1] * e, av = d2[2] + d2[1] / e;
     Vec2 q[3];
     for (int i = 0; i < 3; i++) q[i] = {std::sqrt(au) * t[i].x, std::sqrt(av) * t[i].y};
-    out.deviation = 0.5 * enclosing2(q);
+    out.deviation = 0.5 * enclosing2(q) + strips;
     return true;
   }
 
   /**
-   * The second partials' bounds over ru x rv: with `pieces`, the largest of the pieces' it's cut into at the
-   * surface's breaks (a B-spline's knots, where its bound is the spans' hulls) and in kSplit x kSplit besides (each
-   * piece's centred form the tighter for its size), the whole's where that would be more than kMaxPieces pieces;
-   * else the whole's. False where any fails.
+   * The second partials' bounds over the pieces ru x rv is cut into at the surface's breaks (a B-spline's knots,
+   * where its bound is the spans' hulls) and in kSplit x kSplit besides (each piece's centred form the tighter for its
+   * size): d2 the largest of the pieces' outside narrow strips, `strips` what those add to the deviation. The
+   * whole's (wholeBounds) where that would be more than kMaxPieces pieces. False where any fails.
+   *
+   * A strip is a column of pieces between consecutive cuts in u (or a row in v) narrower than kStrip of the triangle's
+   * extent there: a B-spline's knots a hair apart, where a C1 surface bends sharply over a span of no consequence
+   * (Iron.step part #47's face 3396: 6.7e-5 of its u, its pieces' bound 1.48 mm on a 0.7 mm triangle within 1e-3 of
+   * the surface). Its maxima, quadratic in the triangle's size, would dominate; its width bounds its part instead.
+   *
+   * Why that is a bound. With L the triangle's linear interpolant, e(x) = S(x) - L(x) = -sum_i l_i R_i at x, l_i its
+   * barycentric weights and R_i the Taylor remainder along d_i = p_i - x:
+   * R_i = int_0^1 (1 - t) D2S(x + t d_i)[d_i, d_i] dt, D2S[d, d] = d_u^2 S_uu + 2 d_u d_v S_uv + d_v^2 S_vv. Bound each
+   * term's integral apart, splitting it by where x + t d_i lies. Outside every strip the partials are within d2, whose
+   * part is at most theirs over the whole segment. A u-strip [a, a + w]: the segment (straight, u along it linear)
+   * meets only the part of it between u and u_i, of width w_i, for at most w_i / |d_u| of t, where (1 - t) <= 1; so
+   * the uu term's part there is at most w_i |u_i - u| M_uu, M_uu the strip's maximum. With u outside the strip, only
+   * corners beyond it have w_i > 0 (w); inside, those either side have w_i the strip's part on their side, the two
+   * summing to w. And either side's sum_i l_i |u_i - u| is half the corners' mean distance from their mean u
+   * (sum_i l_i u_i = u), so at most a quarter of their extent U: the strip adds at most w U M_uu / 4. The uv and vv
+   * terms' fractions have no such bound (|d_u| may be 0): the strip's M_uv and M_vv join d2's (on a C1 surface only
+   * the partial across a narrow span is large there). A v-strip likewise with u and v swapped. Summed over the
+   * corners, the rest's part is at most the scaled circle's (bounds), and the strips' theirs.
    */
-  bool secondBounds(Range ru, Range rv, double out[3], bool pieces) const {
+  bool stripBounds(Range ru, Range rv, double d2[3], double& strips) const {
+    strips = 0;
     std::vector<double> us, vs;
-    if (!pieces) {
-      if (s_.derivBound(ru, rv, 2, out) != Status::ok) return false;
-      for (int i = 0; i < 3; i++)
-        if (!std::isfinite(out[i]) || out[i] < 0) return false;
-      return true;
-    }
     s_.breaks(ru, rv, us, vs);
     auto cuts = [](Range r, std::vector<double> c) {
       for (int i = 1; i < kSplit; i++) c.push_back(r.lo + (r.hi - r.lo) * i / kSplit);
@@ -369,20 +384,44 @@ private:
       return c;
     };
     us = cuts(ru, us), vs = cuts(rv, vs);
-    out[0] = out[1] = out[2] = 0;
-    auto one = [&](Range a, Range b) {
-      double d[3];
-      if (s_.derivBound(a, b, 2, d) != Status::ok) return false;
-      for (int i = 0; i < 3; i++) {
-        if (!std::isfinite(d[i]) || d[i] < 0) return false;
-        out[i] = std::fmax(out[i], d[i]);
+    if (us.size() < 2 || vs.size() < 2 || (us.size() - 1) * (vs.size() - 1) > kMaxPieces)
+      return wholeBounds(ru, rv, d2);
+    double U = ru.hi - ru.lo, V = rv.hi - rv.lo;
+    size_t nu = us.size() - 1, nv = vs.size() - 1;
+    std::vector<char> thinU(nu), thinV(nv);
+    for (size_t i = 0; i < nu; i++) thinU[i] = us[i + 1] - us[i] < kStrip * U;
+    for (size_t j = 0; j < nv; j++) thinV[j] = vs[j + 1] - vs[j] < kStrip * V;
+    // Each strip's maxima over its pieces (a piece in both a u- and a v-strip taken as the u-strip's), the rest's d2.
+    std::vector<std::array<double, 3>> su(nu, {0, 0, 0}), sv(nv, {0, 0, 0});
+    d2[0] = d2[1] = d2[2] = 0;
+    for (size_t i = 0; i < nu; i++)
+      for (size_t j = 0; j < nv; j++) {
+        if (!(us[i + 1] > us[i] && vs[j + 1] > vs[j])) continue;
+        double d[3];
+        if (!wholeBounds({us[i], us[i + 1]}, {vs[j], vs[j + 1]}, d)) return false;
+        double* into = thinU[i] ? su[i].data() : thinV[j] ? sv[j].data() : d2;
+        for (int k = 0; k < 3; k++) into[k] = std::fmax(into[k], d[k]);
       }
-      return true;
-    };
-    if (us.size() < 2 || vs.size() < 2 || (us.size() - 1) * (vs.size() - 1) > kMaxPieces) return one(ru, rv);
-    for (size_t i = 0; i + 1 < us.size(); i++)
-      for (size_t j = 0; j + 1 < vs.size(); j++)
-        if (us[i + 1] > us[i] && vs[j + 1] > vs[j] && !one({us[i], us[i + 1]}, {vs[j], vs[j + 1]})) return false;
+    for (size_t i = 0; i < nu; i++)
+      if (thinU[i]) {
+        double w = us[i + 1] - us[i];
+        strips += 0.25 * w * U * su[i][0];
+        d2[1] = std::fmax(d2[1], su[i][1]), d2[2] = std::fmax(d2[2], su[i][2]);
+      }
+    for (size_t j = 0; j < nv; j++)
+      if (thinV[j]) {
+        double w = vs[j + 1] - vs[j];
+        strips += 0.25 * w * V * sv[j][2];
+        d2[0] = std::fmax(d2[0], sv[j][0]), d2[1] = std::fmax(d2[1], sv[j][1]);
+      }
+    return true;
+  }
+
+  /** The second partials' bounds over the whole of ru x rv; false where they fail. */
+  bool wholeBounds(Range ru, Range rv, double out[3]) const {
+    if (s_.derivBound(ru, rv, 2, out) != Status::ok) return false;
+    for (int i = 0; i < 3; i++)
+      if (!std::isfinite(out[i]) || out[i] < 0) return false;
     return true;
   }
 
@@ -488,6 +527,8 @@ private:
 
   /** The metric's smaller eigenvalue at least this times its larger (a size ratio of 1000 at most). */
   static constexpr double kFloor = 1e-6;
+  /** A piece between breaks narrower than this of the triangle's extent there is a strip (stripBounds). */
+  static constexpr double kStrip = 0.125;
 
   int at(int i, int j) const { return i * (kGrid + 1) + j; }
   Vec2 node(int i, int j) const {
