@@ -39,7 +39,9 @@ public:
 /**
  * The domain: points, then boundary loops as closed sequences of point indices (outer counterclockwise, holes
  * clockwise: a face's loops in (u, v)). Boundary points and segments are fixed: never moved, never split. Optional
- * interior points (internal edges' samples, points a face must contain) are kept as vertices.
+ * interior points (internal edges' samples, points a face must contain) are kept as vertices. A loop may pass one
+ * point twice and loops may share one (a vertex the boundary touches itself at: one index, the caller's points
+ * there exactly equal); two indices at one (u, v) are refused, as are segments that cross.
  */
 struct Domain2 {
   std::vector<Vec2> points;
