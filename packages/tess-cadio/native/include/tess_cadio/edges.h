@@ -197,6 +197,11 @@ public:
   int edgeCount() const;
   bool isPseudo(int e) const;
   const EdgeSamples& edge(int e) const;
+  /**
+   * Edge e's point at parameter t on the curve it's sampled on (its 3D curve, or its first use's p-curve through the
+   * surface): between samples, for a caller that judges the curve itself (a pole's ring, against its chords).
+   */
+  cadgeom::Vec3 point(int e, double t) const;
   const CoedgeSamples& coedge(int c) const;
   /** How the uses the model gives no p-curve were sampled (EdgeOptions::projectMissingPcurves). */
   const ProjectionCounts& projections() const;

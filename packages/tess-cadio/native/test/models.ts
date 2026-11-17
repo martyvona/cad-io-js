@@ -1166,6 +1166,124 @@ export function spindleCorner(past: number, R = 10): BrepBuilder {
   return b;
 }
 
+/** The unit sphere's cap within `colatitude` of its north pole, bounded by its circle alone. */
+export function capWithin(colatitude: number): BrepBuilder {
+  const b = new BrepBuilder();
+  const r = Math.sin(colatitude), z = Math.cos(colatitude);
+  const circle = b.addCurve({ kind: 'circle', position: { ...AXIS, origin: [0, 0, z] }, radius: r });
+  const v = b.addVertex({ point: [r, 0, z] });
+  const e = b.addEdge({ curve: circle, start: v, end: v, sameSense: true });
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'sphere', position: AXIS, radius: 1 }), sameSense: true,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [{ edge: e, orientation: 'forward' }] }] }));
+  return b;
+}
+
+/**
+ * Two lunes between longitudes pi / 4 and 3 pi / 4 meeting at one north pole (0, 0, 1): the unit sphere's, and a
+ * sphere of radius 3 about (0, 0, -2)'s (flatter there: its fans pass farther out). Two sheets; the pole one point.
+ */
+export function poleLunes(): BrepBuilder {
+  const b = new BrepBuilder();
+  const n = b.addVertex({ point: [0, 0, 1] });
+  for (const [R, cz] of [[1, 0], [3, -2]] as const) {
+    const s = b.addVertex({ point: [0, 0, cz - R] });
+    const merid = (u: number) => b.addCurve({ kind: 'circle', position: { origin: [0, 0, cz],
+      axis: [Math.sin(u), -Math.cos(u), 0], xDir: [Math.cos(u), Math.sin(u), 0] }, radius: R });
+    const half: [number, number] = [-Math.PI / 2, Math.PI / 2];
+    const ma = b.addEdge({ curve: merid(Math.PI / 4), start: s, end: n, sameSense: true, range: half });
+    const mc = b.addEdge({ curve: merid(3 * Math.PI / 4), start: s, end: n, sameSense: true, range: half });
+    const surface = b.addSurface({ kind: 'sphere', position: { ...AXIS, origin: [0, 0, cz] }, radius: R });
+    sheet(b, b.addFace({ surface, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true,
+        coedges: [{ edge: mc, orientation: 'forward' }, { edge: ma, orientation: 'reversed' }] }] }));
+  }
+  return b;
+}
+
+/**
+ * A lens on a sphere of radius 10 between two small circles of radius 1 through its north pole (0, 0, 10), their
+ * planes tilted 0.1 (in sine) towards +x and +y: its corner at the pole between two arcs far more curved than the
+ * sphere, so they stay straight within d over a shorter reach than the fans need.
+ */
+export function poleLens(): BrepBuilder {
+  const b = new BrepBuilder();
+  const R = 10, h = Math.sqrt(R * R - 1), nz = h / R, s = Math.sqrt(1 - nz * nz);
+  const normals = [[s, 0, nz], [0, s, nz]];
+  // The planes' line meets the sphere at the pole and at p: x = y by symmetry, n . p = h, |p| = R.
+  // With p = (a, a, c): s a + nz c = h, 2 a^2 + c^2 = R^2; the root other than (0, 0, R).
+  const A = 2 + (s * s) / (nz * nz), B = -2 * s * h / (nz * nz), C = (h * h) / (nz * nz) - R * R;
+  const a = (-B + Math.sqrt(B * B - 4 * A * C)) / (2 * A) > 1e-9 ? (-B + Math.sqrt(B * B - 4 * A * C)) / (2 * A)
+    : (-B - Math.sqrt(B * B - 4 * A * C)) / (2 * A);
+  const p = [a, a, (h - s * a) / nz], pole = [0, 0, R];
+  const vn = b.addVertex({ point: pole }), vp = b.addVertex({ point: p });
+  const arc = (n: number[]) => {
+    const c = n.map((x) => h * x);
+    const xd = [pole[0]! - c[0]!, pole[1]! - c[1]!, pole[2]! - c[2]!];
+    const yd = [n[1]! * xd[2]! - n[2]! * xd[1]!, n[2]! * xd[0]! - n[0]! * xd[2]!, n[0]! * xd[1]! - n[1]! * xd[0]!];
+    const q = [p[0]! - c[0]!, p[1]! - c[1]!, p[2]! - c[2]!];
+    const dot = (u: number[], w: number[]) => u[0]! * w[0]! + u[1]! * w[1]! + u[2]! * w[2]!;
+    let t = Math.atan2(dot(q, yd), dot(q, xd));
+    if (t < 0) t += 2 * Math.PI;
+    // From the pole (t = 0) the short way to p.
+    const curve = b.addCurve({ kind: 'circle', position: { origin: c, axis: n, xDir: xd }, radius: 1 });
+    return t <= Math.PI ? b.addEdge({ curve, start: vn, end: vp, sameSense: true, range: [0, t] })
+      : b.addEdge({ curve, start: vp, end: vn, sameSense: true, range: [t, 2 * Math.PI] });
+  };
+  const ex = arc(normals[0]!), ey = arc(normals[1]!);
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'sphere', position: AXIS, radius: R }), sameSense: true,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [{ edge: ex, orientation: 'forward' },
+      { edge: ey, orientation: 'forward' }] }] }));
+  return b;
+}
+
+const cross3 = (a: number[], b: number[]) => [a[1]! * b[2]! - a[2]! * b[1]!, a[2]! * b[0]! - a[0]! * b[2]!,
+  a[0]! * b[1]! - a[1]! * b[0]!];
+const unit3 = (a: number[]) => {
+  const l = Math.hypot(a[0]!, a[1]!, a[2]!);
+  return a.map((x) => x / l);
+};
+
+/**
+ * The unit sphere's region inside a small circle (angular radius 0.3) through its north pole: the circle's arc from
+ * the pole round 330 degrees to q, which comes back towards the pole (q 2 sin 0.3 sin(pi / 12) from it), and the
+ * meridian from q up to the pole. The arc's later part, once it turns back, is boundary near the pole away from it.
+ */
+export function curlBack(): BrepBuilder {
+  const b = new BrepBuilder();
+  const alpha = 0.3, n = [Math.sin(alpha), 0, Math.cos(alpha)], c = n.map((x) => Math.cos(alpha) * x);
+  const pole = [0, 0, 1], r = Math.sin(alpha);
+  const xd = unit3(pole.map((x, i) => x - c[i]!)), yd = cross3(n, xd), t = 11 * Math.PI / 6;
+  const q = c.map((x, i) => x + r * (Math.cos(t) * xd[i]! + Math.sin(t) * yd[i]!));
+  const vn = b.addVertex({ point: pole }), vq = b.addVertex({ point: q });
+  const arc = b.addEdge({ curve: b.addCurve({ kind: 'circle', position: { origin: c, axis: n, xDir: xd }, radius: r }),
+    start: vn, end: vq, sameSense: true, range: [0, t] });
+  // The great circle through q and the pole, from q (its xDir) up.
+  const axis = unit3(cross3(q, pole)), up = Math.acos(Math.min(1, q[2]!));
+  const merid = b.addEdge({ curve: b.addCurve({ kind: 'circle', position: { origin: [0, 0, 0], axis, xDir: q },
+    radius: 1 }), start: vq, end: vn, sameSense: true, range: [0, up] });
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'sphere', position: AXIS, radius: 1 }), sameSense: true,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [{ edge: arc, orientation: 'forward' },
+      { edge: merid, orientation: 'forward' }] }] }));
+  return b;
+}
+
+/**
+ * The unit sphere's side of a great circle that passes 5e-4 from its north pole, its vertex on the far side (no
+ * sample near the pole), the model's uncertainty 1e-3: the circle is incident to the pole without ending there.
+ */
+export function passBy(): BrepBuilder {
+  const b = new BrepBuilder({ uncertainty: 1e-3 });
+  const delta = 5e-4;
+  // The circle's plane: normal (0, -cos delta, sin delta), so its nearest point to the pole is (0, sin delta,
+  // cos delta); its vertex the far point, (0, -sin delta, -cos delta).
+  const axis = [0, -Math.cos(delta), Math.sin(delta)], far = [0, -Math.sin(delta), -Math.cos(delta)];
+  const v = b.addVertex({ point: far });
+  const e = b.addEdge({ curve: b.addCurve({ kind: 'circle', position: { origin: [0, 0, 0], axis, xDir: far },
+    radius: 1 }), start: v, end: v, sameSense: true });
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'sphere', position: AXIS, radius: 1 }), sameSense: true,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [{ edge: e, orientation: 'forward' }] }] }));
+  return b;
+}
+
 export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStrip(true),
   kinkStripQuadratic: () => kinkStrip(false, true), affineFeetOff, plateHoles,
   bsplineApexHole, offPoleArcLoose, loopless, bsplineBall, wholeTorus, wholeSphereVertex,
@@ -1178,4 +1296,5 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   seamFlipped, polylineEdge, pcurveCircle, arcSegment, fold, twisted, wrongSense, zeroEdge, halfCylinderPcurves,
   halfCylinderApart, halfCylinderBare, halfCylinderWest, arcBand, cuspPocket: cuspPocket_,
   cuspPocketMirrored, flowerHole, lobes,
-  slitFromCorner, lunePinch, spindleApex: () => spindleCorner(0.005) };
+  slitFromCorner, lunePinch, spindleApex: () => spindleCorner(0.005),
+  tinyCap: () => capWithin(0.01), poleLunes, poleLens, curlBack, passBy };
