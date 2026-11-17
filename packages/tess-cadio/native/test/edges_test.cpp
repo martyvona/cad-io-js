@@ -546,6 +546,48 @@ TEST_CASE("a band with no seam edge: one cut, a pseudo-edge used both ways, away
   }
 }
 
+TEST_CASE("a step of half a period between samples (a semicircle's ends alone): which way decided at its middle") {
+  // Each arc one span: by p-curves (theirs, a period apart), projected and by inversion, across the seam and away
+  // from it, the loop runs half a period in u and back (no winding, no cut), counterclockwise round the half the
+  // face is: (u, v) area pi h = 4 pi. (Not meshed: one span per arc, its chord a fixed segment.)
+  struct Case {
+    const char* model;
+    bool project;
+  };
+  for (Case c : {Case{"halfCylinderPcurves", true}, Case{"halfCylinderApart", true}, Case{"halfCylinderBare", true},
+         Case{"halfCylinderBare", false}, Case{"halfCylinderWest", true}, Case{"halfCylinderWest", false}}) {
+    cadgeom::Model m = load(c.model);
+    REQUIRE(m.ok());
+    EdgeOptions o;
+    o.deflection = 3;
+    o.projectMissingPcurves = c.project;
+    EdgeMesh em(m, o);
+    REQUIRE(em.edge(0).t.size() == 2u && em.edge(1).t.size() == 2u);
+    CHECK_EQ(checkEdges(m, em, o, c.model), 0);
+    CHECK_EQ(checkCoedges(m, em, 1e-9, c.model), 0);
+    CHECK_EQ(em.edgeCount(), m.edges());
+    FaceBoundary fb = em.face(0);
+    if (fb.status != cadgeom::Status::ok) std::printf("  %s (%d): %s\n", c.model, c.project, fb.cause.c_str());
+    CHECK(fb.status == cadgeom::Status::ok);
+    REQUIRE(fb.loops.size() == 1u);
+    double lo = INFINITY, hi = -INFINITY, area = 0;
+    const std::vector<BoundaryPoint>& l = fb.loops[0];
+    for (size_t i = 0; i < l.size(); i++) {
+      Vec2 a = l[i].uv, b = l[(i + 1) % l.size()].uv;
+      lo = std::fmin(lo, a.x), hi = std::fmax(hi, a.x), area += 0.5 * (a.x * b.y - b.x * a.y);
+    }
+    CHECK(std::fabs(hi - lo - M_PI) < 1e-9);
+    if (std::fabs(area - 4 * M_PI) >= 1e-9) std::printf("  %s (%d): (u, v) area %.9g\n", c.model, c.project, area);
+    CHECK(std::fabs(area - 4 * M_PI) < 1e-9);
+    // Its middle in u the half's: x = 2 across the seam (u = 0), x = -2 away from it (u = pi).
+    cadgeom::Status st;
+    std::unique_ptr<cadgeom::Surface> s = cadgeom::makeSurface(m, m.faceSurface(0), st);
+    cadgeom::SurfacePoint q;
+    s->eval(0.5 * (lo + hi), 1, 0, q);
+    CHECK((q.p.x > 1.9) == (std::strcmp(c.model, "halfCylinderWest") != 0));
+  }
+}
+
 TEST_CASE("poles: a hemisphere's vertex loop, a cap with none, a lune's jumps; meshed to their areas") {
   struct Case {
     const char* model;

@@ -930,6 +930,40 @@ export function kinkStrip(inV = false, quadratic = false, h = 5e-5): BrepBuilder
   return b;
 }
 
+/**
+ * Half a cylinder (radius 2, z 0 to 4) from longitude u0 to u0 + pi: two semicircles and two lines. Its arcs
+ * sampled at their ends alone are a step of half a period in u, which way it runs a tie for the samples alone.
+ * P-curves `none` (by projection or inversion), `same` (u = t on both arcs), `apart` (the bottom arc's u = t + 2 pi,
+ * a period from the top's and the lines').
+ */
+function halfCylinder(u0: number, pcurves: 'none' | 'same' | 'apart'): BrepBuilder {
+  const b = new BrepBuilder();
+  const at = (u: number, z: number) => [2 * Math.cos(u), 2 * Math.sin(u), z];
+  const u1 = u0 + Math.PI, h = 4;
+  const va0 = b.addVertex({ point: at(u0, 0) }), vc0 = b.addVertex({ point: at(u1, 0) });
+  const va1 = b.addVertex({ point: at(u0, h) }), vc1 = b.addVertex({ point: at(u1, h) });
+  const arc = (z: number, start: number, end: number) => b.addEdge({ curve: b.addCurve({ kind: 'circle',
+    position: { ...AXIS, origin: [0, 0, z] }, radius: 2 }), start, end, sameSense: true, range: [u0, u1] });
+  const up = (u: number, start: number, end: number) => b.addEdge({ curve: b.addCurve({ kind: 'line',
+    point: at(u, 0), direction: [0, 0, 1], magnitude: 1 }), start, end, sameSense: true, range: [0, h] });
+  const bottom = arc(0, va0, vc0), top = arc(h, va1, vc1), right = up(u1, vc0, vc1), left = up(u0, va0, va1);
+  const pc = (point: number[], direction: number[]) => pcurves === 'none' ? {} : { pcurve: b.addCurve(line2(point,
+    direction)) };
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'cylinder', position: AXIS, radius: 2 }), sameSense: true,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [
+      { edge: bottom, orientation: 'forward', ...pc([pcurves === 'apart' ? 2 * Math.PI : 0, 0], [1, 0]) },
+      { edge: right, orientation: 'forward', ...pc([u1, 0], [0, 1]) },
+      { edge: top, orientation: 'reversed', ...pc([0, h], [1, 0]) },
+      { edge: left, orientation: 'reversed', ...pc([u0, 0], [0, 1]) }] }] }));
+  return b;
+}
+/** Across the seam (u from -pi / 2 to pi / 2), by its p-curves, by p-curves a period apart, without any. */
+export const halfCylinderPcurves = (): BrepBuilder => halfCylinder(-Math.PI / 2, 'same');
+export const halfCylinderApart = (): BrepBuilder => halfCylinder(-Math.PI / 2, 'apart');
+export const halfCylinderBare = (): BrepBuilder => halfCylinder(-Math.PI / 2, 'none');
+/** Away from the seam (u from pi / 2 to 3 pi / 2), without p-curves. */
+export const halfCylinderWest = (): BrepBuilder => halfCylinder(Math.PI / 2, 'none');
+
 export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStrip(true),
   kinkStripQuadratic: () => kinkStrip(false, true), affineFeetOff, plateHoles,
   bsplineApexHole, offPoleArcLoose, loopless, bsplineBall, wholeTorus, wholeSphereVertex,
@@ -939,4 +973,5 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   offPoleRestLoose: () => offPoleRest(1e-3), wigglyBand, notchBand, bsplineTube, bsplineTubeTinyArc, bsplineDome,
   offPoleArc: () => offPoleArc(), offPcurves, bandHoleAtVertex, bandHoleOnCut, halfCap, meridianHemisphere, band: band_,
   bandByInversion, bore, nistBore, seamByInversion, offVertex, pcurveOnly, luneQuarter, luneOnSeam, cap, splineEdge,
-  seamFlipped, polylineEdge, pcurveCircle, arcSegment, fold, twisted, wrongSense, zeroEdge };
+  seamFlipped, polylineEdge, pcurveCircle, arcSegment, fold, twisted, wrongSense, zeroEdge, halfCylinderPcurves,
+  halfCylinderApart, halfCylinderBare, halfCylinderWest };

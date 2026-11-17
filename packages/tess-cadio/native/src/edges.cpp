@@ -607,10 +607,25 @@ struct EdgeMesh::Impl {
         C.ambiguous[d] = all && any && hi - lo > 1e-9 * scale;
       }
     }
-    // Continuous along periodic directions.
+    // Continuous along periodic directions: each sample the copy nearest the one before. A step over a quarter
+    // period goes through its span's middle instead (the p-curve's there, else its inversion), each half then
+    // nearest: two samples half a period apart (a semicircle's ends alone) are a tie that rounding settles either
+    // way, and the loop then winds round the period where it doesn't, or runs round the other half.
     for (int i = 1; i < n; i++) {
-      s.uv[i].x = nearest(s.uv[i].x, s.uv[i - 1].x, F.period[0]);
-      s.uv[i].y = nearest(s.uv[i].y, s.uv[i - 1].y, F.period[1]);
+      Vec2 mid{NAN, NAN};
+      for (int d = 0; d < 2; d++) {
+        const double P = F.period[d], before = d ? s.uv[i - 1].y : s.uv[i - 1].x;
+        double& x = d ? s.uv[i].y : s.uv[i].x;
+        x = nearest(x, before, P);
+        if (!(P > 0) || !(std::fabs(x - before) > 0.25 * P) || !E.geom) continue;
+        if (std::isnan(mid.x)) {
+          const double tm = 0.5 * (E.s.t[s.index[i - 1]] + E.s.t[s.index[i]]);
+          CurvePoint q;
+          if (s.fromPcurve && C.pcurve->eval(tm, 0, q) == Status::ok) mid = {q.p.x, q.p.y};
+          else mid = invert(C.face, E.geom->at(tm), &s.uv[i - 1]).uv;
+        }
+        x = nearest(x, nearest(d ? mid.y : mid.x, before, P), P);
+      }
     }
     if (!s.fromPcurve || s.projected) throughPoles(c);
     for (size_t i = 0; i < s.uv.size(); i++)
