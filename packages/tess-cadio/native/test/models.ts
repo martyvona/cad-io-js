@@ -888,12 +888,55 @@ export function affineFeetOff(): BrepBuilder {
   return b;
 }
 
-export const MODELS = { affineFeetOff, plateHoles, bsplineApexHole, offPoleArcLoose, loopless, bsplineBall,
-  wholeTorus, wholeSphereVertex, bsplineApex: () => bsplineApex(), poleHole, smallHole, sBend,
-  cuspEdge: () => cuspEdge(), nearCusp6, bumpPatch: () => bumpPatch(), halfBump: () => bumpPatch(true), thinBand, tubeGapFaceTolerance,
-  tubeGapUncertainty, tubeGapBySize, tubeGapOpen, torusOuterHalf, meridianHemisphereLoose,
-  offPoleRest: () => offPoleRest(), offPoleRestLoose: () => offPoleRest(1e-3), wigglyBand, notchBand, bsplineTube,
-  bsplineTubeTinyArc, bsplineDome, offPoleArc: () => offPoleArc(), offPcurves, bandHoleAtVertex, bandHoleOnCut,
-  halfCap, meridianHemisphere, band: band_, bandByInversion, bore, nistBore, seamByInversion, offVertex, pcurveOnly,
-  luneQuarter, luneOnSeam, cap, splineEdge, seamFlipped, polylineEdge, pcurveCircle, arcSegment, fold, twisted,
-  wrongSense, zeroEdge };
+/**
+ * A 10 x 10 bicubic B-spline creased like Iron.step #47's face 3396: a V along u (or with `inV` along v),
+ * z = 0.5 |u - 0.5| (a slope of 0.05 either side), rounded between knots 0.5 -/+ h of multiplicity 2 (C1 there, its
+ * second partial up to about 1 / h between them); its other parameter linear, x = 10 u, y = 10 v. With `quadratic`,
+ * of degree 2 across the crease and its knots simple, its second partial between them exactly 1 / (2 h). Bounded by
+ * its four sides, the creased ones B-splines of its own knots.
+ */
+export function kinkStrip(inV = false, quadratic = false, h = 5e-5): BrepBuilder {
+  const b = new BrepBuilder();
+  const deg = quadratic ? 2 : 3, inner = quadratic ? 1 : 2;
+  const knots = [0, 0.5 - h, 0.5 + h, 1], mults = [deg + 1, inner, inner, deg + 1];
+  const ks = knots.flatMap((k, i) => Array<number>(mults[i]!).fill(k));
+  // (Poles at the Greville abscissae, so that the parameter is linear in x and the V exact outside the knots.)
+  const g = ks.slice(0, ks.length - deg - 1).map((_, i) => ks.slice(i + 1, i + 1 + deg).reduce((a, x) => a + x) / deg);
+  const z = (t: number) => 0.5 * Math.abs(t - 0.5);
+  const lin = [0, 1 / 3, 2 / 3, 1];
+  const at = (u: number, v: number) => [10 * u, 10 * v, z(inV ? v : u)];
+  const poles = (inV ? lin : g).map((u) => (inV ? g : lin).map((v) => at(u, v)));
+  const s = b.addSurface({ kind: 'bspline', uDegree: inV ? 3 : deg, vDegree: inV ? deg : 3,
+    uKnots: inV ? [0, 1] : knots, vKnots: inV ? knots : [0, 1], uMultiplicities: inV ? [4, 4] : mults,
+    vMultiplicities: inV ? mults : [4, 4], poles,
+    uClosed: false, vClosed: false, selfIntersect: false, form: 'unspecified' });
+  const uv = [[0, 0], [1, 0], [1, 1], [0, 1]];
+  const vs = uv.map(([u, v]) => b.addVertex({ point: at(u!, v!) }));
+  const coedges = [0, 1, 2, 3].map((k) => {
+    const a = uv[k]!, c = uv[(k + 1) % 4]!, du = c[0]! - a[0]!, dv = c[1]! - a[1]!;
+    // (A side across the crease: its poles the surface's along it, backwards where the side runs back.)
+    const creased = inV ? du === 0 : dv === 0;
+    const curve = creased
+      ? b.addCurve({ kind: 'bspline', degree: deg, knots, multiplicities: mults, closed: false, selfIntersect: false,
+        form: 'unspecified', poles: g.map((t) => (du + dv > 0 ? t : 1 - t)).map((t) => at(a[0]! + du * t,
+          a[1]! + dv * t)) })
+      : b.addCurve({ kind: 'line', point: at(a[0]!, a[1]!), direction: [du, dv, 0], magnitude: 1 });
+    const edge = b.addEdge({ curve, start: vs[k]!, end: vs[(k + 1) % 4]!, sameSense: true,
+      range: creased ? [0, 1] : [0, 10] });
+    const pcurve = b.addCurve({ kind: 'line', point: a, direction: [du, dv], magnitude: creased ? 1 : 0.1 });
+    return { edge, orientation: 'forward' as const, pcurve };
+  });
+  sheet(b, b.addFace({ surface: s, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] }));
+  return b;
+}
+
+export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStrip(true),
+  kinkStripQuadratic: () => kinkStrip(false, true), affineFeetOff, plateHoles,
+  bsplineApexHole, offPoleArcLoose, loopless, bsplineBall, wholeTorus, wholeSphereVertex,
+  bsplineApex: () => bsplineApex(), poleHole, smallHole, sBend, cuspEdge: () => cuspEdge(), nearCusp6,
+  bumpPatch: () => bumpPatch(), halfBump: () => bumpPatch(true), thinBand, tubeGapFaceTolerance, tubeGapUncertainty,
+  tubeGapBySize, tubeGapOpen, torusOuterHalf, meridianHemisphereLoose, offPoleRest: () => offPoleRest(),
+  offPoleRestLoose: () => offPoleRest(1e-3), wigglyBand, notchBand, bsplineTube, bsplineTubeTinyArc, bsplineDome,
+  offPoleArc: () => offPoleArc(), offPcurves, bandHoleAtVertex, bandHoleOnCut, halfCap, meridianHemisphere, band: band_,
+  bandByInversion, bore, nistBore, seamByInversion, offVertex, pcurveOnly, luneQuarter, luneOnSeam, cap, splineEdge,
+  seamFlipped, polylineEdge, pcurveCircle, arcSegment, fold, twisted, wrongSense, zeroEdge };

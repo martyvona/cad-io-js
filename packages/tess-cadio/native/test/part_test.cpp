@@ -745,6 +745,106 @@ TEST_CASE("the criteria's metric: sizes from the principal curvatures, every dir
   CHECK(h->accept(pole));
 }
 
+// A crease between knots a hair apart (kinkStrip, 1e-4 of u wide, its second partial about 1e4 there): every triangle
+// across it whose dense deviation is just over the deflection refused by the bounds, none judged by sampling (the face
+// stays bounded), and those under kTight of it accepted, where the strip's maxima over its square alone would refuse
+// all of them (the bound within 1.1 x the deviation for most, 3.6 x with a corner on the crease and the triangle thin along it).
+// Across a v-crease too, and with the crease anywhere in the triangle.
+TEST_CASE("the criteria's bounds across a narrow knot span: a proof by its width, tight enough to accept") {
+  const double d = 0.01, kTight = 0.25;
+  // (The quadratic's second partial uniform across its crease, the cubic's not: the bound tight on both.)
+  for (const char* name : {"kinkStrip", "kinkStripV", "kinkStripQuadratic"}) {
+    const bool inV = name[9] == 'V';
+    static std::vector<cadgeom::Model> keep;
+    keep.push_back(load(name));
+    cadgeom::Status st;
+    auto s = cadgeom::makeSurface(keep.back(), keep.back().faceSurface(0), st);
+    REQUIRE(s);
+    auto c = makeCriteria(keep.back(), 0, *s, {{0, 1}, {0, 1}}, Deflections{d, 0}, st);
+    REQUIRE(c && c->bounded());
+    auto at = [&](Vec2 x) {
+      cadgeom::SurfacePoint q;
+      s->eval(x.x, x.y, 0, q);
+      return q.p;
+    };
+    // The dense deviation: a barycentric grid, and the flat's points over the crease (x or y = 5, the deepest there).
+    // (x = 10 u and y = 10 v exactly, the surface's slope at most 0.05: the gap in z to S(x / 10, y / 10) is within
+    // 0.13% above the distance, so over 1.02 d by it is over d.)
+    auto dense = [&](const Vec2 t[3]) {
+      Vec3 p[3] = {at(t[0]), at(t[1]), at(t[2])};
+      double dev = 0;
+      auto from = [&](Vec3 x) { dev = std::fmax(dev, std::fabs(x.z - at({x.x / 10, x.y / 10}).z)); };
+      const int g = 24;
+      for (int i = 0; i <= g; i++)
+        for (int j = 0; i + j <= g; j++)
+          from(double(i) / g * p[0] + double(j) / g * p[1] + (1 - double(i + j) / g) * p[2]);
+      auto w = [&](const Vec3& x) { return inV ? x.y - 5 : x.x - 5; };
+      std::vector<Vec3> cross;
+      for (int i = 0; i < 3; i++) {
+        const Vec3 &a = p[i], &b = p[(i + 1) % 3];
+        if ((w(a) <= 0) != (w(b) <= 0)) cross.push_back(a + (w(a) / (w(a) - w(b))) * (b - a));
+      }
+      if (cross.size() == 2)
+        for (int k = 0; k <= 40; k++) from(cross[0] + (k / 40.0) * (cross[1] - cross[0]));
+      return dev;
+    };
+    std::mt19937 rng(inV ? 22 : name[9] == 'Q' ? 23 : 21);
+    std::uniform_real_distribution<double> u01(0, 1);
+    int over = 0, under = 0;
+    for (int k = 0; k < 120; k++) {
+      // Corners about a centre off the crease by up to a third of the size (k % 3 == 2: a corner on the crease),
+      // the shapes acute, obtuse or long across it.
+      Vec2 e[3];
+      for (int i = 0; i < 3; i++) {
+        double a = 2 * M_PI * (i + 0.3 * (u01(rng) - 0.5)) / 3 + u01(rng);
+        e[i] = {std::cos(a), std::sin(a) * (0.3 + u01(rng))};
+      }
+      if (k % 4 == 1) e[0] = {-1, 0}, e[1] = {1, 0.1 * (u01(rng) - 0.5)}, e[2] = {u01(rng) - 0.5, 0.1 + 0.2 * u01(rng)};
+      if (k % 4 == 3) e[0] = {-1, -0.05}, e[1] = {0.3, 0.05 * u01(rng)}, e[2] = {0.6, 0.08};
+      double off = (u01(rng) - 0.5) * 0.66, along = 0.15 + 0.7 * u01(rng);
+      for (Vec2& x : e)
+        if (inV) x = {x.y, x.x};
+      // (The corner on the crease the middle one across it, the others either side.)
+      auto across = [&](int i) { return inV ? e[i].y : e[i].x; };
+      int mid = 0;
+      for (int i = 0; i < 3; i++)
+        if ((across(i) - across((i + 1) % 3)) * (across(i) - across((i + 2) % 3)) <= 0) mid = i;
+      Vec2 t[3];
+      auto place = [&](double r) {
+        Vec2 o = inV ? Vec2{along, 0.5 + off * r} : Vec2{0.5 + off * r, along};
+        if (k % 3 == 2) o = inV ? Vec2{along, 0.5 - r * e[mid].y} : Vec2{0.5 - r * e[mid].x, along};
+        for (int i = 0; i < 3; i++) t[i] = {o.x + r * e[i].x, o.y + r * e[i].y};
+        if ((t[1].x - t[0].x) * (t[2].y - t[0].y) - (t[2].x - t[0].x) * (t[1].y - t[0].y) <= 0) std::swap(t[1], t[2]);
+        return dense(t);
+      };
+      // The scale where the dense deviation is 1.02 d, by bisection (the triangle within the face).
+      double lo = 0, hi = 0.12;
+      if (place(hi) < 1.02 * d) continue;
+      for (int it = 0; it < 14; it++) {
+        double mid = 0.5 * (lo + hi);
+        (place(mid) > 1.02 * d ? hi : lo) = mid;
+      }
+      double dev = place(hi);
+      if (dev > d) {
+        over++;
+        if (c->accept(t)) std::printf("  %s: accepted at deviation %g\n", name, dev);
+        CHECK(!c->accept(t));
+      }
+      // (Its deviation linear in its size, the crease's: 0.9 x kTight of it lands just under kTight d.)
+      dev = place(0.9 * kTight * hi);
+      if (dev < kTight * d && dev > 0) {
+        under++;
+        if (!c->accept(t)) std::printf("  %s: refused at deviation %g (%g of d)\n", name, dev, dev / d);
+        CHECK(c->accept(t));
+      }
+    }
+    CHECK(over >= 100);
+    CHECK(under >= 100);
+    // (Judged by the bounds throughout: none sampled.)
+    CHECK(c->bounded());
+  }
+}
+
 TEST_CASE("edges allowed 4 times coarser than the faces want: split until they're not, every triangle accepted") {
   for (const char* name : {"seamCylinder", "band", "spheres", "twisted"}) {
     cadgeom::Model m = load(name);
