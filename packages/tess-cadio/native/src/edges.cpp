@@ -576,20 +576,6 @@ struct EdgeMesh::Impl {
         singular[i] = si.atSingularity;
         seam[0][i] = si.onSeamU, seam[1][i] = si.onSeamV;
       }
-      // At a pole the free coordinate is arbitrary: the nearest regular sample's, along the coedge.
-      for (int i = 0; i < n; i++) {
-        if (!singular[i]) continue;
-        int j = -1;
-        for (int k = 1; k < n && j < 0; k++) {
-          if (i + k < n && !singular[i + k]) j = i + k;
-          else if (i - k >= 0 && !singular[i - k]) j = i - k;
-        }
-        int p = poleAt(C.face, E.s.points[s.index[i]]);
-        if (j >= 0 && p >= 0) {
-          int fr = F.sing[p].isoU ? 1 : 0;
-          (fr == 0 ? s.uv[i].x : s.uv[i].y) = fr == 0 ? s.uv[j].x : s.uv[j].y;
-        }
-      }
       // Wholly on a seam, and running along it (its other coordinate varying: an edge shorter than the tolerance
       // across the seam is within it at both ends but isn't a seam use).
       for (int d = 0; d < 2; d++) {
@@ -607,6 +593,25 @@ struct EdgeMesh::Impl {
         C.ambiguous[d] = all && any && hi - lo > 1e-9 * scale;
       }
     }
+    // At a pole the free coordinate is arbitrary: the nearest regular sample's, along the coedge. A projected use's
+    // samples too, at a pole by their points: an edge within the tolerance of an apex has its p-curve's value there
+    // from across it, half a turn round (LMP1's spindle tori), and its loop then winds round the period.
+    if (s.fromPcurve && s.projected)
+      for (int i = 0; i < n; i++) singular[i] = poleAt(C.face, E.s.points[s.index[i]]) >= 0;
+    if (!s.fromPcurve || s.projected)
+      for (int i = 0; i < n; i++) {
+        if (!singular[i]) continue;
+        int j = -1;
+        for (int k = 1; k < n && j < 0; k++) {
+          if (i + k < n && !singular[i + k]) j = i + k;
+          else if (i - k >= 0 && !singular[i - k]) j = i - k;
+        }
+        int p = poleAt(C.face, E.s.points[s.index[i]]);
+        if (j >= 0 && p >= 0) {
+          int fr = F.sing[p].isoU ? 1 : 0;
+          (fr == 0 ? s.uv[i].x : s.uv[i].y) = fr == 0 ? s.uv[j].x : s.uv[j].y;
+        }
+      }
     // Continuous along periodic directions: each sample the copy nearest the one before. A step over a quarter
     // period goes through its span's middle instead (the p-curve's there, else its inversion), each half then
     // nearest: two samples half a period apart (a semicircle's ends alone) are a tie that rounding settles either
