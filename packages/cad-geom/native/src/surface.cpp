@@ -247,6 +247,28 @@ double uvDistance(Vec2 a, Vec2 b, const SurfaceDomain& dom) {
 
 } // namespace
 
+long surfaces::inversionRects = 0;
+
+const SurfaceImpl::SpanGrid& SurfaceImpl::spanGrid(Range ru, Range rv) const {
+  if (grid_ && grid_->u.lo == ru.lo && grid_->u.hi == ru.hi && grid_->v.lo == rv.lo && grid_->v.hi == rv.hi)
+    return *grid_;
+  auto g = std::make_unique<SpanGrid>();
+  g->u = ru, g->v = rv;
+  breaks(ru, rv, g->us, g->vs);
+  for (size_t i = 0; i + 1 < g->us.size(); i++)
+    for (size_t j = 0; j + 1 < g->vs.size(); j++) {
+      const Range a{g->us[i], g->us[i + 1]}, b{g->vs[j], g->vs[j + 1]};
+      Box3 box;
+      g->ok.push_back(derivBox(a, b, 0, 0, box) == Status::ok);
+      g->box.push_back(box);
+      Vec3 d[kPartials];
+      derivs(0.5 * a.lo + 0.5 * a.hi, 0.5 * b.lo + 0.5 * b.hi, 0, d);
+      g->mid.push_back(d[0]);
+    }
+  grid_ = std::move(g);
+  return *grid_;
+}
+
 SurfaceInversion invertSurface(const Surface& s0, Vec3 p, Range ru, Range rv, double tol, const Vec2* hint) {
   SurfaceInversion out;
   const SurfaceImpl* impl = dynamic_cast<const SurfaceImpl*>(&s0);
@@ -304,8 +326,7 @@ SurfaceInversion invertSurface(const Surface& s0, Vec3 p, Range ru, Range rv, do
   if (s.footCandidates(p, ru, rv, tol, known)) {
     for (Vec2 uv : known) add(uv);
   } else {
-    std::vector<double> us, vs;
-    s.breaks(ru, rv, us, vs);
+    const SurfaceImpl::SpanGrid& grid = s.spanGrid(ru, rv);
     std::priority_queue<Node> queue;
     auto lower = [&](Range a, Range b) {
       Box3 box;
@@ -320,16 +341,19 @@ SurfaceInversion invertSurface(const Surface& s0, Vec3 p, Range ru, Range rv, do
       Range r = g.isoU ? ru : rv;
       if (g.at >= r.lo && g.at <= r.hi) add(g.isoU ? Vec2{g.at, seed.y} : Vec2{seed.x, g.at});
     }
-    for (size_t i = 0; i + 1 < us.size(); i++)
-      for (size_t j = 0; j + 1 < vs.size(); j++) {
-        Range a{us[i], us[i + 1]}, b{vs[j], vs[j + 1]};
-        ub = std::fmin(ub, norm(at({0.5 * a.lo + 0.5 * a.hi, 0.5 * b.lo + 0.5 * b.hi}) - p));
-        queue.push({a, b, lower(a, b)});
+    // The grid's rectangles, their lower bounds from its boxes and the upper bound from its middles.
+    const std::vector<double>& us = grid.us;
+    const std::vector<double>& vs = grid.vs;
+    for (size_t i = 0, k = 0; i + 1 < us.size(); i++)
+      for (size_t j = 0; j + 1 < vs.size(); j++, k++) {
+        ub = std::fmin(ub, norm(grid.mid[k] - p));
+        queue.push({{us[i], us[i + 1]}, {vs[j], vs[j + 1]}, grid.ok[k] ? boxDistance(grid.box[k], p) : 0.0});
       }
     while (!queue.empty()) {
       Node n = queue.top();
       queue.pop();
       if (n.lb > ub + tol) continue;
+      inversionRects++;
       Range a = n.u, b = n.v;
       Vec2 mid{0.5 * a.lo + 0.5 * a.hi, 0.5 * b.lo + 0.5 * b.hi};
       if (--budget < 0) {
