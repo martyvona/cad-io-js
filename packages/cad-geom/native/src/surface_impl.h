@@ -75,7 +75,28 @@ public:
   Status normal(double u, double v, Vec3& out) const override;
   Status bound(Range ru, Range rv, Box3& out) const final { return derivBox(ru, rv, 0, 0, out); }
   Status derivBound(Range ru, Range rv, int order, double out[3]) const final;
+
+  /** The rectangles between breaks() over u x v, row by row in u: each one's box and S at its middle. */
+  struct SpanGrid {
+    Range u, v;
+    std::vector<double> us, vs;
+    std::vector<Box3> box;           // derivBox(0, 0), where ok
+    std::vector<unsigned char> ok;   // derivBox's status was ok
+    std::vector<Vec3> mid;           // S at the rectangle's middle
+  };
+  /**
+   * The grid over ru x rv, kept for the last ranges asked (inversion starts every point's search from it, on a
+   * B-spline one rectangle per knot span: thousands of control-net boxes). Made lazily inside a const surface, so
+   * not safe for threads sharing one surface.
+   */
+  const SpanGrid& spanGrid(Range ru, Range rv) const;
+
+private:
+  mutable std::unique_ptr<SpanGrid> grid_;
 };
+
+/** The rectangles invertSurface's searches have examined (taken from the queue, not pruned): for tests; never reset. */
+extern long inversionRects;
 
 /** The surface at a row, `depth` the references followed to reach it (a cycle stops at a limit: invalidModel). */
 std::unique_ptr<SurfaceImpl> make(const Model& m, int row, int depth, Status& status);

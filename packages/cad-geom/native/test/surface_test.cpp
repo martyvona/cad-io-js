@@ -962,6 +962,54 @@ std::unique_ptr<Surface> tube(double gap) {
 
 } // namespace
 
+TEST_CASE("inversion's span grid: kept for the ranges asked, the feet a fresh surface's whatever was asked before") {
+  // One surface asked over the whole domain, then part of v, then the whole again, then a corner: each foot the
+  // same as a new surface's, and inside the ranges asked (a grid kept from other ranges would search outside them).
+  auto S = tube(0);
+  const SurfaceDomain d = S->domain();
+  const Vec3 p{-1.2, 0.1, 0.7};
+  const std::vector<std::pair<Range, Range>> asks{{d.u, d.v}, {d.u, {0, 1}}, {d.u, d.v}, {{0, 0.5}, {2.5, 3.5}}};
+  for (auto [ru, rv] : asks) {
+    SurfaceInversion a = invertSurface(*S, p, ru, rv, 1e-9);
+    auto fresh = tube(0);
+    SurfaceInversion b = invertSurface(*fresh, p, ru, rv, 1e-9);
+    CHECK(a.status == Status::ok && b.status == Status::ok);
+    CHECK_EQ(a.uv.x, b.uv.x);
+    CHECK_EQ(a.uv.y, b.uv.y);
+    CHECK_EQ(a.distance, b.distance);
+    CHECK(a.uv.x >= ru.lo && a.uv.x <= ru.hi && a.uv.y >= rv.lo && a.uv.y <= rv.hi);
+  }
+  // The grid: its rectangles the spans (1 in u, 4 in v), kept while the ranges are the same, made again when not.
+  const SurfaceImpl::SpanGrid& g = impl(S.get())->spanGrid(d.u, d.v);
+  CHECK_EQ(g.us.size(), 2u);
+  CHECK_EQ(g.vs.size(), 5u);
+  CHECK_EQ(g.box.size(), 4u);
+  CHECK(&impl(S.get())->spanGrid(d.u, d.v) == &g);
+  const SurfaceImpl::SpanGrid& h = impl(S.get())->spanGrid(d.u, {0, 2});
+  CHECK_EQ(h.vs.size(), 3u);
+  CHECK(h.v.hi == 2);
+  // The grid's boxes prune: over a flat strip of 40 spans, a point above one span examines a few rectangles, not
+  // every span's (each one's box distance its lower bound; without them all 40 are taken from the queue).
+  std::vector<std::vector<Vec3>> P(2);
+  for (int i = 0; i < 2; i++)
+    for (int j = 0; j <= 40; j++) P[i].push_back({double(j), double(i), 0});
+  std::vector<double> vk;
+  std::vector<int> vm;
+  for (int j = 0; j <= 40; j++) vk.push_back(j), vm.push_back(j == 0 || j == 40 ? 2 : 1);
+  auto strip = rawSpline(1, 1, {0, 1}, {2, 2}, vk, vm, P);
+  REQUIRE(strip);
+  const SurfaceDomain sd = strip->domain();
+  const long before = surfaces::inversionRects;
+  SurfaceInversion inv = invertSurface(*strip, {10.3, 0.5, 0.2}, sd.u, sd.v, 1e-9);
+  const long examined = surfaces::inversionRects - before;
+  CHECK(inv.status == Status::ok);
+  CHECK_NEAR(inv.uv.x, 0.5, 1e-12, 0);
+  CHECK_NEAR(inv.uv.y, 10.3, 1e-12, 0);
+  CHECK_NEAR(inv.distance, 0.2, 1e-12, 0);
+  CHECK(examined >= 1 && examined <= 3);
+  if (!(examined <= 3)) std::printf("    rectangles examined: %ld\n", examined);
+}
+
 TEST_CASE("closeInFact: a tube closed in v, a nearly closed one, a collapsed side, rational closures") {
   const double tol = 1e-7;
   // The tube closes in v (its last section the first): v periodic, period 4, every query reduced.
