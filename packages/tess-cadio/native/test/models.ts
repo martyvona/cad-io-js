@@ -964,6 +964,32 @@ export const halfCylinderBare = (): BrepBuilder => halfCylinder(-Math.PI / 2, 'n
 /** Away from the seam (u from pi / 2 to 3 pi / 2), without p-curves. */
 export const halfCylinderWest = (): BrepBuilder => halfCylinder(Math.PI / 2, 'none');
 
+/**
+ * A band (cylinder radius 2, z 0 to 5) whose circles are arcs: the bottom's [0, pi], [pi, 1.4 pi], [1.4 pi, 2 pi],
+ * the top's [0, 1.4 pi], [1.4 pi, 2 pi], each loop ending on its arc to 2 pi. Sampled with spans up to 3.8 that arc
+ * is one span, the widest gap in u, so the cut (at its middle) crosses each loop in its closing span: an edge whose
+ * two samples are both junctions, given in the loop as the edges before and after it (the bottom's two edges, the
+ * top's one).
+ */
+export function arcBand(): BrepBuilder {
+  const b = new BrepBuilder();
+  const at = (u: number, z: number) => [2 * Math.cos(u), 2 * Math.sin(u), z];
+  const loop = (z: number, cuts: number[]) => {
+    const circle = b.addCurve({ kind: 'circle', position: { ...AXIS, origin: [0, 0, z] }, radius: 2 });
+    const vs = cuts.map((u) => b.addVertex({ point: at(u, z) }));
+    return cuts.map((u, k) => b.addEdge({ curve: circle, start: vs[k]!, end: vs[(k + 1) % cuts.length]!,
+      sameSense: true, range: [u, k + 1 < cuts.length ? cuts[k + 1]! : 2 * Math.PI] }));
+  };
+  const bottom = loop(0, [0, Math.PI, 1.4 * Math.PI]), top = loop(5, [0, 1.4 * Math.PI]);
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'cylinder', position: AXIS, radius: 2 }), sameSense: true,
+    loops: [
+      { kind: 'edge', bound: 'outer', sense: true,
+        coedges: bottom.map((edge) => ({ edge, orientation: 'forward' as const })) },
+      { kind: 'edge', bound: 'inner', sense: true,
+        coedges: top.map((edge) => ({ edge, orientation: 'reversed' as const })) }] }));
+  return b;
+}
+
 export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStrip(true),
   kinkStripQuadratic: () => kinkStrip(false, true), affineFeetOff, plateHoles,
   bsplineApexHole, offPoleArcLoose, loopless, bsplineBall, wholeTorus, wholeSphereVertex,
@@ -974,4 +1000,4 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   offPoleArc: () => offPoleArc(), offPcurves, bandHoleAtVertex, bandHoleOnCut, halfCap, meridianHemisphere, band: band_,
   bandByInversion, bore, nistBore, seamByInversion, offVertex, pcurveOnly, luneQuarter, luneOnSeam, cap, splineEdge,
   seamFlipped, polylineEdge, pcurveCircle, arcSegment, fold, twisted, wrongSense, zeroEdge, halfCylinderPcurves,
-  halfCylinderApart, halfCylinderBare, halfCylinderWest };
+  halfCylinderApart, halfCylinderBare, halfCylinderWest, arcBand };

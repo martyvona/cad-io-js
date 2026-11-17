@@ -1385,6 +1385,23 @@ struct EdgeMesh::Impl {
           continue;
         }
         int e = A.edgeIndex, co = ch.owner[i], as = A.sample, bs = B.sample;
+        // Where A's and B's edges don't give the span (below): as consecutive samples of B's owner, the coedge it
+        // lies on (each point after the first is its owner's, the closing point the last coedge's), at A's and B's
+        // points within its edge's tolerance. An edge whose two samples are both junctions has no point of its own in
+        // the chain: its first is the edge before's last, its last the closing point, which carries the first
+        // coedge's edge.
+        auto inOwner = [&] {
+          const int c2 = ch.owner[i + 1], e2 = m.coedgeEdge(c2);
+          const CoedgeSamples& s2 = coedges[c2].s;
+          const double et = tols.edge(e2);
+          for (size_t q = 0; q + 1 < s2.index.size(); q++)
+            if (norm(edges[e2].s.points[s2.index[q]] - A.point) <= et &&
+              norm(edges[e2].s.points[s2.index[q + 1]] - B.point) <= et) {
+              e = e2, co = c2, as = s2.index[q], bs = s2.index[q + 1];
+              return true;
+            }
+          return false;
+        };
         if (A.edgeIndex != B.edgeIndex) {
           // Across a junction, whose point carries one edge though it ends one and starts the other: the span is the
           // edge whose sample next to one end is the other's point (B's next to it A's: from a junction into the next
@@ -1400,7 +1417,7 @@ struct EdgeMesh::Impl {
             e = B.edgeIndex, co = ch.owner[i + 1], as = j, bs = B.sample;
           } else if (int k = next(A.edgeIndex, A.sample, B.point); k >= 0) {
             e = A.edgeIndex, co = ch.owner[i], as = A.sample, bs = k;
-          } else {
+          } else if (!inOwner()) {
             found = 99;
             continue;
           }
@@ -1412,7 +1429,7 @@ struct EdgeMesh::Impl {
           if (bs == last || bs == 0) bs = (bs == last ? 0 : last);
           if (std::abs(as - bs) != 1 && (as == last || as == 0)) as = (as == last ? 0 : last);
         }
-        if (std::abs(as - bs) != 1) {
+        if (std::abs(as - bs) != 1 && !inOwner()) {
           found = 99;
           continue;
         }

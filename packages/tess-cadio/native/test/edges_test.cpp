@@ -588,6 +588,37 @@ TEST_CASE("a step of half a period between samples (a semicircle's ends alone): 
   }
 }
 
+TEST_CASE("a cut crossing a loop in its closing span, an edge whose two samples are junctions: found on that edge") {
+  // arcBand: the cut at the widest gap's middle, u = 1.7 pi, inside each loop's closing arc (edges 2 and 4, one
+  // span each), whose ends the loop gives as other edges' samples (the bottom's: edges 1 and 0; the top's: 3 twice).
+  cadgeom::Model m = load("arcBand");
+  REQUIRE(m.ok());
+  EdgeOptions o;
+  o.deflection = 1;
+  o.maxSpacing = 3.8;
+  EdgeMesh em(m, o);
+  CHECK_EQ(checkEdges(m, em, o, "arcBand"), 0);
+  FaceBoundary fb = em.face(0);
+  if (fb.status != cadgeom::Status::ok) std::printf("  arcBand: %s\n", fb.cause.c_str());
+  CHECK(fb.status == cadgeom::Status::ok);
+  REQUIRE(em.edgeCount() == m.edges() + 1);
+  // Each closing arc's crossing a sample of it, between its ends.
+  for (int e : {2, 4}) {
+    const EdgeSamples& s = em.edge(e);
+    REQUIRE(s.t.size() == 3u);
+    CHECK(std::fabs(s.t[1] - 1.7 * M_PI) < 1e-9);
+  }
+  // Cut open, one loop round the band in (u, v): area 2 pi x 5. (Not meshed: the closing arcs' chords are fixed.)
+  REQUIRE(fb.loops.size() == 1u);
+  double area = 0;
+  const std::vector<BoundaryPoint>& l = fb.loops[0];
+  for (size_t i = 0; i < l.size(); i++) {
+    Vec2 a = l[i].uv, b = l[(i + 1) % l.size()].uv;
+    area += 0.5 * (a.x * b.y - b.x * a.y);
+  }
+  CHECK(std::fabs(area - 10 * M_PI) < 1e-9);
+}
+
 TEST_CASE("poles: a hemisphere's vertex loop, a cap with none, a lune's jumps; meshed to their areas") {
   struct Case {
     const char* model;
