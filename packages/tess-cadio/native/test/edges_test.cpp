@@ -619,6 +619,46 @@ TEST_CASE("a cut crossing a loop in its closing span, an edge whose two samples 
   CHECK(std::fabs(area - 10 * M_PI) < 1e-9);
 }
 
+TEST_CASE("an apex within the tolerance: a projected use's samples there take the nearest regular sample's u") {
+  // spindleApex: its lines end 0.005 across the axis from the apex, their last points' feet across it (u half a turn
+  // round); those points are at the apex within the tolerance (0.2), so their u is arbitrary: the nearest sample's
+  // beyond it along the use, up to periods, projected as by inversion. The face winds round nothing: no cut.
+  for (bool project : {true, false}) {
+    cadgeom::Model m = load("spindleApex");
+    REQUIRE(m.ok());
+    EdgeOptions o;
+    o.deflection = 0.1;
+    o.projectMissingPcurves = project;
+    EdgeMesh em(m, o);
+    const Vec3 apex{0, 0, 20 * std::sin(2 * M_PI / 3)};
+    int at = 0;
+    for (int c = 0; c < m.coedges(); c++) {
+      const CoedgeSamples& s = em.coedge(c);
+      const EdgeSamples& es = em.edge(m.coedgeEdge(c));
+      if (project) CHECK(s.projected);
+      auto near = [&](size_t i) { return cadgeom::norm(es.points[s.index[i]] - apex) <= 0.2; };
+      for (size_t i = 0; i < s.uv.size(); i++) {
+        if (!near(i)) continue;
+        at++;
+        size_t j = i;
+        for (size_t k = 1; k < s.uv.size() && j == i; k++) {
+          if (i + k < s.uv.size() && !near(i + k)) j = i + k;
+          else if (i >= k && !near(i - k)) j = i - k;
+        }
+        REQUIRE(j != i);
+        double du = std::remainder(s.uv[i].x - s.uv[j].x, 2 * M_PI);
+        if (std::fabs(du) > 1e-9)
+          std::printf("  spindleApex (%d): coedge %d sample %zu u off by %.6g\n", project, c, i, du);
+        CHECK(std::fabs(du) <= 1e-9);
+      }
+    }
+    CHECK(at >= (project ? 4 : 2));  // (the lines' ends; projected, the pole's sample on each too)
+    FaceBoundary fb = em.face(0);
+    CHECK(fb.status == cadgeom::Status::ok);
+    CHECK_EQ(em.edgeCount(), m.edges());
+  }
+}
+
 TEST_CASE("poles: a hemisphere's vertex loop, a cap with none, a lune's jumps; meshed to their areas") {
   struct Case {
     const char* model;

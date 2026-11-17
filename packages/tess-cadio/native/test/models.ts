@@ -1133,6 +1133,39 @@ export function lunePinch(): BrepBuilder {
   return b;
 }
 
+/**
+ * A face of a spindle torus (minor radius twice the major: the tube through its axis at the apex v = 2 pi / 3) with
+ * a corner at the apex: u from 0.2 to 1.2, v from 2 pi / 3 - 0.2 to the apex, bounded by the parallel there and two
+ * lines up near its meridians' chords (within 0.1 of them), no p-curves. Each line ends `past` from the apex across
+ * the axis (off the surface, as LMP1's spindle tori's edges do), where its foot is across the apex, half a turn round
+ * in u; its uncertainty 0.2 (LMP1's), so those points are at the apex within the tolerance. Major radius R.
+ */
+export function spindleCorner(past: number, R = 10): BrepBuilder {
+  const b = new BrepBuilder({ uncertainty: 0.2 });
+  const r = 2 * R, va = 2 * Math.PI / 3, v0 = va - 0.2, u1 = 0.2, u2 = 1.2;
+  const at = (u: number, v: number) => [(R + r * Math.cos(v)) * Math.cos(u), (R + r * Math.cos(v)) * Math.sin(u),
+    r * Math.sin(v)];
+  const p1 = b.addVertex({ point: at(u1, v0) }), p2 = b.addVertex({ point: at(u2, v0) });
+  const top = [0, 0, r * Math.sin(va)];
+  const apex = b.addVertex({ point: top, tolerance: 2 * past });
+  const parallel = b.addCurve({ kind: 'circle', position: { ...AXIS, origin: [0, 0, r * Math.sin(v0)] },
+    radius: R + r * Math.cos(v0) });
+  // From the parallel at u to `past` across the axis from the apex, opposite u.
+  const line = (u: number, start: number) => {
+    const p = at(u, v0), q = [-past * Math.cos(u), -past * Math.sin(u), top[2]!];
+    const d = [q[0]! - p[0]!, q[1]! - p[1]!, q[2]! - p[2]!], l = Math.hypot(d[0]!, d[1]!, d[2]!);
+    return b.addEdge({ curve: b.addCurve({ kind: 'line', point: p, direction: d.map((x) => x / l), magnitude: 1 }),
+      start, end: apex, sameSense: true, range: [0, l] });
+  };
+  const bottom = b.addEdge({ curve: parallel, start: p1, end: p2, sameSense: true, range: [u1, u2] });
+  const right = line(u2, p2), left = line(u1, p1);
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'torus', position: AXIS, majorRadius: R, minorRadius: r }),
+    sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [
+      { edge: bottom, orientation: 'forward' }, { edge: right, orientation: 'forward' },
+      { edge: left, orientation: 'reversed' }] }] }));
+  return b;
+}
+
 export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStrip(true),
   kinkStripQuadratic: () => kinkStrip(false, true), affineFeetOff, plateHoles,
   bsplineApexHole, offPoleArcLoose, loopless, bsplineBall, wholeTorus, wholeSphereVertex,
@@ -1145,4 +1178,4 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   seamFlipped, polylineEdge, pcurveCircle, arcSegment, fold, twisted, wrongSense, zeroEdge, halfCylinderPcurves,
   halfCylinderApart, halfCylinderBare, halfCylinderWest, arcBand, cuspPocket: cuspPocket_,
   cuspPocketMirrored, flowerHole, lobes,
-  slitFromCorner, lunePinch };
+  slitFromCorner, lunePinch, spindleApex: () => spindleCorner(0.005) };
