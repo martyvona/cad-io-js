@@ -71,6 +71,9 @@ bool exact(const Job& job, Pcurve& out);
 /** Tracing by continuation, the affine-feet test, the fit, poles: always fills `out` (status saying how it went). */
 void trace(const Job& job, Pcurve& out);
 
+/** fit::curve2's calls from trace, counted for tests (how many attempts a fit took); never reset. */
+extern long traceFits;
+
 /** projectCurve with the table's forms given directly (projectCurve reads them from its PcurveSource). */
 Pcurve projectForms(const Curve& c, Range r, const Surface& s, double tol, const PcurveEnds* ends, Form curve,
   Form surface);
