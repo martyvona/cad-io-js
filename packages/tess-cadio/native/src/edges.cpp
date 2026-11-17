@@ -11,6 +11,7 @@
 #include <cmath>
 #include <map>
 #include <memory>
+#include <set>
 
 #include "cad_geom/curve.h"
 #include "cad_geom/project.h"
@@ -325,6 +326,7 @@ struct EdgeMesh::Impl {
     int start = -1, end = -1;       // vertices (model edges)
     double spacing = kInf;
     std::vector<int> coedges;
+    std::vector<Range> rings;  // spans kept empty (cutRings): parameter ranges, low to high
     // A pseudo-edge's: its face, the cut's fixed coordinate (dim 1 - free) and its end points.
     int face = -1, free = 1;
     double fixed = 0;
@@ -1811,8 +1813,10 @@ Status EdgeMesh::split(const std::vector<SplitRequest>& requests) {
       bad = true;
       continue;
     }
-    double f = std::clamp(r.fraction, 0.1, 0.9);
-    add[r.edge].push_back(t[r.span] + f * (t[r.span + 1] - t[r.span]));
+    double f = std::clamp(r.fraction, 0.1, 0.9), x = t[r.span] + f * (t[r.span + 1] - t[r.span]);
+    bool inRing = false;
+    for (const Range& g : I.edges[r.edge].rings) inRing = inRing || (x > g.lo && x < g.hi);
+    if (!inRing) add[r.edge].push_back(x);
   }
   for (size_t e = 0; e < add.size(); e++) {
     if (add[e].empty()) continue;
@@ -1844,6 +1848,48 @@ Status EdgeMesh::split(const std::vector<SplitRequest>& requests) {
     }
     for (int c : E.coedges) I.computeCoedge(c);
   }
+  return bad ? Status::invalidModel : Status::ok;
+}
+
+Status EdgeMesh::cutRings(const std::vector<RingCut>& cuts) {
+  Impl& I = *impl_;
+  bool bad = false;
+  std::set<int> touched;
+  for (const RingCut& c : cuts) {
+    if (c.edge < 0 || c.edge >= static_cast<int>(I.edges.size()) || !std::isfinite(c.approach) ||
+      !std::isfinite(c.crossing) || c.approach == c.crossing) {
+      bad = true;
+      continue;
+    }
+    Impl::Edge& E = I.edges[c.edge];
+    if (E.s.t.size() < 2 || !E.geom) {
+      bad = true;
+      continue;
+    }
+    const double lo = std::min(E.s.t.front(), E.s.t.back()), hi = std::max(E.s.t.front(), E.s.t.back());
+    if (c.approach < lo || c.approach > hi || c.crossing < lo || c.crossing > hi) {
+      bad = true;
+      continue;
+    }
+    const double a = I.insertSample(c.edge, c.approach), b = I.insertSample(c.edge, c.crossing);
+    if (a == b) {
+      bad = true;
+      continue;
+    }
+    const Range g{std::min(a, b), std::max(a, b)};
+    for (size_t i = 0; i < E.s.t.size();) {
+      if (E.s.t[i] > g.lo && E.s.t[i] < g.hi) {
+        E.s.t.erase(E.s.t.begin() + static_cast<long>(i));
+        E.s.points.erase(E.s.points.begin() + static_cast<long>(i));
+      } else {
+        i++;
+      }
+    }
+    E.rings.push_back(g);
+    touched.insert(c.edge);
+  }
+  for (int e : touched)
+    for (int co : I.edges[e].coedges) I.computeCoedge(co);
   return bad ? Status::invalidModel : Status::ok;
 }
 
