@@ -368,17 +368,22 @@ TEST_CASE("a curve off its surface by more than tol: fitted once within its dist
 
 namespace {
 
-// A helix round a cylinder of radius kR whose radius wiggles, R + a + w sin kt (the test below).
+// A helix round a cylinder of radius kR whose radius wiggles, R + a + w sin kt, and whose angle wiggles too,
+// t + q sin mt (about 2e-7 along the surface, so a tighter fit follows the feet a little closer): the test below.
 class Wiggle final : public Curve {
 public:
   int dim() const override { return 3; }
   CurveDomain domain() const override { return {{0, 1}, 0}; }
   Status eval(double t, int order, CurvePoint& out) const override {
-    const double c = std::cos(t), s = std::sin(t), r = kR + kA + kW * std::sin(kK * t);
+    const double f = t + kQ * std::sin(kM * t), f1 = 1 + kQ * kM * std::cos(kM * t);
+    const double f2 = -kQ * kM * kM * std::sin(kM * t), c = std::cos(f), s = std::sin(f);
+    const double r = kR + kA + kW * std::sin(kK * t);
     const double r1 = kW * kK * std::cos(kK * t), r2 = -kW * kK * kK * std::sin(kK * t);
     out.p = {r * c, r * s, kH * t};
-    if (order >= 1) out.d1 = {r1 * c - r * s, r1 * s + r * c, kH};
-    if (order >= 2) out.d2 = {r2 * c - 2 * r1 * s - r * c, r2 * s + 2 * r1 * c - r * s, 0};
+    if (order >= 1) out.d1 = {r1 * c - r * s * f1, r1 * s + r * c * f1, kH};
+    if (order >= 2)
+      out.d2 = {r2 * c - 2 * r1 * s * f1 - r * c * f1 * f1 - r * s * f2,
+        r2 * s + 2 * r1 * c * f1 - r * s * f1 * f1 + r * c * f2, 0};
     return t < 0 || t > 1 ? Status::outOfDomain : Status::ok;
   }
   void breaks(Range r, std::vector<double>& out) const override { out = {r.lo, r.hi}; }
@@ -389,19 +394,21 @@ public:
   }
   Status derivBound(Range, int order, double& out) const override {
     const double m = kR + kA + kW;
-    out = order == 1 ? m + kW * kK + kH : kW * kK * kK + 2 * kW * kK + m;
+    const double f1 = 1 + kQ * kM, f2 = kQ * kM * kM;
+    out = order == 1 ? kW * kK + m * f1 + kH : kW * kK * kK + 2 * kW * kK * f1 + m * f1 * f1 + m * f2;
     return Status::ok;
   }
   void singular(Range, std::vector<double>& out) const override { out.clear(); }
-  static constexpr double kR = 2, kA = 1e-5, kW = 5e-6, kK = 40, kH = 0.5;
+  static constexpr double kR = 2, kA = 1e-5, kW = 5e-6, kK = 40, kH = 0.5, kQ = 1e-7, kM = 20;
 };
 
 } // namespace
 
 TEST_CASE("a curve farther off its surface between the samples: the fit stops when tightening gains under tol / 4") {
-  // A helix round a cylinder whose radius wiggles (R + a + w sin kt): its feet don't move with the wiggle, so no fit
-  // comes nearer, but the wiggle's peaks fall between the samples offSurface is taken at, so the error measured
-  // stays over offSurface + tol / 4. The second fit gains nothing and ends it.
+  // A helix round a cylinder whose radius wiggles (R + a + w sin kt): its feet don't move with that wiggle, but the
+  // peaks fall between the samples offSurface is taken at, so the error measured stays over offSurface + tol / 4.
+  // The angle's wiggle makes the second fit differ from the first, nearer by about 6e-11 (under tol / 4, over 0),
+  // and that ends it.
   const double tol = 1e-7;
   const double sr[10] = {0, 0, 0, 0, 0, 1, 1, 0, 0, Wiggle::kR};
   std::unique_ptr<Surface> cyl = closeInFact(surfaces::makeCone(sr, Wiggle::kR, 0), tol);
