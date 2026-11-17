@@ -1107,6 +1107,32 @@ export function slitFromCorner(): BrepBuilder {
   return b;
 }
 
+/**
+ * The unit sphere's lune between longitudes 0.5 and 1.5, pole to pole, and a cap of angular radius 0.2 west of it
+ * touching its west meridian at the equator: the loop down that meridian leaves and returns to that vertex round the
+ * cap, before the south pole's fan. Area 2 + 2 pi (1 - cos 0.2).
+ */
+export function lunePinch(): BrepBuilder {
+  const b = new BrepBuilder();
+  const a = 0.5, c = 1.5, rho = 0.2;
+  const s = b.addVertex({ point: [0, 0, -1] }), n = b.addVertex({ point: [0, 0, 1] });
+  const mid = [Math.cos(a), Math.sin(a), 0], vm = b.addVertex({ point: mid });
+  const west = meridian(b, a);
+  const upper = b.addEdge({ curve: west, start: vm, end: n, sameSense: true, range: [0, Math.PI / 2] });
+  const lower = b.addEdge({ curve: west, start: s, end: vm, sameSense: true, range: [-Math.PI / 2, 0] });
+  const east = b.addEdge({ curve: meridian(b, c), start: s, end: n, sameSense: true,
+    range: [-Math.PI / 2, Math.PI / 2] });
+  const C = [Math.cos(a - rho), Math.sin(a - rho), 0], k = Math.cos(rho), r = Math.sin(rho);
+  const centre = C.map((x) => k * x);
+  const cap = b.addEdge({ curve: b.addCurve({ kind: 'circle', position: { origin: centre, axis: C,
+    xDir: mid.map((x, i) => (x - centre[i]!) / r) }, radius: r }), start: vm, end: vm, sameSense: true });
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'sphere', position: AXIS, radius: 1 }), sameSense: true,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [
+      { edge: upper, orientation: 'reversed' }, { edge: cap, orientation: 'forward' },
+      { edge: lower, orientation: 'reversed' }, { edge: east, orientation: 'forward' }] }] }));
+  return b;
+}
+
 export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStrip(true),
   kinkStripQuadratic: () => kinkStrip(false, true), affineFeetOff, plateHoles,
   bsplineApexHole, offPoleArcLoose, loopless, bsplineBall, wholeTorus, wholeSphereVertex,
@@ -1119,4 +1145,4 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   seamFlipped, polylineEdge, pcurveCircle, arcSegment, fold, twisted, wrongSense, zeroEdge, halfCylinderPcurves,
   halfCylinderApart, halfCylinderBare, halfCylinderWest, arcBand, cuspPocket: cuspPocket_,
   cuspPocketMirrored, flowerHole, lobes,
-  slitFromCorner };
+  slitFromCorner, lunePinch };

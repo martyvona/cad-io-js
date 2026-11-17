@@ -343,6 +343,10 @@ struct PartMesher::Impl {
       d.points.push_back(p.uv);
       if (p.kind == BoundaryPoint::pseudoSample) edgesOf[f].insert(p.edgeIndex);
     }
+    // Each fan's ring as domain points (its chain's positions in its loop, through the loop's indices).
+    std::vector<std::vector<int32_t>> ring(fans.size());
+    for (size_t k = 0; k < fans.size(); k++)
+      for (int j : fans[k].chain) ring[k].push_back(d.loops[fans[k].loop][j]);
     // A fan whose ends are farther from the pole than its ring wants the spans into the pole split there (asked
     // whatever the mesh does: a boundary the mesher can't take may be one the split rounds bring in).
     for (const Fan& fan : fans) {
@@ -391,11 +395,8 @@ struct PartMesher::Impl {
     // A fan's ring's segments, by their ends (a ring split by doubling its pieces next round).
     std::map<std::pair<int32_t, int32_t>, int> ringOf;
     for (size_t k = 0; k < fans.size(); k++)
-      for (size_t j = 0; j + 1 < fans[k].chain.size(); j++) {
-        const std::vector<int32_t>& L = d.loops[fans[k].loop];
-        int32_t a = L[fans[k].chain[j]], b = L[fans[k].chain[j + 1]];
-        ringOf[{std::min(a, b), std::max(a, b)}] = static_cast<int>(k);
-      }
+      for (size_t j = 0; j + 1 < ring[k].size(); j++)
+        ringOf[{std::min(ring[k][j], ring[k][j + 1]), std::max(ring[k][j], ring[k][j + 1])}] = static_cast<int>(k);
     for (const SplitWanted& w : mesh.splitWanted) {
       if (w.segment < 0 || w.segment >= static_cast<int32_t>(segs.size())) continue;
       int edge, span;
@@ -451,9 +452,9 @@ struct PartMesher::Impl {
       else out.triangles.insert(out.triangles.end(), {a, c, b});
     }
     // The fans: each ring's chain to its pole, a point of its own (the run's edge sample there, else the surface's).
-    for (const Fan& fan : fans) {
+    for (size_t k = 0; k < fans.size(); k++) {
+      const Fan& fan = fans[k];
       int32_t pole = static_cast<int32_t>(out.points.size());
-      const std::vector<int32_t>& L = d.loops[fan.loop];
       out.points.push_back(fan.pole);
       Vec3 nn{0, 0, 0};
       double q0 = freeOf(fan.first.uv, fan.isoU), q1 = freeOf(fan.last.uv, fan.isoU);
@@ -463,8 +464,8 @@ struct PartMesher::Impl {
         std::fabs(norm(nn) - 1) < 1e-9;
       out.normals.push_back(reg ? sense * nn : Vec3{0, 0, 0});
       regular.push_back(reg);
-      for (size_t j = 0; j + 1 < fan.chain.size(); j++) {
-        int32_t a = L[fan.chain[j]], b = L[fan.chain[j + 1]];
+      for (size_t j = 0; j + 1 < ring[k].size(); j++) {
+        int32_t a = ring[k][j], b = ring[k][j + 1];
         double qa = freeOf(mesh.points[a], fan.isoU), qb = freeOf(mesh.points[b], fan.isoU);
         Vec2 tri[3] = {mesh.points[a], mesh.points[b], uvOf(fan.at, 0.5 * (qa + qb), fan.isoU)};
         orient(tri);
