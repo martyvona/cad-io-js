@@ -4,6 +4,7 @@
 // meet along their edges), its normals the surface's, its triangles counterclockwise about the face's normal.
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -13,6 +14,16 @@
 #include "tess_cadio/edges.h"
 
 namespace tesscadio {
+
+/**
+ * Where PartMesher is: its phase; meshing, the face (its row), the round (0 the first pass, then each split round)
+ * and how many of the round's faces are done of how many it meshes; in the other phases, how many of the phase's
+ * items (faces, or edges and their uses) are done of how many, row the face (a use's) or -1 (an edge).
+ */
+struct PartProgress {
+  enum Phase : uint8_t { surfaces, boxEdges, criteria, edges, meshing, splitting } phase = meshing;
+  int row = 0, round = 0, facesDone = 0, facesTotal = 0;
+};
 
 struct PartOptions {
   /** The linear deflection, and the angle for faces' normals and edges' chords alike (EdgeOptions::angle). */
@@ -29,6 +40,11 @@ struct PartOptions {
    * degenerate corner) stops there, the mesh kept with its refused triangles and noted.
    */
   int maxPointsPerFace = 100000;
+  /**
+   * Called as each face's meshing starts, and every so often during a long one (mesh2d.h's onWork), if set: for a
+   * host to say how far a request got (a timeout). Not throttled here.
+   */
+  std::function<void(const PartProgress&)> progress;
   /** EdgeOptions::projectMissingPcurves: uses without p-curves projected (else by inversion). */
   bool projectMissingPcurves = true;
 };

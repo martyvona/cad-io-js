@@ -34,7 +34,8 @@ export function serve(port: WorkerPort, modules: Record<string, Record<string, u
     }
     try {
       if (!tess) throw new Error('worker: no backend loaded');
-      const result = await tess.tessellate(msg.req);
+      const id = msg.id;
+      const result = await tess.tessellate(msg.req, (progress) => port.post({ type: 'progress', id, progress }, []));
       const memory = tess.memoryBytes?.();
       port.post(memory === undefined ? { type: 'result', id: msg.id, result } : { type: 'result', id: msg.id, result,
         memory }, buffers(result));

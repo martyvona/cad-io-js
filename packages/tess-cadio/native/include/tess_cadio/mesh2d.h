@@ -7,6 +7,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <vector>
 
 #include "cad_geom/result.h"
@@ -52,6 +53,8 @@ struct MeshOptions {
   int maxPoints = 1000000;
   /** The smallest angle refinement aims for, in radians, measured in the metric. */
   double minAngle = 0.35;
+  /** Called every 1024 triangles refinement takes up, if set: a long refinement's heartbeat (progress reports). */
+  std::function<void()> onWork;
 };
 
 /**

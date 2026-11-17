@@ -21,6 +21,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <string>
@@ -59,6 +60,11 @@ struct EdgeOptions {
   double angle = 0;
   /** The largest 3D length of a span (an upper bound on its arc length), whatever the faces say. */
   double maxSpacing = std::numeric_limits<double>::infinity();
+  /**
+   * Called as the construction goes, if set: (done, total, face) over the model's edges sampled and then their uses
+   * placed, `face` the use's face row (-1 for an edge).
+   */
+  std::function<void(int, int, int)> progress;
   /**
    * Whether a use without a p-curve gets one projected from its edge's 3D curve (cad-geom's projectCurve, within
    * 0.05 x the deflection of its feet where the curve allows, else at the edge's tolerance), else is sampled by

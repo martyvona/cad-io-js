@@ -3,8 +3,8 @@
 // after a number of parts or when the backend's memory grows too large. Written against WorkerHandle; node.ts and
 // browser.ts supply the workers.
 
-import { TessellationError, type TessellationRequest, type TessellationResult, type Tessellator,
-  type TessellatorInfo } from 'cad-scene';
+import { TessellationError, type TessellationProgress, type TessellationRequest, type TessellationResult,
+  type Tessellator, type TessellatorInfo } from 'cad-scene';
 import type { BackendSpec, FromWorker, WorkerHandle } from './protocol.ts';
 
 export interface PoolOptions {
@@ -33,6 +33,9 @@ interface Job {
   req: TessellationRequest;
   resolve: (r: TessellationResult) => void;
   reject: (e: Error) => void;
+  onProgress?: (p: TessellationProgress) => void;
+  /** The backend's last progress, for a timeout to say how far it got. */
+  last?: TessellationProgress;
 }
 
 interface Slot {
@@ -95,11 +98,11 @@ export class PoolTessellator implements Tessellator {
     return this.initPromise;
   }
 
-  tessellate(req: TessellationRequest): Promise<TessellationResult> {
+  tessellate(req: TessellationRequest, onProgress?: (p: TessellationProgress) => void): Promise<TessellationResult> {
     if (this.disposed) return Promise.reject(new Error('PoolTessellator: disposed'));
     if (!this.infoValue) return Promise.reject(new Error('PoolTessellator: call init() first'));
     return new Promise((resolve, reject) => {
-      this.queue.push({ id: this.nextId++, req, resolve, reject });
+      this.queue.push({ id: this.nextId++, req, resolve, reject, onProgress });
       this.pump();
     });
   }
@@ -152,6 +155,13 @@ export class PoolTessellator implements Tessellator {
           this.maxMemory > 0 && (msg.memory ?? 0) > this.maxMemory)) this.kill(s);
         else this.idle(s);
         break;
+      }
+      case 'progress': {
+        if (s.job && s.job.id === msg.id) {
+          s.job.last = msg.progress;
+          s.job.onProgress?.(msg.progress);
+        }
+        return;
       }
       case 'error': {
         // The backend instance may be left broken (a WASM trap), so the worker is replaced.
@@ -212,7 +222,9 @@ export class PoolTessellator implements Tessellator {
       s.h.post({ type: 'tessellate', id: job.id, req: job.req });
       if (this.timeoutMs > 0) {
         s.timer = setTimeout(() => {
-          this.kill(s, new TessellationError(`tessellation timed out after ${this.timeoutMs} ms`, this.timeoutMs));
+          const last = s.job?.last;
+          this.kill(s, new TessellationError(`tessellation timed out after ${this.timeoutMs} ms`
+            + (last ? ` (last: ${last.message})` : ''), this.timeoutMs));
           this.pump();
         }, this.timeoutMs);
       }

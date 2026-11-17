@@ -447,7 +447,7 @@ export function poleHole(): BrepBuilder {
  * through poles (1, 0, 1), (1, 1, 1), (0, 1, 1); bounded by that arc and the lines from the apex to its ends. Its
  * normal's limit at the apex depends on u (about 70 degrees across): an apex-like row, unlike a sphere's pole.
  */
-export function bsplineApex(): BrepBuilder {
+export function bsplineApex(hole = 0): BrepBuilder {
   const b = new BrepBuilder();
   const apex = [0, 0, 0], arcPoles = [[1, 0, 1], [1, 1, 1], [0, 1, 1]];
   const s = b.addSurface({ kind: 'bspline', uDegree: 2, vDegree: 1, uKnots: [0, 1], vKnots: [0, 1],
@@ -462,11 +462,40 @@ export function bsplineApex(): BrepBuilder {
   const ea = b.addEdge({ curve: arc, start: v1, end: v2, sameSense: true, range: [0, 1] });
   const e1 = b.addEdge({ curve: line(apex, [0, 1, 1]), start: v0, end: v2, sameSense: true, range: [0, Math.SQRT2] });
   const e2 = b.addEdge({ curve: line([1, 0, 1], apex), start: v1, end: v0, sameSense: true, range: [0, Math.SQRT2] });
-  sheet(b, b.addFace({ surface: s, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true,
+  const loops: Parameters<BrepBuilder['addFace']>[0]['loops'] = [{ kind: 'edge', bound: 'outer', sense: true,
     coedges: [{ edge: e1, orientation: 'forward' }, { edge: ea, orientation: 'reversed' },
-      { edge: e2, orientation: 'forward' }] }] }));
+      { edge: e2, orientation: 'forward' }] }];
+  if (hole > 0) {
+    // A hole between the cone's arcs at v = hole and 2 hole (the arc scaled: S(u, v) = v C(u)) over u 0.3 to 0.7,
+    // its sides rulings: every edge on the surface, its near side `hole` from the apex in v.
+    const at = (k: number) => b.addCurve({ kind: 'bspline', degree: 2, knots: [0, 1], multiplicities: [3, 3],
+      poles: arcPoles.map((q) => q.map((x) => k * x)), closed: false, selfIntersect: false, form: 'unspecified' });
+    const arcAt = (k: number, u: number) => {
+      const w = [(1 - u) ** 2, 2 * u * (1 - u), u ** 2];
+      return [0, 1, 2].map((i) => k * (w[0]! * arcPoles[0]![i]! + w[1]! * arcPoles[1]![i]! + w[2]! * arcPoles[2]![i]!));
+    };
+    const p = [arcAt(hole, 0.3), arcAt(hole, 0.7), arcAt(2 * hole, 0.7), arcAt(2 * hole, 0.3)];
+    const v = p.map((point) => b.addVertex({ point }));
+    const ruling = (a: number[], c: number[]) => {
+      const len = Math.hypot(c[0]! - a[0]!, c[1]! - a[1]!, c[2]! - a[2]!);
+      return { curve: b.addCurve({ kind: 'line', point: a, direction: c.map((x, i) => (x - a[i]!) / len),
+        magnitude: 1 }), len };
+    };
+    const near = b.addEdge({ curve: at(hole), start: v[0]!, end: v[1]!, sameSense: true, range: [0.3, 0.7] });
+    const r1 = ruling(p[1]!, p[2]!), r2 = ruling(p[3]!, p[0]!);
+    const side1 = b.addEdge({ curve: r1.curve, start: v[1]!, end: v[2]!, sameSense: true, range: [0, r1.len] });
+    const far = b.addEdge({ curve: at(2 * hole), start: v[3]!, end: v[2]!, sameSense: true, range: [0.3, 0.7] });
+    const side2 = b.addEdge({ curve: r2.curve, start: v[3]!, end: v[0]!, sameSense: true, range: [0, r2.len] });
+    loops.push({ kind: 'edge', bound: 'inner', sense: true, coedges: [{ edge: side2, orientation: 'reversed' },
+      { edge: far, orientation: 'forward' }, { edge: side1, orientation: 'reversed' },
+      { edge: near, orientation: 'reversed' }] });
+  }
+  sheet(b, b.addFace({ surface: s, sameSense: true, loops }));
   return b;
 }
+
+/** bsplineApex with a hole 1e-4 from its apex (in v): a ring held within 1e-4 of the pole, under d / 100 at 0.1. */
+export const bsplineApexHole = (): BrepBuilder => bsplineApex(1e-4);
 
 /**
  * A whole unit sphere as a rational B-spline periodic in v: its meridian (u, 0 to 2) from the south pole to the north
@@ -491,6 +520,36 @@ export function loopless(): BrepBuilder {
   sheet(b, b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: true, loops: [] }));
   sheet(b, b.addFace({ surface: b.addSurface({ kind: 'sphere', position: AXIS, radius: 1 }), sameSense: true,
     loops: [] }));
+  return b;
+}
+
+/**
+ * A plate like ohmm-ap203's (38 by 50.8 on z = 0, its corner (-19, 0)) with 14 holes of radius 1.4682 in two
+ * columns (x 15.626 and -15.616, every 6.35 from y 7.9756): its rectangle's sides long and fixed, which refinement
+ * for angle alone drove points into a corner of without end.
+ */
+export function plateHoles(): BrepBuilder {
+  const b = new BrepBuilder();
+  const c = [[-19, 0, 0], [19, 0, 0], [19, 50.8, 0], [-19, 50.8, 0]];
+  const vs = c.map((point) => b.addVertex({ point }));
+  const side = (k: number) => {
+    const p = c[k]!, q = c[(k + 1) % 4]!, len = Math.hypot(q[0]! - p[0]!, q[1]! - p[1]!);
+    const curve = b.addCurve({ kind: 'line', point: p, direction: [(q[0]! - p[0]!) / len, (q[1]! - p[1]!) / len, 0],
+      magnitude: 1 });
+    return { edge: b.addEdge({ curve, start: vs[k]!, end: vs[(k + 1) % 4]!, sameSense: true, range: [0, len] }),
+      orientation: 'forward' as const };
+  };
+  const loops: Parameters<BrepBuilder['addFace']>[0]['loops'] = [{ kind: 'edge', bound: 'outer', sense: true,
+    coedges: [0, 1, 2, 3].map(side) }];
+  for (const x of [-15.616, 15.626])
+    for (let k = 0; k < 7; k++) {
+      const o = [x, 7.9756 + 6.35 * k, 0], r = 1.4682;
+      const v = b.addVertex({ point: [o[0]! + r, o[1]!, 0] });
+      const e = b.addEdge({ curve: b.addCurve({ kind: 'circle', position: { ...AXIS, origin: o }, radius: r }),
+        start: v, end: v, sameSense: true });
+      loops.push({ kind: 'edge', bound: 'inner', sense: true, coedges: [{ edge: e, orientation: 'reversed' }] });
+    }
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: true, loops }));
   return b;
 }
 
@@ -829,11 +888,12 @@ export function affineFeetOff(): BrepBuilder {
   return b;
 }
 
-export const MODELS = { affineFeetOff, offPoleArcLoose, loopless, bsplineBall, wholeTorus, wholeSphereVertex,
-  bsplineApex, poleHole, smallHole, sBend, cuspEdge: () => cuspEdge(), nearCusp6, bumpPatch: () => bumpPatch(),
-  halfBump: () => bumpPatch(true), thinBand, tubeGapFaceTolerance, tubeGapUncertainty, tubeGapBySize, tubeGapOpen,
-  torusOuterHalf, meridianHemisphereLoose, offPoleRest: () => offPoleRest(), offPoleRestLoose: () => offPoleRest(1e-3),
-  wigglyBand, notchBand, bsplineTube, bsplineTubeTinyArc, bsplineDome, offPoleArc: () => offPoleArc(), offPcurves,
-  bandHoleAtVertex, bandHoleOnCut, halfCap, meridianHemisphere, band: band_, bandByInversion, bore, nistBore,
-  seamByInversion, offVertex, pcurveOnly, luneQuarter, luneOnSeam, cap, splineEdge, seamFlipped, polylineEdge,
-  pcurveCircle, arcSegment, fold, twisted, wrongSense, zeroEdge };
+export const MODELS = { affineFeetOff, plateHoles, bsplineApexHole, offPoleArcLoose, loopless, bsplineBall,
+  wholeTorus, wholeSphereVertex, bsplineApex: () => bsplineApex(), poleHole, smallHole, sBend,
+  cuspEdge: () => cuspEdge(), nearCusp6, bumpPatch: () => bumpPatch(), halfBump: () => bumpPatch(true), thinBand, tubeGapFaceTolerance,
+  tubeGapUncertainty, tubeGapBySize, tubeGapOpen, torusOuterHalf, meridianHemisphereLoose,
+  offPoleRest: () => offPoleRest(), offPoleRestLoose: () => offPoleRest(1e-3), wigglyBand, notchBand, bsplineTube,
+  bsplineTubeTinyArc, bsplineDome, offPoleArc: () => offPoleArc(), offPcurves, bandHoleAtVertex, bandHoleOnCut,
+  halfCap, meridianHemisphere, band: band_, bandByInversion, bore, nistBore, seamByInversion, offVertex, pcurveOnly,
+  luneQuarter, luneOnSeam, cap, splineEdge, seamFlipped, polylineEdge, pcurveCircle, arcSegment, fold, twisted,
+  wrongSense, zeroEdge };

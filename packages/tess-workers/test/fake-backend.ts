@@ -1,10 +1,12 @@
 // A fake backend for the pool tests. The first payload byte picks the behaviour: 0 a one-triangle result, 1 hang,
 // 2 throw as a WASM trap does, 3 grow the reported memory by data[1] MiB, 4 wait data[1] x 10 ms, 5 exit the worker,
-// 6 throw an ordinary error, 7 throw a TessellationError with a time limit of 50 ms.
+// 6 throw an ordinary error, 7 throw a TessellationError with a time limit of 50 ms, 8 report data[1] progresses
+// (face ids 1, 2, ...) then hang.
 // Every result names its backend instance, so the tests can tell when a worker was replaced. Init fails with the
 // option `fail`, or after the time `failAfter`.
 
-import { TessellationError, type TessellationRequest, type TessellationResult, type Tessellator } from 'cad-scene';
+import { TessellationError, type TessellationProgress, type TessellationRequest, type TessellationResult,
+  type Tessellator } from 'cad-scene';
 
 export class FakeTessellator implements Tessellator {
   readonly info = { name: 'fake', version: '1', license: 'Apache-2.0', formats: ['step' as const],
@@ -17,9 +19,16 @@ export class FakeTessellator implements Tessellator {
       'init refused');
   }
 
-  async tessellate(req: TessellationRequest): Promise<TessellationResult> {
+  async tessellate(req: TessellationRequest, onProgress?: (p: TessellationProgress) => void):
+    Promise<TessellationResult> {
     const [mode = 0, arg = 0] = req.data;
     if (mode === 1) for (;;);
+    if (mode === 8) {
+      for (let k = 1; k <= arg; k++) {
+        onProgress?.({ message: `face #${k}`, faceId: k, facesDone: k - 1, facesTotal: arg });
+      }
+      for (;;);
+    }
     if (mode === 2) throw new WebAssembly.RuntimeError('unreachable');
     if (mode === 3) this.memory += arg * 2 ** 20;
     if (mode === 4) await new Promise((r) => setTimeout(r, arg * 10));

@@ -13,6 +13,16 @@
 #include "cad_geom/surface.h"
 #include "tess_cadio/part.h"
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+// Progress to src/index.ts, which throttles it (Module.tcProgress, set for the call); natively, nothing.
+EM_JS(void, js_progress, (int phase, uint32_t id, int row, int round, int done, int total), {
+  if (Module['tcProgress']) Module['tcProgress'](phase, id, row, round, done, total);
+});
+#else
+static void js_progress(int, uint32_t, int, int, int, int) {}
+#endif
+
 using namespace tesscadio;
 using namespace cadgeom;
 
@@ -27,6 +37,7 @@ struct Result {
   std::string diag;
 };
 Result result;
+bool project = true;
 
 void put(std::vector<float>& out, Vec3 p, const double* o) {
   out.insert(out.end(), {static_cast<float>(p.x - o[0]), static_cast<float>(p.y - o[1]),
@@ -44,12 +55,15 @@ std::string ids(const std::vector<uint32_t>& v) {
 extern "C" {
 
 /** The API's version (src/index.ts's API_VERSION). */
-int tc_api_version() { return 1; }
+int tc_api_version() { return 2; }
 
 /**
  * Meshes the part in `data` (cad-brep's buffer, `size` bytes) at the deflections, positions minus (ox, oy, oz); with
  * `wantEdges`, its model edges as polylines too. 0, or -1 where the bytes aren't a model.
  */
+/** Whether the next calls project uses without p-curves (PartOptions::projectMissingPcurves; default 1). */
+void tc_set_project(int on) { project = on != 0; }
+
 int tc_tessellate(const uint8_t* data, int size, double linear, double angular, double ox, double oy, double oz,
   int wantEdges) {
   result = {};
@@ -65,8 +79,12 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
   PartOptions opts;
   opts.d.linear = linear;
   opts.d.angular = angular;
-  PartMesher pm(m, opts);
+  opts.projectMissingPcurves = project;
   const uint32_t* faceId = m.u32(CBR_FACE_ID);
+  opts.progress = [&](const PartProgress& p) {
+    js_progress(p.phase, p.row >= 0 ? faceId[p.row] : 0, p.row, p.round, p.facesDone, p.facesTotal);
+  };
+  PartMesher pm(m, opts);
   std::vector<uint32_t> failed, failedRows, failedStatus, refused, unsplit, unsettled, sampled, againstSense;
   std::vector<std::string> failedCause;
   // Refused triangles, and those of them in a pole's fan (a corner at a surface singularity's point).

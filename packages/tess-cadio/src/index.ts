@@ -4,11 +4,12 @@
 // reports the rest as faces that failed to mesh. Faces sharing an edge share its points exactly, so the result is
 // closed wherever the model is. The module's C API is native/src/tess_cadio_api.cpp.
 
-import type { EdgeKind, TessellationRequest, TessellationResult, Tessellator, TessellatorInfo } from 'cad-scene';
+import type { EdgeKind, TessellationProgress, TessellationRequest, TessellationResult, Tessellator, TessellatorInfo }
+  from 'cad-scene';
 import { sha256 } from 'cad-scene';
 
 /** The module's C API version this layer speaks (tc_api_version). */
-const API_VERSION = 1;
+const API_VERSION = 2;
 /** The workspace's version (package.json's; a test checks they agree). */
 export const VERSION = '0.3.0';
 /** result.h's Status, by code. */
@@ -17,6 +18,43 @@ const STATUS = ['ok', 'unsupported', 'outOfDomain', 'singular', 'noConvergence',
 const KINDS: EdgeKind[] = ['shared', 'seam', 'free'];
 
 type Fn = (...args: number[]) => number;
+/**
+ * The backend's progress (part.h's PartProgress: its phase, and each face as its meshing starts and as a long one
+ * goes) to `onProgress`, at most one report every `everyMs` (a part of 60,000 faces would otherwise post as many
+ * messages): a face's own repeats as it goes report it once it has run that long, so a timeout names the face it
+ * stopped in.
+ */
+export function progressReporter(onProgress: (p: TessellationProgress) => void, everyMs = 100,
+  now: () => number = () => performance.now()): ProgressHook {
+  let last = -Infinity;
+  return (phase, id, row, round, done, total) => {
+    const t = now();
+    if (t - last < everyMs) return;
+    last = t;
+    const faceId = id === 0 ? null : id;
+    const face = `${faceId === null ? 'a face with no id' : `face #${faceId}`} (row ${row})`;
+    const pass = round ? `split round ${round}` : 'first pass';
+    const faces = { faceId, row, round, facesDone: done, facesTotal: total };
+    switch (PHASES[phase]) {
+      case 'surfaces': return onProgress({ message: `making surfaces: ${face}, ${done} of ${total} done`, ...faces });
+      case 'boxEdges': case 'edges': {
+        const what = PHASES[phase] === 'edges' ? 'sampling edges' : 'sampling edges for the faces\' boxes';
+        const on = row >= 0 ? `a use on ${face}` : 'an edge';
+        return onProgress({ message: `${what}: ${on}, ${done} of ${total} edges and uses done`,
+          ...(row >= 0 ? { faceId, row } : {}), round });
+      }
+      case 'criteria': return onProgress({ message: `criteria: ${face}, ${done} of ${total} done`, ...faces });
+      case 'splitting': return onProgress({ message: `${pass}: splitting ${total} edge spans`, round });
+      default: return onProgress({ message: `${face}, ${pass}, ${done} of ${total} faces done`, ...faces });
+    }
+  };
+}
+
+/** tess_cadio_api.cpp's js_progress: PartProgress's phase (PHASES), the face's id and row, round, done, total. */
+type ProgressHook = (phase: number, id: number, row: number, round: number, done: number, total: number) => void;
+/** part.h's PartProgress::Phase, in order. */
+const PHASES = ['surfaces', 'boxEdges', 'criteria', 'edges', 'meshing', 'splitting'] as const;
+
 /** The module's exports (tess_cadio_api.cpp's functions, each with a leading underscore). */
 interface CadioExports {
   HEAPU8: Uint8Array;
@@ -27,6 +65,9 @@ interface CadioExports {
   _free(p: number): void;
   _tc_api_version: Fn;
   _tc_tessellate: Fn;
+  _tc_set_project: Fn;
+  /** Set for a call: tess_cadio_api.cpp's progress (js_progress, progressReporter's). */
+  tcProgress?: ProgressHook;
   _tc_num_vertices: Fn;
   _tc_positions: Fn;
   _tc_normals: Fn;
@@ -57,6 +98,11 @@ export interface CadioInitOptions {
   wasm?: BufferSource | URL | string | WebAssembly.Module;
   /** Names the build in `info.version` in place of the module's hash; required with a compiled module. */
   version?: string;
+  /**
+   * Uses without p-curves given one projected from their edge's 3D curve (part.h's PartOptions::projectMissingPcurves;
+   * default true), else placed by inversion: for comparing the two, and tests.
+   */
+  projectMissingPcurves?: boolean;
 }
 
 async function fetchBytes(url: URL): Promise<Uint8Array> {
@@ -75,6 +121,7 @@ function failedMessage(ids: readonly number[], rows: number): string {
 }
 
 export class CadioTessellator implements Tessellator {
+  private project = true;
   readonly info: TessellatorInfo = {
     name: 'tess-cadio', version: VERSION, license: 'AGPL-3.0-only', formats: ['cad-brep'], supportsFaceIds: true,
     supportsEdges: true, supportsCurves: false,
@@ -83,6 +130,7 @@ export class CadioTessellator implements Tessellator {
 
   async init(opts: CadioInitOptions = {}): Promise<void> {
     const { glue, wasm, version } = opts;
+    this.project = opts.projectMissingPcurves ?? true;
     if (wasm instanceof WebAssembly.Module && version === undefined) throw new TypeError(
       'tess-cadio: init({wasm}) with a compiled WebAssembly.Module needs a version, since it has no bytes to hash');
     const glueUrl = glue === undefined ? new URL('../dist/tess_cadio.mjs', import.meta.url).href : String(glue);
@@ -116,7 +164,8 @@ export class CadioTessellator implements Tessellator {
     this.m = m;
   }
 
-  async tessellate(req: TessellationRequest): Promise<TessellationResult> {
+  async tessellate(req: TessellationRequest, onProgress?: (p: TessellationProgress) => void):
+    Promise<TessellationResult> {
     const m = this.m;
     if (!m) throw new Error('CadioTessellator: call init() first');
     if (req.format !== 'cad-brep') throw new Error(`CadioTessellator: format '${req.format}' isn't taken`);
@@ -125,11 +174,14 @@ export class CadioTessellator implements Tessellator {
     const ptr = m._malloc(req.data.length) >>> 0;
     m.HEAPU8.set(req.data, ptr);
     let rc: number;
+    m.tcProgress = onProgress ? progressReporter(onProgress) : undefined;
+    m._tc_set_project(this.project ? 1 : 0);
     try {
       rc = m._tc_tessellate(ptr, req.data.length, req.linearDeflection, req.angularDeflection, origin[0], origin[1],
         origin[2], req.edges ? 1 : 0);
     } finally {
       m._free(ptr);
+      m.tcProgress = undefined;
     }
     const diag = JSON.parse(m.UTF8ToString(m._tc_diag() >>> 0)) as Record<string, unknown>;
     const diagnostics: TessellationResult['diagnostics'] = [];

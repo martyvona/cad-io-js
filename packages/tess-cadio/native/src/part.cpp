@@ -19,6 +19,8 @@ using namespace cadgeom;
 
 /** The most a pole's fan triangle spans about the pole in 3D (16 per turn, as pole lines have at least). */
 constexpr double kFanAngle = M_PI / 8;
+/** How many times a fan's pieces may be doubled where the mesh wants its ring split (16 x at most). */
+constexpr int kFanDoublings = 4;
 
 struct PartMesher::Impl {
   const Model& m;
@@ -32,7 +34,23 @@ struct PartMesher::Impl {
   /** Per face, the edges (model and pseudo) its boundary has points of, and the splits its mesh wants. */
   std::vector<std::set<int>> edgesOf;
   std::vector<std::vector<SplitRequest>> wanted;
+  /**
+   * Per face, per fan (in the order makeFans makes them), how many times its pieces were doubled, and the fans whose
+   * ring the face's mesh last wanted split (a ring's segments are this code's own: split by doubling its pieces).
+   */
+  std::vector<std::vector<int>> fanFine;
+  std::vector<std::set<int>> ringWanted;
   int rounds = 0;
+  /** The progress of the pass under way (PartOptions::progress). */
+  PartProgress at;
+  void report(const PartProgress& p) const {
+    if (o.progress) o.progress(p);
+  }
+  /** An EdgeMesh's progress as PartMesher's, in phase `phase`. */
+  std::function<void(int, int, int)> edgeProgress(PartProgress::Phase phase) const {
+    if (!o.progress) return {};
+    return [this, phase](int done, int total, int face) { o.progress({phase, face, 0, done, total}); };
+  }
 
   Impl(const Model& model, const PartOptions& options) : m(model), o(options) {}
 
@@ -64,6 +82,8 @@ struct PartMesher::Impl {
     double at;
     /** The ring's target radius in the fixed coordinate, and the ends' radii. */
     double target, ra, rb;
+    /** The ring's farthest point from the pole in 3D. */
+    double reach = 0;
     BoundaryPoint a, first, last, b;
   };
 
@@ -153,6 +173,8 @@ struct PartMesher::Impl {
           prev = d;
         }
         int m = std::max(1, static_cast<int>(std::ceil(spanned / kFanAngle)));
+        size_t index = fans.size() + mine.size();
+        if (index < fanFine[f].size()) m <<= fanFine[f][index];
         // Clearance: the face's other boundary points over the run's free range, on its side.
         double period = S.isoU ? dom.vPeriod : dom.uPeriod, lo = std::min(q0, q1), hi = std::max(q0, q1);
         bool whole = period > 0 && hi - lo >= period * (1 - 1e-12);
@@ -200,6 +222,7 @@ struct PartMesher::Impl {
           SurfacePoint sp;
           s.eval(q.uv.x, q.uv.y, 0, sp);
           q.point = sp.p;
+          fan.reach = std::max(fan.reach, norm(sp.p - S.point));
           fan.chain.push_back(static_cast<int>(out.size()));
           out.push_back(q);
         }
@@ -260,9 +283,12 @@ struct PartMesher::Impl {
   }
 
   void meshFace(int f) {
+    at.row = f;
+    if (o.progress) o.progress(at);
     FaceMesh& out = faces[f];
     out = {};
     wanted[f].clear();
+    ringWanted[f].clear();
     edgesOf[f].clear();
     if (!surfaces[f]) {
       out.cause = "its surface not made (a kind or form cad-geom lacks)";
@@ -329,6 +355,7 @@ struct PartMesher::Impl {
     }
     MeshOptions mo;
     mo.maxPoints = o.maxPointsPerFace;
+    if (o.progress) mo.onWork = [this] { o.progress(at); };
     Mesh2 mesh = mesh2(d, *criteria[f], mo);
     if (mesh.status != Status::ok && mesh.status != Status::noConvergence) {
       // (A boundary whose seam side wasn't settled fails for that.)
@@ -344,15 +371,29 @@ struct PartMesher::Impl {
     for (const auto& l : d.loops)
       for (size_t k = 0; k < l.size(); k++) segs.push_back({l[k], l[(k + 1) % l.size()]});
     for (size_t k = 0; k + 1 < d.segments.size(); k += 2) segs.push_back({d.segments[k], d.segments[k + 1]});
+    // A fan's ring's segments, by their ends (a ring split by doubling its pieces next round).
+    std::map<std::pair<int32_t, int32_t>, int> ringOf;
+    for (size_t k = 0; k < fans.size(); k++)
+      for (size_t j = 0; j + 1 < fans[k].chain.size(); j++) {
+        int32_t a = loopStart[fans[k].loop] + fans[k].chain[j], b = loopStart[fans[k].loop] + fans[k].chain[j + 1];
+        ringOf[{std::min(a, b), std::max(a, b)}] = static_cast<int>(k);
+      }
     for (const SplitWanted& w : mesh.splitWanted) {
       if (w.segment < 0 || w.segment >= static_cast<int32_t>(segs.size())) continue;
       int edge, span;
       bool forward;
-      if (!spanOf(f, bp[segs[w.segment].first], bp[segs[w.segment].second], edge, span, forward)) continue;
-      wanted[f].push_back({edge, span, forward ? w.fraction : 1 - w.fraction});
+      auto [a, b] = segs[w.segment];
+      if (spanOf(f, bp[a], bp[b], edge, span, forward)) {
+        wanted[f].push_back({edge, span, forward ? w.fraction : 1 - w.fraction});
+      } else if (auto r = ringOf.find({std::min(a, b), std::max(a, b)}); r != ringOf.end()) {
+        // (Not a ring within a hundredth of the deflection of its pole: a stopgap, not a rule. It prevents needles
+        // at Albatros #787's face 5754's apex, its ring 1e-5 mm out (29 refused doubled, 0 not); it costs
+        // bsplineApexHole, whose ring well within it doubles to better (306 triangles against 634 at 0.1 mm, and 0
+        // refused against 2 at 0.1 rad). What makes 5754's needles isn't known yet.)
+        if (fans[r->second].reach >= 0.01 * o.d.linear) ringWanted[f].insert(r->second);
+      }
     }
-    // (Only splits of edges count: a ring's segments, a pole line's, which the floored metric can find long, can't be
-    // split.)
+    // (A pole line's segments, which the floored metric can find long, can't be split.)
     out.splitsWanted = static_cast<int>(wanted[f].size());
     out.sampled = !criteria[f]->bounded();
     // In 3D: the boundary's points exactly, the mesher's on the surface.
@@ -450,10 +491,13 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
   I.faces.resize(nf);
   I.edgesOf.resize(nf);
   I.wanted.resize(nf);
+  I.fanFine.resize(nf);
+  I.ringWanted.resize(nf);
   const cadgeom::Tolerances tols(m);
   for (int f = 0; f < nf; f++) {
     Status st;
     // (A face with no loops too: its surface's natural extent, where it has one, edges.h.)
+    I.report({PartProgress::surfaces, f, 0, f, nf});
     I.surfaces[f] = closedSurface(m, tols, f, st);
   }
   // The faces' (u, v) boxes from a first sampling, their criteria, then the edges again at the spacing they ask.
@@ -463,8 +507,10 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
     EdgeOptions rough = I.edgeOptions();
     rough.deflection *= 10;
     rough.angle = 0;
+    rough.progress = I.edgeProgress(PartProgress::boxEdges);
     EdgeMesh first(m, rough);
     for (int f = 0; f < nf; f++) {
+      I.report({PartProgress::criteria, f, 0, f, nf});
       if (!I.surfaces[f]) continue;
       FaceBoundary fb = first.face(f);
       Box2 box{{INFINITY, -INFINITY}, {INFINITY, -INFINITY}};
@@ -486,8 +532,11 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
       if (I.criteria[f]) spacing[f] = I.criteria[f]->edgeSpacing() * I.o.edgeSpacingScale;
     }
   }
-  I.em = std::make_unique<EdgeMesh>(m, I.edgeOptions(), spacing);
-  for (int f = 0; f < nf; f++) I.meshFace(f);
+  EdgeOptions eo = I.edgeOptions();
+  eo.progress = I.edgeProgress(PartProgress::edges);
+  I.em = std::make_unique<EdgeMesh>(m, eo, spacing);
+  I.at = {PartProgress::meshing, 0, 0, 0, nf};
+  for (int f = 0; f < nf; f++, I.at.facesDone++) I.meshFace(f);
   for (I.rounds = 0; I.rounds < I.o.maxSplitRounds; I.rounds++) {
     // Every face's wanted splits, each span once (the first face's fraction).
     std::vector<SplitRequest> requests;
@@ -495,14 +544,28 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
     for (int f = 0; f < nf; f++)
       for (const SplitRequest& r : I.wanted[f])
         if (seen.insert({r.edge, r.span}).second) requests.push_back(r);
-    if (requests.empty()) break;
-    I.em->split(requests);
+    // And the fans whose rings were wanted split: their pieces doubled (16 times at most), their faces meshed again.
+    std::set<int> rings;
+    for (int f = 0; f < nf; f++)
+      for (int k : I.ringWanted[f]) {
+        if (static_cast<int>(I.fanFine[f].size()) <= k) I.fanFine[f].resize(k + 1, 0);
+        if (I.fanFine[f][k] < kFanDoublings) I.fanFine[f][k]++, rings.insert(f);
+      }
+    if (requests.empty() && rings.empty()) break;
+    I.report({PartProgress::splitting, -1, I.rounds + 1, 0, static_cast<int>(requests.size())});
+    if (!requests.empty()) I.em->split(requests);
     std::set<int> touched;
     for (const SplitRequest& r : requests) touched.insert(r.edge);
+    std::vector<int> redo;
     for (int f = 0; f < nf; f++) {
-      bool redo = false;
-      for (int e : touched) redo = redo || I.edgesOf[f].count(e);
-      if (redo) I.meshFace(f);
+      bool again = rings.count(f) > 0;
+      for (int e : touched) again = again || I.edgesOf[f].count(e);
+      if (again) redo.push_back(f);
+    }
+    I.at = {PartProgress::meshing, 0, I.rounds + 1, 0, static_cast<int>(redo.size())};
+    for (int f : redo) {
+      I.meshFace(f);
+      I.at.facesDone++;
     }
   }
 }

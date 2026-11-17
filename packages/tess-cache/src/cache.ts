@@ -2,8 +2,8 @@
 // by a hash of the payload, the backend's name and version, and the request's meshing options (not edges or measures,
 // which don't change the triangles: an entry records whether its request asked for them). Failures are cached too.
 
-import { failedPart, sha256 as digest, TessellationError, type TessellationRequest, type TessellationResult,
-  type Tessellator, type TessellatorInfo } from 'cad-scene';
+import { failedPart, sha256 as digest, TessellationError, type TessellationProgress, type TessellationRequest,
+  type TessellationResult, type Tessellator, type TessellatorInfo } from 'cad-scene';
 
 /** Where cached results live: bytes by key, the least recently used evicted beyond `maxBytes`. */
 export interface CacheStore {
@@ -225,8 +225,9 @@ export class CachedTessellator implements Tessellator {
     return this.inner.init(opts);
   }
 
-  async tessellate(req: TessellationRequest): Promise<TessellationResult> {
-    if (this.store.maxBytes <= 0) return this.inner.tessellate(req);
+  async tessellate(req: TessellationRequest, onProgress?: (p: TessellationProgress) => void):
+    Promise<TessellationResult> {
+    if (this.store.maxBytes <= 0) return this.inner.tessellate(req, onProgress);
     const info = this.inner.info;
     await this.sweep();
     if (!this.opts.keepOtherVersions) await this.prune(await keyPrefix(info));
@@ -254,7 +255,7 @@ export class CachedTessellator implements Tessellator {
     this.counts.misses++;
     let r: TessellationResult;
     try {
-      r = await this.inner.tessellate(req);
+      r = await this.inner.tessellate(req, onProgress);
     } catch (e) {
       if (e instanceof TessellationError) await this.put(key,
         { at: Date.now(), thrown: e.timeoutMs === undefined ? { message: e.message } : { message: e.message,
