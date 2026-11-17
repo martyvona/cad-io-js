@@ -990,6 +990,182 @@ export function arcBand(): BrepBuilder {
   return b;
 }
 
+/**
+ * A pocket on z = 0 with a cusp at the origin: its bottom an arc of radius 200 over 0.1 rad (centre (0, 200)), its
+ * left a polyline of 24 spans on the arc of radius 2 over 0.7 rad (centre (0, 2)), both leaving the origin along +x
+ * (the polyline's first span within a degree), then lines round its top. With angle 0.12 rad the bottom arc is one
+ * span, its chord rising at 0.05 from the cusp, over the polyline's first points (rising at x / 4): the chord
+ * crosses them until its span at the cusp is a quarter of the arc (a chord of h clears points beyond h / 100).
+ * Mirrored (x to -x), its loop from the polyline: the mesher meets the chord after the polyline's spans, not before.
+ */
+function cuspPocket(mirrored: boolean): BrepBuilder {
+  const b = new BrepBuilder();
+  const sx = mirrored ? -1 : 1;
+  const at = (r: number, t: number) => [sx * r * Math.sin(t), r - r * Math.cos(t), 0];
+  const end = at(200, 0.1), pts = Array.from({ length: 25 }, (_, k) => at(2, 0.7 * k / 24)), last = pts[24]!;
+  const bottom = b.addCurve({ kind: 'circle', position: { origin: [0, 200, 0], axis: [0, 0, sx], xDir: [0, -1, 0] },
+    radius: 200 });
+  const v0 = b.addVertex({ point: [0, 0, 0] }), va = b.addVertex({ point: end }), vb = b.addVertex({ point: last });
+  const c = [end[0]!, 3, 0], d = [last[0]!, 3, 0];
+  const vc = b.addVertex({ point: c }), vd = b.addVertex({ point: d });
+  const eBottom = b.addEdge({ curve: bottom, start: v0, end: va, sameSense: true, range: [0, 0.1] });
+  const eLeft = b.addEdge({ curve: b.addCurve({ kind: 'polyline', points: pts }), start: v0, end: vb,
+    sameSense: true, range: [0, 24] });
+  const line = (p: number[], q: number[], start: number, end: number) => {
+    const l = Math.hypot(q[0]! - p[0]!, q[1]! - p[1]!);
+    return b.addEdge({ curve: b.addCurve({ kind: 'line', point: p,
+      direction: [(q[0]! - p[0]!) / l, (q[1]! - p[1]!) / l, 0], magnitude: 1 }), start, end, sameSense: true,
+      range: [0, l] });
+  };
+  const up = line(end, c, va, vc), top = line(c, d, vc, vd), down = line(d, last, vd, vb);
+  const ccw = [{ edge: eBottom, orientation: 'forward' as const }, { edge: up, orientation: 'forward' as const },
+    { edge: top, orientation: 'forward' as const }, { edge: down, orientation: 'forward' as const },
+    { edge: eLeft, orientation: 'reversed' as const }];
+  // (Mirrored, the same loop runs clockwise: reversed to keep the face on its left.)
+  const coedges = mirrored ? ccw.reverse().map((c) => ({ edge: c.edge,
+    orientation: c.orientation === 'forward' ? 'reversed' as const : 'forward' as const })) : ccw;
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: true,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] }));
+  return b;
+}
+export const cuspPocket_ = (): BrepBuilder => cuspPocket(false);
+export const cuspPocketMirrored = (): BrepBuilder => cuspPocket(true);
+
+/** A circle on z = 0 (axis +z: counterclockwise as t grows) about (cx, cy), t = 0 along xDir. */
+function planeCircle(b: BrepBuilder, cx: number, cy: number, r: number, xDir: number[]): number {
+  return b.addCurve({ kind: 'circle', position: { origin: [cx, cy, 0], axis: [0, 0, 1], xDir }, radius: r });
+}
+
+/**
+ * A plane annulus inside a circle of radius 9.5 whose hole is a flower: a circle of radius 3 in four quarter arcs,
+ * a circle of radius 3 tangent outside it at each quarter vertex, each a closed edge from and to that vertex (as
+ * lightarm's #93530). Its hole's loop passes each of those vertices twice. Area pi (9.5^2 - 5 x 3^2) = 45.25 pi.
+ */
+export function flowerHole(): BrepBuilder {
+  const b = new BrepBuilder();
+  const vo = b.addVertex({ point: [9.5, 0, 0] });
+  const outer = b.addEdge({ curve: planeCircle(b, 0, 0, 9.5, [1, 0, 0]), start: vo, end: vo, sameSense: true });
+  const centre = planeCircle(b, 0, 0, 3, [1, 0, 0]);
+  const phi = (k: number) => -k * Math.PI / 2;
+  const vs = [0, 1, 2, 3].map((k) => b.addVertex({ point: [3 * Math.cos(phi(k)), 3 * Math.sin(phi(k)), 0] }));
+  const hole: { edge: number; orientation: 'reversed' }[] = [];
+  for (let k = 0; k < 4; k++) {
+    const c = [Math.cos(phi(k)), Math.sin(phi(k))];
+    const petal = b.addEdge({ curve: planeCircle(b, 6 * c[0]!, 6 * c[1]!, 3, [-c[0]!, -c[1]!, 0]), start: vs[k]!,
+      end: vs[k]!, sameSense: true });
+    const arc = b.addEdge({ curve: centre, start: vs[(k + 1) % 4]!, end: vs[k]!, sameSense: true,
+      range: [phi(k + 1), phi(k)] });
+    hole.push({ edge: petal, orientation: 'reversed' }, { edge: arc, orientation: 'reversed' });
+  }
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: true, loops: [
+    { kind: 'edge', bound: 'outer', sense: true, coedges: [{ edge: outer, orientation: 'forward' }] },
+    { kind: 'edge', bound: 'inner', sense: true, coedges: hole }] }));
+  return b;
+}
+
+/**
+ * A plane disc of radius 5 (two semicircles between (5, 0) and (-5, 0)) with two lobes its loop leaves and returns
+ * to at one vertex (as LMP1's #1080908): at (5, 0) a circle of radius 1 in three arcs, at (-5, 0) one of radius 1
+ * as a closed edge, both outside the disc. Area 27 pi.
+ */
+export function lobes(): BrepBuilder {
+  const b = new BrepBuilder();
+  const v = b.addVertex({ point: [5, 0, 0] }), w = b.addVertex({ point: [-5, 0, 0] });
+  const main = planeCircle(b, 0, 0, 5, [1, 0, 0]);
+  const top = b.addEdge({ curve: main, start: v, end: w, sameSense: true, range: [0, Math.PI] });
+  const bottom = b.addEdge({ curve: main, start: w, end: v, sameSense: true, range: [Math.PI, 2 * Math.PI] });
+  const east = planeCircle(b, 6, 0, 1, [-1, 0, 0]);
+  const at = (t: number) => b.addVertex({ point: [6 - Math.cos(t), -Math.sin(t), 0] });
+  const ea = at(2 * Math.PI / 3), eb = at(4 * Math.PI / 3);
+  const lobe = [[v, ea, 0, 2 * Math.PI / 3], [ea, eb, 2 * Math.PI / 3, 4 * Math.PI / 3],
+    [eb, v, 4 * Math.PI / 3, 2 * Math.PI]].map(([s, e, lo, hi]) => b.addEdge({ curve: east, start: s!, end: e!,
+    sameSense: true, range: [lo!, hi!] }));
+  const west = b.addEdge({ curve: planeCircle(b, -6, 0, 1, [1, 0, 0]), start: w, end: w, sameSense: true });
+  const fwd = (edge: number) => ({ edge, orientation: 'forward' as const });
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: true, loops: [
+    { kind: 'edge', bound: 'outer', sense: true,
+      coedges: [fwd(top), fwd(west), fwd(bottom), ...lobe.map(fwd)] }] }));
+  return b;
+}
+
+/** The unit square on z = 0 with an internal edge from its corner (0, 0) to its middle: a loop's vertex shared. */
+export function slitFromCorner(): BrepBuilder {
+  const b = new BrepBuilder();
+  const corners = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]];
+  const vs = corners.map((point) => b.addVertex({ point }));
+  const line = (p: number[], q: number[], start: number, end: number) => {
+    const l = Math.hypot(q[0]! - p[0]!, q[1]! - p[1]!);
+    return b.addEdge({ curve: b.addCurve({ kind: 'line', point: p,
+      direction: [(q[0]! - p[0]!) / l, (q[1]! - p[1]!) / l, 0], magnitude: 1 }), start, end, sameSense: true,
+      range: [0, l] });
+  };
+  const sides = corners.map((c, k) => line(c, corners[(k + 1) % 4]!, vs[k]!, vs[(k + 1) % 4]!));
+  const slit = line([0, 0, 0], [0.5, 0.5, 0], vs[0]!, b.addVertex({ point: [0.5, 0.5, 0] }));
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: true, loops: [
+    { kind: 'edge', bound: 'outer', sense: true, coedges: [...sides.map((edge) => ({ edge,
+      orientation: 'forward' as const })), { edge: slit, orientation: 'internal' as const }] }] }));
+  return b;
+}
+
+/**
+ * The unit sphere's lune between longitudes 0.5 and 1.5, pole to pole, and a cap of angular radius 0.2 west of it
+ * touching its west meridian at the equator: the loop down that meridian leaves and returns to that vertex round the
+ * cap, before the south pole's fan. Area 2 + 2 pi (1 - cos 0.2).
+ */
+export function lunePinch(): BrepBuilder {
+  const b = new BrepBuilder();
+  const a = 0.5, c = 1.5, rho = 0.2;
+  const s = b.addVertex({ point: [0, 0, -1] }), n = b.addVertex({ point: [0, 0, 1] });
+  const mid = [Math.cos(a), Math.sin(a), 0], vm = b.addVertex({ point: mid });
+  const west = meridian(b, a);
+  const upper = b.addEdge({ curve: west, start: vm, end: n, sameSense: true, range: [0, Math.PI / 2] });
+  const lower = b.addEdge({ curve: west, start: s, end: vm, sameSense: true, range: [-Math.PI / 2, 0] });
+  const east = b.addEdge({ curve: meridian(b, c), start: s, end: n, sameSense: true,
+    range: [-Math.PI / 2, Math.PI / 2] });
+  const C = [Math.cos(a - rho), Math.sin(a - rho), 0], k = Math.cos(rho), r = Math.sin(rho);
+  const centre = C.map((x) => k * x);
+  const cap = b.addEdge({ curve: b.addCurve({ kind: 'circle', position: { origin: centre, axis: C,
+    xDir: mid.map((x, i) => (x - centre[i]!) / r) }, radius: r }), start: vm, end: vm, sameSense: true });
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'sphere', position: AXIS, radius: 1 }), sameSense: true,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [
+      { edge: upper, orientation: 'reversed' }, { edge: cap, orientation: 'forward' },
+      { edge: lower, orientation: 'reversed' }, { edge: east, orientation: 'forward' }] }] }));
+  return b;
+}
+
+/**
+ * A face of a spindle torus (minor radius twice the major: the tube through its axis at the apex v = 2 pi / 3) with
+ * a corner at the apex: u from 0.2 to 1.2, v from 2 pi / 3 - 0.2 to the apex, bounded by the parallel there and two
+ * lines up near its meridians' chords (within 0.1 of them), no p-curves. Each line ends `past` from the apex across
+ * the axis (off the surface, as LMP1's spindle tori's edges do), where its foot is across the apex, half a turn round
+ * in u; its uncertainty 0.2 (LMP1's), so those points are at the apex within the tolerance. Major radius R.
+ */
+export function spindleCorner(past: number, R = 10): BrepBuilder {
+  const b = new BrepBuilder({ uncertainty: 0.2 });
+  const r = 2 * R, va = 2 * Math.PI / 3, v0 = va - 0.2, u1 = 0.2, u2 = 1.2;
+  const at = (u: number, v: number) => [(R + r * Math.cos(v)) * Math.cos(u), (R + r * Math.cos(v)) * Math.sin(u),
+    r * Math.sin(v)];
+  const p1 = b.addVertex({ point: at(u1, v0) }), p2 = b.addVertex({ point: at(u2, v0) });
+  const top = [0, 0, r * Math.sin(va)];
+  const apex = b.addVertex({ point: top, tolerance: 2 * past });
+  const parallel = b.addCurve({ kind: 'circle', position: { ...AXIS, origin: [0, 0, r * Math.sin(v0)] },
+    radius: R + r * Math.cos(v0) });
+  // From the parallel at u to `past` across the axis from the apex, opposite u.
+  const line = (u: number, start: number) => {
+    const p = at(u, v0), q = [-past * Math.cos(u), -past * Math.sin(u), top[2]!];
+    const d = [q[0]! - p[0]!, q[1]! - p[1]!, q[2]! - p[2]!], l = Math.hypot(d[0]!, d[1]!, d[2]!);
+    return b.addEdge({ curve: b.addCurve({ kind: 'line', point: p, direction: d.map((x) => x / l), magnitude: 1 }),
+      start, end: apex, sameSense: true, range: [0, l] });
+  };
+  const bottom = b.addEdge({ curve: parallel, start: p1, end: p2, sameSense: true, range: [u1, u2] });
+  const right = line(u2, p2), left = line(u1, p1);
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'torus', position: AXIS, majorRadius: R, minorRadius: r }),
+    sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [
+      { edge: bottom, orientation: 'forward' }, { edge: right, orientation: 'forward' },
+      { edge: left, orientation: 'reversed' }] }] }));
+  return b;
+}
+
 export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStrip(true),
   kinkStripQuadratic: () => kinkStrip(false, true), affineFeetOff, plateHoles,
   bsplineApexHole, offPoleArcLoose, loopless, bsplineBall, wholeTorus, wholeSphereVertex,
@@ -1000,4 +1176,6 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   offPoleArc: () => offPoleArc(), offPcurves, bandHoleAtVertex, bandHoleOnCut, halfCap, meridianHemisphere, band: band_,
   bandByInversion, bore, nistBore, seamByInversion, offVertex, pcurveOnly, luneQuarter, luneOnSeam, cap, splineEdge,
   seamFlipped, polylineEdge, pcurveCircle, arcSegment, fold, twisted, wrongSense, zeroEdge, halfCylinderPcurves,
-  halfCylinderApart, halfCylinderBare, halfCylinderWest, arcBand };
+  halfCylinderApart, halfCylinderBare, halfCylinderWest, arcBand, cuspPocket: cuspPocket_,
+  cuspPocketMirrored, flowerHole, lobes,
+  slitFromCorner, lunePinch, spindleApex: () => spindleCorner(0.005) };

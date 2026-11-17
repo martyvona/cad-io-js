@@ -10,6 +10,7 @@
 #include <cmath>
 #include <map>
 #include <set>
+#include <tuple>
 
 #include "cad_geom/surface.h"
 
@@ -310,25 +311,28 @@ struct PartMesher::Impl {
     // (Not where the seam's side wasn't settled: such a boundary is a guess, and its face stays singular.)
     std::vector<Fan> fans;
     if (fb.status == Status::ok) fans = makeFans(f, fb);
-    // The domain: the loops' points, then the interior chains' (segments between consecutive ones).
+    // The domain: the loops' points, then the interior chains' (segments between consecutive ones). A point exactly
+    // equal to one before, in (u, v) and in 3D, is that point again (mesh2d.h's Domain2): a vertex a loop passes
+    // twice (a hole of circles touching at their vertices), or loops share.
     Domain2 d;
     std::vector<BoundaryPoint> bp;
+    std::map<std::tuple<double, double, double, double, double>, int32_t> seen;
+    auto index = [&](const BoundaryPoint& p) {
+      auto [it, added] = seen.try_emplace({p.uv.x, p.uv.y, p.point.x, p.point.y, p.point.z},
+        static_cast<int32_t>(bp.size()));
+      if (added) bp.push_back(p);
+      return it->second;
+    };
     for (const auto& l : fb.loops) {
       std::vector<int32_t> loop;
-      for (const BoundaryPoint& p : l) {
-        loop.push_back(static_cast<int32_t>(bp.size()));
-        bp.push_back(p);
-      }
+      for (const BoundaryPoint& p : l) loop.push_back(index(p));
       d.loops.push_back(loop);
     }
     for (const auto& c : fb.interior) {
-      int32_t first = static_cast<int32_t>(bp.size());
-      for (const BoundaryPoint& p : c) bp.push_back(p);
-      for (int32_t i = 0; i + 1 < static_cast<int32_t>(c.size()); i++)
-        d.segments.insert(d.segments.end(), {first + i, first + i + 1});
+      std::vector<int32_t> chain;
+      for (const BoundaryPoint& p : c) chain.push_back(index(p));
+      for (size_t i = 0; i + 1 < chain.size(); i++) d.segments.insert(d.segments.end(), {chain[i], chain[i + 1]});
     }
-    std::vector<int32_t> loopStart;
-    for (const auto& l : d.loops) loopStart.push_back(l.empty() ? 0 : l[0]);
     // Its edges: its loops' model edges, and the pseudo-edges its boundary has.
     for (int i = 0; i < m.faceLoopCount(f); i++) {
       int l = m.faceFirstLoop(f) + i;
@@ -339,6 +343,10 @@ struct PartMesher::Impl {
       d.points.push_back(p.uv);
       if (p.kind == BoundaryPoint::pseudoSample) edgesOf[f].insert(p.edgeIndex);
     }
+    // Each fan's ring as domain points (its chain's positions in its loop, through the loop's indices).
+    std::vector<std::vector<int32_t>> ring(fans.size());
+    for (size_t k = 0; k < fans.size(); k++)
+      for (int j : fans[k].chain) ring[k].push_back(d.loops[fans[k].loop][j]);
     // A fan whose ends are farther from the pole than its ring wants the spans into the pole split there (asked
     // whatever the mesh does: a boundary the mesher can't take may be one the split rounds bring in).
     for (const Fan& fan : fans) {
@@ -361,6 +369,19 @@ struct PartMesher::Impl {
       // (A boundary whose seam side wasn't settled fails for that.)
       out.status = fb.status == Status::singular ? Status::singular : mesh.status;
       out.cause = fb.status == Status::singular ? fb.cause : meshWhy(mesh, bp);
+      // Two segments that cross, or one through a point: each segment that is an edge's span split at its middle,
+      // for the next round to mesh again (two edges leaving a vertex nearly tangent: the coarser one's chord across
+      // the other's samples, which no criterion of either edge sees).
+      if (mesh.rejected.size() >= 4)
+        for (size_t k = 0; k < 4; k += 2) {
+          const int32_t a = mesh.rejected[k], b = mesh.rejected[k + 1];
+          int edge, span;
+          bool forward;
+          if (a >= 0 && b >= 0 && a < static_cast<int32_t>(bp.size()) && b < static_cast<int32_t>(bp.size()) &&
+            spanOf(f, bp[a], bp[b], edge, span, forward))
+            wanted[f].push_back({edge, span, 0.5});
+        }
+      out.splitsWanted = static_cast<int>(wanted[f].size());
       return;
     }
     out.status = Status::ok;
@@ -374,10 +395,8 @@ struct PartMesher::Impl {
     // A fan's ring's segments, by their ends (a ring split by doubling its pieces next round).
     std::map<std::pair<int32_t, int32_t>, int> ringOf;
     for (size_t k = 0; k < fans.size(); k++)
-      for (size_t j = 0; j + 1 < fans[k].chain.size(); j++) {
-        int32_t a = loopStart[fans[k].loop] + fans[k].chain[j], b = loopStart[fans[k].loop] + fans[k].chain[j + 1];
-        ringOf[{std::min(a, b), std::max(a, b)}] = static_cast<int>(k);
-      }
+      for (size_t j = 0; j + 1 < ring[k].size(); j++)
+        ringOf[{std::min(ring[k][j], ring[k][j + 1]), std::max(ring[k][j], ring[k][j + 1])}] = static_cast<int>(k);
     for (const SplitWanted& w : mesh.splitWanted) {
       if (w.segment < 0 || w.segment >= static_cast<int32_t>(segs.size())) continue;
       int edge, span;
@@ -433,9 +452,9 @@ struct PartMesher::Impl {
       else out.triangles.insert(out.triangles.end(), {a, c, b});
     }
     // The fans: each ring's chain to its pole, a point of its own (the run's edge sample there, else the surface's).
-    for (const Fan& fan : fans) {
+    for (size_t k = 0; k < fans.size(); k++) {
+      const Fan& fan = fans[k];
       int32_t pole = static_cast<int32_t>(out.points.size());
-      int32_t base = loopStart[fan.loop];
       out.points.push_back(fan.pole);
       Vec3 nn{0, 0, 0};
       double q0 = freeOf(fan.first.uv, fan.isoU), q1 = freeOf(fan.last.uv, fan.isoU);
@@ -445,8 +464,8 @@ struct PartMesher::Impl {
         std::fabs(norm(nn) - 1) < 1e-9;
       out.normals.push_back(reg ? sense * nn : Vec3{0, 0, 0});
       regular.push_back(reg);
-      for (size_t j = 0; j + 1 < fan.chain.size(); j++) {
-        int32_t a = base + fan.chain[j], b = base + fan.chain[j + 1];
+      for (size_t j = 0; j + 1 < ring[k].size(); j++) {
+        int32_t a = ring[k][j], b = ring[k][j + 1];
         double qa = freeOf(mesh.points[a], fan.isoU), qb = freeOf(mesh.points[b], fan.isoU);
         Vec2 tri[3] = {mesh.points[a], mesh.points[b], uvOf(fan.at, 0.5 * (qa + qb), fan.isoU)};
         orient(tri);
