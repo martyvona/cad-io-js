@@ -346,6 +346,76 @@ TEST_CASE("a curve off its surface: invalidModel, its distance measured") {
   CHECK(!p.pieces.empty());
 }
 
+TEST_CASE("a curve off its surface by more than tol: fitted once within its distance plus tol / 4, not ever tighter") {
+  // The ellipse 1e-5 off the cylinder, traced (no forms for the table): its feet a sine in (u, v), fitted. No p-curve
+  // gets within tol, so tightening the fit's tolerance (four attempts) would only spend time.
+  const double R = 2, tol = 1e-7;
+  const double sr[10] = {0, 0, 0, 0, 0, 1, 1, 0, 0, R};
+  std::unique_ptr<Surface> cyl = closeInFact(surfaces::makeCone(sr, R, 0), tol);
+  const double th = 0.3;
+  const double cr[9] = {0, 0, 1, std::sin(th), 0, std::cos(th), std::cos(th), 0, -std::sin(th)};
+  std::unique_ptr<Curve> el = curves::makeEllipse(cr, 3, R / std::cos(th) + 1e-5, R + 1e-5);
+  const long before = project::traceFits;
+  Pcurve p = project::projectForms(*el, {0, 1}, *cyl, tol, nullptr, {}, {});
+  const long fits = project::traceFits - before;
+  CHECK(p.status == Status::invalidModel);
+  CHECK(p.method == PcurveMethod::traced);
+  CHECK(p.offSurface > 5e-6 && p.offSurface < 2e-5);
+  CHECK(p.error <= p.offSurface + 0.25 * tol);
+  CHECK_EQ(fits, 1);
+  if (fits != 1) std::printf("    fits %ld error %g offSurface %g\n", fits, p.error, p.offSurface);
+}
+
+namespace {
+
+// A helix round a cylinder of radius kR whose radius wiggles, R + a + w sin kt (the test below).
+class Wiggle final : public Curve {
+public:
+  int dim() const override { return 3; }
+  CurveDomain domain() const override { return {{0, 1}, 0}; }
+  Status eval(double t, int order, CurvePoint& out) const override {
+    const double c = std::cos(t), s = std::sin(t), r = kR + kA + kW * std::sin(kK * t);
+    const double r1 = kW * kK * std::cos(kK * t), r2 = -kW * kK * kK * std::sin(kK * t);
+    out.p = {r * c, r * s, kH * t};
+    if (order >= 1) out.d1 = {r1 * c - r * s, r1 * s + r * c, kH};
+    if (order >= 2) out.d2 = {r2 * c - 2 * r1 * s - r * c, r2 * s + 2 * r1 * c - r * s, 0};
+    return t < 0 || t > 1 ? Status::outOfDomain : Status::ok;
+  }
+  void breaks(Range r, std::vector<double>& out) const override { out = {r.lo, r.hi}; }
+  Status bound(Range r, Box3& out) const override {
+    const double m = kR + kA + kW;
+    out = {Interval::hull(-m, m), Interval::hull(-m, m), Interval::hull(kH * r.lo, kH * r.hi)};
+    return Status::ok;
+  }
+  Status derivBound(Range, int order, double& out) const override {
+    const double m = kR + kA + kW;
+    out = order == 1 ? m + kW * kK + kH : kW * kK * kK + 2 * kW * kK + m;
+    return Status::ok;
+  }
+  void singular(Range, std::vector<double>& out) const override { out.clear(); }
+  static constexpr double kR = 2, kA = 1e-5, kW = 5e-6, kK = 40, kH = 0.5;
+};
+
+} // namespace
+
+TEST_CASE("a curve farther off its surface between the samples: the fit stops when tightening gains under tol / 4") {
+  // A helix round a cylinder whose radius wiggles (R + a + w sin kt): its feet don't move with the wiggle, so no fit
+  // comes nearer, but the wiggle's peaks fall between the samples offSurface is taken at, so the error measured
+  // stays over offSurface + tol / 4. The second fit gains nothing and ends it.
+  const double tol = 1e-7;
+  const double sr[10] = {0, 0, 0, 0, 0, 1, 1, 0, 0, Wiggle::kR};
+  std::unique_ptr<Surface> cyl = closeInFact(surfaces::makeCone(sr, Wiggle::kR, 0), tol);
+  Wiggle w;
+  const long before = project::traceFits;
+  Pcurve p = project::projectForms(w, {0, 1}, *cyl, tol, nullptr, {}, {});
+  const long fits = project::traceFits - before;
+  CHECK(p.status == Status::invalidModel);
+  CHECK(p.error > p.offSurface + 0.25 * tol);
+  CHECK(p.error > 1.4e-5 && p.error < 1.6e-5);
+  CHECK_EQ(fits, 2);
+  if (fits != 2) std::printf("    fits %ld error %g offSurface %g\n", fits, p.error, p.offSurface);
+}
+
 TEST_CASE("bad arguments") {
   const double sr[10] = {0, 0, 0, 0, 0, 1, 1, 0, 0, 2};
   std::unique_ptr<Surface> cyl = surfaces::makeCone(sr, 2, 0);

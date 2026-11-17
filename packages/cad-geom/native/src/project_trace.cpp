@@ -10,7 +10,10 @@
 // is first split where the curve passes through a pole or apex (Surface::singularities), the trace stopping where the
 // form degenerates and the free parameter carried on at its rate there, the pieces joined by a jump along the pole
 // line. Then the feet are a 2D line if they're affine in t (checked between samples), else fitted (numerics.h's
-// fit::curve2) at a (u, v) tolerance from the 3D one, which is tightened while the 3D error measured exceeds it.
+// fit::curve2) at a (u, v) tolerance from the 3D one, which is tightened while the 3D error measured exceeds it and
+// can still come down: within the curve's own distance from the surface plus a quarter of tol (as for a line) is as
+// near as any p-curve gets, so a curve off its surface by more than tol isn't fitted ever tighter to no purpose; and
+// a tightening that gains less than a quarter of tol ends it (that distance is sampled, the curve farther between).
 #include <algorithm>
 #include <cmath>
 #include <functional>
@@ -21,6 +24,8 @@
 
 namespace cadgeom {
 namespace project {
+
+long traceFits = 0;
 
 namespace {
 
@@ -356,7 +361,8 @@ void trace(const Job& job, Pcurve& out) {
     }
     anyFit = true;
     // The (u, v) tolerance: half the 3D one through the largest stretch at any node, tightened while the 3D error
-    // measured is over the 3D tolerance.
+    // measured is over the 3D tolerance and over the curve's distance from the surface plus a quarter of it, and
+    // while each tightening gains a quarter of it.
     double tuv = kInf;
     for (const Node& n : sg.nodes) tuv = std::min(tuv, uvTol(job.s, n.uv, job.tol));
     tuv *= 0.5;
@@ -367,13 +373,16 @@ void trace(const Job& job, Pcurve& out) {
     for (int attempt = 0; attempt < 4; attempt++) {
       BSpline bs;
       double fitErr = 0;
+      traceFits++;
       const Status st = fit::curve2(f, sg.t, 3, tuv, bs, fitErr);
       if (st != Status::ok && st != Status::noConvergence) break;
       PcurvePiece p = fromBSpline(bs, sg.t);
       if (!p.curve) break;
-      const double e = measure(job, p);
+      const double e = measure(job, p), before = bestErr;
       if (e < bestErr) bestErr = e, best = std::move(p);
-      if (bestErr <= job.tol || st != Status::ok) break;
+      if (bestErr <= job.tol || bestErr <= out.offSurface + 0.25 * job.tol || st != Status::ok) break;
+      // Tightening that gains less than a quarter of tol: the curve is off the surface between the samples too.
+      if (!(e < before - 0.25 * job.tol)) break;
       tuv *= 0.25;
     }
     if (!best.curve) {
