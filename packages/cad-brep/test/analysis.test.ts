@@ -112,7 +112,7 @@ test('writeAnalysis and openAnalysis: every column type round trips, the bytes d
     // The layout, worked out independently: the magic, the count, then columns in order from the header's end, each
     // starting at the next multiple of 8, zeros between, the buffer ending on one.
     const v = new DataView(a.buffer), bytes = new Uint8Array(a.buffer);
-    assert.equal(String.fromCharCode(...bytes.subarray(0, 4)), 'CBA1');
+    assert.equal(String.fromCharCode(...bytes.subarray(0, 4)), 'CBA2');
     assert.equal(v.getUint32(4, true), ANALYSIS_COLUMNS.length);
     let at = 8 + 8 * ANALYSIS_COLUMNS.length;
     ANALYSIS_COLUMNS.forEach((c, k) => {
@@ -172,14 +172,15 @@ test('writeAnalysis: a table left out is empty; values a column can\'t hold, mis
 test('openAnalysis refuses a buffer whose header is corrupt, and a model buffer; openBrep refuses an analysis',
   async () => {
     const d = MODELS.everyKind().finish(), a = writeAnalysis(sampleRows(d, await modelHash(d)));
-    assert.throws(() => openAnalysis(d.buffer), /magic "CBR6", not CBA1/);
-    assert.throws(() => openBrep(a.buffer), /magic "CBA1", not CBR6/);
+    assert.throws(() => openAnalysis(d.buffer), /magic "CBR6", not CBA2/);
+    assert.throws(() => openBrep(a.buffer), /magic "CBA2", not CBR6/);
     assert.throws(() => openAnalysis(new ArrayBuffer(8 + 8 * ANALYSIS_COLUMNS.length - 1)), /too short/);
     const col = (table: string, column: string) =>
       ANALYSIS_COLUMNS.findIndex((c) => c.table === table && c.column === column);
     const range = col('edge', 'range'), model = col('analysis', 'model'), face = col('coedge', 'face');
     const cases: [string, (v: DataView) => void, RegExp][] = [
-      ['column count', (v) => v.setUint32(4, ANALYSIS_COLUMNS.length + 1, true), /columns, not 37/],
+      ['column count', (v) => v.setUint32(4, ANALYSIS_COLUMNS.length + 1, true),
+        new RegExp(`columns, not ${ANALYSIS_COLUMNS.length}`)],
       ['an offset inside the header', (v) => v.setUint32(8 + 8 * range, 8, true), /don't fit/],
       ['an aligned offset 8 bytes inside the header',
         (v) => v.setUint32(8 + 8 * range, 8 * ANALYSIS_COLUMNS.length, true), /don't fit/],
