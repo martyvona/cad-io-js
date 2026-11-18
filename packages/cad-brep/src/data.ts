@@ -2,7 +2,7 @@
 // columns.ts reads and writes.
 
 import { BrepFormatError, BYTES, type ColumnLayout, type ColumnOf, columnsOf, headerBytes, openColumns, tableRows,
-  type TablesOf } from './columns.ts';
+  type TablesOf, writeColumns } from './columns.ts';
 import { MAGIC, TABLES, type TableName } from './layout.ts';
 
 export type BrepTables = TablesOf<typeof TABLES>;
@@ -32,4 +32,13 @@ export function rowCount(d: BrepData, table: TableName): number {
  */
 export function openBrep(input: ArrayBuffer | Uint8Array): BrepData {
   return openColumns(MODEL_LAYOUT, input);
+}
+
+/**
+ * A model buffer of these values, column by column (each column's rows times its width, as openBrep's views give
+ * them), opened: how an edit of a model (healing) writes its copy. Not checked beyond what writing needs: a value its
+ * column's type can't hold, or tables of unequal rows, throw (the caller's bugs); the rest is validateBrep's.
+ */
+export function writeBrep(values: (c: ColumnSpec) => ArrayLike<number>): BrepData {
+  return openBrep(writeColumns(MODEL_LAYOUT, values));
 }

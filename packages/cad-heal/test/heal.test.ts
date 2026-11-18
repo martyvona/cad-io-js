@@ -16,11 +16,11 @@ test('fixesOn: every fix by default, none with heal false, each one off by name,
   assert.throws(() => fixesOn({ fixes: { noSuchFix: false } as never }), /no fix named noSuchFix/);
 });
 
-test('healPart with heal false gives the model as it is', () => {
+test('healPart with heal false gives the model as it is', async () => {
   const b = new BrepBuilder();
   box(b);
   const d = b.finish();
-  const r = healPart(d, { heal: false });
+  const r = await healPart(d, { heal: false });
   assert.equal(r.model, d);
   assert.equal(r.changed, false);
   assert.deepEqual(r.diagnostics, []);

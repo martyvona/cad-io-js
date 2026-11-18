@@ -5,23 +5,25 @@
 // healed model's analysis buffer (cad-brep's analysis-layout.ts: pcurveFrom, toleranceFrom, givenTolerance).
 //
 // One master switch (`heal`, on by default) leaves every model exactly as imported when off; under it, each fix can
-// be turned off by name. Each fix reports one diagnostic per part it changes (a warning with its count and the
-// largest tolerance it grew), and an error for what it couldn't repair.
-//
-// healPart is a stub so far: it returns the model unchanged.
+// be turned off by name. Each fix reports one diagnostic per part it changes (a warning with its count and examples),
+// and one for what it couldn't repair. The geometry is cad-geom's (its WebAssembly module, `init`).
 
-import type { BrepData } from 'cad-brep';
-import type { Diagnostic, Scene } from 'cad-scene';
+import { type BrepAnalysis, type BrepData, LOOP_KIND, modelHash, PROVENANCE, rowCount, writeAnalysis } from
+  'cad-brep';
+import { Geometry, type GeomModule, init } from 'cad-geom';
+import type { Diagnostic, Scene, SourceId } from 'cad-scene';
+import { healCurves } from './curves.ts';
+import { ModelEdit } from './edit.ts';
+import { tolerances } from './measure.ts';
 
 /**
  * The fixes, in the order the pass runs them. Curves on surfaces (T3 lane 1): `pcurveMissing` makes the p-curves a
- * face needs on surfaces other than planes (planes' are exact for every consumer, so stay absent);
- * `pcurveReparameterize` gives a source's p-curve the parameter of its edge's curve where its image is right;
- * `pcurveReplace` replaces a source's p-curve by the projection where the projection is nearer, measured both ways;
- * `pcurveEnds` bridges p-curve ends to their vertices; `edgeTolerance` and `vertexTolerance` grow tolerances to
- * cover what's measured.
+ * face needs on surfaces other than planes (planes' are exact for every consumer, so stay absent); `pcurveReparam`
+ * gives a source's p-curve the parameter of its edge's curve where its image is right; `pcurveReplace` replaces a
+ * source's p-curve by the projection where the projection is nearer, measured both ways; `pcurveEnds` bridges p-curve
+ * ends to their vertices; `edgeTolerance` and `vertexTolerance` grow tolerances to cover what's measured.
  */
-export const HEAL_FIXES = ['pcurveMissing', 'pcurveReparameterize', 'pcurveReplace', 'pcurveEnds', 'edgeTolerance',
+export const HEAL_FIXES = ['pcurveMissing', 'pcurveReparam', 'pcurveReplace', 'pcurveEnds', 'edgeTolerance',
   'vertexTolerance'] as const;
 export type HealFix = (typeof HEAL_FIXES)[number];
 
@@ -45,21 +47,70 @@ export interface HealedPart {
   model: BrepData;
   /** Whether any fix changed the model. */
   changed: boolean;
+  /** The healed model's analysis (of `model`, by its hash); absent where no fix ran. */
+  analysis?: BrepAnalysis;
   diagnostics: Diagnostic[];
 }
 
-/** Heals one part's model (structured-clonable in and out, for workers). */
-export function healPart(model: BrepData, opts: HealOptions = {}): HealedPart {
-  fixesOn(opts);
-  return { model, changed: false, diagnostics: [] };
+/**
+ * Heals one part's model (structured-clonable in and out, for workers). `module` is cad-geom's (default: init()'s);
+ * `source` the part's, given to its diagnostics.
+ */
+export async function healPart(model: BrepData, opts: HealOptions = {}, module?: GeomModule, source?: SourceId):
+  Promise<HealedPart> {
+  const fixes = new Set(fixesOn(opts));
+  if (!fixes.size) return { model, changed: false, diagnostics: [] };
+  const diagnostics: Diagnostic[] = [], edit = new ModelEdit(model);
+  const g = new Geometry(module ?? await init(), new Uint8Array(model.buffer));
+  let curves;
+  try {
+    curves = healCurves(g, model, fixes, edit, diagnostics);
+  } finally {
+    g.dispose();
+  }
+  const healed = edit.finish();
+  const analysis = await analysisOf(healed, model, edit, curves.pcurveFrom, curves.deviation);
+  if (source) for (const x of diagnostics) x.source = source;
+  return { model: healed, changed: edit.edited, analysis, diagnostics };
+}
+
+/** The healed model's analysis: provenance of p-curves and tolerances, the source's tolerances, the deviations
+ * measured; the rest not computed (NaN, none). */
+async function analysisOf(healed: BrepData, source: BrepData, edit: ModelEdit, pcurveFrom: Uint8Array,
+  deviation: Float64Array): Promise<BrepAnalysis> {
+  const nv = rowCount(healed, 'vertex'), ne = rowCount(healed, 'edge'), nc = rowCount(healed, 'coedge');
+  const nan = (n: number) => new Float64Array(n).fill(NaN), zero = (n: number) => new Uint8Array(n);
+  const from = (table: 'vertex' | 'edge', n: number) => {
+    const out = zero(n);
+    for (let i = 0; i < n; i++) {
+      const given = source[table].tolerance[i]!, now = edit.get(table, 'tolerance', i);
+      out[i] = Object.is(given, now) ? Number.isNaN(given) ? PROVENANCE.none : PROVENANCE.given : PROVENANCE.healed;
+    }
+    return out;
+  };
+  const face = new Int32Array(nc).fill(-1), loop = new Int32Array(nc).fill(-1);
+  for (let f = 0; f < rowCount(healed, 'face'); f++) {
+    for (let l = healed.face.firstLoop[f]!; l < healed.face.firstLoop[f]! + healed.face.loopCount[f]!; l++) {
+      if (healed.loop.kind[l] !== LOOP_KIND.edge) continue;
+      for (let c = healed.loop.first[l]!; c < healed.loop.first[l]! + healed.loop.count[l]!; c++) face[c] = f, loop[c] = l;
+    }
+  }
+  return writeAnalysis({
+    analysis: { model: await modelHash(healed), uncertainty: [tolerances(healed).part] },
+    vertex: { measured: nan(nv), first: new Int32Array(nv).fill(-1), count: new Int32Array(nv),
+      toleranceFrom: from('vertex', nv), givenTolerance: source.vertex.tolerance },
+    edge: { range: nan(2 * ne), rangeFrom: zero(ne), measured: nan(ne), first: new Int32Array(ne).fill(-1),
+      count: new Int32Array(ne), toleranceFrom: from('edge', ne), givenTolerance: source.edge.tolerance },
+    coedge: { range: nan(2 * nc), rangeFrom: zero(nc), deviation, face, loop, pcurveFrom },
+  });
 }
 
 /** Heals every part's model in the scene in place, its diagnostics added to the scene's. */
-export async function healScene(scene: Scene, opts: HealOptions = {}): Promise<void> {
+export async function healScene(scene: Scene, opts: HealOptions = {}, module?: GeomModule): Promise<void> {
   if (!fixesOn(opts).length) return;
   for (const part of scene.parts) {
     if (!part.brep) continue;
-    const r = healPart(part.brep.model, opts);
+    const r = await healPart(part.brep.model, opts, module, part.sources[0]);
     if (r.changed) part.brep.model = r.model;
     scene.diagnostics.push(...r.diagnostics);
   }

@@ -15,12 +15,14 @@
 //     projection (max of offSurface, the chosen p-curves' errors, vertex gaps).
 // Usage: node --max-old-space-size=8192 corpus_checks/heal_curves.ts [file-list.txt] [max MB]
 //   SAMPLES=n points per piece (default 17), DENSE=n points per piece of the p-curve's image (default 129).
+//   HEAL=1: each part's model healed first by cad-heal (HEAL=fix,...: those fixes only), its diagnostics counted.
 //   FOCUS=mm: every edge needing more than its tolerance and that, with its coedges' curves and projections.
 //   Several files at once (runner.ts: CHILDREN).
 import fs from 'node:fs';
 import { type BrepData, CURVE_KIND, LOOP_KIND, openBrep, rowCount, SURFACE_KIND } from
   '../packages/cad-brep/src/index.ts';
 import { Geometry, init, type GeomModule, type Pcurve } from '../packages/cad-geom/src/index.ts';
+import { healPart, HEAL_FIXES, type HealFix } from '../packages/cad-heal/src/index.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
 import { corpusFiles, plantedPart, shortName } from './corpus.ts';
 import { addInto, runFiles, type FileCheck } from './runner.ts';
@@ -29,6 +31,10 @@ import { hostLine } from '../scripts/host.ts';
 let maxMB = 1000, module: GeomModule;
 const SAMPLES = Number(process.env.SAMPLES ?? 17), DENSE = Number(process.env.DENSE ?? 129);
 const plant = process.env.PLANT, focus = Number(process.env.FOCUS ?? Infinity);
+/** HEAL=1: each part's model healed first (cad-heal, every fix), HEAL=<fix,...>: only those fixes. */
+const heal = process.env.HEAL;
+const healFixes = !heal || heal === '1' ? undefined : Object.fromEntries(HEAL_FIXES.map((f) =>
+  [f, heal.split(',').includes(f)])) as Partial<Record<HealFix, boolean>>;
 if (plant && !['vertex', 'curve', 'pcurve'].includes(plant)) throw new Error(`PLANT=${plant}: vertex, curve, pcurve`);
 const SKIND = Object.fromEntries(Object.entries(SURFACE_KIND).map(([k, v]) => [v, k])) as Record<number, string>;
 const CKIND = Object.fromEntries(Object.entries(CURVE_KIND).map(([k, v]) => [v, k])) as Record<number, string>;
@@ -46,7 +52,7 @@ const fresh = () => ({
   projection: {} as Tally, given: {} as Tally, ends: {} as Tally, vertices: {} as Tally, faceStatus: {} as Tally,
   keep: {} as Tally, replace: {} as Tally, keepMm: {} as Tally, replaceMm: {} as Tally, planes: {} as Tally,
   better: {} as Tally, degenerate: {} as Tally, cause: {} as Tally, backward: {} as Tally,
-  sameParameter: {} as Tally, focus: [] as string[],
+  sameParameter: {} as Tally, focus: [] as string[], healed: {} as Tally, healMs: 0,
 });
 type Result = ReturnType<typeof fresh>;
 
@@ -416,10 +422,18 @@ export const check: FileCheck<undefined, Result> = {
     const started = Date.now(), name = shortName(file);
     const { scene } = await importStep(new Uint8Array(fs.readFileSync(file)));
     for (const part of scene.parts) {
-      const d = part.brep?.model;
-      if (!d) continue;
+      const source = part.brep?.model;
+      if (!source) continue;
       R.parts++;
       const where = `${name} #${part.sources[0]!.id}`;
+      let d = source;
+      if (heal) {
+        const t = Date.now(), h = await healPart(source, { fixes: healFixes }, module);
+        R.healMs += Date.now() - t;
+        d = h.model;
+        for (const x of h.diagnostics) tally(R.healed, x.message.replace(/:.*/, '') + ` (${x.severity})`, `${where}: `
+          + x.message.slice(0, 300));
+      }
       const { keep } = measurePart(d, where, R);
       if (plant && plantedPart(where)) plantPart(d, where, keep, R);
     }
@@ -455,6 +469,10 @@ if (import.meta.main) {
     for (const m of all.missed) console.log(`  not seen: ${m}`);
   }
   console.log('Slowest files: ' + all.slowest.sort((a, b) => parseFloat(b) - parseFloat(a)).slice(0, 8).join('; '));
+  if (heal) {
+    console.log(`HEAL=${heal}: healing took ${(all.healMs / 1000).toFixed(1)} s in files`);
+    printTally('Healing\'s diagnostics (cad-heal), by fix', all.healed);
+  }
   printTally('Faces by the face API\'s status and surface', all.faceStatus);
   printTally('Projection of each coedge\'s 3D curve (status, method; p-curve given or missing; surface)',
     all.projection);
