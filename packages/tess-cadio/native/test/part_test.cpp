@@ -1201,22 +1201,77 @@ TEST_CASE("natural extents: a whole sphere (no loops, or a vertex loop off its p
     }
 }
 
-TEST_CASE("a fan's ring split where the mesh wants it: bsplineApex refined beside its long edges from the apex") {
-  // On the B-spline cone the normal turns with u however near the apex, so the metric asks for pieces narrow in u
-  // down to the ring: the mesh wants the ring's segments split, and its fan's pieces are doubled for it (else the
-  // triangles between the ring and the arc stay refused, the mesher unable to place a point in them: 9 at 0.01).
-  // At 0.001 two thin triangles beside the arc the bound overstates (within the deflection by an independent measure).
-  for (auto [d, a, most] : {std::tuple{0.01, 0.26, 0}, std::tuple{0.1, 0.2618, 0}, std::tuple{0.001, 0.1, 2}}) {
+TEST_CASE("bsplineApex's ring fixed by the pole-ring rule, the mesher outside it: each triangle within d and angle") {
+  // The B-spline cone's apex fans pass out to half its clearance (its rulings straight), so the ring is large and
+  // fixed: the mesher's requests to split it are ignored. Every triangle (refused ones too, which accept()'s bound
+  // overstates there at 0.001) within the deflection of the surface at its centroid and sides' middles (by
+  // inversion, cad-geom's, not the criteria's), its corners' normals within the angle of one another but where a
+  // corner is the apex (a fan's, its normal arbitrary).
+  for (auto [d, a] : {std::pair{0.01, 0.26}, std::pair{0.1, 0.2618}, std::pair{0.001, 0.1}}) {
     cadgeom::Model m = load("bsplineApex");
     REQUIRE(m.ok());
     PartMesher pm(m, options(d, a));
     const FaceMesh& fm = pm.face(0);
     REQUIRE(fm.status == cadgeom::Status::ok);
-    if (static_cast<int>(fm.rejected.size()) > most)
-      std::printf("  bsplineApex at %g: %zu refused of %zu\n", d, fm.rejected.size(), fm.triangles.size() / 3);
-    CHECK(static_cast<int>(fm.rejected.size()) <= most);
+    cadgeom::Status st;
+    std::unique_ptr<cadgeom::Surface> s = closedSurface(m, cadgeom::Tolerances(m), 0, st);
+    const cadgeom::SurfaceDomain dom = s->domain();
+    int far = 0, turned = 0;
+    for (size_t t = 0; t + 2 < fm.triangles.size(); t += 3) {
+      const int32_t* v = &fm.triangles[t];
+      Vec3 p[3] = {fm.points[v[0]], fm.points[v[1]], fm.points[v[2]]};
+      for (Vec3 q : {(1.0 / 3) * (p[0] + p[1] + p[2]), 0.5 * (p[0] + p[1]), 0.5 * (p[1] + p[2]), 0.5 * (p[2] + p[0])})
+        far += cadgeom::invertSurface(*s, q, dom.u, dom.v, 1e-12).distance > d * (1 + 1e-9);
+      bool apex = false;
+      for (const Vec3& q : p) apex = apex || cadgeom::norm(q) < 1e-12;
+      if (apex) continue;
+      for (int i = 0; i < 3; i++) {
+        const Vec3 &na = fm.normals[v[i]], &nb = fm.normals[v[(i + 1) % 3]];
+        turned += std::atan2(cadgeom::norm(cadgeom::cross(na, nb)), cadgeom::dot(na, nb)) > a * (1 + 1e-9);
+      }
+    }
+    if (far || turned)
+      std::printf("  bsplineApex at %g: %d points beyond d, %d corner pairs beyond the angle (%zu refused of %zu)\n", d,
+        far, turned, fm.rejected.size(), fm.triangles.size() / 3);
+    CHECK_EQ(far, 0);
+    CHECK_EQ(turned, 0);
     CHECK_EQ(sharedEdges(m, pm, "bsplineApex"), 0);
   }
+}
+
+TEST_CASE("one ring per pole across faces: poleLunes' two lunes meet at a pole, both rings at the smaller's reach") {
+  // The unit sphere's lune and a radius 3 sphere's meet at (0, 0, 1). Each face's fan corners other than the pole,
+  // those nearest it (its ring): the same distance from the pole in both faces, the unit lune's own reach (a lune on
+  // its own sphere, luneQuarter, gives it alone).
+  auto ringReach = [](const FaceMesh& fm, Vec3 pole) {
+    double near = INFINITY, far = 0;
+    for (size_t t = 0; t + 2 < fm.triangles.size(); t += 3) {
+      bool at = false;
+      for (int k = 0; k < 3; k++) at = at || cadgeom::norm(fm.points[fm.triangles[t + k]] - pole) < 1e-12;
+      if (!at) continue;
+      for (int k = 0; k < 3; k++) {
+        double r = cadgeom::norm(fm.points[fm.triangles[t + k]] - pole);
+        if (r < 1e-12) continue;
+        near = std::fmin(near, r), far = std::fmax(far, r);
+      }
+    }
+    return std::pair{near, far};
+  };
+  cadgeom::Model m = load("poleLunes");
+  REQUIRE(m.ok());
+  PartMesher pm(m, options(0.1, 0.26));
+  REQUIRE(pm.face(0).status == cadgeom::Status::ok && pm.face(1).status == cadgeom::Status::ok);
+  const Vec3 north{0, 0, 1};
+  auto [a0, a1] = ringReach(pm.face(0), north);
+  auto [b0, b1] = ringReach(pm.face(1), north);
+  cadgeom::Model l = load("luneQuarter");
+  PartMesher pl(l, options(0.1, 0.26));
+  auto [c0, c1] = ringReach(pl.face(0), north);
+  if (std::fabs(a1 - b1) > 1e-9 || std::fabs(a1 - c1) > 1e-9)
+    std::printf("  poleLunes: rings reach %.9g (unit), %.9g (radius 3); luneQuarter's %.9g\n", a1, b1, c1);
+  CHECK(std::fabs(a1 - b1) <= 1e-9);
+  CHECK(std::fabs(a1 - c1) <= 1e-9);
+  CHECK(a0 > 0.5 * a1 && b0 > 0.5 * b1);
 }
 
 TEST_CASE("apex-like rows: within the deflection of one, no normal to hold a triangle to; a smooth pole's held") {
@@ -1263,8 +1318,8 @@ TEST_CASE("apex-like rows: within the deflection of one, no normal to hold a tri
   CHECK(!pole);
 }
 
-TEST_CASE("poles as fans: one point per pole, pieces of 22.5 degrees at most, none refused; split rounds off: a "
-  "fan's end a sliver, refused, the ring under a hole beside the pole") {
+TEST_CASE("poles as fans: one point per pole, pieces of 22.5 degrees at most, none refused; split rounds off: the "
+  "ring under a hole beside the pole, cut into the meridians, nothing refused at it") {
   // Each triangle with a corner at a pole (in 3D): that corner the pole's own point (one per pole), the angle there
   // at most a fan's piece (22.5 degrees about the pole, a sphere's azimuth), none refused, no open edges.
   struct Fanned {
@@ -1337,9 +1392,9 @@ TEST_CASE("poles as fans: one point per pole, pieces of 22.5 degrees at most, no
       // open item.)
       if (name[0] == 'b') CHECK(pm.face(0).rejected.size() <= (d == 0.001 ? 22u : 0u));
     }
-  // Split rounds off: poleHole's ring under its hole (its near side 0.045 from the pole), its ends (the meridian's
-  // last samples, 0.077 out) reached along their rows beside the hole, the triangles there slivers at the pole,
-  // refused and counted. (halfCap's own ring passes at its ends' radius.)
+  // Split rounds off: poleHole's ring under its hole (its near side 0.045 from the pole), fixed and cut into the
+  // meridians before any face is meshed, so its ends are the meridians' crossings of it: nothing refused at the pole
+  // even with no rounds to bring the ends in.
   for (const char* name : {"poleHole"}) {
     cadgeom::Model m = load(name);
     REQUIRE(m.ok());
@@ -1349,10 +1404,8 @@ TEST_CASE("poles as fans: one point per pole, pieces of 22.5 degrees at most, no
     if (pm.face(0).status != cadgeom::Status::ok) std::printf("  %s: status %d\n", name, int(pm.face(0).status));
     REQUIRE(pm.face(0).status == cadgeom::Status::ok);
     Fanned r = fanned(m, pm, 0);
-    if (r.refusedAtPole < 1 || r.slivers != r.refusedAtPole)
-      std::printf("  %s, no rounds: %d at the pole refused, %d of them slivers\n", name, r.refusedAtPole, r.slivers);
-    CHECK(r.refusedAtPole >= 1);
-    CHECK_EQ(r.slivers, r.refusedAtPole);
+    if (r.refusedAtPole) std::printf("  %s, no rounds: %d at the pole refused\n", name, r.refusedAtPole);
+    CHECK_EQ(r.refusedAtPole, 0);
     CHECK_EQ(sharedEdges(m, pm, name), 0);
   }
 }
