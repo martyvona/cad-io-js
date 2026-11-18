@@ -220,6 +220,36 @@ Vec2 convexMinimum(const SurfaceImpl& s, Vec3 p, Range ru, Range rv, Vec2 start,
   return x;
 }
 
+/**
+ * The point of the rectangle nearest p from `start`: Gauss-Newton steps on |S - p|^2 / 2 clamped to it, each taken
+ * only where it comes nearer (so never farther than start; where the normal matrix is singular, as beside a pole,
+ * each coordinate alone).
+ */
+Vec2 nearestInBox(const SurfaceImpl& s, Vec3 p, Range ru, Range rv, Vec2 start) {
+  Vec2 x = start;
+  Vec3 d[kPartials];
+  s.derivs(x.x, x.y, 1, d);
+  double best = norm(d[0] - p);
+  for (int it = 0; it < 32; it++) {
+    Vec3 e = d[0] - p, su = d[pidx(1, 0)], sv = d[pidx(0, 1)];
+    double gu = dot(e, su), gv = dot(e, sv), a = dot(su, su), b = dot(su, sv), c = dot(sv, sv);
+    double det = a * c - b * b;
+    Vec2 n = x;
+    if (det > 1e-12 * a * c && a > 0) n = {x.x - (c * gu - b * gv) / det, x.y - (a * gv - b * gu) / det};
+    else n = {x.x - (a > 0 ? gu / a : 0), x.y - (c > 0 ? gv / c : 0)};
+    n = {std::clamp(n.x, ru.lo, ru.hi), std::clamp(n.y, rv.lo, rv.hi)};
+    Vec3 dn[kPartials];
+    s.derivs(n.x, n.y, 1, dn);
+    double dist = norm(dn[0] - p);
+    if (!(dist < best)) break;
+    double step = std::fabs(n.x - x.x) + std::fabs(n.y - x.y);
+    x = n, best = dist;
+    std::copy(dn, dn + kPartials, d);
+    if (step <= 4 * kEps * (1 + std::fabs(x.x) + std::fabs(x.y))) break;
+  }
+  return x;
+}
+
 /** Whether u is closed over the whole of ru: a period, or S equal at the domain's two ends at v (within tol). */
 bool closedU(const SurfaceImpl& s, Range ru, double v, double tol) {
   SurfaceDomain dom = s.domain();
@@ -403,6 +433,9 @@ SurfaceInversion invertSurface(const Surface& s0, Vec3 p, Range ru, Range rv, do
           double d = norm(at(x) - p);
           if (d < bd) bd = d, best = x;
         }
+        // Within tol all over, its foot is anywhere in it: polished (nearestInBox) so that points nearer each other
+        // than tol keep apart in (u, v) (LMP1's vertices 0.003 apart under a tolerance of 0.13 took one (u, v)).
+        if (tiny && !thin) best = nearestInBox(s, p, a, b, best);
         add(best);
         continue;
       }
