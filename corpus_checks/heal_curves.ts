@@ -45,6 +45,7 @@ const fresh = () => ({
   projection: {} as Tally, given: {} as Tally, ends: {} as Tally, vertices: {} as Tally, faceStatus: {} as Tally,
   keep: {} as Tally, replace: {} as Tally, keepMm: {} as Tally, replaceMm: {} as Tally, planes: {} as Tally,
   better: {} as Tally, degenerate: {} as Tally, cause: {} as Tally, backward: {} as Tally,
+  sameParameter: {} as Tally,
 });
 type Result = ReturnType<typeof fresh>;
 
@@ -227,6 +228,35 @@ function measurePart(d: BrepData, where: string, R: Result): { keep: Float64Arra
           back > tol ? `${cat}: ${back.toExponential(2)} back, ${dev.toExponential(2)} forward, chords `
           + `${chordErr.toExponential(1)}` : undefined);
         dev = Math.max(dev, back);
+        // Same parameter: the p-curve at the parameter an affine map of the edge's range onto its own gives, through
+        // the surface, against the curve at t (the map either way round: the use's direction aside). Where the image
+        // is within tol and this isn't, the p-curve is right but parameterized otherwise (healing's to
+        // reparameterize, not to replace or grow). Single-piece uses only.
+        if (tr.length === 2) {
+          let sp = Infinity;
+          for (const flip of [false, true]) {
+            const sts = cts.map((t) => {
+              const k = (t - rlo) / (rhi - rlo);
+              return flip ? tr[1]! + (tr[0]! - tr[1]!) * k : tr[0]! + (tr[1]! - tr[0]!) * k;
+            });
+            const Q = img(sts);
+            let worst = 0;
+            for (let i = 0; i < SAMPLES; i++) worst = Math.max(worst, dist(Q, 3 * i, C, 3 * i));
+            sp = Math.min(sp, worst);
+          }
+          // And with no map at all: the p-curve's own parameter is the curve's (Part 42's surface curve as the
+          // tessellator takes it).
+          const Q0 = img(cts);
+          let sp0 = 0;
+          for (let i = 0; i < SAMPLES; i++) sp0 = Math.max(sp0, dist(Q0, 3 * i, C, 3 * i));
+          const kind = !(dev <= tol) ? 'image off' : sp0 <= tol ? 'image within tol, the same parameter'
+            : sp <= tol ? 'image within tol, an affine reparameterization' : 'image within tol, not affine';
+          tally(R.sameParameter, `${kind} (${sk})`, kind.endsWith('the same parameter') || kind === 'image off'
+            ? undefined : `${cat}: identical ${sp0.toExponential(2)}, affine ${sp.toExponential(2)} at tol `
+            + `${tol.toExponential(1)}`);
+        } else {
+          tally(R.sameParameter, `several pieces, not measured (${sk})`);
+        }
         tally(R.given, `${ratioBin(dev / tol)} (${sk})`, dev > tol ? `${cat}: ${dev.toExponential(2)} at tol `
           + `${tol.toExponential(1)}` : undefined);
         // Its ends (the first and last sample) against the edge's vertices, matched either way round.
@@ -416,6 +446,7 @@ if (import.meta.main) {
   printTally('Missing p-curves on planes', all.planes);
   printTally('Given p-curves: deviation from the 3D curve (sampled), by surface', all.given);
   printTally('Given p-curves: ends against the edge\'s vertices', all.ends);
+  printTally('Given p-curves: same parameter (an affine map of the ranges), by the image', all.sameParameter);
   printTally('Given p-curves farther the other way (the curve\'s points from the p-curve\'s image)', all.backward);
   printTally('Edges\' vertices against their 3D curves (per coedge)', all.vertices);
   printTally('Given p-curves off their curve or vertices: is the projection better?', all.better);
