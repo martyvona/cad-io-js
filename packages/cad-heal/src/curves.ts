@@ -7,9 +7,10 @@ import type { Diagnostic } from 'cad-scene';
 import type { Curve2, ModelEdit } from './edit.ts';
 import { reparameterize, reparameterized } from './fix/reparam.ts';
 import { projected, replacement } from './fix/replace.ts';
+import { curveEndGaps, gapTo } from './fix/ends.ts';
 import { curveOffSurface, GROWTH } from './fix/tolerance.ts';
 import type { HealFix } from './index.ts';
-import { edgeRange, measureGiven, tolerances } from './measure.ts';
+import { edgeRange, measureGiven, pcurveImage, tolerances } from './measure.ts';
 
 /** What the pass did, for the analysis buffer: per coedge its p-curve's provenance and measured deviation. */
 export interface CurvesRecord {
@@ -51,6 +52,8 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
   const needs = (e: number, x: number) => {
     if (x > need[e]!) need[e] = x;
   };
+  // Per vertex and per edge: the largest gap from a kept source p-curve's end to its vertex (pcurveEnds').
+  const endNeedV = new Float64Array(rowCount(d, 'vertex')), endNeedE = new Float64Array(rowCount(d, 'edge'));
   let worstGiven = 0, worstNew = 0;
   const coedgeName = (c: number) => `coedge #${d.coedge.id[c]} (edge #${d.edge.id[d.coedge.edge[c]!]})`;
   for (let f = 0; f < rowCount(d, 'face'); f++) {
@@ -107,6 +110,23 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
         if (m.kind !== 'unmeasured') record.deviation[c] = m.deviation;
         // What the coedge's p-curve needs if it's kept; a fix that changes it says what the new one needs.
         const kept = m.kind === 'unmeasured' ? NaN : m.deviation;
+        const keep = () => {
+          needs(e, kept);
+          if (!fixes.has('pcurveEnds') || m.kind === 'unmeasured') return;
+          // Its ends through the surface against the edge's vertices: at the edge's range where it's the curve's
+          // parameter (or its affine map), else at its own ends along the use, each vertex taking the nearer.
+          const vs = [d.edge.start[e]!, d.edge.end[e]!];
+          const at = m.kind === 'same' ? range : m.kind === 'affine' ? range.map((t) => m.a * t + m.b) : ends();
+          const P = at && pcurveImage(g, d, c, surface, at, periodsOf);
+          if (!P) return;
+          for (const v of vs) {
+            if (v < 0) continue;
+            const gap = m.kind === 'off' ? Math.min(gapTo(d, v, P, 0), gapTo(d, v, P, 1))
+              : gapTo(d, v, P, vs.indexOf(v));
+            if (gap > endNeedV[v]!) endNeedV[v] = gap;
+            if (gap > endNeedE[e]!) endNeedE[e] = gap;
+          }
+        };
         // A p-curve the pass writes is in the parameter of `range`, so the edge gets that range where the source
         // gave none: consumers derive ranges by their own searches, which can differ by a period on a closed curve,
         // and the p-curve would be a period off for them. The use's range, in the p-curve's old parameter, becomes
@@ -159,14 +179,14 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
           off = true;
         }
         if (!off || !fixes.has('pcurveReplace')) {
-          needs(e, kept);
+          keep();
           continue;
         }
         const given = m.kind === 'off' ? Math.max(m.deviation, Number.isNaN(m.ends) ? 0 : m.ends) : Infinity;
         const r = replacement(g, c, onPlane, given);
         if (r.kind === 'none') {
           add(notReplaced, r.why, c);
-          needs(e, kept);
+          keep();
           continue;
         }
         if (Number.isFinite(given)) worstGiven = Math.max(worstGiven, given);
@@ -182,7 +202,7 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
           const curve = onRange(r.curve, r.range);
           if (!curve) {
             add(notReplaced, 'on another range', c);
-            needs(e, kept);
+            keep();
             continue;
           }
           edit.set('coedge', 'pcurve', c, edit.addCurve2(curve));
@@ -194,15 +214,54 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
       }
     }
   }
-  // edgeTolerance: grown where what's measured is past what the edge is judged by.
-  if (fixes.has('edgeTolerance')) {
+  // vertexTolerance: each edge's curve's ends against its vertices, over the range its p-curves are in.
+  const vNeed = new Float64Array(rowCount(d, 'vertex'));
+  if (fixes.has('vertexTolerance')) {
+    for (let e = 0; e < need.length; e++) {
+      if (d.edge.curve[e]! < 0) continue;
+      const r0 = edit.get('edge', 'range', 2 * e), r1 = edit.get('edge', 'range', 2 * e + 1);
+      const range = Number.isFinite(r0) && Number.isFinite(r1) ? [r0, r1] as [number, number] : edgeRange(d, e);
+      if (!range) continue;
+      const [a, b] = curveEndGaps(g, d, e, range), [s0, s1] = [d.edge.start[e]!, d.edge.end[e]!];
+      if (a > vNeed[s0]!) vNeed[s0] = a;
+      if (b > vNeed[s1]!) vNeed[s1] = b;
+    }
+  }
+  const grownV = new Tally(), bridged = new Tally();
+  let worstV = 0, worstEnd = 0;
+  for (let v = 0; v < vNeed.length; v++) {
+    const want = Math.max(fixes.has('vertexTolerance') ? vNeed[v]! : 0, fixes.has('pcurveEnds') ? endNeedV[v]! : 0);
+    if (!(want > tol.vertex(v))) continue;
+    edit.set('vertex', 'tolerance', v, GROWTH * want);
+    if (vNeed[v]! > tol.vertex(v) && fixes.has('vertexTolerance')) {
+      worstV = Math.max(worstV, vNeed[v]!), grownV.add(`vertex #${d.vertex.id[v]} (${vNeed[v]!.toPrecision(3)} mm)`);
+    }
+    if (endNeedV[v]! > tol.vertex(v) && fixes.has('pcurveEnds')) {
+      worstEnd = Math.max(worstEnd, endNeedV[v]!), bridged.add(`vertex #${d.vertex.id[v]}`);
+    }
+  }
+  if (grownV.n) {
+    diagnostics.push({ severity: 'warning', message: `vertexTolerance: ${grownV.n} vertices' tolerances grown to `
+      + `cover their edges' curves' ends (up to ${worstV.toPrecision(3)} mm, grown to ${GROWTH} times it): `
+      + `${grownV.ex.join(', ')}${grownV.more()}` });
+  }
+  if (bridged.n) {
+    diagnostics.push({ severity: 'warning', message: `pcurveEnds: ${bridged.n} vertices' tolerances and their edges' `
+      + `grown to bridge the source's p-curves' ends to them (up to ${worstEnd.toPrecision(3)} mm, grown to ${GROWTH} `
+      + `times it): ${bridged.ex.join(', ')}${bridged.more()}` });
+  }
+  // edgeTolerance: grown where what's measured is past what the edge is judged by (pcurveEnds' gaps among it).
+  if (fixes.has('edgeTolerance') || fixes.has('pcurveEnds')) {
     const grown = new Tally();
     let worst = 0;
     for (let e = 0; e < need.length; e++) {
-      if (!(need[e]! > tol.edge(e))) continue;
-      edit.set('edge', 'tolerance', e, GROWTH * need[e]!);
-      worst = Math.max(worst, need[e]!);
-      grown.add(`edge #${d.edge.id[e]} (${need[e]!.toPrecision(3)} mm)`);
+      const own = fixes.has('edgeTolerance') ? need[e]! : 0, want = Math.max(own, fixes.has('pcurveEnds')
+        ? endNeedE[e]! : 0);
+      if (!(want > tol.edge(e))) continue;
+      edit.set('edge', 'tolerance', e, GROWTH * want);
+      if (!(own > tol.edge(e))) continue;
+      worst = Math.max(worst, own);
+      grown.add(`edge #${d.edge.id[e]} (${own.toPrecision(3)} mm)`);
     }
     if (grown.n) {
       diagnostics.push({ severity: 'warning', message: `edgeTolerance: ${grown.n} edges' tolerances grown to cover `

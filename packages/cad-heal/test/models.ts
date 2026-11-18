@@ -172,3 +172,16 @@ export function bsplineCylinder(seamUp: Curve, range?: [number, number]): BrepBu
   b.addItem({ kind: 'body', ref: b.addBody({ kind: 'sheet', members: [{ ref: shell, sense: true }] }) });
   return b;
 }
+
+/**
+ * A wire of one line edge from (0, 0, 0) along x to a vertex at (1, `off`, 0): its end vertex `off` from the line's
+ * end, its start on it.
+ */
+export function wireLine(off: number): BrepBuilder {
+  const b = new BrepBuilder({ uncertainty: 1e-6 });
+  const line = b.addCurve({ kind: 'line', point: [0, 0, 0], direction: [1, 0, 0], magnitude: 1 });
+  const v0 = b.addVertex({ point: [0, 0, 0] }), v1 = b.addVertex({ point: [1, off, 0] });
+  const e = b.addEdge({ curve: line, start: v0, end: v1, sameSense: true, id: 91 });
+  b.addItem({ kind: 'body', ref: b.addBody({ kind: 'wire', members: [{ ref: e, sense: true }] }) });
+  return b;
+}

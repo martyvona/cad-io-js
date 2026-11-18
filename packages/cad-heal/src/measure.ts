@@ -42,6 +42,44 @@ function segDist(a: ArrayLike<number>, i: number, b: ArrayLike<number>, j: numbe
   return Math.hypot(px - t * dx, py - t * dy, pz - t * dz);
 }
 
+/**
+ * A coedge's p-curve (its own row) through its face's surface at the parameters `s`, (u, v) taken onto the row's
+ * domain where rounding puts them past and wrapped by the face's periods where further: x, y, z triples, or undefined
+ * where an evaluation fails.
+ */
+export function pcurveImage(g: Geometry, d: BrepData, c: number, surface: number, s: number[],
+  periodsOf: () => [number, number] = () => [0, 0]): Float64Array | undefined {
+  return imageOf(g, d.coedge.pcurve[c]!, surface, periodsOf)(s);
+}
+
+function imageOf(g: Geometry, pc: number, surface: number, periodsOf: () => [number, number]) {
+  const own = g.curveInfo(pc), si = g.surfaceInfo(surface);
+  const near = (x: number, lo: number, hi: number) => {
+    const sl = Number.isFinite(hi - lo) ? 1e-9 * (hi - lo) : 0;
+    return x < lo && x >= lo - sl ? lo : x > hi && x <= hi + sl ? hi : x;
+  };
+  const wrap = (x: number, [lo, hi]: [number, number], period: number) => period > 0 && (x < lo || x > hi)
+    ? x - period * Math.floor((x - lo) / period) : near(x, lo, hi);
+  return (s: number[]) => {
+    const p = g.evalCurve(pc, s.map((x) => near(x, own.lo, own.hi)), 0);
+    if (p.status !== 'ok' || p.statuses.some((x) => x !== 0)) return undefined;
+    // The face's periods only where a point is past the row's domain by more than rounding.
+    const uv: number[] = [];
+    let outside = false;
+    for (let i = 0; i < s.length; i++) {
+      const u = near(p.values[3 * i]!, ...si.u), v = near(p.values[3 * i + 1]!, ...si.v);
+      outside ||= u < si.u[0] || u > si.u[1] || v < si.v[0] || v > si.v[1];
+      uv.push(u, v);
+    }
+    if (outside) {
+      const [pu, pv] = periodsOf();
+      for (let i = 0; i < uv.length; i += 2) uv[i] = wrap(uv[i]!, si.u, pu), uv[i + 1] = wrap(uv[i + 1]!, si.v, pv);
+    }
+    const q = g.evalSurface(surface, uv, 0);
+    return q.status === 'ok' && !q.statuses.some((x) => x !== 0) ? q.values : undefined;
+  };
+}
+
 export type GivenFit =
   /** Within tol at the same parameter. */
   | { kind: 'same'; deviation: number }
@@ -66,38 +104,7 @@ export function measureGiven(g: Geometry, d: BrepData, c: number, surface: numbe
   if (C.status !== 'ok' || C.statuses.some((s) => s !== 0)) return { kind: 'unmeasured', why: 'curve' };
   // The p-curve's own row, evaluated whether or not the face API takes the face (it refuses faces whose p-curves'
   // ranges it can't place: often these).
-  const pc = d.coedge.pcurve[c]!, own = g.curveInfo(pc);
-  // A parameter mapped onto the p-curve's own can miss its domain by rounding (1e-16 below a B-spline's first knot):
-  // within 1e-9 of the domain's width it's taken as the end.
-  const near = (x: number, lo: number, hi: number) => {
-    const sl = Number.isFinite(hi - lo) ? 1e-9 * (hi - lo) : 0;
-    return x < lo && x >= lo - sl ? lo : x > hi && x <= hi + sl ? hi : x;
-  };
-  const clamp = (x: number) => near(x, own.lo, own.hi);
-  // (u, v) wrapped by the face's periods (its surface as it closes in fact: a B-spline closed by its geometry has a
-  // period its row doesn't, and a p-curve unwrapped across its seam runs past the row's domain), else taken onto the
-  // domain's edge where rounding puts it just past (a B-spline's is bounded).
-  const si = g.surfaceInfo(surface);
-  const wrap = (x: number, [lo, hi]: [number, number], period: number) => period > 0 && (x < lo || x > hi)
-    ? x - period * Math.floor((x - lo) / period) : near(x, lo, hi);
-  const image = (s: number[]) => {
-    const p = g.evalCurve(pc, s.map(clamp), 0);
-    if (p.status !== 'ok' || p.statuses.some((x) => x !== 0)) return undefined;
-    // The face's periods only where a point is past the row's domain by more than rounding.
-    const uv: number[] = [];
-    let outside = false;
-    for (let i = 0; i < s.length; i++) {
-      const u = near(p.values[3 * i]!, ...si.u), v = near(p.values[3 * i + 1]!, ...si.v);
-      outside ||= u < si.u[0] || u > si.u[1] || v < si.v[0] || v > si.v[1];
-      uv.push(u, v);
-    }
-    if (outside) {
-      const [pu, pv] = periodsOf();
-      for (let i = 0; i < uv.length; i += 2) uv[i] = wrap(uv[i]!, si.u, pu), uv[i + 1] = wrap(uv[i + 1]!, si.v, pv);
-    }
-    const q = g.evalSurface(surface, uv, 0);
-    return q.status === 'ok' && !q.statuses.some((x) => x !== 0) ? q.values : undefined;
-  };
+  const image = imageOf(g, d.coedge.pcurve[c]!, surface, periodsOf);
   const against = (Q: Float64Array | undefined) => {
     if (!Q) return NaN;
     let w = 0;

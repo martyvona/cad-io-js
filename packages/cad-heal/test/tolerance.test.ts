@@ -50,7 +50,7 @@ test('edgeTolerance: a source\'s tolerance that covers it is kept, never shrunk'
   const d = cylinderSide({ bottom: {} }, 1e-6, 0, undefined, 2.05, 0.2).finish();
   const r = await healPart(d, {}, module);
   assert.equal(r.model.edge.tolerance[0], 0.2);
-  assert.ok(!r.diagnostics.some((x) => x.message.startsWith('edgeTolerance:')));
+  assert.ok(!r.diagnostics.some((x) => x.message.startsWith('edgeTolerance:') && x.message.includes('edge #11')));
   const a = await analysisFor(r.model, r.analysis!);
   assert.equal(a.edge.toleranceFrom[0], PROVENANCE.given);
   assert.equal(a.edge.givenTolerance[0], 0.2);
