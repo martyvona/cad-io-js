@@ -999,6 +999,21 @@ int32_t cg_face_info(int32_t h, int32_t face, double tol3d, double* out) {
 }
 
 /**
+ * The edge's curve parameters at its start and end as the face API takes them (edgeParams: its range where the
+ * model gives one, else its vertices inverted onto its curve, by its sense, a vertex at a closed non-periodic curve's
+ * junction taking the end its sense needs) into out[0..1], NaN both for an edge without a 3D curve (its uses'
+ * p-curves give their own); 0, or why not (makeCurve's status, a face status).
+ */
+int32_t cg_edge_params(int32_t h, int32_t edge, double* out) {
+  Entry* e = entry(h);
+  if (!e || edge < 0 || edge >= e->model.edges()) return static_cast<int32_t>(Status::invalidModel);
+  double t0 = NAN, t1 = NAN;
+  if (int32_t r = edgeParams(h, edge, t0, t1)) return r;
+  out[0] = t0, out[1] = t1;
+  return 0;
+}
+
+/**
  * classify2 of n (u, v) points against the face's loops, each at its own (u, v) tolerance: sides n (0 in, 1 out,
  * 2 on) and statuses n, and the (u, v) tolerance used per point into tolUv n; the face's status as cg_face_info.
  */
