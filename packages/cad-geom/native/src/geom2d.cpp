@@ -36,12 +36,17 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <map>
 #include <memory>
+#include <tuple>
 
 #include "cad_geom/numerics.h"
 #include "cad_geom/predicates.h"
 
 namespace cadgeom {
+
+long boundaryPolylines = 0;
+
 
 namespace {
 
@@ -484,18 +489,41 @@ bool periodsApart(Vec2 a, Vec2 b, const Periods& per, double tol) {
 }
 
 /** A loop's boundary pieces with closures: pole-line jumps get a Segment (owned by `segments`). */
+struct Bbox {
+  double x0 = kInf, y0 = kInf, x1 = -kInf, y1 = -kInf;
+  void add(Vec2 q) { x0 = std::min(x0, q.x), y0 = std::min(y0, q.y), x1 = std::max(x1, q.x), y1 = std::max(y1, q.y); }
+};
+Bbox pieceBox(const LoopPiece& p) {
+  Bbox b;
+  boundaryPolylines++;
+  Poly poly = polyline(*p.curve, p.range, kInf);
+  for (const Vec2& q : poly.p) b.add(q);
+  double grow = 0;
+  for (double d : poly.dev) grow = std::max(grow, d);
+  b.x0 -= grow, b.y0 -= grow, b.x1 += grow, b.y1 += grow;
+  return b;
+}
+
+/** Pieces' polylines at a tolerance (onBoundary's), by curve, range and tolerance: made once for many points. */
+using FineCache = std::map<std::tuple<const Curve*, double, double, double>, Poly>;
+
 struct Boundary {
   std::vector<LoopPiece> pieces;
+  FineCache* fine = nullptr;  // where set (classify2 of many points), the polylines onBoundary needs, kept
+  std::vector<Bbox> boxes;              // each piece's (pieceBox), made once: every point's rays and on test read it
   std::vector<int> loopOf, next, prev;  // within the piece's loop, in its order of travel
   std::vector<std::unique_ptr<Segment>> segments;
   bool gaps = false;  // pieces that don't meet and aren't a pole jump or a period apart
 };
 
-void addLoop(Boundary& out, const Loop2& loop, int index, const Periods& per, double tol) {
+/** The loop's pieces into out, with the segments its joints need; `boxes` its pieces' pieceBox where made already. */
+void addLoop(Boundary& out, const Loop2& loop, int index, const Periods& per, double tol,
+  const std::vector<Bbox>* boxes = nullptr) {
   const size_t n = loop.pieces.size();
   const int first = static_cast<int>(out.pieces.size());
   for (size_t i = 0; i < n; i++) {
     out.pieces.push_back(loop.pieces[i]);
+    out.boxes.push_back(boxes ? (*boxes)[i] : pieceBox(loop.pieces[i]));
     out.loopOf.push_back(index);
     Vec2 e = pieceEnd(loop.pieces[i]), s = pieceStart(loop.pieces[(i + 1) % n]);
     if (len(s - e) <= tol) continue;
@@ -505,11 +533,13 @@ void addLoop(Boundary& out, const Loop2& loop, int index, const Periods& per, do
     if (pole) {
       out.segments.push_back(std::make_unique<Segment>(e, s));
       out.pieces.push_back({out.segments.back().get(), {0, 1}, false});
+      out.boxes.push_back(pieceBox(out.pieces.back()));
       out.loopOf.push_back(index);
     } else if (!periodsApart(e, s, per, tol)) {
       out.gaps = true;
       out.segments.push_back(std::make_unique<Segment>(e, s));
       out.pieces.push_back({out.segments.back().get(), {0, 1}, false});
+      out.boxes.push_back(pieceBox(out.pieces.back()));
       out.loopOf.push_back(index);
     }
   }
@@ -518,20 +548,6 @@ void addLoop(Boundary& out, const Loop2& loop, int index, const Periods& per, do
     out.next.push_back(i + 1 < last ? i + 1 : first);
     out.prev.push_back(i > first ? i - 1 : last - 1);
   }
-}
-
-struct Bbox {
-  double x0 = kInf, y0 = kInf, x1 = -kInf, y1 = -kInf;
-  void add(Vec2 q) { x0 = std::min(x0, q.x), y0 = std::min(y0, q.y), x1 = std::max(x1, q.x), y1 = std::max(y1, q.y); }
-};
-Bbox pieceBox(const LoopPiece& p) {
-  Bbox b;
-  Poly poly = polyline(*p.curve, p.range, kInf);
-  for (const Vec2& q : poly.p) b.add(q);
-  double grow = 0;
-  for (double d : poly.dev) grow = std::max(grow, d);
-  b.x0 -= grow, b.y0 -= grow, b.x1 += grow, b.y1 += grow;
-  return b;
 }
 
 /** A Curve shifted by (du, dv): the copies periodic directions need. */
@@ -579,8 +595,9 @@ bool onBoundary(const Boundary& bd, Vec2 p, const Periods& per, double tol) {
   Bbox near;
   near.add({p.x - tol, p.y - tol});
   near.add({p.x + tol, p.y + tol});
-  for (const LoopPiece& piece : bd.pieces) {
-    Bbox b = pieceBox(piece);
+  for (size_t k = 0; k < bd.pieces.size(); k++) {
+    const LoopPiece& piece = bd.pieces[k];
+    const Bbox& b = bd.boxes[k];
     for (Vec2 d : shifts(b, near, per)) {
       if (b.x0 + d.x - tol > p.x || b.x1 + d.x + tol < p.x || b.y0 + d.y - tol > p.y || b.y1 + d.y + tol < p.y)
         continue;
@@ -588,7 +605,23 @@ bool onBoundary(const Boundary& bd, Vec2 p, const Periods& per, double tol) {
       // The nearest point by the polyline's nearest segment (its nearest point there), then Newton within that
       // segment's parameters: from a vertex at a corner (a C0 knot ending a straight side) Newton takes the other
       // side's derivative and stalls.
-      Poly poly = polyline(*piece.curve, piece.range, tol);
+      Poly local;
+      const Poly* found = nullptr;
+      // (Not the boundary's own segments: they go with it, and another's may reuse the address.)
+      if (bd.fine && !dynamic_cast<const Segment*>(piece.curve)) {
+        auto key = std::make_tuple(piece.curve, piece.range.lo, piece.range.hi, tol);
+        auto it = bd.fine->find(key);
+        if (it == bd.fine->end()) {
+          boundaryPolylines++;
+          it = bd.fine->emplace(key, polyline(*piece.curve, piece.range, tol)).first;
+        }
+        found = &it->second;
+      } else {
+        boundaryPolylines++;
+        local = polyline(*piece.curve, piece.range, tol);
+        found = &local;
+      }
+      const Poly& poly = *found;
       size_t best = 0;
       double bestF = 0, bestD = kInf;
       for (size_t i = 0; i + 1 < poly.p.size(); i++) {
@@ -617,13 +650,28 @@ RayResult cast(const Boundary& bd, Vec2 p, Vec2 dir, double L, const Periods& pe
   double best = kInf;
   RayResult result = RayResult::out;
   bool hit = false;
+  // The ray's parameters (0 to 1) inside the box [x0, x1] x [y0, y1]: none where it misses (slabs).
+  auto meets = [&](double x0, double x1, double y0, double y1) {
+    double lo = 0, hi = 1;
+    for (int axis = 0; axis < 2; axis++) {
+      const double o = axis ? p.y : p.x, v = (axis ? dir.y : dir.x) * L, a = axis ? y0 : x0, b = axis ? y1 : x1;
+      if (v == 0) {
+        if (o < a || o > b) return false;
+        continue;
+      }
+      double t0 = (a - o) / v, t1 = (b - o) / v;
+      if (t0 > t1) std::swap(t0, t1);
+      lo = std::max(lo, t0), hi = std::min(hi, t1);
+      if (lo > hi) return false;
+    }
+    return true;
+  };
   for (size_t k = 0; k < bd.pieces.size(); k++) {
     const LoopPiece& piece = bd.pieces[k];
-    Bbox b = pieceBox(piece);
+    const Bbox& b = bd.boxes[k];
     for (Vec2 d : shifts(b, near, per)) {
-      if (b.x0 + d.x > near.x1 + tol || b.x1 + d.x < near.x0 - tol || b.y0 + d.y > near.y1 + tol
-        || b.y1 + d.y < near.y0 - tol)
-        continue;
+      // Only a copy whose box (grown by tol) the ray passes through can meet it.
+      if (!meets(b.x0 + d.x - tol, b.x1 + d.x + tol, b.y0 + d.y - tol, b.y1 + d.y + tol)) continue;
       Shifted copy(*piece.curve, d);
       Intersections2 x = intersect2(ray, {0, 1}, copy, piece.range, tol);
       for (const Overlap& o : x.overlaps)
@@ -674,8 +722,7 @@ Side classifyBoundary(const Boundary& bd, Vec2 p, const Periods& per, double tol
   if (onBoundary(bd, p, per, tol)) return Side::on;
   if (bd.pieces.empty()) return Side::in;
   Bbox all;
-  for (const LoopPiece& piece : bd.pieces) {
-    Bbox b = pieceBox(piece);
+  for (const Bbox& b : bd.boxes) {
     all.add({b.x0, b.y0});
     all.add({b.x1, b.y1});
   }
@@ -835,10 +882,16 @@ Estimate signedArea2(const Loop2& loop) {
   return total;
 }
 
-Side classify2(const std::vector<Loop2>& loops, Vec2 p, Periods periods, double tol, Status& status) {
+namespace {
+
+/** classify2 at one point, the loops' pieces' boxes given (boxes[loop][piece]) or made. */
+Side classifyOne(const std::vector<Loop2>& loops, const std::vector<std::vector<Bbox>>* boxes, FineCache* fine,
+  Vec2 p, Periods periods, double tol, Status& status) {
   status = Status::ok;
   Boundary bd;
-  for (size_t i = 0; i < loops.size(); i++) addLoop(bd, loops[i], static_cast<int>(i), periods, tol);
+  bd.fine = fine;
+  for (size_t i = 0; i < loops.size(); i++)
+    addLoop(bd, loops[i], static_cast<int>(i), periods, tol, boxes ? &(*boxes)[i] : nullptr);
   if (bd.gaps) status = Status::invalidModel;
   // On a pole line: on if the face reaches it (a point just off it, on either side, is in).
   bool isU;
@@ -854,6 +907,21 @@ Side classify2(const std::vector<Loop2>& loops, Vec2 p, Periods periods, double 
   }
   Side s = classifyBoundary(bd, p, periods, tol, status);
   return s;
+}
+
+} // namespace
+
+Side classify2(const std::vector<Loop2>& loops, Vec2 p, Periods periods, double tol, Status& status) {
+  return classifyOne(loops, nullptr, nullptr, p, periods, tol, status);
+}
+
+void classify2(const std::vector<Loop2>& loops, const Vec2* p, const double* tol, int n, Periods periods, Side* sides,
+  Status* statuses) {
+  std::vector<std::vector<Bbox>> boxes(loops.size());
+  for (size_t i = 0; i < loops.size(); i++)
+    for (const LoopPiece& piece : loops[i].pieces) boxes[i].push_back(pieceBox(piece));
+  FineCache fine;
+  for (int k = 0; k < n; k++) sides[k] = classifyOne(loops, &boxes, &fine, p[k], periods, tol[k], statuses[k]);
 }
 
 std::vector<int> nest2(const std::vector<Loop2>& loops, Periods periods, double tol, Status& status) {
@@ -873,18 +941,35 @@ std::vector<int> nest2(const std::vector<Loop2>& loops, Periods periods, double 
     winds[i] = len(net) > tol;
     area[i] = std::fabs(signedArea2(loops[i]).value);
   }
+  // Each loop as an enclosure (counterclockwise whatever its orientation), made once. A loop inside another has its
+  // points inside the other's box, in a direction without a period (in a periodic one a copy may hold it): the box of
+  // points on loop i (its polylines' vertices, all on its curves) against loop j's pieces' boxes (which hold them).
+  std::vector<Boundary> enclosures(n);
+  std::vector<Bbox> holds(n), points(n);
+  for (int j = 0; j < n; j++) {
+    if (winds[j]) continue;
+    Loop2 enclosure = loops[j];
+    if (signedArea2(loops[j]).value < 0) {
+      std::reverse(enclosure.pieces.begin(), enclosure.pieces.end());
+      for (LoopPiece& piece : enclosure.pieces) piece.reversed = !piece.reversed;
+    }
+    addLoop(enclosures[j], enclosure, j, periods, tol);
+    for (const Bbox& b : enclosures[j].boxes) holds[j].add({b.x0, b.y0}), holds[j].add({b.x1, b.y1});
+    for (const LoopPiece& piece : loops[j].pieces)
+      for (const Vec2& q : polyline(*piece.curve, piece.range, kInf).p) points[j].add(q);
+  }
+  auto mayHold = [&](int j, int i) {
+    const Bbox &o = holds[j], &b = points[i];
+    if (!(periods.u > 0) && (b.x0 < o.x0 - tol || b.x1 > o.x1 + tol)) return false;
+    if (!(periods.v > 0) && (b.y0 < o.y0 - tol || b.y1 > o.y1 + tol)) return false;
+    return true;
+  };
   for (int i = 0; i < n; i++) {
     if (winds[i]) continue;
     for (int j = 0; j < n; j++) {
-      if (j == i || winds[j]) continue;
-      // Loop j as an enclosure (counterclockwise whatever its orientation): a point of loop i off loop j inside it.
-      Loop2 enclosure = loops[j];
-      if (signedArea2(loops[j]).value < 0) {
-        std::reverse(enclosure.pieces.begin(), enclosure.pieces.end());
-        for (LoopPiece& piece : enclosure.pieces) piece.reversed = !piece.reversed;
-      }
-      Boundary bj;
-      addLoop(bj, enclosure, j, periods, tol);
+      if (j == i || winds[j] || !mayHold(j, i)) continue;
+      // A point of loop i off loop j inside it.
+      const Boundary& bj = enclosures[j];
       bool decided = false, inside = false;
       for (const LoopPiece& piece : loops[i].pieces) {
         for (double f : {0.5, 0.25, 0.75, 0.125}) {
