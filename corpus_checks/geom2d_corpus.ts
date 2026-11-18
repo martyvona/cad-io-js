@@ -1,6 +1,6 @@
 // cad-geom's 2D geometry (geom2d.h, through its WebAssembly module's face API) on every face of every part's B-rep
-// model in the corpus, where the face's loops are all p-curves (STEP files often give none: counted by the file's
-// originating system and skipped; the p-curves projected from 3D curves will bring those in):
+// model in the corpus, its loops the model's p-curves, or where the model has none (STEP files often give none) the
+// face API's projections of their edges' curves (counted; those it can't make, or without 3D curves, skipped):
 //   - nest2 against the loops' bounds where the source gives them (outer: no parent; inner: inside an outer loop),
 //     bands (loops winding around a period, no parent) apart;
 //   - classify2 on points of the boundary: two per coedge on its p-curve must be on; those points moved along the
@@ -51,7 +51,7 @@ const tally = (t: Tally, key: string, ex?: string) => {
   if (ex && e.ex.length < examples) e.ex.push(ex);
 };
 const fresh = () => ({
-  files: 0, parts: 0, faces: 0, judged: 0, planted: 0, caught: [] as string[], plantedAt: [] as string[],
+  files: 0, parts: 0, faces: 0, judged: 0, projected: 0, planted: 0, caught: [] as string[], plantedAt: [] as string[],
   skipped: {} as Tally, nest: {} as Tally, on: {} as Tally, side: {} as Tally, faceSide: {} as Tally,
   self: {} as Tally, occt: {} as Tally, statuses: {} as Tally, gaps: {} as Tally,
 });
@@ -151,7 +151,8 @@ export const check: FileCheck<undefined, Result> = {
         const at = `${where} face #${d.face.id[f]}`, sk = d.surface.kind[d.face.surface[f]!]!;
         const info = g0.faceInfo(f);
         if (info.status !== 'ok') {
-          tally(R.skipped, info.status === 'noPcurve' ? `no p-curves: ${system}` : `${info.status} (${SKIND[sk]})`,
+          tally(R.skipped, info.status === 'noPcurve' ? `no p-curve, nor a 3D curve to project: ${system}`
+            : `${info.status} (${SKIND[sk]})`,
             info.status === 'noPcurve' ? undefined : at);
           continue;
         }
@@ -173,6 +174,7 @@ export const check: FileCheck<undefined, Result> = {
           }
         }
         R.judged++;
+        if (info.projected) R.projected++;
         try {
           // Nesting against the source's bounds.
           const nest = g.nestFace(f, d.face.loopCount[f]!);
@@ -193,8 +195,8 @@ export const check: FileCheck<undefined, Result> = {
           // Boundary points: on, and moved to each side.
           // (The pieces as the API takes them, the face on each one's left: each use's p-curve parameters where it
           // starts and ends, derived from its edge where the model gives none, loops turned round where the face's
-          // sense isn't its surface's.)
-          const on: number[] = [], normals: number[] = [], { coedge, travel } = g0.facePieces(f), rows: number[] = [];
+          // sense isn't its surface's; each use's p-curve the model's, else its projection: evalCoedge.)
+          const on: number[] = [], normals: number[] = [], { coedge, travel } = g0.facePieces(f);
           const seam: boolean[] = [], uses = new Map<number, number>();
           for (let l = d.face.firstLoop[f]!; l < d.face.firstLoop[f]! + d.face.loopCount[f]!; l++) {
             if (d.loop.kind[l] !== LOOP_KIND.edge) continue;
@@ -203,13 +205,13 @@ export const check: FileCheck<undefined, Result> = {
             }
           }
           // A seam (an edge the face uses twice): across it the face goes on, a period on.
-          for (const j of coedge) rows.push(d.coedge.pcurve[j]!), seam.push(uses.get(d.coedge.edge[j]!)! > 1);
+          for (const j of coedge) seam.push(uses.get(d.coedge.edge[j]!)! > 1);
           const onSeam: boolean[] = [];
-          for (let piece = 0; piece < rows.length; piece++) {
+          for (let piece = 0; piece < coedge.length; piece++) {
             {
-              const row = rows[piece]!, from = travel[2 * piece]!, to = travel[2 * piece + 1]!;
+              const from = travel[2 * piece]!, to = travel[2 * piece + 1]!;
               const rev = to < from ? -1 : 1;
-              const e = g0.evalCurve(row, [from + 0.3 * (to - from), from + 0.7 * (to - from)], 1);
+              const e = g0.evalCoedge(coedge[piece]!, [from + 0.3 * (to - from), from + 0.7 * (to - from)], 1);
               for (let s = 0; s < 2; s++) {
                 const v = e.values.subarray(6 * s, 6 * s + 6), tx = rev * v[3]!, ty = rev * v[4]!;
                 const n = Math.hypot(tx, ty);
@@ -244,7 +246,7 @@ export const check: FileCheck<undefined, Result> = {
               for (let j = d.loop.first[l]!; j < d.loop.first[l]! + d.loop.count[l]!; j++) loopOf.set(j, l);
             const ends: number[] = [];
             for (let k = 0; k < coedge.length; k++) {
-              const v = g0.evalCurve(rows[k]!, [travel[2 * k]!, travel[2 * k + 1]!], 0).values;
+              const v = g0.evalCoedge(coedge[k]!, [travel[2 * k]!, travel[2 * k + 1]!], 0).values;
               ends.push(v[0]!, v[1]!, v[3]!, v[4]!);
             }
             const xyz = g0.evalSurface(d.face.surface[f]!, ends, 0).values;
@@ -376,6 +378,7 @@ if (import.meta.main) {
     });
   const caught = new Set(all.caught);
   console.log(`${all.files} files, ${all.parts} B-rep parts, ${all.faces} faces, ${all.judged} judged`
+    + ` (${all.projected} with projected p-curves)`
     + `${withOcct ? ', with OCCT' : ''}; ${((Date.now() - started) / 1000).toFixed(0)} s`);
   if (plant) {
     console.log(`PLANT=${plant}: ${all.planted} parts planted, ${caught.size} seen`);
