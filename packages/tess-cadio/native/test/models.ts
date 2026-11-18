@@ -1,7 +1,7 @@
 // B-reps for the edge sampler's tests (edges_test.cpp), beside cad-brep's (packages/cad-brep/test/models.ts): each
 // the smallest with the case named. `fixtures.ts` writes them, and cad-brep's, as a header.
 import { BrepBuilder } from '../../../cad-brep/src/builder.ts';
-import type { Curve } from '../../../cad-brep/src/types.ts';
+import type { Coedge, Curve } from '../../../cad-brep/src/types.ts';
 
 const AXIS = { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] };
 const line2 = (point: number[], direction: number[]): Curve => ({ kind: 'line', point, direction, magnitude: 1 });
@@ -583,6 +583,59 @@ function greatCircleHalf(r: number, uncertainty?: number): BrepBuilder {
   return b;
 }
 export const meridianHemisphere = (): BrepBuilder => greatCircleHalf(1);
+
+/**
+ * The unit sphere's upper half bounded by its equator and a seam meridian from (1, 0, 0) to the north pole used both
+ * ways, as OCCT and BREP files have a hemisphere; with `degenerate`, a degenerate edge at the pole between the seam's
+ * uses (no curve, its p-curve the row v = pi / 2, as the cone's apex). The seam's p-curves given, at u = 2 pi going up
+ * and u = 0 coming down: the loop's equator and pole row each span the period, the jump across the pole a whole one.
+ * Area 2 pi.
+ */
+function seamHemisphere(degenerate: boolean): BrepBuilder {
+  const b = new BrepBuilder();
+  const v0 = b.addVertex({ point: [1, 0, 0] }), vp = b.addVertex({ point: [0, 0, 1] });
+  const equator = b.addEdge({ curve: b.addCurve({ kind: 'circle', position: AXIS, radius: 1 }), start: v0, end: v0,
+    sameSense: true });
+  // (In the xz plane: its axis -y, so from x up to z over [0, pi / 2].)
+  const seam = b.addEdge({ curve: b.addCurve({ kind: 'circle', position: { origin: [0, 0, 0], axis: [0, -1, 0],
+    xDir: [1, 0, 0] }, radius: 1 }), start: v0, end: vp, sameSense: true, range: [0, Math.PI / 2] });
+  const coedges: Coedge[] = [
+    { edge: equator, orientation: 'forward' },
+    { edge: seam, orientation: 'forward', pcurve: b.addCurve(line2([2 * Math.PI, 0], [0, 1])) }];
+  if (degenerate)
+    coedges.push({ edge: b.addEdge({ start: vp, end: vp, sameSense: true, degenerate: true, tolerance: 1e-7 }),
+      orientation: 'forward', pcurve: b.addCurve(line2([2 * Math.PI, Math.PI / 2], [-1, 0])),
+      range: [0, 2 * Math.PI] });
+  coedges.push({ edge: seam, orientation: 'reversed', pcurve: b.addCurve(line2([0, 0], [0, 1])) });
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'sphere', position: AXIS, radius: 1 }), sameSense: true,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] }));
+  return b;
+}
+
+/**
+ * A cone's side (radius 1 at z = 0, semi-angle 45 degrees, its apex (0, 0, -1) at v = -1) bounded by its base
+ * circle and a seam line from the apex used both ways; with `degenerate`, a degenerate edge at the apex as the
+ * cad-brep cone's (its p-curve the row v = -1). The seam's p-curves given, at u = 2 pi going up and u = 0 coming down.
+ * Area pi sqrt 2.
+ */
+function seamCone(degenerate: boolean): BrepBuilder {
+  const b = new BrepBuilder();
+  const va = b.addVertex({ point: [0, 0, -1] }), vb = b.addVertex({ point: [1, 0, 0] });
+  const base = b.addEdge({ curve: b.addCurve({ kind: 'circle', position: AXIS, radius: 1 }), start: vb, end: vb,
+    sameSense: true });
+  const seam = b.addEdge({ curve: b.addCurve({ kind: 'line', point: [0, 0, -1], direction: [Math.SQRT1_2, 0,
+    Math.SQRT1_2], magnitude: 1 }), start: va, end: vb, sameSense: true, range: [0, Math.SQRT2] });
+  const coedges: Coedge[] = [];
+  if (degenerate)
+    coedges.push({ edge: b.addEdge({ start: va, end: va, sameSense: true, degenerate: true, tolerance: 1e-7 }),
+      orientation: 'forward', pcurve: b.addCurve(line2([0, -1], [1, 0])), range: [0, 2 * Math.PI] });
+  coedges.push({ edge: seam, orientation: 'forward', pcurve: b.addCurve(line2([2 * Math.PI, -1], [0, Math.SQRT1_2])) },
+    { edge: base, orientation: 'reversed' },
+    { edge: seam, orientation: 'reversed', pcurve: b.addCurve(line2([0, -1], [0, Math.SQRT1_2])) });
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'cone', position: AXIS, radius: 1, semiAngle: Math.PI / 4 }),
+    sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] }));
+  return b;
+}
 /**
  * The same at trj5_k1-ug's face 129's radius and uncertainty (3.81, 0.02): samples within 10 x the tolerance of a pole
  * aren't at it. Area 2 pi 3.81^2.
@@ -704,6 +757,34 @@ function tube(tinyArc: boolean, gap = 0, uncertainty?: number, faceTolerance?: n
   return b;
 }
 export const bsplineTube = (): BrepBuilder => tube(false);
+
+/**
+ * A quarter of bsplineTube's surface, u from 1 to 2 (its knots: (0, 2) to (-2, 0) round the axis), bounded by its two
+ * quarter arcs (no p-curves) and its rulings at u = 1 and 2, whose p-curves are given a period up (u = 5 and 6: the
+ * surface closes in fact with period 4, its own range [0, 4]): right p-curves, each a whole period off the range.
+ * Area 5 pi.
+ */
+export function tubeQuarterPeriodUp(): BrepBuilder {
+  const b = new BrepBuilder();
+  const poles = CIRCLE9.xy.map(([x, y]) => [[2 * x!, 2 * y!, 0], [2 * x!, 2 * y!, 5]]);
+  const weights = CIRCLE9.w.map((w) => [w, w]);
+  const surface = b.addSurface({ kind: 'bspline', uDegree: 2, vDegree: 1, uKnots: [0, 1, 2, 3, 4], vKnots: [0, 1],
+    uMultiplicities: [3, 2, 2, 2, 3], vMultiplicities: [2, 2], poles, weights, uClosed: true, vClosed: false,
+    selfIntersect: false, form: 'unspecified' });
+  const p = [[0, 2], [-2, 0]].map(([x, y]) => [b.addVertex({ point: [x!, y!, 0] }), b.addVertex({ point: [x!, y!, 5] })]);
+  const arc = (z: number, start: number, end: number) => b.addEdge({ curve: b.addCurve({ kind: 'circle',
+    position: { ...AXIS, origin: [0, 0, z] }, radius: 2 }), start, end, sameSense: true, range: [Math.PI / 2, Math.PI] });
+  const ruling = (k: number) => b.addEdge({ curve: b.addCurve({ kind: 'line', point: [p[k] === p[0] ? 0 : -2,
+    k === 0 ? 2 : 0, 0], direction: [0, 0, 1], magnitude: 1 }), start: p[k]![0]!, end: p[k]![1]!, sameSense: true,
+    range: [0, 5] });
+  const pcurve = (u: number) => b.addCurve(line2([u, 0], [0, 0.2]));
+  sheet(b, b.addFace({ surface, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [
+    { edge: arc(0, p[0]![0]!, p[1]![0]!), orientation: 'forward' },
+    { edge: ruling(1), orientation: 'forward', pcurve: pcurve(6) },
+    { edge: arc(5, p[0]![1]!, p[1]![1]!), orientation: 'reversed' },
+    { edge: ruling(0), orientation: 'reversed', pcurve: pcurve(5) }] }] }));
+  return b;
+}
 /** The tube with its bottom circle in two arcs, one shorter than the tolerance: not an edge of no length. */
 export const bsplineTubeTinyArc = (): BrepBuilder => tube(true);
 /**
@@ -1284,17 +1365,46 @@ export function passBy(): BrepBuilder {
   return b;
 }
 
+/**
+ * The unit square on z = 0 whose bottom edge, a line (one span: its ends its only samples), has a p-curve wrong
+ * between its ends and at one of them: from (0, 0) to (0.5, 0.3), not (1, 0) (as pr1db #1317's p-curves along a
+ * collapsed row, one 3D point, against their semicircles). The other sides' p-curves are right. With `wiggle`, the
+ * bottom edge's parameter runs 0 to 8 and its p-curve is a polyline right at each eighth but the fifth, 0.3 below:
+ * right at the samples and at each span's middle where the edge is two spans, wrong at the second's first quarter.
+ */
+export function wrongEndPcurve(wiggle = false): BrepBuilder {
+  const b = new BrepBuilder();
+  const corners = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]];
+  const vs = corners.map((point) => b.addVertex({ point }));
+  const coedges = corners.map((c, k) => {
+    const q = corners[(k + 1) % 4]!, d = [q[0]! - c[0]!, q[1]! - c[1]!, 0];
+    const w = wiggle && k === 0 ? 8 : 1;
+    const curve = b.addCurve({ kind: 'line', point: c, direction: d.map((x) => x / w), magnitude: 1 });
+    const edge = b.addEdge({ curve, start: vs[k]!, end: vs[(k + 1) % 4]!, sameSense: true, range: [0, w] });
+    const pcurve = b.addCurve(k !== 0 ? line2([c[0]!, c[1]!], [d[0]!, d[1]!])
+      : wiggle ? { kind: 'polyline', points: Array.from({ length: 9 }, (_, i) => [i / 8, i === 5 ? -0.3 : 0]) }
+        : line2([0, 0], [0.5, 0.3]));
+    return { edge, orientation: 'forward' as const, pcurve };
+  });
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: true,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] }));
+  return b;
+}
+
 export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStrip(true),
   kinkStripQuadratic: () => kinkStrip(false, true), affineFeetOff, plateHoles,
   bsplineApexHole, offPoleArcLoose, loopless, bsplineBall, wholeTorus, wholeSphereVertex,
   bsplineApex: () => bsplineApex(), poleHole, smallHole, sBend, cuspEdge: () => cuspEdge(), nearCusp6,
   bumpPatch: () => bumpPatch(), halfBump: () => bumpPatch(true), thinBand, tubeGapFaceTolerance, tubeGapUncertainty,
   tubeGapBySize, tubeGapOpen, torusOuterHalf, meridianHemisphereLoose, offPoleRest: () => offPoleRest(),
-  offPoleRestLoose: () => offPoleRest(1e-3), wigglyBand, notchBand, bsplineTube, bsplineTubeTinyArc, bsplineDome,
+  seamHemisphere: () => seamHemisphere(true), seamHemisphereBare: () => seamHemisphere(false),
+  seamCone: () => seamCone(true), seamConeBare: () => seamCone(false),
+  offPoleRestLoose: () => offPoleRest(1e-3), wigglyBand, notchBand, bsplineTube, tubeQuarterPeriodUp, bsplineTubeTinyArc, bsplineDome,
   offPoleArc: () => offPoleArc(), offPcurves, bandHoleAtVertex, bandHoleOnCut, halfCap, meridianHemisphere, band: band_,
   bandByInversion, bore, nistBore, seamByInversion, offVertex, pcurveOnly, luneQuarter, luneOnSeam, cap, splineEdge,
   seamFlipped, polylineEdge, pcurveCircle, arcSegment, fold, twisted, wrongSense, zeroEdge, halfCylinderPcurves,
   halfCylinderApart, halfCylinderBare, halfCylinderWest, arcBand, cuspPocket: cuspPocket_,
   cuspPocketMirrored, flowerHole, lobes,
   slitFromCorner, lunePinch, spindleApex: () => spindleCorner(0.005),
-  tinyCap: () => capWithin(0.01), poleLunes, poleLens, curlBack, passBy };
+  tinyCap: () => capWithin(0.01), poleLunes, poleLens, curlBack, passBy,
+  wrongEndPcurve: () => wrongEndPcurve(), wigglePcurve: () => wrongEndPcurve(true) };

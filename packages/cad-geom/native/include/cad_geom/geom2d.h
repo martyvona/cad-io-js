@@ -73,6 +73,18 @@ Estimate signedArea2(const Loop2& loop);
 
 /** A point against the region the loops bound (outer counterclockwise, holes clockwise, as a face's in (u, v)). */
 Side classify2(const std::vector<Loop2>& loops, Vec2 p, Periods periods, double tol, Status& status);
+/**
+ * The polylines classify2 and nest2 have made of loops' pieces for their boxes and on tests (not intersect2's own),
+ * counted for tests; never reset.
+ */
+extern long boundaryPolylines;
+
+/**
+ * classify2 of n points, each at its own tolerance (tol[i]), what doesn't depend on the point made once for them all
+ * (the pieces' boxes, and their polylines at each tolerance asked).
+ */
+void classify2(const std::vector<Loop2>& loops, const Vec2* p, const double* tol, int n, Periods periods, Side* sides,
+  Status* statuses);
 
 /**
  * Each loop's parent: the index of the smallest loop that contains it, or -1 (outermost); where the loops wind

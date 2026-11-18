@@ -463,6 +463,67 @@ function segment(b: BrepBuilder, p: number[], q: number[]): number {
     selfIntersect: false, form: 'polyline_form' });
 }
 
+test('faces: edges on a closed B-spline split at its junction run the way their senses say (and edgeParams)',
+  { skip }, async () => {
+  // A plane's outer loop one closed degree-1 B-spline round the unit square (t 0 to 4, its junction at (0, 0)), split
+  // into two edges at (0, 0) and (1, 1), both with the curve's sense, no p-curves (projected). (0, 0) inverts to
+  // either end; each edge takes the end that runs it forward: [0, 2] and [2, 4], not one across the other's half.
+  // (trj7_k1-sd #30730 face #9390's outer loop had one the long way round.) Then the same with the edges reversed.
+  const module = await init();
+  for (const reversed of [false, true]) {
+    const b = new BrepBuilder();
+    const plane = b.addSurface({ kind: 'plane', position: { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] } });
+    const corners = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0], [0, 0, 0]];
+    const square = b.addCurve({ kind: 'bspline', degree: 1, knots: [0, 1, 2, 3, 4], multiplicities: [2, 1, 1, 1, 2],
+      poles: reversed ? [...corners].reverse() : corners, closed: true, selfIntersect: false, form: 'polyline_form' });
+    const v0 = b.addVertex({ point: [0, 0, 0] }), v2 = b.addVertex({ point: [1, 1, 0] });
+    // Reversed, the curve runs round the other way: the same two edges, each against it.
+    const e0 = b.addEdge({ curve: square, start: v0, end: v2, sameSense: !reversed });
+    const e1 = b.addEdge({ curve: square, start: v2, end: v0, sameSense: !reversed });
+    const f = b.addFace({ surface: plane, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true,
+      coedges: [{ edge: e0, orientation: 'forward' }, { edge: e1, orientation: 'forward' }] }] });
+    b.addItem({ kind: 'face', ref: f });
+    using g = new Geometry(module, new Uint8Array(b.finish().buffer));
+    const info = g.faceInfo(0);
+    assert.equal(info.status, 'ok', `reversed ${reversed}`);
+    assert.equal(info.projected, 2);
+    const pieces = g.facePieces(0);
+    const ranges = [0, 1].map((k) => [pieces.travel[2 * k]!, pieces.travel[2 * k + 1]!]);
+    assert.deepEqual(ranges, reversed ? [[4, 2], [2, 0]] : [[0, 2], [2, 4]], `reversed ${reversed}`);
+    // The same ranges through edgeParams, each edge's start to end.
+    assert.deepEqual([0, 1].map((e) => { const r = g.edgeParams(e); return [r.status, r.t0, r.t1]; }),
+      reversed ? [['ok', 4, 2], ['ok', 2, 0]] : [['ok', 0, 2], ['ok', 2, 4]], `reversed ${reversed}`);
+    assert.equal(g.edgeParams(2).status, 'invalidModel');
+    const r = g.classifyOnFace(0, [0.5, 0.5, 0.25, 0.75, 1.5, 0.5, 0.5, -0.5, 1, 0.5]);
+    assert.deepEqual([...r.statuses], [0, 0, 0, 0, 0]);
+    assert.deepEqual([...r.sides].map((x) => ['in', 'out', 'on'][x]), ['in', 'in', 'out', 'out', 'on'],
+      `reversed ${reversed}`);
+  }
+  {
+    // An open curve whose edge says sameSense though its vertices run against it (the flag wrong), a vertex at each
+    // of its ends: no junction, so the vertices' order stands, t 1 to 0 (not one end twice).
+    const b = new BrepBuilder();
+    const plane = b.addSurface({ kind: 'plane', position: { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] } });
+    const A = [0, 0, 0], B = [1, 0, 0], C = [0, 1, 0];
+    const [va, vb, vc] = [A, B, C].map((p) => b.addVertex({ point: p }));
+    const ab = b.addEdge({ curve: segment(b, B, A), start: va!, end: vb!, sameSense: true });
+    const bc = b.addEdge({ curve: segment(b, B, C), start: vb!, end: vc!, sameSense: true });
+    const ca = b.addEdge({ curve: segment(b, C, A), start: vc!, end: va!, sameSense: true });
+    const f = b.addFace({ surface: plane, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true,
+      coedges: [ab, bc, ca].map((edge) => ({ edge, orientation: 'forward' as const })) }] });
+    b.addItem({ kind: 'face', ref: f });
+    using g = new Geometry(module, new Uint8Array(b.finish().buffer));
+    assert.equal(g.faceInfo(0).status, 'ok');
+    const pieces = g.facePieces(0);
+    assert.ok(Math.abs(pieces.travel[0]! - 1) < 1e-12 && Math.abs(pieces.travel[1]!) < 1e-12,
+      `${pieces.travel[0]}, ${pieces.travel[1]}`);
+    const ep = g.edgeParams(0);
+    assert.ok(ep.status === 'ok' && Math.abs(ep.t0 - 1) < 1e-12 && Math.abs(ep.t1) < 1e-12, JSON.stringify(ep));
+    const r = g.classifyOnFace(0, [0.25, 0.25, 0.75, 0.75]);
+    assert.deepEqual([...r.sides].map((x) => ['in', 'out', 'on'][x]), ['in', 'out']);
+  }
+});
+
 test('faces: a B-spline\'s collapsed side is a pole line; a surface closed in fact gets a period', { skip },
   async () => {
   const module = await init();

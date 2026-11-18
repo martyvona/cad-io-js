@@ -229,6 +229,8 @@ TEST_CASE("curved faces (a seam cylinder, a band, a hemisphere, a cap, a lune): 
          Case{"spheres", 1, 2 * M_PI, 1, {10, 0, 0}, false},
          Case{"halfCap", 0, M_PI * 0.6, 1, {0, 0, 0}, false, 0.1},
          Case{"meridianHemisphere", 0, 2 * M_PI, 1, {0, 0, 0}, false, 0.1},
+         Case{"seamHemisphere", 0, 2 * M_PI, 1, {0, 0, 0}, false},
+         Case{"seamHemisphereBare", 0, 2 * M_PI, 1, {0, 0, 0}, false},
          Case{"meridianHemisphereLoose", 0, 2 * M_PI * 3.81 * 3.81, 3.81, {0, 0, 0}, false, 0.4},
          Case{"offPoleArc", 0, M_PI, 1, {0, 0, 0}, false, 0.1},
          Case{"offPoleArcLoose", 0, M_PI, 1, {0, 0, 0}, false, 0.1},
@@ -288,6 +290,38 @@ TEST_CASE("curved faces (a seam cylinder, a band, a hemisphere, a cap, a lune): 
       }
     }
   }
+}
+
+TEST_CASE("cones with a seam from the apex used both ways: within the deflection, to area, the jump a whole turn") {
+  // The cad-brep cone (no seam p-curves) and seamCone (given, at u = 2 pi up and 0 down), with a degenerate edge at
+  // the apex and without: the loop's jump across the apex a whole period (the seam's two uses either side), not a cut
+  // on top of its seams. Projected and not. Radius 1 at z = 0, the apex (0, 0, -1): a point's distance from the
+  // surface |hypot(x, y) - (1 + z)| / sqrt 2. Area pi sqrt 2.
+  const double area = M_PI * M_SQRT2;
+  for (const char* name : {"cone", "seamCone", "seamConeBare"})
+    for (bool project : {true, false})
+      for (double d : {0.05, 0.01}) {
+        cadgeom::Model m = load(name);
+        REQUIRE(m.ok());
+        PartOptions o = options(d, 0.26);
+        o.projectMissingPcurves = project;
+        PartMesher pm(m, o);
+        const FaceMesh& fm = pm.face(0);
+        if (fm.status != cadgeom::Status::ok)
+          std::printf("  %s: status %d %s\n", name, int(fm.status), fm.cause.c_str());
+        REQUIRE(fm.status == cadgeom::Status::ok);
+        const Vec3 apex{0, 0, -1};
+        Stats st = stats(fm, [](Vec3 p) { return std::fabs(std::hypot(p.x, p.y) - (1 + p.z)) * M_SQRT1_2; }, &apex,
+          1e-12);
+        CHECK_EQ(st.badNormals, 0);
+        CHECK_EQ(st.facing, 0);
+        CHECK(st.worst <= d * (1 + 1e-9));
+        if (!(st.area < area && st.area > area * (1 - 2.5 * d)))
+          std::printf("  %s: area %.9g want %.9g at %g\n", name, st.area, area, d);
+        CHECK(st.area < area && st.area > area * (1 - 2.5 * d));
+        CHECK_EQ(sharedEdges(m, pm, name), 0);
+        CHECK(fm.rejected.empty());
+      }
 }
 
 TEST_CASE("a band narrower than its circles' chords bow (thinBand): its circles split until nothing is refused") {
@@ -1236,6 +1270,11 @@ TEST_CASE("bsplineApex's ring fixed by the pole-ring rule, the mesher outside it
     CHECK_EQ(far, 0);
     CHECK_EQ(turned, 0);
     CHECK_EQ(sharedEdges(m, pm, "bsplineApex"), 0);
+    // Its fans, at an apex-like pole, judged by their deviation alone: none refused.
+    int fans = 0;
+    for (int32_t r : fm.rejected)
+      for (int k = 0; k < 3; k++) fans += cadgeom::norm(fm.points[fm.triangles[3 * r + k]]) < 1e-12;
+    CHECK_EQ(fans, 0);
   }
 }
 
@@ -1274,10 +1313,29 @@ TEST_CASE("one ring per pole across faces: poleLunes' two lunes meet at a pole, 
   CHECK(a0 > 0.5 * a1 && b0 > 0.5 * b1);
 }
 
-TEST_CASE("apex-like rows: within the deflection of one, no normal to hold a triangle to; a smooth pole's held") {
+TEST_CASE("a smooth pole's fans are held to the angle: luneQuarter's at 0.01 rad, its ring at the floor d, refused") {
+  // No fan passes the angle down to d there (the rings floored, poles_test), so the fans' normals, a sphere's, are
+  // judged and refused, counted in rejected: every one at a pole.
+  cadgeom::Model m = load("luneQuarter");
+  REQUIRE(m.ok());
+  PartMesher pm(m, options(0.1, 0.01));
+  const FaceMesh& fm = pm.face(0);
+  REQUIRE(fm.status == cadgeom::Status::ok);
+  int atPole = 0;
+  for (int32_t r : fm.rejected)
+    for (int k = 0; k < 3; k++) atPole += std::fabs(std::fabs(fm.points[fm.triangles[3 * r + k]].z) - 1) < 1e-12;
+  if (atPole == 0) std::printf("  luneQuarter at 0.01 rad: %zu refused, none at a pole\n", fm.rejected.size());
+  CHECK(atPole > 0);
+}
+
+TEST_CASE("accept() holds every triangle to the angle, at an apex too; acceptDeviation() judges a fan's there") {
   // bsplineApex's row v = 0 is its apex, its normal's limit there depending on u (about 70 degrees across); the
   // dome's v = 1 a sphere's pole, one limit. A triangle within 0.1 of each point, its corners' normals further apart
-  // than the angle (0.05) and its deviation well within: accepted at the apex, refused at the pole.
+  // than the angle (0.05) and its deviation well within: refused by accept() at both (outside a pole's ring every
+  // check applies), taken by acceptDeviation() (a fan's at an apex-like pole is judged by its deviation alone).
+  struct Judged {
+    bool accepted, deviation;
+  };
   auto judge = [](const char* name, cadgeom::Box2 box, const Vec2 (&t)[3], Vec3 point, double& spread, bool near) {
     cadgeom::Model m = load(name);
     cadgeom::Status st;
@@ -1297,25 +1355,26 @@ TEST_CASE("apex-like rows: within the deflection of one, no normal to hold a tri
       for (int j = i + 1; j < 3; j++) spread = std::fmax(spread, std::acos(std::clamp(cadgeom::dot(n[i], n[j]), -1.0,
         1.0)));
     REQUIRE((far < 0.08) == near);
-    return c->accept(t);
+    return Judged{c->accept(t), c->acceptDeviation(t)};
   };
   double spread;
   const Vec2 atApex[3] = {{0, 0.02}, {1, 0.02}, {0.5, 0.04}};
-  bool apex = judge("bsplineApex", {{0, 1}, {0, 1}}, atApex, {0, 0, 0}, spread, true);
-  if (!apex || spread < 0.5) std::printf("  at the apex: accepted %d, spread %g\n", apex, spread);
+  Judged apex = judge("bsplineApex", {{0, 1}, {0, 1}}, atApex, {0, 0, 0}, spread, true);
+  if (apex.accepted || !apex.deviation || spread < 0.5)
+    std::printf("  at the apex: accepted %d, by deviation %d, spread %g\n", apex.accepted, apex.deviation, spread);
   CHECK(spread > 0.5);
-  CHECK(apex);
-  // From 0.07 out to 0.16 from it (its patch's box reaching past the deflection, its nearest corner within): held
-  // to the angle again, refused.
+  CHECK(!apex.accepted);
+  CHECK(apex.deviation);
   const Vec2 pastApex[3] = {{0, 0.05}, {1, 0.05}, {0.5, 0.12}};
-  bool past = judge("bsplineApex", {{0, 1}, {0, 1}}, pastApex, {0, 0, 0}, spread, false);
-  if (past) std::printf("  past the apex's deflection: accepted, spread %g\n", spread);
-  CHECK(!past);
+  Judged past = judge("bsplineApex", {{0, 1}, {0, 1}}, pastApex, {0, 0, 0}, spread, false);
+  CHECK(!past.accepted);
   const Vec2 atPole[3] = {{0, 0.97}, {4. / 3, 0.97}, {8. / 3, 0.97}};
-  bool pole = judge("bsplineDome", {{0, 4}, {0, 1}}, atPole, {0, 0, 1}, spread, true);
-  if (pole || spread < 0.06) std::printf("  at the pole: accepted %d, spread %g\n", pole, spread);
+  Judged pole = judge("bsplineDome", {{0, 4}, {0, 1}}, atPole, {0, 0, 1}, spread, true);
+  if (pole.accepted || !pole.deviation || spread < 0.06)
+    std::printf("  at the pole: accepted %d, by deviation %d, spread %g\n", pole.accepted, pole.deviation, spread);
   CHECK(spread > 0.06);
-  CHECK(!pole);
+  CHECK(!pole.accepted);
+  CHECK(pole.deviation);
 }
 
 TEST_CASE("poles as fans: one point per pole, pieces of 22.5 degrees at most, none refused; split rounds off: the "

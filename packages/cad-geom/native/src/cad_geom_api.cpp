@@ -389,7 +389,8 @@ int32_t cg_surface_invert(int32_t h, int32_t row, const double* points, int32_t 
 // against its curve), the use running it forward or back by its orientation. Where the model gives none (STEP
 // never does), it's derived as the p-curve's parameter is defined, the edge's 3D curve's (Part 42's SURFACE_CURVE;
 // brep-reference.md): the edge's range, or its vertices inverted onto its curve (a closed or periodic curve's range
-// a whole period apart where its vertices meet, else the way its sense runs), then checked: the surface at the
+// a whole period apart where its vertices meet, else the way its sense runs, a vertex at a closed non-periodic
+// curve's junction taking the end its sense needs), then checked: the surface at the
 // p-curve's ends must reach the vertices. Past the 3D tolerance (a p-curve parameterized otherwise than its curve,
 // against Part 42: a B-spline fitted to a circle, say), the vertices' (u, v) are inverted onto the p-curve for its
 // own parameters, taken where they land nearer (counted: cg_face_info); else the curve's, within 100 x the tolerance.
@@ -493,6 +494,20 @@ int32_t edgeParams(int32_t h, int e, double& t0, double& t1) {
     } else if (vs == ve && std::isfinite(d.range.lo) && std::isfinite(d.range.hi)) {
       // A closed non-periodic curve (a closed B-spline): its whole domain, the way it runs.
       t0 = forward ? d.range.lo : d.range.hi, t1 = forward ? d.range.hi : d.range.lo;
+    } else if (forward != (t1 > t0) && std::isfinite(d.range.lo) && std::isfinite(d.range.hi)) {
+      // Against the edge's sense: on a curve that closes without a period (a closed B-spline), a vertex at its
+      // junction inverts to either end, so it takes the end that runs the edge the way its sense says (as
+      // tess-cadio's edges.cpp and cad-brep's edgeParams do); otherwise the vertices' order stands.
+      CurvePoint a, b;
+      c3->eval(d.range.lo, 0, a), c3->eval(d.range.hi, 0, b);
+      if (norm(a.p - b.p) <= tol) {
+        auto atJunction = [&](int v) {
+          const Vec3 q = m.vertexPoint(v);
+          return norm(q - a.p) <= tol || norm(q - b.p) <= tol;
+        };
+        if (atJunction(ve)) t1 = forward ? d.range.hi : d.range.lo;
+        else if (atJunction(vs)) t0 = forward ? d.range.lo : d.range.hi;
+      }
     }
   }
   return 0;
@@ -984,6 +999,21 @@ int32_t cg_face_info(int32_t h, int32_t face, double tol3d, double* out) {
 }
 
 /**
+ * The edge's curve parameters at its start and end as the face API takes them (edgeParams: its range where the
+ * model gives one, else its vertices inverted onto its curve, by its sense, a vertex at a closed non-periodic curve's
+ * junction taking the end its sense needs) into out[0..1], NaN both for an edge without a 3D curve (its uses'
+ * p-curves give their own); 0, or why not (makeCurve's status, a face status).
+ */
+int32_t cg_edge_params(int32_t h, int32_t edge, double* out) {
+  Entry* e = entry(h);
+  if (!e || edge < 0 || edge >= e->model.edges()) return static_cast<int32_t>(Status::invalidModel);
+  double t0 = NAN, t1 = NAN;
+  if (int32_t r = edgeParams(h, edge, t0, t1)) return r;
+  out[0] = t0, out[1] = t1;
+  return 0;
+}
+
+/**
  * classify2 of n (u, v) points against the face's loops, each at its own (u, v) tolerance: sides n (0 in, 1 out,
  * 2 on) and statuses n, and the (u, v) tolerance used per point into tolUv n; the face's status as cg_face_info.
  */
@@ -991,13 +1021,12 @@ int32_t cg_face_classify(int32_t h, int32_t face, const double* uv, int32_t n, d
   uint8_t* status, double* tolUv) {
   FaceLoops f = faceLoops(h, face, tol3d);
   if (f.status) return f.status;
-  for (int32_t i = 0; i < n; i++) {
-    Vec2 p{uv[2 * i], uv[2 * i + 1]};
-    Status s;
-    tolUv[i] = uvTolerance(f, p);
-    sides[i] = static_cast<uint8_t>(classify2(f.loops, p, f.periods, tolUv[i], s));
-    status[i] = static_cast<uint8_t>(s);
-  }
+  std::vector<Vec2> p(n);
+  for (int32_t i = 0; i < n; i++) p[i] = {uv[2 * i], uv[2 * i + 1]}, tolUv[i] = uvTolerance(f, p[i]);
+  std::vector<Side> side(n);
+  std::vector<Status> st(n);
+  classify2(f.loops, p.data(), tolUv, n, f.periods, side.data(), st.data());
+  for (int32_t i = 0; i < n; i++) sides[i] = static_cast<uint8_t>(side[i]), status[i] = static_cast<uint8_t>(st[i]);
   return 0;
 }
 
