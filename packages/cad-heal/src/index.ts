@@ -12,7 +12,7 @@ import { type BrepAnalysis, type BrepData, LOOP_KIND, modelHash, PROVENANCE, row
   'cad-brep';
 import { Geometry, type GeomModule, init } from 'cad-geom';
 import type { Diagnostic, Scene, SourceId } from 'cad-scene';
-import { healCurves } from './curves.ts';
+import { type CurvesRecord, healCurves } from './curves.ts';
 import { ModelEdit } from './edit.ts';
 import { tolerances } from './measure.ts';
 
@@ -69,15 +69,15 @@ export async function healPart(model: BrepData, opts: HealOptions = {}, module?:
     g.dispose();
   }
   const healed = edit.finish();
-  const analysis = await analysisOf(healed, model, edit, curves.pcurveFrom, curves.deviation);
+  const analysis = await analysisOf(healed, model, edit, curves);
   if (source) for (const x of diagnostics) x.source = source;
   return { model: healed, changed: edit.edited, analysis, diagnostics };
 }
 
 /** The healed model's analysis: provenance of p-curves and tolerances, the source's tolerances, the deviations
  * measured; the rest not computed (NaN, none). */
-async function analysisOf(healed: BrepData, source: BrepData, edit: ModelEdit, pcurveFrom: Uint8Array,
-  deviation: Float64Array): Promise<BrepAnalysis> {
+async function analysisOf(healed: BrepData, source: BrepData, edit: ModelEdit, curves: CurvesRecord):
+  Promise<BrepAnalysis> {
   const nv = rowCount(healed, 'vertex'), ne = rowCount(healed, 'edge'), nc = rowCount(healed, 'coedge');
   const nan = (n: number) => new Float64Array(n).fill(NaN), zero = (n: number) => new Uint8Array(n);
   const from = (table: 'vertex' | 'edge', n: number) => {
@@ -92,16 +92,20 @@ async function analysisOf(healed: BrepData, source: BrepData, edit: ModelEdit, p
   for (let f = 0; f < rowCount(healed, 'face'); f++) {
     for (let l = healed.face.firstLoop[f]!; l < healed.face.firstLoop[f]! + healed.face.loopCount[f]!; l++) {
       if (healed.loop.kind[l] !== LOOP_KIND.edge) continue;
-      for (let c = healed.loop.first[l]!; c < healed.loop.first[l]! + healed.loop.count[l]!; c++) face[c] = f, loop[c] = l;
+      for (let c = healed.loop.first[l]!; c < healed.loop.first[l]! + healed.loop.count[l]!; c++) {
+        face[c] = f, loop[c] = l;
+      }
     }
   }
   return writeAnalysis({
     analysis: { model: await modelHash(healed), uncertainty: [tolerances(healed).part] },
     vertex: { measured: nan(nv), first: new Int32Array(nv).fill(-1), count: new Int32Array(nv),
       toleranceFrom: from('vertex', nv), givenTolerance: source.vertex.tolerance },
-    edge: { range: nan(2 * ne), rangeFrom: zero(ne), measured: nan(ne), first: new Int32Array(ne).fill(-1),
-      count: new Int32Array(ne), toleranceFrom: from('edge', ne), givenTolerance: source.edge.tolerance },
-    coedge: { range: nan(2 * nc), rangeFrom: zero(nc), deviation, face, loop, pcurveFrom },
+    edge: { range: healed.edge.range, rangeFrom: curves.edgeRangeFrom, measured: nan(ne),
+      first: new Int32Array(ne).fill(-1), count: new Int32Array(ne), toleranceFrom: from('edge', ne),
+      givenTolerance: source.edge.tolerance },
+    coedge: { range: nan(2 * nc), rangeFrom: zero(nc), deviation: curves.deviation, face, loop,
+      pcurveFrom: curves.pcurveFrom },
   });
 }
 

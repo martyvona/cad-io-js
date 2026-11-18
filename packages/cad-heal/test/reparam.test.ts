@@ -1,27 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { CURVE_KIND, type Curve, PROVENANCE, analysisFor } from 'cad-brep';
-import { Geometry, init } from 'cad-geom';
+import { init } from 'cad-geom';
 import { healPart } from '../src/index.ts';
 import { cylinderSide, line2, planeArc, rationalArc } from './models.ts';
+import { sameParameterGap as gap } from './util.ts';
 
 const module = await init();
 
-/** The largest distance, over the edge's range, from the coedge's p-curve at t (through the surface) to its curve at
- * t: the model's rule, measured independently of the pass (its own samples, cad-geom's evaluators). */
-function sameParameterGap(model: ReturnType<ReturnType<typeof cylinderSide>['finish']>, c: number,
-  range: [number, number]): number {
-  using g = new Geometry(module, new Uint8Array(model.buffer));
-  const e = model.coedge.edge[c]!, ci = model.edge.curve[e]!, surface = model.face.surface[0]!;
-  const ts = Array.from({ length: 101 }, (_, i) => range[0] + (range[1] - range[0]) * i / 100);
-  const p = g.evalCoedge(c, ts, 0).values, C = g.evalCurve(ci, ts, 0).values, uv: number[] = [];
-  for (let i = 0; i < ts.length; i++) uv.push(p[3 * i]!, p[3 * i + 1]!);
-  const S = g.evalSurface(surface, uv, 0).values;
-  let w = 0;
-  for (let i = 0; i < ts.length; i++)
-    w = Math.max(w, Math.hypot(S[3 * i]! - C[3 * i]!, S[3 * i + 1]! - C[3 * i + 1]!, S[3 * i + 2]! - C[3 * i + 2]!));
-  return w;
-}
+const sameParameterGap = (d: Parameters<typeof gap>[1], c: number, range: [number, number]) =>
+  gap(module, d, c, range);
 
 const bspline2 = (from: number[], to: number[], knots: [number, number]): Curve => ({ kind: 'bspline', degree: 1,
   knots, multiplicities: [2, 2], poles: [from, to], closed: false, selfIntersect: false, form: 'unspecified' });
@@ -77,6 +65,13 @@ test('pcurveReparam: without a use range, a B-spline by its knots, its range lef
   assert.equal(r.changed, true);
   assert.ok(Number.isNaN(r.model.coedge.range[4]!));
   assert.ok(sameParameterGap(r.model, 2, [0, TWO_PI]) < 1e-9);
+  // The edge's range, absent in the source, written as the one the p-curve's parameter is in.
+  const e = d.coedge.edge[2]!;
+  assert.ok(Number.isNaN(d.edge.range[2 * e]!));
+  assert.deepEqual([...r.model.edge.range.subarray(2 * e, 2 * e + 2)], [0, TWO_PI]);
+  const a = await analysisFor(r.model, r.analysis!);
+  assert.equal(a.edge.rangeFrom[e], PROVENANCE.healed);
+  assert.equal(a.edge.rangeFrom[d.coedge.edge[0]!], PROVENANCE.given, 'the bottom edge\'s range is the source\'s');
 });
 
 test('pcurveReparam: without a use range a line has no ends to map, and is left', async () => {
@@ -105,6 +100,8 @@ test('pcurveReparam: a seam line offset along the seam, on an edge whose range s
   assert.ok(sameParameterGap(r.model, 1, [5, 10]) < 1e-9);
   assert.deepEqual([...r.model.coedge.range.subarray(2, 4)], [5, 10]);
   assert.equal(r.model.coedge.pcurve[3], d.coedge.pcurve[3], 'the right one left');
+  assert.deepEqual(r.diagnostics.map((x) => x.message.replace(/:.*/, '')), ['pcurveReparam'], 'reparameterized, not '
+    + 'replaced');
 });
 
 // A degree 2 B-spline in u along v = `v`, its poles at the Greville abscissae of knots [0, 0.2, 0.5, 1] with
@@ -140,4 +137,15 @@ test('pcurveReparam: on a plane, a rational p-curve run backwards (its weights r
   const r = await healPart(d, {}, module);
   assert.equal(r.changed, true);
   assert.ok(sameParameterGap(r.model, 0, [0, 1]) < 1e-9);
+});
+
+test('pcurveReparam: a map that rounds below the p-curve\'s first knot is taken onto it', async () => {
+  // The seam's range [0.1, 5.1] onto knots [1e-15, 1.3]: at t = 0.1 the map gives 1e-15 - 8e-19, which the
+  // evaluator refuses (a knot that small has no slack).
+  const d = cylinderSide({ seamUp: { pcurve: { kind: 'bspline', degree: 1, knots: [1e-15, 1.3], multiplicities: [2, 2],
+    poles: [[TWO_PI, 0], [TWO_PI, 5]], closed: false, selfIntersect: false, form: 'unspecified' } },
+  seamDown: { pcurve: line2([0, -0.1], [0, 1]) } }, 1e-6, 0.1).finish();
+  const r = await healPart(d, {}, module);
+  assert.deepEqual(r.diagnostics.map((x) => x.message.replace(/:.*/, '')), ['pcurveReparam']);
+  assert.ok(sameParameterGap(r.model, 1, [0.1, 5.1]) < 1e-9);
 });

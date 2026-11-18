@@ -307,7 +307,7 @@ function measurePart(d: BrepData, where: string, R: Result): { keep: Float64Arra
       : undefined;
     tally(R.keep, ratioBin(keep[e]! / tol), ex(keep[e]!));
     tally(R.replace, ratioBin(repl[e]! / tol), ex(repl[e]!));
-    if (!(keep[e]! <= Math.max(tol, focus))) {
+    if (keep[e]! > Math.max(tol, focus)) {
       R.focus.push(`${where} edge ${e} (id ${d.edge.id[e]}): needs ${keep[e]!.toExponential(2)} at tol `
         + `${tol.toExponential(1)}, by ${cause[e]}\n${(detail[e] ?? []).join('\n')}`);
     }

@@ -20,7 +20,8 @@ export function tolerances(d: BrepData) {
   const floor = nv ? 1e-9 * Math.hypot(hi[0]! - lo[0]!, hi[1]! - lo[1]!, hi[2]! - lo[2]!) : 0;
   const unc = d.part.uncertainty[0]!, part = Math.max(Number.isFinite(unc) ? unc : 1e-5, floor);
   const widen = (t: number) => Number.isFinite(t) && t > part ? t : part;
-  return { part, edge: (e: number) => widen(d.edge.tolerance[e]!), vertex: (v: number) => widen(d.vertex.tolerance[v]!) };
+  return { part, edge: (e: number) => widen(d.edge.tolerance[e]!),
+    vertex: (v: number) => widen(d.vertex.tolerance[v]!) };
 }
 
 /** The edge's curve parameters at its start and end (cad-brep's edgeParams), or undefined. */
@@ -61,11 +62,23 @@ export function measureGiven(g: Geometry, d: BrepData, c: number, surface: numbe
   const [t0, t1] = range, ts = Array.from({ length: SAMPLES }, (_, i) => t0 + (t1 - t0) * i / (SAMPLES - 1));
   const C = g.evalCurve(ci, ts, 0);
   if (C.status !== 'ok' || C.statuses.some((s) => s !== 0)) return { kind: 'unmeasured', why: 'curve' };
+  // The p-curve's own row, evaluated whether or not the face API takes the face (it refuses faces whose p-curves'
+  // ranges it can't place: often these).
+  const pc = d.coedge.pcurve[c]!, own = g.curveInfo(pc);
+  // A parameter mapped onto the p-curve's own can miss its domain by rounding (1e-16 below a B-spline's first knot):
+  // within 1e-9 of the domain's width it's taken as the end.
+  const near = (x: number, lo: number, hi: number) => {
+    const sl = Number.isFinite(hi - lo) ? 1e-9 * (hi - lo) : 0;
+    return x < lo && x >= lo - sl ? lo : x > hi && x <= hi + sl ? hi : x;
+  };
+  const clamp = (x: number) => near(x, own.lo, own.hi);
+  // (u, v) taken onto the surface's domain's edge where rounding puts it just past (a B-spline's is bounded).
+  const si = g.surfaceInfo(surface);
   const image = (s: number[]) => {
-    const p = g.evalCoedge(c, s, 0);
+    const p = g.evalCurve(pc, s.map(clamp), 0);
     if (p.status !== 'ok' || p.statuses.some((x) => x !== 0)) return undefined;
     const uv: number[] = [];
-    for (let i = 0; i < s.length; i++) uv.push(p.values[3 * i]!, p.values[3 * i + 1]!);
+    for (let i = 0; i < s.length; i++) uv.push(near(p.values[3 * i]!, ...si.u), near(p.values[3 * i + 1]!, ...si.v));
     const q = g.evalSurface(surface, uv, 0);
     return q.status === 'ok' && !q.statuses.some((x) => x !== 0) ? q.values : undefined;
   };
@@ -83,7 +96,9 @@ export function measureGiven(g: Geometry, d: BrepData, c: number, surface: numbe
   for (const [s0, s1] of [travel, [travel[1], travel[0]] as [number, number]]) {
     const a = (s1 - s0) / (t1 - t0), b = s0 - a * t0;
     const dev = against(image(ts.map((t) => a * t + b)));
-    if (dev <= tol && !(best && best.kind === 'affine' && best.deviation <= dev)) best = { kind: 'affine', a, b, deviation: dev };
+    if (dev <= tol && !(best && best.kind === 'affine' && best.deviation <= dev)) {
+      best = { kind: 'affine', a, b, deviation: dev };
+    }
   }
   if (best) return best;
   // The image, both ways, over the p-curve's travel.
