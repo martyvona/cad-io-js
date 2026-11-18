@@ -39,6 +39,11 @@ struct PoleRing {
   /** The model edges through the pole (a sample within the tolerance of it). */
   std::vector<int> through;
   /**
+   * Each incident portion's nearest approach to the pole: the edge (a model edge or a cut's pseudo-edge) and its
+   * parameter there (ringCuts cuts the ring into the edge from it).
+   */
+  std::vector<std::pair<int, double>> approaches;
+  /**
    * The limits, in 3D from the pole: half the clearance (the ring's reach at half the fixed-coordinate distance to
    * the nearest boundary point away from the pole), the through edges' straight length; the floor; what the face
    * asks (`wanted`) and what it gets once shared (`reach`), the ring's fixed-coordinate offset from the row there
@@ -74,5 +79,12 @@ std::vector<PoleRing> facePoles(const cadgeom::Model& m, int f, const cadgeom::S
  */
 void shareRings(const std::vector<const cadgeom::Surface*>& surfaces, std::vector<std::vector<PoleRing>>& rings,
   double tol);
+
+/**
+ * The ring's cuts (EdgeMesh::cutRings) into its incident edges: from each approach, each way along the edge but past
+ * its ends, to where the edge first reaches the ring's reach from the pole (the edge's end where it never does). The
+ * same edge, approach and reach give the same cut for every face, so faces sharing the edge agree.
+ */
+std::vector<RingCut> ringCuts(const EdgeMesh& em, const PoleRing& ring);
 
 } // namespace tesscadio

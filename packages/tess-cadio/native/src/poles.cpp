@@ -184,6 +184,7 @@ std::vector<PoleRing> facePoles(const Model& m, int f, const Surface& s, const F
         if (again) continue;
         if (!em.isPseudo(e)) through.insert(e), approach.push_back({e, tm});
         else approach.push_back({-1 - e, tm});
+        ring.approaches.push_back({e, tm});
         // The samples out from the approach both ways while they get farther. (A closed edge's approach at its vertex
         // is found on both spans beside it, at its first parameter and its last: walked out from each.)
         auto walk = [&](int k, int step) {
@@ -310,6 +311,36 @@ std::vector<PoleRing> facePoles(const Model& m, int f, const Surface& s, const F
     out.push_back(ring);
   }
   return out;
+}
+
+std::vector<RingCut> ringCuts(const EdgeMesh& em, const PoleRing& ring) {
+  std::vector<RingCut> cuts;
+  if (!(ring.reach > 0)) return cuts;
+  for (auto [e, t0] : ring.approaches) {
+    const EdgeSamples& es = em.edge(e);
+    if (es.t.size() < 2) continue;
+    auto dist = [&](double t) { return norm(em.point(e, t) - ring.pole); };
+    for (double t1 : {es.t.front(), es.t.back()}) {
+      if (t1 == t0) continue;
+      // The first point out from the approach at the reach: marched in sixty-fourths to the first past it, then
+      // halved in between; the edge's end where none is (a closed edge's end may be the pole itself again).
+      double crossing = t1, lo = t0, hi = NAN;
+      for (int k = 1; k <= 64 && std::isnan(hi); k++) {
+        const double t = t0 + (t1 - t0) * k / 64;
+        if (dist(t) >= ring.reach) hi = t;
+        else lo = t;
+      }
+      if (!std::isnan(hi)) {
+        for (int it = 0; it < 80; it++) {
+          const double mid = 0.5 * (lo + hi);
+          (dist(mid) < ring.reach ? lo : hi) = mid;
+        }
+        crossing = hi;
+      }
+      cuts.push_back({e, t0, crossing});
+    }
+  }
+  return cuts;
 }
 
 void shareRings(const std::vector<const Surface*>& surfaces, std::vector<std::vector<PoleRing>>& rings, double tol) {
