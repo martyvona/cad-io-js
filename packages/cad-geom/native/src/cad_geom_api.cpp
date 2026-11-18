@@ -389,7 +389,8 @@ int32_t cg_surface_invert(int32_t h, int32_t row, const double* points, int32_t 
 // against its curve), the use running it forward or back by its orientation. Where the model gives none (STEP
 // never does), it's derived as the p-curve's parameter is defined, the edge's 3D curve's (Part 42's SURFACE_CURVE;
 // brep-reference.md): the edge's range, or its vertices inverted onto its curve (a closed or periodic curve's range
-// a whole period apart where its vertices meet, else the way its sense runs), then checked: the surface at the
+// a whole period apart where its vertices meet, else the way its sense runs, a vertex at a closed non-periodic
+// curve's junction taking the end its sense needs), then checked: the surface at the
 // p-curve's ends must reach the vertices. Past the 3D tolerance (a p-curve parameterized otherwise than its curve,
 // against Part 42: a B-spline fitted to a circle, say), the vertices' (u, v) are inverted onto the p-curve for its
 // own parameters, taken where they land nearer (counted: cg_face_info); else the curve's, within 100 x the tolerance.
@@ -493,6 +494,20 @@ int32_t edgeParams(int32_t h, int e, double& t0, double& t1) {
     } else if (vs == ve && std::isfinite(d.range.lo) && std::isfinite(d.range.hi)) {
       // A closed non-periodic curve (a closed B-spline): its whole domain, the way it runs.
       t0 = forward ? d.range.lo : d.range.hi, t1 = forward ? d.range.hi : d.range.lo;
+    } else if (forward != (t1 > t0) && std::isfinite(d.range.lo) && std::isfinite(d.range.hi)) {
+      // Against the edge's sense: on a curve that closes without a period (a closed B-spline), a vertex at its
+      // junction inverts to either end, so it takes the end that runs the edge the way its sense says (as
+      // tess-cadio's edges.cpp and cad-brep's edgeParams do); otherwise the vertices' order stands.
+      CurvePoint a, b;
+      c3->eval(d.range.lo, 0, a), c3->eval(d.range.hi, 0, b);
+      if (norm(a.p - b.p) <= tol) {
+        auto atJunction = [&](int v) {
+          const Vec3 q = m.vertexPoint(v);
+          return norm(q - a.p) <= tol || norm(q - b.p) <= tol;
+        };
+        if (atJunction(ve)) t1 = forward ? d.range.hi : d.range.lo;
+        else if (atJunction(vs)) t0 = forward ? d.range.lo : d.range.hi;
+      }
     }
   }
   return 0;
