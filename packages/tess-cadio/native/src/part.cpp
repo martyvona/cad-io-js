@@ -75,6 +75,8 @@ struct PartMesher::Impl {
     double at;
     /** The run's first and last points (on the row). */
     BoundaryPoint first, last;
+    /** Whether the pole is smooth (its fan's normals judged) or apex-like (its deviation alone), PoleRing::smooth. */
+    bool smooth = true;
   };
 
   static double fixedOf(Vec2 p, bool isoU) { return isoU ? p.x : p.y; }
@@ -159,6 +161,7 @@ struct PartMesher::Impl {
         // chain runs beside no other boundary.
         const PoleRing& R = *ring;
         const double r = R.radius;
+        fan.smooth = R.smooth;
         const int pieces = ringPieces(s, R, {q0, q1}, r, o.d.linear, o.d.angular);
         std::vector<double> qs;
         double piece = (q1 - q0) / pieces;
@@ -392,7 +395,8 @@ struct PartMesher::Impl {
         double qa = freeOf(mesh.points[a], fan.isoU), qb = freeOf(mesh.points[b], fan.isoU);
         Vec2 tri[3] = {mesh.points[a], mesh.points[b], uvOf(fan.at, 0.5 * (qa + qb), fan.isoU)};
         orient(tri);
-        if (!criteria[f]->accept(tri)) out.rejected.push_back(static_cast<int32_t>(out.triangles.size() / 3));
+        if (!(fan.smooth ? criteria[f]->accept(tri) : criteria[f]->acceptDeviation(tri)))
+          out.rejected.push_back(static_cast<int32_t>(out.triangles.size() / 3));
         // Counterclockwise about the face's normals at its other corners (in (u, v) an end's triangle along its row
         // has no area to tell by).
         Vec3 g = cross(out.points[b] - out.points[a], out.points[pole] - out.points[a]);

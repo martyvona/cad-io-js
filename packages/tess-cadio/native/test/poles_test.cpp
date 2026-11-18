@@ -89,7 +89,7 @@ struct Setup {
                                                                : Vec2{q, ring.at + ring.side * off}; };
         Vec2 t[3] = {uv(r, qa), uv(r, qb), uv(0, 0.5 * (qa + qb))};
         if (cadgeom::cross(t[1] - t[0], t[2] - t[0]) < 0) std::swap(t[1], t[2]);
-        if (!criteria[f]->accept(t)) return false;
+        if (!(ring.smooth ? criteria[f]->accept(t) : criteria[f]->acceptDeviation(t))) return false;
       }
     }
     return true;
@@ -133,6 +133,9 @@ TEST_CASE("a pole's case by where the face's boundary is, smooth or apex-like by
   Setup apex("bsplineApex", 0.1, 0.26);
   REQUIRE(!apex.rings[0].empty());
   CHECK(!apex.rings[0][0].smooth && apex.rings[0][0].spread > 0.26);
+  // Its fans judged by their deviation alone (its rulings straight, the fans flat along them): passing out to half
+  // the clearance, not halved for their normals.
+  CHECK(near(apex.rings[0][0].reach, apex.rings[0][0].clearance, 1e-6));
 }
 
 TEST_CASE("a ring's radius: half the clearance, the through curves' straight length, the fans passing; its floor") {

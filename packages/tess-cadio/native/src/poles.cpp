@@ -94,7 +94,7 @@ int ringPieces(const Surface& s, const PoleRing& ring, std::pair<double, double>
 }
 
 std::vector<PoleRing> facePoles(const Model& m, int f, const Surface& s, const FaceBoundary& fb, const EdgeMesh& em,
-  const SizeField& criteria, double tol, double deflection, double angle) {
+  const SurfaceCriteria& criteria, double tol, double deflection, double angle) {
   std::vector<PoleRing> out;
   std::vector<Singularity> sing;
   s.singularities(sing);
@@ -274,7 +274,7 @@ std::vector<PoleRing> facePoles(const Model& m, int f, const Surface& s, const F
       }
     }
     // The fans at offset r: each run's ring in its pieces, each piece's ends and the pole (at the piece's middle on
-    // the row), judged by the criteria.
+    // the row), judged by the criteria: their normals only at a smooth pole.
     auto passes = [&](double r) {
       for (auto run : ring.runs) {
         const int pieces = ringPieces(s, ring, run, r, deflection, angle);
@@ -284,7 +284,7 @@ std::vector<PoleRing> facePoles(const Model& m, int f, const Surface& s, const F
           Vec2 t[3] = {uvOf(S.at + ring.side * r, qa, S.isoU), uvOf(S.at + ring.side * r, qb, S.isoU),
             uvOf(S.at, 0.5 * (qa + qb), S.isoU)};
           if (cross(t[1] - t[0], t[2] - t[0]) < 0) std::swap(t[1], t[2]);
-          if (!criteria.accept(t)) return false;
+          if (!(ring.smooth ? criteria.accept(t) : criteria.acceptDeviation(t))) return false;
         }
       }
       return true;
