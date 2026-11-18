@@ -22,8 +22,9 @@
 //   TIMEOUT_MS=<ms> each request's limit (default 600000: the question is whether a part meshes, not how fast; a
 //                part slower than the pool's default 120 s is listed as slow, not failed)
 //   SLOW_MS=<ms>    ours slower than this on a part it meshes is listed as slow (default 120000)
-//   IDLE_MS=<ms>    runner.ts's watchdog on a child silent on one file (default here 3600000: a file's parts at
-//                   TIMEOUT_MS each pass runner.ts's 5 minutes, which would kill the child and fail the file)
+//   IDLE_MS=<ms>    runner.ts's watchdog on a child silent on one file (default here 0, none: every request has
+//                   TIMEOUT_MS, but a file of many slow parts at a worker per backend passes any fixed watchdog, 1 h
+//                   included, and its faces would go uncounted)
 // Several files at once (runner.ts: CHILDREN, MESH_WORKERS).
 import fs from 'node:fs';
 import path from 'node:path';
@@ -271,7 +272,8 @@ export const check: FileCheck<string, Tallies> = {
         }
         failedHere++;
         T.facesFailed.cadio++;
-        const why = partFailed ? `part ${ours.status}` : causes.get(id) ?? 'not in our diagnostics';
+        // (A part with no triangles may still name each face's cause: those first, the part's status for the rest.)
+        const why = causes.get(id) ?? (partFailed ? `part ${ours.status}` : 'not in our diagnostics');
         const kind = (decode.surface(d, d.face.surface[row]!) as { kind: string }).kind;
         bump(T.matrix, `${why}\t${col}`);
         bump(T.causes, `${why} (${kind})`);
@@ -356,7 +358,7 @@ function report(label: string, T: Tallies): void {
 
 if (import.meta.main) {
   // (runFiles reads it, in this process.)
-  process.env.IDLE_MS ??= '3600000';
+  process.env.IDLE_MS ??= '0';
   console.log(await hostLine());
   maxBytes = Number(process.argv[3] ?? 1000) * 1e6;
   const ls = lists(process.argv[2]);
