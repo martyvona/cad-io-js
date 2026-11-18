@@ -7,6 +7,7 @@ import type { Diagnostic } from 'cad-scene';
 import type { Curve2, ModelEdit } from './edit.ts';
 import { reparameterize, reparameterized } from './fix/reparam.ts';
 import { projected, replacement } from './fix/replace.ts';
+import { curveOffSurface, GROWTH } from './fix/tolerance.ts';
 import type { HealFix } from './index.ts';
 import { edgeRange, measureGiven, tolerances } from './measure.ts';
 
@@ -45,6 +46,11 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
   const add = (m: Map<string, Tally>, why: string, c: number) =>
     (m.get(why) ?? m.set(why, new Tally()).get(why)!).add(coedgeName(c));
   let worstMade = 0;
+  // Per edge: the largest disagreement measured along it (edgeTolerance's).
+  const need = new Float64Array(rowCount(d, 'edge'));
+  const needs = (e: number, x: number) => {
+    if (x > need[e]!) need[e] = x;
+  };
   let worstGiven = 0, worstNew = 0;
   const coedgeName = (c: number) => `coedge #${d.coedge.id[c]} (edge #${d.edge.id[d.coedge.edge[c]!]})`;
   for (let f = 0; f < rowCount(d, 'face'); f++) {
@@ -78,9 +84,16 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
       for (let c = d.loop.first[l]!; c < d.loop.first[l]! + d.loop.count[l]!; c++) {
         const e = d.coedge.edge[c]!, pc = d.coedge.pcurve[c]!;
         if (pc >= 0) record.pcurveFrom[c] = PROVENANCE.given;
-        else if (onPlane || !fixes.has('pcurveMissing')) continue;
         const range = d.edge.curve[e]! >= 0 ? edgeRange(d, e) : undefined;
         if (!range) continue;
+        // A coedge left without a p-curve: its curve's distance from the surface is what its edge's tolerance needs.
+        const bare = () => {
+          if (fixes.has('edgeTolerance')) needs(e, curveOffSurface(g, d.edge.curve[e]!, range, surface, tol.edge(e)));
+        };
+        if (pc < 0 && (onPlane || !fixes.has('pcurveMissing'))) {
+          bare();
+          continue;
+        }
         // The p-curve's own parameters at the use's ends: the source's range for the use, else the face API's
         // pieces, else the p-curve's finite domain (a B-spline's knots; a line has none).
         const r0 = d.coedge.range[2 * c]!, r1 = d.coedge.range[2 * c + 1]!;
@@ -92,6 +105,8 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
         const m = pc >= 0 ? measureGiven(g, d, c, surface, range, ends, tol.edge(e), periodsOf)
           : { kind: 'unmeasured' as const, why: 'none' };
         if (m.kind !== 'unmeasured') record.deviation[c] = m.deviation;
+        // What the coedge's p-curve needs if it's kept; a fix that changes it says what the new one needs.
+        const kept = m.kind === 'unmeasured' ? NaN : m.deviation;
         // A p-curve the pass writes is in the parameter of `range`, so the edge gets that range where the source
         // gave none: consumers derive ranges by their own searches, which can differ by a period on a closed curve,
         // and the p-curve would be a period off for them. The use's range, in the p-curve's old parameter, becomes
@@ -116,12 +131,14 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
           const curve = 'why' in p ? undefined : onRange(p.curve, p.range);
           if (!curve) {
             add(notMade, 'why' in p ? p.why : 'on another range', c);
+            bare();
             continue;
           }
           edit.set('coedge', 'pcurve', c, edit.addCurve2(curve));
           newRange();
           record.pcurveFrom[c] = PROVENANCE.healed;
           record.deviation[c] = p.error;
+          needs(e, p.error);
           worstMade = Math.max(worstMade, p.error);
           made.add(coedgeName(c));
           continue;
@@ -134,17 +151,22 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
             newRange();
             record.pcurveFrom[c] = PROVENANCE.healed;
             reparam.add(coedgeName(c));
+            needs(e, m.deviation);
             continue;
           }
           reparamKind.add(coedgeName(c));
           // Not representable in the curve's parameter: off for consumers that take it as the curve's.
           off = true;
         }
-        if (!off || !fixes.has('pcurveReplace')) continue;
+        if (!off || !fixes.has('pcurveReplace')) {
+          needs(e, kept);
+          continue;
+        }
         const given = m.kind === 'off' ? Math.max(m.deviation, Number.isNaN(m.ends) ? 0 : m.ends) : Infinity;
         const r = replacement(g, c, onPlane, given);
         if (r.kind === 'none') {
           add(notReplaced, r.why, c);
+          needs(e, kept);
           continue;
         }
         if (Number.isFinite(given)) worstGiven = Math.max(worstGiven, given);
@@ -155,18 +177,37 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
           edit.set('coedge', 'range', 2 * c, NaN), edit.set('coedge', 'range', 2 * c + 1, NaN);
           record.pcurveFrom[c] = PROVENANCE.none;
           dropped.add(coedgeName(c));
+          needs(e, r.error);
         } else {
           const curve = onRange(r.curve, r.range);
           if (!curve) {
             add(notReplaced, 'on another range', c);
+            needs(e, kept);
             continue;
           }
           edit.set('coedge', 'pcurve', c, edit.addCurve2(curve));
           newRange();
           record.pcurveFrom[c] = PROVENANCE.healed;
           replaced.add(coedgeName(c));
+          needs(e, r.error);
         }
       }
+    }
+  }
+  // edgeTolerance: grown where what's measured is past what the edge is judged by.
+  if (fixes.has('edgeTolerance')) {
+    const grown = new Tally();
+    let worst = 0;
+    for (let e = 0; e < need.length; e++) {
+      if (!(need[e]! > tol.edge(e))) continue;
+      edit.set('edge', 'tolerance', e, GROWTH * need[e]!);
+      worst = Math.max(worst, need[e]!);
+      grown.add(`edge #${d.edge.id[e]} (${need[e]!.toPrecision(3)} mm)`);
+    }
+    if (grown.n) {
+      diagnostics.push({ severity: 'warning', message: `edgeTolerance: ${grown.n} edges' tolerances grown to cover `
+        + `their geometry's measured disagreement (up to ${worst.toPrecision(3)} mm, grown to ${GROWTH} times it): `
+        + `${grown.ex.join(', ')}${grown.more()}` });
     }
   }
   if (made.n) {
