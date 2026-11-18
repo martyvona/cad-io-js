@@ -704,6 +704,34 @@ function tube(tinyArc: boolean, gap = 0, uncertainty?: number, faceTolerance?: n
   return b;
 }
 export const bsplineTube = (): BrepBuilder => tube(false);
+
+/**
+ * A quarter of bsplineTube's surface, u from 1 to 2 (its knots: (0, 2) to (-2, 0) round the axis), bounded by its two
+ * quarter arcs (no p-curves) and its rulings at u = 1 and 2, whose p-curves are given a period up (u = 5 and 6: the
+ * surface closes in fact with period 4, its own range [0, 4]): right p-curves, each a whole period off the range.
+ * Area 5 pi.
+ */
+export function tubeQuarterPeriodUp(): BrepBuilder {
+  const b = new BrepBuilder();
+  const poles = CIRCLE9.xy.map(([x, y]) => [[2 * x!, 2 * y!, 0], [2 * x!, 2 * y!, 5]]);
+  const weights = CIRCLE9.w.map((w) => [w, w]);
+  const surface = b.addSurface({ kind: 'bspline', uDegree: 2, vDegree: 1, uKnots: [0, 1, 2, 3, 4], vKnots: [0, 1],
+    uMultiplicities: [3, 2, 2, 2, 3], vMultiplicities: [2, 2], poles, weights, uClosed: true, vClosed: false,
+    selfIntersect: false, form: 'unspecified' });
+  const p = [[0, 2], [-2, 0]].map(([x, y]) => [b.addVertex({ point: [x!, y!, 0] }), b.addVertex({ point: [x!, y!, 5] })]);
+  const arc = (z: number, start: number, end: number) => b.addEdge({ curve: b.addCurve({ kind: 'circle',
+    position: { ...AXIS, origin: [0, 0, z] }, radius: 2 }), start, end, sameSense: true, range: [Math.PI / 2, Math.PI] });
+  const ruling = (k: number) => b.addEdge({ curve: b.addCurve({ kind: 'line', point: [p[k] === p[0] ? 0 : -2,
+    k === 0 ? 2 : 0, 0], direction: [0, 0, 1], magnitude: 1 }), start: p[k]![0]!, end: p[k]![1]!, sameSense: true,
+    range: [0, 5] });
+  const pcurve = (u: number) => b.addCurve(line2([u, 0], [0, 0.2]));
+  sheet(b, b.addFace({ surface, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [
+    { edge: arc(0, p[0]![0]!, p[1]![0]!), orientation: 'forward' },
+    { edge: ruling(1), orientation: 'forward', pcurve: pcurve(6) },
+    { edge: arc(5, p[0]![1]!, p[1]![1]!), orientation: 'reversed' },
+    { edge: ruling(0), orientation: 'reversed', pcurve: pcurve(5) }] }] }));
+  return b;
+}
 /** The tube with its bottom circle in two arcs, one shorter than the tolerance: not an edge of no length. */
 export const bsplineTubeTinyArc = (): BrepBuilder => tube(true);
 /**
@@ -1316,7 +1344,7 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   bsplineApex: () => bsplineApex(), poleHole, smallHole, sBend, cuspEdge: () => cuspEdge(), nearCusp6,
   bumpPatch: () => bumpPatch(), halfBump: () => bumpPatch(true), thinBand, tubeGapFaceTolerance, tubeGapUncertainty,
   tubeGapBySize, tubeGapOpen, torusOuterHalf, meridianHemisphereLoose, offPoleRest: () => offPoleRest(),
-  offPoleRestLoose: () => offPoleRest(1e-3), wigglyBand, notchBand, bsplineTube, bsplineTubeTinyArc, bsplineDome,
+  offPoleRestLoose: () => offPoleRest(1e-3), wigglyBand, notchBand, bsplineTube, tubeQuarterPeriodUp, bsplineTubeTinyArc, bsplineDome,
   offPoleArc: () => offPoleArc(), offPcurves, bandHoleAtVertex, bandHoleOnCut, halfCap, meridianHemisphere, band: band_,
   bandByInversion, bore, nistBore, seamByInversion, offVertex, pcurveOnly, luneQuarter, luneOnSeam, cap, splineEdge,
   seamFlipped, polylineEdge, pcurveCircle, arcSegment, fold, twisted, wrongSense, zeroEdge, halfCylinderPcurves,
