@@ -1284,6 +1284,32 @@ export function passBy(): BrepBuilder {
   return b;
 }
 
+/**
+ * The unit square on z = 0 whose bottom edge, a line (one span: its ends its only samples), has a p-curve wrong
+ * between its ends and at one of them: from (0, 0) to (0.5, 0.3), not (1, 0) (as pr1db #1317's p-curves along a
+ * collapsed row, one 3D point, against their semicircles). The other sides' p-curves are right. With `wiggle`, the
+ * bottom edge's parameter runs 0 to 8 and its p-curve is a polyline right at each eighth but the fifth, 0.3 below:
+ * right at the samples and at each span's middle where the edge is two spans, wrong at the second's first quarter.
+ */
+export function wrongEndPcurve(wiggle = false): BrepBuilder {
+  const b = new BrepBuilder();
+  const corners = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]];
+  const vs = corners.map((point) => b.addVertex({ point }));
+  const coedges = corners.map((c, k) => {
+    const q = corners[(k + 1) % 4]!, d = [q[0]! - c[0]!, q[1]! - c[1]!, 0];
+    const w = wiggle && k === 0 ? 8 : 1;
+    const curve = b.addCurve({ kind: 'line', point: c, direction: d.map((x) => x / w), magnitude: 1 });
+    const edge = b.addEdge({ curve, start: vs[k]!, end: vs[(k + 1) % 4]!, sameSense: true, range: [0, w] });
+    const pcurve = b.addCurve(k !== 0 ? line2([c[0]!, c[1]!], [d[0]!, d[1]!])
+      : wiggle ? { kind: 'polyline', points: Array.from({ length: 9 }, (_, i) => [i / 8, i === 5 ? -0.3 : 0]) }
+        : line2([0, 0], [0.5, 0.3]));
+    return { edge, orientation: 'forward' as const, pcurve };
+  });
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: true,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] }));
+  return b;
+}
+
 export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStrip(true),
   kinkStripQuadratic: () => kinkStrip(false, true), affineFeetOff, plateHoles,
   bsplineApexHole, offPoleArcLoose, loopless, bsplineBall, wholeTorus, wholeSphereVertex,
@@ -1297,4 +1323,5 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   halfCylinderApart, halfCylinderBare, halfCylinderWest, arcBand, cuspPocket: cuspPocket_,
   cuspPocketMirrored, flowerHole, lobes,
   slitFromCorner, lunePinch, spindleApex: () => spindleCorner(0.005),
-  tinyCap: () => capWithin(0.01), poleLunes, poleLens, curlBack, passBy };
+  tinyCap: () => capWithin(0.01), poleLunes, poleLens, curlBack, passBy,
+  wrongEndPcurve: () => wrongEndPcurve(), wigglePcurve: () => wrongEndPcurve(true) };
