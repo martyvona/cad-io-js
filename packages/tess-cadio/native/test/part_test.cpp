@@ -1205,8 +1205,8 @@ TEST_CASE("bsplineApex's ring fixed by the pole-ring rule, the mesher outside it
   // The B-spline cone's apex fans pass out to half its clearance (its rulings straight), so the ring is large and
   // fixed: the mesher's requests to split it are ignored. Every triangle (refused ones too, which accept()'s bound
   // overstates there at 0.001) within the deflection of the surface at its centroid and sides' middles (by
-  // inversion, cad-geom's, not the criteria's, seeded), its corners' normals within the angle of one another but where
-  // a corner is the apex (a fan's, its normal arbitrary).
+  // inversion, cad-geom's, not the criteria's), its corners' normals within the angle of one another but where a
+  // corner is the apex (a fan's, its normal arbitrary).
   for (auto [d, a] : {std::pair{0.01, 0.26}, std::pair{0.1, 0.2618}, std::pair{0.001, 0.1}}) {
     cadgeom::Model m = load("bsplineApex");
     REQUIRE(m.ok());
@@ -1216,29 +1216,12 @@ TEST_CASE("bsplineApex's ring fixed by the pole-ring rule, the mesher outside it
     cadgeom::Status st;
     std::unique_ptr<cadgeom::Surface> s = closedSurface(m, cadgeom::Tolerances(m), 0, st);
     const cadgeom::SurfaceDomain dom = s->domain();
-    // The distance by inversion seeded from the nearest of a 64 x 64 sampling of the surface (cad-geom's search alone
-    // can miss a foot on a side its rectangles share: a point on a ruling here inverted to the apex, 0.357 off).
-    std::vector<std::pair<Vec2, Vec3>> grid;
-    for (int i = 0; i <= 64; i++)
-      for (int j = 0; j <= 64; j++) {
-        Vec2 uv{dom.u.lo + (dom.u.hi - dom.u.lo) * i / 64, dom.v.lo + (dom.v.hi - dom.v.lo) * j / 64};
-        cadgeom::SurfacePoint sp;
-        s->eval(uv.x, uv.y, 0, sp);
-        grid.push_back({uv, sp.p});
-      }
-    auto distance = [&](Vec3 q) {
-      Vec2 seed = grid[0].first;
-      double best = INFINITY;
-      for (const auto& [uv, p] : grid)
-        if (cadgeom::norm(p - q) < best) best = cadgeom::norm(p - q), seed = uv;
-      return std::fmin(best, cadgeom::invertSurface(*s, q, dom.u, dom.v, 1e-12, &seed).distance);
-    };
     int far = 0, turned = 0;
     for (size_t t = 0; t + 2 < fm.triangles.size(); t += 3) {
       const int32_t* v = &fm.triangles[t];
       Vec3 p[3] = {fm.points[v[0]], fm.points[v[1]], fm.points[v[2]]};
       for (Vec3 q : {(1.0 / 3) * (p[0] + p[1] + p[2]), 0.5 * (p[0] + p[1]), 0.5 * (p[1] + p[2]), 0.5 * (p[2] + p[0])})
-        far += distance(q) > d * (1 + 1e-9);
+        far += cadgeom::invertSurface(*s, q, dom.u, dom.v, 1e-12).distance > d * (1 + 1e-9);
       bool apex = false;
       for (const Vec3& q : p) apex = apex || cadgeom::norm(q) < 1e-12;
       if (apex) continue;
