@@ -508,6 +508,71 @@ TEST_CASE("inversion: points near every surface against dense sampling, the foot
   CHECK(n > 200);
 }
 
+TEST_CASE("inversion of points on the sides the search's rectangles share: on the surface, and just off it") {
+  // The search halves rectangles at their middles, so their shared sides lie on dyadic fractions of the range; a foot
+  // on one is each rectangle's minimum pushed to its side, which must not count as pushed past it where the push is
+  // the gradient's rounding (a point on the surface: the difference S - p is rounding, its direction anything).
+  // A B-spline cone (degree 2 by 1, its row v = 0 the apex): half of S(1/6, 1/2), on a ruling at v = 1/4, inverted
+  // to the apex 0.357 off before.
+  {
+    double r[2 + 2 + 18] = {0, 1, 0, 1};
+    double arc[3][3] = {{1, 0, 1}, {1, 1, 1}, {0, 1, 1}};
+    for (int i = 0; i < 3; i++)
+      for (int a = 0; a < 3; a++) r[4 + (i * 2 + 0) * 3 + a] = 0, r[4 + (i * 2 + 1) * 3 + a] = arc[i][a];
+    int32_t in[11 + 4] = {2, 1, 3, 2, 2, 2, 0, 0, 0, 0, 0, 3, 3, 2, 2};
+    Status st;
+    auto cone = surfaces::makeBSpline(r, in, st);
+    REQUIRE(cone);
+    const SurfaceImpl* s = impl(cone.get());
+    SurfaceDomain d = s->domain();
+    Vec3 D[kPartials];
+    s->derivs(1.0 / 6, 0.5, 0, D);
+    Vec3 q = 0.5 * D[0];
+    SurfaceInversion inv = invertSurface(*s, q, d.u, d.v, 1e-12);
+    if (!(inv.distance < 1e-12)) std::printf("  cone: half of S(1/6, 1/2) at distance %.3g\n", inv.distance);
+    CHECK(inv.distance < 1e-12);
+  }
+  // Every surface: points on it with u or v on a dyadic fraction of the range (to sixteenths) and the other random;
+  // on it (the distance under 1e-9 of its size) and 1e-6 of its size off along the normal (the distance that), both
+  // to within p's own rounding.
+  std::mt19937_64 rng(7);
+  std::uniform_real_distribution<double> U(0, 1);
+  std::vector<Made> all = zoo({"s1", "far", "mirror"});
+  for (Made& m : raw()) all.push_back(std::move(m));
+  int bad = 0, n = 0;
+  for (Made& m : all) {
+    const SurfaceImpl* s = impl(m.s.get());
+    SurfaceDomain d = s->domain();
+    Range ru, rv;
+    sampleRange(d, ru, rv);
+    Box3 b;
+    s->derivBox(ru, rv, 0, 0, b);
+    double size = std::fmax(1e-300, std::hypot(b.x.width(), std::hypot(b.y.width(), b.z.width())));
+    for (int k = 1; k < 16; k++)
+      for (int side = 0; side < 2; side++) {
+        double fu = side ? static_cast<double>(k) / 16 : U(rng), fv = side ? U(rng) : static_cast<double>(k) / 16;
+        Vec2 uv{ru.lo + (ru.hi - ru.lo) * fu, rv.lo + (rv.hi - rv.lo) * fv};
+        Vec3 D[kPartials];
+        s->derivs(uv.x, uv.y, 1, D);
+        Vec3 nn = cross(D[pidx(1, 0)], D[pidx(0, 1)]);
+        for (double off : {0.0, 1e-6}) {
+          if (off > 0 && !(norm(nn) > 0)) continue;
+          Vec3 p = off > 0 ? D[0] + (off * size / norm(nn)) * nn : D[0];
+          SurfaceInversion inv = invertSurface(*s, p, ru, rv, 1e-12 * size);
+          n++;
+          // (Plus the rounding of p's coordinates, far from the origin 1e6 x those of a surface about it.)
+          bool ok = inv.status == Status::ok &&
+            inv.distance <= (off > 0 ? off : 1e-9) * size * (1 + 1e-6) + 1e-12 * size + 1e-14 * norm(p);
+          if (!ok && bad++ < 10)
+            std::printf("  %s: (%.17g, %.17g) %s: distance %.3g (size %.3g)\n", m.name.c_str(), uv.x, uv.y,
+              off > 0 ? "off" : "on", inv.distance, size);
+        }
+      }
+  }
+  CHECK_EQ(bad, 0);
+  CHECK(n > 1000);
+}
+
 TEST_CASE("inversion over infinite ranges: a plane and a cylinder from far along the free direction") {
   const fixtures::Reference* ref = fixtures::reference("box", "moved");
   REQUIRE(ref);
