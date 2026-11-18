@@ -14,7 +14,7 @@
 //   - replace: a given p-curve replaced by the projection where the projection is ok and nearer; missing ones made by
 //     projection (max of offSurface, the chosen p-curves' errors, vertex gaps).
 // Usage: node --max-old-space-size=8192 corpus_checks/heal_curves.ts [file-list.txt] [max MB]
-//   SAMPLES=n points per piece (default 17). Several files at once (runner.ts: CHILDREN).
+//   SAMPLES=n points per piece (default 17), DENSE=n points per piece of the p-curve's image (default 129). Several files at once (runner.ts: CHILDREN).
 import fs from 'node:fs';
 import { CURVE_KIND, LOOP_KIND, rowCount, SURFACE_KIND } from '../packages/cad-brep/src/index.ts';
 import { Geometry, init, type GeomModule, type Pcurve } from '../packages/cad-geom/src/index.ts';
@@ -24,7 +24,7 @@ import { addInto, runFiles, type FileCheck } from './runner.ts';
 import { hostLine } from '../scripts/host.ts';
 
 let maxMB = 1000, module: GeomModule;
-const SAMPLES = Number(process.env.SAMPLES ?? 17);
+const SAMPLES = Number(process.env.SAMPLES ?? 17), DENSE = Number(process.env.DENSE ?? 129);
 const SKIND = Object.fromEntries(Object.entries(SURFACE_KIND).map(([k, v]) => [v, k])) as Record<number, string>;
 const CKIND = Object.fromEntries(Object.entries(CURVE_KIND).map(([k, v]) => [v, k])) as Record<number, string>;
 
@@ -39,7 +39,7 @@ const fresh = () => ({
   files: 0, parts: 0, faces: 0, coedges: 0, edges: 0, ms: 0, slowest: [] as string[],
   projection: {} as Tally, given: {} as Tally, ends: {} as Tally, vertices: {} as Tally, faceStatus: {} as Tally,
   keep: {} as Tally, replace: {} as Tally, keepMm: {} as Tally, replaceMm: {} as Tally, planes: {} as Tally,
-  better: {} as Tally, degenerate: {} as Tally,
+  better: {} as Tally, degenerate: {} as Tally, cause: {} as Tally, backward: {} as Tally,
 });
 type Result = ReturnType<typeof fresh>;
 
@@ -51,6 +51,13 @@ const mmBin = (x: number) => !(x <= 1e300) ? 'not measured' : x <= 1e-3 ? '<= 0.
   : x <= 0.1 ? '0.01-0.1 mm' : x <= 1 ? '0.1-1 mm' : '> 1 mm';
 const dist = (a: ArrayLike<number>, i: number, b: ArrayLike<number>, j: number) =>
   Math.hypot(a[i]! - b[j]!, a[i + 1]! - b[j + 1]!, a[i + 2]! - b[j + 2]!);
+/** The distance from point a[i] to the segment b[j]-b[k]. */
+function segDist(a: ArrayLike<number>, i: number, b: ArrayLike<number>, j: number, k: number) {
+  const dx = b[k]! - b[j]!, dy = b[k + 1]! - b[j + 1]!, dz = b[k + 2]! - b[j + 2]!;
+  const px = a[i]! - b[j]!, py = a[i + 1]! - b[j + 1]!, pz = a[i + 2]! - b[j + 2]!;
+  const l2 = dx * dx + dy * dy + dz * dz, t = l2 > 0 ? Math.max(0, Math.min(1, (px * dx + py * dy + pz * dz) / l2)) : 0;
+  return Math.hypot(px - t * dx, py - t * dy, pz - t * dz);
+}
 
 export const check: FileCheck<undefined, Result> = {
   async setup({ args }) {
@@ -83,7 +90,13 @@ export const check: FileCheck<undefined, Result> = {
       const ne = rowCount(d, 'edge');
       // An edge with any coedge not measured (a projection not ok, a given p-curve not sampled) has NaN for good.
       const off = new Float64Array(ne), keep = new Float64Array(ne), repl = new Float64Array(ne);
-      const used = new Uint8Array(ne);
+      const used = new Uint8Array(ne), cause: string[] = [];
+      // What sets an edge's tolerance under keep: the largest term over its coedges.
+      const why = (e: number, terms: Record<string, number>) => {
+        let top = '', at = 0;
+        for (const [k, x] of Object.entries(terms)) if (x > at) top = k, at = x;
+        if (top && at > keep[e]!) cause[e] = top;
+      };
       const max = (a: Float64Array, e: number, x: number) => {
         a[e] = Number.isNaN(x) || Number.isNaN(a[e]!) ? NaN : Math.max(a[e]!, x);
       };
@@ -161,8 +174,12 @@ export const check: FileCheck<undefined, Result> = {
               need = Math.max(need, proj.offSurface);
               if (sk === 'plane' && !given) tally(R.planes, `missing: ${proj.status} ${proj.method}`);
             }
-            const projErr = proj && proj.status === 'ok' ? proj.error : NaN;
+            // A projection that isn't ok (its curve off the surface, or a fit that didn't reach tol) still gives a
+            // p-curve, with its error measured: what a tolerance grown to cover it must reach.
+            const projErr = proj && ['ok', 'invalidModel', 'noConvergence'].includes(proj.status) ? proj.error : NaN;
             if (!given) {
+              why(e, { 'vertex off its curve': vgap, 'curve off its surface': proj?.offSurface ?? 0,
+                'projection error past offSurface': projErr });
               max(keep, e, Math.max(need, projErr));
               max(repl, e, Math.max(need, projErr));
               continue;
@@ -184,6 +201,43 @@ export const check: FileCheck<undefined, Result> = {
             const inv = g.invertCurve(ci, xyz, rlo, rhi, tol);
             let dev = 0;
             for (const x of inv.distance) dev = Math.max(dev, Number.isFinite(x) ? x : Infinity);
+            // The other way: the 3D curve's points against the p-curve's image, a polyline of DENSE points per piece
+            // (a p-curve collapsed onto one point while its curve isn't passes the first way). Each point's distance
+            // to the polyline less the polyline's own error (its chords' midpoints off the image) is a lower bound.
+            const dense: number[] = [], mids: number[] = [];
+            for (let k = 0; k < tr.length; k += 2) {
+              for (let i = 0; i <= 2 * (DENSE - 1); i++) {
+                (i % 2 ? mids : dense).push(tr[k]! + (tr[k + 1]! - tr[k]!) * i / (2 * (DENSE - 1)));
+              }
+            }
+            const img = (ts2: number[]) => {
+              const e2 = g.evalCoedge(c, ts2, 0).values, q: number[] = [];
+              for (let i = 0; i < ts2.length; i++) q.push(e2[3 * i]!, e2[3 * i + 1]!);
+              return g.evalSurface(sf, q, 0).values;
+            };
+            const P = img(dense), M = img(mids);
+            let chordErr = 0;
+            const segs: number[] = [];
+            for (let k = 0, j = 0; k < tr.length / 2; k++) {
+              for (let i = 0; i < DENSE - 1; i++, j++) {
+                const a = 3 * (k * DENSE + i);
+                segs.push(a);
+                chordErr = Math.max(chordErr, segDist(M, 3 * j, P, a, a + 3));
+              }
+            }
+            const cts: number[] = [];
+            for (let i = 0; i < SAMPLES; i++) cts.push(rlo + (rhi - rlo) * i / (SAMPLES - 1));
+            const C = g.evalCurve(ci, cts, 0).values;
+            let back = 0;
+            for (let i = 0; i < SAMPLES; i++) {
+              let best = Infinity;
+              for (const a of segs) best = Math.min(best, segDist(C, 3 * i, P, a, a + 3));
+              back = Math.max(back, best - chordErr);
+            }
+            if (back > dev) tally(R.backward, `the curve's points farther than the p-curve's (${sk})`,
+              back > tol ? `${cat}: ${back.toExponential(2)} back, ${dev.toExponential(2)} forward, chords `
+              + `${chordErr.toExponential(1)}` : undefined);
+            dev = Math.max(dev, back);
             tally(R.given, `${ratioBin(dev / tol)} (${sk})`, dev > tol ? `${cat}: ${dev.toExponential(2)} at tol `
               + `${tol.toExponential(1)}` : undefined);
             // Its ends (the first and last sample) against the edge's vertices, matched either way round.
@@ -197,11 +251,13 @@ export const check: FileCheck<undefined, Result> = {
                 : undefined);
             }
             const keepNeed = Math.max(need, dev, egap);
+            why(e, { 'vertex off its curve': vgap, 'curve off its surface': proj?.offSurface ?? 0,
+              'given p-curve off its curve': dev, 'given p-curve ends off its vertices': egap });
             max(keep, e, keepNeed);
             const better = projErr < Math.max(dev, egap);
             if (dev > tol || egap > tol) {
-              tally(R.better, !proj || proj.status !== 'ok' ? `given off, projection ${proj?.status ?? pr.status}`
-                : better ? 'given off, projection ok and nearer' : 'given off, projection ok, not nearer', cat);
+              tally(R.better, !proj || Number.isNaN(projErr) ? `given off, projection ${proj?.status ?? pr.status}`
+                : `given off, projection ${proj.status} and ${better ? 'nearer' : 'not nearer'}`, cat);
             }
             max(repl, e, better ? Math.max(need, projErr) : keepNeed);
           }
@@ -215,7 +271,8 @@ export const check: FileCheck<undefined, Result> = {
           : undefined;
         tally(R.keep, ratioBin(keep[e]! / tol), ex(keep[e]!));
         tally(R.replace, ratioBin(repl[e]! / tol), ex(repl[e]!));
-        if (keep[e]! > tol) tally(R.keepMm, mmBin(keep[e]!));
+        if (keep[e]! > tol) tally(R.keepMm, mmBin(keep[e]!)), tally(R.cause, `${cause[e] ?? '?'}: ${mmBin(keep[e]!)}`,
+          ex(keep[e]!));
         if (repl[e]! > tol) tally(R.replaceMm, mmBin(repl[e]!));
       }
     }
@@ -253,11 +310,13 @@ if (import.meta.main) {
   printTally('Missing p-curves on planes', all.planes);
   printTally('Given p-curves: deviation from the 3D curve (sampled), by surface', all.given);
   printTally('Given p-curves: ends against the edge\'s vertices', all.ends);
+  printTally('Given p-curves farther the other way (the curve\'s points from the p-curve\'s image)', all.backward);
   printTally('Edges\' vertices against their 3D curves (per coedge)', all.vertices);
   printTally('Given p-curves off their curve or vertices: is the projection better?', all.better);
   printTally('Coedges projected singular or without a range: classified', all.degenerate);
   printTally('Edges: tolerance needed keeping the source\'s p-curves (grow)', all.keep);
   printTally('Edges: tolerance needed replacing given p-curves where the projection is nearer', all.replace);
   printTally('Edges needing growth (keep), by the tolerance they need', all.keepMm);
+  printTally('Edges needing growth (keep), by what sets it and the tolerance needed', all.cause);
   printTally('Edges needing growth (replace), by the tolerance they need', all.replaceMm);
 }
