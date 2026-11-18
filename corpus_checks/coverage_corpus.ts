@@ -316,11 +316,12 @@ function report(label: string, T: Tallies): void {
   console.log('  the matrix, faces (rows ours, columns OCCT and SMLib):');
   const rowsOf = [...new Set([...T.matrix.keys()].map((k) => k.split('\t')[0]!))]
     .sort((a, b) => (a === 'ours meshes' ? -1 : b === 'ours meshes' ? 1 : a < b ? -1 : 1));
-  console.log(`    ${''.padEnd(48)}${COLUMNS.map((c) => c.padStart(12)).join('')}${'all'.padStart(10)}`);
+  // (Counts first and the row's whole label after them: causes are long, and cut ones could look alike.)
+  console.log(`  ${COLUMNS.map((c) => c.padStart(12)).join('')}${'all'.padStart(10)}  ours`);
   for (const row of rowsOf) {
     const cells = COLUMNS.map((c) => T.matrix.get(`${row}\t${c}`) ?? 0);
-    console.log(`    ${row.slice(0, 47).padEnd(48)}${cells.map((n) => String(n).padStart(12)).join('')}`
-      + `${String(cells.reduce((a, n) => a + n, 0)).padStart(10)}`);
+    console.log(`  ${cells.map((n) => String(n).padStart(12)).join('')}`
+      + `${String(cells.reduce((a, n) => a + n, 0)).padStart(10)}  ${row}`);
   }
   const sum = [...T.matrix.values()].reduce((a, n) => a + n, 0);
   const all = sum === T.faces && !T.mismatches.length && !T.failedFiles;
