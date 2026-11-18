@@ -191,8 +191,11 @@ Vec2 convexMinimum(const SurfaceImpl& s, Vec3 p, Range ru, Range rv, Vec2 start,
     double hvv = dot(sv, sv) + dot(e, d[pidx(0, 2)]);
     bool fu = (x.x <= ru.lo && gu > 0) || (x.x >= ru.hi && gu < 0);
     bool fv = (x.y <= rv.lo && gv > 0) || (x.y >= rv.hi && gv < 0);
-    // Pushed out by more than the gradient's rounding: the minimum over the plane is past that side.
-    double slack = 64 * kEps * norm(e) + 1e-300;
+    // Pushed out by more than the gradient's rounding: the minimum over the plane is past that side. The rounding of
+    // S - p is the coordinates' (|p| eps), not only the distance's: for a point on the surface S - p is rounding alone,
+    // its direction anything, and a foot on a side two rectangles share (their halving's middles) would count as
+    // pushed past it from both and be lost.
+    double slack = 64 * kEps * (norm(e) + norm(p)) + 1e-300;
     pushU = fu && std::fabs(gu) > slack * norm(su), pushV = fv && std::fabs(gv) > slack * norm(sv);
     Vec2 n = x;
     if (!fu && !fv) {
