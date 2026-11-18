@@ -928,8 +928,12 @@ struct EdgeMesh::Impl {
         for (Vec2 q : coedges[cs[k]].s.uv) mean += other == 0 ? q.x : q.y, count++;
       return jumpSignAt(f, p, mean / std::max(1, count));
     };
-    // Shift for coedge k to follow point `end` across a junction that's at pole p (-1: none).
-    auto follow = [&](int k, Vec2 end, int p) {
+    // A jump along a pole of none or a whole period (the same point) between coedges ca and cb: the whole period where
+    // they're the two uses of one edge (a seam through the pole, a cone's from its apex: up it and back down, which
+    // no jump would make a slit), else none (a loop touching the pole leaves it where it came).
+    auto wholeTurn = [&](int ca, int cb) { return m.coedgeEdge(cs[ca]) == m.coedgeEdge(cs[cb]); };
+    // Shift for coedge k to follow point `end` (coedge `from`'s) across a junction that's at pole p (-1: none).
+    auto follow = [&](int k, Vec2 end, int p, int from) {
       Vec2 st = coedges[cs[k]].s.uv.front(), sh{0, 0};
       for (int d = 0; d < 2; d++) {
         double P = F.period[d], e = d ? end.y : end.x, s0 = d ? st.y : st.x, x = nearest(s0, e, P);
@@ -938,6 +942,7 @@ struct EdgeMesh::Impl {
           double sg = jumpSign(p), delta = std::fmod((x - e) * sg, P);
           if (delta < 0) delta += P;
           if (delta > P - 1e-9 * P) delta = 0;
+          if (delta == 0 && wholeTurn(from, k)) delta = P;
           x = e + sg * delta;
         }
         (d ? sh.y : sh.x) = x - s0;
@@ -959,7 +964,7 @@ struct EdgeMesh::Impl {
       int p = -1;
       for (int j = prev; j != k; j = (j + 1) % K)
         if (int q = junctionPole(f, cs[j]); q >= 0) p = q;
-      shift[k] = follow(k, last(prev), p);
+      shift[k] = follow(k, last(prev), p, prev);
       placed[k] = 1;
       prev = k;
     }
@@ -971,7 +976,7 @@ struct EdgeMesh::Impl {
         int b = (k + K - 1) % K, a = (k + 1) % K;
         bool fromB = placed[b] && junctionPole(f, cs[b]) < 0, fromA = placed[a] && junctionPole(f, cs[k]) < 0;
         if (!fromB && !fromA) continue;
-        Vec2 sh = fromB ? follow(k, last(b), -1) : Vec2{0, 0};
+        Vec2 sh = fromB ? follow(k, last(b), -1, b) : Vec2{0, 0};
         if (fromA) {
           // Its end onto the next's start.
           Vec2 en = coedges[cs[k]].s.uv.back(), want = first(a), s2{0, 0};
@@ -1050,6 +1055,7 @@ struct EdgeMesh::Impl {
       double delta = std::fmod((x - e) * sg, P);
       if (delta < 0) delta += P;
       if (delta > P - 1e-9 * P) delta = 0;
+      if (delta == 0 && wholeTurn(K - 1, 0)) delta = P;
       (fr ? b.y : b.x) = e + sg * delta;
     }
     if (p >= 0 && norm(a - b) > 1e-12) {

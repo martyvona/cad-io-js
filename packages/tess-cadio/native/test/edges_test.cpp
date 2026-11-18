@@ -181,7 +181,8 @@ Domain2 domainOf(const FaceBoundary& fb) {
 /** The face meshed in its (u, v) at size h; its 3D area (and whether the mesher was content). */
 double meshArea(const cadgeom::Model& m, int f, const FaceBoundary& fb, double h, double dev, Mesh2* out = nullptr) {
   cadgeom::Status st;
-  std::unique_ptr<cadgeom::Surface> s = cadgeom::makeSurface(m, m.faceSurface(f), st);
+  // (The surface as it closes in fact, as the face's: a boundary a period off its own range lands on it.)
+  std::unique_ptr<cadgeom::Surface> s = closedSurface(m, cadgeom::Tolerances(m), f, st);
   Field field(*s, h, dev);
   Mesh2 mesh = mesh2(domainOf(fb), field);
   double area = 0;
@@ -220,7 +221,7 @@ int checkCoedges(const cadgeom::Model& m, const EdgeMesh& em, double gap, const 
   int bad = 0;
   for (int f = 0; f < m.faces(); f++) {
     cadgeom::Status st;
-    std::unique_ptr<cadgeom::Surface> s = cadgeom::makeSurface(m, m.faceSurface(f), st);
+    std::unique_ptr<cadgeom::Surface> s = closedSurface(m, cadgeom::Tolerances(m), f, st);
     for (int i = 0; i < m.faceLoopCount(f); i++) {
       int l = m.faceFirstLoop(f) + i;
       if (m.loopKind(l) != CBR_LOOP_EDGE) continue;
@@ -867,6 +868,37 @@ TEST_CASE("a use's p-curve checked between its samples against its edge's curve:
   REQUIRE(ew.edge(0).t.size() == 3u);
   CHECK(!ew.coedge(0).fromPcurve);
   CHECK_EQ(checkCoedges(w, ew, 1e-9, "wigglePcurve"), 0);
+}
+
+TEST_CASE("a use's given p-curve a whole period off its surface's own range, the surface closed in fact: used") {
+  // tubeQuarterPeriodUp's rulings, their p-curves at u = 5 and 6 on a B-spline whose range in u is [0, 4], closed in
+  // fact (period 4): each checked on the surface as it closes, so on its edge, and used; the boundary the quarter's
+  // (area 5 pi).
+  cadgeom::Model m = load("tubeQuarterPeriodUp");
+  REQUIRE(m.ok());
+  EdgeOptions o;
+  o.deflection = 1e-3;
+  EdgeMesh em(m, o);
+  CHECK(em.coedge(1).fromPcurve && !em.coedge(1).projected);
+  CHECK(em.coedge(3).fromPcurve && !em.coedge(3).projected);
+  // (The arcs' by inversion, within its tolerance of them.)
+  CHECK_EQ(checkCoedges(m, em, 1e-5, "tubeQuarterPeriodUp"), 0);
+  FaceBoundary fb = em.face(0);
+  REQUIRE(fb.status == cadgeom::Status::ok);
+  REQUIRE(fb.loops.size() == 1u);
+  // The loop the quarter's, u 1 to 2 (the rulings' p-curves reduced into the range) and v 0 to 1: area 1 in (u, v).
+  double area = 0, lo = INFINITY, hi = -INFINITY;
+  const auto& L = fb.loops[0];
+  for (size_t k = 0; k < L.size(); k++) {
+    Vec2 a = L[k].uv, b = L[(k + 1) % L.size()].uv;
+    area += 0.5 * (a.x * b.y - b.x * a.y);
+    lo = std::fmin(lo, a.x), hi = std::fmax(hi, a.x);
+  }
+  if (std::fabs(area - 1) > 1e-9 || lo != 1 || hi != 2)
+    std::printf("  tubeQuarterPeriodUp: (u, v) area %.12g, u %g to %g\n", area, lo, hi);
+  CHECK(std::fabs(area - 1) < 1e-9);
+  CHECK(std::fabs(lo - 1) < 1e-12);
+  CHECK(std::fabs(hi - 2) < 1e-12);
 }
 
 TEST_CASE("splits: a sample inside the span asked, clamped, the rest kept; bad requests ignored and reported") {
