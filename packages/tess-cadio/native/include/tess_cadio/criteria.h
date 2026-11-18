@@ -34,6 +34,12 @@ public:
    * offsets) and wherever a bound wasn't available (a cone's axis, a torus's inner half).
    */
   virtual bool bounded() const = 0;
+  /**
+   * The deviation half of accept() alone: the surface within `linear` of the triangle, its normals not judged. For a
+   * fan at an apex-like pole (poles.h), where the normal's limit depends on the way to the point and no normal is
+   * there to hold a triangle's to.
+   */
+  virtual bool acceptDeviation(const cadgeom::Vec2 tri[3]) const = 0;
   // metric(p): the first fundamental form over h^2, h the 3D size the deflections allow there.
   // accept(tri): the surface within `linear` of the triangle at sampled points (its centroid, its edges' middles),
   // and the surface's normals at its corners within `angular` of one another and of the triangle's own normal.
