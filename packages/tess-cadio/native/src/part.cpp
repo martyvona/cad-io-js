@@ -13,15 +13,11 @@
 #include <tuple>
 
 #include "cad_geom/surface.h"
+#include "poles.h"
 
 namespace tesscadio {
 
 using namespace cadgeom;
-
-/** The most a pole's fan triangle spans about the pole in 3D (16 per turn, as pole lines have at least). */
-constexpr double kFanAngle = M_PI / 8;
-/** How many times a fan's pieces may be doubled where the mesh wants its ring split (16 x at most). */
-constexpr int kFanDoublings = 4;
 
 struct PartMesher::Impl {
   const Model& m;
@@ -35,12 +31,8 @@ struct PartMesher::Impl {
   /** Per face, the edges (model and pseudo) its boundary has points of, and the splits its mesh wants. */
   std::vector<std::set<int>> edgesOf;
   std::vector<std::vector<SplitRequest>> wanted;
-  /**
-   * Per face, per fan (in the order makeFans makes them), how many times its pieces were doubled, and the fans whose
-   * ring the face's mesh last wanted split (a ring's segments are this code's own: split by doubling its pieces).
-   */
-  std::vector<std::vector<int>> fanFine;
-  std::vector<std::set<int>> ringWanted;
+  /** Per face, its poles' rings (poles.h), shared across faces and cut into their edges before any face is meshed. */
+  std::vector<std::vector<PoleRing>> rings;
   int rounds = 0;
   /** The progress of the pass under way (PartOptions::progress). */
   PartProgress at;
@@ -81,11 +73,8 @@ struct PartMesher::Impl {
     Vec3 pole;
     bool isoU;
     double at;
-    /** The ring's target radius in the fixed coordinate, and the ends' radii. */
-    double target, ra, rb;
-    /** The ring's farthest point from the pole in 3D. */
-    double reach = 0;
-    BoundaryPoint a, first, last, b;
+    /** The run's first and last points (on the row). */
+    BoundaryPoint first, last;
   };
 
   static double fixedOf(Vec2 p, bool isoU) { return isoU ? p.x : p.y; }
@@ -95,9 +84,9 @@ struct PartMesher::Impl {
   /**
    * Face f's runs of loop points at a pole replaced by rings (each loop's points as they come, the fans' chains
    * recorded): a run of two points or more (a pole line's, or a junction at the pole) between regular points on one
-   * side of the pole's row. The ring spans the run's free coordinate in pieces of at most kFanAngle about the pole
-   * in 3D at one radius: the largest at which such a fan passes accept(), halved from the ends' radii and under half
-   * the clearance of the face's other boundary points in that range.
+   * side of the pole's row, which are the incident curves' crossings of the ring (cutRings made them). The ring is the
+   * pole's (rings[f]): its row at the pole's radius, in pieces by the edge rules (ringPieces). A pole with no ring
+   * keeps its run as it is.
    */
   std::vector<Fan> makeFans(int f, FaceBoundary& fb) const {
     std::vector<Fan> fans;
@@ -105,7 +94,6 @@ struct PartMesher::Impl {
     std::vector<Singularity> sing;
     s.singularities(sing);
     if (sing.empty()) return fans;
-    SurfaceDomain dom = s.domain();
     // At a pole: on its row in (u, v).
     auto poleOf = [&](const BoundaryPoint& p) -> int {
       for (size_t g = 0; g < sing.size(); g++) {
@@ -145,7 +133,10 @@ struct PartMesher::Impl {
         // (Not where an end is on the row itself, all but: a sample inverted to the pole from an edge a little off its
         // surface, its own point not at the pole. The pole line stays as it is there.)
         double onRow = 1e-9 * (1 + std::fabs(S.at));
-        if (len < 2 || !(da * db > 0) || std::fabs(da) <= onRow || std::fabs(db) <= onRow) {
+        const PoleRing* ring = nullptr;
+        for (const PoleRing& pr : rings[f])
+          if (pr.singularity == g && pr.radius > 0) ring = &pr;
+        if (len < 2 || !(da * db > 0) || std::fabs(da) <= onRow || std::fabs(db) <= onRow || !ring) {
           for (int j = 0; j < len; j++) out.push_back(L[(start + k + j) % n]);
           k += len;
           continue;
@@ -159,62 +150,21 @@ struct PartMesher::Impl {
           const BoundaryPoint& q = L[(start + k + j) % n];
           if (q.kind == BoundaryPoint::edgeSample || q.kind == BoundaryPoint::pseudoSample) fan.pole = q.point;
         }
-        fan.a = a, fan.first = first, fan.last = last, fan.b = b;
+        fan.first = first, fan.last = last;
         double side = da > 0 ? 1 : -1, q0 = freeOf(first.uv, S.isoU), q1 = freeOf(last.uv, S.isoU);
-        fan.ra = std::fabs(da), fan.rb = std::fabs(db);
-        // The angle the run spans about the pole in 3D, near it.
-        double eps = 1e-3 * std::min(fan.ra, fan.rb), spanned = 0;
-        Vec3 prev{};
-        for (int j = 0; j <= 64; j++) {
-          SurfacePoint sp;
-          s.eval(uvOf(S.at + side * eps, q0 + (q1 - q0) * j / 64, S.isoU).x,
-            uvOf(S.at + side * eps, q0 + (q1 - q0) * j / 64, S.isoU).y, 0, sp);
-          Vec3 d = sp.p - S.point;  // (about the surface's pole: the run's sample there may be off it by the tolerance)
-          if (j) spanned += std::atan2(norm(cross(prev, d)), dot(prev, d));
-          prev = d;
-        }
-        int m = std::max(1, static_cast<int>(std::ceil(spanned / kFanAngle)));
-        size_t index = fans.size() + mine.size();
-        if (index < fanFine[f].size()) m <<= fanFine[f][index];
-        // Clearance: the face's other boundary points over the run's free range, on its side.
-        double period = S.isoU ? dom.vPeriod : dom.uPeriod, lo = std::min(q0, q1), hi = std::max(q0, q1);
-        bool whole = period > 0 && hi - lo >= period * (1 - 1e-12);
-        double clear = INFINITY;
-        for (const auto& l2 : fb.loops)
-          for (const BoundaryPoint& p : l2) {
-            if (poleOf(p) >= 0 || (p.uv.x == a.uv.x && p.uv.y == a.uv.y) || (p.uv.x == b.uv.x && p.uv.y == b.uv.y))
-              continue;
-            double qf = freeOf(p.uv, S.isoU), df = (fixedOf(p.uv, S.isoU) - S.at) * side;
-            if (period > 0 && !whole) qf = lo + std::fmod(std::fmod(qf - lo, period) + period, period);
-            if (df > 0 && (whole || (qf >= lo && qf <= hi))) clear = std::min(clear, df);
-          }
-        for (const auto& c : fb.interior)
-          for (const BoundaryPoint& p : c) {
-            double df = (fixedOf(p.uv, S.isoU) - S.at) * side;
-            if (df > 0) clear = std::min(clear, df);
-          }
-        // The largest radius at which a ring's fan passes.
-        auto passes = [&](double r) {
-          for (int j = 0; j < m; j++) {
-            double qa = q0 + (q1 - q0) * j / m, qb = q0 + (q1 - q0) * (j + 1) / m;
-            Vec2 tri[3] = {uvOf(S.at + side * r, qa, S.isoU), uvOf(S.at + side * r, qb, S.isoU),
-              uvOf(S.at, 0.5 * (qa + qb), S.isoU)};
-            orient(tri);
-            if (!criteria[f]->accept(tri)) return false;
-          }
-          return true;
-        };
-        double r = std::min({fan.ra, fan.rb, 0.5 * clear});
-        for (int it = 0; it < 40 && !passes(r); it++) r *= 0.5;
-        fan.target = r;
-        // The ring: at the radius throughout, so it stays under the clearance; an end farther out than that (until
-        // its split brings it in) reached along its own row of the free coordinate, so the chain runs beside no other
-        // boundary (the fan's triangle there is a sliver in 3D until then, refused, its corner at the pole).
+        // The ring: its pole's (poles.h: the radius by the pole-ring rule, one reach for every face at the pole, cut
+        // into the curves through it), in pieces by the edge rules, at the radius throughout so it stays under the
+        // clearance. An end off the row by over half as much again (a curve whose crossing at the shared reach is
+        // farther out in this face's fixed coordinate) is reached along its own row of the free coordinate, so the
+        // chain runs beside no other boundary.
+        const PoleRing& R = *ring;
+        const double r = R.radius;
+        const int pieces = ringPieces(s, R, {q0, q1}, r, o.d.linear, o.d.angular);
         std::vector<double> qs;
-        double piece = (q1 - q0) / m;
-        if (fan.ra > 1.5 * r) qs.push_back(q0);
-        for (int j = 1; j < m; j++) qs.push_back(q0 + j * piece);
-        if (fan.rb > 1.5 * r) qs.push_back(q1);
+        double piece = (q1 - q0) / pieces;
+        if (std::fabs(da) > 1.5 * r) qs.push_back(q0);
+        for (int j = 1; j < pieces; j++) qs.push_back(q0 + j * piece);
+        if (std::fabs(db) > 1.5 * r) qs.push_back(q1);
         fan.chain.push_back(static_cast<int>(out.size()) - 1);
         for (double qj : qs) {
           BoundaryPoint q;
@@ -223,7 +173,6 @@ struct PartMesher::Impl {
           SurfacePoint sp;
           s.eval(q.uv.x, q.uv.y, 0, sp);
           q.point = sp.p;
-          fan.reach = std::max(fan.reach, norm(sp.p - S.point));
           fan.chain.push_back(static_cast<int>(out.size()));
           out.push_back(q);
         }
@@ -289,7 +238,6 @@ struct PartMesher::Impl {
     FaceMesh& out = faces[f];
     out = {};
     wanted[f].clear();
-    ringWanted[f].clear();
     edgesOf[f].clear();
     if (!surfaces[f]) {
       out.cause = "its surface not made (a kind or form cad-geom lacks)";
@@ -347,20 +295,6 @@ struct PartMesher::Impl {
     std::vector<std::vector<int32_t>> ring(fans.size());
     for (size_t k = 0; k < fans.size(); k++)
       for (int j : fans[k].chain) ring[k].push_back(d.loops[fans[k].loop][j]);
-    // A fan whose ends are farther from the pole than its ring wants the spans into the pole split there (asked
-    // whatever the mesh does: a boundary the mesher can't take may be one the split rounds bring in).
-    for (const Fan& fan : fans) {
-      int edge, span;
-      bool forward;
-      if (fan.ra > 1.5 * fan.target && spanOf(f, fan.a, fan.first, edge, span, forward)) {
-        double x = 1 - fan.target / fan.ra;
-        wanted[f].push_back({edge, span, forward ? x : 1 - x});
-      }
-      if (fan.rb > 1.5 * fan.target && spanOf(f, fan.last, fan.b, edge, span, forward)) {
-        double x = fan.target / fan.rb;
-        wanted[f].push_back({edge, span, forward ? x : 1 - x});
-      }
-    }
     MeshOptions mo;
     mo.maxPoints = o.maxPointsPerFace;
     if (o.progress) mo.onWork = [this] { o.progress(at); };
@@ -392,27 +326,16 @@ struct PartMesher::Impl {
     for (const auto& l : d.loops)
       for (size_t k = 0; k < l.size(); k++) segs.push_back({l[k], l[(k + 1) % l.size()]});
     for (size_t k = 0; k + 1 < d.segments.size(); k += 2) segs.push_back({d.segments[k], d.segments[k + 1]});
-    // A fan's ring's segments, by their ends (a ring split by doubling its pieces next round).
-    std::map<std::pair<int32_t, int32_t>, int> ringOf;
-    for (size_t k = 0; k < fans.size(); k++)
-      for (size_t j = 0; j + 1 < ring[k].size(); j++)
-        ringOf[{std::min(ring[k][j], ring[k][j + 1]), std::max(ring[k][j], ring[k][j + 1])}] = static_cast<int>(k);
     for (const SplitWanted& w : mesh.splitWanted) {
       if (w.segment < 0 || w.segment >= static_cast<int32_t>(segs.size())) continue;
       int edge, span;
       bool forward;
       auto [a, b] = segs[w.segment];
-      if (spanOf(f, bp[a], bp[b], edge, span, forward)) {
+      if (spanOf(f, bp[a], bp[b], edge, span, forward))
         wanted[f].push_back({edge, span, forward ? w.fraction : 1 - w.fraction});
-      } else if (auto r = ringOf.find({std::min(a, b), std::max(a, b)}); r != ringOf.end()) {
-        // (Not a ring within a hundredth of the deflection of its pole: a stopgap, not a rule. It prevents needles
-        // at Albatros #787's face 5754's apex, its ring 1e-5 mm out (29 refused doubled, 0 not); it costs
-        // bsplineApexHole, whose ring well within it doubles to better (306 triangles against 634 at 0.1 mm, and 0
-        // refused against 2 at 0.1 rad). What makes 5754's needles isn't known yet.)
-        if (fans[r->second].reach >= 0.01 * o.d.linear) ringWanted[f].insert(r->second);
-      }
     }
-    // (A pole line's segments, which the floored metric can find long, can't be split.)
+    // (A pole line's segments, which the floored metric can find long, can't be split; a ring is fixed: its segments
+    // are this code's own, and the edges' spans inside it are kept empty, cutRings.)
     out.splitsWanted = static_cast<int>(wanted[f].size());
     out.sampled = !criteria[f]->bounded();
     // In 3D: the boundary's points exactly, the mesher's on the surface.
@@ -510,8 +433,7 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
   I.faces.resize(nf);
   I.edgesOf.resize(nf);
   I.wanted.resize(nf);
-  I.fanFine.resize(nf);
-  I.ringWanted.resize(nf);
+  I.rings.resize(nf);
   const cadgeom::Tolerances tols(m);
   for (int f = 0; f < nf; f++) {
     Status st;
@@ -554,6 +476,26 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
   EdgeOptions eo = I.edgeOptions();
   eo.progress = I.edgeProgress(PartProgress::edges);
   I.em = std::make_unique<EdgeMesh>(m, eo, spacing);
+  // The poles' rings: each face's, one reach per pole across faces, cut into the edges through them once for all.
+  {
+    std::vector<const Surface*> sp(nf, nullptr);
+    for (int f = 0; f < nf; f++) {
+      sp[f] = I.surfaces[f].get();
+      if (!I.surfaces[f] || !I.criteria[f]) continue;
+      FaceBoundary fb = I.em->face(f);
+      if (fb.status != Status::ok) continue;
+      I.rings[f] = facePoles(m, f, *I.surfaces[f], fb, *I.em, *I.criteria[f], tols.face(f), I.o.d.linear,
+        I.o.d.angular);
+    }
+    shareRings(sp, I.rings, tols.part());
+    std::vector<RingCut> cuts;
+    std::set<std::tuple<int, double, double>> seen;
+    for (int f = 0; f < nf; f++)
+      for (const PoleRing& r : I.rings[f])
+        for (const RingCut& c : ringCuts(*I.em, r))
+          if (seen.insert({c.edge, c.approach, c.crossing}).second) cuts.push_back(c);
+    if (!cuts.empty()) I.em->cutRings(cuts);
+  }
   I.at = {PartProgress::meshing, 0, 0, 0, nf};
   for (int f = 0; f < nf; f++, I.at.facesDone++) I.meshFace(f);
   for (I.rounds = 0; I.rounds < I.o.maxSplitRounds; I.rounds++) {
@@ -563,21 +505,14 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
     for (int f = 0; f < nf; f++)
       for (const SplitRequest& r : I.wanted[f])
         if (seen.insert({r.edge, r.span}).second) requests.push_back(r);
-    // And the fans whose rings were wanted split: their pieces doubled (16 times at most), their faces meshed again.
-    std::set<int> rings;
-    for (int f = 0; f < nf; f++)
-      for (int k : I.ringWanted[f]) {
-        if (static_cast<int>(I.fanFine[f].size()) <= k) I.fanFine[f].resize(k + 1, 0);
-        if (I.fanFine[f][k] < kFanDoublings) I.fanFine[f][k]++, rings.insert(f);
-      }
-    if (requests.empty() && rings.empty()) break;
+    if (requests.empty()) break;
     I.report({PartProgress::splitting, -1, I.rounds + 1, 0, static_cast<int>(requests.size())});
-    if (!requests.empty()) I.em->split(requests);
+    I.em->split(requests);
     std::set<int> touched;
     for (const SplitRequest& r : requests) touched.insert(r.edge);
     std::vector<int> redo;
     for (int f = 0; f < nf; f++) {
-      bool again = rings.count(f) > 0;
+      bool again = false;
       for (int e : touched) again = again || I.edgesOf[f].count(e);
       if (again) redo.push_back(f);
     }
