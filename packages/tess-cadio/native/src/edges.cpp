@@ -536,6 +536,18 @@ struct EdgeMesh::Impl {
         if (st != Status::ok || (!end && norm(surfaceAt(C.face, seeds.back()) - E.s.points[s.index[i]]) > miss))
           C.pcurveOff = true;
       }
+      // And between the samples, at each span's quarters and middle, against the edge's own curve: a use with its
+      // ends alone (no inside sample to judge by) or a long span has the p-curve checked there too (pr1db #1317's,
+      // a semicircle's p-curve on a collapsed row, one point in 3D, 112 off).
+      for (int i = 0; i + 1 < n && !C.pcurveOff && E.geom; i++)
+        for (double f : {0.25, 0.5, 0.75}) {
+          const double t = E.s.t[s.index[i]] + f * (E.s.t[s.index[i + 1]] - E.s.t[s.index[i]]);
+          CurvePoint q;
+          if (C.pcurve->eval(t, 0, q) != Status::ok || norm(surfaceAt(C.face, {q.p.x, q.p.y}) - E.geom->at(t)) > miss) {
+            C.pcurveOff = true;
+            break;
+          }
+        }
       if (!C.pcurveOff) {
         s.fromPcurve = true;
         s.projected = C.projected;

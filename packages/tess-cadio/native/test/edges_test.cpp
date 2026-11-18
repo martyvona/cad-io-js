@@ -841,6 +841,34 @@ TEST_CASE("rings cut into edges: the approach and the crossing samples, nothing 
   CHECK_EQ(eb.edge(pe).t.size(), pt.size() - (pt.size() / 2 - 1));
 }
 
+TEST_CASE("a use's p-curve checked between its samples against its edge's curve: ends alone, a span's quarter") {
+  // wrongEndPcurve's bottom p-curve runs to (0.5, 0.3), not (1, 0): off its line by far more than 100 x the tolerance
+  // at its span's quarters and middle (it has no inside sample), so the use is placed by inversion, the square's
+  // boundary its own (area 1). The right p-curves of the other sides are still used.
+  cadgeom::Model m = load("wrongEndPcurve");
+  REQUIRE(m.ok());
+  EdgeOptions o;
+  o.deflection = 1e-3;
+  EdgeMesh em(m, o);
+  REQUIRE(em.edge(0).t.size() == 2u);
+  CHECK(!em.coedge(0).fromPcurve);
+  for (int c = 1; c < 4; c++) CHECK(em.coedge(c).fromPcurve);
+  CHECK_EQ(checkCoedges(m, em, 1e-9, "wrongEndPcurve"), 0);
+  FaceBoundary fb = em.face(0);
+  REQUIRE(fb.status == cadgeom::Status::ok);
+  double area = meshArea(m, 0, fb, 0.25, 1e-3);
+  CHECK(std::fabs(area - 1) < 1e-9);
+  // wigglePcurve's, right at the samples and the spans' middles (two spans at a spacing of 0.6), wrong at the second
+  // span's first quarter: by inversion too.
+  cadgeom::Model w = load("wigglePcurve");
+  REQUIRE(w.ok());
+  o.maxSpacing = 0.6;
+  EdgeMesh ew(w, o);
+  REQUIRE(ew.edge(0).t.size() == 3u);
+  CHECK(!ew.coedge(0).fromPcurve);
+  CHECK_EQ(checkCoedges(w, ew, 1e-9, "wigglePcurve"), 0);
+}
+
 TEST_CASE("splits: a sample inside the span asked, clamped, the rest kept; bad requests ignored and reported") {
   cadgeom::Model m = load("band");
   REQUIRE(m.ok());
