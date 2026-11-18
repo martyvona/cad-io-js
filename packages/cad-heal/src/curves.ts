@@ -4,9 +4,9 @@
 import { type BrepData, LOOP_KIND, PROVENANCE, rowCount, SURFACE_KIND } from 'cad-brep';
 import type { Geometry } from 'cad-geom';
 import type { Diagnostic } from 'cad-scene';
-import type { ModelEdit } from './edit.ts';
+import type { Curve2, ModelEdit } from './edit.ts';
 import { reparameterize, reparameterized } from './fix/reparam.ts';
-import { replacement } from './fix/replace.ts';
+import { projected, replacement } from './fix/replace.ts';
 import type { HealFix } from './index.ts';
 import { edgeRange, measureGiven, tolerances } from './measure.ts';
 
@@ -41,34 +41,56 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
     if (Number.isFinite(d.edge.range[2 * e]!)) record.edgeRangeFrom[e] = PROVENANCE.given;
   }
   const reparam = new Tally(), reparamKind = new Tally(), replaced = new Tally(), dropped = new Tally();
-  const notReplaced = new Map<string, Tally>();
+  const made = new Tally(), notReplaced = new Map<string, Tally>(), notMade = new Map<string, Tally>();
+  const add = (m: Map<string, Tally>, why: string, c: number) =>
+    (m.get(why) ?? m.set(why, new Tally()).get(why)!).add(coedgeName(c));
+  let worstMade = 0;
   let worstGiven = 0, worstNew = 0;
   const coedgeName = (c: number) => `coedge #${d.coedge.id[c]} (edge #${d.edge.id[d.coedge.edge[c]!]})`;
   for (let f = 0; f < rowCount(d, 'face'); f++) {
     const surface = d.face.surface[f]!, onPlane = d.surface.kind[surface] === SURFACE_KIND.plane;
-    // Each coedge's p-curve parameters along its use, where it's one piece, and the face's periods (the face API's).
-    const pieces = g.facePieces(f), travel = new Map<number, [number, number] | null>(), info = g.faceInfo(f);
-    const periods: [number, number] = info.status === 'ok' ? [info.uPeriod, info.vPeriod] : [0, 0];
-    if (pieces.status === 'ok') {
-      for (let k = 0; k < pieces.coedge.length; k++) {
-        const c = pieces.coedge[k]!;
-        travel.set(c, travel.has(c) ? null : [pieces.travel[2 * k]!, pieces.travel[2 * k + 1]!]);
+    // Each coedge's p-curve parameters along its use, where it's one piece, and the face's periods: the face API's,
+    // asked only where needed, since the face API's first query on a face projects every coedge of it that has no
+    // p-curve (the cost pcurveMissing's switch is for).
+    let travel: Map<number, [number, number] | null> | undefined, periods: [number, number] | undefined;
+    const travelOf = (c: number) => {
+      if (!travel) {
+        travel = new Map();
+        const pieces = g.facePieces(f);
+        if (pieces.status === 'ok') {
+          for (let k = 0; k < pieces.coedge.length; k++) {
+            const x = pieces.coedge[k]!;
+            travel.set(x, travel.has(x) ? null : [pieces.travel[2 * k]!, pieces.travel[2 * k + 1]!]);
+          }
+        }
       }
-    }
+      return travel.get(c) ?? undefined;
+    };
+    const periodsOf = () => {
+      if (!periods) {
+        const info = g.faceInfo(f);
+        periods = info.status === 'ok' ? [info.uPeriod, info.vPeriod] : [0, 0];
+      }
+      return periods;
+    };
     for (let l = d.face.firstLoop[f]!; l < d.face.firstLoop[f]! + d.face.loopCount[f]!; l++) {
       if (d.loop.kind[l] !== LOOP_KIND.edge) continue;
       for (let c = d.loop.first[l]!; c < d.loop.first[l]! + d.loop.count[l]!; c++) {
         const e = d.coedge.edge[c]!, pc = d.coedge.pcurve[c]!;
-        if (pc < 0) continue;
-        record.pcurveFrom[c] = PROVENANCE.given;
+        if (pc >= 0) record.pcurveFrom[c] = PROVENANCE.given;
+        else if (onPlane || !fixes.has('pcurveMissing')) continue;
         const range = d.edge.curve[e]! >= 0 ? edgeRange(d, e) : undefined;
         if (!range) continue;
         // The p-curve's own parameters at the use's ends: the source's range for the use, else the face API's
         // pieces, else the p-curve's finite domain (a B-spline's knots; a line has none).
-        const r0 = d.coedge.range[2 * c]!, r1 = d.coedge.range[2 * c + 1]!, own = g.curveInfo(pc);
-        const ends: [number, number] | undefined = Number.isFinite(r0) && Number.isFinite(r1) ? [r0, r1]
-          : travel.get(c) ?? (Number.isFinite(own.lo) && Number.isFinite(own.hi) ? [own.lo, own.hi] : undefined);
-        const m = measureGiven(g, d, c, surface, range, ends, tol.edge(e), periods);
+        const r0 = d.coedge.range[2 * c]!, r1 = d.coedge.range[2 * c + 1]!;
+        const ends = (): [number, number] | undefined => {
+          if (Number.isFinite(r0) && Number.isFinite(r1)) return [r0, r1];
+          const own = g.curveInfo(pc);
+          return travelOf(c) ?? (Number.isFinite(own.lo) && Number.isFinite(own.hi) ? [own.lo, own.hi] : undefined);
+        };
+        const m = pc >= 0 ? measureGiven(g, d, c, surface, range, ends, tol.edge(e), periodsOf)
+          : { kind: 'unmeasured' as const, why: 'none' };
         if (m.kind !== 'unmeasured') record.deviation[c] = m.deviation;
         // A p-curve the pass writes is in the parameter of `range`, so the edge gets that range where the source
         // gave none: consumers derive ranges by their own searches, which can differ by a period on a closed curve,
@@ -83,6 +105,27 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
             edit.set('coedge', 'range', 2 * c, range[0]), edit.set('coedge', 'range', 2 * c + 1, range[1]);
           }
         };
+        // A projection's parameter onto `range`'s: equal, or a period apart (the face API's edge range may be).
+        const onRange = (curve: Curve2, from: [number, number]) => {
+          const shift = from[0] - range[0];
+          return Math.abs(from[1] - range[1] - shift) <= 1e-9 * Math.max(1, Math.abs(range[1] - range[0]))
+            ? shift === 0 ? curve : reparameterize(curve, 1, shift) : undefined;
+        };
+        if (pc < 0) {
+          const p = projected(g, c);
+          const curve = 'why' in p ? undefined : onRange(p.curve, p.range);
+          if (!curve) {
+            add(notMade, 'why' in p ? p.why : 'on another range', c);
+            continue;
+          }
+          edit.set('coedge', 'pcurve', c, edit.addCurve2(curve));
+          newRange();
+          record.pcurveFrom[c] = PROVENANCE.healed;
+          record.deviation[c] = p.error;
+          worstMade = Math.max(worstMade, p.error);
+          made.add(coedgeName(c));
+          continue;
+        }
         let off = m.kind === 'off';
         if (m.kind === 'affine' && fixes.has('pcurveReparam')) {
           const curve = reparameterized(d, pc, m.a, m.b);
@@ -101,8 +144,7 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
         const given = m.kind === 'off' ? Math.max(m.deviation, Number.isNaN(m.ends) ? 0 : m.ends) : Infinity;
         const r = replacement(g, c, onPlane, given);
         if (r.kind === 'none') {
-          const t = notReplaced.get(r.why) ?? notReplaced.set(r.why, new Tally()).get(r.why)!;
-          t.add(coedgeName(c));
+          add(notReplaced, r.why, c);
           continue;
         }
         if (Number.isFinite(given)) worstGiven = Math.max(worstGiven, given);
@@ -114,13 +156,9 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
           record.pcurveFrom[c] = PROVENANCE.none;
           dropped.add(coedgeName(c));
         } else {
-          // The projection's parameter onto `range`'s: equal, or a period apart (the face API's edge range).
-          const shift = r.range[0] - range[0];
-          const curve = Math.abs(r.range[1] - range[1] - shift) <= 1e-9 * Math.max(1, Math.abs(range[1] - range[0]))
-            ? shift === 0 ? r.curve : reparameterize(r.curve, 1, shift) : undefined;
+          const curve = onRange(r.curve, r.range);
           if (!curve) {
-            (notReplaced.get('on another range') ?? notReplaced.set('on another range', new Tally())
-              .get('on another range')!).add(coedgeName(c));
+            add(notReplaced, 'on another range', c);
             continue;
           }
           edit.set('coedge', 'pcurve', c, edit.addCurve2(curve));
@@ -130,6 +168,14 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
         }
       }
     }
+  }
+  if (made.n) {
+    diagnostics.push({ severity: 'warning', message: `pcurveMissing: ${made.n} p-curves made by projecting their `
+      + `edges' curves (off by up to ${worstMade.toPrecision(3)} mm): ${made.ex.join(', ')}${made.more()}` });
+  }
+  for (const [why, t] of notMade) {
+    diagnostics.push({ severity: 'warning', message: `pcurveMissing: ${t.n} coedges left without a p-curve (the `
+      + `projection ${why}): ${t.ex.join(', ')}${t.more()}` });
   }
   if (reparam.n) {
     diagnostics.push({ severity: 'warning', message: `pcurveReparam: ${reparam.n} p-curves given their edges' `

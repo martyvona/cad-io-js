@@ -53,12 +53,13 @@ export type GivenFit =
   | { kind: 'unmeasured'; why: string };
 
 /**
- * A coedge's given p-curve against its edge's curve over `range` (the edge's parameters at start and end), `travel`
- * the p-curve's own parameters along the use (the face API's facePieces: one piece), `surface` its face's surface row,
- * `periods` its face's (u, v) periods as the face API finds them (0: none).
+ * A coedge's given p-curve against its edge's curve over `range` (the edge's parameters at start and end), `travelOf`
+ * the p-curve's own parameters at the use's ends, `surface` its face's surface row, `periodsOf` its face's (u, v)
+ * periods as the face API finds them (0: none); both asked only where needed.
  */
 export function measureGiven(g: Geometry, d: BrepData, c: number, surface: number, range: [number, number],
-  travel: [number, number] | undefined, tol: number, periods: [number, number] = [0, 0]): GivenFit {
+  travelOf: () => [number, number] | undefined, tol: number, periodsOf: () => [number, number] = () => [0, 0]):
+  GivenFit {
   const e = d.coedge.edge[c]!, ci = d.edge.curve[e]!;
   const [t0, t1] = range, ts = Array.from({ length: SAMPLES }, (_, i) => t0 + (t1 - t0) * i / (SAMPLES - 1));
   const C = g.evalCurve(ci, ts, 0);
@@ -82,9 +83,17 @@ export function measureGiven(g: Geometry, d: BrepData, c: number, surface: numbe
   const image = (s: number[]) => {
     const p = g.evalCurve(pc, s.map(clamp), 0);
     if (p.status !== 'ok' || p.statuses.some((x) => x !== 0)) return undefined;
+    // The face's periods only where a point is past the row's domain by more than rounding.
     const uv: number[] = [];
+    let outside = false;
     for (let i = 0; i < s.length; i++) {
-      uv.push(wrap(p.values[3 * i]!, si.u, periods[0]), wrap(p.values[3 * i + 1]!, si.v, periods[1]));
+      const u = near(p.values[3 * i]!, ...si.u), v = near(p.values[3 * i + 1]!, ...si.v);
+      outside ||= u < si.u[0] || u > si.u[1] || v < si.v[0] || v > si.v[1];
+      uv.push(u, v);
+    }
+    if (outside) {
+      const [pu, pv] = periodsOf();
+      for (let i = 0; i < uv.length; i += 2) uv[i] = wrap(uv[i]!, si.u, pu), uv[i + 1] = wrap(uv[i + 1]!, si.v, pv);
     }
     const q = g.evalSurface(surface, uv, 0);
     return q.status === 'ok' && !q.statuses.some((x) => x !== 0) ? q.values : undefined;
@@ -97,6 +106,7 @@ export function measureGiven(g: Geometry, d: BrepData, c: number, surface: numbe
   };
   const same = against(image(ts));
   if (same <= tol) return { kind: 'same', deviation: same };
+  const travel = travelOf();
   if (!travel) return { kind: 'unmeasured', why: 'no range on the p-curve' };
   // The use's travel runs either way along the edge: both maps tried, the nearer kept.
   let best: GivenFit | undefined;

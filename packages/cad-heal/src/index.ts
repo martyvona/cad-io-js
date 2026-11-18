@@ -27,10 +27,13 @@ export const HEAL_FIXES = ['pcurveMissing', 'pcurveReparam', 'pcurveReplace', 'p
   'vertexTolerance'] as const;
 export type HealFix = (typeof HEAL_FIXES)[number];
 
+/** The fixes off unless asked for (none yet: pcurveMissing's default is the user's to decide). */
+export const FIXES_OFF_BY_DEFAULT: readonly HealFix[] = [];
+
 export interface HealOptions {
   /** The master switch. Default true; false leaves every model exactly as imported, with no analysis. */
   heal?: boolean;
-  /** Under `heal`, each fix on or off by name (each on by default). */
+  /** Under `heal`, each fix on or off by name (each on by default but FIXES_OFF_BY_DEFAULT's). */
   fixes?: Partial<Record<HealFix, boolean>>;
 }
 
@@ -39,7 +42,7 @@ export function fixesOn(opts: HealOptions = {}): HealFix[] {
   for (const k of Object.keys(opts.fixes ?? {}))
     if (!(HEAL_FIXES as readonly string[]).includes(k)) throw new Error(`cad-heal: no fix named ${k}`);
   if (opts.heal === false) return [];
-  return HEAL_FIXES.filter((f) => opts.fixes?.[f] !== false);
+  return HEAL_FIXES.filter((f) => opts.fixes?.[f] ?? !FIXES_OFF_BY_DEFAULT.includes(f));
 }
 
 export interface HealedPart {

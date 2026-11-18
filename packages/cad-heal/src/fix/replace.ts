@@ -14,7 +14,26 @@ const USABLE = new Set(['ok', 'invalidModel', 'noConvergence']);
 export type Replacement =
   | { kind: 'drop'; error: number }
   | { kind: 'curve'; curve: Curve2; error: number; range: [number, number] }
-  | { kind: 'none'; why: 'not nearer' | 'several pieces' | 'no model form' | 'not made'; error: number };
+  | { kind: 'none'; why: 'not nearer' | Unusable; error: number };
+
+/** Why a projection can't be a coedge's p-curve. */
+export type Unusable = 'several pieces' | 'no model form' | 'not made';
+
+/**
+ * Coedge c's edge's curve projected onto its face's surface (`p`, where it's been projected already), as one p-curve
+ * in the model's form in the parameter of the projection's `range` (the face API's edge range), with its error; or
+ * why not.
+ */
+export function projected(g: Geometry, c: number, p: ReturnType<Geometry['projectCoedge']> = g.projectCoedge(c)):
+  { curve: Curve2; error: number; range: [number, number] } | { why: Unusable; error: number } {
+  if (!('pieces' in p) || !USABLE.has(p.status)) return { why: 'not made', error: NaN };
+  const pr = p as Pcurve;
+  const pieces = pr.takesTwin ? pr.seamTwin : pr.pieces;
+  if (pieces.length !== 1 || pieces[0]!.poleLine) return { why: 'several pieces', error: pr.error };
+  const q = pieces[0]!;
+  if (!q.kind) return { why: 'no model form', error: pr.error };
+  return { curve: { kind: q.kind, reals: q.reals, ints: q.ints }, error: pr.error, range: pr.range };
+}
 
 /**
  * What replaces coedge `c`'s given p-curve, whose deviation (the larger of its image's and its ends') is `given`; a
@@ -24,12 +43,8 @@ export type Replacement =
 export function replacement(g: Geometry, c: number, onPlane: boolean, given: number): Replacement {
   const p = g.projectCoedge(c);
   if (!('pieces' in p) || !USABLE.has(p.status)) return { kind: 'none', why: 'not made', error: NaN };
-  const pr = p as Pcurve;
-  if (!(pr.error < given)) return { kind: 'none', why: 'not nearer', error: pr.error };
-  if (onPlane) return { kind: 'drop', error: pr.error };
-  const pieces = pr.takesTwin ? pr.seamTwin : pr.pieces;
-  if (pieces.length !== 1 || pieces[0]!.poleLine) return { kind: 'none', why: 'several pieces', error: pr.error };
-  const q = pieces[0]!;
-  if (!q.kind) return { kind: 'none', why: 'no model form', error: pr.error };
-  return { kind: 'curve', curve: { kind: q.kind, reals: q.reals, ints: q.ints }, error: pr.error, range: pr.range };
+  if (!((p as Pcurve).error < given)) return { kind: 'none', why: 'not nearer', error: (p as Pcurve).error };
+  if (onPlane) return { kind: 'drop', error: (p as Pcurve).error };
+  const r = projected(g, c, p);
+  return 'why' in r ? { kind: 'none', ...r } : { kind: 'curve', ...r };
 }
