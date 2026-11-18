@@ -5,8 +5,8 @@
 // (shareRings). Internal to tess-cadio.
 #pragma once
 
+#include <tess_cadio/criteria.h>
 #include <tess_cadio/edges.h>
-#include <tess_cadio/mesh2d.h>
 
 #include <cad_geom/model.h>
 #include <cad_geom/surface.h>
@@ -68,10 +68,11 @@ int ringPieces(const cadgeom::Surface& s, const PoleRing& ring, std::pair<double
 
 /**
  * Face f's poles, each with the ring it asks for (wanted, reach and radius, before sharing). `criteria` judges the
- * fans (each ring piece's two ends and the pole, as the fans are meshed); `tol` the face's tolerance.
+ * fans (each ring piece's two ends and the pole, as the fans are meshed): accept() at a smooth pole, acceptDeviation()
+ * at an apex-like one (no normal there to hold a triangle's to); `tol` the face's tolerance.
  */
 std::vector<PoleRing> facePoles(const cadgeom::Model& m, int f, const cadgeom::Surface& s, const FaceBoundary& fb,
-  const EdgeMesh& em, const SizeField& criteria, double tol, double deflection, double angle);
+  const EdgeMesh& em, const SurfaceCriteria& criteria, double tol, double deflection, double angle);
 
 /**
  * One reach per pole across the part's faces (poles within `tol` of one another are one): the least any face asks,
