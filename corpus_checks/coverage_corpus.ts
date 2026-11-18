@@ -19,7 +19,11 @@
 //                face ours failed, "part crash"), occt and smlib (that reference's first meshed face emptied: must be
 //                counted as failed by it), cause (our first meshed face emptied and named in a by-cause
 //                diagnostic of two entries: must be ours failed with the planted cause)
-//   TIMEOUT_MS=<ms> each request's limit (default 120000, the pool's)
+//   TIMEOUT_MS=<ms> each request's limit (default 600000: the question is whether a part meshes, not how fast; a
+//                part slower than the pool's default 120 s is listed as slow, not failed)
+//   SLOW_MS=<ms>    ours slower than this on a part it meshes is listed as slow (default 120000)
+//   IDLE_MS=<ms>    runner.ts's watchdog on a child silent on one file (default here 3600000: a file's parts at
+//                   TIMEOUT_MS each pass runner.ts's 5 minutes, which would kill the child and fail the file)
 // Several files at once (runner.ts: CHILDREN, MESH_WORKERS).
 import fs from 'node:fs';
 import path from 'node:path';
@@ -38,8 +42,12 @@ const EXAMPLES = 4;
 const { linearDeflection: LIN, angularDeflection: ANG } = MESH_PROFILES.medium;
 const PLANT = process.env.PLANT ?? '';
 const PLANTS = ['fail', 'part', 'occt', 'smlib', 'cause'];
-/** Each request's limit (ms; the pool's default); ours over half of it on a part it meshes is listed as near it. */
-const TIMEOUT_MS = Number(process.env.TIMEOUT_MS ?? 120_000);
+/** Each request's limit (ms), and the time (ms) over which a part ours meshes is listed as slow. */
+const TIMEOUT_MS = Number(process.env.TIMEOUT_MS ?? 600_000);
+const SLOW_MS = Number(process.env.SLOW_MS ?? 120_000);
+/** Our time per part meshed (from its first progress), by upper bound in seconds. */
+const TIMES = [1, 10, 60, 120, Infinity];
+const timeBin = (ms: number) => TIMES.findIndex((t) => ms / 1000 <= t);
 if (PLANT && !PLANTS.includes(PLANT)) throw new Error(`PLANT=${PLANT}: one of ${PLANTS.join(', ')}`);
 const DEFAULT_LISTS = ['test_corpus/files.txt', 'test_corpus/models.txt'];
 /** What our failures are, until the user decides what counts as beyond repair. */
@@ -155,8 +163,12 @@ const fresh = () => ({
   planted: { cases: 0, seen: 0, missed: [] as string[] },
   unmeshedParts: [] as string[],
   unmeshed: [] as string[],
-  // Parts ours meshes in over half the limit (from its first progress): a loaded host can make them timeouts.
-  nearLimit: [] as string[],
+  // Ours's time on the parts it meshes (from its first progress, near when the pool's timer starts), by TIMES; and
+  // those over SLOW_MS, listed for the performance work (a loaded host makes them slower).
+  times: TIMES.map(() => 0),
+  // (Meshed with no progress said, so not timed.)
+  untimed: 0,
+  slow: [] as string[],
 });
 type Tallies = ReturnType<typeof fresh>;
 const bump = (m: Map<string, number>, k: string, n = 1) => m.set(k, (m.get(k) ?? 0) + n);
@@ -230,7 +242,11 @@ export const check: FileCheck<string, Tallies> = {
         }
       }
       const partFailed = !fine(ours.status) && ours.status !== 'partial';
-      if (!partFailed && ms > TIMEOUT_MS / 2) T.nearLimit.push(`${where} (${rows} faces): ${(ms / 1000).toFixed(1)} s`);
+      if (!partFailed && rows && isNaN(ms)) T.untimed++;
+      if (!partFailed && rows && !isNaN(ms)) {
+        T.times[timeBin(ms)]!++;
+        if (ms > SLOW_MS) T.slow.push(`${where} (${rows} faces): ${(ms / 1000).toFixed(1)} s, ${ours.status}`);
+      }
       if (partFailed) T.unmeshedParts.push(`${where} (${rows} faces): ${ours.status}: ${ours.why}`);
       const causes = ours.result ? failedCauses(ours.result) : new Map<number, string>();
       const modelIds = new Set(ids);
@@ -307,10 +323,15 @@ function report(label: string, T: Tallies): void {
       + `${String(cells.reduce((a, n) => a + n, 0)).padStart(10)}`);
   }
   const sum = [...T.matrix.values()].reduce((a, n) => a + n, 0);
-  console.log(`  every face accounted for: ${sum === T.faces && !T.mismatches.length ? 'yes' : 'NO'} (${sum} in the `
-    + `matrix of ${T.faces}${T.mismatches.length ? `; ${T.mismatches.length} parts don't add up` : ''})`);
+  const all = sum === T.faces && !T.mismatches.length && !T.failedFiles;
+  console.log(`  every face accounted for: ${all ? 'yes' : 'NO'} (${sum} in the matrix of ${T.faces}`
+    + `${T.mismatches.length ? `; ${T.mismatches.length} parts don't add up` : ''}`
+    + `${T.failedFiles ? `; ${T.failedFiles} files failed, their faces uncounted (listed at the end)` : ''})`);
   console.log(`  our failures by cause and surface: ${[...T.causes].sort((x, y) => y[1] - x[1])
     .map(([k, n]) => `${k} ${n}`).join(', ') || 'none'}`);
+  const bound = (k: number) => (TIMES[k] === Infinity ? `over ${TIMES[k - 1]} s` : `up to ${TIMES[k]} s`);
+  console.log(`  our time on the parts it meshes (from its first progress): ${T.times.map((n, k) => `${bound(k)} ${n}`)
+    .join(', ')}, untimed ${T.untimed}; ${T.slow.length} slower than ${SLOW_MS / 1000} s, listed below, not failures`);
   console.log(`  our warnings: ${[...T.warnings].sort((x, y) => y[1] - x[1]).map(([k, n]) => `${n} x "${k}"`)
     .join('; ') || 'none'}`);
   if (PLANT) {
@@ -325,14 +346,16 @@ function report(label: string, T: Tallies): void {
   }
   console.log(`\n### Parts ours doesn't mesh (${T.unmeshedParts.length}), each with its cause`);
   for (const x of [...T.unmeshedParts].sort()) console.log(`  ${x}`);
-  console.log(`\n### Parts ours meshes in over half the ${TIMEOUT_MS / 1000} s limit (${T.nearLimit.length})`);
-  for (const x of [...T.nearLimit].sort()) console.log(`  ${x}`);
+  console.log(`\n### Parts ours meshes, but slower than ${SLOW_MS / 1000} s (${T.slow.length}): its time, its status`);
+  for (const x of [...T.slow].sort()) console.log(`  ${x}`);
   console.log(`\n### Faces without our triangles (${T.unmeshed.length}): our cause; the references; the class`);
   for (const x of [...T.unmeshed].sort()) console.log(`  ${x}`);
   console.log();
 }
 
 if (import.meta.main) {
+  // (runFiles reads it, in this process.)
+  process.env.IDLE_MS ??= '3600000';
   console.log(await hostLine());
   maxBytes = Number(process.argv[3] ?? 1000) * 1e6;
   const ls = lists(process.argv[2]);
@@ -364,7 +387,7 @@ if (import.meta.main) {
   const { children, meshWorkers } = division();
   const workers = Number(process.env.WORKERS ?? Math.max(1, Math.floor(meshWorkers / 3)));
   console.log(`coverage: tess-cadio against OCCT (native route) and SMLib, medium profile (${LIN} mm, ${ANG} rad), `
-    + `${TIMEOUT_MS / 1000} s limit; `
+    + `${TIMEOUT_MS / 1000} s limit, slow over ${SLOW_MS / 1000} s; `
     + `${((performance.now() - t0) / 1000).toFixed(0)} s, ${children || 1} processes x ${workers} workers per backend`);
   console.log();
   for (const [l, T] of per) report(l, T);
