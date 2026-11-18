@@ -1021,13 +1021,12 @@ int32_t cg_face_classify(int32_t h, int32_t face, const double* uv, int32_t n, d
   uint8_t* status, double* tolUv) {
   FaceLoops f = faceLoops(h, face, tol3d);
   if (f.status) return f.status;
-  for (int32_t i = 0; i < n; i++) {
-    Vec2 p{uv[2 * i], uv[2 * i + 1]};
-    Status s;
-    tolUv[i] = uvTolerance(f, p);
-    sides[i] = static_cast<uint8_t>(classify2(f.loops, p, f.periods, tolUv[i], s));
-    status[i] = static_cast<uint8_t>(s);
-  }
+  std::vector<Vec2> p(n);
+  for (int32_t i = 0; i < n; i++) p[i] = {uv[2 * i], uv[2 * i + 1]}, tolUv[i] = uvTolerance(f, p[i]);
+  std::vector<Side> side(n);
+  std::vector<Status> st(n);
+  classify2(f.loops, p.data(), tolUv, n, f.periods, side.data(), st.data());
+  for (int32_t i = 0; i < n; i++) sides[i] = static_cast<uint8_t>(side[i]), status[i] = static_cast<uint8_t>(st[i]);
   return 0;
 }
 
