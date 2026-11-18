@@ -15,6 +15,7 @@
 //     projection (max of offSurface, the chosen p-curves' errors, vertex gaps).
 // Usage: node --max-old-space-size=8192 corpus_checks/heal_curves.ts [file-list.txt] [max MB]
 //   SAMPLES=n points per piece (default 17), DENSE=n points per piece of the p-curve's image (default 129).
+//   FOCUS=mm: every edge needing more than its tolerance and that, with its coedges' curves and projections.
 //   Several files at once (runner.ts: CHILDREN).
 import fs from 'node:fs';
 import { type BrepData, CURVE_KIND, LOOP_KIND, openBrep, rowCount, SURFACE_KIND } from
@@ -27,7 +28,7 @@ import { hostLine } from '../scripts/host.ts';
 
 let maxMB = 1000, module: GeomModule;
 const SAMPLES = Number(process.env.SAMPLES ?? 17), DENSE = Number(process.env.DENSE ?? 129);
-const plant = process.env.PLANT;
+const plant = process.env.PLANT, focus = Number(process.env.FOCUS ?? Infinity);
 if (plant && !['vertex', 'curve', 'pcurve'].includes(plant)) throw new Error(`PLANT=${plant}: vertex, curve, pcurve`);
 const SKIND = Object.fromEntries(Object.entries(SURFACE_KIND).map(([k, v]) => [v, k])) as Record<number, string>;
 const CKIND = Object.fromEntries(Object.entries(CURVE_KIND).map(([k, v]) => [v, k])) as Record<number, string>;
@@ -45,7 +46,7 @@ const fresh = () => ({
   projection: {} as Tally, given: {} as Tally, ends: {} as Tally, vertices: {} as Tally, faceStatus: {} as Tally,
   keep: {} as Tally, replace: {} as Tally, keepMm: {} as Tally, replaceMm: {} as Tally, planes: {} as Tally,
   better: {} as Tally, degenerate: {} as Tally, cause: {} as Tally, backward: {} as Tally,
-  sameParameter: {} as Tally,
+  sameParameter: {} as Tally, focus: [] as string[],
 });
 type Result = ReturnType<typeof fresh>;
 
@@ -76,7 +77,7 @@ function measurePart(d: BrepData, where: string, R: Result): { keep: Float64Arra
   const ne = rowCount(d, 'edge');
   // An edge with any coedge not measured (a projection not ok, a given p-curve not sampled) has NaN for good.
   const off = new Float64Array(ne), keep = new Float64Array(ne), repl = new Float64Array(ne);
-  const used = new Uint8Array(ne), cause: string[] = [];
+  const used = new Uint8Array(ne), cause: string[] = [], detail: string[][] = [];
   // What sets an edge's tolerance under keep: the largest term over its coedges.
   const why = (e: number, terms: Record<string, number>) => {
     let top = '', at = 0;
@@ -126,6 +127,16 @@ function measurePart(d: BrepData, where: string, R: Result): { keep: Float64Arra
           tally(R.vertices, ratioBin(vgap / tol));
         }
         let need = vgap;
+        if (Number.isFinite(focus)) {
+          (detail[e] ??= []).push(`  coedge ${c} face #${d.face.id[f]} (${sk}`
+            + `${d.face.sameSense[f] ? '' : ', reversed'}): curve ${CKIND[d.curve.kind[ci]!]} ${ci} [${ci3.lo}, `
+            + `${ci3.hi}] period ${ci3.period}, edge range given [${d.edge.range[2 * e]}, ${d.edge.range[2 * e + 1]}], `
+            + `vertices ${vs.join(' ')} gap ${vgap.toExponential(2)}, `
+            + `pcurve ${given ? d.coedge.pcurve[c] : 'missing'}; ` + (proj ? `projection ${proj.status} ${proj.method} `
+            + `${proj.certainty} range [${proj.range}] off ${proj.offSurface.toExponential(2)} error `
+            + `${proj.error.toExponential(2)} pieces ${proj.pieces.length}${proj.seamU || proj.seamV ? ' seam' : ''}`
+            + `${proj.tAmbiguous.length ? ` ambiguous at ${[...proj.tAmbiguous]}` : ''}` : `projection ${pr.status}`));
+        }
         // Coedges whose projection is singular (the whole range at one singular point) or whose range can't be
         // derived: classified for whoever takes degenerate edges (T3 lane 2).
         if ((!proj && pr.status === 'noPcurveRange') || proj?.status === 'singular') {
@@ -290,6 +301,10 @@ function measurePart(d: BrepData, where: string, R: Result): { keep: Float64Arra
       : undefined;
     tally(R.keep, ratioBin(keep[e]! / tol), ex(keep[e]!));
     tally(R.replace, ratioBin(repl[e]! / tol), ex(repl[e]!));
+    if (!(keep[e]! <= Math.max(tol, focus))) {
+      R.focus.push(`${where} edge ${e} (id ${d.edge.id[e]}): needs ${keep[e]!.toExponential(2)} at tol `
+        + `${tol.toExponential(1)}, by ${cause[e]}\n${(detail[e] ?? []).join('\n')}`);
+    }
     if (keep[e]! > tol) tally(R.keepMm, mmBin(keep[e]!)), tally(R.cause, `${cause[e] ?? '?'}: ${mmBin(keep[e]!)}`,
       ex(keep[e]!));
     if (repl[e]! > tol) tally(R.replaceMm, mmBin(repl[e]!));
@@ -454,6 +469,10 @@ if (import.meta.main) {
   printTally('Edges: tolerance needed keeping the source\'s p-curves (grow)', all.keep);
   printTally('Edges: tolerance needed replacing given p-curves where the projection is nearer', all.replace);
   printTally('Edges needing growth (keep), by the tolerance they need', all.keepMm);
+  if (Number.isFinite(focus)) {
+    console.log(`\n## Edges needing more than their tolerance and ${focus} mm (FOCUS), in detail`);
+    for (const x of all.focus) console.log(x);
+  }
   printTally('Edges needing growth (keep), by what sets it and the tolerance needed', all.cause);
   printTally('Edges needing growth (replace), by the tolerance they need', all.replaceMm);
 }
