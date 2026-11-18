@@ -229,6 +229,8 @@ TEST_CASE("curved faces (a seam cylinder, a band, a hemisphere, a cap, a lune): 
          Case{"spheres", 1, 2 * M_PI, 1, {10, 0, 0}, false},
          Case{"halfCap", 0, M_PI * 0.6, 1, {0, 0, 0}, false, 0.1},
          Case{"meridianHemisphere", 0, 2 * M_PI, 1, {0, 0, 0}, false, 0.1},
+         Case{"seamHemisphere", 0, 2 * M_PI, 1, {0, 0, 0}, false},
+         Case{"seamHemisphereBare", 0, 2 * M_PI, 1, {0, 0, 0}, false},
          Case{"meridianHemisphereLoose", 0, 2 * M_PI * 3.81 * 3.81, 3.81, {0, 0, 0}, false, 0.4},
          Case{"offPoleArc", 0, M_PI, 1, {0, 0, 0}, false, 0.1},
          Case{"offPoleArcLoose", 0, M_PI, 1, {0, 0, 0}, false, 0.1},
@@ -288,6 +290,38 @@ TEST_CASE("curved faces (a seam cylinder, a band, a hemisphere, a cap, a lune): 
       }
     }
   }
+}
+
+TEST_CASE("cones with a seam from the apex used both ways: within the deflection, to area, the jump a whole turn") {
+  // The cad-brep cone (no seam p-curves) and seamCone (given, at u = 2 pi up and 0 down), with a degenerate edge at
+  // the apex and without: the loop's jump across the apex a whole period (the seam's two uses either side), not a cut
+  // on top of its seams. Projected and not. Radius 1 at z = 0, the apex (0, 0, -1): a point's distance from the
+  // surface |hypot(x, y) - (1 + z)| / sqrt 2. Area pi sqrt 2.
+  const double area = M_PI * M_SQRT2;
+  for (const char* name : {"cone", "seamCone", "seamConeBare"})
+    for (bool project : {true, false})
+      for (double d : {0.05, 0.01}) {
+        cadgeom::Model m = load(name);
+        REQUIRE(m.ok());
+        PartOptions o = options(d, 0.26);
+        o.projectMissingPcurves = project;
+        PartMesher pm(m, o);
+        const FaceMesh& fm = pm.face(0);
+        if (fm.status != cadgeom::Status::ok)
+          std::printf("  %s: status %d %s\n", name, int(fm.status), fm.cause.c_str());
+        REQUIRE(fm.status == cadgeom::Status::ok);
+        const Vec3 apex{0, 0, -1};
+        Stats st = stats(fm, [](Vec3 p) { return std::fabs(std::hypot(p.x, p.y) - (1 + p.z)) * M_SQRT1_2; }, &apex,
+          1e-12);
+        CHECK_EQ(st.badNormals, 0);
+        CHECK_EQ(st.facing, 0);
+        CHECK(st.worst <= d * (1 + 1e-9));
+        if (!(st.area < area && st.area > area * (1 - 2.5 * d)))
+          std::printf("  %s: area %.9g want %.9g at %g\n", name, st.area, area, d);
+        CHECK(st.area < area && st.area > area * (1 - 2.5 * d));
+        CHECK_EQ(sharedEdges(m, pm, name), 0);
+        CHECK(fm.rejected.empty());
+      }
 }
 
 TEST_CASE("a band narrower than its circles' chords bow (thinBand): its circles split until nothing is refused") {
