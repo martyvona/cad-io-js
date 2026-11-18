@@ -54,10 +54,11 @@ export type GivenFit =
 
 /**
  * A coedge's given p-curve against its edge's curve over `range` (the edge's parameters at start and end), `travel`
- * the p-curve's own parameters along the use (the face API's facePieces: one piece), `surface` its face's surface row.
+ * the p-curve's own parameters along the use (the face API's facePieces: one piece), `surface` its face's surface row,
+ * `periods` its face's (u, v) periods as the face API finds them (0: none).
  */
 export function measureGiven(g: Geometry, d: BrepData, c: number, surface: number, range: [number, number],
-  travel: [number, number] | undefined, tol: number): GivenFit {
+  travel: [number, number] | undefined, tol: number, periods: [number, number] = [0, 0]): GivenFit {
   const e = d.coedge.edge[c]!, ci = d.edge.curve[e]!;
   const [t0, t1] = range, ts = Array.from({ length: SAMPLES }, (_, i) => t0 + (t1 - t0) * i / (SAMPLES - 1));
   const C = g.evalCurve(ci, ts, 0);
@@ -72,13 +73,19 @@ export function measureGiven(g: Geometry, d: BrepData, c: number, surface: numbe
     return x < lo && x >= lo - sl ? lo : x > hi && x <= hi + sl ? hi : x;
   };
   const clamp = (x: number) => near(x, own.lo, own.hi);
-  // (u, v) taken onto the surface's domain's edge where rounding puts it just past (a B-spline's is bounded).
+  // (u, v) wrapped by the face's periods (its surface as it closes in fact: a B-spline closed by its geometry has a
+  // period its row doesn't, and a p-curve unwrapped across its seam runs past the row's domain), else taken onto the
+  // domain's edge where rounding puts it just past (a B-spline's is bounded).
   const si = g.surfaceInfo(surface);
+  const wrap = (x: number, [lo, hi]: [number, number], period: number) => period > 0 && (x < lo || x > hi)
+    ? x - period * Math.floor((x - lo) / period) : near(x, lo, hi);
   const image = (s: number[]) => {
     const p = g.evalCurve(pc, s.map(clamp), 0);
     if (p.status !== 'ok' || p.statuses.some((x) => x !== 0)) return undefined;
     const uv: number[] = [];
-    for (let i = 0; i < s.length; i++) uv.push(near(p.values[3 * i]!, ...si.u), near(p.values[3 * i + 1]!, ...si.v));
+    for (let i = 0; i < s.length; i++) {
+      uv.push(wrap(p.values[3 * i]!, si.u, periods[0]), wrap(p.values[3 * i + 1]!, si.v, periods[1]));
+    }
     const q = g.evalSurface(surface, uv, 0);
     return q.status === 'ok' && !q.statuses.some((x) => x !== 0) ? q.values : undefined;
   };

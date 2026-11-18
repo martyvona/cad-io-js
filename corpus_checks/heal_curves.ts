@@ -201,9 +201,27 @@ function measurePart(d: BrepData, where: string, R: Result): { keep: Float64Arra
         const ts: number[] = [];
         for (let k = 0; k < tr.length; k += 2)
           for (let i = 0; i < SAMPLES; i++) ts.push(tr[k]! + (tr[k + 1]! - tr[k]!) * i / (SAMPLES - 1));
-        const ev = g.evalCoedge(c, ts, 0), uv: number[] = [];
-        for (let i = 0; i < ts.length; i++) uv.push(ev.values[3 * i]!, ev.values[3 * i + 1]!);
-        const xyz = g.evalSurface(sf, uv, 0).values;
+        // The p-curve's points through the surface, (u, v) wrapped by the face's periods as the face API finds them
+        // (a B-spline closed in fact has a period its row doesn't, and outside the row's domain evaluation gives the
+        // edge's clamped point, status outOfDomain); undefined where any evaluation isn't ok.
+        const si = g.surfaceInfo(sf);
+        const wrap = (x: number, [lo, hi]: [number, number], period: number) => period > 0 && (x < lo || x > hi)
+          ? x - period * Math.floor((x - lo) / period) : x;
+        const img = (ts2: number[]) => {
+          const e2 = g.evalCoedge(c, ts2, 0), q: number[] = [];
+          if (e2.status !== 'ok' || e2.statuses.some((x) => x !== 0)) return undefined;
+          for (let i = 0; i < ts2.length; i++) {
+            q.push(wrap(e2.values[3 * i]!, si.u, info.uPeriod), wrap(e2.values[3 * i + 1]!, si.v, info.vPeriod));
+          }
+          const out = g.evalSurface(sf, q, 0);
+          return out.status === 'ok' && !out.statuses.some((x) => x !== 0) ? out.values : undefined;
+        };
+        const xyz = img(ts);
+        if (!xyz) {
+          tally(R.given, `not measured: an evaluation outside the domain (${sk})`, cat);
+          max(keep, e, NaN), max(repl, e, Math.max(need, projErr));
+          continue;
+        }
         const inv = g.invertCurve(ci, xyz, rlo, rhi, tol);
         let dev = 0;
         for (const x of inv.distance) dev = Math.max(dev, Number.isFinite(x) ? x : Infinity);
@@ -216,12 +234,12 @@ function measurePart(d: BrepData, where: string, R: Result): { keep: Float64Arra
             (i % 2 ? mids : dense).push(tr[k]! + (tr[k + 1]! - tr[k]!) * i / (2 * (DENSE - 1)));
           }
         }
-        const img = (ts2: number[]) => {
-          const e2 = g.evalCoedge(c, ts2, 0).values, q: number[] = [];
-          for (let i = 0; i < ts2.length; i++) q.push(e2[3 * i]!, e2[3 * i + 1]!);
-          return g.evalSurface(sf, q, 0).values;
-        };
         const P = img(dense), M = img(mids);
+        if (!P || !M) {
+          tally(R.given, `not measured: an evaluation outside the domain (${sk})`, cat);
+          max(keep, e, NaN), max(repl, e, Math.max(need, projErr));
+          continue;
+        }
         let chordErr = 0;
         const segs: number[] = [];
         for (let k = 0, j = 0; k < tr.length / 2; k++) {
@@ -256,16 +274,17 @@ function measurePart(d: BrepData, where: string, R: Result): { keep: Float64Arra
               const k = (t - rlo) / (rhi - rlo);
               return flip ? tr[1]! + (tr[0]! - tr[1]!) * k : tr[0]! + (tr[1]! - tr[0]!) * k;
             });
+            // Where the map leaves the p-curve's or the surface's domain, not this map.
             const Q = img(sts);
-            let worst = 0;
-            for (let i = 0; i < SAMPLES; i++) worst = Math.max(worst, dist(Q, 3 * i, C, 3 * i));
+            let worst = Q ? 0 : Infinity;
+            for (let i = 0; Q && i < SAMPLES; i++) worst = Math.max(worst, dist(Q, 3 * i, C, 3 * i));
             sp = Math.min(sp, worst);
           }
           // And with no map at all: the p-curve's own parameter is the curve's (Part 42's surface curve as the
           // tessellator takes it).
           const Q0 = img(cts);
-          let sp0 = 0;
-          for (let i = 0; i < SAMPLES; i++) sp0 = Math.max(sp0, dist(Q0, 3 * i, C, 3 * i));
+          let sp0 = Q0 ? 0 : Infinity;
+          for (let i = 0; Q0 && i < SAMPLES; i++) sp0 = Math.max(sp0, dist(Q0, 3 * i, C, 3 * i));
           const kind = !(dev <= tol) ? 'image off' : sp0 <= tol ? 'image within tol, the same parameter'
             : sp <= tol ? 'image within tol, an affine reparameterization' : 'image within tol, not affine';
           tally(R.sameParameter, `${kind} (${sk})`, kind.endsWith('the same parameter') || kind === 'image off'

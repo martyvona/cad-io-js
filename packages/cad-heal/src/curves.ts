@@ -46,8 +46,9 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
   const coedgeName = (c: number) => `coedge #${d.coedge.id[c]} (edge #${d.edge.id[d.coedge.edge[c]!]})`;
   for (let f = 0; f < rowCount(d, 'face'); f++) {
     const surface = d.face.surface[f]!, onPlane = d.surface.kind[surface] === SURFACE_KIND.plane;
-    // Each coedge's p-curve parameters along its use, where it's one piece (the face API's).
-    const pieces = g.facePieces(f), travel = new Map<number, [number, number] | null>();
+    // Each coedge's p-curve parameters along its use, where it's one piece, and the face's periods (the face API's).
+    const pieces = g.facePieces(f), travel = new Map<number, [number, number] | null>(), info = g.faceInfo(f);
+    const periods: [number, number] = info.status === 'ok' ? [info.uPeriod, info.vPeriod] : [0, 0];
     if (pieces.status === 'ok') {
       for (let k = 0; k < pieces.coedge.length; k++) {
         const c = pieces.coedge[k]!;
@@ -67,7 +68,7 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
         const r0 = d.coedge.range[2 * c]!, r1 = d.coedge.range[2 * c + 1]!, own = g.curveInfo(pc);
         const ends: [number, number] | undefined = Number.isFinite(r0) && Number.isFinite(r1) ? [r0, r1]
           : travel.get(c) ?? (Number.isFinite(own.lo) && Number.isFinite(own.hi) ? [own.lo, own.hi] : undefined);
-        const m = measureGiven(g, d, c, surface, range, ends, tol.edge(e));
+        const m = measureGiven(g, d, c, surface, range, ends, tol.edge(e), periods);
         if (m.kind !== 'unmeasured') record.deviation[c] = m.deviation;
         // A p-curve the pass writes is in the parameter of `range`, so the edge gets that range where the source
         // gave none: consumers derive ranges by their own searches, which can differ by a period on a closed curve,

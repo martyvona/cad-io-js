@@ -3,7 +3,7 @@ import test from 'node:test';
 import { CURVE_KIND, type Curve, PROVENANCE, analysisFor } from 'cad-brep';
 import { init } from 'cad-geom';
 import { healPart } from '../src/index.ts';
-import { cylinderSide, line2, planeArc, rationalArc } from './models.ts';
+import { bsplineCylinder, cylinderSide, line2, planeArc, rationalArc } from './models.ts';
 import { sameParameterGap as gap } from './util.ts';
 
 const module = await init();
@@ -148,4 +148,15 @@ test('pcurveReparam: a map that rounds below the p-curve\'s first knot is taken 
   const r = await healPart(d, {}, module);
   assert.deepEqual(r.diagnostics.map((x) => x.message.replace(/:.*/, '')), ['pcurveReparam']);
   assert.ok(sameParameterGap(r.model, 1, [0.1, 5.1]) < 1e-9);
+});
+
+test('pcurveReparam: a p-curve a period up on a B-spline closed in fact (past its row\'s domain) is measured, wrapped '
+  + 'by the face\'s period', async () => {
+  // The seam's up use at u = 2 (the row's domain [0, 1], the face's period 1), v = 0.5 s over s in [0, 10].
+  const d = bsplineCylinder(line2([2, 0], [0, 1], 0.5), [0, 10]).finish();
+  const r = await healPart(d, {}, module);
+  assert.deepEqual(r.diagnostics.map((x) => x.message.replace(/:.*/, '')), ['pcurveReparam']);
+  const c = r.model.coedge.pcurve[1]!;
+  assert.deepEqual([...r.model.pool.curveReal.subarray(r.model.curve.real[c]!, r.model.curve.real[c]! + 5)],
+    [2, 0, 0, 1, 1], 'u = 2, v = t');
 });

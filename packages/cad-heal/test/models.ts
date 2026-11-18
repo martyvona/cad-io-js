@@ -127,3 +127,37 @@ export function sphereOverPole(meridian?: Curve, range?: [number, number]): Brep
   b.addItem({ kind: 'body', ref: b.addBody({ kind: 'sheet', members: [{ ref: shell, sense: true }] }) });
   return b;
 }
+
+/**
+ * A cylinder of radius 2 from z = 0 to 5 as a B-spline surface: u a rational quadratic full circle over [0, 1] (nine
+ * poles; closed in fact, so the face API finds period 1, which the surface's row doesn't have), v = z, degree 1. One
+ * face round its side like cylinderSide's; the circles' p-curves left out, the seam's up use's `seamUp` with its use's
+ * `range`, the down use's u = 0, v = t.
+ */
+export function bsplineCylinder(seamUp: Curve, range?: [number, number]): BrepBuilder {
+  const b = new BrepBuilder({ uncertainty: 1e-6 });
+  const h = Math.SQRT1_2, ring = [[2, 0], [2, 2], [0, 2], [-2, 2], [-2, 0], [-2, -2], [0, -2], [2, -2], [2, 0]];
+  const w = [1, h, 1, h, 1, h, 1, h, 1];
+  const surface = b.addSurface({ kind: 'bspline', uDegree: 2, vDegree: 1, uKnots: [0, 0.25, 0.5, 0.75, 1],
+    vKnots: [0, 5], uMultiplicities: [3, 2, 2, 2, 3], vMultiplicities: [2, 2],
+    poles: ring.map(([x, y]) => [[x!, y!, 0], [x!, y!, 5]]), weights: w.map((x) => [x, x]), uClosed: false,
+    vClosed: false, selfIntersect: false, form: 'unspecified' });
+  const axis = { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] };
+  const bottom = b.addCurve({ kind: 'circle', position: axis, radius: 2 });
+  const top = b.addCurve({ kind: 'circle', position: { ...axis, origin: [0, 0, 5] }, radius: 2 });
+  const seam = b.addCurve({ kind: 'line', point: [2, 0, 0], direction: [0, 0, 1], magnitude: 1 });
+  const pUp = b.addCurve(seamUp), pDown = b.addCurve(line2([0, 0], [0, 1]));
+  const v0 = b.addVertex({ point: [2, 0, 0] }), v1 = b.addVertex({ point: [2, 0, 5] });
+  const eBottom = b.addEdge({ curve: bottom, start: v0, end: v0, sameSense: true, id: 11 });
+  const eTop = b.addEdge({ curve: top, start: v1, end: v1, sameSense: true, id: 12 });
+  const eSeam = b.addEdge({ curve: seam, start: v0, end: v1, sameSense: true, id: 13 });
+  const face = b.addFace({ surface, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [
+    { edge: eBottom, orientation: 'forward', id: 21 },
+    { edge: eSeam, orientation: 'forward', pcurve: pUp, range, id: 22 },
+    { edge: eTop, orientation: 'reversed', id: 23 },
+    { edge: eSeam, orientation: 'reversed', pcurve: pDown, id: 24 },
+  ] }], id: 9 });
+  const shell = b.addShell({ kind: 'open', faces: [{ face, sense: true }] });
+  b.addItem({ kind: 'body', ref: b.addBody({ kind: 'sheet', members: [{ ref: shell, sense: true }] }) });
+  return b;
+}
