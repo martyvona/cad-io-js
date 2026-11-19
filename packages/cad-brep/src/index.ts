@@ -4,8 +4,8 @@ export * from './layout.ts';
 export * from './analysis-layout.ts';
 export { ANALYSIS_COLUMNS, type AnalysisColumnSpec, analysisFor, analysisRowCount, type AnalysisRows,
   type AnalysisTables, type BrepAnalysis, modelHash, openAnalysis, PER_ENTITY, writeAnalysis } from './analysis.ts';
-export { type BrepData, type BrepTables, BrepFormatError, COLUMNS, type ColumnSpec, openBrep, rowCount } from
-  './data.ts';
+export { type BrepData, type BrepTables, BrepFormatError, COLUMNS, type ColumnSpec, openBrep, rowCount, writeBrep }
+  from './data.ts';
 export { BrepBuilder, type BuilderOptions } from './builder.ts';
 export { transformBrep } from './bake.ts';
 export { SIMILARITY_TOLERANCE } from './transform.ts';
