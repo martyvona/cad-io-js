@@ -13,6 +13,8 @@ struct Mesh2Detail {
   int finalTriangles = 0;
   /** Refused candidates not moved toward the centroid again, their cavity past mesh2d.cpp's kHalvingCavity. */
   int halvingsSkipped = 0;
+  /** Refused triangles broken at their centroid instead, only much shorter segments in the way (kShortSegment). */
+  int brokenInside = 0;
 };
 
 Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOptions& options, Mesh2Detail* detail);
