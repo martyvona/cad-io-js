@@ -4,11 +4,12 @@
 // out), since the corpus checks call it millions of times. Statuses and certainties are result.h's codes, one byte
 // each. Lists of varying length (breaks, singular parameters, alternatives) go to one scratch array of doubles,
 // valid until the next call that writes it (cg_scratch, cg_scratch_size). A projection (projectCurve: cg_project,
-// cg_coedge_project) goes there as a header of 13 (status, method, certainty, seamU, seamV, offSurface, error, the
+// cg_coedge_project) goes there as a header of 15 (status, method, certainty, seamU, seamV, offSurface, error, the
 // ambiguous parameters' count, the pieces' count, the seam twin's, whether the use takes the twin, the range's
-// parameters at its start and end), those parameters, then the pieces and the twin's, each 21 (t lo, t hi, kind,
-// poleLine, from u, v, to u, v, certainty, error, the reals' count, the ints', affine 9) and its reals and ints, then
-// the (u, v) at each sample parameter asked (NaN where no piece covers it), and the twin's, where it's on a seam.
+// parameters at its start and end, offSpan's lo and hi), those parameters, then the pieces and the twin's, each 21
+// (t lo, t hi, kind, poleLine, from u, v, to u, v, certainty, error, the reals' count, the ints', affine 9) and its
+// reals and ints, then the (u, v) at each sample parameter asked (NaN where no piece covers it), and the twin's, where
+// it's on a seam.
 #include <algorithm>
 #include <cstdint>
 #include <cstdlib>
@@ -793,7 +794,7 @@ void putProjection(const Pcurve& p, bool twin, double t0, double t1, const doubl
   scratch.clear();
   scratch.insert(scratch.end(), {double(p.status), double(p.method), double(p.certainty), p.seamU ? 1.0 : 0.0,
     p.seamV ? 1.0 : 0.0, p.offSurface, p.error, double(p.tAmbiguous.size()), double(p.pieces.size()),
-    double(p.seamTwin.size()), twin ? 1.0 : 0.0, t0, t1});
+    double(p.seamTwin.size()), twin ? 1.0 : 0.0, t0, t1, p.offSpan.lo, p.offSpan.hi});
   scratch.insert(scratch.end(), p.tAmbiguous.begin(), p.tAmbiguous.end());
   for (const std::vector<PcurvePiece>* v : {&p.pieces, &p.seamTwin})
     for (const PcurvePiece& q : *v) {
