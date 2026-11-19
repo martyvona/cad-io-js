@@ -44,6 +44,8 @@ export interface HealOptions {
   heal?: boolean;
   /** Under `heal`, each fix on or off by name (each on by default but FIXES_OFF_BY_DEFAULT's). */
   fixes?: Partial<Record<HealFix, boolean>>;
+  /** Told where healing is (each part, each fix, every few hundred coedges), for a caller watching a long part. */
+  progress?: (what: string) => void;
 }
 
 /** The fixes the options turn on, in HEAL_FIXES's order; none where `heal` is false. Throws on an unknown name. */
@@ -74,16 +76,18 @@ export async function healPart(model: BrepData, opts: HealOptions = {}, module?:
   if (!fixes.size) return { model, changed: false, diagnostics: [] };
   const diagnostics: Diagnostic[] = [];
   // The curves' own fixes first, into a model of their own, so the face API measures the curves as fixed.
-  const pre = new ModelEdit(model);
+  const progress = opts.progress ?? (() => {}), pre = new ModelEdit(model);
+  progress('strayPole');
   if (fixes.has('strayPole')) movePoles(model, pre, diagnostics);
   const fixed = pre.finish(), edit = new ModelEdit(fixed);
   const g = new Geometry(module ?? await init(), new Uint8Array(fixed.buffer));
   let curves;
   try {
-    curves = healCurves(g, fixed, fixes, edit, diagnostics);
+    curves = healCurves(g, fixed, fixes, edit, diagnostics, undefined, progress);
   } finally {
     g.dispose();
   }
+  progress('the healed model and its analysis');
   const healed = edit.finish();
   const analysis = await analysisOf(healed, model, edit, curves);
   if (source) for (const x of diagnostics) x.source = source;
@@ -136,9 +140,16 @@ async function analysisOf(healed: BrepData, source: BrepData, edit: ModelEdit, c
       first: new Int32Array(ne).fill(-1), count: new Int32Array(ne), toleranceFrom: from('edge', ne),
       givenTolerance: source.edge.tolerance },
     coedge: { range: nan(2 * nc), rangeFrom: zero(nc), deviation: curves.deviation, face, loop,
-      pcurveFrom: curves.pcurveFrom, traceStatus: curves.traceStatus, traceTol: curves.traceTol,
-      offSurface: curves.offSurface, stopAt: curves.stopAt, stopWhy: curves.stopWhy },
+      pcurveFrom: curves.pcurveFrom },
+    trace: traceRows(curves.traces),
   });
+}
+
+/** The analysis's trace rows, in coedge order. */
+export function traceRows(traces: CurvesRecord['traces']) {
+  const t = traces.toSorted((a, b) => a.coedge - b.coedge), col = (k: keyof typeof t[number]) => t.map((x) => x[k]);
+  return { coedge: col('coedge'), status: col('status'), tol: col('tol'), offSurface: col('offSurface'),
+    stopAt: col('stopAt'), stopWhy: col('stopWhy') };
 }
 
 /** Heals every part's model in the scene in place, its analysis (of the healed model) set beside it and its
@@ -147,6 +158,7 @@ export async function healScene(scene: Scene, opts: HealOptions = {}, module?: G
   if (!fixesOn(opts).length) return;
   for (const part of scene.parts) {
     if (!part.brep) continue;
+    opts.progress?.(`part ${scene.parts.indexOf(part)} of ${scene.parts.length}`);
     const r = await healPart(part.brep.model, opts, module, part.sources[0]);
     if (r.changed) part.brep.model = r.model;
     if (r.analysis) part.brep.analysis = r.analysis;

@@ -1,9 +1,10 @@
 // Tracing a coedge's edge curve onto its face's surface (docs/own-tessellator.md, edges measured by tracing, once):
-// what healing calls, as an interface, so the projection lane's API (cad-geom's project.h: a trace from given end
-// feet, its stop with where and why, an end search per vertex and face) can replace the stub here without healing
-// changing. Healing keeps the trace's p-curve, fitted once, in the healed model (pcurveFrom healed) and its measures in
-// the analysis buffer (the coedge's traceStatus, traceTol, offSurface, stopAt, stopWhy); the end searches are a
-// cache within the pass, a stored p-curve's ends giving later consumers the vertex's (u, v).
+// what healing calls, as an interface, so the projection lane's API (cad-geom's projectCoedge with its stop, where
+// and why) can replace the stub here without healing changing. The global search at the curve's ends is the
+// projection's, once per vertex and face, cached in the Geometry handle (the pass's), each coedge picking its own foot
+// (its seam side, a pole's free coordinate). Healing keeps the trace's p-curve, fitted once, in the healed model
+// (pcurveFrom healed) and its measures in the analysis buffer's trace rows; a stored p-curve's ends give later
+// consumers the vertex's (u, v).
 
 import { TRACE_STOP } from 'cad-brep';
 import type { Geometry } from 'cad-geom';
@@ -26,21 +27,14 @@ export interface Trace {
   fit: { curve: Curve2; error: number; range: [number, number]; within: boolean } | { why: string };
 }
 
-/** A global search's feet of a vertex on a face's surface: the tracer's own record, kept by the pass per pair. */
-export type EndSearch = unknown;
-
 export interface Tracer {
-  /** The global search for the vertex's feet on the face's surface at tol, once per pair (the pass caches it); a
-   * tracer that makes its own needn't have one. */
-  endSearch?(vertex: number, face: number, tol: number): EndSearch;
-  /** Coedge c's edge curve traced onto its face's surface at tol over its edge's range, from its ends' searches
-   * where given (each coedge picking its own foot among them: its seam side, a pole's free coordinate). */
-  trace(coedge: number, tol: number, start?: EndSearch, end?: EndSearch): Trace;
+  /** Coedge c's edge curve traced onto its face's surface at tol over its edge's range. */
+  trace(coedge: number, tol: number): Trace;
 }
 
 /**
- * The stub over cad-geom's current calls until the projection lane's lands: a trace is projectCoedge at tol (which
- * makes its own end feet, so it has no endSearch), its fit the projection's one piece. ok and invalidModel (the
+ * The stub over cad-geom's current calls until the projection lane's lands: a trace is projectCoedge at tol, its fit
+ * the projection's one piece. ok and invalidModel (the
  * curve off the surface by more than tol, the fit's error covering that) are a finished trace; noConvergence (a fit
  * short of tol) a finished trace whose fit missed; any other status a trace not made.
  */

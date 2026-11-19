@@ -41,10 +41,14 @@ function sampleRows(d: BrepData, hash: Uint32Array, seed = 1, extra = 5): Analys
   const rows: Record<string, Record<string, number[]>> = {};
   for (const c of ANALYSIS_COLUMNS) {
     const n = c.table === 'analysis' ? 1 : (ENTITIES as readonly string[]).includes(c.table)
-      ? rowCount(d, c.table as typeof ENTITIES[number]) : c.table === 'pool' ? extra + c.column.length : extra;
+      ? rowCount(d, c.table as typeof ENTITIES[number]) : c.table === 'pool' ? extra + c.column.length
+      : c.table === 'trace' ? Math.min(extra, rowCount(d, 'coedge')) : extra;
     (rows[c.table] ??= {})[c.column] = Array.from({ length: n * c.width }, (_, k) => gen(c.type, k));
   }
   rows.analysis!.model = Array.from(hash);
+  // The trace rows' coedges: the model's, in order (analysisFor refuses others).
+  rows.trace!.coedge = rows.trace!.coedge!.map((_, i) => 2 * i);
+  if (rows.trace!.coedge.at(-1)! >= rowCount(d, 'coedge')) rows.trace!.coedge = rows.trace!.coedge.map((_, i) => i);
   return rows as AnalysisRows;
 }
 
@@ -223,6 +227,17 @@ test('analysisFor: an analysis of exactly this model accepted, of any other refu
     const rows = sampleRows(d, hash, 2, 11) as Record<string, unknown>;
     for (const t of ENTITIES) delete rows[t];
     await analysisFor(d, writeAnalysis(rows as AnalysisRows));
+    // Trace rows naming a coedge the model hasn't, or out of order, or twice.
+    if (rowCount(d, 'coedge') >= 2) {
+      for (const coedges of [[0, rowCount(d, 'coedge')], [-1, 0], [1, 0], [1, 1]]) {
+        const r = sampleRows(d, hash) as Record<string, Record<string, number[]>>;
+        for (const c of ANALYSIS_COLUMNS.filter((s) => s.table === 'trace')) r.trace![c.column] = r.trace![c.column]!
+          .slice(0, 2 * c.width);
+        r.trace!.coedge = coedges;
+        await assert.rejects(analysisFor(d, writeAnalysis(r as AnalysisRows)),
+          (e) => e instanceof BrepFormatError && /analysis trace row/.test(e.message), `${name} ${coedges}`);
+      }
+    }
     // A hash off by one bit, anywhere.
     for (const bit of [0, 31, 32 * 3 + 7, 255]) {
       const off = hash.slice();

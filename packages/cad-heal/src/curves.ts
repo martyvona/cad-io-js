@@ -13,7 +13,7 @@ import { curveOffSurface, type Grids, GROWTH } from './fix/tolerance.ts';
 import { Growth } from './fix/growth.ts';
 import type { HealFix } from './index.ts';
 import { edgeRange, measureGiven, pcurveImage, tolerances } from './measure.ts';
-import { type EndSearch, stubTracer, type Tracer } from './trace.ts';
+import { stubTracer, type Tracer } from './trace.ts';
 
 /** What the pass did, for the analysis buffer: per coedge its p-curve's provenance and measured deviation. */
 export interface CurvesRecord {
@@ -21,12 +21,8 @@ export interface CurvesRecord {
   deviation: Float64Array;
   /** Per edge: PROVENANCE of its range (healed where the pass wrote one the source left out). */
   edgeRangeFrom: Uint8Array;
-  /** Per coedge, where it was traced: the analysis buffer's trace columns (TRACE_STATUS, TRACE_STOP). */
-  traceStatus: Uint8Array;
-  traceTol: Float64Array;
-  offSurface: Float64Array;
-  stopAt: Float64Array;
-  stopWhy: Uint8Array;
+  /** The coedges traced, as the analysis buffer's trace rows (TRACE_STATUS, TRACE_STOP), in the order traced. */
+  traces: { coedge: number; status: number; tol: number; offSurface: number; stopAt: number; stopWhy: number }[];
 }
 
 /** The surface kinds whose inversion is closed form. */
@@ -49,25 +45,23 @@ class Tally {
   }
 }
 
-/** `tracer`: what traces a bare coedge's curve where the grid can't bound it (trace.ts; its stub by default). */
+/** Coedges between progress reports. */
+export const PROGRESS_EVERY = 200;
+
+/**
+ * `tracer`: what traces a bare coedge's curve where the grid can't bound it (trace.ts; its stub by default);
+ * `progress`: told where the pass is, every PROGRESS_EVERY coedges and at each step after.
+ */
 export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>, edit: ModelEdit,
-  diagnostics: Diagnostic[], tracer: Tracer = stubTracer(g)): CurvesRecord {
+  diagnostics: Diagnostic[], tracer: Tracer = stubTracer(g), progress: (what: string) => void = () => {}):
+  CurvesRecord {
   const nc = rowCount(d, 'coedge'), tol = tolerances(d), nan = () => new Float64Array(nc).fill(NaN);
   const record: CurvesRecord = { pcurveFrom: new Uint8Array(nc), deviation: nan(),
-    edgeRangeFrom: new Uint8Array(rowCount(d, 'edge')), traceStatus: new Uint8Array(nc), traceTol: nan(),
-    offSurface: nan(), stopAt: nan(), stopWhy: new Uint8Array(nc) };
+    edgeRangeFrom: new Uint8Array(rowCount(d, 'edge')), traces: [] };
   // The traces: p-curves kept at the edge's tolerance, kept with it grown, none kept (by why), stops (where, why).
   const tracedAtTol = new Tally(), tracedGrown = new Tally(), tracedBare = new Map<string, Tally>();
   const stopped = new Tally();
   let worstTraced = 0;
-  // The end searches, once per (vertex, face) at a tolerance, for every trace starting or ending there.
-  const searches = new Map<string, EndSearch>();
-  const endSearch = (v: number, f: number, t: number) => {
-    if (v < 0 || !tracer.endSearch) return undefined;
-    const key = `${v},${f},${t}`;
-    if (!searches.has(key)) searches.set(key, tracer.endSearch(v, f, t));
-    return searches.get(key);
-  };
   for (let e = 0; e < record.edgeRangeFrom.length; e++) {
     if (Number.isFinite(d.edge.range[2 * e]!)) record.edgeRangeFrom[e] = PROVENANCE.given;
   }
@@ -87,6 +81,7 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
   // Per vertex and per edge: the largest gap from a kept source p-curve's end to its vertex (pcurveEnds').
   const endNeedV = new Float64Array(rowCount(d, 'vertex')), endNeedE = new Float64Array(rowCount(d, 'edge'));
   let worstGiven = 0, worstNew = 0;
+  let visited = 0;
   const coedgeName = (c: number) => `coedge #${d.coedge.id[c]} (edge #${d.edge.id[d.coedge.edge[c]!]})`;
   for (let f = 0; f < rowCount(d, 'face'); f++) {
     const surface = d.face.surface[f]!, onPlane = d.surface.kind[surface] === SURFACE_KIND.plane;
@@ -118,6 +113,9 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
     for (let l = d.face.firstLoop[f]!; l < d.face.firstLoop[f]! + d.face.loopCount[f]!; l++) {
       if (d.loop.kind[l] !== LOOP_KIND.edge) continue;
       for (let c = d.loop.first[l]!; c < d.loop.first[l]! + d.loop.count[l]!; c++) {
+        if (++visited % PROGRESS_EVERY === 0) {
+          progress(`curves: coedge ${visited} of ${nc} (face ${f}, ${coedgeName(c)})`);
+        }
         const e = d.coedge.edge[c]!, pc = d.coedge.pcurve[c]!;
         if (pc >= 0) record.pcurveFrom[c] = PROVENANCE.given;
         const range = d.edge.curve[e]! >= 0 ? edgeRange(g, e) : undefined;
@@ -149,9 +147,9 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
             closedForm || !traceable ? undefined : () => traced(tolE)));
         };
         const traced = (tolE: number) => {
-          const tr = tracer.trace(c, tolE, endSearch(d.edge.start[e]!, f, tolE), endSearch(d.edge.end[e]!, f, tolE));
-          record.traceStatus[c] = TRACE_STATUS[tr.status], record.traceTol[c] = tolE;
-          record.offSurface[c] = tr.offSurface, record.stopAt[c] = tr.stopAt, record.stopWhy[c] = tr.stopWhy;
+          const tr = tracer.trace(c, tolE);
+          record.traces.push({ coedge: c, status: TRACE_STATUS[tr.status], tol: tolE, offSurface: tr.offSurface,
+            stopAt: tr.stopAt, stopWhy: tr.stopWhy });
           if (tr.status === 'stopped') {
             stopped.add(`${coedgeName(c)} at t = ${tr.stopAt.toPrecision(6)} (${STOP_NAME[tr.stopWhy]})`);
           }
@@ -306,6 +304,7 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
     edit.set('edge', 'range', 2 * e, up ? lo : hi), edit.set('edge', 'range', 2 * e + 1, up ? hi : lo);
     record.edgeRangeFrom[e] = PROVENANCE.healed;
   }
+  progress('ranges and vertexTolerance');
   // vertexTolerance: each edge's curve's ends against its vertices, over the range its p-curves are in.
   const vNeed = new Float64Array(rowCount(d, 'vertex')), vNeedE = new Float64Array(rowCount(d, 'edge'));
   if (fixes.has('vertexTolerance')) {

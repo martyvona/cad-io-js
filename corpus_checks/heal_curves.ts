@@ -492,7 +492,7 @@ export const check: FileCheck<undefined, Result> = {
     maxMB = Number(args[1] ?? 1000);
     module = await init();
   },
-  async file(file) {
+  async file(file, _job, ctx) {
     const R = fresh();
     if (fs.statSync(file).size > maxMB * 1e6) return R;
     R.files++;
@@ -505,7 +505,9 @@ export const check: FileCheck<undefined, Result> = {
       const where = `${name} #${part.sources[0]!.id}`;
       let d = source;
       if (heal) {
-        const t = Date.now(), h = await healPart(source, { fixes: healFixes }, module);
+        ctx.progress(`${where}: healing`);
+        const t = Date.now(), h = await healPart(source, { fixes: healFixes,
+          progress: (what) => ctx.progress(`${where}: ${what}`) }, module);
         R.healMs += Date.now() - t;
         d = h.model;
         for (const x of h.diagnostics) tally(R.healed, x.message.replace(/:.*/, '') + ` (${x.severity})`, `${where}: `
@@ -514,6 +516,7 @@ export const check: FileCheck<undefined, Result> = {
         countTraces(h.diagnostics, where, R);
         if (!measure) continue;
       }
+      ctx.progress(`${where}: measuring`);
       const { keep } = measurePart(d, where, R);
       if (plant && plantedPart(where)) plantPart(d, where, keep, R);
     }

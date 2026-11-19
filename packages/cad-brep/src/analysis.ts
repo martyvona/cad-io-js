@@ -71,8 +71,9 @@ export function modelHash(model: BrepData): Promise<Uint32Array> {
 
 /**
  * The analysis, opened if it's a buffer, once it's known to be of this model: its `analysis.model` the model buffer's
- * SHA-256, and each per-entity table empty or of the model's rows. Else a BrepFormatError (whoever paired them has a
- * bug: an analysis of another model, or of this one before an edit or healing).
+ * SHA-256, each per-entity table empty or of the model's rows, the trace rows of its coedges in order. Else a
+ * BrepFormatError (whoever paired them has a bug: an analysis of another model, or of this one before an edit or
+ * healing).
  */
 export async function analysisFor(model: BrepData, analysis: BrepAnalysis | ArrayBuffer | Uint8Array):
   Promise<BrepAnalysis> {
@@ -84,6 +85,12 @@ export async function analysisFor(model: BrepData, analysis: BrepAnalysis | Arra
   for (const t of PER_ENTITY) {
     const n = analysisRowCount(a, t), m = rowCount(model, t);
     if (n !== 0 && n !== m) throw new BrepFormatError(`analysis ${t}: ${n} rows, the model's ${m}`);
+  }
+  // The trace rows: of the model's coedges, in increasing order, each once.
+  const nc = rowCount(model, 'coedge');
+  for (let i = 0, last = -1; i < a.trace.coedge.length; last = a.trace.coedge[i]!, i++) {
+    const c = a.trace.coedge[i]!;
+    if (!(c > last && c < nc)) throw new BrepFormatError(`analysis trace row ${i}: coedge ${c} (${nc} coedges)`);
   }
   return a;
 }
