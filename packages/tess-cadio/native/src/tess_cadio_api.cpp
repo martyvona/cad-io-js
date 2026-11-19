@@ -87,6 +87,7 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
   PartMesher pm(m, opts);
   std::vector<uint32_t> failed, failedRows, failedStatus, refused, unsplit, unsettled, sampled, againstSense;
   std::vector<uint32_t> folded;
+  std::vector<uint32_t> refusedBy(kRefusalKinds, 0);
   uint32_t folds = 0;
   std::vector<std::string> failedCause;
   // Refused triangles, and those of them in a pole's fan (a corner at a surface singularity's point).
@@ -108,6 +109,7 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
       if (!fm.rejected.empty()) {
         refused.push_back(faceId[f]);
         refusedTriangles += fm.rejected.size();
+        for (int k = 0; k < kRefusalKinds; k++) refusedBy[k] += static_cast<uint32_t>(fm.refusedBy[k]);
         Status st;
         std::vector<Singularity> sing;
         if (std::unique_ptr<Surface> s = closedSurface(m, tols, f, st)) s->singularities(sing);
@@ -202,7 +204,8 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
   result.diag = "{\"failed\":" + ids(failed) + ",\"failedRows\":" + ids(failedRows) + ",\"failedStatus\":" +
     ids(failedStatus) + ",\"failedCause\":" + causes + ",\"refused\":" + ids(refused) +
     ",\"unsplit\":" + ids(unsplit) + ",\"unsettled\":" + ids(unsettled) + ",\"sampled\":" + ids(sampled) +
-    ",\"againstSense\":" + ids(againstSense) + ",\"folded\":" + ids(folded) + ",\"folds\":" +
+    ",\"againstSense\":" + ids(againstSense) + ",\"folded\":" + ids(folded) +
+    ",\"refusedBy\":" + ids(refusedBy) + ",\"folds\":" +
     std::to_string(folds) + ",\"projections\":[" + std::to_string(pc.withinMesh) + "," +
     std::to_string(pc.atEdgeTolerance) + "," + std::to_string(pc.byInversion) + "],\"rounds\":" +
     std::to_string(pm.rounds()) + ",\"refusedTriangles\":" + std::to_string(refusedTriangles) +
@@ -229,6 +232,7 @@ const float* tc_edge_positions() { return result.edgePositions.data(); }
  * The last call's diagnostics: {"failed": [face ids], "failedRows", "failedStatus" (each one's result.h Status: an
  * empty triangulation counts as invalidModel), "failedCause" (each one's FaceMesh::cause), "refused", "unsplit",
  * "unsettled", "sampled" (faces whose deviation accept() sampled rather than bounded: SurfaceCriteria::bounded),
+ * "refusedBy" (the refused triangles by why: criteria.h's Refusal as indices, [0] unused),
  * "againstSense" (faces with a loop against their sense, meshed: FaceBoundary::againstSense), "folded" and "folds"
  * (the faces with boundary folds repaired, and how many: FaceBoundary::foldsRepaired), "projections" (the
  * uses without p-curves, by how they were sampled: EdgeMesh::projections, [withinMesh, atEdgeTolerance,

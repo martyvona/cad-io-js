@@ -71,6 +71,8 @@ struct FaceMesh {
    * indices into `triangles` / 3; those with two corners at one point left out with them.
    */
   std::vector<int32_t> rejected;
+  /** The refused triangles by why the criteria refused each (criteria.h's Refusal, as indices; [0] unused). */
+  int refusedBy[kRefusalKinds] = {};
   /** Splits of its edges it still wanted when the rounds ran out. */
   int splitsWanted = 0;
   /** Whether its triangles' deviation was sampled rather than bounded (SurfaceCriteria::bounded). */

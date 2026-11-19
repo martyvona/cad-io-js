@@ -338,6 +338,12 @@ TEST_CASE("the angle alone, closed edges in 3 spans at least, the faces' spacing
   CHECK_EQ(checkEdges(m, em, o, "angle"), 0);
   CHECK(em.edge(0).t.size() - 1 >= 126u);
   CHECK(em.edge(0).t.size() - 1 <= 140u);
+  // The angle 0.01 at deflection 1: 628 spans by the angle, but none refined below the refinement floor (0.1 here):
+  // about 2 pi 2 / 0.1 spans, the turn across each about 0.05.
+  o.angle = 0.01;
+  EdgeMesh floored(m, o);
+  CHECK(floored.edge(0).t.size() - 1 <= 140u);
+  CHECK(floored.edge(0).t.size() - 1 >= 120u);
   // Deflection 100 asks for nothing: a closed circle still 3 spans, the seam 1.
   o = {};
   o.deflection = 100;
@@ -868,6 +874,41 @@ TEST_CASE("a use's p-curve checked between its samples against its edge's curve:
   REQUIRE(ew.edge(0).t.size() == 3u);
   CHECK(!ew.coedge(0).fromPcurve);
   CHECK_EQ(checkCoedges(w, ew, 1e-9, "wigglePcurve"), 0);
+}
+
+TEST_CASE("splits below the refinement floor honoured, none on a span within the part's tolerance") {
+  // spindleApex's uncertainty is 0.2, so at a deflection of 4 the floor is max(0.2, 0.4) = 0.4 and the bottom
+  // circle's spans are sampled no finer: a split asked on one longer than 0.2 is made (below the floor too), one on a
+  // span of chord at most 0.2 (the tolerance) dropped.
+  cadgeom::Model m = load("spindleApex");
+  REQUIRE(m.ok());
+  EdgeOptions o;
+  o.deflection = 4;
+  EdgeMesh em(m, o);
+  int e = -1;
+  for (int k = 0; k < m.edges() && e < 0; k++)
+    if (m.curveKind(m.edgeCurve(k)) == CBR_CURVE_CIRCLE) e = k;
+  REQUIRE(e >= 0);
+  // Halve its first span until its chord is within the tolerance, each split made while over it.
+  int made = 0, below = 0;
+  for (int round = 0; round < 12; round++) {
+    const auto& P = em.edge(e).points;
+    const double chord = cadgeom::norm(P[1] - P[0]);
+    const size_t before = P.size();
+    REQUIRE(em.split({{e, 0, 0.5}}) == cadgeom::Status::ok);
+    const size_t after = em.edge(e).points.size();
+    if (chord > 0.2) {
+      CHECK_EQ(after, before + 1);
+      made++;
+      below += chord < 0.4;
+    } else {
+      CHECK_EQ(after, before);
+    }
+  }
+  CHECK(made > 0);
+  // (Some of them below the floor: a span of chord under 0.4 split.)
+  CHECK(below > 0);
+  CHECK(cadgeom::norm(em.edge(e).points[1] - em.edge(e).points[0]) <= 0.2);
 }
 
 TEST_CASE("a curve's break at an end's point within rounding is that point: no sample beside it") {

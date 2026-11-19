@@ -791,15 +791,31 @@ TEST_CASE("the criteria's metric: sizes from the principal curvatures, every dir
     }
     CHECK(under > 500);
   }
-  // A triangle too small to judge (1e-12 across, under 1e-4 of the deflection): accepted though its corners, in
-  // (u, v) the wrong way round, give it a facet turned over (refinement would chase such a spot to its point cap).
+  // A triangle within the refinement floor (its patch's bound within max(tolerance, 0.1 x the deflection), 1e-3
+  // here): accepted, by accept() and acceptDeviation(), though its corners, in (u, v) the wrong way round, give it a
+  // facet turned over (refinement would chase such a spot to its point cap); belowFloor() says so.
   {
     auto c = criteria("seamCylinder", 0, {{0, 2 * M_PI}, {0, 5}}, 0.01, 0.26, s);
     const Vec2 tiny[3] = {{1, 2}, {1, 2 + 1e-12}, {1 + 1e-12, 2}};
     CHECK(c->accept(tiny));
-    // (Its bigger copy, 3e-4 in (u, v), about 6e-4 mm across, turned over the same way, refused.)
-    const Vec2 big[3] = {{1, 2}, {1, 2 + 3e-4}, {1 + 3e-4, 2}};
+    // Just within it: 2e-4 in (u, v) on the radius 2 cylinder, its patch's bound about 6e-4 mm across.
+    const Vec2 within[3] = {{1, 2}, {1, 2 + 2e-4}, {1 + 2e-4, 2}};
+    CHECK(c->belowFloor(within));
+    CHECK(c->accept(within));
+    CHECK(c->acceptDeviation(within));
+    // Just past it: 6e-4 in (u, v), about 1.7e-3 mm across, turned over the same way: refused.
+    const Vec2 big[3] = {{1, 2}, {1, 2 + 6e-4}, {1 + 6e-4, 2}};
+    CHECK(!c->belowFloor(big));
     CHECK(!c->accept(big));
+    // (Refused for its facet against its corners' normals: the deviation passes.)
+    CHECK(c->refusal(big) == Refusal::normalFacet);
+    CHECK(c->refusal(big, false) == Refusal::none);
+    CHECK(c->refusal(within) == Refusal::none);
+    // Its corners within 1e-6 of one point in 3D across the seam, its patch the whole circle: judged by the patch's
+    // bound, not within the floor, refused.
+    const Vec2 round[3] = {{0, 2}, {2 * M_PI, 2}, {2 * M_PI, 2 + 1e-6}};
+    CHECK(!c->belowFloor(round));
+    CHECK(!c->accept(round));
   }
   // On the unit sphere near its pole: a triangle wide in u, its far corner nearer the pole, turned over in 3D (its
   // facet's normal against the surface's), refused, though within the deflection and its corners' normals close; one
@@ -811,6 +827,9 @@ TEST_CASE("the criteria's metric: sizes from the principal curvatures, every dir
   CHECK(!h->accept(over));
   CHECK(h->accept(fine));
   CHECK(h->accept(pole));
+  CHECK(h->refusal(over) != Refusal::none);
+  CHECK(h->refusal(fine) == Refusal::none);
+  CHECK(h->refusal(pole) == Refusal::none);
 }
 
 // A crease between knots a hair apart (kinkStrip, 1e-4 of u wide, its second partial about 1e4 there): every triangle
@@ -1389,6 +1408,11 @@ TEST_CASE("accept() holds every triangle to the angle, at an apex too; acceptDev
       for (int j = i + 1; j < 3; j++) spread = std::fmax(spread, std::acos(std::clamp(cadgeom::dot(n[i], n[j]), -1.0,
         1.0)));
     REQUIRE((far < 0.08) == near);
+    // (refusal() as accept() and acceptDeviation() say: a normals reason, or none by the deviation alone.)
+    const Refusal r = c->refusal(t), rd = c->refusal(t, false);
+    CHECK((r == Refusal::none) == c->accept(t));
+    CHECK((rd == Refusal::none) == c->acceptDeviation(t));
+    if (r != Refusal::none && rd == Refusal::none) CHECK((r == Refusal::normalFacet || r == Refusal::normalSpread));
     return Judged{c->accept(t), c->acceptDeviation(t)};
   };
   double spread;

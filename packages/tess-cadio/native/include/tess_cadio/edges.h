@@ -230,7 +230,9 @@ public:
    * there were none, else Status::invalidModel. Each request adds one sample inside its span (several on one span
    * each at its own fraction of the span as it was, those within a tenth of the span of one another once); existing
    * samples are kept, so other edges' indices stand and only the touched edges' later indices move. The touched
-   * edges' coedges are redone. A request whose sample would fall inside a ring's span (cutRings) is dropped.
+   * edges' coedges are redone. A request whose sample would fall inside a ring's span (cutRings), or on a span whose
+   * chord is within the part's tolerance, is dropped; below the refinement floor (criteria.h) requests are honoured,
+   * the edges sampled no finer than it.
    */
   Status split(const std::vector<SplitRequest>& requests);
 

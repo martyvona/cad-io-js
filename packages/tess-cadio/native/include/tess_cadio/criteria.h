@@ -3,6 +3,8 @@
 // plus the spacing the face's edges need for its triangles to be.
 #pragma once
 
+#include <algorithm>
+
 #include <memory>
 
 #include "cad_geom/interval.h"
@@ -20,7 +22,29 @@ struct Deflections {
   double angular = 0.26;
 };
 
+/**
+ * The refinement floor, max(the part's tolerance, 0.1 x the deflection): edges are sampled no finer than it (EdgeMesh;
+ * a refused triangle's split request is honoured below it, though never on a span within the part's tolerance), a
+ * triangle whose patch is no larger is accepted outright (SurfaceCriteria, SizeField::belowFloor), and the mesher's
+ * angle-only refinement stops at it (mesh2d.h). Below it nothing a mesh shows changes, and refinement chases rounding.
+ */
+inline double refinementFloor(double partTolerance, double deflection) {
+  return std::max(partTolerance, 0.1 * deflection);
+}
+
 /** One face's criteria; the surface outlives it. */
+/**
+ * Why SurfaceCriteria refuses a triangle, its first check in accept()'s order that fails: the deviation by a closed
+ * form (a sphere's, a cone's, a torus's), by sampling (its centroid and sides' middles at their barycentric (u, v)),
+ * by the surface's derivative bounds over its (u, v) box, by inversion near a pole (deviationNearPole, the fallback
+ * where both overstate); else a corner's normal against the facet's (normalFacet) or two corners' normals apart
+ * (normalSpread), past the angle.
+ */
+enum class Refusal : uint8_t {
+  none, deviationClosedForm, deviationSampled, deviationBounded, deviationNearPole, normalFacet, normalSpread
+};
+constexpr int kRefusalKinds = 7;
+
 class SurfaceCriteria : public SizeField {
 public:
   /**
@@ -40,6 +64,8 @@ public:
    * there to hold a triangle's to.
    */
   virtual bool acceptDeviation(const cadgeom::Vec2 tri[3]) const = 0;
+  /** Why accept() (normals true) or acceptDeviation() refuses the triangle; Refusal::none where it doesn't. */
+  virtual Refusal refusal(const cadgeom::Vec2 tri[3], bool normals = true) const = 0;
   // metric(p): the first fundamental form over h^2, h the 3D size the deflections allow there.
   // accept(tri): the surface within `linear` of the triangle at sampled points (its centroid, its edges' middles),
   // and the surface's normals at its corners within `angular` of one another and of the triangle's own normal.

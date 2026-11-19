@@ -7,6 +7,8 @@
 // so the samples every face sees are fixed until split().
 #include "tess_cadio/edges.h"
 
+#include "tess_cadio/criteria.h"
+
 #include <algorithm>
 #include <cmath>
 #include <map>
@@ -204,9 +206,9 @@ struct IsoGeom : Geom {
 struct Criteria {
   double deflection, angle, spacing;
   /**
-   * A span whose length bound is at most this (10 x the part's tolerance) is never refined: near a zero-speed point
-   * the curve doesn't report as singular the angle's speed bound shrinks towards 0, and samples would pile up there
-   * until they coincide.
+   * A span whose length bound is at most this (the refinement floor, criteria.h) is never refined by the sampler:
+   * near a zero-speed point the curve doesn't report as singular the angle's speed bound shrinks towards 0, and
+   * samples would pile up there until they coincide.
    */
   double floor = 0;
 };
@@ -260,8 +262,9 @@ bool refine(const Geom& g, double a, double b, const Criteria& k, std::vector<do
     turnN = std::min(turnN, std::ceil(seen / (0.9 * k.angle)));
     n = std::max(n, turnN);
   }
-  // No piece's length bound under the floor (at least two pieces still).
-  if (k.floor > 0 && std::isfinite(m1)) n = std::min(n, std::max(2.0, std::floor(s * m1 / k.floor)));
+  // No more pieces than bring their length bounds to the floor (at least two still): the fewest within it, so they
+  // stop there rather than land just over it and halve.
+  if (k.floor > 0 && std::isfinite(m1)) n = std::min(n, std::max(2.0, std::ceil(s * m1 / k.floor)));
   int pieces = static_cast<int>(std::min(n, 64.0));
   // Equal pieces, but no cut within a tenth of the floor (the tolerance) of the last kept or of b: where the speed
   // nearly vanishes, equal parameter steps make chords far shorter than the pieces' bounds.
@@ -397,7 +400,7 @@ struct EdgeMesh::Impl {
   }
 
   Criteria criteria(double spacing) const {
-    return {o.deflection, o.angle, std::min(spacing, o.maxSpacing), 10 * tol};
+    return {o.deflection, o.angle, std::min(spacing, o.maxSpacing), refinementFloor(tol, o.deflection)};
   }
   double coedgeRange(int c, int j) const { return m.f64(CBR_COEDGE_RANGE)[2 * c + j]; }
 
@@ -1934,6 +1937,10 @@ Status EdgeMesh::split(const std::vector<SplitRequest>& requests) {
       bad = true;
       continue;
     }
+    // (A refused triangle's request is honoured below the refinement floor, but no span whose chord is within the
+    // part's tolerance is split: the model can't say where its curve is below that.)
+    const std::vector<Vec3>& pts = I.edges[r.edge].s.points;
+    if (norm(pts[r.span + 1] - pts[r.span]) <= I.tol) continue;
     double f = std::clamp(r.fraction, 0.1, 0.9), x = t[r.span] + f * (t[r.span + 1] - t[r.span]);
     bool inRing = false;
     for (const Range& g : I.edges[r.edge].rings) inRing = inRing || (x > g.lo && x < g.hi);

@@ -234,9 +234,14 @@ export class CadioTessellator implements Tessellator {
     };
     const refused = list('refused');
     if (refused.length) {
+      // (By why, criteria.h's Refusal in order: [0] unused.)
+      const by = list('refusedBy');
+      const why = ['', 'deviation in closed form', 'deviation sampled', 'deviation bounded', 'deviation near a pole',
+        'a normal against the facet', 'normals apart'];
+      const reasons = why.map((w, k) => (k && by[k] ? `${w} ${by[k]}` : '')).filter(Boolean).join(', ');
       diagnostics.push({ severity: 'warning', message: `${refused.length} faces meshed with triangles their criteria `
         + `still refuse: ${Number(diag.refusedTriangles)} triangles, ${Number(diag.poleSlivers)} of them slivers in a `
-        + 'pole\'s fan' });
+        + `pole's fan${reasons ? `; by why: ${reasons}` : ''}` });
     }
     note('unsplit', 'still wanting their edges split when the rounds ran out');
     const sampled = list('sampled');
