@@ -7,7 +7,7 @@
 
 import type { ColumnType } from './layout.ts';
 
-export const ANALYSIS_MAGIC = 'CBA1';
+export const ANALYSIS_MAGIC = 'CBA2';
 
 /**
  * The tables in buffer order. A per-entity table (vertex, edge, coedge, face, surface, shell) is either empty (not
@@ -24,24 +24,28 @@ export const ANALYSIS_TABLES = {
   pool: [['real', 'f64', 1], ['int', 'i32', 1]],
   /**
    * `measured` the largest distance from the vertex to the ends of its edges' curves and to its faces' surfaces
-   * (NaN: not measured); `edges` the edges ending there, `count` row indices in `pool.int` from `first`.
+   * (NaN: not measured); `edges` the edges ending there, `count` row indices in `pool.int` from `first`;
+   * `toleranceFrom` PROVENANCE of the model's tolerance (healed: grown by healing, the model then a healed one),
+   * `givenTolerance` the source's (NaN: it gave none), so the source's claim stays visible beside the grown value.
    */
-  vertex: [['measured', 'f64', 1], ['first', 'i32', 1], ['count', 'i32', 1]],
+  vertex: [['measured', 'f64', 1], ['first', 'i32', 1], ['count', 'i32', 1], ['toleranceFrom', 'u8', 1],
+    ['givenTolerance', 'f64', 1]],
   /**
    * `range` the edge's curve parameters at start and end: the model's where given, else derived (by inversion of
    * its vertices, closed curves resolved), `rangeFrom` PROVENANCE; `measured` the largest deviation of its coedges'
    * p-curves (through their surfaces) from its 3D curve over the range; its coedges `count` row indices in
-   * `pool.int` from `first`.
+   * `pool.int` from `first`; `toleranceFrom` and `givenTolerance` as the vertex's.
    */
   edge: [['range', 'f64', 2], ['rangeFrom', 'u8', 1], ['measured', 'f64', 1], ['first', 'i32', 1],
-    ['count', 'i32', 1]],
+    ['count', 'i32', 1], ['toleranceFrom', 'u8', 1], ['givenTolerance', 'f64', 1]],
   /**
    * `range` the p-curve's parameters at the coedge's start and end (as the edge's, in the loop's direction),
    * `rangeFrom` PROVENANCE; `deviation` its p-curve's largest distance, mapped through the surface, from the 3D
-   * curve (NaN without either); `face` and `loop` the rows that use it.
+   * curve (NaN without either); `face` and `loop` the rows that use it; `pcurveFrom` PROVENANCE of the model's
+   * p-curve (none: it has none; given: the source's; healed: made, replaced or reparameterized by healing).
    */
   coedge: [['range', 'f64', 2], ['rangeFrom', 'u8', 1], ['deviation', 'f64', 1], ['face', 'i32', 1],
-    ['loop', 'i32', 1]],
+    ['loop', 'i32', 1], ['pcurveFrom', 'u8', 1]],
   /**
    * `outerLoop` the face's outer loop row (-1: none, as a band's whose loops wind around a period), `outerFrom`
    * PROVENANCE (given where the source labels exactly one); `uv` the (u, v) box of its loops (u lo, u hi, v lo,

@@ -522,6 +522,28 @@ TEST_CASE("a strip whose ends are within the tolerance: refined past them (froze
   CHECK(fm.triangles.size() / 3 > 20);
   CHECK(fm.rejected.size() <= 1);
   CHECK_EQ(fm.splitsWanted, 0);
+  // narrowStripSmall at a deflection of 0.5: its ends' chords over the tolerance (0.001) but within the floor (0.05),
+  // so also never split, also frozen; refined past them the same way.
+  cadgeom::Model s = load("narrowStripSmall");
+  REQUIRE(s.ok());
+  PartMesher ps(s, options(0.5, 0.26));
+  const FaceMesh& fs = ps.face(0);
+  if (fs.splitsWanted || fs.triangles.size() / 3 <= 20)
+    std::printf("  narrowStripSmall: %zu triangles, %zu refused, %d splits\n", fs.triangles.size() / 3,
+      fs.rejected.size(), fs.splitsWanted);
+  CHECK(fs.status == cadgeom::Status::ok);
+  CHECK(fs.triangles.size() / 3 > 20);
+  CHECK(fs.rejected.size() <= 1);
+  CHECK_EQ(fs.splitsWanted, 0);
+  // Its ends (the circles) kept whole at 0.5; at 0.3 (a floor of 0.03, under their chord) split, as the mesh asks.
+  for (double d : {0.5, 0.3}) {
+    PartMesher pd(s, options(d, 0.26));
+    size_t most = 0;
+    for (int e = 0; e < s.edges(); e++)
+      if (s.curveKind(s.edgeCurve(e)) == CBR_CURVE_CIRCLE) most = std::max(most, pd.edges().edge(e).points.size());
+    if ((most > 2) != (d < 0.4)) std::printf("  narrowStripSmall at %g: an end in %zu samples\n", d, most);
+    CHECK_EQ(most > 2, d < 0.4);
+  }
 }
 
 TEST_CASE("a face whose edge loops all lie within the tolerance of a pole: invalidModel, and said so") {

@@ -315,6 +315,15 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
     }
     if (!placed || f < 0.05) {
       D.refused++;
+      // No segment the first candidate named that can be split (none, or each frozen: it left the domain across
+      // one): the segments its centroid encroaches named instead, since they are what refused the halvings; else the
+      // triangle asks for nothing while refused (arm's half cylinder beside its corners).
+      bool noneSplittable = true;
+      for (uint64_t k : encroached) noneSplittable = noneSplittable && frozen.count(k);
+      if (noneSplittable) {
+        int32_t at2;
+        acceptable(g, at2, true);
+      }
       for (uint64_t k : encroached) wanted.push_back({k, it.t, it.gen});
       finals.insert({it.t, it.gen});
       continue;
