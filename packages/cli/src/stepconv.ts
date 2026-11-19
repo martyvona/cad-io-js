@@ -19,7 +19,7 @@ import { DEFAULT_MESH_PROFILE, exportView, FallbackTessellator, MESH_PROFILE_NAM
 import { threemf } from 'export-3mf';
 import { glb, gltfJson, type Compression, type GltfOptions } from 'export-gltf';
 import { threejsChunks } from 'export-threejs';
-import { HEAL_BY_DEFAULT, HEAL_FIXES, type HealedPart, type HealFix, type HealSceneOptions } from 'cad-heal';
+import { HEAL_BY_DEFAULT, HEAL_FIXES, type HealFix, type HealSceneOptions, poolHealer } from 'cad-heal';
 import { healImported, importStep } from 'step-import';
 import { readStep } from 'step-parser';
 import { CachedTessellator, FileStore, DEFAULT_FILE_BYTES } from 'tess-cache';
@@ -133,8 +133,6 @@ const BACKENDS: Record<string, { module: string; export: string }> = {
   smlib: { module: 'tess-smlib', export: 'SmlibTessellator' },
 };
 
-/** Healing a part in a pool's worker (cad-heal's healJob). */
-const HEAL_JOB = { module: import.meta.resolve('cad-heal'), export: 'healJob' };
 
 const defaultWorkers = () => Math.max(1, os.availableParallelism() - 1);
 const degrees = (rad: number) => (rad * 180) / Math.PI;
@@ -470,7 +468,7 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
     try {
       await own?.init();
       const heal: HealSceneOptions = { heal: true, fixes, ...(healer ? { concurrency: workers,
-        healer: (req, said) => healer.run<HealedPart>(HEAL_JOB, req, { onProgress: said }) } : {}) };
+        healer: poolHealer(healer, import.meta.resolve('cad-heal')) } : {}) };
       await healImported(scene, { heal, onProgress: progress ? (p) => io.stderr.write(
         `\rhealing ${p.done}/${p.total}`) : undefined });
       if (progress) io.stderr.write('\r\x1b[K');

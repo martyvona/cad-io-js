@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { test } from 'node:test';
 import type { Scene } from 'cad-scene';
-import { healScene, type HealedPart, type HealRequest, type HealSceneOptions } from '../../cad-heal/src/index.ts';
+import { healScene, type HealedPart, type HealSceneOptions, poolHealer } from '../../cad-heal/src/index.ts';
 import { healTestScene } from '../../cad-heal/test/scene.ts';
 import { WorkerTessellator } from '../src/node.ts';
 
@@ -23,7 +23,7 @@ for (const [what, opts] of [['the default fixes', {}], ['pcurveMissing on, edgeT
     try {
       await healScene(parallel, { ...opts, concurrency: 3, progress: (w) => said.push(w),
         onPart: (n, total) => { assert.equal(total, 4); done.push(n); },
-        healer: (req: HealRequest, progress) => pool.run<HealedPart>(job, req, { onProgress: progress }) });
+        healer: poolHealer(pool, job.module) });
     } finally {
       pool.dispose();
     }
@@ -58,4 +58,25 @@ test('healScene: a healer elsewhere that fails leaves that part as imported with
   assert.match(h.diagnostics[0]!.message, /^healing failed \(.*has no function 'noSuchJob'\): the model as imported$/);
   assert.deepEqual(h.diagnostics[0]!.source, { format: 'step', id: 100 });
   assert.deepEqual(h.diagnostics.slice(1), r.diagnostics.filter((d) => d.source?.id !== 100));
+});
+
+test('healScene: a part past its time in a worker stays as imported, its warning naming where healing was',
+  async () => {
+  const scene = healTestScene(), before = healed(healTestScene());
+  const pool = new WorkerTessellator({ workers: 2 });
+  await pool.init();
+  const hang = { module: new URL('./fake-backend.ts', import.meta.url).href, export: 'fakeJob' };
+  try {
+    await healScene(scene, { concurrency: 2, healer: (req, progress) => req.source?.id === 101
+      ? pool.run(hang, { mode: 'hang', progress: 2 }, { onProgress: progress, timeoutMs: 300 })
+      : poolHealer(pool, job.module)(req, progress) });
+  } finally {
+    pool.dispose();
+  }
+  const h = healed(scene);
+  assert.equal(h.parts[1]!.model, before.parts[1]!.model);
+  const w = h.diagnostics.find((d) => d.source?.id === 101)!;
+  assert.equal(w.severity, 'warning');
+  assert.equal(w.message, 'healing failed (job fakeJob timed out after 300 ms (last: step 2)): the model as imported');
+  assert.notEqual(h.parts[0]!.model, before.parts[0]!.model);
 });

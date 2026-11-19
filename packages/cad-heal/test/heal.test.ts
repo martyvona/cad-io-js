@@ -96,3 +96,19 @@ test('healScene: a throw healing here propagates (a caller bug or a trap), unlik
   scene.parts[1]!.brep!.model = { ...scene.parts[1]!.brep!.model, buffer: new ArrayBuffer(3) };
   await assert.rejects(healScene(scene));
 });
+
+test('poolHealer: healJob in the pool by the module given, its progress passed, within HEAL_TIMEOUT_MS', async () => {
+  const { HEAL_TIMEOUT_MS, poolHealer } = await import('../src/index.ts');
+  const calls: unknown[][] = [];
+  const said: string[] = [];
+  const pool = { run: async <T>(...a: unknown[]) => {
+    calls.push(a);
+    (a[2] as { onProgress: (m: string) => void }).onProgress('half way');
+    return 'healed' as T;
+  } };
+  const req = { model: {} as never, options: {} };
+  assert.equal(await poolHealer(pool, 'the-module')(req, (m) => said.push(m)), 'healed');
+  assert.deepEqual(calls[0]!.slice(0, 2), [{ module: 'the-module', export: 'healJob' }, req]);
+  assert.equal((calls[0]![2] as { timeoutMs: number }).timeoutMs, HEAL_TIMEOUT_MS);
+  assert.deepEqual(said, ['half way']);
+});
