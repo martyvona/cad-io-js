@@ -23,10 +23,10 @@ struct Deflections {
 };
 
 /**
- * The refinement floor, max(the part's tolerance, 0.1 x the deflection): edges are sampled no finer than it (EdgeMesh;
- * a refused triangle's split request is honoured below it, though never on a span within the part's tolerance), a
- * triangle whose patch is no larger is accepted outright (SurfaceCriteria, SizeField::belowFloor), and the mesher's
- * angle-only refinement stops at it (mesh2d.h). Below it nothing a mesh shows changes, and refinement chases rounding.
+ * The refinement floor, max(the part's tolerance, 0.1 x the deflection): edges are sampled no finer than it and no span
+ * whose chord is within it is split, whatever asks (EdgeMesh; the mesher told so, Domain2::frozen), a triangle whose
+ * patch is no larger is accepted outright (SurfaceCriteria, SizeField::belowFloor), and the mesher's angle-only
+ * refinement stops at it (mesh2d.h). Below it nothing a mesh shows changes, and refinement chases rounding.
  */
 inline double refinementFloor(double partTolerance, double deflection) {
   return std::max(partTolerance, 0.1 * deflection);
