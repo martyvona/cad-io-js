@@ -9,7 +9,7 @@
 
 import { chooseLod, meshDeflections, partInstances, tessellateScene, type Brep, type Diagnostic, type LodWanted,
   type Measures, type Mesh, type Scene, type SceneBounds } from 'cad-scene';
-import { healScene, type HealedPart } from 'cad-heal';
+import { healScene, poolHealer } from 'cad-heal';
 import type { PoolTessellator } from 'tess-workers/browser';
 import { import3mf } from '3mf-import';
 import { importGltf, type GltfImportOptions } from 'gltf-import';
@@ -214,8 +214,8 @@ export async function meshModelIn(scene: Scene, settings: TessellationSettings, 
     ...(scene.bounds ? { bounds: scene.bounds } : {}) });
 }
 
-/** Healing a part in a pool's worker: cad-heal's healJob, by the key the viewer's tess-worker.ts gives cad-heal. */
-export const HEAL_JOB = { module: 'cad-heal', export: 'healJob' };
+/** cad-heal's module in the pool's workers: the key the viewer's tess-worker.ts gives it. */
+export const HEAL_MODULE = 'cad-heal';
 
 /**
  * What healIn did to a scene, to undo for other healing (Mesh again with other settings): its key (healingOf), its
@@ -246,7 +246,7 @@ export async function healIn(scene: Scene, settings: Partial<TessellationSetting
     const before = scene.diagnostics.length;
     let told = -Infinity;
     await healScene(scene, { heal: true, fixes: settings.healFixes, concurrency: workers,
-      healer: (req, said) => pool.run<HealedPart>(HEAL_JOB, req, { onProgress: said }),
+      healer: poolHealer(pool, HEAL_MODULE),
       onPart: (done, total) => {
         const t = performance.now();
         if (cancelled() || (done < total && t - told < PROGRESS_MS)) return;

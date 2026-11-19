@@ -1,7 +1,8 @@
 // The Web Worker adapter in a real browser, which `npm test` can't reach: serves the repo's TypeScript with its types
 // stripped, runs the pool scenarios on the fake backend in headless Chrome, and prints what the page reports.
 // Run by hand: node packages/tess-workers/test/browser-check.ts [path to Chrome; default $CHROME, else
-// headless.ts's per-platform default]
+// headless.ts's per-platform default]; CHROME_LOG=1 shows Chrome's log, the page's console with it (a page that never
+// reports has usually failed to load a module).
 
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -13,6 +14,7 @@ import { defaultChrome } from '../../viewer/server/headless.ts';
 
 const root = path.resolve(import.meta.dirname, '../../..');
 const chrome = process.argv[2] ?? defaultChrome();
+const log = !!process.env.CHROME_LOG;
 
 const page = `<!doctype html><meta charset="utf-8"><script type="module">
 import { WorkerTessellator } from '/packages/tess-workers/src/browser.ts';
@@ -71,6 +73,21 @@ await check('worker script error', async () => {
   await rejects(new WorkerTessellator({ backend: { module: '/no/such/module.ts', export: 'X' } }).init(),
     /backend init failed/);
 });
+const job = { module: backend.module, export: 'fakeJob' };
+await check('jobs: run with progress, its output whole, a timeout naming its last progress, a pool without a backend',
+  async () => {
+  const t = new WorkerTessellator({ backend, workers: 1 }); await t.init();
+  const seen = [];
+  const out = await t.run(job, { mode: 'echo', n: 3, progress: 2 }, { onProgress: (m) => seen.push(m) });
+  expect(out.values instanceof Float64Array && out.values.length === 3 && seen.join() === 'step 1,step 2',
+    'bad output or progress');
+  await rejects(t.run(job, { mode: 'hang', progress: 1 }, { timeoutMs: 300 }),
+    /timed out after 300 ms [(]last: step 1[)]/);
+  t.dispose();
+  const none = new WorkerTessellator({ workers: 1 }); await none.init();
+  const ran = await none.run(job, { mode: 'echo', n: 1 });
+  none.dispose(); expect(none.info.name === 'none' && ran.values.length === 1, 'no-backend pool');
+});
 await fetch('/done', { method: 'POST', body: JSON.stringify({ userAgent: navigator.userAgent, results }) });
 </script>`;
 
@@ -92,10 +109,11 @@ const server = http.createServer((q, s) => {
   const file = path.join(root, url.pathname);
   if (!file.startsWith(root + path.sep) || !file.endsWith('.ts') || !fs.existsSync(
     file)) return void s.writeHead(404).end();
-  // Bare specifiers of workspace packages (cad-scene, cad-brep, ...) to their sources, as a bundler resolves them.
-  const js = stripTypeScriptTypes(fs.readFileSync(file, 'utf8')).replace(/from '([a-z][\w-]*)'/g,
-    (m, name: string) => fs.existsSync(path.join(root, 'packages', name, 'src/index.ts'))
-      ? `from '/packages/${name}/src/index.ts'` : m);
+  // Bare specifiers of workspace packages (cad-scene, cad-brep, ...) to their sources, as a bundler resolves them;
+  // `from` and its specifier may be on separate lines (a long import folds there).
+  const js = stripTypeScriptTypes(fs.readFileSync(file, 'utf8')).replace(/from(\s+)'([a-z][\w-]*)'/g,
+    (m, space: string, name: string) => fs.existsSync(path.join(root, 'packages', name, 'src/index.ts'))
+      ? `from${space}'/packages/${name}/src/index.ts'` : m);
   s.writeHead(200, { 'content-type': 'text/javascript' }).end(js);
 });
 
@@ -109,7 +127,8 @@ function finish(code: number) {
 server.listen(0, '127.0.0.1', () => {
   const { port } = server.address() as { port: number };
   browser = spawn(chrome, ['--headless=new', `--user-data-dir=${profile}`, '--no-first-run',
-    '--no-default-browser-check', `http://127.0.0.1:${port}/`], { stdio: 'ignore' });
+    '--no-default-browser-check', ...(log ? ['--enable-logging=stderr', '--v=0'] : []), `http://127.0.0.1:${port}/`],
+    { stdio: log ? 'inherit' : 'ignore' });
   browser.on('error', (e) => { console.error(`can't start ${chrome}: ${e.message}`); finish(2); });
 });
 setTimeout(() => { console.error('no report from the page within 60 s'); finish(1); }, 60_000).unref();
