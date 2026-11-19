@@ -262,6 +262,23 @@ export function pcurveCircle(): BrepBuilder {
 }
 
 /**
+ * A disc of radius 3 on z = 0 under an uncertainty of 0.005, its edge the circle about the origin, its given p-curve
+ * the same circle shifted by 0.3 in u: within 100 x the tolerance of the edge's points (so used), past the tolerance
+ * (so its inside samples polished onto their points), as tr9_r1001-ec #11's planes have theirs.
+ */
+export function pcurveShifted(): BrepBuilder {
+  const b = new BrepBuilder({ uncertainty: 0.005 });
+  const v = b.addVertex({ point: [3, 0, 0] });
+  const e = b.addEdge({ curve: b.addCurve({ kind: 'circle', position: AXIS, radius: 3 }), start: v, end: v,
+    sameSense: true, range: [0, 2 * Math.PI] });
+  const pc = b.addCurve({ kind: 'circle', position: { origin: [0.3, 0], xDir: [1, 0] }, radius: 3 });
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: true,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true,
+      coedges: [{ edge: e, orientation: 'forward', pcurve: pc }] }] }));
+  return b;
+}
+
+/**
  * The unit circle's arc from angle -pi / 4 to pi / 4 (through 0, no range given: from its vertices) and its chord
  * back, on z = 0: a segment of area (pi / 2 - 1) / 2.
  */
@@ -1635,5 +1652,5 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   slitFromCorner, lunePinch, spindleApex: () => spindleCorner(0.005),
   tinyCap: () => capWithin(0.01), capWithinPole, narrowStrip: () => narrowStrip(),
   narrowStripSmall: () => narrowStrip(0.05, 1e-3), uFold: () => uFold(),
-  uFoldAway: () => uFold(-0.3), uFoldFar: () => uFold(-3), poleLunes, poleLens, curlBack, passBy,
+  uFoldAway: () => uFold(-0.3), uFoldFar: () => uFold(-3), pcurveShifted, poleLunes, poleLens, curlBack, passBy,
   wrongEndPcurve: () => wrongEndPcurve(), wigglePcurve: () => wrongEndPcurve(true) };

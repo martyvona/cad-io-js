@@ -125,6 +125,14 @@ struct ProjectionCounts {
 struct TraceCounts {
   int local = 0, global = 0;
 };
+/**
+ * The uses whose given p-curve is used (on the edge's points within 100 x the tolerance): how many, and how many of
+ * them landed farther than the tolerance from a sample's 3D point, their inside samples polished onto it.
+ */
+struct GivenPcurveCounts {
+  int used = 0, offTolerance = 0;
+};
+
 /** A sample whose local foot failed, found by the global search instead: its use, edge parameter, distance, why. */
 struct TraceFallback {
   int32_t coedge;
@@ -236,6 +244,8 @@ public:
   const CoedgeSamples& coedge(int c) const;
   /** How the uses the model gives no p-curve were sampled (EdgeOptions::projectMissingPcurves). */
   const ProjectionCounts& projections() const;
+  /** The uses with given p-curves (GivenPcurveCounts), as the samples now stand. */
+  GivenPcurveCounts givenPcurves() const;
   /** The uses traced sample by sample (TraceCounts), each sample counted once however often it's redone. */
   const TraceCounts& traces() const;
   /** Those samples whose local foot failed, in the order found. */

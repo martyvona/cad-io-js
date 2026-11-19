@@ -367,6 +367,7 @@ struct EdgeMesh::Impl {
     int seamDir = -1;                    // a projected use on a seam in u (0) or v (1), its copy by the rule
     Vec2 vertexUv[2];
     std::map<double, SurfaceInversion> inverted;  // by edge parameter: each sample inverted once
+    double givenMiss = 0;                // a given p-curve used: its inside samples' largest distance from their points
     CoedgeSamples s;
   };
   struct Crossing {
@@ -733,6 +734,17 @@ struct EdgeMesh::Impl {
           for (int i = 1; i + 1 < n; i++)
             if (poleAt(C.face, E.s.points[s.index[i]]) < 0)
               s.uv[i] = localFoot(C.face, E.s.points[s.index[i]], s.uv[i], C.projectedTol);
+        // A given p-curve the same where it lands farther than the tolerance from a sample's point (accepted within
+        // 100 x it): its (u, v) there skewed against the 3D point by up to that, along the surface, which turns thin
+        // triangles beside the boundary over (tr9_r1001-ec #11's planes, 0.3-0.4 mm at a tolerance of 0.005).
+        C.givenMiss = 0;
+        if (!C.projected)
+          for (int i = 1; i + 1 < n; i++) {
+            const Vec3 P = E.s.points[s.index[i]];
+            const double off = norm(surfaceAt(C.face, s.uv[i]) - P);
+            C.givenMiss = std::fmax(C.givenMiss, off);
+            if (off > tol && poleAt(C.face, P) < 0) s.uv[i] = localFoot(C.face, P, s.uv[i], miss);
+          }
         // A projected use's vertices at their feet (the projection is within tol of them, not on them), the copy
         // its own: uses meeting there meet in (u, v), a closed edge's use closes.
         if (C.projected)
@@ -2117,6 +2129,15 @@ Vec3 EdgeMesh::point(int e, double t) const {
 const CoedgeSamples& EdgeMesh::coedge(int c) const { return impl_->coedges[c].s; }
 const ProjectionCounts& EdgeMesh::projections() const { return impl_->projections; }
 const TraceCounts& EdgeMesh::traces() const { return impl_->traces; }
+GivenPcurveCounts EdgeMesh::givenPcurves() const {
+  GivenPcurveCounts g;
+  for (const auto& C : impl_->coedges)
+    if (C.pcurve && !C.pcurveOff && !C.projected && C.s.fromPcurve) {
+      g.used++;
+      g.offTolerance += C.givenMiss > impl_->tol;
+    }
+  return g;
+}
 const std::vector<TraceFallback>& EdgeMesh::traceFallbacks() const { return impl_->traceFallbacks; }
 FaceBoundary EdgeMesh::face(int f) const { return impl_->face(f); }
 
