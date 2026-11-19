@@ -4,9 +4,9 @@
 // chord's deviation ((b - a)^2 max |C''| / 8), its length ((b - a) max |C'|) and its tangent's turn, so the
 // deflection, spacing and angle limits hold whatever the curve does between samples. That is C(t)'s deviation: with
 // the vertices' points exact at the ends, an end span strays up to the deflection plus the vertex's gap from its
-// curve. A span whose length bound is under 10 x the part's tolerance is kept as it is (near a zero-speed point the
-// curve doesn't report, the angle would refine without end). A split the mesher asks for (mesh2d.h's SplitWanted)
-// resamples that edge alone, for all its faces at once.
+// curve. A span whose length bound is within the refinement floor (criteria.h) is kept as it is (near a zero-speed
+// point the curve doesn't report, the angle would refine without end). A split the mesher asks for (mesh2d.h's
+// SplitWanted) resamples that edge alone, for all its faces at once, never on a span whose chord is within the floor.
 //
 // Pseudo-edges: a face on a periodic surface whose loops wind round the period (a band's two circles, a hemisphere's
 // equator) needs a cut no model edge gives to make it a domain. It gets one: a pseudo-edge along the iso-line of the
@@ -231,8 +231,7 @@ public:
    * each at its own fraction of the span as it was, those within a tenth of the span of one another once); existing
    * samples are kept, so other edges' indices stand and only the touched edges' later indices move. The touched
    * edges' coedges are redone. A request whose sample would fall inside a ring's span (cutRings), or on a span whose
-   * chord is within the part's tolerance, is dropped; below the refinement floor (criteria.h) requests are honoured,
-   * the edges sampled no finer than it.
+   * chord is within the refinement floor (criteria.h), is dropped.
    */
   Status split(const std::vector<SplitRequest>& requests);
 

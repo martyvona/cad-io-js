@@ -1216,11 +1216,12 @@ function halfCylinder(u0: number, pcurves: 'none' | 'same' | 'apart'): BrepBuild
 /**
  * A strip of a cylinder of radius 1.5, 25 along its axis and 0.85 round it, under an uncertainty of 1 (trj7_b1-ec-214's
  * face #11336's proportions, its normals turning about 33 degrees across): its ends, arcs 0.85 long, within the
- * tolerance, so never split.
+ * tolerance, so never split. narrowStripSmall: the same at a twentieth of the size under an uncertainty of 0.001, its
+ * ends 0.0425 long: over the tolerance, within the refinement floor at a deflection of 0.5 (0.05).
  */
-export function narrowStrip(): BrepBuilder {
-  const b = new BrepBuilder({ uncertainty: 1 });
-  const r = 1.5, L = 25, u0 = 0, u1 = 0.85 / r;
+export function narrowStrip(scale = 1, uncertainty = 1): BrepBuilder {
+  const b = new BrepBuilder({ uncertainty });
+  const r = 1.5 * scale, L = 25 * scale, u0 = 0, u1 = 0.85 / 1.5;
   const at = (u: number, z: number) => [r * Math.cos(u), r * Math.sin(u), z];
   const va0 = b.addVertex({ point: at(u0, 0) }), vc0 = b.addVertex({ point: at(u1, 0) });
   const va1 = b.addVertex({ point: at(u0, L) }), vc1 = b.addVertex({ point: at(u1, L) });
@@ -1606,5 +1607,6 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   halfCylinderApart, halfCylinderBare, halfCylinderWest, arcBand, cuspPocket: cuspPocket_,
   cuspPocketMirrored, flowerHole, lobes,
   slitFromCorner, lunePinch, spindleApex: () => spindleCorner(0.005),
-  tinyCap: () => capWithin(0.01), capWithinPole, narrowStrip, poleLunes, poleLens, curlBack, passBy,
+  tinyCap: () => capWithin(0.01), capWithinPole, narrowStrip: () => narrowStrip(),
+  narrowStripSmall: () => narrowStrip(0.05, 1e-3), poleLunes, poleLens, curlBack, passBy,
   wrongEndPcurve: () => wrongEndPcurve(), wigglePcurve: () => wrongEndPcurve(true) };
