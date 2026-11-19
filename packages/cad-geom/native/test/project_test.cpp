@@ -612,6 +612,24 @@ std::vector<double> moved(const Place& P, const std::vector<double>& v, int poin
 
 } // namespace
 
+TEST_CASE("a great circle passing close to a sphere's poles, at a coarse tolerance: the march not stuck on a pole") {
+  // LMP1 #172878's edge on its sphere (radius 10, moved to the origin): a great circle whose axis is 0.035 from the
+  // equator's plane, over [1.332, pi] from beside the north pole. At tol 0.2 a march step from near the pole
+  // overshot onto its line, where Newton has no gradient in u and stays, and the step passed (the predictor's slack
+  // is the tolerance's): nodes 2.4 off the curve, invalidModel. Rejected there, the trace goes round the pole.
+  const double tol = 0.2;
+  const double sr[10] = {0, 0, 0, 0, 0, 1, 1, 0, 0, 10};
+  std::unique_ptr<Surface> sph = closeInFact(surfaces::makeSphere(sr), tol);
+  const double cr[9] = {0, 0, 0, -0.8089590548665507, 0.5868046581769529, -0.035292218565090794,
+    -0.587170444453497, -0.8094633216893048, 0};
+  std::unique_ptr<Curve> circ = curves::makeEllipse(cr, 3, 10, 10);
+  Pcurve p = project::projectForms(*circ, {1.332136618329816, 3.1415926535887757}, *sph, tol, nullptr, {}, {});
+  CHECK(p.status == Status::ok);
+  CHECK(p.offSurface < 1e-9);
+  CHECK(p.error <= tol);
+  CHECK(p.certainty == Certainty::unique);
+}
+
 TEST_CASE("the exact table on a plane: a short arc of a circle tilted from it maps, not as the circle") {
   // A circle 16 m across whose plane is 4 degrees from the face's plane z = 0, near t = pi / 2 running along the
   // line the planes share, so 6e-5 rad of it (about 1 mm) stays within 2e-6 of the face (LMP1 #173171's edge 1). The
