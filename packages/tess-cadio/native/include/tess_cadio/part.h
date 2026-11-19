@@ -29,8 +29,8 @@ struct PartProgress {
 struct PartOptions {
   /** The linear deflection, and the angle for faces' normals and edges' chords alike (EdgeOptions::angle). */
   Deflections d;
-  /** Rounds of splitting edges and meshing their faces again. */
-  int maxSplitRounds = 8;
+  /** Rounds of splitting edges and meshing their faces again at most (they end once no face asks for a split). */
+  int maxSplitRounds = 24;
   /**
    * The criteria's spacing for each face's edges multiplied by this (above 1: edges coarser than the faces want,
    * left to the split rounds; for tests and tuning).
