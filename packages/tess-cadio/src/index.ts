@@ -9,7 +9,15 @@ import type { EdgeKind, TessellationProgress, TessellationRequest, TessellationR
 import { sha256 } from 'cad-scene';
 
 /** The module's C API version this layer speaks (tc_api_version). */
-const API_VERSION = 3;
+const API_VERSION = 4;
+
+/**
+ * With countInsertions, an info diagnostic of this head then `<kind> <n>` for each of INSERTED_KINDS inserted, joined
+ * by ", ": the meshed faces' Steiner points by what queued the triangle each broke (part.h's FaceMesh::inserted).
+ */
+export const INSERTED_HEAD = 'points inserted, by what queued their triangle: ';
+export const INSERTED_KINDS = ['size', 'thinness', 'refused (no kind)', 'deviation in closed form', 'deviation sampled',
+  'deviation bounded', 'deviation near a pole', 'a normal against the facet', 'normals apart', 'refused (other kind)'];
 /** The workspace's version (package.json's; a test checks they agree). */
 export const VERSION = '0.3.0';
 /** result.h's Status, by code. */
@@ -68,6 +76,7 @@ interface CadioExports {
   _tc_tessellate: Fn;
   _tc_set_project: Fn;
   _tc_set_deviation_factor: Fn;
+  _tc_set_count_insertions: Fn;
   /** Set for a call: tess_cadio_api.cpp's progress (js_progress, progressReporter's). */
   tcProgress?: ProgressHook;
   _tc_num_vertices: Fn;
@@ -111,6 +120,11 @@ export interface CadioInitOptions {
    * surface), going the failed faces' way (a fallback, where configured); default 1, 0 never.
    */
   maxDeviationFactor?: number;
+  /**
+   * Count the mesher's insertions by what queued them, said in an info diagnostic (INSERTED_HEAD; part.h's
+   * PartOptions::countInsertions): the same mesh, up to 2 x the time; default false.
+   */
+  countInsertions?: boolean;
 }
 
 async function fetchBytes(url: URL): Promise<Uint8Array> {
@@ -131,6 +145,7 @@ function failedMessage(ids: readonly number[], rows: number): string {
 export class CadioTessellator implements Tessellator {
   private project = true;
   private deviationFactor = 1;
+  private countInsertions = false;
   readonly info: TessellatorInfo = {
     name: 'tess-cadio', version: VERSION, license: 'AGPL-3.0-only', formats: ['cad-brep'], supportsFaceIds: true,
     supportsEdges: true, supportsCurves: false,
@@ -141,6 +156,7 @@ export class CadioTessellator implements Tessellator {
     const { glue, wasm, version } = opts;
     this.project = opts.projectMissingPcurves ?? true;
     this.deviationFactor = opts.maxDeviationFactor ?? 1;
+    this.countInsertions = opts.countInsertions ?? false;
     if (wasm instanceof WebAssembly.Module && version === undefined) throw new TypeError(
       'tess-cadio: init({wasm}) with a compiled WebAssembly.Module needs a version, since it has no bytes to hash');
     const glueUrl = glue === undefined ? new URL('../dist/tess_cadio.mjs', import.meta.url).href : String(glue);
@@ -187,6 +203,7 @@ export class CadioTessellator implements Tessellator {
     m.tcProgress = onProgress ? progressReporter(onProgress) : undefined;
     m._tc_set_project(this.project ? 1 : 0);
     m._tc_set_deviation_factor(this.deviationFactor);
+    m._tc_set_count_insertions(this.countInsertions ? 1 : 0);
     try {
       rc = m._tc_tessellate(ptr, req.data.length, req.linearDeflection, req.angularDeflection, origin[0], origin[1],
         origin[2], req.edges ? 1 : 0);
@@ -253,6 +270,11 @@ export class CadioTessellator implements Tessellator {
       diagnostics.push({ severity: 'warning', message: `${refused.length} faces meshed with triangles their criteria `
         + `still refuse: ${Number(diag.refusedTriangles)} triangles, ${Number(diag.poleSlivers)} of them slivers in a `
         + `pole's fan${reasons ? `; by why: ${reasons}` : ''}` });
+    }
+    const inserted = list('inserted');
+    if (this.countInsertions && inserted.length === INSERTED_KINDS.length) {
+      diagnostics.push({ severity: 'info', message: INSERTED_HEAD + INSERTED_KINDS.map((k, i) => `${k} ${inserted[i]}`)
+        .join(', ') });
     }
     note('unsplit', 'still wanting their edges split when the rounds ran out');
     const sampled = list('sampled');
