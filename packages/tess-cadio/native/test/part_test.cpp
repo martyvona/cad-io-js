@@ -366,6 +366,20 @@ TEST_CASE("a face left past its deflection fails: its refused triangles measured
   CHECK(pm.face(1).rejected.empty());
 }
 
+TEST_CASE("a strip whose ends are within the tolerance: refined past them (frozen), never asking them split") {
+  // narrowStrip: 25 x 0.85 on a cylinder of radius 1.5 under an uncertainty of 1. Its ends' arcs are never split (the
+  // floor), and every candidate in the two first triangles lies in an end's diametral circle: without frozen
+  // segments the face stays those 2 triangles, both refused, the ends wanted split round after round.
+  cadgeom::Model m = load("narrowStrip");
+  REQUIRE(m.ok());
+  PartMesher pm(m, options(0.1, 0.26));
+  const FaceMesh& fm = pm.face(0);
+  CHECK(fm.status == cadgeom::Status::ok);
+  CHECK(fm.triangles.size() / 3 > 20);
+  CHECK(fm.rejected.size() <= 1);
+  CHECK_EQ(fm.splitsWanted, 0);
+}
+
 TEST_CASE("a face whose edge loops all lie within the tolerance of a pole: invalidModel, and said so") {
   // capWithinPole: a cap of radius 0.2 at a pole under an uncertainty of 1, its circle dropped as on the pole line;
   // not a face without loops (loopless's plane, which has none and no natural extent, keeps that cause).

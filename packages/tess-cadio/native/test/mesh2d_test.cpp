@@ -1070,3 +1070,54 @@ TEST_CASE("a triangle only much shorter segments stand in the way of: broken at 
   CHECK_EQ(validate(e, ms, "square"), 0);
   CHECK_EQ(plain.brokenInside, 0);
 }
+
+TEST_CASE("frozen segments (ones the caller can't split) don't refuse a point, and aren't wanted split") {
+  // A strip 25 x 0.85 (trj7_b1-ec-214's face #11336, a part uncertainty of 1 against its ends' 0.85), its long sides
+  // in 30 segments, each end one; accept() refuses triangles of area over 0.2. The triangles on an end have it as
+  // their longest side and every candidate in its diametral circle: refused, the end wanted split. With the ends
+  // frozen, the candidates go in: nothing refused, nothing wanted split, the ends still edges.
+  struct Area : SizeField {
+    Metric2 metric(Vec2) const override { return {1e-4, 0, 1e-4}; }
+    bool accept(const Vec2* t) const override { return std::fabs(area(t[0], t[1], t[2])) <= 0.2; }
+  };
+  const int n = 30;
+  for (bool freeze : {false, true}) {
+    Domain2 d;
+    std::vector<Vec2> pts;
+    for (int i = 0; i <= n; i++) pts.push_back({25.0 * i / n, 0});
+    for (int i = n; i >= 0; i--) pts.push_back({25.0 * i / n, 0.85});
+    addLoop(d, pts);
+    // (Segments: the bottom 0 to n - 1, the right end n, the top, the left end 2n + 1.)
+    if (freeze) {
+      d.frozen.assign(2 * n + 2, 0);
+      d.frozen[n] = d.frozen[2 * n + 1] = 1;
+    }
+    Mesh2 m = mesh2(d, Area());
+    CHECK_EQ(validate(d, m, freeze ? "frozen ends" : "ends"), 0);
+    int ends = 0;
+    for (const SplitWanted& w : m.splitWanted) ends += w.segment == n || w.segment == 2 * n + 1;
+    if (freeze) {
+      CHECK(m.rejected.empty());
+      CHECK(m.splitWanted.empty());
+    } else {
+      CHECK(!m.rejected.empty());
+      CHECK_EQ(ends, 2);
+    }
+  }
+  // A flat triangle, everything refused: its circumcentre is outside, across its base (segment 0), which is named and
+  // wanted split; frozen, the triangle stays refused but nothing is wanted split.
+  struct None : SizeField {
+    Metric2 metric(Vec2) const override { return {1e-4, 0, 1e-4}; }
+    bool accept(const Vec2*) const override { return false; }
+  };
+  for (bool freeze : {false, true}) {
+    Domain2 d;
+    addLoop(d, {{0, 0}, {1, 0}, {0.5, 0.1}});
+    if (freeze) d.frozen = {1, 0, 0};
+    Mesh2 m = mesh2(d, None());
+    int base = 0;
+    for (const SplitWanted& w : m.splitWanted) base += w.segment == 0;
+    CHECK_EQ(base, freeze ? 0 : 1);
+    CHECK_EQ(m.rejected.size(), 1u);
+  }
+}
