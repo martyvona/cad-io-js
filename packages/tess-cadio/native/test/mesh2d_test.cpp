@@ -978,3 +978,42 @@ TEST_CASE("the same mesh on every target: a refined, rotating-metric mesh's bits
   CHECK_EQ(m.points.size(), 1046u);
   CHECK_EQ(meshHash(m), 0xcb1fd5688b6343b8ull);
 }
+
+namespace {
+/** A half-disc of radius 1: n + 1 samples on its arc (cocircular), its chord one segment back. */
+Domain2 halfDisc(int n) {
+  Domain2 d;
+  std::vector<int32_t> loop;
+  for (int i = 0; i <= n; i++) {
+    const double a = 3.141592653589793 * i / n;
+    d.points.push_back({std::cos(a), std::sin(a)});
+    loop.push_back(i);
+  }
+  d.loops.push_back(loop);
+  return d;
+}
+}
+
+TEST_CASE("a long segment opposite cocircular points: refused candidates past the cavity limit not halved") {
+  // Every candidate lies in the chord's diametral circle (the half-disc does), so each is refused; the arc's samples
+  // are cocircular, so each cavity is the whole mesh, past kHalvingCavity (1,024) at 2,000 samples. The metric is
+  // coarser than the chord, so nothing's wanted split.
+  Mesh2Detail big;
+  Domain2 d = halfDisc(2000);
+  Mesh2 m = mesh2Detailed(d, Uniform(100), {}, &big);
+  CHECK(m.status == cadgeom::Status::ok);
+  CHECK_EQ(validate(d, m, "half-disc 2000"), 0);
+  CHECK(big.refused > 1000);
+  // (All but a few: `refused` also counts candidates too near a vertex, and near the chord's ends a cavity's star
+  // pruning can leave it under the limit.)
+  CHECK(big.halvingsSkipped >= big.refused - 5);
+  CHECK(m.splitWanted.empty());
+  CHECK_EQ(m.points.size(), d.points.size());
+  // Under the limit (200 samples, cavities of 200) every refusal is halved as before.
+  Mesh2Detail small;
+  Domain2 e = halfDisc(200);
+  Mesh2 ms = mesh2Detailed(e, Uniform(100), {}, &small);
+  CHECK_EQ(validate(e, ms, "half-disc 200"), 0);
+  CHECK(small.refused > 100);
+  CHECK_EQ(small.halvingsSkipped, 0);
+}

@@ -1221,6 +1221,16 @@ TEST_CASE("closeInFact: a tube closed in v, a nearly closed one, a collapsed sid
     // Nothing to add where the surface says it all: the surface itself back.
     CHECK((c.get() == raw) == (off == 0));
   }
+  // The same side collapsed within tol, on a patch whose rows along it (in v) are at most 4 tol long: no pole, as the
+  // surface is about as small as its tolerance that way (1 wide across, in u); 12 tol long, the pole. (v's range
+  // [0, 3], not u's, so the rows are measured over their own.)
+  for (double half : {2 * tol, 6 * tol}) {
+    std::vector<std::vector<Vec3>> P{{{0, 0, 0}, {0.5 * tol, 0, 0}}, {{1, -half, 0}, {1, half, 0}}};
+    auto c = closeInFact(rawSpline(1, 1, {0, 1}, {2, 2}, {0, 3}, {2, 2}, P), tol);
+    std::vector<Singularity> g;
+    c->singularities(g);
+    CHECK(g.size() == (half > 3 * tol ? 1u : 0u));
+  }
   // Rational: the exact B-spline cylinder closes in u (period 1); the B-spline sphere too, its collapsed rows
   // reported once; a plane, a periodic torus and a far cylinder unchanged or closed alike.
   {

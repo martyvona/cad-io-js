@@ -365,7 +365,7 @@ int32_t Triangulation::insertPoint(Vec2 p, int32_t t, std::vector<int32_t>& crea
   return v;
 }
 
-void Triangulation::cavityConstraints(Vec2 p, int32_t t, std::vector<std::pair<int32_t, int32_t>>& out,
+size_t Triangulation::cavityConstraints(Vec2 p, int32_t t, std::vector<std::pair<int32_t, int32_t>>& out,
   const Map2& map) const {
   out.clear();
   std::vector<int32_t> cav;
@@ -376,6 +376,7 @@ void Triangulation::cavityConstraints(Vec2 p, int32_t t, std::vector<std::pair<i
     auto [w, j] = outside[i];
     if (tris_[w].c[j] != kFree) out.push_back(bnd[i]);
   }
+  return cav.size();
 }
 
 void Triangulation::retriangulate(int32_t a, int32_t b, const std::vector<int32_t>& chain,
