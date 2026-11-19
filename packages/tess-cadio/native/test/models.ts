@@ -759,6 +759,37 @@ function tube(tinyArc: boolean, gap = 0, uncertainty?: number, faceTolerance?: n
 export const bsplineTube = (): BrepBuilder => tube(false);
 
 /**
+ * The unit square (z = 0) whose bottom edge's p-curve is a degree 1 B-spline along y = 0 whose knots end `gap` short
+ * of the edge's range [0, 1] (with `atStart`, begin `gap` past its start; bug32314 #392624's, 1.6e-9): the use's end
+ * that far past the p-curve's domain.
+ * The other sides without p-curves.
+ */
+function pcurveShort(gap: number, atStart = false): BrepBuilder {
+  const b = new BrepBuilder();
+  const corners = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]];
+  const vs = corners.map((point) => b.addVertex({ point }));
+  const coedges: Coedge[] = corners.map((c, k) => {
+    const q = corners[(k + 1) % 4]!, d = [q[0]! - c[0]!, q[1]! - c[1]!, 0];
+    const edge = b.addEdge({ curve: b.addCurve({ kind: 'line', point: c, direction: d, magnitude: 1 }), start: vs[k]!,
+      end: vs[(k + 1) % 4]!, sameSense: true, range: [0, 1] });
+    if (k) return { edge, orientation: 'forward' };
+    const lo = atStart ? gap : 0, hi = atStart ? 1 : 1 - gap;
+    const pcurve = b.addCurve({ kind: 'bspline', degree: 1, knots: [lo, hi], multiplicities: [2, 2],
+      poles: [[lo, 0], [hi, 0]], closed: false, selfIntersect: false, form: 'unspecified' });
+    return { edge, orientation: 'forward', pcurve };
+  });
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: true,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] }));
+  return b;
+}
+/** Within the rule's slack (1e-9 of the range's width): used. */
+export const pcurveShortHair = (): BrepBuilder => pcurveShort(5e-10);
+/** Past it (1e-6): refused, by inversion. */
+export const pcurveShortFar = (): BrepBuilder => pcurveShort(1e-6);
+/** pcurveShortHair at its start. */
+export const pcurveShortStart = (): BrepBuilder => pcurveShort(5e-10, true);
+
+/**
  * The unit square (z = 0) whose top right corner is two short line edges, (1, 0.99) to (0.994, 0.994) to (0.99, 1),
  * their tolerance and the face's 0.01, their p-curves through (1, 1) instead (as feet clamped to a range's edge are, the vertex
  * past it): the corner convex in (u, v) and concave in 3D, its point 0.0085 off its (u, v)'s, within the tolerance.
@@ -1499,7 +1530,7 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   seamCone: () => seamCone(true), seamConeBare: () => seamCone(false),
   offPoleRestLoose: () => offPoleRest(1e-3), wigglyBand, notchBand, bsplineTube, tubeQuarterPeriodUp, coarseProjection,
   fineProjection, knotAtEnd, cornerFold,
-  cornerFoldTight, bsplineTubeTinyArc, bsplineDome,
+  cornerFoldTight, pcurveShortHair, pcurveShortFar, pcurveShortStart, bsplineTubeTinyArc, bsplineDome,
   offPoleArc: () => offPoleArc(), offPcurves, bandHoleAtVertex, bandHoleOnCut, halfCap, meridianHemisphere, band: band_,
   bandByInversion, bore, nistBore, seamByInversion, offVertex, pcurveOnly, luneQuarter, luneOnSeam, cap, splineEdge,
   seamFlipped, polylineEdge, pcurveCircle, arcSegment, fold, twisted, wrongSense, zeroEdge, halfCylinderPcurves,

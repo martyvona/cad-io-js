@@ -492,6 +492,24 @@ struct EdgeMesh::Impl {
     return n;
   }
 
+  /**
+   * Coedge c's p-curve at edge parameter t: a t outside the p-curve's own domain (not periodic) by at most 1e-9 of
+   * its edge's sampled range's width is clamped onto that domain's end (a range ending a hair past a B-spline's last
+   * knot: bug32314 #392624's 1.6e-9; the face API's projection clamps by the same rule), anything farther left to the
+   * p-curve, which refuses it.
+   */
+  Status pcurveAt(int c, double t, CurvePoint& q) const {
+    const Coedge& C = coedges[c];
+    const CurveDomain D = C.pcurve->domain();
+    const EdgeSamples& es = edges[m.coedgeEdge(c)].s;
+    const double width = es.t.empty() ? 0 : std::fabs(es.t.back() - es.t.front()), slack = 1e-9 * width;
+    if (!(D.period > 0)) {
+      if (t < D.range.lo && D.range.lo - t <= slack) t = D.range.lo;
+      if (t > D.range.hi && t - D.range.hi <= slack) t = D.range.hi;
+    }
+    return C.pcurve->eval(t, 0, q);
+  }
+
   /** The singularity (pole or apex) at 3D point p, or -1. */
   int poleAt(int f, Vec3 p) const {
     const Face& F = faces[f];
@@ -623,7 +641,7 @@ struct EdgeMesh::Impl {
       double miss = 100 * std::max(tol, std::isfinite(et) ? et : 0.0);
       for (int i = 0; i < n && !C.pcurveOff; i++) {
         CurvePoint q;
-        Status st = C.pcurve->eval(E.s.t[s.index[i]], 0, q);
+        Status st = pcurveAt(c, E.s.t[s.index[i]], q);
         seeds.push_back({q.p.x, q.p.y});
         // (The ends are the vertices', which may miss the curve themselves: inside samples only.)
         bool end = i == 0 || i == n - 1;
@@ -637,7 +655,7 @@ struct EdgeMesh::Impl {
         for (double f : {0.25, 0.5, 0.75}) {
           const double t = E.s.t[s.index[i]] + f * (E.s.t[s.index[i + 1]] - E.s.t[s.index[i]]);
           CurvePoint q;
-          if (C.pcurve->eval(t, 0, q) != Status::ok || norm(surfaceAt(C.face, {q.p.x, q.p.y}) - E.geom->at(t)) > miss) {
+          if (pcurveAt(c, t, q) != Status::ok || norm(surfaceAt(C.face, {q.p.x, q.p.y}) - E.geom->at(t)) > miss) {
             C.pcurveOff = true;
             break;
           }
@@ -742,7 +760,7 @@ struct EdgeMesh::Impl {
         if (std::isnan(mid.x)) {
           const double tm = 0.5 * (E.s.t[s.index[i - 1]] + E.s.t[s.index[i]]);
           CurvePoint q;
-          if (s.fromPcurve && C.pcurve->eval(tm, 0, q) == Status::ok) mid = {q.p.x, q.p.y};
+          if (s.fromPcurve && pcurveAt(c, tm, q) == Status::ok) mid = {q.p.x, q.p.y};
           else mid = invert(C.face, E.geom->at(tm), &s.uv[i - 1]).uv;
         }
         x = nearest(x, nearest(d ? mid.y : mid.x, before, P), P);
@@ -932,7 +950,7 @@ struct EdgeMesh::Impl {
     const Coedge& C = coedges[c];
     if (C.pcurve && !C.pcurveOff) {
       CurvePoint q;
-      C.pcurve->eval(t, 0, q);
+      pcurveAt(c, t, q);
       return {q.p.x, q.p.y};
     }
     return invert(C.face, edges[m.coedgeEdge(c)].geom->at(t), &hint).uv;
