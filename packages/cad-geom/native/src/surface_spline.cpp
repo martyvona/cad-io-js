@@ -13,7 +13,9 @@
 // the centred form on the next order's hulls, which does, within one span (across a knot the partial may jump). Each bound is widened by the rounding of the differences that made its net (carried pole by
 // pole). A row of poles all equal at a side of the domain is a pole of the surface (a collapsed iso-line).
 #include <algorithm>
+#include <atomic>
 #include <cmath>
+#include <cstdint>
 
 #include "cad_geom/numerics.h"
 #include "scratch.h"
@@ -48,6 +50,8 @@ public:
       n0.h.push_back(w);
     }
     n0.error = 2 * kEps * mag;
+    size_ = span();
+    wRatio_ = *std::max_element(W_.begin(), W_.end()) / *std::min_element(W_.begin(), W_.end());
     nets_.assign(kPartials, Net{});
     has_.assign(kPartials, false);
     nets_[0] = std::move(n0);
@@ -126,6 +130,17 @@ public:
     double r = (boxNorm(bu) * (ru.hi - ru.lo) + boxNorm(bv) * (rv.hi - rv.lo)) * 0.5 * (1 + 8 * kEps);
     double err = (k + l == 0 ? 8 * kEps * maxAbs(c - c_) + 4 * kEps * maxAbs(c_) : 1e-12 * maxAbs(c))
       + 1e-13 * r + (k + l == 0 ? 0 : 1e-13 * (boxNorm(out)));
+    // derivs' own rounding of a partial, which relative to the partial alone misses where it's near 0 (a cylinder's
+    // twist): its sums of basis derivatives over the span du x dv are at most (2p / du)^k (2q / dv)^l, times the
+    // poles about their centroid (within twice the poles' size), and for a rational surface the quotient rule's
+    // division, the weights' ratio to the power k + l + 1.
+    if (k + l > 0) {
+      int su = bspline::findSpan(p_, U_, nu_, ru.lo), sv = bspline::findSpan(q_, V_, nv_, rv.lo);
+      double scale = 2 * size_ * std::pow(2.0 * p_ / (U_[su + 1] - U_[su]), k)
+        * std::pow(2.0 * q_ / (V_[sv + 1] - V_[sv]), l);
+      if (rational_) scale *= std::pow(wRatio_, k + l + 1);
+      err += 64 * (p_ + q_ + 2) * kEps * scale;
+    }
     out = meet(out, ballBox(c, r + err));
     return true;
   }
@@ -270,6 +285,81 @@ private:
           out.data() + (i * (q + 1) + j) * 4);
       }
   }
+  /** The rounding of net m's control points c over a rectangle: the net's own and the blossom's (a few operations per
+   * level, on values up to the net's size). */
+  static double blossomErr(const Net& m, const std::vector<double>& c) {
+    double mag = 0;
+    for (double x : c) mag = std::fmax(mag, std::fabs(x));
+    return m.error + 8 * (m.p + m.q + 2) * kEps * mag;
+  }
+  /**
+   * Partial (k, l)'s control points over the rectangle (4 wide each, as control() makes them) and their rounding.
+   * Within one span they're kept for the last rectangle asked, since inversion and tess-cadio's criteria ask for one
+   * rectangle's partials one after another, each with its centred form: the order-(0, 0) sub-net is blossomed once,
+   * and each partial's Bezier net over the rectangle is the next lower one's differences, m (P[i+1] - P[i]) / (b - a)
+   * for degree m there (restriction commutes with differentiation: the same net as blossoming the partial's own),
+   * unless their rounding, which the width divides, passes 1e-6 of the net's size (a rectangle a few millionths
+   * wide, its second and third partials): then blossomed from the partial's own net, as across spans.
+   */
+  const std::vector<double>& over(int k, int l, Range ru, Range rv, bool oneSpan, int su, int sv, double& err) const {
+    const Net& n = nets_[pidx(k, l)];
+    if (!oneSpan) {
+      // One buffer per partial: the rational bounds hold the order-0 net's while asking for the others'.
+      thread_local std::vector<double> spread[kPartials];
+      std::vector<double>& c = spread[pidx(k, l)];
+      control(n, ru, rv, false, su, sv, k, l, c);
+      err = blossomErr(n, c);
+      return c;
+    }
+    struct Kept {
+      uint64_t owner = 0;
+      double a = NAN, b = NAN, c = NAN, d = NAN;
+      bool have[kPartials] = {};
+      std::vector<double> net[kPartials];
+      double err[kPartials] = {};
+    };
+    thread_local Kept K;
+    if (K.owner != id_ || K.a != ru.lo || K.b != ru.hi || K.c != rv.lo || K.d != rv.hi) {
+      K.owner = id_, K.a = ru.lo, K.b = ru.hi, K.c = rv.lo, K.d = rv.hi;
+      std::fill(K.have, K.have + kPartials, false);
+    }
+    const int at = pidx(k, l);
+    if (!K.have[at]) {
+      bool done = false;
+      if (k + l > 0) {
+        const bool inU = k > 0;
+        double e0;
+        const std::vector<double>& b = over(inU ? k - 1 : k, inU ? l : l - 1, ru, rv, true, su, sv, e0);
+        const int bp = p_ - (inU ? k - 1 : k), bq = q_ - (inU ? l : l - 1), m = inU ? bp : bq;
+        const int np = inU ? bp - 1 : bp, nq = inU ? bq : bq - 1;
+        const double w = inU ? ru.hi - ru.lo : rv.hi - rv.lo;
+        if (m > 0 && w > 0) {
+          std::vector<double>& o = K.net[at];
+          o.resize(static_cast<size_t>(np + 1) * (nq + 1) * 4);
+          double e = 0, mag = 0;
+          for (int r = 0; r <= np; r++)
+            for (int t = 0; t <= nq; t++) {
+              const double* lo = b.data() + (r * (bq + 1) + t) * 4;
+              const double* hi = b.data() + (inU ? (r + 1) * (bq + 1) + t : r * (bq + 1) + t + 1) * 4;
+              for (int a = 0; a < 4; a++) {
+                const double x = m * (hi[a] - lo[a]) / w;
+                o[(r * (nq + 1) + t) * 4 + a] = x;
+                e = std::fmax(e, m * 2 * e0 / w + 4 * kEps * std::fabs(x));
+                mag = std::fmax(mag, std::fabs(x));
+              }
+            }
+          if (e <= 1e-6 * mag) K.err[at] = e, done = true;
+        }
+      }
+      if (!done) {
+        control(n, ru, rv, true, su, sv, k, l, K.net[at]);
+        K.err[at] = blossomErr(n, K.net[at]);
+      }
+      K.have[at] = true;
+    }
+    err = K.err[at];
+    return K.net[at];
+  }
   /** The hull box of partial (k, l) over the rectangle (no centred form). */
   Status rawBox(Range ru, Range rv, int k, int l, Box3& out) const {
     if (k + l >= kMaxOrder) return out = entireBox(), Status::unsupported;
@@ -277,18 +367,11 @@ private:
     if (!rational_ && (k > p_ || l > q_)) return out = pointBox({}), Status::ok;
     int su = bspline::findSpan(p_, U_, nu_, ru.lo), sv = bspline::findSpan(q_, V_, nv_, rv.lo);
     bool oneSpan = U_[su + 1] >= ru.hi && V_[sv + 1] >= rv.hi;
-    // (The control points' buffers kept across calls: inversion and tess-cadio's criteria ask for boxes by the
-    // million, and allocating them each time was most of their cost.)
-    thread_local std::vector<double> ctrl, c0, cc;
-    const Net& n = nets_[k <= p_ && l <= q_ ? pidx(k, l) : 0];
-    if (k <= p_ && l <= q_) control(n, ru, rv, oneSpan, su, sv, k, l, ctrl);
-    // The blossom's rounding on top of the net's own (a few operations per level, on values up to the net's size).
-    auto blossomErr = [&](const Net& m, const std::vector<double>& c) {
-      double mag = 0;
-      for (double x : c) mag = std::fmax(mag, std::fabs(x));
-      return m.error + 8 * (m.p + m.q + 2) * kEps * mag;
-    };
-    double err = blossomErr(n, ctrl);
+    // (The control points kept across calls, over(): inversion and tess-cadio's criteria ask for boxes by the
+    // million, and allocating or blossoming them each time was most of their cost.)
+    static const std::vector<double> none;
+    double err = 0;
+    const std::vector<double>& ctrl = k <= p_ && l <= q_ ? over(k, l, ru, rv, oneSpan, su, sv, err) : none;
     if (!rational_ || k + l == 0) {
       Box3 b = emptyBox();
       double wmin = kInf;
@@ -305,8 +388,9 @@ private:
     }
     // A rational partial: |S^(k,l)| <= (|A^(k,l)| + sum (k i)(l j) |w^(i,j)| |S^(k-i,l-j)|) / w_min, each from the
     // control points of its own net; |S^(0,0) - c| from the order-0 net's projected ones.
-    control(nets_[0], ru, rv, oneSpan, su, sv, 0, 0, c0);
-    double e0 = blossomErr(nets_[0], c0), wmin = kInf, s0 = 0;
+    double e0;
+    const std::vector<double>& c0 = over(0, 0, ru, rv, oneSpan, su, sv, e0);
+    double wmin = kInf, s0 = 0;
     for (size_t a = 0; a < c0.size(); a += 4) {
       wmin = std::fmin(wmin, c0[a + 3] - e0);
       s0 = std::fmax(s0, norm(Vec3{c0[a], c0[a + 1], c0[a + 2]}) / c0[a + 3]);
@@ -318,9 +402,8 @@ private:
       for (int m = 0; m <= t; m++) {
         int kk = t - m;
         if (kk > k || m > l || kk > p_ || m > q_) continue;
-        const Net& nn = nets_[pidx(kk, m)];
-        control(nn, ru, rv, oneSpan, su, sv, kk, m, cc);
-        double e = blossomErr(nn, cc);
+        double e;
+        const std::vector<double>& cc = over(kk, m, ru, rv, oneSpan, su, sv, e);
         for (size_t a = 0; a < cc.size(); a += 4) {
           Am[pidx(kk, m)] = std::fmax(Am[pidx(kk, m)], norm(Vec3{cc[a], cc[a + 1], cc[a + 2]}) + std::sqrt(3.0) * e);
           Wm[pidx(kk, m)] = std::fmax(Wm[pidx(kk, m)], std::fabs(cc[a + 3]) + e);
@@ -368,9 +451,9 @@ private:
           IW[pidx(kk, m)] = Interval::point(0);
           continue;
         }
-        const Net& nn = nets_[pidx(kk, m)];
-        control(nn, ru, rv, oneSpan, su, sv, kk, m, cc);
-        ranges(cc, blossomErr(nn, cc), IA[pidx(kk, m)], IW[pidx(kk, m)]);
+        double e;
+        const std::vector<double>& cc = over(kk, m, ru, rv, oneSpan, su, sv, e);
+        ranges(cc, e, IA[pidx(kk, m)], IW[pidx(kk, m)]);
       }
     for (int d = 0; d < 3; d++) S[0].c[d] = IA[0].c[d] / IW[0];
     for (int t = 1; t <= k + l; t++)
@@ -399,6 +482,13 @@ private:
   Vec3 c_;
   std::vector<Net> nets_;
   std::vector<bool> has_;
+  /** The poles' largest coordinate about c_, the weights' largest over their smallest (centred()'s rounding). */
+  double size_ = 0, wRatio_ = 1;
+  /** This surface among all made, for over()'s kept nets (an address can be reused). */
+  const uint64_t id_ = [] {
+    static std::atomic<uint64_t> next{1};
+    return next++;
+  }();
 };
 
 } // namespace

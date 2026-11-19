@@ -4,7 +4,7 @@
 
 import { type BrepData, type ColumnSpec, CURVE_KIND, rowCount, writeBrep } from 'cad-brep';
 
-type Table = 'vertex' | 'edge' | 'coedge';
+type Table = 'vertex' | 'edge' | 'coedge' | 'pool';
 
 /** A 2D curve in the model's form (layout.ts's CURVE_LAYOUTS): its kind, reals and ints. */
 export interface Curve2 {

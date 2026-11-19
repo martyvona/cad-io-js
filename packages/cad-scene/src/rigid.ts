@@ -132,6 +132,8 @@ function stretchPart(part: Part, of: number, k: M3, keepMeasures: boolean): { pa
       out.brep = { ...part.brep, model: data, ...(vertexBox ? { vertexBox } : {}),
         outline: ({ faces: only, ...o }) => faceOutlines(data, origin, o, only) };
       if (!vertexBox) delete out.brep.vertexBox;
+      // An analysis is tied to its model's bytes; this copy is another model (healing analyses it again).
+      delete out.brep.analysis;
     }
   }
   if (part.measures && s !== undefined && !keepMeasures) {

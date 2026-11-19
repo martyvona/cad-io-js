@@ -150,9 +150,9 @@ export function sphereOverPole(meridian?: Curve, range?: [number, number]): Brep
  * A cylinder of radius 2 from z = 0 to 5 as a B-spline surface: u a rational quadratic full circle over [0, 1] (nine
  * poles; closed in fact, so the face API finds period 1, which the surface's row doesn't have), v = z, degree 1. One
  * face round its side like cylinderSide's; the circles' p-curves left out, the seam's up use's `seamUp` with its use's
- * `range`, the down use's u = 0, v = t.
+ * `range`, the down use's u = 0, v = t. `bottomRadius` the bottom circle's (off the surface by its difference from 2).
  */
-export function bsplineCylinder(seamUp: Curve, range?: [number, number]): BrepBuilder {
+export function bsplineCylinder(seamUp: Curve, range?: [number, number], bottomRadius = 2): BrepBuilder {
   const b = new BrepBuilder({ uncertainty: 1e-6 });
   const h = Math.SQRT1_2, ring = [[2, 0], [2, 2], [0, 2], [-2, 2], [-2, 0], [-2, -2], [0, -2], [2, -2], [2, 0]];
   const w = [1, h, 1, h, 1, h, 1, h, 1];
@@ -161,7 +161,7 @@ export function bsplineCylinder(seamUp: Curve, range?: [number, number]): BrepBu
     poles: ring.map(([x, y]) => [[x!, y!, 0], [x!, y!, 5]]), weights: w.map((x) => [x, x]), uClosed: false,
     vClosed: false, selfIntersect: false, form: 'unspecified' });
   const axis = { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] };
-  const bottom = b.addCurve({ kind: 'circle', position: axis, radius: 2 });
+  const bottom = b.addCurve({ kind: 'circle', position: axis, radius: bottomRadius });
   const top = b.addCurve({ kind: 'circle', position: { ...axis, origin: [0, 0, 5] }, radius: 2 });
   const seam = b.addCurve({ kind: 'line', point: [2, 0, 0], direction: [0, 0, 1], magnitude: 1 });
   const pUp = b.addCurve(seamUp), pDown = b.addCurve(line2([0, 0], [0, 1]));
@@ -190,5 +190,32 @@ export function wireLine(off: number): BrepBuilder {
   const v0 = b.addVertex({ point: [0, 0, 0] }), v1 = b.addVertex({ point: [1, off, 0] });
   const e = b.addEdge({ curve: line, start: v0, end: v1, sameSense: true, id: 91 });
   b.addItem({ kind: 'body', ref: b.addBody({ kind: 'wire', members: [{ ref: e, sense: true }] }) });
+  return b;
+}
+
+/**
+ * bug24383's shape on the plane z = 0: a face bounded by a cubic B-spline arc from (0, 0) to (2, 0) (7 poles, knots
+ * 0 x 4, `k1` x 3, 1 x 4: two Bezier pieces) and the line back. Poles 0, 2 and 3 at the start vertex (pole 2 `gap`
+ * off it), pole 1 at `stray` (acting on [0, k1] only), the rest an arc through (0.5, 1) and (1.5, 1). The part's
+ * size is its vertices' box diagonal, 2 mm; `tolerance` the arc's edge's own. `single`: k1 a simple knot instead,
+ * with one more, 0.5 (knots 0 x 4, k1, 0.5, 1 x 4, 6 poles), so pole 1 acts on [0, 0.5] though [0, k1] is a span.
+ */
+export function strayPole(stray: [number, number, number] = [-3e7, -3e7, -3e7], k1 = 2e-6,
+  gap: [number, number, number] = [0, 0, 0], tolerance?: number, single = false): BrepBuilder {
+  const b = new BrepBuilder({ uncertainty: 1e-6 });
+  const plane = b.addSurface({ kind: 'plane', position: { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] } });
+  const spline = b.addCurve({ kind: 'bspline', degree: 3, knots: single ? [0, k1, 0.5, 1] : [0, k1, 1],
+    multiplicities: single ? [4, 1, 1, 4] : [4, 3, 4],
+    poles: [[0, 0, 0], stray, gap, ...single ? [] : [[0, 0, 0]], [0.5, 1, 0], [1.5, 1, 0], [2, 0, 0]], closed: false,
+    selfIntersect: false, form: 'unspecified' });
+  const back = b.addCurve({ kind: 'line', point: [2, 0, 0], direction: [-1, 0, 0], magnitude: 1 });
+  const v0 = b.addVertex({ point: [0, 0, 0] }), v1 = b.addVertex({ point: [2, 0, 0] });
+  const eArc = b.addEdge({ curve: spline, start: v0, end: v1, sameSense: true, id: 31, tolerance });
+  const eBack = b.addEdge({ curve: back, start: v1, end: v0, sameSense: true, id: 32 });
+  const face = b.addFace({ surface: plane, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true,
+    coedges: [{ edge: eArc, orientation: 'forward', id: 41 }, { edge: eBack, orientation: 'forward', id: 42 }] }],
+    id: 8 });
+  const shell = b.addShell({ kind: 'open', faces: [{ face, sense: true }] });
+  b.addItem({ kind: 'body', ref: b.addBody({ kind: 'sheet', members: [{ ref: shell, sense: true }] }) });
   return b;
 }

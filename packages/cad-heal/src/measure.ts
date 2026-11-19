@@ -20,7 +20,7 @@ export function tolerances(d: BrepData) {
   const size = nv ? Math.hypot(hi[0]! - lo[0]!, hi[1]! - lo[1]!, hi[2]! - lo[2]!) : 0;
   const unc = d.part.uncertainty[0]!, part = Math.max(Number.isFinite(unc) ? unc : 1e-5, 1e-9 * size);
   const widen = (t: number) => Number.isFinite(t) && t > part ? t : part;
-  return { part, size, edge: (e: number) => widen(d.edge.tolerance[e]!),
+  return { part, size, lo, hi, edge: (e: number) => widen(d.edge.tolerance[e]!),
     vertex: (v: number) => widen(d.vertex.tolerance[v]!) };
 }
 

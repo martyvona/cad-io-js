@@ -3,7 +3,7 @@ import test from 'node:test';
 import { analysisFor, BrepBuilder, PROVENANCE } from 'cad-brep';
 import { Geometry, init } from 'cad-geom';
 import { healPart } from '../src/index.ts';
-import { curveOffSurface, GROWTH } from '../src/fix/tolerance.ts';
+import { curveOffSurface, type Grids, GROWTH } from '../src/fix/tolerance.ts';
 import { cylinderSide, line2, planeArc, rationalArc } from './models.ts';
 
 const module = await init();
@@ -183,3 +183,38 @@ test('curveOffSurface: a curve just below the surface finds its grid points in t
     assert.ok(curveOffSurface(g, 0, [0, 4], 0, 1, new Map()) <= 1);
     assert.equal(calls, 0);
   });
+
+test('curveOffSurface: a surface\'s grid kept across calls, the cells of the surface and tolerance asked last only',
+  () => {
+  // Two patches (the second 10 up) and the line on the first.
+  const b = new BrepBuilder({ uncertainty: 1e-6 });
+  for (const z of [0, 10]) {
+    b.addSurface({ kind: 'bspline', uDegree: 1, vDegree: 1, uKnots: [0, 1], vKnots: [0, 1], uMultiplicities: [2, 2],
+      vMultiplicities: [2, 2], poles: [[[0, 0, z], [0, 4, z]], [[4, 0, z], [4, 4, z]]], uClosed: false,
+      vClosed: false, selfIntersect: false, form: 'unspecified' });
+  }
+  b.addCurve({ kind: 'line', point: [0, 1, 0], direction: [1, 0, 0], magnitude: 1 });
+  const d = b.finish();
+  using g = new Geometry(module, new Uint8Array(d.buffer));
+  // The grid's density is set by the first tolerance asked (1 here), so a fresh map asked 1 then 2 is the control.
+  const grids: Grids = new Map(), control: Grids = new Map();
+  const a = curveOffSurface(g, 0, [0, 4], 0, 1, grids), first = grids.get(0)!;
+  assert.equal(first.cells?.tol, 1);
+  assert.equal(a, curveOffSurface(g, 0, [0, 4], 0, 1, control));
+  const cells = first.cells!.map;
+  assert.equal(curveOffSurface(g, 0, [0, 4], 0, 1, grids), a);
+  assert.equal(first.cells!.map, cells, 'the same tolerance asked again reuses its cells');
+  const b2 = curveOffSurface(g, 0, [0, 4], 0, 2, grids);
+  assert.equal(grids.get(0), first, 'the grid built once');
+  assert.equal(first.cells?.tol, 2, 'another tolerance\'s cells replace them');
+  delete control.get(0)!.cells;
+  assert.equal(b2, curveOffSurface(g, 0, [0, 4], 0, 2, control), 'the same bound as cells built fresh');
+  curveOffSurface(g, 0, [0, 4], 1, 20, grids);
+  assert.equal(first.cells, undefined, 'another surface\'s cells drop the first\'s');
+  assert.equal(grids.get(1)!.cells?.tol, 20);
+  assert.equal(grids.get(0), first, 'its grid kept');
+  for (const [s, t] of [[0, 1], [1, 2], [0, 3], [1, 1]] as const) {
+    curveOffSurface(g, 0, [0, 4], s, t, grids);
+    assert.equal([...grids.values()].filter((x) => x?.cells).length, 1, 'one surface\'s cells at most, ever');
+  }
+});

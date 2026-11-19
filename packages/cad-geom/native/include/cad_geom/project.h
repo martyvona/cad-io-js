@@ -5,6 +5,7 @@
 // its samples, not only at them (docs/own-tessellator.md: "The interrogation core", "Tracing by continuation").
 #pragma once
 
+#include <cmath>
 #include <cstdint>
 #include <memory>
 #include <vector>
@@ -94,8 +95,13 @@ struct Pcurve {
    */
   bool seamU = false, seamV = false;
   std::vector<PcurvePiece> seamTwin;
-  /** The largest distance from the curve to its feet on the surface over the range: its deviation (mm, measured). */
+  /**
+   * The largest distance from the curve to its feet on the surface over the range: its deviation (mm, measured), or
+   * where a span's control hull leaves the surface's box, at least the farthest point's distance from that box.
+   */
   double offSurface = 0;
+  /** Where offSurface came from the hulls: the span (between two of the curve's breaks) holding it; else NaN. */
+  Range offSpan{NAN, NAN};
   /**
    * The largest |S(p(t)) - C(t)| over the range (mm, measured between samples as well as at them, not bounded):
    * status ok promises error <= tol.
