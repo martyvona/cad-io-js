@@ -524,6 +524,36 @@ export function loopless(): BrepBuilder {
 }
 
 /**
+ * B-spline faces with no loops, each its surface's whole knot rectangle: a bicubic plane patch 2 by 1 on z = 0 (open
+ * both ways; area 2), bsplineTube's surface (closed in u in fact, radius 2, z 0 to 5; area 20 pi), a rational quarter
+ * cone, its row v = 0 collapsed to the apex (0, 0, 0) and v = 1 the quarter circle of radius 1 at z = 1 (one side a
+ * pole; area pi sqrt 2 / 4), and that cone with its u reversed (u running the other way round).
+ */
+export function looplessBsplines(): BrepBuilder {
+  const b = new BrepBuilder();
+  const grid = (nu: number, nv: number, at: (i: number, j: number) => number[]) =>
+    Array.from({ length: nu }, (_, i) => Array.from({ length: nv }, (__, j) => at(i, j)));
+  const plane = b.addSurface({ kind: 'bspline', uDegree: 3, vDegree: 3, uKnots: [0, 1], vKnots: [0, 1],
+    uMultiplicities: [4, 4], vMultiplicities: [4, 4], poles: grid(4, 4, (i, j) => [2 * i / 3, j / 3, 0]),
+    uClosed: false, vClosed: false, selfIntersect: false, form: 'unspecified' });
+  const tubePoles = CIRCLE9.xy.map(([x, y]) => [[2 * x!, 2 * y!, 0], [2 * x!, 2 * y!, 5]]);
+  const tube = b.addSurface({ kind: 'bspline', uDegree: 2, vDegree: 1, uKnots: [0, 1, 2, 3, 4], vKnots: [0, 1],
+    uMultiplicities: [3, 2, 2, 2, 3], vMultiplicities: [2, 2], poles: tubePoles,
+    weights: CIRCLE9.w.map((w) => [w, w]), uClosed: true, vClosed: false, selfIntersect: false, form: 'unspecified' });
+  const cone = (reversed: boolean) => {
+    const arc = [[1, 0, 1], [1, 1, 1], [0, 1, 1]], w = [1, Math.SQRT1_2, 1];
+    const order = reversed ? [2, 1, 0] : [0, 1, 2];
+    return b.addSurface({ kind: 'bspline', uDegree: 2, vDegree: 1, uKnots: [0, 1], vKnots: [0, 1],
+      uMultiplicities: [3, 3], vMultiplicities: [2, 2], poles: order.map((i) => [[0, 0, 0], arc[i]!]),
+      weights: order.map((i) => [w[i]!, w[i]!]), uClosed: false, vClosed: false, selfIntersect: false,
+      form: 'unspecified' });
+  };
+  for (const surface of [plane, tube, cone(false), cone(true)])
+    sheet(b, b.addFace({ surface, sameSense: true, loops: [] }));
+  return b;
+}
+
+/**
  * A plate like ohmm-ap203's (38 by 50.8 on z = 0, its corner (-19, 0)) with 14 holes of radius 1.4682 in two
  * columns (x 15.626 and -15.616, every 6.35 from y 7.9756): its rectangle's sides long and fixed, which refinement
  * for angle alone drove points into a corner of without end.
@@ -1522,7 +1552,7 @@ export function wrongEndPcurve(wiggle = false): BrepBuilder {
 
 export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStrip(true),
   kinkStripQuadratic: () => kinkStrip(false, true), affineFeetOff, plateHoles,
-  bsplineApexHole, offPoleArcLoose, loopless, bsplineBall, wholeTorus, wholeSphereVertex,
+  bsplineApexHole, offPoleArcLoose, loopless, looplessBsplines, bsplineBall, wholeTorus, wholeSphereVertex,
   bsplineApex: () => bsplineApex(), poleHole, smallHole, sBend, cuspEdge: () => cuspEdge(), nearCusp6,
   bumpPatch: () => bumpPatch(), halfBump: () => bumpPatch(true), thinBand, tubeGapFaceTolerance, tubeGapUncertainty,
   tubeGapBySize, tubeGapOpen, torusOuterHalf, meridianHemisphereLoose, offPoleRest: () => offPoleRest(),

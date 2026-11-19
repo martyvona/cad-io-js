@@ -382,9 +382,14 @@ struct EdgeMesh::Impl {
     // A face with no edge loops: its surface's natural extent (makeNatural), its cuts' pseudo-edges: along
     // the periodic direction's cut (sphere-like: from pole to pole) and, periodic both ways, along the other's too;
     // the cuts' values; the poles at the low and high ends of the other direction (sphere-like).
-    enum class Natural { none, sphere, torus } natural = Natural::none;
+    enum class Natural { none, sphere, torus, rect } natural = Natural::none;
     int natDir = 0, natPseudo[2] = {-1, -1}, natPole[2] = {-1, -1};
     double natAt[2] = {0, 0};
+    // A B-spline's whole knot rectangle (Natural::rect), counterclockwise from (u0, v0): its sides bottom (v = v0),
+    // right (u = u1), top (v = v1), left (u = u0), each a pseudo-edge along it (natSide) or a pole row (natSidePole);
+    // a periodic direction's two sides across it the one pseudo-edge (the cut), its range from the cut a period on.
+    int natSide[4] = {-1, -1, -1, -1}, natSidePole[4] = {-1, -1, -1, -1};
+    double natBox[4] = {0, 0, 0, 0};  // u0, u1, v0, v1
     /** Why the status isn't ok (FaceBoundary::cause). */
     const char* why = nullptr;
   };
@@ -1312,6 +1317,45 @@ struct EdgeMesh::Impl {
       F.natPseudo[0] = pseudo(o, c, r.lo, r.hi, false, F.sing[lo].point, F.sing[hi].point);
       return;
     }
+    // A B-spline's whole rectangle (a face without bounds is the whole surface, and a B-spline's is its knot range):
+    // closed in neither or one direction, its finite sides pseudo-edges or pole rows.
+    if (m.surfaceKind(m.faceSurface(f)) != CBR_SURFACE_BSPLINE || (F.period[0] > 0 && F.period[1] > 0)) return;
+    double box[4];
+    for (int d = 0; d < 2; d++) {
+      Range r = d ? F.dom.v : F.dom.u;
+      if (F.period[d] > 0) r = {cutAt(d), cutAt(d) + F.period[d]};
+      if (!std::isfinite(r.lo) || !std::isfinite(r.hi) || !(r.lo < r.hi)) return;
+      box[2 * d] = r.lo, box[2 * d + 1] = r.hi;
+    }
+    // A side's pole: a singularity whose row is the side's (isoU at u = u0 or u1; else at v = v0 or v1).
+    auto poleOf = [&](bool isoU, double at) {
+      for (size_t i = 0; i < F.sing.size(); i++) {
+        const Singularity& g = F.sing[i];
+        if (g.kind != Singularity::normalVanishes && g.isoU == isoU && g.at == at) return static_cast<int>(i);
+      }
+      return -1;
+    };
+    F.natural = Face::Natural::rect;
+    std::copy(box, box + 4, F.natBox);
+    const double u0 = box[0], u1 = box[1], v0 = box[2], v1 = box[3];
+    // Sides along u (bottom, top) and along v (right, left); a periodic direction's two sides across it one edge.
+    for (int side = 0; side < 4; side++) {
+      const bool alongU = side == 0 || side == 2;
+      const double at = side == 0 ? v0 : side == 1 ? u1 : side == 2 ? v1 : u0;
+      const int across = alongU ? 1 : 0;  // the direction the side is fixed in
+      if (F.period[across] > 0 && (side == 2 || side == 3)) {
+        F.natSide[side] = F.natSide[side - 2];
+        continue;
+      }
+      if (int g = poleOf(!alongU, at); g >= 0 && F.period[across] == 0) {
+        F.natSidePole[side] = g;
+        continue;
+      }
+      const double t0 = alongU ? u0 : v0, t1 = alongU ? u1 : v1;
+      const Vec2 a = alongU ? Vec2{t0, at} : Vec2{at, t0}, b = alongU ? Vec2{t1, at} : Vec2{at, t1};
+      const bool closed = F.period[alongU ? 0 : 1] > 0;
+      F.natSide[side] = pseudo(alongU ? 0 : 1, at, t0, t1, closed, surfaceAt(f, a), surfaceAt(f, b));
+    }
   }
 
   /** Face f's natural extent's loop (makeNatural), counterclockwise in (u, v). */
@@ -1330,6 +1374,32 @@ struct EdgeMesh::Impl {
       for (int j = 0; j + 1 < nb; j++) loop.push_back(sample(F.natPseudo[1], j, {u0 + Pu, B.s.t[j]}));
       for (int i = na - 1; i >= 1; i--) loop.push_back(sample(F.natPseudo[0], i, {A.s.t[i], v0 + Pv}));
       for (int j = nb - 1; j >= 1; j--) loop.push_back(sample(F.natPseudo[1], j, {u0, B.s.t[j]}));
+      return loop;
+    }
+    if (F.natural == Face::Natural::rect) {
+      // Counterclockwise from (u0, v0), each side from its start corner up to (not) its end: a pseudo-edge's samples
+      // (backwards on the top and left), a pole row's start corner and its fill. The periodic sides across the
+      // period one edge, a period apart.
+      const double u0 = F.natBox[0], u1 = F.natBox[1], v0 = F.natBox[2], v1 = F.natBox[3];
+      const Vec2 corner[4] = {{u0, v0}, {u1, v0}, {u1, v1}, {u0, v1}};
+      std::vector<int> owner;
+      for (int side = 0; side < 4; side++) {
+        const Vec2 a = corner[side], b = corner[(side + 1) % 4];
+        if (F.natSidePole[side] >= 0) {
+          const int g = F.natSidePole[side];
+          loop.push_back({BoundaryPoint::poleLine, a, -1, -1, F.sing[g].point});
+          poleFill(f, g, a, b, loop, owner);
+          continue;
+        }
+        const int e = F.natSide[side];
+        const Edge& E = edges[e];
+        const int n = static_cast<int>(E.s.t.size());
+        const bool alongU = side == 0 || side == 2, back = side >= 2;
+        for (int k = 0; k + 1 < n; k++) {
+          const int i = back ? n - 1 - k : k;
+          loop.push_back(sample(e, i, alongU ? Vec2{E.s.t[i], a.y} : Vec2{a.x, E.s.t[i]}));
+        }
+      }
       return loop;
     }
     // Sphere-like, in (x, y) = (the periodic direction, the other): the low pole's line along +x, the cut's copy a
