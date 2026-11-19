@@ -288,15 +288,23 @@ std::vector<double> sample(const Geom& g, double t0, double t1, bool closed, con
   g.breaks(lo, hi, cuts);
   if (closed) cuts.insert(cuts.end(), {lo + (hi - lo) / 3, lo + 2 * (hi - lo) / 3});
   std::sort(cuts.begin(), cuts.end());
-  cuts.push_back(hi);
+  // A break at the last kept one or at the range's end in 3D, within the coordinates' rounding, is that point: a
+  // B-spline's knot 1e-13 from where its vertex inverts (LMP1 #505096's, 3e-14 off) would make a span of rounding,
+  // a spike in (u, v) that refinement beside it runs into.
+  const Vec3 end = g.at(hi);
+  auto one = [](Vec3 x, Vec3 y) { return norm(x - y) <= 1e-12 * (1 + std::fmax(norm(x), norm(y))); };
   std::vector<double> t{lo};
   bool ok = true;
   double a = lo;
+  Vec3 pa = g.at(lo);
   for (double b : cuts) {
-    if (!(b > a)) continue;
+    if (!(b > a) || !(b < hi)) continue;
+    const Vec3 pb = g.at(b);
+    if (one(pb, pa) || one(pb, end)) continue;
     ok = refine(g, a, b, k, t, 0) && ok;
-    a = b;
+    a = b, pa = pb;
   }
+  if (hi > a) ok = refine(g, a, hi, k, t, 0) && ok;
   status = ok ? Status::ok : Status::noConvergence;
   if (t0 > t1) std::reverse(t.begin(), t.end());
   return t;

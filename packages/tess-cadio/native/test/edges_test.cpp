@@ -870,6 +870,24 @@ TEST_CASE("a use's p-curve checked between its samples against its edge's curve:
   CHECK_EQ(checkCoedges(w, ew, 1e-9, "wigglePcurve"), 0);
 }
 
+TEST_CASE("a curve's break at an end's point within rounding is that point: no sample beside it") {
+  // knotAtEnd's bottom edge, its knots 1e-13 from each end of its range: no two samples within 1e-9 of each other,
+  // the knots dropped (its samples otherwise its middle knot's and the deflection's).
+  cadgeom::Model m = load("knotAtEnd");
+  REQUIRE(m.ok());
+  EdgeOptions o;
+  o.deflection = 0.01;
+  EdgeMesh em(m, o);
+  const EdgeSamples& es = em.edge(0);
+  REQUIRE(es.t.size() >= 3u);
+  double closest = INFINITY;
+  for (size_t i = 0; i + 1 < es.points.size(); i++) closest = std::fmin(closest, cadgeom::norm(es.points[i + 1] -
+    es.points[i]));
+  if (!(closest > 1e-9)) std::printf("  knotAtEnd: samples %.3g apart\n", closest);
+  CHECK(closest > 1e-9);
+  CHECK(em.face(0).status == cadgeom::Status::ok);
+}
+
 TEST_CASE("a use projected at its edge's tolerance: its inside samples at their points' feet, not the p-curve's") {
   // coarseProjection's bottom edge, 0.004 off its cylinder under a tolerance of 0.01, projected at that (the mesh's,
   // 5e-4, too tight): its p-curve within 0.01 of the feet, its samples polished to them, (atan2(y, x), z).

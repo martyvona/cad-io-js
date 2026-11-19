@@ -759,6 +759,32 @@ function tube(tinyArc: boolean, gap = 0, uncertainty?: number, faceTolerance?: n
 export const bsplineTube = (): BrepBuilder => tube(false);
 
 /**
+ * The unit square (z = 0) whose bottom edge is a cubic B-spline along it with interior knots 1e-13 from each end of
+ * its range (LMP1 #505096's, 1.2e-13 from where its vertex inverts): breaks at the ends' points within rounding.
+ * The other sides lines. No p-curves.
+ */
+export function knotAtEnd(): BrepBuilder {
+  const b = new BrepBuilder();
+  const corners = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]];
+  const vs = corners.map((point) => b.addVertex({ point }));
+  const curve = b.addCurve({ kind: 'bspline', degree: 3, knots: [0, 1e-13, 0.5, 1 - 1e-13, 1],
+    multiplicities: [4, 1, 1, 1, 4], poles: [0, 1e-13 / 3, 0.25, 0.5, 0.75, 1 - 1e-13 / 3, 1].map((x) =>
+      [x, 0.1 * Math.sin(Math.PI * x), 0]),
+    closed: false, selfIntersect: false, form: 'unspecified' });
+  // (Its range 2e-14 inside the curve's at each end, as a vertex's inverted parameter is, not on a knot.)
+  const edges = [b.addEdge({ curve, start: vs[0]!, end: vs[1]!, sameSense: true, range: [2e-14, 1 - 2e-14] })];
+  for (let k = 1; k < 4; k++) {
+    const p = corners[k]!, q = corners[(k + 1) % 4]!, d = [q[0]! - p[0]!, q[1]! - p[1]!, 0];
+    edges.push(b.addEdge({ curve: b.addCurve({ kind: 'line', point: p, direction: d, magnitude: 1 }), start: vs[k]!,
+      end: vs[(k + 1) % 4]!, sameSense: true, range: [0, 1] }));
+  }
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: true,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true,
+      coedges: edges.map((edge) => ({ edge, orientation: 'forward' as const })) }] }));
+  return b;
+}
+
+/**
  * A patch of the cylinder of radius 5 about z (u from 0 to 1, z from 0 to 10) whose bottom edge is a cubic B-spline
  * along the arc at radius 5.004 (the Bezier arc's poles), z wiggling by +/-0.5 at its inner poles, its tolerance
  * 0.01: farther off the surface than the mesh's projection tolerance (0.05 x a deflection of 0.01) but within its
@@ -1433,7 +1459,7 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   seamHemisphere: () => seamHemisphere(true), seamHemisphereBare: () => seamHemisphere(false),
   seamCone: () => seamCone(true), seamConeBare: () => seamCone(false),
   offPoleRestLoose: () => offPoleRest(1e-3), wigglyBand, notchBand, bsplineTube, tubeQuarterPeriodUp, coarseProjection,
-  bsplineTubeTinyArc, bsplineDome,
+  knotAtEnd, bsplineTubeTinyArc, bsplineDome,
   offPoleArc: () => offPoleArc(), offPcurves, bandHoleAtVertex, bandHoleOnCut, halfCap, meridianHemisphere, band: band_,
   bandByInversion, bore, nistBore, seamByInversion, offVertex, pcurveOnly, luneQuarter, luneOnSeam, cap, splineEdge,
   seamFlipped, polylineEdge, pcurveCircle, arcSegment, fold, twisted, wrongSense, zeroEdge, halfCylinderPcurves,
