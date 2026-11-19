@@ -170,6 +170,8 @@ public:
     return deviationOk(t, p, longest3) && normalsWithin(t, p);
   }
 
+  int refusalKind(const Vec2 t[3]) const override { return static_cast<int>(refusal(t, true)); }
+
   Refusal refusal(const Vec2 t[3], bool normals) const override {
     if (belowFloor(t)) return Refusal::none;
     const bool sampled = sampledAny_;

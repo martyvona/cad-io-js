@@ -42,6 +42,14 @@ public:
     (void)tri;
     return false;
   }
+  /**
+   * Why accept() refuses the triangle, as a small code (SurfaceCriteria: criteria.h's Refusal), for counts only; 0
+   * where the caller doesn't say. Asked only where a caller wants the mesher's detail (mesh2d_impl.h).
+   */
+  virtual int refusalKind(const Vec2 tri[3]) const {
+    (void)tri;
+    return 0;
+  }
 };
 
 /**
