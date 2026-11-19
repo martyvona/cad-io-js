@@ -47,6 +47,13 @@ struct PartOptions {
   std::function<void(const PartProgress&)> progress;
   /** EdgeOptions::projectMissingPcurves: uses without p-curves projected (else by inversion). */
   bool projectMissingPcurves = true;
+  /**
+   * A face whose mesh, when the rounds end, is farther from its surface than this times the linear deflection fails
+   * (Status::noConvergence, its triangles dropped, the measure in its cause): its refused triangles measured, each at
+   * the points of its barycentric lattice of order 4 but its corners, inverted onto the face's surface (accepted ones
+   * are within the deflection by the criteria). 0 or less: never.
+   */
+  double maxDeviationFactor = 1.1;
 };
 
 struct FaceMesh {
@@ -71,6 +78,10 @@ struct FaceMesh {
    * indices into `triangles` / 3; those with two corners at one point left out with them.
    */
   std::vector<int32_t> rejected;
+  /** Its refused triangles' largest measured deviation (PartOptions::maxDeviationFactor), 0 where none. */
+  double worstDeviation = 0;
+  /** The refused triangles by why the criteria refused each (criteria.h's Refusal, as indices; [0] unused). */
+  int refusedBy[kRefusalKinds] = {};
   /** Splits of its edges it still wanted when the rounds ran out. */
   int splitsWanted = 0;
   /** Whether its triangles' deviation was sampled rather than bounded (SurfaceCriteria::bounded). */
@@ -82,6 +93,8 @@ struct FaceMesh {
   std::string note;
   /** Its boundary's FaceBoundary::againstSense: a loop against the face's sense, meshed as the sense has it. */
   bool againstSense = false;
+  /** Its boundary's FaceBoundary::foldsRepaired. */
+  int foldsRepaired = 0;
 };
 
 class PartMesher {

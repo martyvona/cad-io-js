@@ -573,6 +573,65 @@ TEST_CASE("inversion of points on the sides the search's rectangles share: on th
   CHECK(n > 1000);
 }
 
+TEST_CASE("inversion under a coarse tolerance: a foot within it all over still polished, nearby points apart") {
+  // tol a tenth of the surface's size (LMP1's 0.13 on faces of a mm or so): the search stops at rectangles within tol
+  // across before it proves one convex, whose point is then polished. Every surface: points on it at random inside
+  // (u, v) and 1e-4 of its size off along the normal, each found to within 1e-9 of the size of its own distance; and
+  // each with a second point 1e-3 of the size along the surface from it, their (u, v) apart (the B-splines' far
+  // copies, with a rectangle's best corner or middle, up to 0.6 of their size off, and pairs on one (u, v)).
+  std::mt19937_64 rng(11);
+  std::uniform_real_distribution<double> U(0.1, 0.9);
+  std::vector<Made> all = zoo({"s1", "far", "mirror"});
+  for (Made& m : raw()) all.push_back(std::move(m));
+  int bad = 0, same = 0, n = 0;
+  for (Made& m : all) {
+    const SurfaceImpl* s = impl(m.s.get());
+    SurfaceDomain d = s->domain();
+    Range ru, rv;
+    sampleRange(d, ru, rv);
+    Box3 b;
+    s->derivBox(ru, rv, 0, 0, b);
+    double size = std::fmax(1e-300, std::hypot(b.x.width(), std::hypot(b.y.width(), b.z.width())));
+    for (int k = 0; k < 24; k++) {
+      Vec2 uv{ru.lo + (ru.hi - ru.lo) * U(rng), rv.lo + (rv.hi - rv.lo) * U(rng)};
+      Vec3 D[kPartials];
+      s->derivs(uv.x, uv.y, 1, D);
+      Vec3 nn = cross(D[pidx(1, 0)], D[pidx(0, 1)]);
+      if (!(norm(nn) > 1e-9 * norm(D[pidx(1, 0)]) * norm(D[pidx(0, 1)]))) continue;
+      // A range stopping short of the point's u (a tenth of the range): the result in it all the same.
+      {
+        Range cut{ru.lo, uv.x - 0.1 * (ru.hi - ru.lo)};
+        SurfaceInversion inv = invertSurface(*s, D[0], cut, rv, 0.1 * size);
+        if (inv.status == Status::ok && !(inv.uv.x >= cut.lo && inv.uv.x <= cut.hi) && bad++ < 10)
+          std::printf("  %s: (%.17g, %.17g) over u to %.17g: u %.17g\n", m.name.c_str(), uv.x, uv.y, cut.hi,
+            inv.uv.x);
+      }
+      for (double off : {0.0, 1e-4, 0.03, 0.3}) {
+        Vec3 p = D[0] + (off * size / norm(nn)) * nn;
+        SurfaceInversion inv = invertSurface(*s, p, ru, rv, 0.1 * size);
+        n++;
+        // (Far off, near a centre of curvature, feet within tol of the nearest are as good: tol allowed there.)
+        double slack = off > 0.01 ? 0.1 * size : 1e-9 * size;
+        bool ok = inv.status == Status::ok && inv.distance <= off * size * (1 + 1e-6) + slack + 1e-14 * norm(p);
+        if (!ok && bad++ < 10)
+          std::printf("  %s: (%.17g, %.17g) %s: distance %.3g (size %.3g)\n", m.name.c_str(), uv.x, uv.y,
+            off > 0 ? "off" : "on", inv.distance, size);
+        if (off > 0) continue;
+        // The second point: along S_u by 1e-3 of the size.
+        Vec2 uv2{uv.x + 1e-3 * size / norm(D[pidx(1, 0)]), uv.y};
+        Vec3 D2[kPartials];
+        s->derivs(uv2.x, uv2.y, 0, D2);
+        SurfaceInversion inv2 = invertSurface(*s, D2[0], ru, rv, 0.1 * size);
+        if (inv2.status == Status::ok && inv.uv.x == inv2.uv.x && inv.uv.y == inv2.uv.y && same++ < 10)
+          std::printf("  %s: (%.17g, %.17g) and a point 1e-3 along: one (u, v)\n", m.name.c_str(), uv.x, uv.y);
+      }
+    }
+  }
+  CHECK_EQ(bad, 0);
+  CHECK_EQ(same, 0);
+  CHECK(n > 500);
+}
+
 TEST_CASE("inversion over infinite ranges: a plane and a cylinder from far along the free direction") {
   const fixtures::Reference* ref = fixtures::reference("box", "moved");
   REQUIRE(ref);

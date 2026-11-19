@@ -38,6 +38,8 @@ struct Result {
 };
 Result result;
 bool project = true;
+// PartOptions::maxDeviationFactor for the next calls.
+double deviationFactor = 1.1;
 
 void put(std::vector<float>& out, Vec3 p, const double* o) {
   out.insert(out.end(), {static_cast<float>(p.x - o[0]), static_cast<float>(p.y - o[1]),
@@ -55,7 +57,7 @@ std::string ids(const std::vector<uint32_t>& v) {
 extern "C" {
 
 /** The API's version (src/index.ts's API_VERSION). */
-int tc_api_version() { return 2; }
+int tc_api_version() { return 3; }
 
 /**
  * Meshes the part in `data` (cad-brep's buffer, `size` bytes) at the deflections, positions minus (ox, oy, oz); with
@@ -63,6 +65,9 @@ int tc_api_version() { return 2; }
  */
 /** Whether the next calls project uses without p-curves (PartOptions::projectMissingPcurves; default 1). */
 void tc_set_project(int on) { project = on != 0; }
+
+/** The next calls' PartOptions::maxDeviationFactor (default 1.1; 0 or less: never). */
+void tc_set_deviation_factor(double factor) { deviationFactor = factor; }
 
 int tc_tessellate(const uint8_t* data, int size, double linear, double angular, double ox, double oy, double oz,
   int wantEdges) {
@@ -80,12 +85,16 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
   opts.d.linear = linear;
   opts.d.angular = angular;
   opts.projectMissingPcurves = project;
+  opts.maxDeviationFactor = deviationFactor;
   const uint32_t* faceId = m.u32(CBR_FACE_ID);
   opts.progress = [&](const PartProgress& p) {
     js_progress(p.phase, p.row >= 0 ? faceId[p.row] : 0, p.row, p.round, p.facesDone, p.facesTotal);
   };
   PartMesher pm(m, opts);
   std::vector<uint32_t> failed, failedRows, failedStatus, refused, unsplit, unsettled, sampled, againstSense;
+  std::vector<uint32_t> folded;
+  std::vector<uint32_t> refusedBy(kRefusalKinds, 0);
+  uint32_t folds = 0;
   std::vector<std::string> failedCause;
   // Refused triangles, and those of them in a pole's fan (a corner at a surface singularity's point).
   size_t refusedTriangles = 0, poleSlivers = 0;
@@ -106,6 +115,7 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
       if (!fm.rejected.empty()) {
         refused.push_back(faceId[f]);
         refusedTriangles += fm.rejected.size();
+        for (int k = 0; k < kRefusalKinds; k++) refusedBy[k] += static_cast<uint32_t>(fm.refusedBy[k]);
         Status st;
         std::vector<Singularity> sing;
         if (std::unique_ptr<Surface> s = closedSurface(m, tols, f, st)) s->singularities(sing);
@@ -122,6 +132,7 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
       if (fm.sampled) sampled.push_back(faceId[f]);
       if (!fm.note.empty()) unsettled.push_back(faceId[f]);
       if (fm.againstSense) againstSense.push_back(faceId[f]);
+      if (fm.foldsRepaired) folded.push_back(faceId[f]), folds += static_cast<uint32_t>(fm.foldsRepaired);
     } else {
       failed.push_back(faceId[f]);
       failedRows.push_back(static_cast<uint32_t>(f));
@@ -199,7 +210,9 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
   result.diag = "{\"failed\":" + ids(failed) + ",\"failedRows\":" + ids(failedRows) + ",\"failedStatus\":" +
     ids(failedStatus) + ",\"failedCause\":" + causes + ",\"refused\":" + ids(refused) +
     ",\"unsplit\":" + ids(unsplit) + ",\"unsettled\":" + ids(unsettled) + ",\"sampled\":" + ids(sampled) +
-    ",\"againstSense\":" + ids(againstSense) + ",\"projections\":[" + std::to_string(pc.withinMesh) + "," +
+    ",\"againstSense\":" + ids(againstSense) + ",\"folded\":" + ids(folded) +
+    ",\"refusedBy\":" + ids(refusedBy) + ",\"folds\":" +
+    std::to_string(folds) + ",\"projections\":[" + std::to_string(pc.withinMesh) + "," +
     std::to_string(pc.atEdgeTolerance) + "," + std::to_string(pc.byInversion) + "],\"rounds\":" +
     std::to_string(pm.rounds()) + ",\"refusedTriangles\":" + std::to_string(refusedTriangles) +
     ",\"poleSlivers\":" + std::to_string(poleSlivers) + "}";
@@ -225,7 +238,9 @@ const float* tc_edge_positions() { return result.edgePositions.data(); }
  * The last call's diagnostics: {"failed": [face ids], "failedRows", "failedStatus" (each one's result.h Status: an
  * empty triangulation counts as invalidModel), "failedCause" (each one's FaceMesh::cause), "refused", "unsplit",
  * "unsettled", "sampled" (faces whose deviation accept() sampled rather than bounded: SurfaceCriteria::bounded),
- * "againstSense" (faces with a loop against their sense, meshed: FaceBoundary::againstSense), "projections" (the
+ * "refusedBy" (the refused triangles by why: criteria.h's Refusal as indices, [0] unused),
+ * "againstSense" (faces with a loop against their sense, meshed: FaceBoundary::againstSense), "folded" and "folds"
+ * (the faces with boundary folds repaired, and how many: FaceBoundary::foldsRepaired), "projections" (the
  * uses without p-curves, by how they were sampled: EdgeMesh::projections, [withinMesh, atEdgeTolerance,
  * byInversion]), "rounds",
  * "refusedTriangles", "poleSlivers" (refused triangles with a corner at a pole or apex)}.

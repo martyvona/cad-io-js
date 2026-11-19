@@ -18,6 +18,8 @@
 // chords stand for a region past the boundary curve (a band's on a sphere), not through a facet's tilt.
 #include "tess_cadio/criteria.h"
 
+#include "cad_geom/tolerance.h"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -92,9 +94,10 @@ public:
   /** The kinds whose deviation has a closed form: their frame (origin, axis), and radius and a second parameter. */
   enum class Kind { none, sphere, cone, torus };
   Local(const Surface& s, Box2 uv, const Deflections& d, double extent, bool bounded, Kind kind, Vec3 centre,
-    Vec3 axis, double radius, double second)
+    Vec3 axis, double radius, double second, double tolerance)
     : s_(s), box_(uv), d_(d), hmax_(extent), hmin_(1e-7 * extent), bounded_(bounded), kind_(kind),
-      centre_(centre), axis_(axis), radius_(radius), second_(second) {
+      centre_(centre), axis_(axis), radius_(radius), second_(second),
+      floor_(refinementFloor(tolerance, d.linear)) {
     std::vector<Singularity> sing;
     s.singularities(sing);
     for (const Singularity& g : sing)
@@ -157,69 +160,101 @@ public:
   }
 
   bool accept(const Vec2 t[3]) const override {
+    // A triangle whose patch is within the refinement floor (belowFloor) is accepted: nothing is refined below it.
+    // Every check applies everywhere else, near an apex too (a pole's fans, poles.h, are judged by the deviation
+    // alone there).
+    if (belowFloor(t)) return true;
     Vec3 p[3];
     for (int i = 0; i < 3; i++) p[i] = at(t[i]);
-    // A triangle under 1e-4 of the deflection across is accepted: it can't stray from the surface by anything that
-    // counts, and at such sizes its facet's normal is rounding (trj7_k1-id's face 2160, a B-spline's degenerate
-    // spot, refined towards 1e-14 mm until its point cap, its facets refused for normals 90 degrees off). Every check
-    // applies everywhere else, near an apex too (a pole's fans, poles.h, are judged by the deviation alone there).
     double longest3 = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
-    if (longest3 <= 1e-4 * d_.linear) return true;
     return deviationOk(t, p, longest3) && normalsWithin(t, p);
   }
 
-  bool acceptDeviation(const Vec2 t[3]) const override {
+  Refusal refusal(const Vec2 t[3], bool normals) const override {
+    if (belowFloor(t)) return Refusal::none;
+    const bool sampled = sampledAny_;
     Vec3 p[3];
     for (int i = 0; i < 3; i++) p[i] = at(t[i]);
     double longest3 = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
-    return longest3 <= 1e-4 * d_.linear || deviationOk(t, p, longest3);
+    Refusal r = deviationRefusal(t, p, longest3);
+    if (r == Refusal::none && normals) r = normalsRefusal(t, p);
+    sampledAny_ = sampled;  // (a diagnosis, not a judgement: the face's sampled flag as accept() left it)
+    return r;
+  }
+
+  bool acceptDeviation(const Vec2 t[3]) const override {
+    if (belowFloor(t)) return true;
+    Vec3 p[3];
+    for (int i = 0; i < 3; i++) p[i] = at(t[i]);
+    double longest3 = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
+    return deviationOk(t, p, longest3);
+  }
+
+  /**
+   * The surface over the triangle's (u, v) box within the floor across, by its bound (not the corners: a patch can
+   * reach well past them): max(part tolerance, 0.1 x the deflection). Below it a triangle can't stray from the
+   * surface by anything that counts, and its facet's normal is rounding (trj7_k1-id's face 2160, a B-spline's
+   * degenerate spot, refined towards 1e-14 mm until its point cap, its facets refused for normals 90 degrees off).
+   */
+  bool belowFloor(const Vec2 t[3]) const override {
+    Range ru{std::min({t[0].x, t[1].x, t[2].x}), std::max({t[0].x, t[1].x, t[2].x})};
+    Range rv{std::min({t[0].y, t[1].y, t[2].y}), std::max({t[0].y, t[1].y, t[2].y})};
+    Box3 b;
+    if (s_.bound(ru, rv, b) != Status::ok) return false;
+    return std::hypot(b.x.width(), b.y.width(), b.z.width()) <= floor_;
   }
 
 private:
   /** accept()'s deviation, its 3D corners p and longest side given. */
   bool deviationOk(const Vec2 t[3], const Vec3 p[3], double longest3) const {
-    if (!deviationWithin(t, p)) {
-      // Near a pole (a corner within twice the triangle's size of it) the sample and the bound overstate: a triangle
-      // wide in u is small in 3D, S's tangential part large, and a bound over its (u, v) box reaches far from it.
-      // There the surface's distance itself, by inversion, at the same points (the face then counted as sampled).
-      if (!nearPole(p, longest3) || !nearestDeviation(t, p)) return false;
-      sampledAny_ = true;
-    }
-    return true;
+    return deviationRefusal(t, p, longest3) == Refusal::none;
+  }
+  Refusal deviationRefusal(const Vec2 t[3], const Vec3 p[3], double longest3) const {
+    const Refusal r = deviationWithin(t, p);
+    if (r == Refusal::none) return r;
+    // Near a pole (a corner within twice the triangle's size of it) the sample and the bound overstate: a triangle
+    // wide in u is small in 3D, S's tangential part large, and a bound over its (u, v) box reaches far from it.
+    // There the surface's distance itself, by inversion, at the same points (the face then counted as sampled).
+    if (!nearPole(p, longest3)) return r;
+    if (!nearestDeviation(t, p)) return Refusal::deviationNearPole;
+    sampledAny_ = true;
+    return Refusal::none;
   }
 
-  /** The deviation within the deflection: in closed form, bounded or sampled, as the surface allows. */
-  bool deviationWithin(const Vec2 t[3], const Vec3 p[3]) const {
+  /** The deviation within the deflection (Refusal::none), in closed form, bounded or sampled, as the surface allows. */
+  Refusal deviationWithin(const Vec2 t[3], const Vec3 p[3]) const {
     Bounds b;
     double closedForm;
     if (kind_ == Kind::sphere) {
       // (Every point of the flat triangle is inside the ball: its distance to the sphere is R - |x - c|.)
-      return radius_ - pointTriangle(centre_, p) <= d_.linear;
+      return radius_ - pointTriangle(centre_, p) <= d_.linear ? Refusal::none : Refusal::deviationClosedForm;
     }
-    if (kind_ != Kind::none && distanceBound(p, closedForm)) return closedForm <= d_.linear;
+    if (kind_ != Kind::none && distanceBound(p, closedForm))
+      return closedForm <= d_.linear ? Refusal::none : Refusal::deviationClosedForm;
     if (bounded_) {
       // Sampled first, sparing the bound the many large triangles refinement refuses (what it measures, |S(x) - L(x)|
       // at the corners' barycentric (u, v), is at least the distance there, so its refusals err only to the strict
       // side, where S''s tangential part is large); then bounded, over the whole box, and only where that isn't
       // enough over its pieces (stripBounds); where the surface gives no bound, the sample stands (and is noted).
-      if (!sampledDeviation(t, p)) return false;
+      if (!sampledDeviation(t, p)) return Refusal::deviationSampled;
       if (!bounds(t, b, false)) {
         sampledAny_ = true;
       } else if (b.deviation > d_.linear) {
         if (!bounds(t, b, true)) sampledAny_ = true;
-        else if (b.deviation > d_.linear) return false;
+        else if (b.deviation > d_.linear) return Refusal::deviationBounded;
       }
-      return true;
+      return Refusal::none;
     }
     sampledAny_ = true;
-    return sampledDeviation(t, p);
+    return sampledDeviation(t, p) ? Refusal::none : Refusal::deviationSampled;
   }
 
   /**
    * The normals at the corners (where the surface has one) within the angle of one another and of the flat
    * triangle's own (which a triangle turned over in 3D, as one wide in u near a pole can be, fails).
    */
-  bool normalsWithin(const Vec2 t[3], const Vec3 p[3]) const {
+  bool normalsWithin(const Vec2 t[3], const Vec3 p[3]) const { return normalsRefusal(t, p) == Refusal::none; }
+  Refusal normalsRefusal(const Vec2 t[3], const Vec3 p[3]) const {
     Vec3 n[3], g = cross(p[1] - p[0], p[2] - p[0]);
     bool has[3];
     for (int i = 0; i < 3; i++) has[i] = s_.normal(t[i].x, t[i].y, n[i]) == Status::ok;
@@ -229,11 +264,11 @@ private:
     bool facet = gl > 1e-9 * longest * longest;
     for (int i = 0; i < 3; i++) {
       if (!has[i]) continue;
-      if (facet && dot(g, n[i]) < c * gl) return false;
+      if (facet && dot(g, n[i]) < c * gl) return Refusal::normalFacet;
       for (int j = i + 1; j < 3; j++)
-        if (d_.angular > 0 && has[j] && dot(n[i], n[j]) < c) return false;
+        if (d_.angular > 0 && has[j] && dot(n[i], n[j]) < c) return Refusal::normalSpread;
     }
-    return true;
+    return Refusal::none;
   }
 
   bool nearPole(const Vec3 p[3], double size) const {
@@ -594,6 +629,8 @@ private:
   double spacing_ = 0;
   /** The surface's poles' and apexes' points. */
   std::vector<Vec3> poles_;
+  /** The refinement floor (belowFloor). */
+  double floor_;
   std::vector<Metric2> grid_;
   std::vector<bool> valid_;
 };
@@ -634,7 +671,7 @@ std::unique_ptr<SurfaceCriteria> makeCriteria(const Model& m, int f, const Surfa
   Vec3 axis = closed != Local::Kind::none ? Vec3{r[3], r[4], r[5]} : Vec3{};
   double second = closed == Local::Kind::cone ? std::tan(r[10]) : closed == Local::Kind::torus ? r[10] : 0;
   return std::make_unique<Local>(s, uv, d, extent, tight, closed, centre, axis, closed != Local::Kind::none ? r[9] : 0,
-    second);
+    second, Tolerances(m).part());
 }
 
 } // namespace tesscadio

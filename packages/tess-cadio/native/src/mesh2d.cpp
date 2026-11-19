@@ -32,12 +32,6 @@ namespace tesscadio {
 namespace {
 
 /**
- * A triangle the criteria accept, its longest side at most this times the domain's shortest segment (both in the
- * metric), isn't refined for its angles.
- */
-constexpr double kQualityFloor = 0.05;
-
-/**
  * A refused candidate's cavity (triangles) past which it isn't moved toward the centroid again. Over the corpus
  * subset's ordinary faces no cavity reached 512 triangles and no refused first try 256; those that pass 1,024 are a
  * long fixed segment opposite an arc's cocircular samples, where every halving's cavity is the whole mesh too and
@@ -175,18 +169,6 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
   const double minAngle = std::clamp(options.minAngle, 0.0, M_PI / 3), minSine = detSin(minAngle);
   // (l / 2) / tan(minAngle / 2), the off-centre's height over its edge, as a factor of l.
   const double offHeight = minAngle > 0 ? 0.5 * detCos(0.5 * minAngle) / detSin(0.5 * minAngle) : 1e300;
-  // The domain's shortest segment in the metric (its ends' averaged), for kQualityFloor.
-  double shortest = INFINITY;
-  auto measure = [&](int32_t a, int32_t b) {
-    if (a == b) return;
-    Metric2 Ma = field.metric(domain.points[a]), Mb = field.metric(domain.points[b]);
-    Metric2 M{0.5 * (Ma.a + Mb.a), 0.5 * (Ma.b + Mb.b), 0.5 * (Ma.c + Mb.c)};
-    shortest = std::min(shortest, mlen(M, sub(domain.points[b], domain.points[a])));
-  };
-  for (const auto& loop : domain.loops)
-    for (size_t k = 0; k < loop.size(); k++) measure(loop[k], loop[(k + 1) % loop.size()]);
-  for (size_t k = 0; k + 1 < domain.segments.size(); k += 2) measure(domain.segments[k], domain.segments[k + 1]);
-  const double qualityFloor = std::isfinite(shortest) ? kQualityFloor * shortest : 0;
   auto consider = [&](int32_t t) {
     const cdt::Tri& R = T.tris()[t];
     if (R.dead || !R.inside || R.v[2] == kGhost) return;
@@ -194,10 +176,10 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
     corners(t, p);
     Quality q = quality(average(metricAt(R.v[0]), metricAt(R.v[1]), metricAt(R.v[2])), p);
     bool accepted = field.accept(p);
-    // (Thinness alone doesn't queue a triangle the criteria accept that is already far smaller than any of the
-    // boundary's segments: with the boundary fixed, nothing else ends refinement for angle beside a long boundary
-    // segment, which drives points into its corner without end: ohmm-ap203's plates, 200,000 points into one.)
-    double thin = accepted && q.longest < qualityFloor ? 0.0 : minSine / std::max(q.sine, 1e-300);
+    // (Thinness alone doesn't queue a triangle the criteria accept that is within their refinement floor: with the
+    // boundary fixed, nothing else ends refinement for angle beside a long boundary segment, which drives points into
+    // its corner without end: ohmm-ap203's plates, 200,000 points into one.)
+    double thin = accepted && field.belowFloor(p) ? 0.0 : minSine / std::max(q.sine, 1e-300);
     double key = std::max({q.longest / std::sqrt(2.0), thin, accepted ? 0.0 : 2.0});
     if (key > 1) queue.push({key, seq++, t, R.gen});
   };
