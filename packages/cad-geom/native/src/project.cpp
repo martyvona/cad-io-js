@@ -362,6 +362,67 @@ void seams(const Job& job, Pcurve& out) {
   }
 }
 
+namespace {
+
+/**
+ * How far the curve leaves the surface's box over r, found from its spans' control hulls (bound()): its samples can
+ * all lie on the surface while it leaves it within a span narrower than their spacing (a stray pole in a knot span a
+ * millionth of the range wide). The box (bound() over the domain) holds every point of the surface, so a point's
+ * distance from it is a lower bound on its distance from the surface; branch and bound on the spans' hulls finds the
+ * largest. 0 where every hull is within tol of the box, or the domain is unbounded; `span` the break-to-break span
+ * holding the farthest point found.
+ */
+double beyondSurface(const Job& job, Range& span) {
+  span = {NAN, NAN};
+  const SurfaceDomain& d = job.dom;
+  Box3 sb;
+  if (!(std::isfinite(d.u.lo) && std::isfinite(d.u.hi) && std::isfinite(d.v.lo) && std::isfinite(d.v.hi))
+    || job.s.bound(d.u, d.v, sb) != Status::ok)
+    return 0;
+  auto excess = [](Interval a, Interval b) { return std::max({0.0, a.hi - b.hi, b.lo - a.lo}); };
+  auto boxOff = [&](const Box3& b) { return std::hypot(excess(b.x, sb.x), excess(b.y, sb.y), excess(b.z, sb.z)); };
+  auto pointOff = [&](double t) {
+    CurvePoint q;
+    if (job.c.eval(t, 0, q) != Status::ok) return 0.0;
+    return boxOff({Interval::point(q.p.x), Interval::point(q.p.y), Interval::point(q.p.z)});
+  };
+  struct Node {
+    double ub;
+    Range t;
+    bool operator<(const Node& o) const { return ub < o.ub; }
+  };
+  double best = 0;
+  for (size_t k = 1; k < job.breaks.size(); k++) {
+    const Range r{std::max(job.breaks[k - 1], job.r.lo), std::min(job.breaks[k], job.r.hi)};
+    Box3 cb;
+    if (!(r.lo < r.hi) || job.c.bound(r, cb) != Status::ok) continue;
+    const double ub0 = boxOff(cb);
+    if (!(ub0 > job.tol && ub0 > best)) continue;
+    // Largest upper bound first; done once the largest is within 1% of the best found, or within tol.
+    std::vector<Node> heap{{ub0, r}};
+    double here = std::max(pointOff(r.lo), pointOff(r.hi));
+    for (int nodes = 0; !heap.empty() && nodes < 200; nodes++) {
+      std::pop_heap(heap.begin(), heap.end());
+      const Node n = heap.back();
+      heap.pop_back();
+      if (n.ub <= std::max(job.tol, 1.01 * std::max(here, best))) break;
+      const double m = 0.5 * (n.t.lo + n.t.hi);
+      here = std::max(here, pointOff(m));
+      for (Range h : {Range{n.t.lo, m}, Range{m, n.t.hi}}) {
+        if (!(h.lo < h.hi) || job.c.bound(h, cb) != Status::ok) continue;
+        heap.push_back({boxOff(cb), h});
+        std::push_heap(heap.begin(), heap.end());
+      }
+    }
+    if (here > best) best = here, span = r;
+  }
+  if (best > job.tol) return best;
+  span = {NAN, NAN};
+  return 0;
+}
+
+} // namespace
+
 Form curveForm(const Model& m, int row) {
   for (int depth = 0; depth < 8 && row >= 0 && row < m.curves(); depth++) {
     if (m.curveKind(row) != CBR_CURVE_TRIMMED || m.curveInts(row)[1] == 0)
@@ -387,6 +448,9 @@ Pcurve projectForms(const Curve& c, Range r, const Surface& s, double tol, const
   s.singularities(job.sing);
   c.breaks(r, job.breaks);
   if (!exact(job, out)) trace(job, out);
+  // A curve leaving the surface within a span its samples miss: no p-curve is within tol, whatever the trace found.
+  const double beyond = beyondSurface(job, out.offSpan);
+  out.offSurface = std::max(out.offSurface, beyond);
   if (out.pieces.empty()) return out;
   align(job, out);
   seams(job, out);
@@ -401,6 +465,9 @@ Pcurve projectForms(const Curve& c, Range r, const Surface& s, double tol, const
   if (out.certainty != Certainty::ambiguous) out.certainty = allUnique ? Certainty::unique : Certainty::ambiguous;
   if (out.status == Status::ok && !(out.error <= tol))
     out.status = out.offSurface > tol ? Status::invalidModel : Status::noConvergence;
+  // Whatever the trace or the fit said (where the trace gave up, noConvergence; measure samples each of the curve's
+  // spans, so the error has the spike).
+  if (beyond > 0) out.status = Status::invalidModel;
   return out;
 }
 
