@@ -463,7 +463,8 @@ function segment(b: BrepBuilder, p: number[], q: number[]): number {
     selfIntersect: false, form: 'polyline_form' });
 }
 
-test('faces: edges on a closed B-spline split at its junction run the way their senses say', { skip }, async () => {
+test('faces: edges on a closed B-spline split at its junction run the way their senses say (and edgeParams)',
+  { skip }, async () => {
   // A plane's outer loop one closed degree-1 B-spline round the unit square (t 0 to 4, its junction at (0, 0)), split
   // into two edges at (0, 0) and (1, 1), both with the curve's sense, no p-curves (projected). (0, 0) inverts to
   // either end; each edge takes the end that runs it forward: [0, 2] and [2, 4], not one across the other's half.
@@ -489,6 +490,10 @@ test('faces: edges on a closed B-spline split at its junction run the way their 
     const pieces = g.facePieces(0);
     const ranges = [0, 1].map((k) => [pieces.travel[2 * k]!, pieces.travel[2 * k + 1]!]);
     assert.deepEqual(ranges, reversed ? [[4, 2], [2, 0]] : [[0, 2], [2, 4]], `reversed ${reversed}`);
+    // The same ranges through edgeParams, each edge's start to end.
+    assert.deepEqual([0, 1].map((e) => { const r = g.edgeParams(e); return [r.status, r.t0, r.t1]; }),
+      reversed ? [['ok', 4, 2], ['ok', 2, 0]] : [['ok', 0, 2], ['ok', 2, 4]], `reversed ${reversed}`);
+    assert.equal(g.edgeParams(2).status, 'invalidModel');
     const r = g.classifyOnFace(0, [0.5, 0.5, 0.25, 0.75, 1.5, 0.5, 0.5, -0.5, 1, 0.5]);
     assert.deepEqual([...r.statuses], [0, 0, 0, 0, 0]);
     assert.deepEqual([...r.sides].map((x) => ['in', 'out', 'on'][x]), ['in', 'in', 'out', 'out', 'on'],
@@ -512,6 +517,8 @@ test('faces: edges on a closed B-spline split at its junction run the way their 
     const pieces = g.facePieces(0);
     assert.ok(Math.abs(pieces.travel[0]! - 1) < 1e-12 && Math.abs(pieces.travel[1]!) < 1e-12,
       `${pieces.travel[0]}, ${pieces.travel[1]}`);
+    const ep = g.edgeParams(0);
+    assert.ok(ep.status === 'ok' && Math.abs(ep.t0 - 1) < 1e-12 && Math.abs(ep.t1) < 1e-12, JSON.stringify(ep));
     const r = g.classifyOnFace(0, [0.25, 0.25, 0.75, 0.75]);
     assert.deepEqual([...r.sides].map((x) => ['in', 'out', 'on'][x]), ['in', 'out']);
   }

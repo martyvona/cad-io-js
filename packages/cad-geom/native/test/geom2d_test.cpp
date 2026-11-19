@@ -9,6 +9,7 @@
 #include <cad_geom/predicates.h>
 
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <memory>
 #include <vector>
@@ -692,4 +693,87 @@ TEST_CASE("classify2: a point no ray meets anything from is out") {
   CHECK(classify2(far, {0, 0}, {}, 1e-9, st) == Side::out);
   CHECK(st == Status::ok);
   CHECK(classify2(far, {1000.5, 1000.5}, {}, 1e-9, st) == Side::in);
+}
+
+TEST_CASE("classify2 of many points: each point's single answer, the boxes and fine polylines made once for all") {
+  // An annulus (radius 2 about the origin, a hole of radius 1), 300 points over a grid and on both circles, at three
+  // tolerances in turn: the batch's sides and statuses each the point's own call's, its boundary polylines (the pieces'
+  // boxes, the on tests') a fraction of theirs.
+  Arc2 outer({0, 0}, 2), inner({0, 0}, 1);
+  Loop2 a, b;
+  a.pieces.push_back({&outer, {0, 2 * pi}, false});
+  b.pieces.push_back({&inner, {0, 2 * pi}, true});
+  const std::vector<Loop2> loops{a, b};
+  std::vector<Vec2> p;
+  std::vector<double> tol;
+  const double tols[3] = {1e-9, 1e-6, 1e-3};
+  for (int i = 0; i < 15; i++)
+    for (int j = 0; j < 15; j++) p.push_back({-2.5 + 5.0 * (i + 0.5) / 15, -2.5 + 5.0 * (j + 0.5) / 15});
+  for (int k = 0; k < 75; k++) {
+    const double t = 2 * pi * k / 75, r = k % 2 ? 1 : 2;
+    p.push_back({r * std::cos(t), r * std::sin(t)});
+  }
+  for (size_t k = 0; k < p.size(); k++) tol.push_back(tols[k % 3]);
+  const int n = static_cast<int>(p.size());
+  std::vector<Side> one(n), many(n);
+  std::vector<Status> oneSt(n), manySt(n);
+  long before = boundaryPolylines;
+  for (int k = 0; k < n; k++) one[k] = classify2(loops, p[k], {}, tol[k], oneSt[k]);
+  const long singles = boundaryPolylines - before;
+  before = boundaryPolylines;
+  classify2(loops, p.data(), tol.data(), n, {}, many.data(), manySt.data());
+  const long batch = boundaryPolylines - before;
+  int diff = 0, in = 0, out = 0, on = 0;
+  for (int k = 0; k < n; k++) {
+    diff += one[k] != many[k] || oneSt[k] != manySt[k];
+    in += one[k] == Side::in, out += one[k] == Side::out, on += one[k] == Side::on;
+  }
+  CHECK_EQ(diff, 0);
+  CHECK(in > 30 && out > 30 && on >= 75);
+  CHECK(batch * 5 < singles);
+  CHECK(batch <= 10);
+  if (!(batch * 5 < singles)) std::printf("    polylines: %ld one at a time, %ld at once\n", singles, batch);
+}
+
+TEST_CASE("nest2: many holes in a plate, each in the plate only, none in another") {
+  // A square plate with a 6 x 6 grid of round holes: each hole's parent the plate, the plate outermost; the holes'
+  // boxes don't hold one another, so they aren't tested against one another.
+  Line2 s0({0, 0}, {7, 0}), s1({7, 0}, {0, 7}), s2({7, 7}, {-7, 0}), s3({0, 7}, {0, -7});
+  Loop2 plate;
+  for (const Line2* s : {&s0, &s1, &s2, &s3}) plate.pieces.push_back({s, {0, 1}, false});
+  std::vector<std::unique_ptr<Arc2>> arcs;
+  std::vector<Loop2> loops{plate};
+  for (int i = 0; i < 6; i++)
+    for (int j = 0; j < 6; j++) {
+      arcs.push_back(std::make_unique<Arc2>(Vec2{1.0 + i, 1.0 + j}, 0.3));
+      Loop2 hole;
+      hole.pieces.push_back({arcs.back().get(), {0, 2 * pi}, true});
+      loops.push_back(hole);
+    }
+  Status st;
+  std::vector<int> parent = nest2(loops, {}, 1e-9, st);
+  CHECK(st == Status::ok);
+  REQUIRE(parent.size() == loops.size());
+  CHECK_EQ(parent[0], -1);
+  int wrong = 0;
+  for (size_t k = 1; k < parent.size(); k++) wrong += parent[k] != 0;
+  CHECK_EQ(wrong, 0);
+}
+
+TEST_CASE("nest2: on a periodic surface a loop inside another's copy a period over is inside it") {
+  // u periodic (2 pi): a square loop over u in [5.5, 7] (across 2 pi) and a small one at u in [0.2, 0.5], whose copy a
+  // period on (u in [6.48, 6.78]) lies inside the first. Their boxes in u don't hold one another as they stand, so
+  // the box test can't rule it out in a periodic direction; in v (not periodic) it still holds.
+  const double P = 2 * pi;
+  Line2 a0({5.5, 0}, {1.5, 0}), a1({7, 0}, {0, 1}), a2({7, 1}, {-1.5, 0}), a3({5.5, 1}, {0, -1});
+  Line2 b0({0.2, 0.3}, {0, 0.3}), b1({0.2, 0.6}, {0.3, 0}), b2({0.5, 0.6}, {0, -0.3}), b3({0.5, 0.3}, {-0.3, 0});
+  Loop2 outer, inner;
+  for (const Line2* s : {&a0, &a1, &a2, &a3}) outer.pieces.push_back({s, {0, 1}, false});
+  for (const Line2* s : {&b0, &b1, &b2, &b3}) inner.pieces.push_back({s, {0, 1}, false});
+  Status st;
+  std::vector<int> parent = nest2({outer, inner}, {P, 0, {}, {}}, 1e-9, st);
+  CHECK(st == Status::ok);
+  REQUIRE(parent.size() == 2u);
+  CHECK_EQ(parent[0], -1);
+  CHECK_EQ(parent[1], 0);
 }

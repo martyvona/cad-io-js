@@ -520,6 +520,17 @@ export class Geometry {
   // tolerances are made). tol3d, where given (> 0), is the 3D tolerance; else the model's (tolerance.h: the largest of
   // the part's uncertainty (else 1e-5 mm), the face's or edges' own and 1e-9 x the part's size).
 
+  /**
+   * The edge's curve parameters at its start and end as the face API takes them: its range where the model gives
+   * one, else its vertices inverted onto its curve, by its sense (a vertex at a closed non-periodic curve's junction
+   * taking the end its sense needs); NaN both for an edge without a 3D curve.
+   */
+  edgeParams(edge: number): { status: FaceStatus; t0: number; t1: number } {
+    const [s, out] = this.call('edge_params', edge, { out: 'f64', n: 2 });
+    const o = out as Float64Array;
+    return s !== 0 ? { status: faceStatus(s), t0: NaN, t1: NaN } : { status: 'ok', t0: o[0]!, t1: o[1]! };
+  }
+
   /** The face's loops as geom2d sees them: the 3D tolerance used, the periods, the edge loops, the pole lines. */
   faceInfo(face: number, tol3d = NaN): FaceInfo {
     const [s, out] = this.call('face_info', face, tol3d, { out: 'f64', n: 7 });
