@@ -486,7 +486,13 @@ TEST_CASE("maxDeviationFactor's limit is the factor x max(d, the face's toleranc
       const double limit = F * std::fmax(0.1, tol);
       if (!(W > F * 0.1) || std::fabs(W - limit) < 0.01)
         std::printf("  face %g, part %g: worst %g, limit %g\n", face, part, W, limit);
-      REQUIRE(W > F * 0.1);
+      // (Past d, but where the part's tolerance puts the refinement floor at 0.2: its boundary triangles, thinner than
+      // that, aren't held to the angle for their facets, and those left refused are within d.)
+      if (std::isfinite(part)) {
+        CHECK(W <= limit);
+      } else {
+        REQUIRE(W > F * 0.1);
+      }
       PartMesher pm(m, o);
       const FaceMesh& fm = pm.face(1);
       CHECK_EQ(fm.status == cadgeom::Status::noConvergence, W > limit);
@@ -1300,6 +1306,28 @@ TEST_CASE("the criteria's metric: sizes from the principal curvatures, every dir
     CHECK(sp->accept(away) != sp->accept(awayOver));
     CHECK(sp->accept(atPole));
     CHECK(sp->accept(atPoleOver));
+  }
+  // Thin triangles (twice the area over the longest side within the refinement floor, max(tolerance, 0.1 x d) = 0.1
+  // at d 1): the facet not held to the angle, only to its corners' side. On the radius 2 cylinder three points round
+  // it 0.2 rad apart, the middle 0.005 along it: about 0.011 thick, its facet 64 degrees off its corners' normals,
+  // which are within 0.2 rad of one another: accepted at 15 degrees; turned over, refused; as a smooth pole's fan
+  // (acceptFan), held to the angle however thin, refused. A thick one past the angle (0.2 rad round, 2 along, about
+  // 0.4 mm thick, at 0.01 rad) refused for its facet.
+  {
+    auto t = criteria("seamCylinder", 0, {{0, 2 * M_PI}, {0, 5}}, 1.0, 0.26, s);
+    const Vec2 thin[3] = {{1, 2}, {1.2, 2}, {1.1, 2.005}};
+    const Vec2 thinOver[3] = {{1, 2}, {1.1, 2.005}, {1.2, 2}};
+    CHECK(!t->belowFloor(thin));
+    CHECK(t->accept(thin));
+    CHECK(t->refusal(thin) == Refusal::none);
+    CHECK(!t->accept(thinOver));
+    CHECK(t->refusal(thinOver) == Refusal::normalFacet);
+    CHECK(!t->acceptFan(thin));
+    CHECK(t->refusal(thin, true, true) == Refusal::normalFacet);
+    auto k = criteria("seamCylinder", 0, {{0, 2 * M_PI}, {0, 5}}, 1.0, 0.01, s);
+    const Vec2 thick[3] = {{1, 2}, {1.2, 2}, {1, 4}};
+    CHECK(!k->accept(thick));
+    CHECK(k->refusal(thick) == Refusal::normalFacet);
   }
   // On the unit sphere near its pole: a triangle wide in u, its far corner nearer the pole, turned over in 3D (its
   // facet's normal against the surface's), refused, though within the deflection and its corners' normals close; one

@@ -168,19 +168,27 @@ public:
     const bool evaluated = corners(t, p);
     if (belowFloor(t, p, evaluated)) return !turnedOver(t, p);
     double longest3 = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
-    return deviationOk(t, p, longest3) && normalsWithin(t, p);
+    return deviationOk(t, p, longest3) && normalsWithin(t, p, false);
   }
 
-  int refusalKind(const Vec2 t[3]) const override { return static_cast<int>(refusal(t, true)); }
+  bool acceptFan(const Vec2 t[3]) const override {
+    Vec3 p[3];
+    const bool evaluated = corners(t, p);
+    if (belowFloor(t, p, evaluated)) return !turnedOver(t, p);
+    double longest3 = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
+    return deviationOk(t, p, longest3) && normalsWithin(t, p, true);
+  }
 
-  Refusal refusal(const Vec2 t[3], bool normals) const override {
+  int refusalKind(const Vec2 t[3]) const override { return static_cast<int>(refusal(t, true, false)); }
+
+  Refusal refusal(const Vec2 t[3], bool normals, bool fan) const override {
     Vec3 p[3];
     const bool evaluated = corners(t, p);
     if (belowFloor(t, p, evaluated)) return normals && turnedOver(t, p) ? Refusal::normalFacet : Refusal::none;
     const bool sampled = sampledAny_;
     double longest3 = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
     Refusal r = deviationRefusal(t, p, longest3);
-    if (r == Refusal::none && normals) r = normalsRefusal(t, p);
+    if (r == Refusal::none && normals) r = normalsRefusal(t, p, fan);
     sampledAny_ = sampled;  // (a diagnosis, not a judgement: the face's sampled flag as accept() left it)
     return r;
   }
@@ -303,18 +311,26 @@ private:
    * The normals at the corners (where the surface has one) within the angle of one another and of the flat
    * triangle's own (which a triangle turned over in 3D, as one wide in u near a pole can be, fails).
    */
-  bool normalsWithin(const Vec2 t[3], const Vec3 p[3]) const { return normalsRefusal(t, p) == Refusal::none; }
-  Refusal normalsRefusal(const Vec2 t[3], const Vec3 p[3]) const {
+  bool normalsWithin(const Vec2 t[3], const Vec3 p[3], bool fan) const {
+    return normalsRefusal(t, p, fan) == Refusal::none;
+  }
+  /**
+   * (A triangle thinner than the refinement floor, twice its area over its longest side, has its facet held only to
+   * the side its corners' normals face, not to the angle: a needle's facet normal is rounding that refinement can't
+   * mend, ec_turbine-A's fold beside its u = 0 side. Not a smooth pole's fan (`fan`), held to the angle however thin,
+   * as the pole's ring was sized for.)
+   */
+  Refusal normalsRefusal(const Vec2 t[3], const Vec3 p[3], bool fan) const {
     Vec3 n[3], g = cross(p[1] - p[0], p[2] - p[0]);
     bool has[3];
     for (int i = 0; i < 3; i++) has[i] = s_.normal(t[i].x, t[i].y, n[i]) == Status::ok;
     // (A facet with two corners on a pole line has rounding for a normal: no direction to judge.)
     double gl = norm(g), c = d_.angular > 0 ? std::cos(d_.angular) : 0;
     double longest = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
-    bool facet = gl > 1e-9 * longest * longest;
+    bool facet = gl > 1e-9 * longest * longest, thin = !fan && gl / longest <= floor_;
     for (int i = 0; i < 3; i++) {
       if (!has[i]) continue;
-      if (facet && dot(g, n[i]) < c * gl) return Refusal::normalFacet;
+      if (facet && (facetAgainst(g, n[i]) || (!thin && dot(g, n[i]) < c * gl))) return Refusal::normalFacet;
       for (int j = i + 1; j < 3; j++)
         if (d_.angular > 0 && has[j] && dot(n[i], n[j]) < c) return Refusal::normalSpread;
     }

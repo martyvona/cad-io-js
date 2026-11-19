@@ -553,9 +553,9 @@ struct PartMesher::Impl {
         const Vec2 apex = uvOf(fan.at, 0.5 * (qa + qb), fan.isoU);
         Vec2 tri[3] = {mesh.points[a], mesh.points[b], apex};
         orient(tri);
-        if (!(fan.smooth ? criteria[f]->accept(tri) : criteria[f]->acceptDeviation(tri))) {
+        if (!(fan.smooth ? criteria[f]->acceptFan(tri) : criteria[f]->acceptDeviation(tri))) {
           out.rejected.push_back(static_cast<int32_t>(out.triangles.size() / 3));
-          out.refusedBy[static_cast<int>(criteria[f]->refusal(tri, fan.smooth))]++;
+          out.refusedBy[static_cast<int>(criteria[f]->refusal(tri, fan.smooth, true))]++;
           refused[f].push_back({{mesh.points[a], mesh.points[b], apex}, {a, b, pole}});
         }
         // Counterclockwise about the face's normals at its other corners (in (u, v) an end's triangle along its row
