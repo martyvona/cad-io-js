@@ -343,6 +343,8 @@ struct EdgeMesh::Impl {
     bool ambiguous[2] = {false, false};  // by inversion and wholly on a seam in u (v): its side in question
     bool pcurveOff = false;              // its p-curve parameterized otherwise than its edge's curve: by inversion
     bool projected = false;              // its p-curve projected from its edge's curve (the model gives none)
+    double projectedTol = 0;             // the 3D distance its projection was made within
+    bool projectedCoarse = false;        // at the edge's tolerance (the curve too far off its surface for the mesh's)
     bool atVertex[2] = {false, false};   // a projected use's vertices' feet (its edge's start, end), where found
     int seamDir = -1;                    // a projected use on a seam in u (0) or v (1), its copy by the rule
     Vec2 vertexUv[2];
@@ -398,6 +400,37 @@ struct EdgeMesh::Impl {
     faces[f].s->eval(uv.x, uv.y, 0, p);
     return p.p;
   }
+  /**
+   * The foot of p on face f's surface near `start`: Gauss-Newton steps on |S - p|^2 / 2, each taken only where it
+   * comes nearer, a direction that isn't periodic clamped to the domain; start itself unless the foot is within
+   * `radius` of S(start) in 3D.
+   */
+  Vec2 localFoot(int f, Vec3 p, Vec2 start, double radius) const {
+    const Face& F = faces[f];
+    Vec2 x = start;
+    SurfacePoint q;
+    if (F.s->eval(x.x, x.y, 1, q) != Status::ok) return start;
+    const Vec3 s0 = q.p;
+    double best = norm(q.p - p);
+    for (int it = 0; it < 16; it++) {
+      Vec3 e = q.p - p;
+      double gu = dot(e, q.du), gv = dot(e, q.dv), a = dot(q.du, q.du), b = dot(q.du, q.dv), c = dot(q.dv, q.dv);
+      double det = a * c - b * b;
+      if (!(det > 1e-12 * a * c && a > 0)) break;
+      Vec2 n{x.x - (c * gu - b * gv) / det, x.y - (a * gv - b * gu) / det};
+      if (!(F.period[0] > 0)) n.x = std::clamp(n.x, F.dom.u.lo, F.dom.u.hi);
+      if (!(F.period[1] > 0)) n.y = std::clamp(n.y, F.dom.v.lo, F.dom.v.hi);
+      SurfacePoint qn;
+      if (F.s->eval(n.x, n.y, 1, qn) != Status::ok) break;
+      double d = norm(qn.p - p);
+      if (!(d < best)) break;
+      double step = std::fabs(n.x - x.x) + std::fabs(n.y - x.y);
+      x = n, q = qn, best = d;
+      if (step <= 4e-16 * (1 + std::fabs(x.x) + std::fabs(x.y))) break;
+    }
+    return norm(q.p - s0) <= radius ? x : start;
+  }
+
   /** The singularity (pole or apex) at 3D point p, or -1. */
   int poleAt(int f, Vec3 p) const {
     const Face& F = faces[f];
@@ -552,6 +585,15 @@ struct EdgeMesh::Impl {
         s.fromPcurve = true;
         s.projected = C.projected;
         s.uv = seeds;
+        // A projected use's inside samples at their points' feet: the projection is within its tolerance of them,
+        // not on them, and at a coarse one (an edge's, LMP1's 0.13) neighbouring samples' (u, v) can fold against
+        // their order in 3D (a boundary ear turned over: #1038273's). A local Gauss-Newton from the p-curve's value,
+        // kept where it comes nearer within that tolerance of it; not at a pole (its free coordinate arbitrary). Only
+        // where projection ran at the edge's tolerance: within the mesh's the difference is below what counts.
+        if (C.projected && C.projectedCoarse)
+          for (int i = 1; i + 1 < n; i++)
+            if (poleAt(C.face, E.s.points[s.index[i]]) < 0)
+              s.uv[i] = localFoot(C.face, E.s.points[s.index[i]], s.uv[i], C.projectedTol);
         // A projected use's vertices at their feet (the projection is within tol of them, not on them), the copy
         // its own: uses meeting there meet in (u, v), a closed edge's use closes.
         if (C.projected)
@@ -797,9 +839,11 @@ struct EdgeMesh::Impl {
       const double edgeTol = tols.edge(e), tight = std::min(edgeTol, kMeshTolerance * o.deflection);
       Pcurve p = projectCurve(*E.curve, r, *faces[C.face].s, tight, &ends, &source);
       bool ok = p.status == Status::ok && !p.pieces.empty();
+      double madeAt = tight;
       if (!ok && tight < edgeTol) {
         p = projectCurve(*E.curve, r, *faces[C.face].s, edgeTol, &ends, &source);
         ok = p.status == Status::ok && !p.pieces.empty();
+        madeAt = edgeTol;
         if (ok) projections.atEdgeTolerance++;
       } else if (ok) {
         projections.withinMesh++;
@@ -817,6 +861,8 @@ struct EdgeMesh::Impl {
         if (q.poleLine) poles.push_back(q.t.lo);
       C.pcurve = std::make_unique<ProjectedCurve>(std::move(p), twin, faces[C.face].dom);
       C.projected = true;
+      C.projectedTol = madeAt;
+      C.projectedCoarse = madeAt > tight;
       for (double t : poles)
         if (t > std::min(t0, t1) && t < std::max(t0, t1)) insertSample(e, t);
     }

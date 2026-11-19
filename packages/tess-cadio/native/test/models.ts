@@ -759,6 +759,39 @@ function tube(tinyArc: boolean, gap = 0, uncertainty?: number, faceTolerance?: n
 export const bsplineTube = (): BrepBuilder => tube(false);
 
 /**
+ * A patch of the cylinder of radius 5 about z (u from 0 to 1, z from 0 to 10) whose bottom edge is a cubic B-spline
+ * along the arc at radius 5.004 (the Bezier arc's poles), z wiggling by +/-0.5 at its inner poles, its tolerance
+ * 0.01: farther off the surface than the mesh's projection tolerance (0.05 x a deflection of 0.01) but within its
+ * own, so its use is projected at the edge's tolerance, the p-curve within 0.01 of its points' feet, not on them. The
+ * top the circle's arc at z = 10, the sides lines down to the bottom's ends. No p-curves.
+ */
+export function coarseProjection(): BrepBuilder {
+  const b = new BrepBuilder();
+  const R = 5.004, k = 4 / 3 * Math.tan(0.25), c = Math.cos(1), s1 = Math.sin(1);
+  const poles = [[R, 0, 0], [R, k * R, 0.5], [R * (c + k * s1), R * (s1 - k * c), -0.5], [R * c, R * s1, 0]];
+  const corners = [poles[0]!, poles[3]!, [5 * c, 5 * s1, 10], [5, 0, 10]];
+  const vs = corners.map((point) => b.addVertex({ point }));
+  const curve = b.addCurve({ kind: 'bspline', degree: 3, knots: [0, 1], multiplicities: [4, 4], poles, closed: false,
+    selfIntersect: false, form: 'unspecified' });
+  const line = (k0: number, k1: number) => {
+    const p = corners[k0]!, q = corners[k1]!, d = [q[0]! - p[0]!, q[1]! - p[1]!, q[2]! - p[2]!];
+    const l = Math.hypot(d[0]!, d[1]!, d[2]!);
+    return b.addEdge({ curve: b.addCurve({ kind: 'line', point: p, direction: d.map((x) => x / l), magnitude: 1 }),
+      start: vs[k0]!, end: vs[k1]!, sameSense: true, range: [0, l], tolerance: 0.01 });
+  };
+  const top = b.addEdge({ curve: b.addCurve({ kind: 'circle', position: { ...AXIS, origin: [0, 0, 10] }, radius: 5 }),
+    start: vs[3]!, end: vs[2]!, sameSense: true, range: [0, 1], tolerance: 0.01 });
+  const coedges: Coedge[] = [
+    { edge: b.addEdge({ curve, start: vs[0]!, end: vs[1]!, sameSense: true, range: [0, 1], tolerance: 0.01 }),
+      orientation: 'forward' },
+    { edge: line(1, 2), orientation: 'forward' }, { edge: top, orientation: 'reversed' },
+    { edge: line(3, 0), orientation: 'forward' }];
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'cylinder', position: AXIS, radius: 5 }), sameSense: true,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] }));
+  return b;
+}
+
+/**
  * A quarter of bsplineTube's surface, u from 1 to 2 (its knots: (0, 2) to (-2, 0) round the axis), bounded by its two
  * quarter arcs (no p-curves) and its rulings at u = 1 and 2, whose p-curves are given a period up (u = 5 and 6: the
  * surface closes in fact with period 4, its own range [0, 4]): right p-curves, each a whole period off the range.
@@ -1399,7 +1432,8 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   tubeGapBySize, tubeGapOpen, torusOuterHalf, meridianHemisphereLoose, offPoleRest: () => offPoleRest(),
   seamHemisphere: () => seamHemisphere(true), seamHemisphereBare: () => seamHemisphere(false),
   seamCone: () => seamCone(true), seamConeBare: () => seamCone(false),
-  offPoleRestLoose: () => offPoleRest(1e-3), wigglyBand, notchBand, bsplineTube, tubeQuarterPeriodUp, bsplineTubeTinyArc, bsplineDome,
+  offPoleRestLoose: () => offPoleRest(1e-3), wigglyBand, notchBand, bsplineTube, tubeQuarterPeriodUp, coarseProjection,
+  bsplineTubeTinyArc, bsplineDome,
   offPoleArc: () => offPoleArc(), offPcurves, bandHoleAtVertex, bandHoleOnCut, halfCap, meridianHemisphere, band: band_,
   bandByInversion, bore, nistBore, seamByInversion, offVertex, pcurveOnly, luneQuarter, luneOnSeam, cap, splineEdge,
   seamFlipped, polylineEdge, pcurveCircle, arcSegment, fold, twisted, wrongSense, zeroEdge, halfCylinderPcurves,
