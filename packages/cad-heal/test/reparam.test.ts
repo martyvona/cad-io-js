@@ -171,3 +171,27 @@ test('pcurveReparam: a B-spline without a use range on a face the face API refus
   assert.notEqual(r.model.coedge.pcurve[2], d.coedge.pcurve[2], 'the top reparameterized');
   assert.ok(sameParameterGap(r.model, 2, [0, TWO_PI]) < 1e-9);
 });
+
+test('reparameterize: a B-spline\'s end knots put exactly on the range\'s ends (bug32314_corrupted\'s numbers)',
+  async () => {
+    const { reparameterize } = await import('../src/fix/reparam.ts');
+    const { CURVE_KIND: K } = await import('cad-brep');
+    // Degree 1 over knots [0, 6.28318530718], s = a t + b onto the edge's range [6.2831853065147, 12.566370613694].
+    const c = { kind: K.bspline, reals: [0, 6.28318530718, 0, 0, 6.28318530718, 0], ints: [1, 2, 2, 0, 0, 0, 0, 2, 2] };
+    const a = 1.000000000000066, b = -6.283185306515132, range: [number, number] = [6.283185306514717,
+      12.566370613694303];
+    const loose = reparameterize(c, a, b)!, snapped = reparameterize(c, a, b, range)!;
+    assert.notEqual(loose.reals[1], range[1], 'the map alone misses the end by rounding');
+    assert.equal(snapped.reals[0], range[0]);
+    assert.equal(snapped.reals[1], range[1]);
+  });
+
+test('pcurveReparam: the pass puts a reparameterized B-spline\'s knots on the edge\'s range exactly', async () => {
+  // The seam's range [S, S + 5]; its up use's p-curve over knots [0, 1] maps the first knot to S + 8.9e-16 by itself.
+  const S = 6.283185306514717;
+  const d = cylinderSide({ seamUp: { pcurve: bspline2([TWO_PI, 0], [TWO_PI, 5], [0, 1]) },
+    seamDown: { pcurve: line2([0, -S], [0, 1]) } }, 1e-6, S).finish();
+  const r = await healPart(d, { fixes: { pcurveReplace: false } }, module);
+  const c = r.model.coedge.pcurve[1]!, at = r.model.curve.real[c]!;
+  assert.deepEqual([...r.model.pool.curveReal.subarray(at, at + 2)], [S, S + 5]);
+});

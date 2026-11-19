@@ -152,7 +152,7 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
         const onRange = (curve: Curve2, from: [number, number]) => {
           const shift = from[0] - range[0];
           return Math.abs(from[1] - range[1] - shift) <= 1e-9 * Math.max(1, Math.abs(range[1] - range[0]))
-            ? shift === 0 ? curve : reparameterize(curve, 1, shift) : undefined;
+            ? reparameterize(curve, 1, shift, range) ?? (shift === 0 ? curve : undefined) : undefined;
         };
         if (pc < 0) {
           const p = projected(g, c);
@@ -173,7 +173,7 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
         }
         let off = m.kind === 'off';
         if (m.kind === 'affine' && fixes.has('pcurveReparam')) {
-          const curve = reparameterized(d, pc, m.a, m.b);
+          const curve = reparameterized(d, pc, m.a, m.b, range);
           if (curve) {
             edit.set('coedge', 'pcurve', c, edit.addCurve2(curve));
             newRange();
