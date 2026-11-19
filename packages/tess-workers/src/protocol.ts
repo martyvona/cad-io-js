@@ -17,9 +17,10 @@ export type ToWorker =
 export type FromWorker =
   | { type: 'ready'; info: TessellatorInfo }
   | { type: 'initError'; message: string }
-  | { type: 'result'; id: number; result: TessellationResult; memory?: number }
+  /** `cpuMs` (here and on progress): the worker thread's CPU time on the request so far, where the host gives it. */
+  | { type: 'result'; id: number; result: TessellationResult; memory?: number; cpuMs?: number }
   /** Where the backend is in request `id` (the backend throttles them). */
-  | { type: 'progress'; id: number; progress: TessellationProgress }
+  | { type: 'progress'; id: number; progress: TessellationProgress; cpuMs?: number }
   /** `part`: the part's failure (a TessellationError, with its `timeoutMs`, or a WASM trap), not the worker's. */
   | { type: 'error'; id: number; message: string; part: boolean; timeoutMs?: number };
 

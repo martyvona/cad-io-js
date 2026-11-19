@@ -15,6 +15,14 @@ export interface PoolOptions {
    * Default `DEFAULT_TIMEOUT_MS`.
    */
   timeoutMs?: number;
+  /**
+   * Per request, the worker thread's CPU time in milliseconds, so a loaded host doesn't change which parts time out:
+   * checked at each progress the backend reports (a request is stopped at the first past it, so by up to the gap
+   * between two), the request then rejected as `timeoutMs`'s are. Where the backend reports none, or the host gives
+   * no thread CPU time (browsers), only `timeoutMs` applies: set it as the backstop (a multiple of this). 0: none.
+   * Default 0.
+   */
+  cpuTimeoutMs?: number;
   /** Recycle a worker after this many parts. 0: never. Default 0. */
   maxPartsPerWorker?: number;
   /**
@@ -38,12 +46,23 @@ interface Job {
   last?: TessellationProgress;
 }
 
+/**
+ * A request's times as the pool saw them (PoolTessellator.timesOf): wall, from its start in a worker to its result;
+ * the worker thread's CPU time, where the host gives it.
+ */
+export interface RequestTimes {
+  wallMs: number;
+  cpuMs?: number;
+}
+
 interface Slot {
   h: WorkerHandle;
   state: 'starting' | 'idle' | 'busy' | 'dead';
   parts: number;
   job?: Job;
   timer?: ReturnType<typeof setTimeout>;
+  /** When its request was posted (performance.now()). */
+  started?: number;
 }
 
 /**
@@ -62,7 +81,9 @@ export class PoolTessellator implements Tessellator {
   private readonly spawnWorker: () => WorkerHandle;
   private readonly backend: BackendSpec;
   readonly timeoutMs: number;
+  readonly cpuTimeoutMs: number;
   private readonly maxParts: number;
+  private readonly times = new WeakMap<TessellationResult, RequestTimes>();
   private readonly maxMemory: number;
   private slots: Slot[] = [];
   private queue: Job[] = [];
@@ -78,6 +99,7 @@ export class PoolTessellator implements Tessellator {
     this.backend = opts.backend;
     this.workers = Math.max(1, Math.floor(opts.workers ?? defaultWorkers()));
     this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.cpuTimeoutMs = opts.cpuTimeoutMs ?? 0;
     this.maxParts = opts.maxPartsPerWorker ?? 0;
     this.maxMemory = opts.maxMemoryBytes ?? 256 * 2 ** 20;
   }
@@ -105,6 +127,11 @@ export class PoolTessellator implements Tessellator {
       this.queue.push({ id: this.nextId++, req, resolve, reject, onProgress });
       this.pump();
     });
+  }
+
+  /** A result's times (RequestTimes), for a result this pool returned. */
+  timesOf(r: TessellationResult): RequestTimes | undefined {
+    return this.times.get(r);
   }
 
   /** Terminate every worker; pending requests are rejected. */
@@ -148,7 +175,10 @@ export class PoolTessellator implements Tessellator {
         break;
       }
       case 'result': {
+        const started = s.started;
         const job = this.finish(s);
+        if (started !== undefined) this.times.set(msg.result, { wallMs: performance.now() - started,
+          ...(msg.cpuMs === undefined ? {} : { cpuMs: msg.cpuMs }) });
         job?.resolve(msg.result);
         s.parts++;
         if ((this.maxParts > 0 && s.parts >= this.maxParts) || (
@@ -160,6 +190,11 @@ export class PoolTessellator implements Tessellator {
         if (s.job && s.job.id === msg.id) {
           s.job.last = msg.progress;
           s.job.onProgress?.(msg.progress);
+          if (this.cpuTimeoutMs > 0 && msg.cpuMs !== undefined && msg.cpuMs > this.cpuTimeoutMs) {
+            this.kill(s, new TessellationError(`tessellation timed out after ${this.cpuTimeoutMs} ms of CPU time`
+              + ` (last: ${msg.progress.message})`, this.cpuTimeoutMs));
+            this.pump();
+          }
         }
         return;
       }
@@ -196,6 +231,7 @@ export class PoolTessellator implements Tessellator {
 
   private finish(s: Slot): Job | undefined {
     clearTimeout(s.timer);
+    s.started = undefined;
     const job = s.job;
     s.job = undefined;
     return job;
@@ -219,6 +255,7 @@ export class PoolTessellator implements Tessellator {
       s.state = 'busy';
       s.job = job;
       s.h.ref?.();
+      s.started = performance.now();
       s.h.post({ type: 'tessellate', id: job.id, req: job.req });
       if (this.timeoutMs > 0) {
         s.timer = setTimeout(() => {

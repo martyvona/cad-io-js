@@ -20,8 +20,11 @@
 //                counted as failed by it), cause (our first meshed face emptied and named in a by-cause
 //                diagnostic of two entries: must be ours failed with the planted cause)
 //   TIMEOUT_MS=<ms> each request's limit (default 600000: the question is whether a part meshes, not how fast; a
-//                part slower than the pool's default 120 s is listed as slow, not failed)
-//   SLOW_MS=<ms>    ours slower than this on a part it meshes is listed as slow (default 120000)
+//                part slower than the pool's default 120 s is listed as slow, not failed): ours by its worker
+//                thread's CPU time (tess-workers' cpuTimeoutMs, so a loaded host doesn't change which parts time
+//                out), with 4 x it in wall time as the backstop; OCCT and SMLib, which report no progress to check
+//                it at, by wall time
+//   SLOW_MS=<ms>    ours slower than this in CPU time on a part it meshes is listed as slow (default 120000)
 //   IDLE_MS=<ms>    runner.ts's watchdog on a child silent on one file (default here 0, none: every request has
 //                   TIMEOUT_MS, but a file of many slow parts at a worker per backend passes any fixed watchdog, 1 h
 //                   included, and its faces would go uncounted)
@@ -43,7 +46,7 @@ const EXAMPLES = 4;
 const { linearDeflection: LIN, angularDeflection: ANG } = MESH_PROFILES.medium;
 const PLANT = process.env.PLANT ?? '';
 const PLANTS = ['fail', 'part', 'occt', 'smlib', 'cause'];
-/** Each request's limit (ms), and the time (ms) over which a part ours meshes is listed as slow. */
+/** Each request's limit (ms; ours in CPU time), and the CPU time (ms) over which a part ours meshes is slow. */
 const TIMEOUT_MS = Number(process.env.TIMEOUT_MS ?? 600_000);
 const SLOW_MS = Number(process.env.SLOW_MS ?? 120_000);
 /** Our time per part meshed (from its first progress), by upper bound in seconds. */
@@ -164,10 +167,11 @@ const fresh = () => ({
   planted: { cases: 0, seen: 0, missed: [] as string[] },
   unmeshedParts: [] as string[],
   unmeshed: [] as string[],
-  // Ours's time on the parts it meshes (from its first progress, near when the pool's timer starts), by TIMES; and
-  // those over SLOW_MS, listed for the performance work (a loaded host makes them slower).
+  // Ours's CPU time on the parts it meshes (its worker thread's), by TIMES, and its wall time alike (a loaded host
+  // makes that longer); those over SLOW_MS in CPU time, listed for the performance work.
   times: TIMES.map(() => 0),
-  // (Meshed with no progress said, so not timed.)
+  wallTimes: TIMES.map(() => 0),
+  // (Meshed with no CPU time given, so not timed.)
   untimed: 0,
   slow: [] as string[],
 });
@@ -183,11 +187,11 @@ function readStep(f: string): Uint8Array {
 export const check: FileCheck<string, Tallies> = {
   async setup({ meshWorkers }) {
     const workers = Number(process.env.WORKERS ?? Math.max(1, Math.floor(meshWorkers / 3)));
-    const pool = (pkg: string, cls: string) => new WorkerTessellator({
+    const pool = (pkg: string, cls: string, cpu: boolean) => new WorkerTessellator({
       backend: { module: import.meta.resolve(`../packages/${pkg}/src/index.ts`), export: cls }, workers,
-      timeoutMs: TIMEOUT_MS });
-    pools = { cadio: pool('tess-cadio', 'CadioTessellator'), occt: pool('tess-occt', 'OcctTessellator'),
-      smlib: pool('tess-smlib', 'SmlibTessellator') };
+      ...(cpu ? { cpuTimeoutMs: TIMEOUT_MS, timeoutMs: 4 * TIMEOUT_MS } : { timeoutMs: TIMEOUT_MS }) });
+    pools = { cadio: pool('tess-cadio', 'CadioTessellator', true), occt: pool('tess-occt', 'OcctTessellator', false),
+      smlib: pool('tess-smlib', 'SmlibTessellator', false) };
     await Promise.all(BACKENDS.map((b) => pools[b].init()));
   },
   async teardown() {
@@ -210,19 +214,14 @@ export const check: FileCheck<string, Tallies> = {
     const results = await Promise.all(parts.map(async (p) => {
       const req: TessellationRequest = { format: 'cad-brep', data: new Uint8Array(p.brep!.model.buffer),
         origin: p.origin, linearDeflection: LIN, angularDeflection: ANG, edges: true };
-      // (Ours timed from its first progress, near when the pool's timer starts: the request's wall time includes its
-      // wait in the queue behind the file's other parts.)
-      let ms = 0, started = NaN;
-      const rs = await Promise.all(BACKENDS.map(async (b) => {
-        const first = () => { if (isNaN(started)) started = performance.now(); };
-        const x = await pools[b].tessellate(req, b === 'cadio' ? first : undefined).catch((e: Error) => e);
-        if (b === 'cadio') ms = performance.now() - started;
-        return x;
-      }));
-      return { p, ms, r: Object.fromEntries(BACKENDS.map((b, i) => [b, rs[i]!])) as
+      // (Ours timed by the pool, from its start in a worker: its wall and its thread's CPU time.)
+      const rs = await Promise.all(BACKENDS.map((b) => pools[b].tessellate(req).catch((e: Error) => e)));
+      const ours = rs[0]!;
+      const times = ours instanceof Error ? undefined : pools.cadio.timesOf(ours);
+      return { p, times, r: Object.fromEntries(BACKENDS.map((b, i) => [b, rs[i]!])) as
         Record<Backend, TessellationResult | Error> };
     }));
-    for (const { p, ms, r } of results) {
+    for (const { p, times, r } of results) {
       T.parts++;
       const where = `${name} #${p.sources[0]!.id}`;
       const d: BrepData = p.brep!.model;
@@ -243,10 +242,13 @@ export const check: FileCheck<string, Tallies> = {
         }
       }
       const partFailed = !fine(ours.status) && ours.status !== 'partial';
-      if (!partFailed && rows && isNaN(ms)) T.untimed++;
-      if (!partFailed && rows && !isNaN(ms)) {
-        T.times[timeBin(ms)]!++;
-        if (ms > SLOW_MS) T.slow.push(`${where} (${rows} faces): ${(ms / 1000).toFixed(1)} s, ${ours.status}`);
+      const cpu = times?.cpuMs;
+      if (!partFailed && rows && cpu === undefined) T.untimed++;
+      if (!partFailed && rows && cpu !== undefined) {
+        T.times[timeBin(cpu)]!++;
+        T.wallTimes[timeBin(times!.wallMs)]!++;
+        if (cpu > SLOW_MS) T.slow.push(`${where} (${rows} faces): ${(cpu / 1000).toFixed(1)} s CPU, `
+          + `${(times!.wallMs / 1000).toFixed(1)} s wall, ${ours.status}`);
       }
       if (partFailed) T.unmeshedParts.push(`${where} (${rows} faces): ${ours.status}: ${ours.why}`);
       const causes = ours.result ? failedCauses(ours.result) : new Map<number, string>();
@@ -333,8 +335,9 @@ function report(label: string, T: Tallies): void {
   console.log(`  our failures by cause and surface: ${[...T.causes].sort((x, y) => y[1] - x[1])
     .map(([k, n]) => `${k} ${n}`).join(', ') || 'none'}`);
   const bound = (k: number) => (TIMES[k] === Infinity ? `over ${TIMES[k - 1]} s` : `up to ${TIMES[k]} s`);
-  console.log(`  our time on the parts it meshes (from its first progress): ${T.times.map((n, k) => `${bound(k)} ${n}`)
-    .join(', ')}, untimed ${T.untimed}; ${T.slow.length} slower than ${SLOW_MS / 1000} s, listed below, not failures`);
+  console.log(`  our CPU time on the parts it meshes: ${T.times.map((n, k) => `${bound(k)} ${n}`).join(', ')}, `
+    + `untimed ${T.untimed}; ${T.slow.length} slower than ${SLOW_MS / 1000} s, listed below, not failures`);
+  console.log(`  our wall time on them: ${T.wallTimes.map((n, k) => `${bound(k)} ${n}`).join(', ')}`);
   console.log(`  our warnings: ${[...T.warnings].sort((x, y) => y[1] - x[1]).map(([k, n]) => `${n} x "${k}"`)
     .join('; ') || 'none'}`);
   if (PLANT) {
@@ -349,7 +352,8 @@ function report(label: string, T: Tallies): void {
   }
   console.log(`\n### Parts ours doesn't mesh (${T.unmeshedParts.length}), each with its cause`);
   for (const x of [...T.unmeshedParts].sort()) console.log(`  ${x}`);
-  console.log(`\n### Parts ours meshes, but slower than ${SLOW_MS / 1000} s (${T.slow.length}): its time, its status`);
+  console.log(`\n### Parts ours meshes, but slower than ${SLOW_MS / 1000} s of CPU (${T.slow.length}): its CPU and `
+    + `wall times, its status`);
   for (const x of [...T.slow].sort()) console.log(`  ${x}`);
   console.log(`\n### Faces without our triangles (${T.unmeshed.length}): our cause; the references; the class`);
   for (const x of [...T.unmeshed].sort()) console.log(`  ${x}`);
@@ -390,7 +394,7 @@ if (import.meta.main) {
   const { children, meshWorkers } = division();
   const workers = Number(process.env.WORKERS ?? Math.max(1, Math.floor(meshWorkers / 3)));
   console.log(`coverage: tess-cadio against OCCT (native route) and SMLib, medium profile (${LIN} mm, ${ANG} rad), `
-    + `${TIMEOUT_MS / 1000} s limit, slow over ${SLOW_MS / 1000} s; `
+    + `${TIMEOUT_MS / 1000} s limit (ours in CPU time, 4 x in wall time), slow over ${SLOW_MS / 1000} s of CPU; `
     + `${((performance.now() - t0) / 1000).toFixed(0)} s, ${children || 1} processes x ${workers} workers per backend`);
   console.log();
   for (const [l, T] of per) report(l, T);
