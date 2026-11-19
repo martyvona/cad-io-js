@@ -366,6 +366,47 @@ TEST_CASE("a face left past its deflection fails: its refused triangles measured
   CHECK(pm.face(1).rejected.empty());
 }
 
+TEST_CASE("B-spline faces with no loops meshed over their knot rectangles: open, closed in u, with a pole side") {
+  // looplessBsplines: a plane patch (area 2), a tube closed in fact (20 pi), a quarter cone with an apex row and its
+  // u reversed (pi sqrt 2 / 4 each): every one meshed, its area under its own by at most about the deflection over
+  // its radius, nothing refused, triangles facing as the surface does.
+  cadgeom::Model m = load("looplessBsplines");
+  REQUIRE(m.ok());
+  const double want[4] = {2, 20 * M_PI, M_PI * M_SQRT2 / 4, M_PI * M_SQRT2 / 4}, radius[4] = {1e300, 2, 1, 1};
+  for (double d : {0.05, 0.01}) {
+    PartMesher pm(m, options(d, 0.26));
+    for (int f = 0; f < 4; f++) {
+      const FaceMesh& fm = pm.face(f);
+      if (fm.status != cadgeom::Status::ok) std::printf("  looplessBsplines face %d: %s\n", f, fm.cause.c_str());
+      REQUIRE(fm.status == cadgeom::Status::ok);
+      double area = 0;
+      int facing = 0;
+      for (size_t t = 0; t < fm.triangles.size(); t += 3) {
+        const Vec3 a = fm.points[fm.triangles[t]], b = fm.points[fm.triangles[t + 1]];
+        const Vec3 c = fm.points[fm.triangles[t + 2]];
+        const Vec3 g = cadgeom::cross(b - a, c - a);
+        area += 0.5 * cadgeom::norm(g);
+        facing += cadgeom::dot(g, fm.normals[fm.triangles[t]] + fm.normals[fm.triangles[t + 1]] +
+          fm.normals[fm.triangles[t + 2]]) < 0;
+      }
+      const bool ok = area <= want[f] * (1 + 1e-9) && area > want[f] * (1 - std::min(0.5, 2.5 * d / radius[f]) - 1e-9);
+      if (!ok) std::printf("  looplessBsplines face %d at %g: area %.9g want %.9g\n", f, d, area, want[f]);
+      CHECK(ok);
+      CHECK(fm.rejected.empty());
+      CHECK_EQ(facing, 0);
+      // The cones' apex rows as pole lines: their fans meet at one point there.
+      if (f >= 2) {
+        int apex = 0;
+        for (const Vec3& p : fm.points) apex += cadgeom::norm(p) < 1e-12;
+        CHECK_EQ(apex, 1);
+      }
+    }
+    // Their pseudo-edges: the plane's four sides, the tube's bottom and top and its seam once, each cone's three
+    // sides but its apex row.
+    CHECK_EQ(pm.edges().edgeCount() - m.edges(), 4 + 3 + 3 + 3);
+  }
+}
+
 TEST_CASE("cones with a seam from the apex used both ways: within the deflection, to area, the jump a whole turn") {
   // The cad-brep cone (no seam p-curves) and seamCone (given, at u = 2 pi up and 0 down), with a degenerate edge at
   // the apex and without: the loop's jump across the apex a whole period (the seam's two uses either side), not a cut

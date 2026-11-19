@@ -125,7 +125,15 @@ bool march(const Job& job, Node from, double tEnd, const Singularity* poleEnd, s
     const double chord = norm(cp - c0);
     // The predictor good to a tenth of the step, and no jump: the new foot no farther from the last than the curve
     // moved, give or take the tolerance.
-    const bool good = norm(sp - sg) <= 0.1 * chord + 0.5 * job.tol && norm(sp - s0) <= 2 * chord + 2 * job.tol;
+    bool good = norm(sp - sg) <= 0.1 * chord + 0.5 * job.tol && norm(sp - s0) <= 2 * chord + 2 * job.tol;
+    // A foot on a pole line, the curve farther than tol from the pole: Newton stuck there (the pole's free parameter
+    // has no gradient), not a foot (a curve passing near a pole, the predictor overshooting onto its line). A smaller
+    // step keeps the guess off it. (A pole the curve reaches is within tol of it, so never refused here.)
+    if (good)
+      for (const Singularity& g : job.sing) {
+        if (g.kind == Singularity::normalVanishes || (g.isoU ? uvc.x : uvc.y) != g.at) continue;
+        if (norm(sp - cp) > job.tol) good = false;
+      }
     if (!good) {
       h *= 0.5;
       if (h < 1e-13 * span) return false;
