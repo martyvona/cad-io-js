@@ -5,7 +5,7 @@
 // (each way: the p-curve's points from the curve, the curve's from the p-curve's points). The tolerance the edge is
 // judged by is tolerance.h's rule, as the face API's.
 
-import { type BrepData, curveEvaluator, edgeParams, rowCount } from 'cad-brep';
+import { type BrepData, rowCount } from 'cad-brep';
 import type { Geometry } from 'cad-geom';
 
 /** Parameters sampled across a range (both ends included). */
@@ -24,12 +24,12 @@ export function tolerances(d: BrepData) {
     vertex: (v: number) => widen(d.vertex.tolerance[v]!) };
 }
 
-/** The edge's curve parameters at its start and end (cad-brep's edgeParams), or undefined. */
-export function edgeRange(d: BrepData, e: number): [number, number] | undefined {
-  const ci = d.edge.curve[e]!;
-  const ev = ci >= 0 ? curveEvaluator(d, ci) : undefined;
-  const r = ev && edgeParams(d, e, ev);
-  return r && Number.isFinite(r[0]) && Number.isFinite(r[1]) && r[0] !== r[1] ? r : undefined;
+/** The edge's curve parameters at its start and end as the face API derives them (cad-geom's edgeParams, so the
+ * pass and every consumer of the face API agree on them), or undefined. */
+export function edgeRange(g: Geometry, e: number): [number, number] | undefined {
+  const r = g.edgeParams(e);
+  return r.status === 'ok' && Number.isFinite(r.t0) && Number.isFinite(r.t1) && r.t0 !== r.t1 ? [r.t0, r.t1]
+    : undefined;
 }
 
 const dist = (a: ArrayLike<number>, i: number, b: ArrayLike<number>, j: number) =>
@@ -91,12 +91,13 @@ export type GivenFit =
   | { kind: 'unmeasured'; why: string };
 
 /**
- * A coedge's given p-curve against its edge's curve over `range` (the edge's parameters at start and end), `travelOf`
- * the p-curve's own parameters at the use's ends, `surface` its face's surface row, `periodsOf` its face's (u, v)
- * periods as the face API finds them (0: none); both asked only where needed.
+ * A coedge's given p-curve against its edge's curve over `range` (the edge's parameters at start and end),
+ * `travelsOf` candidates for the p-curve's own parameters at the use's ends (the image measured on the last), `surface`
+ * its face's surface row, `periodsOf` its face's (u, v) periods as the face API finds them (0: none); both asked only
+ * where needed.
  */
 export function measureGiven(g: Geometry, d: BrepData, c: number, surface: number, range: [number, number],
-  travelOf: () => [number, number] | undefined, tol: number, periodsOf: () => [number, number] = () => [0, 0]):
+  travelsOf: () => Iterable<[number, number]>, tol: number, periodsOf: () => [number, number] = () => [0, 0]):
   GivenFit {
   const e = d.coedge.edge[c]!, ci = d.edge.curve[e]!;
   const [t0, t1] = range, ts = Array.from({ length: SAMPLES }, (_, i) => t0 + (t1 - t0) * i / (SAMPLES - 1));
@@ -113,18 +114,23 @@ export function measureGiven(g: Geometry, d: BrepData, c: number, surface: numbe
   };
   const same = against(image(ts));
   if (same <= tol) return { kind: 'same', deviation: same };
-  const travel = travelOf();
-  if (!travel) return { kind: 'unmeasured', why: 'no range on the p-curve' };
-  // The use's travel runs either way along the edge: both maps tried, the nearer kept.
-  let best: GivenFit | undefined;
-  for (const [s0, s1] of [travel, [travel[1], travel[0]] as [number, number]]) {
-    const a = (s1 - s0) / (t1 - t0), b = s0 - a * t0;
-    const dev = against(image(ts.map((t) => a * t + b)));
-    if (dev <= tol && !(best && best.kind === 'affine' && best.deviation <= dev)) {
-      best = { kind: 'affine', a, b, deviation: dev };
+  // The use's ends' parameters, by the candidates in order (the next asked only where the one before doesn't fit:
+  // a candidate can cost a projection); the use's travel runs either way along the edge: both maps tried, the
+  // nearer kept.
+  let travel: [number, number] | undefined;
+  for (const cand of travelsOf()) {
+    travel = cand;
+    let best: GivenFit | undefined;
+    for (const [s0, s1] of [cand, [cand[1], cand[0]] as [number, number]]) {
+      const a = (s1 - s0) / (t1 - t0), b = s0 - a * t0;
+      const dev = against(image(ts.map((t) => a * t + b)));
+      if (dev <= tol && !(best && best.kind === 'affine' && best.deviation <= dev)) {
+        best = { kind: 'affine', a, b, deviation: dev };
+      }
     }
+    if (best) return best;
   }
-  if (best) return best;
+  if (!travel) return { kind: 'unmeasured', why: 'no range on the p-curve' };
   // The image, both ways, over the p-curve's travel.
   const ss = Array.from({ length: SAMPLES }, (_, i) => travel[0] + (travel[1] - travel[0]) * i / (SAMPLES - 1));
   const P = image(ss);

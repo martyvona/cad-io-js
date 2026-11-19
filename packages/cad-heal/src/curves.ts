@@ -87,7 +87,7 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
       for (let c = d.loop.first[l]!; c < d.loop.first[l]! + d.loop.count[l]!; c++) {
         const e = d.coedge.edge[c]!, pc = d.coedge.pcurve[c]!;
         if (pc >= 0) record.pcurveFrom[c] = PROVENANCE.given;
-        const range = d.edge.curve[e]! >= 0 ? edgeRange(d, e) : undefined;
+        const range = d.edge.curve[e]! >= 0 ? edgeRange(g, e) : undefined;
         if (!range) continue;
         // A coedge left without a p-curve: its curve's distance from the surface is what its edge's tolerance needs.
         const bare = () => {
@@ -97,15 +97,23 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
           bare();
           continue;
         }
-        // The p-curve's own parameters at the use's ends: the source's range for the use, else the face API's
-        // pieces, else the p-curve's finite domain (a B-spline's knots; a line has none).
+        // The p-curve's own parameters at the use's ends: the source's range for the use; else the p-curve's finite
+        // domain (a B-spline's knots: usually the use's), then the face API's pieces (which can cost the face's
+        // projections), a line having no domain to offer.
         const r0 = d.coedge.range[2 * c]!, r1 = d.coedge.range[2 * c + 1]!;
-        const ends = (): [number, number] | undefined => {
-          if (Number.isFinite(r0) && Number.isFinite(r1)) return [r0, r1];
+        function* candidates(): Generator<[number, number]> {
+          if (Number.isFinite(r0) && Number.isFinite(r1)) return yield [r0, r1];
           const own = g.curveInfo(pc);
-          return travelOf(c) ?? (Number.isFinite(own.lo) && Number.isFinite(own.hi) ? [own.lo, own.hi] : undefined);
+          if (Number.isFinite(own.lo) && Number.isFinite(own.hi)) yield [own.lo, own.hi];
+          const t = travelOf(c);
+          if (t) yield t;
+        }
+        const ends = () => {
+          let last: [number, number] | undefined;
+          for (const x of candidates()) last = x;
+          return last;
         };
-        const m = pc >= 0 ? measureGiven(g, d, c, surface, range, ends, tol.edge(e), periodsOf)
+        const m = pc >= 0 ? measureGiven(g, d, c, surface, range, candidates, tol.edge(e), periodsOf)
           : { kind: 'unmeasured' as const, why: 'none' };
         if (m.kind !== 'unmeasured') record.deviation[c] = m.deviation;
         // What the coedge's p-curve needs if it's kept; a fix that changes it says what the new one needs.
@@ -215,16 +223,19 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
     }
   }
   // vertexTolerance: each edge's curve's ends against its vertices, over the range its p-curves are in.
-  const vNeed = new Float64Array(rowCount(d, 'vertex'));
+  const vNeed = new Float64Array(rowCount(d, 'vertex')), vNeedE = new Float64Array(rowCount(d, 'edge'));
   if (fixes.has('vertexTolerance')) {
     for (let e = 0; e < need.length; e++) {
       if (d.edge.curve[e]! < 0) continue;
       const r0 = edit.get('edge', 'range', 2 * e), r1 = edit.get('edge', 'range', 2 * e + 1);
-      const range = Number.isFinite(r0) && Number.isFinite(r1) ? [r0, r1] as [number, number] : edgeRange(d, e);
+      const range = Number.isFinite(r0) && Number.isFinite(r1) ? [r0, r1] as [number, number] : edgeRange(g, e);
       if (!range) continue;
       const [a, b] = curveEndGaps(g, d, e, range), [s0, s1] = [d.edge.start[e]!, d.edge.end[e]!];
       if (a > vNeed[s0]!) vNeed[s0] = a;
       if (b > vNeed[s1]!) vNeed[s1] = b;
+      // The edge's too: the face API and the tessellator judge a vertex's gaps by its edges' tolerances.
+      const gap = Math.max(Number.isNaN(a) ? 0 : a, Number.isNaN(b) ? 0 : b);
+      if (gap > vNeedE[e]!) vNeedE[e] = gap;
     }
   }
   const grownV = new Tally(), bridged = new Tally();
@@ -241,8 +252,9 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
     }
   }
   if (grownV.n) {
-    diagnostics.push({ severity: 'warning', message: `vertexTolerance: ${grownV.n} vertices' tolerances grown to `
-      + `cover their edges' curves' ends (up to ${worstV.toPrecision(3)} mm, grown to ${GROWTH} times it): `
+    diagnostics.push({ severity: 'warning', message: `vertexTolerance: ${grownV.n} vertices' tolerances and their `
+      + `edges' grown to cover their edges' curves' ends (up to ${worstV.toPrecision(3)} mm, grown to ${GROWTH} times `
+      + `it): `
       + `${grownV.ex.join(', ')}${grownV.more()}` });
   }
   if (bridged.n) {
@@ -251,12 +263,12 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
       + `times it): ${bridged.ex.join(', ')}${bridged.more()}` });
   }
   // edgeTolerance: grown where what's measured is past what the edge is judged by (pcurveEnds' gaps among it).
-  if (fixes.has('edgeTolerance') || fixes.has('pcurveEnds')) {
+  if (fixes.has('edgeTolerance') || fixes.has('pcurveEnds') || fixes.has('vertexTolerance')) {
     const grown = new Tally();
     let worst = 0;
     for (let e = 0; e < need.length; e++) {
       const own = fixes.has('edgeTolerance') ? need[e]! : 0, want = Math.max(own, fixes.has('pcurveEnds')
-        ? endNeedE[e]! : 0);
+        ? endNeedE[e]! : 0, fixes.has('vertexTolerance') ? vNeedE[e]! : 0);
       if (!(want > tol.edge(e))) continue;
       edit.set('edge', 'tolerance', e, GROWTH * want);
       if (!(own > tol.edge(e))) continue;

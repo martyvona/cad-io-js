@@ -160,3 +160,14 @@ test('pcurveReparam: a p-curve a period up on a B-spline closed in fact (past it
   assert.deepEqual([...r.model.pool.curveReal.subarray(r.model.curve.real[c]!, r.model.curve.real[c]! + 5)],
     [2, 0, 0, 1, 1], 'u = 2, v = t');
 });
+
+test('pcurveReparam: a B-spline without a use range on a face the face API refuses is placed by its knots',
+  async () => {
+  // The bottom's line p-curve, a fraction of the turn with no use range, can't be placed: the face API refuses the
+  // face (no pieces). The top's B-spline over [0, 1] still can, by its own domain.
+  const d = cylinderSide({ bottom: { pcurve: line2([0, 0], [1, 0], TWO_PI) },
+    top: { pcurve: bspline2([TWO_PI, 5], [0, 5], [0, 1]) } }).finish();
+  const r = await healPart(d, { fixes: { pcurveReplace: false } }, module);
+  assert.notEqual(r.model.coedge.pcurve[2], d.coedge.pcurve[2], 'the top reparameterized');
+  assert.ok(sameParameterGap(r.model, 2, [0, TWO_PI]) < 1e-9);
+});

@@ -14,11 +14,12 @@ const SEAM = 2;
 
 test('vertexTolerance: a vertex 0.05 off an edge\'s curve\'s end has its tolerance grown to cover it', async () => {
   const d = offSeam();
-  const r = await healPart(d, { fixes: { pcurveEnds: false } }, module);
+  const r = await healPart(d, { fixes: { pcurveEnds: false, edgeTolerance: false } }, module);
   assert.ok(Math.abs(r.model.vertex.tolerance[0]! - GROWTH * 0.05) < 1e-9, `${r.model.vertex.tolerance[0]}`);
   assert.ok(Number.isNaN(r.model.vertex.tolerance[1]!), 'the top vertex is on its curves');
   assert.match(r.diagnostics.find((x) => x.message.startsWith('vertexTolerance:'))!.message,
-    /^vertexTolerance: 1 vertices' tolerances grown .*: vertex #\d+ \(0\.0500 mm\)$/);
+    /^vertexTolerance: 1 vertices' tolerances and their edges' grown .*: vertex #\d+ \(0\.0500 mm\)$/);
+  assert.ok(Math.abs(r.model.edge.tolerance[SEAM]! - GROWTH * 0.05) < 1e-9, 'the seam edge\'s too');
   const a = await analysisFor(r.model, r.analysis!);
   assert.equal(a.vertex.toleranceFrom[0], PROVENANCE.healed);
   assert.equal(a.vertex.toleranceFrom[1], PROVENANCE.none);
