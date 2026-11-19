@@ -10,7 +10,7 @@ import { openEdges, oracleMeasures, type TessellationProgress, type Tessellation
 import { MODELS } from '../../cad-brep/test/models.ts';
 import { CadioTessellator, progressReporter, VERSION } from '../src/index.ts';
 import { affineFeetOff, bsplineDome, bumpPatch, cap, fold, halfCap, loopless, luneOnSeam, luneQuarter,
-  meridianHemisphere, pcurveOnly, seamByInversion, seamFlipped, torusOuterHalf } from '../native/test/models.ts';
+  meridianHemisphere, pcurveOnly, seamByInversion, seamFlipped, torusOuterHalf, uFold } from '../native/test/models.ts';
 
 const dist = path.join(import.meta.dirname, '..', 'dist', 'tess_cadio.wasm');
 const skip = fs.existsSync(dist) ? false : 'tess-cadio\'s module not built (run packages/tess-cadio/build.sh module)';
@@ -144,11 +144,11 @@ test('triangles still refused counted, those in a pole\'s fan apart: none at pol
     assert.equal(l?.[3] ?? '0', '0', `${l?.[2]} refused, ${l?.[3]} at a pole`);
     assert.ok(!r.diagnostics.some((x) => /seam whose side/.test(x.message)));
     // By inversion (projection off), luneOnSeam's seam side is unsettled, no fan made: its pole's refused triangles,
-    // the mesher's own, counted as at the pole.
+    // the mesher's own, counted as at the pole (at 0.02 rad: at 0.05 its uses traced sample by sample leave none).
     const inverting = new CadioTessellator();
     await inverting.init({ projectMissingPcurves: false });
     const ri = await inverting.tessellate({ ...req('cube'), data: new Uint8Array(luneOnSeam().finish().buffer),
-      linearDeflection: 0.01, angularDeflection: 0.05 });
+      linearDeflection: 0.01, angularDeflection: 0.02 });
     const li = ri.diagnostics.map((x) => re.exec(x.message)).find((m) => m);
     assert.ok(li, JSON.stringify(ri.diagnostics));
     assert.ok(Number(li[3]) >= 1 && Number(li[3]) <= Number(li[2]), `${li[2]} refused, ${li[3]} at a pole`);
@@ -289,6 +289,25 @@ test('a loop against its face\'s sense (a projected seam use\'s side contradicti
   assert.match(d.message, /^1 faces .*: faces \d+$/);
   const valid = await run(seamByInversion());
   assert.ok(!valid.diagnostics.some((x) => /loop against the face's sense/.test(x.message)));
+});
+
+test('uses traced sample by sample: a local step that fell back on the global search said, with its edge and why',
+  { skip }, async () => {
+  // uFoldFar, projection off: its loop's middle 3 mm off its arm, past the tolerance and the spacing, so the samples
+  // after its vertex fall back; uFold's 0.07 stays local, nothing said.
+  const t = new CadioTessellator();
+  await t.init({ projectMissingPcurves: false });
+  const said = async (model: { finish(): { buffer: ArrayBuffer } }) => {
+    const r = await t.tessellate({ ...req('cube'), data: new Uint8Array(model.finish().buffer), linearDeflection: 0.1,
+      angularDeflection: 0.26 });
+    return r.diagnostics.find((x) => /fell back on the global search/.test(x.message));
+  };
+  assert.equal(await said(uFold()), undefined);
+  const d = await said(uFold(-3));
+  assert.ok(d);
+  assert.equal(d.severity, 'info');
+  assert.match(d.message, /^\d+ samples of uses traced sample by sample fell back on the global search \(\d+ traced /);
+  assert.match(d.message, /edge \d+ at [\d.e-]+ \([\d.e-]+ off\): the local foot farther from the surface/);
 });
 
 test('uses without p-curves counted by how they were sampled, said where one fell back to the edge\'s tolerance',

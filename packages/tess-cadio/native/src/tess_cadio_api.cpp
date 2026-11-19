@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cstring>
 #include <memory>
+#include <cstdio>
 #include <string>
 #include <vector>
 
@@ -207,13 +208,24 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
   for (size_t i = 0; i < failedCause.size(); i++) causes += (i ? ",\"" : "\"") + failedCause[i] + "\"";
   causes += "]";
   const ProjectionCounts& pc = pm.edges().projections();
+  const TraceCounts& tc = pm.edges().traces();
+  // Each local step that fell back on the global search: [edge id, edge parameter, distance, why].
+  std::string fallbacks = "[";
+  for (const TraceFallback& x : pm.edges().traceFallbacks()) {
+    char row[96];
+    std::snprintf(row, sizeof row, "[%u,%.17g,%.17g,\"", m.u32(CBR_EDGE_ID)[m.coedgeEdge(x.coedge)], x.t,
+      x.distance);
+    fallbacks += (fallbacks.size() > 1 ? "," : "") + std::string(row) + x.why + "\"]";
+  }
+  fallbacks += "]";
   result.diag = "{\"failed\":" + ids(failed) + ",\"failedRows\":" + ids(failedRows) + ",\"failedStatus\":" +
     ids(failedStatus) + ",\"failedCause\":" + causes + ",\"refused\":" + ids(refused) +
     ",\"unsplit\":" + ids(unsplit) + ",\"unsettled\":" + ids(unsettled) + ",\"sampled\":" + ids(sampled) +
     ",\"againstSense\":" + ids(againstSense) + ",\"folded\":" + ids(folded) +
     ",\"refusedBy\":" + ids(refusedBy) + ",\"folds\":" +
     std::to_string(folds) + ",\"projections\":[" + std::to_string(pc.withinMesh) + "," +
-    std::to_string(pc.atEdgeTolerance) + "," + std::to_string(pc.byInversion) + "],\"rounds\":" +
+    std::to_string(pc.atEdgeTolerance) + "," + std::to_string(pc.byInversion) + "],\"traces\":[" +
+    std::to_string(tc.local) + "," + std::to_string(tc.global) + "],\"traceFallbacks\":" + fallbacks + ",\"rounds\":" +
     std::to_string(pm.rounds()) + ",\"refusedTriangles\":" + std::to_string(refusedTriangles) +
     ",\"poleSlivers\":" + std::to_string(poleSlivers) + "}";
   return 0;
@@ -242,7 +254,8 @@ const float* tc_edge_positions() { return result.edgePositions.data(); }
  * "againstSense" (faces with a loop against their sense, meshed: FaceBoundary::againstSense), "folded" and "folds"
  * (the faces with boundary folds repaired, and how many: FaceBoundary::foldsRepaired), "projections" (the
  * uses without p-curves, by how they were sampled: EdgeMesh::projections, [withinMesh, atEdgeTolerance,
- * byInversion]), "rounds",
+ * byInversion]), "traces" (the samples of uses traced sample by sample, [local, global]: EdgeMesh::traces) and
+ * "traceFallbacks" (each local step that fell back on the global search, [edge id, t, distance, why]), "rounds",
  * "refusedTriangles", "poleSlivers" (refused triangles with a corner at a pole or apex)}.
  */
 const char* tc_diag() { return result.diag.c_str(); }

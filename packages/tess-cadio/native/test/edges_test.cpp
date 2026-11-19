@@ -876,6 +876,46 @@ TEST_CASE("a use's p-curve checked between its samples against its edge's curve:
   CHECK_EQ(checkCoedges(w, ew, 1e-9, "wigglePcurve"), 0);
 }
 
+TEST_CASE("a use without p-curve traced from sample to sample: its feet stay on its own arm of a thin U") {
+  // uFold: the loop's middle 0.07 off its arm towards the other, 0.03 from it. Every inside sample's foot continued
+  // from the one before, on the face's arm (u within [0, 1]); none fell back on the global search.
+  cadgeom::Model m = load("uFold");
+  REQUIRE(m.ok());
+  EdgeOptions o;
+  o.deflection = 0.1;
+  o.projectMissingPcurves = false;
+  EdgeMesh em(m, o);
+  const CoedgeSamples& cs = em.coedge(0);
+  REQUIRE(cs.uv.size() > 8);
+  int off = 0;
+  for (Vec2 p : cs.uv) off += !(p.x >= 0 && p.x <= 1 + 1e-9);
+  if (off) std::printf("  uFold: %d of %zu samples off the arm\n", off, cs.uv.size());
+  CHECK_EQ(off, 0);
+  CHECK_EQ(em.traces().local, static_cast<int>(cs.uv.size()) - 2);
+  CHECK(em.traceFallbacks().empty());
+  CHECK(em.face(0).status == cadgeom::Status::ok);
+  // uFoldAway: 0.3 off the far side, past the tolerance (0.1), within the samples' spacing: continued all the same.
+  cadgeom::Model a = load("uFoldAway");
+  REQUIRE(a.ok());
+  EdgeMesh ea(a, o);
+  for (const TraceFallback& f : ea.traceFallbacks()) std::printf("  uFoldAway: at %g, %g off: %s\n", f.t, f.distance,
+    f.why);
+  CHECK(ea.traceFallbacks().empty());
+  CHECK_EQ(ea.traces().local, static_cast<int>(ea.coedge(0).uv.size()) - 2);
+  // uFoldFar: 3 off, past the tolerance and the spacing: the samples after the vertex fall back, each said, the
+  // global search's foot kept (on the arm: the far side is nearer it than the other arm).
+  cadgeom::Model far = load("uFoldFar");
+  REQUIRE(far.ok());
+  EdgeMesh ef(far, o);
+  REQUIRE(!ef.traceFallbacks().empty());
+  for (const TraceFallback& f : ef.traceFallbacks()) {
+    CHECK_EQ(f.coedge, 0);
+    CHECK(std::string(f.why).find("farther") != std::string::npos);
+    CHECK(f.distance > 0.1);
+  }
+  CHECK_EQ(ef.traces().local + ef.traces().global, static_cast<int>(ef.coedge(0).uv.size()));
+}
+
 TEST_CASE("no split on a span whose chord is within the refinement floor, though asked; longer ones split") {
   // spindleApex's uncertainty is 0.2, so at a deflection of 4 the floor is max(0.2, 0.4) = 0.4, above the tolerance:
   // a split asked on a span whose chord is over 0.4 is made, one on a span of chord at most 0.4 dropped (between the
