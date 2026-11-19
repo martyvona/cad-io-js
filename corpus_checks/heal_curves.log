@@ -1,18 +1,18 @@
-host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB; Darwin 27.2.0 arm64; Node 26.13.1; lowpowermode 0, on AC; load 20.6; speed 4856 on 1 thread, 46411 on 18
-517 files, 3258 B-rep parts, 86142 faces, 411860 coedges, 219231 edges with 3D curves; 1876 s wall, 6359 s in files; SAMPLES=17
-Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.step; 842.8 s gkv311-opencascade-dataset/step/wgehaeuse_surface.stp; 518.6 s gkv311-opencascade-dataset/step/trj6_b1-ec-214.stp; 436.4 s gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp; 311.9 s gkv311-opencascade-dataset/step/bug25287_bad_tess_face_plus.step; 297.4 s gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP; 231.3 s gkv311-opencascade-dataset/step/bug30790.step; 201.6 s gkv311-opencascade-dataset/step/bug25166_piston.stp
+host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB; Darwin 27.2.0 arm64; Node 26.13.1; lowpowermode 0, on AC; load 8.4; speed 5710 on 1 thread, 70648 on 18
+517 files, 3258 B-rep parts, 86142 faces, 411860 coedges, 219231 edges with 3D curves; 979 s wall, 3147 s in files; SAMPLES=17
+Slowest files: 979.0 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.step; 463.8 s gkv311-opencascade-dataset/step/trj6_b1-ec-214.stp; 206.5 s gkv311-opencascade-dataset/step/bug25166_piston.stp; 144.9 s gkv311-opencascade-dataset/step/bug30790.step; 135.3 s gkv311-opencascade-dataset/step/2.stp; 82.6 s gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP; 72.9 s gkv311-opencascade-dataset/step/bug25287_bad_tess_face_plus.step; 70.4 s gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp
 
 ## Faces by the face API's status and surface
-  28102  ok (plane)
-  26330  ok (cylinder)
-  12707  ok (bspline)
+  28103  ok (plane)
+  26333  ok (cylinder)
+  12848  ok (bspline)
   4731  ok (cone)
-  4415  pcurveProjectionFailed (bspline)
-      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #2287
-      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #3806
-      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #5259
-      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #5592
-      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #6104
+  4274  pcurveProjectionFailed (bspline)
+      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #6222
+      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #7099
+      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #7737
+      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #8267
+      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #8550
       gkv311-opencascade-dataset/step/trj6_k1-id-203.stp #127 face #2276
       gkv311-opencascade-dataset/step/trj5_k1-sh-203.stp #1489 face #1485
       gkv311-opencascade-dataset/step/trj4_k1_top-tc-214.stp #5699 face #164
@@ -75,11 +75,11 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/trj6_k1-td-214.stp #7301 face #3326
       gkv311-opencascade-dataset/step/trj6_k1-td-214.stp #7301 face #5344
       gkv311-opencascade-dataset/step/trj6_k1-td-214.stp #7301 face #7037
-      gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 face #2281
-      gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 face #3799
-      gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 face #5252
-      gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 face #5585
-      gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 face #6097
+      gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 face #6215
+      gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 face #7092
+      gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 face #7730
+      gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 face #8260
+      gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 face #8543
       gkv311-opencascade-dataset/step/as1_motor.step #7316 face #7575
       gkv311-opencascade-dataset/step/as1_motor.step #7316 face #8464
       gkv311-opencascade-dataset/step/Checking_Fixture_Clamping.STEP #5594 face #8479
@@ -129,19 +129,14 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/trj1_t4m-ac.stp #1390 face #423
       gkv311-opencascade-dataset/step/trj1_t4m-ac.stp #1390 face #500
       gkv311-opencascade-dataset/step/trj1_t4m-ac.stp #1390 face #725
-      gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #11252
-      gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #11253
       gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #11254
       gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #11256
-      gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #11342
+      gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #11344
+      gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #11346
+      gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #11434
       gkv311-opencascade-dataset/step/2.stp #327 face #3122
       gkv311-opencascade-dataset/step/2.stp #327 face #3126
       gkv311-opencascade-dataset/step/2.stp #327 face #3127
-      gkv311-opencascade-dataset/step/bug24055_8MTF-75LS05.step #93397 face #9253
-      gkv311-opencascade-dataset/step/bug24055_8MTF-75LS05.step #93397 face #9290
-      gkv311-opencascade-dataset/step/bug24055_8MTF-75LS05.step #93397 face #9327
-      gkv311-opencascade-dataset/step/bug24055_8MTF-75LS05.step #93397 face #9652
-      gkv311-opencascade-dataset/step/bug24055_8MTF-75LS05.step #93397 face #10730
       gkv311-opencascade-dataset/step/trj4_k1_geo-tu-214.stp #2080 face #278
       gkv311-opencascade-dataset/step/trj4_k1_geo-tu-214.stp #2080 face #1996
       gkv311-opencascade-dataset/step/trj4_k1_geo-tu-214.stp #2080 face #2077
@@ -162,11 +157,6 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177 face #1408
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177 face #1420
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177 face #1423
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_07_asme1_ap242-e2.stp #13541 face #10905
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_07_asme1_ap242-e2.stp #13541 face #10944
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_07_asme1_ap242-e2.stp #13541 face #10997
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_07_asme1_ap242-e2.stp #13541 face #11036
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_07_asme1_ap242-e2.stp #13541 face #11357
       gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_BACK.stp #1485 face #689
       gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_BACK.stp #1485 face #783
       gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_BACK.stp #1485 face #1045
@@ -175,9 +165,9 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_FRONT.stp #1124 face #491
       gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_FRONT.stp #1124 face #663
       gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_FRONT.stp #1124 face #757
-  3457  ok (torus)
-  2238  ok (sphere)
-  1524  pcurveProjectionFailed (cylinder)
+  3453  ok (torus)
+  2248  ok (sphere)
+  1521  pcurveProjectionFailed (cylinder)
       gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #30730 face #7040
       gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #30730 face #29690
       gkv311-opencascade-dataset/step/trj4_s1-ac-214.stp #4119 face #3497
@@ -339,13 +329,13 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/HEAD_BACK.stp #593 face #370
       gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/HEAD_BACK.stp #593 face #387
   1300  ok (extrusion)
-  568  ok (revolution)
-  262  pcurveProjectionFailed (torus)
+  569  ok (revolution)
+  266  pcurveProjectionFailed (torus)
       gkv311-opencascade-dataset/step/bug30014.stp #18469 face #8988
       gkv311-opencascade-dataset/step/bug30014.stp #18469 face #23009
       gkv311-opencascade-dataset/step/bug30014.stp #18469 face #35892
-      gkv311-opencascade-dataset/step/bug30014.stp #41105 face #17208
-      gkv311-opencascade-dataset/step/bug30014.stp #41105 face #50639
+      gkv311-opencascade-dataset/step/bug30014.stp #41105 face #19208
+      gkv311-opencascade-dataset/step/bug30014.stp #41105 face #107300
       gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787 face #846
       gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787 face #847
       gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #18158 face #29447
@@ -453,7 +443,7 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2763 face #19407
       gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2763 face #21945
       gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2763 face #19715
-  81  pcurveProjectionFailed (plane)
+  80  pcurveProjectionFailed (plane)
       gkv311-opencascade-dataset/step/trj4_k1_top-tc-214.stp #5699 face #3687
       gkv311-opencascade-dataset/step/trj5_k1-tc-203.stp #5753 face #3737
       gkv311-opencascade-dataset/step/bug30014.stp #61091 face #109640
@@ -478,9 +468,7 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/Checking_Fixture_Clamping.STEP #5594 face #8426
       gkv311-opencascade-dataset/step/Checking_Fixture_Clamping.STEP #5594 face #8399
       gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp #5203 face #3355
-      gkv311-opencascade-dataset/step/bug23202_Leuchte.stp #29007 face #27513
-  57  pcurveProjectionFailed (revolution)
-      gkv311-opencascade-dataset/step/trj3_s1-tc-214.stp #5416 face #5315
+  56  pcurveProjectionFailed (revolution)
       gkv311-opencascade-dataset/step/trj4_k1_top-tc-214.stp #5699 face #482
       gkv311-opencascade-dataset/step/trj4_k1_top-tc-214.stp #5699 face #1059
       gkv311-opencascade-dataset/step/trj4_k1_top-tc-214.stp #5699 face #1348
@@ -548,18 +536,8 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/trj5_k1-md-203.stp #10 face #911
       gkv311-opencascade-dataset/step/trj5_k1-md-203.stp #10 face #1175
       gkv311-opencascade-dataset/step/trj5_k1-md-203.stp #10 face #1187
-  26  pcurveProjectionFailed (sphere)
-      gkv311-opencascade-dataset/step/bug27894_usd_raises_Standard_NullObject.stp #234 face #46
-      gkv311-opencascade-dataset/step/bug27894_usd_raises_Standard_NullObject.stp #234 face #403
-      gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3140 face #1931
-      gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3140 face #1933
-      gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3139 face #1920
-      gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3139 face #1922
+  16  pcurveProjectionFailed (sphere)
       gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 face #131755
-      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #16975 face #20849
-      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #16280 face #20571
-      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #12210 face #18943
-      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #12170 face #18927
       gkv311-opencascade-dataset/step/trj4_k1_geo-md-203.stp #542 face #1087
       gkv311-opencascade-dataset/step/trj4_k1_geo-md-203.stp #542 face #1160
       gkv311-opencascade-dataset/step/trj4_k1_geo-md-203.stp #542 face #1868
@@ -616,15 +594,15 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 face #763
 
 ## Projection of each coedge's 3D curve (status, method; p-curve given or missing; surface)
-  161090  ok planeAffine (missing, plane)
+  161091  ok planeAffine (missing, plane)
   87190  ok isoLine (missing, cylinder)
-  32637  ok affineFeet (missing, bspline)
+  32894  ok affineFeet (missing, bspline)
   23136  ok traced (missing, bspline)
-  13509  ok traced (missing, cylinder)
+  13521  ok traced (missing, cylinder)
   12750  ok isoLine (missing, cone)
   11452  ok isoLine (missing, torus)
   10842  ok planeAffine (given, plane)
-  9397  invalidModel traced (missing, bspline)
+  9392  invalidModel traced (missing, bspline)
       gkv311-opencascade-dataset/step/trj6_k1-id-203.stp #127 face #2276 coedge 217: off 1.48e-2, error 1.48e-2, tol 1.0e-2
       gkv311-opencascade-dataset/step/trj5_k1-sh-203.stp #1489 face #1485 coedge 190: off 1.13e-6, error 1.13e-6, tol 1.0e-6
       gkv311-opencascade-dataset/step/trj5_k1-sh-203.stp #1489 face #1485 coedge 196: off 1.13e-6, error 1.13e-6, tol 1.0e-6
@@ -679,7 +657,7 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/trj4_k1_top-tu-214.stp #2402 face #312 coedge 16: off 1.15e-5, error 1.15e-5, tol 1.0e-5
       gkv311-opencascade-dataset/step/trj4_k1_top-tu-214.stp #2402 face #312 coedge 17: off 4.54e-5, error 4.66e-5, tol 1.0e-5
       gkv311-opencascade-dataset/step/trj4_k1_top-tu-214.stp #2402 face #2313 coedge 194: off 2.53e-4, error 2.81e-4, tol 1.0e-5
-      gkv311-opencascade-dataset/step/trj6_k1-al-214.stp #5529 face #803 coedge 111: off 3.16e-4, error 3.19e-4, tol 2.0e-4
+      gkv311-opencascade-dataset/step/trj6_k1-al-214.stp #5529 face #803 coedge 111: off 3.16e-4, error 3.20e-4, tol 2.0e-4
       gkv311-opencascade-dataset/step/trj6_k1-al-214.stp #5529 face #806 coedge 126: off 2.65e-4, error 2.68e-4, tol 2.0e-4
       gkv311-opencascade-dataset/step/trj6_k1-al-214.stp #5529 face #806 coedge 127: off 2.67e-4, error 2.68e-4, tol 2.0e-4
       gkv311-opencascade-dataset/step/trj6_k1-al-214.stp #5529 face #806 coedge 137: off 2.68e-4, error 2.68e-4, tol 2.0e-4
@@ -687,13 +665,13 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/bug32596_abc_0_13.step #113 face #145 coedge 21: off 5.53e-4, error 5.56e-4, tol 5.9e-8
       gkv311-opencascade-dataset/step/bug32596_abc_0_13.step #113 face #145 coedge 22: off 1.81e-4, error 1.82e-4, tol 5.9e-8
       gkv311-opencascade-dataset/step/bug32596_abc_0_13.step #113 face #145 coedge 23: off 1.99e-4, error 3.51e-4, tol 5.9e-8
-      gkv311-opencascade-dataset/step/bug32596_abc_0_13.step #113 face #281 coedge 26: off 6.50e-4, error 6.50e-4, tol 5.9e-8
+      gkv311-opencascade-dataset/step/bug32596_abc_0_13.step #113 face #281 coedge 26: off 6.50e-4, error 6.48e-4, tol 5.9e-8
       gkv311-opencascade-dataset/step/bug32596_abc_0_13.step #113 face #281 coedge 27: off 1.65e-3, error 1.68e-3, tol 5.9e-8
-      gkv311-opencascade-dataset/step/trj6_k1-td-214.stp #7301 face #160 coedge 0: off 1.33e-5, error 1.37e-5, tol 1.0e-5
-      gkv311-opencascade-dataset/step/trj6_k1-td-214.stp #7301 face #160 coedge 1: off 1.40e-5, error 1.42e-5, tol 1.0e-5
+      gkv311-opencascade-dataset/step/trj6_k1-td-214.stp #7301 face #160 coedge 0: off 1.33e-5, error 1.34e-5, tol 1.0e-5
+      gkv311-opencascade-dataset/step/trj6_k1-td-214.stp #7301 face #160 coedge 1: off 1.40e-5, error 1.41e-5, tol 1.0e-5
       gkv311-opencascade-dataset/step/trj6_k1-td-214.stp #7301 face #3326 coedge 157: off 3.46e-5, error 3.47e-5, tol 1.0e-5
       gkv311-opencascade-dataset/step/trj6_k1-td-214.stp #7301 face #5344 coedge 235: off 3.98e-5, error 5.12e-5, tol 1.0e-5
-      gkv311-opencascade-dataset/step/trj6_k1-td-214.stp #7301 face #7037 coedge 286: off 1.40e-5, error 1.42e-5, tol 1.0e-5
+      gkv311-opencascade-dataset/step/trj6_k1-td-214.stp #7301 face #7037 coedge 286: off 1.40e-5, error 1.41e-5, tol 1.0e-5
       gkv311-opencascade-dataset/step/Checking_Fixture_Clamping.STEP #5594 face #8479 coedge 27: off 6.63e-4, error 6.80e-4, tol 1.0e-5
       gkv311-opencascade-dataset/step/Checking_Fixture_Clamping.STEP #5594 face #8479 coedge 28: off 6.63e-4, error 6.80e-4, tol 1.0e-5
       gkv311-opencascade-dataset/step/Checking_Fixture_Clamping.STEP #5594 face #8479 coedge 29: off 9.81e-4, error 9.81e-4, tol 1.0e-5
@@ -738,11 +716,10 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/bug32239.STEP #116154 face #82086 coedge 1082: off 3.19e-4, error 3.61e-4, tol 2.5e-4
       gkv311-opencascade-dataset/step/trj7_k1-id-214.stp #44 face #1801 coedge 191: off 1.48e-2, error 1.48e-2, tol 1.0e-2
       gkv311-opencascade-dataset/step/trj1_t4m-ac.stp #1390 face #160 coedge 0: off 3.19e-4, error 3.93e-4, tol 2.2e-6
-      gkv311-opencascade-dataset/step/trj1_t4m-ac.stp #1390 face #160 coedge 2: off 5.57e-4, error 5.80e-4, tol 2.2e-6
-      gkv311-opencascade-dataset/step/trj1_t4m-ac.stp #1390 face #277 coedge 3: off 6.88e-4, error 6.88e-4, tol 2.2e-6
+      gkv311-opencascade-dataset/step/trj1_t4m-ac.stp #1390 face #160 coedge 2: off 5.57e-4, error 5.81e-4, tol 2.2e-6
+      gkv311-opencascade-dataset/step/trj1_t4m-ac.stp #1390 face #277 coedge 3: off 6.88e-4, error 6.89e-4, tol 2.2e-6
       gkv311-opencascade-dataset/step/trj1_t4m-ac.stp #1390 face #277 coedge 5: off 1.53e-4, error 2.04e-4, tol 2.2e-6
       gkv311-opencascade-dataset/step/trj1_t4m-ac.stp #1390 face #423 coedge 6: off 1.53e-4, error 2.04e-4, tol 2.2e-6
-      gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #11796 coedge 10136: off 2.29e+7, error 2.33e+7, tol 5.1e-2
       gkv311-opencascade-dataset/step/2.stp #327 face #3122 coedge 170: off 1.27e-3, error 2.24e-3, tol 1.0e-3
       gkv311-opencascade-dataset/step/2.stp #327 face #3122 coedge 171: off 3.32e-3, error 5.78e-3, tol 1.0e-3
       gkv311-opencascade-dataset/step/2.stp #327 face #3122 coedge 172: off 3.32e-3, error 5.78e-3, tol 1.0e-3
@@ -758,29 +735,29 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2775 face #14759 coedge 288: off 1.60e-3, error 1.60e-3, tol 1.0e-3
       gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2775 face #14759 coedge 289: off 1.60e-3, error 1.60e-3, tol 1.0e-3
       gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2775 face #14759 coedge 291: off 1.60e-3, error 1.60e-3, tol 1.0e-3
-      gkv311-opencascade-dataset/step/nist/nist_ctc_05_asme1_ap242-1.stp #1177 face #1404 coedge 378: off 2.06e-2, error 2.08e-2, tol 1.7e-2
-      gkv311-opencascade-dataset/step/nist/nist_ctc_05_asme1_ap242-1.stp #1177 face #1404 coedge 380: off 2.05e-2, error 2.06e-2, tol 1.7e-2
-      gkv311-opencascade-dataset/step/nist/nist_ctc_05_asme1_ap242-1.stp #1177 face #1408 coedge 397: off 2.04e-2, error 2.08e-2, tol 1.7e-2
-      gkv311-opencascade-dataset/step/nist/nist_ctc_05_asme1_ap242-1.stp #1177 face #1408 coedge 400: off 2.05e-2, error 2.06e-2, tol 1.7e-2
-      gkv311-opencascade-dataset/step/nist/nist_ctc_05_asme1_ap242-1.stp #1177 face #1420 coedge 443: off 2.05e-2, error 2.06e-2, tol 1.7e-2
-      gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp #1177 face #1404 coedge 378: off 2.06e-2, error 2.08e-2, tol 1.7e-2
-      gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp #1177 face #1404 coedge 380: off 2.05e-2, error 2.06e-2, tol 1.7e-2
-      gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp #1177 face #1408 coedge 397: off 2.04e-2, error 2.08e-2, tol 1.7e-2
-      gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp #1177 face #1408 coedge 400: off 2.05e-2, error 2.06e-2, tol 1.7e-2
-      gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp #1177 face #1420 coedge 443: off 2.05e-2, error 2.06e-2, tol 1.7e-2
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177 face #1404 coedge 378: off 2.06e-2, error 2.08e-2, tol 1.7e-2
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177 face #1404 coedge 380: off 2.05e-2, error 2.06e-2, tol 1.7e-2
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177 face #1408 coedge 397: off 2.04e-2, error 2.08e-2, tol 1.7e-2
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177 face #1408 coedge 400: off 2.05e-2, error 2.06e-2, tol 1.7e-2
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177 face #1420 coedge 443: off 2.05e-2, error 2.06e-2, tol 1.7e-2
-      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_BACK.stp #1485 face #689 coedge 49: off 6.43e-3, error 6.51e-3, tol 5.0e-3
-      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_BACK.stp #1485 face #783 coedge 53: off 6.43e-3, error 6.51e-3, tol 5.0e-3
-      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_BACK.stp #1485 face #1045 coedge 81: off 6.13e-3, error 6.21e-3, tol 5.0e-3
-      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_BACK.stp #1485 face #1183 coedge 89: off 6.13e-3, error 6.21e-3, tol 5.0e-3
-      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_FRONT.stp #1124 face #353 coedge 23: off 6.13e-3, error 6.21e-3, tol 5.0e-3
-      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_FRONT.stp #1124 face #491 coedge 31: off 6.13e-3, error 6.21e-3, tol 5.0e-3
-      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_FRONT.stp #1124 face #663 coedge 39: off 6.43e-3, error 6.51e-3, tol 5.0e-3
-      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_FRONT.stp #1124 face #757 coedge 43: off 6.43e-3, error 6.51e-3, tol 5.0e-3
+      gkv311-opencascade-dataset/step/nist/nist_ctc_05_asme1_ap242-1.stp #1177 face #1404 coedge 378: off 2.06e-2, error 2.07e-2, tol 1.7e-2
+      gkv311-opencascade-dataset/step/nist/nist_ctc_05_asme1_ap242-1.stp #1177 face #1404 coedge 380: off 2.05e-2, error 2.05e-2, tol 1.7e-2
+      gkv311-opencascade-dataset/step/nist/nist_ctc_05_asme1_ap242-1.stp #1177 face #1408 coedge 397: off 2.04e-2, error 2.07e-2, tol 1.7e-2
+      gkv311-opencascade-dataset/step/nist/nist_ctc_05_asme1_ap242-1.stp #1177 face #1408 coedge 400: off 2.05e-2, error 2.05e-2, tol 1.7e-2
+      gkv311-opencascade-dataset/step/nist/nist_ctc_05_asme1_ap242-1.stp #1177 face #1420 coedge 443: off 2.05e-2, error 2.05e-2, tol 1.7e-2
+      gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp #1177 face #1404 coedge 378: off 2.06e-2, error 2.07e-2, tol 1.7e-2
+      gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp #1177 face #1404 coedge 380: off 2.05e-2, error 2.05e-2, tol 1.7e-2
+      gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp #1177 face #1408 coedge 397: off 2.04e-2, error 2.07e-2, tol 1.7e-2
+      gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp #1177 face #1408 coedge 400: off 2.05e-2, error 2.05e-2, tol 1.7e-2
+      gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp #1177 face #1420 coedge 443: off 2.05e-2, error 2.05e-2, tol 1.7e-2
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177 face #1404 coedge 378: off 2.06e-2, error 2.07e-2, tol 1.7e-2
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177 face #1404 coedge 380: off 2.05e-2, error 2.05e-2, tol 1.7e-2
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177 face #1408 coedge 397: off 2.04e-2, error 2.07e-2, tol 1.7e-2
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177 face #1408 coedge 400: off 2.05e-2, error 2.05e-2, tol 1.7e-2
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177 face #1420 coedge 443: off 2.05e-2, error 2.05e-2, tol 1.7e-2
+      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_BACK.stp #1485 face #689 coedge 49: off 6.43e-3, error 6.47e-3, tol 5.0e-3
+      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_BACK.stp #1485 face #783 coedge 53: off 6.43e-3, error 6.47e-3, tol 5.0e-3
+      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_BACK.stp #1485 face #1045 coedge 81: off 6.13e-3, error 6.22e-3, tol 5.0e-3
+      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_BACK.stp #1485 face #1183 coedge 89: off 6.13e-3, error 6.22e-3, tol 5.0e-3
+      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_FRONT.stp #1124 face #353 coedge 23: off 6.13e-3, error 6.22e-3, tol 5.0e-3
+      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_FRONT.stp #1124 face #491 coedge 31: off 6.13e-3, error 6.22e-3, tol 5.0e-3
+      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_FRONT.stp #1124 face #663 coedge 39: off 6.43e-3, error 6.47e-3, tol 5.0e-3
+      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_FRONT.stp #1124 face #757 coedge 43: off 6.43e-3, error 6.47e-3, tol 5.0e-3
   5468  ok affineFeet (missing, cylinder)
   4847  ok affineFeet (missing, extrusion)
   4713  ok isoLine (given, cylinder)
@@ -824,12 +801,12 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #117536 face #292606 coedge 2429: off 1.55e-4, error 1.55e-4, tol 1.0e-5
       gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #117536 face #526500 coedge 2439: off 1.55e-4, error 1.55e-4, tol 1.0e-5
       gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #117536 face #526500 coedge 2443: off 1.35e-4, error 1.54e-4, tol 1.0e-5
-      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #18158 face #426986 coedge 755: off 5.29e-4, error 5.40e-4, tol 1.0e-5
-      gkv311-opencascade-dataset/step/sp7_04-do-242.stp #17823 face #5693 coedge 613: off 5.20e-3, error 5.76e-3, tol 5.0e-3
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #18158 face #426986 coedge 755: off 5.29e-4, error 5.39e-4, tol 1.0e-5
+      gkv311-opencascade-dataset/step/sp7_04-do-242.stp #17823 face #5693 coedge 613: off 5.20e-3, error 5.57e-3, tol 5.0e-3
       gkv311-opencascade-dataset/step/sp7_04-do-242.stp #17823 face #5742 coedge 621: off 6.52e-3, error 6.65e-3, tol 5.0e-3
       gkv311-opencascade-dataset/step/sp7_04-do-242.stp #17823 face #5890 coedge 645: off 5.61e-3, error 5.70e-3, tol 5.0e-3
-      gkv311-opencascade-dataset/step/sp7_04-do-242.stp #17823 face #6085 coedge 677: off 5.69e-3, error 6.20e-3, tol 5.0e-3
-      gkv311-opencascade-dataset/step/sp7_04-do-242.stp #17823 face #6137 coedge 685: off 5.98e-3, error 6.26e-3, tol 5.0e-3
+      gkv311-opencascade-dataset/step/sp7_04-do-242.stp #17823 face #6085 coedge 677: off 5.69e-3, error 6.12e-3, tol 5.0e-3
+      gkv311-opencascade-dataset/step/sp7_04-do-242.stp #17823 face #6137 coedge 685: off 5.98e-3, error 6.05e-3, tol 5.0e-3
       gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17220 face #20947 coedge 3: off 1.29e-2, error 1.29e-2, tol 1.0e-6
       gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17190 face #20935 coedge 0: off 3.28e-4, error 3.32e-4, tol 1.0e-6
       gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17190 face #20935 coedge 6: off 3.28e-4, error 3.32e-4, tol 1.0e-6
@@ -866,10 +843,10 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/bug33398.step #13688 face #9 coedge 464: off 1.06e-4, error 1.06e-4, tol 1.0e-5
       gkv311-opencascade-dataset/step/trj8_k1-md-214.stp #10 face #578 coedge 90: off 1.78e-4, error 1.78e-4, tol 2.1e-6
       gkv311-opencascade-dataset/step/trj8_k1-md-214.stp #10 face #578 coedge 94: off 1.85e-4, error 1.85e-4, tol 2.1e-6
-      gkv311-opencascade-dataset/step/bug25912_GDT_exc.stp #6338 face #4172 coedge 544: off 5.99e-3, error 6.78e-3, tol 5.0e-3
+      gkv311-opencascade-dataset/step/bug25912_GDT_exc.stp #6338 face #4172 coedge 544: off 5.99e-3, error 6.41e-3, tol 5.0e-3
       gkv311-opencascade-dataset/step/bug25912_GDT_exc.stp #6338 face #4356 coedge 588: off 9.78e-3, error 9.97e-3, tol 5.0e-3
       gkv311-opencascade-dataset/step/bug25912_GDT_exc.stp #6338 face #4515 coedge 612: off 8.42e-3, error 8.56e-3, tol 5.0e-3
-      gkv311-opencascade-dataset/step/bug25912_GDT_exc.stp #6338 face #4569 coedge 620: off 6.47e-3, error 7.13e-3, tol 5.0e-3
+      gkv311-opencascade-dataset/step/bug25912_GDT_exc.stp #6338 face #4569 coedge 620: off 6.47e-3, error 6.87e-3, tol 5.0e-3
       gkv311-opencascade-dataset/step/bug31685_3.stp #17 face #4947 coedge 11: off 1.84e-3, error 2.15e-3, tol 1.0e-3
       gkv311-opencascade-dataset/step/bug31685_3.stp #17 face #5296 coedge 42: off 1.84e-3, error 2.15e-3, tol 1.0e-3
       gkv311-opencascade-dataset/step/bug31685_3.stp #17 face #5343 coedge 46: off 1.84e-3, error 2.15e-3, tol 1.0e-3
@@ -932,23 +909,23 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/trj4_k1_geo-tu-214.stp #2080 face #558 coedge 33: off 3.92e-4, error 4.42e-4, tol 1.0e-5
       gkv311-opencascade-dataset/step/trj4_k1_geo-tu-214.stp #2080 face #1711 coedge 170: off 2.70e-4, error 2.77e-4, tol 1.0e-5
       gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1878 face #23967 coedge 14: off 1.31e-3, error 1.61e-3, tol 1.0e-3
-      gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1549 face #20429 coedge 83: off 2.54e-3, error 2.61e-3, tol 1.0e-3
+      gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1549 face #20429 coedge 83: off 2.54e-3, error 2.58e-3, tol 1.0e-3
       gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1549 face #20429 coedge 85: off 1.45e-3, error 1.60e-3, tol 1.0e-3
       gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1549 face #17891 coedge 88: off 1.21e-3, error 1.34e-3, tol 1.0e-3
       gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1549 face #17891 coedge 92: off 1.75e-3, error 1.76e-3, tol 1.0e-3
       gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #71291 face #58420 coedge 5728: off 7.51e-2, error 7.51e-2, tol 6.1e-2
       gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #71291 face #58431 coedge 5731: off 7.51e-2, error 7.51e-2, tol 6.1e-2
       gkv311-opencascade-dataset/step/nist/bug28444_nist_ftc_06_asme1_ct5240_rd.stp #7107 face #5309 coedge 693: off 9.30e-1, error 9.30e-1, tol 5.0e-3
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_04_asme1_ap242-e1.stp #18027 face #12538 coedge 1608: off 5.06e-2, error 5.07e-2, tol 5.0e-3
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_04_asme1_ap242-e1.stp #18027 face #13013 coedge 1753: off 5.06e-2, error 5.07e-2, tol 5.0e-3
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_04_asme1_ap242-e1.stp #18027 face #13062 coedge 1761: off 5.06e-2, error 5.07e-2, tol 5.0e-3
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp #3044 face #7042 coedge 394: off 5.86e-3, error 5.98e-3, tol 5.0e-3
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp #3044 face #7042 coedge 395: off 5.86e-3, error 5.98e-3, tol 5.0e-3
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp #3044 face #7042 coedge 396: off 5.76e-3, error 5.98e-3, tol 5.0e-3
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp #3044 face #7044 coedge 400: off 5.86e-3, error 5.98e-3, tol 5.0e-3
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp #3044 face #7044 coedge 401: off 5.89e-3, error 5.98e-3, tol 5.0e-3
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_11_asme1_ap242-e2.stp #466 face #1217 coedge 124: off 8.16e-3, error 8.29e-3, tol 5.0e-3
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_11_asme1_ap242-e2.stp #466 face #1219 coedge 132: off 5.17e-3, error 5.20e-3, tol 5.0e-3
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_04_asme1_ap242-e1.stp #18027 face #12538 coedge 1608: off 5.06e-2, error 5.06e-2, tol 5.0e-3
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_04_asme1_ap242-e1.stp #18027 face #13013 coedge 1753: off 5.06e-2, error 5.06e-2, tol 5.0e-3
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_04_asme1_ap242-e1.stp #18027 face #13062 coedge 1761: off 5.06e-2, error 5.06e-2, tol 5.0e-3
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp #3044 face #7042 coedge 394: off 5.86e-3, error 5.99e-3, tol 5.0e-3
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp #3044 face #7042 coedge 395: off 5.86e-3, error 5.99e-3, tol 5.0e-3
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp #3044 face #7042 coedge 396: off 5.76e-3, error 5.99e-3, tol 5.0e-3
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp #3044 face #7044 coedge 400: off 5.86e-3, error 5.99e-3, tol 5.0e-3
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp #3044 face #7044 coedge 401: off 5.89e-3, error 5.99e-3, tol 5.0e-3
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_11_asme1_ap242-e2.stp #466 face #1217 coedge 124: off 8.16e-3, error 8.25e-3, tol 5.0e-3
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_11_asme1_ap242-e2.stp #466 face #1219 coedge 132: off 5.17e-3, error 5.22e-3, tol 5.0e-3
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_11_asme1_ap242-e2.stp #466 face #1227 coedge 164: off 1.39e-2, error 1.40e-2, tol 5.0e-3
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_07_asme1_ap242-e3.stp #11020 face #8915 coedge 1323: off 5.18e-3, error 5.19e-3, tol 5.0e-3
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_07_asme1_ap242-e3.stp #11020 face #8939 coedge 1328: off 5.18e-3, error 5.19e-3, tol 5.0e-3
@@ -961,7 +938,7 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
   3764  ok isoLine (missing, sphere)
   3598  ok affineFeet (given, bspline)
   2971  ok affineFeet (missing, cone)
-  1928  ok traced (missing, sphere)
+  1938  ok traced (missing, sphere)
   1516  invalidModel affineFeet (missing, bspline)
       gkv311-opencascade-dataset/step/bug30014.stp #61091 face #24027 coedge 221: off 1.34e-5, error 1.34e-5, tol 1.0e-5
       gkv311-opencascade-dataset/step/bug30014.stp #61091 face #96369 coedge 243: off 1.34e-5, error 1.34e-5, tol 1.0e-5
@@ -996,12 +973,12 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1549 face #17257 coedge 222: off 3.27e-3, error 3.27e-3, tol 1.0e-3
       gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1549 face #20857 coedge 231: off 3.27e-3, error 3.27e-3, tol 1.0e-3
   1360  ok traced (given, bspline)
-  1305  ok traced (missing, torus)
+  1298  ok traced (missing, torus)
   1163  ok traced (given, cylinder)
   1093  ok affineFeet (missing, revolution)
   972  ok isoLine (given, torus)
   870  ok affineFeet (missing, sphere)
-  859  ok traced (missing, revolution)
+  860  ok traced (missing, revolution)
   815  ok affineFeet (missing, torus)
   561  invalidModel affineFeet (missing, cylinder)
       gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #329592 face #107362 coedge 269: off 1.79e-4, error 1.79e-4, tol 1.0e-5
@@ -1030,8 +1007,8 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/bug30014.stp #18469 face #23009 coedge 42: off 7.11e-4, error 7.15e-4, tol 1.0e-5
       gkv311-opencascade-dataset/step/bug30014.stp #18469 face #35892 coedge 47: off 2.77e-4, error 2.82e-4, tol 1.0e-5
       gkv311-opencascade-dataset/step/bug30014.stp #41105 face #50639 coedge 189: off 3.16e-4, error 3.25e-4, tol 1.0e-5
-      gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787 face #846 coedge 424: off 9.65e-4, error 9.89e-4, tol 1.0e-5
-      gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787 face #847 coedge 426: off 9.58e-4, error 9.83e-4, tol 1.0e-5
+      gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787 face #846 coedge 424: off 9.65e-4, error 9.90e-4, tol 1.0e-5
+      gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787 face #847 coedge 426: off 9.58e-4, error 9.84e-4, tol 1.0e-5
       gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #18158 face #29447 coedge 22: off 1.48e-4, error 1.48e-4, tol 1.0e-5
       gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #18158 face #30492 coedge 758: off 4.71e-4, error 4.97e-4, tol 1.0e-5
       gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #18158 face #30492 coedge 760: off 4.71e-4, error 4.97e-4, tol 1.0e-5
@@ -1061,7 +1038,7 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/bug25287_bad_tess_face_plus.step #2134 face #12184 coedge 327: off 9.52e-5, error 9.53e-5, tol 1.0e-5
       gkv311-opencascade-dataset/step/bug25287_bad_tess_face_plus.step #2134 face #12184 coedge 328: off 2.95e-4, error 3.02e-4, tol 1.0e-5
       gkv311-opencascade-dataset/step/bug25287_bad_tess_face_plus.step #2134 face #12184 coedge 329: off 1.26e-4, error 1.26e-4, tol 1.0e-5
-      gkv311-opencascade-dataset/step/bug25287_bad_tess_face_plus.step #2134 face #12184 coedge 330: off 7.49e-5, error 7.51e-5, tol 1.0e-5
+      gkv311-opencascade-dataset/step/bug25287_bad_tess_face_plus.step #2134 face #12184 coedge 330: off 7.49e-5, error 7.50e-5, tol 1.0e-5
       gkv311-opencascade-dataset/step/bug32239.STEP #116154 face #80504 coedge 183: off 3.41e-4, error 3.41e-4, tol 2.5e-4
       gkv311-opencascade-dataset/step/bug32239.STEP #116154 face #24689 coedge 189: off 3.41e-4, error 3.41e-4, tol 2.5e-4
       gkv311-opencascade-dataset/step/bug32239.STEP #116154 face #119643 coedge 193: off 2.96e-4, error 3.04e-4, tol 2.5e-4
@@ -1103,8 +1080,8 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/Checking_Fixture_Clamping.STEP #5594 face #8431 coedge 188: off 9.56e-4, error 9.81e-4, tol 1.0e-5
       gkv311-opencascade-dataset/step/Checking_Fixture_Clamping.STEP #5594 face #8329 coedge 1200: off 1.20e-4, error 1.27e-4, tol 1.0e-5
       gkv311-opencascade-dataset/step/Checking_Fixture_Clamping.STEP #5594 face #8329 coedge 1204: off 1.20e-4, error 1.27e-4, tol 1.0e-5
-      gkv311-opencascade-dataset/step/Checking_Fixture_Clamping.STEP #5594 face #8410 coedge 1209: off 4.51e-5, error 4.51e-5, tol 1.0e-5
-      gkv311-opencascade-dataset/step/Checking_Fixture_Clamping.STEP #5594 face #8410 coedge 1213: off 4.51e-5, error 4.51e-5, tol 1.0e-5
+      gkv311-opencascade-dataset/step/Checking_Fixture_Clamping.STEP #5594 face #8410 coedge 1209: off 4.51e-5, error 4.52e-5, tol 1.0e-5
+      gkv311-opencascade-dataset/step/Checking_Fixture_Clamping.STEP #5594 face #8410 coedge 1213: off 4.51e-5, error 4.52e-5, tol 1.0e-5
       gkv311-opencascade-dataset/step/bug33398.step #13688 face #3484 coedge 16: off 2.60e-5, error 2.60e-5, tol 1.0e-5
       gkv311-opencascade-dataset/step/bug33398.step #13688 face #3497 coedge 121: off 1.23e-4, error 1.23e-4, tol 1.0e-5
       gkv311-opencascade-dataset/step/bug33398.step #13688 face #3497 coedge 123: off 1.19e-4, error 1.22e-4, tol 1.0e-5
@@ -1133,7 +1110,7 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/bug31670_russian.stp #31639 face #8801 coedge 82: off 1.63e-5, error 1.63e-5, tol 1.0e-5
       gkv311-opencascade-dataset/step/bug31670_russian.stp #12383 face #6299 coedge 6: off 2.17e-5, error 2.23e-5, tol 1.0e-5
       gkv311-opencascade-dataset/step/2.stp #327 face #3116 coedge 1: off 1.92e-3, error 1.92e-3, tol 1.0e-3
-  308  invalidModel planeAffine (missing, plane)
+  307  invalidModel planeAffine (missing, plane)
       gkv311-opencascade-dataset/step/trj4_k1_top-tc-214.stp #5699 face #3687 coedge 199: off 2.65e-5, error 2.65e-5, tol 1.0e-5
       gkv311-opencascade-dataset/step/trj4_k1_top-tc-214.stp #5699 face #3687 coedge 200: off 2.65e-5, error 2.65e-5, tol 1.0e-5
       gkv311-opencascade-dataset/step/trj4_k1_top-tc-214.stp #5699 face #3687 coedge 202: off 2.35e-5, error 2.35e-5, tol 1.0e-5
@@ -1155,8 +1132,8 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/bug25415_part_of_hdrv8w64p254_4x2_1016x502h838p.stp #418 face #125 coedge 8: off 2.39e+0, error 2.39e+0, tol 1.0e-5
       gkv311-opencascade-dataset/step/bug25415_part_of_hdrv8w64p254_4x2_1016x502h838p.stp #418 face #125 coedge 10: off 4.42e-1, error 4.42e-1, tol 1.0e-5
       gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #16825 face #20789 coedge 0: off 1.10e-3, error 1.10e-3, tol 1.0e-6
-      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #16825 face #20789 coedge 1: off 1.85e-3, error 1.85e-3, tol 1.0e-6
-      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #16825 face #20789 coedge 2: off 5.47e-1, error 5.47e-1, tol 1.0e-6
+      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #16825 face #20789 coedge 1: off 1.10e-3, error 1.10e-3, tol 1.0e-6
+      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #16825 face #20789 coedge 2: off 9.14e-4, error 9.14e-4, tol 1.0e-6
       gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #16825 face #20789 coedge 3: off 6.12e-4, error 6.12e-4, tol 1.0e-6
       gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #16505 face #20661 coedge 0: off 1.69e-4, error 1.69e-4, tol 1.0e-6
       gkv311-opencascade-dataset/step/bug27934_TEST_Machine_Part-brep-pmi.stp #4963 face #4521 coedge 569: off 1.42e-2, error 1.42e-2, tol 5.0e-3
@@ -1169,45 +1146,14 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp #5203 face #3355 coedge 200: off 2.65e-5, error 2.65e-5, tol 1.0e-5
       gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp #5203 face #3355 coedge 202: off 2.35e-5, error 2.35e-5, tol 1.0e-5
       gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp #5203 face #3355 coedge 203: off 2.35e-5, error 2.35e-5, tol 1.0e-5
-      gkv311-opencascade-dataset/step/bug23202_Leuchte.stp #29007 face #27513 coedge 3864: off 2.50e+0, error 2.50e+0, tol 1.0e-2
   307  ok traced (given, torus)
-  300  singular traced (missing, bspline)
-      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #2287 coedge 230: off 0.00e+0, error 0.00e+0, tol 1.0e+0
-      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #3806 coedge 378: off 0.00e+0, error 0.00e+0, tol 1.0e+0
-      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #5259 coedge 524: off 0.00e+0, error 0.00e+0, tol 1.0e+0
-      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #5259 coedge 525: off 0.00e+0, error 0.00e+0, tol 1.0e+0
-      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #5592 coedge 557: off 0.00e+0, error 0.00e+0, tol 1.0e+0
-      gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 face #2281 coedge 229: off 0.00e+0, error 0.00e+0, tol 1.0e+0
-      gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 face #3799 coedge 376: off 0.00e+0, error 0.00e+0, tol 1.0e+0
-      gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 face #5252 coedge 522: off 0.00e+0, error 0.00e+0, tol 1.0e+0
-      gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 face #5252 coedge 523: off 0.00e+0, error 0.00e+0, tol 1.0e+0
-      gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 face #5585 coedge 555: off 0.00e+0, error 0.00e+0, tol 1.0e+0
-      gkv311-opencascade-dataset/step/trj7_k1-id-214.stp #44 face #849 coedge 118: off 0.00e+0, error 0.00e+0, tol 1.0e-2
-      gkv311-opencascade-dataset/step/trj7_k1-id-214.stp #44 face #849 coedge 120: off 0.00e+0, error 0.00e+0, tol 1.0e-2
-      gkv311-opencascade-dataset/step/trj7_k1-id-214.stp #44 face #923 coedge 122: off 0.00e+0, error 0.00e+0, tol 1.0e-2
-      gkv311-opencascade-dataset/step/trj7_k1-id-214.stp #44 face #923 coedge 124: off 0.00e+0, error 0.00e+0, tol 1.0e-2
-      gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #11252 coedge 7514: off 0.00e+0, error 0.00e+0, tol 5.1e-2
-      gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #11252 coedge 7516: off 0.00e+0, error 0.00e+0, tol 5.1e-2
-      gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #11253 coedge 7518: off 0.00e+0, error 0.00e+0, tol 5.1e-2
-      gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #11253 coedge 7520: off 0.00e+0, error 0.00e+0, tol 5.1e-2
-      gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #11342 coedge 7948: off 0.00e+0, error 0.00e+0, tol 5.1e-2
-      gkv311-opencascade-dataset/step/bug24055_8MTF-75LS05.step #93397 face #9253 coedge 984: off 0.00e+0, error 0.00e+0, tol 1.0e-2
-      gkv311-opencascade-dataset/step/bug24055_8MTF-75LS05.step #93397 face #9253 coedge 986: off 0.00e+0, error 0.00e+0, tol 1.0e-2
-      gkv311-opencascade-dataset/step/bug24055_8MTF-75LS05.step #93397 face #9290 coedge 988: off 0.00e+0, error 0.00e+0, tol 1.0e-2
-      gkv311-opencascade-dataset/step/bug24055_8MTF-75LS05.step #93397 face #9290 coedge 990: off 0.00e+0, error 0.00e+0, tol 1.0e-2
-      gkv311-opencascade-dataset/step/bug24055_8MTF-75LS05.step #93397 face #9327 coedge 992: off 0.00e+0, error 0.00e+0, tol 1.0e-2
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_07_asme1_ap242-e2.stp #13541 face #10905 coedge 1348: off 0.00e+0, error 0.00e+0, tol 1.3e-1
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_07_asme1_ap242-e2.stp #13541 face #10944 coedge 1353: off 0.00e+0, error 0.00e+0, tol 1.3e-1
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_07_asme1_ap242-e2.stp #13541 face #10997 coedge 1361: off 0.00e+0, error 0.00e+0, tol 1.3e-1
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_07_asme1_ap242-e2.stp #13541 face #11036 coedge 1369: off 0.00e+0, error 0.00e+0, tol 1.3e-1
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_07_asme1_ap242-e2.stp #13541 face #11357 coedge 1396: off 0.00e+0, error 0.00e+0, tol 1.3e-1
   284  invalidModel traced (given, bspline)
       gkv311-opencascade-dataset/step/bug21802_as1-oc-214.stp #3812 face #5564 coedge 34: off 2.21e-5, error 2.59e-5, tol 1.0e-5
       gkv311-opencascade-dataset/step/bug21802_as1-oc-214.stp #3812 face #5635 coedge 38: off 2.21e-5, error 2.59e-5, tol 1.0e-5
       gkv311-opencascade-dataset/step/bug21802_as1-oc-214.stp #3812 face #5664 coedge 42: off 2.21e-5, error 2.59e-5, tol 1.0e-5
       gkv311-opencascade-dataset/step/bug21802_as1-oc-214.stp #3812 face #5735 coedge 46: off 2.21e-5, error 2.59e-5, tol 1.0e-5
       gkv311-opencascade-dataset/step/bug21802_as1-oc-214.stp #3812 face #5764 coedge 50: off 2.21e-5, error 2.59e-5, tol 1.0e-5
-      gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #14 coedge 1: off 3.07e-2, error 3.08e-2, tol 1.0e-3
+      gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #14 coedge 1: off 3.07e-2, error 3.07e-2, tol 1.0e-3
       gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #2106 coedge 50: off 1.23e-2, error 1.29e-2, tol 1.0e-3
       gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #2241 coedge 70: off 2.09e-2, error 2.19e-2, tol 1.0e-3
       gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #2306 coedge 77: off 2.30e-2, error 2.30e-2, tol 1.0e-3
@@ -1218,7 +1164,7 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/as1-oc-214-mat.stp #3812 face #5735 coedge 46: off 2.21e-5, error 2.59e-5, tol 1.0e-5
       gkv311-opencascade-dataset/step/as1-oc-214-mat.stp #3812 face #5764 coedge 50: off 2.21e-5, error 2.59e-5, tol 1.0e-5
       gkv311-opencascade-dataset/step/t4mec.stp #9 face #12 coedge 15: off 1.65e-2, error 1.65e-2, tol 6.0e-3
-      gkv311-opencascade-dataset/step/t4mec.stp #9 face #1509 coedge 62: off 1.00e-2, error 1.12e-2, tol 6.0e-3
+      gkv311-opencascade-dataset/step/t4mec.stp #9 face #1509 coedge 62: off 1.00e-2, error 1.14e-2, tol 6.0e-3
       gkv311-opencascade-dataset/step/OCC23251-dm1-oc-214.stp #1488 face #2866 coedge 34: off 2.21e-5, error 2.59e-5, tol 5.0e-6
       gkv311-opencascade-dataset/step/OCC23251-dm1-oc-214.stp #1488 face #2937 coedge 38: off 2.21e-5, error 2.59e-5, tol 5.0e-6
       gkv311-opencascade-dataset/step/OCC23251-dm1-oc-214.stp #1488 face #2993 coedge 46: off 2.21e-5, error 2.59e-5, tol 5.0e-6
@@ -1229,8 +1175,8 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/bug31292.stp #3812 face #5664 coedge 42: off 2.21e-5, error 2.59e-5, tol 1.0e-5
       gkv311-opencascade-dataset/step/bug31292.stp #3812 face #5735 coedge 46: off 2.21e-5, error 2.59e-5, tol 1.0e-5
       gkv311-opencascade-dataset/step/bug31292.stp #3812 face #5764 coedge 50: off 2.21e-5, error 2.59e-5, tol 1.0e-5
-      gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #24952 coedge 871: off 4.74e-5, error 4.90e-5, tol 2.0e-6
-      gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #39382 coedge 1936: off 4.74e-5, error 4.90e-5, tol 2.0e-6
+      gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #24952 coedge 871: off 4.74e-5, error 4.92e-5, tol 2.0e-6
+      gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #39382 coedge 1936: off 4.74e-5, error 4.92e-5, tol 2.0e-6
       gkv311-opencascade-dataset/step/bm2_ec_exhaust-A.stp #9 face #1944 coedge 131: off 5.80e-2, error 5.84e-2, tol 1.5e-2
       gkv311-opencascade-dataset/step/bm2_ec_exhaust-A.stp #9 face #2491 coedge 135: off 3.64e+0, error 3.78e+0, tol 1.5e-2
       gkv311-opencascade-dataset/step/bm2_ec_exhaust-A.stp #9 face #2765 coedge 139: off 5.80e-2, error 5.84e-2, tol 1.5e-2
@@ -1241,8 +1187,8 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/trj4_k1_geo-ac-214.stp #10298 face #1037 coedge 23: off 1.07e-6, error 1.08e-6, tol 1.0e-6
       gkv311-opencascade-dataset/step/trj4_k1_geo-ac-214.stp #10298 face #1312 coedge 27: off 1.07e-6, error 1.08e-6, tol 1.0e-6
       gkv311-opencascade-dataset/step/trj4_k1_geo-ac-214.stp #10298 face #1312 coedge 29: off 1.15e-5, error 1.15e-5, tol 1.0e-6
-      gkv311-opencascade-dataset/step/trj8_k1-db-214.stp #5 face #2506 coedge 21: off 3.02e-3, error 3.02e-3, tol 1.0e-3
-      gkv311-opencascade-dataset/step/trj8_k1-db-214.stp #5 face #2665 coedge 25: off 3.02e-3, error 3.02e-3, tol 1.0e-3
+      gkv311-opencascade-dataset/step/trj8_k1-db-214.stp #5 face #2506 coedge 21: off 3.02e-3, error 3.03e-3, tol 1.0e-3
+      gkv311-opencascade-dataset/step/trj8_k1-db-214.stp #5 face #2665 coedge 25: off 3.02e-3, error 3.03e-3, tol 1.0e-3
       gkv311-opencascade-dataset/step/trj8_k1-db-214.stp #5 face #2867 coedge 29: off 1.42e-3, error 1.44e-3, tol 1.0e-3
       gkv311-opencascade-dataset/step/trj8_k1-db-214.stp #5 face #3027 coedge 33: off 1.42e-3, error 1.44e-3, tol 1.0e-3
       gkv311-opencascade-dataset/step/trj8_k1-db-214.stp #5 face #4415 coedge 57: off 1.47e-3, error 1.47e-3, tol 1.0e-3
@@ -1305,22 +1251,22 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/trj3_s1-ec-214.stp #525 face #624 coedge 11: off 1.72e-7, error 1.72e-7, tol 1.3e-7
       gkv311-opencascade-dataset/step/trj3_s1-ec-214.stp #62 face #241 coedge 19: off 1.72e-7, error 1.72e-7, tol 1.5e-7
   119  ok affineFeet (given, extrusion)
-  106  noConvergence traced (missing, bspline)
+  110  noConvergence traced (missing, bspline)
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #329592 face #206982 coedge 1473: off 0.00e+0, error 0.00e+0, tol 1.0e-5
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #329592 face #206982 coedge 1474: off 0.00e+0, error 0.00e+0, tol 1.0e-5
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #329592 face #93023 coedge 1580: off 0.00e+0, error 0.00e+0, tol 1.0e-5
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #329592 face #93023 coedge 1581: off 0.00e+0, error 0.00e+0, tol 1.0e-5
       gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #329592 face #182041 coedge 3899: off 9.45e-6, error 1.07e-5, tol 1.0e-5
-      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 face #311928 coedge 2139: off 0.00e+0, error 0.00e+0, tol 1.0e-5
-      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 face #128930 coedge 2287: off 0.00e+0, error 0.00e+0, tol 1.0e-5
-      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 face #334072 coedge 2300: off 0.00e+0, error 0.00e+0, tol 1.0e-5
-      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 face #279826 coedge 3252: off 0.00e+0, error 0.00e+0, tol 1.0e-5
-      gkv311-opencascade-dataset/step/as1_motor.step #7316 face #7575 coedge 37: off 1.82e-12, error 7.73e-4, tol 1.4e-4
-      gkv311-opencascade-dataset/step/as1_motor.step #7316 face #8464 coedge 58: off 1.82e-12, error 7.73e-4, tol 1.4e-4
+      gkv311-opencascade-dataset/step/as1_motor.step #7316 face #7575 coedge 37: off 1.82e-12, error 7.67e-4, tol 1.4e-4
+      gkv311-opencascade-dataset/step/as1_motor.step #7316 face #8464 coedge 58: off 1.82e-12, error 7.67e-4, tol 1.4e-4
       gkv311-opencascade-dataset/step/bug25287_bad_tess_face_plus.step #2134 face #2738 coedge 286: off 9.98e-6, error 1.00e-5, tol 1.0e-5
       gkv311-opencascade-dataset/step/bug25287_bad_tess_face_plus.step #2134 face #5924 coedge 750: off 0.00e+0, error 0.00e+0, tol 1.0e-5
       gkv311-opencascade-dataset/step/bug25287_bad_tess_face_plus.step #2134 face #1979 coedge 796: off 3.73e-8, error 1.59e-5, tol 1.0e-5
       gkv311-opencascade-dataset/step/bug32239.STEP #116154 face #110741 coedge 2030: off 1.52e-7, error 6.85e-4, tol 2.5e-4
-      gkv311-opencascade-dataset/step/bug32239.STEP #116154 face #97080 coedge 2031: off 1.98e-5, error 6.81e-4, tol 2.5e-4
       gkv311-opencascade-dataset/step/bug32239.STEP #116154 face #117859 coedge 4046: off 2.26e-4, error 2.59e-4, tol 2.5e-4
       gkv311-opencascade-dataset/step/bug32239.STEP #109721 face #80051 coedge 226: off 2.40e-4, error 2.83e-4, tol 2.5e-4
       gkv311-opencascade-dataset/step/bug32239.STEP #109721 face #101503 coedge 238: off 2.40e-4, error 2.83e-4, tol 2.5e-4
+      gkv311-opencascade-dataset/step/bug32239.STEP #70862 face #69616 coedge 383: off 1.25e-4, error 2.56e-4, tol 2.5e-4
       gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #11254 coedge 7524: off 2.55e-5, error 2.33e+7, tol 5.1e-2
       gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #11256 coedge 7532: off 2.12e-3, error 2.33e+7, tol 5.1e-2
       gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #11344 coedge 7958: off 2.55e-5, error 2.33e+7, tol 5.1e-2
@@ -1372,20 +1318,19 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/trj5_k1-md-203.stp #10 face #911 coedge 123: off 3.93e-4, error 3.96e-4, tol 2.1e-6
       gkv311-opencascade-dataset/step/trj5_k1-md-203.stp #10 face #911 coedge 125: off 4.12e-5, error 4.13e-5, tol 2.1e-6
       gkv311-opencascade-dataset/step/trj5_k1-md-203.stp #10 face #911 coedge 126: off 1.11e-3, error 1.12e-3, tol 2.1e-6
-  88  noConvergence traced (missing, cylinder)
+  88  ok traced (given, sphere)
+  78  ok affineFeet (given, cylinder)
+  76  noConvergence traced (missing, cylinder)
       gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #30730 face #7040 coedge 9: off 3.36e-7, error 1.51e-5, tol 1.0e-6
       gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #30730 face #29690 coedge 236: off 3.36e-7, error 1.51e-5, tol 1.0e-6
       gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #329592 face #189096 coedge 7824: off 8.82e-6, error 1.13e-5, tol 1.0e-5
       gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #206858 face #357810 coedge 17375: off 9.96e-6, error 1.35e-5, tol 1.0e-5
-      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #69799 face #356478 coedge 115: off 5.73e-7, error 2.24e-5, tol 1.0e-5
-      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #69799 face #356478 coedge 125: off 3.54e-7, error 2.94e-5, tol 1.0e-5
-      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #69799 face #356478 coedge 162: off 1.07e-6, error 1.14e-4, tol 1.0e-5
       gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #15050 face #20079 coedge 1: off 9.92e-7, error 1.02e-6, tol 1.0e-6
       gkv311-opencascade-dataset/step/bug33398.step #13688 face #6815 coedge 553: off 9.27e-6, error 1.17e-5, tol 1.0e-5
       gkv311-opencascade-dataset/step/bug33398.step #13688 face #6815 coedge 557: off 9.27e-6, error 1.17e-5, tol 1.0e-5
       gkv311-opencascade-dataset/step/bug33398.step #13688 face #6815 coedge 561: off 9.27e-6, error 1.17e-5, tol 1.0e-5
       gkv311-opencascade-dataset/step/bug33398.step #13688 face #6864 coedge 574: off 9.27e-6, error 1.17e-5, tol 1.0e-5
-      gkv311-opencascade-dataset/step/bug25912_GDT_exc.stp #6338 face #3850 coedge 496: off 4.93e-3, error 5.09e-3, tol 5.0e-3
+      gkv311-opencascade-dataset/step/bug25912_GDT_exc.stp #6338 face #3850 coedge 496: off 4.93e-3, error 5.01e-3, tol 5.0e-3
       gkv311-opencascade-dataset/step/bug32239.STEP #116154 face #105684 coedge 1064: off 2.50e-4, error 3.18e-4, tol 2.5e-4
       gkv311-opencascade-dataset/step/bug32239.STEP #116154 face #108790 coedge 1068: off 2.21e-4, error 2.91e-4, tol 2.5e-4
       gkv311-opencascade-dataset/step/2.stp #342 face #3172 coedge 1: off 3.56e-14, error 4.67e-3, tol 1.0e-3
@@ -1398,8 +1343,6 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1878 face #22111 coedge 39: off 1.30e-4, error 1.58e-3, tol 1.0e-3
       gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1844 face #20841 coedge 41: off 6.41e-4, error 1.64e-3, tol 1.0e-3
       gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1844 face #22511 coedge 240: off 8.56e-4, error 1.52e-3, tol 1.0e-3
-  88  ok traced (given, sphere)
-  78  ok affineFeet (given, cylinder)
   54  ok traced (given, cone)
   48  no 3D curve (not measured)
       gkv311-opencascade-dataset/step/bug22871_null-swept-curve.stp #10 face #3441 coedge 9
@@ -1412,6 +1355,21 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17475 face #21049 coedge 1
       gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17415 face #21025 coedge 1
       gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17395 face #21017 coedge 1
+  44  singular traced (missing, bspline)
+      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #6222 coedge 609: off 0.00e+0, error 0.00e+0, tol 1.0e+0
+      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #6222 coedge 610: off 0.00e+0, error 0.00e+0, tol 1.0e+0
+      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #7099 coedge 694: off 0.00e+0, error 0.00e+0, tol 1.0e+0
+      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #7099 coedge 695: off 0.00e+0, error 0.00e+0, tol 1.0e+0
+      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #7737 coedge 745: off 0.00e+0, error 0.00e+0, tol 1.0e+0
+      gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 face #6215 coedge 607: off 0.00e+0, error 0.00e+0, tol 1.0e+0
+      gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 face #6215 coedge 608: off 0.00e+0, error 0.00e+0, tol 1.0e+0
+      gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 face #7092 coedge 692: off 0.00e+0, error 0.00e+0, tol 1.0e+0
+      gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 face #7092 coedge 693: off 0.00e+0, error 0.00e+0, tol 1.0e+0
+      gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 face #7730 coedge 743: off 0.00e+0, error 0.00e+0, tol 1.0e+0
+      gkv311-opencascade-dataset/step/trj7_k1-id-214.stp #44 face #849 coedge 118: off 0.00e+0, error 0.00e+0, tol 1.0e-2
+      gkv311-opencascade-dataset/step/trj7_k1-id-214.stp #44 face #849 coedge 120: off 0.00e+0, error 0.00e+0, tol 1.0e-2
+      gkv311-opencascade-dataset/step/trj7_k1-id-214.stp #44 face #923 coedge 122: off 0.00e+0, error 0.00e+0, tol 1.0e-2
+      gkv311-opencascade-dataset/step/trj7_k1-id-214.stp #44 face #923 coedge 124: off 0.00e+0, error 0.00e+0, tol 1.0e-2
   40  invalidModel traced (given, cylinder)
       gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #417 coedge 14: off 2.31e-6, error 3.04e-6, tol 2.0e-6
       gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #2441 coedge 49: off 4.69e-5, error 4.85e-5, tol 2.0e-6
@@ -1447,32 +1405,6 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
   36  ok affineFeet (given, revolution)
   33  ok affineFeet (given, torus)
   29  ok traced (given, extrusion)
-  27  invalidModel traced (missing, sphere)
-      gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3140 face #1931 coedge 24: off 1.27e+1, error 1.38e+1, tol 1.0e-5
-      gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3140 face #1933 coedge 27: off 1.41e+1, error 1.61e+1, tol 1.0e-5
-      gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3139 face #1920 coedge 3: off 1.27e+1, error 1.38e+1, tol 1.0e-5
-      gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3139 face #1922 coedge 6: off 1.41e+1, error 1.61e+1, tol 1.0e-5
-      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #16975 face #20849 coedge 1: off 3.85e-1, error 5.06e-1, tol 1.0e-6
-      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #16280 face #20571 coedge 0: off 2.55e-1, error 4.08e-1, tol 1.0e-6
-      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #12210 face #18943 coedge 0: off 2.55e-1, error 4.08e-1, tol 1.0e-6
-      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #12170 face #18927 coedge 2: off 3.85e-1, error 5.06e-1, tol 1.0e-6
-      gkv311-opencascade-dataset/step/trj4_k1_geo-md-203.stp #542 face #1087 coedge 81: off 2.75e-3, error 2.83e-3, tol 2.1e-6
-      gkv311-opencascade-dataset/step/trj4_k1_geo-md-203.stp #542 face #1087 coedge 83: off 6.03e-3, error 6.95e-3, tol 2.1e-6
-      gkv311-opencascade-dataset/step/trj4_k1_geo-md-203.stp #542 face #1160 coedge 85: off 2.75e-3, error 2.83e-3, tol 2.1e-6
-      gkv311-opencascade-dataset/step/trj4_k1_geo-md-203.stp #542 face #1160 coedge 87: off 6.03e-3, error 6.95e-3, tol 2.1e-6
-      gkv311-opencascade-dataset/step/trj4_k1_geo-md-203.stp #542 face #1868 coedge 134: off 3.64e-3, error 3.74e-3, tol 2.1e-6
-      gkv311-opencascade-dataset/step/trj6_k1-md-214.stp #10 face #481 coedge 81: off 2.23e-3, error 2.23e-3, tol 5.5e-6
-      gkv311-opencascade-dataset/step/trj6_k1-md-214.stp #10 face #531 coedge 85: off 2.23e-3, error 2.23e-3, tol 5.5e-6
-      gkv311-opencascade-dataset/step/trj5_k1-ec-214.stp #10 face #3638 coedge 131: off 5.21e-2, error 7.88e-2, tol 1.0e-3
-      gkv311-opencascade-dataset/step/bug32239.STEP #116154 face #78973 coedge 2925: off 6.16e-4, error 6.17e-4, tol 2.5e-4
-      gkv311-opencascade-dataset/step/trj4_k1_top-md-203.stp #10 face #481 coedge 81: off 8.77e-4, error 8.78e-4, tol 2.1e-6
-      gkv311-opencascade-dataset/step/trj4_k1_top-md-203.stp #10 face #531 coedge 85: off 8.77e-4, error 8.78e-4, tol 2.1e-6
-      gkv311-opencascade-dataset/step/trj5_k1-md-203.stp #10 face #481 coedge 81: off 8.77e-4, error 8.78e-4, tol 2.1e-6
-      gkv311-opencascade-dataset/step/trj5_k1-md-203.stp #10 face #531 coedge 85: off 8.77e-4, error 8.78e-4, tol 2.1e-6
-      gkv311-opencascade-dataset/step/nist/bug28444_nist_ftc_06_asme1_ct5240_rd.stp #7107 face #5297 coedge 690: off 9.30e-1, error 9.30e-1, tol 5.0e-3
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_04_asme1_ap242-e1.stp #18027 face #11285 coedge 1492: off 5.06e-2, error 5.07e-2, tol 5.0e-3
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_04_asme1_ap242-e1.stp #18027 face #11629 coedge 1534: off 5.06e-2, error 5.07e-2, tol 5.0e-3
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_04_asme1_ap242-e1.stp #18027 face #11727 coedge 1545: off 5.06e-2, error 5.07e-2, tol 5.0e-3
   20  invalidModel affineFeet (missing, cone)
       gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #168383 face #432067 coedge 150: off 3.80e-4, error 3.90e-4, tol 1.0e-5
       gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #168383 face #284605 coedge 155: off 5.60e-4, error 5.75e-4, tol 1.0e-5
@@ -1487,6 +1419,24 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2763 face #23725 coedge 291: off 1.60e-3, error 1.60e-3, tol 1.0e-3
       gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2763 face #23725 coedge 293: off 1.60e-3, error 1.60e-3, tol 1.0e-3
       gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2763 face #19407 coedge 335: off 1.60e-3, error 1.60e-3, tol 1.0e-3
+  19  invalidModel traced (missing, sphere)
+      gkv311-opencascade-dataset/step/trj4_k1_geo-md-203.stp #542 face #1087 coedge 81: off 2.75e-3, error 2.83e-3, tol 2.1e-6
+      gkv311-opencascade-dataset/step/trj4_k1_geo-md-203.stp #542 face #1087 coedge 83: off 6.03e-3, error 6.95e-3, tol 2.1e-6
+      gkv311-opencascade-dataset/step/trj4_k1_geo-md-203.stp #542 face #1160 coedge 85: off 2.75e-3, error 2.83e-3, tol 2.1e-6
+      gkv311-opencascade-dataset/step/trj4_k1_geo-md-203.stp #542 face #1160 coedge 87: off 6.03e-3, error 6.95e-3, tol 2.1e-6
+      gkv311-opencascade-dataset/step/trj4_k1_geo-md-203.stp #542 face #1868 coedge 134: off 3.64e-3, error 3.74e-3, tol 2.1e-6
+      gkv311-opencascade-dataset/step/trj6_k1-md-214.stp #10 face #481 coedge 81: off 2.23e-3, error 2.23e-3, tol 5.5e-6
+      gkv311-opencascade-dataset/step/trj6_k1-md-214.stp #10 face #531 coedge 85: off 2.23e-3, error 2.23e-3, tol 5.5e-6
+      gkv311-opencascade-dataset/step/trj5_k1-ec-214.stp #10 face #3638 coedge 131: off 5.21e-2, error 8.33e-2, tol 1.0e-3
+      gkv311-opencascade-dataset/step/bug32239.STEP #116154 face #78973 coedge 2925: off 6.16e-4, error 6.17e-4, tol 2.5e-4
+      gkv311-opencascade-dataset/step/trj4_k1_top-md-203.stp #10 face #481 coedge 81: off 8.77e-4, error 8.77e-4, tol 2.1e-6
+      gkv311-opencascade-dataset/step/trj4_k1_top-md-203.stp #10 face #531 coedge 85: off 8.77e-4, error 8.77e-4, tol 2.1e-6
+      gkv311-opencascade-dataset/step/trj5_k1-md-203.stp #10 face #481 coedge 81: off 8.77e-4, error 8.77e-4, tol 2.1e-6
+      gkv311-opencascade-dataset/step/trj5_k1-md-203.stp #10 face #531 coedge 85: off 8.77e-4, error 8.77e-4, tol 2.1e-6
+      gkv311-opencascade-dataset/step/nist/bug28444_nist_ftc_06_asme1_ct5240_rd.stp #7107 face #5297 coedge 690: off 9.30e-1, error 9.30e-1, tol 5.0e-3
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_04_asme1_ap242-e1.stp #18027 face #11285 coedge 1492: off 5.06e-2, error 5.06e-2, tol 5.0e-3
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_04_asme1_ap242-e1.stp #18027 face #11629 coedge 1534: off 5.06e-2, error 5.06e-2, tol 5.0e-3
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_04_asme1_ap242-e1.stp #18027 face #11727 coedge 1545: off 5.06e-2, error 5.06e-2, tol 5.0e-3
   18  invalidModel traced (given, torus)
       gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #17192 coedge 535: off 8.42e-6, error 8.42e-6, tol 2.0e-6
       gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #28918 coedge 1085: off 2.12e-6, error 2.79e-6, tol 2.0e-6
@@ -1503,11 +1453,11 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/screw.step #11 face #803 coedge 18: off 3.01e-4, error 3.03e-4, tol 1.0e-6
       gkv311-opencascade-dataset/step/screw.step #11 face #874 coedge 20: off 2.98e-4, error 3.03e-4, tol 1.0e-6
   14  noConvergence traced (given, bspline)
-      gkv311-opencascade-dataset/step/bug25166_piston.stp #30604 face #4403 coedge 26: off 1.50e-4, error 8.17e-2, tol 1.0e-3
+      gkv311-opencascade-dataset/step/bug25166_piston.stp #30604 face #4403 coedge 26: off 1.50e-4, error 2.04e-2, tol 1.0e-3
       gkv311-opencascade-dataset/step/bug25166_piston.stp #30604 face #5440 coedge 32: off 1.72e-4, error 2.44e-1, tol 1.0e-3
-      gkv311-opencascade-dataset/step/bug25166_piston.stp #30604 face #5860 coedge 34: off 1.07e-14, error 4.04e-2, tol 1.0e-3
-      gkv311-opencascade-dataset/step/bug25166_piston.stp #30604 face #7088 coedge 43: off 1.07e-14, error 3.72e-3, tol 1.0e-3
-      gkv311-opencascade-dataset/step/bug25166_piston.stp #30604 face #8348 coedge 49: off 2.08e-4, error 2.30e-2, tol 1.0e-3
+      gkv311-opencascade-dataset/step/bug25166_piston.stp #30604 face #5860 coedge 34: off 1.07e-14, error 6.69e-2, tol 1.0e-3
+      gkv311-opencascade-dataset/step/bug25166_piston.stp #30604 face #7088 coedge 43: off 1.07e-14, error 1.49e-2, tol 1.0e-3
+      gkv311-opencascade-dataset/step/bug25166_piston.stp #30604 face #8348 coedge 49: off 2.08e-4, error 5.76e-3, tol 1.0e-3
       gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #38803 coedge 1817: off 1.94e-6, error 2.12e-6, tol 2.0e-6
   14  not made: noPcurveRange (given, bspline)
       gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 face #413 coedge 18
@@ -1515,6 +1465,12 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 face #413 coedge 20
       gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 face #763 coedge 21
       gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 face #763 coedge 22
+  10  noConvergence traced (missing, torus)
+      gkv311-opencascade-dataset/step/bug30014.stp #41105 face #19208 coedge 16: off 8.17e-8, error 1.29e-4, tol 1.0e-5
+      gkv311-opencascade-dataset/step/bug30014.stp #41105 face #107300 coedge 63: off 8.17e-8, error 1.29e-4, tol 1.0e-5
+      gkv311-opencascade-dataset/step/bug30014.stp #41105 face #107300 coedge 64: off 7.92e-8, error 1.28e-4, tol 1.0e-5
+      gkv311-opencascade-dataset/step/bug30014.stp #41105 face #17208 coedge 78: off 8.87e-8, error 1.44e-4, tol 1.0e-5
+      gkv311-opencascade-dataset/step/bug30014.stp #41105 face #17208 coedge 79: off 2.13e-8, error 5.57e-4, tol 1.0e-5
   9  not made: noPcurveRange (given, plane)
       gkv311-opencascade-dataset/step/bug31292.stp #62 face #65 coedge 0
       gkv311-opencascade-dataset/step/bug31292.stp #62 face #423 coedge 7
@@ -1523,15 +1479,6 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 face #68 coedge 2
       gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 face #132 coedge 3
       gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 face #132 coedge 4
-  8  invalidModel affineFeet (missing, sphere)
-      gkv311-opencascade-dataset/step/bug27894_usd_raises_Standard_NullObject.stp #234 face #46 coedge 29: off 6.36e+0, error 6.36e+0, tol 1.0e-5
-      gkv311-opencascade-dataset/step/bug27894_usd_raises_Standard_NullObject.stp #234 face #403 coedge 32: off 6.36e+0, error 6.36e+0, tol 1.0e-5
-      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 face #131755 coedge 2409: off 1.79e+2, error 1.79e+2, tol 1.0e-5
-      gkv311-opencascade-dataset/step/trj4_k1_geo-md-203.stp #542 face #1087 coedge 80: off 2.71e-4, error 2.78e-4, tol 2.1e-6
-      gkv311-opencascade-dataset/step/trj4_k1_geo-md-203.stp #542 face #1087 coedge 82: off 2.71e-4, error 2.78e-4, tol 2.1e-6
-      gkv311-opencascade-dataset/step/trj4_k1_geo-md-203.stp #542 face #1160 coedge 84: off 2.71e-4, error 2.78e-4, tol 2.1e-6
-      gkv311-opencascade-dataset/step/trj4_k1_geo-md-203.stp #542 face #1160 coedge 86: off 2.71e-4, error 2.78e-4, tol 2.1e-6
-      gkv311-opencascade-dataset/step/trj4_k1_geo-md-203.stp #542 face #1868 coedge 137: off 1.19e-3, error 1.19e-3, tol 2.1e-6
   8  invalidModel traced (given, revolution)
       gkv311-opencascade-dataset/step/trj4_s1-ec-214.stp #961 face #964 coedge 1: off 1.83e-7, error 1.83e-7, tol 1.3e-7
       gkv311-opencascade-dataset/step/trj4_s1-ec-214.stp #961 face #964 coedge 3: off 1.83e-7, error 1.83e-7, tol 1.3e-7
@@ -1550,6 +1497,13 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #92610 face #92586 coedge 208
       gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #92610 face #92586 coedge 209
       gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #92610 face #92597 coedge 210
+  6  invalidModel affineFeet (missing, sphere)
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 face #131755 coedge 2409: off 1.79e+2, error 1.79e+2, tol 1.0e-5
+      gkv311-opencascade-dataset/step/trj4_k1_geo-md-203.stp #542 face #1087 coedge 80: off 2.71e-4, error 2.78e-4, tol 2.1e-6
+      gkv311-opencascade-dataset/step/trj4_k1_geo-md-203.stp #542 face #1087 coedge 82: off 2.71e-4, error 2.78e-4, tol 2.1e-6
+      gkv311-opencascade-dataset/step/trj4_k1_geo-md-203.stp #542 face #1160 coedge 84: off 2.71e-4, error 2.78e-4, tol 2.1e-6
+      gkv311-opencascade-dataset/step/trj4_k1_geo-md-203.stp #542 face #1160 coedge 86: off 2.71e-4, error 2.78e-4, tol 2.1e-6
+      gkv311-opencascade-dataset/step/trj4_k1_geo-md-203.stp #542 face #1868 coedge 137: off 1.19e-3, error 1.19e-3, tol 2.1e-6
   5  noConvergence traced (missing, cone)
       gkv311-opencascade-dataset/step/bug31685_1.stp #17 face #10203 coedge 910: off 5.60e-4, error 1.21e-3, tol 1.0e-3
       gkv311-opencascade-dataset/step/bug31685_1.stp #17 face #10421 coedge 915: off 5.60e-4, error 1.21e-3, tol 1.0e-3
@@ -1584,10 +1538,6 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #18695 coedge 621: off 1.88e-6, error 2.49e-6, tol 2.0e-6
       gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #35447 coedge 1489: off 1.89e-6, error 2.55e-6, tol 2.0e-6
       gkv311-opencascade-dataset/step/OCC623.step #11 face #4146 coedge 43: off 2.00e-5, error 2.00e-5, tol 2.0e-5
-  3  noConvergence traced (missing, torus)
-      gkv311-opencascade-dataset/step/bug30014.stp #41105 face #17208 coedge 79: off 2.13e-8, error 2.34e-4, tol 1.0e-5
-      gkv311-opencascade-dataset/step/bug30014.stp #41105 face #2394 coedge 218: off 2.02e-8, error 2.32e-4, tol 1.0e-5
-      gkv311-opencascade-dataset/step/bug30014.stp #41105 face #2394 coedge 219: off 2.13e-8, error 2.34e-4, tol 1.0e-5
   3  noConvergence affineFeet (missing, cylinder)
       gkv311-opencascade-dataset/step/bug25912_GDT_exc.stp #6338 face #2369 coedge 277: off 4.57e-3, error 5.50e-3, tol 5.0e-3
       gkv311-opencascade-dataset/step/bug25912_GDT_exc.stp #6338 face #2405 coedge 285: off 4.57e-3, error 5.50e-3, tol 5.0e-3
@@ -1600,14 +1550,12 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #35447 coedge 1482: off 1.46e-4, error 1.46e-4, tol 2.0e-6
       gkv311-opencascade-dataset/step/OCC8228.stp #10 face #36344 coedge 1667: off 7.01e-3, error 7.01e-3, tol 1.0e-3
   2  ok affineFeet (given, sphere)
-  1  noConvergence traced (missing, revolution)
-      gkv311-opencascade-dataset/step/trj3_s1-tc-214.stp #5416 face #5315 coedge 20: off 6.00e-5, error 6.62e-5, tol 6.6e-5
   1  invalidModel traced (given, sphere)
-      gkv311-opencascade-dataset/step/trj4_k1_top-ec-214.stp #10 face #7409 coedge 133: off 5.21e-2, error 7.88e-2, tol 1.0e-3
+      gkv311-opencascade-dataset/step/trj4_k1_top-ec-214.stp #10 face #7409 coedge 133: off 5.21e-2, error 8.33e-2, tol 1.0e-3
 
 ## Missing p-curves on planes
-  161090  missing: ok planeAffine
-  308  missing: invalidModel planeAffine
+  161091  missing: ok planeAffine
+  307  missing: invalidModel planeAffine
 
 ## Given p-curves: deviation from the 3D curve (sampled), by surface
   10829  <= 1 x tol (plane)
@@ -2847,29 +2795,6 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #18695 coedge 621
 
 ## Coedges projected singular or without a range: classified
-  204  singular: bspline, two vertices, range not given, length <= tol, surface without singularities (bspline)
-      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #2287 coedge 230: length 7.84e-1, nearest singularity Infinity
-      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #3806 coedge 378: length 7.84e-1, nearest singularity Infinity
-      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #5259 coedge 524: length 4.93e-2, nearest singularity Infinity
-      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #5259 coedge 525: length 2.94e-1, nearest singularity Infinity
-      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #5592 coedge 557: length 4.41e-2, nearest singularity Infinity
-      gkv311-opencascade-dataset/step/t4mec.stp #9 face #472 coedge 20: length 2.57e-3, nearest singularity Infinity
-      gkv311-opencascade-dataset/step/t4mec.stp #9 face #472 coedge 22: length 2.51e-3, nearest singularity Infinity
-      gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 face #2281 coedge 229: length 7.84e-1, nearest singularity Infinity
-      gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 face #3799 coedge 376: length 7.84e-1, nearest singularity Infinity
-      gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 face #5252 coedge 522: length 4.93e-2, nearest singularity Infinity
-      gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 face #5252 coedge 523: length 2.94e-1, nearest singularity Infinity
-      gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 face #5585 coedge 555: length 4.41e-2, nearest singularity Infinity
-      gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #11252 coedge 7514: length 9.46e-4, nearest singularity Infinity
-      gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #11252 coedge 7516: length 3.39e-2, nearest singularity Infinity
-      gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #11253 coedge 7518: length 3.39e-2, nearest singularity Infinity
-      gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #11253 coedge 7520: length 9.46e-4, nearest singularity Infinity
-      gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #11342 coedge 7948: length 9.46e-4, nearest singularity Infinity
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_07_asme1_ap242-e2.stp #13541 face #10905 coedge 1348: length 1.02e-1, nearest singularity Infinity
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_07_asme1_ap242-e2.stp #13541 face #10944 coedge 1353: length 1.02e-1, nearest singularity Infinity
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_07_asme1_ap242-e2.stp #13541 face #10997 coedge 1361: length 1.02e-1, nearest singularity Infinity
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_07_asme1_ap242-e2.stp #13541 face #11036 coedge 1369: length 1.02e-1, nearest singularity Infinity
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_07_asme1_ap242-e2.stp #13541 face #11357 coedge 1396: length 1.02e-1, nearest singularity Infinity
   46  noPcurveRange: trimmed, 0 vertices, range not given, length > tol, surface without singularities (cylinder)
       gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 face #197 coedge 7: length 7.85e+2, nearest singularity Infinity
       gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 face #197 coedge 8: length 2.50e+2, nearest singularity Infinity
@@ -2892,23 +2817,6 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 face #7092 coedge 692: length 5.75e-1, nearest singularity 1.49e-7
       gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 face #7092 coedge 693: length 5.75e-1, nearest singularity 1.49e-7
       gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 face #7730 coedge 743: length 7.31e-1, nearest singularity 2.78e-7
-  34  singular: line, two vertices, range not given, length <= tol, surface without singularities (bspline)
-      gkv311-opencascade-dataset/step/bug24055_8MTF-75LS05.step #93397 face #9253 coedge 984: length 1.00e-2, nearest singularity Infinity
-      gkv311-opencascade-dataset/step/bug24055_8MTF-75LS05.step #93397 face #9253 coedge 986: length 1.00e-2, nearest singularity Infinity
-      gkv311-opencascade-dataset/step/bug24055_8MTF-75LS05.step #93397 face #9290 coedge 988: length 1.00e-2, nearest singularity Infinity
-      gkv311-opencascade-dataset/step/bug24055_8MTF-75LS05.step #93397 face #9290 coedge 990: length 1.00e-2, nearest singularity Infinity
-      gkv311-opencascade-dataset/step/bug24055_8MTF-75LS05.step #93397 face #9327 coedge 992: length 1.00e-2, nearest singularity Infinity
-  20  singular: bspline, two vertices, range not given, length <= tol, vertices off its singularities (bspline)
-      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #6222 coedge 607: length 5.46e-1, nearest singularity 2.02e+0
-      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #7737 coedge 748: length 5.46e-1, nearest singularity 2.02e+0
-      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #8267 coedge 798: length 7.80e-1, nearest singularity 2.02e+0
-      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #8882 coedge 855: length 7.84e-1, nearest singularity 2.09e+0
-      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #9098 coedge 876: length 7.84e-1, nearest singularity 2.09e+0
-      gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 face #6215 coedge 605: length 5.46e-1, nearest singularity 2.02e+0
-      gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 face #7730 coedge 746: length 5.46e-1, nearest singularity 2.02e+0
-      gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 face #8260 coedge 796: length 7.80e-1, nearest singularity 2.02e+0
-      gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 face #8875 coedge 853: length 7.84e-1, nearest singularity 2.09e+0
-      gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 face #9091 coedge 874: length 7.84e-1, nearest singularity 2.09e+0
   12  noPcurveRange: trimmed, 0 vertices, range not given, length > tol, vertices off its singularities (cone)
       gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 face #865 coedge 38: length 7.85e+2, nearest singularity Infinity
       gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 face #865 coedge 39: length 5.00e+2, nearest singularity Infinity
@@ -2942,6 +2850,9 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/trj7_k1-id-214.stp #44 face #849 coedge 120: length 0.00e+0, nearest singularity 6.94e-16
       gkv311-opencascade-dataset/step/trj7_k1-id-214.stp #44 face #923 coedge 122: length 0.00e+0, nearest singularity 6.94e-16
       gkv311-opencascade-dataset/step/trj7_k1-id-214.stp #44 face #923 coedge 124: length 0.00e+0, nearest singularity 0.00e+0
+  2  singular: bspline, two vertices, range not given, length <= tol, surface without singularities (bspline)
+      gkv311-opencascade-dataset/step/t4mec.stp #9 face #472 coedge 20: length 2.57e-3, nearest singularity Infinity
+      gkv311-opencascade-dataset/step/t4mec.stp #9 face #472 coedge 22: length 2.51e-3, nearest singularity Infinity
   2  noPcurveRange: line, 1 vertices, range not given, length unknown, surface without singularities (plane)
       gkv311-opencascade-dataset/step/bug31292.stp #62 face #65 coedge 0: length NaN, nearest singularity Infinity
       gkv311-opencascade-dataset/step/bug31292.stp #62 face #423 coedge 7: length NaN, nearest singularity Infinity
@@ -2953,8 +2864,8 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #71291 face #70904 coedge 8516: length 2.51e+1, nearest singularity Infinity
 
 ## Edges: tolerance needed keeping the source's p-curves (grow)
-  206453  <= 1 x tol
-  5670  10-100 x tol
+  206680  <= 1 x tol
+  5674  10-100 x tol
       gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #30730 edge 0: 1.51e-5 at tol 1.0e-6
       gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #30730 edge 134: 1.51e-5 at tol 1.0e-6
       gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 edge 48: 2.30e-2 at tol 1.0e-3
@@ -2997,7 +2908,7 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/trj8_k1-ac-203.stp #2712 edge 24: 1.49e-3 at tol 2.5e-5
       gkv311-opencascade-dataset/step/trj8_k1-ac-203.stp #2712 edge 25: 1.49e-3 at tol 2.5e-5
       gkv311-opencascade-dataset/step/trj8_k1-ac-203.stp #2712 edge 88: 1.51e-3 at tol 2.5e-5
-      gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787 edge 19: 2.80e-4 at tol 1.0e-5
+      gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787 edge 19: 5.54e-4 at tol 1.0e-5
       gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787 edge 21: 1.31e-4 at tol 1.0e-5
       gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787 edge 27: 1.46e-4 at tol 1.0e-5
       gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787 edge 33: 1.00e-4 at tol 1.0e-5
@@ -3073,7 +2984,7 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/bug25287_bad_tess_face_plus.step #2134 edge 39: 2.64e-4 at tol 1.0e-5
       gkv311-opencascade-dataset/step/bug22680_C5-390.410-63090C-633112134823466595-1.stp #996 edge 1: 4.05e-4 at tol 1.0e-5
       gkv311-opencascade-dataset/step/trj4_k1_top-ec-214.stp #10 edge 119: 5.21e-2 at tol 1.0e-3
-      gkv311-opencascade-dataset/step/trj5_k1-ec-214.stp #10 edge 118: 7.88e-2 at tol 1.0e-3
+      gkv311-opencascade-dataset/step/trj5_k1-ec-214.stp #10 edge 118: 8.33e-2 at tol 1.0e-3
       gkv311-opencascade-dataset/step/bug32239.STEP #116154 edge 131: 8.81e-3 at tol 2.5e-4
       gkv311-opencascade-dataset/step/bug32239.STEP #116154 edge 138: 1.23e-2 at tol 2.5e-4
       gkv311-opencascade-dataset/step/bug32239.STEP #109721 edge 31: 9.18e-3 at tol 2.5e-4
@@ -3104,18 +3015,17 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2775 edge 240: 1.32e-2 at tol 1.0e-3
       gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2775 edge 241: 1.17e-2 at tol 1.0e-3
       gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2775 edge 250: 1.17e-2 at tol 1.0e-3
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_04_asme1_ap242-e1.stp #18027 edge 812: 5.07e-2 at tol 5.0e-3
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_04_asme1_ap242-e1.stp #18027 edge 840: 5.07e-2 at tol 5.0e-3
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_04_asme1_ap242-e1.stp #18027 edge 846: 5.07e-2 at tol 5.0e-3
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_04_asme1_ap242-e1.stp #18027 edge 812: 5.06e-2 at tol 5.0e-3
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_04_asme1_ap242-e1.stp #18027 edge 840: 5.06e-2 at tol 5.0e-3
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_04_asme1_ap242-e1.stp #18027 edge 846: 5.06e-2 at tol 5.0e-3
       gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/HEAD_BACK.stp #593 edge 6: 8.01e-2 at tol 5.0e-3
       gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/HEAD_BACK.stp #593 edge 7: 7.94e-2 at tol 5.0e-3
-  4368  1-10 x tol
+  4362  1-10 x tol
       gkv311-opencascade-dataset/step/bug21802_as1-oc-214.stp #1933 edge 4: 2.55e-5 at tol 5.0e-6
       gkv311-opencascade-dataset/step/bug21802_as1-oc-214.stp #1933 edge 5: 2.55e-5 at tol 5.0e-6
       gkv311-opencascade-dataset/step/bug21802_as1-oc-214.stp #1933 edge 9: 2.55e-5 at tol 5.0e-6
       gkv311-opencascade-dataset/step/bug21802_as1-oc-214.stp #1933 edge 10: 2.55e-5 at tol 5.0e-6
       gkv311-opencascade-dataset/step/bug21802_as1-oc-214.stp #1933 edge 11: 2.55e-5 at tol 5.0e-6
-      gkv311-opencascade-dataset/step/trj3_s1-tc-214.stp #5416 edge 13: 6.62e-5 at tol 6.6e-5
       gkv311-opencascade-dataset/step/as1-oc-214-mat.stp #1933 edge 4: 2.55e-5 at tol 5.0e-6
       gkv311-opencascade-dataset/step/as1-oc-214-mat.stp #1933 edge 5: 2.55e-5 at tol 5.0e-6
       gkv311-opencascade-dataset/step/as1-oc-214-mat.stp #1933 edge 9: 2.55e-5 at tol 5.0e-6
@@ -3167,14 +3077,14 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #477097 edge 270: 5.66e-5 at tol 1.0e-5
       gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #477097 edge 288: 6.75e-5 at tol 1.0e-5
       gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #477097 edge 290: 5.66e-5 at tol 1.0e-5
-      gkv311-opencascade-dataset/step/sp7_04-do-242.stp #17823 edge 405: 5.76e-3 at tol 5.0e-3
+      gkv311-opencascade-dataset/step/sp7_04-do-242.stp #17823 edge 405: 5.57e-3 at tol 5.0e-3
       gkv311-opencascade-dataset/step/sp7_04-do-242.stp #17823 edge 409: 6.65e-3 at tol 5.0e-3
       gkv311-opencascade-dataset/step/sp7_04-do-242.stp #17823 edge 421: 5.70e-3 at tol 5.0e-3
-      gkv311-opencascade-dataset/step/sp7_04-do-242.stp #17823 edge 437: 6.20e-3 at tol 5.0e-3
-      gkv311-opencascade-dataset/step/sp7_04-do-242.stp #17823 edge 441: 6.26e-3 at tol 5.0e-3
+      gkv311-opencascade-dataset/step/sp7_04-do-242.stp #17823 edge 437: 6.12e-3 at tol 5.0e-3
+      gkv311-opencascade-dataset/step/sp7_04-do-242.stp #17823 edge 441: 6.05e-3 at tol 5.0e-3
       gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #16680 edge 1: 2.30e-6 at tol 1.0e-6
-      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #16640 edge 0: 3.80e-6 at tol 1.0e-6
-      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #16640 edge 2: 3.80e-6 at tol 1.0e-6
+      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #16640 edge 0: 3.79e-6 at tol 1.0e-6
+      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #16640 edge 2: 3.79e-6 at tol 1.0e-6
       gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #16595 edge 1: 8.16e-6 at tol 1.0e-6
       gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #16415 edge 3: 1.99e-6 at tol 1.0e-6
       gkv311-opencascade-dataset/step/trj4_k1_geo-md-203.stp #542 edge 110: 5.50e-6 at tol 2.1e-6
@@ -3188,7 +3098,7 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/OCC29.stp #5308 edge 207: 1.84e-6 at tol 1.0e-6
       gkv311-opencascade-dataset/step/OCC29.stp #5308 edge 281: 1.43e-6 at tol 1.0e-6
       gkv311-opencascade-dataset/step/OCC29.stp #5308 edge 285: 9.67e-6 at tol 1.0e-6
-      gkv311-opencascade-dataset/step/trj6_k1-al-214.stp #5529 edge 60: 3.19e-4 at tol 2.0e-4
+      gkv311-opencascade-dataset/step/trj6_k1-al-214.stp #5529 edge 60: 3.20e-4 at tol 2.0e-4
       gkv311-opencascade-dataset/step/trj6_k1-al-214.stp #5529 edge 70: 2.94e-4 at tol 2.0e-4
       gkv311-opencascade-dataset/step/trj6_k1-al-214.stp #5529 edge 71: 2.94e-4 at tol 2.0e-4
       gkv311-opencascade-dataset/step/trj6_k1-al-214.stp #5529 edge 74: 2.94e-4 at tol 2.0e-4
@@ -3203,18 +3113,18 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/trj4_k1_geo-ac-214.stp #10298 edge 249: 3.79e-6 at tol 1.0e-6
       gkv311-opencascade-dataset/step/trj4_k1_geo-ac-214.stp #10298 edge 253: 3.79e-6 at tol 1.0e-6
       gkv311-opencascade-dataset/step/trj4_k1_geo-ac-214.stp #10298 edge 259: 3.79e-6 at tol 1.0e-6
-      gkv311-opencascade-dataset/step/trj6_k1-td-214.stp #7301 edge 0: 1.37e-5 at tol 1.0e-5
-      gkv311-opencascade-dataset/step/trj6_k1-td-214.stp #7301 edge 1: 1.42e-5 at tol 1.0e-5
+      gkv311-opencascade-dataset/step/trj6_k1-td-214.stp #7301 edge 0: 1.34e-5 at tol 1.0e-5
+      gkv311-opencascade-dataset/step/trj6_k1-td-214.stp #7301 edge 1: 1.41e-5 at tol 1.0e-5
       gkv311-opencascade-dataset/step/trj6_k1-td-214.stp #7301 edge 157: 3.47e-5 at tol 1.0e-5
       gkv311-opencascade-dataset/step/trj6_k1-td-214.stp #7301 edge 235: 5.12e-5 at tol 1.0e-5
-      gkv311-opencascade-dataset/step/trj6_k1-td-214.stp #7301 edge 286: 1.42e-5 at tol 1.0e-5
+      gkv311-opencascade-dataset/step/trj6_k1-td-214.stp #7301 edge 286: 1.41e-5 at tol 1.0e-5
       gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 edge 128: 1.00e+0 at tol 1.0e+0
       gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 edge 130: 1.00e+0 at tol 1.0e+0
       gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 edge 137: 1.00e+0 at tol 1.0e+0
       gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 edge 143: 1.00e+0 at tol 1.0e+0
       gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 edge 186: 1.00e+0 at tol 1.0e+0
-      gkv311-opencascade-dataset/step/as1_motor.step #7316 edge 14: 7.73e-4 at tol 1.4e-4
-      gkv311-opencascade-dataset/step/as1_motor.step #7316 edge 21: 7.73e-4 at tol 1.4e-4
+      gkv311-opencascade-dataset/step/as1_motor.step #7316 edge 14: 7.67e-4 at tol 1.4e-4
+      gkv311-opencascade-dataset/step/as1_motor.step #7316 edge 21: 7.67e-4 at tol 1.4e-4
       gkv311-opencascade-dataset/step/bug27934_TEST_Machine_Part-brep-pmi.stp #4963 edge 80: 1.12e-2 at tol 5.0e-3
       gkv311-opencascade-dataset/step/bug27934_TEST_Machine_Part-brep-pmi.stp #4963 edge 81: 1.12e-2 at tol 5.0e-3
       gkv311-opencascade-dataset/step/bug27934_TEST_Machine_Part-brep-pmi.stp #4963 edge 166: 1.45e-2 at tol 5.0e-3
@@ -3235,9 +3145,9 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/bug33398.step #13688 edge 82: 2.60e-5 at tol 1.0e-5
       gkv311-opencascade-dataset/step/bug25912_GDT_exc.stp #6338 edge 53: 5.50e-3 at tol 5.0e-3
       gkv311-opencascade-dataset/step/bug25912_GDT_exc.stp #6338 edge 55: 5.50e-3 at tol 5.0e-3
-      gkv311-opencascade-dataset/step/bug25912_GDT_exc.stp #6338 edge 296: 5.09e-3 at tol 5.0e-3
+      gkv311-opencascade-dataset/step/bug25912_GDT_exc.stp #6338 edge 296: 5.01e-3 at tol 5.0e-3
       gkv311-opencascade-dataset/step/bug25912_GDT_exc.stp #6338 edge 316: 5.03e-3 at tol 5.0e-3
-      gkv311-opencascade-dataset/step/bug25912_GDT_exc.stp #6338 edge 320: 6.78e-3 at tol 5.0e-3
+      gkv311-opencascade-dataset/step/bug25912_GDT_exc.stp #6338 edge 320: 6.41e-3 at tol 5.0e-3
       gkv311-opencascade-dataset/step/bug31685_1.stp #17 edge 4: 1.26e-3 at tol 1.0e-3
       gkv311-opencascade-dataset/step/bug31685_1.stp #17 edge 5: 1.26e-3 at tol 1.0e-3
       gkv311-opencascade-dataset/step/bug31685_1.stp #17 edge 7: 1.26e-3 at tol 1.0e-3
@@ -3315,42 +3225,42 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/bug26657.stp #1933 edge 9: 2.55e-5 at tol 5.0e-6
       gkv311-opencascade-dataset/step/bug26657.stp #1933 edge 10: 2.55e-5 at tol 5.0e-6
       gkv311-opencascade-dataset/step/bug26657.stp #1933 edge 11: 2.55e-5 at tol 5.0e-6
-      gkv311-opencascade-dataset/step/nist/nist_ctc_05_asme1_ap242-1.stp #1177 edge 88: 2.06e-2 at tol 1.7e-2
-      gkv311-opencascade-dataset/step/nist/nist_ctc_05_asme1_ap242-1.stp #1177 edge 90: 2.06e-2 at tol 1.7e-2
-      gkv311-opencascade-dataset/step/nist/nist_ctc_05_asme1_ap242-1.stp #1177 edge 94: 2.06e-2 at tol 1.7e-2
-      gkv311-opencascade-dataset/step/nist/nist_ctc_05_asme1_ap242-1.stp #1177 edge 96: 2.06e-2 at tol 1.7e-2
-      gkv311-opencascade-dataset/step/nist/nist_ctc_05_asme1_ap242-1.stp #1177 edge 111: 2.08e-2 at tol 1.7e-2
-      gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp #1177 edge 88: 2.06e-2 at tol 1.7e-2
-      gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp #1177 edge 90: 2.06e-2 at tol 1.7e-2
-      gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp #1177 edge 94: 2.06e-2 at tol 1.7e-2
-      gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp #1177 edge 96: 2.06e-2 at tol 1.7e-2
-      gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp #1177 edge 111: 2.08e-2 at tol 1.7e-2
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp #3044 edge 313: 5.98e-3 at tol 5.0e-3
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp #3044 edge 314: 5.98e-3 at tol 5.0e-3
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp #3044 edge 315: 5.98e-3 at tol 5.0e-3
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp #3044 edge 317: 5.98e-3 at tol 5.0e-3
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp #3044 edge 318: 5.98e-3 at tol 5.0e-3
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177 edge 88: 2.06e-2 at tol 1.7e-2
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177 edge 90: 2.06e-2 at tol 1.7e-2
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177 edge 94: 2.06e-2 at tol 1.7e-2
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177 edge 96: 2.06e-2 at tol 1.7e-2
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177 edge 111: 2.08e-2 at tol 1.7e-2
+      gkv311-opencascade-dataset/step/nist/nist_ctc_05_asme1_ap242-1.stp #1177 edge 88: 2.05e-2 at tol 1.7e-2
+      gkv311-opencascade-dataset/step/nist/nist_ctc_05_asme1_ap242-1.stp #1177 edge 90: 2.05e-2 at tol 1.7e-2
+      gkv311-opencascade-dataset/step/nist/nist_ctc_05_asme1_ap242-1.stp #1177 edge 94: 2.05e-2 at tol 1.7e-2
+      gkv311-opencascade-dataset/step/nist/nist_ctc_05_asme1_ap242-1.stp #1177 edge 96: 2.05e-2 at tol 1.7e-2
+      gkv311-opencascade-dataset/step/nist/nist_ctc_05_asme1_ap242-1.stp #1177 edge 111: 2.07e-2 at tol 1.7e-2
+      gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp #1177 edge 88: 2.05e-2 at tol 1.7e-2
+      gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp #1177 edge 90: 2.05e-2 at tol 1.7e-2
+      gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp #1177 edge 94: 2.05e-2 at tol 1.7e-2
+      gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp #1177 edge 96: 2.05e-2 at tol 1.7e-2
+      gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp #1177 edge 111: 2.07e-2 at tol 1.7e-2
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp #3044 edge 313: 5.99e-3 at tol 5.0e-3
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp #3044 edge 314: 5.99e-3 at tol 5.0e-3
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp #3044 edge 315: 5.99e-3 at tol 5.0e-3
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp #3044 edge 317: 5.99e-3 at tol 5.0e-3
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp #3044 edge 318: 5.99e-3 at tol 5.0e-3
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177 edge 88: 2.05e-2 at tol 1.7e-2
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177 edge 90: 2.05e-2 at tol 1.7e-2
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177 edge 94: 2.05e-2 at tol 1.7e-2
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177 edge 96: 2.05e-2 at tol 1.7e-2
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177 edge 111: 2.07e-2 at tol 1.7e-2
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_11_asme1_ap242-e2.stp #466 edge 4: 1.40e-2 at tol 5.0e-3
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_11_asme1_ap242-e2.stp #466 edge 12: 5.20e-3 at tol 5.0e-3
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_11_asme1_ap242-e2.stp #466 edge 14: 8.29e-3 at tol 5.0e-3
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_11_asme1_ap242-e2.stp #466 edge 12: 5.22e-3 at tol 5.0e-3
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_11_asme1_ap242-e2.stp #466 edge 14: 8.25e-3 at tol 5.0e-3
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_07_asme1_ap242-e3.stp #11020 edge 151: 5.19e-3 at tol 5.0e-3
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_07_asme1_ap242-e3.stp #11020 edge 155: 5.19e-3 at tol 5.0e-3
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_07_asme1_ap242-e3.stp #11020 edge 157: 5.19e-3 at tol 5.0e-3
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_07_asme1_ap242-e3.stp #11020 edge 161: 5.19e-3 at tol 5.0e-3
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_07_asme1_ap242-e3.stp #11020 edge 163: 5.19e-3 at tol 5.0e-3
-      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_BACK.stp #1485 edge 21: 6.51e-3 at tol 5.0e-3
-      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_BACK.stp #1485 edge 23: 6.51e-3 at tol 5.0e-3
-      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_BACK.stp #1485 edge 37: 6.21e-3 at tol 5.0e-3
-      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_BACK.stp #1485 edge 40: 6.21e-3 at tol 5.0e-3
-      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_FRONT.stp #1124 edge 5: 6.21e-3 at tol 5.0e-3
-      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_FRONT.stp #1124 edge 8: 6.21e-3 at tol 5.0e-3
-      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_FRONT.stp #1124 edge 11: 6.51e-3 at tol 5.0e-3
-      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_FRONT.stp #1124 edge 13: 6.51e-3 at tol 5.0e-3
+      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_BACK.stp #1485 edge 21: 6.47e-3 at tol 5.0e-3
+      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_BACK.stp #1485 edge 23: 6.47e-3 at tol 5.0e-3
+      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_BACK.stp #1485 edge 37: 6.22e-3 at tol 5.0e-3
+      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_BACK.stp #1485 edge 40: 6.22e-3 at tol 5.0e-3
+      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_FRONT.stp #1124 edge 5: 6.22e-3 at tol 5.0e-3
+      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_FRONT.stp #1124 edge 8: 6.22e-3 at tol 5.0e-3
+      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_FRONT.stp #1124 edge 11: 6.47e-3 at tol 5.0e-3
+      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_FRONT.stp #1124 edge 13: 6.47e-3 at tol 5.0e-3
       occt-import-js/test/testfiles/cax-if/dm1-oc-214.stp #1488 edge 4: 2.55e-5 at tol 5.0e-6
       occt-import-js/test/testfiles/cax-if/dm1-oc-214.stp #1488 edge 5: 2.55e-5 at tol 5.0e-6
       occt-import-js/test/testfiles/cax-if/dm1-oc-214.stp #1488 edge 9: 2.55e-5 at tol 5.0e-6
@@ -3436,7 +3346,6 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/bug33398.step #13688 edge 709: 2.68e-3 at tol 1.0e-5
       gkv311-opencascade-dataset/step/trj8_k1-md-214.stp #10 edge 51: 3.19e-4 at tol 2.1e-6
       gkv311-opencascade-dataset/step/trj8_k1-md-214.stp #10 edge 54: 3.19e-4 at tol 2.1e-6
-      gkv311-opencascade-dataset/step/bug23202_Leuchte.stp #29007 edge 1921: 2.50e+0 at tol 1.0e-2
       gkv311-opencascade-dataset/step/trj7_k1-ac-203.stp #2710 edge 6: 8.99e-3 at tol 2.5e-5
       gkv311-opencascade-dataset/step/trj7_k1-ac-203.stp #2710 edge 7: 8.99e-3 at tol 2.5e-5
       gkv311-opencascade-dataset/step/trj7_k1-ac-203.stp #2710 edge 8: 8.99e-3 at tol 2.5e-5
@@ -3445,7 +3354,7 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/screw.step #11 edge 0: 2.98e-4 at tol 1.0e-6
       gkv311-opencascade-dataset/step/screw.step #11 edge 6: 5.73e-4 at tol 1.0e-6
       gkv311-opencascade-dataset/step/screw.step #11 edge 7: 5.73e-4 at tol 1.0e-6
-      gkv311-opencascade-dataset/step/bug25287_bad_tess_face_plus.step #2134 edge 72: 1.07e-3 at tol 1.0e-5
+      gkv311-opencascade-dataset/step/bug25287_bad_tess_face_plus.step #2134 edge 72: 1.06e-3 at tol 1.0e-5
       gkv311-opencascade-dataset/step/bug25287_bad_tess_face_plus.step #2134 edge 294: 1.06e-3 at tol 1.0e-5
       gkv311-opencascade-dataset/step/trj3_s1-md-214.stp #2468 edge 8: 9.83e-4 at tol 2.1e-6
       gkv311-opencascade-dataset/step/trj3_s1-md-214.stp #2468 edge 10: 7.30e-4 at tol 2.1e-6
@@ -3460,29 +3369,23 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/trj9_ap209-td.stp #1507 edge 71: 9.01e-3 at tol 1.5e-5
       gkv311-opencascade-dataset/step/trj9_ap209-td.stp #1507 edge 74: 9.01e-3 at tol 1.5e-5
       gkv311-opencascade-dataset/step/trj1_t4m-ac.stp #1390 edge 0: 3.93e-4 at tol 2.2e-6
-      gkv311-opencascade-dataset/step/trj1_t4m-ac.stp #1390 edge 2: 5.80e-4 at tol 2.2e-6
-      gkv311-opencascade-dataset/step/trj1_t4m-ac.stp #1390 edge 3: 6.88e-4 at tol 2.2e-6
+      gkv311-opencascade-dataset/step/trj1_t4m-ac.stp #1390 edge 2: 5.81e-4 at tol 2.2e-6
+      gkv311-opencascade-dataset/step/trj1_t4m-ac.stp #1390 edge 3: 6.89e-4 at tol 2.2e-6
       gkv311-opencascade-dataset/step/trj1_t4m-ac.stp #1390 edge 10: 3.93e-4 at tol 2.2e-6
       gkv311-opencascade-dataset/step/trj1_t4m-ac.stp #1390 edge 12: 7.44e-4 at tol 2.2e-6
-      gkv311-opencascade-dataset/step/trj4_k1_top-md-203.stp #10 edge 43: 8.78e-4 at tol 2.1e-6
-      gkv311-opencascade-dataset/step/trj4_k1_top-md-203.stp #10 edge 47: 8.78e-4 at tol 2.1e-6
+      gkv311-opencascade-dataset/step/trj4_k1_top-md-203.stp #10 edge 43: 8.77e-4 at tol 2.1e-6
+      gkv311-opencascade-dataset/step/trj4_k1_top-md-203.stp #10 edge 47: 8.77e-4 at tol 2.1e-6
       gkv311-opencascade-dataset/step/trj4_k1_top-md-203.stp #10 edge 51: 6.47e-4 at tol 2.1e-6
       gkv311-opencascade-dataset/step/trj4_k1_top-md-203.stp #10 edge 53: 1.06e-3 at tol 2.1e-6
       gkv311-opencascade-dataset/step/trj4_k1_top-md-203.stp #10 edge 55: 6.47e-4 at tol 2.1e-6
-      gkv311-opencascade-dataset/step/trj5_k1-md-203.stp #10 edge 43: 8.78e-4 at tol 2.1e-6
-      gkv311-opencascade-dataset/step/trj5_k1-md-203.stp #10 edge 47: 8.78e-4 at tol 2.1e-6
+      gkv311-opencascade-dataset/step/trj5_k1-md-203.stp #10 edge 43: 8.77e-4 at tol 2.1e-6
+      gkv311-opencascade-dataset/step/trj5_k1-md-203.stp #10 edge 47: 8.77e-4 at tol 2.1e-6
       gkv311-opencascade-dataset/step/trj5_k1-md-203.stp #10 edge 51: 6.47e-4 at tol 2.1e-6
       gkv311-opencascade-dataset/step/trj5_k1-md-203.stp #10 edge 53: 1.06e-3 at tol 2.1e-6
       gkv311-opencascade-dataset/step/trj5_k1-md-203.stp #10 edge 55: 6.47e-4 at tol 2.1e-6
       gkv311-opencascade-dataset/step/nist/bug28444_nist_ftc_06_asme1_ct5240_rd.stp #7107 edge 365: 9.30e-1 at tol 5.0e-3
-  794  not measured
-  545  > 1000 x tol
-      gkv311-opencascade-dataset/step/bug27894_usd_raises_Standard_NullObject.stp #234 edge 0: 6.36e+0 at tol 1.0e-5
-      gkv311-opencascade-dataset/step/bug27894_usd_raises_Standard_NullObject.stp #234 edge 24: 6.36e+0 at tol 1.0e-5
-      gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3140 edge 13: 1.38e+1 at tol 1.0e-5
-      gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3140 edge 16: 1.61e+1 at tol 1.0e-5
-      gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3139 edge 0: 1.38e+1 at tol 1.0e-5
-      gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3139 edge 4: 1.61e+1 at tol 1.0e-5
+  582  not measured
+  532  > 1000 x tol
       gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787 edge 110: 2.65e-2 at tol 1.0e-5
       gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787 edge 119: 2.65e-2 at tol 1.0e-5
       gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787 edge 127: 2.65e-2 at tol 1.0e-5
@@ -3542,15 +3445,15 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/trj5_k1-md-203.stp #10 edge 71: 4.14e-3 at tol 2.1e-6
 
 ## Edges: tolerance needed replacing given p-curves where the projection is nearer
-  206802  <= 1 x tol
-  5674  10-100 x tol
+  207029  <= 1 x tol
+  5678  10-100 x tol
       gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #30730 edge 0: 1.51e-5 at tol 1.0e-6
       gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #30730 edge 134: 1.51e-5 at tol 1.0e-6
-      gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 edge 1: 3.08e-2 at tol 1.0e-3
+      gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 edge 1: 3.07e-2 at tol 1.0e-3
       gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 edge 48: 2.30e-2 at tol 1.0e-3
       gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 edge 51: 2.30e-2 at tol 1.0e-3
       gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 edge 53: 2.30e-2 at tol 1.0e-3
-      gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 edge 58: 3.08e-2 at tol 1.0e-3
+      gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 edge 58: 3.07e-2 at tol 1.0e-3
       gkv311-opencascade-dataset/step/trj4_s1-ac-214.stp #4119 edge 7: 1.85e-3 at tol 2.5e-5
       gkv311-opencascade-dataset/step/trj4_s1-ac-214.stp #4119 edge 11: 1.85e-3 at tol 2.5e-5
       gkv311-opencascade-dataset/step/trj4_s1-ac-214.stp #4119 edge 20: 1.47e-3 at tol 2.5e-5
@@ -3588,7 +3491,7 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/trj8_k1-ac-203.stp #2712 edge 24: 1.49e-3 at tol 2.5e-5
       gkv311-opencascade-dataset/step/trj8_k1-ac-203.stp #2712 edge 25: 1.49e-3 at tol 2.5e-5
       gkv311-opencascade-dataset/step/trj8_k1-ac-203.stp #2712 edge 88: 1.51e-3 at tol 2.5e-5
-      gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787 edge 19: 2.80e-4 at tol 1.0e-5
+      gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787 edge 19: 5.54e-4 at tol 1.0e-5
       gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787 edge 21: 1.31e-4 at tol 1.0e-5
       gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787 edge 27: 1.46e-4 at tol 1.0e-5
       gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787 edge 33: 1.00e-4 at tol 1.0e-5
@@ -3666,7 +3569,7 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/bug25287_bad_tess_face_plus.step #2134 edge 39: 2.64e-4 at tol 1.0e-5
       gkv311-opencascade-dataset/step/bug22680_C5-390.410-63090C-633112134823466595-1.stp #996 edge 1: 4.05e-4 at tol 1.0e-5
       gkv311-opencascade-dataset/step/trj4_k1_top-ec-214.stp #10 edge 119: 5.21e-2 at tol 1.0e-3
-      gkv311-opencascade-dataset/step/trj5_k1-ec-214.stp #10 edge 118: 7.88e-2 at tol 1.0e-3
+      gkv311-opencascade-dataset/step/trj5_k1-ec-214.stp #10 edge 118: 8.33e-2 at tol 1.0e-3
       gkv311-opencascade-dataset/step/bug32239.STEP #116154 edge 131: 8.81e-3 at tol 2.5e-4
       gkv311-opencascade-dataset/step/bug32239.STEP #116154 edge 138: 1.23e-2 at tol 2.5e-4
       gkv311-opencascade-dataset/step/bug32239.STEP #109721 edge 31: 9.18e-3 at tol 2.5e-4
@@ -3697,25 +3600,24 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2775 edge 240: 1.32e-2 at tol 1.0e-3
       gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2775 edge 241: 1.17e-2 at tol 1.0e-3
       gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2775 edge 250: 1.17e-2 at tol 1.0e-3
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_04_asme1_ap242-e1.stp #18027 edge 812: 5.07e-2 at tol 5.0e-3
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_04_asme1_ap242-e1.stp #18027 edge 840: 5.07e-2 at tol 5.0e-3
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_04_asme1_ap242-e1.stp #18027 edge 846: 5.07e-2 at tol 5.0e-3
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_04_asme1_ap242-e1.stp #18027 edge 812: 5.06e-2 at tol 5.0e-3
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_04_asme1_ap242-e1.stp #18027 edge 840: 5.06e-2 at tol 5.0e-3
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_04_asme1_ap242-e1.stp #18027 edge 846: 5.06e-2 at tol 5.0e-3
       gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/HEAD_BACK.stp #593 edge 6: 8.01e-2 at tol 5.0e-3
       gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/HEAD_BACK.stp #593 edge 7: 7.94e-2 at tol 5.0e-3
-  4493  1-10 x tol
+  4487  1-10 x tol
       gkv311-opencascade-dataset/step/bug21802_as1-oc-214.stp #3812 edge 4: 2.59e-5 at tol 1.0e-5
       gkv311-opencascade-dataset/step/bug21802_as1-oc-214.stp #3812 edge 5: 2.59e-5 at tol 1.0e-5
       gkv311-opencascade-dataset/step/bug21802_as1-oc-214.stp #3812 edge 6: 2.59e-5 at tol 1.0e-5
       gkv311-opencascade-dataset/step/bug21802_as1-oc-214.stp #3812 edge 7: 2.59e-5 at tol 1.0e-5
       gkv311-opencascade-dataset/step/bug21802_as1-oc-214.stp #3812 edge 8: 2.59e-5 at tol 1.0e-5
-      gkv311-opencascade-dataset/step/trj3_s1-tc-214.stp #5416 edge 13: 6.62e-5 at tol 6.6e-5
       gkv311-opencascade-dataset/step/as1-oc-214-mat.stp #3812 edge 4: 2.59e-5 at tol 1.0e-5
       gkv311-opencascade-dataset/step/as1-oc-214-mat.stp #3812 edge 5: 2.59e-5 at tol 1.0e-5
       gkv311-opencascade-dataset/step/as1-oc-214-mat.stp #3812 edge 6: 2.59e-5 at tol 1.0e-5
       gkv311-opencascade-dataset/step/as1-oc-214-mat.stp #3812 edge 7: 2.59e-5 at tol 1.0e-5
       gkv311-opencascade-dataset/step/as1-oc-214-mat.stp #3812 edge 8: 2.59e-5 at tol 1.0e-5
       gkv311-opencascade-dataset/step/t4mec.stp #9 edge 15: 1.65e-2 at tol 6.0e-3
-      gkv311-opencascade-dataset/step/t4mec.stp #9 edge 62: 1.12e-2 at tol 6.0e-3
+      gkv311-opencascade-dataset/step/t4mec.stp #9 edge 62: 1.14e-2 at tol 6.0e-3
       gkv311-opencascade-dataset/step/OCC23251-dm1-oc-214.stp #1488 edge 4: 2.55e-5 at tol 5.0e-6
       gkv311-opencascade-dataset/step/OCC23251-dm1-oc-214.stp #1488 edge 5: 2.55e-5 at tol 5.0e-6
       gkv311-opencascade-dataset/step/OCC23251-dm1-oc-214.stp #1488 edge 9: 2.55e-5 at tol 5.0e-6
@@ -3763,14 +3665,14 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #477097 edge 270: 5.66e-5 at tol 1.0e-5
       gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #477097 edge 288: 6.75e-5 at tol 1.0e-5
       gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #477097 edge 290: 5.66e-5 at tol 1.0e-5
-      gkv311-opencascade-dataset/step/sp7_04-do-242.stp #17823 edge 405: 5.76e-3 at tol 5.0e-3
+      gkv311-opencascade-dataset/step/sp7_04-do-242.stp #17823 edge 405: 5.57e-3 at tol 5.0e-3
       gkv311-opencascade-dataset/step/sp7_04-do-242.stp #17823 edge 409: 6.65e-3 at tol 5.0e-3
       gkv311-opencascade-dataset/step/sp7_04-do-242.stp #17823 edge 421: 5.70e-3 at tol 5.0e-3
-      gkv311-opencascade-dataset/step/sp7_04-do-242.stp #17823 edge 437: 6.20e-3 at tol 5.0e-3
-      gkv311-opencascade-dataset/step/sp7_04-do-242.stp #17823 edge 441: 6.26e-3 at tol 5.0e-3
+      gkv311-opencascade-dataset/step/sp7_04-do-242.stp #17823 edge 437: 6.12e-3 at tol 5.0e-3
+      gkv311-opencascade-dataset/step/sp7_04-do-242.stp #17823 edge 441: 6.05e-3 at tol 5.0e-3
       gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #16680 edge 1: 2.30e-6 at tol 1.0e-6
-      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #16640 edge 0: 3.80e-6 at tol 1.0e-6
-      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #16640 edge 2: 3.80e-6 at tol 1.0e-6
+      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #16640 edge 0: 3.79e-6 at tol 1.0e-6
+      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #16640 edge 2: 3.79e-6 at tol 1.0e-6
       gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #16595 edge 1: 8.16e-6 at tol 1.0e-6
       gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #16415 edge 3: 1.99e-6 at tol 1.0e-6
       gkv311-opencascade-dataset/step/trj4_k1_geo-md-203.stp #542 edge 110: 5.50e-6 at tol 2.1e-6
@@ -3784,7 +3686,7 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/OCC29.stp #5308 edge 207: 1.84e-6 at tol 1.0e-6
       gkv311-opencascade-dataset/step/OCC29.stp #5308 edge 281: 1.43e-6 at tol 1.0e-6
       gkv311-opencascade-dataset/step/OCC29.stp #5308 edge 285: 9.67e-6 at tol 1.0e-6
-      gkv311-opencascade-dataset/step/trj6_k1-al-214.stp #5529 edge 60: 3.19e-4 at tol 2.0e-4
+      gkv311-opencascade-dataset/step/trj6_k1-al-214.stp #5529 edge 60: 3.20e-4 at tol 2.0e-4
       gkv311-opencascade-dataset/step/trj6_k1-al-214.stp #5529 edge 70: 2.94e-4 at tol 2.0e-4
       gkv311-opencascade-dataset/step/trj6_k1-al-214.stp #5529 edge 71: 2.94e-4 at tol 2.0e-4
       gkv311-opencascade-dataset/step/trj6_k1-al-214.stp #5529 edge 74: 2.94e-4 at tol 2.0e-4
@@ -3799,18 +3701,18 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/trj4_k1_geo-ac-214.stp #10298 edge 27: 1.08e-6 at tol 1.0e-6
       gkv311-opencascade-dataset/step/trj4_k1_geo-ac-214.stp #10298 edge 31: 1.08e-6 at tol 1.0e-6
       gkv311-opencascade-dataset/step/trj4_k1_geo-ac-214.stp #10298 edge 242: 9.40e-6 at tol 1.0e-6
-      gkv311-opencascade-dataset/step/trj6_k1-td-214.stp #7301 edge 0: 1.37e-5 at tol 1.0e-5
-      gkv311-opencascade-dataset/step/trj6_k1-td-214.stp #7301 edge 1: 1.42e-5 at tol 1.0e-5
+      gkv311-opencascade-dataset/step/trj6_k1-td-214.stp #7301 edge 0: 1.34e-5 at tol 1.0e-5
+      gkv311-opencascade-dataset/step/trj6_k1-td-214.stp #7301 edge 1: 1.41e-5 at tol 1.0e-5
       gkv311-opencascade-dataset/step/trj6_k1-td-214.stp #7301 edge 157: 3.47e-5 at tol 1.0e-5
       gkv311-opencascade-dataset/step/trj6_k1-td-214.stp #7301 edge 235: 5.12e-5 at tol 1.0e-5
-      gkv311-opencascade-dataset/step/trj6_k1-td-214.stp #7301 edge 286: 1.42e-5 at tol 1.0e-5
+      gkv311-opencascade-dataset/step/trj6_k1-td-214.stp #7301 edge 286: 1.41e-5 at tol 1.0e-5
       gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 edge 128: 1.00e+0 at tol 1.0e+0
       gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 edge 130: 1.00e+0 at tol 1.0e+0
       gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 edge 137: 1.00e+0 at tol 1.0e+0
       gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 edge 143: 1.00e+0 at tol 1.0e+0
       gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 edge 186: 1.00e+0 at tol 1.0e+0
-      gkv311-opencascade-dataset/step/as1_motor.step #7316 edge 14: 7.73e-4 at tol 1.4e-4
-      gkv311-opencascade-dataset/step/as1_motor.step #7316 edge 21: 7.73e-4 at tol 1.4e-4
+      gkv311-opencascade-dataset/step/as1_motor.step #7316 edge 14: 7.67e-4 at tol 1.4e-4
+      gkv311-opencascade-dataset/step/as1_motor.step #7316 edge 21: 7.67e-4 at tol 1.4e-4
       gkv311-opencascade-dataset/step/bug27934_TEST_Machine_Part-brep-pmi.stp #4963 edge 80: 1.12e-2 at tol 5.0e-3
       gkv311-opencascade-dataset/step/bug27934_TEST_Machine_Part-brep-pmi.stp #4963 edge 81: 1.12e-2 at tol 5.0e-3
       gkv311-opencascade-dataset/step/bug27934_TEST_Machine_Part-brep-pmi.stp #4963 edge 166: 1.45e-2 at tol 5.0e-3
@@ -3831,18 +3733,18 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/bug33398.step #13688 edge 82: 2.60e-5 at tol 1.0e-5
       gkv311-opencascade-dataset/step/bug25912_GDT_exc.stp #6338 edge 53: 5.50e-3 at tol 5.0e-3
       gkv311-opencascade-dataset/step/bug25912_GDT_exc.stp #6338 edge 55: 5.50e-3 at tol 5.0e-3
-      gkv311-opencascade-dataset/step/bug25912_GDT_exc.stp #6338 edge 296: 5.09e-3 at tol 5.0e-3
+      gkv311-opencascade-dataset/step/bug25912_GDT_exc.stp #6338 edge 296: 5.01e-3 at tol 5.0e-3
       gkv311-opencascade-dataset/step/bug25912_GDT_exc.stp #6338 edge 316: 5.03e-3 at tol 5.0e-3
-      gkv311-opencascade-dataset/step/bug25912_GDT_exc.stp #6338 edge 320: 6.78e-3 at tol 5.0e-3
+      gkv311-opencascade-dataset/step/bug25912_GDT_exc.stp #6338 edge 320: 6.41e-3 at tol 5.0e-3
       gkv311-opencascade-dataset/step/bug31685_1.stp #17 edge 4: 1.26e-3 at tol 1.0e-3
       gkv311-opencascade-dataset/step/bug31685_1.stp #17 edge 5: 1.26e-3 at tol 1.0e-3
       gkv311-opencascade-dataset/step/bug31685_1.stp #17 edge 7: 1.26e-3 at tol 1.0e-3
       gkv311-opencascade-dataset/step/bug31685_1.stp #17 edge 128: 1.55e-3 at tol 1.0e-3
       gkv311-opencascade-dataset/step/bug31685_1.stp #17 edge 134: 2.44e-3 at tol 1.0e-3
       gkv311-opencascade-dataset/step/trj8_k1-db-214.stp #5 edge 6: 2.86e-3 at tol 1.0e-3
-      gkv311-opencascade-dataset/step/trj8_k1-db-214.stp #5 edge 8: 3.02e-3 at tol 1.0e-3
+      gkv311-opencascade-dataset/step/trj8_k1-db-214.stp #5 edge 8: 3.03e-3 at tol 1.0e-3
       gkv311-opencascade-dataset/step/trj8_k1-db-214.stp #5 edge 10: 2.86e-3 at tol 1.0e-3
-      gkv311-opencascade-dataset/step/trj8_k1-db-214.stp #5 edge 11: 3.02e-3 at tol 1.0e-3
+      gkv311-opencascade-dataset/step/trj8_k1-db-214.stp #5 edge 11: 3.03e-3 at tol 1.0e-3
       gkv311-opencascade-dataset/step/trj8_k1-db-214.stp #5 edge 12: 6.25e-3 at tol 1.0e-3
       gkv311-opencascade-dataset/step/OCC623.step #11 edge 9: 9.07e-5 at tol 2.0e-5
       gkv311-opencascade-dataset/step/OCC623.step #11 edge 11: 3.54e-5 at tol 2.0e-5
@@ -3913,42 +3815,42 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/bug26657.stp #3812 edge 6: 2.59e-5 at tol 1.0e-5
       gkv311-opencascade-dataset/step/bug26657.stp #3812 edge 7: 2.59e-5 at tol 1.0e-5
       gkv311-opencascade-dataset/step/bug26657.stp #3812 edge 8: 2.59e-5 at tol 1.0e-5
-      gkv311-opencascade-dataset/step/nist/nist_ctc_05_asme1_ap242-1.stp #1177 edge 88: 2.06e-2 at tol 1.7e-2
-      gkv311-opencascade-dataset/step/nist/nist_ctc_05_asme1_ap242-1.stp #1177 edge 90: 2.06e-2 at tol 1.7e-2
-      gkv311-opencascade-dataset/step/nist/nist_ctc_05_asme1_ap242-1.stp #1177 edge 94: 2.06e-2 at tol 1.7e-2
-      gkv311-opencascade-dataset/step/nist/nist_ctc_05_asme1_ap242-1.stp #1177 edge 96: 2.06e-2 at tol 1.7e-2
-      gkv311-opencascade-dataset/step/nist/nist_ctc_05_asme1_ap242-1.stp #1177 edge 111: 2.08e-2 at tol 1.7e-2
-      gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp #1177 edge 88: 2.06e-2 at tol 1.7e-2
-      gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp #1177 edge 90: 2.06e-2 at tol 1.7e-2
-      gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp #1177 edge 94: 2.06e-2 at tol 1.7e-2
-      gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp #1177 edge 96: 2.06e-2 at tol 1.7e-2
-      gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp #1177 edge 111: 2.08e-2 at tol 1.7e-2
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp #3044 edge 313: 5.98e-3 at tol 5.0e-3
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp #3044 edge 314: 5.98e-3 at tol 5.0e-3
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp #3044 edge 315: 5.98e-3 at tol 5.0e-3
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp #3044 edge 317: 5.98e-3 at tol 5.0e-3
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp #3044 edge 318: 5.98e-3 at tol 5.0e-3
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177 edge 88: 2.06e-2 at tol 1.7e-2
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177 edge 90: 2.06e-2 at tol 1.7e-2
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177 edge 94: 2.06e-2 at tol 1.7e-2
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177 edge 96: 2.06e-2 at tol 1.7e-2
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177 edge 111: 2.08e-2 at tol 1.7e-2
+      gkv311-opencascade-dataset/step/nist/nist_ctc_05_asme1_ap242-1.stp #1177 edge 88: 2.05e-2 at tol 1.7e-2
+      gkv311-opencascade-dataset/step/nist/nist_ctc_05_asme1_ap242-1.stp #1177 edge 90: 2.05e-2 at tol 1.7e-2
+      gkv311-opencascade-dataset/step/nist/nist_ctc_05_asme1_ap242-1.stp #1177 edge 94: 2.05e-2 at tol 1.7e-2
+      gkv311-opencascade-dataset/step/nist/nist_ctc_05_asme1_ap242-1.stp #1177 edge 96: 2.05e-2 at tol 1.7e-2
+      gkv311-opencascade-dataset/step/nist/nist_ctc_05_asme1_ap242-1.stp #1177 edge 111: 2.07e-2 at tol 1.7e-2
+      gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp #1177 edge 88: 2.05e-2 at tol 1.7e-2
+      gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp #1177 edge 90: 2.05e-2 at tol 1.7e-2
+      gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp #1177 edge 94: 2.05e-2 at tol 1.7e-2
+      gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp #1177 edge 96: 2.05e-2 at tol 1.7e-2
+      gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp #1177 edge 111: 2.07e-2 at tol 1.7e-2
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp #3044 edge 313: 5.99e-3 at tol 5.0e-3
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp #3044 edge 314: 5.99e-3 at tol 5.0e-3
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp #3044 edge 315: 5.99e-3 at tol 5.0e-3
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp #3044 edge 317: 5.99e-3 at tol 5.0e-3
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp #3044 edge 318: 5.99e-3 at tol 5.0e-3
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177 edge 88: 2.05e-2 at tol 1.7e-2
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177 edge 90: 2.05e-2 at tol 1.7e-2
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177 edge 94: 2.05e-2 at tol 1.7e-2
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177 edge 96: 2.05e-2 at tol 1.7e-2
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177 edge 111: 2.07e-2 at tol 1.7e-2
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_11_asme1_ap242-e2.stp #466 edge 4: 1.40e-2 at tol 5.0e-3
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_11_asme1_ap242-e2.stp #466 edge 12: 5.20e-3 at tol 5.0e-3
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_11_asme1_ap242-e2.stp #466 edge 14: 8.29e-3 at tol 5.0e-3
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_11_asme1_ap242-e2.stp #466 edge 12: 5.22e-3 at tol 5.0e-3
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_11_asme1_ap242-e2.stp #466 edge 14: 8.25e-3 at tol 5.0e-3
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_07_asme1_ap242-e3.stp #11020 edge 151: 5.19e-3 at tol 5.0e-3
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_07_asme1_ap242-e3.stp #11020 edge 155: 5.19e-3 at tol 5.0e-3
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_07_asme1_ap242-e3.stp #11020 edge 157: 5.19e-3 at tol 5.0e-3
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_07_asme1_ap242-e3.stp #11020 edge 161: 5.19e-3 at tol 5.0e-3
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_07_asme1_ap242-e3.stp #11020 edge 163: 5.19e-3 at tol 5.0e-3
-      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_BACK.stp #1485 edge 21: 6.51e-3 at tol 5.0e-3
-      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_BACK.stp #1485 edge 23: 6.51e-3 at tol 5.0e-3
-      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_BACK.stp #1485 edge 37: 6.21e-3 at tol 5.0e-3
-      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_BACK.stp #1485 edge 40: 6.21e-3 at tol 5.0e-3
-      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_FRONT.stp #1124 edge 5: 6.21e-3 at tol 5.0e-3
-      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_FRONT.stp #1124 edge 8: 6.21e-3 at tol 5.0e-3
-      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_FRONT.stp #1124 edge 11: 6.51e-3 at tol 5.0e-3
-      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_FRONT.stp #1124 edge 13: 6.51e-3 at tol 5.0e-3
+      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_BACK.stp #1485 edge 21: 6.47e-3 at tol 5.0e-3
+      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_BACK.stp #1485 edge 23: 6.47e-3 at tol 5.0e-3
+      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_BACK.stp #1485 edge 37: 6.22e-3 at tol 5.0e-3
+      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_BACK.stp #1485 edge 40: 6.22e-3 at tol 5.0e-3
+      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_FRONT.stp #1124 edge 5: 6.22e-3 at tol 5.0e-3
+      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_FRONT.stp #1124 edge 8: 6.22e-3 at tol 5.0e-3
+      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_FRONT.stp #1124 edge 11: 6.47e-3 at tol 5.0e-3
+      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_FRONT.stp #1124 edge 13: 6.47e-3 at tol 5.0e-3
       occt-import-js/test/testfiles/cax-if/dm1-oc-214.stp #1488 edge 4: 2.55e-5 at tol 5.0e-6
       occt-import-js/test/testfiles/cax-if/dm1-oc-214.stp #1488 edge 5: 2.55e-5 at tol 5.0e-6
       occt-import-js/test/testfiles/cax-if/dm1-oc-214.stp #1488 edge 9: 2.55e-5 at tol 5.0e-6
@@ -4033,7 +3935,6 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/bug33398.step #13688 edge 709: 2.68e-3 at tol 1.0e-5
       gkv311-opencascade-dataset/step/trj8_k1-md-214.stp #10 edge 51: 3.19e-4 at tol 2.1e-6
       gkv311-opencascade-dataset/step/trj8_k1-md-214.stp #10 edge 54: 3.19e-4 at tol 2.1e-6
-      gkv311-opencascade-dataset/step/bug23202_Leuchte.stp #29007 edge 1921: 2.50e+0 at tol 1.0e-2
       gkv311-opencascade-dataset/step/trj7_k1-ac-203.stp #2710 edge 6: 8.99e-3 at tol 2.5e-5
       gkv311-opencascade-dataset/step/trj7_k1-ac-203.stp #2710 edge 7: 8.99e-3 at tol 2.5e-5
       gkv311-opencascade-dataset/step/trj7_k1-ac-203.stp #2710 edge 8: 8.99e-3 at tol 2.5e-5
@@ -4042,7 +3943,7 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/screw.step #11 edge 0: 2.98e-4 at tol 1.0e-6
       gkv311-opencascade-dataset/step/screw.step #11 edge 6: 3.03e-4 at tol 1.0e-6
       gkv311-opencascade-dataset/step/screw.step #11 edge 7: 3.03e-4 at tol 1.0e-6
-      gkv311-opencascade-dataset/step/bug25287_bad_tess_face_plus.step #2134 edge 72: 1.07e-3 at tol 1.0e-5
+      gkv311-opencascade-dataset/step/bug25287_bad_tess_face_plus.step #2134 edge 72: 1.06e-3 at tol 1.0e-5
       gkv311-opencascade-dataset/step/bug25287_bad_tess_face_plus.step #2134 edge 294: 1.06e-3 at tol 1.0e-5
       gkv311-opencascade-dataset/step/trj3_s1-md-214.stp #2468 edge 8: 9.83e-4 at tol 2.1e-6
       gkv311-opencascade-dataset/step/trj3_s1-md-214.stp #2468 edge 10: 7.30e-4 at tol 2.1e-6
@@ -4057,28 +3958,22 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/trj9_ap209-td.stp #1507 edge 71: 9.01e-3 at tol 1.5e-5
       gkv311-opencascade-dataset/step/trj9_ap209-td.stp #1507 edge 74: 9.01e-3 at tol 1.5e-5
       gkv311-opencascade-dataset/step/trj1_t4m-ac.stp #1390 edge 0: 3.93e-4 at tol 2.2e-6
-      gkv311-opencascade-dataset/step/trj1_t4m-ac.stp #1390 edge 2: 5.80e-4 at tol 2.2e-6
-      gkv311-opencascade-dataset/step/trj1_t4m-ac.stp #1390 edge 3: 6.88e-4 at tol 2.2e-6
+      gkv311-opencascade-dataset/step/trj1_t4m-ac.stp #1390 edge 2: 5.81e-4 at tol 2.2e-6
+      gkv311-opencascade-dataset/step/trj1_t4m-ac.stp #1390 edge 3: 6.89e-4 at tol 2.2e-6
       gkv311-opencascade-dataset/step/trj1_t4m-ac.stp #1390 edge 10: 3.93e-4 at tol 2.2e-6
       gkv311-opencascade-dataset/step/trj1_t4m-ac.stp #1390 edge 12: 7.44e-4 at tol 2.2e-6
-      gkv311-opencascade-dataset/step/trj4_k1_top-md-203.stp #10 edge 43: 8.78e-4 at tol 2.1e-6
-      gkv311-opencascade-dataset/step/trj4_k1_top-md-203.stp #10 edge 47: 8.78e-4 at tol 2.1e-6
+      gkv311-opencascade-dataset/step/trj4_k1_top-md-203.stp #10 edge 43: 8.77e-4 at tol 2.1e-6
+      gkv311-opencascade-dataset/step/trj4_k1_top-md-203.stp #10 edge 47: 8.77e-4 at tol 2.1e-6
       gkv311-opencascade-dataset/step/trj4_k1_top-md-203.stp #10 edge 51: 6.47e-4 at tol 2.1e-6
       gkv311-opencascade-dataset/step/trj4_k1_top-md-203.stp #10 edge 53: 1.06e-3 at tol 2.1e-6
       gkv311-opencascade-dataset/step/trj4_k1_top-md-203.stp #10 edge 55: 6.47e-4 at tol 2.1e-6
-      gkv311-opencascade-dataset/step/trj5_k1-md-203.stp #10 edge 43: 8.78e-4 at tol 2.1e-6
-      gkv311-opencascade-dataset/step/trj5_k1-md-203.stp #10 edge 47: 8.78e-4 at tol 2.1e-6
+      gkv311-opencascade-dataset/step/trj5_k1-md-203.stp #10 edge 43: 8.77e-4 at tol 2.1e-6
+      gkv311-opencascade-dataset/step/trj5_k1-md-203.stp #10 edge 47: 8.77e-4 at tol 2.1e-6
       gkv311-opencascade-dataset/step/trj5_k1-md-203.stp #10 edge 51: 6.47e-4 at tol 2.1e-6
       gkv311-opencascade-dataset/step/trj5_k1-md-203.stp #10 edge 53: 1.06e-3 at tol 2.1e-6
       gkv311-opencascade-dataset/step/trj5_k1-md-203.stp #10 edge 55: 6.47e-4 at tol 2.1e-6
       gkv311-opencascade-dataset/step/nist/bug28444_nist_ftc_06_asme1_ct5240_rd.stp #7107 edge 365: 9.30e-1 at tol 5.0e-3
-  526  > 1000 x tol
-      gkv311-opencascade-dataset/step/bug27894_usd_raises_Standard_NullObject.stp #234 edge 0: 6.36e+0 at tol 1.0e-5
-      gkv311-opencascade-dataset/step/bug27894_usd_raises_Standard_NullObject.stp #234 edge 24: 6.36e+0 at tol 1.0e-5
-      gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3140 edge 13: 1.38e+1 at tol 1.0e-5
-      gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3140 edge 16: 1.61e+1 at tol 1.0e-5
-      gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3139 edge 0: 1.38e+1 at tol 1.0e-5
-      gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3139 edge 4: 1.61e+1 at tol 1.0e-5
+  513  > 1000 x tol
       gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787 edge 110: 2.65e-2 at tol 1.0e-5
       gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787 edge 119: 2.65e-2 at tol 1.0e-5
       gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787 edge 127: 2.65e-2 at tol 1.0e-5
@@ -4126,17 +4021,17 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/trj5_k1-md-203.stp #10 edge 57: 3.53e-3 at tol 2.1e-6
       gkv311-opencascade-dataset/step/trj5_k1-md-203.stp #10 edge 68: 4.14e-3 at tol 2.1e-6
       gkv311-opencascade-dataset/step/trj5_k1-md-203.stp #10 edge 71: 4.14e-3 at tol 2.1e-6
-  336  not measured
+  124  not measured
 
 ## Edges needing growth (keep), by the tolerance they need
-  9885  <= 0.001 mm
-  1836  0.001-0.01 mm
+  9886  <= 0.001 mm
+  1835  0.001-0.01 mm
   210  0.01-0.1 mm
-  37  > 1 mm
-  16  0.1-1 mm
+  30  > 1 mm
+  8  0.1-1 mm
 
 ## Edges needing growth (keep), by what sets it and the tolerance needed
-  9124  curve off its surface: <= 0.001 mm
+  9129  curve off its surface: <= 0.001 mm
       gkv311-opencascade-dataset/step/trj5_k1-sh-203.stp #1489 edge 4: 1.36e-5 at tol 1.0e-6
       gkv311-opencascade-dataset/step/trj5_k1-sh-203.stp #1489 edge 7: 1.36e-5 at tol 1.0e-6
       gkv311-opencascade-dataset/step/trj5_k1-sh-203.stp #1489 edge 10: 2.65e-4 at tol 1.0e-6
@@ -4167,7 +4062,7 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3146 edge 21: 7.79e-4 at tol 1.0e-5
       gkv311-opencascade-dataset/step/trj8_k1-ac-203.stp #2712 edge 148: 3.48e-4 at tol 2.5e-5
       gkv311-opencascade-dataset/step/trj8_k1-ac-203.stp #2712 edge 149: 3.48e-4 at tol 2.5e-5
-      gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787 edge 19: 2.80e-4 at tol 1.0e-5
+      gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787 edge 19: 5.54e-4 at tol 1.0e-5
       gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787 edge 21: 1.31e-4 at tol 1.0e-5
       gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787 edge 25: 5.03e-5 at tol 1.0e-5
       gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787 edge 27: 1.46e-4 at tol 1.0e-5
@@ -4197,7 +4092,7 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/OCC29.stp #5308 edge 10: 3.79e-4 at tol 1.0e-6
       gkv311-opencascade-dataset/step/OCC29.stp #5308 edge 12: 3.79e-4 at tol 1.0e-6
       gkv311-opencascade-dataset/step/OCC29.stp #5308 edge 29: 1.81e-6 at tol 1.0e-6
-      gkv311-opencascade-dataset/step/trj6_k1-al-214.stp #5529 edge 60: 3.19e-4 at tol 2.0e-4
+      gkv311-opencascade-dataset/step/trj6_k1-al-214.stp #5529 edge 60: 3.20e-4 at tol 2.0e-4
       gkv311-opencascade-dataset/step/trj6_k1-al-214.stp #5529 edge 70: 2.94e-4 at tol 2.0e-4
       gkv311-opencascade-dataset/step/trj6_k1-al-214.stp #5529 edge 71: 2.94e-4 at tol 2.0e-4
       gkv311-opencascade-dataset/step/trj6_k1-al-214.stp #5529 edge 74: 2.94e-4 at tol 2.0e-4
@@ -4210,11 +4105,11 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/trj4_k1_geo-ac-214.stp #10298 edge 272: 3.31e-5 at tol 1.0e-6
       gkv311-opencascade-dataset/step/trj5_s1-in-214.stp #4195 edge 7: 7.79e-4 at tol 1.0e-5
       gkv311-opencascade-dataset/step/trj5_s1-in-214.stp #4195 edge 20: 7.79e-4 at tol 1.0e-5
-      gkv311-opencascade-dataset/step/trj6_k1-td-214.stp #7301 edge 0: 1.37e-5 at tol 1.0e-5
-      gkv311-opencascade-dataset/step/trj6_k1-td-214.stp #7301 edge 1: 1.42e-5 at tol 1.0e-5
+      gkv311-opencascade-dataset/step/trj6_k1-td-214.stp #7301 edge 0: 1.34e-5 at tol 1.0e-5
+      gkv311-opencascade-dataset/step/trj6_k1-td-214.stp #7301 edge 1: 1.41e-5 at tol 1.0e-5
       gkv311-opencascade-dataset/step/trj6_k1-td-214.stp #7301 edge 157: 3.47e-5 at tol 1.0e-5
       gkv311-opencascade-dataset/step/trj6_k1-td-214.stp #7301 edge 235: 5.12e-5 at tol 1.0e-5
-      gkv311-opencascade-dataset/step/trj6_k1-td-214.stp #7301 edge 286: 1.42e-5 at tol 1.0e-5
+      gkv311-opencascade-dataset/step/trj6_k1-td-214.stp #7301 edge 286: 1.41e-5 at tol 1.0e-5
       gkv311-opencascade-dataset/step/bug30053.stp #11 edge 0: 2.98e-4 at tol 1.0e-6
       gkv311-opencascade-dataset/step/Checking_Fixture_Clamping.STEP #5594 edge 0: 8.54e-5 at tol 1.0e-5
       gkv311-opencascade-dataset/step/Checking_Fixture_Clamping.STEP #5594 edge 2: 1.41e-5 at tol 1.0e-5
@@ -4246,8 +4141,8 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/trj3_s1-md-214.stp #1707 edge 8: 9.83e-4 at tol 2.1e-6
       gkv311-opencascade-dataset/step/trj3_s1-md-214.stp #1707 edge 12: 7.30e-4 at tol 2.1e-6
       gkv311-opencascade-dataset/step/bug22680_C5-390.410-63090C-633112134823466595-1.stp #996 edge 1: 4.05e-4 at tol 1.0e-5
-      gkv311-opencascade-dataset/step/trj6_k1-md-214.stp #10 edge 67: 8.51e-4 at tol 5.5e-6
-      gkv311-opencascade-dataset/step/trj6_k1-md-214.stp #10 edge 70: 8.51e-4 at tol 5.5e-6
+      gkv311-opencascade-dataset/step/trj6_k1-md-214.stp #10 edge 67: 8.50e-4 at tol 5.5e-6
+      gkv311-opencascade-dataset/step/trj6_k1-md-214.stp #10 edge 70: 8.50e-4 at tol 5.5e-6
       gkv311-opencascade-dataset/step/trj3_s1-ec-203.stp #571 edge 1: 1.83e-7 at tol 1.3e-7
       gkv311-opencascade-dataset/step/trj3_s1-ec-203.stp #571 edge 8: 1.72e-7 at tol 1.3e-7
       gkv311-opencascade-dataset/step/trj3_s1-ec-203.stp #92 edge 13: 1.72e-7 at tol 1.5e-7
@@ -4258,8 +4153,8 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/bug32239.STEP #72569 edge 500: 4.43e-4 at tol 2.5e-4
       gkv311-opencascade-dataset/step/bug32239.STEP #72569 edge 1177: 4.39e-4 at tol 2.5e-4
       gkv311-opencascade-dataset/step/trj1_t4m-ac.stp #1390 edge 0: 3.93e-4 at tol 2.2e-6
-      gkv311-opencascade-dataset/step/trj1_t4m-ac.stp #1390 edge 2: 5.80e-4 at tol 2.2e-6
-      gkv311-opencascade-dataset/step/trj1_t4m-ac.stp #1390 edge 3: 6.88e-4 at tol 2.2e-6
+      gkv311-opencascade-dataset/step/trj1_t4m-ac.stp #1390 edge 2: 5.81e-4 at tol 2.2e-6
+      gkv311-opencascade-dataset/step/trj1_t4m-ac.stp #1390 edge 3: 6.89e-4 at tol 2.2e-6
       gkv311-opencascade-dataset/step/trj1_t4m-ac.stp #1390 edge 5: 2.04e-4 at tol 2.2e-6
       gkv311-opencascade-dataset/step/trj1_t4m-ac.stp #1390 edge 6: 2.04e-4 at tol 2.2e-6
       gkv311-opencascade-dataset/step/bug31670_russian.stp #31639 edge 44: 1.63e-5 at tol 1.0e-5
@@ -4271,16 +4166,16 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/trj3_s1-ec-214.stp #525 edge 8: 1.72e-7 at tol 1.3e-7
       gkv311-opencascade-dataset/step/trj3_s1-ec-214.stp #62 edge 13: 1.72e-7 at tol 1.5e-7
       gkv311-opencascade-dataset/step/trj3_s1-ec-214.stp #62 edge 25: 1.83e-7 at tol 1.5e-7
-      gkv311-opencascade-dataset/step/trj4_k1_top-md-203.stp #10 edge 43: 8.78e-4 at tol 2.1e-6
-      gkv311-opencascade-dataset/step/trj4_k1_top-md-203.stp #10 edge 47: 8.78e-4 at tol 2.1e-6
+      gkv311-opencascade-dataset/step/trj4_k1_top-md-203.stp #10 edge 43: 8.77e-4 at tol 2.1e-6
+      gkv311-opencascade-dataset/step/trj4_k1_top-md-203.stp #10 edge 47: 8.77e-4 at tol 2.1e-6
       gkv311-opencascade-dataset/step/trj4_k1_top-md-203.stp #10 edge 51: 6.47e-4 at tol 2.1e-6
       gkv311-opencascade-dataset/step/trj4_k1_top-md-203.stp #10 edge 55: 6.47e-4 at tol 2.1e-6
       gkv311-opencascade-dataset/step/trj4_k1_top-md-203.stp #10 edge 67: 3.35e-4 at tol 2.1e-6
       gkv311-opencascade-dataset/step/trj5_s1-ac-214.stp #3236 edge 7: 7.30e-4 at tol 1.0e-5
       gkv311-opencascade-dataset/step/trj5_s1-ac-214.stp #3236 edge 11: 7.30e-4 at tol 1.0e-5
       gkv311-opencascade-dataset/step/trj5_s1-ac-214.stp #3236 edge 20: 5.80e-4 at tol 1.0e-5
-      gkv311-opencascade-dataset/step/trj5_k1-md-203.stp #10 edge 43: 8.78e-4 at tol 2.1e-6
-      gkv311-opencascade-dataset/step/trj5_k1-md-203.stp #10 edge 47: 8.78e-4 at tol 2.1e-6
+      gkv311-opencascade-dataset/step/trj5_k1-md-203.stp #10 edge 43: 8.77e-4 at tol 2.1e-6
+      gkv311-opencascade-dataset/step/trj5_k1-md-203.stp #10 edge 47: 8.77e-4 at tol 2.1e-6
       gkv311-opencascade-dataset/step/trj5_k1-md-203.stp #10 edge 51: 6.47e-4 at tol 2.1e-6
       gkv311-opencascade-dataset/step/trj5_k1-md-203.stp #10 edge 55: 6.47e-4 at tol 2.1e-6
       gkv311-opencascade-dataset/step/trj5_k1-md-203.stp #10 edge 67: 3.35e-4 at tol 2.1e-6
@@ -4289,7 +4184,7 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/trj4_k1_geo-tu-214.stp #2080 edge 16: 1.15e-5 at tol 1.0e-5
       gkv311-opencascade-dataset/step/trj4_k1_geo-tu-214.stp #2080 edge 17: 4.66e-5 at tol 1.0e-5
       gkv311-opencascade-dataset/step/trj4_k1_geo-tu-214.stp #2080 edge 27: 1.00e-4 at tol 1.0e-5
-  1612  curve off its surface: 0.001-0.01 mm
+  1611  curve off its surface: 0.001-0.01 mm
       gkv311-opencascade-dataset/step/trj4_s1-ac-214.stp #4119 edge 7: 1.85e-3 at tol 2.5e-5
       gkv311-opencascade-dataset/step/trj4_s1-ac-214.stp #4119 edge 11: 1.85e-3 at tol 2.5e-5
       gkv311-opencascade-dataset/step/trj4_s1-ac-214.stp #4119 edge 20: 1.47e-3 at tol 2.5e-5
@@ -4323,11 +4218,11 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #329592 edge 271: 6.44e-3 at tol 1.0e-5
       gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #329592 edge 272: 4.94e-3 at tol 1.0e-5
       gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #329592 edge 274: 7.48e-3 at tol 1.0e-5
-      gkv311-opencascade-dataset/step/sp7_04-do-242.stp #17823 edge 405: 5.76e-3 at tol 5.0e-3
+      gkv311-opencascade-dataset/step/sp7_04-do-242.stp #17823 edge 405: 5.57e-3 at tol 5.0e-3
       gkv311-opencascade-dataset/step/sp7_04-do-242.stp #17823 edge 409: 6.65e-3 at tol 5.0e-3
       gkv311-opencascade-dataset/step/sp7_04-do-242.stp #17823 edge 421: 5.70e-3 at tol 5.0e-3
-      gkv311-opencascade-dataset/step/sp7_04-do-242.stp #17823 edge 437: 6.20e-3 at tol 5.0e-3
-      gkv311-opencascade-dataset/step/sp7_04-do-242.stp #17823 edge 441: 6.26e-3 at tol 5.0e-3
+      gkv311-opencascade-dataset/step/sp7_04-do-242.stp #17823 edge 437: 6.12e-3 at tol 5.0e-3
+      gkv311-opencascade-dataset/step/sp7_04-do-242.stp #17823 edge 441: 6.05e-3 at tol 5.0e-3
       gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17375 edge 1: 1.85e-3 at tol 1.0e-6
       gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17170 edge 0: 8.76e-3 at tol 1.0e-6
       gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17170 edge 4: 7.91e-3 at tol 1.0e-6
@@ -4346,7 +4241,7 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/bug32596_abc_0_13.step #113 edge 4: 1.74e-3 at tol 5.9e-8
       gkv311-opencascade-dataset/step/bug32596_abc_0_13.step #113 edge 5: 1.68e-3 at tol 5.9e-8
       gkv311-opencascade-dataset/step/bug32596_abc_0_13.step #113 edge 27: 1.68e-3 at tol 5.9e-8
-      gkv311-opencascade-dataset/step/bug32596_abc_0_13.step #113 edge 57: 1.80e-3 at tol 5.9e-8
+      gkv311-opencascade-dataset/step/bug32596_abc_0_13.step #113 edge 57: 1.81e-3 at tol 5.9e-8
       gkv311-opencascade-dataset/step/bug32596_abc_0_13.step #113 edge 105: 1.74e-3 at tol 5.9e-8
       gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp #5203 edge 4: 1.76e-3 at tol 1.0e-5
       gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp #5203 edge 8: 1.76e-3 at tol 1.0e-5
@@ -4358,10 +4253,10 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/bug33398.step #13688 edge 706: 1.21e-3 at tol 1.0e-5
       gkv311-opencascade-dataset/step/bug33398.step #13688 edge 707: 1.21e-3 at tol 1.0e-5
       gkv311-opencascade-dataset/step/bug33398.step #13688 edge 709: 2.68e-3 at tol 1.0e-5
-      gkv311-opencascade-dataset/step/bug25912_GDT_exc.stp #6338 edge 320: 6.78e-3 at tol 5.0e-3
+      gkv311-opencascade-dataset/step/bug25912_GDT_exc.stp #6338 edge 320: 6.41e-3 at tol 5.0e-3
       gkv311-opencascade-dataset/step/bug25912_GDT_exc.stp #6338 edge 332: 9.97e-3 at tol 5.0e-3
       gkv311-opencascade-dataset/step/bug25912_GDT_exc.stp #6338 edge 344: 8.56e-3 at tol 5.0e-3
-      gkv311-opencascade-dataset/step/bug25912_GDT_exc.stp #6338 edge 348: 7.13e-3 at tol 5.0e-3
+      gkv311-opencascade-dataset/step/bug25912_GDT_exc.stp #6338 edge 348: 6.87e-3 at tol 5.0e-3
       gkv311-opencascade-dataset/step/bug31685_1.stp #17 edge 4: 1.26e-3 at tol 1.0e-3
       gkv311-opencascade-dataset/step/bug31685_1.stp #17 edge 5: 1.26e-3 at tol 1.0e-3
       gkv311-opencascade-dataset/step/bug31685_1.stp #17 edge 7: 1.26e-3 at tol 1.0e-3
@@ -4380,7 +4275,7 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/trj7_k1-ac-203.stp #2710 edge 8: 8.99e-3 at tol 2.5e-5
       gkv311-opencascade-dataset/step/trj7_k1-ac-203.stp #2710 edge 9: 8.99e-3 at tol 2.5e-5
       gkv311-opencascade-dataset/step/trj7_k1-ac-203.stp #2710 edge 18: 1.45e-3 at tol 2.5e-5
-      gkv311-opencascade-dataset/step/bug25287_bad_tess_face_plus.step #2134 edge 72: 1.07e-3 at tol 1.0e-5
+      gkv311-opencascade-dataset/step/bug25287_bad_tess_face_plus.step #2134 edge 72: 1.06e-3 at tol 1.0e-5
       gkv311-opencascade-dataset/step/bug25287_bad_tess_face_plus.step #2134 edge 294: 1.06e-3 at tol 1.0e-5
       gkv311-opencascade-dataset/step/bug33261.stp #23887 edge 809: 1.09e-3 at tol 1.0e-3
       gkv311-opencascade-dataset/step/trj6_k1-md-214.stp #10 edge 43: 2.23e-3 at tol 5.5e-6
@@ -4413,26 +4308,26 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2775 edge 202: 1.60e-3 at tol 1.0e-3
       gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2775 edge 203: 1.60e-3 at tol 1.0e-3
       gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2775 edge 205: 1.60e-3 at tol 1.0e-3
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp #3044 edge 313: 5.98e-3 at tol 5.0e-3
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp #3044 edge 314: 5.98e-3 at tol 5.0e-3
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp #3044 edge 315: 5.98e-3 at tol 5.0e-3
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp #3044 edge 317: 5.98e-3 at tol 5.0e-3
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp #3044 edge 318: 5.98e-3 at tol 5.0e-3
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_11_asme1_ap242-e2.stp #466 edge 12: 5.20e-3 at tol 5.0e-3
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_11_asme1_ap242-e2.stp #466 edge 14: 8.29e-3 at tol 5.0e-3
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp #3044 edge 313: 5.99e-3 at tol 5.0e-3
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp #3044 edge 314: 5.99e-3 at tol 5.0e-3
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp #3044 edge 315: 5.99e-3 at tol 5.0e-3
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp #3044 edge 317: 5.99e-3 at tol 5.0e-3
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp #3044 edge 318: 5.99e-3 at tol 5.0e-3
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_11_asme1_ap242-e2.stp #466 edge 12: 5.22e-3 at tol 5.0e-3
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_11_asme1_ap242-e2.stp #466 edge 14: 8.25e-3 at tol 5.0e-3
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_07_asme1_ap242-e3.stp #11020 edge 151: 5.19e-3 at tol 5.0e-3
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_07_asme1_ap242-e3.stp #11020 edge 155: 5.19e-3 at tol 5.0e-3
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_07_asme1_ap242-e3.stp #11020 edge 157: 5.19e-3 at tol 5.0e-3
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_07_asme1_ap242-e3.stp #11020 edge 161: 5.19e-3 at tol 5.0e-3
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_07_asme1_ap242-e3.stp #11020 edge 163: 5.19e-3 at tol 5.0e-3
-      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_BACK.stp #1485 edge 21: 6.51e-3 at tol 5.0e-3
-      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_BACK.stp #1485 edge 23: 6.51e-3 at tol 5.0e-3
-      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_BACK.stp #1485 edge 37: 6.21e-3 at tol 5.0e-3
-      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_BACK.stp #1485 edge 40: 6.21e-3 at tol 5.0e-3
-      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_FRONT.stp #1124 edge 5: 6.21e-3 at tol 5.0e-3
-      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_FRONT.stp #1124 edge 8: 6.21e-3 at tol 5.0e-3
-      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_FRONT.stp #1124 edge 11: 6.51e-3 at tol 5.0e-3
-      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_FRONT.stp #1124 edge 13: 6.51e-3 at tol 5.0e-3
+      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_BACK.stp #1485 edge 21: 6.47e-3 at tol 5.0e-3
+      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_BACK.stp #1485 edge 23: 6.47e-3 at tol 5.0e-3
+      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_BACK.stp #1485 edge 37: 6.22e-3 at tol 5.0e-3
+      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_BACK.stp #1485 edge 40: 6.22e-3 at tol 5.0e-3
+      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_FRONT.stp #1124 edge 5: 6.22e-3 at tol 5.0e-3
+      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_FRONT.stp #1124 edge 8: 6.22e-3 at tol 5.0e-3
+      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_FRONT.stp #1124 edge 11: 6.47e-3 at tol 5.0e-3
+      gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_FRONT.stp #1124 edge 13: 6.47e-3 at tol 5.0e-3
   582  vertex off its curve: <= 0.001 mm
       gkv311-opencascade-dataset/step/r0901_ec.stp #11 edge 223: 7.05e-6 at tol 2.0e-6
       gkv311-opencascade-dataset/step/bug30014.stp #61091 edge 56: 5.00e-5 at tol 1.0e-5
@@ -4507,31 +4402,31 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/trj6_k1-md-214.stp #10 edge 68: 1.05e-2 at tol 5.5e-6
       gkv311-opencascade-dataset/step/trj6_k1-md-214.stp #10 edge 71: 1.05e-2 at tol 5.5e-6
       gkv311-opencascade-dataset/step/trj4_k1_top-ec-214.stp #10 edge 119: 5.21e-2 at tol 1.0e-3
-      gkv311-opencascade-dataset/step/trj5_k1-ec-214.stp #10 edge 118: 7.88e-2 at tol 1.0e-3
+      gkv311-opencascade-dataset/step/trj5_k1-ec-214.stp #10 edge 118: 8.33e-2 at tol 1.0e-3
       gkv311-opencascade-dataset/step/bug32239.STEP #116154 edge 138: 1.23e-2 at tol 2.5e-4
       gkv311-opencascade-dataset/step/trj7_k1-id-214.stp #44 edge 91: 1.48e-2 at tol 1.0e-2
       gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1549 edge 78: 3.04e-2 at tol 1.0e-3
       gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1549 edge 81: 3.04e-2 at tol 1.0e-3
       gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #71291 edge 5728: 7.51e-2 at tol 6.1e-2
       gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #71291 edge 5731: 7.51e-2 at tol 6.1e-2
-      gkv311-opencascade-dataset/step/nist/nist_ctc_05_asme1_ap242-1.stp #1177 edge 88: 2.06e-2 at tol 1.7e-2
-      gkv311-opencascade-dataset/step/nist/nist_ctc_05_asme1_ap242-1.stp #1177 edge 90: 2.06e-2 at tol 1.7e-2
-      gkv311-opencascade-dataset/step/nist/nist_ctc_05_asme1_ap242-1.stp #1177 edge 94: 2.06e-2 at tol 1.7e-2
-      gkv311-opencascade-dataset/step/nist/nist_ctc_05_asme1_ap242-1.stp #1177 edge 96: 2.06e-2 at tol 1.7e-2
-      gkv311-opencascade-dataset/step/nist/nist_ctc_05_asme1_ap242-1.stp #1177 edge 111: 2.08e-2 at tol 1.7e-2
-      gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp #1177 edge 88: 2.06e-2 at tol 1.7e-2
-      gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp #1177 edge 90: 2.06e-2 at tol 1.7e-2
-      gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp #1177 edge 94: 2.06e-2 at tol 1.7e-2
-      gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp #1177 edge 96: 2.06e-2 at tol 1.7e-2
-      gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp #1177 edge 111: 2.08e-2 at tol 1.7e-2
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_04_asme1_ap242-e1.stp #18027 edge 812: 5.07e-2 at tol 5.0e-3
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_04_asme1_ap242-e1.stp #18027 edge 840: 5.07e-2 at tol 5.0e-3
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_04_asme1_ap242-e1.stp #18027 edge 846: 5.07e-2 at tol 5.0e-3
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177 edge 88: 2.06e-2 at tol 1.7e-2
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177 edge 90: 2.06e-2 at tol 1.7e-2
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177 edge 94: 2.06e-2 at tol 1.7e-2
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177 edge 96: 2.06e-2 at tol 1.7e-2
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177 edge 111: 2.08e-2 at tol 1.7e-2
+      gkv311-opencascade-dataset/step/nist/nist_ctc_05_asme1_ap242-1.stp #1177 edge 88: 2.05e-2 at tol 1.7e-2
+      gkv311-opencascade-dataset/step/nist/nist_ctc_05_asme1_ap242-1.stp #1177 edge 90: 2.05e-2 at tol 1.7e-2
+      gkv311-opencascade-dataset/step/nist/nist_ctc_05_asme1_ap242-1.stp #1177 edge 94: 2.05e-2 at tol 1.7e-2
+      gkv311-opencascade-dataset/step/nist/nist_ctc_05_asme1_ap242-1.stp #1177 edge 96: 2.05e-2 at tol 1.7e-2
+      gkv311-opencascade-dataset/step/nist/nist_ctc_05_asme1_ap242-1.stp #1177 edge 111: 2.07e-2 at tol 1.7e-2
+      gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp #1177 edge 88: 2.05e-2 at tol 1.7e-2
+      gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp #1177 edge 90: 2.05e-2 at tol 1.7e-2
+      gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp #1177 edge 94: 2.05e-2 at tol 1.7e-2
+      gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp #1177 edge 96: 2.05e-2 at tol 1.7e-2
+      gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp #1177 edge 111: 2.07e-2 at tol 1.7e-2
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_04_asme1_ap242-e1.stp #18027 edge 812: 5.06e-2 at tol 5.0e-3
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_04_asme1_ap242-e1.stp #18027 edge 840: 5.06e-2 at tol 5.0e-3
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_04_asme1_ap242-e1.stp #18027 edge 846: 5.06e-2 at tol 5.0e-3
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177 edge 88: 2.05e-2 at tol 1.7e-2
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177 edge 90: 2.05e-2 at tol 1.7e-2
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177 edge 94: 2.05e-2 at tol 1.7e-2
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177 edge 96: 2.05e-2 at tol 1.7e-2
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177 edge 111: 2.07e-2 at tol 1.7e-2
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_11_asme1_ap242-e2.stp #466 edge 4: 1.40e-2 at tol 5.0e-3
       gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/HEAD_BACK.stp #593 edge 6: 8.01e-2 at tol 5.0e-3
       gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/HEAD_BACK.stp #593 edge 7: 7.94e-2 at tol 5.0e-3
@@ -4630,7 +4525,7 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #168383 edge 625: 8.31e-3 at tol 1.0e-5
       gkv311-opencascade-dataset/step/bug25912_GDT_exc.stp #6338 edge 53: 5.50e-3 at tol 5.0e-3
       gkv311-opencascade-dataset/step/bug25912_GDT_exc.stp #6338 edge 55: 5.50e-3 at tol 5.0e-3
-      gkv311-opencascade-dataset/step/bug25912_GDT_exc.stp #6338 edge 296: 5.09e-3 at tol 5.0e-3
+      gkv311-opencascade-dataset/step/bug25912_GDT_exc.stp #6338 edge 296: 5.01e-3 at tol 5.0e-3
       gkv311-opencascade-dataset/step/bug25912_GDT_exc.stp #6338 edge 316: 5.03e-3 at tol 5.0e-3
       gkv311-opencascade-dataset/step/2.stp #342 edge 1: 4.67e-3 at tol 1.0e-3
       gkv311-opencascade-dataset/step/2.stp #342 edge 3: 4.50e-3 at tol 1.0e-3
@@ -4655,30 +4550,6 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2775 edge 240: 1.32e-2 at tol 1.0e-3
       gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2775 edge 241: 1.17e-2 at tol 1.0e-3
       gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2775 edge 250: 1.17e-2 at tol 1.0e-3
-  48  the projection's fit short of tol: <= 0.001 mm
-      gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #30730 edge 0: 1.51e-5 at tol 1.0e-6
-      gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #30730 edge 134: 1.51e-5 at tol 1.0e-6
-      gkv311-opencascade-dataset/step/trj3_s1-tc-214.stp #5416 edge 13: 6.62e-5 at tol 6.6e-5
-      gkv311-opencascade-dataset/step/bug30014.stp #41105 edge 71: 2.34e-4 at tol 1.0e-5
-      gkv311-opencascade-dataset/step/bug30014.stp #41105 edge 107: 2.34e-4 at tol 1.0e-5
-      gkv311-opencascade-dataset/step/bug30014.stp #41105 edge 108: 2.32e-4 at tol 1.0e-5
-      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #329592 edge 1683: 1.07e-5 at tol 1.0e-5
-      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #206858 edge 25: 2.99e-5 at tol 1.0e-5
-      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #206858 edge 6018: 2.23e-5 at tol 1.0e-5
-      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #206858 edge 8193: 2.34e-5 at tol 1.0e-5
-      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #168383 edge 153: 1.16e-5 at tol 1.0e-5
-      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #15050 edge 1: 1.02e-6 at tol 1.0e-6
-      gkv311-opencascade-dataset/step/as1_motor.step #7316 edge 14: 7.73e-4 at tol 1.4e-4
-      gkv311-opencascade-dataset/step/as1_motor.step #7316 edge 21: 7.73e-4 at tol 1.4e-4
-      gkv311-opencascade-dataset/step/bug25287_bad_tess_face_plus.step #2134 edge 187: 1.00e-5 at tol 1.0e-5
-      gkv311-opencascade-dataset/step/bug25287_bad_tess_face_plus.step #2134 edge 444: 1.59e-5 at tol 1.0e-5
-      gkv311-opencascade-dataset/step/bug32239.STEP #116154 edge 477: 2.59e-4 at tol 2.5e-4
-      gkv311-opencascade-dataset/step/bug32239.STEP #116154 edge 854: 3.18e-4 at tol 2.5e-4
-      gkv311-opencascade-dataset/step/bug32239.STEP #116154 edge 861: 2.91e-4 at tol 2.5e-4
-      gkv311-opencascade-dataset/step/bug32239.STEP #116154 edge 1224: 6.85e-4 at tol 2.5e-4
-      gkv311-opencascade-dataset/step/bug32239.STEP #116154 edge 1226: 6.81e-4 at tol 2.5e-4
-      gkv311-opencascade-dataset/step/trj6_k1-sd-214.stp #30730 edge 0: 1.51e-5 at tol 1.0e-6
-      gkv311-opencascade-dataset/step/trj6_k1-sd-214.stp #30730 edge 134: 1.51e-5 at tol 1.0e-6
   45  given p-curve off its curve: 0.001-0.01 mm
       gkv311-opencascade-dataset/step/OCC8228.stp #10 edge 504: 2.25e-3 at tol 1.0e-3
       gkv311-opencascade-dataset/step/OCC8228.stp #10 edge 508: 5.10e-3 at tol 1.0e-3
@@ -4700,6 +4571,31 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/OCC22962-dm1-oc-214.stp #1731 edge 3: 1.83e-3 at tol 1.0e-7
       gkv311-opencascade-dataset/step/OCC22962-dm1-oc-214.stp #1731 edge 4: 1.83e-3 at tol 1.0e-7
       gkv311-opencascade-dataset/step/OCC22962-dm1-oc-214.stp #1231 edge 1: 1.22e-3 at tol 1.0e-7
+  44  the projection's fit short of tol: <= 0.001 mm
+      gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #30730 edge 0: 1.51e-5 at tol 1.0e-6
+      gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #30730 edge 134: 1.51e-5 at tol 1.0e-6
+      gkv311-opencascade-dataset/step/bug30014.stp #41105 edge 14: 1.29e-4 at tol 1.0e-5
+      gkv311-opencascade-dataset/step/bug30014.stp #41105 edge 57: 1.29e-4 at tol 1.0e-5
+      gkv311-opencascade-dataset/step/bug30014.stp #41105 edge 58: 1.28e-4 at tol 1.0e-5
+      gkv311-opencascade-dataset/step/bug30014.stp #41105 edge 70: 1.44e-4 at tol 1.0e-5
+      gkv311-opencascade-dataset/step/bug30014.stp #41105 edge 71: 5.57e-4 at tol 1.0e-5
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #329592 edge 1683: 1.07e-5 at tol 1.0e-5
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #206858 edge 25: 1.31e-4 at tol 1.0e-5
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #206858 edge 6018: 2.23e-5 at tol 1.0e-5
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #206858 edge 8193: 2.33e-5 at tol 1.0e-5
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #168383 edge 153: 1.16e-5 at tol 1.0e-5
+      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #15050 edge 1: 1.02e-6 at tol 1.0e-6
+      gkv311-opencascade-dataset/step/as1_motor.step #7316 edge 14: 7.67e-4 at tol 1.4e-4
+      gkv311-opencascade-dataset/step/as1_motor.step #7316 edge 21: 7.67e-4 at tol 1.4e-4
+      gkv311-opencascade-dataset/step/bug25287_bad_tess_face_plus.step #2134 edge 187: 1.00e-5 at tol 1.0e-5
+      gkv311-opencascade-dataset/step/bug25287_bad_tess_face_plus.step #2134 edge 444: 1.59e-5 at tol 1.0e-5
+      gkv311-opencascade-dataset/step/bug32239.STEP #116154 edge 477: 2.59e-4 at tol 2.5e-4
+      gkv311-opencascade-dataset/step/bug32239.STEP #116154 edge 854: 3.18e-4 at tol 2.5e-4
+      gkv311-opencascade-dataset/step/bug32239.STEP #116154 edge 861: 2.91e-4 at tol 2.5e-4
+      gkv311-opencascade-dataset/step/bug32239.STEP #116154 edge 1224: 6.85e-4 at tol 2.5e-4
+      gkv311-opencascade-dataset/step/bug32239.STEP #109721 edge 23: 2.83e-4 at tol 2.5e-4
+      gkv311-opencascade-dataset/step/trj6_k1-sd-214.stp #30730 edge 0: 1.51e-5 at tol 1.0e-6
+      gkv311-opencascade-dataset/step/trj6_k1-sd-214.stp #30730 edge 134: 1.51e-5 at tol 1.0e-6
   18  given p-curve ends off its vertices: 0.001-0.01 mm
       gkv311-opencascade-dataset/step/OCC8228.stp #10 edge 1985: 3.00e-3 at tol 1.0e-3
       gkv311-opencascade-dataset/step/OCC8228.stp #10 edge 1986: 3.15e-3 at tol 1.0e-3
@@ -4714,28 +4610,6 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/bug24383_224013.stp #11 edge 4422: 2.33e+7 at tol 5.1e-2
       gkv311-opencascade-dataset/step/bug24383_224013.stp #11 edge 4639: 2.33e+7 at tol 5.1e-2
       gkv311-opencascade-dataset/step/bug24383_224013.stp #11 edge 4856: 2.33e+7 at tol 5.1e-2
-  12  curve off its surface: > 1 mm
-      gkv311-opencascade-dataset/step/bug27894_usd_raises_Standard_NullObject.stp #234 edge 0: 6.36e+0 at tol 1.0e-5
-      gkv311-opencascade-dataset/step/bug27894_usd_raises_Standard_NullObject.stp #234 edge 24: 6.36e+0 at tol 1.0e-5
-      gkv311-opencascade-dataset/step/bm2_ec_exhaust-A.stp #9 edge 72: 3.77e+0 at tol 1.5e-2
-      gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3140 edge 13: 1.38e+1 at tol 1.0e-5
-      gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3140 edge 16: 1.61e+1 at tol 1.0e-5
-      gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3139 edge 0: 1.38e+1 at tol 1.0e-5
-      gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3139 edge 4: 1.61e+1 at tol 1.0e-5
-      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 edge 1684: 8.46e+1 at tol 1.0e-5
-      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 edge 1808: 2.63e+2 at tol 1.0e-5
-      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 edge 1946: 1.79e+2 at tol 1.0e-5
-      gkv311-opencascade-dataset/step/bug23202_Leuchte.stp #29007 edge 1921: 2.50e+0 at tol 1.0e-2
-      gkv311-opencascade-dataset/step/bug24383_224013.stp #11 edge 3988: 2.33e+7 at tol 5.1e-2
-  11  curve off its surface: 0.1-1 mm
-      gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787 edge 197: 2.41e-1 at tol 1.0e-5
-      gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787 edge 205: 2.46e-1 at tol 1.0e-5
-      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #16975 edge 1: 5.06e-1 at tol 1.0e-6
-      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #16825 edge 2: 5.47e-1 at tol 1.0e-6
-      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #16505 edge 2: 5.01e-1 at tol 1.0e-6
-      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #16280 edge 0: 4.08e-1 at tol 1.0e-6
-      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #15395 edge 2: 5.47e-1 at tol 1.0e-6
-      gkv311-opencascade-dataset/step/nist/bug28444_nist_ftc_06_asme1_ct5240_rd.stp #7107 edge 365: 9.30e-1 at tol 5.0e-3
   10  given p-curve ends off its vertices: <= 0.001 mm
       gkv311-opencascade-dataset/step/r0901_ec.stp #11 edge 220: 3.74e-6 at tol 2.0e-6
       gkv311-opencascade-dataset/step/r0901_ec.stp #11 edge 594: 2.14e-6 at tol 2.0e-6
@@ -4753,6 +4627,12 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 edge 137: 1.00e+0 at tol 1.0e+0
       gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 edge 143: 1.00e+0 at tol 1.0e+0
       gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 edge 186: 1.00e+0 at tol 1.0e+0
+  5  curve off its surface: > 1 mm
+      gkv311-opencascade-dataset/step/bm2_ec_exhaust-A.stp #9 edge 72: 3.77e+0 at tol 1.5e-2
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 edge 1684: 8.46e+1 at tol 1.0e-5
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 edge 1808: 2.63e+2 at tol 1.0e-5
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 edge 1946: 1.79e+2 at tol 1.0e-5
+      gkv311-opencascade-dataset/step/bug24383_224013.stp #11 edge 3988: 2.33e+7 at tol 5.1e-2
   4  vertex off its curve: 0.1-1 mm
       gkv311-opencascade-dataset/step/bug25415_part_of_hdrv8w64p254_4x2_1016x502h838p.stp #418 edge 0: 5.59e-1 at tol 1.0e-5
       gkv311-opencascade-dataset/step/bug25415_part_of_hdrv8w64p254_4x2_1016x502h838p.stp #418 edge 2: 5.59e-1 at tol 1.0e-5
@@ -4763,6 +4643,10 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/OCC8228.stp #10 edge 581: 1.22e-2 at tol 1.0e-3
       gkv311-opencascade-dataset/step/OCC8228.stp #10 edge 613: 1.71e-2 at tol 1.0e-3
       gkv311-opencascade-dataset/step/OCC8228.stp #10 edge 1867: 1.81e-2 at tol 1.0e-3
+  3  curve off its surface: 0.1-1 mm
+      gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787 edge 197: 2.41e-1 at tol 1.0e-5
+      gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787 edge 205: 2.46e-1 at tol 1.0e-5
+      gkv311-opencascade-dataset/step/nist/bug28444_nist_ftc_06_asme1_ct5240_rd.stp #7107 edge 365: 9.30e-1 at tol 5.0e-3
   2  given p-curve off its curve: > 1 mm
       gkv311-opencascade-dataset/step/bm2_ec_exhaust-A.stp #9 edge 70: 3.64e+0 at tol 1.5e-2
       gkv311-opencascade-dataset/step/bm2_ec_exhaust-A.stp #9 edge 82: 3.64e+0 at tol 1.5e-2
@@ -4772,8 +4656,8 @@ Slowest files: 1876.1 s gkv311-opencascade-dataset/step/bug29979_firetherm_12.st
       gkv311-opencascade-dataset/step/OCC8228.stp #10 edge 765: 2.03e-1 at tol 1.0e-3
 
 ## Edges needing growth (replace), by the tolerance they need
-  10011  <= 0.001 mm
-  1813  0.001-0.01 mm
+  10012  <= 0.001 mm
+  1812  0.001-0.01 mm
   215  0.01-0.1 mm
-  38  > 1 mm
-  16  0.1-1 mm
+  31  > 1 mm
+  8  0.1-1 mm
