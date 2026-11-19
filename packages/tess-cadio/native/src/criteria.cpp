@@ -160,12 +160,13 @@ public:
   }
 
   bool accept(const Vec2 t[3]) const override {
-    // A triangle whose patch is within the refinement floor (belowFloor) is accepted: nothing is refined below it.
-    // Every check applies everywhere else, near an apex too (a pole's fans, poles.h, are judged by the deviation
-    // alone there).
+    // A triangle whose patch is within the refinement floor (belowFloor) is accepted unless turned over: nothing is
+    // refined below it for its size or its normals' angles, but a facet against its surface is wrong output however
+    // small. Every check applies everywhere else, near an apex too (a pole's fans, poles.h, are judged by the
+    // deviation alone there).
     Vec3 p[3];
     const bool evaluated = corners(t, p);
-    if (belowFloor(t, p, evaluated)) return true;
+    if (belowFloor(t, p, evaluated)) return !turnedOver(t, p);
     double longest3 = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
     return deviationOk(t, p, longest3) && normalsWithin(t, p);
   }
@@ -175,7 +176,7 @@ public:
   Refusal refusal(const Vec2 t[3], bool normals) const override {
     Vec3 p[3];
     const bool evaluated = corners(t, p);
-    if (belowFloor(t, p, evaluated)) return Refusal::none;
+    if (belowFloor(t, p, evaluated)) return normals && turnedOver(t, p) ? Refusal::normalFacet : Refusal::none;
     const bool sampled = sampledAny_;
     double longest3 = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
     Refusal r = deviationRefusal(t, p, longest3);
@@ -590,6 +591,17 @@ private:
     SurfacePoint q;
     s_.eval(p.x, p.y, 0, q);
     return q.p;
+  }
+  /** The facet against any corner's normal (where it has one and the facet an area). */
+  bool turnedOver(const Vec2 t[3], const Vec3 p[3]) const {
+    const Vec3 g = cross(p[1] - p[0], p[2] - p[0]);
+    const double longest = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
+    if (!(norm(g) > 1e-9 * longest * longest)) return false;
+    for (int i = 0; i < 3; i++) {
+      Vec3 n;
+      if (s_.normal(t[i].x, t[i].y, n) == Status::ok && facetAgainst(g, n)) return true;
+    }
+    return false;
   }
   double size(double k) const {
     double h = hmax_;

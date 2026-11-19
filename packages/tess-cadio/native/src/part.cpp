@@ -35,6 +35,8 @@ struct PartMesher::Impl {
   /** Per face, the edges (model and pseudo) its boundary has points of, and the splits its mesh wants. */
   std::vector<std::set<int>> edgesOf;
   std::vector<std::vector<SplitRequest>> wanted;
+  /** Per face, how many of its mesh's triangles are the mesher's (the fans' come after them). */
+  std::vector<size_t> mesherTriangles;
   /** The refinement floor (criteria.h): an edge's span whose chord is no longer is never split (EdgeMesh::split). */
   double floor = 0;
   /** Per face, its poles' rings (poles.h), shared across faces and cut into their edges before any face is meshed. */
@@ -334,6 +336,44 @@ struct PartMesher::Impl {
     }
   }
 
+  /**
+   * Faces whose mesher's triangles include one turned against its surface (its facet against the mean of its corners'
+   * normals) fail as one past its deflection does (PartOptions::failTurnedOver): wrong output however small. Such a
+   * triangle is one its criteria refused that refinement didn't mend (they refuse a facet turned against any corner's
+   * normal). Not judged so: a pole's fans, and a triangle with a corner within the face's tolerance of a pole or apex
+   * (the normal there a limit, on a strongly curved patch).
+   */
+  void checkFacing() {
+    if (!o.failTurnedOver) return;
+    const cadgeom::Tolerances tols(m);
+    for (size_t f = 0; f < faces.size(); f++) {
+      FaceMesh& fm = faces[f];
+      if (fm.status != Status::ok || !surfaces[f]) continue;
+      std::vector<Singularity> sing;
+      surfaces[f]->singularities(sing);
+      const double near = tols.face(static_cast<int>(f));
+      auto atSingular = [&](Vec3 p) {
+        for (const Singularity& g : sing)
+          if (g.kind != Singularity::normalVanishes && norm(p - g.point) <= near) return true;
+        return false;
+      };
+      int against = 0;
+      for (size_t t = 0; t + 2 < fm.triangles.size() && t / 3 < mesherTriangles[f]; t += 3) {
+        const int32_t* v = &fm.triangles[t];
+        if (atSingular(fm.points[v[0]]) || atSingular(fm.points[v[1]]) || atSingular(fm.points[v[2]])) continue;
+        const Vec3 g = cross(fm.points[v[1]] - fm.points[v[0]], fm.points[v[2]] - fm.points[v[0]]);
+        against += facetAgainst(g, fm.normals[v[0]] + fm.normals[v[1]] + fm.normals[v[2]]);
+      }
+      if (!against) continue;
+      char why[160];
+      std::snprintf(why, sizeof why, "meshed with %d triangles turned against its surface (their facets against their "
+        "corners' normals, refused and not mended)", against);
+      fm.status = Status::noConvergence;
+      fm.cause = why;
+      fm.points.clear(), fm.normals.clear(), fm.triangles.clear(), fm.rejected.clear();
+    }
+  }
+
   void meshFace(int f) {
     at.row = f;
     if (o.progress) o.progress(at);
@@ -493,6 +533,7 @@ struct PartMesher::Impl {
       if (sense > 0) out.triangles.insert(out.triangles.end(), {a, b, c});
       else out.triangles.insert(out.triangles.end(), {a, c, b});
     }
+    mesherTriangles[f] = out.triangles.size() / 3;
     // The fans: each ring's chain to its pole, a point of its own (the run's edge sample there, else the surface's).
     for (size_t k = 0; k < fans.size(); k++) {
       const Fan& fan = fans[k];
@@ -558,6 +599,7 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
   I.edgesOf.resize(nf);
   I.wanted.resize(nf);
   I.rings.resize(nf);
+  I.mesherTriangles.assign(nf, 0);
   I.refused.resize(nf);
   const cadgeom::Tolerances tols(m);
   I.floor = refinementFloor(tols.part(), I.o.d.linear);
@@ -646,6 +688,7 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
     }
   }
   I.checkDeviation();
+  I.checkFacing();
 }
 
 PartMesher::~PartMesher() { delete impl_; }
