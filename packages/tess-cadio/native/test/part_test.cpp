@@ -326,6 +326,46 @@ TEST_CASE("a boundary fold repaired: a corner convex in (u, v), concave in 3D, i
   CHECK_EQ(pt.face(0).foldsRepaired, 0);
 }
 
+TEST_CASE("a face left past its deflection fails: its refused triangles measured, over maxDeviationFactor x d") {
+  // spheres' hemisphere (face 1, radius 1) with no Steiner points and no split rounds: its boundary's triangles alone,
+  // from the equator to the pole, refused and far from it. Past 1.1 x the deflection (the default): failed,
+  // noConvergence, no triangles, the measure in its cause. Factor 0: kept as it is, unmeasured. Factor 1000: kept,
+  // measured (more than the deflection off, under the radius).
+  cadgeom::Model m = load("spheres");
+  REQUIRE(m.ok());
+  PartOptions o = options(0.1, 0.26);
+  o.maxPointsPerFace = 0;
+  o.maxSplitRounds = 0;
+  {
+    PartMesher pm(m, o);
+    const FaceMesh& fm = pm.face(1);
+    CHECK(fm.status == cadgeom::Status::noConvergence);
+    CHECK(fm.triangles.empty());
+    CHECK(fm.cause.find("past its deflection") != std::string::npos);
+    CHECK(fm.worstDeviation > 1.1 * 0.1);
+  }
+  o.maxDeviationFactor = 0;
+  {
+    PartMesher pm(m, o);
+    const FaceMesh& fm = pm.face(1);
+    CHECK(fm.status == cadgeom::Status::ok);
+    CHECK(!fm.rejected.empty());
+    CHECK_EQ(fm.worstDeviation, 0);
+  }
+  o.maxDeviationFactor = 1000;
+  {
+    PartMesher pm(m, o);
+    const FaceMesh& fm = pm.face(1);
+    CHECK(fm.status == cadgeom::Status::ok);
+    if (!(fm.worstDeviation > 0.1 && fm.worstDeviation < 1)) std::printf("  hemisphere: worst %g\n", fm.worstDeviation);
+    CHECK(fm.worstDeviation > 0.1 && fm.worstDeviation < 1);
+  }
+  // Meshed as usual, nothing refused: nothing measured, ok.
+  PartMesher pm(m, options(0.1, 0.26));
+  CHECK(pm.face(1).status == cadgeom::Status::ok);
+  CHECK(pm.face(1).rejected.empty());
+}
+
 TEST_CASE("cones with a seam from the apex used both ways: within the deflection, to area, the jump a whole turn") {
   // The cad-brep cone (no seam p-curves) and seamCone (given, at u = 2 pi up and 0 down), with a degenerate edge at
   // the apex and without: the loop's jump across the apex a whole period (the seam's two uses either side), not a cut
