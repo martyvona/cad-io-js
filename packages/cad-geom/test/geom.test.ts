@@ -170,6 +170,21 @@ test('batches: shapes, statuses per item and per row, alternatives from the scra
     const r = sp.invertSurface(0, q, [si.u[0], si.u[1], si.v[0], si.v[1]], 1e-9);
     assert.equal(STATUS[r.statuses[0]!], 'ok');
     assert.ok(r.distance[0]! < 1e-9);
+    // A local foot from nearby, by the surface's row and by its face; the end search at a vertex; a projection's
+    // stop fields.
+    for (const f of [sp.localFoot(0, q, [0.25, 0.15]), sp.faceLocalFoot(0, q, [0.25, 0.15])]) {
+      assert.equal(f.status, 'ok');
+      assert.equal(STATUS[f.statuses[0]!], 'ok');
+      assert.equal(f.side[0], -1);
+      assert.ok(Math.abs(f.uv[0]! - 0.3) < 1e-9 && Math.abs(f.uv[1]! - 0.2) < 1e-9);
+      assert.ok(f.distance[0]! < 1e-9 && len([f.point[0]! - q[0]!, f.point[1]! - q[1]!, f.point[2]! - q[2]!]) < 1e-9);
+    }
+    const ends = sp.endFeet(0, 0, 1e-6);
+    assert.equal(ends.status, 'ok');
+    assert.ok(ends.feet.length >= 1 && ends.feet[0]!.distance < 1e-6);
+    assert.deepEqual(sp.endFeet(0, 1e6, 1e-6), { status: 'invalidModel', feet: [] });
+    const pc = sp.projectCoedge(0);
+    if ('pieces' in pc && pc.status === 'ok') assert.equal(pc.stopped, false);
   }
 });
 

@@ -481,6 +481,60 @@ Pcurve projectCurve(const Curve& c, Range r, const Surface& s, double tol, const
   return project::projectForms(c, r, s, tol, ends, cf, sf);
 }
 
+const std::vector<EndFoot>& EndSearchCache::feet(uint64_t key, const Surface& s, Vec3 p, double tol) {
+  Entry& e = entries_[key];
+  if (!(tol <= e.searched)) {
+    const SurfaceDomain dom = s.domain();
+    invertSurface(s, p, dom.u, dom.v, tol, nullptr, &e.raw);
+    e.searched = tol, e.clustered = -1, searches_++;
+  }
+  if (e.clustered == tol) return e.feet;
+  e.feet.clear(), e.clustered = tol;
+  if (e.raw.empty()) return e.feet;
+  const SurfaceDomain dom = s.domain();
+  std::vector<Singularity> sing;
+  s.singularities(sing);
+  auto at = [&](double u, double v) {
+    SurfacePoint q;
+    s.eval(u, v, 0, q);
+    return q.p;
+  };
+  const double best = e.raw.front().distance;
+  for (const SurfaceFoot& f : e.raw) {
+    if (f.distance - best > tol) break;
+    bool same = false;
+    for (const EndFoot& k : e.feet) same = same || norm(at(k.uv.x, k.uv.y) - f.foot) <= tol;
+    if (same) continue;
+    EndFoot k;
+    k.uv = f.uv, k.distance = f.distance;
+    for (const Singularity& g : sing) {
+      if (g.kind == Singularity::normalVanishes || norm(g.point - f.foot) > tol) continue;
+      // A pole line u = at runs along v: v is free there.
+      k.kind = EndFoot::Kind::pole, k.poleU = !g.isoU;
+      k.freeLo = g.isoU ? dom.v.lo : dom.u.lo, k.freeHi = g.isoU ? dom.v.hi : dom.u.hi;
+      break;
+    }
+    if (k.kind == EndFoot::Kind::point) {
+      if (dom.uPeriod > 0) {
+        const double lo = dom.u.lo, hi = lo + dom.uPeriod;
+        if (norm(at(lo, f.uv.y) - f.foot) <= tol || norm(at(hi, f.uv.y) - f.foot) <= tol)
+          k.kind = EndFoot::Kind::seamPair, k.twin = {f.uv.x - lo < hi - f.uv.x ? f.uv.x + dom.uPeriod
+            : f.uv.x - dom.uPeriod, f.uv.y};
+      }
+      if (k.kind == EndFoot::Kind::point && dom.vPeriod > 0) {
+        const double lo = dom.v.lo, hi = lo + dom.vPeriod;
+        if (norm(at(f.uv.x, lo) - f.foot) <= tol || norm(at(f.uv.x, hi) - f.foot) <= tol)
+          k.kind = EndFoot::Kind::seamPair, k.twin = {f.uv.x, f.uv.y - lo < hi - f.uv.y ? f.uv.y + dom.vPeriod
+            : f.uv.y - dom.vPeriod};
+      }
+    }
+    e.feet.push_back(k);
+  }
+  const Certainty c = e.feet.size() == 1 ? Certainty::unique : Certainty::ambiguous;
+  for (EndFoot& k : e.feet) k.certainty = c;
+  return e.feet;
+}
+
 bool seamUseTakesTwin(const Pcurve& p, bool useForward, bool faceSameSense) {
   for (const PcurvePiece& q : p.pieces) {
     if (q.poleLine || !q.curve) continue;

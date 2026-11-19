@@ -26,12 +26,17 @@ namespace surfaces {
 
 namespace {
 
-/** One partial's hodograph net: degrees, knots, poles (nu x nv, u-major, 4 wide: w (P - c), w), and its error. */
+/**
+ * One partial's hodograph net: degrees, knots, poles (nu x nv, u-major, 4 wide: w (P - c), w), each pole's rounding
+ * (perr: a difference divides its two poles' by its own knot gap, so a tiny span's poles round far more than the rest)
+ * and the largest (error).
+ */
 struct Net {
   int p, q, nu, nv;
   std::vector<double> U, V;
   std::vector<double> h;
   double error = 0;
+  std::vector<double> perr;
   const double* at(int i, int j) const { return h.data() + (i * nv + j) * 4; }
 };
 
@@ -45,9 +50,10 @@ public:
     Net n0{p_, q_, nu_, nv_, U_, V_, {}, 0};
     double mag = 0;
     for (int i = 0; i < nu_ * nv_; i++) {
-      double w = W_[i];
-      for (int a = 0; a < 3; a++) n0.h.push_back(w * P_[3 * i + a]), mag = std::fmax(mag, std::fabs(w * P_[3 * i + a]));
+      double w = W_[i], m = std::fabs(w);
+      for (int a = 0; a < 3; a++) n0.h.push_back(w * P_[3 * i + a]), m = std::fmax(m, std::fabs(w * P_[3 * i + a]));
       n0.h.push_back(w);
+      n0.perr.push_back(2 * kEps * m), mag = std::fmax(mag, m);
     }
     n0.error = 2 * kEps * mag;
     size_ = span();
@@ -199,32 +205,41 @@ private:
     return ru.lo <= ru.hi && rv.lo <= rv.hi;
   }
   Net diffU(const Net& f) const {
-    Net g{f.p - 1, f.q, f.nu - 1, f.nv, std::vector<double>(f.U.begin() + 1, f.U.end() - 1), f.V, {}, 0};
+    Net g{f.p - 1, f.q, f.nu - 1, f.nv, std::vector<double>(f.U.begin() + 1, f.U.end() - 1), f.V, {}, 0, {}};
     double err = 0;
     for (int i = 0; i < g.nu; i++) {
       double den = f.U[i + f.p + 1] - f.U[i + 1];
-      for (int j = 0; j < g.nv; j++)
+      for (int j = 0; j < g.nv; j++) {
+        double e = 0;
         for (int a = 0; a < 4; a++) {
           double x = den > 0 ? f.p * (f.at(i + 1, j)[a] - f.at(i, j)[a]) / den : 0.0;
           g.h.push_back(x);
-          if (den > 0) err = std::fmax(err, f.p * 2 * f.error / den + 4 * kEps * std::fabs(x));
+          if (den > 0)
+            e = std::fmax(e, f.p * (f.perr[(i + 1) * f.nv + j] + f.perr[i * f.nv + j]) / den + 4 * kEps * std::fabs(x));
         }
+        g.perr.push_back(e), err = std::fmax(err, e);
+      }
     }
     g.error = err;
     return g;
   }
   Net diffV(const Net& f) const {
-    Net g{f.p, f.q - 1, f.nu, f.nv - 1, f.U, std::vector<double>(f.V.begin() + 1, f.V.end() - 1), {}, 0};
+    Net g{f.p, f.q - 1, f.nu, f.nv - 1, f.U, std::vector<double>(f.V.begin() + 1, f.V.end() - 1), {}, 0, {}};
     g.h.resize(static_cast<size_t>(g.nu) * g.nv * 4);
+    g.perr.assign(static_cast<size_t>(g.nu) * g.nv, 0.0);
     double err = 0;
     for (int j = 0; j < g.nv; j++) {
       double den = f.V[j + f.q + 1] - f.V[j + 1];
-      for (int i = 0; i < g.nu; i++)
+      for (int i = 0; i < g.nu; i++) {
+        double e = 0;
         for (int a = 0; a < 4; a++) {
           double x = den > 0 ? f.q * (f.at(i, j + 1)[a] - f.at(i, j)[a]) / den : 0.0;
           g.h[(i * g.nv + j) * 4 + a] = x;
-          if (den > 0) err = std::fmax(err, f.q * 2 * f.error / den + 4 * kEps * std::fabs(x));
+          if (den > 0)
+            e = std::fmax(e, f.q * (f.perr[i * f.nv + j + 1] + f.perr[i * f.nv + j]) / den + 4 * kEps * std::fabs(x));
         }
+        g.perr[i * g.nv + j] = e, err = std::fmax(err, e);
+      }
     }
     g.error = err;
     return g;
@@ -285,12 +300,18 @@ private:
           out.data() + (i * (q + 1) + j) * 4);
       }
   }
-  /** The rounding of net m's control points c over a rectangle: the net's own and the blossom's (a few operations per
-   * level, on values up to the net's size). */
-  static double blossomErr(const Net& m, const std::vector<double>& c) {
-    double mag = 0;
+  /**
+   * The rounding of net m's control points c over a rectangle: its active poles' own (c are convex combinations of
+   * them alone) and the blossom's (a few operations per level, on values up to the net's size).
+   */
+  double blossomErr(const Net& m, const std::vector<double>& c, Range ru, Range rv) const {
+    double mag = 0, own = 0;
     for (double x : c) mag = std::fmax(mag, std::fabs(x));
-    return m.error + 8 * (m.p + m.q + 2) * kEps * mag;
+    int i0, i1, j0, j1;
+    active(m, ru, rv, i0, i1, j0, j1);
+    for (int i = i0; i <= i1; i++)
+      for (int j = j0; j <= j1; j++) own = std::fmax(own, m.perr[i * m.nv + j]);
+    return own + 8 * (m.p + m.q + 2) * kEps * mag;
   }
   /**
    * Partial (k, l)'s control points over the rectangle (4 wide each, as control() makes them) and their rounding.
@@ -308,7 +329,7 @@ private:
       thread_local std::vector<double> spread[kPartials];
       std::vector<double>& c = spread[pidx(k, l)];
       control(n, ru, rv, false, su, sv, k, l, c);
-      err = blossomErr(n, c);
+      err = blossomErr(n, c, ru, rv);
       return c;
     }
     struct Kept {
@@ -353,7 +374,7 @@ private:
       }
       if (!done) {
         control(n, ru, rv, true, su, sv, k, l, K.net[at]);
-        K.err[at] = blossomErr(n, K.net[at]);
+        K.err[at] = blossomErr(n, K.net[at], ru, rv);
       }
       K.have[at] = true;
     }
