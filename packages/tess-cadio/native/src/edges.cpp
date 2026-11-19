@@ -7,6 +7,8 @@
 // so the samples every face sees are fixed until split().
 #include "tess_cadio/edges.h"
 
+#include "tess_cadio/criteria.h"
+
 #include <algorithm>
 #include <cmath>
 #include <map>
@@ -204,9 +206,9 @@ struct IsoGeom : Geom {
 struct Criteria {
   double deflection, angle, spacing;
   /**
-   * A span whose length bound is at most this (10 x the part's tolerance) is never refined: near a zero-speed point
-   * the curve doesn't report as singular the angle's speed bound shrinks towards 0, and samples would pile up there
-   * until they coincide.
+   * A span whose length bound is at most this (the refinement floor, criteria.h) is never refined by the sampler:
+   * near a zero-speed point the curve doesn't report as singular the angle's speed bound shrinks towards 0, and
+   * samples would pile up there until they coincide.
    */
   double floor = 0;
 };
@@ -260,8 +262,9 @@ bool refine(const Geom& g, double a, double b, const Criteria& k, std::vector<do
     turnN = std::min(turnN, std::ceil(seen / (0.9 * k.angle)));
     n = std::max(n, turnN);
   }
-  // No piece's length bound under the floor (at least two pieces still).
-  if (k.floor > 0 && std::isfinite(m1)) n = std::min(n, std::max(2.0, std::floor(s * m1 / k.floor)));
+  // No more pieces than bring their length bounds to the floor (at least two still): the fewest within it, so they
+  // stop there rather than land just over it and halve.
+  if (k.floor > 0 && std::isfinite(m1)) n = std::min(n, std::max(2.0, std::ceil(s * m1 / k.floor)));
   int pieces = static_cast<int>(std::min(n, 64.0));
   // Equal pieces, but no cut within a tenth of the floor (the tolerance) of the last kept or of b: where the speed
   // nearly vanishes, equal parameter steps make chords far shorter than the pieces' bounds.
@@ -288,15 +291,23 @@ std::vector<double> sample(const Geom& g, double t0, double t1, bool closed, con
   g.breaks(lo, hi, cuts);
   if (closed) cuts.insert(cuts.end(), {lo + (hi - lo) / 3, lo + 2 * (hi - lo) / 3});
   std::sort(cuts.begin(), cuts.end());
-  cuts.push_back(hi);
+  // A break at the last kept one or at the range's end in 3D, within the coordinates' rounding, is that point: a
+  // B-spline's knot 1e-13 from where its vertex inverts (LMP1 #505096's, 3e-14 off) would make a span of rounding,
+  // a spike in (u, v) that refinement beside it runs into.
+  const Vec3 end = g.at(hi);
+  auto one = [](Vec3 x, Vec3 y) { return norm(x - y) <= 1e-12 * (1 + std::fmax(norm(x), norm(y))); };
   std::vector<double> t{lo};
   bool ok = true;
   double a = lo;
+  Vec3 pa = g.at(lo);
   for (double b : cuts) {
-    if (!(b > a)) continue;
+    if (!(b > a) || !(b < hi)) continue;
+    const Vec3 pb = g.at(b);
+    if (one(pb, pa) || one(pb, end)) continue;
     ok = refine(g, a, b, k, t, 0) && ok;
-    a = b;
+    a = b, pa = pb;
   }
+  if (hi > a) ok = refine(g, a, hi, k, t, 0) && ok;
   status = ok ? Status::ok : Status::noConvergence;
   if (t0 > t1) std::reverse(t.begin(), t.end());
   return t;
@@ -318,6 +329,14 @@ struct EdgeMesh::Impl {
   double tol;
   int nModel = 0;
   ProjectionCounts projections;
+  /** The edges' samples in all. */
+  size_t sampleCount() const {
+    size_t n = 0;
+    for (const Edge& E : edges) n += E.s.t.size();
+    return n;
+  }
+  TraceCounts traces;
+  std::vector<TraceFallback> traceFallbacks;
 
   struct Edge {
     std::unique_ptr<Curve> curve;   // its 3D curve, or the p-curve it's sampled through
@@ -344,7 +363,6 @@ struct EdgeMesh::Impl {
     bool pcurveOff = false;              // its p-curve parameterized otherwise than its edge's curve: by inversion
     bool projected = false;              // its p-curve projected from its edge's curve (the model gives none)
     double projectedTol = 0;             // the 3D distance its projection was made within
-    bool projectedCoarse = false;        // at the edge's tolerance (the curve too far off its surface for the mesh's)
     bool atVertex[2] = {false, false};   // a projected use's vertices' feet (its edge's start, end), where found
     int seamDir = -1;                    // a projected use on a seam in u (0) or v (1), its copy by the rule
     Vec2 vertexUv[2];
@@ -372,9 +390,14 @@ struct EdgeMesh::Impl {
     // A face with no edge loops: its surface's natural extent (makeNatural), its cuts' pseudo-edges: along
     // the periodic direction's cut (sphere-like: from pole to pole) and, periodic both ways, along the other's too;
     // the cuts' values; the poles at the low and high ends of the other direction (sphere-like).
-    enum class Natural { none, sphere, torus } natural = Natural::none;
+    enum class Natural { none, sphere, torus, rect } natural = Natural::none;
     int natDir = 0, natPseudo[2] = {-1, -1}, natPole[2] = {-1, -1};
     double natAt[2] = {0, 0};
+    // A B-spline's whole knot rectangle (Natural::rect), counterclockwise from (u0, v0): its sides bottom (v = v0),
+    // right (u = u1), top (v = v1), left (u = u0), each a pseudo-edge along it (natSide) or a pole row (natSidePole);
+    // a periodic direction's two sides across it the one pseudo-edge (the cut), its range from the cut a period on.
+    int natSide[4] = {-1, -1, -1, -1}, natSidePole[4] = {-1, -1, -1, -1};
+    double natBox[4] = {0, 0, 0, 0};  // u0, u1, v0, v1
     /** Why the status isn't ok (FaceBoundary::cause). */
     const char* why = nullptr;
   };
@@ -390,7 +413,7 @@ struct EdgeMesh::Impl {
   }
 
   Criteria criteria(double spacing) const {
-    return {o.deflection, o.angle, std::min(spacing, o.maxSpacing), 10 * tol};
+    return {o.deflection, o.angle, std::min(spacing, o.maxSpacing), refinementFloor(tol, o.deflection)};
   }
   double coedgeRange(int c, int j) const { return m.f64(CBR_COEDGE_RANGE)[2 * c + j]; }
 
@@ -429,6 +452,123 @@ struct EdgeMesh::Impl {
       if (step <= 4e-16 * (1 + std::fabs(x.x) + std::fabs(x.y))) break;
     }
     return norm(q.p - s0) <= radius ? x : start;
+  }
+
+  /**
+   * The foot of p on face f's surface continued from `start` (the sample before's): Gauss-Newton on |S - p|^2 / 2,
+   * each step taken only where it comes nearer; held against a side of the domain (a direction that isn't periodic),
+   * along that side. True where it converged (the step it would take, in 3D, within rounding of p's coordinates or a
+   * millionth of its distance; where no step comes nearer, within 1e-9 of them or 1e-4 of its distance, the
+   * surface's own rounding), the foot and its distance out; false where the surface is degenerate there or it stalled
+   * away from a foot.
+   */
+  bool localTrace(int f, Vec3 p, Vec2 start, Vec2& foot, double& distance) const {
+    const Face& F = faces[f];
+    Vec2 x = start;
+    SurfacePoint q;
+    if (F.s->eval(x.x, x.y, 1, q) != Status::ok) return false;
+    double best = norm(q.p - p);
+    bool converged = false;
+    for (int it = 0; it < 32 && !converged; it++) {
+      Vec3 e = q.p - p;
+      double gu = dot(e, q.du), gv = dot(e, q.dv), a = dot(q.du, q.du), b = dot(q.du, q.dv), c = dot(q.dv, q.dv);
+      double det = a * c - b * b;
+      if (!(det > 1e-12 * a * c && a > 0)) return false;
+      Vec2 n{x.x - (c * gu - b * gv) / det, x.y - (a * gv - b * gu) / det};
+      // Held against a side of the domain (a direction that isn't periodic): along that side instead, the other
+      // coordinate's Newton step alone; in a corner, held there.
+      const bool heldU = !(F.period[0] > 0) && (n.x < F.dom.u.lo || n.x > F.dom.u.hi);
+      const bool heldV = !(F.period[1] > 0) && (n.y < F.dom.v.lo || n.y > F.dom.v.hi);
+      if (heldU && !heldV) n = {std::clamp(n.x, F.dom.u.lo, F.dom.u.hi), x.y - gv / c};
+      if (heldV && !heldU) n = {x.x - gu / a, std::clamp(n.y, F.dom.v.lo, F.dom.v.hi)};
+      if (!(F.period[0] > 0)) n.x = std::clamp(n.x, F.dom.u.lo, F.dom.u.hi);
+      if (!(F.period[1] > 0)) n.y = std::clamp(n.y, F.dom.v.lo, F.dom.v.hi);
+      // At a foot the step it takes is nothing: in 3D within rounding of p or a millionth of its distance.
+      if (norm((n.x - x.x) * q.du + (n.y - x.y) * q.dv) <= std::max(1e-12 * (1 + norm(p)), 1e-6 * best)) {
+        converged = true;
+        break;
+      }
+      SurfacePoint qn;
+      if (F.s->eval(n.x, n.y, 1, qn) != Status::ok) break;
+      double d = norm(qn.p - p);
+      if (!(d < best)) {
+        // (No nearer: the surface's own rounding, where the step left is that small, or a stall away from a foot.)
+        converged = norm((n.x - x.x) * q.du + (n.y - x.y) * q.dv) <= std::max(1e-9 * (1 + norm(p)), 1e-4 * best);
+        break;
+      }
+      x = n, q = qn, best = d;
+    }
+    foot = x, distance = best;
+    return converged;
+  }
+
+  /**
+   * Face f's loops' folds repaired (FaceBoundary::foldsRepaired), counted: each point whose (u, v) corner with its
+   * neighbours is convex (the loops counterclockwise) while its 3D turn about S_u x S_v there is the other way, both
+   * past rounding, its (u, v) onto their chord at its share of their 3D distance where the surface is within the
+   * face's tolerance of its 3D point, and from there a step towards that point where it keeps the turn its 3D one.
+   * One pass in loop order, each point judged with its neighbours as they stand.
+   */
+  int repairFolds(int f, std::vector<std::vector<BoundaryPoint>>& loops) const {
+    const Face& F = faces[f];
+    const double within = tols.face(f);
+    int n = 0;
+    for (auto& L : loops) {
+      const size_t k = L.size();
+      if (k < 3) continue;
+      for (size_t i = 0; i < k; i++) {
+        const BoundaryPoint &A = L[(i + k - 1) % k], &C = L[(i + 1) % k];
+        BoundaryPoint& B = L[i];
+        if (B.kind == BoundaryPoint::poleLine) continue;
+        const Vec2 ab = B.uv - A.uv, bc = C.uv - B.uv;
+        const double s2 = ab.x * bc.y - ab.y * bc.x;
+        if (!(s2 > 1e-12 * norm(ab) * norm(bc))) continue;
+        SurfacePoint q;
+        if (F.s->eval(B.uv.x, B.uv.y, 1, q) != Status::ok) continue;
+        const Vec3 nn = cross(q.du, q.dv);
+        if (!(norm(nn) > 0)) continue;
+        const double l1 = norm(B.point - A.point), l2 = norm(C.point - B.point);
+        const double s3 = dot(cross(B.point - A.point, C.point - B.point), (1 / norm(nn)) * nn);
+        if (!(s3 < -1e-9 * l1 * l2)) continue;
+        Vec2 to = A.uv + (l1 / (l1 + l2)) * (C.uv - A.uv);
+        SurfacePoint r;
+        if (F.s->eval(to.x, to.y, 1, r) != Status::ok || !(norm(r.p - B.point) <= within)) continue;
+        // From the chord, one Gauss-Newton step towards the 3D point, not held to the range (its feet were clamped
+        // there): its turn then as the 3D point's, where that step evaluates, keeps within the tolerance and agrees.
+        const Vec3 e = B.point - r.p;
+        const double a = dot(r.du, r.du), b = dot(r.du, r.dv), c = dot(r.dv, r.dv), det = a * c - b * b;
+        if (det > 1e-12 * a * c && a > 0) {
+          const double gu = dot(e, r.du), gv = dot(e, r.dv);
+          const Vec2 step = to + Vec2{(c * gu - b * gv) / det, (a * gv - b * gu) / det};
+          const Vec2 ab2 = step - A.uv, bc2 = C.uv - step;
+          SurfacePoint w;
+          if (F.s->eval(step.x, step.y, 0, w) == Status::ok && norm(w.p - B.point) <= within &&
+            ab2.x * bc2.y - ab2.y * bc2.x < 0)
+            to = step;
+        }
+        B.uv = to;
+        n++;
+      }
+    }
+    return n;
+  }
+
+  /**
+   * Coedge c's p-curve at edge parameter t: a t outside the p-curve's own domain (not periodic) by at most 1e-9 of
+   * its edge's sampled range's width is clamped onto that domain's end (a range ending a hair past a B-spline's last
+   * knot: bug32314 #392624's 1.6e-9; the face API's projection clamps by the same rule), anything farther left to the
+   * p-curve, which refuses it.
+   */
+  Status pcurveAt(int c, double t, CurvePoint& q) const {
+    const Coedge& C = coedges[c];
+    const CurveDomain D = C.pcurve->domain();
+    const EdgeSamples& es = edges[m.coedgeEdge(c)].s;
+    const double width = es.t.empty() ? 0 : std::fabs(es.t.back() - es.t.front()), slack = 1e-9 * width;
+    if (!(D.period > 0)) {
+      if (t < D.range.lo && D.range.lo - t <= slack) t = D.range.lo;
+      if (t > D.range.hi && t - D.range.hi <= slack) t = D.range.hi;
+    }
+    return C.pcurve->eval(t, 0, q);
   }
 
   /** The singularity (pole or apex) at 3D point p, or -1. */
@@ -562,7 +702,7 @@ struct EdgeMesh::Impl {
       double miss = 100 * std::max(tol, std::isfinite(et) ? et : 0.0);
       for (int i = 0; i < n && !C.pcurveOff; i++) {
         CurvePoint q;
-        Status st = C.pcurve->eval(E.s.t[s.index[i]], 0, q);
+        Status st = pcurveAt(c, E.s.t[s.index[i]], q);
         seeds.push_back({q.p.x, q.p.y});
         // (The ends are the vertices', which may miss the curve themselves: inside samples only.)
         bool end = i == 0 || i == n - 1;
@@ -576,7 +716,7 @@ struct EdgeMesh::Impl {
         for (double f : {0.25, 0.5, 0.75}) {
           const double t = E.s.t[s.index[i]] + f * (E.s.t[s.index[i + 1]] - E.s.t[s.index[i]]);
           CurvePoint q;
-          if (C.pcurve->eval(t, 0, q) != Status::ok || norm(surfaceAt(C.face, {q.p.x, q.p.y}) - E.geom->at(t)) > miss) {
+          if (pcurveAt(c, t, q) != Status::ok || norm(surfaceAt(C.face, {q.p.x, q.p.y}) - E.geom->at(t)) > miss) {
             C.pcurveOff = true;
             break;
           }
@@ -588,9 +728,8 @@ struct EdgeMesh::Impl {
         // A projected use's inside samples at their points' feet: the projection is within its tolerance of them,
         // not on them, and at a coarse one (an edge's, LMP1's 0.13) neighbouring samples' (u, v) can fold against
         // their order in 3D (a boundary ear turned over: #1038273's). A local Gauss-Newton from the p-curve's value,
-        // kept where it comes nearer within that tolerance of it; not at a pole (its free coordinate arbitrary). Only
-        // where projection ran at the edge's tolerance: within the mesh's the difference is below what counts.
-        if (C.projected && C.projectedCoarse)
+        // kept where it comes nearer within that tolerance of it; not at a pole (its free coordinate arbitrary).
+        if (C.projected)
           for (int i = 1; i + 1 < n; i++)
             if (poleAt(C.face, E.s.points[s.index[i]]) < 0)
               s.uv[i] = localFoot(C.face, E.s.points[s.index[i]], s.uv[i], C.projectedTol);
@@ -606,16 +745,23 @@ struct EdgeMesh::Impl {
       }
     }
     if (!C.pcurve || C.pcurveOff) {
+      // The last regular sample's foot, its 3D point and distance: the next inside sample's foot continued from it.
+      bool chain = false;
+      Vec2 lastUv{};
+      Vec3 lastPoint{};
+      double lastDistance = 0;
       for (int i = 0; i < n; i++) {
         Vec2 hint = i < static_cast<int>(seeds.size()) ? seeds[i] : i ? s.uv.back() : Vec2{};
         bool hinted = i < static_cast<int>(seeds.size()) || i > 0;
         // (Each sample inverted once: a split round redoes the coedge, its old samples from the cache.)
         double t = E.s.t[s.index[i]];
+        const Vec3 P = E.s.points[s.index[i]];
         auto hit = C.inverted.find(t);
         SurfaceInversion si;
+        const char* failed = nullptr;
         if (hit != C.inverted.end()) {
           si = hit->second;
-        } else if (int p = poleAt(C.face, E.s.points[s.index[i]]); p >= 0) {
+        } else if (int p = poleAt(C.face, P); p >= 0) {
           // At a known pole, no search (its feet a continuum: slow to bound): its row, the free coordinate arbitrary
           // (the hint's), filled from a neighbour below.
           const Singularity& g = F.sing[p];
@@ -624,9 +770,45 @@ struct EdgeMesh::Impl {
           si.uv = g.isoU ? Vec2{g.at, hinted ? hint.y : F.lo[1]} : Vec2{hinted ? hint.x : F.lo[0], g.at};
           si.certainty = Certainty::unique;
         } else {
-          si = invert(C.face, E.s.points[s.index[i]], hinted ? &hint : nullptr);
+          // An inside sample after a regular one: its foot continued locally from that one's. Kept where it
+          // converged, no farther from the surface than the sample before allows (its distance, the edge's
+          // tolerance, or the samples' spacing, whichever is largest) and no farther along it than their 3D
+          // distance allows (the surface between the two feet within twice that of the step): else, and at the
+          // ends, the global search.
+          bool local = false;
+          if (chain && i + 1 < n && i > 0) {
+            Vec2 foot;
+            double d;
+            const double step = norm(P - lastPoint);
+            if (!localTrace(C.face, P, lastUv, foot, d)) {
+              failed = "the local step didn't converge";
+            } else if (d > std::max({2 * lastDistance, tols.edge(m.coedgeEdge(c)), tol, 0.5 * step})) {
+              failed = "the local foot farther from the surface than the sample before";
+            } else if (norm(surfaceAt(C.face, foot) - surfaceAt(C.face, lastUv)) >
+              2 * (step + lastDistance + d) + tol) {
+              failed = "the local foot jumped along the surface";
+            } else {
+              si.status = Status::ok, si.uv = foot, si.distance = d, si.foot = surfaceAt(C.face, foot);
+              si.certainty = Certainty::unique;
+              for (int dd = 0; dd < 2; dd++) {
+                if (!(F.period[dd] > 0)) continue;
+                const double w = dd ? foot.y : foot.x, lo = dd ? F.dom.v.lo : F.dom.u.lo;
+                const double r = std::remainder(w - lo, F.period[dd]);
+                (dd ? si.onSeamV : si.onSeamU) = std::fabs(r) <= 1e-12 * F.period[dd];
+              }
+              local = true;
+              traces.local++;
+            }
+          }
+          if (!local) {
+            si = invert(C.face, P, hinted ? &hint : nullptr);
+            traces.global++;
+            if (failed) traceFallbacks.push_back({c, t, si.distance, failed});
+          }
         }
         if (hit == C.inverted.end()) C.inverted.emplace(t, si);
+        if (!si.atSingularity && si.status == Status::ok) chain = true, lastUv = si.uv, lastPoint = P,
+          lastDistance = si.distance;
         s.status = worse(s.status, si.status);
         s.uv.push_back(si.uv);
         singular[i] = si.atSingularity;
@@ -682,7 +864,7 @@ struct EdgeMesh::Impl {
         if (std::isnan(mid.x)) {
           const double tm = 0.5 * (E.s.t[s.index[i - 1]] + E.s.t[s.index[i]]);
           CurvePoint q;
-          if (s.fromPcurve && C.pcurve->eval(tm, 0, q) == Status::ok) mid = {q.p.x, q.p.y};
+          if (s.fromPcurve && pcurveAt(c, tm, q) == Status::ok) mid = {q.p.x, q.p.y};
           else mid = invert(C.face, E.geom->at(tm), &s.uv[i - 1]).uv;
         }
         x = nearest(x, nearest(d ? mid.y : mid.x, before, P), P);
@@ -862,7 +1044,6 @@ struct EdgeMesh::Impl {
       C.pcurve = std::make_unique<ProjectedCurve>(std::move(p), twin, faces[C.face].dom);
       C.projected = true;
       C.projectedTol = madeAt;
-      C.projectedCoarse = madeAt > tight;
       for (double t : poles)
         if (t > std::min(t0, t1) && t < std::max(t0, t1)) insertSample(e, t);
     }
@@ -873,7 +1054,7 @@ struct EdgeMesh::Impl {
     const Coedge& C = coedges[c];
     if (C.pcurve && !C.pcurveOff) {
       CurvePoint q;
-      C.pcurve->eval(t, 0, q);
+      pcurveAt(c, t, q);
       return {q.p.x, q.p.y};
     }
     return invert(C.face, edges[m.coedgeEdge(c)].geom->at(t), &hint).uv;
@@ -1235,6 +1416,45 @@ struct EdgeMesh::Impl {
       F.natPseudo[0] = pseudo(o, c, r.lo, r.hi, false, F.sing[lo].point, F.sing[hi].point);
       return;
     }
+    // A B-spline's whole rectangle (a face without bounds is the whole surface, and a B-spline's is its knot range):
+    // closed in neither or one direction, its finite sides pseudo-edges or pole rows.
+    if (m.surfaceKind(m.faceSurface(f)) != CBR_SURFACE_BSPLINE || (F.period[0] > 0 && F.period[1] > 0)) return;
+    double box[4];
+    for (int d = 0; d < 2; d++) {
+      Range r = d ? F.dom.v : F.dom.u;
+      if (F.period[d] > 0) r = {cutAt(d), cutAt(d) + F.period[d]};
+      if (!std::isfinite(r.lo) || !std::isfinite(r.hi) || !(r.lo < r.hi)) return;
+      box[2 * d] = r.lo, box[2 * d + 1] = r.hi;
+    }
+    // A side's pole: a singularity whose row is the side's (isoU at u = u0 or u1; else at v = v0 or v1).
+    auto poleOf = [&](bool isoU, double at) {
+      for (size_t i = 0; i < F.sing.size(); i++) {
+        const Singularity& g = F.sing[i];
+        if (g.kind != Singularity::normalVanishes && g.isoU == isoU && g.at == at) return static_cast<int>(i);
+      }
+      return -1;
+    };
+    F.natural = Face::Natural::rect;
+    std::copy(box, box + 4, F.natBox);
+    const double u0 = box[0], u1 = box[1], v0 = box[2], v1 = box[3];
+    // Sides along u (bottom, top) and along v (right, left); a periodic direction's two sides across it one edge.
+    for (int side = 0; side < 4; side++) {
+      const bool alongU = side == 0 || side == 2;
+      const double at = side == 0 ? v0 : side == 1 ? u1 : side == 2 ? v1 : u0;
+      const int across = alongU ? 1 : 0;  // the direction the side is fixed in
+      if (F.period[across] > 0 && (side == 2 || side == 3)) {
+        F.natSide[side] = F.natSide[side - 2];
+        continue;
+      }
+      if (int g = poleOf(!alongU, at); g >= 0 && F.period[across] == 0) {
+        F.natSidePole[side] = g;
+        continue;
+      }
+      const double t0 = alongU ? u0 : v0, t1 = alongU ? u1 : v1;
+      const Vec2 a = alongU ? Vec2{t0, at} : Vec2{at, t0}, b = alongU ? Vec2{t1, at} : Vec2{at, t1};
+      const bool closed = F.period[alongU ? 0 : 1] > 0;
+      F.natSide[side] = pseudo(alongU ? 0 : 1, at, t0, t1, closed, surfaceAt(f, a), surfaceAt(f, b));
+    }
   }
 
   /** Face f's natural extent's loop (makeNatural), counterclockwise in (u, v). */
@@ -1253,6 +1473,32 @@ struct EdgeMesh::Impl {
       for (int j = 0; j + 1 < nb; j++) loop.push_back(sample(F.natPseudo[1], j, {u0 + Pu, B.s.t[j]}));
       for (int i = na - 1; i >= 1; i--) loop.push_back(sample(F.natPseudo[0], i, {A.s.t[i], v0 + Pv}));
       for (int j = nb - 1; j >= 1; j--) loop.push_back(sample(F.natPseudo[1], j, {u0, B.s.t[j]}));
+      return loop;
+    }
+    if (F.natural == Face::Natural::rect) {
+      // Counterclockwise from (u0, v0), each side from its start corner up to (not) its end: a pseudo-edge's samples
+      // (backwards on the top and left), a pole row's start corner and its fill. The periodic sides across the
+      // period one edge, a period apart.
+      const double u0 = F.natBox[0], u1 = F.natBox[1], v0 = F.natBox[2], v1 = F.natBox[3];
+      const Vec2 corner[4] = {{u0, v0}, {u1, v0}, {u1, v1}, {u0, v1}};
+      std::vector<int> owner;
+      for (int side = 0; side < 4; side++) {
+        const Vec2 a = corner[side], b = corner[(side + 1) % 4];
+        if (F.natSidePole[side] >= 0) {
+          const int g = F.natSidePole[side];
+          loop.push_back({BoundaryPoint::poleLine, a, -1, -1, F.sing[g].point});
+          poleFill(f, g, a, b, loop, owner);
+          continue;
+        }
+        const int e = F.natSide[side];
+        const Edge& E = edges[e];
+        const int n = static_cast<int>(E.s.t.size());
+        const bool alongU = side == 0 || side == 2, back = side >= 2;
+        for (int k = 0; k + 1 < n; k++) {
+          const int i = back ? n - 1 - k : k;
+          loop.push_back(sample(e, i, alongU ? Vec2{E.s.t[i], a.y} : Vec2{a.x, E.s.t[i]}));
+        }
+      }
       return loop;
     }
     // Sphere-like, in (x, y) = (the periodic direction, the other): the low pole's line along +x, the cut's copy a
@@ -1610,6 +1856,7 @@ struct EdgeMesh::Impl {
     if (F.status != Status::ok && F.cutDir < 0 && F.status != Status::singular) return out;
     std::vector<std::vector<BoundaryPoint>> loops;
     std::vector<BoundaryPoint> joined, joinedB;
+    int atPole = 0;  // edge loops dropped as lying on a pole line
     for (int i = 0; i < m.faceLoopCount(f); i++) {
       int l = m.faceFirstLoop(f) + i;
       if (m.loopKind(l) == CBR_LOOP_VERTEX) {
@@ -1629,7 +1876,10 @@ struct EdgeMesh::Impl {
       }
       if (cs.empty()) continue;
       Chain ch = chain(f, cs);
-      if (ch.pts.size() >= 2 && chainPole(f, ch) >= 0) continue;  // (its pole line comes with the cut)
+      if (ch.pts.size() >= 2 && chainPole(f, ch) >= 0) {  // (its pole line comes with the cut)
+        atPole++;
+        continue;
+      }
       out.status = worse(out.status, ch.status);
       if (ch.status != Status::ok) because(chainWhy(cs, ch.status));
       // (A loop with a coedge that has no samples, its edge unsampled: no chain, the status says why.)
@@ -1750,10 +2000,16 @@ struct EdgeMesh::Impl {
     if (loops.empty() && F.natural != Face::Natural::none) loops.push_back(naturalLoop(f));
     if (!m.faceSameSense(f))
       for (auto& l : loops) std::reverse(l.begin(), l.end());
-    if (loops.empty()) {
+    if (loops.empty() && atPole > 0) {
+      // Every edge loop within the tolerance of a pole (a face about as small as its tolerance there, or a loop that
+      // doesn't close at one): nothing to mesh, and not a face without loops.
+      out.status = worse(out.status, Status::invalidModel);
+      because("its edge loops all within the tolerance of a pole");
+    } else if (loops.empty()) {
       out.status = worse(out.status, Status::unsupported);
       because("no edge loops, and its surface's natural extent doesn't close (a whole plane, cylinder or cone)");
     }
+    out.foldsRepaired = repairFolds(f, loops);
     out.loops = std::move(loops);
     return out;
   }
@@ -1860,6 +2116,8 @@ Vec3 EdgeMesh::point(int e, double t) const {
 }
 const CoedgeSamples& EdgeMesh::coedge(int c) const { return impl_->coedges[c].s; }
 const ProjectionCounts& EdgeMesh::projections() const { return impl_->projections; }
+const TraceCounts& EdgeMesh::traces() const { return impl_->traces; }
+const std::vector<TraceFallback>& EdgeMesh::traceFallbacks() const { return impl_->traceFallbacks; }
 FaceBoundary EdgeMesh::face(int f) const { return impl_->face(f); }
 
 Status EdgeMesh::split(const std::vector<SplitRequest>& requests) {
@@ -1877,6 +2135,11 @@ Status EdgeMesh::split(const std::vector<SplitRequest>& requests) {
       bad = true;
       continue;
     }
+    // (No span whose chord is within the refinement floor is split, whatever asks: below it nothing a mesh shows
+    // changes, and below the part's tolerance the model can't say where its curve is. The mesher is told such spans
+    // are frozen, PartMesher's Domain2::frozen.)
+    const std::vector<Vec3>& pts = I.edges[r.edge].s.points;
+    if (norm(pts[r.span + 1] - pts[r.span]) <= refinementFloor(I.tol, I.o.deflection)) continue;
     double f = std::clamp(r.fraction, 0.1, 0.9), x = t[r.span] + f * (t[r.span + 1] - t[r.span]);
     bool inRing = false;
     for (const Range& g : I.edges[r.edge].rings) inRing = inRing || (x > g.lo && x < g.hi);
@@ -1913,6 +2176,42 @@ Status EdgeMesh::split(const std::vector<SplitRequest>& requests) {
     for (int c : E.coedges) I.computeCoedge(c);
   }
   return bad ? Status::invalidModel : Status::ok;
+}
+
+Status EdgeMesh::respace(const std::vector<double>& faceSpacing) {
+  Impl& I = *impl_;
+  for (size_t f = 0; f < I.faces.size() && f < faceSpacing.size(); f++) I.faces[f].spacing = faceSpacing[f];
+  // Each edge's spacing: the least of its faces' (its uses', a pseudo-edge's own face's), at most maxSpacing.
+  std::vector<double> want(I.edges.size(), I.o.maxSpacing);
+  for (size_t e = 0; e < I.edges.size(); e++) {
+    Impl::Edge& E = I.edges[e];
+    for (int c : E.coedges)
+      if (I.coedges[c].face >= 0) want[e] = std::min(want[e], I.faces[I.coedges[c].face].spacing);
+    if (static_cast<int>(e) >= I.nModel && E.face >= 0) want[e] = std::min(want[e], I.faces[E.face].spacing);
+    E.spacing = std::min(E.spacing, want[e]);
+  }
+  // Passes of splits, each span longer than that into equal pieces (at most 9 a pass: split's tenth), until none is.
+  Status st = Status::ok;
+  for (int pass = 0; pass < 16; pass++) {
+    std::vector<SplitRequest> requests;
+    const double floor = refinementFloor(I.tol, I.o.deflection);
+    for (size_t e = 0; e < I.edges.size(); e++) {
+      const Impl::Edge& E = I.edges[e];
+      if (!E.geom || !(want[e] < kInf)) continue;
+      for (size_t i = 0; i + 1 < E.s.points.size(); i++) {
+        const double chord = norm(E.s.points[i + 1] - E.s.points[i]);
+        if (!(chord > want[e]) || chord <= floor) continue;
+        const int n = static_cast<int>(std::min(9.0, std::ceil(chord / want[e])));
+        for (int k = 1; k < n; k++)
+          requests.push_back({static_cast<int32_t>(e), static_cast<int32_t>(i), static_cast<double>(k) / n});
+      }
+    }
+    if (requests.empty()) break;
+    const size_t before = I.sampleCount();
+    if (split(requests) != Status::ok) st = Status::invalidModel;
+    if (I.sampleCount() == before) break;  // (none could be made: within a ring or the floor)
+  }
+  return st;
 }
 
 Status EdgeMesh::cutRings(const std::vector<RingCut>& cuts) {

@@ -29,9 +29,20 @@ const firstFace = (data: Uint8Array) => {
   return rowCount(d, 'face') ? d.face.id[0]! : null;
 };
 
-/** A stand-in tessellator: a triangle per request, its face the model's first, after `delay` ms. */
+/**
+ * A stand-in tessellator: a triangle per request, its face the model's first, after `delay` ms; its pool's jobs (the
+ * healing) run here, counted.
+ */
 function fake(delay = 0) {
   const requests: TessellationRequest[] = [];
+  const runs: string[] = [];
+  const pool = { run: async <T>(job: { export: string }, input: unknown, o: { onProgress?: (m: string) => void } = {}):
+    Promise<T> => {
+    runs.push(job.export);
+    const heal = await import('cad-heal');
+    return (heal as unknown as Record<string, (i: unknown, p: (m: string) => void) => Promise<T>>)[job.export]!(
+      input, o.onProgress ?? (() => {}));
+  } };
   const tess: Tessellator = {
     info: { name: 'fake', version: '1', license: 'MIT', formats: ['cad-brep'], supportsFaceIds: true,
       supportsEdges: true, supportsCurves: false },
@@ -45,7 +56,7 @@ function fake(delay = 0) {
         diagnostics: [] };
     },
   };
-  return { requests, tessellation: { get: async () => ({ tess, workers: 2 }),
+  return { requests, runs, tessellation: { get: async () => ({ tess, workers: 2, pool }),
     describe: () => ({ backend: 'fake 1', pools: 1 }) } };
 }
 
@@ -79,7 +90,8 @@ test('loadModelIn: the input taken and its bytes collected before meshing; a sou
       }
       return inner.tessellate(req);
     } };
-    await loadModelIn(source, DEFAULT_SETTINGS, 2, { ...tessellation, get: async () => ({ tess, workers: 2 }) },
+    await loadModelIn(source, DEFAULT_SETTINGS, 2, { ...tessellation, get: async () => ({ tess, workers: 2,
+      pool: { run: () => Promise.reject(new Error('no healing here')) } }) },
       () => {}, () => false);
     assert.equal(source.input, undefined);
     assert.equal(freed, true);
@@ -335,4 +347,83 @@ test('meshModelIn: the scene kept by a load meshed again (Mesh again): a mesh pe
   const none: ModelEvent[] = [];
   await meshModelIn(kept!, settings, 3, fake().tessellation, (e) => none.push(e), () => true);
   assert.deepEqual(none, []);
+});
+
+const healInput = async (): Promise<ModelInput> => {
+  const { healTestScene, stepOf } = await import('../../cad-heal/test/scene.ts');
+  return { format: 'step', bytes: stepOf(healTestScene()) };
+};
+const healingSaid = (d: { message: string }[]) => d.flatMap((x) => {
+  const m = /^(strayPole|pcurve\w+|edgeTolerance|vertexTolerance|tolerances grown):/.exec(x.message);
+  return m ? [m[1]!] : [];
+});
+
+test('loadModelIn with heal on: the scene first, then healing in the pool (its phase told), the healed models meshed '
+  + 'and kept, healing\'s diagnostics with the end', async () => {
+  const { requests, runs, tessellation } = fake();
+  const events: ModelEvent[] = [];
+  let kept: Scene | undefined;
+  await loadModelIn({ input: await healInput() }, { ...DEFAULT_SETTINGS, heal: true }, 3, tessellation,
+    (e) => events.push(e), () => false, {}, (s) => { kept = s; });
+  const types = events.map((e) => e.type === 'importing' ? e.progress.phase : e.type);
+  const scene = types.indexOf('scene'), healing = types.lastIndexOf('healing'), mesh = types.indexOf('mesh');
+  assert.ok(scene >= 0 && scene < types.indexOf('healing') && healing < mesh, types.join());
+  const last = events.filter((e) => e.type === 'importing').at(-1) as { progress: { done: number; total: number } };
+  assert.deepEqual([last.progress.done, last.progress.total], [4, 4]);
+  assert.deepEqual(runs, ['healJob', 'healJob', 'healJob', 'healJob']);
+  // The scene event's diagnostics have none of healing's; the end's do.
+  assert.deepEqual(healingSaid((events[types.indexOf('scene')] as { scene: Scene }).scene.diagnostics), []);
+  const done = events.at(-1) as Extract<ModelEvent, { type: 'done' }>;
+  assert.ok(healingSaid(done.diagnostics).includes('strayPole'));
+  // What's meshed and kept is healed: every part with an analysis, the meshes from the healed models' bytes.
+  assert.ok(kept!.parts.every((p) => p.brep!.analysis));
+  const data = new Set(requests.map((r) => r.data.length));
+  for (const p of kept!.parts) assert.ok(data.has(new Uint8Array(p.brep!.model.buffer).length));
+});
+
+test('meshModelIn (Mesh again) with other healing: undone to the models as imported, healed again as asked, kept '
+  + 'where asked the same, undone when cancelled', async () => {
+  const off = { ...DEFAULT_SETTINGS, heal: false };
+  let kept: Scene | undefined;
+  await loadModelIn({ input: await healInput() }, off, 3, fake().tessellation, () => {}, () => false, {},
+    (s) => { kept = s; });
+  const imported = kept!.parts.map((p) => p.brep!.model);
+  const outlines = kept!.parts.map((p) => p.brep!.outline);
+  const again = async (settings: typeof off, cancelled = () => false) => {
+    const f = fake(), events: ModelEvent[] = [];
+    await meshModelIn(kept!, settings, 3, f.tessellation, (e) => events.push(e), cancelled);
+    const done = events.find((e) => e.type === 'done') as Extract<ModelEvent, { type: 'done' }> | undefined;
+    return { runs: f.runs.length, said: done ? healingSaid(done.diagnostics) : undefined };
+  };
+  const on = { ...off, heal: true };
+  const a = await again(on);
+  assert.equal(a.runs, 4);
+  assert.ok(a.said!.includes('strayPole'));
+  const healed = kept!.parts.map((p) => p.brep!.model), stray = kept!.parts.findIndex((p) => p.name === 'stray');
+  assert.notEqual(healed[stray], imported[stray]);
+  assert.notEqual(kept!.parts[stray]!.brep!.outline, outlines[stray]);
+  // The same healing again: kept, the same diagnostics, nothing run.
+  assert.deepEqual(await again(on), { runs: 0, said: a.said });
+  assert.equal(kept!.parts[stray]!.brep!.model, healed[stray]);
+  // Off: the models and outlines as imported, no analysis, no healing said.
+  assert.deepEqual(await again(off), { runs: 0, said: [] });
+  assert.deepEqual(kept!.parts.map((p) => p.brep!.model), imported);
+  assert.deepEqual(kept!.parts.map((p) => p.brep!.outline), outlines);
+  assert.ok(kept!.parts.every((p) => p.brep!.analysis === undefined));
+  assert.deepEqual(healingSaid(kept!.diagnostics), []);
+  // A fix off: healed from the models as imported without it.
+  const noPole = await again({ ...on, healFixes: { ...on.healFixes, strayPole: false } });
+  assert.equal(noPole.runs, 4);
+  assert.ok(!noPole.said!.includes('strayPole') && noPole.said!.includes('tolerances grown'), noPole.said!.join());
+  // Cancelled while healing: undone, nothing meshed or ended.
+  let calls = 0;
+  assert.deepEqual(await again(on, () => ++calls > 2), { runs: 4, said: undefined });
+  assert.deepEqual(kept!.parts.map((p) => p.brep!.model), imported);
+});
+
+test('the default settings heal as cad-heal\'s HEAL_BY_DEFAULT says, its fixes as cad-heal has them', async () => {
+  const { FIXES_OFF_BY_DEFAULT, HEAL_BY_DEFAULT, HEAL_FIXES } = await import('cad-heal/options');
+  assert.equal(DEFAULT_SETTINGS.heal, HEAL_BY_DEFAULT);
+  assert.deepEqual(Object.keys(DEFAULT_SETTINGS.healFixes), [...HEAL_FIXES]);
+  for (const f of HEAL_FIXES) assert.equal(DEFAULT_SETTINGS.healFixes[f], !FIXES_OFF_BY_DEFAULT.includes(f));
 });

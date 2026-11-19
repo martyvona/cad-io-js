@@ -20,7 +20,8 @@ import { nodeForPick } from './selection.ts';
 import { contentPath, fromUrl, pickFiles, typedUrl } from './sources.ts';
 import type { RenderSettings } from './style.ts';
 import type { Ui } from './ui.ts';
-import { fromQuery, renderChanges, toQuery, type CameraState, type ViewState } from './view-state.ts';
+import { fromQuery, healingFromQuery, renderChanges, toQuery, type CameraState, type ViewState } from
+  './view-state.ts';
 import type { TessellationSettings } from './tessellation.ts';
 import type { MeshedWith, Viewer } from './viewer.ts';
 
@@ -211,6 +212,10 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
     const params = new URLSearchParams([...new URLSearchParams(location.hash.slice(1)),
       ...new URLSearchParams(location.search)]);
     const { state: st, problems } = fromQuery(params);
+    // Healing (heal=, healOn=, healOff=) before the model opens: it decides the models meshed.
+    const healing = healingFromQuery(params);
+    if (healing.meshing) ui.setMeshing(healing.meshing);
+    problems.push(...healing.problems);
     const given = params.get('model') ?? params.get('url');
     if (params.has('model') && params.has('url')) problems.push('model and url both given: url ignored');
     const url = given !== null ? typedUrl(given) : undefined;

@@ -18,6 +18,8 @@ import { authorOf, boundScene, dropEmptyAssemblies, dropSourceDegenerate, leafPa
   type Vec3 } from 'cad-scene';
 import { stepBrep } from './brep.ts';
 import { type BrepData, faceOutlines } from 'cad-brep';
+import type { GeomModule } from 'cad-geom';
+import { HEAL_BY_DEFAULT, healScene, type HealSceneOptions } from 'cad-heal';
 import { moveMesh, readTessellated, tessellatedItems } from './tessellated.ts';
 
 export interface ImportOptions extends OpenOptions {
@@ -26,6 +28,16 @@ export interface ImportOptions extends OpenOptions {
    * an info diagnostic per part. Default true; false keeps every triangle the file gives.
    */
   dropDegenerate?: boolean;
+  /**
+   * Healing the parts' B-rep models (cad-heal's healScene) at the end of importStep, so every consumer, exports
+   * included, gets the healed scene: on by `heal.heal`, else HEAL_BY_DEFAULT; under it each fix on or off by name
+   * (`fixes`), `progress` told where it is; `healer` and `concurrency` heal parts elsewhere, several at once (a
+   * pool's workers: tess-workers' `run` with cad-heal's healJob). Its diagnostics are the scene's. sceneFromStep
+   * doesn't heal.
+   */
+  heal?: HealSceneOptions;
+  /** cad-geom's module, for healing here (default: cad-geom's init()). */
+  geomModule?: GeomModule;
   /**
    * Told what the import is doing (a viewer's status line through a large file): each phase as it begins, and through
    * `parts` the shape representations looked at so far, of all of them.
@@ -36,10 +48,11 @@ export interface ImportOptions extends OpenOptions {
 /**
  * A phase of the import: `reading` the file (the lexical scan and index), `structure` (binding to the schema and
  * the products, representations and styles), `parts` (each representation made a part, with its model; most of a
- * large file's time), `assembly` (components, occurrences, overrides, layers).
+ * large file's time), `assembly` (components, occurrences, overrides, layers), `healing` (the parts' models healed:
+ * `done` of `total` parts with models, where healing is on).
  */
 export interface ImportProgress {
-  phase: 'reading' | 'structure' | 'parts' | 'assembly';
+  phase: 'reading' | 'structure' | 'parts' | 'assembly' | 'healing';
   done?: number;
   total?: number;
 }
@@ -52,13 +65,29 @@ export interface ImportResult {
   partOf: Map<number, number>;
 }
 
-/** Read, bind, extract and import a STEP file. */
+/** Read, bind, extract and import a STEP file, then heal its models (`heal`). */
 export async function importStep(input: StepSource | StepFile, opts: ImportOptions = {}): Promise<ImportResult> {
   if (!('index' in input)) opts.onProgress?.({ phase: 'reading' });
   const file = 'index' in input ? input : await readStep(input as StepSource);
   opts.onProgress?.({ phase: 'structure' });
   const model = await openModel(file, opts);
-  return sceneFromStep(model, extractSemantics(model), opts);
+  const result = sceneFromStep(model, extractSemantics(model), opts);
+  await healImported(result.scene, opts);
+  return result;
+}
+
+/** The import's healing (ImportOptions.heal), its progress as the import's `healing` phase. */
+export async function healImported(scene: Scene, opts: Pick<ImportOptions, 'heal' | 'geomModule' | 'onProgress'>):
+  Promise<void> {
+  const heal = opts.heal ?? {};
+  if (!(heal.heal ?? HEAL_BY_DEFAULT)) return;
+  const total = scene.parts.filter((p) => p.brep).length;
+  if (!total) return;
+  opts.onProgress?.({ phase: 'healing', done: 0, total });
+  await healScene(scene, { ...heal, heal: true, onPart: (done, all) => {
+    opts.onProgress?.({ phase: 'healing', done, total: all });
+    heal.onPart?.(done, all);
+  } }, opts.geomModule);
 }
 
 /** Dangling references named in a part's warning; the rest are counted. */

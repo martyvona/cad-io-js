@@ -338,6 +338,12 @@ TEST_CASE("the angle alone, closed edges in 3 spans at least, the faces' spacing
   CHECK_EQ(checkEdges(m, em, o, "angle"), 0);
   CHECK(em.edge(0).t.size() - 1 >= 126u);
   CHECK(em.edge(0).t.size() - 1 <= 140u);
+  // The angle 0.01 at deflection 1: 628 spans by the angle, but none refined below the refinement floor (0.1 here):
+  // about 2 pi 2 / 0.1 spans, the turn across each about 0.05.
+  o.angle = 0.01;
+  EdgeMesh floored(m, o);
+  CHECK(floored.edge(0).t.size() - 1 <= 140u);
+  CHECK(floored.edge(0).t.size() - 1 >= 120u);
   // Deflection 100 asks for nothing: a closed circle still 3 spans, the seam 1.
   o = {};
   o.deflection = 100;
@@ -870,26 +876,177 @@ TEST_CASE("a use's p-curve checked between its samples against its edge's curve:
   CHECK_EQ(checkCoedges(w, ew, 1e-9, "wigglePcurve"), 0);
 }
 
-TEST_CASE("a use projected at its edge's tolerance: its inside samples at their points' feet, not the p-curve's") {
-  // coarseProjection's bottom edge, 0.004 off its cylinder under a tolerance of 0.01, projected at that (the mesh's,
-  // 5e-4, too tight): its p-curve within 0.01 of the feet, its samples polished to them, (atan2(y, x), z).
-  cadgeom::Model m = load("coarseProjection");
+TEST_CASE("a use without p-curve traced from sample to sample: its feet stay on its own arm of a thin U") {
+  // uFold: the loop's middle 0.07 off its arm towards the other, 0.03 from it. Every inside sample's foot continued
+  // from the one before, on the face's arm (u within [0, 1]); none fell back on the global search.
+  cadgeom::Model m = load("uFold");
+  REQUIRE(m.ok());
+  EdgeOptions o;
+  o.deflection = 0.1;
+  o.projectMissingPcurves = false;
+  EdgeMesh em(m, o);
+  const CoedgeSamples& cs = em.coedge(0);
+  REQUIRE(cs.uv.size() > 8);
+  int off = 0;
+  for (Vec2 p : cs.uv) off += !(p.x >= 0 && p.x <= 1 + 1e-9);
+  if (off) std::printf("  uFold: %d of %zu samples off the arm\n", off, cs.uv.size());
+  CHECK_EQ(off, 0);
+  CHECK_EQ(em.traces().local, static_cast<int>(cs.uv.size()) - 2);
+  CHECK(em.traceFallbacks().empty());
+  CHECK(em.face(0).status == cadgeom::Status::ok);
+  // uFoldAway: 0.3 off the far side, past the tolerance (0.1), within the samples' spacing: continued all the same.
+  cadgeom::Model a = load("uFoldAway");
+  REQUIRE(a.ok());
+  EdgeMesh ea(a, o);
+  for (const TraceFallback& f : ea.traceFallbacks()) std::printf("  uFoldAway: at %g, %g off: %s\n", f.t, f.distance,
+    f.why);
+  CHECK(ea.traceFallbacks().empty());
+  CHECK_EQ(ea.traces().local, static_cast<int>(ea.coedge(0).uv.size()) - 2);
+  // uFoldFar: 3 off, past the tolerance and the spacing: the samples after the vertex fall back, each said, the
+  // global search's foot kept (on the arm: the far side is nearer it than the other arm).
+  cadgeom::Model far = load("uFoldFar");
+  REQUIRE(far.ok());
+  EdgeMesh ef(far, o);
+  REQUIRE(!ef.traceFallbacks().empty());
+  for (const TraceFallback& f : ef.traceFallbacks()) {
+    CHECK_EQ(f.coedge, 0);
+    CHECK(std::string(f.why).find("farther") != std::string::npos);
+    CHECK(f.distance > 0.1);
+  }
+  CHECK_EQ(ef.traces().local + ef.traces().global, static_cast<int>(ef.coedge(0).uv.size()));
+}
+
+TEST_CASE("respace: every span split to the faces' spacing, the samples there kept, the uses redone") {
+  // band: its circles sampled at the deflection alone (spans of about 1.2), then the face's spacing 0.1 asked, more
+  // than one pass's 9 pieces: every span's chord within it, each sample before still there, each use's (u, v) count
+  // its edge's.
+  cadgeom::Model m = load("band");
+  REQUIRE(m.ok());
+  EdgeOptions o;
+  o.deflection = 0.1;
+  EdgeMesh em(m, o);
+  std::vector<std::vector<double>> before;
+  for (int e = 0; e < m.edges(); e++) before.push_back(em.edge(e).t);
+  REQUIRE(em.respace(std::vector<double>(m.faces(), 0.1)) == cadgeom::Status::ok);
+  for (int e = 0; e < m.edges(); e++) {
+    const EdgeSamples& s = em.edge(e);
+    double longest = 0;
+    for (size_t i = 0; i + 1 < s.points.size(); i++)
+      longest = std::fmax(longest, cadgeom::norm(s.points[i + 1] - s.points[i]));
+    if (!(longest <= 0.3)) std::printf("  band edge %d: a span of %g\n", e, longest);
+    CHECK(longest <= 0.1);
+    CHECK(s.t.size() > before[e].size());
+    for (double t : before[e]) CHECK(std::find(s.t.begin(), s.t.end(), t) != s.t.end());
+  }
+  for (int c = 0; c < m.coedges(); c++)
+    CHECK_EQ(em.coedge(c).uv.size(), em.edge(m.coedgeEdge(c)).t.size());
+}
+
+TEST_CASE("no split on a span whose chord is within the refinement floor, though asked; longer ones split") {
+  // spindleApex's uncertainty is 0.2, so at a deflection of 4 the floor is max(0.2, 0.4) = 0.4, above the tolerance:
+  // a split asked on a span whose chord is over 0.4 is made, one on a span of chord at most 0.4 dropped (between the
+  // tolerance and the floor too).
+  cadgeom::Model m = load("spindleApex");
+  REQUIRE(m.ok());
+  EdgeOptions o;
+  o.deflection = 4;
+  EdgeMesh em(m, o);
+  int e = -1;
+  for (int k = 0; k < m.edges() && e < 0; k++)
+    if (m.curveKind(m.edgeCurve(k)) == CBR_CURVE_CIRCLE) e = k;
+  REQUIRE(e >= 0);
+  // Halve its first span while asked, round after round: each split made while its chord is over the floor, none
+  // after.
+  int made = 0, dropped = 0, droppedOverTolerance = 0;
+  for (int round = 0; round < 12; round++) {
+    const auto& P = em.edge(e).points;
+    const double chord = cadgeom::norm(P[1] - P[0]);
+    const size_t before = P.size();
+    REQUIRE(em.split({{e, 0, 0.5}}) == cadgeom::Status::ok);
+    const size_t after = em.edge(e).points.size();
+    if (chord > 0.4) {
+      CHECK_EQ(after, before + 1);
+      made++;
+    } else {
+      CHECK_EQ(after, before);
+      dropped++;
+      droppedOverTolerance += chord > 0.2;
+    }
+  }
+  CHECK(made > 0);
+  CHECK(dropped > 0);
+  // (The first span's chord ends over the tolerance: the floor, not the tolerance, stopped it.)
+  CHECK(droppedOverTolerance > 0);
+  const double last = cadgeom::norm(em.edge(e).points[1] - em.edge(e).points[0]);
+  CHECK(last > 0.2 && last <= 0.4);
+}
+
+TEST_CASE("a given p-curve whose domain ends within 1e-9 of the use's range: clamped, used; farther refused") {
+  // pcurveShortHair's bottom p-curve ends 5e-10 short of its edge's range [0, 1]: its end evaluated at the domain's
+  // end, the p-curve used, the end's (u, v) (1 - 5e-10, 0). pcurveShortFar's, 1e-6 short: refused as before, the use
+  // by inversion.
+  // pcurveShortStart's begins 5e-10 past its start: used too, its first (u, v) (5e-10, 0).
+  for (const char* name : {"pcurveShortHair", "pcurveShortFar", "pcurveShortStart"}) {
+    const bool start = std::string(name) == "pcurveShortStart", hair = start || std::string(name) == "pcurveShortHair";
+    cadgeom::Model m = load(name);
+    REQUIRE(m.ok());
+    EdgeOptions o;
+    o.deflection = 0.01;
+    EdgeMesh em(m, o);
+    const CoedgeSamples& cs = em.coedge(0);
+    if (cs.fromPcurve != hair) std::printf("  %s: fromPcurve %d\n", name, int(cs.fromPcurve));
+    CHECK(cs.fromPcurve == hair);
+    REQUIRE(!cs.uv.empty());
+    if (hair && !start) CHECK(std::fabs(cs.uv.back().x - (1 - 5e-10)) < 1e-15);
+    if (start) CHECK(std::fabs(cs.uv.front().x - 5e-10) < 1e-15);
+    CHECK(em.face(0).status == cadgeom::Status::ok);
+  }
+}
+
+TEST_CASE("a curve's break at an end's point within rounding is that point: no sample beside it") {
+  // knotAtEnd's bottom edge, its knots 1e-13 from each end of its range: no two samples within 1e-9 of each other,
+  // the knots dropped (its samples otherwise its middle knot's and the deflection's).
+  cadgeom::Model m = load("knotAtEnd");
   REQUIRE(m.ok());
   EdgeOptions o;
   o.deflection = 0.01;
   EdgeMesh em(m, o);
-  REQUIRE(em.coedge(0).projected);
-  const CoedgeSamples& cs = em.coedge(0);
-  const EdgeSamples& es = em.edge(m.coedgeEdge(0));
-  REQUIRE(cs.uv.size() > 4u);
-  double worst = 0;
-  for (size_t j = 1; j + 1 < cs.uv.size(); j++) {
-    const Vec3 p = es.points[cs.index[j]];
-    worst = std::fmax(worst, std::hypot(cs.uv[j].x - std::atan2(p.y, p.x), cs.uv[j].y - p.z));
-  }
-  if (!(worst <= 1e-9)) std::printf("  coarseProjection: a sample %.3g from its foot\n", worst);
-  CHECK(worst <= 1e-9);
+  const EdgeSamples& es = em.edge(0);
+  REQUIRE(es.t.size() >= 3u);
+  double closest = INFINITY;
+  for (size_t i = 0; i + 1 < es.points.size(); i++) closest = std::fmin(closest, cadgeom::norm(es.points[i + 1] -
+    es.points[i]));
+  if (!(closest > 1e-9)) std::printf("  knotAtEnd: samples %.3g apart\n", closest);
+  CHECK(closest > 1e-9);
   CHECK(em.face(0).status == cadgeom::Status::ok);
+}
+
+TEST_CASE("a projected use's inside samples at their points' feet, not the p-curve's: at the edge's tolerance or not") {
+  // coarseProjection's bottom edge, 0.004 off its cylinder under a tolerance of 0.01, projected at that (the mesh's,
+  // 5e-4, too tight): its p-curve within 0.01 of the feet, its samples polished to them, (atan2(y, x), z).
+  // fineProjection's, 1e-4 off, projected within the mesh's tolerance: polished the same.
+  for (const char* name : {"coarseProjection", "fineProjection"}) {
+    cadgeom::Model m = load(name);
+    REQUIRE(m.ok());
+    EdgeOptions o;
+    o.deflection = 0.01;
+    EdgeMesh em(m, o);
+    REQUIRE(em.coedge(0).projected);
+    const CoedgeSamples& cs = em.coedge(0);
+    const EdgeSamples& es = em.edge(m.coedgeEdge(0));
+    REQUIRE(cs.uv.size() > 4u);
+    double worst = 0;
+    for (size_t j = 1; j + 1 < cs.uv.size(); j++) {
+      const Vec3 p = es.points[cs.index[j]];
+      worst = std::fmax(worst, std::hypot(cs.uv[j].x - std::atan2(p.y, p.x), cs.uv[j].y - p.z));
+    }
+    if (!(worst <= 1e-9)) std::printf("  %s: a sample %.3g from its foot\n", name, worst);
+    CHECK(worst <= 1e-9);
+    CHECK(em.face(0).status == cadgeom::Status::ok);
+    // (The bottom's projection at the edge's tolerance for the coarse one, within the mesh's for the fine one.)
+    const ProjectionCounts& pc = em.projections();
+    CHECK(std::string(name) == "coarseProjection" ? pc.atEdgeTolerance > 0 : pc.atEdgeTolerance == 0);
+  }
 }
 
 TEST_CASE("a use's given p-curve a whole period off its surface's own range, the surface closed in fact: used") {

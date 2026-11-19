@@ -7,6 +7,7 @@
 // profiles.ts), or custom deflections.
 
 import { FallbackTessellator, MESH_PROFILES, type MeshProfile, type Tessellator } from 'cad-scene';
+import { FIXES_OFF_BY_DEFAULT, HEAL_BY_DEFAULT, HEAL_FIXES, type HealFix } from 'cad-heal/options';
 import type { DeviceClass } from './device.ts';
 import { CachedTessellator, IndexedDbStore, type CacheStats } from 'tess-cache/browser';
 import { DEFAULT_TIMEOUT_MS, PoolTessellator, webWorkerHandle } from 'tess-workers/browser';
@@ -32,6 +33,18 @@ export interface TessellationSettings {
    * the part again.
    */
   timeout: number;
+  /**
+   * Heal B-reps: each model healed (cad-heal) in the pool's workers before it's meshed, the scene's (and exports')
+   * models then the healed ones; off, the models as imported.
+   */
+  heal: boolean;
+  /** Under `heal`, each fix on or off (cad-heal's HEAL_FIXES). */
+  healFixes: Record<HealFix, boolean>;
+}
+
+/** The fixes as cad-heal has them by default. */
+export function defaultFixes(): Record<HealFix, boolean> {
+  return Object.fromEntries(HEAL_FIXES.map((f) => [f, !FIXES_OFF_BY_DEFAULT.includes(f)])) as Record<HealFix, boolean>;
 }
 
 /** The default timeout, seconds: the pool's. */
@@ -44,9 +57,21 @@ export function profileSettings(profile: MeshProfile): Pick<TessellationSettings
   return { profile, linearDeflection: p.linearDeflection, angularDeflection: p.angularDeflection * 180 / Math.PI };
 }
 
-/** The defaults: a profile (the device's: device.ts), OCCT with SMLib its fallback, cached. */
+/** The defaults: a profile (the device's: device.ts), OCCT with SMLib its fallback, cached, healed or not by cad-heal's
+ * HEAL_BY_DEFAULT. */
 export function defaultSettings(profile: MeshProfile): TessellationSettings {
-  return { backend: 'occt', fallback: 'smlib', ...profileSettings(profile), cache: true, timeout: DEFAULT_TIMEOUT };
+  return { backend: 'occt', fallback: 'smlib', ...profileSettings(profile), cache: true, timeout: DEFAULT_TIMEOUT,
+    heal: HEAL_BY_DEFAULT, healFixes: defaultFixes() };
+}
+
+/**
+ * The healing the settings ask for, as a key: '' for none (heal off, or an older recording's settings without it),
+ * else the fixes on, in HEAL_FIXES's order.
+ */
+export function healingOf(s: Partial<Pick<TessellationSettings, 'heal' | 'healFixes'>>): string {
+  if (!s.heal) return '';
+  const fixes = { ...defaultFixes(), ...s.healFixes };
+  return HEAL_FIXES.filter((f) => fixes[f]).join(',');
 }
 
 /** The fallback the settings mean: none where it's the backend itself (or absent, as in an older recording). */
@@ -84,9 +109,10 @@ export class Tessellation {
 
   /**
    * A tessellator for the settings, ready (its workers started), with `workers` workers (the page's workerCount: this
-   * runs in the import worker, which can't see the screen).
+   * runs in the import worker, which can't see the screen); `pool` the backend's, whose workers also heal.
    */
-  async get(s: TessellationSettings, workers: number): Promise<{ tess: Tessellator; workers: number }> {
+  async get(s: TessellationSettings, workers: number): Promise<{ tess: Tessellator; workers: number;
+    pool: Pick<PoolTessellator, 'run'> }> {
     // (A new pool for another timeout too: a pool's is fixed.)
     const timeout = s.timeout ?? DEFAULT_TIMEOUT;
     const fallback = fallbackOf(s);
@@ -117,7 +143,7 @@ export class Tessellation {
         throw e;
       }
     }
-    return { tess: this.current!.tess, workers: this.current!.pool.workers };
+    return { tess: this.current!.tess, workers: this.current!.pool.workers, pool: this.current!.pool };
   }
 
   /**

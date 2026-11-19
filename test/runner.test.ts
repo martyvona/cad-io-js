@@ -72,6 +72,22 @@ test('runFiles watchdogs: a child silent on a file is killed and the file retrie
     await runFiles(FIXTURE, check, steady, [], (_p, r) => out.push('result' in r ? r.result : r.error));
     assert.ok(out.every((o) => typeof o === 'object'));
     assert.deepEqual(fs.readFileSync(tries, 'utf8').trim().split('\n'), ['h0', 'h1', 'h2']);
+    // A file busy past the idle time (never yielding) but saying where it is: not killed; one that goes quiet after
+    // saying where it was: killed twice, the kill naming that.
+    const said: string[] = [], write = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((s: string) => (said.push(String(s)), true)) as typeof process.stderr.write;
+    const busy: unknown[] = [];
+    try {
+      await runFiles(FIXTURE, check, [{ path: 'b0', job: { ms: 0, busy: { ms: 4000, every: 500 } } },
+        { path: 'b1', job: { ms: 0, busy: { ms: 600, every: 500, hang: true } } }], [],
+        (_p, r) => busy.push('result' in r ? r.result : r.error));
+    } finally {
+      process.stderr.write = write;
+    }
+    assert.equal(typeof busy[0], 'object', `busy 4 s against 1.5 s idle, saying where: ${busy[0]}`);
+    assert.match(busy[1] as string, /silent for 1.5 s, twice/);
+    assert.ok(said.some((s) => /killing a child silent for 1.5 s on \S*b1, last at b1 step 2 \(retrying it\)/.test(s)),
+      said.join(''));
   } finally {
     delete process.env.CHILDREN;
     for (const [k, v] of [['IDLE_MS', saved.idle], ['EXIT_GRACE_MS', saved.grace], ['FIXTURE_EXIT_HANG', saved.hang]]) {

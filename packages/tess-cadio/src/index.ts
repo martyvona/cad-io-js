@@ -9,7 +9,7 @@ import type { EdgeKind, TessellationProgress, TessellationRequest, TessellationR
 import { sha256 } from 'cad-scene';
 
 /** The module's C API version this layer speaks (tc_api_version). */
-const API_VERSION = 2;
+const API_VERSION = 3;
 /** The workspace's version (package.json's; a test checks they agree). */
 export const VERSION = '0.3.0';
 /** result.h's Status, by code. */
@@ -37,14 +37,15 @@ export function progressReporter(onProgress: (p: TessellationProgress) => void, 
     const faces = { faceId, row, round, facesDone: done, facesTotal: total };
     switch (PHASES[phase]) {
       case 'surfaces': return onProgress({ message: `making surfaces: ${face}, ${done} of ${total} done`, ...faces });
-      case 'boxEdges': case 'edges': {
-        const what = PHASES[phase] === 'edges' ? 'sampling edges' : 'sampling edges for the faces\' boxes';
+      case 'edges': {
         const on = row >= 0 ? `a use on ${face}` : 'an edge';
-        return onProgress({ message: `${what}: ${on}, ${done} of ${total} edges and uses done`,
+        return onProgress({ message: `sampling edges: ${on}, ${done} of ${total} edges and uses done`,
           ...(row >= 0 ? { faceId, row } : {}), round });
       }
       case 'criteria': return onProgress({ message: `criteria: ${face}, ${done} of ${total} done`, ...faces });
       case 'splitting': return onProgress({ message: `${pass}: splitting ${total} edge spans`, round });
+      case 'deviation': return onProgress({ message: `checking meshes' deviation: ${face}, ${done} of ${total} faces `
+        + 'done', ...faces });
       default: return onProgress({ message: `${face}, ${pass}, ${done} of ${total} faces done`, ...faces });
     }
   };
@@ -53,7 +54,7 @@ export function progressReporter(onProgress: (p: TessellationProgress) => void, 
 /** tess_cadio_api.cpp's js_progress: PartProgress's phase (PHASES), the face's id and row, round, done, total. */
 type ProgressHook = (phase: number, id: number, row: number, round: number, done: number, total: number) => void;
 /** part.h's PartProgress::Phase, in order. */
-const PHASES = ['surfaces', 'boxEdges', 'criteria', 'edges', 'meshing', 'splitting'] as const;
+const PHASES = ['surfaces', 'edges', 'criteria', 'meshing', 'splitting', 'deviation'] as const;
 
 /** The module's exports (tess_cadio_api.cpp's functions, each with a leading underscore). */
 interface CadioExports {
@@ -66,6 +67,7 @@ interface CadioExports {
   _tc_api_version: Fn;
   _tc_tessellate: Fn;
   _tc_set_project: Fn;
+  _tc_set_deviation_factor: Fn;
   /** Set for a call: tess_cadio_api.cpp's progress (js_progress, progressReporter's). */
   tcProgress?: ProgressHook;
   _tc_num_vertices: Fn;
@@ -103,6 +105,12 @@ export interface CadioInitOptions {
    * default true), else placed by inversion: for comparing the two, and tests.
    */
   projectMissingPcurves?: boolean;
+  /**
+   * A face whose mesh is farther from its surface than this times the larger of the linear deflection and the face's
+   * tolerance fails (part.h's PartOptions::maxDeviationFactor: its refused triangles' points inverted onto its
+   * surface), going the failed faces' way (a fallback, where configured); default 1, 0 never.
+   */
+  maxDeviationFactor?: number;
 }
 
 async function fetchBytes(url: URL): Promise<Uint8Array> {
@@ -122,6 +130,7 @@ function failedMessage(ids: readonly number[], rows: number): string {
 
 export class CadioTessellator implements Tessellator {
   private project = true;
+  private deviationFactor = 1;
   readonly info: TessellatorInfo = {
     name: 'tess-cadio', version: VERSION, license: 'AGPL-3.0-only', formats: ['cad-brep'], supportsFaceIds: true,
     supportsEdges: true, supportsCurves: false,
@@ -131,6 +140,7 @@ export class CadioTessellator implements Tessellator {
   async init(opts: CadioInitOptions = {}): Promise<void> {
     const { glue, wasm, version } = opts;
     this.project = opts.projectMissingPcurves ?? true;
+    this.deviationFactor = opts.maxDeviationFactor ?? 1;
     if (wasm instanceof WebAssembly.Module && version === undefined) throw new TypeError(
       'tess-cadio: init({wasm}) with a compiled WebAssembly.Module needs a version, since it has no bytes to hash');
     const glueUrl = glue === undefined ? new URL('../dist/tess_cadio.mjs', import.meta.url).href : String(glue);
@@ -176,6 +186,7 @@ export class CadioTessellator implements Tessellator {
     let rc: number;
     m.tcProgress = onProgress ? progressReporter(onProgress) : undefined;
     m._tc_set_project(this.project ? 1 : 0);
+    m._tc_set_deviation_factor(this.deviationFactor);
     try {
       rc = m._tc_tessellate(ptr, req.data.length, req.linearDeflection, req.angularDeflection, origin[0], origin[1],
         origin[2], req.edges ? 1 : 0);
@@ -234,9 +245,14 @@ export class CadioTessellator implements Tessellator {
     };
     const refused = list('refused');
     if (refused.length) {
+      // (By why, criteria.h's Refusal in order: [0] unused.)
+      const by = list('refusedBy');
+      const why = ['', 'deviation in closed form', 'deviation sampled', 'deviation bounded', 'deviation near a pole',
+        'a normal against the facet', 'normals apart'];
+      const reasons = why.map((w, k) => (k && by[k] ? `${w} ${by[k]}` : '')).filter(Boolean).join(', ');
       diagnostics.push({ severity: 'warning', message: `${refused.length} faces meshed with triangles their criteria `
         + `still refuse: ${Number(diag.refusedTriangles)} triangles, ${Number(diag.poleSlivers)} of them slivers in a `
-        + 'pole\'s fan' });
+        + `pole's fan${reasons ? `; by why: ${reasons}` : ''}` });
     }
     note('unsplit', 'still wanting their edges split when the rounds ran out');
     const sampled = list('sampled');
@@ -252,6 +268,23 @@ export class CadioTessellator implements Tessellator {
       diagnostics.push({ severity: 'info', message: `${pc[0]! + pc[1]! + pc[2]!} uses without p-curves: ${pc[0]} `
         + `projected within 0.05 x the deflection, ${pc[1]} at the edge's tolerance (the curve farther off its `
         + `surface), ${pc[2]} by inversion (no projection ok)` });
+    }
+    // The local steps of uses traced sample by sample that fell back on the global search (edges.h's TraceFallback):
+    // said with the first few, [edge id, t, distance, why].
+    const fallbacks = Array.isArray(diag['traceFallbacks']) ? diag['traceFallbacks'] as [number, number, number,
+      string][] : [];
+    if (fallbacks.length) {
+      const tr = list('traces');
+      const shown = fallbacks.slice(0, 5).map(([e, t, d, why]) => `edge ${e} at ${t} (${d} off): ${why}`).join('; ');
+      diagnostics.push({ severity: 'info', message: `${fallbacks.length} samples of uses traced sample by sample fell `
+        + `back on the global search (${tr[0] ?? 0} traced locally): ${shown}${fallbacks.length > 5 ? '; ...' : ''}` });
+    }
+    const folded = list('folded');
+    if (folded.length) {
+      const folds = typeof diag['folds'] === 'number' ? diag['folds'] : 0;
+      diagnostics.push({ severity: 'info', message: `${folds} boundary folds repaired in ${folded.length} faces`
+        + ' (a point convex in (u, v) turning the other way in 3D, its (u, v) moved onto its '
+        + 'neighbours\' chord within the face\'s tolerance)' });
     }
     const against = list('againstSense');
     if (against.length) {

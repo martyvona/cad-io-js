@@ -81,9 +81,10 @@ public:
 
   /**
    * The constrained edges (point pairs) on the boundary of the cavity a point at p would open from t (as insertPoint
-   * would, ties counted outside): what p would encroach on, before it's inserted.
+   * would, ties counted outside): what p would encroach on, before it's inserted. Returns the cavity's triangles.
    */
-  void cavityConstraints(Vec2 p, int32_t t, std::vector<std::pair<int32_t, int32_t>>& out, const Map2& map = {}) const;
+  size_t cavityConstraints(Vec2 p, int32_t t, std::vector<std::pair<int32_t, int32_t>>& out, const Map2& map = {})
+    const;
 
   /** A triangle holding p (inside or on it), walking from `hint`; a ghost triangle if p is outside the hull. */
   int32_t locate(Vec2 p, int32_t hint) const;

@@ -4,9 +4,9 @@
 // chord's deviation ((b - a)^2 max |C''| / 8), its length ((b - a) max |C'|) and its tangent's turn, so the
 // deflection, spacing and angle limits hold whatever the curve does between samples. That is C(t)'s deviation: with
 // the vertices' points exact at the ends, an end span strays up to the deflection plus the vertex's gap from its
-// curve. A span whose length bound is under 10 x the part's tolerance is kept as it is (near a zero-speed point the
-// curve doesn't report, the angle would refine without end). A split the mesher asks for (mesh2d.h's SplitWanted)
-// resamples that edge alone, for all its faces at once.
+// curve. A span whose length bound is within the refinement floor (criteria.h) is kept as it is (near a zero-speed
+// point the curve doesn't report, the angle would refine without end). A split the mesher asks for (mesh2d.h's
+// SplitWanted) resamples that edge alone, for all its faces at once, never on a span whose chord is within the floor.
 //
 // Pseudo-edges: a face on a periodic surface whose loops wind round the period (a band's two circles, a hemisphere's
 // equator) needs a cut no model edge gives to make it a domain. It gets one: a pseudo-edge along the iso-line of the
@@ -118,6 +118,20 @@ struct ProjectionCounts {
   int withinMesh = 0, atEdgeTolerance = 0, byInversion = 0;
 };
 
+/**
+ * A use with no p-curve (or one parameterized otherwise) has its inside samples' (u, v) by a local foot continued
+ * from the sample before; the global search only at its ends, at a pole, and where the local step fails or jumps.
+ */
+struct TraceCounts {
+  int local = 0, global = 0;
+};
+/** A sample whose local foot failed, found by the global search instead: its use, edge parameter, distance, why. */
+struct TraceFallback {
+  int32_t coedge;
+  double t, distance;
+  const char* why;
+};
+
 /** A boundary point of a face in (u, v). */
 struct BoundaryPoint {
   /**
@@ -159,6 +173,13 @@ struct FaceBoundary {
    * it (the face ok, no cause); which of the two is right is healing's to settle.
    */
   bool againstSense = false;
+  /**
+   * Boundary folds repaired: a point whose (u, v) made a convex corner with its loop's neighbours while its 3D point
+   * turns the other way about the surface's normal there (an ear on it would face against the surface: vertices off
+   * their surface past its range's edge, their feet clamped), its (u, v) moved onto their (u, v) chord, at its share
+   * of their 3D distance, where the surface there is within the face's tolerance of its 3D point (which is kept).
+   */
+  int foldsRepaired = 0;
   std::vector<std::vector<BoundaryPoint>> loops;
   /** Interior constraint chains: each a run of points to join pairwise (or a single point to keep). */
   std::vector<std::vector<BoundaryPoint>> interior;
@@ -215,6 +236,10 @@ public:
   const CoedgeSamples& coedge(int c) const;
   /** How the uses the model gives no p-curve were sampled (EdgeOptions::projectMissingPcurves). */
   const ProjectionCounts& projections() const;
+  /** The uses traced sample by sample (TraceCounts), each sample counted once however often it's redone. */
+  const TraceCounts& traces() const;
+  /** Those samples whose local foot failed, in the order found. */
+  const std::vector<TraceFallback>& traceFallbacks() const;
   /** Face f's boundary from the current samples (made each call: after split(), the new samples). */
   FaceBoundary face(int f) const;
 
@@ -223,9 +248,18 @@ public:
    * there were none, else Status::invalidModel. Each request adds one sample inside its span (several on one span
    * each at its own fraction of the span as it was, those within a tenth of the span of one another once); existing
    * samples are kept, so other edges' indices stand and only the touched edges' later indices move. The touched
-   * edges' coedges are redone. A request whose sample would fall inside a ring's span (cutRings) is dropped.
+   * edges' coedges are redone. A request whose sample would fall inside a ring's span (cutRings), or on a span whose
+   * chord is within the refinement floor (criteria.h), is dropped.
    */
   Status split(const std::vector<SplitRequest>& requests);
+
+  /**
+   * The faces' spacing given after the edges were sampled (their criteria, made from the boxes these samples give):
+   * every edge's spans, a pseudo-edge's too, split until none is longer in 3D than the least of its faces' spacing,
+   * through split(), so the samples there are kept and the new ones' uses found as split's are (each p-curve at its
+   * parameter, a use with none continued locally). The edges are sampled once, refined only.
+   */
+  Status respace(const std::vector<double>& faceSpacing);
 
   /**
    * Each cut applied to its edge, once for every face using it (the samples are the edge's, its coedges redone): a

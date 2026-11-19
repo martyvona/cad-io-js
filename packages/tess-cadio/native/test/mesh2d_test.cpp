@@ -25,11 +25,16 @@ using cadgeom::Vec2;
 
 namespace {
 
+/** Size h everywhere, every triangle accepted; those whose sides are all within `floor` below the floor. */
 struct Uniform : SizeField {
-  double h;
-  explicit Uniform(double h_) : h(h_) {}
+  double h, floor;
+  explicit Uniform(double h_, double floor_ = 0) : h(h_), floor(floor_) {}
   Metric2 metric(Vec2) const override { return {1 / (h * h), 0, 1 / (h * h)}; }
   bool accept(const Vec2*) const override { return true; }
+  bool belowFloor(const Vec2 t[3]) const override {
+    return std::fmax(std::fmax(dist(t[0], t[1]), dist(t[1], t[2])), dist(t[2], t[0])) <= floor;
+  }
+  static double dist(Vec2 a, Vec2 b) { return std::hypot(a.x - b.x, a.y - b.y); }
 };
 struct Stretched : SizeField {
   double hx, hy;
@@ -672,9 +677,10 @@ TEST_CASE("a thin wedge (1 degree): meshed, the boundary kept, refinement ends")
 TEST_CASE("refinement for angle alone ends beside long fixed sides: plates with 14 holes, their samples jittered") {
   // A 38 x 50.8 rectangle, its sides fixed and far longer than the holes' spans, 14 holes of 27 or 28 points
   // (angles jittered by a seed), a uniform size of 63.44 (the plate's own extent), every triangle accepted: some of
-  // these drove points into a corner without end before thin triangles a twentieth of the size were left as they
-  // are (27 points, jitter 0.2, seed 12 among them). Each now ends within 2,000 Steiner points.
-  Uniform F{63.44};
+  // these drive points into a corner without end unless thin triangles within the field's refinement floor (here
+  // 0.001, under a hundredth of a hole's span) are left as they are (27 points, jitter 0.2, seed 12 among them).
+  // Each ends within 2,000 Steiner points.
+  Uniform F{63.44, 0.001};
   int worst = 0;
   for (int n : {27, 28})
     for (double jitter : {0.2, 0.45})
@@ -971,4 +977,190 @@ TEST_CASE("the same mesh on every target: a refined, rotating-metric mesh's bits
   REQUIRE(m.status == cadgeom::Status::ok);
   CHECK_EQ(m.points.size(), 1046u);
   CHECK_EQ(meshHash(m), 0xcb1fd5688b6343b8ull);
+}
+
+namespace {
+/** A half-disc of radius 1: n + 1 samples on its arc (cocircular), its chord one segment back. */
+Domain2 halfDisc(int n) {
+  Domain2 d;
+  std::vector<int32_t> loop;
+  for (int i = 0; i <= n; i++) {
+    const double a = 3.141592653589793 * i / n;
+    d.points.push_back({std::cos(a), std::sin(a)});
+    loop.push_back(i);
+  }
+  d.loops.push_back(loop);
+  return d;
+}
+}
+
+TEST_CASE("a long segment opposite cocircular points: refused candidates past the cavity limit not halved") {
+  // Every candidate lies in the chord's diametral circle (the half-disc does), so each is refused; the arc's samples
+  // are cocircular, so each cavity is the whole mesh, past kHalvingCavity (1,024) at 2,000 samples. The metric is
+  // coarser than the chord, but the chord is far longer than the triangles its candidates run into (kLongSegment), so
+  // it alone is wanted split.
+  Mesh2Detail big;
+  Domain2 d = halfDisc(2000);
+  Mesh2 m = mesh2Detailed(d, Uniform(100), {}, &big);
+  CHECK(m.status == cadgeom::Status::ok);
+  CHECK_EQ(validate(d, m, "half-disc 2000"), 0);
+  CHECK(big.refused > 1000);
+  // (All but a few: `refused` also counts candidates too near a vertex, and near the chord's ends a cavity's star
+  // pruning can leave it under the limit.)
+  CHECK(big.halvingsSkipped >= big.refused - 5);
+  REQUIRE(m.splitWanted.size() == 1);
+  CHECK_EQ(m.splitWanted[0].segment, 2000);
+  CHECK_EQ(m.points.size(), d.points.size());
+  // Under the limit (200 samples, cavities of 200) every refusal is halved as before.
+  Mesh2Detail small;
+  Domain2 e = halfDisc(200);
+  Mesh2 ms = mesh2Detailed(e, Uniform(100), {}, &small);
+  CHECK_EQ(validate(e, ms, "half-disc 200"), 0);
+  CHECK(small.refused > 100);
+  CHECK_EQ(small.halvingsSkipped, 0);
+  // The chord wanted split only once it's over kLongSegment x the triangles its candidates run into: at 12 arc
+  // samples they're too large beside it, at 16 not.
+  CHECK(mesh2(halfDisc(12), Uniform(100)).splitWanted.empty());
+  Mesh2 m16 = mesh2(halfDisc(16), Uniform(100));
+  REQUIRE(m16.splitWanted.size() == 1);
+  CHECK_EQ(m16.splitWanted[0].segment, 16);
+}
+
+TEST_CASE("a triangle only much shorter segments stand in the way of: broken at its centroid") {
+  // A unit square whose side x = 1 has 100 samples and the others n, in a metric 150 to 1 (sizes 0.01 across, 1.5
+  // along y): beside the fine side, triangles refused for their shape have candidates that encroach only its
+  // segments, each far shorter in the metric than the triangle (under its longest edge / kShortSegment), and are
+  // broken at their centroids (the mesh valid, Delaunay in the metric rather than the plane). The isotropic square
+  // has no such segments: none.
+  for (int n : {64, 16}) {
+    Domain2 d;
+    std::vector<int32_t> loop;
+    auto add = [&](double x, double y) {
+      loop.push_back(static_cast<int32_t>(d.points.size()));
+      d.points.push_back({x, y});
+    };
+    for (int i = 0; i < n; i++) add(i / double(n), 0);
+    for (int i = 0; i < 100; i++) add(1, i / 100.0);
+    for (int i = 0; i < n; i++) add(1 - i / double(n), 1);
+    for (int i = 0; i < n; i++) add(0, 1 - i / double(n));
+    d.loops.push_back(loop);
+    Mesh2Detail fine;
+    Mesh2 m = mesh2Detailed(d, Stretched(0.01, 1.5), {}, &fine);
+    CHECK(m.status == cadgeom::Status::ok);
+    CHECK_EQ(validate(d, m, "fine side", false), 0);
+    CHECK(fine.brokenInside > 0);
+    // Pinned (the same on every target): both ways in are taken, a candidate refused and one placed within 5% of the
+    // centroid (which counts as refused): without the second, at 64, 4 broken and 953 refused; and a centroid too near
+    // a corner refused too, as any placement is (at 16, 166 refused without that).
+    CHECK_EQ(fine.brokenInside, n == 64 ? 17 : 4);
+    CHECK_EQ(fine.refused, n == 64 ? 686 : 169);
+    // No point the mesher added encroaches a boundary segment (inside its diametral circle in the metric).
+    int encroaching = 0;
+    for (size_t i = d.points.size(); i < m.points.size(); i++)
+      for (size_t k = 0; k < loop.size(); k++) {
+        Vec2 q = m.points[i], U = d.points[loop[k]], V = d.points[loop[(k + 1) % loop.size()]];
+        double dot = (q.x - U.x) * (q.x - V.x) / (0.01 * 0.01) + (q.y - U.y) * (q.y - V.y) / (1.5 * 1.5);
+        encroaching += dot <= 0;
+      }
+    CHECK_EQ(encroaching, 0);
+  }
+  Mesh2Detail plain;
+  Domain2 e = square(8);
+  Mesh2 ms = mesh2Detailed(e, Uniform(0.05), {}, &plain);
+  CHECK_EQ(validate(e, ms, "square"), 0);
+  CHECK_EQ(plain.brokenInside, 0);
+}
+
+TEST_CASE("frozen segments (ones the caller can't split) don't refuse a point, and aren't wanted split") {
+  // A strip 25 x 0.85 (trj7_b1-ec-214's face #11336, a part uncertainty of 1 against its ends' 0.85), its long sides
+  // in 30 segments, each end one; accept() refuses triangles of area over 0.2. The triangles on an end have it as
+  // their longest side and every candidate in its diametral circle: refused, the end wanted split. With the ends
+  // frozen, the candidates go in: nothing refused, nothing wanted split, the ends still edges.
+  struct Area : SizeField {
+    Metric2 metric(Vec2) const override { return {1e-4, 0, 1e-4}; }
+    bool accept(const Vec2* t) const override { return std::fabs(area(t[0], t[1], t[2])) <= 0.2; }
+  };
+  const int n = 30;
+  for (bool freeze : {false, true}) {
+    Domain2 d;
+    std::vector<Vec2> pts;
+    for (int i = 0; i <= n; i++) pts.push_back({25.0 * i / n, 0});
+    for (int i = n; i >= 0; i--) pts.push_back({25.0 * i / n, 0.85});
+    addLoop(d, pts);
+    // (Segments: the bottom 0 to n - 1, the right end n, the top, the left end 2n + 1.)
+    if (freeze) {
+      d.frozen.assign(2 * n + 2, 0);
+      d.frozen[n] = d.frozen[2 * n + 1] = 1;
+    }
+    Mesh2 m = mesh2(d, Area());
+    CHECK_EQ(validate(d, m, freeze ? "frozen ends" : "ends"), 0);
+    int ends = 0;
+    for (const SplitWanted& w : m.splitWanted) ends += w.segment == n || w.segment == 2 * n + 1;
+    if (freeze) {
+      CHECK(m.rejected.empty());
+      CHECK(m.splitWanted.empty());
+    } else {
+      CHECK(!m.rejected.empty());
+      CHECK_EQ(ends, 2);
+    }
+  }
+  // A flat triangle, everything refused: its circumcentre is outside, across its base (segment 0), which is named and
+  // wanted split. Frozen, the base isn't; the sides its centroid encroaches are named instead, so a triangle refused
+  // still asks for something.
+  struct None : SizeField {
+    Metric2 metric(Vec2) const override { return {1e-4, 0, 1e-4}; }
+    bool accept(const Vec2*) const override { return false; }
+  };
+  for (bool freeze : {false, true}) {
+    Domain2 d;
+    addLoop(d, {{0, 0}, {1, 0}, {0.5, 0.1}});
+    if (freeze) d.frozen = {1, 0, 0};
+    Mesh2 m = mesh2(d, None());
+    int base = 0;
+    for (const SplitWanted& w : m.splitWanted) base += w.segment == 0;
+    CHECK_EQ(base, freeze ? 0 : 1);
+    CHECK_EQ(m.rejected.size(), 1u);
+    if (freeze) {
+      std::set<int32_t> sides;
+      for (const SplitWanted& w : m.splitWanted) sides.insert(w.segment);
+      if (sides != std::set<int32_t>{1, 2}) std::printf("  flat frozen: %zu wanted\n", m.splitWanted.size());
+      CHECK((sides == std::set<int32_t>{1, 2}));
+    }
+  }
+}
+
+TEST_CASE("points inserted counted by what queued their triangle: size, thinness, the criteria's refusal kind") {
+  // Every point the mesher adds counted once. A uniform size, every triangle accepted: by size and thinness only.
+  // Refuse(0.2): the criteria too, at the field's own refusal kind (3 here), none at another.
+  struct Kind3 : Refuse {
+    Kind3() : Refuse(0.2) {}
+    int refusalKind(const Vec2*) const override { return 3; }
+  };
+  auto total = [](const Mesh2Detail& D) {
+    int n = 0;
+    for (int k : D.inserted) n += k;
+    return n;
+  };
+  Domain2 d = square(4);
+  Mesh2Detail u;
+  Mesh2 mu = mesh2Detailed(d, Uniform(0.05), {}, &u);
+  CHECK_EQ(total(u), static_cast<int>(mu.points.size() - d.points.size()));
+  CHECK(u.inserted[0] > 0);
+  for (int k = 2; k < 10; k++) CHECK_EQ(u.inserted[k], 0);
+  Mesh2Detail r;
+  Mesh2 mr = mesh2Detailed(d, Kind3(), {}, &r);
+  CHECK_EQ(total(r), static_cast<int>(mr.points.size() - d.points.size()));
+  CHECK(r.inserted[2 + 3] > 0);
+  for (int k = 2; k < 10; k++)
+    if (k != 5) CHECK_EQ(r.inserted[k], 0);
+  // Thinness alone: random interior points in a square, the size coarse, every triangle accepted.
+  Domain2 w = square(10, 1);
+  std::mt19937 rng(3);
+  std::uniform_real_distribution<double> at(0.15, 0.85);
+  for (int k = 0; k < 60; k++) w.points.push_back({at(rng), at(rng)});
+  Mesh2Detail t;
+  Mesh2 mt = mesh2Detailed(w, Uniform(100), {}, &t);
+  CHECK_EQ(total(t), static_cast<int>(mt.points.size() - w.points.size()));
+  CHECK(t.inserted[1] > 0);
+  CHECK_EQ(t.inserted[0], 0);
 }

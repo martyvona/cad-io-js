@@ -34,6 +34,22 @@ public:
    * false asks the mesher to refine it. Called on every triangle until the mesh is final.
    */
   virtual bool accept(const Vec2 tri[3]) const = 0;
+  /**
+   * Whether the triangle is within the caller's refinement floor (criteria.h's refinementFloor): an accepted one so
+   * small isn't refined for its shape either. None by default.
+   */
+  virtual bool belowFloor(const Vec2 tri[3]) const {
+    (void)tri;
+    return false;
+  }
+  /**
+   * Why accept() refuses the triangle, as a small code (SurfaceCriteria: criteria.h's Refusal), for counts only; 0
+   * where the caller doesn't say. Asked only where a caller wants the mesher's detail (mesh2d_impl.h).
+   */
+  virtual int refusalKind(const Vec2 tri[3]) const {
+    (void)tri;
+    return 0;
+  }
 };
 
 /**
@@ -48,6 +64,12 @@ struct Domain2 {
   std::vector<std::vector<int32_t>> loops;
   /** Interior constraint segments (pairs of point indices) the triangulation must contain, also fixed. */
   std::vector<int32_t> segments;
+  /**
+   * Per segment, numbered as SplitWanted::segment (each loop's, then the interior ones), whether the caller can never
+   * split it (an edge's span whose chord is within criteria.h's refinement floor): a point encroaching
+   * only such segments is inserted, and none is wanted split. Empty, or shorter than the segments: the rest not.
+   */
+  std::vector<uint8_t> frozen;
 };
 
 struct MeshOptions {

@@ -69,7 +69,9 @@ std::unique_ptr<Surface> makeSurface(const Model& model, int row, Status& status
  * last rows of poles meet, an extrusion of a closed profile), and where the longest of the iso-curves along the
  * direction at those y_k (as 64-step polylines) is at least 10 x tol (a sliver narrower than that is degenerate, its
  * sides boundaries); a side of a finite range where S(x, y_k), k = 1..8, are within tol of S(x, y_0) is a pole line,
- * reported by singularities() as a sphere's is (with those the surface reports already, none twice). Nearly closed
+ * reported by singularities() as a sphere's is (with those the surface reports already, none twice), where the
+ * longest of the iso-curves along that side (at 9 points of its own range) is at least 10 x tol (a surface about as
+ * small as its tolerance has every side within it, and no meaningful pole). Nearly closed
  * or nearly collapsed (any of the points farther than tol) gets neither. s itself comes back where neither applies.
  * tol is the caller's: max(part uncertainty, face tolerance), else 1e-9 times the surface's size.
  */

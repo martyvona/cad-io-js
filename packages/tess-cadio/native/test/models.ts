@@ -146,6 +146,22 @@ export function cap(): BrepBuilder {
 }
 
 /**
+ * A cap of radius 0.2 about the north pole of a sphere of radius 10 under an uncertainty of 1: its one edge loop all
+ * within the tolerance of the pole, so nothing to mesh (trj3_s1-al-214's caps).
+ */
+export function capWithinPole(): BrepBuilder {
+  const b = new BrepBuilder({ uncertainty: 1 });
+  const z = Math.sqrt(100 - 0.04);
+  const circle = b.addCurve({ kind: 'circle', position: { ...AXIS, origin: [0, 0, z] }, radius: 0.2 });
+  const v = b.addVertex({ point: [0.2, 0, z] });
+  const e = b.addEdge({ curve: circle, start: v, end: v, sameSense: true });
+  const face = b.addFace({ surface: b.addSurface({ kind: 'sphere', position: AXIS, radius: 10 }), sameSense: true,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [{ edge: e, orientation: 'forward' }] }] });
+  sheet(b, face);
+  return b;
+}
+
+/**
  * A band 0.003 wide on a sphere of radius 4.5, between its equator and the parallel 0.003 above (bug27894's strips'
  * shape, about their own axis): at 0.1 mm its circles' chords bow further than the band is wide, so the triangles
  * across it, every corner on the boundary, are turned off the surface until the circles are sampled finer. Area
@@ -524,6 +540,36 @@ export function loopless(): BrepBuilder {
 }
 
 /**
+ * B-spline faces with no loops, each its surface's whole knot rectangle: a bicubic plane patch 2 by 1 on z = 0 (open
+ * both ways; area 2), bsplineTube's surface (closed in u in fact, radius 2, z 0 to 5; area 20 pi), a rational quarter
+ * cone, its row v = 0 collapsed to the apex (0, 0, 0) and v = 1 the quarter circle of radius 1 at z = 1 (one side a
+ * pole; area pi sqrt 2 / 4), and that cone with its u reversed (u running the other way round).
+ */
+export function looplessBsplines(): BrepBuilder {
+  const b = new BrepBuilder();
+  const grid = (nu: number, nv: number, at: (i: number, j: number) => number[]) =>
+    Array.from({ length: nu }, (_, i) => Array.from({ length: nv }, (__, j) => at(i, j)));
+  const plane = b.addSurface({ kind: 'bspline', uDegree: 3, vDegree: 3, uKnots: [0, 1], vKnots: [0, 1],
+    uMultiplicities: [4, 4], vMultiplicities: [4, 4], poles: grid(4, 4, (i, j) => [2 * i / 3, j / 3, 0]),
+    uClosed: false, vClosed: false, selfIntersect: false, form: 'unspecified' });
+  const tubePoles = CIRCLE9.xy.map(([x, y]) => [[2 * x!, 2 * y!, 0], [2 * x!, 2 * y!, 5]]);
+  const tube = b.addSurface({ kind: 'bspline', uDegree: 2, vDegree: 1, uKnots: [0, 1, 2, 3, 4], vKnots: [0, 1],
+    uMultiplicities: [3, 2, 2, 2, 3], vMultiplicities: [2, 2], poles: tubePoles,
+    weights: CIRCLE9.w.map((w) => [w, w]), uClosed: true, vClosed: false, selfIntersect: false, form: 'unspecified' });
+  const cone = (reversed: boolean) => {
+    const arc = [[1, 0, 1], [1, 1, 1], [0, 1, 1]], w = [1, Math.SQRT1_2, 1];
+    const order = reversed ? [2, 1, 0] : [0, 1, 2];
+    return b.addSurface({ kind: 'bspline', uDegree: 2, vDegree: 1, uKnots: [0, 1], vKnots: [0, 1],
+      uMultiplicities: [3, 3], vMultiplicities: [2, 2], poles: order.map((i) => [[0, 0, 0], arc[i]!]),
+      weights: order.map((i) => [w[i]!, w[i]!]), uClosed: false, vClosed: false, selfIntersect: false,
+      form: 'unspecified' });
+  };
+  for (const surface of [plane, tube, cone(false), cone(true)])
+    sheet(b, b.addFace({ surface, sameSense: true, loops: [] }));
+  return b;
+}
+
+/**
  * A plate like ohmm-ap203's (38 by 50.8 on z = 0, its corner (-19, 0)) with 14 holes of radius 1.4682 in two
  * columns (x 15.626 and -15.616, every 6.35 from y 7.9756): its rectangle's sides long and fixed, which refinement
  * for angle alone drove points into a corner of without end.
@@ -759,15 +805,105 @@ function tube(tinyArc: boolean, gap = 0, uncertainty?: number, faceTolerance?: n
 export const bsplineTube = (): BrepBuilder => tube(false);
 
 /**
- * A patch of the cylinder of radius 5 about z (u from 0 to 1, z from 0 to 10) whose bottom edge is a cubic B-spline
- * along the arc at radius 5.004 (the Bezier arc's poles), z wiggling by +/-0.5 at its inner poles, its tolerance
- * 0.01: farther off the surface than the mesh's projection tolerance (0.05 x a deflection of 0.01) but within its
- * own, so its use is projected at the edge's tolerance, the p-curve within 0.01 of its points' feet, not on them. The
- * top the circle's arc at z = 10, the sides lines down to the bottom's ends. No p-curves.
+ * The unit square (z = 0) whose bottom edge's p-curve is a degree 1 B-spline along y = 0 whose knots end `gap` short
+ * of the edge's range [0, 1] (with `atStart`, begin `gap` past its start; bug32314 #392624's, 1.6e-9): the use's end
+ * that far past the p-curve's domain.
+ * The other sides without p-curves.
  */
-export function coarseProjection(): BrepBuilder {
+function pcurveShort(gap: number, atStart = false): BrepBuilder {
   const b = new BrepBuilder();
-  const R = 5.004, k = 4 / 3 * Math.tan(0.25), c = Math.cos(1), s1 = Math.sin(1);
+  const corners = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]];
+  const vs = corners.map((point) => b.addVertex({ point }));
+  const coedges: Coedge[] = corners.map((c, k) => {
+    const q = corners[(k + 1) % 4]!, d = [q[0]! - c[0]!, q[1]! - c[1]!, 0];
+    const edge = b.addEdge({ curve: b.addCurve({ kind: 'line', point: c, direction: d, magnitude: 1 }), start: vs[k]!,
+      end: vs[(k + 1) % 4]!, sameSense: true, range: [0, 1] });
+    if (k) return { edge, orientation: 'forward' };
+    const lo = atStart ? gap : 0, hi = atStart ? 1 : 1 - gap;
+    const pcurve = b.addCurve({ kind: 'bspline', degree: 1, knots: [lo, hi], multiplicities: [2, 2],
+      poles: [[lo, 0], [hi, 0]], closed: false, selfIntersect: false, form: 'unspecified' });
+    return { edge, orientation: 'forward', pcurve };
+  });
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: true,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] }));
+  return b;
+}
+/** Within the rule's slack (1e-9 of the range's width): used. */
+export const pcurveShortHair = (): BrepBuilder => pcurveShort(5e-10);
+/** Past it (1e-6): refused, by inversion. */
+export const pcurveShortFar = (): BrepBuilder => pcurveShort(1e-6);
+/** pcurveShortHair at its start. */
+export const pcurveShortStart = (): BrepBuilder => pcurveShort(5e-10, true);
+
+/**
+ * The unit square (z = 0) whose top right corner is two short line edges, (1, 0.99) to (0.994, 0.994) to (0.99, 1),
+ * their tolerance and the face's 0.01, their p-curves through (1, 1) instead (as feet clamped to a range's edge are, the vertex
+ * past it): the corner convex in (u, v) and concave in 3D, its point 0.0085 off its (u, v)'s, within the tolerance.
+ * The other sides lines without p-curves.
+ */
+function cornerFoldAt(faceTolerance: number): BrepBuilder {
+  const b = new BrepBuilder();
+  const pts = [[0, 0, 0], [1, 0, 0], [1, 0.99, 0], [0.994, 0.994, 0], [0.99, 1, 0], [0, 1, 0]];
+  const uvs: Array<number[] | undefined> = [undefined, undefined, [1, 0.99], [1, 1], [0.99, 1], undefined];
+  const vs = pts.map((point) => b.addVertex({ point, tolerance: 0.01 }));
+  const coedges: Coedge[] = [];
+  for (let k = 0; k < pts.length; k++) {
+    const p = pts[k]!, q = pts[(k + 1) % pts.length]!, d = [q[0]! - p[0]!, q[1]! - p[1]!, 0];
+    const l = Math.hypot(d[0]!, d[1]!);
+    const edge = b.addEdge({ curve: b.addCurve({ kind: 'line', point: p, direction: d.map((x) => x / l),
+      magnitude: 1 }), start: vs[k]!, end: vs[(k + 1) % pts.length]!, sameSense: true, range: [0, l],
+      tolerance: 0.01 });
+    // (The corner's two edges with p-curves from (u, v) to (u, v) over their own lengths.)
+    const a = uvs[k], c = uvs[(k + 1) % pts.length];
+    coedges.push(k === 2 || k === 3
+      ? { edge, orientation: 'forward', pcurve: b.addCurve(line2(a!, [(c![0]! - a![0]!) / l, (c![1]! - a![1]!) / l])) }
+      : { edge, orientation: 'forward' });
+  }
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: true,
+    tolerance: faceTolerance,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] }));
+  return b;
+}
+export const cornerFold = (): BrepBuilder => cornerFoldAt(0.01);
+/** The same with the face's tolerance 0.001: the chord 0.0014 from the corner's point, past it. */
+export const cornerFoldTight = (): BrepBuilder => cornerFoldAt(0.001);
+
+/**
+ * The unit square (z = 0) whose bottom edge is a cubic B-spline along it with interior knots 1e-13 from each end of
+ * its range (LMP1 #505096's, 1.2e-13 from where its vertex inverts): breaks at the ends' points within rounding.
+ * The other sides lines. No p-curves.
+ */
+export function knotAtEnd(): BrepBuilder {
+  const b = new BrepBuilder();
+  const corners = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]];
+  const vs = corners.map((point) => b.addVertex({ point }));
+  const curve = b.addCurve({ kind: 'bspline', degree: 3, knots: [0, 1e-13, 0.5, 1 - 1e-13, 1],
+    multiplicities: [4, 1, 1, 1, 4], poles: [0, 1e-13 / 3, 0.25, 0.5, 0.75, 1 - 1e-13 / 3, 1].map((x) =>
+      [x, 0.1 * Math.sin(Math.PI * x), 0]),
+    closed: false, selfIntersect: false, form: 'unspecified' });
+  // (Its range 2e-14 inside the curve's at each end, as a vertex's inverted parameter is, not on a knot.)
+  const edges = [b.addEdge({ curve, start: vs[0]!, end: vs[1]!, sameSense: true, range: [2e-14, 1 - 2e-14] })];
+  for (let k = 1; k < 4; k++) {
+    const p = corners[k]!, q = corners[(k + 1) % 4]!, d = [q[0]! - p[0]!, q[1]! - p[1]!, 0];
+    edges.push(b.addEdge({ curve: b.addCurve({ kind: 'line', point: p, direction: d, magnitude: 1 }), start: vs[k]!,
+      end: vs[(k + 1) % 4]!, sameSense: true, range: [0, 1] }));
+  }
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: true,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true,
+      coedges: edges.map((edge) => ({ edge, orientation: 'forward' as const })) }] }));
+  return b;
+}
+
+/**
+ * A patch of the cylinder of radius 5 about z (u from 0 to 1, z from 0 to 10) whose bottom edge is a cubic B-spline
+ * along the arc at radius 5 + `off` (the Bezier arc's poles), z wiggling by +/-0.5 at its inner poles, its tolerance
+ * 0.01; the top the circle's arc at z = 10, the sides lines down to the bottom's ends. No p-curves. coarseProjection:
+ * 0.004 off, farther off the surface than the mesh's projection tolerance (0.05 x a deflection of 0.01) but within
+ * its own, so its use is projected at the edge's tolerance, the p-curve within 0.01 of its points' feet.
+ */
+function offCylinder(off: number): BrepBuilder {
+  const b = new BrepBuilder();
+  const R = 5 + off, k = 4 / 3 * Math.tan(0.25), c = Math.cos(1), s1 = Math.sin(1);
   const poles = [[R, 0, 0], [R, k * R, 0.5], [R * (c + k * s1), R * (s1 - k * c), -0.5], [R * c, R * s1, 0]];
   const corners = [poles[0]!, poles[3]!, [5 * c, 5 * s1, 10], [5, 0, 10]];
   const vs = corners.map((point) => b.addVertex({ point }));
@@ -790,6 +926,12 @@ export function coarseProjection(): BrepBuilder {
     loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] }));
   return b;
 }
+export const coarseProjection = (): BrepBuilder => offCylinder(0.004);
+/**
+ * The same with the bottom edge 1e-4 off: within the mesh's projection tolerance (5e-4 at a deflection of 0.01), its
+ * p-curve within that of its points' feet.
+ */
+export const fineProjection = (): BrepBuilder => offCylinder(1e-4);
 
 /**
  * A quarter of bsplineTube's surface, u from 1 to 2 (its knots: (0, 2) to (-2, 0) round the axis), bounded by its two
@@ -1071,6 +1213,56 @@ function halfCylinder(u0: number, pcurves: 'none' | 'same' | 'apart'): BrepBuild
       { edge: left, orientation: 'reversed', ...pc([u0, 0], [0, 1]) }] }] }));
   return b;
 }
+/**
+ * A strip of a cylinder of radius 1.5, 25 along its axis and 0.85 round it, under an uncertainty of 1 (trj7_b1-ec-214's
+ * face #11336's proportions, its normals turning about 33 degrees across): its ends, arcs 0.85 long, within the
+ * tolerance, so never split. narrowStripSmall: the same at a twentieth of the size under an uncertainty of 0.001, its
+ * ends 0.0425 long: over the tolerance, within the refinement floor at a deflection of 0.5 (0.05).
+ */
+export function narrowStrip(scale = 1, uncertainty = 1): BrepBuilder {
+  const b = new BrepBuilder({ uncertainty });
+  const r = 1.5 * scale, L = 25 * scale, u0 = 0, u1 = 0.85 / 1.5;
+  const at = (u: number, z: number) => [r * Math.cos(u), r * Math.sin(u), z];
+  const va0 = b.addVertex({ point: at(u0, 0) }), vc0 = b.addVertex({ point: at(u1, 0) });
+  const va1 = b.addVertex({ point: at(u0, L) }), vc1 = b.addVertex({ point: at(u1, L) });
+  const arc = (z: number, start: number, end: number) => b.addEdge({ curve: b.addCurve({ kind: 'circle',
+    position: { ...AXIS, origin: [0, 0, z] }, radius: r }), start, end, sameSense: true, range: [u0, u1] });
+  const up = (u: number, start: number, end: number) => b.addEdge({ curve: b.addCurve({ kind: 'line',
+    point: at(u, 0), direction: [0, 0, 1], magnitude: 1 }), start, end, sameSense: true, range: [0, L] });
+  const bottom = arc(0, va0, vc0), top = arc(L, va1, vc1), right = up(u1, vc0, vc1), left = up(u0, va0, va1);
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'cylinder', position: AXIS, radius: r }), sameSense: true,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [
+      { edge: bottom, orientation: 'forward' }, { edge: right, orientation: 'forward' },
+      { edge: top, orientation: 'reversed' }, { edge: left, orientation: 'reversed' }] }] }));
+  return b;
+}
+
+/**
+ * A thin U: a degree-1 B-spline whose u runs along one arm (y = 0, x 0 to 10), across the bridge (x = 10, y 0 to 0.1)
+ * and back along the other (y = 0.1), z its v (0 to 10); uncertainty 0.1. A face on the first arm bounded by one
+ * closed cubic edge about (5, 5) of radius about 3 in x and z, no p-curve: its vertex on the arm (y = 0), its middle
+ * 0.07 off it towards the other arm, nearer that one (0.03). Each sample's global foot there is on the other arm; a
+ * foot continued from the sample before stays on its own. uFoldAway: its middle 0.3 off the arm on the far side, past
+ * the tolerance but within the samples' spacing: continued too. uFoldFar: 3 off, past both: the global search there.
+ */
+export function uFold(middle = 0.07): BrepBuilder {
+  const b = new BrepBuilder({ uncertainty: 0.1 });
+  const g = 0.1, profile = [[0, 0], [10, 0], [10, g], [0, g]];
+  const poles = profile.map(([x, y]) => [0, 10].map((z) => [x!, y!, z]));
+  const surface = b.addSurface({ kind: 'bspline', uDegree: 1, vDegree: 1, uKnots: [0, 1, 2, 3], vKnots: [0, 1],
+    uMultiplicities: [2, 1, 1, 2], vMultiplicities: [2, 2], poles, uClosed: false, vClosed: false,
+    selfIntersect: false, form: 'unspecified' });
+  const off = [0, 0.5, 1, 1, 1, 1, 1, 0.5, 0].map((f) => f * middle);
+  const loop = off.map((y, k) => [5 + 3 * Math.cos(2 * Math.PI * k / 8), y, 5 + 3 * Math.sin(2 * Math.PI * k / 8)]);
+  const curve = b.addCurve({ kind: 'bspline', degree: 3, knots: [0, 1, 2, 3, 4, 5, 6], multiplicities: [4, 1, 1, 1, 1,
+    1, 4], poles: loop, closed: true, selfIntersect: false, form: 'unspecified' });
+  const v = b.addVertex({ point: loop[0]! });
+  const e = b.addEdge({ curve, start: v, end: v, sameSense: true, range: [0, 6] });
+  sheet(b, b.addFace({ surface, sameSense: true,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [{ edge: e, orientation: 'forward' }] }] }));
+  return b;
+}
+
 /** Across the seam (u from -pi / 2 to pi / 2), by its p-curves, by p-curves a period apart, without any. */
 export const halfCylinderPcurves = (): BrepBuilder => halfCylinder(-Math.PI / 2, 'same');
 export const halfCylinderApart = (): BrepBuilder => halfCylinder(-Math.PI / 2, 'apart');
@@ -1426,19 +1618,22 @@ export function wrongEndPcurve(wiggle = false): BrepBuilder {
 
 export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStrip(true),
   kinkStripQuadratic: () => kinkStrip(false, true), affineFeetOff, plateHoles,
-  bsplineApexHole, offPoleArcLoose, loopless, bsplineBall, wholeTorus, wholeSphereVertex,
+  bsplineApexHole, offPoleArcLoose, loopless, looplessBsplines, bsplineBall, wholeTorus, wholeSphereVertex,
   bsplineApex: () => bsplineApex(), poleHole, smallHole, sBend, cuspEdge: () => cuspEdge(), nearCusp6,
   bumpPatch: () => bumpPatch(), halfBump: () => bumpPatch(true), thinBand, tubeGapFaceTolerance, tubeGapUncertainty,
   tubeGapBySize, tubeGapOpen, torusOuterHalf, meridianHemisphereLoose, offPoleRest: () => offPoleRest(),
   seamHemisphere: () => seamHemisphere(true), seamHemisphereBare: () => seamHemisphere(false),
   seamCone: () => seamCone(true), seamConeBare: () => seamCone(false),
   offPoleRestLoose: () => offPoleRest(1e-3), wigglyBand, notchBand, bsplineTube, tubeQuarterPeriodUp, coarseProjection,
-  bsplineTubeTinyArc, bsplineDome,
+  fineProjection, knotAtEnd, cornerFold,
+  cornerFoldTight, pcurveShortHair, pcurveShortFar, pcurveShortStart, bsplineTubeTinyArc, bsplineDome,
   offPoleArc: () => offPoleArc(), offPcurves, bandHoleAtVertex, bandHoleOnCut, halfCap, meridianHemisphere, band: band_,
   bandByInversion, bore, nistBore, seamByInversion, offVertex, pcurveOnly, luneQuarter, luneOnSeam, cap, splineEdge,
   seamFlipped, polylineEdge, pcurveCircle, arcSegment, fold, twisted, wrongSense, zeroEdge, halfCylinderPcurves,
   halfCylinderApart, halfCylinderBare, halfCylinderWest, arcBand, cuspPocket: cuspPocket_,
   cuspPocketMirrored, flowerHole, lobes,
   slitFromCorner, lunePinch, spindleApex: () => spindleCorner(0.005),
-  tinyCap: () => capWithin(0.01), poleLunes, poleLens, curlBack, passBy,
+  tinyCap: () => capWithin(0.01), capWithinPole, narrowStrip: () => narrowStrip(),
+  narrowStripSmall: () => narrowStrip(0.05, 1e-3), uFold: () => uFold(),
+  uFoldAway: () => uFold(-0.3), uFoldFar: () => uFold(-3), poleLunes, poleLens, curlBack, passBy,
   wrongEndPcurve: () => wrongEndPcurve(), wigglePcurve: () => wrongEndPcurve(true) };

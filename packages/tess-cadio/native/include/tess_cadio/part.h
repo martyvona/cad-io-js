@@ -21,15 +21,16 @@ namespace tesscadio {
  * items (faces, or edges and their uses) are done of how many, row the face (a use's) or -1 (an edge).
  */
 struct PartProgress {
-  enum Phase : uint8_t { surfaces, boxEdges, criteria, edges, meshing, splitting } phase = meshing;
+  /** In order; deviation the check after the rounds (PartOptions::maxDeviationFactor), its round the last's. */
+  enum Phase : uint8_t { surfaces, edges, criteria, meshing, splitting, deviation } phase = meshing;
   int row = 0, round = 0, facesDone = 0, facesTotal = 0;
 };
 
 struct PartOptions {
   /** The linear deflection, and the angle for faces' normals and edges' chords alike (EdgeOptions::angle). */
   Deflections d;
-  /** Rounds of splitting edges and meshing their faces again. */
-  int maxSplitRounds = 8;
+  /** Rounds of splitting edges and meshing their faces again at most (they end once no face asks for a split). */
+  int maxSplitRounds = 24;
   /**
    * The criteria's spacing for each face's edges multiplied by this (above 1: edges coarser than the faces want,
    * left to the split rounds; for tests and tuning).
@@ -47,6 +48,21 @@ struct PartOptions {
   std::function<void(const PartProgress&)> progress;
   /** EdgeOptions::projectMissingPcurves: uses without p-curves projected (else by inversion). */
   bool projectMissingPcurves = true;
+  /**
+   * A face whose mesh, when the rounds end, is farther from its surface than this times the larger of the linear
+   * deflection and the face's tolerance (cad-geom's Tolerances::face) fails (Status::noConvergence, its triangles
+   * dropped, the measure and the limit in its cause): its refused triangles measured, each at the points of its
+   * barycentric lattice of order 4 but its corners, inverted onto the face's surface (accepted ones are within the
+   * deflection by the criteria), but those its criteria's bound puts within (deviationBound), and only until a point
+   * past it. 0 or less: never.
+   */
+  double maxDeviationFactor = 1.0;
+  /**
+   * A face whose mesher's triangles include one turned against its surface (its facet against the mean of its
+   * corners' normals; a corner at a pole or apex aside, where the normal is a limit) fails with Status::noConvergence
+   * and a cause saying so, as one past its deflection does: wrong output however rare.
+   */
+  bool failTurnedOver = true;
 };
 
 struct FaceMesh {
@@ -71,6 +87,15 @@ struct FaceMesh {
    * indices into `triangles` / 3; those with two corners at one point left out with them.
    */
   std::vector<int32_t> rejected;
+  /**
+   * Its refused triangles' largest measured deviation (PartOptions::maxDeviationFactor): where it failed, the first
+   * point found past the limit, a lower bound on the worst; 0 where nothing was measured.
+   */
+  double worstDeviation = 0;
+  /** Its refused triangles measured for the deviation check, the rest within it by their bound. */
+  int deviationMeasured = 0;
+  /** The refused triangles by why the criteria refused each (criteria.h's Refusal, as indices; [0] unused). */
+  int refusedBy[kRefusalKinds] = {};
   /** Splits of its edges it still wanted when the rounds ran out. */
   int splitsWanted = 0;
   /** Whether its triangles' deviation was sampled rather than bounded (SurfaceCriteria::bounded). */
@@ -82,6 +107,8 @@ struct FaceMesh {
   std::string note;
   /** Its boundary's FaceBoundary::againstSense: a loop against the face's sense, meshed as the sense has it. */
   bool againstSense = false;
+  /** Its boundary's FaceBoundary::foldsRepaired. */
+  int foldsRepaired = 0;
 };
 
 class PartMesher {

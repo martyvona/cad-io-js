@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <map>
 #include <set>
 #include <tuple>
@@ -16,6 +17,9 @@
 #include "poles.h"
 
 namespace tesscadio {
+
+/** The deviation check's progress: a report as each face's starts, and again every this many triangles measured. */
+constexpr int kDeviationReport = 64;
 
 using namespace cadgeom;
 
@@ -31,8 +35,21 @@ struct PartMesher::Impl {
   /** Per face, the edges (model and pseudo) its boundary has points of, and the splits its mesh wants. */
   std::vector<std::set<int>> edgesOf;
   std::vector<std::vector<SplitRequest>> wanted;
+  /** Per face, how many of its mesh's triangles are the mesher's (the fans' come after them). */
+  std::vector<size_t> mesherTriangles;
+  /** The refinement floor (criteria.h): an edge's span whose chord is no longer is never split (EdgeMesh::split). */
+  double floor = 0;
   /** Per face, its poles' rings (poles.h), shared across faces and cut into their edges before any face is meshed. */
   std::vector<std::vector<PoleRing>> rings;
+  /**
+   * Per face, its refused triangles (FaceMesh::rejected, in order): their (u, v) corners and their vertices' indices
+   * into the face's points, for the deviation check (PartOptions::maxDeviationFactor).
+   */
+  struct Refused {
+    Vec2 uv[3];
+    int32_t v[3];
+  };
+  std::vector<std::vector<Refused>> refused;
   int rounds = 0;
   /** The progress of the pass under way (PartOptions::progress). */
   PartProgress at;
@@ -235,11 +252,134 @@ struct PartMesher::Impl {
     return false;
   }
 
+  /**
+   * Faces left farther from their surfaces than maxDeviationFactor x the larger of the deflection and the face's
+   * tolerance (cad-geom's Tolerances::face: the part's, widened by the face's own; the limit) fail: below its
+   * tolerance the model doesn't say where the surface is. A refused
+   * triangle is settled without measuring where its criteria's bound (deviationBound) plus its corners' distances from
+   * the surface's points at their (u, v) is within the limit: its points' distances are at most that. Otherwise the
+   * points of its barycentric lattice of order 4 but its corners are inverted onto the surface, the face failing at the
+   * first past the limit: the verdict as measuring them all would give it (where inversion finds the nearest point),
+   * the measure in its cause a lower bound on the worst.
+   */
+  void checkDeviation() {
+    if (!(o.maxDeviationFactor > 0)) return;
+    const cadgeom::Tolerances tols(m);
+    const int nf = static_cast<int>(faces.size());
+    for (int f = 0; f < nf; f++) {
+      FaceMesh& fm = faces[f];
+      if (fm.status != Status::ok || fm.rejected.empty() || !surfaces[f]) continue;
+      const double within = std::fmax(o.d.linear, tols.face(f)), limit = o.maxDeviationFactor * within;
+      const Surface& s = *surfaces[f];
+      const SurfaceDomain D = s.domain();
+      const PartProgress here{PartProgress::deviation, f, rounds, f, nf};
+      report(here);
+      double worst = 0;
+      bool past = false;
+      for (size_t k = 0; k < fm.rejected.size() && !past; k++) {
+        // (The box's bound first, the pieces' only where that doesn't settle it: over a B-spline's many knots the
+        // pieces cost far more, tens of thousands of refused triangles at a point cap.)
+        if (refused[f].size() == fm.rejected.size() && criteria[f]) {
+          const Refused& r = refused[f][k];
+          double gap = 0;
+          for (int i = 0; i < 3; i++) {
+            SurfacePoint q;
+            gap = s.eval(r.uv[i].x, r.uv[i].y, 0, q) == Status::ok ? std::fmax(gap, norm(fm.points[r.v[i]] - q.p))
+                                                                   : INFINITY;
+          }
+          double bound;
+          if (gap < limit && criteria[f]->deviationBound(r.uv, bound, false) && bound + gap <= limit) continue;
+          if (gap < limit && criteria[f]->deviationBound(r.uv, bound, true) && bound + gap <= limit) continue;
+        }
+        if (fm.deviationMeasured++ % kDeviationReport == kDeviationReport - 1) report(here);
+        const int32_t t = fm.rejected[k];
+        // Each corner's (u, v), where the refused triangle's record has it: the surface's point at a lattice point's
+        // barycentric (u, v), inside its domain, is a point of the surface, so its distance bounds the point's own
+        // from above, and only a point it doesn't put within the limit is inverted (globally, over the whole domain:
+        // dear on a B-spline).
+        Vec2 uvc[3];
+        bool haveUv = refused[f].size() == fm.rejected.size();
+        for (int c = 0; c < 3 && haveUv; c++) {
+          int at = -1;
+          for (int i = 0; i < 3; i++)
+            if (refused[f][k].v[i] == fm.triangles[3 * t + c]) at = i;
+          haveUv = at >= 0;
+          if (haveUv) uvc[c] = refused[f][k].uv[at];
+        }
+        for (int i = 0; i <= 4 && !past; i++)
+          for (int j = 0; i + j <= 4 && !past; j++) {
+            if ((i == 4) || (j == 4) || (i + j == 0)) continue;  // (the corners: on the surface)
+            const Vec3 x = (i / 4.0) * fm.points[fm.triangles[3 * t]] + (j / 4.0) * fm.points[fm.triangles[3 * t + 1]]
+              + ((4 - i - j) / 4.0) * fm.points[fm.triangles[3 * t + 2]];
+            if (haveUv) {
+              const Vec2 uv = (i / 4.0) * uvc[0] + (j / 4.0) * uvc[1] + ((4 - i - j) / 4.0) * uvc[2];
+              SurfacePoint q;
+              const bool inside = uv.x >= D.u.lo && uv.x <= D.u.hi && uv.y >= D.v.lo && uv.y <= D.v.hi;
+              if (inside && s.eval(uv.x, uv.y, 0, q) == Status::ok && norm(x - q.p) <= limit) continue;
+            }
+            const SurfaceInversion inv = invertSurface(s, x, D.u, D.v, 1e-3 * o.d.linear);
+            if (inv.status != Status::ok) continue;
+            worst = std::fmax(worst, inv.distance);
+            past = worst > limit;
+          }
+      }
+      fm.worstDeviation = worst;
+      if (!past) continue;
+      char why[240];
+      std::snprintf(why, sizeof why, "meshed past its deflection: at least %.3g x the deflection (a refused triangle's "
+        "point inverted onto its surface), past %.3g x max(d, tol) = %.3g x %.3g mm", worst / o.d.linear,
+        o.maxDeviationFactor, o.maxDeviationFactor, within);
+      fm.status = Status::noConvergence;
+      fm.cause = why;
+      fm.points.clear(), fm.normals.clear(), fm.triangles.clear(), fm.rejected.clear();
+      refused[f].clear();
+    }
+  }
+
+  /**
+   * Faces whose mesher's triangles include one turned against its surface (its facet against the mean of its corners'
+   * normals) fail as one past its deflection does (PartOptions::failTurnedOver): wrong output however small. Such a
+   * triangle is one its criteria refused that refinement didn't mend (they refuse a facet turned against any corner's
+   * normal). Not judged so: a pole's fans, and a triangle with a corner within the face's tolerance of a pole or apex
+   * (the normal there a limit, on a strongly curved patch).
+   */
+  void checkFacing() {
+    if (!o.failTurnedOver) return;
+    const cadgeom::Tolerances tols(m);
+    for (size_t f = 0; f < faces.size(); f++) {
+      FaceMesh& fm = faces[f];
+      if (fm.status != Status::ok || !surfaces[f]) continue;
+      std::vector<Singularity> sing;
+      surfaces[f]->singularities(sing);
+      const double near = tols.face(static_cast<int>(f));
+      auto atSingular = [&](Vec3 p) {
+        for (const Singularity& g : sing)
+          if (g.kind != Singularity::normalVanishes && norm(p - g.point) <= near) return true;
+        return false;
+      };
+      int against = 0;
+      for (size_t t = 0; t + 2 < fm.triangles.size() && t / 3 < mesherTriangles[f]; t += 3) {
+        const int32_t* v = &fm.triangles[t];
+        if (atSingular(fm.points[v[0]]) || atSingular(fm.points[v[1]]) || atSingular(fm.points[v[2]])) continue;
+        const Vec3 g = cross(fm.points[v[1]] - fm.points[v[0]], fm.points[v[2]] - fm.points[v[0]]);
+        against += facetAgainst(g, fm.normals[v[0]] + fm.normals[v[1]] + fm.normals[v[2]]);
+      }
+      if (!against) continue;
+      char why[160];
+      std::snprintf(why, sizeof why, "meshed with %d triangles turned against its surface (their facets against their "
+        "corners' normals, refused and not mended)", against);
+      fm.status = Status::noConvergence;
+      fm.cause = why;
+      fm.points.clear(), fm.normals.clear(), fm.triangles.clear(), fm.rejected.clear();
+    }
+  }
+
   void meshFace(int f) {
     at.row = f;
     if (o.progress) o.progress(at);
     FaceMesh& out = faces[f];
     out = {};
+    refused[f].clear();
     wanted[f].clear();
     edgesOf[f].clear();
     if (!surfaces[f]) {
@@ -259,6 +399,7 @@ struct PartMesher::Impl {
     }
     if (fb.status == Status::singular) out.note = "a seam's side in (u, v) not settled by its neighbours";
     out.againstSense = fb.againstSense;
+    out.foldsRepaired = fb.foldsRepaired;
     // (Not where the seam's side wasn't settled: such a boundary is a guess, and its face stays singular.)
     std::vector<Fan> fans;
     if (fb.status == Status::ok) fans = makeFans(f, fb);
@@ -294,6 +435,17 @@ struct PartMesher::Impl {
       d.points.push_back(p.uv);
       if (p.kind == BoundaryPoint::pseudoSample) edgesOf[f].insert(p.edgeIndex);
     }
+    // The segments the edges won't split (an edge's span whose chord is within the refinement floor, as
+    // EdgeMesh::split has it): frozen, so the mesher inserts past them rather than asking.
+    auto frozenSpan = [&](int32_t a, int32_t b) -> uint8_t {
+      int edge, span;
+      bool forward;
+      return a != b && norm(bp[b].point - bp[a].point) <= floor && spanOf(f, bp[a], bp[b], edge, span, forward);
+    };
+    for (const auto& l : d.loops)
+      for (size_t k = 0; k < l.size(); k++) d.frozen.push_back(frozenSpan(l[k], l[(k + 1) % l.size()]));
+    for (size_t k = 0; k + 1 < d.segments.size(); k += 2)
+      d.frozen.push_back(frozenSpan(d.segments[k], d.segments[k + 1]));
     // Each fan's ring as domain points (its chain's positions in its loop, through the loop's indices).
     std::vector<std::vector<int32_t>> ring(fans.size());
     for (size_t k = 0; k < fans.size(); k++)
@@ -365,18 +517,23 @@ struct PartMesher::Impl {
       }
     }
     auto samePoint = [](Vec3 a, Vec3 b) { return a.x == b.x && a.y == b.y && a.z == b.z; };
-    std::set<int32_t> refused(mesh.rejected.begin(), mesh.rejected.end());
+    std::set<int32_t> refusedHere(mesh.rejected.begin(), mesh.rejected.end());
     for (size_t t = 0; t + 2 < mesh.triangles.size(); t += 3) {
       int32_t a = mesh.triangles[t], b = mesh.triangles[t + 1], c = mesh.triangles[t + 2];
       if (samePoint(out.points[a], out.points[b]) || samePoint(out.points[b], out.points[c]) ||
         samePoint(out.points[a], out.points[c]))
         continue;  // two corners on a pole line: no triangle in 3D
-      if (refused.count(static_cast<int32_t>(t / 3)))
+      if (refusedHere.count(static_cast<int32_t>(t / 3))) {
         out.rejected.push_back(static_cast<int32_t>(out.triangles.size() / 3));
+        const Vec2 tri[3] = {mesh.points[a], mesh.points[b], mesh.points[c]};
+        out.refusedBy[static_cast<int>(criteria[f]->refusal(tri))]++;
+        refused[f].push_back({{tri[0], tri[1], tri[2]}, {a, b, c}});
+      }
       // Counterclockwise in (u, v) is about S_u x S_v: turned where the face's normal is the opposite.
       if (sense > 0) out.triangles.insert(out.triangles.end(), {a, b, c});
       else out.triangles.insert(out.triangles.end(), {a, c, b});
     }
+    mesherTriangles[f] = out.triangles.size() / 3;
     // The fans: each ring's chain to its pole, a point of its own (the run's edge sample there, else the surface's).
     for (size_t k = 0; k < fans.size(); k++) {
       const Fan& fan = fans[k];
@@ -393,10 +550,14 @@ struct PartMesher::Impl {
       for (size_t j = 0; j + 1 < ring[k].size(); j++) {
         int32_t a = ring[k][j], b = ring[k][j + 1];
         double qa = freeOf(mesh.points[a], fan.isoU), qb = freeOf(mesh.points[b], fan.isoU);
-        Vec2 tri[3] = {mesh.points[a], mesh.points[b], uvOf(fan.at, 0.5 * (qa + qb), fan.isoU)};
+        const Vec2 apex = uvOf(fan.at, 0.5 * (qa + qb), fan.isoU);
+        Vec2 tri[3] = {mesh.points[a], mesh.points[b], apex};
         orient(tri);
-        if (!(fan.smooth ? criteria[f]->accept(tri) : criteria[f]->acceptDeviation(tri)))
+        if (!(fan.smooth ? criteria[f]->accept(tri) : criteria[f]->acceptDeviation(tri))) {
           out.rejected.push_back(static_cast<int32_t>(out.triangles.size() / 3));
+          out.refusedBy[static_cast<int>(criteria[f]->refusal(tri, fan.smooth))]++;
+          refused[f].push_back({{mesh.points[a], mesh.points[b], apex}, {a, b, pole}});
+        }
         // Counterclockwise about the face's normals at its other corners (in (u, v) an end's triangle along its row
         // has no area to tell by).
         Vec3 g = cross(out.points[b] - out.points[a], out.points[pole] - out.points[a]);
@@ -438,22 +599,24 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
   I.edgesOf.resize(nf);
   I.wanted.resize(nf);
   I.rings.resize(nf);
+  I.mesherTriangles.assign(nf, 0);
+  I.refused.resize(nf);
   const cadgeom::Tolerances tols(m);
+  I.floor = refinementFloor(tols.part(), I.o.d.linear);
   for (int f = 0; f < nf; f++) {
     Status st;
     // (A face with no loops too: its surface's natural extent, where it has one, edges.h.)
     I.report({PartProgress::surfaces, f, 0, f, nf});
     I.surfaces[f] = closedSurface(m, tols, f, st);
   }
-  // The faces' (u, v) boxes from a first sampling, their criteria, then the edges again at the spacing they ask.
+  // The edges sampled once, at their own deflection and angle; the faces' (u, v) boxes from those samples, their
+  // criteria, then the edges refined to the spacing the criteria ask (EdgeMesh::respace): each use traced once.
   std::vector<double> spacing(nf, INFINITY);
   {
-    // (Only for the boxes: a coarse sampling, 10 x the deflection, no angle, as each sample there is an inversion.)
-    EdgeOptions rough = I.edgeOptions();
-    rough.deflection *= 10;
-    rough.angle = 0;
-    rough.progress = I.edgeProgress(PartProgress::boxEdges);
-    EdgeMesh first(m, rough);
+    EdgeOptions eo = I.edgeOptions();
+    eo.progress = I.edgeProgress(PartProgress::edges);
+    I.em = std::make_unique<EdgeMesh>(m, eo);
+    EdgeMesh& first = *I.em;
     for (int f = 0; f < nf; f++) {
       I.report({PartProgress::criteria, f, 0, f, nf});
       if (!I.surfaces[f]) continue;
@@ -477,9 +640,7 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
       if (I.criteria[f]) spacing[f] = I.criteria[f]->edgeSpacing() * I.o.edgeSpacingScale;
     }
   }
-  EdgeOptions eo = I.edgeOptions();
-  eo.progress = I.edgeProgress(PartProgress::edges);
-  I.em = std::make_unique<EdgeMesh>(m, eo, spacing);
+  I.em->respace(spacing);
   // The poles' rings: each face's, one reach per pole across faces, cut into the edges through them once for all.
   {
     std::vector<const Surface*> sp(nf, nullptr);
@@ -526,6 +687,8 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
       I.at.facesDone++;
     }
   }
+  I.checkDeviation();
+  I.checkFacing();
 }
 
 PartMesher::~PartMesher() { delete impl_; }

@@ -25,6 +25,7 @@ import { type BrepData, decode, nearestParams, surfaceEvaluator } from '../packa
 import { importStep } from '../packages/step-import/src/index.ts';
 import { WorkerTessellator } from '../packages/tess-workers/src/node.ts';
 import { modelFaceArea, trusted } from './area_oracle.ts';
+import { failedCauses } from './cadio_causes.ts';
 import { corpusFiles, shortName } from './corpus.ts';
 import { addInto, division, runFiles, type FileCheck } from './runner.ts';
 import { hostLine } from '../scripts/host.ts';
@@ -275,18 +276,8 @@ export const check: FileCheck<undefined, Tallies> = {
       for (let fr = 0; fr < d.face.surface.length; fr++) rowOf.set(d.face.id[fr]!, fr);
       // Faces without triangles, by cause; and whether OCCT leaves them too.
       const ours = faceAreas(ca), theirs = faceAreas(ob);
-      // Each failed face's status and cause, as our backend says them ("<status>: <cause> <n> (#id, ...)", joined by
-      // "; ").
-      const statusOf = new Map<number, string>();
-      const head = 'faces failed to mesh, by cause: ';
-      for (const x of ca.diagnostics) {
-        if (!x.message.startsWith(head)) continue;
-        for (const entry of x.message.slice(head.length).split('; ')) {
-          const m = /^(.*) \d+ \(((?:#\d+(?:, )?)+)\)$/.exec(entry);
-          if (!m) continue;
-          for (const id of m[2]!.matchAll(/#(\d+)/g)) statusOf.set(Number(id[1]), m[1]!);
-        }
-      }
+      // Each failed face's status and cause, as our backend says them.
+      const statusOf = failedCauses(ca);
       for (let fr = 0; fr < d.face.surface.length; fr++) {
         const id = d.face.id[fr]!;
         T.faces++;

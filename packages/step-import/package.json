@@ -9,6 +9,8 @@
   },
   "dependencies": {
     "cad-brep": "0.3.0",
+    "cad-geom": "0.3.0",
+    "cad-heal": "0.3.0",
     "cad-scene": "0.3.0",
     "step-parser": "0.3.0"
   }
