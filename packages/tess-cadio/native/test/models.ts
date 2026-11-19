@@ -786,14 +786,14 @@ export function knotAtEnd(): BrepBuilder {
 
 /**
  * A patch of the cylinder of radius 5 about z (u from 0 to 1, z from 0 to 10) whose bottom edge is a cubic B-spline
- * along the arc at radius 5.004 (the Bezier arc's poles), z wiggling by +/-0.5 at its inner poles, its tolerance
- * 0.01: farther off the surface than the mesh's projection tolerance (0.05 x a deflection of 0.01) but within its
- * own, so its use is projected at the edge's tolerance, the p-curve within 0.01 of its points' feet, not on them. The
- * top the circle's arc at z = 10, the sides lines down to the bottom's ends. No p-curves.
+ * along the arc at radius 5 + `off` (the Bezier arc's poles), z wiggling by +/-0.5 at its inner poles, its tolerance
+ * 0.01; the top the circle's arc at z = 10, the sides lines down to the bottom's ends. No p-curves. coarseProjection:
+ * 0.004 off, farther off the surface than the mesh's projection tolerance (0.05 x a deflection of 0.01) but within
+ * its own, so its use is projected at the edge's tolerance, the p-curve within 0.01 of its points' feet.
  */
-export function coarseProjection(): BrepBuilder {
+function offCylinder(off: number): BrepBuilder {
   const b = new BrepBuilder();
-  const R = 5.004, k = 4 / 3 * Math.tan(0.25), c = Math.cos(1), s1 = Math.sin(1);
+  const R = 5 + off, k = 4 / 3 * Math.tan(0.25), c = Math.cos(1), s1 = Math.sin(1);
   const poles = [[R, 0, 0], [R, k * R, 0.5], [R * (c + k * s1), R * (s1 - k * c), -0.5], [R * c, R * s1, 0]];
   const corners = [poles[0]!, poles[3]!, [5 * c, 5 * s1, 10], [5, 0, 10]];
   const vs = corners.map((point) => b.addVertex({ point }));
@@ -816,6 +816,12 @@ export function coarseProjection(): BrepBuilder {
     loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] }));
   return b;
 }
+export const coarseProjection = (): BrepBuilder => offCylinder(0.004);
+/**
+ * The same with the bottom edge 1e-4 off: within the mesh's projection tolerance (5e-4 at a deflection of 0.01), its
+ * p-curve within that of its points' feet.
+ */
+export const fineProjection = (): BrepBuilder => offCylinder(1e-4);
 
 /**
  * A quarter of bsplineTube's surface, u from 1 to 2 (its knots: (0, 2) to (-2, 0) round the axis), bounded by its two
@@ -1459,7 +1465,7 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   seamHemisphere: () => seamHemisphere(true), seamHemisphereBare: () => seamHemisphere(false),
   seamCone: () => seamCone(true), seamConeBare: () => seamCone(false),
   offPoleRestLoose: () => offPoleRest(1e-3), wigglyBand, notchBand, bsplineTube, tubeQuarterPeriodUp, coarseProjection,
-  knotAtEnd, bsplineTubeTinyArc, bsplineDome,
+  fineProjection, knotAtEnd, bsplineTubeTinyArc, bsplineDome,
   offPoleArc: () => offPoleArc(), offPcurves, bandHoleAtVertex, bandHoleOnCut, halfCap, meridianHemisphere, band: band_,
   bandByInversion, bore, nistBore, seamByInversion, offVertex, pcurveOnly, luneQuarter, luneOnSeam, cap, splineEdge,
   seamFlipped, polylineEdge, pcurveCircle, arcSegment, fold, twisted, wrongSense, zeroEdge, halfCylinderPcurves,

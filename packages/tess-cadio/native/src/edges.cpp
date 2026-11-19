@@ -352,7 +352,6 @@ struct EdgeMesh::Impl {
     bool pcurveOff = false;              // its p-curve parameterized otherwise than its edge's curve: by inversion
     bool projected = false;              // its p-curve projected from its edge's curve (the model gives none)
     double projectedTol = 0;             // the 3D distance its projection was made within
-    bool projectedCoarse = false;        // at the edge's tolerance (the curve too far off its surface for the mesh's)
     bool atVertex[2] = {false, false};   // a projected use's vertices' feet (its edge's start, end), where found
     int seamDir = -1;                    // a projected use on a seam in u (0) or v (1), its copy by the rule
     Vec2 vertexUv[2];
@@ -596,9 +595,8 @@ struct EdgeMesh::Impl {
         // A projected use's inside samples at their points' feet: the projection is within its tolerance of them,
         // not on them, and at a coarse one (an edge's, LMP1's 0.13) neighbouring samples' (u, v) can fold against
         // their order in 3D (a boundary ear turned over: #1038273's). A local Gauss-Newton from the p-curve's value,
-        // kept where it comes nearer within that tolerance of it; not at a pole (its free coordinate arbitrary). Only
-        // where projection ran at the edge's tolerance: within the mesh's the difference is below what counts.
-        if (C.projected && C.projectedCoarse)
+        // kept where it comes nearer within that tolerance of it; not at a pole (its free coordinate arbitrary).
+        if (C.projected)
           for (int i = 1; i + 1 < n; i++)
             if (poleAt(C.face, E.s.points[s.index[i]]) < 0)
               s.uv[i] = localFoot(C.face, E.s.points[s.index[i]], s.uv[i], C.projectedTol);
@@ -870,7 +868,6 @@ struct EdgeMesh::Impl {
       C.pcurve = std::make_unique<ProjectedCurve>(std::move(p), twin, faces[C.face].dom);
       C.projected = true;
       C.projectedTol = madeAt;
-      C.projectedCoarse = madeAt > tight;
       for (double t : poles)
         if (t > std::min(t0, t1) && t < std::max(t0, t1)) insertSample(e, t);
     }

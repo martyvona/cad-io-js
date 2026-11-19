@@ -888,26 +888,32 @@ TEST_CASE("a curve's break at an end's point within rounding is that point: no s
   CHECK(em.face(0).status == cadgeom::Status::ok);
 }
 
-TEST_CASE("a use projected at its edge's tolerance: its inside samples at their points' feet, not the p-curve's") {
+TEST_CASE("a projected use's inside samples at their points' feet, not the p-curve's: at the edge's tolerance or not") {
   // coarseProjection's bottom edge, 0.004 off its cylinder under a tolerance of 0.01, projected at that (the mesh's,
   // 5e-4, too tight): its p-curve within 0.01 of the feet, its samples polished to them, (atan2(y, x), z).
-  cadgeom::Model m = load("coarseProjection");
-  REQUIRE(m.ok());
-  EdgeOptions o;
-  o.deflection = 0.01;
-  EdgeMesh em(m, o);
-  REQUIRE(em.coedge(0).projected);
-  const CoedgeSamples& cs = em.coedge(0);
-  const EdgeSamples& es = em.edge(m.coedgeEdge(0));
-  REQUIRE(cs.uv.size() > 4u);
-  double worst = 0;
-  for (size_t j = 1; j + 1 < cs.uv.size(); j++) {
-    const Vec3 p = es.points[cs.index[j]];
-    worst = std::fmax(worst, std::hypot(cs.uv[j].x - std::atan2(p.y, p.x), cs.uv[j].y - p.z));
+  // fineProjection's, 1e-4 off, projected within the mesh's tolerance: polished the same.
+  for (const char* name : {"coarseProjection", "fineProjection"}) {
+    cadgeom::Model m = load(name);
+    REQUIRE(m.ok());
+    EdgeOptions o;
+    o.deflection = 0.01;
+    EdgeMesh em(m, o);
+    REQUIRE(em.coedge(0).projected);
+    const CoedgeSamples& cs = em.coedge(0);
+    const EdgeSamples& es = em.edge(m.coedgeEdge(0));
+    REQUIRE(cs.uv.size() > 4u);
+    double worst = 0;
+    for (size_t j = 1; j + 1 < cs.uv.size(); j++) {
+      const Vec3 p = es.points[cs.index[j]];
+      worst = std::fmax(worst, std::hypot(cs.uv[j].x - std::atan2(p.y, p.x), cs.uv[j].y - p.z));
+    }
+    if (!(worst <= 1e-9)) std::printf("  %s: a sample %.3g from its foot\n", name, worst);
+    CHECK(worst <= 1e-9);
+    CHECK(em.face(0).status == cadgeom::Status::ok);
+    // (The bottom's projection at the edge's tolerance for the coarse one, within the mesh's for the fine one.)
+    const ProjectionCounts& pc = em.projections();
+    CHECK(std::string(name) == "coarseProjection" ? pc.atEdgeTolerance > 0 : pc.atEdgeTolerance == 0);
   }
-  if (!(worst <= 1e-9)) std::printf("  coarseProjection: a sample %.3g from its foot\n", worst);
-  CHECK(worst <= 1e-9);
-  CHECK(em.face(0).status == cadgeom::Status::ok);
 }
 
 TEST_CASE("a use's given p-curve a whole period off its surface's own range, the surface closed in fact: used") {
