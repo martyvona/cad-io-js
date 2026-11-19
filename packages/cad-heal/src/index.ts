@@ -17,17 +17,20 @@ import type { Diagnostic, Scene, SourceId } from 'cad-scene';
 import { type CurvesRecord, healCurves } from './curves.ts';
 import { ModelEdit } from './edit.ts';
 import { tolerances } from './measure.ts';
+import { curveTolerances, FAR, SPAN, strayPoles } from './fix/poles.ts';
 
 /**
- * The fixes, in the order the pass runs them. Curves on surfaces (T3 lane 1): `pcurveMissing` (off by default)
- * makes the p-curves a face needs on surfaces other than planes (planes' are exact for every consumer, so stay
- * absent); `pcurveReparam` gives a source's p-curve the parameter of its edge's curve where its image is right (or
- * its domain the edge's range where rounding leaves them apart); `pcurveReplace` replaces a source's p-curve by the
- * projection where the projection is nearer, measured both ways; `pcurveEnds` bridges p-curve ends to their
- * vertices; `edgeTolerance` and `vertexTolerance` grow tolerances to cover what's measured.
+ * The fixes, in the order the pass runs them. `strayPole` moves a 3D B-spline's pole thrown far out of the part
+ * within a negligible span onto its neighbours (fix/poles.ts's narrow rule). Curves on surfaces (T3 lane 1):
+ * `pcurveMissing` (off by default) makes the p-curves a face needs on surfaces other than planes (planes' are exact
+ * for every consumer, so stay absent); `pcurveReparam` gives a source's p-curve the parameter of its edge's curve
+ * where its image is right (or its domain the edge's range where rounding leaves them apart); `pcurveReplace`
+ * replaces a source's p-curve by the projection where the projection is nearer, measured both ways; `pcurveEnds`
+ * bridges p-curve ends to their vertices; `edgeTolerance` and `vertexTolerance` grow tolerances to cover what's
+ * measured.
  */
-export const HEAL_FIXES = ['pcurveMissing', 'pcurveReparam', 'pcurveReplace', 'pcurveEnds', 'edgeTolerance',
-  'vertexTolerance'] as const;
+export const HEAL_FIXES = ['strayPole', 'pcurveMissing', 'pcurveReparam', 'pcurveReplace', 'pcurveEnds',
+  'edgeTolerance', 'vertexTolerance'] as const;
 export type HealFix = (typeof HEAL_FIXES)[number];
 
 /**
@@ -69,18 +72,37 @@ export async function healPart(model: BrepData, opts: HealOptions = {}, module?:
   Promise<HealedPart> {
   const fixes = new Set(fixesOn(opts));
   if (!fixes.size) return { model, changed: false, diagnostics: [] };
-  const diagnostics: Diagnostic[] = [], edit = new ModelEdit(model);
-  const g = new Geometry(module ?? await init(), new Uint8Array(model.buffer));
+  const diagnostics: Diagnostic[] = [];
+  // The curves' own fixes first, into a model of their own, so the face API measures the curves as fixed.
+  const pre = new ModelEdit(model);
+  if (fixes.has('strayPole')) movePoles(model, pre, diagnostics);
+  const fixed = pre.finish(), edit = new ModelEdit(fixed);
+  const g = new Geometry(module ?? await init(), new Uint8Array(fixed.buffer));
   let curves;
   try {
-    curves = healCurves(g, model, fixes, edit, diagnostics);
+    curves = healCurves(g, fixed, fixes, edit, diagnostics);
   } finally {
     g.dispose();
   }
   const healed = edit.finish();
   const analysis = await analysisOf(healed, model, edit, curves);
   if (source) for (const x of diagnostics) x.source = source;
-  return { model: healed, changed: edit.edited, analysis, diagnostics };
+  return { model: healed, changed: pre.edited || edit.edited, analysis, diagnostics };
+}
+
+/** strayPole: each stray pole (fix/poles.ts's rule) moved in `edit`, in one diagnostic for the part. */
+function movePoles(model: BrepData, edit: ModelEdit, diagnostics: Diagnostic[]) {
+  const tol = tolerances(model), byCurve = curveTolerances(model, tol.edge);
+  const moves = strayPoles(model, (c) => byCurve.get(c) ?? tol.part, tol.size, tol.lo, tol.hi);
+  if (!moves.length) return;
+  for (const m of moves) for (let k = 0; k < 3; k++) edit.set('pool', 'curveReal', m.at + k, m.to[k]!);
+  const curves = new Set(moves.map((m) => m.curve)).size, far = Math.max(...moves.map((m) => m.out));
+  const name = (c: number) => model.curve.id[c] ? `curve #${model.curve.id[c]}` : `curve row ${c}`;
+  const ex = moves.slice(0, 5).map((m) => `${name(m.curve)} pole ${m.pole} (${m.out.toPrecision(3)} mm out)`);
+  diagnostics.push({ severity: 'warning', message: `strayPole: ${moves.length} poles of ${curves} curves moved onto `
+    + `their neighbours' common point (each over ${FAR} x the part's size of ${tol.size.toPrecision(3)} mm outside it, `
+    + `acting on under ${SPAN} of its curve's knot range; up to ${far.toPrecision(3)} mm out): ${ex.join(', ')}`
+    + `${moves.length > ex.length ? `, ${moves.length - ex.length} more` : ''}` });
 }
 
 /** The healed model's analysis: provenance of p-curves and tolerances, the source's tolerances, the deviations
