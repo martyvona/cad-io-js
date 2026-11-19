@@ -97,7 +97,7 @@ public:
     Vec3 axis, double radius, double second, double tolerance)
     : s_(s), box_(uv), d_(d), hmax_(extent), hmin_(1e-7 * extent), bounded_(bounded), kind_(kind),
       centre_(centre), axis_(axis), radius_(radius), second_(second),
-      floor_(refinementFloor(tolerance, d.linear)) {
+      floor_(refinementFloor(tolerance, d.linear)), tolerance_(tolerance) {
     std::vector<Singularity> sing;
     s.singularities(sing);
     for (const Singularity& g : sing)
@@ -592,8 +592,15 @@ private:
     s_.eval(p.x, p.y, 0, q);
     return q.p;
   }
-  /** The facet against any corner's normal (where it has one and the facet an area). */
+  /**
+   * The facet against any corner's normal (where it has one and the facet an area). Not judged with a corner within
+   * the tolerance of a pole or apex, as PartMesher's check doesn't judge it there: below the floor at such a point
+   * refinement would chase rounding to the point cap (LMP1 #172881's apex, 100,000 refused triangles of 1e-10 mm).
+   */
   bool turnedOver(const Vec2 t[3], const Vec3 p[3]) const {
+    for (const Vec3& q : poles_)
+      for (int i = 0; i < 3; i++)
+        if (norm(p[i] - q) <= tolerance_) return false;
     const Vec3 g = cross(p[1] - p[0], p[2] - p[0]);
     const double longest = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
     if (!(norm(g) > 1e-9 * longest * longest)) return false;
@@ -690,6 +697,7 @@ private:
   double spacing_ = 0;
   /** The surface's poles' and apexes' points. */
   std::vector<Vec3> poles_;
+  double tolerance_;
   /** The refinement floor (belowFloor). */
   double floor_;
   std::vector<Metric2> grid_;
