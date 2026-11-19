@@ -1105,7 +1105,8 @@ TEST_CASE("frozen segments (ones the caller can't split) don't refuse a point, a
     }
   }
   // A flat triangle, everything refused: its circumcentre is outside, across its base (segment 0), which is named and
-  // wanted split; frozen, the triangle stays refused but nothing is wanted split.
+  // wanted split. Frozen, the base isn't; the sides its centroid encroaches are named instead, so a triangle refused
+  // still asks for something.
   struct None : SizeField {
     Metric2 metric(Vec2) const override { return {1e-4, 0, 1e-4}; }
     bool accept(const Vec2*) const override { return false; }
@@ -1119,5 +1120,11 @@ TEST_CASE("frozen segments (ones the caller can't split) don't refuse a point, a
     for (const SplitWanted& w : m.splitWanted) base += w.segment == 0;
     CHECK_EQ(base, freeze ? 0 : 1);
     CHECK_EQ(m.rejected.size(), 1u);
+    if (freeze) {
+      std::set<int32_t> sides;
+      for (const SplitWanted& w : m.splitWanted) sides.insert(w.segment);
+      if (sides != std::set<int32_t>{1, 2}) std::printf("  flat frozen: %zu wanted\n", m.splitWanted.size());
+      CHECK((sides == std::set<int32_t>{1, 2}));
+    }
   }
 }
