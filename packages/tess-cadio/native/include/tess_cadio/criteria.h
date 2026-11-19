@@ -68,11 +68,12 @@ public:
   virtual Refusal refusal(const cadgeom::Vec2 tri[3], bool normals = true) const = 0;
   /**
    * An upper bound on how far the flat triangle on the surface's points at its corners strays from the surface (a
-   * sphere's or a distance function's closed form, else the derivative bounds over its pieces, as accept() has
-   * them); false where there is none (the surface's kind sampled, a bound failing, a corner not evaluated). For
-   * PartOptions::maxDeviationFactor's check, which measures only where this doesn't settle it.
+   * sphere's or a distance function's closed form, else the derivative bounds over its (u, v) box, or with `pieces`
+   * over its pieces, tighter and dearer, as accept() has them); false where there is none (the surface's kind
+   * sampled, a bound failing, a corner not evaluated). For PartOptions::maxDeviationFactor's check, which measures
+   * only where this doesn't settle it.
    */
-  virtual bool deviationBound(const cadgeom::Vec2 tri[3], double& out) const = 0;
+  virtual bool deviationBound(const cadgeom::Vec2 tri[3], double& out, bool pieces = true) const = 0;
   // metric(p): the first fundamental form over h^2, h the 3D size the deflections allow there.
   // accept(tri): the surface within `linear` of the triangle at sampled points (its centroid, its edges' middles),
   // and the surface's normals at its corners within `angular` of one another and of the triangle's own normal.

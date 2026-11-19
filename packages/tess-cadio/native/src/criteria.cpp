@@ -190,7 +190,7 @@ public:
     return deviationOk(t, p, longest3);
   }
 
-  bool deviationBound(const Vec2 t[3], double& out) const override {
+  bool deviationBound(const Vec2 t[3], double& out, bool pieces) const override {
     Vec3 p[3];
     for (int i = 0; i < 3; i++)
       if (!corner(t[i], p[i])) return false;
@@ -200,7 +200,7 @@ public:
     }
     if (kind_ != Kind::none && distanceBound(p, out)) return true;
     Bounds b;
-    if (!bounded_ || !bounds(t, b, true)) return false;
+    if (!bounded_ || !bounds(t, b, pieces)) return false;
     out = b.deviation;
     return std::isfinite(out);
   }

@@ -757,7 +757,7 @@ TEST_CASE("deviationBound: at least the triangle's distance from the surface, ov
     REQUIRE(crit);
     std::mt19937 rng(11);
     std::uniform_real_distribution<double> unit(0, 1);
-    int bounded = 0, under = 0, tight = 0;
+    int bounded = 0, under = 0, tight = 0, wholes = 0;
     for (int n = 0; n < 100; n++) {
       const double scale = std::pow(10.0, -3 + 2.5 * unit(rng));
       const double W = box.x.hi - box.x.lo, H = box.y.hi - box.y.lo;
@@ -765,9 +765,11 @@ TEST_CASE("deviationBound: at least the triangle's distance from the surface, ov
       for (int i = 0; i < 3; i++)
         tri[i] = {std::clamp(o.x + W * scale * (unit(rng) - 0.5), box.x.lo, box.x.hi),
           std::clamp(o.y + H * scale * (unit(rng) - 0.5), box.y.lo, box.y.hi)};
-      double bound;
+      double bound, whole;
       if (!crit->deviationBound(tri, bound)) continue;
       bounded++;
+      // (The box's, without pieces: a bound too, at least the pieces' less rounding.)
+      const bool hasWhole = crit->deviationBound(tri, whole, false);
       Vec3 p[3];
       for (int i = 0; i < 3; i++) {
         cadgeom::SurfacePoint q;
@@ -781,15 +783,18 @@ TEST_CASE("deviationBound: at least the triangle's distance from the surface, ov
           cadgeom::SurfaceInversion inv = cadgeom::invertSurface(*s, x, D.u, D.v, 1e-10);
           if (inv.status == cadgeom::Status::ok) dev = std::fmax(dev, inv.distance);
         }
-      if (bound < dev * (1 - 1e-6) - 1e-12) {
+      if (bound < dev * (1 - 1e-6) - 1e-12 || (hasWhole && whole < dev * (1 - 1e-6) - 1e-12)) {
         under++;
-        std::printf("  %s: bound %g under its deviation %g\n", c.model, bound, dev);
+        std::printf("  %s: bound %g (the box's %g) under its deviation %g\n", c.model, bound, hasWhole ? whole : NAN,
+          dev);
       }
+      wholes += hasWhole;
       tight += dev > 1e-9 && bound < 2 * dev;
     }
     CHECK_EQ(under, 0);
     if (bounded < 25) std::printf("  %s: %d bounded of 100\n", c.model, bounded);
     CHECK(bounded >= 25);
+    CHECK_EQ(wholes, bounded);
     if (std::strcmp(c.model, "bumpPatch") != 0 && std::strcmp(c.model, "bsplineDome") != 0) {
       if (tight == 0) std::printf("  %s: never within 2 x\n", c.model);
       CHECK(tight > 0);

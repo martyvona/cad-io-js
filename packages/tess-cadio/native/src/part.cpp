@@ -275,9 +275,9 @@ struct PartMesher::Impl {
       double worst = 0;
       bool past = false;
       for (size_t k = 0; k < fm.rejected.size() && !past; k++) {
-        double bound;
-        if (refused[f].size() == fm.rejected.size() && criteria[f] &&
-          criteria[f]->deviationBound(refused[f][k].uv, bound)) {
+        // (The box's bound first, the pieces' only where that doesn't settle it: over a B-spline's many knots the
+        // pieces cost far more, tens of thousands of refused triangles at a point cap.)
+        if (refused[f].size() == fm.rejected.size() && criteria[f]) {
           const Refused& r = refused[f][k];
           double gap = 0;
           for (int i = 0; i < 3; i++) {
@@ -285,15 +285,36 @@ struct PartMesher::Impl {
             gap = s.eval(r.uv[i].x, r.uv[i].y, 0, q) == Status::ok ? std::fmax(gap, norm(fm.points[r.v[i]] - q.p))
                                                                    : INFINITY;
           }
-          if (bound + gap <= limit) continue;
+          double bound;
+          if (gap < limit && criteria[f]->deviationBound(r.uv, bound, false) && bound + gap <= limit) continue;
+          if (gap < limit && criteria[f]->deviationBound(r.uv, bound, true) && bound + gap <= limit) continue;
         }
         if (fm.deviationMeasured++ % kDeviationReport == kDeviationReport - 1) report(here);
         const int32_t t = fm.rejected[k];
+        // Each corner's (u, v), where the refused triangle's record has it: the surface's point at a lattice point's
+        // barycentric (u, v), inside its domain, is a point of the surface, so its distance bounds the point's own
+        // from above, and only a point it doesn't put within the limit is inverted (globally, over the whole domain:
+        // dear on a B-spline).
+        Vec2 uvc[3];
+        bool haveUv = refused[f].size() == fm.rejected.size();
+        for (int c = 0; c < 3 && haveUv; c++) {
+          int at = -1;
+          for (int i = 0; i < 3; i++)
+            if (refused[f][k].v[i] == fm.triangles[3 * t + c]) at = i;
+          haveUv = at >= 0;
+          if (haveUv) uvc[c] = refused[f][k].uv[at];
+        }
         for (int i = 0; i <= 4 && !past; i++)
           for (int j = 0; i + j <= 4 && !past; j++) {
             if ((i == 4) || (j == 4) || (i + j == 0)) continue;  // (the corners: on the surface)
             const Vec3 x = (i / 4.0) * fm.points[fm.triangles[3 * t]] + (j / 4.0) * fm.points[fm.triangles[3 * t + 1]]
               + ((4 - i - j) / 4.0) * fm.points[fm.triangles[3 * t + 2]];
+            if (haveUv) {
+              const Vec2 uv = (i / 4.0) * uvc[0] + (j / 4.0) * uvc[1] + ((4 - i - j) / 4.0) * uvc[2];
+              SurfacePoint q;
+              const bool inside = uv.x >= D.u.lo && uv.x <= D.u.hi && uv.y >= D.v.lo && uv.y <= D.v.hi;
+              if (inside && s.eval(uv.x, uv.y, 0, q) == Status::ok && norm(x - q.p) <= limit) continue;
+            }
             const SurfaceInversion inv = invertSurface(s, x, D.u, D.v, 1e-3 * o.d.linear);
             if (inv.status != Status::ok) continue;
             worst = std::fmax(worst, inv.distance);
