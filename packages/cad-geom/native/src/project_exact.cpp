@@ -1,8 +1,9 @@
 // The exact table: p-curves in closed form, from the model's rows (PcurveSource). On a plane, every curve: the plane's
 // (u, v) is an affine map of 3D (Part 42's PLANE: S(u, v) = o + u x + v y), so a line, conic, B-spline or polyline maps
 // by its points, directions and control points (weights, knots kept) and stays the same kind with the same
-// parameter, a conic only where it runs counterclockwise in (u, v) (a 2D placement's y is its x turned +90 degrees);
-// other kinds are their 3D curve mapped (kind 0). On a cylinder, cone, sphere or torus (their Part 42
+// parameter, a conic only where it runs counterclockwise in (u, v) (a 2D placement's y is its x turned +90 degrees)
+// and verifies within the tolerance (a conic whose plane is tilted from the face's projects to another); other kinds,
+// and such conics, are their 3D curve mapped (kind 0). On a cylinder, cone, sphere or torus (their Part 42
 // parameterizations, docs/brep-reference.md): a circle coaxial with the surface is u = phase +/- t at fixed v, a line
 // along a cylinder's or cone's generatrix and a meridian circle of a sphere or torus fixed u, linear v; each detected
 // within the tolerance, then verified against the curve (project.cpp's measure), and left to tracing where that fails.
@@ -96,16 +97,24 @@ bool onPlane(const Job& job, const Form& cf, const Frame& f, Pcurve& out) {
       p.reals.push_back(q.x), p.reals.push_back(q.y);
     }
   }
-  std::shared_ptr<const Curve> basis;
-  if (p.reals.empty()) {
-    // Any other kind (a clockwise conic, an offset, a composite): the 3D curve mapped (viewed, not owned: project.h).
-    basis = std::shared_ptr<const Curve>(&job.c, [](const Curve*) {});
-    p.kind = 0;
+  // The 3D curve mapped (kind 0: viewed, not owned: project.h), the orthogonal projection itself, for any curve.
+  auto mapped = [&](PcurvePiece& q) {
+    q.kind = 0;
+    q.reals.clear(), q.ints.clear();
     const double a[9] = {f.x.x, f.x.y, f.x.z, f.y.x, f.y.y, f.y.z, f.o.x, f.o.y, f.o.z};
-    std::copy(a, a + 9, p.affine);
-    p.reals.clear(), p.ints.clear();
+    std::copy(a, a + 9, q.affine);
+    return build(q, std::shared_ptr<const Curve>(&job.c, [](const Curve*) {}));
+  };
+  // Any other kind (a clockwise conic, an offset, a composite): mapped.
+  if (p.reals.empty() ? !mapped(p) : !build(p)) return false;
+  // A conic is the same conic in (u, v) only where its plane is the face's: tilted, its projection is another (a
+  // circle's an ellipse), and the conic mapped as it is lies off it (a 2 mm arc of a circle 16 m across, its plane 4
+  // degrees from the face's, 70 mm off). Such a conic is mapped instead where it doesn't verify within tol.
+  if (conic && p.kind != 0 && !(measure(job, p) <= job.tol)) {
+    PcurvePiece q;
+    q.t = job.r;
+    if (mapped(q)) p = std::move(q);
   }
-  if (!build(p, basis)) return false;
   // The map is the orthogonal projection onto the plane: the feet themselves, so an error past tol is the curve
   // leaving the plane, which no other p-curve can mend.
   return finish(job, out, std::move(p), PcurveMethod::planeAffine, true);

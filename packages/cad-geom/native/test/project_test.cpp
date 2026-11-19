@@ -612,6 +612,52 @@ std::vector<double> moved(const Place& P, const std::vector<double>& v, int poin
 
 } // namespace
 
+TEST_CASE("a great circle passing close to a sphere's poles, at a coarse tolerance: the march not stuck on a pole") {
+  // LMP1 #172878's edge on its sphere (radius 10, moved to the origin): a great circle whose axis is 0.035 from the
+  // equator's plane, over [1.332, pi] from beside the north pole. At tol 0.2 a march step from near the pole
+  // overshot onto its line, where Newton has no gradient in u and stays, and the step passed (the predictor's slack
+  // is the tolerance's): nodes 2.4 off the curve, invalidModel. Rejected there, the trace goes round the pole.
+  const double tol = 0.2;
+  const double sr[10] = {0, 0, 0, 0, 0, 1, 1, 0, 0, 10};
+  std::unique_ptr<Surface> sph = closeInFact(surfaces::makeSphere(sr), tol);
+  const double cr[9] = {0, 0, 0, -0.8089590548665507, 0.5868046581769529, -0.035292218565090794,
+    -0.587170444453497, -0.8094633216893048, 0};
+  std::unique_ptr<Curve> circ = curves::makeEllipse(cr, 3, 10, 10);
+  Pcurve p = project::projectForms(*circ, {1.332136618329816, 3.1415926535887757}, *sph, tol, nullptr, {}, {});
+  CHECK(p.status == Status::ok);
+  CHECK(p.offSurface < 1e-9);
+  CHECK(p.error <= tol);
+  CHECK(p.certainty == Certainty::unique);
+}
+
+TEST_CASE("the exact table on a plane: a short arc of a circle tilted from it maps, not as the circle") {
+  // A circle 16 m across whose plane is 4 degrees from the face's plane z = 0, near t = pi / 2 running along the
+  // line the planes share, so 6e-5 rad of it (about 1 mm) stays within 2e-6 of the face (LMP1 #173171's edge 1). The
+  // circle mapped as a 2D circle lies off its projection, an ellipse; the table maps the 3D curve instead: ok.
+  const double R = 16000, th = 4 * kPi / 180, tol = 1e-5;
+  const double cr[10] = {0, 0, R * std::sin(th), 0, std::sin(th), std::cos(th), 1, 0, 0, R};
+  const double pr[9] = {0, 0, 0, 0, 0, 1, 1, 0, 0};
+  std::unique_ptr<Curve> circle = curves::makeEllipse(cr, 3, R, R);
+  std::unique_ptr<Surface> plane = surfaces::makePlane(pr);
+  const Range r{0.5 * kPi - 3e-5, 0.5 * kPi + 3e-5};
+  Pcurve p = project::projectForms(*circle, r, *plane, tol, nullptr, {CBR_CURVE_CIRCLE, 3, cr, nullptr},
+    {CBR_SURFACE_PLANE, 3, pr, nullptr});
+  CHECK(p.status == Status::ok);
+  CHECK(p.method == PcurveMethod::planeAffine);
+  CHECK(p.error <= tol);
+  CHECK(p.offSurface < 3e-6);
+  REQUIRE(p.pieces.size() == 1);
+  CHECK_EQ(p.pieces[0].kind, 0);
+  // The same circle in the face's plane (not tilted) stays a circle.
+  const double flat[10] = {0, 0, 0, 0, 0, 1, 1, 0, 0, R};
+  std::unique_ptr<Curve> inPlane = curves::makeEllipse(flat, 3, R, R);
+  Pcurve q = project::projectForms(*inPlane, r, *plane, tol, nullptr, {CBR_CURVE_CIRCLE, 3, flat, nullptr},
+    {CBR_SURFACE_PLANE, 3, pr, nullptr});
+  CHECK(q.status == Status::ok);
+  REQUIRE(q.pieces.size() == 1);
+  CHECK_EQ(q.pieces[0].kind, CBR_CURVE_CIRCLE);
+}
+
 TEST_CASE("the exact table: every entry, against the surfaces' closed-form inverses, moved, turned and scaled") {
   const double c3 = std::cos(0.3), s3 = std::sin(0.3), c7 = std::cos(0.7), s7 = std::sin(0.7);
   const double R = 2, a = 0.4, ta = std::tan(a);
