@@ -56,7 +56,7 @@ struct PartOptions {
    * deflection by the criteria), but those its criteria's bound puts within (deviationBound), and only until a point
    * past it. 0 or less: never.
    */
-  double maxDeviationFactor = 1.1;
+  double maxDeviationFactor = 1.0;
 };
 
 struct FaceMesh {

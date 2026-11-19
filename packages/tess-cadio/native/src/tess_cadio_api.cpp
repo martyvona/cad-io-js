@@ -39,7 +39,7 @@ struct Result {
 Result result;
 bool project = true;
 // PartOptions::maxDeviationFactor for the next calls.
-double deviationFactor = 1.1;
+double deviationFactor = 1.0;
 
 void put(std::vector<float>& out, Vec3 p, const double* o) {
   out.insert(out.end(), {static_cast<float>(p.x - o[0]), static_cast<float>(p.y - o[1]),
@@ -66,7 +66,7 @@ int tc_api_version() { return 3; }
 /** Whether the next calls project uses without p-curves (PartOptions::projectMissingPcurves; default 1). */
 void tc_set_project(int on) { project = on != 0; }
 
-/** The next calls' PartOptions::maxDeviationFactor (default 1.1; 0 or less: never). */
+/** The next calls' PartOptions::maxDeviationFactor (default 1; 0 or less: never). */
 void tc_set_deviation_factor(double factor) { deviationFactor = factor; }
 
 int tc_tessellate(const uint8_t* data, int size, double linear, double angular, double ox, double oy, double oz,

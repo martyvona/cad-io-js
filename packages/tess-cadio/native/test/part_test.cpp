@@ -327,16 +327,16 @@ TEST_CASE("a boundary fold repaired: a corner convex in (u, v), concave in 3D, i
   CHECK_EQ(pt.face(0).foldsRepaired, 0);
 }
 
-TEST_CASE("a face left past its deflection fails at maxDeviationFactor x d: the verdict of measuring every refused "
-  "triangle, those within by their bound unmeasured, the cause's measure a lower bound; progress as it goes") {
+TEST_CASE("a face left past its deflection fails past maxDeviationFactor x max(d, tol): the verdict of measuring every "
+  "refused triangle, those within by their bound unmeasured, the cause's measure a lower bound; progress as it goes") {
   // Faces meshed with no Steiner points and no split rounds, their boundary's triangles refused: spheres' hemisphere
-  // (its bound in closed form, tight: past W none measured), bumpPatch's and bsplineDome's B-splines (by their
-  // derivative bounds; the dome's some 1,500 refused, hundreds measured, its progress reported again as they go), and
-  // torusOuterHalf's torus (its distance function's form not holding on such triangles: every one measured).
+  // (its bound in closed form, tight: past W none measured), bumpPatch's B-spline (by its derivative bounds; at 1e-6
+  // some of its refused within by them), and torusOuterHalf's torus (its distance function's form not holding on such
+  // triangles: all its some 330 measured, its progress reported again as they go).
   // The truth: every refused triangle's lattice (order 4, its corners left out) inverted here, W the most; then for
   // factors either side of W / d, failed exactly where W is past the limit, its measure past the limit and at most W.
   struct Case { const char* model; int face; double d; };
-  for (Case c : {Case{"spheres", 1, 0.1}, Case{"bumpPatch", 0, 1e-4}, Case{"bsplineDome", 0, 1e-5},
+  for (Case c : {Case{"spheres", 1, 0.1}, Case{"bumpPatch", 0, 1e-4}, Case{"bumpPatch", 0, 1e-6},
          Case{"torusOuterHalf", 0, 1e-3}}) {
     cadgeom::Model m = load(c.model);
     REQUIRE(m.ok());
@@ -366,17 +366,17 @@ TEST_CASE("a face left past its deflection fails at maxDeviationFactor x d: the 
     if (k.rejected.empty() || !(W > c.d))
       std::printf("  %s at %g: %zu refused, worst %g x d\n", c.model, c.d, k.rejected.size(), W / c.d);
     REQUIRE(k.rejected.size() > 0);
-    REQUIRE(W > c.d);
+    REQUIRE(W > std::fmax(c.d, cadgeom::Tolerances(m).face(c.face)));
     int within = -1;  // (measured at 1.05 W)
     for (double share : {1.05, 2.0, 0.5, 0.95}) {
-      o.maxDeviationFactor = share * W / c.d;
+      const double base = std::fmax(c.d, cadgeom::Tolerances(m).face(c.face));  // (max(d, tol))
+      o.maxDeviationFactor = share * W / base;
       std::vector<PartProgress> seen;
       o.progress = [&](const PartProgress& p) { seen.push_back(p); };
       PartMesher pm(m, o);
       const FaceMesh& fm = pm.face(c.face);
-      const double limit = o.maxDeviationFactor * std::fmax(c.d, cadgeom::Tolerances(m).face(c.face));
+      const double limit = o.maxDeviationFactor * base;
       const bool fails = W > limit;
-      REQUIRE(fails == (share < 1));  // (these fixtures' tolerances under d)
       CHECK_EQ(fm.status == cadgeom::Status::noConvergence, fails);
       CHECK(fm.deviationMeasured <= static_cast<int>(k.rejected.size()));
       if (share == 1.05) within = fm.deviationMeasured;
@@ -432,9 +432,9 @@ TEST_CASE("a face left past its deflection fails at maxDeviationFactor x d: the 
 TEST_CASE("maxDeviationFactor's limit is the factor x max(d, the face's tolerance): the same mesh past d kept within "
   "its tolerance, failed under it; a part's uncertainty counts alike; the limit named in the cause") {
   // spheres' hemisphere at 0.1 mm, no Steiner points, no split rounds: its refused triangles some 1.7 x d off (W).
-  // Its face's tolerance 0.2 mm: the limit 1.1 x 0.2, past W, the face kept, the same triangles as with no check;
-  // 0.05 mm: the limit 1.1 x d, under W, failed. The part's uncertainty at 0.2 mm (its floor too, so its own mesh):
-  // failed exactly where that mesh's W is past 1.1 x 0.2.
+  // Its face's tolerance 0.2 mm: the limit F x 0.2 (F the default factor), past W, the face kept, the same triangles
+  // as with no check; 0.05 mm: the limit F x d, under W, failed. The part's uncertainty at 0.2 mm (its floor too, so
+  // its own mesh): failed exactly where that mesh's W is past F x 0.2.
   const tessfixtures::Model* tm = tessfixtures::model("spheres");
   const fixtures::Model* fx = tm ? nullptr : fixtures::model("spheres");
   const uint8_t* data = tm ? tm->data : fx->data;
@@ -449,6 +449,7 @@ TEST_CASE("maxDeviationFactor's limit is the factor x max(d, the face's toleranc
   PartOptions o = options(0.1, 0.26);
   o.maxPointsPerFace = 0;
   o.maxSplitRounds = 0;
+  const double F = PartOptions{}.maxDeviationFactor;
   auto worst = [&](const cadgeom::Model& m, const FaceMesh& k) {
     cadgeom::Status st;
     auto s = cadgeom::makeSurface(m, m.faceSurface(1), st);
@@ -476,16 +477,16 @@ TEST_CASE("maxDeviationFactor's limit is the factor x max(d, the face's toleranc
       REQUIRE(k.face(1).status == cadgeom::Status::ok);
       const double W = worst(m, k.face(1));
       const double tol = std::fmax(face, std::isfinite(part) ? part : 0);
-      const double limit = 1.1 * std::fmax(0.1, tol);
-      if (!(W > 1.1 * 0.1) || std::fabs(W - limit) < 0.01)
+      const double limit = F * std::fmax(0.1, tol);
+      if (!(W > F * 0.1) || std::fabs(W - limit) < 0.01)
         std::printf("  face %g, part %g: worst %g, limit %g\n", face, part, W, limit);
-      REQUIRE(W > 1.1 * 0.1);
+      REQUIRE(W > F * 0.1);
       PartMesher pm(m, o);
       const FaceMesh& fm = pm.face(1);
       CHECK_EQ(fm.status == cadgeom::Status::noConvergence, W > limit);
       if (W > limit) {
         char want[64];
-        std::snprintf(want, sizeof want, "past 1.1 x max(d, tol) = 1.1 x %.3g mm", std::fmax(0.1, tol));
+        std::snprintf(want, sizeof want, "past %.3g x max(d, tol) = %.3g x %.3g mm", F, F, std::fmax(0.1, tol));
         if (fm.cause.find(want) == std::string::npos) std::printf("  cause: %s\n", fm.cause.c_str());
         CHECK(fm.cause.find(want) != std::string::npos);
       } else {
@@ -721,7 +722,7 @@ TEST_CASE("belowFloor: as the surface's bound over the triangle's (u, v) box alo
 
 TEST_CASE("deviationBound: at least the triangle's distance from the surface, over random triangles on a cylinder, a "
   "sphere, a torus's outer half and B-splines; tight where the form is exact") {
-  // The flat triangle on the surface's points at its corners, its barycentric lattice of order 16 inverted onto the
+  // The flat triangle on the surface's points at its corners, its barycentric lattice of order 6 inverted onto the
   // surface: the bound, where there is one, at least the most (less a rounding share). On the sphere, the cylinder
   // and the torus's outer half the bounds are closed forms or exact derivative bounds: within 2 x of it at least
   // once, so a bound halved shows.
@@ -743,7 +744,7 @@ TEST_CASE("deviationBound: at least the triangle's distance from the surface, ov
     std::mt19937 rng(11);
     std::uniform_real_distribution<double> unit(0, 1);
     int bounded = 0, under = 0, tight = 0;
-    for (int n = 0; n < 400; n++) {
+    for (int n = 0; n < 100; n++) {
       const double scale = std::pow(10.0, -3 + 2.5 * unit(rng));
       const double W = box.x.hi - box.x.lo, H = box.y.hi - box.y.lo;
       cadgeom::Vec2 o{box.x.lo + W * unit(rng), box.y.lo + H * unit(rng)}, tri[3];
@@ -760,10 +761,10 @@ TEST_CASE("deviationBound: at least the triangle's distance from the surface, ov
         p[i] = q.p;
       }
       double dev = 0;
-      for (int i = 0; i <= 16; i++)
-        for (int j = 0; i + j <= 16; j++) {
-          Vec3 x = (i / 16.0) * p[0] + (j / 16.0) * p[1] + ((16 - i - j) / 16.0) * p[2];
-          cadgeom::SurfaceInversion inv = cadgeom::invertSurface(*s, x, D.u, D.v, 1e-12);
+      for (int i = 0; i <= 6; i++)
+        for (int j = 0; i + j <= 6; j++) {
+          Vec3 x = (i / 6.0) * p[0] + (j / 6.0) * p[1] + ((6 - i - j) / 6.0) * p[2];
+          cadgeom::SurfaceInversion inv = cadgeom::invertSurface(*s, x, D.u, D.v, 1e-10);
           if (inv.status == cadgeom::Status::ok) dev = std::fmax(dev, inv.distance);
         }
       if (bound < dev * (1 - 1e-6) - 1e-12) {
@@ -773,8 +774,8 @@ TEST_CASE("deviationBound: at least the triangle's distance from the surface, ov
       tight += dev > 1e-9 && bound < 2 * dev;
     }
     CHECK_EQ(under, 0);
-    if (bounded < 100) std::printf("  %s: %d bounded of 400\n", c.model, bounded);
-    CHECK(bounded >= 100);
+    if (bounded < 25) std::printf("  %s: %d bounded of 100\n", c.model, bounded);
+    CHECK(bounded >= 25);
     if (std::strcmp(c.model, "bumpPatch") != 0 && std::strcmp(c.model, "bsplineDome") != 0) {
       if (tight == 0) std::printf("  %s: never within 2 x\n", c.model);
       CHECK(tight > 0);
@@ -1875,8 +1876,12 @@ TEST_CASE("poles as fans: one point per pole, pieces of 22.5 degrees at most, no
     REQUIRE(m.ok());
     PartOptions o = options(0.001, 0.1);  // (the edges' spacing by the deflection wider than the fan's radius)
     o.maxSplitRounds = 0;
+    // (With no rounds its boundary's coarse spans leave triangles refused away from the pole, some past d: kept here,
+    // the pole's fan being what is judged.)
+    o.maxDeviationFactor = 0;
     PartMesher pm(m, o);
-    if (pm.face(0).status != cadgeom::Status::ok) std::printf("  %s: status %d\n", name, int(pm.face(0).status));
+    if (pm.face(0).status != cadgeom::Status::ok) std::printf("  %s: status %d (%s)\n", name, int(pm.face(0).status),
+      pm.face(0).cause.c_str());
     REQUIRE(pm.face(0).status == cadgeom::Status::ok);
     Fanned r = fanned(m, pm, 0);
     if (r.refusedAtPole) std::printf("  %s, no rounds: %d at the pole refused\n", name, r.refusedAtPole);

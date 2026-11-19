@@ -109,7 +109,7 @@ export interface CadioInitOptions {
   /**
    * A face whose mesh is farther from its surface than this times the larger of the linear deflection and the face's
    * tolerance fails (part.h's PartOptions::maxDeviationFactor: its refused triangles' points inverted onto its
-   * surface), going the failed faces' way (a fallback, where configured); default 1.1, 0 never.
+   * surface), going the failed faces' way (a fallback, where configured); default 1, 0 never.
    */
   maxDeviationFactor?: number;
 }
@@ -131,7 +131,7 @@ function failedMessage(ids: readonly number[], rows: number): string {
 
 export class CadioTessellator implements Tessellator {
   private project = true;
-  private deviationFactor = 1.1;
+  private deviationFactor = 1;
   readonly info: TessellatorInfo = {
     name: 'tess-cadio', version: VERSION, license: 'AGPL-3.0-only', formats: ['cad-brep'], supportsFaceIds: true,
     supportsEdges: true, supportsCurves: false,
@@ -141,7 +141,7 @@ export class CadioTessellator implements Tessellator {
   async init(opts: CadioInitOptions = {}): Promise<void> {
     const { glue, wasm, version } = opts;
     this.project = opts.projectMissingPcurves ?? true;
-    this.deviationFactor = opts.maxDeviationFactor ?? 1.1;
+    this.deviationFactor = opts.maxDeviationFactor ?? 1;
     if (wasm instanceof WebAssembly.Module && version === undefined) throw new TypeError(
       'tess-cadio: init({wasm}) with a compiled WebAssembly.Module needs a version, since it has no bytes to hash');
     const glueUrl = glue === undefined ? new URL('../dist/tess_cadio.mjs', import.meta.url).href : String(glue);

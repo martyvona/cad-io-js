@@ -153,7 +153,7 @@ test('triangles still refused counted, those in a pole\'s fan apart: none at pol
     assert.ok(li, JSON.stringify(ri.diagnostics));
     assert.ok(Number(li[3]) >= 1 && Number(li[3]) <= Number(li[2]), `${li[2]} refused, ${li[3]} at a pole`);
     assert.ok(ri.diagnostics.some((x) => /seam whose side in \(u, v\) their neighbours didn't settle/.test(x.message)));
-    // pcurveOnly's (a cylinder's) at 1e-4 mm and 0.1 rad: refused, none at a pole (kept: past 1.1 x the deflection,
+    // pcurveOnly's (a cylinder's) at 1e-4 mm and 0.1 rad: refused, none at a pole (kept: past the deflection,
     // the default would fail the face, maxDeviationFactor).
     const keeping = new CadioTessellator();
     await keeping.init({ maxDeviationFactor: 0 });
