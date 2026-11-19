@@ -567,15 +567,14 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
     I.report({PartProgress::surfaces, f, 0, f, nf});
     I.surfaces[f] = closedSurface(m, tols, f, st);
   }
-  // The faces' (u, v) boxes from a first sampling, their criteria, then the edges again at the spacing they ask.
+  // The edges sampled once, at their own deflection and angle; the faces' (u, v) boxes from those samples, their
+  // criteria, then the edges refined to the spacing the criteria ask (EdgeMesh::respace): each use traced once.
   std::vector<double> spacing(nf, INFINITY);
   {
-    // (Only for the boxes: a coarse sampling, 10 x the deflection, no angle, as each sample there is an inversion.)
-    EdgeOptions rough = I.edgeOptions();
-    rough.deflection *= 10;
-    rough.angle = 0;
-    rough.progress = I.edgeProgress(PartProgress::boxEdges);
-    EdgeMesh first(m, rough);
+    EdgeOptions eo = I.edgeOptions();
+    eo.progress = I.edgeProgress(PartProgress::edges);
+    I.em = std::make_unique<EdgeMesh>(m, eo);
+    EdgeMesh& first = *I.em;
     for (int f = 0; f < nf; f++) {
       I.report({PartProgress::criteria, f, 0, f, nf});
       if (!I.surfaces[f]) continue;
@@ -599,9 +598,7 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
       if (I.criteria[f]) spacing[f] = I.criteria[f]->edgeSpacing() * I.o.edgeSpacingScale;
     }
   }
-  EdgeOptions eo = I.edgeOptions();
-  eo.progress = I.edgeProgress(PartProgress::edges);
-  I.em = std::make_unique<EdgeMesh>(m, eo, spacing);
+  I.em->respace(spacing);
   // The poles' rings: each face's, one reach per pole across faces, cut into the edges through them once for all.
   {
     std::vector<const Surface*> sp(nf, nullptr);

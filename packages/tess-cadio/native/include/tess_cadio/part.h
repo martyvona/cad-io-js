@@ -22,7 +22,7 @@ namespace tesscadio {
  */
 struct PartProgress {
   /** In order; deviation the check after the rounds (PartOptions::maxDeviationFactor), its round the last's. */
-  enum Phase : uint8_t { surfaces, boxEdges, criteria, edges, meshing, splitting, deviation } phase = meshing;
+  enum Phase : uint8_t { surfaces, edges, criteria, meshing, splitting, deviation } phase = meshing;
   int row = 0, round = 0, facesDone = 0, facesTotal = 0;
 };
 

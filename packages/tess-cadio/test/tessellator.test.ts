@@ -220,26 +220,26 @@ test('progress: each face as it starts, throttled to one report per 100 ms; a re
     const report = progressReporter((p) => got.push(p), 100, () => clock);
     for (const [t, row] of [[0, 0], [50, 1], [99, 2], [100, 3], [150, 4], [250, 5]] as const) {
       clock = t;
-      report(4, row + 10, row, 0, row, 6);
+      report(3, row + 10, row, 0, row, 6);
     }
     assert.deepEqual(got.map((p) => p.row), [0, 3, 5]);
     assert.equal(got[1]!.message, 'face #13 (row 3), first pass, 3 of 6 faces done');
     assert.deepEqual({ ...got[2], message: undefined }, { message: undefined, faceId: 15, row: 5, round: 0,
       facesDone: 5, facesTotal: 6 });
-    report(4, 0, 7, 2, 1, 4);
+    report(3, 0, 7, 2, 1, 4);
     clock = 400;
-    report(4, 0, 7, 2, 1, 4);
+    report(3, 0, 7, 2, 1, 4);
     assert.equal(got.at(-1)!.message, 'a face with no id (row 7), split round 2, 1 of 4 faces done');
     clock = 600;
-    report(3, 0, -1, 0, 5, 40);
+    report(1, 0, -1, 0, 5, 40);
     assert.deepEqual(got.at(-1), { message: 'sampling edges: an edge, 5 of 40 edges and uses done', round: 0 });
     clock = 800;
     report(1, 21, 3, 0, 30, 40);
-    assert.deepEqual(got.at(-1), { message: 'sampling edges for the faces\' boxes: a use on face #21 (row 3), 30 of 40 '
-      + 'edges and uses done', faceId: 21, row: 3, round: 0 });
+    assert.deepEqual(got.at(-1), { message: 'sampling edges: a use on face #21 (row 3), 30 of 40 edges and uses done',
+      faceId: 21, row: 3, round: 0 });
     // The deviation check after the rounds (part.h's PartProgress::deviation), its face and the faces checked so far.
     clock = 1000;
-    report(6, 21, 3, 2, 3, 6);
+    report(5, 21, 3, 2, 3, 6);
     assert.deepEqual(got.at(-1), { message: 'checking meshes\' deviation: face #21 (row 3), 3 of 6 faces done',
       faceId: 21, row: 3, round: 2, facesDone: 3, facesTotal: 6 });
     // Across a real part (the cube's 6 faces, quick: the first report only), its first phase on its first face.

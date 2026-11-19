@@ -37,10 +37,9 @@ export function progressReporter(onProgress: (p: TessellationProgress) => void, 
     const faces = { faceId, row, round, facesDone: done, facesTotal: total };
     switch (PHASES[phase]) {
       case 'surfaces': return onProgress({ message: `making surfaces: ${face}, ${done} of ${total} done`, ...faces });
-      case 'boxEdges': case 'edges': {
-        const what = PHASES[phase] === 'edges' ? 'sampling edges' : 'sampling edges for the faces\' boxes';
+      case 'edges': {
         const on = row >= 0 ? `a use on ${face}` : 'an edge';
-        return onProgress({ message: `${what}: ${on}, ${done} of ${total} edges and uses done`,
+        return onProgress({ message: `sampling edges: ${on}, ${done} of ${total} edges and uses done`,
           ...(row >= 0 ? { faceId, row } : {}), round });
       }
       case 'criteria': return onProgress({ message: `criteria: ${face}, ${done} of ${total} done`, ...faces });
@@ -55,7 +54,7 @@ export function progressReporter(onProgress: (p: TessellationProgress) => void, 
 /** tess_cadio_api.cpp's js_progress: PartProgress's phase (PHASES), the face's id and row, round, done, total. */
 type ProgressHook = (phase: number, id: number, row: number, round: number, done: number, total: number) => void;
 /** part.h's PartProgress::Phase, in order. */
-const PHASES = ['surfaces', 'boxEdges', 'criteria', 'edges', 'meshing', 'splitting', 'deviation'] as const;
+const PHASES = ['surfaces', 'edges', 'criteria', 'meshing', 'splitting', 'deviation'] as const;
 
 /** The module's exports (tess_cadio_api.cpp's functions, each with a leading underscore). */
 interface CadioExports {
