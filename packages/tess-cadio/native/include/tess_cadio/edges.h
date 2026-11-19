@@ -254,6 +254,14 @@ public:
   Status split(const std::vector<SplitRequest>& requests);
 
   /**
+   * The faces' spacing given after the edges were sampled (their criteria, made from the boxes these samples give):
+   * every edge's spans, a pseudo-edge's too, split until none is longer in 3D than the least of its faces' spacing,
+   * through split(), so the samples there are kept and the new ones' uses found as split's are (each p-curve at its
+   * parameter, a use with none continued locally). The edges are sampled once, refined only.
+   */
+  Status respace(const std::vector<double>& faceSpacing);
+
+  /**
    * Each cut applied to its edge, once for every face using it (the samples are the edge's, its coedges redone): a
    * sample at the approach and one at the crossing (an existing sample within a millionth of a span used instead,
    * so a vertex at the pole stays the sample there), the samples strictly between them removed, and the span between

@@ -329,6 +329,12 @@ struct EdgeMesh::Impl {
   double tol;
   int nModel = 0;
   ProjectionCounts projections;
+  /** The edges' samples in all. */
+  size_t sampleCount() const {
+    size_t n = 0;
+    for (const Edge& E : edges) n += E.s.t.size();
+    return n;
+  }
   TraceCounts traces;
   std::vector<TraceFallback> traceFallbacks;
 
@@ -2170,6 +2176,42 @@ Status EdgeMesh::split(const std::vector<SplitRequest>& requests) {
     for (int c : E.coedges) I.computeCoedge(c);
   }
   return bad ? Status::invalidModel : Status::ok;
+}
+
+Status EdgeMesh::respace(const std::vector<double>& faceSpacing) {
+  Impl& I = *impl_;
+  for (size_t f = 0; f < I.faces.size() && f < faceSpacing.size(); f++) I.faces[f].spacing = faceSpacing[f];
+  // Each edge's spacing: the least of its faces' (its uses', a pseudo-edge's own face's), at most maxSpacing.
+  std::vector<double> want(I.edges.size(), I.o.maxSpacing);
+  for (size_t e = 0; e < I.edges.size(); e++) {
+    Impl::Edge& E = I.edges[e];
+    for (int c : E.coedges)
+      if (I.coedges[c].face >= 0) want[e] = std::min(want[e], I.faces[I.coedges[c].face].spacing);
+    if (static_cast<int>(e) >= I.nModel && E.face >= 0) want[e] = std::min(want[e], I.faces[E.face].spacing);
+    E.spacing = std::min(E.spacing, want[e]);
+  }
+  // Passes of splits, each span longer than that into equal pieces (at most 9 a pass: split's tenth), until none is.
+  Status st = Status::ok;
+  for (int pass = 0; pass < 16; pass++) {
+    std::vector<SplitRequest> requests;
+    const double floor = refinementFloor(I.tol, I.o.deflection);
+    for (size_t e = 0; e < I.edges.size(); e++) {
+      const Impl::Edge& E = I.edges[e];
+      if (!E.geom || !(want[e] < kInf)) continue;
+      for (size_t i = 0; i + 1 < E.s.points.size(); i++) {
+        const double chord = norm(E.s.points[i + 1] - E.s.points[i]);
+        if (!(chord > want[e]) || chord <= floor) continue;
+        const int n = static_cast<int>(std::min(9.0, std::ceil(chord / want[e])));
+        for (int k = 1; k < n; k++)
+          requests.push_back({static_cast<int32_t>(e), static_cast<int32_t>(i), static_cast<double>(k) / n});
+      }
+    }
+    if (requests.empty()) break;
+    const size_t before = I.sampleCount();
+    if (split(requests) != Status::ok) st = Status::invalidModel;
+    if (I.sampleCount() == before) break;  // (none could be made: within a ring or the floor)
+  }
+  return st;
 }
 
 Status EdgeMesh::cutRings(const std::vector<RingCut>& cuts) {

@@ -1609,8 +1609,8 @@ TEST_CASE("progress: the phases before meshing in order; each face as its meshin
   CHECK_EQ(static_cast<int>(perRow.size()), m.faces());
   for (const PartProgress& p : seen)
     if (p.phase == PartProgress::meshing && p.round > 0) CHECK(p.facesTotal >= 1 && p.facesDone < p.facesTotal);
-  // Before meshing, each phase in order (surfaces, the boxes' edges, criteria, the edges), each counting up to its
-  // total, a use's report naming its face.
+  // Before meshing, each phase in order (surfaces, the edges, criteria), each counting up to its total, a use's report
+  // naming its face.
   int phase = 0;
   bool inOrder = true, counted = true, named = false;
   for (const PartProgress& p : seen) {
@@ -1622,7 +1622,7 @@ TEST_CASE("progress: the phases before meshing in order; each face as its meshin
   }
   CHECK(inOrder);
   CHECK(counted);
-  CHECK_EQ(phase, static_cast<int>(PartProgress::edges));
+  CHECK_EQ(phase, static_cast<int>(PartProgress::criteria));
   CHECK(named);
   // The cube's six faces: one report each in the first pass, row k with k faces done of 6.
   cadgeom::Model cube = load("cube");
