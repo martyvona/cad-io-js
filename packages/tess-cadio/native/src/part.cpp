@@ -35,6 +35,8 @@ struct PartMesher::Impl {
   /** Per face, the edges (model and pseudo) its boundary has points of, and the splits its mesh wants. */
   std::vector<std::set<int>> edgesOf;
   std::vector<std::vector<SplitRequest>> wanted;
+  /** The part's tolerance (cadgeom::Tolerances::part): an edge's span shorter is never split (EdgeMesh::split). */
+  double partTol = 0;
   /** Per face, its poles' rings (poles.h), shared across faces and cut into their edges before any face is meshed. */
   std::vector<std::vector<PoleRing>> rings;
   /**
@@ -372,6 +374,17 @@ struct PartMesher::Impl {
       d.points.push_back(p.uv);
       if (p.kind == BoundaryPoint::pseudoSample) edgesOf[f].insert(p.edgeIndex);
     }
+    // The segments the edges won't split (an edge's span within the part's tolerance, as EdgeMesh::split has it):
+    // frozen, so the mesher inserts past them rather than asking.
+    auto frozenSpan = [&](int32_t a, int32_t b) -> uint8_t {
+      int edge, span;
+      bool forward;
+      return a != b && norm(bp[b].point - bp[a].point) <= partTol && spanOf(f, bp[a], bp[b], edge, span, forward);
+    };
+    for (const auto& l : d.loops)
+      for (size_t k = 0; k < l.size(); k++) d.frozen.push_back(frozenSpan(l[k], l[(k + 1) % l.size()]));
+    for (size_t k = 0; k + 1 < d.segments.size(); k += 2)
+      d.frozen.push_back(frozenSpan(d.segments[k], d.segments[k + 1]));
     // Each fan's ring as domain points (its chain's positions in its loop, through the loop's indices).
     std::vector<std::vector<int32_t>> ring(fans.size());
     for (size_t k = 0; k < fans.size(); k++)
@@ -526,6 +539,7 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
   I.rings.resize(nf);
   I.refused.resize(nf);
   const cadgeom::Tolerances tols(m);
+  I.partTol = tols.part();
   for (int f = 0; f < nf; f++) {
     Status st;
     // (A face with no loops too: its surface's natural extent, where it has one, edges.h.)

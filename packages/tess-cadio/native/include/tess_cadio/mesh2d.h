@@ -56,6 +56,12 @@ struct Domain2 {
   std::vector<std::vector<int32_t>> loops;
   /** Interior constraint segments (pairs of point indices) the triangulation must contain, also fixed. */
   std::vector<int32_t> segments;
+  /**
+   * Per segment, numbered as SplitWanted::segment (each loop's, then the interior ones), whether the caller can never
+   * split it (an edge's span shorter than the part's tolerance: criteria.h's refinement floor): a point encroaching
+   * only such segments is inserted, and none is wanted split. Empty, or shorter than the segments: the rest not.
+   */
+  std::vector<uint8_t> frozen;
 };
 
 struct MeshOptions {
