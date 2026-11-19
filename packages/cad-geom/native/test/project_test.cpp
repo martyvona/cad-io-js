@@ -1228,7 +1228,7 @@ const int32_t kPoleSurfI[] = {
     3, 3, 4, 4, 2, 2, 0, 0, 0, 0, 0, 4, 4, 4, 4};
 const double kPoleRange[2] = {1.0552681618335185e-23, 0.9999999999999991};
 
-TEST_CASE("traces that stop short say where and why: a fold 0.26 off the curve, a pole line under a stray pole") {
+TEST_CASE("traces that stop short say where and why: a fold 0.26 off the curve, a pole line 1 over a pole") {
   Status st;
   struct Case {
     const char* name;
@@ -1239,11 +1239,9 @@ TEST_CASE("traces that stop short say where and why: a fold 0.26 off the curve, 
     StopWhy why;
   };
   // bug25287's curve is up to 0.39 off its face midway (a model defect: global inversion at 41 points), the feet
-  // folding where it stops; bug24383's stray pole takes the curve 1.2e7 out within its first 2.2e-6.
+  // folding where it stops.
   for (const Case& c : {Case{"fold", kFoldCurveR, kFoldSurfR, kFoldCurveI, kFoldSurfI, kFoldRange, 1e-5,
-         0.2046295844161735, 0.260115457581517, StopWhy::fold},
-         Case{"pole line", kPoleCurveR, kPoleSurfR, kPoleCurveI, kPoleSurfI, kPoleRange, 0.0508, 1.0773759444657758e-6,
-           19689329.87344008, StopWhy::poleLine}}) {
+         0.2046295844161735, 0.260115457581517, StopWhy::fold}}) {
     std::unique_ptr<Curve> cv = curves::makeBSpline(c.cr, c.ci, 3, st);
     std::unique_ptr<Surface> sf = closeInFact(surfaces::makeBSpline(c.sr, c.si, st), c.tol);
     REQUIRE(cv);
@@ -1259,6 +1257,41 @@ TEST_CASE("traces that stop short say where and why: a fold 0.26 off the curve, 
     if (!(p.stopWhy == c.why) || !(std::fabs(p.stopAt - c.at) <= 1e-6))
       std::printf("    %s: stopped %d why %d at %.17g distance %g\n", c.name, p.stopped, int(p.stopWhy), p.stopAt,
         p.stopDistance);
+  }
+  // A line 1 over a sphere's north pole (radius 10, x from -1 to 1 at z = 11): its feet run straight through the
+  // pole, where a corrected foot is on the pole line with the curve farther than tol from it, so refused; the trace
+  // stops where its foot comes within tol of the pole (x = -tol 11 / 10), the curve 1 off.
+  {
+    const double tol = 1e-3;
+    const double sr[10] = {0, 0, 0, 0, 0, 1, 1, 0, 0, 10};
+    std::unique_ptr<Surface> sph = closeInFact(surfaces::makeSphere(sr), tol);
+    const double lr[7] = {-1, 0, 11, 1, 0, 0, 2};
+    std::unique_ptr<Curve> line = curves::makeLine(lr, 3);
+    Pcurve p = project::projectForms(*line, {0, 1}, *sph, tol, nullptr, {}, {});
+    CHECK(p.stopped);
+    CHECK(p.stopWhy == StopWhy::poleLine);
+    CHECK(p.status == Status::invalidModel);
+    CHECK(p.pieces.empty());
+    CHECK(p.stopAt > 0.499);
+    CHECK(p.stopAt < 0.5);
+    CHECK(std::fabs(p.stopDistance - 1) < 1e-3);
+    CHECK(p.offSurface >= p.stopDistance);
+    if (!(p.stopWhy == StopWhy::poleLine) || !(p.stopAt > 0.499 && p.stopAt < 0.5))
+      std::printf("    pole line: stopped %d why %d at %.17g distance %g status %d\n", p.stopped, int(p.stopWhy),
+        p.stopAt, p.stopDistance, int(p.status));
+  }
+  // bug24383's stray pole takes the curve 1.2e7 out within its first 2.2e-6. Its face's side at u = 1, collapsed
+  // within tol but 0.012 long, isn't a pole (closeInFact: under 10 x tol), so the trace doesn't stop there; the
+  // spans' hulls still find the curve leaving the surface: invalidModel, offSurface the stray pole's.
+  {
+    std::unique_ptr<Curve> cv = curves::makeBSpline(kPoleCurveR, kPoleCurveI, 3, st);
+    std::unique_ptr<Surface> sf = closeInFact(surfaces::makeBSpline(kPoleSurfR, kPoleSurfI, st), 0.0508);
+    REQUIRE(cv);
+    REQUIRE(sf);
+    Pcurve p = project::projectForms(*cv, {kPoleRange[0], kPoleRange[1]}, *sf, 0.0508, nullptr, {}, {});
+    CHECK(p.status == Status::invalidModel);
+    CHECK(p.offSurface > 1e7);
+    CHECK(p.offSpan.hi < 3e-6);
   }
 }
 
