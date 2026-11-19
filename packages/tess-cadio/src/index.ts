@@ -253,6 +253,13 @@ export class CadioTessellator implements Tessellator {
         + `projected within 0.05 x the deflection, ${pc[1]} at the edge's tolerance (the curve farther off its `
         + `surface), ${pc[2]} by inversion (no projection ok)` });
     }
+    const folded = list('folded');
+    if (folded.length) {
+      const folds = typeof diag['folds'] === 'number' ? diag['folds'] : 0;
+      diagnostics.push({ severity: 'info', message: `${folds} boundary folds repaired in ${folded.length} faces`
+        + ' (a point convex in (u, v) turning the other way in 3D, its (u, v) moved onto its '
+        + 'neighbours\' chord within the face\'s tolerance)' });
+    }
     const against = list('againstSense');
     if (against.length) {
       diagnostics.push({ severity: 'warning', message: `${against.length} faces with a loop against the face's sense `

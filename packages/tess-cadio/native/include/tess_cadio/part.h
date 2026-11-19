@@ -82,6 +82,8 @@ struct FaceMesh {
   std::string note;
   /** Its boundary's FaceBoundary::againstSense: a loop against the face's sense, meshed as the sense has it. */
   bool againstSense = false;
+  /** Its boundary's FaceBoundary::foldsRepaired. */
+  int foldsRepaired = 0;
 };
 
 class PartMesher {

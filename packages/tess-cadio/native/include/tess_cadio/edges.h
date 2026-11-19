@@ -159,6 +159,13 @@ struct FaceBoundary {
    * it (the face ok, no cause); which of the two is right is healing's to settle.
    */
   bool againstSense = false;
+  /**
+   * Boundary folds repaired: a point whose (u, v) made a convex corner with its loop's neighbours while its 3D point
+   * turns the other way about the surface's normal there (an ear on it would face against the surface: vertices off
+   * their surface past its range's edge, their feet clamped), its (u, v) moved onto their (u, v) chord, at its share
+   * of their 3D distance, where the surface there is within the face's tolerance of its 3D point (which is kept).
+   */
+  int foldsRepaired = 0;
   std::vector<std::vector<BoundaryPoint>> loops;
   /** Interior constraint chains: each a run of points to join pairwise (or a single point to keep). */
   std::vector<std::vector<BoundaryPoint>> interior;

@@ -438,6 +438,57 @@ struct EdgeMesh::Impl {
     return norm(q.p - s0) <= radius ? x : start;
   }
 
+  /**
+   * Face f's loops' folds repaired (FaceBoundary::foldsRepaired), counted: each point whose (u, v) corner with its
+   * neighbours is convex (the loops counterclockwise) while its 3D turn about S_u x S_v there is the other way, both
+   * past rounding, its (u, v) onto their chord at its share of their 3D distance where the surface is within the
+   * face's tolerance of its 3D point, and from there a step towards that point where it keeps the turn its 3D one.
+   * One pass in loop order, each point judged with its neighbours as they stand.
+   */
+  int repairFolds(int f, std::vector<std::vector<BoundaryPoint>>& loops) const {
+    const Face& F = faces[f];
+    const double within = tols.face(f);
+    int n = 0;
+    for (auto& L : loops) {
+      const size_t k = L.size();
+      if (k < 3) continue;
+      for (size_t i = 0; i < k; i++) {
+        const BoundaryPoint &A = L[(i + k - 1) % k], &C = L[(i + 1) % k];
+        BoundaryPoint& B = L[i];
+        if (B.kind == BoundaryPoint::poleLine) continue;
+        const Vec2 ab = B.uv - A.uv, bc = C.uv - B.uv;
+        const double s2 = ab.x * bc.y - ab.y * bc.x;
+        if (!(s2 > 1e-12 * norm(ab) * norm(bc))) continue;
+        SurfacePoint q;
+        if (F.s->eval(B.uv.x, B.uv.y, 1, q) != Status::ok) continue;
+        const Vec3 nn = cross(q.du, q.dv);
+        if (!(norm(nn) > 0)) continue;
+        const double l1 = norm(B.point - A.point), l2 = norm(C.point - B.point);
+        const double s3 = dot(cross(B.point - A.point, C.point - B.point), (1 / norm(nn)) * nn);
+        if (!(s3 < -1e-9 * l1 * l2)) continue;
+        Vec2 to = A.uv + (l1 / (l1 + l2)) * (C.uv - A.uv);
+        SurfacePoint r;
+        if (F.s->eval(to.x, to.y, 1, r) != Status::ok || !(norm(r.p - B.point) <= within)) continue;
+        // From the chord, one Gauss-Newton step towards the 3D point, not held to the range (its feet were clamped
+        // there): its turn then as the 3D point's, where that step evaluates, keeps within the tolerance and agrees.
+        const Vec3 e = B.point - r.p;
+        const double a = dot(r.du, r.du), b = dot(r.du, r.dv), c = dot(r.dv, r.dv), det = a * c - b * b;
+        if (det > 1e-12 * a * c && a > 0) {
+          const double gu = dot(e, r.du), gv = dot(e, r.dv);
+          const Vec2 step = to + Vec2{(c * gu - b * gv) / det, (a * gv - b * gu) / det};
+          const Vec2 ab2 = step - A.uv, bc2 = C.uv - step;
+          SurfacePoint w;
+          if (F.s->eval(step.x, step.y, 0, w) == Status::ok && norm(w.p - B.point) <= within &&
+            ab2.x * bc2.y - ab2.y * bc2.x < 0)
+            to = step;
+        }
+        B.uv = to;
+        n++;
+      }
+    }
+    return n;
+  }
+
   /** The singularity (pole or apex) at 3D point p, or -1. */
   int poleAt(int f, Vec3 p) const {
     const Face& F = faces[f];
@@ -1759,6 +1810,7 @@ struct EdgeMesh::Impl {
       out.status = worse(out.status, Status::unsupported);
       because("no edge loops, and its surface's natural extent doesn't close (a whole plane, cylinder or cone)");
     }
+    out.foldsRepaired = repairFolds(f, loops);
     out.loops = std::move(loops);
     return out;
   }

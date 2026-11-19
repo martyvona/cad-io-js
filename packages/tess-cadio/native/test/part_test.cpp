@@ -292,6 +292,40 @@ TEST_CASE("curved faces (a seam cylinder, a band, a hemisphere, a cap, a lune): 
   }
 }
 
+TEST_CASE("a boundary fold repaired: a corner convex in (u, v), concave in 3D, its (u, v) turned as its 3D point") {
+  // cornerFold's corner point (0.994, 0.994) has its (u, v) at (1, 1) from its edges' p-curves: an ear there faced
+  // against the plane. Repaired: its (u, v) onto the chord of (1, 0.99) and (0.99, 1), then a step to the point's
+  // own, (0.994, 0.994) on the plane, within the face's tolerance; no triangle facing against the surface, its 3D
+  // point kept.
+  cadgeom::Model m = load("cornerFold");
+  REQUIRE(m.ok());
+  for (double d : {0.1, 0.01}) {
+    PartMesher pm(m, options(d, 0.26));
+    const FaceMesh& fm = pm.face(0);
+    REQUIRE(fm.status == cadgeom::Status::ok);
+    CHECK_EQ(fm.foldsRepaired, 1);
+    FaceBoundary fb = pm.edges().face(0);
+    bool kept = false;
+    for (const BoundaryPoint& p : fb.loops[0])
+      if (cadgeom::norm(p.point - Vec3{0.994, 0.994, 0}) < 1e-12) {
+        kept = true;
+        CHECK(std::hypot(p.uv.x - 0.994, p.uv.y - 0.994) < 1e-9);
+      }
+    CHECK(kept);
+    int facing = 0;
+    for (size_t t = 0; t < fm.triangles.size(); t += 3) {
+      Vec3 a = fm.points[fm.triangles[t]], b = fm.points[fm.triangles[t + 1]], c = fm.points[fm.triangles[t + 2]];
+      facing += cadgeom::cross(b - a, c - a).z < 0;
+    }
+    if (facing) std::printf("  cornerFold at %g: %d triangles facing against the plane\n", d, facing);
+    CHECK_EQ(facing, 0);
+  }  // cornerFoldTight: the move past its face's tolerance (0.001), not made.
+  cadgeom::Model t = load("cornerFoldTight");
+  REQUIRE(t.ok());
+  PartMesher pt(t, options(0.1, 0.26));
+  CHECK_EQ(pt.face(0).foldsRepaired, 0);
+}
+
 TEST_CASE("cones with a seam from the apex used both ways: within the deflection, to area, the jump a whole turn") {
   // The cad-brep cone (no seam p-curves) and seamCone (given, at u = 2 pi up and 0 down), with a degenerate edge at
   // the apex and without: the loop's jump across the apex a whole period (the seam's two uses either side), not a cut
