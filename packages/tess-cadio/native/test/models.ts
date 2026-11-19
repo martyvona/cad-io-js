@@ -146,6 +146,22 @@ export function cap(): BrepBuilder {
 }
 
 /**
+ * A cap of radius 0.2 about the north pole of a sphere of radius 10 under an uncertainty of 1: its one edge loop all
+ * within the tolerance of the pole, so nothing to mesh (trj3_s1-al-214's caps).
+ */
+export function capWithinPole(): BrepBuilder {
+  const b = new BrepBuilder({ uncertainty: 1 });
+  const z = Math.sqrt(100 - 0.04);
+  const circle = b.addCurve({ kind: 'circle', position: { ...AXIS, origin: [0, 0, z] }, radius: 0.2 });
+  const v = b.addVertex({ point: [0.2, 0, z] });
+  const e = b.addEdge({ curve: circle, start: v, end: v, sameSense: true });
+  const face = b.addFace({ surface: b.addSurface({ kind: 'sphere', position: AXIS, radius: 10 }), sameSense: true,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [{ edge: e, orientation: 'forward' }] }] });
+  sheet(b, face);
+  return b;
+}
+
+/**
  * A band 0.003 wide on a sphere of radius 4.5, between its equator and the parallel 0.003 above (bug27894's strips'
  * shape, about their own axis): at 0.1 mm its circles' chords bow further than the band is wide, so the triangles
  * across it, every corner on the boundary, are turned off the surface until the circles are sampled finer. Area
@@ -1567,5 +1583,5 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   halfCylinderApart, halfCylinderBare, halfCylinderWest, arcBand, cuspPocket: cuspPocket_,
   cuspPocketMirrored, flowerHole, lobes,
   slitFromCorner, lunePinch, spindleApex: () => spindleCorner(0.005),
-  tinyCap: () => capWithin(0.01), poleLunes, poleLens, curlBack, passBy,
+  tinyCap: () => capWithin(0.01), capWithinPole, poleLunes, poleLens, curlBack, passBy,
   wrongEndPcurve: () => wrongEndPcurve(), wigglePcurve: () => wrongEndPcurve(true) };

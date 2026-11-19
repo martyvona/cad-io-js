@@ -997,7 +997,8 @@ Domain2 halfDisc(int n) {
 TEST_CASE("a long segment opposite cocircular points: refused candidates past the cavity limit not halved") {
   // Every candidate lies in the chord's diametral circle (the half-disc does), so each is refused; the arc's samples
   // are cocircular, so each cavity is the whole mesh, past kHalvingCavity (1,024) at 2,000 samples. The metric is
-  // coarser than the chord, so nothing's wanted split.
+  // coarser than the chord, but the chord is far longer than the triangles its candidates run into (kLongSegment), so
+  // it alone is wanted split.
   Mesh2Detail big;
   Domain2 d = halfDisc(2000);
   Mesh2 m = mesh2Detailed(d, Uniform(100), {}, &big);
@@ -1007,7 +1008,8 @@ TEST_CASE("a long segment opposite cocircular points: refused candidates past th
   // (All but a few: `refused` also counts candidates too near a vertex, and near the chord's ends a cavity's star
   // pruning can leave it under the limit.)
   CHECK(big.halvingsSkipped >= big.refused - 5);
-  CHECK(m.splitWanted.empty());
+  REQUIRE(m.splitWanted.size() == 1);
+  CHECK_EQ(m.splitWanted[0].segment, 2000);
   CHECK_EQ(m.points.size(), d.points.size());
   // Under the limit (200 samples, cavities of 200) every refusal is halved as before.
   Mesh2Detail small;
@@ -1016,4 +1018,55 @@ TEST_CASE("a long segment opposite cocircular points: refused candidates past th
   CHECK_EQ(validate(e, ms, "half-disc 200"), 0);
   CHECK(small.refused > 100);
   CHECK_EQ(small.halvingsSkipped, 0);
+  // The chord wanted split only once it's over kLongSegment x the triangles its candidates run into: at 12 arc
+  // samples they're too large beside it, at 16 not.
+  CHECK(mesh2(halfDisc(12), Uniform(100)).splitWanted.empty());
+  Mesh2 m16 = mesh2(halfDisc(16), Uniform(100));
+  REQUIRE(m16.splitWanted.size() == 1);
+  CHECK_EQ(m16.splitWanted[0].segment, 16);
+}
+
+TEST_CASE("a triangle only much shorter segments stand in the way of: broken at its centroid") {
+  // A unit square whose side x = 1 has 100 samples and the others n, in a metric 150 to 1 (sizes 0.01 across, 1.5
+  // along y): beside the fine side, triangles refused for their shape have candidates that encroach only its
+  // segments, each far shorter in the metric than the triangle (under its longest edge / kShortSegment), and are
+  // broken at their centroids (the mesh valid, Delaunay in the metric rather than the plane). The isotropic square
+  // has no such segments: none.
+  for (int n : {64, 16}) {
+    Domain2 d;
+    std::vector<int32_t> loop;
+    auto add = [&](double x, double y) {
+      loop.push_back(static_cast<int32_t>(d.points.size()));
+      d.points.push_back({x, y});
+    };
+    for (int i = 0; i < n; i++) add(i / double(n), 0);
+    for (int i = 0; i < 100; i++) add(1, i / 100.0);
+    for (int i = 0; i < n; i++) add(1 - i / double(n), 1);
+    for (int i = 0; i < n; i++) add(0, 1 - i / double(n));
+    d.loops.push_back(loop);
+    Mesh2Detail fine;
+    Mesh2 m = mesh2Detailed(d, Stretched(0.01, 1.5), {}, &fine);
+    CHECK(m.status == cadgeom::Status::ok);
+    CHECK_EQ(validate(d, m, "fine side", false), 0);
+    CHECK(fine.brokenInside > 0);
+    // Pinned (the same on every target): both ways in are taken, a candidate refused and one placed within 5% of the
+    // centroid (which counts as refused): without the second, at 64, 4 broken and 953 refused; and a centroid too near
+    // a corner refused too, as any placement is (at 16, 166 refused without that).
+    CHECK_EQ(fine.brokenInside, n == 64 ? 17 : 4);
+    CHECK_EQ(fine.refused, n == 64 ? 686 : 169);
+    // No point the mesher added encroaches a boundary segment (inside its diametral circle in the metric).
+    int encroaching = 0;
+    for (size_t i = d.points.size(); i < m.points.size(); i++)
+      for (size_t k = 0; k < loop.size(); k++) {
+        Vec2 q = m.points[i], U = d.points[loop[k]], V = d.points[loop[(k + 1) % loop.size()]];
+        double dot = (q.x - U.x) * (q.x - V.x) / (0.01 * 0.01) + (q.y - U.y) * (q.y - V.y) / (1.5 * 1.5);
+        encroaching += dot <= 0;
+      }
+    CHECK_EQ(encroaching, 0);
+  }
+  Mesh2Detail plain;
+  Domain2 e = square(8);
+  Mesh2 ms = mesh2Detailed(e, Uniform(0.05), {}, &plain);
+  CHECK_EQ(validate(e, ms, "square"), 0);
+  CHECK_EQ(plain.brokenInside, 0);
 }

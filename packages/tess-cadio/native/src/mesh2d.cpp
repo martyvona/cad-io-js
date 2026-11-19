@@ -38,6 +38,13 @@ namespace {
  * each refused triangle cost 13 of them (as1_motor's 29 m half-discs, 20,000 arc samples: hours).
  */
 constexpr size_t kHalvingCavity = 1024;
+/**
+ * A refused triangle whose candidates encroach only segments shorter than its longest edge over this (in the metric)
+ * is broken from inside instead of asking them split; a segment longer than kLongSegment x a refused triangle's
+ * longest edge is asked split.
+ */
+constexpr double kShortSegment = 4;
+constexpr double kLongSegment = 4;
 
 using cdt::kBoundary;
 using cdt::kGhost;
@@ -271,6 +278,28 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
       for (int32_t w : T.tris()[at].v)
         if (w >= 0 && mlen(M, sub(c, T.points()[w])) < floor) placed = false;
     }
+    // A triangle only a much shorter segment stands in the way of (each one it encroached shorter in the metric than
+    // its longest edge over kShortSegment) is broken from inside instead, at its centroid where that's clear:
+    // splitting such a segment, once a round, would leave the triangle as it is for many rounds (arm's half cylinder:
+    // fans of slivers 28 mm long over a fixed arc's 1.5 mm segments).
+    if ((!placed || f < 0.05) && !encroached.empty()) {
+      double longest = std::max({l[0], l[1], l[2]});
+      bool shortOnly = true;
+      for (uint64_t k : encroached) {
+        int32_t u = static_cast<int32_t>(k >> 32), v = static_cast<int32_t>(k & 0xffffffffu);
+        shortOnly = shortOnly && kShortSegment * mlen(M, sub(T.points()[v], T.points()[u])) < longest;
+      }
+      // (The centroid too near a corner, as placements are: a flat triangle's is about a third of its height from
+      // the obtuse corner.)
+      if (shortOnly && acceptable(g, at, false).clear) {
+        c = g, placed = true, f = 1;
+        bool near = false;
+        double floor = 0.1 * std::min(1.0, l[s]);
+        for (int32_t w : T.tris()[at].v) near = near || (w >= 0 && mlen(M, sub(c, T.points()[w])) < floor);
+        if (near) placed = false;
+        else D.brokenInside++;
+      }
+    }
     if (!placed || f < 0.05) {
       D.refused++;
       for (uint64_t k : encroached) wanted.push_back({k, it.t, it.gen});
@@ -303,7 +332,13 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
     Metric2 Ms{0.5 * (Mu.a + Mv.a), 0.5 * (Mu.b + Mv.b), 0.5 * (Mu.c + Mv.c)};
     Vec2 p[3];
     corners(t, p);
-    if (mlen(Ms, sub(T.points()[v], T.points()[u])) > std::sqrt(2.0) || !field.accept(p)) split.insert(k);
+    // And a segment longer than kLongSegment x the refused triangle's longest edge (in its metric): one the triangle's
+    // candidates keep running into, too long beside it to leave fixed (a plane's chord of 2 under its arc's 20,000
+    // samples: a fan of slivers to its ends, none ever split).
+    double longest = 0;
+    for (int i = 0; i < 3; i++) longest = std::max(longest, mlen(Ms, sub(p[(i + 1) % 3], p[i])));
+    const double seg = mlen(Ms, sub(T.points()[v], T.points()[u]));
+    if (seg > std::sqrt(2.0) || !field.accept(p) || seg > kLongSegment * longest) split.insert(k);
   }
   // In segment order, each once: the domain's segments numbered as SplitWanted says.
   int32_t segment = 0;
