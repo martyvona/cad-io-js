@@ -15,10 +15,11 @@
 //   WORKERS=<n> workers per backend in each process (default: a third of the process's share, runner.ts)
 //   PLANT=<bug>  a bug planted in about one part in 10 before it's judged, to prove the check sees it (each planted
 //                case is checked for the verdict it must get, the missed ones listed): fail (our first meshed face
-//                emptied: must be ours failed, "not in our diagnostics"), part (our result replaced by a crash: every
-//                face ours failed, "part crash"), occt and smlib (that reference's first meshed face emptied: must be
-//                counted as failed by it), cause (our first meshed face emptied and named in a by-cause
-//                diagnostic of two entries: must be ours failed with the planted cause)
+//                emptied: must be ours failed, "not in our diagnostics", or "part no triangles" where it was the part's
+//                only meshed face), part (our result replaced by a crash: every face ours failed, "part crash"; parts
+//                without faces not planted), occt and smlib (that reference's first meshed face emptied: must be
+//                counted as failed by it), cause (our first meshed face emptied and named in a by-cause diagnostic of
+//                two entries: must be ours failed with the planted cause)
 //   CPU_MS=<ms>     ours's limit per part in its worker thread's CPU time (tess-workers' cpuTimeoutMs, default
 //                120000: a part slower than that fails for development's purposes either way), 4 x it in wall time
 //                the backstop; a part stopped at it is its own status, "over N s CPU", listed with its last
@@ -117,7 +118,10 @@ const refFailed = (expect: string, occtOk: boolean, smlibOk: boolean) =>
   (expect === 'OCCT fails' && !occtOk) || (expect === 'SMLib fails' && !smlibOk);
 
 /** PLANT's bug on one part, in place on copies; returns what the planted case must be judged as. */
-function plant(o: Record<Backend, TessellationResult | Error>): { expect: string; face?: number } | undefined {
+function plant(o: Record<Backend, TessellationResult | Error>, faces: number):
+  { expect: string; face?: number } | undefined {
+  // (A part without faces has no face to judge a plant by.)
+  if (!faces) return undefined;
   const emptyFirst = (b: Backend) => {
     const r = o[b];
     if (r instanceof Error) return undefined;
@@ -236,7 +240,7 @@ export const check: FileCheck<string, Tallies> = {
       const d: BrepData = p.brep!.model;
       const rows = d.face.surface.length;
       const ids = Array.from({ length: rows }, (_, i) => d.face.id[i]!);
-      const planted = PLANT && plantedPart(where) ? plant(r) : undefined;
+      const planted = PLANT && plantedPart(where) ? plant(r, rows) : undefined;
       if (planted) T.planted.cases++;
       const o = Object.fromEntries(BACKENDS.map((b) => [b, outcome(r[b], ids)])) as Record<Backend, Outcome>;
       for (const b of BACKENDS) {
@@ -293,7 +297,10 @@ export const check: FileCheck<string, Tallies> = {
         if (why === 'not in our diagnostics') note('face without our triangles not in our diagnostics',
           `${where} face #${id} (${kind})`);
         T.unmeshed.push(`${where} face #${id} (${kind}): ${why}; ${col}; ${UNCLASSIFIED}`);
-        if (planted && planted.expect === why && (planted.face === undefined || planted.face === id)) plantSeen = true;
+        // (Emptying a part's only meshed face leaves it no triangles, so the part's status names the face.)
+        const seenAs = (x: string) => x === why || (x === 'not in our diagnostics' && why === 'part no triangles'
+          && !causes.has(id));
+        if (planted && seenAs(planted.expect) && (planted.face === undefined || planted.face === id)) plantSeen = true;
         if (planted?.face === id && refFailed(planted.expect, occtOk, smlibOk)) plantSeen = true;
       }
       if (meshedHere + failedHere !== rows || meshedHere !== ids.filter((id) => ours.meshed.has(id)).length) {
