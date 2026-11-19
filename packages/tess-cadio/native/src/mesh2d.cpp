@@ -31,6 +31,14 @@ namespace tesscadio {
 
 namespace {
 
+/**
+ * A refused candidate's cavity (triangles) past which it isn't moved toward the centroid again. Over the corpus
+ * subset's ordinary faces no cavity reached 512 triangles and no refused first try 256; those that pass 1,024 are a
+ * long fixed segment opposite an arc's cocircular samples, where every halving's cavity is the whole mesh too and
+ * each refused triangle cost 13 of them (as1_motor's 29 m half-discs, 20,000 arc samples: hours).
+ */
+constexpr size_t kHalvingCavity = 1024;
+
 using cdt::kBoundary;
 using cdt::kGhost;
 using cdt::kInterior;
@@ -214,16 +222,21 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
       double l11 = std::sqrt(std::max(Mq.a, 1e-300)), l12 = Mq.b / l11;
       return cdt::Map2{l11, l12, std::sqrt(std::max(Mq.c - l12 * l12, 1e-300))};
     };
-    auto acceptable = [&](Vec2 q, int32_t& at, bool record) {
+    // Whether a candidate is clear, and its cavity in triangles (none where it leaves the domain).
+    struct Verdict {
+      bool clear;
+      size_t cavity;
+    };
+    auto acceptable = [&](Vec2 q, int32_t& at, bool record) -> Verdict {
       at = T.locate(q, it.t);
       const cdt::Tri& W = T.tris()[at];
       if (W.v[2] == kGhost || !W.inside) {
         // Outside the domain: the boundary segment the ray from the centroid crosses first is the one in the way.
         std::pair<int32_t, int32_t> e;
         if (record && T.firstConstraint(g, q, it.t, e)) encroached.push_back(pairKey(e.first, e.second));
-        return false;
+        return {false, 0};
       }
-      T.cavityConstraints(q, at, hits, mapAt(q));
+      const size_t cavity = T.cavityConstraints(q, at, hits, mapAt(q));
       bool clear = true;
       for (auto [u, v] : hits) {
         Vec2 U = T.points()[u], V = T.points()[v];
@@ -233,16 +246,22 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
           if (record) encroached.push_back(pairKey(u, v));
         }
       }
-      return clear;
+      return {clear, cavity};
     };
     int32_t at = -1;
     double f = 1;
     encroached.clear();
-    bool placed = acceptable(c, at, true);
-    for (int k = 0; k < 12 && !placed; k++) {
+    const Verdict first = acceptable(c, at, true);
+    bool placed = first.clear;
+    // No halvings after a refusal whose cavity passed kHalvingCavity: the halvings' cavities are as large (each a
+    // search of that many triangles), and such cavities come from a fixed segment far longer than the triangles,
+    // opposite cocircular boundary points (an arc's samples), which every candidate encroaches.
+    const int halvings = !placed && first.cavity > kHalvingCavity ? 0 : 12;
+    if (halvings == 0) D.halvingsSkipped++;
+    for (int k = 0; k < halvings && !placed; k++) {
       f *= 0.5;
       Vec2 q{g.x + (c.x - g.x) * f, g.y + (c.y - g.y) * f};
-      if (acceptable(q, at, false)) c = q, placed = true;
+      if (acceptable(q, at, false).clear) c = q, placed = true;
     }
     // Too near a vertex of where it lands (a tenth of the triangle's shortest edge, or of a unit in the metric if
     // that's shorter): no improvement, the triangle final. Relative, since angles and the caller's criteria ask for

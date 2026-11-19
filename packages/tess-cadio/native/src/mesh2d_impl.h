@@ -11,6 +11,8 @@ struct Mesh2Detail {
   /** Steiner points refused (encroaching, outside the domain, too near a vertex), the triangles left final. */
   int refused = 0;
   int finalTriangles = 0;
+  /** Refused candidates not moved toward the centroid again, their cavity past mesh2d.cpp's kHalvingCavity. */
+  int halvingsSkipped = 0;
 };
 
 Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOptions& options, Mesh2Detail* detail);
