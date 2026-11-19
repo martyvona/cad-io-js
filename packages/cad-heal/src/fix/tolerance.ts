@@ -25,7 +25,8 @@ const GRID = 9, MAX_GRID = 257;
  * cad-geom's upper bound on |C'| over the span (derivBound) and h the span's length. Where every span's bound is
  * within `tol`, so is the curve, and the bound is returned without inverting (the pass needs only whether a curve is
  * past tol, and inversion on a surface smaller than the tolerance is slow). `grids` keeps each surface's grid
- * points, and their cells for each tolerance asked, across calls: building them is most of the bound's cost.
+ * points across calls, and the cells of the surface and tolerance asked last (building them is most of the bound's
+ * cost; the pass asks face by face, and keeping every surface's would hold a part's worth of them).
  */
 export function curveOffSurface(g: Geometry, curve: number, range: [number, number], surface: number, tol: number,
   grids?: Grids): number {
@@ -62,11 +63,11 @@ export function curveOffSurface(g: Geometry, curve: number, range: [number, numb
         found = nu === GRID && nv === GRID ? coarse : points(nu, nv) ?? coarse;
       }
     }
-    grid = found && { points: found, cells: new Map() };
+    grid = found && { points: found };
     grids?.set(surface, grid);
   }
   if (grid) {
-    const bound = gridBound(g, curve, range, grid, tol);
+    const bound = gridBound(g, curve, range, grid, tol, grids);
     if (bound <= tol) return bound;
   }
   const ts = Array.from({ length: SAMPLES }, (_, i) => range[0] + (range[1] - range[0]) * i / (SAMPLES - 1));
@@ -79,12 +80,16 @@ export function curveOffSurface(g: Geometry, curve: number, range: [number, numb
   return w;
 }
 
-/** A surface's grid points (x, y, z each), and per cell size their indices by cell (cellKey). */
+/** A surface's grid points (x, y, z each), and, while it's the surface asked last, their indices by cell (cellKey)
+ * for the tolerance asked last. */
 export interface SurfaceGrid {
   points: Float64Array;
-  cells: Map<number, Map<number, number[]>>;
+  cells?: { tol: number; map: Map<number, number[]> };
 }
 export type Grids = Map<number, SurfaceGrid | null>;
+
+/** Per Grids, the one grid whose cells are kept. */
+const withCells = new WeakMap<Grids, SurfaceGrid>();
 
 /** A cell's key: its three indices hashed to 32 bits. Two cells may share a key; that only adds candidates to a
  * search, each still a real grid point at its exact distance, so the bound stays sound. */
@@ -101,7 +106,8 @@ const MAX_SPANS = 4096;
  * term M h / 2 is at most a quarter of tol (up to MAX_SPANS spans), and each sample's nearest grid point found among
  * the grid's points hashed into cells tol wide (a sample farther than tol from all of them fails the bound).
  */
-function gridBound(g: Geometry, curve: number, range: [number, number], sg: SurfaceGrid, tol: number): number {
+function gridBound(g: Geometry, curve: number, range: [number, number], sg: SurfaceGrid, tol: number,
+  grids?: Grids): number {
   const lo = Math.min(...range), hi = Math.max(...range);
   const whole = g.curveDerivBound(curve, [lo, hi], 1);
   if (whole.status !== 'ok' || whole.statuses[0] !== 0) return Infinity;
@@ -113,14 +119,19 @@ function gridBound(g: Geometry, curve: number, range: [number, number], sg: Surf
     || speed.statuses.some((x) => x !== 0)) return Infinity;
   // The grid's points by cell, tol wide: a point within tol of a sample is in its cell or a neighbour.
   const grid = sg.points, cell = (x: number) => Math.floor(x / tol);
-  let cells = sg.cells.get(tol);
+  let cells = sg.cells?.tol === tol ? sg.cells.map : undefined;
   if (!cells) {
     cells = new Map();
     for (let k = 0; k < grid.length; k += 3) {
       const key = cellKey(cell(grid[k]!), cell(grid[k + 1]!), cell(grid[k + 2]!));
       (cells.get(key) ?? cells.set(key, []).get(key)!).push(k);
     }
-    sg.cells.set(tol, cells);
+    sg.cells = { tol, map: cells };
+    if (grids) {
+      const before = withCells.get(grids);
+      if (before && before !== sg) delete before.cells;
+      withCells.set(grids, sg);
+    }
   }
   const at = new Float64Array(n + 1);
   for (let i = 0; i <= n; i++) {
