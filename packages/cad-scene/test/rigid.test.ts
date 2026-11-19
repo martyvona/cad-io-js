@@ -5,7 +5,7 @@
 
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { BrepBuilder, rowCount } from 'cad-brep';
+import { type BrepAnalysis, BrepBuilder, rowCount } from 'cad-brep';
 import { cube } from '../../cad-brep/test/models.ts';
 import { describeStretched, identity, partInstances, rigidPart, rigidPlacements, stretchWords, type Mat4, type Mesh,
   type Part, type Scene } from '../src/index.ts';
@@ -165,6 +165,19 @@ test('copies: one per part and distinct stretch, components copied per stretch, 
   assert.deepEqual(t.parts.map((p) => p.stretched && Array.from(p.stretched.stretch)), s.parts.map((p) =>
     p.stretched && Array.from(p.stretched.stretch)));
   assert.match(s.diagnostics.map((d) => d.message).join(), /placements mirrored, scaled or sheared: their stretches /);
+});
+
+test('a B-rep part\'s copy is another model: the original keeps its analysis, the copy has none', () => {
+  const s = scene(), analysis = { stand: 'in' } as unknown as BrepAnalysis;
+  s.parts[1]!.brep!.analysis = analysis;
+  rigidPlacements(s);
+  const b = s.parts.filter((p) => p.name === 'b');
+  assert.ok(b.length > 1, 'copied');
+  assert.equal(b[0]!.brep!.analysis, analysis);
+  for (const p of b.slice(1)) {
+    assert.notEqual(p.brep!.model, b[0]!.brep!.model);
+    assert.equal(p.brep!.analysis, undefined);
+  }
 });
 
 test('a shear on a B-rep part: an error, its exact geometry left out; on a mesh, baked exactly', () => {

@@ -150,9 +150,9 @@ export function sphereOverPole(meridian?: Curve, range?: [number, number]): Brep
  * A cylinder of radius 2 from z = 0 to 5 as a B-spline surface: u a rational quadratic full circle over [0, 1] (nine
  * poles; closed in fact, so the face API finds period 1, which the surface's row doesn't have), v = z, degree 1. One
  * face round its side like cylinderSide's; the circles' p-curves left out, the seam's up use's `seamUp` with its use's
- * `range`, the down use's u = 0, v = t.
+ * `range`, the down use's u = 0, v = t. `bottomRadius` the bottom circle's (off the surface by its difference from 2).
  */
-export function bsplineCylinder(seamUp: Curve, range?: [number, number]): BrepBuilder {
+export function bsplineCylinder(seamUp: Curve, range?: [number, number], bottomRadius = 2): BrepBuilder {
   const b = new BrepBuilder({ uncertainty: 1e-6 });
   const h = Math.SQRT1_2, ring = [[2, 0], [2, 2], [0, 2], [-2, 2], [-2, 0], [-2, -2], [0, -2], [2, -2], [2, 0]];
   const w = [1, h, 1, h, 1, h, 1, h, 1];
@@ -161,7 +161,7 @@ export function bsplineCylinder(seamUp: Curve, range?: [number, number]): BrepBu
     poles: ring.map(([x, y]) => [[x!, y!, 0], [x!, y!, 5]]), weights: w.map((x) => [x, x]), uClosed: false,
     vClosed: false, selfIntersect: false, form: 'unspecified' });
   const axis = { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] };
-  const bottom = b.addCurve({ kind: 'circle', position: axis, radius: 2 });
+  const bottom = b.addCurve({ kind: 'circle', position: axis, radius: bottomRadius });
   const top = b.addCurve({ kind: 'circle', position: { ...axis, origin: [0, 0, 5] }, radius: 2 });
   const seam = b.addCurve({ kind: 'line', point: [2, 0, 0], direction: [0, 0, 1], magnitude: 1 });
   const pUp = b.addCurve(seamUp), pDown = b.addCurve(line2([0, 0], [0, 1]));
