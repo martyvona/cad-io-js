@@ -1,7 +1,8 @@
 // A fake backend for the pool tests. The first payload byte picks the behaviour: 0 a one-triangle result, 1 hang,
 // 2 throw as a WASM trap does, 3 grow the reported memory by data[1] MiB, 4 wait data[1] x 10 ms, 5 exit the worker,
 // 6 throw an ordinary error, 7 throw a TessellationError with a time limit of 50 ms, 8 report data[1] progresses
-// (face ids 1, 2, ...) then hang.
+// (face ids 1, 2, ...) then hang, 9 spin until its thread has used data[1] x 10 ms of CPU, reporting progress every
+// 5 ms, 10 wait data[1] x 10 ms with little CPU, reporting progress every 20 ms.
 // Every result names its backend instance, so the tests can tell when a worker was replaced. Init fails with the
 // option `fail`, or after the time `failAfter`.
 
@@ -28,6 +29,20 @@ export class FakeTessellator implements Tessellator {
         onProgress?.({ message: `face #${k}`, faceId: k, facesDone: k - 1, facesTotal: arg });
       }
       for (;;);
+    }
+    if (mode === 9) {
+      const cpu = () => { const u = process.threadCpuUsage(); return (u.user + u.system) / 1000; };
+      const t0 = cpu();
+      let next = performance.now();
+      for (let k = 0; cpu() - t0 < arg * 10;) {
+        if (performance.now() >= next) onProgress?.({ message: `spin ${k++}` }), next += 5;
+      }
+    }
+    if (mode === 10) {
+      for (let k = 0; k * 20 < arg * 10; k++) {
+        onProgress?.({ message: `wait ${k}` });
+        await new Promise((r) => setTimeout(r, 20));
+      }
     }
     if (mode === 2) throw new WebAssembly.RuntimeError('unreachable');
     if (mode === 3) this.memory += arg * 2 ** 20;

@@ -116,6 +116,36 @@ test('a timeout says where the backend last was: its last progress, which the ca
   }
 });
 
+test('cpuTimeoutMs: a request past it in its thread\'s CPU time is stopped at its next progress; one long in wall '
+  + 'time but light on CPU (a loaded host) is not; a request without progress still meets the wall-clock backstop; '
+  + 'each result\'s wall and CPU times', async () => {
+  const t = await pool({ workers: 1, cpuTimeoutMs: 300, timeoutMs: 1500 });
+  try {
+    assert.equal(t.cpuTimeoutMs, 300);
+    // 2 s of CPU wanted: stopped at about 300 ms of it, well before the 1.5 s backstop.
+    const t0 = performance.now();
+    await assert.rejects(t.tessellate(req(9, 200)), (e) => e instanceof TessellationError && e.timeoutMs === 300
+      && /^tessellation timed out after 300 ms of CPU time \(last: spin \d+\)$/.test(e.message));
+    const took = performance.now() - t0;
+    assert.ok(took < 1200, `stopped after ${took} ms`);
+    // 1 s of wall time at little CPU: past the CPU limit in wall time, under it in CPU, so it completes; its times.
+    const r = await t.tessellate(req(10, 100));
+    const times = t.timesOf(r)!;
+    assert.ok(times.wallMs >= 950, `wall ${times.wallMs}`);
+    assert.ok(times.cpuMs !== undefined && times.cpuMs < 300, `cpu ${times.cpuMs}`);
+    // 100 ms of CPU, under the limit: completes, its CPU time about that and at most its wall time.
+    const s = await t.tessellate(req(9, 10));
+    const ts = t.timesOf(s)!;
+    assert.ok(ts.cpuMs! >= 100 && ts.cpuMs! <= ts.wallMs + 5, JSON.stringify(ts));
+    // No progress at all (hung): the wall-clock backstop.
+    await assert.rejects(t.tessellate(req(1)), (e) => e instanceof TessellationError && e.timeoutMs === 1500
+      && e.message === 'tessellation timed out after 1500 ms');
+    assert.equal(t.timesOf({ ...r }), undefined);
+  } finally {
+    t.dispose();
+  }
+});
+
 test('a request that hangs times out, and the next one gets a new worker', async () => {
   const t = await pool({ workers: 1, timeoutMs: 300 });
   try {
