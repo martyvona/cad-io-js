@@ -3,19 +3,25 @@
 // face API's projections of their edges' curves (counted; those it can't make, or without 3D curves, skipped):
 //   - nest2 against the loops' bounds where the source gives them (outer: no parent; inner: inside an outer loop),
 //     bands (loops winding around a period, no parent) apart;
+//   - a face narrower than its tolerance (an 8 x 8 grid over its boundary points' box all on) counted apart, its
+//     moved points not judged (classify2's rays meet joints within tol all the way across);
 //   - classify2 on points of the boundary: two per coedge on its p-curve must be on; those points moved along the
 //     p-curve's left normal by 10 x the point's (u, v) tolerance (cad_geom_api.cpp: the 3D one through the surface's
-//     first fundamental form) must be in on the face's side and out on the other (the left, as the API turns the
-//     loops: counterclockwise about the surface's normal, where the face's sense isn't the surface's turned round);
+//     first fundamental form), but no more than a quarter of the face's width across (its boundary points' box's
+//     narrower side; under 2 x tol, not judged), must be in on the face's side and out on the other (the left, as the
+//     API turns the loops: counterclockwise about the surface's normal, where the face's sense isn't the surface's
+//     turned round);
 //     outside a seam (an edge the face uses twice) the face goes on, not judged. A moved point that's on is near
 //     another boundary (skipped, counted); one that disagrees but agrees at 2 x the tolerance is a narrow face
 //     (another boundary within 10 x); a face whose every judged point is the wrong way round has its loops oriented
-//     against its sense (the source's); the rest listed;
-//   - selfIntersect2 on each edge loop: crossings and touches (pinched loops) counted, examples listed;
+//     against its sense (the source's), one with a loop overlapping itself is the model's defect; the rest listed;
+//   - selfIntersect2 on each edge loop: crossings, touches (pinched loops) and overlaps counted, examples listed;
 //   - faces classify2 calls invalidModel by their loops' widest joint in 3D over the tolerance (p-curves ending off
 //     their vertices, the source's, for healing to bridge);
 //   - OCCT=1: the moved points classified by OCCT's face classifier (tess-occt's probe, the part built by the native
-//     builder, unhealed: its p-curves are the model's), on faces whose (u, v) OCCT's parameterization shares (planes,
+//     builder, unhealed: its p-curves are the model's; where the model gives a use none, OCCT's own first, by
+//     occt_probe_pcurve, their route counted, the face not compared where it makes none), on faces whose (u, v)
+//     OCCT's parameterization shares (planes,
 //     cylinders, spheres, tori, B-splines) or maps affinely (cones: v' = v / cos a), at our (u, v) tolerance; the
 //     differences classified (OCCT on: its band wider than ours; on periodic faces, whether OCCT agrees with the
 //     point shifted by a period, and whether it's near the seam; the rest listed).
@@ -53,7 +59,8 @@ const tally = (t: Tally, key: string, ex?: string) => {
 const fresh = () => ({
   files: 0, parts: 0, faces: 0, judged: 0, projected: 0, planted: 0, caught: [] as string[], plantedAt: [] as string[],
   skipped: {} as Tally, nest: {} as Tally, on: {} as Tally, side: {} as Tally, faceSide: {} as Tally,
-  self: {} as Tally, occt: {} as Tally, statuses: {} as Tally, gaps: {} as Tally,
+  self: {} as Tally, occt: {} as Tally, statuses: {} as Tally, gaps: {} as Tally, narrow: {} as Tally,
+  occtPcurve: {} as Tally,
 });
 type Result = ReturnType<typeof fresh>;
 
@@ -64,12 +71,31 @@ const systemOf = (s: unknown) => typeof s === 'string' && s.trim() ? s.replace(/
 // tess-occt's probe (build-probe.sh): a part built by the native builder, points classified against its faces.
 interface ProbeModule { HEAPU8: Uint8Array; HEAPF64: Float64Array; _malloc(n: number): number; _free(p: number): void;
   _occt_probe_build(p: number, n: number): number; _occt_probe_classify(q: number, n: number, out: number): void;
+  _occt_probe_pcurve(face: number, edge: number, tol: number, n: number, out: number, info: number): number;
   _occt_probe_free(): void }
 let probe: ProbeModule | undefined;
 const PROBE = path.join(import.meta.dirname, '../packages/tess-occt/dist/occt_probe.mjs');
 const loadProbe = async () => {
   probe = await ((await import(PROBE)) as { default: () => Promise<ProbeModule> }).default();
 };
+
+/**
+ * OCCT's own p-curve of the edge on the face where the built shape has none (occt_probe_pcurve: the shape's own, one
+ * computed on request on a plane, else ShapeFix_Edge::FixAddPCurve's, which stays in the shape): its route (0, 1, 2),
+ * or -1 where none was made.
+ */
+function occtPcurveRoute(face: number, edge: number, tol: number): number {
+  const m = probe!, out = m._malloc(8 * (4 + 2 * 7)), info = m._malloc(32);
+  try {
+    const r = m._occt_probe_pcurve(face, edge, tol, 1, out, info);
+    return r === 0 ? m.HEAPF64[info / 8 + 3]! : -1;
+  } finally {
+    m._free(out);
+    m._free(info);
+  }
+}
+const ROUTE = ['the shape\'s own (the model\'s)', 'computed on request (a plane\'s)',
+  'made by ShapeFix_Edge::FixAddPCurve'];
 
 /** OCCT's sides for (face id, u, v, tol) queries, in OCCT's parameters; 255 where it can't. */
 function occtClassify(qs: number[]): Uint8Array {
@@ -224,11 +250,35 @@ export const check: FileCheck<undefined, Result> = {
           }
           const r0 = g.classifyOnFace(f, on);
           const tolUv = r0.tolerance;
+          // A face narrower than its tolerance: every point of an 8 x 8 grid over its boundary points' box on. Its
+          // moved points can't be judged (classify2's rays meet joints within tol all the way across: noConvergence),
+          // so it's counted apart, its nesting and on points kept.
+          let u0 = Infinity, v0 = Infinity, u1 = -Infinity, v1 = -Infinity;
+          for (let i = 0; i < on.length / 2; i++)
+            u0 = Math.min(u0, on[2 * i]!), u1 = Math.max(u1, on[2 * i]!), v0 = Math.min(v0, on[2 * i + 1]!),
+            v1 = Math.max(v1, on[2 * i + 1]!);
+          // Points are moved off the boundary by a multiple of tol, but by no more than a quarter of the face's
+          // width across (its boundary points' box's narrower side): farther, they'd leave a narrow face.
+          const cap = 0.25 * Math.min(u1 - u0, v1 - v0);
+          {
+            const grid: number[] = [];
+            for (let i = 0; i < 8; i++)
+              for (let j = 0; j < 8; j++) grid.push(u0 + (u1 - u0) * (i + 0.5) / 8, v0 + (v1 - v0) * (j + 0.5) / 8);
+            if (on.length && g.classifyOnFace(f, grid).sides.every((x) => SIDE[x] === 'on')) {
+              tally(R.narrow, `${SKIND[sk]}${info.projected ? ', projected p-curves' : ''}`, at);
+              for (let i = 0; i < on.length / 2; i++) {
+                const s = SIDE[r0.sides[i]!];
+                tally(R.on, s === 'on' ? 'on' : `${s} (not on)`, s === 'on' ? undefined
+                  : `${at}: (${on[2 * i]}, ${on[2 * i + 1]}) at tol ${tolUv[i]}`);
+              }
+              continue;
+            }
+          }
           const moved = (scale: number) => {
             const pts: number[] = [];
             for (let i = 0; i < on.length / 2; i++) {
               for (const side of [1, -1]) {
-                const s = side * scale * tolUv[i]!;
+                const s = side * Math.min(scale * tolUv[i]!, cap);
                 pts.push(on[2 * i]! + s * normals[2 * i]!, on[2 * i + 1]! + s * normals[2 * i + 1]!);
               }
             }
@@ -275,6 +325,10 @@ export const check: FileCheck<undefined, Result> = {
           const wrongAt: string[] = [];
           for (let i = 0; i < p10.length / 2; i++) {
             const want = i % 2 === 0 ? 'in' : 'out', got = SIDE[r10.sides[i]!];
+            if (cap < 2 * tolUv[i >> 1]!) {
+              tally(R.side, 'not judged: the face under 8 x tol across (its points moved under 2 x tol)');
+              continue;
+            }
             if (want === 'out' && onSeam[i >> 1]) {
               tally(R.side, 'across a seam: the face goes on (not judged)', got === 'in' ? undefined : `${at}: ${got}`);
               continue;
@@ -288,13 +342,8 @@ export const check: FileCheck<undefined, Result> = {
             wrong++;
             if (wrongAt.length < 3) wrongAt.push(`(${p10[2 * i]}, ${p10[2 * i + 1]}) ${got}, want ${want}`);
           }
-          const cls = !wrong ? 'agree' : !right ? 'every point the wrong way round: loops oriented against the face\'s '
-            + 'sense' : 'some points the wrong way round';
-          tally(R.faceSide, `${cls} (${SKIND[sk]})`,
-            wrong ? `${at}: ${wrong} of ${right + wrong}: ${wrongAt.join('; ')}` : undefined);
-          if (cls !== 'agree') for (let i = 0; i < wrong; i++) tally(R.side, 'disagrees (listed by face below)');
-          if (planted && wrong) seen = true;
-          // Self-intersections.
+          // Self-intersections (before the face's verdict: a loop overlapping itself is the model's defect).
+          let overlapping = false;
           for (let k = 0; k < d.face.loopCount[f]!; k++) {
             if (d.loop.kind[d.face.firstLoop[f]! + k] !== LOOP_KIND.edge) continue;
             const s = g.selfIntersectFace(f, k);
@@ -303,13 +352,33 @@ export const check: FileCheck<undefined, Result> = {
               ? 'overlapping itself' : 'simple', s.crossings || s.touches || s.overlaps
               ? `${at} loop ${k}: ${s.points.slice(0, 2).map((x) => `(${x.u}, ${x.v})`).join(' ')}` : undefined);
             if (planted && (s.crossings || s.overlaps)) seen = true;
+            overlapping ||= s.overlaps > 0;
           }
+          const cls = !wrong ? 'agree' : overlapping ? 'a model defect: a loop overlapping itself (some points the '
+            + 'wrong way round there)' : !right ? 'every point the wrong way round: loops oriented against the face\'s '
+            + 'sense' : 'some points the wrong way round';
+          tally(R.faceSide, `${cls} (${SKIND[sk]})`,
+            wrong ? `${at}: ${wrong} of ${right + wrong}: ${wrongAt.join('; ')}` : undefined);
+          if (cls !== 'agree') for (let i = 0; i < wrong; i++) tally(R.side, 'disagrees (listed by face below)');
+          if (planted && wrong) seen = true;
           // OCCT on the same moved points.
           if (built && !planted) {
             const map = sk === SURFACE_KIND.cone ? 1 / Math.cos(d.pool.surfaceReal[d.surface.real[d.face.surface[f]!]!
               + 10]!) : [SURFACE_KIND.plane, SURFACE_KIND.cylinder, SURFACE_KIND.sphere, SURFACE_KIND.torus,
               SURFACE_KIND.bspline].includes(sk as never) ? 1 : 0;
             if (!map) { tally(R.occt, `not compared: OCCT's (u, v) differs on ${SKIND[sk]}`); continue; }
+            // Where the model gives a use no p-curve, the built shape has none either, and OCCT's classifier can't
+            // see that edge (it says in everywhere): OCCT's own p-curves first, made independently of ours.
+            if (info.projected) {
+              let none = false;
+              for (const e of uses.keys()) {
+                const route = occtPcurveRoute(d.face.id[f]!, d.edge.id[e]!, info.tolerance);
+                tally(R.occtPcurve, route >= 0 ? `${ROUTE[route]} (${SKIND[sk]})` : `none made (${SKIND[sk]})`,
+                  route >= 0 ? undefined : `${at} edge #${d.edge.id[e]}`);
+                none ||= route < 0;
+              }
+              if (none) { tally(R.occt, 'not compared: OCCT made no p-curve for an edge of the face', at); continue; }
+            }
             const qs: number[] = [];
             for (let i = 0; i < p10.length / 2; i++)
               qs.push(d.face.id[f]!, p10[2 * i]!, map * p10[2 * i + 1]!, map * tolUv[i >> 1]!);
@@ -393,5 +462,11 @@ if (import.meta.main) {
   printTally('Loops (selfIntersect2)', all.self);
   printTally('Statuses other than ok', all.statuses);
   printTally('Faces with classify2 invalidModel, by their loops\' widest joint in 3D', all.gaps);
-  if (withOcct) printTally('The moved points against OCCT\'s face classifier', all.occt);
+  printTally('Faces narrower than their tolerance (every point of an 8 x 8 grid over their loops\' box on): counted '
+    + 'apart, their moved points not judged', all.narrow);
+  if (withOcct) {
+    printTally('OCCT\'s p-curves for the uses the model gives none, by route (each edge of a face with projected '
+      + 'p-curves, before OCCT classifies)', all.occtPcurve);
+    printTally('The moved points against OCCT\'s face classifier', all.occt);
+  }
 }
