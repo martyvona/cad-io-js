@@ -108,13 +108,13 @@ test('edgeTolerance: a bare coedge\'s need, the curve\'s largest distance from t
     assert.ok(Math.abs(r.model.edge.tolerance[0]! - GROWTH * h) < 0.01 * h);
   });
 
-/** A flat bounded patch z = 0 over [0, 4] x [0, 4] (a bilinear B-spline: curveOffSurface's grid on it is 0.5 apart)
- * and a line on it along x at y = 0.25, between the grid's rows: rows 0 and 1. */
+/** A flat bounded patch z = 0 over [0, 128] x [0, 128] (a bilinear B-spline: curveOffSurface's grid on it, held to
+ * 257 points a side, is 0.5 apart) and a line on it along x at y = 0.25, between the grid's rows 0 and 1. */
 function patchAndLine() {
   const b = new BrepBuilder({ uncertainty: 1e-6 });
-  b.addSurface({ kind: 'bspline', uDegree: 1, vDegree: 1, uKnots: [0, 4], vKnots: [0, 4], uMultiplicities: [2, 2],
-    vMultiplicities: [2, 2], poles: [[[0, 0, 0], [0, 4, 0]], [[4, 0, 0], [4, 4, 0]]], uClosed: false, vClosed: false,
-    selfIntersect: false, form: 'unspecified' });
+  b.addSurface({ kind: 'bspline', uDegree: 1, vDegree: 1, uKnots: [0, 128], vKnots: [0, 128], uMultiplicities: [2, 2],
+    vMultiplicities: [2, 2], poles: [[[0, 0, 0], [0, 128, 0]], [[128, 0, 0], [128, 128, 0]]], uClosed: false,
+    vClosed: false, selfIntersect: false, form: 'unspecified' });
   b.addCurve({ kind: 'line', point: [0, 0.25, 0], direction: [1, 0, 0], magnitude: 1 });
   return b.finish();
 }
@@ -148,3 +148,38 @@ test('curveOffSurface: a span\'s bound takes both its samples\' (here the last s
   curveOffSurface(g, 0, [0, 3.75], 0, 0.41, new Map());
   assert.ok(calls > 0);
 });
+
+test('curveOffSurface: a strip narrower than the tolerance but long gets a grid fine enough to vouch for it', () => {
+  // A flat strip 100 long and 0.5 wide at tol 1: the first 9 x 9 grid is 12.5 apart along it; refined to about half
+  // the tolerance, a line along its middle is vouched for without inverting.
+  const b = new BrepBuilder({ uncertainty: 1e-6 });
+  b.addSurface({ kind: 'bspline', uDegree: 1, vDegree: 1, uKnots: [0, 1], vKnots: [0, 1], uMultiplicities: [2, 2],
+    vMultiplicities: [2, 2], poles: [[[0, 0, 0], [0, 0.5, 0]], [[100, 0, 0], [100, 0.5, 0]]], uClosed: false,
+    vClosed: false, selfIntersect: false, form: 'unspecified' });
+  b.addCurve({ kind: 'line', point: [0, 0.25, 0], direction: [1, 0, 0], magnitude: 1 });
+  const d = b.finish();
+  using g = new Geometry(module, new Uint8Array(d.buffer));
+  let calls = 0;
+  const invert = g.invertSurface.bind(g);
+  g.invertSurface = (...a: Parameters<typeof g.invertSurface>) => (calls++, invert(...a));
+  const x = curveOffSurface(g, 0, [0, 100], 0, 1, new Map());
+  assert.equal(calls, 0);
+  assert.ok(x <= 1);
+});
+
+test('curveOffSurface: a curve just below the surface finds its grid points in the next cell down, without inverting',
+  () => {
+    // The line 0.01 under the patch: its samples' cells (tol 1 wide) are one below the grid points' at z = 0.
+    const b = new BrepBuilder({ uncertainty: 1e-6 });
+    b.addSurface({ kind: 'bspline', uDegree: 1, vDegree: 1, uKnots: [0, 1], vKnots: [0, 1], uMultiplicities: [2, 2],
+      vMultiplicities: [2, 2], poles: [[[0, 0, 0], [0, 4, 0]], [[4, 0, 0], [4, 4, 0]]], uClosed: false,
+      vClosed: false, selfIntersect: false, form: 'unspecified' });
+    b.addCurve({ kind: 'line', point: [0, 1, -0.01], direction: [1, 0, 0], magnitude: 1 });
+    const d = b.finish();
+    using g = new Geometry(module, new Uint8Array(d.buffer));
+    let calls = 0;
+    const invert = g.invertSurface.bind(g);
+    g.invertSurface = (...a: Parameters<typeof g.invertSurface>) => (calls++, invert(...a));
+    assert.ok(curveOffSurface(g, 0, [0, 4], 0, 1, new Map()) <= 1);
+    assert.equal(calls, 0);
+  });
