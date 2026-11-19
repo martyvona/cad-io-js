@@ -916,6 +916,34 @@ TEST_CASE("a use without p-curve traced from sample to sample: its feet stay on 
   CHECK_EQ(ef.traces().local + ef.traces().global, static_cast<int>(ef.coedge(0).uv.size()));
 }
 
+TEST_CASE("a given p-curve off its edge's points past the tolerance: used, its inside samples polished onto them") {
+  // pcurveShifted: its p-curve 0.3 off in u at a tolerance of 0.005 (within the 0.5 allowed): from the p-curve, every
+  // inside sample's (u, v) now on its point within the tolerance, the use counted as given and off; pcurveCircle's,
+  // through its p-curve, on its points: given, not off.
+  cadgeom::Model m = load("pcurveShifted");
+  REQUIRE(m.ok());
+  EdgeOptions o;
+  o.deflection = 0.01;
+  EdgeMesh em(m, o);
+  const CoedgeSamples& cs = em.coedge(0);
+  REQUIRE(cs.fromPcurve);
+  REQUIRE(cs.uv.size() > 4);
+  double worst = 0;
+  for (size_t i = 1; i + 1 < cs.uv.size(); i++) {
+    const Vec3 P = em.edge(0).points[cs.index[i]];
+    worst = std::fmax(worst, std::hypot(cs.uv[i].x - P.x, cs.uv[i].y - P.y));
+  }
+  if (!(worst <= 0.005)) std::printf("  pcurveShifted: an inside sample %g off its point\n", worst);
+  CHECK(worst <= 0.005);
+  CHECK_EQ(em.givenPcurves().used, 1);
+  CHECK_EQ(em.givenPcurves().offTolerance, 1);
+  cadgeom::Model c = load("pcurveCircle");
+  REQUIRE(c.ok());
+  EdgeMesh ec(c, o);
+  CHECK(ec.givenPcurves().used >= 1);
+  CHECK_EQ(ec.givenPcurves().offTolerance, 0);
+}
+
 TEST_CASE("respace: every span split to the faces' spacing, the samples there kept, the uses redone") {
   // band: its circles sampled at the deflection alone (spans of about 1.2), then the face's spacing 0.1 asked, more
   // than one pass's 9 pieces: every span's chord within it, each sample before still there, each use's (u, v) count
