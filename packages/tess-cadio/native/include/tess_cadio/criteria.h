@@ -32,6 +32,13 @@ inline double refinementFloor(double partTolerance, double deflection) {
   return std::max(partTolerance, 0.1 * deflection);
 }
 
+/**
+ * A facet (its corners' cross product) turned against a normal: past 90 degrees from it, however little. The
+ * criteria refuse a facet so against any corner's normal (below the refinement floor too); PartMesher fails a face
+ * whose triangle is so against its corners' mean normal (PartOptions::failTurnedOver).
+ */
+inline bool facetAgainst(cadgeom::Vec3 facet, cadgeom::Vec3 normal) { return cadgeom::dot(facet, normal) < 0; }
+
 /** One face's criteria; the surface outlives it. */
 /**
  * Why SurfaceCriteria refuses a triangle, its first check in accept()'s order that fails: the deviation by a closed

@@ -57,6 +57,12 @@ struct PartOptions {
    * past it. 0 or less: never.
    */
   double maxDeviationFactor = 1.0;
+  /**
+   * A face whose mesher's triangles include one turned against its surface (its facet against the mean of its
+   * corners' normals; a corner at a pole or apex aside, where the normal is a limit) fails with Status::noConvergence
+   * and a cause saying so, as one past its deflection does: wrong output however rare.
+   */
+  bool failTurnedOver = true;
 };
 
 struct FaceMesh {

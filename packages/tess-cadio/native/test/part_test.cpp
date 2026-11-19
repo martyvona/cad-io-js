@@ -342,6 +342,7 @@ TEST_CASE("a face left past its deflection fails past maxDeviationFactor x max(d
     REQUIRE(m.ok());
     PartOptions o = options(c.d, 0.26);
     o.maxPointsPerFace = 0;
+    o.failTurnedOver = false;  // (meshed with no Steiner points, turned-over triangles kept: the deviation alone)
     o.maxSplitRounds = 0;
     o.maxDeviationFactor = 0;
     PartMesher keep(m, o);
@@ -453,6 +454,7 @@ TEST_CASE("maxDeviationFactor's limit is the factor x max(d, the face's toleranc
   PartOptions o = options(0.1, 0.26);
   o.maxPointsPerFace = 0;
   o.maxSplitRounds = 0;
+  o.failTurnedOver = false;  // (meshed with no Steiner points, turned-over triangles kept: the deviation alone)
   const double F = PartOptions{}.maxDeviationFactor;
   auto worst = [&](const cadgeom::Model& m, const FaceMesh& k) {
     cadgeom::Status st;
@@ -548,6 +550,59 @@ TEST_CASE("a strip whose ends are within the tolerance: refined past them (froze
     if ((most > 2) != (d < 0.4)) std::printf("  narrowStripSmall at %g: an end in %zu samples\n", d, most);
     CHECK_EQ(most > 2, d < 0.4);
   }
+}
+
+TEST_CASE("facetAgainst: a facet past 90 degrees from a normal, however little; within it not") {
+  // A facet in the x-z plane tilted about x from the normal (0, 0, 1) by 89, 90 + 1e-6 and 91 degrees.
+  const Vec3 normal{0, 0, 1};
+  auto tilted = [](double degrees) {
+    const double r = degrees * M_PI / 180;
+    return Vec3{0, std::sin(r), std::cos(r)};
+  };
+  CHECK(!facetAgainst(tilted(0), normal));
+  CHECK(!facetAgainst(tilted(89), normal));
+  CHECK(facetAgainst(tilted(90 + 1e-6), normal));
+  CHECK(facetAgainst(tilted(91), normal));
+  CHECK(facetAgainst(tilted(180), normal));
+  // A mean of corners' normals, as PartMesher judges a triangle: (0, 0, 1) and (0, 1, 0), a facet 91 degrees off it.
+  const Vec3 mean = Vec3{0, 0, 1} + Vec3{0, 1, 0};
+  const double off = std::atan2(1.0, 1.0) * 180 / M_PI + 91;
+  CHECK(facetAgainst(tilted(off), mean));
+  CHECK(!facetAgainst(tilted(off - 2), mean));
+}
+
+TEST_CASE("a face meshed with a triangle turned against its surface fails, said so; failTurnedOver false keeps it") {
+  // torusOuterHalf with no Steiner points and no split rounds: its boundary's triangulation alone, some of its
+  // triangles across the tube turned against the surface. Failed (noConvergence, the cause counting them, no
+  // triangles); with the option off, kept as meshed, the count as the cause says.
+  cadgeom::Model m = load("torusOuterHalf");
+  REQUIRE(m.ok());
+  PartOptions o = options(0.1, 0.26);
+  o.maxPointsPerFace = 0;
+  o.maxSplitRounds = 0;
+  o.maxDeviationFactor = 0;
+  PartMesher failing(m, o);
+  const FaceMesh& f = failing.face(0);
+  CHECK(f.status == cadgeom::Status::noConvergence);
+  CHECK(f.triangles.empty());
+  int said = -1;
+  if (std::sscanf(f.cause.c_str(), "meshed with %d triangles turned against its surface", &said) != 1)
+    std::printf("  cause: %s\n", f.cause.c_str());
+  CHECK(said > 0);
+  o.failTurnedOver = false;
+  PartMesher keeping(m, o);
+  const FaceMesh& k = keeping.face(0);
+  REQUIRE(k.status == cadgeom::Status::ok);
+  int against = 0;
+  for (size_t t = 0; t + 2 < k.triangles.size(); t += 3) {
+    const int32_t* v = &k.triangles[t];
+    const Vec3 g = cadgeom::cross(k.points[v[1]] - k.points[v[0]], k.points[v[2]] - k.points[v[0]]);
+    against += cadgeom::dot(g, k.normals[v[0]] + k.normals[v[1]] + k.normals[v[2]]) < 0;
+  }
+  CHECK_EQ(against, said);
+  // Meshed as usual: none turned over, kept.
+  PartMesher usual(m, options(0.1, 0.26));
+  CHECK(usual.face(0).status == cadgeom::Status::ok);
 }
 
 TEST_CASE("a face whose edge loops all lie within the tolerance of a pole: invalidModel, and said so") {
@@ -1196,17 +1251,25 @@ TEST_CASE("the criteria's metric: sizes from the principal curvatures, every dir
     CHECK(under > 500);
   }
   // A triangle within the refinement floor (its patch's bound within max(tolerance, 0.1 x the deflection), 1e-3
-  // here): accepted, by accept() and acceptDeviation(), though its corners, in (u, v) the wrong way round, give it a
-  // facet turned over (refinement would chase such a spot to its point cap); belowFloor() says so.
+  // here): accepted, by accept() and acceptDeviation(), the right way round; its corners in (u, v) the wrong way round,
+  // its facet turned over: refused for that by accept(), however small (wrong output), its deviation still accepted
+  // by acceptDeviation(). belowFloor() says so either way.
   {
     auto c = criteria("seamCylinder", 0, {{0, 2 * M_PI}, {0, 5}}, 0.01, 0.26, s);
     const Vec2 tiny[3] = {{1, 2}, {1, 2 + 1e-12}, {1 + 1e-12, 2}};
-    CHECK(c->accept(tiny));
+    const Vec2 tinyOk[3] = {{1, 2}, {1 + 1e-12, 2}, {1, 2 + 1e-12}};
+    CHECK(!c->accept(tiny));
+    CHECK(c->refusal(tiny) == Refusal::normalFacet);
+    CHECK(c->accept(tinyOk));
     // Just within it: 2e-4 in (u, v) on the radius 2 cylinder, its patch's bound about 6e-4 mm across.
     const Vec2 within[3] = {{1, 2}, {1, 2 + 2e-4}, {1 + 2e-4, 2}};
+    const Vec2 withinOk[3] = {{1, 2}, {1 + 2e-4, 2}, {1, 2 + 2e-4}};
     CHECK(c->belowFloor(within));
-    CHECK(c->accept(within));
+    CHECK(!c->accept(within));
     CHECK(c->acceptDeviation(within));
+    CHECK(c->belowFloor(withinOk));
+    CHECK(c->accept(withinOk));
+    CHECK(c->refusal(withinOk) == Refusal::none);
     // Just past it: 6e-4 in (u, v), about 1.7e-3 mm across, turned over the same way: refused.
     const Vec2 big[3] = {{1, 2}, {1, 2 + 6e-4}, {1 + 6e-4, 2}};
     CHECK(!c->belowFloor(big));
@@ -1214,7 +1277,8 @@ TEST_CASE("the criteria's metric: sizes from the principal curvatures, every dir
     // (Refused for its facet against its corners' normals: the deviation passes.)
     CHECK(c->refusal(big) == Refusal::normalFacet);
     CHECK(c->refusal(big, false) == Refusal::none);
-    CHECK(c->refusal(within) == Refusal::none);
+    CHECK(c->refusal(within) == Refusal::normalFacet);
+    CHECK(c->refusal(within, false) == Refusal::none);
     // Its corners within 1e-6 of one point in 3D across the seam, its patch the whole circle: judged by the patch's
     // bound, not within the floor, refused.
     const Vec2 round[3] = {{0, 2}, {2 * M_PI, 2}, {2 * M_PI, 2 + 1e-6}};
