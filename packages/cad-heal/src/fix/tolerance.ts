@@ -25,14 +25,14 @@ const GRID = 9, MAX_GRID = 257;
  * cad-geom's upper bound on |C'| over the span (derivBound) and h the span's length. Where every span's bound is
  * within `tol`, so is the curve, and the bound is returned without inverting (the pass needs only whether a curve is
  * past tol, and inversion on a surface smaller than the tolerance is slow). `grids` keeps each surface's grid
- * points across calls.
+ * points, and their cells for each tolerance asked, across calls: building them is most of the bound's cost.
  */
 export function curveOffSurface(g: Geometry, curve: number, range: [number, number], surface: number, tol: number,
-  grids?: Map<number, Float64Array | null>): number {
+  grids?: Grids): number {
   const si = g.surfaceInfo(surface);
   let grid = grids?.get(surface);
   if (grid === undefined) {
-    grid = null;
+    let found: Float64Array | null = null;
     if ([si.u[0], si.u[1], si.v[0], si.v[1]].every(Number.isFinite)) {
       const points = (nu: number, nv: number) => {
         const uv: number[] = [];
@@ -59,9 +59,10 @@ export function curveOffSurface(g: Geometry, curve: number, range: [number, numb
         }
         const count = (s: number) => Math.min(MAX_GRID, Math.max(GRID, Math.ceil((GRID - 1) * s / (tol / 2)) + 1));
         const nu = count(su), nv = count(sv);
-        grid = nu === GRID && nv === GRID ? coarse : points(nu, nv) ?? coarse;
+        found = nu === GRID && nv === GRID ? coarse : points(nu, nv) ?? coarse;
       }
     }
+    grid = found && { points: found, cells: new Map() };
     grids?.set(surface, grid);
   }
   if (grid) {
@@ -78,6 +79,18 @@ export function curveOffSurface(g: Geometry, curve: number, range: [number, numb
   return w;
 }
 
+/** A surface's grid points (x, y, z each), and per cell size their indices by cell (cellKey). */
+export interface SurfaceGrid {
+  points: Float64Array;
+  cells: Map<number, Map<number, number[]>>;
+}
+export type Grids = Map<number, SurfaceGrid | null>;
+
+/** A cell's key: its three indices hashed to 32 bits. Two cells may share a key; that only adds candidates to a
+ * search, each still a real grid point at its exact distance, so the bound stays sound. */
+const cellKey = (i: number, j: number, k: number) =>
+  Math.imul(i, 73856093) ^ Math.imul(j, 19349663) ^ Math.imul(k, 83492791);
+
 /** The most spans the bound samples a curve with (each span's term at most a quarter of the tolerance where that
  * many suffice). */
 const MAX_SPANS = 4096;
@@ -88,7 +101,7 @@ const MAX_SPANS = 4096;
  * term M h / 2 is at most a quarter of tol (up to MAX_SPANS spans), and each sample's nearest grid point found among
  * the grid's points hashed into cells tol wide (a sample farther than tol from all of them fails the bound).
  */
-function gridBound(g: Geometry, curve: number, range: [number, number], grid: Float64Array, tol: number): number {
+function gridBound(g: Geometry, curve: number, range: [number, number], sg: SurfaceGrid, tol: number): number {
   const lo = Math.min(...range), hi = Math.max(...range);
   const whole = g.curveDerivBound(curve, [lo, hi], 1);
   if (whole.status !== 'ok' || whole.statuses[0] !== 0) return Infinity;
@@ -99,10 +112,15 @@ function gridBound(g: Geometry, curve: number, range: [number, number], grid: Fl
   if (C.status !== 'ok' || C.statuses.some((x) => x !== 0) || speed.status !== 'ok'
     || speed.statuses.some((x) => x !== 0)) return Infinity;
   // The grid's points by cell, tol wide: a point within tol of a sample is in its cell or a neighbour.
-  const cell = (x: number) => Math.floor(x / tol), cells = new Map<string, number[]>();
-  for (let k = 0; k < grid.length; k += 3) {
-    const key = `${cell(grid[k]!)},${cell(grid[k + 1]!)},${cell(grid[k + 2]!)}`;
-    (cells.get(key) ?? cells.set(key, []).get(key)!).push(k);
+  const grid = sg.points, cell = (x: number) => Math.floor(x / tol);
+  let cells = sg.cells.get(tol);
+  if (!cells) {
+    cells = new Map();
+    for (let k = 0; k < grid.length; k += 3) {
+      const key = cellKey(cell(grid[k]!), cell(grid[k + 1]!), cell(grid[k + 2]!));
+      (cells.get(key) ?? cells.set(key, []).get(key)!).push(k);
+    }
+    sg.cells.set(tol, cells);
   }
   const at = new Float64Array(n + 1);
   for (let i = 0; i <= n; i++) {
@@ -111,7 +129,7 @@ function gridBound(g: Geometry, curve: number, range: [number, number], grid: Fl
     for (let a = -1; a <= 1; a++) {
       for (let b = -1; b <= 1; b++) {
         for (let c = -1; c <= 1; c++) {
-          for (const k of cells.get(`${cell(x) + a},${cell(y) + b},${cell(z) + c}`) ?? []) {
+          for (const k of cells.get(cellKey(cell(x) + a, cell(y) + b, cell(z) + c)) ?? []) {
             near = Math.min(near, Math.hypot(x - grid[k]!, y - grid[k + 1]!, z - grid[k + 2]!));
           }
         }

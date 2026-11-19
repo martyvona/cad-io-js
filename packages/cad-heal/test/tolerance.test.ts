@@ -3,7 +3,7 @@ import test from 'node:test';
 import { analysisFor, BrepBuilder, PROVENANCE } from 'cad-brep';
 import { Geometry, init } from 'cad-geom';
 import { healPart } from '../src/index.ts';
-import { curveOffSurface, GROWTH } from '../src/fix/tolerance.ts';
+import { curveOffSurface, type Grids, GROWTH } from '../src/fix/tolerance.ts';
 import { cylinderSide, line2, planeArc, rationalArc } from './models.ts';
 
 const module = await init();
@@ -183,3 +183,19 @@ test('curveOffSurface: a curve just below the surface finds its grid points in t
     assert.ok(curveOffSurface(g, 0, [0, 4], 0, 1, new Map()) <= 1);
     assert.equal(calls, 0);
   });
+
+test('curveOffSurface: a surface\'s grid and its cells kept across calls, the cells per tolerance', () => {
+  const d = patchAndLine();
+  using g = new Geometry(module, new Uint8Array(d.buffer));
+  // The grid's density is set by the first tolerance asked (1 here), so a fresh map asked 1 then 2 is the control.
+  const grids: Grids = new Map(), control: Grids = new Map();
+  const a = curveOffSurface(g, 0, [0, 4], 0, 1, grids), points = grids.get(0)!.points;
+  const b = curveOffSurface(g, 0, [0, 4], 0, 2, grids);
+  assert.equal(grids.get(0)!.points, points, 'the grid built once');
+  assert.deepEqual([...grids.get(0)!.cells.keys()], [1, 2]);
+  assert.equal(a, curveOffSurface(g, 0, [0, 4], 0, 1, control));
+  control.get(0)!.cells.clear();
+  assert.equal(b, curveOffSurface(g, 0, [0, 4], 0, 2, control), 'the cells for 2 built fresh give the same bound');
+  assert.equal(curveOffSurface(g, 0, [0, 4], 0, 1, grids), a, 'a tolerance asked again reuses its cells');
+  assert.equal(grids.get(0)!.cells.size, 2);
+});
