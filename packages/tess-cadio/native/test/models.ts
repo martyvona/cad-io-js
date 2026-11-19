@@ -759,6 +759,39 @@ function tube(tinyArc: boolean, gap = 0, uncertainty?: number, faceTolerance?: n
 export const bsplineTube = (): BrepBuilder => tube(false);
 
 /**
+ * The unit square (z = 0) whose top right corner is two short line edges, (1, 0.99) to (0.994, 0.994) to (0.99, 1),
+ * their tolerance and the face's 0.01, their p-curves through (1, 1) instead (as feet clamped to a range's edge are, the vertex
+ * past it): the corner convex in (u, v) and concave in 3D, its point 0.0085 off its (u, v)'s, within the tolerance.
+ * The other sides lines without p-curves.
+ */
+function cornerFoldAt(faceTolerance: number): BrepBuilder {
+  const b = new BrepBuilder();
+  const pts = [[0, 0, 0], [1, 0, 0], [1, 0.99, 0], [0.994, 0.994, 0], [0.99, 1, 0], [0, 1, 0]];
+  const uvs: Array<number[] | undefined> = [undefined, undefined, [1, 0.99], [1, 1], [0.99, 1], undefined];
+  const vs = pts.map((point) => b.addVertex({ point, tolerance: 0.01 }));
+  const coedges: Coedge[] = [];
+  for (let k = 0; k < pts.length; k++) {
+    const p = pts[k]!, q = pts[(k + 1) % pts.length]!, d = [q[0]! - p[0]!, q[1]! - p[1]!, 0];
+    const l = Math.hypot(d[0]!, d[1]!);
+    const edge = b.addEdge({ curve: b.addCurve({ kind: 'line', point: p, direction: d.map((x) => x / l),
+      magnitude: 1 }), start: vs[k]!, end: vs[(k + 1) % pts.length]!, sameSense: true, range: [0, l],
+      tolerance: 0.01 });
+    // (The corner's two edges with p-curves from (u, v) to (u, v) over their own lengths.)
+    const a = uvs[k], c = uvs[(k + 1) % pts.length];
+    coedges.push(k === 2 || k === 3
+      ? { edge, orientation: 'forward', pcurve: b.addCurve(line2(a!, [(c![0]! - a![0]!) / l, (c![1]! - a![1]!) / l])) }
+      : { edge, orientation: 'forward' });
+  }
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: true,
+    tolerance: faceTolerance,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] }));
+  return b;
+}
+export const cornerFold = (): BrepBuilder => cornerFoldAt(0.01);
+/** The same with the face's tolerance 0.001: the chord 0.0014 from the corner's point, past it. */
+export const cornerFoldTight = (): BrepBuilder => cornerFoldAt(0.001);
+
+/**
  * The unit square (z = 0) whose bottom edge is a cubic B-spline along it with interior knots 1e-13 from each end of
  * its range (LMP1 #505096's, 1.2e-13 from where its vertex inverts): breaks at the ends' points within rounding.
  * The other sides lines. No p-curves.
@@ -786,14 +819,14 @@ export function knotAtEnd(): BrepBuilder {
 
 /**
  * A patch of the cylinder of radius 5 about z (u from 0 to 1, z from 0 to 10) whose bottom edge is a cubic B-spline
- * along the arc at radius 5.004 (the Bezier arc's poles), z wiggling by +/-0.5 at its inner poles, its tolerance
- * 0.01: farther off the surface than the mesh's projection tolerance (0.05 x a deflection of 0.01) but within its
- * own, so its use is projected at the edge's tolerance, the p-curve within 0.01 of its points' feet, not on them. The
- * top the circle's arc at z = 10, the sides lines down to the bottom's ends. No p-curves.
+ * along the arc at radius 5 + `off` (the Bezier arc's poles), z wiggling by +/-0.5 at its inner poles, its tolerance
+ * 0.01; the top the circle's arc at z = 10, the sides lines down to the bottom's ends. No p-curves. coarseProjection:
+ * 0.004 off, farther off the surface than the mesh's projection tolerance (0.05 x a deflection of 0.01) but within
+ * its own, so its use is projected at the edge's tolerance, the p-curve within 0.01 of its points' feet.
  */
-export function coarseProjection(): BrepBuilder {
+function offCylinder(off: number): BrepBuilder {
   const b = new BrepBuilder();
-  const R = 5.004, k = 4 / 3 * Math.tan(0.25), c = Math.cos(1), s1 = Math.sin(1);
+  const R = 5 + off, k = 4 / 3 * Math.tan(0.25), c = Math.cos(1), s1 = Math.sin(1);
   const poles = [[R, 0, 0], [R, k * R, 0.5], [R * (c + k * s1), R * (s1 - k * c), -0.5], [R * c, R * s1, 0]];
   const corners = [poles[0]!, poles[3]!, [5 * c, 5 * s1, 10], [5, 0, 10]];
   const vs = corners.map((point) => b.addVertex({ point }));
@@ -816,6 +849,12 @@ export function coarseProjection(): BrepBuilder {
     loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] }));
   return b;
 }
+export const coarseProjection = (): BrepBuilder => offCylinder(0.004);
+/**
+ * The same with the bottom edge 1e-4 off: within the mesh's projection tolerance (5e-4 at a deflection of 0.01), its
+ * p-curve within that of its points' feet.
+ */
+export const fineProjection = (): BrepBuilder => offCylinder(1e-4);
 
 /**
  * A quarter of bsplineTube's surface, u from 1 to 2 (its knots: (0, 2) to (-2, 0) round the axis), bounded by its two
@@ -1459,7 +1498,8 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   seamHemisphere: () => seamHemisphere(true), seamHemisphereBare: () => seamHemisphere(false),
   seamCone: () => seamCone(true), seamConeBare: () => seamCone(false),
   offPoleRestLoose: () => offPoleRest(1e-3), wigglyBand, notchBand, bsplineTube, tubeQuarterPeriodUp, coarseProjection,
-  knotAtEnd, bsplineTubeTinyArc, bsplineDome,
+  fineProjection, knotAtEnd, cornerFold,
+  cornerFoldTight, bsplineTubeTinyArc, bsplineDome,
   offPoleArc: () => offPoleArc(), offPcurves, bandHoleAtVertex, bandHoleOnCut, halfCap, meridianHemisphere, band: band_,
   bandByInversion, bore, nistBore, seamByInversion, offVertex, pcurveOnly, luneQuarter, luneOnSeam, cap, splineEdge,
   seamFlipped, polylineEdge, pcurveCircle, arcSegment, fold, twisted, wrongSense, zeroEdge, halfCylinderPcurves,

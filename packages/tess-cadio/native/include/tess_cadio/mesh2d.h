@@ -34,6 +34,14 @@ public:
    * false asks the mesher to refine it. Called on every triangle until the mesh is final.
    */
   virtual bool accept(const Vec2 tri[3]) const = 0;
+  /**
+   * Whether the triangle is within the caller's refinement floor (criteria.h's refinementFloor): an accepted one so
+   * small isn't refined for its shape either. None by default.
+   */
+  virtual bool belowFloor(const Vec2 tri[3]) const {
+    (void)tri;
+    return false;
+  }
 };
 
 /**

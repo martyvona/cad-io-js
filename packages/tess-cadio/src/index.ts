@@ -234,9 +234,14 @@ export class CadioTessellator implements Tessellator {
     };
     const refused = list('refused');
     if (refused.length) {
+      // (By why, criteria.h's Refusal in order: [0] unused.)
+      const by = list('refusedBy');
+      const why = ['', 'deviation in closed form', 'deviation sampled', 'deviation bounded', 'deviation near a pole',
+        'a normal against the facet', 'normals apart'];
+      const reasons = why.map((w, k) => (k && by[k] ? `${w} ${by[k]}` : '')).filter(Boolean).join(', ');
       diagnostics.push({ severity: 'warning', message: `${refused.length} faces meshed with triangles their criteria `
         + `still refuse: ${Number(diag.refusedTriangles)} triangles, ${Number(diag.poleSlivers)} of them slivers in a `
-        + 'pole\'s fan' });
+        + `pole's fan${reasons ? `; by why: ${reasons}` : ''}` });
     }
     note('unsplit', 'still wanting their edges split when the rounds ran out');
     const sampled = list('sampled');
@@ -252,6 +257,13 @@ export class CadioTessellator implements Tessellator {
       diagnostics.push({ severity: 'info', message: `${pc[0]! + pc[1]! + pc[2]!} uses without p-curves: ${pc[0]} `
         + `projected within 0.05 x the deflection, ${pc[1]} at the edge's tolerance (the curve farther off its `
         + `surface), ${pc[2]} by inversion (no projection ok)` });
+    }
+    const folded = list('folded');
+    if (folded.length) {
+      const folds = typeof diag['folds'] === 'number' ? diag['folds'] : 0;
+      diagnostics.push({ severity: 'info', message: `${folds} boundary folds repaired in ${folded.length} faces`
+        + ' (a point convex in (u, v) turning the other way in 3D, its (u, v) moved onto its '
+        + 'neighbours\' chord within the face\'s tolerance)' });
     }
     const against = list('againstSense');
     if (against.length) {

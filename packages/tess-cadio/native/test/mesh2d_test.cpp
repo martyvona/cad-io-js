@@ -25,11 +25,16 @@ using cadgeom::Vec2;
 
 namespace {
 
+/** Size h everywhere, every triangle accepted; those whose sides are all within `floor` below the floor. */
 struct Uniform : SizeField {
-  double h;
-  explicit Uniform(double h_) : h(h_) {}
+  double h, floor;
+  explicit Uniform(double h_, double floor_ = 0) : h(h_), floor(floor_) {}
   Metric2 metric(Vec2) const override { return {1 / (h * h), 0, 1 / (h * h)}; }
   bool accept(const Vec2*) const override { return true; }
+  bool belowFloor(const Vec2 t[3]) const override {
+    return std::fmax(std::fmax(dist(t[0], t[1]), dist(t[1], t[2])), dist(t[2], t[0])) <= floor;
+  }
+  static double dist(Vec2 a, Vec2 b) { return std::hypot(a.x - b.x, a.y - b.y); }
 };
 struct Stretched : SizeField {
   double hx, hy;
@@ -672,9 +677,10 @@ TEST_CASE("a thin wedge (1 degree): meshed, the boundary kept, refinement ends")
 TEST_CASE("refinement for angle alone ends beside long fixed sides: plates with 14 holes, their samples jittered") {
   // A 38 x 50.8 rectangle, its sides fixed and far longer than the holes' spans, 14 holes of 27 or 28 points
   // (angles jittered by a seed), a uniform size of 63.44 (the plate's own extent), every triangle accepted: some of
-  // these drove points into a corner without end before thin triangles a twentieth of the size were left as they
-  // are (27 points, jitter 0.2, seed 12 among them). Each now ends within 2,000 Steiner points.
-  Uniform F{63.44};
+  // these drive points into a corner without end unless thin triangles within the field's refinement floor (here
+  // 0.001, under a hundredth of a hole's span) are left as they are (27 points, jitter 0.2, seed 12 among them).
+  // Each ends within 2,000 Steiner points.
+  Uniform F{63.44, 0.001};
   int worst = 0;
   for (int n : {27, 28})
     for (double jitter : {0.2, 0.45})

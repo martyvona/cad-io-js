@@ -159,6 +159,13 @@ struct FaceBoundary {
    * it (the face ok, no cause); which of the two is right is healing's to settle.
    */
   bool againstSense = false;
+  /**
+   * Boundary folds repaired: a point whose (u, v) made a convex corner with its loop's neighbours while its 3D point
+   * turns the other way about the surface's normal there (an ear on it would face against the surface: vertices off
+   * their surface past its range's edge, their feet clamped), its (u, v) moved onto their (u, v) chord, at its share
+   * of their 3D distance, where the surface there is within the face's tolerance of its 3D point (which is kept).
+   */
+  int foldsRepaired = 0;
   std::vector<std::vector<BoundaryPoint>> loops;
   /** Interior constraint chains: each a run of points to join pairwise (or a single point to keep). */
   std::vector<std::vector<BoundaryPoint>> interior;
@@ -223,7 +230,9 @@ public:
    * there were none, else Status::invalidModel. Each request adds one sample inside its span (several on one span
    * each at its own fraction of the span as it was, those within a tenth of the span of one another once); existing
    * samples are kept, so other edges' indices stand and only the touched edges' later indices move. The touched
-   * edges' coedges are redone. A request whose sample would fall inside a ring's span (cutRings) is dropped.
+   * edges' coedges are redone. A request whose sample would fall inside a ring's span (cutRings), or on a span whose
+   * chord is within the part's tolerance, is dropped; below the refinement floor (criteria.h) requests are honoured,
+   * the edges sampled no finer than it.
    */
   Status split(const std::vector<SplitRequest>& requests);
 
