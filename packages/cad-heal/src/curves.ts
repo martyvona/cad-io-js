@@ -8,7 +8,7 @@ import type { Curve2, ModelEdit } from './edit.ts';
 import { reparameterize, reparameterized } from './fix/reparam.ts';
 import { projected, replacement } from './fix/replace.ts';
 import { curveEndGaps, gapTo } from './fix/ends.ts';
-import { curveOffSurface, GROWTH } from './fix/tolerance.ts';
+import { curveOffSurface, type Grids, GROWTH } from './fix/tolerance.ts';
 import { Growth } from './fix/growth.ts';
 import type { HealFix } from './index.ts';
 import { edgeRange, measureGiven, pcurveImage, tolerances } from './measure.ts';
@@ -52,7 +52,7 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
     (m.get(why) ?? m.set(why, new Tally()).get(why)!).add(coedgeName(c));
   let worstMade = 0;
   // Per edge: the largest disagreement measured along it (edgeTolerance's).
-  const need = new Float64Array(rowCount(d, 'edge')), grids = new Map<number, Float64Array | null>();
+  const need = new Float64Array(rowCount(d, 'edge')), grids: Grids = new Map();
   const needs = (e: number, x: number) => {
     if (x > need[e]!) need[e] = x;
   };
