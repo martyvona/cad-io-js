@@ -1,7 +1,8 @@
 // edgeTolerance: an edge's tolerance grown to cover how far its geometry disagrees, measured: over its coedges, the
 // p-curve each ends with (the source's, measured; or the pass's own, its projection's error) from its curve, or where
-// a coedge has none, its curve's distance from the face's surface. Grown to GROWTH times the largest, since the
-// measures are sampled; never shrunk, and with no cap (growth.ts says how far each grew, as a warning or an error).
+// a coedge has none, its curve's distance from the face's surface (bounded on a grid of the surface's points, else
+// traced, trace.ts). Grown to GROWTH times the largest, since the measures are sampled; never shrunk, and with no cap
+// (growth.ts says how far each grew, as a warning or an error).
 
 import type { Geometry } from 'cad-geom';
 import { SAMPLES } from '../measure.ts';
@@ -26,10 +27,12 @@ const GRID = 9, MAX_GRID = 257;
  * within `tol`, so is the curve, and the bound is returned without inverting (the pass needs only whether a curve is
  * past tol, and inversion on a surface smaller than the tolerance is slow). `grids` keeps each surface's grid
  * points across calls, and the cells of the surface and tolerance asked last (building them is most of the bound's
- * cost; the pass asks face by face, and keeping every surface's would hold a part's worth of them).
+ * cost; the pass asks face by face, and keeping every surface's would hold a part's worth of them). Past the
+ * bound, `fallback` measures where given (the pass's trace), else the curve's samples are inverted onto the surface
+ * (a plane's, closed form).
  */
 export function curveOffSurface(g: Geometry, curve: number, range: [number, number], surface: number, tol: number,
-  grids?: Grids): number {
+  grids?: Grids, fallback?: () => number): number {
   const si = g.surfaceInfo(surface);
   let grid = grids?.get(surface);
   if (grid === undefined) {
@@ -70,6 +73,7 @@ export function curveOffSurface(g: Geometry, curve: number, range: [number, numb
     const bound = gridBound(g, curve, range, grid, tol, grids);
     if (bound <= tol) return bound;
   }
+  if (fallback) return fallback();
   const ts = Array.from({ length: SAMPLES }, (_, i) => range[0] + (range[1] - range[0]) * i / (SAMPLES - 1));
   const C = g.evalCurve(curve, ts, 0);
   if (C.status !== 'ok' || C.statuses.some((s) => s !== 0)) return NaN;

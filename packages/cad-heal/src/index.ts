@@ -136,17 +136,20 @@ async function analysisOf(healed: BrepData, source: BrepData, edit: ModelEdit, c
       first: new Int32Array(ne).fill(-1), count: new Int32Array(ne), toleranceFrom: from('edge', ne),
       givenTolerance: source.edge.tolerance },
     coedge: { range: nan(2 * nc), rangeFrom: zero(nc), deviation: curves.deviation, face, loop,
-      pcurveFrom: curves.pcurveFrom },
+      pcurveFrom: curves.pcurveFrom, traceStatus: curves.traceStatus, traceTol: curves.traceTol,
+      offSurface: curves.offSurface, stopAt: curves.stopAt, stopWhy: curves.stopWhy },
   });
 }
 
-/** Heals every part's model in the scene in place, its diagnostics added to the scene's. */
+/** Heals every part's model in the scene in place, its analysis (of the healed model) set beside it and its
+ * diagnostics added to the scene's. */
 export async function healScene(scene: Scene, opts: HealOptions = {}, module?: GeomModule): Promise<void> {
   if (!fixesOn(opts).length) return;
   for (const part of scene.parts) {
     if (!part.brep) continue;
     const r = await healPart(part.brep.model, opts, module, part.sources[0]);
     if (r.changed) part.brep.model = r.model;
+    if (r.analysis) part.brep.analysis = r.analysis;
     scene.diagnostics.push(...r.diagnostics);
   }
 }
