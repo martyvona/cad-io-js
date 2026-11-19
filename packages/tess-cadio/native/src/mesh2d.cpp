@@ -150,6 +150,18 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
   for (size_t k = 0; k + 1 < domain.segments.size(); k += 2)
     constrain(domain.segments[k], domain.segments[k + 1], kInterior);
   if (!ok) return out;
+  // Segments the caller can't split (Domain2::frozen): their encroachment doesn't refuse a point.
+  std::set<uint64_t> frozen;
+  {
+    size_t k = 0;
+    auto add = [&](int32_t a, int32_t b) {
+      if (k < domain.frozen.size() && domain.frozen[k] && a != b) frozen.insert(pairKey(a, b));
+      k++;
+    };
+    for (const auto& loop : domain.loops)
+      for (size_t i = 0; i < loop.size(); i++) add(loop[i], loop[(i + 1) % loop.size()]);
+    for (size_t i = 0; i + 1 < domain.segments.size(); i += 2) add(domain.segments[i], domain.segments[i + 1]);
+  }
   T.label();
   out.status = Status::ok;
 
@@ -246,6 +258,7 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
       const size_t cavity = T.cavityConstraints(q, at, hits, mapAt(q));
       bool clear = true;
       for (auto [u, v] : hits) {
+        if (!frozen.empty() && frozen.count(pairKey(u, v))) continue;
         Vec2 U = T.points()[u], V = T.points()[v];
         Metric2 Ms = average(metricAt(u), metricAt(v), M);
         if (mdot(Ms, sub(q, U), sub(q, V)) <= 0) {
@@ -326,7 +339,7 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
   std::set<uint64_t> split;
   for (auto [k, t, gen] : wanted) {
     const cdt::Tri& R = T.tris()[t];
-    if (R.dead || R.gen != gen || split.count(k)) continue;
+    if (R.dead || R.gen != gen || split.count(k) || frozen.count(k)) continue;
     int32_t u = static_cast<int32_t>(k >> 32), v = static_cast<int32_t>(k & 0xffffffffu);
     Metric2 Mu = metricAt(u), Mv = metricAt(v);
     Metric2 Ms{0.5 * (Mu.a + Mv.a), 0.5 * (Mu.b + Mv.b), 0.5 * (Mu.c + Mv.c)};
