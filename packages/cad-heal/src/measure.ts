@@ -17,10 +17,10 @@ export function tolerances(d: BrepData) {
   const nv = rowCount(d, 'vertex'), p = d.vertex.point;
   const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
   for (let i = 0; i < 3 * nv; i++) lo[i % 3] = Math.min(lo[i % 3]!, p[i]!), hi[i % 3] = Math.max(hi[i % 3]!, p[i]!);
-  const floor = nv ? 1e-9 * Math.hypot(hi[0]! - lo[0]!, hi[1]! - lo[1]!, hi[2]! - lo[2]!) : 0;
-  const unc = d.part.uncertainty[0]!, part = Math.max(Number.isFinite(unc) ? unc : 1e-5, floor);
+  const size = nv ? Math.hypot(hi[0]! - lo[0]!, hi[1]! - lo[1]!, hi[2]! - lo[2]!) : 0;
+  const unc = d.part.uncertainty[0]!, part = Math.max(Number.isFinite(unc) ? unc : 1e-5, 1e-9 * size);
   const widen = (t: number) => Number.isFinite(t) && t > part ? t : part;
-  return { part, edge: (e: number) => widen(d.edge.tolerance[e]!),
+  return { part, size, edge: (e: number) => widen(d.edge.tolerance[e]!),
     vertex: (v: number) => widen(d.vertex.tolerance[v]!) };
 }
 

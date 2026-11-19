@@ -15,7 +15,8 @@
 //     projection (max of offSurface, the chosen p-curves' errors, vertex gaps).
 // Usage: node --max-old-space-size=8192 corpus_checks/heal_curves.ts [file-list.txt] [max MB]
 //   SAMPLES=n points per piece (default 17), DENSE=n points per piece of the p-curve's image (default 129).
-//   HEAL=1: each part's model healed first by cad-heal (HEAL=fix,...: those fixes only), its diagnostics counted.
+//   HEAL=1: each part's model healed first by cad-heal (HEAL=fix,...: those fixes only), its diagnostics counted, and
+//     the part classed by how far its tolerances grew; MEASURE=0 skips the measures (the classes alone).
 //   FOCUS=mm: every edge needing more than its tolerance and that, with its coedges' curves and projections.
 //   Several files at once (runner.ts: CHILDREN).
 import fs from 'node:fs';
@@ -33,6 +34,8 @@ const SAMPLES = Number(process.env.SAMPLES ?? 17), DENSE = Number(process.env.DE
 const plant = process.env.PLANT, focus = Number(process.env.FOCUS ?? Infinity);
 /** HEAL=1: each part's model healed first (cad-heal, every fix), HEAL=<fix,...>: only those fixes. */
 const heal = process.env.HEAL;
+/** HEAL with MEASURE=0: the parts healed and classed by their growth alone, not measured. */
+const measure = process.env.MEASURE !== '0';
 const healFixes = !heal || heal === '1' ? undefined : Object.fromEntries(HEAL_FIXES.map((f) =>
   [f, heal.split(',').includes(f)])) as Partial<Record<HealFix, boolean>>;
 if (plant && !['vertex', 'curve', 'pcurve'].includes(plant)) throw new Error(`PLANT=${plant}: vertex, curve, pcurve`);
@@ -52,7 +55,7 @@ const fresh = () => ({
   projection: {} as Tally, given: {} as Tally, ends: {} as Tally, vertices: {} as Tally, faceStatus: {} as Tally,
   keep: {} as Tally, replace: {} as Tally, keepMm: {} as Tally, replaceMm: {} as Tally, planes: {} as Tally,
   better: {} as Tally, degenerate: {} as Tally, cause: {} as Tally, backward: {} as Tally,
-  sameParameter: {} as Tally, focus: [] as string[], healed: {} as Tally, healMs: 0,
+  sameParameter: {} as Tally, focus: [] as string[], healed: {} as Tally, healMs: 0, growth: {} as Tally,
 });
 type Result = ReturnType<typeof fresh>;
 
@@ -420,13 +423,47 @@ function measureTolerances(d: BrepData) {
   const nv = rowCount(d, 'vertex'), p = d.vertex.point;
   const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
   for (let i = 0; i < 3 * nv; i++) lo[i % 3] = Math.min(lo[i % 3]!, p[i]!), hi[i % 3] = Math.max(hi[i % 3]!, p[i]!);
-  const floor = nv ? 1e-9 * Math.hypot(hi[0]! - lo[0]!, hi[1]! - lo[1]!, hi[2]! - lo[2]!) : 0;
-  const unc = d.part.uncertainty[0]!, partTol = Math.max(Number.isFinite(unc) ? unc : 1e-5, floor);
-  const edgeTol = (e: number) => {
-    const t = d.edge.tolerance[e]!;
-    return Number.isFinite(t) && t > partTol ? t : partTol;
+  const size = nv ? Math.hypot(hi[0]! - lo[0]!, hi[1]! - lo[1]!, hi[2]! - lo[2]!) : 0;
+  const unc = d.part.uncertainty[0]!, partTol = Math.max(Number.isFinite(unc) ? unc : 1e-5, 1e-9 * size);
+  const widen = (t: number) => Number.isFinite(t) && t > partTol ? t : partTol;
+  return { edgeTol: (e: number) => widen(d.edge.tolerance[e]!), vertexTol: (v: number) => widen(d.vertex.tolerance[v]!),
+    size, stated: Number.isFinite(unc) };
+}
+
+/**
+ * HEAL: the part classed by how far healing grew its tolerances (the rule in docs/own-tessellator.md, written here
+ * apart from cad-heal's growth.ts, from the source's and the healed model's rows alone): each edge or vertex whose
+ * tolerance grew, its ratio to the source's starting tolerance; an error past 5 x and past 0.01 x the part's size,
+ * else a warning. Tallied by whether the part states a tolerance, with the parts the size rule moves from error to
+ * warning apart, and any part whose diagnostic's severity differs.
+ */
+function classifyGrowth(source: BrepData, healed: BrepData, diagnostics: { severity: string; message: string }[],
+  where: string, R: Result) {
+  const t = measureTolerances(source);
+  let worst = 0, most = 0, strict = false, byRatio = false, n = 0, worstWhat = '';
+  const see = (what: string, start: number, grown: number) => {
+    if (!(grown > start)) return;
+    n++;
+    const k = grown / start;
+    if (k > worst) worst = k, worstWhat = what;
+    most = Math.max(most, grown - start);
+    if (k > 5) byRatio = true;
+    if (k > 5 && grown > 0.01 * t.size) strict = true;
   };
-  return { edgeTol };
+  for (let e = 0; e < rowCount(source, 'edge'); e++) {
+    see(`edge #${source.edge.id[e]}`, t.edgeTol(e), healed.edge.tolerance[e]!);
+  }
+  for (let v = 0; v < rowCount(source, 'vertex'); v++) {
+    see(`vertex #${source.vertex.id[v]}`, t.vertexTol(v), healed.vertex.tolerance[v]!);
+  }
+  const cls = !n ? 'nothing grown' : strict ? 'error' : byRatio ? 'warning, an error but for the 0.01 x size rule'
+    : 'warning';
+  tally(R.growth, `${t.stated ? 'states a tolerance' : 'states none'}: ${cls}`, n ? `${where}: ${n} grown, the `
+    + `largest ${worst.toPrecision(3)} x (${worstWhat}), the largest growth ${most.toPrecision(3)} mm, size `
+    + `${t.size.toPrecision(3)} mm` : undefined);
+  const said = diagnostics.find((x) => x.message.startsWith('tolerances grown:'))?.severity ?? 'none';
+  const want = !n ? 'none' : strict ? 'error' : 'warning';
+  if (said !== want) tally(R.growth, `MISMATCH: the diagnostic ${said}, the rule ${want}`, where);
 }
 
 export const check: FileCheck<undefined, Result> = {
@@ -452,6 +489,8 @@ export const check: FileCheck<undefined, Result> = {
         d = h.model;
         for (const x of h.diagnostics) tally(R.healed, x.message.replace(/:.*/, '') + ` (${x.severity})`, `${where}: `
           + x.message.slice(0, 300));
+        classifyGrowth(source, d, h.diagnostics, where, R);
+        if (!measure) continue;
       }
       const { keep } = measurePart(d, where, R);
       if (plant && plantedPart(where)) plantPart(d, where, keep, R);
@@ -491,6 +530,8 @@ if (import.meta.main) {
   if (heal) {
     console.log(`HEAL=${heal}: healing took ${(all.healMs / 1000).toFixed(1)} s in files`);
     printTally('Healing\'s diagnostics (cad-heal), by fix', all.healed);
+    printTally('Parts by how far healing grew their tolerances (an error past 5 x and 0.01 x the part\'s size)',
+      all.growth);
   }
   printTally('Faces by the face API\'s status and surface', all.faceStatus);
   printTally('Projection of each coedge\'s 3D curve (status, method; p-curve given or missing; surface)',

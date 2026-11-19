@@ -27,8 +27,8 @@ test('edgeTolerance: a curve off its plane, its p-curve kept: the edge\'s tolera
   const t = r.model.edge.tolerance[0]!;
   assert.ok(t >= GROWTH * h * 0.99 && t <= GROWTH * h * 1.01, `${t} for a height of ${h}`);
   assert.ok(Number.isNaN(r.model.edge.tolerance[1]!), 'the line on the plane untouched');
-  assert.match(r.diagnostics.find((x) => x.message.startsWith('edgeTolerance:'))!.message,
-    /^edgeTolerance: 1 edges' tolerances grown .*: edge #31 \(/);
+  assert.match(r.diagnostics.find((x) => x.message.startsWith('tolerances grown:'))!.message,
+    /^tolerances grown: 1 edge \(edgeTolerance 1 edge\), .* \(edge #31: 1\.00e-6 mm to /);
   const a = await analysisFor(r.model, r.analysis!);
   assert.equal(a.edge.toleranceFrom[0], PROVENANCE.healed);
   assert.ok(Number.isNaN(a.edge.givenTolerance[0]!), 'the source gave none');
@@ -50,7 +50,7 @@ test('edgeTolerance: a source\'s tolerance that covers it is kept, never shrunk'
   const d = cylinderSide({ bottom: {} }, 1e-6, 0, undefined, 2.05, 0.2).finish();
   const r = await healPart(d, {}, module);
   assert.equal(r.model.edge.tolerance[0], 0.2);
-  assert.ok(!r.diagnostics.some((x) => x.message.startsWith('edgeTolerance:') && x.message.includes('edge #11')));
+  assert.ok(!r.diagnostics.some((x) => x.message.startsWith('tolerances grown:') && x.message.includes('edge #11')));
   const a = await analysisFor(r.model, r.analysis!);
   assert.equal(a.edge.toleranceFrom[0], PROVENANCE.given);
   assert.equal(a.edge.givenTolerance[0], 0.2);

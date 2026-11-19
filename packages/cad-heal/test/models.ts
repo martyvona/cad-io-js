@@ -75,17 +75,19 @@ export { line2 };
  * A face on the plane z = 0 (u = x, v = y) bounded by a rational quadratic B-spline from (0, 0) to (2, 0) through
  * the pole (1, 1) (weights 1, 0.5, 2: not symmetric) and the line back; `arc` the arc's coedge's p-curve (default the
  * arc itself in (u, v), the same parameter; null: none), `range` its use's; `lift` the arc's middle pole's z (its
- * curve then off the plane by up to about lift / 2).
+ * curve then off the plane by up to about lift / 2); `endOff` the end vertex's z (off both edges' ends by it);
+ * `tolerance` every vertex's and edge's own.
  */
-export function planeArc(arc?: Curve | null, range?: [number, number], lift = 0): BrepBuilder {
+export function planeArc(arc?: Curve | null, range?: [number, number], lift = 0, endOff = 0, tolerance?: number):
+  BrepBuilder {
   const b = new BrepBuilder({ uncertainty: 1e-6 });
   const plane = b.addSurface({ kind: 'plane', position: { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] } });
   const curve3 = b.addCurve(rationalArc([[0, 0, 0], [1, 1, lift], [2, 0, 0]], [1, 0.5, 2]));
   const back = b.addCurve({ kind: 'line', point: [2, 0, 0], direction: [-1, 0, 0], magnitude: 1 });
   const p = arc === null ? undefined : b.addCurve(arc ?? rationalArc([[0, 0], [1, 1], [2, 0]], [1, 0.5, 2]));
-  const v0 = b.addVertex({ point: [0, 0, 0] }), v1 = b.addVertex({ point: [2, 0, 0] });
-  const eArc = b.addEdge({ curve: curve3, start: v0, end: v1, sameSense: true, id: 31 });
-  const eBack = b.addEdge({ curve: back, start: v1, end: v0, sameSense: true, id: 32 });
+  const v0 = b.addVertex({ point: [0, 0, 0], tolerance }), v1 = b.addVertex({ point: [2, 0, endOff], tolerance });
+  const eArc = b.addEdge({ curve: curve3, start: v0, end: v1, sameSense: true, id: 31, tolerance });
+  const eBack = b.addEdge({ curve: back, start: v1, end: v0, sameSense: true, id: 32, tolerance });
   const face = b.addFace({ surface: plane, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true,
     coedges: [{ edge: eArc, orientation: 'forward', pcurve: p, range, id: 41 },
       { edge: eBack, orientation: 'forward', id: 42 }] }], id: 8 });

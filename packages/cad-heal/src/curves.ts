@@ -9,6 +9,7 @@ import { reparameterize, reparameterized } from './fix/reparam.ts';
 import { projected, replacement } from './fix/replace.ts';
 import { curveEndGaps, gapTo } from './fix/ends.ts';
 import { curveOffSurface, GROWTH } from './fix/tolerance.ts';
+import { Growth } from './fix/growth.ts';
 import type { HealFix } from './index.ts';
 import { edgeRange, measureGiven, pcurveImage, tolerances } from './measure.ts';
 
@@ -265,49 +266,31 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
       if (gap > vNeedE[e]!) vNeedE[e] = gap;
     }
   }
-  const grownV = new Tally(), bridged = new Tally();
-  let worstV = 0, worstEnd = 0;
+  // The tolerances grown, edges' and vertices', in one diagnostic for the part (growth.ts's rule for its severity).
+  const growth = new Growth(tol.size);
   for (let v = 0; v < vNeed.length; v++) {
-    const want = Math.max(fixes.has('vertexTolerance') ? vNeed[v]! : 0, fixes.has('pcurveEnds') ? endNeedV[v]! : 0);
-    if (!(want > tol.vertex(v))) continue;
-    edit.set('vertex', 'tolerance', v, GROWTH * want);
-    if (vNeed[v]! > tol.vertex(v) && fixes.has('vertexTolerance')) {
-      worstV = Math.max(worstV, vNeed[v]!), grownV.add(`vertex #${d.vertex.id[v]} (${vNeed[v]!.toPrecision(3)} mm)`);
-    }
-    if (endNeedV[v]! > tol.vertex(v) && fixes.has('pcurveEnds')) {
-      worstEnd = Math.max(worstEnd, endNeedV[v]!), bridged.add(`vertex #${d.vertex.id[v]}`);
-    }
+    const byV = fixes.has('vertexTolerance') && vNeed[v]! > tol.vertex(v);
+    const byEnds = fixes.has('pcurveEnds') && endNeedV[v]! > tol.vertex(v);
+    if (!byV && !byEnds) continue;
+    const grown = GROWTH * Math.max(byV ? vNeed[v]! : 0, byEnds ? endNeedV[v]! : 0);
+    edit.set('vertex', 'tolerance', v, grown);
+    growth.add('vertex', d.vertex.id[v]!, tol.vertex(v), grown,
+      [...byV ? ['vertexTolerance' as const] : [], ...byEnds ? ['pcurveEnds' as const] : []]);
   }
-  if (grownV.n) {
-    diagnostics.push({ severity: 'warning', message: `vertexTolerance: ${grownV.n} vertices' tolerances and their `
-      + `edges' grown to cover their edges' curves' ends (up to ${worstV.toPrecision(3)} mm, grown to ${GROWTH} times `
-      + `it): `
-      + `${grownV.ex.join(', ')}${grownV.more()}` });
+  // edgeTolerance: grown where what's measured is past what the edge is judged by; pcurveEnds' and vertexTolerance's
+  // gaps grow the edges at them too, since the face API and the tessellator judge a vertex's gaps by its edges'.
+  for (let e = 0; e < need.length; e++) {
+    const byE = fixes.has('edgeTolerance') && need[e]! > tol.edge(e);
+    const byEnds = fixes.has('pcurveEnds') && endNeedE[e]! > tol.edge(e);
+    const byV = fixes.has('vertexTolerance') && vNeedE[e]! > tol.edge(e);
+    if (!byE && !byEnds && !byV) continue;
+    const grown = GROWTH * Math.max(byE ? need[e]! : 0, byEnds ? endNeedE[e]! : 0, byV ? vNeedE[e]! : 0);
+    edit.set('edge', 'tolerance', e, grown);
+    growth.add('edge', d.edge.id[e]!, tol.edge(e), grown, [...byE ? ['edgeTolerance' as const] : [],
+      ...byV ? ['vertexTolerance' as const] : [], ...byEnds ? ['pcurveEnds' as const] : []]);
   }
-  if (bridged.n) {
-    diagnostics.push({ severity: 'warning', message: `pcurveEnds: ${bridged.n} vertices' tolerances and their edges' `
-      + `grown to bridge the source's p-curves' ends to them (up to ${worstEnd.toPrecision(3)} mm, grown to ${GROWTH} `
-      + `times it): ${bridged.ex.join(', ')}${bridged.more()}` });
-  }
-  // edgeTolerance: grown where what's measured is past what the edge is judged by (pcurveEnds' gaps among it).
-  if (fixes.has('edgeTolerance') || fixes.has('pcurveEnds') || fixes.has('vertexTolerance')) {
-    const grown = new Tally();
-    let worst = 0;
-    for (let e = 0; e < need.length; e++) {
-      const own = fixes.has('edgeTolerance') ? need[e]! : 0, want = Math.max(own, fixes.has('pcurveEnds')
-        ? endNeedE[e]! : 0, fixes.has('vertexTolerance') ? vNeedE[e]! : 0);
-      if (!(want > tol.edge(e))) continue;
-      edit.set('edge', 'tolerance', e, GROWTH * want);
-      if (!(own > tol.edge(e))) continue;
-      worst = Math.max(worst, own);
-      grown.add(`edge #${d.edge.id[e]} (${own.toPrecision(3)} mm)`);
-    }
-    if (grown.n) {
-      diagnostics.push({ severity: 'warning', message: `edgeTolerance: ${grown.n} edges' tolerances grown to cover `
-        + `their geometry's measured disagreement (up to ${worst.toPrecision(3)} mm, grown to ${GROWTH} times it): `
-        + `${grown.ex.join(', ')}${grown.more()}` });
-    }
-  }
+  const grownDiagnostic = growth.diagnostic();
+  if (grownDiagnostic) diagnostics.push(grownDiagnostic);
   if (made.n) {
     diagnostics.push({ severity: 'warning', message: `pcurveMissing: ${made.n} p-curves made by projecting their `
       + `edges' curves (off by up to ${worstMade.toPrecision(3)} mm): ${made.ex.join(', ')}${made.more()}` });

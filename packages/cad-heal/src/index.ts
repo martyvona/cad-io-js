@@ -5,8 +5,10 @@
 // healed model's analysis buffer (cad-brep's analysis-layout.ts: pcurveFrom, toleranceFrom, givenTolerance).
 //
 // One master switch (`heal`, on by default) leaves every model exactly as imported when off; under it, each fix can
-// be turned off by name. Each fix reports one diagnostic per part it changes (a warning with its count and examples),
-// and one for what it couldn't repair. The geometry is cad-geom's (its WebAssembly module, `init`).
+// be turned off by name. Each p-curve fix reports one diagnostic per part it changes (a warning with its count and
+// examples), and one for what it couldn't repair; the tolerances grown (edgeTolerance's, vertexTolerance's,
+// pcurveEnds') are one diagnostic per part, a warning or an error by how far they grew (fix/growth.ts). The geometry
+// is cad-geom's (its WebAssembly module, `init`).
 
 import { type BrepAnalysis, type BrepData, LOOP_KIND, modelHash, PROVENANCE, rowCount, writeAnalysis } from
   'cad-brep';

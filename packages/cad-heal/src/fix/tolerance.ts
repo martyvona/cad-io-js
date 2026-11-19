@@ -1,7 +1,7 @@
 // edgeTolerance: an edge's tolerance grown to cover how far its geometry disagrees, measured: over its coedges, the
 // p-curve each ends with (the source's, measured; or the pass's own, its projection's error) from its curve, or where
 // a coedge has none, its curve's distance from the face's surface. Grown to GROWTH times the largest, since the
-// measures are sampled; never shrunk, and with no cap (that's to be decided).
+// measures are sampled; never shrunk, and with no cap (growth.ts says how far each grew, as a warning or an error).
 
 import type { Geometry } from 'cad-geom';
 import { SAMPLES } from '../measure.ts';
