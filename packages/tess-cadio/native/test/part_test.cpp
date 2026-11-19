@@ -353,24 +353,28 @@ TEST_CASE("a face left past its deflection fails past maxDeviationFactor x max(d
     auto s = cadgeom::makeSurface(m, m.faceSurface(c.face), st);
     REQUIRE(s);
     const cadgeom::SurfaceDomain D = s->domain();
-    double W = 0;
-    for (int32_t t : k.rejected)
+    // W the worst over the refused triangles, Wmin the least of their own worsts.
+    double W = 0, Wmin = INFINITY;
+    for (int32_t t : k.rejected) {
+      double Wt = 0;
       for (int i = 0; i <= 4; i++)
         for (int j = 0; i + j <= 4; j++) {
           if (i == 4 || j == 4 || i + j == 0) continue;
           Vec3 x = (i / 4.0) * k.points[k.triangles[3 * t]] + (j / 4.0) * k.points[k.triangles[3 * t + 1]] +
             ((4 - i - j) / 4.0) * k.points[k.triangles[3 * t + 2]];
           cadgeom::SurfaceInversion inv = cadgeom::invertSurface(*s, x, D.u, D.v, 1e-6 * c.d);
-          if (inv.status == cadgeom::Status::ok) W = std::fmax(W, inv.distance);
+          if (inv.status == cadgeom::Status::ok) Wt = std::fmax(Wt, inv.distance);
         }
+      W = std::fmax(W, Wt), Wmin = std::fmin(Wmin, Wt);
+    }
     if (k.rejected.empty() || !(W > c.d))
       std::printf("  %s at %g: %zu refused, worst %g x d\n", c.model, c.d, k.rejected.size(), W / c.d);
     REQUIRE(k.rejected.size() > 0);
     REQUIRE(W > std::fmax(c.d, cadgeom::Tolerances(m).face(c.face)));
-    int within = -1;  // (measured at 1.05 W)
-    for (double share : {1.05, 2.0, 0.5, 0.95}) {
+    // Each share of W; and (share 0) a limit under every refused triangle's own worst, Wmin / 2.
+    for (double share : {1.05, 2.0, 0.5, 0.95, 0.0}) {
       const double base = std::fmax(c.d, cadgeom::Tolerances(m).face(c.face));  // (max(d, tol))
-      o.maxDeviationFactor = share * W / base;
+      o.maxDeviationFactor = (share > 0 ? share * W : 0.5 * Wmin) / base;
       std::vector<PartProgress> seen;
       o.progress = [&](const PartProgress& p) { seen.push_back(p); };
       PartMesher pm(m, o);
@@ -379,12 +383,12 @@ TEST_CASE("a face left past its deflection fails past maxDeviationFactor x max(d
       const bool fails = W > limit;
       CHECK_EQ(fm.status == cadgeom::Status::noConvergence, fails);
       CHECK(fm.deviationMeasured <= static_cast<int>(k.rejected.size()));
-      if (share == 1.05) within = fm.deviationMeasured;
       if (fails) {
         CHECK(fm.deviationMeasured >= 1);
-        // Stopped at the first point past the limit: fewer measured than at a higher limit, where fewer are within by
-        // their bound, unless that measured at most one.
-        if (within >= 2) CHECK(fm.deviationMeasured < within);
+        // Stopped at the first point past the limit: under every refused triangle's own worst, none is within by its
+        // bound (the bound is at least the distance) and the first measured is past it, so one alone. (Between
+        // limits nothing is guaranteed: a lower one clears fewer by their bound, so may measure more.)
+        if (share == 0) CHECK_EQ(fm.deviationMeasured, 1);
         CHECK(fm.triangles.empty());
         CHECK(fm.cause.find("past its deflection: at least ") != std::string::npos);
         CHECK(fm.worstDeviation > limit);

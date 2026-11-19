@@ -270,6 +270,16 @@ export class CadioTessellator implements Tessellator {
         + `projected within 0.05 x the deflection, ${pc[1]} at the edge's tolerance (the curve farther off its `
         + `surface), ${pc[2]} by inversion (no projection ok)` });
     }
+    // The local steps of uses traced sample by sample that fell back on the global search (edges.h's TraceFallback):
+    // said with the first few, [edge id, t, distance, why].
+    const fallbacks = Array.isArray(diag['traceFallbacks']) ? diag['traceFallbacks'] as [number, number, number,
+      string][] : [];
+    if (fallbacks.length) {
+      const tr = list('traces');
+      const shown = fallbacks.slice(0, 5).map(([e, t, d, why]) => `edge ${e} at ${t} (${d} off): ${why}`).join('; ');
+      diagnostics.push({ severity: 'info', message: `${fallbacks.length} samples of uses traced sample by sample fell `
+        + `back on the global search (${tr[0] ?? 0} traced locally): ${shown}${fallbacks.length > 5 ? '; ...' : ''}` });
+    }
     const folded = list('folded');
     if (folded.length) {
       const folds = typeof diag['folds'] === 'number' ? diag['folds'] : 0;

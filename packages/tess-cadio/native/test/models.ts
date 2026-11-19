@@ -1237,6 +1237,32 @@ export function narrowStrip(scale = 1, uncertainty = 1): BrepBuilder {
   return b;
 }
 
+/**
+ * A thin U: a degree-1 B-spline whose u runs along one arm (y = 0, x 0 to 10), across the bridge (x = 10, y 0 to 0.1)
+ * and back along the other (y = 0.1), z its v (0 to 10); uncertainty 0.1. A face on the first arm bounded by one
+ * closed cubic edge about (5, 5) of radius about 3 in x and z, no p-curve: its vertex on the arm (y = 0), its middle
+ * 0.07 off it towards the other arm, nearer that one (0.03). Each sample's global foot there is on the other arm; a
+ * foot continued from the sample before stays on its own. uFoldAway: its middle 0.3 off the arm on the far side, past
+ * the tolerance but within the samples' spacing: continued too. uFoldFar: 3 off, past both: the global search there.
+ */
+export function uFold(middle = 0.07): BrepBuilder {
+  const b = new BrepBuilder({ uncertainty: 0.1 });
+  const g = 0.1, profile = [[0, 0], [10, 0], [10, g], [0, g]];
+  const poles = profile.map(([x, y]) => [0, 10].map((z) => [x!, y!, z]));
+  const surface = b.addSurface({ kind: 'bspline', uDegree: 1, vDegree: 1, uKnots: [0, 1, 2, 3], vKnots: [0, 1],
+    uMultiplicities: [2, 1, 1, 2], vMultiplicities: [2, 2], poles, uClosed: false, vClosed: false,
+    selfIntersect: false, form: 'unspecified' });
+  const off = [0, 0.5, 1, 1, 1, 1, 1, 0.5, 0].map((f) => f * middle);
+  const loop = off.map((y, k) => [5 + 3 * Math.cos(2 * Math.PI * k / 8), y, 5 + 3 * Math.sin(2 * Math.PI * k / 8)]);
+  const curve = b.addCurve({ kind: 'bspline', degree: 3, knots: [0, 1, 2, 3, 4, 5, 6], multiplicities: [4, 1, 1, 1, 1,
+    1, 4], poles: loop, closed: true, selfIntersect: false, form: 'unspecified' });
+  const v = b.addVertex({ point: loop[0]! });
+  const e = b.addEdge({ curve, start: v, end: v, sameSense: true, range: [0, 6] });
+  sheet(b, b.addFace({ surface, sameSense: true,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [{ edge: e, orientation: 'forward' }] }] }));
+  return b;
+}
+
 /** Across the seam (u from -pi / 2 to pi / 2), by its p-curves, by p-curves a period apart, without any. */
 export const halfCylinderPcurves = (): BrepBuilder => halfCylinder(-Math.PI / 2, 'same');
 export const halfCylinderApart = (): BrepBuilder => halfCylinder(-Math.PI / 2, 'apart');
@@ -1608,5 +1634,6 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   cuspPocketMirrored, flowerHole, lobes,
   slitFromCorner, lunePinch, spindleApex: () => spindleCorner(0.005),
   tinyCap: () => capWithin(0.01), capWithinPole, narrowStrip: () => narrowStrip(),
-  narrowStripSmall: () => narrowStrip(0.05, 1e-3), poleLunes, poleLens, curlBack, passBy,
+  narrowStripSmall: () => narrowStrip(0.05, 1e-3), uFold: () => uFold(),
+  uFoldAway: () => uFold(-0.3), uFoldFar: () => uFold(-3), poleLunes, poleLens, curlBack, passBy,
   wrongEndPcurve: () => wrongEndPcurve(), wigglePcurve: () => wrongEndPcurve(true) };

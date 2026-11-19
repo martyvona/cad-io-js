@@ -329,6 +329,8 @@ struct EdgeMesh::Impl {
   double tol;
   int nModel = 0;
   ProjectionCounts projections;
+  TraceCounts traces;
+  std::vector<TraceFallback> traceFallbacks;
 
   struct Edge {
     std::unique_ptr<Curve> curve;   // its 3D curve, or the p-curve it's sampled through
@@ -444,6 +446,54 @@ struct EdgeMesh::Impl {
       if (step <= 4e-16 * (1 + std::fabs(x.x) + std::fabs(x.y))) break;
     }
     return norm(q.p - s0) <= radius ? x : start;
+  }
+
+  /**
+   * The foot of p on face f's surface continued from `start` (the sample before's): Gauss-Newton on |S - p|^2 / 2,
+   * each step taken only where it comes nearer; held against a side of the domain (a direction that isn't periodic),
+   * along that side. True where it converged (the step it would take, in 3D, within rounding of p's coordinates or a
+   * millionth of its distance; where no step comes nearer, within 1e-9 of them or 1e-4 of its distance, the
+   * surface's own rounding), the foot and its distance out; false where the surface is degenerate there or it stalled
+   * away from a foot.
+   */
+  bool localTrace(int f, Vec3 p, Vec2 start, Vec2& foot, double& distance) const {
+    const Face& F = faces[f];
+    Vec2 x = start;
+    SurfacePoint q;
+    if (F.s->eval(x.x, x.y, 1, q) != Status::ok) return false;
+    double best = norm(q.p - p);
+    bool converged = false;
+    for (int it = 0; it < 32 && !converged; it++) {
+      Vec3 e = q.p - p;
+      double gu = dot(e, q.du), gv = dot(e, q.dv), a = dot(q.du, q.du), b = dot(q.du, q.dv), c = dot(q.dv, q.dv);
+      double det = a * c - b * b;
+      if (!(det > 1e-12 * a * c && a > 0)) return false;
+      Vec2 n{x.x - (c * gu - b * gv) / det, x.y - (a * gv - b * gu) / det};
+      // Held against a side of the domain (a direction that isn't periodic): along that side instead, the other
+      // coordinate's Newton step alone; in a corner, held there.
+      const bool heldU = !(F.period[0] > 0) && (n.x < F.dom.u.lo || n.x > F.dom.u.hi);
+      const bool heldV = !(F.period[1] > 0) && (n.y < F.dom.v.lo || n.y > F.dom.v.hi);
+      if (heldU && !heldV) n = {std::clamp(n.x, F.dom.u.lo, F.dom.u.hi), x.y - gv / c};
+      if (heldV && !heldU) n = {x.x - gu / a, std::clamp(n.y, F.dom.v.lo, F.dom.v.hi)};
+      if (!(F.period[0] > 0)) n.x = std::clamp(n.x, F.dom.u.lo, F.dom.u.hi);
+      if (!(F.period[1] > 0)) n.y = std::clamp(n.y, F.dom.v.lo, F.dom.v.hi);
+      // At a foot the step it takes is nothing: in 3D within rounding of p or a millionth of its distance.
+      if (norm((n.x - x.x) * q.du + (n.y - x.y) * q.dv) <= std::max(1e-12 * (1 + norm(p)), 1e-6 * best)) {
+        converged = true;
+        break;
+      }
+      SurfacePoint qn;
+      if (F.s->eval(n.x, n.y, 1, qn) != Status::ok) break;
+      double d = norm(qn.p - p);
+      if (!(d < best)) {
+        // (No nearer: the surface's own rounding, where the step left is that small, or a stall away from a foot.)
+        converged = norm((n.x - x.x) * q.du + (n.y - x.y) * q.dv) <= std::max(1e-9 * (1 + norm(p)), 1e-4 * best);
+        break;
+      }
+      x = n, q = qn, best = d;
+    }
+    foot = x, distance = best;
+    return converged;
   }
 
   /**
@@ -689,16 +739,23 @@ struct EdgeMesh::Impl {
       }
     }
     if (!C.pcurve || C.pcurveOff) {
+      // The last regular sample's foot, its 3D point and distance: the next inside sample's foot continued from it.
+      bool chain = false;
+      Vec2 lastUv{};
+      Vec3 lastPoint{};
+      double lastDistance = 0;
       for (int i = 0; i < n; i++) {
         Vec2 hint = i < static_cast<int>(seeds.size()) ? seeds[i] : i ? s.uv.back() : Vec2{};
         bool hinted = i < static_cast<int>(seeds.size()) || i > 0;
         // (Each sample inverted once: a split round redoes the coedge, its old samples from the cache.)
         double t = E.s.t[s.index[i]];
+        const Vec3 P = E.s.points[s.index[i]];
         auto hit = C.inverted.find(t);
         SurfaceInversion si;
+        const char* failed = nullptr;
         if (hit != C.inverted.end()) {
           si = hit->second;
-        } else if (int p = poleAt(C.face, E.s.points[s.index[i]]); p >= 0) {
+        } else if (int p = poleAt(C.face, P); p >= 0) {
           // At a known pole, no search (its feet a continuum: slow to bound): its row, the free coordinate arbitrary
           // (the hint's), filled from a neighbour below.
           const Singularity& g = F.sing[p];
@@ -707,9 +764,45 @@ struct EdgeMesh::Impl {
           si.uv = g.isoU ? Vec2{g.at, hinted ? hint.y : F.lo[1]} : Vec2{hinted ? hint.x : F.lo[0], g.at};
           si.certainty = Certainty::unique;
         } else {
-          si = invert(C.face, E.s.points[s.index[i]], hinted ? &hint : nullptr);
+          // An inside sample after a regular one: its foot continued locally from that one's. Kept where it
+          // converged, no farther from the surface than the sample before allows (its distance, the edge's
+          // tolerance, or the samples' spacing, whichever is largest) and no farther along it than their 3D
+          // distance allows (the surface between the two feet within twice that of the step): else, and at the
+          // ends, the global search.
+          bool local = false;
+          if (chain && i + 1 < n && i > 0) {
+            Vec2 foot;
+            double d;
+            const double step = norm(P - lastPoint);
+            if (!localTrace(C.face, P, lastUv, foot, d)) {
+              failed = "the local step didn't converge";
+            } else if (d > std::max({2 * lastDistance, tols.edge(m.coedgeEdge(c)), tol, 0.5 * step})) {
+              failed = "the local foot farther from the surface than the sample before";
+            } else if (norm(surfaceAt(C.face, foot) - surfaceAt(C.face, lastUv)) >
+              2 * (step + lastDistance + d) + tol) {
+              failed = "the local foot jumped along the surface";
+            } else {
+              si.status = Status::ok, si.uv = foot, si.distance = d, si.foot = surfaceAt(C.face, foot);
+              si.certainty = Certainty::unique;
+              for (int dd = 0; dd < 2; dd++) {
+                if (!(F.period[dd] > 0)) continue;
+                const double w = dd ? foot.y : foot.x, lo = dd ? F.dom.v.lo : F.dom.u.lo;
+                const double r = std::remainder(w - lo, F.period[dd]);
+                (dd ? si.onSeamV : si.onSeamU) = std::fabs(r) <= 1e-12 * F.period[dd];
+              }
+              local = true;
+              traces.local++;
+            }
+          }
+          if (!local) {
+            si = invert(C.face, P, hinted ? &hint : nullptr);
+            traces.global++;
+            if (failed) traceFallbacks.push_back({c, t, si.distance, failed});
+          }
         }
         if (hit == C.inverted.end()) C.inverted.emplace(t, si);
+        if (!si.atSingularity && si.status == Status::ok) chain = true, lastUv = si.uv, lastPoint = P,
+          lastDistance = si.distance;
         s.status = worse(s.status, si.status);
         s.uv.push_back(si.uv);
         singular[i] = si.atSingularity;
@@ -2017,6 +2110,8 @@ Vec3 EdgeMesh::point(int e, double t) const {
 }
 const CoedgeSamples& EdgeMesh::coedge(int c) const { return impl_->coedges[c].s; }
 const ProjectionCounts& EdgeMesh::projections() const { return impl_->projections; }
+const TraceCounts& EdgeMesh::traces() const { return impl_->traces; }
+const std::vector<TraceFallback>& EdgeMesh::traceFallbacks() const { return impl_->traceFallbacks; }
 FaceBoundary EdgeMesh::face(int f) const { return impl_->face(f); }
 
 Status EdgeMesh::split(const std::vector<SplitRequest>& requests) {

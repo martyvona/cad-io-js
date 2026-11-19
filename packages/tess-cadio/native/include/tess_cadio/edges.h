@@ -118,6 +118,20 @@ struct ProjectionCounts {
   int withinMesh = 0, atEdgeTolerance = 0, byInversion = 0;
 };
 
+/**
+ * A use with no p-curve (or one parameterized otherwise) has its inside samples' (u, v) by a local foot continued
+ * from the sample before; the global search only at its ends, at a pole, and where the local step fails or jumps.
+ */
+struct TraceCounts {
+  int local = 0, global = 0;
+};
+/** A sample whose local foot failed, found by the global search instead: its use, edge parameter, distance, why. */
+struct TraceFallback {
+  int32_t coedge;
+  double t, distance;
+  const char* why;
+};
+
 /** A boundary point of a face in (u, v). */
 struct BoundaryPoint {
   /**
@@ -222,6 +236,10 @@ public:
   const CoedgeSamples& coedge(int c) const;
   /** How the uses the model gives no p-curve were sampled (EdgeOptions::projectMissingPcurves). */
   const ProjectionCounts& projections() const;
+  /** The uses traced sample by sample (TraceCounts), each sample counted once however often it's redone. */
+  const TraceCounts& traces() const;
+  /** Those samples whose local foot failed, in the order found. */
+  const std::vector<TraceFallback>& traceFallbacks() const;
   /** Face f's boundary from the current samples (made each call: after split(), the new samples). */
   FaceBoundary face(int f) const;
 
