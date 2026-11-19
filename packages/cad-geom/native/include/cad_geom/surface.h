@@ -103,11 +103,45 @@ struct SurfaceInversion {
   double familyLo = 0, familyHi = 0, familyAt = 0;
 };
 
+/** A foot found locally (localFoot). */
+struct LocalFoot {
+  /** ok (a foot on a side of the domain included: `side`); noConvergence; singular (the normal matrix degenerate). */
+  Status status = Status::noConvergence;
+  /** ok against a side of a direction that isn't periodic: 0 u's lo, 1 u's hi, 2 v's lo, 3 v's hi; else -1. */
+  int side = -1;
+  /** Continued from start (periodic parameters not reduced), S there and its distance from p. */
+  Vec2 uv;
+  Vec3 point;
+  double distance = NAN;
+  int iterations = 0;
+};
+
+/**
+ * The foot of p on s continued from `start` (a nearby known foot's (u, v)), no global search: Gauss-Newton on
+ * |S - p|^2 / 2, each step taken only where it comes nearer; held against a side of the domain (a direction that isn't
+ * periodic), along that side, the other coordinate's Newton step alone. ok where it converged: the step it would take,
+ * in 3D, within max(1e-12 (1 + |p|), 1e-6 |S - p|); where no step comes nearer, within max(1e-9 (1 + |p|),
+ * 1e-4 |S - p|), the surface's own rounding. singular where the normal matrix degenerates on the way, or a direction
+ * collapses (|S_u| under 1e-12 |S_v|, or the other way: a pole row); noConvergence where it stalled away from a foot
+ * or ran out of steps. Pass the surface as it closes in fact (closeInFact), so its periods are the face's.
+ */
+LocalFoot localFoot(const Surface& s, Vec3 p, Vec2 start);
+
+/** A foot the search found: its parameters, point and distance from the point inverted. */
+struct SurfaceFoot {
+  Vec2 uv;
+  Vec3 foot;
+  double distance;
+};
+
 /**
  * The parameters in ru x rv of the point of s nearest p, global (branch and bound on bound(), then Gauss-Newton);
  * `tol` a distance. `hint`, if given, is a (u, v) the caller expects near the answer (a neighbouring sample's): it
- * seeds the search but never replaces the global check.
+ * seeds the search but never replaces the global check. `all`, if given, receives every foot the search found within
+ * tol of the nearest, nearest first, before feet within tol of each other are taken as one (the end search clusters
+ * them at its own tolerances); periodic parameters in [lo, lo + period) as uv's.
  */
-SurfaceInversion invertSurface(const Surface& s, Vec3 p, Range ru, Range rv, double tol, const Vec2* hint = nullptr);
+SurfaceInversion invertSurface(const Surface& s, Vec3 p, Range ru, Range rv, double tol, const Vec2* hint = nullptr,
+  std::vector<SurfaceFoot>* all = nullptr);
 
 } // namespace cadgeom

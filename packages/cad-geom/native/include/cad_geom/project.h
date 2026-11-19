@@ -7,6 +7,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <vector>
 
@@ -19,6 +20,15 @@
 namespace cadgeom {
 
 /** How a p-curve was made. */
+/**
+ * Why a trace stopped short of its range's end: noConvergence, no corrector step converged however short (or no seed
+ * found); jump, the corrected foot jumped in 3D by more than the curve moved (a seam's period never does: 3D is
+ * compared); poleLine, every step landed on a pole line the curve stays off; degenerate, the first fundamental form
+ * degenerated where it stopped (S_u x S_v vanishing off the domain's sides); fold, the Hessian of |S - C|^2 / 2 was
+ * singular where it stopped (a fold or branch point of the feet).
+ */
+enum class StopWhy : uint8_t { none, noConvergence, jump, poleLine, degenerate, fold };
+
 enum class PcurveMethod : uint8_t {
   /** Nothing made (status says why). */
   none,
@@ -33,6 +43,47 @@ enum class PcurveMethod : uint8_t {
 };
 
 /** Known (u, v) at the range's ends: a vertex's, a seam side fixed by the neighbours. */
+/** A foot of an end point (a vertex) on a surface, as the end search gives it. */
+struct EndFoot {
+  /** point: one (u, v); seamPair: on a seam, `twin` the other side's copy; pole: at a pole, its free coordinate any. */
+  enum class Kind : uint8_t { point, seamPair, pole };
+  Kind kind = Kind::point;
+  Vec2 uv, twin{NAN, NAN};
+  /** A pole's free coordinate (u where poleU, else v) and the interval it takes: the domain's in that direction. */
+  bool poleU = false;
+  double freeLo = NAN, freeHi = NAN;
+  double distance = NAN;
+  /** unique: the only foot within tol of the nearest; else ambiguous. */
+  Certainty certainty = Certainty::none;
+};
+
+/**
+ * The end search's results by key (the caller's: a vertex and a face, as (vertex row << 32) | face row), for a pass,
+ * so a vertex's feet on a face are searched once (the trace doesn't seed from them: a central seed, as projectCurve
+ * takes, traced more of the corpus's coedges within tol than one at an end):
+ * the global search (invertSurface over the surface's domain) runs once per key, at the largest tol asked so far,
+ * keeping every foot it found; each call clusters those at its own tol (feet within tol of the nearest kept, feet
+ * within tol of each other one). A key's surface and point are its first call's. The vectors returned stay valid for
+ * the cache's lifetime (a later call for the same key at a larger tol refills its vector, a smaller one too: there is
+ * one per key). Not thread-safe: one per pass or worker.
+ */
+class EndSearchCache {
+public:
+  const std::vector<EndFoot>& feet(uint64_t key, const Surface& s, Vec3 p, double tol);
+  void clear() { entries_.clear(); }
+  /** The global searches run so far. */
+  long searches() const { return searches_; }
+
+private:
+  struct Entry {
+    double searched = -1, clustered = -1;
+    std::vector<SurfaceFoot> raw;
+    std::vector<EndFoot> feet;
+  };
+  std::map<uint64_t, Entry> entries_;
+  long searches_ = 0;
+};
+
 struct PcurveEnds {
   bool hasStart = false, hasEnd = false;
   Vec2 start, end;
@@ -102,6 +153,14 @@ struct Pcurve {
   double offSurface = 0;
   /** Where offSurface came from the hulls: the span (between two of the curve's breaks) holding it; else NaN. */
   Range offSpan{NAN, NAN};
+  /**
+   * The trace stopped short (`stopped`): at stopAt, the last foot it had there stopDistance from the curve, for
+   * stopWhy. No pieces are given then; status is noConvergence, or invalidModel where the feet it had were already
+   * farther than tol (offSurface, a lower bound for the whole range).
+   */
+  bool stopped = false;
+  double stopAt = NAN, stopDistance = NAN;
+  StopWhy stopWhy = StopWhy::none;
   /**
    * The largest |S(p(t)) - C(t)| over the range (mm, measured between samples as well as at them, not bounded):
    * status ok promises error <= tol.

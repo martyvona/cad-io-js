@@ -302,7 +302,66 @@ const SurfaceImpl::SpanGrid& SurfaceImpl::spanGrid(Range ru, Range rv) const {
   return *grid_;
 }
 
-SurfaceInversion invertSurface(const Surface& s0, Vec3 p, Range ru, Range rv, double tol, const Vec2* hint) {
+// Moved from tess-cadio's edges.cpp (localTrace), its thresholds as tuned there on the 406-part subset.
+LocalFoot localFoot(const Surface& s, Vec3 p, Vec2 start) {
+  LocalFoot out;
+  const SurfaceDomain dom = s.domain();
+  const bool perU = dom.uPeriod > 0, perV = dom.vPeriod > 0;
+  Vec2 x = start;
+  SurfacePoint q;
+  if (Status st = s.eval(x.x, x.y, 1, q); st != Status::ok) {
+    out.status = st;
+    return out;
+  }
+  double best = norm(q.p - p);
+  bool converged = false;
+  int it = 0;
+  for (; it < 32 && !converged; it++) {
+    const Vec3 e = q.p - p;
+    const double gu = dot(e, q.du), gv = dot(e, q.dv), a = dot(q.du, q.du), b = dot(q.du, q.dv), c = dot(q.dv, q.dv);
+    const double det = a * c - b * b;
+    // (A collapsed direction, a pole row's, too: there the relative test alone passes on S_u's rounding.)
+    if (!(det > 1e-12 * a * c && a > 0) || std::fmin(a, c) <= 1e-24 * std::fmax(a, c)) {
+      out.status = Status::singular, out.uv = x, out.point = q.p, out.distance = best, out.iterations = it;
+      return out;
+    }
+    Vec2 n{x.x - (c * gu - b * gv) / det, x.y - (a * gv - b * gu) / det};
+    // Held against a side of the domain (a direction that isn't periodic): along that side instead, the other
+    // coordinate's Newton step alone; in a corner, held there.
+    const bool heldU = !perU && (n.x < dom.u.lo || n.x > dom.u.hi);
+    const bool heldV = !perV && (n.y < dom.v.lo || n.y > dom.v.hi);
+    if (heldU && !heldV) n = {std::clamp(n.x, dom.u.lo, dom.u.hi), x.y - gv / c};
+    if (heldV && !heldU) n = {x.x - gu / a, std::clamp(n.y, dom.v.lo, dom.v.hi)};
+    if (!perU) n.x = std::clamp(n.x, dom.u.lo, dom.u.hi);
+    if (!perV) n.y = std::clamp(n.y, dom.v.lo, dom.v.hi);
+    // At a foot the step it takes is nothing: in 3D within rounding of p or a millionth of its distance.
+    if (norm((n.x - x.x) * q.du + (n.y - x.y) * q.dv) <= std::max(1e-12 * (1 + norm(p)), 1e-6 * best)) {
+      converged = true;
+      break;
+    }
+    SurfacePoint qn;
+    if (s.eval(n.x, n.y, 1, qn) != Status::ok) break;
+    const double d = norm(qn.p - p);
+    if (!(d < best)) {
+      // (No nearer: the surface's own rounding, where the step left is that small, or a stall away from a foot.)
+      converged = norm((n.x - x.x) * q.du + (n.y - x.y) * q.dv) <= std::max(1e-9 * (1 + norm(p)), 1e-4 * best);
+      break;
+    }
+    x = n, q = qn, best = d;
+  }
+  out.uv = x, out.point = q.p, out.distance = best, out.iterations = it;
+  out.status = converged ? Status::ok : Status::noConvergence;
+  if (converged) {
+    if (!perU && x.x == dom.u.lo) out.side = 0;
+    else if (!perU && x.x == dom.u.hi) out.side = 1;
+    else if (!perV && x.y == dom.v.lo) out.side = 2;
+    else if (!perV && x.y == dom.v.hi) out.side = 3;
+  }
+  return out;
+}
+
+SurfaceInversion invertSurface(const Surface& s0, Vec3 p, Range ru, Range rv, double tol, const Vec2* hint,
+  std::vector<SurfaceFoot>* all) {
   SurfaceInversion out;
   const SurfaceImpl* impl = dynamic_cast<const SurfaceImpl*>(&s0);
   if (!impl) return out;
@@ -468,6 +527,16 @@ SurfaceInversion invertSurface(const Surface& s0, Vec3 p, Range ru, Range rv, do
     return x.d < y.d || (x.d == y.d && (x.uv.x < y.uv.x || (x.uv.x == y.uv.x && x.uv.y < y.uv.y)));
   });
   if (exhausted && leftLb < cands[0].d - tol) out.status = Status::noConvergence;
+  if (all) {
+    all->clear();
+    for (const Candidate& k : cands) {
+      if (k.d - cands[0].d > tol) break;
+      Vec2 uv = k.uv;
+      if (wrapU && uv.x >= ru.hi) uv.x -= dom.uPeriod;
+      if (wrapV && uv.y >= rv.hi) uv.y -= dom.vPeriod;
+      all->push_back({uv, k.foot, k.d});
+    }
+  }
   // The feet within tol of the best distance, one per place (feet within tol of each other are one).
   std::vector<Candidate> feet;
   for (const Candidate& k : cands) {

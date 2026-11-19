@@ -3,7 +3,7 @@
 // range, as the face API does where the model has no p-curve, whether or not it has one.
 //   - What was made: status and method by surface kind, the error against the tolerance (cad-geom's tolerance.h: the
 //     largest of the part's uncertainty, the edge's and 1e-9 x the part's size, else 1e-7 mm), ambiguous feet;
-//     failures listed.
+//     failures listed; traces stopped short, by why (project.h's StopWhy), where and how far their last foot was.
 //   - Against the model's own p-curve where it has one, at 7 parameters of the edge's curve: the model's p-curve off
 //     its curve there (not at the curve's parameter, against Part 42, or off: the source's); else both in 3D within
 //     10 x tol and in (u, v) the same, a whole number of periods apart, or neither (a pole's free parameter, a surface
@@ -51,7 +51,8 @@ const tally = (t: Tally, key: string, ex?: string) => {
 };
 const fresh = () => ({
   files: 0, parts: 0, faces: 0, coedges: 0, planted: 0, caught: [] as string[], plantedAt: [] as string[],
-  made: {} as Tally, error: {} as Tally, ambiguous: {} as Tally, model: {} as Tally, seam: {} as Tally,
+  made: {} as Tally, error: {} as Tally, ambiguous: {} as Tally, stopped: {} as Tally, model: {} as Tally,
+  seam: {} as Tally,
   occtRoute: {} as Tally, occtError: {} as Tally, occtUv: {} as Tally, occtSeam: {} as Tally,
   occtLoop: {} as Tally, gap: {} as Gaps,
 });
@@ -277,6 +278,12 @@ export const check: FileCheck<undefined, Result> = {
                     byFace === 'within' ? 'face tolerance' : ''].filter(Boolean).join(', ') || 'none'}`, where);
               }
               if (p.certainty === 'ambiguous') tally(R.ambiguous, `${p.method} (${sk})`, ce);
+              if (p.stopped) {
+                const at = (p.stopAt - t0) / (t1 - t0);
+                tally(R.stopped, `${p.stopWhy} (${sk})`, `${ce}: at ${(100 * at).toFixed(1)}% of its range, its last `
+                  + `foot ${p.stopDistance.toPrecision(3)} off the curve, tol ${tol}`);
+                continue;
+              }
               const ok = p.status === 'ok';
               const curve3 = g.evalCurve(ci, ts, 0).values, s3 = g.evalSurface(sr, ours, 0).values;
               // Against the model's p-curve.
@@ -473,6 +480,7 @@ if (import.meta.main) {
   printTally('Projections made, by status, method and surface', all.made);
   printTally('The error of those ok, against the tolerance', all.error);
   printTally('Ambiguous feet', all.ambiguous);
+  printTally('Traces stopped short, by why and surface', all.stopped);
   printGaps('invalidModel: the gap off the surface against 1e-9 x the part\'s size (its vertices\' box), its '
     + 'uncertainty and the face\'s tolerance', all.gap);
   printTally('Against the model\'s p-curves, at the curve\'s parameters', all.model);
