@@ -1,7 +1,7 @@
 // Curves on surfaces (T3 lane 1): each face's coedges measured against their edges' curves, and each fix decided per
 // coedge. Its record is what the analysis buffer says of each p-curve and tolerance (PROVENANCE).
 
-import { type BrepData, LOOP_KIND, PROVENANCE, rowCount, SURFACE_KIND } from 'cad-brep';
+import { type BrepData, CURVE_KIND, LOOP_KIND, PROVENANCE, rowCount, SURFACE_KIND } from 'cad-brep';
 import type { Geometry } from 'cad-geom';
 import type { Diagnostic } from 'cad-scene';
 import type { Curve2, ModelEdit } from './edit.ts';
@@ -43,12 +43,13 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
     if (Number.isFinite(d.edge.range[2 * e]!)) record.edgeRangeFrom[e] = PROVENANCE.given;
   }
   const reparam = new Tally(), reparamKind = new Tally(), replaced = new Tally(), dropped = new Tally();
+  const toRange = new Tally();
   const made = new Tally(), notReplaced = new Map<string, Tally>(), notMade = new Map<string, Tally>();
   const add = (m: Map<string, Tally>, why: string, c: number) =>
     (m.get(why) ?? m.set(why, new Tally()).get(why)!).add(coedgeName(c));
   let worstMade = 0;
   // Per edge: the largest disagreement measured along it (edgeTolerance's).
-  const need = new Float64Array(rowCount(d, 'edge'));
+  const need = new Float64Array(rowCount(d, 'edge')), grids = new Map<number, Float64Array | null>();
   const needs = (e: number, x: number) => {
     if (x > need[e]!) need[e] = x;
   };
@@ -91,7 +92,9 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
         if (!range) continue;
         // A coedge left without a p-curve: its curve's distance from the surface is what its edge's tolerance needs.
         const bare = () => {
-          if (fixes.has('edgeTolerance')) needs(e, curveOffSurface(g, d.edge.curve[e]!, range, surface, tol.edge(e)));
+          if (fixes.has('edgeTolerance')) {
+            needs(e, curveOffSurface(g, d.edge.curve[e]!, range, surface, tol.edge(e), grids));
+          }
         };
         if (pc < 0 && (onPlane || !fixes.has('pcurveMissing'))) {
           bare();
@@ -170,6 +173,23 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
           worstMade = Math.max(worstMade, p.error);
           made.add(coedgeName(c));
           continue;
+        }
+        // The same parameter, but its domain short of the edge's range by rounding (vertices a hair off the curve
+        // put the range's end past the last knot): evaluation at the range's end is refused as outside the domain,
+        // for the face API and every consumer. Its end knots put on the range (a change of at most 1e-9 of its span).
+        if (m.kind === 'same' && fixes.has('pcurveReparam') && d.curve.kind[pc] === CURVE_KIND.bspline) {
+          const own = g.curveInfo(pc), lo = Math.min(...range), hi = Math.max(...range);
+          if (lo < own.lo || hi > own.hi) {
+            const curve = reparameterized(d, pc, 1, 0, range);
+            if (curve) {
+              edit.set('coedge', 'pcurve', c, edit.addCurve2(curve));
+              newRange();
+              record.pcurveFrom[c] = PROVENANCE.healed;
+              toRange.add(coedgeName(c));
+              keep();
+              continue;
+            }
+          }
         }
         let off = m.kind === 'off';
         if (m.kind === 'affine' && fixes.has('pcurveReparam')) {
@@ -292,6 +312,10 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
   if (reparam.n) {
     diagnostics.push({ severity: 'warning', message: `pcurveReparam: ${reparam.n} p-curves given their edges' `
       + `curves' parameter (theirs an affine function of it): ${reparam.ex.join(', ')}${reparam.more()}` });
+  }
+  if (toRange.n) {
+    diagnostics.push({ severity: 'warning', message: `pcurveReparam: ${toRange.n} p-curves' domains put on their `
+      + `edges' ranges (short of them by rounding): ${toRange.ex.join(', ')}${toRange.more()}` });
   }
   if (reparamKind.n) {
     diagnostics.push({ severity: 'warning', message: `pcurveReparam: ${reparamKind.n} p-curves parameterized as an `

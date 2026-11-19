@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { analysisFor, PROVENANCE } from 'cad-brep';
+import { analysisFor, BrepBuilder, PROVENANCE } from 'cad-brep';
 import { Geometry, init } from 'cad-geom';
 import { healPart } from '../src/index.ts';
-import { GROWTH } from '../src/fix/tolerance.ts';
+import { curveOffSurface, GROWTH } from '../src/fix/tolerance.ts';
 import { cylinderSide, line2, planeArc, rationalArc } from './models.ts';
 
 const module = await init();
@@ -107,3 +107,44 @@ test('edgeTolerance: a bare coedge\'s need, the curve\'s largest distance from t
     const r = await healPart(d, {}, module);
     assert.ok(Math.abs(r.model.edge.tolerance[0]! - GROWTH * h) < 0.01 * h);
   });
+
+/** A flat bounded patch z = 0 over [0, 4] x [0, 4] (a bilinear B-spline: curveOffSurface's grid on it is 0.5 apart)
+ * and a line on it along x at y = 0.25, between the grid's rows: rows 0 and 1. */
+function patchAndLine() {
+  const b = new BrepBuilder({ uncertainty: 1e-6 });
+  b.addSurface({ kind: 'bspline', uDegree: 1, vDegree: 1, uKnots: [0, 4], vKnots: [0, 4], uMultiplicities: [2, 2],
+    vMultiplicities: [2, 2], poles: [[[0, 0, 0], [0, 4, 0]], [[4, 0, 0], [4, 4, 0]]], uClosed: false, vClosed: false,
+    selfIntersect: false, form: 'unspecified' });
+  b.addCurve({ kind: 'line', point: [0, 0.25, 0], direction: [1, 0, 0], magnitude: 1 });
+  return b.finish();
+}
+
+for (const [tol, inverts] of [[0.36, true], [1, false]] as const) {
+  test(`curveOffSurface: at tol ${tol} the grid bound ${inverts ? 'can\'t vouch for the spans between samples, so it '
+    + 'inverts' : 'covers every span, so it doesn\'t invert'}`, () => {
+    // Each sample is within about 0.354 of a grid point, each span adds its length (4 / 32) times the speed (1) over
+    // 2: the samples alone would pass at 0.36, the spans don't.
+    const d = patchAndLine();
+    using g = new Geometry(module, new Uint8Array(d.buffer));
+    let calls = 0;
+    const invert = g.invertSurface.bind(g);
+    g.invertSurface = (...a: Parameters<typeof g.invertSurface>) => (calls++, invert(...a));
+    const x = curveOffSurface(g, 0, [0, 4], 0, tol, new Map());
+    assert.equal(calls > 0, inverts);
+    if (inverts) assert.ok(x < 1e-9, `the line is on the patch: ${x}`);
+    else assert.ok(x > 0.354 && x <= 1, `the bound returned: ${x}`);
+  });
+}
+
+test('curveOffSurface: a span\'s bound takes both its samples\' (here the last sample\'s is the largest)', () => {
+  // The line from x = 0 to 3.75 along y = 0.25: its last sample is 0.3536 from the grid, every other at most 0.348,
+  // and each span adds 3.75 / 32 / 2 = 0.0586. The last span's bound, 0.412, is past 0.41; the spans' left samples
+  // alone would give at most 0.407.
+  const d = patchAndLine();
+  using g = new Geometry(module, new Uint8Array(d.buffer));
+  let calls = 0;
+  const invert = g.invertSurface.bind(g);
+  g.invertSurface = (...a: Parameters<typeof g.invertSurface>) => (calls++, invert(...a));
+  curveOffSurface(g, 0, [0, 3.75], 0, 0.41, new Map());
+  assert.ok(calls > 0);
+});

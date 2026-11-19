@@ -17,18 +17,22 @@ import { ModelEdit } from './edit.ts';
 import { tolerances } from './measure.ts';
 
 /**
- * The fixes, in the order the pass runs them. Curves on surfaces (T3 lane 1): `pcurveMissing` makes the p-curves a
- * face needs on surfaces other than planes (planes' are exact for every consumer, so stay absent); `pcurveReparam`
- * gives a source's p-curve the parameter of its edge's curve where its image is right; `pcurveReplace` replaces a
- * source's p-curve by the projection where the projection is nearer, measured both ways; `pcurveEnds` bridges p-curve
- * ends to their vertices; `edgeTolerance` and `vertexTolerance` grow tolerances to cover what's measured.
+ * The fixes, in the order the pass runs them. Curves on surfaces (T3 lane 1): `pcurveMissing` (off by default)
+ * makes the p-curves a face needs on surfaces other than planes (planes' are exact for every consumer, so stay
+ * absent); `pcurveReparam` gives a source's p-curve the parameter of its edge's curve where its image is right (or
+ * its domain the edge's range where rounding leaves them apart); `pcurveReplace` replaces a source's p-curve by the
+ * projection where the projection is nearer, measured both ways; `pcurveEnds` bridges p-curve ends to their
+ * vertices; `edgeTolerance` and `vertexTolerance` grow tolerances to cover what's measured.
  */
 export const HEAL_FIXES = ['pcurveMissing', 'pcurveReparam', 'pcurveReplace', 'pcurveEnds', 'edgeTolerance',
   'vertexTolerance'] as const;
 export type HealFix = (typeof HEAL_FIXES)[number];
 
-/** The fixes off unless asked for (none yet: pcurveMissing's default is the user's to decide). */
-export const FIXES_OFF_BY_DEFAULT: readonly HealFix[] = [];
+/**
+ * The fixes off unless asked for: pcurveMissing, since the face API and the tessellator project a missing p-curve on
+ * demand, and projecting every one at import costs far more than the import (VW's 3 s import, 888 s).
+ */
+export const FIXES_OFF_BY_DEFAULT: readonly HealFix[] = ['pcurveMissing'];
 
 export interface HealOptions {
   /** The master switch. Default true; false leaves every model exactly as imported, with no analysis. */

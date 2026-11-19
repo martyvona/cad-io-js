@@ -195,3 +195,22 @@ test('pcurveReparam: the pass puts a reparameterized B-spline\'s knots on the ed
   const c = r.model.coedge.pcurve[1]!, at = r.model.curve.real[c]!;
   assert.deepEqual([...r.model.pool.curveReal.subarray(at, at + 2)], [S, S + 5]);
 });
+
+test('pcurveReparam: a same-parameter B-spline short of its edge\'s range by rounding gets the range as its domain',
+  async () => {
+    // The seam's range [0, 5]; its up use's p-curve the seam itself but its last knot 1e-9 short of 5.
+    const short = 5 - 1e-9;
+    const d = cylinderSide({ seamUp: { pcurve: bspline2([TWO_PI, 0], [TWO_PI, short], [0, short]) } }).finish();
+    const evalAtEnd = async (m: typeof d) => {
+      using g = new (await import('cad-geom')).Geometry(module, new Uint8Array(m.buffer));
+      return g.evalCoedge(1, [5], 0).statuses[0];
+    };
+    assert.notEqual(await evalAtEnd(d), 0, 'the source\'s p-curve can\'t be evaluated at the range\'s end');
+    const off = await healPart(d, { fixes: { pcurveReparam: false } }, module);
+    assert.notEqual(await evalAtEnd(off.model), 0, 'pcurveReparam off leaves it');
+    const r = await healPart(d, {}, module);
+    assert.equal(await evalAtEnd(r.model), 0);
+    assert.match(r.diagnostics.find((x) => x.message.includes('domains put on'))!.message,
+      /^pcurveReparam: 1 p-curves' domains put on their edges' ranges .*coedge #22/);
+    assert.ok(sameParameterGap(r.model, 1, [0, 5]) < 1e-6);
+  });
