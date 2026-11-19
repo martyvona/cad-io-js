@@ -20,6 +20,13 @@
 //                without faces not planted), occt and smlib (that reference's first meshed face emptied: must be
 //                counted as failed by it), cause (our first meshed face emptied and named in a by-cause diagnostic of
 //                two entries: must be ours failed with the planted cause)
+//   SURVEY=1     the mesh survey too (shape_survey.ts), over the faces all three backends mesh: each backend's
+//                triangles by smallest angle and aspect in 3D (quantiles, and faces by their worst), its triangles per
+//                face against SMLib's, each face's worst deviation from its surface sampled at its largest triangles'
+//                centroids and sides' middles (by cad-geom's inversion), the faces some backend leaves past 1.1 x the
+//                deflection listed; with PLANT=survey, ours given a needle and a copy of its largest triangle lifted
+//                3 x the deflection off it on the planted face, which must show as its worst angle under 0.1 degrees
+//                and deviation past 1.5 x (3 x less what the face itself strays)
 //   CPU_MS=<ms>     ours's limit per part in its worker thread's CPU time (tess-workers' cpuTimeoutMs, default
 //                120000: a part slower than that fails for development's purposes either way), 4 x it in wall time
 //                the backstop; a part stopped at it is its own status, "over N s CPU", listed with its last
@@ -45,11 +52,17 @@ import { CAUSES_HEAD, failedCauses } from './cadio_causes.ts';
 import { corpusFiles, plantedPart, repoDir, shortName } from './corpus.ts';
 import { addInto, division, runFiles, type FileCheck } from './runner.ts';
 import { hostLine } from '../scripts/host.ts';
+import { Geometry } from '../packages/cad-geom/src/index.ts';
+import {
+  ASPECT_PER_DECADE, DEVIATION_BOUNDS, RATIO_BINS, addShapes, angleEdge, aspectEdge, deviationBin, faceDeviation,
+  faceTriangles, freshShapes, quantile, ratioBin, triangleShape,
+} from './shape_survey.ts';
 
 const EXAMPLES = 4;
 const { linearDeflection: LIN, angularDeflection: ANG } = MESH_PROFILES.medium;
 const PLANT = process.env.PLANT ?? '';
-const PLANTS = ['fail', 'part', 'occt', 'smlib', 'cause'];
+const PLANTS = ['fail', 'part', 'occt', 'smlib', 'cause', 'survey'];
+const SURVEY = process.env.SURVEY === '1';
 /** Ours's limit (ms of CPU time), the references' (ms of wall time), and the CPU time over which ours is slow. */
 const CPU_MS = Number(process.env.CPU_MS ?? 120_000);
 const TIMEOUT_MS = Number(process.env.TIMEOUT_MS ?? 600_000);
@@ -60,6 +73,7 @@ const SLOW_MS = Number(process.env.SLOW_MS ?? 120_000);
 const TIMES = [1, 10, 60, 120, Infinity];
 const timeBin = (ms: number) => TIMES.findIndex((t) => ms / 1000 <= t);
 if (PLANT && !PLANTS.includes(PLANT)) throw new Error(`PLANT=${PLANT}: one of ${PLANTS.join(', ')}`);
+if (PLANT === 'survey' && !SURVEY) throw new Error('PLANT=survey needs SURVEY=1');
 const DEFAULT_LISTS = ['test_corpus/files.txt', 'test_corpus/models.txt'];
 /** What our failures are, until the user decides what counts as beyond repair. */
 const UNCLASSIFIED = 'unclassified';
@@ -154,7 +168,46 @@ function plant(o: Record<Backend, TessellationResult | Error>, faces: number):
       + `(#999999999, #999999998); planted: cause 3 1 (#${id})` }] };
     return { expect: 'planted: cause 3', face: id };
   }
+  if (PLANT === 'survey') return plantSurvey(o);
   return undefined;
+}
+
+/**
+ * PLANT=survey: on the first face all three mesh, ours's result given two triangles more in a range of their own (a
+ * copy of the face's largest lifted 3 x the deflection along its normal, and a needle along its longest side).
+ */
+function plantSurvey(o: Record<Backend, TessellationResult | Error>): { expect: string; face?: number } | undefined {
+  if (BACKENDS.some((b) => o[b] instanceof Error)) return undefined;
+  const rs = BACKENDS.map((b) => o[b] as TessellationResult);
+  const tris = rs.map(faceTriangles);
+  const id = [...tris[0]!.keys()].find((k) => tris[1]!.has(k) && tris[2]!.has(k));
+  if (id === undefined) return undefined;
+  const r = rs[0]!, p = r.positions, ix = r.indices;
+  const corner = (k: number, c: number) => [0, 1, 2].map((a) => p[3 * ix[k + c]! + a]!);
+  const area = (k: number) => {
+    const [a, b, c] = [0, 1, 2].map((q) => corner(k, q));
+    const u = [0, 1, 2].map((q) => b![q]! - a![q]!), v = [0, 1, 2].map((q) => c![q]! - a![q]!);
+    return Math.hypot(u[1]! * v[2]! - u[2]! * v[1]!, u[2]! * v[0]! - u[0]! * v[2]!, u[0]! * v[1]! - u[1]! * v[0]!);
+  };
+  const k = tris[0]!.get(id)!.reduce((x, y) => (area(y) > area(x) ? y : x));
+  const [a, b, c] = [0, 1, 2].map((q) => corner(k, q)) as [number[], number[], number[]];
+  const u = [0, 1, 2].map((q) => b[q]! - a[q]!), v = [0, 1, 2].map((q) => c[q]! - a[q]!);
+  const n = [u[1]! * v[2]! - u[2]! * v[1]!, u[2]! * v[0]! - u[0]! * v[2]!, u[0]! * v[1]! - u[1]! * v[0]!];
+  const len = Math.hypot(...n);
+  if (!(len > 0)) return undefined;
+  const lift = n.map((x) => (3 * LIN * x) / len);
+  const up = [a, b, c].map((x) => x.map((y, q) => y + lift[q]!));
+  // The needle: a, b and a point 1e-4 of the way from ab's middle to c (about 0.01 degrees where the triangle is
+  // about equilateral, less where flatter).
+  const m = [0, 1, 2].map((q) => (a[q]! + b[q]!) / 2 + 1e-4 * (c[q]! - (a[q]! + b[q]!) / 2));
+  const base = p.length / 3, positions = new Float32Array(p.length + 18);
+  positions.set(p);
+  positions.set([...up.flat(), ...a, ...b, ...m], p.length);
+  const indices = new Uint32Array(ix.length + 6);
+  indices.set(ix);
+  indices.set([base, base + 1, base + 2, base + 3, base + 4, base + 5], ix.length);
+  o.cadio = { ...r, positions, indices, faces: [...r.faces, { entityId: id, start: ix.length, count: 6 }] };
+  return { expect: 'survey: worst angle under 0.1 degrees, deviation past 1.5 x', face: id };
 }
 
 const statuses = () => Object.fromEntries(STATUSES.map((s) => [s, 0])) as Record<PartStatus, number>;
@@ -187,9 +240,75 @@ const fresh = () => ({
   slow: [] as string[],
   // Ours's parts stopped at CPU_MS: file, part id, where, the last progress (run again alone at the end).
   capped: [] as string[],
+  // SURVEY's tallies (shape_survey.ts), over the faces all three mesh: shapes, triangles per face against SMLib's
+  // (ours, OCCT), faces by worst sampled deviation over the deflection and those with no point inverted, the faces
+  // some backend leaves past 1.1 x, and the time inverting took.
+  survey: {
+    faces: 0,
+    shapes: { cadio: freshShapes(), occt: freshShapes(), smlib: freshShapes() },
+    ratio: { cadio: Array(RATIO_BINS).fill(0) as number[], occt: Array(RATIO_BINS).fill(0) as number[] },
+    deviation: { cadio: DEVIATION_BOUNDS.map(() => 0), occt: DEVIATION_BOUNDS.map(() => 0),
+      smlib: DEVIATION_BOUNDS.map(() => 0) },
+    uninverted: { cadio: 0, occt: 0, smlib: 0 },
+    over: [] as string[],
+    deviationMs: 0,
+  },
 });
 type Tallies = ReturnType<typeof fresh>;
 const bump = (m: Map<string, number>, k: string, n = 1) => m.set(k, (m.get(k) ?? 0) + n);
+
+/**
+ * SURVEY on one part (results as planted): the faces all three mesh into T.survey; ours's worst angle and deviation
+ * on each of them, for PLANT=survey.
+ */
+async function surveyPart(T: Tallies, where: string, d: BrepData, buffer: ArrayBuffer | ArrayBufferView,
+  r: Record<Backend, TessellationResult | Error>, ids: readonly number[]):
+  Promise<Map<number, { angle: number; deviation: number }>> {
+  const out = new Map<number, { angle: number; deviation: number }>();
+  if (BACKENDS.some((b) => r[b] instanceof Error)) return out;
+  const rs = BACKENDS.map((b) => r[b] as TessellationResult);
+  const tris = rs.map(faceTriangles);
+  const rowOf = new Map(ids.map((id, row) => [id, row]));
+  const all = [...rowOf.keys()].filter((id) => tris.every((t) => t.has(id)));
+  if (!all.length) return out;
+  const S = T.survey;
+  S.faces += all.length;
+  BACKENDS.forEach((b, i) => addShapes(rs[i]!, tris[i]!, all, S.shapes[b]));
+  for (const id of all) {
+    const n = tris.map((t) => t.get(id)!.length);
+    S.ratio.cadio[ratioBin(n[0]!, n[2]!)]!++;
+    S.ratio.occt[ratioBin(n[1]!, n[2]!)]!++;
+  }
+  const t0 = performance.now();
+  const g = await Geometry.open(buffer);
+  try {
+    for (const id of all) {
+      const row = rowOf.get(id)!, surface = d.face.surface[row]!;
+      const worst = BACKENDS.map((b, i) => {
+        const fd = faceDeviation(g, surface, rs[i]!, tris[i]!.get(id)!, 1e-6 * LIN);
+        if (Number.isNaN(fd.worst)) S.uninverted[b]++;
+        else S.deviation[b][deviationBin(fd.worst / LIN)]!++;
+        return fd.worst;
+      });
+      if (worst.some((w) => w > 1.1 * LIN)) {
+        const kind = (decode.surface(d, surface) as { kind: string }).kind;
+        S.over.push(`${where} face #${id} (${kind}): ${BACKENDS.map((b, i) => `${LABEL[b]} ${
+          Number.isNaN(worst[i]!) ? 'not inverted' : `${(worst[i]! / LIN).toFixed(2)} x`}`).join(', ')}`);
+      }
+      let angle = 60;
+      const ours = rs[0]!;
+      for (const k of tris[0]!.get(id)!) {
+        angle = Math.min(angle, triangleShape(ours.positions, ours.indices[k]!, ours.indices[k + 1]!,
+          ours.indices[k + 2]!).angle);
+      }
+      out.set(id, { angle, deviation: worst[0]! });
+    }
+  } finally {
+    g.dispose();
+  }
+  S.deviationMs += performance.now() - t0;
+  return out;
+}
 
 /** A file's bytes, gunzipped where it's gzip (.stpZ). */
 function readStep(f: string): Uint8Array {
@@ -266,9 +385,17 @@ export const check: FileCheck<string, Tallies> = {
       if (partFailed) T.unmeshedParts.push(`${where} (${rows} faces): ${ours.status}: ${ours.why}`);
       if (ours.status === OVER) T.capped.push(`${f}\t${p.sources[0]!.id}\t${where}\t${ours.why}`);
       const causes = ours.result ? failedCauses(ours.result) : new Map<number, string>();
+      const surveyed = SURVEY ? await surveyPart(T, where, d, p.brep!.model.buffer, r, ids) : undefined;
       const modelIds = new Set(ids);
       for (const id of ours.meshed) if (!modelIds.has(id)) T.foreign++;
       let meshedHere = 0, failedHere = 0, plantSeen = false;
+      let plantGot = '';
+      if (planted && PLANT === 'survey') {
+        const x = surveyed!.get(planted.face!);
+        if (x && x.angle < 0.1 && x.deviation > 1.5 * LIN) plantSeen = true;
+        plantGot = x ? `; got ${x.angle.toPrecision(3)} degrees, ${(x.deviation / LIN).toPrecision(3)} x`
+          : '; not surveyed';
+      }
       for (let row = 0; row < rows; row++) {
         const id = ids[row]!;
         T.faces++;
@@ -309,12 +436,45 @@ export const check: FileCheck<string, Tallies> = {
       if (planted) {
         if (plantSeen) T.planted.seen++;
         else T.planted.missed.push(`${where}${planted.face !== undefined ? ` face #${planted.face}` : ''}: `
-          + `expected "${planted.expect}"`);
+          + `expected "${planted.expect}"${plantGot}`);
       }
     }
     return T;
   },
 };
+
+/** SURVEY's summary lines (shape_survey.ts's bins). */
+function surveyReport(T: Tallies): void {
+  const S = T.survey;
+  const pc = (a: number, b: number) => `${b ? ((100 * a) / b).toFixed(2) : '0'}%`;
+  const sum = (h: readonly number[], to: number) => h.slice(0, to).reduce((a, x) => a + x, 0);
+  // (Bins whose upper edge is at most 1 and 5 degrees; aspect bins from 100 up.)
+  const under = (h: readonly number[], deg: number) => sum(h, Math.round(deg / angleEdge(0)));
+  const past = (h: readonly number[], aspect: number) => h.reduce((a, x) => a + x, 0) - sum(h,
+    Math.round(Math.log10(aspect) * ASPECT_PER_DECADE));
+  console.log(`  survey: ${S.faces} faces all three mesh; sampling their deviation took `
+    + `${(S.deviationMs / 1000).toFixed(0)} s`);
+  for (const b of BACKENDS) {
+    const x = S.shapes[b];
+    const qa = (q: number) => quantile(x.angle, q, angleEdge).toFixed(1);
+    const qs = (q: number) => quantile(x.aspect, q, aspectEdge).toPrecision(3);
+    console.log(`    ${LABEL[b]}: ${x.triangles} triangles; smallest angle (deg, bins' upper edges) 0.1% ${qa(0.001)}, `
+      + `1% ${qa(0.01)}, 5% ${qa(0.05)}, median ${qa(0.5)}, under 1 deg ${pc(under(x.angle, 1), x.triangles)}, `
+      + `under 5 deg ${pc(under(x.angle, 5), x.triangles)}; aspect median ${qs(0.5)}, 99% ${qs(0.99)}, 99.9% `
+      + `${qs(0.999)}; faces with a triangle under 1 deg ${pc(under(x.faceAngle, 1), x.faces)}, under 5 deg `
+      + `${pc(under(x.faceAngle, 5), x.faces)}, of aspect over 100 ${pc(past(x.faceAspect, 100), x.faces)}`);
+  }
+  const ratio = (h: readonly number[]) => h.map((n, k) => [n, k] as const).filter(([n]) => n)
+    .map(([n, k]) => `${k === 0 ? '<= ' : k === RATIO_BINS - 1 ? '>= ' : ''}${2 ** ((k - 12) / 2) >= 1
+      ? `${(2 ** ((k - 12) / 2)).toPrecision(2)}` : `1/${(2 ** ((12 - k) / 2)).toPrecision(2)}`} ${n}`).join(', ');
+  console.log(`    triangles per face over SMLib's (to the nearest half power of 2): ours ${ratio(S.ratio.cadio)}; `
+    + `OCCT ${ratio(S.ratio.occt)}`);
+  const bounds = DEVIATION_BOUNDS.map((x, k) => (x === Infinity ? `over ${DEVIATION_BOUNDS[k - 1]}` : `<= ${x}`));
+  for (const b of BACKENDS) {
+    console.log(`    ${LABEL[b]} faces by worst sampled deviation over the deflection: ${S.deviation[b].map((n, k) =>
+      `${bounds[k]} ${n}`).join(', ')}; not inverted ${S.uninverted[b]}`);
+  }
+}
 
 /** Lists named on the command line (comma-separated), else the defaults; paths relative to the repository. */
 function lists(arg: string | undefined): string[] {
@@ -357,6 +517,7 @@ function report(label: string, T: Tallies): void {
   console.log(`  our wall time on them: ${T.wallTimes.map((n, k) => `${bound(k)} ${n}`).join(', ')}`);
   console.log(`  our warnings: ${[...T.warnings].sort((x, y) => y[1] - x[1]).map(([k, n]) => `${n} x "${k}"`)
     .join('; ') || 'none'}`);
+  if (SURVEY) surveyReport(T);
   if (PLANT) {
     console.log(`  planted: ${T.planted.cases} cases, ${T.planted.seen} seen as expected, ${T.planted.missed.length} `
       + 'missed');
@@ -374,6 +535,11 @@ function report(label: string, T: Tallies): void {
   for (const x of [...T.slow].sort()) console.log(`  ${x}`);
   console.log(`\n### Faces without our triangles (${T.unmeshed.length}): our cause; the references; the class`);
   for (const x of [...T.unmeshed].sort()) console.log(`  ${x}`);
+  if (SURVEY) {
+    console.log(`\n### Faces all three mesh where one leaves a sampled point past 1.1 x the deflection `
+      + `(${T.survey.over.length}): each backend's worst over the deflection`);
+    for (const x of [...T.survey.over].sort()) console.log(`  ${x}`);
+  }
   console.log();
 }
 
