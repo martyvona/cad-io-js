@@ -45,6 +45,8 @@ export function progressReporter(onProgress: (p: TessellationProgress) => void, 
       }
       case 'criteria': return onProgress({ message: `criteria: ${face}, ${done} of ${total} done`, ...faces });
       case 'splitting': return onProgress({ message: `${pass}: splitting ${total} edge spans`, round });
+      case 'deviation': return onProgress({ message: `checking meshes' deviation: ${face}, ${done} of ${total} faces `
+        + 'done', ...faces });
       default: return onProgress({ message: `${face}, ${pass}, ${done} of ${total} faces done`, ...faces });
     }
   };
@@ -53,7 +55,7 @@ export function progressReporter(onProgress: (p: TessellationProgress) => void, 
 /** tess_cadio_api.cpp's js_progress: PartProgress's phase (PHASES), the face's id and row, round, done, total. */
 type ProgressHook = (phase: number, id: number, row: number, round: number, done: number, total: number) => void;
 /** part.h's PartProgress::Phase, in order. */
-const PHASES = ['surfaces', 'boxEdges', 'criteria', 'edges', 'meshing', 'splitting'] as const;
+const PHASES = ['surfaces', 'boxEdges', 'criteria', 'edges', 'meshing', 'splitting', 'deviation'] as const;
 
 /** The module's exports (tess_cadio_api.cpp's functions, each with a leading underscore). */
 interface CadioExports {
@@ -105,9 +107,9 @@ export interface CadioInitOptions {
    */
   projectMissingPcurves?: boolean;
   /**
-   * A face whose mesh is farther from its surface than this times the linear deflection fails (part.h's
-   * PartOptions::maxDeviationFactor: its refused triangles' points inverted onto its surface), going the failed
-   * faces' way (a fallback, where configured); default 1.1, 0 never.
+   * A face whose mesh is farther from its surface than this times the larger of the linear deflection and the face's
+   * tolerance fails (part.h's PartOptions::maxDeviationFactor: its refused triangles' points inverted onto its
+   * surface), going the failed faces' way (a fallback, where configured); default 1.1, 0 never.
    */
   maxDeviationFactor?: number;
 }

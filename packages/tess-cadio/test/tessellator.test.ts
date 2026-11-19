@@ -237,6 +237,11 @@ test('progress: each face as it starts, throttled to one report per 100 ms; a re
     report(1, 21, 3, 0, 30, 40);
     assert.deepEqual(got.at(-1), { message: 'sampling edges for the faces\' boxes: a use on face #21 (row 3), 30 of 40 '
       + 'edges and uses done', faceId: 21, row: 3, round: 0 });
+    // The deviation check after the rounds (part.h's PartProgress::deviation), its face and the faces checked so far.
+    clock = 1000;
+    report(6, 21, 3, 2, 3, 6);
+    assert.deepEqual(got.at(-1), { message: 'checking meshes\' deviation: face #21 (row 3), 3 of 6 faces done',
+      faceId: 21, row: 3, round: 2, facesDone: 3, facesTotal: 6 });
     // Across a real part (the cube's 6 faces, quick: the first report only), its first phase on its first face.
     const t = await tessellator();
     const seen: TessellationProgress[] = [];
