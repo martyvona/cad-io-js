@@ -36,6 +36,8 @@ Options for shot:
   --size <w>x<h>       the view in pixels (default 1200x800; one pixel per CSS pixel)
   --view <name>        front, back, left, right, top, bottom or iso (default: as the page fits it)
   --state <query>      more of the view, as in a link's address: "cut=x:10&hide=as1/plate&ao=0" (README.md)
+  --heal, --no-heal    the models healed before they're meshed (Heal B-reps), or as imported (default: the
+                       viewer's; fixes by --state "healOff=strayPole" and "healOn=pcurveMissing")
   --json <file>        also write the page's state, the view's link and its status line there ("-": standard output)
   --theme <theme>      dark (the default), light, or auto (the viewer's Auto: headless Chrome's preference, light)
   --background <color> the view's background instead of the theme's, #rrggbb (white for pictures on a white page)
@@ -65,6 +67,8 @@ export interface ShotOptions {
   theme?: 'dark' | 'light' | 'auto';
   /** The view's background instead of the theme's (0xrrggbb). */
   background?: number;
+  /** Heal B-reps on or off (`heal=` in the address); absent, the viewer's default or the state's. */
+  heal?: boolean;
 }
 
 export interface Args {
@@ -109,6 +113,11 @@ export function parseArgs(argv: string[]): Args | string {
       } else if (a === '--view') shot.view = value();
       else if (a === '--state') shot.state = value().replace(/^\?/, '');
       else if (a === '--json') shot.json = value();
+      else if (a === '--heal' || a === '--no-heal') {
+        const on = a === '--heal';
+        if (shot.heal === !on) return '--heal and --no-heal together';
+        shot.heal = on;
+      }
       else if (a === '--chrome') shot.chrome = value();
       else if (a === '--theme') {
         const v = value();
@@ -247,6 +256,7 @@ async function takeShot(s: State, file: string, o: ShotOptions, io: Io): Promise
   if (!extra.has('tree')) q.set('tree', '0');
   if (!extra.has('controls')) q.set('controls', '0');
   if (o.view) q.set('view', o.view);
+  if (o.heal !== undefined && !extra.has('heal')) q.set('heal', o.heal ? '1' : '0');
   for (const [k, v] of extra) q.append(k, v);
   const page = `${s.url}?${q}`;
   const headless = await launchChrome(fs.mkdtempSync(path.join(os.tmpdir(), 'cad-viewer-shot-')),
