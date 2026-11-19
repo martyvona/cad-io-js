@@ -530,6 +530,50 @@ TEST_CASE("a curve past its surface's edge: its feet clamped there, fitted at a 
   if (!(rounds <= 6 && fits == 1)) std::printf("    fits %ld rounds %ld worst %g\n", fits, rounds, worst);
 }
 
+TEST_CASE("a curve leaving its surface within a span its samples miss: invalidModel, the span and distance given") {
+  // A flat bilinear patch 10 x 10 at z = 0 and a cubic on it from (1, 1) to (9, 9) whose first knot span, 1e-6 wide,
+  // has a stray pole 3e7 above the patch (bug24383 #11's edges): the curve rises 3e7 x 4/9 there and comes back, far
+  // between any samples. A second, 2e7 in the last span (1e-6 wide too), takes the curve 2e7 x 4/9 up: its hull is
+  // farther than the first's peak, its curve isn't, so the span given is the first. The controls: the same curve
+  // without the stray poles, and one whose hull leaves the patch's box by 0.4 while the curve leaves it by 0.05.
+  const double tol = 0.1;
+  const int32_t si[] = {1, 1, 2, 2, 2, 2, 0, 0, 0, 0, 0, 2, 2, 2, 2};
+  const double sr[] = {0, 1, 0, 1, 0, 0, 0, 0, 10, 0, 10, 0, 0, 10, 10, 0};
+  Status st;
+  std::unique_ptr<Surface> patch = surfaces::makeBSpline(sr, si, st);
+  REQUIRE(patch);
+  const int32_t cin[] = {3, 10, 4, 0, 0, 0, 0, 4, 3, 3, 4};
+  auto curve = [&](double z1, double z2) {
+    const double cr[] = {0, 1e-6, 1 - 1e-6, 1, 1, 1, 0, 1, 1, z1, 1, 1, 0, 1, 1, 0, 4, 4, 0, 6, 6, 0, 9, 9, 0, 9, 9,
+      0, 9, 9, z2, 9, 9, 0};
+    return curves::makeBSpline(cr, cin, 3, st);
+  };
+  std::unique_ptr<Curve> spike = curve(3e7, 2e7), clean = curve(0, 0);
+  REQUIRE(spike);
+  REQUIRE(clean);
+  Pcurve p = project::projectForms(*spike, {0, 1}, *patch, tol, nullptr, {}, {});
+  CHECK(p.status == Status::invalidModel);
+  CHECK(std::fabs(p.offSurface - 3e7 * 4 / 9) <= 0.01 * 3e7 * 4 / 9);
+  CHECK(p.offSpan.lo == 0);
+  CHECK(p.offSpan.hi == 1e-6);
+  CHECK(p.error >= p.offSurface);
+  if (!(std::fabs(p.offSurface - 3e7 * 4 / 9) <= 0.01 * 3e7 * 4 / 9))
+    std::printf("    offSurface %g span [%g, %g]\n", p.offSurface, p.offSpan.lo, p.offSpan.hi);
+  Pcurve q = project::projectForms(*clean, {0, 1}, *patch, tol, nullptr, {}, {});
+  CHECK(q.status == Status::ok);
+  CHECK(std::isnan(q.offSpan.lo));
+  CHECK(q.offSurface <= tol);
+  // From (9, 1) to (9, 9), its middle poles at x = 10.4: x reaches 9 + 1.4 x 3/4 = 10.05.
+  const int32_t bin[] = {3, 4, 2, 0, 0, 0, 0, 4, 4};
+  const double br[] = {0, 1, 9, 1, 0, 10.4, 3, 0, 10.4, 7, 0, 9, 9, 0};
+  std::unique_ptr<Curve> bulge = curves::makeBSpline(br, bin, 3, st);
+  REQUIRE(bulge);
+  Pcurve b = project::projectForms(*bulge, {0, 1}, *patch, tol, nullptr, {}, {});
+  CHECK(std::isnan(b.offSpan.lo));
+  CHECK(b.offSurface <= tol);
+  CHECK(b.status != Status::invalidModel);
+}
+
 TEST_CASE("bad arguments") {
   const double sr[10] = {0, 0, 0, 0, 0, 1, 1, 0, 0, 2};
   std::unique_ptr<Surface> cyl = surfaces::makeCone(sr, 2, 0);

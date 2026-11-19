@@ -65,3 +65,18 @@ export class FakeTessellator implements Tessellator {
 
   dispose(): void {}
 }
+
+/**
+ * A job for the pool's `run`: `input.mode` 'echo' gives back its input with a Float64Array of its `n`, after
+ * `input.progress` progress messages; 'throw' throws; 'hang' never ends (after its progress); 'wait' waits
+ * `input.ms`. Every output names the worker's instance of this module.
+ */
+const jobInstance = Math.random().toString(36).slice(2);
+export async function fakeJob(input: { mode: string; n?: number; progress?: number; ms?: number },
+  progress: (message: string) => void): Promise<unknown> {
+  if (input.mode === 'throw') throw new Error('job refused');
+  for (let k = 1; k <= (input.progress ?? 0); k++) progress(`step ${k}`);
+  if (input.mode === 'hang') for (;;);
+  if (input.mode === 'wait') await new Promise((r) => setTimeout(r, input.ms));
+  return { input, values: Float64Array.from({ length: input.n ?? 0 }, (_, i) => i), instance: jobInstance };
+}

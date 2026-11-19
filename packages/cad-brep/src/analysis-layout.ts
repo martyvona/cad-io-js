@@ -7,7 +7,7 @@
 
 import type { ColumnType } from './layout.ts';
 
-export const ANALYSIS_MAGIC = 'CBA2';
+export const ANALYSIS_MAGIC = 'CBA3';
 
 /**
  * The tables in buffer order. A per-entity table (vertex, edge, coedge, face, surface, shell) is either empty (not
@@ -47,6 +47,17 @@ export const ANALYSIS_TABLES = {
   coedge: [['range', 'f64', 2], ['rangeFrom', 'u8', 1], ['deviation', 'f64', 1], ['face', 'i32', 1],
     ['loop', 'i32', 1], ['pcurveFrom', 'u8', 1]],
   /**
+   * The coedges healing traced (their edge's curve onto their face's surface, where it couldn't bound the curve
+   * within the tolerance otherwise), one row each in coedge order, only those: `coedge` its row, `status`
+   * TRACE_STATUS, `tol` the tolerance traced at, `offSurface` the curve's largest distance from the surface along the
+   * trace (between its feet too, as the projection measures it; for a stopped trace, up to `stopAt` and wherever the
+   * curve's hull leaves the surface's box: a lower bound), `stopAt` the curve parameter where it couldn't continue and
+   * `stopWhy` TRACE_STOP (NaN and none where it didn't stop). The p-curve fitted from a trace is the model's
+   * (pcurveFrom healed), not kept here.
+   */
+  trace: [['coedge', 'i32', 1], ['status', 'u8', 1], ['tol', 'f64', 1], ['offSurface', 'f64', 1],
+    ['stopAt', 'f64', 1], ['stopWhy', 'u8', 1]],
+  /**
    * `outerLoop` the face's outer loop row (-1: none, as a band's whose loops wind around a period), `outerFrom`
    * PROVENANCE (given where the source labels exactly one); `uv` the (u, v) box of its loops (u lo, u hi, v lo,
    * v hi); `area` the oracle's value and error estimate (NaN: not computed), `areaFrom` MEASURE_TRUST.
@@ -84,6 +95,12 @@ export const MEASURE_TRUST = { none: 0, estimate: 1, exact: 2 } as const;
 /** Across an edge: unknown, positional only, tangent planes agree, curvatures agree too. */
 export const CONTINUITY = { unknown: 0, c0: 1, g1: 2, g2: 3 } as const;
 export const SINGULARITY = { pole: 0, apex: 1, normalVanishes: 2 } as const;
+/** A trace: complete, stopped where it couldn't continue (`stopAt`, `stopWhy`), or not made at all (the curve or
+ * surface refused). */
+export const TRACE_STATUS = { ok: 1, stopped: 2, notMade: 3 } as const;
+/** Why a trace stopped: no convergent step, a jump in the feet that isn't a seam's period, a pole line it couldn't
+ * cross, a degenerate stretch (S_u x S_v vanishing), a fold (the distance's Hessian singular: a fold or branch). */
+export const TRACE_STOP = { none: 0, noConvergence: 1, jump: 2, poleLine: 3, degenerate: 4, fold: 5 } as const;
 /** A closed shell's faces' normals: not known, out of the volume they bound, or into it. */
 export const FACING = { unknown: 0, out: 1, in: 2 } as const;
 /** How a shell's facing was found. */

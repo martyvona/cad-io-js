@@ -17,7 +17,9 @@
 // Watchdogs: a child can hang in Node's own exit (its main thread blocked in a futex with most of its threads gone,
 // after its last result), so one that hasn't exited EXIT_GRACE_MS (default 30 s) after its final stats is killed; and one silent on a
 // file for IDLE_MS (default 5 minutes; 0 none) is killed and the file given once more to a new child (a second
-// time, the file fails), each kill logged on standard error.
+// time, the file fails), each kill logged on standard error. A check whose file takes long says it's alive through
+// its context's `progress` (each call restarts the idle clock, and a kill names the last thing it said: where it was).
+// The messages arrive while the child is busy: a send writes to the channel at once.
 import { fork, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -28,10 +30,18 @@ import { shortName } from './corpus.ts';
 export interface FileCheck<J, R> {
   /** Once per process, before its first file: `meshWorkers` the meshing workers it may use. */
   setup?(ctx: { meshWorkers: number; args: string[] }): Promise<void>;
-  /** One file: its job (what the main process gives with it) in, plain results out (structured-clone types). */
-  file(path: string, job: J): Promise<R>;
+  /**
+   * One file: its job (what the main process gives with it) in, plain results out (structured-clone types);
+   * `ctx.progress` to say where it is in a long file.
+   */
+  file(path: string, job: J, ctx: FileContext): Promise<R>;
   /** Once per process, after its last file. */
   teardown?(): void | Promise<void>;
+}
+
+/** What a check's file is given: `progress(what)` restarts the child's idle clock, `what` named if it's killed. */
+export interface FileContext {
+  progress(what: string): void;
 }
 
 /**
@@ -67,7 +77,7 @@ export async function runFiles<J, R>(moduleUrl: string, check: FileCheck<J, R>, 
     for (const f of files) {
       process.stderr.write(`${shortName(f.path)}\n`);
       try {
-        merge(f.path, { result: await check.file(f.path, f.job) });
+        merge(f.path, { result: await check.file(f.path, f.job, { progress: () => {} }) });
       } catch (e) {
         merge(f.path, { error: (e as Error).stack ?? String(e) });
       }
@@ -98,24 +108,34 @@ export async function runFiles<J, R>(moduleUrl: string, check: FileCheck<J, R>, 
       const c: ChildProcess = fork(child, [moduleUrl, String(meshWorkers), ...args],
         { serialization: 'advanced', stdio: ['ignore', 'inherit', 'inherit', 'ipc'] });
       running++;
-      let current = -1, idle: NodeJS.Timeout | undefined, killedIdle = false;
+      let current = -1, idle: NodeJS.Timeout | undefined, killedIdle = false, said = '';
+      // The idle clock on the current file, restarted by each message.
+      const arm = () => {
+        clearTimeout(idle);
+        if (idleMs <= 0 || current < 0) return;
+        const file = current;
+        idle = setTimeout(() => {
+          process.stderr.write(`runner: killing a child silent for ${idleMs / 1000} s on `
+            + `${shortName(files[file]!.path)}${said ? `, last at ${said}` : ''}`
+            + `${retried.has(file) ? ' (its second try: it fails)' : ' (retrying it)'}\n`);
+          killedIdle = true;
+          c.kill('SIGKILL');
+        }, idleMs);
+      };
       const give = () => {
         if (next >= order.length) { c.send({ type: 'end' }); return; }
-        current = order[next++]!;
+        current = order[next++]!, said = '';
         process.stderr.write(`${shortName(files[current]!.path)}\n`);
         c.send({ type: 'file', path: files[current]!.path, job: files[current]!.job });
-        if (idleMs > 0) {
-          const file = current;
-          idle = setTimeout(() => {
-            process.stderr.write(`runner: killing a child silent for ${idleMs / 1000} s on `
-              + `${shortName(files[file]!.path)}${retried.has(file) ? ' (its second try: it fails)' : ' (retrying it)'}\n`);
-            killedIdle = true;
-            c.kill('SIGKILL');
-          }, idleMs);
-        }
+        arm();
       };
-      c.on('message', (m: { type: 'ready' } | { type: 'stats'; maxRss: number }
+      c.on('message', (m: { type: 'ready' } | { type: 'stats'; maxRss: number } | { type: 'progress'; what: string }
         | { type: 'result'; result: R; maxRss: number } | { type: 'error'; error: string; maxRss: number }) => {
+        if (m.type === 'progress') {
+          said = m.what;
+          arm();
+          return;
+        }
         clearTimeout(idle);
         if (m.type === 'stats') {
           peak.note(m.maxRss);

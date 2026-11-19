@@ -1,11 +1,12 @@
 // A Tessellator that runs another backend in a pool of workers: one request per worker at a time, a per-request
 // timeout that terminates a stuck worker, and recycling (a fresh worker and backend instance) after a backend error,
-// after a number of parts or when the backend's memory grows too large. Written against WorkerHandle; node.ts and
-// browser.ts supply the workers.
+// after a number of parts or when the backend's memory grows too large. The same workers run jobs (`run`, protocol.ts:
+// cad-heal's healJob healing parts ahead of their meshing), queued with the requests; a pool without a backend runs
+// jobs only. Written against WorkerHandle; node.ts and browser.ts supply the workers.
 
 import { TessellationError, type TessellationProgress, type TessellationRequest, type TessellationResult,
   type Tessellator, type TessellatorInfo } from 'cad-scene';
-import type { BackendSpec, FromWorker, WorkerHandle } from './protocol.ts';
+import type { BackendSpec, FromWorker, JobSpec, ToWorker, WorkerHandle } from './protocol.ts';
 
 export interface PoolOptions {
   /** Number of workers. Default: one less than the hardware concurrency, at least 1. */
@@ -33,17 +34,27 @@ export interface PoolOptions {
 }
 
 export interface WorkerTessellatorOptions extends PoolOptions {
-  backend: BackendSpec;
+  /** None: the pool only runs jobs (`run`), and its info is serve.ts's NO_BACKEND. */
+  backend?: BackendSpec;
+}
+
+/** A job's options: progress, and its own timeout (ms; 0, the default, none: unlike a part's meshing). */
+export interface RunOptions {
+  onProgress?: (message: string) => void;
+  timeoutMs?: number;
 }
 
 interface Job {
   id: number;
-  req: TessellationRequest;
-  resolve: (r: TessellationResult) => void;
+  /** What the worker is sent: a tessellation request, or a job. */
+  msg: Extract<ToWorker, { id: number }>;
+  resolve: (r: never) => void;
   reject: (e: Error) => void;
   onProgress?: (p: TessellationProgress) => void;
-  /** The backend's last progress, for a timeout to say how far it got. */
-  last?: TessellationProgress;
+  onJobProgress?: (message: string) => void;
+  /** The last progress (the backend's, or a job's message), for a timeout to say how far it got. */
+  last?: string;
+  timeoutMs: number;
 }
 
 /**
@@ -79,7 +90,7 @@ export function defaultWorkers(): number {
 export class PoolTessellator implements Tessellator {
   readonly workers: number;
   private readonly spawnWorker: () => WorkerHandle;
-  private readonly backend: BackendSpec;
+  private readonly backend: BackendSpec | undefined;
   readonly timeoutMs: number;
   readonly cpuTimeoutMs: number;
   private readonly maxParts: number;
@@ -124,7 +135,24 @@ export class PoolTessellator implements Tessellator {
     if (this.disposed) return Promise.reject(new Error('PoolTessellator: disposed'));
     if (!this.infoValue) return Promise.reject(new Error('PoolTessellator: call init() first'));
     return new Promise((resolve, reject) => {
-      this.queue.push({ id: this.nextId++, req, resolve, reject, onProgress });
+      const id = this.nextId++;
+      this.queue.push({ id, msg: { type: 'tessellate', id, req }, resolve: resolve as (r: never) => void, reject,
+        onProgress, timeoutMs: this.timeoutMs });
+      this.pump();
+    });
+  }
+
+  /**
+   * Runs `job` on `input` in a worker (protocol.ts's JobSpec), queued with the tessellation requests. A job that
+   * throws rejects with its message; the worker is then replaced, as after a backend's error.
+   */
+  run<T>(job: JobSpec, input: unknown, opts: RunOptions = {}): Promise<T> {
+    if (this.disposed) return Promise.reject(new Error('PoolTessellator: disposed'));
+    if (!this.infoValue) return Promise.reject(new Error('PoolTessellator: call init() first'));
+    return new Promise((resolve, reject) => {
+      const id = this.nextId++;
+      this.queue.push({ id, msg: { type: 'run', id, job, input }, resolve: resolve as (r: never) => void, reject,
+        ...(opts.onProgress ? { onJobProgress: opts.onProgress } : {}), timeoutMs: opts.timeoutMs ?? 0 });
       this.pump();
     });
   }
@@ -156,7 +184,7 @@ export class PoolTessellator implements Tessellator {
       if (starting) this.afterStartFailure(new Error(`worker failed to start: ${err.message}`));
       this.pump();
     });
-    s.h.post({ type: 'init', backend: this.backend });
+    s.h.post(this.backend ? { type: 'init', backend: this.backend } : { type: 'init' });
   }
 
   private onMessage(s: Slot, msg: FromWorker): void {
@@ -174,12 +202,24 @@ export class PoolTessellator implements Tessellator {
         this.afterStartFailure(new Error(`backend init failed: ${msg.message}`));
         break;
       }
+      case 'output': {
+        this.finish(s)?.resolve(msg.output as never);
+        this.idle(s);
+        break;
+      }
+      case 'jobProgress': {
+        if (s.job && s.job.id === msg.id) {
+          s.job.last = msg.message;
+          s.job.onJobProgress?.(msg.message);
+        }
+        return;
+      }
       case 'result': {
         const started = s.started;
         const job = this.finish(s);
         if (started !== undefined) this.times.set(msg.result, { wallMs: performance.now() - started,
           ...(msg.cpuMs === undefined ? {} : { cpuMs: msg.cpuMs }) });
-        job?.resolve(msg.result);
+        job?.resolve(msg.result as never);
         s.parts++;
         if ((this.maxParts > 0 && s.parts >= this.maxParts) || (
           this.maxMemory > 0 && (msg.memory ?? 0) > this.maxMemory)) this.kill(s);
@@ -188,7 +228,7 @@ export class PoolTessellator implements Tessellator {
       }
       case 'progress': {
         if (s.job && s.job.id === msg.id) {
-          s.job.last = msg.progress;
+          s.job.last = msg.progress.message;
           s.job.onProgress?.(msg.progress);
           if (this.cpuTimeoutMs > 0 && msg.cpuMs !== undefined && msg.cpuMs > this.cpuTimeoutMs) {
             this.kill(s, new TessellationError(`tessellation timed out after ${this.cpuTimeoutMs} ms of CPU time`
@@ -256,14 +296,15 @@ export class PoolTessellator implements Tessellator {
       s.job = job;
       s.h.ref?.();
       s.started = performance.now();
-      s.h.post({ type: 'tessellate', id: job.id, req: job.req });
-      if (this.timeoutMs > 0) {
+      s.h.post(job.msg);
+      if (job.timeoutMs > 0) {
+        const what = job.msg.type === 'run' ? `job ${job.msg.job.export}` : 'tessellation';
         s.timer = setTimeout(() => {
           const last = s.job?.last;
-          this.kill(s, new TessellationError(`tessellation timed out after ${this.timeoutMs} ms`
-            + (last ? ` (last: ${last.message})` : ''), this.timeoutMs));
+          const m = `${what} timed out after ${job.timeoutMs} ms${last ? ` (last: ${last})` : ''}`;
+          this.kill(s, job.msg.type === 'run' ? new Error(m) : new TessellationError(m, job.timeoutMs));
           this.pump();
-        }, this.timeoutMs);
+        }, job.timeoutMs);
       }
     }
     const starting = this.slots.filter((s) => s.state === 'starting').length;

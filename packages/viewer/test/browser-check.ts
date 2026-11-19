@@ -26,6 +26,8 @@ import { importGltf } from 'gltf-import';
 import { StepTessellator } from 'step-export';
 import { importStep } from 'step-import';
 import { OcctTessellator } from 'tess-occt';
+import { HEAL_BY_DEFAULT } from 'cad-heal/options';
+import { healTestScene, stepOf } from '../../cad-heal/test/scene.ts';
 import { writeCatalog } from '../../../scripts/demo-catalog.ts';
 import { hostLine } from '../../../scripts/host.ts';
 import { main } from '../bin/viewer.ts';
@@ -100,6 +102,8 @@ const threemfBytes = (o: ThreeMfOptions) => {
 fs.writeFileSync(path.join(content, 'as1.3mf'), threemfBytes({ extras: true }));
 fs.writeFileSync(path.join(content, 'as1-plain.3mf'), threemfBytes({}));
 fs.copyFileSync(step, path.join(content, 'as1.stp'));
+// Parts that healing changes (cad-heal's test scene: a stray pole, an arc off its plane).
+fs.writeFileSync(path.join(content, 'heal.stp'), stepOf(healTestScene()));
 // as1 with its nut-bolt assemblies' nut (its occurrence: the tree's name for it, three levels down, so no row of it is
 // drawn before the tree is expanded, and the first below the first screen once it is) named long enough to be the
 // widest row in any font (the tree check).
@@ -2667,6 +2671,58 @@ await check('mesh again', async () => {
   expect(/; 1 selected not found again \(in the console\)$/.test(l.status) &&
     l.notRestored?.overrides.length === 0 && l.notRestored?.selected.join() === l.paths[1],
     `not found again: ${JSON.stringify(l)}`);
+  return undefined;
+});
+// Healing in the browser (cad-heal and cad-geom's module in the tessellation pool's workers, as Vite bundles them):
+// heal=1 in the address heals before meshing (its warnings the model's, its settings in meshedWith); Heal B-reps
+// unticked and Mesh again, the models as imported; healOff= a fix off; without heal=, HEAL_BY_DEFAULT; the checkbox
+// and its closed fixes folder.
+await check('heal B-reps', async () => {
+  const healingSaid = `(() => viewer.model.diagnostics.filter((d) => /^(strayPole|tolerances grown):/.test(d.message))
+    .map((d) => d.message.split(':')[0]).sort())()`;
+  const again = `(async () => {
+    const model = viewer.nextLoad();
+    ui.gui.controllersRecursive().find((c) => c._name === 'Mesh again').$button.click();
+    for (let t = 0; t < 1200 && (viewer.nextLoad() === model || !viewer.model?.meshing); t++) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    await cadViewer.idle();
+  })`;
+  const r = await page(`?url=${encodeURIComponent('/content/heal.stp')}&heal=1&check`, `(async () => {
+    await cadViewer.idle();
+    const said = ${healingSaid}, triangles = viewer.stats().triangles;
+    const heal = ui.gui.controllersRecursive().find((c) => c._name === 'Heal B-reps');
+    const folder = ui.gui.foldersRecursive().find((f) => f._title === 'Healing fixes');
+    const fixes = folder.controllers.map((c) => c._name);
+    const meshedWith = viewer.model.meshedWith, parts = viewer.model.parts;
+    heal.setValue(false);
+    await ${again}();
+    const off = { said: ${healingSaid}, heal: viewer.model.meshedWith.heal, triangles: viewer.stats().triangles };
+    return { said, triangles, checked: heal.getValue(), closed: folder._closed, fixes, meshedWith, parts, off,
+      backend: viewer.model.meshing?.backend };
+  })()`) as { after: { said: string[]; triangles: number; closed: boolean; fixes: string[];
+    meshedWith: { heal: boolean; healFixes: Record<string, boolean> }; parts: { total: number; failed: number };
+    off: { said: string[]; heal: boolean; triangles: number }; backend?: string } };
+  const a = r.after, j = JSON.stringify(a);
+  expect(a.said.join() === 'strayPole,tolerances grown', `healed, in the workers: ${j}`);
+  expect(a.meshedWith.heal && a.meshedWith.healFixes.strayPole === true && !a.meshedWith.healFixes.pcurveMissing,
+    `meshed with healing: ${j}`);
+  expect(a.triangles > 0 && a.parts.total === 4 && a.parts.failed === 0, `meshed: ${j}`);
+  expect(a.closed && a.fixes.join() === 'strayPole,pcurveMissing,pcurveReparam,pcurveReplace,pcurveEnds,'
+    + 'edgeTolerance,vertexTolerance', `the fixes, closed: ${j}`);
+  expect(a.off.said.length === 0 && !a.off.heal && a.off.triangles > 0, `unticked, meshed again as imported: ${j}`);
+  const f = await page(`?url=${encodeURIComponent('/content/heal.stp')}&healOff=strayPole&check`, `(async () => {
+    await cadViewer.idle();
+    return { said: ${healingSaid}, heal: viewer.settings.heal, fix: viewer.settings.healFixes.strayPole };
+  })()`) as { after: { said: string[]; heal: boolean; fix: boolean } };
+  expect(f.after.said.join() === 'tolerances grown' && f.after.heal && !f.after.fix, `healOff=strayPole: ${
+    JSON.stringify(f.after)}`);
+  const d = await page(`?url=${encodeURIComponent('/content/heal.stp')}&check`, `(async () => {
+    await cadViewer.idle();
+    return { said: ${healingSaid}, heal: viewer.settings.heal };
+  })()`) as { after: { said: string[]; heal: boolean } };
+  expect(d.after.heal === HEAL_BY_DEFAULT && (d.after.said.length > 0) === HEAL_BY_DEFAULT, `the default: ${
+    JSON.stringify(d.after)}`);
   return undefined;
 });
 // Mesh again from the import worker's models, in place: no import (the same tree and scene graph, no "importing" in

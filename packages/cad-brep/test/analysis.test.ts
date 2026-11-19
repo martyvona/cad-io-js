@@ -41,10 +41,14 @@ function sampleRows(d: BrepData, hash: Uint32Array, seed = 1, extra = 5): Analys
   const rows: Record<string, Record<string, number[]>> = {};
   for (const c of ANALYSIS_COLUMNS) {
     const n = c.table === 'analysis' ? 1 : (ENTITIES as readonly string[]).includes(c.table)
-      ? rowCount(d, c.table as typeof ENTITIES[number]) : c.table === 'pool' ? extra + c.column.length : extra;
+      ? rowCount(d, c.table as typeof ENTITIES[number]) : c.table === 'pool' ? extra + c.column.length
+      : c.table === 'trace' ? Math.min(extra, rowCount(d, 'coedge')) : extra;
     (rows[c.table] ??= {})[c.column] = Array.from({ length: n * c.width }, (_, k) => gen(c.type, k));
   }
   rows.analysis!.model = Array.from(hash);
+  // The trace rows' coedges: the model's, in order (analysisFor refuses others).
+  rows.trace!.coedge = rows.trace!.coedge!.map((_, i) => 2 * i);
+  if (rows.trace!.coedge.at(-1)! >= rowCount(d, 'coedge')) rows.trace!.coedge = rows.trace!.coedge.map((_, i) => i);
   return rows as AnalysisRows;
 }
 
@@ -112,7 +116,7 @@ test('writeAnalysis and openAnalysis: every column type round trips, the bytes d
     // The layout, worked out independently: the magic, the count, then columns in order from the header's end, each
     // starting at the next multiple of 8, zeros between, the buffer ending on one.
     const v = new DataView(a.buffer), bytes = new Uint8Array(a.buffer);
-    assert.equal(String.fromCharCode(...bytes.subarray(0, 4)), 'CBA2');
+    assert.equal(String.fromCharCode(...bytes.subarray(0, 4)), 'CBA3');
     assert.equal(v.getUint32(4, true), ANALYSIS_COLUMNS.length);
     let at = 8 + 8 * ANALYSIS_COLUMNS.length;
     ANALYSIS_COLUMNS.forEach((c, k) => {
@@ -172,8 +176,8 @@ test('writeAnalysis: a table left out is empty; values a column can\'t hold, mis
 test('openAnalysis refuses a buffer whose header is corrupt, and a model buffer; openBrep refuses an analysis',
   async () => {
     const d = MODELS.everyKind().finish(), a = writeAnalysis(sampleRows(d, await modelHash(d)));
-    assert.throws(() => openAnalysis(d.buffer), /magic "CBR6", not CBA2/);
-    assert.throws(() => openBrep(a.buffer), /magic "CBA2", not CBR6/);
+    assert.throws(() => openAnalysis(d.buffer), /magic "CBR6", not CBA3/);
+    assert.throws(() => openBrep(a.buffer), /magic "CBA3", not CBR6/);
     assert.throws(() => openAnalysis(new ArrayBuffer(8 + 8 * ANALYSIS_COLUMNS.length - 1)), /too short/);
     const col = (table: string, column: string) =>
       ANALYSIS_COLUMNS.findIndex((c) => c.table === table && c.column === column);
@@ -223,6 +227,17 @@ test('analysisFor: an analysis of exactly this model accepted, of any other refu
     const rows = sampleRows(d, hash, 2, 11) as Record<string, unknown>;
     for (const t of ENTITIES) delete rows[t];
     await analysisFor(d, writeAnalysis(rows as AnalysisRows));
+    // Trace rows naming a coedge the model hasn't, or out of order, or twice.
+    if (rowCount(d, 'coedge') >= 2) {
+      for (const coedges of [[0, rowCount(d, 'coedge')], [-1, 0], [1, 0], [1, 1]]) {
+        const r = sampleRows(d, hash) as Record<string, Record<string, number[]>>;
+        for (const c of ANALYSIS_COLUMNS.filter((s) => s.table === 'trace')) r.trace![c.column] = r.trace![c.column]!
+          .slice(0, 2 * c.width);
+        r.trace!.coedge = coedges;
+        await assert.rejects(analysisFor(d, writeAnalysis(r as AnalysisRows)),
+          (e) => e instanceof BrepFormatError && /analysis trace row/.test(e.message), `${name} ${coedges}`);
+      }
+    }
     // A hash off by one bit, anywhere.
     for (const bit of [0, 31, 32 * 3 + 7, 255]) {
       const off = hash.slice();

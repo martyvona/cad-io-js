@@ -344,7 +344,8 @@ export async function replay(rec: Recording, viewer: Viewer, ui: Ui, session: Se
   // the meshing settings then), set before anything loads; the first state then sets the controls' own.
   const first = rec.events.find((e) => e.type === 'state') as Extract<RecordedEvent, { type: 'state' }> | undefined;
   const meshing = (first?.state.model as { meshedWith?: object } | undefined)?.meshedWith ?? first?.state.meshing;
-  if (meshing) session.apply({ meshing });
+  // (Recordings from before healing have no heal: as imported.)
+  if (meshing) session.apply({ meshing: { heal: false, ...meshing } });
   const gui = ui.gui as unknown as { controllersRecursive(): Controller[] };
   const resolve = (paths: string[]) => paths.map((p) => viewer.nodes?.find(p)).filter((x) => x !== undefined);
   const open = async (e: Extract<RecordedEvent, { type: 'load' }>, at: string) => {

@@ -11,12 +11,12 @@
 #[cfg(not(target_endian = "little"))]
 compile_error!("cad-brep buffers are little-endian");
 
-pub const MAGIC: &[u8; 4] = b"CBA2";
-pub const HEADER_BYTES: usize = 344;
-pub const COLUMN_COUNT: usize = 42;
+pub const MAGIC: &[u8; 4] = b"CBA3";
+pub const HEADER_BYTES: usize = 392;
+pub const COLUMN_COUNT: usize = 48;
 
 /// Each column's element type, in buffer order: b u8, i i32, u u32, f f64.
-const TYPES: &[u8; COLUMN_COUNT] = b"uffifiibffbfiibffbfiibibffbbbffiiiiibfffbb";
+const TYPES: &[u8; COLUMN_COUNT] = b"uffifiibffbfiibffbfiibibfffbibffbbbffiiiiibfffbb";
 
 const fn bytes(k: usize) -> usize {
     match TYPES[k] {
@@ -196,63 +196,81 @@ impl Analysis {
     /// `coedge.pcurveFrom`: 1 per row.
     pub fn coedge_pcurve_from(&self) -> &[u8] { self.slice(21) }
 
+    /// `trace.coedge`: 1 per row.
+    pub fn trace_coedge(&self) -> &[i32] { self.slice(22) }
+
+    /// `trace.status`: 1 per row.
+    pub fn trace_status(&self) -> &[u8] { self.slice(23) }
+
+    /// `trace.tol`: 1 per row.
+    pub fn trace_tol(&self) -> &[f64] { self.slice(24) }
+
+    /// `trace.offSurface`: 1 per row.
+    pub fn trace_off_surface(&self) -> &[f64] { self.slice(25) }
+
+    /// `trace.stopAt`: 1 per row.
+    pub fn trace_stop_at(&self) -> &[f64] { self.slice(26) }
+
+    /// `trace.stopWhy`: 1 per row.
+    pub fn trace_stop_why(&self) -> &[u8] { self.slice(27) }
+
     /// `face.outerLoop`: 1 per row.
-    pub fn face_outer_loop(&self) -> &[i32] { self.slice(22) }
+    pub fn face_outer_loop(&self) -> &[i32] { self.slice(28) }
 
     /// `face.outerFrom`: 1 per row.
-    pub fn face_outer_from(&self) -> &[u8] { self.slice(23) }
+    pub fn face_outer_from(&self) -> &[u8] { self.slice(29) }
 
     /// `face.uv`: 4 per row.
-    pub fn face_uv(&self) -> &[f64] { self.slice(24) }
+    pub fn face_uv(&self) -> &[f64] { self.slice(30) }
 
     /// `face.area`: 2 per row.
-    pub fn face_area(&self) -> &[f64] { self.slice(25) }
+    pub fn face_area(&self) -> &[f64] { self.slice(31) }
 
     /// `face.areaFrom`: 1 per row.
-    pub fn face_area_from(&self) -> &[u8] { self.slice(26) }
+    pub fn face_area_from(&self) -> &[u8] { self.slice(32) }
 
     /// `surface.uClosed`: 1 per row.
-    pub fn surface_u_closed(&self) -> &[u8] { self.slice(27) }
+    pub fn surface_u_closed(&self) -> &[u8] { self.slice(33) }
 
     /// `surface.vClosed`: 1 per row.
-    pub fn surface_v_closed(&self) -> &[u8] { self.slice(28) }
+    pub fn surface_v_closed(&self) -> &[u8] { self.slice(34) }
 
     /// `surface.uPeriod`: 1 per row.
-    pub fn surface_u_period(&self) -> &[f64] { self.slice(29) }
+    pub fn surface_u_period(&self) -> &[f64] { self.slice(35) }
 
     /// `surface.vPeriod`: 1 per row.
-    pub fn surface_v_period(&self) -> &[f64] { self.slice(30) }
+    pub fn surface_v_period(&self) -> &[f64] { self.slice(36) }
 
     /// `surface.first`: 1 per row.
-    pub fn surface_first(&self) -> &[i32] { self.slice(31) }
+    pub fn surface_first(&self) -> &[i32] { self.slice(37) }
 
     /// `surface.count`: 1 per row.
-    pub fn surface_count(&self) -> &[i32] { self.slice(32) }
+    pub fn surface_count(&self) -> &[i32] { self.slice(38) }
 
     /// `continuity.edge`: 1 per row.
-    pub fn continuity_edge(&self) -> &[i32] { self.slice(33) }
+    pub fn continuity_edge(&self) -> &[i32] { self.slice(39) }
 
     /// `continuity.a`: 1 per row.
-    pub fn continuity_a(&self) -> &[i32] { self.slice(34) }
+    pub fn continuity_a(&self) -> &[i32] { self.slice(40) }
 
     /// `continuity.b`: 1 per row.
-    pub fn continuity_b(&self) -> &[i32] { self.slice(35) }
+    pub fn continuity_b(&self) -> &[i32] { self.slice(41) }
 
     /// `continuity.class`: 1 per row.
-    pub fn continuity_class(&self) -> &[u8] { self.slice(36) }
+    pub fn continuity_class(&self) -> &[u8] { self.slice(42) }
 
     /// `continuity.angle`: 1 per row.
-    pub fn continuity_angle(&self) -> &[f64] { self.slice(37) }
+    pub fn continuity_angle(&self) -> &[f64] { self.slice(43) }
 
     /// `continuity.angleError`: 1 per row.
-    pub fn continuity_angle_error(&self) -> &[f64] { self.slice(38) }
+    pub fn continuity_angle_error(&self) -> &[f64] { self.slice(44) }
 
     /// `shell.volume`: 2 per row.
-    pub fn shell_volume(&self) -> &[f64] { self.slice(39) }
+    pub fn shell_volume(&self) -> &[f64] { self.slice(45) }
 
     /// `shell.facing`: 1 per row.
-    pub fn shell_facing(&self) -> &[u8] { self.slice(40) }
+    pub fn shell_facing(&self) -> &[u8] { self.slice(46) }
 
     /// `shell.facingFrom`: 1 per row.
-    pub fn shell_facing_from(&self) -> &[u8] { self.slice(41) }
+    pub fn shell_facing_from(&self) -> &[u8] { self.slice(47) }
 }

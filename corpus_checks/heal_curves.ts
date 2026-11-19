@@ -56,6 +56,7 @@ const fresh = () => ({
   keep: {} as Tally, replace: {} as Tally, keepMm: {} as Tally, replaceMm: {} as Tally, planes: {} as Tally,
   better: {} as Tally, degenerate: {} as Tally, cause: {} as Tally, backward: {} as Tally,
   sameParameter: {} as Tally, focus: [] as string[], healed: {} as Tally, healMs: 0, growth: {} as Tally,
+  traces: {} as Tally,
 });
 type Result = ReturnType<typeof fresh>;
 
@@ -430,6 +431,26 @@ function measureTolerances(d: BrepData) {
     size, stated: Number.isFinite(unc) };
 }
 
+/** HEAL: the traced coedges counted from healing's diagnostics (their counts, not one per diagnostic). */
+function countTraces(diagnostics: { message: string }[], where: string, R: Result) {
+  const add = (key: string, n: number) => {
+    const e = R.traces[key] ??= { n: 0, ex: [] };
+    e.n += n;
+    if (e.ex.length < examples) e.ex.push(`${where}: ${n}`);
+  };
+  for (const { message: m } of diagnostics) {
+    let x = /^edgeTolerance: (\d+) coedges' curves traced .* given the trace's p-curve, (\d+) of them/.exec(m);
+    if (x) {
+      if (+x[1]! - +x[2]!) add('p-curve kept, within the edge\'s tolerance', +x[1]! - +x[2]!);
+      if (+x[2]!) add('p-curve kept, the edge\'s tolerance grown', +x[2]!);
+    }
+    x = /^edgeTolerance: (\d+) coedges' curves traced onto their surfaces left without a p-curve \((.*)\):/.exec(m);
+    if (x) add(`no p-curve: ${x[2]}`, +x[1]!);
+    x = /^edgeTolerance: (\d+) traces stopped before their curves' ends/.exec(m);
+    if (x) add('stopped (among the above)', +x[1]!);
+  }
+}
+
 /**
  * HEAL: the part classed by how far healing grew its tolerances (the rule in docs/own-tessellator.md, written here
  * apart from cad-heal's growth.ts, from the source's and the healed model's rows alone): each edge or vertex whose
@@ -471,7 +492,7 @@ export const check: FileCheck<undefined, Result> = {
     maxMB = Number(args[1] ?? 1000);
     module = await init();
   },
-  async file(file) {
+  async file(file, _job, ctx) {
     const R = fresh();
     if (fs.statSync(file).size > maxMB * 1e6) return R;
     R.files++;
@@ -484,14 +505,18 @@ export const check: FileCheck<undefined, Result> = {
       const where = `${name} #${part.sources[0]!.id}`;
       let d = source;
       if (heal) {
-        const t = Date.now(), h = await healPart(source, { fixes: healFixes }, module);
+        ctx.progress(`${where}: healing`);
+        const t = Date.now(), h = await healPart(source, { fixes: healFixes,
+          progress: (what) => ctx.progress(`${where}: ${what}`) }, module);
         R.healMs += Date.now() - t;
         d = h.model;
         for (const x of h.diagnostics) tally(R.healed, x.message.replace(/:.*/, '') + ` (${x.severity})`, `${where}: `
           + x.message.slice(0, 300));
         classifyGrowth(source, d, h.diagnostics, where, R);
+        countTraces(h.diagnostics, where, R);
         if (!measure) continue;
       }
+      ctx.progress(`${where}: measuring`);
       const { keep } = measurePart(d, where, R);
       if (plant && plantedPart(where)) plantPart(d, where, keep, R);
     }
@@ -532,6 +557,8 @@ if (import.meta.main) {
     printTally('Healing\'s diagnostics (cad-heal), by fix', all.healed);
     printTally('Parts by how far healing grew their tolerances (an error past 5 x and 0.01 x the part\'s size)',
       all.growth);
+    printTally('Coedges traced (bare, the grid not bounding them): the trace\'s p-curve kept or not, and stops',
+      all.traces);
   }
   printTally('Faces by the face API\'s status and surface', all.faceStatus);
   printTally('Projection of each coedge\'s 3D curve (status, method; p-curve given or missing; surface)',

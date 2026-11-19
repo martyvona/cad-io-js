@@ -180,6 +180,8 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
     int64_t seq;
     int32_t t;
     uint32_t gen;
+    // What queued it (Mesh2Detail::inserted's index).
+    uint8_t cause;
     bool operator<(const Item& o) const { return key < o.key || (key == o.key && seq > o.seq); }
   };
   std::priority_queue<Item> queue;
@@ -200,7 +202,10 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
     // its corner without end: ohmm-ap203's plates, 200,000 points into one.)
     double thin = accepted && field.belowFloor(p) ? 0.0 : minSine / std::max(q.sine, 1e-300);
     double key = std::max({q.longest / std::sqrt(2.0), thin, accepted ? 0.0 : 2.0});
-    if (key > 1) queue.push({key, seq++, t, R.gen});
+    if (key <= 1) return;
+    uint8_t cause = q.longest / std::sqrt(2.0) >= thin ? 0 : 1;
+    if (!accepted) cause = detail ? static_cast<uint8_t>(2 + std::clamp(field.refusalKind(p), 0, 7)) : 2;
+    queue.push({key, seq++, t, R.gen, cause});
   };
   for (int32_t t = 0; t < static_cast<int32_t>(T.tris().size()); t++) consider(t);
   int steiner = 0;
@@ -315,6 +320,15 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
     }
     if (!placed || f < 0.05) {
       D.refused++;
+      // No segment the first candidate named that can be split (none, or each frozen: it left the domain across
+      // one): the segments its centroid encroaches named instead, since they are what refused the halvings; else the
+      // triangle asks for nothing while refused (arm's half cylinder beside its corners).
+      bool noneSplittable = true;
+      for (uint64_t k : encroached) noneSplittable = noneSplittable && frozen.count(k);
+      if (noneSplittable) {
+        int32_t at2;
+        acceptable(g, at2, true);
+      }
       for (uint64_t k : encroached) wanted.push_back({k, it.t, it.gen});
       finals.insert({it.t, it.gen});
       continue;
@@ -331,6 +345,7 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
       continue;
     }
     steiner++;
+    D.inserted[it.cause]++;
     for (int32_t t : created) consider(t);
   }
   D.finalTriangles = static_cast<int>(finals.size());

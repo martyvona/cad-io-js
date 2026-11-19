@@ -4,55 +4,25 @@
 // reparameterizes, tolerances it grows), and where each value came from, with the source's tolerance, is in the
 // healed model's analysis buffer (cad-brep's analysis-layout.ts: pcurveFrom, toleranceFrom, givenTolerance).
 //
-// One master switch (`heal`, on by default) leaves every model exactly as imported when off; under it, each fix can
-// be turned off by name. Each p-curve fix reports one diagnostic per part it changes (a warning with its count and
-// examples), and one for what it couldn't repair; the tolerances grown (edgeTolerance's, vertexTolerance's,
-// pcurveEnds') are one diagnostic per part, a warning or an error by how far they grew (fix/growth.ts). The geometry
-// is cad-geom's (its WebAssembly module, `init`).
+// One master switch (`heal`: on wherever healPart or healScene is called, in importers HEAL_BY_DEFAULT) leaves every
+// model exactly as imported when off; under it, each fix can be turned off by name. Each p-curve fix reports one
+// diagnostic per part it changes (a warning with its count and examples), and one for what it couldn't repair; the
+// tolerances grown (edgeTolerance's, vertexTolerance's, pcurveEnds') are one diagnostic per part, a warning or an
+// error by how far they grew (fix/growth.ts). Parts heal one at a time here, or in parallel through a PartHealer (a
+// worker pool's, tess-workers). The geometry is cad-geom's (its WebAssembly module, `init`).
 
-import { type BrepAnalysis, type BrepData, LOOP_KIND, modelHash, PROVENANCE, rowCount, writeAnalysis } from
-  'cad-brep';
+import { type BrepAnalysis, type BrepData, faceOutlines, LOOP_KIND, modelHash, PROVENANCE, rowCount,
+  writeAnalysis } from 'cad-brep';
 import { Geometry, type GeomModule, init } from 'cad-geom';
-import type { Diagnostic, Scene, SourceId } from 'cad-scene';
+import type { Brep, Diagnostic, Scene, SourceId, Vec3 } from 'cad-scene';
 import { type CurvesRecord, healCurves } from './curves.ts';
 import { ModelEdit } from './edit.ts';
 import { tolerances } from './measure.ts';
 import { curveTolerances, FAR, SPAN, strayPoles } from './fix/poles.ts';
+import { fixesOn, type HealOptions } from './options.ts';
 
-/**
- * The fixes, in the order the pass runs them. `strayPole` moves a 3D B-spline's pole thrown far out of the part
- * within a negligible span onto its neighbours (fix/poles.ts's narrow rule). Curves on surfaces (T3 lane 1):
- * `pcurveMissing` (off by default) makes the p-curves a face needs on surfaces other than planes (planes' are exact
- * for every consumer, so stay absent); `pcurveReparam` gives a source's p-curve the parameter of its edge's curve
- * where its image is right (or its domain the edge's range where rounding leaves them apart); `pcurveReplace`
- * replaces a source's p-curve by the projection where the projection is nearer, measured both ways; `pcurveEnds`
- * bridges p-curve ends to their vertices; `edgeTolerance` and `vertexTolerance` grow tolerances to cover what's
- * measured.
- */
-export const HEAL_FIXES = ['strayPole', 'pcurveMissing', 'pcurveReparam', 'pcurveReplace', 'pcurveEnds',
-  'edgeTolerance', 'vertexTolerance'] as const;
-export type HealFix = (typeof HEAL_FIXES)[number];
-
-/**
- * The fixes off unless asked for: pcurveMissing, since the face API and the tessellator project a missing p-curve on
- * demand, and projecting every one at import costs far more than the import (VW's 3 s import, 888 s).
- */
-export const FIXES_OFF_BY_DEFAULT: readonly HealFix[] = ['pcurveMissing'];
-
-export interface HealOptions {
-  /** The master switch. Default true; false leaves every model exactly as imported, with no analysis. */
-  heal?: boolean;
-  /** Under `heal`, each fix on or off by name (each on by default but FIXES_OFF_BY_DEFAULT's). */
-  fixes?: Partial<Record<HealFix, boolean>>;
-}
-
-/** The fixes the options turn on, in HEAL_FIXES's order; none where `heal` is false. Throws on an unknown name. */
-export function fixesOn(opts: HealOptions = {}): HealFix[] {
-  for (const k of Object.keys(opts.fixes ?? {}))
-    if (!(HEAL_FIXES as readonly string[]).includes(k)) throw new Error(`cad-heal: no fix named ${k}`);
-  if (opts.heal === false) return [];
-  return HEAL_FIXES.filter((f) => opts.fixes?.[f] ?? !FIXES_OFF_BY_DEFAULT.includes(f));
-}
+export { FIXES_OFF_BY_DEFAULT, fixesOn, HEAL_BY_DEFAULT, HEAL_FIXES, type HealFix, type HealOptions } from
+  './options.ts';
 
 export interface HealedPart {
   /** The healed model, or the model given where nothing changed. */
@@ -74,16 +44,18 @@ export async function healPart(model: BrepData, opts: HealOptions = {}, module?:
   if (!fixes.size) return { model, changed: false, diagnostics: [] };
   const diagnostics: Diagnostic[] = [];
   // The curves' own fixes first, into a model of their own, so the face API measures the curves as fixed.
-  const pre = new ModelEdit(model);
+  const progress = opts.progress ?? (() => {}), pre = new ModelEdit(model);
+  progress('strayPole');
   if (fixes.has('strayPole')) movePoles(model, pre, diagnostics);
   const fixed = pre.finish(), edit = new ModelEdit(fixed);
   const g = new Geometry(module ?? await init(), new Uint8Array(fixed.buffer));
   let curves;
   try {
-    curves = healCurves(g, fixed, fixes, edit, diagnostics);
+    curves = healCurves(g, fixed, fixes, edit, diagnostics, undefined, progress);
   } finally {
     g.dispose();
   }
+  progress('the healed model and its analysis');
   const healed = edit.finish();
   const analysis = await analysisOf(healed, model, edit, curves);
   if (source) for (const x of diagnostics) x.source = source;
@@ -137,16 +109,112 @@ async function analysisOf(healed: BrepData, source: BrepData, edit: ModelEdit, c
       givenTolerance: source.edge.tolerance },
     coedge: { range: nan(2 * nc), rangeFrom: zero(nc), deviation: curves.deviation, face, loop,
       pcurveFrom: curves.pcurveFrom },
+    trace: traceRows(curves.traces),
   });
 }
 
-/** Heals every part's model in the scene in place, its diagnostics added to the scene's. */
-export async function healScene(scene: Scene, opts: HealOptions = {}, module?: GeomModule): Promise<void> {
+/** The analysis's trace rows, in coedge order. */
+export function traceRows(traces: CurvesRecord['traces']) {
+  const t = traces.toSorted((a, b) => a.coedge - b.coedge), col = (k: keyof typeof t[number]) => t.map((x) => x[k]);
+  return { coedge: col('coedge'), status: col('status'), tol: col('tol'), offSurface: col('offSurface'),
+    stopAt: col('stopAt'), stopWhy: col('stopWhy') };
+}
+
+/** One part's healing, structured-clonable (for a worker): healPart's arguments but the module and progress. */
+export interface HealRequest {
+  model: BrepData;
+  options: Omit<HealOptions, 'progress'>;
+  source?: SourceId;
+}
+
+/** Heals one part wherever it runs (a pool's worker, running healJob), telling `progress` where it is. */
+export type PartHealer = (req: HealRequest, progress: (what: string) => void) => Promise<HealedPart>;
+
+/** healPart for a worker: tess-workers' pool runs it as the job `{ module: 'cad-heal', export: 'healJob' }`. */
+export function healJob(req: HealRequest, progress: (what: string) => void): Promise<HealedPart> {
+  return healPart(req.model, { ...req.options, progress }, undefined, req.source);
+}
+
+/**
+ * How long one part may heal in a worker (wall time, ms) before its worker is stopped and the part kept as imported,
+ * with a warning naming where healing was: so a hung part can't hang a load. 15 minutes: 1.7 x the slowest part
+ * measured (bug29979_firetherm_12 #206858, 538 s with 6 files healing at once), so a loaded host or a browser doesn't
+ * stop a part that would finish. Healing on the caller's own thread has no limit (it can't be stopped).
+ */
+export const HEAL_TIMEOUT_MS = 15 * 60_000;
+
+/** What poolHealer needs of a pool: tess-workers' PoolTessellator.run. */
+export interface JobRunner {
+  run<T>(job: { module: string; export: string }, input: unknown,
+    opts?: { onProgress?: (message: string) => void; timeoutMs?: number }): Promise<T>;
+}
+
+/**
+ * A PartHealer running healJob in `pool`'s workers, each part within HEAL_TIMEOUT_MS; `module` the specifier the
+ * workers import cad-heal by (a URL, or the key a bundled worker entry gives it).
+ */
+export function poolHealer(pool: JobRunner, module: string): PartHealer {
+  const job = { module, export: 'healJob' };
+  return (req, progress) => pool.run<HealedPart>(job, req, { onProgress: progress, timeoutMs: HEAL_TIMEOUT_MS });
+}
+
+export interface HealSceneOptions extends HealOptions {
+  /** Where each part heals: by default here, healPart with healScene's module. */
+  healer?: PartHealer;
+  /** How many parts heal at once (with a healer elsewhere: in parallel). Default 1. */
+  concurrency?: number;
+  /** Told as each part is healed: how many of the parts with models are done. */
+  onPart?: (done: number, total: number) => void;
+}
+
+/**
+ * Heals every part's model in the scene in place, its analysis (of the healed model) set beside it, its outline drawn
+ * from the healed model (a moved pole moves it), and its diagnostics added to the scene's in the parts' order however
+ * many heal at once. `progress` is told each part as it starts, and where healing is in it after the part's name. A
+ * part a healer elsewhere fails on (its worker crashed, say) keeps its model as imported, with a warning; healing
+ * here throws.
+ */
+export async function healScene(scene: Scene, opts: HealSceneOptions = {}, module?: GeomModule): Promise<void> {
   if (!fixesOn(opts).length) return;
-  for (const part of scene.parts) {
-    if (!part.brep) continue;
-    const r = await healPart(part.brep.model, opts, module, part.sources[0]);
-    if (r.changed) part.brep.model = r.model;
-    scene.diagnostics.push(...r.diagnostics);
-  }
+  const { progress, healer, concurrency, onPart, ...options } = opts;
+  const heal: PartHealer = healer
+    ?? ((req, said) => healPart(req.model, { ...req.options, progress: said }, module, req.source));
+  const parts = scene.parts.flatMap((p, i) => (p.brep ? [i] : []));
+  const said: Diagnostic[][] = [];
+  let next = 0, done = 0;
+  const run = async () => {
+    while (next < parts.length) {
+      const k = next++, i = parts[k]!, part = scene.parts[i]!, brep = part.brep!, source = part.sources[0];
+      const where = `part ${i} of ${scene.parts.length}`;
+      progress?.(where);
+      let r: HealedPart;
+      try {
+        r = await heal({ model: brep.model, options, ...(source ? { source } : {}) },
+          (w) => progress?.(`${where}: ${w}`));
+      } catch (e) {
+        if (!healer) throw e;
+        said[k] = [{ severity: 'warning', message: `healing failed (${(e as Error).message ?? e}): the model as `
+          + 'imported', ...(source ? { source } : {}) }];
+        onPart?.(++done, parts.length);
+        continue;
+      }
+      if (r.changed) {
+        brep.model = r.model;
+        if (brep.outline) brep.outline = outlineOf(r.model, part.origin);
+      }
+      if (r.analysis) brep.analysis = r.analysis;
+      said[k] = r.diagnostics;
+      onPart?.(++done, parts.length);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(Math.floor(concurrency ?? 1), parts.length)) }, run));
+  for (const d of said) scene.diagnostics.push(...d);
+}
+
+/**
+ * A healed part's outline, in a function of its own: a closure made in healScene would share its scope's context,
+ * keeping every part's request and result.
+ */
+function outlineOf(model: BrepData, origin: Vec3): NonNullable<Brep['outline']> {
+  return ({ faces: only, ...o }) => faceOutlines(model, origin, o, only);
 }
