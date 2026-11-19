@@ -37,6 +37,70 @@ test('results come back whole, with the backend info, and requests run in parall
   }
 });
 
+const job = { module: backend.module, export: 'fakeJob' };
+type JobOut = { input: { mode: string }; values: Float64Array; instance: string };
+
+test('run: a job runs in a worker with its progress, its output whole, alongside tessellation requests', async () => {
+  const t = await pool({ workers: 2 });
+  try {
+    const seen: string[] = [];
+    const [a, r, b] = await Promise.all([
+      t.run<JobOut>(job, { mode: 'echo', n: 5, progress: 2 }, { onProgress: (m) => seen.push(m) }),
+      t.tessellate(req(4, 10)), t.run<JobOut>(job, { mode: 'wait', ms: 100 })]);
+    assert.deepEqual(a.input, { mode: 'echo', n: 5, progress: 2 });
+    assert.ok(a.values instanceof Float64Array);
+    assert.deepEqual([...a.values], [0, 1, 2, 3, 4]);
+    assert.deepEqual(seen, ['step 1', 'step 2']);
+    assert.deepEqual([...r.indices], [0, 1, 2]);
+    assert.equal(b.values.length, 0);
+  } finally {
+    t.dispose();
+  }
+});
+
+test('run: a job that throws rejects with its message (not as a part failure), the worker replaced; one that '
+  + 'hangs has no timeout of its own unless given one, then names its last progress', async () => {
+  const t = await pool({ workers: 1, timeoutMs: 200 });
+  try {
+    const before = (await t.run<JobOut>(job, { mode: 'echo' })).instance;
+    await assert.rejects(t.run(job, { mode: 'throw' }),
+      (e) => !(e instanceof TessellationError) && /job refused/.test((e as Error).message));
+    assert.notEqual((await t.run<JobOut>(job, { mode: 'echo' })).instance, before);
+    // Longer than the pool's 200 ms for parts: not killed.
+    assert.equal((await t.run<JobOut>(job, { mode: 'wait', ms: 400 })).input.mode, 'wait');
+    await assert.rejects(t.run(job, { mode: 'hang' }, { timeoutMs: 300 }),
+      (e) => !(e instanceof TessellationError) && (e as Error).message === 'job fakeJob timed out after 300 ms');
+    await assert.rejects(t.run(job, { mode: 'hang', progress: 2 }, { timeoutMs: 300 }),
+      (e) => (e as Error).message === 'job fakeJob timed out after 300 ms (last: step 2)');
+  } finally {
+    t.dispose();
+  }
+});
+
+test("serve's outputBuffers: each typed array's buffer once, in plain objects and arrays, not in other objects",
+  async () => {
+  const { outputBuffers } = await import('../src/serve.ts');
+  const shared = new ArrayBuffer(16), own = new Float64Array(2);
+  const inClass = new (class { a = new Uint8Array(4); })();
+  const out = outputBuffers({ a: new Uint8Array(shared, 0, 8), b: [new Int32Array(shared, 8, 2), { c: own }],
+    d: shared, e: inClass, f: 'x', g: null });
+  assert.deepEqual(out, [shared, own.buffer]);
+});
+
+test('run: a missing export rejects; a pool without a backend runs jobs, its info NO_BACKEND', async () => {
+  const { NO_BACKEND } = await import('../src/node.ts');
+  const t = new WorkerTessellator({ workers: 1 });
+  await t.init();
+  try {
+    assert.deepEqual(t.info, NO_BACKEND);
+    assert.equal((await t.run<JobOut>(job, { mode: 'echo', n: 2 })).values.length, 2);
+    await assert.rejects(t.run({ ...job, export: 'noSuchJob' }, {}), /has no function 'noSuchJob'/);
+    await assert.rejects(t.tessellate(req(0)), /no backend loaded/);
+  } finally {
+    t.dispose();
+  }
+});
+
 test('a timeout says where the backend last was: its last progress, which the caller saw as it came', async () => {
   const t = await pool({ workers: 1, timeoutMs: 300 });
   try {
