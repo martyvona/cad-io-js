@@ -44,6 +44,8 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
   }
   const reparam = new Tally(), reparamKind = new Tally(), replaced = new Tally(), dropped = new Tally();
   const toRange = new Tally();
+  // Per edge: the interval its kept p-curves' domains allow its range, where one misses it by rounding.
+  const clampTo = new Map<number, [number, number]>();
   const made = new Tally(), notReplaced = new Map<string, Tally>(), notMade = new Map<string, Tally>();
   const add = (m: Map<string, Tally>, why: string, c: number) =>
     (m.get(why) ?? m.set(why, new Tally()).get(why)!).add(coedgeName(c));
@@ -175,20 +177,15 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
           continue;
         }
         // The same parameter, but its domain short of the edge's range by rounding (vertices a hair off the curve
-        // put the range's end past the last knot): evaluation at the range's end is refused as outside the domain,
-        // for the face API and every consumer. Its end knots put on the range (a change of at most 1e-9 of its span).
-        if (m.kind === 'same' && fixes.has('pcurveReparam') && d.curve.kind[pc] === CURVE_KIND.bspline) {
-          const own = g.curveInfo(pc), lo = Math.min(...range), hi = Math.max(...range);
-          if (lo < own.lo || hi > own.hi) {
-            const curve = reparameterized(d, pc, 1, 0, range);
-            if (curve) {
-              edit.set('coedge', 'pcurve', c, edit.addCurve2(curve));
-              newRange();
-              record.pcurveFrom[c] = PROVENANCE.healed;
-              toRange.add(coedgeName(c));
-              keep();
-              continue;
-            }
+        // put the range's end past the p-curve's): evaluation at the range's end is refused as outside the domain,
+        // for the face API and every consumer. The edge's range is written onto its p-curves' domains after the loop
+        // (a change of at most 1e-9 of its span), any kind of p-curve (a trimmed curve can't take a knot snap).
+        if (m.kind === 'same' && fixes.has('pcurveReparam')) {
+          const own = g.curveInfo(pc), lo = Math.min(...range), hi = Math.max(...range), sl = 1e-9 * (hi - lo);
+          if ((lo < own.lo && lo >= own.lo - sl) || (hi > own.hi && hi <= own.hi + sl)) {
+            const [cl, ch] = clampTo.get(e) ?? [lo, hi];
+            clampTo.set(e, [Math.max(cl, own.lo), Math.min(ch, own.hi)]);
+            toRange.add(coedgeName(c));
           }
         }
         let off = m.kind === 'off';
@@ -241,6 +238,16 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
         }
       }
     }
+  }
+  // The edges whose kept p-curves' domains miss their ranges by rounding: their ranges written onto the domains (in the
+  // edge's own order, start to end).
+  for (const [e, [lo, hi]] of clampTo) {
+    const r0 = edit.get('edge', 'range', 2 * e), r1 = edit.get('edge', 'range', 2 * e + 1);
+    const range = Number.isFinite(r0) && Number.isFinite(r1) ? [r0, r1] as [number, number] : edgeRange(g, e);
+    if (!range || !(lo < hi)) continue;
+    const up = range[1] >= range[0];
+    edit.set('edge', 'range', 2 * e, up ? lo : hi), edit.set('edge', 'range', 2 * e + 1, up ? hi : lo);
+    record.edgeRangeFrom[e] = PROVENANCE.healed;
   }
   // vertexTolerance: each edge's curve's ends against its vertices, over the range its p-curves are in.
   const vNeed = new Float64Array(rowCount(d, 'vertex')), vNeedE = new Float64Array(rowCount(d, 'edge'));
@@ -314,8 +321,8 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
       + `curves' parameter (theirs an affine function of it): ${reparam.ex.join(', ')}${reparam.more()}` });
   }
   if (toRange.n) {
-    diagnostics.push({ severity: 'warning', message: `pcurveReparam: ${toRange.n} p-curves' domains put on their `
-      + `edges' ranges (short of them by rounding): ${toRange.ex.join(', ')}${toRange.more()}` });
+    diagnostics.push({ severity: 'warning', message: `pcurveReparam: ${toRange.n} p-curves' edges' ranges put on their `
+      + `domains (past them by rounding): ${toRange.ex.join(', ')}${toRange.more()}` });
   }
   if (reparamKind.n) {
     diagnostics.push({ severity: 'warning', message: `pcurveReparam: ${reparamKind.n} p-curves parameterized as an `

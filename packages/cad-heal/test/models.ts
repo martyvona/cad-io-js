@@ -3,10 +3,12 @@
 
 import { BrepBuilder, type Curve } from 'cad-brep';
 
-/** A p-curve as a test wants it, with the use's range (NaN: none), or none at all. */
+/** A p-curve as a test wants it, with the use's range (NaN: none), or none at all; a trimmed one's `basis` added
+ * before it (its own `basis` then that row). */
 export interface Use {
   pcurve?: Curve;
   range?: [number, number];
+  basis?: Curve;
 }
 
 const line2 = (point: number[], direction: number[], magnitude = 1): Curve => ({ kind: 'line', point, direction,
@@ -26,24 +28,27 @@ export const RIGHT: Record<'bottom' | 'seamUp' | 'top' | 'seamDown', Use> = {
  * `seamStart` the seam line's parameter at z = 0 (its point at z = -seamStart), which RIGHT's seam p-curves assume 0;
  * `vertexTolerance` the bottom vertex's; `bottomRadius` the bottom circle's (off the surface where it isn't 2, its
  * vertex then on it); `bottomTolerance` the bottom edge's; `disk` a second face, the plane z = 0 inside the bottom
- * circle.
+ * circle; `seamReversed` the seam's line running down from z = 5, its edge against it (its range from 5 to 0).
  */
 export function cylinderSide(uses: Partial<typeof RIGHT> = {}, uncertainty = 1e-6, seamStart = 0,
-  vertexTolerance?: number, bottomRadius = 2, bottomTolerance?: number, disk = false): BrepBuilder {
+  vertexTolerance?: number, bottomRadius = 2, bottomTolerance?: number, disk = false, seamReversed = false):
+  BrepBuilder {
   const b = new BrepBuilder({ uncertainty });
   const axis = { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] };
   const bottom = b.addCurve({ kind: 'circle', position: axis, radius: bottomRadius });
   const top = b.addCurve({ kind: 'circle', position: { ...axis, origin: [0, 0, 5] }, radius: 2 });
-  const seam = b.addCurve({ kind: 'line', point: [2, 0, -seamStart], direction: [0, 0, 1], magnitude: 1 });
+  const seam = b.addCurve(seamReversed ? { kind: 'line', point: [2, 0, 5], direction: [0, 0, -1], magnitude: 1 }
+    : { kind: 'line', point: [2, 0, -seamStart], direction: [0, 0, 1], magnitude: 1 });
   const all = { ...RIGHT, ...uses };
-  const pc = (u: Use) => u.pcurve ? b.addCurve(u.pcurve) : undefined;
+  const pc = (u: Use) => !u.pcurve ? undefined : u.basis && u.pcurve.kind === 'trimmed'
+    ? b.addCurve({ ...u.pcurve, basis: b.addCurve(u.basis) }) : b.addCurve(u.pcurve);
   const p = { bottom: pc(all.bottom), seamUp: pc(all.seamUp), top: pc(all.top), seamDown: pc(all.seamDown) };
   const v0 = b.addVertex({ point: [bottomRadius, 0, 0], tolerance: vertexTolerance });
   const v1 = b.addVertex({ point: [2, 0, 5] });
   const eBottom = b.addEdge({ curve: bottom, start: v0, end: v0, sameSense: true, range: [0, 2 * Math.PI],
     tolerance: bottomTolerance, id: 11 });
   const eTop = b.addEdge({ curve: top, start: v1, end: v1, sameSense: true, id: 12 });
-  const eSeam = b.addEdge({ curve: seam, start: v0, end: v1, sameSense: true, id: 13 });
+  const eSeam = b.addEdge({ curve: seam, start: v0, end: v1, sameSense: !seamReversed, id: 13 });
   const cylinder = b.addSurface({ kind: 'cylinder', position: axis, radius: 2 });
   const face = b.addFace({ surface: cylinder, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true,
     coedges: [
