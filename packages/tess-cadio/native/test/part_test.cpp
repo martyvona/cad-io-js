@@ -292,6 +292,80 @@ TEST_CASE("curved faces (a seam cylinder, a band, a hemisphere, a cap, a lune): 
   }
 }
 
+TEST_CASE("a boundary fold repaired: a corner convex in (u, v), concave in 3D, its (u, v) turned as its 3D point") {
+  // cornerFold's corner point (0.994, 0.994) has its (u, v) at (1, 1) from its edges' p-curves: an ear there faced
+  // against the plane. Repaired: its (u, v) onto the chord of (1, 0.99) and (0.99, 1), then a step to the point's
+  // own, (0.994, 0.994) on the plane, within the face's tolerance; no triangle facing against the surface, its 3D
+  // point kept.
+  cadgeom::Model m = load("cornerFold");
+  REQUIRE(m.ok());
+  for (double d : {0.1, 0.01}) {
+    PartMesher pm(m, options(d, 0.26));
+    const FaceMesh& fm = pm.face(0);
+    REQUIRE(fm.status == cadgeom::Status::ok);
+    CHECK_EQ(fm.foldsRepaired, 1);
+    FaceBoundary fb = pm.edges().face(0);
+    bool kept = false;
+    for (const BoundaryPoint& p : fb.loops[0])
+      if (cadgeom::norm(p.point - Vec3{0.994, 0.994, 0}) < 1e-12) {
+        kept = true;
+        CHECK(std::hypot(p.uv.x - 0.994, p.uv.y - 0.994) < 1e-9);
+      }
+    CHECK(kept);
+    int facing = 0;
+    for (size_t t = 0; t < fm.triangles.size(); t += 3) {
+      Vec3 a = fm.points[fm.triangles[t]], b = fm.points[fm.triangles[t + 1]], c = fm.points[fm.triangles[t + 2]];
+      facing += cadgeom::cross(b - a, c - a).z < 0;
+    }
+    if (facing) std::printf("  cornerFold at %g: %d triangles facing against the plane\n", d, facing);
+    CHECK_EQ(facing, 0);
+  }  // cornerFoldTight: the move past its face's tolerance (0.001), not made.
+  cadgeom::Model t = load("cornerFoldTight");
+  REQUIRE(t.ok());
+  PartMesher pt(t, options(0.1, 0.26));
+  CHECK_EQ(pt.face(0).foldsRepaired, 0);
+}
+
+TEST_CASE("a face left past its deflection fails: its refused triangles measured, over maxDeviationFactor x d") {
+  // spheres' hemisphere (face 1, radius 1) with no Steiner points and no split rounds: its boundary's triangles alone,
+  // from the equator to the pole, refused and far from it. Past 1.1 x the deflection (the default): failed,
+  // noConvergence, no triangles, the measure in its cause. Factor 0: kept as it is, unmeasured. Factor 1000: kept,
+  // measured (more than the deflection off, under the radius).
+  cadgeom::Model m = load("spheres");
+  REQUIRE(m.ok());
+  PartOptions o = options(0.1, 0.26);
+  o.maxPointsPerFace = 0;
+  o.maxSplitRounds = 0;
+  {
+    PartMesher pm(m, o);
+    const FaceMesh& fm = pm.face(1);
+    CHECK(fm.status == cadgeom::Status::noConvergence);
+    CHECK(fm.triangles.empty());
+    CHECK(fm.cause.find("past its deflection") != std::string::npos);
+    CHECK(fm.worstDeviation > 1.1 * 0.1);
+  }
+  o.maxDeviationFactor = 0;
+  {
+    PartMesher pm(m, o);
+    const FaceMesh& fm = pm.face(1);
+    CHECK(fm.status == cadgeom::Status::ok);
+    CHECK(!fm.rejected.empty());
+    CHECK_EQ(fm.worstDeviation, 0);
+  }
+  o.maxDeviationFactor = 1000;
+  {
+    PartMesher pm(m, o);
+    const FaceMesh& fm = pm.face(1);
+    CHECK(fm.status == cadgeom::Status::ok);
+    if (!(fm.worstDeviation > 0.1 && fm.worstDeviation < 1)) std::printf("  hemisphere: worst %g\n", fm.worstDeviation);
+    CHECK(fm.worstDeviation > 0.1 && fm.worstDeviation < 1);
+  }
+  // Meshed as usual, nothing refused: nothing measured, ok.
+  PartMesher pm(m, options(0.1, 0.26));
+  CHECK(pm.face(1).status == cadgeom::Status::ok);
+  CHECK(pm.face(1).rejected.empty());
+}
+
 TEST_CASE("cones with a seam from the apex used both ways: within the deflection, to area, the jump a whole turn") {
   // The cad-brep cone (no seam p-curves) and seamCone (given, at u = 2 pi up and 0 down), with a degenerate edge at
   // the apex and without: the loop's jump across the apex a whole period (the seam's two uses either side), not a cut
@@ -757,15 +831,31 @@ TEST_CASE("the criteria's metric: sizes from the principal curvatures, every dir
     }
     CHECK(under > 500);
   }
-  // A triangle too small to judge (1e-12 across, under 1e-4 of the deflection): accepted though its corners, in
-  // (u, v) the wrong way round, give it a facet turned over (refinement would chase such a spot to its point cap).
+  // A triangle within the refinement floor (its patch's bound within max(tolerance, 0.1 x the deflection), 1e-3
+  // here): accepted, by accept() and acceptDeviation(), though its corners, in (u, v) the wrong way round, give it a
+  // facet turned over (refinement would chase such a spot to its point cap); belowFloor() says so.
   {
     auto c = criteria("seamCylinder", 0, {{0, 2 * M_PI}, {0, 5}}, 0.01, 0.26, s);
     const Vec2 tiny[3] = {{1, 2}, {1, 2 + 1e-12}, {1 + 1e-12, 2}};
     CHECK(c->accept(tiny));
-    // (Its bigger copy, 3e-4 in (u, v), about 6e-4 mm across, turned over the same way, refused.)
-    const Vec2 big[3] = {{1, 2}, {1, 2 + 3e-4}, {1 + 3e-4, 2}};
+    // Just within it: 2e-4 in (u, v) on the radius 2 cylinder, its patch's bound about 6e-4 mm across.
+    const Vec2 within[3] = {{1, 2}, {1, 2 + 2e-4}, {1 + 2e-4, 2}};
+    CHECK(c->belowFloor(within));
+    CHECK(c->accept(within));
+    CHECK(c->acceptDeviation(within));
+    // Just past it: 6e-4 in (u, v), about 1.7e-3 mm across, turned over the same way: refused.
+    const Vec2 big[3] = {{1, 2}, {1, 2 + 6e-4}, {1 + 6e-4, 2}};
+    CHECK(!c->belowFloor(big));
     CHECK(!c->accept(big));
+    // (Refused for its facet against its corners' normals: the deviation passes.)
+    CHECK(c->refusal(big) == Refusal::normalFacet);
+    CHECK(c->refusal(big, false) == Refusal::none);
+    CHECK(c->refusal(within) == Refusal::none);
+    // Its corners within 1e-6 of one point in 3D across the seam, its patch the whole circle: judged by the patch's
+    // bound, not within the floor, refused.
+    const Vec2 round[3] = {{0, 2}, {2 * M_PI, 2}, {2 * M_PI, 2 + 1e-6}};
+    CHECK(!c->belowFloor(round));
+    CHECK(!c->accept(round));
   }
   // On the unit sphere near its pole: a triangle wide in u, its far corner nearer the pole, turned over in 3D (its
   // facet's normal against the surface's), refused, though within the deflection and its corners' normals close; one
@@ -777,6 +867,9 @@ TEST_CASE("the criteria's metric: sizes from the principal curvatures, every dir
   CHECK(!h->accept(over));
   CHECK(h->accept(fine));
   CHECK(h->accept(pole));
+  CHECK(h->refusal(over) != Refusal::none);
+  CHECK(h->refusal(fine) == Refusal::none);
+  CHECK(h->refusal(pole) == Refusal::none);
 }
 
 // A crease between knots a hair apart (kinkStrip, 1e-4 of u wide, its second partial about 1e4 there): every triangle
@@ -1355,6 +1448,11 @@ TEST_CASE("accept() holds every triangle to the angle, at an apex too; acceptDev
       for (int j = i + 1; j < 3; j++) spread = std::fmax(spread, std::acos(std::clamp(cadgeom::dot(n[i], n[j]), -1.0,
         1.0)));
     REQUIRE((far < 0.08) == near);
+    // (refusal() as accept() and acceptDeviation() say: a normals reason, or none by the deviation alone.)
+    const Refusal r = c->refusal(t), rd = c->refusal(t, false);
+    CHECK((r == Refusal::none) == c->accept(t));
+    CHECK((rd == Refusal::none) == c->acceptDeviation(t));
+    if (r != Refusal::none && rd == Refusal::none) CHECK((r == Refusal::normalFacet || r == Refusal::normalSpread));
     return Judged{c->accept(t), c->acceptDeviation(t)};
   };
   double spread;

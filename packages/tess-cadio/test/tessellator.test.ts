@@ -153,11 +153,33 @@ test('triangles still refused counted, those in a pole\'s fan apart: none at pol
     assert.ok(li, JSON.stringify(ri.diagnostics));
     assert.ok(Number(li[3]) >= 1 && Number(li[3]) <= Number(li[2]), `${li[2]} refused, ${li[3]} at a pole`);
     assert.ok(ri.diagnostics.some((x) => /seam whose side in \(u, v\) their neighbours didn't settle/.test(x.message)));
-    // pcurveOnly's (a cylinder's) at 1e-4 mm and 0.1 rad: refused, none at a pole.
-    const o = await refused(pcurveOnly(), 1e-4, 0.1);
+    // pcurveOnly's (a cylinder's) at 1e-4 mm and 0.1 rad: refused, none at a pole (kept: past 1.1 x the deflection,
+    // the default would fail the face, maxDeviationFactor).
+    const keeping = new CadioTessellator();
+    await keeping.init({ maxDeviationFactor: 0 });
+    const ro = await keeping.tessellate({ ...req('cube'), data: new Uint8Array(pcurveOnly().finish().buffer),
+      linearDeflection: 1e-4, angularDeflection: 0.1 });
+    const o = ro.diagnostics.map((x) => re.exec(x.message)).find((m) => m);
     assert.ok(o);
     assert.ok(Number(o[2]) >= 1);
     assert.equal(o[3], '0');
+  });
+
+test('init({maxDeviationFactor}): a face left farther from its surface than that x the deflection fails; 0 never',
+  { skip }, async () => {
+    // pcurveOnly at 1e-4 mm and 0.1 rad keeps refused triangles: a factor of 1e-6 fails its face (the failed faces'
+    // diagnostic, no triangles for it), 0 keeps it as meshed.
+    const data = new Uint8Array(pcurveOnly().finish().buffer);
+    const run = async (factor: number) => {
+      const t = new CadioTessellator();
+      await t.init({ maxDeviationFactor: factor });
+      return t.tessellate({ ...req('cube'), data, linearDeflection: 1e-4, angularDeflection: 0.1 });
+    };
+    const strict = await run(1e-6), never = await run(0);
+    const failed = (r: TessellationResult) => r.diagnostics.some((x) => /faces failed to mesh/.test(x.message));
+    assert.ok(failed(strict), JSON.stringify(strict.diagnostics));
+    assert.ok(!failed(never), JSON.stringify(never.diagnostics));
+    assert.ok(strict.indices.length < never.indices.length);
   });
 
 test('faces with deviations sampled, said: a torus\'s by its inner half, a B-spline dome\'s at its pole; ' +
