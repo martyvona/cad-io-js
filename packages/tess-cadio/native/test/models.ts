@@ -1213,6 +1213,29 @@ function halfCylinder(u0: number, pcurves: 'none' | 'same' | 'apart'): BrepBuild
       { edge: left, orientation: 'reversed', ...pc([u0, 0], [0, 1]) }] }] }));
   return b;
 }
+/**
+ * A strip of a cylinder of radius 1.5, 25 along its axis and 0.85 round it, under an uncertainty of 1 (trj7_b1-ec-214's
+ * face #11336's proportions, its normals turning about 33 degrees across): its ends, arcs 0.85 long, within the
+ * tolerance, so never split.
+ */
+export function narrowStrip(): BrepBuilder {
+  const b = new BrepBuilder({ uncertainty: 1 });
+  const r = 1.5, L = 25, u0 = 0, u1 = 0.85 / r;
+  const at = (u: number, z: number) => [r * Math.cos(u), r * Math.sin(u), z];
+  const va0 = b.addVertex({ point: at(u0, 0) }), vc0 = b.addVertex({ point: at(u1, 0) });
+  const va1 = b.addVertex({ point: at(u0, L) }), vc1 = b.addVertex({ point: at(u1, L) });
+  const arc = (z: number, start: number, end: number) => b.addEdge({ curve: b.addCurve({ kind: 'circle',
+    position: { ...AXIS, origin: [0, 0, z] }, radius: r }), start, end, sameSense: true, range: [u0, u1] });
+  const up = (u: number, start: number, end: number) => b.addEdge({ curve: b.addCurve({ kind: 'line',
+    point: at(u, 0), direction: [0, 0, 1], magnitude: 1 }), start, end, sameSense: true, range: [0, L] });
+  const bottom = arc(0, va0, vc0), top = arc(L, va1, vc1), right = up(u1, vc0, vc1), left = up(u0, va0, va1);
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'cylinder', position: AXIS, radius: r }), sameSense: true,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [
+      { edge: bottom, orientation: 'forward' }, { edge: right, orientation: 'forward' },
+      { edge: top, orientation: 'reversed' }, { edge: left, orientation: 'reversed' }] }] }));
+  return b;
+}
+
 /** Across the seam (u from -pi / 2 to pi / 2), by its p-curves, by p-curves a period apart, without any. */
 export const halfCylinderPcurves = (): BrepBuilder => halfCylinder(-Math.PI / 2, 'same');
 export const halfCylinderApart = (): BrepBuilder => halfCylinder(-Math.PI / 2, 'apart');
@@ -1583,5 +1606,5 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   halfCylinderApart, halfCylinderBare, halfCylinderWest, arcBand, cuspPocket: cuspPocket_,
   cuspPocketMirrored, flowerHole, lobes,
   slitFromCorner, lunePinch, spindleApex: () => spindleCorner(0.005),
-  tinyCap: () => capWithin(0.01), capWithinPole, poleLunes, poleLens, curlBack, passBy,
+  tinyCap: () => capWithin(0.01), capWithinPole, narrowStrip, poleLunes, poleLens, curlBack, passBy,
   wrongEndPcurve: () => wrongEndPcurve(), wigglePcurve: () => wrongEndPcurve(true) };
