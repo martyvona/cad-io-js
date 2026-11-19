@@ -19,11 +19,14 @@
 //                face ours failed, "part crash"), occt and smlib (that reference's first meshed face emptied: must be
 //                counted as failed by it), cause (our first meshed face emptied and named in a by-cause
 //                diagnostic of two entries: must be ours failed with the planted cause)
-//   TIMEOUT_MS=<ms> each request's limit (default 600000: the question is whether a part meshes, not how fast; a
-//                part slower than the pool's default 120 s is listed as slow, not failed): ours by its worker
-//                thread's CPU time (tess-workers' cpuTimeoutMs, so a loaded host doesn't change which parts time
-//                out), with 4 x it in wall time as the backstop; OCCT and SMLib, which report no progress to check
-//                it at, by wall time
+//   CPU_MS=<ms>     ours's limit per part in its worker thread's CPU time (tess-workers' cpuTimeoutMs, default
+//                120000: a part slower than that fails for development's purposes either way), 4 x it in wall time
+//                the backstop; a part stopped at it is its own status, "over N s CPU", listed with its last
+//                progress (a performance worklist), and run again alone at the end, the host otherwise as it is,
+//                both verdicts reported (on this host's efficiency cores a thread's CPU time runs about 2 x, so a
+//                part can pass the limit under load only)
+//   TIMEOUT_MS=<ms> OCCT's and SMLib's limit per part, in wall time (they report no progress to check CPU time at;
+//                default 600000)
 //   SLOW_MS=<ms>    ours slower than this in CPU time on a part it meshes is listed as slow (default 120000)
 //   IDLE_MS=<ms>    runner.ts's watchdog on a child silent on one file (default here 0, none: every request has
 //                   TIMEOUT_MS, but a file of many slow parts at a worker per backend passes any fixed watchdog, 1 h
@@ -46,8 +49,11 @@ const EXAMPLES = 4;
 const { linearDeflection: LIN, angularDeflection: ANG } = MESH_PROFILES.medium;
 const PLANT = process.env.PLANT ?? '';
 const PLANTS = ['fail', 'part', 'occt', 'smlib', 'cause'];
-/** Each request's limit (ms; ours in CPU time), and the CPU time (ms) over which a part ours meshes is slow. */
+/** Ours's limit (ms of CPU time), the references' (ms of wall time), and the CPU time over which ours is slow. */
+const CPU_MS = Number(process.env.CPU_MS ?? 120_000);
 const TIMEOUT_MS = Number(process.env.TIMEOUT_MS ?? 600_000);
+/** Ours's status at CPU_MS. */
+const OVER = `over ${CPU_MS / 1000} s CPU`;
 const SLOW_MS = Number(process.env.SLOW_MS ?? 120_000);
 /** Our time per part meshed (from its first progress), by upper bound in seconds. */
 const TIMES = [1, 10, 60, 120, Infinity];
@@ -60,16 +66,17 @@ const UNCLASSIFIED = 'unclassified';
 const BACKENDS = ['cadio', 'occt', 'smlib'] as const;
 type Backend = typeof BACKENDS[number];
 const LABEL: Record<Backend, string> = { cadio: 'ours', occt: 'OCCT', smlib: 'SMLib' };
-type PartStatus = 'ok' | 'partial' | 'no triangles' | 'error' | 'timeout' | 'crash' | 'no faces';
-const STATUSES: PartStatus[] = ['ok', 'partial', 'no triangles', 'error', 'timeout', 'crash', 'no faces'];
+type PartStatus = string;
+const STATUSES: PartStatus[] = ['ok', 'partial', 'no triangles', 'error', OVER, 'timeout', 'crash', 'no faces'];
 /** A part's statuses that are no failure: every face meshed, or no face to mesh (a part of curves or points). */
 const fine = (s: PartStatus) => s === 'ok' || s === 'no faces';
 
 let maxBytes = 1000e6;
 let pools: Record<Backend, WorkerTessellator>;
 
-/** A thrown error's status: the pool's timeout, a worker that died, or anything else. */
-const thrown = (m: string): PartStatus => /timed out/.test(m) ? 'timeout'
+/** A thrown error's status: ours's CPU limit, the pool's wall-time limit, a worker that died, or anything else. */
+const thrown = (m: string): PartStatus => /timed out after \d+ ms of CPU time/.test(m) ? OVER
+  : /timed out/.test(m) ? 'timeout'
   : /exit|crash|terminated|memory|unreachable|RuntimeError/.test(m) ? 'crash' : 'error';
 /** A message with its numbers and ids made generic, for tallies. */
 const generic = (m: string) => m.replace(/#\d+/g, '#N').replace(/\d+(\.\d+)?/g, 'N').slice(0, 160);
@@ -174,6 +181,8 @@ const fresh = () => ({
   // (Meshed with no CPU time given, so not timed.)
   untimed: 0,
   slow: [] as string[],
+  // Ours's parts stopped at CPU_MS: file, part id, where, the last progress (run again alone at the end).
+  capped: [] as string[],
 });
 type Tallies = ReturnType<typeof fresh>;
 const bump = (m: Map<string, number>, k: string, n = 1) => m.set(k, (m.get(k) ?? 0) + n);
@@ -189,7 +198,7 @@ export const check: FileCheck<string, Tallies> = {
     const workers = Number(process.env.WORKERS ?? Math.max(1, Math.floor(meshWorkers / 3)));
     const pool = (pkg: string, cls: string, cpu: boolean) => new WorkerTessellator({
       backend: { module: import.meta.resolve(`../packages/${pkg}/src/index.ts`), export: cls }, workers,
-      ...(cpu ? { cpuTimeoutMs: TIMEOUT_MS, timeoutMs: 4 * TIMEOUT_MS } : { timeoutMs: TIMEOUT_MS }) });
+      ...(cpu ? { cpuTimeoutMs: CPU_MS, timeoutMs: 4 * CPU_MS } : { timeoutMs: TIMEOUT_MS }) });
     pools = { cadio: pool('tess-cadio', 'CadioTessellator', true), occt: pool('tess-occt', 'OcctTessellator', false),
       smlib: pool('tess-smlib', 'SmlibTessellator', false) };
     await Promise.all(BACKENDS.map((b) => pools[b].init()));
@@ -231,7 +240,7 @@ export const check: FileCheck<string, Tallies> = {
       if (planted) T.planted.cases++;
       const o = Object.fromEntries(BACKENDS.map((b) => [b, outcome(r[b], ids)])) as Record<Backend, Outcome>;
       for (const b of BACKENDS) {
-        T.status[b][o[b].status]++;
+        T.status[b][o[b].status] = (T.status[b][o[b].status] ?? 0) + 1;
         if (!fine(o[b].status) && o[b].status !== 'partial') note(`${LABEL[b]} ${o[b].status}: ${generic(o[b].why)}`,
           where);
       }
@@ -251,6 +260,7 @@ export const check: FileCheck<string, Tallies> = {
           + `${(times!.wallMs / 1000).toFixed(1)} s wall, ${ours.status}`);
       }
       if (partFailed) T.unmeshedParts.push(`${where} (${rows} faces): ${ours.status}: ${ours.why}`);
+      if (ours.status === OVER) T.capped.push(`${f}\t${p.sources[0]!.id}\t${where}\t${ours.why}`);
       const causes = ours.result ? failedCauses(ours.result) : new Map<number, string>();
       const modelIds = new Set(ids);
       for (const id of ours.meshed) if (!modelIds.has(id)) T.foreign++;
@@ -394,7 +404,8 @@ if (import.meta.main) {
   const { children, meshWorkers } = division();
   const workers = Number(process.env.WORKERS ?? Math.max(1, Math.floor(meshWorkers / 3)));
   console.log(`coverage: tess-cadio against OCCT (native route) and SMLib, medium profile (${LIN} mm, ${ANG} rad), `
-    + `${TIMEOUT_MS / 1000} s limit (ours in CPU time, 4 x in wall time), slow over ${SLOW_MS / 1000} s of CPU; `
+    + `ours's limit ${CPU_MS / 1000} s of CPU (${4 * CPU_MS / 1000} s of wall the backstop), the references' `
+    + `${TIMEOUT_MS / 1000} s of wall, slow over ${SLOW_MS / 1000} s of CPU; `
     + `${((performance.now() - t0) / 1000).toFixed(0)} s, ${children || 1} processes x ${workers} workers per backend`);
   console.log();
   for (const [l, T] of per) report(l, T);
@@ -404,4 +415,36 @@ if (import.meta.main) {
     report('all lists', all);
   }
   for (const e of errors) console.log(e);
+  // The parts ours stopped at the CPU limit, again one at a time in a pool of one worker, with the limit unchanged:
+  // a part over it only under load (a thread on the efficiency cores) shows here as meshing alone.
+  const capped = [...per.values()].flatMap((T) => T.capped).sort();
+  if (capped.length) {
+    const os = await import('node:os');
+    console.log(`\n### Parts over ${CPU_MS / 1000} s of CPU, run again alone at the end (load ${os.loadavg()[0]!
+      .toFixed(1)} at the start): the verdict under the run's load; alone`);
+    const alone = new WorkerTessellator({ backend: { module: import.meta.resolve('../packages/tess-cadio/src/index.ts'),
+      export: 'CadioTessellator' }, workers: 1, cpuTimeoutMs: CPU_MS, timeoutMs: 4 * CPU_MS });
+    await alone.init();
+    const byFile = new Map<string, string[][]>();
+    for (const c of capped) {
+      const [file, ...rest] = c.split('\t');
+      byFile.set(file!, [...(byFile.get(file!) ?? []), rest]);
+    }
+    for (const [file, rows] of byFile) {
+      const { scene } = await importStep(readStep(file));
+      for (const [id, where, why] of rows) {
+        const p = scene.parts.find((q) => q.brep && q.sources[0]!.id === Number(id));
+        if (!p) { console.log(`  ${where}: not found again`); continue; }
+        const r = await alone.tessellate({ format: 'cad-brep', data: new Uint8Array(p.brep!.model.buffer),
+          origin: p.origin, linearDeflection: LIN, angularDeflection: ANG, edges: true }).catch((e: Error) => e);
+        const ids = Array.from({ length: p.brep!.model.face.surface.length }, (_, i) => p.brep!.model.face.id[i]!);
+        const o = outcome(r, ids);
+        const times = r instanceof Error ? undefined : alone.timesOf(r);
+        const t = times ? ` (${((times.cpuMs ?? NaN) / 1000).toFixed(1)} s CPU, ${(times.wallMs / 1000).toFixed(1)} s `
+          + 'wall)' : '';
+        console.log(`  ${where}: under load ${OVER} (${why}); alone ${o.status}${t}${o.why ? `: ${o.why}` : ''}`);
+      }
+    }
+    alone.dispose();
+  }
 }
