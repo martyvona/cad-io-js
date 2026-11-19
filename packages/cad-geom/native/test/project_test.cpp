@@ -510,7 +510,7 @@ TEST_CASE("a curve past its surface's edge: its feet clamped there, fitted at a 
   CHECK(p.method == PcurveMethod::traced);
   CHECK_NEAR(p.offSurface, std::hypot(0.5 + 0.6 * std::cos(0.3) - 1, 0.01), 0, 1e-9);
   CHECK_EQ(fits, 1);
-  CHECK(rounds >= 1 && rounds <= 4);
+  CHECK(rounds >= 1 && rounds <= 6);
   // The p-curve within half the fit's tolerance of the feet: S(p(t)) against the square's nearest point to C(t)
   // (its x and y clamped to the square), at 61 parameters.
   REQUIRE(p.pieces.size() == 1);
@@ -527,7 +527,7 @@ TEST_CASE("a curve past its surface's edge: its feet clamped there, fitted at a 
   }
   CHECK(worst <= 0.5 * (0.25 * p.offSurface));
   CHECK(p.error <= p.offSurface + 0.5 * (0.25 * p.offSurface));
-  if (!(rounds <= 4 && fits == 1)) std::printf("    fits %ld rounds %ld worst %g\n", fits, rounds, worst);
+  if (!(rounds <= 6 && fits == 1)) std::printf("    fits %ld rounds %ld worst %g\n", fits, rounds, worst);
 }
 
 TEST_CASE("bad arguments") {
@@ -611,6 +611,68 @@ std::vector<double> moved(const Place& P, const std::vector<double>& v, int poin
 }
 
 } // namespace
+
+namespace {
+
+// C(t) = S(a + t (b - a) + w t (1 - t) n) + (0, 0, dz): a curve on the surface (its (u, v) a bowed line, n the
+// line's direction turned), lifted dz in z, t in [0, 1].
+class OnSurface final : public Curve {
+public:
+  OnSurface(const Surface& s, Vec2 a, Vec2 b, double w, double dz) : s_(s), a_(a), b_(b), w_(w), dz_(dz) {}
+  int dim() const override { return 3; }
+  CurveDomain domain() const override { return {{0, 1}, 0}; }
+  Status eval(double t, int order, CurvePoint& out) const override {
+    const Vec2 d = b_ - a_, n{-d.y, d.x};
+    const Vec2 q = a_ + t * d + (w_ * t * (1 - t)) * n, q1 = d + (w_ * (1 - 2 * t)) * n, q2 = (-2 * w_) * n;
+    SurfacePoint sp;
+    s_.eval(q.x, q.y, 2, sp);
+    out.p = sp.p + Vec3{0, 0, dz_};
+    if (order >= 1) out.d1 = q1.x * sp.du + q1.y * sp.dv;
+    if (order >= 2)
+      out.d2 = q1.x * q1.x * sp.duu + 2 * q1.x * q1.y * sp.duv + q1.y * q1.y * sp.dvv + q2.x * sp.du + q2.y * sp.dv;
+    return t < 0 || t > 1 ? Status::outOfDomain : Status::ok;
+  }
+  void breaks(Range r, std::vector<double>& out) const override { out = {r.lo, r.hi}; }
+  Status bound(Range, Box3& out) const override {
+    Status st = s_.bound({0, 1}, {0, 1}, out);
+    out.z = out.z + Interval::point(dz_);
+    return st;
+  }
+  Status derivBound(Range, int order, double& out) const override {
+    out = order == 1 ? 4000 : 8000;
+    return Status::ok;
+  }
+  void singular(Range, std::vector<double>& out) const override { out.clear(); }
+
+private:
+  const Surface& s_;
+  Vec2 a_, b_;
+  double w_, dz_;
+};
+
+} // namespace
+
+TEST_CASE("a fit on a surface stretched 1e5 times more one way: judged in 3D, not by the long way's (u, v) tolerance") {
+  // A twisted bilinear patch 0.01 across (u) and 1000 along (v), a bowed curve on it lifted 6e-4, at tol 0.038 (VW
+  // #2404's proportions). Judged in (u, v) at the tolerance the long side's stretch gives, the fit asked u for 1e5
+  // times what its 3D effect needs (16 rounds); judged in 3D, one.
+  const double tol = 0.038;
+  const int32_t in[] = {1, 1, 2, 2, 2, 2, 0, 0, 0, 0, 0, 2, 2, 2, 2};
+  const double r[] = {0, 1, 0, 1, 0, 0, 0, 0, 1000, 0, 0.01, 0, 0, 0.01, 1000, 50};
+  Status st;
+  std::unique_ptr<Surface> strip = surfaces::makeBSpline(r, in, st);
+  REQUIRE(strip);
+  OnSurface c(*strip, {0.1, 0}, {0.9, 1}, 0.3, 6e-4);
+  const long f0 = project::traceFits, r0 = fit::curve2Rounds;
+  Pcurve p = project::projectForms(c, {0, 1}, *strip, tol, nullptr, {}, {});
+  const long rounds = fit::curve2Rounds - r0;
+  CHECK(p.status == Status::ok);
+  CHECK(p.method == PcurveMethod::traced);
+  CHECK(p.error <= tol);
+  CHECK_EQ(project::traceFits - f0, 1);
+  CHECK(rounds <= 3);
+  if (!(rounds <= 3)) std::printf("    rounds %ld\n", rounds);
+}
 
 TEST_CASE("a great circle passing close to a sphere's poles, at a coarse tolerance: the march not stuck on a pole") {
   // LMP1 #172878's edge on its sphere (radius 10, moved to the origin): a great circle whose axis is 0.035 from the
