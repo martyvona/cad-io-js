@@ -911,6 +911,28 @@ TEST_CASE("splits below the refinement floor honoured, none on a span within the
   CHECK(cadgeom::norm(em.edge(e).points[1] - em.edge(e).points[0]) <= 0.2);
 }
 
+TEST_CASE("a given p-curve whose domain ends within 1e-9 of the use's range: clamped, used; farther refused") {
+  // pcurveShortHair's bottom p-curve ends 5e-10 short of its edge's range [0, 1]: its end evaluated at the domain's
+  // end, the p-curve used, the end's (u, v) (1 - 5e-10, 0). pcurveShortFar's, 1e-6 short: refused as before, the use
+  // by inversion.
+  // pcurveShortStart's begins 5e-10 past its start: used too, its first (u, v) (5e-10, 0).
+  for (const char* name : {"pcurveShortHair", "pcurveShortFar", "pcurveShortStart"}) {
+    const bool start = std::string(name) == "pcurveShortStart", hair = start || std::string(name) == "pcurveShortHair";
+    cadgeom::Model m = load(name);
+    REQUIRE(m.ok());
+    EdgeOptions o;
+    o.deflection = 0.01;
+    EdgeMesh em(m, o);
+    const CoedgeSamples& cs = em.coedge(0);
+    if (cs.fromPcurve != hair) std::printf("  %s: fromPcurve %d\n", name, int(cs.fromPcurve));
+    CHECK(cs.fromPcurve == hair);
+    REQUIRE(!cs.uv.empty());
+    if (hair && !start) CHECK(std::fabs(cs.uv.back().x - (1 - 5e-10)) < 1e-15);
+    if (start) CHECK(std::fabs(cs.uv.front().x - 5e-10) < 1e-15);
+    CHECK(em.face(0).status == cadgeom::Status::ok);
+  }
+}
+
 TEST_CASE("a curve's break at an end's point within rounding is that point: no sample beside it") {
   // knotAtEnd's bottom edge, its knots 1e-13 from each end of its range: no two samples within 1e-9 of each other,
   // the knots dropped (its samples otherwise its middle knot's and the deflection's).

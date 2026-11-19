@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <map>
 #include <set>
 #include <tuple>
@@ -532,6 +533,32 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
       I.at.facesDone++;
     }
   }
+  // Faces left farther from their surfaces than maxDeviationFactor x the deflection fail.
+  if (I.o.maxDeviationFactor > 0)
+    for (int f = 0; f < nf; f++) {
+      FaceMesh& fm = I.faces[f];
+      if (fm.status != Status::ok || fm.rejected.empty() || !I.surfaces[f]) continue;
+      const Surface& s = *I.surfaces[f];
+      const SurfaceDomain D = s.domain();
+      double worst = 0;
+      for (int32_t t : fm.rejected)
+        for (int i = 0; i <= 4; i++)
+          for (int j = 0; i + j <= 4; j++) {
+            if ((i == 4) || (j == 4) || (i + j == 0)) continue;  // (the corners: on the surface)
+            const Vec3 x = (i / 4.0) * fm.points[fm.triangles[3 * t]] + (j / 4.0) * fm.points[fm.triangles[3 * t + 1]]
+              + ((4 - i - j) / 4.0) * fm.points[fm.triangles[3 * t + 2]];
+            const SurfaceInversion inv = invertSurface(s, x, D.u, D.v, 1e-3 * I.o.d.linear);
+            if (inv.status == Status::ok) worst = std::fmax(worst, inv.distance);
+          }
+      fm.worstDeviation = worst;
+      if (!(worst > I.o.maxDeviationFactor * I.o.d.linear)) continue;
+      char why[160];
+      std::snprintf(why, sizeof why, "meshed past its deflection: %.3g x (its refused triangles' points inverted onto "
+        "its surface)", worst / I.o.d.linear);
+      fm.status = Status::noConvergence;
+      fm.cause = why;
+      fm.points.clear(), fm.normals.clear(), fm.triangles.clear(), fm.rejected.clear();
+    }
 }
 
 PartMesher::~PartMesher() { delete impl_; }
