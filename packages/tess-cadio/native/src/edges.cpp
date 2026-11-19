@@ -1757,6 +1757,7 @@ struct EdgeMesh::Impl {
     if (F.status != Status::ok && F.cutDir < 0 && F.status != Status::singular) return out;
     std::vector<std::vector<BoundaryPoint>> loops;
     std::vector<BoundaryPoint> joined, joinedB;
+    int atPole = 0;  // edge loops dropped as lying on a pole line
     for (int i = 0; i < m.faceLoopCount(f); i++) {
       int l = m.faceFirstLoop(f) + i;
       if (m.loopKind(l) == CBR_LOOP_VERTEX) {
@@ -1776,7 +1777,10 @@ struct EdgeMesh::Impl {
       }
       if (cs.empty()) continue;
       Chain ch = chain(f, cs);
-      if (ch.pts.size() >= 2 && chainPole(f, ch) >= 0) continue;  // (its pole line comes with the cut)
+      if (ch.pts.size() >= 2 && chainPole(f, ch) >= 0) {  // (its pole line comes with the cut)
+        atPole++;
+        continue;
+      }
       out.status = worse(out.status, ch.status);
       if (ch.status != Status::ok) because(chainWhy(cs, ch.status));
       // (A loop with a coedge that has no samples, its edge unsampled: no chain, the status says why.)
@@ -1897,7 +1901,12 @@ struct EdgeMesh::Impl {
     if (loops.empty() && F.natural != Face::Natural::none) loops.push_back(naturalLoop(f));
     if (!m.faceSameSense(f))
       for (auto& l : loops) std::reverse(l.begin(), l.end());
-    if (loops.empty()) {
+    if (loops.empty() && atPole > 0) {
+      // Every edge loop within the tolerance of a pole (a face about as small as its tolerance there, or a loop that
+      // doesn't close at one): nothing to mesh, and not a face without loops.
+      out.status = worse(out.status, Status::invalidModel);
+      because("its edge loops all within the tolerance of a pole");
+    } else if (loops.empty()) {
       out.status = worse(out.status, Status::unsupported);
       because("no edge loops, and its surface's natural extent doesn't close (a whole plane, cylinder or cone)");
     }

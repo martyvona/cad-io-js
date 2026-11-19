@@ -509,6 +509,25 @@ TEST_CASE("maxDeviationFactor's limit is the factor x max(d, the face's toleranc
   CHECK(samePoints);
 }
 
+TEST_CASE("a face whose edge loops all lie within the tolerance of a pole: invalidModel, and said so") {
+  // capWithinPole: a cap of radius 0.2 at a pole under an uncertainty of 1, its circle dropped as on the pole line;
+  // not a face without loops (loopless's plane, which has none and no natural extent, keeps that cause).
+  cadgeom::Model m = load("capWithinPole");
+  REQUIRE(m.ok());
+  PartMesher pm(m, options(0.1, 0.26));
+  const FaceMesh& fm = pm.face(0);
+  CHECK(fm.status == cadgeom::Status::invalidModel);
+  CHECK(fm.triangles.empty());
+  const bool said = fm.cause.find("within the tolerance of a pole") != std::string::npos;
+  if (!said) std::printf("  cause: %s\n", fm.cause.c_str());
+  CHECK(said);
+  cadgeom::Model l = load("loopless");
+  REQUIRE(l.ok());
+  PartMesher pl(l, options(0.1, 0.26));
+  CHECK(pl.face(0).status == cadgeom::Status::unsupported);
+  CHECK(pl.face(0).cause.find("no edge loops") != std::string::npos);
+}
+
 TEST_CASE("B-spline faces with no loops meshed over their knot rectangles: open, closed in u, with a pole side") {
   // looplessBsplines: a plane patch (area 2), a tube closed in fact (20 pi), a quarter cone with an apex row and its
   // u reversed (pi sqrt 2 / 4 each): every one meshed, its area under its own by at most about the deflection over
