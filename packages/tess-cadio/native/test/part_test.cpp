@@ -1285,6 +1285,22 @@ TEST_CASE("the criteria's metric: sizes from the principal curvatures, every dir
     CHECK(!c->belowFloor(round));
     CHECK(!c->accept(round));
   }
+  // Below the floor, a turned-over facet with a corner within the tolerance of a pole: not judged, accepted (at a
+  // degenerate spot refinement would chase it to the point cap); the same facet away from the pole refused.
+  {
+    auto sp = criteria("spheres", 1, {{0, 2 * M_PI}, {0, M_PI / 2}}, 0.01, 0.26, s);
+    const double e = 2e-4;
+    const Vec2 atPole[3] = {{1, M_PI / 2}, {1 + e, M_PI / 2 - e}, {1, M_PI / 2 - e}};
+    const Vec2 atPoleOver[3] = {atPole[0], atPole[2], atPole[1]};
+    const Vec2 away[3] = {{1, 0.5}, {1, 0.5 + e}, {1 + e, 0.5}};
+    const Vec2 awayOver[3] = {away[0], away[2], away[1]};
+    REQUIRE(sp->belowFloor(atPoleOver));
+    REQUIRE(sp->belowFloor(awayOver));
+    // (One of each pair is turned over: away from the pole exactly one is refused, at it neither.)
+    CHECK(sp->accept(away) != sp->accept(awayOver));
+    CHECK(sp->accept(atPole));
+    CHECK(sp->accept(atPoleOver));
+  }
   // On the unit sphere near its pole: a triangle wide in u, its far corner nearer the pole, turned over in 3D (its
   // facet's normal against the surface's), refused, though within the deflection and its corners' normals close; one
   // not turned over, accepted; one with two corners on the pole line (a facet of rounding) accepted.
