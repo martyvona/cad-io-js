@@ -876,10 +876,10 @@ TEST_CASE("a use's p-curve checked between its samples against its edge's curve:
   CHECK_EQ(checkCoedges(w, ew, 1e-9, "wigglePcurve"), 0);
 }
 
-TEST_CASE("splits below the refinement floor honoured, none on a span within the part's tolerance") {
-  // spindleApex's uncertainty is 0.2, so at a deflection of 4 the floor is max(0.2, 0.4) = 0.4 and the bottom
-  // circle's spans are sampled no finer: a split asked on one longer than 0.2 is made (below the floor too), one on a
-  // span of chord at most 0.2 (the tolerance) dropped.
+TEST_CASE("no split on a span whose chord is within the refinement floor, though asked; longer ones split") {
+  // spindleApex's uncertainty is 0.2, so at a deflection of 4 the floor is max(0.2, 0.4) = 0.4, above the tolerance:
+  // a split asked on a span whose chord is over 0.4 is made, one on a span of chord at most 0.4 dropped (between the
+  // tolerance and the floor too).
   cadgeom::Model m = load("spindleApex");
   REQUIRE(m.ok());
   EdgeOptions o;
@@ -889,26 +889,30 @@ TEST_CASE("splits below the refinement floor honoured, none on a span within the
   for (int k = 0; k < m.edges() && e < 0; k++)
     if (m.curveKind(m.edgeCurve(k)) == CBR_CURVE_CIRCLE) e = k;
   REQUIRE(e >= 0);
-  // Halve its first span until its chord is within the tolerance, each split made while over it.
-  int made = 0, below = 0;
+  // Halve its first span while asked, round after round: each split made while its chord is over the floor, none
+  // after.
+  int made = 0, dropped = 0, droppedOverTolerance = 0;
   for (int round = 0; round < 12; round++) {
     const auto& P = em.edge(e).points;
     const double chord = cadgeom::norm(P[1] - P[0]);
     const size_t before = P.size();
     REQUIRE(em.split({{e, 0, 0.5}}) == cadgeom::Status::ok);
     const size_t after = em.edge(e).points.size();
-    if (chord > 0.2) {
+    if (chord > 0.4) {
       CHECK_EQ(after, before + 1);
       made++;
-      below += chord < 0.4;
     } else {
       CHECK_EQ(after, before);
+      dropped++;
+      droppedOverTolerance += chord > 0.2;
     }
   }
   CHECK(made > 0);
-  // (Some of them below the floor: a span of chord under 0.4 split.)
-  CHECK(below > 0);
-  CHECK(cadgeom::norm(em.edge(e).points[1] - em.edge(e).points[0]) <= 0.2);
+  CHECK(dropped > 0);
+  // (The first span's chord ends over the tolerance: the floor, not the tolerance, stopped it.)
+  CHECK(droppedOverTolerance > 0);
+  const double last = cadgeom::norm(em.edge(e).points[1] - em.edge(e).points[0]);
+  CHECK(last > 0.2 && last <= 0.4);
 }
 
 TEST_CASE("a given p-curve whose domain ends within 1e-9 of the use's range: clamped, used; farther refused") {

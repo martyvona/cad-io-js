@@ -163,18 +163,20 @@ public:
     // A triangle whose patch is within the refinement floor (belowFloor) is accepted: nothing is refined below it.
     // Every check applies everywhere else, near an apex too (a pole's fans, poles.h, are judged by the deviation
     // alone there).
-    if (belowFloor(t)) return true;
     Vec3 p[3];
-    for (int i = 0; i < 3; i++) p[i] = at(t[i]);
+    const bool evaluated = corners(t, p);
+    if (belowFloor(t, p, evaluated)) return true;
     double longest3 = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
     return deviationOk(t, p, longest3) && normalsWithin(t, p);
   }
 
+  int refusalKind(const Vec2 t[3]) const override { return static_cast<int>(refusal(t, true)); }
+
   Refusal refusal(const Vec2 t[3], bool normals) const override {
-    if (belowFloor(t)) return Refusal::none;
-    const bool sampled = sampledAny_;
     Vec3 p[3];
-    for (int i = 0; i < 3; i++) p[i] = at(t[i]);
+    const bool evaluated = corners(t, p);
+    if (belowFloor(t, p, evaluated)) return Refusal::none;
+    const bool sampled = sampledAny_;
     double longest3 = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
     Refusal r = deviationRefusal(t, p, longest3);
     if (r == Refusal::none && normals) r = normalsRefusal(t, p);
@@ -183,11 +185,26 @@ public:
   }
 
   bool acceptDeviation(const Vec2 t[3]) const override {
-    if (belowFloor(t)) return true;
     Vec3 p[3];
-    for (int i = 0; i < 3; i++) p[i] = at(t[i]);
+    const bool evaluated = corners(t, p);
+    if (belowFloor(t, p, evaluated)) return true;
     double longest3 = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
     return deviationOk(t, p, longest3);
+  }
+
+  bool deviationBound(const Vec2 t[3], double& out, bool pieces) const override {
+    Vec3 p[3];
+    for (int i = 0; i < 3; i++)
+      if (!corner(t[i], p[i])) return false;
+    if (kind_ == Kind::sphere) {
+      out = radius_ - pointTriangle(centre_, p);
+      return std::isfinite(out);
+    }
+    if (kind_ != Kind::none && distanceBound(p, out)) return true;
+    Bounds b;
+    if (!bounded_ || !bounds(t, b, pieces)) return false;
+    out = b.deviation;
+    return std::isfinite(out);
   }
 
   /**
@@ -197,6 +214,20 @@ public:
    * degenerate spot, refined towards 1e-14 mm until its point cap, its facets refused for normals 90 degrees off).
    */
   bool belowFloor(const Vec2 t[3]) const override {
+    Vec3 p[3];
+    const bool evaluated = corners(t, p);
+    return belowFloor(t, p, evaluated);
+  }
+
+private:
+  /**
+   * belowFloor, the triangle's corners on the surface (at) given: two of them farther apart than the floor settle it
+   * without the bound, whose box holds them (the bound, B-spline control nets over the box, costs more than the rest
+   * of accept() together). Only where all three were evaluated (`evaluated`): the bound decides the rest.
+   */
+  bool belowFloor(const Vec2 t[3], const Vec3 p[3], bool evaluated) const {
+    if (evaluated && (norm(p[1] - p[0]) > floor_ || norm(p[2] - p[1]) > floor_ || norm(p[0] - p[2]) > floor_))
+      return false;
     Range ru{std::min({t[0].x, t[1].x, t[2].x}), std::max({t[0].x, t[1].x, t[2].x})};
     Range rv{std::min({t[0].y, t[1].y, t[2].y}), std::max({t[0].y, t[1].y, t[2].y})};
     Box3 b;
@@ -204,7 +235,25 @@ public:
     return std::hypot(b.x.width(), b.y.width(), b.z.width()) <= floor_;
   }
 
-private:
+  /** The triangle's corners on the surface, as at() gives them; whether all three evaluated. */
+  bool corners(const Vec2 t[3], Vec3 p[3]) const {
+    bool ok = true;
+    for (int i = 0; i < 3; i++) {
+      SurfacePoint q;
+      ok = s_.eval(t[i].x, t[i].y, 0, q) == Status::ok && ok;
+      p[i] = q.p;
+    }
+    return ok;
+  }
+
+  /** The surface's point at (u, v), false where it can't be evaluated. */
+  bool corner(Vec2 uv, Vec3& out) const {
+    SurfacePoint q;
+    if (s_.eval(uv.x, uv.y, 0, q) != Status::ok || !std::isfinite(q.p.x + q.p.y + q.p.z)) return false;
+    out = q.p;
+    return true;
+  }
+
   /** accept()'s deviation, its 3D corners p and longest side given. */
   bool deviationOk(const Vec2 t[3], const Vec3 p[3], double longest3) const {
     return deviationRefusal(t, p, longest3) == Refusal::none;

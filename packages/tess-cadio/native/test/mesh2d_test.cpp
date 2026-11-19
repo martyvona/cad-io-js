@@ -1105,7 +1105,8 @@ TEST_CASE("frozen segments (ones the caller can't split) don't refuse a point, a
     }
   }
   // A flat triangle, everything refused: its circumcentre is outside, across its base (segment 0), which is named and
-  // wanted split; frozen, the triangle stays refused but nothing is wanted split.
+  // wanted split. Frozen, the base isn't; the sides its centroid encroaches are named instead, so a triangle refused
+  // still asks for something.
   struct None : SizeField {
     Metric2 metric(Vec2) const override { return {1e-4, 0, 1e-4}; }
     bool accept(const Vec2*) const override { return false; }
@@ -1119,5 +1120,47 @@ TEST_CASE("frozen segments (ones the caller can't split) don't refuse a point, a
     for (const SplitWanted& w : m.splitWanted) base += w.segment == 0;
     CHECK_EQ(base, freeze ? 0 : 1);
     CHECK_EQ(m.rejected.size(), 1u);
+    if (freeze) {
+      std::set<int32_t> sides;
+      for (const SplitWanted& w : m.splitWanted) sides.insert(w.segment);
+      if (sides != std::set<int32_t>{1, 2}) std::printf("  flat frozen: %zu wanted\n", m.splitWanted.size());
+      CHECK((sides == std::set<int32_t>{1, 2}));
+    }
   }
+}
+
+TEST_CASE("points inserted counted by what queued their triangle: size, thinness, the criteria's refusal kind") {
+  // Every point the mesher adds counted once. A uniform size, every triangle accepted: by size and thinness only.
+  // Refuse(0.2): the criteria too, at the field's own refusal kind (3 here), none at another.
+  struct Kind3 : Refuse {
+    Kind3() : Refuse(0.2) {}
+    int refusalKind(const Vec2*) const override { return 3; }
+  };
+  auto total = [](const Mesh2Detail& D) {
+    int n = 0;
+    for (int k : D.inserted) n += k;
+    return n;
+  };
+  Domain2 d = square(4);
+  Mesh2Detail u;
+  Mesh2 mu = mesh2Detailed(d, Uniform(0.05), {}, &u);
+  CHECK_EQ(total(u), static_cast<int>(mu.points.size() - d.points.size()));
+  CHECK(u.inserted[0] > 0);
+  for (int k = 2; k < 10; k++) CHECK_EQ(u.inserted[k], 0);
+  Mesh2Detail r;
+  Mesh2 mr = mesh2Detailed(d, Kind3(), {}, &r);
+  CHECK_EQ(total(r), static_cast<int>(mr.points.size() - d.points.size()));
+  CHECK(r.inserted[2 + 3] > 0);
+  for (int k = 2; k < 10; k++)
+    if (k != 5) CHECK_EQ(r.inserted[k], 0);
+  // Thinness alone: random interior points in a square, the size coarse, every triangle accepted.
+  Domain2 w = square(10, 1);
+  std::mt19937 rng(3);
+  std::uniform_real_distribution<double> at(0.15, 0.85);
+  for (int k = 0; k < 60; k++) w.points.push_back({at(rng), at(rng)});
+  Mesh2Detail t;
+  Mesh2 mt = mesh2Detailed(w, Uniform(100), {}, &t);
+  CHECK_EQ(total(t), static_cast<int>(mt.points.size() - w.points.size()));
+  CHECK(t.inserted[1] > 0);
+  CHECK_EQ(t.inserted[0], 0);
 }

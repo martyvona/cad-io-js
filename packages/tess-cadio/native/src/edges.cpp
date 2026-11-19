@@ -2034,10 +2034,11 @@ Status EdgeMesh::split(const std::vector<SplitRequest>& requests) {
       bad = true;
       continue;
     }
-    // (A refused triangle's request is honoured below the refinement floor, but no span whose chord is within the
-    // part's tolerance is split: the model can't say where its curve is below that.)
+    // (No span whose chord is within the refinement floor is split, whatever asks: below it nothing a mesh shows
+    // changes, and below the part's tolerance the model can't say where its curve is. The mesher is told such spans
+    // are frozen, PartMesher's Domain2::frozen.)
     const std::vector<Vec3>& pts = I.edges[r.edge].s.points;
-    if (norm(pts[r.span + 1] - pts[r.span]) <= I.tol) continue;
+    if (norm(pts[r.span + 1] - pts[r.span]) <= refinementFloor(I.tol, I.o.deflection)) continue;
     double f = std::clamp(r.fraction, 0.1, 0.9), x = t[r.span] + f * (t[r.span + 1] - t[r.span]);
     bool inRing = false;
     for (const Range& g : I.edges[r.edge].rings) inRing = inRing || (x > g.lo && x < g.hi);

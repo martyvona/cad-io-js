@@ -42,6 +42,14 @@ public:
     (void)tri;
     return false;
   }
+  /**
+   * Why accept() refuses the triangle, as a small code (SurfaceCriteria: criteria.h's Refusal), for counts only; 0
+   * where the caller doesn't say. Asked only where a caller wants the mesher's detail (mesh2d_impl.h).
+   */
+  virtual int refusalKind(const Vec2 tri[3]) const {
+    (void)tri;
+    return 0;
+  }
 };
 
 /**
@@ -58,7 +66,7 @@ struct Domain2 {
   std::vector<int32_t> segments;
   /**
    * Per segment, numbered as SplitWanted::segment (each loop's, then the interior ones), whether the caller can never
-   * split it (an edge's span shorter than the part's tolerance: criteria.h's refinement floor): a point encroaching
+   * split it (an edge's span whose chord is within criteria.h's refinement floor): a point encroaching
    * only such segments is inserted, and none is wanted split. Empty, or shorter than the segments: the rest not.
    */
   std::vector<uint8_t> frozen;

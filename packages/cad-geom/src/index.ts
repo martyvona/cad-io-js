@@ -227,8 +227,13 @@ export interface Pcurve {
   /** On a seam: `seamTwin` is the other side's copy, a period up. */
   seamU: boolean;
   seamV: boolean;
-  /** The largest distance from the curve to the surface (mm, measured). */
+  /**
+   * The largest distance from the curve to the surface (mm, measured; where a span's control hull leaves the surface's
+   * box, at least the farthest point's distance from that box).
+   */
   offSurface: number;
+  /** Where offSurface came from the hulls: the curve's span (between two breaks) holding it; else NaN, NaN. */
+  offSpan: [number, number];
   error: number;
   tAmbiguous: Float64Array;
   pieces: PcurvePiece[];
@@ -244,7 +249,7 @@ export interface Pcurve {
 
 /** The scratch's projection (cad_geom_api.cpp) with n samples. */
 function readPcurve(v: Float64Array, n: number): Pcurve {
-  let at = 13;
+  let at = 15;
   const tAmbiguous = v.slice(at, at + v[7]!);
   at += v[7]!;
   const read = (count: number) => {
@@ -266,7 +271,8 @@ function readPcurve(v: Float64Array, n: number): Pcurve {
   at += 2 * n;
   return { status: STATUS[v[0]!]!, method: PCURVE_METHOD[v[1]!]!, certainty: CERTAINTY[v[2]!]!, seamU: v[3] === 1,
     seamV: v[4] === 1, offSurface: v[5]!, error: v[6]!, tAmbiguous, pieces, seamTwin, takesTwin: v[10] === 1,
-    range: [v[11]!, v[12]!], uv, twinUv: seamTwin.length ? v.slice(at, at + 2 * n) : new Float64Array() };
+    range: [v[11]!, v[12]!], offSpan: [v[13]!, v[14]!], uv,
+    twinUv: seamTwin.length ? v.slice(at, at + 2 * n) : new Float64Array() };
 }
 
 export interface ProjectOptions {
