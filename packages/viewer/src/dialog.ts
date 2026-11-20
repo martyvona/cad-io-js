@@ -17,11 +17,11 @@ export interface DialogButton {
 export interface DialogOptions {
   title: string;
   /**
-   * Paragraphs: text, [label, value] rows shown as a table (file names, sizes, hashes: monospace; a value's lines
-   * kept), or text with links (`{ text, href }` pieces, opened in a new tab; `{ text, action }` done on a click, the
-   * dialog left open), or elements of the caller's own.
+   * Paragraphs: text, rows ([label, value], or more cells) shown as a table (file names, sizes, hashes: monospace; a
+   * value's lines kept), or text with links (`{ text, href }` pieces, opened in a new tab; `{ text, action }` done on a
+   * click, the dialog left open), or elements of the caller's own.
    */
-  body: (string | HTMLElement | [string, string][] | { text: string; href?: string; action?: () => void }[])[];
+  body: (string | HTMLElement | string[][] | { text: string; href?: string; action?: () => void }[])[];
   /** None: no row of buttons (closed by `closeButton` or Escape). */
   buttons: DialogButton[];
   /** An x at the title's right that closes it (resolving with the button `close`). */
@@ -101,10 +101,9 @@ export function showDialog(o: DialogOptions): Promise<DialogResult> {
     const box = document.createElement('div');
     box.className = 'table';
     const table = document.createElement('table');
-    for (const [label, value] of part as [string, string][]) {
+    for (const cells of part as string[][]) {
       const row = table.insertRow();
-      row.insertCell().textContent = label;
-      row.insertCell().textContent = value;
+      for (const c of cells) row.insertCell().textContent = c;
     }
     box.append(table);
     form.append(box);

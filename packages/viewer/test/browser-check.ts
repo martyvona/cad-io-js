@@ -2843,6 +2843,57 @@ await check('tess-cadio', async () => {
     `minAngle= with OCCT: ${JSON.stringify(o.after)}`);
   return undefined;
 });
+// Going to a face from the address, and why it failed: pr1ct with cadio alone, face=445 (a face cadio fails, past its
+// deflection): selected, the tree's detail on, revealed and zoomed to (the camera nearer than the whole model's), its
+// Details saying it failed and why (tess-cadio's cause), the problems dialog (check=dialogs) its cause in a third
+// column; with keepFailing=1 and heal=1 the same link selects the face meshed (triangles, no cause); part=453 the
+// part; an id matching nothing, and one that isn't an id, said in the address's problems.
+await check('go to a face', async () => {
+  const look = `(async () => {
+    await cadViewer.idle();
+    const text = () => document.getElementById('status').textContent;
+    const d = document.querySelector('dialog.cv-dialog');
+    const rows = d ? [...d.querySelectorAll('tr')].map((r) => [...r.cells].map((c) => c.textContent)) : [];
+    d?.querySelector('button.primary')?.click();
+    await cadViewer.idle();
+    const nodes = viewer.nodes, sel = ui.selected();
+    const out = { rows, selected: sel.map((id) => nodes.pathOf(id)), detail: nodes.hasDetail(),
+      details: ui.details(), panel: document.getElementById('details').textContent,
+      height: (viewer.camera.top - viewer.camera.bottom) / viewer.camera.zoom,
+      meshedWith: viewer.model.meshedWith };
+    viewer.zoomAll();
+    await cadViewer.idle();
+    out.all = (viewer.camera.top - viewer.camera.bottom) / viewer.camera.zoom;
+    for (let t = 0; t < 50 && !text().includes('the address'); t++) await new Promise((r) => setTimeout(r, 100));
+    out.status = text();
+    return out;
+  })()`;
+  type Got = { rows: string[][]; selected: string[]; detail: boolean; details: string[]; panel: string;
+    height: number; all: number; status: string; meshedWith: { backend: string; keepFailing: boolean; heal: boolean } };
+  const url = `?url=${encodeURIComponent('/content/pr1ct.stp')}&backend=cadio&fallback=none`;
+  const cause = 'Cause: noConvergence: meshed past its deflection';
+  const f = (await page(`${url}&face=445&check=dialogs`, look) as { after: Got }).after, j = JSON.stringify(f);
+  expect(f.selected.length === 1 && f.selected[0]!.endsWith('/face#445') && f.detail, `face=445 selected: ${j}`);
+  expect(f.height < f.all, `zoomed to it: ${j}`);
+  expect(f.details.includes('Failed to mesh: its outline is drawn in red')
+    && f.details.some((l) => l.startsWith(cause)) && f.panel.includes(cause), `its Details: ${j}`);
+  const row = f.rows.find((r) => r[1] === '1 faces failed to mesh: #445');
+  expect(row?.[0] === 'error #453' && row.length === 3 && row[2]!.startsWith('noConvergence: meshed past its '
+    + 'deflection') && row[2]!.endsWith(' (#445)'), `the problems dialog's cause: ${j}`);
+  expect(!f.status.includes('the address'), `nothing said: ${j}`);
+  const k = (await page(`${url}&keepFailing=1&heal=1&face=445&check`, look) as { after: Got }).after;
+  const l = JSON.stringify(k);
+  expect(k.meshedWith.keepFailing && k.meshedWith.heal && k.selected.length === 1
+    && k.selected[0]!.endsWith('/face#445'), `keepFailing=1, heal=1, face=445: ${l}`);
+  expect(k.details.some((x) => /^Triangles: [1-9]/.test(x)) && !k.details.some((x) => x.startsWith('Cause:'))
+    && !k.details.some((x) => x.startsWith('Failed')), `the face kept, meshed: ${l}`);
+  const p = (await page(`${url}&part=453&face=999999,x1&check`, look) as { after: Got }).after;
+  const q = JSON.stringify(p);
+  expect(p.selected.length === 1 && !p.selected[0]!.includes('face#'), `part=453: ${q}`);
+  expect(p.status.includes('face=: nothing has #999999') && p.status.includes('face=: not STEP ids: x1'),
+    `face= that names nothing: ${q}`);
+  return undefined;
+});
 // Mesh again from the import worker's models, in place: no import (the same tree and scene graph, no "importing" in
 // the status line, "meshing again" there), each part keeping its mesh until its new one comes (never fewer parts
 // meshed while it goes), meshed anew (fine: more triangles); then with a millisecond's timeout (the cache off), the

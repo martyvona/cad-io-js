@@ -7,6 +7,7 @@
 import type { EdgeKind, TessellationProgress, TessellationRequest, TessellationResult, Tessellator, TessellatorInfo }
   from 'cad-scene';
 import { sha256 } from 'cad-scene';
+import { CAUSES_HEAD } from './causes.ts';
 
 /** The module's C API version this layer speaks (tc_api_version). */
 const API_VERSION = 8;
@@ -296,7 +297,7 @@ export class CadioTessellator implements Tessellator {
         const k = `${STATUS[st[i] ?? -1] ?? 'unknown'}: ${causes[i] ?? 'cause not given'}`;
         by.set(k, [...(by.get(k) ?? []), id]);
       });
-      diagnostics.push({ severity: 'info', message: 'faces failed to mesh, by cause: ' + [...by].map(([k, ids]) =>
+      diagnostics.push({ severity: 'info', message: CAUSES_HEAD + [...by].map(([k, ids]) =>
         `${k} ${ids.length} (${ids.map((i) => `#${i}`).join(', ')})`)
         .join('; ') });
     }
