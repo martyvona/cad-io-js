@@ -1334,6 +1334,24 @@ export function bentApex(): BrepBuilder {
   return b;
 }
 
+/**
+ * A plane's sliver between an arc and its chord: the circle of radius 4 about the origin from -0.125 to 0.125 rad
+ * (1 long, 0.9974 across), closed by the line back down. No p-curves.
+ */
+export function arcChord(): BrepBuilder {
+  const b = new BrepBuilder();
+  const h = 0.125, x = 4 * Math.cos(h), y = 4 * Math.sin(h);
+  const lo = b.addVertex({ point: [x, -y, 0] }), hi = b.addVertex({ point: [x, y, 0] });
+  const arc = b.addEdge({ curve: b.addCurve({ kind: 'circle', position: AXIS, radius: 4 }), start: lo, end: hi,
+    sameSense: true, range: [-h, h] });
+  const line = b.addEdge({ curve: b.addCurve({ kind: 'line', point: [x, y, 0], direction: [0, -1, 0], magnitude: 1 }),
+    start: hi, end: lo, sameSense: true, range: [0, 2 * y] });
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: true,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true,
+      coedges: [{ edge: arc, orientation: 'forward' }, { edge: line, orientation: 'forward' }] }] }));
+  return b;
+}
+
 /** Across the seam (u from -pi / 2 to pi / 2), by its p-curves, by p-curves a period apart, without any. */
 export const halfCylinderPcurves = (): BrepBuilder => halfCylinder(-Math.PI / 2, 'same');
 export const halfCylinderApart = (): BrepBuilder => halfCylinder(-Math.PI / 2, 'apart');
@@ -1709,4 +1727,5 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   tinyCap: () => capWithin(0.01), capWithinPole, narrowStrip: () => narrowStrip(),
   narrowStripSmall: () => narrowStrip(0.05, 1e-3), uFold: () => uFold(), uFoldVertex: () => uFold(0, 0.25, 0.13),
   uFoldAway: () => uFold(-0.3), uFoldFar: () => uFold(-3), pcurveShifted, poleLunes, poleLens, curlBack, passBy,
+  arcChord,
   bentApex, wrongEndPcurve: () => wrongEndPcurve(), wigglePcurve: () => wrongEndPcurve(true) };

@@ -2231,9 +2231,21 @@ Status EdgeMesh::respace(const std::vector<double>& faceSpacing) {
       const Impl::Edge& E = I.edges[e];
       if (!E.geom || !(want[e] < kInf)) continue;
       for (size_t i = 0; i + 1 < E.s.points.size(); i++) {
+        // A span judged by its length (its chords over 8 pieces, at least its own chord), not its chord alone: an arc
+        // whose chord is within the spacing but whose length isn't is split, as sampling at that spacing would have
+        // (a loop of two such edges otherwise left 2 points). Not by the length's bound, which the sampler uses: that
+        // can run 100 x past the length near a curve's end (tr9_r1001-ec #11's edge 465, split to 5 microns there).
         const double chord = norm(E.s.points[i + 1] - E.s.points[i]);
-        if (!(chord > want[e]) || chord <= floor) continue;
-        const int n = static_cast<int>(std::min(9.0, std::ceil(chord / want[e])));
+        double len = 0;
+        Vec3 prev = E.s.points[i];
+        for (int k = 1; k <= 8; k++) {
+          const Vec3 q = k < 8 ? E.geom->at(E.s.t[i] + (E.s.t[i + 1] - E.s.t[i]) * k / 8) : E.s.points[i + 1];
+          len += norm(q - prev), prev = q;
+        }
+        if (!std::isfinite(len)) len = chord;
+        len = std::max(len, chord);
+        if (!(len > want[e]) || chord <= floor) continue;
+        const int n = static_cast<int>(std::min(9.0, std::ceil(len / want[e])));
         for (int k = 1; k < n; k++)
           requests.push_back({static_cast<int32_t>(e), static_cast<int32_t>(i), static_cast<double>(k) / n});
       }
