@@ -841,9 +841,16 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
         if (seen.insert({r.edge, r.span}).second) requests.push_back(r);
     if (requests.empty()) break;
     I.report({PartProgress::splitting, -1, I.rounds + 1, 0, static_cast<int>(requests.size())});
+    // Only the edges the split changed: it drops a request inside a pole's ring or on a span within the refinement
+    // floor (EdgeMesh::split), and a face whose edges didn't change would mesh to the same bits again, asking the
+    // same. None changed: the rounds end.
+    std::map<int, size_t> before;
+    for (const SplitRequest& r : requests) before.emplace(r.edge, I.em->edge(r.edge).t.size());
     I.em->split(requests);
     std::set<int> touched;
-    for (const SplitRequest& r : requests) touched.insert(r.edge);
+    for (auto [e, n] : before)
+      if (I.em->edge(e).t.size() != n) touched.insert(e);
+    if (touched.empty()) break;
     std::vector<int> redo;
     for (int f = 0; f < nf; f++) {
       bool again = false;
