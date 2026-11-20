@@ -53,7 +53,7 @@ bool rule(const std::function<double(double)>& f, double a, double b, Piece& out
   for (int j = 0; j < 7; j++) {
     double x = h * xgk[j], f1 = f(c - x), f2 = f(c + x);
     finite = finite && std::isfinite(f1) && std::isfinite(f2);
-    lo = std::fmin(lo, std::fmin(f1, f2)), hi = std::fmax(hi, std::fmax(f1, f2));
+    lo = minNum(lo, minNum(f1, f2)), hi = maxNum(hi, maxNum(f1, f2));
     k += wgk[j] * (f1 + f2);
     mag += wgk[j] * (std::fabs(f1) + std::fabs(f2));
     if (j % 2 == 1) g += wg[j / 2] * (f1 + f2);
@@ -64,7 +64,7 @@ bool rule(const std::function<double(double)>& f, double a, double b, Piece& out
   // so changes below it say nothing, and an integral cancelling to 0 near a large coordinate is known only to that.
   const double where = std::fabs(c), ulp = std::nextafter(where, INFINITY) - where;
   const double sums = 50 * std::numeric_limits<double>::epsilon() * mag * std::fabs(h);
-  out = {a, b, k * h, std::fmax(std::fabs((k - g) * h), sums), sums + ulp * (hi - lo)};
+  out = {a, b, k * h, maxNum(std::fabs((k - g) * h), sums), sums + ulp * (hi - lo)};
   return finite;
 }
 
@@ -86,7 +86,7 @@ Estimate integrate(const std::function<double(double)>& f, double a, double b, d
   pieces.push_back(whole);
   int evals = 15;
   double value = whole.value, error = whole.error;
-  auto reached = [&] { return error <= std::fmax(absTol, relTol * std::fabs(value)); };
+  auto reached = [&] { return error <= maxNum(absTol, relTol * std::fabs(value)); };
   // No point going on when an infinite error in a piece that won't be halved again can't come down, or when every
   // piece's error is its rounding floor: those floors sum to about the integral of |f| whatever the halving, so a
   // relTol on an integral at that level (0 by cancellation) can't be met.
@@ -103,9 +103,9 @@ Estimate integrate(const std::function<double(double)>& f, double a, double b, d
     Piece p = pieces.back();
     pieces.pop_back();
     double m = 0.5 * (p.a + p.b);
-    const double where = std::fmax(std::fabs(p.a), std::fabs(p.b));
+    const double where = maxNum(std::fabs(p.a), std::fabs(p.b));
     if (p.b - p.a <= 64 * (std::nextafter(where, inf) - where)) {
-      p.error = std::fmax(p.error, std::fabs(p.value));
+      p.error = maxNum(p.error, std::fabs(p.value));
       done.push_back(p);
       continue;
     }
@@ -116,7 +116,7 @@ Estimate integrate(const std::function<double(double)>& f, double a, double b, d
       // At an end of the range a node can round onto it (1 - x = 0 for x near 1): the piece is kept as it is, its
       // estimate standing. Anywhere else f really isn't finite at a node.
       if (p.a != a && p.b != b) return {nan, inf, Status::singular};
-      p.error = std::fmax(p.error, std::fabs(p.value));
+      p.error = maxNum(p.error, std::fabs(p.value));
       done.push_back(p);
       continue;
     }
@@ -129,8 +129,8 @@ Estimate integrate(const std::function<double(double)>& f, double a, double b, d
     const double tail = divergent ? inf : d <= l.rounding + r.rounding ? 0 : 2 * d * rho / (1 - rho);
     l.divergent = r.divergent = divergent;
     l.change = r.change = d;
-    l.error = std::fmax(l.error, tail);
-    r.error = std::fmax(r.error, tail);
+    l.error = maxNum(l.error, tail);
+    r.error = maxNum(r.error, tail);
     pieces.push_back(l);
     std::push_heap(pieces.begin(), pieces.end());
     pieces.push_back(r);

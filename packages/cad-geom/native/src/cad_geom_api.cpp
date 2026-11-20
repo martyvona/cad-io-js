@@ -1065,8 +1065,8 @@ int32_t cg_face_creases(int32_t h, int32_t face, double minAngle, double tol3d) 
       for (int i = 0; i <= 16; i++) {
         CurvePoint q;
         if (p.curve->eval(p.range.lo + (p.range.hi - p.range.lo) * i / 16, 0, q) != Status::ok) continue;
-        ru = {std::fmin(ru.lo, q.p.x), std::fmax(ru.hi, q.p.x)};
-        rv = {std::fmin(rv.lo, q.p.y), std::fmax(rv.hi, q.p.y)};
+        ru = {minNum(ru.lo, q.p.x), maxNum(ru.hi, q.p.x)};
+        rv = {minNum(rv.lo, q.p.y), maxNum(rv.hi, q.p.y)};
       }
   if (!(ru.lo < ru.hi) || !(rv.lo < rv.hi)) return 0;
   auto inside = [&](const Vec2* p, int n, int* out) {

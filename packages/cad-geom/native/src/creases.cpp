@@ -45,7 +45,7 @@ std::vector<Crease> findCreases(const Surface& s0, Range ru, Range rv, double mi
       if (b < L.at && b > lo) lo = b;
       if (b > L.at && b < hi) hi = b;
     }
-    const double d = 1e-7 * std::fmin(L.at - lo, hi - L.at);
+    const double d = 1e-7 * minNum(L.at - lo, hi - L.at);
     if (!(d > 0)) continue;
     auto at = [&](double t) { return L.isoU ? Vec2{L.at, t} : Vec2{t, L.at}; };
     // The normals' angle across the line at t (negative where either is singular: not a crease there).
@@ -94,7 +94,7 @@ std::vector<Crease> findCreases(const Surface& s0, Range ru, Range rv, double mi
       }
       int e = i;
       double worst = j[i];
-      while (e + 1 <= N && k[e + 1]) worst = std::fmax(worst, j[++e]);
+      while (e + 1 <= N && k[e + 1]) worst = maxNum(worst, j[++e]);
       Crease c;
       c.isoU = L.isoU, c.at = L.at, c.jump = worst;
       // At the box's ends the face ends too.

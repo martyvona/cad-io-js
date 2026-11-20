@@ -103,7 +103,7 @@ Vec2 rate(const Job& job, double t, Vec2 uv, bool& fold, double dir = 0) {
     // from the seam).
     const double lo = it != bs.begin() ? *(it - 1) : period > 0 ? (bs.size() > 1 ? bs.back() : *it) - period : dom.lo;
     const double hi = it + 1 != bs.end() ? *(it + 1) : period > 0 ? bs.front() + period : dom.hi;
-    const double step = std::fmin(1e-9 * (dom.hi - dom.lo), 0.25 * std::fmin(*it - lo, hi - *it));
+    const double step = minNum(1e-9 * (dom.hi - dom.lo), 0.25 * minNum(*it - lo, hi - *it));
     const double base = x + (*it - xr);
     Vec2 below = uv, above = uv;
     (k ? below.y : below.x) = base - step, (k ? above.y : above.x) = base + step;

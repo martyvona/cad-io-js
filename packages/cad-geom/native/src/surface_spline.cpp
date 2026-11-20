@@ -51,9 +51,9 @@ public:
     double mag = 0;
     for (int i = 0; i < nu_ * nv_; i++) {
       double w = W_[i], m = std::fabs(w);
-      for (int a = 0; a < 3; a++) n0.h.push_back(w * P_[3 * i + a]), m = std::fmax(m, std::fabs(w * P_[3 * i + a]));
+      for (int a = 0; a < 3; a++) n0.h.push_back(w * P_[3 * i + a]), m = maxNum(m, std::fabs(w * P_[3 * i + a]));
       n0.h.push_back(w);
-      n0.perr.push_back(2 * kEps * m), mag = std::fmax(mag, m);
+      n0.perr.push_back(2 * kEps * m), mag = maxNum(mag, m);
     }
     n0.error = 2 * kEps * mag;
     size_ = span();
@@ -208,13 +208,13 @@ private:
   Vec3 pole(int i, int j) const { return read3(P_.data() + 3 * (i * nv_ + j)); }
   double span() const {
     double m = 0;
-    for (double x : P_) m = std::fmax(m, std::fabs(x));
+    for (double x : P_) m = maxNum(m, std::fabs(x));
     return m;
   }
   bool clip(Range& ru, Range& rv) const {
     SurfaceDomain d = domain();
-    ru = {std::fmax(ru.lo, d.u.lo), std::fmin(ru.hi, d.u.hi)};
-    rv = {std::fmax(rv.lo, d.v.lo), std::fmin(rv.hi, d.v.hi)};
+    ru = {maxNum(ru.lo, d.u.lo), minNum(ru.hi, d.u.hi)};
+    rv = {maxNum(rv.lo, d.v.lo), minNum(rv.hi, d.v.hi)};
     return ru.lo <= ru.hi && rv.lo <= rv.hi;
   }
   Net diffU(const Net& f) const {
@@ -228,9 +228,9 @@ private:
           double x = den > 0 ? f.p * (f.at(i + 1, j)[a] - f.at(i, j)[a]) / den : 0.0;
           g.h.push_back(x);
           if (den > 0)
-            e = std::fmax(e, f.p * (f.perr[(i + 1) * f.nv + j] + f.perr[i * f.nv + j]) / den + 4 * kEps * std::fabs(x));
+            e = maxNum(e, f.p * (f.perr[(i + 1) * f.nv + j] + f.perr[i * f.nv + j]) / den + 4 * kEps * std::fabs(x));
         }
-        g.perr.push_back(e), err = std::fmax(err, e);
+        g.perr.push_back(e), err = maxNum(err, e);
       }
     }
     g.error = err;
@@ -249,9 +249,9 @@ private:
           double x = den > 0 ? f.q * (f.at(i, j + 1)[a] - f.at(i, j)[a]) / den : 0.0;
           g.h[(i * g.nv + j) * 4 + a] = x;
           if (den > 0)
-            e = std::fmax(e, f.q * (f.perr[i * f.nv + j + 1] + f.perr[i * f.nv + j]) / den + 4 * kEps * std::fabs(x));
+            e = maxNum(e, f.q * (f.perr[i * f.nv + j + 1] + f.perr[i * f.nv + j]) / den + 4 * kEps * std::fabs(x));
         }
-        g.perr[i * g.nv + j] = e, err = std::fmax(err, e);
+        g.perr[i * g.nv + j] = e, err = maxNum(err, e);
       }
     }
     g.error = err;
@@ -319,11 +319,11 @@ private:
    */
   double blossomErr(const Net& m, const std::vector<double>& c, Range ru, Range rv) const {
     double mag = 0, own = 0;
-    for (double x : c) mag = std::fmax(mag, std::fabs(x));
+    for (double x : c) mag = maxNum(mag, std::fabs(x));
     int i0, i1, j0, j1;
     active(m, ru, rv, i0, i1, j0, j1);
     for (int i = i0; i <= i1; i++)
-      for (int j = j0; j <= j1; j++) own = std::fmax(own, m.perr[i * m.nv + j]);
+      for (int j = j0; j <= j1; j++) own = maxNum(own, m.perr[i * m.nv + j]);
     return own + 8 * (m.p + m.q + 2) * kEps * mag;
   }
   /**
@@ -378,8 +378,8 @@ private:
               for (int a = 0; a < 4; a++) {
                 const double x = m * (hi[a] - lo[a]) / w;
                 o[(r * (nq + 1) + t) * 4 + a] = x;
-                e = std::fmax(e, m * 2 * e0 / w + 4 * kEps * std::fabs(x));
-                mag = std::fmax(mag, std::fabs(x));
+                e = maxNum(e, m * 2 * e0 / w + 4 * kEps * std::fabs(x));
+                mag = maxNum(mag, std::fabs(x));
               }
             }
           if (e <= 1e-6 * mag) K.err[at] = e, done = true;
@@ -411,7 +411,7 @@ private:
       double wmin = kInf;
       for (size_t a = 0; a < ctrl.size(); a += 4) {
         Vec3 x{ctrl[a], ctrl[a + 1], ctrl[a + 2]};
-        if (k + l == 0) x = (1 / ctrl[a + 3]) * x, wmin = std::fmin(wmin, ctrl[a + 3]);
+        if (k + l == 0) x = (1 / ctrl[a + 3]) * x, wmin = minNum(wmin, ctrl[a + 3]);
         b = hull(b, x);
       }
       if (k + l == 0 && !(wmin - err > 0)) return out = entireBox(), Status::singular;
@@ -426,8 +426,8 @@ private:
     const std::vector<double>& c0 = over(0, 0, ru, rv, oneSpan, su, sv, e0);
     double wmin = kInf, s0 = 0;
     for (size_t a = 0; a < c0.size(); a += 4) {
-      wmin = std::fmin(wmin, c0[a + 3] - e0);
-      s0 = std::fmax(s0, norm(Vec3{c0[a], c0[a + 1], c0[a + 2]}) / c0[a + 3]);
+      wmin = minNum(wmin, c0[a + 3] - e0);
+      s0 = maxNum(s0, norm(Vec3{c0[a], c0[a + 1], c0[a + 2]}) / c0[a + 3]);
     }
     if (!(wmin > 0)) return out = entireBox(), Status::singular;
     double B[kPartials] = {}, Am[kPartials] = {}, Wm[kPartials] = {};
@@ -439,8 +439,8 @@ private:
         double e;
         const std::vector<double>& cc = over(kk, m, ru, rv, oneSpan, su, sv, e);
         for (size_t a = 0; a < cc.size(); a += 4) {
-          Am[pidx(kk, m)] = std::fmax(Am[pidx(kk, m)], norm(Vec3{cc[a], cc[a + 1], cc[a + 2]}) + std::sqrt(3.0) * e);
-          Wm[pidx(kk, m)] = std::fmax(Wm[pidx(kk, m)], std::fabs(cc[a + 3]) + e);
+          Am[pidx(kk, m)] = maxNum(Am[pidx(kk, m)], norm(Vec3{cc[a], cc[a + 1], cc[a + 2]}) + std::sqrt(3.0) * e);
+          Wm[pidx(kk, m)] = maxNum(Wm[pidx(kk, m)], std::fabs(cc[a + 3]) + e);
         }
       }
     for (int t = 1; t <= k + l; t++)
@@ -468,8 +468,8 @@ private:
       for (int d = 0; d < 3; d++) a.c[d] = {kInf, -kInf};
       w = {kInf, -kInf};
       for (size_t q = 0; q < ctl.size(); q += 4) {
-        for (int d = 0; d < 3; d++) a.c[d] = {std::fmin(a.c[d].lo, ctl[q + d]), std::fmax(a.c[d].hi, ctl[q + d])};
-        w = {std::fmin(w.lo, ctl[q + 3]), std::fmax(w.hi, ctl[q + 3])};
+        for (int d = 0; d < 3; d++) a.c[d] = {minNum(a.c[d].lo, ctl[q + d]), maxNum(a.c[d].hi, ctl[q + d])};
+        w = {minNum(w.lo, ctl[q + 3]), maxNum(w.hi, ctl[q + 3])};
       }
       for (int d = 0; d < 3; d++) a.c[d] = {a.c[d].lo - e, a.c[d].hi + e};
       w = {w.lo - e, w.hi + e};
