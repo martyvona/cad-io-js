@@ -93,6 +93,13 @@ inline bool trusted(const FaceMeasure& m, double relative = 1e-6) {
 struct Integrand {
   int components = 1;
   std::function<void(Vec3 p, Vec3 n, double* out)> f;
+  /**
+   * Per component, the size of f's value per unit area (|f| / |n|) its absolute tolerance is set from: relTol times
+   * that times the face's size squared. A component that is zero on a face but for rounding (a volume's on a plane
+   * through c) can't meet a tolerance relative to itself. Empty: each component's largest |f| near the face, at its
+   * boundary points moved by up to its size along each axis, with n a unit vector along each axis.
+   */
+  std::vector<double> scale;
 };
 
 struct Options {

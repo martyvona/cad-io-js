@@ -93,7 +93,12 @@ tests=$(find native/test -name '*_test.cpp' | sort)
 "$NODE" $G/native/test/fixtures.ts build/test/fixtures/brep_models.h
 TI=(-I$G/native/test -Ibuild/test/fixtures)
 fail=0
-run() { local name=$1; shift; echo "== $name"; "$@" || { echo "== $name: exit $?" >&2; fail=1; }; }
+# Each test binary at most TEST_TIMEOUT seconds (a hang reports, with the case it was in, instead of running on).
+run() {
+  local name=$1; shift; echo "== $name"
+  local code=0; timeout "${TEST_TIMEOUT:-300}" "$@" || code=$?
+  [ $code = 0 ] || { echo "== $name: exit $code$([ $code = 124 ] && echo ', timed out')" >&2; fail=1; }
+}
 
 SAN=(-O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize-recover=all)
 compile build/test/native/obj c++ "${SAN[@]}" "${COMMON[@]}" "${TI[@]}" -- $(gsrcs) $(srcs) $tests

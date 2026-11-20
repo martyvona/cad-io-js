@@ -130,8 +130,5 @@ FaceMeasure Oracle::face(int f) {
   return m;
 }
 
-std::vector<Estimate> Oracle::faceIntegral(int, const Integrand& g) {
-  return std::vector<Estimate>(g.components > 0 ? g.components : 0, Estimate{NAN, INFINITY, Status::unsupported});
-}
 
 } // namespace cadoracle
