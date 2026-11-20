@@ -9,6 +9,7 @@ import type { Curve2, ModelEdit } from './edit.ts';
 import { reparameterize, reparameterized } from './fix/reparam.ts';
 import { projected, replacement } from './fix/replace.ts';
 import { curveEndGaps, gapTo } from './fix/ends.ts';
+import { evalCurve2, intoDomain, overshoot } from './fix/domain.ts';
 import { curveOffSurface, type Grids, GROWTH } from './fix/tolerance.ts';
 import { Growth } from './fix/growth.ts';
 import type { HealFix } from './index.ts';
@@ -45,6 +46,14 @@ class Tally {
   }
 }
 
+/**
+ * A p-curve past a side of its surface's domain is placed on it (fix/domain.ts) only where that moves it at most this
+ * many times its edge's tolerance (a fit's or a source's overshoot); farther, it's left as it is.
+ */
+const PLACE_AT_MOST = 10;
+/** Samples along a placed p-curve's range where its move on the surface is measured. */
+const PLACE_SAMPLES = 65;
+
 /** Coedges between progress reports. */
 export const PROGRESS_EVERY = 200;
 
@@ -73,6 +82,8 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
   const add = (m: Map<string, Tally>, why: string, c: number) =>
     (m.get(why) ?? m.set(why, new Tally()).get(why)!).add(coedgeName(c));
   let worstMade = 0;
+  // Per fix that wrote a p-curve: those put on their surface's domain, and how far.
+  const onDomain = new Map<HealFix, { t: Tally; past: number; moved: number }>();
   // Per edge: the largest disagreement measured along it (edgeTolerance's).
   const need = new Float64Array(rowCount(d, 'edge')), grids: Grids = new Map();
   const needs = (e: number, x: number) => {
@@ -109,6 +120,46 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
         periods = info.status === 'ok' ? [info.uPeriod, info.vPeriod] : [0, 0];
       }
       return periods;
+    };
+    // A p-curve the pass writes, placed on the surface's domain (fix/domain.ts): poles past a side of a direction that
+    // isn't periodic on the face clamped, the 3D move that makes (by the surface's first derivatives over the poles'
+    // box) added to what its edge needs. The face's periods asked only where a pole is past a side.
+    let surfInfo: ReturnType<Geometry['surfaceInfo']> | undefined;
+    const placed = (curve: Curve2, c: number, by: HealFix, range: [number, number]):
+      { curve: Curve2; moved: number } => {
+      surfInfo ??= g.surfaceInfo(surface);
+      const u: [number, number] = [surfInfo.u[0], surfInfo.u[1]], v: [number, number] = [surfInfo.v[0], surfInfo.v[1]];
+      // Past by rounding is fine: the face API takes an end within 1e-12 of a bound as on it.
+      const slack = (r: [number, number]) => 1e-12 * (1 + Math.max(Math.abs(r[0]), Math.abs(r[1])));
+      const [ou, ov] = overshoot(curve, u, v, range);
+      if (!(ou > slack(u) || ov > slack(v))) return { curve, moved: 0 };
+      // The face's periods (a direction closed in fact; none where the face API can't take the face yet, as before
+      // healing on a face whose projections fail: the cap below keeps a curve a period off from being moved).
+      const [pu, pv] = periodsOf();
+      const p = intoDomain(curve, u, v, ou > slack(u) && !(pu > 0) && !(surfInfo.uPeriod > 0),
+        ov > slack(v) && !(pv > 0) && !(surfInfo.vPeriod > 0), range);
+      if (!(p.du > 0 || p.dv > 0)) return { curve, moved: 0 };
+      // How far that moves it on the surface as consumers see it (an evaluation past a side is clamped onto it):
+      // the surface at the new p-curve against at the old, sampled along the range, as the other measures here are.
+      const uv: number[] = [];
+      for (const cv of [curve, p.curve]) {
+        for (let i = 0; i < PLACE_SAMPLES; i++) {
+          const q = evalCurve2(cv, range[0] + (range[1] - range[0]) * i / (PLACE_SAMPLES - 1));
+          if (!q) return { curve, moved: 0 };
+          uv.push(q[0], q[1]);
+        }
+      }
+      const S = g.evalSurface(surface, uv, 0).values;
+      let moved = 0;
+      for (let i = 0; i < PLACE_SAMPLES; i++) {
+        const a = 3 * i, b = 3 * (i + PLACE_SAMPLES);
+        moved = Math.max(moved, Math.hypot(S[b]! - S[a]!, S[b + 1]! - S[a + 1]!, S[b + 2]! - S[a + 2]!));
+      }
+      // A hair past, not a curve elsewhere: within PLACE_AT_MOST of its edge's tolerance.
+      if (!(moved <= PLACE_AT_MOST * tol.edge(d.coedge.edge[c]!))) return { curve, moved: 0 };
+      const o = onDomain.get(by) ?? onDomain.set(by, { t: new Tally(), past: 0, moved: 0 }).get(by)!;
+      o.t.add(coedgeName(c)), o.past = Math.max(o.past, p.du, p.dv), o.moved = Math.max(o.moved, moved);
+      return { curve: p.curve, moved };
     };
     for (let l = d.face.firstLoop[f]!; l < d.face.firstLoop[f]! + d.face.loopCount[f]!; l++) {
       if (d.loop.kind[l] !== LOOP_KIND.edge) continue;
@@ -159,11 +210,12 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
               : 'its fit short of the tolerance', c);
             return tr.offSurface;
           }
-          edit.set('coedge', 'pcurve', c, edit.addCurve2(made));
+          const pl = placed(made, c, 'edgeTolerance', range);
+          edit.set('coedge', 'pcurve', c, edit.addCurve2(pl.curve));
           newRange();
           record.pcurveFrom[c] = PROVENANCE.healed;
-          record.deviation[c] = fit.error;
-          const need = Math.max(fit.error, Number.isNaN(tr.offSurface) ? 0 : tr.offSurface);
+          record.deviation[c] = fit.error + pl.moved;
+          const need = Math.max(fit.error + pl.moved, Number.isNaN(tr.offSurface) ? 0 : tr.offSurface);
           (need > tolE ? tracedGrown : tracedAtTol).add(coedgeName(c));
           worstTraced = Math.max(worstTraced, need);
           return need;
@@ -222,12 +274,13 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
             bare(false);
             continue;
           }
-          edit.set('coedge', 'pcurve', c, edit.addCurve2(curve));
+          const pl = placed(curve, c, 'pcurveMissing', range), error = p.error + pl.moved;
+          edit.set('coedge', 'pcurve', c, edit.addCurve2(pl.curve));
           newRange();
           record.pcurveFrom[c] = PROVENANCE.healed;
-          record.deviation[c] = p.error;
-          needs(e, p.error);
-          worstMade = Math.max(worstMade, p.error);
+          record.deviation[c] = error;
+          needs(e, error);
+          worstMade = Math.max(worstMade, error);
           made.add(coedgeName(c));
           continue;
         }
@@ -247,11 +300,12 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
         if (m.kind === 'affine' && fixes.has('pcurveReparam')) {
           const curve = reparameterized(d, pc, m.a, m.b, range);
           if (curve) {
-            edit.set('coedge', 'pcurve', c, edit.addCurve2(curve));
+            const pl = placed(curve, c, 'pcurveReparam', range);
+            edit.set('coedge', 'pcurve', c, edit.addCurve2(pl.curve));
             newRange();
             record.pcurveFrom[c] = PROVENANCE.healed;
             reparam.add(coedgeName(c));
-            needs(e, m.deviation);
+            needs(e, m.deviation + pl.moved);
             continue;
           }
           reparamKind.add(coedgeName(c));
@@ -259,6 +313,19 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
           off = true;
         }
         if (!off || !fixes.has('pcurveReplace')) {
+          // A source's p-curve in the curve's parameter whose ends (or poles) lie past a side of the domain, by its
+          // rounding or more: placed on the domain (pcurveEnds'), so the face API and consumers can evaluate its ends.
+          if (m.kind === 'same' && fixes.has('pcurveEnds')) {
+            const own: Curve2 = { kind: d.curve.kind[pc]!, reals: d.pool.curveReal.subarray(d.curve.real[pc]!),
+              ints: d.pool.curveInt.subarray(d.curve.int[pc]!) };
+            const pl = placed(own, c, 'pcurveEnds', range);
+            if (pl.moved > 0) {
+              edit.set('coedge', 'pcurve', c, edit.addCurve2(pl.curve));
+              record.pcurveFrom[c] = PROVENANCE.healed;
+              record.deviation[c] = kept + pl.moved;
+              needs(e, kept + pl.moved);
+            }
+          }
           keep();
           continue;
         }
@@ -285,11 +352,13 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
             keep();
             continue;
           }
-          edit.set('coedge', 'pcurve', c, edit.addCurve2(curve));
+          const pl = placed(curve, c, 'pcurveReplace', range);
+          edit.set('coedge', 'pcurve', c, edit.addCurve2(pl.curve));
           newRange();
           record.pcurveFrom[c] = PROVENANCE.healed;
+          record.deviation[c] = r.error + pl.moved;
           replaced.add(coedgeName(c));
-          needs(e, r.error);
+          needs(e, r.error + pl.moved);
         }
       }
     }
@@ -377,6 +446,11 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
   if (toRange.n) {
     diagnostics.push({ severity: 'warning', message: `pcurveReparam: ${toRange.n} p-curves' edges' ranges put on their `
       + `domains (past them by rounding): ${toRange.ex.join(', ')}${toRange.more()}` });
+  }
+  for (const [by, o] of onDomain) {
+    diagnostics.push({ severity: 'warning', message: `${by}: ${o.t.n} of its p-curves put on their surfaces' `
+      + `domains (poles past a side by up to ${o.past.toPrecision(3)} in (u, v), moving them up to `
+      + `${o.moved.toPrecision(3)} mm, which their edges' tolerances cover): ${o.t.ex.join(', ')}${o.t.more()}` });
   }
   if (reparamKind.n) {
     diagnostics.push({ severity: 'warning', message: `pcurveReparam: ${reparamKind.n} p-curves parameterized as an `
