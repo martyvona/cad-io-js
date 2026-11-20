@@ -1240,6 +1240,51 @@ TEST_CASE("a trace from a crease leaves along the span it goes into; beside a po
     if (!(p.status == Status::ok) || !(std::fabs(mid.x - 0.5 * (g.u0 + g.u1)) < 1e-6))
       std::printf("    %s: status %d error %g mid (%g, %g)\n", g.name, int(p.status), p.error, mid.x, mid.y);
   }
+  // A closed square's extrusion (degree 1, its corners at u = 0, 1, 2, 3; z 0 to 3), closed in fact so u is periodic,
+  // a corner on its seam u = 0 (as trj3_s1-al #6704 face #1306's coedges 87 and 89): from that corner along the last
+  // leg (u from 4, or 0, down), seeded there; and a local foot from it. The seam is a break too.
+  {
+    const int32_t qi[] = {1, 1, 5, 2, 5, 2, 0, 0, 0, 0, 0, 2, 1, 1, 1, 2, 2, 2};
+    const double qr[] = {0, 1, 2, 3, 4, 0, 1, 0, 0, 0, 0, 0, 3, 10, 0, 0, 10, 0, 3, 10, 10, 0, 10, 10, 3, 0, 10, 0, 0,
+      10, 3, 0, 0, 0, 0, 0, 3};
+    std::unique_ptr<Surface> box = closeInFact(surfaces::makeBSpline(qr, qi, st), tol);
+    REQUIRE(box);
+    REQUIRE(box->domain().uPeriod == 4);
+    const double down[7] = {0, 0, 1, 0, 1, 0, 10};
+    std::unique_ptr<Curve> leg = curves::makeLine(down, 3);
+    // (From the seam's value itself and from a hair below its other end, which reduces to just under the period.)
+    for (double u0 : {0.0, 4 - 1e-14}) {
+      PcurveEnds e;
+      e.hasStart = true, e.start = {u0, 1.0 / 3};
+      Pcurve p = projectCurve(*leg, {0, 1}, *box, tol, &e);
+      CHECK(p.status == Status::ok);
+      CHECK(p.error <= tol);
+      REQUIRE(!p.pieces.empty());
+      const double mid = project::at(p.pieces.front(), 0.5).x;
+      CHECK(std::fabs(std::remainder(mid - 3.5, 4.0)) < 1e-6);
+      if (!(p.status == Status::ok) || !(std::fabs(std::remainder(mid - 3.5, 4.0)) < 1e-6))
+        std::printf("    seam corner from %.17g: status %d error %g mid u %g\n", u0, int(p.status), p.error, mid);
+    }
+    for (double start : {0.0, 4.0, 4 - 1e-14}) {
+      LocalFoot f = localFoot(*box, {0, 2, 1}, {start, 1.0 / 3});
+      CHECK(f.status == Status::ok);
+      CHECK(std::fabs(std::remainder(f.uv.x - 3.8, 4.0)) < 1e-9);
+      CHECK(f.distance < 1e-9);
+    }
+    // Along the first leg from a hair below the seam's other end: the evaluation there gives the last leg's S_u,
+    // across the first, so the seam is found as a break from below.
+    const double along[7] = {0, 0, 1, 1, 0, 0, 10};
+    std::unique_ptr<Curve> first = curves::makeLine(along, 3);
+    PcurveEnds ea;
+    ea.hasStart = true, ea.start = {4 - 1e-14, 1.0 / 3};
+    Pcurve pa = projectCurve(*first, {0, 1}, *box, tol, &ea);
+    CHECK(pa.status == Status::ok);
+    CHECK(pa.error <= tol);
+    LocalFoot fa = localFoot(*box, {2, 0, 1}, {4 - 1e-14, 1.0 / 3});
+    CHECK(fa.status == Status::ok);
+    CHECK(std::fabs(std::remainder(fa.uv.x - 0.2, 4.0)) < 1e-9);
+    CHECK(fa.distance < 1e-9);
+  }
   // A great circle of a sphere of radius 10 passing 3e-3 beside its north pole (tilted 3e-4 from a meridian), from
   // (0, -10, 0) over the top, seeded at its start: the feet's u swings by pi beside the pole, where Newton's steps in
   // u are huge and could land whole turns on (the same point in 3D).
@@ -1267,6 +1312,50 @@ TEST_CASE("a trace from a crease leaves along the span it goes into; beside a po
   CHECK(far < 2 * kPi);
   if (!(q.status == Status::ok) || !(far < 2 * kPi))
     std::printf("    near pass: status %d error %g farthest u from the start %g\n", int(q.status), q.error, far);
+}
+
+// OCC623 #11 face #4146 coedge 52 (the corpus): its edge curve, a cubic of 20 poles 2e-5 off its cylinder in places
+// (radius 0.75 about z through (3.875, 3.25)), at its part's uncertainty 2e-5.
+const double kOccCurveR[] = {
+    -0.303208896236, -0.278878014744, -0.254610299193, -0.228042987796, -0.201227543758, -0.174231696996,
+    -0.146601120314, -0.117858203202, -0.06111724993026, -0.004376296658798, 4.273668147854, 2.61473335686,
+    0.599930816178, 4.273668147854, 2.61473335686, 0.585678885322, 4.276483920208, 2.616490337827, 0.569020678578,
+    4.284685710114, 2.621763320389, 0.542925538101, 4.291386018135, 2.626154874126, 0.528656109, 4.304794518204,
+    2.63530605132, 0.505678614342, 4.314190060928, 2.641956344567, 0.492702509032, 4.330714481677, 2.654238908481,
+    0.47268342009, 4.341073714597, 2.662289577048, 0.461683842704, 4.358664537856, 2.676677582059, 0.444637546827,
+    4.36937060298, 2.685870313988, 0.43520154296, 4.387410925922, 2.702198468266, 0.420437052211, 4.398320586842,
+    2.712600190261, 0.412194772147, 4.416669879027, 2.731087558666, 0.399275651131, 4.427741656551, 2.742887336575,
+    0.392077098592, 4.454656447688, 2.773318182885, 0.375926909209, 4.47345911437, 2.796922328222, 0.366396836028,
+    4.508315273001, 2.847080090812, 0.353372503209, 4.524363531453, 2.873650980944, 0.349930816072, 4.537702742171,
+    2.898823298724, 0.349930816178};
+const int32_t kOccCurveI[] = {3, 20, 10, 0, 0, 0, 0, 4, 2, 2, 2, 2, 2, 2, 2, 2, 4};
+const double kOccCylR[10] = {3.875, 3.25, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.75};
+
+TEST_CASE("offSurface where the error is worst: OCC623's curve off its cylinder, however the trace is seeded") {
+  // Traced from its central sample its nodes fall where the curve is farthest off; seeded at its start they don't
+  // (offSurface 1.9e-5 from them, under tol), while the error (2.2e-5) is the curve's own distance: invalidModel
+  // both ways, offSurface the distance where the error is worst.
+  const double tol = 2e-5;
+  Status st;
+  std::unique_ptr<Curve> cv = curves::makeBSpline(kOccCurveR, kOccCurveI, 3, st);
+  REQUIRE(cv);
+  std::unique_ptr<Surface> cyl = closeInFact(surfaces::makeCone(kOccCylR, kOccCylR[9], 0), tol);
+  REQUIRE(cyl);
+  const Range cd = cv->domain().range;
+  Pcurve central = projectCurve(*cv, {cd.lo, cd.hi}, *cyl, tol);
+  REQUIRE(!central.pieces.empty());
+  PcurveEnds e;
+  e.hasStart = true, e.start = project::at(central.pieces.front(), cd.lo);
+  Pcurve seeded = projectCurve(*cv, {cd.lo, cd.hi}, *cyl, tol, &e);
+  for (const Pcurve* p : {&central, &seeded}) {
+    CHECK(p->status == Status::invalidModel);
+    CHECK(p->error > tol);
+    CHECK(p->offSurface > tol);
+    CHECK(p->offSurface <= p->error * (1 + 1e-6));
+    if (!(p->status == Status::invalidModel))
+      std::printf("    occ623 %s: status %d error %g offSurface %g\n", p == &central ? "central" : "seeded",
+        int(p->status), p->error, p->offSurface);
+  }
 }
 
 // The corpus's stopped traces (pcurve_corpus), as fixtures: bug25287_bad_tess_face_plus #2134's coedge 750 (its curve

@@ -164,8 +164,9 @@ struct Pcurve {
   bool seamU = false, seamV = false;
   std::vector<PcurvePiece> seamTwin;
   /**
-   * The largest distance from the curve to its feet on the surface over the range: its deviation (mm, measured), or
-   * where a span's control hull leaves the surface's box, at least the farthest point's distance from that box.
+   * The largest distance from the curve to its feet on the surface over the range: its deviation (mm, measured at
+   * the feet it was made from and, where the error passes tol, where the error is worst), or where a span's control
+   * hull leaves the surface's box, at least the farthest point's distance from that box.
    */
   double offSurface = 0;
   /** Where offSurface came from the hulls: the span (between two of the curve's breaks) holding it; else NaN. */

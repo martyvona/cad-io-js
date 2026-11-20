@@ -150,7 +150,22 @@ public:
   void singularities(std::vector<Singularity>& out) const override {
     out.clear();
     CurveDomain cd = c_->domain();
-    if (!finite(cd.range)) return;
+    if (!finite(cd.range)) {
+      // An unbounded profile: a line's (a cone's) crosses the axis at most once, where its part across the axis,
+      // P + v D, P and D taken across the axis, vanishes.
+      Vec3 q0[3], q1[3];
+      c_->derivs(0, 2, q0), c_->derivs(1, 2, q1);
+      const double scale = norm(q0[1]) + 1e-300;
+      if (!(norm(q0[2]) <= 1e-12 * scale && norm(q1[2]) <= 1e-12 * scale && norm(q1[1] - q0[1]) <= 1e-12 * scale))
+        return;
+      const Vec3 P = q0[0] - A_, D = q0[1], Pp = P - dot(a_, P) * a_, Dp = D - dot(a_, D) * a_;
+      // (Parallel to the axis: 0 / 0, NaN, out of range.)
+      const double v = -dot(Pp, Dp) / dot(Dp, Dp);
+      if (!(v >= cd.range.lo && v <= cd.range.hi)) return;
+      if (!(norm(Pp + v * Dp) <= 1e-12 * (norm(P) + std::fabs(v) * norm(D) + 1))) return;
+      out.push_back({Singularity::pole, false, v, A_ + dot(a_, P + v * D) * a_});
+      return;
+    }
     // Where the profile's part across the axis, Q - (a.Q) a, vanishes: bisection on its box.
     Range r = cd.range;
     double wmin = 1e-12 * (r.hi - r.lo);

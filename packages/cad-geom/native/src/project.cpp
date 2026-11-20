@@ -195,7 +195,7 @@ double footFrom(const Surface& s, const SurfaceDomain& dom, Vec3 p, Vec2& uv, in
   return best;
 }
 
-double measure(const Job& job, const PcurvePiece& p) {
+double measure(const Job& job, const PcurvePiece& p, double* worstT) {
   if (p.poleLine || !p.curve) return 0;
   std::vector<double> br, pb;
   for (double b : job.breaks)
@@ -215,7 +215,10 @@ double measure(const Job& job, const PcurvePiece& p) {
     return std::isfinite(e) ? e : kInf;
   };
   constexpr int N = 16;
-  double worst = 0;
+  double worst = 0, at = p.t.lo;
+  auto keep = [&](double e, double t) {
+    if (e > worst) worst = e, at = t;
+  };
   for (size_t k = 0; k + 1 < br.size(); k++) {
     const double a = br[k], b = br[k + 1];
     if (!(b > a)) continue;
@@ -225,7 +228,7 @@ double measure(const Job& job, const PcurvePiece& p) {
       e[i] = err(a + (b - a) * i / N);
       if (e[i] > e[w]) w = i;
     }
-    worst = std::max(worst, e[w]);
+    keep(e[w], a + (b - a) * w / N);
     // Golden-section search for the largest error between the worst sample's neighbours.
     double lo = a + (b - a) * std::max(0, w - 1) / N, hi = a + (b - a) * std::min(N, w + 1) / N;
     const double g = 0.6180339887498949;
@@ -234,8 +237,9 @@ double measure(const Job& job, const PcurvePiece& p) {
       if (f1 > f2) hi = x2, x2 = x1, f2 = f1, x1 = hi - g * (hi - lo), f1 = err(x1);
       else lo = x1, x1 = x2, f1 = f2, x2 = lo + g * (hi - lo), f2 = err(x2);
     }
-    worst = std::max({worst, f1, f2});
+    keep(f1, x1), keep(f2, x2);
   }
+  if (worstT) *worstT = at;
   return worst;
 }
 
@@ -502,8 +506,11 @@ Pcurve projectForms(const Curve& c, Range r, const Surface& s, double tol, const
   {
     std::vector<double> us, vs;
     s.breaks(job.dom.u, job.dom.v, us, vs);
+    // (A periodic direction's seam is one too: a closed profile's corner can be there.)
+    if (job.dom.uPeriod > 0) job.uBreaks.push_back(job.dom.u.lo);
     for (double x : us)
       if (x > job.dom.u.lo && x < job.dom.u.hi) job.uBreaks.push_back(x);
+    if (job.dom.vPeriod > 0) job.vBreaks.push_back(job.dom.v.lo);
     for (double x : vs)
       if (x > job.dom.v.lo && x < job.dom.v.hi) job.vBreaks.push_back(x);
   }
@@ -518,12 +525,28 @@ Pcurve projectForms(const Curve& c, Range r, const Surface& s, double tol, const
   // The result's error and certainty from its pieces'.
   out.error = 0;
   bool allUnique = true;
+  const PcurvePiece* worstPiece = nullptr;
+  double worstT = NAN;
   for (PcurvePiece& p : out.pieces) {
-    if (!p.poleLine) p.error = measure(job, p);
-    out.error = std::max(out.error, p.error);
+    double t = NAN;
+    if (!p.poleLine) p.error = measure(job, p, &t);
+    if (p.error > out.error || !worstPiece) out.error = std::max(out.error, p.error), worstPiece = &p, worstT = t;
     allUnique = allUnique && p.certainty == Certainty::unique;
   }
   if (out.certainty != Certainty::ambiguous) out.certainty = allUnique ? Certainty::unique : Certainty::ambiguous;
+  if (out.status == Status::ok && !(out.error <= tol) && !(out.offSurface > tol) && worstPiece
+    && !worstPiece->poleLine) {
+    // offSurface is the farthest the feet the result was made from are; where the error is worst they may not be
+    // (the nodes fall where they do): the curve's distance there from its foot on the result's branch (a local foot
+    // from the result's (u, v), else the nearest anywhere), so whether the curve is off the surface (invalidModel) or
+    // the p-curve misses it (noConvergence) doesn't hang on where the nodes fell.
+    CurvePoint c;
+    job.c.eval(worstT, 0, c);
+    const LocalFoot f = localFoot(job.s, c.p, at(*worstPiece, worstT));
+    double d = f.status == Status::ok ? f.distance : NAN;
+    if (!(d >= 0)) d = invertSurface(job.s, c.p, job.dom.u, job.dom.v, tol).distance;
+    if (d >= 0) out.offSurface = std::max(out.offSurface, d);
+  }
   if (out.status == Status::ok && !(out.error <= tol))
     out.status = out.offSurface > tol ? Status::invalidModel : Status::noConvergence;
   // Whatever the trace or the fit said (where the trace gave up, noConvergence; measure samples each of the curve's
