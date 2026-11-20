@@ -1292,6 +1292,36 @@ export function uFold(middle = 0.07, g = 0.1, vertexY?: number): BrepBuilder {
   return b;
 }
 
+/**
+ * A cone over a curved base: a degree (1, 2) B-spline whose u = 0 row is its apex at the origin (a pole line, v
+ * free), its u = 1 row an arc in x = 10 (bulging 8 in z). The face between two edges from the apex that have only
+ * p-curves, bending (quadratics in (u, v)): they leave the apex at v 0.6 and 0.4 and turn to 0.95 and 0.05 by
+ * u 0.15, then run out to the base, which closes the loop at u = 1. So the boundary's run on the pole row is v 0.6 to
+ * 0.4, while the curves cross a ring round the apex far along the row from it (v about 0.95 and 0.05).
+ */
+export function bentApex(): BrepBuilder {
+  const b = new BrepBuilder();
+  const base = [[10, -6, 0], [10, 0, 8], [10, 6, 0]];
+  const surface = b.addSurface({ kind: 'bspline', uDegree: 1, vDegree: 2, uKnots: [0, 1], vKnots: [0, 1],
+    uMultiplicities: [2, 2], vMultiplicities: [3, 3], poles: [[[0, 0, 0], [0, 0, 0], [0, 0, 0]], base],
+    uClosed: false, vClosed: false, selfIntersect: false, form: 'unspecified' });
+  const quad2 = (p: number[][]) => b.addCurve({ kind: 'bspline', degree: 2, knots: [0, 1], multiplicities: [3, 3],
+    poles: p, closed: false, selfIntersect: false, form: 'unspecified' });
+  // The surface's point at (u, v): u times the base's arc at v (a quadratic Bezier).
+  const at = (u: number, v: number) => [0, 1, 2].map((k) => u * ((1 - v) ** 2 * base[0]![k]! +
+    2 * v * (1 - v) * base[1]![k]! + v ** 2 * base[2]![k]!));
+  const apex = b.addVertex({ point: [0, 0, 0] });
+  const q0 = b.addVertex({ point: at(1, 0.05) }), q1 = b.addVertex({ point: at(1, 0.95) });
+  const eBase = b.addEdge({ start: q0, end: q1, sameSense: true });
+  const eUp = b.addEdge({ start: apex, end: q1, sameSense: true });
+  const eDown = b.addEdge({ start: apex, end: q0, sameSense: true });
+  sheet(b, b.addFace({ surface, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [
+    { edge: eBase, orientation: 'forward', pcurve: b.addCurve(line2([1, 0.05], [0, 1])), range: [0, 0.9] },
+    { edge: eUp, orientation: 'reversed', pcurve: quad2([[0, 0.6], [0.15, 0.95], [1, 0.95]]), range: [0, 1] },
+    { edge: eDown, orientation: 'forward', pcurve: quad2([[0, 0.4], [0.15, 0.05], [1, 0.05]]), range: [0, 1] }] }] }));
+  return b;
+}
+
 /** Across the seam (u from -pi / 2 to pi / 2), by its p-curves, by p-curves a period apart, without any. */
 export const halfCylinderPcurves = (): BrepBuilder => halfCylinder(-Math.PI / 2, 'same');
 export const halfCylinderApart = (): BrepBuilder => halfCylinder(-Math.PI / 2, 'apart');
@@ -1666,4 +1696,4 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   tinyCap: () => capWithin(0.01), capWithinPole, narrowStrip: () => narrowStrip(),
   narrowStripSmall: () => narrowStrip(0.05, 1e-3), uFold: () => uFold(), uFoldVertex: () => uFold(0, 0.25, 0.13),
   uFoldAway: () => uFold(-0.3), uFoldFar: () => uFold(-3), pcurveShifted, poleLunes, poleLens, curlBack, passBy,
-  wrongEndPcurve: () => wrongEndPcurve(), wigglePcurve: () => wrongEndPcurve(true) };
+  bentApex, wrongEndPcurve: () => wrongEndPcurve(), wigglePcurve: () => wrongEndPcurve(true) };

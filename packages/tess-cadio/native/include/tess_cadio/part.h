@@ -98,6 +98,11 @@ struct FaceMesh {
   int refusedBy[kRefusalKinds] = {};
   /** Splits of its edges it still wanted when the rounds ran out. */
   int splitsWanted = 0;
+  /**
+   * The meshings (the first and each split round's) in which refinement asked for a pole ring's segment to be split,
+   * which a ring's never is (it stays as the ring was cut): its triangles there refused for good.
+   */
+  int ringBlocked = 0;
   /** Whether its triangles' deviation was sampled rather than bounded (SurfaceCriteria::bounded). */
   bool sampled = false;
   /**

@@ -93,6 +93,7 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
   };
   PartMesher pm(m, opts);
   std::vector<uint32_t> failed, failedRows, failedStatus, refused, unsplit, unsettled, sampled, againstSense;
+  std::vector<uint32_t> ringBlocked, ringBlockedRounds;
   std::vector<uint32_t> folded;
   std::vector<uint32_t> refusedBy(kRefusalKinds, 0);
   uint32_t folds = 0;
@@ -130,6 +131,7 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
         }
       }
       if (fm.splitsWanted) unsplit.push_back(faceId[f]);
+      if (fm.ringBlocked) ringBlocked.push_back(faceId[f]), ringBlockedRounds.push_back(fm.ringBlocked);
       if (fm.sampled) sampled.push_back(faceId[f]);
       if (!fm.note.empty()) unsettled.push_back(faceId[f]);
       if (fm.againstSense) againstSense.push_back(faceId[f]);
@@ -221,7 +223,8 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
   result.diag = "{\"failed\":" + ids(failed) + ",\"failedRows\":" + ids(failedRows) + ",\"failedStatus\":" +
     ids(failedStatus) + ",\"failedCause\":" + causes + ",\"refused\":" + ids(refused) +
     ",\"unsplit\":" + ids(unsplit) + ",\"unsettled\":" + ids(unsettled) + ",\"sampled\":" + ids(sampled) +
-    ",\"againstSense\":" + ids(againstSense) + ",\"folded\":" + ids(folded) +
+    ",\"againstSense\":" + ids(againstSense) + ",\"folded\":" + ids(folded) + ",\"ringBlocked\":" +
+    ids(ringBlocked) + ",\"ringBlockedRounds\":" + ids(ringBlockedRounds) +
     ",\"refusedBy\":" + ids(refusedBy) + ",\"folds\":" +
     std::to_string(folds) + ",\"projections\":[" + std::to_string(pc.withinMesh) + "," +
     std::to_string(pc.atEdgeTolerance) + "," + std::to_string(pc.byInversion) + "],\"traces\":[" +
@@ -256,7 +259,9 @@ const float* tc_edge_positions() { return result.edgePositions.data(); }
  * uses without p-curves, by how they were sampled: EdgeMesh::projections, [withinMesh, atEdgeTolerance,
  * byInversion]), "traces" (the samples of uses traced sample by sample, [local, global]: EdgeMesh::traces) and
  * "traceFallbacks" (each local step that fell back on the global search, [edge id, t, distance, why]), "rounds",
- * "refusedTriangles", "poleSlivers" (refused triangles with a corner at a pole or apex)}.
+ * "refusedTriangles", "poleSlivers" (refused triangles with a corner at a pole or apex), "ringBlocked" and
+ * "ringBlockedRounds" (the faces whose refinement asked for a pole ring's segment to be split, which a ring's never
+ * is, and in how many rounds: FaceMesh::ringBlocked)}.
  */
 const char* tc_diag() { return result.diag.c_str(); }
 void tc_free() { result = {}; }

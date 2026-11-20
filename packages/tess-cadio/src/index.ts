@@ -255,6 +255,13 @@ export class CadioTessellator implements Tessellator {
         + `pole's fan${reasons ? `; by why: ${reasons}` : ''}` });
     }
     note('unsplit', 'still wanting their edges split when the rounds ran out');
+    // (Faces whose refinement asked for a pole ring's segment to be split, which a ring's never is: their triangles
+    // there refused for good. With the rounds it asked in.)
+    const blocked = list('ringBlocked'), blockedRounds = list('ringBlockedRounds');
+    if (blocked.length) {
+      diagnostics.push({ severity: 'warning', message: `${blocked.length} faces with refinement blocked by a fixed `
+        + `ring segment: ${blocked.map((id, i) => `#${id} (${blockedRounds[i]} rounds)`).join(', ')}` });
+    }
     const sampled = list('sampled');
     if (sampled.length) {
       diagnostics.push({ severity: 'info', message: `${sampled.length} faces meshed with their deviation from the `
