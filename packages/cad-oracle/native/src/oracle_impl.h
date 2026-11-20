@@ -39,6 +39,8 @@ struct Oracle::Impl {
 
   FaceMeasure closedForm(int face);
   FaceMeasure swept(int face);
+  /** faceIntegral (oracle.h), on the faces closedForm and swept measure. */
+  std::vector<Estimate> integral(int face, const Integrand& g);
 
 private:
   std::vector<std::unique_ptr<Curve>> curves_;

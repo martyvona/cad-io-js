@@ -1,5 +1,5 @@
-host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB; Darwin 27.2.0 arm64; Node 26.13.1; lowpowermode 0, on AC; load 5.9; speed 5584 on 1 thread, 62195 on 18
-517 files (0 over the size limit), 3258 parts, 86142 faces; the oracle 106.7 s, today's 54.8 s
+host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB; Darwin 27.2.0 arm64; Node 26.13.1; lowpowermode 0, on AC; load 4.6; speed 5628 on 1 thread, 67971 on 18
+517 files (0 over the size limit), 3258 parts, 86142 faces; the oracle 113.3 s, today's 58.9 s
 
 Coverage (every face of every part), by surface kind:
    27523  plane       trusted
@@ -134,6 +134,13 @@ Coverage (every face of every part), by surface kind:
             gkv311-opencascade-dataset/step/trj4_k1_geo-pe-214.stp #6272 face #4650
             gkv311-opencascade-dataset/step/trj4_k1_geo-tu-214.stp #2080 face #803
       30  extrusion   trusted
+      25  sphere      flagged sphereSide
+            gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3140 face #1931
+            gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3140 face #1933
+            gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3139 face #1920
+            gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3139 face #1922
+            gkv311-opencascade-dataset/step/bug31685_2.stp #17 face #7564
+            gkv311-opencascade-dataset/step/bug31685_2.stp #17 face #7916
       23  sphere      flagged sphereSide, loose
             gkv311-opencascade-dataset/step/trj4_k1_geo-pe-203.stp #6268 face #2055
             gkv311-opencascade-dataset/step/trj4_k1_geo-pe-203.stp #6268 face #2116
@@ -148,13 +155,6 @@ Coverage (every face of every part), by surface kind:
             gkv311-opencascade-dataset/step/OCC8229.stp #5 face #727
             gkv311-opencascade-dataset/step/OCC8229.stp #5 face #743
             gkv311-opencascade-dataset/step/OCC8229.stp #5 face #1198
-      21  sphere      flagged sphereSide
-            gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3140 face #1933
-            gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3139 face #1922
-            gkv311-opencascade-dataset/step/bug31685_2.stp #17 face #7564
-            gkv311-opencascade-dataset/step/bug31685_2.stp #17 face #7916
-            gkv311-opencascade-dataset/step/ec_turbine-A.stp #11 face #11034
-            gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #10172
       12  cone        flagged orientation
             gkv311-opencascade-dataset/step/PRO7071.stp #403 face #370
             gkv311-opencascade-dataset/step/PRO7071.stp #403 face #382
@@ -177,13 +177,6 @@ Coverage (every face of every part), by surface kind:
             gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp #5203 face #1871
             gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp #5203 face #2320
             gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp #5203 face #2447
-      10  sphere      noConvergence: 
-            gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3140 face #1931
-            gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3139 face #1920
-            gkv311-opencascade-dataset/step/trj3_s1-md-214.stp #1406 face #1481
-            gkv311-opencascade-dataset/step/trj3_s1-md-214.stp #1406 face #1533
-            gkv311-opencascade-dataset/step/trj3_s1-md-214.stp #105 face #108
-            gkv311-opencascade-dataset/step/trj3_s1-md-214.stp #105 face #156
        9  cylinder    flagged orientation
             gkv311-opencascade-dataset/step/Checking_Fixture_Clamping.STEP #5594 face #8480
             gkv311-opencascade-dataset/step/Checking_Fixture_Clamping.STEP #5594 face #8400
@@ -205,6 +198,13 @@ Coverage (every face of every part), by surface kind:
             gkv311-opencascade-dataset/step/bug25415_part_of_hdrv8w64p254_4x2_1016x502h838p.stp #418 face #156
             gkv311-opencascade-dataset/step/bug25415_part_of_hdrv8w64p254_4x2_1016x502h838p.stp #418 face #216
             gkv311-opencascade-dataset/step/bug25415_part_of_hdrv8w64p254_4x2_1016x502h838p.stp #418 face #342
+       6  sphere      noConvergence: 
+            gkv311-opencascade-dataset/step/trj3_s1-md-214.stp #1406 face #1481
+            gkv311-opencascade-dataset/step/trj3_s1-md-214.stp #1406 face #1533
+            gkv311-opencascade-dataset/step/trj3_s1-md-214.stp #105 face #108
+            gkv311-opencascade-dataset/step/trj3_s1-md-214.stp #105 face #156
+            gkv311-opencascade-dataset/step/trj3_s1-md-214.stp #13 face #16
+            gkv311-opencascade-dataset/step/trj3_s1-md-214.stp #13 face #53
        5  extrusion   invalidModel: a p-curve's range off its domain
             gkv311-opencascade-dataset/step/trj4_k1_top-pe-214.stp #4779 face #1529
             gkv311-opencascade-dataset/step/trj4_k1_top-pe-214.stp #4779 face #1759
@@ -373,7 +373,7 @@ Against OCCT's measures, where ours is trusted and OCCT's valid:
        9  torus       past 0.01
        4  extrusion   within 1e-4
        3  extrusion   within 0.01
-  relative difference of the area: <= 1e-12: 43904, <= 1e-9: 6705, <= 1e-6: 6159, <= 1e-4: 3377, <= 1e-2: 1735, <= 1e-1: 228, <= inf: 23
+  relative difference of the area: <= 1e-12: 43903, <= 1e-9: 6706, <= 1e-6: 6159, <= 1e-4: 3377, <= 1e-2: 1735, <= 1e-1: 228, <= inf: 23
   of the perimeter, planes only: <= 1e-12: 26366, <= 1e-9: 466, <= 1e-6: 372, <= 1e-4: 260, <= 1e-2: 31, <= 1e-1: 2, <= inf: 4
 
 OCCT's measure more than 1 % off ours, by its own mesh:

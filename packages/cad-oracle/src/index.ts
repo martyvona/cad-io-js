@@ -1,7 +1,7 @@
 // cad-oracle's TypeScript layer: the WebAssembly module (dist/cad_oracle.wasm, build.sh's `module`) loaded by `init`,
-// and an Oracle per B-rep model buffer (cad-brep's format) giving its edges' lengths and its faces' areas and
-// perimeters, each with its error estimate, status and flags. What each measure means and how it's computed:
-// native/include/cad_oracle/oracle.h; the module's C API is native/src/cad_oracle_api.cpp.
+// and an Oracle per B-rep model buffer (cad-brep's format) giving its edges' lengths, its faces' areas and
+// perimeters and their polynomial moments, each with its error estimate, status and flags. What each measure means
+// and how it's computed: native/include/cad_oracle/oracle.h; the module's C API is native/src/cad_oracle_api.cpp.
 
 /** result.h's Status, by code. */
 export const STATUS = ['ok', 'unsupported', 'outOfDomain', 'singular', 'noConvergence', 'invalidModel'] as const;
@@ -15,7 +15,7 @@ export const FLAGS = { orientation: 1, sphereSide: 2, loose: 4, winds: 8, noLoop
 export type OracleFlag = keyof typeof FLAGS;
 
 /** The module's C API version this layer speaks (co_api_version). */
-const API_VERSION = 1;
+const API_VERSION = 2;
 
 /** A computed real with an a posteriori estimate of its error (result.h's Estimate). */
 export interface Estimate {
@@ -126,6 +126,15 @@ export interface OracleOptions {
 const flagsOf = (bits: number) => (Object.keys(FLAGS) as OracleFlag[]).filter((k) => bits & FLAGS[k]);
 
 /** The oracle of one model: its own copy of the buffer in the module, until dispose. */
+/** One monomial's moments over a face: the integral of (p - c)^exponent n_j for j = x, y, z. */
+export interface Moment {
+  exponent: [number, number, number];
+  n: [Estimate, Estimate, Estimate];
+}
+
+/** The largest degree faceMoments takes (co_face_moments). */
+export const MAX_MOMENT_DEGREE = 4;
+
 export class Oracle {
   private readonly x: OracleExports;
   private h: number;
@@ -164,6 +173,33 @@ export class Oracle {
       x._co_edge_length!(this.live(), edge, p);
       const o = x.HEAPF64.subarray(p / 8, p / 8 + 3);
       return { value: o[0]!, error: o[1]!, status: STATUS[o[2]!]! };
+    } finally {
+      x._free(p);
+    }
+  }
+
+  /**
+   * Face row `face`'s moments about `center` (oracle.h's faceIntegral): for every monomial (p - c)^(a, b, c) of
+   * degree at most `degree` (by degree, then a, then b, descending), its integral times each component of the area
+   * vector n (the face's sense applied). Over a closed shell's faces: the volume is the sum of (x n_x + y n_y + z n_z)
+   * / 3 over the degree-1 monomials, a first moment x^2 n_x / 2, and so on (the divergence theorem). Unsupported
+   * where the area is.
+   */
+  faceMoments(face: number, opts: { center?: [number, number, number]; degree?: number } = {}): Moment[] {
+    const [cx, cy, cz] = opts.center ?? [0, 0, 0], degree = opts.degree ?? 1;
+    if (!Number.isInteger(degree) || degree < 0 || degree > MAX_MOMENT_DEGREE) {
+      throw new Error(`cad-oracle: a moment's degree is 0 to ${MAX_MOMENT_DEGREE}, not ${degree}`);
+    }
+    const exponents: [number, number, number][] = [];
+    for (let t = 0; t <= degree; t++)
+      for (let a = t; a >= 0; a--)
+        for (let b = t - a; b >= 0; b--) exponents.push([a, b, t - a - b]);
+    const x = this.x, p = x._malloc(72 * exponents.length);
+    try {
+      x._co_face_moments!(this.live(), face, cx, cy, cz, degree, p);
+      const o = x.HEAPF64.subarray(p / 8, p / 8 + 9 * exponents.length);
+      const at = (k: number): Estimate => ({ value: o[3 * k]!, error: o[3 * k + 1]!, status: STATUS[o[3 * k + 2]!]! });
+      return exponents.map((exponent, m) => ({ exponent, n: [at(3 * m), at(3 * m + 1), at(3 * m + 2)] }));
     } finally {
       x._free(p);
     }

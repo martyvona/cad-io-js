@@ -172,8 +172,12 @@ double footFrom(const Surface& s, const SurfaceDomain& dom, Vec3 p, Vec2& uv, in
     const double det = a * c - b * b;
     if (!(det > 0)) break;
     Vec2 step{-(c * gu - b * gv) / det, -(a * gv - b * gu) / det};
+    // A step that doesn't come nearer is halved only while it is more than rounding in 3D (a few ulps of p's
+    // coordinates) or 1e-7 of the distance (where the curve is off the surface the distance is flat at its foot, and
+    // a fit there is to a quarter of it at least): past that, halving only re-evaluates.
+    const double s3 = norm(step.x * sp.du + step.y * sp.dv), floor = 1e-15 * (1 + norm(p)) + 1e-7 * best;
     bool moved = false;
-    for (int h = 0; h < 30; h++) {
+    for (int h = 0; h < 30 && (h == 0 || std::ldexp(s3, -h) > floor); h++) {
       const Vec2 q = clampIn(uv + step);
       SurfacePoint sq;
       s.eval(q.x, q.y, 2, sq);
@@ -214,7 +218,11 @@ double measure(const Job& job, const PcurvePiece& p, double* worstT) {
     const double e = norm(sp.p - c.p);
     return std::isfinite(e) ? e : kInf;
   };
-  constexpr int N = 16;
+  // 64 samples a smooth span (a deviation that oscillates, a line's against a curve's wiggle, has bumps a few
+  // hundredths of the span wide), then a golden-section search for the largest error around every sample that is a
+  // local maximum within half of the worst, between its neighbours (the worst sample's bump needn't be the
+  // highest).
+  constexpr int N = 64;
   double worst = 0, at = p.t.lo;
   auto keep = [&](double e, double t) {
     if (e > worst) worst = e, at = t;
@@ -229,15 +237,17 @@ double measure(const Job& job, const PcurvePiece& p, double* worstT) {
       if (e[i] > e[w]) w = i;
     }
     keep(e[w], a + (b - a) * w / N);
-    // Golden-section search for the largest error between the worst sample's neighbours.
-    double lo = a + (b - a) * std::max(0, w - 1) / N, hi = a + (b - a) * std::min(N, w + 1) / N;
-    const double g = 0.6180339887498949;
-    double x1 = hi - g * (hi - lo), x2 = lo + g * (hi - lo), f1 = err(x1), f2 = err(x2);
-    for (int it = 0; it < 40 && hi - lo > 1e-14 * (std::fabs(lo) + std::fabs(hi) + 1e-300); it++) {
-      if (f1 > f2) hi = x2, x2 = x1, f2 = f1, x1 = hi - g * (hi - lo), f1 = err(x1);
-      else lo = x1, x1 = x2, f1 = f2, x2 = lo + g * (hi - lo), f2 = err(x2);
+    for (int c = 0; c <= N; c++) {
+      if (!(e[c] >= 0.5 * e[w]) || (c > 0 && e[c - 1] > e[c]) || (c < N && e[c + 1] > e[c])) continue;
+      double lo = a + (b - a) * std::max(0, c - 1) / N, hi = a + (b - a) * std::min(N, c + 1) / N;
+      const double g = 0.6180339887498949;
+      double x1 = hi - g * (hi - lo), x2 = lo + g * (hi - lo), f1 = err(x1), f2 = err(x2);
+      for (int it = 0; it < 40 && hi - lo > 1e-14 * (std::fabs(lo) + std::fabs(hi) + 1e-300); it++) {
+        if (f1 > f2) hi = x2, x2 = x1, f2 = f1, x1 = hi - g * (hi - lo), f1 = err(x1);
+        else lo = x1, x1 = x2, f1 = f2, x2 = lo + g * (hi - lo), f2 = err(x2);
+      }
+      keep(f1, x1), keep(f2, x2);
     }
-    keep(f1, x1), keep(f2, x2);
   }
   if (worstT) *worstT = at;
   return worst;

@@ -141,9 +141,13 @@ struct SurfaceFoot {
  * `tol` a distance. `hint`, if given, is a (u, v) the caller expects near the answer (a neighbouring sample's): it
  * seeds the search but never replaces the global check. `all`, if given, receives every foot the search found within
  * tol of the nearest, nearest first, before feet within tol of each other are taken as one (the end search clusters
- * them at its own tolerances); periodic parameters in [lo, lo + period) as uv's.
+ * them at its own tolerances); periodic parameters in [lo, lo + period) as uv's. `distanceOnly`: only the nearest
+ * distance is wanted, within eps = 1e-3 tol of the true one (a rectangle is dropped once its lower bound is past the
+ * nearest found less eps, not kept while it could hold a foot within tol of it): uv and foot are a point at that
+ * distance, certainty none and no alternatives, no seam or singularity flags; noConvergence where the budget ran out
+ * with a rectangle that could hold a point nearer by eps.
  */
 SurfaceInversion invertSurface(const Surface& s, Vec3 p, Range ru, Range rv, double tol, const Vec2* hint = nullptr,
-  std::vector<SurfaceFoot>* all = nullptr);
+  std::vector<SurfaceFoot>* all = nullptr, bool distanceOnly = false);
 
 } // namespace cadgeom

@@ -1,7 +1,7 @@
 {
   "name": "cad-oracle",
   "version": "0.3.0",
-  "description": "Exact measures of cad-io-js's B-rep models (edge lengths, face perimeters and areas) by integration over the exact geometry, independent of every mesher, as C++ compiled to WebAssembly",
+  "description": "Exact measures of cad-io-js's B-rep models (edge lengths, face perimeters, areas and moments) by integration over the exact geometry, independent of every mesher, as C++ compiled to WebAssembly",
   "license": "AGPL-3.0-only",
   "type": "module",
   "exports": {

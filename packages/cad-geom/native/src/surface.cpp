@@ -409,7 +409,7 @@ LocalFoot localFoot(const Surface& s, Vec3 p, Vec2 start) {
 }
 
 SurfaceInversion invertSurface(const Surface& s0, Vec3 p, Range ru, Range rv, double tol, const Vec2* hint,
-  std::vector<SurfaceFoot>* all) {
+  std::vector<SurfaceFoot>* all, bool distanceOnly) {
   SurfaceInversion out;
   const SurfaceImpl* impl = dynamic_cast<const SurfaceImpl*>(&s0);
   if (!impl) return out;
@@ -459,6 +459,15 @@ SurfaceInversion invertSurface(const Surface& s0, Vec3 p, Range ru, Range rv, do
     ub = std::fmin(ub, d);
     cands.push_back({uv, d, f});
   };
+  // What a rectangle's lower bound must not pass to be searched: the nearest found plus tol (every foot within tol
+  // of it, for the alternatives), or for a distance alone less eps. A point that lowers the bound is then a
+  // candidate too, so the distance returned is the bound.
+  const double eps = 1e-3 * tol, slack = distanceOnly ? -eps : tol;
+  auto bound = [&](Vec2 uv, Vec3 f) {
+    const double d = norm(f - p);
+    if (d < ub && distanceOnly) cands.push_back({uv, d, f});
+    ub = std::fmin(ub, d);
+  };
   int budget = 40000;
   bool exhausted = false;
   double leftLb = kInf;
@@ -486,13 +495,13 @@ SurfaceInversion invertSurface(const Surface& s0, Vec3 p, Range ru, Range rv, do
     const std::vector<double>& vs = grid.vs;
     for (size_t i = 0, k = 0; i + 1 < us.size(); i++)
       for (size_t j = 0; j + 1 < vs.size(); j++, k++) {
-        ub = std::fmin(ub, norm(grid.mid[k] - p));
+        bound({0.5 * us[i] + 0.5 * us[i + 1], 0.5 * vs[j] + 0.5 * vs[j + 1]}, grid.mid[k]);
         queue.push({{us[i], us[i + 1]}, {vs[j], vs[j + 1]}, grid.ok[k] ? boxDistance(grid.box[k], p) : 0.0});
       }
     while (!queue.empty()) {
       Node n = queue.top();
       queue.pop();
-      if (n.lb > ub + tol) continue;
+      if (n.lb > ub + slack) continue;
       inversionRects++;
       Range a = n.u, b = n.v;
       Vec2 mid{0.5 * a.lo + 0.5 * a.hi, 0.5 * b.lo + 0.5 * b.hi};
@@ -529,7 +538,7 @@ SurfaceInversion invertSurface(const Surface& s0, Vec3 p, Range ru, Range rv, do
         Vec2 x = convexMinimum(s, p, a, b, mid, push);
         bool inner = (push[0] && a.lo > ru.lo) || (push[1] && a.hi < ru.hi) || (push[2] && b.lo > rv.lo)
           || (push[3] && b.hi < rv.hi);
-        if (inner) ub = std::fmin(ub, norm(at(x) - p));
+        if (inner) bound(x, at(x));
         else add(x);
         continue;
       }
@@ -559,13 +568,13 @@ SurfaceInversion invertSurface(const Surface& s0, Vec3 p, Range ru, Range rv, do
         lv = std::fmax(lv, norm(vm - at({u, b.lo})) + norm(at({u, b.hi}) - vm));
       }
       if (!(lu > 0 || lv > 0)) lu = wu, lv = wv;
-      ub = std::fmin(ub, norm(at(mid) - p));
+      bound(mid, at(mid));
       Range h[2][2];
       if (lu >= lv) h[0][0] = {a.lo, mid.x}, h[0][1] = b, h[1][0] = {mid.x, a.hi}, h[1][1] = b;
       else h[0][0] = a, h[0][1] = {b.lo, mid.y}, h[1][0] = a, h[1][1] = {mid.y, b.hi};
       for (auto& c : h) {
         double lb = lower(c[0], c[1]);
-        if (lb <= ub + tol) queue.push({c[0], c[1], lb});
+        if (lb <= ub + slack) queue.push({c[0], c[1], lb});
       }
     }
   }
@@ -574,7 +583,14 @@ SurfaceInversion invertSurface(const Surface& s0, Vec3 p, Range ru, Range rv, do
   std::sort(cands.begin(), cands.end(), [](const Candidate& x, const Candidate& y) {
     return x.d < y.d || (x.d == y.d && (x.uv.x < y.uv.x || (x.uv.x == y.uv.x && x.uv.y < y.uv.y)));
   });
-  if (exhausted && leftLb < cands[0].d - tol) out.status = Status::noConvergence;
+  if (exhausted && leftLb < cands[0].d - (distanceOnly ? eps : tol)) out.status = Status::noConvergence;
+  if (distanceOnly) {
+    const Candidate& best = cands[0];
+    out.uv = best.uv, out.foot = best.foot, out.distance = best.d, out.certainty = Certainty::none;
+    if (wrapU && out.uv.x >= ru.hi) out.uv.x -= dom.uPeriod;
+    if (wrapV && out.uv.y >= rv.hi) out.uv.y -= dom.vPeriod;
+    return out;
+  }
   if (all) {
     all->clear();
     for (const Candidate& k : cands) {

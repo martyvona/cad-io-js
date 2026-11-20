@@ -1,13 +1,7 @@
-// Areas of faces on extrusions and revolutions: Green's theorem in (u, v), area = oint H du with dH/dv = -|S_u x S_v|,
-// H closed in the profile C. An extrusion S = C(u) + v m D has |S_u x S_v| = m |C'(u) x D|, so H = -(v - v0) m
-// |C'(u) x D|; a revolution (u the angle, v the profile's parameter) has |S_u x S_v| = rho(v) |C'(v)|, rho the
-// profile's distance from the axis, so H = -(G(v) - G(v0)) with G a 1D integral along the profile (Gauss-Kronrod from
-// the profile's breaks). v isn't periodic on either but for a revolution of a closed profile, so H du is one form on
-// the surface and a seam needs no term. The boundary is the face API's loops in (u, v) (cg_face_pieces: the face on
-// each piece's left, its sense applied; p-curves given, else its projection, flagged), each loop unwrapped piece to
-// piece by whole periods; a gap left between pieces (the face API closes loops along pole rows without a piece) is
-// run straight in (u, v). A face whose loops wind the angle in all bounds a pole row: v0 is put on the pole on the
-// face's side (the left of a loop running +u is +v), where G - G(v0) is 0; with no such pole the face is flagged.
+// Areas of faces on extrusions and revolutions (swept.h says how the integral works), with H closed in the profile C:
+// an extrusion S = C(u) + v m D has |S_u x S_v| = m |C'(u) x D|, so H = -(v - v0) m |C'(u) x D|; a revolution (u the
+// angle, v the profile's parameter) has |S_u x S_v| = rho(v) |C'(v)|, rho the profile's distance from the axis, so
+// H = -(G(v) - G(v0)) with G a 1D integral along the profile (Gauss-Legendre from the profile's breaks).
 
 #include <algorithm>
 #include <cmath>
@@ -16,6 +10,8 @@
 #include "cad_geom/numerics.h"
 #include "geom_api.h"
 #include "oracle_impl.h"
+#include "quad.h"
+#include "swept.h"
 
 namespace cadoracle {
 
@@ -24,70 +20,188 @@ using cadgeom::Vec2;
 
 namespace {
 
-/** A piece of a loop in (u, v): its coedge between p-curve parameters, the whole periods added to it. */
-struct Piece {
-  int coedge, loop;
-  double t0, t1;
-  double ou = 0, ov = 0;
-};
-
-/** How many times a span that doesn't converge is bisected at most (integrateSplit). */
-constexpr int kBisections = 12;
-/** Gauss-Legendre panels G starts from per span of the profile, and at most. */
-constexpr int kGaussPanels = 2, kMaxGaussPanels = 256;
-
-/** 16-point Gauss-Legendre's nodes on [-1, 1] and weights, by Newton on the Legendre polynomial. */
-struct Gauss16 {
-  double x[16], w[16];
-  Gauss16() {
-    const int n = 16;
-    for (int i = 0; i < n; i++) {
-      double z = std::cos(M_PI * (i + 0.75) / (n + 0.5)), dp = 0;
-      for (int it = 0; it < 100; it++) {
-        double p0 = 1, p1 = z;
-        for (int k = 2; k <= n; k++) {
-          const double p2 = ((2 * k - 1) * z * p1 - (k - 1) * p0) / k;
-          p0 = p1, p1 = p2;
-        }
-        dp = n * (z * p1 - p0) / (z * z - 1);
-        const double dz = p1 / dp;
-        z -= dz;
-        if (std::fabs(dz) < 1e-16) break;
-      }
-      x[i] = z, w[i] = 2 / ((1 - z * z) * dp * dp);
-    }
-  }
-};
-const Gauss16 kGauss16;
-
-/** The integral of f over [a, b] by m equal panels of 16-point Gauss-Legendre. */
-/**
- * The integral of f over [a, b] by quadrature::integrate, bisected where it doesn't converge (up to kBisections
- * deep): a projected p-curve is fitted in pieces whose joints are kinks, or tiny jumps, at parameters the caller
- * doesn't know, and each bisection confines one to a span half as long.
- */
-template <class F>
-Estimate integrateSplit(const F& f, double a, double b, double absTol, double relTol, int depth = 0) {
-  Estimate e = cadgeom::quadrature::integrate(f, a, b, absTol, relTol);
-  if (e.status != Status::noConvergence || depth >= kBisections) return e;
-  const double m = (a + b) / 2;
-  Estimate l = integrateSplit(f, a, m, absTol / 2, relTol, depth + 1);
-  Estimate r = integrateSplit(f, m, b, absTol / 2, relTol, depth + 1);
-  return {l.value + r.value, l.error + r.error,
-    l.status != Status::ok ? l.status : r.status};
+/** (u, v) and (u', v') on a piece, its periods added; false where the face API can't evaluate it. */
+bool pieceAt(int32_t h, const SweptPiece& p, double t, Vec2& uv, Vec2& d) {
+  double out[6];
+  uint8_t st = 0;
+  const bool ok = cg_coedge_eval(h, p.coedge, &t, 1, 1, out, &st) == 0 && st == 0;
+  uv = {out[0] + p.ou, out[1] + p.ov}, d = {out[3], out[4]};
+  return ok;
 }
 
-template <class F> double gauss(const F& f, double a, double b, int m) {
-  const double h = (b - a) / m;
-  double sum = 0;
-  for (int j = 0; j < m; j++) {
-    const double c = a + (j + 0.5) * h;
-    for (int i = 0; i < 16; i++) sum += kGauss16.w[i] * f(c + kGauss16.x[i] * h / 2);
-  }
-  return sum * h / 2;
-}
+double reduce(double d, double period) { return period > 0 ? period * std::round(d / period) : 0.0; }
 
 } // namespace
+
+SweptFace sweptFace(Oracle::Impl& I, int f) {
+  SweptFace F;
+  const Model& model = I.model;
+  const int s = F.surface = model.faceSurface(f);
+  F.extrusion = model.surfaceKind(s) == CBR_SURFACE_EXTRUSION;
+  auto fail = [&](Status st, const char* why) {
+    F.status = st, F.why = why;
+    return F;
+  };
+  const double* R = model.surfaceReals(s);
+  F.C = I.curve(model.surfaceInts(s)[0]);
+  if (!F.C) return fail(Status::unsupported, "a profile curve not supported");
+  double info[7];
+  if (int32_t r = cg_face_info(I.h, f, NAN, info)) return fail(Status::invalidModel, faceStatusWhy(r));
+  F.Pu = info[1], F.Pv = info[2];
+  {
+    const double* sc = cg_scratch();
+    for (int i = 0; i < static_cast<int>(info[4]); i++)
+      if (sc[2 * i] == 0) F.poleV.push_back(sc[2 * i + 1]);
+  }
+  if (!F.extrusion && F.poleV.empty() && model.curveKind(model.surfaceInts(s)[0]) == CBR_CURVE_LINE) {
+    // A line through the axis is a pole cad-geom doesn't list (the line's domain is unbounded): where its distance
+    // from the axis, linear in t, vanishes.
+    CurvePoint q;
+    F.C->eval(0, 1, q);
+    const Vec3 Ax{R[0], R[1], R[2]}, ax{R[3], R[4], R[5]}, w = q.p - Ax;
+    const Vec3 w0 = w - dot(w, ax) * ax, d = q.d1 - dot(q.d1, ax) * ax;
+    const double dd = dot(d, d);
+    if (dd > 0) {
+      const double t = -dot(w0, d) / dd;
+      if (norm(w0 + t * d) <= 1e-9 * (norm(w0) + norm(d))) F.poleV.push_back(t);
+    }
+  }
+  if (info[6] > 0) F.flags |= flagProjectedBoundary;
+  const int32_t np = cg_face_pieces(I.h, f);
+  if (np < 0) return fail(Status::invalidModel, faceStatusWhy(-np));
+  std::vector<int> loopOf(model.coedges(), -1);
+  for (int l = model.faceFirstLoop(f); l < model.faceFirstLoop(f) + model.faceLoopCount(f); l++)
+    for (int k = model.loopFirst(l); k < model.loopFirst(l) + model.loopCount(l); k++)
+      if (model.loopKind(l) == CBR_LOOP_EDGE) loopOf[k] = l;
+  {
+    const double* sc = cg_scratch();
+    for (int i = 0; i < np; i++) {
+      const int c = static_cast<int>(sc[3 * i]);
+      F.pieces.push_back({c, c >= 0 && c < model.coedges() ? loopOf[c] : -1, sc[3 * i + 1], sc[3 * i + 2]});
+    }
+  }
+  if (F.pieces.empty()) return F;
+  // Each loop's pieces unwrapped: a piece's start brought within half a period of the previous piece's end; the
+  // whole periods a loop closes across are its winding.
+  bool ok = true;
+  auto& P = F.pieces;
+  for (size_t i = 0; i < P.size(); i++) {
+    Vec2 a, b, d;
+    if (i > 0 && P[i - 1].loop == P[i].loop) {
+      ok &= pieceAt(I.h, P[i - 1], P[i - 1].t1, b, d);
+      ok &= pieceAt(I.h, P[i], P[i].t0, a, d);
+      P[i].ou = reduce(b.x - a.x, F.Pu), P[i].ov = reduce(b.y - a.y, F.Pv);
+    }
+    if (i + 1 == P.size() || P[i + 1].loop != P[i].loop) {
+      size_t j = i;
+      while (j > 0 && P[j - 1].loop == P[i].loop) j--;
+      ok &= pieceAt(I.h, P[i], P[i].t1, b, d);
+      ok &= pieceAt(I.h, P[j], P[j].t0, a, d);
+      F.windU += F.Pu > 0 ? std::round((b.x - a.x) / F.Pu) : 0;
+      F.windV += F.Pv > 0 ? std::round((b.y - a.y) / F.Pv) : 0;
+    }
+  }
+  if (!ok) return fail(Status::invalidModel, "a p-curve not evaluated");
+  if (F.windV != 0) F.flags |= flagWinds;
+  if (F.windU != 0 && (F.extrusion || F.poleV.empty())) F.flags |= flagWinds;
+  Vec2 start, d0;
+  pieceAt(I.h, P[0], P[0].t0, start, d0);
+  F.v0 = !F.extrusion && !F.poleV.empty() ? F.poleV[0] : start.y;
+  Vec3 lo{INFINITY, INFINITY, INFINITY}, hi{-INFINITY, -INFINITY, -INFINITY};
+  for (const SweptPiece& p : P) {
+    const int e = model.coedgeEdge(p.coedge);
+    for (int v : {model.edgeStart(e), model.edgeEnd(e)}) {
+      if (v < 0) continue;
+      const Vec3 q = model.vertexPoint(v);
+      lo = {std::fmin(lo.x, q.x), std::fmin(lo.y, q.y), std::fmin(lo.z, q.z)};
+      hi = {std::fmax(hi.x, q.x), std::fmax(hi.y, q.y), std::fmax(hi.z, q.z)};
+    }
+  }
+  F.size = std::isfinite(lo.x) ? norm(hi - lo) : 1;
+  return F;
+}
+
+SweptTotals sweptIntegral(Oracle::Impl& I, const SweptFace& F, int K,
+  const std::function<void(double u, double v, double* out)>& H, const std::vector<double>& floor, double relTol) {
+  SweptTotals T;
+  T.value.assign(K, 0), T.error.assign(K, 0);
+  const Model& model = I.model;
+  bool ok = true;
+  auto at = [&](const SweptPiece& p, double t, Vec2& uv, Vec2& d) { ok &= pieceAt(I.h, p, t, uv, d); };
+  // An absolute tolerance per component: the scale the loops' integrals add up from, a turn (or the loops' extent in
+  // u) at H's largest at the pieces' ends, or the component's floor where that's more.
+  std::vector<double> absTol(K), hv(K), hMax(K, 0);
+  {
+    double uMin = INFINITY, uMax = -INFINITY;
+    for (const SweptPiece& p : F.pieces) {
+      for (double t : {p.t0, p.t1}) {
+        Vec2 uv, d;
+        at(p, t, uv, d);
+        H(uv.x, uv.y, hv.data());
+        for (int c = 0; c < K; c++) hMax[c] = std::fmax(hMax[c], std::fabs(hv[c]));
+        uMin = std::fmin(uMin, uv.x), uMax = std::fmax(uMax, uv.x);
+      }
+    }
+    for (int c = 0; c < K; c++) {
+      absTol[c] = relTol * std::fmax(c < static_cast<int>(floor.size()) ? floor[c] : 0,
+        hMax[c] * std::fmax(uMax - uMin, F.Pu));
+    }
+  }
+  auto add = [&](int c, const Estimate& e) {
+    T.value[c] += e.value, T.error[c] += e.error;
+    if (e.status != Status::ok && T.status == Status::ok) T.status = e.status;
+  };
+  const auto& P = F.pieces;
+  for (size_t i = 0; i < P.size(); i++) {
+    const SweptPiece& p = P[i];
+    std::vector<double> br;
+    const int pc = model.coedgePcurve(p.coedge);
+    // Cut where the p-curve is less smooth: its own breaks, or a projection's, which is in its edge's curve's
+    // parameter, that curve's (an extrusion's profile copy: the profile's knots, where C' and so H may kink).
+    const Range span{std::fmin(p.t0, p.t1), std::fmax(p.t0, p.t1)};
+    const Curve* own = pc >= 0 ? I.curve(pc) : I.curve(model.edgeCurve(model.coedgeEdge(p.coedge)));
+    if (own) own->breaks(span, br);
+    else br = {span.lo, span.hi};
+    if (p.t1 < p.t0) std::reverse(br.begin(), br.end());
+    // H du at t, all components (the first component's rule computes them, the others' mostly look them up).
+    Memo memo(K);
+    auto hdu = [&](double t, double* o) {
+      Vec2 uv, d;
+      at(p, t, uv, d);
+      H(uv.x, uv.y, o);
+      for (int c = 0; c < K; c++) o[c] *= d.x;
+    };
+    for (int c = 0; c < K; c++) {
+      for (size_t k = 0; k + 1 < br.size(); k++) {
+        add(c, integrateSplit([&](double t) { return memo.at(t, hdu)[c]; }, br[k], br[k + 1], absTol[c], relTol));
+      }
+    }
+    // The gap to the next piece of the loop (or back to its first), less whole periods, run straight in (u, v).
+    size_t j = i + 1;
+    if (j == P.size() || P[j].loop != p.loop) {
+      j = i;
+      while (j > 0 && P[j - 1].loop == p.loop) j--;
+    }
+    Vec2 a, b, d, s0;
+    at(p, p.t1, a, d);
+    at(p, p.t0, s0, d);
+    T.spanU += std::fabs(a.x - s0.x);
+    at(P[j], P[j].t0, b, d);
+    b = {b.x + reduce(a.x - b.x, F.Pu), b.y + reduce(a.y - b.y, F.Pv)};
+    if (norm(b - a) <= 1e-12 * (1 + norm(a))) continue;
+    Memo gap(K);
+    auto gapHdu = [&](double x, double* o) {
+      const Vec2 uv = a + x * (b - a);
+      H(uv.x, uv.y, o);
+      for (int c = 0; c < K; c++) o[c] *= b.x - a.x;
+    };
+    for (int c = 0; c < K; c++) {
+      add(c, cadgeom::quadrature::integrate([&](double x) { return gap.at(x, gapHdu)[c]; }, 0, 1, absTol[c], relTol));
+    }
+  }
+  T.failed = !ok;
+  return T;
+}
 
 FaceMeasure Oracle::Impl::swept(int f) {
   FaceMeasure m;
@@ -104,31 +218,10 @@ FaceMeasure Oracle::Impl::swept(int f) {
   const Curve* C = curve(model.surfaceInts(s)[0]);
   if (!C) return fail(Status::unsupported, "a profile curve not supported");
 
-  double info[7];
-  if (int32_t r = cg_face_info(h, f, NAN, info)) return fail(Status::invalidModel, faceStatusWhy(r));
-  const double Pu = info[1], Pv = info[2];
-  std::vector<double> poleV;
-  {
-    const double* sc = cg_scratch();
-    for (int i = 0; i < static_cast<int>(info[4]); i++)
-      if (sc[2 * i] == 0) poleV.push_back(sc[2 * i + 1]);
-  }
-  if (info[6] > 0) m.flags |= flagProjectedBoundary;
-  const int32_t np = cg_face_pieces(h, f);
-  if (np < 0) return fail(Status::invalidModel, faceStatusWhy(-np));
-  std::vector<int> loopOf(model.coedges(), -1);
-  for (int l = model.faceFirstLoop(f); l < model.faceFirstLoop(f) + model.faceLoopCount(f); l++)
-    for (int k = model.loopFirst(l); k < model.loopFirst(l) + model.loopCount(l); k++)
-      if (model.loopKind(l) == CBR_LOOP_EDGE) loopOf[k] = l;
-  std::vector<Piece> pieces;
-  {
-    const double* sc = cg_scratch();
-    for (int i = 0; i < np; i++) {
-      const int c = static_cast<int>(sc[3 * i]);
-      pieces.push_back({c, c >= 0 && c < model.coedges() ? loopOf[c] : -1, sc[3 * i + 1], sc[3 * i + 2]});
-    }
-  }
-  if (pieces.empty()) {
+  const SweptFace F = sweptFace(*this, f);
+  if (*F.why) return fail(F.status, F.why);
+  m.flags |= F.flags;
+  if (F.pieces.empty()) {
     // Bounded by nothing: a revolution closed in v (its profile closed, or meeting the axis at both ends) is its
     // whole area, 2 pi int rho |C'|; anything else is unbounded, nothing to measure.
     const cadgeom::CurveDomain pd = C->domain();
@@ -166,78 +259,11 @@ FaceMeasure Oracle::Impl::swept(int f) {
     return m;
   }
 
-  // (u, v) and (u', v') on a piece, its periods added.
-  bool evalFailed = false;
-  auto at = [&](const Piece& p, double t, Vec2& uv, Vec2& d) {
-    double out[6];
-    uint8_t st = 0;
-    if (cg_coedge_eval(h, p.coedge, &t, 1, 1, out, &st) != 0 || st != 0) evalFailed = true;
-    uv = {out[0] + p.ou, out[1] + p.ov}, d = {out[3], out[4]};
-  };
-  // Each loop's pieces unwrapped: a piece's start brought within half a period of the previous piece's end.
-  auto reduce = [](double d, double period) { return period > 0 ? period * std::round(d / period) : 0.0; };
-  double windU = 0, windV = 0;
-  for (size_t i = 0; i < pieces.size(); i++) {
-    Vec2 a, b, d;
-    const bool first = i == 0 || pieces[i - 1].loop != pieces[i].loop;
-    if (!first) {
-      at(pieces[i - 1], pieces[i - 1].t1, b, d);
-      at(pieces[i], pieces[i].t0, a, d);
-      pieces[i].ou = reduce(b.x - a.x, Pu), pieces[i].ov = reduce(b.y - a.y, Pv);
-    }
-    const bool last = i + 1 == pieces.size() || pieces[i + 1].loop != pieces[i].loop;
-    if (last) {
-      size_t j = i;
-      while (j > 0 && pieces[j - 1].loop == pieces[i].loop) j--;
-      at(pieces[i], pieces[i].t1, b, d);
-      at(pieces[j], pieces[j].t0, a, d);
-      // The whole periods a loop closes across are its winding.
-      windU += Pu > 0 ? std::round((b.x - a.x) / Pu) : 0;
-      windV += Pv > 0 ? std::round((b.y - a.y) / Pv) : 0;
-    }
-  }
-  if (evalFailed) return fail(Status::invalidModel, "a p-curve not evaluated");
-  if (windV != 0) m.flags |= flagWinds;
-
-  // H(u, v), and v0.
+  const double v0 = F.v0;
+  const double absTol = options.relTol * F.size * F.size;
+  const auto& poleV = F.poleV;
   const Vec3 D{R[0], R[1], R[2]}, A{R[0], R[1], R[2]}, axis{R[3], R[4], R[5]};
   const double mag = R[3];
-  // An absolute tolerance from the face's size (its edges' vertices' box), for integrals that cancel to about 0.
-  Vec3 lo{INFINITY, INFINITY, INFINITY}, hi{-INFINITY, -INFINITY, -INFINITY};
-  for (const Piece& p : pieces) {
-    const int e = model.coedgeEdge(p.coedge);
-    for (int v : {model.edgeStart(e), model.edgeEnd(e)}) {
-      if (v < 0) continue;
-      const Vec3 q = model.vertexPoint(v);
-      lo = {std::fmin(lo.x, q.x), std::fmin(lo.y, q.y), std::fmin(lo.z, q.z)};
-      hi = {std::fmax(hi.x, q.x), std::fmax(hi.y, q.y), std::fmax(hi.z, q.z)};
-    }
-  }
-  const double size = std::isfinite(lo.x) ? norm(hi - lo) : 1;
-  // (Raised below to the scale H's integrals add up from, once H is known.)
-  double absTol = options.relTol * size * size;
-  Vec2 start, d0;
-  at(pieces[0], pieces[0].t0, start, d0);
-  // v0 on a pole where there is one, so H is 0 along it and the loop's run along that pole row (the way round it
-  // goes is ambiguous by a turn) adds nothing, and a face bounded by loops winding the angle and that pole needs no
-  // term for it. With a second pole, the same ambiguity there, and a winding face's pole being the other one, are
-  // multiples of the whole surface's area: reduced modulo it below.
-  double v0 = start.y;
-  if (!extrusion && poleV.empty() && model.curveKind(model.surfaceInts(s)[0]) == CBR_CURVE_LINE) {
-    // A line through the axis is a pole cad-geom doesn't list (the line's domain is unbounded): where its distance
-    // from the axis, linear in t, vanishes.
-    CurvePoint q;
-    C->eval(0, 1, q);
-    const Vec3 Ax{R[0], R[1], R[2]}, ax{R[3], R[4], R[5]}, w = q.p - Ax;
-    const Vec3 w0 = w - dot(w, ax) * ax, d = q.d1 - dot(q.d1, ax) * ax;
-    const double dd = dot(d, d);
-    if (dd > 0) {
-      const double t = -dot(w0, d) / dd;
-      if (norm(w0 + t * d) <= 1e-9 * (norm(w0) + norm(d))) poleV.push_back(t);
-    }
-  }
-  if (!extrusion && !poleV.empty()) v0 = poleV[0];
-  if (windU != 0 && (extrusion || poleV.empty())) m.flags |= flagWinds;
   // A revolution's G(v) = int rho |C'| from the profile's first break, by span from the breaks (cumulative there).
   std::vector<double> gb, gv;
   std::vector<int> gm{kGaussPanels};
@@ -291,64 +317,11 @@ FaceMeasure Oracle::Impl::swept(int f) {
     return -(G(uv.y) - g0);
   };
 
-  // The scale the loops' integrals add up from: a turn (or the loops' extent in u) at H's largest at the pieces' ends.
-  {
-    double hMax = 0, uMin = INFINITY, uMax = -INFINITY;
-    for (const Piece& p : pieces) {
-      for (double t : {p.t0, p.t1}) {
-        Vec2 uv, d;
-        at(p, t, uv, d);
-        hMax = std::fmax(hMax, std::fabs(H(uv)));
-        uMin = std::fmin(uMin, uv.x), uMax = std::fmax(uMax, uv.x);
-      }
-    }
-    absTol = std::fmax(absTol, options.relTol * hMax * std::fmax(uMax - uMin, Pu));
-  }
-  double sum = 0, error = 0, spanU = 0;
-  Status status = Status::ok;
-  auto add = [&](const Estimate& e) {
-    sum += e.value, error += e.error;
-    if (e.status != Status::ok && status == Status::ok) status = e.status;
-  };
-  // A straight run from a to b in (u, v).
-  auto segment = [&](Vec2 a, Vec2 b) {
-    if (norm(b - a) <= 1e-12 * (1 + norm(a))) return;
-    add(cadgeom::quadrature::integrate([&](double x) { return H(a + x * (b - a)) * (b.x - a.x); }, 0, 1, absTol,
-      options.relTol));
-  };
-  for (size_t i = 0; i < pieces.size(); i++) {
-    const Piece& p = pieces[i];
-    std::vector<double> br;
-    const int pc = model.coedgePcurve(p.coedge);
-    // Cut where the p-curve is less smooth: its own breaks, or a projection's, which is in its edge's curve's
-    // parameter, that curve's (an extrusion's profile copy: the profile's knots, where C' and so H may kink).
-    const Range span{std::fmin(p.t0, p.t1), std::fmax(p.t0, p.t1)};
-    const Curve* own = pc >= 0 ? curve(pc) : curve(model.edgeCurve(model.coedgeEdge(p.coedge)));
-    if (own) own->breaks(span, br);
-    else br = {span.lo, span.hi};
-    if (p.t1 < p.t0) std::reverse(br.begin(), br.end());
-    for (size_t k = 0; k + 1 < br.size(); k++) {
-      add(integrateSplit([&](double t) {
-        Vec2 uv, d;
-        at(p, t, uv, d);
-        return H(uv) * d.x;
-      }, br[k], br[k + 1], absTol, options.relTol));
-    }
-    // The gap to the next piece of the loop (or back to its first), less whole periods.
-    size_t j = i + 1;
-    if (j == pieces.size() || pieces[j].loop != p.loop) {
-      j = i;
-      while (j > 0 && pieces[j - 1].loop == p.loop) j--;
-    }
-    Vec2 a, b, d, s0;
-    at(p, p.t1, a, d);
-    at(p, p.t0, s0, d);
-    spanU += std::fabs(a.x - s0.x);
-    at(pieces[j], pieces[j].t0, b, d);
-    b = {b.x + reduce(a.x - b.x, Pu), b.y + reduce(a.y - b.y, Pv)};
-    segment(a, b);
-  }
-  if (evalFailed) return fail(Status::invalidModel, "a p-curve not evaluated");
+  SweptTotals T = sweptIntegral(*this, F, 1, [&](double u, double v, double* out) { *out = H({u, v}); },
+    {F.size * F.size}, options.relTol);
+  if (T.failed) return fail(Status::invalidModel, "a p-curve not evaluated");
+  double sum = T.value[0];
+  Status status = T.status;
   if (gStatus != Status::ok && status == Status::ok) status = gStatus;
   if (!extrusion && poleV.size() >= 2) {
     // Closed in v by two poles (a sphere's like): the area is known modulo the whole surface's, as an elementary
@@ -363,7 +336,7 @@ FaceMeasure Oracle::Impl::swept(int f) {
     sum = -sum;
   }
   // G's own error enters every H: times the loops' extent in u.
-  m.area = {sum, error + gError * (spanU + std::fabs(windU) * Pu), status};
+  m.area = {sum, T.error[0] + gError * (T.spanU + std::fabs(F.windU) * F.Pu), status};
   return m;
 }
 

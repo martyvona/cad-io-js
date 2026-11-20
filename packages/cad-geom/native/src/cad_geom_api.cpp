@@ -1158,6 +1158,29 @@ int32_t cg_surface_local_foot(int32_t h, int32_t row, const double* points, cons
   return 0;
 }
 
+/**
+ * Face `face`'s surface as it closes in fact (its periods the face's: (u, v) past a period reduced, as projections'
+ * p-curves unwrapped past one need) at n (u, v) pairs, as cg_surface_eval.
+ */
+int32_t cg_face_eval(int32_t h, int32_t face, const double* uv, int32_t n, int32_t order, double* out,
+  uint8_t* status) {
+  Entry* e = entry(h);
+  if (!e || face < 0 || face >= e->model.faces()) return static_cast<int32_t>(Status::invalidModel);
+  Status s;
+  const Surface* f = faceSurface(h, face, s);
+  if (!f) return static_cast<int32_t>(s);
+  const int w = order == 0 ? 1 : order == 1 ? 3 : 6;
+  for (int32_t i = 0; i < n; i++) {
+    SurfacePoint q;
+    status[i] = static_cast<uint8_t>(f->eval(uv[2 * i], uv[2 * i + 1], order, q));
+    double* o = out + 3 * w * i;
+    put(o, q.p);
+    if (order >= 1) put(o + 3, q.du), put(o + 6, q.dv);
+    if (order >= 2) put(o + 9, q.duu), put(o + 12, q.duv), put(o + 15, q.dvv);
+  }
+  return 0;
+}
+
 /** As cg_surface_local_foot on face `face`'s surface as it closes in fact (its periods the face's). */
 int32_t cg_face_local_foot(int32_t h, int32_t face, const double* points, const double* starts, int32_t n,
   double* uv, double* point, double* distance, uint8_t* status, int32_t* side) {

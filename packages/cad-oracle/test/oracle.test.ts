@@ -10,7 +10,7 @@ import { test } from 'node:test';
 import { type BrepData, BrepBuilder, curveEvaluator, decode, edgeParams, type Loop, openBrep, rowCount } from 'cad-brep';
 import { modelFaceArea, trustedArea } from '../../cad-scene/src/area-oracle.ts';
 import { MODELS } from '../../cad-brep/test/models.ts';
-import { type FaceMeasure, init, Oracle, trusted } from '../src/index.ts';
+import { type Estimate, type FaceMeasure, init, MAX_MOMENT_DEGREE, Oracle, trusted } from '../src/index.ts';
 
 const pkg = path.join(import.meta.dirname, '..');
 const built = fs.existsSync(path.join(pkg, 'dist/cad_oracle.wasm'));
@@ -455,3 +455,184 @@ test('a buffer that isn\'t a model, and a disposed oracle', { skip }, async () =
   o.dispose();
   assert.throws(() => o.face(0), /disposed/);
 });
+
+/** Face `face`'s moments of degree at most `degree` about `center`, by exponent ("abc") then axis. */
+async function moments(d: BrepData, center: V, degree: number, face = 0): Promise<Map<string, Estimate[]>> {
+  using o = new Oracle(await init(), d.buffer);
+  return new Map(o.faceMoments(face, { center, degree }).map((m) => [m.exponent.join(''), m.n]));
+}
+
+/**
+ * Each estimate converged and within 1e-9 of scale of the value expected (sign times `expected`), its error estimate
+ * within 1e-7 (the inner rule's is its last change, the coarser rule's error, so it overstates).
+ */
+function nearAll(got: Map<string, Estimate[]>, expected: Record<string, [number, number, number]>, sign: number,
+  scale: number, what: string) {
+  for (const [k, e] of Object.entries(expected)) {
+    for (let j = 0; j < 3; j++) {
+      const g = got.get(k)![j]!;
+      assert.equal(g.status, 'ok', `${what} ${k}[${j}]: ${JSON.stringify(g)}`);
+      assert.ok(Math.abs(g.value - sign * e[j]!) <= 1e-9 * scale && g.error <= 1e-7 * scale,
+        `${what} ${k}[${j}]: ${g.value} vs ${sign * e[j]!} (+/- ${g.error})`);
+    }
+  }
+}
+
+test('moments of a sphere\'s zone and caps, elementary and as a revolution (both poles\' bases)', { skip },
+  async () => {
+    // Outward n = p / R dA, dA = R^2 cos v du dv, over v in [a, b]: int n_z = pi R^2 (sin^2 b - sin^2 a), int x n_x
+    // = pi R^3 [sin v - sin^3 v / 3], int z n_z = 2 pi R^3 [sin^3 v / 3]; the others 0 by symmetry.
+    const R = 2, v1 = -0.5, v2 = 0.8, c: V = [0.3, -0.2, 0.5];
+    for (const revolution of [false, true]) {
+      for (const [which, a, b] of [['zone', v1, v2], ['north', v1, PI / 2], ['south', -PI / 2, v2]] as const) {
+        const s = (f: (x: number) => number) => f(Math.sin(b)) - f(Math.sin(a));
+        const Nz = PI * R * R * s((x) => x * x), Mxx = PI * R ** 3 * s((x) => x - x ** 3 / 3);
+        const Mzz = 2 * PI * R ** 3 * s((x) => x ** 3 / 3);
+        const got = await moments(band(R, v1, v2, which, revolution), c, 1);
+        const sign = Math.sign(got.get('100')![0]!.value);
+        if (!revolution) assert.equal(sign, 1, `${which}: the sphere's n outward`);
+        nearAll(got, { '000': [0, 0, Nz], '100': [Mxx, 0, -c[0] * Nz], '010': [0, Mxx, -c[1] * Nz],
+          '001': [0, 0, Mzz - c[2] * Nz] }, sign, R ** 3, `${which}${revolution ? ' (revolution)' : ''}`);
+      }
+    }
+  });
+
+/** A double cone: the revolution of a degree-1 B-spline from (0, 0, 0) through (1, 0, 1) to (0, 0, 2), kinked. */
+function doubleCone(ring?: { z: number; orientation: 'forward' | 'reversed' }): BrepData {
+  const b = new BrepBuilder();
+  const profile = b.addCurve({ kind: 'bspline', degree: 1, knots: [0, 1, 2], multiplicities: [2, 1, 2],
+    poles: [[0, 0, 0], [1, 0, 1], [0, 0, 2]], closed: false, selfIntersect: null, form: 'unspecified' });
+  const s = b.addSurface({ kind: 'revolution', curve: profile, axisOrigin: O, axisDirection: Z });
+  const loops: Loop[] = [];
+  if (ring) {
+    const r = ring.z <= 1 ? ring.z : 2 - ring.z, p = b.addVertex({ point: [r, 0, ring.z] });
+    const e = b.addEdge({ curve: parallel(b, r, ring.z), start: p, end: p, sameSense: true, range: [0, 2 * PI] });
+    loops.push({ kind: 'edge', bound: 'outer', coedges: [{ edge: e, orientation: ring.orientation }] });
+  }
+  b.addFace({ surface: s, sameSense: true, loops });
+  return b.finish();
+}
+
+test('moments across a profile\'s kink: a double cone, whole and either side of a ring', { skip }, async () => {
+  // int p . n = 3 V = 2 pi over the whole; over the lower cone 0 (its apex at the origin: p . n = 0), over the upper
+  // 2 pi (p . n / |n| = 2 n_z / |n| = sqrt 2, its area pi sqrt 2).
+  const pn = (m: Map<string, Estimate[]>) => {
+    for (const k of ['100', '010', '001']) {
+      for (const e of m.get(k)!) assert.equal(e.status, 'ok', JSON.stringify(m.get(k)));
+    }
+    return m.get('100')![0]!.value + m.get('010')![1]!.value + m.get('001')![2]!.value;
+  };
+  assert.ok(Math.abs(Math.abs(pn(await moments(doubleCone(), O, 1))) - 2 * PI) <= 1e-9, 'the whole');
+  for (const z of [0.5, 1.5]) {
+    const sides = [];
+    for (const orientation of ['forward', 'reversed'] as const) {
+      sides.push(Math.abs(pn(await moments(doubleCone({ z, orientation }), O, 1))));
+    }
+    sides.sort((x, y) => x - y);
+    // The ring's lower side holds the lower cone (and the upper's part below z, for z > 1).
+    const upper = z <= 1 ? 2 * PI : 2 * PI * ((2 - z) ** 2);
+    const expected = [2 * PI - upper, upper].sort((x, y) => x - y);
+    for (let i = 0; i < 2; i++) {
+      assert.ok(Math.abs(sides[i]! - expected[i]!) <= 1e-9, `ring ${z}: ${sides} vs ${expected}`);
+    }
+  }
+});
+
+/** A unit square on z = 0 at (x0, y0), its plane's origin there or at the model's. */
+function square(x0: number, y0: number, planeAtOrigin = false): BrepData {
+  const b = new BrepBuilder();
+  const s = b.addSurface({ kind: 'plane', position: { origin: planeAtOrigin ? O : [x0, y0, 0], axis: Z, xDir: X } });
+  const corners: V[] = [[x0, y0, 0], [x0 + 1, y0, 0], [x0 + 1, y0 + 1, 0], [x0, y0 + 1, 0]];
+  const vs = corners.map((p) => b.addVertex({ point: p }));
+  const coedges = corners.map((p, i) => {
+    const q = corners[(i + 1) % 4]!, d: V = [q[0] - p[0], q[1] - p[1], 0];
+    const line = b.addCurve({ kind: 'line', point: p, direction: d, magnitude: 1 });
+    return { edge: b.addEdge({ curve: line, start: vs[i]!, end: vs[(i + 1) % 4]!, sameSense: true, range: [0, 1] }),
+      orientation: 'forward' as const };
+  });
+  b.addFace({ surface: s, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', coedges }] });
+  return b.finish();
+}
+
+test('moments of a face far from the origin, about a point of it: within its points\' rounding', { skip }, async () => {
+  // About its corner: int n_z = 1, int x n_z = int y n_z = 1/2, int x^2 n_z = 1/3, int x y n_z = 1/4; z n_z and x z
+  // n_z are 0 on the face whatever n, so their tolerances come from near it, not their values.
+  for (const [far, planeAtOrigin] of [[0, false], [1e6, false], [1e8, false], [1e6, true], [1e8, true]] as const) {
+    const got = await moments(square(far, -far, planeAtOrigin), [far, -far, 0], 2);
+    const allowed = Math.max(1e-9, 1e3 * Number.EPSILON * far);
+    const expected = [['000', 1], ['100', 0.5], ['010', 0.5], ['200', 1 / 3], ['110', 0.25], ['020', 1 / 3],
+      ['001', 0], ['101', 0]] as const;
+    for (const [k, v] of expected) {
+      const e = got.get(k)![2]!;
+      const what = `${far}${planeAtOrigin ? ' (its plane at the origin)' : ''} ${k}`;
+      assert.equal(e.status, 'ok', `${what}: ${JSON.stringify(e)}`);
+      assert.ok(Math.abs(e.value - v) <= allowed, `${what}: ${e.value} vs ${v}`);
+    }
+  }
+});
+
+test('faceMoments takes degrees 0 to MAX_MOMENT_DEGREE', { skip }, async () => {
+  using o = new Oracle(await init(), square(0, 0).buffer);
+  assert.equal(o.faceMoments(0, { degree: MAX_MOMENT_DEGREE }).length, 35);
+  assert.throws(() => o.faceMoments(0, { degree: MAX_MOMENT_DEGREE + 1 }), /degree/);
+  assert.throws(() => o.faceMoments(0, { degree: 1.5 }), /degree/);
+});
+
+test('the vector area of a cone\'s sector beyond its apex: int n dA = 1/2 oint p x dp', { skip }, async () => {
+  const cross = (a: V, b: V): V => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  for (const [r, a, beta, vb] of [[1, PI / 6, 1, -4], [2, 0.3, 4, -10]] as const) {
+    const rho = r + vb * Math.tan(a), apex: V = [0, 0, -r / Math.tan(a)], R = -rho;
+    const rim = (u: number): V => [rho * Math.cos(u), rho * Math.sin(u), vb];
+    // The loop: the arc (radius -rho, angles pi to pi + beta), its generator back to the apex, the other out to P0.
+    const arc: V = [-vb * R * (Math.sin(PI + beta) - Math.sin(PI)), vb * R * (Math.cos(PI + beta) - Math.cos(PI)),
+      R * R * beta];
+    const sum = [arc, cross(rim(beta), apex), cross(apex, rim(0))].reduce((x, y) => [x[0] + y[0], x[1] + y[1],
+      x[2] + y[2]] as V);
+    const half = sum.map((x) => x / 2) as V;
+    const n = (await moments(coneBeyondApex(r, a, beta, vb), O, 0)).get('000')!;
+    const sign = Math.sign(n[2]!.value) * Math.sign(half[2]);
+    const scale = Math.hypot(...half);
+    for (let j = 0; j < 3; j++) {
+      assert.equal(n[j]!.status, 'ok');
+      assert.ok(Math.abs(n[j]!.value - sign * half[j]!) <= 1e-9 * scale,
+        `cone ${r} ${a} ${vb} [${j}]: ${n[j]!.value} vs ${sign * half[j]!}`);
+    }
+  }
+});
+
+/** A patch of a sphere over u in [0, alpha], v in [a, b]: two parallels and two meridians, none winding the axis. */
+function spherePatch(R: number, alpha: number, a: number, b: number, revolution: boolean): BrepData {
+  const bb = new BrepBuilder();
+  const s = sphereSurface(bb, R, revolution);
+  const P = (u: number, v: number): V => [R * Math.cos(v) * Math.cos(u), R * Math.cos(v) * Math.sin(u),
+    R * Math.sin(v)];
+  const vx = [[0, a], [alpha, a], [alpha, b], [0, b]].map(([u, v]) => bb.addVertex({ point: P(u!, v!) }));
+  const par = (v: number, start: number, end: number) => bb.addEdge({ curve: parallel(bb, R * Math.cos(v),
+    R * Math.sin(v)), start, end, sameSense: true, range: [0, alpha] });
+  const mer = (u: number, start: number, end: number) => bb.addEdge({ curve: meridian(bb, R, u), start, end,
+    sameSense: true, range: [a, b] });
+  const e0 = par(a, vx[0]!, vx[1]!), e1 = mer(alpha, vx[1]!, vx[2]!), e2 = par(b, vx[3]!, vx[2]!);
+  const e3 = mer(0, vx[0]!, vx[3]!);
+  bb.addFace({ surface: s, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', coedges: [
+    { edge: e0, orientation: 'forward' }, { edge: e1, orientation: 'forward' }, { edge: e2, orientation: 'reversed' },
+    { edge: e3, orientation: 'reversed' }] }] });
+  return bb.finish();
+}
+
+test('the vector area of sphere patches not winding the axis, south, across and north of the equator', { skip },
+  async () => {
+    // int n dA, n = (cos v cos u, cos v sin u, sin v) R^2 cos v: x R^2 sin alpha [v / 2 + sin 2v / 4], y R^2 (1 - cos
+    // alpha) [...], z R^2 alpha [sin^2 v / 2].
+    const R = 1.5;
+    for (const revolution of [false, true]) {
+      for (const [alpha, a, b] of [[1.2, -1.3, -0.4], [2.5, -0.6, 0.9], [4, 0.2, 1.4]] as const) {
+        const w = (v: number) => v / 2 + Math.sin(2 * v) / 4, c2 = w(b) - w(a);
+        const s2 = (Math.sin(b) ** 2 - Math.sin(a) ** 2) / 2;
+        const got = await moments(spherePatch(R, alpha, a, b, revolution), O, 0);
+        const expected: [number, number, number] = [R * R * Math.sin(alpha) * c2, R * R * (1 - Math.cos(alpha)) * c2,
+          R * R * alpha * s2];
+        const sign = Math.sign(got.get('000')![1]!.value);
+        nearAll(got, { '000': expected }, sign, R * R, `patch ${alpha} ${a}..${b}${revolution ? ' (revolution)' : ''}`);
+      }
+    }
+  });
