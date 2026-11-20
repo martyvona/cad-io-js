@@ -431,13 +431,17 @@ struct PartMesher::Impl {
             if ((i == 4) || (j == 4) || (i + j == 0)) continue;  // (the corners: on the surface)
             const Vec3 x = (i / 4.0) * fm.points[fm.triangles[3 * t]] + (j / 4.0) * fm.points[fm.triangles[3 * t + 1]]
               + ((4 - i - j) / 4.0) * fm.points[fm.triangles[3 * t + 2]];
+            Vec2 uv{0, 0};
             if (haveUv) {
-              const Vec2 uv = (i / 4.0) * uvc[0] + (j / 4.0) * uvc[1] + ((4 - i - j) / 4.0) * uvc[2];
+              uv = (i / 4.0) * uvc[0] + (j / 4.0) * uvc[1] + ((4 - i - j) / 4.0) * uvc[2];
               SurfacePoint q;
               const bool inside = uv.x >= D.u.lo && uv.x <= D.u.hi && uv.y >= D.v.lo && uv.y <= D.v.hi;
               if (inside && s.eval(uv.x, uv.y, 0, q) == Status::ok && norm(x - q.p) <= limit) continue;
             }
-            const SurfaceInversion inv = invertSurface(s, x, D.u, D.v, 1e-3 * o.d.linear);
+            // (The distance alone, within 1e-3 d of the nearest: invertSurface's distanceOnly, the lattice point's
+            // barycentric (u, v) its seed.)
+            const SurfaceInversion inv =
+              invertSurface(s, x, D.u, D.v, o.d.linear, haveUv ? &uv : nullptr, nullptr, true);
             if (inv.status != Status::ok) continue;
             worst = std::fmax(worst, inv.distance);
             past = worst > limit;
@@ -841,9 +845,16 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
         if (seen.insert({r.edge, r.span}).second) requests.push_back(r);
     if (requests.empty()) break;
     I.report({PartProgress::splitting, -1, I.rounds + 1, 0, static_cast<int>(requests.size())});
+    // Only the edges the split changed: it drops a request inside a pole's ring or on a span within the refinement
+    // floor (EdgeMesh::split), and a face whose edges didn't change would mesh to the same bits again, asking the
+    // same. None changed: the rounds end.
+    std::map<int, size_t> before;
+    for (const SplitRequest& r : requests) before.emplace(r.edge, I.em->edge(r.edge).t.size());
     I.em->split(requests);
     std::set<int> touched;
-    for (const SplitRequest& r : requests) touched.insert(r.edge);
+    for (auto [e, n] : before)
+      if (I.em->edge(e).t.size() != n) touched.insert(e);
+    if (touched.empty()) break;
     std::vector<int> redo;
     for (int f = 0; f < nf; f++) {
       bool again = false;

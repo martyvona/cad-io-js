@@ -2280,6 +2280,19 @@ TEST_CASE("verdicts reused across meshings (reuseVerdicts): the same meshes bit 
   }
 }
 
+TEST_CASE("the rounds end once no split changes an edge: passBy's face still asks a split EdgeMesh::split drops") {
+  // (Meshing it again on the same edges would ask the same, every round to the cap.)
+  cadgeom::Model m = load("passBy");
+  PartOptions o = options(0.1, 0.26);
+  o.maxDeviationFactor = 0;
+  PartMesher pm(m, o);
+  int wanting = 0;
+  for (int f = 0; f < m.faces(); f++)
+    wanting += pm.face(f).status == cadgeom::Status::ok && pm.face(f).splitsWanted > 0;
+  CHECK(wanting > 0);
+  CHECK_EQ(pm.rounds(), 0);
+}
+
 TEST_CASE("the same part twice: the same points, normals and triangles, bit for bit") {
   for (const char* name : {"cube", "seamCylinder", "spheres", "band"}) {
     cadgeom::Model m = load(name);
