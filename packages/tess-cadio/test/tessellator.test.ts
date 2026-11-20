@@ -197,20 +197,25 @@ test('init({maxPointsPerFace}): a face that reaches it said as capped, not as an
   assert.ok(!ru.diagnostics.some((x) => /point cap/.test(x.message)));
 });
 
-test('init({minAngle}): the mesher\'s target smallest angle, fewer triangles without one', { skip }, async () => {
+test('init({minAngle}): the mesher\'s target smallest angle, 10 degrees by default, more triangles at 0.5 rad',
+  { skip }, async () => {
   const count = async (minAngle?: number) => {
     const t = new CadioTessellator();
     await t.init(minAngle === undefined ? {} : { minAngle });
     return (await t.tessellate({ ...req('spheres'), linearDeflection: 0.01 })).indices.length / 3;
   };
-  const [none, byDefault, shaped] = [await count(0), await count(), await count(0.5)];
-  assert.ok(none < byDefault && byDefault < shaped, `${none}, ${byDefault}, ${shaped}`);
+  const [none, byDefault, tenDegrees, shaped] = [await count(0), await count(), await count(Math.PI / 18),
+    await count(0.5)];
+  assert.equal(byDefault, tenDegrees);
+  assert.notEqual(byDefault, none);
+  assert.ok(shaped > byDefault && shaped > none, `${none}, ${byDefault}, ${shaped}`);
 });
 
 test('refinement blocked by a pole ring\'s fixed segment, said with the face and its rounds: bentApex at 0.01; ' +
   'not at 0.05', { skip }, async () => {
+  // (At 0.35 rad: at the 10-degree default bentApex at 0.05 asks a ring segment split once too.)
   const t = new CadioTessellator();
-  await t.init({ maxDeviationFactor: 0 });
+  await t.init({ maxDeviationFactor: 0, minAngle: 0.35 });
   const re = /^1 faces with refinement blocked by a fixed ring segment: #\d+ \((\d+) rounds\)$/;
   const blocked = async (d: number) => {
     const r = await t.tessellate({ ...req('cube'), data: new Uint8Array(bentApex().finish().buffer),
