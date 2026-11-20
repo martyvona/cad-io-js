@@ -5,7 +5,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { addInto, division, runFiles } from '../corpus_checks/runner.ts';
+import zlib from 'node:zlib';
+import { addInto, admit, division, runFiles, uncompressedSize } from '../corpus_checks/runner.ts';
 import { check } from './runner-fixture.ts';
 
 const FIXTURE = new URL('./runner-fixture.ts', import.meta.url).href;
@@ -172,3 +173,93 @@ test('division: a third of the threads as children, fewer where memory is short;
       }
     }
   });
+
+test('admit: the first in line that fits beside the running files and the children\'s base; any file alone', () => {
+  const est = (k: number) => [60, 50, 40, 30, 10, 0][k]!, terms = { budget: 100, childBase: 5 };
+  const queue = [0, 1, 2, 3, 4, 5];
+  assert.equal(admit(queue, est, 0, 0, 3, terms), 0);
+  // (Room 100 - 15 - 60 = 25: the 10 is the first that fits.)
+  assert.equal(admit(queue.slice(1), est, 60, 1, 3, terms), 3);
+  assert.equal(admit([1, 2], est, 60, 1, 3, terms), -1);
+  assert.equal(admit([2, 3], est, 45, 1, 1, terms), 0);
+  assert.equal(admit([2, 3], est, 56, 1, 1, terms), 1);
+  // A file larger than the whole budget starts when nothing runs.
+  assert.equal(admit([0], (k) => 1e9 * (k + 1), 0, 0, 6, terms), 0);
+  assert.equal(admit([], est, 0, 0, 3, terms), -1);
+});
+
+test('uncompressedSize: a file\'s size, a gzip file\'s by its trailer, a missing file 0', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'runner-size-'));
+  try {
+    const plain = path.join(dir, 'a.stp'), gz = path.join(dir, 'a.stpZ');
+    fs.writeFileSync(plain, Buffer.alloc(1234, 65));
+    fs.writeFileSync(gz, zlib.gzipSync(Buffer.alloc(100_000, 65)));
+    assert.equal(uncompressedSize(plain), 1234);
+    assert.ok(fs.statSync(gz).size < 1000);
+    assert.equal(uncompressedSize(gz), 100_000);
+    assert.equal(uncompressedSize(path.join(dir, 'none')), 0);
+    // (Data gzip can't shrink: its compressed size, the larger, as for a trailer wrapped past 4 GiB.)
+    const noise = path.join(dir, 'noise.gz');
+    fs.writeFileSync(noise, zlib.gzipSync(Buffer.from(Array.from({ length: 200 }, (_, k) => (k * 7919 + 13) % 251))));
+    assert.ok(fs.statSync(noise).size > 200);
+    assert.equal(uncompressedSize(noise), fs.statSync(noise).size);
+    fs.writeFileSync(path.join(dir, 'tiny'), Buffer.from([0x1f, 0x8b]));
+    assert.equal(uncompressedSize(path.join(dir, 'tiny')), 2);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('runFiles within MEM_BUDGET: running files\' estimates never past it, the largest that fits started, a file '
+  + 'past the budget run alone, every file done in file order', { timeout: 60_000 }, async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'runner-budget-'));
+  const keys = ['CHILDREN', 'MEM_BUDGET', 'MEM_FACTOR', 'MEM_CHILD_BASE'] as const;
+  const saved = keys.map((k) => process.env[k]);
+  const said: string[] = [], write = process.stderr.write.bind(process.stderr);
+  try {
+    // Sizes in bytes, the factor 2 and the base 2 a child: a budget of 106 leaves 100 for 3 children's files' twice
+    // their sizes (below, the estimates).
+    const sizes = [30, 60, 10, 150, 50, 40, 0], halved = sizes.map((n) => n / 2);
+    const spans = path.join(dir, 'spans');
+    const real = halved.map((n, k) => {
+      const p = path.join(dir, `f${k}`);
+      fs.writeFileSync(p, Buffer.alloc(n));
+      return { path: p, job: { ms: 150, spans } };
+    });
+    Object.assign(process.env, { CHILDREN: '3', MEM_BUDGET: String(106 / 2 ** 30), MEM_FACTOR: '2',
+      MEM_CHILD_BASE: String(2 / 2 ** 30) });
+    process.stderr.write = ((s: string) => (said.push(String(s)), true)) as typeof process.stderr.write;
+    const got: string[] = [];
+    await runFiles(FIXTURE, check, real, [], (p, r) => got.push('result' in r ? p : r.error));
+    process.stderr.write = write;
+    assert.deepEqual(got, real.map((f) => f.path));
+    const size = new Map(real.map((f, k) => [path.basename(f.path), sizes[k]!]));
+    const running = new Set<string>();
+    let alone = false;
+    for (const l of fs.readFileSync(spans, 'utf8').trim().split('\n')) {
+      const f = path.basename(l.slice(1));
+      if (l[0] === '-') { running.delete(f); continue; }
+      if (running.size === 0 && size.get(f)! > 100) alone = true;
+      else {
+        const total = [...running, f].reduce((s, g) => s + size.get(g)!, 0);
+        assert.ok(total <= 100, `${[...running, f]}: ${total}`);
+      }
+      running.add(f);
+    }
+    assert.ok(alone, 'the file past the budget ran, alone');
+    // (The 150 starts first and alone; then the 60 and, the 50 not fitting beside it, the 40 and the 0, whose starts
+    // two processes note in either order: the 50 only once the 60 has ended. A file's end is noted before its result
+    // is sent and its start after it's given, so the noted overlaps are within the runner's.)
+    const lines = fs.readFileSync(spans, 'utf8').trim().split('\n').map((l) => l[0] + path.basename(l.slice(1)));
+    assert.deepEqual(lines.slice(0, 3), ['+f3', '-f3', '+f1']);
+    assert.deepEqual(new Set(lines.slice(3, 5)), new Set(['+f5', '+f6']));
+    assert.ok(lines.indexOf('+f4') > lines.indexOf('-f1'), lines.join(' '));
+    assert.ok(said.some((s) => /memory budget 0\.0 GiB, a file estimated at 2 x its uncompressed size/.test(s)),
+      said.join(''));
+    assert.ok(said.some((s) => /runner: \d+ files waited for room in the memory budget/.test(s)), said.join(''));
+  } finally {
+    process.stderr.write = write;
+    keys.forEach((k, i) => { if (saved[i] === undefined) delete process.env[k]; else process.env[k] = saved[i]; });
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
