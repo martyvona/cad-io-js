@@ -405,6 +405,8 @@ struct EdgeMesh::Impl {
   std::vector<Edge> edges;
   std::vector<Coedge> coedges;
   std::vector<Face> faces;
+  /** Each vertex's feet on each face it's used on, searched once (key (vertex << 32) | face row). */
+  mutable EndSearchCache endFeet;
 
   /** The tolerances edges and faces are judged by (cad-geom's tolerance.h, as the face API's). */
   Tolerances tols;
@@ -425,82 +427,26 @@ struct EdgeMesh::Impl {
     return p.p;
   }
   /**
-   * The foot of p on face f's surface near `start`: Gauss-Newton steps on |S - p|^2 / 2, each taken only where it
-   * comes nearer, a direction that isn't periodic clamped to the domain; start itself unless the foot is within
+   * The foot of p on face f's surface near `start` (cadgeom::localFoot): start itself unless it converged within
    * `radius` of S(start) in 3D.
    */
   Vec2 localFoot(int f, Vec3 p, Vec2 start, double radius) const {
     const Face& F = faces[f];
-    Vec2 x = start;
     SurfacePoint q;
-    if (F.s->eval(x.x, x.y, 1, q) != Status::ok) return start;
-    const Vec3 s0 = q.p;
-    double best = norm(q.p - p);
-    for (int it = 0; it < 16; it++) {
-      Vec3 e = q.p - p;
-      double gu = dot(e, q.du), gv = dot(e, q.dv), a = dot(q.du, q.du), b = dot(q.du, q.dv), c = dot(q.dv, q.dv);
-      double det = a * c - b * b;
-      if (!(det > 1e-12 * a * c && a > 0)) break;
-      Vec2 n{x.x - (c * gu - b * gv) / det, x.y - (a * gv - b * gu) / det};
-      if (!(F.period[0] > 0)) n.x = std::clamp(n.x, F.dom.u.lo, F.dom.u.hi);
-      if (!(F.period[1] > 0)) n.y = std::clamp(n.y, F.dom.v.lo, F.dom.v.hi);
-      SurfacePoint qn;
-      if (F.s->eval(n.x, n.y, 1, qn) != Status::ok) break;
-      double d = norm(qn.p - p);
-      if (!(d < best)) break;
-      double step = std::fabs(n.x - x.x) + std::fabs(n.y - x.y);
-      x = n, q = qn, best = d;
-      if (step <= 4e-16 * (1 + std::fabs(x.x) + std::fabs(x.y))) break;
-    }
-    return norm(q.p - s0) <= radius ? x : start;
+    if (F.s->eval(start.x, start.y, 0, q) != Status::ok) return start;
+    const LocalFoot r = cadgeom::localFoot(*F.s, p, start);
+    return r.status == Status::ok && norm(r.point - q.p) <= radius ? r.uv : start;
   }
 
   /**
-   * The foot of p on face f's surface continued from `start` (the sample before's): Gauss-Newton on |S - p|^2 / 2,
-   * each step taken only where it comes nearer; held against a side of the domain (a direction that isn't periodic),
-   * along that side. True where it converged (the step it would take, in 3D, within rounding of p's coordinates or a
-   * millionth of its distance; where no step comes nearer, within 1e-9 of them or 1e-4 of its distance, the
-   * surface's own rounding), the foot and its distance out; false where the surface is degenerate there or it stalled
-   * away from a foot.
+   * The foot of p on face f's surface continued from `start` (the sample before's), by cadgeom::localFoot: true
+   * where it converged, the foot and its distance out.
    */
   bool localTrace(int f, Vec3 p, Vec2 start, Vec2& foot, double& distance) const {
-    const Face& F = faces[f];
-    Vec2 x = start;
-    SurfacePoint q;
-    if (F.s->eval(x.x, x.y, 1, q) != Status::ok) return false;
-    double best = norm(q.p - p);
-    bool converged = false;
-    for (int it = 0; it < 32 && !converged; it++) {
-      Vec3 e = q.p - p;
-      double gu = dot(e, q.du), gv = dot(e, q.dv), a = dot(q.du, q.du), b = dot(q.du, q.dv), c = dot(q.dv, q.dv);
-      double det = a * c - b * b;
-      if (!(det > 1e-12 * a * c && a > 0)) return false;
-      Vec2 n{x.x - (c * gu - b * gv) / det, x.y - (a * gv - b * gu) / det};
-      // Held against a side of the domain (a direction that isn't periodic): along that side instead, the other
-      // coordinate's Newton step alone; in a corner, held there.
-      const bool heldU = !(F.period[0] > 0) && (n.x < F.dom.u.lo || n.x > F.dom.u.hi);
-      const bool heldV = !(F.period[1] > 0) && (n.y < F.dom.v.lo || n.y > F.dom.v.hi);
-      if (heldU && !heldV) n = {std::clamp(n.x, F.dom.u.lo, F.dom.u.hi), x.y - gv / c};
-      if (heldV && !heldU) n = {x.x - gu / a, std::clamp(n.y, F.dom.v.lo, F.dom.v.hi)};
-      if (!(F.period[0] > 0)) n.x = std::clamp(n.x, F.dom.u.lo, F.dom.u.hi);
-      if (!(F.period[1] > 0)) n.y = std::clamp(n.y, F.dom.v.lo, F.dom.v.hi);
-      // At a foot the step it takes is nothing: in 3D within rounding of p or a millionth of its distance.
-      if (norm((n.x - x.x) * q.du + (n.y - x.y) * q.dv) <= std::max(1e-12 * (1 + norm(p)), 1e-6 * best)) {
-        converged = true;
-        break;
-      }
-      SurfacePoint qn;
-      if (F.s->eval(n.x, n.y, 1, qn) != Status::ok) break;
-      double d = norm(qn.p - p);
-      if (!(d < best)) {
-        // (No nearer: the surface's own rounding, where the step left is that small, or a stall away from a foot.)
-        converged = norm((n.x - x.x) * q.du + (n.y - x.y) * q.dv) <= std::max(1e-9 * (1 + norm(p)), 1e-4 * best);
-        break;
-      }
-      x = n, q = qn, best = d;
-    }
-    foot = x, distance = best;
-    return converged;
+    const LocalFoot r = cadgeom::localFoot(*faces[f].s, p, start);
+    if (r.status != Status::ok) return false;
+    foot = r.uv, distance = r.distance;
+    return true;
   }
 
   /**
@@ -587,6 +533,41 @@ struct EdgeMesh::Impl {
     return invertSurface(*F.s, p, F.dom.u, F.dom.v, tol, hint);
   }
 
+  /** Vertex v's feet on face f, at the part's tolerance: the end search, once per (vertex, face). */
+  const std::vector<EndFoot>& vertexFeet(int v, int f) const {
+    return endFeet.feet((uint64_t(uint32_t(v)) << 32) | uint32_t(f), *faces[f].s, m.vertexPoint(v), tol);
+  }
+
+  /** A foot's (u, v) copies: its own, a seam's other side, and at a pole the free coordinate's, `free` clamped. */
+  static int footCopies(const EndFoot& k, double free, Vec2 out[2]) {
+    out[0] = k.uv;
+    if (k.kind == EndFoot::Kind::seamPair) return out[1] = k.twin, 2;
+    if (k.kind == EndFoot::Kind::pole) (k.poleU ? out[0].x : out[0].y) = std::clamp(free, k.freeLo, k.freeHi);
+    return 1;
+  }
+
+  /**
+   * Vertex v's (u, v) on face f as a use leaving it towards `next` (its next sample) takes it: a unique point as
+   * found; else (a seam's two copies, a pole's free coordinate, feet at several points) the copy nearest next's own
+   * foot in (u, v), the free coordinate next's. False where the search found none.
+   */
+  bool vertexFoot(int v, int f, Vec3 next, Vec2& uv) const {
+    const std::vector<EndFoot>& feet = vertexFeet(v, f);
+    if (feet.empty()) return false;
+    uv = feet.front().uv;
+    if (feet.size() == 1 && feet.front().kind == EndFoot::Kind::point) return true;
+    const SurfaceInversion n = invert(f, next, nullptr);
+    if (n.status != Status::ok) return true;
+    double best = INFINITY;
+    for (const EndFoot& k : feet) {
+      Vec2 c[2];
+      const int nc = footCopies(k, k.poleU ? n.uv.x : n.uv.y, c);
+      for (int i = 0; i < nc; i++)
+        if (norm(c[i] - n.uv) < best) best = norm(c[i] - n.uv), uv = c[i];
+    }
+    return true;
+  }
+
   // ---- edges ----
 
   /** A model edge's range in its start-to-end order, from what's given or by inversion; false if none can be had. */
@@ -611,10 +592,25 @@ struct EdgeMesh::Impl {
       double tl = std::max(tol, std::isfinite(vt) ? vt : 0.0);
       Range search = dom.range;
       if (E.pcurveOnly) {
-        // The vertex's (u, v) on the use's surface, then its parameter on the p-curve.
-        SurfaceInversion si = invert(E.face, p, nullptr);
-        if (si.status != Status::ok) return false;
-        p = {si.uv.x, si.uv.y, 0};
+        // The vertex's (u, v) on the use's surface, then its parameter on the p-curve: of its feet's copies (a
+        // seam's two sides), the one the p-curve passes nearest. At a pole, whatever the free coordinate
+        // inversion gives (the p-curve's own end there isn't known yet).
+        const std::vector<EndFoot>& feet = vertexFeet(j ? E.end : E.start, E.face);
+        CurveInversion ci;
+        ci.status = Status::noConvergence;
+        for (const EndFoot& k : feet) {
+          Vec2 uv[2];
+          const int nc = footCopies(k, k.poleU ? k.uv.x : k.uv.y, uv);
+          for (int i = 0; i < nc; i++) {
+            CurveInversion a = invertCurve(*c, {uv[i].x, uv[i].y, 0}, search, tl);
+            if (a.status == Status::ok && a.certainty != Certainty::none &&
+              (ci.status != Status::ok || a.distance < ci.distance))
+              ci = std::move(a);
+          }
+        }
+        if (ci.status != Status::ok) return false;
+        t[j] = ci.t;
+        continue;
       }
       CurveInversion ci = invertCurve(*c, p, search, tl);
       if (ci.status != Status::ok || ci.certainty == Certainty::none) return false;
@@ -1009,9 +1005,9 @@ struct EdgeMesh::Impl {
       const double t0 = E.s.t.front(), t1 = E.s.t.back();
       if (!(t0 != t1)) continue;
       const PcurveSource source{&m, m.edgeCurve(e), m.faceSurface(C.face)};
-      // Its ends at its vertices' feet (as inversion places them, the same point the same (u, v) up to periods),
-      // so uses meeting at a vertex meet in (u, v) and a closed edge closes; not at a pole (its free coordinate the
-      // projection's).
+      // Its ends at its vertices' feet (each vertex searched once per face, the copy a use takes by its next
+      // sample's side: vertexFoot), so uses meeting at a vertex meet in (u, v) and a closed edge closes; not at a
+      // pole (its free coordinate the projection's, by continuation).
       PcurveEnds ends;
       const bool up = t1 > t0;
       for (int k = 0; k < 2; k++) {
@@ -1019,12 +1015,21 @@ struct EdgeMesh::Impl {
         const Vec3 at = k == 0 ? E.s.points.front() : E.s.points.back();
         C.atVertex[k] = false;
         if (poleAt(C.face, at) >= 0) continue;
-        const SurfaceInversion si = invert(C.face, at, nullptr);
-        if (si.status != Status::ok) continue;
-        C.atVertex[k] = true, C.vertexUv[k] = si.uv;
+        const int vertex = k == 0 ? E.start : E.end;
+        const size_t np = E.s.points.size();
+        const Vec3 next = np < 2 ? at : k == 0 ? E.s.points[1] : E.s.points[np - 2];
+        Vec2 uv;
+        if (vertex >= 0) {
+          if (!vertexFoot(vertex, C.face, next, uv)) continue;
+        } else {
+          const SurfaceInversion si = invert(C.face, at, nullptr);
+          if (si.status != Status::ok) continue;
+          uv = si.uv;
+        }
+        C.atVertex[k] = true, C.vertexUv[k] = uv;
         const bool low = (k == 0) == up;
         (low ? ends.hasStart : ends.hasEnd) = true;
-        (low ? ends.start : ends.end) = si.uv;
+        (low ? ends.start : ends.end) = uv;
       }
       // Judged against the mesh: within kMeshTolerance x the deflection where the curve allows (a p-curve within
       // the model's tolerance but farther from its feet than that has the mesh chase the difference), else at the
