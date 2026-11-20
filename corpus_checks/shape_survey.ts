@@ -188,10 +188,12 @@ export interface FaceAngles {
  * mostly face (area-weighted against their corners' normals), so a triangle folded against the rest shows near
  * 180 degrees whichever way the backend winds the face; a triangle of no area is judged by its corners alone.
  * Triangles with a corner whose foot is at a singularity (or whose normal can't be had) are left out, as are those
- * with a corner not inverted. `each`, if given, gets each judged triangle's angle.
+ * with a corner not inverted. `each`, if given, gets each judged triangle's angle; `feet`, the vertices' feet as
+ * (u, v) pairs and which of them were judged (1), not at a singularity and with a normal.
  */
 export function faceAngles(g: Inverter, surface: number, r: TessellationResult, ts: readonly number[], tol: number,
-  limit: number, each?: (k: number, deg: number) => void): FaceAngles {
+  limit: number, each?: (k: number, deg: number) => void, feet?: (uv: Float64Array, judged: Uint8Array) => void):
+  FaceAngles {
   const out: FaceAngles = { triangles: ts.length, missed: 0, excluded: 0, unmeasured: 0, spread: 0, worst: 0, area: 0,
     missedArea: 0, spreadArea: 0, excludedArea: 0, unmeasuredArea: 0 };
   const p = r.positions, o = r.origin, ix = r.indices;
@@ -220,6 +222,7 @@ export function faceAngles(g: Inverter, surface: number, r: TessellationResult, 
     if (nrm.status !== 'ok' || nrm.statuses[s] !== 0 || !(Math.hypot(v[0]!, v[1]!, v[2]!) > 0.5)) state[s] = 1;
     else normal.set(v, 3 * s);
   }
+  feet?.(inv.params, state.map((x) => (x === 0 ? 1 : 0)));
   const corners = (k: number) => [0, 1, 2].map((c) => slot.get(ix[k + c]!)!);
   const facet = (k: number) => {
     const a = ix[k]!, b = ix[k + 1]!, c = ix[k + 2]!;
@@ -280,6 +283,58 @@ export function addAngles(A: Angles, f: FaceAngles, limit: number): void {
   A.unmeasured += f.unmeasured;
   A.area += f.area, A.missedArea += f.missedArea, A.spreadArea += f.spreadArea, A.excludedArea += f.excludedArea;
   A.unmeasuredArea += f.unmeasuredArea;
+}
+
+/** What minRadius needs of cad-geom's Geometry. */
+export interface Evaluator {
+  evalSurface(row: number, uv: ArrayLike<number>, order: 0 | 1 | 2):
+    { status: string; values: Float64Array; statuses: Uint8Array };
+}
+
+/**
+ * The smallest radius of curvature of surface row `surface` over the (u, v) pairs `uv` where `use` is 1: one over the
+ * largest principal curvature's magnitude, from the fundamental forms (|H| + sqrt(H^2 - K)); Infinity where every
+ * point is flat (or none is usable). Only at those points, so a sharper bend between them is missed.
+ */
+export function minRadius(g: Evaluator, surface: number, uv: ArrayLike<number>, use: ArrayLike<number>): number {
+  const pick: number[] = [];
+  for (let q = 0; q < use.length; q++) if (use[q]) pick.push(uv[2 * q]!, uv[2 * q + 1]!);
+  if (!pick.length) return Infinity;
+  const e = g.evalSurface(surface, pick, 2);
+  if (e.status !== 'ok') return Infinity;
+  let most = 0;
+  for (let q = 0; q < pick.length / 2; q++) {
+    if (e.statuses[q] !== 0) continue;
+    const v = e.values.subarray(18 * q, 18 * q + 18);
+    const su = [v[3]!, v[4]!, v[5]!], sv = [v[6]!, v[7]!, v[8]!];
+    const dot = (a: number[], b: ArrayLike<number>, o = 0) => a[0]! * b[o]! + a[1]! * b[o + 1]! + a[2]! * b[o + 2]!;
+    const n = [su[1]! * sv[2]! - su[2]! * sv[1]!, su[2]! * sv[0]! - su[0]! * sv[2]!, su[0]! * sv[1]! - su[1]! * sv[0]!];
+    const ln = Math.hypot(n[0]!, n[1]!, n[2]!);
+    if (!(ln > 0)) continue;
+    for (let c = 0; c < 3; c++) n[c] = n[c]! / ln;
+    const E = dot(su, su), F = dot(su, sv), G = dot(sv, sv);
+    const L = dot(n, v, 9), M = dot(n, v, 12), N = dot(n, v, 15);
+    const W = E * G - F * F;
+    if (!(W > 0)) continue;
+    const K = (L * N - M * M) / W, H = (E * N - 2 * F * M + G * L) / (2 * W);
+    const k = Math.abs(H) + Math.sqrt(Math.max(0, H * H - K));
+    if (Number.isFinite(k)) most = Math.max(most, k);
+  }
+  return most > 0 ? 1 / most : Infinity;
+}
+
+/** The diagonal of the bounding box of a face's triangles' corners (mesh units). */
+export function meshExtent(r: TessellationResult, ts: readonly number[]): number {
+  const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+  for (const k of ts) {
+    for (let c = 0; c < 3; c++) {
+      const v = r.indices[k + c]!;
+      for (let a = 0; a < 3; a++) {
+        lo[a] = Math.min(lo[a]!, r.positions[3 * v + a]!), hi[a] = Math.max(hi[a]!, r.positions[3 * v + a]!);
+      }
+    }
+  }
+  return ts.length ? Math.hypot(hi[0]! - lo[0]!, hi[1]! - lo[1]!, hi[2]! - lo[2]!) : 0;
 }
 
 function triangleArea(p: ArrayLike<number>, a: number, b: number, c: number): number {
