@@ -7,7 +7,7 @@
 // phase; then each placed brep part's mesh as tessellation delivers it (the buffers transferable); then the end, with
 // healing's and the tessellation's diagnostics and what meshed it.
 
-import { chooseLod, meshDeflections, partInstances, tessellateScene, type Brep, type Diagnostic, type LodWanted,
+import { chooseLod, partInstances, tessellateScene, type Brep, type Diagnostic, type LodWanted,
   type Measures, type Mesh, type Scene, type SceneBounds } from 'cad-scene';
 import { healScene, poolHealer } from 'cad-heal';
 import type { PoolTessellator } from 'tess-workers/browser';
@@ -18,7 +18,8 @@ import { importThreejs } from 'threejs-import';
 import type { Format } from './formats.ts';
 import { EDGE_ANGLE, EDGE_GRID_MM, findEdges } from './edges.ts';
 import type { CacheStats } from 'tess-cache/browser';
-import { deflectionsOf, healingOf, type Tessellation, type TessellationSettings } from './tessellation.ts';
+import { deflectionsOf, healingOf, minAngleOf, wantedOf, type Tessellation, type TessellationSettings }
+  from './tessellation.ts';
 
 /**
  * What meshed a model: the backend's name and version, the workers, the cache's counts (if it was on), and how many
@@ -162,7 +163,7 @@ export async function loadModelIn(source: ModelSource, settings: TessellationSet
   // The levels shown that have no edges of their own get edges found from their triangles, part by part, after the
   // scene goes (edges.ts: off the page's thread, and not holding up meshing); those levels' buffers are copied to the
   // page rather than transferred, as they're needed here meanwhile.
-  const jobs = edgeJobs(scene, meshDeflections(deflectionsOf(settings)));
+  const jobs = edgeJobs(scene, wantedOf(settings));
   const kept = new Set(jobs.flatMap((j) => meshBuffers(j.mesh)));
   // (The file's other levels transferred: only B-rep models are used here from now on.)
   emit({ type: 'scene', scene: postable(scene), edgeParts: jobs.length },
@@ -197,8 +198,9 @@ export async function meshModelIn(scene: Scene, settings: TessellationSettings, 
   const healed = await healIn(scene, settings, pool, n, emit, cancelled);
   if (cancelled()) return;
   // Faces that fail to mesh, and parts that do (errors, timeouts), outlined from the file (cad-scene's `outlines`).
-  const { diagnostics } = await tessellateScene(scene, tess, { ...deflectionsOf(settings), edges: true, outlines: true,
-    concurrency: n, parts: brep,
+  const min = minAngleOf(settings);
+  const { diagnostics } = await tessellateScene(scene, tess, { ...deflectionsOf(settings),
+    ...(min !== undefined ? { minAngle: min } : {}), edges: true, outlines: true, concurrency: n, parts: brep,
     onPart: (part, mesh) => {
       if (cancelled()) return;
       const measures = scene.parts[part]!.measures;

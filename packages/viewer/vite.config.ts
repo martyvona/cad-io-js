@@ -1,7 +1,7 @@
 // The viewer's Vite config: the content root at /content/ (dev and preview servers), LAN and https by option, and in
-// builds a progressive web app: a service worker that precaches everything the app needs, the OCCT, truck and SMLib
-// modules included, so a device that loaded it once can use it offline (docs/viewer.md). Options come from the
-// environment (server/options.ts). Draco's decoder (for glTF, in the import worker) is found by its bundled URL
+// builds a progressive web app: a service worker that precaches everything the app needs, the OCCT, truck, SMLib and
+// tess-cadio modules included, so a device that loaded it once can use it offline (docs/viewer.md). Options come from
+// the environment (server/options.ts). Draco's decoder (for glTF, in the import worker) is found by its bundled URL
 // (import-worker.ts).
 
 import { execFileSync } from 'node:child_process';
@@ -71,6 +71,9 @@ const licenses = (): Plugin => ({
       '- the SMLib tessellation backend (`assets/smlib_tess-*.wasm` and `smlib_tess-*.mjs`): cad-io-js\'s wrapper ' +
         '(AGPL-3.0-only) and SMLib, from NVIDIA\'s usd-brep (https://github.com/NVIDIA-Omniverse/usd-brep), ' +
         'Apache-2.0, below;',
+      '- cad-io-js\'s own tessellator (`assets/tess_cadio-*.wasm` and `tess_cadio-*.mjs`): AGPL-3.0-only, with ' +
+        'cad-io-js\'s geometry code, built with Eigen\'s headers (https://eigen.tuxfamily.org, MPL-2.0; its source ' +
+        'in cad-io-js\'s `packages/tess-cadio` and `packages/cad-geom`);',
       '- cad-io-js\'s geometry module, for healing (`assets/cad_geom-*.wasm` and `cad_geom-*.mjs`): AGPL-3.0-only, ' +
         'built with Eigen\'s headers (https://eigen.tuxfamily.org, MPL-2.0; its source in cad-io-js\'s ' +
         '`packages/cad-geom`, Eigen\'s at https://gitlab.com/libeigen/eigen);',
