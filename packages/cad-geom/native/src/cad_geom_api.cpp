@@ -401,11 +401,13 @@ int32_t cg_surface_invert(int32_t h, int32_t row, const double* points, int32_t 
 // own parameters, taken where they land nearer (counted: cg_face_info); else the curve's, within 100 x the tolerance.
 // A coedge without a p-curve gets its edge's 3D curve projected onto the face's surface (projectCurve, at the edge's
 // tolerance, over the edge's parameters as above, the seam side its use takes by seamUseTakesTwin; made once per
-// coedge and kept; counted: cg_face_info), unless cg_model_options turns that off.
+// coedge and kept; counted: cg_face_info), unless cg_model_options turns that off. A projection singular there (the
+// whole edge at one of the surface's poles: a degenerate edge) is left out of its loop, its neighbours' joint bridged.
 // Face statuses, besides makeCurve's and makeSurface's codes: FACE_NO_PCURVE (a coedge without a p-curve, none
 // projected: no 3D curve, or projection off), FACE_NO_RANGE (no range given or derivable: no 3D curve or no
 // vertices), FACE_RANGE_OFF (neither the curve's parameters nor the p-curve's own reach the vertices) and
-// FACE_PROJECTION_FAILED (a projection's status isn't ok: the curve off the surface, or no fit within tolerance).
+// FACE_PROJECTION_FAILED (a projection's status isn't ok or singular: the curve off the surface, or no fit within
+// tolerance; or every coedge of a loop singular).
 
 namespace {
 
@@ -871,11 +873,14 @@ FaceLoops faceLoops(int32_t h, int32_t face, double tol3d) {
           out.status = pr ? pr->made : FACE_NO_PCURVE;
           return out;
         }
+        out.projected++;
+        // Singular: the whole edge at one pole (within tol of it), its p-curve a stretch of the pole line its
+        // neighbours' ends give: left out, the joint between them bridged below along that line.
+        if (pr->p.status == Status::singular) continue;
         if (pr->p.status != Status::ok) {
           out.status = FACE_PROJECTION_FAILED;
           return out;
         }
-        out.projected++;
         const std::vector<PcurvePiece>& pieces = pr->twin ? pr->p.seamTwin : pr->p.pieces;
         const bool up = back ? pr->t0 > pr->t1 : pr->t1 > pr->t0;
         for (size_t k = 0; k < pieces.size(); k++) {
@@ -915,6 +920,10 @@ FaceLoops faceLoops(int32_t h, int32_t face, double tol3d) {
       } else {
         piece(from, to);
       }
+    }
+    if (loop.pieces.empty()) {
+      out.status = FACE_PROJECTION_FAILED;
+      return out;
     }
     out.loops.push_back(std::move(loop));
     out.loopIndex.push_back(l - m.faceFirstLoop(face));

@@ -891,6 +891,27 @@ void sideChecks(const Pcurve& p, const Curve& c, const Surface& sq, Range r, con
 
 } // namespace
 
+TEST_CASE("a curve ending at a pole, shorter than its tolerance: through the pole only at that end, traced") {
+  // A flat triangle as a bilinear B-spline, its u = 1 row of poles one point (a pole at (1, 0.5, 0)): S(u, v) =
+  // (u, v + u (0.5 - v), 0) on [0, 1]^2. The line along v = 0 from S(0.6, 0) to the pole is 0.45 long; at tol 1 both
+  // its ends are within tol of the pole, but only its end passes through it.
+  const int32_t in[] = {1, 1, 2, 2, 2, 2, 0, 0, 0, 0, 0, 2, 2, 2, 2};
+  const double r[] = {0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0.5, 0, 1, 0.5, 0};
+  Status st;
+  std::unique_ptr<Surface> tri = surfaces::makeBSpline(r, in, st);
+  REQUIRE(tri);
+  const double len = std::hypot(0.4, 0.2), lr[7] = {0.6, 0.3, 0, 0.4 / len, 0.2 / len, 0, len};
+  std::unique_ptr<Curve> line = curves::makeLine(lr, 3);
+  for (double tol : {1.0, 1e-6}) {
+    Pcurve p = projectCurve(*line, {0, 1}, *tri, tol);
+    CHECK(p.status == Status::ok);
+    REQUIRE(!p.pieces.empty());
+    CHECK_NEAR(uvAt(p.pieces.front(), 0).x, 0.6, 0, 1e-6);
+    CHECK_NEAR(uvAt(p.pieces.front(), 0).y, 0, 0, 1e-6);
+    CHECK_NEAR(uvAt(p.pieces.back(), 1).x, 1, 0, 1e-9);
+  }
+}
+
 TEST_CASE("a curve past its surface's sides: cut where its feet reach and leave a side, joined there") {
   const WholeFirst cutNow(0);
   const double tol = 1e-6;

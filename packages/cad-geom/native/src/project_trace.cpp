@@ -514,11 +514,18 @@ void trace(const Job& job, Pcurve& out) {
     if (g.kind == Singularity::normalVanishes) continue;
     CurveInversion ci = invertCurve(job.c, g.point, r, job.tol);
     if (ci.status != Status::ok || !(ci.distance <= job.tol)) continue;
+    // Through the pole: within tol of it and about as near as the curve comes (a tenth of tol), not merely within a
+    // tolerance coarser than the curve (an edge shorter than the part's 1 mm uncertainty, ending at a pole, has its
+    // other end within tol of it too: trj7_b1-ec #10 face #6222).
+    auto through = [&](double t) {
+      return norm(curveAt(job.c, t) - g.point) <= std::min(job.tol, ci.distance + 0.1 * job.tol);
+    };
     cuts.push_back({ci.t, &g});
-    for (double a : ci.alternatives) cuts.push_back({a, &g});
+    for (double a : ci.alternatives)
+      if (through(a)) cuts.push_back({a, &g});
     // A pole at both ends of the range is found once: the other end checked directly.
     for (double e : {r.lo, r.hi})
-      if (norm(curveAt(job.c, e) - g.point) <= job.tol) cuts.push_back({e, &g});
+      if (through(e)) cuts.push_back({e, &g});
   }
   std::sort(cuts.begin(), cuts.end(), [](auto& a, auto& b) { return a.first < b.first; });
   std::vector<std::pair<double, const Singularity*>> merged;

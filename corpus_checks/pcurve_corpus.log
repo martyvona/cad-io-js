@@ -1,10 +1,10 @@
-host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB; Darwin 27.2.0 arm64; Node 26.13.1; lowpowermode 0, on AC; load 22.4; speed 5047 on 1 thread, 46417 on 18
+host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB; Darwin 27.2.0 arm64; Node 26.13.1; lowpowermode 0, on AC; load 23.5; speed 5619 on 1 thread, 48802 on 18
 516 files, 3232 B-rep parts, 74501 faces, 352374 coedges, with OCCT; 601 s
 
 ## Projections made, by status, method and surface
   155111  ok: planeAffine (plane)
   83500  ok: isoLine (cylinder)
-  27404  ok: affineFeet (bspline)
+  27442  ok: affineFeet (bspline)
   18363  ok: traced (bspline)
   12878  ok: traced (cylinder)
   12384  ok: isoLine (cone)
@@ -75,12 +75,6 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/bug30014.stp #61091 face #102021 coedge 252: error 0.0000134, off the surface 0.0000134, tol 0.00001
       gkv311-opencascade-dataset/step/bug30014.stp #61091 face #3751 coedge 324: error 0.0000141, off the surface 0.0000141, tol 0.00001
       gkv311-opencascade-dataset/step/bug30014.stp #61091 face #125217 coedge 327: error 0.0000141, off the surface 0.0000141, tol 0.00001
-  48  singular: traced (bspline)
-      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #6222 coedge 609: error 0.00, off the surface 0.00, tol 1
-      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #6222 coedge 610: error 0.00, off the surface 0.00, tol 1
-      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #7099 coedge 694: error 0.00, off the surface 0.00, tol 1
-      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #7099 coedge 695: error 0.00, off the surface 0.00, tol 1
-      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #7737 coedge 745: error 0.00, off the surface 0.00, tol 1
   48  not made: no 3D curve
   48  not made: noPcurveRange (cylinder)
       gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 face #197 coedge 7
@@ -112,6 +106,12 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 face #865 coedge 40
       gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 face #865 coedge 41
       gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #92610 face #92586 coedge 206
+  10  singular: traced (bspline)
+      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #8550 coedge 825: error 0.00, off the surface 0.00, tol 1
+      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #8550 coedge 826: error 0.00, off the surface 0.00, tol 1
+      gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 face #8543 coedge 823: error 0.00, off the surface 0.00, tol 1
+      gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 face #8543 coedge 824: error 0.00, off the surface 0.00, tol 1
+      gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 face #52 coedge 427: error 0.00, off the surface 0.00, tol 1.0000000149011599
   9  not made: noPcurveRange (plane)
       gkv311-opencascade-dataset/step/bug31292.stp #62 face #65 coedge 0
       gkv311-opencascade-dataset/step/bug31292.stp #62 face #423 coedge 7
@@ -157,12 +157,12 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
 ## The error of those ok, against the tolerance
   154747  under 0.01 x tol (planeAffine)
   109245  under 0.01 x tol (isoLine)
-  33370  under 0.01 x tol (affineFeet)
-  28284  0.1-1 x tol (traced)
-  5837  0.01-0.1 x tol (affineFeet)
+  33394  under 0.01 x tol (affineFeet)
+  28287  0.1-1 x tol (traced)
+  5850  0.01-0.1 x tol (affineFeet)
   5665  under 0.01 x tol (traced)
-  5589  0.01-0.1 x tol (traced)
-  4374  0.1-1 x tol (affineFeet)
+  5586  0.01-0.1 x tol (traced)
+  4375  0.1-1 x tol (affineFeet)
   366  0.01-0.1 x tol (isoLine)
   276  0.01-0.1 x tol (planeAffine)
   238  0.1-1 x tol (isoLine)
@@ -175,12 +175,12 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/bug25045_ick_0433.stp #109 face #378 coedge 44
       gkv311-opencascade-dataset/step/bug25045_ick_0433.stp #109 face #378 coedge 45
       gkv311-opencascade-dataset/step/bug25281_tess_infloop_extract.step #11 face #61566 coedge 26
-  402  affineFeet (bspline)
+  422  affineFeet (bspline)
+      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #6222 coedge 610
       gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #6299 coedge 617
       gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #6529 coedge 637
       gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #6529 coedge 638
       gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #6799 coedge 662
-      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #7099 coedge 696
   350  affineFeet (sphere)
       gkv311-opencascade-dataset/step/trj5_s1-ug-214.stp #75 face #697 coedge 10
       gkv311-opencascade-dataset/step/trj5_s1-ug-214.stp #75 face #699 coedge 13
@@ -218,7 +218,7 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #11796 coedge 10136: at 0.0% of its range, its last foot 1.97e+7 off the curve, tol 0.050800000000000005
 
 ## Traced ends against their vertices' feet (the end search), by surface
-  89720  same (bspline)
+  89796  same (bspline)
   35053  same (cylinder)
   13655  same (cone)
   10917  same (extrusion)
@@ -356,7 +356,7 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/bug25013_25013face.stp #2003 face #4157 coedge 3: its end (ok), 1 feet there
 
 ## Ok traced results densely (257 parameters on the face's own surface) against the error they report
-  43581  within the error reported (affineFeet)
+  43619  within the error reported (affineFeet)
   39538  within the error reported (traced)
 
 ## invalidModel: the gap off the surface against 1e-9 x the part's size (its vertices' box), its uncertainty and the face's tolerance
@@ -382,7 +382,7 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049 face #3141 coedge 6: 1.52 off its curve, 1.52 from ours
       gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049 face #3141 coedge 7: 7.69 off its curve, 7.69 from ours
       gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049 face #3141 coedge 8: 1.17 off its curve, 1.17 from ours
-  1175  within 10 x tol in 3D, not a whole number of periods apart in (u, v) (bspline)
+  1177  within 10 x tol in 3D, not a whole number of periods apart in (u, v) (bspline)
       gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #264 coedge 4: 0.0000192 off its curve, 0.000351 from ours
       gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #264 coedge 6: 0.0000121 off its curve, 0.000331 from ours
       gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #264 coedge 7: 0.00000292 off its curve, 0.000253 from ours
@@ -409,7 +409,7 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/ec_soapbox-A.stp #11 face #3344 coedge 144: 0.739 off its curve, 0.739 from ours
   551  the same (torus)
   399  the same, a whole number of periods apart (torus)
-  298  ours not ok (above) (bspline)
+  296  ours not ok (above) (bspline)
       gkv311-opencascade-dataset/step/bug21802_as1-oc-214.stp #3812 face #5564 coedge 34: 0.0000225 off its curve, 9.29e-7 from ours
       gkv311-opencascade-dataset/step/bug21802_as1-oc-214.stp #3812 face #5635 coedge 38: 0.0000225 off its curve, 9.29e-7 from ours
       gkv311-opencascade-dataset/step/bug21802_as1-oc-214.stp #3812 face #5664 coedge 42: 0.0000225 off its curve, 9.30e-7 from ours
@@ -634,9 +634,9 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/bug31292.stp #62
 
 ## OCCT: its 3D error at its parameters against the tolerance, and ours
-  178135  ShapeFix_Edge::FixAddPCurve (OCCT projecting): OCCT within tol, ours ok
+  178171  ShapeFix_Edge::FixAddPCurve (OCCT projecting): OCCT within tol, ours ok
   155085  computed on request (a plane's): OCCT within tol, ours ok
-  12172  the shape's own (the model's: OCCT echoing it): OCCT within tol, ours ok
+  12174  the shape's own (the model's: OCCT echoing it): OCCT within tol, ours ok
   3259  ShapeFix_Edge::FixAddPCurve (OCCT projecting): OCCT over tol, ours not ok
   1982  ShapeFix_Edge::FixAddPCurve (OCCT projecting): OCCT over tol, ours ok
       gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #30730 face #7040 coedge 2: OCCT 0.00000270 (1-10 x tol)
@@ -650,16 +650,16 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #11476 coedge 335: OCCT 0.00000553 (1-10 x tol)
       gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #32132 coedge 1318: OCCT 0.00000205 (1-10 x tol)
       gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #32132 coedge 1321: OCCT 0.00000253 (1-10 x tol)
-  496  ShapeFix_Edge::FixAddPCurve (OCCT projecting): OCCT within tol, ours not ok
+  460  ShapeFix_Edge::FixAddPCurve (OCCT projecting): OCCT within tol, ours not ok
   311  the shape's own (the model's: OCCT echoing it): OCCT over tol, ours not ok
   53  computed on request (a plane's): OCCT over tol, ours not ok
   20  computed on request (a plane's): OCCT within tol, ours not ok
-  17  the shape's own (the model's: OCCT echoing it): OCCT within tol, ours not ok
+  15  the shape's own (the model's: OCCT echoing it): OCCT within tol, ours not ok
 
 ## OCCT: its (u, v) against ours at the same 3D points
   155085  the same: computed on request (a plane's) (plane)
   79554  the same: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (cylinder)
-  24088  the same: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (bspline)
+  24102  the same: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (bspline)
   14850  the same: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (cone)
   9501  the same: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (torus)
   8138  not a whole number of periods apart, 0.1-1 x tol apart in 3D: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (bspline)
@@ -674,7 +674,7 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #1840 coedge 263: ours (5.999938826974491, -44.19346548893779), OCCT (5.999936802422971, -44.193355768656104), tol 0.001
       gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #1840 coedge 264: ours (4.522022144366341, -31.691869959732248), OCCT (4.5220307304434035, -31.691827332282656), tol 0.001
       gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #1840 coedge 265: ours (3.902802262666624, -41.9688712568363), OCCT (3.9027938952362065, -41.96891047786466), tol 0.001
-  6340  not a whole number of periods apart, 0.01-0.1 x tol apart in 3D: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (bspline)
+  6344  not a whole number of periods apart, 0.01-0.1 x tol apart in 3D: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (bspline)
       gkv311-opencascade-dataset/step/trj3_s1-id-203.stp #1900 face #2795 coedge 25: ours (0.7334898172288868, 0.3480206569407036), OCCT (0.7342828453309207, 0.34807839841463906), tol 0.01
       gkv311-opencascade-dataset/step/trj3_s1-id-203.stp #891 face #3211 coedge 13: ours (3.9999999999999996, 0.10542660343356047), OCCT (4, 0.10542607843763303), tol 0.01
       gkv311-opencascade-dataset/step/bug27693_cornetta-step.stp #22 face #38 coedge 1: ours (1.2197271313260316, 2.6858888365294087), OCCT (1.2197443354106174, 2.6858920864550173), tol 0.01
@@ -688,7 +688,7 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #938 coedge 72: ours (6.283185307179586, 0.14285714285714168), OCCT (0, 0.1428571428571428), tol 0.1
   5451  not compared: OCCT's (u, v) differs on extrusion
   4196  the same: the shape's own (the model's: OCCT echoing it) (cylinder)
-  4156  ours not ok: not compared
+  4118  ours not ok: not compared
   3295  the same: the shape's own (the model's: OCCT echoing it) (bspline)
   3107  the same: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (sphere)
   2505  not a whole number of periods apart, 0.1-1 x tol apart in 3D: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (cone)
@@ -704,7 +704,7 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/trj8_k1-pe-203.stp #2173 face #1474 coedge 50: ours (1.2182690969620644, 2.1903450723285482), OCCT (1.2182682664581008, 2.190923621470162), tol 0.013647142049885342
       gkv311-opencascade-dataset/step/trj8_k1-pe-203.stp #2173 face #1515 coedge 60: ours (4.359731520198044, 2.1903854508669913), OCCT (4.359699073670202, 2.1909644876622085), tol 0.013647142049885342
       gkv311-opencascade-dataset/step/trj8_k1-pe-203.stp #2173 face #2100 coedge 256: ours (0.08357713834744773, 17.68053034964794), OCCT (0.08357839795080922, 17.68068281507371), tol 0.013647142049885342
-  1350  not a whole number of periods apart, under 0.01 x tol apart in 3D: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (bspline)
+  1368  not a whole number of periods apart, under 0.01 x tol apart in 3D: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (bspline)
       gkv311-opencascade-dataset/step/trj3_s1-id-203.stp #569 face #4759 coedge 39: ours (0.5315045952628401, 0.3554830721127975), OCCT (0.5315064530854319, 0.3554838632925046), tol 0.01
       gkv311-opencascade-dataset/step/bug27693_cornetta-step.stp #22 face #41 coedge 19: ours (-1.192528631763642, 3.4722958821180905), OCCT (-1.1925487982054754, 3.472295492919536), tol 0.01
       gkv311-opencascade-dataset/step/bug27693_cornetta-step.stp #22 face #46 coedge 70: ours (8.471563220836726, 0.9999739736110694), OCCT (8.471563122366137, 0.9999784653363808), tol 0.01
@@ -832,12 +832,12 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/trj2_as1-id-203.stp #1138 face #1989 coedge 6: ours (9.831084045577441e-17, 0.014285714072840518), OCCT (1, 0.01428571407284058), tol 0.01
       gkv311-opencascade-dataset/step/trj2_as1-id-203.stp #1138 face #2058 coedge 8: ours (1, 0.014285714072840525), OCCT (0, 0.01428571407284058), tol 0.01
   159  the same: the shape's own (the model's: OCCT echoing it) (cone)
-  139  not a whole number of periods apart, 0.01-0.1 x tol apart in 3D: the shape's own (the model's: OCCT echoing it) (bspline)
+  141  not a whole number of periods apart, 0.01-0.1 x tol apart in 3D: the shape's own (the model's: OCCT echoing it) (bspline)
+      gkv311-opencascade-dataset/step/t4mec.stp #9 face #472 coedge 20: ours (0, 0.9220634377482367), OCCT (0, 0.9285714285714286), tol 0.006
+      gkv311-opencascade-dataset/step/t4mec.stp #9 face #472 coedge 22: ours (1, -0.1938260919961764), OCCT (1, 0.07142857142857142), tol 0.006
       gkv311-opencascade-dataset/step/t4mec.stp #9 face #618 coedge 26: ours (0.0994786271359271, 0.9637102756464889), OCCT (0.09947707475218656, 0.9637104276603499), tol 0.006
       gkv311-opencascade-dataset/step/t4mec.stp #9 face #1825 coedge 65: ours (0.5055851179315192, 0.018181151383670838), OCCT (0.505583338739067, 0.018181075827351546), tol 0.006
       gkv311-opencascade-dataset/step/ec_soapbox-A.stp #11 face #13691 coedge 322: ours (4.981510094513194, 4.821173621910664), OCCT (4.981508827618035, 4.821173620763848), tol 0.01
-      gkv311-opencascade-dataset/step/ec_soapbox-A.stp #11 face #13691 coedge 326: ours (4.984028963797438, 4.631762691271558), OCCT (4.984027582210633, 4.631762690339688), tol 0.01
-      gkv311-opencascade-dataset/step/ec_soapbox-A.stp #11 face #13691 coedge 330: ours (4.917690435629142, 4.799072992668461), OCCT (4.91769040119461, 4.799072992609224), tol 0.01
   139  not a whole number of periods apart, under 0.01 x tol apart in 3D: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (cone)
       gkv311-opencascade-dataset/step/trj10_b2-oc-214.stp #10 face #6225 coedge 547: ours (1.2967476870662873, -0.6195959600803095), OCCT (1.2967476074560558, -0.6196156480357025), tol 0.01
       gkv311-opencascade-dataset/step/trj10_b2-oc-214.stp #10 face #6631 coedge 576: ours (6.051463918684496, -7.798576156934732), OCCT (6.051463922726692, -7.798588008541402), tol 0.01
@@ -1356,7 +1356,7 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/trj5_s1-ug-214.stp #77 face #686 loop 0
       gkv311-opencascade-dataset/step/trj5_s1-ug-214.stp #77 face #688 loop 0
       gkv311-opencascade-dataset/step/trj5_s1-ug-214.stp #76 face #690 loop 0
-  344  with joints apart in (u, v) (the widest 1e-4 to 1e-2); no seam; some uses by FixAddPCurve (bspline)
+  352  with joints apart in (u, v) (the widest 1e-4 to 1e-2); no seam; some uses by FixAddPCurve (bspline)
       gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #64 loop 0
       gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #171 loop 0
       gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #2204 loop 0
@@ -1372,12 +1372,12 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/ec_exhaust-A.stp #2743 face #2787 loop 0
   173  continuous; no seam; some uses by FixAddPCurve (revolution)
   170  continuous; seam uses on our copies; some uses by FixAddPCurve (cylinder)
-  147  with joints apart in (u, v) (the widest over 1e-2); no seam; some uses by FixAddPCurve (bspline)
-      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #6222 loop 0
-      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #7099 loop 0
+  139  with joints apart in (u, v) (the widest over 1e-2); no seam; some uses by FixAddPCurve (bspline)
       gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #7360 loop 0
-      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #7737 loop 0
-      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #8267 loop 0
+      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #9571 loop 0
+      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #9780 loop 0
+      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #16822 loop 0
+      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #20347 loop 0
   138  continuous but for joints a whole period apart and jumps along a pole line; no seam; some uses by FixAddPCurve (sphere)
       gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #954 loop 0
       gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #31440 face #31200 loop 0

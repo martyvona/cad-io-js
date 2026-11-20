@@ -400,6 +400,46 @@ test('faces: p-curves periods from the surface\'s domain (u from -pi/4 - 4 pi to
   assert.deepEqual([...r0.sides].map((x) => ['in', 'out', 'on'][x]), ['in', 'in', 'out', 'out', 'out', 'out', 'on']);
 });
 
+test('faces: a degenerate edge at a pole, projected singular, left out and bridged along the pole line', { skip },
+  async () => {
+  // A flat triangle as a bilinear B-spline, its u = 1 row of poles one point (a pole at (1, 0.5, 0)), bounded by lines
+  // along v = 0 and v = 1 to the pole, the u = 0 side, and an edge at the pole whose curve is that point (a B-spline
+  // of two equal poles), none with a p-curve: the pole edge projects singular, and the face is its other three.
+  const b = new BrepBuilder();
+  const surface = b.addSurface({ kind: 'bspline', uDegree: 1, vDegree: 1, uKnots: [0, 1], vKnots: [0, 1],
+    uMultiplicities: [2, 2], vMultiplicities: [2, 2], poles: [[[0, 0, 0], [0, 1, 0]], [[1, 0.5, 0], [1, 0.5, 0]]],
+    uClosed: false, vClosed: false, selfIntersect: false, form: 'unspecified' });
+  const [v0, vp, v1] = [[0, 0, 0], [1, 0.5, 0], [0, 1, 0]].map((p) =>
+    b.addVertex({ point: p as [number, number, number] }));
+  const line = (a: number[], c: number[]) => {
+    const d = c.map((x, i) => x - a[i]!), n = Math.hypot(...d);
+    return b.addCurve({ kind: 'line', point: a as [number, number, number], direction: d.map((x) => x / n) as
+      [number, number, number], magnitude: 1 });
+  };
+  const point = b.addCurve({ kind: 'bspline', degree: 1, knots: [0, 1], multiplicities: [2, 2],
+    poles: [[1, 0.5, 0], [1, 0.5, 0]], closed: false, selfIntersect: null, form: 'unspecified' });
+  const edges = [
+    b.addEdge({ curve: line([0, 0, 0], [1, 0.5, 0]), start: v0!, end: vp!, sameSense: true }),
+    b.addEdge({ curve: point, start: vp!, end: vp!, sameSense: true, range: [0, 1] }),
+    b.addEdge({ curve: line([1, 0.5, 0], [0, 1, 0]), start: vp!, end: v1!, sameSense: true }),
+    b.addEdge({ curve: line([0, 1, 0], [0, 0, 0]), start: v1!, end: v0!, sameSense: true }),
+  ];
+  const f = b.addFace({ surface, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true,
+    coedges: edges.map((edge) => ({ edge, orientation: 'forward' as const })) }] });
+  b.addItem({ kind: 'face', ref: f });
+  // A face whose only loop is the pole edge: nothing left of it, failed.
+  const lone = b.addFace({ surface, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true,
+    coedges: [{ edge: edges[1]!, orientation: 'forward' as const }] }] });
+  b.addItem({ kind: 'face', ref: lone });
+  using g = new Geometry(await init(), new Uint8Array(b.finish().buffer));
+  assert.equal((g.projectCoedge(1) as { status: string }).status, 'singular');
+  assert.equal(g.faceInfo(1).status, 'pcurveProjectionFailed');
+  const info = g.faceInfo(0);
+  assert.deepEqual([info.status, info.projected], ['ok', 4]);
+  const r = g.classifyOnFace(0, [0.5, 0.5, 0.9, 0.5, 1.5, 0.5, 0.5, -0.5]);
+  assert.deepEqual([...r.sides].map((x) => ['in', 'out', 'on'][x]), ['in', 'in', 'out', 'out']);
+});
+
 test('faces: a C0 crease inside a face, split by a hole, its ends on the loops', { skip }, async () => {
   // A quadratic in u with a double knot at u = 1, folding by 90 degrees there across a cross-section z = 0, 1, 2, 1, 0
   // (control points at x = 0..4), linear in v over y in [0, 1]. The face is its (u, v) square [0, 2] x [0, 1] less a
