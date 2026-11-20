@@ -969,3 +969,39 @@ test('projection: a use against its curve through a sphere\'s pole (pieces in th
   const self = g.selfIntersectFace(0, 0);
   assert.deepEqual([self.status, self.crossings, self.touches, self.overlaps], ['ok', 0, 0, 0]);
 });
+
+test('a revolution of a line crossing its axis: the apex a pole, and a curve through it traced across it', { skip },
+  async () => {
+  // The line from (2, 0, 0) toward (0, 0, 2), revolved about z: a double cone, its apex (0, 0, 2) at the line's
+  // parameter 2 sqrt 2 (an unbounded profile, its crossing found in closed form). A degree-1 B-spline along the
+  // line from (1, 0, 1) to (-1, 0, 3) runs through the apex onto the other nappe, which is the profile's own
+  // continuation past the axis (u = 0 still, v past 2 sqrt 2): traced, the range split at the apex.
+  const b = new BrepBuilder();
+  const s = Math.SQRT1_2;
+  const profile = b.addCurve({ kind: 'line', point: [2, 0, 0], direction: [-s, 0, s], magnitude: 1 });
+  const rev = b.addSurface({ kind: 'revolution', curve: profile, axisOrigin: [0, 0, 0], axisDirection: [0, 0, 1] });
+  const across = b.addCurve({ kind: 'bspline', degree: 1, knots: [0, 1], multiplicities: [2, 2],
+    poles: [[1, 0, 1], [-1, 0, 3]], closed: false, selfIntersect: false, form: 'polyline_form' });
+  // A line 1 off the axis at its nearest (a hyperboloid of one sheet), and one parallel to it (a cylinder): no pole.
+  const skew = b.addSurface({ kind: 'revolution', curve: b.addCurve({ kind: 'line', point: [2, 1, 0],
+    direction: [-s, 0, s], magnitude: 1 }), axisOrigin: [0, 0, 0], axisDirection: [0, 0, 1] });
+  const parallel = b.addSurface({ kind: 'revolution', curve: b.addCurve({ kind: 'line', point: [2, 0, 0],
+    direction: [0, 0, 1], magnitude: 1 }), axisOrigin: [0, 0, 0], axisDirection: [0, 0, 1] });
+  using g = new Geometry(await init(), new Uint8Array(b.finish().buffer));
+  for (const row of [skew, parallel])
+    assert.deepEqual(g.surfaceSingularities(row), { status: 'ok', singularities: [] });
+  const sing = g.surfaceSingularities(rev);
+  assert.equal(sing.status, 'ok');
+  assert.equal(sing.singularities.length, 1);
+  const pole = sing.singularities[0]!;
+  assert.equal(pole.kind, 'pole');
+  assert.ok(Math.abs(pole.at - 2 / s) < 1e-12, `${pole.at}`);
+  assert.ok(Math.hypot(pole.point[0]!, pole.point[1]!, pole.point[2]! - 2) < 1e-12);
+  const p = g.project(across, rev, 0, 1, 1e-7, { samples: [0.25, 0.75] });
+  assert.ok('pieces' in p);
+  assert.equal(p.status, 'ok');
+  assert.ok(p.method === 'traced' || p.method === 'affineFeet', p.method);
+  assert.deepEqual(p.pieces.map((q) => q.t), [[0, 0.5], [0.5, 1]]);
+  const want = [0, 1.5 / s, 0, 2.5 / s];
+  want.forEach((w, i) => assert.ok(Math.abs(p.uv[i]! - w) < 1e-9, `uv[${i}] ${p.uv[i]}`));
+});
