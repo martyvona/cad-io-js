@@ -182,8 +182,8 @@ test('init({maxDeviationFactor}): a face left farther from its surface than that
     assert.ok(strict.indices.length < never.indices.length);
   });
 
-test('faces with deviations sampled, said: a torus\'s by its inner half, a B-spline dome\'s at its pole; ' +
-  'a sphere\'s, a B-spline\'s without one not',
+test('faces with deviations sampled, said: a B-spline dome\'s at its pole; a torus\'s inner half (bounded by its ' +
+  'derivatives where its closed form fails), a sphere\'s, a B-spline\'s without a pole not',
   { skip }, async () => {
     const t = await tessellator();
     const re = /^(\d+) faces meshed with their deviation from the surface sampled, not bounded/;
@@ -191,7 +191,7 @@ test('faces with deviations sampled, said: a torus\'s by its inner half, a B-spl
       const r = await t.tessellate({ ...req('cube'), data });
       return r.diagnostics.map((x) => re.exec(x.message)).find((m) => m)?.[1];
     };
-    assert.equal(await sampled(new Uint8Array(torusOuterHalf().finish().buffer)), '1');
+    assert.equal(await sampled(new Uint8Array(torusOuterHalf().finish().buffer)), undefined);
     assert.equal(await sampled(new Uint8Array(bsplineDome().finish().buffer)), '1');
     assert.equal(await sampled(new Uint8Array(bumpPatch().finish().buffer)), undefined);
     assert.equal(await sampled(new Uint8Array(MODELS.seamCylinder().finish().buffer)), undefined);
