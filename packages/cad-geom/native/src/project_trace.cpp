@@ -1,21 +1,21 @@
 // Tracing by continuation (docs/own-tessellator.md, "Tracing by continuation"): the feet of the curve's points on the
 // surface followed along the curve, so every sample is on one branch, never projected alone. A foot (u, v) of C(t)
 // solves F = ((S - C) . S_u, (S - C) . S_v) = 0; by the implicit function theorem it moves at d(u, v)/dt = H^-1 (C' .
-// S_u, C' . S_v), H the Hessian of |S - C|^2 / 2 (the first fundamental form plus (S - C) . the second partials).
-// Each step predicts along that tangent and corrects by damped Newton (project.cpp's footFrom), and is halved where
-// the correction is large against the step or the foot jumps in 3D (another branch near). A fold (H singular) is
-// reported. Seeds: a known end, else the curve's samples inverted globally (invertSurface), the most central unique
-// one;
-// the same samples check the trace afterwards (a nearer foot elsewhere, or an ambiguous one, is reported). The range
-// is first split where the curve passes through a pole or apex (Surface::singularities), the trace stopping where the
-// form degenerates and the free parameter carried on at its rate there, the pieces joined by a jump along the pole
+// S_u, C' . S_v), H the Hessian of |S - C|^2 / 2 (the first fundamental form plus (S - C) . the second partials). Each
+// step predicts along that tangent and corrects by damped Newton (project.cpp's footFrom), and is halved where the
+// correction is large against the step or the foot jumps in 3D (another branch near). A fold (H singular) is reported.
+// Seeds: a known end; else an end vertex's one foot from the end search (PcurveEnds' cache: not a pole's, the vertex
+// within tol of the curve's end); else the curve's samples inverted globally (invertSurface), the most central unique
+// one; the same samples check the trace afterwards (a nearer foot elsewhere, or an ambiguous one, is reported). The
+// range is first split where the curve passes through a pole or apex (Surface::singularities), the trace stopping where
+// the form degenerates and the free parameter carried on at its rate there, the pieces joined by a jump along the pole
 // line. Then each segment's feet are a 2D line if they're affine in t (checked between samples), else fitted
 // (numerics.h's fit::curve2), both against a 3D tolerance: tol, or a quarter of the curve's distance from the surface
-// where that's more (invalidModel whatever the p-curve), so its p-curve is as near as it allows without its feet
-// fitted ever finer. The fit is judged in 3D (its points on the surface against the feet's), at a tolerance from it
-// tightened while the 3D error measured exceeds tol and can still come down: within the curve's own distance from
-// the surface plus a quarter of it is as near as any p-curve gets, and a tightening that gains less than a quarter
-// of it ends the fitting (that distance is sampled, the curve farther between).
+// where that's more (invalidModel whatever the p-curve), so its p-curve is as near as it allows without its feet fitted
+// ever finer. The fit is judged in 3D (its points on the surface against the feet's), at a tolerance from it tightened
+// while the 3D error measured exceeds tol and can still come down: within the curve's own distance from the surface
+// plus a quarter of it is as near as any p-curve gets, and a tightening that gains less than a quarter of it ends the
+// fitting (that distance is sampled, the curve farther between).
 #include <algorithm>
 #include <cmath>
 #include <functional>
@@ -337,12 +337,25 @@ void trace(const Job& job, Pcurve& out) {
     if (s.why != StopWhy::none && !(s.t >= first.t)) first = s;
   };
   for (Segment& sg : segs) {
-    // Seeds: a known end off a pole, else the most central unique global inversion.
+    // Seeds: a known end off a pole; else an end vertex's one foot (the end search's), not a pole's, where the
+    // vertex is the curve's end (within tol); else the most central unique global inversion.
     Node seed{NAN, {}, {}};
-    if (sg.t.lo == r.lo && job.ends && job.ends->hasStart && !sg.poleLo) {
-      seed.t = r.lo, seed.uv = job.ends->start;
-    } else if (sg.t.hi == r.hi && job.ends && job.ends->hasEnd && !sg.poleHi) {
-      seed.t = r.hi, seed.uv = job.ends->end;
+    auto searched = [&](bool start, Vec2& uv) {
+      const PcurveEnds& e = *job.ends;
+      if (!e.cache || !(start ? e.checkStart : e.checkEnd)) return false;
+      const Vec3 vp = start ? e.startPoint : e.endPoint, cp = curveAt(job.c, start ? r.lo : r.hi);
+      if (norm(vp - cp) > job.tol) return false;
+      const std::vector<EndFoot>& f = e.cache->feet(start ? e.startKey : e.endKey, job.s, vp, job.tol);
+      if (f.size() != 1 || f[0].kind == EndFoot::Kind::pole) return false;
+      uv = f[0].uv;
+      return true;
+    };
+    if (sg.t.lo == r.lo && job.ends && !sg.poleLo && (job.ends->hasStart || searched(true, seed.uv))) {
+      seed.t = r.lo;
+      if (job.ends->hasStart) seed.uv = job.ends->start;
+    } else if (sg.t.hi == r.hi && job.ends && !sg.poleHi && (job.ends->hasEnd || searched(false, seed.uv))) {
+      seed.t = r.hi;
+      if (job.ends->hasEnd) seed.uv = job.ends->end;
     }
     const bool known = !std::isnan(seed.t);
     constexpr int K = 9;
@@ -491,7 +504,14 @@ void trace(const Job& job, Pcurve& out) {
       if (st != Status::ok && st != Status::noConvergence) break;
       PcurvePiece p = fromBSpline(bs, sg.t);
       if (!p.curve) break;
-      const double e = measure(job, p), before = bestErr;
+      double worstT = NAN;
+      const double e = measure(job, p, &worstT), before = bestErr;
+      if (e > job.tol && !(out.offSurface + 0.25 * fitTol >= e)) {
+        // The curve's own distance from its foot where the fit is worst (projectForms' offSurface does the same):
+        // a curve off the surface there by about the error stops the tightening now, not a round later.
+        const LocalFoot lf = localFoot(job.s, curveAt(job.c, worstT), at(p, worstT));
+        if (lf.status == Status::ok) out.offSurface = std::max(out.offSurface, lf.distance);
+      }
       if (e < bestErr) bestErr = e, best = std::move(p);
       if (bestErr <= job.tol || bestErr <= out.offSurface + 0.25 * fitTol || st != Status::ok) break;
       // Tightening that gains less than a quarter of it: the curve is off the surface between the samples too.

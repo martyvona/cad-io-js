@@ -410,11 +410,11 @@ public:
 
 } // namespace
 
-TEST_CASE("a curve farther off its surface between the samples: the fit stops when tightening gains too little") {
+TEST_CASE("a curve farther off its surface between the samples: offSurface where the error is worst, one fit") {
   // A helix round a cylinder whose radius has a narrow bump (1e-5 high, 0.01 wide in t): its feet don't move with
-  // it, and it falls between the samples offSurface is taken at, so the error measured (its peak, 2e-5) stays over
-  // offSurface (1e-5) + a quarter of the fit's tolerance. The angle's wiggle makes the second fit differ from the
-  // first, nearer by about 3e-8 (over 0, under a quarter of the fit's tolerance), and that ends it.
+  // it, and it falls between the trace's nodes (1e-5 off), so the error measured is its peak (2e-5). The curve's
+  // distance there from its foot is that peak too, so offSurface is, and the fit stops at its first round (no
+  // tightening can beat the curve's own distance).
   const double tol = 1e-7;
   const double sr[10] = {0, 0, 0, 0, 0, 1, 1, 0, 0, Bump::kR};
   std::unique_ptr<Surface> cyl = closeInFact(surfaces::makeCone(sr, Bump::kR, 0), tol);
@@ -423,11 +423,10 @@ TEST_CASE("a curve farther off its surface between the samples: the fit stops wh
   Pcurve p = project::projectForms(w, {0, 1}, *cyl, tol, nullptr, {}, {});
   const long fits = project::traceFits - before;
   CHECK(p.status == Status::invalidModel);
-  CHECK(p.offSurface > 1e-5 && p.offSurface < 1.1e-5);
-  CHECK(p.error > p.offSurface + 0.25 * (0.25 * p.offSurface));
   CHECK(p.error > 1.99e-5 && p.error < 2.01e-5);
-  CHECK_EQ(fits, 2);
-  if (fits != 2) std::printf("    fits %ld error %g offSurface %g\n", fits, p.error, p.offSurface);
+  CHECK(p.offSurface > 0.99 * p.error && p.offSurface <= p.error * (1 + 1e-9));
+  CHECK_EQ(fits, 1);
+  if (fits != 1) std::printf("    fits %ld error %g offSurface %g\n", fits, p.error, p.offSurface);
 }
 
 namespace {
@@ -1170,6 +1169,36 @@ TEST_CASE("traced ends against the end search: the same foot, a seam pair's othe
   CHECK(d2.endCheck[1] == EndCheck::different);
   CHECK(d2.certainty == Certainty::ambiguous);
   CHECK(d2.tAmbiguous.size() == 1);
+  // Seeded from the end search: the line from x = -0.3 to 0.9, its central sample (x = 0.3) nearer the x > 0 foot,
+  // its start's one foot on the x < 0 side. The trace starts there (the start the vertex's foot), not from the
+  // sample (whose branch would end at the start's farther foot); its end is then the farther one.
+  const double lr3[7] = {-0.3, 2, 0.2, 1, 0, 0, 1.2};
+  std::unique_ptr<Curve> longLine = curves::makeLine(lr3, 3);
+  const PcurveEnds e5 = ends(cache, *longLine, 60);
+  Pcurve d3 = projectCurve(*longLine, {0, 1}, *trough, 1e-7, &e5);
+  CHECK(d3.endCheck[0] == EndCheck::same);
+  CHECK(d3.endCheck[1] == EndCheck::different);
+  REQUIRE(!d3.pieces.empty());
+  CHECK(project::at(d3.pieces.front(), 0).x < 0.5);
+  // Not seeded from an end: one with two feet (x = 0, the trough's symmetry plane, heading to x = 0.6: the central
+  // sample's branch, x > 0, not the lower foot's), or one whose vertex is off the curve's end (by 0.5, its foot on
+  // the far branch: the central sample's, x < 0). The other end unchecked.
+  const double lr4[7] = {0, 2, 0.2, 1, 0, 0, 0.6};
+  std::unique_ptr<Curve> fromPlane = curves::makeLine(lr4, 3);
+  PcurveEnds e6 = ends(cache, *fromPlane, 70);
+  e6.checkEnd = false;
+  REQUIRE(cache.feet(70, *trough, e6.startPoint, 1e-7).size() == 2);
+  Pcurve d4 = projectCurve(*fromPlane, {0, 1}, *trough, 1e-7, &e6);
+  REQUIRE(!d4.pieces.empty());
+  CHECK(project::at(d4.pieces.front(), 0.5).x > 0.5);
+  const double lr5[7] = {-0.9, 2, 0.2, 1, 0, 0, 1.2};
+  std::unique_ptr<Curve> offStart = curves::makeLine(lr5, 3);
+  PcurveEnds e7 = ends(cache, *offStart, 80);
+  e7.checkEnd = false, e7.startPoint = {1.4, 2.5, 0.2};
+  Pcurve d5 = projectCurve(*offStart, {0, 1}, *trough, 1e-7, &e7);
+  REQUIRE(!d5.pieces.empty());
+  CHECK(d5.endCheck[0] == EndCheck::vertexOff);
+  CHECK(project::at(d5.pieces.front(), 0).x < 0.5);
   if (d2.endCheck[1] != EndCheck::different || d2.tAmbiguous.size() != 1)
     std::printf("    short line: check %d certainty %d ambiguous %zu\n", int(d2.endCheck[1]), int(d2.certainty),
       d2.tAmbiguous.size());
@@ -1352,6 +1381,7 @@ TEST_CASE("offSurface where the error is worst: OCC623's curve off its cylinder,
     CHECK(p->error > tol);
     CHECK(p->offSurface > tol);
     CHECK(p->offSurface <= p->error * (1 + 1e-6));
+    CHECK(p->offSurface >= 0.95 * p->error);
     if (!(p->status == Status::invalidModel))
       std::printf("    occ623 %s: status %d error %g offSurface %g\n", p == &central ? "central" : "seeded",
         int(p->status), p->error, p->offSurface);
