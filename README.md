@@ -115,6 +115,7 @@ packages/tess-truck/build.sh         # the truck backend: packages/tess-truck/di
 packages/tess-smlib/build-smlib.sh   # SMLib's static library for WebAssembly (~1.5 minutes; T=native for the host)
 packages/tess-smlib/build.sh         # the SMLib backend, linked: packages/tess-smlib/dist/smlib_tess.{mjs,wasm}
 packages/cad-geom/build.sh module    # the interrogation core: packages/cad-geom/dist/cad_geom.{mjs,wasm} (test: C++ tests)
+packages/cad-oracle/build.sh module  # exact measures: packages/cad-oracle/dist/cad_oracle.{mjs,wasm} (test: C++ tests)
 npm test                             # the package tests
 npm run typecheck
 ```
@@ -742,6 +743,19 @@ const e = g.evalCurve(circle, [0, Math.PI / 2], 1);     // per parameter: the po
 const inv = g.invertCurve(circle, e.values.subarray(0, 3), lo, hi, 1e-9);
 inv.params[0], STATUS[inv.statuses[0]!], inv.flags[0];  // 0, 'ok', 1 (on the seam)
 g.arcLength(circle, [0, Math.PI], 1e-12).value[0];      // 6.283185307179586
+```
+
+### `cad-oracle`
+
+Exact measures of a part's B-rep model by integration over its exact geometry, never from a mesh, so they can judge any tessellator, ours included: C++ compiled to WebAssembly on cad-geom's core (`packages/cad-oracle/build.sh module` builds `dist/cad_oracle.{mjs,wasm}`; the design is `docs/own-tessellator.md`, the contract `native/include/cad_oracle/oracle.h`). `init()` loads the module (or a host's: `init({glue, wasm})`); an `Oracle` holds one model's buffer, copied in once. `edgeLength(edge)` is the edge's curve's length between its parameters at its start and end (as the face API takes them: its range, else its vertices inverted onto its curve). `face(face)` gives the face's area and perimeter (every edge of every edge loop, a seam twice), each an estimate with its error and status, the method (`closedForm`: planes, cylinders, cones, spheres, tori, by Green's theorem with the area element's antiderivative in closed form and the 3D edge curves mapped by the surface's closed-form inverse; `extrusion`, `revolution`: the same closed in the profile, over the face API's loops), and flags saying why an area may be wrong though computed: `orientation` (loops against the face's sense: the absolute value given), `sphereSide` (past half a sphere, or of a revolution closed by two poles: the area is known modulo the whole), `loose` (a face in no shell), `winds` (a loop winding a period the method has no term for), `noLoops` (a face bounded by nothing on an open surface: 0; a whole sphere, torus or closed revolution gets its whole area), `offSurface` (an edge farther than 1e-2 of the loops' size from the surface), `projectedBoundary` (the loops from the face API's projection, not the model's p-curves). Rely on an area only where `trusted(m, relative)` (computed, no flags, its error within `relative` of it). B-spline and other free-form surfaces are unsupported, with the reason, until their method is decided. `dispose()` (or `using`) frees the model.
+
+```ts
+import { init, Oracle, trusted } from 'cad-oracle';
+
+using o = new Oracle(await init(), part.brep.model.buffer);
+const m = o.face(0);       // { area: { value, error, status }, perimeter, method, flags, offSurface, why }
+if (trusted(m)) console.log(m.area.value);
+o.edgeLength(3).value;     // the edge's curve's length between its vertices' parameters
 ```
 
 ### `cad-heal`
