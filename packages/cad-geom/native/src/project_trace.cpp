@@ -483,12 +483,15 @@ void trace(const Job& job, Pcurve& out) {
       }
     }
     anyFit = true;
-    // The fit judged in 3D: the spline's point on the surface against the foot's, to half the fit's tolerance,
-    // tightened while the error measured is over tol and over the curve's distance from the surface plus a quarter
-    // of the fit's tolerance, and while each tightening gains a quarter of it. (Judged in (u, v), at the tolerance
-    // the surface's largest stretch gives, a direction it hardly stretches in, beside a pole, a collapsed side or a
-    // degenerate corner, asked far more than its 3D effect, of feet barely determined there: fits ran to their cap.)
-    double tol3 = 0.25 * fitTol;
+    // The fit judged in 3D: the spline's point on the surface against the foot's, to the fit's tolerance where the
+    // curve is within tol of the surface (its error is measured after, between samples too), to a quarter of it where
+    // it's farther (invalidModel: its error, which healing grows the edge's tolerance to, stays near the curve's own
+    // distance), tightened while the error measured is over tol and over the curve's distance from the surface plus
+    // a quarter of the fit's tolerance, and while each tightening gains a quarter of it. (Judged in (u, v), at the
+    // tolerance the surface's largest stretch gives, a direction it hardly stretches in, beside a pole, a collapsed
+    // side or a degenerate corner, asked far more than its 3D effect, of feet barely determined there: fits ran to
+    // their cap.)
+    double tol3 = out.offSurface > job.tol ? 0.25 * fitTol : fitTol;
     const std::vector<Node>& nodes = sg.nodes;
     std::function<Vec2(double)> f = [&](double t) { return footAt(job, nodes, t); };
     const std::function<double(Vec2, Vec2)> in3d = [&](Vec2 a, Vec2 b) {
@@ -496,7 +499,7 @@ void trace(const Job& job, Pcurve& out) {
     };
     PcurvePiece best;
     double bestErr = kInf;
-    for (int attempt = 0; attempt < 4; attempt++) {
+    for (int attempt = 0; attempt < 5; attempt++) {
       BSpline bs;
       double fitErr = 0;
       traceFits++;
@@ -513,10 +516,16 @@ void trace(const Job& job, Pcurve& out) {
         if (lf.status == Status::ok) out.offSurface = std::max(out.offSurface, lf.distance);
       }
       if (e < bestErr) bestErr = e, best = std::move(p);
-      if (bestErr <= job.tol || bestErr <= out.offSurface + 0.25 * fitTol || st != Status::ok) break;
+      // (No p-curve beats the curve's own distance from the surface; where that's within tol, one within tol is
+      // there, so only a curve farther off than tol stops at its distance, and only once fitted to a quarter of the
+      // fit's tolerance, as such a curve is from the start: found that far off by the first fit, it is refitted so.)
+      if (bestErr <= job.tol || st != Status::ok
+        || (out.offSurface > job.tol && tol3 <= 0.25 * fitTol && bestErr <= out.offSurface + 0.25 * fitTol))
+        break;
       // Tightening that gains less than a quarter of it: the curve is off the surface between the samples too.
       if (!(e < before - 0.25 * fitTol)) break;
-      tol3 *= 0.25;
+      // Below the fit's own error too, or a fit whose samples miss its worst comes back the same.
+      tol3 = std::min(0.25 * tol3, 0.25 * fitErr);
     }
     if (!best.curve) {
       out.status = Status::noConvergence;
