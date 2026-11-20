@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { tagged } from './models.ts';
-import { addLod, chooseLod, dropSourceDegenerate, exportView, identity, tessellateScene, type Lod, type Mesh,
-  type Part, type Scene } from '../src/index.ts';
+import { addLod, chooseLod, dropSourceDegenerate, exportView, identity, levelFrom, levelJson, tessellateScene,
+  type Lod, type Mesh, type Part, type Scene } from '../src/index.ts';
 
 const mesh = (n: number): Mesh => ({ origin: [0, 0, 0], positions: new Float32Array(9 * n),
   indices: Uint32Array.from({ length: 3 * n }, (_, i) => i), faces: [] });
@@ -24,6 +24,27 @@ test('addLod: finest first, those without a deflection after; ours replace ours 
   addLod(p, { mesh: mesh(13), from: 'tessellated', linearDeflection: 0.2,
     angularDeflection: (0.5 * 180 / Math.PI) * Math.PI / 180, backend: 'C' });
   assert.deepEqual(p.lods.map(triangles), [50, 20, 11, 13, 1]);
+});
+
+test('levels at another smallest angle are others: kept beside, chosen only when asked for', () => {
+  const p = part();
+  const at = (minAngle: number | undefined, n: number): Lod => ({ mesh: mesh(n), from: 'tessellated',
+    linearDeflection: 0.1, angularDeflection: 0.26, ...(minAngle !== undefined ? { minAngle } : {}), backend: 'B' });
+  addLod(p, at(undefined, 10));
+  addLod(p, at(0.2, 20));
+  addLod(p, at(0.2, 21));
+  assert.deepEqual(p.lods.map(triangles).sort(), [10, 21]);
+  assert.equal(triangles(chooseLod(p, { linearDeflection: 0.1, angularDeflection: 0.26 })), 10);
+  assert.equal(triangles(chooseLod(p, { linearDeflection: 0.1, angularDeflection: 0.26, minAngle: 0.2 })), 21);
+});
+
+test('a level\'s smallest angle through our extras\' JSON: kept where given (0 too), absent where not', () => {
+  const l = (minAngle?: number): Lod => ({ mesh: mesh(1), from: 'tessellated', linearDeflection: 0.1,
+    angularDeflection: 0.26, ...(minAngle !== undefined ? { minAngle } : {}), backend: 'B' });
+  assert.equal(levelFrom(levelJson(l(0.2))).minAngle, 0.2);
+  assert.equal(levelFrom(levelJson(l(0))).minAngle, 0);
+  assert.ok(!('minAngle' in levelFrom(levelJson(l()))));
+  assert.ok(!('minAngle' in levelFrom({ minAngle: -1 })));
 });
 
 test('chooseLod: ours at the settings; else the coarsest not coarser, or the finest coarser; else the finest', () => {

@@ -48,6 +48,8 @@ double minAngle = PartOptions{}.minAngle;
 bool countInsertions = false;
 // PartOptions::countAngles for the next calls.
 bool countAngles = false;
+// PartOptions::failCapped and failTurnedOver for the next calls.
+bool failCapped = true, failTurnedOver = true;
 
 void put(std::vector<float>& out, Vec3 p, const double* o) {
   out.insert(out.end(), {static_cast<float>(p.x - o[0]), static_cast<float>(p.y - o[1]),
@@ -65,7 +67,7 @@ std::string ids(const std::vector<uint32_t>& v) {
 extern "C" {
 
 /** The API's version (src/index.ts's API_VERSION). */
-int tc_api_version() { return 7; }
+int tc_api_version() { return 8; }
 
 /**
  * Meshes the part in `data` (cad-brep's buffer, `size` bytes) at the deflections, positions minus (ox, oy, oz); with
@@ -99,6 +101,13 @@ void tc_set_count_insertions(int on) { countInsertions = on != 0; }
  */
 void tc_set_count_angles(int on) { countAngles = on != 0; }
 
+/**
+ * Whether the next calls fail a face whose refinement reached its point cap (PartOptions::failCapped), and one with
+ * a triangle turned against its surface (failTurnedOver); default 1 each. 0 keeps them, as meshed (for measuring).
+ */
+void tc_set_fail_capped(int on) { failCapped = on != 0; }
+void tc_set_fail_turned_over(int on) { failTurnedOver = on != 0; }
+
 int tc_tessellate(const uint8_t* data, int size, double linear, double angular, double ox, double oy, double oz,
   int wantEdges) {
   result = {};
@@ -120,6 +129,8 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
   opts.minAngle = minAngle;
   opts.countInsertions = countInsertions;
   opts.countAngles = countAngles;
+  opts.failCapped = failCapped;
+  opts.failTurnedOver = failTurnedOver;
   const uint32_t* faceId = m.u32(CBR_FACE_ID);
   opts.progress = [&](const PartProgress& p) {
     js_progress(p.phase, p.row >= 0 ? faceId[p.row] : 0, p.row, p.round, p.facesDone, p.facesTotal);

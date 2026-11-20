@@ -198,6 +198,29 @@ test('init({maxPointsPerFace}): a face that reaches it fails, said as capped, no
   assert.ok(!ru.diagnostics.some((x) => /point cap/.test(x.message)));
 });
 
+test('init({failCapped, failTurnedOver}): false keeps a capped face, meshed; by default it fails', { skip },
+  async () => {
+  const faces = async (opts: { failCapped?: boolean }) => {
+    const t = new CadioTessellator();
+    await t.init({ maxPointsPerFace: 20, maxDeviationFactor: 0, ...opts });
+    const r = await t.tessellate({ ...req('spheres'), linearDeflection: 1e-3 });
+    return r.diagnostics.some((x) => x.severity === 'error' && /faces failed to mesh/.test(x.message));
+  };
+  assert.equal(await faces({}), true);
+  assert.equal(await faces({ failCapped: false }), false);
+  // torusOuterHalf with next to no refinement: a triangle turned against its surface, failing its face but with
+  // failTurnedOver false.
+  const turned = async (failTurnedOver: boolean) => {
+    const t = new CadioTessellator();
+    await t.init({ maxPointsPerFace: 1, failCapped: false, maxDeviationFactor: 0, failTurnedOver });
+    const r = await t.tessellate({ ...req('cube'), data: new Uint8Array(torusOuterHalf().finish().buffer),
+      linearDeflection: 0.1 });
+    return r.diagnostics.some((x) => x.severity === 'error' && /faces failed to mesh/.test(x.message));
+  };
+  assert.equal(await turned(true), true);
+  assert.equal(await turned(false), false);
+});
+
 test('init({countAngles}): the faces\' triangles under the minimum angle said, by angle; none without it',
   { skip }, async () => {
   const run = async (countAngles: boolean) => {
@@ -224,6 +247,13 @@ test('init({minAngle}): the mesher\'s target smallest angle, 10 degrees by defau
   assert.equal(byDefault, tenDegrees);
   assert.notEqual(byDefault, none);
   assert.ok(shaped > byDefault && shaped > none, `${none}, ${byDefault}, ${shaped}`);
+  // A request's own minAngle (cad-scene's TessellationRequest) in place of init's, for that request.
+  const t = new CadioTessellator();
+  await t.init();
+  const own = async (minAngle: number) =>
+    (await t.tessellate({ ...req('spheres'), linearDeflection: 0.01, minAngle })).indices.length / 3;
+  assert.equal(await own(0.5), shaped);
+  assert.equal(await own(0), none);
 });
 
 test('refinement blocked by a pole ring\'s fixed segment, said with the face and its rounds: bentApex at 0.01; ' +
