@@ -454,7 +454,8 @@ struct EdgeMesh::Impl {
    * neighbours is convex (the loops counterclockwise) while its 3D turn about S_u x S_v there is the other way, both
    * past rounding, its (u, v) onto their chord at its share of their 3D distance where the surface is within the
    * face's tolerance of its 3D point, and from there a step towards that point where it keeps the turn its 3D one.
-   * One pass in loop order, each point judged with its neighbours as they stand.
+   * Not judged where a neighbour is within rounding of it in 3D. One pass in loop order, each point judged with its
+   * neighbours as they stand.
    */
   int repairFolds(int f, std::vector<std::vector<BoundaryPoint>>& loops) const {
     const Face& F = faces[f];
@@ -475,6 +476,11 @@ struct EdgeMesh::Impl {
         const Vec3 nn = cross(q.du, q.dv);
         if (!(norm(nn) > 0)) continue;
         const double l1 = norm(B.point - A.point), l2 = norm(C.point - B.point);
+        // (A turn against a point within rounding of it is no fold: a sample at a pole beside its pole line's first
+        // point, one 3D point but for 1e-12, whose repair would put it onto that point's (u, v). Not the tolerance:
+        // a fold's neighbours can be within it, cornerFold's 0.0085 at 0.01.)
+        const double rounding = 1e-9 * (1 + norm(B.point));
+        if (!(l1 > rounding && l2 > rounding)) continue;
         const double s3 = dot(cross(B.point - A.point, C.point - B.point), (1 / norm(nn)) * nn);
         if (!(s3 < -1e-9 * l1 * l2)) continue;
         Vec2 to = A.uv + (l1 / (l1 + l2)) * (C.uv - A.uv);
@@ -2225,9 +2231,21 @@ Status EdgeMesh::respace(const std::vector<double>& faceSpacing) {
       const Impl::Edge& E = I.edges[e];
       if (!E.geom || !(want[e] < kInf)) continue;
       for (size_t i = 0; i + 1 < E.s.points.size(); i++) {
+        // A span judged by its length (its chords over 8 pieces, at least its own chord), not its chord alone: an arc
+        // whose chord is within the spacing but whose length isn't is split, as sampling at that spacing would have
+        // (a loop of two such edges otherwise left 2 points). Not by the length's bound, which the sampler uses: that
+        // can run 100 x past the length near a curve's end (tr9_r1001-ec #11's edge 465, split to 5 microns there).
         const double chord = norm(E.s.points[i + 1] - E.s.points[i]);
-        if (!(chord > want[e]) || chord <= floor) continue;
-        const int n = static_cast<int>(std::min(9.0, std::ceil(chord / want[e])));
+        double len = 0;
+        Vec3 prev = E.s.points[i];
+        for (int k = 1; k <= 8; k++) {
+          const Vec3 q = k < 8 ? E.geom->at(E.s.t[i] + (E.s.t[i + 1] - E.s.t[i]) * k / 8) : E.s.points[i + 1];
+          len += norm(q - prev), prev = q;
+        }
+        if (!std::isfinite(len)) len = chord;
+        len = std::max(len, chord);
+        if (!(len > want[e]) || chord <= floor) continue;
+        const int n = static_cast<int>(std::min(9.0, std::ceil(len / want[e])));
         for (int k = 1; k < n; k++)
           requests.push_back({static_cast<int32_t>(e), static_cast<int32_t>(i), static_cast<double>(k) / n});
       }

@@ -123,11 +123,14 @@ function meridian(b: BrepBuilder, u: number): number {
 
 /**
  * A lune of the unit sphere between longitudes a and c, pole to pole: up the meridian at c, along the north pole
- * line, down the meridian at a, along the south pole line (the loop jumps along both); no p-curves.
+ * line, down the meridian at a, along the south pole line (the loop jumps along both); no p-curves. `off` and
+ * `offC` move the south vertex off the pole across the meridians at a and at c, a rounding's worth.
  */
-function lune(a: number, c: number): BrepBuilder {
+function lune(a: number, c: number, off = 0, offC = 0): BrepBuilder {
   const b = new BrepBuilder();
-  const s = b.addVertex({ point: [0, 0, -1] }), n = b.addVertex({ point: [0, 0, 1] });
+  const s = b.addVertex({ point: [-off * Math.sin(a) - offC * Math.sin(c), off * Math.cos(a) + offC * Math.cos(c),
+    -1] });
+  const n = b.addVertex({ point: [0, 0, 1] });
   const half: [number, number] = [-Math.PI / 2, Math.PI / 2];
   const ma = b.addEdge({ curve: meridian(b, a), start: s, end: n, sameSense: true, range: half });
   const mc = b.addEdge({ curve: meridian(b, c), start: s, end: n, sameSense: true, range: half });
@@ -140,6 +143,15 @@ function lune(a: number, c: number): BrepBuilder {
 export const luneQuarter = (): BrepBuilder => lune(Math.PI / 4, 3 * Math.PI / 4);
 /** The lune's west meridian on the sphere's seam (u = 0): its side, by inversion, decided by no neighbour. */
 export const luneOnSeam = (): BrepBuilder => lune(0, Math.PI / 2);
+/**
+ * luneQuarter with its south vertex 1e-11 off the pole either way across the meridian at pi / 4 (its last sample
+ * then the pole line's first point but for that) or at 3 pi / 4 (its first sample the pole line's last): the 3D turn
+ * between them that rounding's sign.
+ */
+export const luneOffPole = (): BrepBuilder => lune(Math.PI / 4, 3 * Math.PI / 4, 1e-11);
+export const luneOffPoleBack = (): BrepBuilder => lune(Math.PI / 4, 3 * Math.PI / 4, -1e-11);
+export const luneOffPoleC = (): BrepBuilder => lune(Math.PI / 4, 3 * Math.PI / 4, 0, 1e-11);
+export const luneOffPoleCBack = (): BrepBuilder => lune(Math.PI / 4, 3 * Math.PI / 4, 0, -1e-11);
 
 /** The unit sphere's cap above latitude pi / 4, bounded by its circle alone (no vertex loop at the pole). */
 export function cap(): BrepBuilder {
@@ -1322,6 +1334,24 @@ export function bentApex(): BrepBuilder {
   return b;
 }
 
+/**
+ * A plane's sliver between an arc and its chord: the circle of radius 4 about the origin from -0.125 to 0.125 rad
+ * (1 long, 0.9974 across), closed by the line back down. No p-curves.
+ */
+export function arcChord(): BrepBuilder {
+  const b = new BrepBuilder();
+  const h = 0.125, x = 4 * Math.cos(h), y = 4 * Math.sin(h);
+  const lo = b.addVertex({ point: [x, -y, 0] }), hi = b.addVertex({ point: [x, y, 0] });
+  const arc = b.addEdge({ curve: b.addCurve({ kind: 'circle', position: AXIS, radius: 4 }), start: lo, end: hi,
+    sameSense: true, range: [-h, h] });
+  const line = b.addEdge({ curve: b.addCurve({ kind: 'line', point: [x, y, 0], direction: [0, -1, 0], magnitude: 1 }),
+    start: hi, end: lo, sameSense: true, range: [0, 2 * y] });
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: true,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true,
+      coedges: [{ edge: arc, orientation: 'forward' }, { edge: line, orientation: 'forward' }] }] }));
+  return b;
+}
+
 /** Across the seam (u from -pi / 2 to pi / 2), by its p-curves, by p-curves a period apart, without any. */
 export const halfCylinderPcurves = (): BrepBuilder => halfCylinder(-Math.PI / 2, 'same');
 export const halfCylinderApart = (): BrepBuilder => halfCylinder(-Math.PI / 2, 'apart');
@@ -1688,7 +1718,8 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   cornerFoldTight, pcurveShortHair, pcurveShortFar, pcurveShortStart, bsplineTubeTinyArc, bsplineDome,
   offPoleArc: () => offPoleArc(), offPcurves, bandHoleAtVertex, bandHoleOnCut, halfCap, meridianHemisphere, band: band_,
   bandByInversion, bore, nistBore, seamByInversion, offVertex, pcurveOnly: () => pcurveOnly(),
-  pcurveOnlyWest: () => pcurveOnly(true), luneQuarter, luneOnSeam, cap, splineEdge,
+  pcurveOnlyWest: () => pcurveOnly(true), luneQuarter, luneOnSeam, luneOffPole, luneOffPoleBack,
+  luneOffPoleC, luneOffPoleCBack, cap, splineEdge,
   seamFlipped, polylineEdge, pcurveCircle, arcSegment, fold, twisted, wrongSense, zeroEdge, halfCylinderPcurves,
   halfCylinderApart, halfCylinderBare, halfCylinderWest, arcBand, cuspPocket: cuspPocket_,
   cuspPocketMirrored, flowerHole, lobes,
@@ -1696,4 +1727,5 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   tinyCap: () => capWithin(0.01), capWithinPole, narrowStrip: () => narrowStrip(),
   narrowStripSmall: () => narrowStrip(0.05, 1e-3), uFold: () => uFold(), uFoldVertex: () => uFold(0, 0.25, 0.13),
   uFoldAway: () => uFold(-0.3), uFoldFar: () => uFold(-3), pcurveShifted, poleLunes, poleLens, curlBack, passBy,
+  arcChord,
   bentApex, wrongEndPcurve: () => wrongEndPcurve(), wigglePcurve: () => wrongEndPcurve(true) };

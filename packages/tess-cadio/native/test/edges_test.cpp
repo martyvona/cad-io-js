@@ -586,6 +586,22 @@ TEST_CASE("a vertex's foot per use: a seam vertex's copy on its next sample's si
   }
 }
 
+TEST_CASE("no fold judged between points within the tolerance: a meridian's sample at the pole beside its pole line") {
+  // The south vertex 1e-11 off the pole either way across either meridian, so the 3D turn at a meridian's sample
+  // beside the pole line's point (after it, or before) is rounding of either sign: no fold.
+  for (const char* name : {"luneOffPole", "luneOffPoleBack", "luneOffPoleC", "luneOffPoleCBack"}) {
+    cadgeom::Model m = load(name);
+    REQUIRE(m.ok());
+    EdgeOptions o;
+    o.deflection = 1e-2;
+    EdgeMesh em(m, o);
+    const FaceBoundary fb = em.face(0);
+    REQUIRE(fb.status == cadgeom::Status::ok);
+    if (fb.foldsRepaired) std::printf("  %s: %d folds repaired\n", name, fb.foldsRepaired);
+    CHECK_EQ(fb.foldsRepaired, 0);
+  }
+}
+
 TEST_CASE("a band with no seam edge: one cut, a pseudo-edge used both ways, away from the circles' vertex") {
   for (const char* name : {"band", "bandByInversion"}) {
     cadgeom::Model m = load(name);
@@ -1020,6 +1036,29 @@ TEST_CASE("a given p-curve off its edge's points past the tolerance: used, its i
   EdgeMesh ec(c, o);
   CHECK(ec.givenPcurves().used >= 1);
   CHECK_EQ(ec.givenPcurves().offTolerance, 0);
+}
+
+TEST_CASE("respace judges a span by its length, as sampling does: arcChord's arc split at a spacing over its chord") {
+  // The arc is 1 long and 0.9974 across: at spacing 0.9996 (between them, and over the 0.99935 that two chords of it
+  // give), sampling at that spacing gives the arc 2 spans, and respace does too, so the loop has 3 points; the chord
+  // stays one span.
+  cadgeom::Model m = load("arcChord");
+  REQUIRE(m.ok());
+  EdgeOptions o;
+  o.deflection = 0.1;
+  o.angle = 0.26;
+  EdgeMesh em(m, o);
+  REQUIRE(em.edge(0).t.size() == 2u);
+  REQUIRE(em.respace({0.9996}) == cadgeom::Status::ok);
+  CHECK_EQ(em.edge(0).t.size(), 3u);
+  CHECK_EQ(em.edge(1).t.size(), 2u);
+  EdgeOptions at = o;
+  at.maxSpacing = 0.9996;
+  EdgeMesh sampled(m, at);
+  CHECK_EQ(sampled.edge(0).t.size(), em.edge(0).t.size());
+  const FaceBoundary fb = em.face(0);
+  REQUIRE(fb.status == cadgeom::Status::ok);
+  CHECK_EQ(fb.loops[0].size(), 3u);
 }
 
 TEST_CASE("respace: every span split to the faces' spacing, the samples there kept, the uses redone") {

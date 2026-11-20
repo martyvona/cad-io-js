@@ -9,7 +9,7 @@ import type { EdgeKind, TessellationProgress, TessellationRequest, TessellationR
 import { sha256 } from 'cad-scene';
 
 /** The module's C API version this layer speaks (tc_api_version). */
-const API_VERSION = 3;
+const API_VERSION = 4;
 /** The workspace's version (package.json's; a test checks they agree). */
 export const VERSION = '0.3.0';
 /** result.h's Status, by code. */
@@ -68,6 +68,7 @@ interface CadioExports {
   _tc_tessellate: Fn;
   _tc_set_project: Fn;
   _tc_set_deviation_factor: Fn;
+  _tc_set_max_points: Fn;
   /** Set for a call: tess_cadio_api.cpp's progress (js_progress, progressReporter's). */
   tcProgress?: ProgressHook;
   _tc_num_vertices: Fn;
@@ -111,6 +112,11 @@ export interface CadioInitOptions {
    * surface), going the failed faces' way (a fallback, where configured); default 1, 0 never.
    */
   maxDeviationFactor?: number;
+  /**
+   * Steiner points per face at most (part.h's PartOptions::maxPointsPerFace; default 100,000): a refinement that
+   * reaches it stops there, the mesh kept and said. For tests and tuning.
+   */
+  maxPointsPerFace?: number;
 }
 
 async function fetchBytes(url: URL): Promise<Uint8Array> {
@@ -131,6 +137,7 @@ function failedMessage(ids: readonly number[], rows: number): string {
 export class CadioTessellator implements Tessellator {
   private project = true;
   private deviationFactor = 1;
+  private maxPoints = 0;
   readonly info: TessellatorInfo = {
     name: 'tess-cadio', version: VERSION, license: 'AGPL-3.0-only', formats: ['cad-brep'], supportsFaceIds: true,
     supportsEdges: true, supportsCurves: false,
@@ -141,6 +148,7 @@ export class CadioTessellator implements Tessellator {
     const { glue, wasm, version } = opts;
     this.project = opts.projectMissingPcurves ?? true;
     this.deviationFactor = opts.maxDeviationFactor ?? 1;
+    this.maxPoints = opts.maxPointsPerFace ?? 0;
     if (wasm instanceof WebAssembly.Module && version === undefined) throw new TypeError(
       'tess-cadio: init({wasm}) with a compiled WebAssembly.Module needs a version, since it has no bytes to hash');
     const glueUrl = glue === undefined ? new URL('../dist/tess_cadio.mjs', import.meta.url).href : String(glue);
@@ -187,6 +195,7 @@ export class CadioTessellator implements Tessellator {
     m.tcProgress = onProgress ? progressReporter(onProgress) : undefined;
     m._tc_set_project(this.project ? 1 : 0);
     m._tc_set_deviation_factor(this.deviationFactor);
+    m._tc_set_max_points(this.maxPoints);
     try {
       rc = m._tc_tessellate(ptr, req.data.length, req.linearDeflection, req.angularDeflection, origin[0], origin[1],
         origin[2], req.edges ? 1 : 0);
@@ -268,6 +277,7 @@ export class CadioTessellator implements Tessellator {
         + 'surface sampled, not bounded (their surfaces\' derivative bounds not yet tight)' });
     }
     note('unsettled', 'with a seam whose side in (u, v) their neighbours didn\'t settle');
+    note('capped', 'with refinement stopped at their point cap');
     // The uses without p-curves, by how they were sampled: [within 0.05 x the deflection, at the edge's tolerance,
     // by inversion]; said where any fell back from the first.
     const pc = list('projections');
