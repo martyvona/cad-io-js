@@ -443,6 +443,7 @@ struct EdgeMesh::Impl {
    * where it converged, the foot and its distance out.
    */
   bool localTrace(int f, Vec3 p, Vec2 start, Vec2& foot, double& distance) const {
+    if (o.localFootForTests) return o.localFootForTests(f, p, start, foot, distance);
     const LocalFoot r = cadgeom::localFoot(*faces[f].s, p, start);
     if (r.status != Status::ok) return false;
     foot = r.uv, distance = r.distance;
@@ -796,6 +797,11 @@ struct EdgeMesh::Impl {
             const double step = norm(P - lastPoint);
             if (!localTrace(C.face, P, lastUv, foot, d)) {
               failed = "the local step didn't converge";
+            } else if (step > 1e-9 * (1 + norm(P)) &&
+              norm(surfaceAt(C.face, foot) - surfaceAt(C.face, lastUv)) <= 0.01 * step) {
+              // (Stuck where it started while its point moved on: whatever the tolerance allows, a foot that didn't
+              // follow, trj3_s1-al-214 #6704's at a C0 knot, a 1 mm tolerance keeping it.)
+              failed = "the local foot didn't move while its point did";
             } else if (d > std::max({2 * lastDistance, tols.edge(m.coedgeEdge(c)), tol, 0.5 * step})) {
               failed = "the local foot farther from the surface than the sample before";
             } else if (norm(surfaceAt(C.face, foot) - surfaceAt(C.face, lastUv)) >

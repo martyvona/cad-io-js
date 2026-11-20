@@ -71,6 +71,11 @@ struct EdgeOptions {
    * inversion (as it is where neither projection is ok).
    */
   bool projectMissingPcurves = true;
+  /**
+   * For tests, if set: in place of cad-geom's localFoot where a use without a p-curve is traced sample by sample,
+   * (face row, point, the sample before's (u, v), foot out, its distance out), true where it converged.
+   */
+  std::function<bool(int, Vec3, Vec2, Vec2&, double&)> localFootForTests;
 };
 
 /**

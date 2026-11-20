@@ -970,6 +970,32 @@ TEST_CASE("a use's p-curve checked between its samples against its edge's curve:
   CHECK_EQ(checkCoedges(w, ew, 1e-9, "wigglePcurve"), 0);
 }
 
+TEST_CASE("a local foot stuck where it started while its point moved falls back on the global search") {
+  // uFoldFlat: its loop on the U's first arm, spans of 0.05 within its tolerance (0.1), so a foot left at the sample
+  // before's (u, v) passes the distance check; a stub local foot that never moves: every inside sample falls back,
+  // saying so, and each lands on its point.
+  cadgeom::Model m = load("uFoldFlat");
+  REQUIRE(m.ok());
+  EdgeOptions o;
+  o.deflection = 0.1;
+  o.maxSpacing = 0.05;
+  o.projectMissingPcurves = false;
+  EdgeMesh plain(m, o);
+  REQUIRE(plain.traceFallbacks().empty());
+  o.localFootForTests = [&](int, Vec3 p, Vec2 start, Vec2& foot, double& distance) {
+    foot = start;
+    distance = cadgeom::norm(p - Vec3{10 * start.x, 0, 10 * start.y});
+    return true;
+  };
+  EdgeMesh em(m, o);
+  const CoedgeSamples& cs = em.coedge(0);
+  REQUIRE(cs.uv.size() > 8);
+  int stuck = 0;
+  for (const TraceFallback& f : em.traceFallbacks()) stuck += std::strstr(f.why, "didn't move") != nullptr;
+  CHECK_EQ(stuck, static_cast<int>(cs.uv.size()) - 2);
+  CHECK_EQ(checkCoedges(m, em, 1e-9, "uFoldFlat stuck"), 0);
+}
+
 TEST_CASE("a use without p-curve traced from sample to sample: its feet stay on its own arm of a thin U") {
   // uFold: the loop's middle 0.07 off its arm towards the other, 0.03 from it. Every inside sample's foot continued
   // from the one before, on the face's arm (u within [0, 1]); none fell back on the global search.
