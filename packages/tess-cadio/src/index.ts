@@ -134,7 +134,8 @@ export interface CadioInitOptions {
   maxPointsPerFace?: number;
   /**
    * The smallest angle refinement aims for in each face's triangles, in radians (part.h's PartOptions::minAngle;
-   * default 0.35, about 20 degrees; 0 none): the triangles' shape, which neither deflection asks for.
+   * default 10 degrees, pi / 18; at most 30 degrees, more clamped; 0 none): the triangles' shape, which neither
+   * deflection asks for.
    */
   minAngle?: number;
 }

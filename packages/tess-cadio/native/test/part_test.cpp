@@ -294,6 +294,7 @@ TEST_CASE("curved faces (a seam cylinder, a band, a hemisphere, a cap, a lune): 
 }
 
 TEST_CASE("PartOptions::minAngle shapes the mesher's triangles: spheres' at 0.5 rad, fewer and thinner at 0") {
+  CHECK_EQ(PartOptions{}.minAngle, 10 * M_PI / 180);
   // On the spheres model at d 0.01 the triangles' smallest 3D angle follows the target (0.20 rad at none, 0.26 at
   // 0.5), at the cost of a few more triangles.
   cadgeom::Model m = load("spheres");
@@ -1908,7 +1909,10 @@ TEST_CASE("bentApex's ring in pieces from end to end of its chain, not its run's
   for (double d : {0.05}) {
     cadgeom::Model m = load("bentApex");
     REQUIRE(m.ok());
-    PartMesher pm(m, options(d, 0.26));
+    // (At 0.35 rad: at the 10-degree default one round's refinement asks a ring segment split, the mesh as good.)
+    PartOptions o = options(d, 0.26);
+    o.minAngle = 0.35;
+    PartMesher pm(m, o);
     const FaceMesh& fm = pm.face(0);
     REQUIRE(fm.status == cadgeom::Status::ok);
     cadgeom::Status st;

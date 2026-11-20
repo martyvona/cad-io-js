@@ -4,6 +4,7 @@
 // meet along their edges), its normals the surface's, its triangles counterclockwise about the face's normal.
 #pragma once
 
+#include <cmath>
 #include <cstddef>
 #include <functional>
 #include <memory>
@@ -44,10 +45,10 @@ struct PartOptions {
   int maxPointsPerFace = 100000;
   /**
    * The smallest angle refinement aims for in each face's triangles, in radians, in the criteria's metric (mesh2d.h's
-   * MeshOptions::minAngle; clamped to [0, pi / 3]): the triangles' shape, which neither the deflection nor the angle
-   * between normals asks for. 0 for none.
+   * MeshOptions::minAngle; clamped to [0, kMaxMinAngle], 30 degrees): the triangles' shape, which neither the
+   * deflection nor the angle between normals asks for. 10 degrees by default; 0 for none.
    */
-  double minAngle = 0.35;
+  double minAngle = 10 * M_PI / 180;
   /**
    * Called as each face's meshing starts, and every so often during a long one (mesh2d.h's onWork), if set: for a
    * host to say how far a request got (a timeout). Not throttled here.

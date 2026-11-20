@@ -187,7 +187,7 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
   std::priority_queue<Item> queue;
   int64_t seq = 0;
   std::set<std::pair<int32_t, uint32_t>> finals;
-  const double minAngle = std::clamp(options.minAngle, 0.0, M_PI / 3), minSine = detSin(minAngle);
+  const double minAngle = std::clamp(options.minAngle, 0.0, kMaxMinAngle), minSine = detSin(minAngle);
   // (l / 2) / tan(minAngle / 2), the off-centre's height over its edge, as a factor of l.
   const double offHeight = minAngle > 0 ? 0.5 * detCos(0.5 * minAngle) / detSin(0.5 * minAngle) : 1e300;
   auto consider = [&](int32_t t) {

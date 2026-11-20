@@ -78,7 +78,7 @@ void tc_set_deviation_factor(double factor) { deviationFactor = factor; }
 /** The next calls' PartOptions::maxPointsPerFace (default 100,000; under 1: the default). */
 void tc_set_max_points(int points) { maxPoints = points > 0 ? points : PartOptions{}.maxPointsPerFace; }
 
-/** The next calls' PartOptions::minAngle in radians (default 0.35; negative or not finite: the default). */
+/** The next calls' PartOptions::minAngle in radians (default 10 degrees, at most 30; negative or not finite: the default). */
 void tc_set_min_angle(double radians) {
   minAngle = std::isfinite(radians) && radians >= 0 ? radians : PartOptions{}.minAngle;
 }
