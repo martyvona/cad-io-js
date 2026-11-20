@@ -51,6 +51,11 @@ export interface WorkerHandle {
   /** Node only: whether the worker keeps the process alive. The pool releases idle workers. */
   ref?(): void;
   unref?(): void;
+  /**
+   * Node only: the worker thread's CPU time since it started, in milliseconds, read from outside it (so it answers
+   * while the worker runs a long synchronous step); rejects once the worker has stopped.
+   */
+  cpuUsageMs?(): Promise<number>;
 }
 
 /** The worker side's end of the channel. */

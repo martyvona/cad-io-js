@@ -4,8 +4,8 @@ import { Worker } from 'node:worker_threads';
 import { PoolTessellator, type WorkerTessellatorOptions } from './pool.ts';
 import type { WorkerHandle } from './protocol.ts';
 
-export { DEFAULT_TIMEOUT_MS, defaultWorkers, PoolTessellator, type PoolOptions, type RequestTimes, type RunOptions,
-  type WorkerTessellatorOptions } from './pool.ts';
+export { DEFAULT_CPU_POLL_MS, DEFAULT_TIMEOUT_MS, defaultWorkers, PoolTessellator, type PoolOptions,
+  type RequestTimes, type RunOptions, type WorkerTessellatorOptions } from './pool.ts';
 export type { BackendSpec, JobSpec, WorkerHandle } from './protocol.ts';
 export { NO_BACKEND } from './serve.ts';
 
@@ -43,6 +43,10 @@ export function spawnNodeWorker(): WorkerHandle {
     terminate: () => { failed = true; void w.terminate(); },
     ref: () => w.ref(),
     unref: () => w.unref(),
+    cpuUsageMs: async () => {
+      const u = await w.cpuUsage();
+      return (u.user + u.system) / 1000;
+    },
   };
   return handle;
 }
