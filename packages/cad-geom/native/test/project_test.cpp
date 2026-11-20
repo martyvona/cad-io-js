@@ -1170,6 +1170,36 @@ TEST_CASE("traced ends against the end search: the same foot, a seam pair's othe
   CHECK(d2.endCheck[1] == EndCheck::different);
   CHECK(d2.certainty == Certainty::ambiguous);
   CHECK(d2.tAmbiguous.size() == 1);
+  // Seeded from the end search: the line from x = -0.3 to 0.9, its central sample (x = 0.3) nearer the x > 0 foot,
+  // its start's one foot on the x < 0 side. The trace starts there (the start the vertex's foot), not from the
+  // sample (whose branch would end at the start's farther foot); its end is then the farther one.
+  const double lr3[7] = {-0.3, 2, 0.2, 1, 0, 0, 1.2};
+  std::unique_ptr<Curve> longLine = curves::makeLine(lr3, 3);
+  const PcurveEnds e5 = ends(cache, *longLine, 60);
+  Pcurve d3 = projectCurve(*longLine, {0, 1}, *trough, 1e-7, &e5);
+  CHECK(d3.endCheck[0] == EndCheck::same);
+  CHECK(d3.endCheck[1] == EndCheck::different);
+  REQUIRE(!d3.pieces.empty());
+  CHECK(project::at(d3.pieces.front(), 0).x < 0.5);
+  // Not seeded from an end: one with two feet (x = 0, the trough's symmetry plane, heading to x = 0.6: the central
+  // sample's branch, x > 0, not the lower foot's), or one whose vertex is off the curve's end (by 0.5, its foot on
+  // the far branch: the central sample's, x < 0). The other end unchecked.
+  const double lr4[7] = {0, 2, 0.2, 1, 0, 0, 0.6};
+  std::unique_ptr<Curve> fromPlane = curves::makeLine(lr4, 3);
+  PcurveEnds e6 = ends(cache, *fromPlane, 70);
+  e6.checkEnd = false;
+  REQUIRE(cache.feet(70, *trough, e6.startPoint, 1e-7).size() == 2);
+  Pcurve d4 = projectCurve(*fromPlane, {0, 1}, *trough, 1e-7, &e6);
+  REQUIRE(!d4.pieces.empty());
+  CHECK(project::at(d4.pieces.front(), 0.5).x > 0.5);
+  const double lr5[7] = {-0.9, 2, 0.2, 1, 0, 0, 1.2};
+  std::unique_ptr<Curve> offStart = curves::makeLine(lr5, 3);
+  PcurveEnds e7 = ends(cache, *offStart, 80);
+  e7.checkEnd = false, e7.startPoint = {1.4, 2.5, 0.2};
+  Pcurve d5 = projectCurve(*offStart, {0, 1}, *trough, 1e-7, &e7);
+  REQUIRE(!d5.pieces.empty());
+  CHECK(d5.endCheck[0] == EndCheck::vertexOff);
+  CHECK(project::at(d5.pieces.front(), 0).x < 0.5);
   if (d2.endCheck[1] != EndCheck::different || d2.tAmbiguous.size() != 1)
     std::printf("    short line: check %d certainty %d ambiguous %zu\n", int(d2.endCheck[1]), int(d2.certainty),
       d2.tAmbiguous.size());
