@@ -1209,6 +1209,44 @@ int32_t cg_coedge_project(int32_t h, int32_t coedge, double tol, const double* t
 }
 
 /**
+ * The parameters in [lo, hi] where the coedge's p-curve as the face API takes it (cg_coedge_eval's) is less smooth,
+ * sorted, the ends in, into the scratch: the model's p-curve's breaks, else its projection's pieces' curves' breaks and
+ * their ends (a fitted piece's knots). Their count, or minus why there's none (a status, a face status).
+ */
+int32_t cg_coedge_breaks(int32_t h, int32_t coedge, double lo, double hi) {
+  Entry* e = entry(h);
+  if (!e || coedge < 0 || coedge >= e->model.coedges() || !(lo <= hi)) {
+    return -static_cast<int32_t>(Status::invalidModel);
+  }
+  scratch.clear();
+  const int row = e->model.coedgePcurve(coedge);
+  std::vector<double> out{lo, hi}, br;
+  if (row >= 0) {
+    Status s;
+    const Curve* pc = curve(h, row, s);
+    if (!pc) return -static_cast<int32_t>(s);
+    pc->breaks({lo, hi}, br);
+    out.insert(out.end(), br.begin(), br.end());
+  } else {
+    const Projection* p = e->project ? &projection(h, coedge) : nullptr;
+    if (!p || p->made) return -(p ? p->made : FACE_NO_PCURVE);
+    for (const PcurvePiece& q : p->twin ? p->p.seamTwin : p->p.pieces) {
+      const double a = std::max(lo, q.t.lo), b = std::min(hi, q.t.hi);
+      if (!(a <= b)) continue;
+      out.push_back(a), out.push_back(b);
+      if (!q.curve) continue;
+      q.curve->breaks({a, b}, br);
+      out.insert(out.end(), br.begin(), br.end());
+    }
+  }
+  for (double& x : out) x = std::clamp(x, lo, hi);
+  std::sort(out.begin(), out.end());
+  out.erase(std::unique(out.begin(), out.end()), out.end());
+  scratch = out;
+  return static_cast<int32_t>(out.size());
+}
+
+/**
  * The coedge's p-curve as the face API takes it (the model's, else its projection: the side its use takes) at n
  * parameters t, to `order`: out as cg_curve_eval's, a status per parameter (outOfDomain where no projected piece
  * covers it); 0, or why there's none (a status, a face status).

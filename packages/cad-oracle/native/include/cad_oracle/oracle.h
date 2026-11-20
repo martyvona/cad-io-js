@@ -10,7 +10,9 @@
 //   (no projection, so independent of the face API's p-curves);
 // - extrusions and revolutions: the same with H(u, v) closed in the profile (an extrusion's area element doesn't
 //   depend on v, a revolution's on u), the boundary the face API's loops (given p-curves, else its projection);
-// - other surfaces: unsupported until the free-form method is decided.
+// - B-splines, offsets, rectangular trims: the same with H numeric (an inner integral along the direction that isn't
+//   periodic), the boundary the face API's loops; in bands of that direction where the surface isn't sound across
+//   the face (flagCells).
 #pragma once
 
 #include <cstddef>
@@ -49,18 +51,24 @@ enum Flag : uint32_t {
   flagNoLoops = 1u << 4,
   /**
    * A loop's point farther from the surface than kOffSurface of the loops' size (an edge that isn't on its face: a
-   * file's topology error).
+   * file's topology error; on a free-form face, a coedge's ends on the surface that far from its edge's vertices: a
+   * p-curve or projection not reaching them).
    */
   flagOffSurface = 1u << 5,
   /** The loops in (u, v) come from the face API's projection, not from given or healed p-curves. */
   flagProjectedBoundary = 1u << 6,
+  /**
+   * A free-form face's integral taken in bands of its inner direction: the surface wasn't sound across the face's
+   * strips (an offset folding, a singular evaluation), so each band's inner integral starts at its own row.
+   */
+  flagCells = 1u << 7,
 };
 
 /** A loop's point this far from the surface, relative to the loops' size (their box's diagonal), flags the face. */
 constexpr double kOffSurface = 1e-2;
 
 /** How a face's area was computed. */
-enum class Method : uint8_t { none, closedForm, extrusion, revolution };
+enum class Method : uint8_t { none, closedForm, extrusion, revolution, freeForm };
 
 struct FaceMeasure {
   /** In the model's units squared (millimetres^2); status unsupported, with `why`, where the oracle can't. */
@@ -70,7 +78,10 @@ struct FaceMeasure {
   Method method = Method::none;
   /** Flag bits. */
   uint32_t flags = 0;
-  /** The largest distance of a loop's point from the surface, over the loops' size (closed forms only; else NaN). */
+  /**
+   * The largest distance of a loop's point from the surface, over the loops' size (closed forms; free-form faces: of
+   * a coedge's ends on the surface from its edge's vertices); else NaN.
+   */
   double offSurface = 0;
   /** Where the area is unsupported or failed: why, a short phrase (static storage). */
   const char* why = "";
@@ -127,8 +138,8 @@ public:
   /** The face's area, perimeter and flags. */
   FaceMeasure face(int face);
   /**
-   * The integral of g over the face, one Estimate per component. Unsupported (each component's status) until the
-   * method for free-form surfaces is decided: the elementary surfaces' closed forms are for the area element alone.
+   * The integral of g over the face, one Estimate per component (each component's status unsupported on surfaces the
+   * oracle doesn't measure), by the face's method with the area element's antiderivative numeric.
    */
   std::vector<Estimate> faceIntegral(int face, const Integrand& g);
 

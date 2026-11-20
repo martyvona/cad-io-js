@@ -7,11 +7,11 @@
 export const STATUS = ['ok', 'unsupported', 'outOfDomain', 'singular', 'noConvergence', 'invalidModel'] as const;
 export type Status = (typeof STATUS)[number];
 /** oracle.h's Method, by code. */
-export const METHOD = ['none', 'closedForm', 'extrusion', 'revolution'] as const;
+export const METHOD = ['none', 'closedForm', 'extrusion', 'revolution', 'freeForm'] as const;
 export type Method = (typeof METHOD)[number];
 /** oracle.h's Flag bits. */
 export const FLAGS = { orientation: 1, sphereSide: 2, loose: 4, winds: 8, noLoops: 16, offSurface: 32,
-  projectedBoundary: 64 } as const;
+  projectedBoundary: 64, cells: 128 } as const;
 export type OracleFlag = keyof typeof FLAGS;
 
 /** The module's C API version this layer speaks (co_api_version). */

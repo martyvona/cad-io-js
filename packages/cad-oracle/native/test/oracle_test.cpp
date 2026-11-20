@@ -30,6 +30,9 @@ bool closedFormKind(int k) {
     k == CBR_SURFACE_TORUS;
 }
 bool sweptKind(int k) { return k == CBR_SURFACE_EXTRUSION || k == CBR_SURFACE_REVOLUTION; }
+bool freeKind(int k) {
+  return k == CBR_SURFACE_BSPLINE || k == CBR_SURFACE_OFFSET || k == CBR_SURFACE_RECTANGULAR_TRIMMED;
+}
 
 /** A writable copy of a reference's buffer (8-byte aligned). */
 struct Copy {
@@ -57,7 +60,7 @@ TEST_CASE("every reference face's area, by kind, at every variant") {
       const int kind = model.surfaceKind(model.faceSurface(fa.face));
       const FaceMeasure m = oracle.face(fa.face);
       const std::string what = std::string(r.name) + "-" + r.variant + " face " + std::to_string(fa.face);
-      if (!closedFormKind(kind) && !sweptKind(kind)) {
+      if (!closedFormKind(kind) && !sweptKind(kind) && !freeKind(kind)) {
         CHECK(m.area.status == Status::unsupported);
         unsupported[r.name]++;
         continue;
@@ -76,12 +79,10 @@ TEST_CASE("every reference face's area, by kind, at every variant") {
   }
   // Every kind the oracle supports is covered, at every variant (7 each).
   for (const char* name : {"box", "cylinder", "cone", "sphere", "torus", "extrusion", "revolution",
-    "revolutionSphere"}) {
+    "revolutionSphere", "bsplineCylinder", "bsplineSphere", "bsplineTorus", "offset", "trimmedSurface"}) {
     CHECK(checked[name] >= 7);
   }
-  for (const char* name : {"bsplineCylinder", "bsplineSphere", "bsplineTorus", "offset", "trimmedSurface"}) {
-    CHECK(unsupported[name] >= 7);
-  }
+  CHECK(unsupported.empty());
 }
 
 TEST_CASE("edge lengths against the reference curves' lengths over the same parameters") {
@@ -253,10 +254,10 @@ TEST_CASE("faceIntegral: every reference body's volume, at every variant, by (p 
     }
   }
   for (const char* name : {"box", "cylinder", "cone", "sphere", "torus", "extrusion", "revolution",
-    "revolutionSphere"}) {
+    "revolutionSphere", "bsplineCylinder", "bsplineSphere", "bsplineTorus", "offset"}) {
     CHECK(checked[name] >= 7);
   }
-  for (const char* name : {"bsplineCylinder", "bsplineSphere", "bsplineTorus", "offset"}) CHECK(unsupported[name] >= 7);
+  CHECK(unsupported.empty());
 }
 
 TEST_CASE("faceIntegral: |n| is face()'s area; n over a closed body sums to 0") {
@@ -379,20 +380,10 @@ TEST_CASE("faceIntegral: a component zero on a tilted plane but for rounding, wh
   CHECK(seen >= 40);
 }
 
-TEST_CASE("faceIntegral: B-spline faces unsupported, bad faces invalid") {
+TEST_CASE("faceIntegral: bad faces invalid") {
   const fixtures::Reference& r = *fixtures::reference("bsplineCylinder", "s1");
-  const Model model(r.data, r.size);
   Oracle oracle(r.data, r.size);
   Integrand g{2, [](Vec3, Vec3 n, double* out) { out[0] = cadgeom::norm(n), out[1] = 0; }, {}};
-  int seen = 0;
-  for (int f = 0; f < model.faces(); f++) {
-    if (model.surfaceKind(model.faceSurface(f)) != CBR_SURFACE_BSPLINE) continue;
-    const std::vector<Estimate> v = oracle.faceIntegral(f, g);
-    REQUIRE(v.size() == 2);
-    CHECK(v[0].status == Status::unsupported && v[1].status == Status::unsupported);
-    seen++;
-  }
-  CHECK(seen > 0);
   CHECK(oracle.faceIntegral(-1, g)[0].status == Status::invalidModel);
 }
 

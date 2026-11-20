@@ -1,5 +1,6 @@
 // The oracle (oracle.h): the model's views, edge lengths and perimeters, and each face sent to its method by its
-// surface's kind. Areas: area_closed.cpp (the elementary surfaces), area_swept.cpp (extrusions and revolutions).
+// surface's kind. Areas: area_closed.cpp (the elementary surfaces), area_swept.cpp (extrusions and revolutions),
+// free.cpp (B-splines, offsets, rectangular trims).
 
 #include "cad_oracle/oracle.h"
 
@@ -14,7 +15,7 @@ namespace cadoracle {
 
 using cadgeom::makeCurve;
 
-Oracle::Impl::Impl(const uint8_t* buf, size_t size, Options o) : model(buf, size), options(o) {
+Oracle::Impl::Impl(const uint8_t* buf, size_t size, Options o) : model(buf, size), tols(model), options(o) {
   if (!model.ok()) return;
   // The face API takes ownership of a malloc'd copy.
   auto* copy = static_cast<uint8_t*>(std::malloc(size ? size : 1));
@@ -121,6 +122,9 @@ FaceMeasure Oracle::face(int f) {
     case CBR_SURFACE_TORUS: m = I.closedForm(f); break;
     case CBR_SURFACE_EXTRUSION:
     case CBR_SURFACE_REVOLUTION: m = I.swept(f); break;
+    case CBR_SURFACE_BSPLINE:
+    case CBR_SURFACE_OFFSET:
+    case CBR_SURFACE_RECTANGULAR_TRIMMED: m = I.freeForm(f); break;
     default:
       m.area = {NAN, INFINITY, Status::unsupported};
       m.why = "a surface kind not supported";
